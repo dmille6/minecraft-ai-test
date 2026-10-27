@@ -1,4 +1,4 @@
-# Return home reliably, then surface expeditions (2026-10-27, design only, r2)
+# Return home reliably, then surface expeditions (2026-10-27, design only, r3)
 
 OWNER 10-27 approved designing two pieces, in this order: **(1) return home reliably** (survival lane), then **(2) surface
 expeditions** up to 1,200 blocks (progress lane). OWNER 10-27, later: build **virtual breadcrumbs (a) AND physical
@@ -137,6 +137,10 @@ baselines, so no bot reads it and it needs no slot.
 - **Minute resolution, not hourly.** §0's hourly reconstruction is ±1 h and misses short trips.
 - **Primary quantity: return-reliability.** Of excursions with a return intent, the share that closed `walked` within
   **60 min of the intent**. The denominator is excursions with an intent, by band and by depth.
+- **Mature cohorts only (r3, Codex r2 P2-6).** An intent counts only if the 60 minutes that follow it lie inside the read
+  window and are covered: no coverage gap over 10 min. Intents without that follow-up are counted apart as
+  `immature` / `uncovered`. The same rule applies to every arm, period and pre-period. Tested on late-window intents and
+  on unequal coverage between arms.
 - **Secondary quantities.**
   - **Per-intent `home` success**, so that the primary cannot be credited by deposit walks, explore or relocations
     alone (Claude r1 P2-7).
@@ -191,7 +195,7 @@ the next rung.
 
 | stop class (from `surface`'s `stopped` / `why`) | measured | remedy (deterministic, inside `surface`; never advice) |
 |---|---|---|
-| `hand_dig_slow`: "dig failed on X by hand: dig exceeded …" with the feet or head in water, or not on the ground | placebo-c-Bravo 595 (+ 188 aborted), board-a-Comet 645 | **Footing first.** Step to an adjacent dry, standable cell if one exists. Otherwise place one held block under the feet; any block will do, dirt included. Otherwise dig the head cell's water-free neighbour and step in. Then hand-dig a **staircase**, not a shaft (no blocks needed). The dig budget runs per block across calls, because the climb's progress is persisted in the stranded state. |
+| `hand_dig_slow`: "dig failed on X by hand: dig exceeded …" with the feet or head in water, or not on the ground | placebo-c-Bravo 595 (+ 188 aborted), board-a-Comet 645 | **Footing first**, chosen by the pure `footingPlan(cells, bag)`. (1) Step to an adjacent dry, standable cell. (2) Or place one held block under the feet: a jump-and-place under the pillar branch's body ownership (`haltPath`, as `shaftAscend`). (3) Or, ONLY if the head cell is air (a submerged bot has ≈ 15 s of air, so a ≈ 187 s wet dig is impossible), hand-dig a water-free neighbour in ONE uninterrupted dig: a dedicated `stranded_dig` sub-skill whose own timeout of 300 s covers the measured worst case. A partial dig is not carried across calls, because a timeout calls `stopDigging` (skills.mjs ~16075, mineflayer digging.js ~165; Codex r2 P1-1). (4) None of these → **`no_footing`**, a legal `contained` reason. Once footed: hand-dig a **staircase**, not a shaft (no blocks needed), one block per dig, each well under 180 s when dry. |
 | `dig_aborted`: "Digging aborted" | 188 | The body was taken (air reflex). Retry after the reflex releases it, at most 3 per 10 min; then treat as `hand_dig_slow`. |
 | `no_scaffold`: "no scaffold blocks left" | 6 | Hand-dig staircase with the current tool, or by hand if none. No blocks needed. |
 | `undiggable`: "cannot break X …" (obsidian, bedrock, protected, `digbudget` refusal) | not measured here | Try the other three bearings of the staircase. If all four are refused, **`contained`**. |
@@ -206,7 +210,12 @@ scenes.
 **The printed text** names the rung that is running, for example "climbing out by a hand-dug staircase; 7 of 26 steps".
 It never says "gather wood" underground.
 
-**`contained`: the watchdog contract (Claude r1 P1-2, Codex r1 P2-5).** r1 left this unwired. Three independent
+**Contained reasons (r3).** `undiggable` on every legal bearing (stair and pillar both refused, for any cause: block
+hardness, protected cells including protected placement neighbours per protectzone.mjs ~132, or no tread), and
+`no_footing` (footingPlan step 4). Holding a pickaxe does not exclude `contained` (Codex r2 P2-4). The selection is the
+pure `containedReason(attempts)`, which needs every legal action to have been attempted and refused, with its class.
+
+**`contained`: the watchdog and reflex contract (Claude r1 P1-2, Codex r1 P2-5, Codex r2 P2-5).** r1 left this unwired. Three independent
 re-issuers would ignore it:
 - the watchdog's stranded-underground `surface` (watchdog.mjs ~311-313);
 - stagnation level 1 relocate and level 2 `home` (~565-600);
@@ -215,8 +224,9 @@ re-issuers would ignore it:
 The contract:
 1. **Where it lives.** `bot.contained = { since, reason, rearmKey }`, persisted in the stranded state file so it
    survives a restart. `rearmKey` hashes the held tools and placeable-block counts.
-2. **What it suppresses.** One exported pure function, `watchdogMaySuppress(level, contained, now)`, gates each
-   re-issuer. While contained, levels 1-3 and the stranded `surface` are suppressed except for **one attempt per hour**:
+2. **What it suppresses.** One exported pure function, `containedMaySuppress(caller, contained, now)`, gates each
+   re-issuer: the watchdog's levels, its stranded `surface`, AND the entombed and stuck reflexes' recovery climbs
+   (reflex.mjs ~3232 `escapeStairUp`). While contained, levels 1-3 and the stranded `surface` are suppressed except for **one attempt per hour**:
    a full `strandedRemedy` re-check. Level 3's reconnect (`bot.quit`) still runs once per 6 h, because a reconnect can
    clear client-side ghost blocks.
 3. **What re-arms it.** `containedRearm(prev, now)`. It re-arms on **resource change**: a new tool, or placeable blocks
@@ -227,7 +237,8 @@ The contract:
    `{reason, have, rung, steps_done}`. The operator is paged after 6 h (C0's open-excursion page).
 6. **No world edit**, no `/give`, no teleport. What happens to a bot that is really contained is OWNER QUESTION Q2.
 
-**Composed test (CLAUDE.md).** The real watchdog ladder (levels 1-3 plus the stranded path) runs against a contained bot
+**Composed test (CLAUDE.md).** The real watchdog ladder (levels 1-3 plus the stranded path) and the real entombed and
+stuck reflexes run against a contained bot
 for 30 simulated minutes, with reflex nudges, a reconnect and then a delivered pickaxe. It passes only if:
 - at most one remedy attempt runs per hour while contained;
 - nudges do not re-arm it;
@@ -238,10 +249,11 @@ for 30 simulated minutes, with reflex nudges, a reconnect and then a delivered p
 - **Primary.** C0's return-reliability for underground excursions ≥ 100, DiD. The share of excursions open more than 6 h
   is a co-primary, because this is what F1 changes.
 - **Correctness gates.**
-  - **G-F1.** No arm bot writes more than 2 identical `stranded` details per hour. Positive control: placebo-c-Bravo's
-    pre-period, with 786 stops.
-  - **G-F1b.** Every `contained` row names an `undiggable` class on all four bearings. A `contained` row holding a
-    pickaxe, or whose stop class was `hand_dig_slow`, is a defect.
+  - **G-F1 (r3, Claude r2 P2-2).** Key the gate on (stop class, position rounded to 2 blocks) per bot-hour. More than
+    2 remedy attempts per hour with no y gain of at least 1 between them is a defect, unless the bot is in `contained`.
+    Positive control: placebo-c-Bravo's pre-period, which fails it on every hour.
+  - **G-F1b.** Every `contained` row carries `containedReason`'s attempt list, and every legal action is refused with
+    a class. A `contained` row with an unattempted action is a defect.
   - **G-F1c.** Every `hand_dig_slow` stop is followed by a footing attempt row within 60 s.
 - **Exposure.** Rare: a few bots a week. The mechanism is therefore proven in Paper (P-H3 to P-H6), and the fleet read
   is correctness-gated over a long registered window (+1,440). INCONCLUSIVE is the honest close if no arm bot strands.
@@ -264,8 +276,12 @@ so trail-01's exposure needs C0's measured rate (§3.7).
 - **P-H3.** A sealed cell at y = 37 with the bot standing in 1 block of water, head in water, carrying 26 sticks
   (placebo-c-Bravo's bag). First, the dig-speed inference is measured: a hand dig of stone, wet against dry. Pass if it
   gets footing, then hand-staircases out.
-- **P-H4.** The same cell with water beside the roof: the placebo-c-Bravo death cell. Pass if the footing step does not
-  open the water, and the air reflex is unchanged.
+- **P-H4.** The same cell with water beside the roof: the placebo-c-Bravo death cell, with no dry neighbour and no held
+  block. Pass if it reaches **`contained` reason `no_footing`** within one call, does not open the water, and the air
+  reflex is unchanged.
+- **Registration gate (Claude r2 P3-6).** P-H3's wet-versus-dry hand-dig timing must separate (wet ≥ 3x dry) before
+  stranded-01 registers. If it does not, the footing rung is aimed at the wrong cause, and stranded-01 goes back to
+  design.
 - **P-H5.** A climb from a flooded tunnel (climbflood). Pass if the `surface` from P-H1 does not breach a water cell.
 - **P-H6.** Variants:
   - stone plus scaffold, with no pickaxe;
@@ -273,6 +289,7 @@ so trail-01's exposure needs C0's measured rate (§3.7).
   - an obsidian cap on all four bearings, which should reach `contained`;
   - the 30-minute watchdog ladder against `contained` (above);
   - a full bag;
+  - a bag of exactly 1 block, in water (the jump-and-place);
   - a protected cell overhead.
 
 ---
@@ -291,9 +308,9 @@ so trail-01's exposure needs C0's measured rate (§3.7).
 
 - **Who.** Every bot, every time it leaves the town zone. The trail is not reserved for expeditions: each bot's normal
   wander (median 57 out, p90 165) is the exposure that measures it before expedition-01 exists.
-- **Outbound only (Claude r1 P2-5, Codex r1 P1-3).** A waypoint is recorded only while the bot is NOT following a
-  trail or running `home`, and only when the new cell is farther from home than the trail's previous farthest point,
-  minus 8 (a hysteresis). A partial return therefore never appends homeward waypoints.
+- **Outbound only, by MODE, not radius (r3; Codex r2 P1-3, Claude r2 P2-3).** A waypoint is recorded only while the
+  bot is NOT running `home`, a trail or marker follow, or a watchdog `home`. Detours, U-shaped canyons and wanders back
+  inward are all recorded, because they are the route. A partial return records nothing. Its cursor is the state.
 - **Where.** `trail-<bot>.json` in the pool state dir, written atomically (temp + rename, the planstore pattern). It
   survives restarts and deaths. There is one trail per bot. It is reset when `atHome` holds (§2.1), the same predicate C0 uses, so a perch above town
   does not reset it (Codex r1 P1-4).
@@ -323,23 +340,26 @@ so trail-01's exposure needs C0's measured rate (§3.7).
 - **Rows.** A `_trail` row at each waypoint, at most 1 per 16 blocks of verified progress. Its fields go in `skill.args`:
   `{n, x, y, z, oneway, dist_home}`. A `_trail_reset` row records entering town.
 - **Hook points.**
-  - **The walk.** `goto`'s leg loop (skills.mjs ~430-860) calls `trailNote(bot, pos)` after each leg's
-    `moved >= 2`. explore's leg end does the same.
+  - **The walk (r3, Claude r2 P3-4).** One hook: the 1 s position sampler (a `physicsTick`-throttled listener started
+    in index.mjs beside the other per-bot timers) calls `trailNote(bot, pos, mode)`. No goto or explore hook.
   - **The decision.** `trailNote` itself is a pure decider plus the file write: `trailShouldRecord(prev, pos, cellFacts)`
     is exported and behaviour-tested.
   - **Not hooked.** The movement profile is not touched. trail-01 changes no path that the bot plans outbound.
 
 ### 3.3 trail-01: how it is used
 
-- **`home` becomes a trail follower** when the bot is > 100 out at the surface and holds a trail whose newest waypoint
-  is within 48 blocks.
+- **`home` becomes a trail follower (r3, Codex r2 P1-2)** when the bot is > 100 out at the surface and either:
+  - **resumes:** the trail has an active cursor, and some waypoint at or below the cursor is within 48. This is checked
+    FIRST, so a return already partly walked is never rejected;
+  - **starts:** any waypoint is within 48. The first hop targets the lowest-index waypoint that is loaded and within 32,
+    so a meander, a U or a branch is cut short.
   - **The route.** It walks the waypoints in reverse, one hop per goto: `GoalNear` range 2 on a cell it has stood on.
     Each hop is ≤ 32 blocks and inside view distance, so the pathfinder never plans toward an unloaded chunk.
   - **Cursor and shortcut (Claude r1 P2-5, Codex r1 P1-3).** The trail file holds a persistent **return cursor**: the
     index of the next waypoint home. Each hop targets the waypoint nearest home (lowest index) that is loaded
     (`blockAt != null`) and within 32 of the bot. A meander is cut short, never walked back in full. The cursor only
     moves homeward. A restart resumes it after re-snapping to the nearest waypoint at or below the cursor, within 48.
-  - **Waypoint list unusable.** A deep start, no trail, or a newest waypoint more than 48 away: `home` runs today's path
+  - **Waypoint list unusable.** A deep start, no trail, or no waypoint within 48: `home` runs today's path
     (and homeward-01's climb first).
   - **Follow or walk.** The decision is a new pure function, `homeRoute({ trail, pos, dyHome })` → `trail | direct`,
     and it is tested.
@@ -391,6 +411,10 @@ so trail-01's exposure needs C0's measured rate (§3.7).
   - **Out of material:** markers stop, and one `_marker_budget_spent` row says so. **The return is never refused**:
     markers are on the outbound only and never a precondition of anything. A test asserts that a bag with 0 cobble
     walks out and returns on waypoints.
+- **Placement reservation (r3, Codex r2 P2-7).** The sequence check, place, publish is serialised by an exclusive
+  `flock` on `markers-<home>.lock` (held for at most 10 s; the pool dir is shared by the town's bots, one host). Under
+  the lock the bot re-reads the index, re-checks the 24-block rule, appends a `reserve` line, and releases. It places,
+  then appends `placed` or `abandoned`. A reservation older than 60 s with no outcome is void.
 - **Shared index, with route topology (Codex r1 P2-7).** `markers-<home>.json` in the pool dir, append-only, one writer
   per line via O_APPEND, so concurrent placement cannot tear it. Each entry holds:
   - the marker cell, and its **approach cell**: the standable waypoint it was placed beside;
@@ -446,9 +470,8 @@ waypoints), but the trail does not need markers. So the split is:
   - **G-T1.** Every `home` started at the surface > 100 out with a usable trail follows it: a `homeRoute` decision row.
   - **G-T2.** No waypoint is recorded in water, lava, a zone, the town or a death site.
   - **G-T3.** The trail file is reset on every town entry. Positive control: the town entries in the same rows.
-  - **G-T4 (revised, Codex r1 P2-8).** A trail-following `home` call that ENDS more than 16 blocks farther from home
-    than it started is a defect. Detours inside a call are allowed. A cursor that moves away from home is also a
-    defect.
+  - **G-T4 (r3, Codex r2 P1-3).** Return progress is judged on the cursor alone. A cursor that moves to a higher index
+    is a defect. Distance from home is not used, so a detour across a call boundary is allowed.
   - **G-T5.** `trailInvariant` holds on every written trail: no hop longer than 32 that is not marked `gap`.
 - **Guards.** Deaths beyond 100 per bot-hour beyond 100, DiD, two-death floor; falls in the arm; the `_trail` row rate,
   which must be ≤ 1 per 16 blocks of verified progress (the row-volume guard).
@@ -472,8 +495,13 @@ waypoints), but the trail does not need markers. So the split is:
 - **X-T8.** A high perch above town, and the corner of the square town zone. Pass if neither resets the trail; only
   `atHome` does.
 - **X-T9.** An interrupted `home` partway back. Pass if no homeward waypoint is recorded.
+- **X-T10.** A U-shaped canyon route whose reverse detour exceeds 16 blocks across a call boundary; a branch (300 out,
+  back to 100 without `home`, then 250 out on another bearing); a restart after returning more than 48 blocks while
+  still beyond 100. Pass if each follows the trail, and the cursor never regresses.
 - **X-M4.** Intersecting trails; a missing intermediate marker; two bots placing at the same time; a new protected zone
   across the marker chain. Pass if the bot follows one chain, falls back cleanly, and no index line is torn.
+- **X-M4b.** Two bots reaching the same 24-block window together. Pass if exactly one pillar stands (spatial uniqueness,
+  read from the world).
 - **X-M5.** A pillar beside a 1-wide ridge path. Pass if it is skipped as `narrow`, and G-T4 holds.
 - **X-M3.** 0 cobble, and then cobble running out mid-trip. Pass if the return happens on waypoints and exactly one
   `_marker_budget_spent` row is written.
@@ -626,3 +654,31 @@ shape on 645 rows. F1 and F2 were split into stranded-01 and homeward-01. `climb
 the `contained` watchdog contract and its pure functions; one `atHome` predicate; outbound-only recording, directed
 edges, a 1 s sampler, `trailInvariant` and a return cursor; marker topology and an append-only index; the kill-switch
 contract; and new scenes P-H5, P-H6, X-T6 to X-T9, X-M4 and X-M5.
+
+### Round 2 (r2): Codex CHANGE, Claude CHANGE
+
+**Codex** raised 3 P1 and 4 P2:
+- footing could need a wet dig that cannot finish, and a partial dig is not carried across calls;
+- trail resumption rejected a partly walked return;
+- radial monotonicity dropped valid routes, and G-T4 punished detours;
+- `contained` equated holding a pickaxe with being able to escape;
+- the entombed reflex was outside the contract;
+- C0 had no mature-cohort denominator;
+- marker reservations raced.
+
+**Claude** raised 1 P1, 2 P2 and 3 P3:
+- no terminal state for a failed footing;
+- G-F1 was defeated by the changing progress text;
+- the branch case left a bot without a trail;
+- the hook-point text was stale;
+- jump-and-place needs body ownership;
+- the dig-penalty inference must gate registration.
+
+**r3 applied all of them:**
+- `footingPlan` with a `no_footing` contained reason, and a 300 s `stranded_dig` only when the head is in air;
+- `containedReason` and `containedMaySuppress`, now covering the reflexes;
+- G-F1 keyed on position and y gain;
+- mode-based outbound recording, resume-first eligibility, and cursor-only progress;
+- mature cohorts;
+- the flock reservation;
+- X-T10, X-M4b, P-H4's expected outcome, and the registration gate.
