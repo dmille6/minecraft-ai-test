@@ -238,7 +238,11 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
   // A TAIL RUN NEVER BANKS THE BASE PLAN, whatever the switch says (a not-full bag's base plan is not this change's)
   const baseOn = tail !== 'only'
   const rowsMode = !bagAllowance || tail === false ? null : tail === 'only' ? 'only' : 'append'
-  for (const name of baseOn ? Object.keys(allowance).sort() : []) {
+  // logbank-01 r2 (OWNER 10-27 "implement ... all the changes"): a NOT-FULL visit's tail also banks the LOGS above the personal
+  // keep (whole stacks, then halves) -- at any bag size, under the same switch. Nothing else of the base plan joins the tail.
+  const logsTail = tail === 'only' && halves
+  const baseNames = baseOn ? Object.keys(allowance).sort() : logsTail ? Object.keys(allowance).filter(n => LOGS.includes(n)).sort() : []
+  for (const name of baseNames) {
     const copies = list.filter(it => it.name === name)
     if (TOOL_RE.test(name)) {
       // A TOOL JUST WITHDRAWN (withdraw's 10-min hold): NO copy of that name moves while the hold lasts. The hold is a
@@ -490,7 +494,7 @@ export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null,
  * itself), ONCE PER STAY (charged at issue), on the town deposit's own cooldown and backoff. A FREE-DECISION order in
  * cognitive.mjs's visit slot: never the reason for a trip, a walk across town or a new chest (depositPlan never sees it).
  */
-export function tailOrder ({ now = 0, slots = 0, pos = null, home = null, plan = null, container = false, state = {}, on = BAG_ALLOWANCE.on, myName = '' } = {}) {
+export function tailOrder ({ now = 0, slots = 0, pos = null, home = null, plan = null, container = false, state = {}, on = BAG_ALLOWANCE.on, myName = '', logCount = false } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!on || !inTownZone(pos, home) || s.latched) return none()
@@ -499,12 +503,19 @@ export function tailOrder ({ now = 0, slots = 0, pos = null, home = null, plan =
   if (now - (s.lastScanAt ?? -Infinity) < TD_SCAN_MS) return none()
   s.lastScanAt = now
   const p = lazy(plan)
-  if (!p || !(p.freed >= 1)) return none()
+  // logbank-01 r2: logs above the keep are a reason on their own (a half frees no slot)
+  const logs = LOGBANK.on && !!p && Array.isArray(p.steps) && p.steps.some(x => LOGS.includes(x.name) && !x.allowance)
+  // logbank-01 r2: logs above the keep that the town cannot judge yet (a well town, never counted: town_stock_unknown) --
+  // count first, in the same run (`logCount`: cognitive.mjs's stockCountKeys over the bag's LOGS only), as the full-bag
+  // order's count step does. Without it a well town's tail never banked a log.
+  // independent of the rows (r2 reviews, both P2): a torch to bank must not spend the stay's latch while the logs wait uncounted
+  const count = LOGBANK.on && !logs && !!lazy(logCount)
+  if (!p || !(p.freed >= 1 || logs || count)) return none()
   if (!lazy(container)) return none()
   const dh = Math.round(Math.hypot(pos.x - home.x, pos.z - home.z)), dy = Math.round(pos.y - (home.y ?? pos.y))
   s.lastIssuedAt = now
-  return { order: { skill: 'town_deposit', args: { tail: true, armed: visitArmed(s), dh, dy, vid: visitId(myName, now) },
-                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) over the bag allowance (stations, torches, bone meal, spare stone pickaxes) to bank` },
+  return { order: { skill: 'town_deposit', args: { tail: true, armed: visitArmed(s), dh, dy, vid: visitId(myName, now), ...(count || logs ? { logs: true } : {}), ...(count ? { recount: true, count: 'allowance_only' } : {}) },
+                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) over the bag allowance (stations, torches, bone meal, spare stone pickaxes) to bank${logs ? '; logs above the personal keep' : count ? '; the town\'s logs to count, then logs above the personal keep' : ''}` },
            state: visitLatchIssue(s, now) }
 }
 

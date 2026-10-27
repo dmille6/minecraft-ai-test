@@ -247,7 +247,7 @@ await t('row P: the best working pickaxe (any tier) + the 2 stone copies with mo
   assert.deepEqual(TD.stonePickSteps(bagOf([pk(1), pk(1), pk(1), pk(1)])).steps, [], 'all spent: nothing (never a chest\'s)')
 })
 const tailBag = () => bagOf([it('chest', 8), it('crafting_table', 3), it('furnace', 1), pk(120), pk(110), pk(100), pk(90), it('torch', 11), it('bone_meal', 30),
-  it('egg', 16), it('flint', 20), it('oak_sapling', 20), it('leaf_litter', 30), it('cobblestone', 64), it('cobblestone', 20), it('oak_log', 64), it('oak_log', 10), it('water_bucket', 1), it('water_bucket', 1)], 0)
+  it('egg', 16), it('flint', 20), it('oak_sapling', 20), it('leaf_litter', 30), it('cobblestone', 64), it('cobblestone', 20), it('oak_log', 6), it('oak_log', 10), it('water_bucket', 1), it('water_bucket', 1)], 0)
 await t('the tail plan (`tail: only`): the rows ONLY -- torch, bone meal, the 2nd filled bucket, the usable spare beyond best + 2; no base step, no junk, no sapling', () => {
   const items = tailBag()
   const p = TD.townDepositPlan(items, { tail: 'only' })
@@ -285,7 +285,9 @@ await t('PROPERTY: over 500 random bags, no row step is ever a junk name, a sapl
     const items = bagOf(Array.from({ length: 4 + rnd(32) }, () => { const n = pool[rnd(pool.length)]; const sz = mcData.itemsByName[n].stackSize; return it(n, 1 + rnd(sz)) }))
     for (const peaceful of [false, true]) {
       const p = TD.townDepositPlan(items, { tail: 'only', peaceful, noSwords: peaceful })
-      for (const s of p.steps) {
+      // logbank-01 r2: the tail's only non-row steps are LOGS above the personal keep (the base rules', not a row's)
+      assert.ok(p.steps.filter(s => !s.allowance).every(s => TD.LOGS.includes(s.name)), JSON.stringify(p.steps))
+      for (const s of p.steps.filter(s => s.allowance)) {
         rows++
         assert.ok(!TD.notForChest(s.name, { peaceful }) && !TD.bankOwned(s.name), `${s.name} is never a row's`)
         assert.ok(!W.WELL_JUNK.has(s.name) && !C.isCompostJunk(s.name) && !/_sapling$/.test(s.name), s.name)

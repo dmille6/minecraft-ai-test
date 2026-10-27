@@ -65,7 +65,8 @@ import { FLOOR } from './toolfor.mjs'
 import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
-import { IRON_LADDER, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
+import { LOGBANK } from './woodkeep.mjs'
+import { IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
@@ -7798,8 +7799,11 @@ async function townDeposit (ctx, _args, signal) {
   // plan, no count step, no valve; every plan of the run reads the same mode
   const tail = _args?.tail === true ? 'only' : null
   let counted = null
-  if (_args?.recount && !tail) {
-    const keys = stockCountKeys(bot, bot.inventory?.items?.() ?? [], { floor: true })
+  // logbank-01 r2: a tail order for LOGS may count first too -- over the bag's logs only (no other name's count rides along)
+  const tailLogs = !!tail && _args?.logs === true && LOGBANK.on
+  if (_args?.recount && (!tail || tailLogs)) {
+    const all = bot.inventory?.items?.() ?? []
+    const keys = stockCountKeys(bot, tailLogs ? all.filter(it => LOGS.includes(it?.name)) : all, { floor: true })
     if (keys.length) {
       // a rows-only plan counts in a THIRD of the budget, so count + deposit stays near the contract's 60 s (bagbudget-01)
       const until = Date.now() + (_args?.count === 'allowance_only' ? Math.floor(TD_BUDGET_MS / 3) : TD_BUDGET_MS)
