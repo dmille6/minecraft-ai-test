@@ -12,7 +12,7 @@
 import { exitDecision, townYieldOn, noteKeepout, siteKey, exitOutcome } from './keepout.mjs'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow, shopShareHeld } from './skills.mjs'
+import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow, shopShareHeld, projectPartReserve } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem, wellVisitOrder } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
 import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
@@ -1388,7 +1388,7 @@ export class CognitiveLoop {
             noteOpen: note?.phase === 'open', freeSlots: 36 - items.length, bagSpare: matsBagSpare(bot),
             town: () => matsTownStock(bot), furnace: () => matsFurnaceCandidates(bot).length > 0, table: () => matsTableReady(bot),
             lease: () => matsLeaseFree(bot), unknown: () => matsRecountKeys(bot).length, bankRoom: () => matsTownHasRoom(bot), bodyMs: this.matsBody.reduce((t, b) => t + b.ms, 0),
-            reserve: matsReserve().table, buffers: matsBuffers().table, state: this.matsState ?? {} })
+            reserve: matsReserve().table, partReserve: projectPartReserve(bot), buffers: matsBuffers().table, state: this.matsState ?? {} })
           this.matsState = r.state
           if (r.order) { order = r.order; this.matsIssuedAt = now }
           // why the job did not run, at most once per 30 min per reason, for the reasons that say something about the town

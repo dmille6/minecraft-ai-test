@@ -207,7 +207,7 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  */
 export function materialOrder ({ now = 0, on = true, shared = true, atTown = false, holds = false, noteOpen = false, freeSlots = 0,
                                  bagSpare = {}, town = null, furnace = () => true, table = () => true, lease = () => true, unknown = () => 0, bankRoom = () => true,
-                                 bodyMs = 0, reserve = BUILD_RESERVE, buffers = MATS_BUFFERS_DEFAULT, state = {} } = {}) {
+                                 bodyMs = 0, reserve = BUILD_RESERVE, partReserve = null, buffers = MATS_BUFFERS_DEFAULT, state = {} } = {}) {
   const s = { ...state }
   const no = (skip, more = {}) => ({ order: null, kind: null, state: s, skip, ...more })
   if (!on) return no('off')
@@ -241,7 +241,8 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
     const short = (Number(buffers?.[k.part]) || 0) - partCount(k.part, t.stock)
     if (short < k.makes) { why('stocked'); continue }
     if (freeSlots < k.slots) { why('room'); continue }
-    const inp = orderInputs(kind, { bagSpare, stock: t.stock, reserve })
+    // the project reserve (OWNER 10-27): a project part's inputs are judged on the lowered table when the caller passes one
+    const inp = orderInputs(kind, { bagSpare, stock: t.stock, reserve: (partReserve && matsKindForProject(kind)) ? partReserve : reserve })
     if (!inp) { why('inputs'); continue }
     if (k.smelt && !lazy(furnace)) { why('no_furnace'); continue }
     if (k.table && !lazy(table)) { why('no_table'); continue }
@@ -643,8 +644,49 @@ export function matsDetail (f = {}) {
 export function matsModeDetail ({ on = true, why = null, reserve = matsReserve(), buffers = matsBuffers() } = {}) {
   return `phase=mode v=${MATS_V} on=${on ? 1 : 0}${why ? ` why=${String(why).replace(/\s+/g, '_')}` : ''} kinds=${KIND_ORDER.join(',')} ` +
     `reserve=${Object.entries(reserve.table).map(([k, n]) => `${k}:${n}`).join(',')} reserve_src=${reserve.src} ` +
-    `buffers=${Object.entries(buffers.table).map(([k, n]) => `${k}:${n}`).join(',')} buffers_src=${buffers.src} fuel=planks coverage=${MATS_MIN_COVERAGE}`
+    `buffers=${Object.entries(buffers.table).map(([k, n]) => `${k}:${n}`).join(',')} buffers_src=${buffers.src} fuel=planks coverage=${MATS_MIN_COVERAGE} project_reserve=${projectReserveOn() ? 1 : 0}`
 }
 /** The part names a project may later count: every buffered part is one (a structural test asserts it). */
 export const BUFFERED_PARTS = Object.freeze(Object.keys(MATS_BUFFERS_DEFAULT))
 export const PARTS_SET = new Set(PROJECT_PARTS)
+
+// ---- the project reserve (OWNER DECISION 2026-10-27) -------------------------------------------------------------------------
+// "if there is a building in process of being built the bots can use up to 80% of the reserves in chests, once the building
+// project is complete the reserves go back to 100%". Applied ONLY to draws for project work (mats-01 making a PROJECT_PARTS
+// part, the workshop's withdrawals); tool crafts, kits, smelting jobs and deposits keep the full table.
+export const PROJECT_RESERVE_KEEP = 0.2                     // the floor kept while a project is active: 20% (80% spendable)
+export const PROJECT_STALL_MS = 24 * 60 * 60_000            // no placement for this long: the project stops counting as active
+/** The kill switch: RESERVE_PROJECT=0|off|false|no -> off. Default on. */
+export function projectReserveOn (env = process.env) {
+  return !['0', 'off', 'false', 'no'].includes(String(env?.RESERVE_PROJECT ?? '').trim().toLowerCase())
+}
+/**
+ * IS A PROJECT ACTIVE FOR THE RESERVE? -> { active, why }. Pure. why: off | no_project | complete | no_clock | stalled | active.
+ * `progressAt`: the last placement on the project (or when this mode was first seen, so a project stalled for want of the very
+ * materials the lowered floor frees gets one window), ms. A project with no progress for `stallMs` is not active.
+ */
+export function projectReserveState ({ on = true, exists = false, complete = false, progressAt = null, now = Date.now(), stallMs = PROJECT_STALL_MS } = {}) {
+  if (!on) return { active: false, why: 'off' }
+  if (!exists) return { active: false, why: 'no_project' }
+  if (complete) return { active: false, why: 'complete' }
+  if (!Number.isFinite(Number(progressAt)) || progressAt === null) return { active: false, why: 'no_clock' }
+  if (now - Number(progressAt) >= stallMs) return { active: false, why: 'stalled' }
+  return { active: true, why: 'active' }
+}
+/** One family's floor while a project is active: 20% of the normal one, rounded up. Pure. */
+export const projectFloor = n => Math.ceil((Math.max(0, Number(n) || 0)) * PROJECT_RESERVE_KEEP)
+/**
+ * THE EFFECTIVE RESERVE -> { table, lowered }. Pure. Lowered only when the project is active AND the draw is project work;
+ * any other draw gets the full table back unchanged.
+ */
+export function effectiveReserve (reserve = BUILD_RESERVE, { active = false, forProject = false } = {}) {
+  if (!active || !forProject) return { table: { ...reserve }, lowered: false }
+  return { table: Object.fromEntries(Object.entries(reserve).map(([k, v]) => [k, projectFloor(v)])), lowered: true }
+}
+/** Is a mats kind project work? Its part is a PROJECT_PARTS part (bricks, panes, cut copper, doors; torches are not). */
+export const matsKindForProject = kind => !!KINDS[kind] && PARTS_SET.has(KINDS[kind].part)
+/** The rows: `_reserve_mode` on a change of mode, `_reserve_draw` for every reserved-family take under the lowered floor. */
+export const reserveModeDetail = ({ active, why, gen = '-', progressAt = null, now = Date.now() }) =>
+  `phase=mode active=${active ? 1 : 0} why=${why} gen=${gen} idle_min=${Number.isFinite(Number(progressAt)) && progressAt !== null ? Math.round((now - progressAt) / 60_000) : '-'} keep=${PROJECT_RESERVE_KEEP}`
+export const reserveDrawDetail = ({ by, name, n, family, normal, effective, gen = '-' }) =>
+  `phase=draw by=${by} name=${name} n=${n} family=${family} floor_normal=${normal} floor_effective=${effective} gen=${gen}`

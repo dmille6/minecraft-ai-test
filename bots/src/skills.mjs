@@ -142,7 +142,8 @@ import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
   furnaceQualifies, batchFor, planksToLoad, newNote, returnPlan, noteSettled, obligations, recoveryContentsOk, takeAllowed, recipeUsing, isPlanks, toolCounts,
   recoveryBalance, reserveKeyOf, matsRecountable, MATS_RETURN_WAIT_MS, matsReturnWaitMs, recoveryVerdict, BUFFERED_PARTS, backSeenTouched,
-  MATS_RETURN_MAX, MATS_RETURN_MAX_AGE_MS, matsBalance, forbiddenCounts, matsDetail } from './mats.mjs'
+  MATS_RETURN_MAX, MATS_RETURN_MAX_AGE_MS, matsBalance, forbiddenCounts, matsDetail,
+  projectReserveOn, projectReserveState, effectiveReserve, matsKindForProject, reserveModeDetail, reserveDrawDetail } from './mats.mjs'
 import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, DRAIN_RADIUS,
          copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns,
          SMELT_COPPER_VISITS, SMELT_COAL_VISITS, SMELT_COPPER_RESERVE_MS, SMELT_COAL_RESERVE_MS, SMELT_SEARCH_MORE, SMELT_SEARCH_STALLED,
@@ -13336,7 +13337,10 @@ async function makeMaterial (ctx, args, signal) {
     if ((B.table[K.part] ?? 0) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
     const prev = readMatsNote(bot)
     if (prev) { f.stop = 'note_open'; return (result = { status: 'no_effect', detail: 'an earlier materials order is not reconciled; mats_return runs first' }) }
-    const inp = orderInputs(kind, { bagSpare: matsBagSpare(bot), stock: town.stock, reserve: R.table })
+    // the project reserve (OWNER 10-27): a project part's order draws on the lowered table while the workshop is active
+    const PR = matsKindForProject(kind) ? projectReserveNow(bot) : { active: false, gen: '-' }
+    const E = effectiveReserve(R.table, { active: PR.active, forProject: matsKindForProject(kind) })
+    const inp = orderInputs(kind, { bagSpare: matsBagSpare(bot), stock: town.stock, reserve: E.table })
     if (!inp) { f.stop = 'inputs'; return (result = { status: 'no_effect', detail: `the town has no ${kind} inputs above its reserve now` }) }
     f.log = inp.log ?? '-'
     lease = matsLease(bot)
@@ -13355,7 +13359,7 @@ async function makeMaterial (ctx, args, signal) {
     // 2. THE WITHDRAW: the smallest batch that can still be made keeps its time (Codex r1 P2-14); the batch is sized after it
     const unit = K.smelt ? ({ stone: 4, glass: 6, charcoal: 1 }[K.smelt.out] ?? 1) : 0
     const reserveMs = K.smelt ? (unit * SMELT_MS_PER_ITEM + SMELT_RECOVERY_MS + 40_000) : 45_000
-    const w = Object.keys(inp.take).length ? await matsWithdraw(ctx, inp.take, signal, reserveMs, R.table) : { took: {}, unsettled: false, short: false, capped: 0 }
+    const w = Object.keys(inp.take).length ? await matsWithdraw(ctx, inp.take, signal, reserveMs, E.table, takeAllowed, E.lowered ? reserveDrawRow(bot, E, R.table, PR.gen) : null) : { took: {}, unsettled: false, short: false, capped: 0 }
     f.took = w.took
     note.took = w.took; writeMatsNote(bot, note)
     if (w.unsettled) { uncertain = true; f.stop = 'withdraw_unsettled'; return (result = { status: 'failed', failClass: 'transfer_unsettled', detail: 'a take from a town chest could not be confirmed; the note stays open for mats_return' }) }
@@ -16164,6 +16168,61 @@ const shopBlueprint = () => (shopBp ??= loadBlueprint(SHOP_BLUEPRINT))
 /** When any builder's visit last reported stuck_on_cell (the order's project-wide back-off) -> ms | null. Never throws. */
 export function shopStuckAt (now = Date.now()) { try { return projStuckAt(townDir(), shopKey(), { before: now + 60_000 }) } catch { return null } }
 export function shopRecordHead () { try { return recordHead(townDir(), shopKey()) } catch { return { ok: false, head: null, gens: [], rejected: [] } } }
+// THE PROJECT RESERVE AT RUNTIME (OWNER 10-27; mats.mjs projectReserveState decides). The progress clock is a town file written
+// at every visit that placed a block; when an open project has none yet, it is started at the first reading (one window).
+const shopProgressFile = () => path.join(townDir(), `${shopKey()}.progress.json`)
+function shopProgressRead () { try { const j = JSON.parse(fs.readFileSync(shopProgressFile(), 'utf8')); return Number.isFinite(j?.at) ? j : null } catch { return null } }
+function shopProgressWrite (at, why, by) {
+  try {
+    const f = shopProgressFile(), tmp = `${f}.${process.pid}.${Date.now().toString(36)}.tmp`
+    fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(tmp, JSON.stringify({ at, why, by })); fs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+/** -> { active, why, gen } for this town now (cached 30 s on the bot); logs `_reserve_mode` when it changes. Never throws: any
+ *  unreadable state reads as not active (the full reserve). */
+export function projectReserveNow (bot, now = Date.now()) {
+  try {
+    if (bot?.projReserve && now - bot.projReserve.at < 30_000) return bot.projReserve.v
+    let exists = false, complete = false, gen = '-', progressAt = null
+    const on = projectReserveOn() && SHOP.on && planOn()
+    if (on) {
+      const h = shopRecordHead()
+      if (h.ok && h.head) {
+        exists = true; gen = h.head.gen; complete = !!h.head.rec?.structure_complete
+        if (!complete) {
+          const pr = shopProgressRead()
+          if (pr) progressAt = pr.at
+          else if (shopProgressWrite(now, 'start', bot?.username ?? null)) progressAt = now
+        }
+      }
+    }
+    const st = projectReserveState({ on, exists, complete, progressAt, now })
+    const v = { ...st, gen }
+    const sig = `${st.active ? 1 : 0}:${st.why}:${gen}`
+    if (bot && bot.projReserveSig !== sig) {
+      bot.projReserveSig = sig
+      try { logEvent({ kind: 'reserve_mode', status: 'success', snapshot: snapshot(bot), detail: reserveModeDetail({ active: st.active, why: st.why, gen, progressAt, now }) }) } catch { /* telemetry */ }
+    }
+    if (bot) bot.projReserve = { at: now, v }
+    return v
+  } catch { return { active: false, why: 'error', gen: '-' } }
+}
+/** The lowered table for a project-part mats order, or null (cognitive.mjs materialOrder's partReserve). */
+export function projectPartReserve (bot) {
+  const st = projectReserveNow(bot)
+  const E = effectiveReserve(matsReserve().table, { active: st.active, forProject: true })
+  return E.lowered ? E.table : null
+}
+/** A matsWithdraw onTook that writes `_reserve_draw` for each reserved-family take made under the lowered table. */
+function reserveDrawRow (bot, E, normal, gen, then = null) {
+  return (k, c) => {
+    try { then?.(k, c) } finally {
+      const rk = reserveKeyOf(k)
+      if (E.lowered && rk && c > 0) { try { logEvent({ kind: 'reserve_draw', status: 'success', snapshot: snapshot(bot), detail: reserveDrawDetail({ by: bot.username ?? '-', name: k, n: c, family: rk, normal: normal[rk] ?? 0, effective: E.table[rk] ?? 0, gen }) }) } catch { /* telemetry */ } }
+    }
+  }
+}
 /** Is an admission slot free for this bot? (the order's reading) Never throws: unreadable reads as full. */
 export function shopSlotsFree (bot) {
   try {
@@ -16365,7 +16424,11 @@ async function buildShop (ctx, args, signal) {
     bag0 = held0
     // nothing is drawn unless its record can be written (a draw the next visit cannot see is the deadlock again; r10 Codex P2)
     if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
-    if (Object.keys(need).length) { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow, (k, c) => { tookAll[k] = (tookAll[k] ?? 0) + c; persist() }); took = w.took ?? {} }
+    if (Object.keys(need).length) {
+      // the project reserve (OWNER 10-27): the workshop's own draws use the lowered table while it is active
+      const R0 = matsReserve().table, PR = projectReserveNow(bot), E = effectiveReserve(R0, { active: PR.active, forProject: true })
+      const w = await matsWithdraw(ctx, need, signal, 30_000, E.table, shopAllow, reserveDrawRow(bot, E, R0, PR.gen, (k, c) => { tookAll[k] = (tookAll[k] ?? 0) + c; persist() })); took = w.took ?? {}
+    }
     // the stations the town did not supply are crafted (found-01's means: 8 cobble a furnace, 4 planks a table); the bag's change
     // across the crafts is booked (`crafted`: the stations up, their inputs down) for the visit's bag balance
     const preCraft = heldMap(bot)
@@ -16412,6 +16475,7 @@ async function buildShop (ctx, args, signal) {
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 ? 'success' : 'no_effect'
+    if (r.placed > 0) { shopProgressWrite(Date.now(), 'placed', me); if (bot.projReserve) bot.projReserve.at = -Infinity }   // the project reserve's progress clock
     return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
