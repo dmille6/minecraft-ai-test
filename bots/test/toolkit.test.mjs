@@ -472,7 +472,7 @@ const freshLessons = () => { const L = new Lessons(path.join(ldir, `l${lseq++}.j
 function chainWorld ({ ready = false, at = [6.5, 64, 0.5] } = {}) {
   freshPool(); clearWithdrawHolds()
   // the towndeposit CHAIN's bag (its stone-pickaxe rung is the active one), not full: no deposit, no wear-out, no well
-  const w = withServer(fakeWorld({ bag: slotted([stack('dirt', 16), stack('oak_log', 64), stack('oak_log', 64), stack('sand', 8), stack('cobblestone', 64),
+  const w = withServer(fakeWorld({ bag: slotted([stack('dirt', 16), stack('oak_log', 6), stack('oak_log', 10), stack('sand', 8), stack('cobblestone', 64),
     stack('cobblestone', 20), stack('crafting_table', 1), T('wooden_pickaxe', 50), stack('stick', 8), stack('furnace', 1), stack('raw_copper', 5)]), at }))
   w.set(5, 64, 0, 'chest'); w.stock(5, 64, 0, [stack('iron_ingot', 20)])
   w.set(2, 64, 3, 'composter')   // the town has its composter (else build_composter, a town order, comes first)

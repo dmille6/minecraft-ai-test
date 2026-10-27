@@ -41,7 +41,7 @@ import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from 
 // FOUNDING (found-01): the found slot's decision and readings
 import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign, foundRetry } from './found.mjs'
 import { townPlanNow, townPlanHead, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
-import { townDepositOrder, townDepositOutcome, townDepositPlan, tailOrder, inTownZone, TD_STAY_REARM_MS } from './towndeposit.mjs'
+import { townDepositOrder, townDepositOutcome, townDepositPlan, tailOrder, LOGS as TD_LOGS, townKeeps, inTownZone, TD_STAY_REARM_MS } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit latch, ticked on every decision (bagallowance.mjs, a leaf)
 import { visitLatchTick, visitLatchDeclined, VISIT_STAY_MS } from './bagallowance.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
@@ -927,6 +927,15 @@ export class CognitiveLoop {
         now, slots: items.length, pos: p, home,
         plan: () => townDepositPlan(items, { wanted: wantedNow(), noSwords, tail: 'only' }),
         container: () => !bankClosed(bot) && townContainers(bot).length > 0,
+        // logbank-01 r2: the bag's LOGS above the keep in a town not yet counted -> count first
+        // ...only for a bag with logs ABOVE their keep (r2 Claude P2-1: the unknown branch of stockCountKeys reads no keep)
+        logCount: () => {
+          const logsHeld = items.filter(it => TD_LOGS.includes(it?.name))
+          const c = {}; for (const it of items) if (it?.name) c[it.name] = (c[it.name] ?? 0) + (it.count ?? 0)
+          const keep = townKeeps(c, { wanted: wantedNow() }).keep
+          if (!TD_LOGS.some(n => (c[n] ?? 0) > (keep[n] ?? 0))) return false
+          return stockCountKeys(bot, logsHeld, { floor: true }).length > 0
+        },
         state: this.tailState, myName: bot.username ?? '',
       })
       this.tailState = rt.state

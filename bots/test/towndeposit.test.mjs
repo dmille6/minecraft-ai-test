@@ -797,7 +797,7 @@ const freshLessons = () => { const L = new Lessons(path.join(ldir, `l${lseq++}.j
 
 /** A bot whose active rung is the stone pickaxe (craft-ready), at 36/36, standing in town beside a chest. */
 function chainBot ({ at = new Vec3(3, 70, 0), chest = chestAt(2) } = {}) {
-  const items = bag([['dirt', 16], ['oak_log', 64], ['oak_log', 64], ['sand', 8], ['cobblestone', 64], ['cobblestone', 20], ['crafting_table', 1],
+  const items = bag([['dirt', 16], ['oak_log', 6], ['oak_log', 10], ['sand', 8], ['cobblestone', 64], ['cobblestone', 20], ['crafting_table', 1],
     ['wooden_pickaxe', 1, 50], ['stick', 8], ['furnace', 1], ['raw_copper', 5], ...filler(25)])
   assert.equal(items.length, 36)
   const { bot } = world({ items, containers: [chest], botAt: at })
@@ -857,8 +857,8 @@ test('CHAIN: a full bag at town with a craft-ready rung deposits FIRST, and the 
   assert.equal(loop.milestones.current()?.id?.includes('stone_pickaxe'), true, `active rung ${loop.milestones.current()?.id}`)
   assert.deepEqual(ran.map(x => x.skill), ['town_deposit', 'craft'], JSON.stringify(ran))
   assert.equal(ran[0].status, 'success'); assert.equal(ran[0].slots, 36)
-  assert.equal(ran[1].slots, 33, 'the craft order runs on a bag the deposit emptied three slots of (one log stack, cobble 20, copper)')
-  assert.equal(sumOf(bot.inventory.items(), 'oak_log'), 64); assert.equal(sumOf(bot.inventory.items(), 'cobblestone'), 64)
+  assert.equal(ran[1].slots, 34, 'the craft order runs on a bag the deposit emptied two slots of (cobble 20, copper; logbank-01: the fixture holds just the 16-log keep)')
+  assert.equal(sumOf(bot.inventory.items(), 'oak_log'), 16); assert.equal(sumOf(bot.inventory.items(), 'cobblestone'), 64)
   assert.equal(sumOf(bot.inventory.items(), 'stick'), 8, 'the rung\'s means stay')
 })
 
@@ -1185,7 +1185,9 @@ test('RECOUNT CHAIN (stocktarget-02): a fenced town, a bag of 7 slots, the model
     // admitted on a COMPLETE count. (This fake world's chest does not take a chest.deposit transfer -- the transfer itself
     // is stocktarget.test's DEPOSIT tests and the Paper `stockrecount` scene.)
     assert.ok(ran.some(x => x.skill === 'deposit'), JSON.stringify(ran))
-    assert.ok(rows.some(r => /^_stock_bank group=oak_log name=oak_log planned=44 .*decision=bank town_before=20 .*complete=1 claims=1 refused=0/.test(r)), rows.join(' | '))
+    // logbank-01 r2: the not-full visit's tail may bank logs above the 16 keep first (town 20 -> 52), so the claim is the room
+    // left under 64 whatever came before it: planned + town_before = 64
+    assert.ok(rows.some(r => { const m = /^_stock_bank group=oak_log name=oak_log planned=(\d+) .*decision=bank town_before=(\d+) .*complete=1 claims=1 refused=0/.exec(r); return m && Number(m[1]) + Number(m[2]) === 64 }), rows.join(' | '))
     assert.ok(!rows.some(r => /^_stock_refused .*_unknown/.test(r)), `no not-yet-counted refusal after the count: ${rows.join(' | ')}`)
     assert.equal(ran.filter(x => x.skill === 'count_town').length, 1, 'counted once: the town is judged now')
     void chest
@@ -1207,6 +1209,7 @@ test('RECOUNT CHAIN CONTROL (the dead end): the same fenced town with the recoun
     loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'deposit', args: {}, reason: 'probe' } }) }
     loop.milestones.cycle = 540
     loop.recountState = { backoffUntil: Infinity }   // today's rule: no recount below 34 slots
+    loop.tailState = { backoffUntil: Infinity }      // logbank-01 r2: and no tail (its log count would end the dead end)
     loop.start()
     for (let i = 0; i < 60 && rows.length < 1; i++) await new Promise(r => setTimeout(r, 30))
     loop.stop()
@@ -1369,7 +1372,7 @@ test('IRONPICK-01 x TOWN DEPOSIT: the fresh iron pickaxe stays in a full bag the
 // junk; the rung gets the next decisions. A full chest lands in the TAIL's backoff, never the full-bag deposit's.
 const tailBot = ({ chest = chestAt(2) } = {}) => {
   // chainBot's bag (the stone pickaxe rung craft-ready), NOT full, plus the rows' names and junk
-  const items = bag([['dirt', 16], ['oak_log', 64], ['oak_log', 64], ['sand', 8], ['cobblestone', 64], ['cobblestone', 20], ['crafting_table', 1],
+  const items = bag([['dirt', 16], ['oak_log', 6], ['oak_log', 10], ['sand', 8], ['cobblestone', 64], ['cobblestone', 20], ['crafting_table', 1],
     ['wooden_pickaxe', 1, 50], ['stick', 8], ['furnace', 1], ['raw_copper', 5], ['torch', 11], ['bone_meal', 30], ['egg', 12], ['flint', 9], ['oak_sapling', 20], ['chest', 8]])
   const { bot } = world({ items, containers: [chest], botAt: new Vec3(3, 70, 0) })
   Object.assign(bot, { health: 20, food: 20, oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' },
@@ -1718,4 +1721,47 @@ test('LOGBANK SKILL: a right click that lifts the wrong count stops the run and 
   assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0)
   assert.equal(logsIn(serverBag(w)) + sumOf(c.items, 'oak_log'), 64, 'nothing lost')
   assert.equal(sumOf(c.items, 'oak_log'), 0, 'the wrong-count cursor is never put in the chest')
+})
+
+test('LOGBANK r2: the NOT-FULL visit (tail) banks logs above the keep at any bag size -- 64+9 in a half-empty bag -> 16; nothing else of the base plan joins', () => {
+  const items = bag([['oak_log', 64], ['oak_log', 9], ['cobblestone', 64], ['cobblestone', 20], ['stone_pickaxe', 1, 100], ['stone_pickaxe', 1, 60], ...filler(10)])
+  assert.ok(items.length < TD_TRIGGER_SLOTS)
+  const p = townDepositPlan(items, { tail: 'only' })
+  assert.ok(p.steps.every(s => s.name === 'oak_log'), `only logs from the base side: ${JSON.stringify(p.steps)}`)
+  assert.equal(logsIn(after(items, p)), 16)
+  // the order fires on the logs alone (freed 1 from the 9; a halves-only plan too)
+  const P = { x: 3, y: 70, z: 0 }, HOME = { x: 0, y: 70, z: 0 }
+  assert.equal(TD.tailOrder({ now: 1e9, slots: items.length, pos: P, home: HOME, plan: p, container: true, state: {}, on: true }).order?.skill, 'town_deposit')
+  const one = townDepositPlan(bag([['oak_log', 64], ...filler(10)]), { tail: 'only' })
+  assert.equal(one.freed, 0)
+  assert.equal(TD.tailOrder({ now: 1e9, slots: 11, pos: P, home: HOME, plan: one, container: true, state: {}, on: true }).order?.skill, 'town_deposit', 'a lone 64 stack still gets the order')
+  // CONTROLS: the switch off (halves false) -> no log step; a bag at the keep -> nothing
+  assert.deepEqual(townDepositPlan(items, { tail: 'only', halves: false }).steps.filter(s => s.name === 'oak_log'), [])
+  assert.deepEqual(townDepositPlan(bag([['oak_log', 16], ...filler(10)]), { tail: 'only' }).steps, [])
+})
+
+test('LOGBANK r2 SKILL: a tail run (half-empty bag) with 64+9 logs ends with exactly 16 in the SERVER bag and 57 in the chest', async () => {
+  const items = bag([['oak_log', 64], ['oak_log', 9], ...filler(10)]); const c = chestAt(2)
+  const w = world({ items, containers: [c] })
+  const r = await SKILLS.town_deposit.run({ bot: w.bot }, { tail: true }, null)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(logsIn(serverBag(w)), 16); assert.equal(sumOf(c.items, 'oak_log'), 57)
+  assert.equal(w.st.dropped, 0)
+})
+
+test('LOGBANK r2: a tail with logs the town cannot judge yet (never counted) COUNTS first; a judged town or no logs -> no count', () => {
+  const P = { x: 3, y: 70, z: 0 }, HOME = { x: 0, y: 70, z: 0 }, empty = { freed: 0, steps: [] }
+  const r = TD.tailOrder({ now: 1e9, slots: 11, pos: P, home: HOME, plan: empty, container: true, state: {}, on: true, logCount: true })
+  assert.equal(r.order?.skill, 'town_deposit'); assert.equal(r.order.args.recount, true); assert.equal(r.order.args.logs, true); assert.equal(r.order.args.tail, true)
+  assert.equal(TD.tailOrder({ now: 1e9, slots: 11, pos: P, home: HOME, plan: empty, container: true, state: {}, on: true, logCount: false }).order, null, 'control: nothing to count, nothing to bank')
+  const withLogs = TD.tailOrder({ now: 1e9, slots: 11, pos: P, home: HOME, plan: { freed: 0, steps: [{ slot: 9, name: 'oak_log', count: 32, half: true }] }, container: true, state: {}, on: true, logCount: true })
+  assert.equal(withLogs.order.args.recount, undefined, 'a judged town banks without a count')
+})
+
+test('LOGBANK r2 reviews: the log count rides along with a rows order (never skipped for a torch); LOGBANK off -> tailOrder ignores log steps', () => {
+  const P = { x: 3, y: 70, z: 0 }, HOME = { x: 0, y: 70, z: 0 }
+  const rows = { freed: 1, steps: [{ slot: 12, name: 'torch', count: 4, allowance: 'torch' }] }
+  const r = TD.tailOrder({ now: 1e9, slots: 11, pos: P, home: HOME, plan: rows, container: true, state: {}, on: true, logCount: true })
+  assert.equal(r.order.args.recount, true, 'the count is in the same run as the torch'); assert.equal(r.order.args.logs, true)
+  assert.equal(TD.tailOrder({ now: 1e9, slots: 11, pos: P, home: HOME, plan: rows, container: true, state: {}, on: true, logCount: false }).order.args.recount, undefined, 'control')
 })

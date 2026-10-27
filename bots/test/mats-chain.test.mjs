@@ -45,7 +45,7 @@ const freshLessons = () => { const L = new Lessons(path.join(ldir, `l${lseq++}.j
 
 /** A bot at town (or not): a light bag, a known chest and a cold furnace in its world. */
 // the ladder bag: smeltjob.test.mjs's CHAIN bag (its active rung is the stone pickaxe), without the copper
-const LADDER = [['dirt', 16], ['oak_log', 64], ['oak_log', 64], ['sand', 8], ['cobblestone', 64], ['cobblestone', 20], ['crafting_table', 1],
+const LADDER = [['dirt', 16], ['oak_log', 6], ['oak_log', 10], ['sand', 8], ['cobblestone', 64], ['cobblestone', 20], ['crafting_table', 1],
   ['wooden_pickaxe', 1], ['stick', 8], ['furnace', 1], ['coal', 3]]
 function chainBot ({ at = new Vec3(1, 70, 0), craftReady = false, lit = false, bag = null } = {}) {
   const rows = bag ?? [['bread', 5], ['torch', 8], ['iron_pickaxe', 1], ['iron_axe', 1], ['iron_shovel', 1], ['coal', 3]]
