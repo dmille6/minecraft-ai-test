@@ -16172,13 +16172,15 @@ export function shopRecordHead () { try { return recordHead(townDir(), shopKey()
 // at every visit that placed a block; when an open project has none yet, it is started at the first reading (one window).
 const shopProgressFile = () => path.join(townDir(), `${shopKey()}.progress.json`)
 function shopProgressRead () { try { const j = JSON.parse(fs.readFileSync(shopProgressFile(), 'utf8')); return Number.isFinite(j?.at) ? j : null } catch { return null } }
-function shopProgressWrite (at, why, by) {
+function shopProgressWrite (at, why, by, root = null) {
   try {
     const f = shopProgressFile(), tmp = `${f}.${process.pid}.${Date.now().toString(36)}.tmp`
-    fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(tmp, JSON.stringify({ at, why, by })); fs.renameSync(tmp, f)
+    fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(tmp, JSON.stringify({ at, why, by, root })); fs.renameSync(tmp, f)
     return true
   } catch { return false }
 }
+/** The record chain's root generation (the project's identity: the head's gen moves on every transition). */
+const shopRecordRoot = h => h?.gens?.find(g => !(h.rejected ?? []).some(r => r.gen === g)) ?? null
 /** -> { active, why, gen } for this town now (cached 30 s on the bot); logs `_reserve_mode` when it changes. Never throws: any
  *  unreadable state reads as not active (the full reserve). */
 export function projectReserveNow (bot, now = Date.now()) {
@@ -16191,9 +16193,11 @@ export function projectReserveNow (bot, now = Date.now()) {
       if (h.ok && h.head) {
         exists = true; gen = h.head.gen; complete = !!h.head.rec?.structure_complete
         if (!complete) {
+          // the clock belongs to THIS project (its chain's root generation; Claude review P2): another project's clock is none
+          const root = shopRecordRoot(h)
           const pr = shopProgressRead()
-          if (pr) progressAt = pr.at
-          else if (shopProgressWrite(now, 'start', bot?.username ?? null)) progressAt = now
+          if (pr && pr.root === root) progressAt = pr.at
+          else if (shopProgressWrite(now, 'start', bot?.username ?? null, root)) progressAt = now
         }
       }
     }
@@ -16475,7 +16479,7 @@ async function buildShop (ctx, args, signal) {
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 ? 'success' : 'no_effect'
-    if (r.placed > 0) { shopProgressWrite(Date.now(), 'placed', me); if (bot.projReserve) bot.projReserve.at = -Infinity }   // the project reserve's progress clock
+    if (r.placed > 0) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key))); if (bot.projReserve) bot.projReserve.at = -Infinity }   // the project reserve's progress clock
     return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
