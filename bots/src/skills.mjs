@@ -10677,7 +10677,9 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           // picks up HALF (rounded up) when that covers m; the exact amount goes in with ONE left-click when one slot
           // takes it all; otherwise one at a time.
           const half = Math.ceil(have / 2)
-          inFlight = { name: take.name, n: m }
+          // what the pickup click itself may lift (half or the whole stack), not the plan's m: a cursor rescue after an abort
+          // can drop all of it into the bag (Codex r4 P2)
+          inFlight = { name: take.name, n: m <= half ? half : have }
           await click(src.slot, m <= half ? 1 : 0, 0)
           if (win.selectedItem?.name !== take.name) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${take.name}`)
           let placed = 0
