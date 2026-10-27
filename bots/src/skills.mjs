@@ -12962,7 +12962,17 @@ function matsTaking (bot, name) {
  *  seen, never spent through. */
 // `allow` (shop-01 r2): how much of a name may be taken here; mats' own orders keep takeAllowed (a part has no reserve key there)
 // `onTook(name, n)` (shop-01 read r2): each VERIFIED take as it lands, so a caller's books survive an abort later in the run
-async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null) {
+// `onUncertain(name, n, why)` (reserve80 r3, Codex P2): stock that MAY have moved on an exit that verified nothing -- an abort
+// mid-transfer (the transfer's own withdrawState) or an unsettled visit; telemetry only, never the caller's books
+/** What a withdraw visit may have moved without verifying it -> { name: n }. Pure. `err`: a thrown transfer (its withdrawState);
+ *  `visit`: a returned, unverified visit (its moved). A verified visit is booked by onTook, never here. */
+export function uncertainTakes ({ err = null, visit = null } = {}) {
+  const src = err ? err.withdrawState?.took : (visit && !visit.verified ? visit.moved?.took : null)
+  const out = {}
+  for (const [k, c] of Object.entries(src ?? {})) if (Number(c) > 0) out[k] = Number(c)
+  return out
+}
+async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null, onUncertain = null) {
   const { bot } = ctx
   const { deadline } = withdrawClock(ctx)
   const left = { ...take }
@@ -12990,12 +13000,19 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
     check(signal)
     const cb = next.block
     cur = containerKey(bot, cb.position)
-    const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000)
+    let v
+    try { v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000) } catch (e) {
+      for (const [k, c] of Object.entries(uncertainTakes({ err: e }))) { try { onUncertain?.(k, c, 'aborted') } catch { /* telemetry */ } }
+      throw e
+    }
     for (const k of halvesOf(bot, cb.position, true)) tried.add(k)
     out.looked++
     out.tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
     if (v.result && v.result.status !== 'success') searchFailSkip(bot, cb, v.result.failClass)
-    if (v.result?.failClass === 'transfer_unsettled' || (v.result && !v.verified && v.moved)) { out.unsettled = true; break }
+    if (v.result?.failClass === 'transfer_unsettled' || (v.result && !v.verified && v.moved)) {
+      for (const [k, c] of Object.entries(uncertainTakes({ visit: v }))) { try { onUncertain?.(k, c, 'unsettled') } catch { /* telemetry */ } }
+      out.unsettled = true; break
+    }
     const got = v.verified ? (v.moved?.took ?? {}) : {}
     for (const [k, c] of Object.entries(got)) { out.took[k] = (out.took[k] ?? 0) + c; if (k in left) left[k] = Math.max(0, left[k] - c); try { onTook?.(k, c) } catch { /* books only */ } }
     next = townSearchNext(bot, Object.keys(left).filter(n => left[n] > 0), tried)
@@ -13360,9 +13377,13 @@ async function makeMaterial (ctx, args, signal) {
     // 2. THE WITHDRAW: the smallest batch that can still be made keeps its time (Codex r1 P2-14); the batch is sized after it
     const unit = K.smelt ? ({ stone: 4, glass: 6, charcoal: 1 }[K.smelt.out] ?? 1) : 0
     const reserveMs = K.smelt ? (unit * SMELT_MS_PER_ITEM + SMELT_RECOVERY_MS + 40_000) : 45_000
-    const w = Object.keys(inp.take).length ? await matsWithdraw(ctx, inp.take, signal, reserveMs, R.table, PD.allow, PD.onTook) : { took: {}, unsettled: false, short: false, capped: 0 }
+    let w
+    try {
+      w = Object.keys(inp.take).length ? await matsWithdraw(ctx, inp.take, signal, reserveMs, R.table, PD.allow, PD.onTook, PD.onUncertain) : { took: {}, unsettled: false, short: false, capped: 0 }
+    } finally {
+      if (PD.used.lowered) f.reserveSrc = 'project'   // the read judges this row on the lowered floor (matsread.py), an abort too
+    }
     f.took = w.took
-    if (PD.used.lowered) f.reserveSrc = 'project'   // the read judges this row on the lowered floor (matsread.py)
     note.took = w.took; writeMatsNote(bot, note)
     if (w.unsettled) { uncertain = true; f.stop = 'withdraw_unsettled'; return (result = { status: 'failed', failClass: 'transfer_unsettled', detail: 'a take from a town chest could not be confirmed; the note stays open for mats_return' }) }
     if (w.short) { f.stop = w.capped ? 'withdraw_reserve' : 'withdraw_short'; return (result = { status: 'no_effect', detail: `the town containers looked in did not hold the order's inputs above the reserve (${Object.entries(inp.take).map(([n, c]) => `${c} ${n}`).join(', ')}); what was taken stays in the bag for the town deposit` }) }
@@ -16249,7 +16270,12 @@ function projectDraw (bot, normal, { forProject = true, base = takeAllowed, then
       if (last.lowered && rk && c > 0) { try { logEvent({ kind: 'reserve_draw', status: 'success', snapshot: snapshot(bot), detail: reserveDrawDetail({ by: bot.username ?? '-', name: k, n: c, family: rk, normal: normal[rk] ?? 0, effective: last.table[rk] ?? 0, gen: last.gen }) }) } catch { /* telemetry */ } }
     }
   }
-  return { allow, onTook, used }
+  // an exit that verified nothing (an abort or an unsettled visit): the take is reported unconfirmed, so no draw goes unlogged
+  const onUncertain = (k, c, why) => {
+    const rk = reserveKeyOf(k)
+    if (last.lowered && rk && c > 0) { try { logEvent({ kind: 'reserve_draw', status: 'partial', snapshot: snapshot(bot), detail: reserveDrawDetail({ by: bot.username ?? '-', name: k, n: c, family: rk, normal: normal[rk] ?? 0, effective: last.table[rk] ?? 0, gen: last.gen, unconfirmed: why }) }) } catch { /* telemetry */ } }
+  }
+  return { allow, onTook, onUncertain, used }
 }
 /** Is an admission slot free for this bot? (the order's reading) Never throws: unreadable reads as full. */
 export function shopSlotsFree (bot) {
@@ -16456,7 +16482,7 @@ async function buildShop (ctx, args, signal) {
       // the project reserve (OWNER 10-27): the workshop's own draws use the lowered table while it is active
       const R0 = matsReserve().table
       const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, c) => { tookAll[k] = (tookAll[k] ?? 0) + c; persist() } })
-      const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook); took = w.took ?? {}
+      const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
     }
     // the stations the town did not supply are crafted (found-01's means: 8 cobble a furnace, 4 planks a table); the bag's change
     // across the crafts is booked (`crafted`: the stations up, their inputs down) for the visit's bag balance

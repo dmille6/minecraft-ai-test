@@ -688,5 +688,6 @@ export const matsKindForProject = kind => !!KINDS[kind] && PARTS_SET.has(KINDS[k
 /** The rows: `_reserve_mode` on a change of mode, `_reserve_draw` for every reserved-family take under the lowered floor. */
 export const reserveModeDetail = ({ active, why, gen = '-', progressAt = null, now = Date.now() }) =>
   `phase=mode active=${active ? 1 : 0} why=${why} gen=${gen} idle_min=${Number.isFinite(Number(progressAt)) && progressAt !== null ? Math.round((now - progressAt) / 60_000) : '-'} keep=${PROJECT_RESERVE_KEEP}`
-export const reserveDrawDetail = ({ by, name, n, family, normal, effective, gen = '-' }) =>
-  `phase=draw by=${by} name=${name} n=${n} family=${family} floor_normal=${normal} floor_effective=${effective} gen=${gen}`
+export const reserveDrawDetail = ({ by, name, n, family, normal, effective, gen = '-', unconfirmed = null }) =>
+  `phase=draw by=${by} name=${name} n=${n} family=${family} floor_normal=${normal} floor_effective=${effective} gen=${gen}` +
+  (unconfirmed ? ` unconfirmed=${unconfirmed}` : '')

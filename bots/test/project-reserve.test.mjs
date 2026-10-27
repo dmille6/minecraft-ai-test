@@ -86,3 +86,13 @@ test('rows name the mode and every draw', () => {
   assert.equal(M.reserveDrawDetail({ by: 'b1', name: 'oak_log', n: 2, family: 'logs', normal: 512, effective: 103, gen: 7 }),
     'phase=draw by=b1 name=oak_log n=2 family=logs floor_normal=512 floor_effective=103 gen=7')
 })
+
+test('an unverified exit still names what may have moved (Codex r2 P2): abort state, unsettled visit; a verified visit is not', async () => {
+  const { uncertainTakes } = await import('../src/skills.mjs')
+  assert.deepEqual(uncertainTakes({ err: Object.assign(new Error('x'), { withdrawState: { took: { oak_log: 32, cobblestone: 0 } } }) }), { oak_log: 32 })
+  assert.deepEqual(uncertainTakes({ err: new Error('no state') }), {})
+  assert.deepEqual(uncertainTakes({ visit: { verified: false, moved: { took: { cobblestone: 64 } } } }), { cobblestone: 64 })
+  assert.deepEqual(uncertainTakes({ visit: { verified: true, moved: { took: { cobblestone: 64 } } } }), {}, 'verified: onTook books it')
+  assert.equal(M.reserveDrawDetail({ by: 'b', name: 'oak_log', n: 3, family: 'logs', normal: 512, effective: 103, gen: 1, unconfirmed: 'aborted' }),
+    'phase=draw by=b name=oak_log n=3 family=logs floor_normal=512 floor_effective=103 gen=1 unconfirmed=aborted')
+})
