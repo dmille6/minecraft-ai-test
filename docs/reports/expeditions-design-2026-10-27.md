@@ -231,7 +231,8 @@ The contract:
    clear client-side ghost blocks.
 3. **What re-arms it.** `containedRearm(prev, now)`. It re-arms on **resource change**: a new tool, or placeable blocks
    gained. It re-arms on **sustained displacement**: ≥ 3 blocks from the contained cell held for 60 s, or a y gain of
-   2 or more. Reflex nudges inside the cell do not re-arm it. Neither does a reconnect at the same place.
+   2 or more. Hand-dug stone drops nothing, so "blocks gained" fires only through a pickup or a rescuer, never through
+   the bot's own digging (Claude r3 P3-3). Reflex nudges inside the cell do not re-arm it. Neither does a reconnect at the same place.
 4. **What it never touches.** The emergency reflexes: air, drowning, lava. Their own exits are unchanged.
 5. **Rows and paging.** One `_stranded_remedy` row per hour,
    `{reason, have, rung, steps_done}`. The operator is paged after 6 h (C0's open-excursion page).
@@ -310,7 +311,9 @@ so trail-01's exposure needs C0's measured rate (§3.7).
   wander (median 57 out, p90 165) is the exposure that measures it before expedition-01 exists.
 - **Outbound only, by MODE, not radius (r3; Codex r2 P1-3, Claude r2 P2-3).** A waypoint is recorded only while the
   bot is NOT running `home`, a trail or marker follow, or a watchdog `home`. Detours, U-shaped canyons and wanders back
-  inward are all recorded, because they are the route. A partial return records nothing. Its cursor is the state.
+  inward are all recorded, because they are the route. A partial return records nothing. Its cursor is the state. When recording resumes after a partial return stopped
+  at cursor k, the trail is TRUNCATED to k first: the bot has already walked back over k+1..N. New waypoints append
+  after k (Claude r3 P3-1; X-T10 gains "partial return, then wander out again").
 - **Where.** `trail-<bot>.json` in the pool state dir, written atomically (temp + rename, the planstore pattern). It
   survives restarts and deaths. There is one trail per bot. It is reset when `atHome` holds (§2.1), the same predicate C0 uses, so a perch above town
   does not reset it (Codex r1 P1-4).
@@ -360,7 +363,7 @@ so trail-01's exposure needs C0's measured rate (§3.7).
     (`blockAt != null`) and within 32 of the bot. A meander is cut short, never walked back in full. The cursor only
     moves homeward. A restart resumes it after re-snapping to the nearest waypoint at or below the cursor, within 48.
   - **Waypoint list unusable.** A deep start, no trail, or no waypoint within 48: `home` runs today's path
-    (and homeward-01's climb first).
+    (and homeward-01's underground path_budget repair).
   - **Follow or walk.** The decision is a new pure function, `homeRoute({ trail, pos, dyHome })` → `trail | direct`,
     and it is tested.
 - **A failed hop is never a dead end.** Steps, in order (r4, Codex r3 P1-1):
@@ -694,7 +697,7 @@ contract; and new scenes P-H5, P-H6, X-T6 to X-T9, X-M4 and X-M5.
 - the flock reservation;
 - X-T10, X-M4b, P-H4's expected outcome, and the registration gate.
 
-### Round 3 (r3, confirmation): Claude (pending at write time, below); Codex CHANGE (1 P1, 2 P2)
+### Round 3 (r3, confirmation): Claude APPROVE (3 P3, applied in r4); Codex CHANGE (1 P1, 2 P2)
 
 **Codex r3:**
 - U-shaped shortcuts could all be unreachable;
