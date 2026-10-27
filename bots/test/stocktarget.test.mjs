@@ -309,10 +309,10 @@ await t('PRUNE EVIDENCE (Paper 10-10: graded unknown): the runner scores prune_t
 })
 
 // ----------------------------------------------------------------------------------------------- the recovery (Codex code r2)
-await t('RECOVERY PLAN (Codex code r2 P1): the reservation is the room, the keeps are judged on the bag as it is NOW -- 312 planks after the craft, 64 reserved, keep 256 -> at most 56; a held name moves nothing; without the reservation the town view refuses', async () => {
+await t('RECOVERY PLAN (Codex code r2 P1): the reservation is the room, the keeps are judged on the bag as it is NOW -- 312 planks after the craft, 64 reserved, keep 64 (logbank-01: the wood keep is 16 units = 64 planks; was 256) -> at most 64; a held name moves nothing; without the reservation the town view refuses', async () => {
   const bag = [it('oak_planks', 64, 9), it('oak_planks', 64, 10), it('oak_planks', 64, 11), it('oak_planks', 64, 12), it('oak_planks', 56, 13)]
   const keep = TD.townKeeps({ oak_planks: 312 }, { wanted: ['oak_planks'] }).keep.oak_planks ?? 0
-  assert.ok(keep >= 256, `the wood rung keeps ${keep} planks`)
+  assert.ok(keep >= 64, `the wood rung keeps ${keep} planks`)
   await withReaders(() => view(9999), () => true, () => {
     const n = B.depositPlan(bag, null, { wants: ['oak_planks'], stockRoomFor: { oak_planks: 64 } }).find(e => e.name === 'oak_planks')?.count ?? 0
     assert.ok(n > 0 && n <= 64 && 312 - n >= keep, `planned ${n}: the keep (${keep}) stays`)
@@ -338,7 +338,7 @@ const plankTown = () => {
   return w
 }
 const planksIn = items => items.filter(Boolean).reduce((n, x) => n + (x.name === 'oak_planks' ? x.count : 0), 0)
-await t('RECOVERY CHAIN (Codex code r2 P1): full chest -> reserve 64 planks -> the bag loses 8 before the deposit (as the chest craft does) -> the new chest gets at most 56; 256 stay; no claim stays live', async () => {
+await t('RECOVERY CHAIN (Codex code r2 P1): full chest -> reserve 64 planks -> the bag loses 8 before the deposit (as the chest craft does) -> the new chest gets at most the 64 reserved (logbank-01: the 64-plank keep no longer binds first); 248 stay; no claim stays live', async () => {
   const w = plankTown()
   const place0 = w.bot.placeBlock
   w.bot.placeBlock = async (...a) => { const r = await place0(...a); const s = w.bag.find(x => x.name === 'oak_planks' && x.count >= 8); s.count -= 8; return r }
@@ -349,8 +349,8 @@ await t('RECOVERY CHAIN (Codex code r2 P1): full chest -> reserve 64 planks -> t
     assert.ok(rec.some(d => /qualifying=oak_planks/.test(d) && /claims=\S*\d/.test(d)), `the planks were reserved: ${rec.join(' | ')} :: ${r.detail}`)
     assert.equal(w.spy.placed.length, 1, `a chest went down: ${r.detail}`)
     const banked = w.containers.get(w.spy.placed[0]).slots.filter(Boolean).reduce((n, s) => n + (s.name === 'oak_planks' ? s.count : 0), 0)
-    assert.ok(banked > 0 && banked <= 56, `banked ${banked} of the 312 left after the 8: ${r.detail}`)
-    assert.ok(planksIn(w.bag) >= 256, `the keep stays: ${planksIn(w.bag)}`)
+    assert.ok(banked > 0 && banked <= 64, `banked ${banked} of the 312 left after the 8: ${r.detail}`)
+    assert.ok(planksIn(w.bag) >= 312 - 64, `the reservation bounds it, and the keep stays: ${planksIn(w.bag)}`)
     const c = livePlanksClaims()
     assert.ok(c.all > 0 && c.live === 0, `claims ${JSON.stringify(c)}`)
     // the reserved planks are never named refused (fold-r1: the row is judged with the plan's own reservation)

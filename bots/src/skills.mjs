@@ -65,7 +65,7 @@ import { FLOOR } from './toolfor.mjs'
 import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
-import { IRON_LADDER, townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
+import { IRON_LADDER, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
@@ -7722,12 +7722,12 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   try {
     await lockstepClicks(bot, async raw => {
       let mutating = false
-      const click = async slot => {
+      const click = async (slot, button = 0) => {
         check(signal)
         if (bot.currentWindow !== win) throw stop('the window changed')
         // townindex-01: the container is marked dirty BEFORE its first click (a crash mid-clicks leaves it dirty)
         if (!mutating) { mutating = true; try { onMutate?.() } catch { /* advisory */ } }
-        const p = trackedClick(bot, raw, slot, 0, 0)
+        const p = trackedClick(bot, raw, slot, button, 0)
         p.catch(() => {})
         if ((await within(p, Math.max(250, deadline - Date.now()))) === TIMED_OUT) throw stop('a click went unanswered')
       }
@@ -7736,7 +7736,8 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
         if (Date.now() > deadline - TD_SETTLE_MS) break
         const it = bag.find(b => b.slot === step.slot)
         const now = it ? win.slots[it.wslot] : null
-        if (!now || now.name !== step.name || now.count !== step.count || win.selectedItem) continue   // the bag moved under the plan
+        // logbank-01: a log HALF reads the slot's count before its right click (`from`), not the count it moves
+        if (!now || now.name !== step.name || now.count !== (step.half ? step.from : step.count) || win.selectedItem) continue   // the bag moved under the plan
         if (isCobble(step.name)) {
           // every live reservation counts, this run's earlier stacks included (both reviews r1: the second stack of a
           // batch was judged against the count before the first)
@@ -7751,7 +7752,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
           if (!adm.id) { stock.refused++; continue }
           reserved.push(adm.id); stock.claims++; if (step.valve) stock.valve++
         }
-        await click(it.wslot)
+        await click(it.wslot, step.half ? 1 : 0)
         if (!win.selectedItem || win.selectedItem.name !== step.name || win.selectedItem.count !== step.count) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${step.name}`)
         const dest = !win.slots[step.dest] ? step.dest : emptyDest()
         if (dest == null) { full = true; throw stop('no empty container slot left') }
@@ -7817,7 +7818,7 @@ async function townDeposit (ctx, _args, signal) {
   // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12): what the cap or a target keeps out of this visit, named
   stockRefusedRow(bot, 'town_deposit', before, { wants: wanted, noSwords: foodSkipNow(bot).active })
   // THE VALVE: only with the proof, re-taken here (design 3.2)
-  const valve = !tail && !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.length && valveProof(bot, before)
+  const valve = !tail && !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.some(st => !st.half) && valveProof(bot, before)
   const startPlan = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, valve, tail })
   const planned = startPlan.steps.length
   // the allowance rows' own stacks at the start (junkout-01's bank row: what they planned, and what the server showed banked)
@@ -7850,7 +7851,7 @@ async function townDeposit (ctx, _args, signal) {
   // close is mineflayer's own prediction); the client bag only when nothing was re-opened.
   const bagDelta = () => { const after = serverBag ?? held(items()); return Object.keys(banked).reduce((t, n) => t + Math.max(0, (heldBefore[n] ?? 0) - (after[n] ?? 0)), 0) }
   const row = (status, extra = {}) => logEvent({ kind: 'town_deposit', status, snapshot: snapshot(bot),
-    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, capRefused, stock, ...extra }) })
+    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, capRefused, stock, logs: logsField(banked, serverBag ?? held(items())), ...extra }) })
   if (!planned) {
     stop = counted != null ? 'counted the town; nothing to bank above the keeps' : 'nothing to bank above the keeps'; row('no_effect')
     return { status: 'no_effect', detail: counted ? `counted ${counted} town container(s); nothing to bank (the town holds its stock of what is carried, or it is kept)` : 'nothing to bank: everything carried is kept (stockpile, scaffold, tools, iron, the goal) or not bankable' }
@@ -7947,7 +7948,7 @@ async function townDeposit (ctx, _args, signal) {
   }
   if (n > 0) {
     row('success')
-    return { status: 'success', detail: `banked ${n} item(s) in ${stacks} whole stack(s) at the town chest, read back from the server (${slotsBefore} -> ${slotsAfter} slots); the stockpile, scaffold, iron and best tools stay` }
+    return { status: 'success', detail: `banked ${n} item(s) in ${stacks} stack(s) at the town chest, read back from the server (${slotsBefore} -> ${slotsAfter} slots); the stockpile, scaffold, iron and best tools stay` }
   }
   // NOT `unknown`: the runner promotes an unknown with an inventory loss to success, and the loss here is mineflayer's own
   // prediction copied into the bag at the close -- exactly what could not be confirmed (Codex round 3). Failed: backs off.
