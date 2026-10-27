@@ -10596,7 +10596,9 @@ const slotAt = (win, s) => (typeof win.get === 'function' ? win.get(s) : win.slo
  */
 async function transferIn (bot, win, { deposit = [], swap = null, tool = null, takes = [] }, { deadline, signal }) {
   const took = {}, gave = {}
-  let toolTaken = null, err = null
+  // the stack in flight (reserve80 r4, Codex P2): set before a take's first click, cleared once `took` books it -- an abort
+  // between those clicks leaves it as the upper bound of what may have entered the bag (telemetry only: uncertainTakes)
+  let toolTaken = null, err = null, inFlight = null
   try {
     await lockstepClicks(bot, async raw => {
       // EVERY CLICK hears the cancel (craftsync's lockstep refuses one after an abort; this says so without it too).
@@ -10661,10 +10663,12 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           if (m === have) {
             // A WHOLE SOURCE STACK (its live count is no more than the need, and it all fits): shift-click, so the cursor is
             // never loaded. It counts only what actually left the slot.
+            inFlight = { name: take.name, n: m }
             await click(src.slot, 0, 1)
             const rest = slotAt(win, src.slot)
             const moved = have - (rest?.name === take.name ? (rest.count ?? 0) : 0)
             took[take.name] = (took[take.name] ?? 0) + moved
+            inFlight = null
             left -= moved
             if (moved < m) throw stop(`only ${moved} of the ${m} ${take.name} moved`)
             continue
@@ -10673,6 +10677,7 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           // picks up HALF (rounded up) when that covers m; the exact amount goes in with ONE left-click when one slot
           // takes it all; otherwise one at a time.
           const half = Math.ceil(have / 2)
+          inFlight = { name: take.name, n: m }
           await click(src.slot, m <= half ? 1 : 0, 0)
           if (win.selectedItem?.name !== take.name) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${take.name}`)
           let placed = 0
@@ -10691,6 +10696,7 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           for (let f = 0; f < a.fresh; f++) for (let i = 0; i < 64 && placed < m; i++) { await into(empties[f], 1); placed++ }
           if (win.selectedItem) await click(src.slot, 0, 0)   // the rest back where it came from
           took[take.name] = (took[take.name] ?? 0) + m
+          inFlight = null
           left -= m
         }
       }
@@ -10701,7 +10707,7 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
   // EVERY EXIT: an empty cursor, synchronised, before the caller closes the window -- or the unresolved handoff.
   const settled = await settleCursor(bot, win)
   const bad = settled.state !== 'empty' && settled.state !== 'rescued'
-  const state = { took, gave, tool: toolTaken, cursor: bad ? `${settled.state}:${settled.why}` : settled.state,
+  const state = { took, gave, inFlight, tool: toolTaken, cursor: bad ? `${settled.state}:${settled.why}` : settled.state,
                   unresolved: settled.state === 'unresolved' ? settled : null, err: err ? String(err.message ?? err).slice(0, 80) : null }
   // AN ABORT CARRIES WHAT HAPPENED (Claude round 2), so both verbs' rows report THIS transfer, not an earlier visit.
   if (err && (err.aborted || signal?.aborted)) { err.withdrawState = state; throw err }
@@ -12967,9 +12973,12 @@ function matsTaking (bot, name) {
 /** What a withdraw visit may have moved without verifying it -> { name: n }. Pure. `err`: a thrown transfer (its withdrawState);
  *  `visit`: a returned, unverified visit (its moved). A verified visit is booked by onTook, never here. */
 export function uncertainTakes ({ err = null, visit = null } = {}) {
-  const src = err ? err.withdrawState?.took : (visit && !visit.verified ? visit.moved?.took : null)
+  const st = err ? err.withdrawState : (visit && !visit.verified ? visit.moved : null)
   const out = {}
-  for (const [k, c] of Object.entries(src ?? {})) if (Number(c) > 0) out[k] = Number(c)
+  for (const [k, c] of Object.entries(st?.took ?? {})) if (Number(c) > 0) out[k] = Number(c)
+  // a stack whose clicks were cut short (transferIn's inFlight): at most its planned count may have moved
+  const f = st?.inFlight
+  if (f?.name && Number(f.n) > 0) out[f.name] = (out[f.name] ?? 0) + Number(f.n)
   return out
 }
 async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null, onUncertain = null) {

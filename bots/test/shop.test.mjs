@@ -235,7 +235,7 @@ const W = [
   ['skills: the drawn share read and clamped (with its baseline) at the visit\'s start', SK, /drawn0 = drawnHeld\(dr\.drawn, held0, dr\.bag\)/],
   ['skills: nothing drawn unless the record can be written (the failure counted)', SK, /if \(Object\.keys\(need\)\.length && !drawnWrite\(dir, key, me, drawn0, \{ bag: held0 \}\)\) return \(drawnFails\+\+, out\('no_effect', 'state_unwritable'/],
   ['skills: a share older than the completion is cleared on the repair path', SK, /if \(rec\.structure_complete && Object\.keys\(dr\.drawn\)\.length && !\(Number\(dr\.at\) > Number\(rec\.completeAt \?\? Infinity\)\)\) \{\n\s*if \(!drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+/],
-  ['skills: the share persisted after EVERY verified take', SK, /const w = await matsWithdraw\(ctx, need, signal, 30_000, R0, PD\.allow, PD\.onTook\); took = w\.took/],
+  ['skills: the share persisted after EVERY verified take', SK, /const w = await matsWithdraw\(ctx, need, signal, 30_000, R0, PD\.allow, PD\.onTook, PD\.onUncertain\); took = w\.took/],
   ['skills: the share persisted after every placement', SK, /if \(kind === '_build' && d\?\.op === 'place'\) persist\(\)/],
   ['skills: the share persisted after every bank-back', SK, /backAll\[n2\] = \(backAll\[n2\] \?\? 0\) \+ c2; persist\(\)/],
   ['skills: the share persisted (or cleared on completion) in the finally, a failure counted', SK, /if \(drawn0\) \{ try \{ if \(completed\) \{ if \(!drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+ \} else persist\(\) \} catch \{ drawnFails\+\+ \} \}\n\s*if \(bag0\) \{ try \{ logEvent\(\{ kind: 'build_bag'/],

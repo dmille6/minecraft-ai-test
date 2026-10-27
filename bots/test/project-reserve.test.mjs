@@ -91,6 +91,9 @@ test('an unverified exit still names what may have moved (Codex r2 P2): abort st
   const { uncertainTakes } = await import('../src/skills.mjs')
   assert.deepEqual(uncertainTakes({ err: Object.assign(new Error('x'), { withdrawState: { took: { oak_log: 32, cobblestone: 0 } } }) }), { oak_log: 32 })
   assert.deepEqual(uncertainTakes({ err: new Error('no state') }), {})
+  // an abort BETWEEN a partial stack's clicks (Codex r3 P2): nothing booked in took yet, the stack in flight still named
+  assert.deepEqual(uncertainTakes({ err: Object.assign(new Error('x'), { withdrawState: { took: {}, inFlight: { name: 'cobblestone', n: 40 } } }) }), { cobblestone: 40 })
+  assert.deepEqual(uncertainTakes({ err: Object.assign(new Error('x'), { withdrawState: { took: { cobblestone: 64 }, inFlight: { name: 'cobblestone', n: 10 } } }) }), { cobblestone: 74 })
   assert.deepEqual(uncertainTakes({ visit: { verified: false, moved: { took: { cobblestone: 64 } } } }), { cobblestone: 64 })
   assert.deepEqual(uncertainTakes({ visit: { verified: true, moved: { took: { cobblestone: 64 } } } }), {}, 'verified: onTook books it')
   assert.equal(M.reserveDrawDetail({ by: 'b', name: 'oak_log', n: 3, family: 'logs', normal: 512, effective: 103, gen: 1, unconfirmed: 'aborted' }),
