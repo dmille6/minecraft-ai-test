@@ -3940,14 +3940,14 @@ export function indexRecountKeys (bot, exclude = [], now = Date.now(), { notKnow
       && !RECOUNT_SKIP.has(containerStatus(mem[k], now)) && recountMissStatus(misses[k], now) === 'ok' && !zoneShut(k))
   } catch { return [] }
 }
-export function stockCountKeys (bot, items = bot.inventory?.items?.() ?? [], { floor = false, now = Date.now() } = {}) {
+export function stockCountKeys (bot, items = bot.inventory?.items?.() ?? [], { floor = false, now = Date.now(), bankableToo = [] } = {}) {
   try {
     if (!stockReaderInstalled()) return []
     const st = capTown(bot)
     if (!st) return []
     const keys = new Set()
     // capped tools count with or without a well (their cap always binds -- Codex code r1 P2); bulk only while it binds
-    const ex = bankableInventory(items, { wants: [...(bot.currentWants ?? []), ...DEPOSIT_ALWAYS] }).excluded
+    const ex = bankableInventory(items, { wants: [...(bot.currentWants ?? []), ...DEPOSIT_ALWAYS], bankableToo }).excluded
     const groups = new Set(Object.entries(ex).filter(([, why]) => why === 'town_stock_unknown').map(([n]) => groupOf(n)).filter(Boolean))
     for (const g of groups) for (const k of stockTownViewFor(bot, g, now, { state: st }).unknown ?? []) keys.add(k)
     if (floor && stockCapBinds()) {
@@ -7803,7 +7803,8 @@ async function townDeposit (ctx, _args, signal) {
   const tailLogs = !!tail && _args?.logs === true && LOGBANK.on
   if (_args?.recount && (!tail || tailLogs)) {
     const all = bot.inventory?.items?.() ?? []
-    const keys = stockCountKeys(bot, tailLogs ? all.filter(it => LOGS.includes(it?.name)) : all, { floor: true })
+    // logbank-01 r3: every log species counts as wanted for the logs' own count (the plan's own rule, towndeposit.mjs)
+    const keys = stockCountKeys(bot, tailLogs ? all.filter(it => LOGS.includes(it?.name)) : all, { floor: true, bankableToo: LOGBANK.on ? [...LOGS] : [] })   // r3 reviews P2: the full-bag count too
     if (keys.length) {
       // a rows-only plan counts in a THIRD of the budget, so count + deposit stays near the contract's 60 s (bagbudget-01)
       const until = Date.now() + (_args?.count === 'allowance_only' ? Math.floor(TD_BUDGET_MS / 3) : TD_BUDGET_MS)

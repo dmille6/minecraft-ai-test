@@ -1765,3 +1765,33 @@ test('LOGBANK r2 reviews: the log count rides along with a rows order (never ski
   assert.equal(r.order.args.recount, true, 'the count is in the same run as the torch'); assert.equal(r.order.args.logs, true)
   assert.equal(TD.tailOrder({ now: 1e9, slots: 11, pos: P, home: HOME, plan: rows, container: true, state: {}, on: true, logCount: false }).order.args.recount, undefined, 'control')
 })
+
+// ---- logbank-01 r3 (LIVE showcase-e8525ca4, 10-27): the showcase's logs are SPRUCE -----------------------------------------
+test('LOGBANK r3: every log species banks (spruce, the showcase\'s only log; was not_wanted: STANDING_TARGETS name oak/birch/jungle); off -> the old rule', () => {
+  for (const name of LOGS) {
+    const items = bag([[name, 64], [name, 9], ['cobblestone', 64], ...filler(9)])
+    for (const tail of ['only', false]) {
+      const p = townDepositPlan(items, { tail, halves: true })
+      assert.equal(logsIn(after(items, p)), 16, `${name} tail=${tail}: ${JSON.stringify(p.steps)}`)
+    }
+  }
+  // CONTROL (the live dead end, reproduced): the switch off -> spruce is not wanted, nothing; oak still banks its whole 9
+  const spruce = bag([['spruce_log', 64], ['spruce_log', 9], ...filler(10)])
+  assert.deepEqual(townDepositPlan(spruce, { tail: false, halves: false }).steps, [], 'spruce, switch off: not_wanted (today\'s rule)')
+  const oak = bag([['oak_log', 64], ['oak_log', 9], ...filler(10)])
+  assert.deepEqual(townDepositPlan(oak, { tail: false, halves: false }).steps.map(s => s.count), [9], 'positive control: oak was always wanted')
+})
+
+test('LOGBANK r3 (Paper r3): in a WELL town (the stock cap binds) spruce banks down to 16 -- bankable, never "wanted" (a want keeps a stack)', async () => {
+  const B = await import('../src/bankable.mjs')
+  const v = { lb: 0, lbLo: 0, complete: true, unknown: [], reserved: 0, mine: 0, taking: 0, floor: 0, avail: 0, held: 0 }
+  B.setStockReaders({ town: () => v, well: () => true })
+  try {
+    const items = bag([['spruce_log', 64], ['spruce_log', 9], ['torch', 4], ...filler(8)])
+    const p = townDepositPlan(items, { tail: 'only' })
+    assert.equal(logsIn(after(items, p)), 16, JSON.stringify(p.steps))
+    // MUTANT (the r3 bug): logs passed as WANTS -> the wanted keep holds a stack, only the 9 leaves
+    const wanted = B.depositPlan(items, null, { wants: ['spruce_log'] }).find(e => e.name === 'spruce_log')?.count
+    assert.equal(wanted, 9, 'the mutant shape: a want is kept to 64')
+  } finally { B.setStockReaders({}) }
+})

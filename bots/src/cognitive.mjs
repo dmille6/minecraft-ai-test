@@ -41,6 +41,7 @@ import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from 
 // FOUNDING (found-01): the found slot's decision and readings
 import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign, foundRetry } from './found.mjs'
 import { townPlanNow, townPlanHead, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
+import { LOGBANK } from './woodkeep.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan, tailOrder, LOGS as TD_LOGS, townKeeps, inTownZone, TD_STAY_REARM_MS } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit latch, ticked on every decision (bagallowance.mjs, a leaf)
 import { visitLatchTick, visitLatchDeclined, VISIT_STAY_MS } from './bagallowance.mjs'
@@ -822,7 +823,8 @@ export class CognitiveLoop {
       }
       const r = townDepositOrder({
         // the count step (stocktarget design 3.7): targeted surplus the town cannot judge yet, and a container to count
-        count: () => stockCountKeys(bot, items, { floor: true }).length > 0,
+        // logbank-01 r3 (both reviews P2): the full bag's count sees every log species, as its plan does
+        count: () => stockCountKeys(bot, items, { floor: true, bankableToo: LOGBANK.on ? [...TD_LOGS] : [] }).length > 0,
         now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,
         home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ },
         // A CLOSED BANK (chestfull.mjs bankClosed) is not a town chest to bank into: the deposit's own closure, respected.
@@ -934,7 +936,7 @@ export class CognitiveLoop {
           const c = {}; for (const it of items) if (it?.name) c[it.name] = (c[it.name] ?? 0) + (it.count ?? 0)
           const keep = townKeeps(c, { wanted: wantedNow() }).keep
           if (!TD_LOGS.some(n => (c[n] ?? 0) > (keep[n] ?? 0))) return false
-          return stockCountKeys(bot, logsHeld, { floor: true }).length > 0
+          return stockCountKeys(bot, logsHeld, { floor: true, bankableToo: [...TD_LOGS] }).length > 0   // logbank-01 r3: every species
         },
         state: this.tailState, myName: bot.username ?? '',
       })

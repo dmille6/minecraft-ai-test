@@ -251,8 +251,10 @@ export const KEEP_ONE = new Set(['crafting_table', 'furnace', 'blast_furnace', '
  */
 export function bankableInventory (items = [], { wants = [], creditCap = 64,
                                                  reserveScaffold = 8, noSwords = peacefulFoodActive(), noToolCap = false,
-                                                 stockRoomFor = null } = {}) {
-  const want = new Set([...wants, ...STANDING_TARGETS].filter(Boolean))
+                                                 stockRoomFor = null, bankableToo = [] } = {}) {
+  // bankableToo (logbank-01 r3): names that are bankable like a standing target WITHOUT being a goal's want -- a want is also
+  // KEPT up to a stack (towndeposit.mjs townKeeps 'wanted'), which held every spruce log back in a well town (Paper r3)
+  const want = new Set([...wants, ...STANDING_TARGETS, ...[bankableToo ?? []].flat()].filter(Boolean))
   const counts = {}
   const usable = {}   // tool name -> copies above toolfor's FLOOR
   for (const it of items) {

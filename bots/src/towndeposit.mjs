@@ -229,7 +229,11 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
   // depositPlan already judges the REDUCED bag, so the visit's spend comes off the cap, not off that count (Codex round 2).
   // noSwords: the switch's reading (default) -- excluding can only lower the plan, so neither the order nor the run banks a
   // sword while it is on, and no order fires that would not have fired without the kit.
-  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [], noSwords })
+  // logbank-01 r3 (LIVE 10-27, showcase-e8525ca4): EVERY log species is bankable here while the switch is on. bankable.mjs's
+  // STANDING_TARGETS name oak, birch and jungle logs only, so the showcase's spruce (all ten bots: 64-73 spruce_log, no other
+  // log) read `not_wanted` -- no step, no count, no order, for an hour. Wood is wood (milestones.mjs LOGS).
+  // ...as bankable, NOT as wanted: a want is kept up to a stack (Paper r3, a well town: only the 9 left, 64 kept)
+  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [], bankableToo: halves ? [...LOGS] : [], noSwords })
     .map(({ name, count }) => [name, Math.min(count, Math.max(0, CREDIT_CAP - (Math.max(0, Number(already?.[name]) || 0))))]))
   const steps = [], banked = {}
   const holds = withdrawHolds()
