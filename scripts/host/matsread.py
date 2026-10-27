@@ -133,6 +133,20 @@ def judge_reserve(f, reserve):
     return sorted(out), sorted(unj)
 
 
+def project_floor(reserve):
+    """PURE. mats.mjs projectFloor over a table: each floor ceil(20%) (OWNER 10-27: 80% spendable for project work)."""
+    return {k: -(-v * 2 // 10) for k, v in (reserve or {}).items()}
+
+
+def row_reserve(f, reserve):
+    """PURE. The floor a _make_material row is judged on: reserve=project -> the lowered table, else the licence's."""
+    return project_floor(reserve) if f.get('reserve') == 'project' else reserve
+
+
+assert project_floor({'logs': 512, 'cobblestone': 256, 'sand': 16, 'planks': 71}) == {'logs': 103, 'cobblestone': 52, 'sand': 4, 'planks': 15}
+assert row_reserve({'reserve': 'project'}, {'logs': 512}) == {'logs': 103} and row_reserve({'reserve': 'default'}, {'logs': 512}) == {'logs': 512}
+
+
 def crossed(f, reserve):
     """PURE. judge_reserve's crossings only."""
     return judge_reserve(f, reserve)[0]
@@ -472,7 +486,7 @@ if __name__ == '__main__':
     ret_end = [(t_, b, st, f) for t_, b, st, f in ret_rows if f.get('stop') in ('closed', 'abandoned') and (num(f.get('batch')) or 0) > 0]
     unrec = Counter(f.get('verdict') for _, _, _, f in mv + ret_end).get('unreconciled', 0)
     taken_rows = sum(1 for _, _, _, f in ret_end if f.get('verdict') == 'unreconciled' and f.get('drained') == 'empty')
-    judged = [(b, f.get('kind')) + judge_reserve(f, reserve) for _, b, _, f in jobs]
+    judged = [(b, f.get('kind')) + judge_reserve(f, row_reserve(f, reserve)) for _, b, _, f in jobs]
     g3_rows = [(b, k_, c_) for b, k_, c_, _ in judged if c_]
     g3_unjudged = [(b, k_, u_) for b, k_, _, u_ in judged if u_]
     g4_rows = [(b, f.get('stone')) for _, b, _, f in jobs if f.get('kind') == 'bricks' and stone_leak(f)]
