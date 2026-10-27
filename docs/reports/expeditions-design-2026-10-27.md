@@ -720,3 +720,5 @@ contract; and new scenes P-H5, P-H6, X-T6 to X-T9, X-M4 and X-M5.
 **r5:**
 - the fallback goes to the waypoint at the cursor;
 - the claim ceiling is taken from the run's effective deadline, with a test past default + grace.
+
+### Round 5 (r5): **Codex APPROVE** (no P1/P2). **Claude APPROVE** (r3; its P3s were applied in r4; the r4-r5 edits are the two Codex fixes only).
