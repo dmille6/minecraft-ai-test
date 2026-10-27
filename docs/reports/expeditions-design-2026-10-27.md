@@ -1,4 +1,4 @@
-# Return home reliably, then surface expeditions (2026-10-27, design only, r3)
+# Return home reliably, then surface expeditions (2026-10-27, design only, r4)
 
 OWNER 10-27 approved designing two pieces, in this order: **(1) return home reliably** (survival lane), then **(2) surface
 expeditions** up to 1,200 blocks (progress lane). OWNER 10-27, later: build **virtual breadcrumbs (a) AND physical
@@ -195,7 +195,7 @@ the next rung.
 
 | stop class (from `surface`'s `stopped` / `why`) | measured | remedy (deterministic, inside `surface`; never advice) |
 |---|---|---|
-| `hand_dig_slow`: "dig failed on X by hand: dig exceeded …" with the feet or head in water, or not on the ground | placebo-c-Bravo 595 (+ 188 aborted), board-a-Comet 645 | **Footing first**, chosen by the pure `footingPlan(cells, bag)`. (1) Step to an adjacent dry, standable cell. (2) Or place one held block under the feet: a jump-and-place under the pillar branch's body ownership (`haltPath`, as `shaftAscend`). (3) Or, ONLY if the head cell is air (a submerged bot has ≈ 15 s of air, so a ≈ 187 s wet dig is impossible), hand-dig a water-free neighbour in ONE uninterrupted dig: a dedicated `stranded_dig` sub-skill whose own timeout of 300 s covers the measured worst case. A partial dig is not carried across calls, because a timeout calls `stopDigging` (skills.mjs ~16075, mineflayer digging.js ~165; Codex r2 P1-1). (4) None of these → **`no_footing`**, a legal `contained` reason. Once footed: hand-dig a **staircase**, not a shaft (no blocks needed), one block per dig, each well under 180 s when dry. |
+| `hand_dig_slow`: "dig failed on X by hand: dig exceeded …" with the feet or head in water, or not on the ground | placebo-c-Bravo 595 (+ 188 aborted), board-a-Comet 645 | **Footing first**, chosen by the pure `footingPlan(cells, bag)`. (1) Step to an adjacent dry, standable cell. (2) Or place one held block under the feet: a jump-and-place under the pillar branch's body ownership (`haltPath`, as `shaftAscend`). (3) Or, ONLY if the head cell is air (a submerged bot has ≈ 15 s of air, so a ≈ 187 s wet dig is impossible), hand-dig a water-free neighbour in ONE uninterrupted dig. This is a separately registered skill, `stranded_dig`, issued by the stranded order as its own runner run, not as a step inside `surface` (Codex r3 P2-2). Its registry entry carries a 300 s timeout, so the runner's deadline and hard stop are 300 s + grace for that skill alone. The climb claim is renewed every 30 s while the dig runs (runner.mjs ~130, ~339-343). The emergency reflexes (air, drowning, lava) can still interrupt it. It is tested through the real runner and the real entombment reflex with a dig longer than 180 s. A partial dig is not carried across calls, because a timeout calls `stopDigging` (skills.mjs ~16075, mineflayer digging.js ~165; Codex r2 P1-1). (4) None of these → **`no_footing`**, a legal `contained` reason. Once footed: hand-dig a **staircase**, not a shaft (no blocks needed), one block per dig, each well under 180 s when dry. |
 | `dig_aborted`: "Digging aborted" | 188 | The body was taken (air reflex). Retry after the reflex releases it, at most 3 per 10 min; then treat as `hand_dig_slow`. |
 | `no_scaffold`: "no scaffold blocks left" | 6 | Hand-dig staircase with the current tool, or by hand if none. No blocks needed. |
 | `undiggable`: "cannot break X …" (obsidian, bedrock, protected, `digbudget` refusal) | not measured here | Try the other three bearings of the staircase. If all four are refused, **`contained`**. |
@@ -363,8 +363,10 @@ so trail-01's exposure needs C0's measured rate (§3.7).
     (and homeward-01's climb first).
   - **Follow or walk.** The decision is a new pure function, `homeRoute({ trail, pos, dyHome })` → `trail | direct`,
     and it is tested.
-- **A failed hop is never a dead end.** Three steps, in order:
-  - Skip to the next waypoint, then the one after.
+- **A failed hop is never a dead end.** Steps, in order (r4, Codex r3 P1-1):
+  - If the hop was a shortcut, fall back to the adjacent predecessor (cursor − 1), the recorded way round. The cursor
+    advances only on verified arrival at a waypoint.
+  - Then skip to the next waypoint, then the one after.
   - Then direct `GoalNearXZ` legs toward home at the bearing ±30°: today's path.
   - Then a `oneway` hop gets the ascent profile with scaffold, as today.
 - **Budget across calls.** One `home` call keeps the 170 s budget. A trail return longer than one call resumes from the
@@ -411,10 +413,17 @@ so trail-01's exposure needs C0's measured rate (§3.7).
   - **Out of material:** markers stop, and one `_marker_budget_spent` row says so. **The return is never refused**:
     markers are on the outbound only and never a precondition of anything. A test asserts that a bag with 0 cobble
     walks out and returns on waypoints.
-- **Placement reservation (r3, Codex r2 P2-7).** The sequence check, place, publish is serialised by an exclusive
-  `flock` on `markers-<home>.lock` (held for at most 10 s; the pool dir is shared by the town's bots, one host). Under
-  the lock the bot re-reads the index, re-checks the 24-block rule, appends a `reserve` line, and releases. It places,
-  then appends `placed` or `abandoned`. A reservation older than 60 s with no outcome is void.
+- **Placement reservation (r4, Codex r2 P2-7, r3 P2-3).** The whole check, place, publish runs under one exclusive
+  `flock` on `markers-<home>.lock`. A placement takes ≤ 10 s, so it is a try-lock: if the lock is busy, the bot skips
+  this marker (`_marker_skip reason=busy`).
+  - **Under the lock.** The bot re-reads the index. It reconciles any entry without an outcome against the world:
+    `blockAt` shows the pillar, so it is recorded as `placed`, or it does not, so it is recorded as `abandoned`. It
+    re-checks the 24-block rule, places, reads the pillar back, publishes, and releases.
+  - **Afterwards.** A crash after placement but before publication is caught by the next holder's reconciliation. The
+    world is the truth; the index is only a cache of it.
+  - **Assumption, checked first.** This works only if every bot of a town shares the same pool directory, so that
+    flock holds across them. If they do not, markers-01 uses a per-town lease file with a fencing generation instead
+    (the plinth and treefarm lease), and a placer whose generation is stale does not place.
 - **Shared index, with route topology (Codex r1 P2-7).** `markers-<home>.json` in the pool dir, append-only, one writer
   per line via O_APPEND, so concurrent placement cannot tear it. Each entry holds:
   - the marker cell, and its **approach cell**: the standable waypoint it was placed beside;
@@ -497,10 +506,12 @@ waypoints), but the trail does not need markers. So the split is:
 - **X-T9.** An interrupted `home` partway back. Pass if no homeward waypoint is recorded.
 - **X-T10.** A U-shaped canyon route whose reverse detour exceeds 16 blocks across a call boundary; a branch (300 out,
   back to 100 without `home`, then 250 out on another bearing); a restart after returning more than 48 blocks while
-  still beyond 100. Pass if each follows the trail, and the cursor never regresses.
+  still beyond 100; a narrow canyon where every shortcut is unreachable. Pass if each follows the trail, takes the
+  predecessor round the canyon, and the cursor never regresses.
 - **X-M4.** Intersecting trails; a missing intermediate marker; two bots placing at the same time; a new protected zone
   across the marker chain. Pass if the bot follows one chain, falls back cleanly, and no index line is torn.
-- **X-M4b.** Two bots reaching the same 24-block window together. Pass if exactly one pillar stands (spatial uniqueness,
+- **X-M4b.** Two bots reaching the same 24-block window together; a placer paused for more than 60 s; a crash after
+  placement and before publication. Pass if exactly one pillar stands (spatial uniqueness,
   read from the world).
 - **X-M5.** A pillar beside a 1-wide ridge path. Pass if it is skipped as `narrow`, and G-T4 holds.
 - **X-M3.** 0 cobble, and then cobble running out mid-trip. Pass if the return happens on waypoints and exactly one
@@ -682,3 +693,16 @@ contract; and new scenes P-H5, P-H6, X-T6 to X-T9, X-M4 and X-M5.
 - mature cohorts;
 - the flock reservation;
 - X-T10, X-M4b, P-H4's expected outcome, and the registration gate.
+
+### Round 3 (r3, confirmation): Claude (pending at write time, below); Codex CHANGE (1 P1, 2 P2)
+
+**Codex r3:**
+- U-shaped shortcuts could all be unreachable;
+- the 300 s dig had no runner deadline or claim renewal;
+- marker reservation expiry reopened the race.
+
+**r4:**
+- predecessor fallback, with the cursor advancing only on arrival;
+- `stranded_dig` as its own registered skill with a 300 s timeout and claim renewal;
+- the whole check-place-publish under one try-lock, with world reconciliation and a lease-and-fence fallback if the pool
+  dir is not shared.
