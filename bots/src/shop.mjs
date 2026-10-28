@@ -4,7 +4,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { reserveKeyOf, reserveCount, takeAllowed } from './mats.mjs'
+import { reserveKeyOf, reserveCount, takeAllowed, LOG_NAMES, PLANKS_OF } from './mats.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -145,6 +145,34 @@ export function needFromTown (bill, bag = {}, cap = SHOP_BILL_CAP) {
     if (take > 0) { out[n] = take; left -= take }
   }
   return out
+}
+/**
+ * PLANKS FROM THE TOWN'S LOGS (shopwalls-1028; LIVE showcase 10-28 11:50Z on: pad and ring done, then every visit stopped
+ * `no_material why=wall_for_wall-F` for hours -- the town held 0 planks and 412 spruce logs, the bill asked for `oak_planks`,
+ * the withdraw found none, and nothing crafted planks for a project: the mats job has no planks kind). -> { log, logs, planks }
+ * | null. Pure. `want` is the visit's needs, `spare(name)` what the bag holds above its keeps AFTER the town draw, `town` the
+ * indexed stock. The shortfall is every *_planks the needs name (any species: a '$planks' cell takes any) less the bag's spare
+ * planks of every species; it is drawn as whole logs (1 log -> 4 planks) of the town's most-stocked log species. The town's
+ * reserve is not judged here: the withdraw's own `allow` (the project reserve) caps what is taken.
+ */
+/** IS A NAME "IN TOWN" FOR THE BILL'S PALETTE CHOICE -> (name) => bool. Pure. Its stock, or -- for planks -- any log in town (the
+ *  visit crafts them: planksFromLogs). Without the second half a trim cell (['cut_copper', '$planks']) in a town of logs and no
+ *  planks resolved to cut_copper, which the town cannot supply: its planks were never drawn and the trim stopped no_material. */
+export const billInTown = (town = {}) => {
+  const logs = LOG_NAMES.some(n => (Number(town?.[n]) || 0) > 0)
+  return n => (Number(town?.[n]) || 0) > 0 || (/_planks$/.test(n) && logs)
+}
+export function planksFromLogs (want = {}, { spare = () => 0, town = {} } = {}) {
+  const wanted = Object.entries(want ?? {}).filter(([n]) => /_planks$/.test(n)).reduce((t, [, c]) => t + (Number(c) || 0), 0)
+  if (wanted <= 0) return null
+  const held = Object.values(PLANKS_OF).reduce((t, n) => t + Math.max(0, Number(spare(n)) || 0), 0)
+  const short = wanted - held
+  if (short <= 0) return null
+  let log = null
+  for (const n of LOG_NAMES) { const c = Number(town?.[n]) || 0; if (c > 0 && (!log || c > (Number(town[log]) || 0))) log = n }
+  if (!log) return null
+  const logs = Math.ceil(short / 4)
+  return { log, logs, planks: PLANKS_OF[log] }
 }
 /**
  * WHAT A VISIT DRAWS -> { name: n } (r2): the open cells' bill; a sapling for every pending replant whose cell holds none (Codex r1
