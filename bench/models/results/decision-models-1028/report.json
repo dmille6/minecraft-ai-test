@@ -1,0 +1,222 @@
+{
+ "items": 600,
+ "kinds": {
+  "good": 200,
+  "fail": 300,
+  "post_veto": 100
+ },
+ "logged": {
+  "n": 600,
+  "missing": 0,
+  "schema_valid": 100.0,
+  "retry": 0.0,
+  "hard": 13.2,
+  "bad": 13.2,
+  "rep_fail": 100.0,
+  "post_veto_repeat": 90.0,
+  "agree_skill": 100.0,
+  "agree_key": 100.0,
+  "hard_on_fail_items": 19.3,
+  "hard_on_good_items": 3.5,
+  "denominators": {
+   "all": 600,
+   "fail": 300,
+   "post_veto": 100,
+   "good": 200
+  },
+  "answered": 600,
+  "transport_errors": 0,
+  "p50_s": null,
+  "p95_s": null,
+  "rep_fail_mk": [
+   100.0,
+   191
+  ],
+  "post_veto_mk": [
+   90.0,
+   70
+  ]
+ },
+ "runs": {
+  "qwen2.5:7b-instruct": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 14.2,
+   "bad": 14.2,
+   "rep_fail": 67.0,
+   "post_veto_repeat": 95.0,
+   "agree_skill": 81.0,
+   "agree_key": 74.5,
+   "hard_on_fail_items": 20.7,
+   "hard_on_good_items": 4.5,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   },
+   "answered": 600,
+   "transport_errors": 0,
+   "p50_s": 2.0805,
+   "p95_s": 2.609999999999999,
+   "rep_fail_mk": [
+    72.8,
+    191
+   ],
+   "post_veto_mk": [
+    98.6,
+    70
+   ],
+   "file": "/home/mike/learnloop/m3/replay-cands-01/qwen2.5_7b-instruct-t0.jsonl",
+   "complete": true
+  },
+  "qwen3.5:9b": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 2.0,
+   "bad": 2.0,
+   "rep_fail": 26.7,
+   "post_veto_repeat": 53.0,
+   "agree_skill": 54.5,
+   "agree_key": 43.0,
+   "hard_on_fail_items": 1.3,
+   "hard_on_good_items": 3.0,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   },
+   "answered": 600,
+   "transport_errors": 0,
+   "p50_s": 2.01,
+   "p95_s": 3.1047499999999992,
+   "rep_fail_mk": [
+    39.3,
+    191
+   ],
+   "post_veto_mk": [
+    74.3,
+    70
+   ],
+   "file": "/home/mike/learnloop/m3/blackwell-base-01/qwen3_5_9b.jsonl",
+   "complete": true
+  },
+  "qwen3.6:35b-a3b": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 2.5,
+   "bad": 2.5,
+   "rep_fail": 21.7,
+   "post_veto_repeat": 30.0,
+   "agree_skill": 48.5,
+   "agree_key": 43.0,
+   "hard_on_fail_items": 1.7,
+   "hard_on_good_items": 4.5,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   },
+   "answered": 600,
+   "transport_errors": 0,
+   "p50_s": 2.197,
+   "p95_s": 4.089099999999995,
+   "rep_fail_mk": [
+    33.0,
+    191
+   ],
+   "post_veto_mk": [
+    38.6,
+    70
+   ],
+   "file": "/home/mike/learnloop/m3/blackwell-base-01/qwen3_6_35b-a3b.jsonl",
+   "complete": true
+  },
+  "qwen3.8:27b": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 2.2,
+   "bad": 2.2,
+   "rep_fail": 14.7,
+   "post_veto_repeat": 21.0,
+   "agree_skill": 43.5,
+   "agree_key": 40.0,
+   "hard_on_fail_items": 1.3,
+   "hard_on_good_items": 2.0,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   },
+   "answered": 600,
+   "transport_errors": 0,
+   "p50_s": 4.67,
+   "p95_s": 7.264749999999999,
+   "rep_fail_mk": [
+    22.5,
+    191
+   ],
+   "post_veto_mk": [
+    18.6,
+    70
+   ],
+   "file": "/home/mike/learnloop/m3/blackwell-base-01/qwen3_8_27b.jsonl",
+   "complete": true
+  },
+  "hf.co/LiquidAI/d1-3B-GGUF:Q8_0": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 3.5,
+   "bad": 3.5,
+   "rep_fail": 33.3,
+   "post_veto_repeat": 46.0,
+   "agree_skill": 58.0,
+   "agree_key": 43.5,
+   "hard_on_fail_items": 4.7,
+   "hard_on_good_items": 1.5,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   },
+   "answered": 600,
+   "transport_errors": 0,
+   "p50_s": 0.411,
+   "p95_s": 0.703,
+   "rep_fail_mk": [
+    51.8,
+    191
+   ],
+   "post_veto_mk": [
+    65.7,
+    70
+   ],
+   "conf_mean": {
+    "good": 0.483,
+    "fail": 0.491,
+    "post_veto": 0.538
+   },
+   "auroc_lowconf_failitem": 0.4617125,
+   "auroc_lowconf_repeat": 0.29969798295760974,
+   "n_repeat": 146,
+   "n_norepeat": 254,
+   "items_with_option_outside_top20": 170,
+   "file": "d1-3b-q8.jsonl",
+   "complete": true
+  }
+ }
+}
