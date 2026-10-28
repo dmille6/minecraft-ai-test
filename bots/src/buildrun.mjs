@@ -70,9 +70,12 @@ export const FOREIGN_CLEAR = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|a
 // FOREIGN_CLEAR has no logs, so the pad read `blocked: 1 open, 0 placeable now` for good at 62/63). Any log species, or leaves.
 export const TREE_CLEAR = /_(log|leaves)$/
 /** What a foreign block in an open record cell is -> 'scaffold' | 'tree' | null (never dug: a container, a station, a part). Pure. */
+// A CRAFTING TABLE IN AN OPEN RECORD CELL (shopwalls-05, LIVE 10-28: an idle place put one into the last roof cell): dug like
+// scaffold -- it drops as the item, nothing is lost, and nothing else is in it. Furnaces and containers stay never-dug.
+export const STATION_CLEAR = /^crafting_table$/
 export function foreignKind (n) {
   const s = String(n ?? '')
-  if (FOREIGN_CLEAR.test(s)) return 'scaffold'
+  if (FOREIGN_CLEAR.test(s) || STATION_CLEAR.test(s)) return 'scaffold'
   if (TREE_CLEAR.test(s)) return 'tree'
   return null
 }

@@ -328,5 +328,28 @@ await t('WIRED: the logs are drawn only when workableSeg names a segment (its le
   assert.ok(/const segFree = sg => \{ const st = projLeaseState\(dir, key, `seg-\$\{sg\}`\); return !st \|\| st\.rec\?\.holder === me \|\| Date\.now\(\) >= st\.blocksUntil \}/.test(body), 'the lease reading')
 })
 
+console.log('NO STATION IN A RECORD CELL (shopwalls-05)')
+await t('recordCellHit: a candidate whose target cell (ref + face) is a record cell; foreignKind digs a crafting table, never a furnace or chest', () => {
+  const cells = S.recordCellKeys({ cells: [{ at: [24, 75, 31] }, { at: [21, 73, 27] }] })
+  assert.ok(cells.has('24,75,31') && cells.size === 2)
+  const V = (x, y, z) => ({ x, y, z })
+  // LIVE 16:33Z: the table went on top of the wall plank 24,74,31 -> into 24,75,31
+  assert.strictEqual(S.recordCellHit(cells, { ref: { position: V(24, 74, 31) }, face: V(0, 1, 0) }), true)
+  assert.strictEqual(S.recordCellHit(cells, { ref: { position: V(24, 75, 32) }, face: V(0, 0, -1) }), true, 'sideways into it')
+  assert.strictEqual(S.recordCellHit(cells, { ref: { position: V(24, 75, 32) }, face: V(0, 1, 0) }), false, 'beside the build')
+  assert.strictEqual(S.recordCellHit(new Set(), { ref: { position: V(24, 74, 31) }, face: V(0, 1, 0) }), false, 'no project')
+  assert.strictEqual(S.recordCellHit(undefined, { ref: { position: V(24, 74, 31) }, face: V(0, 1, 0) }), false)
+  assert.strictEqual(R.foreignKind('crafting_table'), 'scaffold')
+  for (const n of ['furnace', 'chest', 'barrel', 'smoker', 'glass_pane']) assert.strictEqual(R.foreignKind(n), null, n)
+})
+await t('WIRED: place filters record cells (and bars the make-room dig), refuses explicit coordinates in one, names the remedy; the record keys refresh with the footprint', () => {
+  const body = SK.slice(SK.indexOf('async function place('), SK.indexOf('async function place(') + 20000)
+  assert.ok(/const kept = candidates\.filter\(c => !recordCellHit\(bot\.shopCells, c\)\)/.test(body))
+  assert.ok(/&& !shopSkipped && !\[x, y, z\]\.every/.test(body), 'the make-room dig barred')
+  assert.ok(/if \(bot\.shopCells\?\.has\?\.\(`\$\{Number\(x\)\},\$\{Number\(y\)\},\$\{Number\(z\)\}`\)\) \{/.test(body), 'explicit coordinates refused')
+  assert.ok(/step out of the building and place again/.test(body), 'the remedy')
+  assert.ok(/bot\.shopCells = h\.head \? recordCellKeys\(h\.head\.rec\) : new Set\(\)/.test(SK))
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
