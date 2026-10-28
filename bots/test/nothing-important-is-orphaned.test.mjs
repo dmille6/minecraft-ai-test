@@ -33,6 +33,8 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 const REQUIRED = [
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',
+  // the process the owner set on 2026-10-28; CLAUDE.md points every session at it
+  'docs/PROCESS-fun-mode.md',
   // the episode replay harness: the gate that proves a candidate before it reaches a canary
   'sandbox/run-corpus.sh',
   'sandbox/run-scenario.sh',

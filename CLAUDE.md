@@ -1,5 +1,9 @@
 # Working rules for this repo
 
+> **FUN MODE (OWNER DECISION 2026-10-28) — read [`docs/PROCESS-fun-mode.md`](docs/PROCESS-fun-mode.md) first.**
+> This is a fun experiment, not a paper. Where that file conflicts with the rules below
+> (reviews, tiers, canary reads, records), it wins; the tooling rules in § Deploys still hold.
+
 Short list. Every rule here exists because breaking it cost real time, and the
 evidence is named so you can judge it rather than obey it.
 
@@ -246,7 +250,8 @@ eats backticked identifiers.
   a foundation-and-harness project now: bots must survive, move, gather and
   build in any Minecraft world.
 
-  Keep every bit of the measurement rigor. Difference-in-differences still
+  *Superseded for ordinary changes by fun mode (2026-10-28); it still applies to a
+  declared lab-mode experiment.* Keep every bit of the measurement rigor. Difference-in-differences still
   applies, but split pools **arbitrarily** rather than by arm — randomize five
   bots per change and use the rest as control. Do NOT replace it with a
   fleet-wide before/after: measured 2026-09-04, pools moved from -45% to +77%
@@ -264,7 +269,9 @@ eats backticked identifiers.
 - Do not use the 192.168.19x network. Do not use the UniFi API on 10.0.0.1 (it
   triggers a WAN re-provision).
 - Do not disable `rpcbind` on any Proxmox node.
-- Independent Claude **and** ChatGPT review, plus a real search of open source,
+- *Fun mode (2026-10-28): one engine, one round, blockers only, by default. The two-engine
+  review below is reserved for movement, reflexes, mining depth and unseen Paper/mineflayer
+  behaviour.* Independent Claude **and** ChatGPT review, plus a real search of open source,
   issues and forums, before proposing to build. Scope it to design changes, new
   research claims, deploy-impacting conclusions, and anything resting on
   external Minecraft/mineflayer/Paper behaviour — an unscoped version becomes
