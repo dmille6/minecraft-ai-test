@@ -189,6 +189,27 @@ await t('a record cell + 1 costs 100 on a WORK or TRAVEL walk, 0 on an escape wa
   assert.strictEqual(S.footprintCost(cells, 'walk', blk(12, 70, 10)), 0, 'two away: free')
   assert.strictEqual(S.footprintCost(undefined, 'walk', blk(10, 70, 10)), 0, 'no record yet: free')
 })
+await t('AN ESCAPE CLONE CARRIES NO FOOTPRINT (W3 merge, Codex P1): a probe on the ascend Movements while `walk` is ACTIVE is not vetoed', () => {
+  const cells = S.footprintCells({ cells: [{ at: [10, 70, 10] }] })
+  const blk = { position: { x: 11, y: 71, z: 9 } }
+  let active = 'walk'
+  const other = () => 0
+  const fp = S.footprintEntry(() => cells, () => active)
+  const moves = { exclusionAreasBreak: [other, fp], exclusionAreasPlace: [fp] }
+  const price = (m, k) => m[k].reduce((a, f) => a + f(blk), 0)
+  // the index.mjs shape: Object.assign copies the shared arrays' references, then the escape clone drops the tagged entry
+  const ascend = S.withoutFootprint(Object.assign({}, moves))
+  assert.strictEqual(price(moves, 'exclusionAreasBreak'), 100, 'the walk itself still prices the footprint')
+  assert.strictEqual(price(ascend, 'exclusionAreasBreak'), 0, 'the ascend clone searched while walk is active: no veto')
+  assert.strictEqual(price(ascend, 'exclusionAreasPlace'), 0)
+  assert.deepStrictEqual(ascend.exclusionAreasBreak, [other], 'every other entry kept, in order')
+  assert.strictEqual(moves.exclusionAreasBreak.length, 2, 'the shared walk array is not mutated')
+  active = 'gather'; const gather = Object.assign({}, moves)
+  assert.strictEqual(price(gather, 'exclusionAreasBreak'), 100, 'a work clone keeps it')
+  // MUTANT: the old shared callback (no clone filter) vetoes the probe
+  const ascendOld = Object.assign({}, moves); active = 'walk'
+  assert.strictEqual(price(ascendOld, 'exclusionAreasBreak'), 100, 'mutant: without withoutFootprint the probe is vetoed')
+})
 
 console.log('THE POOL\'S STOOD CELLS')
 await t('appended by any bot, read back distinct and inside the town circle; torn lines skipped; rotation keeps the old file', () => {
@@ -211,8 +232,13 @@ const W = [
   ['skills: build_shop contract expects world_change', SK, /build_shop:\s*\{\s*expects:\s*\['world_change'\]/],
   ['cognitive: the order comes from buildOrder', CG, /const r = buildOrder\(\{ on: SHOP\.on,/],
   ['cognitive: a decline refunds the cooldown', CG, /build_shop:\s*\['shopState',\s*'lastAt'\]/],
-  ['index: the footprint price appended to the shared break array', IX, /moves\.exclusionAreasBreak = moves\.exclusionAreasBreak\.concat\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
-  ['index: the footprint price appended to the shared place array', IX, /moves\.exclusionAreasPlace = moves\.exclusionAreasPlace\.concat\(\(block\) => footprintCost\(bot\.shopFootprint, bot\.movementProfile, block\)\)/],
+  ['index: the footprint entry reads the bot\'s footprint and active profile', IX, /const shopFp = footprintEntry\(\(\) => bot\.shopFootprint, \(\) => bot\.movementProfile\)/],
+  ['index: the footprint price appended to the shared break array', IX, /moves\.exclusionAreasBreak = moves\.exclusionAreasBreak\.concat\(shopFp\)/],
+  ['index: the footprint price appended to the shared place array', IX, /moves\.exclusionAreasPlace = moves\.exclusionAreasPlace\.concat\(shopFp\)/],
+  ['index: the ascend clone drops the footprint (W3 merge, Codex P1)', IX, /Object\.assign\(ascendMoves, moves\)\n\s*withoutFootprint\(ascendMoves\)/],
+  ['index: the descend clone drops the footprint', IX, /Object\.assign\(descendMoves, moves\)\n\s*withoutFootprint\(descendMoves\)/],
+  ['index: the deck clone drops the footprint', IX, /Object\.assign\(deckMoves, moves\)\n\s*withoutFootprint\(deckMoves\)/],
+  ['index: the water clone drops the footprint', IX, /Object\.assign\(waterMoves, moves\)\n\s*withoutFootprint\(waterMoves\)/],
   ['skills: the presence heartbeat while the connection lives', SK, /beat = setInterval\(\(\) => mark\(false\), PRESENCE_BEAT_MS\)/],
   ['skills: the heartbeat started at once when installed after login', SK, /if \(bot\.entity\) start\(\)/],
   ['skills: the visit fences itself on its own beat', SK, /unknown: bot\.shopUnknown, beat: true, placedBy \}/],

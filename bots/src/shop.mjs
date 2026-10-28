@@ -52,6 +52,24 @@ export const footprintCost = (cells, profile, block) => {
   const p = block?.position
   return p && cells && cells.size && FOOTPRINT_PROFILES.has(profile) && cells.has(`${p.x},${p.y},${p.z}`) ? 100 : 0
 }
+/** The pathfinder entry for the footprint (one fn for exclusionAreasBreak and exclusionAreasPlace), TAGGED so an escape clone can
+ *  drop it. `cells()` / `profile()` are read at search time. */
+export function footprintEntry (cells, profile) {
+  const f = block => footprintCost(cells(), profile(), block)
+  f.shopFootprint = true
+  return f
+}
+/**
+ * AN ESCAPE CLONE CARRIES NO FOOTPRINT PRICE (W3 one-trunk merge, Codex P1): the price read the ACTIVE profile, so a probe
+ * searched on the ascend/descend/water/deck Movements while the active profile was still `walk` (skills.mjs surface) was
+ * vetoed on workshop cells, and the climb could fall back to a shaft that fails. Bound to the Movements object instead,
+ * as nobridge-01 r2 did: the clone's own arrays without the tagged entries. Mutates and returns `m`.
+ */
+export function withoutFootprint (m) {
+  if (!m) return m
+  for (const k of ['exclusionAreasBreak', 'exclusionAreasPlace']) if (Array.isArray(m[k])) m[k] = m[k].filter(f => !f?.shopFootprint)
+  return m
+}
 
 /**
  * THE BILL of the open cells -> { name: n }. Pure. `has(name)` is the bag; the first palette choice, a fallback only when the

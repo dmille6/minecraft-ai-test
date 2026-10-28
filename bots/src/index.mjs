@@ -62,7 +62,7 @@ import { matsModeDetail, matsEnabled, matsReserve, matsBuffers } from './mats.mj
 import { createHash as shopHash } from 'node:crypto'
 import { shopStoodTick, shopFootprintRefresh, shopAckInstall } from './skills.mjs'   // shop-01: the walks' seeds, the footprint, the acks
 import { installNoBridge } from './nobridge.mjs'   // nobridge-01: no path scaffold over water on a walk
-import { SHOP, buildModeDetail, footprintCost, STOOD_EVERY_MS } from './shop.mjs'   // shop-01's licence row and the footprint price
+import { SHOP, buildModeDetail, footprintEntry, withoutFootprint, STOOD_EVERY_MS } from './shop.mjs'   // shop-01's licence row and the footprint price
 import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout-01: an open note's obligations held again at spawn
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
@@ -702,8 +702,11 @@ function connect() {
     // shop-01: THE WORKSHOP'S FOOTPRINT (its record's cells + 1) is never a WORK or TRAVEL walk's dig or scaffold (design 4.4).
     // Appended (concat, never push: townground's transit invariant) before the clones below copy them; shop.mjs footprintCost reads the walk's profile at
     // search time, so the ascend/descend/water escapes keep their survival digs
-    moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
-    moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
+    // ...and the escape clones (ascend, descend, deck, water) DROP the entry (withoutFootprint: W3 merge, Codex P1 -- a probe on an
+    // escape profile while `walk` is active must not be vetoed on a workshop cell)
+    const shopFp = footprintEntry(() => bot.shopFootprint, () => bot.movementProfile)
+    moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(shopFp)
+    moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat(shopFp)
     // nobridge-01 (LIVE 10-27 showcase: 52 dirt laid across the lake): no WALK places a path block over or into water; the
     // 1x1 tower stays (nobridge.mjs says which moves place and why this override is the narrowest). The clones below copy it
     // with noBridge=true; the ascend, descend, water and tunnel profiles clear it.
@@ -832,6 +835,7 @@ function connect() {
     // collectblock clobber a single known problem instead of a diffuse one.
     const ascendMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(ascendMoves, moves)
+    withoutFootprint(ascendMoves)     // shop-01 x W3: an escape keeps its survival digs whatever profile is active
     ascendMoves.canDig = true
     ascendMoves.noBridge = false      // nobridge-01: an escape keeps every placement
     ascendMoves.allow1by1towers = true
@@ -878,6 +882,7 @@ function connect() {
     //     gates on health besides.
     const descendMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(descendMoves, moves)
+    withoutFootprint(descendMoves)    // shop-01 x W3: an escape keeps its survival digs whatever profile is active
     descendMoves.canDig = false
     descendMoves.noBridge = false     // nobridge-01: an escape keeps every placement
     descendMoves.allow1by1towers = false
@@ -889,6 +894,7 @@ function connect() {
     // 1-wide bridge), and no bridging: nothing in this walk may step past what is already there.
     const deckMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(deckMoves, moves)
+    withoutFootprint(deckMoves)       // shop-01 x W3: the sky descent's walk is an escape too
     deckMoves.canDig = false
     deckMoves.allow1by1towers = false
     deckMoves.allowParkour = false
@@ -930,6 +936,7 @@ function connect() {
     // selected only by a climb.
     const waterMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(waterMoves, moves)
+    withoutFootprint(waterMoves)      // shop-01 x W3: an escape keeps its survival digs whatever profile is active
     waterMoves.noBridge = false       // nobridge-01: an escape keeps every placement
     // The entry penalty is the whole reason water is unreachable, and unlike the
     // other profiles this one REPLACES the array rather than inheriting the
