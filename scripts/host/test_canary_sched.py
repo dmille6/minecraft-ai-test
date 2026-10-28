@@ -667,7 +667,8 @@ def t_r11_header_deaths_do_not_hold(CS, F):
     """Every verdict line opens 'deaths N (...)': a v11 REVERT must not be read as death-driven (towndeposit-01)."""
     F.enqueue(CS)
     F.closed_run('v11-01', decision='REVERT',
-                 note='v11-01: VERDICT REVERT (+180) :: deaths 1 (0.033/bh over 30.0 measured bot-h) vs control 7 | v11 climbs +239%')
+                 note='v11-01: VERDICT REVERT (+180) :: deaths 1 (0.033/bh over 30.0 measured bot-h) vs control 7 | v11 climbs +239%',
+                 t=NOW - dt.timedelta(minutes=40))   # inside the v37 2-h expiry, so only the regex can release it
     json.dump({'verdict': 'REVERT', 'extra': {}}, open(os.path.join(F.home, 'digest', 'reads', 'v11-01-verdict-180.json'), 'w'))
     expect(CS, F, 'launch')
 
@@ -1168,6 +1169,8 @@ def t_queue_add_protected_needs_both_engines(CS, F):
     assert not bad, bad
     bad, _ = _validate(CS, F, base2, prot, 'Codex r1 APPROVE', {'lab': True})   # lab mode: the old rule (any name)
     assert not bad, bad
+    bad, _ = _validate(CS, F, base2, prot, '   ', {'lab': True})                # ...but a name is still required
+    assert any('reviewer' in b for b in bad), bad
 
 
 def t_queue_add_undecidable_is_protected(CS, F):
