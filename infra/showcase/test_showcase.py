@@ -647,7 +647,7 @@ class ProtectedList(unittest.TestCase):
         put('bots/src/skills.mjs', 'export function mineDown() {\n  return 9\n}\nexport function build() {\n  return 2\n}\n')
         mining = commit('mining depth')
         pats = SO.read_protected([base, building], repo=d)
-        self.assertEqual(pats, [('bots/src/movement.mjs', None), ('bots/src/skills.mjs', 'mine*')])
+        self.assertEqual(pats, [('bots/src/movement.mjs', None, '3'), ('bots/src/skills.mjs', 'mine*', '3')])   # (glob, symbol, tier): W1b added the tier
         self.assertEqual(SO.protected_diff(base, building, pats, repo=d), [], 'build() is not protected')
         self.assertEqual(SO.protected_diff(building, mining, pats, repo=d), ['bots/src/skills.mjs::mineDown'])
         self.assertTrue(SO.protected_diff(None, base, pats, repo=d), 'a first release: the whole tree')
