@@ -86,7 +86,10 @@ def lines(day_str, d, res, hist_days):
     for m in METRICS:
         r = res[m]
         if r['change'] is None:
-            parts.append(f"{m} {r['value'] if r['value'] is None else round(r['value'], 4)} ({r['note']})")
+            s = f"{m} {r['value'] if r['value'] is None else round(r['value'], 4)} ({r['note']})"
+            parts.append(('!! ' if r['alarm'] else '') + s)
+            if r['alarm']:                      # a zero median has no percentage, and still alarms
+                alarms[f'drift:{m}'] = f'DRIFT {day_str} {s}; {head}'
             continue
         s = f"{m} {r['value']:.4g} vs {r['median']:.4g} ({r['change']:+.0%})" + (f" [{r['note']}]" if r['note'] else '')
         parts.append(('!! ' if r['alarm'] else '') + s)

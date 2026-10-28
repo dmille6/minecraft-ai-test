@@ -146,6 +146,9 @@ def t_halt(H):
     fu2 = dict(fu, **{'mcbot@b1.service': 'inactive'})
     line, _ = H.judge_fleet([inc], fu2, T)
     check('fleet: tripper stop still down after 15 min -> alarm with trips', line and '2 fall deaths' in line, line)
+    fu3 = dict(fu, **{'mcbot@scout.service': 'active'})
+    check('fleet: incident names a BOT, resolved to its unit', H.judge_fleet([dict(inc, stopped=['Scout01'])], fu3, T,
+                                                                           unit_of={'Scout01': 'scout'})[0] is None)
     check('fleet: dry-run incident ignored', H.judge_fleet([dict(inc, dry_run=True)], fu2, T)[0] is None)
     half = {k: ('inactive' if i < 41 else 'active') for i, k in enumerate(sorted(fu))}
     check('fleet: under half running -> halt', 'only 39/80' in (H.judge_fleet([], half, T)[0] or ''))
@@ -221,6 +224,9 @@ def t_drift(D):
     r = D.drift(big, hist)
     check('drift deaths -37 % outside Poisson -> alarm', r['deaths_per_bot_h']['alarm'], r['deaths_per_bot_h'])
     text, al = D.lines('2026-10-27', dict(big, units=94851), r, ['2026-10-20', '2026-10-26'])
+    z = D.drift(dict(big, deaths_per_bot_h=0.01), [dict(h, deaths_per_bot_h=0.0) for h in hist])
+    _, alz = D.lines('2026-10-27', dict(big, units=1), z, ['a', 'b'])
+    check('drift zero median still emits the alarm', 'drift:deaths_per_bot_h' in alz, alz)
     check('drift line names denominators', '1,920 active bot-h' in text and '24 deaths' in text and 'drift:deaths_per_bot_h' in al, text)
 
 
@@ -265,6 +271,8 @@ MUTANTS = [
     ('haltwatch.py', "        if inc.get('dry_run') or not inc.get('stopped')", "        if not inc.get('stopped')", t_halt),
     ('rollout.py', "            if d >= 2 and d > poisson_upper(mu, 0.995):", "            if d > poisson_upper(mu, 0.995):", t_rollout),
     ('rollout.py', "    inside = [r for r in runs if t0 <= r[0] <= t1 + slack]", "    inside = [r for r in runs]", t_rollout),
+    ('haltwatch.py', "f'mcbot@{unit_of.get(b, b)}.service'", "f'mcbot@{b}.service'", t_halt),
+    ('driftwatch.py', "            if r['alarm']:                      # a zero median", "            if False:                      # a zero median", t_drift),
     ('driftwatch.py', "            if min(lo, hi) >= 0.025:", "            if False:", t_drift),
     ('lib/alarm.py', "        if last is None or now - last >= repush:", "        if True:", t_alarm),
     ('lib/alarmhead.py', "    if age is None or age > stale:\n        return [f'!! {label}: STALE",

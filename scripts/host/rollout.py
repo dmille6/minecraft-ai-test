@@ -234,12 +234,22 @@ def file_baseline(t0, log_root):
     return (d / bh if bh else None), bh
 
 
+def es_slot_bot_hours(ev, slot_min=10):
+    """Active bot-hours in the SAME unit as the rollout window's (logwindow.bot_hours): bots with >= 1 document per
+    slot_min-minute slot, summed. estelemetry's coverage() counts whole hours, which over-weights a bot that ran a few
+    minutes of an hour; the baseline rate must be in the unit it is multiplied by (Codex r1)."""
+    r = ev._search({'size': 0, 'query': ev._query(), 'aggs': {'s': {
+        'date_histogram': {'field': '@timestamp', 'fixed_interval': f'{slot_min}m', 'min_doc_count': 1},
+        'aggs': {'b': {'cardinality': {'field': 'bot.name', 'precision_threshold': 3000}}}}}})
+    return sum(b['b']['value'] for b in r['aggregations']['s']['buckets']) * slot_min / 60.0
+
+
 def es_baseline(t0):
     from lib.estelemetry import EsEvents
     ev = EsEvents.load('skill', since=t0 - BASELINE, until=t0, gaps='allow')
     if not ev.total():
         return None, 0.0
-    bh = ev.coverage()['bot_hours']
+    bh = es_slot_bot_hours(ev)
     d = ev.count('_death', allow_zero=True)            # ev.total() > 0 above is the positive control
     return (d / bh if bh else None), bh
 

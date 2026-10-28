@@ -93,9 +93,11 @@ def judge_showcase(deploy_rows, unit_states, now, grace=GRACE):
         f'showcase {up}/{total} running, no stop recorded'
 
 
-def judge_fleet(incidents, unit_states, now, grace=GRACE):
+def judge_fleet(incidents, unit_states, now, grace=GRACE, unit_of=None):
     """PURE. incidents: [{'at': dt, 'trips': [[scope, reason]], 'stopped': [bot], 'dry_run': bool}];
-    unit_states: {'mcbot@<bot>.service': state} or None. -> (alarm line | None, summary)."""
+    unit_states: {'mcbot@<instance>.service': state} or None; unit_of: {bot display name: systemd instance} (the
+    tripper's own /srv/mcbots/bot-manifest.json -- incidents name BOTS, units are INSTANCES). -> (alarm | None, summary)."""
+    unit_of = unit_of or {}
     if unit_states is None:
         return 'fleet bot census UNREADABLE (systemctl failed)', 'census unreadable'
     total = len(unit_states)
@@ -107,7 +109,7 @@ def judge_fleet(incidents, unit_states, now, grace=GRACE):
     for inc in sorted(incidents, key=lambda i: i['at']):
         if inc.get('dry_run') or not inc.get('stopped') or now - inc['at'] < grace:
             continue
-        still = [b for b in inc['stopped'] if unit_states.get(f'mcbot@{b}.service') != 'active']
+        still = [b for b in inc['stopped'] if unit_states.get(f'mcbot@{unit_of.get(b, b)}.service') != 'active']
         if still:
             why = '; '.join(f'{s}: {r}' for s, r in (inc.get('trips') or []))[:200]
             alarms.append(f'FLEET HALT: the death tripper stopped {len(inc["stopped"])} bot(s) at {inc["at"]:%m-%d %H:%MZ} '
@@ -135,6 +137,7 @@ def main(argv=None):
     ap.add_argument('--label', required=True, choices=['fleet', 'showcase'])
     ap.add_argument('--deploy-log', default='/srv/showcase/ops/deploy.jsonl')
     ap.add_argument('--incidents', default='/var/lib/mcai-tripper')
+    ap.add_argument('--manifest', default='/srv/mcbots/bot-manifest.json', help="the tripper's bot -> unit map")
     ap.add_argument('--state-dir', default='~/digest')
     ap.add_argument('--ship')
     ap.add_argument('--no-push', action='store_true')
@@ -151,7 +154,11 @@ def main(argv=None):
                     continue
             line, summ = judge_showcase(rows, units('mcshow@*.service'), now)
         else:
-            line, summ = judge_fleet(load_incidents(a.incidents, now), units('mcbot@*.service'), now)
+            try:
+                unit_of = json.load(open(a.manifest)).get('bots') or {}
+            except (OSError, ValueError, AttributeError):
+                unit_of = {}
+            line, summ = judge_fleet(load_incidents(a.incidents, now), units('mcbot@*.service'), now, unit_of=unit_of)
     except Exception as e:
         line, summ = f'haltwatch {a.label} FAILED: {type(e).__name__}: {str(e)[:200]}', 'check failed'
     active = {f'halt:{a.label}': line} if line else {}
