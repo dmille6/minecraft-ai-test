@@ -16,6 +16,9 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
+// kitmulti-01: this file proves the ONE-CONTAINER rule (TOOLKIT_MULTI=off, the rollback); the multi-container draw is
+// proven in kitmulti.test.mjs
+process.env.TOOLKIT_MULTI = 'off'
 process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-townindex-logs-'))
 process.env.BOT_NAME = 'IndexBot'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
