@@ -13,6 +13,28 @@ import importlib.util, json, os, sys
 from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+# ISOLATE FROM THE HOST. The tripper reads real files FIRST and falls back to the
+# (faked) ssh only when they are absent, so on the fleet host this suite used to
+# judge the LIVE logs and the LIVE trial manifest instead of its own fixtures, and
+# as root it would have written fixture digests into the live canary ledger. Point
+# every path at a scratch dir before the module reads its globals.
+import tempfile
+_SCRATCH = tempfile.mkdtemp(prefix="tripper-test-")
+os.environ["LOG_GLOB"] = os.path.join(_SCRATCH, "no-logs", "*.jsonl")
+os.environ["TRIAL_MANIFEST"] = os.path.join(_SCRATCH, "no-trial-manifest.json")
+os.environ["MANIFEST"] = os.path.join(_SCRATCH, "no-bot-manifest.json")
+os.environ["CANARY_DIGESTS"] = os.path.join(_SCRATCH, "canary-digests.json")
+os.environ.pop("TRIPPER_LOCAL", None)
+
+# The classifier the tripper imports lives in scripts/lib. The tripper looks for it
+# at /opt/minecraft-ai/scripts/lib (the host checkout); off the host that import
+# fails, the version rules go BLIND and return [], and every "still trips" case
+# fails for a reason that has nothing to do with the rules. Import THIS tree's copy
+# first so the module cache answers the tripper's import, on any machine.
+sys.path.insert(0, os.path.join(HERE, "..", "..", "scripts", "lib"))
+import version_split  # noqa: E402,F401
+
 spec = importlib.util.spec_from_file_location("tripper", os.path.join(HERE, "death-tripper.py"))
 tripper = importlib.util.module_from_spec(spec)
 sys.argv = [sys.argv[0]]                       # no --apply: never act from a test
@@ -115,6 +137,15 @@ def test_stale_declaration_still_trips():
           len(out) == 1 and "undeclared" in out[0][1], f"got {out}")
 
 
+def test_uniform_fleet_on_the_declared_sha_is_quiet():
+    # The other side of the uniform-fleet rule: the whole fleet on the declared
+    # sha, declaration long stale, must trip NOTHING -- including when the digest
+    # is one the manifest cannot know (it records bare shas).
+    out = feed([line("Scout01", "5c747f4+aaaaaa", 1), line("Hive01", "5c747f4+aaaaaa", 2)],
+               manifest=_declared(OTHER, 120))
+    check("a uniform fleet on the declared sha trips nothing", out == [], f"got {out}")
+
+
 def test_unparseable_declared_at_fails_closed():
     out = feed([line("Scout01", OLD, 1)],
                manifest={"declared_code_version": OTHER, "declared_at": "whenever"})
@@ -127,8 +158,10 @@ def test_grace_does_not_mask_a_split_nobody_is_converging_on():
     # declaration: this is drift, not a deploy, and it must still trip.
     out = feed([line("Scout01", NEW, 1), line("Gather02", OLD, 1)],
                manifest=_declared(OTHER, 2))
+    # Since 49c707c9 the classifier owns the split verdict; an unknown build on
+    # either side is a whole-fleet "undeclared code change", not "disagree".
     check("a split with nobody on the declared version still trips",
-          len(out) >= 1 and any("disagree" in p[1] for p in out), f"got {out}")
+          any(who == "ALL" and "undeclared" in why for who, why in out), f"got {out}")
 
 
 def test_rolling_restart_is_not_a_partial_deploy():
@@ -242,11 +275,15 @@ def test_a_canary_that_fails_its_own_check_is_still_undeclared_code():
     out = feed([line("hive-a-Alpha", "bbb+1", 1),
                 line("board-b-Echo", "bbb+1", 1),      # NOT in the canary pool
                 line("hive-b-Alpha", "aaa+1", 1)], man)
-    reasons = " ".join(r for _, r in out)
-    check("a canary that fails its own check is still undeclared code",
-          any("undeclared" in r for _, r in out), f"got {out}")
-    check("and it is still reported as a disagreement",
-          any("disagree" in r for _, r in out), f"got {out}")
+    # Since 49c707c9 (owner-reviewed, ChatGPT case list) the classifier names the
+    # OFFENDER rather than stopping the fleet: board-b-Echo carries the canary
+    # build outside the pool, and that is the trip. The hole this test guards --
+    # a bad declaration laundering the canary build past every rule -- stays shut
+    # as long as the offender is named.
+    check("a canary that fails its own check still trips",
+          ("board-b-Echo", version_split.CANARY_OUTSIDE_POOL) in out, f"got {out}")
+    check("and it names the offender, not the healthy bots",
+          {who for who, _ in out} == {"board-b-Echo"}, f"got {out}")
 
 
 def test_a_clean_canary_trips_nothing_even_when_stale():

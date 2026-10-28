@@ -508,6 +508,23 @@ def version_check():
             # because there was no test -- see scripts/test_version_split.py,
             # whose twelve cases include both of those as regressions.
             problems.extend(_classify_versions(seen, man, declared))
+    elif declared and not fresh_declaration:
+        # ONE VERSION, AND IT IS NOT THE DECLARED ONE. The classifier above only
+        # runs on a split, so when 49c707c9 moved the undeclared-code rule into it
+        # (and deleted the inline copy below), a fleet UNIFORMLY on undeclared code
+        # stopped tripping at all -- the commonest shape of the fault, a whole-fleet
+        # deploy nobody declared. test_death_tripper.py has failed on exactly this
+        # since 2026-08-29; preflight runs it and nobody read preflight.
+        #
+        # Sha only, on purpose: with one version observed there is no reference
+        # digest to compare against (the classifier would infer the baseline digest
+        # from this same majority), so the sha is all there is to judge. A split
+        # fleet never reaches this branch, so it cannot double-trip the state the
+        # classifier already names.
+        (only,) = versions
+        if only.split("+")[0] != declared:
+            problems.append(("ALL", f"undeclared code change: fleet runs {only} but the "
+                                    f"trial declares {declared} -- trial uninterpretable"))
     # The manifest holds the sha; the fleet reports sha+digest.
     # The canary version is DECLARED code, so it is not an undeclared change --
     # but only when the split itself checked out above. A canary named in the
