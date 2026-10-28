@@ -382,6 +382,12 @@ def test_deaths_survive_the_rotation_and_a_missing_glob_says_blind():
     try:
         got = [x["bot"] for x in tripper.load_deaths(30)]
         check("a fall moved into the rotated file still counts", got.count("Aa01") == 2, f"got {got}")
+        row = _death("Mm01", 2)
+        os.makedirs(os.path.join(d, "Mm01"))
+        open(os.path.join(d, "Mm01", "skill-Mm01.jsonl-20261028"), "w").write(row + "\n")
+        open(os.path.join(d, "Mm01", "skill-Mm01.jsonl"), "w").write(row + "\n")
+        got = [x["bot"] for x in tripper.load_deaths(30)]
+        check("a row in both live and rotated files (copytruncate) counts once", got.count("Mm01") == 1, f"got {got}")
         tripper.LOGS = os.path.join(d, "nowhere", "*.jsonl")
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):

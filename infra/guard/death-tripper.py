@@ -131,8 +131,14 @@ def load_deaths(minutes):
     # No `tail`: grep returns only death rows, and a tail over files
     # concatenated in NAME order could cut an earlier bot's recent deaths.
     r = ssh(EVD, f"grep -h '\"_death\"' {src} 2>/dev/null")
-    deaths = []
+    deaths, seen = [], set()
     for line in r.stdout.splitlines():
+        # copytruncate copies the live file before it empties it, so for a moment
+        # the same row is in both files. Count each death once, or one fall reads
+        # as two and three bots falling once read as six (Codex review).
+        if line in seen:
+            continue
+        seen.add(line)
         try:
             d = json.loads(line)
         except Exception:
