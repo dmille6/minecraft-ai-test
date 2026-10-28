@@ -82,9 +82,14 @@ const field = (row, k) => (row.match(new RegExp(`(?:^| )${k}=(\\S+)`)) || [])[1]
 /** An index observation of container `c` (what an open by any skill writes: townindex.mjs), with `names` the server's contents. */
 const seenByIndex = (c, names = { dirt: [5, 1] }, at = Date.now()) =>
   TI.appendIndex(memDir(), HK, null, { t: 'obs', id: `o-${at}-${kOf(c)}-${Math.random().toString(36).slice(2, 6)}`, k: kOf(c), h: [kOf(c)], at, bot: 'Other', by: 'count_town', names, used: 1, size: 27 })
+// smeltgate-01: what the deposit verb writes for one move -- its xfer record (ok 0), then the closing mark
+const depositByIndex = (c, name, n, at = Date.now()) => {
+  TI.appendIndex(memDir(), HK, null, { t: 'xfer', id: `x-${at}-${kOf(c)}-${name}`, op: `op-${at}`, pre: null, ver: null, gen: null, bot: 'Other', by: 'deposit', at, k: kOf(c), h: [kOf(c)], slot: null, name, n, ok: 0 })
+  return dirtyByIndex(c, at + 1)
+}
 const dirtyByIndex = (c, at = Date.now()) =>
   TI.appendIndex(memDir(), HK, null, { t: 'dirty', id: `d-${at}-${kOf(c)}`, k: kOf(c), h: [kOf(c)], at, bot: 'Other', by: 'deposit', phase: 'post', op: `op-${at}` })
 
 
 export const done = () => { Date.now = realNow; console.log(`\n${score.pass} passed, ${score.fail} failed`); process.exit(score.fail ? 1 : 0) }
-export { CF, CHESTS, FAR, FW, HK, HOME, NEAR, RECS, S0, SJ, SJ_PATH, SKILLS_PATH, TI, chest, clearWithdrawHolds, count, dirtyByIndex, fakeWorld, field, freshPool, job, kOf, killedBy, lastRow, later, memDir, offset, realNow, seenByIndex, sig, stack, t, tapRecords, town, townTotal, withMutant, withServer }
+export { CF, CHESTS, FAR, FW, HK, HOME, NEAR, RECS, S0, SJ, SJ_PATH, SKILLS_PATH, TI, chest, clearWithdrawHolds, count, depositByIndex, dirtyByIndex, fakeWorld, field, freshPool, job, kOf, killedBy, lastRow, later, memDir, offset, realNow, seenByIndex, sig, stack, t, tapRecords, town, townTotal, withMutant, withServer }

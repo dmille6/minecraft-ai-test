@@ -1,3 +1,6 @@
+// smeltgate-01: this file proves the BASE's rule-out (its mutants remove it from the gate); the index-evidence gate is off
+// here and proven in smeltgate.test.mjs and ironsmelt-chain.test.mjs (on)
+process.env.SMELT_GATE = 'off'
 // IRONSMELT-01: THE TOWN SMELT JOB SMELTS RAW IRON (FIRST), AND DOES NOT DISPATCH INTO A TOWN IT HAS SEEN EMPTY
 // (docs/reports/ironsmelt-01-design-2026-10-23.md; OWNER 2026-10-23 ~12:40Z "yes build now").
 //
@@ -18,6 +21,7 @@ import path from 'node:path'
 delete process.env.IRONSMELT; delete process.env.SMELT_RULEOUT
 const FX = await import('./ironsmelt-fixture.mjs')
 const { CF, CHESTS, FAR, FW, HK, HOME, NEAR, RECS, S0, SJ, SJ_PATH, SKILLS_PATH, TI, chest, clearWithdrawHolds, count, dirtyByIndex, fakeWorld, field, freshPool, job, kOf, killedBy, lastRow, later, memDir, offset, realNow, seenByIndex, sig, stack, t, tapRecords, town, townTotal, withMutant, withServer } = FX
+assert.equal(SJ.SMELT_GATE.on, false, 'smeltgate-01 off in this file (the base rule-out under test)')
 
 // ---- the pure decisions ----------------------------------------------------------------------------------------------
 await t('THE SWITCHES: IRONSMELT on by default (off|0|false|no -> off; unreadable -> on, said); SMELT_RULEOUT rides on it; the mode row names both', () => {
@@ -199,6 +203,8 @@ const ruledOutGate = async S => {
   assert.equal(S.jobRuledOut(w.bot, 'raw_iron').n, CHESTS.length - 1)
   // ONE MUTATION MARK re-opens that container at once (a deposit: the index's dirty mark)
   dirtyByIndex(CHESTS[4])
+  // smeltgate-01: the GATE's evidence is a move of the input, not any mark (a closed deposit records its moves); the took mark
+  // above already keeps the gate open here, so the dirty mark is judged by the SEARCH (the rule-out count below)
   assert.equal(S.townIronMiss(w.bot), false, 'a deposit into one container makes it a candidate again')
   assert.equal(S.jobRuledOut(w.bot, 'raw_iron').n, CHESTS.length - 2, 'the dirty mark re-opened its container (not only the took mark) -- Claude r3 P3-3')
   // CONTROL: the same town with NO index -> both searches have candidates (the base: an order that opens and finds nothing)
