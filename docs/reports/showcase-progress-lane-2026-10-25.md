@@ -41,6 +41,32 @@ verify after activation, rollback.
   block still trips. A restart refreshes a stale or other-release brain replay itself (`start-bots.sh` runs
   `replay-prompts.sh`); a fresh replay that FAILS still refuses.
 
+### 0.1 ONE TRUNK (W3, 2026-10-28): how the showcase follows main from now on
+
+- **Main contains the showcase.** Merged 10-28: the fleet line 1ac55837 (37a5226e), the showcase lineage 75c6b9a6
+  (b1bc6719), fell-01 r4 7d193608 (b083eef2) and shopwalls-01 551d971e -- the release live since 14:40Z -- (34591b81),
+  then main itself (1a65f343). There is no showcase branch any more: `treebridge-1027`, `fell-01-r3` and
+  `shopwalls-1028` are history. **A showcase change is a branch off origin/main, merged to main, then staged.**
+- **The release path:** branch off main -> `npm test` -> one named review (both engines if `protected.py` says so)
+  -> merge to main -> on .40 `showcase_ops.py record --run <run> --sha <main sha> --tests PASS:<sha>:<summary>
+  --review <engine>:APPROVE:<sha>` -> `stage <sha> --main` -> `activate releases/<name>` (snapshot first) -> confirm
+  10/10 on the sha -> watch the tripwire 60 min. AUTO_FOLLOW stays off; nothing follows main by itself.
+- **The protected-path rule couples the showcase to the fleet.** `stage --main` needs a fleet KEEP whenever
+  release..sha touches `config/protected-paths.txt`, judged by protected code identical to a KEEP-promoted or
+  verified fleet build. Main's tooling (canary loop, tripper, deploy, showcase gate) and the trunk merge's own bots/src
+  hits are protected, so **a main sha stages only once the fleet runs a build with the same protected code**. In
+  practice: the fleet canary of a main sha comes first (tier 3, the one slot), and the showcase stages that sha after
+  its KEEP + promotion. A building-only change on top of a fleet-kept main (no protected hit since the release) stages
+  directly.
+- **trunk-01** (queued 10-28 15:20Z on .31 behind lidplace-01): the fleet canary of the trunk, whole-bundle rollback to
+  1ac55837. Variants: base 1ac55837 -> 1a65f343 (main); base d1e15237 (if lidplace-01 is KEPT and promoted) ->
+  d4602c9e (branch trunk-01-lp = main dc0e4e9a + lidplace-01; pushed to main on that promotion so the canary sha is a
+  main sha). The showcase stages the promoted sha (record line `trunk-01` on 1a65f343 written 15:14Z; d4602c9e needs
+  its own line).
+- **The trunk turns on the building jobs fleet-wide** (`SHOP` on unless `SHOP=off`, `MATS` on except isolated pools):
+  shared fleet towns start issuing `make_material` / `build_shop`. That is intended (fun mode: visible building), and
+  `SHOP=off` / `MATS=0` are the one-line rollbacks short of reverting the bundle.
+
 ## 1. Host state before the start (read 2026-10-25 14:51-15:06Z)
 
 | check | result |
