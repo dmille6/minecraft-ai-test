@@ -38,8 +38,15 @@ export function overWater (name, depth = NOBRIDGE_DEPTH) {
   return false
 }
 
-/** A block's name for this rule: 'water' when it is waterlogged. */
-export const wetName = b => (b == null ? null : (b.getProperties?.().waterlogged === true || b.getProperties?.().waterlogged === 'true') ? 'water' : b.name)
+/** A block's name for this rule: 'water' when it is waterlogged; 'air' for ANY other block with no collision box (r4 Codex
+ *  P2: cave vines hid the water; a name list of passable plants is never complete, the collision box is). */
+export const wetName = b => {
+  if (b == null) return null
+  const pr = b.getProperties?.() ?? {}
+  if (pr.waterlogged === true || pr.waterlogged === 'true') return 'water'
+  if (b.boundingBox === 'empty' && !WATERY.test(String(b.name))) return 'air'
+  return b.name
+}
 
 /**
  * INSTALL on a Movements object -> it. `read(x, y, z)` -> a block | null. exclusionPlace becomes the library's own sum plus

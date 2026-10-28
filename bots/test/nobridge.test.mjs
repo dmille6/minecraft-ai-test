@@ -35,6 +35,9 @@ t('wetName: a waterlogged block reads as water', () => {
   assert.strictEqual(wetName({ name: 'oak_slab', getProperties: () => ({ waterlogged: true }) }), 'water')
   assert.strictEqual(wetName({ name: 'oak_slab', getProperties: () => ({ waterlogged: false }) }), 'oak_slab')
   assert.strictEqual(wetName(null), null)
+  assert.strictEqual(wetName({ name: 'cave_vines_plant', boundingBox: 'empty' }), 'air', 'no collision box: the column passes it (r4 Codex P2)')
+  assert.strictEqual(wetName({ name: 'water', boundingBox: 'empty' }), 'water')
+  assert.strictEqual(wetName({ name: 'stone', boundingBox: 'block' }), 'stone')
 })
 
 console.log('THE REAL PATHFINDER (mineflayer-pathfinder 2.4.5 Movements)')
@@ -96,6 +99,13 @@ t('REAL: a bank 24 above the lake and a lily pad below the step are both refused
   const pad = p => { let n = 'air'; if (p.y <= 62) n = p.x >= 1 ? 'water' : 'stone'; else if (p.x <= 0 && p.y <= 64) n = 'stone'; else if (p.x >= 1 && p.y === 63) n = 'lily_pad'; const b = mk(n); b.position = new Vec3(p.x, p.y, p.z); return b }
   assert.ok(east(movesFor(pad, false), 65).some(x => x.y === 65), 'positive control: scaffold at 64 over the pad')
   assert.ok(!east(movesFor(pad), 65).some(x => x.toPlace.length), 'refused on a walk')
+})
+t('REAL: cave vines hanging over the lake do not hide it (Codex r3 repro, a dig-capable profile)', () => {
+  const mk = (n, p) => { const b = Block.fromStateId(registry.blocksByName[n].defaultState, 0); b.position = new Vec3(p.x, p.y, p.z); return b }
+  const w = p => mk(p.y <= 62 ? (p.x >= 1 ? 'water' : 'stone') : (p.x <= 0 && p.y <= 64) ? 'stone' : (p.x >= 1 && p.y <= 69) ? 'cave_vines_plant' : p.y === 70 ? 'stone' : 'air', p)
+  const east = m => { m.canDig = true; return placing(m.getNeighbors(node(0, 65, 0))).filter(x => x.x === 1 && x.y === 65) }
+  assert.ok(east(movesFor(w, false)).length, 'positive control: the library breaks the vine and bridges')
+  assert.strictEqual(east(movesFor(w)).length, 0, 'refused on a walk')
 })
 t('the 1x1 TOWER is still offered on dry land on a walk (pillaring kept)', () => {
   const m = movesFor(world(false))
