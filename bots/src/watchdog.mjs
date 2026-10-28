@@ -25,6 +25,7 @@ import { logRescueRow } from './rescuerow.mjs'
 import { airAdmission, airDeclineNext } from './airstate.mjs'
 import { pickRelocationTargetAsync, landingCheck, reasonsLabel } from './relocate.mjs'
 import { relocationForbidden } from './keepout.mjs'   // keepout-01 x homefix-02: no relocation into a fire column
+import { skyEscapeBlocked } from './respawnfall.mjs'   // respawnfall-01
 import { Vec3 } from 'vec3'
 
 // ---------------------------------------------------------------------------
@@ -466,6 +467,9 @@ export class StagnationWatchdog {
     // A FURNACE SESSION IS RUNNING NOW: never judged mid-session (Codex code r1 P1-2: the busy samples taken BEFORE the
     // declaration would otherwise cancel the smelt that followed them)
     if (furnaceWindow(this.bot)) return
+    // RESPAWNFALL-01: A BOT HELD ON A HIGH PLATFORM ON PURPOSE, OR MID-DESCENT (skills.mjs skyDescend's hold, cognitive's open
+    // episode) is not stranded or stagnant: a relocation or a rescue walk from there is the fall the hold exists to prevent
+    if (skyEscapeBlocked(this.bot)) return
 
     // CHRONIC STRANDING, judged before stagnation and on its own clock.
     //

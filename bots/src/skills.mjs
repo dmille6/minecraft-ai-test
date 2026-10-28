@@ -100,6 +100,8 @@ import { planCraft } from './craftplan.mjs'
 import { overheadBreakRisk, dryColumnStep, isWaterCell } from './scaffold.mjs'
 import { logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
+import { cavefallOn, floorOverDrop, underFeet, describeFloor, floorRefusal, allFloorsMessage, skipDetail, baseFront } from './cavefall.mjs'
+import { elevation, supportOf, bodySupport, blocksNeeded, descentCost, descentDone, rankStarts, fullCube, describeDescent, stayRefusal, MARGIN as SKY_MARGIN, SPAWN_GRACE_MS } from './respawnfall.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
@@ -115,6 +117,7 @@ import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintain
          readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard, planFurnitureCells } from './townplan.mjs'
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 import { groupOfItem } from './townindex.mjs'
+import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
@@ -1213,9 +1216,51 @@ const mustCollectManually = name =>
  * or the item lies on the ground and the inventory delta stays zero -- which is
  * indistinguishable from not having mined it.
  */
+/** CAVEFALL=0 is read once per process, like FOOD_SKIP: an env change needs a restart, which a deploy is. */
+const CAVEFALL_ON = cavefallOn(process.env)
+/** cavefall.mjs's rule on the live world: is the cell at `p` a floor over a harmful drop? `on` false = never. */
+export function cavefallSkip (bot, p, { on = CAVEFALL_ON } = {}) {
+  if (!on || !p) return { skip: false, why: 'off' }
+  return floorOverDrop({ target: p, at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)) })
+}
+/**
+ * CAVEFALL-01, gather's candidate filter for one round: `skip(p)` is the rule on the live world, memoised per cell, so the
+ * exposed list, the source fallback and the foliage fallback share one verdict per cell; `skipped()` and `considered()`
+ * count every cell the round asked about; `allSkipped()` is true when at least one was asked and every one was a floor
+ * over a drop (gather's all-floors message). Exported for its behaviour tests.
+ */
+export function caveFilter (bot, { on = CAVEFALL_ON } = {}) {
+  const memo = new Map()
+  const verdict = p => { const k = `${p.x},${p.y},${p.z}`; if (!memo.has(k)) memo.set(k, { ...cavefallSkip(bot, p, { on }), at: { x: p.x, y: p.y, z: p.z } }); return memo.get(k) }
+  const skipped = () => [...memo.values()].filter(v => v.skip)
+  return { verdict, skip: p => verdict(p).skip, skipped, all: () => [...memo.values()], considered: () => memo.size, allSkipped: () => memo.size > 0 && skipped().length === memo.size }
+}
+/**
+ * CAVEFALL-01 AT THE DIG, re-asked against the world as it is now (the candidate filter judged it at scan time): a floor over
+ * a harmful drop throws `no_safe_target` with the remedy first (gather excludes the candidate and moves on); a floor dig
+ * the bot stands on that is allowed only because its fall is short or into water writes one `_cavefall_floor allowed` row
+ * (drop >= 2 or water: the plain 1-block self-dig is not logged). Never walks, never digs.
+ */
+export function cavefallDigCheck (bot, block, { on = CAVEFALL_ON, quiet = false } = {}) {
+  if (!on) return
+  const p = block.position
+  const v = cavefallSkip(bot, p, { on })
+  const row = (status, decision) => {
+    try { logEvent({ kind: 'cavefall_floor', status, snapshot: snapshot(bot), detail: describeFloor({ decision, target: p, name: block.name, verdict: v }) }) } catch { /* telemetry never costs the dig */ }
+  }
+  if (v.skip) {
+    row('no_effect', 'refused')
+    throw Object.assign(new Error(floorRefusal({ name: block.name, target: p, verdict: v })), { failClass: 'no_safe_target' })
+  }
+  if (!quiet && underFeet(bot.entity?.position, p) && v.landing && (v.landing === 'water' || (v.drop ?? 0) >= 2)) row('success', 'allowed')
+}
+
 export async function collectManually(bot, block, signal, { beforeDig = null } = {}) {
   const p = block.position
   const wanted = block.name
+  // CAVEFALL-01: refuse BEFORE the walk too, so no stance walk is spent on a floor that will not be dug (craft's table
+  // retake has no candidate filter); re-asked at the dig below
+  cavefallDigCheck(bot, block, { quiet: true })
   // ASK FOR THE STANCE THE SERVER WILL ACCEPT, AND ONLY IF WE ARE NOT ALREADY IN IT.
   //
   // This was GoalNear(p, 2), then GoalLookAtBlock (ad2a74d, to match the
@@ -1465,11 +1510,15 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   // mineflayer's dig AWAITS a lookAt before it sends block_dig unless forceLook is 'ignore' (digging.js, 4.37.1), and
   // a block can change during that look. So with a hook: look first (instant), ask the hook, then dig with 'ignore'
   // -- no second look, and no await between the last check and the dig packet.
+  // CAVEFALL-01 (cavefall.mjs): A FLOOR OVER A HARMFUL DROP IS NEVER DUG, re-asked as the LAST word -- after the look, so no
+  // await sits between it and the dig packet (Codex r2 P2-3). With CAVEFALL on, every dig takes the hook path's shape (an
+  // instant look, then dig with 'ignore'); CAVEFALL=0 keeps the base's sequence exactly.
   let forceLook
-  if (beforeDig) {
+  if (beforeDig || CAVEFALL_ON) {
     try { await bot.lookAt(p.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal: the dig still faces the block */ }
     check(signal)
-    beforeDig()
+    if (CAVEFALL_ON) cavefallDigCheck(bot, block)
+    beforeDig?.()
     forceLook = 'ignore'
   }
   await withTimeout(bot.dig(block, forceLook), 20_000, bot, {
@@ -1996,12 +2045,27 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // TOWN GROUND IS FILTERED AT ENUMERATION (townground.mjs; Codex r1 P1): a matcher that also sees the cell, so the
     // 32 candidates are all eligible -- filtering after the search would let 32 town cells hide every one outside.
     // The palette pre-check calls the matcher with no position (a type test only); every real cell has one.
+    // CAVEFALL-01: the round's one verdict per cell (cavefall.mjs), asked AT ENUMERATION too, as town ground and keep-out are,
+    // so the 32 nearest candidates findBlocks returns are the nearest that are NOT floors over a drop (Claude r3 P2-1)
+    const cave = caveFilter(bot)
+    const searchFrom = bot.entity?.position?.floored?.() ?? null   // findBlocks' own point (blocks.js: entity position, floored)
+    // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
+    // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
+    const ironStrict = IRON_KINDS.includes(blockName)
+    // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
+    // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
+    const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
+      !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
+      (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
     const notTown = id => b => {
       if (!b || b.type !== id) return false
       if (b.position && townDigClass(b.position, b.name, townHome()) === 'ground') { townSkipped++; return false }
       // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
       // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
       if (ko && b.position) { const site = columnAt(ko.sites, b.position); if (site) { const k = `${b.position.x},${b.position.y},${b.position.z}`; ko.seen ??= new Set(); if (!ko.seen.has(k)) { ko.seen.add(k); ko.skipped++; noteKeepout(bot, 'gather_skipped') } ko.site ??= site; return false } }
+      // in range only: mineflayer calls the matcher before its own distance test (blocks.js:185), so the memo -- and the
+      // round's skip count -- would otherwise hold cells findBlocks discards (Codex r4 P2-3)
+      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && cave.skip(b.position)) return false
       return true
     }
     ko?.refresh?.()
@@ -2035,7 +2099,11 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
 
     const skippedNow = townSkipped
     if (townSkipped) { noteTownGround(bot, 'gather_skipped', townSkipped); townSkipped = 0 }
-    if (positions.length === 0) {
+    // CAVEFALL-01 (Codex r4 P2-1, Claude r5): a search that enumeration emptied because candidates in the border were floors
+    // over a drop is NOT "nothing found": it goes on to the round's count (its skip row, the base-ranked front) and the
+    // all-floors refusal below, with every later round's shape -- so this early return is only for a search with no such skip
+    const caveInBorder = () => cave.skipped().filter(v => horizontalDistanceFromSpawn(v.at) <= config.world.borderRadius)
+    if (positions.length === 0 && !caveInBorder().length) {
       return collected > 0
         ? { status: 'success', detail: `collected ${collected} ${blockName} (none left within ${maxDistance})` }
         : { status: 'failed', failClass: 'nothing_found',
@@ -2090,10 +2158,10 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // That is the `model-cannot-see-it` failure, which cost four in one day.
     // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
     // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
-    const ironStrict = IRON_KINDS.includes(blockName)
-    const safeTarget = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
-      !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
-      (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
+    // CAVEFALL-01: a floor over a harmful drop is never a target (cavefall.mjs); counted apart so the message names it
+    const caveSkip = cave.skip     // the same round's verdicts: enumeration, the exposed list and both fallbacks
+    // CAVEFALL-01: the base's conjunction, then the cave rule first (baseSafe alone is kept for the exposure measure below)
+    const safeTarget = p => !caveSkip(p) && baseSafe(p)
     // Prefer blocks the bot can STAND BESIDE. `exposed` only asks whether the
     // block has an air face, which is true of every log in a tree canopy -- so
     // findBlocks would return a trunk section five blocks up in the foliage,
@@ -2197,7 +2265,9 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // Still a fallback: it runs only when the exact block yielded no reachable
     // candidate, so it can only turn a failure into an attempt.
     if (reachable.length === 0 && !viaSource) {
-      for (const alt of sourcesOf(bot.registry, blockName)) {
+      // (an emptied round -- positions.length 0 -- skips the sources: the first fallback above already searched every one
+      // and found nothing; Claude r6 P3-2)
+      for (const alt of positions.length ? sourcesOf(bot.registry, blockName) : []) {
         if (alt === blockName) continue
         const altType = bot.registry?.blocksByName?.[alt]
         if (!altType) continue
@@ -2251,9 +2321,28 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       }
     }
 
+    // CAVEFALL-01: the round's skips, counted AFTER both fallbacks (Codex r2 P2-6), one row per round with a skip
+    const caveSkipped = caveInBorder()
+    // EXPOSURE (Codex r4 P2-3, r6): would the BASE have taken a skipped floor first? The skipped cells in the border that are
+    // exposed and pass the base's own conjunction are ranked with the kept candidates in the base's two tiers (approachable
+    // first, then the rest, by findBlocks' distance) -- the base's ranking minus its A* reorder (cavefall.mjs baseFront)
+    const caveFront = () => baseFront({ pos: bot.entity?.position, approachable,
+      skipped: caveSkipped.map(v => new Vec3(v.at.x, v.at.y, v.at.z)).filter(q => bot.blockAt(q)?.type === type.id && exposed(q) && baseSafe(q)),
+      // a fallback's candidates are not what the base would have ranked against its own main-block floors (Claude r6 P3-1)
+      kept: (viaSource || viaCover) ? [] : reachable })
+    if (caveSkipped.length) {
+      try { logEvent({ kind: 'cavefall_skip', status: 'no_effect', snapshot: snapshot(bot), detail: skipDetail({ name: blockName, verdicts: caveSkipped, considered: cave.all().filter(v => horizontalDistanceFromSpawn(v.at) <= config.world.borderRadius).length,
+        front: caveFront() }) }) } catch { /* a measurement may never cost the skill its turn */ }
+    }
     if (reachable.length === 0) {
       if (collected > 0) {
         return { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried or unsafe)` }
+      }
+      // every candidate in range was a floor over a drop: none survived enumeration, or every one asked was skipped
+      if (caveSkipped.length && (cave.allSkipped() || positions.length === 0)) {
+        return { status: 'failed', failClass: 'no_safe_target',
+                 detail: allFloorsMessage({ name: blockName, n: caveSkipped.length, verdicts: caveSkipped.slice(0, 8) }) +
+                   (skippedNow ? ` (the town's ground, ${TOWN_GROUND_HALF} blocks around home, is kept too)` : '') + belowGroundHint(bot) }
       }
       if (rejectedUnsafe > 0 && exposedOnes.length === rejectedUnsafe) {
         // SAY WHICH RULE REFUSED, not "one of these two".
@@ -2306,7 +2395,9 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         return { status: 'failed', failClass: 'no_safe_target',
                  vetoCause: why,
                  detail: `${blockName} found but all ${rejectedUnsafe} candidates are beside water or ` +
-                         `under falling blocks — digging them would flood or bury this spot [${named}]` }
+                         `under falling blocks — digging them would flood or bury this spot [${named}]` +
+                         // CAVEFALL-01 (Claude r2 P3-7): in a mixed round, say how many of them were floors over a drop instead
+                         (exposedOnes.filter(caveSkip).length ? ` (${exposedOnes.filter(caveSkip).length} of them: floors over a drop into a cave)` : '') }
       }
       // "USE MINE TO DIG DOWN" IS ADVICE, AND ADVICE PRINTED IS NOT ADVICE TAKEN.
       //
@@ -2609,6 +2700,204 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
 }
 
 // ---------------------------------------------------------------- come -----
+// ----------------------------------------------------------- sky_descend -----
+/** RESPAWNFALL-01: the last `_needs_rescue` time per cell (one row per cell per 30 min). */
+const skyRescueRows = new Map()
+export const SKY_STAY_MS = 30_000
+export const SKY_RUN_MS = 140_000       // the whole run, walk and crafts included, inside the runner's 180 s (Claude r1 P3-7)
+export const SKY_WALK_MS = 15_000
+export const SKY_WALK_TRIES = 3
+export const SKY_WAIT_FLAG_MS = 10 * 60 * 1000   // a transient wait this long raises _needs_rescue (still held)
+/** The planks a log makes ('oak_log' -> 'oak_planks', 'crimson_stem' -> 'crimson_planks'), or null. Pure. */
+export const planksOf = name => {
+  const m = /^(?:stripped_)?([a-z_]+?)_(log|wood|stem|hyphae)$/.exec(String(name ?? ''))
+  return m ? `${m[1]}_planks` : null
+}
+/** Carried logs that a 2x2 grid turns into planks (no table): the blocks the bot could have. */
+const skyLogs = bot => bot.inventory.items().filter(it => planksOf(it.name) && bot.registry?.itemsByName?.[planksOf(it.name)])
+/** The descent's price check on a support it will break: can the bot break it with what it carries? (Claude r1 P2-3) */
+const skyDiggable = bot => (x, y, z) => {
+  const b = bot.blockAt(new Vec3(x, y, z))
+  if (!b) return { ok: false, why: `an unloaded support at y=${y}` }
+  const plan = planDig(predictedDigMs(b, bestTool(bot, b)))
+  return plan.refuse ? { ok: false, why: `cannot break ${b.name} at y=${y} with what it carries` } : { ok: true }
+}
+/**
+ * `sky_descend` (respawnfall-01, respawnfall.mjs): A BOT THAT (RE)SPAWNED ON A HIGH PLATFORM CLIMBS DOWN. Issued only by
+ * cognitive.mjs's deterministic order (never the model's choice), every decision until the episode is DONE.
+ *   0. Transient reading (in the air, no solid support, unloaded): wait 2 s, the order comes back. No floor dig in the
+ *      first SPAWN_GRACE_MS after a spawn (the server drops them).
+ *   1. THE CHEAPEST REACHABLE COLUMN (rankStarts: priced by descentCost, reachability by a flood over the deck, own cell
+ *      unless another saves SAVE_MIN + its walk). Another cell is walked to on the deck profile (no drop over SAFE_DROP,
+ *      no digging, towering, parkour, sprint or bridging); a walk that does not arrive excludes that cell and the next is
+ *      tried (SKY_WALK_TRIES).
+ *   2. Short of blocks: carried logs become planks in the 2x2 grid. A FREE column (cost 0) needs no blocks at all.
+ *   3. Centre (pathfinder's own stop snaps a body > 0.2 off the centre; verified), then rideFloorDown, each ride bounded
+ *      by the steps the price says are left, until descentDone.
+ * Still short, no column, or a step that cannot be made: it STAYS -- one `_needs_rescue` row per cell per 30 min, the body
+ * held (bot.skyHoldUntil) -- and the order comes back on the next decision. It never walks off an edge.
+ */
+export async function skyDescend (ctx, _args, signal, { stayMs = SKY_STAY_MS, runMs = SKY_RUN_MS, walkMs = SKY_WALK_MS } = {}) {
+  const bot = ctx.bot
+  const t0 = Date.now(), until = t0 + runMs
+  const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+  const el0 = elevation({ pos: bot.entity?.position, at, onGround: bot.entity?.onGround !== false, inWater: bot.entity?.isInWater === true })
+  const startY = bot.entity?.position?.y
+  const count = () => rescueBlocks(bot).reduce((n, it) => n + (it.count ?? 0), 0)
+  let have = count(), need = blocksNeeded(el0), walked = null, crafted = 0
+  const reserve = n => n + (n > 0 ? SKY_MARGIN : 0)
+  const row = (status, outcome, extra = {}) => {
+    try { logEvent({ kind: 'sky_descend', status, snapshot: snapshot(bot), detail: describeDescent({ outcome, el: el0, have, need, startY, endY: bot.entity?.position?.y, walked, crafted, ...extra }) }) } catch { /* telemetry never costs the body */ }
+  }
+  const stay = async (why) => {
+    try {
+      const p = bot.entity.position
+      const cell = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }
+      const k = `${cell.x},${cell.y},${cell.z}`
+      if (Date.now() - (skyRescueRows.get(k) ?? -Infinity) >= 30 * 60 * 1000) {
+        skyRescueRows.set(k, Date.now())
+        if (skyRescueRows.size > 8) skyRescueRows.delete(skyRescueRows.keys().next().value)
+        logEvent({ kind: 'needs_rescue', status: 'failed', snapshot: snapshot(bot),
+                   detail: `arm=sky_descend at=${k} open=${el0.open} landing=${el0.landing} have=${have} need=${reserve(need)} -- ${why}` })
+      }
+    } catch { /* telemetry never costs the body */ }
+    // HOLD THE BODY IN PLACE, inside this run's clock: the order comes back on the next decision, so the model never gets
+    // a turn to walk it off the edge, and the escape lattice stands aside while the hold is up
+    const end = Math.min(Date.now() + stayMs, until)
+    bot.skyHoldUntil = Math.max(bot.skyHoldUntil ?? 0, end + 60_000)
+    while (Date.now() < end) { check(signal); await sleep(Math.min(1000, Math.max(0, end - Date.now())), signal) }
+  }
+  // IN WATER: swimming is travel -- nothing to do here, and nothing held (cognitive.mjs ends the episode on it)
+  if (el0.water) { bot.skyHoldUntil = 0; row('no_effect', 'grounded', { stopped: 'in water' }); return { status: 'no_effect', detail: 'in water: swimming is travel' } }
+  const s0 = el0.support ?? supportOf(bot.entity?.position ?? { x: 0, y: 0, z: 0 })
+  const d0 = el0.transient ? { done: false, unknown: true, why: el0.why } : descentDone(at, s0)
+  // 0. TRANSIENT: wait on it (an episode never ends on it; cognitive.mjs re-issues the order)
+  if (el0.transient) {
+    bot.stationaryUntil = Math.max(bot.stationaryUntil ?? 0, Date.now() + 7_000)   // the 2-s wait is declared (Codex r8 P2-1)
+    // A WAIT THAT LASTS IS FLAGGED (Claude r3 P1-2): still held, but after SKY_WAIT_FLAG_MS a human hears of it
+    bot.skyWaitSince ??= Date.now()
+    if (Date.now() - bot.skyWaitSince > SKY_WAIT_FLAG_MS) {
+      try {
+        const p = bot.entity?.position, k = p ? `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}` : 'unknown'
+        if (Date.now() - (skyRescueRows.get(k) ?? -Infinity) >= 30 * 60 * 1000) {
+          skyRescueRows.set(k, Date.now())
+          logEvent({ kind: 'needs_rescue', status: 'failed', snapshot: snapshot(bot),
+                     detail: `arm=sky_descend at=${k} open=? landing=? have=${have} need=? -- sky_descend: held ${Math.round((Date.now() - bot.skyWaitSince) / 60000)} min on an unreadable reading (${el0.why}); walking off is a fall. Held here for rescue` })
+        }
+      } catch { /* telemetry never costs the body */ }
+    }
+    await sleep(2000, signal)
+    row('no_effect', 'wait', { stopped: el0.why })
+    return { status: 'no_effect', detail: `waiting: ${el0.why}` }
+  }
+  bot.skyWaitSince = null
+  if (d0.done) { bot.skyHoldUntil = 0; row('no_effect', 'grounded'); return { status: 'no_effect', detail: `already down: ${d0.why}` } }
+  // THE WHOLE RUN HOLDS THE BODY against the escape lattice (reflex.mjs: skyEscapeBlocked), and DECLARES ITSELF STATIONARY
+  // to the stuck reflex (stuckDecision's own mechanism), the stay included (it ends inside `until`): a held bot standing
+  // still is not stuck, and unstick's nudges and sprints from a deck edge are the fall (Codex r8 P2-1)
+  bot.skyHoldUntil = Math.max(bot.skyHoldUntil ?? 0, until + 60_000)
+  bot.stationaryUntil = Math.max(bot.stationaryUntil ?? 0, until + 5_000)
+  const graceLeft = (bot.lastSpawnAt ?? 0) + SPAWN_GRACE_MS - Date.now()
+  if (graceLeft > 0) await sleep(graceLeft, signal)
+  const diggable = skyDiggable(bot)
+
+  // 1. THE CHEAPEST REACHABLE COLUMN
+  const failed = new Set()
+  let chosen = null, lastWhy = null
+  for (let tries = 0; tries <= SKY_WALK_TRIES; tries++) {
+    check(signal)
+    const here = bodySupport(bot.entity.position, at)
+    const canPay = count() + 3 * skyLogs(bot).reduce((n, it) => n + (it.count ?? 0), 0)
+    const ranked = rankStarts({ at, support: here, diggable, exclude: failed, canPay })
+    if (!ranked.length) {
+      // the own support's price, or why it was not priced (Claude r2 P3-6: never a success message as a reason)
+      const own = fullCube(bot.blockAt(new Vec3(here.x, here.y, here.z))) ? descentCost(at, here, { diggable }) : { ok: false, why: 'standing on a partial block and no full block it can reach' }
+      lastWhy = own.ok ? 'its own column is priced but no stance was found' : own.why
+      break
+    }
+    // AFFORDABLE FIRST (Codex r6 P2-2): a free or affordable column ahead of one it cannot pay for (stable: cost order kept)
+    const affordable = r => r.cost === 0 || canPay >= reserve(r.cost)
+    ranked.sort((a, b) => (affordable(b) ? 1 : 0) - (affordable(a) ? 1 : 0))
+    const best = ranked[0]
+    if (best.own) { chosen = best; break }
+    // out of walks or of clock: the own column if it is priced at all, else stay
+    if (tries === SKY_WALK_TRIES || until - Date.now() < walkMs + 10_000) {
+      chosen = ranked.find(r => r.own) ?? null
+      if (!chosen) lastWhy = tries === SKY_WALK_TRIES ? `${failed.size} walk(s) to a cheaper column did not arrive` : 'no time left in this run to walk'
+      break
+    }
+    const goal = new goals.GoalBlock(best.cell.x, best.cell.y + 1, best.cell.z)
+    const walk = () => withTimeout(bot.pathfinder.goto(goal), walkMs, bot, { what: 'sky_descend walk', needsDrop: false })
+    try { await (bot.withDeckMovements ? bot.withDeckMovements(walk) : walk()) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    const s1 = supportOf(bot.entity.position)
+    const arrived = s1.x === best.cell.x && s1.y === best.cell.y && s1.z === best.cell.z
+    walked = `${best.cell.x},${best.cell.y},${best.cell.z}:${arrived ? 'arrived' : 'short'}`
+    if (!arrived) { failed.add(`${best.cell.x},${best.cell.y},${best.cell.z}`); continue }
+  }
+  if (!chosen) {
+    const why = stayRefusal({ el: el0, have, need, why: lastWhy ?? 'no reachable column it can price' })
+    row('failed', 'stay', { stopped: lastWhy })
+    await stay(why)
+    return { status: 'failed', failClass: 'needs_rescue', detail: why }
+  }
+  need = chosen.cost
+  // 2. SHORT OF BLOCKS: LOGS BECOME PLANKS WHERE IT STANDS (+3 blocks per log; the 2x2 grid needs no table)
+  if (have < reserve(need)) {
+    for (const log of skyLogs(bot)) {
+      if (count() >= reserve(need) || Date.now() > until - 15_000) break
+      try {
+        const id = bot.registry.itemsByName[planksOf(log.name)].id
+        const recipe = bot.recipesFor(id, null, 1, null)?.[0]
+        if (!recipe) continue
+        const n = Math.min(log.count, Math.ceil((reserve(need) - count()) / 3))
+        await withTimeout(bot.craft(recipe, n, null), 10_000, bot, { what: 'sky_descend planks' })
+        crafted += n
+      } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    }
+    have = count()
+  }
+  if (have < reserve(need)) {
+    const why = stayRefusal({ el: el0, have, need, crafted })
+    row('failed', 'stay')
+    await stay(why)
+    return { status: 'failed', failClass: 'needs_rescue', detail: why }
+  }
+  // 3. CENTRE ON THE SUPPORT CELL (a straddling body does not drop when one floor is broken): the pathfinder's fullStop
+  // snaps a body more than 0.2 off the centre once the goal is met; VERIFIED here, never assumed
+  const sc = bodySupport(bot.entity.position, at)
+  const offOf = () => Math.max(Math.abs(bot.entity.position.x - (sc.x + 0.5)), Math.abs(bot.entity.position.z - (sc.z + 0.5)))
+  if (offOf() > 0.2) {
+    const centre = () => withTimeout(bot.pathfinder.goto(new goals.GoalBlock(sc.x, sc.y + 1, sc.z)), 4000, bot, { what: 'sky_descend centre', needsDrop: false })
+    try { await (bot.withDeckMovements ? bot.withDeckMovements(centre) : centre()) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  }
+  let placed = 0, rode = 0, stopped = null
+  if (offOf() > 0.2) stopped = 'could not centre on its support (a straddling body would not drop)'
+  while (!stopped) {
+    check(signal)
+    const sp = supportOf(bot.entity.position)
+    const dn = descentDone(at, sp)
+    if (dn.done) break
+    if (Date.now() >= until) { stopped = 'this run\'s clock is spent (the order continues on the next decision)'; break }
+    // NEVER A STEP PAST THE PRICED END: rideFloorDown takes at most the steps the price says are left (it does not know the
+    // stopping test and would ride a pillar on into the ground); a support that is not a full cube is not ridden
+    if (!fullCube(bot.blockAt(new Vec3(sp.x, sp.y, sp.z))) || Math.abs(bot.entity.position.y - Math.round(bot.entity.position.y)) > 0.01) { stopped = 'not standing on a full block'; break }
+    const plan = descentCost(at, sp, { diggable })
+    if (!plan.ok) { stopped = plan.why; break }
+    const r = await rideFloorDown(bot, { maxSteps: Math.max(1, Math.min(8, plan.steps)), signal, until })
+    placed += r.placed ?? 0; rode += r.rode ?? 0
+    if (r.stopped && r.stopped !== 'the caller\'s budget is spent' && r.stopped !== 'the caller\'s budget cannot cover a placement' && r.stopped !== 'the caller\'s budget cannot cover the floor dig') { stopped = r.stopped; break }
+    if ((r.descended ?? 0) < 0.5) { stopped = r.stopped ?? 'no descent'; break }
+  }
+  const descended = (startY ?? 0) - (bot.entity?.position?.y ?? startY ?? 0)
+  const tail = `placed ${placed}, rode ${rode}${walked ? `, walked to ${walked}` : ''}${crafted ? `, crafted planks from ${crafted} log(s)` : ''}`
+  if (descentDone(at, supportOf(bot.entity.position)).done) { bot.skyHoldUntil = 0; if (bot.stationaryUntil === until + 5_000) bot.stationaryUntil = 0; row('success', 'grounded', { placed, rode }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks (${tail})` } }
+  if (descended >= 0.5) { row('success', 'progress', { placed, rode, stopped }); return { status: 'success', detail: `climbed down ${Math.round(descended)} blocks; still on the platform (${stopped ?? 'continuing'}; ${tail})` } }
+  const why = `sky_descend: staying put -- the next step down could not be made (${stopped}); walking off is a fall. Held here for rescue (_needs_rescue raised); it retries every decision`
+  row('failed', 'stopped', { placed, rode, stopped })
+  await stay(why)
+  return { status: 'failed', failClass: 'needs_rescue', detail: why }
+}
+
 // ---------------------------------------------------------- keepout_exit -----
 /**
  * `_keepout_exit` (keepout-01, design 4.6 row 4): A BODY INSIDE A FIRE COLUMN LEAVES IT before anything else. Started
@@ -3632,6 +3921,62 @@ export function townIndexTransfers (bot, pos, moves = [], { op = null, pre = nul
     return n
   } catch { return 0 }
 }
+// ---- THE TOWN LEDGER (ledger-01; ledger.mjs): what every TOWN furnace showed at each open and each load -------------------
+// Observe-only: it writes its own files and one `_ledger_station` row per record; nothing reads it in ledger-01. THE SCOPE
+// IS THE DRAIN'S (a furnace within DRAIN_RADIUS of home, at town's level: depositTargetOk), so the consumer (furnaceseen-01)
+// reads facts about exactly the furnaces it may walk to.
+let ldLastAt = 0
+const ldNow = () => { ldLastAt = Math.max(Date.now(), ldLastAt + 1); return ldLastAt }
+/** A furnace the drain could pick (townFurnaces' own predicate). */
+const ledgerScope = pos => {
+  try { const h = homeVec(); return !!pos && Math.hypot(pos.x - h.x, pos.z - h.z) <= DRAIN_RADIUS && depositTargetOk(h, pos) } catch { return false }
+}
+/** What the furnace WINDOW shows now -> { input, fuel, output, lit }; a slot that throws reads `undefined` (unreadable). */
+export function readFurnaceWindow (furnace) {
+  const rd = which => { try { return furnace[which]?.() ?? null } catch { return undefined } }
+  let lit = false
+  try { lit = (Number(furnace.fuel) || 0) > 0 } catch { lit = false }
+  return { input: rd('inputItem'), fuel: rd('fuelItem'), output: rd('outputItem'), lit }
+}
+/**
+ * ONE FURNACE OBSERVATION -> the record written (with its outcome), or null (not a town furnace, the ledger off, a slot that
+ * could not be read, or the write failed). `phase` 'open': call it right after the open, BEFORE any click; 'load': the
+ * verifying view after this bot put input or fuel in. The slots are what the WINDOW shows (the server's last update).
+ * `seen` is a caller's own readFurnaceWindow(): the drain passes the read its row prints, so the row and the record come
+ * from ONE in-memory read (design 6.4, Claude r9 #5).
+ */
+export function ledgerFurnace (bot, pos, furnace, by = '-', phase = 'open', seen = null) {
+  return ledgerObserve(bot, pos, furnace, by, phase, seen).rec
+}
+/**
+ * The same observation -> { rec, miss }: `miss` names why nothing was written, so a row can carry an INDEPENDENT marker for
+ * the read (Codex r1 P2-3: a missing record must be visible, not absent from the denominator):
+ *   off      LEDGER=off                 scope   not a town furnace (beyond the drain's radius or level)
+ *   unread   a window slot threw        fail    the ledger could not be read or the append failed (a DEFECT for the read)
+ */
+export function ledgerObserve (bot, pos, furnace, by = '-', phase = 'open', seen = null) {
+  try {
+    if (!LEDGER.on) return { rec: null, miss: 'off' }
+    if (!furnace || !ledgerScope(pos)) return { rec: null, miss: 'scope' }
+    const { input, fuel, output, lit } = seen ?? readFurnaceWindow(furnace)
+    if (input === undefined || fuel === undefined || output === undefined) return { rec: null, miss: 'unread' }   // no evidence
+    const slots = furnaceSlots({ input, fuel, output, lit })
+    const rec = recordStation(townDir(), ledgerHomeKey(homeVec()), bot.worldId ?? null,
+      { id: indexId(bot, 'L'), f: posKey(pos), bot: bot.username ?? null, by, phase, slots, at: ldNow() })
+    if (!rec) return { rec: null, miss: 'fail' }
+    try { logEvent({ kind: 'ledger_station', status: 'success', snapshot: snapshot(bot), detail: ledgerStationDetail(rec) }) } catch { /* never break a job */ }
+    return { rec, miss: null }
+  } catch { return { rec: null, miss: 'fail' } }
+}
+/** The window fields a `_furnace_session` row carries for L1 (`in`/`fuel`/`out` at the open). Pure. */
+const ledgerRowFields = h => {
+  if (!h?.ledgerOpen || h.ledgerOpen.miss === 'off') return ''      // LEDGER=off: the base row, byte for byte
+  const { rec, miss } = h.ledgerOpen
+  const L = h.ledgerLoads ?? { ok: 0, fail: 0 }
+  return (rec ? ` open=${rec.id} in=${rec.slots.in ? rec.slots.in.join(':') : '0'} fuel=${rec.slots.fuel ? rec.slots.fuel.join(':') : '0'} out=${rec.slots.out ? rec.slots.out.join(':') : '0'}` : ` open=${miss}`) +
+    ` loads=${L.ok}/${L.ok + L.fail}`
+}
+
 /** The town's index, folded now -> { k: entry }, or null when it cannot be read or the index is off (then no reader acts on
  *  it: an unreadable index is never "every container unknown" -- Claude code r1 P3). */
 export function townIndexEntries (bot) {
@@ -11723,7 +12068,7 @@ async function smelt (ctx, args, signal, opts = {}) {
     // ONE ROW PER LEASE ACTUALLY HELD, timed from its acquisition to just before its release (Codex code r1 P1-4, Claude
     // r1 P2-4): a session that switched furnaces (it placed its own) logs both, each with its own interval.
     for (const h of session.held) {
-      try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(ctx.bot), detail: `furnace=${h.furnace} lease=${h.unleased ? 'unleased' : h.n ?? '-'} t0=${h.at} t1=${h.end ?? Date.now()} by=${opts.by ?? 'smelt'}` }) } catch { /* never break a smelt */ }
+      try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(ctx.bot), detail: `furnace=${h.furnace} lease=${h.unleased ? 'unleased' : h.n ?? '-'} t0=${h.at} t1=${h.end ?? Date.now()} by=${opts.by ?? 'smelt'}${ledgerRowFields(h)}` }) } catch { /* never break a smelt */ }
     }
   }
 }
@@ -12039,6 +12384,14 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
              detail: `the furnace at ${block.position.x},${block.position.z} did not open — ` +
                      'stand next to it and face it, then smelt again' }
   }
+  // ledger-01: what the furnace showed at the open, BEFORE any click (one record, its outcome in the same append)
+  const ledgerH = session.held[session.held.length - 1] ?? null
+  { const lo = ledgerObserve(bot, block.position, furnace, session.opts?.by ?? 'smelt', 'open'); if (ledgerH) { ledgerH.ledgerOpen = lo; ledgerH.ledgerLoads = { ok: 0, fail: 0 } } }
+  // every LOAD's verifying view is its own record; a load that could not be recorded is counted (scope/off/unread are not)
+  const ledgerLoad = () => {
+    const lo = ledgerObserve(bot, block.position, furnace, session.opts?.by ?? 'smelt', 'load')
+    if (ledgerH?.ledgerLoads) { if (lo.rec) ledgerH.ledgerLoads.ok++; else if (lo.miss === 'fail') ledgerH.ledgerLoads.fail++ }
+  }
 
   let loaded = false
   // A FURNACE SESSION IS STATIONARY BY DESIGN (smeltjob-01, Paper 10-15): eight items are 80 s standing at the furnace, and
@@ -12099,6 +12452,8 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
     await furnace.putInput(inDef.id, null, plan.batch)
     await loadNext()
     loaded = true
+    // ledger-01: the LOAD's verifying view (its own record and evidence, after this bot's clicks)
+    ledgerLoad()
 
     // THE WAIT, AND IT IS THE ONLY PLACE THIS SKILL SPENDS TIME.
     // check(signal) first in every iteration and sleep(ms, signal) for every
@@ -12129,7 +12484,8 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
       // queued -- an EMPTY fuel slot takes the next one (a sword only once the furnace is cold). Never reached without
       // swords: the queue is then empty after the first load.
       confirmBurn()
-      if (queue.length && inp && slot('fuelItem') === null) await loadNext()
+      // ...and every LATER load is recorded too (Codex r1 P2-2: the peaceful kit's next sword, or the ordinary load after it)
+      if (queue.length && inp && slot('fuelItem') === null && await loadNext()) ledgerLoad()
       await sleep(SMELT_POLL_MS, signal)
     }
   } finally {
@@ -12678,9 +13034,12 @@ async function furnaceDrain (ctx, _args, signal) {
       f.stop = 'window'; return (result = { status: 'unknown', failClass: 'furnace_window', detail: `the furnace at ${at} did not open` })
     }
     opened = true
-    const rd = which => { try { const it = furnace[which](); return it ? `${it.name}:${it.count}` : '0' } catch { return '?' } }
-    f.out = rd('outputItem'); f.inp = rd('inputItem'); f.fuel = rd('fuelItem')
-    if ((furnace.fuel ?? 0) > 0) { f.stop = 'lit'; try { furnace.close() } catch { /* closed */ } furnace = null; return (result = { status: 'no_effect', detail: `the furnace at ${at} is burning; it is left alone` }) }
+    // ONE READ of the window, before any click: the row's out/in/fuel and the ledger-01 record both come from it
+    const seen = readFurnaceWindow(furnace)
+    const rd = it => (it === undefined ? '?' : it ? `${it.name}:${it.count}` : '0')
+    f.out = rd(seen.output); f.inp = rd(seen.input); f.fuel = rd(seen.fuel)
+    if (LEDGER.on) { const lo = ledgerObserve(bot, pos, furnace, 'drain', 'open', seen); f.ledger = lo.rec?.id ?? lo.miss }
+    if (seen.lit) { f.stop = 'lit'; try { furnace.close() } catch { /* closed */ } furnace = null; return (result = { status: 'no_effect', detail: `the furnace at ${at} is burning; it is left alone` }) }
     if ([f.out, f.inp, f.fuel].every(x => x === '0')) { f.stop = 'empty'; try { furnace.close() } catch { /* closed */ } furnace = null; remember(true); return (result = { status: 'no_effect', detail: `the furnace at ${at} is empty` }) }
     const win = furnace
     furnace = null
@@ -15577,6 +15936,7 @@ export const SKILL_CONTRACTS = {
   toolkit: { expects: ['kit_effect'], maxMs: 240_000 },
   // KEEPOUT-01: the body leaves the column -- its evidence is the move
   keepout_exit: { expects: ['position'], maxMs: 120_000 },
+  sky_descend: { expects: ['position'], maxMs: 170_000 },   // respawnfall-01: SKY_RUN_MS (140 s: walks, crafts, rides and the stay inside it) + the spawn grace
   // THE JUNK WELL (well.mjs). A visit LOSES listed junk (well_effect: never any other loss) -- or, a visitor that only
   // closed an open well, changes one block (world_change). A build digs and places: the cap and floor read back.
   dispose_well: { expects: ['well_effect', 'world_change'], maxMs: 120_000 },
@@ -16715,6 +17075,7 @@ export const SKILLS = {
   // KEEPOUT-01: a deterministic order from cognitive.mjs (a body inside a fire column), never the model's choice; rescue-class:
   // a failed exit never becomes an avoid rule (lessons.mjs), so the next time the body is inside, it is tried again
   keepout_exit: { run: keepoutExit, usage: 'keepout_exit', args: [], chatOnly: true, rescue: true },
+  sky_descend: { run: skyDescend, usage: 'sky_descend', args: [], chatOnly: true, rescue: true },   // respawnfall-01
   // THE JUNK WELL'S THREE TOWN ORDERS (well.mjs wellOrder), never the model's choice.
   dispose_well: { run: disposeWell, usage: 'dispose_well', args: [], chatOnly: true },
   build_well:   { run: buildWell,   usage: 'build_well',   args: [], chatOnly: true },

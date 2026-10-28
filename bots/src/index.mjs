@@ -57,6 +57,7 @@ import { townPlanModeDetail, PLAN_TICK_MS, planBreakCost } from './townplan.mjs'
 import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
 import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
+import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
@@ -70,6 +71,10 @@ import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDe
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
 import { attachLavastepGuard } from './lavastepmove.mjs'   // lavastep-01
+import { cavefallModeDetail } from './cavefall.mjs'   // cavefall-01
+import { ceilEscapeModeDetail } from './ceilescape.mjs'   // ceilescape-01
+import { plugCutModeDetail } from './plugcut.mjs'   // plugcut-01
+import { respawnfallModeDetail, SAFE_DROP as SKY_SAFE_DROP } from './respawnfall.mjs'   // respawnfall-01
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
@@ -200,6 +205,8 @@ function connect() {
   // THE WORLD'S IDENTITY (the login packet's hashed seed): the town composter's shared site record carries it, so a
   // reseed that keeps pool and home starts a new record instead of building on the old world's cell (composter.mjs).
   bot._client.on('login', packet => { bot.worldId = worldIdFromLogin(packet) })
+  // RESPAWNFALL-01: every spawn -- the login and each respawn -- opens the window in which an elevated bot climbs down
+  bot.on('spawn', () => { bot.lastSpawnAt = Date.now() })
   // THE SERVER'S DIFFICULTY (foodskip.mjs): mineflayer's bot.game.difficulty is always undefined on 1.21.8, so read the packet.
   attachDifficulty(bot)
 
@@ -321,6 +328,14 @@ function connect() {
     try { logEvent({ kind: 'poolescape_mode', status: 'success', snapshot: snapshot(bot), detail: poolEscapeModeDetail() }) } catch {}
     // lavastep-01: the licence row, once per spawn -- `_lavastep_mode`, a kind the base cannot write (lavastep.mjs)
     try { logEvent({ kind: 'lavastep_mode', status: 'success', snapshot: snapshot(bot), detail: lavastepModeDetail() }) } catch {}
+    // cavefall-01: the licence row, once per spawn -- `_cavefall_mode`, a kind the base cannot write (cavefall.mjs)
+    try { logEvent({ kind: 'cavefall_mode', status: 'success', snapshot: snapshot(bot), detail: cavefallModeDetail(process.env) }) } catch {}
+    // ceilescape-01: the licence row, once per spawn -- `_ceilescape_mode`, a kind the base cannot write (ceilescape.mjs)
+    try { logEvent({ kind: 'ceilescape_mode', status: 'success', snapshot: snapshot(bot), detail: ceilEscapeModeDetail() }) } catch {}
+    // plugcut-01: the licence row, once per spawn -- `_plugcut_mode`, a kind the base cannot write (plugcut.mjs)
+    try { logEvent({ kind: 'plugcut_mode', status: 'success', snapshot: snapshot(bot), detail: plugCutModeDetail() }) } catch {}
+    // respawnfall-01: the licence row, once per spawn -- `_respawnfall_mode`, a kind the base cannot write (respawnfall.mjs)
+    try { logEvent({ kind: 'respawnfall_mode', status: 'success', snapshot: snapshot(bot), detail: respawnfallModeDetail(process.env) }) } catch {}
     // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
     try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
     // keepout-01: the licence row, once per spawn -- `_keepout_mode`, a kind the base cannot write (keepout.mjs keepoutModeDetail)
@@ -337,6 +352,8 @@ function connect() {
     if (FOUND.on) try { logEvent({ kind: 'found_mode', status: 'success', snapshot: snapshot(bot), detail: foundModeDetail() }) } catch {}   // dormant: no row (the read's arms line)
     // junkout-01: the licence row, once per spawn -- `_junkout_mode`, a kind the base cannot write (bagallowance.mjs junkoutModeDetail)
     try { logEvent({ kind: 'junkout_mode', status: 'success', snapshot: snapshot(bot), detail: junkoutModeDetail() }) } catch {}
+    // ledger-01: the licence row (once per spawn; `on=on|off`, the cooperation design's A7 contract)
+    try { logEvent({ kind: 'ledger_mode', status: 'success', snapshot: snapshot(bot), detail: ledgerModeDetail() }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
@@ -832,6 +849,23 @@ function connect() {
     descendMoves.allowParkour = false
     descendMoves.maxDropDown = 8
     bot.descentMovements = descendMoves
+    // RESPAWNFALL-01: the DECK profile -- a walk across a high platform to the cheapest column down (skills.mjs skyDescend).
+    // No drop a body cannot take for free (SAFE_DROP), no digging, no towering, no parkour, no sprint (a sprint overshoots a
+    // 1-wide bridge), and no bridging: nothing in this walk may step past what is already there.
+    const deckMoves = Object.create(Object.getPrototypeOf(moves))
+    Object.assign(deckMoves, moves)
+    deckMoves.canDig = false
+    deckMoves.allow1by1towers = false
+    deckMoves.allowParkour = false
+    deckMoves.allowSprinting = false
+    deckMoves.maxDropDown = SKY_SAFE_DROP
+    deckMoves.scafoldingBlocks = []
+    deckMoves.infiniteLiquidDropdownDistance = false   // a deck walk never plans a plunge into water either (Claude r2 P2-3)
+    bot.withDeckMovements = async (fn) => {
+      bot.pathfinder.setMovements(deckMoves); bot.movementProfile = 'deck'
+      try { return await fn() }
+      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
+    }
     bot.withDescentMovements = async (fn) => {
       bot.pathfinder.setMovements(descendMoves); bot.movementProfile = 'descend'
       try { return await fn() }

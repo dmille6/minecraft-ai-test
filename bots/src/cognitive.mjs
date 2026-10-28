@@ -10,6 +10,8 @@
 // keeps a bad generation from becoming a bad action.
 
 import { exitDecision, townYieldOn, noteKeepout, siteKey, exitOutcome } from './keepout.mjs'
+import { elevation, descendOrder, descentDone, supportOf, respawnfallOn, SPAWN_WINDOW_MS } from './respawnfall.mjs'   // respawnfall-01
+import { Vec3 } from 'vec3'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
@@ -1002,6 +1004,29 @@ export class CognitiveLoop {
       yielded: s => !!bot.keepoutYields?.(s), yieldOn: townYieldOn(process.env), backoffUntil: this.keepoutExitBackoffUntil ?? 0 })
   }
 
+  /** RESPAWNFALL-01: the `sky_descend` order, or null (respawnfall.mjs decides; this supplies readings). */
+  #skyDescendOrder(order) {
+    try {
+      const bot = this.bot
+      if (!bot.entity?.position) return null
+      // ONLY INSIDE A SPAWN WINDOW OR AN OPEN EPISODE: the region flood is not paid on every decision of every bot (Claude r3 P2-3)
+      if (!this.skyState?.active && !(bot.lastSpawnAt != null && Date.now() - bot.lastSpawnAt <= SPAWN_WINDOW_MS)) return null
+      const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+      const el = elevation({ pos: bot.entity.position, at, onGround: bot.entity.onGround !== false, inWater: bot.entity.isInWater === true })
+      // an open episode ends only on a verified safe stance (descentDone), never on an unreadable or transient reading
+      const done = this.skyState?.active && !el.transient ? descentDone(at, el.support ?? supportOf(bot.entity.position)) : null
+      const d = descendOrder({ now: Date.now(), lastSpawnAt: bot.lastSpawnAt ?? null, el, done, state: this.skyState ?? {}, on: respawnfallOn(process.env) })
+      if (d.fresh) bot.skyWaitSince = null   // a fresh wait clock per episode (Claude r4 P3-6, r5 P2-2: descendOrder says when)
+      this.skyState = d.state
+      bot.skyActive = d.state.active === true   // the escape lattice stands aside while the episode is open (respawnfall.mjs skyEscapeBlocked)
+      // an episode handed back without a safe stance (swimming, a long transient) says so: the read and a human can see it
+      if (d.ended) bot.skyHoldUntil = 0   // an episode handed back releases its hold (Claude r5 P3-6)
+      if (d.ended) { try { logEvent({ kind: 'sky_descend_end', status: 'no_effect', detail: `ended=${d.ended} -- ${d.why}` }) } catch { /* telemetry never costs the body */ } }
+      if (!d.issue) return null
+      return { skill: 'sky_descend', args: {}, why: `spawned on a high platform (${d.why}): climbing down first${order ? ` (instead of ${order.skill})` : ''}` }
+    } catch { return null }
+  }
+
   /** KEEPOUT-01: the `_keepout_exit` order, or null (keepout.mjs exitDecision decides; this supplies readings). */
   #keepoutExitOrder(order) {
     try {
@@ -1379,6 +1404,14 @@ export class CognitiveLoop {
     // in the chain on purpose, so it overrides every order above -- except a town job inside a column that covers the town
     // (C12, owner 2026-10-22 "yes": KEEPOUT_TOWN_YIELD) and a bot at home there, and except for 5 min after a failed exit
     // (the stranded ladder and the model have the body then). Deterministic: never advice, never the model's choice.
+    // RESPAWNFALL-01: A BOT THAT SPAWNED ON A HIGH PLATFORM CLIMBS DOWN BEFORE ANYTHING ELSE (respawnfall.mjs) -- ahead of
+    // every order above; keep-out's exit (below) still outranks it: a fire column is the nearer danger.
+    // RESPAWNFALL-01 x FOUND-01 (JIT 10-24; r2 Codex P2 / Claude P3-1): an order the descent replaces never ran -- refunded
+    // through refundDeclined, which knows every order that charges at issue with no outcome of its own (found_store /
+    // found_work: the cooldown AND the visit; build_plinth, prune_town, smelt_town, furnace_drain: the cooldown) and answers {}
+    // for the rest -- so on the ground, still in town, the order can issue again. RESPAWNFALL-01 x JUNKOUT-01 (JIT 10-24): a
+    // junkout visit the descent displaces is refunded the way keep-out's exit refunds one (visitDisplacedRefund; {} otherwise)
+    { const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = sd } }
     // found-01 (Codex JIT 10-23c r1 P2): the found slot charged its visit and cooldown when it ISSUED; an order the exit replaces
     // never ran, so it is refunded like a declined run (refundDeclined) -- out of the column, still in town, the slot can issue it again
     // jit-1023 (junkout-01 x keepout-01, Codex fix review P2): a junkout visit the exit DISPLACES here never ran -- refunded as

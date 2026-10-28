@@ -263,11 +263,14 @@ test('PATH: no scaffold placed in a zone (a 1x1 tower inside is dropped; outside
 function gatherWorld ({ dirt }) {
   const DT = mcData.blocksByName.dirt, AIRT = mcData.blocksByName.air
   const set = new Set(dirt.map(([x, y, z]) => `${x},${y},${z}`))
+  // CAVEFALL-01: the dirt lies on rock -- a dirt cell floating over 32+ blocks of air is, correctly, a floor over a drop
+  const rock = new Set(dirt.map(([x, y, z]) => `${x},${y - 1},${z}`))
   const digs = []
   const b0 = (x, y, z) => {
     const isDirt = set.has(`${x},${y},${z}`)
-    const t = isDirt ? DT : AIRT
-    return { name: t.name, type: t.id, position: V(x, y, z), boundingBox: isDirt ? 'block' : 'empty', diggable: isDirt,
+    const isRock = !isDirt && rock.has(`${x},${y},${z}`)
+    const t = isDirt ? DT : isRock ? mcData.blocksByName.stone : AIRT
+    return { name: t.name, type: t.id, position: V(x, y, z), boundingBox: (isDirt || isRock) ? 'block' : 'empty', diggable: isDirt,
              canHarvest: () => true, digTime: () => 50, material: 'mineable/shovel', hardness: isDirt ? 0.5 : 0 }
   }
   const bot = {

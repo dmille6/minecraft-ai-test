@@ -835,7 +835,7 @@ export function headroomBreach ({
  * @param bear {x,z} unit cardinal
  * @returns {{ok: true, dig: number[][]}} (cells to break, top first) | {{ok: false, reason, flood?}}
  */
-export function floodSidestep ({ at = () => null, bear = { x: 0, z: 0 }, canBreak = () => true, submerged = false } = {}) {
+export function floodSidestep ({ at = () => null, bear = { x: 0, z: 0 }, canBreak = () => true, submerged = false, wetFeet = false } = {}) {
   const bx = bear?.x ?? 0, bz = bear?.z ?? 0
   if (!bx && !bz) return { ok: false, reason: 'no bearing' }
   const tread = at(bx, -1, bz), feet = at(bx, 0, bz), head = at(bx, 1, bz), ceil = at(bx, 2, bz)
@@ -846,7 +846,12 @@ export function floodSidestep ({ at = () => null, bear = { x: 0, z: 0 }, canBrea
   const FACES = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]
   const dig = []
   for (const [cell, dy, what] of [[head, 1, 'head'], [feet, 0, 'feet']]) {
-    if (isWaterCell(cell) && cell.boundingBox === 'empty') return { ok: false, reason: `water in the ${what} cell (${cell.name})` }
+    // CEILESCAPE-01 (design section 4): `wetFeet` -- passed only by the ceiling escape's RECHECKS, for a bot that began the
+    // sidestep submerged -- accepts water that flowed into the dug FEET cell. The head must still breathe: a waterlogged head
+    // block is refused too, because digging it releases its water into the cell the head will occupy.
+    if (wetFeet && what === 'head' && isWaterCell(cell)) return { ok: false, reason: `the head cell would be wet (${cell.name})` }
+    const wetOk = wetFeet && what === 'feet'
+    if (isWaterCell(cell) && cell.boundingBox === 'empty' && !wetOk) return { ok: false, reason: `water in the ${what} cell (${cell.name})` }
     if (isLavaCell(cell)) return { ok: false, reason: `lava in the ${what} cell` }
     for (const [nx, ny, nz] of FACES) {
       const n = at(bx + nx, dy + ny, bz + nz)
