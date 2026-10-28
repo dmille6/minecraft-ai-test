@@ -605,9 +605,9 @@ def piece(run, sha, base, kind='building', paper=None, reviews=None, tests=_UNSE
 
 ROWS = [piece('matset-01', M1, R40), piece('mats-01', M2, M1), piece('shop-01', S2, M2)]
 STACK = [M1, M2, S1, S2]
-GLOBS = ['bots/src/movement*.mjs', 'bots/src/reflex/**', '**/death.mjs', 'scripts/host/']
-BUILD = ['bots/src/build.mjs', 'docs/x.md']
-MOVE = ['bots/src/build.mjs', 'bots/src/movement.mjs']
+GLOBS = [('bots/src/movement*.mjs', None), ('bots/src/reflex/**', None)]   # parsed protected-list patterns (protected.py)
+BUILD = []                           # the decider's hits for a building-only diff
+MOVE = ['bots/src/movement.mjs']     # ... for a diff touching movement
 
 
 def changed_by(table, default=BUILD):
@@ -619,26 +619,40 @@ def only_codex(sha):
 
 
 class ProtectedList(unittest.TestCase):
-    def test_parse_comments_and_blanks(self):
-        self.assertEqual(SO.parse_protected('# movement\n\nbots/src/movement*.mjs\n  bots/src/reflex/**   # reflexes\n#x\n'),
-                         ['bots/src/movement*.mjs', 'bots/src/reflex/**'])
-        self.assertIsNone(SO.parse_protected(None))
-        self.assertEqual(SO.parse_protected(''), [])
+    def test_fail_closed(self):
+        self.assertTrue(SO.protected_hits([], None), 'no list readable: protected')
+        self.assertTrue(SO.protected_hits([], []), 'an empty list cannot decide (protected.py CLI: exit 2)')
+        self.assertTrue(SO.protected_hits(None, GLOBS), 'an undecided diff: protected')
+        self.assertEqual(SO.protected_hits([], GLOBS), [])
+        self.assertEqual(SO.protected_hits(MOVE, GLOBS), MOVE)
 
-    def test_matching_is_wide(self):
-        for p in ('bots/src/movement.mjs', 'bots/src/movement-swim.mjs', 'bots/src/reflex/air.mjs', 'bots/src/reflex/a/b.mjs',
-                  'death.mjs', 'bots/src/death.mjs', 'scripts/host/canary-loop.sh'):
-            self.assertTrue(SO.is_protected(p, GLOBS), p)
-        for p in ('bots/src/build.mjs', 'docs/movement.mjs', 'scripts/hostile.py', 'bots/src/reflexes.mjs'):
-            self.assertFalse(SO.is_protected(p, GLOBS), p)
-        self.assertTrue(SO.is_protected('bots/src/reflex/a.mjs', ['bots/src/reflex']), 'a bare directory covers its files')
-
-    def test_unreadable_list_or_diff_fails_closed(self):
-        self.assertTrue(SO.protected_hits(BUILD, None), 'no list readable: protected')
-        self.assertTrue(SO.protected_hits(None, GLOBS), 'no diff readable: protected')
-        self.assertEqual(SO.protected_hits(BUILD, GLOBS), [])
-        self.assertEqual(SO.protected_hits(MOVE, GLOBS), ['bots/src/movement.mjs'])
-        self.assertEqual(SO.protected_hits(MOVE, []), [], 'an empty list protects nothing')
+    def test_the_real_decider_over_a_real_repository(self):
+        """protected_diff = W1's scripts/lib/protected.py over a two-dot git diff; read_protected unions the list's copies."""
+        d = tempfile.mkdtemp()
+        g = lambda *a: subprocess.run(['git', '-C', d, *a], capture_output=True, text=True, check=True).stdout.strip()
+        def put(path, text):
+            os.makedirs(os.path.dirname(os.path.join(d, path)), exist_ok=True)
+            with open(os.path.join(d, path), 'w') as f:
+                f.write(text)
+        def commit(m):
+            g('add', '-A'); g('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', m); return g('rev-parse', 'HEAD')
+        g('init', '-q', '-b', 'main')
+        put('config/protected-paths.txt', '# list\nbots/src/movement.mjs\nbots/src/skills.mjs::mine*\n')
+        put('bots/src/movement.mjs', 'export function go() {\n  return 1\n}\n')
+        put('bots/src/skills.mjs', 'export function mineDown() {\n  return 1\n}\nexport function build() {\n  return 1\n}\n')
+        put('bots/src/build.mjs', 'x\n')
+        base = commit('base')
+        put('bots/src/build.mjs', 'y\n'); put('bots/src/skills.mjs', 'export function mineDown() {\n  return 1\n}\nexport function build() {\n  return 2\n}\n')
+        building = commit('building only')
+        put('bots/src/skills.mjs', 'export function mineDown() {\n  return 9\n}\nexport function build() {\n  return 2\n}\n')
+        mining = commit('mining depth')
+        pats = SO.read_protected([base, building], repo=d)
+        self.assertEqual(pats, [('bots/src/movement.mjs', None), ('bots/src/skills.mjs', 'mine*')])
+        self.assertEqual(SO.protected_diff(base, building, pats, repo=d), [], 'build() is not protected')
+        self.assertEqual(SO.protected_diff(building, mining, pats, repo=d), ['bots/src/skills.mjs::mineDown'])
+        self.assertTrue(SO.protected_diff(None, base, pats, repo=d), 'a first release: the whole tree')
+        self.assertIsNone(SO.protected_diff(base, 'f' * 40, pats, repo=d), 'an unreadable sha cannot be decided')
+        self.assertIsNone(SO.read_protected(['f' * 40], repo=d))
 
 
 class Evidence(unittest.TestCase):
@@ -687,7 +701,7 @@ class PieceStack(unittest.TestCase):
             revoked_in=no_cherry, docs=docs_d, changed=None, globs=GLOBS):
         fk = (lambda run, s: (kept or {}).get(run, (False, 'no journal record')))
         return SO.piece_stack_refusal(sha, rel, list(runs), rows, list(commits), anc2, revoked_in, list(revoked), docs,
-                                      changed or changed_by({}), globs, fk) or ''
+                                      changed or changed_by({}), globs, fk) or ''   # changed: the protected decider here
 
     def test_the_owner_stack_stages(self):
         self.assertEqual(self.ref(), '')
@@ -814,11 +828,11 @@ class FleetKept(unittest.TestCase):
                    {'run': 'b', 'phase': 'promoted', 'note': M2[:8], 'ts': '2026-10-27T01:00:00Z'}]   # b: promoted, never KEEP-recorded
         ledger = [{'sha': R40, 'verified': True}, {'sha': X40, 'verified': False}]
         self.assertEqual(SO.kept_builds(journal, ledger, res), [M1, R40])
-        fk = SO.make_fleet_kept([M1, R40], GLOBS, changed=changed_by({(M1, S2): BUILD, (R40, S2): MOVE}, default=None))
-        self.assertTrue(fk(S2)[0], 'protected files of S2 equal M1s')
-        fk = SO.make_fleet_kept([M1, R40], GLOBS, changed=changed_by({(M1, S2): MOVE, (R40, S2): None}, default=None))
-        self.assertFalse(fk(S2)[0], 'a differing or unreadable diff never matches')
-        self.assertFalse(SO.make_fleet_kept([M1], None, changed=changed_by({}))(S2)[0], 'no list: never kept')
+        fk = SO.make_fleet_kept([M1, R40], GLOBS, changed_by({(M1, S2): BUILD, (R40, S2): MOVE}, default=None))
+        self.assertTrue(fk(S2)[0], 'protected code of S2 equals M1s')
+        fk = SO.make_fleet_kept([M1, R40], GLOBS, changed_by({(M1, S2): MOVE, (R40, S2): None}, default=None))
+        self.assertFalse(fk(S2)[0], 'a differing or undecided diff never matches')
+        self.assertFalse(SO.make_fleet_kept([M1], None, changed_by({}))(S2)[0], 'no list: never kept')
 
 
 class ReleaseLine(unittest.TestCase):
@@ -1042,7 +1056,7 @@ class StageCommandBase(unittest.TestCase):
         self.saved = {k: getattr(SO, k) for k in ('ROOT', 'OPS', 'LEDGER', 'FOLLOW', 'DEPLOY', 'HARNESS', 'RELEASES', 'REQUIRED', 'REVOKED',
                                                   'AUTO', 'LANE', 'PIECES', 'lock', 'fetch', 'resolve', 'git', 'is_anc', 'cherry_equivalent',
                                                   'current_release', 'stage', 'pieces_in', 'docs_only_change', 'revoked_patch_in',
-                                                  'read_protected', 'changed_paths')}
+                                                  'read_protected', 'protected_diff')}
         SO.ROOT = self.d
         for k, v in (('OPS', 'ops'), ('LEDGER', 'ops/follow-ledger.jsonl'), ('FOLLOW', 'ops/follow.jsonl'), ('DEPLOY', 'ops/deploy.jsonl'),
                      ('HARNESS', 'harness'), ('RELEASES', 'releases'), ('REQUIRED', 'REQUIRED_KEPT'), ('REVOKED', 'REVOKED'),
@@ -1071,7 +1085,7 @@ class StageCommandBase(unittest.TestCase):
         SO.pieces_in = lambda sha, journal: (True, [])
         SO.read_protected = lambda shas: GLOBS
         self.changed = {}
-        SO.changed_paths = lambda a, b: self.changed.get((a, b), BUILD)
+        SO.protected_diff = lambda a, b, pats: self.changed.get((a, b), BUILD)
         self.calls = []
         SO.stage = lambda *a, **k: (self.calls.append((a, k)), (True, '/x/release'))[1]
 

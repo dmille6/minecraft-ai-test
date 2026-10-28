@@ -14,9 +14,10 @@ invisible to every bench enumerator by construction (design section 4).
 **The release gate** (`showcase_ops.py`, `evidence_refusal` / `piece_stack_refusal` / `main_release_refusal`, pure + tested):
 a release needs a release-log line in `/srv/showcase/PIECES.jsonl` with a PASSING `npm test` record and ONE named review
 (Codex or Claude, `APPROVE`), both bound to the sha (or an ancestor with only `docs/` changed since). Only when the diff
-touches `config/protected-paths.txt` (the union of the list at the current release, the candidate and origin/main; no
-readable list = protected, fail closed) does it also need BOTH engines and a fleet KEEP: the candidate's protected files
-byte-identical to a KEEP-recorded promoted sha or to the verified fleet build. Paper is optional; an explicit Paper FAIL of
+touches `config/protected-paths.txt` -- decided by W1's `scripts/lib/protected.py` (installed beside showcase_ops.py) over
+the two-dot diff release..sha, with the union of the list at the current release, the candidate and origin/main; no readable
+list or an undecided diff = protected, fail closed -- does it also need BOTH engines and a fleet KEEP: no protected hit
+between the candidate and a KEEP-recorded promoted sha or the verified fleet build. Paper is optional; an explicit Paper FAIL of
 the sha still refuses. `kind` is a label only. Kept: ancestry, REVOKED (ancestry + patch-id), REQUIRED_KEPT, the version
 verify after activation, rollback.
 

@@ -23,7 +23,7 @@ Design: docs/reports/showcase-2026-10-20.md sections 3 and 9. Pure decisions liv
 
 Everything that changes state runs under /srv/showcase/ops.lock.
 """
-import argparse, datetime as dt, fcntl, fnmatch, glob, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
+import argparse, datetime as dt, fcntl, glob, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -31,6 +31,9 @@ import followrule as FR  # noqa: E402
 import make_env as ME    # noqa: E402
 import backup_stage as BS  # noqa: E402  (its EXCL: what a world copy leaves out)
 import rcon as RC        # noqa: E402
+# THE ONE protected-path decider (W1, scripts/lib/protected.py): installed beside this file on the VM, read from the repo here
+sys.path.append(os.path.join(HERE, '..', '..', 'scripts', 'lib'))
+import protected as PR   # noqa: E402
 
 ROOT = '/srv/showcase'
 REPO = f'{ROOT}/repo'
@@ -310,43 +313,15 @@ HEX40 = re.compile(r'[0-9a-f]{40}')
 PROTECTED_LIST = 'config/protected-paths.txt'
 
 
-def parse_protected(text):
-    """config/protected-paths.txt -> [glob]: one glob per line; a line starting '#' is a comment, ' #' starts a trailing one;
-    blank lines ignored. None (no copy readable) -> None."""
-    if text is None:
-        return None
-    out = []
-    for line in text.splitlines():
-        g = line.strip()
-        if not g or g.startswith('#'):
-            continue
-        g = g.split(' #', 1)[0].strip()
-        if g:
-            out.append(g)
-    return out
-
-
-def is_protected(path, globs):
-    """Does a protected glob match this repo path? Deliberately WIDE (a false positive costs a second review, a false negative
-    an unguarded change): fnmatch, whose * also crosses '/'; '**/x' also matches a top-level x; 'dir/' and a bare 'dir' with
-    no wildcard match everything under the directory."""
-    for g in globs:
-        cands = {g, g[3:]} if g.startswith('**/') else {g}
-        if any(fnmatch.fnmatchcase(path, c) for c in cands):
-            return True
-        if not any(ch in g for ch in '*?[') and path.startswith(g.rstrip('/') + '/'):
-            return True
-    return False
-
-
-def protected_hits(paths, globs):
-    """-> the changed paths a protected glob matches. FAILS CLOSED: no readable list (globs None) or an unreadable diff
-    (paths None) is ONE pseudo-hit naming why, so the release is judged as protected."""
-    if globs is None:
+def protected_hits(hits, patterns):
+    """The protected hits of one diff, FAIL CLOSED -> [hit]. `hits`: scripts/lib/protected.py's hits() for the diff, or None
+    when it could not be computed; `patterns`: the parsed list, None or empty when unreadable (protected.py's own CLI treats an
+    empty list as "could not decide"). Either failure is ONE pseudo-hit naming why, so the release is judged as protected."""
+    if not patterns:
         return [f'(no {PROTECTED_LIST} readable: every change counts as protected)']
-    if paths is None:
-        return ['(the diff could not be read: counts as protected)']
-    return [p for p in paths if is_protected(p, globs)]
+    if hits is None:
+        return ['(the protected decider could not read the diff: counts as protected)']
+    return list(hits)
 
 
 def make_covers(is_anc, docs_only):
@@ -397,14 +372,14 @@ def revoked_refusal(sha, revoked, is_anc, revoked_in):
     return None
 
 
-def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, revoked_in, revoked, docs_only=None, changed=None,
-                        globs=None, fleet_kept=None):
+def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, revoked_in, revoked, docs_only=None, protected=None,
+                        patterns=None, fleet_kept=None):
     """`stage <sha> --piece <run>[,<run>...]`: a STACK of release-log lines on top of the current release -> None | why. Pure.
       sha         the stack's tip; release_sha the CURRENT showcase release; runs the stack's names (in any order)
       rows        PIECES.jsonl rows; the NEWEST row of a run speaks for it (rows without 'run' are log events, ignored)
       commits     every commit in release_sha..sha (git rev-list)
-      changed     changed(a, b) -> [paths] | None; a piece's protected hits are those of its own range base..sha
-      globs       the protected globs (None: unreadable -> fail closed, every piece counts as protected)
+      protected   protected(a, b) -> [hit] | None (protected.py over the diff a..b); a piece's hits are its own range base..sha
+      patterns    the parsed protected list (None / empty: unreadable -> fail closed, every piece counts as protected)
       fleet_kept  fleet_kept(run, psha) -> (ok, why), asked only for a piece that touches a protected path
       docs_only   docs_only(a, b) -> True when every path changed in a..b is under docs/
       revoked_in  revoked_in(x, sha) -> True when the revoked commit x's OWN patch is in the stack
@@ -436,7 +411,7 @@ def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, revoked_i
         psha, base = str(r.get('sha') or ''), str(r.get('base') or '')
         if not HEX40.fullmatch(psha) or not HEX40.fullmatch(base):
             return f'{run}: its line needs a 40-hex sha and base ({psha[:12]!r}, {base[:12]!r})'
-        hits = protected_hits(changed(base, psha) if changed else None, globs)
+        hits = protected_hits(protected(base, psha) if protected else None, patterns)
         why = evidence_refusal(run, r, psha, hits, covers, lambda s, run=run: fleet_kept(run, s))
         if why:
             return why
@@ -453,7 +428,7 @@ def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, revoked_i
     return revoked_refusal(sha, revoked, is_anc, revoked_in)
 
 
-def main_release_refusal(sha, release_sha, main_tip, rows, is_anc, carries, revoked_in, revoked, docs_only, changed, globs,
+def main_release_refusal(sha, release_sha, main_tip, rows, is_anc, carries, revoked_in, revoked, docs_only, protected, patterns,
                          fleet_kept):
     """`stage <sha> --main`: THE SHOWCASE FOLLOWS MAIN (owner 10-28) -- a sha on main, staged directly -> None | why. Pure.
       main_tip    origin/main; sha must be it or its ancestor
@@ -462,7 +437,7 @@ def main_release_refusal(sha, release_sha, main_tip, rows, is_anc, carries, revo
                   own improvements -- merge them into main first
       rows        the release log (PIECES.jsonl): the NEWEST line whose sha is `sha`, or an ancestor of it with only docs/
                   changed since, is this release's evidence (evidence_refusal)
-      changed     changed(a, b) -> [paths] | None over release..sha (the whole tree for a first release, a = None)
+      protected   protected(a, b) -> [hit] | None over release..sha (the whole tree for a first release, a = None)
       fleet_kept  fleet_kept(sha) -> (ok, why), asked only when a protected path changed
     No stack rule here: main is the trunk and the release log names who reviewed and tested this exact sha."""
     if not (sha and HEX40.fullmatch(sha)):
@@ -482,7 +457,7 @@ def main_release_refusal(sha, release_sha, main_tip, rows, is_anc, carries, revo
     if not mine:
         return f'no release-log line (PIECES.jsonl) names {sha[:8]}: record its tests and review first (showcase_ops.py record)'
     r = mine[-1]
-    hits = protected_hits(changed(release_sha, sha), globs)
+    hits = protected_hits(protected(release_sha, sha), patterns)
     why = evidence_refusal(r['run'], r, r['sha'], hits, covers, lambda s: fleet_kept(sha))
     if why:
         return why
@@ -606,24 +581,34 @@ def cmd_stage(a):
 
 
 # ---- the gate's git and journal inputs (impure; the decisions above are pure)
-def changed_paths(a, b, repo=None):
-    """Paths changed a..b (a None: the whole tree of b) -> [path] | None on a git failure. --no-renames: a move lists both ends."""
-    out = subprocess.run(['git', '-C', repo or REPO, 'diff', '--no-renames', '--name-only', '-z', '--ignore-submodules=none',
-                          a or EMPTY_TREE, b], capture_output=True)
-    if out.returncode:
-        return None
-    return [n for n in out.stdout.decode('utf-8', 'surrogateescape').split('\0') if n]
-
-
 def read_protected(shas, repo=None):
-    """The UNION of config/protected-paths.txt at each of these shas (the current release, the candidate, origin/main), so a
-    change can never shrink its own list. None when no copy is readable at any of them (the gate then fails closed)."""
-    globs = None
+    """The UNION of config/protected-paths.txt (protected.parse_patterns) at each of these shas -- the current release, the
+    candidate, origin/main -- so a change can never shrink its own list. None when no copy is readable at any of them."""
+    pats = None
     for s in dict.fromkeys(x for x in shas if x):
         r = subprocess.run(['git', '-C', repo or REPO, 'show', f'{s}:{PROTECTED_LIST}'], capture_output=True, text=True)
         if r.returncode == 0:
-            globs = (globs or []) + parse_protected(r.stdout)
-    return globs
+            pats = (pats or []) + [p for p in PR.parse_patterns(r.stdout) if p not in (pats or [])]
+    return pats
+
+
+def protected_diff(a, b, patterns, repo=None):
+    """protected.py's decision for the diff a..b (a None: the whole tree of b) -> [hit] | None (could not decide). The same
+    git call and reader as protected.py's CLI, on a two-dot diff: what the showcase would actually change."""
+    repo = repo or REPO
+    try:
+        g = lambda *x: subprocess.run(['git', '-C', repo, *x], capture_output=True, text=True, check=True).stdout
+        changes = PR.parse_diff(g('diff', '-U0', '-M', '--no-color', a or EMPTY_TREE, b))
+        revs = {'old': a or EMPTY_TREE, 'new': b}
+
+        def reader(side, path):
+            try:
+                return g('show', f'{revs[side]}:{path}')
+            except subprocess.CalledProcessError:
+                return None
+        return PR.hits(changes, patterns or [], reader)
+    except Exception:  # noqa: BLE001 -- could not decide = protected (protected_hits)
+        return None
 
 
 def kept_builds(journal, ledger, resolve_hex):
@@ -638,19 +623,17 @@ def kept_builds(journal, ledger, resolve_hex):
     return list(dict.fromkeys(out))
 
 
-def make_fleet_kept(builds, globs, changed=None):
-    """-> fleet_kept(psha) -> (ok, why): ok when psha's PROTECTED files are byte-identical to some kept fleet build's (the
-    protected paths in changed(build, psha) are none). An unreadable list or diff never matches (fail closed)."""
-    changed = changed or changed_paths
-
+def make_fleet_kept(builds, patterns, protected):
+    """-> fleet_kept(psha) -> (ok, why): ok when psha's PROTECTED code equals some kept fleet build's (protected(build, psha)
+    decides and finds no hit). An unreadable list or an undecided diff never matches (fail closed)."""
     def fk(psha):
         for k in builds:
-            if globs is not None:
-                ch = changed(k, psha)
-                if ch is not None and not protected_hits(ch, globs):
-                    return True, f'protected files identical to the fleet-kept build {k[:8]}'
-        return False, (f'its protected files match none of the {len(builds)} fleet-kept builds (a KEEP+promotion, or the '
-                       f'verified fleet build)' if globs is not None else f'no {PROTECTED_LIST} readable')
+            if patterns:
+                h = protected(k, psha)
+                if h is not None and not h:
+                    return True, f'protected code identical to the fleet-kept build {k[:8]}'
+        return False, (f'its protected code matches none of the {len(builds)} fleet-kept builds (a KEEP+promotion, or the '
+                       f'verified fleet build)' if patterns else f'no {PROTECTED_LIST} readable')
     return fk
 
 
@@ -662,12 +645,12 @@ def read_revoked():
     return [l.split()[0] for l in open(REVOKED).read().splitlines() if l.strip()] if os.path.exists(REVOKED) else []
 
 
-def gate_record(row, mode, globs_readable, hits):
+def gate_record(row, mode, list_readable, hits):
     """What RELEASE.json and the release log carry about the evidence that let this release through."""
     rv = [x for x in (row.get('reviews') or []) if isinstance(x, dict) and x.get('verdict') == 'APPROVE']
     return {'mode': mode, 'evidence': row.get('run'), 'evidence_sha': row.get('sha'),
             'reviewers': sorted({f"{x.get('engine')}{':' + str(x['reviewer']) if x.get('reviewer') else ''}" for x in rv}),
-            'tests': row.get('tests'), 'protected': hits[:10], 'protected_list': globs_readable}
+            'tests': row.get('tests'), 'protected': hits[:10], 'protected_list': list_readable}
 
 
 def stage_main(a, sha, feed, last, ledger):
@@ -694,10 +677,11 @@ def stage_main(a, sha, feed, last, ledger):
     rel_sha = getattr(a, 'against', None) and (resolve(a.against) or a.against) or (cur or {}).get('sha')
     rows = FR.load_jsonl(PIECES)
     journal = (feed or {}).get('journal') or []
-    globs = read_protected([rel_sha, sha, main_tip])
-    fk = make_fleet_kept(kept_builds(journal, ledger, resolve), globs)
+    pats = read_protected([rel_sha, sha, main_tip])
+    prot = lambda x, y: protected_diff(x, y, pats)
+    fk = make_fleet_kept(kept_builds(journal, ledger, resolve), pats, prot)
     why = main_release_refusal(sha, rel_sha, main_tip, rows, is_anc, carries_release, revoked_patch_in, read_revoked(),
-                               docs_only_change, changed_paths, globs, fk)
+                               docs_only_change, prot, pats, fk)
     if why:
         return refuse(why)
     ok, missing = pieces_in(sha, journal)
@@ -705,7 +689,7 @@ def stage_main(a, sha, feed, last, ledger):
         return refuse(f'{sha[:8]} lacks the required pieces {missing} (REQUIRED_KEPT)')
     covers = make_covers(is_anc, docs_only_change)
     row = [r for r in rows if isinstance(r, dict) and r.get('run') and covers(r.get('sha'), sha)][-1]
-    rec = gate_record(row, 'main', globs is not None, protected_hits(changed_paths(rel_sha, sha), globs))
+    rec = gate_record(row, 'main', bool(pats), protected_hits(prot(rel_sha, sha), pats))
     if dry:
         print(f'DRY RUN -- WOULD STAGE {sha[:8]} on {str(rel_sha)[:8]}: {json.dumps(rec)}')
         return 0
@@ -745,22 +729,23 @@ def stage_piece(a, sha, feed, last):
     commits = git('rev-list', f'{rel_sha}..{sha}', check=False).split() if rel_sha and resolve(sha) else []
     journal = (feed or {}).get('journal') or []
     main_tip = git('rev-parse', '--verify', '--quiet', 'origin/main^{commit}', check=False) or None
-    globs = read_protected([rel_sha, sha, main_tip])
-    fk = make_fleet_kept(kept_builds(journal, FR.load_jsonl(LEDGER), resolve), globs)
+    pats = read_protected([rel_sha, sha, main_tip])
+    prot = lambda x, y: protected_diff(x, y, pats)
+    fk = make_fleet_kept(kept_builds(journal, FR.load_jsonl(LEDGER), resolve), pats, prot)
 
     def fleet_kept(run, psha):
         ok, why = survival_kept(journal, run, psha, resolve)
         return (ok, why) if ok else fk(psha)
     why = piece_stack_refusal(sha, rel_sha, runs, rows, commits, is_anc, revoked_patch_in, read_revoked(), docs_only_change,
-                              changed_paths, globs, fleet_kept)
+                              prot, pats, fleet_kept)
     if why:
         return refuse(why)
     ok, missing = pieces_in(sha, journal)   # REQUIRED_KEPT against the stack
     if not ok:
         return refuse(f'{sha[:8]} lacks the required pieces {missing} (REQUIRED_KEPT)')
     newest = {r: [x for x in rows if isinstance(x, dict) and x.get('run') == r][-1] for r in runs}
-    rec = {'mode': 'piece', 'pieces': {r: gate_record(newest[r], 'piece', globs is not None,
-                                                      protected_hits(changed_paths(newest[r]['base'], newest[r]['sha']), globs))
+    rec = {'mode': 'piece', 'pieces': {r: gate_record(newest[r], 'piece', bool(pats),
+                                                      protected_hits(prot(newest[r]['base'], newest[r]['sha']), pats))
                                        for r in runs}}
     if dry:
         print(f'DRY RUN -- WOULD STAGE {sha[:8]} ({",".join(runs)}) on {str(rel_sha)[:8]}: {json.dumps(rec)}')
