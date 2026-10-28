@@ -121,6 +121,7 @@ import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState 
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
+import { workshopStations, preferWorkshop, stationKind } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
@@ -4828,11 +4829,15 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
   const rs = { tries: 0, tableYields: false, pickupDealt: false, owed: owedNow, stationDid }
 
   if (!recipe) {
-    const tableBlock = bot.findBlock({
+    const nearTable = bot.findBlock({
       matching: b => bot.registry.blocks[b.type]?.name === 'crafting_table',
       maxDistance: 32,
     })
-    if (tableBlock) {
+    // workbench-01: a town job's craft (ctx.preferWorkshop) tries the complete workshop's own table first, within the same 32,
+    // then the nearest one as before when the workshop's could not be reached
+    const wsTables = ctx.preferWorkshop ? [...(bot.shopStations?.tables ?? [])].map(k => bot.blockAt?.(keyVec(k))).filter(b => b && bot.registry.blocks[b.type]?.name === 'crafting_table' && bot.entity.position.distanceTo(b.position) <= 32) : []
+    const tableTries = preferWorkshop([...wsTables, nearTable].filter(Boolean), b => posKey(b.position), bot.shopStations?.tables)
+    for (const tableBlock of tableTries) {
       check(signal)
       // Two attempts at getting close, because the first often fails on the
       // approach rather than the destination -- a bot standing on the table's
@@ -4847,7 +4852,11 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
       }
       table = tableBlock
       recipe = bot.recipesFor(def.id, null, count, table)[0]
+      // the workshop's table out of reach after the walk: the next candidate (the nearest), as before
+      if (tableBlock !== tableTries.at(-1) && bot.entity.position.distanceTo(tableBlock.position.offset(0.5, 0.5, 0.5)) > STATION_REACH) continue
+      break
     }
+    if (ctx.stations && table) ctx.stations.table = stationKind(posKey(table.position), bot.shopStations?.tables)
   }
 
   if (!recipe) {
@@ -11875,7 +11884,7 @@ const leaseHolder = bot => `${bot?.username ?? config.bot?.name ?? 'bot'}:${proc
  * Furnaces within `radius`, nearest first; a furnace whose lease another bot holds is skipped (furnacelease.mjs).
  * `avoid(pos)` excludes furnaces this caller may not use (none in stage 1).
  */
-export function pickLeasedFurnace (bot, { radius = 32, avoid = () => false, dir = null } = {}) {
+export function pickLeasedFurnace (bot, { radius = 32, avoid = () => false, dir = null, prefer = null } = {}) {
   const isFurnace = b => bot.registry?.blocks?.[b.type]?.name === 'furnace'
   let blocks = []
   if (typeof bot.findBlocks === 'function') {
@@ -11887,6 +11896,11 @@ export function pickLeasedFurnace (bot, { radius = 32, avoid = () => false, dir 
   const me = bot.entity?.position
   blocks = blocks.filter(b => b?.position && !avoid(b.position))
     .sort((a, b) => (me ? me.distanceTo(a.position) - me.distanceTo(b.position) : 0) || a.position.x - b.position.x || a.position.y - b.position.y || a.position.z - b.position.z)
+  // workbench-01: a caller's preferred furnaces (the workshop's) first, unless lit; a busy lease falls through to the next below
+  if (prefer?.size) {
+    const unlit = b => { try { const v = b.getProperties?.()?.lit; return !(v === true || v === 'true') } catch { return true } }
+    blocks = preferWorkshop(blocks, b => `${b.position.x},${b.position.y},${b.position.z}`, prefer, unlit)
+  }
   let d = dir
   if (d == null) { try { d = townDir() } catch { d = null } }
   const busy = []
@@ -11958,7 +11972,7 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   // by `session` until the wrapper's finally. Taking a new furnace releases the one held before.
   let busy = []
   const take = () => {
-    const pk = pickLeasedFurnace(bot, { avoid: session.opts?.avoid ?? (() => false) })
+    const pk = pickLeasedFurnace(bot, { avoid: session.opts?.avoid ?? (() => false), prefer: session.opts?.prefer ?? null })
     // THE TOWN JOB FAILS CLOSED (Codex code r1 P2-5): a lease that could not be recorded (the fail-open path) is no
     // exclusion, so a deterministic job does not share a furnace on it; the model's/rung's smelt keeps the base behaviour.
     if (pk.block && pk.unleased && session.opts?.requireLease) { try { pk.lease?.release?.() } catch { /* noop lease */ } busy = ['(the lease could not be recorded)']; return null }
@@ -12719,8 +12733,8 @@ async function smeltTown (ctx, _args, signal) {
     }
     const rawBefore = heldMap(bot)[IN] ?? 0
     const r = await smelt(ctx, { item: IN, count: f.n }, signal,
-      { fuels: JOB_FUELS, requireLease: true, avoid: q => !depositTargetOk(home, q), by: 'smelt_town', deadline: smeltDeadline })
-    f.furnace = r.furnace ?? '-'; f.lease = r.lease ?? '-'
+      { fuels: JOB_FUELS, requireLease: true, avoid: q => !depositTargetOk(home, q), prefer: bot.shopStations?.furnaces ?? null, by: 'smelt_town', deadline: smeltDeadline })
+    f.furnace = r.furnace ?? '-'; f.lease = r.lease ?? '-'; f.ws = stationKind(r.furnace, bot.shopStations?.furnaces)
     priorRaw = r.prior?.[IN] ?? 0
     f.prior = (r.prior?.[OUT] ?? 0) + (r.prior?.[IN] ?? 0)
     f.smelted = Math.max(0, ((heldMap(bot)[OUT] ?? 0) - ingots0) - (r.prior?.[OUT] ?? 0))
@@ -12949,8 +12963,10 @@ function clearMatsNote (bot) { try { fs.unlinkSync(matsNotePath(bot)) } catch { 
 export const MATS_FURNACE_TRIES = 6
 export function matsFurnaceCandidates (bot) {
   const now = Date.now()
-  return townFurnaces(bot).filter(f => !f.lit && !furnaceLeasedNow(f.k) && !((bot.matsFurnaceSkip?.[f.k] ?? 0) > now))
+  const near = townFurnaces(bot).filter(f => !f.lit && !furnaceLeasedNow(f.k) && !((bot.matsFurnaceSkip?.[f.k] ?? 0) > now))
     .sort((a, b) => a.dist - b.dist || (a.k < b.k ? -1 : 1))
+  // workbench-01: the complete workshop's own furnaces first (the filter above already dropped lit, leased and skipped ones)
+  return preferWorkshop(near, f => f.k, bot.shopStations?.furnaces)
 }
 /** A crafting table this bot can use: one within 32 blocks, or one it carries (craft places and takes it back). */
 export function matsTableReady (bot) {
@@ -13451,15 +13467,19 @@ async function makeMaterial (ctx, args, signal) {
       const r = await matsSession(ctx, { input, n, planksName, out: K.smelt.out, own: null,
         onLoad: ld => { note.furnace = ld.furnace; note.loaded = ld; writeMatsNote(bot, note) } }, signal, deadline)
       f.smelted = r.made; f.burned = r.burned; f.furnaceLeft = r.furnaceLeft; f.furnace = r.furnace; f.lease = r.lease; f.cut = !!r.cut
+      f.wsF = stationKind(r.furnace, bot.shopStations?.furnaces)
       for (const [k2, c] of Object.entries(r.prior ?? {})) f.prior[k2] = (f.prior[k2] ?? 0) + c
       if (r.uncertain) uncertain = true
       // the batch is out of the furnace only when the closing read says so: else mats_return drains it later
       furnaceDone = !r.uncertain && !Object.keys(r.furnaceLeft ?? {}).length
       if (r.stop !== 'done' && r.stop !== 'short') { f.stop = `session:${r.stop}`; if (r.tried.length) f.stop += `(${r.tried.slice(0, 3).join(';')})` }
     }
+    // workbench-01: the order's crafts prefer the workshop's table (craftLevel reads ctx.preferWorkshop); which one it used -> ws=
+    const cw = { ...ctx, preferWorkshop: true, stations: {} }
     // 6. THE CRAFTS -- the copper kinds' write-ahead first (Codex r5 P2-1): a note that says `crafting` is judged as crafted
     if (!K.smelt) { note.crafting = true; writeMatsNote(bot, note) }
-    f.made = await matsCrafts(ctx, kind, bag0, signal, { planksName })
+    f.made = await matsCrafts(cw, kind, bag0, signal, { planksName })
+    f.wsT = cw.stations.table ?? '-'
     f.stop = f.stop ?? (f.made > 0 ? 'done' : 'nothing_made')
     return (result = f.made > 0
       ? { status: 'success', detail: `made ${f.made} ${K.part} from town stock above the reserve${K.smelt ? ` (${f.smelted} smelted on ${f.burned} planks)` : ''}; banked in town` }
@@ -16423,7 +16443,7 @@ export function shopDamaged (bot, rec = null) {
 }
 /** The footprint for the walks' price (index.mjs reads bot.shopFootprint in the A* step). Refreshed with the record. */
 export function shopFootprintRefresh (bot) {
-  try { const h = shopRecordHead(); if (h.ok) { bot.shopFootprint = h.head ? footprintCells(h.head.rec) : new Set(); bot.shopSaplingBox = h.head ? saplingBox(h.head.rec) : null; bot.shopCells = h.head ? recordCellKeys(h.head.rec) : new Set() } } catch { /* keep the last */ }
+  try { const h = shopRecordHead(); if (h.ok) { bot.shopFootprint = h.head ? footprintCells(h.head.rec) : new Set(); bot.shopSaplingBox = h.head ? saplingBox(h.head.rec) : null; bot.shopCells = h.head ? recordCellKeys(h.head.rec) : new Set(); bot.shopStations = workshopStations(h.head?.rec ?? null) } } catch { /* keep the last */ }
 }
 
 /**
