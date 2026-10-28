@@ -6640,6 +6640,9 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       // Never the town composter either (composter.mjs): it is not a station this bot carries, but it is one the town uses.
       if (cell.name === 'water' || cell.name === 'lava' || STATION_ITEMS.has(cell.name) || cell.name === 'composter' || /_ore$/.test(cell.name)) continue
       if (roomVeto(bot, cellPos)) continue
+      // never a workshop record cell (shopwalls-05 r2, Codex r1 BLOCK: with no candidate at all, this dig took a built pad block
+      // and put the table in its place)
+      if (bot.shopCells?.has?.(`${cellPos.x},${cellPos.y},${cellPos.z}`)) { shopSkipped++; continue }
       // never a junk well's wall, floor or plinth (wellcare-01: a bot on the stand would otherwise dig the shell for its table)
       { const wk = stationRefusalAt(bot, cellPos); if (wk) { wellRow('room', wk, 1, cellPos); continue } }
       { let zz = null; try { zz = blocked(bot.protectZones?.() ?? [], cellPos.x, cellPos.y, cellPos.z, bot.entity?.position ?? null) } catch { zz = null } if (zz) continue }   // protectzone-01

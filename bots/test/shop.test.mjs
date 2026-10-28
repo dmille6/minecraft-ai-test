@@ -348,6 +348,7 @@ await t('WIRED: place filters record cells (and bars the make-room dig), refuses
   assert.ok(/&& !shopSkipped && !\[x, y, z\]\.every/.test(body), 'the make-room dig barred')
   assert.ok(/if \(bot\.shopCells\?\.has\?\.\(`\$\{Number\(x\)\},\$\{Number\(y\)\},\$\{Number\(z\)\}`\)\) \{/.test(body), 'explicit coordinates refused')
   assert.ok(/step out of the building and place again/.test(body), 'the remedy')
+  assert.ok(/if \(roomVeto\(bot, cellPos\)\) continue\s*if \(bot\.shopCells\?\.has\?\.\(`\$\{cellPos\.x\},\$\{cellPos\.y\},\$\{cellPos\.z\}`\)\) \{ shopSkipped\+\+; continue \}/.test(body), 'the make-room dig never takes a record cell (r2)')
   assert.ok(/bot\.shopCells = h\.head \? recordCellKeys\(h\.head\.rec\) : new Set\(\)/.test(SK))
 })
 
