@@ -24,6 +24,7 @@
 
 import { remaining, FLOOR, HARD_STOP, tier, isPickaxe } from './toolfor.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
+import { indexStateOf } from './townindex.mjs'   // kitmulti-01 (townindex.mjs imports nothing of ours)
 
 /** TOOLKIT=on|off, default on; anything else reads as on and the process says so in its `_toolkit` mode row. */
 export function toolkitMode (env = {}) {
@@ -188,6 +189,82 @@ export function kitTakes (inChest = [], draw = {}, { keep = TOWN_IRON_KEEP, stic
   return { takes, why: takes.length ? null : 'holds nothing the kit draws' }
 }
 
+// ---- KITMULTI-01: THE DRAW COMES FROM SEVERAL CONTAINERS, AND THE KEEP IS THE TOWN'S ---------------------------------------
+// MEASURED 10-28 (ES 24 h to 22:30Z, 80 bots; the 16 live towns' index files, latest observation per container): 673 of 1,048
+// toolkit runs failed kit_no_iron ("no town container holds N iron ingot(s) with TOWN_IRON_KEEP(4) to spare"). 194 of 312 town
+// containers hold EXACTLY 4 ingots -- the per-container keep is where every draw left them -- so in 12 of 16 towns the fullest
+// container holds 4-6 while the town holds 34-88 (all 16: 34-182). The three towns with one container above 11 (17, 47, 55
+// ingots: board-b, placebo-b, hive-c) had 1 kit_no_iron between them; the other 13 had 672. Now (TOOLKIT_MULTI on) a run takes
+// what each container it opens holds, nearest first, until the draw is met, while the TOWN keeps TOWN_IRON_RESERVE ingots by
+// the index's latest observations; a draw the town cannot fund above that reserve is not ordered. A run that drew part of its
+// draw crafts what that funds (the pickaxe first) and keeps the rest as credit (creditAfter), as a failed run always did.
+
+/** TOOLKIT_MULTI=on|off, default on (the one-setting rollback: off is the one-container rule exactly). */
+export function toolkitMultiMode (env = {}) {
+  const raw = env?.TOOLKIT_MULTI
+  if (raw == null || String(raw).trim() === '') return { on: true, mode: 'on', note: 'TOOLKIT_MULTI unset' }
+  const v = String(raw).trim().toLowerCase()
+  if (v === 'on' || v === 'off') return { on: v === 'on', mode: v, note: null }
+  return { on: true, mode: 'on', note: `TOOLKIT_MULTI=${String(raw).slice(0, 20)} unreadable, using on` }
+}
+export const TOOLKIT_MULTI = Object.freeze(toolkitMultiMode(typeof process !== 'undefined' ? process.env : {}))
+/** Ingots the TOWN keeps after any kit draw (the sum of its containers' latest index observations). */
+export const TOWN_IRON_RESERVE = 16
+/** The town memory's need name for "this container held no iron ingot at all" (a multi-container draw takes any). */
+export const KIT_IRON_ANY = 'kit_iron_any'
+
+/**
+ * THE TOWN'S IRON BY THE INDEX -> { total, spare, containers } | null. Pure. `entries` the town index's fold ({ k: entry });
+ * total = the iron ingots in the latest observation of every container NOT mutated since it (a DIRTY container counts 0:
+ * Claude code r1 -- a withdraw visit observes at the open, before its clicks, so a container a draw took from still shows
+ * the ingots it gave until its next open, and successive runs would drain the town below its reserve), spare = total -
+ * reserve (never below 0). null when the index has no entry (unread, or a new town): the caller keeps the one-container rule.
+ */
+export function townIronSpare (entries = null, reserve = TOWN_IRON_RESERVE, now = Date.now()) {
+  if (!entries || typeof entries !== 'object') return null
+  const list = Object.values(entries)
+  if (!list.length) return null
+  let total = 0, containers = 0
+  for (const e of list) {
+    const n = indexStateOf(e, now) === 'dirty' ? 0 : Math.max(0, Number(e?.obs?.names?.iron_ingot?.[0]) || 0)
+    total += n
+    if (n > 0) containers++
+  }
+  return { total, spare: Math.max(0, total - Math.max(0, Number(reserve) || 0)), containers }
+}
+
+/**
+ * WHAT TO TAKE FROM THIS CONTAINER IN A MULTI-CONTAINER DRAW -> { takes, why, ironHeld, noSticks? }. Pure. `left` the draw
+ * still to take ({ ingots, sticks }), `budget` the ingots the town may still give above its reserve. The container gives
+ * min(left.ingots, what it holds, budget) -- no per-container floor -- and its sticks up to the shortfall. As kitTakes: a
+ * container with no iron gives nothing (sticks only ride with iron), and no iron is taken toward a craft whose sticks neither
+ * this container nor the bag's wood can make.
+ */
+export function kitTakesMulti (inChest = [], left = {}, { budget = Infinity, sticksMakeable = Infinity } = {}) {
+  const ingots = Math.max(0, Number(left.ingots) || 0), sticks = Math.max(0, Number(left.sticks) || 0)
+  const have = held(inChest, 'iron_ingot')
+  const st = Math.min(sticks, held(inChest, 'stick'))
+  const n = Math.max(0, Math.min(ingots, have, Math.floor(Number(budget))))
+  if (ingots > 0 && n <= 0) return { takes: [], why: have > 0 ? `the town keeps its last ${TOWN_IRON_RESERVE} ingots` : 'holds no iron_ingot', ironHeld: have, reserve: have > 0 }
+  if (ingots > 0 && sticks - st > sticksMakeable) return { takes: [], why: `${sticks - st} stick(s) short and the bag's wood makes ${sticksMakeable}`, noSticks: true }
+  const takes = []
+  if (n > 0) takes.push({ name: 'iron_ingot', count: n })
+  if (st > 0) takes.push({ name: 'stick', count: st })
+  return { takes, why: takes.length ? null : 'holds nothing the kit draws', ironHeld: have }
+}
+
+/** The draw left after a take -> { ingots, sticks }. Pure. */
+export const kitLeftAfter = (left = {}, took = {}) => ({
+  ingots: Math.max(0, (Number(left.ingots) || 0) - (Number(took?.iron_ingot) || 0)),
+  sticks: Math.max(0, (Number(left.sticks) || 0) - (Number(took?.stick) || 0)),
+})
+
+/** Is the multi-container rule in force for this town now? -> bool. Pure: the switch, and the index read (townIronSpare). */
+export const kitMultiOn = (spare, on = TOOLKIT_MULTI.on) => !!on && spare != null
+
+/** Does the town index rule this draw out (the order's gate, multi on)? The town's spare is short of the draw. Pure. */
+export const kitTownShort = (spare, ingots) => spare != null && (Number(ingots) || 0) > 0 && spare.spare < (Number(ingots) || 0)
+
 // ---- THE KIT'S TOWN SEARCH (toolkit-03; owner 10-19 ~12:15Z "yes do that") -------------------------------------------
 // MEASURED 10-19 (ES 24 h; read-only RCON census 12:05Z): 521 kit runs ended no_iron and 156 crafted, while the town chests
 // held 2,343 ingots -- 2,201 in town containers, and EVERY town has 2-11 containers holding a kit's 4 + TOWN_IRON_KEEP. The
@@ -274,7 +351,7 @@ export const kitSearchRow = ({ outcome = '-', need = '-', town = '-', cand = '-'
 
 /** The `_toolkit_search_mode` licence row (once per spawn): a kind the baseline cannot write. */
 export const kitSearchModeDetail = () =>
-  `phase=mode search=town need=${KIT_IRON_NEED} order=unknown,nearest visits=${KIT_SEARCH_VISITS} craft_reserve_s=${KIT_CRAFT_RESERVE_MS / 1000} no_backoff=${[...KIT_NO_BACKOFF].join('+')}`
+  `phase=mode search=town need=${KIT_IRON_NEED} order=unknown,nearest visits=${KIT_SEARCH_VISITS} craft_reserve_s=${KIT_CRAFT_RESERVE_MS / 1000} no_backoff=${[...KIT_NO_BACKOFF].join('+')} multi=${TOOLKIT_MULTI.on ? 1 : 0} town_reserve=${TOWN_IRON_RESERVE}`
 
 const lazy = v => (typeof v === 'function' ? v() : v)
 /** The runner declined to start it: nothing is charged (recount.mjs DECLINED). */
@@ -445,13 +522,13 @@ export function toolkitArgs ({ phase = 'kit', outcome = 'nothing', needs = [], d
  *   before / after: toolsTag of the bag
  */
 export function toolkitRow ({ phase = 'kit', outcome = 'nothing', needs = [], drew = 0, sticks = 0, used = 0, crafted = [], creditIn = 0, creditOut = 0,
-                              stop = '-', before = '-', after = '-', listed = 0, worn = 0, tried = [], search = null } = {}) {
+                              stop = '-', before = '-', after = '-', listed = 0, worn = 0, tried = [], search = null, multi = 0, parts = 0 } = {}) {
   const clean = v => String(v ?? '-').replace(/\s+/g, '_').slice(0, 60)
   // THE SEARCH'S COUNTERS (toolkit-03) right after the gate fields, before anything the 300-character cut can reach (the
   // townsearch row's lesson: tried= alone is cut, so a read of it is blind past a few visits)
   const sr = search ? ` town=${search.town ?? '-'} cand=${search.cand ?? '-'} visits=${search.visits ?? 0} vfail=${search.vfail ?? 0} maxrep=${search.maxrep ?? 0} left=${search.left ?? '-'}` : ''
   const head = phase === 'wear'
     ? `phase=wear outcome=${outcome} listed=${listed} worn=${worn}`
-    : `phase=kit outcome=${outcome} needs=${needs.join('+') || '-'} drew=${drew} sticks=${sticks} used=${used} crafted=${crafted.join('+') || '-'} credit=${creditIn}->${creditOut}${sr}`
+    : `phase=kit outcome=${outcome} needs=${needs.join('+') || '-'} drew=${drew} sticks=${sticks} used=${used} crafted=${crafted.join('+') || '-'} credit=${creditIn}->${creditOut}${multi ? ` parts=${parts}` : ''}${sr}`
   return `${head} stop=${clean(stop)} before=${before} after=${after} tried=[${tried.join(';')}]`.slice(0, 300)
 }

@@ -56,7 +56,8 @@ import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, 
 // The toolkit (toolkit-01): the iron axe and shovel from town iron; the spent-stone keep is hygiene.mjs's
 import { TOOLKIT, KIT, KIT_IRON_NEED, TOWN_IRON_KEEP, kitDraw, kitTakes, kitNeeds, kitMeans, creditAfter, toolkitRow, toolkitArgs, toolsTag,
   KIT_SEARCH_VISITS, KIT_CRAFT_RESERVE_MS, kitVisitStep, kitSearchEnd, kitSearchRow, kitIronNeed, kitIronMissNeeds, kitSticksAtRisk,
-  KIT_NO_STICKS_SKIP_MS, kitRoomTakes, ironpickRow, bestIronPickTag, IRONPICK_TRIP_USES, TOOLKIT_IRONPICK, KIT_NARROW, kitNarrows, kitStickHeld } from './toolkit.mjs'
+  KIT_NO_STICKS_SKIP_MS, kitRoomTakes, ironpickRow, bestIronPickTag, IRONPICK_TRIP_USES, TOOLKIT_IRONPICK, KIT_NARROW, kitNarrows, kitStickHeld,
+  TOWN_IRON_RESERVE, KIT_IRON_ANY, townIronSpare, kitTakesMulti, kitLeftAfter, kitMultiOn, kitTownShort } from './toolkit.mjs'
 import { setWithdrawHold, withdrawHolds, releaseWithdrawHold, swapWithdrawHold } from './bankable.mjs'
 import { containerPickMiss, notePickMisses, townPickMissComplete, PICK_MISS_KEY, containerItemMiss, noteItemMisses, townItemMissComplete } from './chestfull.mjs'
 import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
@@ -11389,6 +11390,9 @@ export function townKitIronMiss (bot, draw = null) {
     const mk = kitMeans(items, { tableNear }).sticksMakeable
     // ironpick-01 (Codex r2 P2): held back only while what it had is short of THIS draw's sticks (kitStickHeld)
     if (kitSticksAtRisk(d, mk)) for (const [k, until] of bot.kitNoSticks ?? []) if (until > Date.now() && kitStickHeld(bot.kitNoSticksHad?.get(k), d, mk)) held.add(k)
+    // kitmulti-01: the town's spare above its reserve (the index) must fund the draw, and the search needs any container with iron
+    const spare = townIronSpare(townIndexEntries(bot))
+    if (kitMultiOn(spare)) return kitTownShort(spare, d.ingots) || townSearchEmpty(bot, [KIT_IRON_ANY], { tried: held })
     return townSearchEmpty(bot, [kitIronNeed(d.ingots)], { tried: held })
   } catch { return false }
 }
@@ -11759,7 +11763,7 @@ async function toolkit (ctx, args, signal) {
     if (st.needs.includes('iron_pickaxe')) {
       logEvent({ kind: 'kit_ironpick', status, snapshot: snapshot(bot), durationMs: Date.now() - t0,
         detail: ironpickRow({ outcome: st.outcome, made: st.crafted.includes('iron_pickaxe'), bestBefore, bestAfter: bestIronPickTag(items()),
-          drew: st.drew, ironSeen: st.ironSeen ?? -1, keep: TOWN_IRON_KEEP, slots: items().length }) })
+          drew: st.drew, ironSeen: st.ironSeen ?? -1, keep: st.multi ? TOWN_IRON_RESERVE : TOWN_IRON_KEEP, slots: items().length }) })
     }
   }
   const out = (status, outcome, detail, failClass = null) => {
@@ -11780,9 +11784,16 @@ async function toolkit (ctx, args, signal) {
       // the room plan keeps the goal's wants, the stone-pickaxe ingredients and the iron (withdrawpick roomKeep)
       const keep = [...roomKeep(bot.currentWants ?? []), 'iron_ingot']
       const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: 32 })
+      // kitmulti-01: the town's iron by the index (null: the one-container rule), what is left of the draw, the town's budget
+      const spare = townIronSpare(townIndexEntries(bot))
+      const multi = draw.ingots > 0 && kitMultiOn(spare)
+      let left = { ingots: draw.ingots, sticks: draw.sticks }
+      const budget = () => (multi ? spare.spare - st.drew : Infinity)
+      if (multi) { st.multi = 1; st.ironSeen = spare.total }
       const decide = (inChest, bag, { chestEmpty }) => {
         // the sticks this container cannot give must be makeable from the bag's wood (kitMeans): never iron for a dead end
-        const k = kitTakes(inChest, draw, { sticksMakeable: kitMeans(bag, { tableNear }).sticksMakeable })
+        const sm = kitMeans(bag, { tableNear }).sticksMakeable
+        const k = multi ? kitTakesMulti(inChest, left, { budget: budget(), sticksMakeable: sm }) : kitTakes(inChest, draw, { sticksMakeable: sm })
         // NO STICKS HERE AND NO WOOD TO MAKE THEM: not a miss of the town's iron -- a skip, said in the row
         if (k.noSticks) return { skip: 'no_sticks' }
         // IRON IS THE POINT: a container that cannot give the ingots gives nothing (sticks alone come with the iron)
@@ -11791,13 +11802,14 @@ async function toolkit (ctx, args, signal) {
         // draw always made it (whole stacks the deposit would bank, into this chest), or no draw at all (inventory_full)
         return decideTakes(k.takes, inChest, bag, chestEmpty, keep, [...k.takes, ...kitRoomTakes(draw).filter(t => t.tool)])
       }
+      const ironIn = saw => (saw ?? []).reduce((t, it) => t + (it?.name === 'iron_ingot' ? (it.count ?? 0) : 0), 0)
       // THE TOWN SEARCH (toolkit-03; withdraw_pick's, townsearch-01/02): EVERY town container in townSearchOrder's order --
       // nearest the bot first (no journal group counts iron), never one opened already this run, a live miss for THIS draw's
       // size (kitIronNeed), one this bot could not look inside lately (withdrawSearchSkip), one that lately had the iron but
       // not the sticks this bag cannot make (bot.kitNoSticks), or one the town shut -- re-ranked after every visit, at most
       // KIT_SEARCH_VISITS, and never inside the crafts' reserve of the clock. A draw of sticks only (the credit covers the
       // iron) searches for sticks, which the journal counts.
-      const need = draw.ingots > 0 ? kitIronNeed(draw.ingots) : 'stick'
+      const need = draw.ingots > 0 ? (multi ? KIT_IRON_ANY : kitIronNeed(draw.ingots)) : 'stick'
       const pc = passClock(deadline, KIT_CRAFT_RESERVE_MS)
       const kitTried = new Set()
       // the holders that lacked only the sticks, while this bag still cannot make them (kitSticksAtRisk): out of this search
@@ -11825,6 +11837,17 @@ async function toolkit (ctx, args, signal) {
         tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
         const step = kitVisitStep(v)
         if (v.result && step !== 'took') searchFailSkip(bot, cb, v.result.failClass)
+        if (step === 'took' && multi) {
+          // kitmulti-01: this container's part of the draw; the search goes on until the draw is met or the town's budget is spent
+          st.drew += v.moved?.took?.iron_ingot ?? 0; st.sticks += v.moved?.took?.stick ?? 0
+          left = kitLeftAfter(left, v.moved?.took ?? {})
+          st.parts = (st.parts ?? 0) + 1
+          if (ironIn(v.saw) - (v.moved?.took?.iron_ingot ?? 0) <= 0) updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, halvesOf(bot, cb.position, v.double), [KIT_IRON_ANY]))
+          progressed = true
+          if (left.ingots <= 0 || budget() <= 0) { got = v.moved; break }
+          next = townSearchNext(bot, [need], kitTried)
+          continue
+        }
         if (step === 'took') {
           got = v.moved
           // the read's keep gate -- only when iron came from this container (a sticks-only draw says nothing of it: Claude r1 P1)
@@ -11833,8 +11856,10 @@ async function toolkit (ctx, args, signal) {
         }
         if (step === 'next' && SEARCH_FAIL_SKIP.has(v.result.failClass)) progressed = true   // left out of the next run's search
         if (step === 'stop') {
-          st.drew = v.moved?.took?.iron_ingot ?? 0; st.sticks = v.moved?.took?.stick ?? 0; st.stop = v.result.failClass ?? 'failed'
-          if (st.drew > 0) st.ironSeen = (v.saw ?? []).reduce((t, it) => t + (it?.name === 'iron_ingot' ? (it.count ?? 0) : 0), 0)
+          // multi: what earlier containers gave is kept (the credit), plus anything this one moved
+          if (multi) { st.drew += v.moved?.took?.iron_ingot ?? 0; st.sticks += v.moved?.took?.stick ?? 0 } else { st.drew = v.moved?.took?.iron_ingot ?? 0; st.sticks = v.moved?.took?.stick ?? 0 }
+          st.stop = v.result.failClass ?? 'failed'
+          if (st.drew > 0 && !multi) st.ironSeen = (v.saw ?? []).reduce((t, it) => t + (it?.name === 'iron_ingot' ? (it.count ?? 0) : 0), 0)
           Object.assign(st.search, searchTally(tried), { left: -1 }); st.searchT1 = Date.now()
           const oc = v.result.failClass === 'inventory_full' ? 'room' : 'draw_failed'
           searchRow('failed', oc)
@@ -11851,17 +11876,25 @@ async function toolkit (ctx, args, signal) {
         if (step === 'miss' && draw.ingots > 0) {
           const ironSeen = (v.saw ?? []).reduce((t, it) => t + (it?.name === 'iron_ingot' ? (it.count ?? 0) : 0), 0)
           updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, halvesOf(bot, cb.position, v.double), kitIronMissNeeds(ironSeen)))
+          // kitmulti-01: a container with NO iron is a miss for any draw (kit_iron_any)
+          if (ironSeen === 0) updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, mem => noteIngredientMisses(mem, halvesOf(bot, cb.position, v.double), [KIT_IRON_ANY]))
           progressed = true
+          // the town's budget is spent (a container holding iron that the reserve keeps): no other container can give more
+          if (multi && ironSeen > 0 && budget() <= 0) break
         } else if (step === 'miss' && ingredientNeedsAbsent(v.saw ?? []).includes('stick')) {
           updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, halvesOf(bot, cb.position, v.double), ['stick']))
           progressed = true
         }
         next = townSearchNext(bot, [need], kitTried)
       }
+      // multi: a part of the draw is a draw -- the crafts make what it funds (the pickaxe first), the rest stays credit
+      if (multi && st.drew > 0 && !got) got = { took: { iron_ingot: st.drew, stick: st.sticks } }
       const last = got ? null : townSearchNext(bot, [need], kitTried)
       Object.assign(st.search, searchTally(tried), { left: got ? 0 : last.order.length }); st.searchT1 = Date.now()
-      st.drew = got?.took?.iron_ingot ?? 0
-      st.sticks = got?.took?.stick ?? 0
+      if (!multi) {
+        st.drew = got?.took?.iron_ingot ?? 0
+        st.sticks = got?.took?.stick ?? 0
+      }
       keepCredit()
       if (draw.ingots > 0 && !got) {
         const end = kitSearchEnd({ left: st.search.left, noSticks, progressed, coverage: !!last.view.coverage })
@@ -11890,6 +11923,7 @@ async function toolkit (ctx, args, signal) {
         if (end.outcome === 'unseen') {
           return out('failed', 'unseen', `no iron drawn: every town container in view is known short of ${draw.ingots} + ${TOWN_IRON_KEEP} ingots, but the town is not wholly in view (the scan was cut or a column is not loaded); the kit waits`, end.failClass)
         }
+        if (multi) return out('failed', 'no_iron', `no iron drawn: the town's containers give no ${draw.ingots} ingot(s) above the town's reserve of ${TOWN_IRON_RESERVE} (${tried.length} looked in, the rest known empty); the town's iron is passed over for a while`, end.failClass)
         return out('failed', 'no_iron', `no town container holds ${draw.ingots} iron ingot(s) with ${TOWN_IRON_KEEP} to spare (${tried.length} looked in, the rest known short); the town's iron is passed over for a while`, end.failClass)
       }
       searchRow('success', got ? 'took' : 'none')
