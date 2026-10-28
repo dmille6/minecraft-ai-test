@@ -36,13 +36,15 @@ if command -v node >/dev/null 2>&1; then
   # every local run is worse than no gate: it teaches you to skip it.
   RUN_JS() { (cd bots && node "$1"); }
   SYNTAX() { (cd bots && node --check "$1"); }
+  RUN_TESTS() { (cd bots && node scripts/run-tests.mjs); }
 elif [ -n "$NODE_HOST" ]; then
   say "  (no local node; running JS checks on $NODE_HOST)"
-  tar czf - -C bots src test 2>/dev/null | \
+  tar czf - -C bots src test scripts/run-tests.mjs 2>/dev/null | \
     ssh -i "$KEY" -o BatchMode=yes "$NODE_HOST" 'rm -rf /tmp/preflight && mkdir -p /tmp/preflight && tar xzf - -C /tmp/preflight && ln -sf /srv/mcbots/harness/node_modules /tmp/preflight/node_modules' || {
       echo "  FATAL: could not stage sources on $NODE_HOST"; exit 2; }
   RUN_JS() { ssh -i "$KEY" -o BatchMode=yes "$NODE_HOST" "cd /tmp/preflight && node $1"; }
   SYNTAX() { ssh -i "$KEY" -o BatchMode=yes "$NODE_HOST" "cd /tmp/preflight && node --check $1"; }
+  RUN_TESTS() { ssh -i "$KEY" -o BatchMode=yes "$NODE_HOST" "cd /tmp/preflight && node scripts/run-tests.mjs"; }
 else
   echo "  FATAL: no node, and PREFLIGHT_NODE_HOST is unset"; exit 2
 fi
@@ -59,26 +61,22 @@ say "  $(ls bots/src/*.mjs | wc -l | tr -d ' ') source files parse"
 
 say ""
 say "  ---- behaviour (micro-worlds and replays) ----"
-for f in bots/test/*.test.mjs; do
-  b="test/$(basename "$f")"
-  out=$(RUN_JS "$b" 2>&1)
-  # ANCHORED. This was `grep -q "FAIL"`, unanchored, so it matched the letters
-  # F-A-I-L anywhere in the output -- including inside the NAME of a passing
-  # test. "PERMANENT OWNERSHIP CAPTURE IS ITS OWN FAILURE" is a test that
-  # passes, and preflight refused a deploy over it. A gate that reads prose as
-  # a verdict is a gate people learn to override.
-  #
-  # The exit code is the real signal; every runner here exits non-zero on
-  # failure. This grep is the belt for a runner that forgets to, so it must
-  # match the failure LINE FORMAT and nothing else.
-  if [ $? -ne 0 ] || echo "$out" | grep -qE "^  FAIL[[:space:]]|^FAILED"; then
-    echo "  FAIL  $b"
-    echo "$out" | grep -E "FAIL|Error|assert" | head -4 | sed 's/^/        /'
-    FAILED+=("$b")
-  else
-    say "  ok    $(basename "$f")  $(echo "$out" | grep -oE '[0-9]+ passed' | tail -1)"
-  fi
-done
+# THE CANONICAL RUNNER, not a loop of our own. This used to be a bash loop
+# running each file with none of the runner's env -- no SKILL_TIMEOUT_MS=300,
+# no OLLAMA_MODEL, no STOCK_WOOD_TARGET -- so preflight and `npm test` could
+# disagree about the same tree, and a homegrown loop once reported green for a
+# whole session while the runner was red (CLAUDE.md). The runner owns the env,
+# the per-file timeout, the parallelism, and the anchored FAIL-line belt this
+# loop used to carry; its exit code is the verdict.
+out=$(RUN_TESTS 2>&1)
+rc=$?
+if [ $rc -ne 0 ]; then
+  echo "  FAIL  test suite (scripts/run-tests.mjs exit $rc)"
+  echo "$out" | grep -E "^FAIL |^FAILED|files passed|\[killed" | head -40 | sed 's/^/        /'
+  FAILED+=("tests")
+else
+  say "  ok    $(echo "$out" | grep -E 'files passed' | tail -1)  ($(echo "$out" | grep -E '^wall ' | tail -1))"
+fi
 
 say ""
 say "  ---- supervisor and tooling ----"

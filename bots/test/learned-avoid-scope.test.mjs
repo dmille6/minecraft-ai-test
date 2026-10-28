@@ -508,7 +508,10 @@ await ta('MUTANT KILLED: widening the place set is caught by every guard', async
 
   fs.cpSync(path.join(botsDir, 'src'), path.join(tree, 'src'), { recursive: true })
   fs.cpSync(path.join(botsDir, 'test'), path.join(tree, 'test'), { recursive: true,
-    filter: s => !path.basename(s).startsWith('_mutant-tree-') })
+    // Every _mutant-* (not only trees): under the parallel runner another
+    // file's mutant can appear and be unlinked between cpSync's readdir and
+    // its copy, which is an ENOENT here that says nothing about this test.
+    filter: s => !path.basename(s).startsWith('_mutant-') })
   fs.writeFileSync(path.join(tree, 'src/lessons.mjs'), lessonsSrc.replace(ANCHOR,
     "export const EVIDENCE_ONLY_IF_HERE = new Set([\n  'nothing_found',\n" +
     "  'collect_budget', 'goal_changed', 'path_timeout', 'stagnation',\n])"))

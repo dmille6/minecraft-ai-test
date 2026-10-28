@@ -69,3 +69,7 @@ env/
 bots/test/_mutant-*
 # the anchored-mutant helpers also write next to the package (homefix-02)
 bots/_mutant-*.mjs
+
+# run-tests.mjs remembers per-file durations here to start the slowest first
+bots/.test-durations.json
+bots/.test-durations.json.*.tmp
