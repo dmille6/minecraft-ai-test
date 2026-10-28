@@ -125,6 +125,7 @@ def hits(changes, patterns, read=None):
     path counts as a hit -- unknown is protected, never the reverse."""
     found = set()
     for ch in changes:
+        no_hunks = not (ch.get('old_lines') or ch.get('new_lines'))
         for side, path, lines in (('old', ch.get('old_path'), ch.get('old_lines') or set()),
                                   ('new', ch.get('new_path'), ch.get('new_lines') or set())):
             if not path:
@@ -135,6 +136,9 @@ def hits(changes, patterns, read=None):
                     continue
                 if sym is None:
                     found.add(path)
+                    continue
+                if no_hunks:   # pure rename / mode / binary: nothing to attribute, so fail closed
+                    found.add(f'{path}::{sym} (no line hunks: rename, mode or binary change)')
                     continue
                 if names is None:
                     text = read(side, path) if read else None

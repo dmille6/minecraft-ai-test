@@ -111,6 +111,21 @@ deleted = [{'old_path': 'bots/src/reflex.mjs', 'new_path': None, 'old_lines': {1
 check(P.hits(deleted, PATS, read) == ['bots/src/reflex.mjs'], 'deleting a protected file is protected')
 renamed_in = [ch[2]]
 check(P.hits(renamed_in, PATS, read) == ['bots/src/escape.mjs'], 'renaming onto a protected path is protected')
+pure_rename = [{'old_path': 'bots/src/skills.mjs', 'new_path': 'bots/src/moves.mjs',
+                'old_lines': set(), 'new_lines': set()}]
+check(P.hits(pure_rename, PATS, read) == ['bots/src/skills.mjs::mine (no line hunks: rename, mode or binary change)'],
+      'a pure rename of a :: file is protected (fails closed), not silently clean')
+binary = P.parse_diff('diff --git a/bots/src/skills.mjs b/bots/src/skills.mjs\nindex 1..2 100644\n'
+                      'Binary files a/bots/src/skills.mjs and b/bots/src/skills.mjs differ')
+check(binary[0]['new_path'] == 'bots/src/skills.mjs' and P.hits(binary, PATS, read),
+      'a binary change to a :: file is protected')
+CONSTS = "const STEP_UP = 24\nasync function build () {\n  return 1\n}\n"
+cpats = [('bots/src/skills.mjs', 'STEP_UP')]
+creader = lambda side, path: CONSTS  # noqa: E731
+check(P.hits([{'old_path': 'bots/src/skills.mjs', 'new_path': 'bots/src/skills.mjs', 'old_lines': {1},
+               'new_lines': {1}}], cpats, creader) == ['bots/src/skills.mjs::STEP_UP'], 'a listed constant is protected')
+check(P.hits([{'old_path': 'bots/src/skills.mjs', 'new_path': 'bots/src/skills.mjs', 'old_lines': {3},
+               'new_lines': {3}}], cpats, creader) == [], 'the function after it is not')
 docs = [ch[1]]
 check(P.hits(docs, PATS, read) == [], 'a docs file is not protected')
 
@@ -130,6 +145,20 @@ for must in ('bots/src/reflex.mjs', 'bots/src/scaffold.mjs', 'bots/src/index.mjs
              'scripts/deploy-fleet.sh', 'infra/guard/death-tripper.py', 'config/protected-paths.txt'):
     check(P.hits([{'old_path': must, 'new_path': must, 'old_lines': {1}, 'new_lines': {1}}], REAL, None),
           f'the real list protects {must}')
+SK = open(os.path.join(ROOT, 'bots', 'src', 'skills.mjs')).read()
+SK_OWN = P.decl_owners(SK)
+skread = lambda side, path: SK if path == 'bots/src/skills.mjs' else None  # noqa: E731
+for name in ('STAIR_LOOKAHEAD', 'FLOW_NEIGHBOURS', 'FLOW_FACES', 'STEP_UP', 'RESCUE_BLOCK', 'settle',
+             'watchDigging', 'mine', 'goto', 'surface'):
+    ln = SK_OWN.index(name)
+    check(P.hits([{'old_path': 'bots/src/skills.mjs', 'new_path': 'bots/src/skills.mjs', 'old_lines': {ln},
+                   'new_lines': {ln}}], REAL, skread) == [f'bots/src/skills.mjs::{name}'],
+          f'the real list protects skills.mjs::{name}')
+for name in ('build', 'townDeposit', 'foundRun', 'placeIntoPlan', 'craft', 'BLUEPRINTS'):
+    ln = SK_OWN.index(name)
+    check(P.hits([{'old_path': 'bots/src/skills.mjs', 'new_path': 'bots/src/skills.mjs', 'old_lines': {ln},
+                   'new_lines': {ln}}], REAL, skread) == [],
+          f'the real list leaves building skills.mjs::{name} unprotected')
 check(not P.hits([{'old_path': 'bots/src/townplan.mjs', 'new_path': 'bots/src/townplan.mjs',
                    'old_lines': {1}, 'new_lines': {1}}], REAL, None),
       'the real list leaves building (townplan.mjs) unprotected')
