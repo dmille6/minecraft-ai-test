@@ -332,5 +332,52 @@ await t('WIRED: build_shop draws the logs under the project reserve and crafts t
   assert.ok(body.indexOf('const preCraft = heldMap(bot)') < body.indexOf('await craft(ctx, plankCraft, signal)'), 'after preCraft: booked in crafted')
 })
 
+console.log('THE LOG DRAW WAITS FOR A WORKABLE SEGMENT (shopwalls-02)')
+await t('workableSeg: the visit\'s order -- deps open -> null; a held segment is skipped for the next; all held -> null', () => {
+  const rec = { cells: [{ at: [0, 1, 0], seg: 'pad', role: 'base' }, { at: [0, 2, 0], seg: 'wall-F', role: 'wall' }, { at: [1, 2, 0], seg: 'wall-B', role: 'wall' },
+    { at: [0, 3, 0], seg: 'roof-edge', role: 'trim' }, { at: [0, 4, 0], seg: 'roof-inner', role: 'roof' }],
+    segments: [{ seg: 'pad', deps: [] }, { seg: 'wall-F', deps: ['pad'] }, { seg: 'wall-B', deps: ['pad'] }, { seg: 'roof-edge', deps: ['wall-F', 'wall-B'] }, { seg: 'roof-inner', deps: ['roof-edge'] }] }
+  const world = done => (x, y, z) => (done.includes(`${x},${y},${z}`) ? { name: y === 1 ? 'stone_bricks' : 'spruce_planks', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
+  const walls = world(['0,1,0', '0,2,0', '1,2,0'])
+  assert.strictEqual(R.workableSeg(rec, walls, bp.palette), 'roof-edge')
+  // LIVE 10-28: roof-edge held by another builder, roof-inner waits on it -> nothing to work: no logs drawn
+  assert.strictEqual(R.workableSeg(rec, walls, bp.palette, sg => sg !== 'roof-edge'), null)
+  // two walls open, one held: the other
+  const pad = world(['0,1,0'])
+  assert.strictEqual(R.workableSeg(rec, pad, bp.palette, sg => sg !== 'wall-F'), 'wall-B')
+  assert.strictEqual(R.workableSeg(rec, pad, bp.palette, sg => !sg.startsWith('wall')), null, 'roof-edge waits on the walls')
+  assert.strictEqual(R.workableSeg(rec, world([]), bp.palette), 'pad')
+  assert.strictEqual(R.workableSeg(rec, world(['0,1,0', '0,2,0', '1,2,0', '0,3,0', '0,4,0']), bp.palette), null, 'complete')
+})
+await t('WIRED: the logs are drawn only when workableSeg names a segment (its lease read from the project files)', () => {
+  const body = SK.slice(SK.indexOf('async function buildShop'), SK.indexOf('async function foundStore'))
+  assert.ok(/if \(Object\.keys\(need\)\.length && workableSeg\(rec, read, bp\.palette, segFree\)\) \{\s*const hn = heldMap\(bot\)\s*const pf = planksFromLogs/.test(body), 'the gate sits on the logs draw')
+  assert.ok(/const segFree = sg => \{ const st = projLeaseState\(dir, key, `seg-\$\{sg\}`\); return !st \|\| st\.rec\?\.holder === me \|\| Date\.now\(\) >= st\.blocksUntil \}/.test(body), 'the lease reading')
+})
+
+console.log('NO STATION IN A RECORD CELL (shopwalls-05)')
+await t('recordCellHit: a candidate whose target cell (ref + face) is a record cell; foreignKind digs a crafting table, never a furnace or chest', () => {
+  const cells = S.recordCellKeys({ cells: [{ at: [24, 75, 31] }, { at: [21, 73, 27] }] })
+  assert.ok(cells.has('24,75,31') && cells.size === 2)
+  const V = (x, y, z) => ({ x, y, z })
+  // LIVE 16:33Z: the table went on top of the wall plank 24,74,31 -> into 24,75,31
+  assert.strictEqual(S.recordCellHit(cells, { ref: { position: V(24, 74, 31) }, face: V(0, 1, 0) }), true)
+  assert.strictEqual(S.recordCellHit(cells, { ref: { position: V(24, 75, 32) }, face: V(0, 0, -1) }), true, 'sideways into it')
+  assert.strictEqual(S.recordCellHit(cells, { ref: { position: V(24, 75, 32) }, face: V(0, 1, 0) }), false, 'beside the build')
+  assert.strictEqual(S.recordCellHit(new Set(), { ref: { position: V(24, 74, 31) }, face: V(0, 1, 0) }), false, 'no project')
+  assert.strictEqual(S.recordCellHit(undefined, { ref: { position: V(24, 74, 31) }, face: V(0, 1, 0) }), false)
+  assert.strictEqual(R.foreignKind('crafting_table'), 'scaffold')
+  for (const n of ['furnace', 'chest', 'barrel', 'smoker', 'glass_pane']) assert.strictEqual(R.foreignKind(n), null, n)
+})
+await t('WIRED: place filters record cells (and bars the make-room dig), refuses explicit coordinates in one, names the remedy; the record keys refresh with the footprint', () => {
+  const body = SK.slice(SK.indexOf('async function place('), SK.indexOf('async function place(') + 20000)
+  assert.ok(/const kept = candidates\.filter\(c => !recordCellHit\(bot\.shopCells, c\)\)/.test(body))
+  assert.ok(/&& !shopSkipped && !\[x, y, z\]\.every/.test(body), 'the make-room dig barred')
+  assert.ok(/if \(bot\.shopCells\?\.has\?\.\(`\$\{Number\(x\)\},\$\{Number\(y\)\},\$\{Number\(z\)\}`\)\) \{/.test(body), 'explicit coordinates refused')
+  assert.ok(/step out of the building and place again/.test(body), 'the remedy')
+  assert.ok(/if \(roomVeto\(bot, cellPos\)\) continue\s*if \(bot\.shopCells\?\.has\?\.\(`\$\{cellPos\.x\},\$\{cellPos\.y\},\$\{cellPos\.z\}`\)\) \{ shopSkipped\+\+; continue \}/.test(body), 'the make-room dig never takes a record cell (r2)')
+  assert.ok(/bot\.shopCells = h\.head \? recordCellKeys\(h\.head\.rec\) : new Set\(\)/.test(SK))
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

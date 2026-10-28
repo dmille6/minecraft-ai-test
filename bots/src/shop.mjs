@@ -42,6 +42,12 @@ export function saplingBox (record, margin = SAPLING_MARGIN) {
   for (const c of cs) { x0 = Math.min(x0, c.at[0]); x1 = Math.max(x1, c.at[0]); z0 = Math.min(z0, c.at[2]); z1 = Math.max(z1, c.at[2]) }
   return { x0: x0 - margin, z0: z0 - margin, x1: x1 + margin, z1: z1 + margin }
 }
+/** The project's OPEN-or-built record cells as "x,y,z" keys (the place skill's keep-out; shopwalls-05). Pure. */
+export const recordCellKeys = record => new Set((record?.cells ?? []).map(c => c.at.join(',')))
+/** A place() candidate ({ ref, face }) whose target cell (ref + face) is a record cell? Pure. LIVE showcase 10-28 16:33Z: an
+ *  idle `place crafting_table` put the table into the workshop's last open roof cell 24,75,31; every visit then read
+ *  `blocked: 1 open, 0 placeable now`. */
+export const recordCellHit = (cells, c) => { const p = c?.ref?.position; return !!(p && cells?.size && cells.has(`${p.x + (c.face?.x ?? 0)},${p.y + (c.face?.y ?? 0)},${p.z + (c.face?.z ?? 0)}`)) }
 /** May a sapling go into the cell at column (x, z)? false inside the box. Pure. */
 export const saplingAllowedAt = (box, x, z) => !box || x < box.x0 || x > box.x1 || z < box.z0 || z > box.z1
 /** A place() candidate ({ ref, face }) for a sapling: its target cell (ref + face) outside the box? Pure. */
