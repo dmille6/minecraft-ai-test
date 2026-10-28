@@ -261,5 +261,49 @@ await t('the comment stripper is not fooled: a pattern only in a comment does no
   assert.ok(!/logEvent\(\{ kind: 'build_mode'/.test(strip("// logEvent({ kind: 'build_mode' })\nconst x = 1")))
 })
 
+console.log('PLANKS FROM THE TOWN\'S LOGS (shopwalls-1028)')
+// the live showcase 10-28: pad + ring done, the town at 0 planks / 412 spruce logs, every visit `no_material wall_for_wall-F`
+const liveTown = { cobblestone: 991, spruce_log: 412, stone_bricks: 139, copper_ingot: 88, sand: 6, glass_pane: 4 }
+const upper = bp.cells.filter(c => c.seg !== 'pad' && c.seg !== 'ring').map((c, i) => ({ at: [i, 80, 0], role: c.role, seg: c.seg }))
+await t('the live chain: the bill asks for planks the town lacks; the shortfall is drawn as the town\'s logs and crafted', () => {
+  const air = () => ({ name: 'air' })
+  // CONTROL: the old inTown (stock only) resolved trim to cut_copper, which the town cannot supply
+  const old = S.billOf({ cells: upper }, bp.palette, air, { done: R.cellDone, inTown: n => (liveTown[n] ?? 0) > 0, planks: 'oak_planks' })
+  assert.ok(old.cut_copper > 0, 'control: the stock-only reading names cut_copper')
+  const bill = S.billOf({ cells: upper }, bp.palette, air, { done: R.cellDone, inTown: S.billInTown(liveTown), planks: 'oak_planks' })
+  assert.ok(!bill.cut_copper, 'trim resolves past cut_copper (none in town) to planks')
+  assert.ok(S.billInTown({ cut_copper: 4, spruce_log: 1 })('cut_copper'), 'cut_copper in stock is still the first choice')
+  assert.ok(!S.billInTown({ cobblestone: 9 })('oak_planks'), 'no logs: planks are not in town')
+  const want = S.visitNeeds({ cells: upper }, bill, { town: liveTown, planks: 'oak_planks' })
+  const wantPlanks = want.oak_planks
+  assert.ok(wantPlanks >= 34, `the walls alone are 34 planks (got ${wantPlanks})`)
+  assert.ok(Object.keys(S.needFromTown(want, {})).length, 'the draw is attempted, so the drawn record is written')
+  // the town draw got no planks (there are none): the bag holds none spare
+  const pf = S.planksFromLogs(want, { spare: () => 0, town: liveTown })
+  assert.deepStrictEqual(pf, { log: 'spruce_log', logs: Math.ceil(wantPlanks / 4), planks: 'spruce_planks' })
+  // once crafted, the visit's block for a wall, a trim and a roof cell is the crafted planks (any species is done for $planks)
+  const has = n => n === 'spruce_planks'
+  has.planks = () => 'spruce_planks'
+  for (const role of ['wall', 'trim', 'roof', 'window']) assert.strictEqual(R.blockFor(bp.palette, role, has), 'spruce_planks', role)
+  assert.ok(R.cellDone({ name: 'spruce_planks' }, bp.palette, 'wall'))
+})
+await t('planksFromLogs: spare planks of any species count; none short, no logs or no planks wanted -> null', () => {
+  const want = { oak_planks: 10, glass_pane: 4 }
+  assert.strictEqual(S.planksFromLogs(want, { spare: n => (n === 'birch_planks' ? 10 : 0), town: liveTown }), null, 'held 10 birch')
+  assert.deepStrictEqual(S.planksFromLogs(want, { spare: n => (n === 'birch_planks' ? 3 : 0), town: liveTown }), { log: 'spruce_log', logs: 2, planks: 'spruce_planks' }, '7 short -> 2 logs')
+  assert.strictEqual(S.planksFromLogs(want, { spare: () => 0, town: { cobblestone: 5 } }), null, 'no logs in town')
+  assert.strictEqual(S.planksFromLogs({ glass_pane: 4 }, { spare: () => 0, town: liveTown }), null, 'no planks wanted')
+  assert.strictEqual(S.planksFromLogs(want, { spare: () => -3, town: liveTown }).logs, 3, 'a negative spare reads as 0')
+  assert.strictEqual(S.planksFromLogs(want, { spare: () => 0, town: { oak_log: 5, birch_log: 9 } }).log, 'birch_log', 'the most-stocked species')
+})
+await t('WIRED: build_shop draws the logs under the project reserve and crafts the planks before the stations', () => {
+  const body = SK.slice(SK.indexOf('async function buildShop'), SK.indexOf('async function foundStore'))
+  assert.ok(/billOf\(rec, bp\.palette, read, \{ done: buildCellDone, inTown: billInTown\(town\), planks \}\)/.test(body), 'the bill reads planks as makeable')
+  assert.ok(/const pf = planksFromLogs\(want, \{ spare: n => \(hn\[n\] \?\? 0\) - \(keep\[n\] \?\? 0\), town \}\)/.test(body), 'the shortfall is computed')
+  assert.ok(/matsWithdraw\(ctx, \{ \[pf\.log\]: pf\.logs \}, signal, 30_000, R0, PD\.allow, PD\.onTook, PD\.onUncertain\)/.test(body), 'drawn under PD')
+  assert.ok(/if \(plankCraft\) \{ try \{ await craft\(ctx, plankCraft, signal\) \}[\s\S]{0,120}for \(const item of \['furnace', 'crafting_table'\]\)/.test(body), 'crafted, before the stations, inside the booked craft block')
+  assert.ok(body.indexOf('const preCraft = heldMap(bot)') < body.indexOf('await craft(ctx, plankCraft, signal)'), 'after preCraft: booked in crafted')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

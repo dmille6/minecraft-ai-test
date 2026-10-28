@@ -123,7 +123,7 @@ import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState 
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -16782,23 +16782,38 @@ async function buildShop (ctx, args, signal) {
     const read = planReader(bot)
     const town = matsTownStock(bot)?.stock ?? {}
     const planks = Object.entries(town).filter(([n]) => /_planks$/.test(n)).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'oak_planks'
-    const bill = billOf(rec, bp.palette, read, { done: buildCellDone, inTown: n => (town[n] ?? 0) > 0, planks })
+    const bill = billOf(rec, bp.palette, read, { done: buildCellDone, inTown: billInTown(town), planks })
     const want = visitNeeds(rec, bill, { saplingAt: c => /_sapling$|^mangrove_propagule$/.test(read(...c)?.name ?? ''), town, spare: spare0, planks })
     const need = needFromTown(want, spare0)
     let took = {}
     bag0 = held0
     // nothing is drawn unless its record can be written (a draw the next visit cannot see is the deadlock again; r10 Codex P2)
     if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
+    // the project reserve (OWNER 10-27): the workshop's own draws use the lowered table while it is active
+    const R0 = matsReserve().table
+    const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, c) => { tookAll[k] = (tookAll[k] ?? 0) + c; persist() } })
     if (Object.keys(need).length) {
-      // the project reserve (OWNER 10-27): the workshop's own draws use the lowered table while it is active
-      const R0 = matsReserve().table
-      const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, c) => { tookAll[k] = (tookAll[k] ?? 0) + c; persist() } })
       const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
+    }
+    // PLANKS FROM THE TOWN'S LOGS (shop.mjs planksFromLogs; LIVE showcase 10-28: walls stopped no_material for hours on a town
+    // of 0 planks and 412 logs): the planks the needs still lack after the draw are drawn as logs, under the same project
+    // reserve, and crafted below with the stations (booked in `crafted`). Only when the drawn record was written above.
+    let plankCraft = null
+    if (Object.keys(need).length) {
+      const hn = heldMap(bot)
+      const pf = planksFromLogs(want, { spare: n => (hn[n] ?? 0) - (keep[n] ?? 0), town })
+      if (pf) {
+        const w2 = await matsWithdraw(ctx, { [pf.log]: pf.logs }, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain)
+        for (const [k, v] of Object.entries(w2.took ?? {})) took[k] = (took[k] ?? 0) + v
+        const got = Number(w2.took?.[pf.log]) || 0
+        if (got > 0) plankCraft = { item: pf.planks, count: got * 4 }
+      }
     }
     // the stations the town did not supply are crafted (found-01's means: 8 cobble a furnace, 4 planks a table); the bag's change
     // across the crafts is booked (`crafted`: the stations up, their inputs down) for the visit's bag balance
     const preCraft = heldMap(bot)
     try {
+      if (plankCraft) { try { await craft(ctx, plankCraft, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
       for (const item of ['furnace', 'crafting_table']) {
         const lack = (bill[item] ?? 0) - countItem(bot, item)
         if (lack > 0) { try { await craft(ctx, { item, count: lack }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
