@@ -227,6 +227,7 @@ const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])
 const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const CG = strip(fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
 const IX = strip(fs.readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
+const FX = strip(fs.readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8'))   // W3: the building spawn rows moved here (W1b)
 const W = [
   ['skills: build_shop dispatched to buildShop, chatOnly', SK, /build_shop:\s*\{\s*run:\s*buildShop,[^}]*chatOnly:\s*true/],
   ['skills: build_shop contract expects world_change', SK, /build_shop:\s*\{\s*expects:\s*\['world_change'\]/],
@@ -255,8 +256,8 @@ const W = [
   ['skills: one _build_bag row per visit, in the finally', SK, /if \(bag0\) \{ try \{ logEvent\(\{ kind: 'build_bag'/],
   ['skills: the bag row names the exit (a death inside the visit: died) and the silent clicks', SK, /\{ exit: diedAt \? 'died' : \(f\.outcome \?\? '-'\), silent: f\.silent \?\? '-', drawn: /],
   ['cognitive: a complete workshop is judged against the world', CG, /complete: !!rec\?\.structure_complete && !shopDamaged\(bot, rec\)/],
-  ['index: the licence row', IX, /logEvent\(\{ kind: 'build_mode'/],
-  ['index: the stood-cell timer', IX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],
+  ['features: the licence row', FX, /logEvent\(\{ kind: 'build_mode'/],
+  ['features: the stood-cell timer', FX, /setInterval\(\(\) => \{ try \{ shopStoodTick\(bot\) \} catch \{\} \}, STOOD_EVERY_MS\)/],
   ['skills: the visit\'s keeps are computed from the bot\'s OWN stock (the drawn share excluded)', SK, /const keep = townKeeps\(ownCounts\(held0, drawn0\), \{ wanted: bot\.currentWants \?\? \[\] \}\)\.keep/],
   ['skills: the drawn share read and clamped (with its baseline) at the visit\'s start', SK, /drawn0 = drawnHeld\(dr\.drawn, held0, dr\.bag\)/],
   ['skills: nothing drawn unless the record can be written (the failure counted)', SK, /if \(Object\.keys\(need\)\.length && !drawnWrite\(dir, key, me, drawn0, \{ bag: held0 \}\)\) return \(drawnFails\+\+, out\('no_effect', 'state_unwritable'/],

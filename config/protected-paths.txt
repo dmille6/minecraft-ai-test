@@ -10,17 +10,47 @@
 # FORMAT, one entry per line:
 #   <glob>                    every line of every matching file
 #   <glob>::<function glob>   only lines inside those TOP-LEVEL functions of that file
+#   tooling: <either form>    tier TOOLING: a host script that never runs on a bot. Two engines,
+#                             no fleet canary (there is nothing on the bots to canary).
 # Globs: `*` stays inside one path segment, `**` crosses segments, `?` is one character.
 # A changed line in a `::` file is attributed to the nearest top-level declaration above it
-# (function, class, const/let/var -- so a safety CONSTANT is listed by its name, like a function);
-# lines above the first declaration (imports) are NOT protected. A change to a `::` file with no
-# line hunks (pure rename, mode change, binary) counts as protected: it cannot be attributed.
+# (function, class, const/let/var -- so a safety CONSTANT is listed by its name, like a function).
+# Each hunk's old-side lines a, a+1 are attributed too, so a declaration INSERTED inside a listed
+# function is still that function's change. An import a listed function depends on is protected
+# when changed or deleted (add a new import line instead of editing one); a side-effect import is
+# protected when added. A row of a top-level table (SKILLS, SKILL_CONTRACTS) whose key or `run:`
+# names a listed symbol is protected, and so is the rest of that table's code (header, closing brace).
+# Wrapping a listed declaration in a new scope, rebinding its name, or binding a JS global it uses
+# (Date, Math, setTimeout, ...) anywhere in the file is protected. A change to a `::` file with no line
+# hunks (pure rename, mode change, binary) counts as protected: it cannot be attributed. An unlisted
+# helper that a listed function calls is NOT protected: list it. protected.py's docstring has the
+# exact rules.
 # A file path that stops existing fails bots/test/protected-paths.test.mjs, so a rename cannot
 # quietly drop something out of protection. Adding to this list is a decision; so is removing.
 
 # ---- the list itself and its decider (a change that shrinks protection is itself protected) ----
-config/protected-paths.txt
-scripts/lib/protected.py
+# Tooling: two engines, but nothing on a bot changes, so no canary.
+tooling: config/protected-paths.txt
+tooling: scripts/lib/protected.py
+
+# ---- the bot's execution core: the one skill slot (watchdog, maxMs enforcement, hard stop, the
+# ---- arbiter grant), the decision loop that issues every escape/keepout/safety order, and the
+# ---- admission gate those orders and the model's proposals pass through ----
+bots/src/runner.mjs
+bots/src/cognitive.mjs
+# admission.mjs is one class (AdmissionControl), so it cannot be listed by function. It holds the
+# goto bounds, the mine-depth ceiling (mining.mjs mineTargetOk), the keepout lava-column cooldown and
+# the keepout_exit valve: refusals composing into a dead end is the bug class CLAUDE.md names. Its
+# deposit/craft branches come along; 7 of its 15 commits since 09-28 were keepout/bounds work.
+bots/src/admission.mjs
+# the scaffold reserve a sealed bot pillars out with ("deposit strips the scaffold", 09-28)
+bots/src/bankable.mjs::scaffoldKeep
+bots/src/bankable.mjs::isScaffoldItem
+bots/src/bankable.mjs::SCAFFOLD_SET
+
+# ---- dependencies: a mineflayer / pathfinder / prismarine bump changes every movement ----
+bots/package.json
+bots/package-lock.json
 
 # ---- movement and pathfinding: the movement owner, A* time limits, halts, reach, and what the
 # ---- pathfinder may build with (scaffolding/bridging during travel lives in scaffold.mjs) ----
@@ -54,6 +84,16 @@ bots/src/skills.mjs::watchDigging
 bots/src/skills.mjs::MAX_LEG
 bots/src/skills.mjs::MAX_HAZARD_RETRIES
 bots/src/skills.mjs::STEP_UP
+# gather walks and digs to its target (collectManually), and canopyDrop decides how far a bot may
+# drop out of a tree (a 37-block fall killed one); withKeepout wraps gather and keepout_exit
+bots/src/skills.mjs::gather
+bots/src/skills.mjs::gatherRun
+bots/src/skills.mjs::collectManually
+bots/src/skills.mjs::canopyDrop
+bots/src/skills.mjs::withKeepout
+# The per-skill maxMs table and the dispatch table are covered ROW BY ROW: a SKILL_CONTRACTS or
+# SKILLS row whose key or `run:` names a symbol listed here (goto, explore, mine, surface, gather,
+# keepout_exit, ...) is protected; a new building skill's row is not.
 
 # ---- escapes and relocation: every rung that gets a stuck, sealed or flooded bot out ----
 bots/src/escape.mjs
@@ -122,6 +162,9 @@ bots/src/skills.mjs::TUNNEL_STALL_MS
 bots/src/skills.mjs::TUNNEL_TRIES
 
 # ---- death handling and the bot lifecycle (index.mjs owns connect/death/respawn/reconnect) ----
+# index.mjs is one 1300-line connect() plus death helpers, so by-function is the whole file anyway.
+# Building features' licence rows and installs live in bots/src/features.mjs (NOT listed), which
+# connect() calls once per spawn; the call site stays here, protected.
 bots/src/index.mjs
 bots/src/deathsites.mjs
 
@@ -133,17 +176,21 @@ scripts/ops/fleet-deploy
 scripts/deploy-verify.py
 scripts/lib/deployverify.py
 scripts/preflight.sh
-scripts/canary-loop.sh
-scripts/host/canary-loop.sh
-scripts/host/canary-sched.py
-scripts/check-open-loop.py
-scripts/lib/openloop.py
-scripts/deathgate.py
-scripts/verdict.py
 infra/guard/death-tripper.py
+scripts/lib/version_split.py   # the tripper's version-split rules (moved out of death-tripper.py, d83b8abd)
 infra/guard/mcai-guard.py
-infra/showcase/showcase_ops.py
-infra/showcase/showcase_trip.py
 infra/showcase/followrule.py
 infra/showcase/start-bots.sh
 infra/showcase/stop-bots.sh
+
+# ---- tooling: host scripts that schedule, read and gate canaries and drive the showcase. They never
+# ---- run on a bot, so a fleet canary measures nothing about them: two engines, no canary. ----
+tooling: scripts/canary-loop.sh
+tooling: scripts/host/canary-loop.sh
+tooling: scripts/host/canary-sched.py
+tooling: scripts/check-open-loop.py
+tooling: scripts/lib/openloop.py
+tooling: scripts/deathgate.py
+tooling: scripts/verdict.py
+tooling: infra/showcase/showcase_ops.py
+tooling: infra/showcase/showcase_trip.py

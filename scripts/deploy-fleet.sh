@@ -124,6 +124,10 @@ ok "declared $RUN / $BASE_SHA${POOL:+ (canary $SHA on $POOL)}"
 # ------------------------------------------------------------------ install --
 say "Harness"
 install -m 0755 "$REPO/infra/guard/death-tripper.py" /usr/local/bin/mcai-tripper
+# ITS RULES TRAVEL WITH IT. The tripper imports version_split; /opt/minecraft-ai is
+# reset to whichever sha is deployed, so reading the library from there pairs this
+# tripper with another sha's rules. Installed from the same tree, same moment.
+install -D -m 0644 "$REPO/scripts/lib/version_split.py" /usr/local/lib/mcai-tripper/version_split.py
 if [ -n "$POOL" ]; then
   # A CANARY MUST NOT WRITE WHERE A CONTROL LOOKS.
   #

@@ -147,7 +147,7 @@ await t('MUTANT: the cap envelope removed -> the 16.09 cap is a candidate', asyn
 })
 await t('the licence row and its single writer', () => {
   assert.match(P.plinth021ModeDetail({ shared: true, worldId: 'w' }), /^phase=mode v=1 shared=1 lost=evidence dy=12 env=cap w=w$/)
-  const idx = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
+  const idx = readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')   // installFeatures (test/features-wired)
   assert.equal(idx.split("kind: 'plinth021_mode'").length, 2)
 })
 

@@ -40,7 +40,7 @@ import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands, deathCauseText } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
 import { travelTool, TOOL_HYGIENE, takeWornFirst, WORN_FIRST_ROW_MS } from './toolfor.mjs'
-import { TOOLKIT, kitSearchModeDetail, ironpickModeDetail } from './toolkit.mjs'
+import { TOOLKIT } from './toolkit.mjs'
 import { diffTools, spentTools } from './toolwatch.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
@@ -48,28 +48,12 @@ import { installOxygenGuard } from './oxygen.mjs'
 import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
 import { installCraftSync } from './craftsync.mjs'
-import { installCobbleCap } from './skills.mjs'
-import { cobbleCapModeDetail } from './cobblecap.mjs'
-import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
-import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
-import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
-import { townPlanModeDetail, PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's licence row, tick, furniture
-import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
-import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
-import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
-import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
-import { matsModeDetail, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'   // mats-01's licence row (its own statement)
-import { createHash as shopHash } from 'node:crypto'
-import { shopStoodTick, shopFootprintRefresh, shopAckInstall } from './skills.mjs'   // shop-01: the walks' seeds, the footprint, the acks
+import { PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's tick, furniture
+import { townPlanTick } from './skills.mjs'
+import { installFeatures } from './features.mjs'   // building features' spawn work: install + licence rows
 import { installNoBridge } from './nobridge.mjs'   // nobridge-01: no path scaffold over water on a walk
-import { SHOP, buildModeDetail, footprintEntry, withoutFootprint, STOOD_EVERY_MS } from './shop.mjs'   // shop-01's licence row and the footprint price
-import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout-01: an open note's obligations held again at spawn
-import { lidClearModeDetail } from './lidrule.mjs'
-import { townSearchModeDetail } from './withdrawpick.mjs'
-import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
-import { plinth021ModeDetail, townRecordsShared } from './plinth.mjs'   // plinth-02.1's licence row (its own statement)
-import { plinthFirstModeDetail, plinthFirstPolicy } from './plinth.mjs'   // plinthfirst-01's licence row (its own statement)
-import { wellcareModeDetail } from './wellcare.mjs'   // wellcare-01's licence row (its own statement)
+import { shopAckInstall } from './skills.mjs'   // shop-01: the click acknowledgements, installed per connection before login
+import { SHOP, footprintEntry, withoutFootprint } from './shop.mjs'   // shop-01: the switch and the footprint price
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
@@ -312,27 +296,9 @@ function connect() {
     // reporting success: stale-stateId clicks fired as a burst, Paper's refresh landing behind them. Installed
     // here, not at createBot: the plugins (bot.craft among them) are injected after login, and a wrapper put on
     // earlier is overwritten without a word -- which is what happened in the sandbox experiment.
-    // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view
-    try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
-    // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
-    try { logEvent({ kind: 'cobblecap_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleCapModeDetail() }) } catch {}
-    // lidclear-01: the licence row, once per spawn -- `_lidclear_mode`, a kind the base cannot write (lidrule.mjs lidClearModeDetail)
-    try { logEvent({ kind: 'lidclear_mode', status: 'success', snapshot: snapshot(bot), detail: lidClearModeDetail() }) } catch {}
-    // townsearch-01: the licence row, once per spawn -- `_townsearch_mode`, a kind the base cannot write (withdrawpick.mjs townSearchModeDetail)
-    try { logEvent({ kind: 'townsearch_mode', status: 'success', snapshot: snapshot(bot), detail: townSearchModeDetail() }) } catch {}
-    // toolkit-03: the licence row, once per spawn -- `_toolkit_search_mode`, a kind the base cannot write (toolkit.mjs kitSearchModeDetail)
-    try { logEvent({ kind: 'toolkit_search_mode', status: 'success', snapshot: snapshot(bot), detail: kitSearchModeDetail() }) } catch {}
-    // ironpick-01: the licence row, once per spawn -- `_toolkit_ironpick_mode`, a kind the base cannot write (toolkit.mjs ironpickModeDetail;
-    // on=0 under TOOLKIT_IRONPICK=off, so the rollback is visible too)
-    try { logEvent({ kind: 'toolkit_ironpick_mode', status: 'success', snapshot: snapshot(bot), detail: ironpickModeDetail() }) } catch {}
-    // plinth-02: the licence row, once per spawn -- the build's own `_plinth_mode` kind (plinth.mjs plinthModeDetail)
-    try { logEvent({ kind: 'plinth_mode', status: 'success', snapshot: snapshot(bot), detail: plinthModeDetail(bot.worldId) }) } catch {}
-    // plinth-02.1: the licence row, once per spawn -- `_plinth021_mode` (plinth.mjs plinth021ModeDetail)
-    try { logEvent({ kind: 'plinth021_mode', status: 'success', snapshot: snapshot(bot), detail: plinth021ModeDetail({ shared: townRecordsShared({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '' }), worldId: bot.worldId }) }) } catch {}
-    // plinthfirst-01: the licence row, once per spawn -- `_plinthfirst_mode` (plinth.mjs plinthFirstModeDetail); CONFIGURATION only
-    try { logEvent({ kind: 'plinthfirst_mode', status: 'success', snapshot: snapshot(bot), detail: plinthFirstModeDetail({ on: plinthFirstPolicy({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '', env: process.env }), shared: townRecordsShared({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '' }), worldId: bot.worldId }) }) } catch {}
-    // wellcare-01: the licence row, once per spawn -- the build's own `_wellcare_mode` kind (wellcare.mjs wellcareModeDetail)
-    try { logEvent({ kind: 'wellcare_mode', status: 'success', snapshot: snapshot(bot), detail: wellcareModeDetail() }) } catch {}
+    // THE BUILDING FEATURES' SPAWN WORK (features.mjs, not on the protected list): the town cobble cap and the
+    // licence rows. Called here so the call site stays in index.mjs, which is.
+    installFeatures(bot)
     // poolescape-01: the licence row, once per spawn -- `_poolescape_mode`, a kind the base cannot write (poolescape.mjs)
     try { logEvent({ kind: 'poolescape_mode', status: 'success', snapshot: snapshot(bot), detail: poolEscapeModeDetail() }) } catch {}
     // lavastep-01: the licence row, once per spawn -- `_lavastep_mode`, a kind the base cannot write (lavastep.mjs)
@@ -345,38 +311,8 @@ function connect() {
     try { logEvent({ kind: 'plugcut_mode', status: 'success', snapshot: snapshot(bot), detail: plugCutModeDetail() }) } catch {}
     // respawnfall-01: the licence row, once per spawn -- `_respawnfall_mode`, a kind the base cannot write (respawnfall.mjs)
     try { logEvent({ kind: 'respawnfall_mode', status: 'success', snapshot: snapshot(bot), detail: respawnfallModeDetail(process.env) }) } catch {}
-    // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
-    try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
     // keepout-01: the licence row, once per spawn -- `_keepout_mode`, a kind the base cannot write (keepout.mjs keepoutModeDetail)
     try { logEvent({ kind: 'keepout_mode', status: 'success', snapshot: snapshot(bot), detail: keepoutModeDetail(process.env) }) } catch {}
-    // townindex-01: the licence row, once per spawn -- `_townindex_mode`, a kind the base cannot write (townindex.mjs)
-    try { logEvent({ kind: 'townindex_mode', status: 'success', snapshot: snapshot(bot), detail: townIndexModeDetail() }) } catch {}
-    // ironsmelt-01: the licence row, once per spawn -- `_ironsmelt_mode`, a kind the base cannot write (smeltjob.mjs)
-    try { logEvent({ kind: 'ironsmelt_mode', status: 'success', snapshot: snapshot(bot), detail: ironsmeltModeDetail() }) } catch {}
-    // townplan-01 / found-01: the licence rows, once per spawn -- `_townplan_mode` and `_found_mode`, kinds the base cannot write
-    try {
-      const z = townPlanZones(bot), sd = townPlanSeed(bot)
-      logEvent({ kind: 'townplan_mode', status: 'success', snapshot: snapshot(bot), detail: townPlanModeDetail({ seed: sd.use ? 'ok' : `${sd.ok ? '' : 'bad:'}${sd.why}`, zones: z.known ? `${z.zones.length}` : `unknown:${z.why}` }) })
-    } catch {}
-    if (FOUND.on) try { logEvent({ kind: 'found_mode', status: 'success', snapshot: snapshot(bot), detail: foundModeDetail() }) } catch {}   // dormant: no row (the read's arms line)
-    // junkout-01: the licence row, once per spawn -- `_junkout_mode`, a kind the base cannot write (bagallowance.mjs junkoutModeDetail)
-    try { logEvent({ kind: 'junkout_mode', status: 'success', snapshot: snapshot(bot), detail: junkoutModeDetail() }) } catch {}
-    // ledger-01: the licence row (once per spawn; `on=on|off`, the cooperation design's A7 contract)
-    try { logEvent({ kind: 'ledger_mode', status: 'success', snapshot: snapshot(bot), detail: ledgerModeDetail() }) } catch {}
-    // mats-01: the licence row, once per spawn -- `_mats_mode`, a kind the base cannot write (mats.mjs)
-    try { matsHoldNote(bot, readMatsNote(bot)) } catch {}   // holds live in memory: an open note's are set again at spawn
-    try { const sw = matsEnabled(process.env, config.memory.scope); logEvent({ kind: 'mats_mode', status: 'success', snapshot: snapshot(bot), detail: matsModeDetail({ on: sw.on, why: sw.why, reserve: matsReserve(), buffers: matsBuffers() }) }) } catch {}
-    // shop-01: the licence row, once per spawn -- `_build_mode`, a kind the base cannot write (cooperation A7), naming the reserve in
-    // force by a short hash; the spawn time (no dig in the first 3 s: the ghost-block rule); the walks' seeds and the footprint
-    if (SHOP.on) {
-      try { logEvent({ kind: 'build_mode', status: 'success', snapshot: snapshot(bot), detail: buildModeDetail(shopHash('sha256').update(JSON.stringify(matsReserve().table ?? {})).digest('hex').slice(0, 8)) }) } catch {}
-      bot.shopSpawnAt = Date.now()
-      bot.on('spawn', () => { bot.shopSpawnAt = Date.now() })
-      try { shopFootprintRefresh(bot) } catch {}
-      const shopTimer = setInterval(() => { try { shopStoodTick(bot) } catch {} }, STOOD_EVERY_MS); shopTimer.unref?.()
-      const shopFpTimer = setInterval(() => { try { shopFootprintRefresh(bot) } catch {} }, 60_000); shopFpTimer.unref?.()
-      bot.once('end', () => { clearInterval(shopTimer); clearInterval(shopFpTimer) })
-    }
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {

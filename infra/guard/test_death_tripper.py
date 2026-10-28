@@ -9,7 +9,7 @@ Gather02's *final log line* -- written before it was stopped -- then disagreed
 with the live fleet on every subsequent tick. The tripper stopped all eight bots
 every five minutes for an hour. The bot it had already killed kept voting.
 """
-import importlib.util, json, os, sys
+import importlib.machinery, importlib.util, json, os, sys
 from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -205,7 +205,7 @@ def test_the_same_split_trips_once_the_grace_expires():
 # caught on one five-bot pool in twenty minutes would have cost under two.
 
 def _canary(seen, declared="aaa", cver="bbb", pool="hive-a"):
-    return tripper.canary_split_ok(seen, declared, cver, pool)
+    return version_split.canary_split_ok(seen, declared, cver, pool)
 
 
 def test_canary_declared_split_is_allowed():
@@ -227,7 +227,7 @@ def test_two_pools_of_five_are_one_declared_canary():
     seen = {"hive-a-Alpha": "bbb+1", "board-c-Echo": "aaa+1", "hive-b-Alpha": "aaa+1"}
     ok, why = _canary(seen, pool="hive-a,board-c")
     check("a declared pool left on the baseline trips", not ok and "membership" in why, why)
-    check("prefix membership is exact", not tripper.in_canary_pool("hive-ab-Alpha", "hive-a") and tripper.in_canary_pool("board-c-Echo", "hive-a, board-c"))
+    check("prefix membership is exact", not version_split.in_canary_pool("hive-ab-Alpha", "hive-a") and version_split.in_canary_pool("board-c-Echo", "hive-a, board-c"))
 
 
 def test_undeclared_split_is_still_a_fault():
@@ -257,13 +257,13 @@ def test_a_pool_member_left_behind_on_the_baseline_trips():
 def test_three_versions_is_never_a_canary():
     seen = {"hive-a-Alpha": "bbb+1", "hive-b-Alpha": "aaa+1", "board-a-Echo": "ccc+1"}
     ok, why = _canary(seen)
-    check("three versions is never a canary", not ok and "exactly two" in why, why)
+    check("three versions is never a canary", not ok and "distinct builds running" in why, why)
 
 
 def test_a_split_that_is_not_the_declared_pair_trips():
     seen = {"hive-a-Alpha": "zzz+1", "hive-b-Alpha": "aaa+1"}
     ok, why = _canary(seen)
-    check("a split that is not the declared pair trips", not ok and "declares" in why, why)
+    check("a split that is not the declared pair trips", not ok and "declare" in why, why)
 
 
 def test_pool_prefix_does_not_match_a_longer_name():
@@ -309,6 +309,56 @@ def test_a_clean_canary_trips_nothing_even_when_stale():
     out = feed([line("hive-a-Alpha", "bbb+1", 1), line("hive-a-Bravo", "bbb+1", 1),
                 line("hive-b-Alpha", "aaa+1", 1), line("board-a-Echo", "aaa+1", 2)], man)
     check("a CLEAN canary trips nothing hours later", out == [], f"got {out}")
+
+
+def test_a_missing_library_blinds_only_the_rules_that_need_it():
+    # Codex review of the library move: an early return on a failed import
+    # silenced the whole-fleet undeclared-code rule, which is a sha compare.
+    real = tripper._split_rules
+    def gone():
+        raise ImportError("cannot import name 'canary_split_ok'")
+    tripper._split_rules = gone
+    try:
+        out = feed([line("Scout01", OLD, 1)], manifest=_declared(OTHER, 120))
+        check("no library: a fleet on undeclared code STILL trips",
+              any(w == "ALL" and "undeclared" in r for w, r in out), f"got {out}")
+        out = feed([line("Scout01", NEW, 1), line("Gather02", "5c747f4+aaaaaa", 1)],
+                   manifest=_declared("5c747f4", 120))
+        check("no library: a split is not judged (BLIND, never a guess)", out == [], f"got {out}")
+        man = dict(_declared("aaa", 120), canary_pool="hive-a", canary_code_version="bbb")
+        out = feed([line("hive-a-Alpha", "bbb+1", 1)], man)
+        check("no library: the fleet on the declared canary is not judged", out == [], f"got {out}")
+    finally:
+        tripper._split_rules = real
+
+
+def test_the_installed_copy_never_reads_a_stray_relative_library():
+    # Codex review: /usr/local/bin/mcai-tripper's naive ../../scripts/lib is
+    # /usr/scripts/lib. Only a real checkout's own library may win; then the
+    # paired install dir; then /opt.
+    import shutil
+    root = tempfile.mkdtemp(prefix="tripper-lib-")
+    os.makedirs(os.path.join(root, "local", "bin"))
+    os.makedirs(os.path.join(root, "scripts", "lib"))
+    open(os.path.join(root, "scripts", "lib", "version_split.py"), "w").write("# stray\n")
+    paired = os.path.join(root, "paired")
+    os.makedirs(paired)
+    open(os.path.join(paired, "version_split.py"), "w").write("# paired\n")
+    inst = os.path.join(root, "local", "bin", "mcai-tripper")
+    shutil.copy(os.path.join(HERE, "death-tripper.py"), inst)
+    os.environ["TRIPPER_LIB"] = paired
+    try:
+        sp = importlib.util.spec_from_loader("inst", importlib.machinery.SourceFileLoader("inst", inst))
+        m = importlib.util.module_from_spec(sp)
+        sp.loader.exec_module(m)
+        check("an installed copy takes the PAIRED library, not a stray relative one",
+              m._lib_path() == paired, f"got {m._lib_path()}")
+        check("a checkout takes its own library",
+              os.path.realpath(tripper._lib_path()) ==
+              os.path.realpath(os.path.join(HERE, "..", "..", "scripts", "lib")),
+              f"got {tripper._lib_path()}")
+    finally:
+        os.environ.pop("TRIPPER_LIB", None)
 
 
 if __name__ == "__main__":

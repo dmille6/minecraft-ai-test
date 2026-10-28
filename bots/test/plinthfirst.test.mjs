@@ -305,8 +305,8 @@ await t('the licence row names the mode, the shared verdict and the world, insid
   const d = P.plinthFirstModeDetail({ on: true, shared: true, worldId: '-1909043226:-504800724' })
   assert.match(d, /^phase=mode v=1 policy=1 shared=1 minraise=2 lost=evidence dy=12 w=-1909043226:-504800724$/)
   assert.match(P.plinthFirstModeDetail({ on: false, shared: false }), / policy=0 shared=0 /)
-  const idx = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
-  assert.equal(idx.split("kind: 'plinthfirst_mode'").length, 2, 'written once, in index.mjs (the spawn handler)')
+  const idx = readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
+  assert.equal(idx.split("kind: 'plinthfirst_mode'").length, 2, 'written once, in features.mjs installFeatures (index.mjs\'s spawn handler calls it: test/features-wired)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
