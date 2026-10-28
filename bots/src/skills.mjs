@@ -121,7 +121,7 @@ import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState 
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { workshopStations, preferWorkshop, stationKind } from './workbench.mjs'   // workbench-01
+import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
@@ -12733,8 +12733,10 @@ async function smeltTown (ctx, _args, signal) {
     }
     const rawBefore = heldMap(bot)[IN] ?? 0
     const r = await smelt(ctx, { item: IN, count: f.n }, signal,
-      { fuels: JOB_FUELS, requireLease: true, avoid: q => !depositTargetOk(home, q), prefer: bot.shopStations?.furnaces ?? null, by: 'smelt_town', deadline: smeltDeadline })
+      { fuels: JOB_FUELS, requireLease: true, avoid: q => !depositTargetOk(home, q), prefer: preferredNow(bot.shopStations?.furnaces, bot.wsFurnaceSkip, Date.now()), by: 'smelt_town', deadline: smeltDeadline })
     f.furnace = r.furnace ?? '-'; f.lease = r.lease ?? '-'; f.ws = stationKind(r.furnace, bot.shopStations?.furnaces)
+    // a workshop furnace that failed this run, or held something before it: the old order for this bot for a while (r1 Codex BLOCK)
+    if (skipAfterRun({ kind: f.ws, status: r.status, prior: Object.values(r.prior ?? {}).reduce((a, b) => a + (Number(b) || 0), 0) })) bot.wsFurnaceSkip = { ...(bot.wsFurnaceSkip ?? {}), [r.furnace]: Date.now() + WORKSHOP_SKIP_MS }
     priorRaw = r.prior?.[IN] ?? 0
     f.prior = (r.prior?.[OUT] ?? 0) + (r.prior?.[IN] ?? 0)
     f.smelted = Math.max(0, ((heldMap(bot)[OUT] ?? 0) - ingots0) - (r.prior?.[OUT] ?? 0))
