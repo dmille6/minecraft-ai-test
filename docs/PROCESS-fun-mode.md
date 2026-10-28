@@ -82,6 +82,9 @@ python3 scripts/lib/protected.py --base origin/main   # exit 0 no, 1 yes (hits l
                                                       # on exit 1 the last line is tier=3 or tier=tooling
 ```
 
+The decider's threat model is honest changes by our own agents, not deliberate
+obfuscation; review guards against that.
+
 Entries marked `tooling:` are host scripts that never run on a bot: the canary
 loop, scheduler and verdict, the showcase gate and tripwire, and the list and its
 decider. Those changes are tier **tooling**.

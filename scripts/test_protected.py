@@ -420,6 +420,9 @@ LEX = '\n'.join(["const a = `x ${ { b: '}' }.b } y`", "const r = /[}{'\"]/g", "/
 ok_, dep_, tk_, _cd = P.scan_js(LEX)
 check(ok_ and dep_[1:9] == [0, 0, 0, 0, 0, 0, 1, 1], f'scan_js: templates, regex, comments, division ({ok_} {dep_})')
 check(not P.scan_js('function f () {\n')[0], 'scan_js: an unclosed file is not ok (the caller fails closed)')
+check(not P.scan_js("const a = 1 / 2 / 3\nif (1) /'/.test(0)\nconst b = 'x\n")[0] and not P.scan_js("const s = 'open\nconst t = 1\n")[0],
+      'scan_js: a line ending inside a string or regex is not ok (desync fails closed)')
+check(P.scan_js("const s = 'a\\\nb'\nconst t = `x\ny`\n")[0], 'POSITIVE CONTROL: a backslash-continued string and a multi-line template are ok')
 check([t[0] for t in tk_[2]] == ['const', 'r'], f'regex contents are not identifiers ({tk_[2]})')
 
 # ---- the CLI, end to end on a throwaway repo -----------------------------------------------

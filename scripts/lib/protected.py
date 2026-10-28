@@ -2,6 +2,9 @@
 """
 DOES THIS DIFF TOUCH PROTECTED PATHS? (fun mode, docs/PROCESS-fun-mode.md § Tiers; OWNER 2026-10-28)
 
+THREAT MODEL: honest changes by our own agents, classified correctly -- not deliberate obfuscation (computed
+keys, multi-declarator shadowing, lexer-desync tricks); review is the guard against those.
+
 The one decider for tier 3. The showcase gate and the canary loop both call it; neither should
 re-implement the match. Stdlib only, so it can be copied to a host that has no checkout.
 
@@ -259,7 +262,10 @@ def scan_js(text):
             if not c.isspace():
                 prev_sig, prev_word = c, ''
             buf.append(c); i += 1
-        if state == 'line':
+        if state in ("'", '"', 'regex', 'regex_class') and not line.endswith('\\'):
+            # A quoted string or a regex literal cannot span lines in JS: if the lexer thinks one does, it has
+            # desynchronised (e.g. a regex it read as division). Fail closed: the caller treats the file as protected.
+            ok = False
             state = None
         toks.append(lt)
         code.append(''.join(buf))
