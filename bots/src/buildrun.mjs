@@ -478,8 +478,10 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         // A FOREIGN SCAFFOLD-CLASS BLOCK in an open cell (placed after siting): dug first, lowest first, under this segment's lease
         // A TREE (fell-01) the same way, its trunk above felled after it (trunkAbove)
         // A tree the RECORD lists for clearing is never taken here: clears() fells it, after its sapling (B4, replant first)
-        const listed = new Set((record.clear ?? []).map(c => kOf(c.at)))
-        const foreign = open.filter(c => { const k = foreignKind(nm(rd(...c.at))); return k && !(k === 'tree' && listed.has(kOf(c.at))) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS }).sort((a, b) => a.at[1] - b.at[1])
+        // -- only while the cell still holds THAT block (Codex r1 P2: a listed grass cell now holding a spruce log is ours to dig)
+        const listed = new Map((record.clear ?? []).map(c => [kOf(c.at), c.name]))
+        const listedNow = at => listed.has(kOf(at)) && listed.get(kOf(at)) === nm(rd(...at))
+        const foreign = open.filter(c => { const k = foreignKind(nm(rd(...c.at))); return k && !(k === 'tree' && listedNow(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS }).sort((a, b) => a.at[1] - b.at[1])
         if (foreign.length) {
           const f = foreign[0], name = nm(rd(...f.at)), kind = foreignKind(name)
           const sg = segGen
@@ -492,12 +494,17 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
           if (kind === 'tree' && /_log$/.test(name)) {
             // THE TRUNK ABOVE, lowest first, each log under the same lease; one it cannot reach or dig ends the felling (bounded:
             // TRUNK_MAX logs). A log left in a record cell is dug when its own segment opens; one outside the record stays, named
-            const roleAt = new Map(record.cells.map(c => [kOf(c.at), c.role]))
-            const keep = c => listed.has(kOf(c)) || (roleAt.has(kOf(c)) && cellDone(rd(...c), palette, roleAt.get(kOf(c))))
+            // KEPT: a listed tree (clears() owns it), a record cell that reads DONE, and a record cell of ANOTHER segment (Claude r1
+            // P3-1: only this segment's lease is held; that segment's own foreign pass digs it)
+            const cellAt = new Map(record.cells.map(c => [kOf(c.at), c]))
+            const keep = at => { const c = cellAt.get(kOf(at)); return listedNow(at) || (!!c && (c.seg !== seg || cellDone(rd(...at), palette, c.role))) }
             let felled = 0, left = null
-            for (const tc of trunkAbove(rd, f.at, { keep })) {
+            for (const { at: tc, name: tn } of trunkAbove(rd, f.at, { keep }).map(at => ({ at, name: nm(rd(...at)) }))) {
               const g = guard(); if (g) { out.stop = g; return out }
-              const tv = await digNamed(tc, nm(rd(...tc)), held)
+              // RE-CHECKED before each dig (Codex r1 P2): still the log seen at the snapshot and still not kept, else the felling
+              // ends; digNamed checks the name again at the dig itself
+              if (nm(rd(...tc)) !== tn || keep(tc)) { left = `${tc.join(',')}:changed`; break }
+              const tv = await digNamed(tc, tn, held)
               if (tv === 'fence') { out.stop = 'fence:segment'; return out }
               if (tv === 'aborted') { out.stop = 'aborted'; return out }
               if (tv !== 'confirmed') { left = `${tc.join(',')}:${tv}`; break }

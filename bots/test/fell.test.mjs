@@ -28,12 +28,12 @@ await t('trunkAbove: the contiguous logs above, lowest first; stops at leaves, a
 })
 
 console.log('THE VISIT: a spruce in a pad cell')
-const padCell = () => {
-  const pad = SITE.record.cells.filter(c => c.seg === 'pad')
-  const inRec = new Set(SITE.record.cells.map(c => k3(c.at)))
-  // a pad cell whose column above holds record cells (a wall), so the trunk runs through the build, as the live one did
-  return pad.find(c => inRec.has(k3([c.at[0], c.at[1] + 1, c.at[2]]))) ?? pad[5]
-}
+const pads = () => SITE.record.cells.filter(c => c.seg === 'pad')
+const inRec = () => new Set(SITE.record.cells.map(c => k3(c.at)))
+// a pad cell with NO record cell above it (the trunk is outside the record: only the felling takes it)
+const padCell = () => { const r = inRec(); return pads().find(c => [1, 2, 3, 4, 5, 6].every(i => !r.has(k3([c.at[0], c.at[1] + i, c.at[2]])))) }
+// a pad cell under a WALL (the trunk runs through another segment's cells, as the live one did)
+const wallPad = () => { const r = inRec(); return pads().find(c => r.has(k3([c.at[0], c.at[1] + 1, c.at[2]]))) }
 const tree = async M => {
   const c = padCell(), [x, y, z] = c.at
   const cells = { [k3(c.at)]: 'spruce_log' }
@@ -50,13 +50,41 @@ const tree = async M => {
 }
 await t('the log is dug, the trunk above felled, the leaves in the walls cleared, and the project completes', () => tree(R))
 await t('MUTANT trees not foreign (the live bug: blocked forever)', () => both("  if (TREE_CLEAR.test(s)) return 'tree'\n", '', tree))
-await t('MUTANT the trunk is not felled', () => both('            for (const tc of trunkAbove(rd, f.at, { keep })) {', '            for (const tc of []) {', tree))
+await t('MUTANT the trunk is not felled', () => both('trunkAbove(rd, f.at, { keep }).map(', '[].map(', tree))
+await t('a trunk THROUGH THE WALLS: this segment digs its own cell, the wall segment digs its logs, the project completes', async () => {
+  const c = wallPad(), [x, y, z] = c.at
+  const cells = { [k3(c.at)]: 'spruce_log' }
+  for (let i = 1; i <= 4; i++) cells[k3([x, y + i, z])] = 'spruce_log'
+  const srv = server(cells), { p } = project()
+  const e = bot(srv, 'A')
+  const r = await R.runVisit(p('A'), e, { maxSteps: 4000 })
+  for (let i = 0; i <= 4; i++) assert.ok(!/_log$/.test(srv.read(x, y + i, z).name), `no log at +${i}`)
+  assert.strictEqual(r.stop, 'complete', JSON.stringify({ stop: r.stop, why: r.why }))
+  const fell = e.logs.find(([k, d]) => k === '_build' && d.op === 'fell')
+  assert.strictEqual(fell?.[1].n, 0, 'the felling never digs another segment\'s cell')
+})
 await t('a log the builder cannot dig leaves the cell to its attempts, never an endless loop', async () => {
   const c = padCell()
   const srv = server({ [k3(c.at)]: 'spruce_log' }), { p } = project()
   const e = bot(srv, 'A', { dig: async () => 'refused' })
   const r = await R.runVisit(p('A'), e, { maxSteps: 4000 })
   assert.ok(['blocked', 'attempts_spent'].includes(r.stop), r.stop)
+})
+
+await t('a listed clear cell (grass at siting) now holding a log is felled here; a trunk log REPLACED mid-felling is never dug', async () => {
+  const c = padCell(), [x, y, z] = c.at
+  const rec = { ...SITE.record, clear: [...(SITE.record.clear ?? []), { at: c.at, kind: 'plant', name: 'short_grass' }] }
+  const cells = { [k3(c.at)]: 'spruce_log', [k3([x, y + 1, z])]: 'spruce_log', [k3([x, y + 2, z])]: 'spruce_log' }
+  const srv = server(cells), { p } = project(rec)
+  let digs = 0
+  const e = bot(srv, 'A', { dig: async (at, expect) => {
+    if (expect && srv.read(...at)?.name !== expect) return 'refused'
+    srv.set(at, 'air')
+    if (++digs === 2) srv.set([x, y + 2, z], "chest")          // another actor replaces the upper log during the FIRST TRUNK dig (after the snapshot)
+    return 'confirmed' } })
+  const r = await R.runVisit(p('A'), e, { maxSteps: 4000 })
+  assert.notStrictEqual(srv.read(...c.at).name, 'spruce_log', `the listed-but-changed cell is dug (${r.stop})`)
+  assert.strictEqual(srv.read(x, y + 2, z).name, 'chest', 'the replacement is never dug')
 })
 
 console.log('NO SAPLING IN A PROJECT\'S COLUMNS')
