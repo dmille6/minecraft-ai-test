@@ -36,7 +36,10 @@ const node = (x, y, z) => ({ x, y, z, remainingBlocks: 0 })
 const diag = (ns, x, z) => ns.find(n => n.x === x && n.z === z)
 const plan = (m, from, goal) => {
   const start = new (require_('mineflayer-pathfinder/lib/move'))(from[0], from[1], from[2], 0, 0)
-  const r = new AStar(start, m, goal, 10_000, 40, -1).compute()
+  // the library's 40 ms tick returns `partial` under a loaded suite (Codex r1 note): resume until it settles
+  const a = new AStar(start, m, goal, 10_000, 40, -1)
+  let r = a.compute()
+  while (r.status === 'partial') r = a.compute()
   return r
 }
 /** Does the path take a diagonal step past a solid side cell (at the body's two heights)? */
