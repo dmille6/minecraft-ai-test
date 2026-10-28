@@ -51,7 +51,7 @@ PIPE = loop_pipeline()
 
 
 def run(drawrec, drq, reg=None, run_id='r1', ledger=(), manifest_pool=None, drop=(), manual=None, steady_release=None,
-        steady_text=None, home=None):
+        steady_text=None, home=None, env=None):
     d = home or tempfile.mkdtemp(prefix='drawreq-')
     try:
         ma = os.path.join(d, 'mcai-analysis'); os.makedirs(os.path.join(ma, 'registrations'), exist_ok=True); os.makedirs(os.path.join(d, 'digest'), exist_ok=True)
@@ -59,7 +59,7 @@ def run(drawrec, drq, reg=None, run_id='r1', ledger=(), manifest_pool=None, drop
         if reg == 'corrupt':
             open(os.path.join(ma, 'registrations', run_id + '.json'), 'w').write('{"draw_require_pools": ["hive-d"')
         elif reg is not None:
-            json.dump(dict({'sha': 'x'}, **reg), open(os.path.join(ma, 'registrations', run_id + '.json'), 'w'))
+            json.dump(dict({'sha': 'x', 'lab': True}, **reg), open(os.path.join(ma, 'registrations', run_id + '.json'), 'w'))
         open(os.path.join(ma, 'drawexposure.py'), 'w').write('print("no requirement")\n')
         if steady_release is not None:
             open(os.path.join(ma, 'drawsteady.py'), 'w').write('print("STEADY RELEASE %r")\n' % (steady_release,))
@@ -72,7 +72,7 @@ def run(drawrec, drq, reg=None, run_id='r1', ledger=(), manifest_pool=None, drop
         py = src.split("python3 - <<'PY'\n", 1)[1].split('\nPY', 1)[0].replace('/tmp/drawrec.txt', tf)
         open(os.path.join(d, 'block.py'), 'w').write(py)
         r = subprocess.run([sys.executable, os.path.join(d, 'block.py')], capture_output=True, text=True,
-                           env=dict(os.environ, HOME=d, DRAW_RUN=run_id), timeout=120)
+                           env=dict(os.environ, HOME=d, DRAW_RUN=run_id, **(env or {})), timeout=120)
         out = r.stdout + r.stderr
         tail4 = '\n'.join(r.stdout.strip().splitlines()[-4:])
         p = subprocess.run(['bash', '-c', 'D=$(cat); ' + PIPE + '; echo "$P"'], input=tail4, capture_output=True, text=True).stdout.strip()
@@ -122,6 +122,22 @@ def cases(drawrec, drq):
     c('hive-d free but every other pool excluded -> 1 pool < 2: NO draw', P == [] and 'waiting' in o, (P, o))
     P, o = run(drawrec, drq, reg={'draw_require_pools': ['hive-d', 'board-a']}, ledger=[(p, 'KEEP', 1) for p in POOLS if p not in ('hive-d', 'board-a')])
     c('two required pools, nothing else eligible -> exactly those two (MIN_K 2)', sorted(P) == ['board-a', 'hive-d'], (P, o))
+    # v37 FUN MODE: draw_require_pools is lab-only; the fallback draw keeps only the hard exclusions
+    P, o = run(drawrec, drq, reg={'draw_require_pools': ['hive-d'], 'lab': False})
+    c('fun mode: draw_require_pools is not applied (hive-d not forced in)', len(P) == 4 and 'hive-d' not in P and
+      'draw_require_pools are not applied' in o, (P, o))
+    every = [(p, 'KEEP', 1) for p in POOLS]
+    P, o = run(drawrec, drq, reg={'lab': False}, ledger=every)
+    c('fun mode, every pool inside its 12-h exclusion -> the ordinary draw finds nothing', P == [], (P, o))
+    for _ in range(3):
+        P, o = run(drawrec, drq, reg={'lab': False}, ledger=every, manifest_pool='board-a', manual='board-b',
+                   env={'DRAW_FUN_FALLBACK': '1'})
+        c('fun fallback: four pools despite the 12-h exclusions; never the live canary, a manual exclusion, placebo-c '
+          'or isolated', len(P) == 4 and not ({'board-a', 'board-b', 'placebo-c'} & set(P)) and
+          not any(p.startswith('isolated') for p in P) and 'FUN FALLBACK' in o, (P, o))
+    P, o = run(drawrec, drq, reg=R, ledger=every, env={'DRAW_FUN_FALLBACK': '1'})
+    c('lab registration: the fallback still honours draw_require_pools (hive-d in, others from the fallback set)',
+      'hive-d' in P, (P, o))
     # v35.1 (round 1, Claude): a drawsteady REFUSAL pages once per 6 h; a normal answer never pages
     h = tempfile.mkdtemp(prefix='drawreq-page-')
     REF = 'STEADY inputs unreadable or malformed (ValueError: x): 12 h for every pool\nSTEADY RELEASE []'

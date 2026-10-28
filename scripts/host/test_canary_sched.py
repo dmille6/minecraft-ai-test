@@ -92,7 +92,8 @@ class Fix:
             'raise SystemExit("Traceback: crash")\n')
         self.queue = os.path.join(self.home, 'canary-queue.json')
         self.entry = {'run': 'foo-01', 'class': '', 'after': [], 'not_before': None, 'hold': None,
-                      'variants': {self.base: {'registration': self.reg, 'approved': 'test fixture'}}}
+                      'variants': {self.base: {'registration': self.reg,
+                                               'approved': 'test fixture: Claude APPROVE + Codex APPROVE'}}}
 
     # -- builders
     def env(self, **extra):
@@ -143,7 +144,7 @@ class Fix:
         json.dump({'sha': sha, 'reads': ['immobiledid']}, open(os.path.join(self.home, 'mcai-analysis', 'registrations',
                                                                             '%s.json' % run), 'w'))
 
-    def closed_run(self, run='prev-01', t=NOW - dt.timedelta(hours=2), decision='KEEP', note='x', recorded=True,
+    def closed_run(self, run='prev-01', t=NOW - dt.timedelta(minutes=40), decision='KEEP', note='x', recorded=True,
                    ledger=True, pools='board-a,hive-a'):
         """A run that deployed, decided, recorded and was torn down `t` ago (its sha registered as the canary's)."""
         self.regfile(run, self.other[:7])
@@ -455,7 +456,8 @@ def t_s8_install_hold_and_stale(CS, F):
 
 def t_r11_death_revert_holds_until_continue(CS, F):
     F.enqueue(CS)
-    F.closed_run('dg-01', decision='REVERT', note='dg-01: VERDICT REVERT (+0) :: rung-linked death on a non-ladder change')
+    F.closed_run('dg-01', decision='REVERT', note='dg-01: VERDICT REVERT (+0) :: rung-linked death on a non-ladder change',
+                 t=NOW - dt.timedelta(minutes=40))
     # an artifact WITHOUT by=death_gate: only the note's /death/ can hold it (junkwell-01's shape)
     json.dump({'verdict': 'REVERT', 'extra': {}}, open(os.path.join(F.home, 'digest', 'reads', 'dg-01-verdict-0.json'), 'w'))
     expect(CS, F, 'block', 'R11', 'decided by a death')
@@ -466,7 +468,7 @@ def t_r11_death_revert_holds_until_continue(CS, F):
 
 def t_r11_artifact_by_death_gate(CS, F):
     F.enqueue(CS)
-    F.closed_run('dg-02', decision='REVERT', note='dg-02: VERDICT REVERT (+180) :: v15c guard')
+    F.closed_run('dg-02', decision='REVERT', note='dg-02: VERDICT REVERT (+180) :: v15c guard', t=NOW - dt.timedelta(minutes=40))
     json.dump({'verdict': 'REVERT', 'extra': {'by': 'death_gate'}},
               open(os.path.join(F.home, 'digest', 'reads', 'dg-02-verdict-0.json'), 'w'))
     expect(CS, F, 'block', 'R11', 'death_gate')
@@ -481,7 +483,7 @@ def t_r11_non_death_revert_with_artifact_passes(CS, F):
 
 def t_r11_revert_without_artifact_holds(CS, F):
     F.enqueue(CS)
-    F.closed_run('na-01', decision='REVERT', note='na-01: VERDICT REVERT (+180) :: v11 climbs')
+    F.closed_run('na-01', decision='REVERT', note='na-01: VERDICT REVERT (+180) :: v11 climbs', t=NOW - dt.timedelta(minutes=40))
     expect(CS, F, 'block', 'R11', 'fail toward')
 
 
@@ -562,11 +564,12 @@ def t_h4_absent_read_is_staged_at_launch(CS, F):
 
 
 def t_h5_next_slot(CS, F):
+    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'lab': True})
     F.enqueue(CS); open(os.path.join(F.home, 'digest', 'NEXT-SLOT.json'), 'w').write('{}'); expect(CS, F, 'block', 'H5')
 
 
 def t_h6_bagfix_needs_k4(CS, F):
-    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'class': 'bag-fix'})
+    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'class': 'bag-fix', 'lab': True})
     e = dict(F.entry); e['class'] = 'bag-fix'; F.enqueue(CS, e)
     expect(CS, F, 'launch')
     open(os.path.join(F.home, 'mcai-analysis', 'drawrec.sh'), 'w').write('TARGET_K = 2\n')
@@ -574,11 +577,12 @@ def t_h6_bagfix_needs_k4(CS, F):
 
 
 def t_r10_crash_blocks(CS, F):
+    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'lab': True})
     F.enqueue(CS); expect(CS, F, 'block', 'R10', FIX_DE='crash')
 
 
 def t_r10_declared_needs_eligible_line(CS, F):
-    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'draw_exposure': {'require': []}})
+    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'draw_exposure': {'require': []}, 'lab': True})
     F.enqueue(CS)
     expect(CS, F, 'launch', FIX_DE='ok')
     expect(CS, F, 'block', 'R10', FIX_DE='undeclared')       # a declared registration answered as undeclared
@@ -587,6 +591,7 @@ def t_r10_declared_needs_eligible_line(CS, F):
 
 
 def t_r10_undeclared_must_say_so(CS, F):
+    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'lab': True})
     F.enqueue(CS); expect(CS, F, 'block', 'R10', FIX_DE='ok')
 
 
@@ -819,7 +824,7 @@ def t_w_read_drift_pages(CS, F):
 
 
 def t_w4_r10_wait_pages_after_3h(CS, F):
-    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'draw_exposure': {'require': []}})
+    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'draw_exposure': {'require': []}, 'lab': True})
     F.enqueue(CS)
     with Env(F.env(FIX_DE='few')):
         CS.tick(CS.paths())
@@ -894,6 +899,7 @@ def t_impl_r11_fails_closed_without_decision(CS, F):
 
 def t_impl_r10_bound_to_its_variant(CS, F):
     """Codex IMPL-2 #3: an R10 answer computed for one registration is not reused for another."""
+    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'read_minutes': [180, 360], 'lab': True})
     F.enqueue(CS)
     with Env(F.env(FIX_DE='crash')):
         P = CS.paths()
@@ -930,7 +936,7 @@ def t_impl_drawn_fallback_binds_to_the_deciding_attempt(CS, F):
 def t_impl_human_closed_death_revert_still_holds(CS, F):
     """Codex impl: a run closed by a human (no torn-down/promoted line) still drives R11."""
     F.enqueue(CS); F.regfile('hc-01', F.other[:7])
-    t = NOW - dt.timedelta(hours=2)
+    t = NOW - dt.timedelta(minutes=40)   # inside the v37 2-h R11 expiry
     F.j('hc-01', 'drawn', t - dt.timedelta(hours=6), 'board-a,hive-a :: x')
     F.j('hc-01', 'deployed', t - dt.timedelta(hours=6), 'board-a,hive-a %s' % Z(t - dt.timedelta(hours=6)))
     F.j('hc-01', 'record-failed', t - dt.timedelta(minutes=10), 'x')
@@ -985,6 +991,7 @@ def t_impl_preverify_blocks_a_changed_read(CS, F):
 
 def t_impl_relaunch_check_after_r10(CS, F):
     """Codex impl: a hold placed while the exposure check runs is honoured (decision re-made after R10)."""
+    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'read_minutes': [180, 360], 'lab': True})
     F.enqueue(CS)
     hook = os.path.join(F.d, 'hold-during-r10.py')
     open(F.de, 'a').write('')
@@ -1017,6 +1024,139 @@ def t_impl_second_r10_defers(CS, F):
         CS.gather = real
     time.sleep(0.3)
     assert len(calls) == 2 and open(F.journal).read() == '', (calls, open(F.journal).read())
+
+
+# ---------------------------------------------------------------------------------------- v37 fun mode (W4) --
+def t_fun_r10_not_required(CS, F):
+    """A fun-mode registration (no `lab`) launches although drawexposure would crash: R10 is lab-only."""
+    F.enqueue(CS); expect(CS, F, 'launch', FIX_DE='crash')
+    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'lab': 'yes'})   # only the boolean true is lab
+    F.enqueue(CS); expect(CS, F, 'launch', FIX_DE='crash')
+
+
+def t_fun_h5_h6_not_required(CS, F):
+    F.write_reg({'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid'], 'class': 'bag-fix'})
+    e = dict(F.entry); e['class'] = 'bag-fix'; F.enqueue(CS, e)
+    open(os.path.join(F.home, 'mcai-analysis', 'drawrec.sh'), 'w').write('TARGET_K = 2\n')
+    open(os.path.join(F.home, 'digest', 'NEXT-SLOT.json'), 'w').write('{}')
+    expect(CS, F, 'launch')
+
+
+def _death_revert(F, run, hours, note, extra):
+    F.closed_run(run, decision='REVERT', note=note, t=NOW - dt.timedelta(hours=hours))
+    json.dump({'verdict': 'REVERT', 'extra': extra}, open(os.path.join(F.home, 'digest', 'reads', '%s-verdict-180.json' % run), 'w'))
+
+
+def t_r11_expires_after_two_hours_unlinked(CS, F):
+    F.enqueue(CS)
+    _death_revert(F, 'ex-01', 1.5, 'ex-01: VERDICT REVERT (+180) :: death gate: 3 canary deaths', {'by': 'death_gate', 'deaths': 3})
+    expect(CS, F, 'block', 'R11', 'expires')
+    F2 = Fix()
+    try:
+        F2.enqueue(CS)
+        _death_revert(F2, 'ex-02', 2.5, 'ex-02: VERDICT REVERT (+180) :: death gate: 3 canary deaths', {'by': 'death_gate', 'deaths': 3})
+        d, st = expect(CS, F2, 'launch')
+        assert st.get('r11_expired') and st['r11_expired'][0] == 'ex-02', st.get('r11_expired')
+    finally:
+        F2.cleanup()
+
+
+def t_r11_change_linked_never_expires(CS, F):
+    F.enqueue(CS)
+    _death_revert(F, 'ln-01', 6, 'ln-01: VERDICT REVERT (+0) :: rung-linked death on a non-ladder change', {})
+    expect(CS, F, 'block', 'R11', 'CHANGE-LINKED')
+
+
+def t_r11_artifact_linked_never_expires(CS, F):
+    """funread.py's REVERT artifact carries extra.linked: a linked death holds past 2 h even with a bland note."""
+    F.enqueue(CS)
+    _death_revert(F, 'ln-02', 6, 'ln-02: VERDICT REVERT (+180) :: fun-mode generic read', {'by': 'death_gate', 'deaths': 2, 'linked': 1})
+    expect(CS, F, 'block', 'R11', 'CHANGE-LINKED')
+
+
+def t_r11_expired_pure(CS, F):
+    t = NOW
+    assert CS.r11_expired(False, t - dt.timedelta(hours=2), t) is True
+    assert CS.r11_expired(False, t - dt.timedelta(hours=1, minutes=59), t) is False
+    assert CS.r11_expired(True, t - dt.timedelta(hours=9), t) is False
+    assert CS.r11_expired(False, None, t) is False
+
+
+def t_approval_names_reviewer(CS, F):
+    assert CS.approval_problem('Codex', False) == ''
+    assert CS.approval_problem('  ', False)
+    assert CS.approval_problem(None, False)
+    assert CS.approval_problem('Codex APPROVE', True)
+    assert CS.approval_problem('Claude r1 + Codex r1 APPROVE', True) == ''
+
+
+STUB_PROTECTED = """import sys, subprocess, argparse
+ap = argparse.ArgumentParser()
+for a in ('--repo', '--base', '--head', '--list'):
+    ap.add_argument(a)
+a = ap.parse_args()
+pats = [l.strip() for l in open(a.list) if l.strip() and not l.startswith('#')]
+if 'CRASH' in pats:
+    sys.exit(2)
+ch = subprocess.run(['git', '-C', a.repo, 'diff', '--name-only', a.base, a.head], capture_output=True, text=True, check=True).stdout.split()
+h = [c for c in ch if c in pats]
+print('PROTECTED (tier 3):' if h else 'not protected')
+for x in h:
+    print('  ' + x)
+sys.exit(1 if h else 0)
+"""
+
+
+def _prot_repo(F, listing):
+    """base2 (adds the stub decider + list) -> c_ok (touches build.mjs) / c_prot (touches reflex.mjs)."""
+    g = lambda *a: sh('git', '-c', 'user.email=t@t', '-c', 'user.name=t', *a, cwd=F.git)
+    os.makedirs(os.path.join(F.git, 'scripts', 'lib')); os.makedirs(os.path.join(F.git, 'config'))
+    os.makedirs(os.path.join(F.git, 'bots', 'src'))
+    open(os.path.join(F.git, 'scripts', 'lib', 'protected.py'), 'w').write(STUB_PROTECTED)
+    open(os.path.join(F.git, 'config', 'protected-paths.txt'), 'w').write(listing)
+    g('add', '-A'); g('commit', '-q', '-m', 'base2')
+    base2 = sh('git', 'rev-parse', 'HEAD', cwd=F.git)
+    open(os.path.join(F.git, 'bots', 'src', 'build.mjs'), 'w').write('x\n'); g('add', '-A'); g('commit', '-q', '-m', 'ok')
+    ok = sh('git', 'rev-parse', 'HEAD', cwd=F.git)
+    g('checkout', '-q', base2)
+    os.makedirs(os.path.join(F.git, 'bots', 'src'), exist_ok=True)
+    open(os.path.join(F.git, 'bots', 'src', 'reflex.mjs'), 'w').write('x\n'); g('add', '-A'); g('commit', '-q', '-m', 'prot')
+    prot = sh('git', 'rev-parse', 'HEAD', cwd=F.git)
+    return base2, ok, prot
+
+
+def _validate(CS, F, base, canary, approved, extra_reg=None):
+    reg = os.path.join(F.home, 'mcai-analysis', 'v-%s.json' % canary[:7])
+    json.dump(dict({'sha': canary[:7], 'reads': []}, **(extra_reg or {})), open(reg, 'w'))
+    e = {'run': 'p-01', 'class': '', 'variants': {base: {'registration': reg, 'approved': approved}}}
+    with Env(F.env()):
+        return CS.validate_entry(CS.paths(), e, []), e
+
+
+def t_queue_add_protected_needs_both_engines(CS, F):
+    base2, ok, prot = _prot_repo(F, 'bots/src/reflex.mjs\n')
+    bad, e = _validate(CS, F, base2, ok, 'Codex r1 APPROVE')
+    assert not bad, bad
+    assert e['variants'][base2]['protected'] is False
+    bad, _ = _validate(CS, F, base2, prot, 'Codex r1 APPROVE')
+    assert any('both engines' in b for b in bad), bad
+    bad, _ = _validate(CS, F, base2, prot, 'Claude r1 + Codex r1 APPROVE')
+    assert not bad, bad
+    bad, _ = _validate(CS, F, base2, prot, 'Codex r1 APPROVE', {'lab': True})   # lab mode: the old rule (any name)
+    assert not bad, bad
+
+
+def t_queue_add_undecidable_is_protected(CS, F):
+    # no decider at the base (the fixture's empty commits): undecidable = protected
+    bad, _ = _validate(CS, F, F.base, F.canary, 'Codex APPROVE')
+    assert any('both engines' in b and 'absent at the base' in b for b in bad), bad
+    F2 = Fix()
+    try:
+        base2, ok, _ = _prot_repo(F2, 'CRASH\n')
+        bad, _ = _validate(CS, F2, base2, ok, 'Codex APPROVE')
+        assert any('could not decide' in b for b in bad), bad
+    finally:
+        F2.cleanup()
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith('t_')]
@@ -1108,7 +1248,16 @@ MUTANTS = [
     ("    if how == 'abandon':\n        if deployed:", "    if how == 'abandon':\n        if False:"),
     ("        if live:\n            print('INSTALL-HOLD written", "        if False:\n            print('INSTALL-HOLD written"),
     ("        if not HEX40.match(k):", "        if False:"),
-    ("        if not v.get('approved'):", "        if False:"),
+    ("        if approval_problem(v.get('approved'), False):", "        if False:"),
+    ("    return (not linked) and closed_at is not None and (t - closed_at).total_seconds() >= R11_EXPIRE_H * 3600",
+     "    return closed_at is not None and (t - closed_at).total_seconds() >= R11_EXPIRE_H * 3600"),
+    ("    if r11_expired(linked, closed_at, st['now']):", "    if False:"),
+    ("    linked = linked or any(int((a.get('extra') or {}).get('linked') or 0) > 0 for a in arts", "    linked = linked or any(False for a in arts"),
+    ("            if json.load(f).get('lab') is not True:\n                return ''", "            if True:\n                return ''"),
+    ("    if lab and st.get('next_slot')", "    if st.get('next_slot')"),
+    ("    if protected and not all(rx.search(approved) for rx in TWO_ENGINES):", "    if False:"),
+    ("            if rc != 0:\n                return True, '%s is absent", "            if rc != 0:\n                return False, '%s is absent"),
+    ("        if r.returncode == 1:\n            return True,", "        if r.returncode == 1:\n            return False,"),
     ("            if int(parts[5].split(':')[-1]) == ino:", "            if False:"),
     ("        if any(P['canary_tree'] in x for x in argv):", "        if False:"),
     ("                if not dropin(b) and ((last_rec and ent and ent > last_rec) or",

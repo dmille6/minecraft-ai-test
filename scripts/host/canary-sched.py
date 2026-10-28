@@ -45,6 +45,13 @@ THE CHECKS
   H4 every read in /tmp has the queued md5 (an ABSENT one is staged from reads_src; a different one is never overwritten)
   H5 NEXT-SLOT.json admits only underground-safety    H6 a bag fix needs drawrec TARGET_K >= 4
   R10 drawexposure.py answers for the head
+
+FUN MODE (v37, OWNER 2026-10-28, W4). A registration that does not say `"lab": true` is an ORDINARY run: R10
+(drawexposure), H5 (NEXT-SLOT) and H6 (bag-fix 4-pool draw) are lab-only and do not apply to it. R11 EXPIRES 2 h after
+the run closed unless one of its deaths was CHANGE-LINKED (a rung-linked / change-row death, or an artifact with
+extra.linked > 0); `continue` still releases it at once. `approved` names the reviewer (any non-empty name); a canary
+whose diff touches config/protected-paths.txt (decided by the BASE's scripts/lib/protected.py; undecidable = protected)
+must name both engines (Claude and Codex).
 """
 import os, sys, json, re, glob, hashlib, subprocess, fcntl, tempfile, shutil, datetime as dt
 
@@ -63,6 +70,8 @@ LAUNCH_PAGE_MIN = 15
 # "rung-linked death on a non-ladder change", the change-row licence "linked death"
 DEATH_REVERT = re.compile(r'death gate:|death gate trip|rung-linked death|linked death|death-linked|death window', re.I)
 ABANDON_AFTER_DRAWN_MIN = 20
+R11_EXPIRE_H = 2.0      # v37: an R11 hold whose deaths were not change-linked releases itself this long after the close
+CHANGE_LINKED = re.compile(r'rung-linked death|linked death|death-linked', re.I)
 HEX40 = re.compile(r'^[0-9a-f]{40}$')
 SLOT_PROCS = (  # basename of argv[0] or argv[1]; never a substring of the whole command line (pgrep -f self-matches)
     ('canary-loop.sh', lambda b: b == 'canary-loop.sh'),
@@ -290,6 +299,16 @@ def entry_state(e, st):
     return 'ready'
 
 
+def reg_is_lab(st, e):
+    """v37: the head's registration (its variant for the fleet base) says `"lab": true`. Unreadable = lab (fail closed)."""
+    v = (e.get('variants') or {}).get(st.get('base_full') or '') or {}
+    try:
+        with open(v['registration']) as f:
+            return json.load(f).get('lab') is True
+    except Exception:
+        return True
+
+
 def head_entry(st):
     for e in (st.get('queue') or {}).get('entries') or []:
         if entry_state(e, st) not in ('done', 'cancelled'):
@@ -409,10 +428,11 @@ def head_blockers(e, st):
     else:
         for code, why in (st.get('variant_checks') or []):
             out.append((code, why, False))
-    if st.get('next_slot') and e.get('class') != 'underground-safety':
+    lab = reg_is_lab(st, e)
+    if lab and st.get('next_slot') and e.get('class') != 'underground-safety':
         out.append(('H5', 'NEXT-SLOT reserved for an underground-safety fix; head is class %r' % (e.get('class') or ''),
                     False))
-    if e.get('class') == 'bag-fix' and not st.get('drawrec_k4'):
+    if lab and e.get('class') == 'bag-fix' and not st.get('drawrec_k4'):
         out.append(('H6', 'bag fix needs drawrec.sh TARGET_K >= 4', False))
     return out
 
@@ -674,7 +694,14 @@ def variant_checks(P, e, v, base, st):
 
 
 def r10_check(P, e, v):
-    """drawexposure.py for the head, against a temp registrations dir holding only its registration. '' = fine."""
+    """drawexposure.py for the head, against a temp registrations dir holding only its registration. '' = fine.
+    v37: lab-only. A fun-mode registration (no `"lab": true`) is not exposure-checked; an unreadable one is (fail closed)."""
+    try:
+        with open(v['registration']) as f:
+            if json.load(f).get('lab') is not True:
+                return ''
+    except Exception:
+        pass
     d = tempfile.mkdtemp(prefix='sched-r10-')
     try:
         shutil.copy(v['registration'], os.path.join(d, '%s.json' % e['run']))
@@ -702,8 +729,15 @@ def r10_check(P, e, v):
         shutil.rmtree(d, ignore_errors=True)
 
 
-def death_hold(P, st, run):
-    """R11: (run, why) when its closing decision was a death-driven REVERT and no `continue` followed, else None."""
+def r11_expired(linked, closed_at, t):
+    """PURE (v37). An R11 hold releases itself R11_EXPIRE_H after the close unless a death was change-linked."""
+    return (not linked) and closed_at is not None and (t - closed_at).total_seconds() >= R11_EXPIRE_H * 3600
+
+
+def death_hold(P, st, run, closed_at=None):
+    """R11: (run, why) when its closing decision was a death-driven REVERT and no `continue` followed, else None.
+    v37: such a hold EXPIRES (st['r11_expired'] records it) R11_EXPIRE_H after `closed_at` unless a death was
+    change-linked. A decision missing from the ledger never expires: whether a death was linked cannot be known."""
     rows = run_rows(st['journal'], run)
     dts, pools = deployment(rows)
     d = ledger_row(st.get('ledger'), (st.get('reg_sha') or {}).get(run), pools, dts)
@@ -715,6 +749,21 @@ def death_hold(P, st, run):
                 % ((st.get('sha_sources') or {}).get(run) or 'none'))
     if str(d.get('decision')).upper() != 'REVERT':
         return None
+    hold = _death_reason(P, run, d)
+    if hold is None:
+        return None
+    linked = hold[2]
+    if r11_expired(linked, closed_at, st['now']):
+        st['r11_expired'] = (run, hold[1], iso(closed_at))
+        return None
+    return (run, hold[1] + ('; a death was CHANGE-LINKED: no 2-h expiry' if linked else
+                            '; expires %s (2 h after the close) unless `continue` first'
+                            % (iso(closed_at + dt.timedelta(hours=R11_EXPIRE_H)) if closed_at else '?')))
+
+
+def _death_reason(P, run, d):
+    """(run, why, change_linked) when a REVERT decision was death-driven (or cannot be shown not to be), else None."""
+    linked = bool(CHANGE_LINKED.search(str(d.get('note') or '')))
     arts = []
     for p in glob.glob(os.path.join(P['reads_out'], '%s-verdict-*.json' % run)):
         try:
@@ -724,14 +773,16 @@ def death_hold(P, st, run):
                 arts.append(a)
         except Exception:
             pass
+    linked = linked or any(int((a.get('extra') or {}).get('linked') or 0) > 0 for a in arts
+                           if isinstance((a.get('extra') or {}).get('linked'), (int, float)))
     if any(((a.get('extra') or {}).get('by') == 'death_gate') for a in arts):
-        return (run, 'verdict artifact by=death_gate')
+        return (run, 'verdict artifact by=death_gate', linked)
     if any('deaths' in (a.get('extra') or {}) for a in arts):
-        return (run, 'verdict artifact counts deaths (the licensed change-row REVERT)')
+        return (run, 'verdict artifact counts deaths (the licensed change-row REVERT)', linked)
     if DEATH_REVERT.search(str(d.get('note') or '')):
-        return (run, 'the REVERT line is decided by a death')
+        return (run, 'the REVERT line is decided by a death', linked)
     if not arts:
-        return (run, 'no REVERT verdict artifact found: holding (fail toward the hold)')
+        return (run, 'no REVERT verdict artifact found: holding (fail toward the hold)', linked)
     return None
 
 
@@ -825,7 +876,7 @@ def gather(P, full=True, r10=None):
     last_rows = run_rows(st['journal'], last) if last else []
     last_rec = max((ts(r.get('ts')) for r in last_rows if r.get('phase') == 'recorded' and ts(r.get('ts'))), default=None)
     last_pools = deployment(last_rows)[1] or frozenset()
-    st['death_hold'] = death_hold(P, st, last) if last else None
+    st['death_hold'] = death_hold(P, st, last, last_t) if last else None
     # S5
     newest = telemetry(P)
     since = t - dt.timedelta(minutes=FRESH_MIN)
@@ -1134,6 +1185,46 @@ def with_queue(P, fn):
         fcntl.flock(fd, fcntl.LOCK_UN); os.close(fd)
 
 
+TWO_ENGINES = (re.compile(r'claude', re.I), re.compile(r'codex|chatgpt|gpt', re.I))
+
+
+def protected_check(P, base, canary):
+    """v37: (protected, why) for base..canary, decided by the BASE's scripts/lib/protected.py against the BASE's
+    config/protected-paths.txt (git show), so a canary cannot edit its own protection. Undecidable = protected
+    (protected.py's own rule: exit 2 is never "not protected")."""
+    d = tempfile.mkdtemp(prefix='sched-prot-')
+    try:
+        got = {}
+        for rel in ('scripts/lib/protected.py', 'config/protected-paths.txt'):
+            rc, out = git(P, 'show', '%s:%s' % (base, rel))
+            if rc != 0:
+                return True, '%s is absent at the base %s: undecidable, so protected' % (rel, base[:7])
+            got[rel] = os.path.join(d, os.path.basename(rel))
+            with open(got[rel], 'w') as f:
+                f.write(out + '\n')
+        r = subprocess.run(['python3', got['scripts/lib/protected.py'], '--repo', P['git'], '--base', base, '--head', canary,
+                            '--list', got['config/protected-paths.txt']], capture_output=True, text=True, timeout=180)
+        if r.returncode == 0:
+            return False, 'not protected'
+        if r.returncode == 1:
+            return True, ' '.join(r.stdout.split())[:300]
+        return True, 'protected.py could not decide (exit %d): %s' % (r.returncode, ' '.join((r.stdout + r.stderr).split())[-200:])
+    except Exception as x:
+        return True, 'protected check could not run: %s' % x
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def approval_problem(approved, protected):
+    """PURE (v37). `approved` NAMES THE REVIEWER: any non-empty name is enough for an ordinary change; a protected one
+    (tier 3) must name both engines. '' = fine."""
+    if not isinstance(approved, str) or not approved.strip():
+        return 'carries no `approved` (the reviewer\'s name)'
+    if protected and not all(rx.search(approved) for rx in TWO_ENGINES):
+        return 'touches protected paths (tier 3), so `approved` must name both engines (Claude and Codex): %r' % approved[:120]
+    return ''
+
+
 def validate_entry(P, e, journal):
     """`queue add` refusals (empty list = valid). Fills computed hashes in place."""
     bad = []
@@ -1150,8 +1241,8 @@ def validate_entry(P, e, journal):
         if not HEX40.match(k):
             bad.append('variant key %r is not a full 40-hex sha (chain-after matched prefixes and the last match won)' % k)
             continue
-        if not v.get('approved'):
-            bad.append('variant %s carries no `approved` (who reviewed it, where recorded)' % k[:7])
+        if approval_problem(v.get('approved'), False):
+            bad.append('variant %s %s' % (k[:7], approval_problem(v.get('approved'), False)))
         reg = v.get('registration')
         try:
             with open(reg) as f:
@@ -1183,6 +1274,13 @@ def validate_entry(P, e, journal):
             v['canary_sha'] = cs
             if git(P, 'merge-base', '--is-ancestor', k, cs)[0] != 0:
                 bad.append('variant %s: canary %s does not descend from its base' % (k[:7], cs[:7]))
+            elif r.get('lab') is not True:
+                # v37 fun mode: tier by the protected-path list; the result is recorded on the variant
+                prot, pwhy = protected_check(P, k, cs)
+                v['protected'] = prot; v['protected_why'] = pwhy
+                ap = approval_problem(v.get('approved'), prot)
+                if ap:
+                    bad.append('variant %s %s (%s)' % (k[:7], ap, pwhy[:160]))
         reads = v.get('reads') or {}
         src = v.get('reads_src') or os.path.join(P['home'], 'mcai-analysis')
         v['reads_src'] = src
@@ -1419,6 +1517,9 @@ def cmd_status(P):
         print('%-20s %-10s %-18s hold=%s not_before=%s after=%s variants=%s' % (
             e.get('run'), entry_state(e, st), e.get('class') or '-', e.get('hold'), e.get('not_before'), e.get('after'),
             ','.join(k[:7] for k in e.get('variants') or {})))
+    if st.get('r11_expired'):
+        print('R11 EXPIRED (v37): %s closed %s on an unlinked death-driven REVERT (%s); >= %.0f h ago, so no hold'
+              % (st['r11_expired'][0], st['r11_expired'][2], st['r11_expired'][1], R11_EXPIRE_H))
     d = decide(st)
     print('DECISION: %s %s' % (d[0], d[1].get('run') if d[0] == 'launch' else ' | '.join('%s %s' % x for x in d[1])))
     return 0

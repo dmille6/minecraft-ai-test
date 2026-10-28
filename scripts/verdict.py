@@ -161,7 +161,9 @@ def _gate_bundle():
     # baseline-build rows only since 2026-10-07). Resolved on THIS file's sys.path WITHOUT executing them
     # (find_spec), so on the host they are the ~/mcai-analysis copies the loop invokes.
     import importlib.util as _ilu
-    for _n in ('bagfixgate', 'changerowcheck', 'usafegate'):
+    # v37 (fun mode, owner 2026-10-28): funread.py is the generic read the loop runs at +90/+180 for every registration that
+    # is not `"lab": true`; it decides KEEP/REVERT/INCONCLUSIVE for those runs, so it is part of the gate bundle.
+    for _n in ('bagfixgate', 'changerowcheck', 'usafegate', 'funread'):
         try:
             _sp = _ilu.find_spec(_n)
         except (ImportError, ValueError):
@@ -219,6 +221,12 @@ REG = os.path.join(_RD, f'{run_id}.json')
 if not os.path.exists(REG) and not os.environ.get('VERDICT_REG_DIR'):
     REG = f'/tmp/registrations/{run_id}.json'
 reg = json.load(open(REG)); man = json.load(open(os.environ.get('VERDICT_MANIFEST') or '/srv/mcbots/trial-manifest.json'))
+# v37 FUN MODE (OWNER 2026-10-28, W4): a registration that is not `"lab": true` is read by funread.py at +90/+180, and this
+# file serves it only as the DEATH POLL (`<run> 0 --poll`, which funread.py also asks). Such a registration may omit the
+# research fields, so the ones the poll path reads get the fun-mode defaults here. setdefault only: a registration that
+# carries them (every lab-era one, every replay fixture) reads exactly as before.
+if reg.get('lab') is not True:
+    reg.setdefault('read_minutes', [90, 180]); reg.setdefault('deadline_min', 240); reg.setdefault('reads', [])
 # v34: an UNDERGROUND-SAFETY canary is drawn on the pools that drown, so the cross-sectional death gate (canary POST vs
 # control POST) is biased against it by construction; its death gate is the DiD in usaferule.py (each arm against its own
 # PRE), measured by usafegate.py. Exactly the string; any other class keeps the gate below unchanged.

@@ -105,6 +105,26 @@ def cases(mod, quiet=False):
     out.append(('tally(): baseline on the 7-char sha (suffix ignored); other build and no-version kept apart; '
                 'only baseline bots vouch', base['k'] == 1 and other[('k', '92bc84f')] == 1 and unknown['k'] == 1
                 and bots == {'b-a-A'}, f'{base} {other} {unknown} {bots}'))
+    # THE UNDERSCORE SPELLING (2026-10-20). tally() keys every count by the STRIPPED kind; the declared
+    # name was looked up as written, so `_town_deposit` read 0 against 40 baseline rows and printed
+    # "ok — baseline silent" without having checked anything (cobblekeep-01, bagbudget-01, lidclear-01).
+    base_row = [('hive-a-Alpha', '_town_deposit', 'c6e91a8')]
+    rc, txt = run(mod, base_row, change_rows=('_town_deposit',))
+    out.append(("an '_x' registration is REFUSED when the baseline emits x (it read 0 before 10-20)",
+                rc == 2 and 'REFUSED — the baseline emits it' in txt and '_town_deposit' in txt, txt))
+    rc, txt = run(mod, base_row, change_rows=('town_deposit',))
+    out.append(("  ...and the same registration without the underscore is unchanged (REFUSED)",
+                rc == 2 and 'REFUSED — the baseline emits it' in txt, txt))
+    rc, txt = run(mod, [('hive-a-Alpha', '_town_deposit', None)], change_rows=('_town_deposit',))
+    out.append(("an '_x' registration seen only with NO version is REFUSED, and says why",
+                rc == 2 and 'carry no version' in txt, txt))
+    rc, txt = run(mod, prev_canary, change_rows=('_town_deposit',))
+    out.append(("an '_x' registration CLEARS when only another build emits it -- and the note proves it was looked up",
+                rc == 0 and 'note: _town_deposit: 40 row(s) from build 92bc84f' in txt, txt))
+    a = mod.assess(['_k', 'k', '__k', 'j'], {'k': 3}, {('k', '92bc84f'): 2}, {'j': 1})
+    out.append(('assess(): every spelling of k finds the 3 baseline rows and the other-build note; j finds its unversioned row',
+                a == [('_k', 3, 0, [('92bc84f', 2)]), ('k', 3, 0, [('92bc84f', 2)]), ('__k', 3, 0, [('92bc84f', 2)]),
+                      ('j', 0, 1, [])], a))
     return out
 
 
@@ -128,7 +148,10 @@ if __name__ == '__main__':
         ('every bot vouches for the baseline', "        rows += 1\n",
          "        rows += 1\n        base_bots.add((r.get('bot') or {}).get('name', ''))\n"),
         ('positive control dropped', '    if base_rows == 0 or len(bots) < 40 or len(kinds) < 20:', '    if False:'),
-        ('the other-build note is dropped', "            if k == row:\n", "            if False:\n"),
+        ('the other-build note is dropped', "sorted(other.items()) if kk == k]", "sorted(other.items()) if False]"),
+        # 2026-10-20: the declared name looked up AS WRITTEN again (the cobblekeep-01 / bagbudget-01 defect)
+        ('declared name not stripped (the 10-20 defect)', "        k = row.lstrip('_') if isinstance(row, str) else row\n",
+         "        k = row\n"),
         ('manifest baseline ignored (empty string)', "baseline = str(json.load(open(a.manifest)).get('declared_code_version') or '')",
          "baseline = 'zzzzzzz'"),
     ]

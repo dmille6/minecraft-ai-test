@@ -37,6 +37,7 @@ now = dt.datetime.now(dt.timezone.utc)
 import json
 ledger = txt.split('=== LEDGER')[1].split('=== MANIFEST')[0] if '=== LEDGER' in txt else ''
 excl = set()
+_hard = set()   # v37: the exclusions the fun-mode fallback draw keeps (brain subset, live canary, manual); the 12-h ledger one is not
 for line in ledger.strip().splitlines():
     try: row = json.loads(line)
     except Exception: continue
@@ -86,13 +87,13 @@ excl -= _early
 # above (Codex/Claude r1 10-19): a 6 h steady release must never re-admit a subset pool.
 try:
     for _p in json.load(open('/srv/mcbots/brain-subset.json')).get('pools') or []:
-        excl.add(_p); print('brain subset (never drawn):', _p)
+        excl.add(_p); _hard.add(_p); print('brain subset (never drawn):', _p)
 except FileNotFoundError:
     pass
 try:
     man = json.loads(txt.split('=== MANIFEST')[1]) if '=== MANIFEST' in txt else {}
     for p in str(man.get('canary_pool') or '').split(','):
-        if p.strip(): excl.add(p.strip())
+        if p.strip(): excl.add(p.strip()); _hard.add(p.strip())
 except Exception: pass
 # Registration-driven exposure. This MUST be a term inside elig(), not a filter applied to its
 # result: the `len(e) < 2` widening below recomputes e from scratch, and an earlier narrowing was
@@ -102,7 +103,18 @@ except Exception: pass
 import os, subprocess, ast as _ast
 RUN = os.environ.get('DRAW_RUN', '')
 ALLOWED = None
+# v37 FUN MODE (OWNER 2026-10-28): draw_exposure and draw_require_pools are LAB-ONLY launch requirements. A registration
+# that does not say `"lab": true` is drawn without them. An unreadable registration counts as lab (the old, stricter draw).
+_LAB = True
 if RUN:
+    for _rp0 in (os.path.expanduser('~/mcai-analysis/registrations/%s.json' % RUN), '/tmp/registrations/%s.json' % RUN):
+        try:
+            _LAB = json.load(open(_rp0)).get('lab') is True; break
+        except Exception:
+            pass
+    if not _LAB:
+        print('fun mode: draw_exposure and draw_require_pools are not applied (lab-only)')
+if RUN and _LAB:
     _r = subprocess.run(['python3', os.path.expanduser('~/mcai-analysis/drawexposure.py'), RUN,
                          '--registrations', os.path.expanduser('~/mcai-analysis/registrations')],
                         capture_output=True, text=True)
@@ -137,7 +149,7 @@ if _os.path.exists(_xf):
         if not _line or _line.startswith('#'): continue
         try: _p, _until = _line.split()[:2]; _u = _dt.datetime.fromisoformat(_until.replace('Z', '+00:00'))
         except Exception: raise SystemExit(f'draw-exclude.txt: malformed line {_line!r}; refusing to draw')
-        if _u > now: excl.add(_p); print('manual exclusion:', _p, 'until', _until)
+        if _u > now: excl.add(_p); _hard.add(_p); print('manual exclusion:', _p, 'until', _until)
 # THE INFERENCE HALF IS NO LONGER HELD CONSTANT -- IT IS RECORDED AS A COVARIATE.
 #
 # This term used to read `h == '5080' and`. It made 3 of 12 pools permanently
@@ -230,7 +242,18 @@ def pool_endpoint(pool):
             _eps.add('unknown:%s' % type(_ex).__name__)
     return _eps.pop() if len(_eps) == 1 else 'mixed:' + '+'.join(sorted(_eps))
 ENDPOINT = {p: pool_endpoint(p) for p in band}
-def elig(w): return [p for p, (h, ibh) in band.items() if p != 'placebo-c' and not p.startswith('isolated') and p not in excl and abs(ibh - med) / med <= w and p in expo and (expo[p][0] >= 8 or expo[p][1] >= 20) and (ALLOWED is None or p in ALLOWED)]
+# v37 FUN-MODE FALLBACK (OWNER 2026-10-28, W4): canary-loop.sh sets DRAW_FUN_FALLBACK=1 once a fun-mode draw has waited
+# FUN_DRAW_CAP_MIN (30). The draw then takes any pool outside the HARD exclusions (isolated-*, placebo-c, the live canary,
+# the brain subset, draw-exclude.txt): no 12-h ledger exclusion, no productivity band, no livelock/climb filter, no
+# draw_exposure. Those were measurement controls; fun mode reads harm, which needs bots, not a matched band.
+FUN_FALLBACK = os.environ.get('DRAW_FUN_FALLBACK') == '1'
+if FUN_FALLBACK:
+    excl = set(_hard)
+    print('FUN FALLBACK draw (the 30-min cap passed): hard exclusions only:', sorted(_hard))
+def elig(w):
+    if FUN_FALLBACK:
+        return [p for p in band if p != 'placebo-c' and not p.startswith('isolated') and p not in excl]
+    return [p for p, (h, ibh) in band.items() if p != 'placebo-c' and not p.startswith('isolated') and p not in excl and abs(ibh - med) / med <= w and p in expo and (expo[p][0] >= 8 or expo[p][1] >= 20) and (ALLOWED is None or p in ALLOWED)]
 e = elig(0.25); w = '±25%'
 # TWO pools are needed, so widen when the ±25% band yields FEWER THAN TWO, not only when it yields none: on 16 Sep 21:13Z the
 # loop's first draw found one pool at ±25% and slept instead of stating the ±40% band the rule allows.
@@ -239,9 +262,9 @@ e = elig(0.25); w = '±25%'
 # (sd 0.313 vs 0.443) for a matching criterion measured to cost almost nothing on
 # spread (0.81 inside vs 0.84 outside).
 if len(e) < 4: e = elig(0.40); w = '±40% (widened, stated)'
-trapped = [p for p in e if expo[p][2] >= 1]
+trapped = [p for p in e if expo.get(p, (0, 0, 0))[2] >= 1]
 print('median', round(med, 1), 'excluded(12h; released at 6h as steady KEEP+promoted: %s)' % sorted(_early), sorted(excl), 'band', w)
-print('eligible', [(p, ENDPOINT[p], band[p][1], expo[p]) for p in e], '| with a trapped bot:', trapped)
+print('eligible', [(p, ENDPOINT[p], band[p][1], expo.get(p)) for p in e], '| with a trapped bot:', trapped)
 _fleet_eps = sorted(set(ENDPOINT.values()))
 _offer = {_h: sum(1 for p in e if ENDPOINT[p] == _h) for _h in sorted(set(ENDPOINT[p] for p in e))}
 if len(_fleet_eps) == 1 and not _fleet_eps[0].startswith(('unknown:', 'mixed:')):
@@ -315,7 +338,7 @@ _none_why = 'fewer than %d eligible' % MIN_K
 # exclusion above (12 h / 6 h, the live canary, draw-exclude.txt) but not the band or exposure filters; the rest of the
 # draw comes from the ordinary eligible set. A malformed field, or a registration/module that cannot be read, draws
 # nothing (fail closed). No field = exactly the draw above.
-if RUN:
+if RUN and _LAB:
     try:
         sys.path.insert(0, os.path.expanduser('~/mcai-analysis'))
         import drawrequire as _DRQ

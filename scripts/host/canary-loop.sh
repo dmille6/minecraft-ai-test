@@ -23,7 +23,15 @@ SHA=$(jf sha); [ -n "$SHA" ] || { page error "registration $RUN has no sha"; exi
 # (20 bots) and, if the all-cause death gate trips with ZERO mechanism-linked deaths, EXTENDS to 24 h under
 # bagfixgate.py instead of reverting. Exactly the string; anything else is an ordinary canary and every line
 # below behaves as before.
-BAGFIX=$(python3 -c "import json; print('1' if json.load(open('$REG')).get('class') == 'bag-fix' else '')")
+# v37 FUN MODE (OWNER 2026-10-28, docs/PROCESS-fun-mode.md; W4). Every registration that does NOT say `"lab": true` runs
+# in fun mode: no lab preflights (v19 change rows, v31 licence, v33 bag fix, v34 underground safety, NEXT-SLOT, v30), a
+# draw that waits at most FUN_DRAW_CAP_MIN before the fallback draw, the GENERIC read (~/mcai-analysis/funread.py: death
+# gate with the two-death floor, crash loops, own defect lines if their evidence exists) at +90 and +180 with no per-change
+# read script required, a KEEP (goal-verified or goal-unverified) that PROMOTES fleet-wide unless the registration says
+# otherwise, and a REVERT or INCONCLUSIVE that tears the whole canary sha down. `"lab": true` = every line as before.
+FUN=$(python3 -c "import json; print('' if json.load(open('$REG')).get('lab') is True else '1')")
+FUN_READS="90 180"; FUN_DEADLINE=240; FUN_DRAW_CAP_MIN=30   # FUN_READS must match funread.py FUN_READS
+BAGFIX=$(python3 -c "import json; r=json.load(open('$REG')); print('1' if r.get('class') == 'bag-fix' and r.get('lab') is True else '')")
 BAGFIX_POOLS=4
 # brain-01 (staged 2026-10-12): a MODEL/ENV canary carries `canary_env`, a list of KEY=VALUE strings, written into the
 # canary pool's canary.env by mcai-canary-tree (via fleet-deploy's CANARY_ENV, which survives the sudo and is checked
@@ -64,7 +72,11 @@ fi
 # death handler writes; -13b `flooded_pocket_rung`, which is fleet-wide on 1d6c97d and which a
 # CONTROL death carried at 00:01:45 while -13b was being reverted for it). Refuse the
 # registration here -- before the draw, before the deploy, before three hours of fleet time.
+if [ "$(mf canary_code_version)" != "$SHA" ] && [ -n "$FUN" ]; then
+  journal funmode "fun mode (no \"lab\": true): lab preflights not required (v19 change rows, v31 licence, v33 bag fix, v34 underground safety, NEXT-SLOT, v30); generic read at +${FUN_READS// /, +}; draw wait capped at ${FUN_DRAW_CAP_MIN} min"
+fi
 if [ "$(mf canary_code_version)" != "$SHA" ]; then
+  if [ -z "$FUN" ]; then
   if ! sudo python3 $H/mcai-analysis/changerowcheck.py "$RUN" --hours 6 --registrations $H/mcai-analysis/registrations > $H/digest/changerowcheck-$RUN.log 2>&1; then
     page error "change-row preflight REFUSED $RUN; not drawing or deploying. $(grep -A3 '^REFUSED' $H/digest/changerowcheck-$RUN.log | tail -3 | tr '\n' ' ')"
     journal preflight-refused "$(tail -5 $H/digest/changerowcheck-$RUN.log | tr '\n' ' ')"
@@ -86,6 +98,7 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
     exit 2
   fi
   journal licence-ok "$(tail -2 $H/digest/licencecheck-$RUN.log | tr '\n' ' ')"
+  fi   # lab-only preflights (v19, v31)
   # ---- v32 preflight: THE LIVE GATE CODE MUST BE THE REGISTERED GATE CODE.
   # Three days running a gate generation shipped live and in no registration (v25-v28c, v29, v31).
   # The standing wake-up said to diff verdict.py against the last registered md5 and was followed on
@@ -114,14 +127,14 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
   fi
   # v34: an underground-safety registration must be well-formed for its DiD death gate (usafegate.py); a malformed one
   # (e.g. a dict in linkage_extra, which crashes verdict.py and changerowcheck.py) is refused before the draw.
-  if [ "$(jf class)" = "underground-safety" ]; then
+  if [ -z "$FUN" ] && [ "$(jf class)" = "underground-safety" ]; then
     RC=$(python3 $H/mcai-analysis/usafegate.py check-registration "$RUN" 2>&1 | tail -1)
     case "$(echo "$RC" | awk '$1 == "USAFE" {print $2}')" in
       OK) journal usafe-registration-ok "$RC";;
       *) page error "underground-safety registration REFUSED $RUN: $RC"; journal refused-v34 "$RC"; exit 2;;
     esac
   fi
-  if [ -f $H/digest/NEXT-SLOT.json ]; then
+  if [ -z "$FUN" ] && [ -f $H/digest/NEXT-SLOT.json ]; then
     if [ "$(jf class)" = "underground-safety" ]; then
       journal next-slot-ok "underground-safety fix $RUN may take the reserved slot (consumed only after a verified deploy)"
     else
@@ -135,7 +148,7 @@ fi
 # so fixes-01 went live on 20 bots at 02:02Z, was refused at 02:05Z, and ran ~2 h with no reader and no
 # death poll (canarywatch's heal budget relaunched it three times into the same refusal). A schedule
 # defect must refuse before a single bot is touched; the later check stays for resumed runs.
-if [ "$(mf canary_code_version)" != "$SHA" ]; then
+if [ -z "$FUN" ] && [ "$(mf canary_code_version)" != "$SHA" ]; then
   _DL=$(jf deadline_min); [ -n "$_DL" ] || _DL=780
   if ! python3 "$HOME/v30check.py" "$REG" "$_DL"; then
     page error "canary-loop refused $RUN BEFORE the draw: v30 schedule invariant (deadline_min $_DL vs read_minutes)"
@@ -146,8 +159,14 @@ fi
 # ---- phase DRAW + DEPLOY (skipped when the manifest already names this sha)
 if [ "$(mf canary_code_version)" != "$SHA" ]; then
   if [ -n "$(mf canary_pool)" ]; then page error "manifest names another canary ($(mf canary_pool) $(mf canary_code_version)); refusing to start"; exit 2; fi
-  journal draw "waiting for two pools"
-  while true; do D=$(bash $H/mcai-analysis/drawrec.sh "$RUN" 2>&1 | tail -4); P=$(echo "$D" | grep -o "DRAW (.*owner C): \[.*\]" | grep -o "'[a-z-]*'" | tr -d "'" | paste -sd, -)
+  if [ -n "$FUN" ]; then journal draw "waiting for two pools (fun mode: at most ${FUN_DRAW_CAP_MIN} min, then the fallback draw)"; else journal draw "waiting for two pools"; fi
+  _D0=$(_now); FB=""
+  while true; do
+    # FUN MODE: once FUN_DRAW_CAP_MIN has passed, drawrec.sh draws with DRAW_FUN_FALLBACK=1 (the 12-h ledger exclusion,
+    # the band and the livelock filter are dropped; isolated/placebo-c, the live canary, the brain subset and the manual
+    # exclusions still hold). A fallback that finds nothing ends the loop (paged) instead of waiting for hours.
+    [ -n "$FUN" ] && [ $(( $(_now) - _D0 )) -ge $(( FUN_DRAW_CAP_MIN * 60 )) ] && FB=1
+    D=$(DRAW_FUN_FALLBACK=$FB bash $H/mcai-analysis/drawrec.sh "$RUN" 2>&1 | tail -4); P=$(echo "$D" | grep -o "DRAW (.*owner C): \[.*\]" | grep -o "'[a-z-]*'" | tr -d "'" | paste -sd, -)
     # v33: WIDENING MID-RUN IS NOT DONE (a second deploy rewrites the one declared_at, restarts the pools already on
     # canary and rebuilds the canary tree under them). Its safe equivalent: a bag fix starts at 20 bots, or waits.
     # THREE-POOL BAG FIXES (OPERATOR + CODEX 10-10, owner's delegation). The decision is bagfixrule.draw_decision, asked
@@ -176,13 +195,21 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
           journal draw-error "draw decision unreadable: $(echo "${_DD:-EMPTY}" | cut -c1-200) -- the band gave ${P:-nothing}; waiting 20 min"; P="";;
       esac
     fi
-    [ -n "$P" ] && break; sleep 1200; done
+    [ -n "$P" ] && break
+    if [ -n "$FB" ]; then
+      journal draw-failed "fun mode: the fallback draw after ${FUN_DRAW_CAP_MIN} min found no pools: $(echo "$D" | tail -2 | tr '\n' ' ' | cut -c1-240)"
+      page error "$RUN: no pools after the ${FUN_DRAW_CAP_MIN}-min draw cap, fallback included -- nothing deployed; rearm when pools are free"
+      exit 2
+    fi
+    if [ -n "$FUN" ]; then _sleep 600; else sleep 1200; fi
+  done
+  [ -n "$FB" ] && journal draw-fallback "fun mode: drawn by the fallback after the ${FUN_DRAW_CAP_MIN}-min cap"
   journal drawn "$P :: $(echo "$D" | head -2 | tr '\n' ' ')"
   if [ "$NOACT" = "--no-act" ]; then echo "would deploy $SHA to $P"; exit 0; fi
   # v34-HYB (Codex launch condition 2): the matched-pool control is FROZEN after the draw and BEFORE the deploy, and
   # journalled; the gate only ever LOADS this record (<reads>/<run>-usafe-pre.json.matched) and is UNREADABLE without it.
   # A freeze that fails refuses the deploy: nothing has been deployed yet.
-  if [ "$(jf class)" = "underground-safety" ]; then
+  if [ -z "$FUN" ] && [ "$(jf class)" = "underground-safety" ]; then
     FZ=$(python3 $H/mcai-analysis/usafegate.py freeze "$RUN" "$P" 2>&1 | tail -1)
     case "$(echo "$FZ" | awk '$1 == "USAFE" {print $2}')" in
       FROZEN) journal usafe-matched-frozen "$FZ";;
@@ -195,13 +222,18 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
 fi
 # v33: the reserved next slot is CONSUMED only once an underground-safety canary is verifiably deployed (journal
 # `deployed`, manifest naming its sha) -- on a fresh launch and on a resume alike, so a refused or failed launch keeps it.
-if [ -f $H/digest/NEXT-SLOT.json ] && [ "$(jf class)" = "underground-safety" ] && _jhas deployed && [ "$(mf canary_code_version)" = "$SHA" ] && [ "$NOACT" != "--no-act" ]; then
+if [ -z "$FUN" ] && [ -f $H/digest/NEXT-SLOT.json ] && [ "$(jf class)" = "underground-safety" ] && _jhas deployed && [ "$(mf canary_code_version)" = "$SHA" ] && [ "$NOACT" != "--no-act" ]; then
   journal next-slot-consumed "$(head -1 $H/digest/NEXT-SLOT.json)"
   mv $H/digest/NEXT-SLOT.json $H/digest/NEXT-SLOT.consumed-$RUN.json
 fi
 DECL=$(mf declared_at); T0=$(python3 -c "import datetime as dt; print(int(dt.datetime.fromisoformat('$DECL'.replace('Z','+00:00')).timestamp()))")
+if [ -n "$FUN" ]; then
+  READS="$FUN_READS"; DEADLINE=$FUN_DEADLINE
+  SCRIPTS=$(python3 -c "import json; print(' '.join(json.load(open('$REG')).get('reads') or []))")
+else
 READS=$(python3 -c "import json; r=json.load(open('$REG')); m=r['read_minutes']+ (r.get('extension',{}).get('extra_reads',[]) if r.get('extension',{}).get('until_exposure') else []); print(' '.join(str(x) for x in sorted(m)))")
 SCRIPTS=$(python3 -c "import json; print(' '.join(json.load(open('$REG'))['reads']))"); DEADLINE=$(jf deadline_min); [ -n "$DEADLINE" ] || DEADLINE=780
+fi
 # v30 REFUSAL: A SCHEDULE WHOSE LAST READ MINUTE IS NOT STRICTLY INSIDE THE DEADLINE CANNOT BE READ.
 # drop5-01, 2026-09-25: read_minutes [30,90,180,360] AND deadline_min 360. The deadline test further
 # down lives INSIDE the read loop, so the loop reached the +360 read at 362 min elapsed, fired
@@ -211,7 +243,7 @@ SCRIPTS=$(python3 -c "import json; print(' '.join(json.load(open('$REG'))['reads
 # days. THIS IS THE ONLY PLACE THE LOSS IS PREVENTABLE: verdict.py can annotate the violation, but by
 # the deadline it is already too late -- the same defect as a remedy the bot cannot perform from where
 # it is.
-if ! python3 "$HOME/v30check.py" "$REG" "$DEADLINE"; then
+if [ -z "$FUN" ] && ! python3 "$HOME/v30check.py" "$REG" "$DEADLINE"; then
   page error "canary-loop refused to launch $RUN: v30 schedule invariant (deadline_min vs read_minutes)"
   journal refused-v30 "deadline_min $DEADLINE vs read_minutes: the final read would be unreachable"
   exit 1
@@ -279,6 +311,14 @@ _run_reads() {
   # THE READ SCRIPTS LIVE IN /tmp AND NOTHING PUTS THEM THERE. (See the note at the base read below.)
   local _miss=""
   for s in $SCRIPTS; do [ -f "$RD/$s.py" ] || _miss="$_miss $s"; done
+  # FUN MODE: registered reads are optional evidence for own lines; a missing one is noted and skipped, never fatal.
+  if [ -n "$FUN" ]; then
+    [ -n "$_miss" ] && journal reads-skipped "+$M fun mode: registered read(s) absent from $RD:$_miss (own lines on them are not evaluated)"
+    local _have=""; for s in $SCRIPTS; do [ -f "$RD/$s.py" ] && _have="$_have $s"; done
+    [ -n "$_have" ] || return 0
+    [ -f $H/mcai-analysis/heavyread.sh ] || { journal reads-skipped "+$M fun mode: heavyread.sh missing, registered reads not run"; return 0; }
+    local SCRIPTS="$_have"; _miss=""
+  fi
   if [ -n "$_miss" ]; then
     page error "registered read script(s) missing from $RD:$_miss -- nothing copies them in and a reboot empties /tmp. Restore them before this canary can be read."
     journal "reads-missing" "missing from $RD:$_miss"
@@ -398,7 +438,11 @@ for M in $READS; do
   # a half hours into a canary due that night, with the loop alive and journalling the whole
   # time. verdict.py now refuses instead of raising, but the loop must not be able to swallow
   # the next one either.
-  V=$(python3 $H/verdict.py $RUN $M 2>$H/digest/verdict-err-$RUN-$M.log | tail -1)
+  if [ -n "$FUN" ]; then
+    V=$(python3 $H/mcai-analysis/funread.py $RUN $M 2>$H/digest/verdict-err-$RUN-$M.log | tail -1)
+  else
+    V=$(python3 $H/verdict.py $RUN $M 2>$H/digest/verdict-err-$RUN-$M.log | tail -1)
+  fi
   [ -z "$V" ] && V="CRASH (no verdict on stdout): $(tail -3 $H/digest/verdict-err-$RUN-$M.log 2>/dev/null | tr '\n' ' ' | cut -c1-400)"
   # v33: for a bag fix a REVERT is journalled as PENDING before the read is marked done, so no crash window can lose
   # it (round 3, Codex): a resume finds the pending REVERT and re-runs extend-check, fail closed.
@@ -420,6 +464,12 @@ for M in $READS; do
     UNREADABLE) page error "$V (HOLD: death poll continues)";;
     *) case "$V" in *WATCH*) page flag "$V";; *) echo "$V";; esac;;
   esac
+  # FUN MODE: the final read must close the run. No decision there (a crash, UNREADABLE, garbage) cannot rule out harm,
+  # so it is INCONCLUSIVE and torn down -- never left deployed waiting for a deadline.
+  if [ -n "$FUN" ] && [ "$M" = "${FUN_READS##* }" ]; then
+    FINAL=INCONCLUSIVE; FINALV="fun mode: no decision at the final read +$M -> INCONCLUSIVE (torn down) :: $V"; FROM=$M
+    journal contained "$FINALV"; page verdict "$FINALV"
+  fi
 done
 # ---- v33 phase BAG-FIX EXTENSION, part 2 (part 1, the resume state, sits before the base reads above).
 if [ "$FINAL" = "REVERT" ] && [ -n "$BAGFIX" ] && [ -z "$EXT" ] && [ -n "$FROM" ] && ! _jhas bagfix-decided; then
@@ -588,13 +638,14 @@ case "$FINAL" in
     # exactly like any non-fleet-wide KEEP below; then it pages the operator with the one verified command that makes
     # the env permanent on these pools (mcai-brain-subset: record first, exact-value verification, resumable). The code
     # is inert without the env and rides the next fleet-wide promotion.
-    if [ "$(jf promotion)" = "keep-subset" ]; then
+    PROMO=$(jf promotion); [ -n "$FUN" ] && [ -z "$PROMO" ] && PROMO=fleet-wide   # fun mode: a KEEP is promoted
+    if [ "$PROMO" = "keep-subset" ]; then
       journal subset-pending "operator: sudo /usr/local/sbin/mcai-brain-subset apply --run $RUN --pools $P --env \"$CENV\""
       page verdict "KEEP $RUN (keep-subset): after teardown, the operator applies the subset: sudo /usr/local/sbin/mcai-brain-subset apply --run $RUN --pools $P --env \"$CENV\""
     fi
-    if [ "$(jf promotion)" != "fleet-wide" ]; then
-      page verdict "KEEP $RUN, promotion '$(jf promotion)' -- recording and tearing down rather than promoting"
-      journal keep-unpromoted "promotion=$(jf promotion); recording KEEP then restoring baseline"
+    if [ "$PROMO" != "fleet-wide" ]; then
+      page verdict "KEEP $RUN, promotion '$PROMO' -- recording and tearing down rather than promoting"
+      journal keep-unpromoted "promotion=$PROMO; recording KEEP then restoring baseline"
       _recorded || _record KEEP
       FINAL=KEEP_TEARDOWN
     fi
