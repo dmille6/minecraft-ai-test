@@ -11,11 +11,12 @@
 // ascend, descend, water and tunnel clear it and keep every placement they had.
 
 export const NOBRIDGE_COST = 100
-/** How far below the priced cell water still counts as "under" a placement (r2 Codex P2: 4 let a bot bridge from a high bank). */
-export const NOBRIDGE_DEPTH = 24
+/** The default scan depth when the world's floor is unknown (r3 Codex P2: any fixed depth is a high bank's loophole; the
+ *  installed rule scans to the world's lower bound, stopping at the first block the column cannot pass). */
+export const NOBRIDGE_DEPTH = 384
 const WATERY = /^(water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/
 // what a scaffold may be placed into and a bot walk through: the column goes on through these
-const OPEN = /^(air|cave_air|void_air|short_grass|tall_grass|fern|large_fern|dead_bush|vine|glow_lichen|snow)$/
+const OPEN = /^(air|cave_air|void_air|short_grass|tall_grass|fern|large_fern|dead_bush|vine|glow_lichen|snow|lily_pad)$/   // a lily pad sits ON water (r3 Codex P2)
 
 /**
  * Does a placement priced at the top of this column go over or into water? `name(i)` -> the block name i cells below the
@@ -45,14 +46,14 @@ export const wetName = b => (b == null ? null : (b.getProperties?.().waterlogged
  * NOBRIDGE_COST over water while `this.noBridge` is true (a plain function, never bound: the Object.assign clones in index.mjs
  * carry it with `this` the clone being searched).
  */
-export function installNoBridge (movements, read) {
+export function installNoBridge (movements, read, minY = () => -64) {
   if (!movements || movements.__noBridge) return movements
   const base = Object.getPrototypeOf(movements).exclusionPlace
   movements.exclusionPlace = function (block) {
     const w = base.call(this, block)
     const p = block?.position
     if (!this.noBridge || !p) return w
-    return w + (overWater(i => (i === 0 ? wetName(block) : wetName(read(p.x, p.y - i, p.z)))) ? NOBRIDGE_COST : 0)
+    return w + (overWater(i => (i === 0 ? wetName(block) : wetName(read(p.x, p.y - i, p.z))), Math.max(1, p.y - minY() + 1)) ? NOBRIDGE_COST : 0)
   }
   movements.noBridge = true
   movements.__noBridge = true

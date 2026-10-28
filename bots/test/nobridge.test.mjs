@@ -26,6 +26,8 @@ t('overWater: water in the priced cell, or under it before a block the column ca
   assert.strictEqual(overWater(['air', null]), false, 'unread')
   assert.strictEqual(overWater(['air', 'lava']), false, 'lava is not this rule')
   assert.strictEqual(overWater(Array(NOBRIDGE_DEPTH).fill('air').concat('water')), false, 'bounded')
+  assert.strictEqual(overWater(Array(40).fill('air').concat('water')), true, 'a bank 40 above the water (r3 Codex P2)')
+  assert.strictEqual(overWater(['air', 'air', 'lily_pad', 'water']), true, 'a lily pad BELOW the step (r3 Codex P2)')
   let reads = 0
   assert.strictEqual(overWater(i => { reads++; return i === 0 ? 'air' : 'stone' }), false); assert.strictEqual(reads, 2, 'lazy: stops at the first solid')
 })
@@ -84,6 +86,16 @@ t('a lily pad on the lake does not hide it (the step cell is not the placed cell
   const m = movesFor(lily)
   assert.ok(!placing(m.getNeighbors(node(0, 63, 0))).some(x => x.toPlace.some(tp => tp.x + tp.dx === 1 && tp.y + tp.dy === 62)), 'no dirt into the water under the pad')
   assert.ok(placing(movesFor(lily, false).getNeighbors(node(0, 63, 0))).some(x => x.toPlace.some(tp => tp.x + tp.dx === 1 && tp.y + tp.dy === 62)), 'positive control: the library would')
+})
+t('REAL: a bank 24 above the lake and a lily pad below the step are both refused (Codex r2 repros)', () => {
+  const mk = name => { const b = Block.fromStateId(registry.blocksByName[name].defaultState, 0); return b }
+  const high = p => { let n = 'air'; if (p.y <= 62) n = p.x >= 1 ? 'water' : 'stone'; else if (p.x <= 0 && p.y <= 85) n = 'stone'; const b = mk(n); b.position = new Vec3(p.x, p.y, p.z); return b }
+  const east = (m, y) => placing(m.getNeighbors(node(0, y, 0))).filter(x => x.x === 1)
+  assert.ok(east(movesFor(high, false), 86).length, 'positive control: the library bridges off the high bank')
+  assert.strictEqual(east(movesFor(high), 86).length, 0, 'refused on a walk')
+  const pad = p => { let n = 'air'; if (p.y <= 62) n = p.x >= 1 ? 'water' : 'stone'; else if (p.x <= 0 && p.y <= 64) n = 'stone'; else if (p.x >= 1 && p.y === 63) n = 'lily_pad'; const b = mk(n); b.position = new Vec3(p.x, p.y, p.z); return b }
+  assert.ok(east(movesFor(pad, false), 65).some(x => x.y === 65), 'positive control: scaffold at 64 over the pad')
+  assert.ok(!east(movesFor(pad), 65).some(x => x.toPlace.length), 'refused on a walk')
 })
 t('the 1x1 TOWER is still offered on dry land on a walk (pillaring kept)', () => {
   const m = movesFor(world(false))

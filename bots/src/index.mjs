@@ -693,7 +693,7 @@ function connect() {
     // nobridge-01 (LIVE 10-27 showcase: 52 dirt laid across the lake): no WALK places a path block over or into water; the
     // 1x1 tower stays (nobridge.mjs says which moves place and why this override is the narrowest). The clones below copy it
     // with noBridge=true; the ascend, descend, water and tunnel profiles clear it.
-    installNoBridge(moves, (x, y, z) => bot.blockAt(new Vec3(x, y, z)))
+    installNoBridge(moves, (x, y, z) => bot.blockAt(new Vec3(x, y, z)), () => bot.game?.minY ?? -64)
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
