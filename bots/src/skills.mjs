@@ -3375,7 +3375,8 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // CHESTREACH-01 (chestfull.mjs homeFirst): a walk from OUTSIDE town that found no route -- 141 of 164 such failures in
     // under 1 s, mostly from a mine under town -- walks HOME (its legs and its surface climb), then deposits once more from
     // there: the retry rescans, and a walk that fails again from town goes on to the town sweep (viaRecovery) as any
-    // in-town walk does. Once per deposit (homed); bounded by the same deadline.
+    // in-town walk does. Once per deposit (homed). `home` keeps its own 170 s budget, so the runner's 180 s watchdog may end
+    // the attempt during the walk (Codex r1 note): an abort, as for deposit's no-chest walk home -- the next deposit starts in town.
     if (homeFirst({ kind, beganInTown: walkBeganInTown, noRecovery, homed, leftMs: msLeft(Infinity) })) {
       const from = bot.entity.position.floored?.() ?? bot.entity.position
       const walked = await home(ctx, {}, signal)
