@@ -430,8 +430,9 @@ await t('WIRING (structural, comments stripped): the deposit, the withdraw and t
 
 // ------------------------------------------------------------------------------------------- anchored mutants
 await t('MUTANT KILLED: the base recount (fail any blocked lid before walking) leaves the town uncounted', async () => {
-  await withMutant(SKILLS_PATH, "      const pre = lidRefusedBeforeWalk(bot, c, 'count_town')\n",
-    "      const pre = /chest/.test(blockNameOf(bot, b) ?? '') && chestLidBlocked(bot.blockAt(c.offset(0, 1, 0))) ? { outcome: 'refused' } : null\n", async M => {
+  // towndeposit-01: the recount's pre-walk rule is countSkip (towndeposit.mjs countSkipWhy), shared with the count offer
+  await withMutant(SKILLS_PATH, "      const skip = countSkip(bot, c)\n",
+    "      const skip = /chest/.test(blockNameOf(bot, b) ?? '') && chestLidBlocked(bot.blockAt(c.offset(0, 1, 0))) ? 'lid blocked' : null\n", async M => {
       const { w } = await fencedLid([stack('oak_log', 64), stack('oak_log', 64), tool('stone_pickaxe', 10)])
       try {
         M.resetCobbleReconcile(); M.installCobbleCap(w.bot)
