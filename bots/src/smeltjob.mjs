@@ -198,21 +198,30 @@ export const SMELT_GATE = Object.freeze({ on: !['off', '0', 'false', 'no'].inclu
  * decides: no entry, a never-opened container, an unreadable index, a mutation still OPEN (a pre mark with no post, younger
  * than OP_TTL_MS: its moves may not be on disk yet), or a deposit the TOWN MEMORY recorded (`tookAt` { half key: ms }, o=took)
  * after the container's latest observation (beyond RULE_OUT_TOOK_SLACK_MS: the rule-out's own rule).
- * A CLOSED mutation with no ore move recorded is no evidence: the deposit verbs record every move they put in (xfer); a
- * withdraw visit's room-making deposit does not, and is seen at the container's next open (every live town's containers were
- * opened within 2 h, 10-28).
+ * A CLOSED mutation with no ore move recorded is no evidence for SMELT_GATE_DIRTY_MS: the deposit verbs record their moves
+ * (xfer), and an unrecorded one is seen at the container's next open (every live town container was opened within 2 h,
+ * 10-28); a container still unopened after that is evidence, and the job's search (which opens dirty containers) re-reads it.
  */
-export function indexInputAbsent (entries = null, need = null, keys = null, now = Date.now(), xin = {}, { tookAt = {} } = {}) {
+/** A container mutated since its latest observation and not opened again for this long is evidence (Codex code r1: a move the
+ *  index never recorded -- town_deposit's verifying re-open failing, a withdraw visit's room-making deposit, a move lost from
+ *  `xin` at a rotation -- would otherwise hide behind the older observation with no end). Replayed 10-28: still 488 of the 777
+ *  town_has_none jobs not ordered, all 99 town-ore jobs ordered. */
+export const SMELT_GATE_DIRTY_MS = 2 * 60 * 60 * 1000
+export function indexInputAbsent (entries = null, need = null, keys = null, now = Date.now(), xin = {}, { tookAt = {}, dirtyMs = SMELT_GATE_DIRTY_MS } = {}) {
   if (!need || !entries || typeof entries !== 'object') return false
   const list = Object.values(entries)
   if (!list.length) return false
   for (const k of (Array.isArray(keys) ? keys : [])) if (indexStateOf(entries[k], now) === 'unknown') return false
   for (const e of list) {
     if ((Number(e?.obs?.names?.[need]?.[0]) || 0) > 0) return false
+    let mark = e?.last?.t === 'dirty' && Number.isFinite(e.last.at) ? e.last.at : -Infinity
     for (const o of Object.values(e?.ops ?? {})) {
       const start = Math.max(Number.isFinite(o?.pre) ? o.pre : -Infinity, Number.isFinite(o?.held) ? o.held : -Infinity)
       if (o?.post == null && now - start < OP_TTL_MS) return false
+      mark = Math.max(mark, start, Number.isFinite(o?.post) ? o.post : -Infinity)
     }
+    // mutated since the observation and not opened for dirtyMs: whatever went in, the index may not have it
+    if (indexStateOf(e, now) === 'dirty' && Number.isFinite(mark) && now - mark >= dirtyMs) return false
     const at = Number(e?.obs?.at)
     const halves = [...new Set([...(Array.isArray(e?.obs?.h) ? e.obs.h : [])])]
     if (halves.some(h => Number.isFinite(tookAt?.[h]) && !(tookAt[h] <= (Number.isFinite(at) ? at : -Infinity) + RULE_OUT_TOOK_SLACK_MS))) return false

@@ -66,6 +66,16 @@ test('an OPEN mutation (pre, no post, younger than OP_TTL_MS) is not absent; a c
   assert.equal(absent([obs('a', NOW - 2 * TI.OP_TTL_MS), dirty('a', NOW - TI.OP_TTL_MS - 1000, 'pre', 'p')]), true)   // a crashed writer, past its protection
 })
 
+test('a mutation since the latest observation, unopened for SMELT_GATE_DIRTY_MS, is evidence (Codex code r1: unrecorded moves are bounded)', () => {
+  const D = SJ.SMELT_GATE_DIRTY_MS
+  const m = at => [obs('a', at - 2000), dirty('a', at - 1000, 'pre', 'p'), dirty('a', at, 'post', 'p')]
+  assert.equal(absent(m(NOW - D + 60_000)), true, 'younger: trusted (the deposit verbs record their moves)')
+  assert.equal(absent(m(NOW - D - 1)), false, 'older: whatever went in, the index may not have it')
+  assert.equal(absent([...m(NOW - D - 1), obs('a', NOW - 1000)]), true, 'opened since: the observation decides again')
+  // a move lost from xin (a rotation) cannot hide ore for longer than the bound: the entry is still dirty
+  assert.equal(absent([obs('a', NOW - D - 5000), dirty('a', NOW - D - 4000, 'pre', 'p'), dirty('a', NOW - D - 3000, 'post', 'p')]), false)
+})
+
 test('a TOWN-MEMORY deposit mark after the latest observation is not absent (beyond the rule-out slack)', () => {
   const f = fold([obs('a', NOW - 60_000)])
   assert.equal(indexInputAbsent(f.entries, 'raw_copper', ['a'], NOW, f.xin, { tookAt: { a: NOW - 30_000 } }), false)
