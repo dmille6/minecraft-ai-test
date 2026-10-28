@@ -76,20 +76,30 @@ export function foreignKind (n) {
   if (TREE_CLEAR.test(s)) return 'tree'
   return null
 }
+/** Does segment `a` wait on segment `b` (directly or through its dependencies)? Such a segment cannot be leased while `b` is
+ *  open, so `b` may clear a cell of it without meeting its builder (fell-01 r4). Pure. */
+export function dependsOn (record, a, b) {
+  const deps = new Map(segmentsOf(record).map(s => [s.seg, s.deps]))
+  const seen = new Set(), todo = [...(deps.get(a) ?? [])]
+  while (todo.length) { const d = todo.pop(); if (d === b) return true; if (seen.has(d)) continue; seen.add(d); todo.push(...(deps.get(d) ?? [])) }
+  return false
+}
 /** The most logs felled above one cleared cell. */
 export const TRUNK_MAX = 12
 /**
- * THE TRUNK ABOVE a log cell -> [[x, y, z], ...] lowest first: the contiguous column of logs directly above `at`, at most `max`,
- * stopping at the first non-log, an unread cell, or a cell `keep` says stays (a record cell that reads DONE). Felled with the
- * cell so no trunk is left floating over the pad and the walls above are not left holding it. Pure.
+ * THE TRUNK ABOVE a log cell -> [[x, y, z], ...] lowest first: the contiguous column of logs directly above `at` (at most `max`
+ * cells walked), stopping at the first non-log, an unread cell, or a cell `keep` says stays (a record cell that reads DONE, a
+ * listed tree); a cell `skip` names is walked through but not returned. Pure.
  */
-export function trunkAbove (read, at, { max = TRUNK_MAX, keep = () => false } = {}) {
+export function trunkAbove (read, at, { max = TRUNK_MAX, keep = () => false, skip = () => false } = {}) {
   const out = []
-  for (let y = at[1] + 1; out.length < max; y++) {
+  for (let y = at[1] + 1, seen = 0; seen < max; y++, seen++) {
     const c = [at[0], y, at[2]]
     const b = read(...c)
     if (!b || !/_log$/.test(nm(b)) || keep(c)) break
-    out.push(c)
+    // SKIPPED (r3): a log in a cell this felling may not dig (another segment's open record cell) is left in place and the column
+    // goes on above it -- that segment digs it; the logs over it are no record's and would float over the finished roof
+    if (!skip(c)) out.push(c)
   }
   return out
 }
@@ -486,32 +496,44 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
           const f = foreign[0], name = nm(rd(...f.at)), kind = foreignKind(name)
           const sg = segGen
           const held = () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now())
-          const v = await digNamed(f.at, name, held)
-          if (v === 'fence') { out.stop = 'fence:segment'; return out }
-          if (v === 'aborted') { out.stop = 'aborted'; return out }
-          if (v !== 'confirmed') { bump(f.at); continue }
-          out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign' })
+          // THE TRUNK ABOVE FIRST, lowest first (fell-01 r3, LIVE 10-28 showcase 25,72,28: the pad was built round the log, so its
+          // four sides were stone bricks and its top was the trunk -- no face, no sight line, digStand null, `no_stand` silently,
+          // the cell spent and the pad blocked; the log above exposes the cell's top). Each log under the same lease; one it
+          // cannot dig ends the felling (bounded: TRUNK_MAX). KEPT (the column stops): a listed tree (clears() owns it), a record
+          // cell that reads DONE. SKIPPED (walked through): another segment's open record cell (Claude r1 P3-1: only this segment's
+          // lease is held; that segment's own foreign pass digs it)
           if (kind === 'tree' && /_log$/.test(name)) {
-            // THE TRUNK ABOVE, lowest first, each log under the same lease; one it cannot reach or dig ends the felling (bounded:
-            // TRUNK_MAX logs). A log left in a record cell is dug when its own segment opens; one outside the record stays, named
-            // KEPT: a listed tree (clears() owns it), a record cell that reads DONE, and a record cell of ANOTHER segment (Claude r1
-            // P3-1: only this segment's lease is held; that segment's own foreign pass digs it)
             const cellAt = new Map(record.cells.map(c => [kOf(c.at), c]))
-            const keep = at => { const c = cellAt.get(kOf(at)); return listedNow(at) || (!!c && (c.seg !== seg || cellDone(rd(...at), palette, c.role))) }
+            const keep = at => { const c = cellAt.get(kOf(at)); return listedNow(at) || (!!c && cellDone(rd(...at), palette, c.role)) }
+            // r4 (Codex r3 P2 / Claude r3 P2): a cell of a segment that WAITS ON this one is not skipped -- it cannot be leased
+            // while this one is open (no builder there to meet), and skipping it over the cell (a wall log at y+1) was the same
+            // dead end again: pad blocked by wall's log, wall waiting on pad
+            const skip = at => { const c = cellAt.get(kOf(at)); return !!c && c.seg !== seg && !dependsOn(record, c.seg, seg) }
             let felled = 0, left = null
-            for (const { at: tc, name: tn } of trunkAbove(rd, f.at, { keep }).map(at => ({ at, name: nm(rd(...at)) }))) {
+            const trunk = trunkAbove(rd, f.at, { keep, skip }).map(at => ({ at, name: nm(rd(...at)) }))
+            for (const { at: tc, name: tn } of trunk) {
               const g = guard(); if (g) { out.stop = g; return out }
               // RE-CHECKED before each dig (Codex r1 P2): still the log seen at the snapshot and still not kept, else the felling
               // ends; digNamed checks the name again at the dig itself
-              if (nm(rd(...tc)) !== tn || keep(tc)) { left = `${tc.join(',')}:changed`; break }
+              if (nm(rd(...tc)) !== tn || keep(tc) || skip(tc)) { left = `${tc.join(',')}:changed`; break }
               const tv = await digNamed(tc, tn, held)
               if (tv === 'fence') { out.stop = 'fence:segment'; return out }
               if (tv === 'aborted') { out.stop = 'aborted'; return out }
               if (tv !== 'confirmed') { left = `${tc.join(',')}:${tv}`; break }
               felled++; out.cleared++
             }
-            e.log('_build', { op: 'fell', seg, cell: f.at, block: name, n: felled, ...(left ? { why: left } : {}) })
+            if (trunk.length) e.log('_build', { op: 'fell', seg, cell: f.at, block: name, n: felled, ...(left ? { why: left } : {}) })
+            // the log ON the cell still stands (the felling stopped there): the cell has no top face, its dig cannot land -- named
+            // against what blocks it, one attempt spent (Claude r3 P2)
+            const above = [f.at[0], f.at[1] + 1, f.at[2]]
+            if (left && /_log$/.test(nm(rd(...above)))) { bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'tree', result: 'trunk_blocked', why: left }); continue }
           }
+          const v = await digNamed(f.at, name, held)
+          if (v === 'fence') { out.stop = 'fence:segment'; return out }
+          if (v === 'aborted') { out.stop = 'aborted'; return out }
+          // A FOREIGN DIG THAT DID NOT LAND IS NAMED (r3: live, `no_stand` spent the cell's attempts with no row at all)
+          if (v !== 'confirmed') { bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign', result: v }); continue }
+          out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign' })
           continue
         }
         const blocking = new Set(open.filter(c => c.role !== 'light').map(c => kOf(c.at)))
