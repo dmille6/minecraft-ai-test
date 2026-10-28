@@ -65,6 +65,9 @@ const REQUIRED = [
   'scripts/test_fleetstatus.py',
   // the movement-writer ratchet, wired into package.json and the deploy
   'bots/scripts/check-movement-writers.mjs',
+  // logsurface-01: the real-case columns cut from the region copies of failed log gathers (10-28), and their suite
+  'bots/test/fixtures/logsurface-columns.json',
+  'bots/test/logsurface.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
