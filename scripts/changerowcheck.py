@@ -78,6 +78,24 @@ def tally(records, baseline):
     return base, other, unknown, base_bots, rows
 
 
+def assess(declared, base, other, unknown):
+    """PURE. Per declared row -> (row as written, baseline rows, no-version rows, [(other sha, rows)]).
+
+    THE LOOKUP STRIPS THE UNDERSCORE, because `tally` keys every count by the stripped kind
+    (logEvent kind 'x' lands in skill.name as '_x'). Until 2026-10-20 the declared name was looked
+    up AS WRITTEN, so a registration that spelled its rows the way the logs do -- cobblekeep-01
+    `_lid_clear` `_well_dispose`, bagbudget-01 `_bagbudget` `_town_deposit`, lidclear-01
+    `_lid_clear` -- read 0 for every row and printed "ok — baseline silent" WITHOUT HAVING
+    CHECKED ANYTHING. A name without an underscore is looked up exactly as before.
+    """
+    out = []
+    for row in declared:
+        k = row.lstrip('_') if isinstance(row, str) else row
+        out.append((row, base.get(k, 0), unknown.get(k, 0),
+                    [(v, m) for (kk, v), m in sorted(other.items()) if kk == k]))
+    return out
+
+
 def _records(lo_iso, hi_iso):
     days = {lo_iso[:10], hi_iso[:10]}
     for f in glob.glob(f'{MCAI}/*-*/skill-*.jsonl') + glob.glob(f'{MCAI}/*-*/skill-*.jsonl-*.gz'):
@@ -150,12 +168,18 @@ def main():
     if not declared:
         print('no change/linkage rows declared — nothing to check')
         return 0
+    # A NAME THAT IS NOT A ROW (2026-10-20, round 1): '_' strips to '', which would count every nameless row here and
+    # which verdict.registered_row_names drops (it can never link). Refused for what it is, not passed or refused by
+    # whatever the baseline happens to hold.
+    malformed = [r for r in declared if not isinstance(r, str) or not r.lstrip('_')]
+    if malformed:
+        print('REFUSED: %r in change_rows/linkage_extra is not a row name (empty once the leading underscore is '
+              'stripped, or not a string). Name the row the change writes.' % (malformed,))
+        return 2
 
     bad = []
     print(f"\n{'declared row':44s}{'baseline':>10s}   verdict")
-    for row in declared:
-        n = kinds.get(row, 0)
-        u = unknown.get(row, 0)
+    for row, n, u, notes in assess(declared, kinds, other, unknown):
         if n:
             bad.append((row, n))
             print(f'{row:44s}{n:10d}   REFUSED — the baseline emits it')
@@ -164,10 +188,9 @@ def main():
             print(f'{row:44s}{n:10d}   REFUSED — {u} row(s) carry no version, so they cannot be shown not to be the baseline\'s')
         else:
             print(f'{row:44s}{n:10d}   ok — baseline silent')
-        for (k, v), m in sorted(other.items()):
-            if k == row:
-                print(f'  note: {row}: {m} row(s) from build {v} (NOT the baseline {baseline[:7]}; '
-                      f'a previous canary or restart lag) -- reported, not counted')
+        for v, m in notes:
+            print(f'  note: {row}: {m} row(s) from build {v} (NOT the baseline {baseline[:7]}; '
+                  f'a previous canary or restart lag) -- reported, not counted')
 
     if bad:
         print('\nREFUSED: these rows cannot license a REVERT from one death, because a bot '

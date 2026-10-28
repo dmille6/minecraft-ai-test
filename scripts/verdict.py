@@ -114,6 +114,30 @@ def license_change_rows(changerow, away, ctrl_at_death, ctrl_rate=None,
                                       'not refused]' % (lamc, window_s, q, p_max), d))
     return licensed, refused
 
+
+def registered_row_names(names):
+    """PURE. A registration's row names (`change_rows`, `linkage_extra`) in the form every
+    comparison in this file uses: WITHOUT the leading underscore.
+
+    THE TWO SIDES DID NOT MATCH (found 2026-10-20 on homefix-01). Every comparison below strips
+    the row kind -- `q[1].lstrip('_') in C_ROWS` -- because logEvent kind 'x' lands in skill.name
+    as '_x'. The registered names were kept AS WRITTEN. So a registration that spells its rows the
+    way the logs do (cobblekeep-01 `_lid_clear` `_well_dispose`, bagbudget-01 `_bagbudget`
+    `_town_deposit`, lidclear-01 `_lid_clear`) could never match anything: no death linked to its
+    own rows, `away` stayed empty, and the control emission rate read 0 for rows control emits.
+    The rate path of the death gate still ran; the LINKED path was silently dead.
+
+    A non-empty name without an underscore is returned unchanged, so those registrations read exactly
+    as before. A name that is empty once stripped ('', '_', '__') is DROPPED: kept, it would be ''
+    and match every row whose skill has no name ('' did exactly that before 10-20; '_' matched
+    nothing). A non-string is passed through untouched (None never equals a row kind, as before), so a
+    dict still raises here exactly as it did (usafegate/install-bagfix-regs refuse it at launch), and so
+    does a null list (`set(None)` raised; so does iterating None).
+    """
+    return {n.lstrip('_') if isinstance(n, str) else n for n in names
+            if not (isinstance(n, str) and not n.lstrip('_'))}
+
+
 def _gate_bundle():
     """(digest, parts) over EVERY file that can change a decision -- not just this one.
 
@@ -480,8 +504,10 @@ if not POLL:
     # 2. readability
     if not im.get('readable'): why.append(f"not readable yet ({im.get('canary_bot_h', 0):.1f} bot-h)"); (out('NOT_YET'))
 # 3. rung-linked deaths (the death poll's rule, recomputed here from the pools' logs since declared_at)
-M_LIST = set('entombed marooned maroon_wall entombed_ramp_cut marooned_ramp_cut livelock_escape pillar_no_gain stuck unstick_oscillation'.split()) | set(reg.get('linkage_extra', []))
-C_ROWS = set(reg.get('change_rows', []))
+# Both registered lists are normalised ONCE, here, to the stripped form the comparisons below use
+# (registered_row_names: '_x' and 'x' are the same row; a '_x' registration matched nothing before 10-20).
+M_LIST = set('entombed marooned maroon_wall entombed_ramp_cut marooned_ramp_cut livelock_escape pillar_no_gain stuck unstick_oscillation'.split()) | registered_row_names(reg.get('linkage_extra', []))
+C_ROWS = registered_row_names(reg.get('change_rows', []))
 linked = []; changerow = []; ndeaths = 0; pending_watch = []; by = {}
 if not DRY:
     cut = man['declared_at'][:19]; pools = [p.strip() for p in str(man['canary_pool']).split(',')]

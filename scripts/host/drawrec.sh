@@ -168,6 +168,68 @@ if _os.path.exists(_xf):
 # `med` is the ALL-POOL median, computed above from the same table elig() draws
 # from. It used to be the 5080-half median, which was a leftover from when the
 # draw could only pick 5080 pools; see the note at the parse site.
+# THE ENDPOINT IS READ FROM THE BOTS' OWN ENV FILES, NOT FROM A TABLE (10-22; Codex ops audit 10-21, low). The "half" in the
+# band table is poolrank2.py's static rule (`-d` pools = 3090), which went stale at 10-21 13:42Z when the 20 -d bots moved to
+# 10.0.0.72 first (.16 fallback), and this draw kept telling the read to record a 5080/3090 covariate that no longer existed.
+# A pool's endpoint is now the FIRST entry of what its bots will actually try first, resolved exactly as bots/src/config.mjs
+# does (OLLAMA_BASE_URLS, else OLLAMA_BASE_URL, else its default; the last assignment in a file wins, as systemd's
+# EnvironmentFile reads it). A pool whose five bots disagree is `mixed:...`; one that cannot be read is `unknown:...`. Drop-ins
+# are not read: a draw runs into an empty slot, where no canary drop-in exists (canary-sched S1-S8). DISPLAY ONLY -- nothing
+# below the band uses it, the DRAW line is unchanged, and the number of lines after it is unchanged (canary-loop.sh reads the
+# last four lines). The band's own half column is still parsed (poolrank2.py's format) but no longer printed as a fact.
+_ENV_DIR = os.environ.get('DRAWREC_ENV_DIR', '/srv/mcbots/harness/env')
+POOL_BOTS = 5                        # every pool is five bots; fewer or more env files is not agreement (Codex r1)
+def _env_value(v):
+    v = v.strip()
+    if v[:1] in ('"', "'"):
+        if len(v) < 2 or v[-1] != v[0]:
+            raise ValueError('unbalanced quote')     # -> unknown: never a guessed value
+        v = v[1:-1]
+    return v
+def _env_first_endpoint(path):
+    """The endpoint the bot will try FIRST, as a normalized URL (scheme://host:port/path): two services on one host differ
+    (Codex r1). Lines ending in a backslash are joined, as systemd's EnvironmentFile does."""
+    _kv, _acc = {}, ''
+    for _ln in open(path, errors='replace').read().split('\n'):
+        if _ln.rstrip().endswith('\\'):
+            _acc += _ln.rstrip()[:-1]; continue
+        _ln, _acc = (_acc + _ln).strip(), ''
+        if _ln.startswith('export '):
+            _ln = _ln[7:].strip()
+        if not _ln or _ln.startswith(('#', ';')) or '=' not in _ln:
+            continue
+        _k, _v = _ln.split('=', 1)
+        _kv[_k.strip()] = _env_value(_v)
+    if _acc:
+        raise ValueError('a continuation runs off the end of the file')
+    # config.mjs: req('OLLAMA_BASE_URLS', '') || req('OLLAMA_BASE_URL', default) -- `??` inside req, so a PRESENT but empty
+    # OLLAMA_BASE_URL gives no endpoint at all, never the default (Claude r1 P3-10)
+    _urls = _kv.get('OLLAMA_BASE_URLS') or (_kv['OLLAMA_BASE_URL'] if 'OLLAMA_BASE_URL' in _kv else 'http://studio.lan:11434')
+    _first = [u.strip().rstrip('/') for u in _urls.split(',') if u.strip()]
+    if not _first:
+        return 'unknown:empty'
+    from urllib.parse import urlsplit as _us
+    _u = _us(_first[0])
+    if not _u.scheme or not _u.hostname:
+        return _first[0].lower()
+    _port = _u.port or {'http': 80, 'https': 443}.get(_u.scheme.lower(), '')
+    return '%s://%s:%s%s' % (_u.scheme.lower(), _u.hostname.lower(), _port, _u.path.rstrip('/'))
+def pool_endpoint(pool):
+    try:
+        _fs = sorted(f for f in os.listdir(_ENV_DIR) if f.startswith(pool + '-') and f.endswith('.env')
+                     and '-' not in f[len(pool) + 1:-4] and f[len(pool) + 1:-4])
+    except Exception as _ex:
+        return 'unknown:%s' % type(_ex).__name__
+    if len(_fs) != POOL_BOTS:
+        return 'unknown:%d-of-%d-env' % (len(_fs), POOL_BOTS)
+    _eps = set()
+    for _f in _fs:
+        try:
+            _eps.add(_env_first_endpoint(os.path.join(_ENV_DIR, _f)))
+        except Exception as _ex:
+            _eps.add('unknown:%s' % type(_ex).__name__)
+    return _eps.pop() if len(_eps) == 1 else 'mixed:' + '+'.join(sorted(_eps))
+ENDPOINT = {p: pool_endpoint(p) for p in band}
 def elig(w): return [p for p, (h, ibh) in band.items() if p != 'placebo-c' and not p.startswith('isolated') and p not in excl and abs(ibh - med) / med <= w and p in expo and (expo[p][0] >= 8 or expo[p][1] >= 20) and (ALLOWED is None or p in ALLOWED)]
 e = elig(0.25); w = '±25%'
 # TWO pools are needed, so widen when the ±25% band yields FEWER THAN TWO, not only when it yields none: on 16 Sep 21:13Z the
@@ -179,9 +241,15 @@ e = elig(0.25); w = '±25%'
 if len(e) < 4: e = elig(0.40); w = '±40% (widened, stated)'
 trapped = [p for p in e if expo[p][2] >= 1]
 print('median', round(med, 1), 'excluded(12h; released at 6h as steady KEEP+promoted: %s)' % sorted(_early), sorted(excl), 'band', w)
-print('eligible', [(p, band[p][0], band[p][1], expo[p]) for p in e], '| with a trapped bot:', trapped)
-print('half mix on offer:', {h: sum(1 for p in e if band[p][0] == h) for h in ('5080', '3090')},
-      '-- RECORD THE HALF OF EACH DRAWN POOL AS A READ COVARIATE')
+print('eligible', [(p, ENDPOINT[p], band[p][1], expo[p]) for p in e], '| with a trapped bot:', trapped)
+_fleet_eps = sorted(set(ENDPOINT.values()))
+_offer = {_h: sum(1 for p in e if ENDPOINT[p] == _h) for _h in sorted(set(ENDPOINT[p] for p in e))}
+if len(_fleet_eps) == 1 and not _fleet_eps[0].startswith(('unknown:', 'mixed:')):
+    print('endpoint mix on offer:', _offer, '-- every pool (%d) asks %s first: no endpoint covariate to record'
+          % (len(ENDPOINT), _fleet_eps[0]))
+else:
+    print('endpoint mix on offer:', _offer, '-- pools differ in first endpoint (%s): RECORD THE FIRST ENDPOINT OF EACH DRAWN POOL '
+          'AS A READ COVARIATE' % {_h: sum(1 for v in ENDPOINT.values() if v == _h) for _h in _fleet_eps})
 # DRAW AS MANY POOLS AS THE BAND WILL GIVE, UP TO FOUR. TWO IS A FLOOR, NOT A TARGET.
 #
 # MEASURED 2026-09-21, 300 random splits per cell of the real 80 bots, null sd of
@@ -269,7 +337,7 @@ print('DRAW (%s, owner C):' % ('%d pools = %d bots' % (len(pick), 5 * len(pick))
 if pick:
     _k = 5 * len(pick)
     _sd = {5: 0.608, 10: 0.443, 15: 0.360, 20: 0.313}.get(_k, 0.313)
-    print('drawn halves:', {p: band[p][0] for p in pick})
+    print('drawn endpoints:', {p: ENDPOINT.get(p, 'unknown:not-in-band') for p in pick})
     print('k = %d bots; measured null sd on items/bot-h at 3 h is %.3f -> MDE ~%.0f%% at 1.96 sigma.'
           % (_k, _sd, 100 * (pow(2.718281828, 1.96 * _sd) - 1)))
     if len(pick) < TARGET_K:
