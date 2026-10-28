@@ -442,6 +442,25 @@ export function townWalkMovements (base) {
 const lazy = v => (typeof v === 'function' ? v() : v)
 
 /**
+ * WOULD THE COUNT WALK TO THIS CONTAINER? (towndeposit-01) -> null (yes), or why the recount skips it. Pure.
+ * THE ONE RULE FOR BOTH SIDES: the count step is OFFERED only for containers this passes (skills.mjs stockCountKeys, read
+ * by cognitive.mjs's town deposit order and its bag-allowance tail), and the recount itself skips exactly these before
+ * any walk (skills.mjs reconcileCobble). Measured 10-28 (ES, 24 h, 80 bots): 176 of 182 town_deposit no_effect rows were
+ * `recount` orders whose only container had a lid the count refuses (oak_planks, placebo-a, 4 bots) -- offered again
+ * after every 15-min stay, counted 0 of 1 each time.
+ *   loaded     the block is in the bot's world model
+ *   container  a chest, trapped chest or barrel
+ *   lids       one judgement per chest half (skills.mjs lidJudge): { blocked, refusal, unknown }
+ */
+export function countSkipWhy ({ loaded = false, container = false, lids = [] } = {}) {
+  if (!loaded) return 'not loaded'
+  if (!container) return 'not a container'
+  const j = (Array.isArray(lids) ? lids : []).find(l => l?.blocked && l.refusal)
+  if (j) return j.unknown ? 'lid not now' : 'lid blocked'
+  return null
+}
+
+/**
  * THE ORDER -> { order, state }. Pure; cognitive.mjs supplies the readings and keeps `state`.
  *   now, slots (items.length), pos, home       cheap, first
  *   plan       townDepositPlan(...) -- value or function, evaluated lazily, at most once per TD_SCAN_MS
