@@ -54,7 +54,9 @@ const SERIAL = new Map([
 // deliberately, because the bug it now guards against (a bot still falling
 // when arrival is checked) only exists in the timing. Raised rather than
 // letting that test fake the clock and stop testing the thing.
-const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 120_000)
+// 300s since the one-trunk merge (W3, 10-28): the showcase's buildrun*.test.mjs files take ~106s ALONE (real visit
+// pacing) and ~120s under the parallel runner's contention, so 120s killed a passing file. A real hang still dies.
+const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 300_000)
 const filter = process.argv[2] || ''
 const VERBOSE = !!process.env.TEST_VERBOSE
 const JOBS = Math.max(1, Math.floor(Number(process.env.TEST_JOBS)) || Math.min(8, Math.max(1, os.cpus().length - 1)))
