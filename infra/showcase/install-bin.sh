@@ -12,6 +12,7 @@ for f in followrule.py make_env.py showcase_ops.py tl_showcase.py tl_video.py rc
   install -m 755 "$S/$f" /srv/showcase/bin/
 done
 install -m 644 "$T/scripts/lib/showcasestatus.py" /srv/showcase/bin/
+install -m 644 "$T/scripts/lib/protected.py" /srv/showcase/bin/    # the one protected-path decider (W1); showcase_ops imports it
 echo "   ok  tools in /srv/showcase/bin ($(git -C "$T" rev-parse --short HEAD))"
 
 cat > /etc/systemd/system/showcase-follow.service <<'EOF'

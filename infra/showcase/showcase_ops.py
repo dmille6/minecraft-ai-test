@@ -7,7 +7,17 @@ Design: docs/reports/showcase-2026-10-20.md sections 3 and 9. Pure decisions liv
     showcase_ops.py stage <sha> --piece <run>[,<run>...]
                                               the PROGRESS LANE: a stack of showcase-first pieces (each a PIECES.jsonl line)
                                               on top of the current release (docs/reports/showcase-progress-lane-2026-10-25.md 5)
-    showcase_ops.py activate <release-dir>    switch the harness symlink; restart+verify running bots 12 s apart
+    showcase_ops.py stage <sha> --main [--dry-run [--against <sha>]]
+                                              FOLLOW MAIN (fun mode, owner 10-28): a sha on origin/main staged directly; needs
+                                              a release-log line (record) with a passing test run + ONE named review; BOTH
+                                              engines + a fleet KEEP only when the diff touches config/protected-paths.txt
+    showcase_ops.py record --run R --sha S --tests PASS:<sha>:<summary> --review codex:APPROVE:<sha>[:who] [...]
+                                              append a release-log line to PIECES.jsonl (append-only; the newest line speaks)
+    showcase_ops.py activate <release-dir> [--no-snapshot WHY]
+                                              WORLD SNAPSHOT first (snapshots/, newest 6 kept); then switch the harness
+                                              symlink; restart+verify running bots 12 s apart; roll back on a failed verify
+    showcase_ops.py world-edit --why "..."    the owner-direct one-off world fix: snapshot, then journal an
+                                              `owner-direct-world-edit` event in ops/deploy.jsonl; the RCON edit follows by hand
     showcase_ops.py gate                      the start-bots gate: every check, each with its remedy; exit 1 if any fails
     showcase_ops.py status                    the newest follow decision and the current release
 
@@ -19,6 +29,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import followrule as FR  # noqa: E402
 import make_env as ME    # noqa: E402
+import backup_stage as BS  # noqa: E402  (its EXCL: what a world copy leaves out)
+import rcon as RC        # noqa: E402
+# THE ONE protected-path decider (W1, scripts/lib/protected.py): installed beside this file on the VM, read from the repo here
+sys.path.append(os.path.join(HERE, '..', '..', 'scripts', 'lib'))
+import protected as PR   # noqa: E402
 
 ROOT = '/srv/showcase'
 REPO = f'{ROOT}/repo'
@@ -177,11 +192,15 @@ def cmd_follow(a):
             and not any(x in str(r.get('note')) for x in revoked)]
     if warn:
         d['revert_notes_not_in_REVOKED'] = [f"{r.get('ts')} {r.get('run')}: {str(r.get('note'))[:100]}" for r in warn[-3:]]
-    d['auto'] = os.path.exists(AUTO) and not os.path.exists(LANE)
+    # a release staged through THIS gate (--main / --piece) runs ahead of the fleet by design: the fleet follower must never
+    # act on it (it would judge it inadmissible and roll it back) -- observe only, whatever AUTO_FOLLOW says (Codex W2 r1)
+    gated = bool((rel or {}).get('piece')) or (rel or {}).get('mode') == 'main'
+    d['auto'] = os.path.exists(AUTO) and not os.path.exists(LANE) and not gated
     d['lane'] = os.path.exists(LANE)
+    d['gated_release'] = gated
     append(FOLLOW, d)
     print(json.dumps(d))
-    if not d['auto'] or getattr(a, 'observe_only', False) or os.path.exists(LANE):
+    if not d['auto'] or getattr(a, 'observe_only', False) or os.path.exists(LANE) or gated:
         return 0
     if not feed:
         return 0      # no fresh feed this hour: never act on stale evidence (an empty journal would read as "not kept")
@@ -246,7 +265,7 @@ def stage(sha, policy_dig, deps_dig, bootstrap=False, why='', extra=None):
     if os.path.exists(f'{dst}/RELEASE.json'):
         # a PIECE release is never served from a cache that lacks its piece record (an earlier plain stage of the same sha)
         old = json.load(open(f'{dst}/RELEASE.json'))
-        if extra and any(old.get(k) != v for k, v in extra.items() if k in ('piece', 'prev', 'prev_release')):
+        if extra and any(old.get(k) != v for k, v in extra.items() if k in ('piece', 'prev', 'prev_release', 'mode')):
             return False, f'{name} is already staged without (or with another) piece record {old.get("piece")}; remove it first'
         if not extra and old.get('piece'):
             return False, f'{name} is staged as the piece release {old.get("piece")}; a plain stage never reuses it (remove it first)'
@@ -279,32 +298,101 @@ def stage(sha, policy_dig, deps_dig, bootstrap=False, why='', extra=None):
         return False, str(e)
 
 
+# ---- THE RELEASE GATE (fun mode, OWNER 2026-10-28; docs/PROCESS-fun-mode.md) --------------------------------------------
+# A showcase release needs a PASSING TEST RECORD and ONE NAMED REVIEW (Codex or Claude, APPROVE) bound to its sha. Only a
+# release whose diff touches a PROTECTED path (config/protected-paths.txt: movement, reflexes, mining depth, death handling,
+# ...) also needs BOTH engines AND a fleet KEEP. Paper is optional evidence (an explicit Paper FAIL of the sha still refuses).
+# Kept from the progress lane: ancestry (a release never steps back over the showcase's own commits), REVOKED (ancestry or
+# patch equivalence), REQUIRED_KEPT, the version verify after activation, and rollback to the previous release.
 PAPER_OK = ('CANDIDATE_PASS', 'PASS')
+PAPER_FAIL = ('CANDIDATE_FAIL', 'FAIL')
+TESTS_OK = ('PASS',)
+TESTS_RUNNER = 'npm test'   # the canonical runner (CLAUDE.md); a PASS from anything else is no test record
 ENGINES = ('codex', 'claude')
 HEX40 = re.compile(r'[0-9a-f]{40}')
+PROTECTED_LIST = 'config/protected-paths.txt'
 
 
-def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, revoked_in, revoked, kept=None, docs_only=None):
-    """THE PROGRESS LANE'S STAGE RULE (docs/reports/showcase-progress-lane-2026-10-25.md 5; owner 10-25: a STACK of pieces --
-    e.g. matset-01 + mats-01 + shop-01 -- staged together) -> None (stage it) | the reason not to. Pure.
-      sha         the stack's tip; release_sha the CURRENT showcase release; runs the stack's piece names (in any order)
-      rows        PIECES.jsonl rows; the NEWEST row of a run speaks for it
+def protected_hits(hits, patterns):
+    """The protected hits of one diff, FAIL CLOSED -> [hit]. `hits`: scripts/lib/protected.py's hits() for the diff, or None
+    when it could not be computed; `patterns`: the parsed list, None or empty when unreadable (protected.py's own CLI treats an
+    empty list as "could not decide"). Either failure is ONE pseudo-hit naming why, so the release is judged as protected."""
+    if not patterns:
+        return [f'(no {PROTECTED_LIST} readable: every change counts as protected)']
+    if hits is None:
+        return ['(the protected decider could not read the diff: counts as protected)']
+    return list(hits)
+
+
+def make_covers(is_anc, docs_only):
+    def covers(evidence_sha, psha):
+        # the evidence names the release's sha, or an ancestor of it with nothing but docs/ changed since (an approval or a
+        # test run never covers code that came after it)
+        e = str(evidence_sha or '')
+        return bool(HEX40.fullmatch(e)) and (e == psha or (is_anc(e, psha) and docs_only(e, psha)))
+    return covers
+
+
+def evidence_refusal(name, row, psha, hits, covers, fleet_kept):
+    """ONE release-log line's evidence for the code at psha -> None | why. Pure.
+      tests    {"result": "PASS", "sha": <40 hex>, "runner": "npm test", "summary": "..."} covering psha
+      reviews  >= ONE {"engine": "codex"|"claude", "verdict": "APPROVE", "sha": <40 hex>} covering psha (free text never counts)
+      hits     the protected paths the release changes: non-empty -> BOTH engines, and fleet_kept(psha) -> (True, why)
+      paper    optional: an explicit FAIL covering psha refuses; a PASS or no record changes nothing."""
+    t = row.get('tests')
+    if not (isinstance(t, dict) and t.get('result') in TESTS_OK and t.get('runner') == TESTS_RUNNER and covers(t.get('sha'), psha)):
+        return (f'{name}: no passing test record for {psha[:8]} (tests: {{"result": "PASS", "sha": <40 hex>, "runner": '
+                f'"npm test", "summary": ...}}; got {str(t)[:80]!r})')
+    engines = {str(x.get('engine') or '').lower() for x in (row.get('reviews') or [])
+               if isinstance(x, dict) and x.get('verdict') == 'APPROVE' and covers(x.get('sha'), psha)} & set(ENGINES)
+    if not engines:
+        return (f'{name}: no named APPROVE of {psha[:8]} (reviews: [{{"engine": "codex"|"claude", "verdict": "APPROVE", '
+                f'"sha": <40 hex>}}])')
+    p = row.get('paper')
+    if isinstance(p, dict) and p.get('result') in PAPER_FAIL and covers(p.get('sha'), psha):
+        return f'{name}: its Paper record is a FAIL of {psha[:8]}'
+    if hits:
+        what = ', '.join(hits[:3]) + (f' +{len(hits) - 3}' if len(hits) > 3 else '')
+        missing = [e for e in ENGINES if e not in engines]
+        if missing:
+            return f'{name}: touches protected paths ({what}) -- needs BOTH engines; no {missing[0].capitalize()} APPROVE of {psha[:8]}'
+        ok, why = fleet_kept(psha)
+        if not ok:
+            return f'{name}: touches protected paths ({what}) -- needs a fleet KEEP first ({why})'
+    return None
+
+
+def revoked_refusal(sha, revoked, is_anc, revoked_in):
+    for x in revoked or []:
+        hit = is_anc(x, sha) or revoked_in(x, sha)
+        if hit == 'unreadable':
+            return f'the REVOKED line {x[:12]} is unreadable here (fetch it or fix the line): nothing stages until it is'
+        if hit:
+            return f'the release contains a REVOKED sha {x[:8]}'
+    return None
+
+
+def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, revoked_in, revoked, docs_only=None, protected=None,
+                        patterns=None, fleet_kept=None):
+    """`stage <sha> --piece <run>[,<run>...]`: a STACK of release-log lines on top of the current release -> None | why. Pure.
+      sha         the stack's tip; release_sha the CURRENT showcase release; runs the stack's names (in any order)
+      rows        PIECES.jsonl rows; the NEWEST row of a run speaks for it (rows without 'run' are log events, ignored)
       commits     every commit in release_sha..sha (git rev-list)
-      kept        {run: (ok, why)} -- for a survival piece, survival_kept(): KEEP recorded and a `promoted` row naming ITS sha
-      docs_only   docs_only(a, b) -> True when every path changed in a..b is under docs/ (a review record after the approval)
-      revoked_in  revoked_in(x, sha) -> True when the revoked commit x's OWN patch is in the stack (a cherry-pick of it alone)
-    Refused unless: the current release is the stack's ancestor and the stack adds something; every named run's newest row is
-    kind building -- paper {"result": CANDIDATE_PASS|PASS, "sha"} and reviews [{"engine", "verdict": "APPROVE", "sha"}] from
-    BOTH codex and claude, every one of those shas the piece's own or an ancestor of it with only docs/ changed since (an
-    approval never covers code that came after it) -- or survival (kept); every piece's sha is an ANCESTOR of the tip (a
-    re-stacked piece needs a line naming its re-stacked sha: patch equivalence is not membership) and its base is too;
-    NOTHING in release..sha lies outside the named pieces' own ranges (base, sha]; no REVOKED sha is in the stack (by
-    ancestry or patch equivalence)."""
+      protected   protected(a, b) -> [hit] | None (protected.py over the diff a..b); a piece's hits are its own range base..sha
+      patterns    the parsed protected list (None / empty: unreadable -> fail closed, every piece counts as protected)
+      fleet_kept  fleet_kept(run, psha) -> (ok, why), asked only for a piece that touches a protected path
+      docs_only   docs_only(a, b) -> True when every path changed in a..b is under docs/
+      revoked_in  revoked_in(x, sha) -> True when the revoked commit x's OWN patch is in the stack
+    Refused unless: the current release is the tip's ancestor and the stack adds something; every named run's newest line
+    passes evidence_refusal(); every piece's sha and base are ancestors of the tip (a re-stacked piece needs a line naming its
+    re-stacked sha: patch equivalence is not membership); NOTHING in release..sha lies outside the named pieces' own ranges
+    (base, sha]; no REVOKED sha is in the stack. `kind` is a label only (building / survival / ...): it no longer gates."""
     docs_only = docs_only or (lambda a, b: False)
+    fleet_kept = fleet_kept or (lambda run, psha: (False, 'no fleet record'))
     if not (sha and HEX40.fullmatch(sha)):
         return f'sha must be 40 hex: {sha!r}'
     if not release_sha:
-        return 'no current release: a piece stacks on a release (stage --bootstrap first)'
+        return 'no current release: a piece stacks on a release (stage --bootstrap or --main first)'
     if sha == release_sha or not commits:
         return f'{sha[:8]} adds nothing to the current release {release_sha[:8]}'
     if not is_anc(release_sha, sha):
@@ -313,34 +401,20 @@ def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, revoked_i
         return 'no piece named (--piece <run>[,<run>...])'
     if len(set(runs)) != len(runs):
         return f'a piece named twice: {runs}'
-
-    def covers(evidence_sha, psha):
-        # the evidence names the piece's sha, or an ancestor of it with nothing but docs/ changed since
-        e = str(evidence_sha or '')
-        return bool(HEX40.fullmatch(e)) and (e == psha or (is_anc(e, psha) and docs_only(e, psha)))
+    covers = make_covers(is_anc, docs_only)
     pieces = []
     for run in runs:
         mine = [r for r in rows if isinstance(r, dict) and r.get('run') == run]
         if not mine:
-            return f'{run}: no PIECES.jsonl line (register the piece first: section 5 step 3)'
+            return f'{run}: no PIECES.jsonl line (record it first: showcase_ops.py record)'
         r = mine[-1]
-        psha, base, kind = str(r.get('sha') or ''), str(r.get('base') or ''), r.get('kind')
+        psha, base = str(r.get('sha') or ''), str(r.get('base') or '')
         if not HEX40.fullmatch(psha) or not HEX40.fullmatch(base):
             return f'{run}: its line needs a 40-hex sha and base ({psha[:12]!r}, {base[:12]!r})'
-        if kind == 'building':
-            p = r.get('paper')
-            if not (isinstance(p, dict) and p.get('result') in PAPER_OK and covers(p.get('sha'), psha)):
-                return f'{run}: no Paper PASS of {psha[:8]} (paper: {{"result": "CANDIDATE_PASS", "sha": <40 hex>, "record": ...}}; got {str(p)[:80]!r})'
-            rv = [x for x in (r.get('reviews') or []) if isinstance(x, dict)]
-            for eng in ENGINES:
-                if not any(str(x.get('engine') or '').lower() == eng and x.get('verdict') == 'APPROVE' and covers(x.get('sha'), psha) for x in rv):
-                    return f'{run}: no {eng.capitalize()} APPROVE of {psha[:8]} in its reviews (each {{"engine", "verdict", "sha"}})'
-        elif kind == 'survival':
-            ok, why = (kept or {}).get(run, (False, 'no journal record'))
-            if not ok:
-                return f'{run}: a survival piece must be KEPT on the fleet first ({why})'
-        else:
-            return f'{run}: kind must be building or survival, not {kind!r}'
+        hits = protected_hits(protected(base, psha) if protected else None, patterns)
+        why = evidence_refusal(run, r, psha, hits, covers, lambda s, run=run: fleet_kept(run, s))
+        if why:
+            return why
         if not is_anc(psha, sha):
             return f'{run}: its sha {psha[:8]} is not in the stack {sha[:8]} (a re-stacked piece needs a line naming its re-stacked sha)'
         if not is_anc(base, sha):
@@ -351,13 +425,43 @@ def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, revoked_i
     stray = [c for c in commits if not any(c != b and is_anc(b, c) and is_anc(c, p) for p, b in pieces)]
     if stray:
         return f'{len(stray)} commit(s) in {release_sha[:8]}..{sha[:8]} belong to no named piece (first {stray[0][:8]}): stage only reviewed pieces'
-    for x in revoked or []:
-        hit = is_anc(x, sha) or revoked_in(x, sha)
-        if hit == 'unreadable':
-            return f'the REVOKED line {x[:12]} is unreadable here (fetch it or fix the line): no stack stages until it is'
-        if hit:
-            return f'the stack contains a REVOKED sha {x[:8]}'
-    return None
+    return revoked_refusal(sha, revoked, is_anc, revoked_in)
+
+
+def main_release_refusal(sha, release_sha, main_tip, rows, is_anc, carries, revoked_in, revoked, docs_only, protected, patterns,
+                         fleet_kept):
+    """`stage <sha> --main`: THE SHOWCASE FOLLOWS MAIN (owner 10-28) -- a sha on main, staged directly -> None | why. Pure.
+      main_tip    origin/main; sha must be it or its ancestor
+      release_sha the current showcase release (None: the first release); carries(release, sha) -> True when every commit
+                  of the release is in sha (ancestry, or each one patch-equivalent): the showcase never steps BACK over its
+                  own improvements -- merge them into main first
+      rows        the release log (PIECES.jsonl): the NEWEST line whose sha is `sha`, or an ancestor of it with only docs/
+                  changed since, is this release's evidence (evidence_refusal)
+      protected   protected(a, b) -> [hit] | None over release..sha (the whole tree for a first release, a = None)
+      fleet_kept  fleet_kept(sha) -> (ok, why), asked only when a protected path changed
+    No stack rule here: main is the trunk and the release log names who reviewed and tested this exact sha."""
+    if not (sha and HEX40.fullmatch(sha)):
+        return f'sha must be 40 hex: {sha!r}'
+    if not (main_tip and HEX40.fullmatch(main_tip)):
+        return f'origin/main is not readable here ({main_tip!r}): fetch first'
+    if not is_anc(sha, main_tip):
+        return f'{sha[:8]} is not on main (origin/main {main_tip[:8]}): --main stages only a sha main contains'
+    if release_sha:
+        if sha == release_sha:
+            return f'{sha[:8]} is already the current release'
+        if not carries(release_sha, sha):
+            return (f'{sha[:8]} does not contain the current release {release_sha[:8]} (by ancestry or patch equivalence): it would '
+                    f'drop showcase commits -- merge them into main first')
+    covers = make_covers(is_anc, docs_only)
+    mine = [r for r in rows if isinstance(r, dict) and r.get('run') and covers(r.get('sha'), sha)]
+    if not mine:
+        return f'no release-log line (PIECES.jsonl) names {sha[:8]}: record its tests and review first (showcase_ops.py record)'
+    r = mine[-1]
+    hits = protected_hits(protected(release_sha, sha), patterns)
+    why = evidence_refusal(r['run'], r, r['sha'], hits, covers, lambda s: fleet_kept(sha))
+    if why:
+        return why
+    return revoked_refusal(sha, revoked, is_anc, revoked_in)
 
 
 def survival_kept(journal, run, psha, resolve_hex):
@@ -446,8 +550,16 @@ def cmd_stage(a):
     ledger = FR.load_jsonl(LEDGER)
     last = ledger[-1] if ledger else {}
     sha = resolve(a.sha) or a.sha
+    if getattr(a, 'against', None) and not getattr(a, 'dry_run', False):
+        print('REFUSED: --against only with --dry-run (a real stage always stacks on the CURRENT release)')
+        return 1
+    if getattr(a, 'main', False):
+        return stage_main(a, sha, feed, last, ledger)
     if getattr(a, 'piece', None):
         return stage_piece(a, sha, feed, last)
+    if getattr(a, 'dry_run', False):
+        print('REFUSED: --dry-run is for --main or --piece')
+        return 1
     if a.bootstrap:
         promoted = FR.promotions((feed or {}).get('journal') or [], resolve)
         if not last.get('verified'):
@@ -461,24 +573,149 @@ def cmd_stage(a):
         d = (FR.load_jsonl(FOLLOW) or [{}])[-1]
         if d.get('decision') not in ('DUE', 'ROLLBACK') or d.get('target') != sha:
             print(f'REFUSED: the follow rule does not name {sha[:8]} (newest decision: {d.get("decision")} '
-                  f'{(d.get("target") or "")[:8]}); use --bootstrap for the first release')
+                  f'{(d.get("target") or "")[:8]}); use --main for a sha on main, --bootstrap for the first release')
             return 1
     ok, out = stage(sha, last.get('policy'), last.get('deps'), bootstrap=a.bootstrap, why='operator stage')
     print(('STAGED ' if ok else 'FAILED ') + out)
     return 0 if ok else 1
 
 
-def stage_piece(a, sha, feed, last):
-    """`stage <sha> --piece <runs>`: the lane only (LANE present, AUTO_FOLLOW absent), the newest observation verified (its
-    pinned policy and dependency digest are the release's), piece_stack_refusal None, and REQUIRED_KEPT still passes against
-    the stack (pieces_in). RELEASE.json carries piece: [runs, sorted], prev: the release sha it stacks on, prev_release: the
-    harness release dir. Every refusal is journalled `piece-refused` in ops/deploy.jsonl. Stages only: activation is
-    `showcase_ops.py activate <release>` (with its own REQUIRED_KEPT check)."""
-    runs = sorted(r.strip() for r in a.piece.split(',') if r.strip())
+# ---- the gate's git and journal inputs (impure; the decisions above are pure)
+def read_protected(shas, repo=None):
+    """The UNION of config/protected-paths.txt (protected.parse_patterns) at each of these shas -- the current release, the
+    candidate, origin/main -- so a change can never shrink its own list. None when no copy is readable at any of them."""
+    pats = None
+    for s in dict.fromkeys(x for x in shas if x):
+        r = subprocess.run(['git', '-C', repo or REPO, 'show', f'{s}:{PROTECTED_LIST}'], capture_output=True, text=True)
+        if r.returncode == 0:
+            pats = (pats or []) + [p for p in PR.parse_patterns(r.stdout) if p not in (pats or [])]
+    return pats
+
+
+def protected_diff(a, b, patterns, repo=None):
+    """protected.py's decision for the diff a..b (a None: the whole tree of b) -> [hit] | None (could not decide). The same
+    git call and reader as protected.py's CLI, on a two-dot diff: what the showcase would actually change."""
+    repo = repo or REPO
+    try:
+        g = lambda *x: subprocess.run(['git', '-C', repo, *x], capture_output=True, text=True, check=True).stdout
+        changes = PR.parse_diff(g('diff', '-U0', '-M', '--no-color', a or EMPTY_TREE, b))
+        revs = {'old': a or EMPTY_TREE, 'new': b}
+
+        def reader(side, path):
+            try:
+                return g('show', f'{revs[side]}:{path}')
+            except subprocess.CalledProcessError:
+                return None
+        return PR.hits(changes, patterns or [], reader)
+    except Exception:  # noqa: BLE001 -- could not decide = protected (protected_hits)
+        return None
+
+
+def kept_builds(journal, ledger, resolve_hex):
+    """Fleet builds whose code counts as KEPT: every `promoted` sha of a run with a recorded KEEP, newest first, then the newest
+    VERIFIED fleet control build (the fleet runs it fleet-wide under the tripwire and death breaker)."""
+    keep_runs = {r.get('run') for r in journal
+                 if r.get('phase') == 'recorded' and str(r.get('note', '')).strip().split(' ')[0].upper() == 'KEEP'}
+    out = [p[1] for p in FR.promotions(journal, resolve_hex) if p[2] in keep_runs]
+    ver = [r for r in ledger if r.get('verified') and HEX40.fullmatch(str(r.get('sha') or ''))]
+    if ver:
+        out.append(ver[-1]['sha'])
+    return list(dict.fromkeys(out))
+
+
+def make_fleet_kept(builds, patterns, protected):
+    """-> fleet_kept(psha) -> (ok, why): ok when psha's PROTECTED code equals some kept fleet build's (protected(build, psha)
+    decides and finds no hit). An unreadable list or an undecided diff never matches (fail closed)."""
+    def fk(psha):
+        for k in builds:
+            if patterns:
+                h = protected(k, psha)
+                if h is not None and not h:
+                    return True, f'protected code identical to the fleet-kept build {k[:8]}'
+        return False, (f'its protected code matches none of the {len(builds)} fleet-kept builds (a KEEP+promotion, or the '
+                       f'verified fleet build)' if patterns else f'no {PROTECTED_LIST} readable')
+    return fk
+
+
+def carries_release(release, sha):
+    return is_anc(release, sha) or cherry_equivalent(release, sha)
+
+
+def read_revoked():
+    return [l.split()[0] for l in open(REVOKED).read().splitlines() if l.strip()] if os.path.exists(REVOKED) else []
+
+
+def gate_record(row, mode, list_readable, hits):
+    """What RELEASE.json and the release log carry about the evidence that let this release through."""
+    rv = [x for x in (row.get('reviews') or []) if isinstance(x, dict) and x.get('verdict') == 'APPROVE']
+    return {'mode': mode, 'evidence': row.get('run'), 'evidence_sha': row.get('sha'),
+            'reviewers': sorted({f"{x.get('engine')}{':' + str(x['reviewer']) if x.get('reviewer') else ''}" for x in rv}),
+            'tests': row.get('tests'), 'protected': hits[:10], 'protected_list': list_readable}
+
+
+def stage_main(a, sha, feed, last, ledger):
+    """`stage <sha> --main [--dry-run [--against <release sha>]]`: THE SHOWCASE FOLLOWS MAIN. AUTO_FOLLOW absent (the follower
+    must not fight an operator release), the newest observation verified (its pinned policy and dependency digest are the
+    release's), main_release_refusal None, REQUIRED_KEPT still passes. RELEASE.json carries mode: main, piece: [the evidence
+    line's run], gate: gate_record(), prev, prev_release; the release log gets a `staged` event line. Every refusal is
+    journalled `release-refused` (not on a dry run). Stages only: activation is `activate <release>`."""
+    dry = bool(getattr(a, 'dry_run', False))
 
     def refuse(why):
-        print(f'REFUSED: {why}')
-        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'piece-refused', 'sha': sha, 'piece': runs, 'why': why[:300]})
+        print(f'REFUSED{" (dry run)" if dry else ""}: {why}')
+        if not dry:
+            append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'release-refused', 'mode': 'main', 'sha': sha, 'why': why[:300]})
+        return 1
+    if a.bootstrap or getattr(a, 'piece', None):
+        return refuse('--main is exclusive with --bootstrap and --piece')
+    if os.path.exists(AUTO):
+        return refuse(f'{AUTO} is on: the follower owns releases while it is (remove it to stage from main)')
+    if not last.get('verified'):
+        return refuse('the newest observation is not verified; run `showcase_ops.py follow --observe-only`')
+    main_tip = git('rev-parse', '--verify', '--quiet', 'origin/main^{commit}', check=False) or None
+    cur = current_release()
+    rel_sha = getattr(a, 'against', None) and (resolve(a.against) or a.against) or (cur or {}).get('sha')
+    rows = FR.load_jsonl(PIECES)
+    journal = (feed or {}).get('journal') or []
+    pats = read_protected([rel_sha, sha, main_tip])
+    prot = lambda x, y: protected_diff(x, y, pats)
+    fk = make_fleet_kept(kept_builds(journal, ledger, resolve), pats, prot)
+    why = main_release_refusal(sha, rel_sha, main_tip, rows, is_anc, carries_release, revoked_patch_in, read_revoked(),
+                               docs_only_change, prot, pats, fk)
+    if why:
+        return refuse(why)
+    ok, missing = pieces_in(sha, journal)
+    if not ok:
+        return refuse(f'{sha[:8]} lacks the required pieces {missing} (REQUIRED_KEPT)')
+    covers = make_covers(is_anc, docs_only_change)
+    row = [r for r in rows if isinstance(r, dict) and r.get('run') and covers(r.get('sha'), sha)][-1]
+    rec = gate_record(row, 'main', bool(pats), protected_hits(prot(rel_sha, sha), pats))
+    if dry:
+        print(f'DRY RUN -- WOULD STAGE {sha[:8]} on {str(rel_sha)[:8]}: {json.dumps(rec)}')
+        return 0
+    prev = os.path.basename(os.path.realpath(HARNESS)) if os.path.islink(HARNESS) else None
+    ok, out = stage(sha, last.get('policy'), last.get('deps'), bootstrap=False, why=f'main release ({row.get("run")})',
+                    extra={'mode': 'main', 'piece': [row.get('run')], 'gate': rec, 'prev': rel_sha, 'prev_release': prev})
+    if not ok:
+        return refuse(out)
+    append(PIECES, {'event': 'staged', 't': FR.iso(now_utc()), 'sha': sha, 'release': os.path.basename(out), 'prev': rel_sha, **rec})
+    print('STAGED ' + out)
+    return 0
+
+
+def stage_piece(a, sha, feed, last):
+    """`stage <sha> --piece <runs> [--dry-run [--against <release sha>]]`: the lane only (LANE present, AUTO_FOLLOW absent),
+    the newest observation verified (its pinned policy and dependency digest are the release's), piece_stack_refusal None,
+    and REQUIRED_KEPT still passes against the stack (pieces_in). RELEASE.json carries piece: [runs, sorted], gate, prev: the
+    release sha it stacks on, prev_release: the harness release dir. Every refusal is journalled `piece-refused` in
+    ops/deploy.jsonl (not on a dry run). Stages only: activation is `showcase_ops.py activate <release>`."""
+    runs = sorted(r.strip() for r in a.piece.split(',') if r.strip())
+    dry = bool(getattr(a, 'dry_run', False))
+
+    def refuse(why):
+        print(f'REFUSED{" (dry run)" if dry else ""}: {why}')
+        if not dry:
+            append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'piece-refused', 'sha': sha, 'piece': runs, 'why': why[:300]})
         return 1
     if a.bootstrap:
         return refuse('--piece and --bootstrap are exclusive')
@@ -487,25 +724,177 @@ def stage_piece(a, sha, feed, last):
     if not last.get('verified'):
         return refuse('the newest observation is not verified; run `showcase_ops.py follow --observe-only`')
     cur = current_release()
-    rel_sha = (cur or {}).get('sha')
+    rel_sha = getattr(a, 'against', None) and (resolve(a.against) or a.against) or (cur or {}).get('sha')
     rows = FR.load_jsonl(PIECES)
     commits = git('rev-list', f'{rel_sha}..{sha}', check=False).split() if rel_sha and resolve(sha) else []
-    revoked = [l.split()[0] for l in open(REVOKED).read().splitlines() if l.strip()] if os.path.exists(REVOKED) else []
     journal = (feed or {}).get('journal') or []
-    newest = {r: next((x for x in reversed(rows) if isinstance(x, dict) and x.get('run') == r), {}) for r in runs}
-    kept = {r: survival_kept(journal, r, str(newest[r].get('sha') or ''), resolve) for r in runs}
-    why = piece_stack_refusal(sha, rel_sha, runs, rows, commits, is_anc, revoked_patch_in, revoked, kept, docs_only_change)
+    main_tip = git('rev-parse', '--verify', '--quiet', 'origin/main^{commit}', check=False) or None
+    pats = read_protected([rel_sha, sha, main_tip])
+    prot = lambda x, y: protected_diff(x, y, pats)
+    fk = make_fleet_kept(kept_builds(journal, FR.load_jsonl(LEDGER), resolve), pats, prot)
+
+    def fleet_kept(run, psha):
+        ok, why = survival_kept(journal, run, psha, resolve)
+        return (ok, why) if ok else fk(psha)
+    why = piece_stack_refusal(sha, rel_sha, runs, rows, commits, is_anc, revoked_patch_in, read_revoked(), docs_only_change,
+                              prot, pats, fleet_kept)
     if why:
         return refuse(why)
-    ok, missing = pieces_in(sha, journal)
+    ok, missing = pieces_in(sha, journal)   # REQUIRED_KEPT against the stack
     if not ok:
         return refuse(f'{sha[:8]} lacks the required pieces {missing} (REQUIRED_KEPT)')
+    newest = {r: [x for x in rows if isinstance(x, dict) and x.get('run') == r][-1] for r in runs}
+    rec = {'mode': 'piece', 'pieces': {r: gate_record(newest[r], 'piece', bool(pats),
+                                                      protected_hits(prot(newest[r]['base'], newest[r]['sha']), pats))
+                                       for r in runs}}
+    if dry:
+        print(f'DRY RUN -- WOULD STAGE {sha[:8]} ({",".join(runs)}) on {str(rel_sha)[:8]}: {json.dumps(rec)}')
+        return 0
     prev = os.path.basename(os.path.realpath(HARNESS)) if os.path.islink(HARNESS) else None
     ok, out = stage(sha, last.get('policy'), last.get('deps'), bootstrap=False, why=f'piece stack {",".join(runs)}',
-                    extra={'piece': runs, 'prev': rel_sha, 'prev_release': prev})
+                    extra={'piece': runs, 'gate': rec, 'prev': rel_sha, 'prev_release': prev})
     if not ok:
         return refuse(out)   # a conflicting cached release included (Codex r2 P3)
+    append(PIECES, {'event': 'staged', 't': FR.iso(now_utc()), 'sha': sha, 'release': os.path.basename(out), 'prev': rel_sha,
+                    'piece': runs})
     print('STAGED ' + out)
+    return 0
+
+
+# ------------------------------------------------------------------------------------------------ record (the release log)
+def release_line(run, sha, tests, reviews, kind='release', base=None, paper=None, note=None, t=None):
+    """A release-log line for PIECES.jsonl -> (row, None) | (None, why). Pure. tests 'PASS|FAIL:<40 hex>:<summary>'; each review
+    '<engine>:<verdict>:<40 hex>[:<reviewer>]'. The log is APPEND-ONLY: a corrected record is a new line (the newest speaks)."""
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', run or ''):
+        return None, f'run must be a short name: {run!r}'
+    if not HEX40.fullmatch(sha or ''):
+        return None, f'sha must be 40 hex: {sha!r}'
+    if base is not None and not HEX40.fullmatch(base):
+        return None, f'base must be 40 hex: {base!r}'
+    tp = (tests or '').split(':', 2)
+    if len(tp) < 2 or tp[0] not in ('PASS', 'FAIL') or not HEX40.fullmatch(tp[1]):
+        return None, f'--tests is PASS|FAIL:<40 hex>[:<summary>], got {tests!r}'
+    rv = []
+    for x in reviews or []:
+        p = x.split(':', 3)
+        if len(p) < 3 or p[0].lower() not in ENGINES or not HEX40.fullmatch(p[2]) or not p[1]:
+            return None, f'--review is <codex|claude>:<VERDICT>:<40 hex>[:<reviewer>], got {x!r}'
+        rv.append(dict({'engine': p[0].lower(), 'verdict': p[1], 'sha': p[2]}, **({'reviewer': p[3]} if len(p) == 4 else {})))
+    if not rv:
+        return None, 'at least one --review'
+    row = {'run': run, 'sha': sha, 'kind': kind,
+           'tests': {'result': tp[0], 'sha': tp[1], 'runner': 'npm test', 'summary': tp[2] if len(tp) == 3 else ''},
+           'reviews': rv, 'recorded_at': FR.iso(t or now_utc())}
+    if base:
+        row['base'] = base
+    if paper:
+        pp = paper.split(':', 2)
+        if len(pp) < 2 or not HEX40.fullmatch(pp[1]):
+            return None, f'--paper is <RESULT>:<40 hex>[:<record>], got {paper!r}'
+        row['paper'] = {'result': pp[0], 'sha': pp[1], 'record': pp[2] if len(pp) == 3 else ''}
+    if note:
+        row['notes'] = note[:500]
+    return row, None
+
+
+def cmd_record(a):
+    lk = lock()
+    fetch()
+    full = lambda h: resolve(h) or h if h else h
+    row, why = release_line(a.run, full(a.sha), a.tests, a.review, kind=a.kind, base=full(a.base), paper=a.paper, note=a.note)
+    if why:
+        print(f'REFUSED: {why}')
+        return 1
+    for s in [row['sha'], row.get('base')] + [r['sha'] for r in row['reviews']] + [row['tests']['sha']]:
+        if s and not resolve(s):
+            print(f'REFUSED: {s[:12]} is not a commit in {REPO} (fetch it first)')
+            return 1
+    append(PIECES, row)
+    print('RECORDED ' + json.dumps(row))
+    return 0
+
+
+# ------------------------------------------------------------------------------------------------ world snapshot
+SNAPS = f'{ROOT}/snapshots'
+SNAP_KEEP = 6                    # the newest N complete snapshots stay; older ones are pruned after each new one
+SNAP_MIN_FREE = 10 * 2 ** 30     # refuse below 10 GiB free: a snapshot never fills the disk
+SNAP_NAME = re.compile(r'^\d{8}T\d{6}Z-[0-9a-z]{1,8}$')
+SERVER_DIR = f'{ROOT}/server'
+STATE_DIR = '/var/lib/mcai'
+
+
+def snapshots_to_prune(names, keep=SNAP_KEEP):
+    """Complete snapshot dir names (SNAP_NAME, sorted = time order) -> the ones to delete: all but the newest `keep`. Pure."""
+    done = sorted(n for n in names if SNAP_NAME.match(n))
+    return done[:-keep] if keep > 0 and len(done) > keep else []
+
+
+def paper_running():
+    return subprocess.run(['systemctl', 'is-active', '--quiet', 'showcase-paper'], capture_output=True).returncode == 0
+
+
+def snapshot_world(why, tag, hold=None, running=None, root=None, server=None, state=None):
+    """A consistent copy of the world + bot state BEFORE a release switches or the owner edits the world -> (ok, dir | why).
+    Fast and bounded: rsync --link-dest against the previous snapshot (unchanged region files are hard links), under the ONE
+    save-pause lock (rcon.SaveHold, shared with the timelapse and the backup stage; skipped only when Paper is not running),
+    the newest SNAP_KEEP kept, refused below SNAP_MIN_FREE. Restore (by hand, bots and Paper stopped):
+      rsync -a --delete <snap>/server/ /srv/showcase/server/   and   rsync -a --delete <snap>/state/ /var/lib/mcai/"""
+    root, server, state = root or SNAPS, server or SERVER_DIR, state or STATE_DIR
+    os.makedirs(root, exist_ok=True)
+    st = os.statvfs(root)
+    if st.f_bavail * st.f_frsize < SNAP_MIN_FREE:
+        return False, f'under {SNAP_MIN_FREE >> 30} GiB free on {root}'
+    name = f'{now_utc().strftime("%Y%m%dT%H%M%SZ")}-{re.sub(r"[^0-9a-z]", "", str(tag).lower())[:8] or "x"}'
+    prev = sorted(n for n in os.listdir(root) if SNAP_NAME.match(n))
+    tmp, dst = os.path.join(root, '.' + name + '.part'), os.path.join(root, name)
+    t0 = time.time()
+
+    def copy():
+        for src, sub, excl in ((server, 'server', getattr(BS, 'EXCL', [])), (state, 'state', [])):
+            link = [f'--link-dest={os.path.join(root, prev[-1], sub)}'] if prev else []
+            p = subprocess.run(['rsync', '-a', '--delete'] + excl + link + [src.rstrip('/') + '/', os.path.join(tmp, sub) + '/'],
+                               capture_output=True, text=True)
+            if p.returncode:
+                raise RuntimeError(f'rsync {src} rc={p.returncode}: {p.stderr.strip()[:200]}')
+    try:
+        shutil.rmtree(tmp, ignore_errors=True)
+        os.makedirs(tmp)
+        live = paper_running() if running is None else running
+        if live:
+            with (hold or RC.SaveHold)(wait_s=600) as h:
+                if not h.held:
+                    raise RuntimeError('the save-pause lock was held for 10 min by another owner (timelapse / backup)')
+                copy()
+        else:
+            copy()
+        if not os.path.exists(os.path.join(tmp, 'server', 'world', 'level.dat')):
+            raise RuntimeError('the copy has no server/world/level.dat')
+        with open(os.path.join(tmp, 'SNAPSHOT.json'), 'w') as f:
+            json.dump({'t': FR.iso(now_utc()), 'why': why, 'tag': tag, 'paper_running': live, 'secs': round(time.time() - t0, 1),
+                       'link_dest': prev[-1] if prev else None}, f, indent=1)
+        os.rename(tmp, dst)
+    except Exception as e:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return False, f'{type(e).__name__}: {str(e)[:200]}'
+    for old in snapshots_to_prune(os.listdir(root)):
+        shutil.rmtree(os.path.join(root, old), ignore_errors=True)
+    return True, dst
+
+
+def cmd_world_edit(a):
+    """`world-edit --why "<what the owner asked for>"`: the OWNER-DIRECT ONE-OFF WORLD FIX (fun mode). Takes a snapshot, then
+    journals {"event": "owner-direct-world-edit", "why", "snapshot"} in ops/deploy.jsonl. The edit itself (RCON) is done by
+    hand right after; it is logged assistance, never counted as the bots' own success, and never a fix for a bot."""
+    lk = lock()
+    if not (a.why or '').strip():
+        print('REFUSED: --why names the owner request and the edit')
+        return 1
+    ok, out = snapshot_world(a.why, 'worldedit')
+    if not ok:
+        print(f'REFUSED: no snapshot ({out}); nothing journalled -- fix and rerun before editing')
+        return 1
+    append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'owner-direct-world-edit', 'why': a.why[:300], 'snapshot': out})
+    print(f'SNAPSHOT {out}; journalled owner-direct-world-edit -- make the edit now')
     return 0
 
 
@@ -531,9 +920,25 @@ def newest_row(bot):
         return None
 
 
-def activate(release_dir, verify_s=600, prev_admissible=True):
+def activate(release_dir, verify_s=600, prev_admissible=True, snapshot=True, no_snapshot_why=None):
     rel = json.load(open(f'{release_dir}/RELEASE.json'))
     prev = os.path.realpath(HARNESS) if os.path.islink(HARNESS) else None
+    # THE WORLD SNAPSHOT before anything switches (fun mode: code rollback does not undo what a release did to the world).
+    # No snapshot -> no switch; skipping it takes an explicit, journalled reason.
+    if snapshot:
+        ok, snap = snapshot_world(f'before activating {os.path.basename(release_dir)}', rel.get('sha', '')[:8])
+        if not ok:
+            append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'activate-refused', 'release': os.path.basename(release_dir),
+                            'why': f'world snapshot failed: {snap}'[:300]})
+            print(f'REFUSED: world snapshot failed ({snap}); nothing switched (activate --no-snapshot "<why>" to override)')
+            if not prev_admissible:
+                subprocess.run(['/srv/showcase/bin/stop-bots.sh', 'rollback: world snapshot failed and the current release is inadmissible'],
+                               env=dict(os.environ, SHOWCASE_LOCK_HELD='1'))
+            return 1
+        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'snapshot', 'release': os.path.basename(release_dir), 'dir': snap})
+    else:
+        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'snapshot-skipped', 'release': os.path.basename(release_dir),
+                        'why': str(no_snapshot_why)[:300]})
     tmp = HARNESS + '.new'
     if os.path.lexists(tmp):
         os.remove(tmp)
@@ -601,20 +1006,29 @@ def cmd_activate(a):
     if not ok:
         print(f'REFUSED: {rel["sha"][:8]} lacks the required pieces {missing} (REQUIRED_KEPT); nothing switched')
         return 1
+    if getattr(a, 'no_snapshot', None) is not None and not a.no_snapshot.strip():
+        print('REFUSED: --no-snapshot needs the reason it is skipped')
+        return 1
     cur = current_release()
-    return activate(os.path.abspath(a.release), prev_admissible=release_admissible((cur or {}).get('sha')))
+    return activate(os.path.abspath(a.release), prev_admissible=release_admissible(cur),
+                    snapshot=getattr(a, 'no_snapshot', None) is None, no_snapshot_why=getattr(a, 'no_snapshot', None))
 
 
-def release_admissible(sha):
-    """Is the CURRENT release still one the showcase may go back to? Inside the newest verified fleet build, not
-    containing a REVOKED sha. Unknown (no verified observation) counts as NOT admissible: fail closed -> stop."""
+def release_admissible(rel):
+    """Is the CURRENT release (its RELEASE.json) still one the showcase may go back to? Either it passed THIS gate when it was
+    staged (a `piece` or `mode: main` record) or it lies inside the newest verified fleet build -- and it contains no REVOKED
+    sha (by ancestry or patch equivalence). Unknown counts as NOT admissible: fail closed -> stop."""
+    if isinstance(rel, str):
+        rel = {'sha': rel}
+    sha = (rel or {}).get('sha')
     if not sha:
         return False
-    ver = [r for r in FR.load_jsonl(LEDGER) if r.get('verified')]
-    if not ver or not is_anc(sha, ver[-1]['sha']):
-        return False
-    revoked = [l.split()[0] for l in open(REVOKED).read().splitlines() if l.strip()] if os.path.exists(REVOKED) else []
-    return not any(is_anc(x, sha) for x in revoked)
+    gated = bool(rel.get('piece')) or rel.get('mode') == 'main'
+    if not gated:
+        ver = [r for r in FR.load_jsonl(LEDGER) if r.get('verified')]
+        if not ver or not is_anc(sha, ver[-1]['sha']):
+            return False
+    return not revoked_refusal(sha, read_revoked(), is_anc, revoked_patch_in)
 
 
 # ------------------------------------------------------------------------------------------------ gate
@@ -699,17 +1113,29 @@ def gate_checks():
                 'filebeat active and shipping (15 min: acked > 0, dropped 0)',
                 f'{fb}; acked {acked}, dropped {dropped}, failed {failed}'
                 + ('' if dropped == 0 else ' -- a dropped event is a mapping rejection: fix before starting')))
-    rp = f'{OPS}/replay-last.json'
-    rep_ok = False
-    rep_why = 'remedy: sudo /srv/showcase/bin/replay-prompts.sh (50 real bench prompts through the brain path)'
-    if os.path.exists(rp):
-        r = json.load(open(rp))
-        age_h = (now_utc() - FR.parse_ts(r['t'])).total_seconds() / 3600
-        rep_ok = r.get('pass') is True and age_h < 24 and r.get('release') == (rel or {}).get('sha')
-        rep_why = (f"{r.get('valid')}/{r.get('n')} schema-valid, served {r.get('served')}, {age_h:.1f} h old, release "
-                   f"{str(r.get('release'))[:8]}" + ('' if rep_ok else '; ' + rep_why))
+    rep_ok, rep_why = replay_ok(replay_last(), (rel or {}).get('sha'), now_utc())
     out.append((rep_ok, 'brain replay passed on this release (< 24 h)', rep_why))
     return out
+
+
+def replay_last():
+    try:
+        return json.load(open(f'{OPS}/replay-last.json'))
+    except (OSError, ValueError):
+        return None
+
+
+def replay_ok(r, release_sha, now):
+    """The start gate's brain replay -> (ok, why). Pure. ok: a PASS on THIS release under 24 h old. start-bots.sh refreshes a
+    stale or other-release replay itself (fun mode 10-28: a restart never waits on a human for it); a FAILED fresh replay
+    still refuses -- the brain path is broken."""
+    remedy = 'remedy: sudo /srv/showcase/bin/replay-prompts.sh (50 real bench prompts through the brain path)'
+    if not isinstance(r, dict) or not FR.parse_ts(r.get('t')):
+        return False, remedy
+    age_h = (now - FR.parse_ts(r['t'])).total_seconds() / 3600
+    ok = r.get('pass') is True and age_h < 24 and bool(release_sha) and r.get('release') == release_sha
+    return ok, (f"{r.get('valid')}/{r.get('n')} schema-valid, served {r.get('served')}, {age_h:.1f} h old, release "
+                f"{str(r.get('release'))[:8]}" + ('' if ok else '; ' + remedy))
 
 
 def cherry_equivalent(sha, release):
@@ -765,6 +1191,13 @@ def cmd_gate(a):
     return 1 if n else 0
 
 
+def cmd_replay_fresh(a):
+    """exit 0 when the newest brain replay passes the start gate for the CURRENT release, else 1 (start-bots.sh then reruns it)."""
+    ok, why = replay_ok(replay_last(), (current_release() or {}).get('sha'), now_utc())
+    print(('FRESH ' if ok else 'STALE ') + why)
+    return 0 if ok else 1
+
+
 def cmd_status(a):
     d = (FR.load_jsonl(FOLLOW) or [{}])[-1]
     rel = current_release()
@@ -782,13 +1215,29 @@ def main():
     s.add_argument('sha')
     s.add_argument('--bootstrap', action='store_true')
     s.add_argument('--piece', default=None, help='the progress lane: <run>[,<run>...] -- PIECES.jsonl lines stacked on the current release')
+    s.add_argument('--main', action='store_true', help='FOLLOW MAIN: a sha on origin/main, staged directly (release-log line needed)')
+    s.add_argument('--dry-run', action='store_true', help='decide and print; stage nothing, journal nothing')
+    s.add_argument('--against', default=None, help='with --dry-run: judge as if this sha were the current release')
     t = sub.add_parser('activate')
     t.add_argument('release')
+    t.add_argument('--no-snapshot', default=None, metavar='WHY', help='skip the world snapshot (journalled with WHY)')
+    r = sub.add_parser('record', help='append a release-log line (tests + reviews) to PIECES.jsonl')
+    r.add_argument('--run', required=True)
+    r.add_argument('--sha', required=True)
+    r.add_argument('--tests', required=True, help='PASS|FAIL:<40 hex>[:<summary>]  (npm test, the canonical runner)')
+    r.add_argument('--review', action='append', default=[], help='<codex|claude>:<VERDICT>:<40 hex>[:<reviewer>] (repeatable)')
+    r.add_argument('--kind', default='release')
+    r.add_argument('--base', default=None, help='the piece base (for --piece stacking)')
+    r.add_argument('--paper', default=None, help='optional: <RESULT>:<40 hex>[:<record>]')
+    r.add_argument('--note', default=None)
+    w = sub.add_parser('world-edit', help='snapshot, then journal an owner-direct-world-edit')
+    w.add_argument('--why', required=True)
     sub.add_parser('gate')
+    sub.add_parser('replay-fresh')
     sub.add_parser('status')
     a = ap.parse_args()
-    return {'follow': cmd_follow, 'stage': cmd_stage, 'activate': cmd_activate, 'gate': cmd_gate,
-            'status': cmd_status}[a.cmd](a)
+    return {'follow': cmd_follow, 'stage': cmd_stage, 'activate': cmd_activate, 'gate': cmd_gate, 'record': cmd_record,
+            'world-edit': cmd_world_edit, 'replay-fresh': cmd_replay_fresh, 'status': cmd_status}[a.cmd](a)
 
 
 if __name__ == '__main__':

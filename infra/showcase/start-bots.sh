@@ -7,6 +7,12 @@
 set -uo pipefail
 B=/srv/showcase/bin
 exec 9>>/srv/showcase/ops.lock; flock 9
+# FUN MODE (10-28): a stale or other-release brain replay is REFRESHED here, never a refusal that waits on a human. A fresh
+# replay that FAILS still fails the gate below (the brain path is broken).
+if ! python3 $B/showcase_ops.py replay-fresh; then
+  echo "== brain replay stale or for another release: refreshing (replay-prompts.sh)"
+  SHOWCASE_LOCK_HELD=1 $B/replay-prompts.sh >> /srv/showcase/ops/replay-cron.log 2>&1 || echo "   replay failed (the gate below says why)"
+fi
 echo "== gate"
 if ! python3 $B/showcase_ops.py gate; then
   echo "NOT STARTED: fix the FAIL lines above (each names its remedy) and rerun"; exit 1
@@ -88,8 +94,11 @@ then
   echo "VERIFY FAILED: the brain is not serving gemma4 (see the share above) -- stopping the bots"
   SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: gemma4 share < 90%"; exit 1
 fi
+GATED=$(python3 -c "import json; r=json.load(open('$REL/RELEASE.json')); print(1 if r.get('piece') or r.get('mode') == 'main' else 0)")
 if [ -e /srv/showcase/LANE ]; then
   echo "STARTED: 10 bots on $EXPECT; PROGRESS LANE: AUTO_FOLLOW stays off (the follower observes only)."
+elif [ "$GATED" = 1 ]; then
+  echo "STARTED: 10 bots on $EXPECT; a gated showcase release (--main / --piece): AUTO_FOLLOW stays off (the follower observes only)."
 else
   touch /srv/showcase/AUTO_FOLLOW
   echo "STARTED: 10 bots on $EXPECT; AUTO_FOLLOW on. The bench's fleetstatus SHOWCASE block reports them from ES."

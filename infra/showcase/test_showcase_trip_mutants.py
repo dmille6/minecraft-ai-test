@@ -53,6 +53,10 @@ MUTANTS = [
     ("    except BaseException as e:          # noqa: B036", "    except ImportError as e:          # noqa: B036", 'must not abort the S5 read'),
     # r2: ack no longer refuses on a broken shopread
     ("    if shop_module()[0] is None:\n        print('REFUSED: shopread unusable", "    if False:\n        print('REFUSED: shopread unusable", 'ack refuses LOUDLY'),
+    # fun mode 10-28: tree debris no longer split out of H2 (a floating leaf stops the showcase again)
+    ("    items, debris = h2_debris_split(defect_items(defects, items))", "    items, debris = defect_items(defects, items), []", 'tree debris is a WATCH'),
+    # fun mode 10-28: EVERY H2 item treated as debris (a dirt clear outside the record no longer trips)
+    ("TREE_DEBRIS.match(parts[-1]) else keep).append(x)", "True else keep).append(x)", 'still TRIPs'),
 ]
 
 
