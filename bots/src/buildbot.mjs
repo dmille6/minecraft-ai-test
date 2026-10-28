@@ -48,9 +48,11 @@ const FACE_DIR = f => (f[1] < 0 ? 0 : f[1] > 0 ? 1 : f[2] < 0 ? 2 : f[2] > 0 ? 3
 export function cornerCut (start, path, read) {
   const clear = (x, y, z) => { const b = read(x, y, z); return !!b && b.boundingBox === 'empty' }
   const floor = (x, y, z) => { const b = read(x, y, z); return !!b && b.boundingBox === 'block' }
-  let a = start
+  // BLOCK cells (r1 reviews, both BLOCK: the pathfinder's post-processed nodes are block CENTRES, x.5 / z.5): floored here
+  const cell = p => ({ x: Math.floor(p.x), y: Math.floor(p.y + 1e-6), z: Math.floor(p.z) })
+  let a = cell(start)
   for (let i = 0; i < (path?.length ?? 0); i++) {
-    const b = path[i]
+    const b = cell(path[i])
     const dx = b.x - a.x, dz = b.z - a.z
     if (Math.abs(dx) === 1 && Math.abs(dz) === 1) {
       const lo = Math.min(a.y, b.y), hi = Math.max(a.y, b.y) + 1
@@ -79,7 +81,7 @@ export function cornerWaypoints (from, goal, plan, read, max = 4) {
     if (!path) break
     const cut = cornerCut({ x: at[0], y: at[1], z: at[2] }, path, read)
     if (!cut) break
-    if (cut.i > 0) { const p = path[cut.i - 1]; out.push([p.x, p.y, p.z]) }
+    if (cut.i > 0) { const p = path[cut.i - 1]; out.push([Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]) }
     out.push(cut.via)
     at = cut.via
   }
@@ -166,7 +168,7 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       .filter(e => e && e !== bot.entity && e.position && !['item', 'experience_orb', 'arrow'].includes(e.name) && e.position.distanceTo?.(bot.entity.position) < BODY_RADIUS)
       .map(e => ({ x: e.position.x, y: e.position.y, z: e.position.z, w: e.width ?? 0.6, h: e.height ?? 1.8 })),
     walkTo: async s => {
-      let timer = null
+      let timer = null, late = false
       try {
         await withWalk(() => Promise.race([
           (async () => {
@@ -174,16 +176,16 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
             let legs = [s]
             try {
               const plan = from => {
-                const it = bot.pathfinder.getPathFromTo?.(bot.pathfinder.movements, new Vec3(from[0] + 0.5, from[1], from[2] + 0.5), new goals.GoalBlock(s[0], s[1], s[2]), { timeout: PLAN_MS })
+                const it = bot.pathfinder.getPathFromTo?.(bot.pathfinder.movements, new Vec3(from[0] + 0.5, from[1], from[2] + 0.5), new goals.GoalBlock(s[0], s[1], s[2]), { timeout: PLAN_MS, tickTimeout: PLAN_MS, optimizePath: false })
                 const r = it?.next?.()?.value?.result
                 return r?.status === 'success' ? r.path : null
               }
               const p = bot.entity.position
               legs = cornerWaypoints([Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], s, plan, read)
             } catch { legs = [s] }
-            for (const w of legs) { if (aborted()) return; await bot.pathfinder.goto(new goals.GoalBlock(w[0], w[1], w[2])) }
+            for (const w of legs) { if (aborted() || late) return; await bot.pathfinder.goto(new goals.GoalBlock(w[0], w[1], w[2])) }
           })(),
-          new Promise(resolve => { timer = setTimeout(() => { timers.delete(timer); try { bot.pathfinder.setGoal(null) } catch { /* idle */ } resolve() }, pathMs); timers.add(timer) }),
+          new Promise(resolve => { timer = setTimeout(() => { late = true; timers.delete(timer); try { bot.pathfinder.setGoal(null) } catch { /* idle */ } resolve() }, pathMs); timers.add(timer) }),
         ]))
       } catch (e) { if (e?.aborted || aborted()) throw e } finally { if (timer) { clearTimeout(timer); timers.delete(timer) } }
       return true

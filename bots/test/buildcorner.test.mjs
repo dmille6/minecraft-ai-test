@@ -22,6 +22,12 @@ await t('the live corner: 21,74,32 -> 20,74,31 cuts the wall corner; the step go
   // later in a path: the step before it is walked first
   assert.deepStrictEqual(cornerCut({ x: 23, y: 74, z: 32 }, [{ x: 22, y: 74, z: 32 }, { x: 21, y: 74, z: 32 }, { x: 20, y: 74, z: 31 }, { x: 20, y: 74, z: 30 }], read), { i: 2, via: [20, 74, 32] })
 })
+await t('the pathfinder\'s own node shape (block centres, x.5 / z.5) and a fractional start are floored to cells', () => {
+  assert.deepStrictEqual(cornerCut({ x: 21, y: 74, z: 32 }, [{ x: 20.5, y: 74, z: 31.5 }], read), { i: 0, via: [20, 74, 32] })
+  assert.deepStrictEqual(cornerCut({ x: 21.1, y: 74, z: 32.3 }, [{ x: 20.5, y: 74, z: 31.5 }], read), { i: 0, via: [20, 74, 32] })
+  const plan = from => (from.join(',') === '21,74,32' ? [{ x: 22.5, y: 74, z: 32.5 }, { x: 21.5, y: 74, z: 32.5 }, { x: 20.5, y: 74, z: 31.5 }] : [{ x: 20.5, y: 74, z: 31.5 }])
+  assert.deepStrictEqual(cornerWaypoints([23, 74, 32], [20, 74, 31], f => plan(f.join(',') === '23,74,32' ? [21, 74, 32] : f), read), [[21, 74, 32], [20, 74, 32], [20, 74, 31]])
+})
 await t('no cut: straight steps; a diagonal with both sides clear; a clear side with no floor is left alone', () => {
   assert.strictEqual(cornerCut({ x: 20, y: 74, z: 32 }, [{ x: 20, y: 74, z: 31 }, { x: 20, y: 74, z: 30 }], read), null)
   const open = () => ({ name: 'air', boundingBox: 'empty' })
@@ -51,8 +57,10 @@ await t('WIRED: the build walk plans with cornerWaypoints and walks every leg in
   const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1')
   const src = strip(fs.readFileSync(new URL('../src/buildbot.mjs', import.meta.url), 'utf8'))
   const walk = src.slice(src.indexOf('walkTo: async s =>'), src.indexOf('hold: async n =>'))
+  assert.ok(/optimizePath: false/.test(walk), 'integer nodes asked for')
+  assert.ok(/late = true/.test(walk) && /if \(aborted\(\) \|\| late\) return/.test(walk), 'no leg after the clock')
   assert.ok(/legs = cornerWaypoints\(\[Math\.floor\(p\.x\), Math\.floor\(p\.y \+ 1e-6\), Math\.floor\(p\.z\)\], s, plan, read\)/.test(walk), 'planned from the feet')
-  assert.ok(/for \(const w of legs\) \{ if \(aborted\(\)\) return; await bot\.pathfinder\.goto\(new goals\.GoalBlock\(w\[0\], w\[1\], w\[2\]\)\) \}/.test(walk), 'each leg walked')
+  assert.ok(/for \(const w of legs\) \{ if \(aborted\(\) \|\| late\) return; await bot\.pathfinder\.goto\(new goals\.GoalBlock\(w\[0\], w\[1\], w\[2\]\)\) \}/.test(walk), 'each leg walked')
   assert.ok(walk.indexOf('Promise.race([') < walk.indexOf('for (const w of legs)') && walk.indexOf('for (const w of legs)') < walk.indexOf('timer = setTimeout'), 'inside the race with the clock')
 })
 
