@@ -398,6 +398,16 @@ def _showcase_line(now, client, deploy_log):
 SHOWCASE_OPS = 'mcai-showcase-ops'      # the showcase VM's timelapse heartbeat rows (filebeat route ops)
 
 
+# W5 ALARMS (fun mode, OWNER 2026-10-28): stuck goals (no project progress 3 h), halts (a stop with no start in 15 min),
+# daily drift (> 30 % vs the 7-day median) and the rollout ledger's 60-min checks -- scripts/lib/alarmhead.py, never raises.
+def w5_alarm_lines(now, client):
+    try:
+        from lib import alarmhead
+        return alarmhead.lines(now, client)
+    except Exception as e:                      # noqa: BLE001 -- a tree without the helper must not blank the report
+        return [f'!! W5 alarms unavailable ({type(e).__name__}: {str(e)[:100]}) -- install scripts/lib/alarmhead.py and alarm.py']
+
+
 def showcase_report(until, client=None, window_h=3):
     """The SHOWCASE block (docs/reports/showcase-2026-10-20.md section 4). It reads ONLY the showcase's own
     streams -- the fleet sections above never see a showcase row -- and never raises: an unreadable stream is a
@@ -618,6 +628,8 @@ def show(rep):
         print(rep['structcount'])
     if rep.get('showcase_head'):
         print(rep['showcase_head'])
+    for line in rep.get('w5_alarms') or []:
+        print(line)
     print(f'names proven in the widest window: {rep["proven"]}')
     for name, w in rep['windows'].items():
         print(f'\n=== last {name}: {w["since"][:16]}Z .. {w["until"][:16]}Z  ({w["docs"]:,} docs, {w["bots"]} bots of '
@@ -674,6 +686,7 @@ def main():
     if not a.no_showcase:
         rep['showcase_head'] = showcase_line(now)
         rep['showcase'] = showcase_report(until)
+    rep['w5_alarms'] = w5_alarm_lines(now, None if a.no_showcase else (DISK_CLIENT or _est.http))
     show(rep)
     if a.json:
         with open(a.json, 'w') as fh:
