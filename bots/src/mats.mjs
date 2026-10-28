@@ -633,7 +633,7 @@ export function matsDetail (f = {}) {
   // stock= BEFORE took= and stop= (Claude r1 P1-3: a long stop pushed stock= past the 300-char cut, mid-number)
   // smelted= right after made= (Codex r2 P2-7: at the tail a long stock= pushed it to the 300-char cut, and the read's instrument
   // treated a cut smelted= as zero)
-  return [`kind=${v(f.kind)}`, `verdict=${v(f.verdict)}`, `made=${v(f.made)}`, `smelted=${v(f.smelted)}`, `forbidden=${kvs(f.forbidden)}`,
+  return [`kind=${v(f.kind)}`, `verdict=${v(f.verdict)}`, `made=${v(f.made)}`, `smelted=${v(f.smelted)}`, `ws=${v(f.wsF ?? '-')}/${v(f.wsT ?? '-')}`, `forbidden=${kvs(f.forbidden)}`,
     `stone=${v(f.stone)}`, `note=${v(f.note)}`, `ml=${v(f.ml)}`, `stock=${kv0(f.stock)}`, `took=${kvs(f.took)}`, `reserve=${v(f.reserveSrc)}`,
     `stop=${v(String(f.stop ?? '-').slice(0, 60))}`, `inputs_left=${kvs(f.inputsLeft)}`, `tools_lost=${kvs(f.toolsLost)}`,
     `part=${v(f.part)}`, `log=${v(f.log)}`, `bag=${kvs(f.fromBag)}`, `planks=${v(f.burned)}/${v(f.expected)}${f.cut ? '+cut' : ''}`, `placed=${kvs(f.placed)}`,
