@@ -94,8 +94,11 @@ then
   echo "VERIFY FAILED: the brain is not serving gemma4 (see the share above) -- stopping the bots"
   SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: gemma4 share < 90%"; exit 1
 fi
+GATED=$(python3 -c "import json; r=json.load(open('$REL/RELEASE.json')); print(1 if r.get('piece') or r.get('mode') == 'main' else 0)")
 if [ -e /srv/showcase/LANE ]; then
   echo "STARTED: 10 bots on $EXPECT; PROGRESS LANE: AUTO_FOLLOW stays off (the follower observes only)."
+elif [ "$GATED" = 1 ]; then
+  echo "STARTED: 10 bots on $EXPECT; a gated showcase release (--main / --piece): AUTO_FOLLOW stays off (the follower observes only)."
 else
   touch /srv/showcase/AUTO_FOLLOW
   echo "STARTED: 10 bots on $EXPECT; AUTO_FOLLOW on. The bench's fleetstatus SHOWCASE block reports them from ES."

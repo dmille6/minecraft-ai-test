@@ -189,11 +189,15 @@ def cmd_follow(a):
             and not any(x in str(r.get('note')) for x in revoked)]
     if warn:
         d['revert_notes_not_in_REVOKED'] = [f"{r.get('ts')} {r.get('run')}: {str(r.get('note'))[:100]}" for r in warn[-3:]]
-    d['auto'] = os.path.exists(AUTO) and not os.path.exists(LANE)
+    # a release staged through THIS gate (--main / --piece) runs ahead of the fleet by design: the fleet follower must never
+    # act on it (it would judge it inadmissible and roll it back) -- observe only, whatever AUTO_FOLLOW says (Codex W2 r1)
+    gated = bool((rel or {}).get('piece')) or (rel or {}).get('mode') == 'main'
+    d['auto'] = os.path.exists(AUTO) and not os.path.exists(LANE) and not gated
     d['lane'] = os.path.exists(LANE)
+    d['gated_release'] = gated
     append(FOLLOW, d)
     print(json.dumps(d))
-    if not d['auto'] or getattr(a, 'observe_only', False) or os.path.exists(LANE):
+    if not d['auto'] or getattr(a, 'observe_only', False) or os.path.exists(LANE) or gated:
         return 0
     if not feed:
         return 0      # no fresh feed this hour: never act on stale evidence (an empty journal would read as "not kept")
@@ -300,6 +304,7 @@ def stage(sha, policy_dig, deps_dig, bootstrap=False, why='', extra=None):
 PAPER_OK = ('CANDIDATE_PASS', 'PASS')
 PAPER_FAIL = ('CANDIDATE_FAIL', 'FAIL')
 TESTS_OK = ('PASS',)
+TESTS_RUNNER = 'npm test'   # the canonical runner (CLAUDE.md); a PASS from anything else is no test record
 ENGINES = ('codex', 'claude')
 HEX40 = re.compile(r'[0-9a-f]{40}')
 PROTECTED_LIST = 'config/protected-paths.txt'
@@ -360,7 +365,7 @@ def evidence_refusal(name, row, psha, hits, covers, fleet_kept):
       hits     the protected paths the release changes: non-empty -> BOTH engines, and fleet_kept(psha) -> (True, why)
       paper    optional: an explicit FAIL covering psha refuses; a PASS or no record changes nothing."""
     t = row.get('tests')
-    if not (isinstance(t, dict) and t.get('result') in TESTS_OK and covers(t.get('sha'), psha)):
+    if not (isinstance(t, dict) and t.get('result') in TESTS_OK and t.get('runner') == TESTS_RUNNER and covers(t.get('sha'), psha)):
         return (f'{name}: no passing test record for {psha[:8]} (tests: {{"result": "PASS", "sha": <40 hex>, "runner": '
                 f'"npm test", "summary": ...}}; got {str(t)[:80]!r})')
     engines = {str(x.get('engine') or '').lower() for x in (row.get('reviews') or [])

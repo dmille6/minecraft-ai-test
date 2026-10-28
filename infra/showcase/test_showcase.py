@@ -658,7 +658,8 @@ class Evidence(unittest.TestCase):
         self.assertEqual(self.ev(piece('shop-01', S2, M2, paper={'result': 'CANDIDATE_FAIL', 'sha': S1})), '', 'a FAIL of older code')
 
     def test_a_test_record_is_required_and_bound_to_the_sha(self):
-        for bad in (None, 'PASS', tests_ok(S2, 'FAIL'), tests_ok(S1), tests_ok(S2[:8]), {'result': 'PASS'}, tests_ok(S2, 'pass')):
+        for bad in (None, 'PASS', tests_ok(S2, 'FAIL'), tests_ok(S1), tests_ok(S2[:8]), {'result': 'PASS'}, tests_ok(S2, 'pass'),
+                    dict(tests_ok(S2), runner='echo smoke'), {'result': 'PASS', 'sha': S2}):
             self.assertIn('no passing test record', self.ev(piece('shop-01', S2, M2, tests=bad)), bad)
 
     def test_a_review_must_be_named_approve_and_bound(self):
@@ -982,6 +983,45 @@ class Admissible(unittest.TestCase):
         with open(SO.REVOKED, 'w') as f:
             f.write(M2 + ' reverted on the fleet\n')
         self.assertFalse(SO.release_admissible({'sha': S2, 'piece': ['shop-01']}), 'a REVOKED sha inside')
+
+
+class FollowNeverActsOnAGatedRelease(unittest.TestCase):
+    """cmd_follow with AUTO_FOLLOW on and no LANE: a DUE decision acts on a fleet-followed release, never on a gated one."""
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        names = ('ROOT', 'OPS', 'LEDGER', 'FOLLOW', 'AUTO', 'LANE', 'REVOKED', 'lock', 'fetch', 'read_feed', 'current_release', 'stage',
+                 'pieces_in', 'activate')
+        self.saved = {k: getattr(SO, k) for k in names}
+        self.saved_decide = SO.FR.decide
+        SO.ROOT, SO.OPS = self.d, os.path.join(self.d, 'ops')
+        SO.LEDGER, SO.FOLLOW = os.path.join(SO.OPS, 'l.jsonl'), os.path.join(SO.OPS, 'f.jsonl')
+        SO.AUTO, SO.LANE, SO.REVOKED = (os.path.join(self.d, x) for x in ('AUTO_FOLLOW', 'LANE', 'REVOKED'))
+        open(SO.AUTO, 'w').close()
+        SO.lock = SO.fetch = lambda: None
+        SO.read_feed = lambda: ({'journal': [], 'errors': []}, None)
+        SO.FR.decide = lambda *a, **k: {'decision': 'DUE', 'target': S2, 'policy': 'p1', 'reason': 'test'}
+        SO.pieces_in = lambda sha, j: (True, [])
+        self.staged = []
+        SO.stage = lambda *a, **k: (self.staged.append(a), (True, '/x'))[1]
+        SO.activate = lambda *a, **k: 0
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(SO, k, v)
+        SO.FR.decide = self.saved_decide
+
+    def follow(self):
+        import types, io, contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            return SO.cmd_follow(types.SimpleNamespace(observe_only=False))
+
+    def test_gated_release_is_observed_only(self):
+        SO.current_release = lambda: {'sha': R40, 'mode': 'main', 'piece': ['main-rel']}
+        self.follow()
+        self.assertEqual(self.staged, [], 'Codex W2 r1: the follower would roll a main release back')
+        SO.current_release = lambda: {'sha': R40}
+        self.follow()
+        self.assertEqual(len(self.staged), 1, 'positive control: a fleet-followed release still follows')
 
 
 class ReplayFresh(unittest.TestCase):
