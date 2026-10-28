@@ -2004,6 +2004,59 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     return { status: 'failed', detail: `stranded on foliage: ${descent.why}; not digging down — the escape ladder owns this descent`, failClass: descent.refused ? 'canopy_refused' : 'canopy_failed' }
   }
 
+  // LOGSURFACE-01: under a terrain roof, a log gather climbs out FIRST (logSurfacePlan). At most two climbs (to sea level,
+  // then over the roof that is left), inside LOG_SURFACE_MS. Still roofed after them: the climb's own answer is returned
+  // (its `need` is a prerequisite the runner applies; travel_incomplete says "call again" and the next gather climbs on).
+  let climbedFor = 0
+  const surfacePlanNow = () => {
+    const feet = bot.entity?.position?.floored?.()
+    if (!feet) return null
+    const roofTop = terrainRoofTop(q => bot.blockAt(q), feet)
+    // THE TOWN'S COLUMN AT ANY DEPTH (Codex r1 blocker): inTownBox stops TOWN_GROUND_DEPTH below home, and a bot deeper
+    // than that would otherwise be aimed over the roof top -- up through the town's floor and its buildings
+    const h = townHome()
+    const inTown = !!h && inTownBox({ x: feet.x, y: Math.max(feet.y, Math.floor(h.y)), z: feet.z }, h)
+    const plan = logSurfacePlan({ block: blockName, y: bot.entity.position.y, roofTop, inTown })
+    return plan && { ...plan, roofTop }
+  }
+  for (let plan = surfacePlanNow(), climbs = 0; plan && climbs < 2 && Date.now() - gatherT0 < LOG_SURFACE_MS; plan = surfacePlanNow()) {
+    climbs++
+    const y0 = bot.entity.position.y
+    const up = await withoutKeepout(bot, () => surface(ctx, { _toY: plan.toY }, signal, { until: gatherT0 + LOG_SURFACE_MS }))
+      .catch(e => (e?.aborted ? Promise.reject(e) : { status: 'failed', failClass: 'stranded', detail: `the climb threw: ${String(e?.message ?? e).slice(0, 80)}` }))
+    check(signal)
+    climbedFor = Date.now() - gatherT0
+    const after = surfacePlanNow()
+    try {
+      logEvent({ kind: 'log_surface', status: after ? 'failed' : 'success', snapshot: snapshot(bot),
+                 detail: `${blockName}: climb ${climbs} from y=${Math.round(y0)} (roof top ${plan.roofTop}) toward y=${plan.toY} -> ` +
+                         `y=${Math.round(bot.entity.position.y)} ${after ? `still roofed (top ${after.roofTop})` : 'open'}; ` +
+                         `surface ${up?.status}/${up?.failClass ?? '-'}: ${String(up?.detail ?? '').slice(0, 110)}` })
+    } catch { /* a measurement may never cost the skill its turn */ }
+    if (!after) break
+    if (up?.status !== 'success') {
+      return { status: 'failed', failClass: up?.failClass ?? 'stranded', need: up?.need, gap: up?.gap,
+               detail: `no ${blockName} under a roof (y=${Math.round(bot.entity.position.y)}, terrain to y=${after.roofTop}): ` +
+                       `trees grow above ground, and the climb out stopped — ${up?.detail ?? 'no detail'}` }
+    }
+  }
+  {
+    const left = surfacePlanNow()
+    // A LONG CLIMB IS THE RUN'S WORK (Codex r1 blocker): collection has no overall deadline of its own (collectManually's
+    // stages, the barren reposition), so after a climb longer than LOG_SURFACE_GATHER_MS the run ends here and the next
+    // gather starts, from open ground, with the whole contract -- never a search that the runner's hard stop cuts off
+    if (!left && climbedFor > LOG_SURFACE_GATHER_MS) {
+      return { status: 'unknown', failClass: 'collect_budget',
+               detail: `climbed out from under terrain to y=${Math.round(bot.entity.position.y)} for ${blockName} in ` +
+                       `${Math.round(climbedFor / 1000)} s — run gather again from here (trees grow above ground)` }
+    }
+    if (left && climbedFor > 0) {
+      return { status: 'failed', failClass: 'travel_incomplete', gap: `at_y${Math.round(bot.entity.position.y)}`,
+               detail: `climbed toward the surface for ${blockName}, still under terrain to y=${left.roofTop} at ` +
+                       `y=${Math.round(bot.entity.position.y)} — run gather again to keep climbing` }
+    }
+  }
+
   // GRADE THE DROP, NOT THE BLOCK. Stone does not drop stone. See drops.mjs:
   // this counter could never rise for stone/coal_ore/iron_ore, so the skill
   // reported failure every time it worked -- 13,550 `gather stone` attempts
@@ -17457,6 +17510,48 @@ function hasCeiling (bot, up = 12) {
   }
   return false
 }
+
+/**
+ * LOGSURFACE-01: NO LOG GATHERING UNDER A ROOF -- THE BOT CLIMBS OUT FIRST, DETERMINISTICALLY.
+ *
+ * Measured over the 24 h to 2026-10-28 22:30Z (ES, a full walk of 25,487 gather rows; 847 log gathers with a position):
+ * at y>=63 a log gather succeeded 317 of 438 (72%); below sea level 63 of 409 (15%). 346 of the 471 log gathers that did
+ * not succeed were below sea level. Cut from the nightly region copies at the failing bots' own positions, every one of
+ * the 6 top `no_path` sites (151 rows) had the bot under a stone or dirt roof with 4-403 travel nodes reachable and the
+ * logs on the surface above it; the "every candidate is buried" and "below sea level" refusals are the same bots. The
+ * failure text has said "run surface first" for months: advice printed is not advice taken, so gather performs it.
+ *
+ * The roof is TERRAIN: a solid block 2..40 above the feet that is not a tree part, so a canopy is never a roof (hasCeiling
+ * above counts leaves, which is right for a hint and wrong for a climb). The highest such block is the one to clear.
+ * Unloaded reads as open, the direction of the old behaviour. Pure: `blockAt` and `feet` are passed in.
+ */
+export const TREE_OVERHEAD = /(_leaves|_log|_wood)$/
+export function terrainRoofTop (blockAt, feet, { up = 40 } = {}) {
+  if (!feet || typeof blockAt !== 'function') return null
+  let top = null
+  for (let dy = 2; dy <= up; dy++) {
+    const b = blockAt(feet.offset(0, dy, 0))
+    if (b && b.boundingBox === 'block' && !TREE_OVERHEAD.test(String(b.name || ''))) top = feet.y + dy
+  }
+  return top
+}
+
+/**
+ * The climb a log gather owes before it searches, or null. Natural logs only (NATURAL_LOG): every other gather is untouched.
+ *   - no roof overhead: null at any depth -- a beach, a valley floor or a ravine under open sky has trees.
+ *   - in the town's box: below sea level only, and only to sea level, as `home` climbs. A house roof is not terrain to dig.
+ *   - otherwise: to one above the roof's top, never below sea level (surface's own floor, TOP = max(63, _toY)).
+ */
+export function logSurfacePlan ({ block, y, roofTop, inTown = false } = {}) {
+  if (!NATURAL_LOG.test(String(block || ''))) return null
+  if (!Number.isFinite(y) || roofTop == null || !Number.isFinite(roofTop)) return null
+  if (inTown) return y < SEA_LEVEL ? { toY: SEA_LEVEL } : null
+  return { toY: Math.max(SEA_LEVEL, roofTop + 1) }
+}
+// The climb's share of gather's 180 s contract. A climb that took longer than LOG_SURFACE_GATHER_MS ends the run (the
+// next gather starts on open ground with the whole 180 s); a shorter one leaves >= 140 s, an ordinary run's budget.
+export const LOG_SURFACE_MS = 100_000
+export const LOG_SURFACE_GATHER_MS = 40_000
 
 /**
  * Climb back to the surface.
