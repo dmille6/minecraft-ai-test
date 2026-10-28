@@ -60,8 +60,8 @@ import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence
 import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
 import { matsModeDetail, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'   // mats-01's licence row (its own statement)
 import { createHash as shopHash } from 'node:crypto'
-import { shopStoodTick, shopFootprintRefresh, shopAckInstall } from './skills.mjs'
-import { noBridgeCost } from './nobridge.mjs'   // nobridge-01: no path scaffold over water on a walk   // shop-01: the walks' seeds, the footprint, the acks
+import { shopStoodTick, shopFootprintRefresh, shopAckInstall } from './skills.mjs'   // shop-01: the walks' seeds, the footprint, the acks
+import { installNoBridge } from './nobridge.mjs'   // nobridge-01: no path scaffold over water on a walk
 import { SHOP, buildModeDetail, footprintCost, STOOD_EVERY_MS } from './shop.mjs'   // shop-01's licence row and the footprint price
 import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout-01: an open note's obligations held again at spawn
 import { lidClearModeDetail } from './lidrule.mjs'
@@ -691,8 +691,9 @@ function connect() {
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
     moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
     // nobridge-01 (LIVE 10-27 showcase: 52 dirt laid across the lake): no WALK places a path block over or into water; the
-    // 1x1 tower stays (nobridge.mjs says which moves place and why this entry is the narrowest override). Escapes untouched.
-    moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat(noBridgeCost((x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null, () => bot.movementProfile))
+    // 1x1 tower stays (nobridge.mjs says which moves place and why this override is the narrowest). The clones below copy it
+    // with noBridge=true; the ascend, descend, water and tunnel profiles clear it.
+    installNoBridge(moves, (x, y, z) => bot.blockAt(new Vec3(x, y, z)))
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
@@ -756,6 +757,7 @@ function connect() {
     // THE ORE TUNNEL'S PROFILE (oretunnel.mjs: staircases only, no drops > 1, no towers, hazard vetoes), built
     // here because index.mjs owns every setMovements (dep-contract.test.mjs). Same shape as withGatherMovements.
     bot.tunnelMovements = tunnelMovements(bot, gatherMoves, { home: configuredHome(config.world) ?? { x: config.world.homeX, z: config.world.homeZ } })
+    bot.tunnelMovements.noBridge = false   // nobridge-01: the ore tunnel is not a walk
     bot.withTunnelMovements = async (fn) => {
       bot.pathfinder.setMovements(bot.tunnelMovements); bot.movementProfile = 'tunnel'
       try { return await withApproachBound(bot, fn) }
@@ -817,6 +819,7 @@ function connect() {
     const ascendMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(ascendMoves, moves)
     ascendMoves.canDig = true
+    ascendMoves.noBridge = false      // nobridge-01: an escape keeps every placement
     ascendMoves.allow1by1towers = true
     ascendMoves.dontCreateFlow = true
     ascendMoves.allowParkour = false
@@ -862,6 +865,7 @@ function connect() {
     const descendMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(descendMoves, moves)
     descendMoves.canDig = false
+    descendMoves.noBridge = false     // nobridge-01: an escape keeps every placement
     descendMoves.allow1by1towers = false
     descendMoves.allowParkour = false
     descendMoves.maxDropDown = 8
@@ -895,6 +899,7 @@ function connect() {
     // selected only by a climb.
     const waterMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(waterMoves, moves)
+    waterMoves.noBridge = false       // nobridge-01: an escape keeps every placement
     // The entry penalty is the whole reason water is unreachable, and unlike the
     // other profiles this one REPLACES the array rather than inheriting the
     // shared reference. Entering the water is the point of the manoeuvre.
