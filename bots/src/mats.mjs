@@ -683,8 +683,15 @@ export function effectiveReserve (reserve = BUILD_RESERVE, { active = false, for
   if (!active || !forProject) return { table: { ...reserve }, lowered: false }
   return { table: Object.fromEntries(Object.entries(reserve).map(([k, v]) => [k, projectFloor(v)])), lowered: true }
 }
-/** Is a mats kind project work? Its part is a PROJECT_PARTS part (bricks, panes, cut copper, doors; torches are not). */
-export const matsKindForProject = kind => !!KINDS[kind] && PARTS_SET.has(KINDS[kind].part)
+/**
+ * Is a mats kind project work? Its part is a PROJECT_PARTS part (bricks, panes, cut copper, doors) -- or the TORCH kind
+ * (shopwalls-03, LIVE showcase 10-28: the workshop's fit-out takes 2 torches; the town held none and every order skipped
+ * `torch:inputs`, because its 8 logs were judged on the full 512-log floor against 412 in town). The torch kind's batch is
+ * 8 logs -> 24 torches up to its 64 buffer, so the lowered floor (while a project is active) costs the town at most a few
+ * batches. The kind's own rules are unchanged: charcoal smelted from logs on planks, never coal.
+ */
+export const PROJECT_KINDS = Object.freeze(new Set(['torch']))
+export const matsKindForProject = kind => !!KINDS[kind] && (PARTS_SET.has(KINDS[kind].part) || PROJECT_KINDS.has(kind))
 /** The rows: `_reserve_mode` on a change of mode, `_reserve_draw` for every reserved-family take under the lowered floor. */
 export const reserveModeDetail = ({ active, why, gen = '-', progressAt = null, now = Date.now() }) =>
   `phase=mode active=${active ? 1 : 0} why=${why} gen=${gen} idle_min=${Number.isFinite(Number(progressAt)) && progressAt !== null ? Math.round((now - progressAt) / 60_000) : '-'} keep=${PROJECT_RESERVE_KEEP}`

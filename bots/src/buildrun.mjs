@@ -70,9 +70,12 @@ export const FOREIGN_CLEAR = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|a
 // FOREIGN_CLEAR has no logs, so the pad read `blocked: 1 open, 0 placeable now` for good at 62/63). Any log species, or leaves.
 export const TREE_CLEAR = /_(log|leaves)$/
 /** What a foreign block in an open record cell is -> 'scaffold' | 'tree' | null (never dug: a container, a station, a part). Pure. */
+// A CRAFTING TABLE IN AN OPEN RECORD CELL (shopwalls-05, LIVE 10-28: an idle place put one into the last roof cell): dug like
+// scaffold -- it drops as the item, nothing is lost, and nothing else is in it. Furnaces and containers stay never-dug.
+export const STATION_CLEAR = /^crafting_table$/
 export function foreignKind (n) {
   const s = String(n ?? '')
-  if (FOREIGN_CLEAR.test(s)) return 'scaffold'
+  if (FOREIGN_CLEAR.test(s) || STATION_CLEAR.test(s)) return 'scaffold'
   if (TREE_CLEAR.test(s)) return 'tree'
   return null
 }
@@ -156,6 +159,57 @@ export function segmentsOf (record) {
 export function segComplete (read, record, palette, seg) {
   return record.cells.filter(c => c.seg === seg).every(c => cellDone(read(...c.at), palette, c.role))
 }
+/**
+ * THE STANDS THAT FAILED (shopwalls-04; LIVE showcase 10-28 16:00Z: roof-edge 19 of 20, the last cell 24,75,31 -- its stand
+ * the 1-wide ring gap 24,73,32 -- and every visit walked to that same stand (stepFor is deterministic), wedged on the drop
+ * into it (25.3,74.4,32.3) until the stuck reflex, or spent its attempts there). A stand is BANNED for its cell for STAND_BAN_MS
+ * when the bot did not arrive (the re-proof from its feet failed) or when the visit ended DURING the walk (a pending walk the
+ * next visit finds: the stuck reflex's abort). The cell's next-best stand is then chosen; with every stand banned the cell is
+ * tried from its banned stands again (never a deferral the unbanned pick would not have made). `mem` = { pending: { cell, stand, at } | null, bans: { cell:
+ * { stand: at } } }, kept on the bot for the connection. Pure helpers.
+ */
+export const STAND_BAN_MS = 30 * 60_000
+export function standBans (mem, cell, now, ttl = STAND_BAN_MS) {
+  const b = mem?.bans?.[cell] ?? {}
+  return new Set(Object.entries(b).filter(([, at]) => now - at < ttl).map(([k]) => k))
+}
+export function banStand (mem, cell, stand, now) {
+  if (!mem) return
+  mem.bans ??= {}
+  ;(mem.bans[cell] ??= {})[stand] = now
+}
+/** A pending walk left by the last visit (it ended mid-walk) -> banned now; cleared either way. */
+export function settlePendingStand (mem, now) {
+  const p = mem?.pending
+  if (p?.cell && p?.stand) banStand(mem, p.cell, p.stand, now)
+  if (mem) mem.pending = null
+}
+/** The walk's nodes less the banned stands -> Map (the same shape: "x,z" -> [y]). Pure. */
+export function nodesWithout (nodes, banned) {
+  if (!banned?.size) return nodes
+  const out = new Map()
+  for (const [col, ys] of nodes) {
+    const [x, z] = col.split(',')
+    const keep = ys.filter(y => !banned.has(`${x},${y},${z}`))
+    if (keep.length) out.set(col, keep)
+  }
+  return out
+}
+
+/**
+ * THE SEGMENT A VISIT WOULD WORK NOW -> seg | null, in runVisit's own order: the first incomplete segment whose deps are complete
+ * and whose lease `free(seg)` (none, ours, or lapsed); null where the visit would stop deps_open (an incomplete segment whose deps
+ * are open) or find every open segment held. Pure. build_shop draws the planks' LOGS only when this names one (shopwalls-02:
+ * LIVE 10-28, builders waiting on another's roof lease drew 9 logs each, 36 planks into bags, and stopped deps_open).
+ */
+export function workableSeg (record, read, palette, free = () => true) {
+  for (const { seg, deps } of segmentsOf(record)) {
+    if (segComplete(read, record, palette, seg)) continue
+    if (!deps.every(d => segComplete(read, record, palette, d))) return null
+    if (free(seg)) return seg
+  }
+  return null
+}
 /** A dig stand for a cell -> [x, y, z] | null: a walked-to node whose eye is within DIG_REACH of the cell centre, never on or under
  *  the cell, with a clear sight line to the cell's centre. Nearest wins. Pure. */
 export function digStand (read, cell, nodes) {
@@ -231,16 +285,20 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
 
   // ---- 0. our own leftovers (an earlier connection's intents; acknowledgements that came after the click stopped waiting) ------
   PJ.closeOwn(dir, key, me, { conn, acked: e.acked?.() ?? 0, now: now() })
+  const stands = p.stands ?? null
+  settlePendingStand(stands, now())
 
   // ---- the click (placements and saplings) -----------------------------------------------------------------------------------
   // -> 'placed' | 'refused' | 'silent' | 'busy' | 'fence:<why>' | 'barrier_wait' | 'body' | 'no_material' | 'stand'
   const click = async (cell, block, step, seg, segGen, { closer = false, want = null } = {}) => {
+    if (stands) stands.pending = { cell: kOf(cell), stand: kOf(step.stand), at: now() }
     await e.walkTo(step.stand)
-    if (e.aborted()) return 'aborted'
+    if (e.aborted()) return 'aborted'          // the pending walk stays: the next visit bans its stand (settlePendingStand)
+    if (stands) stands.pending = null
     // RE-PROVED WHERE THE BOT IS: the same stand rules from the feet it actually has
     const feet = e.feet()
     const here = stepFor(rd, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]))
-    if (!here) return 'stand'
+    if (!here) { banStand(stands, kOf(cell), kOf(step.stand), now()); return 'stand' }
     if ((e.bodies() ?? []).some(b => inCell(b, cell) || inCell(b, [cell[0], cell[1] + 1, cell[2]]))) return 'body'
     // ...AND ITS OWN: a jump or a step-up puts the builder's head into the cell above it for a moment -- wait for it to land
     for (let i = 0; i < 5 && e.self && inCell(e.self(), cell); i++) await e.sleep(100)
@@ -544,7 +602,9 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         const cand = open.filter(c => (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at))
           .sort((a, b) => a.at[1] - b.at[1] || Math.hypot(a.at[0] - feet[0], a.at[2] - feet[2]) - Math.hypot(b.at[0] - feet[0], b.at[2] - feet[2]))
         let picked = null, step = null
-        for (const c of cand) { step = stepFor(rd, home, c.at, nodes); if (step) { picked = c; break } }
+        // a cell whose every stand is banned falls back to them (r1 Codex note: never a deferral -- and F4's 6 h stuck back-off -- the
+        // unbanned visit would not have had)
+        for (const c of cand) { const bans = standBans(stands, kOf(c.at), now()); step = (bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans)) : null) ?? stepFor(rd, home, c.at, nodes); if (step) { picked = c; break } }
         if (!picked) {
           if (cand.length && !open.some(c => !isClear(c.at))) {
             // no stand reaches any placeable cell of this segment: DEFER them and go on (F4)

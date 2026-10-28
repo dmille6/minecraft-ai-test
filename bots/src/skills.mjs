@@ -122,9 +122,9 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 import { loadBlueprint, siteBlueprint, plinthCells, reservations } from './buildsite.mjs'
 import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
-import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
+import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -6859,6 +6859,7 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
   // you are standing on.
   const UP = new Vec3(0, 1, 0)
   let candidates = []
+  let shopSkipped = 0
   const explicitXYZ = [x, y, z].every(v => Number.isFinite(Number(v)))
   const planCls = p => { try { return planPlaceClass(bot, p) } catch { return null } }
   if (explicitXYZ) {
@@ -6872,6 +6873,10 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       wellRow('refuse', wk, 1, { x: Number(x), y: Number(y), z: Number(z) })
       return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is ${wk === 'unknown' ? 'beside a junk well whose cells could not be read' : `the town junk well's ${wk}`} -- place ${item} at least 3 blocks from the well's column (or give no coordinates: place picks a cell off the well)` }
     }
+    // NEVER INTO A PROJECT'S RECORD CELL (shopwalls-05): the build owns it
+    if (bot.shopCells?.has?.(`${Number(x)},${Number(y)},${Number(z)}`)) {
+      return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is a cell of the town's workshop build -- place ${item} outside the building (or give no coordinates: place picks a cell off it)` }
+    }
     // NO SAPLING IN A PROJECT'S COLUMNS (fell-01): the remedy is a cell the bot can choose from where it is
     if (needsSoil(item) && !saplingAllowedAt(bot.shopSaplingBox, Number(x), Number(z))) {
       return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is inside the town project's footprint, where a tree would grow into the build -- plant ${item} at least ${SAPLING_MARGIN + 1} blocks outside the project (or give no coordinates: place picks a cell off it)` }
@@ -6881,6 +6886,11 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
     candidates = placeSites(bot, item)
     if (candidates.wellSkip?.n) wellRow('skip', candidates.wellSkip.kind, candidates.wellSkip.n)
     if (candidates.planSkip?.n) { try { logEvent({ kind: 'townplan_place', status: 'refused', snapshot: snapshot(bot), detail: `item=${item} plan_skipped=${candidates.planSkip.n} candidates=${candidates.length}` }) } catch { /* telemetry */ } }
+    // NEVER INTO A PROJECT'S RECORD CELL (shopwalls-05; LIVE 10-28 16:33Z a table landed in the last open roof cell). The skip
+    // also bars the make-room dig below: inside the build, the cells round the bot are the build's.
+    const nCand = candidates.length
+    const kept = candidates.filter(c => !recordCellHit(bot.shopCells, c))
+    if (kept.length < nCand) { shopSkipped = nCand - kept.length; for (const k of ['wellSkip', 'planSkip', 'zoneSkip']) if (candidates[k]) kept[k] = candidates[k]; candidates = kept }
   }
   // A SAPLING CANNOT GO ON STONE. The scan above accepts any SOLID top face, which
   // is right for a crafting table and wrong for anything that needs soil: the
@@ -6909,7 +6919,7 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
   let madeRoom = null
   // BESIDE A WELL, NO DIG FOR ROOM (Claude r1 P3): when the only free cells were the well's, the move is the step away, not a
   // town block dug beside the stand -- the refusal below says so
-  if (!candidates.length && STATION_ITEMS.has(item) && !candidates.wellSkip?.n && !candidates.planSkip?.n && ![x, y, z].every(v => Number.isFinite(Number(v)))) {
+  if (!candidates.length && STATION_ITEMS.has(item) && !candidates.wellSkip?.n && !candidates.planSkip?.n && !shopSkipped && ![x, y, z].every(v => Number.isFinite(Number(v)))) {
     const base = bot.entity.position
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       // A real Vec3 from plain numbers: test fakes give positions without
@@ -6921,6 +6931,9 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       // Never the town composter either (composter.mjs): it is not a station this bot carries, but it is one the town uses.
       if (cell.name === 'water' || cell.name === 'lava' || STATION_ITEMS.has(cell.name) || cell.name === 'composter' || /_ore$/.test(cell.name)) continue
       if (roomVeto(bot, cellPos)) continue
+      // never a workshop record cell (shopwalls-05 r2, Codex r1 BLOCK: with no candidate at all, this dig took a built pad block
+      // and put the table in its place)
+      if (bot.shopCells?.has?.(`${cellPos.x},${cellPos.y},${cellPos.z}`)) { shopSkipped++; continue }
       // never a junk well's wall, floor or plinth (wellcare-01: a bot on the stand would otherwise dig the shell for its table)
       { const wk = stationRefusalAt(bot, cellPos); if (wk) { wellRow('room', wk, 1, cellPos); continue } }
       { let zz = null; try { zz = blocked(bot.protectZones?.() ?? [], cellPos.x, cellPos.y, cellPos.z, bot.entity?.position ?? null) } catch { zz = null } if (zz) continue }   // protectzone-01
@@ -7010,7 +7023,7 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
     return {
       status: 'failed',
       failClass: 'no_space',
-      detail: `nowhere to place ${item}: no solid block with a free space above it within reach — ${why}${wellOnly}`,
+      detail: `nowhere to place ${item}: no solid block with a free space above it within reach — ${why}${wellOnly}${shopSkipped ? ` (${shopSkipped} free cell(s) here are the town workshop's build cells: step out of the building and place again)` : ''}`,
     }
   }
 
@@ -16701,7 +16714,7 @@ export function shopDamaged (bot, rec = null) {
 }
 /** The footprint for the walks' price (index.mjs reads bot.shopFootprint in the A* step). Refreshed with the record. */
 export function shopFootprintRefresh (bot) {
-  try { const h = shopRecordHead(); if (h.ok) { bot.shopFootprint = h.head ? footprintCells(h.head.rec) : new Set(); bot.shopSaplingBox = h.head ? saplingBox(h.head.rec) : null } } catch { /* keep the last */ }
+  try { const h = shopRecordHead(); if (h.ok) { bot.shopFootprint = h.head ? footprintCells(h.head.rec) : new Set(); bot.shopSaplingBox = h.head ? saplingBox(h.head.rec) : null; bot.shopCells = h.head ? recordCellKeys(h.head.rec) : new Set() } } catch { /* keep the last */ }
 }
 
 /**
@@ -16801,8 +16814,11 @@ async function buildShop (ctx, args, signal) {
     // PLANKS FROM THE TOWN'S LOGS (shop.mjs planksFromLogs; LIVE showcase 10-28: walls stopped no_material for hours on a town
     // of 0 planks and 412 logs): the planks the needs still lack after the draw are drawn as logs, under the same project
     // reserve, and crafted below with the stations (booked in `crafted`). Only when the drawn record was written above.
+    // ...and only when a segment is workable now (workableSeg: deps complete, its lease free or ours): a builder that would stop
+    // deps_open, or find every open segment held, draws no logs (LIVE 10-28: 9 logs each into the waiting builders' bags)
     let plankCraft = null
-    if (Object.keys(need).length) {
+    const segFree = sg => { const st = projLeaseState(dir, key, `seg-${sg}`); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil }
+    if (Object.keys(need).length && workableSeg(rec, read, bp.palette, segFree)) {
       const hn = heldMap(bot)
       const pf = planksFromLogs(want, { spare: n => (hn[n] ?? 0) - (keep[n] ?? 0), town })
       if (pf) {
@@ -16841,7 +16857,7 @@ async function buildShop (ctx, args, signal) {
     // unreadable: the visit neither moves nor skips a replant (r19, Claude r18 P2-2: an exception must never fell an unreplaced tree)
     let res = null, resFailed = false
     try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm }) } catch { resFailed = true }
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, unknown: bot.shopUnknown, beat: true, placedBy }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null
