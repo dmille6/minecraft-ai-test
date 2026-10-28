@@ -36,6 +36,9 @@ export function preferWorkshop (cands = [], keyOf = c => c, preferred = null, us
 /** Which kind of station a key is, for the rows: 'w' (the workshop's), 'o' (any other), '-' (none used). Pure. */
 export const stationKind = (k, preferred) => (k == null || k === '-' || k === '' ? '-' : preferred?.has?.(String(k)) ? 'w' : 'o')
 
+/** How far from the bot a preferred (workshop) station is looked up BY ITS KEY, past the callers' own 32-block searches (r3,
+ *  LIVE 10-28 22:17Z: smelt_town at the town chests sat ~45 blocks from the workshop's furnaces, outside its 32 search). */
+export const WORKSHOP_REACH = 64
 /** How long a workshop station that failed a job is not preferred by that bot (the old order meanwhile). */
 export const WORKSHOP_SKIP_MS = 30 * 60_000
 /** The preferred set less this bot's skipped stations ({ key: until }) -> Set. Pure. (r1 Codex BLOCK: smelt_town had no
