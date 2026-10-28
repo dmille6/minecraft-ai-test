@@ -579,10 +579,11 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         const below = c => open.some(o => o !== c && o.at[0] === c.at[0] && o.at[2] === c.at[2] && o.at[1] < c.at[1])
         const cand = open.filter(c => (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at))
           .sort((a, b) => a.at[1] - b.at[1] || Math.hypot(a.at[0] - feet[0], a.at[2] - feet[2]) - Math.hypot(b.at[0] - feet[0], b.at[2] - feet[2]))
-        let picked = null, step = null
+        let picked = null, step = null, fellBack = false
         // a cell whose every stand is banned falls back to them (r1 Codex note: never a deferral -- and F4's 6 h stuck back-off -- the
-        // unbanned visit would not have had)
-        for (const c of cand) { const bans = standBans(stands, kOf(c.at), now()); step = (bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans)) : null) ?? stepFor(rd, home, c.at, nodes); if (step) { picked = c; break } }
+        // unbanned visit would not have had), and that fallback walk is NOT refused for crossing the segment's open cells
+        // (shopwalls-06 r2, Codex r1 BLOCK: with every stand's route crossing, the refusal alone would stall the cell for good)
+        for (const c of cand) { const bans = standBans(stands, kOf(c.at), now()); const kept = bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans)) : null; step = kept ?? stepFor(rd, home, c.at, nodes); if (step) { picked = c; fellBack = bans.size > 0 && !kept; break } }
         if (!picked) {
           if (cand.length && !open.some(c => !isClear(c.at))) {
             // no stand reaches any placeable cell of this segment: DEFER them and go on (F4)
@@ -597,7 +598,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         }
         const block = blockFor(palette, picked.role, e.has)
         if (!block) { out.stop = 'no_material'; out.why = `${picked.role} for ${seg}`; return out }
-        const v = await click(picked.at, block, step, seg, segGen, { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, picked.role), avoid: blocking })
+        const v = await click(picked.at, block, step, seg, segGen, { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, picked.role), avoid: fellBack ? null : blocking })
         if (v === 'placed') { out.placed++; tally(block); e.log('_build', { op: 'place', seg, cell: picked.at, block }); continue }
         if (v.startsWith('fence:') || v === 'aborted' || v === 'no_material') { out.stop = v; return out }
         if (v === 'busy') { await e.sleep(100); continue }            // a free skip: the mutex or the barrier is another's
