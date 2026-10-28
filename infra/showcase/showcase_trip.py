@@ -69,6 +69,15 @@ SHOP_TRIP = (('H1 off_record', 'off_record'), ('H2 clear_outside', 'clear_outsid
              ('H7 unknown_stood', 'unknown_stood'))
 SHOP_WATCH_OPS = ('stuck_on_cell', 'stuck_unwritten', 'replant_skipped')
 SHOP_BLIND = ('g5_unjudged', 'oracle_missing', 'zone_unknown')
+# FUN MODE (OWNER 2026-10-28): stopping the whole showcase is for real harm. An H2 clear_outside of TREE DEBRIS -- a log, leaves
+# or a plant (a floating leaf left by a felling) -- is a WATCH line; H2 of any other block still TRIPs. Measured 10-28: ONE
+# floating spruce_leaves cleared outside the record stopped all 10 bots for 37+ min.
+TREE_DEBRIS = re.compile(r'^(minecraft:)?([a-z_]+_(log|wood|leaves|sapling|stem|hyphae|mushroom|propagule|roots|vine|vines|'
+                         r'tulip|orchid|bush|petals|lichen)|moss_carpet|stripped_[a-z_]+|short_grass|tall_grass|grass|fern|large_fern|'
+                         r'dandelion|poppy|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|torchflower|wither_rose|'
+                         r'sunflower|lilac|peony|vine|bamboo|sugar_cane|cactus|leaf_litter|snow|cocoa|kelp|seagrass|'
+                         r'tall_seagrass|hanging_roots|spore_blossom|big_dripleaf|small_dripleaf|pitcher_plant)$')
+H2 = 'H2 clear_outside'
 MIRROR_MAX_AGE_MIN = 60
 HEALTHZ = 'http://127.0.0.1:11612/healthz'
 UTC = dt.timezone.utc
@@ -546,13 +555,17 @@ def shop_read(rows, run_since, zones, projects=None, surveys=None):
             watch['%s (blind)' % k] = out[k]
     if unjudged:
         watch['conformance UNJUDGED'] = unjudged[:3]
+    items, debris = h2_debris_split(defect_items(defects, items))
+    if debris:
+        defects[H2] = len(items[H2])
+        watch['H2 clear_outside tree debris (logs/leaves/plants: no stop)'] = debris[:5] + (['+%d' % (len(debris) - 5)] if len(debris) > 5 else [])
     report = {'visits': out.get('visits_canary', 0), 'placements': out.get('placements', 0), 'clears': out.get('clears', 0),
               'complete': out.get('complete_towns', 0), 'record': bool((projects.get(POOL) or {}).get('record')),
               'stops': {k[6:]: v for k, v in sorted(out.items()) if k.startswith('visit_')},
               'reported': {k: out.get(k, 0) for k in ('placed_twice', 'bag_unjudged', 'replant_moved', 'replant_deferred', 'deferred',
                                                      'stuck_on_cell', 'replant_skipped', 'stuck_unwritten')},
               'surveys': bool(surveys and surveys[0]), 'why': lists.get('why', [])[:4]}
-    return defects, watch, report, defect_items(defects, items)
+    return defects, watch, report, items
 
 
 @contextlib.contextmanager
@@ -571,6 +584,16 @@ def ack_write(path, d):
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
+
+
+def h2_debris_split(items):
+    """{gate: [item]} -> (items without the tree-debris H2 items, [those items]). An H2 item is 'bot cell kind block'; its LAST
+    word names the block. An item whose block is unreadable (an 'unlisted' pad) stays a defect: fail closed. Pure."""
+    keep, debris = [], []
+    for x in items.get(H2, []):
+        parts = str(x).split()
+        (debris if len(parts) >= 4 and 'unlisted' not in parts and TREE_DEBRIS.match(parts[-1]) else keep).append(x)
+    return dict(items, **{H2: keep}) if H2 in items else dict(items), debris
 
 
 def defect_items(counts, lists):
@@ -926,6 +949,18 @@ def shop_selftest(T):
     off = base + [R('_build', 'project=shop op=place cell=9,70,9 block=stone_bricks', 'showcase-Bravo', 2)]
     d, w, _, it = shop_read(off, T(0), [], projects=pj, surveys=nos)
     assert d.get('H1 off_record') == 1 and it['H1 off_record'] == ['showcase-Bravo 9,70,9 stone_bricks'], (d, it)
+    # FUN MODE H2: tree debris cleared outside the record is a WATCH; any other block cleared there still TRIPs
+    leaf = base + [R('_build', 'project=shop op=clear seg=pad cell=27,74,27 block=spruce_leaves kind=tree saplings=0/0', 'showcase-Juno', 2),
+                   R('_build', 'project=shop op=clear seg=pad cell=28,72,27 block=minecraft:oak_log kind=foreign', 'showcase-Juno', 3)]
+    d, w, _, it = shop_read(leaf, T(0), [], projects=pj, surveys=nos)
+    WK = 'H2 clear_outside tree debris (logs/leaves/plants: no stop)'
+    assert d.get('H2 clear_outside') == 0 and it['H2 clear_outside'] == [] and len(w.get(WK, [])) == 2, ('tree debris is a WATCH', d, w, it)
+    dirt = leaf + [R('_build', 'project=shop op=clear seg=pad cell=29,70,27 block=dirt kind=foreign', 'showcase-Juno', 4)]
+    d, w, _, it = shop_read(dirt, T(0), [], projects=pj, surveys=nos)
+    assert d.get('H2 clear_outside') == 1 and it['H2 clear_outside'] == ['showcase-Juno 29,70,27 foreign dirt'] and len(w.get(WK, [])) == 2, \
+        ('a dirt clear outside the record still TRIPs', d, w, it)
+    assert h2_debris_split({'H2 clear_outside': ['H2 clear_outside unlisted #0']})[1] == [], 'an unreadable item stays a defect'
+    assert not TREE_DEBRIS.match('stone') and not TREE_DEBRIS.match('oak_planks') and not TREE_DEBRIS.match('chest') and not TREE_DEBRIS.match('white_carpet') and TREE_DEBRIS.match('birch_leaves')
     vbase = {'live_bots': 10, 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
              'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {}, 'plan_error': None}
     assert verdict(dict(vbase, shop_defects=d))[0] == 'TRIP', 'an off-record placement TRIPs'

@@ -6,7 +6,9 @@
 set -euo pipefail
 REL=$(readlink -f /srv/showcase/harness)
 [ -f "$REL/RELEASE.json" ] || { echo "no active release (stage + activate one first)"; exit 1; }
-python3 /srv/showcase/bin/showcase_ops.py follow --observe-only >/dev/null   # a fresh feed; never deploys
+# a fresh feed; never deploys. Skipped when the caller already holds ops.lock (start-bots.sh): `follow` takes that lock and
+# would wait on its own caller forever -- the newest feed-last.json is used as it is.
+[ "${SHOWCASE_LOCK_HELD:-}" = 1 ] || python3 /srv/showcase/bin/showcase_ops.py follow --observe-only >/dev/null
 # The env is handed to node as a DICTIONARY (never sourced: values like `url|model` are not shell-safe).
 exec python3 - "$REL" <<'PY'
 import json, os, subprocess, sys, tempfile

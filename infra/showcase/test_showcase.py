@@ -584,23 +584,132 @@ def rv(sha, codex='APPROVE', claude='APPROVE'):
     return [{'engine': 'codex', 'verdict': codex, 'sha': sha, 'round': 'r3'}, {'engine': 'claude', 'verdict': claude, 'sha': sha, 'round': 'r1'}]
 
 
-def piece(run, sha, base, kind='building', paper=None, reviews=None):
-    return {'run': run, 'sha': sha, 'base': base, 'kind': kind,
-            'paper': paper if paper is not None else {'result': 'CANDIDATE_PASS', 'sha': sha, 'record': 'docs/reports/x-paper.txt'},
-            'reviews': reviews if reviews is not None else rv(sha), 'owner': '10-23 Q4'}
+def tests_ok(sha, result='PASS'):
+    return {'result': result, 'sha': sha, 'runner': 'npm test', 'summary': '312/312'}
+
+
+_UNSET = object()
+
+
+def piece(run, sha, base, kind='building', paper=None, reviews=None, tests=_UNSET):
+    row = {'run': run, 'sha': sha, 'base': base, 'kind': kind,
+           'reviews': reviews if reviews is not None else rv(sha), 'owner': '10-23 Q4'}
+    if paper is not None:
+        row['paper'] = paper
+    if tests is _UNSET:
+        row['tests'] = tests_ok(sha)
+    elif tests is not None:
+        row['tests'] = tests
+    return row
 
 
 ROWS = [piece('matset-01', M1, R40), piece('mats-01', M2, M1), piece('shop-01', S2, M2)]
 STACK = [M1, M2, S1, S2]
+GLOBS = ['bots/src/movement*.mjs', 'bots/src/reflex/**', '**/death.mjs', 'scripts/host/']
+BUILD = ['bots/src/build.mjs', 'docs/x.md']
+MOVE = ['bots/src/build.mjs', 'bots/src/movement.mjs']
+
+
+def changed_by(table, default=BUILD):
+    return lambda a, b: table.get((a, b), default)
+
+
+def only_codex(sha):
+    return [{'engine': 'codex', 'verdict': 'APPROVE', 'sha': sha}]
+
+
+class ProtectedList(unittest.TestCase):
+    def test_parse_comments_and_blanks(self):
+        self.assertEqual(SO.parse_protected('# movement\n\nbots/src/movement*.mjs\n  bots/src/reflex/**   # reflexes\n#x\n'),
+                         ['bots/src/movement*.mjs', 'bots/src/reflex/**'])
+        self.assertIsNone(SO.parse_protected(None))
+        self.assertEqual(SO.parse_protected(''), [])
+
+    def test_matching_is_wide(self):
+        for p in ('bots/src/movement.mjs', 'bots/src/movement-swim.mjs', 'bots/src/reflex/air.mjs', 'bots/src/reflex/a/b.mjs',
+                  'death.mjs', 'bots/src/death.mjs', 'scripts/host/canary-loop.sh'):
+            self.assertTrue(SO.is_protected(p, GLOBS), p)
+        for p in ('bots/src/build.mjs', 'docs/movement.mjs', 'scripts/hostile.py', 'bots/src/reflexes.mjs'):
+            self.assertFalse(SO.is_protected(p, GLOBS), p)
+        self.assertTrue(SO.is_protected('bots/src/reflex/a.mjs', ['bots/src/reflex']), 'a bare directory covers its files')
+
+    def test_unreadable_list_or_diff_fails_closed(self):
+        self.assertTrue(SO.protected_hits(BUILD, None), 'no list readable: protected')
+        self.assertTrue(SO.protected_hits(None, GLOBS), 'no diff readable: protected')
+        self.assertEqual(SO.protected_hits(BUILD, GLOBS), [])
+        self.assertEqual(SO.protected_hits(MOVE, GLOBS), ['bots/src/movement.mjs'])
+        self.assertEqual(SO.protected_hits(MOVE, []), [], 'an empty list protects nothing')
+
+
+class Evidence(unittest.TestCase):
+    """evidence_refusal: tests + ONE named review; protected -> both engines + a fleet KEEP; Paper optional."""
+    def ev(self, row, hits=(), kept=(True, 'kept'), psha=S2):
+        cov = SO.make_covers(anc2, docs_d)
+        return SO.evidence_refusal('shop-01', row, psha, list(hits), cov, lambda s: kept) or ''
+
+    def test_tests_and_one_review_suffice(self):
+        self.assertEqual(self.ev(piece('shop-01', S2, M2, reviews=only_codex(S2))), '')
+        self.assertEqual(self.ev(piece('shop-01', S2, M2, reviews=[{'engine': 'Claude', 'verdict': 'APPROVE', 'sha': S2}])), '')
+
+    def test_paper_is_optional_but_a_fail_refuses(self):
+        self.assertEqual(self.ev(piece('shop-01', S2, M2)), '', 'no Paper record at all')
+        self.assertEqual(self.ev(piece('shop-01', S2, M2, paper={'result': 'CANDIDATE_PASS', 'sha': S2})), '')
+        self.assertIn('Paper record is a FAIL', self.ev(piece('shop-01', S2, M2, paper={'result': 'CANDIDATE_FAIL', 'sha': S2})))
+        self.assertEqual(self.ev(piece('shop-01', S2, M2, paper={'result': 'CANDIDATE_FAIL', 'sha': S1})), '', 'a FAIL of older code')
+
+    def test_a_test_record_is_required_and_bound_to_the_sha(self):
+        for bad in (None, 'PASS', tests_ok(S2, 'FAIL'), tests_ok(S1), tests_ok(S2[:8]), {'result': 'PASS'}, tests_ok(S2, 'pass')):
+            self.assertIn('no passing test record', self.ev(piece('shop-01', S2, M2, tests=bad)), bad)
+
+    def test_a_review_must_be_named_approve_and_bound(self):
+        for bad in ([], ['Codex APPROVE'], [{'engine': 'codex', 'verdict': 'CHANGES', 'sha': S2}],
+                    [{'engine': 'gpt', 'verdict': 'APPROVE', 'sha': S2}], [{'verdict': 'APPROVE', 'sha': S2}],
+                    only_codex(S1), [{'engine': 'codex', 'verdict': 'APPROVE (P2s)', 'sha': S2}]):
+            self.assertIn('no named APPROVE', self.ev(piece('shop-01', S2, M2, reviews=bad)), bad)
+
+    def test_docs_only_after_the_evidence_is_covered_code_is_not(self):
+        row = piece('shop-01', D40, M2, reviews=only_codex(S2), tests=tests_ok(S2))
+        self.assertEqual(self.ev(row, psha=D40), '')
+        self.assertIn('no passing test record', self.ev(piece('shop-01', X40, M2, reviews=only_codex(X40), tests=tests_ok(S2)), psha=X40))
+        self.assertIn('no named APPROVE', self.ev(piece('shop-01', X40, M2, reviews=only_codex(S2), tests=tests_ok(X40)), psha=X40))
+
+    def test_protected_needs_both_engines_and_a_fleet_keep(self):
+        hits = ['bots/src/movement.mjs']
+        self.assertIn('no Claude APPROVE', self.ev(piece('shop-01', S2, M2, reviews=only_codex(S2)), hits))
+        self.assertIn('no Codex APPROVE', self.ev(piece('shop-01', S2, M2, reviews=rv(S2, codex='CHANGES')), hits))
+        self.assertIn('fleet KEEP first', self.ev(piece('shop-01', S2, M2), hits, kept=(False, 'never kept')))
+        self.assertEqual(self.ev(piece('shop-01', S2, M2), hits, kept=(True, 'kept')), '')
 
 
 class PieceStack(unittest.TestCase):
     def ref(self, sha=S2, rel=R40, runs=('matset-01', 'mats-01', 'shop-01'), rows=ROWS, commits=STACK, revoked=(), kept=None,
-            revoked_in=no_cherry, docs=docs_d):
-        return SO.piece_stack_refusal(sha, rel, list(runs), rows, list(commits), anc2, revoked_in, list(revoked), kept, docs) or ''
+            revoked_in=no_cherry, docs=docs_d, changed=None, globs=GLOBS):
+        fk = (lambda run, s: (kept or {}).get(run, (False, 'no journal record')))
+        return SO.piece_stack_refusal(sha, rel, list(runs), rows, list(commits), anc2, revoked_in, list(revoked), docs,
+                                      changed or changed_by({}), globs, fk) or ''
 
     def test_the_owner_stack_stages(self):
         self.assertEqual(self.ref(), '')
+
+    def test_one_review_and_no_paper_stage_a_building_or_survival_piece(self):
+        rows = ROWS[:2] + [piece('shop-01', S2, M2, kind='survival', reviews=only_codex(S2))]
+        self.assertEqual(self.ref(rows=rows), '', 'the old rule refused: Paper + both engines, or a fleet KEEP for survival')
+        rows = ROWS[:2] + [piece('shop-01', S2, M2, kind='anything', reviews=[{'engine': 'claude', 'verdict': 'APPROVE', 'sha': S2}])]
+        self.assertEqual(self.ref(rows=rows), '', 'kind is a label only')
+
+    def test_a_protected_piece_needs_both_engines_and_a_keep(self):
+        ch = changed_by({(M2, S2): MOVE})
+        rows = ROWS[:2] + [piece('shop-01', S2, M2, reviews=only_codex(S2))]
+        self.assertIn('needs BOTH engines', self.ref(rows=rows, changed=ch))
+        self.assertIn('fleet KEEP first', self.ref(changed=ch))
+        self.assertEqual(self.ref(changed=ch, kept={'shop-01': (True, 'kept')}), '')
+        # only shop-01's OWN range touches movement: matset-01 and mats-01 stay one-review pieces
+        rows = [piece('matset-01', M1, R40, reviews=only_codex(M1)), piece('mats-01', M2, M1, reviews=only_codex(M2)), ROWS[2]]
+        self.assertEqual(self.ref(rows=rows, changed=ch, kept={'shop-01': (True, 'kept')}), '')
+
+    def test_no_readable_list_fails_closed(self):
+        self.assertIn('fleet KEEP first', self.ref(globs=None))
+        self.assertIn('needs BOTH engines', self.ref(globs=None, rows=[piece('matset-01', M1, R40, reviews=only_codex(M1))] + ROWS[1:]))
 
     def test_a_piece_left_out_of_the_stack_is_refused(self):
         # matset-01 not named: M1 lies in no named piece's own range (the tip's ancestry is not enough)
@@ -613,41 +722,10 @@ class PieceStack(unittest.TestCase):
         self.assertIn('no PIECES.jsonl line', self.ref(runs=('matset-01', 'mats-01', 'shop-01', 'house-01')))
 
     def test_the_newest_line_of_a_run_speaks_for_it(self):
-        failed = piece('shop-01', S2, M2, paper={'result': 'CANDIDATE_FAIL', 'sha': S2})
-        self.assertIn('no Paper PASS', self.ref(rows=ROWS + [failed]))
+        failed = piece('shop-01', S2, M2, tests=tests_ok(S2, 'FAIL'))
+        self.assertIn('no passing test record', self.ref(rows=ROWS + [failed]))
         self.assertEqual(self.ref(rows=ROWS + [failed, piece('shop-01', S2, M2)]), '')
-
-    def test_paper_must_be_a_pass_of_this_sha(self):
-        for bad in ({'result': 'CANDIDATE_FAIL', 'sha': S2}, {'result': 'NOT A PASS', 'sha': S2}, 'r6 CANDIDATE_PASS',
-                    {'result': 'CANDIDATE_PASS', 'sha': S1}, {'result': 'CANDIDATE_PASS', 'sha': S2[:8]}, {'result': 'CANDIDATE_PASS'}):
-            self.assertIn('no Paper PASS', self.ref(rows=ROWS[:2] + [piece('shop-01', S2, M2, paper=bad)]), bad)
-
-    def test_each_engine_must_approve_this_sha(self):
-        cases = ((rv(S2, codex='CHANGES'), 'no Codex APPROVE'), (rv(S2, claude='CHANGES'), 'no Claude APPROVE'),
-                 (rv(S1), 'no Codex APPROVE'),                                   # approved an EARLIER sha with code after it
-                 ([{'engine': 'codex', 'verdict': 'CHANGES (claude APPROVE)', 'sha': S2}], 'no Codex APPROVE'),
-                 (['Codex r6 APPROVE', 'Claude r6 APPROVE'], 'no Codex APPROVE'),  # free text never counts
-                 ([{'engine': 'codex', 'verdict': 'APPROVE', 'sha': S2}], 'no Claude APPROVE'))
-        for reviews, why in cases:
-            self.assertIn(why, self.ref(rows=ROWS[:2] + [piece('shop-01', S2, M2, reviews=reviews)]), reviews)
-
-    def test_an_approval_covers_a_later_docs_only_record_and_nothing_else(self):
-        # the line names D40 (the review record after the approved S2): the approval of S2 covers it, docs only
-        rows = ROWS[:2] + [piece('shop-01', D40, M2, paper={'result': 'CANDIDATE_PASS', 'sha': S2}, reviews=rv(S2))]
-        self.assertEqual(self.ref(sha=D40, commits=STACK + [D40], rows=rows), '')
-        # the same line naming X40 (code after the approval) is refused
-        rows = ROWS[:2] + [piece('shop-01', X40, M2, paper={'result': 'CANDIDATE_PASS', 'sha': S2}, reviews=rv(S2))]
-        self.assertIn('no Paper PASS', self.ref(sha=X40, commits=STACK + [D40, X40], rows=rows))
-        rows = ROWS[:2] + [piece('shop-01', X40, M2, paper={'result': 'CANDIDATE_PASS', 'sha': X40}, reviews=rv(S2))]
-        self.assertIn('no Codex APPROVE', self.ref(sha=X40, commits=STACK + [D40, X40], rows=rows))
-
-    def test_a_survival_piece_must_be_kept(self):
-        rows = ROWS[:2] + [piece('shop-01', S2, M2, kind='survival')]
-        self.assertIn('KEPT on the fleet first', self.ref(rows=rows, kept={'shop-01': (False, 'not kept yet')}))
-        self.assertEqual(self.ref(rows=rows, kept={'shop-01': (True, 'kept and promoted')}), '')
-
-    def test_an_unknown_kind_is_refused(self):
-        self.assertIn('kind must be', self.ref(rows=ROWS[:2] + [piece('shop-01', S2, M2, kind='misc')]))
+        self.assertEqual(self.ref(rows=ROWS + [{'event': 'staged', 'sha': S2}]), '', 'log events without a run are ignored')
 
     def test_the_stack_must_build_on_the_current_release(self):
         self.assertIn('not an ancestor', self.ref(sha=Q40, commits=[Q40], rows=ROWS + [piece('q', Q40, R40)], runs=('q',), rel=M1))
@@ -661,7 +739,6 @@ class PieceStack(unittest.TestCase):
         self.assertIn('is not in the stack', self.ref(sha=M2, commits=[M1, M2]))
 
     def test_patch_equivalence_is_not_membership(self):
-        # shop-01 recorded at Q40, patch-equivalent inside S2 (a cherry-pick): refused -- membership is ancestry only
         rows = ROWS[:2] + [piece('shop-01', Q40, R40)]
         self.assertIn('is not in the stack', self.ref(rows=rows, revoked_in=lambda x, y: True))
 
@@ -676,25 +753,256 @@ class PieceStack(unittest.TestCase):
         self.assertIn('40-hex sha and base', self.ref(rows=ROWS[:2] + [dict(piece('shop-01', S2, M2), base='')]))
 
 
-class SurvivalKept(unittest.TestCase):
-    def test_bound_to_the_piece_sha(self):
-        res = {S2[:8]: S2, M1[:8]: M1}.get
-        keep = {'run': 'surv', 'phase': 'recorded', 'note': 'KEEP read +180'}
-        self.assertTrue(SO.survival_kept([keep, {'run': 'surv', 'phase': 'promoted', 'note': f'{S2[:8]} fleet-wide'}], 'surv', S2, res)[0])
-        # kept and promoted at M1: a newer line naming S2 is NOT kept (Codex r1 P1)
-        self.assertFalse(SO.survival_kept([keep, {'run': 'surv', 'phase': 'promoted', 'note': f'{M1[:8]} fleet-wide'}], 'surv', S2, res)[0])
-        self.assertFalse(SO.survival_kept([{'run': 'surv', 'phase': 'promoted', 'note': S2[:8]}], 'surv', S2, res)[0], 'no KEEP')
-        self.assertFalse(SO.survival_kept([{'run': 'surv', 'phase': 'owner-direct', 'note': S2[:8]}], 'surv', S2, res)[0], 'owner-direct')
+# FOLLOW MAIN: main is R40 <- M1 <- M2 <- S2 (LINE); the showcase release may be R40 or a showcase-only Q40 (off main)
+def mrow(sha, run='main-rel', reviews=None, tests=_UNSET):
+    r = piece(run, sha, R40, kind='release', reviews=reviews or only_codex(sha), tests=tests)
+    r.pop('base')
+    return r
 
 
-class StagePieceCommand(unittest.TestCase):
-    """cmd_stage --piece wiring over a temp /srv/showcase: the lane only, AUTO_FOLLOW off, a verified observation, REQUIRED_KEPT,
-    and stage() called with the piece record. Nothing here builds a release (stage() is replaced)."""
+class MainRelease(unittest.TestCase):
+    def ref(self, sha=S2, rel=R40, tip=S2, rows=None, carries=None, revoked=(), revoked_in=no_cherry, changed=None, globs=GLOBS,
+            kept=(False, 'never kept')):
+        return SO.main_release_refusal(sha, rel, tip, rows if rows is not None else [mrow(S2)], anc2,
+                                       carries or (lambda r, s: anc2(r, s)), revoked_in, list(revoked), docs_d,
+                                       changed or changed_by({}), globs, lambda s: kept) or ''
+
+    def test_a_main_sha_with_tests_and_one_review_stages(self):
+        self.assertEqual(self.ref(), '')
+        self.assertEqual(self.ref(sha=M2, rows=[mrow(M2)]), '', 'an older main sha too (not the tip)')
+        self.assertEqual(self.ref(rel=None), '', 'the first release')
+
+    def test_no_linear_stack_needed(self):
+        # M1..S2 are three commits with ONE release line for the tip: no per-commit piece record is asked for
+        self.assertEqual(self.ref(rows=[mrow(S2)]), '')
+
+    def test_only_main(self):
+        self.assertIn('not on main', self.ref(sha=Q40, rows=[mrow(Q40)]))
+        self.assertIn('not on main', self.ref(tip=M2))
+        self.assertIn('origin/main is not readable', self.ref(tip=None))
+
+    def test_never_steps_back_over_the_showcase(self):
+        self.assertIn('would drop showcase commits', self.ref(rel=Q40))
+        self.assertEqual(self.ref(rel=Q40, carries=lambda r, s: True), '', 'the showcase commits are in main (patch-equivalent)')
+        self.assertIn('already the current release', self.ref(rel=S2))
+
+    def test_the_release_log_must_name_this_sha(self):
+        self.assertIn('no release-log line', self.ref(rows=[mrow(M2)]), 'evidence of OLDER code never covers newer code')
+        self.assertIn('no release-log line', self.ref(rows=[]))
+        self.assertEqual(self.ref(sha=D40, tip=X40, rows=[mrow(S2)]), '', 'a docs-only commit after the reviewed sha')
+        self.assertIn('no release-log line', self.ref(sha=X40, tip=X40, rows=[mrow(S2)]))
+        self.assertIn('no passing test record', self.ref(rows=[mrow(S2), mrow(S2, tests=None)]), 'the newest line speaks')
+
+    def test_protected_main_release(self):
+        ch = changed_by({(R40, S2): MOVE})
+        self.assertIn('needs BOTH engines', self.ref(changed=ch))
+        self.assertIn('fleet KEEP first', self.ref(changed=ch, rows=[mrow(S2, reviews=rv(S2))]))
+        self.assertEqual(self.ref(changed=ch, rows=[mrow(S2, reviews=rv(S2))], kept=(True, 'identical')), '')
+        self.assertIn('fleet KEEP first', self.ref(globs=None, rows=[mrow(S2, reviews=rv(S2))]), 'no list: fail closed')
+        self.assertIn('fleet KEEP first', self.ref(changed=lambda a, b: None, rows=[mrow(S2, reviews=rv(S2))]), 'no diff: fail closed')
+
+    def test_revoked(self):
+        self.assertIn('REVOKED', self.ref(revoked=[M1]))
+        self.assertIn('unreadable', self.ref(revoked=[Q40], revoked_in=lambda x, y: 'unreadable'))
+
+
+class FleetKept(unittest.TestCase):
+    def test_kept_builds_and_content_identity(self):
+        res = {S2[:8]: S2, M1[:8]: M1, M2[:8]: M2}.get
+        journal = [{'run': 'a', 'phase': 'recorded', 'note': 'KEEP read +180'}, {'run': 'a', 'phase': 'promoted', 'note': M1[:8], 'ts': '2026-10-27T00:00:00Z'},
+                   {'run': 'b', 'phase': 'promoted', 'note': M2[:8], 'ts': '2026-10-27T01:00:00Z'}]   # b: promoted, never KEEP-recorded
+        ledger = [{'sha': R40, 'verified': True}, {'sha': X40, 'verified': False}]
+        self.assertEqual(SO.kept_builds(journal, ledger, res), [M1, R40])
+        fk = SO.make_fleet_kept([M1, R40], GLOBS, changed=changed_by({(M1, S2): BUILD, (R40, S2): MOVE}, default=None))
+        self.assertTrue(fk(S2)[0], 'protected files of S2 equal M1s')
+        fk = SO.make_fleet_kept([M1, R40], GLOBS, changed=changed_by({(M1, S2): MOVE, (R40, S2): None}, default=None))
+        self.assertFalse(fk(S2)[0], 'a differing or unreadable diff never matches')
+        self.assertFalse(SO.make_fleet_kept([M1], None, changed=changed_by({}))(S2)[0], 'no list: never kept')
+
+
+class ReleaseLine(unittest.TestCase):
+    def test_a_valid_line(self):
+        row, why = SO.release_line('main-1028', S2, f'PASS:{S2}:312/312', [f'codex:APPROVE:{S2}', f'claude:APPROVE:{S2}:fresh agent'],
+                                   t=T0)
+        self.assertIsNone(why)
+        self.assertEqual(row['tests'], {'result': 'PASS', 'sha': S2, 'runner': 'npm test', 'summary': '312/312'})
+        self.assertEqual(row['reviews'][1], {'engine': 'claude', 'verdict': 'APPROVE', 'sha': S2, 'reviewer': 'fresh agent'})
+        cov = SO.make_covers(anc2, docs_d)
+        self.assertIsNone(SO.evidence_refusal('x', row, S2, [], cov, None), 'what record writes, the gate accepts')
+
+    def test_refusals(self):
+        for args in (('bad name!', S2, f'PASS:{S2}', [f'codex:APPROVE:{S2}']), ('r', 'abc', f'PASS:{S2}', [f'codex:APPROVE:{S2}']),
+                     ('r', S2, 'PASS', [f'codex:APPROVE:{S2}']), ('r', S2, f'OK:{S2}', [f'codex:APPROVE:{S2}']),
+                     ('r', S2, f'PASS:{S2}', []), ('r', S2, f'PASS:{S2}', [f'gpt:APPROVE:{S2}']), ('r', S2, f'PASS:{S2}', ['codex:APPROVE:abc'])):
+            self.assertIsNone(SO.release_line(*args)[0], args)
+
+
+class Snapshots(unittest.TestCase):
+    """snapshot_world over REAL temp dirs with rsync; the save-pause hold is a fake."""
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.srv, self.st, self.snaps = (os.path.join(self.d, x) for x in ('server', 'state', 'snaps'))
+        os.makedirs(os.path.join(self.srv, 'world', 'region')); os.makedirs(os.path.join(self.srv, 'logs')); os.makedirs(self.st)
+        for p, t in (('world/level.dat', 'L'), ('world/region/r.0.0.mca', 'R' * 5000), ('logs/latest.log', 'log'), ('paper.jar', 'J')):
+            with open(os.path.join(self.srv, p), 'w') as f:
+                f.write(t)
+        with open(os.path.join(self.st, 'town.json'), 'w') as f:
+            f.write('{}')
+        self.held = []
+
+    def hold(self, ok=True):
+        test = self
+
+        class H:
+            def __init__(self, wait_s=0):
+                self.held = ok
+
+            def __enter__(self):
+                test.held.append('in')
+                return self
+
+            def __exit__(self, *e):
+                test.held.append('out')
+                return False
+        return H
+
+    def snap(self, **k):
+        k.setdefault('running', True)
+        return SO.snapshot_world('test', S2[:8], hold=self.hold(k.pop('ok', True)), root=self.snaps, server=self.srv, state=self.st, **k)
+
+    def test_a_snapshot_copies_world_and_state_under_the_hold(self):
+        ok, d = self.snap()
+        self.assertTrue(ok, d)
+        self.assertEqual(self.held, ['in', 'out'])
+        self.assertTrue(os.path.exists(os.path.join(d, 'server', 'world', 'level.dat')))
+        self.assertTrue(os.path.exists(os.path.join(d, 'state', 'town.json')))
+        self.assertFalse(os.path.exists(os.path.join(d, 'server', 'logs')), 'backup_stage EXCL applies')
+        self.assertFalse(os.path.exists(os.path.join(d, 'server', 'paper.jar')))
+        self.assertTrue(json.load(open(os.path.join(d, 'SNAPSHOT.json')))['paper_running'])
+
+    def test_unchanged_files_are_hard_links_and_only_n_are_kept(self):
+        made = []
+        for i in range(SO.SNAP_KEEP + 2):
+            ok, d = self.snap()
+            self.assertTrue(ok, d)
+            made.append(d)
+            time.sleep(1.05)   # the name carries the second
+        r0, r1 = (os.stat(os.path.join(m, 'server', 'world', 'region', 'r.0.0.mca')) for m in made[-2:])
+        self.assertEqual(r0.st_ino, r1.st_ino, 'link-dest: an unchanged region file costs no space')
+        left = sorted(os.listdir(self.snaps))
+        self.assertEqual(len(left), SO.SNAP_KEEP)
+        self.assertEqual(left, sorted(os.path.basename(m) for m in made[-SO.SNAP_KEEP:]), 'the oldest are pruned')
+
+    def test_no_hold_no_snapshot(self):
+        ok, why = self.snap(ok=False)
+        self.assertFalse(ok); self.assertIn('save-pause lock', why)
+        self.assertEqual([n for n in os.listdir(self.snaps)], [], 'no partial dir left')
+
+    def test_paper_stopped_copies_without_the_hold(self):
+        ok, d = self.snap(running=False)
+        self.assertTrue(ok, d); self.assertEqual(self.held, [])
+
+    def test_a_copy_without_a_world_fails(self):
+        os.remove(os.path.join(self.srv, 'world', 'level.dat'))
+        ok, why = self.snap()
+        self.assertFalse(ok); self.assertIn('level.dat', why); self.assertEqual(os.listdir(self.snaps), [])
+
+    def test_prune_rule(self):
+        names = [f'2026102{i}T000000Z-abc' for i in range(8)] + ['.20261029T000000Z-x.part', 'README']
+        self.assertEqual(SO.snapshots_to_prune(names, keep=6), names[:2])
+        self.assertEqual(SO.snapshots_to_prune(names[:3], keep=6), [])
+
+
+class ActivateSnapshot(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.saved = {k: getattr(SO, k) for k in ('HARNESS', 'DEPLOY', 'AUTO', 'snapshot_world', 'running_bots', 'subprocess')}
+        SO.HARNESS, SO.DEPLOY, SO.AUTO = (os.path.join(self.d, x) for x in ('harness', 'deploy.jsonl', 'AUTO_FOLLOW'))
+        self.old, self.new = os.path.join(self.d, 'old'), os.path.join(self.d, 'new')
+        for r, sha in ((self.old, R40), (self.new, S2)):
+            os.makedirs(r)
+            with open(os.path.join(r, 'RELEASE.json'), 'w') as f:
+                json.dump({'sha': sha, 'expected_version': sha + '+x'}, f)
+        os.symlink(self.old, SO.HARNESS)
+        SO.running_bots = lambda: []
+        self.stops = []
+        import types
+        SO.subprocess = types.SimpleNamespace(run=lambda cmd, **k: self.stops.append(cmd))
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(SO, k, v)
+
+    def events(self):
+        return [json.loads(l)['event'] for l in open(SO.DEPLOY)]
+
+    def test_a_failed_snapshot_switches_nothing(self):
+        SO.snapshot_world = lambda why, tag: (False, 'disk full')
+        self.assertEqual(SO.activate(self.new), 1)
+        self.assertEqual(os.path.realpath(SO.HARNESS), os.path.realpath(self.old))
+        self.assertEqual(self.events(), ['activate-refused'])
+        self.assertEqual(self.stops, [], 'the current release is admissible: the bots keep running it')
+
+    def test_a_failed_snapshot_on_an_inadmissible_rollback_stops(self):
+        SO.snapshot_world = lambda why, tag: (False, 'disk full')
+        self.assertEqual(SO.activate(self.new, prev_admissible=False), 1)
+        self.assertTrue(self.stops and 'stop-bots' in self.stops[0][0])
+
+    def test_snapshot_then_switch(self):
+        SO.snapshot_world = lambda why, tag: (True, '/snaps/x')
+        self.assertEqual(SO.activate(self.new), 0)
+        self.assertEqual(os.path.realpath(SO.HARNESS), os.path.realpath(self.new))
+        self.assertEqual(self.events(), ['snapshot', 'activated'])
+
+    def test_skipping_is_journalled(self):
+        SO.snapshot_world = lambda why, tag: self.fail('must not snapshot')
+        self.assertEqual(SO.activate(self.new, snapshot=False, no_snapshot_why='Paper down for maintenance'), 0)
+        self.assertEqual(self.events(), ['snapshot-skipped', 'activated'])
+
+
+class Admissible(unittest.TestCase):
+    def setUp(self):
+        self.saved = {k: getattr(SO, k) for k in ('LEDGER', 'REVOKED', 'is_anc', 'revoked_patch_in')}
+        d = tempfile.mkdtemp()
+        SO.LEDGER, SO.REVOKED = os.path.join(d, 'l.jsonl'), os.path.join(d, 'REVOKED')
+        with open(SO.LEDGER, 'w') as f:
+            f.write(json.dumps({'sha': M1, 'verified': True}) + '\n')
+        SO.is_anc, SO.revoked_patch_in = anc2, no_cherry
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(SO, k, v)
+
+    def test_a_gated_showcase_release_is_a_rollback_target(self):
+        self.assertTrue(SO.release_admissible({'sha': R40}), 'inside the fleet build')
+        self.assertFalse(SO.release_admissible({'sha': S2}), 'ahead of the fleet, never gated')
+        self.assertTrue(SO.release_admissible({'sha': S2, 'piece': ['shop-01']}), 'passed the piece gate')
+        self.assertTrue(SO.release_admissible({'sha': Q40, 'mode': 'main'}), 'passed the main gate')
+        self.assertFalse(SO.release_admissible(None))
+        with open(SO.REVOKED, 'w') as f:
+            f.write(M2 + ' reverted on the fleet\n')
+        self.assertFalse(SO.release_admissible({'sha': S2, 'piece': ['shop-01']}), 'a REVOKED sha inside')
+
+
+class ReplayFresh(unittest.TestCase):
+    def test_this_release_passing_under_24h(self):
+        r = {'t': FR.iso(T0), 'pass': True, 'release': S2, 'n': 50, 'valid': 50}
+        self.assertTrue(SO.replay_ok(r, S2, T0 + dt.timedelta(hours=23))[0])
+        self.assertFalse(SO.replay_ok(r, S2, T0 + dt.timedelta(hours=25))[0], 'stale')
+        self.assertFalse(SO.replay_ok(r, R40, T0)[0], 'another release')
+        self.assertFalse(SO.replay_ok(dict(r, **{'pass': False}), S2, T0)[0], 'a failed replay')
+        self.assertFalse(SO.replay_ok(None, S2, T0)[0])
+        self.assertFalse(SO.replay_ok(r, None, T0)[0], 'no current release')
+
+
+class StageCommandBase(unittest.TestCase):
+    """cmd_stage wiring over a temp /srv/showcase. Nothing builds a release (stage() is replaced) and git is faked."""
     def setUp(self):
         self.d = tempfile.mkdtemp()
         self.saved = {k: getattr(SO, k) for k in ('ROOT', 'OPS', 'LEDGER', 'FOLLOW', 'DEPLOY', 'HARNESS', 'RELEASES', 'REQUIRED', 'REVOKED',
                                                   'AUTO', 'LANE', 'PIECES', 'lock', 'fetch', 'resolve', 'git', 'is_anc', 'cherry_equivalent',
-                                                  'current_release', 'stage', 'pieces_in', 'docs_only_change', 'revoked_patch_in')}
+                                                  'current_release', 'stage', 'pieces_in', 'docs_only_change', 'revoked_patch_in',
+                                                  'read_protected', 'changed_paths')}
         SO.ROOT = self.d
         for k, v in (('OPS', 'ops'), ('LEDGER', 'ops/follow-ledger.jsonl'), ('FOLLOW', 'ops/follow.jsonl'), ('DEPLOY', 'ops/deploy.jsonl'),
                      ('HARNESS', 'harness'), ('RELEASES', 'releases'), ('REQUIRED', 'REQUIRED_KEPT'), ('REVOKED', 'REVOKED'),
@@ -711,13 +1019,19 @@ class StagePieceCommand(unittest.TestCase):
         SO.lock = lambda: None
         SO.fetch = lambda: None
         SO.resolve = lambda h: h if len(h) == 40 else None
-        SO.git = lambda *a, check=True: '\n'.join(STACK) if a and a[0] == 'rev-list' else ''
+        self.tip = S2
+        SO.git = lambda *a, check=True: ('\n'.join(c for c in STACK if LINE[a[1].split('..')[0]] < LINE[c] <= LINE[a[1].split('..')[1]])
+                                         if a and a[0] == 'rev-list' else
+                                         self.tip if a and a[0] == 'rev-parse' else '')
         SO.is_anc = anc2
         SO.cherry_equivalent = no_cherry
         SO.docs_only_change = docs_d
         SO.revoked_patch_in = no_cherry
         SO.current_release = lambda: {'sha': R40}
         SO.pieces_in = lambda sha, journal: (True, [])
+        SO.read_protected = lambda shas: GLOBS
+        self.changed = {}
+        SO.changed_paths = lambda a, b: self.changed.get((a, b), BUILD)
         self.calls = []
         SO.stage = lambda *a, **k: (self.calls.append((a, k)), (True, '/x/release'))[1]
 
@@ -725,19 +1039,28 @@ class StagePieceCommand(unittest.TestCase):
         for k, v in self.saved.items():
             setattr(SO, k, v)
 
-    def run_stage(self, sha=S2, piece='shop-01,matset-01,mats-01', bootstrap=False):
+    def run_stage(self, sha=S2, piece='shop-01,matset-01,mats-01', bootstrap=False, main=False, dry_run=False, against=None):
         import types, io, contextlib
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            rc = SO.cmd_stage(types.SimpleNamespace(sha=sha, piece=piece, bootstrap=bootstrap))
+            rc = SO.cmd_stage(types.SimpleNamespace(sha=sha, piece=piece, bootstrap=bootstrap, main=main, dry_run=dry_run,
+                                                    against=against))
         return rc, buf.getvalue()
 
-    def refused_rows(self):
+    def deploy_rows(self, event):
         try:
-            return [json.loads(l) for l in open(SO.DEPLOY) if json.loads(l).get('event') == 'piece-refused']
+            return [json.loads(l) for l in open(SO.DEPLOY) if json.loads(l).get('event') == event]
         except FileNotFoundError:
             return []
 
+    def refused_rows(self):
+        return self.deploy_rows('piece-refused')
+
+    def log(self):
+        return [json.loads(l) for l in open(SO.PIECES)]
+
+
+class StagePieceCommand(StageCommandBase):
     def test_stages_the_stack_with_its_piece_record(self):
         rc, out = self.run_stage()
         self.assertEqual(rc, 0, out)
@@ -745,7 +1068,9 @@ class StagePieceCommand(unittest.TestCase):
         self.assertEqual(args[0], S2)
         self.assertEqual(kw['extra']['piece'], ['mats-01', 'matset-01', 'shop-01'], 'sorted: the stack in any order is one record')
         self.assertEqual(kw['extra']['prev'], R40)
+        self.assertEqual(kw['extra']['gate']['pieces']['shop-01']['reviewers'], ['claude', 'codex'])
         self.assertFalse(kw['bootstrap'])
+        self.assertEqual(self.log()[-1]['event'], 'staged', 'the release log gets the staged event')
 
     def test_outside_the_lane_nothing_is_staged(self):
         os.remove(SO.LANE)
@@ -775,13 +1100,12 @@ class StagePieceCommand(unittest.TestCase):
         self.assertEqual(rc, 1); self.assertIn('no named piece', out); self.assertEqual(self.calls, [])
         self.assertEqual(self.refused_rows()[-1]['event'], 'piece-refused')
 
-    def test_a_survival_piece_needs_a_promotion_naming_its_sha(self):
-        with open(SO.PIECES, 'a') as f:
-            f.write(json.dumps(piece('shop-01', S2, M2, kind='survival')) + '\n')
+    def test_a_protected_piece_needs_a_promotion_naming_its_sha_or_identical_protected_files(self):
+        self.changed = {(M2, S2): MOVE, (R40, S2): MOVE}   # shop-01 touches movement; the verified fleet build R40 differs there
         with open(os.path.join(SO.OPS, 'feed-last.json'), 'w') as f:
             json.dump({'journal': [{'run': 'shop-01', 'phase': 'recorded', 'note': 'KEEP'}, {'run': 'shop-01', 'phase': 'promoted', 'note': M1}]}, f)
         rc, out = self.run_stage()
-        self.assertEqual(rc, 1, out); self.assertIn('KEPT on the fleet first', out); self.assertEqual(self.calls, [])
+        self.assertEqual(rc, 1, out); self.assertIn('fleet KEEP first', out); self.assertEqual(self.calls, [])
         with open(os.path.join(SO.OPS, 'feed-last.json'), 'w') as f:
             json.dump({'journal': [{'run': 'shop-01', 'phase': 'recorded', 'note': 'KEEP'}, {'run': 'shop-01', 'phase': 'promoted', 'note': S2}]}, f)
         rc, out = self.run_stage()
@@ -796,6 +1120,78 @@ class StagePieceCommand(unittest.TestCase):
     def test_piece_and_bootstrap_are_exclusive(self):
         rc, out = self.run_stage(bootstrap=True)
         self.assertEqual(rc, 1); self.assertIn('exclusive', out); self.assertEqual(self.calls, [])
+
+    def test_a_dry_run_stages_and_journals_nothing(self):
+        rc, out = self.run_stage(dry_run=True)
+        self.assertEqual(rc, 0, out); self.assertIn('WOULD STAGE', out); self.assertEqual(self.calls, [])
+        self.assertEqual(len(self.log()), len(ROWS))
+        rc, out = self.run_stage(piece='mats-01,shop-01', dry_run=True)
+        self.assertEqual(rc, 1); self.assertEqual(self.refused_rows(), [], 'a dry-run refusal is not journalled')
+
+    def test_against_is_dry_run_only(self):
+        rc, out = self.run_stage(against=M1)
+        self.assertEqual(rc, 1); self.assertIn('only with --dry-run', out); self.assertEqual(self.calls, [])
+        rc, out = self.run_stage(piece='shop-01', dry_run=True, against=M2)
+        self.assertEqual(rc, 0, out)
+
+
+class StageMainCommand(StageCommandBase):
+    def setUp(self):
+        super().setUp()
+        os.remove(SO.LANE)   # --main does not need the lane
+        with open(SO.PIECES, 'a') as f:
+            f.write(json.dumps(mrow(S2)) + '\n')
+
+    def test_stages_a_main_sha(self):
+        rc, out = self.run_stage(main=True, piece=None)
+        self.assertEqual(rc, 0, out)
+        (args, kw), = self.calls
+        self.assertEqual(args[0], S2)
+        self.assertEqual(kw['extra']['mode'], 'main'); self.assertEqual(kw['extra']['piece'], ['main-rel'])
+        self.assertEqual(kw['extra']['gate']['reviewers'], ['codex']); self.assertEqual(kw['extra']['prev'], R40)
+        self.assertEqual(self.log()[-1]['event'], 'staged')
+
+    def test_refusals_are_journalled(self):
+        self.tip = M2   # S2 not on main
+        rc, out = self.run_stage(main=True, piece=None)
+        self.assertEqual(rc, 1); self.assertIn('not on main', out); self.assertEqual(self.calls, [])
+        self.assertEqual(self.deploy_rows('release-refused')[-1]['mode'], 'main')
+
+    def test_auto_follow_on_refuses(self):
+        open(SO.AUTO, 'w').close()
+        rc, out = self.run_stage(main=True, piece=None)
+        self.assertEqual(rc, 1); self.assertEqual(self.calls, [])
+
+    def test_required_kept_still_applies(self):
+        SO.pieces_in = lambda sha, journal: (False, ['townplan-01'])
+        rc, out = self.run_stage(main=True, piece=None)
+        self.assertEqual(rc, 1); self.assertIn('REQUIRED_KEPT', out)
+
+    def test_main_is_exclusive_with_piece(self):
+        rc, out = self.run_stage(main=True)
+        self.assertEqual(rc, 1); self.assertIn('exclusive', out)
+
+    def test_protected_main_needs_identical_protected_files_on_a_kept_build(self):
+        self.changed = {(R40, S2): MOVE}
+        with open(SO.PIECES, 'a') as f:
+            f.write(json.dumps(mrow(S2, reviews=rv(S2))) + '\n')
+        rc, out = self.run_stage(main=True, piece=None)
+        self.assertEqual(rc, 1); self.assertIn('fleet KEEP first', out)
+        with open(SO.LEDGER, 'a') as f:
+            f.write(json.dumps({'sha': M2, 'verified': True, 'policy': 'p1', 'deps': 'd1'}) + '\n')   # the fleet now runs M2
+        rc, out = self.run_stage(main=True, piece=None)   # (M2, S2) -> BUILD: protected files identical
+        self.assertEqual(rc, 0, out)
+
+
+class SurvivalKept(unittest.TestCase):
+    def test_bound_to_the_piece_sha(self):
+        res = {S2[:8]: S2, M1[:8]: M1}.get
+        keep = {'run': 'surv', 'phase': 'recorded', 'note': 'KEEP read +180'}
+        self.assertTrue(SO.survival_kept([keep, {'run': 'surv', 'phase': 'promoted', 'note': f'{S2[:8]} fleet-wide'}], 'surv', S2, res)[0])
+        # kept and promoted at M1: a newer line naming S2 is NOT kept (Codex r1 P1)
+        self.assertFalse(SO.survival_kept([keep, {'run': 'surv', 'phase': 'promoted', 'note': f'{M1[:8]} fleet-wide'}], 'surv', S2, res)[0])
+        self.assertFalse(SO.survival_kept([{'run': 'surv', 'phase': 'promoted', 'note': S2[:8]}], 'surv', S2, res)[0], 'no KEEP')
+        self.assertFalse(SO.survival_kept([{'run': 'surv', 'phase': 'owner-direct', 'note': S2[:8]}], 'surv', S2, res)[0], 'owner-direct')
 
 
 class GitHelpers(unittest.TestCase):
@@ -876,7 +1272,7 @@ class GitHelpers(unittest.TestCase):
     def test_an_unreadable_revoked_line_fails_closed(self):
         self.assertEqual(SO.revoked_patch_in('f' * 40, self.base, repo=self.d), 'unreadable')
         self.assertIn('unreadable here', SO.piece_stack_refusal(S2, R40, ['matset-01', 'mats-01', 'shop-01'], ROWS, STACK, anc2,
-                                                                 lambda x, y: 'unreadable', [Q40], None, docs_d) or '')
+                                                                 lambda x, y: 'unreadable', [Q40], docs_d, changed_by({}), GLOBS) or '')
 
     def test_a_revoked_rename_picked_is_found(self):
         self.put('bots/src/big.mjs', ''.join(f'line {i}\n' for i in range(60))); self.commit('big')

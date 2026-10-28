@@ -9,6 +9,37 @@ reaches the showcase only after it is KEPT on the fleet). Design of the world it
 The fleet is untouched by everything here: no fleet, queue, scheduler, manifest or fleet-bot change. The showcase is
 invisible to every bench enumerator by construction (design section 4).
 
+## 0. FUN MODE, from 2026-10-28 (owner) -- this section overrides the gate rules below
+
+**The release gate** (`showcase_ops.py`, `evidence_refusal` / `piece_stack_refusal` / `main_release_refusal`, pure + tested):
+a release needs a release-log line in `/srv/showcase/PIECES.jsonl` with a PASSING `npm test` record and ONE named review
+(Codex or Claude, `APPROVE`), both bound to the sha (or an ancestor with only `docs/` changed since). Only when the diff
+touches `config/protected-paths.txt` (the union of the list at the current release, the candidate and origin/main; no
+readable list = protected, fail closed) does it also need BOTH engines and a fleet KEEP: the candidate's protected files
+byte-identical to a KEEP-recorded promoted sha or to the verified fleet build. Paper is optional; an explicit Paper FAIL of
+the sha still refuses. `kind` is a label only. Kept: ancestry, REVOKED (ancestry + patch-id), REQUIRED_KEPT, the version
+verify after activation, rollback.
+
+- `record --run R --sha S --tests PASS:<sha>:<summary> --review codex:APPROVE:<sha>[:who]` appends a line (append-only; the
+  newest line of a run speaks; `staged` event lines without a `run` are written by `stage`).
+- `stage <sha> --main`: **the showcase follows main**. The sha must be on origin/main and must CONTAIN the current release
+  (ancestry or patch equivalence) -- it never steps back over showcase commits. No linear stack, no LANE needed;
+  AUTO_FOLLOW must be off. `--piece` still works (stray-commit rule kept). `--dry-run [--against <sha>]` decides and prints,
+  stages and journals nothing.
+- `activate` takes a **world snapshot** first: `/srv/showcase/snapshots/<UTC>-<sha8>/{server,state}` by rsync `--link-dest`
+  (unchanged region files are hard links; a few seconds) under the shared save-pause lock, newest 6 kept, refused under 10 GiB
+  free. No snapshot -> nothing switches (`--no-snapshot "<why>"` overrides, journalled `snapshot-skipped`). Restore by hand
+  with bots and Paper stopped: `rsync -a --delete <snap>/server/ /srv/showcase/server/` and `<snap>/state/` to
+  `/var/lib/mcai/`.
+- A previous release that passed this gate (RELEASE.json `piece` or `mode: main`) is a valid rollback target even when it
+  is ahead of the fleet.
+- **`owner-direct-world-edit`** (ops/deploy.jsonl event; first used 10-28 11:47Z): the owner's one-off world fix. Run
+  `showcase_ops.py world-edit --why "<request and edit>"` -- it snapshots, then journals `{"event":
+  "owner-direct-world-edit", "why", "snapshot"}` -- then make the RCON edit. Logged assistance, never a bot success.
+- **Tripwire**: an S6 H2 `clear_outside` of tree debris (logs, leaves, plants) is a WATCH line, not a TRIP; H2 of any other
+  block still trips. A restart refreshes a stale or other-release brain replay itself (`start-bots.sh` runs
+  `replay-prompts.sh`); a fresh replay that FAILS still refuses.
+
 ## 1. Host state before the start (read 2026-10-25 14:51-15:06Z)
 
 | check | result |
