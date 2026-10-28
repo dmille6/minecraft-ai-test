@@ -35,6 +35,13 @@ const REQUIRED = [
   'docs/reports/STATE.md',
   // the process the owner set on 2026-10-28; CLAUDE.md points every session at it
   'docs/PROCESS-fun-mode.md',
+  // fun-mode tier 3: the protected list and its one decider, which both gates call (W1, 10-28)
+  'config/protected-paths.txt',
+  'scripts/lib/protected.py',
+  'scripts/test_protected.py',
+  // CLAUDE.md's and STATE.md's history, moved out when both were cut to the active rules (10-28)
+  'docs/archive/CLAUDE-history-2026-10-28.md',
+  'docs/archive/STATE-history-to-2026-10-28.md',
   // the episode replay harness: the gate that proves a candidate before it reaches a canary
   'sandbox/run-corpus.sh',
   'sandbox/run-scenario.sh',

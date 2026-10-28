@@ -1,0 +1,132 @@
+# PROTECTED PATHS -- the fun-mode tier-3 list (docs/PROCESS-fun-mode.md § Tiers; OWNER 2026-10-28).
+#
+# A change that touches any line matched here is TIER 3: two review engines, a fleet canary, the
+# generic read. Everything else is tier 1 or 2. Risk is the test, not size: a one-line change to
+# mining depth is tier 3, a 600-line building feature is not.
+#
+# Decided by scripts/lib/protected.py (`python3 scripts/lib/protected.py --base origin/main`), which
+# the showcase gate (W2) and the canary loop (W4) call. Do not re-implement the match elsewhere.
+#
+# FORMAT, one entry per line:
+#   <glob>                    every line of every matching file
+#   <glob>::<function glob>   only lines inside those TOP-LEVEL functions of that file
+# Globs: `*` stays inside one path segment, `**` crosses segments, `?` is one character.
+# A changed line in a `::` file is attributed to the nearest top-level `function` / `const x = (`
+# above it; lines above the first declaration (imports, top constants) are NOT protected.
+# A file path that stops existing fails bots/test/protected-paths.test.mjs, so a rename cannot
+# quietly drop something out of protection. Adding to this list is a decision; so is removing.
+
+# ---- the list itself and its decider (a change that shrinks protection is itself protected) ----
+config/protected-paths.txt
+scripts/lib/protected.py
+
+# ---- movement and pathfinding: the movement owner, A* time limits, halts, reach, and what the
+# ---- pathfinder may build with (scaffolding/bridging during travel lives in scaffold.mjs) ----
+bots/src/arbiter.mjs
+bots/src/pathbackoff.mjs
+bots/src/pathhalt.mjs
+bots/src/path-watchdog.mjs
+bots/src/reachprobe.mjs
+bots/src/digreach.mjs
+bots/src/digapproach.mjs
+bots/src/scaffold.mjs
+bots/src/ladder.mjs
+bots/src/shore.mjs
+bots/src/watermoves.mjs
+bots/src/fallpath.mjs
+bots/src/hard-stop.mjs
+bots/scripts/check-movement-writers.mjs
+# skills.mjs is 16k lines and mostly building/town work, so only its travel functions are listed
+bots/src/skills.mjs::goto
+bots/src/skills.mjs::gotoLegs
+bots/src/skills.mjs::arrivedAt
+bots/src/skills.mjs::descendToGround
+bots/src/skills.mjs::explore
+bots/src/skills.mjs::surface
+bots/src/skills.mjs::surfaceClimb
+bots/src/skills.mjs::rideFloorDown
+bots/src/skills.mjs::climbPrerequisite
+bots/src/skills.mjs::climbAdvice
+
+# ---- escapes and relocation: every rung that gets a stuck, sealed or flooded bot out ----
+bots/src/escape.mjs
+bots/src/exit-contract.mjs
+bots/src/recovery.mjs
+bots/src/relocate.mjs
+bots/src/poolescape.mjs
+bots/src/climbflood.mjs
+bots/src/floodpocket.mjs
+bots/src/watchdog.mjs
+bots/src/airstate.mjs
+bots/src/rescuerow.mjs
+bots/src/declined.mjs
+bots/src/skills.mjs::tunnelOut
+bots/src/skills.mjs::keepoutExit
+bots/src/skills.mjs::keepoutExitRun
+bots/src/skills.mjs::escapeStepHazard
+bots/src/skills.mjs::exitPrereqFor
+bots/src/skills.mjs::exitAdviceFor
+
+# ---- reflexes: air, drowning, lava, entombment ----
+bots/src/reflex.mjs
+bots/src/air.mjs
+bots/src/oxygen.mjs
+bots/src/airpocket.mjs
+bots/src/bucket.mjs
+bots/src/lavaguard.mjs
+
+# ---- mining depth and excavation: how deep, which block may break, what must never be dug ----
+bots/src/mining.mjs
+bots/src/oretunnel.mjs
+bots/src/lavastep.mjs
+bots/src/lavastepmove.mjs
+bots/src/keepout.mjs
+bots/src/digbudget.mjs
+bots/src/minewell.mjs
+bots/src/protectzone.mjs
+bots/src/skills.mjs::mine
+bots/src/skills.mjs::mineGuarded
+bots/src/skills.mjs::tunnelToOre
+bots/src/skills.mjs::stair*
+bots/src/skills.mjs::chooseStairBearing
+bots/src/skills.mjs::yawQuadrant
+bots/src/skills.mjs::breakVeto*
+bots/src/skills.mjs::isSafeToBreak
+bots/src/skills.mjs::descentStepCells
+bots/src/skills.mjs::liquid*
+bots/src/skills.mjs::terrainAbove
+bots/src/skills.mjs::hasCeiling
+bots/src/skills.mjs::belowGroundHint
+bots/src/skills.mjs::shaftDigBudget
+bots/src/skills.mjs::shaftAscend
+bots/src/skills.mjs::isExposed
+bots/src/skills.mjs::shorelineExemptAt
+bots/src/skills.mjs::wetBlock
+bots/src/skills.mjs::standingDry
+
+# ---- death handling and the bot lifecycle (index.mjs owns connect/death/respawn/reconnect) ----
+bots/src/index.mjs
+bots/src/deathsites.mjs
+
+# ---- deployment, rollback and tripwires: what puts code on bots and what pulls it off ----
+scripts/deploy-fleet.sh
+scripts/fleet-deploy.sh
+scripts/fleet-deploy-host.sh
+scripts/ops/fleet-deploy
+scripts/deploy-verify.py
+scripts/lib/deployverify.py
+scripts/preflight.sh
+scripts/canary-loop.sh
+scripts/host/canary-loop.sh
+scripts/host/canary-sched.py
+scripts/check-open-loop.py
+scripts/lib/openloop.py
+scripts/deathgate.py
+scripts/verdict.py
+infra/guard/death-tripper.py
+infra/guard/mcai-guard.py
+infra/showcase/showcase_ops.py
+infra/showcase/showcase_trip.py
+infra/showcase/followrule.py
+infra/showcase/start-bots.sh
+infra/showcase/stop-bots.sh
