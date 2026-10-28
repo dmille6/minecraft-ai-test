@@ -64,5 +64,46 @@ await t('WIRED: the build walk plans with cornerWaypoints and walks every leg in
   assert.ok(walk.indexOf('Promise.race([') < walk.indexOf('for (const w of legs)') && walk.indexOf('for (const w of legs)') < walk.indexOf('timer = setTimeout'), 'inside the race with the clock')
 })
 
+console.log('THE STANDS THAT FAILED (shopwalls-04)')
+const R = await import('../src/buildrun.mjs')
+const { stepFor } = await import('../src/buildsite.mjs')
+await t('the live last roof cell 24,75,31: its stand banned -> the next-best stand; all banned -> none; bans lapse', () => {
+  // the roof-edge around it is placed (LIVE 16:00Z: 19 of 20); the ring gap 24,73,32 and the interior 24,73,30 are both nodes
+  for (const k of ['23,75,31', '25,75,31']) solid.add(k)
+  solid.delete('24,73,32')
+  const nodes = new Map([['24,32', [73]], ['24,30', [73]]])
+  const home = { x: 0, y: 70, z: 0 }
+  const first = stepFor(read, home, [24, 75, 31], nodes)
+  assert.ok(first, 'a stand exists')
+  const mem = { pending: null, bans: {} }
+  R.banStand(mem, '24,75,31', first.stand.join(','), 1000)
+  const second = stepFor(read, home, [24, 75, 31], R.nodesWithout(nodes, R.standBans(mem, '24,75,31', 2000)))
+  assert.ok(second && second.stand.join(',') !== first.stand.join(','), `another stand (${first.stand} banned, got ${second?.stand})`)
+  R.banStand(mem, '24,75,31', second.stand.join(','), 1000)
+  assert.strictEqual(stepFor(read, home, [24, 75, 31], R.nodesWithout(nodes, R.standBans(mem, '24,75,31', 2000))), null, 'every stand banned')
+  assert.strictEqual(R.standBans(mem, '24,75,31', 1000 + R.STAND_BAN_MS).size, 0, 'the bans lapse')
+  assert.strictEqual(R.standBans(mem, '21,75,27', 2000).size, 0, 'per cell')
+  assert.strictEqual(R.nodesWithout(nodes, new Set()), nodes, 'nothing banned: the same map')
+})
+await t('a walk the last visit never finished (the stuck reflex\'s abort) is banned by the next visit; a null memory is inert', () => {
+  const mem = { pending: { cell: '24,75,31', stand: '24,73,32', at: 5 }, bans: {} }
+  R.settlePendingStand(mem, 10)
+  assert.strictEqual(mem.pending, null)
+  assert.deepStrictEqual([...R.standBans(mem, '24,75,31', 20)], ['24,73,32'])
+  R.settlePendingStand(null, 10); R.banStand(null, 'a', 'b', 1)
+  assert.strictEqual(R.standBans(null, 'a', 1).size, 0)
+})
+await t('WIRED: runVisit settles a pending walk at its start, marks it at the click, bans on a failed arrival, and picks without bans', () => {
+  const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1')
+  const src = strip(fs.readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8'))
+  const visit = src.slice(src.indexOf('export async function runVisit'))
+  assert.ok(/const stands = p\.stands \?\? null\s*settlePendingStand\(stands, now\(\)\)/.test(visit))
+  assert.ok(/if \(stands\) stands\.pending = \{ cell: kOf\(cell\), stand: kOf\(step\.stand\), at: now\(\) \}\s*await e\.walkTo\(step\.stand\)\s*if \(e\.aborted\(\)\) return 'aborted'\s*if \(stands\) stands\.pending = null/.test(visit))
+  assert.ok(/if \(!here\) \{ banStand\(stands, kOf\(cell\), kOf\(step\.stand\), now\(\)\); return 'stand' \}/.test(visit))
+  assert.ok(/step = stepFor\(rd, home, c\.at, nodesWithout\(nodes, standBans\(stands, kOf\(c\.at\), now\(\)\)\)\)/.test(visit))
+  const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.ok(/stands: \(bot\.shopStands \?\?= \{ pending: null, bans: \{\} \}\)/.test(SK), 'build_shop keeps the memory on the bot')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

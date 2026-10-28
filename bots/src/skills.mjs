@@ -16553,7 +16553,7 @@ async function buildShop (ctx, args, signal) {
     // unreadable: the visit neither moves nor skips a replant (r19, Claude r18 P2-2: an exception must never fell an unreplaced tree)
     let res = null, resFailed = false
     try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm }) } catch { resFailed = true }
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, unknown: bot.shopUnknown, beat: true, placedBy }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null
