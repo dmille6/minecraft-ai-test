@@ -264,6 +264,9 @@ def t_head(AH):
                 return {'hits': {'hits': []}}
         es = AH.es_lines(now, C({'showcase_halt': [{'t': '2026-10-28T11:57:00Z', 'ok': False, 'why': 'SHOWCASE HALTED 0.4 h: x'}],
                                  'showcase_goal': [{'t': '2026-10-28T10:00:00Z', 'ok': True, 'why': 'y'}]}))
+        es2 = AH.es_lines(now, C({'showcase_rollout': [{'t': '2026-10-28T11:50:00Z', 'ok': True, 'event': 'PASS', 'release': 'r1@t', 'why': 'r1: PASS'},
+                                                        {'t': '2026-10-28T11:40:00Z', 'ok': False, 'event': 'ERROR', 'release': 'r1@t', 'why': 'r1: ERROR'}]}))
+        check('head ES: a re-check supersedes the older row', not any('ERROR' in l for l in es2) and any('1 60-min check' in l for l in es2), es2)
         check('head ES: halt alarm shown', any(l.startswith('!! SHOWCASE HALTED') for l in es), es)
         check('head ES: stale goal row is an alarm', any(l.startswith('!! showcase goals: STALE') for l in es), es)
 

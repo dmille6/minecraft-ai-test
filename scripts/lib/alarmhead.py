@@ -80,7 +80,13 @@ def es_lines(now, client):
         r = client('POST', f'{OPS}/_search', {'size': 20, 'sort': [{'@timestamp': {'order': 'desc'}}],
                                               'query': {'bool': {'filter': [{'term': {'kind': 'showcase_rollout'}},
                                                                             {'range': {'@timestamp': {'gte': since}}}]}}})
-        rows = [h['_source'] for h in r['hits']['hits']]
+        rows, seen = [], set()
+        for h in r['hits']['hits']:          # newest first: a re-check SUPERSEDES an older row for the same rollout
+            x = h['_source']
+            k = (x.get('release') or '').split('@')[0] or str(x.get('why') or '').split(':', 1)[0]
+            if k not in seen:
+                seen.add(k)
+                rows.append(x)
         bad = [x for x in rows if not x.get('ok')]
         out += [f'!! showcase rollout {x.get("event")}: {x.get("why")}'[:400] for x in bad]
         out.append(f'showcase rollouts: {len(rows)} 60-min check(s) in 24 h, {len(bad)} not PASS')

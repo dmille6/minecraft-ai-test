@@ -491,6 +491,7 @@ def cmd_check(a):
             alarms[f"rollout:{r['env']}/{r['id']}@{r['ts']}"] = f"ROLLOUT {r['env']} {r['id']} {str(r['sha'])[:8]} {line}"
         if a.ship and r['env'] == 'showcase':
             AL.ship_row(a.ship, {'kind': 'showcase_rollout', 't': AL._iso(now), 'ok': v == 'PASS', 'event': v,
+                                 'release': f"{r['id']}@{r['ts']}",
                                  'why': f"{r['id']}: {line}"[:1500]})
     sd = os.path.expanduser(a.state_dir)
     label = a.env or 'all'
