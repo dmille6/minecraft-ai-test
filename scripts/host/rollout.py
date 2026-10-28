@@ -192,7 +192,8 @@ def describe(f, v, why):
     base = f'{rate:.4f}/bot-h over {f.get("baseline_bot_hours", 0):,.0f} bot-h' if rate is not None else 'none'
     return (f"{v}: deaths {f.get('deaths', 0)} / {f.get('bot_hours', 0):.1f} active bot-h (baseline {base}); "
             f"sha on {f.get('bots_on_sha', 0)}/{f.get('bots_present', 0)} bots ({f.get('rows', 0):,} rows); "
-            f"tripper {(f.get('tripper') or {}).get('verdict')}; crash loops {len(f.get('crash_loops') or {})}; "
+            f"tripper {(f.get('tripper') or {}).get('verdict')}; crash loops {len(f.get('crash_loops') or {})} "
+            f"({f.get('unit_lines')} systemd unit lines read); "
             f"failed after t0 {len(f.get('failed_after') or [])} (before: {len(f.get('failed_before') or [])})"
             + (f" -- {'; '.join(why)}" if why else ''))
 
@@ -307,20 +308,36 @@ def tripper_showcase(t0, t1, path=TRIP_LOG):
         return {'verdict': 'UNREAD', 'why': f'{path}: {type(e).__name__}'}
 
 
+def restart_counts(journal_json_lines, prefix):
+    """PURE. systemd's own (_PID=1) journal as JSON lines -> ({unit: 'Scheduled restart job' count}, unit lines seen).
+    The second number is the positive control: the manager logs Started/Stopped for these units, so a window with
+    bots running and NO unit line at all means the read saw nothing, not that nothing restarted."""
+    loops, seen = {}, 0
+    for line in journal_json_lines:
+        try:
+            j = json.loads(line)
+        except ValueError:
+            continue
+        u = str(j.get('UNIT') or '')
+        if not u.startswith(prefix):
+            continue
+        seen += 1
+        if 'Scheduled restart job' in str(j.get('MESSAGE')):
+            loops[u] = loops.get(u, 0) + 1
+    return loops, seen
+
+
 def crash_facts(pattern, t0, t1):
-    loops, failed_after, failed_before = {}, [], []
+    loops, failed_after, failed_before, seen = {}, [], [], None
     try:
-        r = subprocess.run(['sudo', '-n', 'journalctl', '--no-pager', '-o', 'json', '--since', t0.strftime('%Y-%m-%d %H:%M:%S UTC'),
-                            '--until', t1.strftime('%Y-%m-%d %H:%M:%S UTC'), '-u', pattern],
+        # _PID=1 = the service manager's own lines only. `-u mcbot@*` also returns every bot's stdout and took > 120 s
+        # for 80 bots x 1 h; the restart lines are the manager's, so this loses nothing.
+        r = subprocess.run(['sudo', '-n', 'journalctl', '--no-pager', '-o', 'json', '_PID=1',
+                            '--since', t0.strftime('%Y-%m-%d %H:%M:%S UTC'), '--until', t1.strftime('%Y-%m-%d %H:%M:%S UTC')],
                            capture_output=True, text=True, timeout=120)
-        for line in r.stdout.splitlines():
-            try:
-                j = json.loads(line)
-            except ValueError:
-                continue
-            if 'Scheduled restart job' in str(j.get('MESSAGE')):
-                u = j.get('UNIT') or j.get('_SYSTEMD_UNIT') or '?'
-                loops[u] = loops.get(u, 0) + 1
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr.strip()[:120])
+        loops, seen = restart_counts(r.stdout.splitlines(), pattern.split('*')[0])
     except Exception:
         loops = {'<journal unreadable>': LOOP_RESTARTS}
     loops = {u: n for u, n in loops.items() if n >= LOOP_RESTARTS}
@@ -340,7 +357,7 @@ def crash_facts(pattern, t0, t1):
             (failed_after if when and when >= t0 else failed_before).append(u)
     except Exception:
         pass
-    return {'crash_loops': loops, 'failed_after': failed_after, 'failed_before': failed_before}
+    return {'crash_loops': loops, 'failed_after': failed_after, 'failed_before': failed_before, 'unit_lines': seen}
 
 
 def run_check(row, log_root='/var/log/mcai'):

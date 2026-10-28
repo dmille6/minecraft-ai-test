@@ -193,6 +193,11 @@ def t_rollout(RO):
     check('verdict no bot-hours -> WATCH', RO.verdict(dict(ok, bot_hours=0))[0] == 'WATCH')
     check('verdict sha not converged -> WATCH', RO.verdict(dict(ok, bots_on_sha=70, bots_off_sha=['a']))[0] == 'WATCH')
     check('verdict tripper unread -> WATCH', RO.verdict(dict(ok, tripper={'verdict': 'UNREAD'}))[0] == 'WATCH')
+    jl = [json.dumps({'UNIT': 'mcbot@a.service', 'MESSAGE': 'mcbot@a.service: Scheduled restart job, restart counter is at 3.'})] * 3 + \
+         [json.dumps({'UNIT': 'mcbot@b.service', 'MESSAGE': 'Started mcbot@b.service'}),
+          json.dumps({'UNIT': 'ssh.service', 'MESSAGE': 'Scheduled restart job'}), 'not json']
+    check('restart counts by unit, other units ignored', RO.restart_counts(jl, 'mcbot@') == ({'mcbot@a.service': 3}, 4),
+          RO.restart_counts(jl, 'mcbot@'))
     log = ('===== 2026-10-28T09:35:06Z rc=0\nSHOWCASE TRIPWIRE x\nVERDICT      OK\n'
            '===== 2026-10-28T12:35:06Z rc=2\nVERDICT      TRIP -- S6 H2 clear_outside 1\n   stopped showcase-Alpha\n')
     runs = RO.parse_trip_log(log)
