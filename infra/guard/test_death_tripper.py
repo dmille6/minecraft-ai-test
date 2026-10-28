@@ -205,7 +205,7 @@ def test_the_same_split_trips_once_the_grace_expires():
 # caught on one five-bot pool in twenty minutes would have cost under two.
 
 def _canary(seen, declared="aaa", cver="bbb", pool="hive-a"):
-    return tripper.canary_split_ok(seen, declared, cver, pool)
+    return version_split.canary_split_ok(seen, declared, cver, pool)
 
 
 def test_canary_declared_split_is_allowed():
@@ -227,7 +227,7 @@ def test_two_pools_of_five_are_one_declared_canary():
     seen = {"hive-a-Alpha": "bbb+1", "board-c-Echo": "aaa+1", "hive-b-Alpha": "aaa+1"}
     ok, why = _canary(seen, pool="hive-a,board-c")
     check("a declared pool left on the baseline trips", not ok and "membership" in why, why)
-    check("prefix membership is exact", not tripper.in_canary_pool("hive-ab-Alpha", "hive-a") and tripper.in_canary_pool("board-c-Echo", "hive-a, board-c"))
+    check("prefix membership is exact", not version_split.in_canary_pool("hive-ab-Alpha", "hive-a") and version_split.in_canary_pool("board-c-Echo", "hive-a, board-c"))
 
 
 def test_undeclared_split_is_still_a_fault():
@@ -257,13 +257,13 @@ def test_a_pool_member_left_behind_on_the_baseline_trips():
 def test_three_versions_is_never_a_canary():
     seen = {"hive-a-Alpha": "bbb+1", "hive-b-Alpha": "aaa+1", "board-a-Echo": "ccc+1"}
     ok, why = _canary(seen)
-    check("three versions is never a canary", not ok and "exactly two" in why, why)
+    check("three versions is never a canary", not ok and "distinct builds running" in why, why)
 
 
 def test_a_split_that_is_not_the_declared_pair_trips():
     seen = {"hive-a-Alpha": "zzz+1", "hive-b-Alpha": "aaa+1"}
     ok, why = _canary(seen)
-    check("a split that is not the declared pair trips", not ok and "declares" in why, why)
+    check("a split that is not the declared pair trips", not ok and "declare" in why, why)
 
 
 def test_pool_prefix_does_not_match_a_longer_name():

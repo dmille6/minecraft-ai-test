@@ -84,7 +84,17 @@ say "  ---- supervisor and tooling ----"
 # thing standing between a bad siting run and eight unusable worlds -- ran only
 # when someone remembered to run it. A gate nobody executes is not a gate.
 if command -v python3 >/dev/null 2>&1; then
-  for f in infra/guard/test_*.py scripts/test-*.py scripts/test-*.sh; do
+  # THE TRIPPER'S RULES, by name: they are `test_*.py`, which the globs below do
+  # not match, so the library the death tripper imports (version_split) went red
+  # on main for five weeks -- four suites could not even import it -- with this
+  # gate green. Named rather than globbed: scripts/test_*.py holds ~40 suites,
+  # several of which need a fleet host, and a gate people learn to skip is worse.
+  for f in infra/guard/test_*.py \
+           scripts/test_version_split.py scripts/test_canary_split.py \
+           scripts/test_death_tripper_adapter.py scripts/test_split_roster.py \
+           scripts/test_canary_manifest.py scripts/test_deployverify.py \
+           scripts/test_verdict_membership.py \
+           scripts/test-*.py scripts/test-*.sh; do
     [ -e "$f" ] || continue
     case "$f" in *.sh) RUN="bash";; *) RUN="python3";; esac
     if out=$($RUN "$f" 2>&1); then
