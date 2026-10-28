@@ -100,7 +100,7 @@ await t('WIRED: runVisit settles a pending walk at its start, marks it at the cl
   assert.ok(/const stands = p\.stands \?\? null\s*settlePendingStand\(stands, now\(\)\)/.test(visit))
   assert.ok(/if \(stands\) stands\.pending = \{ cell: kOf\(cell\), stand: kOf\(step\.stand\), at: now\(\) \}\s*await e\.walkTo\(step\.stand\)\s*if \(e\.aborted\(\)\) return 'aborted'\s*if \(stands\) stands\.pending = null/.test(visit))
   assert.ok(/if \(!here\) \{ banStand\(stands, kOf\(cell\), kOf\(step\.stand\), now\(\)\); return 'stand' \}/.test(visit))
-  assert.ok(/step = stepFor\(rd, home, c\.at, nodesWithout\(nodes, standBans\(stands, kOf\(c\.at\), now\(\)\)\)\)/.test(visit))
+  assert.ok(/const bans = standBans\(stands, kOf\(c\.at\), now\(\)\); step = \(bans\.size \? stepFor\(rd, home, c\.at, nodesWithout\(nodes, bans\)\) : null\) \?\? stepFor\(rd, home, c\.at, nodes\)/.test(visit), 'banned first, the unbanned pick as the fallback')
   const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(/stands: \(bot\.shopStands \?\?= \{ pending: null, bans: \{\} \}\)/.test(SK), 'build_shop keeps the memory on the bot')
 })

@@ -152,7 +152,7 @@ export function segComplete (read, record, palette, seg) {
  * into it (25.3,74.4,32.3) until the stuck reflex, or spent its attempts there). A stand is BANNED for its cell for STAND_BAN_MS
  * when the bot did not arrive (the re-proof from its feet failed) or when the visit ended DURING the walk (a pending walk the
  * next visit finds: the stuck reflex's abort). The cell's next-best stand is then chosen; with every stand banned the cell is
- * deferred as one no stand reaches (F4) until the bans lapse. `mem` = { pending: { cell, stand, at } | null, bans: { cell:
+ * tried from its banned stands again (never a deferral the unbanned pick would not have made). `mem` = { pending: { cell, stand, at } | null, bans: { cell:
  * { stand: at } } }, kept on the bot for the connection. Pure helpers.
  */
 export const STAND_BAN_MS = 30 * 60_000
@@ -577,7 +577,9 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         const cand = open.filter(c => (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at))
           .sort((a, b) => a.at[1] - b.at[1] || Math.hypot(a.at[0] - feet[0], a.at[2] - feet[2]) - Math.hypot(b.at[0] - feet[0], b.at[2] - feet[2]))
         let picked = null, step = null
-        for (const c of cand) { step = stepFor(rd, home, c.at, nodesWithout(nodes, standBans(stands, kOf(c.at), now()))); if (step) { picked = c; break } }
+        // a cell whose every stand is banned falls back to them (r1 Codex note: never a deferral -- and F4's 6 h stuck back-off -- the
+        // unbanned visit would not have had)
+        for (const c of cand) { const bans = standBans(stands, kOf(c.at), now()); step = (bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans)) : null) ?? stepFor(rd, home, c.at, nodes); if (step) { picked = c; break } }
         if (!picked) {
           if (cand.length && !open.some(c => !isClear(c.at))) {
             // no stand reaches any placeable cell of this segment: DEFER them and go on (F4)
