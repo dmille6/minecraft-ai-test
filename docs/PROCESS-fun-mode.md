@@ -69,18 +69,32 @@ mining depth is high risk. A 600-line town building feature is not.
 **Protected scope** is the file list `config/protected-paths.txt`. It covers
 movement and pathfinding (including scaffolding and bridging during travel),
 escapes and relocation, reflexes, mining depth and excavation, death handling,
-and deployment and tripwire logic. `skills.mjs` is listed per function, because
-most of it is building. One helper decides, and both gates call it:
+the bot's execution core (`runner.mjs`, `cognitive.mjs`, `admission.mjs`),
+dependency bumps (`bots/package.json` and its lock), and deployment and tripwire
+logic. `skills.mjs` is listed per function, because most of it is building; its
+`SKILLS` and `SKILL_CONTRACTS` tables are covered row by row. Building features'
+spawn-time installs and licence rows go in `bots/src/features.mjs`, which is not
+listed, rather than in `index.mjs`, which is. One helper decides, and both gates
+call it:
 
 ```
 python3 scripts/lib/protected.py --base origin/main   # exit 0 no, 1 yes (hits listed), 2 cannot tell = treat as yes
+                                                      # on exit 1 the last line is tier=3 or tier=tooling
 ```
+
+The decider's threat model is honest changes by our own agents, not deliberate
+obfuscation; review guards against that.
+
+Entries marked `tooling:` are host scripts that never run on a bot: the canary
+loop, scheduler and verdict, the showcase gate and tripwire, and the list and its
+decider. Those changes are tier **tooling**.
 
 | Tier | What | Review | Where it goes and how it closes |
 |---|---|---|---|
 | **1** | Constants, thresholds, prompt lines, milestone changes; read-only reports, dashboards, cameras; fixes under ~150 lines **outside** protected scope | One engine, one round | Showcase first if it touches showcase behaviour. Then an owner-direct fleet rollout (journal phase `owner-direct`) with a 60-min tripwire. Ledger row. |
 | **2** | Features and behaviour of any size **outside** protected scope: building, towns, crafting, storage, cooperation | One engine, one round, plus a focused regression or composition test | **Showcase first**: watch it for 2 h and check that the goal visibly moved. Then the fleet, owner-direct with a 60-min tripwire. Ledger row. |
-| **3** | Anything `protected.py` flags, or anything that rests on Paper/mineflayer behaviour nobody here has seen work | Two engines, plus a real search of open source, issues and forums | A fleet canary in the one slot (bundle rules below). A Paper repro where it helps. |
+| **3** | Anything `protected.py` flags (`tier=3`), or anything that rests on Paper/mineflayer behaviour nobody here has seen work | Two engines, plus a real search of open source, issues and forums | A fleet canary in the one slot (bundle rules below). A Paper repro where it helps. |
+| **tooling** | Only `tooling:` entries flagged (`tier=tooling`): host scripts that schedule, read or gate canaries and drive the showcase | Two engines, one round, blockers only, plus `npm test` | No fleet canary: nothing on a bot changes. Install on the host it runs on, and check its first real run. Ledger row. A change that also flags tier 3 is tier 3. |
 
 A tier-1 or tier-2 fleet rollout takes the deploy lock. It never lands while a
 canary is reading, because that would change the canary's baseline.

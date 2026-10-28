@@ -455,7 +455,7 @@ await t('CHAIN CONTROL (real loop): a fresh iron pickaxe and the kit held -> nei
 // --------------------------------------------------------------------------------------------- wiring + mutants ---
 const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1')
 await t('WIRED (structural, comments stripped): the licence row once per spawn; the order\'s room and withdraw_pick\'s deferral read the kit\'s rules', () => {
-  const idx = strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
+  const idx = strip(readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8'))   // installFeatures, once per spawn (test/features-wired)
   assert.match(idx, /logEvent\(\{ kind: 'toolkit_ironpick_mode', status: 'success', snapshot: snapshot\(bot\), detail: ironpickModeDetail\(\) \}\)/)
   const cog = strip(readFileSync(COG_PATH, 'utf8'))
   assert.match(cog, /room: d => roomPlan\(items, kitRoomTakes\(d\), \{ keep \}\)\.ok,/)

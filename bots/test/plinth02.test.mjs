@@ -173,7 +173,7 @@ await t('BUILD_WELL WIRING (structural, comments stripped): the table cell comes
   assert.match(c, /carry \$\{need\} wooden trapdoor\(s\), crafted at any table in town/)
 })
 
-await t('THE LICENCE ROW (plinth-02): index.mjs writes `_plinth_mode` once per spawn from plinthModeDetail (a town with a finished plinth writes no _plinth row); the wiring check can fail', () => {
+await t('THE LICENCE ROW (plinth-02): features.mjs::installFeatures (from the index.mjs spawn handler) writes `_plinth_mode` once per spawn from plinthModeDetail (a town with a finished plinth writes no _plinth row); the wiring check can fail', () => {
   assert.equal(P.plinthModeDetail(), 'phase=mode v=2 table=below_stand w=-')
   assert.equal(P.plinthModeDetail('-1909043226:-504800724'), 'phase=mode v=2 table=below_stand w=-1909043226:-504800724')
   assert.equal(P.plinthModeDetail('x'.repeat(50)).split('w=')[1].length, 40, 'cut at 40, as the no_site rows')
@@ -181,15 +181,15 @@ await t('THE LICENCE ROW (plinth-02): index.mjs writes `_plinth_mode` once per s
   const wired = src => {
     const c = strip(src)
     assert.match(c, /^import \{ plinthModeDetail \} from '\.\/plinth\.mjs'/m, 'imported')
-    const i = c.indexOf("bot.once('spawn', () => {")
-    assert.ok(i > 0, 'the spawn handler exists')
+    const i = c.indexOf('export function installFeatures (bot) {')   // features.mjs: called once per spawn from index.mjs (test/features-wired)
+    assert.ok(i > 0, 'installFeatures exists')
     assert.match(c.slice(i, i + 4000), /\n\s*try \{ logEvent\(\{ kind: 'plinth_mode', status: 'success', snapshot: snapshot\(bot\), detail: plinthModeDetail\(bot\.worldId\) \}\) \} catch \{\}/, 'written on spawn, on the executable path')
   }
-  const idx = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')
+  const idx = readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8')
   wired(idx)
-  const row = "    try { logEvent({ kind: 'plinth_mode'"
+  const row = "  try { logEvent({ kind: 'plinth_mode'"
   assert.equal(idx.split(row).length, 2, 'anchor present and unique')
-  assert.throws(() => wired(idx.replace(row, "    try { void ({ kind: 'plinth_mode'")), 'a removed row is caught')
+  assert.throws(() => wired(idx.replace(row, "  try { void ({ kind: 'plinth_mode'")), 'a removed row is caught')
 })
 
 // ---- the plinth hardening folded in from lidclear-01 (51972f9a: 191ccc6d + 51e56968) ------------------------------------
