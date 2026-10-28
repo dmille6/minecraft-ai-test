@@ -126,7 +126,7 @@ await t('WELL SWITCH, journal-level (Codex r1 P1): a withdrawal\'s releasing cou
   assert.equal(CC.wellCobbleSwitch(view, 64), 'below', 'the well does not destroy on it')
   assert.equal(CC.wellCobbleSwitch(view, 65), 'at_cap', 'positive control: 936 + 65 would pass the cap even on the smaller count')
 })
-await t('LICENCE: the mode detail names the rule; index.mjs writes `_cobblekeep_mode` once per spawn on the executable path (comments stripped)', () => {
+await t('LICENCE: the mode detail names the rule; features.mjs::installFeatures (from the index.mjs spawn handler) writes `_cobblekeep_mode` once per spawn on the executable path (comments stripped)', () => {
   assert.equal(CC.cobbleKeepModeDetail(), `phase=mode well=admission lid=dirt,grass_block open=leaves,glass cap=${CAP}`)
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const wired = src => {
@@ -136,11 +136,11 @@ await t('LICENCE: the mode detail names the rule; index.mjs writes `_cobblekeep_
     assert.ok(i > 0, 'anchor')
     assert.match(c.slice(i, i + 6000), /\n\s*try \{ logEvent\(\{ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot\(bot\), detail: cobbleKeepModeDetail\(\) \}\) \} catch \{\}/, 'written on spawn')
   }
-  const idx = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')
+  const idx = readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8')
   wired(idx)
-  const row = "    try { logEvent({ kind: 'cobblekeep_mode'"
+  const row = "  try { logEvent({ kind: 'cobblekeep_mode'"
   assert.equal(idx.split(row).length, 2, 'ANCHOR MISSING or not unique')
-  assert.throws(() => wired(idx.replace(row, "    try { void ({ kind: 'cobblekeep_mode'")), 'a removed row is caught')
+  assert.throws(() => wired(idx.replace(row, "  try { void ({ kind: 'cobblekeep_mode'")), 'a removed row is caught')
   assert.throws(() => wired(idx.replace("detail: cobbleKeepModeDetail() }) } catch {}", "detail: 'phase=mode' }) } catch {}")), 'a literal detail is caught')
 })
 

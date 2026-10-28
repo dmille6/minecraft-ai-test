@@ -1,0 +1,68 @@
+// THE BUILDING FEATURES' SPAWN WORK -- moved verbatim out of index.mjs's spawn handler (fun mode, 2026-10-28).
+//
+// index.mjs is on config/protected-paths.txt whole (it owns connect, death, respawn and reconnect), so every
+// building feature that added a licence row or an install there became tier 3. Those lines live here instead,
+// and connect() calls installFeatures(bot) once per spawn from the same place they ran. A new building feature
+// adds its install and its `_<feature>_mode` row HERE. Safety features' rows (keepout, lavastep, poolescape)
+// stay in index.mjs, protected.
+//
+// Same statements, same order, same try/catch: nothing here may throw into the spawn handler.
+
+import { log, logEvent } from './logger.mjs'
+import { snapshot } from './state.mjs'
+import { config } from './config.mjs'
+import { kitSearchModeDetail, ironpickModeDetail } from './toolkit.mjs'
+import { townPlanModeDetail } from './townplan.mjs'   // townplan-01's licence row
+import { townPlanZones, townPlanSeed } from './skills.mjs'
+import { installCobbleCap } from './skills.mjs'
+import { cobbleCapModeDetail } from './cobblecap.mjs'
+import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
+import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
+import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
+import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
+import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
+import { lidClearModeDetail } from './lidrule.mjs'
+import { townSearchModeDetail } from './withdrawpick.mjs'
+import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
+import { plinth021ModeDetail, townRecordsShared } from './plinth.mjs'   // plinth-02.1's licence row (its own statement)
+import { plinthFirstModeDetail, plinthFirstPolicy } from './plinth.mjs'   // plinthfirst-01's licence row (its own statement)
+import { wellcareModeDetail } from './wellcare.mjs'   // wellcare-01's licence row (its own statement)
+
+/** Once per spawn, from index.mjs's spawn handler. Never throws. */
+export function installFeatures (bot) {
+  // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view
+  try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
+  // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
+  try { logEvent({ kind: 'cobblecap_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleCapModeDetail() }) } catch {}
+  // lidclear-01: the licence row, once per spawn -- `_lidclear_mode`, a kind the base cannot write (lidrule.mjs lidClearModeDetail)
+  try { logEvent({ kind: 'lidclear_mode', status: 'success', snapshot: snapshot(bot), detail: lidClearModeDetail() }) } catch {}
+  // townsearch-01: the licence row, once per spawn -- `_townsearch_mode`, a kind the base cannot write (withdrawpick.mjs townSearchModeDetail)
+  try { logEvent({ kind: 'townsearch_mode', status: 'success', snapshot: snapshot(bot), detail: townSearchModeDetail() }) } catch {}
+  // toolkit-03: the licence row, once per spawn -- `_toolkit_search_mode`, a kind the base cannot write (toolkit.mjs kitSearchModeDetail)
+  try { logEvent({ kind: 'toolkit_search_mode', status: 'success', snapshot: snapshot(bot), detail: kitSearchModeDetail() }) } catch {}
+  // ironpick-01: the licence row, once per spawn -- `_toolkit_ironpick_mode`, a kind the base cannot write (toolkit.mjs ironpickModeDetail;
+  // on=0 under TOOLKIT_IRONPICK=off, so the rollback is visible too)
+  try { logEvent({ kind: 'toolkit_ironpick_mode', status: 'success', snapshot: snapshot(bot), detail: ironpickModeDetail() }) } catch {}
+  // plinth-02: the licence row, once per spawn -- the build's own `_plinth_mode` kind (plinth.mjs plinthModeDetail)
+  try { logEvent({ kind: 'plinth_mode', status: 'success', snapshot: snapshot(bot), detail: plinthModeDetail(bot.worldId) }) } catch {}
+  // plinth-02.1: the licence row, once per spawn -- `_plinth021_mode` (plinth.mjs plinth021ModeDetail)
+  try { logEvent({ kind: 'plinth021_mode', status: 'success', snapshot: snapshot(bot), detail: plinth021ModeDetail({ shared: townRecordsShared({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '' }), worldId: bot.worldId }) }) } catch {}
+  // plinthfirst-01: the licence row, once per spawn -- `_plinthfirst_mode` (plinth.mjs plinthFirstModeDetail); CONFIGURATION only
+  try { logEvent({ kind: 'plinthfirst_mode', status: 'success', snapshot: snapshot(bot), detail: plinthFirstModeDetail({ on: plinthFirstPolicy({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '', env: process.env }), shared: townRecordsShared({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '' }), worldId: bot.worldId }) }) } catch {}
+  // wellcare-01: the licence row, once per spawn -- the build's own `_wellcare_mode` kind (wellcare.mjs wellcareModeDetail)
+  try { logEvent({ kind: 'wellcare_mode', status: 'success', snapshot: snapshot(bot), detail: wellcareModeDetail() }) } catch {}
+  // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
+  try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
+  // townindex-01: the licence row, once per spawn -- `_townindex_mode`, a kind the base cannot write (townindex.mjs)
+  try { logEvent({ kind: 'townindex_mode', status: 'success', snapshot: snapshot(bot), detail: townIndexModeDetail() }) } catch {}
+  // ironsmelt-01: the licence row, once per spawn -- `_ironsmelt_mode`, a kind the base cannot write (smeltjob.mjs)
+  try { logEvent({ kind: 'ironsmelt_mode', status: 'success', snapshot: snapshot(bot), detail: ironsmeltModeDetail() }) } catch {}
+  // townplan-01 / found-01: the licence rows, once per spawn -- `_townplan_mode` and `_found_mode`, kinds the base cannot write
+  try {
+    const z = townPlanZones(bot), sd = townPlanSeed(bot)
+    logEvent({ kind: 'townplan_mode', status: 'success', snapshot: snapshot(bot), detail: townPlanModeDetail({ seed: sd.use ? 'ok' : `${sd.ok ? '' : 'bad:'}${sd.why}`, zones: z.known ? `${z.zones.length}` : `unknown:${z.why}` }) })
+  } catch {}
+  if (FOUND.on) try { logEvent({ kind: 'found_mode', status: 'success', snapshot: snapshot(bot), detail: foundModeDetail() }) } catch {}   // dormant: no row (the read's arms line)
+  // junkout-01: the licence row, once per spawn -- `_junkout_mode`, a kind the base cannot write (bagallowance.mjs junkoutModeDetail)
+  try { logEvent({ kind: 'junkout_mode', status: 'success', snapshot: snapshot(bot), detail: junkoutModeDetail() }) } catch {}
+}

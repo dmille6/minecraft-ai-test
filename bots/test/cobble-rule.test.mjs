@@ -172,7 +172,7 @@ await t('CAP, pure: a lower bound at the cap needs no completeness; below it, an
   assert.equal(CC.cobbleAdmit(v(CAP - 106, true, 64), 64), 'at_cap', 'cobble on its way counts, this bot\'s own earlier stacks too')
   assert.deepEqual(CC.admitStacks(v(CAP - 56, true), [20, 30, 64]), { bank: [20, 30], refused: { at_cap: 1, unknown: 0 } }, 'each admitted stack is charged before the next (CAP-36, CAP-6; CAP+58 refused)')
 })
-await t('THE LICENCE ROW (cobblecap-1000 r7): the mode detail carries the one cap, and index.mjs writes it once per spawn as `_cobblecap_mode`', () => {
+await t('THE LICENCE ROW (cobblecap-1000 r7): the mode detail carries the one cap, and features.mjs::installFeatures (from the index.mjs spawn handler) writes it once per spawn as `_cobblecap_mode`', () => {
   assert.equal(CC.cobbleCapModeDetail(), 'phase=mode cap=1000', 'the canary build says cap=1000')
   assert.equal(CC.cobbleCapModeDetail(), `phase=mode cap=${CC.TOWN_COBBLE_CAP}`, 'from the one constant')
   assert.equal(CC.cobbleCapModeDetail(256), 'phase=mode cap=256', 'positive control: the detail follows the cap it is given')
@@ -180,16 +180,16 @@ await t('THE LICENCE ROW (cobblecap-1000 r7): the mode detail carries the one ca
   const wired = src => {
     const c = strip(src)
     assert.match(c, /^import \{ cobbleCapModeDetail \} from '\.\/cobblecap\.mjs'$/m, 'imported')
-    const i = c.indexOf("bot.once('spawn', () => {")
-    assert.ok(i > 0, 'the spawn handler exists')
+    const i = c.indexOf('export function installFeatures (bot) {')   // features.mjs: called once per spawn from index.mjs (test/features-wired)
+    assert.ok(i > 0, 'installFeatures exists')
     assert.match(c.slice(i, i + 4000), /\n\s*try \{ logEvent\(\{ kind: 'cobblecap_mode', status: 'success', snapshot: snapshot\(bot\), detail: cobbleCapModeDetail\(\) \}\) \} catch \{\}/, 'written on spawn, on the executable path')
   }
-  const idx = fs.readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')
+  const idx = fs.readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8')
   wired(idx)
   // the check can fail: the row removed (the comment that quotes it is stripped, so it cannot satisfy the match)
-  const row = "    try { logEvent({ kind: 'cobblecap_mode'"
+  const row = "  try { logEvent({ kind: 'cobblecap_mode'"
   assert.equal(idx.split(row).length, 2, 'anchor present and unique')
-  assert.throws(() => wired(idx.replace(row, "    try { void ({ kind: 'cobblecap_mode'")), 'a removed row is caught')
+  assert.throws(() => wired(idx.replace(row, "  try { void ({ kind: 'cobblecap_mode'")), 'a removed row is caught')
   assert.throws(() => wired(idx.replace("detail: cobbleCapModeDetail() }) } catch {}", "detail: 'phase=mode cap=1000' }) } catch {}")), 'a literal detail is caught')
 })
 

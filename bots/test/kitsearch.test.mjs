@@ -506,7 +506,7 @@ await t('CHAIN (real loop), NO IRON ANYWHERE: one toolkit run (no_iron after loo
 // ------------------------------------------------------------------------------------------------- wiring + mutants
 const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1')
 await t('WIRED (structural, comments stripped): the licence row is written once per spawn from kitSearchModeDetail', () => {
-  const idx = strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
+  const idx = strip(readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8'))   // installFeatures, once per spawn (test/features-wired)
   assert.match(idx, /logEvent\(\{ kind: 'toolkit_search_mode', status: 'success', snapshot: snapshot\(bot\), detail: kitSearchModeDetail\(\) \}\)/)
   assert.match(idx, /import \{[^}]*\bkitSearchModeDetail\b[^}]*\} from '\.\/toolkit\.mjs'/)
 })

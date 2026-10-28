@@ -233,10 +233,11 @@ await t('THE PLAN\'S FURNITURE IS NO PATH\'S DIG (Paper FOUND-NOFIT 10-22; real 
   assert.ok(/moves\.exclusionAreasBreak = \[\(block\) => wellBreakCost\(wellCols, block, selfWell\) \|\| planBreakCost\(bot\.townPlan\?\.cells, block\)\]/.test(code('index.mjs')))
 })
 console.log('townplan: the wiring (comments stripped)')
-await t('WIRED: the planner tick every PLAN_TICK_MS and both licence rows once per spawn (index.mjs)', () => {
+await t('WIRED: the planner tick every PLAN_TICK_MS (index.mjs) and both licence rows once per spawn (features.mjs installFeatures)', () => {
   const src = code('index.mjs')
   assert.ok(/setInterval\(\(\) => \{ try \{ townPlanTick\(bot\) \} catch \{\} \}, PLAN_TICK_MS\)/.test(src))
-  assert.ok(/kind: 'townplan_mode'/.test(src)); assert.ok(/kind: 'found_mode'/.test(src))
+  const feat = code('features.mjs')   // called once per spawn from index.mjs (test/features-wired)
+  assert.ok(/kind: 'townplan_mode'/.test(feat)); assert.ok(/kind: 'found_mode'/.test(feat))
 })
 await t('WIRED: the found slot sits between the raised well and the town deposit; the recount never displaces a found order (cognitive.mjs)', () => {
   const src = code('cognitive.mjs')
