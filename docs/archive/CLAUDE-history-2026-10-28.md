@@ -1,0 +1,287 @@
+# CLAUDE.md as it stood on 2026-10-28, before the fun-mode shrink
+
+Archived verbatim (at `8402af42`, PR #1's copy) when `CLAUDE.md` was cut to the active rules. This is the
+history and rationale behind those rules, and the full lab-mode measurement process (difference-in-differences,
+the memory-experiment arms, bag-fix death rule, canary tiers v36). Lab mode (`docs/PROCESS-fun-mode.md`) uses it
+for one declared experiment. Nothing below is an active rule unless `CLAUDE.md` or the fun-mode doc says so.
+
+---
+
+# Working rules for this repo
+
+> **FUN MODE (OWNER DECISION 2026-10-28) — read [`docs/PROCESS-fun-mode.md`](docs/PROCESS-fun-mode.md) first.**
+> This is a fun experiment, not a paper. Where that file conflicts with the rules below
+> (reviews, tiers, canary reads, records), it wins; the tooling rules in § Deploys still hold.
+
+Short list. Every rule here exists because breaking it cost real time, and the
+evidence is named so you can judge it rather than obey it.
+
+**This file is a tripwire, not a control system.** Where a rule here could be
+made mechanical instead, that is the better fix and this file should shrink.
+`ZeroLooksWrong` is the model: it does not ask you to remember, it raises.
+Two rules earned their mechanism already — `npm test` is now the only test
+command, and `Events.rate()` no longer has a fleet-size default to get wrong.
+
+The failure this project keeps repeating is **believing a cheap negative**. A
+zero from a query, an empty mutant, a short window, a green run of the wrong
+runner. Most of the rules below are guards against exactly that.
+
+The second failure is **never closing**. Analysis is unbounded here and
+validation is one change at a time; the queue can only grow. The rule below is
+the guard, and `check-open-loop.py` is its mechanism.
+
+---
+
+## Done means read on the fleet, not merged
+
+A change is DONE when all five have happened:
+
+```
+merged -> deployed -> observed on the fleet -> KEEP or REVERT recorded -> memory says SHIPPED
+```
+
+Not "analysed". Not "105/105 green". Not "the plan is published". Not
+"probably right". A local test proves the code does what you wrote; only the
+fleet says whether what you wrote was worth writing.
+
+**While a canary is deployed and unread, no new analysis starts.** Read it,
+decide, tear it down (both steps), then take the next thing. `check-open-loop.py`
+raises `OpenLoop` when the manifest declares a canary with no decision recorded
+against its sha, so this does not depend on anyone remembering it.
+
+Recording INCONCLUSIVE is a legitimate close and is often the honest one — two
+readings inside the 2.36x between-pool noise band is not a result. What is
+forbidden is walking away with nothing written, because that is indistinguishable
+from the work never having happened.
+
+Measured 2026-09-04, and this is why the rule exists: **100 memory entries, 25
+of which mention shipping anything and 17 of which correct an earlier finding.**
+Five commits sat on `main` undeployed, including all three drowning fixes, while
+that day produced six fresh analyses and one commit. Sixty commits were written
+that week; roughly two were validated. Every one of those analyses was correct.
+That is the point — being right is not the constraint, and treating "better
+grounded" as progress is how a month goes by with the endpoint flat.
+
+---
+
+## Telemetry: use `scripts/lib/telemetry.py`. Do not hand-roll a query.
+
+```python
+from lib.telemetry import Events
+ev = Events.load(since_minutes=180)
+ev.count('drowning_route')          # raises ZeroLooksWrong on a suspicious 0
+ev.by_bot('mine'); ev.where('mine', lambda r: 'water' in (r.get('detail') or ''))
+```
+
+`ZeroLooksWrong` exists precisely because a zero is usually a query bug. Pass
+`allow_zero=True` only when you have already proven the query finds something.
+
+Hand-rolled queries produced two wrong findings in one day: "84 of 84 bots
+immobile" (read a `snapshot` field that does not exist in these logs — position
+is at `bot.pos`), and "rideFloorDown places zero blocks" (read a filtered
+failure bucket as if it were the population; it had placed 140).
+
+- **Full walks only.** A full walk is ~4s. Seeking to the tail silently eats the
+  baseline and flatters whatever changed most recently.
+- **`grep -a`** — the files trip binary detection.
+- **Event kinds live in `skill.name`**, position in `bot.pos`, inventory in
+  `bot.inventory`, arm/pool in `exp`. There is no top-level `snapshot`.
+- **`Events.rate()` requires `bots=`** — pass `bots='auto'` to count the bots
+  actually present. It used to default to 40 against an 80-bot fleet.
+- **Wide windows -> `scripts/lib/estelemetry.py` (Elasticsearch); gates and canary
+  reads -> the files.** OWNER 2026-10-14. Same zero guard. It refuses a window that
+  touches 10-07, which holds duplicate docs, and it cannot tell null from absent.
+  `scripts/host/fleetstatus.py` is the 3 h / 24 h / 7 d status built on it. Evidence
+  is in `docs/reports/es-completeness-2026-10-14.md`.
+
+## Tests: run `node scripts/run-tests.mjs` from `bots/`. Never a homegrown loop.
+
+`npm test` runs exactly this and nothing else. It sets `SKILL_TIMEOUT_MS=300`
+and `SKILL_HARD_STOP_GRACE_MS=300`, so a test
+that assumes production timeouts passes standalone and turns the suite red.
+
+A homegrown loop reported green for a whole session while this runner was red,
+and separately reported two files as "hanging" when they merely take 56s and
+210s — `mine` really does `await sleep(250)` + `sleep(150)` per step.
+
+## Every negative claim carries a positive control
+
+Before writing "zero X", show the same query finding something — a neighbouring
+event kind, or just the totals for rows, bots and timestamps. `ZeroLooksWrong`
+does this for `count()`; do it by hand for anything it does not cover.
+
+This is the single rule that would have caught the most damage. "84 of 84
+immobile", "zero blocks placed", "0 successes", "two hanging tests" were all
+absences produced by an instrument that could not have seen a presence.
+
+## Say the denominator before you say the number
+
+"0 placed blocks" was true of the failures and false of the population.
+"19 vs 0" was true of that window and false of those bots. Both survive one
+question: **out of what?**
+
+Canary results are **difference-in-differences, never canary-vs-fleet**. A good
+deploy was rolled back once on cross-sectional noise, because the pool happened
+to contain two chronic emitters of a pre-existing error.
+
+## Test behaviour. Source-grep only for structural invariants.
+
+Five grep assertions passed for the wrong reason in one day: matching the
+comment that explains the code, an inverted assertion, a window too narrow to
+see the thing it forbade, a constant asserted present but never used, and a
+hardcoded ternary whose branches both still appeared in the text.
+
+The fix each time was the same — pull the decision into an exported pure
+function and test its behaviour. See `overheadBreakRisk` and `climbPrereqFor`
+(reflex/scaffold) and `stairLiquid` (skills). Those cannot lie.
+
+Source assertions ARE legitimate for things behaviour cannot reach: a skill is
+registered in the dispatch table, a dangerous call is absent, a config value is
+wired into the runner, an anti-regrowth guard is still dead. Those are real and
+this repo needs them.
+
+When you write one: strip comments first (this codebase's comments quote the
+code they explain, so a naive grep matches the explanation), anchor on the
+executable line rather than a constant's declaration, and prove it fails for the
+intended reason with a mutant. A source test that has never been seen to fail is
+not a test.
+
+Never assert decision logic by matching text. Extract the decision.
+
+## Mutants must assert their anchor is present and unique
+
+```python
+assert old in src, "ANCHOR MISSING"          # and check it appears once
+```
+
+A mutant that silently fails to apply reads as "killed". One used
+`replace(old, '', 1)` on a string appearing at several call sites and deleted a
+different function's line; another produced no output at all and was nearly
+scored as a pass. `withMutant` in `bots/test/climb-escape.test.mjs` does this
+correctly — reuse it.
+
+## A new refusal must name a remedy the bot can perform from where it is
+
+Four separate traps were **two individually-correct guards meeting where the bot
+had no legal move**: the exit contract vs `mine`; `surface` vs the entombment
+reflex; `rideFloorDown` deferring to a `mine` that correctly refuses; the
+staircase bearing vs its own water check.
+
+The bug class is not "missing remedy" — it is **local policy composition
+creating a dead end**. Naming a remedy does not prove it is executable,
+selected, or reachable, so all three need checking:
+
+- **Executable from here.** "Get a pickaxe" to a bot sealed underground with no
+  wood is not a remedy.
+- **Reachable.** One refusal printed the correct remedy 262 times and the model
+  never acted on it. Advice printed is not advice taken; if it must happen, make
+  it deterministic rather than advisory.
+- **Composed.** Test the refusal CHAIN, not the single guard. Every trap this
+  week passed its own unit tests.
+
+## Deploys
+
+- Run the deploy script **from a copy outside the repo** — it `git reset`s the
+  tree it lives in, and bash re-reads a running script by byte offset.
+  `sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh && sudo /root/d.sh <sha> <run_id> "<notes>" [--pool P]`
+- **One canary pool, ever.** The tripper matches `canary_pool` literally; two
+  canaries means three versions means a halted fleet. RE-DECIDED 2026-10-08 (owner
+  delegated to Codex + Claude): two concurrent lanes were evaluated and BOTH engines
+  rejected them for now. A replay of six past canaries with a second lane's pools
+  removed from control flipped junkwell-01's death-gate REVERT to POLL_OK, because
+  the smaller control widened the gate's interval. On top of that, double-KEEP
+  compositions go unmeasured, and deploy-fleet.sh and the tripper ship per sha.
+  See docs/reports/canary-throughput-2026-10-08.md.
+- **Once installed (staged 10-08, see STATE.md), the next canary is launched by
+  `~/canary-sched.py`** (cron, every 5 min) from
+  the owner's ordered queue `~/canary-queue.json`. It launches only into an empty
+  slot, never skips the head, and never retries; a human runs `rearm`, `abandon`,
+  `closed` or `cancel`. `queue add` refuses a variant without `approved`, so
+  `scripts/prepare-variant.sh` output needs a reviewer first.
+- **An installer ACQUIRES `/tmp/mcai-canary.lock` (flock -n) for its whole run**
+  and refuses on a declared manifest or any drop-in. It first calls
+  `canary-sched.py install-hold <owner> <minutes>`, which stops new launches and
+  exits 2 unless the slot is free, and calls `install-release` when done.
+- **Teardown is THREE steps** — drop-ins, clearing `canary_pool`, **and
+  restarting the pool's bots**. The first two are config; neither restarts
+  anything, so the bots keep running the canary code from memory and the fleet
+  sits on three versions, which halts the tripper. Measured 2026-09-04: after a
+  "complete" two-step teardown of placebo-b, all five bots were still reporting
+  the canary build, and only the next deploy's verifier caught it. Stagger the
+  restarts 12s apart, then confirm exactly two versions are live.
+- **The pre-push hook blocks canary branches, and that is a false positive.**
+  It refuses any push while behind `origin/main`, but a single-variable canary
+  must branch from the DEPLOYED BASELINE, not from main, so it is behind by
+  construction. Confirm the remote branch does not already exist — then the push
+  can only create, never overwrite — and use `--no-verify` for that push only.
+- A canary pool must **contain the population the fix targets**, or it shows
+  nothing.
+- Rare outcomes (deaths ~0.1/hour/pool) are unmeasurable on 5 bots. Use them as
+  tripwires, not proof.
+- **The death gate needs TWO canary deaths** (and > 1.25x the control rate) before it
+  trips on its own. OWNER DECISION 2026-09-11: at ~0.05 deaths/bot-hour one unrelated
+  death lands on a 5-bot pool in 90 min about a third of the time, and it reverted two
+  working canaries in one afternoon (a lava swim during explore, a drowning while idle).
+  One death is reported in the read and named; it is not a verdict. `canary-report.py`
+  enforces the floor; the read scripts under ~/mcai-analysis say "two-death floor".
+  **Bag fixes extend instead (OWNER DECISION 2026-10-07, gate v33 -- in force only once
+  `install-bagfix-gate.sh` has run; until then this gate decides bag fixes too: check
+  `~/digest/gate-installs.log`).** A registration with
+  `"class": "bag-fix"` is drawn at 4 pools (20 bots; never widened mid-run). If this gate
+  trips with ZERO mechanism-linked deaths (own rows within 120 s, own rows visible), it is
+  not reverted: it reads to +1440 and reverts only on (a) linked deaths beyond chance,
+  (b) a lower bound > 2.0x at any poll, or (c) value-weighted net output / iron below
+  their 24-h null bands. Otherwise INCONCLUSIVE (bag metric unmoved, or < 400 bot-h) or
+  KEEP, and a KEEP gives the next slot to an underground-safety fix. Non-bag canaries are
+  unchanged. `bagfixrule.py` decides, `bagfixgate.py` measures; see
+  docs/reports/bagfix-death-rule-2026-10-07.md. The rule is more lenient than this gate
+  by construction; that was the owner's trade.
+- **Tiers (OWNER DECISION 2026-10-19, gate v36, installed 10-19 16:20Z; bundle 19951735).** Tier 1, a constant: light review, then an
+  owner-direct fleet rollout with a tripwire (journal `owner-direct`). This is not a canary.
+  Tier 2, a small fix with strong Paper evidence: the registration carries `"tier": 2` (the
+  integer 2, with no `class`). It may KEEP at +180 only with exactly 4 pools, >= 48 bot-h, a
+  declared exposure met, no WATCH or HOLD, a licence that is not `rate`, a death rate no
+  higher than control's, and a baseline where the logs show the canary pools on the
+  controls' build. Otherwise it reads on as usual, but a contaminated baseline never KEEPs.
+  A tier-2 run draws pools whose tier-2 predecessor closed >= 240 min ago. Tier 3, or no
+  `tier` at all, is exactly the old behaviour. `tierrule.py` decides; see
+  docs/reports/canary-tiers-2026-10-19.md.
+
+## Commits
+
+Use `git commit -F -` with a quoted heredoc. `-m` with double quotes silently
+eats backticked identifiers.
+
+## Standing constraints from the owner
+
+- **The memory experiment is retired (2026-09-04).** Not paused — retired. The
+  four arms, arm-stratified analysis, and the 20% gather gate are gone. This is
+  a foundation-and-harness project now: bots must survive, move, gather and
+  build in any Minecraft world.
+
+  *Superseded for ordinary changes by fun mode (2026-10-28); it still applies to a
+  declared lab-mode experiment.* Keep every bit of the measurement rigor. Difference-in-differences still
+  applies, but split pools **arbitrarily** rather than by arm — randomize five
+  bots per change and use the rest as control. Do NOT replace it with a
+  fleet-wide before/after: measured 2026-09-04, pools moved from -45% to +77%
+  on one metric in six hours with no code change, and a before/after would have
+  credited a fix with what was mostly world drift.
+
+  What the arms were costing: hive pools ran 109-185 learned_avoid vetoes per
+  1k decisions against 3-16 everywhere else, so every change landed differently
+  per arm and carried an interaction term; and only two conditions were ever
+  real, because board never used the board.
+- **Do not change the world to fix a bot.** No teleporting, no `/give`, no world
+  edits. The fix must be code that works in any Minecraft world.
+- Swimming is travel, not danger. Water is terrain. The only water reflex is
+  getting air.
+- Do not use the 192.168.19x network. Do not use the UniFi API on 10.0.0.1 (it
+  triggers a WAN re-provision).
+- Do not disable `rpcbind` on any Proxmox node.
+- *Fun mode (2026-10-28): one engine, one round, blockers only, by default. The two-engine
+  review below is reserved for movement, reflexes, mining depth and unseen Paper/mineflayer
+  behaviour.* Independent Claude **and** ChatGPT review, plus a real search of open source,
+  issues and forums, before proposing to build. Scope it to design changes, new
+  research claims, deploy-impacting conclusions, and anything resting on
+  external Minecraft/mineflayer/Paper behaviour — an unscoped version becomes
+  review theatre, which is worse than no review because it looks like one.
