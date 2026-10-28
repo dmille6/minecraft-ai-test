@@ -60,7 +60,8 @@ import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence
 import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
 import { matsModeDetail, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'   // mats-01's licence row (its own statement)
 import { createHash as shopHash } from 'node:crypto'
-import { shopStoodTick, shopFootprintRefresh, shopAckInstall } from './skills.mjs'   // shop-01: the walks' seeds, the footprint, the acks
+import { shopStoodTick, shopFootprintRefresh, shopAckInstall } from './skills.mjs'
+import { noBridgeCost } from './nobridge.mjs'   // nobridge-01: no path scaffold over water on a walk   // shop-01: the walks' seeds, the footprint, the acks
 import { SHOP, buildModeDetail, footprintCost, STOOD_EVERY_MS } from './shop.mjs'   // shop-01's licence row and the footprint price
 import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout-01: an open note's obligations held again at spawn
 import { lidClearModeDetail } from './lidrule.mjs'
@@ -689,6 +690,9 @@ function connect() {
     // search time, so the ascend/descend/water escapes keep their survival digs
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
     moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
+    // nobridge-01 (LIVE 10-27 showcase: 52 dirt laid across the lake): no WALK places a path block over or into water; the
+    // 1x1 tower stays (nobridge.mjs says which moves place and why this entry is the narrowest override). Escapes untouched.
+    moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat(noBridgeCost((x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null, () => bot.movementProfile))
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
