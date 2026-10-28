@@ -146,6 +146,20 @@ export function segmentsOf (record) {
 export function segComplete (read, record, palette, seg) {
   return record.cells.filter(c => c.seg === seg).every(c => cellDone(read(...c.at), palette, c.role))
 }
+/**
+ * THE SEGMENT A VISIT WOULD WORK NOW -> seg | null, in runVisit's own order: the first incomplete segment whose deps are complete
+ * and whose lease `free(seg)` (none, ours, or lapsed); null where the visit would stop deps_open (an incomplete segment whose deps
+ * are open) or find every open segment held. Pure. build_shop draws the planks' LOGS only when this names one (shopwalls-02:
+ * LIVE 10-28, builders waiting on another's roof lease drew 9 logs each, 36 planks into bags, and stopped deps_open).
+ */
+export function workableSeg (record, read, palette, free = () => true) {
+  for (const { seg, deps } of segmentsOf(record)) {
+    if (segComplete(read, record, palette, seg)) continue
+    if (!deps.every(d => segComplete(read, record, palette, d))) return null
+    if (free(seg)) return seg
+  }
+  return null
+}
 /** A dig stand for a cell -> [x, y, z] | null: a walked-to node whose eye is within DIG_REACH of the cell centre, never on or under
  *  the cell, with a clear sight line to the cell's centre. Nearest wins. Pure. */
 export function digStand (read, cell, nodes) {
