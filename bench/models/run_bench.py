@@ -5,6 +5,8 @@
     python3 run_bench.py --engine ollama --model qwen3.6:35b-a3b --label q36-35b \
         --sets brain,stuck,overseer --concurrency 4 --think false [--stuck-think true] [--limit N]
     python3 run_bench.py --engine openai --url http://127.0.0.1:1234 --model <lmstudio id> ...
+    python3 run_bench.py --engine systemone --systemone-backend ollama-logprobs|http --url ... --model ... --sets brain
+      (decision models: the brain decision as choice questions, systemone_engine.py / systemone_map.py; brain set only)
 
 SETS
   brain     the fleet's own system prompt (rebuilt from the deployed source, matched by system_hash),
@@ -183,9 +185,22 @@ def call_openai(a, msgs, schema, num_ctx, num_predict, think):
             'ttft_s': st.get('time_to_first_token'), 'gen_tps': st.get('tokens_per_second')}
 
 
+def call_systemone(a, msgs, schema, num_ctx, num_predict, think):
+    """Decision-model engine: the same system + user prompt and schema, answered as System One choice questions
+    (systemone_map.py); the content is the mapped proposal as JSON, so score.py scores it like any other answer."""
+    import systemone_engine as SE
+    be = SE.OllamaLogprobs(a.url, a.model, timeout=a.timeout) if a.systemone_backend == 'ollama-logprobs' \
+        else SE.HttpSystemOne(a.url, a.model, timeout=a.timeout)
+    r = SE.decide({'id': '', 'system': msgs[0]['content'], 'user': msgs[-1]['content'], 'schema': schema}, be)
+    return {'content': json.dumps(r['proposal']), 'served_model': a.model, 'confidence': r['confidence'],
+            'decided': r['decided'], 'prompt_tokens': r['prompt_tokens'], 'gen_tokens': 0,
+            'total_s': r['latencyMs'] / 1000.0}
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--engine', choices=('ollama', 'openai'), default='ollama')
+    ap.add_argument('--engine', choices=('ollama', 'openai', 'systemone'), default='ollama')
+    ap.add_argument('--systemone-backend', dest='systemone_backend', choices=('ollama-logprobs', 'http'), default='http')
     ap.add_argument('--url', default=None)
     ap.add_argument('--model', required=True)
     ap.add_argument('--label', required=True)
@@ -204,6 +219,8 @@ def main():
     ap.add_argument('--out', default=None)
     a = ap.parse_args()
     a.url = a.url or ('http://127.0.0.1:11434' if a.engine == 'ollama' else 'http://127.0.0.1:1234')
+    if a.engine == 'systemone' and a.sets != 'brain':
+        raise SystemExit('REFUSED: --engine systemone answers the brain set only (stuck/overseer need free text)')
     if a.stuck_think is None:
         a.stuck_think = a.overseer_think
     out = a.out or os.path.join(HERE, 'out', a.label + '.jsonl')
@@ -235,10 +252,12 @@ def main():
                 keep.append(i)
         items = keep
     items = [i for i in items if i['id'] not in done]
-    fn = call_ollama if a.engine == 'ollama' else call_openai
+    fn = {'ollama': call_ollama, 'openai': call_openai, 'systemone': call_systemone}[a.engine]
     # RUNTIME VERSION on every record: runs span an Ollama upgrade (0.33.3 -> 0.35.1, owner-approved 10-05)
     try:
-        if a.engine == 'ollama':
+        if a.engine == 'systemone':
+            runtime = 'systemone/' + a.systemone_backend
+        elif a.engine == 'ollama':
             runtime = 'ollama ' + json.loads(urllib.request.urlopen(a.url.rstrip('/') + '/api/version', timeout=10).read()).get('version', '?')
         else:
             import subprocess
