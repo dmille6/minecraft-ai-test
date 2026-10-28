@@ -1,0 +1,44 @@
+diff --git a/sandbox/well/stock-e2e.cjs b/sandbox/well/stock-e2e.cjs
+index c8b862c6..b078dbda 100644
+--- a/sandbox/well/stock-e2e.cjs
++++ b/sandbox/well/stock-e2e.cjs
+@@ -1185,6 +1185,39 @@ scenes.junkcompost = async () => {
+     BASE_SHAPE: !!(composts === 0 && gone.length === 0 && kept.length === 0) })
+ }
+ 
++// LOGBANK (logbank-01, OWNER 10-27; LOCK_OWNER=logbank; no well): a HALF-EMPTY bag (11 slots) holding 64 + 9 oak logs at a
++// town chest. The candidate's NOT-FULL visit (the tail) banks the logs above the personal 16 -- the 9 whole, then the 64 halved
++// (32, 16) -- so the SERVER's bag ends at exactly 16 and the chest gains 57. Read back by RCON only (`data get entity` /
++// `data get block`), never from the bot's rows. LOGBANK=off (logbankoff) is the instrument's control: the old rule keeps
++// everything up to 64 and a not-full bag banks no log at all (no rows to bank either: the chest stays empty of logs).
++const logbankScene = async (scene, env = {}, { log = 'oak_log', keepWell = false } = {}) => {
++  if (!keepWell) { buildArena(); CAP = null }
++  BRAIN_WANDER = true
++  rcon(`kill ${ARENA_SEL}`); CHEST = pickChest()
++  const spec = [[log, 64], [log, 9], ['cobblestone', 20], ['stick', 6], ['crafting_table', 1], ['stone_pickaxe', 1, 0], ['dirt', 10], ['torch', 4], ['bread', 8], ['andesite', 5], ['white_wool', 3]]
++  const files = await startBot(scene, spec, { pool: `sbxstock-${RUN}-${scene}`, env })
++  setChest([])
++  const before = bag(NAME), chest0 = chestTotals()
++  const tdRow = () => rowsOf(files.skillLog).find(r => /^_?town_deposit$/.test(r.name))
++  const row = await waitFor(tdRow, scene === 'logbankoff' ? 150000 : 300000, 1000)
++  await sleep(8000)
++  const after = bag(NAME), chest1 = chestTotals()
++  const rows = rowsOf(files.skillLog).filter(r => /town_deposit|_junkout|count_town/.test(r.name)).slice(0, 12).map(r => `${r.name}:${r.status}:${r.detail.slice(0, 220)}`)
++  await stopBot(); BRAIN_WANDER = false
++  const logsB = before.totals[log] ?? 0, logsA = after.totals[log] ?? 0, chestLogs = (chest1.totals[log] ?? 0) - (chest0.totals[log] ?? 0)
++  result({ scene, root: BOT_ROOT, env, bag: { used: [before.used, after.used], logs: [logsB, logsA], before: before.totals, after: after.totals },
++    chest: { before: chest0.totals, after: chest1.totals }, chestLogsGained: chestLogs, conserved: logsB === logsA + chestLogs, row: row ? `${row.status}:${row.detail}` : null, rows,
++    CANDIDATE_PASS: !!(logsB === 73 && logsA === 16 && chestLogs === 57 && before.used < 34),
++    OFF_SHAPE: !!(logsB === 73 && logsA === 73 && chestLogs === 0) })
++}
++// FOUND=off on both (Paper r1: found-01 crafted the first table from one of the logs, a confound of the count)
++scenes.logbank = () => logbankScene('logbank', { FOUND: 'off' })
++scenes.logbankoff = () => logbankScene('logbankoff', { LOGBANK: 'off', FOUND: 'off' })
++// r3 (LIVE showcase-e8525ca4): SPRUCE, the showcase's only log, in a WELL town (after `build`: the stock cap binds, so the
++// logs need a count of the town first) -- the live shape
++scenes.logbanksp = () => logbankScene('logbanksp', { FOUND: 'off' }, { log: 'spruce_log', keepWell: true })
++scenes.logbankspoff = () => logbankScene('logbankspoff', { LOGBANK: 'off', FOUND: 'off' }, { log: 'spruce_log', keepWell: true })
++
+ async function main () {
+   const owner = process.env.LOCK_OWNER || 'stocktarget'   // OPERATOR OVERRIDE: the lock tag this run accepts (e.g. LOCK_OWNER=cobblekeep)
+   sbx.requireSandboxLock(SERVER, owner)   // the global lock or this server's own (sandbox/lib/sbxlock.cjs); throws unless every lock on SERVER has our tag as its owner's first word

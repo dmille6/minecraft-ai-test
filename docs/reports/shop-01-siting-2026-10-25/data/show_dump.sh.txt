@@ -1,0 +1,16 @@
+#!/bin/bash
+# show_dump.sh (on 10.0.0.40 as mike, in ~/scratch-shop): READ-ONLY copies of the showcase's pool state and the region files
+# around home 0,70,0, a block dump of home +-50 (y 54..102), and the logged in-town bot positions.
+set -u
+cd ~/scratch-shop || exit 2
+mkdir -p pool region
+sudo -n cp /var/lib/mcai/_pool-showcase/townplan-0_70_0.g*.json /var/lib/mcai/_pool-showcase/protected-zones.json /var/lib/mcai/_pool-showcase/junkwell-plinth-0_70_0.json /var/lib/mcai/_pool-showcase/junkwell-site-0_70_0.g*.json /var/lib/mcai/_pool-showcase/town-site.json pool/ 2>/dev/null || cp /var/lib/mcai/_pool-showcase/townplan-0_70_0.g*.json /var/lib/mcai/_pool-showcase/protected-zones.json /var/lib/mcai/_pool-showcase/junkwell-plinth-0_70_0.json /var/lib/mcai/_pool-showcase/junkwell-site-0_70_0.g*.json /var/lib/mcai/_pool-showcase/town-site.json pool/
+ls /var/lib/mcai/_pool-showcase/ | grep -E '^treefarm-' | while read f; do cp "/var/lib/mcai/_pool-showcase/$f" pool/ 2>/dev/null || sudo -n cp "/var/lib/mcai/_pool-showcase/$f" pool/; done
+for f in r.-1.-1.mca r.-1.0.mca r.0.-1.mca r.0.0.mca; do cp "/srv/showcase/server/world/region/$f" region/ 2>/dev/null || sudo -n cp "/srv/showcase/server/world/region/$f" region/; done
+sudo -n chown -R mike: pool region 2>/dev/null
+date -u +%FT%TZ > dumped.at
+python3 townplan_blockdump.py region --box -50 -50 50 50 --y 54 102 --out showcase.json > dump.log 2>&1; echo "dump rc=$?"
+echo "showcase 0 70 0" > w.txt
+python3 stood.py w.txt > stood.json; echo "stood rc=$?"
+tar czf out.tgz pool showcase.json stood.json dumped.at
+ls -la out.tgz

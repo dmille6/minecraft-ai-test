@@ -1,0 +1,94 @@
+{
+ "run_id": "mats-01",
+ "sha": "__SHA__",
+ "registered_at": "__REGAT__",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "THE BUILDING TIER'S MATERIALS JOB (design docs/reports/building-tier-2026-10-23.md section 3, r7.1 approved by both engines; OWNER 10-23: Q1-Q11 as recommended, Q3 charcoal from surplus logs for torches only, the BUILD_RESERVE table logs 512 / copper ingots 512 / cobblestone 256 / torches 32 / sand 16 / planks 71 / sticks 40 (reserve-proposal-2026-10-23.md), matset-01 rolled out first). THE CHANGE: make_material, a deterministic HOUSEKEEPING town order (never the model's; never a trip; off in isolated pools, TP D2; MATS=0 off), consulted after every other order but planting and only when no rung is ready: one part kind per order -- 12 stone_bricks (12 cobblestone, the bag's spare first, smelted on EXACTLY 8 planks from 2 logs), 16 glass_pane (6 sand on 4 planks), 4 cut_copper (36 ingots), 3 copper_door (6 ingots), 24 torches (6 logs to charcoal on 4 planks + 8 sticks from 1 log; the job's own charcoal only) -- from TOWN STOCK ABOVE THE RESERVE (the town index: known, fresh containers; any town container the index does not know that a recount can reach -- never opened, stale or dirty -- is recounted FIRST, at any coverage, and with none in reach the order still needs 80%; the reserve is re-read AT THE TAKE: the other known containers plus what the server shows in the open chest, less every other bot's outstanding DRAW claim in the town's stock journal), each order's whole batch fitting under its buffer, to the BUFFERS (stone_bricks 128, glass_pane 32, cut_copper 24, copper_door 3, torch 64), in a COLD furnace that qualifies (lit=false by the block state and no burn progress in the window; input, fuel and output all empty -- any output is another session's, furnace_drain's), leased (fail closed), one maker per town (a materials lease), one order per bot per 10 min, 10 min of town-job body time per bot-hour. A carry note (fsynced) before anything moves, and the furnace load recorded before it goes in; the part banked at the end through a sweep of the town's containers, nearest first (a full nearest chest never strands it); unspent inputs stay in the bag, booked (inputs_left=), never owed; a 1-3 stone remainder is ordinary stone (stone_left=); scaffold the order's own walks place is counted by the bag and booked (placed=, verdict=scaffold, reported). The note closes when nothing is owed (no craftable stone, no unbanked part, the furnace drained). mats_return runs FIRST among the town orders at the next visit while a note is open: it drains the note's OWN load only (names and counts from the load record; a lit, busy, unloaded or foreign furnace, or a bag without three free slots, keeps the note open), crafts stone in fours, makes the torch kind's charcoal into torches with the order's own sticks, banks the part -- every count capped by what the note records (the loaded batch, the sticks the order crafted, the kind's batch); the torch kind's charcoal is owed until it is torches; its row carries its own balance (verdict=, forbidden=, batch/out/back/short); after 6 tries or 24 h -- an exception included -- the note is given up, with its row (the read counts it). A recovery attempt that waits (furnace lit or leased by a dead process: 90 s; unloaded, bag without room, no bank target: 3 min) uses no try (waits=) and YIELDS until waitUntil, so the town deposit and every other town job get the decisions; a recovery's balance is judged only on the attempt that ENDS the note (closed or abandoned: verdict=pending otherwise), with every deposit (the order's and the recovery's) written into the note as it lands; the bank goes only to a block that IS a town container now -- in reach, or the index's past it, through the town memory, deduped by container, a failed one avoided 30 min -- and a town whose known containers have no free slot or part stack room gets no order (town_full); the torch kind's missing sticks are made from the order's own wood above bag0; cut copper's blocks are its intermediate, and a copper note is judged as crafted once its write-ahead says so; the whole batch found nowhere after an empty furnace is UNRECONCILED (another bot's drain, or a loss: counted in the unreconciled share, never G2); a placement is an exact -1 on the held slot. RESIDUALS (named): copper_ingot has no stock-journal group, so another bot's ordinary copper withdrawal is not subtracted at the take; parts in a container no recount can open (in its backoff) are not seen by the buffer; input the bot gains on its way back (cobble mined, ingots from the copper job) can hide a recovery shortfall up to that gain (back= is reported); a kill INSIDE the take's clicks can leave up to a half stack of an input in the bag (the server returns the cursor: Paper r3 kill_w drew 32 for a 12-cobble order) -- at the reserve edge that crosses it by up to ~20, booked as inputs_left by the recovery; a -1 on the held slot within 2 s of a failed placement call that is not the placement (an eat, a craft from the hotbar) can be read as one (scaffold). Fuel is planks only: coal, charcoal, iron, tools and the kit are never inputs (code; sticks and torches crafted only by a recipe that uses the order's own planks and charcoal); the row books the bag's iron and fuel names before and after (G1) and its tools apart (tools_lost=, reported: a pickaxe can wear out on the order's walk). __EXTRA__",
+ "lint": "eslint no-undef on this tip: exactly one hit, bots/src/reflex.mjs:2506 'withinBody' (pre-existing on the base).",
+ "licence": {
+  "class": "kind",
+  "kind": "_mats_mode",
+  "min_rows": 1,
+  "note": "Only a mats-01 build writes _mats_mode (phase=mode v=1 on= kinds= reserve= reserve_src= buffers= fuel=planks coverage=0.8), once per spawn in index.mjs. Proves the build is live, not the effect."
+ },
+ "reads": [
+  "matsread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1080,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 24,
+  "require": [
+   {
+    "name": "town jobs (bots at town with a working town smelt job: shared towns, furnaces in town)",
+    "kind": "smelt_town",
+    "min": 20
+   }
+  ],
+  "note": "Shared towns only (the job is off in isolated pools, which write no smelt_town and are never drawn by this). The town index 10-23 ~21:50Z: cobblestone 674-1000 and oak logs 482-1475 (hive-d 67) known in every shared town, index coverage 0.73-0.94 of the census containers (hive-b 0.73: its first order counts), stone_bricks 0 everywhere -- every shared town but hive-b and hive-d (logs 217 and 67, under the 512 reserve) holds a bricks batch above the reserve; all 12 hold a cut_copper batch above the 512 ingot reserve (435-1886)."
+ },
+ "exposure": {
+  "read": "matsread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Design 6.1: >= 20 parts made by canary MOVED rows with verdict=ok (exact conservation by family, fuel booked by name) AND the WORLD: the parts' stock change over the canary pools' town containers KNOWN at both ends (the town index: what the server sent at each open; KNOWN as townindex.indexStateOf has it -- no open mutation at the capture, fresh) >= 12 (one batch), AND the instrument (instrument_control). Expected: 4 pools x 5 bots at town, one bricks order (12 parts) per bot per 10 min at most, so 20 parts by +180 needs two orders."
+ },
+ "own_lines": [
+  {"read": "matsread", "field": "g1_forbidden", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "G1 (design 6.1 'any forbidden input consumed, coal burned included'): a canary _make_material OR _mats_return row with verdict=forbidden -- the bag held fewer of an iron-ladder name or a fuel (coal, charcoal, iron) after it than before, beyond a recovery's own charcoal made into torches. ANY. A tool worn out on the order's walk is tools_lost (reported), not G1."},
+  {"read": "matsread", "field": "g2_loss", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "G2: MOVED rows (a non-count order that took, used from the bag or made something; and a recovery of a loaded batch, with its own balance) with verdict=loss (a family short beyond the order's own counted placements: cobble/stone/bricks, sand/glass/panes, copper, wood or torches left the boundary unaccounted) or overburn (more planks burned than the smelt needed; one more allowed when the clock cut the session), at least 2 AND > 5% of the reconciled MOVED rows; aborted rows are interruptions (mats_return's). verdict=scaffold (the shortfall the order's own placements explain, design 3.2) is reconciled and reported (scaffold_rows), never G2."},
+  {"read": "matsread", "field": "g3_reserve_crossed", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "G3 (design 6.1 'the reserve crossed (index)'): a row whose OWN reading of the town (stock=, index-known: the index only under-counts) less what it took of an input is below that input's reserve (the licence row's reserve=). ANY."},
+  {"read": "matsread", "field": "g3_unjudged", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "G3's instrument: a row that took a reserved input with no stock= key for it (absent, or the last token of a detail at the 300-char cut) or with no licence reserve. Never a pass by default. BLOCKS KEEP."},
+  {"read": "matsread", "field": "g4_stone_leak", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "G4 (design 6.1 'a stone count in a bag that rose across an order with no open note'): a bricks row whose bag stone rose by FOUR or more (stone=b0>b1: a craft still owed) with its note closed. ANY. A 1-3 remainder with the note closed is the design (deviation 2: ordinary stone, stone_left=)."},
+  {"read": "matsread", "field": "g5_overlap", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "G5: two canary bots' MATERIALS LEASES (ml=, the lease held -- a count or a busy refusal holds none) overlapping in one pool; or two bots' furnace leases overlapping on one furnace of one pool (every session type: smelt, smelt_town, drain, make_material, mats_return), at least one of them make_material's or mats_return's, both leased. ANY. A pair with an unleased smelt is reported (g5_unleased_watch)."},
+  {"read": "matsread", "field": "g5_unjudged", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "G5's instrument: a MOVED row with no ml= interval (it took or made, so it held the materials lease). BLOCKS KEEP."},
+  {"read": "matsread", "field": "g6_loop", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "G6: a canary bot with > 7 make_material rows in any 60 min (the 10 min cooldown broken)."},
+  {"read": "matsread", "field": "notes_abandoned", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "NOTES: a carry note given up (_mats_return stop=abandoned: 6 tries or 24 h without settling). BLOCKS KEEP; the row names the bot, kind and what was left."},
+  {"read": "matsread", "field": "notes_open_end", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "NOTES: a canary bot whose last note event in the window is an OPEN note (an order ended +note_open, or a recovery left it open). BLOCKS KEEP until a later read sees it closed."},
+  {"read": "matsread", "field": "unreconciled_high", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "NOTES: verdict=unreconciled (the bag could not be read, or the order was cut) on more than 5% of the MOVED rows. BLOCKS KEEP."},
+  {"read": "matsread", "field": "rows_control_post", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "ARMS: a control _mats_mode or _make_material row after the deploy. BLOCKS KEEP."},
+  {"read": "matsread", "field": "liveness", "op": ">=", "value": 1, "on_fail": "REVERT",
+   "note": "LIVENESS: canary licence >= 1 and canary _make_material rows >= 1. BLOCKS KEEP (INCONCLUSIVE)."},
+  {"read": "matsread", "field": "instrument_control", "op": ">=", "value": 1, "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL, gate by gate: control rung rows >= 1; town-index records in >= 1 control pool AND in every canary pool; _furnace_session rows >= 1 in the window, and, when the canary smelted, >= 1 of its own make_material/mats_return sessions. BLOCKS KEEP. Dry run 10-23 22:44Z (board-a,board-c, cutoff 19:40Z, 180 min, base 6e1afb52): 879 control rung rows, 10 control pools with index records, both canary pools indexed, 641 furnace session rows; G5's overlap function on the base's 551 leased sessions found 0 pairs, and 198 with each interval widened by 10 min (it sees pairs)."}
+ ],
+ "primary": {
+  "read": "matsread",
+  "field": "parts_made_ok",
+  "note": "REPORTED: parts made by verdict=ok rows (by kind) WITH the WORLD -- the town index's parts stock change, canary vs control per-pool means over paired pools (control ~0 by construction: the base makes no stone bricks, panes, cut copper or doors; torches are excluded from the world sum). Dry run on the base: canary +0.0, control +0.0, DiD +0.0."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor and gather_ratio < 0.43 of control (immobiledid). No-harm DiD reported by the read (design 6.1): rung completions per bot-h, gather successes per bot-h, the smelt furnace_busy share, bag fill (occupied slots). Dry runs on the base: rungs +0.497 / +0.918, gather -1.028 / -1.713 per bot-h DiD with no change (the noise band), furnace_busy +0.000 / +0.000, bag fill +0.38 / +0.04 (21:52Z and 22:44Z)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. World changes: town cobble, logs, sand and copper ingots turned into building parts in town chests (kept; protected and always banked since matset-01). An open carry note on a reverted bot is harmless: the base never reads it (mats-carry-<bot>.json in the pool's state directory; delete at teardown). Rollback without a canary: MATS=0."
+ },
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [720],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Tier 3 (no tier field): the ordinary gates and reads; extend only for exposure."
+ },
+ "requires": "The fleet must be the variant's base: matset-01 re-stacked on d55ce14d (matset-on-d55ce14 @ 376d5f13 = junkout-01 fleet d55ce14d + matset-01), rolled out owner-direct by matset-rollout.sh just before this run's turn. Re-JIT onto whatever is live at the turn.",
+ "reads_md5": {
+  "matsread": "__MATSREAD_MD5__"
+ }
+}

@@ -459,6 +459,8 @@ export class Runner {
       smelted: Number(result.smelted ?? 0),
       // THE TOOLKIT's verified count of kit tools made (a NEW usable copy in the bag after its craft), same rule
       kitCrafted: Number(result.kitCrafted ?? 0),
+      // THE MATERIALS JOB's verified count of building parts made (mats-01), same rule
+      made: Number(result.made ?? 0),
     }
 
     // THE EVIDENCE GATE. A claim of success does not leave this function unless

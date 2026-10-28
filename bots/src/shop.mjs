@@ -1,0 +1,293 @@
+// SHOP-01, THE WORKSHOP JOB'S POLICY (stage C; design docs/reports/building-tier-2026-10-23.md sections 4-5, cooperation A2/A7/A9).
+// Pure: the switch, the town order, the bill, spendableFor, the footprint price, the pool's stood cells, the rows. The skill
+// (skills.mjs build_shop) supplies readings and effects; the visit itself is buildrun.mjs.
+
+import fs from 'node:fs'
+import path from 'node:path'
+import { reserveKeyOf, reserveCount, takeAllowed } from './mats.mjs'
+
+/** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
+export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
+export const SHOP_BLUEPRINT = 'workshop@1'
+export const SHOP_PLOT = 'shop'
+export const BUILDERS_MAX = 2
+export const SHOP_COOLDOWN_MS = Number(process.env.SHOP_COOLDOWN_MS) > 0 ? Number(process.env.SHOP_COOLDOWN_MS) : 10 * 60_000   // a setting (sandbox pacing)
+export const SHOP_SITE_RETRY_MS = 24 * 60 * 60_000       // S1: no site -> re-fit daily
+export const SHOP_STUCK_RETRY_MS = 6 * 60 * 60_000       // F4: a cell no stand reached in STUCK_VISITS visits -> ask again in 6 h
+export const SHOP_HEALTH_MIN = 10
+export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
+export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
+export const SHOP_VISIT_MS = 8 * 60_000
+// the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
+// descend, water) keep their survival digs: damage is rebuilt on the next visit
+export const FOOTPRINT_PROFILES = Object.freeze(new Set(['walk', 'gather', 'tunnel', 'composter_walk', 'town_deposit_walk']))
+export const TOWN_R = 16
+
+/** THE FOOTPRINT -> Set "x,y,z" of every record cell + 1 (a 3x3x3 around each). Pure. */
+export function footprintCells (record) {
+  const out = new Set()
+  for (const c of record?.cells ?? []) for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) out.add(`${c.at[0] + dx},${c.at[1] + dy},${c.at[2] + dz}`)
+  return out
+}
+/**
+ * NO SAPLING IN A PROJECT'S COLUMNS (fell-01, LIVE 10-27 showcase: a spruce stood in shop pad cell 25,72,28 with its trunk up
+ * through the wall cells; the builder could never place there). A tree grows UP and its leaves spread ~2 blocks, so the guard
+ * is the record cells' x/z box widened by SAPLING_MARGIN, at every height. -> { x0, z0, x1, z1 } | null (no record). Pure.
+ */
+export const SAPLING_MARGIN = 2
+export function saplingBox (record, margin = SAPLING_MARGIN) {
+  const cs = record?.cells ?? []
+  if (!cs.length) return null
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
+  for (const c of cs) { x0 = Math.min(x0, c.at[0]); x1 = Math.max(x1, c.at[0]); z0 = Math.min(z0, c.at[2]); z1 = Math.max(z1, c.at[2]) }
+  return { x0: x0 - margin, z0: z0 - margin, x1: x1 + margin, z1: z1 + margin }
+}
+/** May a sapling go into the cell at column (x, z)? false inside the box. Pure. */
+export const saplingAllowedAt = (box, x, z) => !box || x < box.x0 || x > box.x1 || z < box.z0 || z > box.z1
+/** A place() candidate ({ ref, face }) for a sapling: its target cell (ref + face) outside the box? Pure. */
+export const saplingCandidateOk = (box, c) => { const p = c?.ref?.position; return !p || saplingAllowedAt(box, p.x + (c.face?.x ?? 0), p.z + (c.face?.z ?? 0)) }
+/** The footprint's price for a block on the current walk: 100 (mineflayer-pathfinder drops the move) on a work or travel walk,
+ *  else 0. One Set lookup (the A* hot path). Pure. */
+export const footprintCost = (cells, profile, block) => {
+  const p = block?.position
+  return p && cells && cells.size && FOOTPRINT_PROFILES.has(profile) && cells.has(`${p.x},${p.y},${p.z}`) ? 100 : 0
+}
+
+/**
+ * THE BILL of the open cells -> { name: n }. Pure. `has(name)` is the bag; the first palette choice, a fallback only when the
+ * first is not in the town (`inTown(name)`); '$planks' resolves to `planks` (the town's most-stocked species).
+ */
+export function billOf (record, palette, read, { done, inTown = () => true, planks = 'oak_planks' } = {}) {
+  const out = {}
+  for (const c of record?.cells ?? []) {
+    if (done(read(...c.at), palette, c.role)) continue
+    const name = c.role === 'fill' ? 'cobblestone' : resolve(palette, c.role, inTown, planks)
+    if (name) out[name] = (out[name] ?? 0) + 1
+  }
+  return out
+}
+/** A role's names in palette order ('$planks' -> the planks species, '$role' -> that role's names, once each). Pure. */
+export function roleNames (palette, role, planks = 'oak_planks', seen = new Set([role])) {
+  const out = []
+  for (const choice of palette?.[role] ?? []) {
+    if (choice === '$planks') out.push(planks)
+    else if (choice.startsWith('$')) { const r = choice.slice(1); if (!seen.has(r)) { seen.add(r); out.push(...roleNames(palette, r, planks, seen)) } } else out.push(choice)
+  }
+  return [...new Set(out)]
+}
+/** The block a bill counts for a role: the first of its names the town stocks, else its first name. Pure. */
+function resolve (palette, role, inTown, planks) {
+  const names = roleNames(palette, role, planks)
+  return names.find(n => inTown(n)) ?? names[0] ?? null
+}
+/**
+ * THE PROJECT'S SHARE OF THE BAG (Paper 10-25, SHOP-KILL and CHAIN-1: a deadlock) -> { name: n }: the drawn record clamped to
+ * what the bag holds now. Pure. Why: the visit's keeps (towndeposit townKeeps: STOCKPILE_KEEP wood, the stone family) are
+ * computed from the bag at the visit's start, so materials an EARLIER visit drew and did not place (a kill, a deps_open stop, a
+ * no_material stop: matsBank cannot bank a kept name back) became the bag's own stockpile -- held, unspendable, and the town
+ * already at BUILD_RESERVE: the builder held 36 planks and stopped `no_material` on one wall cell for 40 minutes.
+ */
+export function drawnHeld (drawn = {}, held = {}, bagAt = null) {
+  // a DECREASE of the bag since the record was written (another job spent some: the peaceful kit's composter) comes off the
+  // project's share first, so the bot's own stock is never relabelled the project's (r10, Codex P2); with no baseline, the
+  // clamp to the bag alone. An increase (a pickup) is the bot's own.
+  const out = {}
+  for (const [n, c] of Object.entries(drawn ?? {})) {
+    const fell = bagAt && Number.isFinite(Number(bagAt[n])) ? Math.max(0, Number(bagAt[n]) - (Number(held?.[n]) || 0)) : 0
+    const v = Math.min((Number(c) || 0) - fell, Number(held?.[n]) || 0)
+    if (v > 0) out[n] = v
+  }
+  return out
+}
+/** How long a share outlives its last write (a visit, or the decrease below) before it is the bag's own: a builder that has not
+ *  visited for this long holds no workshop materials (r16 reviews, both P2: a share that never empties barred the bot from
+ *  every town station for good). A live build rewrites its share at every take, placement and exit. */
+export const SHARE_TTL_MS = 2 * 3600_000
+/**
+ * THE SHARE'S STATE for the town-station gate (skills.mjs shopShareHeld) -> { held: bool, share, write: null | {} | share }.
+ * Pure. Not held when: no share; written longer than SHARE_TTL_MS ago; or the workshop is COMPLETE and the share is no newer
+ * than the completion (another builder finished: a completed build's leftovers are the bag's own -- `write: {}` clears it).
+ * A share the bag has fallen below (another job spent some) is RETIRED down to what is left (`write: share`), so a later
+ * pickup of the same name is the bot's own and never resurrects it (r16 Codex P2: drawn 4, baseline 20, bag 16 then 20).
+ */
+export function shareState (dr = {}, held = {}, { now = Date.now(), complete = false, completeAt = null, ttl = SHARE_TTL_MS } = {}) {
+  const drawn = dr?.drawn ?? {}
+  if (!Object.keys(drawn).length) return { held: false, share: {}, write: null }
+  const at = Number(dr?.at)
+  // a complete record WITHOUT its completion time is no boundary (r17 Codex P2): the share stands until its TTL
+  if (complete && Number.isFinite(Number(completeAt)) && !(at > Number(completeAt))) return { held: false, share: {}, write: {} }
+  if (!Number.isFinite(at) || now - at > ttl) return { held: false, share: {}, write: null }
+  const share = drawnHeld(drawn, held, dr?.bag)
+  const fell = Object.keys(drawn).some(n => (share[n] ?? 0) < (Number(drawn[n]) || 0))
+  return { held: Object.keys(share).length > 0, share, write: fell ? share : null }
+}
+/** The bag less the project's share -> { name: n }: what the bot owns, the only counts its keeps are computed from. Pure. */
+export function ownCounts (held = {}, drawn = {}) {
+  const out = {}
+  for (const [n, c] of Object.entries(held ?? {})) { const v = (Number(c) || 0) - (Number(drawn?.[n]) || 0); if (v > 0) out[n] = v }
+  return out
+}
+/** The drawn record after a visit -> { name: n }: drawn + took + crafted - placed - back, never below 0 nor above the bag. Pure. */
+export function drawnAfter ({ drawn = {}, took = {}, crafted = {}, placed = {}, back = {}, bag1 = {} } = {}) {
+  const names = new Set([drawn, took, crafted, placed, back].flatMap(m => Object.keys(m ?? {})))
+  const n = (m, k) => Number(m?.[k]) || 0
+  const out = {}
+  for (const k of names) { const v = Math.min(n(bag1, k), n(drawn, k) + n(took, k) + n(crafted, k) - n(placed, k) - n(back, k)); if (v > 0) out[k] = v }
+  return out
+}
+/** What the visit still needs from town -> { name: n }: the bill less the bag, capped at SHOP_BILL_CAP in all. Pure. */
+export function needFromTown (bill, bag = {}, cap = SHOP_BILL_CAP) {
+  const out = {}
+  let left = cap
+  for (const [n, c] of Object.entries(bill).sort((a, b) => b[1] - a[1])) {
+    const want = Math.max(0, c - (Number(bag[n]) || 0))
+    const take = Math.min(want, left)
+    if (take > 0) { out[n] = take; left -= take }
+  }
+  return out
+}
+/**
+ * WHAT A VISIT DRAWS -> { name: n } (r2): the open cells' bill; a sapling for every pending replant whose cell holds none (Codex r1
+ * P2: C1's remedy made executable -- the town's saplings come with the bill); and the inputs of a station the town cannot supply
+ * (8 cobblestone a furnace, 4 planks a table: Claude r1 P3-4, the craft never eats the fill). Pure.
+ */
+export function visitNeeds (record, bill, { saplingAt = () => false, town = {}, spare = {}, planks = 'oak_planks' } = {}) {
+  const out = { ...bill }
+  for (const r of record?.replant ?? []) if (r?.sapling && r.state !== 'skipped' && !saplingAt(r.cell)) out[r.sapling] = (out[r.sapling] ?? 0) + 1
+  for (const [item, input, n] of [['furnace', 'cobblestone', 8], ['crafting_table', planks, 4]]) {
+    const lack = (Number(bill[item]) || 0) - (Number(spare[item]) || 0)
+    if (lack > 0 && (Number(town[item]) || 0) < lack) out[input] = (out[input] ?? 0) + n * lack
+  }
+  return out
+}
+/** THE LEFTOVERS -> [name]: what the visit drew (`took`) that the bag still holds ABOVE its count at the visit's start (`held0`),
+ *  so never anything the bot owned before the visit or kept (matsBank then banks at most `took` of each, above `held0`). Pure. */
+export function leftoverNames (took = {}, held0 = {}, heldNow = {}) {
+  return Object.keys(took).filter(n => (Number(took[n]) || 0) > 0 && (Number(heldNow[n]) || 0) > (Number(held0[n]) || 0))
+}
+/**
+ * THE VISIT'S BAG BALANCE (read r1: Codex P1-2, Claude P3-4) -> { name: { bag0, took, crafted, placed, back, bag1, unexplained } }
+ * for every name the visit touched. Pure. unexplained = bag1 - (bag0 + took + crafted - placed - back): NEGATIVE is a loss the visit
+ * cannot account for (a pickup on the way makes it positive; the pathfinder's scaffold of cobblestone or planks makes it
+ * negative and is legitimate for those two -- SCAFFOLD_NAMES -- so the read gates only the other names).
+ */
+export function bagBalance ({ bag0 = {}, took = {}, crafted = {}, placed = {}, back = {}, bag1 = {} } = {}) {
+  const names = new Set([...Object.keys(took), ...Object.keys(crafted), ...Object.keys(placed), ...Object.keys(back)])
+  const out = {}
+  const n = (m, k) => Number(m?.[k]) || 0
+  for (const k of names) {
+    const v = { bag0: n(bag0, k), took: n(took, k), crafted: n(crafted, k), placed: n(placed, k), back: n(back, k), bag1: n(bag1, k) }
+    v.unexplained = v.bag1 - (v.bag0 + v.took + v.crafted - v.placed - v.back)
+    out[k] = v
+  }
+  return out
+}
+export const SCAFFOLD_NAMES = Object.freeze(new Set(['cobblestone', 'oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks', 'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks', 'pale_oak_planks', 'bamboo_planks', 'crimson_planks', 'warped_planks']))
+/** `_build_bag` detail: `project=shop name=bag0/took/crafted/placed/back/bag1 ...` (under 300 characters: names by unexplained first). */
+export const buildBagDetail = (project, bal, { exit = '-', silent = '-', drawn = '-' } = {}) => {
+  const parts = Object.entries(bal).sort((a, b) => a[1].unexplained - b[1].unexplained).map(([k, v]) => `${k}=${v.bag0}/${v.took}/${v.crafted}/${v.placed}/${v.back}/${v.bag1}`)
+  let s = `project=${project} exit=${String(exit).replace(/\s+/g, '_').slice(0, 24)} silent=${silent} drawn=${drawn}`
+  for (const p of parts) { if ((s + ' ' + p).length > 290) break; s += ' ' + p }
+  return s
+}
+/** The skill's contract time (skills.mjs build_shop maxMs) and the least left for a bank to start (Claude r3 P3-1). */
+export const SHOP_SKILL_MS = 600_000
+export const SHOP_BANK_MIN_MS = 150_000
+/**
+ * HOW MUCH OF A NAME THE VISIT MAY TAKE from the container it stands at (matsWithdraw's `allow`) -> n. Pure. A reserved family
+ * is mats.mjs takeAllowed (the BUILD_RESERVE and the outstanding draws, judged at the take); a building PART has no reserve
+ * (Paper r1: takeAllowed answers 0 for a name with no reserve key, so stone bricks, panes, cut copper, stations and saplings
+ * were never drawn) and is taken up to what the container shows.
+ */
+export function shopAllow (name, want, o = {}) {
+  if (reserveKeyOf(name)) return takeAllowed(name, want, o)
+  return Math.max(0, Math.min(Number(want) || 0, Number(o?.here?.[name]) || 0))
+}
+/**
+ * SPENDABLE FOR A PROJECT (cooperation A9) -> n. Pure. The town's stock of `item` less its BUILD_RESERVE (by reserve family, the
+ * whole family's stock above the family's reserve: mats.mjs reserveCount) less every OTHER claim on it (draws in flight, other
+ * projects' claims: `claims` { name: n }), never below 0. A building part (no reserve key) is all of its stock less claims.
+ */
+export function spendableFor (item, stock = {}, { reserve = {}, claims = {} } = {}) {   // reserve: mats.mjs matsReserve().table (its one reader)
+  const rk = reserveKeyOf(item)
+  const own = Number(stock[item]) || 0
+  const claimed = Number(claims[item]) || 0
+  if (!rk) return Math.max(0, own - claimed)
+  const famAbove = Math.max(0, reserveCount(rk, stock) - (Number(reserve?.[rk]) || 0))
+  return Math.max(0, Math.min(own, famAbove) - claimed)
+}
+
+/**
+ * THE TOWN ORDER (host part of buildEligible, design 4.1/A8) -> { order, skip }. Pure. At town only, shared towns only, no
+ * milestone holding, after the cooldown; the record complete is no order; S1 (no site) waits a day; a full slot set, low health,
+ * or a bag without room is a skip with its reason.
+ */
+export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
+  complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null } = {}) {
+  if (!on || !shared || !atTown || holds) return { order: null, skip: null }
+  // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
+  if (!planned) return { order: null, skip: null }
+  if (complete) return { order: null, skip: 'complete' }
+  if (now - (state.lastAt ?? -Infinity) < SHOP_COOLDOWN_MS) return { order: null, skip: null }
+  if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
+  // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop.
+  // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE
+  // (a skewed or bad clock) is ignored rather than holding the project skew + 6 h
+  const sa = typeof stuckAt === 'function' ? stuckAt(now) : stuckAt
+  if (Number.isFinite(sa) && sa <= now + 60_000 && now - sa < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
+  if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
+  if (!slotsFree) return { order: null, skip: 'slots_full' }
+  if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
+  if (freeSlots < SHOP_BAG_SLOTS_MIN) return { order: null, skip: 'room' }
+  return { order: { skill: 'build_shop', args: {} }, skip: null }
+}
+
+// ---- the pool's stood cells (D3 at runtime: step 1's carried item) ------------------------------------------------------------
+
+export const STOOD_MAX_LINES = 20_000
+export const STOOD_EVERY_MS = 30_000
+export const STOOD_REPEAT_MS = 10 * 60_000
+const stoodFile = (dir, key) => path.join(dir, `${key}.stood.jsonl`)
+/** Append one in-town feet cell (the caller rate-limits). Rotates at STOOD_MAX_LINES (the old file kept as .old). Never throws. */
+export function stoodAppend (dir, key, cell, { now = Date.now(), by = null } = {}) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    const f = stoodFile(dir, key)
+    let lines = 0
+    try { lines = fs.readFileSync(f, 'utf8').split('\n').length } catch { /* none yet */ }
+    if (lines >= STOOD_MAX_LINES) { try { fs.renameSync(f, `${f}.old`) } catch { /* another rotated it */ } }
+    fs.appendFileSync(f, JSON.stringify({ c: cell, at: now, by }) + '\n')
+  } catch { /* telemetry-grade: the walk falls back to home's cell */ }
+}
+/** The pool's distinct stood cells inside the town circle of `home` -> [[x, y, z]] (both files, torn lines skipped). Pure over
+ *  the files. */
+export function stoodRead (dir, key, home) {
+  const seen = new Set(), out = []
+  for (const f of [`${stoodFile(dir, key)}.old`, stoodFile(dir, key)]) {
+    let text = ''
+    try { text = fs.readFileSync(f, 'utf8') } catch { continue }
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue
+      let r
+      try { r = JSON.parse(line) } catch { continue }
+      const c = r?.c
+      if (!Array.isArray(c) || c.length !== 3 || !c.every(Number.isInteger)) continue
+      if (Math.max(Math.abs(c[0] - home.x), Math.abs(c[2] - home.z)) > TOWN_R) continue
+      const k = c.join(',')
+      if (!seen.has(k)) { seen.add(k); out.push(c) }
+    }
+  }
+  return out
+}
+
+// ---- rows (detail strings only: no new ES fields -- an unmapped field rejects whole documents, town plan 4.2) -------------------
+
+const LONG = new Set(['why', 'segs'])   // `segs`: a whole workshop's segment list is ~72 chars (Codex/Claude r26 P3)
+const fmt = (keys, f) => keys.filter(k => f[k] != null).map(k => `${k}=${String(Array.isArray(f[k]) ? f[k].join(',') : f[k]).replace(/\s+/g, '_').slice(0, LONG.has(k) ? 120 : 48)}`).join(' ')
+export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP.on ? 'on' : 'off'} blueprints=${SHOP_BLUEPRINT} builders_max=${BUILDERS_MAX} reserve=${reserveSha}`
+// EVERY FIELD A ROW CARRIES THAT THE READ READS (Paper 10-26 SHOP-TERRAIN seeded r24: the whitelist dropped the F2/F4 fields --
+// `to`, `result`, `visits`, `n`, `segs`, `waiting`, `stalled`, `early`, `why` -- so the stuck row reached the logs as
+// `op=stuck_on_cell cell=...` and the read's STALLED POOLS could never see a stall; the fake runner's e.log kept the objects)
+export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'kind', 'saplings', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)
+export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
+export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'ms', 'why'], f)

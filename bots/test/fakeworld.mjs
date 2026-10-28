@@ -25,7 +25,9 @@ export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', '
   // appended (cobblekeep-01's lid tests): indices above are unchanged
   'oak_leaves', 'glass',
   // appended (ironsmelt-01's tests): indices above are unchanged
-  'raw_iron']
+  'raw_iron',
+  // appended (mats-01's recovery chain): indices above are unchanged
+  'stone_bricks']
 // oak_leaves and glass are full cubes to mineflayer (boundingBox 'block'), which is why the bot's old lid test read them as lids
 const SOLID = new Set(['grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'crafting_table', 'oak_leaves', 'glass'])
 const CONTAINER = /^(chest|trapped_chest|barrel)$/

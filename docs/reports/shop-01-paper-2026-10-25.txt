@@ -1,0 +1,212 @@
+shop-01 -- PAPER RECORD (2026-10-25). Building tier step 3: the workshop builder.
+Driver: sandbox/shop/shop-e2e.cjs on branch shop-sandbox-on-main (ebacb3a7 first, 30b9dafb from Paper r3 on). Locks: sandbox7 and
+sandbox8, tag `shop`, held from 18:13Z. Real bot (index.mjs) per scene; env FOUND=off SMELT_JOB=0 SHOP_COOLDOWN_MS=60000.
+
+SCENE SHOP-E2E: a fresh town with a town plan and stock in two chests (the workshop's whole bill: 89 stone bricks, 49 oak planks,
+4 glass panes, 20 cut copper, 2 torches, 2 furnaces, 1 crafting table, plus the rest of the town's usual stock). The candidate must
+site the record on the live world, draw the bill from the town under the reserve, and build the workshop end to end.
+  CANDIDATE_PASS needs: a `_structure_complete` row; EVERY record cell reads its role's block by RCON (`execute if block`);
+  every builder click (block_place with a sequence > 0) acknowledged by sequence within 5 s; the town stock down by exactly the bill.
+  BASE (the deployed base d55ce14d + matset-01 + mats-01, worktree mt2 @ 7049da16) is the positive control of the instrument:
+  BASE_SHAPE = no record, nothing built, the stock unchanged.
+
+RUNS
+  base-1   sandbox7  mt2 7049da16   driver ebacb3a7  BASE_SHAPE  record=null, stock unchanged
+  cand-1   sandbox8  wt4 b8608666   driver ebacb3a7  stopped by hand: every visit `no_material` (why=base_for_pad), took only
+           oak_planks:49 and torch:2. DEFECT: mats.mjs takeAllowed answers 0 for a name with no reserve key, so no building part
+           was ever drawn. Fixed in r2 (shopAllow; matsWithdraw `allow`).
+  cand-2   sandbox8  wt4 01954a1a   driver ebacb3a7  FAIL (instrument) -- the workshop COMPLETED in one visit: 167 placed,
+           1 refused, every builder click acknowledged. The two FAIL lines were the instrument's: (a) the 2 torch cells read
+           `wall_torch` (a torch clicked on a side face) and the check asked for exactly `torch`; (b) 4 sequence-0 block_place
+           packets were mineflayer's own activateBlock (chest opens for the withdraw, held item a pickaxe), not builder clicks.
+           Driver fixed (30b9dafb: ROLE_OK names; foreign sequence-0 packets counted, not judged). The one refused click: the bot
+           was mid-jump directly under a trim cell (feet y 121.23, cell y 123); the retry from y 121 placed it -> r3's own-body wait.
+  base-2   sandbox7  mt2 7049da16   driver 30b9dafb  BASE_SHAPE  {"places":0,"foreign":2,"unacked":0} stock unchanged
+  cand-3   sandbox8  wt4 60e25388   driver 30b9dafb  CANDIDATE_PASS  cells 167/167, builder clicks 167 acked 167, foreign 4,
+           d(stock) exactly the bill, refused 0, visit 86.6 s
+  cand-4   sandbox8  wt4 5f87e664   driver 30b9dafb  CANDIDATE_PASS  same shape, visit 86.1 s
+  cand-5   sandbox8  wt4 00718c01   driver 30b9dafb  CANDIDATE_PASS  same shape
+  cand-6   sandbox8  wt4 f7877dfc   driver 30b9dafb  CANDIDATE_PASS  same shape, visit 88.5 s  <- the converged code (r6)
+  cand-7   sandbox8  wt4 91547151   driver 30b9dafb  CANDIDATE_PASS  same shape; the new _build_bag row exact on all 7 names:
+           stone_bricks=0/89/0/89/0/0 oak_planks=0/49/0/49/0/0 cut_copper=0/20/0/20/0/0 glass_pane=0/4/0/4/0/0 torch=0/2/0/2/0/0
+           furnace=0/2/0/2/0/0 crafting_table=0/1/0/1/0/0 (bag0/took/crafted/placed/back/bag1)
+  cand-8   sandbox8  wt4 64941a93   driver 30b9dafb  CANDIDATE_PASS  same shape; the bag row with `exit=complete silent=0`
+  cand-8k  sandbox8  wt4 64941a93   driver 73dab611  CANDIDATE_PASS, SHOP_KEEP=1 (the workshop left standing for the structure
+           count below; the next scene's set-up refills the arena)
+  cand-9   sandbox8  wt4 64941a93   driver 73dab611  FAIL (instrument residue of cand-8k): torch town + bag -1 against a bill of
+           -2. The set-up's fills popped cand-8k's standing wall torch as an ITEM (its kill ran before the fills); the bot picked it
+           up (a _pickups row) and the visit banked it back (back=torch:1; its _build_bag row torch=0/2/0/2/1/0 books +1, a pickup,
+           never a loss). Every cell right, every click acked. Driver fixed (6b291623: items killed after the fills).
+  cand-10  sandbox8  wt4 115ac326   driver 6b291623  CANDIDATE_PASS  <- the final code (r9); the arena cleaned up after it
+  Locks sandbox7 and sandbox8 (tag shop) released after cand-10.
+  The PASS line of cand-6:
+  shop   CANDIDATE_PASS done=true record={"sector":"W","source":"pavilion","anchor":[737,760],"orient":"S","s":120,"gen":2,
+  "complete":true} cells={"n":167,"bad":0} acks={"places":167,"foreign":4,"acks":171,"unacked":0} d(stock){stone_bricks-89
+  oak_planks-49 glass_pane-4 cut_copper-20 torch-2 furnace-2 crafting_table-1} ground{}
+
+THE KEEPALIVE PREMISE, MEASURED (both r6 reviews asked for it): the mutex and the barrier's retirement rule rely on a stopped
+process's socket being closed by the server before a peer may retire it (OWN_BEAT_MAX_MS 15 s + the keepalive drop < BEAT_STALE_MS
+60 s). A plain mineflayer client (scratch kaprobe/ka-probe.cjs; never moved, dug or placed) joined sandbox8 (Paper 1.21.8, default
+keepalive settings: no override in its configs or its java command line), was SIGSTOPped at 3, 5, 11 and 19 s after spawn, and the
+server logged `KaProbe lost connection: Timed out` 29-30 s after the stop each time (server clock: stop 21:46:26 -> 21:46:55;
+21:48:11 -> 21:48:41; 21:48:58 -> 21:49:27; 21:49:53 -> 21:50:22). On resume the client's write failed EPIPE (it could send
+nothing). So 15 + 30 = 45 s < 60 s: a 15 s margin.
+
+THE READ OVER REAL ROWS (Claude read r1 P3-3): docs/reports/shop-01-2026-10-25/shopread-sandbox.py.txt runs shopread's judge over a
+SHOP-E2E skill log with its pool directory as the town oracle. cand-7 and cand-8: clean -- 167 placements on the record (G1 0),
+10 lease names incl. the wall segments (G4 0), the bag row judged (cand-8: exit=complete silent=0) with G8 0, liveness 1, exposure
+NOT READY (no structure count: correct). On cand-6's log it found a read defect (zone_unknown fired on a town without a zones
+file; the bot reads a missing file as no zones) -- fixed in read r2.
+
+THE STRUCTURE COUNT'S POSITIVE CONTROL (Claude read r2 Q3): structcount.py scan (10.0.0.30) on a COPY of the sandbox's region file
+r.1.1.mca, home 760,120,760, r 96 (docs/reports/shop-01-2026-10-25/structcount-probe.sh.txt).
+  - after cand-8 (driver cleanup refilled the arena with air): sandbox8 built_cells 0, buildings 0 -- the same as the base world:
+    a scan after a normal run can see nothing. Hence SHOP_KEEP.
+  - after cand-8k (the workshop kept, save-all flush, region saved 23:01:53): sandbox8 built_cells 169, structures 1, BUILDINGS 1:
+    a lit room, floor 13, enclosure 0.94, roof_built 1.0, doors 1, centre 734.4,121,764 -- inside the record box [731,760,737,768].
+  - sandbox7 (base, no workshop): built_cells 0, buildings 0.
+  So the read's world exposure (a lit room inside the record's box, none there before) sees the workshop, and the base shows none.
+
+NOT RUN (named): the design's other shop-01 scenes -- CHAIN-1 (an empty bag, parts made by make_material first), GHOST-RESYNC,
+SHOP-BARRIER / SHOP-COOP2 (two builders, SIGSTOP holders), SHOP-CLEAR (trees and replants), SHOP-ZONE, SHOP-KILL, ENTOMB, and the
+terrain fixtures cut from region copies. Their logic is covered by the fake-server suites (buildrun*.test.mjs) only. The
+coordinator's scope for this step was the workshop end to end from stock plus the base control.
+
+
+==================================================================================================================================
+PAPER ROUND 2 (2026-10-26, owner YES 10-25 via the coordinator: "run the remaining Paper scenes") -- driver branch
+shop-sandbox-on-main (sandbox/shop/shop-e2e.cjs; the scenes below + their instrument fixes), BASE = 7049da16 (mats-01),
+CANDIDATE named per run. Every scene under a per-server `shop` sandbox lock, taken and released per scene; sandbox5..8 only;
+RCON only via sbx-rcon.py; the terrain fixtures are READ-ONLY dumps of copied region files (no fleet world touched).
+
+THE SCENES (full text in the driver's header):
+  chain      80 bricks (9 short), cobble + logs, a clean furnace: the materials job must MAKE the missing bricks.
+  coop2      two builders on one town, the stock doubled: one place row per cell, both place, the barrier, no lease overlap.
+  tree       a trunk grid on grass + saplings: replants before the first felling, clears inside the record's list, wood family.
+  kill       SIGKILL after the 40th place row, restart on the same state: no cell twice, no intent left open.
+  terrain-a  board-a's own ground (home +-50), rebuilt in the arena by terrain/fixture.py.
+  terrain-c  hive-c's own ground, the same way.
+
+BASE (7049da16), every scene: BASE_SHAPE (no _build row, no record, the bill's names untouched) -- coop2, tree, kill, chain,
+terrain-a (r2; r1 the bot died in the fixture refill -> the driver sets bags after the fixture and fails any death), terrain-c.
+
+CANDIDATE, in order (what each round found, and what fixed it):
+  a85af3e4 (r9, as approved)
+    coop2      FAIL  the driver scored the palette's own fallbacks wrong (instrument, fixed); then: 24 of 167 cells on fallbacks
+                     (plank windows / trim) -- the first builder held the parts while the second drew its bill
+    kill       FAIL  DEADLOCK: after the restart the bag's 36 drawn planks were all kept as stockpile_wood and the town sat at
+                     BUILD_RESERVE (planks 71): `no_material wall_for_wall-F` on ONE cell for 35 min           -> r10-r13
+    chain      FAIL  the same deadlock on roof-inner (the materials job made 60 bricks meanwhile)               -> r10-r13
+    tree       FAIL  wood accounting only (felled logs crafted into planks: the driver's wood-family rule)  -> driver
+  5b7391e1 (r13: the drawn share, both engines APPROVE)
+    kill       PASS  (rerun; r1 of it failed on the killed connection's last unanswered click -> the driver's dead window)
+    tree       PASS  5 tree clears, the replant before the first, 167/167
+    coop2      FAIL  stock only: both placed 89/78, 0 fallbacks, 167/167 -- planks -57 vs -49 + a 2nd table: build_composter
+                     crafted from the builder's share between visits                                    -> r16-r17
+    chain      FAIL  160/167, no_material on the roof: the same composter leak with the town at the reserve -> r16-r17
+    terrain-a  FAIL  the clear pass dug its OWN wall: board-a's oak_planks litter was listed at a wall cell (cleared, built,
+                     cleared again) -> no_step 35 min                                                     -> r15
+    terrain-c  FAIL  no_step on a REPLANT cell (771,118,786) every visit: the tree may not fall before its sapling, and the
+                     sapling cell has no stand -> nothing placed (OPEN, named below)
+    shop (r12, kept on sandbox7 for the conformance negative): PASS; on the trial composition x 112beb04: PASS
+  df54f015 (r16: the share holds the stations; r17 its lifecycle)
+    chain      PASS  bricks made 12 (>= 9), 167/167, the stock exact (bricks = made - 89)
+    coop2      PASS  167/167, both placed (24 / 143), no lease overlap; 22 cells on fallbacks this time (the race above: OPEN)
+    terrain-a  complete, 195/195 right (28 fill cells, 20 clears), every click acked; the wood line reads -48 vs -49 because
+                     the kept board-a litter plank IS one wall cell (r15's rule) -- an instrument count, not a loss
+    kill, terrain-c  see the coordinator report (running at this commit)
+
+OPEN, named (not fixed here):
+  F1 the fallback race (coop2): with two builders the first draws the WHOLE bill; the second's bill takes the palette
+     fallbacks while the parts sit in the first's bag (0 of 167 in one run, 22-24 in two others). Legal by the palette;
+     cosmetic (plank windows/trim). Options: count peers' drawn shares as "in town" for the bill, or draw per segment.
+  F2 the replant dead end (terrain-c): a replant cell with no reachable stand blocks the tree (B4: never before its sapling)
+     and with it every segment behind it. The siting proof must require a stand for each replant cell, or the visit must
+     pick another cell (a refusal with no executable remedy: CLAUDE.md).
+  F3 the residual whole-bag consumers of a share: the smelt job's furnace craft, build_plinth's bag cobble, the model's own
+     crafts.
+
+
+==================================================================================================================================
+PAPER ROUND 3 (2026-10-26, coordinator: F2 blocks registration; the formal re-stack onto the fleet 112beb04)
+
+F2 (the replant dead end), shop-01 r18-r20 on shop-on-7049da1 (2b573ad6, 2372c34d, 7b211cb9; both engines APPROVE at r20):
+  base (7049da16): terrain-c, tree, kill BASE_SHAPE.
+  terrain-c, fresh siting (r18, r19): `no_site` -- with the tightened replant rule (replantCellAt, the visit's own step test)
+             the siting proof refuses hive-c's only site (sector S), whose replant cell no stand reaches: design S2's own
+             remedy (no legal replant cell -> no site), no stopped visit. The workshop is not built in hive-c at this sha.
+  terrain-c, SEEDED with the record r13 sited (SH_SEED_POOL; its replant cell unreachable): the remedy ran on real ground --
+             `replant 771,118,786: no_step -> replant_moved 745,120,805`, planted the next visit, the next replant moved and
+             planted too; no replant stopped a visit. The build then stopped `no_step earth: 1 open` every visit (F4 below).
+  tree (r19, r20): CANDIDATE_PASS (r19 first FAILED on the wood count: build_composter crafted from the bot's OWN felled logs
+             2 s after the completion -> the driver reads the stock at the completion on tree/terrain scenes).
+  kill (r18, r19, r20): CANDIDATE_PASS.
+  terrain-a (item 2, r18): CANDIDATE_PASS, 195/195, the town's kept litter plank counted apart (litter_kept oak_planks 1).
+
+THE RE-STACK onto 112beb04 (lavastep-01 + ledger-01 on d55ce14d):
+  matset-on-112beb0 2096b392 (matset-01 cherry-picked, range-diff all `=`)
+  mats-on-2096b39   27babc10 (mats-01 cherry-picked; index.mjs both sides kept; f80bd175 + 27babc10: ledger-01's window records
+                    at make_material's open and load and at mats_return's open, the session rows carry ledgerRowFields)
+                    reviews: Codex r2 APPROVE, Claude APPROVE. npm 309/309.
+                    mats-e2e (sandbox5): bricks, kill, torch, furn CANDIDATE_PASS at 27babc10; base 2096b392 BASE_SHAPE x4.
+  shop-on-27babc1   fc6541f9 (shop-01 r20b cherry-picked, no conflict; range-diff 36 `=`, 6 context-only)
+                    reviews: Codex APPROVE, Claude APPROVE (P3: the closer path's second hold/look has no abort check before
+                    the send -- a lavastep abort in that window; named). npm 317/317. SHOP-E2E (sandbox8) CANDIDATE_PASS.
+
+OPEN, named: F1 (cosmetic fallbacks with two builders; not cheap: a peer-aware bill also needs place-time no-fallback, which
+stalls the second builder); F3 + lavastep's seal cobble (Claude) as a whole-bag consumer; F4 a SEGMENT cell with no step
+(seen only on a record sited by the older proof: `earth: 1 open, 1 placeable now`) stops every visit -- the same class as F2
+for ordinary cells; the skip of a replant is a deviation from design S2 needing the OWNER's sign-off (Claude).
+
+==================================================================================================================================
+PAPER ROUND 4 (2026-10-26, coordinator: the closer abort, F4, the rebuild on mats-on-2096b39; owner 10-26 replant skip approved)
+
+FINAL SHA: shop-on-27babc1 30670216 (r21..r28 on 6d69476f's parent fc6541f9 line; base mats-on-2096b39 27babc10).
+npm 321/321 at 30670216. Reviews: both engines APPROVE 5c9b038c (r27). The r27 P3s were folded into 30670216 (tests only), and
+each engine then confirmed that commit (see the PIECES line).
+
+What changed since round 3:
+  r21  the closer path's abort window closed (an abort at the second hold/look sends nothing, the barrier released); F4: a record
+       cell no stand reaches is DEFERRED, the segments not waiting on it are built, after STUCK_VISITS (3) the visit ends
+       stuck_on_cell (a named row) and the order backs off 6 h.
+  r22  the count on every exit; one stuck file per holder (no lost update); an unwritable map fails closed (stuck_unwritten).
+  r23  the back-off stamped only at the loop's end; a stuck EARTH cell named STALLED (pad waits on earth, everything on pad):
+       `stalled`, `waiting` on the row, read r10 STALLED POOLS -- NOT FIXED: the remedy (re-site) is a follow-up.
+  r24  the 24 h age-out per holder before the sum; a future stamp dropped before the max; stamp only when stalled.
+  r25  tests: a loop-end stuck while another builder holds a segment is not stalled and stamps nothing.
+  r26  PAPER CAUGHT: shop.mjs buildRowDetail's whitelist dropped every F2/F4 field (visits, n, segs, waiting, stalled, early,
+       to, result, why) -- the logged stuck row was `op=stuck_on_cell cell=...`; the read could never see a stall, nor a
+       replant's destination. Fixed; the fake runner's rows now pass through the real formatter (r27, r28: exit hard, the 300-char
+       logger cut, objects refused).
+
+Final runs at 30670216, each under its own sandbox lock, released between scenes:
+  shop (SHOP-E2E, sandbox8)  CANDIDATE_PASS 167/167
+  kill (sandbox8)            CANDIDATE_PASS 167/167
+  tree (sandbox8)            CANDIDATE_PASS 167/167, 5 felled, replant 1
+  terrain-a (sandbox8)       FAIL, then CANDIDATE_PASS on the rerun. Both readings are recorded:
+    reading 1: 195/195 cells, structure complete, but cobblestone town + bag -15 against the bill -28, ground +4 cobblestone.
+      CAUSE, measured: the bot dug the scene's 17 cobblestone SCAFFOLD clears holding its iron_pickaxe (25 held=iron_pickaxe
+      rows; the passing runs held dirt and dug by hand, so cobblestone dropped nothing). 13 drops were picked up and 4 lay on the
+      ground: 13 + 4 = 17, the clears exactly. The town truly kept that cobble. The DRIVER's exact-bill check assumes a scaffold
+      clear yields nothing: an instrument gap, not a build defect. Follow-up: allow 0 <= d + bill <= the cobblestone clears,
+      with the ground counted.
+    reading 2 (rerun): CANDIDATE_PASS, cobblestone -28, ground {}.
+  terrain-c fresh (sandbox6) `no_site` (no proven site, sector S): design S2's own refusal, as in rounds 2-3.
+  terrain-c SEEDED, the F4 reproduction (sandbox5; SH_SEED_POOL = the record r13 sited):
+    OLD (r20, pre-F4, p2-terrain-c-seeded-r20.out): `no_step earth: 1 open, 1 placeable now` on every visit, a loop.
+    BASE (fleet 112beb04 / mt2): no shop skill -- `no record on the base`, BASE_UNEXPECTED by construction.
+    NEW (30670216): the replants moved (771,118,786 -> 745,120,805; 752,117,794 -> 781,121,778) ->
+      deferred earth (27 cells, then 765,119,795) -> cell_deferred (33 placed) -> stuck_on_cell
+      `visits=3 n=1 segs=earth+pad+ring+wall-F+wall-B+wall-L+wall-R+roof-edge+roof-inner+fit-out waiting=168 stalled=true`
+      -> shop_skip why=stuck_on_cell (the project back-off). No visit loops; the stall is named.
+    The read (r10, shopread-sandbox over the real rows): STALLED POOLS {sandbox-Shop: 168}, stuck_on_cell 1, deferred 3,
+    replant_moved 2 with destinations.
+
+OPEN, named (not fixed):
+  F4 remedy: a stuck cell that every open segment waits on (an EARTH cell) STALLS the project. The executable remedy is to
+    re-site (publish a fresh record from the current proof). The siting proof guarantees a stand for every cell AT SITING TIME
+    only; a world change after siting can stall a current record too.
+  A stand blocked by a BODY does not enter F4 (attempts per visit, as before).
+  The per-bot back-off is in memory (restart = one more short visit).
+  F1 (cosmetic fallbacks), F3 and lavastep's seal cobble: as in round 3.
+  The driver's terrain-a cobblestone check (above).

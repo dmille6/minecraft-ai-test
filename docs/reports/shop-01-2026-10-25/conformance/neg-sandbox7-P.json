@@ -1,0 +1,1 @@
+{"v": 1, "pool": "sandbox-Shop", "key": "project-760_120_760.shop", "record_gen": 2, "record_sha": "977130864682e898102b07fd6fafcfa794c863e62d44dc088491115186c61d4e", "complete_in_record": true, "at": "2026-10-26T01:42:24Z", "region_mtime": "2026-10-26T01:42:23Z", "f1_min": 0.98, "cells": 167, "tp": 167, "fp": 0, "fn": 0, "unknown": 0, "f1": 1.0, "valid": true, "bad": []}

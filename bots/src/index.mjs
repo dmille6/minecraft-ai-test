@@ -58,6 +58,12 @@ import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { townPlanTick, townPlanZones, townPlanSeed } from './skills.mjs'
 import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
 import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
+import { matsModeDetail, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'   // mats-01's licence row (its own statement)
+import { createHash as shopHash } from 'node:crypto'
+import { shopStoodTick, shopFootprintRefresh, shopAckInstall } from './skills.mjs'   // shop-01: the walks' seeds, the footprint, the acks
+import { installNoBridge } from './nobridge.mjs'   // nobridge-01: no path scaffold over water on a walk
+import { SHOP, buildModeDetail, footprintCost, STOOD_EVERY_MS } from './shop.mjs'   // shop-01's licence row and the footprint price
+import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout-01: an open note's obligations held again at spawn
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
@@ -196,6 +202,9 @@ function connect() {
     auth: config.mc.auth,
     version: config.mc.version,
   })
+  // shop-01 r2: the click acknowledgements are tracked for the CONNECTION's whole life, installed before login so no sequence is
+  // written unseen (Codex r1 P2: a tracker per visit started blind); late acknowledgements settle this bot's own intents
+  if (SHOP.on) { try { bot.shopAcks = shopAckInstall(bot) } catch {} }
 
   // Two counters that answer a question every other field we log is blind to:
   // is the world model wrong, or is the server holding the bot still? See
@@ -354,6 +363,20 @@ function connect() {
     try { logEvent({ kind: 'junkout_mode', status: 'success', snapshot: snapshot(bot), detail: junkoutModeDetail() }) } catch {}
     // ledger-01: the licence row (once per spawn; `on=on|off`, the cooperation design's A7 contract)
     try { logEvent({ kind: 'ledger_mode', status: 'success', snapshot: snapshot(bot), detail: ledgerModeDetail() }) } catch {}
+    // mats-01: the licence row, once per spawn -- `_mats_mode`, a kind the base cannot write (mats.mjs)
+    try { matsHoldNote(bot, readMatsNote(bot)) } catch {}   // holds live in memory: an open note's are set again at spawn
+    try { const sw = matsEnabled(process.env, config.memory.scope); logEvent({ kind: 'mats_mode', status: 'success', snapshot: snapshot(bot), detail: matsModeDetail({ on: sw.on, why: sw.why, reserve: matsReserve(), buffers: matsBuffers() }) }) } catch {}
+    // shop-01: the licence row, once per spawn -- `_build_mode`, a kind the base cannot write (cooperation A7), naming the reserve in
+    // force by a short hash; the spawn time (no dig in the first 3 s: the ghost-block rule); the walks' seeds and the footprint
+    if (SHOP.on) {
+      try { logEvent({ kind: 'build_mode', status: 'success', snapshot: snapshot(bot), detail: buildModeDetail(shopHash('sha256').update(JSON.stringify(matsReserve().table ?? {})).digest('hex').slice(0, 8)) }) } catch {}
+      bot.shopSpawnAt = Date.now()
+      bot.on('spawn', () => { bot.shopSpawnAt = Date.now() })
+      try { shopFootprintRefresh(bot) } catch {}
+      const shopTimer = setInterval(() => { try { shopStoodTick(bot) } catch {} }, STOOD_EVERY_MS); shopTimer.unref?.()
+      const shopFpTimer = setInterval(() => { try { shopFootprintRefresh(bot) } catch {} }, 60_000); shopFpTimer.unref?.()
+      bot.once('end', () => { clearInterval(shopTimer); clearInterval(shopFpTimer) })
+    }
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
@@ -676,6 +699,15 @@ function connect() {
     moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell) || planBreakCost(bot.townPlan?.cells, block)]
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(zonePrice)
     moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePlacePrice]
+    // shop-01: THE WORKSHOP'S FOOTPRINT (its record's cells + 1) is never a WORK or TRAVEL walk's dig or scaffold (design 4.4).
+    // Appended (concat, never push: townground's transit invariant) before the clones below copy them; shop.mjs footprintCost reads the walk's profile at
+    // search time, so the ascend/descend/water escapes keep their survival digs
+    moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
+    moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat((block) => footprintCost(bot.shopFootprint, bot.movementProfile, block))
+    // nobridge-01 (LIVE 10-27 showcase: 52 dirt laid across the lake): no WALK places a path block over or into water; the
+    // 1x1 tower stays (nobridge.mjs says which moves place and why this override is the narrowest). The clones below copy it
+    // with noBridge=true; the ascend, descend, water and tunnel profiles clear it.
+    installNoBridge(moves, (x, y, z) => bot.blockAt(new Vec3(x, y, z)), () => bot.game?.minY ?? -64)
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
@@ -739,6 +771,7 @@ function connect() {
     // THE ORE TUNNEL'S PROFILE (oretunnel.mjs: staircases only, no drops > 1, no towers, hazard vetoes), built
     // here because index.mjs owns every setMovements (dep-contract.test.mjs). Same shape as withGatherMovements.
     bot.tunnelMovements = tunnelMovements(bot, gatherMoves, { home: configuredHome(config.world) ?? { x: config.world.homeX, z: config.world.homeZ } })
+    bot.tunnelMovements.noBridge = false   // nobridge-01: the ore tunnel is not a walk
     bot.withTunnelMovements = async (fn) => {
       bot.pathfinder.setMovements(bot.tunnelMovements); bot.movementProfile = 'tunnel'
       try { return await withApproachBound(bot, fn) }
@@ -800,6 +833,7 @@ function connect() {
     const ascendMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(ascendMoves, moves)
     ascendMoves.canDig = true
+    ascendMoves.noBridge = false      // nobridge-01: an escape keeps every placement
     ascendMoves.allow1by1towers = true
     ascendMoves.dontCreateFlow = true
     ascendMoves.allowParkour = false
@@ -845,6 +879,7 @@ function connect() {
     const descendMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(descendMoves, moves)
     descendMoves.canDig = false
+    descendMoves.noBridge = false     // nobridge-01: an escape keeps every placement
     descendMoves.allow1by1towers = false
     descendMoves.allowParkour = false
     descendMoves.maxDropDown = 8
@@ -895,6 +930,7 @@ function connect() {
     // selected only by a climb.
     const waterMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(waterMoves, moves)
+    waterMoves.noBridge = false       // nobridge-01: an escape keeps every placement
     // The entry penalty is the whole reason water is unreachable, and unlike the
     // other profiles this one REPLACES the array rather than inheriting the
     // shared reference. Entering the water is the point of the manoeuvre.

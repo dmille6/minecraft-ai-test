@@ -1,0 +1,55 @@
+import subprocess, sys, os
+D = os.path.dirname(os.path.abspath(__file__))
+src = open(os.path.join(D, 'shopread.py')).read()
+M = [
+ ("                if op == 'stuck_on_cell' and f.get('stalled') == 'true':", "                if False:"),
+ ("elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):", "elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_unwritten'):"),
+ ("elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):", "elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell'):"),
+ ("need = len([x for x in rec.get('replant') or [] if x.get('state') != 'skipped'])", "need = len(rec.get('replant') or [])"),
+ ("out['off_record'] += 1;", "pass;"),
+ ("out['clear_outside'] += 1;", "pass;"),
+ ("out['zone'] += 1;", "pass;"),
+ ("            if op in ('place', 'clear', 'replant'):", "            if op in ('place', 'clear'):"),
+ ("            out['lease_overlap'] += 1;", "            pass;"),
+ ("seg-[A-Za-z0-9-]+)", "seg-[a-z0-9-]+)"),
+ ("out['felled_unplanted'] += 1;", "pass;"),
+ ("out['g5_unjudged'] += 1;", "pass;"),
+ ("out['unknown_stood'] += 1;", "pass;"),
+ ("            for cand in (ck(p), ck([p[0], p[1] - 1, p[2]])):", "            for cand in (ck([p[0], p[1] - 1, p[2]]),):"),
+ ("        if name in BUILD_KINDS and r.get('feet') and unknown_open:", "        if r.get('feet') and unknown_open:"),
+ ("            for k in [k for k in unknown_open if k[0] == bot]:      # a new connection: its unknown set starts empty -- FIRST\n                del unknown_open[k]", "            pass"),
+ ("    if not isinstance(raw, dict) or raw.get('version') != 1 or not isinstance(raw.get('zones'), list) or len(raw['zones']) > 64:", "    if not isinstance(raw, dict):"),
+ ("                    if not m or int(m.group(1)) > int(m.group(2)) or (need is not None and int(m.group(2)) != need):", "                    if not m:"),
+ ("out['bag_loss'] += 1;", "pass;"),
+ ("            if f.get('exit') in (None, '-', 'aborted', 'error', 'died', 'off') or f.get('silent') != '0':", "            if False:"),
+ ("                if unexplained < 0 and n not in SCAFFOLD_NAMES:", "                if unexplained < 0:"),
+ ("out['oracle_missing'] += 1;", "pass;"),
+ ("out['zone_unknown'] += 1;", "pass;"),
+ ("out['arms_rows_control_post'] += 1", "pass"),
+ ("    res['exposure_ready'] = int(res['conformance_source'] == 1 and g('complete_towns_conform') >= EXPOSE_TOWNS)", "    res['exposure_ready'] = int(g('complete_towns_conform') >= EXPOSE_TOWNS)"),
+ ("    res['exposure_ready'] = int(res['conformance_source'] == 1 and g('complete_towns_conform') >= EXPOSE_TOWNS)", "    res['exposure_ready'] = int(res['conformance_source'] == 1 and g('complete_towns') >= EXPOSE_TOWNS)"),
+ ("    if not good or (t(good[-1]) - t(good[0])).total_seconds() < CONFORM_GAP_MIN * 60:", "    if not good:"),
+ ("    good = [sv for sv in mine[last_bad + 1:] if f1(sv) >= CONFORM_F1]", "    good = [sv for sv in mine if f1(sv) >= CONFORM_F1]"),
+ ("        return v - dt.timedelta(minutes=SAVE_LAG_MIN) if v.tzinfo is not None else None", "        return v - dt.timedelta(minutes=SAVE_LAG_MIN)"),
+ ("        return v if v == v and 0.0 <= v <= 1.0 else None", "        return v"),
+ ("and sv.get('record_sha') == rec.get('_sha') and t(sv) is not None and t(sv) >= since and f1(sv) is not None], key=t)", "and t(sv) is not None and f1(sv) is not None], key=t)"),
+ ("    mine = sorted([sv for sv in surveys or [] if isinstance(sv, dict) and sv.get('valid') is True and sv.get('record_gen') == rec.get('_gen')", "    mine = sorted([sv for sv in surveys or [] if sv.get('record_gen') == rec.get('_gen')"),
+ ("                world[pool] = 'room' if r0 == 0 and r1 >= 1 else", "                world[pool] = 'room' if True else"),
+ ("            if r0 is None or r1 is None:", "            if False:"),
+ ("        if r.get('lit') and box[0] - 1 <= cx <= box[3] + 1 and box[1] - 1 <= cy <= box[4] + 1 and box[2] - 1 <= cz <= box[5] + 1:", "        if r.get('lit') and box[0] - 1 <= cx <= box[3] + 1 and box[2] - 1 <= cz <= box[5] + 1:"),
+ ("if rec.get('prev') == head[0] and rec.get('prevSha') == head[1]:", "if rec.get('prev') == head[0]:"),
+ ("            blocks_until = rel0 if rel0 is not None else (int(r0.get('until') or 0) + RECLAIM_MS)", "            blocks_until = int(r0.get('until') or 0) + RECLAIM_MS"),
+ ("            elif op == 'known':\n                unknown_open.pop((bot, k), None)", "            elif op == 'known':\n                pass"),
+]
+bad = 0
+for old, new in M:
+    assert src.count(old) == 1, ('ANCHOR', old)
+    p = os.path.join(D, '_mut.py')
+    open(p, 'w').write(src.replace(old, new))
+    r = subprocess.run([sys.executable, '-I', p, '--selftest'], cwd=D, capture_output=True, text=True)
+    killed = r.returncode != 0
+    print('killed' if killed else 'SURVIVED', old[:80].replace('\n', ' '))
+    bad += not killed
+os.unlink(os.path.join(D, '_mut.py'))
+print('control:', subprocess.run([sys.executable, '-I', os.path.join(D, 'shopread.py'), '--selftest'], cwd=D, capture_output=True, text=True).stdout.strip())
+sys.exit(1 if bad else 0)

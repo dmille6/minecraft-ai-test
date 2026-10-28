@@ -1,0 +1,19 @@
+PAPER: reserve80-01 + logbank-01 (OWNER 10-27), driver resv-e2e.cjs (a copy of mats-e2e.cjs on shop-sandbox-on-main 427df236
+with the resv* scenes; RCON world edits on sandboxes only; server truth by `data get`). Town: chest A cobble 200 (< 256, > 52),
+logs 160 or 100, coal 4, iron 10; one clean furnace; an OPEN workshop record seeded (shop g1 + townplan g1, structure_complete false).
+
+reserve80 at 8a6383f5 (sandbox5):
+  resv      CANDIDATE_PASS  _reserve_mode active=1; _reserve_draw cobblestone n=12 floor 256->52, oak_log n=2 floor 512->103;
+                            _make_material kind=bricks made=12 reserve=project; server: A cobble -12 logs -2, B stone_bricks +12.
+  resvoff   CANDIDATE_PASS  KILL SWITCH RESERVE_PROJECT=off: _reserve_mode why=off; skip bricks:inputs; no draw; town unchanged.
+  resvnorec FAIL (instrument, explained): no record seeded, but SHOP is on, so the bot planned and sited its own workshop: the
+                            first reading is why=no_project with skip bricks:inputs (the full floor), then active=1 and bricks
+                            under the lowered floor. The control assumed no project could exist; the behaviour is correct.
+logbank on the tip 680233cd (sandbox6):
+  r1 resvlog/resvlogoff FAIL on two over-strict oracle checks (end bag == 16 / 73: the workshop's own station crafts spend 3-4
+     logs after the deposit, booked by _build_bag; logbankoff starts under the lowered floor by construction). Oracle fixed (r2).
+  r2 resvlog    CANDIDATE_PASS  _town_deposit "logs banked 56 kept 16"; server B oak_log +56 (town 100 -> 156 >= 103); THEN
+                                _reserve_draw logs floor 103 and bricks made=12 reserve=project; B stone_bricks +12.
+  r2 resvlogoff CANDIDATE_PASS  KILL SWITCH LOGBANK=off: no log banked; town logs stay 100 < 103 -> skip bricks:inputs, no bricks.
+                                (the workshop's own draw of 16 cobble for its furnaces is a _reserve_draw at floor 52)
+npm test on 680233cd: 322/322 files passed.

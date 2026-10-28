@@ -1,0 +1,5 @@
+root=/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/mt2 build=BASE server=sandbox6 scenes=terrain-c
+terrain-c BASE_UNEXPECTED done=false record={"sector":"S","source":"pavilion","anchor":[762,795],"orient":"E","s":121,"gen":1,"complete":false,"clear":113,"replant":8} cells=null acks={"places":0,"foreign":2,"dead":0,"acks":2,"unacked":0} extra={} d(stock){} ground{}
+   why: no record on the base
+   rows: sandbox-Shop_make_material:success:kind=count verdict=ok made=0 smelted=0 forbidden=- stone=- note=closed ml=- stock=- took=- reserve=- stop=counted:2 inputs_left=- tools_lost=- part=- log=- bag=
+rc=2

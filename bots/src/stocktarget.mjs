@@ -57,7 +57,9 @@ export const STOCK_GROUPS = Object.freeze({
   stick: bulk(['stick'], TOWN_WOOD_TARGET),
   stone: bulk(['stone'], 64),
   dirt: bulk(['dirt'], 0),
-  sand: bulk(['sand', 'red_sand'], 0),
+  // matset-01 (building tier §3.4, OWNER 10-23): 0 -> 64, so the sand a town gathers stops going down the well before it can
+  // become glass. Banked below 64 (sand is DEPOSIT_ALWAYS, bankable.mjs); the surplus above it goes as before. Revert = 0.
+  sand: bulk(['sand', 'red_sand'], 64),
   gravel: bulk(['gravel'], 0),
   deepslate: bulk(['deepslate'], 0),
   tuff: bulk(['tuff'], 0),
@@ -94,10 +96,34 @@ export const targetOf = g => STOCK_GROUPS[g]?.target ?? 0
 export const namesOf = g => STOCK_GROUPS[g]?.names ?? []
 
 /**
+ * THE BUILDING PARTS (matset-01, building tier §3.4; OWNER 10-23). What the town's blueprints are built from once made:
+ * stone bricks and their slab, stairs and wall; glass and glass panes; copper blocks, cut copper with its slabs and stairs,
+ * and copper doors, in every oxidation, waxed or not. They are PROTECTED (never well, prune or stock-rule disposal), they
+ * have NO stock target (no cap can refuse or prune them), and they are always bankable (bankable.mjs DEPOSIT_ALWAYS).
+ * The list is the regex's whole match set in minecraft-data 1.21.8 (46 names; matset.test.mjs proves both directions).
+ */
+export const PROJECT_PART_RE = /^(stone_brick(s|_slab|_stairs|_wall)|glass|glass_pane|(waxed_)?(exposed_|weathered_|oxidized_)?(cut_copper(_slab|_stairs)?|copper_door)|(waxed_)?copper_block|(waxed_)?(exposed|weathered|oxidized)_copper)$/
+const COPPER_STATES = ['', 'exposed_', 'weathered_', 'oxidized_']
+export const PROJECT_PARTS = Object.freeze([
+  'stone_bricks', 'stone_brick_slab', 'stone_brick_stairs', 'stone_brick_wall', 'glass', 'glass_pane',
+  ...['', 'waxed_'].flatMap(w => COPPER_STATES.flatMap(o => [`${w}${o}cut_copper`, `${w}${o}cut_copper_slab`, `${w}${o}cut_copper_stairs`, `${w}${o}copper_door`])),
+  'copper_block', 'waxed_copper_block', ...['', 'waxed_'].flatMap(w => ['exposed', 'weathered', 'oxidized'].map(o => `${w}${o}_copper`)),
+])
+
+/**
+ * THE BUILD RESERVE (building tier §3.3, owner B3; OWNER 10-23: logs 512, copper ingots 512, cobblestone 256, torches 32,
+ * sand 16, planks 71, sticks 40 -- the cobble-256 table of reserve-proposal-2026-10-23.md, superseding Q6's "512 for each",
+ * which funded 0 of 13 workshops): what a town keeps that no
+ * building job may spend. DECLARED here; NOTHING READS IT until mats-01, which adds the env override (a setting) and the
+ * `_mats_mode` licence row. Keys are the reserved stock classes of §3.3, per town.
+ */
+export const BUILD_RESERVE = Object.freeze({ cobblestone: 256, logs: 512, planks: 71, sticks: 40, copper_ingot: 512, sand: 16, torch: 32 })
+
+/**
  * NEVER DISPOSED, whatever any table says (the owner's list: iron, ores, ingots, tools, saplings, the composter's inputs;
  * and everything else with a use the bulk table does not model). The well also refuses anything the composter takes.
  */
-export const PROTECTED = /(_ore$|^raw_|_ingot$|_nugget$|^(coal|charcoal|diamond|emerald|lapis_lazuli|redstone|quartz|amethyst_shard|netherite_scrap|ancient_debris)$|_(pickaxe|axe|shovel|hoe|sword)$|_(helmet|chestplate|leggings|boots)$|^(bow|crossbow|shield|shears|flint_and_steel|fishing_rod|bucket|water_bucket|lava_bucket|milk_bucket)$|_sapling$|_propagule$|^(torch|crafting_table|furnace|blast_furnace|smoker|chest|barrel|composter|bed|bone_meal|bamboo|wheat|wheat_seeds|apple|bread)$|_bed$)/
+export const PROTECTED = /(^(stone_brick(s|_slab|_stairs|_wall)|glass|glass_pane|(waxed_)?(exposed_|weathered_|oxidized_)?(cut_copper(_slab|_stairs)?|copper_door)|(waxed_)?copper_block|(waxed_)?(exposed|weathered|oxidized)_copper)$|_ore$|^raw_|_ingot$|_nugget$|^(coal|charcoal|diamond|emerald|lapis_lazuli|redstone|quartz|amethyst_shard|netherite_scrap|ancient_debris)$|_(pickaxe|axe|shovel|hoe|sword)$|_(helmet|chestplate|leggings|boots)$|^(bow|crossbow|shield|shears|flint_and_steel|fishing_rod|bucket|water_bucket|lava_bucket|milk_bucket)$|_sapling$|_propagule$|^(torch|crafting_table|furnace|blast_furnace|smoker|chest|barrel|composter|bed|bone_meal|bamboo|wheat|wheat_seeds|apple|bread)$|_bed$)/
 export const isProtected = name => typeof name === 'string' && PROTECTED.test(name)
 
 /** How many of a group a list of items ({ name, count }) holds. */

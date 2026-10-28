@@ -12,7 +12,8 @@
 //
 // WHAT IT BANKS -- the fleet's own bankable rules (bankable.mjs depositPlan: standing targets, always-banked ores,
 // spare tools; never ballast, never a station, never food), and of those only what NO OTHER RULE KEEPS:
-//   - the stockpile rungs (milestones.mjs): wood (logs + planks/4) and the COBBLE family are kept to min(held, 64),
+//   - the stockpile rungs (milestones.mjs): wood (logs + planks/4) to min(held, WOOD_KEEP = 16; logbank-01, OWNER 10-27) and
+//     the COBBLE family to min(held, 64),
 //     dirt 16 and sand 8 (the gatherer chain) -- a deposit below them re-opens a gather rung and the two rules fight;
 //   - the iron ladder's inputs: since cobblekeep-01 (OWNER 10-19 ~14:10Z "coal and iron must get banked in town") only
 //     what the bot's OWN next rungs need -- IRON_KEEP (3) iron units, ingots first, then raw iron, then ore, each name kept
@@ -25,7 +26,9 @@
 //     usable copy of each name always stays. The copy that moves is chosen by SLOT, because chest.deposit(type) takes
 //     the first copy by slot and could bank the good pickaxe while keeping the spent one.
 // WHOLE STACKS ONLY, smallest first: every transfer frees exactly one slot, so "frees >= 1 slot" is exact, and a
-// partial stack -- which frees nothing -- is never moved.
+// partial stack -- which frees nothing -- is never moved. ONE EXCEPTION, logs only (logbank-01): a log stack too big to
+// leave whole is HALVED (a right click on it lifts ceil(n/2), exactly predictable) while the half still fits above the keep
+// -- see logHalfSteps. A half frees no slot, so it never counts in `freed` and never fires an order on its own.
 //
 // A property test (test/towndeposit.test.mjs) runs every gatherer and SUSTAINING rung's REAL done() over random full
 // bags before and after the plan, at several laps: no rung changes state. That is the "do not fight the ladder" rule
@@ -46,6 +49,9 @@ import { RUNNER_DECLINED } from './declined.mjs'
 import { peacefulFoodActive } from './foodskip.mjs'
 // cobblekeep-01 (Codex r3 P2): the bot's OWN smelts, whatever they are, keep their fuel (smelting.mjs is pure, no imports)
 import { smeltRecipeFor, smeltInputsFor } from './smelting.mjs'
+// logbank-01: the personal wood keep, ONE number shared with milestones.mjs's stockpile_wood ceiling (a leaf module)
+import { WOOD_KEEP, LOGBANK } from './woodkeep.mjs'
+export { WOOD_KEEP }
 
 /** The bag the order acts on: the bot's own slot count (bot.inventory.items().length), never an estimate. */
 export const TD_TRIGGER_SLOTS = TRIGGER_SLOTS
@@ -72,7 +78,7 @@ export const TD_MAX_CONTAINERS = 2
 
 /** depositPlan's creditCap (bankable.mjs bankableInventory default): the most of one name a VISIT banks. */
 export const CREDIT_CAP = 64
-/** Kept as totals by the stockpile rungs (milestones.mjs STOCKPILE_MAX). */
+/** The stone family kept as a total by the stockpile_stone rung (milestones.mjs STOCKPILE_MAX). Wood keeps WOOD_KEEP. */
 export const STOCKPILE_KEEP = 64
 /** The gatherer chain's held counts for items that are never bankable anyway (asserted against the chain). */
 export const HELD_TARGETS = Object.freeze({ dirt: 16, sand: 8 })
@@ -117,7 +123,7 @@ export function townKeeps (counts = {}, { wanted = [] } = {}) {
     if (k > (keep[name] ?? 0)) { keep[name] = k; why[name] = rule }
   }
   // wood: units = logs + floor(planks / 4) (milestones.mjs woodUnits); logs first, most-held species first.
-  let wood = Math.min(STOCKPILE_KEEP, LOGS.reduce((t, n) => t + (counts[n] ?? 0), 0) + Math.floor(PLANKS.reduce((t, n) => t + (counts[n] ?? 0), 0) / 4))
+  let wood = Math.min(WOOD_KEEP, LOGS.reduce((t, n) => t + (counts[n] ?? 0), 0) + Math.floor(PLANKS.reduce((t, n) => t + (counts[n] ?? 0), 0) / 4))
   for (const n of [...LOGS].sort(byHeldDesc(counts))) { const k = Math.min(wood, counts[n] ?? 0); if (k > 0) { floor(n, k, 'stockpile_wood'); wood -= k } }
   for (const n of [...PLANKS].sort(byHeldDesc(counts))) { const k = Math.min(wood * 4, counts[n] ?? 0); if (k > 0) { floor(n, k, 'stockpile_wood'); wood -= Math.floor(k / 4) } }
   // stone: the family total, cobblestone kept first.
@@ -214,7 +220,7 @@ export function toolSlotsToBank (copies = [], allowance = Infinity) {
  *              slot emptied, so freed = steps.length.
  */
 export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false,
-                                               tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on } = {}) {
+                                               tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, halves = LOGBANK.on } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const counts = countsOf(list)
   const { keep, why } = townKeeps(counts, { wanted })
@@ -223,7 +229,11 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
   // depositPlan already judges the REDUCED bag, so the visit's spend comes off the cap, not off that count (Codex round 2).
   // noSwords: the switch's reading (default) -- excluding can only lower the plan, so neither the order nor the run banks a
   // sword while it is on, and no order fires that would not have fired without the kit.
-  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [], noSwords })
+  // logbank-01 r3 (LIVE 10-27, showcase-e8525ca4): EVERY log species is bankable here while the switch is on. bankable.mjs's
+  // STANDING_TARGETS name oak, birch and jungle logs only, so the showcase's spruce (all ten bots: 64-73 spruce_log, no other
+  // log) read `not_wanted` -- no step, no count, no order, for an hour. Wood is wood (milestones.mjs LOGS).
+  // ...as bankable, NOT as wanted: a want is kept up to a stack (Paper r3, a well town: only the 9 left, 64 kept)
+  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [], bankableToo: halves ? [...LOGS] : [], noSwords })
     .map(({ name, count }) => [name, Math.min(count, Math.max(0, CREDIT_CAP - (Math.max(0, Number(already?.[name]) || 0))))]))
   const steps = [], banked = {}
   const holds = withdrawHolds()
@@ -232,7 +242,11 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
   // A TAIL RUN NEVER BANKS THE BASE PLAN, whatever the switch says (a not-full bag's base plan is not this change's)
   const baseOn = tail !== 'only'
   const rowsMode = !bagAllowance || tail === false ? null : tail === 'only' ? 'only' : 'append'
-  for (const name of baseOn ? Object.keys(allowance).sort() : []) {
+  // logbank-01 r2 (OWNER 10-27 "implement ... all the changes"): a NOT-FULL visit's tail also banks the LOGS above the personal
+  // keep (whole stacks, then halves) -- at any bag size, under the same switch. Nothing else of the base plan joins the tail.
+  const logsTail = tail === 'only' && halves
+  const baseNames = baseOn ? Object.keys(allowance).sort() : logsTail ? Object.keys(allowance).filter(n => LOGS.includes(n)).sort() : []
+  for (const name of baseNames) {
     const copies = list.filter(it => it.name === name)
     if (TOOL_RE.test(name)) {
       // A TOOL JUST WITHDRAWN (withdraw's 10-min hold): NO copy of that name moves while the hold lasts. The hold is a
@@ -246,16 +260,20 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
       continue
     }
     let room = Math.min(allowance[name], (counts[name] ?? 0) - (keep[name] ?? 0))
+    const left = []
     for (const it of [...copies].sort((a, b) => (a.count ?? 0) - (b.count ?? 0) || a.slot - b.slot)) {
-      if ((it.count ?? 0) > room) break
+      if ((it.count ?? 0) > room) { left.push(it); continue }
       steps.push({ slot: it.slot, name, count: it.count }); banked[name] = (banked[name] ?? 0) + it.count; room -= it.count
+    }
+    if (halves && LOGS.includes(name)) {
+      for (const st of logHalfSteps(left, room)) { steps.push({ ...st, name }); banked[name] = (banked[name] ?? 0) + st.count }
     }
   }
   // THE VALVE (stocktarget design 3.2): when nothing else frees a slot and the caller has PROVEN it (`valve`: no well-able,
   // compostable or bankable stack), ONE tool copy that TODAY's tool rule would bank (the best usable copy of each name
   // stays, spent copies never move) goes in above the town's tool target -- tools are never destroyed, so a full bag of
   // spare tools keeps this one move. Its claim is a `valve` claim (skills.mjs bankInto); the read gates it.
-  if (!steps.length && valve && baseOn) {
+  if (!steps.some(st => !st.half) && valve && baseOn) {   // logbank-01: a log half frees no slot, so it never blocks the valve
     const free = depositPlan(list, null, { wants: [], noSwords, noToolCap: true })
     for (const { name, count } of free) {
       if (!TOOL_RE.test(name) || (holds[name] ?? 0) > 0) continue
@@ -295,8 +313,41 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
   }
   // THE BASE PLAN'S STACKS FIRST (bagbudget-01, Claude design r1 P2-3): fitToContainer takes the first free container slots in
   // step order, so a short chest takes the coal, iron and cobble before a torch; within each part, by bag slot as before
-  steps.sort((a, b) => (a.allowance ? 1 : 0) - (b.allowance ? 1 : 0) || a.slot - b.slot)
-  return { steps, freed: steps.length, slots: list.length, keep, why, banked, keepPicks }
+  // logbank-01: a log half after every whole stack, the rows' included (it frees no slot, so a short chest takes the
+  // slot-freeing stacks first); the halves of one slot keep their order (a stable sort), the second reading the slot the first left
+  const rank = st => (st.half ? 2 : st.allowance ? 1 : 0)   // halves LAST: every slot-freeing stack takes chest room first (Codex r1 P2)
+  steps.sort((a, b) => rank(a) - rank(b) || a.slot - b.slot)
+  return { steps, freed: steps.filter(st => !st.half).length, slots: list.length, keep, why, banked, keepPicks }
+}
+
+/**
+ * THE LOG HALF-SPLIT (logbank-01, OWNER 10-27) -> [{ slot, count, from, half: true }]. Pure. `stacks` are the log copies the
+ * whole-stack rule could not move (each bigger than `room`), `room` what may still leave above the keep. The deposit moves
+ * whole stacks only, so a bot holding one 64 stack and a keep of 16 banked NOTHING: room 48 < 64. A right click on a bag
+ * stack of n lifts ceil(n/2) onto the cursor and leaves floor(n/2) (vanilla, and prismarine-windows splitSlot predicts it);
+ * the cursor then goes whole into an EMPTY chest slot, as every other step. Halving repeats while the half still fits:
+ * 64 with room 48 -> 32 (room 16) -> 16 (room 0): the bag keeps exactly 16. Never below the keep (each half <= room), and
+ * the largest stack first (fewest clicks). `from` is the slot's count before the click, which the runner re-checks.
+ */
+export function logHalfSteps (stacks = [], room = 0) {
+  const out = []
+  let r = Math.max(0, Math.floor(Number(room) || 0))
+  for (const it of [...stacks].filter(x => (x?.count ?? 0) > 1).sort((a, b) => b.count - a.count || a.slot - b.slot)) {
+    let cur = it.count
+    while (cur > 1 && Math.ceil(cur / 2) <= r) {
+      const take = Math.ceil(cur / 2)
+      out.push({ slot: it.slot, count: take, from: cur, half: true })
+      r -= take; cur -= take
+    }
+  }
+  return out
+}
+
+/** The deposit row's wood fields (logbank-01) -> 'logs banked B kept K keep W'. Pure. */
+export function logsField (banked = {}, after = {}) {
+  const b = LOGS.reduce((t, n) => t + (Number(banked?.[n]) || 0), 0)
+  const k = LOGS.reduce((t, n) => t + (Number(after?.[n]) || 0), 0)
+  return `logs banked ${b} kept ${k} keep ${WOOD_KEEP}`
 }
 
 /**
@@ -415,7 +466,10 @@ export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null,
   // THE STOCK TARGETS' COUNT (design 3.7): nothing bankable yet, but a targeted surplus the town cannot judge (ceiling
   // unknown, or at target by the 6 h ceiling and not by the 1 h floor) -- count the town's containers first, so the plan or
   // the well can act (Codex r2 7, Claude r2 P1-2: no full bag waits for a count nobody takes)
-  if (!p || !(p.freed >= 1)) {
+  // logbank-01 (both reviews r1 P2): a full bag whose only surplus is a log stack above the keep (halves, freed 0) is a deposit
+  // too -- the owner asked for the logs in town; without this a 64-stack never reached the chest
+  const logsOnly = !!p && !(p.freed >= 1) && Array.isArray(p.steps) && p.steps.some(x => x.half)
+  if (!p || (!(p.freed >= 1) && !logsOnly)) {
     if (!lazy(count) || !lazy(container)) return none()
     s.lastIssuedAt = now
     s.latched = true
@@ -430,7 +484,7 @@ export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null,
   const only = Array.isArray(p.steps) && p.steps.length > 0 && p.steps.every(x => x.allowance)
   const recount = only && !!lazy(count)
   return { order: { skill: 'town_deposit', args: { ...(recount ? { recount: true, count: 'allowance_only' } : {}) },
-                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) of surplus to bank${p.steps?.some(x => x.valve) ? ' (the valve: one spare tool)' : ''}` }, state: s }
+                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) of surplus to bank${logsOnly ? ' (logs above the personal keep)' : ''}${p.steps?.some(x => x.valve) ? ' (the valve: one spare tool)' : ''}` }, state: s }
 }
 
 /**
@@ -444,7 +498,7 @@ export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null,
  * itself), ONCE PER STAY (charged at issue), on the town deposit's own cooldown and backoff. A FREE-DECISION order in
  * cognitive.mjs's visit slot: never the reason for a trip, a walk across town or a new chest (depositPlan never sees it).
  */
-export function tailOrder ({ now = 0, slots = 0, pos = null, home = null, plan = null, container = false, state = {}, on = BAG_ALLOWANCE.on, myName = '' } = {}) {
+export function tailOrder ({ now = 0, slots = 0, pos = null, home = null, plan = null, container = false, state = {}, on = BAG_ALLOWANCE.on, myName = '', logCount = false } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!on || !inTownZone(pos, home) || s.latched) return none()
@@ -453,12 +507,19 @@ export function tailOrder ({ now = 0, slots = 0, pos = null, home = null, plan =
   if (now - (s.lastScanAt ?? -Infinity) < TD_SCAN_MS) return none()
   s.lastScanAt = now
   const p = lazy(plan)
-  if (!p || !(p.freed >= 1)) return none()
+  // logbank-01 r2: logs above the keep are a reason on their own (a half frees no slot)
+  const logs = LOGBANK.on && !!p && Array.isArray(p.steps) && p.steps.some(x => LOGS.includes(x.name) && !x.allowance)
+  // logbank-01 r2: logs above the keep that the town cannot judge yet (a well town, never counted: town_stock_unknown) --
+  // count first, in the same run (`logCount`: cognitive.mjs's stockCountKeys over the bag's LOGS only), as the full-bag
+  // order's count step does. Without it a well town's tail never banked a log.
+  // independent of the rows (r2 reviews, both P2): a torch to bank must not spend the stay's latch while the logs wait uncounted
+  const count = LOGBANK.on && !logs && !!lazy(logCount)
+  if (!p || !(p.freed >= 1 || logs || count)) return none()
   if (!lazy(container)) return none()
   const dh = Math.round(Math.hypot(pos.x - home.x, pos.z - home.z)), dy = Math.round(pos.y - (home.y ?? pos.y))
   s.lastIssuedAt = now
-  return { order: { skill: 'town_deposit', args: { tail: true, armed: visitArmed(s), dh, dy, vid: visitId(myName, now) },
-                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) over the bag allowance (stations, torches, bone meal, spare stone pickaxes) to bank` },
+  return { order: { skill: 'town_deposit', args: { tail: true, armed: visitArmed(s), dh, dy, vid: visitId(myName, now), ...(count || logs ? { logs: true } : {}), ...(count ? { recount: true, count: 'allowance_only' } : {}) },
+                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) over the bag allowance (stations, torches, bone meal, spare stone pickaxes) to bank${logs ? '; logs above the personal keep' : count ? '; the town\'s logs to count, then logs above the personal keep' : ''}` },
            state: visitLatchIssue(s, now) }
 }
 
@@ -475,7 +536,7 @@ export function townDepositOutcome (status, failClass = null, now = 0, state = {
 }
 
 /** The run's row: slots, what moved, the containers, why it stopped, the cursor. Under the logger's 300-char cap. */
-export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {}, stacks = 0, tried = [], stop = 'done', unsettled = 0, bagDelta = null, planned = 0, tools = [], clicked = null, unverified = 0, capRefused = null, stock = null } = {}) {
+export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {}, stacks = 0, tried = [], stop = 'done', unsettled = 0, bagDelta = null, planned = 0, tools = [], clicked = null, unverified = 0, capRefused = null, stock = null, logs = null } = {}) {
   const moved = Object.entries(banked).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   const t = tried.map(c => `${c.at}=${c.result}`).join(';') || '-'
   // THE TOOLS GO FIRST after the counts: the read's spent-tool gate parses `tools name@uses,...` and must never lose it
@@ -487,5 +548,5 @@ export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {
   const cap = capRefused && (capRefused.at_cap || capRefused.unknown || capRefused.outside) ? ` cobble_cap ${capRefused.at_cap ?? 0}/${capRefused.unknown ?? 0}/${capRefused.outside ?? 0}` : ''
   // stocktarget: claims admitted / refused for the other targeted names, the valve, and a count step
   const st = stock && (stock.claims || stock.refused || stock.valve || stock.counted != null) ? ` stock ${stock.claims ?? 0}/${stock.refused ?? 0}${stock.valve ? ` valve ${stock.valve} nothing_else=1` : ''}${stock.counted != null ? ` counted ${stock.counted}` : ''}` : ''
-  return `slots ${slotsBefore}->${slotsAfter} stacks ${stacks}/${planned} clicked ${clicked ?? stacks} bagdelta ${bagDelta ?? '?'} tools ${tools.join(',') || '-'}${cap}${st} banked ${moved} stop ${stop}${unsettled ? ` cursor_unsettled ${unsettled}` : ''}${unverified ? ` unverified ${unverified}` : ''} containers ${t}`.slice(0, 300)
+  return `slots ${slotsBefore}->${slotsAfter} stacks ${stacks}/${planned} clicked ${clicked ?? stacks} bagdelta ${bagDelta ?? '?'} tools ${tools.join(',') || '-'}${logs ? ` ${logs}` : ''}${cap}${st} banked ${moved} stop ${stop}${unsettled ? ` cursor_unsettled ${unsettled}` : ''}${unverified ? ` unverified ${unverified}` : ''} containers ${t}`.slice(0, 300)
 }

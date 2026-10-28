@@ -51,7 +51,8 @@ sys.path.insert(0, HERE)
 from towncap import town_cobble_cap   # noqa: E402  (cobblecap-1000: the cobble cap is read, never written here)
 # 'cobble' is filled in by set_cobble_target() from the stocktarget.mjs beside the fold being audited (towncap.py): it was a
 # literal 256 here, which would have called every cobble bank between 257 and 1000 a G3 breach once the cap moved
-TARGETS = {'cobble': None, 'stick': 64, 'stone': 64, 'dirt': 0, 'sand': 0, 'gravel': 0, 'deepslate': 0, 'tuff': 0,
+# sand 0 -> 64: matset-01 (OWNER 10-23, building tier §3.4), mirroring stocktarget.mjs
+TARGETS = {'cobble': None, 'stick': 64, 'stone': 64, 'dirt': 0, 'sand': 64, 'gravel': 0, 'deepslate': 0, 'tuff': 0,
            'calcite': 0, 'sandstone': 0, 'stone_pickaxe': 16, 'wooden_pickaxe': 4, 'stone_axe': 4, 'stone_shovel': 4,
            'wooden_axe': 0, 'wooden_shovel': 0, 'stone_hoe': 0, 'wooden_hoe': 0}
 WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak']

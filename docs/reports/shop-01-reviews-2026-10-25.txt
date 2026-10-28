@@ -1,0 +1,78 @@
+shop-01 -- REVIEW RECORD (2026-10-25): the builder, leases, barrier, rows, skill and wiring (stages A-C1 + r2-r6).
+Both engines, read-only, on branch shop-on-7049da1 (base 7049da16 = d55ce14d + matset-01 + mats-01). Step 1 (the siting planner)
+converged separately at r5 (4b6b796a; record 59b95604).
+
+ROUND  CODE      CODEX                                   CLAUDE
+r1     55b6db85  CHANGES: P1 mutex reclaim race (two     CHANGES: P2 wall_torch / copper weathering; P2 stale open
+                 holders; suspended holder); P2 x8:      intents block closers for good; P2 target digs of built cells
+                 tracker reset per visit, late acks      (structureguard absent); P3 x9
+                 never settle, retirement lost between
+                 visits, a replacement dug after the walk,
+                 the probe promotes ghost air, the walk
+                 timer cancels the next goal, direct mining
+                 destroys the workshop, no sapling draw;
+                 P3 slot gen on abort, bag keeps/leftovers
+       Paper r1: no part ever drawn (takeAllowed answers 0 for a name without a reserve key)
+r2     01954a1a  CHANGES: P2 unknown foreign cell never  CHANGES: the same P2; every r1 finding closed
+                 re-probed; P2 pid reuse keeps a dead
+                 holder's mutex
+r3     60e25388  CHANGES: P1 stale offline evidence      APPROVE (P3: bank before publish; leftover rule untested;
+                 frees a reconnected holder's mutex      gone() not tested through a visit)
+r4     5f87e664  CHANGES: P1 a late-processed playerLeft APPROVE (its P3-1 is the same finding)
+                 of the PREVIOUS connection retires a
+                 live one (receipt time names no conn)
+r5     00718c01  CHANGES: P1 presence I/O failure lets   APPROVE (P3: late install never beats)
+                 peers retire a live connection
+r6     f7877dfc  APPROVE (keepalive premise unverified   APPROVE (keepalive premise unverified offline; P3: fence:beat
+                 offline)                                ends the visit; fail-closed residual)
+       Keepalive measured on sandbox8 after r6: 29-30 s from SIGSTOP to the server's drop (4 samples); see the Paper record.
+
+CONVERGED at f7877dfc: Codex APPROVE r6, Claude APPROVE r6. npm test 313/313 at f7877dfc. Paper SHOP-E2E CANDIDATE_PASS (cand-6),
+BASE_SHAPE (base-2). eslint no-undef: one hit, bots/src/reflex.mjs:2506 'withinBody', pre-existing on the base (the same hit at
+7049da16).
+
+THE READ AND THE READ'S TELEMETRY (after the builder converged)
+ROUND  CODE                 CODEX                                      CLAUDE
+read1  50111124 (read r1)   CHANGES: P1 exposure from the code's own   CHANGES: P2 the wall leases unread (seg-wall-F); P2 G6 on
+                            row; P1 no bag-conservation gate; P1 blind the wrong cell, fires after a reconnect; P2 exposure is
+                            oracle; P2 G7 false on repairs; P2 G5 on   the code's claim and the oracle goes blind; P3 x5
+                            telemetry; P2 replants not in G3; P2
+                            litter; P3 denominators
+read2  e5482972 (builder    CHANGES: P2 x4 (a partial bank is a false  CHANGES: P2 G8 false on silent clicks, deaths, aborts;
+       r7 91547151 + read   loss; G6 order on a reconnect's own row;   Q3: world exposure adequate for exposure once the
+       r2)                  zones schema; G5 denominator) + P2 record- structure count's positive control is shown
+                            specific world verification before KEEP
+read3  7359a372 (builder r8 CHANGES: P2 missing room data read as zero;    APPROVE (P3: a silent replant click not counted)
+       64941a93 + read r3)  P2 the room check ignores height and passes
+                            an incomplete workshop -- record conformance
+                            F1 + PERSISTENT required before any KEEP
+read4  115ac326 (builder r9 CHANGES: one P2 in the DRAFT only (primary    APPROVE: the stricter exposure rule is correct and safe
+       + read r4)           field named a field r4 no longer emits) --   (fails closed everywhere: exposure_ready 0 by
+                            fixed in the draft; the read and r9 clean     construction; INCONCLUSIVE, never KEEP)
+                            (exposure fails closed everywhere)
+- Read r4: unknown room data is unknown; the room must lie in the record's cell extent including height; EXPOSURE NEVER READY
+  until a record-conformance + persistence source exists (conformance_source 0): the room check is reported as PRELIMINARY.
+  The draft says shop-01 is NOT REGISTRABLE until that source exists (it could only end INCONCLUSIVE). 27 mutants killed.
+- Builder r9 (115ac326): a silent replant click counts as silent. npm test 313/313 at 115ac326; Paper cand-10 CANDIDATE_PASS.
+- Builder r7 (91547151) and r8 (64941a93) are TELEMETRY ONLY: placedBy, saplings= on a felling, the _build_bag row (books kept
+  as they happen: onTook, onBanked, crafts in a finally; exit= and silent= on the row). npm test 313/313 at both.
+- Read r3: G8 judged only on a clean exit with silent=0; G6 resets on the reconnect's own row first; the zones file by the
+  bot's own schema; G5's denominator must equal the record's replant count; the world exposure is RECORD-SPECIFIC (a lit room
+  inside the record's box, none there before the deploy) with its positive control measured on sandbox8 (the Paper record).
+  26 mutants, all killed.
+
+STATED RESIDUALS (both engines saw them; none is a P1/P2)
+- A3's reserved SITE CHEST does not exist on this base (cooperation's job): the visit draws from any fresh, known town container
+  and banks its leftovers into ordinary town chests (A3's own fallback); the bank is skipped when < 150 s of the skill's 600 s
+  remain (the fleet's town deposit then takes them).
+- shopAllow does not subtract other bots' in-flight draws of an unreserved part (the chest window serialises takes; nothing lost).
+- Siting runs on the bot's event loop (seconds, once per town).
+- A replant whose nearest face is not below stops the visit (fine on every bench record).
+- `fence:beat` (own heartbeat > 15 s old: a stalled event loop or a failed write) ends that visit; the next visit proceeds.
+- Fail closed: a holder whose presence never lands is never retired by peers (it also cannot send: its own fence refuses).
+- Not measured by the read: the design's PERSISTENT rule (a second clean survey; the structure count is nightly) and record
+  conformance F1 >= 0.98 (needs a structcount `scan --record`, not built). Codex read r2 asks for record-specific verification
+  before KEEP: read r3's lit-room-inside-the-record-box check is record-specific; full cell conformance is not.
+- Litter is reported (a DiD across the nightly counts), not gated.
+- Barrier generation files are never pruned (one per closer click; ~35 per workshop): a small, bounded-per-build leak of
+  state files (the mutex generations are pruned to 16).

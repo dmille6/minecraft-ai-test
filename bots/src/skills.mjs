@@ -65,7 +65,8 @@ import { FLOOR } from './toolfor.mjs'
 import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
-import { IRON_LADDER, townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
+import { LOGBANK } from './woodkeep.mjs'
+import { IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
@@ -110,12 +111,19 @@ import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, fl
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import { depositPlan, depositNoopReason, cobbleBankStacks, isCobble, COBBLE_RESERVE, setCobbleTownReader, setCobbleReconcileProbe, setStockReaders, stockCapBinds, stockReaderInstalled } from './bankable.mjs'
-import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnknownKeys, townIndexCountDetail, HELD_RENEW_MS, allocateHomes } from './townindex.mjs'   // townindex-01
+import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnknownKeys, townIndexCountDetail, HELD_RENEW_MS, allocateHomes, indexStateOf } from './townindex.mjs'   // townindex-01
 // THE TOWN PLAN (townplan-01) and FOUNDING (found-01): the files, the planner, the orders (the section before SKILL_CONTRACTS)
 import { planKey, planHead, publishPlan } from './planstore.mjs'
 import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintainPlan, growPlan, auditPlan, auditDetail, keepouts, accessKept,
          readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard, planFurnitureCells } from './townplan.mjs'
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
+// shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
+import { loadBlueprint, siteBlueprint, plinthCells, reservations } from './buildsite.mjs'
+import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
+import { installAckTracker } from './buildack.mjs'
+import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
+import { botBuildEffects } from './buildbot.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -131,8 +139,14 @@ import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
-import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
+import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS, SMELT_MS_PER_ITEM } from './smelting.mjs'
 import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
+// mats-01 (building tier section 3): the materials job's decisions
+import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
+  furnaceQualifies, batchFor, planksToLoad, newNote, returnPlan, noteSettled, obligations, recoveryContentsOk, takeAllowed, recipeUsing, isPlanks, toolCounts,
+  recoveryBalance, reserveKeyOf, matsRecountable, MATS_RETURN_WAIT_MS, matsReturnWaitMs, recoveryVerdict, BUFFERED_PARTS, backSeenTouched,
+  MATS_RETURN_MAX, MATS_RETURN_MAX_AGE_MS, matsBalance, forbiddenCounts, matsDetail,
+  projectReserveOn, projectReserveState, effectiveReserve, matsKindForProject, reserveModeDetail, reserveDrawDetail } from './mats.mjs'
 import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, DRAIN_RADIUS,
          copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns,
          SMELT_COPPER_VISITS, SMELT_COAL_VISITS, SMELT_COPPER_RESERVE_MS, SMELT_COAL_RESERVE_MS, SMELT_SEARCH_MORE, SMELT_SEARCH_STALLED,
@@ -2057,9 +2071,11 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
       !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
       (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
+    const shopCells = shopCellsNow()?.cells ?? null   // shop-01 r2: the workshop's record cells are never a gather target
     const notTown = id => b => {
       if (!b || b.type !== id) return false
       if (b.position && townDigClass(b.position, b.name, townHome()) === 'ground') { townSkipped++; return false }
+      if (shopCells && b.position && shopCells.has(`${b.position.x},${b.position.y},${b.position.z}`)) return false
       // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
       // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
       if (ko && b.position) { const site = columnAt(ko.sites, b.position); if (site) { const k = `${b.position.x},${b.position.y},${b.position.z}`; ko.seen ??= new Set(); if (!ko.seen.has(k)) { ko.seen.add(k); ko.skipped++; noteKeepout(bot, 'gather_skipped') } ko.site ??= site; return false } }
@@ -4181,7 +4197,7 @@ export const resetIndexCount = () => indexCountFailed.clear()
  * since the index began, and outside every backoff the stock keys honour (the reconciliation's, the town memory's skip
  * statuses, the recount misses). [] with the index off.
  */
-export function indexRecountKeys (bot, exclude = [], now = Date.now()) {
+export function indexRecountKeys (bot, exclude = [], now = Date.now(), { notKnown = false } = {}) {
   try {
     if (!TOWNINDEX.on || bot?.cobbleOpenPending) return []
     const home = homeVec()
@@ -4191,7 +4207,9 @@ export function indexRecountKeys (bot, exclude = [], now = Date.now()) {
     const misses = readRecountMisses(bot)
     const ents = townIndexEntries(bot)
     if (!ents) return []
-    const ks = indexUnknownKeys((sc.keys ?? []).filter(k => !ex.has(k)), ents)
+    // notKnown (mats-01, Codex r1 P2-9): every container the index does not KNOW -- never opened, stale or dirty -- not only the
+    // never-opened ones (count_town's own extras keep `unknown` only)
+    const ks = notKnown ? (sc.keys ?? []).filter(k => !ex.has(k) && indexStateOf(ents[k]) !== 'known') : indexUnknownKeys((sc.keys ?? []).filter(k => !ex.has(k)), ents)
     // protectzone-01 x townindex-01 (JIT 10-21b): NEVER AN EXTRA IN A PROTECTED ZONE -- the guard refuses its open, and the
     // index can never learn it, so it would stay `unknown` and be walked to again after every backoff. The town search's
     // rule (townSearchView): the scan's findBlocks never answers a zone cell, the journal's counted keys do; either half
@@ -4210,14 +4228,14 @@ export function indexRecountKeys (bot, exclude = [], now = Date.now()) {
       && !RECOUNT_SKIP.has(containerStatus(mem[k], now)) && recountMissStatus(misses[k], now) === 'ok' && !zoneShut(k))
   } catch { return [] }
 }
-export function stockCountKeys (bot, items = bot.inventory?.items?.() ?? [], { floor = false, now = Date.now() } = {}) {
+export function stockCountKeys (bot, items = bot.inventory?.items?.() ?? [], { floor = false, now = Date.now(), bankableToo = [] } = {}) {
   try {
     if (!stockReaderInstalled()) return []
     const st = capTown(bot)
     if (!st) return []
     const keys = new Set()
     // capped tools count with or without a well (their cap always binds -- Codex code r1 P2); bulk only while it binds
-    const ex = bankableInventory(items, { wants: [...(bot.currentWants ?? []), ...DEPOSIT_ALWAYS] }).excluded
+    const ex = bankableInventory(items, { wants: [...(bot.currentWants ?? []), ...DEPOSIT_ALWAYS], bankableToo }).excluded
     const groups = new Set(Object.entries(ex).filter(([, why]) => why === 'town_stock_unknown').map(([n]) => groupOf(n)).filter(Boolean))
     for (const g of groups) for (const k of stockTownViewFor(bot, g, now, { state: st }).unknown ?? []) keys.add(k)
     if (floor && stockCapBinds()) {
@@ -6659,6 +6677,8 @@ export function plantableSpotNear (bot, radius = 2, item = 'oak_sapling') {
         if (!PLANTABLE_SOIL.has(soil.name) || !PLANT_REPLACEABLE.has(cell.name)) continue
         // THE TOWN PLAN (townplan-01, build spec 1.6): never a plan cell, a stand, a plot or a path (a tree would grow into them)
         if (cell.position && planTierAt(bot, cell.position.x, cell.position.y, cell.position.z) !== null) continue
+        // NEVER A PROJECT'S COLUMNS (fell-01): a tree there grows into the build (shop.mjs saplingBox)
+        if (cell.position && !saplingAllowedAt(bot.shopSaplingBox, cell.position.x, cell.position.z)) continue
         const column = []
         for (let i = 1; i <= need; i++) {
           const b = bot.blockAt(p.offset(dx, dy + i, dz))
@@ -6849,6 +6869,10 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       wellRow('refuse', wk, 1, { x: Number(x), y: Number(y), z: Number(z) })
       return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is ${wk === 'unknown' ? 'beside a junk well whose cells could not be read' : `the town junk well's ${wk}`} -- place ${item} at least 3 blocks from the well's column (or give no coordinates: place picks a cell off the well)` }
     }
+    // NO SAPLING IN A PROJECT'S COLUMNS (fell-01): the remedy is a cell the bot can choose from where it is
+    if (needsSoil(item) && !saplingAllowedAt(bot.shopSaplingBox, Number(x), Number(z))) {
+      return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is inside the town project's footprint, where a tree would grow into the build -- plant ${item} at least ${SAPLING_MARGIN + 1} blocks outside the project (or give no coordinates: place picks a cell off it)` }
+    }
     candidates = [{ ref: bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z))), face: UP }]
   } else {
     candidates = placeSites(bot, item)
@@ -6861,7 +6885,7 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
   // land. Filtered here rather than inside the scan so the scan keeps one job.
   if (needsSoil(item)) {
     const before = candidates.length
-    candidates = candidates.filter(c => soilOk(item, c.ref?.name))
+    candidates = candidates.filter(c => soilOk(item, c.ref?.name) && saplingCandidateOk(bot.shopSaplingBox, c))
     if (before && !candidates.length) {
       logEvent({ kind: 'place_no_soil', status: 'no_effect',
                  detail: `${item} needs soil and none of ${before} candidate face(s) offered any`,
@@ -7670,7 +7694,31 @@ export function findTownComposter (bot) {
   } catch { return null }
 }
 /** What this bot could build a composter from, right now. A table counts only if CARRIED (composter.mjs). */
+/**
+ * THE WORKSHOP'S SHARE HOLDS THE STATIONS (Paper 10-25, SHOP-COOP2 / CHAIN-1 / SHOP-TERRAIN board-a, candidate r13): between two
+ * visits a builder's bag holds its drawn share of the bill, and build_composter (a town without a composter) crafted slabs, a
+ * table and the composter out of it -- 6-10 planks a time; with the town at BUILD_RESERVE the next visit could draw no more and
+ * stopped no_material on the roof (chain, terrain-a). r14 tried to make each station read only the bot's OWN wood and both
+ * reviews showed the class unbounded (execution, recipes, found-01, the smelt furnace). So the gate is by STATE: while the bot
+ * holds a workshop share it builds no town station (the composter, the junk well, found-01's stations); the share empties as the
+ * workshop is built or completes. -> bool. Never throws (an unreadable share is none: the stations as before).
+ */
+export function shopShareHeld (bot) {
+  if (!SHOP.on) return false
+  try {
+    const dir = townDir(), key = shopKey(), me = bot.username ?? 'bot'
+    const dr = drawnRead(dir, key, me)
+    if (!Object.keys(dr.drawn).length) return false
+    const held = heldMap(bot)
+    const rec = shopRecordHead().head?.rec
+    const st = shareState(dr, held, { complete: !!rec?.structure_complete, completeAt: rec?.completeAt ?? null })
+    // the lifecycle (r16 reviews): a completed build's share cleared, a consumed one retired to what is left (baseline the bag now)
+    if (st.write) drawnWrite(dir, key, me, st.write, { bag: held })
+    return st.held
+  } catch { return false }
+}
 export function townBuildPlan (bot) {
+  if (shopShareHeld(bot)) return null
   const items = bot.inventory?.items?.() ?? []
   return composterBuildPlan(Object.fromEntries(heldCounts(items)), { tableAvailable: townPlanTableAvailable(items), items })
 }
@@ -7969,12 +8017,12 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   try {
     await lockstepClicks(bot, async raw => {
       let mutating = false
-      const click = async slot => {
+      const click = async (slot, button = 0) => {
         check(signal)
         if (bot.currentWindow !== win) throw stop('the window changed')
         // townindex-01: the container is marked dirty BEFORE its first click (a crash mid-clicks leaves it dirty)
         if (!mutating) { mutating = true; try { onMutate?.() } catch { /* advisory */ } }
-        const p = trackedClick(bot, raw, slot, 0, 0)
+        const p = trackedClick(bot, raw, slot, button, 0)
         p.catch(() => {})
         if ((await within(p, Math.max(250, deadline - Date.now()))) === TIMED_OUT) throw stop('a click went unanswered')
       }
@@ -7983,7 +8031,8 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
         if (Date.now() > deadline - TD_SETTLE_MS) break
         const it = bag.find(b => b.slot === step.slot)
         const now = it ? win.slots[it.wslot] : null
-        if (!now || now.name !== step.name || now.count !== step.count || win.selectedItem) continue   // the bag moved under the plan
+        // logbank-01: a log HALF reads the slot's count before its right click (`from`), not the count it moves
+        if (!now || now.name !== step.name || now.count !== (step.half ? step.from : step.count) || win.selectedItem) continue   // the bag moved under the plan
         if (isCobble(step.name)) {
           // every live reservation counts, this run's earlier stacks included (both reviews r1: the second stack of a
           // batch was judged against the count before the first)
@@ -7998,7 +8047,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
           if (!adm.id) { stock.refused++; continue }
           reserved.push(adm.id); stock.claims++; if (step.valve) stock.valve++
         }
-        await click(it.wslot)
+        await click(it.wslot, step.half ? 1 : 0)
         if (!win.selectedItem || win.selectedItem.name !== step.name || win.selectedItem.count !== step.count) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${step.name}`)
         const dest = !win.slots[step.dest] ? step.dest : emptyDest()
         if (dest == null) { full = true; throw stop('no empty container slot left') }
@@ -8044,8 +8093,12 @@ async function townDeposit (ctx, _args, signal) {
   // plan, no count step, no valve; every plan of the run reads the same mode
   const tail = _args?.tail === true ? 'only' : null
   let counted = null
-  if (_args?.recount && !tail) {
-    const keys = stockCountKeys(bot, bot.inventory?.items?.() ?? [], { floor: true })
+  // logbank-01 r2: a tail order for LOGS may count first too -- over the bag's logs only (no other name's count rides along)
+  const tailLogs = !!tail && _args?.logs === true && LOGBANK.on
+  if (_args?.recount && (!tail || tailLogs)) {
+    const all = bot.inventory?.items?.() ?? []
+    // logbank-01 r3: every log species counts as wanted for the logs' own count (the plan's own rule, towndeposit.mjs)
+    const keys = stockCountKeys(bot, tailLogs ? all.filter(it => LOGS.includes(it?.name)) : all, { floor: true, bankableToo: LOGBANK.on ? [...LOGS] : [] })   // r3 reviews P2: the full-bag count too
     if (keys.length) {
       // a rows-only plan counts in a THIRD of the budget, so count + deposit stays near the contract's 60 s (bagbudget-01)
       const until = Date.now() + (_args?.count === 'allowance_only' ? Math.floor(TD_BUDGET_MS / 3) : TD_BUDGET_MS)
@@ -8064,7 +8117,7 @@ async function townDeposit (ctx, _args, signal) {
   // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12): what the cap or a target keeps out of this visit, named
   stockRefusedRow(bot, 'town_deposit', before, { wants: wanted, noSwords: foodSkipNow(bot).active })
   // THE VALVE: only with the proof, re-taken here (design 3.2)
-  const valve = !tail && !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.length && valveProof(bot, before)
+  const valve = !tail && !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.some(st => !st.half) && valveProof(bot, before)
   const startPlan = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, valve, tail })
   const planned = startPlan.steps.length
   // the allowance rows' own stacks at the start (junkout-01's bank row: what they planned, and what the server showed banked)
@@ -8097,7 +8150,7 @@ async function townDeposit (ctx, _args, signal) {
   // close is mineflayer's own prediction); the client bag only when nothing was re-opened.
   const bagDelta = () => { const after = serverBag ?? held(items()); return Object.keys(banked).reduce((t, n) => t + Math.max(0, (heldBefore[n] ?? 0) - (after[n] ?? 0)), 0) }
   const row = (status, extra = {}) => logEvent({ kind: 'town_deposit', status, snapshot: snapshot(bot),
-    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, capRefused, stock, ...extra }) })
+    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, capRefused, stock, logs: logsField(banked, serverBag ?? held(items())), ...extra }) })
   if (!planned) {
     stop = counted != null ? 'counted the town; nothing to bank above the keeps' : 'nothing to bank above the keeps'; row('no_effect')
     return { status: 'no_effect', detail: counted ? `counted ${counted} town container(s); nothing to bank (the town holds its stock of what is carried, or it is kept)` : 'nothing to bank: everything carried is kept (stockpile, scaffold, tools, iron, the goal) or not bankable' }
@@ -8194,7 +8247,7 @@ async function townDeposit (ctx, _args, signal) {
   }
   if (n > 0) {
     row('success')
-    return { status: 'success', detail: `banked ${n} item(s) in ${stacks} whole stack(s) at the town chest, read back from the server (${slotsBefore} -> ${slotsAfter} slots); the stockpile, scaffold, iron and best tools stay` }
+    return { status: 'success', detail: `banked ${n} item(s) in ${stacks} stack(s) at the town chest, read back from the server (${slotsBefore} -> ${slotsAfter} slots); the stockpile, scaffold, iron and best tools stay` }
   }
   // NOT `unknown`: the runner promotes an unknown with an inventory loss to success, and the loss here is mineflayer's own
   // prediction copied into the bag at the close -- exactly what could not be confirmed (Codex round 3). Failed: backs off.
@@ -8278,7 +8331,7 @@ async function buildComposter (ctx, _args, signal) {
                  '3 logs of one kind (2 if a crafting table is carried) -- gather 3 logs and the next town visit builds it'
   if (findTownComposter(bot)) return skip('the town already has a composter')
   const pre = townBuildPlan(bot)
-  if (!pre) return skip(REMEDY)
+  if (!pre) return skip(shopShareHeld(bot) ? 'the bag holds the workshop\'s drawn materials: the composter waits until they are placed (or the share lapses)' : REMEDY)
   // NEVER CRAFT INTO A FULL BAG: mineflayer drops crafted output that has no slot. And NO CIRCULAR REMEDY: the
   // composter is what would free slots, and it does not exist yet -- the refusal names what frees one from HERE.
   if (free() < pre.slotsNeeded) return skip(noRoomToBuild(bot, pre, `building needs ${pre.slotsNeeded} free slots for the craft chain and the bag has ${free()}`))
@@ -8675,6 +8728,7 @@ export function townWellBuildPlan (bot) {
 }
 /** The trapdoors still needed follow the recorded site's stage (Codex review): a floored pit needs only its cap. */
 function wellBuildPlanOf (bot) {
+  if (shopShareHeld(bot)) return null   // the workshop's share holds the stations (shopShareHeld)
   const items = bot.inventory?.items?.() ?? []
   const r = recordedWellSite(bot)
   const need = r ? trapdoorsNeeded(wellStage(readWellCell(bot), r)) : 2
@@ -10842,7 +10896,9 @@ const slotAt = (win, s) => (typeof win.get === 'function' ? win.get(s) : win.slo
  */
 async function transferIn (bot, win, { deposit = [], swap = null, tool = null, takes = [] }, { deadline, signal }) {
   const took = {}, gave = {}
-  let toolTaken = null, err = null
+  // the stack in flight (reserve80 r4, Codex P2): set before a take's first click, cleared once `took` books it -- an abort
+  // between those clicks leaves it as the upper bound of what may have entered the bag (telemetry only: uncertainTakes)
+  let toolTaken = null, err = null, inFlight = null
   try {
     await lockstepClicks(bot, async raw => {
       // EVERY CLICK hears the cancel (craftsync's lockstep refuses one after an abort; this says so without it too).
@@ -10907,10 +10963,12 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           if (m === have) {
             // A WHOLE SOURCE STACK (its live count is no more than the need, and it all fits): shift-click, so the cursor is
             // never loaded. It counts only what actually left the slot.
+            inFlight = { name: take.name, n: m }
             await click(src.slot, 0, 1)
             const rest = slotAt(win, src.slot)
             const moved = have - (rest?.name === take.name ? (rest.count ?? 0) : 0)
             took[take.name] = (took[take.name] ?? 0) + moved
+            inFlight = null
             left -= moved
             if (moved < m) throw stop(`only ${moved} of the ${m} ${take.name} moved`)
             continue
@@ -10919,6 +10977,9 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           // picks up HALF (rounded up) when that covers m; the exact amount goes in with ONE left-click when one slot
           // takes it all; otherwise one at a time.
           const half = Math.ceil(have / 2)
+          // what the pickup click itself may lift (half or the whole stack), not the plan's m: a cursor rescue after an abort
+          // can drop all of it into the bag (Codex r4 P2)
+          inFlight = { name: take.name, n: m <= half ? half : have }
           await click(src.slot, m <= half ? 1 : 0, 0)
           if (win.selectedItem?.name !== take.name) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${take.name}`)
           let placed = 0
@@ -10937,6 +10998,7 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           for (let f = 0; f < a.fresh; f++) for (let i = 0; i < 64 && placed < m; i++) { await into(empties[f], 1); placed++ }
           if (win.selectedItem) await click(src.slot, 0, 0)   // the rest back where it came from
           took[take.name] = (took[take.name] ?? 0) + m
+          inFlight = null
           left -= m
         }
       }
@@ -10947,7 +11009,7 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
   // EVERY EXIT: an empty cursor, synchronised, before the caller closes the window -- or the unresolved handoff.
   const settled = await settleCursor(bot, win)
   const bad = settled.state !== 'empty' && settled.state !== 'rescued'
-  const state = { took, gave, tool: toolTaken, cursor: bad ? `${settled.state}:${settled.why}` : settled.state,
+  const state = { took, gave, inFlight, tool: toolTaken, cursor: bad ? `${settled.state}:${settled.why}` : settled.state,
                   unresolved: settled.state === 'unresolved' ? settled : null, err: err ? String(err.message ?? err).slice(0, 80) : null }
   // AN ABORT CARRIES WHAT HAPPENED (Claude round 2), so both verbs' rows report THIS transfer, not an earlier visit.
   if (err && (err.aborted || signal?.aborted)) { err.withdrawState = state; throw err }
@@ -13069,6 +13131,819 @@ async function furnaceDrain (ctx, _args, signal) {
   }
 }
 
+// ----------------------------------------------------- make_material / mats_return (mats-01) -----
+//
+// THE BUILDING TIER'S MATERIALS JOB (mats.mjs decides; these walk, open, click, wait and measure). HOUSEKEEPING (chatOnly):
+// the model can never choose them. One order = one skill inside the runner's 180 s: the carry note first, the withdraw (the
+// reserve judged at every take), the planks, ONE furnace session on planks only, the crafts, then the part banked and the note
+// closed once nothing the order owes is left in the bag or the furnace.
+
+/** The town's stock from the town index (townindex-01): known, fresh containers of the town scan -> { stock, coverage, keys,
+ *  known } or null (index off or unreadable). An unknown, stale or dirty container counts 0; an INCOMPLETE scan (the cap hit,
+ *  a column not loaded) proves no denominator, so its coverage is 0 (Codex r1 P2-9). `exclude`: one container left out of
+ *  the stock (the one a withdraw is looking into: its live contents are judged instead). */
+export function matsTownStock (bot, { exclude = null } = {}) {
+  const entries = townIndexEntries(bot)
+  if (!entries) return null
+  let sc
+  try { sc = townCobbleScan(bot) } catch { return null }
+  const keys = [...(sc?.keys ?? [])]
+  const stock = {}
+  let known = 0
+  for (const k of keys) {
+    const e = entries[k]
+    if (indexStateOf(e) !== 'known') continue
+    known++
+    if (k === exclude) continue
+    for (const [name, val] of Object.entries(e.obs?.names ?? {})) stock[name] = (stock[name] ?? 0) + (Number(val?.[0]) || 0)
+  }
+  return { stock, coverage: sc?.coverage && keys.length ? known / keys.length : 0, keys: keys.length, known, scanComplete: !!sc?.coverage }
+}
+/** What the bag holds ABOVE its keeps (towndeposit townKeeps: the stockpile, the ladder's means, the gather rungs). */
+export function matsBagSpare (bot) {
+  const held = heldMap(bot)
+  const { keep } = townKeeps(held, { wanted: bot.currentWants ?? [] })
+  const out = {}
+  for (const [n, c] of Object.entries(held)) { const s = c - (keep[n] ?? 0); if (s > 0) out[n] = s }
+  return out
+}
+/** The town containers the index does not KNOW (never opened, stale or dirty) that a recount can reach (Codex r1 P2-9). */
+// THE RECOUNT'S OWN BACKOFF FILTERS THE TRIGGER TOO (Claude r3 P2-3): one container that cannot be counted sits out its backoff
+// instead of making every order a `count` (mats.mjs matsRecountable)
+export const matsRecountKeys = bot => matsRecountable(indexRecountKeys(bot, [], Date.now(), { notKnown: true }), indexCountFailed, Date.now(), failKey)
+/** THE COUNT REMEDY: count_town's own reconciliation over up to three of those containers. -> counted */
+async function matsRecount (bot, signal) {
+  const keys = matsRecountKeys(bot)
+  if (!keys.length) return 0
+  const until = Date.now() + COUNT_TOWN_BUDGET_MS
+  const rx = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), keys, { max: 3, backoff: indexCountFailed, row: false, arrive: true })
+  capEpoch++
+  return rx?.counted ?? 0
+}
+
+// ---- the carry note (fsynced, atomic; one per bot, in the pool's state directory) -----------------------------------------
+/**
+ * AN OPEN NOTE'S OBLIGATIONS ARE HELD (MATS-01 x JUNKOUT-01, re-stack 10-25; Codex P2 / Claude P3): junkout's town-deposit rows
+ * (the tail at any bag size, the full-bag deposit's appended rows) bank every torch and skip only a name another layer owns --
+ * a withdraw hold among them. While a carry note is open, the part and the intermediates above its bag0 are HELD, so no
+ * deposit the note cannot see banks what the recovery still owes (the balance would read it as a loss). Set when an order or
+ * a recovery leaves the note open and at spawn (holds live in memory); released when the note closes or is given up.
+ * matsBank swaps the hold for its own deposit and puts it back. RESIDUAL (named): a hold shares the name with any other
+ * layer's hold of it (a withdraw of torches), which this replaces while the note is open.
+ */
+export function matsHoldNote (bot, note) {
+  try {
+    if (!note?.kind || note.phase !== 'open') return
+    const held = heldMap(bot), until = Date.now() + MATS_RETURN_MAX_AGE_MS
+    for (const n of obligations(note.kind)) swapWithdrawHold(n, Math.max(0, (held[n] ?? 0) - (Number(note.bag0?.[n]) || 0)), until)
+  } catch { /* a hold is a guard, never a failure */ }
+}
+/** EVERY EXIT that leaves a note OPEN -- normal, a throw, an abort -- refreshes its holds (Codex fix review P2: an abort after a
+ *  recovery's craft left the new torches unheld for junkout's rows). */
+function matsHoldIfOpen (bot) { try { const nt = readMatsNote(bot); if (nt?.phase === 'open') matsHoldNote(bot, nt) } catch { /* a guard */ } }
+export function matsReleaseNote (note) {
+  try { for (const n of obligations(note?.kind)) swapWithdrawHold(n, 0) } catch { /* nothing held */ }
+}
+const matsNotePath = bot => path.join(townDir(), `mats-carry-${bot?.username ?? config.bot?.name ?? 'bot'}.json`)
+export function readMatsNote (bot) {
+  try { return JSON.parse(fs.readFileSync(matsNotePath(bot), 'utf8')) } catch { return null }
+}
+export function writeMatsNote (bot, note) {
+  const p = matsNotePath(bot)
+  fs.mkdirSync(path.dirname(p), { recursive: true })
+  const tmp = `${p}.${process.pid}.tmp`
+  const fd = fs.openSync(tmp, 'w')
+  try { fs.writeSync(fd, JSON.stringify(note)); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
+  fs.renameSync(tmp, p)
+}
+function clearMatsNote (bot) { try { fs.unlinkSync(matsNotePath(bot)) } catch { /* none */ } }
+
+/** The furnaces the job may try now: town furnaces (townFurnaces: within 48 of home, never deep) that are unlit, not in
+ *  another session's lease, and not skipped by this bot in the last 30 min (it saw foreign contents there). Nearest first. */
+/** How many town furnaces one materials session may try (nearest first, while the clock allows). */
+export const MATS_FURNACE_TRIES = 6
+export function matsFurnaceCandidates (bot) {
+  const now = Date.now()
+  return townFurnaces(bot).filter(f => !f.lit && !furnaceLeasedNow(f.k) && !((bot.matsFurnaceSkip?.[f.k] ?? 0) > now))
+    .sort((a, b) => a.dist - b.dist || (a.k < b.k ? -1 : 1))
+}
+/** A crafting table this bot can use: one within 32 blocks, or one it carries (craft places and takes it back). */
+export function matsTableReady (bot) {
+  try {
+    if ((heldMap(bot).crafting_table ?? 0) > 0) return true
+    return !!bot.findBlock?.({ matching: b => bot.registry?.blocks?.[b.type]?.name === 'crafting_table', maxDistance: 32 })
+  } catch { return false }
+}
+/** The town's materials lease (one maker per town, MATS_LEASE_TTL_MS): furnacelease.mjs's generation files under their own
+ *  directory, keyed by home. -> the lease, or { ok: false, busy } / { unleased } (the job fails closed on unleased). */
+function matsLease (bot, { probe = false } = {}) {
+  let dir
+  try { dir = path.join(townDir(), 'mats-lease') } catch { return { ok: false, unleased: true } }
+  const home = homeVec()
+  if (probe) { try { return { ok: !furnaceLeaseState(dir, home).live } } catch { return { ok: false } } }
+  return acquireFurnaceLease(dir, home, leaseHolder(bot), { what: 'mats', ttl: MATS_LEASE_TTL_MS })
+}
+export const matsLeaseFree = bot => matsLease(bot, { probe: true }).ok
+
+/** THE TOWN'S OUTSTANDING DRAWS against an input's reserve key -> { key: n } (Codex r2 P1-3). Every town withdraw appends a
+ *  confirmed DRAW claim to the stock journal before its clicks (stockReserve 'draw'); a live one is stock already on its way
+ *  out. Summed over every stock group whose names draw from the key (every log species for `logs`). A name with no stock
+ *  group (copper_ingot) has no journal: its residual is named in the registration. An unreadable journal reads 0 here --
+ *  the index reading and the server's own chest still bound the take. */
+function matsTaking (bot, name) {
+  const rk = reserveKeyOf(name)
+  if (!rk) return {}
+  let t = 0
+  try {
+    for (const g of STOCK_GROUP_NAMES) {
+      if (!namesOf(g).some(x => reserveKeyOf(x) === rk)) continue
+      t += Number(stockTownViewFor(bot, g).taking) || 0
+    }
+  } catch { /* unreadable: the reading and the chest bound it */ }
+  return { [rk]: t }
+}
+
+/** TAKE ONE ORDER'S INPUTS FROM TOWN -> { took, unsettled, looked, tried, short, capped }. The town search (townsearch-01's
+ *  townSearchOrder over townSearchView) over the order's names, nearest first, each container once, at most 12 visits, inside
+ *  the clock less `reserveMs`. THE RESERVE IS JUDGED AT EVERY TAKE (Codex r1 P1-1, mats.mjs takeAllowed): the index's other
+ *  known containers plus what the server shows in this one now -- another bot's withdrawal since the order's reading is
+ *  seen, never spent through. */
+// `allow` (shop-01 r2): how much of a name may be taken here; mats' own orders keep takeAllowed (a part has no reserve key there)
+// `onTook(name, n)` (shop-01 read r2): each VERIFIED take as it lands, so a caller's books survive an abort later in the run
+// `onUncertain(name, n, why)` (reserve80 r3, Codex P2): stock that MAY have moved on an exit that verified nothing -- an abort
+// mid-transfer (the transfer's own withdrawState) or an unsettled visit; telemetry only, never the caller's books
+/** What a withdraw visit may have moved without verifying it -> { name: n }. Pure. `err`: a thrown transfer (its withdrawState);
+ *  `visit`: a returned, unverified visit (its moved). A verified visit is booked by onTook, never here. */
+export function uncertainTakes ({ err = null, visit = null } = {}) {
+  const st = err ? err.withdrawState : (visit && !visit.verified ? visit.moved : null)
+  const out = {}
+  for (const [k, c] of Object.entries(st?.took ?? {})) if (Number(c) > 0) out[k] = Number(c)
+  // a stack whose clicks were cut short (transferIn's inFlight): at most its planned count may have moved
+  const f = st?.inFlight
+  if (f?.name && Number(f.n) > 0) out[f.name] = (out[f.name] ?? 0) + Number(f.n)
+  return out
+}
+async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null, onUncertain = null) {
+  const { bot } = ctx
+  const { deadline } = withdrawClock(ctx)
+  const left = { ...take }
+  const out = { took: {}, unsettled: false, looked: 0, tried: [], short: false, capped: 0 }
+  const keep = roomKeep(bot.currentWants ?? [])
+  let cur = null
+  const decide = (inChest, bag, { chestEmpty }) => {
+    const here = {}
+    for (const it of inChest) if (it?.name) here[it.name] = (here[it.name] ?? 0) + (it.count ?? 0)
+    const others = (matsTownStock(bot, { exclude: cur }) ?? { stock: {} }).stock
+    const takes = []
+    for (const [n, want] of Object.entries(left)) {
+      if (!(want > 0)) continue
+      const c = allow(n, want, { others, here, reserve, taking: matsTaking(bot, n) })
+      if (c < Math.min(want, here[n] ?? 0)) out.capped++
+      if (c > 0) takes.push({ name: n, count: c })
+    }
+    return takes.length ? decideTakes(takes, inChest, bag, chestEmpty, keep) : null
+  }
+  const pc = passClock(deadline, reserveMs)
+  const tried = new Set()
+  const want = () => Object.values(left).some(n => n > 0)
+  let next = townSearchNext(bot, Object.keys(left).filter(n => left[n] > 0), tried)
+  for (let i = 0; i < 12 && want() && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; i++) {
+    check(signal)
+    const cb = next.block
+    cur = containerKey(bot, cb.position)
+    let v
+    try { v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000) } catch (e) {
+      for (const [k, c] of Object.entries(uncertainTakes({ err: e }))) { try { onUncertain?.(k, c, 'aborted') } catch { /* telemetry */ } }
+      throw e
+    }
+    for (const k of halvesOf(bot, cb.position, true)) tried.add(k)
+    out.looked++
+    out.tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
+    if (v.result && v.result.status !== 'success') searchFailSkip(bot, cb, v.result.failClass)
+    if (v.result?.failClass === 'transfer_unsettled' || (v.result && !v.verified && v.moved)) {
+      for (const [k, c] of Object.entries(uncertainTakes({ visit: v }))) { try { onUncertain?.(k, c, 'unsettled') } catch { /* telemetry */ } }
+      out.unsettled = true; break
+    }
+    const got = v.verified ? (v.moved?.took ?? {}) : {}
+    for (const [k, c] of Object.entries(got)) { out.took[k] = (out.took[k] ?? 0) + c; if (k in left) left[k] = Math.max(0, left[k] - c); try { onTook?.(k, c) } catch { /* books only */ } }
+    next = townSearchNext(bot, Object.keys(left).filter(n => left[n] > 0), tried)
+  }
+  out.short = want()
+  return out
+}
+
+/**
+ * ONE FURNACE SESSION ON PLANKS ONLY (design 3.2 step 4; the existing `smelt` is not reused: its chooseFuel ranks coal and
+ * charcoal first and its batch is capped at 8). Over the job's candidates: lease (fail closed), walk, open, and QUALIFY
+ * (mats.mjs furnaceQualifies: cold by the block state, input and fuel empty, output empty or the job's own) -- a furnace that
+ * does not qualify is closed untouched and skipped 30 min (furnace_drain owns foreign contents). Then: the LOAD RECORD is
+ * written to the carry note (onLoad, before anything goes in), the job's own prior output taken (booked `prior`), `n` input
+ * and exactly planksToLoad(n) planks put in, a wait until the output holds all n, ONE take of the output, and the guarded
+ * drain on every exit path (drainFurnace). Every count is read at the right boundary (Codex r1 P1-4): the planks left in the
+ * WINDOW's bag before the drain, the bag after the close (mineflayer copies the window's bag back only then).
+ * -> { made, prior, burned, furnaceLeft, furnace, lease, uncertain, stop, tried }
+ */
+export async function matsSession (ctx, { input, n, planksName, out: outName, own, onLoad = null }, signal, deadline) {
+  const { bot } = ctx
+  const res = { made: 0, prior: {}, burned: 0, furnaceLeft: {}, furnace: '-', lease: '-', uncertain: false, stop: null, tried: [] }
+  // EVERY QUALIFYING CHANCE THE CLOCK AFFORDS (Paper r3 furn: three foreign furnaces nearer than the one clean one left it
+  // unreached and the order's inputs in the bag): a refusal is a walk and an open, so the candidates are tried nearest first
+  // while the batch still fits the clock, at most MATS_FURNACE_TRIES (each refusal is skipped 30 min, so the next order
+  // starts past it)
+  for (const cand of matsFurnaceCandidates(bot).slice(0, MATS_FURNACE_TRIES)) {
+    check(signal)
+    if (deadline - Date.now() < n * SMELT_MS_PER_ITEM + SMELT_RECOVERY_MS) { res.stop = res.stop ?? 'late'; break }
+    let lease = null, furnace = null, leaseAt = null
+    // ledger-01's records for this session, the smelt convention (its `_furnace_session` row carries open= and loads=)
+    const ledgerH = { ledgerOpen: null, ledgerLoads: { ok: 0, fail: 0 } }
+    const skip = why => { bot.matsFurnaceSkip = { ...(bot.matsFurnaceSkip ?? {}), [cand.k]: Date.now() + 30 * 60_000 }; res.tried.push(`${cand.k}:${why}`) }
+    try {
+      lease = acquireFurnaceLease(townDir(), cand.pos, leaseHolder(bot), { what: 'mats' })
+      if (!lease.ok) { res.tried.push(`${cand.k}:busy`); continue }
+      if (lease.unleased) { res.stop = 'lease_unavailable'; break }       // fail closed: no recorded lease, no shared furnace
+      leaseAt = Date.now()
+      for (const range of [1, 3]) {
+        check(signal)
+        try { await withTimeout(bot.pathfinder.goto(new goals.GoalNear(cand.pos.x, cand.pos.y, cand.pos.z, range)), 20000, bot); break } catch (e) { if (e.aborted) throw e }
+      }
+      check(signal)
+      const block = bot.blockAt?.(cand.pos)
+      if (!block || bot.registry?.blocks?.[block.type]?.name !== 'furnace') { res.tried.push(`${cand.k}:gone`); continue }
+      if (bot.entity.position.distanceTo(cand.pos.offset(0.5, 0.5, 0.5)) > STATION_REACH) { skip('unreachable'); continue }
+      const litNow = () => { try { const v = bot.blockAt?.(cand.pos)?.getProperties?.()?.lit; return v === true || v === 'true' ? true : v === false || v === 'false' ? false : null } catch { return null } }
+      try { await bot.lookAt(cand.pos.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal */ }
+      const out0 = countItem(bot, outName)            // no window open: bot.inventory is the bag
+      try {
+        furnace = await withTimeout(bot.openFurnace(block), SMELT_OPEN_MS, bot, { what: 'furnace', needsDrop: false, onTimeout: () => {} })
+      } catch (e) { if (e.aborted) throw e; skip('window'); furnace = null; continue }
+      // ledger-01's opener set (re-stack onto 112beb04): the window as it opened, before any click
+      if (LEDGER.on) { try { ledgerH.ledgerOpen = ledgerObserve(bot, cand.pos, furnace, 'make_material', 'open') } catch { /* never breaks the order */ } }
+      const rd = which => { try { const it = furnace[which](); return it ? { name: it.name, count: it.count ?? 0 } : null } catch { return undefined } }
+      // MAT-HOT's second reading (Claude r1 P3): the window's burn progress (mineflayer's furnace.fuel, apart from the fuel slot)
+      // -- an empty fuel slot can coexist with coal still burning; the block state is read too (furnace.fuel can miss the open)
+      const burning = (() => { try { return (furnace.fuel ?? 0) > 0 } catch { return true } })()
+      const q = burning ? { ok: false, why: 'burning' } : furnaceQualifies({ lit: litNow(), input: rd('inputItem'), fuel: rd('fuelItem'), output: rd('outputItem'), own })
+      if (!q.ok || [rd('inputItem'), rd('fuelItem'), rd('outputItem')].includes(undefined)) {
+        try { furnace.close() } catch { /* closed */ }
+        furnace = null
+        skip(q.why ?? 'unreadable')
+        continue
+      }
+      res.furnace = cand.k; res.lease = lease.n
+      const want = planksToLoad(n)
+      const priorOut = rd('outputItem')
+      // THE LOAD RECORD, BEFORE ANYTHING GOES IN: a kill from here on leaves a note mats_return can drain against
+      const inputBefore = (() => { try { return (furnace.items?.() ?? []).reduce((t, it) => t + (it?.name === input ? (it.count ?? 0) : 0), 0) } catch { return undefined } })()
+      if (onLoad) onLoad({ furnace: cand.k, input: { name: input, n }, fuel: { name: planksName, n: want }, out: outName, prior: priorOut?.count ?? 0, inputBefore })
+      const stationary = deadline + 1000
+      bot.stationaryUntil = stationary
+      bot.furnaceWindowUntil = stationary
+      const slot = which => { try { return furnace[which]() ?? null } catch { return undefined } }
+      const winCount = name => { try { return (furnace.items?.() ?? []).reduce((t, it) => t + (it?.name === name ? (it.count ?? 0) : 0), 0) } catch { return null } }
+      try {
+        if (priorOut) { try { await furnace.takeOutput(); res.prior[priorOut.name] = (res.prior[priorOut.name] ?? 0) + (priorOut.count ?? 0) } catch { /* empty */ } }
+        check(signal)
+        const inDef = bot.registry.itemsByName[input], fDef = bot.registry.itemsByName[planksName]
+        await furnace.putInput(inDef.id, null, n)
+        // the load record again, with the bag's input left AFTER the load (the window's bag): the recovery's balance measures the
+        // input that came back against it (mats.mjs recoveryBalance)
+        if (onLoad) { const ia = winCount(input); onLoad({ furnace: cand.k, input: { name: input, n }, fuel: { name: planksName, n: want }, out: outName, prior: priorOut?.count ?? 0, inputBefore, inputAfter: ia ?? undefined }) }
+        await furnace.putFuel(fDef.id, null, want)
+        res.loaded = want
+        // the LOAD's verifying view is its own record (r2, Codex P2: smelt's ledgerLoad; else an empty-at-open furnace stays
+        // recorded empty through the batch); a load that could not be recorded is counted
+        if (LEDGER.on) { try { const lo = ledgerObserve(bot, cand.pos, furnace, 'make_material', 'load'); if (lo.rec) ledgerH.ledgerLoads.ok++; else if (lo.miss === 'fail') ledgerH.ledgerLoads.fail++ } catch { ledgerH.ledgerLoads.fail++ } }
+        // THE WAIT: until the output holds all n (one take at the end: the crafts take whole units), the clock, or a slot read
+        // that fails (the block is gone). Ended by THE CLOCK, the batch is cut: one freshly lit plank is the clock's (Claude r2 P2-B)
+        let ended = null
+        while (Date.now() < deadline - SMELT_RECOVERY_MS) {
+          check(signal)
+          const o = slot('outputItem'), inp = slot('inputItem')
+          if (o === undefined || inp === undefined) { ended = 'unreadable'; break }
+          if ((o?.count ?? 0) >= n || (!inp && o)) { ended = 'done'; break }
+          await sleep(SMELT_POLL_MS, signal)
+        }
+        if (!ended) res.cut = true
+        const o = slot('outputItem')
+        if (o && o.count > 0) { try { await furnace.takeOutput() } catch { /* taken, or gone */ } }
+      } finally {
+        const w0 = furnace
+        const p0 = winCount(planksName)                // the window's bag, before the drain
+        await drainFurnace(w0, SMELT_RECOVERY_MS, bot)
+        if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
+        if (bot.furnaceWindowUntil === stationary) bot.furnaceWindowUntil = 0
+        // after the close the bag is the window's bag copied back: the planks the drain returned, and the output it made
+        if (p0 == null) res.uncertain = true
+        const back = p0 == null ? 0 : Math.max(0, countItem(bot, planksName) - p0)
+        res.burned = Math.max(0, (res.loaded ?? 0) - back)
+        res.made = Math.max(0, countItem(bot, outName) - out0 - (res.prior[outName] ?? 0))
+        const cc = closingContents(w0?.closing ?? null)
+        res.furnaceLeft = cc.items
+        if (cc.unreadable || w0?.drainStop) res.uncertain = true
+        furnace = null
+      }
+      res.stop = res.made >= n ? 'done' : 'short'
+      return res
+    } finally {
+      if (furnace) { try { furnace.close() } catch { /* closed */ } }
+      // t1 BEFORE the release (Codex r2 P2-6, Claude r2 P3-1; smelt's rule): a release first lets the next holder's t0 fall
+      // inside this interval, and G5 would read a healthy hand-off as an overlap
+      const t1 = Date.now()
+      try { lease?.release?.() } catch { /* expires by TTL */ }
+      if (leaseAt != null) { try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(bot), detail: `furnace=${cand.k} lease=${lease?.n ?? '-'} t0=${leaseAt} t1=${t1} by=make_material${ledgerRowFields(ledgerH)}` }) } catch { /* never break */ } }
+    }
+  }
+  res.stop = res.stop ?? 'no_furnace'
+  return res
+}
+
+/** A 2x2 CRAFT WITH ONLY THE INGREDIENTS IT MAY USE (mats.mjs recipeUsing): the sticks from the order's own planks, the torch
+ *  from charcoal and a stick -- never the bag's coal, never another species' planks (Codex r1 P2-12; Q3). -> made (the delta). */
+async function matsCraftDirect (bot, out, times, { allowed, must = null }) {
+  const id = bot.registry.itemsByName[out]?.id
+  if (!(times > 0) || id == null) return 0
+  const r = recipeUsing(bot.recipesFor(id, null, 1, null) ?? [], i => bot.registry.items?.[i]?.name ?? null, { allowed, must })
+  if (!r) return 0
+  const before = countItem(bot, out)
+  try { await bot.craft(r, times, null) } catch { /* judged by the count */ }
+  return Math.max(0, countItem(bot, out) - before)
+}
+
+/** THE ORDER'S OWN PLACEMENTS (Claude r2 P2-C, design 3.2) -> { placed: {name: n}, restore }. bot.placeBlock is wrapped for the
+ *  order's duration (mineflayer-pathfinder places its scaffold through it, index.js) and each call notes the HELD item; a
+ *  placement is counted when the bag's own slot update for that name lands -- within PLACE_MATCH_MS of the call, one unit per
+ *  call. NOT by reading the bag when placeBlock resolves (Claude r3 P2-4): mineflayer resolves on the BLOCK update and Paper's
+ *  slot update comes after it (measured 10-05, the place() note above), so that read saw no change. RESIDUAL (named): a
+ *  decrement of the same name within the window that is not the placement (a craft right after a failed placement) is read as
+ *  placed. */
+const PLACE_MATCH_MS = 2000
+const MOVE_MS = 60
+export function countPlacements (bot) {
+  const placed = {}, pending = [], held = []
+  const orig = bot?.placeBlock
+  if (typeof orig !== 'function') return { placed, restore: () => {} }
+  const inv = bot.inventory
+  // A PLACEMENT IS AN EXACT -1 ON THE HELD SLOT (Claude r5 P3-1, Codex r5 P2-5): a placement spends one item from the slot in hand.
+  // A stack moved between slots (two clicks, the stack on the cursor between them, in either order) changes a slot by its whole
+  // count, never by exactly one -- so no total, no timing window, and no move can fake one.
+  const onSlot = (slot, oldItem, newItem) => {
+    const name = oldItem?.name
+    if (!name) return
+    const after = newItem?.name === name ? (Number(newItem.count) || 0) : 0
+    if ((Number(oldItem.count) || 0) - after !== 1) return
+    const now = Date.now()
+    const p = pending.find(q => !q.done && q.name === name && q.slot === slot && now - q.at <= PLACE_MATCH_MS)
+    if (!p) return
+    p.done = true
+    // a ONE-ITEM stack moved off the held slot is also a -1 there (Codex r6 P3): the credit waits MOVE_MS and is cancelled when
+    // the same name lands in another slot meanwhile
+    const c = { name, slot, at: now }
+    held.push(c)
+    setTimeout(() => { const i = held.indexOf(c); if (i >= 0) { held.splice(i, 1); placed[name] = (placed[name] ?? 0) + 1 } }, MOVE_MS)
+  }
+  const onLand = (slot, oldItem, newItem) => {
+    const name = newItem?.name
+    if (!name || (oldItem?.name === name && (Number(oldItem.count) || 0) >= (Number(newItem.count) || 0))) return
+    const i = held.findIndex(c => c.name === name && c.slot !== slot)
+    if (i >= 0) held.splice(i, 1)
+  }
+  const onAny = (slot, oldItem, newItem) => { onSlot(slot, oldItem, newItem); onLand(slot, oldItem, newItem) }
+  try { inv?.on?.('updateSlot', onAny) } catch { /* no events: nothing is counted */ }
+  const wrapped = function (...a) {
+    const h = bot.heldItem
+    if (h?.name) {
+      const slot = Number.isInteger(h.slot) ? h.slot : (Number.isInteger(bot.quickBarSlot) ? 36 + bot.quickBarSlot : null)
+      pending.push({ name: h.name, slot, at: Date.now(), done: false }); if (pending.length > 64) pending.splice(0, pending.length - 64)
+    }
+    return orig.apply(this, a)
+  }
+  bot.placeBlock = wrapped
+  // SETTLE BEFORE A BALANCE READS `placed` (Codex r7 P2): a -1 that landed inside the last MOVE_MS is still deferred; settle waits
+  // it out with the cancel listener still attached, so the final balance sees it (or its cancellation)
+  // until NOTHING is pending (Claude r8 P3-B: a second -1 landing inside the first wait), at most 5 waits (~350 ms)
+  const settle = async () => { for (let i = 0; i < 5 && held.length; i++) await new Promise(r => setTimeout(r, MOVE_MS + 10)) }
+  // (a deferred timer that fires after restore() only touches this `placed` object, after the caller has read it: harmless)
+  return { placed, settle, restore: () => { if (bot.placeBlock === wrapped) bot.placeBlock = orig; try { inv?.removeListener?.('updateSlot', onAny) } catch { /* gone */ } } }
+}
+
+/** DOES THE TOWN HAVE ROOM for a part (materialOrder's town_full gate)? -> true when a container the index KNOWS has a free slot.
+ *  An unreadable index answers true (the coverage gate already stops an order then). */
+export function matsTownHasRoom (bot) {
+  try {
+    const entries = townIndexEntries(bot)
+    if (!entries) return true
+    let mem = {}
+    try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {} } catch { mem = {} }
+    // a free slot, or a part's partial stack with room (Codex r5 P3: a full chest holding 52 bricks takes 12 more) -- in a container
+    // the town memory does not rule out (Claude r5 P3-2: full, unavailable, unusable, backoff)
+    return Object.entries(entries).some(([k, e]) => indexStateOf(e) === 'known' && !['full', 'unavailable', 'unusable', 'backoff'].includes(containerStatus(mem[k]))
+      && ((Number(e.obs?.used) || 0) < (Number(e.obs?.size) || 27)
+      || BUFFERED_PARTS.some(p => { const v = e.obs?.names?.[p]; return Array.isArray(v) && (Number(v[0]) || 0) < (Number(v[1]) || 0) * 64 })))
+  } catch { return true }
+}
+/** How many town containers one bank of one name tries, nearest first (Claude r2 P1-A). */
+const MATS_BANK_TRIES = 3
+/** BANK the order's PART (and torches, glass): per name, the bag's count above the note's opening count -- at most `caps[name]`
+ *  (a recovery banks only what the note can own: Claude r2 P2-D) -- with the rest HELD for the deposit (swapWithdrawHold, then
+ *  put back). Parts are DEPOSIT_ALWAYS (matset-01); a torch is wanted for its one call (no stock group: no keep applies).
+ *  THE SWEEP (Claude r2 P1-A): a full or unreachable nearest container never strands the part -- the town's containers are
+ *  tried nearest first (townContainers: the town memory's full ones already skipped), at most MATS_BANK_TRIES, each attempt
+ *  bounded; a walk that throws is the next container's turn. -> { name: banked } */
+async function matsBank (ctx, names, bag0, signal, caps = {}, { avoid = {}, full = [], onBanked = null, stats = {} } = {}) {
+  const { bot } = ctx
+  const banked = {}
+  const until = Date.now() + 10 * 60_000
+  // THE CANDIDATES (Codex r3 P1-2): the containers in reach (townContainers: the town memory's full ones skipped) AND the town
+  // index's containers past it, nearest first, without the ones this note found full (`avoid`: key -> until, kept in the note
+  // across attempts); a container a deposit reports full is added to `full`
+  const ck = p => { try { return containerKey(bot, p) } catch { return posKey(p) } }
+  const targets = () => {
+    const me = bot.entity?.position
+    if (!me) return []
+    const near = townContainers(bot, 8).map(b => b.position)
+    let idx = [], mem = {}
+    try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {} } catch { mem = {} }
+    // the index's containers past reach go through the SAME town memory townContainers applies (Claude r4 P3-1: full,
+    // unavailable, unusable or in backoff are skipped), and one container is one candidate (its halves share a key)
+    try { idx = Object.keys(townIndexEntries(bot) ?? {}).map(keyVec).filter(p => p.x === p.x && inTown(homeVec(), p) && !['full', 'unavailable', 'unusable', 'backoff'].includes(containerStatus(mem[posKey(p)]))) } catch { idx = [] }
+    const seen = new Set(), now = Date.now()
+
+    // only a block that IS a town container now takes one of the tries (a vanished index entry is no candidate at all)
+    const isBox = p => { try { const b = bot.blockAt?.(p); return !!b && isTownContainer(bot, b) } catch { return false } }
+    return [...near, ...idx].filter(p => { const k = ck(p); if (seen.has(k) || (avoid?.[k] ?? 0) > now || full.includes(k) || !isBox(p)) return false; seen.add(k); return true })
+      .sort((a, b) => me.distanceTo(a) - me.distanceTo(b)).slice(0, MATS_BANK_TRIES)
+  }
+  for (const name of names) {
+    const had = heldMap(bot)[name] ?? 0
+    const own = Number(bag0?.[name]) || 0
+    const cap = Number.isFinite(caps?.[name]) ? Math.max(0, caps[name]) : Infinity
+    const want = Math.min(had - own, cap)
+    if (!(want > 0)) continue
+    check(signal)
+    const restore = swapWithdrawHold(name, had - want, until)
+    const wants0 = bot.currentWants
+    try {
+      if (name === 'torch') bot.currentWants = [...(Array.isArray(wants0) ? wants0 : []), name]
+      // TOWN CONTAINERS ONLY (Codex r4 P2-3): no target -> no deposit (a null target lets deposit pick the nearest container,
+      // in town or not); a town with no room never gets an order (mats.mjs materialOrder town_full)
+      const tried = []
+      const ts = targets()
+      if (!ts.length) stats.noTarget = true
+      for (const at of ts) {
+        check(signal)
+        if ((heldMap(bot)[name] ?? 0) <= had - want) break
+        // THE TARGET MUST BE A TOWN CONTAINER NOW (Codex r5 P2-3): deposit's preferAt falls back to the nearest container -- in town
+        // or not -- when the block there is gone or unloaded, so a vanished index entry is skipped (and avoided), never passed on
+        const tb = (() => { try { return bot.blockAt?.(at) } catch { return null } })()
+        if (!tb || !isTownContainer(bot, tb)) { full.push(ck(at)); continue }
+        const h0 = heldMap(bot)[name] ?? 0
+        let r = null
+        try {
+          r = await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt: at, exclude: [...tried], until: Date.now() + 30_000 })
+        } catch (e) { if (e?.aborted || signal?.aborted) { const g = Math.max(0, h0 - (heldMap(bot)[name] ?? 0)); if (g && onBanked) onBanked(name, g); throw e } r = { failClass: 'walk' } }
+        // EACH DEPOSIT PERSISTED AS IT LANDS (Codex r4 P2-2): an abort on the walk to the next chest keeps this one's count
+        const g = Math.max(0, h0 - (heldMap(bot)[name] ?? 0))
+        if (g && onBanked) onBanked(name, g)
+        // ANY failed attempt is avoided by this note for 30 min (Claude r4 P3-1: no path, a blocked lid, full), not retried every try
+        tried.push(at); if (!g && r && r.status !== 'success') full.push(ck(at))
+      }
+    } finally { bot.currentWants = wants0; restore() }
+    const gone = Math.max(0, had - (heldMap(bot)[name] ?? 0))
+    if (gone) banked[name] = gone
+  }
+  return banked
+}
+
+/** The order's crafts after its session (or a recovery's): stone in fours into bricks, glass in sixes into panes, the
+ *  torch kind's charcoal into torches with its own sticks (crafted from its own planks when short). -> parts made */
+async function matsCrafts (ctx, kind, bag0, signal, { planksName = null } = {}) {
+  const { bot } = ctx
+  const above = n => Math.max(0, (heldMap(bot)[n] ?? 0) - (Number(bag0?.[n]) || 0))
+  check(signal)
+  if (kind === 'bricks') { const st = above('stone'); if (st >= 4) await craft(ctx, { item: 'stone_bricks', count: st - (st % 4) }, signal) }
+  if (kind === 'panes') { const g = above('glass'); if (g >= 6) await craft(ctx, { item: 'glass_pane', count: Math.floor(g / 6) * 16 }, signal) }
+  if (kind === 'torch') {
+    const ch = above('charcoal')
+    if (ch > 0 && above('stick') < ch) {
+      const pl = planksName ?? Object.keys(heldMap(bot)).find(n => isPlanks(n) && above(n) >= 2)
+      if (pl) await matsCraftDirect(bot, 'stick', Math.ceil((ch - above('stick')) / 4), { allowed: [pl], must: pl })
+    }
+    await matsCraftDirect(bot, 'torch', Math.min(above('charcoal'), above('stick')), { allowed: ['charcoal', 'stick'], must: 'charcoal' })
+  }
+  if (kind === 'cut_copper') { if (above('copper_ingot') >= 36) await craft(ctx, { item: 'copper_block', count: 4 }, signal); if (above('copper_block') >= 4) await craft(ctx, { item: 'cut_copper', count: 4 }, signal) }
+  if (kind === 'copper_door') { if (above('copper_ingot') >= 6) await craft(ctx, { item: 'copper_door', count: 3 }, signal) }
+  return above(KINDS[kind].part)
+}
+
+/**
+ * make_material -- the town order (mats.mjs materialOrder): one part kind, made from town stock above the BUILD_RESERVE
+ * (stocktarget.mjs, MATS_RESERVE overrides) and banked. One `_make_material` row, ALWAYS, with the balance by family and by
+ * forbidden name (mats.mjs matsBalance) the read re-derives.
+ */
+async function makeMaterial (ctx, args, signal) {
+  const { bot } = ctx
+  const kind = String(args?.item ?? args?.kind ?? '')     // `item` is the arg the grammar has (args-sayable.test)
+  const K = KINDS[kind]
+  const f = { kind, stop: null, made: 0, part: K?.part ?? '-', log: '-', took: {}, fromBag: {}, smelted: 0, burned: 0, expected: 0,
+              deposited: {}, furnaceLeft: {}, prior: {}, families: {}, forbidden: {}, verdict: null, furnace: '-', lease: '-',
+              reserveSrc: null, stock: {}, t0: Date.now(), ml: null, inputsLeft: {}, stoneLeft: null }
+  let result = null, uncertain = false, note = null, lease = null, bag0 = {}, forbidden0 = {}, names = [], leaseT0 = null, furnaceDone = true, held0All = null
+  const pl = countPlacements(bot)
+  try {
+    // THE COUNT REMEDY (mats.mjs materialOrder: the index below its coverage, containers it does not know in reach)
+    if (kind === 'count') {
+      const n = await matsRecount(bot, signal)
+      f.stop = `counted:${n}`; f.counted = n
+      return (result = n ? { status: 'success', detail: `recounted ${n} town container(s) the index did not know, for the materials job` } : { status: 'no_effect', detail: 'no town container the index does not know could be recounted now' })
+    }
+    if (!K) { f.stop = 'bad_kind'; return (result = { status: 'failed', failClass: 'other', detail: `no materials kind "${kind}"` }) }
+    const R = matsReserve(); const B = matsBuffers()
+    f.reserveSrc = R.src
+    const town = matsTownStock(bot)
+    if (!town || !(town.coverage >= MATS_MIN_COVERAGE)) { f.stop = 'index_coverage'; return (result = { status: 'no_effect', detail: `the town index knows ${town ? Math.round(town.coverage * 100) : 0}% of the town's containers; the materials job waits for the recount` }) }
+    f.stock = { [K.part]: partCount(K.part, town.stock), cobblestone: reserveCount('cobblestone', town.stock), logs: reserveCount('logs', town.stock), copper_ingot: reserveCount('copper_ingot', town.stock), sand: reserveCount('sand', town.stock) }
+    if ((B.table[K.part] ?? 0) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
+    const prev = readMatsNote(bot)
+    if (prev) { f.stop = 'note_open'; return (result = { status: 'no_effect', detail: 'an earlier materials order is not reconciled; mats_return runs first' }) }
+    // the project reserve (OWNER 10-27): a project part's order draws on the lowered table while the workshop is active
+    const PR = matsKindForProject(kind) ? projectReserveNow(bot, Date.now(), { fresh: true }) : { active: false, gen: '-' }
+    const E = effectiveReserve(R.table, { active: PR.active, forProject: matsKindForProject(kind) })
+    const PD = projectDraw(bot, R.table, { forProject: matsKindForProject(kind) })
+    const inp = orderInputs(kind, { bagSpare: matsBagSpare(bot), stock: town.stock, reserve: E.table })
+    if (!inp) { f.stop = 'inputs'; return (result = { status: 'no_effect', detail: `the town has no ${kind} inputs above its reserve now` }) }
+    f.log = inp.log ?? '-'
+    lease = matsLease(bot)
+    if (lease.unleased) { f.stop = 'lease_unavailable'; lease = null; return (result = { status: 'no_effect', detail: 'the town materials lease cannot be recorded here; the job waits' }) }
+    if (!lease.ok) { f.stop = 'lease_busy'; lease = null; return (result = { status: 'no_effect', detail: 'another bot is making materials in this town now' }) }
+    leaseT0 = Date.now()
+    names = touchedNames(kind, inp.log)
+    const held0 = heldMap(bot)
+    held0All = held0
+    bag0 = Object.fromEntries(names.map(n => [n, held0[n] ?? 0]))
+    forbidden0 = forbiddenCounts(held0)
+    f.fromBag = inp.fromBag
+    // 1. THE CARRY NOTE, before anything moves
+    note = newNote({ bot: bot.username ?? null, kind, fromBag: inp.fromBag, bag0, at: Date.now() })
+    writeMatsNote(bot, note)
+    // 2. THE WITHDRAW: the smallest batch that can still be made keeps its time (Codex r1 P2-14); the batch is sized after it
+    const unit = K.smelt ? ({ stone: 4, glass: 6, charcoal: 1 }[K.smelt.out] ?? 1) : 0
+    const reserveMs = K.smelt ? (unit * SMELT_MS_PER_ITEM + SMELT_RECOVERY_MS + 40_000) : 45_000
+    let w
+    try {
+      w = Object.keys(inp.take).length ? await matsWithdraw(ctx, inp.take, signal, reserveMs, R.table, PD.allow, PD.onTook, PD.onUncertain) : { took: {}, unsettled: false, short: false, capped: 0 }
+    } finally {
+      if (PD.used.lowered) f.reserveSrc = 'project'   // the read judges this row on the lowered floor (matsread.py), an abort too
+    }
+    f.took = w.took
+    note.took = w.took; writeMatsNote(bot, note)
+    if (w.unsettled) { uncertain = true; f.stop = 'withdraw_unsettled'; return (result = { status: 'failed', failClass: 'transfer_unsettled', detail: 'a take from a town chest could not be confirmed; the note stays open for mats_return' }) }
+    if (w.short) { f.stop = w.capped ? 'withdraw_reserve' : 'withdraw_short'; return (result = { status: 'no_effect', detail: `the town containers looked in did not hold the order's inputs above the reserve (${Object.entries(inp.take).map(([n, c]) => `${c} ${n}`).join(', ')}); what was taken stays in the bag for the town deposit` }) }
+    const deadline = withdrawClock(ctx).deadline - 25_000      // the crafts and the bank keep 25 s
+    let planksName = null
+    // 3-5. THE PLANKS AND THE SESSION (smelt kinds)
+    if (K.smelt) {
+      const log = inp.log
+      const input = K.smelt.input === 'log' ? log : K.smelt.input
+      const n = batchFor(kind, deadline - Date.now() - SMELT_RECOVERY_MS - 15_000)
+      if (!(n > 0)) { f.stop = 'late'; return (result = { status: 'no_effect', detail: 'the withdraw used the job\'s clock; nothing was smelted (the inputs stay in the bag for the town deposit)' }) }
+      planksName = PLANKS_OF[log]
+      const fuel = planksToLoad(n)
+      const sticks = kind === 'torch' ? n : 0
+      const planksNeed = fuel + (sticks ? Math.ceil(sticks / 4) * 2 : 0)
+      const logsNeed = Math.ceil(planksNeed / 4)
+      check(signal)
+      const pc = await craft(ctx, { item: planksName, count: logsNeed * 4 }, signal)
+      if ((heldMap(bot)[planksName] ?? 0) - (bag0[planksName] ?? 0) < planksNeed) { f.stop = `planks:${pc.failClass ?? pc.status}`; return (result = { status: 'no_effect', detail: `the fuel planks could not be crafted (${pc.failClass ?? pc.status})` }) }
+      if (sticks) {
+        await matsCraftDirect(bot, 'stick', Math.ceil(sticks / 4), { allowed: [planksName], must: planksName })
+        // the sticks the ORDER made, in the note: a recovery spends at most these (Claude r2 P2-D)
+        note.sticks = Math.max(0, (heldMap(bot).stick ?? 0) - (bag0.stick ?? 0)); writeMatsNote(bot, note)
+        if (note.sticks < sticks) { f.stop = 'sticks'; return (result = { status: 'no_effect', detail: 'the torch sticks could not be crafted from the order\'s own planks' }) }
+      }
+      f.expected = fuel
+      // own = null: the job never leaves its output in a furnace (one take, then the drain), so any output there is another
+      // session's (Claude r1 P3) -- the furnace must be empty
+      const r = await matsSession(ctx, { input, n, planksName, out: K.smelt.out, own: null,
+        onLoad: ld => { note.furnace = ld.furnace; note.loaded = ld; writeMatsNote(bot, note) } }, signal, deadline)
+      f.smelted = r.made; f.burned = r.burned; f.furnaceLeft = r.furnaceLeft; f.furnace = r.furnace; f.lease = r.lease; f.cut = !!r.cut
+      for (const [k2, c] of Object.entries(r.prior ?? {})) f.prior[k2] = (f.prior[k2] ?? 0) + c
+      if (r.uncertain) uncertain = true
+      // the batch is out of the furnace only when the closing read says so: else mats_return drains it later
+      furnaceDone = !r.uncertain && !Object.keys(r.furnaceLeft ?? {}).length
+      if (r.stop !== 'done' && r.stop !== 'short') { f.stop = `session:${r.stop}`; if (r.tried.length) f.stop += `(${r.tried.slice(0, 3).join(';')})` }
+    }
+    // 6. THE CRAFTS -- the copper kinds' write-ahead first (Codex r5 P2-1): a note that says `crafting` is judged as crafted
+    if (!K.smelt) { note.crafting = true; writeMatsNote(bot, note) }
+    f.made = await matsCrafts(ctx, kind, bag0, signal, { planksName })
+    f.stop = f.stop ?? (f.made > 0 ? 'done' : 'nothing_made')
+    return (result = f.made > 0
+      ? { status: 'success', detail: `made ${f.made} ${K.part} from town stock above the reserve${K.smelt ? ` (${f.smelted} smelted on ${f.burned} planks)` : ''}; banked in town` }
+      : { status: 'no_effect', detail: `no ${K.part} was made (${f.stop})` })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { f.stop = f.stop ?? 'interrupted'; uncertain = true; throw e }
+    f.stop = f.stop ?? 'error'
+    uncertain = true
+    return (result = { status: 'failed', failClass: 'other', detail: `the materials job stopped: ${String(e?.message ?? e).slice(0, 120)}` })
+  } finally {
+    // 7. BANK AND CLOSE (never on an abort: the reflex owns the body -- mats_return reconciles at the next town visit)
+    const aborted = f.stop === 'interrupted'
+    try {
+      if (note && !aborted) {
+        for (const [n, c] of Object.entries(f.took)) releaseWithdrawHold(n, c)
+        // each deposit booked AND in the note as it lands (Codex r5 P2-4): an abort on the walk to the next chest keeps it
+        await matsBank(ctx, obligations(kind).filter(n => n !== 'stone' && n !== 'charcoal'), bag0, signal, {}, {
+          onBanked: (n2, c2) => { f.deposited[n2] = (f.deposited[n2] ?? 0) + c2; note.deposited = { ...f.deposited }; try { writeMatsNote(bot, note) } catch { /* the next write */ } } })
+        const bagNow = heldMap(bot)
+        const plan = returnPlan(note, bagNow)
+        f.inputsLeft = plan.inputsLeft; f.stoneLeft = plan.stoneLeft || null
+        if (noteSettled(note, bagNow, { furnaceDone })) clearMatsNote(bot)
+        // what the order banked travels with an open note: the recovery's balance counts it (mats.mjs recoveryBalance)
+        else { note.phase = 'open'; note.deposited = { ...f.deposited }; writeMatsNote(bot, note); matsHoldNote(bot, note); f.stop += '+note_open' }
+      }
+    } catch { uncertain = true }
+    matsHoldIfOpen(bot)                   // an aborted order's note (no bank: the reflex owns the body) is held too
+    try { await pl.settle() } catch { /* settled */ }
+    pl.restore()
+    // t1 BEFORE the release (Codex r2 P2-6): the next maker's ml= can only start after this one's ends
+    const mlEnd = Date.now()
+    try { lease?.release?.() } catch { /* TTL */ }
+    if (leaseT0 != null) f.ml = `${leaseT0}-${mlEnd}`
+    f.placed = { ...pl.placed }
+    const held1 = heldMap(bot)
+    const bag1 = Object.fromEntries(names.map(n => [n, held1[n] ?? 0]))
+    const b = matsBalance({ kind, bag0, bag1, withdrawn: f.took, deposited: f.deposited, prior: f.prior, furnaceLeft: f.furnaceLeft,
+                            burnedPlanks: f.burned, smelted: f.smelted, forbidden0, forbidden1: forbiddenCounts(held1), uncertain: uncertain || aborted,
+                            cut: f.cut, placed: f.placed })
+    f.families = b.families; f.forbidden = b.forbidden; f.verdict = b.verdict
+    const t0b = toolCounts(held0All ?? {}), t1b = toolCounts(held1)
+    f.toolsLost = Object.fromEntries(Object.entries(t0b).map(([n, c]) => [n, c - (t1b[n] ?? 0)]).filter(([, d]) => d > 0))
+    if (names.includes('stone')) f.stone = `${bag0.stone ?? 0}>${bag1.stone ?? 0}`
+    try { const nt = readMatsNote(bot); f.note = nt ? nt.phase : 'closed' } catch { f.note = '?' }
+    try { logEvent({ kind: 'make_material', status: result?.status ?? 'aborted', snapshot: snapshot(bot), detail: matsDetail(f).slice(0, 600) }) } catch { /* never break the job */ }
+    if (result) { result.made = f.made; result.stop = f.stop; result.counted = f.counted ?? 0 }
+  }
+}
+
+/** mats_return's drain of the note's furnace -> { code, done }. code 'drained:<n>' | 'empty' | 'lit' | 'foreign:<why>' |
+ *  'busy' | 'gone' | 'unreachable' | 'window' | 'no_load_record'. FAIL CLOSED (Codex r1 P1-5): cold only on an explicit
+ *  lit=false, read before the walk, after it and at the open; the contents must be the note's own load (mats.mjs
+ *  recoveryContentsOk: its names and at most its counts). `done`: nothing of the order's is left there to drain. */
+async function matsReturnDrain (ctx, note, signal) {
+  const { bot } = ctx
+  const pos = keyVec(note.furnace)
+  let lease = null, win = null, leaseAt = null
+  const retLedger = { ledgerOpen: null, ledgerLoads: { ok: 0, fail: 0 } }   // ledger-01's open record, on the session row
+  const cold = () => { try { const v = bot.blockAt?.(pos)?.getProperties?.()?.lit; return v === false || v === 'false' } catch { return false } }
+  try {
+    if (!note.loaded) return { code: 'no_load_record', done: true }     // killed before the load: nothing went in
+    const b = bot.blockAt?.(pos)
+    // AN UNLOADED CHUNK IS NOT UNKNOWN-AS-GONE (Claude r2 P3-3): no block read -> the note stays open for the next visit
+    if (!b) return { code: 'unloaded', done: false }
+    if (bot.registry?.blocks?.[b.type]?.name !== 'furnace') return { code: 'gone', done: true }
+    // ROOM FIRST (Codex r2 P1-1): a drain into a full bag would have mineflayer's putAway drop the stack on the ground; three
+    // stacks (input, fuel, output) must fit, else the note stays open and the town deposit makes room
+    const free = (() => { try { return bot.inventory.emptySlotCount() } catch { return 0 } })()
+    if (!(free >= 3)) return { code: 'bag_full', done: false }
+    if (!cold()) return { code: 'lit', done: false }
+    lease = acquireFurnaceLease(townDir(), pos, leaseHolder(bot), { what: 'mats_return' })
+    if (!lease.ok || lease.unleased) return { code: 'busy', done: false }
+    leaseAt = Date.now()
+    for (const range of [1, 3]) {
+      check(signal)
+      try { await withTimeout(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, range)), 20000, bot); break } catch (e) { if (e.aborted) throw e }
+    }
+    if (bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5)) > STATION_REACH) return { code: 'unreachable', done: false }
+    if (!cold()) return { code: 'lit', done: false }
+    // ROOM AGAIN AFTER THE WALK (Codex r3 P1-3): pickups on the way can fill the three slots the check before it saw
+    if (!((() => { try { return bot.inventory.emptySlotCount() } catch { return 0 } })() >= 3)) return { code: 'bag_full', done: false }
+    try { win = await withTimeout(bot.openFurnace(bot.blockAt(pos)), SMELT_OPEN_MS, bot, { what: 'furnace', needsDrop: false, onTimeout: () => {} }) } catch (e) { if (e.aborted) throw e; return { code: 'window', done: false } }
+    // ledger-01's opener set (re-stack onto 112beb04): the window as it opened, before any click
+    if (LEDGER.on) { try { retLedger.ledgerOpen = ledgerObserve(bot, pos, win, 'mats_return', 'open') } catch { /* never breaks the recovery */ } }
+    const rd = k => { try { const it = win[k](); return it ? { name: it.name, count: it.count ?? 0 } : null } catch { return undefined } }
+    const slots = { input: rd('inputItem'), fuel: rd('fuelItem'), output: rd('outputItem') }
+    if (Object.values(slots).includes(undefined) || !cold() || (win.fuel ?? 0) > 0) { try { win.close() } catch { /* closed */ } win = null; return { code: 'unreadable_or_lit', done: false } }
+    // ...AND IN THE WINDOW'S OWN BAG, the one the drain fills (mineflayer copies it back only at the close)
+    const winFree = (() => { try { return win.emptySlotCount?.() } catch { return null } })()
+    if (winFree != null && winFree < 3) { try { win.close() } catch { /* closed */ } win = null; return { code: 'bag_full', done: false } }
+    if (!slots.input && !slots.fuel && !slots.output) { try { win.close() } catch { /* closed */ } win = null; return { code: 'empty', done: true } }
+    const q = recoveryContentsOk(note.loaded, slots)
+    if (!q.ok) { try { win.close() } catch { /* closed */ } win = null; return { code: `foreign:${q.why}`, done: true } }
+    const before = heldMap(bot)
+    const w0 = win; win = null
+    await drainFurnace(w0, SMELT_RECOVERY_MS, bot)
+    const after = heldMap(bot)
+    const cc = closingContents(w0.closing ?? null)
+    return { code: `drained:${Object.entries(after).reduce((t, [n, c]) => t + Math.max(0, c - (before[n] ?? 0)), 0)}`, done: cc.empty }
+  } finally {
+    if (win) { try { win.close() } catch { /* closed */ } }
+    const t1 = Date.now()                                                   // before the release (Codex r2 P2-6)
+    try { lease?.release?.() } catch { /* TTL */ }
+    // the furnace lease's interval, as smelt, the drain and make_material write it: the read's G5 pairs every session type
+    if (leaseAt != null) { try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(bot), detail: `furnace=${note.furnace} lease=${lease?.n ?? '-'} t0=${leaseAt} t1=${t1} by=mats_return${ledgerRowFields(retLedger)}` }) } catch { /* never break */ } }
+  }
+}
+
+/**
+ * mats_return -- the recovery order (mats.mjs returnOrder; design 3.2): an OPEN carry note at town runs first. It reconciles by
+ * LOOKING: the note's furnace drained (its own load only), stone crafted in fours, the torch kind's charcoal made into torches,
+ * the part banked. The note closes only when nothing the order owes is left (mats.mjs noteSettled); otherwise it stays open
+ * for the next visit -- at most MATS_RETURN_MAX tries or MATS_RETURN_MAX_AGE_MS, then it is closed ABANDONED, with its row
+ * (the read counts it), never silently. One `_mats_return` row, always.
+ */
+async function matsReturn (ctx, _args, signal) {
+  const { bot } = ctx
+  const note = readMatsNote(bot)
+  let result = null, banked = {}, made = 0, plan = null, drained = '-', stop = null, bal = null, forbidden = {}, err = null
+  let forbidden0 = null, rpl = null
+  const giveUp = () => note && (note.tries >= MATS_RETURN_MAX || Date.now() - (Number(note.at) || 0) > MATS_RETURN_MAX_AGE_MS)
+  try {
+    if (!note || note.phase !== 'open') return (result = { status: 'no_effect', detail: 'no open materials note' })
+    note.tries = (Number(note.tries) || 0) + 1
+    writeMatsNote(bot, note)
+    forbidden0 = forbiddenCounts(heldMap(bot))
+    rpl = countPlacements(bot)
+    for (const [n, c] of Object.entries(note.took ?? {})) releaseWithdrawHold(n, c)
+    let furnaceDone = true
+    if (note.furnace) { const d = await matsReturnDrain(ctx, note, signal); drained = d.code; furnaceDone = d.done }
+    // A WAIT IS NOT A TRY (Claude r3 P2-1): a furnace still lit, leased by the dead process (TTL), out of the loaded chunks, or a
+    // bag without room is nothing the recovery did -- booked as a wait; the 24 h age still bounds the note
+    // ...and it YIELDS until waitUntil (Codex r4 P1): the town deposit that makes room, and every other town job, get the decisions
+    if (/^(lit|busy|unloaded|bag_full|unreadable_or_lit)$/.test(drained)) { note.tries -= 1; note.waits = (Number(note.waits) || 0) + 1; note.waitUntil = Date.now() + matsReturnWaitMs(drained); writeMatsNote(bot, note) }
+    // THE CRAFTS AND THE BANK, CAPPED BY THE NOTE (Claude r2 P2-D): returnPlan counts only what the note can own
+    const K = KINDS[note.kind]
+    let p0 = returnPlan(note, heldMap(bot))
+    const before = heldMap(bot)[K?.part] ?? 0
+    check(signal)
+    // THE TORCH KIND'S MISSING STICKS (Codex r3 P2-5, Claude r3 P3-1): made from the order's own wood above bag0, never the kit's
+    if (p0.sticksShort > 0 && p0.stickWood) {
+      const w = p0.stickWood
+      if (w.log) await craft(ctx, { item: w.planks, count: 4 }, signal)
+      const s0 = heldMap(bot).stick ?? 0
+      await matsCraftDirect(bot, 'stick', Math.max(0, Number(w.crafts) || 0), { allowed: [w.planks], must: w.planks })
+      const got = Math.max(0, (heldMap(bot).stick ?? 0) - s0)
+      if (got) { note.sticks = (Number(note.sticks) || 0) + got; writeMatsNote(bot, note) }
+      p0 = returnPlan(note, heldMap(bot))
+    }
+    if (p0.craftStone >= 4) await craft(ctx, { item: 'stone_bricks', count: p0.craftStone }, signal)
+    if (p0.panes > 0) await craft(ctx, { item: 'glass_pane', count: p0.panes * 16 }, signal)
+    if (p0.cutCopper > 0) await craft(ctx, { item: 'cut_copper', count: 4 }, signal)
+    if (p0.torches > 0) await matsCraftDirect(bot, 'torch', p0.torches, { allowed: ['charcoal', 'stick'], must: 'charcoal' })
+    made = Math.max(0, (heldMap(bot)[K?.part] ?? 0) - before)
+    const p1 = returnPlan(note, heldMap(bot))
+    // the bank: past the bot's reach, full containers remembered in the note, and on the LAST try deposit's own recovery
+    const full = []
+    // every deposit is in the note the moment it lands (Codex r3 P2-4, r4 P2-2), so the balance reads the note alone
+    note.deposited = { ...(note.deposited ?? {}) }
+    const onBanked = (n2, c2) => { note.deposited[n2] = (Number(note.deposited[n2]) || 0) + c2; try { writeMatsNote(bot, note) } catch { /* the next write */ } }
+    const bstats = {}
+    banked = await matsBank(ctx, Object.keys(p1.bank), note.bag0, signal, p1.bank, { avoid: note.bankFull ?? {}, full, onBanked, stats: bstats })
+    // NO CANDIDATE AT ALL is nothing the recovery did (Claude r5 P3-3): a wait, not a try -- the avoid windows expire meanwhile
+    if (bstats.noTarget && !Object.keys(banked).length && !/^(lit|busy|unloaded|bag_full|unreadable_or_lit)$/.test(drained)) {
+      note.tries -= 1; note.waits = (Number(note.waits) || 0) + 1; note.waitUntil = Date.now() + MATS_RETURN_WAIT_MS; drained = drained === '-' ? 'no_bank_target' : drained
+    }
+    if (full.length) { note.bankFull = { ...(note.bankFull ?? {}) }; for (const k of full) note.bankFull[k] = Date.now() + 30 * 60_000 }
+    plan = returnPlan(note, heldMap(bot))
+    // THE BALANCE IS JUDGED ONLY WHEN THE NOTE ENDS (Codex r3 P1-1, Claude r3 P1-1): an attempt whose furnace is not drained yet
+    // holds the batch out of sight (verdict=pending, never a loss)
+    try { await rpl?.settle?.() } catch { /* settled */ }
+    const balNow = recoveryBalance(note, { bag: heldMap(bot), banked: {}, placed: rpl?.placed ?? {} })
+    // kept with the note when it stays open -- ONLY when this attempt's drain TOUCHED the furnace, or there is none (Claude r7 P3-1,
+    // Codex r8 P2): an untouched lit/busy/unloaded wait has the loaded input still inside, so anything "back" then is input
+    // gathered meanwhile; a PARTIAL drain (input back, output stuck) did return input, and that is the batch's
+    if (backSeenTouched(note, drained) && balNow.back > (Number(note.backSeen) || 0)) note.backSeen = balNow.back
+    balNow.verdict = recoveryVerdict(balNow, drained, note.kind)                     // TAKEN: mats.mjs recoveryVerdict
+    // B3 ON THE RECOVERY (Claude r2 P2-D): no iron-ladder or fuel name fewer after it than before, beyond the order's own
+    // charcoal made into torches
+    const f1 = forbiddenCounts(heldMap(bot))
+    for (const [n, c] of Object.entries(forbidden0)) {
+      const allowed = n === 'charcoal' ? p0.torches : 0
+      const d = c - (f1[n] ?? 0) - allowed
+      if (d > 0) forbidden[n] = d
+    }
+    if (noteSettled(note, heldMap(bot), { furnaceDone })) { clearMatsNote(bot); matsReleaseNote(note); stop = 'closed'; bal = balNow }
+    else if (giveUp()) { clearMatsNote(bot); matsReleaseNote(note); stop = 'abandoned'; bal = furnaceDone ? balNow : null }
+    else { stop = 'open'; writeMatsNote(bot, note); matsHoldNote(bot, note) }
+    const what = `drained ${drained}, made ${made}, banked ${Object.entries(banked).map(([n, c]) => `${c} ${n}`).join(', ') || 'nothing'}`
+    return (result = stop === 'closed' ? { status: Object.keys(banked).length || made ? 'success' : 'no_effect', detail: `reconciled the materials note: ${what}` }
+      : stop === 'abandoned' ? { status: 'no_effect', detail: `gave the materials note up after ${note.tries} tries (${what}); the read counts it` }
+      : { status: 'no_effect', detail: `the materials note stays open (${what}); the next visit tries again` })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    err = String(e?.message ?? e).slice(0, 40).replace(/\s+/g, '_')
+    // THE BOUND HOLDS ON AN EXCEPTION TOO (Codex r2 P1-2): a recovery that throws on its last try or past the age gives up
+    if (giveUp()) { try { clearMatsNote(bot) } catch { /* none */ } matsReleaseNote(note); stop = 'abandoned' } else stop = 'error'
+    return (result = { status: 'failed', failClass: 'other', detail: `mats_return stopped${stop === 'abandoned' ? ' (the note is given up)' : ''}: ${String(e?.message ?? e).slice(0, 120)}` })
+  } finally {
+    matsHoldIfOpen(bot)
+    try { rpl?.restore() } catch { /* restored */ }
+    const kvs = m => Object.entries(m ?? {}).filter(([, c]) => c).map(([n, c]) => `${n}:${c}`).join(',') || '-'
+    const verdict = Object.keys(forbidden).length ? 'forbidden' : bal ? bal.verdict : stop === 'open' ? 'pending' : stop === 'error' || stop === 'abandoned' ? 'unreconciled' : '-'
+    // THE GATE FIELDS FIRST (300-char cut): verdict and forbidden, the balance, then the bookkeeping
+    try { logEvent({ kind: 'mats_return', status: result?.status ?? 'aborted', snapshot: snapshot(bot), detail: `kind=${note?.kind ?? '-'} verdict=${verdict} forbidden=${kvs(forbidden)} stop=${stop ?? '-'} tries=${note?.tries ?? 0} waits=${note?.waits ?? 0} batch=${bal?.batch ?? 0} out=${bal?.out ?? 0} back=${bal?.back ?? 0} short=${bal?.short ?? 0} made=${made} banked=${kvs(banked)} drained=${drained} stone_left=${plan?.stoneLeft ?? 0} charcoal_left=${plan?.charcoalLeft ?? 0} inputs_left=${kvs(plan?.inputsLeft)} furnace=${note?.furnace ?? '-'} err=${err ?? '-'} t0=${note?.at ?? '-'}` }) } catch { /* never break */ }
+    if (result) result.made = made
+  }
+}
+
 // ---------------------------------------------------------------- mine -----
 //
 // Distinct from gather: gather goes to blocks it can already see, mine
@@ -13238,7 +14113,10 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
   const nameAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null
   const liveZones = () => { try { return bot.protectZones?.() ?? [] } catch { return [] } }
   const townNow = () => {
-    const farm = { forbid: null, bottom: null }   // no tree farm on this base (treefarm-02 composes its cells here)
+    // the tree farm's slot: no tree farm on this base (treefarm-02 composes its part here) -- and THE WORKSHOP'S RECORD CELLS as
+    // their OWN part beside it (shop-01 r2, Codex r1 P2 / Claude r1 P2-3: a target dig is not a pathfinder move, so the
+    // footprint price never reached the stair; Claude r2 P3-2: a part each, so a merge with treefarm-02 drops neither)
+    const farm = composeKeepOut({ forbid: null, bottom: null }, shopKeepOut())
     return composeKeepOut(farm, townKeepOut(townHome(), nameAt))
   }
   // ...AND EVERY PROTECTED ZONE (protectzone-01: scenery, e.g. the showcase's village): no stair through one, none from one --
@@ -15613,6 +16491,374 @@ async function placeIntoPlan (ctx, { at, kind, role = null, group = null, signal
 /** place() with its options (the tests: a builder's planTemp late re-check is only reachable through the builders otherwise). */
 export const placeForTest = (ctx, args, signal, opts) => place(ctx, args, signal, opts)
 
+// ================================================================================================================================
+// SHOP-01: THE WORKSHOP (building tier step 3; design docs/reports/building-tier-2026-10-23.md sections 4-5). shop.mjs decides,
+// buildsite.mjs sites, buildproj.mjs keeps the files, buildrun.mjs runs the visit, buildbot.mjs touches the world. SHOP=off: nothing.
+// ================================================================================================================================
+const shopKey = () => projKey(planHomeP(), SHOP_PLOT)
+let shopBp = null
+const shopBlueprint = () => (shopBp ??= loadBlueprint(SHOP_BLUEPRINT))
+/** The project's record head in this town -> recordHead's answer. Never throws. */
+/** When any builder's visit last reported stuck_on_cell (the order's project-wide back-off) -> ms | null. Never throws. */
+export function shopStuckAt (now = Date.now()) { try { return projStuckAt(townDir(), shopKey(), { before: now + 60_000 }) } catch { return null } }
+export function shopRecordHead () { try { return recordHead(townDir(), shopKey()) } catch { return { ok: false, head: null, gens: [], rejected: [] } } }
+// THE PROJECT RESERVE AT RUNTIME (OWNER 10-27; mats.mjs projectReserveState decides). The progress clock is a town file written
+// at every visit that placed a block; when an open project has none yet, it is started at the first reading (one window).
+const shopProgressFile = () => path.join(townDir(), `${shopKey()}.progress.json`)
+// -> the clock | null (ABSENT) | 'bad' (exists but unreadable or malformed: fail closed, never restarted; Codex review P2)
+function shopProgressRead () {
+  let raw
+  try { raw = fs.readFileSync(shopProgressFile(), 'utf8') } catch (e) { return e?.code === 'ENOENT' ? null : 'bad' }
+  try { const j = JSON.parse(raw); return Number.isFinite(j?.at) ? j : 'bad' } catch { return 'bad' }
+}
+function shopProgressWrite (at, why, by, root = null) {
+  try {
+    const f = shopProgressFile(), tmp = `${f}.${process.pid}.${Date.now().toString(36)}.tmp`
+    fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(tmp, JSON.stringify({ at, why, by, root })); fs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+/** The record chain's root generation (the project's identity: the head's gen moves on every transition). */
+const shopRecordRoot = h => h?.gens?.find(g => !(h.rejected ?? []).some(r => r.gen === g)) ?? null
+/** -> { active, why, gen } for this town now (cached 30 s on the bot); logs `_reserve_mode` when it changes. Never throws: any
+ *  unreadable state reads as not active (the full reserve). */
+export function projectReserveNow (bot, now = Date.now(), { fresh = false } = {}) {
+  try {
+    if (!fresh && bot?.projReserve && now - bot.projReserve.at < 30_000) return bot.projReserve.v
+    let exists = false, complete = false, gen = '-', progressAt = null
+    const on = projectReserveOn() && SHOP.on && planOn()
+    if (on) {
+      const h = shopRecordHead()
+      if (h.ok && h.head) {
+        exists = true; gen = h.head.gen; complete = !!h.head.rec?.structure_complete
+        if (!complete) {
+          // the clock belongs to THIS project (its chain's root generation; Claude review P2): another project's clock is none
+          const root = shopRecordRoot(h)
+          const pr = shopProgressRead()
+          if (pr === 'bad') progressAt = null
+          else if (pr && pr.root === root) progressAt = pr.at
+          else if (shopProgressWrite(now, 'start', bot?.username ?? null, root)) progressAt = now
+        }
+      }
+    }
+    const st = projectReserveState({ on, exists, complete, progressAt, now })
+    const v = { ...st, gen }
+    const sig = `${st.active ? 1 : 0}:${st.why}:${gen}`
+    if (bot && bot.projReserveSig !== sig) {
+      bot.projReserveSig = sig
+      try { logEvent({ kind: 'reserve_mode', status: 'success', snapshot: snapshot(bot), detail: reserveModeDetail({ active: st.active, why: st.why, gen, progressAt, now }) }) } catch { /* telemetry */ }
+    }
+    if (bot) bot.projReserve = { at: now, v }
+    return v
+  } catch { return { active: false, why: 'error', gen: '-' } }
+}
+/** The lowered table for a project-part mats order, or null (cognitive.mjs materialOrder's partReserve). */
+export function projectPartReserve (bot) {
+  const st = projectReserveNow(bot)
+  const E = effectiveReserve(matsReserve().table, { active: st.active, forProject: true })
+  return E.lowered ? E.table : null
+}
+/**
+ * THE PROJECT DRAW (Codex review P2: a cached `active` must not authorise a take) -> { allow, onTook, used }. The project's state
+ * is re-read FRESH at every take decision inside matsWithdraw, so a completion or a stall published mid-withdraw restores the
+ * full floor for the next take. `onTook` writes `_reserve_draw` for each reserved-family take decided under the lowered table;
+ * `used.lowered` says whether any was (the `_make_material` row's reserve=project, which the read judges on the lowered floor).
+ */
+function projectDraw (bot, normal, { forProject = true, base = takeAllowed, then = null } = {}) {
+  const used = { lowered: false }
+  let last = { lowered: false, table: normal, gen: '-' }
+  const allow = (n, w, o = {}) => {
+    const st = forProject ? projectReserveNow(bot, Date.now(), { fresh: true }) : { active: false, gen: '-' }
+    const E = effectiveReserve(normal, { active: st.active, forProject })
+    last = { ...E, gen: st.gen }
+    const c = base(n, w, { ...o, reserve: E.table })
+    if (E.lowered && c > 0 && reserveKeyOf(n)) used.lowered = true
+    return c
+  }
+  const onTook = (k, c) => {
+    try { then?.(k, c) } finally {
+      const rk = reserveKeyOf(k)
+      if (last.lowered && rk && c > 0) { try { logEvent({ kind: 'reserve_draw', status: 'success', snapshot: snapshot(bot), detail: reserveDrawDetail({ by: bot.username ?? '-', name: k, n: c, family: rk, normal: normal[rk] ?? 0, effective: last.table[rk] ?? 0, gen: last.gen }) }) } catch { /* telemetry */ } }
+    }
+  }
+  // an exit that verified nothing (an abort or an unsettled visit): the take is reported unconfirmed, so no draw goes unlogged
+  const onUncertain = (k, c, why) => {
+    const rk = reserveKeyOf(k)
+    if (last.lowered && rk && c > 0) { try { logEvent({ kind: 'reserve_draw', status: 'partial', snapshot: snapshot(bot), detail: reserveDrawDetail({ by: bot.username ?? '-', name: k, n: c, family: rk, normal: normal[rk] ?? 0, effective: last.table[rk] ?? 0, gen: last.gen, unconfirmed: why }) }) } catch { /* telemetry */ } }
+  }
+  return { allow, onTook, onUncertain, used }
+}
+/** Is an admission slot free for this bot? (the order's reading) Never throws: unreadable reads as full. */
+export function shopSlotsFree (bot) {
+  try {
+    for (let k = 1; k <= BUILDERS_MAX; k++) {
+      const s = projLeaseState(townDir(), shopKey(), `slot${k}`)
+      if (!s || s.rec?.holder === bot?.username || Date.now() >= s.blocksUntil) return true
+    }
+    return false
+  } catch { return false }
+}
+/** The reservations' inputs at runtime: zones, the plinth record's cells (plan and prev[]), the newest junk-well site, the farm. */
+function shopCtx (bot) {
+  const zones = townPlanZones(bot)
+  const hk = `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+  const wells = []
+  try { wells.push(...plinthCells(JSON.parse(fs.readFileSync(path.join(townDir(), `junkwell-plinth-${hk}.json`), 'utf8')))) } catch { /* none */ }
+  try {
+    const re = new RegExp(`^junkwell-site-${hk.replace(/[-]/g, '\\-')}\\.g(\\d+)\\.json$`)
+    const g = fs.readdirSync(townDir()).map(f => re.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => b - a)[0]
+    if (g != null) { const s = JSON.parse(fs.readFileSync(path.join(townDir(), `junkwell-site-${hk}.g${g}.json`), 'utf8')); if ([s?.x, s?.y, s?.z].every(Number.isFinite)) wells.push([s.x, s.y, s.z]) }
+  } catch { /* none */ }
+  const farm = [...treeFarmCells()].map(k => k.split(',').map(Number))
+  return { zonesKnown: zones.known, zones: zones.zones, wells, farm }
+}
+/** THE POOL'S STOOD CELLS (D3 at runtime): this bot's in-town feet cell, at most once per cell per STOOD_REPEAT_MS. index.mjs calls
+ *  it every STOOD_EVERY_MS. Never throws. */
+export function shopStoodTick (bot) {
+  try {
+    if (!SHOP.on || !planOn()) return
+    const p = bot?.entity?.position
+    if (!p) return
+    if (Math.max(Math.abs(p.x - config.world.homeX), Math.abs(p.z - config.world.homeZ)) > SHOP_TOWN_R) return
+    if (!bot.entity.onGround) return
+    const c = [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], k = c.join(',')
+    bot.shopStoodAt ??= new Map()
+    if (Date.now() - (bot.shopStoodAt.get(k) ?? -Infinity) < STOOD_REPEAT_MS) return
+    bot.shopStoodAt.set(k, Date.now())
+    stoodAppend(townDir(), shopKey(), c, { by: bot.username ?? null })
+  } catch { /* telemetry-grade */ }
+}
+/**
+ * THE CONNECTION'S ACKNOWLEDGEMENT TRACKER (shop-01 r2; index.mjs installs it right after createBot, before login, so no sequence
+ * is written unseen): its settler closes this bot's own intents however late their acknowledgement comes; its presence, written
+ * at login, names this connection (buildproj.mjs intentRetired, the mutex's superseded holder).
+ */
+export function shopAckInstall (bot) {
+  const acks = installAckTracker(bot)
+  acks.conn = `${process.pid}-${Date.now().toString(36)}`
+  const me = () => bot.username ?? config.bot?.name ?? 'bot'
+  acks.onSettle(id => { try { projIntentClose(townDir(), shopKey(), me(), id, 'settled', { state: 'ack' }) } catch { /* the barrier waits: safe */ } })
+  // THE PRESENCE AND ITS HEARTBEAT (Codex r4 P1): written at login (at = the connection's start), then its `beat` every
+  // PRESENCE_BEAT_MS while this connection lives (no fsync: a lost beat only delays a retirement) -- the other bots' proof that
+  // this connection can still send
+  const mark = (sync = true) => { try { if (planOn()) presenceWrite(townDir(), shopKey(), me(), { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now(), sync }) } catch { /* the other evidence applies */ } }
+  let beat = null
+  // started at login -- or at once when installed after it (Claude r4 P3-1: a late install would otherwise never beat, and the
+  // sender's own fence would then refuse every click)
+  const start = () => { if (beat) return; acks.loginAt ??= Date.now(); mark(); beat = setInterval(() => mark(false), PRESENCE_BEAT_MS); beat.unref?.() }
+  try {
+    bot.once?.('login', start)
+    if (bot.entity) start()
+    bot.once?.('end', () => { if (beat) clearInterval(beat); acks.stop() })
+  } catch { /* a bare bot */ }
+  return acks
+}
+/** THE WORKSHOP'S RECORD CELLS -> { cells: Set "x,y,z", bottom } | null (no record, or unreadable). Cached by the record's newest
+ *  generation number (one directory listing per call): mine asks at every plan and every dig. */
+let shopCellCache = null
+export function shopCellsNow () {
+  try {
+    if (!SHOP.on) return null
+    const dir = townDir(), key = shopKey()
+    const g = recordGenNow(dir, key)
+    if (g == null) return null
+    if (shopCellCache && shopCellCache.key === key && shopCellCache.g === g) return shopCellCache
+    const h = recordHead(dir, key)
+    if (!h.ok || !h.head?.rec?.cells?.length) return null
+    const cells = new Set(h.head.rec.cells.map(c => c.at.join(',')))
+    shopCellCache = { key, g, cells, bottom: Math.min(...h.head.rec.cells.map(c => c.at[1])) }
+    return shopCellCache
+  } catch { return null }
+}
+/** mine's keep-out part (minewell.mjs composeKeepOut): a record cell is never dug by a stair, never a stair's start. */
+export function shopKeepOut () {
+  const s = shopCellsNow()
+  return s ? { forbid: c => (c && s.cells.has(`${c.x},${c.y},${c.z}`) ? 'workshop' : null), bottom: s.bottom } : { forbid: null, bottom: null }
+}
+/**
+ * IS A COMPLETE WORKSHOP DAMAGED? (shop-01 r2, Codex r1 P2: completion is reassessed against the WORLD, so a cut cell is
+ * rebuilt) -> true when a loaded record cell no longer reads done. Unloaded cells say nothing. Cached 60 s on the bot (the
+ * order reads it every decision). Never throws.
+ */
+export function shopDamaged (bot, rec = null) {
+  try {
+    const r = rec ?? shopRecordHead().head?.rec
+    if (!r?.structure_complete) return false
+    const now = Date.now()
+    if (bot.shopDamage && now - bot.shopDamage.at < 60_000) return bot.shopDamage.v
+    const bp = shopBlueprint()
+    let v = false
+    for (const c of r.cells ?? []) {
+      const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
+      if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role)) { v = true; break }
+    }
+    bot.shopDamage = { at: now, v }
+    return v
+  } catch { return false }
+}
+/** The footprint for the walks' price (index.mjs reads bot.shopFootprint in the A* step). Refreshed with the record. */
+export function shopFootprintRefresh (bot) {
+  try { const h = shopRecordHead(); if (h.ok) { bot.shopFootprint = h.head ? footprintCells(h.head.rec) : new Set(); bot.shopSaplingBox = h.head ? saplingBox(h.head.rec) : null } } catch { /* keep the last */ }
+}
+
+/**
+ * build_shop -- ONE BUILD VISIT (shop.mjs buildOrder issues it; chatOnly). Site the record when the town has none (the planner on
+ * the live world, the pool's stood cells as the walk's seeds); take an admission slot; draw the open cells' bill from town under
+ * the reserve and the claim set (mats-01's withdraw), craft the stations the town lacks; run the visit (buildrun.mjs); on
+ * completion publish the record's `structure_complete` transition. One `_build_visit` row per run, ALWAYS.
+ */
+async function buildShop (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const f = { project: SHOP_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn()) return out('no_effect', 'off', 'the workshop job is switched off (SHOP=off or TOWNPLAN=off)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = shopKey(), me = bot.username ?? 'bot', home = planHomeP(), bp = shopBlueprint()
+  const stood = stoodRead(dir, key, home)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the workshop record could not be read')
+  if (!rh.head) {
+    const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, stood })
+    if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
+    const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SHOP_PLOT, op: 'sited', cell: s.record.anchor, kind: `${s.record.sector}/${s.record.orient}/${s.record.sector_source}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the workshop record could not be read back')
+  }
+  shopFootprintRefresh(bot)
+  const rec = rh.head.rec
+  // a COMPLETE workshop is judged against the world (r2): a damaged one is repaired by an ordinary visit
+  if (rec.structure_complete && !shopDamaged(bot, rec)) {
+    // this holder's share left by a visit killed after the completion is cleared here (each holder clears its own): the leftovers are the bag's own
+    // (r11 Codex P3: the completing visit's own clear is not restart-safe)
+    if (Object.keys(drawnRead(dir, key, me).drawn).length) drawnWrite(dir, key, me, {})
+    return out('no_effect', 'complete', 'the workshop stands')
+  }
+  const slot = takeSlot(dir, key, me, BUILDERS_MAX)
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }   // follows every renewal inside the visit: the release below is the LATEST generation (Codex r1 P3)
+  let effects = null
+  // THE BAG BALANCE's inputs (the read's conservation gate): set as the visit learns them; written once, in the finally
+  let bag0 = null, tookAll = {}, backAll = {}, placedBy = {}, diedAt = null, drawn0 = null, drawnFails = 0, completed = false
+  const crafted = {}
+  // THE PROJECT'S SHARE, PERSISTED AS IT CHANGES (r10 reviews, both: a kill between two writes turned the draw into stockpile):
+  // after every verified take, the station crafts, every placement and every bank-back, and in the finally
+  const persist = () => {
+    if (!drawn0 || completed) return
+    const b1 = heldMap(bot)
+    if (!drawnWrite(dir, key, me, drawnAfter({ drawn: drawn0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: b1 }), { bag: b1 })) drawnFails++
+  }
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    // THE BAG'S KEEPS at the visit's start (cooperation A2; Codex r1 P3): the bill is drawn on top of them and the visit spends
+    // only what is held above them
+    const held0 = heldMap(bot)
+    // the keeps are the bot's OWN stock's: what earlier visits drew for this project (the drawn file, clamped to the bag) is the
+    // project's, never the bag's stockpile (shop.mjs drawnHeld; Paper 10-25 SHOP-KILL / CHAIN-1)
+    let dr = drawnRead(dir, key, me)
+    // a share written BEFORE the workshop completed is a completed build's leftovers (a kill between the completion and its
+    // clear): the bag's own, cleared here, on the path a later repair visit takes (r12 Codex P3)
+    if (rec.structure_complete && Object.keys(dr.drawn).length && !(Number(dr.at) > Number(rec.completeAt ?? Infinity))) {
+      if (!drawnWrite(dir, key, me, {})) drawnFails++
+      dr = { drawn: {}, bag: {}, at: null }
+    }
+    drawn0 = drawnHeld(dr.drawn, held0, dr.bag)
+    const keep = townKeeps(ownCounts(held0, drawn0), { wanted: bot.currentWants ?? [] }).keep
+    const spare0 = Object.fromEntries(Object.entries(held0).map(([n, c]) => [n, Math.max(0, c - (keep[n] ?? 0))]))
+    // THE BILL (design 4.6 P2): the open cells' blocks, the pending replants' saplings, a missing station's inputs -- less the
+    // bag's spare -- from town under the BUILD_RESERVE and the outstanding draws (a part: up to what the container shows)
+    const read = planReader(bot)
+    const town = matsTownStock(bot)?.stock ?? {}
+    const planks = Object.entries(town).filter(([n]) => /_planks$/.test(n)).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'oak_planks'
+    const bill = billOf(rec, bp.palette, read, { done: buildCellDone, inTown: n => (town[n] ?? 0) > 0, planks })
+    const want = visitNeeds(rec, bill, { saplingAt: c => /_sapling$|^mangrove_propagule$/.test(read(...c)?.name ?? ''), town, spare: spare0, planks })
+    const need = needFromTown(want, spare0)
+    let took = {}
+    bag0 = held0
+    // nothing is drawn unless its record can be written (a draw the next visit cannot see is the deadlock again; r10 Codex P2)
+    if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
+    if (Object.keys(need).length) {
+      // the project reserve (OWNER 10-27): the workshop's own draws use the lowered table while it is active
+      const R0 = matsReserve().table
+      const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, c) => { tookAll[k] = (tookAll[k] ?? 0) + c; persist() } })
+      const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
+    }
+    // the stations the town did not supply are crafted (found-01's means: 8 cobble a furnace, 4 planks a table); the bag's change
+    // across the crafts is booked (`crafted`: the stations up, their inputs down) for the visit's bag balance
+    const preCraft = heldMap(bot)
+    try {
+      for (const item of ['furnace', 'crafting_table']) {
+        const lack = (bill[item] ?? 0) - countItem(bot, item)
+        if (lack > 0) { try { await craft(ctx, { item, count: lack }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+      }
+    } finally {
+      // booked on every exit, an abort mid-craft included
+      const postCraft = heldMap(bot)
+      for (const k of new Set([...Object.keys(preCraft), ...Object.keys(postCraft)])) { const d = (postCraft[k] ?? 0) - (preCraft[k] ?? 0); if (d) crafted[k] = d }
+      persist()
+    }
+    check(signal)
+    effects = botBuildEffects(bot, {
+      acks,
+      keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: SHOP_PLOT, ...d }) : buildRowDetail({ project: SHOP_PLOT, ...d }) }) } catch { /* telemetry */ } if (kind === '_build' && d?.op === 'place') persist() },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()   // cells a dig left unanswered: unknown for the connection, asked again by the next visit
+    // the town's reservations and zones, for a replant cell the visit must MOVE (F2: the same rule as the siting proof)
+    // unreadable: the visit neither moves nor skips a replant (r19, Claude r18 P2-2: an exception must never fell an unreplaced tree)
+    let res = null, resFailed = false
+    try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm }) } catch { resFailed = true }
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, unknown: bot.shopUnknown, beat: true, placedBy }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    if (r.stop === 'complete') {
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      bot.shopDamage = null
+      completed = true
+      // cleared AT the completion, before the bank-back (r10 Claude P3, r11 both): the leftovers are the bag's own from here
+      if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SHOP_PLOT, op: 'complete', kind: SHOP_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+    }
+    // THE LEFTOVERS GO BACK (design 5 "returns what is left", cooperation A3), AFTER the completion is published (Claude r3 P3-1):
+    // what this visit drew and did not place (shop.mjs leftoverNames) is banked in town chests, nearest first (mats-01's matsBank
+    // sweep: a full or unreachable chest is the next one's turn) -- only while the skill's clock leaves SHOP_BANK_MIN_MS, else the
+    // fleet's town deposit takes them. NAMED DEVIATION: A3's reserved SITE CHEST does not exist on this base (cooperation's, not
+    // built), so this is A3's own fallback, ordinary town chests -- never kept as ballast
+    let back = {}
+    const left = leftoverNames(took, held0, heldMap(bot))
+    if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    const status = r.placed > 0 ? 'success' : 'no_effect'
+    return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    // the project reserve's progress clock, on EVERY exit that placed a block (Codex review P2: an abort after placements)
+    try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key))); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
+    // ONE `_build_bag` ROW PER VISIT that reached its bag (every exit: an abort included) -- shop.mjs bagBalance
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    // the project's share after the visit (every exit), BEFORE the bag row that reports its writes (r11 Codex P2): what it drew
+    // and still holds, the next visit's to spend; after a completion, cleared again (an idempotent retry of the clear)
+    if (drawn0) { try { if (completed) { if (!drawnWrite(dir, key, me, {})) drawnFails++ } else persist() } catch { drawnFails++ } }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(SHOP_PLOT, bagBalance({ bag0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
+  }
+}
+
 /** found_store / found_work -- the town orders (found.mjs foundOrder; chatOnly, housekeeping). One `_found` row per run, ALWAYS. */
 async function foundStore (ctx, args, signal) { return foundRun(ctx, { ...args, kind: 'chest' }, signal, 'store') }
 async function foundWork (ctx, args, signal) { return foundRun(ctx, args, signal, 'work') }
@@ -15627,6 +16873,7 @@ async function foundRun (ctx, args, signal, order) {
     return { status, ...(failClass ? { failClass } : {}), detail }
   }
   if (!FOUND.on || !planOn()) return out('no_effect', 'off', 'founding is switched off (FOUND=off or TOWNPLAN=off)')
+  if (shopShareHeld(bot)) return out('no_effect', 'refused', 'the bag holds the workshop\'s drawn materials: no station is founded until they are placed')
   if (!KIND_ITEM[kind]) return out('no_effect', 'refused', `nothing to found: ${kind}`)
   const zones = townPlanZones(bot)
   if (!zones.known) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is founded until they are')
@@ -15932,6 +17179,11 @@ export const SKILL_CONTRACTS = {
   smelt_town: { expects: ['smelt_effect', 'inventory_loss'], maxMs: 180_000 },
   // THE FURNACE DRAIN: what an idle furnace held comes into the bag.
   furnace_drain: { expects: ['inventory_gain'], maxMs: 90_000 },
+  // THE MATERIALS JOB (mats-01): parts made from town stock and banked -- the bag ends where it began, so its evidence is its
+  // own verified count of parts made (mats_effect); the recovery's is that count or the bag's loss of what it banked
+  make_material: { expects: ['mats_effect', 'count_effect'], maxMs: 180_000 },
+  build_shop: { expects: ['world_change'], maxMs: 600_000 },
+  mats_return: { expects: ['mats_effect', 'inventory_loss'], maxMs: 120_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
   toolkit: { expects: ['kit_effect'], maxMs: 240_000 },
   // KEEPOUT-01: the body leaves the column -- its evidence is the move
@@ -16073,6 +17325,8 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   if (expects.includes('count_effect') && (delta.counted ?? 0) > 0) because.push(`count_effect: ${delta.counted} town container(s) counted`)
   // THE TOWN SMELT JOB's own count of ingots the furnace made from the job's input (smeltTown; prior output excluded)
   if (expects.includes('smelt_effect') && (delta.smelted ?? 0) > 0) because.push(`smelt_effect: ${delta.smelted} raw ore smelted into ingots`)   // ironsmelt-01: iron or copper
+  // THE MATERIALS JOB's own count of building parts made (makeMaterial / matsReturn: the bag's gain of the part, before the bank)
+  if (expects.includes('mats_effect') && (delta.made ?? 0) > 0) because.push(`mats_effect: ${delta.made} building part(s) made`)
   // THE TOOLKIT MADE A TOOL: its own verified count (a new usable iron axe/shovel copy in the bag after the craft). An abort or
   // a draw with no craft has none, so drawn ingots alone never read as "it worked".
   if (expects.includes('kit_effect') && (delta.kitCrafted ?? 0) > 0) because.push(`kit_effect: ${delta.kitCrafted} kit tool(s) crafted`)
@@ -17071,6 +18325,9 @@ export const SKILLS = {
   count_town: { run: countTown, usage: 'count_town', args: [], chatOnly: true },
   smelt_town: { run: smeltTown, usage: 'smelt_town', args: [], chatOnly: true },
   furnace_drain: { run: furnaceDrain, usage: 'furnace_drain', args: [], chatOnly: true },
+  make_material: { run: makeMaterial, usage: 'make_material item=<bricks|panes|cut_copper|copper_door|torch|count>', args: ['item'], chatOnly: true },
+  build_shop: { run: buildShop, usage: 'build_shop', args: [], chatOnly: true },
+  mats_return: { run: matsReturn, usage: 'mats_return', args: [], chatOnly: true },
   toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },
   // KEEPOUT-01: a deterministic order from cognitive.mjs (a body inside a fire column), never the model's choice; rescue-class:
   // a failed exit never becomes an avoid rule (lessons.mjs), so the next time the body is inside, it is tried again

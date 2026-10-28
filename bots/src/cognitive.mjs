@@ -14,7 +14,7 @@ import { elevation, descendOrder, descentDone, supportOf, respawnfallOn, SPAWN_W
 import { Vec3 } from 'vec3'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
+import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow, shopShareHeld, projectPartReserve } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem, wellVisitOrder } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
 import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
@@ -25,6 +25,11 @@ const VISIT_SKILLS = ['dispose_well', 'compost', 'town_deposit']
 // plinth-01, the raised junk well (its own statements)
 import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
 import { townPlinthState } from './skills.mjs'
+// mats-01 (building tier section 3): the materials job and its recovery (mats.mjs decides; these supply readings)
+import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsTableReady, matsLeaseFree, matsRecountKeys, matsTownHasRoom } from './skills.mjs'
+import { materialOrder, returnOrder, matsOutcome, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'
+import { shopRecordHead, shopSlotsFree, shopDamaged, shopStuckAt } from './skills.mjs'
+import { SHOP, buildOrder } from './shop.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -38,7 +43,8 @@ import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from 
 // FOUNDING (found-01): the found slot's decision and readings
 import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign, foundRetry } from './found.mjs'
 import { townPlanNow, townPlanHead, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
-import { townDepositOrder, townDepositOutcome, townDepositPlan, tailOrder, inTownZone, TD_STAY_REARM_MS } from './towndeposit.mjs'
+import { LOGBANK } from './woodkeep.mjs'
+import { townDepositOrder, townDepositOutcome, townDepositPlan, tailOrder, LOGS as TD_LOGS, townKeeps, inTownZone, TD_STAY_REARM_MS } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit latch, ticked on every decision (bagallowance.mjs, a leaf)
 import { visitLatchTick, visitLatchDeclined, VISIT_STAY_MS } from './bagallowance.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
@@ -225,7 +231,8 @@ export const LIVELOCK_LATCH_MS = 600_000
  */
 export function refundDeclined (skill, st = {}) {
   const at = { prune_town: ['pruneState', 'lastIssuedAt'], smelt_town: ['smeltJobState', 'lastIssuedAt'],
-               furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'] }[skill]
+               furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'],
+               make_material: ['matsState', 'lastIssuedAt'], build_shop: ['shopState', 'lastAt'] }[skill]
   // found-01: found_store / found_work charge the cooldown AND the visit at issue (found.mjs foundIssued); a declined run refunds both
   // ...the cooldown goes back to the one before this order (foundIssued keeps it as prevLastAt: Claude code r9 P3), else none
   if ((skill === 'found_store' || skill === 'found_work') && st.foundState) return { foundState: { ...st.foundState, lastAt: 'prevLastAt' in st.foundState ? st.foundState.prevLastAt : -Infinity, visitUsed: false } }
@@ -239,9 +246,11 @@ export function refundDeclined (skill, st = {}) {
  * deposit, the plinth build and the recount (junkout-01's own list), and -- JUNKOUT-01 x FOUND-01 (JIT 10-24) -- the found
  * slot: found_store / found_work charge their visit and 10-min cooldown when they ISSUE, so a visit that replaced one spent
  * the found slot on an order that never ran (the recount already yields to it for the same reason). The visit comes on a
- * later decision of the same stay.
+ * later decision of the same stay. MATS-01 x JUNKOUT-01 (re-stack 10-25): the materials recovery too -- it goes FIRST among the
+ * town orders (design 3.2) and charges its own once-a-minute cadence at issue, so a visit that replaced it would spend that.
  */
 export const VISIT_YIELDS_TO = new Set(['town_deposit', 'build_plinth', 'count_town', 'found_store', 'found_work'])
+VISIT_YIELDS_TO.add('mats_return')   // MATS-01 x JUNKOUT-01 (above)
 export function visitYieldsTo (order) { return !!order && VISIT_YIELDS_TO.has(order.skill) }
 
 /**
@@ -780,6 +789,26 @@ export class CognitiveLoop {
     } catch { return null }   // an inventory or world read must never break the decision loop
   }
 
+  /**
+   * THE MATERIALS RECOVERY (mats-01, mats.mjs returnOrder), or null: an OPEN carry note at town is reconciled FIRST, before any
+   * other town order (design 3.2) -- like the plinth and the town deposit, ahead of the milestone order (bounded: once a
+   * minute while the note is open, at most MATS_RETURN_MAX tries, then the note is given up and counted).
+   */
+  #matsReturnOrder() {
+    try {
+      const bot = this.bot
+      const p = bot.entity?.position
+      const home = { x: config.world.homeX, z: config.world.homeZ }
+      const atTown = !!p && Math.hypot(home.x - p.x, home.z - p.z) <= TOWN_RADIUS
+      if (!atTown) return null
+      const note = readMatsNote(bot)
+      const r = returnOrder({ on: matsEnabled(process.env, config.memory.scope).on, atTown, noteOpen: note?.phase === 'open', now: Date.now(), waitUntil: note?.waitUntil ?? 0, state: this.matsState ?? {} })
+      this.matsState = r.state
+      if (r.order) this.matsIssuedAt = Date.now()
+      return r.order
+    } catch { return null }
+  }
+
   #townDepositOrder(milestone, { dry = false } = {}) {
     try {
       const bot = this.bot
@@ -796,7 +825,8 @@ export class CognitiveLoop {
       }
       const r = townDepositOrder({
         // the count step (stocktarget design 3.7): targeted surplus the town cannot judge yet, and a container to count
-        count: () => stockCountKeys(bot, items, { floor: true }).length > 0,
+        // logbank-01 r3 (both reviews P2): the full bag's count sees every log species, as its plan does
+        count: () => stockCountKeys(bot, items, { floor: true, bankableToo: LOGBANK.on ? [...TD_LOGS] : [] }).length > 0,
         now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,
         home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ },
         // A CLOSED BANK (chestfull.mjs bankClosed) is not a town chest to bank into: the deposit's own closure, respected.
@@ -828,6 +858,7 @@ export class CognitiveLoop {
       try { townPlanHead(bot) } catch { /* the cached head serves */ }
       const tp = townPlanNow(bot)
       if (!tp) return null
+      if (shopShareHeld(bot)) return null   // the workshop's share holds the stations (skills.mjs shopShareHeld)
       const items = bot.inventory?.items?.() ?? []
       const wanted = [...(this.#wantedItems(milestone) ?? [])]
       const bankGroups = foundBankGroups(bot, wanted)
@@ -900,6 +931,15 @@ export class CognitiveLoop {
         now, slots: items.length, pos: p, home,
         plan: () => townDepositPlan(items, { wanted: wantedNow(), noSwords, tail: 'only' }),
         container: () => !bankClosed(bot) && townContainers(bot).length > 0,
+        // logbank-01 r2: the bag's LOGS above the keep in a town not yet counted -> count first
+        // ...only for a bag with logs ABOVE their keep (r2 Claude P2-1: the unknown branch of stockCountKeys reads no keep)
+        logCount: () => {
+          const logsHeld = items.filter(it => TD_LOGS.includes(it?.name))
+          const c = {}; for (const it of items) if (it?.name) c[it.name] = (c[it.name] ?? 0) + (it.count ?? 0)
+          const keep = townKeeps(c, { wanted: wantedNow() }).keep
+          if (!TD_LOGS.some(n => (c[n] ?? 0) > (keep[n] ?? 0))) return false
+          return stockCountKeys(bot, logsHeld, { floor: true, bankableToo: [...TD_LOGS] }).length > 0   // logbank-01 r3: every species
+        },
         state: this.tailState, myName: bot.username ?? '',
       })
       this.tailState = rt.state
@@ -1130,13 +1170,20 @@ export class CognitiveLoop {
     // FOUNDING (found-01, found.mjs foundOrder): the found slot between the raised well and the town deposit -- a town's first
     // chest (the deposit can bank nothing without one), its workshop table and furnace, a homeless group's chest; it yields to a
     // deposit that would issue now except for an F3 with a carried chest (build spec 2.1)
-    order = this.#plinthOrder() ?? this.#foundOrder(milestone) ?? this.#townDepositOrder(milestone) ?? order
+    // THE MATERIALS RECOVERY GOES FIRST (mats-01, design 3.2): an open carry note at town is reconciled before the plinth, the
+    // deposit and the recount -- and when it is issued, none of those is evaluated (their issue-time cooldowns are not spent
+    // on an order that will not run). The plinth > deposit > recount chain below is unchanged (lidclear.test, plinth-skill.test).
+    const matsReturnOrder = this.#matsReturnOrder()
+    if (matsReturnOrder) order = matsReturnOrder
+    else order = this.#plinthOrder() ?? this.#foundOrder(milestone) ?? this.#townDepositOrder(milestone) ?? order
     // THE TOWN RECOUNT (stocktarget-02, recount.mjs): at town, holding what a plan refuses as NOT YET COUNTED, the town's
     // reachable unknown containers are counted now -- whatever the bag's size (the 34-slot town deposit left hive-a and
     // placebo-a uncounted for hours after the clear). Ahead of the milestone order like the town deposit: a craft-ready
     // rung re-issues every decision and would starve it. The town deposit and the plinth build keep their turn (both are
     // bounded and on their own cooldowns; the recount comes on the next decision).
-    if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth' && order.skill !== 'found_store' && order.skill !== 'found_work')) order = this.#recountOrder() ?? order
+    if (!matsReturnOrder) {
+      if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth' && order.skill !== 'found_store' && order.skill !== 'found_work')) order = this.#recountOrder() ?? order
+    }
     // THE TOWN-VISIT ORDERS (junkout-01): after the plinth build, the full-bag town deposit and the recount, AHEAD of the
     // milestone's work order (Codex design r1 P1-1: a craft-ready rung re-issues every decision and would hold the cleanup off
     // the whole visit) -- bounded: one well, one compost and one tail run per visit, each on its own cooldown. The latches
@@ -1357,6 +1404,65 @@ export class CognitiveLoop {
         } catch { /* an inventory or world read must never break the decision loop */ }
       }
     }
+    // THE MATERIALS JOB (mats-01; mats.mjs materialOrder decides, this supplies readings and keeps the state). After every
+    // deterministic order but planting, only with NOTHING chosen above and no rung waiting on room (smeltjob's rule: a ready
+    // milestone step always wins). At town, shared towns only, never a trip; MATS=0 switches it off. The town-job body budget
+    // (10 min per bot-hour) is this bot's own make_material + mats_return time over the last hour.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const p = bot.entity?.position
+        const home = { x: config.world.homeX, z: config.world.homeZ }
+        const atTown = !!p && Math.hypot(home.x - p.x, home.z - p.z) <= TOWN_RADIUS
+        const sw = matsEnabled(process.env, config.memory.scope)
+        if (atTown && sw.on) {
+          const items = bot.inventory?.items?.() ?? []
+          const now = Date.now()
+          this.matsBody = (this.matsBody ?? []).filter(b => now - b.t < 60 * 60 * 1000)
+          const note = readMatsNote(bot)
+          const r = materialOrder({ now, on: sw.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order, ready }),
+            noteOpen: note?.phase === 'open', freeSlots: 36 - items.length, bagSpare: matsBagSpare(bot),
+            town: () => matsTownStock(bot), furnace: () => matsFurnaceCandidates(bot).length > 0, table: () => matsTableReady(bot),
+            lease: () => matsLeaseFree(bot), unknown: () => matsRecountKeys(bot).length, bankRoom: () => matsTownHasRoom(bot), bodyMs: this.matsBody.reduce((t, b) => t + b.ms, 0),
+            reserve: matsReserve().table, partReserve: projectPartReserve(bot), buffers: matsBuffers().table, state: this.matsState ?? {} })
+          this.matsState = r.state
+          if (r.order) { order = r.order; this.matsIssuedAt = now }
+          // why the job did not run, at most once per 30 min per reason, for the reasons that say something about the town
+          const why = ['inputs', 'no_furnace', 'no_table', 'index_coverage', 'index_unreadable', 'body_budget', 'room', 'stocked', 'town_full'].includes(r.skip) ? r.skip : null
+          this.matsSkipAt ??= {}
+          if (why && now - (this.matsSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000) {
+            this.matsSkipAt[why] = now
+            // every kind's own reason and the coverage the reading had (Claude r2 P2-A): `why` is the most informative across kinds
+            const cov = Number.isFinite(r.coverage) ? ` cov=${Math.round(r.coverage * 100) / 100}` : ''
+            logEvent({ kind: 'mats_skip', status: 'no_effect', detail: `why=${why} free=${36 - items.length}${cov} kinds=${r.kinds || '-'}`, snapshot: snap })
+          }
+        }
+      } catch { /* a world read must never break the decision loop */ }
+    }
+    // THE WORKSHOP (shop-01; shop.mjs buildOrder decides, this supplies readings and keeps the state). After the materials job,
+    // only with NOTHING chosen above: at town, shared towns only, never a trip; SHOP=off switches it off. The cooldown is charged
+    // at issue and refunded on a decline (refundDeclined).
+    if (!order && SHOP.on) {
+      try {
+        const bot = this.bot
+        const p = bot.entity?.position
+        const atTown = !!p && Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) <= TOWN_RADIUS
+        if (atTown) {
+          const now = Date.now()
+          const h = shopRecordHead()
+          const rec = h.ok ? (h.head?.rec ?? null) : null
+          const r = buildOrder({ on: SHOP.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order, ready }), now,
+            state: this.shopState ?? {}, record: rec, complete: !!rec?.structure_complete && !shopDamaged(bot, rec), slotsFree: shopSlotsFree(bot),
+            health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, planned: !!townPlanNow(bot), stuckAt: shopStuckAt })
+          if (r.order) { order = r.order; this.shopState = { ...(this.shopState ?? {}), lastAt: now } }
+          this.shopSkipAt ??= {}
+          if (r.skip && r.skip !== 'complete' && now - (this.shopSkipAt[r.skip] ?? -Infinity) >= 30 * 60 * 1000) {
+            this.shopSkipAt[r.skip] = now
+            logEvent({ kind: 'shop_skip', status: 'no_effect', detail: `why=${r.skip}`, snapshot: snap })
+          }
+        }
+      } catch { /* a world read must never break the decision loop */ }
+    }
     if (!order) {
       const sap = {}
       try {
@@ -1505,6 +1611,13 @@ export class CognitiveLoop {
       if (!declined && admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
       if (!declined && admitted.skill === 'smelt_town') this.smeltJobState = smeltTownOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.smeltJobState ?? {})
       if (!declined && admitted.skill === 'furnace_drain') this.drainState = drainOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.drainState ?? {})
+      // THE MATERIALS JOB (mats-01): its state, and its body time toward the 10 min per bot-hour budget
+      if (!declined && admitted.skill === 'make_material') this.matsState = matsOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.matsState ?? {})
+      // THE WORKSHOP (shop-01): the visit's stop rides with the cooldown (S1: no_site waits a day)
+      if (!declined && admitted.skill === 'build_shop') this.shopState = { ...(this.shopState ?? {}), lastAt: Date.now(), lastStop: r.stop ?? r.failClass ?? r.status }
+      if (!declined && (admitted.skill === 'make_material' || admitted.skill === 'mats_return')) {
+        (this.matsBody ??= []).push({ t: Date.now(), ms: Math.max(0, Date.now() - (this.matsIssuedAt ?? Date.now())) })
+      }
       // THE TOOLKIT: a failure backs off, a decline is refunded (what a run drew and did not use is on the bot: bot.kitCredit)
       if (admitted.skill === 'toolkit') this.toolkitState = toolkitOutcome(r.status, Date.now(), this.toolkitState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
