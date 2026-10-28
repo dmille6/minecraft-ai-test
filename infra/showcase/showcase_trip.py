@@ -72,11 +72,12 @@ SHOP_BLIND = ('g5_unjudged', 'oracle_missing', 'zone_unknown')
 # FUN MODE (OWNER 2026-10-28): stopping the whole showcase is for real harm. An H2 clear_outside of TREE DEBRIS -- a log, leaves
 # or a plant (a floating leaf left by a felling) -- is a WATCH line; H2 of any other block still TRIPs. Measured 10-28: ONE
 # floating spruce_leaves cleared outside the record stopped all 10 bots for 37+ min.
-TREE_DEBRIS = re.compile(r'^(minecraft:)?([a-z_]+_(log|wood|leaves|sapling|stem|hyphae|mushroom|propagule|roots|vine|vines|'
-                         r'tulip|orchid|bush|petals|lichen)|moss_carpet|stripped_[a-z_]+|short_grass|tall_grass|grass|fern|large_fern|'
-                         r'dandelion|poppy|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|torchflower|wither_rose|'
-                         r'sunflower|lilac|peony|vine|bamboo|sugar_cane|cactus|leaf_litter|snow|cocoa|kelp|seagrass|'
-                         r'tall_seagrass|hanging_roots|spore_blossom|big_dripleaf|small_dripleaf|pitcher_plant)$')
+# Farm crops (stems, berry bushes, cactus, bamboo, sugar cane, cocoa) are NOT debris: a farm cleared outside the record trips.
+TREE_DEBRIS = re.compile(r'^(minecraft:)?([a-z_]+_(log|wood|leaves|sapling|hyphae|mushroom|propagule|roots|vine|vines|tulip|orchid|'
+                         r'petals|lichen)|stripped_[a-z_]+|moss_carpet|short_grass|tall_grass|grass|fern|large_fern|dead_bush|'
+                         r'rose_bush|dandelion|poppy|allium|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|torchflower|'
+                         r'wither_rose|sunflower|lilac|peony|vine|leaf_litter|snow|seagrass|tall_seagrass|hanging_roots|'
+                         r'spore_blossom)$')
 H2 = 'H2 clear_outside'
 MIRROR_MAX_AGE_MIN = 60
 HEALTHZ = 'http://127.0.0.1:11612/healthz'
@@ -960,7 +961,8 @@ def shop_selftest(T):
     assert d.get('H2 clear_outside') == 1 and it['H2 clear_outside'] == ['showcase-Juno 29,70,27 foreign dirt'] and len(w.get(WK, [])) == 2, \
         ('a dirt clear outside the record still TRIPs', d, w, it)
     assert h2_debris_split({'H2 clear_outside': ['H2 clear_outside unlisted #0']})[1] == [], 'an unreadable item stays a defect'
-    assert not TREE_DEBRIS.match('stone') and not TREE_DEBRIS.match('oak_planks') and not TREE_DEBRIS.match('chest') and not TREE_DEBRIS.match('white_carpet') and TREE_DEBRIS.match('birch_leaves')
+    assert not TREE_DEBRIS.match('stone') and not TREE_DEBRIS.match('oak_planks') and not TREE_DEBRIS.match('chest') and not TREE_DEBRIS.match('white_carpet') and not TREE_DEBRIS.match('melon_stem') and not TREE_DEBRIS.match('sweet_berry_bush') \
+        and not TREE_DEBRIS.match('sugar_cane') and TREE_DEBRIS.match('birch_leaves')
     vbase = {'live_bots': 10, 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
              'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {}, 'plan_error': None}
     assert verdict(dict(vbase, shop_defects=d))[0] == 'TRIP', 'an off-record placement TRIPs'
