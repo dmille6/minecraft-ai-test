@@ -146,6 +146,21 @@ def test_uniform_fleet_on_the_declared_sha_is_quiet():
     check("a uniform fleet on the declared sha trips nothing", out == [], f"got {out}")
 
 
+def test_only_the_canary_pool_logging_is_not_undeclared():
+    # Codex review: controls quiet past VERSION_FRESH_MIN, canary pool still
+    # logging on the declared canary build. One version observed, and it is
+    # declared -- this must not stop the fleet.
+    man = dict(_declared("aaa", 120), canary_pool="hive-a", canary_code_version="bbb")
+    out = feed([line("hive-a-Alpha", "bbb+1", 1), line("hive-a-Bravo", "bbb+1", 2),
+                line("hive-b-Alpha", "aaa+1", 40)], man)
+    check("only the canary pool logging, on the canary build, trips nothing",
+          out == [], f"got {out}")
+    # ...but the exemption is membership, not the sha: a control on it is a fault.
+    out = feed([line("hive-a-Alpha", "bbb+1", 1), line("hive-b-Alpha", "bbb+1", 1)], man)
+    check("the canary build on a control, with no baseline left, still trips",
+          any(who == "ALL" and "undeclared" in why for who, why in out), f"got {out}")
+
+
 def test_unparseable_declared_at_fails_closed():
     out = feed([line("Scout01", OLD, 1)],
                manifest={"declared_code_version": OTHER, "declared_at": "whenever"})

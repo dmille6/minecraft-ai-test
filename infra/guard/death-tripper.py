@@ -521,8 +521,23 @@ def version_check():
         # from this same majority), so the sha is all there is to judge. A split
         # fleet never reaches this branch, so it cannot double-trip the state the
         # classifier already names.
+        #
+        # The declared CANARY sha is declared code too, but only where it belongs:
+        # if every bot still logging is a member of the canary pool (the controls
+        # went quiet -- stopped, restarting, or just slower to log than
+        # VERSION_FRESH_MIN), the one version observed is the canary, correctly
+        # placed. Codex review of this change reproduced that state tripping ALL.
+        # One control on it and the exemption is gone.
         (only,) = versions
-        if only.split("+")[0] != declared:
+        sha = only.split("+")[0]
+        cver = man.get("canary_code_version") or ""
+        cpool = man.get("canary_pool") or ""
+        canary_only = bool(cver and cpool and sha == cver
+                           and all(in_canary_pool(b, cpool) for b in seen))
+        if canary_only:
+            print(f"    only canary-pool bots are logging, all on the declared canary "
+                  f"{cver} -- declared, not judging")
+        elif sha != declared:
             problems.append(("ALL", f"undeclared code change: fleet runs {only} but the "
                                     f"trial declares {declared} -- trial uninterpretable"))
     # The manifest holds the sha; the fleet reports sha+digest.
