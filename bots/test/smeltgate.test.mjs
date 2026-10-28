@@ -124,8 +124,8 @@ test('composed with the order: absent everywhere and nothing carried -> no order
 
 test('WIRED: both order gates ask the index first (a structural invariant: behaviour cannot reach the live bot here)', () => {
   const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-  for (const line of ['try { return townIndexNone(bot, SMELT_JOB_INPUT) || townSearchEmpty(bot, [SMELT_JOB_INPUT]',
-                      'try { return townIndexNone(bot, SMELT_IRON_INPUT) || townSearchEmpty(bot, [SMELT_IRON_INPUT]',
+  for (const line of ['if (townIndexNone(bot, SMELT_JOB_INPUT)) return true\n  try { return townSearchEmpty(bot, [SMELT_JOB_INPUT]',
+                      'if (townIndexNone(bot, SMELT_IRON_INPUT)) return true\n  try { return townSearchEmpty(bot, [SMELT_IRON_INPUT]',
                       'return indexInputAbsent(r.entries, need, townCobbleScan(bot).keys ?? [], Date.now(), r.xin ?? {}, { tookAt })']) {
     assert.equal(src.split(line).length - 1, 1, `ANCHOR MISSING OR NOT UNIQUE: ${line}`)
   }

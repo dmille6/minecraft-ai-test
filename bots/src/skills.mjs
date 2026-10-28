@@ -12619,7 +12619,9 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
  *  town container a live copper miss, out of this bot's search, or shut)? For the order. toolkit-03: the SAME rule the job
  *  searches by (the old gate judged every findBlocks key while the sweep skipped shut ones: an order that opened nothing). */
 export function townCopperMiss (bot) {
-  try { return townIndexNone(bot, SMELT_JOB_INPUT) || townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS }, tried: jobRuledOut(bot, SMELT_JOB_INPUT).keys }) } catch { return false }
+  // smeltgate-01: the index shows none anywhere
+  if (townIndexNone(bot, SMELT_JOB_INPUT)) return true
+  try { return townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS }, tried: jobRuledOut(bot, SMELT_JOB_INPUT).keys }) } catch { return false }
 }
 /** smeltgate-01: does the town index show none of `need` anywhere (smeltjob.mjs indexInputAbsent over the fold and the town
  *  scan's keys)? For the order's gate only -- the job's own search is unchanged. False with SMELT_GATE or the rule-out off. */
@@ -12638,7 +12640,9 @@ export function townIndexNone (bot, need) {
 }
 /** ironsmelt-01: the same for RAW IRON (its own 2 h miss and the index rule-out). For the order, which smelts iron first. */
 export function townIronMiss (bot) {
-  try { return townIndexNone(bot, SMELT_IRON_INPUT) || townSearchEmpty(bot, [SMELT_IRON_INPUT], { missTtl: { [SMELT_IRON_INPUT]: IRON_MISS_TTL_MS }, tried: jobRuledOut(bot, SMELT_IRON_INPUT).keys }) } catch { return false }
+  // smeltgate-01: the index shows none anywhere
+  if (townIndexNone(bot, SMELT_IRON_INPUT)) return true
+  try { return townSearchEmpty(bot, [SMELT_IRON_INPUT], { missTtl: { [SMELT_IRON_INPUT]: IRON_MISS_TTL_MS }, tried: jobRuledOut(bot, SMELT_IRON_INPUT).keys }) } catch { return false }
 }
 /**
  * THE INDEX RULE-OUT FOR A JOB INPUT, NOW -> { keys, n } (smeltjob.mjs indexRuledOut over the town index's fold and the town
