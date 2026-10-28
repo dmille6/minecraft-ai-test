@@ -27,7 +27,7 @@ const { goals } = pkg
 
 export const BODY_RADIUS = 64
 export const PATH_MS = 25_000
-export const PLAN_MS = 500                 // cornerWaypoints' A* per leg (the walk itself plans again as before)
+export const PLAN_MS = 150                 // cornerWaypoints' A* per leg (the walk itself plans again as before)
 export const PROBE_MS = 2_000
 // never the clicked block of a probe, and never a support (they open, toggle or act): buildsite.mjs USES plus the rest
 // (r2, Claude r1 P3-7: crafter, chiseled bookshelf, flower pots and candles act on an empty-hand click)
@@ -67,6 +67,20 @@ export function cornerCut (start, path, read) {
     a = b
   }
   return null
+}
+/**
+ * DOES A PLANNED PATH CROSS AN OPEN CELL OF THE SEGMENT BEING BUILT? -> bool. Pure. (shopwalls-06; LIVE showcase 10-28: the
+ * walk to the interior stand for the last roof cell 24,75,31 was planned as `23,74,32 > 24,75,31 > 24,73,30` -- up through
+ * that very cell, over the wall -- and the bots wedged jumping at the roof overhang; replayed offline with the pathfinder's own
+ * A*.) A node's feet or head cell in `avoid` ("x,y,z") is a cross; nodes are floored (the pathfinder's centres).
+ */
+export function pathCrosses (path, avoid) {
+  if (!avoid?.size) return false
+  for (const p of path ?? []) {
+    const x = Math.floor(p.x), y = Math.floor(p.y + 1e-6), z = Math.floor(p.z)
+    if (avoid.has(`${x},${y},${z}`) || avoid.has(`${x},${y + 1},${z}`)) return true
+  }
+  return false
 }
 /**
  * THE WAYPOINTS for a walk to `goal` -> [[x, y, z]] ending at goal: the planned path's corner cuts replaced by the step round the
@@ -167,22 +181,27 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     bodies: () => Object.values(bot.entities ?? {})
       .filter(e => e && e !== bot.entity && e.position && !['item', 'experience_orb', 'arrow'].includes(e.name) && e.position.distanceTo?.(bot.entity.position) < BODY_RADIUS)
       .map(e => ({ x: e.position.x, y: e.position.y, z: e.position.z, w: e.width ?? 0.6, h: e.height ?? 1.8 })),
-    walkTo: async s => {
+    walkTo: async (s, { avoid = null } = {}) => {
       let timer = null, late = false
       try {
         await withWalk(() => Promise.race([
           (async () => {
             // round a corner the pathfinder would cut (cornerCut): planned once, walked leg by leg, inside the same clock
-            let legs = [s]
+            let legs = [s], crosses = false
             try {
               const plan = from => {
                 const it = bot.pathfinder.getPathFromTo?.(bot.pathfinder.movements, new Vec3(from[0] + 0.5, from[1], from[2] + 0.5), new goals.GoalBlock(s[0], s[1], s[2]), { timeout: PLAN_MS, tickTimeout: PLAN_MS, optimizePath: false })
                 const r = it?.next?.()?.value?.result
-                return r?.status === 'success' ? r.path : null
+                const path = r?.status === 'success' ? r.path : null
+                if (path && pathCrosses(path, avoid)) crosses = true
+                return path
               }
               const p = bot.entity.position
               legs = cornerWaypoints([Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], s, plan, read)
             } catch { legs = [s] }
+            // THROUGH THE SEGMENT'S OWN OPEN CELLS (pathCrosses): not walked -- the click's re-proof fails, the stand is banned
+            // (standBans) and the cell's next-best stand is tried
+            if (crosses) return
             for (const w of legs) { if (aborted() || late) return; await bot.pathfinder.goto(new goals.GoalBlock(w[0], w[1], w[2])) }
           })(),
           new Promise(resolve => { timer = setTimeout(() => { late = true; timers.delete(timer); try { bot.pathfinder.setGoal(null) } catch { /* idle */ } resolve() }, pathMs); timers.add(timer) }),

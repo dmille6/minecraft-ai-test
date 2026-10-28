@@ -219,7 +219,7 @@ test('MUTANTS: burning the bag\'s coal, skipping the qualify check, or reusing a
       async X => { fresh(); const w = town({ bag: [stack('cobblestone', 12), stack('oak_planks', 8), stack('coal', 9)] }); await X.matsSession({ bot: w.bot }, { input: 'cobblestone', n: 12, planksName: 'oak_planks', out: 'stone', own: null }, new AbortController().signal, Date.now() + 170_000); assert.equal(bagCount(w, 'coal'), 9) }],
     ['the qualify check dropped', "      if (!q.ok || [rd('inputItem'), rd('fuelItem'), rd('outputItem')].includes(undefined)) {", "      if (false) {",
       async X => { fresh(); const w = town({ bag: [stack('cobblestone', 12), stack('oak_planks', 8)], slots: { fuel: { name: 'coal', count: 3 } } }); await X.matsSession({ bot: w.bot }, { input: 'cobblestone', n: 12, planksName: 'oak_planks', out: 'stone', own: null }, new AbortController().signal, Date.now() + 170_000).catch(() => {}); assert.deepEqual(w.slots.fuel, { name: 'coal', count: 3 }) }],
-    ['lit furnaces are candidates', "return townFurnaces(bot).filter(f => !f.lit && !furnaceLeasedNow(f.k)", "return townFurnaces(bot).filter(f => !furnaceLeasedNow(f.k)",
+    ['lit furnaces are candidates', "const near = townFurnaces(bot).filter(f => !f.lit && !furnaceLeasedNow(f.k)", "const near = townFurnaces(bot).filter(f => !furnaceLeasedNow(f.k)",
       async X => { fresh(); const w = town({ bag: [stack('cobblestone', 12), stack('oak_planks', 8)], lit: 'true' }); await X.matsSession({ bot: w.bot }, { input: 'cobblestone', n: 12, planksName: 'oak_planks', out: 'stone', own: null }, new AbortController().signal, Date.now() + 170_000).catch(() => {}); assert.equal(w.opens, 0) }],
   ]
   for (const [name, old, neu, check] of cases) {
