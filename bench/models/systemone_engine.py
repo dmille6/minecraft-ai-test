@@ -71,7 +71,7 @@ class HttpSystemOne:
     def ask(self, state, questions):
         d = _post(self.url + '/v1/systemone', {'model': self.model, 'state': state, 'questions': questions}, self.timeout)
         ans = d.get('answers') or {}
-        missing = [q for q in questions if q not in ans or 'choice' not in ans[q]]
+        missing = [q for q in questions if q not in ans]
         if missing:
             raise RuntimeError('answers missing for %s' % missing)
         return ans, {'prompt_tokens': (d.get('usage') or {}).get('input_tokens')}
@@ -83,12 +83,23 @@ def decide(item, backend):
     admitted, excluded = SM.admitted_skills(item['schema'], f)
     state = SM.state_text(item.get('system') or '', item['user'])
     t0 = time.time()
-    a1, m1 = backend.ask(state, {'skill': SM.skill_question(admitted)})
+    sq = SM.skill_question(admitted)
+    a1, m1 = backend.ask(state, {'skill': sq})
+    base = {'id': item['id'], 'model': backend.model, 'url': backend.url, 'engine': 'systemone/' + backend.name,
+            'retryCount': 0, 'transport_error': False, 'admitted': admitted, 'excluded': excluded}
+    if not SM.valid_choice(sq, a1.get('skill')):
+        # an answer outside the offered options is an INVALID decision (scored), not a transport error
+        return dict(base, proposal=None, schemaValid=False, error='invalid_choice: skill %r' % (a1.get('skill') or {}).get('choice'),
+                    latencyMs=int((time.time() - t0) * 1000))
     skill = a1['skill']['choice']
     aqs = SM.arg_questions(skill, f, item['schema'])
     a2, m2 = backend.ask(state, aqs) if aqs else ({}, {})
     lat = int((time.time() - t0) * 1000)
-    chosen = {qn.split('.', 1)[1]: a['choice'] for qn, a in a2.items()}
+    bad = [qn for qn, q in aqs.items() if not SM.valid_choice(q, a2.get(qn))]
+    if bad:
+        return dict(base, proposal=None, schemaValid=False, error='invalid_choice: %s' % bad, latencyMs=lat,
+                    confidence=a1['skill']['confidence'])
+    chosen = {qn.split('.', 1)[1]: a2[qn]['choice'] for qn in aqs}
     proposal, decided = SM.to_proposal(skill, chosen, f)
     return {'id': item['id'], 'model': backend.model, 'url': backend.url, 'engine': 'systemone/' + backend.name,
             'proposal': proposal, 'schemaValid': True, 'error': None, 'retryCount': 0, 'latencyMs': lat,

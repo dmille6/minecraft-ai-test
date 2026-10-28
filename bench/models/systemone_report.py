@@ -6,9 +6,12 @@
 
 Headline metrics are eval_offline.py's own (score_one/table: hard, rep_fail, post_veto_repeat, with denominators),
 so the numbers line up with the Qwen reference table. Added here:
-  rep_fail_mk / post_veto_mk  the same repeat rates on items whose logged (or vetoed) action is NOT keyed on a
-                 coordinate. For goto x,y,z and mine y a System One run's coordinates come from code
-                 (systemone_map.py), so a repeat there is code's, not the model's.
+  rep_fail_mk / post_veto_mk  the same repeat rates on items whose logged (or vetoed) action (a) is NOT keyed on a
+                 coordinate -- for goto x,y,z and mine y a System One run's coordinates come from code, so a repeat
+                 there is code's, not the model's -- and (b) is REPRESENTABLE by the mapping (systemone_map
+                 .representable): a failed craft of an item not in CAN CRAFT NOW cannot be repeated by a choice
+                 model, so leaving it in credits the adapter. The same subset is applied to every run, Qwen too.
+  COVERAGE FIRST: a run that did not answer every item is printed with its coverage and gets no table row.
   p50 / p95      per-decision latency (latencyMs; System One = both question rounds).
   confidence     System One runs only: mean skill confidence per item kind, and AUROC of LOW confidence for
                  (a) a failure/post-veto item vs a good item, (b) a repeat vs not, among failure+post-veto items.
@@ -65,7 +68,8 @@ def extra(S, items, recs):
             if it['eval_kind'] != kind or it['id'] not in by:
                 continue
             ref = (it['logged']['skill'], it['logged']['args']) if kind == 'fail' else tuple(it['vetoed'])
-            if SM.coordinate_key(ref[0], ref[1]):
+            f = SM.parse_prompt(it['user'], it.get('system') or '')
+            if SM.coordinate_key(ref[0], ref[1]) or not SM.representable(ref[0], ref[1], f, it['schema']):
                 continue
             d += 1
             n += bool(repeat_of(S, it, by[it['id']]))
@@ -109,11 +113,16 @@ def main():
         t = E.table(E.score_one(items, recs))
         t.update(extra(S, items, recs))
         t['file'] = p
+        t['complete'] = t['missing'] == 0 and t['n'] == len(items)
         rep['runs'][name] = t
     print(json.dumps(rep, indent=1))
     hdr = '%-34s %5s %6s %6s %9s %10s %12s %6s %6s'
     print(hdr % ('model', 'n', 'hard', 'rep_f', 'post_veto', 'rep_f(mk)', 'post_veto(mk)', 'p50', 'p95'), file=sys.stderr)
     for name, t in [('logged (fleet)', rep['logged'])] + list(rep['runs'].items()):
+        if name != 'logged (fleet)' and not t['complete']:
+            print('%-34s INCOMPLETE: answered %d of %d (missing %d) -- no row' % (name[:34], t['n'], len(items), t['missing']),
+                  file=sys.stderr)
+            continue
         f = lambda v: '-' if v is None else ('%.1f' % v)
         print(hdr % (name[:34], t['n'], f(t['hard']), f(t['rep_fail']), f(t['post_veto_repeat']),
                      '%s/%d' % (f(t['rep_fail_mk'][0]), t['rep_fail_mk'][1]), '%s/%d' % (f(t['post_veto_mk'][0]), t['post_veto_mk'][1]),

@@ -140,6 +140,73 @@ class ArgsAndProposal(unittest.TestCase):
         self.assertEqual(len(SM.arg_options('gather', f)[0][1]), 26)
 
 
+class Validity(unittest.TestCase):
+    def setUp(self):
+        self.f = SM.parse_prompt(USER, SYSTEM)
+
+    def test_valid_choice_needs_an_offered_option(self):
+        q = SM.skill_question(['gather', 'mine'])
+        self.assertTrue(SM.valid_choice(q, {'choice': 'mine'}))
+        self.assertFalse(SM.valid_choice(q, {'choice': 'INVALID'}))
+        self.assertFalse(SM.valid_choice(q, None))
+
+    def test_representable(self):
+        f = self.f
+        self.assertTrue(SM.representable('craft', {'item': 'stick'}, f, SCHEMA))
+        self.assertFalse(SM.representable('craft', {'item': 'iron_pickaxe'}, f, SCHEMA))   # not in CAN CRAFT NOW
+        self.assertTrue(SM.representable('gather', {'block': 'dirt', 'count': 99}, f, SCHEMA))
+        self.assertFalse(SM.representable('gather', {'block': 'diamond_ore'}, f, SCHEMA))
+        self.assertTrue(SM.representable('deposit', {}, f, SCHEMA))
+        self.assertFalse(SM.representable('deposit', {'item': 'diamond'}, f, SCHEMA))
+        self.assertTrue(SM.representable('goto', {'x': 1, 'y': 2, 'z': 3}, f, SCHEMA))   # coordinates: code's
+        self.assertTrue(SM.representable('goto', {'player': 'board-a-Echo'}, f, SCHEMA))
+        self.assertFalse(SM.representable('goto', {'player': 'nobody-x-Here'}, f, SCHEMA))
+        self.assertFalse(SM.representable('status', {}, f, SCHEMA))                       # not in this schema
+        self.assertTrue(SM.representable('explore', {'blocks': 60}, f, SCHEMA))
+
+
+class InvalidAnswerIsScoredInvalid(unittest.TestCase):
+    def test_decide_marks_an_out_of_list_choice_invalid(self):
+        import systemone_engine as SE
+
+        class BE:
+            model, url, name = 'test', 'test', 'http'
+
+            def ask(self, state, qs):
+                return {n: {'choice': 'INVALID', 'confidence': 1.0, 'probabilities': {}} for n in qs}, {}
+        r = SE.decide({'id': 'x', 'system': SYSTEM, 'user': USER, 'schema': SCHEMA}, BE())
+        self.assertFalse(r['schemaValid'])
+        self.assertFalse(r['transport_error'])
+        self.assertTrue(r['error'].startswith('invalid_choice'))
+
+    def test_decide_marks_a_bad_arg_choice_invalid(self):
+        import systemone_engine as SE
+
+        class BE:
+            model, url, name = 'test', 'test', 'http'
+
+            def ask(self, state, qs):
+                if 'skill' in qs:
+                    return {'skill': {'choice': 'gather', 'confidence': 0.9, 'probabilities': {}}}, {}
+                return {n: {'choice': 'nope', 'confidence': 1.0, 'probabilities': {}} for n in qs}, {}
+        r = SE.decide({'id': 'x', 'system': SYSTEM, 'user': USER, 'schema': SCHEMA}, BE())
+        self.assertFalse(r['schemaValid'])
+
+    def test_decide_valid_path(self):
+        import systemone_engine as SE
+
+        class BE:
+            model, url, name = 'test', 'test', 'http'
+
+            def ask(self, state, qs):
+                pick = {'skill': 'gather', 'gather.block': 'dirt', 'gather.count': '16'}
+                return {n: {'choice': pick[n], 'confidence': 0.6, 'probabilities': {}} for n in qs}, {}
+        r = SE.decide({'id': 'x', 'system': SYSTEM, 'user': USER, 'schema': SCHEMA}, BE())
+        self.assertTrue(r['schemaValid'])
+        self.assertEqual(r['proposal']['args'], {'block': 'dirt', 'count': 16})
+        self.assertEqual(r['confidence'], 0.6)
+
+
 class D1Port(unittest.TestCase):
     def test_render_matches_prompt_py_layout(self):
         q = {'type': 'choice', 'instructions': 'Which team?', 'criteria': {'billing': 'Charges', 'tech_team': None}}

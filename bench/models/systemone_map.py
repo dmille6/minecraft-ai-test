@@ -208,6 +208,32 @@ def to_proposal(skill, arg_answers, f):
     return {'reason': 'system one choice', 'skill': skill, 'args': args, 'saw_end': f.get('sentinel') or ''}, decided
 
 
+def valid_choice(q, ans):
+    """A backend's answer names one of the question's own options."""
+    return isinstance(ans, dict) and ans.get('choice') in (q.get('criteria') or {})
+
+
+def representable(skill, args, f, schema=None):
+    """Can this mapping produce an action with the same score.key_of as (skill, args)? A failed action it cannot
+    produce (craft of an item not in CAN CRAFT NOW, a block not in view, ...) cannot be repeated, so counting it as
+    'not repeated' credits the adapter, not the model. Coordinate keys count as representable (code sets them)."""
+    args = args or {}
+    admitted, _ = admitted_skills(schema, f)
+    if skill not in admitted:
+        return False
+    opts = dict(arg_options(skill, f, schema))
+    key_arg = {'gather': 'block', 'craft': 'item', 'smelt': 'item', 'place': 'item', 'withdraw': 'item',
+               'deposit': 'item', 'bucket': 'action', 'build': 'plan'}.get(skill)
+    if key_arg is None:
+        if skill == 'goto' and args.get('player'):
+            return args['player'] in opts.get('dest', [])
+        return True
+    v = args.get(key_arg)
+    if skill == 'deposit' and not v:
+        return True
+    return v in opts.get(key_arg, [])
+
+
 def coordinate_key(skill, args):
     """True when score.key_of keys this action on a coordinate (goto x,y,z; mine y), which code sets here."""
     return skill == 'mine' or (skill == 'goto' and not (args or {}).get('player'))
