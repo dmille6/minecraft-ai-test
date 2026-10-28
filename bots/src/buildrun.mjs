@@ -280,9 +280,9 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
 
   // ---- the click (placements and saplings) -----------------------------------------------------------------------------------
   // -> 'placed' | 'refused' | 'silent' | 'busy' | 'fence:<why>' | 'barrier_wait' | 'body' | 'no_material' | 'stand'
-  const click = async (cell, block, step, seg, segGen, { closer = false, want = null } = {}) => {
+  const click = async (cell, block, step, seg, segGen, { closer = false, want = null, avoid = null } = {}) => {
     if (stands) stands.pending = { cell: kOf(cell), stand: kOf(step.stand), at: now() }
-    await e.walkTo(step.stand)
+    await e.walkTo(step.stand, avoid ? { avoid } : undefined)
     if (e.aborted()) return 'aborted'          // the pending walk stays: the next visit bans its stand (settlePendingStand)
     if (stands) stands.pending = null
     // RE-PROVED WHERE THE BOT IS: the same stand rules from the feet it actually has
@@ -597,7 +597,7 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         }
         const block = blockFor(palette, picked.role, e.has)
         if (!block) { out.stop = 'no_material'; out.why = `${picked.role} for ${seg}`; return out }
-        const v = await click(picked.at, block, step, seg, segGen, { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, picked.role) })
+        const v = await click(picked.at, block, step, seg, segGen, { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, picked.role), avoid: blocking })
         if (v === 'placed') { out.placed++; tally(block); e.log('_build', { op: 'place', seg, cell: picked.at, block }); continue }
         if (v.startsWith('fence:') || v === 'aborted' || v === 'no_material') { out.stop = v; return out }
         if (v === 'busy') { await e.sleep(100); continue }            // a free skip: the mutex or the barrier is another's
