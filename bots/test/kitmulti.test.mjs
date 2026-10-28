@@ -172,6 +172,22 @@ await t('SKILL, THE RESERVE: a town of 20 (spare 4) gives a 7-ingot draw only 4 
   assert.equal(r.kitCredit, 1, 'the ingot no craft used is credit')
 })
 
+await t('SUCCESSIVE RUNS keep the reserve (Claude code r1): a container a draw took from is dirty and counts 0 until reopened', async () => {
+  const w = fourTown({ chests: CH.slice(0, 5) })   // 20 in town, spare 4
+  const pick = () => K.kitDraw(w.bot.inventory.items(), { limit: 1 })
+  assert.equal(S0.townKitIronMiss(w.bot, pick()), false)
+  await kit(S0, w, {})                               // takes 4 (spare), makes the pickaxe, 1 credit
+  assert.equal(townIron(w, CH.slice(0, 5)), TOWN_IRON_RESERVE)
+  // a second bot (an empty bag) asks for the pickaxe: the index's latest observations still show 20 at the open, but the
+  // container drawn from is dirty -> the town's spare is 0 -> no order
+  const sp = townIronSpare(S0.townIndexEntries(w.bot))
+  assert.ok(sp.spare < 3, JSON.stringify(sp))
+  w.bag.splice(0, w.bag.length, ...slotted([stack('stick', 9)]))
+  assert.equal(S0.townKitIronMiss(w.bot, pick()), true, 'refused: the town is at its reserve')
+  const e = (n, at, last) => ({ last, obs: { at, names: { iron_ingot: [n, 1] } }, ops: {} })
+  assert.equal(townIronSpare({ a: e(30, 1000, { t: 'dirty', at: 2000 }), b: e(20, 1000, { t: 'obs', at: 1000 }) }, 16, 5000).total, 20)
+})
+
 await t('THE GATE (townKitIronMiss): the spare above the reserve must fund the draw; the pickaxe prefix still meets it; no index -> the one-container rule', async () => {
   const w = fourTown({ chests: CH.slice(0, 5) })   // 20 in town, spare 4
   const items = w.bot.inventory.items()
@@ -205,6 +221,11 @@ await t('MUTANTS: each removes one part of the change and a behaviour test above
     'if (kitMultiOn(spare)) return townSearchEmpty(bot, [KIT_IRON_ANY], { tried: held })', S => killedBy(() => {
       const w = fourTown({ chests: CH.slice(0, 5) })
       assert.equal(S.townKitIronMiss(w.bot, K.kitDraw(w.bot.inventory.items())), true)
+    }))
+  kills.dirtyCounts = await withMutant(TK_PATH, "const n = indexStateOf(e, now) === 'dirty' ? 0 : Math.max(0, Number(e?.obs?.names?.iron_ingot?.[0]) || 0)",
+    'const n = Math.max(0, Number(e?.obs?.names?.iron_ingot?.[0]) || 0)', KK => killedBy(() => {
+      const e = (n, at, last) => ({ last, obs: { at, names: { iron_ingot: [n, 1] } }, ops: {} })
+      assert.equal(KK.townIronSpare({ a: e(30, 1000, { t: 'dirty', at: 2000 }), b: e(20, 1000, { t: 'obs', at: 1000 }) }, 16, 5000).total, 20)
     }))
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   assert.deepEqual(alive, [], `mutants that survived: ${alive}`)

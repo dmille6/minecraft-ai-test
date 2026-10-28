@@ -24,6 +24,7 @@
 
 import { remaining, FLOOR, HARD_STOP, tier, isPickaxe } from './toolfor.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
+import { indexStateOf } from './townindex.mjs'   // kitmulti-01 (townindex.mjs imports nothing of ours)
 
 /** TOOLKIT=on|off, default on; anything else reads as on and the process says so in its `_toolkit` mode row. */
 export function toolkitMode (env = {}) {
@@ -214,17 +215,18 @@ export const KIT_IRON_ANY = 'kit_iron_any'
 
 /**
  * THE TOWN'S IRON BY THE INDEX -> { total, spare, containers } | null. Pure. `entries` the town index's fold ({ k: entry });
- * total = the iron ingots in every container's latest observation (any state: the reserve is a floor on what the bots have
- * seen, not a ledger), spare = total - reserve (never below 0). null when the index has no entry (unread, or a new town): the
- * caller then keeps the one-container rule.
+ * total = the iron ingots in the latest observation of every container NOT mutated since it (a DIRTY container counts 0:
+ * Claude code r1 -- a withdraw visit observes at the open, before its clicks, so a container a draw took from still shows
+ * the ingots it gave until its next open, and successive runs would drain the town below its reserve), spare = total -
+ * reserve (never below 0). null when the index has no entry (unread, or a new town): the caller keeps the one-container rule.
  */
-export function townIronSpare (entries = null, reserve = TOWN_IRON_RESERVE) {
+export function townIronSpare (entries = null, reserve = TOWN_IRON_RESERVE, now = Date.now()) {
   if (!entries || typeof entries !== 'object') return null
   const list = Object.values(entries)
   if (!list.length) return null
   let total = 0, containers = 0
   for (const e of list) {
-    const n = Math.max(0, Number(e?.obs?.names?.iron_ingot?.[0]) || 0)
+    const n = indexStateOf(e, now) === 'dirty' ? 0 : Math.max(0, Number(e?.obs?.names?.iron_ingot?.[0]) || 0)
     total += n
     if (n > 0) containers++
   }
