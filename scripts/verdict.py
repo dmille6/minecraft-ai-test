@@ -230,7 +230,9 @@ if reg.get('lab') is not True:
 # v34: an UNDERGROUND-SAFETY canary is drawn on the pools that drown, so the cross-sectional death gate (canary POST vs
 # control POST) is biased against it by construction; its death gate is the DiD in usaferule.py (each arm against its own
 # PRE), measured by usafegate.py. Exactly the string; any other class keeps the gate below unchanged.
-_USAFE = usaferule.is_underground_safety(reg)
+# v37 (review r1, Claude + Codex): the DiD gate needs the matched control the loop freezes only in LAB mode, so a fun-mode
+# underground-safety registration is read by the ordinary death gate (the two-death floor), never by an unfrozen DiD.
+_USAFE = usaferule.is_underground_safety(reg) and reg.get('lab') is True
 _USAFE_BLIND = None
 why = []; verdict = None
 # v36 (OWNER DECISION 2026-10-19, "yes"; docs/reports/canary-tiers-2026-10-19.md): CANARY TIERS. Computed HERE, before
@@ -663,7 +665,7 @@ if _v23_rev and _LIC_REPORT_ONLY:
     pending_watch.append('licensed change row held by licence.class=rate')
     _v23_rev = False
 if _v23_rev:
-    why.append(f'change row inside a death window, discriminating: {licensed[0][:3]}'); (out('REVERT', {'deaths': ndeaths}))
+    why.append(f'change row inside a death window, discriminating: {licensed[0][:3]}'); (out('REVERT', {'deaths': ndeaths, 'linked': len(licensed)}))
 elif licensed:
     why.append(_v23_why); pending_watch.append('licensed change row held below the death floor (v23)')
 # v19: the single-death rung-linkage override bypassed the owner's own calibrated death

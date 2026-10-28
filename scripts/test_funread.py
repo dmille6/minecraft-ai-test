@@ -58,7 +58,10 @@ def pure():
         t('%s at the final read -> INCONCLUSIVE, never KEEP' % label, w == 'INCONCLUSIVE', (w, why[-1]))
         w, _, _ = word(facts(**{k: v}), 90)
         t('%s before the final read -> NOT_YET' % label, w == 'NOT_YET', w)
-    t('positive control 3 of 5 is enough', word(facts(fresh_on_canary=3))[0] == 'KEEP')
+    t('positive control needs EVERY canary bot: 4 of 5 -> INCONCLUSIVE', word(facts(fresh_on_canary=4))[0] == 'INCONCLUSIVE')
+    t('positive control 5 of 5 -> KEEP', word(facts(fresh_on_canary=5))[0] == 'KEEP')
+    t('a relayed change-row REVERT counts as linked',
+      FR.re.search(r'change row inside a death window', 'x change row inside a death window, discriminating') is not None)
     w, why, _ = word(facts(tripwires=['load_high']))
     t('fleet tripwires are reported, not deciding', w == 'KEEP' and any('load_high' in x for x in why), why)
     w, why, ex = word(facts(death_word='REVERT', units=None), 180)
@@ -86,7 +89,7 @@ def end_to_end():
         logs = os.path.join(d, 'logs')
         for i, b in enumerate(BOTS):
             os.makedirs(os.path.join(logs, b))
-            ts = '2026-10-28T10:59:00Z' if i < 4 else '2026-10-28T09:00:00Z'      # the fifth is stale
+            ts = '2026-10-28T10:59:00Z'
             open(os.path.join(logs, b, 'skill-1.jsonl'), 'w').write('garbage\n' + json.dumps({'@timestamp': ts, 'code': {'version': sha[:7] + '+x'}}) + '\n')
         stub = os.path.join(d, 'verdict.py')
         open(stub, 'w').write('print("VERDICT POLL_OK (+0) :: deaths 1 (0.1/bh over 10 measured bot-h) | poll: 1 canary deaths since '
@@ -104,9 +107,14 @@ def end_to_end():
         art = json.load(open(os.path.join(R, 'r-01-verdict-180.json')))
         t('e2e: KEEP goal-verified at +180', line.startswith('VERDICT KEEP (+180) :: ') and 'goal-verified' in line, line)
         t('e2e: roster is exactly the five bots (no Old-x, no board-ab)', 'units: 5 canary bots' in line, line)
-        t('e2e: positive control 4 of 5', '4 of 5 canary bots' in line, line)
+        t('e2e: positive control 5 of 5', '5 of 5 canary bots' in line, line)
         t('e2e: change-row death counted as linked', art['extra']['linked'] == 1, art['extra'])
         t('e2e: only REVERT own lines are evaluated', 'x.bad = 0 passes' in line and 'x.w' not in line, line)
+        open(os.path.join(logs, BOTS[4], 'skill-1.jsonl'), 'a').write(json.dumps({'@timestamp': '2026-10-28T09:00:00Z', 'code': {'version': sha[:7]}}) + '\n')
+        line = run(180).stdout.strip().splitlines()[-1]
+        t('e2e: one canary bot silent for 2 h -> INCONCLUSIVE, never KEEP', line.startswith('VERDICT INCONCLUSIVE (+180)') and
+          '4 of 5' in line, line)
+        open(os.path.join(logs, BOTS[4], 'skill-1.jsonl'), 'a').write(json.dumps({'@timestamp': '2026-10-28T10:58:00Z', 'code': {'version': sha[:7]}}) + '\n')
         ev['fields']['bad'] = 2; json.dump(ev, open(os.path.join(R, 'r-01-x-180.json'), 'w'))
         line = run(180).stdout.strip().splitlines()[-1]
         t('e2e: a failing own line on bound evidence -> REVERT', line.startswith('VERDICT REVERT (+180)'), line)

@@ -47,9 +47,10 @@ THE CHECKS
   R10 drawexposure.py answers for the head
 
 FUN MODE (v37, OWNER 2026-10-28, W4). A registration that does not say `"lab": true` is an ORDINARY run: R10
-(drawexposure), H5 (NEXT-SLOT) and H6 (bag-fix 4-pool draw) are lab-only and do not apply to it. R11 EXPIRES 2 h after
-the run closed unless one of its deaths was CHANGE-LINKED (a rung-linked / change-row death, or an artifact with
-extra.linked > 0); `continue` still releases it at once. `approved` names the reviewer (any non-empty name); a canary
+(drawexposure), H5 (NEXT-SLOT) and H6 (bag-fix 4-pool draw) are lab-only and do not apply to it. For a fun-mode run R11
+EXPIRES 2 h after the run closed unless one of its deaths was CHANGE-LINKED (a rung-linked / change-row death, or an
+artifact with extra.linked > 0 or verdict.py's licensed change-row `deaths`); a lab run keeps the hold; `continue` still
+releases either at once. `approved` names the reviewer (any non-empty name); a canary
 whose diff touches config/protected-paths.txt (decided by the BASE's scripts/lib/protected.py; undecidable = protected)
 must name both engines (Claude and Codex).
 """
@@ -71,7 +72,7 @@ LAUNCH_PAGE_MIN = 15
 DEATH_REVERT = re.compile(r'death gate:|death gate trip|rung-linked death|linked death|death-linked|death window', re.I)
 ABANDON_AFTER_DRAWN_MIN = 20
 R11_EXPIRE_H = 2.0      # v37: an R11 hold whose deaths were not change-linked releases itself this long after the close
-CHANGE_LINKED = re.compile(r'rung-linked death|linked death|death-linked', re.I)
+CHANGE_LINKED = re.compile(r'rung-linked death|linked death|death-linked|change row inside a death window', re.I)
 HEX40 = re.compile(r'^[0-9a-f]{40}$')
 SLOT_PROCS = (  # basename of argv[0] or argv[1]; never a substring of the whole command line (pgrep -f self-matches)
     ('canary-loop.sh', lambda b: b == 'canary-loop.sh'),
@@ -753,10 +754,16 @@ def death_hold(P, st, run, closed_at=None):
     if hold is None:
         return None
     linked = hold[2]
-    if r11_expired(linked, closed_at, st['now']):
+    # LAB runs keep the old hold: only `continue` releases it (review r1, Codex). An unreadable registration counts as lab.
+    try:
+        with open(os.path.join(P['regdir'], '%s.json' % run)) as f:
+            lab = json.load(f).get('lab') is True
+    except Exception:
+        lab = True
+    if not lab and r11_expired(linked, closed_at, st['now']):
         st['r11_expired'] = (run, hold[1], iso(closed_at))
         return None
-    return (run, hold[1] + ('; a death was CHANGE-LINKED: no 2-h expiry' if linked else
+    return (run, hold[1] + ('; a death was CHANGE-LINKED: no 2-h expiry' if linked else '; lab run: no 2-h expiry' if lab else
                             '; expires %s (2 h after the close) unless `continue` first'
                             % (iso(closed_at + dt.timedelta(hours=R11_EXPIRE_H)) if closed_at else '?')))
 
@@ -775,6 +782,9 @@ def _death_reason(P, run, d):
             pass
     linked = linked or any(int((a.get('extra') or {}).get('linked') or 0) > 0 for a in arts
                            if isinstance((a.get('extra') or {}).get('linked'), (int, float)))
+    # verdict.py's licensed change-row REVERT ({'deaths': n} without by=death_gate) IS a change-linked death (review r1)
+    linked = linked or any('deaths' in (a.get('extra') or {}) and (a.get('extra') or {}).get('by') != 'death_gate'
+                           for a in arts)
     if any(((a.get('extra') or {}).get('by') == 'death_gate') for a in arts):
         return (run, 'verdict artifact by=death_gate', linked)
     if any('deaths' in (a.get('extra') or {}) for a in arts):

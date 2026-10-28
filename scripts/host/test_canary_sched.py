@@ -1074,6 +1074,29 @@ def t_r11_artifact_linked_never_expires(CS, F):
     expect(CS, F, 'block', 'R11', 'CHANGE-LINKED')
 
 
+def t_r11_lab_run_never_expires(CS, F):
+    """A LAB run keeps the old hold (review r1, Codex): only `continue` releases it."""
+    F.enqueue(CS)
+    _death_revert(F, 'lb-01', 6, 'lb-01: VERDICT REVERT (+180) :: death gate: 3 canary deaths', {'by': 'death_gate', 'deaths': 3})
+    json.dump({'sha': F.other[:7], 'reads': ['immobiledid'], 'lab': True},
+              open(os.path.join(F.home, 'mcai-analysis', 'registrations', 'lb-01.json'), 'w'))
+    expect(CS, F, 'block', 'R11', 'lab run')
+
+
+def t_r11_change_row_revert_is_linked(CS, F):
+    """verdict.py's licensed change-row REVERT ({'deaths': n}, no by=death_gate) is change-linked: no expiry (review r1)."""
+    F.enqueue(CS)
+    _death_revert(F, 'cr-01', 6, 'cr-01: VERDICT REVERT (+90) :: change row inside a death window, discriminating: x', {'deaths': 2})
+    expect(CS, F, 'block', 'R11', 'CHANGE-LINKED')
+    F2 = Fix()
+    try:
+        F2.enqueue(CS)
+        _death_revert(F2, 'cr-02', 6, 'cr-02: VERDICT REVERT (+90) :: v11 header only', {'deaths': 2})
+        expect(CS, F2, 'block', 'R11', 'CHANGE-LINKED')
+    finally:
+        F2.cleanup()
+
+
 def t_r11_expired_pure(CS, F):
     t = NOW
     assert CS.r11_expired(False, t - dt.timedelta(hours=2), t) is True
@@ -1251,7 +1274,10 @@ MUTANTS = [
     ("        if approval_problem(v.get('approved'), False):", "        if False:"),
     ("    return (not linked) and closed_at is not None and (t - closed_at).total_seconds() >= R11_EXPIRE_H * 3600",
      "    return closed_at is not None and (t - closed_at).total_seconds() >= R11_EXPIRE_H * 3600"),
-    ("    if r11_expired(linked, closed_at, st['now']):", "    if False:"),
+    ("    if not lab and r11_expired(linked, closed_at, st['now']):", "    if False:"),
+    ("    if not lab and r11_expired(linked, closed_at, st['now']):", "    if r11_expired(linked, closed_at, st['now']):"),
+    ("    linked = linked or any('deaths' in (a.get('extra') or {}) and (a.get('extra') or {}).get('by') != 'death_gate'",
+     "    linked = linked or any(False"),
     ("    linked = linked or any(int((a.get('extra') or {}).get('linked') or 0) > 0 for a in arts", "    linked = linked or any(False for a in arts"),
     ("            if json.load(f).get('lab') is not True:\n                return ''", "            if True:\n                return ''"),
     ("    if lab and st.get('next_slot')", "    if st.get('next_slot')"),

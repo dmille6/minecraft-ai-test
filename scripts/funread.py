@@ -14,12 +14,12 @@
       4. TRIPWIRES  freeze-watch's latest fleet tripwires (minus fleet_split, which a canary causes by
                     construction). Fleet-wide, so reported, never deciding.
 
-    Positive control: the canary bots must be writing rows on the canary build. Fewer than half fresh
-    means the read cannot see them -- "missing telemetry is never no harm".
+    Positive control: EVERY canary bot must be writing rows on the canary build (newest row within FRESH_MIN).
+    A bot the read cannot see could be dying unseen -- "missing telemetry is never no harm".
 
     DECISION (pure, `decide`): any harm -> REVERT (the whole bundle: the canary sha is torn down as one).
     Before the final read -> NOT_YET. At the final read: harm that could not be ruled out (death poll
-    unreadable, units unreadable, positive control failed, evidence not bound to the canary) ->
+    unreadable, units unreadable, a canary bot not seen on the canary build, not bound to the canary) ->
     INCONCLUSIVE, which the loop tears down. Otherwise KEEP, labelled `goal-verified` when the
     registration's `exposure` is met by bound evidence and `goal-unverified` when it is not -- "no
     detected harm" justifies keeping a change; it does not prove the change worked.
@@ -41,7 +41,7 @@ import subprocess
 import sys
 
 CRASH_RESTARTS = 3          # automatic restarts of ONE canary unit since the deploy
-FRESH_MIN = 20              # a canary bot's newest row must be this recent to count for the positive control
+FRESH_MIN = 30              # EVERY canary bot's newest row must be this recent, on the canary build, for a KEEP
 FUN_READS = (90, 180)       # FIXED for every fun-mode run (canary-loop.sh FUN_READS must match): the last one is final
 FREEZE_MAX_AGE_MIN = 60
 
@@ -99,7 +99,7 @@ def decide(f, M, final_M):
     # positive control
     n = len(units or {})
     fresh = f.get('fresh_on_canary')
-    need = max(1, int(math.ceil(n / 2.0)))
+    need = max(1, n)       # review r1 (Codex): a bot the read cannot see could be dying unseen -- every bot, not half
     why.append('positive control: %s of %d canary bots wrote a row on the canary build in the last %d min' % (fresh, n, FRESH_MIN))
     if fresh is None or fresh < need:
         unknown.append('positive control failed (%s of %d fresh on the canary build; need %d)' % (fresh, n, need))
@@ -210,7 +210,7 @@ def death_poll(run, verdict):
     hd = re.search(r'deaths (\d+) \(', line)
     nd = int(d.group(1)) if d else (int(hd.group(1)) if hd else 0)
     linked = (int(d.group(2)) + int(d.group(3))) if d else 0
-    if re.search(r'rung-linked death|linked death|death-linked', line):
+    if re.search(r'rung-linked death|linked death|death-linked|change row inside a death window', line):
         linked = max(linked, 1)
     if not line:
         line = 'no output: ' + ((r.stderr.strip().splitlines() or ['(empty)'])[-1][:300])
