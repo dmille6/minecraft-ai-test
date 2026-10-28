@@ -41,6 +41,7 @@ sys.argv = [sys.argv[0]]                       # no --apply: never act from a te
 spec.loader.exec_module(tripper)
 
 FAILED = []
+_REAL_SSH = tripper.ssh            # feed() swaps in a fake; the death-log cases need the real one
 
 def check(name, cond, detail=""):
     print(f"  {'ok  ' if cond else 'FAIL'}  {name}" + (f"  -- {detail}" if detail and not cond else ""))
@@ -359,6 +360,35 @@ def test_the_installed_copy_never_reads_a_stray_relative_library():
               f"got {tripper._lib_path()}")
     finally:
         os.environ.pop("TRIPPER_LIB", None)
+
+
+def _death(bot, age_min, y=30):
+    ts = datetime.now(timezone.utc) - timedelta(minutes=age_min)
+    return json.dumps({"@timestamp": ts.isoformat().replace("+00:00", "Z"), "bot": {"name": bot, "pos": {"y": y}},
+                       "skill": {"name": "_death", "fail_class": "fall", "detail": "fell from a high place"}})
+
+
+def test_deaths_survive_the_rotation_and_a_missing_glob_says_blind():
+    # Codex review before arming: logrotate (copytruncate, delaycompress) moves the
+    # day into <file>-YYYYMMDD at ~23:59Z; reading only *.jsonl lost a 23:58 fall.
+    import io, contextlib
+    d = tempfile.mkdtemp(prefix="tripper-rot-")
+    os.makedirs(os.path.join(d, "Aa01")); os.makedirs(os.path.join(d, "Zz01"))
+    open(os.path.join(d, "Aa01", "skill-Aa01.jsonl-20261028"), "w").write(_death("Aa01", 3) + "\n" + _death("Aa01", 5) + "\n")
+    open(os.path.join(d, "Aa01", "skill-Aa01.jsonl"), "w").write("")
+    open(os.path.join(d, "Zz01", "skill-Zz01.jsonl"), "w").write("\n".join(_death("Zz01", 300) for _ in range(2100)) + "\n")
+    old = (tripper.LOCAL, tripper.LOGS, tripper.ssh)
+    tripper.LOCAL, tripper.LOGS, tripper.ssh = True, os.path.join(d, "*", "skill-*.jsonl"), _REAL_SSH
+    try:
+        got = [x["bot"] for x in tripper.load_deaths(30)]
+        check("a fall moved into the rotated file still counts", got.count("Aa01") == 2, f"got {got}")
+        tripper.LOGS = os.path.join(d, "nowhere", "*.jsonl")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            got = tripper.load_deaths(30)
+        check("no log files is BLIND, not zero deaths", got == [] and "BLIND" in buf.getvalue(), buf.getvalue())
+    finally:
+        tripper.LOCAL, tripper.LOGS, tripper.ssh = old
 
 
 if __name__ == "__main__":
