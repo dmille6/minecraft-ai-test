@@ -248,16 +248,34 @@ def ship(trips, stopped, per_bot, falls30, depth, bundle=None):
     except Exception as e:
         print(f"    (could not ship supervisor telemetry: {e})")
 
+PAIRED_LIB = os.environ.get("TRIPPER_LIB", "/usr/local/lib/mcai-tripper")
+
+
 def _lib_path():
-    """Where the version rules live: scripts/lib of the tree this file is in when
-    it is run from a checkout (tests, a scratch copy), else the host checkout the
-    installed copy (/usr/local/bin/mcai-tripper) has always used."""
+    """Where the version rules live, in this order:
+
+      1. scripts/lib of the checkout this file is in -- ONLY if this file really
+         is that checkout's infra/guard/death-tripper.py (tests, a scratch tree).
+         Codex review: for /usr/local/bin/mcai-tripper the naive relative path is
+         /usr/scripts/lib, and a stray copy there would have won.
+      2. PAIRED_LIB, where deploy-fleet.sh installs the library FROM THE SAME
+         TREE as the tripper. Claude review: /opt/minecraft-ai is `git reset
+         --hard` to the deployed sha on every deploy, so a library read from
+         there belongs to whatever sha was deployed last, not to this tripper.
+      3. /opt/minecraft-ai/scripts/lib, where the installed copy always looked.
+    """
     me = globals().get("__file__")            # absent when exec'd from a string
-    here = (os.path.normpath(os.path.join(os.path.dirname(os.path.realpath(me)),
-                                          "..", "..", "scripts", "lib")) if me else None)
-    for d in (here, "/opt/minecraft-ai/scripts/lib"):
-        if not d:
-            continue
+    if me:
+        me = os.path.realpath(me)
+        root = os.path.dirname(os.path.dirname(os.path.dirname(me)))
+        twin = os.path.join(root, "infra", "guard", "death-tripper.py")
+        lib = os.path.join(root, "scripts", "lib")
+        try:
+            if os.path.samefile(twin, me) and os.path.exists(os.path.join(lib, "version_split.py")):
+                return lib
+        except OSError:
+            pass
+    for d in (PAIRED_LIB, "/opt/minecraft-ai/scripts/lib"):
         if os.path.exists(os.path.join(d, "version_split.py")):
             return d
     return "/opt/minecraft-ai/scripts/lib"
@@ -427,11 +445,15 @@ def version_check():
         canary_split_ok, in_canary_pool = _split_rules()
     except Exception as e:
         # A tripper that dies on an import stops nothing; one that cannot read
-        # its rules must say so and judge nothing. Same contract as `classify`.
-        print(f"    split rules unavailable ({type(e).__name__}) -- version rules are BLIND")
-        return []
+        # its rules must say so. But only the rules that NEED the library go
+        # blind: the whole-fleet undeclared-code check below is a sha compare
+        # and keeps running (Codex review: an early return here silenced it).
+        print(f"    split rules unavailable ({type(e).__name__}) -- canary/split rules are BLIND")
+        canary_split_ok = in_canary_pool = None
     canary_ok = False
-    if len(versions) > 1:
+    if len(versions) > 1 and canary_split_ok is None:
+        print(f"    {len(versions)} versions running and no split rules to judge them -- BLIND")
+    elif len(versions) > 1:
         # A ROLLING RESTART IS A SPLIT FLEET, BRIEFLY, ON PURPOSE.
         #
         # Bots are restarted one at a time with a gap between them -- the
@@ -492,9 +514,12 @@ def version_check():
         sha = only.split("+")[0]
         cver = man.get("canary_code_version") or ""
         cpool = man.get("canary_pool") or ""
-        canary_only = bool(cver and cpool and sha == cver
+        blind = bool(cver and cpool and sha == cver and in_canary_pool is None)
+        canary_only = bool(cver and cpool and sha == cver and not blind
                            and all(in_canary_pool(b, cpool) for b in seen))
-        if canary_only:
+        if blind:
+            print(f"    fleet on the declared canary {cver} and no pool rule to place it -- BLIND")
+        elif canary_only:
             print(f"    only canary-pool bots are logging, all on the declared canary "
                   f"{cver} -- declared, not judging")
         elif sha != declared:
