@@ -144,7 +144,7 @@ class Fix:
         json.dump({'sha': sha, 'reads': ['immobiledid']}, open(os.path.join(self.home, 'mcai-analysis', 'registrations',
                                                                             '%s.json' % run), 'w'))
 
-    def closed_run(self, run='prev-01', t=NOW - dt.timedelta(minutes=40), decision='KEEP', note='x', recorded=True,
+    def closed_run(self, run='prev-01', t=NOW - dt.timedelta(hours=2), decision='KEEP', note='x', recorded=True,
                    ledger=True, pools='board-a,hive-a'):
         """A run that deployed, decided, recorded and was torn down `t` ago (its sha registered as the canary's)."""
         self.regfile(run, self.other[:7])
@@ -880,7 +880,8 @@ def t_impl_immutable_sources_conflict_needs_closed_sha(CS, F):
 def t_impl_historical_seed_is_not_a_closure_time(CS, F):
     """Codex IMPL-2 #2: an install seed must not displace the latest real closure (here a death REVERT)."""
     F.enqueue(CS)
-    F.closed_run('dg-09', decision='REVERT', note='dg-09: VERDICT REVERT :: death gate: 3 canary deaths')
+    F.closed_run('dg-09', decision='REVERT', note='dg-09: VERDICT REVERT :: death gate: 3 canary deaths',
+                 t=NOW - dt.timedelta(minutes=40))   # inside the v37 2-h R11 expiry
     F.regfile('old-01', F.other[:7]); F.j('old-01', 'drawn', NOW - dt.timedelta(days=20), 'board-c :: x')
     F.j('old-01', 'read-90', NOW - dt.timedelta(days=20), 'x')
     F.state({'state': 'human', 'run': 'old-01', 'how': 'historical', 'at': Z(NOW - dt.timedelta(minutes=1))})
@@ -948,7 +949,7 @@ def t_impl_human_closed_death_revert_still_holds(CS, F):
 def t_impl_death_window_change_row_revert_holds(CS, F):
     """Claude impl 3 / Codex impl: verdict.py's licensed change-row REVERT (extra {'deaths': n}, no by=death_gate)."""
     F.enqueue(CS)
-    F.closed_run('cw-01', decision='REVERT', note='cw-01: VERDICT REVERT (+90) :: v11 header only')
+    F.closed_run('cw-01', decision='REVERT', note='cw-01: VERDICT REVERT (+90) :: v11 header only', t=NOW - dt.timedelta(minutes=40))
     json.dump({'verdict': 'REVERT', 'extra': {'deaths': 2}}, open(os.path.join(F.home, 'digest', 'reads', 'cw-01-verdict-90.json'), 'w'))
     expect(CS, F, 'block', 'R11', 'counts deaths')
     assert CS.DEATH_REVERT.search('change row inside a death window, discriminating: x')
@@ -1254,8 +1255,8 @@ MUTANTS = [
     ("    if any('deaths' in (a.get('extra') or {}) for a in arts):", "    if False:"),
     ("        st['procs'] = [x for x in st['procs'] if x['pid'] not in anc]", "        pass"),
     ("        d = decide(st)\n        if d[0] != 'launch':", "        d = d\n        if d[0] != 'launch':"),
-    ("    if st.get('next_slot') and e.get('class') != 'underground-safety':", "    if False:"),
-    ("    if e.get('class') == 'bag-fix' and not st.get('drawrec_k4'):", "    if False:"),
+    ("    if lab and st.get('next_slot') and e.get('class') != 'underground-safety':", "    if False:"),
+    ("    if lab and e.get('class') == 'bag-fix' and not st.get('drawrec_k4'):", "    if False:"),
     ("        if not declared and r.returncode == 0 and 'declares no draw_exposure' in txt:", "        if r.returncode == 0:"),
     ("        if declared and 'eligible on exposure:' in txt and 'REFUSED: the exposure read found' not in txt:",
      "        if 'eligible on exposure:' in txt:"),
