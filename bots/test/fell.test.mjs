@@ -50,7 +50,7 @@ const tree = async M => {
 }
 await t('the log is dug, the trunk above felled, the leaves in the walls cleared, and the project completes', () => tree(R))
 await t('MUTANT trees not foreign (the live bug: blocked forever)', () => both("  if (TREE_CLEAR.test(s)) return 'tree'\n", '', tree))
-await t('MUTANT the trunk is not felled', () => both('trunkAbove(rd, f.at, { keep }).map(', '[].map(', tree))
+await t('MUTANT the trunk is not felled', () => both('trunkAbove(rd, f.at, { keep, skip }).map(', '[].map(', tree))
 await t('a trunk THROUGH THE WALLS: this segment digs its own cell, the wall segment digs its logs, the project completes', async () => {
   const c = wallPad(), [x, y, z] = c.at
   const cells = { [k3(c.at)]: 'spruce_log' }
@@ -61,7 +61,10 @@ await t('a trunk THROUGH THE WALLS: this segment digs its own cell, the wall seg
   for (let i = 0; i <= 4; i++) assert.ok(!/_log$/.test(srv.read(x, y + i, z).name), `no log at +${i}`)
   assert.strictEqual(r.stop, 'complete', JSON.stringify({ stop: r.stop, why: r.why }))
   const fell = e.logs.find(([k, d]) => k === '_build' && d.op === 'fell')
-  assert.strictEqual(fell?.[1].n, 0, 'the felling never digs another segment\'s cell')
+  // the felling takes only the trunk cells that are NO record's (another segment's are walked through, r3); theirs are dug by them
+  const r2 = inRec(), free = [1, 2, 3, 4].filter(i => !r2.has(k3([x, y + i, z]))).length
+  assert.strictEqual(fell?.[1].n, free, `the felling never digs another segment's cell (${free} free of 4)`)
+  for (let i = 1; i <= 4; i++) if (r2.has(k3([x, y + i, z]))) assert.ok(e.logs.some(([k, d]) => k === '_build' && d.op === 'clear' && d.seg !== 'pad' && d.cell.join(',') === k3([x, y + i, z])), `+${i} dug by its own segment`)
 })
 await t('a log the builder cannot dig leaves the cell to its attempts, never an endless loop', async () => {
   const c = padCell()
