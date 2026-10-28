@@ -63,6 +63,15 @@ verify after activation, rollback.
   d4602c9e (branch trunk-01-lp = main dc0e4e9a + lidplace-01; pushed to main on that promotion so the canary sha is a
   main sha). The showcase stages the promoted sha (record line `trunk-01` on 1a65f343 written 15:14Z; d4602c9e needs
   its own line).
+- **Closed 10-28:** trunk-01 drew 19:31Z (board-c, hive-a, hive-d, board-a; a first launch at 19:05Z never deployed: the
+  /opt checkout refused on the tripper library installed there at 18:10, byte-identical to the target, staged in the
+  index, abandon + rearm), KEEP (goal unverified) +180 22:35Z (1 death in 61 bot-h, below the two-death floor),
+  promoted d4602c9e fleet-wide 22:45Z. The showcase moved on meanwhile (shopwalls-02..06, workbench-01: 551d971e ->
+  9389b53b), so the staged release is **85aaebdb** (d4602c9e + those, building only, no protected hit vs the canary;
+  Codex + Claude APPROVE, npm test 340/340): staged and ACTIVATED + VERIFIED 10/10 at 22:54Z, snapshot
+  20261028T225419Z-85aaebdb; 60-min watch to 23:55Z: tripwire WATCH only (pre-existing S3/S6 lines), 0 deaths, no
+  crash lines. The observe-only follower still logs `ROLLBACK ... no longer inside the verified fleet build` for a
+  gated main release: noise (auto false, AUTO_FOLLOW off), but its rule predates follow-main.
 - **The trunk turns on the building jobs fleet-wide** (`SHOP` on unless `SHOP=off`, `MATS` on except isolated pools):
   shared fleet towns start issuing `make_material` / `build_shop`. That is intended (fun mode: visible building), and
   `SHOP=off` / `MATS=0` are the one-line rollbacks short of reverting the bundle.
