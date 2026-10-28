@@ -107,11 +107,12 @@ check(P.hits(only_build, PATS, None) == ['bots/src/skills.mjs::mine (function no
       'with no reader the symbol entry is a hit: unknown is protected')
 table = [{'old_path': 'bots/src/skills.mjs', 'new_path': 'bots/src/skills.mjs',
           'old_lines': set(), 'new_lines': {12}}]
-check(P.hits(table, PATS, read) == ['bots/src/skills.mjs::SKILLS row naming mine'],
-      'editing the SKILLS row whose key/run names mine IS protected (a dispatch row re-points the skill)')
+check('bots/src/skills.mjs::SKILLS row naming mine' in P.hits(table, PATS, read),
+      f'editing the SKILLS row whose key/run names mine IS protected (a dispatch row re-points the skill) {P.hits(table, PATS, read)}')
 table_build = [{'old_path': 'bots/src/skills.mjs', 'new_path': 'bots/src/skills.mjs',
                 'old_lines': set(), 'new_lines': {11}}]
-check(P.hits(table_build, PATS, read) == [], 'the table\'s own header line is not a row')
+check(P.hits(table_build, PATS, read) == ['bots/src/skills.mjs::SKILLS (protected table structure, line 11)'],
+      f'the header of a table holding a protected row is protected (Codex r1: `SKILLS = false && {{`) {P.hits(table_build, PATS, read)}')
 whole = [{'old_path': None, 'new_path': 'bots/src/reflex.mjs', 'old_lines': set(), 'new_lines': {1}}]
 check(P.hits(whole, PATS, read) == ['bots/src/reflex.mjs'], 'whole-file entry')
 deleted = [{'old_path': 'bots/src/reflex.mjs', 'new_path': None, 'old_lines': {1, 2}, 'new_lines': set()}]
@@ -218,9 +219,10 @@ TSRC = '\n'.join([
     "    run: mine },",                            # 10
     "}",                                           # 11
 ])
-tr = P.table_rows(TSRC)
-check(tr[2] == {'goto'} and tr[3] is None and tr[5] == {'build'} and tr[9] == {'sneaky', 'mine'} and tr[11] is None,
-      f'table_rows: key + run per row, comments and the closing brace in none ({tr})')
+tr, tabs = P.table_rows(TSRC)
+check({'goto'} <= tr[2] and tr[3] is None and 'build' in tr[5] and 'mine' not in tr[5] and {'sneaky', 'mine'} <= tr[9]
+      and tr[11] is None and tabs[1] == tabs[11] == 'SKILLS' and tabs[0] is None,
+      f'table_rows: every key + run per row, comments and the closing brace in none ({tr} {tabs})')
 tpats = [('t.mjs', 'goto', '3'), ('t.mjs', 'keepoutExit', '3'), ('t.mjs', 'mine', '3')]
 tch = lambda n: [{'old_path': 't.mjs', 'new_path': 't.mjs', 'old_lines': {n}, 'new_lines': {n}}]  # noqa: E731
 tread = lambda side, path: TSRC  # noqa: E731
@@ -317,6 +319,109 @@ check(not P.hits([{'old_path': 'bots/src/townplan.mjs', 'new_path': 'bots/src/to
                    'old_lines': {1}, 'new_lines': {1}}], REAL, None),
       'the real list leaves building (townplan.mjs) unprotected')
 
+# ---- ROUND 2 (both engines CHANGE on 3be509ca): every repro they gave, on the REAL skills.mjs and list ---------
+def real_hits(mutate, mod=P):
+    """Diff the real skills.mjs against a mutated copy through difflib's -U0 hunks, then decide with the real list."""
+    import difflib
+    old = SK
+    new = mutate(SK)
+    assert new != old, 'MUTATION DID NOT APPLY'
+    d = ['diff --git a/bots/src/skills.mjs b/bots/src/skills.mjs', '--- a/bots/src/skills.mjs', '+++ b/bots/src/skills.mjs']
+    d += [ln.rstrip('\n') for ln in difflib.unified_diff(old.split('\n'), new.split('\n'), n=0, lineterm='')][2:]
+    fn = (lambda k: mod[k]) if isinstance(mod, dict) else (lambda k: getattr(mod, k))   # a mutant is a namespace dict
+    chg = fn('parse_diff')('\n'.join(d))
+    return fn('hits')(chg, REAL, lambda side, path: old if side == 'old' else new)
+
+
+def once(src, old, new):
+    assert src.count(old) == 1, f'ANCHOR MISSING OR NOT UNIQUE: {old[:60]}'
+    return src.replace(old, new, 1)
+
+
+SKL = SK.split('\n')
+def after_line(prefix, add):
+    """Insert `add` (lines) after the unique line starting with `prefix`."""
+    idx = [i for i, ln in enumerate(SKL) if ln.startswith(prefix)]
+    assert len(idx) == 1, f'ANCHOR {prefix!r}: {len(idx)}'
+    def m(src):
+        ls = src.split('\n')
+        ls[idx[0] + 1:idx[0] + 1] = add
+        return '\n'.join(ls)
+    return m
+
+
+# Codex r1: the table HEADER disables every row
+for tbl in ('SKILLS', 'SKILL_CONTRACTS'):
+    h = real_hits(lambda s_, t=tbl: once(s_, f'export const {t} = {{\n', f'export const {t} = false && {{\n'))
+    check(any(f'{tbl} (protected table structure' in x for x in h) and P.tier_of(h) == '3', f'CODEX REPRO: `{tbl} = false && {{` ({h})')
+
+# Claude r1 B2: a duplicate key at an odd indent overrides the earlier row
+FW_C = '  found_work:  { expects:'
+FW_S = '  found_work:  { run: foundWork'
+for label, mut in (
+        ('4-space mine contract', after_line(FW_C, ["    mine: { expects: ['inventory_gain', 'position'], maxMs: 9_999_999 },"])),
+        ('column-0 mine contract', after_line(FW_C, ["mine: { expects: ['inventory_gain', 'position'], maxMs: 9_999_999 },"])),
+        ('4-space goto -> home', after_line(FW_S, ["    goto: { run: home, usage: 'goto <x> <y> <z>', args: ['x','y','z'] },"])),
+        ('two keys on one line', after_line(FW_S, ["  newthing: { run: home }, goto: { run: home },"]))):
+    h = real_hits(mut)
+    check(bool(h) and P.tier_of(h) == '3', f'CLAUDE B2 REPRO ({label}): protected ({h})')
+
+# Claude r1 B1: wrap protected functions in a new scope from unprotected lines, then rebind one by destructuring
+FD = [i for i, ln in enumerate(SKL) if ln.startswith('async function furnaceDrain')]
+CA = [i for i, ln in enumerate(SKL) if ln.startswith('const CARDINALS = [')]
+assert len(FD) == 1 and len(CA) == 1 and FD[0] < SK_OWN.index('mine') - 1 < CA[0], 'B1 anchors around mine'
+def wrap(src, rebind=True):
+    ls = src.split('\n')
+    tail = ['}', ls[CA[0]]] + (["const { mineGuarded } = { mineGuarded: async () => ({ status: 'success', detail: 'mine disabled' }) }"]
+                                if rebind else [])
+    ls[CA[0]:CA[0] + 1] = tail
+    ls[FD[0]:FD[0]] = ['function __dead () {']
+    return '\n'.join(ls)
+h = real_hits(wrap)
+check(any('mineGuarded (rebound outside its declaration' in x for x in h), f'CLAUDE B1 REPRO: the destructuring rebind is caught ({h})')
+check(any('mine (no longer a top-level declaration' in x for x in h), f'CLAUDE B1 REPRO: the wrap itself is caught ({h})')
+h = real_hits(lambda s_: wrap(s_, rebind=False))
+check(any('(no longer a top-level declaration' in x for x in h), f'the wrap alone, without a rebind, is caught ({h})')
+
+# Claude r1 B3: shadow a global the protected code uses
+check(any('binds the global Date' in x for x in real_hits(lambda s_: s_ + '\nconst Date = { now: () => 0 }\n')),
+      'CLAUDE B3 REPRO: `const Date = ...` appended is protected')
+LAST_IMPORT = "import { groupOf, targetOf, isToolGroup"
+for label, add in (('one line', ["import { setTimeout } from 'node:timers/promises'"]),
+                   ('multi-line', ['import {', '  setTimeout', "} from 'node:timers/promises'"]),
+                   ('destructuring', ['const {', '  setTimeout', '} = globalThis.myTimers'])):
+    h = real_hits(after_line(LAST_IMPORT, add))
+    check(any('setTimeout' in x for x in h), f'CLAUDE B3 REPRO ({label}): binding setTimeout is protected ({h})')
+# Claude r1 note: a same-file write to a protected table
+check(real_hits(lambda s_: s_ + '\nSKILL_CONTRACTS.mine.maxMs = 1\n'), 'SKILL_CONTRACTS.mine.maxMs = 1 is protected')
+check(real_hits(lambda s_: s_ + '\nObject.assign(SKILLS, { mine: { run: home } })\n'), 'Object.assign(SKILLS, ...) is protected')
+
+# POSITIVE CONTROLS: ordinary building work on the same file stays unprotected (over-protection is the other failure)
+for label, mut in (
+        ('a new building function that calls goto', lambda s_: s_ + '\nasync function buildTower (ctx, signal) {\n  const r = await goto(ctx, { x: 1, y: 2, z: 3 }, signal)\n  return r\n}\n'),
+        ('a new building SKILLS row', after_line(FW_S, ["  build_tower: { run: buildTower, usage: 'build_tower', args: [], chatOnly: true },"])),
+        ('a new SKILL_CONTRACTS row', after_line(FW_C, ["  build_tower: { expects: ['world_change'], maxMs: 150_000 },"])),
+        ('a comment inside SKILLS', after_line(FW_S, ['  // BUILD TOWER: a deterministic town order'])),
+        ('a new named import', after_line(LAST_IMPORT, ["import { towerPlan } from './tower.mjs'"])),
+        ('a local const inside a building function', lambda s_: s_ + '\nfunction towerCells (n) {\n  const cells = []\n  for (let i = 0; i < n; i++) cells.push(i)\n  return cells\n}\n')):
+    h = real_hits(mut)
+    check(h == [], f'POSITIVE CONTROL ({label}): not protected ({h})')
+
+# ---- the lexer on every real source file: it closes, and every column-0 declaration is at depth 0 ------------
+# (checked once against acorn's Program.body on 2026-10-28: 0 mismatches over bots/src/*.mjs; this keeps the cheap half)
+import glob as _glob
+for f_ in sorted(_glob.glob(os.path.join(ROOT, 'bots', 'src', '*.mjs'))):
+    t_ = open(f_).read()
+    ok_, dep_, _tk, _cd = P.scan_js(t_)
+    bad_ = [i for i, ln in enumerate(t_.split('\n'), 1) if P._DECL.match(ln) and dep_[i] != 0]
+    check(ok_ and not bad_, f'scan_js reads {os.path.basename(f_)} (closes, declarations at depth 0: {bad_[:3]})')
+LEX = '\n'.join(["const a = `x ${ { b: '}' }.b } y`", "const r = /[}{'\"]/g", "// }", "/* { */", "const d = 4 / 2 / 1",
+                 "function f () {", "  return '{'", "}"])
+ok_, dep_, tk_, _cd = P.scan_js(LEX)
+check(ok_ and dep_[1:9] == [0, 0, 0, 0, 0, 0, 1, 1], f'scan_js: templates, regex, comments, division ({ok_} {dep_})')
+check(not P.scan_js('function f () {\n')[0], 'scan_js: an unclosed file is not ok (the caller fails closed)')
+check([t[0] for t in tk_[2]] == ['const', 'r'], f'regex contents are not identifiers ({tk_[2]})')
+
 # ---- the CLI, end to end on a throwaway repo -----------------------------------------------
 tmp = tempfile.mkdtemp()
 try:
@@ -395,8 +500,8 @@ def mutant(old, new, probe, label):
 mutant("cur['old_anchors'].update(x for x in (a, a + 1) if x >= 1)", "pass",
        lambda M: 'bots/src/skills.mjs::mine' in M['hits'](M['parse_diff'](REPRO_DIFF), PATS, rread),
        'without old-side anchors the inserted-declaration repro reads clean')
-mutant("        if cur is not None:\n            names[cur].update(_RUN.findall(line))\n        row_of.append(cur)",
-       "        row_of.append(None)",
+mutant("    rows = [None if r is None else names[r] for r in row_of]",
+       "    rows = [None for r in row_of]",
        lambda M: M['hits'](tch(2), tpats, tread) == ['t.mjs::SKILLS row naming goto'],
        'without table rows the goto row is unprotected')
 mutant("            owners.append(IMPORTS)\n", "            owners.append(name)\n",
@@ -405,5 +510,25 @@ mutant("            owners.append(IMPORTS)\n", "            owners.append(name)\
 mutant("        if line.startswith('tooling:'):", "        if False:",
        lambda M: M['tier_of'](M['hits'](v, M['parse_patterns']('tooling: scripts/verdict.py\n'))) == 'tooling',
        'a list parser that ignores tooling: cannot class a tooling path')
+
+WRAP = lambda s_: wrap(s_, rebind=False)  # noqa: E731
+mutant("                            if fn.depth[k] != 0:", "                            if False:",
+       lambda M: any('(no longer a top-level declaration' in x for x in real_hits(WRAP, M)),
+       'without the depth check the wrap alone reads clean')
+mutant("                    if f.table(n) in tables and code_line.strip() and not r:", "                    if False:",
+       lambda M: any('SKILLS (protected table structure' in x for x in real_hits(
+           lambda s_: once(s_, 'export const SKILLS = {\n', 'export const SKILLS = false && {\n'), M)),
+       'without the table-structure rule the Codex header repro reads clean')
+mutant("                        if w in names and not (o and glob_match(o, sym)) and _binds(toks, k, code_line):",
+       "                        if False:",
+       lambda M: any('mineGuarded (rebound' in x for x in real_hits(wrap, M)),
+       'without the rebinding rule the destructured mineGuarded is not named')
+mutant("                        if w in gwords and _binds(toks, k, code_line):", "                        if False:",
+       lambda M: any('binds the global Date' in x for x in real_hits(lambda s_: s_ + '\nconst Date = { now: () => 0 }\n', M)),
+       'without the globals rule `const Date = ...` reads clean')
+mutant("            for t in toks[j + 1:]:          # `for (const x of xs)`", "            for t in []:          # `for (const x of xs)`",
+       lambda M: M['_binds']([('for', False, ' (', 0), ('const', False, ' c', 5), ('c', False, ' o', 11), ('of', False, ' D', 13),
+                              ('Date', False, '.n', 16)], 4, 'for (const c of Date.now())') is False,
+       'without the for-head rule a global on the right of `of` reads as bound')
 
 print(f'test_protected: {n} checks passed')

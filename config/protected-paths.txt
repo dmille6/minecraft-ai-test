@@ -19,8 +19,11 @@
 # function is still that function's change. An import a listed function depends on is protected
 # when changed or deleted (add a new import line instead of editing one); a side-effect import is
 # protected when added. A row of a top-level table (SKILLS, SKILL_CONTRACTS) whose key or `run:`
-# names a listed symbol is protected. A change to a `::` file with no line hunks (pure rename, mode
-# change, binary) counts as protected: it cannot be attributed. protected.py's docstring has the
+# names a listed symbol is protected, and so is the rest of that table's code (header, closing brace).
+# Wrapping a listed declaration in a new scope, rebinding its name, or binding a JS global it uses
+# (Date, Math, setTimeout, ...) anywhere in the file is protected. A change to a `::` file with no line
+# hunks (pure rename, mode change, binary) counts as protected: it cannot be attributed. An unlisted
+# helper that a listed function calls is NOT protected: list it. protected.py's docstring has the
 # exact rules.
 # A file path that stops existing fails bots/test/protected-paths.test.mjs, so a rename cannot
 # quietly drop something out of protection. Adding to this list is a decision; so is removing.
