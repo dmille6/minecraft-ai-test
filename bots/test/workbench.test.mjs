@@ -69,6 +69,19 @@ await t('pickLeasedFurnace: the workshop furnace over a nearer town one; lit -> 
   r = S.pickLeasedFurnace(world([near, '23,73,30']), { dir: tmp() })
   assert.strictEqual(`${r.block.position.x},${r.block.position.y},${r.block.position.z}`, near, 'no workshop preference: nearest, as today')
 })
+await t('a workshop furnace beyond the 32-block search is still found by its key (within 64); beyond 64 it is not', () => {
+  // LIVE 22:17Z: the bot at the town chests, the workshop's furnaces ~45 blocks off, outside findBlocks' radius
+  const w = world(['-8,71,-7', '23,73,30'])
+  w.findBlocks = () => [new Vec3(-8, 71, -7)]
+  w.entity.position = new Vec3(-13, 71, 2)
+  let r = S.pickLeasedFurnace(w, { dir: tmp(), prefer: ws })
+  assert.strictEqual(`${r.block.position.x},${r.block.position.y},${r.block.position.z}`, '23,73,30')
+  w.entity.position = new Vec3(-60, 71, -40)
+  r = S.pickLeasedFurnace(w, { dir: tmp(), prefer: ws })
+  assert.strictEqual(`${r.block.position.x},${r.block.position.y},${r.block.position.z}`, '-8,71,-7', 'too far: the search result as before')
+  r = S.pickLeasedFurnace(w, { dir: tmp() })
+  assert.strictEqual(`${r.block.position.x},${r.block.position.y},${r.block.position.z}`, '-8,71,-7', 'no preference: never looked up')
+})
 await t('preferredNow / skipAfterRun: a failed or foreign-filled workshop run drops that furnace from the preference for 30 min', () => {
   const pref = W.workshopStations(rec).furnaces
   assert.deepStrictEqual([...W.preferredNow(pref, { '23,73,30': 2000 }, 1000)], ['25,73,30'])
@@ -90,6 +103,7 @@ await t('WIRED: mats candidates, smelt_town, the order\'s crafts and the craft t
   assert.ok(/if \(skipAfterRun\(\{ kind: f\.ws, status: r\.status, prior: /.test(SK) && /bot\.wsFurnaceSkip = \{ \.\.\.\(bot\.wsFurnaceSkip \?\? \{\}\), \[r\.furnace\]: Date\.now\(\) \+ WORKSHOP_SKIP_MS \}/.test(SK), 'a failed run skips it')
   assert.ok(/pickLeasedFurnace\(bot, \{ avoid: session\.opts\?\.avoid \?\? \(\(\) => false\), prefer: session\.opts\?\.prefer \?\? null \}\)/.test(SK), 'smelt hands it to the pick')
   assert.ok(/const cw = \{ \.\.\.ctx, preferWorkshop: true, stations: \{\} \}/.test(SK) && /f\.made = await matsCrafts\(cw, kind/.test(SK), 'the order\'s crafts')
+  assert.ok(/distanceTo\(b\.position\) <= WORKSHOP_REACH\) : \[\]/.test(SK), 'the workshop table looked up within WORKSHOP_REACH')
   assert.ok(/const wsTables = ctx\.preferWorkshop \?/.test(SK) && /const tableTries = preferWorkshop\(\[\.\.\.wsTables, nearTable\]\.filter\(Boolean\)/.test(SK), 'craftLevel orders its tables')
   assert.ok(/if \(tableBlock !== tableTries\.at\(-1\) && bot\.entity\.position\.distanceTo\(tableBlock\.position\.offset\(0\.5, 0\.5, 0\.5\)\) > STATION_REACH\) continue/.test(SK), 'unreachable -> the nearest')
   assert.ok(/bot\.shopStations = workshopStations\(h\.head\?\.rec \?\? null\)/.test(SK), 'refreshed with the record')

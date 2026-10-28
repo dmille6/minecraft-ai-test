@@ -124,7 +124,7 @@ import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState 
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS } from './workbench.mjs'   // workbench-01
+import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
@@ -5126,7 +5126,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
     })
     // workbench-01: a town job's craft (ctx.preferWorkshop) tries the complete workshop's own table first, within the same 32,
     // then the nearest one as before when the workshop's could not be reached
-    const wsTables = ctx.preferWorkshop ? [...(bot.shopStations?.tables ?? [])].map(k => bot.blockAt?.(keyVec(k))).filter(b => b && bot.registry.blocks[b.type]?.name === 'crafting_table' && bot.entity.position.distanceTo(b.position) <= 32) : []
+    const wsTables = ctx.preferWorkshop ? [...(bot.shopStations?.tables ?? [])].map(k => bot.blockAt?.(keyVec(k))).filter(b => b && bot.registry.blocks[b.type]?.name === 'crafting_table' && bot.entity.position.distanceTo(b.position) <= WORKSHOP_REACH) : []
     const tableTries = preferWorkshop([...wsTables, nearTable].filter(Boolean), b => posKey(b.position), bot.shopStations?.tables)
     for (const tableBlock of tableTries) {
       check(signal)
@@ -12185,6 +12185,15 @@ export function pickLeasedFurnace (bot, { radius = 32, avoid = () => false, dir 
     if (one) blocks = [one]
   }
   const me = bot.entity?.position
+  // workbench-01 r3: the preferred furnaces by key, within WORKSHOP_REACH -- past this search's own radius
+  if (prefer?.size) {
+    const have = new Set(blocks.map(b => b?.position && `${b.position.x},${b.position.y},${b.position.z}`))
+    for (const k of prefer) {
+      if (have.has(k)) continue
+      const b = bot.blockAt?.(keyVec(k))
+      if (b?.position && isFurnace(b) && (!me || me.distanceTo(b.position) <= WORKSHOP_REACH)) blocks.push(b)
+    }
+  }
   blocks = blocks.filter(b => b?.position && !avoid(b.position))
     .sort((a, b) => (me ? me.distanceTo(a.position) - me.distanceTo(b.position) : 0) || a.position.x - b.position.x || a.position.y - b.position.y || a.position.z - b.position.z)
   // workbench-01: a caller's preferred furnaces (the workshop's) first, unless lit; a busy lease falls through to the next below
