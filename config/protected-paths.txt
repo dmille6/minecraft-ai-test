@@ -177,6 +177,7 @@ scripts/deploy-verify.py
 scripts/lib/deployverify.py
 scripts/preflight.sh
 infra/guard/death-tripper.py
+scripts/lib/version_split.py   # the tripper's version-split rules (moved out of death-tripper.py, d83b8abd)
 infra/guard/mcai-guard.py
 infra/showcase/followrule.py
 infra/showcase/start-bots.sh
