@@ -121,7 +121,7 @@ import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState 
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone } from './buildrun.mjs'
 import { botBuildEffects } from './buildbot.mjs'
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -6389,6 +6389,8 @@ export function plantableSpotNear (bot, radius = 2, item = 'oak_sapling') {
         if (!PLANTABLE_SOIL.has(soil.name) || !PLANT_REPLACEABLE.has(cell.name)) continue
         // THE TOWN PLAN (townplan-01, build spec 1.6): never a plan cell, a stand, a plot or a path (a tree would grow into them)
         if (cell.position && planTierAt(bot, cell.position.x, cell.position.y, cell.position.z) !== null) continue
+        // NEVER A PROJECT'S COLUMNS (fell-01): a tree there grows into the build (shop.mjs saplingBox)
+        if (cell.position && !saplingAllowedAt(bot.shopSaplingBox, cell.position.x, cell.position.z)) continue
         const column = []
         for (let i = 1; i <= need; i++) {
           const b = bot.blockAt(p.offset(dx, dy + i, dz))
@@ -6579,6 +6581,10 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       wellRow('refuse', wk, 1, { x: Number(x), y: Number(y), z: Number(z) })
       return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is ${wk === 'unknown' ? 'beside a junk well whose cells could not be read' : `the town junk well's ${wk}`} -- place ${item} at least 3 blocks from the well's column (or give no coordinates: place picks a cell off the well)` }
     }
+    // NO SAPLING IN A PROJECT'S COLUMNS (fell-01): the remedy is a cell the bot can choose from where it is
+    if (needsSoil(item) && !saplingAllowedAt(bot.shopSaplingBox, Number(x), Number(z))) {
+      return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is inside the town project's footprint, where a tree would grow into the build -- plant ${item} at least ${SAPLING_MARGIN + 1} blocks outside the project (or give no coordinates: place picks a cell off it)` }
+    }
     candidates = [{ ref: bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z))), face: UP }]
   } else {
     candidates = placeSites(bot, item)
@@ -6591,7 +6597,7 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
   // land. Filtered here rather than inside the scan so the scan keeps one job.
   if (needsSoil(item)) {
     const before = candidates.length
-    candidates = candidates.filter(c => soilOk(item, c.ref?.name))
+    candidates = candidates.filter(c => soilOk(item, c.ref?.name) && saplingCandidateOk(bot.shopSaplingBox, c))
     if (before && !candidates.length) {
       logEvent({ kind: 'place_no_soil', status: 'no_effect',
                  detail: `${item} needs soil and none of ${before} candidate face(s) offered any`,
@@ -16404,7 +16410,7 @@ export function shopDamaged (bot, rec = null) {
 }
 /** The footprint for the walks' price (index.mjs reads bot.shopFootprint in the A* step). Refreshed with the record. */
 export function shopFootprintRefresh (bot) {
-  try { const h = shopRecordHead(); if (h.ok) bot.shopFootprint = h.head ? footprintCells(h.head.rec) : new Set() } catch { /* keep the last */ }
+  try { const h = shopRecordHead(); if (h.ok) { bot.shopFootprint = h.head ? footprintCells(h.head.rec) : new Set(); bot.shopSaplingBox = h.head ? saplingBox(h.head.rec) : null } } catch { /* keep the last */ }
 }
 
 /**

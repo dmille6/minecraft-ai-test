@@ -29,6 +29,23 @@ export function footprintCells (record) {
   for (const c of record?.cells ?? []) for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) out.add(`${c.at[0] + dx},${c.at[1] + dy},${c.at[2] + dz}`)
   return out
 }
+/**
+ * NO SAPLING IN A PROJECT'S COLUMNS (fell-01, LIVE 10-27 showcase: a spruce stood in shop pad cell 25,72,28 with its trunk up
+ * through the wall cells; the builder could never place there). A tree grows UP and its leaves spread ~2 blocks, so the guard
+ * is the record cells' x/z box widened by SAPLING_MARGIN, at every height. -> { x0, z0, x1, z1 } | null (no record). Pure.
+ */
+export const SAPLING_MARGIN = 2
+export function saplingBox (record, margin = SAPLING_MARGIN) {
+  const cs = record?.cells ?? []
+  if (!cs.length) return null
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
+  for (const c of cs) { x0 = Math.min(x0, c.at[0]); x1 = Math.max(x1, c.at[0]); z0 = Math.min(z0, c.at[2]); z1 = Math.max(z1, c.at[2]) }
+  return { x0: x0 - margin, z0: z0 - margin, x1: x1 + margin, z1: z1 + margin }
+}
+/** May a sapling go into the cell at column (x, z)? false inside the box. Pure. */
+export const saplingAllowedAt = (box, x, z) => !box || x < box.x0 || x > box.x1 || z < box.z0 || z > box.z1
+/** A place() candidate ({ ref, face }) for a sapling: its target cell (ref + face) outside the box? Pure. */
+export const saplingCandidateOk = (box, c) => { const p = c?.ref?.position; return !p || saplingAllowedAt(box, p.x + (c.face?.x ?? 0), p.z + (c.face?.z ?? 0)) }
 /** The footprint's price for a block on the current walk: 100 (mineflayer-pathfinder drops the move) on a work or travel walk,
  *  else 0. One Set lookup (the A* hot path). Pure. */
 export const footprintCost = (cells, profile, block) => {

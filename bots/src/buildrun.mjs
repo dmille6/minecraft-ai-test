@@ -15,7 +15,8 @@
 //      only when its dependencies read COMPLETE in the world. Inside a segment the LOWEST placeable cell goes first, the nearest
 //      to the bot among those: bottom-up wherever the world allows it, never a cell placed while one below it in the same column
 //      is open (a cell above an open one waits). A record cell holding a SCAFFOLD-CLASS foreign block (dirt, cobble, stone...:
-//      FOREIGN_CLEAR) is dug first, under the segment's lease; a container or a station in a record cell stalls the segment.
+//      FOREIGN_CLEAR) is dug first, under the segment's lease; so is a TREE (TREE_CLEAR: a log, with the trunk above it, or
+//      leaves); a container or a station in a record cell stalls the segment.
 //
 // THE SEND PROTOCOL for every click (design 4.1, in this order, nothing awaited from the fence to the send):
 //   look -> intent appended + fsynced (cell, block, segment-lease generation, sequence, connection) -> mutex, non-blocking (busy:
@@ -65,6 +66,33 @@ const AIR = n => n === 'air' || n === 'cave_air'
 // a foreign block in a record cell that the builder may dig (design 4.3 B4 "scaffold-class"; Claude r1 P3-9): terrain and the
 // fleet's scaffold. Never a container, a station or a part: those stall the segment and say so
 export const FOREIGN_CLEAR = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|andesite|diorite|granite|netherrack|cobbled_deepslate|deepslate|gravel)$/
+// A TREE IN A RECORD CELL (fell-01, LIVE 10-27 showcase shop: a spruce grew into pad cell 25,72,28 after siting, trunk 72..76;
+// FOREIGN_CLEAR has no logs, so the pad read `blocked: 1 open, 0 placeable now` for good at 62/63). Any log species, or leaves.
+export const TREE_CLEAR = /_(log|leaves)$/
+/** What a foreign block in an open record cell is -> 'scaffold' | 'tree' | null (never dug: a container, a station, a part). Pure. */
+export function foreignKind (n) {
+  const s = String(n ?? '')
+  if (FOREIGN_CLEAR.test(s)) return 'scaffold'
+  if (TREE_CLEAR.test(s)) return 'tree'
+  return null
+}
+/** The most logs felled above one cleared cell. */
+export const TRUNK_MAX = 12
+/**
+ * THE TRUNK ABOVE a log cell -> [[x, y, z], ...] lowest first: the contiguous column of logs directly above `at`, at most `max`,
+ * stopping at the first non-log, an unread cell, or a cell `keep` says stays (a record cell that reads DONE). Felled with the
+ * cell so no trunk is left floating over the pad and the walls above are not left holding it. Pure.
+ */
+export function trunkAbove (read, at, { max = TRUNK_MAX, keep = () => false } = {}) {
+  const out = []
+  for (let y = at[1] + 1; out.length < max; y++) {
+    const c = [at[0], y, at[2]]
+    const b = read(...c)
+    if (!b || !/_log$/.test(nm(b)) || keep(c)) break
+    out.push(c)
+  }
+  return out
+}
 
 /**
  * A BLOCK'S FAMILY for "is this cell done" (r2, Claude r1 P2-1): a torch clicked onto a side face IS a wall_torch; cut copper
@@ -448,14 +476,35 @@ export async function runVisit (p, e, { maxSteps = 300, deadline = Infinity, bar
         const unk = open.filter(c => unknown.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS)
         if (unk.length) { const c = unk[0]; if ((await resolveUnknown(c.at)) == null) bump(c.at); continue }
         // A FOREIGN SCAFFOLD-CLASS BLOCK in an open cell (placed after siting): dug first, lowest first, under this segment's lease
-        const foreign = open.filter(c => FOREIGN_CLEAR.test(nm(rd(...c.at))) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS).sort((a, b) => a.at[1] - b.at[1])
+        // A TREE (fell-01) the same way, its trunk above felled after it (trunkAbove)
+        // A tree the RECORD lists for clearing is never taken here: clears() fells it, after its sapling (B4, replant first)
+        const listed = new Set((record.clear ?? []).map(c => kOf(c.at)))
+        const foreign = open.filter(c => { const k = foreignKind(nm(rd(...c.at))); return k && !(k === 'tree' && listed.has(kOf(c.at))) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS }).sort((a, b) => a.at[1] - b.at[1])
         if (foreign.length) {
-          const f = foreign[0], name = nm(rd(...f.at))
+          const f = foreign[0], name = nm(rd(...f.at)), kind = foreignKind(name)
           const sg = segGen
-          const v = await digNamed(f.at, name, () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now()))
+          const held = () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now())
+          const v = await digNamed(f.at, name, held)
           if (v === 'fence') { out.stop = 'fence:segment'; return out }
           if (v === 'aborted') { out.stop = 'aborted'; return out }
-          if (v === 'confirmed') { out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: 'foreign' }) } else bump(f.at)
+          if (v !== 'confirmed') { bump(f.at); continue }
+          out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign' })
+          if (kind === 'tree' && /_log$/.test(name)) {
+            // THE TRUNK ABOVE, lowest first, each log under the same lease; one it cannot reach or dig ends the felling (bounded:
+            // TRUNK_MAX logs). A log left in a record cell is dug when its own segment opens; one outside the record stays, named
+            const roleAt = new Map(record.cells.map(c => [kOf(c.at), c.role]))
+            const keep = c => listed.has(kOf(c)) || (roleAt.has(kOf(c)) && cellDone(rd(...c), palette, roleAt.get(kOf(c))))
+            let felled = 0, left = null
+            for (const tc of trunkAbove(rd, f.at, { keep })) {
+              const g = guard(); if (g) { out.stop = g; return out }
+              const tv = await digNamed(tc, nm(rd(...tc)), held)
+              if (tv === 'fence') { out.stop = 'fence:segment'; return out }
+              if (tv === 'aborted') { out.stop = 'aborted'; return out }
+              if (tv !== 'confirmed') { left = `${tc.join(',')}:${tv}`; break }
+              felled++; out.cleared++
+            }
+            e.log('_build', { op: 'fell', seg, cell: f.at, block: name, n: felled, ...(left ? { why: left } : {}) })
+          }
           continue
         }
         const blocking = new Set(open.filter(c => c.role !== 'light').map(c => kOf(c.at)))
