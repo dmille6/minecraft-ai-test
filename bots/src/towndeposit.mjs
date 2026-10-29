@@ -75,6 +75,19 @@ export const TD_WALK_MS = 10 * 1000
 export const TD_OPEN_MS = 8 * 1000
 export const TD_SETTLE_MS = 5 * 1000
 export const TD_MAX_CONTAINERS = 2
+/**
+ * TOWNDEPOSIT-02 (owner 10-28, success-rate fixes #4 "room when the town is full"): a container found with NO empty slot is
+ * not one of the run's TD_MAX_CONTAINERS tries -- the run looks at up to TD_FULL_EXTRA more, nearest first -- and it is
+ * remembered `full` in the town's memory (chestfull.mjs, FULL_TTL_MS), as the deposit verb's recovery remembers one, so the
+ * next town_deposit (townContainers) and the deposit's recovery skip it. Measured 10-28 (ES, 24 h, 80 bots): 85 of 85
+ * failed town_deposit rows were town_storage_full; on board-b every one opened the same two full chests (-250,64,144 and
+ * -249,64,144) while the town index showed 16 of 19 containers with room (191 of 513 slots used). The town was not full.
+ */
+export const TD_FULL_EXTRA = 2
+/** May the run try another container? -> boolean. Pure. `tried` is the run's [{ result }]; a `full` one does not count. */
+export function tdMoreContainers (tried = []) {
+  return (Array.isArray(tried) ? tried : []).filter(t => t?.result !== 'full').length < TD_MAX_CONTAINERS
+}
 
 /** depositPlan's creditCap (bankable.mjs bankableInventory default): the most of one name a VISIT banks. */
 export const CREDIT_CAP = 64
