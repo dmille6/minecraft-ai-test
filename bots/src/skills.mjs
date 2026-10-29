@@ -124,9 +124,10 @@ import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors
 import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
+import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress } from './ziggurat.mjs'   // monument-01
 import { botBuildEffects } from './buildbot.mjs'
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -7747,12 +7748,16 @@ export function findTownComposter (bot) {
  */
 export function shopShareHeld (bot) {
   if (!SHOP.on) return false
+  // EVERY project's share (monument-01 review, Claude r1 note: the active project moves with slot freeness, so a bot holding the
+  // house's planks while the ziggurat was current could build stations from them)
+  try { const dir = townDir(); return projectsOn().some(p => { const key = projKeyOf(p.plot); return shareHeldIn(bot, dir, key, recordHead(dir, key).head?.rec) }) } catch { return false }
+}
+function shareHeldIn (bot, dir, key, rec) {
   try {
-    const dir = townDir(), key = shopKey(), me = bot.username ?? 'bot'
+    const me = bot.username ?? 'bot'
     const dr = drawnRead(dir, key, me)
     if (!Object.keys(dr.drawn).length) return false
     const held = heldMap(bot)
-    const rec = shopRecordHead().head?.rec
     const st = shareState(dr, held, { complete: !!rec?.structure_complete, completeAt: rec?.completeAt ?? null })
     // the lifecycle (r16 reviews): a completed build's share cleared, a consumed one retired to what is left (baseline the bag now)
     if (st.write) drawnWrite(dir, key, me, st.write, { bag: held })
@@ -16613,7 +16618,8 @@ export const placeForTest = (ctx, args, signal, opts) => place(ctx, args, signal
 // ================================================================================================================================
 const projKeyOf = plot => projKey(planHomeP(), plot)
 const bpCache = new Map()
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, loadBlueprint(id)); return bpCache.get(id) }
+// monument-01: the ziggurat has no blueprint file -- its cells are computed (ziggurat.mjs); its palette is ZIG_PALETTE
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -16629,18 +16635,33 @@ export function shopActive (bot = null, now = Date.now()) {
     const dir = townDir()
     if (bot) activeMem = { ...(activeMem ?? {}), bot }
     const sig = `${dir}|${list.map(p => `${projKeyOf(p.plot)}:${recordGenNow(dir, projKeyOf(p.plot))}`).join('|')}`
-    if (activeMem?.p && activeMem.sig === sig && now - activeMem.at < 60_000) return activeMem.p
     const b = activeMem?.bot ?? null
-    const states = list.map(p => {
-      const h = recordHead(dir, projKeyOf(p.plot))
-      const rec = h.ok ? h.head?.rec ?? null : null
-      const complete = !!rec?.structure_complete
-      return { plot: p.plot, exists: !!rec, complete, damaged: complete && b ? recordDamaged(b, rec) : false }
-    })
-    const pick = activeProject(states, list)
-    activeMem = { ...(activeMem ?? {}), sig, at: now, p: pick }
-    return pick
+    if (!(activeMem?.states && activeMem.sig === sig && now - activeMem.at < 60_000)) {
+      const states = list.map(p => {
+        const h = recordHead(dir, projKeyOf(p.plot))
+        const rec = h.ok ? h.head?.rec ?? null : null
+        const complete = !!rec?.structure_complete
+        return { plot: p.plot, exists: !!rec, complete, damaged: complete && b ? recordDamaged(b, rec) : false }
+      })
+      activeMem = { ...(activeMem ?? {}), sig, at: now, states }
+    }
+    // monument-01: whether each open project has an admission slot for THIS bot, read fresh (leases move faster than records):
+    // a bot whose first open project is full works the next one (shop.mjs activeProject `free`)
+    const me = b?.username ?? config.bot?.name ?? null
+    const states = activeMem.states.map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now) }))
+    return activeProject(states, list)
   } catch { return projectsOn()[0] }
+}
+/** Has project `p` an admission slot this holder may take (none held, its own, or lapsed)? Unreadable: free (the order's own
+ *  slot check then decides, as before). */
+function slotFreeFor (p, holder, now = Date.now()) {
+  try {
+    for (let k = 1; k <= buildersOf(p); k++) {
+      const st = projLeaseState(townDir(), projKeyOf(p.plot), `slot${k}`)
+      if (!st || st.rec?.holder === holder || now >= st.blocksUntil) return true
+    }
+    return false
+  } catch { return true }
 }
 const shopKey = () => projKeyOf(shopActive().plot)
 const shopBlueprint = () => blueprintOf(shopActive().blueprint)
@@ -16746,7 +16767,7 @@ function projectDraw (bot, normal, { forProject = true, base = takeAllowed, then
 /** Is an admission slot free for this bot? (the order's reading) Never throws: unreadable reads as full. */
 export function shopSlotsFree (bot) {
   try {
-    for (let k = 1; k <= BUILDERS_MAX; k++) {
+    for (let k = 1; k <= buildersOf(shopActive()); k++) {
       const s = projLeaseState(townDir(), shopKey(), `slot${k}`)
       if (!s || s.rec?.holder === bot?.username || Date.now() >= s.blocksUntil) return true
     }
@@ -16765,7 +16786,11 @@ function shopCtx (bot) {
     if (g != null) { const s = JSON.parse(fs.readFileSync(path.join(townDir(), `junkwell-site-${hk}.g${g}.json`), 'utf8')); if ([s?.x, s?.y, s?.z].every(Number.isFinite)) wells.push([s.x, s.y, s.z]) }
   } catch { /* none */ }
   const farm = [...treeFarmCells()].map(k => k.split(',').map(Number))
-  return { zonesKnown: zones.known, zones: zones.zones, wells, farm }
+  // monument-01: a sited ziggurat is a reservation for every other project's siting and replant cells (buildsite.mjs z0: its box
+  // + 8, the town plan's TP 2-8 apron)
+  let z0 = null
+  try { const m = projectsOn().some(p => p.plot === MONUMENT_PLOT) ? recordHead(townDir(), projKeyOf(MONUMENT_PLOT)) : null; if (Array.isArray(m?.head?.rec?.box)) z0 = { box: m.head.rec.box } } catch { /* none */ }
+  return { zonesKnown: zones.known, zones: zones.zones, wells, farm, z0 }
 }
 /** THE POOL'S STOOD CELLS (D3 at runtime): this bot's in-town feet cell, at most once per cell per STOOD_REPEAT_MS. index.mjs calls
  *  it every STOOD_EVERY_MS. Never throws. */
@@ -16818,19 +16843,22 @@ export function shopCellsNow () {
     if (!SHOP.on) return null
     // house-01: every project's record cells (one keep-out for the workshop and the houses)
     const dir = townDir()
-    const sig = projectsOn().map(p => `${projKeyOf(p.plot)}:${recordGenNow(dir, projKeyOf(p.plot))}`).join('|')
+    const sig = `${dir}|` + projectsOn().map(p => `${projKeyOf(p.plot)}:${recordGenNow(dir, projKeyOf(p.plot))}`).join('|')
     if (shopCellCache && shopCellCache.key === sig) return shopCellCache
-    const all = projectHeads().flatMap(x => x.head.rec?.cells ?? [])
+    const heads = projectHeads()
+    const all = heads.flatMap(x => x.head.rec?.cells ?? [])
     if (!all.length) return null
     const cells = new Set(all.map(c => c.at.join(',')))
-    shopCellCache = { key: sig, cells, bottom: Math.min(...all.map(c => c.at[1])) }
+    // monument-01: the ziggurat's own cells, so mine's refusal names the monument (minewell.mjs keepOutLabel)
+    const mon = new Set((heads.find(x => x.plot === MONUMENT_PLOT)?.head.rec?.cells ?? []).map(c => c.at.join(',')))
+    shopCellCache = { key: sig, cells, mon, bottom: Math.min(...all.map(c => c.at[1])) }
     return shopCellCache
   } catch { return null }
 }
 /** mine's keep-out part (minewell.mjs composeKeepOut): a record cell is never dug by a stair, never a stair's start. */
 export function shopKeepOut () {
   const s = shopCellsNow()
-  return s ? { forbid: c => (c && s.cells.has(`${c.x},${c.y},${c.z}`) ? 'workshop' : null), bottom: s.bottom } : { forbid: null, bottom: null }
+  return s ? { forbid: c => { if (!c) return null; const k = `${c.x},${c.y},${c.z}`; return s.cells.has(k) ? (s.mon?.has(k) ? 'monument' : 'workshop') : null }, bottom: s.bottom } : { forbid: null, bottom: null }
 }
 /**
  * IS A COMPLETE WORKSHOP DAMAGED? (shop-01 r2, Codex r1 P2: completion is reassessed against the WORLD, so a cut cell is
@@ -16853,9 +16881,12 @@ export function shopDamaged (bot, rec = null) {
 function recordDamaged (bot, r) {
   try {
     const bp = blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
+    // monument-01: a sealed core cell of the ziggurat is done (ziggurat.mjs zigHidden), as its visit judges it
+    const mon = r.blueprint === MONUMENT_BLUEPRINT
+    const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     for (const c of r.cells ?? []) {
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
-      if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role)) return true
+      if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role) && !(mon && zigHidden(c, read))) return true
     }
     return false
   } catch { return false }
@@ -16889,6 +16920,8 @@ async function buildShop (ctx, args, signal) {
   const t0 = Date.now()
   // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject)
   const proj = shopActive(bot)
+  // monument-01: the ziggurat's visit is its own (computed cells, its siting, its rows)
+  if (proj.plot === MONUMENT_PLOT) return buildMonument(ctx, args, signal)
   const plot = proj.plot
   const f = { project: plot }
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
@@ -16914,7 +16947,7 @@ async function buildShop (ctx, args, signal) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
       more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot }
     }
-    const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, stood, ...more })
+    const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
     if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
@@ -16931,7 +16964,7 @@ async function buildShop (ctx, args, signal) {
     if (Object.keys(drawnRead(dir, key, me).drawn).length) drawnWrite(dir, key, me, {})
     return out('no_effect', 'complete', `the ${plot} stands`)
   }
-  const slot = takeSlot(dir, key, me, BUILDERS_MAX)
+  const slot = takeSlot(dir, key, me, buildersOf(proj))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }   // follows every renewal inside the visit: the release below is the LATEST generation (Codex r1 P3)
   let effects = null
@@ -17028,7 +17061,7 @@ async function buildShop (ctx, args, signal) {
     // the town's reservations and zones, for a replant cell the visit must MOVE (F2: the same rule as the siting proof)
     // unreadable: the visit neither moves nor skips a replant (r19, Claude r18 P2-2: an exception must never fell an unreplaced tree)
     let res = null, resFailed = false
-    try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm }) } catch { resFailed = true }
+    try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0 }) } catch { resFailed = true }
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
@@ -17062,6 +17095,153 @@ async function buildShop (ctx, args, signal) {
     // and still holds, the next visit's to spend; after a completion, cleared again (an idempotent retry of the clear)
     if (drawn0) { try { if (completed) { if (!drawnWrite(dir, key, me, {})) drawnFails++ } else persist() } catch { drawnFails++ } }
     if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(plot, bagBalance({ bag0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
+  }
+}
+
+// ================================================================================================================================
+// MONUMENT-01: THE ZIGGURAT (ziggurat.mjs; shop.mjs PROJECTS' third entry). build_shop's visit when the active project is the
+// monument: the same record, slot, segment, intent and visit machinery as the workshop and the house (buildproj.mjs, buildrun.mjs,
+// buildbot.mjs), its key `project-<home>.monument`, the same `_build*` rows with project=monument (the showcase tripwire's shop
+// read judges each row against its own project's record: shopread.py, 10-29), MONUMENT_BUILDERS slots.
+// ================================================================================================================================
+/** The ziggurat's progress for the visit row: "done/all@layer" (one read per cell of a loaded world). Never throws. */
+function zigProgressNow (bot, rec) {
+  try {
+    const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+    const p = zigProgress(rec, c => { const b = read(...c.at); return !!b && (buildCellDone(b, ZIG_PALETTE, c.role) || zigHidden(c, read)) })
+    return `${p.done}/${p.done + p.open}@${p.layer ?? 'top'}`
+  } catch { return '-' }
+}
+async function buildMonument (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const f = { project: MONUMENT_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === MONUMENT_PLOT)) return out('no_effect', 'off', 'the monument is switched off (MONUMENT, SHOP or TOWNPLAN)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(MONUMENT_PLOT), me = bot.username ?? 'bot', home = planHomeP(), palette = ZIG_PALETTE
+  bot.shopVisitKey = key
+  const g = zigFor(process.env, config.memory.pool)
+  const stood = stoodRead(dir, stoodKey(), home)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the monument record could not be read')
+  if (!rh.head) {
+    // SITING (ziggurat.mjs siteZiggurat): inside the town plan's monument reservation, clear of the plan, the zones, the wells,
+    // the farm and every other project's record cells (+ SITE.avoidPad); the stair faces home
+    const box = monumentBox(h.head.plan)
+    if (!box) return out('no_effect', 'no_site', 'the town plan holds no monument reservation', { stop: 'no_site' })
+    const read = planReader(bot)
+    let res = null
+    try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm }) } catch { return out('no_effect', 'site_unread', 'the town\'s reservations could not be read', { stop: 'site_unread' }) }
+    const others = new Set(projectHeads().filter(x => x.plot !== MONUMENT_PLOT).flatMap(x => (x.head.rec?.cells ?? []).map(q => `${q.at[0]},${q.at[2]}`)))
+    const avoid = zigAvoid({ column: res.column, zones: c.zones, cells: others })
+    const col = (x, z) => columnOf(read, x, z, { yHi: home.y + 30, yLo: home.y - 18 })
+    const s = siteZiggurat(col, avoid, { box, home, g })
+    if (!s.ok) {
+      // an UNREAD column (a chunk not loaded from here) is asked again at the next order; anything else waits the daily re-fit
+      const unreadOnly = Object.keys(s.rejects ?? {}).length > 0 && Object.keys(s.rejects).every(k => /unread|unknown/.test(k))
+      const stop = unreadOnly ? 'site_unread' : 'no_site'
+      return out('no_effect', stop, `no ziggurat site in ${box.join(',')} (${s.why}): ${JSON.stringify(s.rejects)}`.slice(0, 160), { stop })
+    }
+    const record = zigRecord(s.site, read, { home, g, plan: h.head.plan, sector: (h.head.plan.plots ?? []).find(q => q.kind === 'monument')?.sector ?? null })
+    const pub = publishRecord(dir, key, cur => (cur ? null : { ...record, state: 'open' }), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'sited', cell: [record.corner[0], record.baseY, record.corner[1]], kind: `${record.face}/B${g.B}/cells${record.cells.length}/fill${record.earthwork.fill}/cut${record.earthwork.cut}/clear${record.clear.length}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the monument record could not be read back')
+  }
+  shopFootprintRefresh(bot)
+  const rec = rh.head.rec
+  if (rec.structure_complete && !shopDamaged(bot, rec)) {
+    if (Object.keys(drawnRead(dir, key, me).drawn).length) drawnWrite(dir, key, me, {})
+    return out('no_effect', 'complete', 'the ziggurat stands')
+  }
+  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === MONUMENT_PLOT)))
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }
+  let effects = null
+  let bag0 = null, tookAll = {}, backAll = {}, placedBy = {}, diedAt = null, drawn0 = null, drawnFails = 0, completed = false
+  const persist = () => {
+    if (!drawn0 || completed) return
+    const b1 = heldMap(bot)
+    if (!drawnWrite(dir, key, me, drawnAfter({ drawn: drawn0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: b1 }), { bag: b1 })) drawnFails++
+  }
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    const held0 = heldMap(bot)
+    let dr = drawnRead(dir, key, me)
+    if (rec.structure_complete && Object.keys(dr.drawn).length && !(Number(dr.at) > Number(rec.completeAt ?? Infinity))) {
+      if (!drawnWrite(dir, key, me, {})) drawnFails++
+      dr = { drawn: {}, bag: {}, at: null }
+    }
+    drawn0 = drawnHeld(dr.drawn, held0, dr.bag)
+    const keep = townKeeps(ownCounts(held0, drawn0), { wanted: bot.currentWants ?? [] }).keep
+    const spare0 = Object.fromEntries(Object.entries(held0).map(([n, k]) => [n, Math.max(0, k - (keep[n] ?? 0))]))
+    // THE BILL: the open cells' blocks (skin, stair and core all bill as cobblestone -- shop.mjs billOf resolves a role to the
+    // first of its names the town stocks), less the bag's spare (its stone and dirt count for the core), capped at SHOP_BILL_CAP,
+    // from town under the project reserve (OWNER 10-27: an active project may spend 80% of it: mats.mjs effectiveReserve)
+    const read = planReader(bot)
+    const town = matsTownStock(bot)?.stock ?? {}
+    const bill = billOf(rec, palette, read, { done: buildCellDone, inTown: billInTown(town) })
+    // the bag's other stone and dirt are credited against the CORE's cobblestone only (Codex r1 BLOCK: credited against the whole
+    // bill they cancelled the skin's and the stair's, which take cobblestone alone -- need {} and a no_material stop every visit)
+    const coreBill = billOf({ cells: rec.cells.filter(x => x.role === 'core') }, palette, read, { done: buildCellDone, inTown: billInTown(town) })
+    const want = zigWant(bill, coreBill, spare0, palette)
+    const need = needFromTown(want, spare0)
+    let took = {}
+    bag0 = held0
+    if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
+    const R0 = matsReserve().table
+    const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, n) => { tookAll[k] = (tookAll[k] ?? 0) + n; persist() } })
+    const segFree = sg => { const st = projLeaseState(dir, key, `seg-${sg}`); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil }
+    // nothing is drawn by a builder that would only wait (every open segment held, or the next layer waiting on another's)
+    if (Object.keys(need).length && workableSeg(rec, read, palette, segFree, zigHidden)) {
+      const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
+    }
+    check(signal)
+    effects = botBuildEffects(bot, {
+      acks,
+      keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: MONUMENT_PLOT, ...d }) : buildRowDetail({ project: MONUMENT_PLOT, ...d }) }) } catch { /* telemetry */ } if (kind === '_build' && d?.op === 'place') persist() },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zigHidden, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z] }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000, maxSteps: 400 })
+    if (r.stop === 'complete') {
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      completed = true
+      bot.shopDamage = null
+      if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'complete', kind: MONUMENT_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+    }
+    let back = {}
+    const left = leftoverNames(took, held0, heldMap(bot))
+    if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
+    return out(status, r.stop, `${r.why ?? r.stop}; built ${zigProgressNow(bot, rec)}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    if (drawn0) { try { if (completed) { if (!drawnWrite(dir, key, me, {})) drawnFails++ } else persist() } catch { drawnFails++ } }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(MONUMENT_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
   }
 }
 

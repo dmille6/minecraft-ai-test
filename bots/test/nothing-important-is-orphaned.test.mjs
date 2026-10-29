@@ -31,6 +31,10 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  // monument-01 (10-29): the ziggurat's site, offline, by the bots' own functions (the fleet canary's per-world siting), and the
+  // shop read that judges every project's record (the showcase tripwire's S6)
+  'bots/scripts/zigsite-offline.mjs',
+  'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',
   // the process the owner set on 2026-10-28; CLAUDE.md points every session at it

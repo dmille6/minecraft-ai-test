@@ -158,12 +158,12 @@ await t('an UNKNOWN clear entry that resolves to the done wall is not dug either
   const r = await R.runVisit({ ...p('A'), unknown: new Set([k3(b.wall)]) }, bot(srv, 'A', { probe: async () => 'oak_planks' }), { maxSteps: 40 })
   assert.strictEqual(srv.read(...b.wall).name, 'oak_planks'); assert.strictEqual(r.cleared, 0)
 })
-await t('MUTANT the done-cell guard dropped: the resolved wall is dug', () => both("        if (builtDone(c)) continue      // AT the dig", "        if (false) continue      // AT the dig", async M => {
+await t('MUTANT the done-cell guard dropped: the resolved wall is dug', () => both("        if (c.kind !== 'tree' && builtDone(c)) continue", "        if (false) continue", async M => {
   const b = sameNameOverClear(), srv = server({ [k3(b.wall)]: 'oak_planks' }), { p } = project(b.record)
   const r = await M.runVisit({ ...p('A'), unknown: new Set([k3(b.wall)]) }, bot(srv, 'A', { probe: async () => 'oak_planks' }), { maxSteps: 40 })
   assert.strictEqual(r.cleared, 0)
 }))
-await t('MUTANT the done-cell guard dropped: the known wall is dug', () => both("        if (builtDone(c)) continue      // AT the dig", "        if (false) continue      // AT the dig", async M => {
+await t('MUTANT the done-cell guard dropped: the known wall is dug', () => both("        if (c.kind !== 'tree' && builtDone(c)) continue", "        if (false) continue", async M => {
   const b = sameNameOverClear(), srv = server({ [k3(b.wall)]: 'oak_planks' }), { p } = project(b.record)
   const r = await M.runVisit(p('A'), bot(srv, 'A'), { maxSteps: 40 })
   assert.strictEqual(r.cleared, 0)
@@ -212,7 +212,7 @@ await t('BOTTOM-UP in a filled hole (side supports at every level): the fill goe
   const fills = e.logs.filter(([k, d]) => k === '_build' && d.seg === 'earth').map(([, d]) => d.cell[1])
   assert.deepStrictEqual(fills, [G - 2, G - 1, G])
 })
-await t('MUTANT the bottom-up rule dropped (the top of the hole first)', () => both('&& !below(c) && isClear(c.at))\n          .sort((a, b) => a.at[1] - b.at[1] ||', '&& isClear(c.at))\n          .sort((a, b) => b.at[1] - a.at[1] ||', async M => {
+await t('MUTANT the bottom-up rule dropped (the top of the hole first)', () => both('&& !below(c) && isClear(c.at) && !occupied(c))\n          .sort((a, b) => a.at[1] - b.at[1] ||', '&& isClear(c.at) && !occupied(c))\n          .sort((a, b) => b.at[1] - a.at[1] ||', async M => {
   const h = holeRecord(), srv = server(h.cells), { p } = project(h.record)
   const e = bot(srv, 'A')
   await M.runVisit(p('A'), e, { maxSteps: 2000 })

@@ -276,7 +276,12 @@ const W = [
   ['skills: the bag row reports the share\'s writes', SK, /drawn: drawn0 \? \(drawnFails \? `fail:\$\{drawnFails\}` : 'ok'\) : '-' \}/],
   ['skills: persist writes the bag balance with its baseline and counts a failure', SK, /if \(!drawnWrite\(dir, key, me, drawnAfter\(\{ drawn: drawn0, took: tookAll, crafted, placed: placedBy, back: backAll, bag1: b1 \}\), \{ bag: b1 \}\)\) drawnFails\+\+/],
 ]
-for (const [name, src, re] of W) {
+// monument-01: buildMonument (the ziggurat's visit) repeats the workshop visit's share and bag lines on purpose -- these anchors
+// are the WORKSHOP visit's, so they are judged with the ziggurat's function cut out (its own wiring: ziggurat-project.test.mjs)
+const ZIG_FN = /\nasync function buildMonument \([\s\S]*?\n\}\n/
+assert.ok(ZIG_FN.test(SK), 'buildMonument is found (the cut is not a no-op)')
+for (const [name, src0, re] of W) {
+  const src = src0 === SK ? SK.replace(ZIG_FN, '\n') : src0
   await t(`${name} (and a mutant of it fails)`, () => {
     assert.ok(re.test(src), 'wired')
     const m = src.match(re)[0]
