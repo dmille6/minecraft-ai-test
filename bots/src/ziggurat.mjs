@@ -333,12 +333,13 @@ export function zigRecord (site, read, { home, g = ZIG_DEFAULT, plan = null, sec
     for (const y of c.logs) if (y > baseY) clear.push({ at: [c.x, y, c.z], kind: LITTER.test(nm(read(c.x, y, c.z))) ? 'cut' : 'tree', name: nm(read(c.x, y, c.z)) })
   }
   // THE CANOPY (offline on the showcase's own region, 10-29: 1,227 leaves over the chosen site, 471 of them in record cells): every
-  // leaves block in the site's columns and one ring round them, from the ground to above the top -- RECORD CELLS INCLUDED. Else no
+  // leaves block in the site's columns (base and apron), from the ground to above the top -- RECORD CELLS INCLUDED. Else no
   // stand under a spruce canopy is a node of the walk (head room), and the offline run deadlocked: the foundation's hollow could not
   // be reached under leaves standing in layer 0's cells, which only layer 0's own visit (waiting on the foundation) would dig.
   // Most decay by themselves once their trunks are dug; a dig skips a cell that no longer holds the block named here.
   const lo = Math.min(...site.base.map(c => c.top), ...site.apron.map(c => c.top))
-  for (let x = corner.x - 2; x <= corner.x + g.B + 1; x++) for (let z = corner.z - 2; z <= corner.z + g.B + 1; z++) {
+  // the base and its apron: the columns the site checked (no zone, no plan cell, no other project) -- Codex r1 note
+  for (let x = corner.x - 1; x <= corner.x + g.B; x++) for (let z = corner.z - 1; z <= corner.z + g.B; z++) {
     for (let y = lo; y <= baseY + top + 3; y++) {
       const n = nm(read(x, y, z))
       if (/_leaves$/.test(n)) clear.push({ at: [x, y, z], kind: 'leaves', name: n })
@@ -416,6 +417,18 @@ export function zigHidden (c, read) {
  * open cells are never a floor. Pure.
  */
 export const zigFeetIn = () => true
+/**
+ * WHAT A VISIT WANTS FROM TOWN BEFORE THE BAG -> { name: n }. Pure. `bill` the open cells' bill, `coreBill` the open CORE cells'
+ * own; the bag's other core names (dirt, stone variants: `spare`) are credited against the core's cobblestone only -- the skin and
+ * the stair take cobblestone alone (Codex r1 BLOCK: credited against the whole bill, 48 dirt cancelled one skin cell's cobblestone,
+ * nothing was drawn and the visit stopped no_material every time).
+ */
+export function zigWant (bill = {}, coreBill = {}, spare = {}, palette = ZIG_PALETTE) {
+  const other = (palette.core ?? []).filter(n => n !== '*solid' && n !== 'cobblestone').reduce((t, n) => t + (Number(spare[n]) || 0), 0)
+  const out = { ...bill }
+  if (out.cobblestone) out.cobblestone = Math.max(0, out.cobblestone - Math.min(other, Number(coreBill.cobblestone) || 0))
+  return out
+}
 /** How many clear digs one visit tries before it turns to the segments (buildrun.mjs runVisit `clearMax`). */
 export const ZIG_CLEAR_MAX = 60
 

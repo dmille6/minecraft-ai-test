@@ -124,7 +124,7 @@ import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors
 import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
-import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress } from './ziggurat.mjs'   // monument-01
+import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress } from './ziggurat.mjs'   // monument-01
 import { botBuildEffects } from './buildbot.mjs'
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf } from './shop.mjs'
@@ -7748,12 +7748,16 @@ export function findTownComposter (bot) {
  */
 export function shopShareHeld (bot) {
   if (!SHOP.on) return false
+  // EVERY project's share (monument-01 review, Claude r1 note: the active project moves with slot freeness, so a bot holding the
+  // house's planks while the ziggurat was current could build stations from them)
+  try { const dir = townDir(); return projectsOn().some(p => { const key = projKeyOf(p.plot); return shareHeldIn(bot, dir, key, recordHead(dir, key).head?.rec) }) } catch { return false }
+}
+function shareHeldIn (bot, dir, key, rec) {
   try {
-    const dir = townDir(), key = shopKey(), me = bot.username ?? 'bot'
+    const me = bot.username ?? 'bot'
     const dr = drawnRead(dir, key, me)
     if (!Object.keys(dr.drawn).length) return false
     const held = heldMap(bot)
-    const rec = shopRecordHead().head?.rec
     const st = shareState(dr, held, { complete: !!rec?.structure_complete, completeAt: rec?.completeAt ?? null })
     // the lifecycle (r16 reviews): a completed build's share cleared, a consumed one retired to what is left (baseline the bag now)
     if (st.write) drawnWrite(dir, key, me, st.write, { bag: held })
@@ -17189,9 +17193,10 @@ async function buildMonument (ctx, args, signal) {
     const read = planReader(bot)
     const town = matsTownStock(bot)?.stock ?? {}
     const bill = billOf(rec, palette, read, { done: buildCellDone, inTown: billInTown(town) })
-    const coreSpare = (palette.core ?? []).filter(n => n !== '*solid' && n !== 'cobblestone').reduce((t, n) => t + (spare0[n] ?? 0), 0)
-    const want = { ...bill }
-    if (want.cobblestone) want.cobblestone = Math.max(0, want.cobblestone - coreSpare)
+    // the bag's other stone and dirt are credited against the CORE's cobblestone only (Codex r1 BLOCK: credited against the whole
+    // bill they cancelled the skin's and the stair's, which take cobblestone alone -- need {} and a no_material stop every visit)
+    const coreBill = billOf({ cells: rec.cells.filter(x => x.role === 'core') }, palette, read, { done: buildCellDone, inTown: billInTown(town) })
+    const want = zigWant(bill, coreBill, spare0, palette)
     const need = needFromTown(want, spare0)
     let took = {}
     bag0 = held0
