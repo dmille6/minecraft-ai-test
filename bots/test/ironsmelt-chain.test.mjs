@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 delete process.env.IRONSMELT; delete process.env.SMELT_RULEOUT
 const FX = await import('./ironsmelt-fixture.mjs')
-const { CF, CHESTS, FAR, FW, HK, HOME, NEAR, RECS, S0, SJ, SJ_PATH, SKILLS_PATH, TI, chest, clearWithdrawHolds, count, dirtyByIndex, fakeWorld, field, freshPool, job, kOf, killedBy, lastRow, later, memDir, offset, realNow, seenByIndex, sig, stack, t, tapRecords, town, townTotal, withMutant, withServer } = FX
+const { CF, CHESTS, FAR, FW, HK, HOME, NEAR, RECS, S0, SJ, SJ_PATH, SKILLS_PATH, TI, chest, clearWithdrawHolds, count, depositByIndex, dirtyByIndex, fakeWorld, field, freshPool, job, kOf, killedBy, lastRow, later, memDir, offset, realNow, seenByIndex, sig, stack, t, tapRecords, town, townTotal, withMutant, withServer } = FX
 
 // ---- THE REFUSAL CHAIN, through the REAL decision loop ----------------------------------------------------------------
 const { Lessons } = await import('../src/lessons.mjs')
@@ -68,7 +68,8 @@ const chainScene = async S => {
       before = { ran: r.slice(), streak: L.smeltJobState?.streak ?? null }
       // the town changes: raw iron and coal deposited into the FAR chest (its mutation mark), and the cooldown passes
       w.stock(...FAR, [stack('raw_iron', 8), stack('coal', 4)])
-      dirtyByIndex(FAR)
+      // smeltgate-01: the deposit verb's own records (its move of raw iron, then the closing mark): the gate's evidence
+      depositByIndex(FAR, 'raw_iron', 8)
       later(SJ.SMELT_JOB_COOLDOWN_MS + 1000)
     } },
     { until: r => r.some(x => x.skill === 'smelt_town') },
