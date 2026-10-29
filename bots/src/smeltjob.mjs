@@ -28,7 +28,7 @@
 // wait and measure. Isolated pools are out of v1 (owner D2: their town state is per bot, so five bots would each run
 // their own job against one physical town).
 
-import { indexStateOf, TOWNINDEX } from './townindex.mjs'   // ironsmelt-01: the index rule-out (townindex.mjs imports nothing of ours)
+import { indexStateOf, TOWNINDEX, OP_TTL_MS } from './townindex.mjs'   // ironsmelt-01: the index rule-out (townindex.mjs imports nothing of ours)
 
 /** What the job smelts in stage 1, and what that makes (smelting.mjs SMELTS raw_copper -> copper_ingot). */
 export const SMELT_JOB_INPUT = 'raw_copper'
@@ -178,6 +178,59 @@ export function indexRuledOut (entries = {}, need = null, now = Date.now(), { tt
     n++
   }
   return { keys, n }
+}
+
+// ---- SMELTGATE-01: NO ORDER WHEN THE TOWN INDEX SHOWS NO INPUT ANYWHERE ---------------------------------------------------
+// MEASURED 10-28 (ES 24 h to 22:30Z, 80 bots; the 16 live towns' index files, replayed at each job's start): 777 of 1,068
+// smelt_town jobs ended town_has_none (median 3.3 s, looked=1 in 577), and the towns held NO raw ore -- 0 raw_copper and 3
+// raw_iron in the latest observations of 312 containers, beside 16,000+ copper_ingot (the copper is already smelted). The
+// gate's rule-out covers only containers known (opened, no mutation since) within 2 h, so each job opened the 1-3 dirty or
+// older ones and found nothing. At the START of every one of the 99 jobs that took town ore (84 copper, 15 iron), some
+// container's latest observation held that ore or a move of it into a container came after its last observation; at the
+// start of 592 of the 777 town_has_none jobs, none did.
+// SMELT_GATE=off is the one-setting rollback (the gate exactly as before).
+export const SMELT_GATE = Object.freeze({ on: !['off', '0', 'false', 'no'].includes(String((typeof process !== 'undefined' ? process.env?.SMELT_GATE : '') ?? '').trim().toLowerCase()) })
+/**
+ * DOES THE TOWN INDEX SHOW NONE OF `need` ANYWHERE? -> bool. Pure. True only when the index has at least one entry, every
+ * container in `keys` (the town scan's) has one that is not `unknown`, no entry's latest observation -- any state, any age --
+ * holds `need`, and no move of `need` into any container (`xin` { k: { name: at } }, townindex.mjs foldIndex) came after that
+ * container's latest observation (or into one with none). Anything the index cannot vouch for is false and the base's search
+ * decides: no entry, a never-opened container, an unreadable index, a mutation still OPEN (a pre mark with no post, younger
+ * than OP_TTL_MS: its moves may not be on disk yet), or a deposit the TOWN MEMORY recorded (`tookAt` { half key: ms }, o=took)
+ * after the container's latest observation (beyond RULE_OUT_TOOK_SLACK_MS: the rule-out's own rule).
+ * A CLOSED mutation with no ore move recorded is no evidence for SMELT_GATE_DIRTY_MS: the deposit verbs record their moves
+ * (xfer), and an unrecorded one is seen at the container's next open (every live town container was opened within 2 h,
+ * 10-28); a container still unopened after that is evidence, and the job's search (which opens dirty containers) re-reads it.
+ */
+/** A container mutated since its latest observation and not opened again for this long is evidence (Codex code r1: a move the
+ *  index never recorded -- town_deposit's verifying re-open failing, a withdraw visit's room-making deposit, a move lost from
+ *  `xin` at a rotation -- would otherwise hide behind the older observation with no end). Replayed 10-28: still 488 of the 777
+ *  town_has_none jobs not ordered, all 99 town-ore jobs ordered. */
+export const SMELT_GATE_DIRTY_MS = 2 * 60 * 60 * 1000
+export function indexInputAbsent (entries = null, need = null, keys = null, now = Date.now(), xin = {}, { tookAt = {}, dirtyMs = SMELT_GATE_DIRTY_MS } = {}) {
+  if (!need || !entries || typeof entries !== 'object') return false
+  const list = Object.values(entries)
+  if (!list.length) return false
+  for (const k of (Array.isArray(keys) ? keys : [])) if (indexStateOf(entries[k], now) === 'unknown') return false
+  for (const e of list) {
+    if ((Number(e?.obs?.names?.[need]?.[0]) || 0) > 0) return false
+    let mark = e?.last?.t === 'dirty' && Number.isFinite(e.last.at) ? e.last.at : -Infinity
+    for (const o of Object.values(e?.ops ?? {})) {
+      const start = Math.max(Number.isFinite(o?.pre) ? o.pre : -Infinity, Number.isFinite(o?.held) ? o.held : -Infinity)
+      if (o?.post == null && now - start < OP_TTL_MS) return false
+      mark = Math.max(mark, start, Number.isFinite(o?.post) ? o.post : -Infinity)
+    }
+    // mutated since the observation and not opened for dirtyMs: whatever went in, the index may not have it
+    if (indexStateOf(e, now) === 'dirty' && Number.isFinite(mark) && now - mark >= dirtyMs) return false
+    const at = Number(e?.obs?.at)
+    const halves = [...new Set([...(Array.isArray(e?.obs?.h) ? e.obs.h : [])])]
+    if (halves.some(h => Number.isFinite(tookAt?.[h]) && !(tookAt[h] <= (Number.isFinite(at) ? at : -Infinity) + RULE_OUT_TOOK_SLACK_MS))) return false
+  }
+  for (const [k, m] of Object.entries(xin ?? {})) {
+    const x = Number(m?.[need])
+    if (Number.isFinite(x) && !(x <= (Number(entries[k]?.obs?.at) || -Infinity))) return false
+  }
+  return true
 }
 
 /**

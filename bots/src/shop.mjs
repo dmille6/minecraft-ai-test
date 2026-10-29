@@ -10,6 +10,48 @@ import { reserveKeyOf, reserveCount, takeAllowed, LOG_NAMES, PLANKS_OF } from '.
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
 export const SHOP_BLUEPRINT = 'workshop@1'
 export const SHOP_PLOT = 'shop'
+/**
+ * HOUSE-01: THE TOWN'S PROJECTS, IN ORDER (owner backlog 10-29: house-01 after the workshop). The build_shop job builds ONE
+ * project at a time: the first whose record is not complete, or a complete one that is damaged (repaired first, in order).
+ * HOUSE=off is the rollback: the workshop alone, exactly as before. A house is house@1 (5x5 shell on a 7x7 pad, an OPEN 1x2
+ * doorway like the workshop's -- owner Q2: real doors only after a Paper-proven door change -- so no sealed interior, no
+ * exit_house). Each project is its own record chain (`project-<home>.<plot>`): leases, slots, shares and the progress clock are
+ * per project; the footprint price, the keep-outs and the sapling boxes cover EVERY project's record.
+ */
+export const HOUSE = Object.freeze({ on: !['off', '0', 'false', 'no'].includes(String(process.env.HOUSE ?? '').trim().toLowerCase()) })
+export const PROJECTS = Object.freeze([
+  Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
+  Object.freeze({ plot: 'house1', blueprint: 'house@1', after: SHOP_PLOT }),
+])
+export const projectsOn = (on = HOUSE.on) => (on ? PROJECTS : PROJECTS.filter(p => p.plot === SHOP_PLOT))
+/**
+ * THE PROJECT THE JOB WORKS ON NOW -> a PROJECTS entry. Pure. `states` [{ plot, exists, complete, damaged }] in PROJECTS order
+ * (a missing state reads as no record). The first damaged complete project (repairs first), else the first not complete whose
+ * `after` project is complete, else the LAST project (everything stands: the order reads it complete and stays quiet).
+ */
+export function activeProject (states = [], list = projectsOn()) {
+  const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
+  for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged) return p }
+  for (const p of list) {
+    const s = st(p)
+    if (s.exists && s.complete) continue
+    if (p.after && !st(list.find(q => q.plot === p.after) ?? { plot: p.after }).complete) continue
+    return p
+  }
+  return list[list.length - 1]
+}
+/** THE OTHER PROJECTS' RECORDS AS SITING ZONES -> [{ box: [x0,y0,z0,x1,y1,z1] }]: each record's x/z box widened by `margin`
+ *  (a walk lane between buildings and the stand ring), every height. Pure. */
+export const PROJECT_GAP = 3
+export function recordZones (records = [], margin = PROJECT_GAP) {
+  const out = []
+  for (const r of records) {
+    const b = r?.box
+    if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite)) continue
+    out.push({ box: [b[0] - margin, -64, b[1] - margin, b[2] + margin, 320, b[3] + margin], why: `project:${r.plot ?? '?'}` })
+  }
+  return out
+}
 export const BUILDERS_MAX = 2
 export const SHOP_COOLDOWN_MS = Number(process.env.SHOP_COOLDOWN_MS) > 0 ? Number(process.env.SHOP_COOLDOWN_MS) : 10 * 60_000   // a setting (sandbox pacing)
 export const SHOP_SITE_RETRY_MS = 24 * 60 * 60_000       // S1: no site -> re-fit daily
@@ -48,8 +90,9 @@ export const recordCellKeys = record => new Set((record?.cells ?? []).map(c => c
  *  idle `place crafting_table` put the table into the workshop's last open roof cell 24,75,31; every visit then read
  *  `blocked: 1 open, 0 placeable now`. */
 export const recordCellHit = (cells, c) => { const p = c?.ref?.position; return !!(p && cells?.size && cells.has(`${p.x + (c.face?.x ?? 0)},${p.y + (c.face?.y ?? 0)},${p.z + (c.face?.z ?? 0)}`)) }
-/** May a sapling go into the cell at column (x, z)? false inside the box. Pure. */
-export const saplingAllowedAt = (box, x, z) => !box || x < box.x0 || x > box.x1 || z < box.z0 || z > box.z1
+/** May a sapling go into the cell at column (x, z)? false inside the box -- or inside any box of a list (house-01: one per
+ *  project record). Pure. */
+export const saplingAllowedAt = (box, x, z) => (Array.isArray(box) ? box.every(b => saplingAllowedAt(b, x, z)) : (!box || x < box.x0 || x > box.x1 || z < box.z0 || z > box.z1))
 /** A place() candidate ({ ref, face }) for a sapling: its target cell (ref + face) outside the box? Pure. */
 export const saplingCandidateOk = (box, c) => { const p = c?.ref?.position; return !p || saplingAllowedAt(box, p.x + (c.face?.x ?? 0), p.z + (c.face?.z ?? 0)) }
 /** The footprint's price for a block on the current walk: 100 (mineflayer-pathfinder drops the move) on a work or travel walk,
@@ -336,7 +379,7 @@ export function stoodRead (dir, key, home) {
 
 const LONG = new Set(['why', 'segs'])   // `segs`: a whole workshop's segment list is ~72 chars (Codex/Claude r26 P3)
 const fmt = (keys, f) => keys.filter(k => f[k] != null).map(k => `${k}=${String(Array.isArray(f[k]) ? f[k].join(',') : f[k]).replace(/\s+/g, '_').slice(0, LONG.has(k) ? 120 : 48)}`).join(' ')
-export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP.on ? 'on' : 'off'} blueprints=${SHOP_BLUEPRINT} builders_max=${BUILDERS_MAX} reserve=${reserveSha}`
+export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP.on ? 'on' : 'off'} blueprints=${projectsOn().map(p => p.blueprint).join(',')} builders_max=${BUILDERS_MAX} reserve=${reserveSha}`
 // EVERY FIELD A ROW CARRIES THAT THE READ READS (Paper 10-26 SHOP-TERRAIN seeded r24: the whitelist dropped the F2/F4 fields --
 // `to`, `result`, `visits`, `n`, `segs`, `waiting`, `stalled`, `early`, `why` -- so the stuck row reached the logs as
 // `op=stuck_on_cell cell=...` and the read's STALLED POOLS could never see a stall; the fake runner's e.log kept the objects)

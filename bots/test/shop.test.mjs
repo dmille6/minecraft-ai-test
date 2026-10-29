@@ -376,7 +376,8 @@ await t('WIRED: place filters record cells (and bars the make-room dig), refuses
   assert.ok(/if \(bot\.shopCells\?\.has\?\.\(`\$\{Number\(x\)\},\$\{Number\(y\)\},\$\{Number\(z\)\}`\)\) \{/.test(body), 'explicit coordinates refused')
   assert.ok(/step out of the building and place again/.test(body), 'the remedy')
   assert.ok(/if \(roomVeto\(bot, cellPos\)\) continue\s*if \(bot\.shopCells\?\.has\?\.\(`\$\{cellPos\.x\},\$\{cellPos\.y\},\$\{cellPos\.z\}`\)\) \{ shopSkipped\+\+; continue \}/.test(body), 'the make-room dig never takes a record cell (r2)')
-  assert.ok(/bot\.shopCells = h\.head \? recordCellKeys\(h\.head\.rec\) : new Set\(\)/.test(SK))
+  // house-01: every project's record keys (the refresh's behaviour is house-runtime.test.mjs's)
+  assert.ok(/for \(const k of recordCellKeys\(r\)\) cells\.add\(k\)/.test(SK) && /bot\.shopCells = cells\n/.test(SK))
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
