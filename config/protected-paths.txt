@@ -66,6 +66,7 @@ bots/src/ladder.mjs
 bots/src/shore.mjs
 bots/src/watermoves.mjs
 bots/src/fallpath.mjs
+bots/src/cornermoves.mjs
 bots/src/hard-stop.mjs
 bots/scripts/check-movement-writers.mjs
 # skills.mjs is 16k lines and mostly building/town work, so only its travel functions are listed
