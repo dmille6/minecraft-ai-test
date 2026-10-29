@@ -190,6 +190,13 @@ await t('zigSplitFoundation (live 10-29: one F segment, one builder): F in four 
   assert.strictEqual(Z.zigSplitFoundation(sp), sp, 'already split: as it is')
   assert.strictEqual(Z.zigProgress(sp, () => false).layer, -1)
 })
+await t('zigFootprint (live 10-29: builders stuck in the hollows): the ziggurat\'s walk price is its BUILT cells only, no halo', async () => {
+  const rec = { cells: [{ at: [0, 70, 0], role: 'core' }, { at: [1, 70, 0], role: 'skin' }, { at: [2, 70, 0], role: 'skin' }] }
+  const fp = Z.zigFootprint(rec, c => c.at[0] < 2)
+  assert.deepStrictEqual([...fp].sort(), ['0,70,0', '1,70,0'])
+  assert.ok(!fp.has('0,71,0') && !fp.has('-1,70,0'), 'no +1 halo')
+  assert.strictEqual(SHOPM.footprintCells(rec).has('0,71,0'), true, 'positive control: the workshop\'s footprint has the halo')
+})
 await t('zigProgress: done / open and the lowest open layer', async () => {
   const rec = { cells: [{ seg: 'F' }, { seg: 'L00-N' }, { seg: 'L01-E' }].map((c, i) => ({ ...c, at: [i, 0, 0] })) }
   assert.deepStrictEqual(Z.zigProgress(rec, c => c.at[0] === 0), { done: 1, open: 2, layer: 0 })

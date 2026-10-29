@@ -87,9 +87,14 @@ await t('KEEP-OUT: gather\'s and mine\'s record cells are EVERY project\'s cells
 })
 await t('THE FOOTPRINT REFRESH: the walks\' price, the place keep-out and the sapling guard cover the ziggurat too', async () => {
   fresh(); shop(true); mon(false)
-  const bot = { blockAt: () => null }
+  // the ziggurat's cell BUILT: priced; open (air): not (zigFootprint) -- the workshop's +1 halo as before
+  const built = { blockAt: p => (p.x === -30 && p.y === 70 && p.z === -30 ? { name: 'cobblestone', boundingBox: 'block' } : null) }
+  SK.shopFootprintRefresh(built)
+  assert.ok(built.shopFootprint.has('-30,70,-30') && built.shopFootprint.has('25,71,28') && built.shopFootprint.has('25,72,28'))
+  assert.ok(!built.shopFootprint.has('-30,71,-30'), 'no halo on the ziggurat')
+  const bot = { blockAt: p => (p.x === -30 && p.y === 70 && p.z === -30 ? { name: 'air', boundingBox: 'empty' } : null) }   // the rest unloaded
   SK.shopFootprintRefresh(bot)
-  assert.ok(bot.shopFootprint.has('-30,70,-30') && bot.shopFootprint.has('25,71,28'))
+  assert.ok(!bot.shopFootprint.has('-30,70,-30'), 'an open ziggurat cell takes the pathfinder\'s scaffold')
   assert.ok(bot.shopCells.has('-30,70,-30'))
   assert.ok(Array.isArray(bot.shopSaplingBox) && bot.shopSaplingBox.length === 2)
 })
