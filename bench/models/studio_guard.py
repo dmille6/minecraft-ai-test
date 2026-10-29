@@ -9,7 +9,8 @@ Every --every s: memory_pressure's free %, and the showcase proxy's (~/showcase/
 (gemma4) path -- the proxy's timeouts and errors land there as a fallback or a non-200. HARD STOPS (owner 10-29;
 showcase slowness itself is accepted for the run):
   - memory free % < --min-free (35)
-  - any showcase decision since start that fell back off the primary or was not 200 (--max-bad 0)
+  - more than --max-bad (0) showcase decisions since start (or in the last --bad-window-min) that fell back off the
+    primary or were not 200
   - the 5-min p95 > --p95-ms (30 s) continuously for --sustain-s (300 s)
   - two samples running fail (fail safe: a guard that cannot see is not a guard)
 A kill is SIGTERM, then SIGKILL, to --pid and each --also-pid, each only while it still runs the same command line.
@@ -89,6 +90,7 @@ def main():
     ap.add_argument('--p95-ms', type=int, default=30000)
     ap.add_argument('--sustain-s', type=int, default=300)
     ap.add_argument('--max-bad', type=int, default=0)
+    ap.add_argument('--bad-window-min', type=int, default=0, help='count bad decisions only in the last N min (0: all since start)')
     a = ap.parse_args()
     if a.once:
         print(json.dumps(sample(a.minutes))); return
@@ -102,7 +104,8 @@ def main():
         if cmdline(a.pid) != cmd:
             print('job gone', file=sys.stderr); return
         try:
-            s = sample(a.minutes, since)
+            w = since if not a.bad_window_min else max(since, datetime.now(timezone.utc) - timedelta(minutes=a.bad_window_min))
+            s = sample(a.minutes, w)
             if s['free'] is None:
                 raise RuntimeError('memory_pressure gave no free percentage')
             errs = 0
