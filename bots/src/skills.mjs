@@ -92,7 +92,8 @@ import { townRecordsShared, plinthPlanCap, plinthCapLoss, capRefusalNext, PLINTH
 import { plinthFirstOn, plinthFirstPolicy, plinthFirstSearch, plinthFirstRefusal, plinthFirstMinK, naturalPitPending, areaLoaded, PLINTH_FIRST_WHY } from './plinth.mjs'
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
-import { IRON_KINDS, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
+import { townCoalTotal } from './coalrun.mjs'   // coalfirst-01
+import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -1791,15 +1792,16 @@ const TUNNEL_STALL_MS = 6000
 const TUNNEL_TRIES = 3
 //
 // Reach buried iron the bot already knows about (oretunnel.mjs says why and how). Called by gather in place of
-// the old `mine({y})` escalation, for iron only. Every refusal names a remedy the bot can perform from where it
+// the old `mine({y})` escalation, for iron -- and for COAL since coalfirst-01 (oretunnel.mjs tunnelKindsFor; `kinds` and
+// `label` name the ore, the rest of the tunnel is unchanged). Every refusal names a remedy the bot can perform from where it
 // stands and carries a class with no vote; the outcome row is written from the inventory, not the plan.
-async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
+async function tunnelToOre(ctx, signal, { deadlineMs = 150_000, kinds = IRON_KINDS, label = 'iron' } = {}) {
   const { bot, runner } = ctx
   const t0 = Date.now()
   deadlineMs = Math.min(150_000, deadlineMs)
   const out = (res, extra) => {
     logEvent({ kind: 'ore_tunnel', status: res.status === 'success' ? 'success' : 'failed', snapshot: snapshot(bot),
-               detail: `${res.status}${res.failClass ? `/${res.failClass}` : ''}: ${extra}`.slice(0, 300) })
+               detail: `${res.status}${res.failClass ? `/${res.failClass}` : ''}: ${label === 'iron' ? '' : `ore=${label} `}${extra}`.slice(0, 300) })
     return res
   }
   // TIME FIRST: gather's contract is 180 s end to end and the ore still has to be collected after arrival.
@@ -1810,7 +1812,7 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   if ((bot.inventory?.emptySlotCount?.() ?? 0) < 2) {
     return out({ status: 'failed', failClass: 'inventory_full', detail: 'no room for what a tunnel yields — deposit first' }, 'refused: inventory full')
   }
-  const ids = IRON_KINDS.map(n => bot.registry.blocksByName[n]?.id).filter(id => id != null)
+  const ids = kinds.map(n => bot.registry.blocksByName[n]?.id).filter(id => id != null)
   const feet = bot.entity.position.floored()
   const at = q => bot.blockAt(q)
   const found = bot.findBlocks({ matching: ids, maxDistance: CANDIDATE_RADIUS, count: 64 }) ?? []
@@ -1818,19 +1820,19 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   const home = { x: config.world.homeX, z: config.world.homeZ }
   const candidates = rankCandidates(feet, found.filter(q => breakHazard(at, bot.blockAt(q)) === 0 && !nearHome(q, home)))
   if (!candidates.length) {
-    return out({ status: 'failed', failClass: 'no_tunnel', detail: `iron within ${CANDIDATE_RADIUS} blocks, but every ore has liquid or a falling block beside it` }, `refused: ${found.length} found, 0 safe`)
+    return out({ status: 'failed', failClass: 'no_tunnel', detail: `${label} within ${CANDIDATE_RADIUS} blocks, but every ore has liquid or a falling block beside it` }, `refused: ${found.length} found, 0 safe`)
   }
   const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home: townHome() ?? home })
   const plan = await planTunnel(bot, { candidates, moves })
   check(signal)
   if (!plan.ok) {
-    return out({ status: 'failed', failClass: 'no_tunnel', detail: `no safe tunnel to iron: ${plan.why}` }, `refused: ${plan.why} over ${candidates.length} candidate(s) in ${plan.ms} ms`)
+    return out({ status: 'failed', failClass: 'no_tunnel', detail: `no safe tunnel to ${label}: ${plan.why}` }, `refused: ${plan.why} over ${candidates.length} candidate(s) in ${plan.ms} ms`)
   }
-  const cluster = clusterOf(at, plan.target)
+  const cluster = clusterOf(at, plan.target, kinds)
   const pickBreaks = plan.breaks.filter(q => /pickaxe/.test(bot.blockAt(q)?.material ?? '')).length
   const budget = tripDecision(bot.inventory.items(), { pickBreaks, cluster: cluster.length })
   if (budget.refuse === 'too_long') {
-    return out({ status: 'failed', failClass: 'no_tunnel', detail: `the nearest iron is ${plan.breaks.length} blocks of digging away, more than one stone pickaxe lasts` },
+    return out({ status: 'failed', failClass: 'no_tunnel', detail: `the nearest ${label} is ${plan.breaks.length} blocks of digging away, more than one stone pickaxe lasts` },
                `refused: needs ${budget.need} uses > ${ONE_PICK_USES}; plan ${plan.breaks.length} breaks, cluster ${cluster.length}, ${plan.ms} ms`)
   }
   if (budget.refuse === 'pickaxe_short') {
@@ -1839,8 +1841,8 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
                  // minUses is THIS trip's need, not a constant (both reviews): a 40-use copy must not "satisfy" a 60-use
                  // trip and send the bot straight back to the same refusal. need <= ONE_PICK_USES, so a fresh stone pick meets it.
                  need: { items: ['stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'], count: 1, minUses: budget.minUses,
-                         because: `a tunnel to iron needs ${budget.need} pickaxe uses (${budget.why})` },
-                 detail: `iron is ${plan.breaks.length} blocks of digging away but ${budget.why} — craft a stone_pickaxe first` },
+                         because: `a tunnel to ${label} needs ${budget.need} pickaxe uses (${budget.why})` },
+                 detail: `${label} is ${plan.breaks.length} blocks of digging away but ${budget.why} — craft a stone_pickaxe first` },
                `refused: ${budget.why}; plan ${plan.breaks.length} breaks (${pickBreaks} pick), cluster ${cluster.length}, ${plan.ms} ms`)
   }
 
@@ -1907,8 +1909,8 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
                   `cluster ${cluster.length}, uses ${budget.haveAll}/${budget.need}, plan ${plan.ms} ms, min y ${plan.minY}; ` +
                   `reached ${reached}, re-centred ${recentred}, ${Math.round((Date.now() - t0) / 1000)} s` + (stopped && !reached ? `; stopped: ${stopped}` : '')
   return reached
-    ? out({ status: 'success', detail: `tunnelled to iron at ${plan.target.x},${plan.target.y},${plan.target.z}` }, summary)
-    : out({ status: 'failed', failClass: 'tunnel_incomplete', detail: `could not finish the tunnel to iron${stopped ? ` (${stopped})` : ''}` }, summary)
+    ? out({ status: 'success', detail: `tunnelled to ${label} at ${plan.target.x},${plan.target.y},${plan.target.z}` }, summary)
+    : out({ status: 'failed', failClass: 'tunnel_incomplete', detail: `could not finish the tunnel to ${label}${stopped ? ` (${stopped})` : ''}` }, summary)
 }
 
 /**
@@ -2071,7 +2073,8 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     const searchFrom = bot.entity?.position?.floored?.() ?? null   // findBlocks' own point (blocks.js: entity position, floored)
     // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
     // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
-    const ironStrict = IRON_KINDS.includes(blockName)
+    // coalfirst-01: coal tunnels too, so its candidates get the same six-face check
+    const ironStrict = tunnelKindsFor(blockName) != null
     // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
     // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
@@ -2445,10 +2448,12 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // reclassified, because a refusal is evidence and this file has been
       // bitten before by deriving a failure class from prose.
       // IRON TUNNELS TO THE ORE IT CAN SEE (oretunnel.mjs), instead of stairing toward dryness. Once per run.
-      if (IRON_KINDS.includes(viaSource ?? blockName) && !escalated) {
+      // coalfirst-01: and coal (oretunnel.mjs tunnelKindsFor), with the same tunnel
+      const tk = tunnelKindsFor(viaSource ?? blockName)
+      if (tk && !escalated) {
         escalated = true
         check(signal)
-        const dug = await tunnelToOre(ctx, signal, { deadlineMs: SKILL_CONTRACTS.gather.maxMs - (Date.now() - gatherT0) - 30_000 })
+        const dug = await tunnelToOre(ctx, signal, { deadlineMs: SKILL_CONTRACTS.gather.maxMs - (Date.now() - gatherT0) - 30_000, kinds: tk.kinds, label: tk.label })
         mineSaid = dug?.detail ?? null
         if (dug?.status === 'success') continue     // rescan: the tunnel exposed the ore; gather's own collection takes it
         // inventory_full FALLS THROUGH (Claude review): its remedy, deposit, cannot be performed while the chests are full.
@@ -12728,6 +12733,16 @@ export function townIndexNone (bot, need) {
     for (const [hk, me] of Object.entries(mem ?? {})) if (me?.o === 'took' && Number.isFinite(me.at)) tookAt[hk] = me.at
     return indexInputAbsent(r.entries, need, townCobbleScan(bot).keys ?? [], Date.now(), r.xin ?? {}, { tookAt })
   } catch { return false }
+}
+/** coalfirst-01: THE TOWN'S COAL in its index -> { ok, total, containers, withCoal } (coalrun.mjs townCoalTotal over every
+ *  container's latest observation). ok false when the index is off or unreadable: the coal run then issues nothing. */
+export function townCoalStock (bot) {
+  try {
+    if (!TOWNINDEX.on) return { ok: false, total: 0, containers: 0, withCoal: 0 }
+    const r = readIndex(townDir(), indexHk(), bot?.worldId ?? null)
+    if (!r.ok) return { ok: false, total: 0, containers: 0, withCoal: 0 }
+    return { ok: true, ...townCoalTotal(r.entries) }
+  } catch { return { ok: false, total: 0, containers: 0, withCoal: 0 } }
 }
 /** ironsmelt-01: the same for RAW IRON (its own 2 h miss and the index rule-out). For the order, which smelts iron first. */
 export function townIronMiss (bot) {
