@@ -52,6 +52,7 @@ import { PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's 
 import { townPlanTick } from './skills.mjs'
 import { installFeatures } from './features.mjs'   // building features' spawn work: install + licence rows
 import { installNoBridge } from './nobridge.mjs'   // nobridge-01: no path scaffold over water on a walk
+import { installCornerRule } from './cornermoves.mjs'   // cornerwalk-01: no diagonal across a block corner on a walk
 import { shopAckInstall } from './skills.mjs'   // shop-01: the click acknowledgements, installed per connection before login
 import { SHOP, footprintEntry, withoutFootprint } from './shop.mjs'   // shop-01: the switch and the footprint price
 import { makeLidPlacePrice, lidPlaceOn, installLidPrice, chosenLidPlaces, lidplaceRowDue, lidplaceRowDetail, lidplaceHitsDetail, LIDPLACE_HITS_MS } from './lidplace.mjs'   // lidplace-01: no scaffold on a lid or a plan cell
@@ -648,6 +649,10 @@ function connect() {
     // 1x1 tower stays (nobridge.mjs says which moves place and why this override is the narrowest). The clones below copy it
     // with noBridge=true; the ascend, descend, water and tunnel profiles clear it.
     installNoBridge(moves, (x, y, z) => bot.blockAt(new Vec3(x, y, z)), () => bot.game?.minY ?? -64)
+    // CORNERWALK-01 (cornermoves.mjs): a diagonal step is kept only when BOTH side columns are open (the library keeps the
+    // cheaper side, and the 0.6-wide body clips the other side's corner and wedges). Before the clones below copy it: the
+    // walk, gather and composter profiles carry it; ascend, descend, deck and water clear it (an escape keeps every move).
+    installCornerRule(moves)
     // LIDPLACE-01 (lidplace.mjs): a scaffold or bridge block on a chest's lid, in a placed or reserved plan cell or in its stand
     // costs 20 more -- added to the NEIGHBOUR after the library has judged it legal (an exclusionAreasPlace price can push a
     // near-100 move over the library's cut and delete a bot's only way out: Codex r1 P1). The plan's guard set is kept by every
@@ -793,6 +798,7 @@ function connect() {
     withoutFootprint(ascendMoves)     // shop-01 x W3: an escape keeps its survival digs whatever profile is active
     ascendMoves.canDig = true
     ascendMoves.noBridge = false      // nobridge-01: an escape keeps every placement
+    ascendMoves.cornerRule = false    // cornerwalk-01: an escape keeps every diagonal
     ascendMoves.allow1by1towers = true
     ascendMoves.dontCreateFlow = true
     ascendMoves.allowParkour = false
@@ -840,6 +846,7 @@ function connect() {
     withoutFootprint(descendMoves)    // shop-01 x W3: an escape keeps its survival digs whatever profile is active
     descendMoves.canDig = false
     descendMoves.noBridge = false     // nobridge-01: an escape keeps every placement
+    descendMoves.cornerRule = false   // cornerwalk-01: an escape keeps every diagonal
     descendMoves.allow1by1towers = false
     descendMoves.allowParkour = false
     descendMoves.maxDropDown = 8
@@ -850,6 +857,7 @@ function connect() {
     const deckMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(deckMoves, moves)
     withoutFootprint(deckMoves)       // shop-01 x W3: the sky descent's walk is an escape too
+    deckMoves.cornerRule = false      // cornerwalk-01: an escape keeps every diagonal
     deckMoves.canDig = false
     deckMoves.allow1by1towers = false
     deckMoves.allowParkour = false
@@ -893,6 +901,7 @@ function connect() {
     Object.assign(waterMoves, moves)
     withoutFootprint(waterMoves)      // shop-01 x W3: an escape keeps its survival digs whatever profile is active
     waterMoves.noBridge = false       // nobridge-01: an escape keeps every placement
+    waterMoves.cornerRule = false     // cornerwalk-01: an escape keeps every diagonal
     // The entry penalty is the whole reason water is unreachable, and unlike the
     // other profiles this one REPLACES the array rather than inheriting the
     // shared reference. Entering the water is the point of the manoeuvre.
