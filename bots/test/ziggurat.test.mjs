@@ -173,6 +173,23 @@ await t('zigWant (Codex r1 BLOCK): the bag\'s dirt is credited against the CORE\
   assert.deepStrictEqual(Z.zigWant({ cobblestone: 15 }, { cobblestone: 10 }, { dirt: 64, andesite: 9 }), { cobblestone: 5 }, 'more dirt than core: the skin\'s 5 stay')
   assert.deepStrictEqual(Z.zigWant({ cobblestone: 15 }, { cobblestone: 10 }, { cobblestone: 64 }), { cobblestone: 15 }, 'the bag\'s own cobblestone is needFromTown\'s subtraction, not a credit')
 })
+await t('zigSplitFoundation (live 10-29: one F segment, one builder): F in four by quadrant, every F dep the four; cells unchanged; idempotent', async () => {
+  const s0 = siteOn(server(), { box: [-30, -30, -7, -7] }).site
+  const cells = {}
+  for (let dx = 1; dx < 11; dx++) for (const dz of [1, 10]) cells[k3([s0.corner.x + dx, G, s0.corner.z + dz])] = 'air'
+  const srv = server(cells)
+  const rec = Z.zigRecord(siteOn(srv, { box: [s0.corner.x - 2, s0.corner.z - 2, s0.corner.x + 13, s0.corner.z + 13] }).site, srv.read, { home: HOME, g: G12 })
+  assert.ok(rec.cells.some(c => c.seg === 'F'))
+  const sp = Z.zigSplitFoundation(rec)
+  assert.ok(!sp.cells.some(c => c.seg === 'F') && sp.cells.length === rec.cells.length)
+  assert.deepStrictEqual(sp.cells.map(c => k3(c.at)), rec.cells.map(c => k3(c.at)), 'the same cells, in order')
+  const F = sp.segments.filter(s => s.seg.startsWith('F-')).map(s => s.seg)
+  assert.ok(F.length >= 2 && F.every(s => sp.segments.find(x => x.seg === s).deps.length === 0), F)
+  for (const q of ['N', 'E', 'S', 'W']) assert.deepStrictEqual(sp.segments.find(s => s.seg === `L00-${q}`).deps, F)
+  assert.ok(sp.cells.filter(c => c.seg.startsWith('F-')).every(c => F.includes(c.seg)), 'every F cell names a listed segment')
+  assert.strictEqual(Z.zigSplitFoundation(sp), sp, 'already split: as it is')
+  assert.strictEqual(Z.zigProgress(sp, () => false).layer, -1)
+})
 await t('zigProgress: done / open and the lowest open layer', async () => {
   const rec = { cells: [{ seg: 'F' }, { seg: 'L00-N' }, { seg: 'L01-E' }].map((c, i) => ({ ...c, at: [i, 0, 0] })) }
   assert.deepStrictEqual(Z.zigProgress(rec, c => c.at[0] === 0), { done: 1, open: 2, layer: 0 })

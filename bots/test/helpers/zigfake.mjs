@@ -21,7 +21,9 @@ export const colOf = read => (x, z) => Z.columnOf(read, x, z, { yHi: G + 30, yLo
 export function siteOn (srv, { g = G12, avoid = () => null, box = Z.monumentBox(plan()) } = {}) {
   return Z.siteZiggurat(colOf(srv.read), avoid, { box, home: HOME, g })
 }
-export function zigProject (record, names = ['A']) {
+export function zigProject (record0, names = ['A']) {
+  // as buildMonument runs it: the foundation in four segments (the record file keeps `F`)
+  const record = Z.zigSplitFoundation(record0)
   const dir = fs.mkdtempSync(`${process.env.TMPDIR ?? '/tmp'}/zig-`)
   const key = PJ.projKey(HOME, Z.MONUMENT_PLOT)
   const pub = PJ.publishRecord(dir, key, () => ({ ...record }))
