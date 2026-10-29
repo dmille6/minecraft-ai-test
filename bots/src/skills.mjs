@@ -47,7 +47,7 @@ import { fullChestNext, carriedChest, chestBudget, readClaims, claimNewChest, wr
          chestPartnerOffset, isChestPartner, TOWN_SWEEP_MS, AFTER_SWEEP_MS, CLAIM_BUDGET_MS, PLACE_READBACK_MS, MAX_SITE_TRIES, RECONCILE_AFTER_MS } from './chestfull.mjs'
 // chestfull-02: one town boundary, no deep targets, a walk that never watches digs, closure only when truly closed.
 import { inTown, depositTargetOk, walkFailure, backsOffTarget, travelTimeoutAction, closesBank, TARGET_BACKOFF_MS,
-         TOWN_SCAN_RADIUS, TOWN_DY, wellKeepout } from './chestfull.mjs'
+         TOWN_SCAN_RADIUS, TOWN_DY, wellKeepout, homeFirst } from './chestfull.mjs'
 import { STORAGE_NEAR, startableJunk } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
@@ -3204,7 +3204,7 @@ async function home(ctx, _args, signal) {
 }
 
 // ------------------------------------------------------------- deposit -----
-async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null, exclude = [], meta = {}, until = null, reserved = null } = {}) {
+async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null, exclude = [], meta = {}, until = null, reserved = null, homed = false } = {}) {
   if (item != null && ['', 'none', 'null', 'any', 'all', 'everything', 'items', 'inventory', 'undefined'].includes(String(item).trim().toLowerCase())) item = null   // a wildcard word is "everything bankable", not an item named none
   const { bot } = ctx
   // The bag's item total when the skill began: the full-chest recovery's row compares it with the end (chestfull.mjs).
@@ -3278,6 +3278,8 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     if (b && isContainer(b) && depositTargetOk(hv, b.position) && (!cobbleOnly || inTown(hv, b.position))) chestBlock = b
   }
   chestBlock = chestBlock || findChest()
+  // chestreach-01: the retry after a walk home does not walk home again (its no-chest result stands)
+  if (!chestBlock && homed) return { status: 'failed', failClass: 'nothing_found', detail: 'no chest or barrel within 48 blocks after walking home' }
   if (!chestBlock) {
     // The town chest lives at home, and a 48-block scan cannot see it from a
     // mine. Walking home first is the difference between "deposit works near
@@ -3370,6 +3372,20 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     const res = { status: 'failed', failClass: e?.failClass ?? (kind === 'interrupted' ? 'path_interrupted' : 'no_path'),
                   detail: `could not reach the chest at ${cp.x},${cp.y},${cp.z}: ${String(e?.message ?? e).slice(0, 60)}` }
     const strikes = kind !== 'interrupted' && walkBeganInTown && wb.left >= STRIKE_WALK_MIN_MS
+    // CHESTREACH-01 (chestfull.mjs homeFirst): a walk from OUTSIDE town that found no route -- 141 of 164 such failures in
+    // under 1 s, mostly from a mine under town -- walks HOME (its legs and its surface climb), then deposits once more from
+    // there: the retry rescans, and a walk that fails again from town goes on to the town sweep (viaRecovery) as any
+    // in-town walk does. Once per deposit (homed). `home` keeps its own 170 s budget, so the runner's 180 s watchdog may end
+    // the attempt during the walk (Codex r1 note): an abort, as for deposit's no-chest walk home -- the next deposit starts in town.
+    if (homeFirst({ kind, beganInTown: walkBeganInTown, noRecovery, homed, leftMs: msLeft(Infinity) })) {
+      const from = bot.entity.position.floored?.() ?? bot.entity.position
+      const walked = await home(ctx, {}, signal)
+      check(signal)
+      const again = await deposit(ctx, { item }, signal, { exclude, meta, until, reserved, homed: true })
+      try { logEvent({ kind: 'deposit_home_retry', status: again?.status === 'success' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `chest=${posKey(cp)} from=${Math.floor(from.x)},${Math.floor(from.y)},${Math.floor(from.z)} why=${kind} home=${walked?.status ?? '?'} retry=${again?.status ?? '?'}:${again?.failClass ?? '-'}` }) } catch { /* telemetry only */ }
+      return again?.status === 'success' ? { ...again, detail: `${again.detail} (after walking home: the chest at ${posKey(cp)} was out of reach from ${Math.floor(from.x)},${Math.floor(from.y)},${Math.floor(from.z)})` }
+        : { ...again, detail: `${String(again?.detail ?? '').slice(0, 200)} [after walking home: ${walked?.status ?? '?'}]` }
+    }
     return strikes ? viaRecovery(res, 'unknown') : res
   }
   check(signal)
