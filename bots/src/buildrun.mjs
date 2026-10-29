@@ -265,7 +265,11 @@ export async function runVisit (p, e, opts = {}) {
   // the layer for every other builder). Not after an abort: the reflex that aborted it owns the body.
   try {
     if (p.leaveTo && typeof p.leaveIf === 'function' && !e.aborted() && p.leaveIf(e.feet())) { await e.walkTo(p.leaveTo); r.left = true }
-  } catch { /* a walk that fails leaves the bot where it is: the next visit's body rule passes over its cell */ }
+  } catch (err) {
+    // an abort is the skill's (rethrown, as every other abort of the visit); a walk that fails leaves the bot where it is: the
+    // next visit's body rule passes over its cell
+    if (err?.aborted || e.aborted()) throw err
+  }
   return r
 }
 /** BODY WAITS a visit spends on a cell another builder stands in before it stops (`body_wait`) instead of spending its steps. */

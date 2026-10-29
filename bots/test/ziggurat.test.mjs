@@ -167,6 +167,12 @@ await t('buildOrder: the monument\'s record needs 2 free bag slots, the workshop
   assert.strictEqual(SHOPM.buildOrder({ ...o, record: { plot: 'monument' } }).order?.skill, 'build_shop')
   assert.strictEqual(SHOPM.buildOrder({ ...o, record: { plot: 'shop' } }).skip, 'room')
 })
+await t('zigWant (Codex r1 BLOCK): the bag\'s dirt is credited against the CORE\'s cobblestone only, never the skin\'s', async () => {
+  assert.deepStrictEqual(Z.zigWant({ cobblestone: 1 }, {}, { dirt: 48 }), { cobblestone: 1 }, 'one skin cell left, 48 dirt: still wanted')
+  assert.deepStrictEqual(Z.zigWant({ cobblestone: 15 }, { cobblestone: 10 }, { dirt: 8 }), { cobblestone: 7 })
+  assert.deepStrictEqual(Z.zigWant({ cobblestone: 15 }, { cobblestone: 10 }, { dirt: 64, andesite: 9 }), { cobblestone: 5 }, 'more dirt than core: the skin\'s 5 stay')
+  assert.deepStrictEqual(Z.zigWant({ cobblestone: 15 }, { cobblestone: 10 }, { cobblestone: 64 }), { cobblestone: 15 }, 'the bag\'s own cobblestone is needFromTown\'s subtraction, not a credit')
+})
 await t('zigProgress: done / open and the lowest open layer', async () => {
   const rec = { cells: [{ seg: 'F' }, { seg: 'L00-N' }, { seg: 'L01-E' }].map((c, i) => ({ ...c, at: [i, 0, 0] })) }
   assert.deepStrictEqual(Z.zigProgress(rec, c => c.at[0] === 0), { done: 1, open: 2, layer: 0 })
