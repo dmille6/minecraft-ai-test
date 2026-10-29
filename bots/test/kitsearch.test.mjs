@@ -358,8 +358,9 @@ const lidScene = async (S, lid) => {
 }
 // the blocked lid's own scene, reused by the mutant below (Claude ck P3-1: it must depend on the run treating the block as 'next')
 const planksMovesOn = async S => {
-  const planks = await lidScene(S, 'oak_planks')
-  assert.equal(planks.r.status, 'success', planks.r.detail); assert.deepEqual(planks.w.digs, [], 'planks are never broken')
+  // lidplank-01: unrecorded planks may be dug now; stone is a lid no bot may break (the scene's intent: a blocked lid)
+  const planks = await lidScene(S, 'stone')
+  assert.equal(planks.r.status, 'success', planks.r.detail); assert.deepEqual(planks.w.digs, [], 'a never-breakable lid is never broken')
   assert.equal(ironIn(planks.w, planks.L), 20, 'the blocked chest gave nothing'); assert.equal(ironIn(planks.w, FAR), 16, 'the far chest gave the kit')
   assert.match(lastRow(), / vfail=1 /, lastRow())
 }
