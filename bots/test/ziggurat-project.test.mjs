@@ -102,5 +102,20 @@ await t('a COMPLETE ziggurat is judged by its own palette (ZIG_PALETTE: dirt in 
   assert.strictEqual(SK.shopDamaged(at('air'), r), true)
 })
 
+await t('THE SPLIT FOUNDATION\'S TOMBSTONE (Codex r3/r4): a live old-build seg-F holder makes the split visit wait; then the tombstone holds seg-F and an old build can never take it', async () => {
+  fresh()
+  const key = PJ.projKey(HOME, 'monument')
+  const now = Date.now()
+  assert.ok(PJ.takeLease(dir(), key, 'seg-F', 'OldBot', { now }).ok, 'an old build takes the single F lease')
+  assert.deepStrictEqual(SK.monumentSplitGate(dir(), key, now + 1000), { ok: false, holder: 'OldBot' }, 'the split visit waits')
+  PJ.releaseLease(dir(), key, 'seg-F', 'OldBot', PJ.leaseState(dir(), key, 'seg-F').gen)
+  assert.strictEqual(SK.monumentSplitGate(dir(), key, now + 2000).ok, true, 'released: the tombstone is taken')
+  const g = PJ.leaseState(dir(), key, 'seg-F').gen
+  assert.strictEqual(PJ.takeLease(dir(), key, 'seg-F', 'OldBot2', { now: now + 3000 }).ok, false, 'an old build can no longer take seg-F')
+  assert.strictEqual(SK.monumentSplitGate(dir(), key, now + 4000).ok, true, 'the next split visit passes')
+  assert.strictEqual(PJ.leaseState(dir(), key, 'seg-F').gen, g, 'without writing another generation')
+  assert.strictEqual(PJ.takeLease(dir(), key, 'seg-F', 'OldBot3', { now: now + 20 * 24 * 3600_000 }).ok, false, 'still held 20 days on')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

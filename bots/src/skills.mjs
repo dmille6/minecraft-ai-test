@@ -121,7 +121,7 @@ import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors } from './buildsite.mjs'
-import { projKey, recordHead, publishRecord, takeSlot, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
+import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress } from './ziggurat.mjs'   // monument-01
@@ -17102,6 +17102,8 @@ async function buildShop (ctx, args, signal) {
 // the tail kept free of the runner's clock (Codex r3 BLOCK 2: 40 s did not hold one more stand walk (PATH_MS 25 s) + a click + the
 // leave walk (25 s)): the last step starts by 120 s of the showcase's 180, and every walk is bounded by buildbot's PATH_MS
 const ZIG_VISIT_TAIL_MS = 60_000
+const ZIG_SPLIT_HOLDER = 'monument-split'       // the tombstone's holder on the legacy `seg-F` lease (zigSplitFoundation)
+const ZIG_SPLIT_TTL_MS = 30 * 24 * 3600_000
 // MONUMENT-01: THE ZIGGURAT (ziggurat.mjs; shop.mjs PROJECTS' third entry). build_shop's visit when the active project is the
 // monument: the same record, slot, segment, intent and visit machinery as the workshop and the house (buildproj.mjs, buildrun.mjs,
 // buildbot.mjs), its key `project-<home>.monument`, the same `_build*` rows with project=monument (the showcase tripwire's shop
@@ -17114,6 +17116,15 @@ function zigProgressNow (bot, rec) {
     const p = zigProgress(rec, c => { const b = read(...c.at); return !!b && (buildCellDone(b, ZIG_PALETTE, c.role) || zigHidden(c, read)) })
     return `${p.done}/${p.done + p.open}@${p.layer ?? 'top'}`
   } catch { return '-' }
+}
+/** THE SPLIT FOUNDATION'S TOMBSTONE on the legacy `seg-F` lease (see buildMonument) -> { ok } | { ok: false, holder }. Never throws. */
+export function monumentSplitGate (dir, key, now = Date.now()) {
+  try {
+    const cur = projLeaseState(dir, key, 'seg-F')
+    if (cur && cur.rec?.holder === ZIG_SPLIT_HOLDER && now < cur.holdsUntil) return { ok: true }
+    const t = projTakeLease(dir, key, 'seg-F', ZIG_SPLIT_HOLDER, { now, ttl: ZIG_SPLIT_TTL_MS })
+    return t.ok ? { ok: true } : { ok: false, holder: cur?.rec?.holder ?? '?' }
+  } catch { return { ok: false, holder: '?' } }
 }
 async function buildMonument (ctx, args, signal) {
   const { bot } = ctx
@@ -17171,12 +17182,14 @@ async function buildMonument (ctx, args, signal) {
     if (Object.keys(drawnRead(dir, key, me).drawn).length) drawnWrite(dir, key, me, {})
     return out('no_effect', 'complete', 'the ziggurat stands')
   }
-  // A BUILDER ON THE PRE-SPLIT BUILD (Codex r3 BLOCK 1: during a release's restart an old visit may hold the single `F` lease while
-  // this one takes `F-N`): while any other holder's `seg-F` lease blocks, the foundation is theirs -- wait. Old visits end within
-  // the runner's 180 s and every bot restarts onto this build, so the window closes by itself
+  // A BUILDER ON THE PRE-SPLIT BUILD (Codex r3 BLOCK 1 + r4: an old-build visit holding, or taking, the single `seg-F` lease while
+  // this one works `F-N`): the split visit works the foundation only behind a TOMBSTONE on `seg-F` -- the legacy lease taken once
+  // by the shared holder ZIG_SPLIT_HOLDER for ZIG_SPLIT_TTL_MS and never released. An old build can then never take `seg-F`
+  // (another holder blocks it); a live old holder makes this visit wait until its lease ends. One taker per generation
+  // (buildproj.mjs takeLease), so the tombstone and an old taker exclude each other.
   if (rec.cells.some(c => c.seg.startsWith('F-'))) {
-    const old = projLeaseState(dir, key, 'seg-F')
-    if (old && old.rec?.holder !== me && Date.now() < old.blocksUntil) return out('no_effect', 'deps_open', `the foundation's single-segment lease is held by ${old.rec?.holder ?? '?'} (an older build): waiting`, { stop: 'deps_open' })
+    const gate = monumentSplitGate(dir, key)
+    if (!gate.ok) return out('no_effect', 'deps_open', `the foundation's single-segment lease is held by ${gate.holder} (an older build): waiting`, { stop: 'deps_open' })
   }
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === MONUMENT_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
