@@ -286,7 +286,8 @@ await t('PROPERTY: over 500 random bags, no row step is ever a junk name, a sapl
     for (const peaceful of [false, true]) {
       const p = TD.townDepositPlan(items, { tail: 'only', peaceful, noSwords: peaceful })
       // logbank-01 r2: the tail's only non-row steps are LOGS above the personal keep (the base rules', not a row's)
-      assert.ok(p.steps.filter(s => !s.allowance).every(s => TD.LOGS.includes(s.name)), JSON.stringify(p.steps))
+      // coalfirst-01: ...and coal above the keep (a bag holding more than COAL_KEEP)
+      assert.ok(p.steps.filter(s => !s.allowance).every(s => TD.LOGS.includes(s.name) || s.name === 'coal'), JSON.stringify(p.steps))
       for (const s of p.steps.filter(s => s.allowance)) {
         rows++
         assert.ok(!TD.notForChest(s.name, { peaceful }) && !TD.bankOwned(s.name), `${s.name} is never a row's`)

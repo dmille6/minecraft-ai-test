@@ -32,9 +32,20 @@ import { cellLavaSafe, dropLavaSafe } from './lavaguard.mjs'
 import { Vec3 } from 'vec3'
 import { protectTownBlocks } from './composter.mjs'
 import { protectWellBlocks } from './well.mjs'
+import { COALFIRST, COAL_KINDS } from './coalrun.mjs'
 const { goals, Movements } = pkg
 
 export const IRON_KINDS = ['iron_ore', 'deepslate_iron_ore']
+/**
+ * THE ORES THAT TUNNEL -> { kinds, label } | null. Pure. Iron always; COAL too since coalfirst-01 (OWNER 10-29 "coal ... mined":
+ * buried coal escalated to mine({y}), which stairs toward dryness, not toward the ore -- the defect this tunnel was built for).
+ * The tunnel is the same for both: planner, break veto, lava guard, pickaxe budget, home rule. COALFIRST=off: iron only.
+ */
+export function tunnelKindsFor (name, { coal = COALFIRST.on } = {}) {
+  if (IRON_KINDS.includes(name)) return { kinds: IRON_KINDS, label: 'iron' }
+  if (coal && COAL_KINDS.includes(name)) return { kinds: COAL_KINDS, label: 'coal' }
+  return null
+}
 /** One number for the ladder AND the trip (both reviews): a stone pickaxe with fewer uses cannot pay a median tunnel. */
 export const MIN_TRIP_USES = 40
 // One fresh stone_pickaxe's spare uses (131 - HARD_STOP). A trip that needs more is refused as too long rather than as
