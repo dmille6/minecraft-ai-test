@@ -17,7 +17,7 @@
 //     dirt 16 and sand 8 (the gatherer chain) -- a deposit below them re-opens a gather rung and the two rules fight;
 //   - the iron ladder's inputs: since cobblekeep-01 (OWNER 10-19 ~14:10Z "coal and iron must get banked in town") only
 //     what the bot's OWN next rungs need -- IRON_KEEP (3) iron units, ingots first, then raw iron, then ore, each name kept
-//     WHOLE (the deposit moves whole stacks only), and coal/charcoal only while the bot still holds raw iron or ore to
+//     WHOLE (the deposit moves whole stacks only), and coal/charcoal only while (coal: 8 of it, the rest split off -- coalfirst-01) the bot still holds raw iron or ore to
 //     smelt itself; the rest (raw iron above three ingots, ore, coal) is banked for the town's smelt jobs and
 //     toolkits. See ironKeeps below;
 //   - the active rung's wants and their ingredients, up to a stack each;
@@ -51,6 +51,8 @@ import { peacefulFoodActive } from './foodskip.mjs'
 import { smeltRecipeFor, smeltInputsFor } from './smelting.mjs'
 // logbank-01: the personal wood keep, ONE number shared with milestones.mjs's stockpile_wood ceiling (a leaf module)
 import { WOOD_KEEP, LOGBANK } from './woodkeep.mjs'
+// coalfirst-01 (OWNER 10-29): the bag's coal keep and the coal split (coalrun.mjs is a leaf module)
+import { COALFIRST, COAL_KEEP, coalKeepOf } from './coalrun.mjs'
 export { WOOD_KEEP }
 
 /** The bag the order acts on: the bot's own slot count (bot.inventory.items().length), never an estimate. */
@@ -153,7 +155,7 @@ export function townKeeps (counts = {}, { wanted = [] } = {}) {
  *         only, so a name is either kept or banked entire, never split. Measured 10-19 (80 bags): ingots 1-3 per bot
  *         (34 bots at exactly 3: their next craft), so ingots stay; raw iron above three ingots and ore go (nuggets are
  *         not on the bank's list: bankable.mjs).
- *   FUEL: coal and charcoal (the first name held, WHOLE) stay while the bot keeps something of its OWN to smelt -- the raw
+ *   FUEL: coal and charcoal (the first name held, WHOLE; coal since coalfirst-01: always COAL_KEEP 8, see below) stay while the bot keeps something of its OWN to smelt -- the raw
  *         iron or ore kept above, or the active rung's wanted smelt (the inputs of an output it wants: glass -> sand;
  *         never wood, which is fuel and charcoal's input; a wanted input alone is a gather or craft, not a smelt). Codex r3 P2: 8 sand for wanted glass banked
  *         all the coal and turned the smelt into no_fuel. The KEPT wood does not count as the alternative: it is the
@@ -189,7 +191,10 @@ export function ironKeeps (counts = {}, { wanted = [] } = {}) {
     for (const i of smeltInputsFor(w)) if (smeltable(i)) inputs.add(i)
   }
   for (const i of inputs) toSmelt += held(i)
-  if (toSmelt > 0) for (const n of FUEL_KEEP_ORDER) { const h = held(n); if (h) { keep[n] = h; break } }
+  // coalfirst-01 (OWNER 10-29 "a bot keeps only a small allowance for its own tool/smelt needs"): while the bot smelts, COAL keeps
+  // COAL_KEEP (8) of the stack, not all of it -- the spare is banked for the town's smelt jobs (the stack above the keep is
+  // split: townDepositPlan `coalSplit`); charcoal is kept whole as before; nothing to smelt: all the coal goes, as before
+  if (toSmelt > 0) for (const n of FUEL_KEEP_ORDER) { const h = held(n); if (h) { keep[n] = n === 'coal' ? coalKeepOf(h, toSmelt) : h; break } }
   return keep
 }
 
@@ -220,7 +225,7 @@ export function toolSlotsToBank (copies = [], allowance = Infinity) {
  *              slot emptied, so freed = steps.length.
  */
 export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false,
-                                               tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, halves = LOGBANK.on } = {}) {
+                                               tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, halves = LOGBANK.on, coalSplit = COALFIRST.on } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const counts = countsOf(list)
   const { keep, why } = townKeeps(counts, { wanted })
@@ -245,7 +250,11 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
   // logbank-01 r2 (OWNER 10-27 "implement ... all the changes"): a NOT-FULL visit's tail also banks the LOGS above the personal
   // keep (whole stacks, then halves) -- at any bag size, under the same switch. Nothing else of the base plan joins the tail.
   const logsTail = tail === 'only' && halves
-  const baseNames = baseOn ? Object.keys(allowance).sort() : logsTail ? Object.keys(allowance).filter(n => LOGS.includes(n)).sort() : []
+  // coalfirst-01 (OWNER 10-29 "coal ... deposited"): the not-full visit's tail banks the COAL above the keep too (whole stacks,
+  // then halves), as logbank-01 r2 does the logs -- coal reached town only in a full bag, and a smelting bot's never
+  const coalTail = tail === 'only' && coalSplit && (counts.coal ?? 0) > COAL_KEEP   // no churn: a handful stays for the full bag
+  const tailName = n => (logsTail && LOGS.includes(n)) || (coalTail && n === 'coal')
+  const baseNames = baseOn ? Object.keys(allowance).sort() : (logsTail || coalTail) ? Object.keys(allowance).filter(tailName).sort() : []
   for (const name of baseNames) {
     const copies = list.filter(it => it.name === name)
     if (TOOL_RE.test(name)) {
@@ -265,7 +274,9 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
       if ((it.count ?? 0) > room) { left.push(it); continue }
       steps.push({ slot: it.slot, name, count: it.count }); banked[name] = (banked[name] ?? 0) + it.count; room -= it.count
     }
-    if (halves && LOGS.includes(name)) {
+    // coalfirst-01: the coal stack above the keep is HALVED as the logs are (logHalfSteps: never below the keep) -- a bot with 20
+    // coal and a keep of 8 banked nothing before (room 12 < 20); now 10, keeping 10
+    if ((halves && LOGS.includes(name)) || (coalSplit && name === 'coal')) {
       for (const st of logHalfSteps(left, room)) { steps.push({ ...st, name }); banked[name] = (banked[name] ?? 0) + st.count }
     }
   }
@@ -509,17 +520,19 @@ export function tailOrder ({ now = 0, slots = 0, pos = null, home = null, plan =
   const p = lazy(plan)
   // logbank-01 r2: logs above the keep are a reason on their own (a half frees no slot)
   const logs = LOGBANK.on && !!p && Array.isArray(p.steps) && p.steps.some(x => LOGS.includes(x.name) && !x.allowance)
+  // coalfirst-01: coal above the keep is a reason on its own (a half frees no slot; the town index needs no count for coal)
+  const coal = COALFIRST.on && !!p && Array.isArray(p.steps) && p.steps.some(x => x.name === 'coal' && !x.allowance)
   // logbank-01 r2: logs above the keep that the town cannot judge yet (a well town, never counted: town_stock_unknown) --
   // count first, in the same run (`logCount`: cognitive.mjs's stockCountKeys over the bag's LOGS only), as the full-bag
   // order's count step does. Without it a well town's tail never banked a log.
   // independent of the rows (r2 reviews, both P2): a torch to bank must not spend the stay's latch while the logs wait uncounted
   const count = LOGBANK.on && !logs && !!lazy(logCount)
-  if (!p || !(p.freed >= 1 || logs || count)) return none()
+  if (!p || !(p.freed >= 1 || logs || coal || count)) return none()
   if (!lazy(container)) return none()
   const dh = Math.round(Math.hypot(pos.x - home.x, pos.z - home.z)), dy = Math.round(pos.y - (home.y ?? pos.y))
   s.lastIssuedAt = now
-  return { order: { skill: 'town_deposit', args: { tail: true, armed: visitArmed(s), dh, dy, vid: visitId(myName, now), ...(count || logs ? { logs: true } : {}), ...(count ? { recount: true, count: 'allowance_only' } : {}) },
-                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) over the bag allowance (stations, torches, bone meal, spare stone pickaxes) to bank${logs ? '; logs above the personal keep' : count ? '; the town\'s logs to count, then logs above the personal keep' : ''}` },
+  return { order: { skill: 'town_deposit', args: { tail: true, armed: visitArmed(s), dh, dy, vid: visitId(myName, now), ...(count || logs ? { logs: true } : {}), ...(coal ? { coal: true } : {}), ...(count ? { recount: true, count: 'allowance_only' } : {}) },
+                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) over the bag allowance (stations, torches, bone meal, spare stone pickaxes) to bank${logs ? '; logs above the personal keep' : count ? '; the town\'s logs to count, then logs above the personal keep' : ''}${coal ? '; coal above the bag\'s keep' : ''}` },
            state: visitLatchIssue(s, now) }
 }
 
