@@ -103,7 +103,7 @@ test('IRON KEEP, pure: the ladder\'s 3 units, ingots first, each name WHOLE; coa
   assert.equal(TD.ironUnitsNeeded({ bucket: 1, iron_pickaxe: 1 }), 3, 'never below the gather rung\'s 3')
   assert.equal(TD.ironUnitsNeeded({ water_bucket: 1 }), 6, 'a water bucket is not the bucket rung (countItem bucket)')
   assert.deepEqual(K({ iron_ingot: 1, raw_iron: 2, coal: 4 }), { iron_ingot: 1, raw_iron: 2, coal: 4 }, 'short of three: everything, and the coal to smelt it')
-  assert.deepEqual(K({ raw_iron: 3, coal: 16, charcoal: 2 }), { raw_iron: 3, coal: 16 }, 'coal first; one fuel name is a batch')
+  assert.deepEqual(K({ raw_iron: 3, coal: 16, charcoal: 2 }), { raw_iron: 3, coal: 8 }, 'coal first; one fuel name is a batch (coalfirst-01: 8 of it)')
   assert.deepEqual(K({ raw_iron: 3, charcoal: 2 }), { raw_iron: 3, charcoal: 2 })
   assert.deepEqual(K({ iron_ingot: 2, coal: 3 }), { iron_ingot: 2 }, 'nothing raw to smelt: the coal goes')
   assert.deepEqual(K({ iron_ingot: 1, raw_iron: 1, iron_ore: 4, coal: 2 }), { iron_ingot: 1, raw_iron: 1, iron_ore: 4, coal: 2 })
@@ -235,7 +235,7 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
   assert.equal(items.length, 36)
   const p = townDepositPlan(items, { tail: false })   // the BASE plan; junkout-01's rows (bone meal, torch ...) are junkout.test.mjs's
   const names = p.steps.map(s => s.name)
-  for (const n of ['apple', 'egg', 'dirt', 'sand', 'bone_meal', 'crafting_table', 'chest', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'torch', 'white_wool', 'wooden_pickaxe'])
+  for (const n of ['apple', 'egg', 'dirt', 'sand', 'bone_meal', 'crafting_table', 'chest', 'raw_iron', 'iron_ingot', 'leaf_litter', 'torch', 'white_wool', 'wooden_pickaxe'])
     assert.ok(!names.includes(n), `${n} must stay`)
   const picks = p.steps.filter(s => s.name === 'stone_pickaxe')
   assert.equal(picks.length, 1, 'one spare usable pickaxe banks')
@@ -244,10 +244,12 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
   assert.deepEqual(p.steps.filter(s => s.name === 'cobblestone').map(s => s.count), [20], 'creditCap 64: the 20 stack, never a partial')
   assert.deepEqual(p.steps.filter(s => s.name === 'oak_log').map(s => s.count), [10, 32, 16], '138 logs, keep 16 units, creditCap 64: the 10 stack whole, then one 64 halved twice (logbank-01) -- 58 under the cap')
   assert.ok(p.steps.filter(s => !s.half).every(s => items.find(i => i.slot === s.slot).count === s.count), 'every non-half step is a whole stack')
-  assert.ok(p.steps.filter(s => s.half).every(s => LOGS.includes(s.name)), 'only logs halve')
+  assert.ok(p.steps.filter(s => s.half).every(s => LOGS.includes(s.name) || s.name === 'coal'), 'only logs and coal halve (coalfirst-01)')
   assert.equal(p.freed, p.steps.filter(s => !s.half).length)
   // cobblekeep-01: no bucket and no iron pickaxe -> 6 iron units are the bot's own (3 ingots + 5 raw), and the coal smelts them
-  assert.deepEqual(p.steps.filter(s => ['raw_iron', 'coal'].includes(s.name)), [], 'two iron crafts to go: nothing of it banks')
+  assert.deepEqual(p.steps.filter(s => s.name === 'raw_iron'), [], 'two iron crafts to go: none of the raw iron banks')
+  // coalfirst-01 (OWNER 10-29): the coal smelts them, but only 8 of it stays -- the 20 stack is halved once (10 banked, 10 kept)
+  assert.deepEqual(p.steps.filter(s => s.name === 'coal').map(s => [s.count, s.from, !!s.half]), [[10, 20, true]], 'coal above the keep of 8 is split off')
   assert.equal(p.freed, 3, 'pickaxe + cobble 20 + logs 10')
 })
 
