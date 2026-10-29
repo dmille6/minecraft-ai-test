@@ -124,7 +124,7 @@ import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
-import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress } from './ziggurat.mjs'   // monument-01
+import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, zigFootprint, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress } from './ziggurat.mjs'   // monument-01
 import { botBuildEffects } from './buildbot.mjs'
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf } from './shop.mjs'
@@ -16900,7 +16900,9 @@ export function shopFootprintRefresh (bot) {
     if (!hs.every(h => h.ok)) return
     const recs = hs.map(h => h.head?.rec).filter(Boolean)
     const fp = new Set(), cells = new Set()
-    for (const r of recs) { for (const k of footprintCells(r)) fp.add(k); for (const k of recordCellKeys(r)) cells.add(k) }
+    // monument-01: the ziggurat's price is its BUILT cells only (ziggurat.mjs zigFootprint); the workshop's and a house's as before
+    const zigDone = r => c => { const q = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2])); return !!q && buildCellDone({ name: q.name, boundingBox: q.boundingBox }, ZIG_PALETTE, c.role) }
+    for (const r of recs) { for (const k of (r.blueprint === MONUMENT_BLUEPRINT ? zigFootprint(r, zigDone(r)) : footprintCells(r))) fp.add(k); for (const k of recordCellKeys(r)) cells.add(k) }
     bot.shopFootprint = fp
     bot.shopSaplingBox = recs.length ? recs.map(r => saplingBox(r)).filter(Boolean) : null
     bot.shopCells = cells

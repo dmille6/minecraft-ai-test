@@ -418,6 +418,19 @@ export function zigHidden (c, read) {
  */
 export const zigFeetIn = () => true
 /**
+ * THE WALKS' PRICE ON THE ZIGGURAT -> Set "x,y,z" (index.mjs prices a break or a place there 100: the pathfinder never does it).
+ * Pure over `done(cell)`. Its BUILT cells only, no halo (the workshop's footprint is every record cell + 1). LIVE showcase 10-29
+ * 16:00-16:40Z: 19 `_reflex_stuck` on the site at y=66, in the foundation's hollows -- a builder that stood in an open fill cell
+ * could neither break the canopy leaves in the +1 halo nor pillar out (its own cell a priced record cell), and 8 of 27 visits
+ * aborted. Built cells stay unbreakable; an open cell may take the pathfinder's scaffold (dirt or cobble in a core cell is done,
+ * in a skin cell it is dug and replaced); leaves and plants beside the build may be broken.
+ */
+export function zigFootprint (record, done) {
+  const out = new Set()
+  for (const c of record?.cells ?? []) if (done(c)) out.add(c.at.join(','))
+  return out
+}
+/**
  * THE FOUNDATION IN FOUR (live showcase 10-29 15:17-15:40Z: the foundation, 953 cells, was ONE segment -- one builder at a time,
  * every other visit `deps_open L00-N waits for F`, 167 placements in 23 min): a record's `F` cells split by the quadrant of their
  * column around the base's centre into F-N/F-E/F-S/F-W, each with no deps, and every segment that waited on F waits on all four.
