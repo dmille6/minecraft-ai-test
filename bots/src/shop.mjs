@@ -5,6 +5,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { reserveKeyOf, reserveCount, takeAllowed, LOG_NAMES, PLANKS_OF } from './mats.mjs'
+import { monumentOn, MONUMENT_PLOT, MONUMENT_BLUEPRINT, MONUMENT_BUILDERS } from './ziggurat.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -19,25 +20,38 @@ export const SHOP_PLOT = 'shop'
  * per project; the footprint price, the keep-outs and the sapling boxes cover EVERY project's record.
  */
 export const HOUSE = Object.freeze({ on: !['off', '0', 'false', 'no'].includes(String(process.env.HOUSE ?? '').trim().toLowerCase()) })
+/**
+ * MONUMENT-01: THE ZIGGURAT is the third project (ziggurat.mjs; OWNER 10-29 "top priority" on the showcase): after the workshop,
+ * built ALONGSIDE the house -- a bot whose first open project has no free admission slot works the next one (activeProject's
+ * `free`) -- with its own builders (MONUMENT_BUILDERS) and its own visit (skills.mjs buildMonument). On in the showcase pool,
+ * off in the fleet's until its rollout (ziggurat.mjs monumentOn; MONUMENT=off is the rollback).
+ */
+export const MONUMENT = Object.freeze({ on: monumentOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: 'house1', blueprint: 'house@1', after: SHOP_PLOT }),
+  Object.freeze({ plot: MONUMENT_PLOT, blueprint: MONUMENT_BLUEPRINT, after: SHOP_PLOT, builders: MONUMENT_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on) => (on ? PROJECTS : PROJECTS.filter(p => p.plot === SHOP_PLOT))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === MONUMENT_PLOT ? mon : on))
+/** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
+export const buildersOf = p => p?.builders ?? BUILDERS_MAX
 /**
- * THE PROJECT THE JOB WORKS ON NOW -> a PROJECTS entry. Pure. `states` [{ plot, exists, complete, damaged }] in PROJECTS order
- * (a missing state reads as no record). The first damaged complete project (repairs first), else the first not complete whose
- * `after` project is complete, else the LAST project (everything stands: the order reads it complete and stays quiet).
+ * THE PROJECT THE JOB WORKS ON NOW -> a PROJECTS entry. Pure. `states` [{ plot, exists, complete, damaged, free? }] in PROJECTS
+ * order (a missing state reads as no record). The first damaged complete project (repairs first), else the first not complete
+ * whose `after` project is complete -- monument-01: the first such with an admission slot free for this bot (`free`, absent =
+ * free), else the first such -- else the LAST project (everything stands: the order reads it complete and stays quiet).
  */
 export function activeProject (states = [], list = projectsOn()) {
   const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged) return p }
+  const open = []
   for (const p of list) {
     const s = st(p)
     if (s.exists && s.complete) continue
     if (p.after && !st(list.find(q => q.plot === p.after) ?? { plot: p.after }).complete) continue
-    return p
+    open.push(p)
   }
+  if (open.length) return open.find(p => st(p).free !== false) ?? open[0]
   return list[list.length - 1]
 }
 /** THE OTHER PROJECTS' RECORDS AS SITING ZONES -> [{ box: [x0,y0,z0,x1,y1,z1] }]: each record's x/z box widened by `margin`
@@ -58,6 +72,7 @@ export const SHOP_SITE_RETRY_MS = 24 * 60 * 60_000       // S1: no site -> re-fi
 export const SHOP_STUCK_RETRY_MS = 6 * 60 * 60_000       // F4: a cell no stand reached in STUCK_VISITS visits -> ask again in 6 h
 export const SHOP_HEALTH_MIN = 10
 export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
+export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the ziggurat is built mostly from the cobble a bag already holds
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
 // the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
@@ -137,6 +152,7 @@ export function billOf (record, palette, read, { done, inTown = () => true, plan
 export function roleNames (palette, role, planks = 'oak_planks', seen = new Set([role])) {
   const out = []
   for (const choice of palette?.[role] ?? []) {
+    if (choice === '*solid') continue                       // a done-rule (buildrun.mjs SOLID_ANY), not a block
     if (choice === '$planks') out.push(planks)
     else if (choice.startsWith('$')) { const r = choice.slice(1); if (!seen.has(r)) { seen.add(r); out.push(...roleNames(palette, r, planks, seen)) } } else out.push(choice)
   }
@@ -333,7 +349,7 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
-  if (freeSlots < SHOP_BAG_SLOTS_MIN) return { order: null, skip: 'room' }
+  if (freeSlots < (record?.plot === MONUMENT_PLOT ? MONUMENT_BAG_SLOTS_MIN : SHOP_BAG_SLOTS_MIN)) return { order: null, skip: 'room' }
   return { order: { skill: 'build_shop', args: {} }, skip: null }
 }
 
