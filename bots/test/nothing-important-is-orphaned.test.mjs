@@ -38,6 +38,9 @@ const REQUIRED = [
   // fun-mode tier 3: the protected list and its one decider, which both gates call (W1, 10-28)
   'config/protected-paths.txt',
   'scripts/lib/protected.py',
+  // the town's projects: build_shop loads these by id at runtime (house-01, 10-29)
+  'bots/src/blueprints/workshop@1.json',
+  'bots/src/blueprints/house@1.json',
   'scripts/test_protected.py',
   // CLAUDE.md's and STATE.md's history, moved out when both were cut to the active rules (10-28)
   'docs/archive/CLAUDE-history-2026-10-28.md',

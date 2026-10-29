@@ -634,6 +634,22 @@ export function workshopSectors (plan) {
   const taken = new Set(plots.filter(p => p.kind !== 'pavilion' && p.sector).map(p => p.sector))
   return REST_ORDER.filter(s => !taken.has(s)).map(s => ({ sector: s, source: 'free' }))
 }
+/**
+ * THE SECTORS A LATER PROJECT MAY TAKE (house-01), in order -> [{ sector, source }]. Pure. The first project's sector first
+ * (`first`: the workshop record's -- the houses stand beside it), then every sector no other outer plot holds, in ring@1's
+ * order (workshopSectors' free list), once each.
+ */
+export function projectSectors (plan, first = null) {
+  const out = []
+  const seen = new Set()
+  const push = (sector, source) => { if (sector && !seen.has(sector)) { seen.add(sector); out.push({ sector, source }) } }
+  push(first, 'beside')
+  const pav = (plan?.plots ?? []).find(p => p.kind === 'pavilion')
+  if (pav?.sector) push(pav.sector, 'pavilion')
+  const taken = new Set((plan?.plots ?? []).filter(p => p.kind !== 'pavilion' && p.sector).map(p => p.sector))
+  for (const s of REST_ORDER) if (!taken.has(s)) push(s, 'free')
+  return out
+}
 /** A plinth record's columns -> [[x, y, z]]: the plan's steps, cap and stair, and every prev[] column {x, y, z, stair} (plinth.mjs carryPrev). */
 export function plinthCells (rec) {
   const out = []
@@ -668,7 +684,8 @@ export function planTownCells (plan) {
 export function siteBlueprint (read, plan, bp, ctx = {}) {
   const home = plan?.home
   if (!home) return { ok: false, why: 'no_plan', sectors: [] }
-  const secs = workshopSectors(plan)
+  // house-01: a caller may name the sectors (a house: the workshop's sector first, then the free ones); else the workshop's
+  const secs = Array.isArray(ctx.sectors) ? ctx.sectors : workshopSectors(plan)
   if (!secs.length) return { ok: false, why: 'no_free_sector', sectors: [] }
   const res = reservations(plan, ctx)
   const stood = [...(ctx.stood ?? []), ...planTownCells(plan)]
@@ -701,7 +718,7 @@ export function siteBlueprint (read, plan, bp, ctx = {}) {
       if (!rp.ok) { proofFails.no_replant_cell = (proofFails.no_replant_cell ?? 0) + 1; continue }
       const xs = site.pad.map(c => c[0]), zs = site.pad.map(c => c[1])
       const record = {
-        v: 1, blueprint: bp.id, plot: 'shop', home, sector, sector_source: source, orient: site.orient, anchor: [site.anchor.x, site.anchor.z],
+        v: 1, blueprint: bp.id, plot: ctx.plot ?? 'shop', home, sector, sector_source: source, orient: site.orient, anchor: [site.anchor.x, site.anchor.z],
         box: [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)], s: site.s, floor: site.g0,
         earthwork: { fill: site.fill.length, cut: site.cut.length, litter: site.litter },
         fill: site.fill, clear: site.clear.map(c => ({ at: c.at, kind: c.kind, name: c.name })),
