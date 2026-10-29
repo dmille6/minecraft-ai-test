@@ -163,9 +163,15 @@ export function compactEntry (e) {
  * a `ckpt` record's entries are joined in. Unknown kinds and records with no container key are counted in `bad` and skipped.
  * `from` continues an earlier fold's worlds (never mutated).
  */
-export function foldIndex (records = [], { from = null } = {}) {
+export function foldIndex (records = [], { from = null, fromXin = null } = {}) {
   const worlds = {}
   for (const [w, m] of Object.entries(from ?? {})) worlds[w] = { ...m }
+  // smeltgate-01: THE LATEST MOVE INTO EACH CONTAINER PER NAME, from the xfer records -> xin { wkey: { k: { name: at } } }, kept
+  // APART from the entries (no reader of an entry changes). The deposit verb never re-opens, so its move is the only record
+  // of what it put in; the smelt order asks whether raw ore came in after a container's last observation (smeltjob.mjs
+  // indexInputAbsent). A max per name: commutative and idempotent like the entries. Not carried by a checkpoint.
+  const xin = {}
+  for (const [w, m] of Object.entries(fromXin ?? {})) xin[w] = Object.fromEntries(Object.entries(m).map(([k, v]) => [k, { ...v }]))
   let xfers = 0, obs = 0, dirty = 0, bad = 0
   for (const r of (Array.isArray(records) ? records : [])) {
     if (!r || typeof r !== 'object') { bad++; continue }
@@ -176,13 +182,21 @@ export function foldIndex (records = [], { from = null } = {}) {
       }
       continue
     }
-    if (r.t === 'xfer') { xfers++; continue }
+    if (r.t === 'xfer') {
+      xfers++
+      const at = num(r.at)
+      if (r.k != null && typeof r.name === 'string' && at != null && Number(r.n) > 0) {
+        const c = ((xin[wkey(r.w)] ??= {})[r.k] ??= {})
+        if (!(Number(c[r.name]) >= at)) c[r.name] = at
+      }
+      continue
+    }
     if ((r.t !== 'obs' && r.t !== 'dirty') || r.k == null || num(r.at) == null) { bad++; continue }
     if (r.t === 'obs') obs++; else dirty++
     const dst = (worlds[wkey(r.w)] ??= {})
     dst[r.k] = mergeEntry(dst[r.k], r)
   }
-  return { worlds, xfers, obs, dirty, bad }
+  return { worlds, xin, xfers, obs, dirty, bad }
 }
 
 /** -> 'unknown' | 'dirty' | 'stale' | 'known'. Pure. */
@@ -383,7 +397,7 @@ const CACHE = new Map()   // `${dir}|${hk}` -> { gen, files: { g: { ino, offset 
 export const resetIndexCache = () => CACHE.clear()
 
 /**
- * THE TOWN'S INDEX, folded now -> { entries: { k: entry }, gen, ok } for `world` (entries {} and ok false when it could not be
+ * THE TOWN'S INDEX, folded now -> { entries: { k: entry }, xin: { k: { name: at } }, gen, ok } for `world` (entries {} and ok false when it could not be
  * read: every container is then unknown -- today's behaviour).
  */
 export function readIndex (dir, hk, world = null) {
@@ -408,7 +422,7 @@ export function readIndex (dir, hk, world = null) {
         const r = readFile(indexFile(dir, hk, g), was.offset)
         if (!r || r.missing) { CACHE.delete(ck); return { entries: {}, gen, ok: false } }
         const p = parseBuf(r.buf)
-        c = { ...c, files: { ...c.files, [g]: { ino: was.ino, offset: was.offset + p.used } }, fold: foldIndex(p.records, { from: c.fold.worlds }) }
+        c = { ...c, files: { ...c.files, [g]: { ino: was.ino, offset: was.offset + p.used } }, fold: foldIndex(p.records, { from: c.fold.worlds, fromXin: c.fold.xin }) }
       }
       CACHE.set(ck, c)
     } else {
@@ -425,7 +439,7 @@ export function readIndex (dir, hk, world = null) {
       c = { gen, files, fold: foldIndex(recs) }
       CACHE.set(ck, c)
     }
-    return { entries: c.fold.worlds[wkey(world)] ?? {}, gen, ok: true }
+    return { entries: c.fold.worlds[wkey(world)] ?? {}, xin: c.fold.xin?.[wkey(world)] ?? {}, gen, ok: true }
   } catch { CACHE.delete(ck); return { entries: {}, gen: 1, ok: false } }
 }
 

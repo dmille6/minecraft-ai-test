@@ -98,6 +98,21 @@ export const TARGET_BACKOFF_MS = 10 * 60 * 1000
 export const backsOffTarget = ({ kind, targetInTown }) => !targetInTown && (kind === 'no_path' || kind === 'timeout')
 
 /**
+ * CHESTREACH-01: WALK HOME FIRST, THEN THE CHEST AGAIN. Measured 24 h to 10-28 22:30Z (ES, 80 bots, 386 deposits): 164 failed
+ * "could not reach the chest"; 141 of them in under 1 s with 0 blocks moved (the walk profile has canDig=false), 121 of
+ * those with the bot 3+ blocks BELOW the chest (82 more than 12 below: a mine under town); 81 of the 164 were followed by
+ * the SAME failure on the bot's next deposit, and only 15 by a `home` within 30 min. The walk that can leave a mine is
+ * `home` (goto's legs + the surface climb below sea level), which deposit already runs when it finds no chest at all.
+ * -> true when the first walk to a chest failed on its own terms (no path / our full budget), began OUTSIDE town, has not
+ * already been retried from home, and the attempt has at least HOME_RETRY_MIN_MS left. Pure. An interrupted walk (someone
+ * else has the pathfinder), a full-chest sweep's own attempt (noRecovery) and a walk that began in town (the town sweep
+ * handles it) are left as they were.
+ */
+export const HOME_RETRY_MIN_MS = 60_000
+export const homeFirst = ({ kind, beganInTown, noRecovery = false, homed = false, leftMs = 0 }) =>
+  !noRecovery && !homed && !beganInTown && (kind === 'no_path' || kind === 'timeout') && leftMs >= HOME_RETRY_MIN_MS
+
+/**
  * WHEN OUR CLOCK ENDS A WALK TO A CHEST -> 'halt' | 'leave'. Pure. Halt (clear the goal) only while the pathfinder's goal
  * is still the one this walk set; a reflex that has taken the pathfinder since (an escape, a rescue) keeps it. The walk
  * itself never watches digs (chestfull-02): a travel dig wants the HOLE, and watchDigging's stop() + stopDigging() on a
