@@ -17099,7 +17099,9 @@ async function buildShop (ctx, args, signal) {
 }
 
 // ================================================================================================================================
-const ZIG_VISIT_TAIL_MS = 40_000   // the leave walk and the visit's rows, inside the runner's clock
+// the tail kept free of the runner's clock (Codex r3 BLOCK 2: 40 s did not hold one more stand walk (PATH_MS 25 s) + a click + the
+// leave walk (25 s)): the last step starts by 120 s of the showcase's 180, and every walk is bounded by buildbot's PATH_MS
+const ZIG_VISIT_TAIL_MS = 60_000
 // MONUMENT-01: THE ZIGGURAT (ziggurat.mjs; shop.mjs PROJECTS' third entry). build_shop's visit when the active project is the
 // monument: the same record, slot, segment, intent and visit machinery as the workshop and the house (buildproj.mjs, buildrun.mjs,
 // buildbot.mjs), its key `project-<home>.monument`, the same `_build*` rows with project=monument (the showcase tripwire's shop
@@ -17168,6 +17170,13 @@ async function buildMonument (ctx, args, signal) {
   if (rec.structure_complete && !shopDamaged(bot, rec)) {
     if (Object.keys(drawnRead(dir, key, me).drawn).length) drawnWrite(dir, key, me, {})
     return out('no_effect', 'complete', 'the ziggurat stands')
+  }
+  // A BUILDER ON THE PRE-SPLIT BUILD (Codex r3 BLOCK 1: during a release's restart an old visit may hold the single `F` lease while
+  // this one takes `F-N`): while any other holder's `seg-F` lease blocks, the foundation is theirs -- wait. Old visits end within
+  // the runner's 180 s and every bot restarts onto this build, so the window closes by itself
+  if (rec.cells.some(c => c.seg.startsWith('F-'))) {
+    const old = projLeaseState(dir, key, 'seg-F')
+    if (old && old.rec?.holder !== me && Date.now() < old.blocksUntil) return out('no_effect', 'deps_open', `the foundation's single-segment lease is held by ${old.rec?.holder ?? '?'} (an older build): waiting`, { stop: 'deps_open' })
   }
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === MONUMENT_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
