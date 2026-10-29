@@ -721,11 +721,14 @@ await t('R3.C A LONG TRIP HOME LEAVING 3 s: the walk to the chest times out on O
   assert.equal(w.spy.placed.length, 0)
 })
 
+// chestreach-01: with 60 s or more left this walk would go home first and retry (chestreach.test.mjs); 55 s left keeps the
+// first walk's own result, which is what this test is about
+const SHORT = () => ({ current: { startedAt: Date.now() - 125_000 } })
 await t('R3.C A NO-PATH WALK THAT BEGAN OUTSIDE TOWN strikes nothing: the travel failure, as before', async () => {
   const w = town([stack('oak_log', 64), stack('chest', 1)], [40.5, 64, 0.5])
   const goto = w.bot.pathfinder.goto
   w.bot.pathfinder.goto = async g => { if (g.x === 5 && g.z === 0) throw new Error('No path to the goal!'); return goto(g) }
-  const r = await run(w.bot)
+  const r = await run(w.bot, {}, SHORT())
   assert.equal(r.status, 'failed'); assert.match(r.detail, /could not reach the chest at 5,64,0/)
   assert.equal(memEntry('5,64,0'), undefined)
   assert.equal(w.spy.placed.length, 0)
@@ -783,7 +786,7 @@ await t('R4.2 WHERE THE WALK BEGAN is read before the walk: a live position that
   w.bot.pathfinder.goto = async g => {
     if (g.x === 5 && g.z === 0) { w.bot.entity.position.x = 6.5; throw new Error('No path to the goal!') }   // mutated IN PLACE
   }
-  const r = await run(w.bot)
+  const r = await run(w.bot, {}, SHORT())
   assert.equal(r.status, 'failed'); assert.match(r.detail, /could not reach the chest at 5,64,0/)
   assert.equal(memEntry('5,64,0'), undefined, 'no strike')
   assert.equal(bankClosed(w.bot), '')
@@ -943,7 +946,7 @@ await t('C2 A WALK THAT BEGINS DEEP UNDER TOWN is not a town walk: a no-path str
     const w = town([stack('oak_log', 64), stack('chest', 1)], [3.5, y, 0.5])
     const goto = w.bot.pathfinder.goto
     w.bot.pathfinder.goto = async g => { if (g.x === 5 && g.z === 0) throw new Error('No path to the goal!'); return goto(g) }
-    await run(w.bot)
+    await run(w.bot, {}, SHORT())
     assert.equal(memEntry('5,64,0')?.o, strikes ? 'unknown' : undefined, `began at y=${y}`)
   }
 })
@@ -1038,7 +1041,7 @@ await t('C2 FAR RECOVERY: an alternate in this bot\'s backoff is not tried; a TO
   assert.ok(b.bot.skipContainers.get('20,64,0') > Date.now(), 'the far full chest is skipped')
   assert.equal(b.bot.skipContainers.get('10,64,0'), undefined, 'the town chest is not')
   assert.equal(memEntry('10,64,0'), undefined, 'and a walk from OUTSIDE town strikes no town chest (round 2)')
-  const r2 = await run(b.bot)   // THE NEXT DEPOSIT WALKS (to the town chest), it does not refuse in place on a backoff
+  const r2 = await run(b.bot, {}, SHORT())   // THE NEXT DEPOSIT WALKS (to the town chest), it does not refuse in place on a backoff
   assert.equal(townTries, 2, r2.detail)
   assert.match(r2.detail, /could not reach the chest at 10,64,0/)
 })
