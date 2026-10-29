@@ -39,8 +39,10 @@ export const ZIG_PALETTE = Object.freeze({
 })
 /** What a visit may dig out of an open record cell (buildrun.mjs foreignKind, widened for a forest floor): terrain, and the plants
  *  a placement does not replace (offline on the showcase region 10-29: a sapling and a mushroom in two foundation cells stopped
- *  the foundation `blocked`), and a stray torch. */
-export const ZIG_FOREIGN = /^(cobblestone|dirt|coarse_dirt|grass_block|podzol|rooted_dirt|mycelium|moss_block|stone|andesite|diorite|granite|tuff|netherrack|cobbled_deepslate|deepslate|gravel|sand|red_sand|clay|mud|snow_block|packed_ice|mossy_cobblestone|calcite|dripstone_block|smooth_basalt|[a-z_]+_sapling|mangrove_propagule|brown_mushroom|red_mushroom|dandelion|poppy|[a-z_]+_tulip|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|allium|blue_orchid|sunflower|lilac|rose_bush|peony|sweet_berry_bush|bush|firefly_bush|leaf_litter|wildflowers|pink_petals|moss_carpet|short_dry_grass|tall_dry_grass|torchflower|cactus_flower|pitcher_plant|snow|torch|wall_torch)$/
+ *  the foundation `blocked`), a stray torch, and every block the pathfinder scaffolds with (scaffold.mjs PATHFINDER_SCAFFOLD + its
+ *  dirt and cobblestone; logs are TREE_CLEAR) -- an open cell takes the pathfinder's scaffold (shop.mjs footprintCost), and one in a
+ *  skin or stair cell is dug and replaced (Codex r6 BLOCK 2). */
+export const ZIG_FOREIGN = /^(cobblestone|dirt|coarse_dirt|grass_block|podzol|rooted_dirt|mycelium|moss_block|stone|andesite|diorite|granite|tuff|netherrack|cobbled_deepslate|deepslate|gravel|sand|red_sand|clay|mud|snow_block|packed_ice|mossy_cobblestone|calcite|dripstone_block|smooth_basalt|[a-z_]+_sapling|mangrove_propagule|brown_mushroom|red_mushroom|dandelion|poppy|[a-z_]+_tulip|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|allium|blue_orchid|sunflower|lilac|rose_bush|peony|sweet_berry_bush|bush|firefly_bush|leaf_litter|wildflowers|pink_petals|moss_carpet|short_dry_grass|tall_dry_grass|torchflower|cactus_flower|pitcher_plant|snow|torch|wall_torch|[a-z_]+_planks|sandstone|red_sandstone|blackstone|basalt)$/
 
 /**
  * THE SWITCH -> bool. MONUMENT=on|off; unset = on only in the pools named by MONUMENT_POOLS (default 'showcase'): the fleet's
@@ -417,19 +419,6 @@ export function zigHidden (c, read) {
  * open cells are never a floor. Pure.
  */
 export const zigFeetIn = () => true
-/**
- * THE WALKS' PRICE ON THE ZIGGURAT -> Set "x,y,z" (index.mjs prices a break or a place there 100: the pathfinder never does it).
- * Pure over `done(cell)`. Its BUILT cells only, no halo (the workshop's footprint is every record cell + 1). LIVE showcase 10-29
- * 16:00-16:40Z: 19 `_reflex_stuck` on the site at y=66, in the foundation's hollows -- a builder that stood in an open fill cell
- * could neither break the canopy leaves in the +1 halo nor pillar out (its own cell a priced record cell), and 8 of 27 visits
- * aborted. Built cells stay unbreakable; an open cell may take the pathfinder's scaffold (dirt or cobble in a core cell is done,
- * in a skin cell it is dug and replaced); leaves and plants beside the build may be broken.
- */
-export function zigFootprint (record, done) {
-  const out = new Set()
-  for (const c of record?.cells ?? []) if (done(c)) out.add(c.at.join(','))
-  return out
-}
 /**
  * THE FOUNDATION IN FOUR (live showcase 10-29 15:17-15:40Z: the foundation, 953 cells, was ONE segment -- one builder at a time,
  * every other visit `deps_open L00-N waits for F`, 167 placements in 23 min): a record's `F` cells split by the quadrant of their
