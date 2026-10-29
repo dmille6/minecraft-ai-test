@@ -418,6 +418,23 @@ export function zigHidden (c, read) {
  */
 export const zigFeetIn = () => true
 /**
+ * THE FOUNDATION IN FOUR (live showcase 10-29 15:17-15:40Z: the foundation, 953 cells, was ONE segment -- one builder at a time,
+ * every other visit `deps_open L00-N waits for F`, 167 placements in 23 min): a record's `F` cells split by the quadrant of their
+ * column around the base's centre into F-N/F-E/F-S/F-W, each with no deps, and every segment that waited on F waits on all four.
+ * The cells are unchanged (the record file, the tripwire's oracle, is not rewritten: the visit applies this in memory, and a record
+ * already split is returned as it is). Pure.
+ */
+export function zigSplitFoundation (record) {
+  if (!record?.cells?.some(c => c.seg === 'F')) return record
+  const g = record.geometry ?? ZIG_DEFAULT
+  const [cx0, cz0] = record.corner
+  const F = ['N', 'E', 'S', 'W'].map(q => `F-${q}`)
+  const cells = record.cells.map(c => (c.seg === 'F' ? { ...c, seg: `F-${quadrantOf(c.at[0] - cx0, c.at[2] - cz0, g)}` } : c))
+  const used = F.filter(s => cells.some(c => c.seg === s))
+  const segments = (record.segments ?? []).flatMap(s => (s.seg === 'F' ? used.map(seg => ({ seg, deps: [] })) : [{ ...s, deps: (s.deps ?? []).flatMap(d => (d === 'F' ? used : [d])) }]))
+  return { ...record, cells, segments }
+}
+/**
  * WHAT A VISIT WANTS FROM TOWN BEFORE THE BAG -> { name: n }. Pure. `bill` the open cells' bill, `coreBill` the open CORE cells'
  * own; the bag's other core names (dirt, stone variants: `spare`) are credited against the core's cobblestone only -- the skin and
  * the stair take cobblestone alone (Codex r1 BLOCK: credited against the whole bill, 48 dirt cancelled one skin cell's cobblestone,
@@ -455,7 +472,7 @@ export function zigProgress (record, done) {
   for (const c of record?.cells ?? []) {
     if (done(c)) { d++; continue }
     open++
-    const l = c.seg === 'F' ? -1 : Number(c.seg.slice(1, 3))
+    const l = c.seg.startsWith('F') ? -1 : Number(c.seg.slice(1, 3))
     if (layer == null || l < layer) layer = l
   }
   return { done: d, open, layer }
