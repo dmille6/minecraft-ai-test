@@ -114,7 +114,14 @@ export const saplingCandidateOk = (box, c) => { const p = c?.ref?.position; retu
  *  else 0. One Set lookup (the A* hot path). Pure. */
 export const footprintCost = (cells, profile, block) => {
   const p = block?.position
-  return p && cells && cells.size && FOOTPRINT_PROFILES.has(profile) && cells.has(`${p.x},${p.y},${p.z}`) ? 100 : 0
+  if (!p || !cells || !FOOTPRINT_PROFILES.has(profile)) return 0
+  const k = `${p.x},${p.y},${p.z}`
+  if (cells.size && cells.has(k)) return 100
+  // MONUMENT-01 (`cells.solidOnly`: the ziggurat's record cells, no halo): priced while the cell holds a SOLID block, judged at the
+  // check itself (Codex r6 BLOCK 1: a built-cells set refreshed every 60 s left a cell built since unpriced). So a walk never breaks
+  // a built cell, and an OPEN one takes the pathfinder's scaffold -- LIVE showcase 10-29 16:00-16:40Z: 19 `_reflex_stuck` in the
+  // foundation's hollows, builders who could neither break the canopy in the +1 halo nor pillar out of their own open cell.
+  return cells.solidOnly?.has?.(k) && block.boundingBox === 'block' ? 100 : 0
 }
 /** The pathfinder entry for the footprint (one fn for exclusionAreasBreak and exclusionAreasPlace), TAGGED so an escape clone can
  *  drop it. `cells()` / `profile()` are read at search time. */

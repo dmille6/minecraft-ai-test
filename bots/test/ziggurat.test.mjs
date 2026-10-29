@@ -190,12 +190,20 @@ await t('zigSplitFoundation (live 10-29: one F segment, one builder): F in four 
   assert.strictEqual(Z.zigSplitFoundation(sp), sp, 'already split: as it is')
   assert.strictEqual(Z.zigProgress(sp, () => false).layer, -1)
 })
-await t('zigFootprint (live 10-29: builders stuck in the hollows): the ziggurat\'s walk price is its BUILT cells only, no halo', async () => {
-  const rec = { cells: [{ at: [0, 70, 0], role: 'core' }, { at: [1, 70, 0], role: 'skin' }, { at: [2, 70, 0], role: 'skin' }] }
-  const fp = Z.zigFootprint(rec, c => c.at[0] < 2)
-  assert.deepStrictEqual([...fp].sort(), ['0,70,0', '1,70,0'])
-  assert.ok(!fp.has('0,71,0') && !fp.has('-1,70,0'), 'no +1 halo')
-  assert.strictEqual(SHOPM.footprintCells(rec).has('0,71,0'), true, 'positive control: the workshop\'s footprint has the halo')
+await t('footprintCost (Codex r6 BLOCK 1): a ziggurat cell is priced while it holds a SOLID block, at the check; open, it takes scaffold', async () => {
+  const fp = new Set(['25,71,28']); fp.solidOnly = new Set(['-30,70,-30'])
+  const at = (x, y, z, box) => ({ position: { x, y, z }, boundingBox: box })
+  assert.strictEqual(SHOPM.footprintCost(fp, 'walk', at(-30, 70, -30, 'block')), 100, 'built: never broken')
+  assert.strictEqual(SHOPM.footprintCost(fp, 'walk', at(-30, 70, -30, 'empty')), 0, 'open: the pathfinder may place there')
+  assert.strictEqual(SHOPM.footprintCost(fp, 'walk', at(-30, 71, -30, 'block')), 0, 'no halo')
+  assert.strictEqual(SHOPM.footprintCost(fp, 'walk', at(25, 71, 28, 'empty')), 100, 'the workshop: every cell, solid or not')
+  assert.strictEqual(SHOPM.footprintCost(fp, 'ascend', at(-30, 70, -30, 'block')), 0, 'an escape walk is never priced')
+  const empty = new Set(); empty.solidOnly = new Set(['1,2,3'])
+  assert.strictEqual(SHOPM.footprintCost(empty, 'walk', at(1, 2, 3, 'block')), 100, 'a town with only a ziggurat')
+})
+await t('ZIG_FOREIGN (Codex r6 BLOCK 2): every block the pathfinder scaffolds with can be dug out of a skin or stair cell', async () => {
+  const { PATHFINDER_SCAFFOLD } = await import('../src/scaffold.mjs')
+  for (const n of [...PATHFINDER_SCAFFOLD, 'dirt', 'cobblestone']) assert.ok(R.foreignKind(n, Z.ZIG_FOREIGN), n)
 })
 await t('zigProgress: done / open and the lowest open layer', async () => {
   const rec = { cells: [{ seg: 'F' }, { seg: 'L00-N' }, { seg: 'L01-E' }].map((c, i) => ({ ...c, at: [i, 0, 0] })) }
