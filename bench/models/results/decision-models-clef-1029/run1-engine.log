@@ -1,0 +1,7 @@
+clef-flash @ http://127.0.0.1:18765 (http): 595 items (5 done)
+  50/595 transport errors 0 
+  54/595 transport errors 1 RemoteDisconnected: Remote end closed connection without response
+  55/595 transport errors 2 URLError: <urlopen error [Errno 61] Connection refused>
+  56/595 transport errors 3 URLError: <urlopen error [Errno 61] Connection refused>
+  100/595 transport errors 47 URLError: <urlopen error [Errno 61] Connection refused>
+ABORT: the endpoint is failing

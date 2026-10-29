@@ -1,0 +1,3 @@
+2026-10-29T11:39:51Z ok=1 bots=       1 brain=       1 | showcase OK: 10 of 10 bots, last row 0 min ago|  SHOWCASE bots: 10 present in 3 h (13,727 skill docs), deaths 0, builds {'e307fbf0d935caff00de45c7d619a05d0ac4c01f+b600c3': 13727}|  SHOWCASE BRAIN: 2156 decisions; gemma4 2156 (100.0%), fallback/other 0 (0.0%) {'gemma4:26b': 2156}, unserved 0 (0.0%)|
+2026-10-29T11:44:54Z ok=1 bots=       1 brain=       1 | showcase OK: 10 of 10 bots, last row 0 min ago|  SHOWCASE bots: 10 present in 3 h (13,680 skill docs), deaths 0, builds {'e307fbf0d935caff00de45c7d619a05d0ac4c01f+b600c3': 13680}|  SHOWCASE BRAIN: 2149 decisions; gemma4 2149 (100.0%), fallback/other 0 (0.0%) {'gemma4:26b': 2149}, unserved 0 (0.0%)|
+2026-10-29T11:49:55Z end: RUN.state=killed

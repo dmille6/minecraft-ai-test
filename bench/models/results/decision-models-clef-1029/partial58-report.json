@@ -1,0 +1,164 @@
+{
+ "items": 58,
+ "kinds": {
+  "good": 14,
+  "fail": 35,
+  "post_veto": 9
+ },
+ "logged": {
+  "n": 58,
+  "missing": 0,
+  "schema_valid": 100.0,
+  "retry": 0.0,
+  "hard": 20.7,
+  "bad": 20.7,
+  "rep_fail": 100.0,
+  "post_veto_repeat": 88.9,
+  "agree_skill": 100.0,
+  "agree_key": 100.0,
+  "hard_on_fail_items": 25.7,
+  "hard_on_good_items": 14.3,
+  "denominators": {
+   "all": 58,
+   "fail": 35,
+   "post_veto": 9,
+   "good": 14
+  },
+  "answered": 58,
+  "transport_errors": 0,
+  "p50_s": null,
+  "p95_s": null,
+  "rep_fail_mk": [
+   100.0,
+   21
+  ],
+  "post_veto_mk": [
+   87.5,
+   8
+  ]
+ },
+ "runs": {
+  "qwen3.5:9b": {
+   "n": 58,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 3.4,
+   "bad": 3.4,
+   "rep_fail": 14.3,
+   "post_veto_repeat": 77.8,
+   "agree_skill": 64.3,
+   "agree_key": 57.1,
+   "hard_on_fail_items": 0.0,
+   "hard_on_good_items": 14.3,
+   "denominators": {
+    "all": 58,
+    "fail": 35,
+    "post_veto": 9,
+    "good": 14
+   },
+   "answered": 600,
+   "transport_errors": 0,
+   "p50_s": 2.01,
+   "p95_s": 3.1047499999999992,
+   "rep_fail_mk": [
+    23.8,
+    21
+   ],
+   "post_veto_mk": [
+    87.5,
+    8
+   ],
+   "file": "/home/mike/learnloop/m3/blackwell-base-01/qwen3_5_9b.jsonl",
+   "complete": true
+  },
+  "hf.co/LiquidAI/d1-3B-GGUF:Q8_0": {
+   "n": 58,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 6.9,
+   "bad": 6.9,
+   "rep_fail": 25.7,
+   "post_veto_repeat": 33.3,
+   "agree_skill": 50.0,
+   "agree_key": 50.0,
+   "hard_on_fail_items": 2.9,
+   "hard_on_good_items": 14.3,
+   "denominators": {
+    "all": 58,
+    "fail": 35,
+    "post_veto": 9,
+    "good": 14
+   },
+   "answered": 600,
+   "transport_errors": 0,
+   "p50_s": 0.411,
+   "p95_s": 0.703,
+   "rep_fail_mk": [
+    42.9,
+    21
+   ],
+   "post_veto_mk": [
+    37.5,
+    8
+   ],
+   "conf_mean": {
+    "good": 0.479,
+    "fail": 0.4,
+    "post_veto": 0.494
+   },
+   "auroc_lowconf_failitem": 0.637987012987013,
+   "auroc_lowconf_repeat": 0.2786458333333333,
+   "n_repeat": 12,
+   "n_norepeat": 32,
+   "items_with_option_outside_top20": 170,
+   "file": "d1-3b-q8.jsonl",
+   "complete": true
+  },
+  "clef-flash": {
+   "n": 58,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 6.9,
+   "bad": 6.9,
+   "rep_fail": 22.9,
+   "post_veto_repeat": 11.1,
+   "agree_skill": 42.9,
+   "agree_key": 42.9,
+   "hard_on_fail_items": 2.9,
+   "hard_on_good_items": 14.3,
+   "denominators": {
+    "all": 58,
+    "fail": 35,
+    "post_veto": 9,
+    "good": 14
+   },
+   "answered": 58,
+   "transport_errors": 0,
+   "p50_s": 7.13,
+   "p95_s": 12.37665,
+   "rep_fail_mk": [
+    38.1,
+    21
+   ],
+   "post_veto_mk": [
+    12.5,
+    8
+   ],
+   "conf_mean": {
+    "good": 0.619,
+    "fail": 0.536,
+    "post_veto": 0.56
+   },
+   "auroc_lowconf_failitem": 0.6136363636363636,
+   "auroc_lowconf_repeat": 0.4873015873015873,
+   "n_repeat": 9,
+   "n_norepeat": 35,
+   "items_with_option_outside_top20": 0,
+   "file": "clef-flash-sub58.jsonl",
+   "complete": true
+  }
+ }
+}
