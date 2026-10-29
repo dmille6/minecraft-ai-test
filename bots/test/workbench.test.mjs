@@ -106,7 +106,8 @@ await t('WIRED: mats candidates, smelt_town, the order\'s crafts and the craft t
   assert.ok(/distanceTo\(b\.position\) <= WORKSHOP_REACH\) : \[\]/.test(SK), 'the workshop table looked up within WORKSHOP_REACH')
   assert.ok(/const wsTables = ctx\.preferWorkshop \?/.test(SK) && /const tableTries = preferWorkshop\(\[\.\.\.wsTables, nearTable\]\.filter\(Boolean\)/.test(SK), 'craftLevel orders its tables')
   assert.ok(/if \(tableBlock !== tableTries\.at\(-1\) && bot\.entity\.position\.distanceTo\(tableBlock\.position\.offset\(0\.5, 0\.5, 0\.5\)\) > STATION_REACH\) continue/.test(SK), 'unreachable -> the nearest')
-  assert.ok(/bot\.shopStations = workshopStations\(h\.head\?\.rec \?\? null\)/.test(SK), 'refreshed with the record')
+  // house-01: the WORKSHOP's record (projectsOn()[0], plot shop), not the active project's
+  assert.ok(/bot\.shopStations = workshopStations\(hs\[0\]\?\.head\?\.rec \?\? null\)/.test(SK), 'refreshed with the workshop record')
   const M = fs.readFileSync(new URL('../src/mats.mjs', import.meta.url), 'utf8'), J = fs.readFileSync(new URL('../src/smeltjob.mjs', import.meta.url), 'utf8')
   assert.ok(M.includes("`ws=${v(f.wsF ?? '-')}/${v(f.wsT ?? '-')}`") && J.includes("`ws=${v(f.ws ?? '-')}`"))
 })
