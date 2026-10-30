@@ -331,6 +331,38 @@ await t('LIDPLANK-01 RULE: a full wood block comes off a lid only when every bui
   assert.match(L.lidClearRefusal({ lid: { name: 'oak_planks' }, above: { name: 'gravel' }, sides: sides4(), record: false }), /would fall/)
   assert.match(L.lidClearRefusal({ lid: { name: 'oak_planks' }, above: AIR, sides: [AIR, { name: 'water' }, AIR, AIR], record: false }), /water or lava/)
 })
+await t('ZIGFLEET-01 x LIDPLANK-01: with the house and the ziggurat on, a COMPLETE workshop\'s lid cell still reads workshop (the active project is another), a ziggurat cell reads monument, a bad ziggurat generation is unknown', async () => {
+  const w = lidWorld([], { lid: 'oak_planks' })
+  w.bot.townPlan = undefined
+  const p = { x: 5, y: 65, z: 0 }, q = { x: 9, y: 65, z: 3 }
+  const monFile = path.join(process.env.POOL_STATE_DIR, `${projKey({ x: 0, y: 64, z: 0 }, 'monument')}.g1.json`)
+  assert.equal(SK.lidRecordAt(w.bot, p), false, 'positive control: a fresh town, no record')
+  fs.writeFileSync(path.join(process.env.POOL_STATE_DIR, `${projKey({ x: 0, y: 64, z: 0 }, SHOP_PLOT)}.g1.json`),
+    JSON.stringify({ gen: 1, prev: null, structure_complete: true, completeAt: 1, cells: [{ at: [5, 65, 0], block: 'oak_planks', state: 'placed' }] }))
+  fs.writeFileSync(monFile, JSON.stringify({ gen: 1, prev: null, blueprint: 'ziggurat@2', cells: [{ at: [9, 65, 3], block: 'oak_planks', role: 'skin', seg: 'F', state: 'open' }] }))
+  // the project order's reading through a bot that sees the workshop standing (a blockless bot: no cell reads damaged)
+  assert.notEqual(SK.shopActive({ username: 'LidBot' }).plot, SHOP_PLOT, 'the control for the conflict: the workshop is complete, so the active project is another')
+  assert.equal(SK.lidRecordAt(w.bot, p), 'workshop', 'the workshop cell, whatever project is active')
+  assert.equal(SK.lidRecordAt(w.bot, q), 'monument')
+  assert.equal(SK.lidRecordAt(w.bot, { x: 9, y: 66, z: 3 }), false, 'the cell above: no record')
+  fs.writeFileSync(monFile, '{ not json')
+  assert.equal(SK.lidRecordAt(w.bot, { x: 9, y: 66, z: 3 }), null, 'an unparseable ziggurat generation: a cell in no other record is unknown (was false: a dig)')
+  fs.unlinkSync(monFile)
+})
+await t('MUTANT KILLED (zigfleet-01 x lidplank-01): the merged base\'s one read of shopRecordHead (the ACTIVE project) misses a complete workshop\'s lid cell', async () => {
+  const old = `    for (const proj of PROJECTS) {
+      const h = recordHead(dir, projKeyOf(proj.plot))`
+  const neu = `    for (const proj of [PROJECTS[0]]) {
+      const h = shopRecordHead()`
+  await withMutant(SKILLS_PATH, old, neu, async M => {
+    const w = lidWorld([], { lid: 'oak_planks' })
+    w.bot.townPlan = undefined
+    fs.writeFileSync(path.join(process.env.POOL_STATE_DIR, `${projKey({ x: 0, y: 64, z: 0 }, SHOP_PLOT)}.g1.json`),
+      JSON.stringify({ gen: 1, prev: null, structure_complete: true, completeAt: 1, cells: [{ at: [5, 65, 0], block: 'oak_planks', state: 'placed' }] }))
+    assert.notEqual(M.shopActive({ username: 'LidBot' }).plot, SHOP_PLOT)
+    assert.equal(M.lidRecordAt(w.bot, { x: 5, y: 65, z: 0 }), false, 'the mutant reads the house\'s (absent) record: a workshop lid would be dug')
+  })
+})
 await t('LIDPLANK-01 READER: lidRecordAt names the record that holds the cell -- workshop, tree farm (any height), town plan -- false when none, null when the records cannot be read', async () => {
   const w = lidWorld([], { lid: 'oak_planks' })
   const p = { x: 5, y: 65, z: 0 }

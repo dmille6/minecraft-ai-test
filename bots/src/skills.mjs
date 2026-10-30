@@ -131,7 +131,7 @@ import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, 
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { botBuildEffects } from './buildbot.mjs'
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -6522,9 +6522,10 @@ function lidJudge (bot, c) {
   return { blocked: true, refusal, s }
 }
 /**
- * THE BUILD RECORD THAT HOLDS THIS CELL (lidplank-01) -> 'townplan' | 'workshop' | 'treefarm' | false (every record read, none
- * holds it) | null (a record could not be read: unknown). The records: the town plan's placed and reserved cells
- * (townplan.mjs planFurnitureCells, the break price's data), the workshop's record cells (shop.mjs, every state), the tree
+ * THE BUILD RECORD THAT HOLDS THIS CELL (lidplank-01) -> 'townplan' | 'workshop' | <a project's plot> | 'treefarm' | false (every
+ * record read, none holds it) | null (a record could not be read: unknown). The records: the town plan's placed and reserved cells
+ * (townplan.mjs planFurnitureCells, the break price's data), every project's record cells (shop.mjs PROJECTS: the workshop, the
+ * house, the ziggurat, the paths, the wall -- every state, whatever the switch), the tree
  * farm's columns (any height). The junk well and its plinth are lidClearRefusal's `well` (wellBreakCost over knownWellCells).
  */
 export function lidRecordAt (bot, p) {
@@ -6535,10 +6536,16 @@ export function lidRecordAt (bot, p) {
     const ph = planHead(townDir(), planKeyNow(), bot?.worldId ?? null)
     if (!ph.ok || recordUnread(ph)) return null
     if (planFurnitureCells(ph.head?.plan).has(k) || bot?.townPlan?.cells?.has?.(k)) return 'townplan'
-    const h = shopRecordHead()
-    // a generation file that exists but cannot be read leaves `ok` true with an older (or no) head: unknown, never "no cell"
-    if (!h.ok || recordUnread(h) || ((h.gens?.length ?? 0) > 0 && !h.head)) return null
-    if ((h.head?.rec?.cells ?? []).some(c => Array.isArray(c?.at) && c.at[0] === p.x && c.at[1] === p.y && c.at[2] === p.z)) return 'workshop'
+    // EVERY PROJECT'S RECORD (zigfleet-01 x lidplank-01: the trunk's shopRecordHead is the ACTIVE project's record -- with the
+    // house and the ziggurat on, a workshop lid would read as "no record" while the ziggurat is active). Every listed project,
+    // whatever its switch (a switched-off project's record still stands in the world, as TOWNPLAN=off's plan above)
+    const dir = townDir()
+    for (const proj of PROJECTS) {
+      const h = recordHead(dir, projKeyOf(proj.plot))
+      // a generation file that exists but cannot be read leaves `ok` true with an older (or no) head: unknown, never "no cell"
+      if (!h.ok || recordUnread(h) || ((h.gens?.length ?? 0) > 0 && !h.head)) return null
+      if ((h.head?.rec?.cells ?? []).some(c => Array.isArray(c?.at) && c.at[0] === p.x && c.at[1] === p.y && c.at[2] === p.z)) return proj.plot === SHOP_PLOT ? 'workshop' : proj.plot
+    }
     const farm = treeFarmRecordCells()
     if (!farm) return null
     if (farm.has(`${p.x},${p.z}`)) return 'treefarm'
