@@ -30,6 +30,7 @@
 import { walkFrom, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replantAlternative } from './buildsite.mjs'
 import { isSolid, replaceableCell } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
+import * as V from './voidfill.mjs'
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => k3(a[0], a[1], a[2])
@@ -448,6 +449,158 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     return p.use.want(e.read(...c.at)) ? 'placed' : 'refused'
   }
 
+  // ---- VOIDFILL-01: THE ACCESS INTO A SEALED VOID (voidfill.mjs; `p.access` = { mem, mayDig(at) }) -----------------------------
+  // A placement from where the bot STANDS NOW (no walk): the click's protocol (intent, mutex, fence, one send, the acknowledgement,
+  // the world read). `rise`: a PILLAR step -- the bot jumps first (e.rise: airborne above the cell), then the protocol, then it
+  // lands (e.land, always, on every path). `fence: false` (the climb-out only): no intent, no fence -- getting out comes first.
+  // -> 'placed' | 'refused' | 'silent' | 'busy' | 'no_rise' | 'no_material' | 'fence:<why>' | 'aborted'
+  const placeHere = async (at, role, block, support, face, seg, segGen, { rise = false, feetY = null, fence = true } = {}) => {
+    if (!(await e.hold(block))) return 'no_material'
+    await e.look(support, face)
+    if (e.aborted()) return 'aborted'
+    if (rise && !(await e.rise(feetY))) { await e.land(); return 'no_rise' }
+    let id = null, m = null, released = false
+    const release = () => { if (m?.ok && !released) { released = true; PJ.mutexRelease(dir, key, me, { gen: m.gen }) } }
+    try {
+      const seq = e.nextSeq()
+      if (fence) {
+        id = PJ.intentOpen(dir, key, me, { cell: at, block, lease: segGen, seq, conn, now: now() })
+        const cancel = () => PJ.intentClose(dir, key, me, id, 'cancelled', { now: now() })
+        m = mutex()
+        if (!m.ok) { cancel(); return 'busy' }
+        const refused = PJ.fenceRefusal(dir, key, me, { slot: p.slot, slotGen, seg, segGen, recordGen: p.recordGen, now: now(), beatConn: p.beat ? conn : null })
+        if (refused) { cancel(); return `fence:${refused}` }
+        if (!replaceableCell(rd(...at)) && nm(rd(...at)) !== 'air') { cancel(); return 'refused' }
+      }
+      e.send(support, face, seq)              // SYNCHRONOUS after the fence: nothing awaited between them
+      const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
+      release()
+      if (v !== 'acked') { if (id) e.track?.(id, seq); return 'silent' }
+      if (id) PJ.intentClose(dir, key, me, id, 'settled', { state: nm(e.read(...at)), now: now() })
+      return cellDone(e.read(...at), palette, role) || (!role && isSolid(e.read(...at))) ? 'placed' : 'refused'
+    } finally { release(); if (rise) await e.land() }
+  }
+  const access = p.access ?? null
+  const accessCell = new Map(record.cells.map(c => [kOf(c.at), c]))
+  /** THE CLIMB OUT (the access's fallback, and a resumed access): pillar up the column to its top, each cell with its record
+   *  block (else any scaffold-class block held), no fence. Bounded by the column's height. -> true when standing on the top. */
+  const climbOut = async (top, why) => {
+    const [x, T, z] = top
+    let ok = true
+    for (let n = 0; n < 32; n++) {
+      if (e.aborted()) return false
+      const f = e.feet()[1]
+      if (e.feet()[0] !== x || e.feet()[2] !== z) { ok = false; break }
+      if (f >= T) break
+      if (!isSolid(rd(x, f - 1, z)) || rd(x, f + 2, z)?.boundingBox !== 'empty') { ok = false; break }
+      const c = accessCell.get(k3(x, f, z))
+      const block = (c && blockFor(palette, c.role, e.has)) || ['cobblestone', 'dirt', 'cobbled_deepslate'].find(b => e.has(b))
+      if (!block) { ok = false; break }
+      let v = null
+      for (let t = 0; t < 3; t++) { v = await placeHere([x, f, z], c?.role ?? null, block, [x, f - 1, z], [0, 1, 0], null, null, { rise: true, feetY: f, fence: false }); if (v === 'aborted' || e.feet()[1] > f) break }
+      if (v === 'aborted') return false
+      if (e.feet()[1] <= f) { ok = false; break }
+    }
+    const up = ok && e.feet()[1] >= T
+    e.log('_build', { op: 'access_climbout', cell: e.feet(), result: up ? 'out' : 'short', why })
+    if (up && access?.mem) access.mem.active = null
+    return up
+  }
+  /**
+   * RUN ONE ACCESS PLAN (voidfill.mjs planVoidAccess) -> { result: 'done' | 'refused' | 'failed' | 'aborted' | 'fence:<why>',
+   * placed, dug, leases }. `held` the segment leases this visit already holds (seg -> gen); the plan's other segments are taken
+   * here (one held by another builder: refused, nothing dug). The bot walks to the column's top, re-proved there, then each step
+   * is re-checked at its turn (the feet the plan expects, the block it expects); a step that cannot go on ends in the CLIMB OUT.
+   */
+  const accessRun = async (plan, held) => {
+    const res = { result: 'refused', placed: 0, dug: 0, why: null, leases: held }
+    const segs = new Set(plan.steps.filter(s => s.seg).map(s => s.seg))
+    for (const d of plan.digs) { const c = accessCell.get(kOf(d)); if (c) segs.add(c.seg) }
+    const taken = []
+    const leaseAt = new Map()
+    try {
+      for (const s of segs) {
+        if (held.has(s)) continue
+        const l = PJ.takeLease(dir, key, `seg-${s}`, me, { now: now() })
+        if (!l.ok) { res.why = `seg-${s} held`; return res }
+        held.set(s, l.gen); taken.push(s); leaseAt.set(s, now())
+      }
+      const [x, T, z] = plan.top
+      const column = y => k3(x, y, z)
+      if ((e.bodies?.() ?? []).some(b => { for (let y = plan.bottom; y <= T + 1; y++) if (inCell(b, [x, y, z])) return true; return false })) { res.why = 'body in the shaft'; return res }
+      await e.walkTo(plan.top)
+      if (e.aborted()) { res.result = 'aborted'; return res }
+      if (kOf(e.feet()) !== kOf(plan.top)) { res.why = `not at the top (${kOf(e.feet())})`; return res }
+      await e.tool?.()
+      if (access?.mem) access.mem.active = { top: plan.top, at: now() }
+      const renew = () => {
+        if (!renewSlot()) return false
+        // every lease the steps fence on, the visit's own segment's too (its generation goes back to the caller in `leases`)
+        for (const s of held.keys()) {
+          if (now() - (leaseAt.get(s) ?? -Infinity) < PJ.LEASE_TTL_MS * RENEW_AT) continue
+          const g = PJ.renewLease(dir, key, `seg-${s}`, me, held.get(s), { now: now() }); if (!g) return false
+          held.set(s, g); leaseAt.set(s, now())
+        }
+        return true
+      }
+      const fail = async why => { res.result = 'failed'; res.why = why; await climbOut(plan.top, why); return res }
+      for (const st of plan.steps) {
+        if (e.aborted()) { res.result = 'aborted'; return res }
+        if (!renew()) return fail('lease')
+        const feet = e.feet()
+        if (feet[0] !== x || feet[2] !== z || feet[1] !== st.feet) return fail(`feet ${kOf(feet)}, the plan's ${column(st.feet)}`)
+        if (st.op === 'dig') {
+          const c = accessCell.get(kOf(st.at))
+          if (nm(rd(...st.at)) !== st.name) return fail(`${kOf(st.at)} changed`)
+          if (!c || !PJ.holdsLease(dir, key, `seg-${c.seg}`, me, held.get(c.seg), now())) return fail('fence:segment')
+          if (access.mayDig && !access.mayDig(st.at)) return fail(`${kOf(st.at)} vetoed`)
+          let v = await e.dig(st.at, st.name)
+          for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(st.at); if (n != null) v = AIR(n) ? 'confirmed' : 'standing' }
+          if (v !== 'confirmed') { if (v === 'unconfirmed') unknown.add(kOf(st.at)); return fail(`dig ${kOf(st.at)} ${v}`) }
+          res.dug++
+          e.log('_build', { op: 'access_dig', seg: c.seg, cell: st.at, block: st.name })
+          await e.settle()
+          continue
+        }
+        const c = accessCell.get(kOf(st.at))
+        if (st.op === 'place') {
+          if (isDone(c)) continue
+          if (!AIR(nm(rd(...st.at))) && !replaceableCell(rd(...st.at))) continue
+          const v = await placeHere(st.at, c.role, st.block, st.support, st.face, st.seg, held.get(st.seg))
+          if (v === 'aborted') { res.result = 'aborted'; return res }
+          if (v.startsWith('fence:')) return fail(v)
+          if (v === 'placed') { res.placed++; out.placed++; tally(st.block); e.log('_build', { op: 'place', seg: st.seg, cell: st.at, block: st.block, kind: 'access' }) } else e.log('_build', { op: 'access_miss', seg: st.seg, cell: st.at, result: v })
+          continue
+        }
+        // a pillar step: the feet cell (still air: nothing places into a body), head room two above
+        if (!AIR(nm(rd(...st.at)))) return fail(`${kOf(st.at)} not air`)
+        if (rd(x, st.feet + 2, z)?.boundingBox !== 'empty') return fail(`no head room at ${column(st.feet + 2)}`)
+        let v = null
+        for (let t = 0; t < 3; t++) {
+          v = await placeHere(st.at, c.role, st.block, st.support, st.face, st.seg, held.get(st.seg), { rise: true, feetY: st.feet })
+          if (v === 'aborted' || v.startsWith('fence:') || e.feet()[1] > st.feet) break
+          await e.sleep(150)
+        }
+        if (v === 'aborted') { res.result = 'aborted'; return res }
+        if (e.feet()[1] !== st.feet + 1) return fail(`pillar ${kOf(st.at)} ${v}`)
+        if (v === 'placed' || isDone(c)) { res.placed++; out.placed++; tally(st.block); e.log('_build', { op: 'place', seg: st.seg, cell: st.at, block: st.block, kind: 'pillar' }) }
+      }
+      if (access?.mem) access.mem.active = null
+      res.result = 'done'
+      return res
+    } finally {
+      for (const s of taken) { PJ.releaseLease(dir, key, `seg-${s}`, me, held.get(s)); held.delete(s) }
+    }
+  }
+  // A RESUMED ACCESS: this bot's own access ended mid-climb (an abort: a reflex took the body) and it still stands in that shaft
+  // below its top: the climb out first, before anything walks
+  if (access?.mem?.active?.top) {
+    const top = access.mem.active.top, f = e.feet()
+    if (f[0] === top[0] && f[2] === top[2] && f[1] < top[1] && f[1] >= top[1] - 16) await climbOut(top, 'resumed')
+    else access.mem.active = null
+    if (e.aborted()) { out.stop = 'aborted'; return out }
+  }
+
   // ---- 1. replant first --------------------------------------------------------------------------------------------------------
   // THE REPLANT REMEDY (F2; Paper 10-25 SHOP-TERRAIN hive-c: `no_step replant` every visit for 40 min, nothing placed): a replant
   // the visit cannot plant never stops the build. One record transition, then the visit ends `replanned` (the next visit builds
@@ -606,6 +759,26 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     }
     return { stop: 'cell_deferred', why: `${new Set(deferredCells).size} cell(s) no stand reaches now (segments ${[...deferredSegs].join(',')})${stalled ? `, every open segment waits on it (${waiting} cells)` : ''}: asked again next visit` }
   }
+  let accessTried = false
+  const tryAccess = async (cand, nodes, seg, segGen) => {
+    const counts = PJ.stuckRead(dir, key, { since: now() - STUCK_FORGET_MS + 1 })
+    const stuck = cand.map(c => kOf(c.at)).filter(k => (counts[k]?.visits ?? 0) >= V.ACCESS_AFTER)
+    if (!stuck.length) return { result: 'young' }
+    const akey = [...stuck].sort().join(' ')
+    if (!V.accessAllowed(access.mem, akey, now())) return { result: 'spent' }
+    if (deadline - now() < V.ACCESS_MIN_MS) return { result: 'late' }
+    const plan = V.planVoidAccess({ read: rd, record, stuck, nodes, isDone: (c, r) => isDone(c, r), mayDig: access.mayDig ?? (() => true), blockOf: role => blockFor(palette, role, e.has), domain, home })
+    if (!plan.ok) { V.accessNote(access.mem, akey, now()); e.log('_build', { op: 'access_refused', seg, cell: cand[0].at, n: stuck.length, why: String(plan.why).slice(0, 140) }); return { result: 'refused' } }
+    const climb = plan.steps.find(s => s.op === 'pillar')?.block ?? null
+    const short = V.accessShort(plan.need, n => e.count?.(n) ?? 0, climb)
+    if (Object.keys(short).length) { e.log('_build', { op: 'access_refused', seg, cell: plan.top, n: stuck.length, why: `no_material ${Object.entries(short).map(([k, v]) => `${k}:${v}`).join(',')}` }); return { result: 'refused' } }
+    V.accessNote(access.mem, akey, now())
+    e.log('_build', { op: 'access_plan', seg, cell: plan.top, n: plan.digs.length, why: `bottom=${plan.bottom} fall=${plan.fall} steps=${plan.steps.length} done=${plan.done.length}` })
+    const held = new Map([[seg, segGen]])
+    const r = await accessRun(plan, held)
+    e.log('_build', { op: r.result === 'done' ? 'access_done' : 'access_end', seg, cell: e.feet(), n: r.placed, result: r.result, ...(r.why ? { why: String(r.why).slice(0, 120) } : {}) })
+    return { result: r.result, segGen: held.get(seg) }
+  }
   try {
   for (const { seg, deps } of segmentsOf(record)) {
     if (segComplete(rd, record, palette, seg, alsoDone)) continue
@@ -754,6 +927,15 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // (shopwalls-06 r2, Codex r1 BLOCK: with every stand's route crossing, the refusal alone would stall the cell for good)
         for (const c of cand) { const bans = standBans(stands, kOf(c.at), now()); const kept = bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans), domain) : null; step = kept ?? stepFor(rd, home, c.at, nodes, domain); if (step) { picked = c; fellBack = bans.size > 0 && !kept; break } }
         if (!picked) {
+          // VOIDFILL-01: the cells no stand reaches, deferred in earlier visits too (the stuck map), may be a SEALED VOID: one access
+          // per visit (voidfill.mjs), done -> this segment is read again; anything else -> deferred as before
+          if (access && !accessTried && cand.length && !open.some(c => !isClear(c.at))) {
+            accessTried = true
+            const a = await tryAccess(cand, nodes, seg, segGen)
+            if (a.segGen != null && a.segGen !== segGen) { segGen = a.segGen; segAt = now() }
+            if (a.result === 'aborted') { out.stop = 'aborted'; return out }
+            if (a.result === 'done') continue
+          }
           if (cand.length && !open.some(c => !isClear(c.at))) {
             // no stand reaches any placeable cell of this segment: DEFER them and go on (F4)
             for (const c of cand) deferredCells.push(kOf(c.at))

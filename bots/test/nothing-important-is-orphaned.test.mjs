@@ -41,6 +41,11 @@ const REQUIRED = [
   // wall-01 (10-30): the town wall sited, built and walk-proven offline on a copy of the world, by the bots' own functions
   'bots/src/wall.mjs',
   'bots/scripts/wall-offline.mjs',
+  // voidfill-01 (10-30): a sealed void in a project record repaired from inside; its test reproduces the showcase ziggurat's
+  // own geometry from the fixture (the record's cells and a read-only scan of the world)
+  'bots/src/voidfill.mjs',
+  'bots/test/voidfill.test.mjs',
+  'bots/test/fixtures/voidfill-showcase-ziggurat-1030.json',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',

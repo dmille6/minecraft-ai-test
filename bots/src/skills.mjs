@@ -127,6 +127,8 @@ import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, 
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
+import { stuckRead as vfStuckRead } from './buildproj.mjs'
+import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS } from './ziggurat.mjs'   // monument-01
 import { botBuildEffects } from './buildbot.mjs'
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
@@ -17218,6 +17220,19 @@ function zigTidyNow (bot, rec, read) {
 }
 /** runVisit, then the tidy cells it EVALUATED (out.tidied: a stand looked for) counted against ZIG_TIDY_VISITS for this bot --
  *  never the ones a deadline, a lease or the clear bound left untouched (Codex zigtidy r1). */
+/**
+ * VOIDFILL-01 (buildrun.mjs runVisit `p.access`, voidfill.mjs): the monument visit may open a sealed void in its own record to
+ * fill it. `mem` the bot's attempts and its open climb (kept for the connection); `mayDig(at)` never a cell of another project's
+ * record, never inside a protected zone (shopCtx's zones; unread zones never reach here: the visit stops zones_unknown first).
+ * VOIDFILL=off is the rollback: no access, the visit exactly as before.
+ */
+function zigAccessOf (bot, c) {
+  if (['off', '0', 'false', 'no'].includes(String(process.env.VOIDFILL ?? '').trim().toLowerCase())) return null
+  let others = null
+  const otherCells = () => (others ??= new Set(projectHeads().filter(x => x.plot !== MONUMENT_PLOT).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))))
+  const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
+  return { mem: (bot.zigAccess ??= {}), mayDig: at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } } }
+}
 async function runVisitCounted (bot, p, e, opts) {
   const r = await runVisit(p, e, opts)
   try { const seen = bot.zigTidySeen ?? null; if (seen) for (const k of new Set(r.tidied ?? [])) seen.set(k, (seen.get(k) ?? 0) + 1) } catch { /* the bound waits */ }
@@ -17331,6 +17346,9 @@ async function buildMonument (ctx, args, signal) {
     // bill they cancelled the skin's and the stair's, which take cobblestone alone -- need {} and a no_material stop every visit)
     const coreBill = billOf({ cells: rec.cells.filter(x => x.role === 'core') }, palette, read, { done: buildCellDone, inTown: billInTown(town) })
     const want = zigWant(bill, coreBill, spare0, palette)
+    // VOIDFILL-01 (Codex r1 BLOCK): cells the stuck map holds may take an access -- the cap it opens and re-places, and the spare
+    // its climb-out keeps, beyond the open cells' own bill: drawn here, or the access refuses no_material every visit
+    try { if (zigAccessOf(bot, c) && Object.keys(vfStuckRead(dir, key)).length) want.cobblestone = (want.cobblestone ?? 0) + VF_ACCESS_DIG_MAX + VF_ACCESS_SPARE } catch { /* no extra draw */ }
     const need = needFromTown(want, spare0)
     let took = {}
     bag0 = held0
@@ -17359,7 +17377,8 @@ async function buildMonument (ctx, args, signal) {
       if (rec.structure_complete || zigProgress(rec, isDone).open <= 3) tidy = zigTidyNow(bot, rec, read)
     } catch { tidy = [] }
     const r = await runVisitCounted(bot, { dir, key, me, home, stood, record: rec, tidy, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zigHidden, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z] }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+      domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zigHidden, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z],
+      access: zigAccessOf(bot, c) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       completed = true
