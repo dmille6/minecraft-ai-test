@@ -126,13 +126,13 @@ import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, 
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
-import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
+import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, SHOP_PLOT, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -16652,7 +16652,10 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
         // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
         // tidy that is only due waits behind every open project (shop.mjs activeProject `due`)
-        const damaged = complete && b ? recordDamaged(b, rec, { tidy: false }) : false
+        // zigtidy-02: ...except for TIDY_AFTER_REPAIR_MS after the record's last repair completion (shop.mjs tidyIsRepair): then the
+        // tidy is a repair too -- the pillars a repair's own climbs left are dug before the open projects (bounded per bot)
+        const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
+        const damaged = complete && b ? recordDamaged(b, rec, { tidy: tidyFirst }) : false
         return { plot: p.plot, exists: !!rec, complete, damaged, due: complete && b && !damaged ? recordDamaged(b, rec) : false }
       })
       activeMem = { ...(activeMem ?? {}), sig, at: now, states }
@@ -16695,7 +16698,52 @@ function projectHeads () {
 }
 /** The project's record head in this town -> recordHead's answer. Never throws. */
 /** When any builder's visit last reported stuck_on_cell (the order's project-wide back-off) -> ms | null. Never throws. */
-export function shopStuckAt (now = Date.now()) { try { return projStuckAt(townDir(), shopKey(), { before: now + 60_000 }) } catch { return null } }
+export function shopStuckAt (now = Date.now()) { try { return projStuckLive(shopKey(), now) } catch { return null } }
+/**
+ * zigtidy-02 (LIVE showcase 10-30 22:27Z: Bravo's refused voidfill visit stamped the two cells a racing visit filled that minute):
+ * a project's stuck stamp (buildproj.mjs stuckAt), less a COMPLETE record's stamp whose cells all read done now (shop.mjs
+ * stuckStale) -- its 6 h back-off would hold the finished build's next repair. The record is read only when a stamp is in question;
+ * read through the last bot seen; no bot: every stamp counts, as before. -> ms | null. Never throws.
+ */
+function projStuckLive (key, now = Date.now()) {
+  try {
+    const dir = townDir()
+    const b = activeMem?.bot ?? null
+    let rec
+    const stale = b ? keys => {
+      if (rec === undefined) { const h = recordHead(dir, key); rec = h.ok ? h.head?.rec ?? null : null }
+      return !!rec?.structure_complete && stuckStale(keys, rec, c => recordCellDone(b, rec, c))
+    } : null
+    return projStuckAt(dir, key, { before: now + 60_000, stale })
+  } catch { return null }
+}
+/** zigtidy-02: the repair-completion stamp of a project (`<key>.repaired.json`, written by a visit that placed and ended complete)
+ *  -> ms | null. ABSENT: written at the first reading (one window after this build arrives -- the clock pattern of the project
+ *  reserve's progress file). Never throws. */
+const zigRepairedFile = key => path.join(townDir(), `${key}.repaired.json`)
+function zigRepairedAt (key, now = Date.now()) {
+  let raw
+  try { raw = fs.readFileSync(zigRepairedFile(key), 'utf8') } catch (e) { if (e?.code === 'ENOENT' && zigRepairedWrite(key, now, 'first_read', null)) return now; return null }
+  try { const j = JSON.parse(raw); return Number.isFinite(j?.at) ? j.at : null } catch { return null }
+}
+function zigRepairedWrite (key, at, why, by) {
+  try {
+    const f = zigRepairedFile(key), tmp = `${f}.${process.pid}.${Date.now().toString(36)}.tmp`
+    fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(tmp, JSON.stringify({ at, why, by })); fs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+/** One record cell reads done through the bot (its own palette; a sealed ziggurat core cell is done). Unread: false. Never throws. */
+function recordCellDone (bot, r, c) {
+  try {
+    const mon = isZigBlueprint(r.blueprint)
+    const bp = mon ? { palette: zigPaletteOf(r) } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
+    const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+    const b = read(...c.at)
+    if (!b) return false
+    return buildCellDone(b, bp.palette, c.role) || (mon && zigHidden(c, read))
+  } catch { return false }
+}
 export function shopRecordHead () { try { return recordHead(townDir(), shopKey()) } catch { return { ok: false, head: null, gens: [], rejected: [] } } }
 // THE PROJECT RESERVE AT RUNTIME (OWNER 10-27; mats.mjs projectReserveState decides). The progress clock is a town file written
 // at every visit that placed a block; when an open project has none yet, it is started at the first reading (one window).
@@ -16929,6 +16977,8 @@ export function shopFootprintRefresh (bot) {
     // monument-01: the ziggurat's cells are priced only while they hold a solid block, judged at the check (shop.mjs footprintCost
     // `solidOnly`, no halo); the workshop's and a house's footprint (every cell + 1) as before
     fp.solidOnly = new Set()
+    // zigtidy-02: a COMPLETE ziggurat's tread tops are priced for a walk's scaffold (shop.mjs footprintCost `soft`)
+    fp.soft = new Map()
     // paths-01: a path cell and the cell ABOVE it, no halo -- never broken by a walk, never a walk's scaffold on top (a block set
     // on dirt_path turns it back to dirt), never an idle place's target; its saplings kept off its columns + 1 (a box would be
     // the whole town)
@@ -16936,7 +16986,7 @@ export function shopFootprintRefresh (bot) {
     for (const r of recs) {
       // wall-01: the wall's cells, no halo (a +1 halo round a rampart would price the ground on both sides of the town's whole
       // perimeter): a built cell is never broken by a walk, an open one never takes a walk's scaffold
-      if (isZigBlueprint(r.blueprint)) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k) } else if (r.blueprint === PATHS_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k); for (const k of above(r)) { fp.add(k); cells.add(k) } } else if (r.blueprint === WALL_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k) } else for (const k of footprintCells(r)) fp.add(k)
+      if (isZigBlueprint(r.blueprint)) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k); if (r.structure_complete) for (const [k, v] of zigTreadTops(r)) fp.soft.set(k, v) } else if (r.blueprint === PATHS_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k); for (const k of above(r)) { fp.add(k); cells.add(k) } } else if (r.blueprint === WALL_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k) } else for (const k of footprintCells(r)) fp.add(k)
       for (const k of recordCellKeys(r)) cells.add(k)
     }
     bot.shopFootprint = fp
@@ -17362,6 +17412,8 @@ async function buildMonument (ctx, args, signal) {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       completed = true
       bot.shopDamage = null
+      // zigtidy-02: a visit that PLACED and ended complete (a repair, or the first completion) opens the tidy's repair window
+      if ((r.placed ?? 0) > 0 || pub.result === 'accepted') zigRepairedWrite(key, Date.now(), pub.result === 'accepted' ? 'complete' : 'repair', me)
       if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
       if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'complete', kind: rec.blueprint ?? MONUMENT_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
     }

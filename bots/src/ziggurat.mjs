@@ -597,3 +597,17 @@ export function zigTidy (record, read, { skip = () => false } = {}) {
   }
   return out.sort((a, b) => b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
 }
+/**
+ * THE TREAD TOPS (zigtidy-02): the cell above each column's highest record cell -> Map 'x,y,z' -> ZIG_TREAD_PRICE. A walk's scaffold
+ * block there is the climbing pillar the tidy digs later (a 1x1 tower beside a tier wall puts its block at the feet, on the tread),
+ * so shop.mjs footprintCost prices it (`soft`) and A* takes the grand stair unless it is far. Pure.
+ */
+export const ZIG_TREAD_PRICE = 60
+export function zigTreadTops (record, price = ZIG_TREAD_PRICE) {
+  const out = new Map()
+  if (!Array.isArray(record?.cells)) return out
+  const colTop = new Map()
+  for (const c of record.cells) { const k = `${c.at[0]},${c.at[2]}`; colTop.set(k, Math.max(colTop.get(k) ?? -Infinity, c.at[1])) }
+  for (const [k, y] of colTop) { const [x, z] = k.split(',').map(Number); out.set(`${x},${y + 1},${z}`, price) }
+  return out
+}

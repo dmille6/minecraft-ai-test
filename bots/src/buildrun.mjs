@@ -220,6 +220,12 @@ export function workableSeg (record, read, palette, free = () => true, alsoDone 
   }
   return null
 }
+/** Is the cell within a dig's reach of a bot whose feet are `feet` (its eye within DIG_REACH + 1 of the cell centre; the 1 is slack
+ *  for where a walk stops on its stand)? Unknown feet: true (the dig decides, as before). Pure. */
+export function digReachFrom (feet, cell) {
+  if (!Array.isArray(feet) || feet.length < 3 || !feet.every(Number.isFinite)) return true
+  return Math.hypot(feet[0] + 0.5 - (cell[0] + 0.5), feet[1] + EYE - (cell[1] + 0.5), feet[2] + 0.5 - (cell[2] + 0.5)) <= DIG_REACH + 1
+}
 /** A dig stand for a cell -> [x, y, z] | null: a walked-to node whose eye is within DIG_REACH of the cell centre, never on or under
  *  the cell, with a clear sight line to the cell's centre. Nearest wins. Pure. */
 export function digStand (read, cell, nodes) {
@@ -395,7 +401,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   }
 
   // ---- a dig of a NAMED block (clears and foreign blocks) ----------------------------------------------------------------------
-  // -> 'confirmed' | 'standing' | 'unconfirmed' | 'refused' | 'gone' | 'no_stand' | 'fence' | 'aborted'. The named block and the
+  // -> 'confirmed' | 'standing' | 'unconfirmed' | 'refused' | 'gone' | 'no_stand' | 'unreached' | 'fence' | 'aborted'. The named block and the
   // lease are checked AGAIN after the walk, at the dig (Codex r1 P2: a replacement placed during the walk, or a lease lapsed in it,
   // was dug anyway). An unconfirmed dig asks the server (the probe): air confirms, any other name means it stands, nothing leaves
   // the cell unknown.
@@ -405,6 +411,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (!renewSlot() || !held()) return 'fence'
     await e.walkTo(stand)
     if (e.aborted()) return 'aborted'
+    // THE WALK ENDED OUT OF REACH (zigtidy-02, LIVE showcase 10-30 22:27Z Frost: its walk stuck 47 blocks from the ziggurat, four
+    // tidy digs sent from there, every one `unknown`, the clear lease held all the while so the completing visit dug none): no dig
+    if (!digReachFrom(e.feet?.(), at)) return 'unreached'
     if (nm(rd(...at)) !== name) return 'gone'
     if (!renewSlot() || !held()) return 'fence'
     let v = await e.dig(at, name)
@@ -702,6 +711,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         tried++
         const v = await digNamed(c.at, c.name, held, nodes)
         if (v !== 'no_stand') nodes = null
+        // zigtidy-02: a tidy walk that did not arrive ends the tidy (the lease freed for a builder who can), the visit goes on
+        if (v === 'unreached' && c.kind === 'tidy') return null
         if (v === 'fence') return 'fence:segment'
         if (v === 'aborted') return 'aborted'
         // a felled tree's row carries the replant cells reading a sapling AT the felling, of all of them (the read's G5)
