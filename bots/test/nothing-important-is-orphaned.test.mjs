@@ -34,6 +34,10 @@ const REQUIRED = [
   // monument-01 (10-29): the ziggurat's site, offline, by the bots' own functions (the fleet canary's per-world siting), and the
   // shop read that judges every project's record (the showcase tripwire's S6)
   'bots/scripts/zigsite-offline.mjs',
+  // paths-01 (10-30): the town's paths sited and laid offline on a copy of the world, by the bots' own functions
+  'bots/src/paths.mjs',
+  'bots/scripts/pathsite-offline.mjs',
+  'bots/scripts/pathsbuild-offline.mjs',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',

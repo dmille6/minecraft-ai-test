@@ -120,14 +120,15 @@ import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintain
 import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-01: the plan's place guard, read by index.mjs's place price
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
-import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors } from './buildsite.mjs'
+import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
+import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, pathSaplingCols, pathWalkR, pathProgress } from './paths.mjs'   // paths-01
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS } from './ziggurat.mjs'   // monument-01
 import { botBuildEffects } from './buildbot.mjs'
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -16619,7 +16620,8 @@ export const placeForTest = (ctx, args, signal, opts) => place(ctx, args, signal
 const projKeyOf = plot => projKey(planHomeP(), plot)
 const bpCache = new Map()
 // monument-01: the ziggurat has no blueprint file -- its cells are computed (ziggurat.mjs); its palette is ZIG_PALETTE
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
+// paths-01: the paths have none either (paths.mjs routes them; PATH_PALETTE)
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -16664,6 +16666,8 @@ function slotFreeFor (p, holder, now = Date.now()) {
   } catch { return true }
 }
 const shopKey = () => projKeyOf(shopActive().plot)
+// paths-01: an unsited project's bag rule reads the active plot (shop.mjs buildOrder; no cognitive change)
+setActivePlot(() => shopActive().plot)
 const shopBlueprint = () => blueprintOf(shopActive().blueprint)
 /** Every project's record head that exists -> [{ plot, key, head }]. Never throws. */
 function projectHeads () {
@@ -16906,9 +16910,16 @@ export function shopFootprintRefresh (bot) {
     // monument-01: the ziggurat's cells are priced only while they hold a solid block, judged at the check (shop.mjs footprintCost
     // `solidOnly`, no halo); the workshop's and a house's footprint (every cell + 1) as before
     fp.solidOnly = new Set()
-    for (const r of recs) { if (r.blueprint === MONUMENT_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k) } else for (const k of footprintCells(r)) fp.add(k); for (const k of recordCellKeys(r)) cells.add(k) }
+    // paths-01: a path cell and the cell ABOVE it, no halo -- never broken by a walk, never a walk's scaffold on top (a block set
+    // on dirt_path turns it back to dirt), never an idle place's target; its saplings kept off its columns + 1 (a box would be
+    // the whole town)
+    const above = r => (r.cells ?? []).filter(c => c.role === 'path').map(c => `${c.at[0]},${c.at[1] + 1},${c.at[2]}`)
+    for (const r of recs) {
+      if (r.blueprint === MONUMENT_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k) } else if (r.blueprint === PATHS_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k); for (const k of above(r)) { fp.add(k); cells.add(k) } } else for (const k of footprintCells(r)) fp.add(k)
+      for (const k of recordCellKeys(r)) cells.add(k)
+    }
     bot.shopFootprint = fp
-    bot.shopSaplingBox = recs.length ? recs.map(r => saplingBox(r)).filter(Boolean) : null
+    bot.shopSaplingBox = recs.length ? recs.map(r => (r.blueprint === PATHS_BLUEPRINT ? pathSaplingCols(r) : saplingBox(r))).filter(Boolean) : null
     bot.shopCells = cells
     bot.shopStations = workshopStations(hs[0]?.head?.rec ?? null)
     shopActive(bot)
@@ -16928,6 +16939,8 @@ async function buildShop (ctx, args, signal) {
   const proj = shopActive(bot)
   // monument-01: the ziggurat's visit is its own (computed cells, its siting, its rows)
   if (proj.plot === MONUMENT_PLOT) return buildMonument(ctx, args, signal)
+  // paths-01: the town's paths are their own visit too (paths.mjs siting, a shovel's use)
+  if (proj.plot === PATHS_PLOT) return buildPaths(ctx, args, signal)
   const plot = proj.plot
   const f = { project: plot }
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
@@ -17295,6 +17308,134 @@ async function buildMonument (ctx, args, signal) {
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
     if (drawn0) { try { if (completed) { if (!drawnWrite(dir, key, me, {})) drawnFails++ } else persist() } catch { drawnFails++ } }
     if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(MONUMENT_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
+  }
+}
+
+// ================================================================================================================================
+// PATHS-01: THE TOWN'S PATHS (paths.mjs; shop.mjs PROJECTS' fourth entry). build_shop's visit when the active project is the paths:
+// the same record, slot, segment and visit machinery as the other projects (buildproj.mjs, buildrun.mjs, buildbot.mjs), its key
+// `project-<home>.paths`, the same `_build*` rows with project=paths (the shop read judges each against the paths record: a
+// shovel's use is `op=place block=dirt_path kind=use` on a record cell), PATHS_BUILDERS slots. Nothing is drawn from town: a path
+// cell takes a shovel's use, and the few raised or paved cells take the cobblestone the bags carry.
+// ================================================================================================================================
+const PATH_SHOVEL = /_shovel$/
+/** The bag's best shovel (the most uses left, at least two) -> item | null. */
+const pathShovel = bot => (bot.inventory?.items?.() ?? []).filter(i => PATH_SHOVEL.test(i?.name ?? '') && remaining(i) >= 2).sort((a, b) => remaining(b) - remaining(a))[0] ?? null
+async function buildPaths (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  // the runner's clock (as buildMonument: the visit ends itself ZIG_VISIT_TAIL_MS before the watchdog's abort)
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: PATHS_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === PATHS_PLOT)) return out('no_effect', 'off', 'the paths are switched off (PATHS, SHOP or TOWNPLAN)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(PATHS_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  bot.shopVisitKey = key
+  const stood = stoodRead(dir, stoodKey(), home)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the paths record could not be read')
+  if (!rh.head) {
+    // SITING (paths.mjs sitePaths): from the core's edge to every complete project's front, the farm and the well, round water,
+    // the zones, the plan's cells, the wells, the farm and every other project's record columns
+    const projects = projectHeads().filter(x => x.plot !== PATHS_PLOT).map(x => {
+      let bp = null
+      try { if (x.head.rec?.blueprint && x.head.rec.blueprint !== MONUMENT_BLUEPRINT) bp = blueprintOf(x.head.rec.blueprint) } catch { bp = null }
+      return { plot: x.plot, rec: x.head.rec, bp }
+    })
+    const hk = `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+    let plinthRec = null
+    try { plinthRec = JSON.parse(fs.readFileSync(path.join(dir, `junkwell-plinth-${hk}.json`), 'utf8')) } catch { /* none */ }
+    const caps = []
+    if (plinthRec?.plan?.cap && [plinthRec.plan.cap.x, plinthRec.plan.cap.y, plinthRec.plan.cap.z].every(Number.isFinite)) caps.push([plinthRec.plan.cap.x, plinthRec.plan.cap.y, plinthRec.plan.cap.z])
+    for (const w of c.wells) if (!caps.length && Array.isArray(w)) caps.push(w)     // an unraised well's site (shopCtx's last entry)
+    let composter = null
+    try { const st = readTownSite(dir, townSiteKey()).site; if (st) composter = [st.x, st.y, st.z] } catch { /* none */ }
+    composter ??= (h.head.plan.plots ?? []).find(q => q.kind === 'farm')?.composter ?? null
+    const s = sitePaths(planReader(bot), { plan: { ...h.head.plan, gen: h.head.gen }, zones: c.zones, caps, plinth: c.wells, composter, farm: c.farm, projects, place: placeBlueprint })
+    if (!s.ok) {
+      // an UNREAD column (a chunk not loaded from here) is asked again at the next order; anything else waits the daily re-fit
+      const stop = /unknown|unreachable/.test(s.why) ? 'site_unread' : 'no_site'
+      return out('no_effect', stop, `no path network (${s.why}): ${(s.dests ?? []).map(d => d.id).join(',')}`.slice(0, 160), { stop })
+    }
+    const record = s.record
+    const pub = publishRecord(dir, key, cur => (cur ? null : { ...record, state: 'open' }), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'sited', cell: [home.x, home.y, home.z], kind: `legs${record.legs.length}/cols${record.columns}/cells${record.cells.length}/fill${record.earthwork.fill}/cut${record.earthwork.cut}/clear${record.clear.length}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the paths record could not be read back')
+  }
+  shopFootprintRefresh(bot)
+  const rec = rh.head.rec
+  if (rec.structure_complete && !shopDamaged(bot, rec)) return out('no_effect', 'complete', 'the paths are laid')
+  // THE TOOL (a refusal names its remedy): no shovel with two uses left -> craft a stone one here (1 cobblestone + 2 sticks; the
+  // craft skill's own chain finds or places a table and makes the sticks); the toolkit's iron shovel is the town's other remedy
+  if (!pathShovel(bot)) {
+    try { await craft(ctx, { item: 'stone_shovel', count: 1 }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    if (!pathShovel(bot)) return out('no_effect', 'no_tool', 'no shovel: craft a stone_shovel (1 cobblestone + 2 sticks), or the toolkit makes an iron one from town iron', { stop: 'no_tool' })
+  }
+  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === PATHS_PLOT)))
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }
+  let effects = null, bag0 = null, diedAt = null
+  const placedBy = {}
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    const held0 = heldMap(bot)
+    bag0 = held0
+    const keep = townKeeps(ownCounts(held0, {}), { wanted: bot.currentWants ?? [] }).keep
+    effects = botBuildEffects(bot, {
+      acks,
+      keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: PATHS_PLOT, ...d }) : buildRowDetail({ project: PATHS_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    // THE SHOVEL'S USE (buildrun.mjs `p.use`): held only through equip (never an unequip: the toss bug), and checked held at the send
+    const use = {
+      block: 'dirt_path',
+      can: b => FLATTENABLE.test(String(b?.name ?? '')),
+      want: b => String(b?.name ?? '') === 'dirt_path',
+      held: () => PATH_SHOVEL.test(bot.heldItem?.name ?? ''),
+      hold: async () => {
+        const it = pathShovel(bot)
+        if (!it) return false
+        if (bot.heldItem?.name !== it.name) { try { await bot.equip(it, 'hand') } catch (e) { if (e?.aborted) throw e } }
+        return PATH_SHOVEL.test(bot.heldItem?.name ?? '')
+      },
+    }
+    bot.shopUnknown ??= new Set()
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: PATH_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.pathStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      domain: () => true, walkR: pathWalkR(rec, home), foreign: PATH_FOREIGN, blockLayer: false, use }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    if (r.stop === 'complete') {
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      bot.shopDamage = null
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'complete', kind: PATHS_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+    }
+    const done = (() => { try { const read = planReader(bot); const p = pathProgress(rec, q => buildCellDone(read(...q.at), PATH_PALETTE, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
+    const status = r.placed > 0 || (r.used ?? 0) > 0 || r.cleared > 0 ? 'success' : 'no_effect'
+    return out(status, r.stop, `${r.why ?? r.stop}; used ${r.used ?? 0}, laid ${done}`, { stop: r.stop, placed: r.placed + (r.used ?? 0), refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: '-', back: '-' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    try { if (Object.values(placedBy).some(n => n > 0) || f.placed > 0) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    // the bag's balance names only what a placement spent (cobblestone, gravel): the shovel is a tool, never a material
+    if (bag0 && Object.keys(placedBy).length) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(PATHS_PLOT, bagBalance({ bag0, took: {}, crafted: {}, placed: placedBy, back: {}, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
   }
 }
 

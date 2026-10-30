@@ -253,7 +253,9 @@ const byColumn = keys => {
  *       open cell (default FOREIGN_CLEAR), `blockLayer` (no stand in another segment's open cell at this segment's heights),
  *       `feetIn(seg)` (a fill segment whose open cells a builder may stand in: never a floor), `clearMax` (clear digs a call),
  *       `alsoDone(cell, read)`, `leaveIf(feet)` + `leaveTo` (walk off the build at the visit's end), `tidy` ([{ at, kind: 'tidy',
- *       name }]: blocks that are NOT record cells, dug like the record's clears -- zigtidy-01)
+ *       name }]: blocks that are NOT record cells, dug like the record's clears -- zigtidy-01); paths-01: `use` = { can(b),
+ *       want(b), block, hold(), held() } -- an open cell whose block a held TOOL turns into the record's block in place (a shovel:
+ *       grass or dirt -> dirt_path) is used from a dig stand, never placed
  *   e   effects: read, feet, bodies, walkTo, hold, has, look, nextSeq, send, waitAck, track, untrack, conn, acked, seen, dig,
  *       probe, aborted, log, now, sleep, spawnedAt
  * Stops: complete | no_sapling | no_material | no_step | deps_open | fence:<why> | aborted | max_steps | deadline | blocked |
@@ -417,6 +419,33 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     const n = await e.probe(at)
     if (n != null) { unknown.delete(kOf(at)); e.log('_build', { op: 'known', cell: at, block: n }) }
     return n
+  }
+
+  // ---- a TOOL'S USE on a record cell (paths-01, `p.use`) ------------------------------------------------------------------------
+  // -> 'placed' | 'refused' | 'silent' | 'stand' | 'no_tool' | 'fence:<why>' | 'aborted'. The walk to a dig stand (eye in reach of the
+  // cell, sight clear), re-proved from the feet the bot has; the tool held; the TOP face looked at; the fence (slot, segment, record
+  // generation, beat) checked; then -- nothing awaited from here to the send -- the cell re-read (still the block the tool converts,
+  // air above: vanilla converts only then) and the TOOL STILL IN HAND (a held block would be PLACED on top: never sent); one
+  // block_place on the top face with a fresh sequence; the server's acknowledgement, then the world read: the record's block is
+  // 'placed'. No intent is opened: a use places nothing, and a late acknowledgement leaves the cell to be read again.
+  const useClick = async (c, stand, seg, segGen) => {
+    if (stands) stands.pending = { cell: kOf(c.at), stand: kOf(stand), at: now() }
+    await e.walkTo(stand)
+    if (e.aborted()) return 'aborted'
+    if (stands) stands.pending = null
+    const feet = e.feet()
+    if (!digStand(rd, c.at, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]))) { banStand(stands, kOf(c.at), kOf(stand), now()); return 'stand' }
+    if (!(await p.use.hold())) return 'no_tool'
+    await e.look(c.at, [0, 1, 0])
+    if (e.aborted()) return 'aborted'
+    const why = PJ.fenceRefusal(dir, key, me, { slot: p.slot, slotGen, seg, segGen, recordGen: p.recordGen, now: now(), beatConn: p.beat ? conn : null })
+    if (why) return `fence:${why}`
+    if (!p.use.can(rd(...c.at)) || !AIR(nm(rd(c.at[0], c.at[1] + 1, c.at[2]))) || !p.use.held()) return 'refused'
+    const seq = e.nextSeq()
+    e.send(c.at, [0, 1, 0], seq)
+    const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
+    if (v !== 'acked') return 'silent'
+    return p.use.want(e.read(...c.at)) ? 'placed' : 'refused'
   }
 
   // ---- 1. replant first --------------------------------------------------------------------------------------------------------
@@ -652,7 +681,52 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign' })
           continue
         }
-        const blocking = new Set(open.filter(c => c.role !== 'light').map(c => kOf(c.at)))
+        // A TOOL'S USE (paths-01, `p.use`): the nearest open cell the tool converts in place, one action a pass. A plant the RECORD
+        // lists on it (its clear list: the shopread judges every clear against it) is dug first, under this segment's lease;
+        // anything else on it (a listed log or leaves) waits for the clears. Nothing usable now and nothing else open here: the
+        // cells no stand reaches are DEFERRED (F4), the ones the clears still cover wait -- the next segment either way
+        if (p.use) {
+          const ucs = open.filter(c => (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && p.use.can(rd(...c.at)))
+          if (ucs.length) {
+            const unodes = nodesFor()
+            const f0 = e.feet()
+            ucs.sort((a, b) => Math.hypot(a.at[0] - f0[0], a.at[2] - f0[2]) - Math.hypot(b.at[0] - f0[0], b.at[2] - f0[2]) || a.at[1] - b.at[1])
+            const kinds = new Map((record.clear ?? []).map(c => [kOf(c.at), c.kind]))
+            let acted = false
+            const noStand = []
+            for (const c of ucs) {
+              const up = [c.at[0], c.at[1] + 1, c.at[2]]
+              const ub = rd(...up)
+              if (!ub) continue
+              if (!AIR(nm(ub))) {
+                if (!listedNow(up) || kinds.get(kOf(up)) !== 'plant') continue
+                const sg = segGen
+                const v = await digNamed(up, nm(ub), () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now()), unodes)
+                if (v === 'no_stand') { noStand.push(c); continue }
+                if (v === 'fence') { out.stop = 'fence:segment'; return out }
+                if (v === 'aborted') { out.stop = 'aborted'; return out }
+                if (v === 'confirmed') { out.cleared++; e.log('_build', { op: 'clear', seg, cell: up, block: nm(ub), kind: 'plant' }) } else bump(c.at)
+                acted = true; break
+              }
+              const bans = standBans(stands, kOf(c.at), now())
+              const stand = (bans.size ? digStand(rd, c.at, nodesWithout(unodes, bans)) : null) ?? digStand(rd, c.at, unodes)
+              if (!stand) { noStand.push(c); continue }
+              const v = await useClick(c, stand, seg, segGen)
+              acted = true
+              if (v === 'placed') { out.used = (out.used ?? 0) + 1; e.log('_build', { op: 'place', seg, cell: c.at, block: p.use.block, kind: 'use' }) } else if (v.startsWith('fence:') || v === 'aborted' || v === 'no_tool') {
+                out.stop = v; if (v === 'no_tool') out.why = `${seg}: no tool to use on ${ucs.length} open cell(s)`; return out
+              } else { bump(c.at); if (v === 'refused') out.refused++; if (v === 'silent') out.silent++ }
+              break
+            }
+            if (acted) continue
+            if (open.every(c => p.use.can(rd(...c.at)) || (tries.get(kOf(c.at)) ?? 0) >= BUILD_ATTEMPTS)) {
+              if (noStand.length) { for (const c of noStand) deferredCells.push(kOf(c.at)); deferredSegs.add(seg); e.log('_build', { op: 'deferred', seg, cell: noStand[0].at, n: noStand.length }) } else out.waits = (out.waits ?? 0) + 1
+              break
+            }
+          }
+        }
+        // a cell a TOOL converts (p.use) is solid ground already: a floor, never an obstacle to the walk
+        const blocking = new Set(open.filter(c => c.role !== 'light' && !(p.use && isSolid(rd(...c.at)))).map(c => kOf(c.at)))
         // A FILL a builder stands IN (p.feetIn(seg), monument-01's foundation; offline on the showcase's region 10-29: a hollow 5
         // deep and wide had no stand -- its rim is out of reach of its floor, and every cell inside was an obstacle): the open
         // cells are never a FLOOR, but feet and head may be in them (the click never places into the builder's own body)
@@ -712,7 +786,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   }
   // the loop's end: this visit's deferrals counted, built cells dropped (F4)
   { let r = null; try { r = settleStuck(true) } catch { /* the next visit counts (Claude r22 P3) */ } if (r) { out.stop = r.stop; out.why = r.why; return out } }
-  out.stop = record.cells.every(c => isDone(c)) ? 'complete' : needSapling ? 'no_sapling' : 'unknown'
+  out.stop = record.cells.every(c => isDone(c)) ? 'complete' : needSapling ? 'no_sapling' : out.waits ? 'clears_wait' : 'unknown'
   if (out.stop === 'no_sapling') out.why = `${needSapling}: withdraw saplings from town (C1)`
   return out
 }
