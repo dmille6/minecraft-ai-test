@@ -113,10 +113,13 @@ const NATURAL = /^(grass_block|dirt|coarse_dirt|podzol|mycelium|rooted_dirt|ston
  * under the top). Fill: the cells g+1..s must hold only what the clears take (they do: the scan passed them); cut: every cell
  * s+1..g natural full ground and the cell at s too.
  */
-export function columnCost (c, s, read, x, z) {
+export function columnCost (c, s, read, x, z, flat = false) {
   if (!c || c.why || c.y == null) return Infinity
   const g = c.y
   if (s > g + FILL_MAX || s < g - CUT_MAX) return Infinity
+  // a container's STAND (paths-01 r2, `flat`): laid at its own ground only -- never a fill into the feet cell a bot opens the
+  // chest from, never a cut that drops it below the chest's reach
+  if (flat && s !== g) return Infinity
   let v = 0
   if (s > g) v += COST.fill * (s - g) + COST.pave
   else {
@@ -155,7 +158,7 @@ export function pathGrid (column, avoid, box, read) {
   }
   const cost = (x, z, s) => {
     const k = `${x},${z},${s}`
-    if (!km.has(k)) km.set(k, BRUSH.reduce((t, [dx, dz]) => t + columnCost(col(x + dx, z + dz), s, read, x + dx, z + dz), 0))
+    if (!km.has(k)) km.set(k, BRUSH.reduce((t, [dx, dz]) => t + columnCost(col(x + dx, z + dz), s, read, x + dx, z + dz, !!avoid.flat?.has?.(`${x + dx},${z + dz}`)), 0))
     return km.get(k)
   }
   const levels = (x, z) => {
@@ -240,18 +243,19 @@ export function hubBrushes ([x0, z0, x1, z1]) {
  *   dests  [{ id, to, cols: [[x, z]] }] in the order given (the caller sorts nearest first): a leg from a brush over any of its
  *          columns to the hub or to a brush already laid (its level within one)
  */
-export function pathNetwork (grid, { hub, dests = [], discount = () => false } = {}) {
-  const legs = [], laid = new Map()
+export function pathNetwork (grid, { hub, dests = [], discount = () => false, laid0 = null } = {}) {
+  // laid0 (paths-01 r2, an extension): the brushes of a network already laid ("x,z" -> { leg, s }), joined like any leg
+  const legs = [], laid = new Map(laid0 ?? [])
   const hubs = hubBrushes(hub).filter(([x, z]) => grid.levels(x, z).length)
   for (const d of dests) {
     const targets = new Map(hubs.map(([x, z]) => [`${x},${z}`, null]))
     for (const [k, v] of laid) targets.set(k, v.s)
     const r = routeLeg(grid, brushesOver(d.cols), targets, { discount })
-    if (!r.ok) { legs.push({ id: d.id, to: d.to ?? d.id, nodes: [], join: null, ok: false, why: r.why, cost: Infinity }); continue }
+    if (!r.ok) { legs.push({ id: d.id, to: d.to ?? d.id, nodes: [], join: null, ok: false, why: r.why, cost: Infinity, ...(d.optional ? { optional: true } : {}) }); continue }
     const end = r.nodes[r.nodes.length - 1]
     const join = laid.has(`${end[0]},${end[1]}`) ? `leg:${laid.get(`${end[0]},${end[1]}`).leg}` : 'hub'
     const own = r.nodes.filter(([x, z]) => !laid.has(`${x},${z}`))
-    legs.push({ id: d.id, to: d.to ?? d.id, nodes: own, join, ok: true, why: 'routed', cost: Math.round(r.cost * 10) / 10 })
+    legs.push({ id: d.id, to: d.to ?? d.id, nodes: own, join, ok: true, why: 'routed', cost: Math.round(r.cost * 10) / 10, ...(d.optional ? { optional: true } : {}) })
     for (const [x, z, s] of own) laid.set(`${x},${z}`, { leg: d.id, s })
   }
   return { legs, laid }
@@ -382,12 +386,18 @@ export function pathAvoid ({ plan = null, zones = [], caps = [], plinth = [], co
   for (const c of plinth) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) pl.add(`${c[0] + dx},${c[2] + dz}`)
   const fm = new Set()
   for (const [x, z] of farm) for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) fm.add(`${x + dx},${z + dz}`)
-  return (x, z) => {
+  // THE PLAN'S CELLS are refused at every height; their STANDS are not (paths-01 r2, coordinator 10-30: the store row's chests at
+  // -7,71,8 and -5,71,8 read unreachable -- spruce leaves at their stands' head height): a stand column may carry a path, laid
+  // FLAT (`flat`: at its own ground, columnCost), so the path clears its head room and never raises or lowers its feet
+  const cells = new Set(), flat = new Set()
+  for (const p of plan?.plots ?? []) for (const c of [...(p.cells ?? []), ...(p.stations ?? [])]) {
+    if (Array.isArray(c?.at)) cells.add(`${c.at[0]},${c.at[2]}`)
+    if (Array.isArray(c?.stand)) flat.add(`${c.stand[0]},${c.stand[2]}`)
+  }
+  const f = (x, z) => {
     for (const zb of zones) { const b = zb?.box ?? zb; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return 'zone' }
-    if (ko) {
-      for (let y = home.y - PATH_DY; y <= home.y + PATH_DY; y++) if (ko.never(x, y, z)) return 'plan_cell'
-      if (ko.boxAt(x, z)) return 'plan_box'
-    }
+    if (cells.has(`${x},${z}`)) return 'plan_cell'
+    if (ko && ko.boxAt(x, z)) return 'plan_box'
     if (plots.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3])) return 'plan_plot'
     if (caps.some(c => Math.max(Math.abs(c[0] - x), Math.abs(c[2] - z)) <= 3)) return 'well'
     if (pl.has(`${x},${z}`)) return 'well'
@@ -396,6 +406,38 @@ export function pathAvoid ({ plan = null, zones = [], caps = [], plinth = [], co
     if (cols.has(`${x},${z}`)) return 'project'
     return null
   }
+  f.flat = flat
+  return f
+}
+
+/**
+ * THE TOWN'S CONTAINERS AS DESTINATIONS (paths-01 r2) -> [{ id, to, cols, stand, optional }]: every PLACED chest or barrel of the
+ * plan with a stand, its destination the stand column and the stand's 4-neighbours that are not refused (a stand between two
+ * chests -- the showcase's -6,71,8 -- takes no 2-wide brush; its neighbour does, and the bot steps across). Optional: a container
+ * no leg reaches is reported, never a reason to leave the network unsited. Pure.
+ */
+export function chestDests (plan, avoid) {
+  const out = []
+  let i = 0
+  for (const p of plan?.plots ?? []) for (const c of p.cells ?? []) {
+    if (!/^(chest|trapped_chest|barrel)$/.test(String(c?.kind)) || c.state !== 'placed' || !Array.isArray(c.stand)) continue
+    const [sx, , sz] = c.stand
+    const cols = [[sx, sz], ...DIRS.map(([dx, dz]) => [sx + dx, sz + dz])].filter(([x, z]) => !avoid(x, z))
+    i++
+    if (cols.length) out.push({ id: `chest${i}`, to: `chest:${c.at.join(',')}`, cols, stand: c.stand, optional: true })
+  }
+  return out
+}
+/** A container stand's head room (feet and head cells): what a clear may take there -> clear entries. Pure. */
+export function standClears (read, stand) {
+  const out = []
+  for (const y of [stand[1], stand[1] + 1]) {
+    const b = read(stand[0], y, stand[2]), n = nm(b)
+    if (!b || AIRN(n)) continue
+    if (LEAVES.test(n)) out.push({ at: [stand[0], y, stand[2]], kind: 'leaves', name: n })
+    else if (PLANT.test(n) || replaceableCell(b)) out.push({ at: [stand[0], y, stand[2]], kind: 'plant', name: n })
+  }
+  return out
 }
 
 /** Sapling keep-out for a paths record: its columns + 1 (shop.mjs saplingAllowedAt reads `cols`) -> { cols } | null. Pure. */
@@ -426,7 +468,11 @@ export function pathProgress (rec, done) {
  * Destinations nearest first; every one must be reached (the record is written once: a destination no leg reaches leaves the
  * network unsited and the order asks again).
  */
-export function sitePaths (read, { plan, zones = [], caps = [], plinth = [], composter = null, farm = [], projects = [], place, now = Date.now(), r = 56 } = {}) {
+/**
+ * THE DESTINATIONS (cheap: no grid) -> { home, core, dests, avoid } | { ok: false, why }. Pure. Every destination of sitePaths:
+ * the farm, the well, every COMPLETE project's front, the town's containers' stands (optional).
+ */
+export function pathDests ({ plan, zones = [], caps = [], plinth = [], composter = null, farm = [], projects = [], place } = {}) {
   const home = plan?.home
   if (!home) return { ok: false, why: 'no_plan', record: null }
   const core = (plan.plots ?? []).find(p => p.id === 'core' && Array.isArray(p.box))?.box
@@ -441,18 +487,107 @@ export function sitePaths (read, { plan, zones = [], caps = [], plinth = [], com
     const a = p.bp ? frontApproach(p.rec, p.bp, place) : null
     if (a) dests.push({ id: p.plot, to: p.plot, cols: [a] })
   }
+  const avoid = pathAvoid({ plan, zones, caps, plinth, composter, farm, records: projects.map(p => p.rec), home })
+  // the town's containers (paths-01 r2): their stands' approaches, optional
+  dests.push(...chestDests(plan, avoid))
   const dist = d => Math.min(...d.cols.map(([x, z]) => Math.hypot(x - home.x, z - home.z)))
   dests.sort((a, b) => dist(a) - dist(b) || (a.id < b.id ? -1 : 1))
   if (!dests.length) return { ok: false, why: 'no_destination', record: null }
-  const avoid = pathAvoid({ plan, zones, caps, plinth, composter, farm, records: projects.map(p => p.rec), home })
+  return { home, core, dests, avoid }
+}
+/** The destinations a laid record does not serve yet: no leg of the record goes `to` it and none of its columns is a path
+ *  column. Pure. */
+export function newDests (record, dests = []) {
+  const lv = new Set((record?.cells ?? []).filter(c => c.role === 'path').map(c => `${c.at[0]},${c.at[2]}`))
+  const tos = new Set((record?.legs ?? []).map(l => l.to))
+  return dests.filter(d => !tos.has(d.to) && !d.cols.some(([x, z]) => lv.has(`${x},${z}`)))
+}
+function pathInputs (read, o = {}) {
+  const D = pathDests(o)
+  if (!D.dests) return D
+  const { home, core, dests, avoid } = D
+  const { plan, r = 56 } = o
   const box = [home.x - r, home.z - r, home.x + r, home.z + r]
   const grid = pathGrid((x, z) => pathColumn(read, x, z, { yHi: home.y + PATH_DY, yLo: home.y - PATH_DY }), avoid, box, read)
   const segs = (plan.paths ?? []).map(p => p.seg).filter(Array.isArray)
   const discount = (x, z) => segs.some(s => x >= s[0] && x + 1 <= s[2] && z >= s[1] && z + 1 <= s[3])
+  return { home, core, dests, avoid, grid, discount }
+}
+/** The stand clears of the containers a network reaches (a leg routed to them), not yet in `have` (keys). Pure. */
+function reachedStandClears (read, net, dests, have = new Set()) {
+  const out = []
+  for (const l of net.legs.filter(q => q.ok && q.optional)) {
+    const d = dests.find(q => q.id === l.id)
+    for (const c of d?.stand ? standClears(read, d.stand) : []) { const k = c.at.join(','); if (!have.has(k)) { have.add(k); out.push(c) } }
+  }
+  return out
+}
+export function sitePaths (read, o = {}) {
+  const I = pathInputs(read, o)
+  if (!I.grid) return I
+  const { home, core, dests, grid, discount } = I
   const net = pathNetwork(grid, { hub: core, dests, discount })
-  const missed = net.legs.filter(l => !l.ok)
+  const missed = net.legs.filter(l => !l.ok && !l.optional)
   if (missed.length) return { ok: false, why: `unrouted:${missed.map(l => `${l.id}:${l.why}`).join(',')}`, record: null, net, dests }
-  const record = pathRecord(net, grid, read, { home, plan, now })
+  const record = pathRecord(net, grid, read, { home, plan: o.plan, now: o.now ?? Date.now() })
   if (!record.cells.length) return { ok: false, why: 'no_route', record: null, net, dests }
+  record.clear.push(...reachedStandClears(read, net, dests, new Set(record.clear.map(c => c.at.join(',')))))
+  record.clear.sort((a, b) => a.at[1] - b.at[1])
   return { ok: true, why: 'ok', record, net, dests }
+}
+/**
+ * THE NETWORK EXTENDED (paths-01 r2) -> { ok, why, record | null, added: [leg ids] }. Pure. A paths record written before a
+ * destination existed (the store row's chests, a new project) gains a leg to each destination none of its columns touches,
+ * joined to the laid network (its brushes at their levels); the new columns only (a column already laid keeps its cell), their
+ * clears and the reached stands' head room are appended, as new segments; the record reopens (structure_complete false). Refused
+ * when nothing is added or a joint would step more than 1.
+ */
+export function extendPaths (read, record, o = {}) {
+  const I = pathInputs(read, o)
+  if (!I.grid) return { ok: false, why: I.why, record: null, added: [] }
+  const { home, dests, grid, discount } = I
+  const lv = new Map(record.cells.filter(c => c.role === 'path').map(c => [`${c.at[0]},${c.at[2]}`, c.at[1]]))
+  const ids = new Set((record.legs ?? []).map(l => l.id))
+  // a new leg's id never repeats one the record has (a chest's index can shift when the plan gains one)
+  const todo = newDests(record, dests).map(d => (ids.has(d.id) ? { ...d, id: `${d.id}x${record.legs.length}` } : d))
+  if (!todo.length) return { ok: false, why: 'nothing_new', record: null, added: [] }
+  const laid0 = new Map()
+  for (const k of lv.keys()) {
+    const [x, z] = k.split(',').map(Number)
+    const ys = BRUSH.map(([dx, dz]) => lv.get(`${x + dx},${z + dz}`))
+    if (ys.every(y => y != null)) laid0.set(k, { leg: 'laid', s: Math.max(...ys) })
+  }
+  const net = pathNetwork(grid, { hub: I.core, dests: todo, discount, laid0 })
+  const fresh = net.legs.filter(l => l.ok && l.nodes.length)
+  // the destinations no leg reached (the caller stops asking for them on this connection)
+  const failed = net.legs.filter(l => !l.ok).map(l => l.to)
+  if (!fresh.length) return { ok: false, why: `unrouted:${net.legs.map(l => `${l.id}:${l.why}`).join(',')}`, record: null, added: [], failed }
+  const add = pathRecord({ legs: fresh }, grid, read, { home })
+  const cells = add.cells.filter(c => !lv.has(`${c.at[0]},${c.at[2]}`))
+  const keep = new Set(cells.map(c => `${c.at[0]},${c.at[2]}`))
+  const have = new Set((record.clear ?? []).map(c => c.at.join(',')))
+  const clear = add.clear.filter(c => keep.has(`${c.at[0]},${c.at[2]}`) && !have.has(c.at.join(',')))
+  for (const c of clear) have.add(c.at.join(','))
+  // the legs' OWN destinations (`todo`: an id renamed above stays matched -- Codex r5 BLOCK: matched against `dests`, a renamed
+  // chest's stand head room was never listed)
+  // ...and every leg that reached its destination, a leg with no columns of its own included (its destination met a column
+  // another new leg laid)
+  const served = net.legs.filter(l => l.ok)
+  clear.push(...reachedStandClears(read, { legs: served }, todo, have))
+  const all = new Map(lv)
+  for (const c of cells.filter(q => q.role === 'path')) all.set(`${c.at[0]},${c.at[2]}`, c.at[1])
+  let maxStep = 0
+  for (const [k, y] of all) { const [x, z] = k.split(',').map(Number); for (const [dx, dz] of [[1, 0], [0, 1]]) { const v = all.get(`${x + dx},${z + dz}`); if (v != null) maxStep = Math.max(maxStep, Math.abs(v - y)) } }
+  if (maxStep > 1) return { ok: false, why: `step_${maxStep}`, record: null, added: [] }
+  const segsUsed = new Set(cells.map(c => c.seg))
+  const out = {
+    ...record,
+    legs: [...(record.legs ?? []), ...served.map(l => ({ id: l.id, to: l.to, ok: true, why: 'extended', join: l.join, brushes: l.nodes.length, cost: l.cost }))],
+    cells: [...record.cells, ...cells],
+    clear: [...(record.clear ?? []), ...clear].sort((a, b) => a.at[1] - b.at[1]),
+    segments: [...(record.segments ?? []), ...add.segments.filter(sg => segsUsed.has(sg.seg))],
+    maxStep, columns: all.size, zones: pathZones([...all.keys()].map(k => k.split(',').map(Number))),
+    structure_complete: false, state: 'open', extendedAt: o.now ?? Date.now(),
+  }
+  return { ok: true, why: 'extended', record: out, added: served.map(l => l.id), failed }
 }

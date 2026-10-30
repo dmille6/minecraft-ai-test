@@ -91,6 +91,8 @@ for (const [name, re] of [
   ['build_shop dispatches the paths to their own visit', /if \(proj\.plot === PATHS_PLOT\) return buildPaths\(ctx, args, signal\)/],
   ['the paths\' visit passes the shovel\'s use to runVisit', /foreign: PATH_FOREIGN, blockLayer: false, use \}, effects/],
   ['the shovel is held only through equip, never an unequip', /if \(bot\.heldItem\?\.name !== it\.name\) \{ try \{ await bot\.equip\(it, 'hand'\) \}/],
+  ['a laid network with a new destination is due a visit (recordDamaged)', /if \(r\.blueprint === PATHS_BLUEPRINT && pathsExtendDue\(bot, r\)\) return true/],
+  ['the visit extends the record before its completion check', /const x = extendPaths\(planReader\(bot\), base, inputs\(\)\)/],
 ]) {
   await t(`${name} (and a mutant of it fails)`, async () => {
     assert.ok(re.test(SRC), 'wired')

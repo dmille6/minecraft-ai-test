@@ -48,6 +48,15 @@ const comps = files.filter(f => f.startsWith(`composter-site-${hk}.g`)).sort((a,
 const cs = comps.length ? readJson(path.join(poolDir, comps[0])) : null
 const composter = cs && [cs.x, cs.y, cs.z].every(Number.isFinite) ? [cs.x, cs.y, cs.z] : ((plan.plots ?? []).find(p => p.kind === 'farm')?.composter ?? null)
 const t0 = Date.now()
+// --extend <record.json>: the extension a bot runs on a laid network (paths.mjs extendPaths), printed and written to --out
+if (opt('extend')) {
+  const base = JSON.parse(fs.readFileSync(opt('extend'), 'utf8'))
+  const x = P.extendPaths(read, base, { plan, zones: R.zones, caps, plinth, composter, farm: R.farm, projects, place: placeBlueprint })
+  const nc = x.record ? x.record.cells.slice(base.cells.length) : []
+  console.log(JSON.stringify({ ok: x.ok, why: x.why, added: x.added, newCells: nc.map(c => `${c.at.join(',')}:${c.role}:${c.seg}`), newClear: x.record ? x.record.clear.filter(c => !base.clear.some(q => q.at.join(',') === c.at.join(','))) : [], legs: x.record?.legs?.slice(base.legs.length), maxStep: x.record?.maxStep }, null, 1))
+  if (opt('out') && x.record) fs.writeFileSync(opt('out'), JSON.stringify(x.record))
+  process.exit(0)
+}
 const s = P.sitePaths(read, { plan, zones: R.zones, caps, plinth, composter, farm: R.farm, projects, place: placeBlueprint })
 const ms = Date.now() - t0
 const rec = s.record
