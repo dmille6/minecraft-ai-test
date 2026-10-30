@@ -252,7 +252,8 @@ const byColumn = keys => {
  *       (buildsite.mjs stepFor), `walkR` the town walk's radius, `foreign` the scaffold-class regex a visit may dig from an
  *       open cell (default FOREIGN_CLEAR), `blockLayer` (no stand in another segment's open cell at this segment's heights),
  *       `feetIn(seg)` (a fill segment whose open cells a builder may stand in: never a floor), `clearMax` (clear digs a call),
- *       `alsoDone(cell, read)`, `leaveIf(feet)` + `leaveTo` (walk off the build at the visit's end)
+ *       `alsoDone(cell, read)`, `leaveIf(feet)` + `leaveTo` (walk off the build at the visit's end), `tidy` ([{ at, kind: 'tidy',
+ *       name }]: blocks that are NOT record cells, dug like the record's clears -- zigtidy-01)
  *   e   effects: read, feet, bodies, walkTo, hold, has, look, nextSeq, send, waitAck, track, untrack, conn, acked, seen, dig,
  *       probe, aborted, log, now, sleep, spawnedAt
  * Stops: complete | no_sapling | no_material | no_step | deps_open | fence:<why> | aborted | max_steps | deadline | blocked |
@@ -486,7 +487,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // -- and the next visit cleared its own wall again, then could not re-place it: `no_step` every visit for 35 min)
     const roleAt = new Map(record.cells.map(c => [kOf(c.at), c.role]))
     const builtDone = c => roleAt.has(kOf(c.at)) && isDone({ at: c.at, role: roleAt.get(kOf(c.at)) }, e.read)
-    const todo = (record.clear ?? []).filter(c => unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name).sort((a, b) => a.at[1] - b.at[1])
+    // THE TIDY (p.tidy, zigtidy-01: ziggurat.mjs zigTidy -- the climbing pillars left on a finished build's treads, never record
+    // cells): dug after the record's own clears, highest first, under the same lease and the same per-call bound
+    const todo = [...(record.clear ?? []).filter(c => unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name).sort((a, b) => a.at[1] - b.at[1]),
+      ...(p.tidy ?? []).filter(c => !roleAt.has(kOf(c.at)) && nm(e.read(...c.at)) === c.name).sort((a, b) => b.at[1] - a.at[1])]
     if (!todo.length) return null
     const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
     if (!seg.ok) return null                                       // another builder is clearing: its segments wait for it

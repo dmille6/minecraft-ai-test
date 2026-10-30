@@ -479,3 +479,36 @@ export function zigProgress (record, done) {
   }
   return { done: d, open, layer }
 }
+
+/**
+ * THE TIDY (zigtidy-01, OWNER 10-30 via the showcase: dirt on the finished ziggurat's treads): the bots climb the tier walls on
+ * pillars of dirt and cobblestone (scaffold.mjs `pillar_out`; one grand stair, walls H high), and the visit digs a foreign block
+ * only out of an OPEN record cell -- a pillar stands on a finished tread, in a cell that is no record cell, and stays for good.
+ * -> [{ at, kind: 'tidy', name }], highest first: every ZIG_TIDY block in the record's box + 1, above each column's highest record
+ * cell (the apron's columns: from the base's level) up to the top + 2, that is neither a record cell nor listed in record.clear.
+ * `skip(key)` drops a cell (the caller's bound on attempts). Pure over `read`; an unread cell is passed over.
+ */
+export const ZIG_TIDY = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|cobblestone|cobbled_deepslate|stone|andesite|diorite|granite|tuff|deepslate|netherrack|gravel|sand|red_sand|sandstone|red_sandstone|dripstone_block|[a-z_]+_planks)$/
+export const ZIG_TIDY_VISITS = 3
+export function zigTidy (record, read, { skip = () => false } = {}) {
+  if (!Array.isArray(record?.box) || !Array.isArray(record?.cells)) return []
+  const cells = new Set(record.cells.map(c => c.at.join(',')))
+  const listed = new Set((record.clear ?? []).map(c => c.at.join(',')))
+  const colTop = new Map()
+  for (const c of record.cells) { const k = `${c.at[0]},${c.at[2]}`; colTop.set(k, Math.max(colTop.get(k) ?? -Infinity, c.at[1])) }
+  const top = Number.isFinite(record.topY) ? record.topY : record.baseY + zigHeight(record.geometry ?? ZIG_DEFAULT) - 1
+  const [x0, z0, x1, z1] = record.box
+  const out = []
+  for (let x = x0 - 1; x <= x1 + 1; x++) {
+    for (let z = z0 - 1; z <= z1 + 1; z++) {
+      const ct = colTop.get(`${x},${z}`)
+      for (let y = ct != null ? ct + 1 : record.baseY; y <= top + 2; y++) {
+        const k = `${x},${y},${z}`
+        if (cells.has(k) || listed.has(k) || skip(k)) continue
+        const b = read(x, y, z)
+        if (b && ZIG_TIDY.test(nm(b))) out.push({ at: [x, y, z], kind: 'tidy', name: nm(b) })
+      }
+    }
+  }
+  return out.sort((a, b) => b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
+}
