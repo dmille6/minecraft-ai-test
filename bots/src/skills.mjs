@@ -121,7 +121,7 @@ import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
-import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, pathSaplingCols, pathWalkR, pathProgress } from './paths.mjs'   // paths-01
+import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress } from './paths.mjs'   // paths-01
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
@@ -16895,6 +16895,9 @@ function recordDamaged (bot, r) {
     // zigtidy-01: a finished ziggurat with climbing pillars on its treads wants a visit too (the tidy), until each pillar block has
     // been offered ZIG_TIDY_VISITS visits of this bot
     if (mon && zigTidyNow(bot, r, read).length) return true
+    // paths-01 r2: a laid network with a destination it does not serve yet (a container's stand, a project completed since) wants
+    // a visit: its extension (buildPaths), at most once per PATHS_EXTEND_MS per bot
+    if (r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true
     return false
   } catch { return false }
 }
@@ -17319,8 +17322,38 @@ async function buildMonument (ctx, args, signal) {
 // cell takes a shovel's use, and the few raised or paved cells take the cobblestone the bags carry.
 // ================================================================================================================================
 const PATH_SHOVEL = /_shovel$/
+const PATHS_EXTEND_MS = 30 * 60_000
 /** The bag's best shovel (the most uses left, at least two) -> item | null. */
 const pathShovel = bot => (bot.inventory?.items?.() ?? []).filter(i => PATH_SHOVEL.test(i?.name ?? '') && remaining(i) >= 2).sort((a, b) => remaining(b) - remaining(a))[0] ?? null
+/** The siting's inputs for this town (paths.mjs sitePaths / extendPaths / pathDests). Throws on an unreadable file. */
+function pathsInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
+  const projects = projectHeads().filter(x => x.plot !== PATHS_PLOT).map(x => {
+    let bp = null
+    try { if (x.head.rec?.blueprint && x.head.rec.blueprint !== MONUMENT_BLUEPRINT) bp = blueprintOf(x.head.rec.blueprint) } catch { bp = null }
+    return { plot: x.plot, rec: x.head.rec, bp }
+  })
+  const hk = `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+  let plinthRec = null
+  try { plinthRec = JSON.parse(fs.readFileSync(path.join(dir, `junkwell-plinth-${hk}.json`), 'utf8')) } catch { /* none */ }
+  const caps = []
+  if (plinthRec?.plan?.cap && [plinthRec.plan.cap.x, plinthRec.plan.cap.y, plinthRec.plan.cap.z].every(Number.isFinite)) caps.push([plinthRec.plan.cap.x, plinthRec.plan.cap.y, plinthRec.plan.cap.z])
+  for (const w of c.wells) if (!caps.length && Array.isArray(w)) caps.push(w)     // an unraised well's site (shopCtx's last entry)
+  let composter = null
+  try { const st = readTownSite(dir, townSiteKey()).site; if (st) composter = [st.x, st.y, st.z] } catch { /* none */ }
+  composter ??= (h.head.plan.plots ?? []).find(q => q.kind === 'farm')?.composter ?? null
+  return { plan: { ...h.head.plan, gen: h.head.gen }, zones: c.zones, caps, plinth: c.wells, composter, farm: c.farm, projects, place: placeBlueprint }
+}
+/** Is an extension of a laid paths record due for this bot (a destination the record does not serve; not asked in the last
+ *  PATHS_EXTEND_MS)? Cheap: no routing. Never throws. */
+function pathsExtendDue (bot, rec) {
+  try {
+    if (Date.now() - (bot?.pathsExtendAt ?? -Infinity) < PATHS_EXTEND_MS) return false
+    const h = townPlanHead(bot)
+    if (!h.ok || !h.head) return false
+    const D = pathDests(pathsInputs(bot, shopCtx(bot), h))
+    return newDests(rec, D.dests ?? []).some(d => !bot.pathsUnrouted?.has?.(d.to))
+  } catch { return false }
+}
 async function buildPaths (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -17342,24 +17375,11 @@ async function buildPaths (ctx, args, signal) {
   const stood = stoodRead(dir, stoodKey(), home)
   let rh = recordHead(dir, key)
   if (!rh.ok) return out('no_effect', 'record_unreadable', 'the paths record could not be read')
+  const inputs = () => pathsInputs(bot, c, h, dir)
   if (!rh.head) {
-    // SITING (paths.mjs sitePaths): from the core's edge to every complete project's front, the farm and the well, round water,
-    // the zones, the plan's cells, the wells, the farm and every other project's record columns
-    const projects = projectHeads().filter(x => x.plot !== PATHS_PLOT).map(x => {
-      let bp = null
-      try { if (x.head.rec?.blueprint && x.head.rec.blueprint !== MONUMENT_BLUEPRINT) bp = blueprintOf(x.head.rec.blueprint) } catch { bp = null }
-      return { plot: x.plot, rec: x.head.rec, bp }
-    })
-    const hk = `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
-    let plinthRec = null
-    try { plinthRec = JSON.parse(fs.readFileSync(path.join(dir, `junkwell-plinth-${hk}.json`), 'utf8')) } catch { /* none */ }
-    const caps = []
-    if (plinthRec?.plan?.cap && [plinthRec.plan.cap.x, plinthRec.plan.cap.y, plinthRec.plan.cap.z].every(Number.isFinite)) caps.push([plinthRec.plan.cap.x, plinthRec.plan.cap.y, plinthRec.plan.cap.z])
-    for (const w of c.wells) if (!caps.length && Array.isArray(w)) caps.push(w)     // an unraised well's site (shopCtx's last entry)
-    let composter = null
-    try { const st = readTownSite(dir, townSiteKey()).site; if (st) composter = [st.x, st.y, st.z] } catch { /* none */ }
-    composter ??= (h.head.plan.plots ?? []).find(q => q.kind === 'farm')?.composter ?? null
-    const s = sitePaths(planReader(bot), { plan: { ...h.head.plan, gen: h.head.gen }, zones: c.zones, caps, plinth: c.wells, composter, farm: c.farm, projects, place: placeBlueprint })
+    // SITING (paths.mjs sitePaths): from the core's edge to every complete project's front, the farm, the well and the town's
+    // containers' stands, round water, the zones, the plan's cells, the wells, the farm and every other project's record columns
+    const s = sitePaths(planReader(bot), inputs())
     if (!s.ok) {
       // an UNREAD column (a chunk not loaded from here) is asked again at the next order; anything else waits the daily re-fit
       const stop = /unknown|unreachable/.test(s.why) ? 'site_unread' : 'no_site'
@@ -17371,6 +17391,23 @@ async function buildPaths (ctx, args, signal) {
     if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'sited', cell: [home.x, home.y, home.z], kind: `legs${record.legs.length}/cols${record.columns}/cells${record.cells.length}/fill${record.earthwork.fill}/cut${record.earthwork.cut}/clear${record.clear.length}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the paths record could not be read back')
+  }
+  // THE EXTENSION (paths-01 r2, coordinator 10-30: the store row's chests at -7,71,8 and -5,71,8 unreachable under spruce leaves):
+  // a destination the laid network does not touch -- a container's stand, a project completed since -- gains a leg (paths.mjs
+  // extendPaths), at most once per PATHS_EXTEND_MS per bot; the record reopens and the visit builds it
+  if (Date.now() - (bot.pathsExtendAt ?? -Infinity) >= PATHS_EXTEND_MS) {
+    bot.pathsExtendAt = Date.now()
+    try {
+      const base = rh.head.rec, gen0 = rh.head.gen
+      const x = extendPaths(planReader(bot), base, inputs())
+      for (const t of x.failed ?? []) (bot.pathsUnrouted ??= new Set()).add(t)
+      if (x.ok) {
+        const pub = publishRecord(dir, key, cur => (cur && cur.cells.length === base.cells.length && (cur.legs ?? []).length === (base.legs ?? []).length ? { ...x.record, completeAt: cur.completeAt ?? null } : null), { by: me })
+        if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'extended', cell: [home.x, home.y, home.z], kind: x.added.join('+'), gen: pub.gen, n: x.record.cells.length - base.cells.length }) }) } catch { /* telemetry */ } }
+        const r2 = recordHead(dir, key)
+        if (r2.ok && r2.head && r2.head.gen !== gen0) { rh = r2; bot.shopDamage = null }
+      }
+    } catch { /* the laid network stands; asked again next time */ }
   }
   shopFootprintRefresh(bot)
   const rec = rh.head.rec

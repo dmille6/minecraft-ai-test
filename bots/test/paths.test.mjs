@@ -190,6 +190,11 @@ await t('frontApproach: the column one outside a blueprint project\'s doorway st
 await t('stairFoot: the first columns out from a ziggurat\'s grand stair, the outermost row only', async () => {
   const rec = { face: 'e', cells: [{ at: [0, 0, 0], role: 'skin' }, { at: [1, 0, 0], role: 'stair' }, { at: [1, 0, 1], role: 'stair' }, { at: [2, 0, 0], role: 'stair' }] }
   assert.deepStrictEqual(P.stairFoot(rec).sort(), [[3, 0]])
+  // a v2 ziggurat with stairs on all four faces (zig2-01, geometry.FACES 4): one foot per face, from the box edge each stair is on
+  const r4 = { face: 'e', box: [0, 0, 4, 4], geometry: { FACES: 4 }, cells: [] }
+  for (let x = 0; x <= 4; x++) for (let z = 0; z <= 4; z++) r4.cells.push({ at: [x, 0, z], role: 'skin' })
+  for (const at of [[5, 0, 2], [-1, 0, 2], [2, 0, 5], [2, 0, -1]]) r4.cells.push({ at, role: 'stair' })
+  assert.deepStrictEqual(P.stairFoot(r4).map(c => c.join(',')).sort(), ['-2,2', '2,-2', '2,6', '6,2'])
 })
 await t('sitePaths: farm, well and a complete ziggurat reached, nearest first; an open project is no destination; unrouted -> no record', async () => {
   const srv = server()
@@ -207,6 +212,78 @@ await t('sitePaths: farm, well and a complete ziggurat reached, nearest first; a
   for (let x = 14; x <= 26; x++) for (let z = 14; z <= 26; z++) if (Math.max(Math.abs(x - 20), Math.abs(z - 20)) >= 4) srv2.set([x, G, z], 'water')
   const s2 = P.sitePaths(srv2.read, { plan: { ...plan(), plots: [{ id: 'core', kind: 'plaza', box: CORE, keepout: false }] }, composter: [20, G + 1, 20], place: placeBlueprint })
   assert.strictEqual(s2.ok, false); assert.match(s2.why, /unrouted:farm/); assert.strictEqual(s2.record, null)
+})
+
+console.log('THE TOWN\'S CONTAINERS AND THE EXTENSION (r2, coordinator 10-30: the store row\'s chests unreachable under leaves)')
+// the showcase's shape: chests at -7,71,8 and -5,71,8 (stands -8,71,8 and -6,71,8: the second between the two chests), leaves at
+// both stands' head height, a spruce trunk at -8,9
+const chestPlan = () => ({ ...plan(), plots: [{ id: 'core', kind: 'plaza', box: CORE, keepout: false },
+  // the showcase's store plot has a box (-15,-4..-7,4): its south row of chests lies OUTSIDE it, so only the cells themselves refuse
+  { id: 'store', kind: 'storehouse', keepout: true, box: [-24, -4, -16, 4], cells: [{ at: [-7, G + 1, 8], kind: 'chest', state: 'placed', stand: [-8, G + 1, 8] }, { at: [-5, G + 1, 8], kind: 'chest', state: 'placed', stand: [-6, G + 1, 8] }, { at: [-11, G + 1, 20], kind: 'chest', state: 'free', stand: [-12, G + 1, 20] }] }] })
+const chestWorld = () => {
+  const srv = server()
+  for (const at of [[-7, G + 1, 8], [-5, G + 1, 8]]) srv.set(at, 'chest')
+  for (let x = -11; x <= -3; x++) for (let z = 6; z <= 11; z++) srv.set([x, G + 2, z], 'spruce_leaves')
+  for (let y = G + 1; y <= G + 6; y++) srv.set([-8, y, 9], 'spruce_log')
+  return srv
+}
+await t('chestDests: every PLACED container with a stand -- its stand column and the stand\'s free neighbours; never a free cell\'s', async () => {
+  const pl = chestPlan()
+  const d = P.chestDests(pl, P.pathAvoid({ plan: pl, home: HOME }))
+  assert.deepStrictEqual(d.map(q => q.to), ['chest:-7,70,8', 'chest:-5,70,8'])
+  assert.ok(d.every(q => q.optional))
+  const second = d.find(q => q.to === 'chest:-5,70,8')
+  assert.ok(second.cols.some(c => c.join(',') === '-6,8') && !second.cols.some(c => c.join(',') === '-7,8' || c.join(',') === '-5,8'), 'never a chest column')
+})
+await t('pathAvoid: a plan CELL is refused at every height; its STAND is a FLAT column (never filled into, never cut): columnCost', async () => {
+  const pl = chestPlan()
+  const av = P.pathAvoid({ plan: pl, home: HOME })
+  assert.strictEqual(av(-7, 8), 'plan_cell'); assert.strictEqual(av(-6, 8), null); assert.ok(av.flat.has('-6,8'))
+  const c = { y: G, name: 'grass_block', why: null, above: [] }
+  assert.ok(Number.isFinite(P.columnCost(c, G, () => null, -6, 8, true)))
+  assert.strictEqual(P.columnCost(c, G + 1, () => null, -6, 8, true), Infinity, 'no fill at a stand')
+  assert.ok(Number.isFinite(P.columnCost(c, G + 1, () => null, 0, 0, false)), 'POSITIVE CONTROL: elsewhere a fill is priced')
+})
+await t('sitePaths: the chests reached (optional legs), each stand\'s head room listed; a STAND IN A DIP stays at its ground', async () => {
+  const srv = chestWorld()
+  srv.set([-8, G, 8], 'air')          // a dip at the first stand: a fill there would put a block in the chest's feet cell
+  const s = P.sitePaths(srv.read, { plan: chestPlan(), place: placeBlueprint })
+  assert.ok(s.ok, s.why)
+  assert.ok(s.net.legs.filter(l => l.optional).every(l => l.ok), JSON.stringify(s.net.legs.map(l => [l.id, l.why])))
+  const has = at => s.record.clear.some(c => c.at.join(',') === at.join(','))
+  assert.ok(has([-6, G + 2, 8]) && has([-8, G + 2, 8]), 'the stands\' head room (leaves) is cleared')
+  assert.ok(!s.record.cells.some(c => c.at[0] === -8 && c.at[2] === 8 && c.at[1] !== G - 1), 'the dipped stand is never raised')
+  assert.ok(!s.record.cells.some(c => (c.at[0] === -7 || c.at[0] === -5) && c.at[2] === 8), 'never a chest column')
+  assert.strictEqual(gentle(s.record), null)
+})
+await t('extendPaths: a record laid before the chests gains their legs -- old cells unchanged, new segments, reopened; nothing new -> refused', async () => {
+  const srv = chestWorld()
+  const pl0 = { ...plan(), plots: [{ id: 'core', kind: 'plaza', box: CORE, keepout: false }] }
+  const s0 = P.sitePaths(srv.read, { plan: pl0, composter: [20, G + 1, 0], place: placeBlueprint })
+  assert.ok(s0.ok, s0.why)
+  const base = { ...s0.record, structure_complete: true, state: 'complete' }
+  const x = P.extendPaths(srv.read, base, { plan: chestPlan(), composter: [20, G + 1, 0], place: placeBlueprint })
+  assert.ok(x.ok, x.why)
+  assert.ok(x.added.length >= 1)
+  assert.deepStrictEqual(x.record.cells.slice(0, base.cells.length), base.cells, 'the laid cells unchanged')
+  const fresh = x.record.cells.slice(base.cells.length)
+  assert.ok(fresh.length > 0 && fresh.every(c => /^P-[A-Za-z0-9-]+$/.test(c.seg) && x.record.segments.some(sg => sg.seg === c.seg)))
+  assert.ok(!fresh.some(c => base.cells.some(b => b.at[0] === c.at[0] && b.at[2] === c.at[2])), 'no column laid twice')
+  assert.strictEqual(x.record.structure_complete, false); assert.ok(x.record.maxStep <= 1)
+  assert.strictEqual(P.newDests(x.record, P.pathDests({ plan: chestPlan(), composter: [20, G + 1, 0], place: placeBlueprint }).dests).length, 0, 'served now')
+  assert.strictEqual(P.extendPaths(srv.read, x.record, { plan: chestPlan(), composter: [20, G + 1, 0], place: placeBlueprint }).why, 'nothing_new')
+  // A RENAMED ID (Codex r5 BLOCK): a record whose legs already hold `chest1` (another chest, indexed before the plan gained one)
+  // -- the new leg is renamed and its stand's head room is still listed
+  const taken = { ...base, legs: [...base.legs, { id: 'chest1', to: 'chest:elsewhere', ok: true }, { id: 'chest2', to: 'chest:elsewhere2', ok: true }] }
+  const xr = P.extendPaths(srv.read, taken, { plan: chestPlan(), composter: [20, G + 1, 0], place: placeBlueprint })
+  assert.ok(xr.ok, xr.why)
+  assert.ok(xr.added.every(id => !['chest1', 'chest2'].includes(id)), `renamed: ${xr.added}`)
+  assert.ok(xr.record.clear.some(c => c.at.join(',') === [-6, G + 2, 8].join(',')) && xr.record.clear.some(c => c.at.join(',') === [-8, G + 2, 8].join(',')), 'the stands\' head room listed under the renamed ids')
+  // a chest walled in by water: reported failed, the record untouched
+  const srv2 = chestWorld()
+  for (let x2 = -12; x2 <= -1; x2++) for (let z = 5; z <= 12; z++) if (!(x2 >= -9 && x2 <= -4 && z >= 7 && z <= 10)) srv2.set([x2, G, z], 'water')
+  const y = P.extendPaths(srv2.read, base, { plan: chestPlan(), composter: [20, G + 1, 0], place: placeBlueprint })
+  assert.strictEqual(y.ok, false); assert.ok(y.failed.length >= 1 && y.record === null)
 })
 
 console.log('THE PROJECT LIST AND THE ORDER (shop.mjs)')
