@@ -87,7 +87,8 @@ export function coalKeepOf (held = 0, toSmelt = 0, { on = COALFIRST.on } = {}) {
  *   heldCoal     the bag's coal
  *   freeSlots    36 - occupied slots
  *   tripPick     a stone-or-better pickaxe that can pay a trip (oretunnel.mjs hasTripPickaxe)
- *   townCoal     lazy -> { ok, total, containers } (skills.mjs townCoalStock: the town index)
+ *   townCoal     lazy -> { ok, total, containers, site } (skills.mjs townCoalStock: the town index; `site` { ok, hit } is where
+ *                the bot stands against the projects' records, coalsite-01: not ok -> refused, a hit -> refused)
  *   ore          lazy -> { block, dist } | null: the nearest coal ore within COAL_ORE_RADIUS, off the home floor
  *   state        { lastIssuedAt, backoffUntil, lastScanAt }
  * Cheap tests first; the two readings are taken only when everything else would issue, and at most once per
@@ -114,6 +115,11 @@ export function coalRunOrder ({ now = 0, on = COALFIRST.on, shared = true, holds
   if (!t?.ok) return skip('index')
   if (!((Number(t.containers) || 0) > 0)) return skip('index_empty')
   if ((Number(t.total) || 0) >= COAL_FLOOR) return skip('stocked')
+  // coalsite-01: NEVER FROM A TOWN PROJECT'S SITE (LIVE showcase 10-30 10:15Z: a run issued from inside the ziggurat's foundation
+  // walked into its hollow, walled the bot in, and the escape dug two foundation cells; the repair then stalled on cells no stand
+  // reached). FAIL CLOSED: a site that could not be read says nothing about where the bot stands
+  if (t.site?.ok !== true) return skip('site_unknown')
+  if (t.site.hit) return skip('on_site')
   const o = lazy(ore)
   if (!o?.block || !COAL_KINDS.includes(o.block)) return skip('no_ore')
   s.lastIssuedAt = now
@@ -122,6 +128,27 @@ export function coalRunOrder ({ now = 0, on = COALFIRST.on, shared = true, holds
                     why: `the town's chests hold ${t.total} coal (< ${COAL_FLOOR}) and its smelt jobs burn coal only; ` +
                          `${o.block} ${Math.round(Number(o.dist) || 0)} blocks away -- mining it for the town` },
            state: s, skip: null }
+}
+
+/** coalsite-01: how far round a project's record box the run is refused (shop.mjs recordZones' margin; the paths' and the wall's
+ *  own column zones are already their columns + 1). */
+export const COAL_SITE_MARGIN = 2
+/**
+ * IS THIS SPOT ON A TOWN PROJECT'S SITE? -> the zone's `why` (e.g. 'project:monument') | null. Pure.
+ *   pos    { x, y, z } (the bot's position; fractional is fine: a block's cell is its floor)
+ *   zones  [{ box: [x0, y0, z0, x1, y1, z1], why }] inclusive -- shop.mjs recordZones(every project record, COAL_SITE_MARGIN),
+ *          the zones the projects' siting reads
+ * A malformed zone is skipped; a missing position is null (the caller's site reading is then not ok: refused).
+ */
+export function projectSiteHit (pos, zones = []) {
+  const x = Math.floor(Number(pos?.x)), y = Math.floor(Number(pos?.y)), z = Math.floor(Number(pos?.z))
+  if (![x, y, z].every(Number.isFinite)) return null
+  for (const zn of zones ?? []) {
+    const b = zn?.box
+    if (!Array.isArray(b) || b.length !== 6 || !b.every(Number.isFinite)) continue
+    if (x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5]) return String(zn.why ?? 'project')
+  }
+  return null
 }
 
 /**
