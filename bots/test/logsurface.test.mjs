@@ -270,3 +270,62 @@ test('MUTANT KILLED: without the long-climb return, the run goes on searching af
     } finally { Date.now = realNow }
   })
 })
+
+// ---- zigfleet-01 x logsurface-01 (Codex blockers-only review): no climb on a town project's site -----------------------
+// A bot roofed on the ziggurat's site (in its foundation hollow, under its tiers) would climb up through the structure's own
+// cells (surface digs straight up, outside the footprint price). On a project's site, and when a site cannot be read, the
+// gather does not climb. The site is the record box + COAL_SITE_MARGIN at every height (shop.mjs recordZones).
+{
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const { projKey } = await import('../src/buildproj.mjs')
+  const withPool = async (write, fn) => {
+    const saved = process.env.POOL_STATE_DIR
+    process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-logsurf-site-'))
+    try { write(process.env.POOL_STATE_DIR); return await fn() } finally { if (saved === undefined) delete process.env.POOL_STATE_DIR; else process.env.POOL_STATE_DIR = saved }
+  }
+  const monFile = dir => path.join(dir, `${projKey({ x: 200, y: 65, z: 200 }, 'monument')}.g1.json`)
+  // the ziggurat 100 blocks east of town (the far cave of BLOCKER 1's control): box x 290..320, z 190..215
+  const zig = dir => fs.writeFileSync(monFile(dir), JSON.stringify({ gen: 1, prev: null, plot: 'monument', blueprint: 'ziggurat@2', box: [290, 190, 320, 215], cells: [{ at: [300, 58, 200], block: 'cobblestone', role: 'skin', seg: 'F', state: 'open' }] }))
+
+  test('ZIGFLEET-01: CONTROL -- the far cave with no project record climbs over its roof (the instrument sees a climb)', async () => {
+    await withPool(() => {}, async () => {
+      const { bot, surfaces } = caveWorld({ roofTo: 73, x0: 300 })
+      await run(bot)
+      assert.ok(surfaces.length >= 1 && Math.max(...surfaces) >= 73, `climbed: ${surfaces}`)
+    })
+  })
+  test('ZIGFLEET-01: the same cave on the ziggurat\'s site never climbs (the base\'s gather: no climb plan)', async () => {
+    await withPool(zig, async () => {
+      const { bot, surfaces } = caveWorld({ roofTo: 73, x0: 300 })
+      await run(bot)
+      assert.equal(surfaces.length, 0, `no climb on the site: ${surfaces}`)
+      assert.ok(bot.entity.position.y < 42, 'still in the cave: nothing dug up through the site')
+      assert.equal(SK.projectSiteNow(bot).hit, 'project:monument', 'the site reading the gather used')
+    })
+  })
+  test('ZIGFLEET-01: an unreadable project record is an unknown site -- no climb (fail closed: the base\'s gather)', async () => {
+    await withPool(dir => fs.writeFileSync(monFile(dir), '{ not json'), async () => {
+      const { bot, surfaces } = caveWorld({ roofTo: 73, x0: 340 })
+      await run(bot)
+      assert.equal(surfaces.length, 0, `no climb with the site unknown: ${surfaces}`)
+    })
+  })
+  test('ZIGFLEET-01: outside the site (x 340, past box + margin) the climb runs as before', async () => {
+    await withPool(zig, async () => {
+      const { bot, surfaces } = caveWorld({ roofTo: 73, x0: 340 })
+      await run(bot)
+      assert.ok(surfaces.length >= 1, `climbed off the site: ${surfaces}`)
+    })
+  })
+  test('MUTANT KILLED (zigfleet-01): without the site check the bot on the ziggurat\'s site climbs through it', async () => {
+    await withMutant(SKILLS_URL, '    if (!site.ok || site.hit) {\n      if (Date.now() - (bot.logSurfaceSiteAt', '    if (false) {\n      if (Date.now() - (bot.logSurfaceSiteAt', async mod => {
+      await withPool(zig, async () => {
+        const { bot, surfaces } = caveWorld({ roofTo: 73, x0: 300 })
+        await mod.SKILLS.gather.run({ bot }, { block: 'oak_log', count: 1 }, new AbortController().signal).catch(() => null)
+        assert.ok(surfaces.length >= 1, 'the mutant climbs on the site')
+      })
+    })
+  })
+}
