@@ -1054,6 +1054,75 @@ test('STOCK CHAIN (a): a full bag of at-target logs whose town has never been co
     assert.equal(sumOf(chest.items, 'oak_log'), 640, 'nothing banked into an at-target town')
   } finally { untap(); done() }
 })
+// TOWNDEPOSIT-01 (owner 10-28, success-rate fixes #4): NO COUNT OFFER THE COUNT WOULD SKIP. Measured 10-28 (ES, 24 h, 80 bots):
+// 176 of 182 town_deposit no_effect rows were `recount` orders whose only uncounted container had an oak_planks lid the
+// count refuses -- `_lid_clear outcome=refused by=count_town` 276 times on one chest (placebo-a), counted 0 of 1 each stay.
+// The rule is towndeposit.mjs countSkipWhy; the offer (stockCountKeys, read by the order) and the count (reconcileCobble)
+// both call skills.mjs countSkip. STOCK CHAIN (a) above is the positive control: the same bag and chest, no lid -> the count.
+const plankLidTown = async lid => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ...filler(31)])
+  const chest = chestAt(2, 70, 0, { lid, items: Array.from({ length: 27 }, (_, i) => (i < 10 ? item('oak_log', 64) : null)) })
+  return { items, chest, ...(await stockChain({ items, chest })) }
+}
+test('TOWNDEPOSIT-01 pure: countSkipWhy -- loaded, a container, and no refused lid half; an unknown lid judgement is `lid not now`', () => {
+  const W = TD.countSkipWhy
+  assert.equal(W({ loaded: true, container: true, lids: [{ blocked: false, refusal: null }] }), null)
+  assert.equal(W({ loaded: true, container: true, lids: [{ blocked: true, refusal: null }] }), null, 'a blocked lid the clear may dig: walked to')
+  assert.equal(W({ loaded: true, container: true, lids: [{ blocked: false }, { blocked: true, refusal: 'oak_planks is not a block a bot may break off a lid' }] }), 'lid blocked', 'either half')
+  assert.equal(W({ loaded: true, container: true, lids: [{ blocked: true, refusal: 'wells unreadable', unknown: true }] }), 'lid not now')
+  assert.equal(W({ loaded: false, container: true }), 'not loaded')
+  assert.equal(W({ loaded: true, container: false }), 'not a container')
+  assert.equal(W(), 'not loaded')
+})
+test('TOWNDEPOSIT-01 CHAIN: the same full bag of uncounted logs, the only chest under an OAK_PLANKS lid -> no count key, NO town_deposit order (the loop goes on); a DIRT lid (the clear digs it) -> the count is offered', async () => {
+  const SK = await import('../src/skills.mjs')
+  {
+    const { bot, done } = await plankLidTown('oak_planks')
+    try {
+      assert.equal(SK.countSkip(bot, new Vec3(2, 70, 0)), 'lid blocked')
+      assert.deepEqual(SK.stockCountKeys(bot, bot.inventory.items(), { floor: true }), [], 'the offer sees what the count would skip')
+      const { ran } = await decisions(bot, 1)
+      assert.ok(ran.length >= 1, 'the loop decided something (a legal next move)')
+      assert.ok(!ran.some(x => x.skill === 'town_deposit'), JSON.stringify(ran))
+    } finally { done() }
+  }
+  {
+    const { bot, done } = await plankLidTown('dirt')
+    try {
+      assert.equal(SK.countSkip(bot, new Vec3(2, 70, 0)), null, 'dirt may be dug off a lid (cobblekeep-01)')
+      assert.deepEqual(SK.stockCountKeys(bot, bot.inventory.items(), { floor: true }), ['2,70,0'], 'positive control: the count is offered')
+    } finally { done() }
+  }
+})
+test('TOWNDEPOSIT-01 SKILL: a recount order that reaches the skill anyway counts nothing and walks nowhere (the same rule); the skipped lid keeps its `_lid_clear refused` row in count_town', async () => {
+  const { bot, chest, done } = await plankLidTown('oak_planks')
+  const lids = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_lid_clear') lids.push(r.skill.detail) })
+  try {
+    const r = await SKILLS.town_deposit.run({ bot }, { recount: true }, null)
+    assert.equal(r.status, 'no_effect', r.detail)
+    assert.equal(sumOf(chest.items, 'oak_log'), 640)
+    const SK = await import('../src/skills.mjs')
+    SK.resetCobbleReconcile?.()
+    const c = await SKILLS.count_town.run({ bot }, {}, new AbortController().signal)
+    void c
+    assert.ok(lids.some(d => /^outcome=refused by=count_town at=2,70,0 .*lid=oak_planks/.test(d)), `the refusal stays visible: ${lids.join(' | ')}`)
+  } finally { untap(); done() }
+})
+test('TOWNDEPOSIT-01 MUTANT KILLED: stockCountKeys without the countSkip filter offers the plank-lidded chest again', async () => {
+  const SP = new URL('../src/skills.mjs', import.meta.url)
+  const src = fs.readFileSync(SP, 'utf8')
+  const old = "    return cobbleReconcilable({ unknown: [...keys] }, now).filter(k => !countSkip(bot, keyVec(k)))"
+  assert.equal(src.split(old).length, 2, 'ANCHOR MISSING or not unique')
+  const out = new URL(`./_mutant-td01-${process.pid}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, "    return cobbleReconcilable({ unknown: [...keys] }, now)").replace(/from '\.\//g, "from '../src/"))
+  const { bot, done } = await plankLidTown('oak_planks')
+  try {
+    const M = await import(out.href)   // the bot's stock readers stay the real module's (installCobbleCap in stockChain)
+    const SK0 = await import('../src/skills.mjs')
+    assert.deepEqual(M.stockCountKeys(bot, bot.inventory.items(), { floor: true }), ['2,70,0'], 'the mutant offers the count the skill would skip')
+  } finally { done(); try { fs.unlinkSync(out) } catch {} }
+})
 test('STOCK CHAIN (b): a full bag at a town at its tool target, nothing else to free -> the VALVE banks ONE spare copy (two copies are enough)', async () => {
   // filler: ladders (never bankable, never junk, never compost, on no bag-allowance row) -- wool would be the well's junk, and the
   // valve rightly waits for the well; torches were the filler until junkout-01 made them a bag-allowance row (they bank now)

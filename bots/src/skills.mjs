@@ -67,7 +67,7 @@ import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { LOGBANK } from './woodkeep.mjs'
-import { IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
+import { IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS, countSkipWhy } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
@@ -4279,8 +4279,22 @@ export function stockCountKeys (bot, items = bot.inventory?.items?.() ?? [], { f
         for (const [k, o] of Object.entries(st.obs ?? {})) if (countOf(o, g) && now - o.at >= FLOOR_TTL_MS && now - o.at < OBS_TTL_MS) keys.add(k)
       }
     }
-    return cobbleReconcilable({ unknown: [...keys] }, now)
+    // towndeposit-01: only containers the recount would WALK TO (towndeposit.mjs countSkipWhy, the recount's own pre-walk rule)
+    return cobbleReconcilable({ unknown: [...keys] }, now).filter(k => !countSkip(bot, keyVec(k)))
   } catch { return [] }
+}
+/**
+ * THE RECOUNT'S PRE-WALK CHECKS, READ (towndeposit-01) -> null (walk to it and count) or why not. No row. The decision is
+ * towndeposit.mjs countSkipWhy; stockCountKeys (the offer) and reconcileCobble (the count) both call this, so the order
+ * never offers a count the skill would skip. A bot with no world model (a test double) has nothing to judge: null.
+ */
+export function countSkip (bot, c) {
+  if (typeof bot?.blockAt !== 'function') return null
+  try {
+    const b = bot.blockAt(c)
+    const container = !!b && CONTAINER_RE.test(blockNameOf(bot, b) ?? '')
+    return countSkipWhy({ loaded: !!b, container, lids: container ? chestHalves(bot, c).map(h => lidJudge(bot, h)) : [] })
+  } catch { return 'unreadable' }
 }
 /**
  * DOES WHAT IS LEFT TO BANK QUALIFY FOR A NEW CHEST (stocktarget design 3.3) -> { any, names, reserved }. Judged on a FRESH
@@ -4416,13 +4430,14 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
       if (msLeft(RECONCILE_WALK_MS) < 2_000) break
       tried++; note()
       const b = bot.blockAt(c)
-      // an UNLOADED cell is no evidence about the container: this bot's backoff only, never a recount miss (Claude st2-r2 P3-a)
-      if (!b) { fail(k, 'not loaded'); continue }
-      if (!CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) { fail(k, 'not a container'); continue }
-      // THE LID (lidclear-01): a lid the clear would refuse is not walked to (`lid blocked`, as before, now with a
-      // `_lid_clear outcome=refused` row); a clearable one is walked to and cleared after the arrival check
-      const pre = lidRefusedBeforeWalk(bot, c, 'count_town')
-      if (pre) { fail(k, pre.outcome === 'refused' ? 'lid blocked' : 'lid not now'); continue }   // `unknown` is not lid evidence (Codex code r3 P3)
+      // THE PRE-WALK RULE (towndeposit-01: countSkip, the same call the offer makes in stockCountKeys). An UNLOADED cell is no
+      // evidence about the container: this bot's backoff only, never a recount miss (Claude st2-r2 P3-a). THE LID
+      // (lidclear-01): a lid the clear would refuse is not walked to (`lid blocked`, with its `_lid_clear outcome=refused`
+      // row); `unknown` is not lid evidence (`lid not now`, Codex code r3 P3); a clearable one is walked to and cleared
+      // after the arrival check
+      const skip = countSkip(bot, c)
+      if (skip && skip.startsWith('lid')) lidRefusedBeforeWalk(bot, c, 'count_town')   // its row
+      if (skip) { fail(k, skip); continue }
       try {
         await chestWalk(bot, new goals.GoalNear(c.x, c.y, c.z, 2), msLeft(RECONCILE_WALK_MS))
         // THE RECOUNT ARRIVES BEFORE IT OPENS (Claude st2-r1): a resolved walk is not an arrival (Paper 10-05, the deposit's
