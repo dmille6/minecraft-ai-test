@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { reserveKeyOf, reserveCount, takeAllowed, LOG_NAMES, PLANKS_OF } from './mats.mjs'
 import { monumentOn, MONUMENT_PLOT, MONUMENT_BLUEPRINT, MONUMENT_BUILDERS } from './ziggurat.mjs'
+import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -27,12 +28,19 @@ export const HOUSE = Object.freeze({ on: !['off', '0', 'false', 'no'].includes(S
  * off in the fleet's until its rollout (ziggurat.mjs monumentOn; MONUMENT=off is the rollback).
  */
 export const MONUMENT = Object.freeze({ on: monumentOn(process.env, process.env.MEMORY_POOL ?? '') })
+/**
+ * PATHS-01: THE TOWN'S PATHS are the fourth project (paths.mjs; owner showcase list 10-29: house-01 -> paths-01 -> wall-01): after
+ * the house, laid from the core to every complete project's front, the farm and the well. On in the showcase pool, off in the
+ * fleet's until its rollout (paths.mjs pathsOn; PATHS=off is the rollback).
+ */
+export const PATHS = Object.freeze({ on: pathsOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: 'house1', blueprint: 'house@1', after: SHOP_PLOT }),
   Object.freeze({ plot: MONUMENT_PLOT, blueprint: MONUMENT_BLUEPRINT, after: SHOP_PLOT, builders: MONUMENT_BUILDERS }),
+  Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === MONUMENT_PLOT ? mon : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : on))
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
 export const buildersOf = p => p?.builders ?? BUILDERS_MAX
 /**
@@ -60,6 +68,8 @@ export const PROJECT_GAP = 3
 export function recordZones (records = [], margin = PROJECT_GAP) {
   const out = []
   for (const r of records) {
+    // paths-01: a record that names its own zones (the paths: their columns + 1; a box would be the whole town)
+    if (Array.isArray(r?.zones)) { for (const z of r.zones) if (Array.isArray(z?.box) && z.box.length === 6 && z.box.every(Number.isFinite)) out.push(z); continue }
     const b = r?.box
     if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite)) continue
     out.push({ box: [b[0] - margin, -64, b[1] - margin, b[2] + margin, 320, b[3] + margin], why: `project:${r.plot ?? '?'}` })
@@ -73,6 +83,11 @@ export const SHOP_STUCK_RETRY_MS = 6 * 60 * 60_000       // F4: a cell no stand 
 export const SHOP_HEALTH_MIN = 10
 export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
 export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the ziggurat is built mostly from the cobble a bag already holds
+/** The projects a bag needs only MONUMENT_BAG_SLOTS_MIN free slots for (paths-01: a shovel's use draws nothing). */
+export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT]))
+/** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
+let activePlotOf = () => null
+export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
 // the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
@@ -107,7 +122,7 @@ export const recordCellKeys = record => new Set((record?.cells ?? []).map(c => c
 export const recordCellHit = (cells, c) => { const p = c?.ref?.position; return !!(p && cells?.size && cells.has(`${p.x + (c.face?.x ?? 0)},${p.y + (c.face?.y ?? 0)},${p.z + (c.face?.z ?? 0)}`)) }
 /** May a sapling go into the cell at column (x, z)? false inside the box -- or inside any box of a list (house-01: one per
  *  project record). Pure. */
-export const saplingAllowedAt = (box, x, z) => (Array.isArray(box) ? box.every(b => saplingAllowedAt(b, x, z)) : (!box || x < box.x0 || x > box.x1 || z < box.z0 || z > box.z1))
+export const saplingAllowedAt = (box, x, z) => (Array.isArray(box) ? box.every(b => saplingAllowedAt(b, x, z)) : box?.cols ? !box.cols.has(`${x},${z}`) : (!box || x < box.x0 || x > box.x1 || z < box.z0 || z > box.z1))
 /** A place() candidate ({ ref, face }) for a sapling: its target cell (ref + face) outside the box? Pure. */
 export const saplingCandidateOk = (box, c) => { const p = c?.ref?.position; return !p || saplingAllowedAt(box, p.x + (c.face?.x ?? 0), p.z + (c.face?.z ?? 0)) }
 /** The footprint's price for a block on the current walk: 100 (mineflayer-pathfinder drops the move) on a work or travel walk,
@@ -356,7 +371,9 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
-  if (freeSlots < (record?.plot === MONUMENT_PLOT ? MONUMENT_BAG_SLOTS_MIN : SHOP_BAG_SLOTS_MIN)) return { order: null, skip: 'room' }
+  let plot = record?.plot ?? null
+  if (!record) { try { plot = activePlotOf() } catch { plot = null } }
+  if (freeSlots < (LIGHT_PLOTS.has(plot) ? MONUMENT_BAG_SLOTS_MIN : SHOP_BAG_SLOTS_MIN)) return { order: null, skip: 'room' }
   return { order: { skill: 'build_shop', args: {} }, skip: null }
 }
 

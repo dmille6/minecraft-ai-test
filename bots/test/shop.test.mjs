@@ -280,8 +280,11 @@ const W = [
 // are the WORKSHOP visit's, so they are judged with the ziggurat's function cut out (its own wiring: ziggurat-project.test.mjs)
 const ZIG_FN = /\nasync function buildMonument \([\s\S]*?\n\}\n/
 assert.ok(ZIG_FN.test(SK), 'buildMonument is found (the cut is not a no-op)')
+// paths-01: buildPaths (the paths' visit) repeats the slot release and the bag row the same way (its wiring: paths-wiring.test.mjs)
+const PATHS_FN = /\nasync function buildPaths \([\s\S]*?\n\}\n/
+assert.ok(PATHS_FN.test(SK), 'buildPaths is found (the cut is not a no-op)')
 for (const [name, src0, re] of W) {
-  const src = src0 === SK ? SK.replace(ZIG_FN, '\n') : src0
+  const src = src0 === SK ? SK.replace(ZIG_FN, '\n').replace(PATHS_FN, '\n') : src0
   await t(`${name} (and a mutant of it fails)`, () => {
     assert.ok(re.test(src), 'wired')
     const m = src.match(re)[0]
