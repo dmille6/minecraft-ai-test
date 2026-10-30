@@ -52,7 +52,7 @@ export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, w
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
 export const buildersOf = p => p?.builders ?? BUILDERS_MAX
 /**
- * THE PROJECT THE JOB WORKS ON NOW -> a PROJECTS entry. Pure. `states` [{ plot, exists, complete, damaged, free? }] in PROJECTS
+ * THE PROJECT THE JOB WORKS ON NOW -> a PROJECTS entry. Pure. `states` [{ plot, exists, complete, damaged, free?, due? }] in PROJECTS
  * order (a missing state reads as no record). The first damaged complete project (repairs first), else the first not complete
  * whose `after` project is complete -- monument-01: the first such with an admission slot free for this bot (`free`, absent =
  * free), else the first such -- else the LAST project (everything stands: the order reads it complete and stays quiet).
@@ -68,6 +68,8 @@ export function activeProject (states = [], list = projectsOn()) {
     open.push(p)
   }
   if (open.length) return open.find(p => st(p).free !== false) ?? open[0]
+  // wall-01: a complete project that only wants a visit for its upkeep (`due`: the ziggurat's tidy) after every open one
+  for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due) return p }
   return list[list.length - 1]
 }
 /** THE OTHER PROJECTS' RECORDS AS SITING ZONES -> [{ box: [x0,y0,z0,x1,y1,z1] }]: each record's x/z box widened by `margin`

@@ -105,7 +105,8 @@ await t('BOUNDED: the clears\' per-call bound holds for the tidy too (clearMax 2
 await t('skills.mjs (structural): the damage test asks for a tidy, bounded by ZIG_TIDY_VISITS a bot; the visit passes the list', async () => {
   const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const fn = name => { const i = src.indexOf(`function ${name} (`); assert.ok(i >= 0, name); return src.slice(i, src.indexOf('\n}\n', i)) }
-  assert.ok(/if \(mon && zigTidyNow\(bot, r, read\)\.length\) return true/.test(fn('recordDamaged')))
+  // wall-01: the tidy is asked unless the caller reads hard damage only (shopActive's `due`: upkeep waits behind open projects)
+  assert.ok(/if \(tidy && mon && zigTidyNow\(bot, r, read\)\.length\) return true/.test(fn('recordDamaged')))
   assert.ok(/skip: k => \(seen\.get\(k\) \?\? 0\) >= ZIG_TIDY_VISITS/.test(fn('zigTidyNow')))
   const bm = fn('buildMonument')
   assert.ok(/tidy = zigTidyNow\(bot, rec, read\)/.test(bm) && /runVisitCounted\(bot, \{ dir, key, me, home, stood, record: rec, tidy,/.test(bm))
