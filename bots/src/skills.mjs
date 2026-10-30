@@ -92,7 +92,7 @@ import { townRecordsShared, plinthPlanCap, plinthCapLoss, capRefusalNext, PLINTH
 import { plinthFirstOn, plinthFirstPolicy, plinthFirstSearch, plinthFirstRefusal, plinthFirstMinK, naturalPitPending, areaLoaded, PLINTH_FIRST_WHY } from './plinth.mjs'
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
-import { townCoalTotal } from './coalrun.mjs'   // coalfirst-01
+import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -12819,8 +12819,28 @@ export function townCoalStock (bot) {
     if (!TOWNINDEX.on) return { ok: false, total: 0, containers: 0, withCoal: 0 }
     const r = readIndex(townDir(), indexHk(), bot?.worldId ?? null)
     if (!r.ok) return { ok: false, total: 0, containers: 0, withCoal: 0 }
-    return { ok: true, ...townCoalTotal(r.entries) }
+    return { ok: true, ...townCoalTotal(r.entries), site: coalSiteOf(bot) }
   } catch { return { ok: false, total: 0, containers: 0, withCoal: 0 } }
+}
+/**
+ * coalsite-01: WHERE THE BOT STANDS AGAINST THE TOWN'S PROJECTS -> { ok, hit } (coalrun.mjs projectSiteHit over shop.mjs
+ * recordZones of EVERY project record, as the siting reads them, COAL_SITE_MARGIN round a box). Any record unreadable, or no
+ * position: ok false (the run is refused). A hit is logged as a `coal_site` row at most once per 10 min per bot. Never throws.
+ */
+export function coalSiteOf (bot) {
+  try {
+    const p = bot?.entity?.position
+    if (!p) return { ok: false, hit: null }
+    const dir = townDir()
+    const hs = projectsOn().map(q => recordHead(dir, projKeyOf(q.plot)))
+    if (!hs.every(h => h.ok)) return { ok: false, hit: null }
+    const hit = projectSiteHit(p, recordZones(hs.map(h => h.head?.rec).filter(Boolean), COAL_SITE_MARGIN))
+    if (hit && Date.now() - (bot.coalSiteAt ?? -Infinity) >= 10 * 60_000) {
+      bot.coalSiteAt = Date.now()
+      try { logEvent({ kind: 'coal_site', status: 'refused', snapshot: snapshot(bot), detail: `coal run refused on ${hit} at ${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}` }) } catch { /* telemetry */ }
+    }
+    return { ok: true, hit }
+  } catch { return { ok: false, hit: null } }
 }
 /** ironsmelt-01: the same for RAW IRON (its own 2 h miss and the index rule-out). For the order, which smelts iron first. */
 export function townIronMiss (bot) {

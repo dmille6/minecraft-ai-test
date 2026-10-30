@@ -56,7 +56,7 @@ test('TOWN COAL: the index total over every container\'s latest observation; cha
 })
 
 const base = { now: 1e9, holds: false, heldCoal: 0, freeSlots: 10, tripPick: true,
-  townCoal: { ok: true, total: 0, containers: 4 }, ore: { block: 'coal_ore', dist: 9.4 }, state: {} }
+  townCoal: { ok: true, total: 0, containers: 4, site: { ok: true, hit: null } }, ore: { block: 'coal_ore', dist: 9.4 }, state: {} }
 test('THE COAL RUN: issues gather of the ore in reach while the town is short; every skip names its reason', () => {
   const r = C.coalRunOrder(base)
   assert.equal(r.skip, null)
@@ -81,7 +81,7 @@ test('THE COAL RUN: issues gather of the ore in reach while the town is short; e
   skip({ ore: null }, 'no_ore')
   skip({ ore: { block: 'iron_ore', dist: 2 } }, 'no_ore')
   // boundaries: just under the floor issues; just under the carry issues; exactly the cooldown issues
-  assert.ok(C.coalRunOrder({ ...base, townCoal: { ok: true, total: C.COAL_FLOOR - 1, containers: 1 } }).order)
+  assert.ok(C.coalRunOrder({ ...base, townCoal: { ok: true, total: C.COAL_FLOOR - 1, containers: 1, site: { ok: true, hit: null } } }).order)
   assert.ok(C.coalRunOrder({ ...base, heldCoal: C.COAL_RUN_CARRY - 1 }).order)
   assert.ok(C.coalRunOrder({ ...base, state: { lastIssuedAt: base.now - C.COAL_RUN_COOLDOWN_MS } }).order)
   // the readings are lazy and taken only when everything cheap would issue
