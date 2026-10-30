@@ -428,7 +428,7 @@ test('MUTANT KILLED: surface without the named top refuses at once above sea lev
 })
 
 test('MUTANT KILLED: the town left out of the ONE keep-out -- the plan and the per-dig stop both lose it, and the stair cuts town ground', async () => {
-  await withMutant(SKILLS_URL, '    return composeKeepOut(farm, townKeepOut(townHome(), nameAt))\n', '    return composeKeepOut(farm)\n', async mod => {
+  await withMutant(SKILLS_URL, '    return composeKeepOut(farm, townKeepOut(townHome(), nameAt), stairKeepOut(stairRecordNow()))\n', '    return composeKeepOut(farm, stairKeepOut(stairRecordNow()))\n', async mod => {
     const bot = stairWorld({ at: [214, 65, 200], yaw: Math.PI / 2 })
     await runMine(mod, bot)
     const real = stairWorld({ at: [214, 65, 200], yaw: Math.PI / 2 })
@@ -495,7 +495,7 @@ test('WIRED: no town entry on the transit arrays; the tunnel adds 100; the liven
   assert.deepEqual(chooseStairBearing(fake, V(0, 70, 0), 4, [{ x: 0, z: -1 }])?.bear, { x: 0, z: -1 }, 'only an allowed bearing is chosen')
   // ONE keep-out: the town is composed into minewell's plan (and so into its per-dig stop), and the far starts are offered
   const sk = strip(readFileSync(SKILLS_URL, 'utf8'))
-  assert.match(sk, /return composeKeepOut\(farm, townKeepOut\(townHome\(\), nameAt\)\)/)
+  assert.match(sk, /return composeKeepOut\(farm, townKeepOut\(townHome\(\), nameAt\), stairKeepOut\(stairRecordNow\(\)\)\)/)
   assert.doesNotMatch(sk, /townAllow|stairTownClear\(/, 'no second bearing filter in mine')
 })
 
