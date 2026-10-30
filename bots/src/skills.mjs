@@ -124,7 +124,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed } from './wall.mjs'   // wall-01
-import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
+import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
@@ -17490,6 +17490,11 @@ async function buildStair (ctx, args, signal) {
     if (r.placed > 0 || r.dug > 0) { try { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key) } catch { /* the clock */ } }
     stairRow(bot, 'visit', { k: r.k ?? '-', why: r.stop, n: `${r.dug}d/${r.placed}p/${r.units}u/${r.torches}t`, ms: Date.now() - t0, built: [...new Set([...(rec.landings_built ?? []), ...r.landings])].join('+') || '-' })
     const status = r.placed > 0 || r.dug > 0 ? 'success' : 'no_effect'
+    // A VISIT THAT DID NOTHING AND STOPPED ON A FAILURE waits the project behind the others (shop.mjs stuckBackoff, the stuck file;
+    // Claude code r1 note 1: else the stair takes a free bot every 2 min and starves the next projects)
+    if (status === 'no_effect' && ['no_material', 'no_pickaxe', 'dig_refused', 'place_refused', 'no_support', 'no_reach', 'walk_failed', 'no_stand'].includes(r.stop)) {
+      try { projStuckWrite(dir, key, me, {}, { stuckAt: Date.now() }) } catch { /* the order asks again */ }
+    }
     // a stop that names its own remedy (Claude r1: a refusal names what to do)
     const remedy = { no_pickaxe: ' -- craft or withdraw a pickaxe (toolkit)', no_material: ' -- carry cobblestone (withdraw it at town)', walk_failed: ' -- the stair is blocked above the work; the next visit repairs it from the top' }[r.stop] ?? ''
     return out(status, r.stop, `${r.why ?? r.stop} at step ${r.k ?? '-'}: dug ${r.dug}, placed ${r.placed}${remedy}`, { stop: r.stop, placed: r.placed, slot: slot.slot, gen: rh.head.gen })
@@ -17509,15 +17514,19 @@ const STAIR_PLAN_MS = 4_000
 const STAIR_BACKOFF_MS = 10 * 60_000
 /** A bounded walk on the town-deposit profile (no digs, no towers, no scaffold) -> arrived (within 1 of the cell). */
 async function stairWalk (bot, cell, ms, signal) {
-  let timer = null
+  let timer = null, onAbort = null
+  check(signal)
   const go = () => bot.pathfinder.goto(new goals.GoalBlock(cell[0], cell[1], cell[2]))
+  const walk = typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(go) : go()
   try {
     await Promise.race([
-      typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(go) : go(),
+      walk,
       new Promise((resolve) => { timer = setTimeout(() => { haltPath(bot); resolve() }, ms) }),
-      ...(signal ? [new Promise((resolve) => signal.addEventListener?.('abort', () => { haltPath(bot); resolve() }, { once: true }))] : []),
+      ...(signal ? [new Promise((resolve) => { onAbort = () => { haltPath(bot); resolve() }; signal.addEventListener?.('abort', onAbort, { once: true }) })] : []),
     ])
-  } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { if (timer) clearTimeout(timer) }
+    // the walk's own finally restores the profile: wait for it once the goal is halted (Claude code r1 note 3), bounded
+    await Promise.race([walk.catch(() => {}), new Promise(r => setTimeout(r, 2_000))])
+  } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { if (timer) clearTimeout(timer); if (onAbort) signal?.removeEventListener?.('abort', onAbort) }
   check(signal)
   const p = bot.entity?.position
   return !!p && Math.abs(Math.floor(p.x) - cell[0]) <= 1 && Math.abs(Math.floor(p.z) - cell[2]) <= 1 && Math.abs(Math.floor(p.y + 1e-6) - cell[1]) <= 1
@@ -17540,8 +17549,8 @@ export async function stairDescend (ctx, goalY, signal) {
     const feet = chooseLanding(built, p.y, goalY)
     if (feet == null) return null
     const use = landingUsable(stairRead(bot), rec, feet)
-    const t0 = Date.now()
-    const row = (ok, why, extra = {}) => { try { logEvent({ kind: 'shaft_use', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: shaftUseDetail({ dir: 'down', ok, why, landing: feet, from: Math.floor(p.y), to: Math.floor(bot.entity.position.y), goal: goalY, ms: Date.now() - t0, ...extra }) }) } catch { /* telemetry */ } }
+    const t0 = Date.now(), fromY = Math.floor(p.y)
+    const row = (ok, why, extra = {}) => { try { logEvent({ kind: 'shaft_use', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: shaftUseDetail({ dir: 'down', ok, why, landing: feet, from: fromY, to: Math.floor(bot.entity.position.y), goal: goalY, ms: Date.now() - t0, ...extra }) }) } catch { /* telemetry */ } }
     if (!use.ok) { row(false, use.why); return null }
     const arrived = await stairWalk(bot, use.stand, STAIR_DOWN_MS, signal)
     if (!arrived) { bot.stairFails.set(feet, Date.now()); row(false, 'walk'); return null }
