@@ -83,6 +83,19 @@ SCAFFOLD_NAMES = {'cobblestone'} | {'%s_planks' % w for w in ('oak', 'spruce', '
 BAG_RE = re.compile(r'(?:^| )([a-z_]+)=(-?\d+)/(-?\d+)/(-?\d+)/(-?\d+)/(-?\d+)/(-?\d+)')
 
 
+def tidy_ok(rec, cell):
+    """zigtidy-01: is a `kind=tidy` clear inside its record's tidy space? -> bool. Pure."""
+    cells = rec.get('cells') or []
+    box = rec.get('box')
+    if not cells or not isinstance(box, list) or len(box) != 4 or not isinstance(rec.get('baseY'), int):
+        return False
+    if ck(cell) in {ck(c['at']) for c in cells}:
+        return False
+    top = max(c['at'][1] for c in cells)
+    x, y, z = cell
+    return box[0] - 1 <= x <= box[2] + 1 and box[1] - 1 <= z <= box[3] + 1 and rec['baseY'] <= y <= top + 2
+
+
 def xyz_of(s):
     try:
         a = [int(v) for v in str(s).split(',')]
@@ -466,6 +479,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 if rec is not None:
                     if f.get('kind') == 'foreign':
                         ok = k in {ck(c['at']) for c in rec.get('cells') or []}
+                    elif f.get('kind') == 'tidy':
+                        # zigtidy-01 (10-30): a climbing pillar dug off a finished ziggurat -- NOT a record cell, inside the
+                        # record's box + 1, from its base up to its top + 2 (bots/src/ziggurat.mjs zigTidy)
+                        ok = tidy_ok(rec, cell)
                     else:
                         ok = k in {ck(c['at']) for c in rec.get('clear') or []}
                     if not ok:
@@ -664,6 +681,13 @@ def selftest():
     rm = J(base + mc, both)
     assert rm['clear_outside'] == 0 and rm['felled_unplanted'] == 0 and rm['g5_unjudged'] == 0, ('the ziggurat\'s clears, no replant owed', rm['_lists'].get('clear_outside'), rm['_lists'].get('g5_unjudged'))
     assert J(base + [R('_build', 'project=monument op=clear cell=-40,71,-30 block=dirt kind=cut', s=14)], both)['clear_outside'] == 1, 'positive control: a cut off the list'
+    # zigtidy-01: a pillar dug off the finished ziggurat is its own record's tidy -- inside box + 1, never a record cell, never above top + 2
+    trec = {**mrec, 'box': [-31, -31, -29, -29], 'baseY': 70}
+    tb = PP(monument={'record': trec, 'records_files': 1, 'leases': {}})
+    tidy = lambda c: J(base + [R('_build', 'project=monument op=clear cell=%s block=dirt kind=tidy' % c, s=14)], tb)['clear_outside']
+    assert tidy('-30,71,-30') == 0 and tidy('-32,70,-28') == 0, 'on the build and in its apron: tidy'
+    assert tidy('-30,70,-30') == 1, 'a record cell is never a tidy'
+    assert tidy('-34,71,-30') == 1 and tidy('-30,73,-30') == 1 and tidy('-30,69,-30') == 1, 'off the box + 1, above the top + 2, below the base: outside'
     # its completion is counted, never the workshop's (the world evidence and H8 stay the workshop's)
     rc = J(base + [R('_structure_complete', 'project=monument op=complete kind=ziggurat@1 gen=9', s=30, bot='board-b-Alpha')], both)
     assert rc['complete_towns'] == 2 and rc['projects_complete'] == 1, rc
