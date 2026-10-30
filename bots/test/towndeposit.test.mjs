@@ -504,7 +504,7 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
       // logbank-01: a right click (btn 1) is allowed ONLY as the log half-split's pickup: an empty cursor on a bag stack
       assert.equal(mode, 0, 'mode 0 clicks only'); assert.ok(btn === 0 || btn === 1)
       if (btn === 1) {
-        assert.ok(!win.selectedItem && slot >= win.inventoryStart && /_log$/.test(win.slots[slot]?.name ?? ''), 'a right click only lifts half a bag log stack')
+        assert.ok(!win.selectedItem && slot >= win.inventoryStart && /_log$|^coal$/.test(win.slots[slot]?.name ?? ''), 'a right click only lifts half a bag log (or, coalfirst-01, coal) stack')
         st.rightClicks = (st.rightClicks ?? 0) + 1; st.clicks++
         for (const w of [win, win.server]) { const at = w.slots[slot]; const take = Math.ceil(at.count / 2); w.selectedItem = { ...at, count: take }; at.count -= take; if (!at.count) w.slots[slot] = null }
         return
@@ -532,6 +532,8 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
 }
 const sumOf = (list, n) => list.filter(i => i?.name === n).reduce((a, i) => a + i.count, 0)
 const total = l => l.reduce((a, i) => a + (i?.count ?? 0), 0)
+// towndeposit-02: a scene that finds a chest FULL remembers it for the town (the pool dir); such a scene runs in its own dir
+const freshTown = () => { const saved = process.env.POOL_STATE_DIR; process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'td-02-')); return () => { process.env.POOL_STATE_DIR = saved } }
 const chestAt = (x, y = 70, z = 0, extra = {}) => ({ pos: new Vec3(x, y, z), items: Array(27).fill(null), ...extra })
 const filledChest = (x, empty = 0, extra = {}) => chestAt(x, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < empty ? null : item('dirt', 64))), ...extra })
 const fullBag = () => bag([['stone_pickaxe', 1, 1], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 20],
@@ -644,17 +646,117 @@ for (const [why, difficulty, spare, stale] of [['PEACEFUL', 'peaceful', 0, false
 }
 
 test('SKILL: a full chest takes nothing -- no click, no cursor, no drop; the second container takes it', async () => {
+  const restore = freshTown()
+  try {
   const { bot, st } = world({ items: fullBag(), containers: [filledChest(2)] })
   const r = await run(bot)
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'town_storage_full')
   assert.match(r.detail, /deposit \(no item\)/, 'the remedy names a verb the bot can run from here')
   assert.equal(st.clicks, 0); assert.equal(st.dropped, 0); assert.deepEqual(st.opened, ['2,70,0'])
+  freshTown()   // the full 2,70,0 is remembered now (towndeposit-02): a fresh town for the two-container scene
   const two = world({ items: fullBag(), containers: [filledChest(2), chestAt(-4)] })
   const r2 = await run(two.bot)
   assert.equal(r2.status, 'success', r2.detail)
   assert.deepEqual(two.st.opened, ['2,70,0', '-4,70,0', '-4,70,0'])
+  } finally { restore() }
 })
 
+// TOWNDEPOSIT-02 (owner 10-28, success-rate fixes #4): ROOM WHEN THE NEAREST CHESTS ARE FULL. Measured 10-28: 85 of 85 failed
+// town_deposit rows were town_storage_full; board-b's all opened the same two full chests while 16 of its 19 containers had
+// room. A container with no empty slot is remembered `full` (as the deposit's recovery remembers one) and does not use up
+// one of the run's two tries.
+const memStatus = async (at) => {
+  const CF = await import('../src/chestfull.mjs')
+  const e = CF.readTownMemory(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), null) ?? {}
+  return CF.containerStatus(e[at])
+}
+test('TOWNDEPOSIT-02 pure: tdMoreContainers -- two tries, a full container is not one', () => {
+  assert.equal(TD.tdMoreContainers([]), true)
+  assert.equal(TD.tdMoreContainers([{ result: 'full' }, { result: 'full' }]), true, 'two full chests: look further')
+  assert.equal(TD.tdMoreContainers([{ result: 'full' }, { result: 'unreachable' }]), true)
+  assert.equal(TD.tdMoreContainers([{ result: 'unreachable' }, { result: 'took_some' }]), false, 'two real tries: done (as before)')
+  assert.equal(TD.TD_FULL_EXTRA, 2)
+})
+test('TOWNDEPOSIT-02 SKILL: the two nearest chests full, a third in reach with room -> it banks there; the full two are remembered `full` for the town', async () => {
+  const restore = freshTown()
+  try {
+    const third = chestAt(-6)
+    const w = world({ items: fullBag(), containers: [filledChest(2), filledChest(4), third] })
+    const r = await run(w.bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.deepEqual(w.st.opened, ['2,70,0', '4,70,0', '-6,70,0', '-6,70,0'], 'past the two full ones, then the re-open of the third')
+    assert.ok(third.items.some(Boolean), 'the third chest took the surplus')
+    assert.equal(await memStatus('2,70,0'), 'full'); assert.equal(await memStatus('4,70,0'), 'full')
+    assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0)
+  } finally { restore() }
+})
+test('TOWNDEPOSIT-02 REFUSAL CHAIN: every chest in reach full -> town_storage_full naming the deposit verb; then the town deposit is NOT offered again on those chests (townContainers skips them), and the deposit\'s recovery reads them as KNOWN full (it builds, it does not defer)', async () => {
+  const restore = freshTown()
+  try {
+    const CF = await import('../src/chestfull.mjs')
+    const { townContainers } = await import('../src/skills.mjs')
+    const w = world({ items: fullBag(), containers: [filledChest(2), filledChest(4)] })
+    assert.equal(townContainers(w.bot).length, 2, 'positive control: both chests are offered before the visit')
+    const r = await run(w.bot)
+    assert.equal(r.failClass, 'town_storage_full', r.detail)
+    assert.match(r.detail, /deposit \(no item\) .*can build a new one/, 'the remedy is a verb the bot can run from here')
+    assert.equal(townContainers(w.bot).length, 0, 'the order\'s container() is false now: no repeat trip to the same full chests')
+    const e = CF.readTownMemory(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), null) ?? {}
+    const unknown = ['2,70,0', '4,70,0'].filter(k => CF.containerStatus(e[k]) === 'backoff' || CF.containerStatus(e[k]) === 'visit').length
+    assert.equal(unknown, 0, 'both known full')
+    assert.equal(CF.fullChestNext({ nearHome: true, unknown, budget: { ok: true }, carried: true }), 'place_carried', 'the recovery places a new chest')
+  } finally { restore() }
+})
+test('TOWNDEPOSIT-02: a chest with ONE empty slot is not remembered full (it took a stack)', async () => {
+  const restore = freshTown()
+  try {
+    const w = world({ items: fullBag(), containers: [filledChest(2, 1)] })
+    const r = await run(w.bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.notEqual(await memStatus('2,70,0'), 'full')
+  } finally { restore() }
+})
+test('TOWNDEPOSIT-02 MUTANT KILLED: with TD_FULL_EXTRA = 0 the third chest is never reached (the measured failure)', async () => {
+  const restore = freshTown()
+  const TP = new URL('../src/towndeposit.mjs', import.meta.url)
+  const SP = new URL('../src/skills.mjs', import.meta.url)
+  const tsrc = fs.readFileSync(TP, 'utf8'), ssrc = fs.readFileSync(SP, 'utf8')
+  const old = 'export const TD_FULL_EXTRA = 2\n'
+  assert.equal(tsrc.split(old).length, 2, 'ANCHOR MISSING or not unique')
+  const tag = `${process.pid}-${Math.random().toString(36).slice(2, 6)}`
+  const tOut = new URL(`./_mutant-td02-${tag}.mjs`, import.meta.url)
+  const sOut = new URL(`./_mutant-td02s-${tag}.mjs`, import.meta.url)
+  const toSrc = src => src.replace(/from '\.\//g, "from '../src/")
+  fs.writeFileSync(tOut, toSrc(tsrc.replace(old, 'export const TD_FULL_EXTRA = 0\n')))
+  const simp = "from '../src/towndeposit.mjs'"
+  assert.equal(toSrc(ssrc).split(simp).length, 2, 'ANCHOR MISSING or not unique: skills.mjs imports towndeposit.mjs once')
+  fs.writeFileSync(sOut, toSrc(ssrc).replace(simp, `from './_mutant-td02-${tag}.mjs'`))
+  try {
+    const M = await import(sOut.href)
+    const third = chestAt(-6)
+    const w = world({ items: fullBag(), containers: [filledChest(2), filledChest(4), third] })
+    const r = await M.SKILLS.town_deposit.run({ bot: w.bot }, {}, null)
+    assert.equal(r.failClass, 'town_storage_full', 'the mutant stops at the two full chests')
+    assert.ok(!third.items.some(Boolean))
+  } finally { restore(); for (const f of [tOut, sOut]) try { fs.unlinkSync(f) } catch {} }
+})
+// tdfull-01 x coalfirst-01 (the 16052ad8 merge): the coal TAIL (a not-full bag's coal above the keep, coalfirst-01) also looks past
+// the two nearest FULL chests (towndeposit-02) -- the two changes compose in one run, neither drops the other
+test('TDFULL x COALFIRST SKILL: a tail run with 3 raw iron + 20 coal, the two nearest chests full, a third with room -> the coal above the keep banks in the third; the full two are remembered full', async () => {
+  const restore = freshTown()
+  try {
+    const items = bag([['raw_iron', 3], ['coal', 20], ...filler(10)])
+    assert.ok(items.length < TD_TRIGGER_SLOTS, 'a not-full bag: the tail')
+    const third = chestAt(-6)
+    const w = world({ items, containers: [filledChest(2), filledChest(4), third] })
+    const r = await SKILLS.town_deposit.run({ bot: w.bot }, { tail: true }, null)
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(sumOf(third.items, 'coal'), 10, 'the 20 stack halved: 10 banked past the full chests (coalfirst-01 split)')
+    assert.equal(sumOf(serverBag(w), 'coal'), 10, 'and 10 stay (above the keep of 8)')
+    assert.equal(await memStatus('2,70,0'), 'full'); assert.equal(await memStatus('4,70,0'), 'full')
+    assert.equal(w.st.dropped, 0)
+  } finally { restore() }
+})
 test('SKILL: two containers share ONE visit allowance: the first takes 2 stacks, the second the rest, the cap holds', async () => {
   const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ['raw_copper', 7], ['raw_copper', 7], ['raw_gold', 3], ...filler(29)])
   const a = filledChest(2, 2), b = chestAt(-4)
@@ -734,12 +836,15 @@ test('SKILL: the visit cap counts what was MOVED, not what the re-open found (an
 })
 
 test('SKILL: never a mine chest, a lidded chest, or the other half of a double chest; a single beside a single is tried', async () => {
+  const restore = freshTown()
+  try {
   const deep = chestAt(1, 57, 0), lidded = chestAt(2, 70, 0, { lid: 'stone' })
   const half1 = filledChest(-3, 0, { props: { type: 'left', facing: 'north' } }), half2 = filledChest(-2, 0, { props: { type: 'right', facing: 'north' } })
   const { bot, st } = world({ items: fullBag(), containers: [deep, lidded, half1, half2, chestAt(-6)] })
   const r = await run(bot)
   assert.deepEqual(st.opened, ['-2,70,0', '-6,70,0', '-6,70,0'], `opened ${st.opened}: the double chest once, then the next container`)
   assert.equal(r.status, 'success')
+  freshTown()   // the full double is remembered now (towndeposit-02)
   const singles = world({ items: fullBag(), containers: [filledChest(-2), chestAt(-3)] })
   const r3 = await run(singles.bot)
   assert.deepEqual(singles.st.opened, ['-2,70,0', '-3,70,0', '-3,70,0'], 'a full single, then the single beside it (not its other half)')
@@ -747,6 +852,7 @@ test('SKILL: never a mine chest, a lidded chest, or the other half of a double c
   const none = world({ items: fullBag(), containers: [deep] })
   const r2 = await run(none.bot)
   assert.equal(r2.status, 'no_effect'); assert.equal(none.st.opened.length, 0)
+  } finally { restore() }
 })
 
 test('SKILL: the walk borrows the no-dig, no-place profile; never walks home', async () => {
@@ -865,11 +971,14 @@ test('CHAIN: a full bag at town with a craft-ready rung deposits FIRST, and the 
 })
 
 test('CHAIN, FULL BANK: the deposit fails once, then the bot goes on (the craft order, then the model) -- no deposit loop', async () => {
+  const restore = freshTown()
+  try {
   const bot = chainBot({ chest: filledChest(2) })
   const { ran } = await decisions(bot, 5)
   assert.equal(ran[0].skill, 'town_deposit'); assert.equal(ran[0].status, 'failed')
   assert.equal(ran.filter(x => x.skill === 'town_deposit').length, 1, `one attempt per stay and a 15 min backoff: ${JSON.stringify(ran)}`)
   assert.equal(ran[1].skill, 'craft', 'the remedy chain continues exactly as on the base (craftroom owns a full-bag craft)')
+  } finally { restore() }
 })
 
 test('CHAIN CONTROL: the same bot out of town runs the craft order first (the deposit never fires away from town)', async () => {
@@ -1478,6 +1587,8 @@ test('junkout-01 TAIL CHAIN (real loop): a not-full bag at town -> town_deposit 
   assert.equal(loop.tailState.latched, true); assert.equal(loop.townDepositState?.lastIssuedAt, undefined, 'the full-bag deposit was never issued')
 })
 test('junkout-01 TAIL CHAIN (real loop): the chests in reach are FULL -> the tail run fails town_storage_full and backs off ITS state; the full-bag deposit\'s state is untouched', async () => {
+  const restore = freshTown()
+  try {
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, () => item('dirt', 64)) })
   const bot = tailBot({ chest })
   const { ran, loop } = await decisions(bot, 3)
@@ -1485,6 +1596,7 @@ test('junkout-01 TAIL CHAIN (real loop): the chests in reach are FULL -> the tai
   assert.equal(td?.status, 'failed', JSON.stringify(ran)); assert.match(td.detail, /waits for a town chest with room -- keep working/)
   assert.ok(loop.tailState.backoffUntil > Date.now(), 'the tail backs off')
   assert.equal(loop.townDepositState?.backoffUntil, undefined, 'the full-bag deposit does not')
+  } finally { restore() }
 })
 test('junkout-01 MUTANT (cognitive): the tail outcome routed into the full-bag deposit\'s state -> a full chest backs off the FULL-bag deposit (killed)', async () => {
   const CPU = new URL('../src/cognitive.mjs', import.meta.url)
@@ -1493,6 +1605,7 @@ test('junkout-01 MUTANT (cognitive): the tail outcome routed into the full-bag d
   assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
   const out = new URL(`./_mutant-cog-tail-${process.pid}.mjs`, import.meta.url)
   fs.writeFileSync(out, src.replace(old, '        if (false) {\n').replace(/from '\.\//g, "from '../src/"))
+  const restore = freshTown()
   try {
     const { CognitiveLoop: M } = await import(out.href)
     const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, () => item('dirt', 64)) })
@@ -1509,7 +1622,7 @@ test('junkout-01 MUTANT (cognitive): the tail outcome routed into the full-bag d
     for (let i = 0; i < 200 && ran.length < 3; i++) await new Promise(r => setTimeout(r, 30))
     loop.stop()
     assert.ok(loop.townDepositState?.backoffUntil > Date.now(), 'mutant inert')
-  } finally { try { fs.unlinkSync(out) } catch {} }
+  } finally { restore(); try { fs.unlinkSync(out) } catch {} }
 })
 test('junkout-01 TAIL CHAIN, BAG_ALLOWANCE off (the order\'s own switch): no tail order; the bag rides on', () => {
   const r = TD.tailOrder({ now: 1e7, slots: 12, pos: { x: 3, y: 70, z: 0 }, home: { x: 0, y: 70, z: 0 }, plan: { freed: 2, steps: [{ allowance: 'torch' }] }, container: true, state: {}, on: false })
