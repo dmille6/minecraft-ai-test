@@ -158,7 +158,7 @@ import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OU
          ironSmeltCount, ironBankPlan } from './smeltjob.mjs'   // ironsmelt-01
 import { withDigScope } from './digtown.mjs'
 import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
-import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
+import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory, LID_WOOD, LID_BREAKABLE } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
 import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, keepOutLabel, stepCells } from './minewell.mjs'
 // keepout-01: no dig in the column above a live fire death site (keepout.mjs: the pure rules; index.mjs: the dig guard + route)
@@ -6502,9 +6502,58 @@ function lidJudge (bot, c) {
   // the WELLS UNREADABLE is the bot's own failure, not evidence about the lid: refused, but with no memory (`unknown`)
   if (well === null) return { blocked: true, refusal: 'the town\'s well cells could not be read', unknown: true, s }
   const lid = lidCell(bot, s.lid)
-  const refusal = lidClearRefusal({ lid, above: lidCell(bot, s.above), sides: s.sides.map(b => lidCell(bot, b)), well }) ??
+  // lidplank-01: a wood lid is judged against the BUILD RECORDS (read only for a wood lid: the rest never needs them)
+  const record = lid && LID_WOOD.test(lid.name ?? '') && !LID_BREAKABLE.test(lid.name) ? lidRecordAt(bot, c.offset(0, 1, 0)) : undefined
+  const refusal = lidClearRefusal({ lid, above: lidCell(bot, s.above), sides: s.sides.map(b => lidCell(bot, b)), well, record }) ??
     (serverLidBlocks(lid) ? null : `${lid.name} does not block a lid on the server`)
   return { blocked: true, refusal, s }
+}
+/**
+ * THE BUILD RECORD THAT HOLDS THIS CELL (lidplank-01) -> 'townplan' | 'workshop' | 'treefarm' | false (every record read, none
+ * holds it) | null (a record could not be read: unknown). The records: the town plan's placed and reserved cells
+ * (townplan.mjs planFurnitureCells, the break price's data), the workshop's record cells (shop.mjs, every state), the tree
+ * farm's columns (any height). The junk well and its plinth are lidClearRefusal's `well` (wellBreakCost over knownWellCells).
+ */
+export function lidRecordAt (bot, p) {
+  try {
+    const k = `${p.x},${p.y},${p.z}`
+    // THE PLAN'S RECORD, read from disk whatever the planner switch (Codex r1: TOWNPLAN=off must not hide an existing plan's
+    // cells); planHead is a pure read (its walk cache only), no adopter state is touched
+    const ph = planHead(townDir(), planKeyNow(), bot?.worldId ?? null)
+    if (!ph.ok || recordUnread(ph)) return null
+    if (planFurnitureCells(ph.head?.plan).has(k) || bot?.townPlan?.cells?.has?.(k)) return 'townplan'
+    const h = shopRecordHead()
+    // a generation file that exists but cannot be read leaves `ok` true with an older (or no) head: unknown, never "no cell"
+    if (!h.ok || recordUnread(h) || ((h.gens?.length ?? 0) > 0 && !h.head)) return null
+    if ((h.head?.rec?.cells ?? []).some(c => Array.isArray(c?.at) && c.at[0] === p.x && c.at[1] === p.y && c.at[2] === p.z)) return 'workshop'
+    const farm = treeFarmRecordCells()
+    if (!farm) return null
+    if (farm.has(`${p.x},${p.z}`)) return 'treefarm'
+    return false
+  } catch { return null }
+}
+/** A record walk that skipped a generation it could not READ (unreadable, unparseable, not an object) -> true. Codex merge
+ *  review (lidplank x tdoffer, 10-30) BLOCKER: recordHead/planHead return ok with those in `rejected`, and a lost root read
+ *  as "no workshop cells" granted a dig of a workshop-owned plank lid. Chain/schema rejections are the walk's own rules. */
+const recordUnread = h => (Array.isArray(h?.rejected) ? h.rejected : []).some(r => ['unreadable', 'unparseable', 'not an object'].includes(String(r?.why ?? '')))
+/** The tree farm's columns for the lid rule (lidplank-01) -> Set "x,z" | null when a record file exists and none parses, or
+ *  the directory cannot be listed (Codex r1: treeFarmCells' empty answer on a read failure would grant a break). */
+function treeFarmRecordCells () {
+  const hk = `treefarm-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+  const re = new RegExp(`^${hk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.g(\\d+)\\.json$`)
+  let names
+  try { names = fs.readdirSync(townDir()) } catch (e) { return e?.code === 'ENOENT' ? new Set() : null }
+  const gens = names.map(f => re.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => b - a)
+  if (!gens.length) return new Set()
+  for (const g of gens) {
+    try {
+      const r = JSON.parse(fs.readFileSync(path.join(townDir(), `${hk}.g${g}.json`), 'utf8'))
+      const out = new Set()
+      for (const c of r?.record?.cells ?? r?.cells ?? []) if (Number.isFinite(c?.x) && Number.isFinite(c?.z)) out.add(`${c.x},${c.z}`)
+      return out
+    } catch { /* the next lower */ }
+  }
+  return null
 }
 const chestHalves = (bot, chestPos) => {
   const halves = [chestPos]

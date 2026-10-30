@@ -150,6 +150,12 @@ const at = (x, y, z) => ({ x, y, z, offset (dx, dy, dz) { return at(x + dx, y + 
 const C = () => w0.bot.blockAt({ x: 5, y: 64, z: 0 }).position
 let w0 = null
 const clear = (w, opts = {}) => { w0 = w; return SK.clearChestLid(w.bot, C(), { signal: new AbortController().signal, msLeft: cap => cap, by: 'test', ...opts }) }
+// LIDPLANK-01: the build records a wood lid is judged against, written into the world's own pool dir (lidWorld makes a fresh one)
+const { projKey } = await import('../src/buildproj.mjs')
+const { SHOP_PLOT } = await import('../src/shop.mjs')
+const workshopRecord = (cells = [[5, 65, 0]]) => fs.writeFileSync(path.join(process.env.POOL_STATE_DIR, `${projKey({ x: 0, y: 64, z: 0 }, SHOP_PLOT)}.g1.json`),
+  JSON.stringify({ gen: 1, prev: null, cells: cells.map(at => ({ at, block: 'oak_planks', state: 'placed' })) }))
+const treeFarmRecord = (cols = [[5, 0]]) => fs.writeFileSync(path.join(process.env.POOL_STATE_DIR, 'treefarm-0_64_0.g1.json'), JSON.stringify({ cells: cols.map(([x, z]) => ({ x, z })) }))
 
 await t('ACTUATOR: a stone pickaxe in the bag is EQUIPPED before digTime -> a 3,250 ms budget, the dig in the lid scope, `dig(..., ignore)`, the lid air, one `_lid_clear outcome=dug` row', async () => {
   const w = lidWorld([tool('stone_pickaxe', 10), stack('dirt', 5)])
@@ -180,10 +186,10 @@ await t('ACTUATOR: nothing to do -- a clear lid, a chest on a chest, a barrel un
   }
 })
 await t('ACTUATOR REFUSES (evidence about the lid): planks on the lid; water beside it; gravel above it -- no dig, a `_lid_clear outcome=refused` row naming why', async () => {
-  const cases = [['oak_planks', w => {}, /oak_planks is not a block/], ['cobblestone', w => w.set(6, 65, 0, 'water'), /water or lava/], ['cobblestone', w => w.set(5, 66, 0, 'gravel'), /fall/]]
+  const cases = [['oak_planks', w => {}, /oak_planks is part of the workshop record/], ['cobblestone', w => w.set(6, 65, 0, 'water'), /water or lava/], ['cobblestone', w => w.set(5, 66, 0, 'gravel'), /fall/]]
   for (const [lid, setup, why] of cases) {
     const w = lidWorld([tool('stone_pickaxe', 10)], { lid })
-    if (lid === 'oak_planks') w.set(5, 65, 0, 'oak_planks')
+    if (lid === 'oak_planks') { w.set(5, 65, 0, 'oak_planks'); workshopRecord() }   // lidplank-01: a RECORD plank stays refused
     setup(w)
     const n0 = RECS.length
     const r = await clear(w)
@@ -208,6 +214,7 @@ await t('ACTUATOR, THE CALLER\'S LIMITS: our clock (no_time), off the ground for
 })
 await t('ACTUATOR, THE FINAL CHECK: the lid turns to planks during the look -> refused, no dig (the check is on a fresh read after the last await)', async () => {
   const w = lidWorld([tool('stone_pickaxe', 10)])
+  workshopRecord()   // lidplank-01: planks a record holds (unrecorded planks may be dug now)
   w.bot.lookAt = async () => { w.set(5, 65, 0, 'oak_planks') }
   const r = await clear(w)
   assert.equal(r.outcome, 'refused'); assert.equal(w.digs.length, 0)
@@ -296,6 +303,7 @@ await t('CHAIN, POSITIVE CONTROL OF THE INSTRUMENT: the fake server refuses the 
 })
 await t('CHAIN, A REFUSED LID: planks on it -> NO WALK, `lid_blocked` as before plus a refused row; no recount miss, the container memory untouched', async () => {
   const { w, dir, key } = await fencedLid([stack('oak_log', 64), stack('oak_log', 64)], 'oak_planks')
+  workshopRecord()   // lidplank-01: the refused case is now a plank a build record holds
   try {
     SK.resetCobbleReconcile()
     const g0 = w.spy.gotos.length, n0 = RECS.length
@@ -307,6 +315,115 @@ await t('CHAIN, A REFUSED LID: planks on it -> NO WALK, `lid_blocked` as before 
     assert.equal((missesOf(dir)['5,64,0'] ?? []).length, 0, 'no recount miss')
     assert.equal(CF.readTownMemory(dir, key, w.bot.worldId ?? null)['5,64,0'], undefined, 'the container memory untouched')
   } finally { B.setStockReaders({ town: null, well: null }) }
+})
+// ------------------------------------------------------------------------------------------- LIDPLANK-01 (owner 10-28/29)
+await t('LIDPLANK-01 RULE: a full wood block comes off a lid only when every build record was read and none holds the cell; a record keeps it, named; unread records keep the old refusal; the hazards still apply', () => {
+  const R = (lid, record, extra = {}) => L.lidClearRefusal({ lid: { name: lid }, above: AIR, sides: sides4(), record, ...extra })
+  for (const n of ['oak_planks', 'spruce_planks', 'bamboo_planks', 'oak_log', 'stripped_birch_log', 'dark_oak_wood', 'crimson_stem', 'warped_hyphae', 'bamboo_block', 'bamboo_mosaic']) {
+    assert.equal(R(n, false), null, `${n}: no record -> breakable`)
+    assert.match(R(n, 'workshop') ?? '', new RegExp(`${n} is part of the workshop record`))
+    assert.match(R(n, undefined) ?? '', /is not a block a bot may break off a lid \(the build records were not read\)/, `${n}: unknown records`)
+    assert.match(R(n, null) ?? '', /were not read/)
+  }
+  for (const n of ['stone_bricks', 'chest', 'crafting_table', 'oak_slab', 'oak_stairs', 'glass', 'oak_leaves', 'bookshelf']) assert.match(R(n, false) ?? '', /is not a block a bot may break off a lid$/, `${n}: never wood-family full block`)
+  assert.equal(R('cobblestone', 'townplan'), null, 'the old breakables are not record-gated (unchanged)')
+  assert.match(R('oak_planks', false, { well: true }), /junk well/, 'the well still refuses')
+  assert.match(L.lidClearRefusal({ lid: { name: 'oak_planks' }, above: { name: 'gravel' }, sides: sides4(), record: false }), /would fall/)
+  assert.match(L.lidClearRefusal({ lid: { name: 'oak_planks' }, above: AIR, sides: [AIR, { name: 'water' }, AIR, AIR], record: false }), /water or lava/)
+})
+await t('LIDPLANK-01 READER: lidRecordAt names the record that holds the cell -- workshop, tree farm (any height), town plan -- false when none, null when the records cannot be read', async () => {
+  const w = lidWorld([], { lid: 'oak_planks' })
+  const p = { x: 5, y: 65, z: 0 }
+  w.bot.townPlan = undefined
+  assert.equal(SK.lidRecordAt(w.bot, p), false, 'a fresh town: no record')
+  workshopRecord(); assert.equal(SK.lidRecordAt(w.bot, p), 'workshop')
+  const w2 = lidWorld([], { lid: 'oak_planks' }); treeFarmRecord(); w2.bot.townPlan = null
+  assert.equal(SK.lidRecordAt(w2.bot, { x: 5, y: 80, z: 0 }), 'treefarm')
+  const w3 = lidWorld([], { lid: 'oak_planks' }); w3.bot.townPlan = { gen: 1, plan: {}, cells: new Set(['5,65,0']) }
+  assert.equal(SK.lidRecordAt(w3.bot, p), 'townplan')
+  assert.equal(SK.lidRecordAt(w3.bot, { x: 6, y: 65, z: 0 }), false, 'the next cell is no record')
+  // Codex r1 blocker 1: a tree-farm record that exists but cannot be parsed is UNKNOWN (refused), never "no record"
+  const w5 = lidWorld([], { lid: 'oak_planks' }); w5.bot.townPlan = null
+  fs.writeFileSync(path.join(process.env.POOL_STATE_DIR, 'treefarm-0_64_0.g1.json'), '{not json')
+  assert.equal(SK.lidRecordAt(w5.bot, p), null, 'an unparseable tree-farm record: unknown')
+  assert.match(L.lidMaterialRefusal('oak_planks', { record: SK.lidRecordAt(w5.bot, p) }), /were not read/)
+  // Codex r1 blocker 2: the plan ON DISK is read whatever the bot's cached copy (and the planner switch): a placed plan cell
+  const w6 = lidWorld([], { lid: 'oak_planks' }); w6.bot.townPlan = null
+  const PS = await import('../src/planstore.mjs')
+  const KEYP = PS.planKey({ x: 0, y: 64, z: 0 }), WID = w6.bot.worldId ?? null
+  const planBody = () => ({ template: 'ring@1', home: { x: 0, y: 64, z: 0 }, s: 64, mode: 'greenfield', orientation: 'E',
+    plots: [{ id: 'store', kind: 'storehouse', box: [3, -2, 7, 2], y: 64, state: 'planned', keepout: true,
+      cells: [{ at: [5, 65, 0], kind: 'chest', stand: [5, 65, 1], role: null, group: null, state: 'free' }] }],
+    paths: [], groups: { v: 1, status: 'greenfield', homes: {}, overflow: [], drain: [], pending: [] }, zones: { n: 0, avoid: 0 } })
+  const pub0 = PS.publishPlan(process.env.POOL_STATE_DIR, KEYP, WID, () => planBody(), { by: 'Other' })
+  assert.equal(pub0.result, 'accepted', JSON.stringify(pub0).slice(0, 200))
+  assert.equal(SK.lidRecordAt(w6.bot, p), false, 'a FREE plan cell is no structure yet (planFurnitureCells: placed or reserved)')
+  const pub = PS.publishPlan(process.env.POOL_STATE_DIR, KEYP, WID, cur => { Object.assign(cur.plots[0].cells[0], { state: 'reserved', by: 'Other', visit: 'v', until: Date.now() + 120_000 }); return cur }, { by: 'Other' })
+  assert.equal(pub.result, 'accepted', JSON.stringify(pub).slice(0, 200))
+  assert.equal(SK.lidRecordAt(w6.bot, p), 'townplan', 'the disk plan holds it though the bot never read the plan')
+  // Codex merge review 10-30 BLOCKER: a workshop / plan generation that exists but cannot be parsed is UNKNOWN, never "none"
+  {
+    const saved0 = process.env.POOL_STATE_DIR
+    process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-lid-bad-'))
+    try {
+      const wb = lidWorld([], { lid: 'oak_planks' }); wb.bot.townPlan = null
+      assert.equal(SK.lidRecordAt(wb.bot, p), false, 'positive control: a fresh dir, no record')
+      const shopF = path.join(process.env.POOL_STATE_DIR, `${projKey({ x: 0, y: 64, z: 0 }, SHOP_PLOT)}.g1.json`)
+      fs.writeFileSync(shopF, '{not json')
+      assert.equal(SK.lidRecordAt(wb.bot, p), null, 'an unparseable workshop ROOT: unknown (was false: a dig)')
+      fs.unlinkSync(shopF)
+      assert.equal(SK.lidRecordAt(wb.bot, p), false, 'and back to none once the bad file is gone')
+      fs.writeFileSync(path.join(process.env.POOL_STATE_DIR, `${PS.planKey({ x: 0, y: 64, z: 0 })}.g1.json`), '{not json')
+      PS.resetPlanWalks?.()
+      assert.equal(SK.lidRecordAt(wb.bot, p), null, 'an unparseable town plan generation: unknown')
+    } finally { process.env.POOL_STATE_DIR = saved0; PS.resetPlanWalks?.() }
+  }
+  const saved = process.env.POOL_STATE_DIR
+  const notDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-lid-nd-')), 'file'); fs.writeFileSync(notDir, 'x')
+  process.env.POOL_STATE_DIR = notDir
+  try { const w4 = { bot: { ...w3.bot, townPlan: null } }; assert.equal(SK.lidRecordAt(w4.bot, p), null, 'unreadable records: unknown') } finally { process.env.POOL_STATE_DIR = saved }
+})
+await t('LIDPLANK-01 ACTUATOR: oak_planks in no record -> dug (the lid scope, a `_lid_clear outcome=dug lid=oak_planks` row); the same planks in the workshop record or the town plan -> refused, named, no dig', async () => {
+  {
+    const w = lidWorld([tool('stone_pickaxe', 10)], { lid: 'oak_planks' }); w.bot.townPlan = null
+    const n0 = RECS.length
+    const r = await clear(w)
+    assert.equal(r.outcome, 'dug', r.detail); assert.equal(w.nameAt(5, 65, 0), 'air')
+    assert.deepEqual(w.digs.map(d => [d.at, d.scope?.purpose]), [['5,65,0', 'lid']])
+    assert.match(rowsSince(n0, '_lid_clear')[0], /^outcome=dug by=test at=5,64,0 .*lid=oak_planks /)
+  }
+  {
+    const w = lidWorld([tool('stone_pickaxe', 10)], { lid: 'oak_planks' }); workshopRecord()
+    const r = await clear(w)
+    assert.equal(r.outcome, 'refused'); assert.match(r.detail, /part of the workshop record/); assert.equal(w.digs.length, 0)
+  }
+  {
+    const w = lidWorld([tool('stone_pickaxe', 10)], { lid: 'oak_planks' }); w.bot.townPlan = { gen: 1, plan: {}, cells: new Set(['5,65,0']) }
+    const r = await clear(w)
+    assert.equal(r.outcome, 'refused'); assert.match(r.detail, /part of the townplan record/); assert.equal(w.digs.length, 0)
+  }
+})
+await t('LIDPLANK-01 CHAIN: count_town on a town whose chest has an UNRECORDED oak_planks lid (placebo-a 250,74,-141) -> walks, digs the planks, OPENS, counts (unknown_after=0) -> the town judges the bag; CONTROL: the record-held plank is refused above', async () => {
+  const { w } = await fencedLid([stack('oak_log', 64), stack('oak_log', 64), tool('stone_pickaxe', 10)], 'oak_planks')
+  try {
+    SK.resetCobbleReconcile(); w.bot.townPlan = null
+    assert.equal(B.bankableExclusion(w.bot.inventory.items(), 'oak_log'), 'town_stock_unknown', 'positive control: the town cannot judge')
+    const n0 = RECS.length, o0 = w.spy.opened.length
+    const r = await runCount(w)
+    assert.equal(r.status, 'success', r.detail); assert.equal(r.counted, 1)
+    assert.equal(w.nameAt(5, 65, 0), 'air', 'the planks were dug')
+    assert.equal(w.spy.opened.length - o0, 1, 'the server opened it')
+    assert.match(rowsSince(n0, '_lid_clear')[0], /^outcome=dug by=count_town at=5,64,0 .*lid=oak_planks /)
+    assert.match(rowsSince(n0, '_stock_recount')[0], /counted=1 tried=1 unknown_after=0 /)
+    assert.notEqual(B.bankableExclusion(w.bot.inventory.items(), 'oak_log'), 'town_stock_unknown', 'judged on the count')
+  } finally { B.setStockReaders({ town: null, well: null }) }
+})
+await t('LIDPLANK-01 MUTANT KILLED: the record ignored (record: false always) -> the workshop\'s own plank is dug', async () => {
+  await withMutant(SKILLS_PATH, "LID_BREAKABLE.test(lid.name) ? lidRecordAt(bot, c.offset(0, 1, 0)) : undefined", "LID_BREAKABLE.test(lid.name) ? false : undefined", async M => {
+    const w = lidWorld([tool('stone_pickaxe', 10)], { lid: 'oak_planks' }); workshopRecord()
+    const r = await M.clearChestLid(w.bot, w.bot.blockAt({ x: 5, y: 64, z: 0 }).position, { msLeft: cap => cap, by: 'mutant' })
+    assert.equal(r.outcome, 'dug', 'the mutant digs a record cell')
+  })
 })
 await t('CHAIN, A FAILED CLEAR AND A CALLER LIMIT: neither writes a recount miss nor the container memory; the bot backs off itself only', async () => {
   for (const [name, setup, fails] of [['failed', w => { w.bot.dig = async () => { throw new Error('nope') } }, 'lid_not_cleared:1'],
@@ -338,9 +455,19 @@ await t('DEPOSIT: cobblestone on the first chest\'s lid and no pickaxe -> the ba
 await t('DEPOSIT MEMORY: a refused lid (planks) marks the container unavailable for the town; a caller limit (off the ground) marks NOTHING and says lid_not_now', async () => {
   {
     const w = lidWorld([stack('oak_log', 64), ...Array.from({ length: 34 }, () => stack('torch', 64))], { lid: 'oak_planks' })
+    workshopRecord()   // lidplank-01: planks a build record holds (unrecorded planks are dug: the next scene)
     await depositRun(w)
     const mem = CF.readTownMemory(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 64, z: 0 }), w.bot.worldId ?? null)
     assert.equal(mem['5,64,0']?.o, 'unavailable', JSON.stringify(mem))
+  }
+  {
+    // LIDPLANK-01 CHAIN (deposit): the same planks in no record -> dug, the chest opened, the deposit took (memory `took`)
+    const w = lidWorld([stack('oak_log', 64), ...Array.from({ length: 34 }, () => stack('torch', 64))], { lid: 'oak_planks' })
+    w.bot.townPlan = null
+    await depositRun(w)
+    assert.equal(w.nameAt(5, 65, 0), 'air'); assert.ok(w.spy.opened.includes('5,64,0'), 'opened')
+    const mem = CF.readTownMemory(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 64, z: 0 }), w.bot.worldId ?? null)
+    assert.equal(mem['5,64,0']?.o, 'took', JSON.stringify(mem))
   }
   {
     const w = lidWorld([stack('oak_log', 64), ...Array.from({ length: 34 }, () => stack('torch', 64))])
