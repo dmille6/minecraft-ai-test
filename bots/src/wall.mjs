@@ -394,7 +394,7 @@ export function wallCandidate (read, inside, m, { home, avoid = () => null, pzon
         const there = sc.above.find(a => a.y === at[1])
         if (there && there.kind === 'tree') continue
         if (there && !seen.has(at.join(','))) { seen.add(at.join(',')); clear.push({ at, kind: there.kind, name: there.name }) }
-        cells.push({ at, role: 'light', seg })
+        cells.push({ at, role: 'light', seg: WALL_LIGHT_SEG })
         lightN++
       }
     })
@@ -408,6 +408,7 @@ export function wallCandidate (read, inside, m, { home, avoid = () => null, pzon
     for (const i of bad) { loop[i].s = 'gap'; loop[i].why = 'reach' }
   }
   const { cells, clear, segments, used, trunks, logN, posts, lightN } = B
+  if (cells.some(c => c.role === 'light')) segments.push({ seg: WALL_LIGHT_SEG, deps: [] })
   if (!cells.length) return { ok: false, why: 'no_wall', m, cols: loop }
   // zones: every record column + 1 (a box would be the whole town)
   const colsUsed = [...used.keys()].map(k => k.split(',').map(Number))
@@ -693,3 +694,29 @@ export function wallVisitRecord (rec, blocked = new Map(), now = Date.now()) {
 }
 /** The segment a `blocked` stop names (runVisit's why: "<seg>: N open, M placeable now") -> seg | null. Pure. */
 export const blockedSeg = (stop, why) => (stop === 'blocked' ? (/^([A-Za-z0-9-]+): \d+ open/.exec(String(why ?? ''))?.[1] ?? null) : null)
+
+/**
+ * THE LIGHTS LAST (LIVE showcase 10-30 06:58Z: a builder with no torch stopped `no_material light_for_W-00` after 27 cells -- runVisit
+ * ends a visit at a cell it has no block for, and works the segments in order, so the first run's torch held every later run): the
+ * light cells in their own LAST segment WALL_LIGHT_SEG. Applied at siting and, in memory, to a record sited before (the record file
+ * is unchanged; the shop read judges a cell, not its segment). -> the record (unchanged when already so). Pure.
+ */
+export const WALL_LIGHT_SEG = 'W-L'
+export function wallLightsLast (rec) {
+  if (!(rec?.cells ?? []).some(c => c.role === 'light' && c.seg !== WALL_LIGHT_SEG)) return rec
+  const cells = rec.cells.map(c => (c.role === 'light' ? { ...c, seg: WALL_LIGHT_SEG } : c))
+  const used = new Set(cells.map(c => c.seg))
+  const segments = [...(rec.segments ?? []).filter(s => s.seg !== WALL_LIGHT_SEG && used.has(s.seg)), { seg: WALL_LIGHT_SEG, deps: [] }]
+  return { ...rec, cells, segments }
+}
+/**
+ * WHAT A VISIT DRAWS (LIVE 10-30: every visit drew `cobblestone:256` and never the torch -- shop.mjs needFromTown spends its cap on
+ * the largest bill first, and the wall's cobblestone bill is ~900): the parts first (torches, stone bricks: a few each), then the
+ * cobblestone with the cap that is left. -> { name: n }. Pure. `need(bill, bag, cap)` is shop.mjs needFromTown.
+ */
+export function wallNeed (bill = {}, spare = {}, need, cap) {
+  const parts = Object.fromEntries(Object.entries(bill).filter(([n]) => n !== 'cobblestone'))
+  const first = need(parts, spare, cap)
+  const left = cap - Object.values(first).reduce((t, v) => t + v, 0)
+  return { ...first, ...(bill.cobblestone && left > 0 ? need({ cobblestone: bill.cobblestone }, spare, left) : {}) }
+}

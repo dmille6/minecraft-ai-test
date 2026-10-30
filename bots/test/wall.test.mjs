@@ -10,7 +10,8 @@ import os from 'node:os'
 import path from 'node:path'
 const { R, PJ, G, HOME, server, bot } = await import('./helpers/buildfake.mjs')
 const W = await import('../src/wall.mjs')
-const { recordZones } = await import('../src/shop.mjs')
+const SHOP = await import('../src/shop.mjs')
+const { recordZones } = SHOP
 
 let pass = 0, fail = 0
 const t = async (name, fn) => {
@@ -215,6 +216,29 @@ await t('THE REACH PROOF: a cell no walked stand reaches (eye above its support)
   // with the walk built behind it (b+2 at z -11, a fire-step b+1 at -10): the third course and the merlon are reached
   const withWalk = { cells: [...[1, 2, 3, 4].map(d => ({ at: [0, G + d, -12], role: 'wall', seg: 'W-00' })), ...[1, 2].map(d => ({ at: [0, G + d, -11], role: 'step', seg: 'W-00' })), { at: [0, G + 1, -10], role: 'step', seg: 'W-00' }], clear: [], runs: [[i]] }
   assert.deepStrictEqual(W.wallReach(srv.read, HOME, withWalk, loop), [])
+})
+await t('THE LIGHTS LAST and THE PARTS FIRST (LIVE 10-30: a torch-less builder stopped no_material at W-00\'s light; every draw was 256 cobblestone)', () => {
+  const { needFromTown } = SHOP
+  // a record sited before r4: the light in W-00 -> moved, in memory, to its own last segment; idempotent; a record without lights unchanged
+  const old = { cells: [{ at: [0, 70, 0], role: 'wall', seg: 'W-00' }, { at: [0, 74, 1], role: 'light', seg: 'W-00' }, { at: [5, 70, 0], role: 'wall', seg: 'W-01' }], segments: [{ seg: 'W-00', deps: [] }, { seg: 'W-01', deps: [] }] }
+  const r = W.wallLightsLast(old)
+  assert.deepStrictEqual(r.segments.map(s => s.seg), ['W-00', 'W-01', W.WALL_LIGHT_SEG])
+  assert.strictEqual(r.cells.find(c => c.role === 'light').seg, W.WALL_LIGHT_SEG)
+  assert.strictEqual(old.cells[1].seg, 'W-00', 'the record object is not mutated')
+  assert.strictEqual(W.wallLightsLast(r), r)
+  const plain = { cells: [old.cells[0]], segments: [old.segments[0]] }
+  assert.strictEqual(W.wallLightsLast(plain), plain)
+  // the draw: 900 cobblestone, 2 torches, 4 stone bricks, a bag with 64 spare cobblestone -> the torches and bricks are drawn
+  const need = W.wallNeed({ cobblestone: 900, torch: 2, stone_bricks: 4 }, { cobblestone: 64 }, needFromTown, 256)
+  assert.deepStrictEqual(need, { torch: 2, stone_bricks: 4, cobblestone: 250 })
+  assert.ok(!('torch' in needFromTown({ cobblestone: 900, torch: 2, stone_bricks: 4 }, { cobblestone: 64 }, 256)), 'control: the plain rule never draws the torch')
+  // a site with lights puts them last
+  const pathCols = []
+  for (let z = -16; z <= -7; z++) for (const x of [0, 1]) pathCols.push([x, G, z])
+  const paths = { blueprint: 'paths@1', plot: 'paths', cells: pathCols.map(at => ({ at, role: 'path', seg: 'P-g-0' })), zones: [{ box: [-1, -64, -17, 2, 320, -6], why: 'project:paths' }] }
+  const rec = site(server(), { pzones: recordZones([paths]), lights: 4 }).record
+  assert.strictEqual(rec.segments.at(-1).seg, W.WALL_LIGHT_SEG)
+  assert.ok(rec.cells.filter(c => c.role === 'light').every(c => c.seg === W.WALL_LIGHT_SEG))
 })
 await t('A BLOCKED SEGMENT WAITS: a visit stopped `blocked` on W-00 (a chest in a wall cell) works W-01 next time; never all left out', async () => {
   const srv = server({ [`-3,${G + 1},-12`]: 'chest' })
