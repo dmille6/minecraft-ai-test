@@ -141,17 +141,28 @@ export function leaseState (dir, key, name, { ttl = LEASE_TTL_MS } = {}) {
     const rec = readJ(f)
     const released = fs.existsSync(`${f}.released`)
     const until = rec ? Number(rec.until ?? 0) : mtimeMs + ttl
-    return { gen: g, rec, released, holdsUntil: released ? 0 : until, blocksUntil: released ? 0 : until + RECLAIM_MS }
+    return { gen: g, rec, released, ...(released ? { releasedAt: releasedAtOf(`${f}.released`) } : {}), holdsUntil: released ? 0 : until, blocksUntil: released ? 0 : until + RECLAIM_MS }
   } catch { return { gen: null, rec: null, released: false, holdsUntil: 0, blocksUntil: Infinity } }
+}
+/** A `.released` marker's time: the ms it holds (releaseLease writes Date.now()), else its mtime; null when unreadable. */
+function releasedAtOf (f) {
+  try { const v = Number(fs.readFileSync(f, 'utf8').trim()); if (Number.isFinite(v) && v > 0) return v } catch { /* the mtime */ }
+  try { return fs.statSync(f).mtimeMs } catch { return null }
 }
 /** Take (or renew) a lease -> { ok, gen } | { ok: false, why }. A NEW GENERATION every time: exactly one taker per number. */
 export function takeLease (dir, key, name, holder, { now = Date.now(), ttl = LEASE_TTL_MS, meta = null } = {}) {
   const cur = leaseState(dir, key, name, { ttl })
   if (cur && cur.rec?.holder !== holder && now < cur.blocksUntil) return { ok: false, why: `held by ${cur.rec?.holder ?? 'an unreadable lease'}` }
   const n = (cur?.gen ?? 0) + 1
+  // STRICTLY AFTER THE RELEASE (wall-01; showcase tripwire 10-30 H4 lease_overlap, monument slot1 g163 "Iris took it at ...264,
+  // Comet held it until ...268", and seg-clear g742, 2 ms): `now` is the caller's clock, read BEFORE this call listed the
+  // generations -- in a town directory of 13k files that listing takes milliseconds, and the holder's `.released` marker (its own
+  // Date.now()) was written inside them. The take only happens because the marker was SEEN, so it is later than the marker: the
+  // new generation is stamped no earlier than the release it follows, and its `until` runs from that stamp.
+  const at = Math.max(now, Number(cur?.releasedAt) || -Infinity)
   try {
     fs.mkdirSync(dir, { recursive: true })
-    writeSynced(leaseFile(dir, key, name, n), JSON.stringify({ holder, at: now, until: now + ttl, ...(meta ? { meta } : {}) }))
+    writeSynced(leaseFile(dir, key, name, n), JSON.stringify({ holder, at, until: at + ttl, ...(meta ? { meta } : {}) }))
   } catch { return { ok: false, why: 'lost the race for the lease' } }
   if (gensOf(dir, LEASE_RE(key, name)).at(-1) !== n) return { ok: false, why: 'a later lease generation exists' }
   return { ok: true, gen: n }

@@ -303,7 +303,67 @@ await t('closeOwn: an earlier connection\'s open intents cancelled, this connect
   assert.deepStrictEqual(P.openIntents(d, KEY).map(i => i.id).sort(), [live, other].sort())
 })
 
+// WALL-01 (showcase tripwire 10-30 H4 lease_overlap: monument slot1 g163, a 4 ms release/take race): the read judges a take
+// against the release marker it follows (shopread.py lease_overlaps: another holder's `at` before the marker's time is an
+// overlap). A taker's `now` is read before it lists the generations; the release lands inside that listing.
+const overlapAt = (M, d, name) => {
+  const gens = fs.readdirSync(d).map(f => new RegExp(`^${KEY.replace(/[.]/g, '\\.')}\\.${name}\\.lease\\.g(\\d+)\\.json$`).exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => a - b)
+  const bad = []
+  for (let i = 1; i < gens.length; i++) {
+    const f0 = path.join(d, `${KEY}.${name}.lease.g${gens[i - 1]}.json`), f1 = path.join(d, `${KEY}.${name}.lease.g${gens[i]}.json`)
+    const r0 = JSON.parse(fs.readFileSync(f0, 'utf8')), r1 = JSON.parse(fs.readFileSync(f1, 'utf8'))
+    if (r0.holder === r1.holder) continue
+    const rel = fs.existsSync(`${f0}.released`) ? Number(fs.readFileSync(`${f0}.released`, 'utf8')) : r0.until + M.RECLAIM_MS
+    if (r1.at < rel) bad.push(`${r1.holder} took g${gens[i]} at ${r1.at}, ${r0.holder} held it until ${rel}`)
+  }
+  return bad
+}
+const raceTake = (M, d, name) => {
+  const T = 1_793_333_872_264
+  const a = M.takeLease(d, KEY, name, 'Comet', { now: T - 30_000 })
+  // Comet releases at T + 4 (its own clock, written into the marker) while Iris's take, called with now = T, lists the files
+  fs.writeFileSync(path.join(d, `${KEY}.${name}.lease.g${a.gen}.json.released`), String(T + 4))
+  const b = M.takeLease(d, KEY, name, 'Iris', { now: T })
+  return { T, a, b }
+}
+await t('LEASE HANDOFF STRICTLY ORDERED: a take that saw the release is stamped no earlier than the release (the 4 ms race)', () => {
+  const d = tmp()
+  const { T, b } = raceTake(P, d, 'slot1')
+  assert.ok(b.ok, 'the released slot is taken')
+  const rec = JSON.parse(fs.readFileSync(path.join(d, `${KEY}.slot1.lease.g${b.gen}.json`), 'utf8'))
+  assert.strictEqual(rec.at, T + 4, 'stamped at the release it follows')
+  assert.strictEqual(rec.until, T + 4 + P.LEASE_TTL_MS, 'its until runs from that stamp')
+  assert.deepStrictEqual(overlapAt(P, d, 'slot1'), [], 'the read sees no overlap')
+  assert.ok(P.holdsLease(d, KEY, 'slot1', 'Iris', b.gen, T + 5))
+})
+await t('LEASE HANDOFF: a take after the release keeps its own clock; a marker with no time falls back to its mtime; a lapse is unchanged', () => {
+  const d = tmp(), now = 21_000_000
+  const a = P.takeLease(d, KEY, 'seg-W-01', 'A', { now })
+  fs.writeFileSync(path.join(d, `${KEY}.seg-W-01.lease.g${a.gen}.json.released`), String(now + 100))
+  const b = P.takeLease(d, KEY, 'seg-W-01', 'B', { now: now + 5_000 })
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(d, `${KEY}.seg-W-01.lease.g${b.gen}.json`), 'utf8')).at, now + 5_000)
+  P.releaseLease(d, KEY, 'seg-W-01', 'B', b.gen)
+  const m = path.join(d, `${KEY}.seg-W-01.lease.g${b.gen}.json.released`)
+  fs.writeFileSync(m, '')
+  const st = P.leaseState(d, KEY, 'seg-W-01')
+  assert.ok(st.released && Math.abs(st.releasedAt - fs.statSync(m).mtimeMs) < 1)
+  const c = P.takeLease(d, KEY, 'seg-W-01', 'C', { now: 0 })
+  assert.ok(JSON.parse(fs.readFileSync(path.join(d, `${KEY}.seg-W-01.lease.g${c.gen}.json`), 'utf8')).at >= st.releasedAt)
+  // a LAPSED (unreleased) lease: no marker, the reclaim rule as before, the taker's own clock
+  const d2 = tmp(), t0 = 22_000_000
+  P.takeLease(d2, KEY, 'slot2', 'A', { now: t0 })
+  const late = t0 + P.LEASE_TTL_MS + P.RECLAIM_MS + 1
+  const e2 = P.takeLease(d2, KEY, 'slot2', 'B', { now: late })
+  assert.ok(e2.ok)
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(d2, `${KEY}.slot2.lease.g${e2.gen}.json`), 'utf8')).at, late)
+})
 console.log('MUTANTS (anchored, unique; both ways)')
+await t('MUTANT the take stamped with the caller\'s clock (the 4 ms H4 race comes back)', () => mutantKilled('const at = Math.max(now, Number(cur?.releasedAt) || -Infinity)', 'const at = now', M => {
+  const d = tmp()
+  raceTake(M, d, 'slot1')
+  assert.deepStrictEqual(overlapAt(M, d, 'slot1'), [])
+}))
+
 await t('MUTANT the reclaim grace dropped (a lapsed lease is taken at once)', () => mutantKilled('now < cur.blocksUntil) return', 'now < cur.holdsUntil) return', M => {
   const d = tmp(), now = 9_000_000
   M.takeLease(d, KEY, 'seg-pad', 'A', { now })

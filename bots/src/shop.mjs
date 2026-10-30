@@ -7,6 +7,7 @@ import path from 'node:path'
 import { reserveKeyOf, reserveCount, takeAllowed, LOG_NAMES, PLANKS_OF } from './mats.mjs'
 import { monumentOn, MONUMENT_PLOT, MONUMENT_BLUEPRINT, MONUMENT_BUILDERS } from './ziggurat.mjs'
 import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mjs'
+import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -34,13 +35,20 @@ export const MONUMENT = Object.freeze({ on: monumentOn(process.env, process.env.
  * fleet's until its rollout (paths.mjs pathsOn; PATHS=off is the rollback).
  */
 export const PATHS = Object.freeze({ on: pathsOn(process.env, process.env.MEMORY_POOL ?? '') })
+/**
+ * WALL-01: THE TOWN WALL is the fifth project (wall.mjs; owner showcase list 10-29: house-01 -> paths-01 -> wall-01): after the
+ * paths (its gateways are where they cross), a cobblestone rampart round the plan area. On in the showcase pool, off in the fleet's
+ * until its rollout (wall.mjs wallOn; WALL=off is the rollback). It needs the paths (and the house) on.
+ */
+export const TOWNWALL = Object.freeze({ on: wallOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: 'house1', blueprint: 'house@1', after: SHOP_PLOT }),
   Object.freeze({ plot: MONUMENT_PLOT, blueprint: MONUMENT_BLUEPRINT, after: SHOP_PLOT, builders: MONUMENT_BUILDERS }),
   Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
+  Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : on))
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
 export const buildersOf = p => p?.builders ?? BUILDERS_MAX
 /**
@@ -84,7 +92,8 @@ export const SHOP_HEALTH_MIN = 10
 export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
 export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the ziggurat is built mostly from the cobble a bag already holds
 /** The projects a bag needs only MONUMENT_BAG_SLOTS_MIN free slots for (paths-01: a shovel's use draws nothing). */
-export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT]))
+/** wall-01: the wall is built from the cobblestone the bags carry, as the ziggurat is. */
+export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT]))
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }

@@ -38,6 +38,9 @@ const REQUIRED = [
   'bots/src/paths.mjs',
   'bots/scripts/pathsite-offline.mjs',
   'bots/scripts/pathsbuild-offline.mjs',
+  // wall-01 (10-30): the town wall sited, built and walk-proven offline on a copy of the world, by the bots' own functions
+  'bots/src/wall.mjs',
+  'bots/scripts/wall-offline.mjs',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',
