@@ -290,7 +290,7 @@ await t('PROJECTS: paths fourth, after the house; projectsOn takes it only with 
   assert.ok(!SHOPM.projectsOn(false, true, true).some(q => q.plot === 'paths'), 'never without the house it follows')
 })
 await t('activeProject: the paths once the house stands (and the monument with it); before that the house', async () => {
-  const list = SHOPM.projectsOn(true, true, true)
+  const list = SHOPM.projectsOn(true, true, true, undefined, false)   // shaft-02's stair: its own order test (town-stair.test.mjs)
   const st = (house, mon) => [{ plot: 'shop', exists: true, complete: true }, { plot: 'house1', exists: true, complete: house }, { plot: 'monument', exists: true, complete: mon }]
   assert.strictEqual(SHOPM.activeProject(st(true, true), list).plot, 'paths')
   assert.strictEqual(SHOPM.activeProject(st(false, true), list).plot, 'house1')
