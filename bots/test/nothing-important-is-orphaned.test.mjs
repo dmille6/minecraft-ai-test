@@ -31,6 +31,9 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
+  'docs/reports/mineshaft-2026-10-30/design.md',
+  'sandbox/stair/stair-e2e.mjs',
   // monument-01 (10-29): the ziggurat's site, offline, by the bots' own functions (the fleet canary's per-world siting), and the
   // shop read that judges every project's record (the showcase tripwire's S6)
   'bots/scripts/zigsite-offline.mjs',
