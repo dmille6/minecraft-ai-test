@@ -56,15 +56,17 @@ export function zigPaletteOf (rec) {
 }
 
 /**
- * THE SWITCH -> bool. MONUMENT=on|off; unset = on only in the pools named by MONUMENT_POOLS (default 'showcase'): the fleet's
- * towns keep their workshop-only build job until the fleet rollout turns it on. Pure.
+ * THE SWITCH -> bool. MONUMENT=on|off; unset = on in the pools named by MONUMENT_POOLS. zigfleet-01 (the fleet rollout, owner
+ * showcase list 10-29: the ziggurat to the fleet once a fleet build carries it): the default is '*', every pool -- the canary's
+ * code runs only on the canary pools, so the variant IS the rollout. MONUMENT=off (or MONUMENT_POOLS=showcase) is the rollback.
+ * Pure.
  */
 export function monumentOn (env = process.env, pool = '') {
   const v = String(env?.MONUMENT ?? '').toLowerCase()
   if (v === 'on' || v === '1' || v === 'true') return true
   if (v === 'off' || v === '0' || v === 'false') return false
-  const pools = String(env?.MONUMENT_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
-  return pools.includes(String(pool))
+  const pools = String(env?.MONUMENT_POOLS ?? '*').split(',').map(s => s.trim()).filter(Boolean)
+  return pools.includes('*') || pools.includes(String(pool))
 }
 /** The geometry for a pool: MONUMENT_B (an even side, 12..48) overrides; the showcase's default is ZIG_SHOWCASE. Pure. */
 export function zigFor (env = process.env, pool = '') {

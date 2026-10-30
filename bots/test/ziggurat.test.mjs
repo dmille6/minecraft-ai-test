@@ -55,9 +55,12 @@ await t('SEGMENTS: four quadrants a layer, each waiting on the whole layer below
 })
 
 console.log('THE SWITCH')
-await t('MONUMENT: on in the showcase pool by default, off in a fleet pool; MONUMENT=on|off overrides; MONUMENT_POOLS names pools', async () => {
+await t('MONUMENT: on in every pool by default (zigfleet-01); MONUMENT=on|off overrides; MONUMENT_POOLS names pools', async () => {
   assert.strictEqual(Z.monumentOn({}, 'showcase'), true)
-  assert.strictEqual(Z.monumentOn({}, 'hive-a'), false)
+  assert.strictEqual(Z.monumentOn({}, 'hive-a'), true, 'zigfleet-01: the fleet default')
+  assert.strictEqual(Z.monumentOn({ MONUMENT_POOLS: 'showcase' }, 'hive-a'), false, 'the pool-list rollback')
+  assert.strictEqual(Z.monumentOn({ MONUMENT_POOLS: 'showcase' }, 'showcase'), true)
+  assert.strictEqual(Z.monumentOn({ MONUMENT: 'off' }, 'hive-a'), false, 'MONUMENT=off is the rollback')
   assert.strictEqual(Z.monumentOn({ MONUMENT: 'off' }, 'showcase'), false)
   assert.strictEqual(Z.monumentOn({ MONUMENT: 'on' }, 'hive-a'), true)
   assert.strictEqual(Z.monumentOn({ MONUMENT_POOLS: 'hive-a,board-b' }, 'board-b'), true)

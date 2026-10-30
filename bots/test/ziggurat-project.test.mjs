@@ -42,9 +42,11 @@ await t('the showcase pool lists three projects; the ziggurat comes after the wo
   const m = S.PROJECTS.find(p => p.plot === 'monument')
   assert.strictEqual(m.after, 'shop'); assert.strictEqual(S.buildersOf(m), 3); assert.strictEqual(S.buildersOf(S.PROJECTS[0]), 2)
 })
-await t('a FLEET pool (monument off by default): the workshop and the house only -- the old order, unchanged', async () => {
+await t('a FLEET pool (zigfleet-01: monument on by default): the workshop, the house and the ziggurat; MONUMENT=off / MONUMENT_POOLS=showcase roll it back', async () => {
   const run = env => execFileSync(process.execPath, ['--input-type=module', '-e', "const S = await import('./src/shop.mjs'); console.log(S.projectsOn().map(p => p.plot).join(','))"], { cwd: new URL('..', import.meta.url), env: { ...process.env, ...env }, encoding: 'utf8' }).trim()
-  assert.strictEqual(run({ MEMORY_POOL: 'hive-a' }), 'shop,house1')
+  assert.strictEqual(run({ MEMORY_POOL: 'hive-a' }), 'shop,house1,monument')
+  assert.strictEqual(run({ MEMORY_POOL: 'hive-a', MONUMENT: 'off' }), 'shop,house1', 'MONUMENT=off is the rollback')
+  assert.strictEqual(run({ MEMORY_POOL: 'hive-a', MONUMENT_POOLS: 'showcase' }), 'shop,house1', 'the pool-list rollback')
   assert.strictEqual(run({ MEMORY_POOL: 'showcase', MONUMENT: 'off' }), 'shop,house1', 'MONUMENT=off is the rollback')
   assert.strictEqual(run({ MEMORY_POOL: 'hive-a', MONUMENT: 'on' }), 'shop,house1,monument')
 })

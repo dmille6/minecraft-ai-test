@@ -25,8 +25,8 @@ export const HOUSE = Object.freeze({ on: !['off', '0', 'false', 'no'].includes(S
 /**
  * MONUMENT-01: THE ZIGGURAT is the third project (ziggurat.mjs; OWNER 10-29 "top priority" on the showcase): after the workshop,
  * built ALONGSIDE the house -- a bot whose first open project has no free admission slot works the next one (activeProject's
- * `free`) -- with its own builders (MONUMENT_BUILDERS) and its own visit (skills.mjs buildMonument). On in the showcase pool,
- * off in the fleet's until its rollout (ziggurat.mjs monumentOn; MONUMENT=off is the rollback).
+ * `free`) -- with its own builders (MONUMENT_BUILDERS) and its own visit (skills.mjs buildMonument). On in every pool since
+ * zigfleet-01, the fleet rollout (ziggurat.mjs monumentOn; MONUMENT=off is the rollback).
  */
 export const MONUMENT = Object.freeze({ on: monumentOn(process.env, process.env.MEMORY_POOL ?? '') })
 /**
