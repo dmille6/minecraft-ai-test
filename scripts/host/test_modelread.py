@@ -83,7 +83,8 @@ def main():
     t('repeats: refused counted', c['refused'] == 2 and c['n'] == 10, c)
 
     try:
-        sys.path.insert(0, os.path.join(HERE, '..', '..', 'bench', 'models'))
+        for d in ('/opt/minecraft-ai/bench/models', os.path.join(HERE, 'bench', 'models'), os.path.join(HERE, '..', '..', 'bench', 'models')):
+            sys.path.insert(0, d)
         import score as S
         shapes = [('gather', {'block': 'oak_log'}), ('craft', {'item': 'stick', 'count': 4}), ('mine', {'y': 11}),
                   ('goto', {'x': 1, 'y': 2, 'z': 3}), ('goto', {'player': 'Bob'}), ('bucket', {'action': 'fill'}),
