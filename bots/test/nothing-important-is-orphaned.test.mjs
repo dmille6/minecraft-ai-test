@@ -85,6 +85,13 @@ const REQUIRED = [
   // the 3 h / 24 h / 7 d fleet status built on it (replaces the lost quickstatus.py)
   'scripts/host/fleetstatus.py',
   'scripts/test_fleetstatus.py',
+  // the learning loop's nightly archive (M1): logs on .31 rotate after 14 days, this is the only long-term copy
+  'scripts/learnloop/extract_triples.py',
+  'scripts/learnloop/nightly.py',
+  'scripts/learnloop/nas-relay.sh',
+  'scripts/learnloop/test_learnloop.py',
+  // M2b: removes 10.0.0.16 from every bot endpoint list before training
+  'scripts/host/drop16.sh',
   // the movement-writer ratchet, wired into package.json and the deploy
   'bots/scripts/check-movement-writers.mjs',
 ]
