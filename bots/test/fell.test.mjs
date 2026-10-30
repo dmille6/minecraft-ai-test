@@ -15,7 +15,9 @@ console.log('FOREIGN KIND AND THE TRUNK (pure)')
 await t('foreignKind: scaffold, every log species and leaves are trees, a chest or a station is neither', () => {
   assert.strictEqual(R.foreignKind('dirt'), 'scaffold')
   for (const n of ['spruce_log', 'oak_log', 'dark_oak_log', 'cherry_log', 'mangrove_log', 'spruce_leaves', 'azalea_leaves']) assert.strictEqual(R.foreignKind(n), 'tree', n)
-  for (const n of ['chest', 'crafting_table', 'furnace', 'stone_bricks', 'air', null]) assert.strictEqual(R.foreignKind(n), null, String(n))
+  for (const n of ['chest', 'furnace', 'stone_bricks', 'air', null]) assert.strictEqual(R.foreignKind(n), null, String(n))
+  // shopwalls-05: a crafting table in an open record cell is dug like scaffold (it drops as the item; nothing is inside it)
+  assert.strictEqual(R.foreignKind('crafting_table'), 'scaffold')
 })
 await t('trunkAbove: the contiguous logs above, lowest first; stops at leaves, a kept cell, an unread cell, and TRUNK_MAX', () => {
   const col = { '0,2,0': 'spruce_log', '0,3,0': 'spruce_log', '0,4,0': 'spruce_leaves', '0,5,0': 'spruce_log' }

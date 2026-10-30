@@ -43,10 +43,10 @@ test('stalled 24 h -> full reserve; 1 ms short of 24 h -> still active', () => {
 test('non-project draw keeps the full floor even while a project is active', () => {
   const E = M.effectiveReserve(R, { active: true, forProject: false })
   assert.equal(E.lowered, false); assert.deepEqual(E.table, { ...R })
-  // the mats kinds: building parts are project work, torches are not
+  // the mats kinds: building parts are project work, and the torch kind (shopwalls-03)
   assert.equal(M.matsKindForProject('bricks'), true); assert.equal(M.matsKindForProject('panes'), true)
   assert.equal(M.matsKindForProject('cut_copper'), true); assert.equal(M.matsKindForProject('copper_door'), true)
-  assert.equal(M.matsKindForProject('torch'), false); assert.equal(M.matsKindForProject('nope'), false)
+  assert.equal(M.matsKindForProject('torch'), true); assert.equal(M.matsKindForProject('nope'), false)
 })
 
 test('the kill switch: RESERVE_PROJECT=off|0|false|no is off; unset or anything else is on', () => {
@@ -65,7 +65,7 @@ test('the lowered floor changes what the take and the bill may spend (positive c
   assert.equal(spendableFor('cobblestone', stock, { reserve: L }), 148)
 })
 
-test('bricks order: refused at the full reserve, issued under the lowered table; torch never lowered', () => {
+test('bricks order: refused at the full reserve, issued under the lowered table; torch lowered too (shopwalls-03)', () => {
   const stock = { cobblestone: 987, oak_log: 300, stone_bricks: 0, torch: 0 }
   const L = M.effectiveReserve(R, { active: true, forProject: true }).table
   const base = { now: 50_000_000, on: true, shared: true, atTown: true, freeSlots: 10, town: { stock, coverage: 1 }, state: {} }
@@ -76,9 +76,17 @@ test('bricks order: refused at the full reserve, issued under the lowered table;
   // ZERO TOWN LOGS (the showcase today): bricks stay blocked even under the lowered floor
   const noLogs = M.materialOrder({ ...base, town: { stock: { cobblestone: 987, stone_bricks: 0, torch: 0 }, coverage: 1 }, partReserve: L })
   assert.equal(noLogs.order, null); assert.equal(noLogs.skip, 'inputs')
-  // torch is judged on the full table: logs 300 < 512 -> still refused even with partReserve
-  const t = M.materialOrder({ ...base, town: { stock: { cobblestone: 0, oak_log: 300, torch: 0, stone_bricks: 128 }, coverage: 1 }, partReserve: L })
-  assert.match(t.kinds ?? '', /torch:inputs/)
+  // torch (shopwalls-03, LIVE showcase 10-28: 412 logs, 0 torches, the workshop's fit-out needs 2): refused on the full table
+  // (logs 300 < 512), ISSUED under the lowered one while a project is active
+  const tstock = { cobblestone: 0, oak_log: 300, torch: 0, stone_bricks: 128 }
+  const tFull = M.materialOrder({ ...base, town: { stock: tstock, coverage: 1 } })
+  assert.match(tFull.kinds ?? '', /torch:inputs/)
+  const t = M.materialOrder({ ...base, town: { stock: tstock, coverage: 1 }, partReserve: L })
+  assert.equal(t.order?.args.item, 'torch')
+  assert.deepEqual(t.inputs?.take, { oak_log: 8 })
+  // the town at its torch buffer: stocked, never past it
+  const tb = M.materialOrder({ ...base, town: { stock: { ...tstock, torch: 64 }, coverage: 1 }, partReserve: L })
+  assert.match(tb.kinds ?? '', /torch:stocked/)
 })
 
 test('rows name the mode and every draw', () => {

@@ -1,0 +1,1119 @@
+{
+ "id": "house@1",
+ "kind": "house",
+ "footprint": {
+  "u": 7,
+  "v": 7
+ },
+ "pad": {
+  "w": 7,
+  "d": 7
+ },
+ "front": {
+  "u": 3,
+  "v": 0,
+  "note": "house-01: the open doorway (u 3, v 1, s+1 and s+2) opens toward v < 0; the planner turns v < 0 toward home. No door block in v1 (owner Q2: a real door only after a Paper-proven door change), so no sealed interior and no exit_house"
+ },
+ "doorway": [
+  [
+   3,
+   1,
+   1
+  ],
+  [
+   3,
+   1,
+   2
+  ]
+ ],
+ "interior": [
+  [
+   2,
+   2,
+   1
+  ],
+  [
+   2,
+   2,
+   2
+  ],
+  [
+   2,
+   3,
+   1
+  ],
+  [
+   2,
+   3,
+   2
+  ],
+  [
+   2,
+   4,
+   1
+  ],
+  [
+   2,
+   4,
+   2
+  ],
+  [
+   3,
+   2,
+   1
+  ],
+  [
+   3,
+   2,
+   2
+  ],
+  [
+   3,
+   3,
+   1
+  ],
+  [
+   3,
+   3,
+   2
+  ],
+  [
+   3,
+   4,
+   1
+  ],
+  [
+   3,
+   4,
+   2
+  ],
+  [
+   4,
+   2,
+   1
+  ],
+  [
+   4,
+   2,
+   2
+  ],
+  [
+   4,
+   3,
+   1
+  ],
+  [
+   4,
+   3,
+   2
+  ],
+  [
+   4,
+   4,
+   1
+  ],
+  [
+   4,
+   4,
+   2
+  ]
+ ],
+ "palette": {
+  "base": [
+   "stone_bricks"
+  ],
+  "step": [
+   "stone_bricks"
+  ],
+  "wall": [
+   "$planks"
+  ],
+  "window": [
+   "glass_pane",
+   "$wall"
+  ],
+  "trim": [
+   "cut_copper",
+   "$planks"
+  ],
+  "roof": [
+   "$planks"
+  ],
+  "light": [
+   "torch"
+  ]
+ },
+ "segments": [
+  {
+   "seg": "pad",
+   "layer": 0,
+   "deps": []
+  },
+  {
+   "seg": "ring",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ]
+  },
+  {
+   "seg": "wall-F",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ]
+  },
+  {
+   "seg": "wall-B",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ]
+  },
+  {
+   "seg": "wall-L",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ]
+  },
+  {
+   "seg": "wall-R",
+   "layer": 1,
+   "deps": [
+    "pad"
+   ]
+  },
+  {
+   "seg": "roof-edge",
+   "layer": 2,
+   "deps": [
+    "ring",
+    "wall-F",
+    "wall-B",
+    "wall-L",
+    "wall-R"
+   ]
+  },
+  {
+   "seg": "roof-inner",
+   "layer": 3,
+   "deps": [
+    "roof-edge"
+   ]
+  },
+  {
+   "seg": "fit-out",
+   "layer": 4,
+   "deps": [
+    "roof-inner"
+   ]
+  }
+ ],
+ "structural": [
+  "base",
+  "step",
+  "wall",
+  "trim",
+  "roof",
+  "light"
+ ],
+ "cells": [
+  {
+   "u": 0,
+   "v": 0,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 0,
+   "v": 1,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 0,
+   "v": 2,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 0,
+   "v": 3,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 0,
+   "v": 4,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 0,
+   "v": 5,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 0,
+   "v": 6,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 1,
+   "v": 0,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 1,
+   "v": 1,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 1,
+   "v": 2,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 1,
+   "v": 3,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 1,
+   "v": 4,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 1,
+   "v": 5,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 1,
+   "v": 6,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 2,
+   "v": 0,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 2,
+   "v": 1,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 2,
+   "v": 2,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 2,
+   "v": 3,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 2,
+   "v": 4,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 2,
+   "v": 5,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 2,
+   "v": 6,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 3,
+   "v": 0,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 3,
+   "v": 1,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 3,
+   "v": 2,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 3,
+   "v": 3,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 3,
+   "v": 4,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 3,
+   "v": 5,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 3,
+   "v": 6,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 4,
+   "v": 0,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 4,
+   "v": 1,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 4,
+   "v": 2,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 4,
+   "v": 3,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 4,
+   "v": 4,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 4,
+   "v": 5,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 4,
+   "v": 6,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 5,
+   "v": 0,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 5,
+   "v": 1,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 5,
+   "v": 2,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 5,
+   "v": 3,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 5,
+   "v": 4,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 5,
+   "v": 5,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 5,
+   "v": 6,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 6,
+   "v": 0,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 6,
+   "v": 1,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 6,
+   "v": 2,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 6,
+   "v": 3,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 6,
+   "v": 4,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 6,
+   "v": 5,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 6,
+   "v": 6,
+   "y": 0,
+   "role": "base",
+   "seg": "pad"
+  },
+  {
+   "u": 0,
+   "v": 0,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 0,
+   "v": 1,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 0,
+   "v": 2,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 0,
+   "v": 3,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 0,
+   "v": 4,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 0,
+   "v": 5,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 0,
+   "v": 6,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 1,
+   "v": 0,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 1,
+   "v": 6,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 2,
+   "v": 0,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 2,
+   "v": 6,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 3,
+   "v": 6,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 4,
+   "v": 0,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 4,
+   "v": 6,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 5,
+   "v": 0,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 5,
+   "v": 6,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 6,
+   "v": 0,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 6,
+   "v": 1,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 6,
+   "v": 2,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 6,
+   "v": 3,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 6,
+   "v": 4,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 6,
+   "v": 5,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 6,
+   "v": 6,
+   "y": 1,
+   "role": "step",
+   "seg": "ring"
+  },
+  {
+   "u": 1,
+   "v": 1,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-F"
+  },
+  {
+   "u": 1,
+   "v": 1,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-F"
+  },
+  {
+   "u": 2,
+   "v": 1,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-F"
+  },
+  {
+   "u": 2,
+   "v": 1,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-F"
+  },
+  {
+   "u": 4,
+   "v": 1,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-F"
+  },
+  {
+   "u": 4,
+   "v": 1,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-F"
+  },
+  {
+   "u": 5,
+   "v": 1,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-F"
+  },
+  {
+   "u": 5,
+   "v": 1,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-F"
+  },
+  {
+   "u": 1,
+   "v": 5,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-B"
+  },
+  {
+   "u": 1,
+   "v": 5,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-B"
+  },
+  {
+   "u": 2,
+   "v": 5,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-B"
+  },
+  {
+   "u": 2,
+   "v": 5,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-B"
+  },
+  {
+   "u": 3,
+   "v": 5,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-B"
+  },
+  {
+   "u": 3,
+   "v": 5,
+   "y": 2,
+   "role": "window",
+   "seg": "wall-B"
+  },
+  {
+   "u": 4,
+   "v": 5,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-B"
+  },
+  {
+   "u": 4,
+   "v": 5,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-B"
+  },
+  {
+   "u": 5,
+   "v": 5,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-B"
+  },
+  {
+   "u": 5,
+   "v": 5,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-B"
+  },
+  {
+   "u": 1,
+   "v": 2,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-L"
+  },
+  {
+   "u": 1,
+   "v": 2,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-L"
+  },
+  {
+   "u": 1,
+   "v": 3,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-L"
+  },
+  {
+   "u": 1,
+   "v": 3,
+   "y": 2,
+   "role": "window",
+   "seg": "wall-L"
+  },
+  {
+   "u": 1,
+   "v": 4,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-L"
+  },
+  {
+   "u": 1,
+   "v": 4,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-L"
+  },
+  {
+   "u": 5,
+   "v": 2,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-R"
+  },
+  {
+   "u": 5,
+   "v": 2,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-R"
+  },
+  {
+   "u": 5,
+   "v": 3,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-R"
+  },
+  {
+   "u": 5,
+   "v": 3,
+   "y": 2,
+   "role": "window",
+   "seg": "wall-R"
+  },
+  {
+   "u": 5,
+   "v": 4,
+   "y": 1,
+   "role": "wall",
+   "seg": "wall-R"
+  },
+  {
+   "u": 5,
+   "v": 4,
+   "y": 2,
+   "role": "wall",
+   "seg": "wall-R"
+  },
+  {
+   "u": 1,
+   "v": 1,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 1,
+   "v": 2,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 1,
+   "v": 3,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 1,
+   "v": 4,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 1,
+   "v": 5,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 2,
+   "v": 1,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 2,
+   "v": 5,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 3,
+   "v": 1,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 3,
+   "v": 5,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 4,
+   "v": 1,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 4,
+   "v": 5,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 5,
+   "v": 1,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 5,
+   "v": 2,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 5,
+   "v": 3,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 5,
+   "v": 4,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 5,
+   "v": 5,
+   "y": 3,
+   "role": "trim",
+   "seg": "roof-edge"
+  },
+  {
+   "u": 2,
+   "v": 2,
+   "y": 3,
+   "role": "roof",
+   "seg": "roof-inner"
+  },
+  {
+   "u": 2,
+   "v": 3,
+   "y": 3,
+   "role": "roof",
+   "seg": "roof-inner"
+  },
+  {
+   "u": 2,
+   "v": 4,
+   "y": 3,
+   "role": "roof",
+   "seg": "roof-inner"
+  },
+  {
+   "u": 3,
+   "v": 2,
+   "y": 3,
+   "role": "roof",
+   "seg": "roof-inner"
+  },
+  {
+   "u": 3,
+   "v": 3,
+   "y": 3,
+   "role": "roof",
+   "seg": "roof-inner"
+  },
+  {
+   "u": 3,
+   "v": 4,
+   "y": 3,
+   "role": "roof",
+   "seg": "roof-inner"
+  },
+  {
+   "u": 4,
+   "v": 2,
+   "y": 3,
+   "role": "roof",
+   "seg": "roof-inner"
+  },
+  {
+   "u": 4,
+   "v": 3,
+   "y": 3,
+   "role": "roof",
+   "seg": "roof-inner"
+  },
+  {
+   "u": 4,
+   "v": 4,
+   "y": 3,
+   "role": "roof",
+   "seg": "roof-inner"
+  },
+  {
+   "u": 2,
+   "v": 4,
+   "y": 1,
+   "role": "light",
+   "seg": "fit-out"
+  }
+ ]
+}

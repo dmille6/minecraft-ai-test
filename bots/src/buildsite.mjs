@@ -138,13 +138,16 @@ export function facesHome (bp, home, anchor, orient) {
  *   ctx.zones  [{ box: [x0,y0,z0,x1,y1,z1] }]  (protected zones + avoid boxes)
  *   ctx.wells  [[x, y, z]]  plinth well cells, caps and stairs (every record's plan and its prev[] history), junk-well sites
  *   ctx.farm   [[x, z]]     tree-farm record cells
- *   ctx.z0     { centre: {x, z} } | null   ctx.m0 { origin: {x, z} } | null
+ *   ctx.z0     { centre: {x, z} } | { box: [x0, z0, x1, z1] } (a sited ziggurat's record box: monument-01) | null
+ *   ctx.m0     { origin: {x, z} } | null
  */
 export function reservations (plan, ctx = {}) {
   const ko = keepouts(plan)
   const wells = (ctx.wells ?? []).map(c => [c[0], c[2]])
   const farm = new Set((ctx.farm ?? []).map(([x, z]) => k2(x, z)))
-  const z0 = ctx.z0?.centre ? [ctx.z0.centre.x - 24 - 8, ctx.z0.centre.z - 24 - 8, ctx.z0.centre.x + 24 + 8, ctx.z0.centre.z + 24 + 8] : null
+  const zb = Array.isArray(ctx.z0?.box) && ctx.z0.box.length === 4 && ctx.z0.box.every(Number.isFinite) ? ctx.z0.box : null
+  const z0 = zb ? [zb[0] - 8, zb[1] - 8, zb[2] + 8, zb[3] + 8]
+    : ctx.z0?.centre ? [ctx.z0.centre.x - 24 - 8, ctx.z0.centre.z - 24 - 8, ctx.z0.centre.x + 24 + 8, ctx.z0.centre.z + 24 + 8] : null
   const m0 = ctx.m0?.origin ? [ctx.m0.origin.x - 8, ctx.m0.origin.z - 8, ctx.m0.origin.x + 8, ctx.m0.origin.z + 8] : null
   const inB = (b, x, z) => b && x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]
   const column = (x, z, y0, y1) => {
@@ -346,14 +349,16 @@ export function overlay (read, over) { return (x, y, z) => over.get(k3(x, y, z))
 /**
  * WHERE A BOT CAN WALK FROM TOWN -> Set of feet keys. Pure. A node: a full-cube floor, feet and head passable, dry and known;
  * `block` cells are OBSTACLES that are never a floor (cells still to place: a stand may not rely on a block that is not there);
+ * `noFloor` cells are never a floor but may hold feet and head (monument-01: a fill the builder stands in);
  * 4-neighbour steps of dy -1, 0, +1 with head room (symmetric: a reached stand walks back); inside Chebyshev `radius` of home.
  * THE SEEDS (D3, r4): cells a bot STOOD on -- home's own start cell (the nearest node within 2 of home), and every `stood` feet
  * cell inside the town circle that is a node here. Never "every plaza cell" (Codex r1 P2: a moat inside the plaza), never "beside
  * a chest" (Codex r2/r3 P2: a chest in a wall is opened from either side).
  */
-export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stood = [] } = {}) {
+export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stood = [], noFloor = null } = {}) {
   const isNode = (x, y, z) => {
     if (block.has(k3(x, y, z)) || block.has(k3(x, y + 1, z)) || block.has(k3(x, y - 1, z))) return false
+    if (noFloor?.has(k3(x, y - 1, z))) return false             // monument-01: an open fill cell is never a floor
     const f = read(x, y - 1, z), a = read(x, y, z), h = read(x, y + 1, z)
     return !!f && !!a && !!h && fullCube(f) && isPassable(a) && isPassable(h) && !isLiquid(a) && !isLiquid(h)
   }
@@ -446,9 +451,10 @@ const SUPPORTS = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
  * ONE STEP for a cell -> { stand, support, face } | null. Pure. `nodes` = walkable feet cells by column ("x,z" -> [y]).
  * A support is a block the builder would click (refUsable) below or beside the cell; the face is its face toward the cell; the
  * eye (feet + 1.62, centred) is within REACH of the face centre, on its open side, with a clear sight line; the stand is not the
- * cell (feet or head) and is in the build domain. Nearest wins.
+ * cell (feet or head) and is in the build domain -- `domain(x, z)` when given (monument-01: ziggurat.mjs zigDomain, its record's
+ * box + 6), else the workshop's ring (inDomain). Nearest wins.
  */
-export function stepFor (read, home, cell, nodes) {
+export function stepFor (read, home, cell, nodes, domain = null) {
   const [cx, cy, cz] = cell
   let best = null, bd = Infinity
   for (const [fx, fy, fz] of SUPPORTS) {
@@ -459,7 +465,7 @@ export function stepFor (read, home, cell, nodes) {
     for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
       const sx = cx + dx, sz = cz + dz
       const ys = nodes.get(k2(sx, sz))
-      if (!ys || !inDomain(home, sx, sz)) continue
+      if (!ys || !(domain ? domain(sx, sz) : inDomain(home, sx, sz))) continue
       for (const sy of ys) {
         if (sx === cx && sz === cz && (sy === cy || sy + 1 === cy)) continue
         const eye = [sx + 0.5, sy + EYE, sz + 0.5]
@@ -634,6 +640,22 @@ export function workshopSectors (plan) {
   const taken = new Set(plots.filter(p => p.kind !== 'pavilion' && p.sector).map(p => p.sector))
   return REST_ORDER.filter(s => !taken.has(s)).map(s => ({ sector: s, source: 'free' }))
 }
+/**
+ * THE SECTORS A LATER PROJECT MAY TAKE (house-01), in order -> [{ sector, source }]. Pure. The first project's sector first
+ * (`first`: the workshop record's -- the houses stand beside it), then every sector no other outer plot holds, in ring@1's
+ * order (workshopSectors' free list), once each.
+ */
+export function projectSectors (plan, first = null) {
+  const out = []
+  const seen = new Set()
+  const push = (sector, source) => { if (sector && !seen.has(sector)) { seen.add(sector); out.push({ sector, source }) } }
+  push(first, 'beside')
+  const pav = (plan?.plots ?? []).find(p => p.kind === 'pavilion')
+  if (pav?.sector) push(pav.sector, 'pavilion')
+  const taken = new Set((plan?.plots ?? []).filter(p => p.kind !== 'pavilion' && p.sector).map(p => p.sector))
+  for (const s of REST_ORDER) if (!taken.has(s)) push(s, 'free')
+  return out
+}
 /** A plinth record's columns -> [[x, y, z]]: the plan's steps, cap and stair, and every prev[] column {x, y, z, stair} (plinth.mjs carryPrev). */
 export function plinthCells (rec) {
   const out = []
@@ -668,7 +690,8 @@ export function planTownCells (plan) {
 export function siteBlueprint (read, plan, bp, ctx = {}) {
   const home = plan?.home
   if (!home) return { ok: false, why: 'no_plan', sectors: [] }
-  const secs = workshopSectors(plan)
+  // house-01: a caller may name the sectors (a house: the workshop's sector first, then the free ones); else the workshop's
+  const secs = Array.isArray(ctx.sectors) ? ctx.sectors : workshopSectors(plan)
   if (!secs.length) return { ok: false, why: 'no_free_sector', sectors: [] }
   const res = reservations(plan, ctx)
   const stood = [...(ctx.stood ?? []), ...planTownCells(plan)]
@@ -701,7 +724,7 @@ export function siteBlueprint (read, plan, bp, ctx = {}) {
       if (!rp.ok) { proofFails.no_replant_cell = (proofFails.no_replant_cell ?? 0) + 1; continue }
       const xs = site.pad.map(c => c[0]), zs = site.pad.map(c => c[1])
       const record = {
-        v: 1, blueprint: bp.id, plot: 'shop', home, sector, sector_source: source, orient: site.orient, anchor: [site.anchor.x, site.anchor.z],
+        v: 1, blueprint: bp.id, plot: ctx.plot ?? 'shop', home, sector, sector_source: source, orient: site.orient, anchor: [site.anchor.x, site.anchor.z],
         box: [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)], s: site.s, floor: site.g0,
         earthwork: { fill: site.fill.length, cut: site.cut.length, litter: site.litter },
         fill: site.fill, clear: site.clear.map(c => ({ at: c.at, kind: c.kind, name: c.name })),

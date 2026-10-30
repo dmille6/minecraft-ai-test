@@ -448,7 +448,7 @@ export function smeltTownDetail (f = {}) {
     // ironsmelt-01: the job's input (fe | cu | -; the balance fields below are in ITS family), the bag's own iron per name,
     // opening>closing, raw iron the bag fed the furnace (a bag delta), and the index rule-outs the job started with -- FIRST
     // after the stop, so the logger's 300-char cap (logger.mjs) can only ever cut the search tallies at the end (Codex code r1 P3)
-    `stop=${v(f.stop)}`, `in=${v(f.in)}`, `fe=${v(f.fe)}`, `fed=${v(f.fed)}`, `ru=${v(f.ru)}`, `n=${v(f.n)}`, `bag0=${v(f.bag0)}`, `withdrawn=${v(f.withdrawn)}`, `coal=${v(f.coal)}`,
+    `stop=${v(f.stop)}`, `ws=${v(f.ws ?? '-')}`, `in=${v(f.in)}`, `fe=${v(f.fe)}`, `fed=${v(f.fed)}`, `ru=${v(f.ru)}`, `n=${v(f.n)}`, `bag0=${v(f.bag0)}`, `withdrawn=${v(f.withdrawn)}`, `coal=${v(f.coal)}`,
     `smelted=${v(f.smelted)}`, `prior=${v(f.prior)}`, `deposited=${v(f.deposited)}`, `dep_i=${v(f.depI)}`, `dep_r=${v(f.depR)}`, `bag1=${v(f.bag1)}`,
     `left=${v(f.furnaceLeft)}`, `furnace=${v(f.furnace)}`, `lease=${v(f.lease)}`, `verdict=${v(f.verdict)}`,
     `diff=${v(f.diff)}`, `chest=${v(f.chest)}`, `t0=${v(f.t0)}`, `fb=${v(f.fuelBack)}`,
