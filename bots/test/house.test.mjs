@@ -51,8 +51,11 @@ await t('the project order: the workshop until it stands, then the house; repair
   assert.strictEqual(S.activeProject([st('shop', true, true, true), st('house1', true)], P).plot, 'shop', 'a damaged workshop is repaired first')
   assert.strictEqual(S.activeProject([st('shop', true, true), st('house1', true, true, true)], P).plot, 'house1', 'a damaged house is repaired')
   assert.strictEqual(S.activeProject([st('shop', true, true), st('house1', true, true)], P).plot, 'house1', 'all stand: the last (the order reads it complete)')
-  assert.strictEqual(S.activeProject([st('shop', true, true)], S.projectsOn(false)).plot, 'shop', 'HOUSE=off')
-  assert.strictEqual(S.projectsOn(false).length, 1)
+  // zigfleet-01: the ziggurat is on in every pool by default, so HOUSE=off alone leaves the workshop and the ziggurat;
+  // with MONUMENT off too it is the workshop alone, as before
+  assert.strictEqual(S.activeProject([st('shop', true, true)], S.projectsOn(false, false)).plot, 'shop', 'HOUSE=off')
+  assert.strictEqual(S.projectsOn(false, false).length, 1)
+  assert.deepStrictEqual(S.projectsOn(false, true).map(p => p.plot), ['shop', 'monument'], 'HOUSE=off with the ziggurat on')
 })
 
 await t('the order the completed workshop silenced fires again for the house (no record = no completion)', () => {
