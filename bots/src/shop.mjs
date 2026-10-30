@@ -72,6 +72,31 @@ export function activeProject (states = [], list = projectsOn()) {
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due) return p }
   return list[list.length - 1]
 }
+/**
+ * A REPAIR THAT DOES NOT TAKE WAITS (wall-01, LIVE showcase 10-30 07:21Z on: a path cell under a block someone set on it read as
+ * damage the paths' visit cannot mend -- `clears_wait`, nothing done -- and, repairs coming first, every bot's build order went to
+ * it while the wall stood open). A project this bot has visited as a REPAIR REPAIR_TRIES times within REPAIR_WINDOW_MS and that
+ * still reads damaged is taken as only `due` (after every open project) until the window ends; then it is a repair again. Pure.
+ *   mem   Map plot -> { n, first } (the bot's own, for the connection)
+ */
+export const REPAIR_TRIES = 3
+export const REPAIR_WINDOW_MS = 60 * 60_000
+export function repairBackoff (states = [], mem = null, now = Date.now()) {
+  if (!mem) return states
+  return states.map(st => {
+    const e = st?.damaged ? mem.get(st.plot) : null
+    return e && e.n >= REPAIR_TRIES && now - e.first < REPAIR_WINDOW_MS ? { ...st, damaged: false, due: true } : st
+  })
+}
+/** A visit starting on `pick` as a repair (its state damaged) is counted (a window older than REPAIR_WINDOW_MS starts again). Pure
+ *  over `mem` (mutated). */
+export function noteRepair (mem, pick, states = [], now = Date.now()) {
+  if (!mem || !pick) return
+  const st = states.find(x => x?.plot === pick.plot)
+  if (!st?.damaged) return
+  const e = mem.get(pick.plot)
+  mem.set(pick.plot, e && now - e.first < REPAIR_WINDOW_MS ? { n: e.n + 1, first: e.first } : { n: 1, first: now })
+}
 /** THE OTHER PROJECTS' RECORDS AS SITING ZONES -> [{ box: [x0,y0,z0,x1,y1,z1] }]: each record's x/z box widened by `margin`
  *  (a walk lane between buildings and the stand ring), every height. Pure. */
 export const PROJECT_GAP = 3

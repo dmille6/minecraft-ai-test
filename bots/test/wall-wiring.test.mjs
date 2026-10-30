@@ -67,6 +67,18 @@ await t('UPKEEP WAITS (LIVE 10-30): a finished ziggurat only DUE a tidy comes af
   assert.strictEqual(S.activeProject(st({ due: true }, true), L).plot, 'monument', 'with the wall standing, the tidy gets its visit')
   assert.strictEqual(S.activeProject(st({}, true), L).plot, 'wall', 'everything stands: the last project, quiet')
 })
+await t('A REPAIR THAT DOES NOT TAKE WAITS (LIVE 10-30 07:21Z: a path cell under a block, clears_wait every visit, the wall starved)', async () => {
+  const L = S.projectsOn(true, true, true, true)
+  const st = [{ plot: 'shop', exists: true, complete: true }, { plot: 'house1', exists: true, complete: true }, { plot: 'monument', exists: true, complete: true }, { plot: 'paths', exists: true, complete: true, damaged: true }, { plot: 'wall', exists: true, complete: false }]
+  const mem = new Map(), t0 = 1_000_000
+  const picks = []
+  for (let i = 0; i < 5; i++) { const now = t0 + i * 600_000; const s2 = S.repairBackoff(st, mem, now); const p = S.activeProject(s2, L); S.noteRepair(mem, p, s2, now); picks.push(p.plot) }
+  assert.deepStrictEqual(picks, ['paths', 'paths', 'paths', 'wall', 'wall'], 'three repair visits, then the open wall')
+  assert.strictEqual(S.activeProject(S.repairBackoff(st, mem, t0 + S.REPAIR_WINDOW_MS + 1), L).plot, 'paths', 'the window over: a repair again')
+  const done = st.map(x => (x.plot === 'wall' ? { ...x, complete: true } : x))
+  assert.strictEqual(S.activeProject(S.repairBackoff(done, mem, t0 + 3_000_000), L).plot, 'paths', 'nothing open: the backed-off repair still gets its visit')
+  assert.strictEqual(S.activeProject(S.repairBackoff(st, null, t0), L).plot, 'paths', 'no memory (no bot): as before')
+})
 await t('THE FOOTPRINT REFRESH: every wall cell priced, no halo; the cells in the place keep-out; saplings off its columns + 1, not a box', async () => {
   fresh(); shop(true); house(true); mon(true); paths(true); wall(false)
   const bot = { blockAt: () => null }
@@ -101,6 +113,8 @@ for (const [name, re] of [
   ['the visit works the record with its lights last (in memory)', /const rec = wallLightsLast\(rh\.head\.rec\)/],
   ['the wall is sited ONCE (published only when there is no record)', /const pub = publishRecord\(dir, key, cur => \(cur \? null : \{ \.\.\.record, state: 'open' \}\), \{ by: me \}\)\n[^\n]*\n {4}if \(pub\.result === 'accepted'\) \{ try \{ logEvent\(\{ kind: 'build', status: 'success', snapshot: snapshot\(bot\), detail: buildRowDetail\(\{ project: WALL_PLOT, op: 'sited'/],
   ['the wall\'s sapling keep-out is its columns', /r\.blueprint === WALL_BLUEPRINT \? wallSaplingCols\(r\)/],
+  ['build_shop counts its pick as a repair visit (the back-off\'s count)', /const proj = shopActive\(bot, Date\.now\(\), \{ visit: true \}\)/],
+  ['shopActive backs off a repair that does not take', /const states = repairBackoff\(activeMem\.states, rmem, now\)\.map/],
   ['shopActive reads a tidy as upkeep (due), never as damage', /const damaged = complete && b \? recordDamaged\(b, rec, \{ tidy: false \}\) : false\n {8}return \{ plot: p\.plot, exists: !!rec, complete, damaged, due: complete && b && !damaged \? recordDamaged\(b, rec\) : false \}/],
 ]) {
   await t(`${name} (and a mutant of it fails)`, async () => {
