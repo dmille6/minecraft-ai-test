@@ -125,7 +125,8 @@ import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, s
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
-import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS } from './ziggurat.mjs'   // monument-01
+import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
+import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { botBuildEffects } from './buildbot.mjs'
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot } from './shop.mjs'
@@ -16884,9 +16885,10 @@ export function shopDamaged (bot, rec = null) {
 /** A complete record's loaded cells: any no longer done (its own blueprint's palette)? -> bool. Never throws. */
 function recordDamaged (bot, r) {
   try {
-    const bp = blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
-    // monument-01: a sealed core cell of the ziggurat is done (ziggurat.mjs zigHidden), as its visit judges it
-    const mon = r.blueprint === MONUMENT_BLUEPRINT
+    // monument-01: a sealed core cell of the ziggurat is done (ziggurat.mjs zigHidden), as its visit judges it; v2: the record's
+    // own palette (ziggurat.mjs zigPaletteOf -- a v1 record keeps ZIG_PALETTE)
+    const mon = isZigBlueprint(r.blueprint)
+    const bp = mon ? { palette: zigPaletteOf(r) } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     for (const c of r.cells ?? []) {
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
@@ -16915,7 +16917,7 @@ export function shopFootprintRefresh (bot) {
     // the whole town)
     const above = r => (r.cells ?? []).filter(c => c.role === 'path').map(c => `${c.at[0]},${c.at[1] + 1},${c.at[2]}`)
     for (const r of recs) {
-      if (r.blueprint === MONUMENT_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k) } else if (r.blueprint === PATHS_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k); for (const k of above(r)) { fp.add(k); cells.add(k) } } else for (const k of footprintCells(r)) fp.add(k)
+      if (isZigBlueprint(r.blueprint)) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k) } else if (r.blueprint === PATHS_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k); for (const k of above(r)) { fp.add(k); cells.add(k) } } else for (const k of footprintCells(r)) fp.add(k)
       for (const k of recordCellKeys(r)) cells.add(k)
     }
     bot.shopFootprint = fp
@@ -17132,7 +17134,8 @@ const ZIG_SPLIT_TTL_MS = 30 * 24 * 3600_000
 function zigProgressNow (bot, rec) {
   try {
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
-    const p = zigProgress(rec, c => { const b = read(...c.at); return !!b && (buildCellDone(b, ZIG_PALETTE, c.role) || zigHidden(c, read)) })
+    const pal = zigPaletteOf(rec)
+    const p = zigProgress(rec, c => { const b = read(...c.at); return !!b && (buildCellDone(b, pal, c.role) || zigHidden(c, read)) })
     return `${p.done}/${p.done + p.open}@${p.layer ?? 'top'}`
   } catch { return '-' }
 }
@@ -17148,6 +17151,13 @@ async function runVisitCounted (bot, p, e, opts) {
   const r = await runVisit(p, e, opts)
   try { const seen = bot.zigTidySeen ?? null; if (seen) for (const k of new Set(r.tidied ?? [])) seen.set(k, (seen.get(k) ?? 0) + 1) } catch { /* the bound waits */ }
   return r
+}
+/** v2: is a name in town ABOVE the reserve floor a project draw meets now (mats.mjs effectiveReserve: the lowered floor while the
+ *  project is active)? -> (name) => bool. Never throws (unreadable: the full reserve). */
+export function zigBillInTown (bot, town = {}) {
+  let table = matsReserve().table
+  try { table = effectiveReserve(table, { active: projectReserveNow(bot, Date.now(), { fresh: true }).active, forProject: true }).table } catch { /* the full reserve */ }
+  return n => { const k = reserveKeyOf(n); return (Number(town?.[n]) || 0) - (k ? (Number(table[k]) || 0) : 0) > 0 }
 }
 /** THE SPLIT FOUNDATION'S TOMBSTONE on the legacy `seg-F` lease (see buildMonument) -> { ok } | { ok: false, holder }. Never throws. */
 export function monumentSplitGate (dir, key, now = Date.now()) {
@@ -17176,7 +17186,7 @@ async function buildMonument (ctx, args, signal) {
   if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
   const h = townPlanHead(bot)
   if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
-  const dir = townDir(), key = projKeyOf(MONUMENT_PLOT), me = bot.username ?? 'bot', home = planHomeP(), palette = ZIG_PALETTE
+  const dir = townDir(), key = projKeyOf(MONUMENT_PLOT), me = bot.username ?? 'bot', home = planHomeP()
   bot.shopVisitKey = key
   const g = zigFor(process.env, config.memory.pool)
   const stood = stoodRead(dir, stoodKey(), home)
@@ -17193,23 +17203,43 @@ async function buildMonument (ctx, args, signal) {
     const others = new Set(projectHeads().filter(x => x.plot !== MONUMENT_PLOT).flatMap(x => (x.head.rec?.cells ?? []).map(q => `${q.at[0]},${q.at[2]}`)))
     const avoid = zigAvoid({ column: res.column, zones: c.zones, cells: others })
     const col = (x, z) => columnOf(read, x, z, { yHi: home.y + 30, yLo: home.y - 18 })
-    const s = siteZiggurat(col, avoid, { box, home, g })
+    // ZIGGURAT V2 (zigdesign.mjs; MONUMENT_DESIGN=v1 forces the v1 siting): the town's design, chosen ONCE here from its seed (pool +
+    // home), the stock seen now (the town index + this bag's spare) and the biome; the seed's own shape first, then its fallbacks
+    // (one stair face, smaller bases), each sited in turn -- the first that sites is the record
+    let s = null, design = null, gs = g
+    if (zigDesignVersion(process.env) === 'v2') {
+      const stock = { ...(matsTownStock(bot)?.stock ?? {}) }
+      try { for (const [n, k] of Object.entries(matsBagSpare(bot))) stock[n] = (stock[n] ?? 0) + k } catch { /* the town's alone */ }
+      let biome = null
+      try { biome = bot.blockAt?.(new Vec3(home.x, home.y, home.z))?.biome?.name ?? null } catch { /* unknown */ }
+      const seed = zigSeed(config.memory.pool, home)
+      const pinB = Number(process.env.MONUMENT_B)
+      const pin = Number.isInteger(pinB) && pinB % 2 === 0 ? { B: pinB } : {}
+      for (const cand of zigCandidates(seed, pin).slice(0, 4)) {
+        const d = zigDesign(seed, { stock, biome, reserve: matsReserve().table, pin: cand })
+        const r = siteZiggurat(col, avoid, { box, home, g: d.g })
+        if (!s || r.ok) { s = r; design = d; gs = d.g }
+        if (r.ok) break
+      }
+    } else s = siteZiggurat(col, avoid, { box, home, g })
     if (!s.ok) {
       // an UNREAD column (a chunk not loaded from here) is asked again at the next order; anything else waits the daily re-fit
       const unreadOnly = Object.keys(s.rejects ?? {}).length > 0 && Object.keys(s.rejects).every(k => /unread|unknown/.test(k))
       const stop = unreadOnly ? 'site_unread' : 'no_site'
       return out('no_effect', stop, `no ziggurat site in ${box.join(',')} (${s.why}): ${JSON.stringify(s.rejects)}`.slice(0, 160), { stop })
     }
-    const record = zigRecord(s.site, read, { home, g, plan: h.head.plan, sector: (h.head.plan.plots ?? []).find(q => q.kind === 'monument')?.sector ?? null })
+    const record = zigRecord(s.site, read, { home, g: gs, design, plan: h.head.plan, sector: (h.head.plan.plots ?? []).find(q => q.kind === 'monument')?.sector ?? null })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...record, state: 'open' }), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
-    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'sited', cell: [record.corner[0], record.baseY, record.corner[1]], kind: `${record.face}/B${g.B}/cells${record.cells.length}/fill${record.earthwork.fill}/cut${record.earthwork.cut}/clear${record.clear.length}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'sited', cell: [record.corner[0], record.baseY, record.corner[1]], kind: `${record.face}/B${gs.B}/cells${record.cells.length}/fill${record.earthwork.fill}/cut${record.earthwork.cut}/clear${record.clear.length}`, gen: pub.gen, ...(design ? { why: `${record.blueprint}:${zigDesignName(design)}` } : {}) }) }) } catch { /* telemetry */ } }
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the monument record could not be read back')
   }
   shopFootprintRefresh(bot)
   // the foundation in four segments (zigSplitFoundation: in memory, the record file unchanged)
   const rec = zigSplitFoundation(rh.head.rec)
+  // the record's palette: a v2 record's own; a v1 record (the showcase's ziggurat@1) ZIG_PALETTE, unchanged
+  const palette = zigPaletteOf(rec)
   if (rec.structure_complete && !shopDamaged(bot, rec)) {
     if (Object.keys(drawnRead(dir, key, me).drawn).length) drawnWrite(dir, key, me, {})
     return out('no_effect', 'complete', 'the ziggurat stands')
@@ -17252,10 +17282,14 @@ async function buildMonument (ctx, args, signal) {
     // from town under the project reserve (OWNER 10-27: an active project may spend 80% of it: mats.mjs effectiveReserve)
     const read = planReader(bot)
     const town = matsTownStock(bot)?.stock ?? {}
-    const bill = billOf(rec, palette, read, { done: buildCellDone, inTown: billInTown(town) })
+    // v2 (Codex v2 r1 BLOCK): a role's first name is billed only while the town holds it ABOVE the reserve floor this draw will
+    // meet (zigBillInTown) -- else its fallback (cobblestone last) is billed: seven torches at the floor would bill a torch the
+    // withdraw refuses, and a light cell with no torch in the bag would stall. v1 records bill as before (billInTown).
+    const inTownZ = rec.blueprint === MONUMENT_BLUEPRINT ? billInTown(town) : zigBillInTown(bot, town)
+    const bill = billOf(rec, palette, read, { done: buildCellDone, inTown: inTownZ })
     // the bag's other stone and dirt are credited against the CORE's cobblestone only (Codex r1 BLOCK: credited against the whole
     // bill they cancelled the skin's and the stair's, which take cobblestone alone -- need {} and a no_material stop every visit)
-    const coreBill = billOf({ cells: rec.cells.filter(x => x.role === 'core') }, palette, read, { done: buildCellDone, inTown: billInTown(town) })
+    const coreBill = billOf({ cells: rec.cells.filter(x => x.role === 'core') }, palette, read, { done: buildCellDone, inTown: inTownZ })
     const want = zigWant(bill, coreBill, spare0, palette)
     const need = needFromTown(want, spare0)
     let took = {}
@@ -17291,7 +17325,7 @@ async function buildMonument (ctx, args, signal) {
       completed = true
       bot.shopDamage = null
       if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
-      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'complete', kind: MONUMENT_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'complete', kind: rec.blueprint ?? MONUMENT_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
     }
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
@@ -17347,7 +17381,7 @@ async function buildPaths (ctx, args, signal) {
     // the zones, the plan's cells, the wells, the farm and every other project's record columns
     const projects = projectHeads().filter(x => x.plot !== PATHS_PLOT).map(x => {
       let bp = null
-      try { if (x.head.rec?.blueprint && x.head.rec.blueprint !== MONUMENT_BLUEPRINT) bp = blueprintOf(x.head.rec.blueprint) } catch { bp = null }
+      try { if (x.head.rec?.blueprint && !isZigBlueprint(x.head.rec.blueprint)) bp = blueprintOf(x.head.rec.blueprint) } catch { bp = null }
       return { plot: x.plot, rec: x.head.rec, bp }
     })
     const hk = `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`

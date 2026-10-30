@@ -4,6 +4,7 @@
 // functions a bot runs at its first monument visit (skills.mjs buildMonument).
 //
 //   node scripts/zigsite-offline.mjs <dump.json> <pool-state-dir> [--pool showcase] [--b 30] [--out record.json]
+//        [--design v2 [--seed N] [--stock '{"stone_bricks": 200}'] [--biome desert]]
 //
 // <dump.json> is scripts/host/townplan_blockdump.py's output over COPIES of the region files (read-only; a box covering the town
 // plan's monument reservation, y home-18 .. home+30). <pool-state-dir> is a COPY of /var/lib/mcai/_pool-<pool>: the town plan's
@@ -33,12 +34,30 @@ for (const f of files) { const m = /^project-[-\d_]+\.([A-Za-z0-9-]+)\.g(\d+)\.j
 for (const { f } of newest.values()) for (const c of JSON.parse(fs.readFileSync(path.join(poolDir, f), 'utf8')).cells ?? []) cells.add(`${c.at[0]},${c.at[2]}`)
 const res = reservations(plan, { zones, wells, farm })
 const pool = opt('pool', 'showcase')
-const g = opt('b') ? Z.zigFor({ MONUMENT_B: opt('b') }, pool) : Z.zigFor({}, pool)
+let g = opt('b') ? Z.zigFor({ MONUMENT_B: opt('b') }, pool) : Z.zigFor({}, pool)
 const box = Z.monumentBox(plan)
 if (!box) { console.error('the plan holds no monument reservation'); process.exit(1) }
-const s = Z.siteZiggurat((x, z) => Z.columnOf(read, x, z, { yHi: home.y + 30, yLo: home.y - 18 }), Z.zigAvoid({ column: res.column, zones, cells }), { box, home, g })
+const col = (x, z) => Z.columnOf(read, x, z, { yHi: home.y + 30, yLo: home.y - 18 })
+const avoid = Z.zigAvoid({ column: res.column, zones, cells })
+// ZIGGURAT V2 (--design v2): the bots' own choice -- the town seed (--seed N, or --pool's seed with this home), the stock
+// (--stock '{"name": n}': the town index + bag spare the siting bot would see) and --biome; its fallbacks in order, as
+// skills.mjs buildMonument tries them
+let s = null, design = null
+if (opt('design') === 'v2') {
+  const D = await import('../src/zigdesign.mjs')
+  const seed = opt('seed') ? Number(opt('seed')) : D.zigSeed(pool, home)
+  const stock = opt('stock') ? JSON.parse(opt('stock')) : {}
+  const pin = opt('b') ? { B: Number(opt('b')) } : {}
+  for (const cand of D.zigCandidates(seed, pin).slice(0, 4)) {
+    const d = D.zigDesign(seed, { stock, biome: opt('biome'), pin: cand })
+    const r = Z.siteZiggurat(col, avoid, { box, home, g: d.g })
+    if (!s || r.ok) { s = r; design = d; g = d.g }
+    if (r.ok) break
+  }
+  console.error('design', D.zigDesignName(design))
+} else s = Z.siteZiggurat(col, avoid, { box, home, g })
 if (!s.ok) { console.log(JSON.stringify({ ok: false, why: s.why, rejects: s.rejects })); process.exit(1) }
-const rec = Z.zigRecord(s.site, read, { home, g, plan })
-console.log(JSON.stringify({ ok: true, B: g.B, reservation: box, corner: rec.corner, baseY: rec.baseY, face: rec.face, cells: rec.cells.length,
+const rec = Z.zigRecord(s.site, read, { home, g, plan, design })
+console.log(JSON.stringify({ ok: true, blueprint: rec.blueprint, B: g.B, design: rec.design ?? null, reservation: box, corner: rec.corner, baseY: rec.baseY, face: rec.face, cells: rec.cells.length,
   foundation: rec.cells.filter(c => c.seg === 'F').length, earthwork: rec.earthwork, clear: rec.clear.length, bom: rec.bom, avoided: newest.size, tried: s.tried, rejects: s.rejects }))
 if (opt('out')) fs.writeFileSync(opt('out'), JSON.stringify(rec))

@@ -436,7 +436,8 @@ export function sitePaths (read, { plan, zones = [], caps = [], plinth = [], com
   if (caps[0]) dests.push({ id: 'well', to: 'well', cols: ringCols(caps[0][0], caps[0][2], 4) })
   for (const p of projects) {
     if (!p?.rec?.structure_complete) continue                       // a path leads to what stands
-    if (p.rec.blueprint === 'ziggurat@1') { const f = stairFoot(p.rec); if (f.length) dests.push({ id: p.plot, to: p.plot, cols: f }); continue }
+    // zig2-01: either ziggurat blueprint (v2's record has no blueprint file either); its foot on the face toward home
+    if (/^ziggurat@/.test(String(p.rec.blueprint))) { const f = stairFoot(p.rec); if (f.length) dests.push({ id: p.plot, to: p.plot, cols: f }); continue }
     const a = p.bp ? frontApproach(p.rec, p.bp, place) : null
     if (a) dests.push({ id: p.plot, to: p.plot, cols: [a] })
   }

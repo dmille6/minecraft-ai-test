@@ -29,6 +29,11 @@ export const ZIG_DEFAULT = Object.freeze({ B: 48, S: 3, H: 2, STAIR_W: 3 })
 /** The showcase's first monument (OWNER 10-29: built now, on what the town can supply -- see SIZE below). */
 export const ZIG_SHOWCASE = Object.freeze({ B: 30, S: 3, H: 2, STAIR_W: 3 })
 export const MONUMENT_BLUEPRINT = 'ziggurat@1'
+/** ZIGGURAT V2 (OWNER 10-29 "Let's do 1 to 3"): a design per town -- shape knobs, a palette the town can pay for, details --
+ *  chosen ONCE at siting from the town's seed (zigdesign.mjs) and written into the record (`palette`, `design`). */
+export const MONUMENT_BLUEPRINT_V2 = 'ziggurat@2'
+/** Is this a ziggurat record's blueprint (either version)? Pure. */
+export const isZigBlueprint = id => id === MONUMENT_BLUEPRINT || id === MONUMENT_BLUEPRINT_V2
 export const MONUMENT_PLOT = 'monument'
 export const MONUMENT_BUILDERS = 3
 /** What the visit places, by role. `*solid` = any full solid reads done (buildrun.mjs cellDone). */
@@ -43,6 +48,12 @@ export const ZIG_PALETTE = Object.freeze({
  *  dirt and cobblestone; logs are TREE_CLEAR) -- an open cell takes the pathfinder's scaffold (shop.mjs footprintCost), and one in a
  *  skin or stair cell is dug and replaced (Codex r6 BLOCK 2). */
 export const ZIG_FOREIGN = /^(cobblestone|dirt|coarse_dirt|grass_block|podzol|rooted_dirt|mycelium|moss_block|stone|andesite|diorite|granite|tuff|netherrack|cobbled_deepslate|deepslate|gravel|sand|red_sand|clay|mud|snow_block|packed_ice|mossy_cobblestone|calcite|dripstone_block|smooth_basalt|[a-z_]+_sapling|mangrove_propagule|brown_mushroom|red_mushroom|dandelion|poppy|[a-z_]+_tulip|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|allium|blue_orchid|sunflower|lilac|rose_bush|peony|sweet_berry_bush|bush|firefly_bush|leaf_litter|wildflowers|pink_petals|moss_carpet|short_dry_grass|tall_dry_grass|torchflower|cactus_flower|pitcher_plant|snow|torch|wall_torch|[a-z_]+_planks|sandstone|red_sandstone|blackstone|basalt)$/
+
+/** THE PALETTE A RECORD IS BUILT AND JUDGED WITH: a v2 record carries its own (zigdesign.mjs); a v1 record -- the showcase's
+ *  sited ziggurat@1 -- has none and keeps ZIG_PALETTE, the very object it was built with. Pure. */
+export function zigPaletteOf (rec) {
+  return rec?.blueprint === MONUMENT_BLUEPRINT_V2 && rec?.palette && typeof rec.palette === 'object' ? rec.palette : ZIG_PALETTE
+}
 
 /**
  * THE SWITCH -> bool. MONUMENT=on|off; unset = on only in the pools named by MONUMENT_POOLS (default 'showcase'): the fleet's
@@ -64,10 +75,11 @@ export function zigFor (env = process.env, pool = '') {
 }
 
 /** Tier sides for a geometry, widest first. Pure. */
-export function tierSides ({ B, S } = ZIG_DEFAULT) {
+export function tierSides ({ B, S, TIERS } = ZIG_DEFAULT) {
   const out = []
   for (let L = B; L >= 2 * S && L > 0; L -= 2 * S) out.push(L)
-  return out
+  // v2: TIERS caps the count (a truncated ziggurat: a broad summit for its shrine); v1 geometries have none
+  return Number.isInteger(TIERS) && TIERS > 0 ? out.slice(0, TIERS) : out
 }
 /** Layers of solid structure above the base at column offset (i, j) from the NW corner (0..B-1); 0 outside. Pure. */
 export function profileAt (i, j, g = ZIG_DEFAULT) {
@@ -94,6 +106,24 @@ export function quadrantOf (i, j, g = ZIG_DEFAULT) {
 }
 export const segName = (layer, q) => `L${String(layer).padStart(2, '0')}-${q}`
 const FACE_Q = { n: 'N', s: 'S', e: 'E', w: 'W' }
+/** The stair faces: the face toward home, or (v2, FACES 4) all four. Pure. */
+export const facesOf = (g, face) => (g?.FACES === 4 ? ['n', 'e', 's', 'w'] : [face])
+/**
+ * THE STAIR'S STEPS for tier t on a face -> [{ i, j, d, h }]: STAIR_W columns, centred, at distance d = 1 .. H-1 outside tier t's
+ * wall, each a stack h = H - d high from the layer t*H -- every climb +1 (H 2: one step of one block, the v1 grand stair exactly;
+ * H 3: a 2-high step against the wall and a 1-high step before it). Pure.
+ */
+export function stairSteps (t, face, g = ZIG_DEFAULT) {
+  const o = t * g.S, w0 = Math.floor((g.B - g.STAIR_W) / 2), out = []
+  for (let d = 1; d <= Math.max(1, g.H - 1); d++) {
+    for (let w = 0; w < g.STAIR_W; w++) {
+      const a = w0 + w
+      const [i, j] = { s: [a, g.B - o - 1 + d], n: [a, o - d], e: [g.B - o - 1 + d, a], w: [o - d, a] }[face]
+      out.push({ i, j, d, h: Math.max(1, g.H - d) })
+    }
+  }
+  return out
+}
 /** The stair cells' column offsets (i, j) for tier t on a face (one outside tier t's footprint), STAIR_W wide, centred. Pure. */
 export function stairCols (t, face, g = ZIG_DEFAULT) {
   const o = t * g.S, w0 = Math.floor((g.B - g.STAIR_W) / 2), out = []
@@ -119,7 +149,12 @@ export function zigCells ({ corner, baseY, face = 's' }, g = ZIG_DEFAULT) {
     return false
   }
   const stairs = new Map()
-  for (let t = 0; t < sides.length; t++) for (const [i, j] of stairCols(t, face, g)) stairs.set(t * g.H, [...(stairs.get(t * g.H) ?? []), [i, j]])
+  // every step stack of every stair face (v1: one face, one block a step -- the same cells in the same order as before)
+  for (let t = 0; t < sides.length; t++) {
+    for (const f of facesOf(g, face)) {
+      for (const st of stairSteps(t, f, g)) for (let k = 0; k < st.h; k++) stairs.set(t * g.H + k, [...(stairs.get(t * g.H + k) ?? []), [st.i, st.j, FACE_Q[f]]])
+    }
+  }
   const out = []
   for (let l = 0; l < top; l++) {
     const layer = []
@@ -127,11 +162,31 @@ export function zigCells ({ corner, baseY, face = 's' }, g = ZIG_DEFAULT) {
       if (!solid(i, l, j)) continue
       layer.push({ at: [corner.x + i, baseY + l, corner.z + j], role: exposed(i, l, j) ? 'skin' : 'core', seg: segName(l, quadrantOf(i, j, g)), layer: l })
     }
-    for (const [i, j] of stairs.get(l) ?? []) layer.push({ at: [corner.x + i, baseY + l, corner.z + j], role: 'stair', seg: segName(l, FACE_Q[face]), layer: l })
+    for (const [i, j, q] of stairs.get(l) ?? []) layer.push({ at: [corner.x + i, baseY + l, corner.z + j], role: 'stair', seg: segName(l, q), layer: l })
     const qi = { N: 0, E: 1, S: 2, W: 3 }
     layer.sort((a, b) => qi[a.seg.slice(-1)] - qi[b.seg.slice(-1)])
     out.push(...layer)
   }
+  return out
+}
+/**
+ * THE SEGMENTS OF A v2 RECORD'S CELLS -> [{ seg, deps }] (zigdesign.mjs: shrine layers above the summit hold only some quadrants;
+ * the details -- lights, the fire -- are the `D-<q>` segments, last). `F` first; each layer's present quadrants wait on every
+ * segment of the layer below that has cells (the layer barrier); `D-*` waits on the top layer. Pure.
+ */
+export function zigSegmentsOf (cells) {
+  const Q = ['N', 'E', 'S', 'W']
+  const has = new Set(cells.map(c => c.seg))
+  const out = has.has('F') ? [{ seg: 'F', deps: [] }] : []
+  const layers = [...new Set(cells.filter(c => /^L\d\d-/.test(c.seg)).map(c => Number(c.seg.slice(1, 3))))].sort((a, b) => a - b)
+  let prev = has.has('F') ? ['F'] : []
+  for (const l of layers) {
+    const segs = Q.map(q => segName(l, q)).filter(sg => has.has(sg))
+    for (const sg of segs) out.push({ seg: sg, deps: prev })
+    prev = segs
+  }
+  const D = Q.map(q => `D-${q}`).filter(sg => has.has(sg))
+  for (const sg of D) out.push({ seg: sg, deps: prev })
   return out
 }
 /** The segments of a body -> [{ seg, deps }]: `F` first (when there is foundation), then every layer's quadrants, each waiting
@@ -200,7 +255,8 @@ export const SITE = Object.freeze({ step: 1, maxFillShare: 0.25, maxCut: 400, ma
  * Ties: the least work, then the nearest centre to home. The stair faces home.
  */
 export function siteZiggurat (col, avoid, { box, home, g = ZIG_DEFAULT, opts = SITE } = {}) {
-  const B = g.B, M = opts.margin, A = opts.apron
+  // the apron holds every step of the tier-0 stair (v2 H 3: two columns out; v1: one, SITE.apron)
+  const B = g.B, M = opts.margin, A = Math.max(opts.apron, (g.H ?? 2) - 1)
   const rejects = {}, out = []
   // each column is judged once (the corners overlap almost entirely)
   const am = new Map(), cm = new Map()
@@ -224,6 +280,10 @@ export function siteZiggurat (col, avoid, { box, home, g = ZIG_DEFAULT, opts = S
   return { ok: true, why: 'ok', site: out[0], tried: out.length, rejects }
 }
 const edgeOf = (c, g) => c.i === 0 || c.j === 0 || c.i === g.B - 1 || c.j === g.B - 1
+/** The tier-0 stair's column offsets on every stair face, every step -> [[i, j, face]] (v1: the one face's STAIR_W columns). */
+const stepCols = (face, g) => facesOf(g, face).flatMap(f => stairSteps(0, f, g).map(st => [st.i, st.j, f]))
+/** ...its OUTERMOST step only (d = H-1: the step the approach climbs onto; v1: the same columns). */
+const footSteps = (face, g) => facesOf(g, face).flatMap(f => stairSteps(0, f, g).filter(st => st.d === Math.max(1, g.H - 1)).map(st => [st.i, st.j, f]))
 function scoreCorner (col, avoid, corner, g, A, home, opts, plan, skin = new Map()) {
   const B = g.B
   const centre = { x: corner.x + (B - 1) / 2, z: corner.z + (B - 1) / 2 }
@@ -239,10 +299,11 @@ function scoreCorner (col, avoid, corner, g, A, home, opts, plan, skin = new Map
     const inner = i >= 0 && i < B && j >= 0 && j < B
     ;(inner ? base : apron).push({ i, j, x, z, top: c.top, logs: c.logs, prof: inner ? profileAt(i, j, g) : 0 })
   }
-  // the stair approach: up to approachMax columns straight out from the tier-0 stair (built only where the ground falls away)
+  // the stair approach: up to approachMax columns straight out from the tier-0 stair's OUTERMOST step (built only where the ground
+  // falls away), on every stair face (v2 FACES 4: all four must be reachable)
   const appr = []
-  for (const [i, j] of stairCols(0, face, g)) {
-    const [di, dj] = { s: [0, 1], n: [0, -1], e: [1, 0], w: [-1, 0] }[face]
+  for (const [i, j, f] of footSteps(face, g)) {
+    const [di, dj] = { s: [0, 1], n: [0, -1], e: [1, 0], w: [-1, 0] }[f]
     for (let k = 1; k <= opts.approachMax; k++) {
       const x = corner.x + i + di * k, z = corner.z + j + dj * k
       if (avoid(x, z)) return { ok: false, why: 'avoid:approach' }
@@ -265,10 +326,13 @@ function scoreCorner (col, avoid, corner, g, A, home, opts, plan, skin = new Map
     for (const c of apron) if (c.top > baseY - 1) cut += c.top - (baseY - 1)
     // the stair's own step (layer 0, outside the base) needs ground at baseY-1; the approach steps go down one a column
     let approach = 0, ok = true
-    const stairCells = stairCols(0, face, g).map(([i, j]) => [corner.x + i, corner.z + j])
-    for (const [sx, sz] of stairCells) {
+    // every step column needs ground at baseY-1 (fill under it); the approach goes out from the outermost step
+    for (const [sx, sz] of stepCols(face, g).map(([i, j]) => [corner.x + i, corner.z + j])) {
       const s = apron.find(c => c.x === sx && c.z === sz)
       if (s && s.top < baseY - 1) fill += baseY - 1 - s.top
+    }
+    const stairCells = footSteps(face, g).map(([i, j]) => [corner.x + i, corner.z + j])
+    for (const [sx, sz] of stairCells) {
       // the stair's top is feet baseY+1: a column k out is walkable onto the step before it when its ground is at baseY-k or
       // higher (feet baseY-k+1, a +1 climb); else a step block is set at y = baseY-k (on fill from the ground)
       let need = baseY - 1
@@ -299,23 +363,33 @@ function scoreCorner (col, avoid, corner, g, A, home, opts, plan, skin = new Map
  *            (no replant is owed: owner 10-26, a skipped replant is no obligation; the monument's felling is named as such);
  *            the canopy's leaves over the site -- kind 'leaves'
  */
-export function zigRecord (site, read, { home, g = ZIG_DEFAULT, plan = null, sector = null, now = Date.now() } = {}) {
+export function zigRecord (site, read, { home, g = ZIG_DEFAULT, plan = null, sector = null, now = Date.now(), design = null } = {}) {
   const { corner, baseY, face } = site
+  // v2 (zigdesign.mjs zigDesign): the design's palette, its dressed cells and its segments; v1: ZIG_PALETTE and the cells as before
+  const palette = design?.palette ?? ZIG_PALETTE
   // AN AIR POCKET UNDER THE GROUND (offline on the showcase region 10-29: four core cells of layer 0 were air under natural dirt --
   // no face, no sight line, no stand: layer 0 never completed) is a hidden void, not a cell to place: a CORE cell at or below its
   // column's natural ground that is not solid is left out of the record. The skin is always built (the apron cut exposes it).
   const topAt = new Map(site.base.map(c => [`${c.x},${c.z}`, c.top]))
-  const body = zigCells({ corner, baseY, face }, g).filter(c => !(c.role === 'core' && c.at[1] <= (topAt.get(`${c.at[0]},${c.at[2]}`) ?? -Infinity) && !full(read(...c.at))))
-  const found = []
+  // ...and LEAVES there count as the void they become (zig2 offline 10-30, seed 2716330262 on the showcase region: a core cell of
+  // spruce leaves under natural dirt, over a hollow, was cleared by the canopy rule and then had no face and no stand -- 377 cells
+  // waited on it: STALLED)
+  const voidAt = b => !full(b) || /_leaves$/.test(nm(b))
+  const body0 = zigCells({ corner, baseY, face }, g).filter(c => !(c.role === 'core' && c.at[1] <= (topAt.get(`${c.at[0]},${c.at[2]}`) ?? -Infinity) && voidAt(read(...c.at))))
+  let found = []
   // the foundation under the base's OUTER ring shows below layer 0: skin (cobblestone), never a dirt skirt
   for (const c of site.base) {
     const edge = edgeOf(c, g)
     for (let y = edge ? c.top + 1 : Math.max(c.top + 1, baseY - FOUND_DEPTH); y < baseY; y++) found.push({ at: [c.x, y, c.z], role: edge ? 'skin' : 'core', seg: 'F', layer: -1 })
   }
-  const stairCells = stairCols(0, face, g).map(([i, j]) => [corner.x + i, corner.z + j])
+  // under every step column of the tier-0 stair; the approach from the outermost step. v1 (H 2, one face): every step column is an
+  // outermost one, so the cells and their order are exactly as before
+  const stairCells = footSteps(face, g).map(([i, j]) => [corner.x + i, corner.z + j])
+  const fillUnder = (sx, sz) => { const s = site.apron.find(c => c.x === sx && c.z === sz); if (s) for (let y = s.top + 1; y < baseY; y++) found.push({ at: [sx, y, sz], role: 'skin', seg: 'F', layer: -1 }) }
+  const footKey = new Set(stairCells.map(([x, z]) => `${x},${z}`))
+  for (const [sx, sz] of stepCols(face, g).map(([i, j]) => [corner.x + i, corner.z + j])) if (!footKey.has(`${sx},${sz}`)) fillUnder(sx, sz)
   for (const [sx, sz] of stairCells) {
-    const s = site.apron.find(c => c.x === sx && c.z === sz)
-    if (s) for (let y = s.top + 1; y < baseY; y++) found.push({ at: [sx, y, sz], role: 'skin', seg: 'F', layer: -1 })
+    fillUnder(sx, sz)
     let need = baseY - 1
     for (const a of site.appr.filter(a => a.stair[0] === sx && a.stair[1] === sz).sort((p, q) => p.k - q.k)) {
       if (a.top >= need) break
@@ -323,8 +397,12 @@ export function zigRecord (site, read, { home, g = ZIG_DEFAULT, plan = null, sec
       need -= 1
     }
   }
+  // the design dresses the body (bands, trim, weathering; parapet, shrine, lights) and names the foundation's shown cells `plinth`
+  let body = body0
+  if (design) ({ body, found } = design.dress({ body: body0, found, corner, baseY, face, g }))
   const clear = []
-  const top = zigHeight(g)
+  // the highest layer above baseY (v2: the shrine stands over the summit)
+  const top = design ? Math.max(zigHeight(g), ...body.map(c => c.at[1] - baseY + 1)) : zigHeight(g)
   for (const c of site.base) {
     const ceil = baseY - 1 + c.prof
     for (let y = ceil + 1; y <= c.top; y++) { const b = read(c.x, y, c.z); if (b && full(b)) clear.push({ at: [c.x, y, c.z], kind: 'cut', name: nm(b) }) }
@@ -357,19 +435,21 @@ export function zigRecord (site, read, { home, g = ZIG_DEFAULT, plan = null, sec
     const b = read(...c.at), n = nm(b)
     if (b && /_log$|_wood$/.test(n)) { clear.push({ at: c.at, kind: 'tree', name: n }); continue }
     if (c.role === 'core') continue
-    if (b && full(b) && n !== ZIG_PALETTE[c.role][0] && !TREE.test(n) && !FURNITURE.test(n)) clear.push({ at: c.at, kind: 'cut', name: n })
+    const ok = design ? (palette[c.role] ?? []).includes(n) : n === ZIG_PALETTE[c.role][0]
+    if (b && full(b) && !ok && !TREE.test(n) && !FURNITURE.test(n)) clear.push({ at: c.at, kind: 'cut', name: n })
   }
   const cells = [...found, ...body]
   const bom = {}
-  for (const c of cells) { const n = c.role === 'core' ? 'cobblestone' : ZIG_PALETTE[c.role][0]; bom[n] = (bom[n] ?? 0) + 1 }
+  for (const c of cells) { const n = c.role === 'core' ? 'cobblestone' : palette[c.role][0]; bom[n] = (bom[n] ?? 0) + 1 }
+  const v2 = design ? { palette, design: design.summary, topY: baseY + top - 1 } : {}
   return {
-    v: 1, blueprint: MONUMENT_BLUEPRINT, plot: MONUMENT_PLOT, home, sector, geometry: { ...g },
+    v: 1, blueprint: design ? MONUMENT_BLUEPRINT_V2 : MONUMENT_BLUEPRINT, plot: MONUMENT_PLOT, home, sector, geometry: { ...g },
     corner: [corner.x, corner.z], centre: [site.centre.x, site.centre.z], face, baseY,
     box: [corner.x, corner.z, corner.x + g.B - 1, corner.z + g.B - 1],
     earthwork: { fill: site.fill, cut: site.cut, logs: site.logs },
     clear, replant: [], cells: cells.map(({ at, role, seg }) => ({ at, role, seg })),
-    segments: zigSegments(g, { foundation: found.length > 0 }), bom, builders_max: MONUMENT_BUILDERS,
-    structure_complete: false, plan: plan ? { gen: plan.gen } : null, sitedAt: now,
+    segments: design ? zigSegmentsOf(cells) : zigSegments(g, { foundation: found.length > 0 }), bom, builders_max: MONUMENT_BUILDERS,
+    structure_complete: false, plan: plan ? { gen: plan.gen } : null, sitedAt: now, ...v2,
   }
 }
 
@@ -453,7 +533,8 @@ export const ZIG_CLEAR_MAX = 60
 
 /** Is a builder's feet ON the site (the record's box + 1, below its top + 2)? -> (feet) => bool, for runVisit's `leaveIf`. Pure. */
 export function zigOnSite (record) {
-  const [x0, z0, x1, z1] = record.box, top = record.baseY + zigHeight(record.geometry ?? ZIG_DEFAULT) + 2
+  // v2: the record's topY (its shrine); v1: the body's height, as before
+  const [x0, z0, x1, z1] = record.box, top = Number.isFinite(record.topY) ? record.topY + 3 : record.baseY + zigHeight(record.geometry ?? ZIG_DEFAULT) + 2
   return f => !!f && f[0] >= x0 - 1 && f[0] <= x1 + 1 && f[2] >= z0 - 1 && f[2] <= z1 + 1 && f[1] <= top
 }
 
@@ -474,7 +555,8 @@ export function zigProgress (record, done) {
   for (const c of record?.cells ?? []) {
     if (done(c)) { d++; continue }
     open++
-    const l = c.seg.startsWith('F') ? -1 : Number(c.seg.slice(1, 3))
+    // F -1, D (v2's details, last) 99
+    const l = c.seg.startsWith('F') ? -1 : c.seg.startsWith('D') ? 99 : Number(c.seg.slice(1, 3))
     if (layer == null || l < layer) layer = l
   }
   return { done: d, open, layer }
