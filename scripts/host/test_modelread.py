@@ -29,9 +29,10 @@ def t(name, ok, detail=''):
 
 
 def row(mins, model='qwen3.5:9b', valid=True, ver=CS, mismatch=None, skill='gather', args=None, status='success',
-        detail='', admission='normal', error=None):
+        detail='', admission='normal', error=None, endpoint='http://bw:11438'):
     return {'_t': D + dt.timedelta(minutes=mins), 'code': {'version': ver + '+abc'},
-            'llm': {'model': model, 'schema_valid': valid, 'model_mismatch': mismatch, 'admission': admission, 'error': error},
+            'llm': {'model': model, 'schema_valid': valid, 'model_mismatch': mismatch, 'admission': admission, 'error': error,
+                    'endpoint': endpoint},
             'tool_calls': [{'skill': skill, 'args': args or {'block': 'oak_log'}}], 'outcome': {'status': status, 'detail': detail}}
 
 
@@ -52,6 +53,16 @@ def main():
                                                                  'qwen3.5:9b', CS, now, D) == ['a'])
     t('stall: a quantisation-suffixed tag counts as the model', M.stall_bots({'a': [row(58, model='qwen3.5:9b-q4_K_M')]}, {'a': True},
                                                                              'qwen3.5:9b', CS, now, D) == [])
+    t('served: a decision nothing served (endpoint null, configured model logged) is not served',
+      not M.served_by(row(1, endpoint=None), 'qwen3.5:9b') and M.served_by(row(1), 'qwen3.5:9b'))
+    order = row(3, endpoint=None); order['llm']['latency_ms'] = 0
+    fail = row(3, endpoint=None, valid=False); fail['llm']['latency_ms'] = 90000
+    t('order: a work-order row (no endpoint, latency 0, valid) is not a model decision; a failed decision is',
+      M.is_order(order) and not M.is_order(fail) and not M.is_order(dict(row(3), llm=dict(row(3)['llm'], latency_ms=900))))
+    t('stall: a work-order row does not keep a bot alive', M.stall_bots({'a': [order]}, {'a': True}, 'qwen3.5:9b', CS, now, D) == ['a'])
+    seqo = [row(1, status='failed', detail='no path'), dict(order, _t=D + dt.timedelta(minutes=2))]
+    c0 = M.repeat_rates(seqo)
+    t('repeats: a work order repeating a failed action is not counted as the model repeating it', c0['fail_n'] == 0 and c0['n'] == 1, c0)
     t('poll: REVERT at 2', M.poll_decision(['a', 'b'], 10, False)[0] == 'REVERT')
     t('poll: OK at 1', M.poll_decision(['a'], 10, True)[0] == 'OK')
     t('poll: UNREADABLE with no active unit', M.poll_decision([], 0, True)[0] == 'UNREADABLE')

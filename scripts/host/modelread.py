@@ -17,11 +17,13 @@ FIELDS (own lines bind to these; all shares are 0..1, None = no denominator, nev
   stall_bots             canary bots (unit active) with no schema-valid decision served by the canary model in the last
                          STALL_MIN minutes. The fleet's own rate is 1.33 decisions/min/bot and its 6-h baseline had ZERO
                          10-min gaps on any of 80 bots (10-30), so >= 2 is a stall, not a quiet patch.
-  model_share            canary POST llm rows served by the canary model with model_mismatch null / all canary POST rows
+  model_share            canary POST model decisions answered (llm.endpoint set) by the canary model, no model_mismatch /
+                         all canary POST model decisions (work-order rows excluded; an unserved decision counts against it)
+  order_share_*          work-order rows / all llm rows (reported)
   schema_valid_canary / schema_valid_control / schema_gap_pp = (control - canary) * 100
   lat_p50_ms / lat_p95_ms (canary POST)   and control_lat_p50_ms / control_lat_p95_ms
   completion_p95         canary POST completion tokens p95 (a thinking model fills num_predict 512; no-think is ~60-90)
-  decisions_bh_did       ratio-DiD of llm rows per bot-hour
+  decisions_bh_did       ratio-DiD of MODEL decisions per bot-hour (work orders excluded: is_order)
   items_bh_canary_pre/post, items_bh_control_pre/post, items_ratio_did   (sum of positive inventory_delta per bot-h)
   rep_fail_*             P(the decision repeats the previous decision's key | that one was admitted and FAILED,
                          non-transient); bench/models/score.py key_of -- the live form of the replay's rep_fail
@@ -91,9 +93,20 @@ def canary_model(reg):
 
 
 def served_by(row, model):
+    """Served by the canary model: an endpoint ANSWERED (llm.endpoint set) with that model and no mismatch. A decision
+    nothing served logs the CONFIGURED model (cognitive.mjs `res.model ?? config.llm.model`) with endpoint null, so the
+    model name alone would count an outage as served (both reviewers, r1)."""
     L = row.get('llm') or {}
     m = str(L.get('model') or '')
-    return bool(model) and (m == model or m.startswith(model + '-')) and not L.get('model_mismatch')
+    return bool(model) and bool(L.get('endpoint')) and (m == model or m.startswith(model + '-')) and not L.get('model_mismatch')
+
+
+def is_order(row):
+    """A WORK ORDER, not a model decision: cognitive.mjs runs a deterministic order without calling the model and still
+    writes an llm row -- latency 0, schema_valid true, no endpoint, and the CONFIGURED model name (10-30: ~10-15% of
+    rows). Counting them would credit the canary model with decisions it never made (and hide an outage)."""
+    L = row.get('llm') or {}
+    return not L.get('endpoint') and not L.get('latency_ms') and bool(L.get('schema_valid'))
 
 
 def roster(pools):
@@ -205,9 +218,10 @@ def repeat_rates(rows):
         o = r.get('outcome') or {}
         k = key_of(tc.get('skill'), tc.get('args')) if tc.get('skill') else None
         refused = o.get('status') == 'aborted' and L.get('admission') is None and bool(tc.get('skill'))
-        c['n'] += 1
-        c['refused'] += refused
-        if prev is not None and k is not None:
+        model_made = not is_order(r)
+        c['n'] += model_made
+        c['refused'] += refused and model_made
+        if prev is not None and k is not None and model_made:
             pk, prefused, pstatus, pdetail, perr = prev
             if not prefused and pstatus == 'failed' and not TRANSIENT.search(pdetail) \
                     and not pdetail.startswith(RUNNER_REFUSED):
@@ -311,14 +325,15 @@ def do_read(M):
         for ph, a, z in (('pre', pre_start, decl), ('post', post_start, post_end)):
             lr = {b: part(L[b], a, z, arm == 'canary') for b in bots}
             sr = {b: part(S[b], a, z, arm == 'canary') for b in bots}
-            rows = [r for v in lr.values() for r in v]
+            allrows = [r for v in lr.values() for r in v]
+            rows = [r for r in allrows if not is_order(r)]          # MODEL decisions only (served or failed)
             bh = bot_hours(sr, a, z)
             rc = {'fail_n': 0, 'fail_rep': 0, 'veto_n': 0, 'veto_rep': 0, 'n': 0, 'refused': 0}
             for v in lr.values():
                 for k, x in repeat_rates(v).items():
                     rc[k] += x
             arms[(arm, ph)] = {
-                'rows': len(rows), 'bh': bh,
+                'rows': len(rows), 'all_rows': len(allrows), 'bh': bh,
                 'model_rows': sum(1 for r in rows if served_by(r, model)),
                 'valid': sum(1 for r in rows if (r.get('llm') or {}).get('schema_valid')),
                 'lat': [(r.get('llm') or {}).get('latency_ms') for r in rows if (r.get('llm') or {}).get('schema_valid')],
@@ -330,6 +345,8 @@ def do_read(M):
     st = stall_bots({b: part(L[b], post_end - dt.timedelta(minutes=STALL_MIN + 5), post_end, True) for b in can},
                     act, model, csha, post_end, decl)
     f = {
+        'order_share_canary_post': share(cq['all_rows'] - cq['rows'], cq['all_rows']),
+        'order_share_control_post': share(kq['all_rows'] - kq['rows'], kq['all_rows']),
         'model': model, 'canary_bots': len(can), 'control_bots': len(ctl),
         'canary_post_rows': cq['rows'], 'canary_post_bot_h': round(cq['bh'], 2),
         'stall_bots': len(st), 'stalled': st,
