@@ -2025,7 +2025,20 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     const h = townHome()
     const inTown = !!h && inTownBox({ x: feet.x, y: Math.max(feet.y, Math.floor(h.y)), z: feet.z }, h)
     const plan = logSurfacePlan({ block: blockName, y: bot.entity.position.y, roofTop, inTown })
-    return plan && { ...plan, roofTop }
+    if (!plan) return null
+    // ZIGFLEET-01 (Codex blockers-only review: logsurface-01 x the ziggurat): the climb digs straight up (surface/shaftAscend,
+    // outside the footprint price), so on a town project's site -- a ziggurat's foundation hollow, under its tiers, a house --
+    // it would dig the structure's own cells. There, and wherever the site cannot be read, the gather does NOT climb: the
+    // base's gather, exactly (no plan), and one `log_surface refused` row per 10 min
+    const site = projectSiteNow(bot)
+    if (!site.ok || site.hit) {
+      if (Date.now() - (bot.logSurfaceSiteAt ?? -Infinity) >= 10 * 60_000) {
+        bot.logSurfaceSiteAt = Date.now()
+        try { logEvent({ kind: 'log_surface', status: 'refused', snapshot: snapshot(bot), detail: `${blockName}: no climb ${site.ok ? `on the ${site.hit} site` : '(a project site could not be read)'} at ${feet.x},${feet.y},${feet.z} (roof top ${roofTop})` }) } catch { /* telemetry */ }
+      }
+      return null
+    }
+    return { ...plan, roofTop }
   }
   for (let plan = surfacePlanNow(), climbs = 0; plan && climbs < 2 && Date.now() - gatherT0 < LOG_SURFACE_MS; plan = surfacePlanNow()) {
     climbs++
@@ -12883,7 +12896,10 @@ export function townCoalStock (bot) {
  * recordZones of EVERY project record, as the siting reads them, COAL_SITE_MARGIN round a box). Any record unreadable, or no
  * position: ok false (the run is refused). A hit is logged as a `coal_site` row at most once per 10 min per bot. Never throws.
  */
-export function coalSiteOf (bot) {
+/** THE TOWN PROJECT SITE THE BOT STANDS IN -> { ok, hit } (coalrun.mjs projectSiteHit over shop.mjs recordZones of every
+ *  projectsOn() record head, + COAL_SITE_MARGIN). ok false: no position, or a record that could not be read. No telemetry:
+ *  coalSiteOf (the coal run) and the log gather's climb (zigfleet-01) each say what they refused. Never throws. */
+export function projectSiteNow (bot) {
   try {
     const p = bot?.entity?.position
     if (!p) return { ok: false, hit: null }
@@ -12892,7 +12908,15 @@ export function coalSiteOf (bot) {
     // a record with generations on disk but no head (every one rejected: unreadable, unparseable, a broken chain) is not "no
     // record": its site is unknown (Codex r1 BLOCK)
     if (!hs.every(h => h.ok && (h.head || !(h.gens?.length)))) return { ok: false, hit: null }
-    const hit = projectSiteHit(p, recordZones(hs.map(h => h.head?.rec).filter(Boolean), COAL_SITE_MARGIN))
+    return { ok: true, hit: projectSiteHit(p, recordZones(hs.map(h => h.head?.rec).filter(Boolean), COAL_SITE_MARGIN)) }
+  } catch { return { ok: false, hit: null } }
+}
+export function coalSiteOf (bot) {
+  try {
+    const p = bot?.entity?.position
+    const site = projectSiteNow(bot)
+    if (!site.ok) return site
+    const hit = site.hit
     if (hit && Date.now() - (bot.coalSiteAt ?? -Infinity) >= 10 * 60_000) {
       bot.coalSiteAt = Date.now()
       try { logEvent({ kind: 'coal_site', status: 'refused', snapshot: snapshot(bot), detail: `coal run refused on ${hit} at ${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}` }) } catch { /* telemetry */ }
