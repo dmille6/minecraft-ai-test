@@ -257,7 +257,7 @@ await t('LIDS x COBBLEKEEP: coal under a dirt lid -> dug, found (past the fuel c
   }
   const d = await scene('dirt')
   assert.equal(d.r.stop, 'no_furnace', `${d.r.status} ${d.r.stop} ${d.r.detail}`); assert.deepEqual(d.w.digs, [kOf([coalAt[0], coalAt[1] + 1, coalAt[2]])])
-  const p = await scene('oak_planks')
+  const p = await scene('stone')   // lidplank-01: unrecorded planks may be dug now; stone never
   assert.equal(p.r.stop, 'no_fuel', `${p.r.status} ${p.r.stop} ${p.r.detail}`); assert.deepEqual(p.w.digs, [])
   assert.equal(count(chest(p.w, coalAt), 'coal'), 4, 'the blocked chest kept its coal'); assert.equal(count(chest(p.w, COPPER), 'raw_copper'), 8)
   assert.equal(p.w.dropped.length, 0)

@@ -1170,6 +1170,10 @@ test('STOCK CHAIN (a): a full bag of at-target logs whose town has never been co
 // count refuses -- `_lid_clear outcome=refused by=count_town` 276 times on one chest (placebo-a), counted 0 of 1 each stay.
 // The rule is towndeposit.mjs countSkipWhy; the offer (stockCountKeys, read by the order) and the count (reconcileCobble)
 // both call skills.mjs countSkip. STOCK CHAIN (a) above is the positive control: the same bag and chest, no lid -> the count.
+// lidplank-01 (merged after): a WOOD lid on no build record may now be cleared, so oak_planks is no longer the refused lid of
+// these scenes -- they use stone_bricks (never breakable off a lid), and the CHAIN asserts the composition: the plank lid
+// is offered AND counted by the same one rule.
+const REFUSED_LID = 'stone_bricks'
 const plankLidTown = async lid => {
   const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ...filler(31)])
   const chest = chestAt(2, 70, 0, { lid, items: Array.from({ length: 27 }, (_, i) => (i < 10 ? item('oak_log', 64) : null)) })
@@ -1185,10 +1189,10 @@ test('TOWNDEPOSIT-01 pure: countSkipWhy -- loaded, a container, and no refused l
   assert.equal(W({ loaded: true, container: false }), 'not a container')
   assert.equal(W(), 'not loaded')
 })
-test('TOWNDEPOSIT-01 CHAIN: the same full bag of uncounted logs, the only chest under an OAK_PLANKS lid -> no count key, NO town_deposit order (the loop goes on); a DIRT lid (the clear digs it) -> the count is offered', async () => {
+test('TOWNDEPOSIT-01 CHAIN: the same full bag of uncounted logs, the only chest under a refused (STONE_BRICKS) lid -> no count key, NO town_deposit order (the loop goes on); a DIRT lid (the clear digs it) and, since lidplank-01, an OAK_PLANKS lid on no build record -> the count is offered', async () => {
   const SK = await import('../src/skills.mjs')
   {
-    const { bot, done } = await plankLidTown('oak_planks')
+    const { bot, done } = await plankLidTown(REFUSED_LID)
     try {
       assert.equal(SK.countSkip(bot, new Vec3(2, 70, 0)), 'lid blocked')
       assert.deepEqual(SK.stockCountKeys(bot, bot.inventory.items(), { floor: true }), [], 'the offer sees what the count would skip')
@@ -1204,9 +1208,16 @@ test('TOWNDEPOSIT-01 CHAIN: the same full bag of uncounted logs, the only chest 
       assert.deepEqual(SK.stockCountKeys(bot, bot.inventory.items(), { floor: true }), ['2,70,0'], 'positive control: the count is offered')
     } finally { done() }
   }
+  {
+    const { bot, done } = await plankLidTown('oak_planks')
+    try {
+      assert.equal(SK.countSkip(bot, new Vec3(2, 70, 0)), null, 'lidplank-01: a plank lid no build record holds may be cleared')
+      assert.deepEqual(SK.stockCountKeys(bot, bot.inventory.items(), { floor: true }), ['2,70,0'], 'so the offer and the count agree: offered')
+    } finally { done() }
+  }
 })
 test('TOWNDEPOSIT-01 SKILL: a recount order that reaches the skill anyway counts nothing and walks nowhere (the same rule); the skipped lid keeps its `_lid_clear refused` row in count_town', async () => {
-  const { bot, chest, done } = await plankLidTown('oak_planks')
+  const { bot, chest, done } = await plankLidTown(REFUSED_LID)
   const lids = []
   const untap = tapRecords(r => { if (r?.skill?.name === '_lid_clear') lids.push(r.skill.detail) })
   try {
@@ -1217,17 +1228,17 @@ test('TOWNDEPOSIT-01 SKILL: a recount order that reaches the skill anyway counts
     SK.resetCobbleReconcile?.()
     const c = await SKILLS.count_town.run({ bot }, {}, new AbortController().signal)
     void c
-    assert.ok(lids.some(d => /^outcome=refused by=count_town at=2,70,0 .*lid=oak_planks/.test(d)), `the refusal stays visible: ${lids.join(' | ')}`)
+    assert.ok(lids.some(d => /^outcome=refused by=count_town at=2,70,0 .*lid=stone_bricks/.test(d)), `the refusal stays visible: ${lids.join(' | ')}`)
   } finally { untap(); done() }
 })
-test('TOWNDEPOSIT-01 MUTANT KILLED: stockCountKeys without the countSkip filter offers the plank-lidded chest again', async () => {
+test('TOWNDEPOSIT-01 MUTANT KILLED: stockCountKeys without the countSkip filter offers the refused-lid chest again', async () => {
   const SP = new URL('../src/skills.mjs', import.meta.url)
   const src = fs.readFileSync(SP, 'utf8')
   const old = "    return cobbleReconcilable({ unknown: [...keys] }, now).filter(k => !countSkip(bot, keyVec(k)))"
   assert.equal(src.split(old).length, 2, 'ANCHOR MISSING or not unique')
   const out = new URL(`./_mutant-td01-${process.pid}.mjs`, import.meta.url)
   fs.writeFileSync(out, src.replace(old, "    return cobbleReconcilable({ unknown: [...keys] }, now)").replace(/from '\.\//g, "from '../src/"))
-  const { bot, done } = await plankLidTown('oak_planks')
+  const { bot, done } = await plankLidTown(REFUSED_LID)
   try {
     const M = await import(out.href)   // the bot's stock readers stay the real module's (installCobbleCap in stockChain)
     const SK0 = await import('../src/skills.mjs')
