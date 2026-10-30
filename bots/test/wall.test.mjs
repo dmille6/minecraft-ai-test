@@ -140,12 +140,24 @@ await t('WATER is a gap (never a bridge); a PROTECTED ZONE is a gap; a trunk in 
   assert.ok(logs.includes(`-4,${G + 7},12`) && logs.includes(`-3,${G + 7},12`) && logs.includes(`-4,${G + 1},12`), 'the whole trunk and its branch')
   assert.strictEqual(r.felled.trunks, 1)
 })
+await t('A TRUNK IS NEVER FELLED ACROSS A BOUNDARY (Codex r1 BLOCK): its branch into a protected zone stays; the line\'s logs go', () => {
+  const cells = {}
+  for (let y = G + 1; y <= G + 4; y++) cells[`6,${y},-12`] = 'spruce_log'
+  cells[`6,${G + 4},-13`] = 'spruce_log'; cells[`6,${G + 4},-14`] = 'spruce_log'; cells[`6,${G + 4},-15`] = 'spruce_log'
+  const zones = [{ id: 'v', box: [-20, -64, -40, 20, 320, -14] }]
+  const r = site(server(cells), { zones }).record
+  assert.ok(['wall', 'post'].includes(colAt(r, 6, -12).s), 'the trunk\'s column is a wall column')
+  const logs = new Set(r.clear.filter(c => c.kind === 'tree').map(c => c.at.join(',')))
+  assert.ok(logs.has(`6,${G + 1},-12`) && logs.has(`6,${G + 4},-13`), 'the column and the branch outside the zone')
+  assert.ok(!logs.has(`6,${G + 4},-14`) && !logs.has(`6,${G + 4},-15`), 'nothing in the zone')
+  assert.ok(r.clear.every(c => !(c.at[2] <= -14)), 'no clear of any kind in the zone')
+})
 await t('THE GROUND STEPS: on a slope the base follows it (each step at most 1 along a run) and a column never stands taller than TALL_MAX', () => {
   const cells = {}
   // the east side rises 1 per 2 columns of z (a hill under the line)
-  for (let z = -12; z <= 12; z++) for (let x = 10; x <= 14; x++) { const h = Math.max(0, Math.floor((z + 12) / 3)); for (let y = G + 1; y <= G + h; y++) cells[`${x},${y},${z}`] = 'dirt'; if (h) cells[`${x},${G + h},${z}`] = 'grass_block' }
+  for (let z = -12; z <= 12; z++) for (let x = 9; x <= 16; x++) { const h = Math.max(0, Math.floor((z + 12) / 3)); for (let y = G + 1; y <= G + h; y++) cells[`${x},${y},${z}`] = 'dirt'; if (h) cells[`${x},${G + h},${z}`] = 'grass_block' }
   const r = site(server(cells)).record
-  const east = r.cols.filter(c => c.x === 12 && (c.s === 'wall' || c.s === 'post')).sort((a, b) => a.z - b.z)
+  const east = r.cols.filter(c => c.x === r.ring[2] && (c.s === 'wall' || c.s === 'post')).sort((a, b) => a.z - b.z)
   assert.ok(east.length > 6)
   for (let i = 1; i < east.length; i++) if (east[i].z === east[i - 1].z + 1) assert.ok(Math.abs(east[i].b - east[i - 1].b) <= 1)
   for (const c of east) assert.ok(cellsAt(r, c.x, c.z).length <= W.WALL.tallMax + 1)

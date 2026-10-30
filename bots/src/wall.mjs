@@ -41,7 +41,7 @@ export const WALL_PLOT = 'wall'
 export const WALL_BLUEPRINT = 'wall@1'
 export const WALL_BUILDERS = 4
 /** The cross-section and the ring (see the header). RUN_MAX and GAP are owner Q7's. */
-export const WALL = Object.freeze({ margin: 6, marginMax: 9, body: 3, runMax: 12, runMin: 4, gap: 2, tallMax: 7, dy: 14, logMax: 48, clearUp: 2 })
+export const WALL = Object.freeze({ margin: 6, marginMax: 9, body: 3, runMax: 12, runMin: 5, gap: 2, tallMax: 7, dy: 14, logMax: 48, clearUp: 2 })
 /** THE PALETTE: the body, the steps and a foundation are cobblestone (mossy counts as built); a post is stone bricks where the town
  *  has them, else cobblestone; a light is a torch. */
 export const WALL_PALETTE = Object.freeze({
@@ -308,6 +308,10 @@ export function wallCandidate (read, inside, m, { home, avoid = () => null, pzon
         for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
           const p = [px + dx, py + dy, pz + dz], key = p.join(',')
           if (got.has(key) || p[1] < home.y - WALL.dy) continue
+        // never across a boundary (Codex r1 BLOCK): a log in a protected zone, the plan, a well, the farm or another project's
+        // reservation is never felled -- the tree is cut at its edge (a path's zone, a gateway, is no such boundary)
+        const rr = (p[0] !== x || p[2] !== z) ? reason(p[0], p[2]) : null
+        if (rr && rr.s !== 'gate') continue
           const b = read(...p)
           if (b && LOG.test(nm(b))) { got.set(key, p); q.push(p) }
         }
