@@ -97,6 +97,25 @@ export function noteRepair (mem, pick, states = [], now = Date.now()) {
   const e = mem.get(pick.plot)
   mem.set(pick.plot, e && now - e.first < REPAIR_WINDOW_MS ? { n: e.n + 1, first: e.first } : { n: 1, first: now })
 }
+/**
+ * A STUCK PROJECT WAITS BEHIND THE OTHERS (stuckwait-01, LIVE showcase 10-30 10:24Z on: the ziggurat's repair hit two cells no
+ * stand reached -- a sealed void an escape dug in its core -- and its F4 back-off (any builder's stuck_on_cell holds the ORDER for
+ * SHOP_STUCK_RETRY_MS) held EVERY bot's build_shop for 6 h, because the stuck ziggurat stayed the active project (repairs first)
+ * while the wall stood open at 198 of 941). A project whose stuck stamp is inside the back-off is taken as only `due` when complete
+ * (after every open project, as repairBackoff does) and as not `free` when open (the next open project first); with nothing else
+ * to work, activeProject still returns it and the order's back-off holds as before. Pure.
+ *   stuckOf  plot -> the project's stuck stamp ms | null (buildproj.mjs stuckAt); a throw reads as none
+ */
+export function stuckBackoff (states = [], stuckOf = null, now = Date.now()) {
+  if (typeof stuckOf !== 'function') return states
+  return states.map(st => {
+    if (!st?.exists) return st
+    let sa = null
+    try { sa = stuckOf(st.plot) } catch { sa = null }
+    if (!(Number.isFinite(sa) && sa <= now + 60_000 && now - sa < SHOP_STUCK_RETRY_MS)) return st
+    return st.complete ? { ...st, damaged: false, due: true, stuck: true } : { ...st, free: false, stuck: true }
+  })
+}
 /** THE OTHER PROJECTS' RECORDS AS SITING ZONES -> [{ box: [x0,y0,z0,x1,y1,z1] }]: each record's x/z box widened by `margin`
  *  (a walk lane between buildings and the stand ring), every height. Pure. */
 export const PROJECT_GAP = 3

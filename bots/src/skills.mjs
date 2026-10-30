@@ -130,7 +130,7 @@ import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS } from './ziggurat.mjs'   // monument-01
 import { botBuildEffects } from './buildbot.mjs'
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
-import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -16710,7 +16710,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // wall-01: a repair this bot has tried REPAIR_TRIES times that still reads damaged waits behind the open projects (shop.mjs
     // repairBackoff); a VISIT's pick (build_shop) is counted (noteRepair)
     const rmem = b ? (b.shopRepairs ??= new Map()) : null
-    const states = repairBackoff(activeMem.states, rmem, now).map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now) }))
+    const free = repairBackoff(activeMem.states, rmem, now).map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now) }))
+    // stuckwait-01: a project inside its stuck back-off waits behind the others (shop.mjs stuckBackoff)
+    const states = stuckBackoff(free, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)
     const pick = activeProject(states, list)
     if (visit) noteRepair(rmem, pick, states, now)
     return pick
