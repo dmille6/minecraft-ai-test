@@ -18,7 +18,7 @@ import argparse, datetime as dt, json, os, subprocess, sys, tempfile
 
 ROOT = os.environ.get('TL_ROOT', '/srv/showcase/timelapse')
 VIEWS = ('angled', 'topdown')
-EXTRA = ('town',)        # owner 10-25: the town close-up; built from ITS OWN frames (it is not part of the pair)
+EXTRA = ("town", "iso", "workshop", "house1", "ziggurat", "paths", "wall")    # owner 10-25: the town close-up; built from ITS OWN frames (it is not part of the pair)
 FPS = 10
 LEVEL = 12
 MIN_CHANGED_FRAC = 0.002

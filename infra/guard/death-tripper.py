@@ -27,7 +27,7 @@ WHY IT ONLY STOPS
     deploys -- those change the experiment, and a change mid-trial makes the
     trial uninterpretable, which is worse than losing it cleanly.
 """
-import glob, json, os, re, subprocess, sys, time
+import glob, json, os, re, shlex, subprocess, sys, time
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 
@@ -115,9 +115,30 @@ def load_deaths(minutes):
     """Death events from the archive, newest window only."""
     since = datetime.now(timezone.utc) - timedelta(minutes=minutes)
     src = LOGS if LOCAL else f"{ARCHIVE}/*.jsonl"
-    r = ssh(EVD, f"grep -h '\"_death\"' {src} 2>/dev/null | tail -2000")
-    deaths = []
+    if LOCAL:
+        # THE WINDOW SPANS THE ROTATION. logrotate (daily ~23:59Z, copytruncate,
+        # delaycompress) moves the live file's day into `<file>-YYYYMMDD` (or
+        # `.1`), uncompressed, and empties the live one: read only `*.jsonl` and
+        # a fall at 23:58 vanished from the 00:00 window. The newest rotated
+        # generation is still plain text; older ones are .gz and outside any
+        # 60-min window anyway.
+        files = sorted(f for f in glob.glob(LOGS + "*") if not f.endswith(".gz"))
+        if not files:
+            # Not "no deaths": no evidence. Say so, never a silent zero.
+            print(f"    no log files match {LOGS} -- the death rules are BLIND")
+            return []
+        src = " ".join(shlex.quote(f) for f in files)
+    # No `tail`: grep returns only death rows, and a tail over files
+    # concatenated in NAME order could cut an earlier bot's recent deaths.
+    r = ssh(EVD, f"grep -h '\"_death\"' {src} 2>/dev/null")
+    deaths, seen = [], set()
     for line in r.stdout.splitlines():
+        # copytruncate copies the live file before it empties it, so for a moment
+        # the same row is in both files. Count each death once, or one fall reads
+        # as two and three bots falling once read as six (Codex review).
+        if line in seen:
+            continue
+        seen.add(line)
         try:
             d = json.loads(line)
         except Exception:

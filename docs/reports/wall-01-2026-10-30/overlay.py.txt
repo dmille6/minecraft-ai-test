@@ -1,0 +1,26 @@
+# the live wall record drawn over a `town` timelapse frame (BlueMap flat/ortho: centre 0.5,0.5, distance 95, fov 75 ->
+# 2*95*tan(37.5 deg) = 145.8 blocks across 1440 px). Writes an SVG embedding the PNG; render with qlmanage.
+import json, base64, math, sys
+frame, rec_path, out, title = sys.argv[1:5]
+rec = json.load(open(rec_path))
+W = 1440; span = 2 * 95 * math.tan(math.radians(37.5)); s = W / span; cx, cz = 0.5, 0.5
+X = lambda x: W / 2 + (x - cx) * s
+Z = lambda z: W / 2 + (z - cz) * s
+img = base64.b64encode(open(frame, 'rb').read()).decode()
+o = [f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{W}" height="{W + 100}" viewBox="0 0 {W} {W + 100}" font-family="Helvetica" font-size="22">',
+     f'<rect width="100%" height="100%" fill="#111"/><image x="0" y="0" width="{W}" height="{W}" xlink:href="data:image/png;base64,{img}"/>']
+steps = {(c['at'][0], c['at'][2]) for c in rec['cells'] if c['role'] == 'step'}
+for (x, z) in steps:
+    o.append(f'<rect x="{X(x):.1f}" y="{Z(z):.1f}" width="{s:.1f}" height="{s:.1f}" fill="none" stroke="#bbbbbb" stroke-width="1.2"/>')
+col = {'wall': '#ffffff', 'post': '#e0a050', 'gate': '#ff2bd6', 'open': '#29d3ff', 'gap': '#ff7f50'}
+for c in rec['cols']:
+    w = 3.2 if c['s'] in ('wall', 'post', 'gate') else 2.2
+    o.append(f'<rect x="{X(c["x"]):.1f}" y="{Z(c["z"]):.1f}" width="{s:.1f}" height="{s:.1f}" fill="none" stroke="{col[c["s"]]}" stroke-width="{w}"/>')
+for c in [c for c in rec['cells'] if c['role'] == 'light']:
+    o.append(f'<circle cx="{X(c["at"][0]) + s / 2:.1f}" cy="{Z(c["at"][2]) + s / 2:.1f}" r="5" fill="#ffef5c"/>')
+leg = [('wall', 'wall'), ('post', 'gate post'), ('gate', 'gateway (path crosses)'), ('open', 'sally port / short'), ('gap', 'gap: ziggurat, pit, cliff, unreachable')]
+for i, (k, name) in enumerate(leg):
+    o.append(f'<rect x="{20 + i * 280}" y="{W + 18}" width="22" height="22" fill="none" stroke="{col[k]}" stroke-width="4"/><text x="{50 + i * 280}" y="{W + 37}" fill="#eee">{name}</text>')
+o.append(f'<text x="20" y="{W + 64}" fill="#bbb" font-size="18">grey outline = terrace (walk b+2, fire-step b+1, approach b); yellow = torch on a gate post</text>')
+o.append(f'<text x="20" y="{W + 90}" fill="#bbb" font-size="18">{title}</text></svg>')
+open(out, 'w').write('\n'.join(o))

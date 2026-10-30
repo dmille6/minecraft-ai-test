@@ -2,6 +2,13 @@ import subprocess, sys, os
 D = os.path.dirname(os.path.abspath(__file__))
 src = open(os.path.join(D, 'shopread.py')).read()
 M = [
+ # every project's record (house-01 + monument-01, 10-29)
+ ("            rec = project_of(projects.get(pool), plot).get('record')", "            rec = (projects.get(pool) or {}).get('record')"),
+ ("        return pr['projects'].get(plot) or {'record': None, 'records_files': 0, 'leases': {}}", "        return pr['projects'].get(SHOP) or {'record': None, 'records_files': 0, 'leases': {}}"),
+ ("            for name, gen, why in lease_overlaps(leases, bmax):", "            for name, gen, why in lease_overlaps(leases):"),
+ ("            if (f.get('project') or SHOP) == SHOP:", "            if True:"),
+ ("    | {'dirt', 'coarse_dirt',", "    | {'coarse_dirt',"),
+ ("                mutating.add((pool, plot))", "                mutating.add((pool, SHOP))"),
  ("                if op == 'stuck_on_cell' and f.get('stalled') == 'true':", "                if False:"),
  ("elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):", "elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_unwritten'):"),
  ("elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):", "elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell'):"),

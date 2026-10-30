@@ -31,6 +31,17 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  // monument-01 (10-29): the ziggurat's site, offline, by the bots' own functions (the fleet canary's per-world siting), and the
+  // shop read that judges every project's record (the showcase tripwire's S6)
+  'bots/scripts/zigsite-offline.mjs',
+  // paths-01 (10-30): the town's paths sited and laid offline on a copy of the world, by the bots' own functions
+  'bots/src/paths.mjs',
+  'bots/scripts/pathsite-offline.mjs',
+  'bots/scripts/pathsbuild-offline.mjs',
+  // wall-01 (10-30): the town wall sited, built and walk-proven offline on a copy of the world, by the bots' own functions
+  'bots/src/wall.mjs',
+  'bots/scripts/wall-offline.mjs',
+  'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',
   // the process the owner set on 2026-10-28; CLAUDE.md points every session at it
@@ -38,6 +49,9 @@ const REQUIRED = [
   // fun-mode tier 3: the protected list and its one decider, which both gates call (W1, 10-28)
   'config/protected-paths.txt',
   'scripts/lib/protected.py',
+  // the town's projects: build_shop loads these by id at runtime (house-01, 10-29)
+  'bots/src/blueprints/workshop@1.json',
+  'bots/src/blueprints/house@1.json',
   'scripts/test_protected.py',
   // CLAUDE.md's and STATE.md's history, moved out when both were cut to the active rules (10-28)
   'docs/archive/CLAUDE-history-2026-10-28.md',

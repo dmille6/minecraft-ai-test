@@ -27,11 +27,81 @@ const { goals } = pkg
 
 export const BODY_RADIUS = 64
 export const PATH_MS = 25_000
+export const PLAN_MS = 150                 // cornerWaypoints' A* per leg (the walk itself plans again as before)
 export const PROBE_MS = 2_000
 // never the clicked block of a probe, and never a support (they open, toggle or act): buildsite.mjs USES plus the rest
 // (r2, Claude r1 P3-7: crafter, chiseled bookshelf, flower pots and candles act on an empty-hand click)
 export const INTERACTABLE = /_trapdoor$|_door$|chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$|_bed$|_button$|^lever$|_fence_gate$|^anvil$|_anvil$|^bell$|^brewing_stand$|^composter$|^cartography_table$|^loom$|^stonecutter$|^grindstone$|^smithing_table$|^enchanting_table$|^beacon$|^dispenser$|^dropper$|^note_block$|^jukebox$|^repeater$|^comparator$|^daylight_detector$|_sign$|^cake$|^respawn_anchor$|^lodestone$|^campfire$|^soul_campfire$|^crafter$|^chiseled_bookshelf$|^flower_pot$|^potted_|candle$|candle_cake$/
 const FACE_DIR = f => (f[1] < 0 ? 0 : f[1] > 0 ? 1 : f[2] < 0 ? 2 : f[2] > 0 ? 3 : f[0] < 0 ? 4 : 5)
+
+/**
+ * THE CORNER CUT (shopwalls-02; LIVE showcase 10-28 14:44Z on: with the walls up, 8 of 10 builders stood wedged at
+ * 21.1,74,32.3 -- the back corner of the 1-wide ring top -- for 35 s until the stuck reflex aborted the visit, 12+ visits, roof
+ * 2 of 20). mineflayer-pathfinder's getMoveDiagonal allows a diagonal step when only ONE of its two side columns is clear
+ * (it costs the cheaper side), so from the ring corner 21,74,32 the path to the stand 20,74,31 is one diagonal step across
+ * the wall's corner block 21,74,31, and the body catches on that corner. Replayed offline on the live region with the
+ * pathfinder's own A*: `21,74,32 -> 20,74,31` as a single step.
+ * -> { i, via } for the FIRST diagonal step of `path` (from `start`) whose side columns are not BOTH clear, with `via` the
+ * clear side's standing cell (feet and head room over the step's heights, a full floor under it), or null. Pure. A step whose
+ * clear side has no floor is left alone (a drop is not a safer step than a corner).
+ */
+export function cornerCut (start, path, read) {
+  const clear = (x, y, z) => { const b = read(x, y, z); return !!b && b.boundingBox === 'empty' }
+  const floor = (x, y, z) => { const b = read(x, y, z); return !!b && b.boundingBox === 'block' }
+  // BLOCK cells (r1 reviews, both BLOCK: the pathfinder's post-processed nodes are block CENTRES, x.5 / z.5): floored here
+  const cell = p => ({ x: Math.floor(p.x), y: Math.floor(p.y + 1e-6), z: Math.floor(p.z) })
+  let a = cell(start)
+  for (let i = 0; i < (path?.length ?? 0); i++) {
+    const b = cell(path[i])
+    const dx = b.x - a.x, dz = b.z - a.z
+    if (Math.abs(dx) === 1 && Math.abs(dz) === 1) {
+      const lo = Math.min(a.y, b.y), hi = Math.max(a.y, b.y) + 1
+      const col = (x, z) => { for (let y = lo; y <= hi; y++) if (!clear(x, y, z)) return false; return true }
+      const sx = [a.x + dx, a.z], sz = [a.x, a.z + dz]
+      const okX = col(...sx), okZ = col(...sz)
+      if (!(okX && okZ)) {
+        const side = okX ? sx : okZ ? sz : null
+        if (side && floor(side[0], a.y - 1, side[1])) return { i, via: [side[0], a.y, side[1]] }
+      }
+    }
+    a = b
+  }
+  return null
+}
+/**
+ * DOES A PLANNED PATH CROSS AN OPEN CELL OF THE SEGMENT BEING BUILT? -> bool. Pure. (shopwalls-06; LIVE showcase 10-28: the
+ * walk to the interior stand for the last roof cell 24,75,31 was planned as `23,74,32 > 24,75,31 > 24,73,30` -- up through
+ * that very cell, over the wall -- and the bots wedged jumping at the roof overhang; replayed offline with the pathfinder's own
+ * A*.) A node's feet or head cell in `avoid` ("x,y,z") is a cross; nodes are floored (the pathfinder's centres).
+ */
+export function pathCrosses (path, avoid) {
+  if (!avoid?.size) return false
+  for (const p of path ?? []) {
+    const x = Math.floor(p.x), y = Math.floor(p.y + 1e-6), z = Math.floor(p.z)
+    if (avoid.has(`${x},${y},${z}`) || avoid.has(`${x},${y + 1},${z}`)) return true
+  }
+  return false
+}
+/**
+ * THE WAYPOINTS for a walk to `goal` -> [[x, y, z]] ending at goal: the planned path's corner cuts replaced by the step round the
+ * clear side (cornerCut), re-planned from each `via`, at most `max` detours. `plan(from)` -> path [{ x, y, z }] | null (the
+ * pathfinder's A*); null or an unplannable leg: the remaining walk is the plain goal (the walk as before). Pure.
+ */
+export function cornerWaypoints (from, goal, plan, read, max = 4) {
+  const out = []
+  let at = from
+  for (let n = 0; n < max; n++) {
+    const path = plan(at)
+    if (!path) break
+    const cut = cornerCut({ x: at[0], y: at[1], z: at[2] }, path, read)
+    if (!cut) break
+    if (cut.i > 0) { const p = path[cut.i - 1]; out.push([Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]) }
+    out.push(cut.via)
+    at = cut.via
+  }
+  out.push(goal)
+  return out
+}
 
 /** multi_block_change records -> [{ x, y, z, stateId }] (1.20+: a section position and varlong records: state << 12 | x << 8 | z << 4 | y). Pure. */
 export function decodeMultiBlock (data) {
@@ -111,12 +181,30 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     bodies: () => Object.values(bot.entities ?? {})
       .filter(e => e && e !== bot.entity && e.position && !['item', 'experience_orb', 'arrow'].includes(e.name) && e.position.distanceTo?.(bot.entity.position) < BODY_RADIUS)
       .map(e => ({ x: e.position.x, y: e.position.y, z: e.position.z, w: e.width ?? 0.6, h: e.height ?? 1.8 })),
-    walkTo: async s => {
-      let timer = null
+    walkTo: async (s, { avoid = null } = {}) => {
+      let timer = null, late = false
       try {
         await withWalk(() => Promise.race([
-          bot.pathfinder.goto(new goals.GoalBlock(s[0], s[1], s[2])),
-          new Promise(resolve => { timer = setTimeout(() => { timers.delete(timer); try { bot.pathfinder.setGoal(null) } catch { /* idle */ } resolve() }, pathMs); timers.add(timer) }),
+          (async () => {
+            // round a corner the pathfinder would cut (cornerCut): planned once, walked leg by leg, inside the same clock
+            let legs = [s], crosses = false
+            try {
+              const plan = from => {
+                const it = bot.pathfinder.getPathFromTo?.(bot.pathfinder.movements, new Vec3(from[0] + 0.5, from[1], from[2] + 0.5), new goals.GoalBlock(s[0], s[1], s[2]), { timeout: PLAN_MS, tickTimeout: PLAN_MS, optimizePath: false })
+                const r = it?.next?.()?.value?.result
+                const path = r?.status === 'success' ? r.path : null
+                if (path && pathCrosses(path, avoid)) crosses = true
+                return path
+              }
+              const p = bot.entity.position
+              legs = cornerWaypoints([Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], s, plan, read)
+            } catch { legs = [s] }
+            // THROUGH THE SEGMENT'S OWN OPEN CELLS (pathCrosses): not walked -- the click's re-proof fails, the stand is banned
+            // (standBans) and the cell's next-best stand is tried
+            if (crosses) return
+            for (const w of legs) { if (aborted() || late) return; await bot.pathfinder.goto(new goals.GoalBlock(w[0], w[1], w[2])) }
+          })(),
+          new Promise(resolve => { timer = setTimeout(() => { late = true; timers.delete(timer); try { bot.pathfinder.setGoal(null) } catch { /* idle */ } resolve() }, pathMs); timers.add(timer) }),
         ]))
       } catch (e) { if (e?.aborted || aborted()) throw e } finally { if (timer) { clearTimeout(timer); timers.delete(timer) } }
       return true

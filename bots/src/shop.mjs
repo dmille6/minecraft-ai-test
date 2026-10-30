@@ -5,17 +5,125 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { reserveKeyOf, reserveCount, takeAllowed, LOG_NAMES, PLANKS_OF } from './mats.mjs'
+import { monumentOn, MONUMENT_PLOT, MONUMENT_BLUEPRINT, MONUMENT_BUILDERS } from './ziggurat.mjs'
+import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mjs'
+import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
 export const SHOP_BLUEPRINT = 'workshop@1'
 export const SHOP_PLOT = 'shop'
+/**
+ * HOUSE-01: THE TOWN'S PROJECTS, IN ORDER (owner backlog 10-29: house-01 after the workshop). The build_shop job builds ONE
+ * project at a time: the first whose record is not complete, or a complete one that is damaged (repaired first, in order).
+ * HOUSE=off is the rollback: the workshop alone, exactly as before. A house is house@1 (5x5 shell on a 7x7 pad, an OPEN 1x2
+ * doorway like the workshop's -- owner Q2: real doors only after a Paper-proven door change -- so no sealed interior, no
+ * exit_house). Each project is its own record chain (`project-<home>.<plot>`): leases, slots, shares and the progress clock are
+ * per project; the footprint price, the keep-outs and the sapling boxes cover EVERY project's record.
+ */
+export const HOUSE = Object.freeze({ on: !['off', '0', 'false', 'no'].includes(String(process.env.HOUSE ?? '').trim().toLowerCase()) })
+/**
+ * MONUMENT-01: THE ZIGGURAT is the third project (ziggurat.mjs; OWNER 10-29 "top priority" on the showcase): after the workshop,
+ * built ALONGSIDE the house -- a bot whose first open project has no free admission slot works the next one (activeProject's
+ * `free`) -- with its own builders (MONUMENT_BUILDERS) and its own visit (skills.mjs buildMonument). On in the showcase pool,
+ * off in the fleet's until its rollout (ziggurat.mjs monumentOn; MONUMENT=off is the rollback).
+ */
+export const MONUMENT = Object.freeze({ on: monumentOn(process.env, process.env.MEMORY_POOL ?? '') })
+/**
+ * PATHS-01: THE TOWN'S PATHS are the fourth project (paths.mjs; owner showcase list 10-29: house-01 -> paths-01 -> wall-01): after
+ * the house, laid from the core to every complete project's front, the farm and the well. On in the showcase pool, off in the
+ * fleet's until its rollout (paths.mjs pathsOn; PATHS=off is the rollback).
+ */
+export const PATHS = Object.freeze({ on: pathsOn(process.env, process.env.MEMORY_POOL ?? '') })
+/**
+ * WALL-01: THE TOWN WALL is the fifth project (wall.mjs; owner showcase list 10-29: house-01 -> paths-01 -> wall-01): after the
+ * paths (its gateways are where they cross), a cobblestone rampart round the plan area. On in the showcase pool, off in the fleet's
+ * until its rollout (wall.mjs wallOn; WALL=off is the rollback). It needs the paths (and the house) on.
+ */
+export const TOWNWALL = Object.freeze({ on: wallOn(process.env, process.env.MEMORY_POOL ?? '') })
+export const PROJECTS = Object.freeze([
+  Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
+  Object.freeze({ plot: 'house1', blueprint: 'house@1', after: SHOP_PLOT }),
+  Object.freeze({ plot: MONUMENT_PLOT, blueprint: MONUMENT_BLUEPRINT, after: SHOP_PLOT, builders: MONUMENT_BUILDERS }),
+  Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
+  Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
+])
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : on))
+/** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
+export const buildersOf = p => p?.builders ?? BUILDERS_MAX
+/**
+ * THE PROJECT THE JOB WORKS ON NOW -> a PROJECTS entry. Pure. `states` [{ plot, exists, complete, damaged, free?, due? }] in PROJECTS
+ * order (a missing state reads as no record). The first damaged complete project (repairs first), else the first not complete
+ * whose `after` project is complete -- monument-01: the first such with an admission slot free for this bot (`free`, absent =
+ * free), else the first such -- else the LAST project (everything stands: the order reads it complete and stays quiet).
+ */
+export function activeProject (states = [], list = projectsOn()) {
+  const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
+  for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged) return p }
+  const open = []
+  for (const p of list) {
+    const s = st(p)
+    if (s.exists && s.complete) continue
+    if (p.after && !st(list.find(q => q.plot === p.after) ?? { plot: p.after }).complete) continue
+    open.push(p)
+  }
+  if (open.length) return open.find(p => st(p).free !== false) ?? open[0]
+  // wall-01: a complete project that only wants a visit for its upkeep (`due`: the ziggurat's tidy) after every open one
+  for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due) return p }
+  return list[list.length - 1]
+}
+/**
+ * A REPAIR THAT DOES NOT TAKE WAITS (wall-01, LIVE showcase 10-30 07:21Z on: a path cell under a block someone set on it read as
+ * damage the paths' visit cannot mend -- `clears_wait`, nothing done -- and, repairs coming first, every bot's build order went to
+ * it while the wall stood open). A project this bot has visited as a REPAIR REPAIR_TRIES times within REPAIR_WINDOW_MS and that
+ * still reads damaged is taken as only `due` (after every open project) until the window ends; then it is a repair again. Pure.
+ *   mem   Map plot -> { n, first } (the bot's own, for the connection)
+ */
+export const REPAIR_TRIES = 3
+export const REPAIR_WINDOW_MS = 60 * 60_000
+export function repairBackoff (states = [], mem = null, now = Date.now()) {
+  if (!mem) return states
+  return states.map(st => {
+    const e = st?.damaged ? mem.get(st.plot) : null
+    return e && e.n >= REPAIR_TRIES && now - e.first < REPAIR_WINDOW_MS ? { ...st, damaged: false, due: true } : st
+  })
+}
+/** A visit starting on `pick` as a repair (its state damaged) is counted (a window older than REPAIR_WINDOW_MS starts again). Pure
+ *  over `mem` (mutated). */
+export function noteRepair (mem, pick, states = [], now = Date.now()) {
+  if (!mem || !pick) return
+  const st = states.find(x => x?.plot === pick.plot)
+  if (!st?.damaged) return
+  const e = mem.get(pick.plot)
+  mem.set(pick.plot, e && now - e.first < REPAIR_WINDOW_MS ? { n: e.n + 1, first: e.first } : { n: 1, first: now })
+}
+/** THE OTHER PROJECTS' RECORDS AS SITING ZONES -> [{ box: [x0,y0,z0,x1,y1,z1] }]: each record's x/z box widened by `margin`
+ *  (a walk lane between buildings and the stand ring), every height. Pure. */
+export const PROJECT_GAP = 3
+export function recordZones (records = [], margin = PROJECT_GAP) {
+  const out = []
+  for (const r of records) {
+    // paths-01: a record that names its own zones (the paths: their columns + 1; a box would be the whole town)
+    if (Array.isArray(r?.zones)) { for (const z of r.zones) if (Array.isArray(z?.box) && z.box.length === 6 && z.box.every(Number.isFinite)) out.push(z); continue }
+    const b = r?.box
+    if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite)) continue
+    out.push({ box: [b[0] - margin, -64, b[1] - margin, b[2] + margin, 320, b[3] + margin], why: `project:${r.plot ?? '?'}` })
+  }
+  return out
+}
 export const BUILDERS_MAX = 2
 export const SHOP_COOLDOWN_MS = Number(process.env.SHOP_COOLDOWN_MS) > 0 ? Number(process.env.SHOP_COOLDOWN_MS) : 10 * 60_000   // a setting (sandbox pacing)
 export const SHOP_SITE_RETRY_MS = 24 * 60 * 60_000       // S1: no site -> re-fit daily
 export const SHOP_STUCK_RETRY_MS = 6 * 60 * 60_000       // F4: a cell no stand reached in STUCK_VISITS visits -> ask again in 6 h
 export const SHOP_HEALTH_MIN = 10
 export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
+export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the ziggurat is built mostly from the cobble a bag already holds
+/** The projects a bag needs only MONUMENT_BAG_SLOTS_MIN free slots for (paths-01: a shovel's use draws nothing). */
+/** wall-01: the wall is built from the cobblestone the bags carry, as the ziggurat is. */
+export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT]))
+/** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
+let activePlotOf = () => null
+export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
 // the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
@@ -42,15 +150,29 @@ export function saplingBox (record, margin = SAPLING_MARGIN) {
   for (const c of cs) { x0 = Math.min(x0, c.at[0]); x1 = Math.max(x1, c.at[0]); z0 = Math.min(z0, c.at[2]); z1 = Math.max(z1, c.at[2]) }
   return { x0: x0 - margin, z0: z0 - margin, x1: x1 + margin, z1: z1 + margin }
 }
-/** May a sapling go into the cell at column (x, z)? false inside the box. Pure. */
-export const saplingAllowedAt = (box, x, z) => !box || x < box.x0 || x > box.x1 || z < box.z0 || z > box.z1
+/** The project's OPEN-or-built record cells as "x,y,z" keys (the place skill's keep-out; shopwalls-05). Pure. */
+export const recordCellKeys = record => new Set((record?.cells ?? []).map(c => c.at.join(',')))
+/** A place() candidate ({ ref, face }) whose target cell (ref + face) is a record cell? Pure. LIVE showcase 10-28 16:33Z: an
+ *  idle `place crafting_table` put the table into the workshop's last open roof cell 24,75,31; every visit then read
+ *  `blocked: 1 open, 0 placeable now`. */
+export const recordCellHit = (cells, c) => { const p = c?.ref?.position; return !!(p && cells?.size && cells.has(`${p.x + (c.face?.x ?? 0)},${p.y + (c.face?.y ?? 0)},${p.z + (c.face?.z ?? 0)}`)) }
+/** May a sapling go into the cell at column (x, z)? false inside the box -- or inside any box of a list (house-01: one per
+ *  project record). Pure. */
+export const saplingAllowedAt = (box, x, z) => (Array.isArray(box) ? box.every(b => saplingAllowedAt(b, x, z)) : box?.cols ? !box.cols.has(`${x},${z}`) : (!box || x < box.x0 || x > box.x1 || z < box.z0 || z > box.z1))
 /** A place() candidate ({ ref, face }) for a sapling: its target cell (ref + face) outside the box? Pure. */
 export const saplingCandidateOk = (box, c) => { const p = c?.ref?.position; return !p || saplingAllowedAt(box, p.x + (c.face?.x ?? 0), p.z + (c.face?.z ?? 0)) }
 /** The footprint's price for a block on the current walk: 100 (mineflayer-pathfinder drops the move) on a work or travel walk,
  *  else 0. One Set lookup (the A* hot path). Pure. */
 export const footprintCost = (cells, profile, block) => {
   const p = block?.position
-  return p && cells && cells.size && FOOTPRINT_PROFILES.has(profile) && cells.has(`${p.x},${p.y},${p.z}`) ? 100 : 0
+  if (!p || !cells || !FOOTPRINT_PROFILES.has(profile)) return 0
+  const k = `${p.x},${p.y},${p.z}`
+  if (cells.size && cells.has(k)) return 100
+  // MONUMENT-01 (`cells.solidOnly`: the ziggurat's record cells, no halo): priced while the cell holds a SOLID block, judged at the
+  // check itself (Codex r6 BLOCK 1: a built-cells set refreshed every 60 s left a cell built since unpriced). So a walk never breaks
+  // a built cell, and an OPEN one takes the pathfinder's scaffold -- LIVE showcase 10-29 16:00-16:40Z: 19 `_reflex_stuck` in the
+  // foundation's hollows, builders who could neither break the canopy in the +1 halo nor pillar out of their own open cell.
+  return cells.solidOnly?.has?.(k) && block.boundingBox === 'block' ? 100 : 0
 }
 /** The pathfinder entry for the footprint (one fn for exclusionAreasBreak and exclusionAreasPlace), TAGGED so an escape clone can
  *  drop it. `cells()` / `profile()` are read at search time. */
@@ -88,6 +210,7 @@ export function billOf (record, palette, read, { done, inTown = () => true, plan
 export function roleNames (palette, role, planks = 'oak_planks', seen = new Set([role])) {
   const out = []
   for (const choice of palette?.[role] ?? []) {
+    if (choice === '*solid') continue                       // a done-rule (buildrun.mjs SOLID_ANY), not a block
     if (choice === '$planks') out.push(planks)
     else if (choice.startsWith('$')) { const r = choice.slice(1); if (!seen.has(r)) { seen.add(r); out.push(...roleNames(palette, r, planks, seen)) } } else out.push(choice)
   }
@@ -284,7 +407,9 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
-  if (freeSlots < SHOP_BAG_SLOTS_MIN) return { order: null, skip: 'room' }
+  let plot = record?.plot ?? null
+  if (!record) { try { plot = activePlotOf() } catch { plot = null } }
+  if (freeSlots < (LIGHT_PLOTS.has(plot) ? MONUMENT_BAG_SLOTS_MIN : SHOP_BAG_SLOTS_MIN)) return { order: null, skip: 'room' }
   return { order: { skill: 'build_shop', args: {} }, skip: null }
 }
 
@@ -330,7 +455,7 @@ export function stoodRead (dir, key, home) {
 
 const LONG = new Set(['why', 'segs'])   // `segs`: a whole workshop's segment list is ~72 chars (Codex/Claude r26 P3)
 const fmt = (keys, f) => keys.filter(k => f[k] != null).map(k => `${k}=${String(Array.isArray(f[k]) ? f[k].join(',') : f[k]).replace(/\s+/g, '_').slice(0, LONG.has(k) ? 120 : 48)}`).join(' ')
-export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP.on ? 'on' : 'off'} blueprints=${SHOP_BLUEPRINT} builders_max=${BUILDERS_MAX} reserve=${reserveSha}`
+export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP.on ? 'on' : 'off'} blueprints=${projectsOn().map(p => p.blueprint).join(',')} builders_max=${BUILDERS_MAX} reserve=${reserveSha}`
 // EVERY FIELD A ROW CARRIES THAT THE READ READS (Paper 10-26 SHOP-TERRAIN seeded r24: the whitelist dropped the F2/F4 fields --
 // `to`, `result`, `visits`, `n`, `segs`, `waiting`, `stalled`, `early`, `why` -- so the stuck row reached the logs as
 // `op=stuck_on_cell cell=...` and the read's STALLED POOLS could never see a stall; the fake runner's e.log kept the objects)

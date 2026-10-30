@@ -70,10 +70,30 @@ SAVE_LAG_MIN = 6
 SURVEY_DIR = os.path.expanduser('~/shopconform/surveys')
 BUILD_KINDS = ('_build_mode', '_build', '_build_seg', '_build_visit', '_build_bag', '_structure_complete')
 ROW_KINDS = BUILD_KINDS + ('craft', 'gather')
-REC_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.shop)\.g(\d+)\.json$')
-LEASE_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.shop)\.(slot\d+|seg-[A-Za-z0-9-]+)\.lease\.g(\d+)\.json$')   # wall-F: upper case (Claude read r1 P2-1)
-SCAFFOLD_NAMES = {'cobblestone'} | {'%s_planks' % w for w in ('oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped')}
+# EVERY PROJECT'S RECORD (2026-10-29, house-01 + monument-01: the town builds a workshop, a house and a ziggurat, each its own
+# record chain `project-<home>.<plot>`; this read knew only `.shop`, so all 134 placements of the showcase's house read off_record
+# and S6 stopped the bots 13:35Z). A `_build*` row names its project (`project=<plot>`); it is judged against THAT record.
+REC_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.([A-Za-z0-9]+))\.g(\d+)\.json$')
+LEASE_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.([A-Za-z0-9]+))\.(slot\d+|seg-[A-Za-z0-9-]+)\.lease\.g(\d+)\.json$')   # wall-F: upper case (Claude read r1 P2-1)
+SHOP = 'shop'
+# what a build visit may lose to the pathfinder's own towers and bridges (bots/src/scaffold.mjs PATHFINDER_SCAFFOLD's stone and
+# dirt family, and mineflayer-pathfinder's seeds dirt and cobblestone): the ziggurat places and digs these
+SCAFFOLD_NAMES = {'cobblestone'} | {'%s_planks' % w for w in ('oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped')} \
+    | {'dirt', 'coarse_dirt', 'rooted_dirt', 'stone', 'andesite', 'diorite', 'granite', 'deepslate', 'cobbled_deepslate', 'tuff', 'netherrack', 'sandstone', 'red_sandstone', 'dripstone_block'}
 BAG_RE = re.compile(r'(?:^| )([a-z_]+)=(-?\d+)/(-?\d+)/(-?\d+)/(-?\d+)/(-?\d+)/(-?\d+)')
+
+
+def tidy_ok(rec, cell):
+    """zigtidy-01: is a `kind=tidy` clear inside its record's tidy space? -> bool. Pure."""
+    cells = rec.get('cells') or []
+    box = rec.get('box')
+    if not cells or not isinstance(box, list) or len(box) != 4 or not isinstance(rec.get('baseY'), int):
+        return False
+    if ck(cell) in {ck(c['at']) for c in cells}:
+        return False
+    top = max(c['at'][1] for c in cells)
+    x, y, z = cell
+    return box[0] - 1 <= x <= box[2] + 1 and box[1] - 1 <= z <= box[3] + 1 and rec['baseY'] <= y <= top + 2
 
 
 def xyz_of(s):
@@ -106,7 +126,9 @@ def record_head(files):
 
 
 def read_projects(root='/var/lib/mcai'):
-    """-> { pool: { 'record': rec | None, 'leases': { name: [(gen, rec, released_ms|None)] }, 'dir': d } } for every town."""
+    """-> { pool: { 'record': rec | None, 'leases': { name: [(gen, rec, released_ms|None)] }, 'dir': d, 'projects': { plot: {
+    'record', 'records_files', 'leases' } } } } for every town. The top-level record and leases are the workshop's (`shop`), as
+    before; `projects` holds every project's."""
     out = {}
     for d in glob.glob(os.path.join(root, '_pool-*')):
         name = os.path.basename(d)[len('_pool-'):]
@@ -115,12 +137,12 @@ def read_projects(root='/var/lib/mcai'):
             names = os.listdir(d)
         except OSError:
             continue
-        recs, leases = [], defaultdict(list)
+        recs, leases = defaultdict(list), defaultdict(lambda: defaultdict(list))
         for f in names:
             m = REC_RE.match(f)
             if m:
                 try:
-                    recs.append((int(m.group(5)), open(os.path.join(d, f), 'rb').read()))
+                    recs[m.group(5)].append((int(m.group(6)), open(os.path.join(d, f), 'rb').read()))
                 except OSError:
                     pass
                 continue
@@ -136,7 +158,7 @@ def read_projects(root='/var/lib/mcai'):
                     rel = int(open(p + '.released').read().strip() or 0) or int(os.path.getmtime(p + '.released') * 1000)
                 except (OSError, ValueError):
                     rel = None
-                leases[m.group(5)].append((int(m.group(6)), rec, rel))
+                leases[m.group(5)][m.group(6)].append((int(m.group(7)), rec, rel))
         # the bot's own rule (skills.mjs townPlanZones): a MISSING file is known and empty; a present file that does not parse
         # to an object is unreadable -- the bot then uses its last good list or refuses, and this read cannot judge G3
         zf = os.path.join(d, 'protected-zones.json')
@@ -147,8 +169,24 @@ def read_projects(root='/var/lib/mcai'):
                 zok = zones_valid(json.load(open(zf)))
             except Exception:
                 zok = False
-        out[pool] = {'record': record_head(recs) if recs else None, 'records_files': len(recs), 'leases': dict(leases), 'dir': d, 'zones_ok': zok}
+        projects = {plot: {'record': record_head(recs[plot]) if recs.get(plot) else None, 'records_files': len(recs.get(plot) or []),
+                           'leases': dict(leases.get(plot) or {})} for plot in set(recs) | set(leases)}
+        shop = projects.get(SHOP) or {'record': None, 'records_files': 0, 'leases': {}}
+        out[pool] = {'record': shop['record'], 'records_files': shop['records_files'], 'leases': shop['leases'], 'dir': d, 'zones_ok': zok,
+                     'projects': projects}
     return out
+
+
+def project_of(pr, plot):
+    """A town's entry for one project -> { record, records_files, leases }. A town read without `projects` (an older caller, the
+    fixtures) holds the workshop's only: another project there has no record (oracle_missing, never judged against the
+    workshop's)."""
+    plot = plot or SHOP
+    if isinstance((pr or {}).get('projects'), dict):
+        return pr['projects'].get(plot) or {'record': None, 'records_files': 0, 'leases': {}}
+    if plot == SHOP:
+        return {'record': (pr or {}).get('record'), 'records_files': (pr or {}).get('records_files', 0), 'leases': (pr or {}).get('leases') or {}}
+    return {'record': None, 'records_files': 0, 'leases': {}}
 
 
 def zones_valid(raw):
@@ -171,13 +209,14 @@ def zones_valid(raw):
     return True
 
 
-def lease_overlaps(leases):
+def lease_overlaps(leases, builders_max=BUILDERS_MAX):
     """{ name: [(gen, rec, released_ms)] } -> [(name, gen, why)]: a generation taken by ANOTHER holder while the one before it
-    still blocked (unreleased and inside until + RECLAIM_MS), and any slot name beyond BUILDERS_MAX."""
+    still blocked (unreleased and inside until + RECLAIM_MS), and any slot name beyond `builders_max` (the record's own: the
+    ziggurat admits three)."""
     bad = []
     for name, gens in leases.items():
         m = re.match(r'^slot(\d+)$', name)
-        if m and int(m.group(1)) > BUILDERS_MAX:
+        if m and int(m.group(1)) > builders_max:
             bad.append((name, None, 'slot beyond builders_max'))
         gs = sorted(gens, key=lambda g: g[0])
         for (g0, r0, rel0), (g1, r1, _) in zip(gs, gs[1:]):
@@ -401,11 +440,16 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 elif unexplained < 0:
                     out['bag_scaffold'] += -unexplained
         elif name == '_structure_complete':
-            complete_at.setdefault(pool, r['t'])
+            # the WORKSHOP's completion drives the world evidence and H8's conformance (both are the workshop's); another
+            # project's is counted
+            if (f.get('project') or SHOP) == SHOP:
+                complete_at.setdefault(pool, r['t'])
+            else:
+                out['projects_complete'] += 1; lists['projects_complete'].append('%s %s' % (pool, f.get('project')))
         elif name == '_build':
             op, cell = f.get('op'), xyz_of(f.get('cell'))
-            pr = projects.get(pool) or {}
-            rec = pr.get('record')
+            plot = f.get('project') or SHOP
+            rec = project_of(projects.get(pool), plot).get('record')
             if op == 'sited':
                 out['sited'] += 1
                 continue
@@ -413,7 +457,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 continue
             k = ck(cell)
             if op in ('place', 'clear', 'replant'):
-                mutating.add(pool)
+                mutating.add((pool, plot))
                 out['mutations'] += 1
                 if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):
                     out['zone'] += 1; lists['zone'].append('%s %s %s' % (bot, op, k))
@@ -421,9 +465,9 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 out['placements'] += 1
                 if rec is not None and k not in {ck(c['at']) for c in rec.get('cells') or []}:
                     out['off_record'] += 1; lists['off_record'].append('%s %s %s' % (bot, k, f.get('block')))
-                if [t for t in placed[(pool, k)] if (r['t'] - t).total_seconds() < PLACE_TWICE_MIN * 60]:
+                if [t for t in placed[(pool, plot, k)] if (r['t'] - t).total_seconds() < PLACE_TWICE_MIN * 60]:
                     out['placed_twice'] += 1; lists['placed_twice'].append('%s %s' % (pool, k))
-                placed[(pool, k)].append(r['t'])
+                placed[(pool, plot, k)].append(r['t'])
             elif op == 'replant':
                 out['replants'] += 1
             elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):
@@ -435,6 +479,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 if rec is not None:
                     if f.get('kind') == 'foreign':
                         ok = k in {ck(c['at']) for c in rec.get('cells') or []}
+                    elif f.get('kind') == 'tidy':
+                        # zigtidy-01 (10-30): a climbing pillar dug off a finished ziggurat -- NOT a record cell, inside the
+                        # record's box + 1, from its base up to its top + 2 (bots/src/ziggurat.mjs zigTidy)
+                        ok = tidy_ok(rec, cell)
                     else:
                         ok = k in {ck(c['at']) for c in rec.get('clear') or []}
                     if not ok:
@@ -454,19 +502,27 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 unknown_open[(bot, k)] = r['t']
             elif op == 'known':
                 unknown_open.pop((bot, k), None)
-    for pool in sorted(mutating):
-        pr = projects.get(pool) or {}
-        if pr.get('record') is None:
-            out['oracle_missing'] += 1; lists['oracle_missing'].append('%s (record files %s)' % (pool, pr.get('records_files', 0)))
-        if not pr.get('zones_ok'):
+    for pool, plot in sorted(mutating):
+        pj = project_of(projects.get(pool), plot)
+        if pj.get('record') is None:
+            out['oracle_missing'] += 1; lists['oracle_missing'].append('%s (record files %s)' % (pool if plot == SHOP else '%s %s' % (pool, plot), pj.get('records_files', 0)))
+    for pool in sorted({p for p, _ in mutating}):
+        if not (projects.get(pool) or {}).get('zones_ok'):
             out['zone_unknown'] += 1; lists['zone_unknown'].append(pool)
-    out['towns_mutating'] = len(mutating)
+    out['towns_mutating'] = len({p for p, _ in mutating})
     for pool, pr in projects.items():
-        leases = pr.get('leases') or {}
-        out['lease_files'] += sum(len(v) for v in leases.values())
-        out['lease_names'] += len(leases)
-        for name, gen, why in lease_overlaps(leases):
-            out['lease_overlap'] += 1; lists['lease_overlap'].append('%s %s g%s: %s' % (pool, name, gen, why))
+        plots = sorted(pr['projects']) if isinstance(pr.get('projects'), dict) else [SHOP]
+        for plot in plots:
+            pj = project_of(pr, plot)
+            leases = pj.get('leases') or {}
+            out['lease_files'] += sum(len(v) for v in leases.values())
+            out['lease_names'] += len(leases)
+            bmax = (pj.get('record') or {}).get('builders_max')
+            bmax = bmax if isinstance(bmax, int) and not isinstance(bmax, bool) and bmax > 0 else BUILDERS_MAX
+            for name, gen, why in lease_overlaps(leases, bmax):
+                # the workshop's items keep their old words: the tripwire's acknowledgements (ACK.json) match an item by its text
+                where = pool if plot == SHOP else '%s %s' % (pool, plot)
+                out['lease_overlap'] += 1; lists['lease_overlap'].append('%s %s g%s: %s' % (where, name, gen, why))
     out['complete_towns'] = len(complete_at)
     lists['complete_towns'] = sorted(complete_at)
     boxes = {p: record_extent(pr.get('record')) for p, pr in projects.items()}
@@ -603,6 +659,46 @@ def selftest():
     assert LEASE_RE.match('project-0_70_0.shop.seg-wall-F.lease.g3.json'), 'the wall segments are read'
     assert LEASE_RE.match('project-0_70_0.shop.slot2.lease.g12.json') and LEASE_RE.match('project--5_64_17.shop.seg-roof-edge.lease.g1.json')
     assert not LEASE_RE.match('project-0_70_0.shop.seg-pad.lease.g3.json.released')
+    # EVERY PROJECT'S RECORD (house-01 + monument-01, 10-29): a row is judged against ITS project's record
+    assert REC_RE.match('project-0_70_0.house1.g2.json').group(5) == 'house1' and REC_RE.match('project-0_70_0.shop.g3.json').group(5) == 'shop'
+    assert not REC_RE.match('project-0_70_0.shop.barrier.g1.json') and not REC_RE.match('project-0_70_0.shop.mutate.g213.json')
+    assert LEASE_RE.match('project-0_70_0.monument.seg-L03-N.lease.g4.json').group(6) == 'seg-L03-N'
+    hrec = {'v': 1, 'gen': 1, 'prev': None, 'cells': [{'at': [30, 71, 20], 'role': 'base', 'seg': 'pad'}], 'clear': [], 'replant': []}
+    mrec = {'v': 1, 'gen': 1, 'prev': None, 'cells': [{'at': [-30, 70, -30], 'role': 'core', 'seg': 'L00-N'}], 'builders_max': 3,
+            'clear': [{'at': [-31, 71, -30], 'kind': 'leaves', 'name': 'spruce_leaves'}, {'at': [-31, 72, -30], 'kind': 'tree', 'name': 'spruce_log'}], 'replant': []}
+    PP = lambda **more: {'board-a': {**PR(), 'projects': {'shop': {'record': rec, 'records_files': 1, 'leases': {}}, **more}}, 'board-b': PR()}
+    both = PP(house1={'record': hrec, 'records_files': 1, 'leases': {}}, monument={'record': mrec, 'records_files': 1, 'leases': {}})
+    hp = R('_build', 'project=house1 op=place seg=pad cell=30,71,20 block=stone_bricks', s=13)
+    mp = R('_build', 'project=monument op=place seg=L00-N cell=-30,70,-30 block=cobblestone', s=13)
+    rp = J(base + [hp, mp], both)
+    assert rp['off_record'] == 0 and rp['oracle_missing'] == 0, ('each against its own record', rp['_lists'].get('off_record'))
+    assert J(base + [hp], PP())['off_record'] == 0 and J(base + [hp], PP())['oracle_missing'] == 1, 'a house with no record: not judged against the workshop, named'
+    assert J(base + [R('_build', 'project=house1 op=place seg=pad cell=31,71,20 block=stone_bricks', s=13)], both)['off_record'] == 1, 'positive control: off the HOUSE record'
+    assert J(base + [R('_build', 'project=house1 op=place seg=pad cell=10,70,10 block=stone_bricks', s=13)], both)['off_record'] == 1, 'a workshop cell is not a house cell'
+    assert J(base + [hp])['off_record'] == 0 and J(base + [hp])['oracle_missing'] == 1, 'a caller without `projects` (the old shape): a house row has no record there -- named, never judged against the workshop'
+    mc = [R('_build', 'project=monument op=clear cell=-31,71,-30 block=spruce_leaves kind=leaves', s=14),
+          R('_build', 'project=monument op=clear cell=-31,72,-30 block=spruce_log kind=tree saplings=0/0', s=14)]
+    rm = J(base + mc, both)
+    assert rm['clear_outside'] == 0 and rm['felled_unplanted'] == 0 and rm['g5_unjudged'] == 0, ('the ziggurat\'s clears, no replant owed', rm['_lists'].get('clear_outside'), rm['_lists'].get('g5_unjudged'))
+    assert J(base + [R('_build', 'project=monument op=clear cell=-40,71,-30 block=dirt kind=cut', s=14)], both)['clear_outside'] == 1, 'positive control: a cut off the list'
+    # zigtidy-01: a pillar dug off the finished ziggurat is its own record's tidy -- inside box + 1, never a record cell, never above top + 2
+    trec = {**mrec, 'box': [-31, -31, -29, -29], 'baseY': 70}
+    tb = PP(monument={'record': trec, 'records_files': 1, 'leases': {}})
+    tidy = lambda c: J(base + [R('_build', 'project=monument op=clear cell=%s block=dirt kind=tidy' % c, s=14)], tb)['clear_outside']
+    assert tidy('-30,71,-30') == 0 and tidy('-32,70,-28') == 0, 'on the build and in its apron: tidy'
+    assert tidy('-30,70,-30') == 1, 'a record cell is never a tidy'
+    assert tidy('-34,71,-30') == 1 and tidy('-30,73,-30') == 1 and tidy('-30,69,-30') == 1, 'off the box + 1, above the top + 2, below the base: outside'
+    # its completion is counted, never the workshop's (the world evidence and H8 stay the workshop's)
+    rc = J(base + [R('_structure_complete', 'project=monument op=complete kind=ziggurat@1 gen=9', s=30, bot='board-b-Alpha')], both)
+    assert rc['complete_towns'] == 2 and rc['projects_complete'] == 1, rc
+    # leases: the ziggurat's own three slots; a fourth is a breach; the workshop's two unchanged
+    L3 = {'slot3': [(1, {'holder': 'C', 'at': 0, 'until': 1}, 5)]}
+    assert J(base, PP(monument={'record': mrec, 'records_files': 1, 'leases': L3}))['lease_overlap'] == 0
+    assert J(base, PP(monument={'record': mrec, 'records_files': 1, 'leases': {'slot4': L3['slot3']}}))['lease_overlap'] == 1
+    assert J(base, PP(house1={'record': hrec, 'records_files': 1, 'leases': L3}))['lease_overlap'] == 1, 'a house admits two'
+    # the pathfinder's dirt and stone scaffold is never a loss (the ziggurat places them); a part still is
+    assert J(base + [R('_build_bag', 'project=monument exit=complete silent=0 dirt=20/0/0/5/0/10 andesite=4/0/0/0/0/1', s=50)])['bag_loss'] == 0
+    assert J(base + [R('_build_bag', 'project=house1 exit=complete silent=0 glass_pane=0/3/0/2/0/0', s=50)])['bag_loss'] == 1
     # G5 from the felling's own evidence: fewer saplings than replant cells; a tree clear without the field is unjudged
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/1', s=9)])['felled_unplanted'] == 1
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree', s=9)])['g5_unjudged'] == 1
