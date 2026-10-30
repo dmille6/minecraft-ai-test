@@ -52,6 +52,8 @@ await t('zigTidy names exactly the pillar blocks above the finished build (highe
   assert.ok(list.every(c => !cells.has(k3(c.at))))
   // a cell the record lists as a clear is the clears' own; `skip` drops a cell
   assert.ok(!Z.zigTidy({ ...rec, clear: [{ at: pillar[2], kind: 'cut', name: 'cobblestone' }] }, srv.read).some(c => k3(c.at) === k3(pillar[2])))
+  // ...only while it still holds the listed block (Codex r1: leaves listed and dug, a pillar there since, was nobody's)
+  assert.ok(Z.zigTidy({ ...rec, clear: [{ at: pillar[2], kind: 'leaves', name: 'spruce_leaves' }] }, srv.read).some(c => k3(c.at) === k3(pillar[2])))
   assert.strictEqual(Z.zigTidy(rec, srv.read, { skip: k => k === pillar[3].join(',') }).length, 3)
 })
 await t('THE VISIT DIGS THEM: op=clear kind=tidy rows, the build untouched, complete; the next visit has nothing to tidy', async () => {
@@ -96,6 +98,9 @@ await t('BOUNDED: the clears\' per-call bound holds for the tidy too (clearMax 2
   const r = await R.runVisit({ ...p('A'), tidy: Z.zigTidy(rec, srv.read), clearMax: 2 }, e, { maxSteps: 400 })
   assert.strictEqual(r.cleared, 2)
   assert.strictEqual(Z.zigTidy(rec, srv.read).length, 2)
+  // only the EVALUATED cells are reported for the caller's per-cell bound (Codex r1): the two left untouched are not
+  const left = new Set(Z.zigTidy(rec, srv.read).map(c => k3(c.at)))
+  assert.strictEqual(r.tidied.length, 2); assert.ok(r.tidied.every(k => !left.has(k)))
 })
 await t('skills.mjs (structural): the damage test asks for a tidy, bounded by ZIG_TIDY_VISITS a bot; the visit passes the list', async () => {
   const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
@@ -103,7 +108,8 @@ await t('skills.mjs (structural): the damage test asks for a tidy, bounded by ZI
   assert.ok(/if \(mon && zigTidyNow\(bot, r, read\)\.length\) return true/.test(fn('recordDamaged')))
   assert.ok(/skip: k => \(seen\.get\(k\) \?\? 0\) >= ZIG_TIDY_VISITS/.test(fn('zigTidyNow')))
   const bm = fn('buildMonument')
-  assert.ok(/tidy = zigTidyNow\(bot, rec, read\)/.test(bm) && /record: rec, tidy,/.test(bm))
+  assert.ok(/tidy = zigTidyNow\(bot, rec, read\)/.test(bm) && /runVisitCounted\(bot, \{ dir, key, me, home, stood, record: rec, tidy,/.test(bm))
+  assert.ok(/for \(const k of new Set\(r\.tidied \?\? \[\]\)\) seen\.set/.test(fn('runVisitCounted')), 'the bound counts the evaluated cells')
 })
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
