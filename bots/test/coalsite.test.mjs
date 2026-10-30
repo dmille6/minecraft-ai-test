@@ -79,6 +79,16 @@ test('COALSITE fail closed: no position, an unreadable record directory, or no s
     assert.equal(s.ok, false, 'an unreadable directory is not "no record"')
     assert.equal(order(s).skip, 'site_unknown')
   } finally { process.env.POOL_STATE_DIR = keep }
+  // a record whose only generation is unparseable (gens on disk, no head) is an unknown site, not "no record" (Codex r1 BLOCK)
+  const bad = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-coalsite-bad-'))
+  try {
+    process.env.POOL_STATE_DIR = bad
+    fs.writeFileSync(path.join(bad, `${PJ.projKey(HOME, 'monument')}.g1.json`), '{ not json')
+    assert.equal(SK.coalSiteOf(bot(60, 64, 60)).ok, false)
+    assert.equal(order(SK.coalSiteOf(bot(60, 64, 60))).skip, 'site_unknown')
+    fs.rmSync(path.join(bad, `${PJ.projKey(HOME, 'monument')}.g1.json`))
+    assert.deepEqual(SK.coalSiteOf(bot(60, 64, 60)), { ok: true, hit: null }, 'control: a fresh pool (no generation at all) is no record')
+  } finally { process.env.POOL_STATE_DIR = keep }
   // positive control: the same spot with the directory back is issued
   assert.ok(order(SK.coalSiteOf(bot(60, 64, 60))).order)
 })

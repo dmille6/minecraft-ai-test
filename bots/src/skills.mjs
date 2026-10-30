@@ -12833,7 +12833,9 @@ export function coalSiteOf (bot) {
     if (!p) return { ok: false, hit: null }
     const dir = townDir()
     const hs = projectsOn().map(q => recordHead(dir, projKeyOf(q.plot)))
-    if (!hs.every(h => h.ok)) return { ok: false, hit: null }
+    // a record with generations on disk but no head (every one rejected: unreadable, unparseable, a broken chain) is not "no
+    // record": its site is unknown (Codex r1 BLOCK)
+    if (!hs.every(h => h.ok && (h.head || !(h.gens?.length)))) return { ok: false, hit: null }
     const hit = projectSiteHit(p, recordZones(hs.map(h => h.head?.rec).filter(Boolean), COAL_SITE_MARGIN))
     if (hit && Date.now() - (bot.coalSiteAt ?? -Infinity) >= 10 * 60_000) {
       bot.coalSiteAt = Date.now()
@@ -16771,10 +16773,11 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // wall-01: a repair this bot has tried REPAIR_TRIES times that still reads damaged waits behind the open projects (shop.mjs
     // repairBackoff); a VISIT's pick (build_shop) is counted (noteRepair)
     const rmem = b ? (b.shopRepairs ??= new Map()) : null
-    const free = repairBackoff(activeMem.states, rmem, now).map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now) }))
-    // stuckwait-01: a project inside its stuck back-off waits behind the others (shop.mjs stuckBackoff)
-    const states = stuckBackoff(free, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)
-    const pick = activeProject(states, list)
+    const states = repairBackoff(activeMem.states, rmem, now).map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now) }))
+    // stuckwait-01: a project inside its stuck back-off waits behind the others (shop.mjs stuckBackoff); the repair count reads
+    // the states before it
+    const waited = stuckBackoff(states, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)
+    const pick = activeProject(waited, list)
     if (visit) noteRepair(rmem, pick, states, now)
     return pick
   } catch { return projectsOn()[0] }

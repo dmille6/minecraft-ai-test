@@ -59,10 +59,10 @@ test('STUCKWAIT chain (shopActive on real files): the stuck ziggurat yields to t
 
 test('STUCKWAIT MUTANT KILLED: without stuckBackoff in shopActive the stuck ziggurat holds the active slot (real files)', async () => {
   const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
-  const old = 'const states = stuckBackoff(free, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)'
+  const old = 'const waited = stuckBackoff(states, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)'
   assert.equal(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
   const out = new URL(`./_mutant-stuckwait-${process.pid}.mjs`, import.meta.url)
-  fs.writeFileSync(out, src.replace(old, 'const states = free').replace(/from '\.\//g, "from '../src/"))
+  fs.writeFileSync(out, src.replace(old, 'const waited = states').replace(/from '\.\//g, "from '../src/"))
   try {
     const M = await import(out.href)
     const now = Date.now()   // the same pool as the chain test: the ziggurat is stuck, the wall open
