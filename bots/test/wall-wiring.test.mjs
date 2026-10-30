@@ -59,6 +59,14 @@ await t('ON FILES: the paths laid -> the wall, with no record yet (the order sit
   for (const n of ['A', 'B', 'C', 'D']) assert.ok(PJ.takeSlot(dir(), key, n, W.WALL_BUILDERS).ok)
   assert.strictEqual(SK.shopSlotsFree({ username: 'E' }), false, 'all four held')
 })
+await t('UPKEEP WAITS (LIVE 10-30): a finished ziggurat only DUE a tidy comes after the open wall; a damaged one is repaired first', async () => {
+  const L = S.projectsOn(true, true, true, true)
+  const st = (mon, wallDone = false) => [{ plot: 'shop', exists: true, complete: true }, { plot: 'house1', exists: true, complete: true }, { plot: 'monument', exists: true, complete: true, ...mon }, { plot: 'paths', exists: true, complete: true }, { plot: 'wall', exists: true, complete: wallDone }]
+  assert.strictEqual(S.activeProject(st({ due: true }), L).plot, 'wall', 'a tidy due waits behind the wall')
+  assert.strictEqual(S.activeProject(st({ damaged: true }), L).plot, 'monument', 'a broken cell is repaired first')
+  assert.strictEqual(S.activeProject(st({ due: true }, true), L).plot, 'monument', 'with the wall standing, the tidy gets its visit')
+  assert.strictEqual(S.activeProject(st({}, true), L).plot, 'wall', 'everything stands: the last project, quiet')
+})
 await t('THE FOOTPRINT REFRESH: every wall cell priced, no halo; the cells in the place keep-out; saplings off its columns + 1, not a box', async () => {
   fresh(); shop(true); house(true); mon(true); paths(true); wall(false)
   const bot = { blockAt: () => null }
@@ -92,6 +100,7 @@ for (const [name, re] of [
   ['the wall bills its open cells from town (the piece base: v1 billInTown; the bag\'s spare first)', /const bill = billOf\(rec, palette, read, \{ done: buildCellDone, inTown: billInTown\(town\) \}\)\n {4}const need = needFromTown\(bill, spare0\)/],
   ['the wall is sited ONCE (published only when there is no record)', /const pub = publishRecord\(dir, key, cur => \(cur \? null : \{ \.\.\.record, state: 'open' \}\), \{ by: me \}\)\n[^\n]*\n {4}if \(pub\.result === 'accepted'\) \{ try \{ logEvent\(\{ kind: 'build', status: 'success', snapshot: snapshot\(bot\), detail: buildRowDetail\(\{ project: WALL_PLOT, op: 'sited'/],
   ['the wall\'s sapling keep-out is its columns', /r\.blueprint === WALL_BLUEPRINT \? wallSaplingCols\(r\)/],
+  ['shopActive reads a tidy as upkeep (due), never as damage', /const damaged = complete && b \? recordDamaged\(b, rec, \{ tidy: false \}\) : false\n {8}return \{ plot: p\.plot, exists: !!rec, complete, damaged, due: complete && b && !damaged \? recordDamaged\(b, rec\) : false \}/],
 ]) {
   await t(`${name} (and a mutant of it fails)`, async () => {
     assert.ok(re.test(SRC), 'wired')

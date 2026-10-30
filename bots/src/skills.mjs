@@ -16645,7 +16645,12 @@ export function shopActive (bot = null, now = Date.now()) {
         const h = recordHead(dir, projKeyOf(p.plot))
         const rec = h.ok ? h.head?.rec ?? null : null
         const complete = !!rec?.structure_complete
-        return { plot: p.plot, exists: !!rec, complete, damaged: complete && b ? recordDamaged(b, rec) : false }
+        // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
+        // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
+        // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
+        // tidy that is only due waits behind every open project (shop.mjs activeProject `due`)
+        const damaged = complete && b ? recordDamaged(b, rec, { tidy: false }) : false
+        return { plot: p.plot, exists: !!rec, complete, damaged, due: complete && b && !damaged ? recordDamaged(b, rec) : false }
       })
       activeMem = { ...(activeMem ?? {}), sig, at: now, states }
     }
@@ -16884,7 +16889,7 @@ export function shopDamaged (bot, rec = null) {
   } catch { return false }
 }
 /** A complete record's loaded cells: any no longer done (its own blueprint's palette)? -> bool. Never throws. */
-function recordDamaged (bot, r) {
+function recordDamaged (bot, r, { tidy = true } = {}) {
   try {
     const bp = blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
     // monument-01: a sealed core cell of the ziggurat is done (ziggurat.mjs zigHidden), as its visit judges it
@@ -16896,7 +16901,7 @@ function recordDamaged (bot, r) {
     }
     // zigtidy-01: a finished ziggurat with climbing pillars on its treads wants a visit too (the tidy), until each pillar block has
     // been offered ZIG_TIDY_VISITS visits of this bot
-    if (mon && zigTidyNow(bot, r, read).length) return true
+    if (tidy && mon && zigTidyNow(bot, r, read).length) return true
     // paths-01 r2: a laid network with a destination it does not serve yet (a container's stand, a project completed since) wants
     // a visit: its extension (buildPaths), at most once per PATHS_EXTEND_MS per bot
     if (r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true
