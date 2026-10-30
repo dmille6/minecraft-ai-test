@@ -6467,10 +6467,11 @@ export function lidRecordAt (bot, p) {
     // THE PLAN'S RECORD, read from disk whatever the planner switch (Codex r1: TOWNPLAN=off must not hide an existing plan's
     // cells); planHead is a pure read (its walk cache only), no adopter state is touched
     const ph = planHead(townDir(), planKeyNow(), bot?.worldId ?? null)
-    if (!ph.ok) return null
+    if (!ph.ok || recordUnread(ph)) return null
     if (planFurnitureCells(ph.head?.plan).has(k) || bot?.townPlan?.cells?.has?.(k)) return 'townplan'
     const h = shopRecordHead()
-    if (!h.ok) return null
+    // a generation file that exists but cannot be read leaves `ok` true with an older (or no) head: unknown, never "no cell"
+    if (!h.ok || recordUnread(h) || ((h.gens?.length ?? 0) > 0 && !h.head)) return null
     if ((h.head?.rec?.cells ?? []).some(c => Array.isArray(c?.at) && c.at[0] === p.x && c.at[1] === p.y && c.at[2] === p.z)) return 'workshop'
     const farm = treeFarmRecordCells()
     if (!farm) return null
@@ -6478,6 +6479,10 @@ export function lidRecordAt (bot, p) {
     return false
   } catch { return null }
 }
+/** A record walk that skipped a generation it could not READ (unreadable, unparseable, not an object) -> true. Codex merge
+ *  review (lidplank x tdoffer, 10-30) BLOCKER: recordHead/planHead return ok with those in `rejected`, and a lost root read
+ *  as "no workshop cells" granted a dig of a workshop-owned plank lid. Chain/schema rejections are the walk's own rules. */
+const recordUnread = h => (Array.isArray(h?.rejected) ? h.rejected : []).some(r => ['unreadable', 'unparseable', 'not an object'].includes(String(r?.why ?? '')))
 /** The tree farm's columns for the lid rule (lidplank-01) -> Set "x,z" | null when a record file exists and none parses, or
  *  the directory cannot be listed (Codex r1: treeFarmCells' empty answer on a read failure would grant a break). */
 function treeFarmRecordCells () {

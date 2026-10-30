@@ -361,6 +361,23 @@ await t('LIDPLANK-01 READER: lidRecordAt names the record that holds the cell --
   const pub = PS.publishPlan(process.env.POOL_STATE_DIR, KEYP, WID, cur => { Object.assign(cur.plots[0].cells[0], { state: 'reserved', by: 'Other', visit: 'v', until: Date.now() + 120_000 }); return cur }, { by: 'Other' })
   assert.equal(pub.result, 'accepted', JSON.stringify(pub).slice(0, 200))
   assert.equal(SK.lidRecordAt(w6.bot, p), 'townplan', 'the disk plan holds it though the bot never read the plan')
+  // Codex merge review 10-30 BLOCKER: a workshop / plan generation that exists but cannot be parsed is UNKNOWN, never "none"
+  {
+    const saved0 = process.env.POOL_STATE_DIR
+    process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-lid-bad-'))
+    try {
+      const wb = lidWorld([], { lid: 'oak_planks' }); wb.bot.townPlan = null
+      assert.equal(SK.lidRecordAt(wb.bot, p), false, 'positive control: a fresh dir, no record')
+      const shopF = path.join(process.env.POOL_STATE_DIR, `${projKey({ x: 0, y: 64, z: 0 }, SHOP_PLOT)}.g1.json`)
+      fs.writeFileSync(shopF, '{not json')
+      assert.equal(SK.lidRecordAt(wb.bot, p), null, 'an unparseable workshop ROOT: unknown (was false: a dig)')
+      fs.unlinkSync(shopF)
+      assert.equal(SK.lidRecordAt(wb.bot, p), false, 'and back to none once the bad file is gone')
+      fs.writeFileSync(path.join(process.env.POOL_STATE_DIR, `${PS.planKey({ x: 0, y: 64, z: 0 })}.g1.json`), '{not json')
+      PS.resetPlanWalks?.()
+      assert.equal(SK.lidRecordAt(wb.bot, p), null, 'an unparseable town plan generation: unknown')
+    } finally { process.env.POOL_STATE_DIR = saved0; PS.resetPlanWalks?.() }
+  }
   const saved = process.env.POOL_STATE_DIR
   const notDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-lid-nd-')), 'file'); fs.writeFileSync(notDir, 'x')
   process.env.POOL_STATE_DIR = notDir
