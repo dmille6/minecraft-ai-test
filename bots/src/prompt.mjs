@@ -322,6 +322,10 @@ export function buildSystemPrompt(skillNames) {
     `- Iron: mine down to find iron ore, gather it (you get raw_iron), then`,
     `  smelt item=raw_iron to get iron_ingot. 3 iron_ingot + 2 sticks ->`,
     `  iron_pickaxe. Smelting needs a furnace (8 cobblestone) and fuel.`,
+    // SHAFT-02 (the town stair): one static line, in the shared prefix. Iron is commonest near y=16 (measured 10-30: 3.2 raw iron
+    // per skill-hour at y 16-31 against 0.09 above 64); mine walks the town's stair down when it has one (skills.mjs stairDescend)
+    `- Iron ore is most common deep down, around y=16. If your town has a`,
+    `  mineshaft stair, mine with y=16 walks down it with no digging.`,
     `- "reason" must be one short sentence explaining the choice.`,
     `- Copy the saw_end value from the end of the user message exactly.`,
     ``,

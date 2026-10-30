@@ -8,6 +8,7 @@ import { reserveKeyOf, reserveCount, takeAllowed, LOG_NAMES, PLANKS_OF } from '.
 import { monumentOn, MONUMENT_PLOT, MONUMENT_BLUEPRINT, MONUMENT_BUILDERS } from './ziggurat.mjs'
 import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mjs'
 import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
+import { SHAFT_PLOT, SHAFT_BLUEPRINT } from './shaftgeom.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -41,14 +42,37 @@ export const PATHS = Object.freeze({ on: pathsOn(process.env, process.env.MEMORY
  * until its rollout (wall.mjs wallOn; WALL=off is the rollback). It needs the paths (and the house) on.
  */
 export const TOWNWALL = Object.freeze({ on: wallOn(process.env, process.env.MEMORY_POOL ?? '') })
+/**
+ * SHAFT-02: THE TOWN STAIR (shaftgeom.mjs; docs/reports/mineshaft-2026-10-30/design.md; OWNER 10-30 "a common mineshaft"): a
+ * lined 3x3 spiral stair to feet y=16 with landings at 48/32/16, ONE builder, its own excavation visit (skills.mjs buildStair).
+ * Right after the workshop (design r2: before the house, or only the third free bot reaches it): one bot takes its slot, the
+ * rest go on to the next open project. SHAFT=on|off, SHAFT_POOLS (default every pool: the canary's code runs only on the canary
+ * pools, so the variant is the rollout). Off stops the building and the use; a sited stair's cells stay protected
+ * (projectsGuarded).
+ */
+export function shaftOn (env = process.env, pool = '') {
+  const v = String(env?.SHAFT ?? '').toLowerCase()
+  if (v === 'on' || v === '1' || v === 'true') return true
+  if (v === 'off' || v === '0' || v === 'false') return false
+  const pools = String(env?.SHAFT_POOLS ?? '*').split(',').map(q => q.trim()).filter(Boolean)
+  return pools.includes('*') || pools.includes(String(pool))
+}
+export const SHAFT = Object.freeze({ on: shaftOn(process.env, process.env.MEMORY_POOL ?? '') })
+export const SHAFT_BUILDERS = 1
+export const SHAFT_COOLDOWN_MS = 2 * 60_000    // a stair visit is short (the runner's clock) and digs, so it is asked again sooner
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
+  Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
   Object.freeze({ plot: 'house1', blueprint: 'house@1', after: SHOP_PLOT }),
   Object.freeze({ plot: MONUMENT_PLOT, blueprint: MONUMENT_BLUEPRINT, after: SHOP_PLOT, builders: MONUMENT_BUILDERS }),
   Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : on))
+/** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
+ *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
+ *  protection"). Pure. */
+export const projectsGuarded = (list = projectsOn()) => (list.some(p => p.plot === SHAFT_PLOT) ? list : [...list, PROJECTS.find(p => p.plot === SHAFT_PLOT)])
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
 export const buildersOf = p => p?.builders ?? BUILDERS_MAX
 /**
@@ -139,7 +163,7 @@ export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in th
 export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the ziggurat is built mostly from the cobble a bag already holds
 /** The projects a bag needs only MONUMENT_BAG_SLOTS_MIN free slots for (paths-01: a shovel's use draws nothing). */
 /** wall-01: the wall is built from the cobblestone the bags carry, as the ziggurat is. */
-export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT]))
+export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, SHAFT_PLOT]))
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
@@ -416,7 +440,10 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
   if (complete) return { order: null, skip: 'complete' }
-  if (now - (state.lastAt ?? -Infinity) < SHOP_COOLDOWN_MS) return { order: null, skip: null }
+  // shaft-02: the town stair's visit is asked again after SHAFT_COOLDOWN_MS (its record's plot, or the active plot unsited)
+  let plot0 = record?.plot ?? null
+  if (!record) { try { plot0 = activePlotOf() } catch { plot0 = null } }
+  if (now - (state.lastAt ?? -Infinity) < (plot0 === SHAFT_PLOT ? SHAFT_COOLDOWN_MS : SHOP_COOLDOWN_MS)) return { order: null, skip: null }
   if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
   // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop.
   // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE
