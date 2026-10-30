@@ -13,6 +13,7 @@ process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'showcase'
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-wall-pool-'))
+process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE; delete process.env.PATHS; delete process.env.PATHS_POOLS
 delete process.env.WALL; delete process.env.WALL_POOLS
 const SK = await import('../src/skills.mjs')
