@@ -17129,6 +17129,13 @@ function zigTidyNow (bot, rec, read) {
   const seen = (bot.zigTidySeen ??= new Map())
   return zigTidy(rec, read, { skip: k => (seen.get(k) ?? 0) >= ZIG_TIDY_VISITS })
 }
+/** runVisit, then the tidy cells it EVALUATED (out.tidied: a stand looked for) counted against ZIG_TIDY_VISITS for this bot --
+ *  never the ones a deadline, a lease or the clear bound left untouched (Codex zigtidy r1). */
+async function runVisitCounted (bot, p, e, opts) {
+  const r = await runVisit(p, e, opts)
+  try { const seen = bot.zigTidySeen ?? null; if (seen) for (const k of new Set(r.tidied ?? [])) seen.set(k, (seen.get(k) ?? 0) + 1) } catch { /* the bound waits */ }
+  return r
+}
 /** THE SPLIT FOUNDATION'S TOMBSTONE on the legacy `seg-F` lease (see buildMonument) -> { ok } | { ok: false, holder }. Never throws. */
 export function monumentSplitGate (dir, key, now = Date.now()) {
   try {
@@ -17262,12 +17269,9 @@ async function buildMonument (ctx, args, signal) {
     let tidy = []
     try {
       const isDone = c => { const b = read(...c.at); return !!b && (buildCellDone(b, palette, c.role) || zigHidden(c, read)) }
-      if (rec.structure_complete || zigProgress(rec, isDone).open <= 3) {
-        tidy = zigTidyNow(bot, rec, read)
-        for (const c of tidy) { const k = c.at.join(','); bot.zigTidySeen.set(k, (bot.zigTidySeen.get(k) ?? 0) + 1) }
-      }
+      if (rec.structure_complete || zigProgress(rec, isDone).open <= 3) tidy = zigTidyNow(bot, rec, read)
     } catch { tidy = [] }
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, tidy, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    const r = await runVisitCounted(bot, { dir, key, me, home, stood, record: rec, tidy, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zigHidden, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z] }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })

@@ -512,6 +512,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (c.kind !== 'tree' && builtDone(c)) continue
         if (now() - (e.spawnedAt?.() ?? 0) < SPAWN_DIG_QUIET_MS) await e.sleep(SPAWN_DIG_QUIET_MS)
         nodes ??= nodesFor()
+        // a TIDY entry evaluated here (a stand looked for) is reported (out.tidied): the caller's per-cell bound counts only these
+        // (Codex zigtidy r1: counted at the list, a deadline or the clear bound spent untouched pillars' visits)
+        if (c.kind === 'tidy') (out.tidied ??= []).push(kOf(c.at))
         if (!digStand(rd, c.at, nodes)) continue                    // no stand reaches it now: nothing tried, nothing counted
         const g = guard(); if (g) return g
         tried++

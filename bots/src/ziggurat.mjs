@@ -493,7 +493,9 @@ export const ZIG_TIDY_VISITS = 3
 export function zigTidy (record, read, { skip = () => false } = {}) {
   if (!Array.isArray(record?.box) || !Array.isArray(record?.cells)) return []
   const cells = new Set(record.cells.map(c => c.at.join(',')))
-  const listed = new Set((record.clear ?? []).map(c => c.at.join(',')))
+  // a listed clear is the clears' own only while it still holds the block it was listed for (Codex zigtidy r1: a pillar standing
+  // where leaves were listed and dug was nobody's)
+  const listed = new Map((record.clear ?? []).map(c => [c.at.join(','), c.name]))
   const colTop = new Map()
   for (const c of record.cells) { const k = `${c.at[0]},${c.at[2]}`; colTop.set(k, Math.max(colTop.get(k) ?? -Infinity, c.at[1])) }
   const top = Number.isFinite(record.topY) ? record.topY : record.baseY + zigHeight(record.geometry ?? ZIG_DEFAULT) - 1
@@ -504,8 +506,9 @@ export function zigTidy (record, read, { skip = () => false } = {}) {
       const ct = colTop.get(`${x},${z}`)
       for (let y = ct != null ? ct + 1 : record.baseY; y <= top + 2; y++) {
         const k = `${x},${y},${z}`
-        if (cells.has(k) || listed.has(k) || skip(k)) continue
+        if (cells.has(k) || skip(k)) continue
         const b = read(x, y, z)
+        if (listed.has(k) && listed.get(k) === nm(b)) continue
         if (b && ZIG_TIDY.test(nm(b))) out.push({ at: [x, y, z], kind: 'tidy', name: nm(b) })
       }
     }
