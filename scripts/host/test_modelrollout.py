@@ -313,6 +313,24 @@ def driver():
       died and 'rollout-interrupted' in phases() and 'INTERRUPTED' in open(R.P['page']).read() and [x[0] for x in h.holds] == ['claim'])
     shutil.rmtree(root)
 
+    # r2 Codex: SIGTERM DURING the stop (inside the rollback's restarts) is journalled and paged, then re-raised
+    root = tree(); h = FakeHost(root, read_fail_stage=1)
+    orig = h.restart
+    def term_restart(bot, _o=orig, _h=h):
+        if any(r['phase'] == 'rollout-rollback' for r in R.read_jsonl(R.P['journal'])):
+            raise SystemExit(143)
+        return _o(bot)
+    h.restart = term_restart
+    try:
+        quiet(R.Rollout(h, 'qwen35-01').go); died = False
+    except SystemExit:
+        died = True
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    t('r2: SIGTERM during the stop: rollout-stop-failed journalled, paged, stage rollback-unproven, hold kept',
+      died and 'rollout-stop-failed' in phases() and 'STOP FAILED' in open(R.P['page']).read()
+      and st['stages'][0]['status'] == 'rollback-unproven' and [x[0] for x in h.holds] == ['claim'], (died, phases()[-3:], st['stages'][0]))
+    shutil.rmtree(root)
+
     # r1 Codex 3: a stall poll that never says OK is a guard that is down
     root = tree(); h = FakeHost(root, poll='MODELPOLL UNREADABLE :: no active canary unit', poll_stage=1)
     rc, out = quiet(R.Rollout(h, 'qwen35-01').go)

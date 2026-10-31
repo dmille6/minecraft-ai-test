@@ -734,18 +734,21 @@ class Rollout:
         for i in todo:
             self.st['stages'][i - 1]['status'] = 'rolled-back'
         self.save()
-        self.journal('rollout-rolled-back', 'stages %s: %s proven absent on %d bots' % (idxs, ' '.join(self.kvs), len(bots)))
+        self.journal('rollout-rolled-back', 'stages %s: %s proven absent on %d bots' % (todo, ' '.join(self.kvs), len(bots)))
         return True
 
     def finish_stop(self, why, scope, cur):
         try:
             self._finish_stop(why, scope, cur)
-        except Exception as x:          # never exit silently with a stage applied and unread (Claude r1)
+        except BaseException as x:      # never exit silently with a stage applied and unread (Claude r1; SIGTERM too, Codex r2)
             with contextlib.suppress(Exception):
                 self.st['status'] = 'stopped'; self.st['stop'] = why; self.save()
-            self.journal('rollout-stop-failed', '%s :: the stop itself failed: %s: %s' % (why, type(x).__name__, x))
-            self.page('error', 'ROLLOUT %s STOP FAILED (%s: %s) after: %s -- state %s; the slot stays held; run `python3 %s rollback --all`' % (
-                self.run, type(x).__name__, x, why, self.statep, os.path.abspath(__file__)))
+            with contextlib.suppress(Exception):
+                self.journal('rollout-stop-failed', '%s :: the stop itself failed: %s: %s' % (why, type(x).__name__, x))
+                self.page('error', 'ROLLOUT %s STOP FAILED (%s: %s) after: %s -- state %s; the slot stays held; run `python3 %s rollback --all`' % (
+                    self.run, type(x).__name__, x, why, self.statep, os.path.abspath(__file__)))
+            if not isinstance(x, Exception):
+                raise
 
     def _finish_stop(self, why, scope, cur):
         self.journal('rollout-stopping', why)
