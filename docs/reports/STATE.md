@@ -19,7 +19,7 @@ on the canary host; `sudo /srv/showcase/bin/showcase_ops.py status` on the showc
 
 - Owner showcase list 10-29: 1 ziggurat DONE, 2 house/paths DONE + wall building, 3 coal LIVE; next 4 tree farm, 5 short expeditions (camera each).
 - Learning loop: candidate 2 (`cand-qwen35-9b-c2-q8`, Qwen3.5-9B 8-bit LoRA on 5,768 cleaned examples) PASSES the offline bar vs qwen3.5:9b (600-item replay: rep_fail 16.7 vs 25.3, post-veto 7 vs 54, hard 2.0 vs 3.0, schema 100%) -- but stock qwen3.5:9b at Q8_0 is already 20.3/33/1.7 and the candidate answers `surface` on 65% of post-veto items. `qwen35c2-01` HELD at the queue END (owner decision + Blackwell upload, think-unset template check, capacity test first). Teacher pilot: Claude $11.61; OpenAI arm not run (no credit). Report `docs/reports/learnloop-c2-2026-10-31.md`.
-- Model canary qwen3.5:9b (replay rep_fail 26.7 vs fleet qwen2.5:7b 67.0) being prepared.
+- Model canary qwen35-01 (qwen3.5:9b on the Blackwell): KEEP 06:10Z, not promoted (live p50 1.44 s / p95 2.55 s); promotion onto the 5080 is a separate owner step.
 
 ## Lab mode
 
