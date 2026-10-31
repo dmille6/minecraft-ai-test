@@ -281,6 +281,19 @@ def t_informed_subset_is_deterministic():
     assert T.informed_ids(it) == T.informed_ids(list(reversed(it))) and len(T.informed_ids(it)) == 200
 
 
+
+def t_openai_strict_schema_requires_every_arg_and_keeps_the_fleet_shape():
+    sch = {'type': 'object', 'properties': {'reason': {'type': 'string'}, 'skill': {'type': 'string', 'enum': ['goto']},
+           'args': {'type': 'object', 'properties': {'x': {'type': 'integer'}, 'action': {'type': 'string', 'enum': ['fill', 'pour']}},
+                    'additionalProperties': False}, 'saw_end': {'type': 'string'}},
+           'required': ['skill', 'args', 'reason', 'saw_end'], 'additionalProperties': False}
+    o = T.openai_strict_schema(sch)
+    a = o['properties']['args']
+    assert sorted(a['required']) == ['action', 'x'] and a['properties']['x']['type'] == ['integer', 'null']
+    assert a['properties']['action']['enum'] == ['fill', 'pour', None]
+    assert 'required' not in sch['properties']['args']                 # the item's own schema is not mutated
+    assert T.strip_nulls({'skill': 'goto', 'args': {'x': 3, 'action': None}})['args'] == {'x': 3}
+
 TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith('t_') and callable(f)]
 if __name__ == '__main__':
     for n, f in TESTS:

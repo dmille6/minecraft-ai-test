@@ -37,7 +37,7 @@ KEYS: ~/.config/mcai/anthropic.key and ~/.config/mcai/openai.key, mode 600. `pla
 QUARANTINE: results go to ~/learnloop/teacher-paid/<arm>/ with provenance teacher-paid:<vendor>:<model>; the dataset
   builder refuses them for training until a recorded owner decision names the vendor and the use (build_dataset.py).
 """
-import argparse, datetime as dt, hashlib, json, math, os, random, stat, sys
+import argparse, copy, datetime as dt, hashlib, json, math, os, random, stat, sys
 
 HOME = os.path.expanduser('~/learnloop')
 LEDGER = os.path.join(HOME, 'spend.jsonl')
@@ -95,6 +95,32 @@ def anthropic_request(item, condition, arm='B'):
                        'output_config': {'effort': 'low', 'format': {'type': 'json_schema', 'schema': item['schema']}}}}
 
 
+def openai_strict_schema(schema):
+    """OpenAI strict json_schema requires EVERY property to be listed in `required` (live 400 on 10-31: "'required' ...
+    Missing 'block'"). The fleet schema's optional `args` fields become required-but-nullable (null added to their type
+    and enum); fetch strips the nulls, so the parsed answer has the fleet's shape. The grammar stays enforced."""
+    s = copy.deepcopy(schema)
+    a = (s.get('properties') or {}).get('args')
+    if not isinstance(a, dict) or not isinstance(a.get('properties'), dict):
+        return s
+    req = set(a.get('required') or [])
+    for k, v in a['properties'].items():
+        if k not in req:
+            t = v.get('type')
+            if isinstance(t, str):
+                v['type'] = [t, 'null']
+            if 'enum' in v and None not in v['enum']:
+                v['enum'] = list(v['enum']) + [None]
+    a['required'] = list(a['properties'])
+    return s
+
+
+def strip_nulls(d):
+    if isinstance(d, dict) and isinstance(d.get('args'), dict):
+        d['args'] = {k: v for k, v in d['args'].items() if v is not None}
+    return d
+
+
 def openai_request(item, condition, arm='C'):
     """One OpenAI Batch API line (/v1/chat/completions)."""
     return {'custom_id': '%s-%s-%s' % (arm, condition, hashlib.sha1(item['id'].encode()).hexdigest()[:20]),
@@ -103,7 +129,7 @@ def openai_request(item, condition, arm='C'):
                      'messages': [{'role': 'system', 'content': item['system']},
                                   {'role': 'user', 'content': user_text(item, condition)}],
                      'response_format': {'type': 'json_schema', 'json_schema': {'name': 'decision', 'strict': True,
-                                                                                'schema': item['schema']}}}}
+                                                                                'schema': openai_strict_schema(item['schema'])}}}}
 
 
 def plan_batches(items, arm, condition):
@@ -249,8 +275,10 @@ def cmd_submit(a, submit=None):
     with open(LEDGER + '.lock', 'w') as lk:
         fcntl.flock(lk, fcntl.LOCK_EX)           # the WHOLE submit: two submits cannot pass against the same balance
         rows = ledger_rows()
-        released = {r['reservation'] for r in rows if r['kind'] == 'released'}
-        submitted = {r['reservation'] for r in rows if r['kind'] == 'submitted'}
+        # a batch the VENDOR ended without running it (cancelled/failed/expired, recorded by fetch as `void`) frees its
+        # request set for one new submit; a batch that ran is never re-sent
+        released = {r['reservation'] for r in rows if r['kind'] in ('released', 'void')}
+        submitted = {r['reservation'] for r in rows if r['kind'] == 'submitted'} - released
         for b in batches:
             key = items_key(arm, cond, b['items'])
             dup = [r for r in rows if r['kind'] == 'reserve' and r['arm'] == arm and r.get('items_key') == key
@@ -350,6 +378,13 @@ def cmd_fetch(a):
             import openai
             c = openai.OpenAI(api_key=read_key('openai'), max_retries=0)
             b = c.batches.retrieve(r['batch'])
+            if b.status in ('cancelled', 'failed', 'expired') and not b.output_file_id:
+                now = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+                append_row({'ts': now, 'vendor': v, 'arm': arm, 'batch': r['batch'], 'reservation': r['reservation'],
+                            'kind': 'actual', 'usd': 0.0, 'requests': 0, 'note': 'vendor %s, no output file' % b.status})
+                append_row({'ts': now, 'vendor': v, 'arm': arm, 'kind': 'void', 'reservation': r['reservation'],
+                            'batch': r['batch'], 'why': b.status})
+                print(r['batch'], b.status, '-> recorded $0 actual + void (its request set may be submitted once more)'); continue
             if b.status != 'completed':
                 print(r['batch'], b.status); continue
             for line in c.files.content(b.output_file_id).text.splitlines():
@@ -360,6 +395,8 @@ def cmd_fetch(a):
                              'in': u.get('prompt_tokens', 0), 'out': u.get('completion_tokens', 0)})
         for x in recs:
             x['provenance'] = 'teacher-paid:%s:%s' % (v, ARMS[arm]['model']); x['parsed'] = parse_answer(x.get('text'))
+            if v == 'openai':
+                x['parsed'] = strip_nulls(x['parsed']); x['schema_transform'] = 'openai strict: optional args nullable, nulls stripped'
         with open(os.path.join(qdir, '%s.jsonl' % r['batch']), 'w') as fh:
             for x in recs:
                 fh.write(json.dumps(x) + '\n')
