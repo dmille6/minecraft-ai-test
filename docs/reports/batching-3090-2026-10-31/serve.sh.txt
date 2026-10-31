@@ -1,0 +1,15 @@
+#!/bin/bash
+# serve.sh <gguf> <alias> <np> <ctx_per_slot> [extra...]  -> llama-server on :18080, log ~/batchtest/logs/<alias>-np<np>.log
+set -e
+G=$1; A=$2; NP=$3; CPS=$4; shift 4
+D=$HOME/batchtest/llama-b12020/llama-b12020
+export LD_LIBRARY_PATH=$HOME/batchtest/cudart/cudart-llama-b12020-bin-ubuntu-cuda-12.8-x64:$HOME/batchtest/lib:$D
+mkdir -p $HOME/batchtest/logs
+[ -f $HOME/batchtest/server.pid ] && kill $(cat $HOME/batchtest/server.pid) 2>/dev/null || true
+sleep 2
+nohup $D/llama-server -m "$G" --alias "$A" -ngl 99 -fa on -np $NP -c $((NP*CPS)) --kv-unified --jinja \
+  --reasoning off --no-webui --metrics \
+  --host 0.0.0.0 --port 18080 "$@" > $HOME/batchtest/logs/$A-np$NP.log 2>&1 &
+echo $! > $HOME/batchtest/server.pid
+for i in $(seq 1 150); do kill -0 $(cat $HOME/batchtest/server.pid) 2>/dev/null || break; curl -sf localhost:18080/health >/dev/null && { echo READY $(cat $HOME/batchtest/server.pid); exit 0; }; sleep 1; done
+echo FAILED; tail -30 $HOME/batchtest/logs/$A-np$NP.log; exit 1

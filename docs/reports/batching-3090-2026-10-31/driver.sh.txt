@@ -1,0 +1,22 @@
+#!/bin/bash
+# driver.sh <tag> <gguf|ollama:MODEL> <np> <runs...>   run = c<N>:<n> (closed) or r<rate>:<n> (open)
+# llama.cpp: restart the server before every run (no cross-run prompt cache). Ollama: api=ollama on :11434.
+TAG=$1; SRC=$2; NP=$3; shift 3
+ITEMS='~/learnloop/datasets/v0/m3-eval.jsonl'
+OFF=0
+for run in "$@"; do
+  kind=${run:0:1}; p=${run:1}; par=${p%%:*}; n=${p##*:}
+  if [[ $SRC == ollama:* ]]; then
+    M=${SRC#ollama:}; URL=http://10.0.0.16:11434; API=ollama-nothink
+  else
+    M=$TAG; URL=http://10.0.0.16:18080; API=oai
+    ssh mike@10.0.0.16 "~/batchtest/serve.sh $SRC $TAG $NP ${CPS:-4096} $EXTRA </dev/null" | head -1
+  fi
+  mode=closed; [[ $kind == r ]] && mode=open
+  out="out/$TAG-$run.jsonl"; out=${out/:/-n}
+  t0=$(date +%s)
+  ssh mike@10.0.0.31 "cd ~/batchtest && node batchload.mjs /opt/minecraft-ai/bots $ITEMS $out $URL $M $mode $par $n $OFF $API 2>&1 | tail -1"
+  t1=$(date +%s)
+  echo "RUN $TAG $run $t0 $t1" | tee -a runs.log
+  OFF=$(( (OFF + n) % 600 ))
+done

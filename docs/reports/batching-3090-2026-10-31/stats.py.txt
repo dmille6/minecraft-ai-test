@@ -1,0 +1,24 @@
+import json, sys
+def pct(xs, q):
+    xs = sorted(xs); return xs[min(len(xs)-1, int(round(q/100*(len(xs)-1))))] if xs else None
+def stats(path):
+    rows = [json.loads(l) for l in open(path) if l.strip()]
+    ok = [r for r in rows if not r.get('transport_error')]
+    lat = [r['latencyMs'] for r in ok if r.get('schemaValid')]
+    allLat = [r.get('latencyMs') for r in ok]
+    span = (max(r['t_done_ms'] for r in rows) - min(r['t_arrive_ms'] for r in rows)) / 1000 if rows else 0
+    ctoks = sum((r.get('completion_tokens') or 0) for r in ok)
+    ptoks = [r.get('prompt_tokens') for r in ok if r.get('prompt_tokens')]
+    return dict(n=len(rows), transport_err=len(rows)-len(ok), valid=sum(1 for r in ok if r.get('schemaValid')),
+                valid_share=round(sum(1 for r in ok if r.get('schemaValid'))/len(rows), 4) if rows else None,
+                retries=sum(r.get('retryCount') or 0 for r in ok),
+                p50=pct(allLat,50), p95=pct(allLat,95), p99=pct(allLat,99), max=max(allLat) if allLat else None,
+                span_s=round(span,1), done_per_min=round(len(ok)/span*60,1) if span else None,
+                out_tok_s=round(ctoks/span,1) if span else None, mean_out=round(ctoks/len(ok),1) if ok else None,
+                mean_prompt=round(sum(ptoks)/len(ptoks)) if ptoks else None,
+                max_inflight=max(r['inflight_at_arrival'] for r in rows) if rows else None,
+                cached_share=(lambda S: round(sum(x.get('cache_n') or 0 for x in S)/max(1,sum((x.get('cache_n') or 0)+(x.get('prompt_n') or 0) for x in S)),3) if S else None)([r['server'] for r in ok if r.get('server')]),
+                srv_prompt_ms_p50=pct([r['server']['prompt_ms'] for r in ok if r.get('server') and r['server'].get('prompt_ms') is not None],50),
+                srv_gen_ms_p50=pct([r['server']['predicted_ms'] for r in ok if r.get('server') and r['server'].get('predicted_ms') is not None],50))
+for p in sys.argv[1:]:
+    print(p.split('/')[-1], json.dumps(stats(p)))

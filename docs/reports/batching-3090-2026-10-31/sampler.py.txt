@@ -1,0 +1,21 @@
+# sampler.py <out.csv> : every 2 s -> t, gpu_util, mem_used_total, my_server_mem, ethan_mem, ethan_busy, ethan_task_id
+import subprocess, time, json, urllib.request, sys
+ETHAN = 191969
+out = open(sys.argv[1], 'a')
+while True:
+    t = time.time()
+    try:
+        g = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu,memory.used', '--format=csv,noheader,nounits'], capture_output=True, text=True).stdout.strip().split(',')
+        apps = subprocess.run(['nvidia-smi', '--query-compute-apps=pid,used_memory', '--format=csv,noheader,nounits'], capture_output=True, text=True).stdout.strip().splitlines()
+        mem = {int(a.split(',')[0]): int(a.split(',')[1]) for a in apps if a.strip()}
+        try: my = int(open('/home/mike/batchtest/server.pid').read())
+        except Exception: my = -1
+        mine = sum(v for k, v in mem.items() if k != ETHAN)
+        try:
+            s = json.load(urllib.request.urlopen('http://localhost:1234/slots', timeout=2))[0]
+            busy, task = int(bool(s.get('is_processing'))), s.get('id_task')
+        except Exception: busy, task = -1, -1
+        out.write('%.1f,%s,%s,%d,%d,%d,%s\n' % (t, g[0].strip(), g[1].strip(), mine, mem.get(ETHAN, 0), busy, task)); out.flush()
+    except Exception as e:
+        out.write('%.1f,ERR,%s\n' % (t, e)); out.flush()
+    time.sleep(max(0, 2 - (time.time() - t)))
