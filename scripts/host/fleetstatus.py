@@ -107,6 +107,74 @@ def _ts(s):
     return dt.datetime.fromisoformat(str(s).replace('Z', '+00:00'))
 
 
+# LAVA MAP (lavasight-01; scripts/host/lavasight): the publisher's own check of every pool's lava-map.json, never a quiet OK.
+# A feed is only OK if something READS it: lavasight-01 closed INCONCLUSIVE 10-26 and is not on the fleet, yet the hourly
+# publisher kept writing and this line kept saying "lavamap OK" (audit 10-31). So the line first asks the fleet's own
+# build tree whether any module reads the file; with no reader it says so -- RETIRED when the publisher's cron was taken
+# out on purpose (~/lavasight/RETIRED holds why), an alarm when the publisher still runs for nobody.
+LAVAMAP_READERS = ('lava-map.json', 'lavaMapReader')       # the reader's file name and function (lavasight.mjs)
+FLEET_TREE = '/srv/mcbots/harness/src'                       # the baseline units' WorkingDirectory + src
+
+
+def lavamap_consumers(tree=FLEET_TREE):
+    """-> (n_modules_scanned, [modules that read the lava map]). n == 0 means the tree was not readable (no verdict)."""
+    n, hits = 0, []
+    for root, _, files in os.walk(tree):
+        for f in files:
+            if not f.endswith(('.mjs', '.js')):
+                continue
+            try:
+                text = open(os.path.join(root, f), errors='replace').read()
+            except OSError:
+                continue
+            n += 1
+            if any(k in text for k in LAVAMAP_READERS):
+                hits.append(os.path.relpath(os.path.join(root, f), tree))
+    return n, hits
+
+
+def lavamap_line(now, home=None, tree=FLEET_TREE):
+    import subprocess
+    home = home or os.path.expanduser('~/lavasight')
+    tool = os.path.join(home, 'app', 'lavamap_publish.py')
+    retired = os.path.join(home, 'RETIRED')
+    if not os.path.exists(tool) and not os.path.exists(retired):
+        return None
+    n, readers = lavamap_consumers(tree)
+    if n == 0:
+        return f'!! lavamap: cannot tell whether anything reads the feed ({tree} holds no readable module)'
+    if not readers:
+        if os.path.exists(retired):
+            why = (open(retired, errors='replace').read().strip().splitlines() or [''])[0][:240]
+            return f'lavamap RETIRED: no consumer on the fleet build ({n} modules in {tree} read no lava map); {why}'
+        return (f'!! lavamap: the feed has NO CONSUMER -- none of {n} modules in {tree} reads lava-map.json, yet the '
+                f'publisher is installed; retire its cron (keep the data) or ship the reader')
+    try:
+        r = subprocess.run([sys.executable, '-B', tool, 'check', '--root', '/var/lib/mcai',
+                            '--map', os.path.expanduser('~/hazardmap/out/hazardmap.json')], capture_output=True, text=True, timeout=60)
+        out = (r.stdout.strip().splitlines() or [''])[-1]
+        return (out or 'LAVAMAP ALARM: the check printed nothing (exit %d)' % r.returncode) + f' (read by {", ".join(readers[:3])})'
+    except Exception as e:
+        return 'LAVAMAP ALARM: the check did not run (%s)' % type(e).__name__
+
+
+
+# HAZARD MAP (per-seed hazard map, OWNER 2026-10-24; scripts/host/hazardmap): the tool's own check, never a quiet OK
+def hazardmap_line(now, home=None):
+    import subprocess
+    home = home or os.path.expanduser('~/hazardmap')
+    tool = os.path.join(home, 'app', 'scripts', 'host', 'hazardmap', 'hazardmap.py')
+    if not os.path.exists(tool):
+        return None
+    try:
+        r = subprocess.run([sys.executable, '-B', tool, 'check', '--home', home], capture_output=True, text=True, timeout=60)
+        out = (r.stdout.strip().splitlines() or [''])[-1]
+        return out or 'HAZARDMAP ALARM: the check printed nothing (exit %d)' % r.returncode
+    except Exception as e:
+        return 'HAZARDMAP ALARM: the check did not run (%s)' % type(e).__name__
+
+
+
 # STRUCTURE COUNT (building tier step 0, docs/reports/building-tier-2026-10-23.md section 2): structcount.py daily runs on
 # 10.0.0.30 after the 03:15Z world backup; pull.py mirrors its publication here hourly (owner Q8). The line reads the mirror
 # with the count's OWN reader (scread.py, installed beside pull.py), so this report and the count can never disagree about
@@ -694,6 +762,10 @@ def show(rep):
         print(rep['learnloop'])
     if rep.get('coop'):
         print(rep['coop'])
+    if rep.get('lavamap'):
+        print(rep['lavamap'])
+    if rep.get('hazardmap'):
+        print(rep['hazardmap'])
     if rep.get('structcount'):
         print(rep['structcount'])
     if rep.get('showcase_head'):
@@ -748,7 +820,7 @@ def main():
     evs = {w: EsEvents.load('skill', since=until - d, until=until, gaps='clip') for w, d in wins}
     widest = max(wins, key=lambda x: x[1])[0]
     rep = {'generated_at': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'),
-           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'frontier': frontier_line(now), 'learnloop': learnloop_line(now), 'coop': coop_line(now), 'structcount': structcount_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
+           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'frontier': frontier_line(now), 'lavamap': lavamap_line(now), 'hazardmap': hazardmap_line(now), 'structcount': structcount_line(now), 'coop': coop_line(now), 'learnloop': learnloop_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
     fleet = evs[widest].bots_present()
     for w, d in wins:
         rep['windows'][w] = window_report(evs[w], hourly=d <= dt.timedelta(hours=48), fleet=fleet)

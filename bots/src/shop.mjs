@@ -207,6 +207,21 @@ export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WAL
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
+/**
+ * EXPEDITION-01: the expedition's ask (skills.mjs expeditionAsk -> expedition.mjs expeditionAdmit over the bot's readings), set at
+ * load like activePlotOf. Asked by buildOrder only when the build order has nothing for the bot: every project complete, or the
+ * last visit stopped no_material. -> { ok, phase } | null. Unset (or EXPEDITION=off): never asked.
+ */
+let expeditionAskOf = null
+/**
+ * HAS THE BUILD ORDER NO USE FOR THIS BOT? -> bool. Pure. Every project complete; or the bot's last visit stopped for want of
+ * material; or the ACTIVE project's record is itself complete (only a `due` upkeep left) and the last visit found nothing to do
+ * there (LIVE showcase 10-31 16:54Z: the finished farm's 3 trees no bot can fell kept `complete` false). A `complete` stop alone
+ * is not idle: the visit that completes one project ends `complete` while the next one stands open (Codex r4 BLOCK).
+ */
+export const buildIdle = ({ complete = false, record = null, lastStop = null } = {}) =>
+  !!complete || lastStop === 'no_material' || (lastStop === 'complete' && record?.structure_complete === true)
+export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'function' ? fn : null }
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
 // the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
@@ -483,6 +498,13 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
+  // EXPEDITION-01 (owner showcase item 5): a bot the town's projects cannot use (all complete, or its last visit found no
+  // material) may go on a short expedition -- the same order, the visit's args say which (skills.mjs buildShop)
+  if (buildIdle({ complete, record, lastStop: state.lastStop }) && expeditionAskOf) {
+    let ex = null
+    try { ex = expeditionAskOf({ now, health, freeSlots, complete, lastStop: state.lastStop ?? null }) } catch { ex = null }
+    if (ex?.ok) return { order: { skill: 'build_shop', args: { expedition: true, phase: ex.phase ?? 'trip' } }, skip: null }
+  }
   if (complete) return { order: null, skip: 'complete' }
   // shaft-02: the town stair's visit is asked again after SHAFT_COOLDOWN_MS (its record's plot, or the active plot unsited)
   let plot0 = record?.plot ?? null
