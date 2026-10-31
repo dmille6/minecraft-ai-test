@@ -31,6 +31,14 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  // escapeguard-01 (10-31): a trapped bot's escape never digs a build record or a protected zone's structure
+  'bots/src/escapeguard.mjs',
+  'bots/test/escapeguard.test.mjs',
+  // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)
+  'bots/src/shaftgeom.mjs',
+  'bots/src/shaftvisit.mjs',
+  'bots/test/town-stair.test.mjs',
+  'bots/test/town-stair-wiring.test.mjs',
   // monument-01 (10-29): the ziggurat's site, offline, by the bots' own functions (the fleet canary's per-world siting), and the
   // shop read that judges every project's record (the showcase tripwire's S6)
   'bots/scripts/zigsite-offline.mjs',

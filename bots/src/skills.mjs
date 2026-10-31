@@ -165,6 +165,8 @@ import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OU
          ironSmeltCount, ironBankPlan } from './smeltjob.mjs'   // ironsmelt-01
 import { withDigScope } from './digtown.mjs'
 import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
+import { TREEFARM_BAND as ESCAPE_TREEFARM_BAND } from './escapeguard.mjs'   // escapeguard-01
+import { PROJECTS } from './shop.mjs'   // escapeguard-01 (showcase piece: the record reader walks every project)
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
 import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, keepOutLabel, stepCells } from './minewell.mjs'
@@ -6467,6 +6469,70 @@ function lidJudge (bot, c) {
   const refusal = lidClearRefusal({ lid, above: lidCell(bot, s.above), sides: s.sides.map(b => lidCell(bot, b)), well }) ??
     (serverLidBlocks(lid) ? null : `${lid.name} does not block a lid on the server`)
   return { blocked: true, refusal, s }
+}
+/** A record walk that skipped a generation it could not READ (unreadable, unparseable, not an object) -> true. Codex merge
+ *  review (lidplank x tdoffer, 10-30) BLOCKER: recordHead/planHead return ok with those in `rejected`, and a lost root read
+ *  as "no workshop cells" granted a dig of a workshop-owned plank lid. Chain/schema rejections are the walk's own rules. */
+const recordUnread = h => (Array.isArray(h?.rejected) ? h.rejected : []).some(r => ['unreadable', 'unparseable', 'not an object'].includes(String(r?.why ?? '')))
+/** The tree farm's columns for the lid rule (lidplank-01) -> Set "x,z" | null when a record file exists and none parses, or
+ *  the directory cannot be listed (Codex r1: treeFarmCells' empty answer on a read failure would grant a break). */
+function treeFarmRecordCells () {
+  const hk = `treefarm-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+  const re = new RegExp(`^${hk.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.g(\\d+)\\.json$`)
+  let names
+  try { names = fs.readdirSync(townDir()) } catch (e) { return e?.code === 'ENOENT' ? new Set() : null }
+  const gens = names.map(f => re.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => b - a)
+  if (!gens.length) return new Set()
+  for (const g of gens) {
+    try {
+      const r = JSON.parse(fs.readFileSync(path.join(townDir(), `${hk}.g${g}.json`), 'utf8'))
+      const out = new Set()
+      for (const c of r?.record?.cells ?? r?.cells ?? []) if (Number.isFinite(c?.x) && Number.isFinite(c?.z)) out.add(`${c.x},${c.z}`)
+      return out
+    } catch { /* the next lower */ }
+  }
+  return null
+}
+/**
+ * ESCAPEGUARD-01: THE BUILD RECORDS AS ONE SNAPSHOT for the escape guard (escapeguard.mjs) -> { cells: Map "x,y,z" -> record,
+ * cols: Set "x,z" (the tree farm) } | null (a record could not be read: unknown). lidRecordAt's records and its unknown rules
+ * (an unread generation, generations without a head), read once per ESCAPE_RECORD_TTL_MS rather than per cell: a planner asks
+ * for many cells per firing. A project record's `air` cells are not guarded (digging one is the record's own work). Never throws.
+ */
+const ESCAPE_RECORD_TTL_MS = 10_000
+let escapeRecordCache = null
+export function escapeRecordSnapshot (bot, now = Date.now()) {
+  if (escapeRecordCache && now - escapeRecordCache.at < ESCAPE_RECORD_TTL_MS && escapeRecordCache.world === (bot?.worldId ?? null)) return escapeRecordCache.v
+  let v = null
+  try {
+    const cells = new Map()
+    const ph = planHead(townDir(), planKeyNow(), bot?.worldId ?? null)
+    if (!ph.ok || recordUnread(ph)) throw new Error('plan unread')
+    for (const k of planFurnitureCells(ph.head?.plan)) cells.set(k, 'townplan')
+    for (const k of bot?.townPlan?.cells ?? []) if (typeof k === 'string') cells.set(k, 'townplan')
+    const dir = townDir()
+    for (const proj of PROJECTS) {
+      const h = recordHead(dir, projKeyOf(proj.plot))
+      if (!h.ok || recordUnread(h) || ((h.gens?.length ?? 0) > 0 && !h.head)) throw new Error(`${proj.plot} unread`)
+      const name = proj.plot === SHOP_PLOT ? 'workshop' : proj.plot
+      for (const c of h.head?.rec?.cells ?? []) if (Array.isArray(c?.at) && c.role !== 'air') cells.set(`${c.at[0]},${c.at[1]},${c.at[2]}`, name)
+    }
+    const cols = treeFarmRecordCells()
+    if (!cols) throw new Error('treefarm unread')
+    v = { cells, cols }
+  } catch { v = null }
+  escapeRecordCache = { at: now, world: bot?.worldId ?? null, v }
+  return v
+}
+/** The guard's per-cell answer -> a record's name | false | null (unknown). The tree farm's columns count near ground level only. */
+export function escapeRecordAt (bot, c, now = Date.now()) {
+  const s = escapeRecordSnapshot(bot, now)
+  if (!s) return null
+  const hit = s.cells.get(`${c.x},${c.y},${c.z}`)
+  if (hit) return hit
+  const hy = Number(config.world.homeY)
+  if (s.cols.has(`${c.x},${c.z}`) && (!Number.isFinite(hy) || (c.y >= hy + ESCAPE_TREEFARM_BAND[0] && c.y <= hy + ESCAPE_TREEFARM_BAND[1]))) return 'treefarm'
+  return false
 }
 const chestHalves = (bot, chestPos) => {
   const halves = [chestPos]
