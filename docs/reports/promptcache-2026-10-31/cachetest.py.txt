@@ -1,0 +1,34 @@
+import json,sys,time,urllib.request,collections,random
+random.seed(3)
+R=[json.loads(l) for l in open('/tmp/pc/slim.jsonl')]
+sysp=open('/tmp/pc/sys-private.txt').read()
+NAME='board-a-Alpha'
+base_sys=sysp.rsplit('\n',1)[0]           # without identity line
+ident=lambda b: f'You are {b}, an autonomous gatherer agent in Minecraft.'
+def post(system,user,mt=4):
+    body={"messages":[{"role":"system","content":system},{"role":"user","content":user}],"temperature":0,"max_tokens":mt,"cache_prompt":True}
+    t=time.time()
+    r=json.load(urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:18080/v1/chat/completions",json.dumps(body).encode(),{"Content-Type":"application/json"})))
+    tm=r["timings"]; return dict(s=round(time.time()-t,2),total=r["usage"]["prompt_tokens"],processed=tm["prompt_n"],cache_n=tm.get("cache_n"),prompt_ms=round(tm["prompt_ms"]))
+priv=[r for r in R if r['scope'] in ('private','shared')]
+bots=sorted(set(r['bot'] for r in priv))
+pick=random.sample(bots,8)
+def one(r): return [x for x in priv if x['bot']==r][0]
+mode=sys.argv[1]
+if mode in('current','identity_user'):
+    for b in pick:
+        r=one(b)
+        if mode=='current': out=post(base_sys+'\n'+ident(b), r['text'])
+        else: out=post(base_sys, ident(b)+'\n'+r['text'])
+        print(mode,b,out)
+if mode=='sameturn':
+    # consecutive turns of 3 bots, interleaved A1 B1 C1 A2 B2 C2
+    seqs={b:[x for x in priv if x['bot']==b][:3] for b in pick[:3]}
+    for i in range(3):
+        for b,v in seqs.items():
+            print('sameturn',b,i,post(base_sys+'\n'+ident(b), v[i]['text']))
+if mode=='sameturn_iu':
+    seqs={b:[x for x in priv if x['bot']==b][3:6] for b in pick[3:6]}
+    for i in range(3):
+        for b,v in seqs.items():
+            print('sameturn_iu',b,i,post(base_sys, ident(b)+'\n'+v[i]['text']))

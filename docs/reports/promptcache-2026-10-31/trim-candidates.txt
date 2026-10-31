@@ -1,0 +1,11 @@
+last_dup_rows        total     3455  per row    0.9
+last_dup_tok         total    96461  per row   24.8
+bracket_tok          total   134885  per row   34.7
+ev_tok               total  1174876  per row  301.9
+first4_tok           total   370984  per row   95.3
+reporter_tok         total   203105  per row   52.2
+reporter_lines       total    15564  per row    4.0
+hazard_names_tok     total    95853  per row   24.6
+hazard_lines         total     7770  per row    2.0
+carry_tail           total    18952  per row    4.9
+consec_dup_tok       total   120584  per row   31.0

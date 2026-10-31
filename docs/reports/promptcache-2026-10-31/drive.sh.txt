@@ -1,0 +1,12 @@
+#!/bin/bash
+# drive.sh: for each layout x rate, restart the server, then open-loop batchload from .31 for 3 min of arrivals
+P=$(dirname $0)
+for rate in 20 50 80 107 130; do for lay in old-live new-live; do
+  n=$((rate*3)); tag=$lay-r$rate
+  ssh 10.0.0.16 "bash /tmp/pc/srv.sh $tag" </dev/null
+  t0=$(date +%s)
+  ssh 10.0.0.31 "cd ~/batchtest/pc && node batchload.mjs /opt/minecraft-ai/bots ~/batchtest/pc/$lay.jsonl out/$tag.jsonl http://10.0.0.16:18080 stock-q8 open $rate $n 0 oai 2>&1 | tail -1" </dev/null
+  echo "RUN $tag $t0 $(date +%s)" | tee -a $P/runs.log
+done; done
+ssh 10.0.0.16 'kill $(cat ~/batchtest/server.pid)' </dev/null
+echo ALL-DONE | tee -a $P/runs.log

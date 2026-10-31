@@ -1,0 +1,59 @@
+import json,collections,statistics as st
+from tokenizers import Tokenizer
+T=Tokenizer.from_file('/home/mike/learnloop-train/runs/base-qwen35-9b/hf/tokenizer.json')
+enc=lambda s: T.encode(s,add_special_tokens=False).ids
+SEC=['TASK','PROGRESS','HINT','TRIGGER','STATE','INVENTORY','CAN CRAFT NOW','CAN SMELT NOW','CARRYING A BUCKET','CARRYING','NEARBY','BLOCK CHECKS','IN WATER','ELEVATION','KNOWN PLACES','LAST ACTION','LESSONS FROM PAST RUNS','RECENT EVENTS','saw_end']
+def split(text):
+    out=collections.OrderedDict(); cur=None
+    for line in text.split('\n'):
+        m=None
+        for s in SEC:
+            if line.startswith(s+':') or line.startswith(s+' ('):
+                m=s;break
+        if m: cur=m; out.setdefault(cur,[]).append(line)
+        elif line.startswith('  ') and cur: out[cur].append(line)
+        elif line.strip()=='' : out.setdefault('_blank',[]).append(line)
+        else: out.setdefault('OTHER:'+line[:30],[]).append(line); cur='OTHER:'+line[:30]
+    return {k:'\n'.join(v) for k,v in out.items()}
+
+R=[json.loads(l) for l in open('/tmp/pc/slim.jsonl')]
+R.sort(key=lambda r:(r['bot'],r['ts']))
+same=collections.Counter(); pairs=0; lcp=[]
+prev=None
+for r in R:
+    if prev and prev['bot']==r['bot']:
+        pairs+=1
+        a,b=split(prev['text']),split(r['text'])
+        for k in set(a)|set(b):
+            if a.get(k)==b.get(k): same[k]+=1
+        ea,eb=enc(prev['text']),enc(r['text'])
+        i=0
+        while i<min(len(ea),len(eb)) and ea[i]==eb[i]: i+=1
+        lcp.append(i)
+    prev=r
+print('consecutive same-bot pairs',pairs,'user-msg common prefix tokens p50',st.median(lcp),'mean',round(st.mean(lcp)))
+for k in SEC: print(f"  {k:24s} identical to previous turn {100*same[k]/pairs:5.1f}%")
+# lesson lines that persist turn to turn (line-level)
+keep=[];tokkeep=[]
+prev=None
+for r in R:
+    if prev and prev['bot']==r['bot']:
+        A=split(prev['text']).get('LESSONS FROM PAST RUNS','').split('\n')[1:]; B=split(r['text']).get('LESSONS FROM PAST RUNS','').split('\n')[1:]
+        sa=set(A); keep.append(sum(1 for l in B if l in sa)/max(1,len(B)))
+    prev=r
+print('lesson lines unchanged from previous turn (mean share)',round(st.mean(keep),3))
+# cross-bot at same minute: sections identical across different bots in same pool
+bypool=collections.defaultdict(list)
+for r in R: bypool[(r['bot'].rsplit('-',1)[0], r['ts'][:15])].append(r)
+cs=collections.Counter(); cp=0
+for k,v in bypool.items():
+    bots={}
+    for r in v: bots.setdefault(r['bot'],r)
+    v=list(bots.values())
+    for i in range(len(v)):
+        for j in range(i+1,len(v)):
+            cp+=1; a,b=split(v[i]['text']),split(v[j]['text'])
+            for s in SEC:
+                if a.get(s)==b.get(s): cs[s]+=1
+print('same-pool same-10min different-bot pairs',cp)
+for s in SEC: print(f"  {s:24s} identical across bots {100*cs[s]/max(1,cp):5.1f}%")

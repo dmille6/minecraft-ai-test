@@ -1,0 +1,41 @@
+consecutive same-bot pairs 3811 user-msg common prefix tokens p50 61 mean 283
+  TASK                     identical to previous turn  91.3%
+  PROGRESS                 identical to previous turn  66.9%
+  HINT                     identical to previous turn  90.9%
+  TRIGGER                  identical to previous turn  72.1%
+  STATE                    identical to previous turn  39.1%
+  INVENTORY                identical to previous turn  58.9%
+  CAN CRAFT NOW            identical to previous turn  93.0%
+  CAN SMELT NOW            identical to previous turn  92.1%
+  CARRYING A BUCKET        identical to previous turn   1.0%
+  CARRYING                 identical to previous turn  29.0%
+  NEARBY                   identical to previous turn  43.0%
+  BLOCK CHECKS             identical to previous turn  44.9%
+  IN WATER                 identical to previous turn   1.3%
+  ELEVATION                identical to previous turn  50.2%
+  KNOWN PLACES             identical to previous turn 100.0%
+  LAST ACTION              identical to previous turn  26.1%
+  LESSONS FROM PAST RUNS   identical to previous turn  43.5%
+  RECENT EVENTS            identical to previous turn   5.4%
+  saw_end                  identical to previous turn   0.0%
+lesson lines unchanged from previous turn (mean share) 0.801
+same-pool same-10min different-bot pairs 1097
+  TASK                     identical across bots  35.6%
+  PROGRESS                 identical across bots   6.1%
+  HINT                     identical across bots  35.6%
+  TRIGGER                  identical across bots  62.9%
+  STATE                    identical across bots   0.2%
+  INVENTORY                identical across bots   0.0%
+  CAN CRAFT NOW            identical across bots  14.6%
+  CAN SMELT NOW            identical across bots   1.5%
+  CARRYING A BUCKET        identical across bots  98.5%
+  CARRYING                 identical across bots  16.9%
+  NEARBY                   identical across bots   0.3%
+  BLOCK CHECKS             identical across bots   1.0%
+  IN WATER                 identical across bots  97.8%
+  ELEVATION                identical across bots   4.5%
+  KNOWN PLACES             identical across bots 100.0%
+  LAST ACTION              identical across bots  16.9%
+  LESSONS FROM PAST RUNS   identical across bots   0.0%
+  RECENT EVENTS            identical across bots   2.2%
+  saw_end                  identical across bots   0.0%

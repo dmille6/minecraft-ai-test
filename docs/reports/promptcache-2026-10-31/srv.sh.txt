@@ -1,0 +1,10 @@
+#!/bin/bash
+# srv.sh: (re)start llama-server b12020 stock qwen3.5:9b Q8 on :18080, batching-report flags
+D=$HOME/batchtest/llama-b12020/llama-b12020
+export LD_LIBRARY_PATH=$HOME/batchtest/cudart/cudart-llama-b12020-bin-ubuntu-cuda-12.8-x64:$HOME/batchtest/lib:$D
+[ -f $HOME/batchtest/server.pid ] && kill $(cat $HOME/batchtest/server.pid) 2>/dev/null; sleep 3
+nohup $D/llama-server -m $HOME/batchtest/blobs/sha256-e3eccee3f33ab78c1a9e6a43fb9cdffc51b23e732b9742c58c179b08986c1d43 --alias stock-q8 \
+  -ngl 99 -fa on -np 8 --no-kv-unified -c 49152 --jinja --reasoning off --no-webui --metrics --host 0.0.0.0 --port 18080 \
+  > $HOME/batchtest/logs/pc-$1.log 2>&1 &
+echo $! > $HOME/batchtest/server.pid
+for i in $(seq 1 150); do curl -sf localhost:18080/health >/dev/null && { echo READY; exit 0; }; sleep 1; done; echo FAILED; exit 1

@@ -1,0 +1,25 @@
+cachetest.py on the 3090, 2026-10-31 ~19:00Z. llama-server b12020, stock qwen3.5:9b Q8_0 (Ollama blob sha256-e3eccee3..., read-only bind mount),
+-ngl 99 -fa on -np 8 --no-kv-unified -c 49152 --jinja --reasoning off, -lv 4. Serial requests, max_tokens 4, T 0, real live prompts (10-31 18:xx
+sample), system = the private-scope system prompt rebuilt by bots/src/prompt.mjs at 48ca4d31. One server, no restart between modes.
+
+mode current (identity = last line of the SYSTEM message), 8 different bots:
+  cache_n 0 / processed 2,401-2,890 for all 8; prompt_ms 575-995
+mode identity_user (identity = first line of the USER message), the same 8 bots:
+  first bot cache_n 0 (2,621 processed); the other 7: cache_n 1,173, processed 1,228-1,717; prompt_ms 478-712
+mode current again (same 8 prompts byte-identical to the first pass): exact repeats hit (cache_n 2,826-2,886) on 3 of 8, 0 on 5
+  -> exact-repeat hits are not a live-fleet effect (prompts never repeat), shown only as the server's own control.
+mode sameturn (current layout), 3 bots, 3 consecutive real turns each, interleaved A1 B1 C1 A2 ...:
+  same-bot later turns: cache_n 1,189-1,190 when the request lands on that bot's slot, 0 otherwise (hive-d-Alpha 0 on turns 1-2)
+mode sameturn_iu (new layout), 3 other bots x 3 turns: cache_n 1,173 on 8 of 9 (the very first request 0); never more than 1,173.
+
+Server log (checkpoint lines, -lv 4):
+  created context checkpoint 1 of 32 (pos_max = 1172, n_tokens = 1173)    <- start of the last user message
+  created context checkpoint 2 of 32 (n_tokens = 2056)                     <- ~512 before the prompt end
+  created context checkpoint 3 of 32 (n_tokens = 2568)                     <- prompt end
+  restored context checkpoint (pos_max = 1172, n_tokens = 1173)
+  --checkpoint-min-step default 8192, --ctx-checkpoints 32, --cache-ram 8192 MiB (host prompt cache entries ~280 MiB each)
+
+Reading: a hybrid (SSM) model's state can be restored only at a saved checkpoint, and the first one is the start of the last user message.
+With the bot name at the end of the system message, that checkpoint is per-bot: cross-bot reuse 0. With the name in the user message it is
+shared by every bot of a memory scope. No checkpoint falls inside the per-bot stable part of the user message (same-bot common prefix p50 61
+tokens, stability.txt), so reordering inside the user message cannot add reuse on this server.

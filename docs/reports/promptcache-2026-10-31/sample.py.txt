@@ -1,0 +1,21 @@
+import json,glob,os,sys,random,datetime
+random.seed(1)
+cut=(datetime.datetime.utcnow()-datetime.timedelta(minutes=60)).strftime('%Y-%m-%dT%H:%M')
+out=[];tot=0
+for f in sorted(glob.glob('/var/log/mcai/*/llm-*.jsonl')):
+    rows=[]
+    with open(f,'rb') as fh:
+        for line in fh:
+            try: r=json.loads(line)
+            except Exception: continue
+            tot+=1
+            if r.get('@timestamp','')<cut: continue
+            if not (r.get('prompt') or {}).get('text'): continue
+            if not (r.get('llm') or {}).get('latency_ms'): continue
+            rows.append({'ts':r['@timestamp'],'bot':r['bot']['name'],'role':r['bot'].get('role'),'scope':(r.get('exp') or {}).get('memory_scope'),
+              'sys':r['prompt'].get('system_hash'),'text':r['prompt']['text'],'pt':r['llm'].get('prompt_tokens'),'ct':r['llm'].get('completion_tokens'),
+              'model':r['llm'].get('model'),'ep':r['llm'].get('endpoint'),'ped':r['llm'].get('prompt_eval_duration_ns'),'lat':r['llm'].get('latency_ms'),'trig':r.get('trigger')})
+    out+=rows
+sys.stderr.write(f"walked {tot} rows, kept {len(out)} in last 60 min from {len(set(r['bot'] for r in out))} bots\n")
+with open('/tmp/pc-sample.jsonl','w') as o:
+    for r in out: o.write(json.dumps(r)+'\n')

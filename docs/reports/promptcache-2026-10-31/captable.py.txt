@@ -1,0 +1,14 @@
+import json,csv
+G=[r for r in csv.reader(open("pc-gpu.csv"))]
+runs={l.split()[1]:(int(l.split()[2]),int(l.split()[3])) for l in open("runs.log") if l.startswith("RUN")}
+S={}
+for l in open("stats.out"):
+    n,j=l.split(" ",1); S[n.replace(".jsonl","")]=json.loads(j)
+print("| layout | rate/min | n | done/min | p50 s | p95 s | timeouts | valid | prefix cached | srv prompt ms p50 | srv gen ms p50 | ethan busy |")
+print("|---|---|---|---|---|---|---|---|---|---|---|---|")
+f=lambda x: "-" if x is None else round(x/1000,1)
+for rate in (20,50,80,107,130):
+  for lay in ("old-live","new-live"):
+    k=f"{lay}-r{rate}"; d=S[k]; t0,t1=runs[k]
+    g=[r for r in G if t0<=float(r[0])<=t1]; busy=sum(int(r[5]) for r in g)/max(1,len(g))
+    print(f"| {lay.split('-')[0]} | {rate} | {d['n']} | {d['done_per_min']} | {f(d['p50'])} | {f(d['p95'])} | {d['transport_err']} | {d['valid']}/{d['n']} | {d['cached_share']} | {round(d['srv_prompt_ms_p50'] or 0)} | {round(d['srv_gen_ms_p50'] or 0)} | {round(100*busy)}% ({len(g)}) |")

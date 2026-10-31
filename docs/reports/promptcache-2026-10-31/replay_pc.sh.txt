@@ -1,0 +1,27 @@
+#!/bin/bash
+# replay_pc.sh -- promptcache-01 quality gate: the 600-item m3-eval replay, OLD layout (as logged) vs NEW layout
+# (prompt_transform.mjs), on qwen3.5:9b and qwen2.5:7b-instruct. Same instrument as eval_c2.sh: the fleet's own client
+# (replay bots-d014ec2cbd8b), T=0, concurrency 2, the 3090's Ollama behind one think:false proxy, eval_offline.py.
+set -u
+C=$HOME/learnloop/c2; H=$C/app/scripts/learnloop/train; B=$HOME/learnloop/replay/bots-d014ec2cbd8b/bots
+O=$HOME/batchtest/pc/replay; U=http://10.0.0.16:11434; mkdir -p $O
+IOLD=$HOME/learnloop/datasets/v0/m3-eval.jsonl; INEW=$HOME/batchtest/pc/m3-eval-pc.jsonl
+say(){ echo "$(date -u +%FT%TZ) $*"; }
+python3 $C/replay-c2-01/nothink.py 18451 "$U" & PX=$!; sleep 1; trap "kill $PX" EXIT
+for m in qwen3.5:9b qwen2.5:7b-instruct; do for lay in old new; do
+  I=$IOLD; [ $lay = new ] && I=$INEW
+  f=$O/$(echo "$m" | tr ':/' '__')-$lay.jsonl
+  say "== replay $m $lay -> $f"
+  LLM_TEMPERATURE=0 nice -n 19 node $H/replay_client.mjs "$B" "$I" "$f" http://127.0.0.1:18451 "$m" 2 > "$f.log" 2>&1 || say "EXIT $? $m $lay"
+  tail -1 "$f.log"
+done; done
+cd $O
+# the scorer names a run by its rows' model field: label the layouts apart (the old qwen2.5 keeps the ref name)
+for f in qwen2.5_7b-instruct-new qwen3.5_9b-old qwen3.5_9b-new; do
+  python3 -c "import json,sys; [print(json.dumps({**json.loads(l), 'model': json.loads(l)['model'] + '|' + sys.argv[1]})) for l in open(sys.argv[2]) if l.strip()]" ${f##*-} $f.jsonl > $f.lab.jsonl && mv $f.jsonl $f.raw.jsonl && mv $f.lab.jsonl $f.jsonl
+done
+for items in $IOLD $INEW; do tag=$(basename $items .jsonl)
+  python3 $H/eval_offline.py --items $items --runs qwen2.5_7b-instruct-old.jsonl qwen2.5_7b-instruct-new.jsonl qwen3.5_9b-old.jsonl qwen3.5_9b-new.jsonl \
+    --ref qwen2.5:7b-instruct --json scores-$tag.json > scores-$tag.txt 2>&1 || say "scoring FAILED $tag"
+done
+say ALL-DONE

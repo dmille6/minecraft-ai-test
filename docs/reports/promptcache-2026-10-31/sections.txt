@@ -1,0 +1,42 @@
+system private tokens 1184 identity line 15
+system board tokens 1212 identity line 15
+system checkpoint tokens 1207 identity line 15
+rows 3891 user tokens p50 1398 mean 1387 p95 1600
+section                  present% mean_when mean_all share%
+TASK                        100.0      14.5     14.5    1.0
+PROGRESS                    100.0      10.4     10.4    0.7
+HINT                         99.6      11.6     11.6    0.8
+TRIGGER                     100.0       4.3      4.3    0.3
+STATE                       100.0      38.7     38.7    2.8
+INVENTORY                   100.0     125.2    125.2    9.0
+CAN CRAFT NOW                95.5      29.2     27.8    2.0
+CAN SMELT NOW               100.0      53.2     53.2    3.8
+CARRYING A BUCKET             1.6      25.0      0.4    0.0
+CARRYING                     60.9      44.6     27.2    2.0
+NEARBY                      100.0      55.6     55.6    4.0
+BLOCK CHECKS                100.0      77.5     77.5    5.6
+IN WATER                      1.9     111.4      2.1    0.1
+ELEVATION                   100.0      57.4     57.4    4.1
+KNOWN PLACES                100.0      16.7     16.7    1.2
+LAST ACTION                  98.7      30.1     29.7    2.1
+LESSONS FROM PAST RUNS      100.0     488.1    488.1   35.2
+RECENT EVENTS               100.0     320.8    320.8   23.1
+saw_end                     100.0      10.2     10.2    0.7
+OTHER heads []
+template overhead (pt - user - sys) p50 17 by model {'qwen2.5:7b-instruct': -49.0, 'qwen3.5:9b': 17}
+lesson lines p50 13 max 17  event lines p50 12 max 12
+  lesson pool resource seen (board)               lines/row  4.00 tok/row  168.6
+  lesson pool hazard (board)                      lines/row  3.02 tok/row  104.9
+  lesson failed Nx across runs                    lines/row  2.34 tok/row   86.0
+  lesson worked Nx reliable                       lines/row  2.00 tok/row   53.6
+  lesson own hazard area                          lines/row  1.90 tok/row   47.5
+  lesson other:hive-b-Alpha hit death:suffocation 1x ne lines/row  0.04 tok/row    1.2
+  lesson other:hive-b-Delta hit death:suffocation 1x ne lines/row  0.03 tok/row    0.9
+  lesson other:hive-a-Bravo hit death:other 1x near 354 lines/row  0.02 tok/row    0.7
+  lesson other:hive-d-Delta hit death:suffocation 2x ne lines/row  0.02 tok/row    0.6
+  lesson other:hive-a-Comet hit death:drowning 1x near  lines/row  0.02 tok/row    0.5
+  lesson other:hive-b-Comet hit death:other 1x near 323 lines/row  0.02 tok/row    0.5
+  lesson other:hive-c-Alpha hit death:drowning 1x near  lines/row  0.02 tok/row    0.4
+  lesson other:hive-c-Bravo hit death:drowning 4x near  lines/row  0.02 tok/row    0.4
+  lesson other:placebo-d-Delta hit death:fall 4x near 3 lines/row  0.01 tok/row    0.2
+  lesson other:hive-d-Comet hit death:drowning 4x near  lines/row  0.01 tok/row    0.2

@@ -1,0 +1,57 @@
+import json,sys,re,collections,statistics as st
+from tokenizers import Tokenizer
+T=Tokenizer.from_file('/home/mike/learnloop-train/runs/base-qwen35-9b/hf/tokenizer.json')
+n=lambda s: len(T.encode(s,add_special_tokens=False).ids)
+sysp={s:open(f'/tmp/pc/sys-{s}.txt').read() for s in ('private','board','checkpoint')}
+for s,t in sysp.items():
+    ident=t.rsplit('\n',1)[1]
+    print('system',s,'tokens',n(t),'identity line',n(ident))
+R=[json.loads(l) for l in open('/tmp/pc/slim.jsonl')]
+SEC=['TASK','PROGRESS','HINT','TRIGGER','STATE','INVENTORY','CAN CRAFT NOW','CAN SMELT NOW','CARRYING A BUCKET','CARRYING','NEARBY','BLOCK CHECKS','IN WATER','ELEVATION','KNOWN PLACES','LAST ACTION','LESSONS FROM PAST RUNS','RECENT EVENTS','saw_end']
+def split(text):
+    out=collections.OrderedDict(); cur=None
+    for line in text.split('\n'):
+        m=None
+        for s in SEC:
+            if line.startswith(s+':') or line.startswith(s+' ('):
+                m=s;break
+        if m: cur=m; out.setdefault(cur,[]).append(line)
+        elif line.startswith('  ') and cur: out[cur].append(line)
+        elif line.strip()=='' : out.setdefault('_blank',[]).append(line)
+        else: out.setdefault('OTHER:'+line[:30],[]).append(line); cur='OTHER:'+line[:30]
+    return {k:'\n'.join(v) for k,v in out.items()}
+tot=collections.defaultdict(list); present=collections.Counter(); users=[]; others=collections.Counter()
+for r in R:
+    secs=split(r['text']); u=n(r['text']); users.append(u)
+    for k,v in secs.items():
+        if k.startswith('OTHER'): others[k]+=1; k='OTHER'
+        tot[k].append(n(v)); present[k]+=1
+N=len(R)
+print('rows',N,'user tokens p50',st.median(users),'mean',round(st.mean(users)),'p95',sorted(users)[int(.95*N)])
+print(f"{'section':24s} {'present%':>8s} {'mean_when':>9s} {'mean_all':>8s} {'share%':>6s}")
+mu=st.mean(users)
+for k in SEC+['OTHER','_blank']:
+    if k not in tot: continue
+    v=tot[k]; print(f"{k:24s} {100*present[k]/N:8.1f} {st.mean(v):9.1f} {sum(v)/N:8.1f} {100*sum(v)/N/mu:6.1f}")
+print('OTHER heads',others.most_common(12))
+# measured prompt_tokens vs our count
+d=[r['pt']-n(r['text'])-n(sysp[r['scope'] if r['scope'] in sysp else 'private']) for r in R if r['pt'] and len(r['text'])<6000]
+print('template overhead (pt - user - sys) p50',st.median(d), 'by model', {m:st.median([r['pt']-n(r['text'])-n(sysp[r['scope'] if r['scope'] in sysp else 'private']) for r in R if r['model']==m and r['pt'] and len(r['text'])<6000]) for m in set(r['model'] for r in R)})
+# Lessons / events line counts
+lc=[len(split(r['text']).get('LESSONS FROM PAST RUNS','').split('\n'))-1 for r in R if 'LESSONS FROM PAST RUNS' in r['text']]
+ec=[len(split(r['text']).get('RECENT EVENTS','').split('\n'))-1 for r in R if 'RECENT EVENTS' in r['text']]
+print('lesson lines p50',st.median(lc),'max',max(lc),' event lines p50',st.median(ec),'max',max(ec))
+# lesson line kinds
+kinds=collections.Counter()
+ktok=collections.defaultdict(int)
+for r in R:
+    for line in split(r['text']).get('LESSONS FROM PAST RUNS','').split('\n')[1:]:
+        l=line.strip()[2:]
+        if 'a reliable choice' in l: k='worked Nx reliable'
+        elif 'has failed' in l and 'across runs' in l: k='failed Nx across runs'
+        elif re.search(r'hit \w+ \d+x near',l): k='pool hazard (board)'
+        elif 'happened' in l and 'avoid that area' in l: k='own hazard area'
+        elif 'seen at' in l and 'reported by' in l: k='pool resource seen (board)'
+        else: k='other:'+l[:40]
+        kinds[k]+=1; ktok[k]+=n(line)
+for k,v in kinds.most_common(15): print(f"  lesson {k:40s} lines/row {v/N:5.2f} tok/row {ktok[k]/N:6.1f}")

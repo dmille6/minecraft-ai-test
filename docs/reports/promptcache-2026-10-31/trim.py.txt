@@ -1,0 +1,29 @@
+import json,re,statistics as st,collections
+from tokenizers import Tokenizer
+T=Tokenizer.from_file('/home/mike/learnloop-train/runs/base-qwen35-9b/hf/tokenizer.json')
+n=lambda s: len(T.encode(s,add_special_tokens=False).ids)
+R=[json.loads(l) for l in open('/tmp/pc/slim.jsonl')]
+N=len(R)
+s=collections.Counter()
+for r in R:
+    L=r['text'].split('\n')
+    try: i=L.index('RECENT EVENTS (oldest first):')
+    except ValueError: continue
+    ev=[l for l in L[i+1:] if l.startswith('  - ')]
+    la=[l for l in L if l.startswith('LAST ACTION: ')]
+    la=la[0][len('LAST ACTION: '):] if la else ''
+    if ev and la and (la.startswith(ev[-1][4:].rstrip()[:100]) or ev[-1][4:].startswith(la[:100])): s['last_dup_rows']+=1; s['last_dup_tok']+=n(ev[-1])
+    br=sum(n(m) for e in ev for m in re.findall(r' ?\[[^\]]*\]?',e)); s['bracket_tok']+=br
+    for a,b in zip(ev,ev[1:]):
+        if a==b: s['consec_dup_tok']+=n(b)
+    s['ev_tok']+=sum(n(e) for e in ev)
+    s['first4_tok']+=sum(n(e) for e in ev[:max(0,len(ev)-8)])
+    # lessons reporters
+    for l in L:
+        m=re.search(r', reported by ([^)]*)\)',l)
+        if m: s['reporter_tok']+=n(', reported by '+m.group(1))-n(f", {m.group(1).count(' and ')+1} reports"); s['reporter_lines']+=1
+        m=re.match(r'  - ((?:[\w-]+ and )+[\w-]+) hit ',l)
+        if m: s['hazard_names_tok']+=n(m.group(1))-n(f"{m.group(1).count(' and ')+1} bots"); s['hazard_lines']+=1
+    sm=[l for l in L if l.startswith('CARRYING: ')]
+    if sm: s['carry_tail']+=n(' Use deposit — banked items survive your death, carried ones do not. Your tools and climb-out blocks are kept automatically.')-n(' Use deposit: banked items survive death (tools and climb-out blocks are kept).')
+for k,v in s.items(): print(f'{k:20s} total {v:8d}  per row {v/N:6.1f}')

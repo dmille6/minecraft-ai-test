@@ -1,0 +1,20 @@
+import json,urllib.request,random,sys
+random.seed(3)
+R=[json.loads(l) for l in open('/tmp/pc/slim.jsonl')]
+sysp=open('/tmp/pc/sys-private.txt').read(); base=sysp.rsplit('\n',1)[0]
+ident=lambda b: f'You are {b}, an autonomous gatherer agent in Minecraft.'
+priv=[r for r in R if r['scope'] in ('private','shared')]
+bots=random.sample(sorted(set(r['bot'] for r in priv)),8)
+one=lambda b:[x for x in priv if x['bot']==b][1]
+def post(m,s,u):
+    b={"model":m,"stream":False,"think":False,"keep_alive":"5m","messages":[{"role":"system","content":s},{"role":"user","content":u}],"options":{"num_ctx":8192,"num_predict":4,"temperature":0}}
+    d=json.load(urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:11434/api/chat",json.dumps(b).encode(),{"Content-Type":"application/json"}),timeout=120))
+    return d.get('prompt_eval_count'), round((d.get('prompt_eval_duration') or 0)/1e6)
+for m in sys.argv[1:]:
+    post(m,'warm','up')
+    for lay in ('current','identity_user'):
+        out=[]
+        for b in bots:
+            r=one(b)
+            out.append(post(m,base+'\n'+ident(b),r['text']) if lay=='current' else post(m,base,ident(b)+'\n'+r['text']))
+        print(m,lay,'(prompt_eval_count, prompt_eval_ms) per bot:',out)

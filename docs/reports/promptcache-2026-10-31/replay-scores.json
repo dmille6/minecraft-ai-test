@@ -1,0 +1,148 @@
+{
+ "items": 600,
+ "kinds": {
+  "good": 200,
+  "fail": 300,
+  "post_veto": 100
+ },
+ "logged (fleet, instrument check)": {
+  "n": 600,
+  "missing": 0,
+  "schema_valid": 100.0,
+  "retry": 0.0,
+  "hard": 13.2,
+  "bad": 13.2,
+  "rep_fail": 100.0,
+  "post_veto_repeat": 90.0,
+  "agree_skill": 100.0,
+  "agree_key": 100.0,
+  "hard_on_fail_items": 19.3,
+  "hard_on_good_items": 3.5,
+  "denominators": {
+   "all": 600,
+   "fail": 300,
+   "post_veto": 100,
+   "good": 200
+  }
+ },
+ "runs": {
+  "qwen2.5:7b-instruct": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 14.2,
+   "bad": 14.2,
+   "rep_fail": 67.3,
+   "post_veto_repeat": 95.0,
+   "agree_skill": 81.5,
+   "agree_key": 75.5,
+   "hard_on_fail_items": 20.3,
+   "hard_on_good_items": 4.5,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  },
+  "qwen2.5:7b-instruct|new": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 12.5,
+   "bad": 12.5,
+   "rep_fail": 57.3,
+   "post_veto_repeat": 92.0,
+   "agree_skill": 74.5,
+   "agree_key": 69.5,
+   "hard_on_fail_items": 17.3,
+   "hard_on_good_items": 4.0,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  },
+  "qwen3.5:9b|old": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 3.0,
+   "bad": 3.0,
+   "rep_fail": 25.3,
+   "post_veto_repeat": 54.0,
+   "agree_skill": 54.5,
+   "agree_key": 43.5,
+   "hard_on_fail_items": 2.7,
+   "hard_on_good_items": 3.5,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  },
+  "qwen3.5:9b|new": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 2.5,
+   "bad": 2.5,
+   "rep_fail": 22.0,
+   "post_veto_repeat": 48.0,
+   "agree_skill": 48.5,
+   "agree_key": 38.0,
+   "hard_on_fail_items": 2.3,
+   "hard_on_good_items": 2.5,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  }
+ },
+ "instrument_check": {
+  "hard fires more on failure items than on good items (logged)": true,
+  "logged post-veto repeat rate": 90.0,
+  "ok": true
+ },
+ "gates_vs": "qwen2.5:7b-instruct",
+ "gates": {
+  "qwen2.5:7b-instruct|new": {
+   "gates": {
+    "complete coverage (candidate and reference answered every item)": true,
+    "instrument check passed": true,
+    "schema_valid >= ref - 0.5 pp": true,
+    "hard <= ref": true,
+    "rep_fail <= ref": true
+   },
+   "pass": true
+  },
+  "qwen3.5:9b|old": {
+   "gates": {
+    "complete coverage (candidate and reference answered every item)": true,
+    "instrument check passed": true,
+    "schema_valid >= ref - 0.5 pp": true,
+    "hard <= ref": true,
+    "rep_fail <= ref": true
+   },
+   "pass": true
+  },
+  "qwen3.5:9b|new": {
+   "gates": {
+    "complete coverage (candidate and reference answered every item)": true,
+    "instrument check passed": true,
+    "schema_valid >= ref - 0.5 pp": true,
+    "hard <= ref": true,
+    "rep_fail <= ref": true
+   },
+   "pass": true
+  }
+ }
+}
