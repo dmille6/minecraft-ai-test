@@ -124,7 +124,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
-import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
+import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -17335,8 +17335,22 @@ const exReader = bot => (x, y, z) => {
   return { name: b.name, boundingBox: b.boundingBox, waterlogged: wl }
 }
 const exRow = (bot, op, detail, status = 'success') => { try { logEvent({ kind: 'expedition', status, snapshot: snapshot(bot), detail: `op=${op} ${detail}`.slice(0, 295) }) } catch { /* telemetry */ } }
+/** Other bots' trips still OPEN (out of town, or not yet seen back), younger than TRAIL_TTL_MS -> n. They hold a place among
+ *  the EXPEDITION_SLOTS after their call's lease is gone (Codex r1 BLOCK 3). Never throws (unreadable: counted as none). */
+function exOutstanding (me, now = Date.now()) {
+  let n = 0
+  try {
+    const pre = `${exKey()}.bot-`
+    for (const f of fs.readdirSync(townDir())) {
+      if (!f.startsWith(pre) || !f.endsWith('.json') || f === `${pre}${me}.json`) continue
+      try { const j = JSON.parse(fs.readFileSync(path.join(townDir(), f), 'utf8')); if (j?.trip?.open && now - (Number(j.trip.startedAt) || 0) < TRAIL_TTL_MS) n++ } catch { /* a torn file: none */ }
+    }
+  } catch { /* none */ }
+  return n
+}
 function exSlotFree (me, now = Date.now()) {
   try {
+    if (exOutstanding(me, now) >= EXPEDITION_SLOTS) return false
     for (let k = 1; k <= EXPEDITION_SLOTS; k++) {
       const s = projLeaseState(townDir(), exKey(), `slot${k}`)
       if (!s || s.rec?.holder === me || now >= s.blocksUntil) return true
@@ -17495,12 +17509,18 @@ async function exGather (ctx, signal, until, zones) {
   return { felled, leaves }
 }
 /** The haul into the town chests (mats-01's matsBank: nearest container first) -> items banked. */
-async function exDeposit (ctx, signal, haul, bag0) {
+async function exDeposit (ctx, signal, haul) {
   const names = Object.keys(haul)
-  if (!names.length) return 0
+  if (!names.length) return { n: 0, left: {} }
+  // matsBank banks what the bag holds ABOVE `bag0` (Codex r1 BLOCK 1: the bag itself as the baseline banked nothing): the
+  // baseline is the bag less the haul, so exactly the haul is banked (capped by `haul` too)
+  const held = heldMap(ctx.bot)
+  const base = depositBase(held, haul)
   let back = {}
-  try { back = await matsBank(ctx, names, bag0, signal, haul) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-  return Object.values(back ?? {}).reduce((a, b) => a + (Number(b) || 0), 0)
+  try { back = await matsBank(ctx, names, base, signal, haul) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  const left = {}
+  for (const [n, c] of Object.entries(haul)) { const r = Math.min(c - (Number(back?.[n]) || 0), heldMap(ctx.bot)[n] ?? 0); if (r > 0) left[n] = r }
+  return { n: Object.values(back ?? {}).reduce((a, b) => a + (Number(b) || 0), 0), left }
 }
 async function expeditionVisit (ctx, args, signal) {
   const { bot } = ctx
@@ -17515,8 +17535,8 @@ async function expeditionVisit (ctx, args, signal) {
   if (Object.keys(st.pendingDeposit ?? {}).length) {
     const want = st.pendingDeposit, held = heldMap(bot)
     const haul = Object.fromEntries(Object.entries(want).map(([n, c]) => [n, Math.min(Number(c) || 0, held[n] ?? 0)]).filter(([, c]) => c > 0))
-    const n = await exDeposit(ctx, signal, haul, held)
-    st.pendingDeposit = {}
+    const { n } = await exDeposit(ctx, signal, haul)
+    st.pendingDeposit = {}   // one retry only: what this second try could not bank is the bag's (the town deposit's)
     exWrite(me, st)
     exRow(bot, 'deposit', `items=${n} of=${Object.values(haul).reduce((a, b) => a + b, 0)}`)
     return { status: n > 0 ? 'success' : 'no_effect', detail: `banked ${n} items from the last expedition`, stop: 'expedition_deposit' }
@@ -17524,7 +17544,11 @@ async function expeditionVisit (ctx, args, signal) {
   if (args?.phase === 'deposit') return { status: 'no_effect', detail: 'nothing left to bank', stop: 'expedition_deposit' }
   if (st.trip?.open) { if (exAtHome(bot.entity?.position, EX_TOWN_R)) exCloseAtTown(bot, st, 'later'); else return { status: 'no_effect', detail: 'an expedition is still open', stop: 'expedition_open' } }
   const dir = townDir()
-  const slot = takeSlot(dir, exKey(), me, EXPEDITION_SLOTS, { ttl: budget + 60_000 })
+  // THE TRY IS CHARGED AT ITS START (Codex r1 BLOCK 2): every early no-op below (zones unread, no bearing, slots) waits out the
+  // per-bot cooldown instead of being asked again at the next decision
+  st.lastTripAt = Date.now()
+  exWrite(me, st)
+  const slot = exOutstanding(me) >= EXPEDITION_SLOTS ? { ok: false, why: 'trips still out' } : takeSlot(dir, exKey(), me, EXPEDITION_SLOTS, { ttl: budget + 60_000 })
   if (!slot.ok) return { status: 'no_effect', detail: `two bots are already out (${slot.why})`, stop: 'expedition_slots_full' }
   let died = false
   const onDeath = () => { died = true }
@@ -17599,8 +17623,7 @@ async function expeditionVisit (ctx, args, signal) {
     // 5. THE HAUL, banked now or next call
     const haul = bankableHaul(haulOf(held0, heldMap(bot), kit))
     let deposited = 0
-    if (r.home && deadline - Date.now() >= DEPOSIT_MIN_MS) deposited = await exDeposit(ctx, signal, haul, heldMap(bot))
-    else if (Object.keys(haul).length) st.pendingDeposit = haul
+    if (r.home && deadline - Date.now() >= DEPOSIT_MIN_MS) { const d = await exDeposit(ctx, signal, haul); deposited = d.n; if (Object.keys(d.left).length) st.pendingDeposit = d.left } else if (Object.keys(haul).length) st.pendingDeposit = haul
     Object.assign(trip, { returned: !!r.home, via: r.via, deposited, haul, open: !r.home, ms: Date.now() - t0 })
     st.lastTripAt = Date.now()
     exWrite(me, st)
@@ -17614,7 +17637,7 @@ async function expeditionVisit (ctx, args, signal) {
     try { exWrite(me, st) } catch { /* the file */ }
     return { status: 'failed', failClass: 'other', detail: String(e?.message ?? e).slice(0, 100), stop: 'expedition_error' }
   } finally {
-    releaseLease(dir, exKey(), `slot${slot.slot}`, me, slot.gen)
+    if (slot.ok) releaseLease(dir, exKey(), `slot${slot.slot}`, me, slot.gen)
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
   }
 }
