@@ -1416,6 +1416,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // the bot sinks back, its own scan now reads `up dist=1` into the pocket and the ordinary rescue lifts it there.
   // PLAN + ADMISSION, no side effects: what the step WOULD do here. The pre-empt asks it first (both reviews r2: an
   // escape must never be stopped for a step that would then be refused).
+  // a seal cell has water under it: only a non-falling placeable may fill it (standCandidates' unsupported rule), counted
+  // exactly as pickScaffold picks (placeable AND ranked)
+  const sealCandidates = items => standCandidates(items, { unsupported: true }).filter(it => PLACEABLE.test(it.name) && scaffoldRank(it.name) != null)
+  const sealItemFor = items => pickScaffold(sealCandidates(items), PLACEABLE)
+  const sealBlocksHeld = items => sealCandidates(items).reduce((n, it) => n + (it.count ?? 1), 0)
   const prepareAirPocket = ({ worstCase = false } = {}) => {
     const at = bot.entity?.position
     if (!at) return { ok: false, why: 'no position' }
@@ -1434,7 +1439,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const ms = predictedDigMs(block, item, env)
       if (Number.isFinite(ms) && ms > 0 && (fastest == null || ms < fastest)) fastest = ms
     }
-    const admit = airPocketAdmit({ health: bot.health, difficulty: inputs.difficulty, hungerActive: inputs.hungerActive, digMs: fastest })
+    // THE SEALS NEED BLOCKS (apseal-01): one non-falling placeable per wet neighbour of the roof cell, counted the way the
+    // step will pick them (sealItemFor); with too few the step would stop half-sealed, so it is refused here instead
+    const sealN = plan.seal?.length ?? 0
+    if (sealN && sealBlocksHeld(bot.inventory?.items?.() ?? []) < sealN) return { ok: false, why: `no ${sealN} non-falling block(s) to seal the roof cell's wet side(s)`, fx, fy, fz, inputs }
+    const admit = airPocketAdmit({ health: bot.health, difficulty: inputs.difficulty, hungerActive: inputs.hungerActive, digMs: fastest, seals: sealN })
     if (!admit.ok) return { ok: false, why: admit.why, fx, fy, fz, inputs }
     return { ok: true, plan, admit, inputs, fx, fy, fz }
   }
@@ -1459,7 +1468,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // THE START ROW, before anything moves: the read judges deaths DURING an attempt against it (Codex r1).
     const attemptId = `${Date.now().toString(36)}`
     logEvent({ kind: 'air_pocket_start', status: 'success',
-               detail: `id=${attemptId} kind=${plan.kind} cell=${fx},${fy + plan.dy},${fz} block=${plan.name} health=${bot.health} ` +
+               detail: `id=${attemptId} kind=${plan.kind} cell=${fx},${fy + plan.dy},${fz} block=${plan.name} health=${bot.health} seal=${plan.seal?.length ?? 0} ` +
                        `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} envelope=${admit.envelope} ${trig}`, snapshot: snapshot(bot) })
     let r
     try {
@@ -1469,7 +1478,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                                            guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null },
                                            standItem: ({ unsupported = false } = {}) => unsupported
                                              ? pickScaffold(standCandidates(bot.inventory?.items?.() ?? [], { unsupported: true }), PLACEABLE)
-                                             : scaffoldFor(bot, 'air_pocket') })
+                                             : scaffoldFor(bot, 'air_pocket'),
+                                           sealItem: () => sealItemFor(bot.inventory?.items?.() ?? []) })
     } finally { airPocketing = false; airPocketWants = 0 }
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : r.outcome === 'opened' ? 'no_effect' : 'failed',
                detail: airPocketRow({ id: attemptId, r, requiredMs: admit.requiredMs, budgetMs: admit.budgetMs,
