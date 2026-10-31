@@ -506,6 +506,8 @@ export function pathDests ({ plan, zones = [], caps = [], plinth = [], composter
     if (!p?.rec?.structure_complete) continue                       // a path leads to what stands
     // zig2-01: either ziggurat blueprint (v2's record has no blueprint file either); its foot on the face toward home
     if (/^ziggurat@/.test(String(p.rec.blueprint))) { const f = stairFoot(p.rec); if (f.length) dests.push({ id: p.plot, to: p.plot, cols: f }); continue }
+    // shaft-02: the town stair's collar exit (the surface cell beside its 5x5 where the walk down starts)
+    if (/^shaft@/.test(String(p.rec.blueprint))) { if (Array.isArray(p.rec.exit) && p.rec.exit.length === 3) dests.push({ id: p.plot, to: p.plot, cols: [[p.rec.exit[0], p.rec.exit[2]]] }); continue }
     const a = p.bp ? frontApproach(p.rec, p.bp, place) : null
     if (a) dests.push({ id: p.plot, to: p.plot, cols: [a] })
   }

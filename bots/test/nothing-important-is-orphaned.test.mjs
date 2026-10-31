@@ -34,6 +34,12 @@ const REQUIRED = [
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
+  // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)
+  'bots/src/shaftgeom.mjs',
+  'bots/src/shaftvisit.mjs',
+  'bots/test/town-stair.test.mjs',
+  'bots/test/town-stair-wiring.test.mjs',
+  'bots/test/town-stair-stuck.test.mjs',
   // monument-01 (10-29): the ziggurat's site, offline, by the bots' own functions (the fleet canary's per-world siting), and the
   // shop read that judges every project's record (the showcase tripwire's S6)
   'bots/scripts/zigsite-offline.mjs',
@@ -101,6 +107,9 @@ const REQUIRED = [
   'scripts/test_fleetstatus.py',
   // the movement-writer ratchet, wired into package.json and the deploy
   'bots/scripts/check-movement-writers.mjs',
+  // logsurface-01: the real-case columns cut from the region copies of failed log gathers (10-28), and their suite
+  'bots/test/fixtures/logsurface-columns.json',
+  'bots/test/logsurface.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

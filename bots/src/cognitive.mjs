@@ -30,6 +30,10 @@ import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsT
 import { materialOrder, returnOrder, matsOutcome, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'
 import { shopRecordHead, shopSlotsFree, shopDamaged, shopStuckAt } from './skills.mjs'
 import { SHOP, buildOrder } from './shop.mjs'
+// coalfirst-01 (OWNER 10-29): the coal run (coalrun.mjs decides; this supplies readings and keeps the state)
+import { coalRunOrder, coalRunOutcome, coalRunDetail, COAL_KINDS, COAL_ORE_RADIUS } from './coalrun.mjs'
+import { townCoalStock } from './skills.mjs'
+import { hasTripPickaxe, nearHome } from './oretunnel.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -233,6 +237,8 @@ export function refundDeclined (skill, st = {}) {
   const at = { prune_town: ['pruneState', 'lastIssuedAt'], smelt_town: ['smeltJobState', 'lastIssuedAt'],
                furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'],
                make_material: ['matsState', 'lastIssuedAt'], build_shop: ['shopState', 'lastAt'] }[skill]
+  // coalfirst-01: the coal run is a `gather` marked coalrun; its cooldown is charged at issue (coalRunOrder) and refunded here
+  if (skill === 'gather' && st.coalRunState?.pending) return { coalRunState: { ...st.coalRunState, lastIssuedAt: -Infinity, pending: false } }
   // found-01: found_store / found_work charge the cooldown AND the visit at issue (found.mjs foundIssued); a declined run refunds both
   // ...the cooldown goes back to the one before this order (foundIssued keeps it as prevLastAt: Claude code r9 P3), else none
   if ((skill === 'found_store' || skill === 'found_work') && st.foundState) return { foundState: { ...st.foundState, lastAt: 'prevLastAt' in st.foundState ? st.foundState.prevLastAt : -Infinity, visitUsed: false } }
@@ -1453,13 +1459,53 @@ export class CognitiveLoop {
           const rec = h.ok ? (h.head?.rec ?? null) : null
           const r = buildOrder({ on: SHOP.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order, ready }), now,
             state: this.shopState ?? {}, record: rec, complete: !!rec?.structure_complete && !shopDamaged(bot, rec), slotsFree: shopSlotsFree(bot),
-            health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, planned: !!townPlanNow(bot), stuckAt: shopStuckAt })
+            health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, planned: !!townPlanNow(bot), stuckAt: shopStuckAt,
+            feet: [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], groundY: config.world.homeY })   // shaft-03: the stair starts at the surface
           if (r.order) { order = r.order; this.shopState = { ...(this.shopState ?? {}), lastAt: now } }
           this.shopSkipAt ??= {}
           if (r.skip && r.skip !== 'complete' && now - (this.shopSkipAt[r.skip] ?? -Infinity) >= 30 * 60 * 1000) {
             this.shopSkipAt[r.skip] = now
             logEvent({ kind: 'shop_skip', status: 'no_effect', detail: `why=${r.skip}`, snapshot: snap })
           }
+        }
+      } catch { /* a world read must never break the decision loop */ }
+    }
+    // THE COAL RUN (coalfirst-01; coalrun.mjs coalRunOrder decides, this supplies readings and keeps the state). After every
+    // town job, only with NOTHING chosen above (a ready milestone step, the deposit, every town order and the building jobs
+    // win): while the town index shows the town short of coal, gather the coal ore in reach -- gather's own guards decide every
+    // block. Anywhere, not only at town (the ore is rarely in town). Off where the town smelt job is off (isolated pools,
+    // SMELT_JOB=0) and by COALFIRST=off. At most one run per 10 min per bot; a run that brings no coal backs off 30 min.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const items = bot.inventory?.items?.() ?? []
+        const heldCoal = items.filter(it => it?.name === 'coal').reduce((n, it) => n + (it.count ?? 0), 0)
+        const free = 36 - items.length
+        const sw = smeltJobEnabled(process.env, config.memory.scope)
+        let town = null
+        const r = coalRunOrder({ now: Date.now(), shared: sw.on, holds: milestoneHolds({ order, ready }), heldCoal, freeSlots: free,
+          tripPick: hasTripPickaxe(items),
+          townCoal: () => (town = townCoalStock(bot)),
+          ore: () => {
+            const ids = COAL_KINDS.map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id != null)
+            const p = bot.entity?.position
+            if (!ids.length || !p) return null
+            const home = { x: config.world.homeX, z: config.world.homeZ }
+            const found = (bot.findBlocks?.({ matching: ids, maxDistance: COAL_ORE_RADIUS, count: 16 }) ?? []).filter(q => !nearHome(q, home))
+            if (!found.length) return null
+            const q = found.reduce((a, b) => (p.distanceTo(a) <= p.distanceTo(b) ? a : b))
+            return { block: bot.blockAt?.(q)?.name ?? null, dist: p.distanceTo(q) }
+          },
+          state: this.coalRunState ?? {} })
+        this.coalRunState = r.state
+        if (r.order) { order = r.order; this.coalRunState = { ...this.coalRunState, pending: true } }
+        // one row per issue, and per skip reason at most once per 30 min for the reasons that say something about the town
+        const why = r.order ? 'issued' : (['stocked', 'no_ore', 'index', 'index_empty', 'pickaxe', 'carrying'].includes(r.skip) ? r.skip : null)
+        this.coalRunSkipAt ??= {}
+        if (why && (why === 'issued' || Date.now() - (this.coalRunSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000)) {
+          this.coalRunSkipAt[why] = Date.now()
+          logEvent({ kind: 'coal_run', status: r.order ? 'success' : 'no_effect', snapshot: snap,
+                     detail: coalRunDetail({ skip: r.skip, issued: r.order?.args?.block ?? null, town, held: heldCoal, free }) })
         }
       } catch { /* a world read must never break the decision loop */ }
     }
@@ -1524,6 +1570,8 @@ export class CognitiveLoop {
     // a decline is (the probe above keeps this rare: it differs from this call only if the exit's backoff ran out in between).
     // junkout-01 x found-01 (JIT 10-24): both refunds stand; each answers {} / nothing for the other's skills.
     { const ko = this.#keepoutExitOrder(order); if (ko) { if (order?.skill === 'found_store' || order?.skill === 'found_work') Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = ko } }
+    // coalfirst-01: a coal run the keep-out exit displaced this tick never ran -- its cooldown and pending mark are refunded
+    if (order?.skill === 'keepout_exit' && this.coalRunState?.pending) Object.assign(this, refundDeclined('gather', this))
     if (order) {
       // A COUNTER, because five changes shipped inert on this project in one
       // day and each was caught only by asking whether the branch had run.
@@ -1553,6 +1601,8 @@ export class CognitiveLoop {
       const check = this.admission.check(res.proposal, this.bot, wantedNow)
       if (check.ok) admitted = check
       else rejection = check
+      // coalfirst-01: a coal run the gate refused never ran -- its pending mark goes (the cooldown charged at issue stands)
+      if (!check.ok && order?.args?.coalrun === true) this.coalRunState = { ...(this.coalRunState ?? {}), pending: false }
       // TOOL HYGIENE, PART 1: one row per refusal -- the canary's liveness, and the read's G2/G4 evidence (the
       // snapshot is the bag the refusal judged; `wanted` and `source` must always read 0 / model).
       if (rejection?.reason === 'redundant_craft' && rejection.redundant) {
@@ -1615,6 +1665,12 @@ export class CognitiveLoop {
       if (!declined && admitted.skill === 'make_material') this.matsState = matsOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.matsState ?? {})
       // THE WORKSHOP (shop-01): the visit's stop rides with the cooldown (S1: no_site waits a day)
       if (!declined && admitted.skill === 'build_shop') this.shopState = { ...(this.shopState ?? {}), lastAt: Date.now(), lastStop: r.stop ?? r.failClass ?? r.status }
+      // coalfirst-01: the coal run's outcome (a decline refunds the cooldown; no coal gained backs off)
+      if (admitted.skill === 'gather' && admitted.args?.coalrun === true) {
+        const coalNow = (this.bot.inventory?.items?.() ?? []).filter(it => it?.name === 'coal').reduce((n, it) => n + (it.count ?? 0), 0)
+        this.coalRunState = { ...coalRunOutcome(r.status, coalNow, Date.now(), this.coalRunState ?? {}, { declined }), pending: false }
+        try { logEvent({ kind: 'coal_run_end', status: r.status === 'success' && (this.coalRunState.lastGained ?? 0) > 0 ? 'success' : 'no_effect', detail: `status=${r.status} gained=${this.coalRunState.lastGained ?? 0} held=${coalNow} declined=${declined ? 1 : 0} fail=${r.failClass ?? '-'}`, snapshot: snapshot(this.bot) }) } catch { /* telemetry only */ }
+      }
       if (!declined && (admitted.skill === 'make_material' || admitted.skill === 'mats_return')) {
         (this.matsBody ??= []).push({ t: Date.now(), ms: Math.max(0, Date.now() - (this.matsIssuedAt ?? Date.now())) })
       }

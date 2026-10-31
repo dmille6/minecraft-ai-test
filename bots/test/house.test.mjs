@@ -40,7 +40,7 @@ function plan ({ pavilion = 'E', taken = SECTORS } = {}) {
 
 // the workshop and the house (monument-01's ziggurat, the third project, has its own order test: ziggurat-project.test.mjs; the
 // paths, the fourth: paths.test.mjs)
-const P = S.PROJECTS.filter(p => p.plot !== 'monument' && p.plot !== 'paths' && p.plot !== 'wall')
+const P = S.PROJECTS.filter(p => p.plot !== 'monument' && p.plot !== 'paths' && p.plot !== 'wall' && p.plot !== 'shaft')   // shaft-02: town-stair.test.mjs
 const st = (plot, exists, complete = false, damaged = false) => ({ plot, exists, complete, damaged })
 
 await t('the project order: the workshop until it stands, then the house; repairs first; HOUSE=off is the workshop alone', () => {
@@ -51,8 +51,13 @@ await t('the project order: the workshop until it stands, then the house; repair
   assert.strictEqual(S.activeProject([st('shop', true, true, true), st('house1', true)], P).plot, 'shop', 'a damaged workshop is repaired first')
   assert.strictEqual(S.activeProject([st('shop', true, true), st('house1', true, true, true)], P).plot, 'house1', 'a damaged house is repaired')
   assert.strictEqual(S.activeProject([st('shop', true, true), st('house1', true, true)], P).plot, 'house1', 'all stand: the last (the order reads it complete)')
-  assert.strictEqual(S.activeProject([st('shop', true, true)], S.projectsOn(false)).plot, 'shop', 'HOUSE=off')
-  assert.strictEqual(S.projectsOn(false).length, 1)
+  // zigfleet-01: the ziggurat is on in every pool by default, so HOUSE=off alone leaves the workshop and the ziggurat;
+  // with MONUMENT off too it is the workshop alone, as before
+  // shaft-02: the town stair has its own switch (SHAFT) and its own order test (town-stair.test.mjs); off here
+  assert.strictEqual(S.activeProject([st('shop', true, true)], S.projectsOn(false, false, undefined, undefined, false)).plot, 'shop', 'HOUSE=off')
+  assert.strictEqual(S.projectsOn(false, false, undefined, undefined, false).length, 1)
+  assert.deepStrictEqual(S.projectsOn(false, true, undefined, undefined, false).map(p => p.plot), ['shop', 'monument'], 'HOUSE=off with the ziggurat on')
+  assert.deepStrictEqual(S.projectsOn(false, false, undefined, undefined, true).map(p => p.plot), ['shop', 'shaft'], 'the stair is its own switch, HOUSE off or not')
 })
 
 await t('the order the completed workshop silenced fires again for the house (no record = no completion)', () => {
