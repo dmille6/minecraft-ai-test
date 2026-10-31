@@ -501,13 +501,12 @@ export class WorldFacts {
       // It was never the model ignoring `REACHABLE Y RANGE`. It never had a y.
       // Hazards on the next loop already print three numbers, so the prompt was
       // showing two coordinate conventions in one list.
-      out.push(`${r.kind} seen at x=${r.x} y=${r.y ?? Math.round(pos.y)} z=${r.z} ` +
-               `(${d} blocks away, reported by ${r.by.join(' and ')})`)
+      out.push(seenLine({ kind: r.kind, x: r.x, y: r.y ?? Math.round(pos.y), z: r.z, d, by: r.by }, config.bot.name))
     }
     for (const s of this.hazardsNear(pos, 60).filter(s => promptHazardKind(s.kind)).slice(0, limit)) {
       const who = s.by.filter(n => n !== config.bot.name)
       if (!who.length) continue                     // already in my own lessons
-      out.push(`${who.join(' and ')} hit ${s.kind} ${s.count}x near ${s.x},${s.y},${s.z} — avoid it`)
+      out.push(hazardLine(who, s))
     }
     return out
   }
@@ -550,3 +549,24 @@ export function poolStateDir (pool, stateDir = config.log.stateDir) {
   return process.env.POOL_STATE_DIR ||
          path.join(path.dirname(stateDir), `_pool-${pool}`)
 }
+
+/**
+ * PEER LINES WITHOUT THE NAME LISTS (promptcache-01). Pure, exported for the tests and the replay transform.
+ *
+ * "reported by board-a-Delta and board-a-Echo and board-a-Alpha and board-a-Comet" was 52 of ~1,400 user tokens per
+ * prompt (3,891 live prompts, 10-31) and the hazard name lists another 25. What the model can act on is first-hand vs
+ * hearsay and how many agree, so that is what is kept: the count, "incl. you" when this bot is one of the reporters, and
+ * a single peer's name when there is only one. The full lists stay in the pool store for anyone tracing a bad fact.
+ */
+export function seenLine ({ kind, x, y, z, d, by = [] }, self = null) {
+  const n = by.length
+  const mine = self != null && by.includes(self)
+  const who = n === 1 && !mine ? `reported by ${by[0]}` : `${n} report${n === 1 ? '' : 's'}${mine ? ', incl. you' : ''}`
+  return `${kind} seen at x=${x} y=${y} z=${z} (${d} blocks away, ${who})`
+}
+
+export function hazardLine (who, { kind, count, x, y, z }) {
+  const by = who.length === 1 ? who[0] : `${who.length} other bots`
+  return `${by} hit ${kind} ${count}x near ${x},${y},${z} — avoid it`
+}
+
