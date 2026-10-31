@@ -58,6 +58,8 @@ const REQUIRED = [
   'bots/src/treefarm.mjs',
   'bots/scripts/treefarm-offline.mjs',
   'bots/test/treefarm.test.mjs',
+  'bots/src/expedition.mjs',
+  'bots/test/expedition.test.mjs',
   // voidfill-01 (10-30): a sealed void in a project record repaired from inside; its test reproduces the showcase ziggurat's
   // own geometry from the fixture (the record's cells and a read-only scan of the world)
   'bots/src/voidfill.mjs',
