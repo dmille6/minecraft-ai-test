@@ -46,8 +46,8 @@ import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS, sideExit } from 
 import { PRIORITY } from './arbiter.mjs'
 import { survivalRelease } from './withdrawpick.mjs'
 import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketRow, airPocketInputs, airPocketAfter,
-         airPocketPreempt, AP_WANT_LAPSE_MS,
-         AP_REFUSE_COOLDOWN_MS, standCandidates, airPocketTools } from './airpocket.mjs'
+         airPocketPreemptDecision, AP_WANT_LAPSE_MS,
+         AP_REFUSE_COOLDOWN_MS, standCandidates, admissionTools } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 import { digScoped } from './digtown.mjs'
 // poolescape-01: the walled-water-pit rung (poolescape.mjs plans one step; poolEscape below executes it)
@@ -1428,7 +1428,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // standing dig, the pre-empt fired, and half a second later the floating price was refused. Floating + in water is
     // the slowest the step can face, so a pre-empt admitted on it is never followed by a budget refusal.
     const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)
-    const items = airPocketTools(bot.inventory?.items?.() ?? [])   // the step's own candidates (toolhygiene composition)
+    // THE STEP'S OWN CANDIDATES (airPocketTools: toolhygiene's composition), priced by WHO OWNS an open window
+    // (admissionTools, the window handoff): a skill-owned window is closed by the step's own interrupt, so every tool counts
+    // (a held-only price refused at admission, and a refusal never reaches the interrupt); an unowned one is never closed,
+    // so only what is held counts (else the pre-empt stops an escape for a step that then refuses)
+    const items = admissionTools({ items: bot.inventory?.items?.() ?? [], held: bot.heldItem ?? null, windowOpen: !!bot.currentWindow,
+                                   owned: runner?.isBusy?.() === true || !!bot.inventoryUnsettled })   // the step's own candidates
     let fastest = null
     for (const item of [null, ...items]) {
       const ms = predictedDigMs(block, item, env)
@@ -1467,6 +1472,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       try { runner?.interrupt?.('air_pocket') } catch { /* nothing running */ }
       r = await airPocketStep(bot, plan, { Vec3, predict: (b, item) => predictedDigMs(b, item, digEnv(bot)), envelope: admit.envelope,
                                            guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null },
+                                           // the window handoff waits for the interrupted skill to unwind (its finally: smelt's drain)
+                                           skillBusy: () => { try { return runner?.isBusy?.() === true } catch { return false } },
                                            standItem: ({ unsupported = false } = {}) => unsupported
                                              ? pickScaffold(standCandidates(bot.inventory?.items?.() ?? [], { unsupported: true }), PLACEABLE)
                                              : scaffoldFor(bot, 'air_pocket') })
@@ -1474,7 +1481,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : r.outcome === 'opened' ? 'no_effect' : 'failed',
                detail: airPocketRow({ id: attemptId, r, requiredMs: admit.requiredMs, budgetMs: admit.budgetMs,
                                       difficulty: inputs.difficulty }), snapshot: snapshot(bot) })
-    const st = airPocketAfter(r.ok || r.outcome === 'opened', { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil, breatheUntil: airPocketBreatheUntil })
+    const st = airPocketAfter(r.ok || r.outcome === 'opened', { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil, breatheUntil: airPocketBreatheUntil }, Date.now(), { handoffHeld: r.handoffHeld === true })
     drownFails = st.drownFails; drownFailPos = st.drownFailPos; drownFailHealth = st.drownFailHealth
     seizedAt = st.seizedAt; lastProgressAt = st.lastProgressAt; airPocketCooldownUntil = st.cooldownUntil; airPocketBreatheUntil = st.breatheUntil
     return true
@@ -2456,9 +2463,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // AIRPOCKET PRE-EMPTS AN IN-FLIGHT ESCAPE inside a SEALED rescue (Paper sandbox 10-07: a bare-handed escape dig
           // held `escaping` ~58 s and the budget ran out while the step waited). The escape's `alive` turns false and its
           // current dig is stopped; once it returns, the trigger below runs the step.
-          if (airPocketPreempt({ rescuing, routeDir: route.dir, routeSealed: route.sealed, escaping, marooned, pocketing,
+          const apPre = airPocketPreemptDecision({ rescuing, routeDir: route.dir, routeSealed: route.sealed, escaping, marooned, pocketing,
                                  active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil,
-                                 stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })) {
+                                 windowOpen: !!bot.currentWindow, windowOwnedNow: runner?.isBusy?.() === true || !!bot.inventoryUnsettled,
+                                 stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })
+          if (apPre === 'window') {
+            // AN OWNED WINDOW IS OPEN (the window handoff): the escape keeps running; the window's owner is interrupted so it
+            // closes, and the next tick decides with a fresh inventory (an unowned one never gets here: airPocketPreemptDecision)
+            try { if (runner?.isBusy?.()) runner.interrupt('air_pocket') } catch { /* nothing running */ }
+            if (throttled('air_pocket_window_open', 30_000)) {
+              logEvent({ kind: 'air_pocket_refused', status: 'no_effect',
+                         detail: `reason=a container window is open (${runner?.isBusy?.() ? 'its skill interrupted' : 'a withdraw hold'}; the escape is not pre-empted) ` +
+                                 `health=${bot.health} held_ms=${Date.now() - seizedAt}`, snapshot: snapshot(bot) })
+            }
+          } else if (apPre === 'preempt') {
             airPocketWants = Date.now()
             try { if (bot.targetDigBlock) bot.stopDigging() } catch { /* not digging */ }
             if (throttled('air_pocket_preempt', 30_000)) {
