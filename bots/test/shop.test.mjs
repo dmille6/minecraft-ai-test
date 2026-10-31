@@ -286,8 +286,11 @@ assert.ok(PATHS_FN.test(SK), 'buildPaths is found (the cut is not a no-op)')
 // wall-01: buildWall (the wall's visit) repeats the monument's draw, share and bag lines the same way (its wiring: wall-wiring.test.mjs)
 const WALL_FN = /\nasync function buildWall \([\s\S]*?\n\}\n/
 assert.ok(WALL_FN.test(SK), 'buildWall is found (the cut is not a no-op)')
+// treefarm-04: buildTreeFarm (the farm's visit) repeats the wall's draw, share and bag lines the same way (its wiring: treefarm.test.mjs)
+const FARM_FN = /\nasync function buildTreeFarm \([\s\S]*?\n\}\n/
+assert.ok(FARM_FN.test(SK), 'buildTreeFarm is found (the cut is not a no-op)')
 for (const [name, src0, re] of W) {
-  const src = src0 === SK ? SK.replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n') : src0
+  const src = src0 === SK ? SK.replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n').replace(FARM_FN, '\n') : src0
   await t(`${name} (and a mutant of it fails)`, () => {
     assert.ok(re.test(src), 'wired')
     const m = src.match(re)[0]

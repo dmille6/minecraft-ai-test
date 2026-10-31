@@ -519,6 +519,8 @@ export function pathDests ({ plan, zones = [], caps = [], plinth = [], composter
   for (const p of projects) {
     if (!p?.rec?.structure_complete) continue                       // a path leads to what stands
     if (p.rec.blueprint === 'ziggurat@1') { const f = stairFoot(p.rec); if (f.length) dests.push({ id: p.plot, to: p.plot, cols: f }); continue }
+    // treefarm-04: a record that names its own FRONT columns (the tree farm's side facing home) is reached there
+    if (Array.isArray(p.rec.front) && p.rec.front.length && p.rec.front.every(c => Array.isArray(c) && c.length === 2 && c.every(Number.isFinite))) { dests.push({ id: p.plot, to: p.plot, cols: p.rec.front.map(c => [c[0], c[1]]) }); continue }
     const a = p.bp ? frontApproach(p.rec, p.bp, place) : null
     if (a) dests.push({ id: p.plot, to: p.plot, cols: [a] })
   }
