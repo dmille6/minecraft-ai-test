@@ -145,6 +145,8 @@ There is **one canary slot**. The tripper matches `canary_pool` literally and
 - Before activating, the gate takes a world snapshot and checks ancestry and
   revocation. It never auto-follows backwards over showcase improvements; it
   reconciles instead.
+- **Protected code follows the fleet line** (control session 10-31): a showcase release's protected tree equals the latest fleet
+  KEEP+promotion, plus only non-protected showcase pieces on top (`showcase-on-fleet`); after each promotion, restack onto it.
 
 ## Rollout ledger
 

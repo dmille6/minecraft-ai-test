@@ -2347,6 +2347,30 @@
     ]
    },
    "note": "AUDIT 10-31 #13: hand-merged at 0d10d875 (fleet 281d5659 is now an ancestor of origin/main). Root cause not yet checked."
+  },
+  {
+   "id": "showcase-protected-follows-fleet",
+   "title": "Showcase protected tree == the latest fleet KEEP+promotion (showcase = fleet line + showcase pieces)",
+   "owner_date": "2026-10-31",
+   "memory": [
+    "owner-showcase-projects-1029.md",
+    "autonomy-1031.md"
+   ],
+   "kind": "showcase",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "After each fleet KEEP+promotion, restack the showcase pieces onto the promoted sha (branch showcase-on-fleet: single-parent commit on the live release whose tree = promoted tree + non-protected showcase deltas), npm test, one review, record/stage/activate",
+   "max_quiet_hours": 72,
+   "evidence": {
+    "grep": [
+     "showcase-on-fleet"
+    ],
+    "branches": [
+     "showcase-on-fleet*"
+    ]
+   },
+   "note": "Control session decision 10-31 (owner away, autonomy-1031): the showcase line had drifted 26 protected items behind the fleet, so the kept escape guard could not reach it. No automatic detector yet: the showcase release lives on the showcase host, which stallcheck on the canary host does not read; the quiet-hours check on the evidence grep is the reminder."
   }
  ]
 }
