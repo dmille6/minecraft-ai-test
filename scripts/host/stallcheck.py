@@ -120,11 +120,11 @@ def validate(ledger):
     items = ledger.get('items') if isinstance(ledger, dict) else None
     if not isinstance(items, list) or not items:
         return [], [F('L', 'empty', 'the ledger has NO items (config/owner-commitments.json) -- nothing can be checked')]
-    ids, seen = {i.get('id') for i in items if isinstance(i, dict)}, set()
+    ids, seen = {i.get('id') for i in items if isinstance(i, dict) and isinstance(i.get('id'), str)}, set()
     good = []
     for n, i in enumerate(items):
-        if not isinstance(i, dict) or not i.get('id'):
-            out.append(F('L', f'row{n}', f'ledger row {n} has no id'))
+        if not isinstance(i, dict) or not isinstance(i.get('id'), str) or not i.get('id'):
+            out.append(F('L', f'row{n}', f'ledger row {n} has no string id -- row skipped until fixed'))
             continue
         iid = i['id']
         bad = []
@@ -161,9 +161,15 @@ def validate(ledger):
         for k in ('runs', 'branches', 'grep', 'paths', 'fleet_paths'):
             if ev.get(k) is not None and not (isinstance(ev[k], list) and all(isinstance(x, str) for x in ev[k])):
                 bad.append(f'evidence.{k} must be a list of strings')
-        for k in ('depends_on', 'covers_alarms', 'memory'):
-            if i.get(k) is not None and not isinstance(i.get(k), list):
-                bad.append(f'{k} must be a list')
+        for k in ('covers_alarms', 'memory'):
+            if i.get(k) is not None and not (isinstance(i[k], list) and all(isinstance(x, str) for x in i[k])):
+                bad.append(f'{k} must be a list of strings')
+        if i.get('depends_on') is not None and not (isinstance(i['depends_on'], list) and all(
+                isinstance(d, dict) and all(isinstance(v, str) for v in d.values()) for d in i['depends_on'])):
+            bad.append('depends_on must be a list of objects with string values')
+        for k in ('title', 'next_step', 'owner', 'kind', 'lane', 'state', 'owner_date'):
+            if i.get(k) is not None and not isinstance(i[k], str):
+                bad.append(f'{k} must be a string')
         if i.get('max_quiet_hours') is not None and (isinstance(i['max_quiet_hours'], bool) or
                                                      not isinstance(i['max_quiet_hours'], (int, float))):
             bad.append('max_quiet_hours must be a number')
@@ -761,7 +767,9 @@ def evaluate(fx, since):
         if st in ('parked', 'dropped') or i.get('fleet') is False:
             for gp in e.get('grep') or []:
                 suppress[gp.lower()] = i['id']
-    owned += list(((fx['ledger'] or {}).get('branches_accounted') or {}).keys())
+    led = fx['ledger'] if isinstance(fx['ledger'], dict) else {}
+    acc = led.get('branches_accounted')
+    owned += [k for k in acc if isinstance(k, str)] if isinstance(acc, (dict, list)) else []
     findings = list(fx['lfind'])
     findings += det_quiet(items, fx['ev'], now)
     findings += det_deps(items, fx['ev'], fx['crontab'], now, done_at)
@@ -773,7 +781,7 @@ def evaluate(fx, since):
     findings += det_unshipped(fx['commits'], fx['promotions'], now, fx['fleet_on_main'], suppress)
     findings += det_goals(fx['alarms'], items)
     findings += det_monitors(fx['registry'], fx['cron_lines'], fx['mtimes'], now, (fx['memlist'] or {}).get('launchd'))
-    findings += det_memories(items, fx['memlist'], set((fx['ledger'] or {}).get('memory_no_row') or {}), now)
+    findings += det_memories(items, fx['memlist'], {k for k in (led.get('memory_no_row') or {}) if isinstance(k, str)} if isinstance(led.get('memory_no_row'), (dict, list)) else set(), now)
     c = {s: sum(1 for i in items if i.get('state') == s) for s in STATES}
     counts = dict(c, items=len(items), queue=len(fx['entries']), journal=fx['journal_n'], refs=fx['refs_n'],
                   cron=len(fx['cron_lines']), monitors=len(fx['registry']), alarms=len(fx['alarms']),
