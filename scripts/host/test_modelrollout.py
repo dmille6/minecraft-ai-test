@@ -54,10 +54,19 @@ class FakeHost(R.Host):
         self.env = {}                       # bot -> environ text of the live process
 
     def now(self): return self.t
-    def sleep(self, s): self.t += dt.timedelta(seconds=s)
+    def sleep(self, s):
+        self.t += dt.timedelta(seconds=s)
+        if getattr(self, 'term_at_poll', None) and s == R.POLL_S:
+            raise SystemExit(143)
     def write_root(self, path, text):
+        if R.DROPIN in path:
+            self.writes = getattr(self, 'writes', 0) + 1
+            if getattr(self, 'fail_write_at', None) == self.writes:
+                raise RuntimeError('disk full (fake)')
         os.makedirs(os.path.dirname(path), exist_ok=True); open(path, 'w').write(text)
     def remove_root(self, path):
+        if getattr(self, 'fail_remove', False):
+            raise RuntimeError('sudo rm failed (fake)')
         os.remove(path)
         with contextlib.suppress(OSError):
             os.rmdir(os.path.dirname(path))
@@ -85,7 +94,7 @@ class FakeHost(R.Host):
             return lrows(n, 1200), False
         return (lrows(n, 1500) if self.load_ok else lrows(n, 9000)), not self.load_ok
     def modelpoll(self, ctxdir):
-        if self.poll and self.stage() == self.poll_stage:
+        if self.poll is not None and self.stage() == self.poll_stage:
             return self.poll
         return 'MODELPOLL OK :: 0 of 10 stalled'
     def stage_read(self, ctxdir, M):
@@ -261,6 +270,58 @@ def driver():
     t('rollback proof: a bot still on the model env -> rollout-rollback-incomplete, paged, hold kept',
       rc == 1 and 'rollout-rollback-incomplete' in phases() and 'ROLLBACK INCOMPLETE' in open(R.P['page']).read()
       and [x[0] for x in h.holds] == ['claim'], (rc, phases()[-4:]))
+    shutil.rmtree(root)
+
+    # r1 blocker 1: an unproven rollback stays unproven: release refused, rollback --all retries it and only then frees
+    st = json.load(open(os.path.join(R.P['home'], 'state.json'))) if os.path.exists(os.path.join(R.P['home'], 'state.json')) else None
+    root = tree(); h = FakeHost(root, read_fail_stage=2)
+    h.stuck = set(R.Rollout(h, 'qwen35-01').bots(R.plan(POOLS, ['board-b', 'placebo-b'])[1][:1]))
+    quiet(R.Rollout(h, 'qwen35-01').go)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    t('r1-B1: a failed rollback proof leaves the stage rollback-unproven (not rolled-back)', st['stages'][1]['status'] == 'rollback-unproven', st['stages'])
+    rc, out = quiet(R.main, ['release'], host=h)
+    t('r1-B1: release REFUSED while a stage is rollback-unproven', rc == 2 and 'unproven' in out and h.holds[-1][0] == 'claim', out)
+    rc, out = quiet(R.main, ['rollback', '--all'], host=h)
+    t('r1-B1: rollback --all with the bot still stuck: still unproven, hold kept', rc == 1 and h.holds[-1][0] == 'claim', (rc, out))
+    h.stuck = set()
+    rc, out = quiet(R.main, ['rollback', '--all'], host=h)
+    t('r1-B1: rollback --all once the bot restarts: proven, every drop-in gone, hold released',
+      rc == 0 and dropins() == [] and h.holds[-1][0] == 'release', (rc, out))
+    shutil.rmtree(root)
+
+    # r1 blocker 2: an apply that fails part-way: its partial drop-ins are removed and proven before the slot is freed
+    root = tree(); h = FakeHost(root); h.fail_write_at = 7
+    rc, out = quiet(R.Rollout(h, 'qwen35-01').go)
+    t('r1-B2: a write failure at the 7th drop-in: the 6 written are removed, hold released only after the proof',
+      rc == 1 and dropins() == [] and 'rollout-rolled-back' in phases() and [x[0] for x in h.holds] == ['claim', 'release'], (rc, dropins(), phases()))
+    shutil.rmtree(root)
+
+    # r1 blocker 3: a stop whose rollback crashes is journalled and paged, the slot stays held
+    root = tree(); h = FakeHost(root, read_fail_stage=1); h.fail_remove = True
+    rc, out = quiet(R.Rollout(h, 'qwen35-01').go)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    t('r1-B3: a crashing rollback: rollback-unproven, paged, hold kept, rc 1',
+      rc == 1 and st['stages'][0]['status'] == 'rollback-unproven' and 'ROLLBACK INCOMPLETE' in open(R.P['page']).read()
+      and [x[0] for x in h.holds] == ['claim'], (rc, st['stages'][0], h.holds))
+    shutil.rmtree(root)
+    root = tree(); h = FakeHost(root); h.term_at_poll = True
+    try:
+        quiet(R.Rollout(h, 'qwen35-01').go); died = False
+    except SystemExit:
+        died = True
+    t('r1-B3: SIGTERM mid-watch: re-raised, journalled rollout-interrupted, paged, hold kept',
+      died and 'rollout-interrupted' in phases() and 'INTERRUPTED' in open(R.P['page']).read() and [x[0] for x in h.holds] == ['claim'])
+    shutil.rmtree(root)
+
+    # r1 Codex 3: a stall poll that never says OK is a guard that is down
+    root = tree(); h = FakeHost(root, poll='MODELPOLL UNREADABLE :: no active canary unit', poll_stage=1)
+    rc, out = quiet(R.Rollout(h, 'qwen35-01').go)
+    t('r1-C3: three UNREADABLE polls in a row roll the stage back (paged at the first)',
+      rc == 1 and dropins() == [] and 'not deciding' in open(R.P['page']).read() and 'rollout-rolled-back' in phases(), (rc, phases()[-3:]))
+    shutil.rmtree(root)
+    root = tree(); h = FakeHost(root, poll='', poll_stage=1)
+    rc, out = quiet(R.Rollout(h, 'qwen35-01').go)
+    t('r1-C3: an EMPTY poll is not OK either', rc == 1 and dropins() == [])
     shutil.rmtree(root)
 
     # stall with the endpoint down at stage 2: every stage back

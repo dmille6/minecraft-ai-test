@@ -65,6 +65,7 @@ import io
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -81,7 +82,13 @@ BUSY_TRIES, BUSY_WAIT_S = 3, 600
 STAGGER_S, SETTLE_S, POLL_S = 12, 90, 300
 READ_AT_MIN = 60
 CHECK_BY_MIN = 85
-HOLD_MIN = 480
+HOLD_MIN = 600
+LOAD_HARD_S = LOAD_MIN * 60 + 300  # a hung load test is killed
+POLL_BLIND_MAX = 3               # unreadable stall polls in a row (15 min) = the guard is down: roll the stage back
+# A stage whose env may be on any bot. `applying` is set BEFORE the first drop-in is written and `rollback-unproven`
+# when a rollback could not prove the env gone: both count as rolled, so rollback retries them and no path frees
+# the slot while they exist (both reviewers r1).
+LIVE = ('applying', 'applied', 'passed', 'rollback-unproven')
 GATES = {'lat_p50_ms': 2500, 'lat_p95_ms': 5000, 'completion_p95': 300, 'model_share': 0.95, 'schema_valid': 0.99,
          'schema_gap_pp': 1.0, 'stall_bots': 1, 'min_rows': 200, 'load_valid': 0.99}
 EARLY_ABORT_N, EARLY_ABORT_X = 30, 3
@@ -399,10 +406,10 @@ class Host:
         err = open(out + '.err', 'w')
         pr = subprocess.Popen(['node', os.path.join(HERE, 'qwen35load.mjs'), P['bots'], sl, out, url, model, str(rate), str(seed)],
                               stdout=err, stderr=err)
-        aborted = False
+        aborted, t0 = False, time.time()
         while pr.poll() is None:
             time.sleep(10)
-            if early_abort(read_jsonl(out)):
+            if early_abort(read_jsonl(out)) or time.time() - t0 > LOAD_HARD_S:
                 pr.kill(); aborted = True
         pr.wait()
         return read_jsonl(out), aborted
@@ -440,6 +447,10 @@ class Host:
 
     def rollout_check(self, run):
         return self.sh(['python3', '-B', P['rollout_py'], 'check', '--env', 'fleet', '--run', run], timeout=1800)[1]
+
+
+def _sigterm(signum, frame):
+    raise SystemExit(128 + signum)
 
 
 def _modelread(ctxdir):
@@ -507,7 +518,10 @@ class Rollout:
         return out
 
     def rolled_pools(self):
-        return [p for s in self.st['stages'] if s['status'] in ('applied', 'passed') for p in s['pools']]
+        return [p for s in self.st['stages'] if s['status'] in LIVE for p in s['pools']]
+
+    def unproven(self):
+        return [i for i, s in enumerate(self.st['stages'], 1) if s['status'] in ('applying', 'rollback-unproven')]
 
     def dropin(self, bot):
         return os.path.join(P['unitdir'], 'mcbot@%s.service.d' % bot, DROPIN)
@@ -600,10 +614,10 @@ class Rollout:
     def apply(self, i):
         s = self.st['stages'][i - 1]
         bots = self.bots(s['pools'])
+        s['status'] = 'applying'; s['t_apply'] = iso(self.h.now()); self.save()     # BEFORE any write: rollback knows
         for b in bots:
             self.h.write_root(self.dropin(b), dropin_text(self.envfile))
         self.h.daemon_reload()
-        s['status'] = 'applied'; s['t_apply'] = iso(self.h.now()); self.save()      # rollback now knows these pools
         self.journal('rollout-applying', 'stage %d: %s drop-ins on %d bots (%s); restarting 12 s apart' % (i, DROPIN, len(bots), ','.join(s['pools'])))
         failed = self.restart_all(bots)
         self.h.sleep(SETTLE_S)
@@ -616,7 +630,7 @@ class Rollout:
                 bad.append('%s:missing %s' % (b, ','.join(k.split('=')[0] for k in env_missing(e, self.kvs))))
         if bad:
             raise Stop('stage %d: env NOT proven on %d bot(s): %s' % (i, len(bad), ' '.join(bad[:8])), 'stage')
-        s['t_apply'] = iso(self.h.now()); self.save()
+        s['status'] = 'applied'; s['t_apply'] = iso(self.h.now()); self.save()
         self.journal('rollout-stage-applied', 'stage %d: %s proven in the live environ of %d bots (%s); %d bots on %s' % (
             i, ' '.join(self.kvs), len(bots), ','.join(s['pools']), len(self.bots(self.rolled_pools())), self.model))
         self.h.rollout_add('%s-s%d' % (self.rid, i), self.st['fleet_sha'], s['t_apply'],
@@ -627,6 +641,7 @@ class Rollout:
         s = self.st['stages'][i - 1]
         t0 = ts(s['t_apply'])
         d = self.write_ctx(i, s['t_apply'])
+        blind = 0
         while (self.h.now() - t0).total_seconds() < READ_AT_MIN * 60:
             self.h.sleep(POLL_S)
             man = self.h.manifest()
@@ -638,6 +653,12 @@ class Rollout:
             self.journal('rollout-poll', 'stage %d: %s' % (i, line))
             if scope:
                 raise Stop('stage %d stall poll: %s' % (i, line), scope)
+            # ONLY AN EXPLICIT OK IS A WORKING GUARD (Codex r1): UNREADABLE, empty or garbage is a stall guard that is down
+            blind = 0 if (line.split()[:2] == ['MODELPOLL', 'OK']) else blind + 1
+            if blind == 1:
+                self.page('error', 'ROLLOUT %s stage %d: the stall poll is not deciding (%s); rollback at %d in a row' % (self.run, i, line or 'EMPTY', POLL_BLIND_MAX))
+            if blind >= POLL_BLIND_MAX:
+                raise Stop('stage %d: the stall poll did not decide %d times in a row (last: %s)' % (i, blind, line or 'EMPTY'), 'stage')
         f = self.h.stage_read(d, READ_AT_MIN)
         ok, why = read_verdict(f)
         keep = {k: f.get(k) for k in ('lat_p50_ms', 'lat_p95_ms', 'model_share', 'schema_valid_canary', 'schema_gap_pp',
@@ -675,37 +696,58 @@ class Rollout:
         bots, pools = [], []
         for i in idxs:
             s = self.st['stages'][i - 1]
-            if s['status'] not in ('applied', 'passed'):
+            if s['status'] not in LIVE:
                 continue
             bots += self.bots(s['pools']); pools += s['pools']
         if not bots:
             return True
-        for b in bots:                                                   # 1 the drop-ins
-            if self.h.exists(self.dropin(b)):
-                self.h.remove_root(self.dropin(b))
-        self.h.daemon_reload()
-        for i in idxs:                                                   # 2 the config
-            if self.st['stages'][i - 1]['status'] in ('applied', 'passed'):
-                self.st['stages'][i - 1]['status'] = 'rolled-back'
+        todo = [i for i in idxs if self.st['stages'][i - 1]['status'] in LIVE]
+        # 2 the config FIRST, as unproven: a crash anywhere below leaves stages that rollback retries and that hold the slot
+        for i in todo:
+            self.st['stages'][i - 1]['status'] = 'rollback-unproven'
         self.save()
-        self.journal('rollout-rollback', 'stages %s: drop-ins removed on %d bots (%s); restarting 12 s apart' % (idxs, len(bots), ','.join(pools)))
-        failed = self.restart_all(bots)                                  # 3 the restarts
-        self.h.sleep(SETTLE_S)
-        bad = ['%s:restart-failed' % b for b in failed]
-        for b in bots:
-            e = self.h.environ(b)
-            if e is None:
-                bad.append('%s:no-process' % b)
-            elif env_present(e, self.kvs):
-                bad.append('%s:%s' % (b, ','.join(k.split('=')[0] for k in env_present(e, self.kvs))))
+        bad = []
+        try:
+            for b in bots:                                               # 1 the drop-ins
+                if self.h.exists(self.dropin(b)):
+                    self.h.remove_root(self.dropin(b))
+            self.h.daemon_reload()
+            self.journal('rollout-rollback', 'stages %s: drop-ins removed on %d bots (%s); restarting 12 s apart' % (todo, len(bots), ','.join(pools)))
+            failed = self.restart_all(bots)                              # 3 the restarts
+            self.h.sleep(SETTLE_S)
+            bad = ['%s:restart-failed' % b for b in failed]
+            for b in bots:
+                e = self.h.environ(b)
+                if e is None:
+                    bad.append('%s:no-process' % b)
+                elif env_present(e, self.kvs):
+                    bad.append('%s:%s' % (b, ','.join(k.split('=')[0] for k in env_present(e, self.kvs))))
+                elif self.h.exists(self.dropin(b)):
+                    bad.append('%s:drop-in-still-there' % b)
+        except Exception as x:
+            bad.append('rollback crashed: %s: %s' % (type(x).__name__, str(x)[:160]))
         if bad:
-            self.journal('rollout-rollback-incomplete', 'model env not proven cleared on: %s' % ' '.join(bad))
-            self.page('error', 'ROLLBACK INCOMPLETE %s: model env not proven cleared on %s -- restart those units by hand' % (self.run, ' '.join(bad[:10])))
+            self.journal('rollout-rollback-incomplete', 'stages %s left rollback-unproven: %s' % (todo, ' '.join(bad)))
+            self.page('error', 'ROLLBACK INCOMPLETE %s (stages %s): model env not proven cleared on %s -- fix those units, then '
+                      '`python3 %s rollback --all` (retries them); the slot stays held' % (self.run, todo, ' '.join(bad[:10]), os.path.abspath(__file__)))
             return False
+        for i in todo:
+            self.st['stages'][i - 1]['status'] = 'rolled-back'
+        self.save()
         self.journal('rollout-rolled-back', 'stages %s: %s proven absent on %d bots' % (idxs, ' '.join(self.kvs), len(bots)))
         return True
 
     def finish_stop(self, why, scope, cur):
+        try:
+            self._finish_stop(why, scope, cur)
+        except Exception as x:          # never exit silently with a stage applied and unread (Claude r1)
+            with contextlib.suppress(Exception):
+                self.st['status'] = 'stopped'; self.st['stop'] = why; self.save()
+            self.journal('rollout-stop-failed', '%s :: the stop itself failed: %s: %s' % (why, type(x).__name__, x))
+            self.page('error', 'ROLLOUT %s STOP FAILED (%s: %s) after: %s -- state %s; the slot stays held; run `python3 %s rollback --all`' % (
+                self.run, type(x).__name__, x, why, self.statep, os.path.abspath(__file__)))
+
+    def _finish_stop(self, why, scope, cur):
         self.journal('rollout-stopping', why)
         ok = True
         if scope == 'stage' and cur:
@@ -764,12 +806,13 @@ class Rollout:
         self.journal('rollout-start', '%s %s: %s; hold %s; env file %s' % ('resume' if resume else 'start', self.run, text.splitlines()[0], token, self.envfile))
         self.page('info', 'ROLLOUT %s %s started: %d stages; ~%.1f h' % (self.run, self.model, len(stages), sum(est_minutes(stages)) / 60))
         cur = None
+        signal.signal(signal.SIGTERM, _sigterm)
         try:
             for i, s in enumerate(self.st['stages'], 1):
                 if s['status'] == 'passed':
                     continue
-                if s['status'] in ('rolled-back',):
-                    raise Stop('stage %d was rolled back earlier: start a new rollout' % i, None)
+                if s['status'] in ('rolled-back', 'rollback-unproven', 'applying'):
+                    raise Stop('stage %d is %s: not resumable; `rollback --all`, then a new rollout' % (i, s['status']), None)
                 cur = i
                 os.makedirs(self.ctxdir(i), exist_ok=True)
                 if s['status'] == 'pending':
@@ -778,7 +821,7 @@ class Rollout:
                     try:
                         self.apply(i)
                     except Stop as e:
-                        raise Stop(str(e), 'stage')
+                        raise Stop(str(e.args[0]), 'stage')
                     except Exception as e:
                         raise Stop('stage %d apply failed: %s: %s' % (i, type(e).__name__, e), 'stage')
                 self.watch_and_read(i)
@@ -793,6 +836,12 @@ class Rollout:
         except Exception as e:     # an unexpected crash: roll the CURRENT stage back (it was never read) and stop
             self.finish_stop('crash in stage %s: %s: %s' % (cur, type(e).__name__, e), 'stage', cur)
             return 1
+        except BaseException as e:  # SIGTERM (a reboot, a kill) or ^C: no rollback here, but never silent
+            with contextlib.suppress(Exception):
+                self.journal('rollout-interrupted', 'stage %s: %s; state left %s' % (cur, type(e).__name__, self.st.get('status')))
+                self.page('error', 'ROLLOUT %s INTERRUPTED at stage %s (%s): the slot stays held; `python3 %s run --resume` '
+                          'or `python3 %s rollback --all`' % (self.run, cur, type(e).__name__, os.path.abspath(__file__), os.path.abspath(__file__)))
+            raise
         self.st['status'] = 'complete'; self.save()
         self.h.hold_release(self.st['token'])
         self.journal('rollout-complete', 'all %d stages passed: %d bots on %s via %s; install-hold released' % (
@@ -839,13 +888,17 @@ def main(argv=None, host=None):
     if not h.take_lock():
         print('REFUSED: %s is held (a running rollout, a canary loop or an installer)' % P['lock']); return 2
     if a.cmd == 'release':
-        if r.bots(r.rolled_pools()) and st.get('status') != 'stopped':
+        if st.get('status') != 'stopped':
             print('REFUSED: release is for a STOPPED rollout (status %s)' % st.get('status')); return 2
+        if r.unproven():
+            print('REFUSED: stages %s are applying/rollback-unproven (their env is unknown): `rollback --all` first' % r.unproven()); return 2
         print(h.hold_release(st['token']))
         r.journal('rollout-released', 'operator: the part-rolled fleet is the baseline (%s on %s)' % (r.model, ','.join(r.rolled_pools())))
         return 0
     if a.cmd == 'rollback':
         idx = list(range(1, len(st['stages']) + 1)) if a.all else [a.stage]
+        if not all(1 <= i <= len(st['stages']) for i in idx):
+            print('REFUSED: stage must be 1..%d' % len(st['stages'])); return 2
         ok = r.rollback(idx)
         if ok and not r.bots(r.rolled_pools()):
             st['status'] = 'rolled-back'; r.save()
