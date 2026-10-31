@@ -9,6 +9,7 @@ import { protectTownBlocks, worldIdFromLogin, composterFloorFilter, composterSaf
 import { townWalkMovements } from './towndeposit.mjs'
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
+import { noteLavaFinding } from './lavatarget.mjs'   // lavatarget-01: the corridor guard's lava cells feed explore's heading
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
 import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
 import { knownWellCells, installWellWatch } from './skills.mjs'
@@ -1094,6 +1095,7 @@ function connect() {
         const nodes = [{ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }, ...r.path.map(n => ({ x: n.x, y: n.y, z: n.z }))]
         const v = corridorSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), nodes)
         if (!v.safe) {
+          try { noteLavaFinding(bot, v) } catch { /* telemetry-grade: never stops the guard */ }
           try { bot.pathfinder.setGoal(null) } catch { /* not connected */ }
           if (Date.now() - lavaCorridorLoggedAt > 5_000) { lavaCorridorLoggedAt = Date.now(); logEvent({ kind: 'lava_corridor', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')} after ${v.samples} samples; the leg is refused`, snapshot: snapshot(bot) }) }
           return

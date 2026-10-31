@@ -27,6 +27,7 @@
 
 import { haltPath } from './pathhalt.mjs'
 import { stepLineSafe } from './lavaguard.mjs'
+import { lavaRingOf, lavaBlocksTarget, noteLavaFinding } from './lavatarget.mjs'   // lavatarget-01
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, toolFor, remaining, spentEquipOutcome, handHarvests, emptyHand, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp } from './hygiene.mjs'
@@ -7469,6 +7470,10 @@ export function knownTarget (bot, toward = null, radius = 400) {
   let deaths = []
   try { deaths = wf.deathSites?.() ?? [] } catch { deaths = [] }
   let skipped = 0
+  // LAVATARGET-01 (lavatarget.mjs): a sighting beside, or behind, lava this bot has seen is not a heading either
+  let lava = []
+  try { lava = lavaRingOf(bot)?.cells(Date.now()) ?? [] } catch { lava = [] }
+  let lavaSkipped = 0, lavaFirst = null
   for (const kind of kinds) {
     let seen
     try { seen = wf.resourcesNear(kind, at, radius) } catch { continue }
@@ -7480,9 +7485,13 @@ export function knownTarget (bot, toward = null, radius = 400) {
       if (d < 24) continue
       const site = nearDeathSite(deaths, r.x, r.y ?? at.y, r.z, { radius: DEATH_SITE_TARGET_RADIUS, dy: 8 })
       if (site) { skipped++; continue }
-      return { kind, x: r.x, y: r.y, z: r.z, dist: d, skipped }
+      const lv = lava.length ? lavaBlocksTarget({ from: at, target: { x: r.x, y: r.y ?? at.y, z: r.z }, lava }) : null
+      if (lv) { lavaSkipped++; if (!lavaFirst) lavaFirst = { kind, target: [r.x, r.y, r.z], ...lv }; continue }
+      // the base's shape exactly when nothing was skipped for lava (callers and tests compare it whole)
+      return { kind, x: r.x, y: r.y, z: r.z, dist: d, skipped, ...(lavaSkipped ? { lavaSkipped, lavaFirst, nLava: lava.length } : {}) }
     }
   }
+  if (lavaSkipped) return { skipped, lavaSkipped, lavaFirst, nLava: lava.length }
   return skipped ? { skipped } : null
 }
 
@@ -7509,6 +7518,15 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
   // behaviour for a bot that has genuinely seen nothing: this makes explore
   // better-informed, not conditional on being informed.
   const known = knownTarget(bot, toward)
+  if (known?.lavaSkipped) {
+    const f = known.lavaFirst
+    logEvent({ kind: 'lavatarget_skip', status: 'no_effect', snapshot: snapshot(bot),
+               detail: `${known.lavaSkipped} sighting(s) skipped beside or behind seen lava (first: ${f.kind} at ${f.target.join(',')}, ` +
+                       `lava ${f.cell.x},${f.cell.y},${f.cell.z} ${f.why} ${f.distance.toFixed(1)}b; ring ${known.nLava})` +
+                       `${known.kind ? `; heading for ${known.kind} at ${known.x},${known.y},${known.z} instead` : '; random bearing'}`,
+               args: { n: known.lavaSkipped, target: f.target, lava_cell: [f.cell.x, f.cell.y, f.cell.z], why: f.why,
+                       distance: Math.round(f.distance * 10) / 10, n_ring: known.nLava } })
+  }
   if (known?.skipped) logEvent({ kind: 'explore_target_skipped_death_site', status: 'no_effect', detail: `${known.skipped} sighting(s) within ${DEATH_SITE_TARGET_RADIUS} blocks of a recorded death were not steered at${known.kind ? `; heading for ${known.kind} instead` : '; random bearing'}`, snapshot: snapshot(bot) })
   if (known?.kind) {
     logEvent({
@@ -7599,6 +7617,7 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       let stepOk = false
       for (const cand of [ang, ang - 2 * turn, ang + Math.PI / 2, ang - Math.PI / 2]) {
         const v = stepLineSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position, cand)
+        if (!v.safe) noteLavaFinding(bot, v)   // lavatarget-01: the lava this guard found is remembered for the next heading
         if (!v.safe) { logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')}: the fallback walk is refused`, snapshot: snapshot(bot) }); continue }
         // ...AND NEVER BLIND INTO A RECORDED DEATH. The pathfinder prices death sites (deathsites.mjs); this walk has
         // no pathfinder, so it asks the same list. 5 of 5 post-promotion lava deaths on 16 Sep followed a corridor

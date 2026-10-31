@@ -88,6 +88,9 @@ const REQUIRED = [
   // logsurface-01: the real-case columns cut from the region copies of failed log gathers (10-28), and their suite
   'bots/test/fixtures/logsurface-columns.json',
   'bots/test/logsurface.test.mjs',
+  // lavatarget-01 (10-31): explore never heads for a sighting beside lava the bot has seen
+  'bots/src/lavatarget.mjs',
+  'bots/test/lavatarget.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
