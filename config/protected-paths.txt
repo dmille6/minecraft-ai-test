@@ -134,6 +134,9 @@ bots/src/keepout.mjs
 bots/src/digbudget.mjs
 bots/src/minewell.mjs
 bots/src/protectzone.mjs
+bots/src/escapeguard.mjs
+bots/src/skills.mjs::escapeRecordSnapshot
+bots/src/skills.mjs::escapeRecordAt
 bots/src/skills.mjs::mine
 bots/src/skills.mjs::mineGuarded
 bots/src/skills.mjs::tunnelToOre
