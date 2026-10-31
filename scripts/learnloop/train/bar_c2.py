@@ -72,10 +72,13 @@ def main():
         p = runfile(a.dir, m)
         return E.table(E.score_one(items, E.load(p))), last_by_id(p)
     ct, cr = score(a.cand)
-    rep = {'candidate': a.cand, 'candidate_scores': ct, 'bar': {}}
+    lg = E.table(E.score_one(items))
+    ic = (lg['hard_on_fail_items'] or 0) > (lg['hard_on_good_items'] or 0)     # eval_offline's instrument check (Codex r3)
+    rep = {'candidate': a.cand, 'candidate_scores': ct, 'instrument_check_ok': ic, 'bar': {}}
     for b in a.vs:
         bt, br = score(b)
-        g = {'complete coverage': ct['missing'] == 0 and bt['missing'] == 0 and ct['n'] == bt['n'] == len(items),
+        g = {'instrument check passed': ic,
+             'complete coverage': ct['missing'] == 0 and bt['missing'] == 0 and ct['n'] == bt['n'] == len(items),
              'rep_fail < base': ct['rep_fail'] < bt['rep_fail'],
              'post_veto < base': ct['post_veto_repeat'] < bt['post_veto_repeat'],
              'hard <= base': ct['hard'] <= bt['hard'],

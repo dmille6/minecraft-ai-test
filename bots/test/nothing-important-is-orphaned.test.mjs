@@ -90,6 +90,14 @@ const REQUIRED = [
   'scripts/learnloop/nightly.py',
   'scripts/learnloop/nas-relay.sh',
   'scripts/learnloop/test_learnloop.py',
+  'scripts/learnloop/build_clean.py',
+  'scripts/learnloop/test_build_clean.py',
+  'scripts/learnloop/teacher/teacher_pilot.py',
+  'scripts/learnloop/teacher/pilot_agreement.py',
+  'scripts/learnloop/train/train_sft.py',
+  'scripts/learnloop/train/run_c2.sh',
+  'scripts/learnloop/train/bar_c2.py',
+  'scripts/learnloop/c2host/eval_c2.sh',
   // M2b: removes 10.0.0.16 from every bot endpoint list before training
   'scripts/host/drop16.sh',
   // the movement-writer ratchet, wired into package.json and the deploy

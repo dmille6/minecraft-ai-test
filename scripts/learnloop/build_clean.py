@@ -129,16 +129,33 @@ def cap_skill_share(rows, cap, rng):
     over = sorted(k for k, v in by.items() if len(v) > cap * tot)
     if not over:
         return rows, {}
-    if cap * len(over) >= 1:
-        raise SystemExit('REFUSED: %d skills over a %.2f cap cannot all be capped' % (len(over), cap))
-    rest = sum(len(v) for k, v in by.items() if k not in over)
-    t_new = rest / (1 - cap * len(over))
+    # water-filling (Codex r3 note): capping the largest can lift a smaller skill over the cap; add it and re-solve
+    while True:
+        if cap * len(over) >= 1:
+            raise SystemExit('REFUSED: %d skills over a %.2f cap cannot all be capped' % (len(over), cap))
+        rest = sum(len(v) for k, v in by.items() if k not in over)
+        t_new = rest / (1 - cap * len(over))
+        more = sorted(k for k, v in by.items() if k not in over and len(v) > cap * t_new)
+        if not more:
+            break
+        over = sorted(over + more)
     dropped = {}
     for k in over:
         keep = int(cap * t_new)
         dropped[k] = len(by[k]) - keep
         by[k] = rng.sample(sorted(by[k], key=lambda r: r['id']), keep)
     return [r for v in by.values() for r in v], dropped
+
+
+def split_problem(r, split, eval_ids):
+    """None if item r belongs to the pool's TRAIN split, else why not."""
+    if r['id'] in eval_ids:
+        return 'an evaluation id'
+    if r.get('world') in set(split['heldout_worlds_excluded']):
+        return 'held-out world %s' % r.get('world')
+    if r.get('day') not in set(split['days']):
+        return 'day %s is not a training day' % r.get('day')
+    return None
 
 
 def fast_id(line):
@@ -256,6 +273,10 @@ def cmd_assemble(a):
             r = json.loads(l); items[r['id']] = r
     # the pilot's NON-transient items may be trained on with LOCAL labels (TRAIN cell; only PAID labels are
     # quarantined). Transient ones (cooldown, busy, ...) are left out: there a retry can be right and the gate decides.
+    # SPLIT CHECK (Codex r3 blocker): every admitted item must be in the pool's own split -- a training world, a
+    # training day, and not an evaluation id -- whatever file was passed.
+    split = json.load(open(os.path.join(out, 'POOL-MANIFEST.json'))) if a.pilot else None
+    eval_ids = {json.loads(l)['id'] for l in open(os.path.join(os.path.expanduser(a.v0), 'm3-eval.jsonl')) if l.strip()} if a.pilot else set()
     for pp in a.pilot or []:
         for l in open(os.path.expanduser(pp)):
             if not l.strip():
@@ -263,6 +284,9 @@ def cmd_assemble(a):
             r = json.loads(l)
             if r['id'] in items:
                 raise SystemExit('REFUSED: pilot id %s is also in the pool' % r['id'])
+            why = split_problem(r, split, eval_ids)
+            if why:
+                raise SystemExit('REFUSED: pilot item %s: %s' % (r['id'], why))
             if r['logged'].get('skill') and logged_nontransient_failure(r):
                 r['kind'] = 'fail'; items[r['id']] = r
                 C['pilot items admitted (non-transient)'] += 1
@@ -332,6 +356,7 @@ def main(argv=None):
     q.add_argument('--out', required=True); q.add_argument('--labels', nargs='+', required=True)
     q.add_argument('--name', default='train.jsonl'); q.add_argument('--seed', type=int, default=20261030)
     q.add_argument('--max-skill-share', type=float, default=0.30, help='anti-collapse cap on any one skill among relabels (0 = off)')
+    q.add_argument('--v0', default='~/learnloop/datasets/v0', help='for the evaluation ids (--pilot split check)')
     q.add_argument('--good-n', type=int, default=None, help='use a seeded random subset of good.jsonl')
     q.add_argument('--pilot', nargs='*', default=None, help='pilot-1000.jsonl: its non-transient items join the pool')
     q.add_argument('--local-model', nargs='+', required=True, help='the local teacher(s) whose replay records these are')

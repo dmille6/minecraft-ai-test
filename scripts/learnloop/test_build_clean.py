@@ -120,6 +120,25 @@ def t_skill_cap_limits_one_action_and_keeps_the_rest():
     assert c['surface'] / sum(c.values()) <= 0.30
     same, d2 = BC.cap_skill_share(out, 0.30, random.Random(1))      # already under the cap: unchanged
     assert d2 == {} and len(same) == len(out)
+    # a smaller skill lifted over the cap by the first cut is capped too (Codex r3): 60/25/10/5 -> nobody above 30%
+    rows2, i = [], 0
+    for sk, n in [('surface', 60), ('gather', 25), ('mine', 10), ('goto', 5), ('home', 5), ('explore', 5)]:
+        for _ in range(n):
+            rows2.append(mk(i, sk)); i += 1
+    out2, dr2 = BC.cap_skill_share(rows2, 0.30, random.Random(1))
+    c2 = {}
+    for r in out2:
+        k = json.loads(r['assistant'])['skill']; c2[k] = c2.get(k, 0) + 1
+    assert max(c2.values()) / sum(c2.values()) <= 0.30 + 1e-9 and set(dr2) == {'surface', 'gather'}, (c2, dr2)
+
+
+def t_pilot_split_check_refuses_heldout_and_eval_items():
+    split = {'heldout_worlds_excluded': ['board-a'], 'days': ['2026-10-08', '2026-10-09']}
+    ok = {'id': 'a', 'world': 'board-b', 'day': '2026-10-08'}
+    assert BC.split_problem(ok, split, set()) is None
+    assert BC.split_problem(dict(ok, world='board-a'), split, set()).startswith('held-out world')
+    assert BC.split_problem(dict(ok, day='2026-10-20'), split, set()).startswith('day 2026-10-20')
+    assert BC.split_problem(ok, split, {'a'}) == 'an evaluation id'
 
 
 def t_label_filter_runs_the_hard_check():
