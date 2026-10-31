@@ -499,7 +499,8 @@ def t_process_day_end_to_end_with_the_relay_contract():
     assert hb['newest_archived_day'] == DAY and 'raw_members' not in (hb['newest'] or {}), hb
     # the sysprompt control FAILED (no repo here): it must show, and stay unresolved until acknowledged
     assert hb['unresolved'][0]['day'] == DAY and 'controls failed' in hb['unresolved'][0]['why'], hb['unresolved']
-    assert hb['status'] == 'behind' and hb['pending'] == ['2026-10-21'], (hb['status'], hb['pending'])
+    # the pending list grows with the wall clock (every due day since): only its head is fixed by this fixture
+    assert hb['status'] == 'behind' and hb['pending'][:1] == ['2026-10-21'], (hb['status'], hb['pending'])
 
 
 def t_a_failed_put_leaves_the_day_unarchived_and_a_rerun_completes_it():
