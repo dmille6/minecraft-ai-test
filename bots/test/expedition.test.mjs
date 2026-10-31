@@ -88,6 +88,12 @@ await t('buildOrder asks only when the projects have nothing for the bot, and or
     const r3 = SHOP.buildOrder({ ...base, complete: false, record: { plot: 'treefarm' }, state: { lastStop: 'deadline', lastAt: 0 } })
     assert.equal(r3.order?.args?.expedition, undefined, 'an open project with work gets the build')
     assert.equal(asked.length, n, 'not even asked')
+    // a visit that just COMPLETED one project stops `complete` while the next stands open: the open record keeps the builder
+    const r4 = SHOP.buildOrder({ ...base, complete: false, record: { plot: 'house1', structure_complete: false }, state: { lastStop: 'complete', lastAt: 0 } })
+    assert.notEqual(r4.order?.args?.expedition, true, 'the next open project keeps its builder (Codex r4)')
+    // the finished farm that is only due (trees no bot can fell): the visit found nothing to do -> free
+    const r5 = SHOP.buildOrder({ ...base, complete: false, record: { plot: 'treefarm', structure_complete: true }, state: { lastStop: 'complete', lastAt: 1e12 - 1000 } })
+    assert.equal(r5.order?.args?.expedition, true)
     assert.equal(SHOP.buildOrder({ ...base, atTown: false, complete: true }).order, null, 'only at town')
     SHOP.setExpeditionAsk(() => ({ ok: false, why: 'cooldown' }))
     assert.deepEqual(SHOP.buildOrder({ ...base, complete: true, record: { plot: 'treefarm' } }), { order: null, skip: 'complete' })
@@ -97,7 +103,7 @@ await t('buildOrder asks only when the projects have nothing for the bot, and or
 })
 
 await t('MUTANT KILLED: buildOrder asking with an open project would send builders away', async () => {
-  await withMutant(SHOP_PATH, "if ((complete || IDLE_STOPS.has(state.lastStop)) && expeditionAskOf) {", 'if (expeditionAskOf) {', async M => {
+  await withMutant(SHOP_PATH, "if (buildIdle({ complete, record, lastStop: state.lastStop }) && expeditionAskOf) {", 'if (expeditionAskOf) {', async M => {
     M.setExpeditionAsk(() => ({ ok: true, phase: 'trip' }))
     const r = M.buildOrder({ on: true, shared: true, atTown: true, planned: true, now: 1e12, complete: false, record: { plot: 'treefarm' }, state: { lastStop: 'deadline', lastAt: 0 } })
     assert.equal(r.order?.args?.expedition, true, 'the mutant does send the builder out, so the test above has teeth')
