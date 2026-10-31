@@ -34,6 +34,8 @@ const REQUIRED = [
   // escapeguard-01 (10-31): a trapped bot's escape never digs a build record or a protected zone's structure
   'bots/src/escapeguard.mjs',
   'bots/test/escapeguard.test.mjs',
+  'bots/test/promptcache.test.mjs',
+  'scripts/learnloop/prompt_transform.mjs',
   // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)
   'bots/src/shaftgeom.mjs',
   'bots/src/shaftvisit.mjs',
