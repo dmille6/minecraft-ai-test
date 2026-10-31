@@ -107,6 +107,10 @@ EXP_LOOP_UNITS = 2               # crash loops on this many units in the last ho
 EXP_STALL_FRAC = 0.25            # a FLEET stall: >= max(2, 25 % of active) bots with no valid decision for 10 min ...
 EXP_STALL_POLLS = 2              # ... on two polls in a row
 EXP_EP_FAILS = 2                 # endpoint /api/version failing on two polls in a row
+EXP_FAIL_SHARE = 0.5             # DEGRADED serving: >= 50 % of the rolled bots' model decisions in the last 10 min failed
+EXP_FAIL_MIN = 20                #   (not served by the model, or schema-invalid), on >= 20 decisions, two polls in a row.
+                                 #   The 10-31 80-bot run: 512 of 610 failed at 18:30Z while the stall rule saw 0 of 80
+                                 #   (one valid decision in 10 min un-stalls a bot); this rule would have stopped it there.
 DEATH_WINDOW_H = 6               # the death gate reads the trailing 6 h (a full file walk of 3 h takes ~28 s on .31)
 DEATH_X, DEATH_Q = 1.25, 0.99    # deaths >= 2 AND > 1.25 x the 7-day rate x bot-h AND past its Poisson 99 % bound
 TIMEOUT_MS = 45000               # LLM_TIMEOUT_MS in all 80 env files (10-31)
@@ -377,7 +381,12 @@ def exp_reasons(f, w):
         if w['stall_hits'] >= EXP_STALL_POLLS:
             why.append('fleet stall: %d of %d active bots with no valid %s decision for 10 min, %d polls in a row' % (
                 n, act, f.get('model'), w['stall_hits']))
-    for k in ('stall', 'crash_loops', 'tripper', 'death'):
+    if f.get('fails') is not None:
+        nf, nt = f['fails']
+        w['fail_hits'] = w.get('fail_hits', 0) + 1 if (nt >= EXP_FAIL_MIN and nf >= EXP_FAIL_SHARE * nt) else 0
+        if w['fail_hits'] >= EXP_STALL_POLLS:
+            why.append('degraded serving: %d of %d model decisions failed in the last 10 min, %d polls in a row' % (nf, nt, w['fail_hits']))
+    for k in ('stall', 'fails', 'crash_loops', 'tripper', 'death'):
         if k not in f:
             continue                       # not evaluated this time: the count stands
         if k in (f.get('unread_keys') or []):
@@ -391,7 +400,7 @@ def exp_reasons(f, w):
         why.append('crash loops on %d units: %s' % (len(loops), ', '.join(sorted(loops)[:5])))
     if f.get('death') and f['death'][0]:
         why.append('death gate: ' + f['death'][1])
-    if (f.get('tripper') or {}).get('verdict') == 'TRIP':
+    if (f.get('tripper') or {}).get('verdict') == 'TRIP' and not f.get('ab'):    # A/B: the fleet tripper is recorded, not a stop
         why.append('tripper TRIP: ' + '; '.join(f['tripper'].get('trips') or [])[:200])
     return why
 
@@ -411,7 +420,7 @@ def hour_stats(rows_by_bot, model, minutes):
             'decisions_per_min': round(n / minutes, 2) if minutes else None,
             'lat_p50_ms': pct(lat, .5), 'lat_p95_ms': pct(lat, .95), 'lat_p99_ms': pct(lat, .99),
             'timeouts': sum(1 for x in L if is_timeout(x)), 'invalid_share': round(sum(1 for x in L if not x.get('schema_valid')) / n, 4) if n else None,
-            'model_share': round(sum(1 for r in rows if mr.served_by(r, model)) / n, 4) if n else None,
+            'model_share': round(sum(1 for r in rows if mr.served_by(r, model)) / n, 4) if n and model else None,
             'unserved': sum(1 for x in L if not x.get('endpoint'))}
 
 
@@ -482,6 +491,8 @@ class Host:
         return rc == 0, out.strip()
 
     def hold_release(self, token):
+        if not token:
+            return 'no install-hold (A/B)'
         return self.sh(['python3', os.path.join(HERE, 'holdtoken.py'), 'release', token], timeout=1200)[1].strip()
 
     def hold_owner(self):
@@ -572,21 +583,38 @@ class Host:
             raise RuntimeError('no active mcbot unit among %d pools (positive control)' % len(pools))
         return n_st, n_act
 
-    def crash_loops(self, t0, t1):
+    def crash_loops(self, t0, t1, bots=None):
         f = _w5().crash_facts('mcbot@*.service', t0, t1)
         loops = f.get('crash_loops') or {}
         if '<journal unreadable>' in loops or not f.get('unit_lines'):
             raise RuntimeError('systemd journal unreadable or no mcbot unit lines in the window (positive control)')
+        if bots is not None:
+            loops = {u: n for u, n in loops.items() if u[len('mcbot@'):-len('.service')] in bots}
         return loops
+
+    def fails(self, ctxdir, minutes=10):
+        """(failed, total) model decisions of the ctx's bots in the last `minutes` (work orders excluded)."""
+        mr = _modelread(ctxdir)
+        man, run, reg, pools, decl = mr.context()
+        model, t = mr.canary_model(reg), mr.now()
+        nf = nt = 0
+        for b in mr.roster(pools):
+            for r in mr.read_stream(b, 'llm', t - dt.timedelta(minutes=minutes), t):
+                if mr.is_order(r):
+                    continue
+                nt += 1
+                nf += not ((r.get('llm') or {}).get('schema_valid') and mr.served_by(r, model))
+        return nf, nt
 
     def tripper(self):
         return _w5().tripper_fleet()
 
-    def deaths(self, t0, t1):
-        """(_death rows, active bot-h) of the fleet's bots (showcase excluded), a full file walk."""
+    def deaths(self, t0, t1, bots=None):
+        """(_death rows, active bot-h) of the fleet's bots (showcase excluded) or of `bots`, a full file walk."""
         w = _w5()
         from lib.logwindow import load_window
-        rows = [r for r in load_window(t0, t1).rows if not str((r.get('bot') or {}).get('name') or '').startswith('showcase')]
+        rows = [r for r in load_window(t0, t1).rows if not str((r.get('bot') or {}).get('name') or '').startswith('showcase')
+                and (bots is None or (r.get('bot') or {}).get('name') in bots)]
         f = w.window_facts(rows, '', start=t0)
         return f['deaths'], f['bot_hours']
 
@@ -601,7 +629,8 @@ class Host:
         d = ev.count('_death', allow_zero=True)
         return (d / bh if bh else None), bh
 
-    def hourly(self, t0, t1, model):
+    def hourly(self, t0, t1, model, pools=None):
+        """The hourly record; with `pools` (A/B) one record for the treated pools and one for the rest."""
         sys.path.insert(0, HERE)
         import modelread as mr
         mr.LOG_ROOT = os.environ.get('MODELREAD_LOG_ROOT', '/var/log/mcai')
@@ -610,7 +639,11 @@ class Host:
             b = os.path.basename(e)[:-4]
             if pool_of(b):
                 rows[b] = mr.read_stream(b, 'llm', t0, t1)
-        return hour_stats(rows, model, (t1 - t0).total_seconds() / 60)
+        m = (t1 - t0).total_seconds() / 60
+        if not pools:
+            return hour_stats(rows, model, m)
+        return {'treat': hour_stats({b: v for b, v in rows.items() if pool_of(b) in pools}, model, m),
+                'control': hour_stats({b: v for b, v in rows.items() if pool_of(b) not in pools}, None, m)}
 
     def notify(self, subject, body):
         try:
@@ -682,8 +715,9 @@ class Stop(Exception):
 
 
 class Rollout:
-    def __init__(self, host, run, dry=False, out=print, experiment=False):
-        self.h, self.run, self.dry, self.say, self.exp = host, run, dry, out, experiment
+    def __init__(self, host, run, dry=False, out=print, experiment=False, ab_pools=None):
+        self.h, self.run, self.dry, self.say, self.exp = host, run, dry, out, experiment or bool(ab_pools)
+        self.ab = list(ab_pools or [])      # A/B (control session 10-31 21:45Z): ONE stage on these pools, no install-hold
         self.rid = run.rsplit('-', 1)[0] + '-roll' if re.search(r'-\d+$', run) else run + '-roll'   # qwen35-01 -> qwen35-roll
         self.statep = os.path.join(P['home'], 'state.json')
         self.reg = json.load(open(os.path.join(P['regdir'], '%s.json' % run)))
@@ -739,7 +773,7 @@ class Rollout:
     # -- plan
     def make_plan(self, journal):
         cp = canary_pools_of(journal, self.run)
-        stages = plan(self.all_pools(), [], EXP_POOLS_PER_STAGE) if self.exp else plan(self.all_pools(), cp)
+        stages = [self.ab] if self.ab else plan(self.all_pools(), [], EXP_POOLS_PER_STAGE) if self.exp else plan(self.all_pools(), cp)
         return cp, stages
 
     def describe_plan(self, journal):
@@ -763,12 +797,27 @@ class Rollout:
         if not ok:
             why.append(w)
         man = self.h.manifest()
-        if man.get('canary_pool') or man.get('canary_code_version'):
-            why.append('the manifest declares a canary (%s %s)' % (man.get('canary_pool'), man.get('canary_code_version')))
-        if self.h.canary_dropins():
-            why.append('canary drop-ins exist: %s' % self.h.canary_dropins()[:3])
-        if self.h.loop_running():
-            why.append('a loop/deploy runs: %s' % self.h.loop_running()[:2])
+        if self.ab:
+            # A/B: a canary MAY run elsewhere (it compares within its own arms); never on our pools, never mid-deploy
+            bad = [p for p in self.ab if p not in self.all_pools()]
+            if bad or len(set(self.ab)) != len(self.ab):
+                why.append('A/B pools not in the roster (or repeated): %s' % (bad or self.ab))
+            cp = [p for p in str(man.get('canary_pool') or '').split(',') if p]
+            if set(cp) & set(self.ab):
+                why.append('A/B pools overlap the live canary %s' % cp)
+            ours = [d for d in self.h.canary_dropins() if pool_of(d.split('mcbot@')[1].split('.service')[0]) in self.ab]
+            if ours:
+                why.append('canary drop-ins on A/B bots: %s' % ours[:3])
+            dep = [l for l in self.h.loop_running() if re.search(r'fleet-deploy|/root/d\.sh|deploy-fleet\.sh', l)]
+            if dep:
+                why.append('a deploy runs: %s' % dep[:2])
+        else:
+            if man.get('canary_pool') or man.get('canary_code_version'):
+                why.append('the manifest declares a canary (%s %s)' % (man.get('canary_pool'), man.get('canary_code_version')))
+            if self.h.canary_dropins():
+                why.append('canary drop-ins exist: %s' % self.h.canary_dropins()[:3])
+            if self.h.loop_running():
+                why.append('a loop/deploy runs: %s' % self.h.loop_running()[:2])
         if not resume and self.h.model_dropins():
             why.append('%s drop-ins already exist (%d): a rollout ran before; `status`, or --resume' % (DROPIN, len(self.h.model_dropins())))
         if not man.get('declared_code_version'):
@@ -905,10 +954,12 @@ class Rollout:
     # -- experiment mode
     def health(self, ctxdir, since, tripper=False, deaths=False):
         """The stop facts. Each probe is caught: an unreadable probe is recorded, never a pass for its own gate."""
-        f = {'url': self.url, 'model': self.model, 'endpoint_ok': self.h.endpoint_ok(self.url)}
+        f = {'url': self.url, 'model': self.model, 'endpoint_ok': self.h.endpoint_ok(self.url), 'ab': bool(self.ab)}
         now = self.h.now()
+        mine = set(self.bots(self.rolled_pools())) if self.ab else None      # A/B: the stops look at the treated bots only
         for k, fn in (('stall', lambda: self.h.stall(ctxdir)),
-                      ('crash_loops', lambda: self.h.crash_loops(now - dt.timedelta(minutes=60), now))):
+                      ('fails', lambda: self.h.fails(ctxdir)),
+                      ('crash_loops', lambda: self.h.crash_loops(now - dt.timedelta(minutes=60), now, mine))):
             try:
                 f[k] = fn()
             except Exception as x:
@@ -931,7 +982,7 @@ class Rollout:
                 except Exception:
                     pass
             try:
-                d, bh = self.h.deaths(max(ts(since), now - dt.timedelta(hours=DEATH_WINDOW_H)), now)
+                d, bh = self.h.deaths(max(ts(since), now - dt.timedelta(hours=DEATH_WINDOW_H)), now, mine)
                 f['death'] = death_trip(d, bh, b.get('rate'))
             except Exception as x:
                 f['death'] = (False, 'deaths unreadable: %s: %s' % (type(x).__name__, str(x)[:120]))
@@ -961,6 +1012,7 @@ class Rollout:
         """cron, every 5 min, for the 24 h after an experiment completed. Never wraps canary-sched.py."""
         if not self.load() or not self.st.get('experiment'):
             return 0
+        self.ab = list(self.st.get('ab') or [])
         status = self.st.get('status')
         live = self.bots(self.rolled_pools())
         if status not in ('complete', 'running') and not live:
@@ -1026,7 +1078,7 @@ class Rollout:
         key = iso(hr)
         if w.get('last_hour') != key and hr - dt.timedelta(hours=1) >= t0 - dt.timedelta(minutes=5):
             try:
-                rec = dict(self.h.hourly(hr - dt.timedelta(hours=1), hr, self.model), hour=iso(hr - dt.timedelta(hours=1)))
+                rec = dict(self.h.hourly(hr - dt.timedelta(hours=1), hr, self.model, self.ab or None), hour=iso(hr - dt.timedelta(hours=1)))
             except Exception as x:
                 rec = {'hour': iso(hr - dt.timedelta(hours=1)), 'error': '%s: %s' % (type(x).__name__, x)}
             with open(os.path.join(P['home'], 'hourly.jsonl'), 'a') as fh:
@@ -1116,6 +1168,8 @@ class Rollout:
     # -- run
     def go(self, resume=False):
         journal = read_jsonl(P['journal'])
+        if resume and self.load():                          # the mode (experiment, A/B pools) comes from the state
+            self.exp, self.ab = bool(self.st.get('experiment')), list(self.st.get('ab') or [])
         cp, stages, text = self.describe_plan(journal)
         self.say(text)
         if not cp:
@@ -1130,22 +1184,28 @@ class Rollout:
         if why:
             self.say('REFUSED:\n  ' + '\n  '.join(why)); return 2
         if self.dry:
+            if self.ab:
+                self.say('DRY RUN: preflight passed; A/B: one stage on %s (%d bots), NO install-hold, the watch lock, write %s.' % (
+                    ','.join(self.ab), len(self.bots(self.ab)), self.envfile)); return 0
             self.say('DRY RUN: preflight passed; would claim the install-hold (%d min), take %s, write %s and run the stages above.' % (
                 HOLD_MIN, P['lock'], self.envfile)); return 0
         if resume:
             token = self.st['token']
-            if self.h.hold_owner() != token:
+            if token and self.h.hold_owner() != token:
                 ok, out = self.h.hold_claim(token, HOLD_MIN)
                 if not ok:
                     self.say('REFUSED: install-hold: ' + out); return 2
         else:
-            token = '%s-%d-%d' % (self.rid, os.getpid(), time.time_ns())
-            ok, out = self.h.hold_claim(token, HOLD_MIN)
-            if not ok:
-                self.say('REFUSED: install-hold not claimed: ' + out); return 2
+            if self.ab:
+                token = None     # A/B: the slot is never held (canaries go on; they compare within their own arms)
+            else:
+                token = '%s-%d-%d' % (self.rid, os.getpid(), time.time_ns())
+                ok, out = self.h.hold_claim(token, HOLD_MIN)
+                if not ok:
+                    self.say('REFUSED: install-hold not claimed: ' + out); return 2
             self.st = {'run': self.run, 'token': token, 'fleet_sha': man['declared_code_version'], 'model': self.model,
                        'url': self.url, 'started': iso(self.h.now()), 'status': 'running', 'experiment': self.exp,
-                       'pid': os.getpid(),
+                       'pid': os.getpid(), 'ab': self.ab or None,
                        'stages': [{'pools': s, 'status': 'pending'} for s in stages]}
             if self.exp:
                 try:
@@ -1155,10 +1215,12 @@ class Rollout:
                     self.say('7-day death baseline unreadable: %s' % x)
                 self.st['death_baseline'] = {'rate': rate, 'bot_h': bh}
             self.save()
-        if not self.h.take_lock():
+        if not (self.h.own_lock() if self.ab else self.h.take_lock()):
             if not resume:
-                self.h.hold_release(token); self.st['status'] = 'refused'; self.save()
-            self.say('REFUSED: %s is held by another loop/installer' % P['lock']); return 2
+                if token:
+                    self.h.hold_release(token)
+                self.st['status'] = 'refused'; self.save()
+            self.say('REFUSED: %s is held' % ('the watch lock' if self.ab else P['lock'])); return 2
         self.h.write_root(self.envfile, '\n'.join(self.kvs) + '\n')
         self.journal('rollout-start', '%s %s: %s; hold %s; env file %s' % ('resume' if resume else 'start', self.run, text.splitlines()[0], token, self.envfile))
         self.page('info', 'ROLLOUT %s %s started: %d stages; ~%.1f h' % (self.run, self.model, len(stages), sum(est_minutes(stages)) / 60))
@@ -1234,6 +1296,7 @@ def main(argv=None, host=None):
         p.add_argument('--run', default='qwen35-01')
         if c in ('run', 'plan'):
             p.add_argument('--experiment', action='store_true', help='owner-directed: load gates are data; every stop rolls back ALL')
+            p.add_argument('--pools', help='A/B: ONE stage on these pools (comma list), no install-hold; implies --experiment')
         if c == 'run':
             p.add_argument('--dry-run', action='store_true'); p.add_argument('--resume', action='store_true')
         if c == 'rollback':
@@ -1244,7 +1307,8 @@ def main(argv=None, host=None):
     if a.cmd == '_read':
         return cmd_read(a.ctxdir, a.M)
     h = host or Host()
-    r = Rollout(h, a.run, dry=getattr(a, 'dry_run', False), experiment=getattr(a, 'experiment', False))
+    r = Rollout(h, a.run, dry=getattr(a, 'dry_run', False), experiment=getattr(a, 'experiment', False),
+                ab_pools=[x for x in (getattr(a, 'pools', None) or '').split(',') if x])
     if a.cmd == 'plan':
         print(r.describe_plan(read_jsonl(P['journal']))[2]); return 0
     if a.cmd == 'run':
@@ -1258,7 +1322,7 @@ def main(argv=None, host=None):
         return 0
     if not st:
         print('no rollout state at %s' % r.statep); return 2
-    if st.get('status') == 'complete' and st.get('experiment'):
+    if st.get('experiment') and (st.get('status') == 'complete' or st.get('ab')):
         # after a completed experiment the slot is free and canaries run: the canary lock is theirs; take the watch's own
         if not h.own_lock():
             print('REFUSED: the watch is running (its lock is held); retry in a few minutes'); return 2

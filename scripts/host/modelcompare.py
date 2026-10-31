@@ -110,13 +110,18 @@ def excluded_pools(spans, since, until):
     return pools, runs
 
 
-def segments(spans, since, until):
+def segments(spans, since, until, blackouts=()):
     """PURE. [since, until) cut at every canary boundary -> [(a, b, canary pools active in [a, b))]. A pool is excluded
-    only for the time it was a canary pool, not for the whole window."""
+    only for the time it was a canary pool, not for the whole window. A BLACKOUT (an earlier model experiment on the
+    whole fleet) excludes every pool: ex = {'*'}."""
     cuts = {since, until}
     for run, ps, dep, close, dec, prom in spans:
         for x in (dep, close):
             if x and since < x < until:
+                cuts.add(x)
+    for lo, hi in blackouts:
+        for x in (lo, hi):
+            if since < x < until:
                 cuts.add(x)
     cuts = sorted(cuts)
     out = []
@@ -125,15 +130,48 @@ def segments(spans, since, until):
         for run, ps, dep, close, dec, prom in spans:
             if dep < b and (close or until) > a:
                 ex |= ps
+        if any(lo < b and hi > a for lo, hi in blackouts):
+            ex = {'*'}
         out.append((a, b, ex))
     return out
 
 
+def prior_experiments(journal, before, rid='qwen35-roll'):
+    """PURE. The earlier model rollouts' [start, end] (rollout-start .. rollout-rolled-back / -ended / -stopped) that began
+    before `before`; an end that never came is `before`. Blackouts for the baseline windows."""
+    out, cur = [], None
+    for r in journal:
+        if r.get('run') != rid:
+            continue
+        t, ph = ts(r.get('ts')), r.get('phase')
+        if t is None or t >= before:
+            continue
+        if ph == 'rollout-start' and cur is None:
+            cur = t
+        elif ph in ('rollout-rolled-back', 'rollout-ended', 'rollout-stopped') and cur is not None:
+            out.append((cur, t + dt.timedelta(minutes=5))); cur = None    # +5 min: the last restarts settling
+    if cur is not None:
+        out.append((cur, before))
+    return out
+
+
+def did(te, tp, ce, cp):
+    """PURE. (absolute DiD, ratio DiD): (T_exp - T_pre) - (C_exp - C_pre), and (T_exp/T_pre)/(C_exp/C_pre) - 1."""
+    if not all(isinstance(x, (int, float)) for x in (te, tp, ce, cp)):
+        return None, None
+    ab = (te - tp) - (ce - cp)
+    try:
+        rt = (te / tp) / (ce / cp) - 1
+    except ZeroDivisionError:
+        rt = None
+    return ab, rt
+
+
 def excluded_at(segs, pool, t):
-    """PURE. Was `pool` a canary pool at time t?"""
+    """PURE. Was `pool` a canary pool (or every pool blacked out) at time t?"""
     for a, b, ex in segs:
         if a <= t < b:
-            return pool in ex
+            return '*' in ex or pool in ex
     return False
 
 
@@ -245,6 +283,8 @@ def es_metrics(since, until, pools_all, segs):
     st, st_missing = {}, Counter()
     errs, segs_done = [], 0
     for a, b, ex in segs:
+        if '*' in ex:      # a blackout: an earlier whole-fleet model experiment -- not this window's population
+            continue
         pools = [p for p in pools_all if p not in ex]
         if not pools:      # EsEvents turns pools=[] into NO filter: the whole fleet, canaries included (Codex r1)
             errs.append('segment %s..%s: no pools left after the canary exclusion: skipped' % (iso(a)[11:16], iso(b)[11:16]))
@@ -291,9 +331,10 @@ def es_metrics(since, until, pools_all, segs):
                 ss = {x['key']: x['doc_count'] for x in bb['s']['buckets']}
                 st_missing[k] += ss.get('<missing>', 0)
                 c = st.setdefault(k, [0, 0]); c[0] += ss.get('success', 0); c[1] += bb['doc_count'] - ss.get('<missing>', 0)
-    out = {'segments': len(segs), 'segments_read': segs_done}
-    if segs_done < len(segs):
-        errs.append('%d of %d segments unread: the ES numbers cover the rest only' % (len(segs) - segs_done, len(segs)))
+    want = sum(1 for _, _, ex in segs if '*' not in ex)
+    out = {'segments': want, 'segments_read': segs_done}
+    if segs_done < want:
+        errs.append('%d of %d segments unread: the ES numbers cover the rest only' % (want - segs_done, want))
     bh = acc['bh']
     out['bot_hours'] = round(bh, 1) if bh else None
     out['intake_units'] = acc['units']
@@ -360,8 +401,91 @@ def file_metrics(since, until, pools_all, segs, model):
     return decision_metrics(rows, model, hours)
 
 
+def render_ab(res):
+    """PURE. The A/B results -> markdown."""
+    L = ['# qwen3.5:9b A/B (%d treated bots vs %d control): +24 h comparison' % (res['n_treat'], res['n_control']), '',
+         'Generated %s. Treated pools %s on **%s** (%s) from %s; control = every other fleet pool on qwen2.5:7b-instruct '
+         '(the 5080). EXP %s .. %s (same window for both groups); PRE %s .. %s (each group\'s own prior 24 h). Canary time is '
+         'left out per pool; earlier whole-fleet experiments are blacked out of PRE: %s.' % (
+             res['generated'], ','.join(res['treat_pools']), res['model'], res['url'], res['completed'],
+             res['win']['EXP0'], res['win']['EXP1'], res['win']['PRE0'], res['win']['PRE1'],
+             '; '.join('%s..%s' % (a[5:16], b[5:16]) for a, b in res['blackouts']) or 'none'), '',
+         'DiD = (treated EXP - treated PRE) - (control EXP - control PRE); ratio DiD = (T_exp/T_pre)/(C_exp/C_pre) - 1. '
+         'Negative is worse for every rate except deaths, latency, timeouts, invalid, rep_fail, veto_repeat, refused and '
+         'time outside skills, where negative is better.', '']
+    for sect, keys in (('Fleet value (Elasticsearch skill stream)', res['es_keys']), ('Decision stream (llm-<bot>.jsonl)', res['dec_keys'])):
+        L += ['## ' + sect, '', '| metric | treated EXP | treated PRE | control EXP | control PRE | DiD | ratio DiD |',
+              '|---|---|---|---|---|---|---|']
+        for k in keys:
+            te, tp, ce, cp = (res[g][w].get(k) for g in ('T', 'C') for w in ('EXP', 'PRE'))
+            a, r = did(te, tp, ce, cp)
+            L.append('| %s | %s | %s | %s | %s | %s | %s |' % (k, fmt(te), fmt(tp), fmt(ce), fmt(cp), fmt(a),
+                                                               ('%+.1f%%' % (100 * r)) if r is not None else 'UNREADABLE'))
+        L.append('')
+    L += ['## Denominators', '']
+    for g in ('T', 'C'):
+        for w in ('EXP', 'PRE'):
+            d = res[g][w]
+            L.append('- %s %s: %s bot-h (ES), %s decisions over %s bot-h (files)%s' % (
+                {'T': 'treated', 'C': 'control'}[g], w, fmt(d.get('bot_hours')), fmt(d.get('decisions')), fmt(d.get('bot_h')),
+                ('; ERRORS: ' + '; '.join(d['errors'])) if d.get('errors') else ''))
+    L += ['', '## Confounds', '']
+    for w in ('EXP', 'PRE'):
+        c = res['confounds'][w]
+        L.append('- %s: %s' % (w, '; '.join(c) if c else 'no canary or promotion overlapped'))
+    L += ['- Treated pools %s are never drawn by canaries (drawrec hard-excludes isolated-* and placebo-c), so no canary ran '
+          'on them; their arm mix (isolated / placebo) differs from the control\'s, which the DiD (each group against its own '
+          'PRE) is there to absorb.' % ','.join(res['treat_pools']),
+          '- The treated model ran on a different server (the Blackwell) than the control (the 5080): latency and decision rate '
+          'measure the serving as well as the model.', '', '## Hourly record during EXP', '', '```']
+    L += [json.dumps(h) for h in res.get('hourly') or []] or ['(none)']
+    L += ['```', '']
+    return '\n'.join(L)
+
+
+def main_ab(st, journal, spans, pools_all):
+    started, completed = ts(st['started']), ts(st.get('completed') or st['started'])
+    T = [p for p in pools_all if p in st['ab']]
+    C = [p for p in pools_all if p not in st['ab']]
+    bl = prior_experiments(journal, started)
+    res = {'generated': iso(dt.datetime.now(UTC)), 'model': st.get('model'), 'url': st.get('url'), 'started': st['started'],
+           'completed': st.get('completed'), 'treat_pools': T, 'blackouts': [(iso(a), iso(b)) for a, b in bl], 'win': {},
+           'T': {}, 'C': {}, 'confounds': {}}
+    wins = [('EXP', completed, completed + dt.timedelta(hours=24)), ('PRE', started - dt.timedelta(hours=24), started)]
+    for name, a, b in wins:
+        res['win'][name + '0'], res['win'][name + '1'] = iso(a), iso(b)
+        segs = segments(spans, a, b, bl)
+        res['confounds'][name] = confounds(spans, a, b)
+        for g, pools, model in (('T', T, st.get('model') if name == 'EXP' else 'qwen2.5:7b-instruct'),
+                                ('C', C, 'qwen2.5:7b-instruct')):
+            d, errs = es_metrics(a, b, pools, segs)
+            try:
+                d.update(file_metrics(a, b, pools, segs, model))
+            except Exception as x:
+                errs.append('files: %s: %s' % (type(x).__name__, str(x)[:160]))
+            d['errors'] = errs
+            res[g][name] = d
+            print('%s %s %s..%s done (%d errors)' % (g, name, iso(a), iso(b), len(errs)), flush=True)
+    res['n_treat'] = sum(1 for e in glob.glob(os.path.join(ENV_DIR, '*.env')) if (lambda m: m and m.group(1) in T)(BOT_RE.fullmatch(os.path.basename(e)[:-4])))
+    res['n_control'] = sum(1 for e in glob.glob(os.path.join(ENV_DIR, '*.env')) if (lambda m: m and m.group(1) in C)(BOT_RE.fullmatch(os.path.basename(e)[:-4])))
+    return res
+
+
 def main():
     st = json.load(open(os.path.join(HOME, 'state.json')))
+    if st.get('ab'):
+        journal = read_jsonl(JOURNAL)
+        res = main_ab(st, journal, canary_spans(journal), all_pools())
+        res['es_keys'] = ['items_per_bot_h', 'value_per_bot_h', 'deaths_per_bot_h'] + ['%s_success' % k for k in SKILLS] + \
+                         ['_build_per_bot_h', 'time_outside_skills']
+        res['dec_keys'] = ['decisions_per_bot_h', 'lat_p50_ms', 'lat_p95_ms', 'lat_p99_ms', 'timeout_share', 'invalid_share',
+                           'model_share', 'rep_fail', 'veto_repeat', 'refused_share']
+        res['hourly'] = read_jsonl(os.path.join(HOME, 'hourly.jsonl'))
+        json.dump(res, open(os.path.join(HOME, 'compare-24h.json'), 'w'), indent=1, default=str)
+        md = render_ab(res)
+        open(os.path.join(HOME, 'compare-24h.md'), 'w').write(md)
+        print(md.split('## Denominators')[0][-2500:])
+        return 0
     started, completed = ts(st['started']), ts(st.get('completed') or st['started'])
     journal = read_jsonl(JOURNAL)
     spans = canary_spans(journal)

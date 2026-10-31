@@ -80,7 +80,8 @@ class FakeHost(R.Host):
         self.env[bot] = '\n'.join(['BOT_NAME=' + bot] + kv)
         return True
     def environ(self, bot): return self.env.get(bot, '\n'.join(['BOT_NAME=' + bot] + BASE))
-    def loop_running(self): return []
+    def loop_running(self): return getattr(self, 'loops_running', [])
+    def canary_dropins(self): return getattr(self, 'cdrop', [])
     def hold_claim(self, token, minutes): self.holds.append(('claim', token)); self.owner = token; return True, 'ok'
     def hold_release(self, token): self.holds.append(('release', token)); self.owner = ''; return 'released'
     def hold_owner(self): return getattr(self, 'owner', '')
@@ -104,11 +105,16 @@ class FakeHost(R.Host):
     # experiment-mode probes (scripted)
     def endpoint_ok(self, url): return not getattr(self, 'ep_down', False)
     def stall(self, ctxdir): return getattr(self, 'stall_n', (0, 80))
-    def crash_loops(self, t0, t1): return getattr(self, 'loops', {})
+    def crash_loops(self, t0, t1, bots=None):
+        l = getattr(self, 'loops', {})
+        return l if bots is None else {u: n for u, n in l.items() if u[6:-8] in bots}
+    def fails(self, ctxdir): return getattr(self, 'fail_n', (0, 100))
     def tripper(self): return {'verdict': getattr(self, 'trip', 'OK'), 'trips': ['x']}
-    def deaths(self, t0, t1): return getattr(self, 'death_n', (0, 10.0))
+    def deaths(self, t0, t1, bots=None):
+        self.death_bots = bots
+        return getattr(self, 'death_n', (0, 10.0))
     def baseline_7d(self, t0): return (0.02, 13000.0)
-    def hourly(self, t0, t1, model): self.hourlies = getattr(self, 'hourlies', 0) + 1; return {'decisions_per_min': 50.0}
+    def hourly(self, t0, t1, model, pools=None): self.hourly_pools = pools; self.hourlies = getattr(self, 'hourlies', 0) + 1; return {'decisions_per_min': 50.0}
     def notify(self, subject, body): self.notes = getattr(self, 'notes', []) + [subject]
     def compare(self, timeout_s=0):
         self.compared = True
@@ -472,7 +478,7 @@ def experiment():
     # crash loops on 2 units at stage 2: everything back (stage 1 too)
     root = tree(); h = FakeHost(root)
     orig = h.crash_loops
-    h.crash_loops = lambda t0, t1, _h=h: {'a': 3, 'b': 3} if _h.stage() == 2 else {}
+    h.crash_loops = lambda t0, t1, bots=None, _h=h: {'a': 3, 'b': 3} if _h.stage() == 2 else {}
     rc, out = quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
     t('exp stop: crash loops at stage 2 roll back stage 1 as well', rc == 1 and dropins() == [], (rc, len(dropins())))
     shutil.rmtree(root)
@@ -507,7 +513,7 @@ def experiment():
     R.exp_reasons({'endpoint_ok': True}, w)                      # tripper not evaluated: its count stands
     R.exp_reasons({'endpoint_ok': True, 'tripper': {'verdict': 'OK'}}, w)
     t('r1: a readable evaluation resets the count; a tick that does not evaluate it leaves it', w['unread_tripper'] == 0)
-    root = tree(); h = FakeHost(root); h.crash_loops = lambda t0, t1: (_ for _ in ()).throw(RuntimeError('journal unreadable'))
+    root = tree(); h = FakeHost(root); h.crash_loops = lambda t0, t1, bots=None: (_ for _ in ()).throw(RuntimeError('journal unreadable'))
     rc, out = quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
     t('r1: an unreadable crash probe on every check -> the rollout stops by stage 2 and rolls back', rc == 1 and dropins() == [], (rc, len(dropins())))
     shutil.rmtree(root)
@@ -566,11 +572,86 @@ def experiment():
     shutil.rmtree(root)
 
 
+AB = ['isolated-a', 'isolated-c', 'placebo-c']
+
+
+def ab():
+    def canary_on(pools):
+        m = json.load(open(R.P['manifest'])); m['canary_pool'] = pools; m['canary_code_version'] = 'b' * 40
+        json.dump(m, open(R.P['manifest'], 'w'))
+    # a canary runs on other pools: the A/B goes ahead, one stage, 15 bots, no install-hold
+    root = tree(); h = FakeHost(root); canary_on('placebo-b,board-c,hive-b')
+    h.loops_running = ['bash /home/mike/canary-loop.sh escapeguard-01']
+    h.cdrop = ['/x/mcbot@board-c-Alpha.service.d/10-canary.conf']
+    rc, out = quiet(R.Rollout(h, 'qwen35-01', ab_pools=AB).go)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    t('A/B: beside a live canary on other pools: one stage of 3 pools, 15 bots, complete, NO install-hold claimed',
+      rc == 0 and len(st['stages']) == 1 and len(dropins()) == 15 and all(R.pool_of(b) in AB for b in dropins())
+      and not any(x[0] == 'claim' for x in h.holds) and st['token'] is None and st['status'] == 'complete' and st['ab'] == AB, (rc, out[-400:], h.holds))
+    t('A/B: no load test; restarts 12 s apart', h.load_calls == [] and (h.restarts[1][1] - h.restarts[0][1]).total_seconds() == 12)
+    t('A/B: the death probe and crash probe look at the 15 treated bots only', h.death_bots is not None and len(h.death_bots) == 15
+      and all(R.pool_of(b) in AB for b in h.death_bots))
+    # watch: hourly split by group; tripper TRIP is not a stop; crash loops elsewhere are not a stop
+    h.t = R.ts(st['completed']).replace(minute=0) + dt.timedelta(hours=2, minutes=2)
+    h.trip = 'TRIP'; h.loops = {'mcbot@board-a-Alpha.service': 3, 'mcbot@board-a-Bravo.service': 4}
+    quiet(R.Rollout(h, 'qwen35-01').watch)
+    t('A/B watch: a fleet tripper TRIP and crash loops on CONTROL units are recorded, not stops; hourly split by pools',
+      len(dropins()) == 15 and h.hourly_pools == AB, (len(dropins()), getattr(h, 'hourly_pools', None)))
+    h.loops = {'mcbot@isolated-a-Alpha.service': 3, 'mcbot@placebo-c-Echo.service': 3}
+    h.t += dt.timedelta(minutes=5)
+    quiet(R.Rollout(h, 'qwen35-01').watch)
+    t('A/B watch: crash loops on 2 TREATED units stop and roll back', dropins() == [] and
+      json.load(open(os.path.join(R.P['home'], 'state.json')))['status'] == 'rolled-back')
+    shutil.rmtree(root)
+    # refusals
+    root = tree(); h = FakeHost(root); canary_on('isolated-a,board-c')
+    rc, out = quiet(R.Rollout(h, 'qwen35-01', ab_pools=AB).go)
+    t('A/B: refused when the live canary holds one of its pools', rc == 2 and 'overlap' in out and dropins() == [])
+    shutil.rmtree(root)
+    root = tree(); h = FakeHost(root); h.loops_running = ['bash /root/d.sh abc run notes']
+    rc, out = quiet(R.Rollout(h, 'qwen35-01', ab_pools=AB).go)
+    t('A/B: refused while a deploy runs', rc == 2 and 'deploy runs' in out)
+    shutil.rmtree(root)
+    root = tree(); h = FakeHost(root)
+    rc, out = quiet(R.Rollout(h, 'qwen35-01', ab_pools=['isolated-a', 'nope-z']).go)
+    t('A/B: refused for a pool not in the roster', rc == 2 and 'not in the roster' in out)
+    shutil.rmtree(root)
+    # degraded serving (the 10-31 lesson): >= 50 % failed decisions on two polls -> stop
+    w = {}
+    r1 = R.exp_reasons({'endpoint_ok': True, 'fails': (512, 610)}, w); r2 = R.exp_reasons({'endpoint_ok': True, 'fails': (337, 375)}, w)
+    t('degraded: 512/610 then 337/375 failed (10-31 18:30/18:40Z) -> a stop on the second poll', r1 == [] and len(r2) == 1, (r1, r2))
+    t('degraded: under 20 decisions or under 50 % is not a stop', R.exp_reasons({'endpoint_ok': True, 'fails': (10, 15)}, {}) == []
+      and R.exp_reasons({'endpoint_ok': True, 'fails': (40, 100)}, {'fail_hits': 1}) == [])
+    t('experiment (not A/B): a tripper TRIP is still a stop', len(R.exp_reasons({'endpoint_ok': True, 'tripper': {'verdict': 'TRIP'}}, {})) == 1)
+    root = tree(); h = FakeHost(root, ); h.fail_n = (80, 100)
+    rc, out = quiet(R.Rollout(h, 'qwen35-01', ab_pools=AB).go)
+    t('A/B: degraded serving at both stage checks -> rolled back, nothing left', rc == 1 and dropins() == [], (rc, len(dropins())))
+    shutil.rmtree(root)
+    # the REAL Host.crash_loops filter (unit names -> bots), against a stubbed rollout.py
+    import types
+    orig = R._w5
+    R._w5 = lambda: types.SimpleNamespace(crash_facts=lambda pat, t0, t1: {'crash_loops': {'mcbot@isolated-a-Alpha.service': 3,
+                                                                                         'mcbot@board-a-Alpha.service': 5}, 'unit_lines': 9})
+    got = R.Host().crash_loops(None, None, {'isolated-a-Alpha'}); allu = R.Host().crash_loops(None, None)
+    R._w5 = orig
+    t('Host.crash_loops: filtered to the given bots; unfiltered without', list(got) == ['mcbot@isolated-a-Alpha.service'] and len(allu) == 2, got)
+
+    # +24 h: mandatory rollback in A/B too
+    root = tree(); h = FakeHost(root)
+    quiet(R.Rollout(h, 'qwen35-01', ab_pools=AB).go)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    h.t = R.ts(st['completed']) + dt.timedelta(hours=24, minutes=1)
+    quiet(R.Rollout(h, 'qwen35-01').watch)
+    t('A/B +24 h: rolled back and compared', dropins() == [] and getattr(h, 'compared', False))
+    shutil.rmtree(root)
+
+
 def main():
     pure()
     R.Host.take_lock = lambda self: True
     driver()
     experiment()
+    ab()
     print('\n%d/%d pass' % (sum(T), len(T)))
     return 0 if all(T) else 1
 

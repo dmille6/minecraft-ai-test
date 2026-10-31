@@ -121,6 +121,29 @@ def main():
     out, errs = C.es_metrics(d(0), d(1), ['board-a'], seg)
     t('r2: gather rows without skill.status -> gather success UNREADABLE (not 0 %)',
       out['gather_success'] is None and any('status missing' in e for e in errs), (out.get('gather_success'), errs))
+    # A/B
+    J3 = [{'run': 'qwen35-roll', 'phase': 'rollout-start', 'ts': '2026-10-31T17:11:24Z'},
+          {'run': 'qwen35-roll', 'phase': 'rollout-rolled-back', 'ts': '2026-10-31T18:58:24Z'},
+          {'run': 'qwen35-roll', 'phase': 'rollout-start', 'ts': '2026-10-31T22:30:00Z'}]
+    bl = C.prior_experiments(J3, d(22))
+    t('blackouts: the earlier run start..rollback (+5 min); the current run (after `before`) is not one',
+      bl == [(d(17) + dt.timedelta(minutes=11, seconds=24), d(19) + dt.timedelta(minutes=3, seconds=24))], bl)
+    sg = C.segments([], d(16), d(22), bl)
+    t('segments: a blackout excludes every pool, before and after it nothing',
+      [sorted(e) for _, _, e in sg] == [[], ['*'], []] and C.excluded_at(sg, 'board-a', d(18)) and not C.excluded_at(sg, 'board-a', d(20)))
+    t('did: absolute and ratio', C.did(12.0, 10.0, 11.0, 10.0) == (1.0, (1.2 / 1.1) - 1) and C.did(None, 1, 1, 1) == (None, None))
+    FakeEv.DOCS = [{'skill': {'name': 'gather', 'status': 'success', 'duration_ms': 1000, 'inventory_delta': {'oak_log': 1}}}]
+    out, errs = C.es_metrics(d(16), d(22), ['board-a'], sg)
+    t('es: a blackout segment is skipped silently (not an unread segment)', out['segments'] == 2 and out['segments_read'] == 2
+      and not any('unread' in e for e in errs), (out.get('segments'), out.get('segments_read'), errs))
+    res = {'n_treat': 15, 'n_control': 65, 'generated': 'g', 'treat_pools': ['isolated-a'], 'model': 'q', 'url': 'u', 'completed': 'c',
+           'win': {'EXP0': 'a', 'EXP1': 'b', 'PRE0': 'c', 'PRE1': 'd'}, 'blackouts': [],
+           'T': {'EXP': {'items_per_bot_h': 12.0}, 'PRE': {'items_per_bot_h': 10.0}},
+           'C': {'EXP': {'items_per_bot_h': 11.0}, 'PRE': {'items_per_bot_h': 10.0}},
+           'confounds': {'EXP': [], 'PRE': []}, 'es_keys': ['items_per_bot_h', 'value_per_bot_h'], 'dec_keys': [], 'hourly': []}
+    md = C.render_ab(res)
+    t('render_ab: the DiD row, UNREADABLE for a missing metric', '| items_per_bot_h | 12 | 10 | 11 | 10 | 1 | +9.1% |' in md
+      and '| value_per_bot_h | UNREADABLE | UNREADABLE | UNREADABLE | UNREADABLE | UNREADABLE | UNREADABLE |' in md, md[-900:])
     print('\n%d/%d pass' % (sum(T), len(T)))
     return 0 if all(T) else 1
 
