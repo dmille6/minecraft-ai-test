@@ -16,7 +16,8 @@ import { gunzipSync } from 'node:zlib'
 import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS } from '../src/airpocket.mjs'
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
          airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS,
-         standGate, standInPocket, digGate, standRef, standCandidates, airPocketRow, AP_ROW_MAX } from '../src/airpocket.mjs'
+         standGate, standInPocket, digGate, standRef, standCandidates, airPocketRow, AP_ROW_MAX,
+         sealGate, sealRoof, AP_SEAL_MS } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -72,18 +73,53 @@ await t('A4 air above the head: refused (the rescue swims; nothing to dig)', () 
   const p = airPocketPlan(world({ ...HIVE_C, '0,2,0': 'air' }))
   assert.equal(p.ok, false); assert.match(p.why, /air above/)
 })
-await t('A5 water BESIDE the roof cell: refused (the pocket would flood) -- and the dry roof is the positive control', () => {
-  for (const side of ['1,2,0', '-1,2,0', '0,2,1', '0,2,-1']) {
+await t('A5 (apseal-01) water BESIDE the roof cell: planned WITH that cell to seal (face = the roof face toward it); the dry roof seals nothing', () => {
+  for (const [side, face] of [['1,2,0', [1, 0, 0]], ['-1,2,0', [-1, 0, 0]], ['0,2,1', [0, 0, 1]], ['0,2,-1', [0, 0, -1]]]) {
     const p = airPocketPlan(world({ ...HIVE_C, [side]: 'water' }))
-    assert.equal(p.ok, false, side); assert.match(p.why, /beside the roof cell/)
+    assert.deepEqual([p.ok, p.kind, p.dy], [true, 'pocket', 2], side)
+    const [dx, dy, dz] = side.split(',').map(Number)
+    assert.deepEqual(p.seal, [{ dx, dy, dz, face }], side)
   }
-  assert.equal(airPocketPlan(world(HIVE_C)).ok, true)
+  assert.deepEqual(airPocketPlan(world(HIVE_C)).seal, [])
 })
-await t('A6 water / lava / sand ABOVE the roof cell: refused', () => {
-  for (const [above, rx] of [['water', /above the roof cell would fill/], ['lava', /above the roof cell would fill/], ['sand', /would fall in/]]) {
+await t('A5b LAVA or KELP beside the roof cell still refuses (nothing a place can fill safely); bubble columns and seagrass are sealed', () => {
+  for (const [name, ok] of [['lava', false], ['kelp', false], ['kelp_plant', false], ['bubble_column', true], ['seagrass', true], ['tall_seagrass', true]]) {
+    const p = airPocketPlan(world({ ...HIVE_C, '1,2,0': name }))
+    assert.equal(p.ok, ok, name)
+    if (!ok) assert.match(p.why, new RegExp(`${name} beside the roof cell would fill the pocket`))
+    else assert.equal(p.seal.length, 1, name)
+  }
+})
+await t('A6 water ABOVE the roof cell is sealed against the roof\'s top face; lava above refuses; sand above refuses', () => {
+  const w = airPocketPlan(world({ ...HIVE_C, '0,3,0': 'water' }))
+  assert.deepEqual([w.ok, w.seal], [true, [{ dx: 0, dy: 3, dz: 0, face: [0, 1, 0] }]])
+  for (const [above, rx] of [['lava', /above the roof cell would fill/], ['sand', /would fall in/]]) {
     const p = airPocketPlan(world({ ...HIVE_C, '0,3,0': above }))
     assert.equal(p.ok, false, above); assert.match(p.why, rx)
   }
+})
+// THE FLEET'S TOP DROWNING SITE (failmine cut drowned-1899-isolated-d-357_57_180, backup 10-31; 4 deaths in 7 d at
+// 357..360,57..59,180..181): feet + head water, COBBLESTONE roof at +2, water on THREE sides of the roof cell (W, N, S),
+// stone E, dirt above. Every bot there was refused "water beside the roof cell would fill the pocket" and drowned.
+const ISO_D = { '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'cobblestone', '0,3,0': 'dirt', '0,-1,0': 'dirt',
+                '-1,2,0': 'water', '0,2,-1': 'water', '0,2,1': 'water', '1,2,0': 'stone' }
+await t('A13 the isolated-d 357,57,180 site: planned as a pocket under the cobblestone with exactly its three wet sides sealed', () => {
+  const p = airPocketPlan(world(ISO_D))
+  assert.deepEqual([p.ok, p.kind, p.dy, p.name], [true, 'pocket', 2, 'cobblestone'])
+  assert.deepEqual(p.seal.map(c => `${c.dx},${c.dy},${c.dz}`).sort(), ['-1,2,0', '0,2,-1', '0,2,1'])
+})
+await t('A14 every side AND the top wet: five seals; a roof at +3 seals its OWN level (+3 sides, +4 top), not the water at +2', () => {
+  const all = { ...HIVE_C, '1,2,0': 'water', '-1,2,0': 'water', '0,2,1': 'water', '0,2,-1': 'water', '0,3,0': 'water' }
+  assert.equal(airPocketPlan(world(all)).seal.length, 5)
+  const hi = { ...HIVE_C, '0,2,0': 'water', '1,2,0': 'water', '0,3,0': 'stone', '1,3,0': 'water', '0,4,0': 'water' }
+  const p = airPocketPlan(world(hi))
+  assert.deepEqual([p.ok, p.dy], [true, 3])
+  assert.deepEqual(p.seal.map(c => `${c.dx},${c.dy},${c.dz}`), ['1,3,0', '0,4,0'])
+})
+await t('A15 an INTERACTIVE roof with a wet side refuses (a place against it would use it); dry it is planned as before', () => {
+  const p = airPocketPlan(world({ ...HIVE_C, '0,2,0': 'note_block', '1,2,0': 'water' }))
+  assert.equal(p.ok, false); assert.match(p.why, /cannot take a seal/)
+  assert.equal(airPocketPlan(world({ ...HIVE_C, '0,2,0': 'note_block' })).ok, true)
 })
 await t('A7 the roof cell itself lava / gravel / bedrock / chest / a torch: refused', () => {
   for (const [roof, rx] of [['lava', /lava above the head/], ['gravel', /would fall/], ['bedrock', /not dug/], ['chest', /not dug/]]) {
@@ -154,6 +190,13 @@ await t('B3 the 4 HP reserve: at 6 HP on peaceful the budget is 4 s, so even a 2
   assert.equal(airPocketAdmit({ health: 6, difficulty: 'peaceful', digMs: 2900 }).ok, false)
   assert.equal(airPocketAdmit({ health: 19, difficulty: 'peaceful', digMs: 2900 }).ok, true)
   assert.equal(airPocketBudgetMs({ health: 3, envelope: 0.5 }), 0)
+})
+await t('B5 (apseal-01) each seal costs AP_SEAL_MS of the same budget: 3 seals fit a 14.1-s dig at 19 HP, 4 do not', () => {
+  assert.equal(AP_SEAL_MS, 1500)
+  const three = airPocketAdmit({ health: 19, difficulty: 'peaceful', digMs: 14100, seals: 3 })
+  assert.equal(three.ok, true); assert.equal(Math.round(three.requiredMs), 24150 + 4500)
+  assert.equal(airPocketAdmit({ health: 19, difficulty: 'peaceful', digMs: 14100, seals: 4 }).ok, false)
+  assert.equal(airPocketAdmit({ health: 19, difficulty: 'peaceful', digMs: 14100 }).requiredMs, 24150, 'no seals = the old price')
 })
 await t('B4 an unknown dig time is refused', () => {
   assert.equal(airPocketAdmit({ health: 20, difficulty: 'peaceful', digMs: null }).ok, false)
@@ -251,8 +294,11 @@ function fakeBot ({ cells = HIVE_C, health = 19, digMs = 300, rise = true, riseT
     setTimeout(() => {
       if (!bot.digging) return
       bot.digging = null
-      // what the roof becomes: ice over water -> water, anything else -> air
-      for (const [k, v] of map) if (k === key) map.set(k, v === 'ice' ? 'water' : 'air')
+      // what the roof becomes: ice over water -> water; a cell with WATER on a side or above -> water (it floods, as the
+      // server's fluid tick does: apseal-01's control); anything else -> air
+      const [kx, ky, kz] = key.split(',').map(Number)
+      const wetNb = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]].some(([a, b, c]) => /^(water|bubble_column|seagrass|tall_seagrass)$/.test(map.get(`${kx + a},${ky + b},${kz + c}`) ?? ''))
+      for (const [k, v] of map) if (k === key) map.set(k, v === 'ice' || wetNb ? 'water' : 'air')
       if (rise) setTimeout(() => { bot.entity.position = new V(base.x + 0.5, base.y + riseTo, base.z + 0.5) }, 50)
       res()
     }, digMs)
@@ -267,8 +313,8 @@ function fakeBot ({ cells = HIVE_C, health = 19, digMs = 300, rise = true, riseT
   bot.placeBehaviour = 'solid'   // what the server does with a sent place: 'solid' | 'nothing'
   bot._placeBlockWithOptions = async (ref, face, opts = {}) => {
     if (opts.forceLook !== 'ignore') await bot.lookAt()
-    bot.sends.push({ y: ref.position.y + face.y, at: Date.now() })
-    if (bot.placeBehaviour === 'solid') bot._place(0, ref.position.y + face.y - base.y, 0, 'cobblestone')
+    bot.sends.push({ y: ref.position.y + face.y, at: Date.now(), cell: `${ref.position.x + face.x - base.x},${ref.position.y + face.y - base.y},${ref.position.z + face.z - base.z}` })
+    if (bot.placeBehaviour === 'solid') bot._place(ref.position.x + face.x - base.x, ref.position.y + face.y - base.y, ref.position.z + face.z - base.z, 'cobblestone')
   }
   bot._healthTimer = setInterval(() => { if (healthTick) bot.health = Math.min(20, bot.health + healthTick) }, 100)
   return bot
@@ -754,6 +800,92 @@ await t('J4 MUTANT KILLED: ignoring othersBusy lets the step start under an in-f
     assert.equal(m.airPocketTrigger({ rescuing: true, routeSealed: true, othersBusy: true, now: 1 }), true)
   }))
 
+// ---------------------------------------------------------------- S. the seals (apseal-01) on the fake server
+// The fake's dig FLOODS a dug cell with water on a side or above (the server's fluid tick), so these are behaviour
+// tests of the whole step: without the seals the same scene opens nothing.
+const COBBLE = () => ({ name: 'cobblestone' })
+await t('F21 isolated-d site: the three wet sides are sealed FIRST (each read back), then the roof is dug -> air, breathing, success', async () => {
+  const bot = fakeBot({ cells: ISO_D, riseTo: 0.6 })
+  const order = []; const dig0 = bot.dig; bot.dig = (b, f) => { order.push('dig'); return dig0(b, f) }
+  const place0 = bot._placeBlockWithOptions; bot._placeBlockWithOptions = (r, f, o) => { order.push('seal'); return place0(r, f, o) }
+  const r = await airPocketStep(bot, airPocketPlan(world(ISO_D)), deps({ sealItem: COBBLE })); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.outcome, 'success'); assert.equal(r.seal, '3/3')
+  assert.deepEqual(order, ['seal', 'seal', 'seal', 'dig'])
+  assert.deepEqual(bot.sends.map(x => x.cell).sort(), ['-1,2,0', '0,2,-1', '0,2,1'])
+  assert.equal(bot.blockAt(new V(100, 62, 100)).name, 'air', 'the dug cell stayed air')
+  assert.match(airPocketRow({ id: 'x', r, requiredMs: 1, budgetMs: 2, difficulty: 'peaceful' }), / seal=3\/3 /)
+})
+await t('F21b a wet TOP is sealed against the roof\'s top face, then dug -> success', async () => {
+  const cells = { ...HIVE_C, '0,3,0': 'water' }
+  const bot = fakeBot({ cells })
+  const r = await airPocketStep(bot, airPocketPlan(world(cells)), deps({ sealItem: COBBLE })); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.deepEqual(bot.sends.map(x => x.cell), ['0,3,0'])
+})
+await t('F22 CONTROL: the same scene dug WITHOUT the seals floods (the fake models the server) -- the old refusal was right that the dig alone fails', async () => {
+  const bot = fakeBot({ cells: ISO_D, riseTo: 0.6 })
+  const plan = { ...airPocketPlan(world(ISO_D)), seal: [] }
+  const r = await airPocketStep(bot, plan, deps()); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, false); assert.match(r.why, /roof cell is water after the dig/)
+})
+await t('F23 a seal that does not read back solid stops the step BEFORE any dig (failed, seal 0/3)', async () => {
+  const bot = fakeBot({ cells: ISO_D }); bot.placeBehaviour = 'nothing'
+  let dug = 0; const dig0 = bot.dig; bot.dig = (b, f) => { dug++; return dig0(b, f) }
+  const r = await airPocketStep(bot, airPocketPlan(world(ISO_D)), deps({ sealItem: COBBLE })); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, false); assert.equal(r.outcome, 'failed'); assert.equal(dug, 0); assert.match(r.why, /^seal 0\/3: .*did not turn solid/)
+})
+await t('F24 no seal block, a FALLING seal block, or a roof that changed: no place sent, no dig', async () => {
+  for (const [item, rx, mut] of [[() => null, /no non-falling block/, null], [() => ({ name: 'sand' }), /sand would fall/, null],
+                                 [COBBLE, /the roof cell changed to dirt/, b => b._place(0, 2, 0, 'dirt')]]) {
+    const bot = fakeBot({ cells: ISO_D }); if (mut) mut(bot)
+    let dug = 0; bot.dig = async () => { dug++ }
+    const plan = airPocketPlan(world(ISO_D))
+    const r = await sealRoof(bot, plan, { fx: 100, fy: 60, fz: 100, Vec3: V, sleep: ms => new Promise(res => setTimeout(res, ms / 10)), sealItem: item })
+    clearInterval(bot._healthTimer)
+    assert.equal(r.ok, false); assert.match(r.why, rx); assert.equal(bot.sends.length, 0); assert.equal(dug, 0)
+  }
+})
+await t('F25 sealGate (pure): aborted, the wrong block in hand, off the column each refuse; all clear passes. A seal already solid counts without a place', async () => {
+  const ok = { aborted: null, held: 'cobblestone', want: 'cobblestone', pos: new V(100.5, 60.2, 100.5), fx: 100, fy: 60, fz: 100 }
+  assert.equal(sealGate(ok), null)
+  assert.match(sealGate({ ...ok, aborted: 'health budget spent' }), /^aborted: health budget spent/)
+  assert.match(sealGate({ ...ok, held: 'dirt' }), /not in hand/)
+  assert.equal(sealGate({ ...ok, pos: new V(101.5, 60.2, 100.5) }), 'moved off the planned column')
+  const bot = fakeBot({ cells: ISO_D }); bot._place(-1, 2, 0, 'stone')   // one side dried by someone else
+  const r = await sealRoof(bot, airPocketPlan(world(ISO_D)), { fx: 100, fy: 60, fz: 100, Vec3: V, sleep: ms => new Promise(res => setTimeout(res, ms / 10)), sealItem: COBBLE })
+  clearInterval(bot._healthTimer)
+  assert.deepEqual([r.ok, r.tag, bot.sends.length], [true, '3/3', 2])
+})
+await t('F26 the seal phase is SENT with forceLook ignore (no place can land after the step returns) and stops on an abort before the next seal', async () => {
+  const bot = fakeBot({ cells: ISO_D }); bot.lookMs = 5000
+  let n = 0
+  const r = await sealRoof(bot, airPocketPlan(world(ISO_D)), { fx: 100, fy: 60, fz: 100, Vec3: V, sleep: ms => new Promise(res => setTimeout(res, ms / 10)),
+                                                             sealItem: COBBLE, isAborted: () => (bot.sends.length >= 1 ? 'a skill took the body' : null) })
+  clearInterval(bot._healthTimer)
+  assert.equal(r.ok, false); assert.match(r.why, /aborted: a skill took the body/); assert.equal(bot.sends.length, 1, 'a looked place would have waited 5 s')
+  void n
+})
+// THE REFUSAL CHAIN (CLAUDE.md: test the chain, not the guard). The drowning bot at the fleet's top site, end to end:
+// the rescue's trigger (sealed route) -> the plan -> the admission at the 20 HP the fleet's first refusals saw -> the
+// step -> the after-state. On the base the chain ended at the plan's refusal with nothing else to try.
+await t('C1 CHAIN at isolated-d 357,57,180: sealed trigger -> plan (3 seals) -> admitted at 20 HP for an iron-pickaxe floating dig -> step success -> fail memory cleared', async () => {
+  assert.equal(airPocketTrigger({ rescuing: true, routeDir: null, routeSealed: true, heldMs: 0 }), true)
+  const plan = airPocketPlan(world(ISO_D)); assert.equal(plan.ok, true, plan.why)
+  // mineflayer's price for cobblestone, iron pickaxe, in water and off the ground: 0.5 s x 5 x 5 = 12.5 s
+  const admit = airPocketAdmit({ health: 20, difficulty: 'peaceful', digMs: 12500, seals: plan.seal.length })
+  assert.equal(admit.ok, true, admit.why)
+  const bot = fakeBot({ cells: ISO_D, health: 20, riseTo: 0.6 })
+  const r = await airPocketStep(bot, plan, deps({ sealItem: COBBLE, envelope: admit.envelope })); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why)
+  const st = airPocketAfter(r.ok, { drownFails: 2, drownFailPos: { x: 1 }, drownFailHealth: 9, seizedAt: 0, lastProgressAt: 0, cooldownUntil: 0 }, 1000)
+  assert.equal(st.drownFails, 0)
+})
+await t('C2 CHAIN, the base (no seals): the same site refuses at the plan, so admission and the step never run -- the dead end this fixes', () =>
+  withMutant(AP_PATH, "      if (!sealable(s)) return refuse(`${s.name} beside the roof cell would fill the pocket`, { dy, name: b.name })\n",
+                      "      return refuse(`${s.name} beside the roof cell would fill the pocket`, { dy, name: b.name })\n", m => {
+    const p = m.airPocketPlan(world(ISO_D))
+    assert.equal(p.ok, false); assert.match(p.why, /water beside the roof cell would fill the pocket/)
+  }))
+
 // ---------------------------------------------------------------- G. wiring (structural; comments stripped)
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1')
 function wiring (src) {
@@ -774,6 +906,11 @@ function wiring (src) {
                /stepWouldRun: \(\) => prepareAirPocket\(\{ worstCase: true \}\)\.ok \}\)\) \{/.test(code) &&
                /const env = worstCase \? \{ \.\.\.digEnv\(bot\), inWater: true, notOnGround: true \} : digEnv\(bot\)/.test(code) &&
                /standItem: \(\{ unsupported = false \} = \{\}\) => unsupported\s*\? pickScaffold\(standCandidates\(bot\.inventory\?\.items\?\.\(\) \?\? \[\], \{ unsupported: true \}\), PLACEABLE\)\s*: scaffoldFor\(bot, 'air_pocket'\)/.test(code) &&
+               /sealItem: \(\) => sealItemFor\(bot\.inventory\?\.items\?\.\(\) \?\? \[\]\) \}\)/.test(code) &&
+               /digMs: fastest, seals: sealN \}\)/.test(code) && /const sealN = plan\.seal\?\.length \?\? 0/.test(code) &&
+               /if \(sealN && sealBlocksHeld\(bot\.inventory\?\.items\?\.\(\) \?\? \[\]\) < sealN\) return \{ ok: false/.test(code) &&
+               /const sealCandidates = items => standCandidates\(items, \{ unsupported: true \}\)\.filter\(it => PLACEABLE\.test\(it\.name\) && scaffoldRank\(it\.name\) != null\)/.test(code) &&
+               code.indexOf('const sealN = plan.seal') > 0 && code.indexOf('const sealN = plan.seal') < code.indexOf('const admit = airPocketAdmit(') &&
                /isEntombed\(bot\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /!runner\.isBusy\(\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /\} else if \(rescuing && route\.sealed === true && route\.dir !== 'up' && \(escaping \|\| marooned\) && !pocketing && !airPocketing &&\s*throttled\('air_pocket_held_off'/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
                /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
                /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) &&
@@ -805,7 +942,11 @@ for (const [name, old, neu] of [
   ['the skill guard', "guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null }", 'guard: () => null'],
   ['the pre-empt asking the plan first', 'stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })) {', 'stepWouldRun: () => true })) {'],
   ['the worst-case price for the pre-empt', 'const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)', 'const env = digEnv(bot)'],
-  ['the stand item', ": scaffoldFor(bot, 'air_pocket') })", ": null })"],
+  ['the stand item', ": scaffoldFor(bot, 'air_pocket'),", ": null,"],
+  ['the seal item', 'sealItem: () => sealItemFor(bot.inventory?.items?.() ?? []) })', 'sealItem: () => null })'],
+  ['the seals in the admission price', 'digMs: fastest, seals: sealN })', 'digMs: fastest })'],
+  ['the seal-block refusal', 'if (sealN && sealBlocksHeld(bot.inventory?.items?.() ?? []) < sealN) return {', 'if (false) return {'],
+  ['the non-falling seal pick', "const sealCandidates = items => standCandidates(items, { unsupported: true }).filter(it => PLACEABLE.test(it.name) && scaffoldRank(it.name) != null)", "const sealCandidates = items => items"],
   ['the non-falling stand item off a floor', '? pickScaffold(standCandidates(bot.inventory?.items?.() ?? [], { unsupported: true }), PLACEABLE)', "? scaffoldFor(bot, 'air_pocket')"],
   ['the request lapse', 'Date.now() - airPocketWants < AP_WANT_LAPSE_MS', 'Date.now() - airPocketWants < 30_000'],
   ['the held-off refusal row', "throttled('air_pocket_held_off', 30_000)) {", "false) {"],
@@ -826,9 +967,37 @@ for (const [name, old, neu] of [
 }
 
 // ---------------------------------------------------------------- H. anchored mutants of the decision lines
-await t('H1 MUTANT KILLED: dropping the side-liquid check plans a pocket that would flood (A5 catches it)', () =>
-  withMutant(AP_PATH, 'if (wet) return refuse(', 'if (false) return refuse(', m => {
-    assert.equal(m.airPocketPlan(world({ ...HIVE_C, '1,2,0': 'water' })).ok, true)
+await t('H1 MUTANT KILLED: dropping the unsealable-side check plans a pocket beside LAVA (A5b catches it)', () =>
+  withMutant(AP_PATH, 'if (!sealable(s)) return refuse(`${s.name} beside the roof cell', 'if (false) return refuse(`${s.name} beside the roof cell', m => {
+    assert.equal(m.airPocketPlan(world({ ...HIVE_C, '1,2,0': 'lava' })).ok, true)
+  }))
+await t('H1b MUTANT KILLED: a plan that forgets a wet side (no seal pushed) floods on the fake server -- the dig opens nothing (F21 catches it)', () =>
+  withMutant(AP_PATH, '      seal.push({ dx: SIDES[i][0], dy, dz: SIDES[i][1], face: [SIDES[i][0], 0, SIDES[i][1]] })\n', '', async m => {
+    const p = m.airPocketPlan(world(ISO_D)); assert.deepEqual([p.ok, p.seal.length], [true, 0])
+    const bot = fakeBot({ cells: ISO_D, riseTo: 0.6 })
+    const r = await m.airPocketStep(bot, p, deps({ sealItem: () => ({ name: 'cobblestone' }) })); clearInterval(bot._healthTimer)
+    assert.equal(r.ok, false); assert.match(r.why, /roof cell is water after the dig/)
+  }))
+await t('H1c MUTANT KILLED: a wet top not sealed floods the pocket from above (A6 + F21b catch it)', () =>
+  withMutant(AP_PATH, '      seal.push({ dx: 0, dy: dy + 1, dz: 0, face: [0, 1, 0] })\n', '', async m => {
+    const cells = { ...HIVE_C, '0,3,0': 'water' }
+    const p = m.airPocketPlan(world(cells)); assert.equal(p.seal.length, 0)
+    const bot = fakeBot({ cells })
+    const r = await m.airPocketStep(bot, p, deps({ sealItem: () => ({ name: 'cobblestone' }) })); clearInterval(bot._healthTimer)
+    assert.equal(r.ok, false); assert.match(r.why, /roof cell is water after the dig/)
+  }))
+await t('H1d MUTANT KILLED: a step that skips the seals digs into a flood (F21 catches it)', () =>
+  withMutant(AP_PATH, '    const sealN = Array.isArray(plan.seal) ? plan.seal.length : 0\n', '    const sealN = 0\n', async m => {
+    const bot = fakeBot({ cells: ISO_D, riseTo: 0.6 })
+    const r = await m.airPocketStep(bot, airPocketPlan(world(ISO_D)), deps({ sealItem: () => ({ name: 'cobblestone' }) })); clearInterval(bot._healthTimer)
+    assert.equal(r.ok, false); assert.match(r.why, /roof cell is water after the dig/)
+  }))
+await t('H1e MUTANT KILLED: a seal not read back lets the dig run into a flood (F23 catches it)', () =>
+  withMutant(AP_PATH, "      if (!isSolid(after) || isLiquid(after)) return done(false, `${at.x},${at.y},${at.z} did not turn solid", "      if (false) return done(false, `${at.x},${at.y},${at.z} did not turn solid", async m => {
+    const bot = fakeBot({ cells: ISO_D, riseTo: 0.6 }); bot.placeBehaviour = 'nothing'
+    let dug = 0; const dig0 = bot.dig; bot.dig = (b, f) => { dug++; return dig0(b, f) }
+    await m.airPocketStep(bot, airPocketPlan(world(ISO_D)), deps({ sealItem: () => ({ name: 'cobblestone' }) })); clearInterval(bot._healthTimer)
+    assert.equal(dug, 1, 'the mutant did not dig: it was not killed for the intended reason')
   }))
 await t('H2 MUTANT KILLED: dropping the ice air-above check plans ice under stone (A8 catches it)', () =>
   withMutant(AP_PATH, "if (!isAir(top)) return refuse(`ice with", "if (false) return refuse(`ice with", m => {

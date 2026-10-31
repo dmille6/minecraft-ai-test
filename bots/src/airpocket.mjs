@@ -32,6 +32,7 @@ export const AP_EQUIP_MS = 1500               // equip is bounded too (Codex r1)
 export const AP_NOT_CLOSING_MS = 4000         // a non-sealed rescue must have stopped closing on air this long
 export const AP_WANT_LAPSE_MS = 3000          // a pre-empt request lapses unless renewed (it is renewed every tick)
 export const AP_BREATHE_HOLD_MS = 10_000      // after a pocket opens, no escape starts for 10 s (air refills to 300 in ~4 s)
+export const AP_SEAL_MS = 1500                // admission's price of ONE seal (bounded equip + look + the server's answer)
 
 import { difficultyOf } from './foodskip.mjs'
 import { TOOL_HYGIENE, remaining, HARD_STOP } from './toolfor.mjs'
@@ -44,6 +45,10 @@ const NO_DIG = /^(bedrock|barrier|end_portal_frame|command_block|structure_block
 // button, lever, bed or sign opens or toggles it instead of placing -- and a door or trapdoor could let water in.
 const INTERACTIVE = /(door|trapdoor|fence_gate|_button|_bed|_sign|_hanging_sign|anvil|shulker_box)$|^(lever|chest|trapped_chest|ender_chest|barrel|furnace|blast_furnace|smoker|crafting_table|enchanting_table|brewing_stand|beacon|hopper|dispenser|dropper|lectern|loom|stonecutter|grindstone|smithing_table|cartography_table|fletching_table|bell|note_block|jukebox|respawn_anchor|composter|cauldron|water_cauldron|lava_cauldron|powder_snow_cauldron|repeater|comparator|daylight_detector|command_block|structure_block|jigsaw|spawner|trial_spawner|vault|crafter|decorated_pot|chiseled_bookshelf)$/
 const ICE = /^(ice|frosted_ice)$/            // breaks into WATER over water; packed/blue ice do not and take the pocket rule
+// A SEAL CAN FILL THESE (apseal-01): members of vanilla's `replaceable` block tag that hold water, so a block placed into
+// the cell replaces it. NOT kelp / kelp_plant (not replaceable) and NOT a waterlogged solid (a stair, a slab: the place
+// would be refused and the block keeps leaking water into the dug cell) -- those still refuse.
+const SEALABLE = /^(water|bubble_column|seagrass|tall_seagrass)$/
 const AIRLIKE = /^(air|cave_air|void_air)$/
 
 function waterlogged (b) {
@@ -56,20 +61,31 @@ const isWater = b => !!b && (WATERLIKE.test(b.name || '') || waterlogged(b))
 const isLiquid = b => !!b && (isWater(b) || LAVALIKE.test(b.name || ''))
 const isAir = b => !!b && AIRLIKE.test(b.name || '')
 const isSolid = b => !!b && b.boundingBox === 'block'
+const sealable = b => !!b && SEALABLE.test(b.name || '') && !waterlogged(b)
 
 /**
  * WHICH CELL, IF ANY, BECOMES A BREATHING POCKET? Pure.
  *
  * `at(dx, dy, dz)` -> block (or null = unknown) relative to the bot's FEET cell. Head = (0,1,0).
  * The first non-water cell above the head must be at dy 2 or 3 (within 2 cells of the head) and be either
- *   - POCKET: solid, diggable, not a falling block, with no liquid / falling block / unknown on its four sides or
- *     above it, so the dug cell stays air; or
+ *   - POCKET: solid, diggable, not a falling block, with no falling block / unknown on its four sides or above it,
+ *     and no liquid there EITHER -- unless that liquid is plain water a block can be placed into (SEALABLE): then the
+ *     cell is listed in `seal` and the step fills it first (a block placed against the roof cell's own face), so the dug
+ *     cell stays air. Lava, kelp and a waterlogged solid beside or above still refuse; or
  *   - ICE:    plain ice with AIR directly above it (breaking it opens a water column one cell from the air).
  * Or the HEAD cell itself is plain ice with air directly above it (homefix-02 C1): kind 'ice', dy 1.
- * @returns {{ ok: boolean, why: string|null, kind: 'pocket'|'ice'|null, dy: number|null, name: string|null }}
+ *
+ * WHY SEAL (apseal-01, fleet 7 d to 10-31 22Z): 56 of 207 deaths were drownings, the top cause, and 48 of the 56 had this
+ * plan refuse "water beside the roof cell would fill the pocket" in the 400 s before (first refusal at 18-20 HP, ~85 s
+ * before the death, in 47 of 48). The rescue had nothing else: the refusal named no remedy the bot could perform. The
+ * roof cell itself is always a solid, non-interactive block beside every wet cell, so a seal always has a reference.
+ * @returns {{ ok: boolean, why: string|null, kind: 'pocket'|'ice'|null, dy: number|null, name: string|null,
+ *            seal: Array<{dx: number, dy: number, dz: number, face: number[]}> }}
+ *   seal: the cells to fill before the dig, relative to the feet cell; each is filled by a place against the ROOF cell
+ *   (feet + (0, dy, 0)) on its face `face`, which points at the cell.
  */
 export function airPocketPlan (at) {
-  const refuse = (why, extra = {}) => ({ ok: false, why, kind: null, dy: null, name: null, ...extra })
+  const refuse = (why, extra = {}) => ({ ok: false, why, kind: null, dy: null, name: null, seal: [], ...extra })
   const feet = at(0, 0, 0), head = at(0, 1, 0)
   if (feet == null || head == null) return refuse('own cells unknown')
   // THE HEAD CELL IS THE ICE (homefix-02 C1, docs/reports/homefix-02-design-2026-10-21.md §1.3, §4 C1): hive-d's frozen
@@ -82,7 +98,7 @@ export function airPocketPlan (at) {
     const top = at(0, 2, 0)
     if (top == null) return refuse('above the ice unknown', { dy: 1, name: head.name })
     if (!isAir(top)) return refuse(`head ice with ${top.name} above, not air`, { dy: 1, name: head.name })
-    return { ok: true, why: null, kind: 'ice', dy: 1, name: head.name }
+    return { ok: true, why: null, kind: 'ice', dy: 1, name: head.name, seal: [] }
   }
   if (!isWater(head)) return refuse(`head cell is ${head.name}, not water`)
   if (!isWater(feet) && !isAir(feet)) return refuse(`feet cell is ${feet.name}`)
@@ -98,18 +114,28 @@ export function airPocketPlan (at) {
       const top = at(0, dy + 1, 0)
       if (top == null) return refuse('above the ice unknown', { dy, name: b.name })
       if (!isAir(top)) return refuse(`ice with ${top.name} above, not air`, { dy, name: b.name })
-      return { ok: true, why: null, kind: 'ice', dy, name: b.name }
+      return { ok: true, why: null, kind: 'ice', dy, name: b.name, seal: [] }
     }
     if (!isSolid(b)) return refuse(`${b.name} is not a full block`, { dy, name: b.name })
     if (NO_DIG.test(b.name)) return refuse(`${b.name} is not dug`, { dy, name: b.name })
-    const around = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => at(dx, dy, dz))
+    const around = SIDES.map(([dx, dz]) => at(dx, dy, dz))
     const top = at(0, dy + 1, 0)
     if (around.some(s => s == null) || top == null) return refuse('a neighbour of the roof cell is unknown', { dy, name: b.name })
-    const wet = around.find(isLiquid)
-    if (wet) return refuse(`${wet.name} beside the roof cell would fill the pocket`, { dy, name: b.name })
-    if (isLiquid(top)) return refuse(`${top.name} above the roof cell would fill the pocket`, { dy, name: b.name })
+    const seal = []
+    for (let i = 0; i < SIDES.length; i++) {
+      const s = around[i]
+      if (!isLiquid(s)) continue
+      if (!sealable(s)) return refuse(`${s.name} beside the roof cell would fill the pocket`, { dy, name: b.name })
+      seal.push({ dx: SIDES[i][0], dy, dz: SIDES[i][1], face: [SIDES[i][0], 0, SIDES[i][1]] })
+    }
+    if (isLiquid(top)) {
+      if (!sealable(top)) return refuse(`${top.name} above the roof cell would fill the pocket`, { dy, name: b.name })
+      seal.push({ dx: 0, dy: dy + 1, dz: 0, face: [0, 1, 0] })
+    }
     if (FALLING.test(top.name)) return refuse(`${top.name} above the roof cell would fall in`, { dy, name: b.name })
-    return { ok: true, why: null, kind: 'pocket', dy, name: b.name }
+    // the seals are placed AGAINST the roof cell: an interactive roof would be used instead of placed on
+    if (seal.length && INTERACTIVE.test(b.name)) return refuse(`${b.name} cannot take a seal (placing on it would use it)`, { dy, name: b.name })
+    return { ok: true, why: null, kind: 'pocket', dy, name: b.name, seal }
   }
   return refuse('no roof within 2 of the head')
 }
@@ -127,12 +153,13 @@ export function airPocketBudgetMs ({ health, envelope }) {
 
 /**
  * MAY THE STEP START? Pure. `digMs` is the client's prediction for the chosen tool in the bot's situation
- * (predictedDigMs with digEnv: in water, off the ground). Required = digMs x 1.5 + 3 s.
+ * (predictedDigMs with digEnv: in water, off the ground). Required = digMs x 1.5 + 3 s + 1.5 s per seal.
  */
-export function airPocketAdmit ({ health, difficulty, hungerActive = false, digMs }) {
+export function airPocketAdmit ({ health, difficulty, hungerActive = false, digMs, seals = 0 }) {
   const envelope = airPocketEnvelope({ difficulty, hungerActive })
   if (!(Number.isFinite(digMs) && digMs > 0)) return { ok: false, why: 'dig time unknown', envelope, requiredMs: null, budgetMs: null }
-  const requiredMs = digMs * AP_MARGIN + AP_LATENCY_MS
+  // each seal is placed before the dig, so its time comes out of the same health budget (apseal-01)
+  const requiredMs = digMs * AP_MARGIN + AP_LATENCY_MS + Math.max(0, seals | 0) * AP_SEAL_MS
   const budgetMs = airPocketBudgetMs({ health, envelope })
   const ok = requiredMs <= budgetMs
   return { ok, why: ok ? null : `needs ${Math.round(requiredMs)} ms, budget ${Math.round(budgetMs)} ms (health ${health}, ${envelope} HP/s)`, envelope, requiredMs, budgetMs }
@@ -259,7 +286,7 @@ export function airPocketAfter (ok, state, now = Date.now()) {
  */
 export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => new Promise(r => setTimeout(r, ms)),
                                                  now = () => Date.now(), maxHealth = 20, envelope, guard = () => null,
-                                                 standItem = () => null } = {}) {
+                                                 standItem = () => null, sealItem = () => null } = {}) {
   const t0 = now()
   const p0 = bot.entity.position
   const fx = Math.floor(p0.x), fy = Math.floor(p0.y), fz = Math.floor(p0.z)
@@ -292,6 +319,18 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     let wantJump = !standing
     try { bot.setControlState('jump', wantJump) } catch { /* not connected */ }
     res.standing = standing
+    // SEAL FIRST (apseal-01): every wet side (and a wet top) of the roof cell is filled with a block placed against the
+    // roof cell, each read back solid, BEFORE the dig -- dug with water beside it, the cell floods and there is no air.
+    // A seal that fails stops the step here: nothing is dug, so nothing is worse than the refusal this replaces.
+    const sealN = Array.isArray(plan.seal) ? plan.seal.length : 0
+    if (sealN) {
+      const sealAbort = () => { try { const g = guard(); if (g) return g } catch { /* a guard that throws stops nothing */ }
+                                return budgetLeft() <= 0 ? 'health budget spent' : null }
+      const s = await sealRoof(bot, plan, { fx, fy, fz, Vec3, sleep, now, sealItem, isAborted: sealAbort })
+      res.seal = s.tag
+      try { if (bot.controlState?.jump !== wantJump) bot.setControlState('jump', wantJump) } catch { /* not connected (after the seals) */ }
+      if (!s.ok) { res.why = `seal ${s.tag}: ${s.why}`; res.outcome = /^aborted/.test(s.why) ? 'aborted' : 'failed'; return res }
+    }
     // BOUNDED EQUIP, THEN VERIFY WHAT IS ACTUALLY HELD (Codex r1): a rejected or slow equip must not leave the prediction
     // describing a tool the bot is not holding. The dig is re-priced with the held item and must still fit.
     if (best.item) {
@@ -431,7 +470,7 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
       if (bot.entity.position.y < cellY + 1.05) return `stopped:did not rise above y=${cellY} (${placed} placed)`
       const ref = bot.blockAt(new Vec3(fx + pick.dx, cellY + pick.dy, fz + pick.dz))
       const face = new Vec3(pick.face[0], pick.face[1], pick.face[2])
-      try { await Promise.race([bot.lookAt(ref.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
+      try { await Promise.race([bot.lookAt(ref.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5), true), sleep(500)]) } catch { /* a late look turns only the head (seal) */ }
       const no = standGate({ aborted: isAborted(), held: bot.heldItem?.name ?? null, want: item.name, pos: bot.entity.position, fx, fz, cellY })
       if (no) return `stopped:${no} (${placed} placed)`
       if (typeof bot._placeBlockWithOptions !== 'function') return `stopped:no place primitive (${placed} placed)`
@@ -495,6 +534,59 @@ export function standGate ({ aborted, held, want, pos, fx, fz, cellY }) {
   return null
 }
 
+/**
+ * FILL THE ROOF CELL'S WET NEIGHBOURS (apseal-01). Impure, never throws. For each planned seal cell: still wet (a cell
+ * already solid counts as sealed), the roof cell is still the planned block (it is every seal's reference), a
+ * non-falling block from `sealItem()` (the cell has water under it, so a falling block would drop out), a bounded equip
+ * and look, then `sealGate` synchronously and the place sent with forceLook 'ignore' (no await before the packet: no
+ * place can land after this returns -- standInPocket's rule), and the cell read back solid.
+ * -> { ok, tag: 'placed/total', why }
+ */
+export async function sealRoof (bot, plan, { fx, fy, fz, Vec3, sleep, now = () => Date.now(), sealItem = () => null, isAborted = () => null }) {
+  const cells = Array.isArray(plan?.seal) ? plan.seal : []
+  let placed = 0
+  const done = (ok, why = null) => ({ ok, tag: `${placed}/${cells.length}`, why })
+  try {
+    for (const c of cells) {
+      const ab = isAborted(); if (ab) return done(false, `aborted: ${ab}`)
+      const at = new Vec3(fx + c.dx, fy + c.dy, fz + c.dz)
+      const cur = bot.blockAt(at)
+      if (isSolid(cur) && !isLiquid(cur)) { placed++; continue }
+      if (!sealable(cur)) return done(false, `${at.x},${at.y},${at.z} is ${cur?.name ?? 'unknown'}, not water a block can fill`)
+      const ref = bot.blockAt(new Vec3(at.x - c.face[0], at.y - c.face[1], at.z - c.face[2]))
+      if (!ref || ref.name !== plan.name) return done(false, `the roof cell changed to ${ref?.name ?? 'unknown'}`)
+      const item = sealItem()
+      if (!item) return done(false, 'no non-falling block to seal with')
+      if (FALLING.test(item.name || '')) return done(false, `${item.name} would fall`)
+      if (bot.heldItem?.name !== item.name) { try { await Promise.race([bot.equip(item, 'hand'), sleep(AP_EQUIP_MS)]) } catch { /* verified by the gate */ } }
+      const face = new Vec3(c.face[0], c.face[1], c.face[2])
+      try { await Promise.race([bot.lookAt(ref.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
+      const no = sealGate({ aborted: isAborted(), held: bot.heldItem?.name ?? null, want: item.name, pos: bot.entity.position, fx, fy, fz })
+      if (no) return done(false, no)
+      if (typeof bot._placeBlockWithOptions !== 'function') return done(false, 'no place primitive')
+      // SENT HERE, synchronously: forceLook 'ignore' leaves no await before mineflayer writes the place packet
+      const sent = bot._placeBlockWithOptions(ref, face, { forceLook: 'ignore', swingArm: 'right' })
+      Promise.resolve(sent).catch(() => {})     // the seal's 5-s answer timeout must not surface as an unhandled rejection
+      try { await Promise.race([sent, sleep(1500)]) } catch { /* the read-back decides */ }
+      const after = bot.blockAt(at)
+      if (!isSolid(after) || isLiquid(after)) return done(false, `${at.x},${at.y},${at.z} did not turn solid (${after?.name ?? 'unknown'})`)
+      placed++
+    }
+    return done(true)
+  } catch (e) { return done(false, `threw ${String(e?.message ?? e).slice(0, 40)}`) }
+}
+
+/**
+ * May a seal be SENT now? Pure; null = yes, otherwise the reason. Not aborted, the block the place will use is in hand,
+ * and the bot is still in the planned column (the seal cells are planned relative to it).
+ */
+export function sealGate ({ aborted, held, want, pos, fx, fy, fz }) {
+  if (aborted) return `aborted: ${aborted} (before a seal)`
+  if (!held || held !== want) return `the seal's ${want} is not in hand (holding ${held ?? 'nothing'})`
+  if (!pos || Math.floor(pos.x) !== fx || Math.floor(pos.z) !== fz || Math.floor(pos.y) < fy - 1) return 'moved off the planned column'
+  return null
+}
+
 export const AP_ROW_MAX = 300   // logger.mjs cuts every detail at 300 characters
 // FLOORED, never rounded (Codex r9): the read's C3 tests `health < 3`, and rounding would turn 2.99 into 3 and hide it
 const r1 = h => (Number.isFinite(h) ? Math.floor(h * 10) / 10 : h)
@@ -512,7 +604,7 @@ export function airPocketRow ({ id, r, requiredMs, budgetMs, difficulty }) {
   const head = `id=${id} outcome=${r.outcome} kind=${r.kind} cell=${r.cell} block=${r.block} tool=${r.tool} ` +
                `predicted_ms=${r.predictedMs} dig_ms=${r.digMs ?? -1} ms=${r.ms ?? -1} envelope=${r.envelope} ` +
                `health=${r1(r.healthStart)}->${r1(r.healthEnd)} | required_ms=${Math.round(requiredMs)} budget_ms=${Math.round(budgetMs)} ` +
-               `difficulty=${difficulty} | standing=${r.standing ? 1 : 0} eye=${r.eye} ` +
+               `difficulty=${difficulty} | standing=${r.standing ? 1 : 0}${r.seal ? ` seal=${r.seal}` : ''} eye=${r.eye} ` +
                `stand=${String(r.stand ?? 'none').slice(0, 40)} -- `
   // a success's why is always "breathing in …" (the outcome already says it); a failure's why is the diagnosis
   return (head + (r.outcome === 'success' ? '' : String(r.why ?? ''))).slice(0, AP_ROW_MAX)
@@ -520,6 +612,6 @@ export function airPocketRow ({ id, r, requiredMs, budgetMs, difficulty }) {
 
 /** One telemetry line for a step result. Pure. */
 export function airPocketDetail (r) {
-  return `outcome=${r.outcome} kind=${r.kind} cell=${r.cell} block=${r.block} tool=${r.tool} standing=${r.standing ? 1 : 0} predicted_ms=${r.predictedMs} ` +
+  return `outcome=${r.outcome} kind=${r.kind} cell=${r.cell} block=${r.block} tool=${r.tool} standing=${r.standing ? 1 : 0}${r.seal ? ` seal=${r.seal}` : ''} predicted_ms=${r.predictedMs} ` +
          `dig_ms=${r.digMs ?? -1} ms=${r.ms ?? -1} envelope=${r.envelope} health=${r.healthStart}->${r.healthEnd} eye=${r.eye} stand=${r.stand ?? 'none'} -- ${r.why}`
 }
