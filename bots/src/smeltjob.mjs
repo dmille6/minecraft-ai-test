@@ -358,7 +358,7 @@ export function smeltTownOutcome (status, why = null, now = 0, state = {}) {
  * A LIT furnace is never opened: it is cooking (somebody's batch, or a stage-4 load), and an unlit one with input and
  * fuel cannot exist in vanilla for more than a tick (it would light).
  */
-export function drainPick ({ furnaces = [], leased = () => false, seen = {}, now = 0 } = {}) {
+export function drainPick ({ furnaces = [], leased = () => false, seen = {}, now = 0, skip = null } = {}) {
   const cands = []
   for (const f of furnaces) {
     if (!f?.k || f.lit) continue
@@ -366,15 +366,57 @@ export function drainPick ({ furnaces = [], leased = () => false, seen = {}, now
     if (leased(f.k)) continue
     const m = seen[f.k]
     if (m?.empty && !m.litSince && now - (m.at ?? 0) < DRAIN_EMPTY_TTL_MS) continue
+    // furnaceseen-01: a townmate found it empty (the ledger); the order path and the skill's re-pick share this predicate
+    if (skip && skip(f)) continue
     cands.push(f)
   }
   cands.sort((a, b) => a.dist - b.dist || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0))
   return cands[0] ?? null
 }
 
+// ---- furnaceseen-01: a townmate's EMPTY finding saves the walk (cooperation tier B3; design r9.1 6.3 B3, 6.4) -----------------
+/** FURNACE_SEEN=off is the one-setting rollback (the drain walks exactly as on the base). */
+export const FURNACE_SEEN = Object.freeze({ on: !['0', 'off', 'false', 'no'].includes(String(process.env.FURNACE_SEEN ?? '').trim().toLowerCase()) })
+/** A townmate's empty finding is trusted this long (comms 4.5: the station fact's 60-min TTL). */
+export const SEEN_EMPTY_MS = 60 * 60 * 1000
+
+/**
+ * THE SKIP -> { skip, why }. Pure: a function of EXACTLY the inputs the drain logs at pick time (design 6.4, Claude r9 #2), so
+ * the read's defect line replays this same function on the logged inputs.
+ *   entry   the furnace's NEWEST `station` entry in the ledger fold the bot read ({ id, at, bot, state }) or null
+ *   litAt   this bot's own last sight of the furnace LIT (the block state; ms) or null
+ *   own     this bot's own furnaceSeen entry ({ empty, at, litSince }) or null
+ *   me      this bot's name
+ * Skip only when the newest entry is a TOWNMATE's EMPTY, younger than SEEN_EMPTY_MS (and not from the future), and nothing
+ * newer contradicts it: this bot saw the furnace lit at or after it, or this bot's own later look found items. The bot's own
+ * findings are its own memory's (drainPick's DRAIN_EMPTY_TTL_MS), never this rule's. A load after the empty is a newer
+ * entry (its state `holds` or `lit`), so the fold itself carries that contrary evidence.
+ */
+export function seenSkip ({ entry = null, litAt = null, own = null, me = null, now = 0 } = {}) {
+  if (!entry) return { skip: false, why: 'no_entry' }
+  if (entry.state !== 'empty') return { skip: false, why: 'entry_not_empty' }
+  if (!entry.bot || entry.bot === me) return { skip: false, why: 'own_entry' }
+  const at = Number(entry.at)
+  if (!Number.isFinite(at) || !(now - at < SEEN_EMPTY_MS) || at > now + 60_000) return { skip: false, why: 'expired' }
+  if (litAt != null && Number(litAt) >= at) return { skip: false, why: 'lit_since' }
+  if (own && !own.empty && Number(own.at) >= at) return { skip: false, why: 'own_newer_holds' }
+  return { skip: true, why: 'townmate_empty' }
+}
+/** The `_furnace_seen_mode` row (once per spawn). */
+export const furnaceSeenModeDetail = () => `phase=mode on=${FURNACE_SEEN.on ? 'on' : 'off'} v=1 ttl_min=${SEEN_EMPTY_MS / 60000} rule=townmate_empty`
+/** The skip's inputs in the row's own words (the read parses ONE format): se= sl= so= off=. Pure. */
+export const seenFields = ({ entry = null, litAt = null, own = null, off = null } = {}) =>
+  `se=${entry?.id ?? '-'} sl=${litAt ?? '-'} so=${own ? `${own.empty ? 'e' : 'h'}:${own.at ?? '-'}` : '-'} off=${off ?? '-'}`
+
 /** This bot's memory after a look -> new `seen`. `lit` updates mark litSince on known-empty furnaces. Pure. */
 export function noteFurnaceSeen (seen = {}, k, { empty = false, now = 0 } = {}) {
   return { ...seen, [k]: { empty, at: now, litSince: false } }
+}
+/** This bot's own last sight of each furnace LIT -> new map { k: ms }. Pure (furnaceseen-01's `litAt`). */
+export function noteFurnacesLitAt (litAt = {}, furnaces = [], now = 0) {
+  const out = { ...litAt }
+  for (const f of furnaces) if (f?.k && f.lit) out[f.k] = now
+  return out
 }
 export function noteFurnacesLit (seen = {}, furnaces = []) {
   const out = { ...seen }
@@ -461,5 +503,7 @@ export function drainDetail (f = {}) {
   return [`stop=${v(f.stop)}`, `furnace=${v(f.furnace)}`, `lease=${v(f.lease)}`, `out=${v(f.out)}`, `in=${v(f.inp)}`,
           `fuel=${v(f.fuel)}`, `taken=${v(f.taken)}`, `left=${v(f.left)}`, `t0=${v(f.t0)}`]
     // ledger-01: the station record of this drain's open (its id joins the record to this row for the L1 gate)
-    .concat(f.ledger != null ? [`ledger=${v(f.ledger)}`] : []).join(' ')
+    .concat(f.ledger != null ? [`ledger=${v(f.ledger)}`] : [])
+    // furnaceseen-01: what the pick relied on for THIS furnace (the read replays seenSkip on it: a walk it says to skip is a defect)
+    .concat(f.seen ? [f.seen] : []).join(' ')
 }
