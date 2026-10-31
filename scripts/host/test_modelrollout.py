@@ -101,6 +101,22 @@ class FakeHost(R.Host):
         if self.read_fail_stage == self.stage():
             return dict(GOOD_READ, lat_p95_ms=16830)
         return self.read
+    # experiment-mode probes (scripted)
+    def endpoint_ok(self, url): return not getattr(self, 'ep_down', False)
+    def stall(self, ctxdir): return getattr(self, 'stall_n', (0, 80))
+    def crash_loops(self, t0, t1): return getattr(self, 'loops', {})
+    def tripper(self): return {'verdict': getattr(self, 'trip', 'OK'), 'trips': ['x']}
+    def deaths(self, t0, t1): return getattr(self, 'death_n', (0, 10.0))
+    def baseline_7d(self, t0): return (0.02, 13000.0)
+    def hourly(self, t0, t1, model): self.hourlies = getattr(self, 'hourlies', 0) + 1; return {'decisions_per_min': 50.0}
+    def notify(self, subject, body): self.notes = getattr(self, 'notes', []) + [subject]
+    def compare(self, timeout_s=0):
+        self.compared = True
+        if getattr(self, 'compare_crash', False):
+            return False, 'boom'
+        open(os.path.join(R.P['home'], 'compare-24h.md'), 'w').write('# compare\n'); return True, 'ok'
+    def own_lock(self): return True
+
     def rollout_add(self, run, sha, at, note):
         with open(R.P['journal'], 'a') as f:
             f.write(json.dumps({'ts': at, 'run': run, 'phase': 'owner-direct', 'sha': sha, 'prev': sha}) + '\n')
@@ -375,10 +391,105 @@ def driver():
     shutil.rmtree(root)
 
 
+def experiment():
+    t('fleet stall: 1 of 80 no, 19 no, 20 yes; 2 of 4 yes; 0 active no',
+      [R.fleet_stall_trip(*x) for x in ((1, 80), (19, 80), (20, 80), (2, 4), (0, 0))] == [False, False, True, True, False])
+    t('death gate: 2 deaths at 1.5 expected (the first hour) does NOT trip', not R.death_trip(2, 75, 0.02)[0])
+    t('death gate: 10 at 3 expected trips; 1 never (floor); no baseline never',
+      R.death_trip(10, 150, 0.02)[0] and not R.death_trip(1, 1, 0.5)[0] and not R.death_trip(50, 10, None)[0])
+    w = {}
+    t('reasons: one unit crash-looping is not a stop, two are', R.exp_reasons({'endpoint_ok': True, 'crash_loops': {'a': 3}}, w) == []
+      and len(R.exp_reasons({'endpoint_ok': True, 'crash_loops': {'a': 3, 'b': 4}}, {})) == 1)
+    w = {}
+    r1 = R.exp_reasons({'endpoint_ok': False}, w); r2 = R.exp_reasons({'endpoint_ok': False}, w)
+    t('reasons: endpoint down once no, twice in a row yes', r1 == [] and len(r2) == 1, (r1, r2))
+    w = {}
+    r1 = R.exp_reasons({'endpoint_ok': True, 'stall': (30, 80)}, w); r2 = R.exp_reasons({'endpoint_ok': True, 'stall': (30, 80)}, w)
+    t('reasons: a fleet stall once no, twice yes; a healthy poll resets', r1 == [] and len(r2) == 1
+      and R.exp_reasons({'endpoint_ok': True, 'stall': (0, 80)}, w) == [] and w['stall_hits'] == 0)
+    t('reasons: tripper TRIP and the death gate stop', len(R.exp_reasons({'endpoint_ok': True, 'tripper': {'verdict': 'TRIP', 'trips': ['x']},
+                                                                          'death': (True, 'd')}, {})) == 2)
+    import modelread  # noqa: F401
+    rows = {'a': [{'llm': {'model': 'qwen3.5:9b', 'endpoint': 'u', 'schema_valid': True, 'latency_ms': 1000}},
+                  {'llm': {'model': 'qwen3.5:9b', 'endpoint': 'u', 'schema_valid': False, 'latency_ms': 46000, 'error': 'timeout'}},
+                  {'llm': {'model': 'qwen3.5:9b', 'endpoint': None, 'schema_valid': True, 'latency_ms': 0}}],   # a work order
+            'b': []}
+    hs = R.hour_stats(rows, 'qwen3.5:9b', 60)
+    t('hourly: work orders excluded, timeouts counted, invalid and model share over model decisions',
+      hs['decisions'] == 2 and hs['timeouts'] == 1 and hs['invalid_share'] == 0.5 and hs['model_share'] == 1.0 and hs['bots_with_rows'] == 1, hs)
+
+    # experiment happy path
+    root = tree(); h = FakeHost(root)
+    rc, out = quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    t('exp: 4 stages of 4 pools (20 bots), no load test, all 80 moved, complete, hold released',
+      rc == 0 and [len(x['pools']) for x in st['stages']] == [4, 4, 4, 4] and h.load_calls == [] and len(dropins()) == 80
+      and st['status'] == 'complete' and [x[0] for x in h.holds] == ['claim', 'release'], (rc, out[-300:]))
+    t('exp: restarts 12 s apart, the watch context names all 16 pools',
+      (h.restarts[1][1] - h.restarts[0][1]).total_seconds() == 12
+      and len(json.load(open(os.path.join(R.P['home'], 'stage-watch', 'manifest.json')))['canary_pool'].split(',')) == 16)
+    # watch: healthy, hourly once per hour
+    h.t = R.ts(st['completed']) + dt.timedelta(hours=1, minutes=2)
+    quiet(R.Rollout(h, 'qwen35-01').watch); quiet(R.Rollout(h, 'qwen35-01').watch)
+    t('watch: healthy -> nothing rolled back; one hourly record per hour', len(dropins()) == 80 and getattr(h, 'hourlies', 0) == 1)
+    # watch: fleet stall twice -> rollback all
+    h.stall_n = (40, 80)
+    quiet(R.Rollout(h, 'qwen35-01').watch)
+    t('watch: one stalled poll -> still on', len(dropins()) == 80)
+    rc, out = quiet(R.Rollout(h, 'qwen35-01').watch)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    t('watch: a second stalled poll -> rollback ALL, proven, pushed', dropins() == [] and st['status'] == 'rolled-back' and 'ROLLOUT ENDED' in h.notes, (rc, out[-200:]))
+    rc, out = quiet(R.Rollout(h, 'qwen35-01').watch)
+    t('watch: after the end it is a no-op', rc == 0 and out == '')
+    shutil.rmtree(root)
+
+    # +24 h: compare then MANDATORY rollback; a failing compare still rolls back
+    for crash in (False, True):
+        root = tree(); h = FakeHost(root); h.compare_crash = crash
+        quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+        st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+        h.t = R.ts(st['completed']) + dt.timedelta(hours=24, minutes=1)
+        quiet(R.Rollout(h, 'qwen35-01').watch)
+        st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+        t('+24 h (compare %s): compared, then rolled back unconditionally' % ('FAILS' if crash else 'ok'),
+          getattr(h, 'compared', False) and dropins() == [] and st['status'] == 'rolled-back', (st['status'], dropins()[:2]))
+        shutil.rmtree(root)
+    # the hard deadline acts even if no earlier tick ran the +24 h step
+    root = tree(); h = FakeHost(root)
+    quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    h.t = R.ts(st['completed']) + dt.timedelta(hours=30); h.ep_down = True
+    quiet(R.Rollout(h, 'qwen35-01').watch)
+    t('+30 h: the hard deadline rolls back first', dropins() == [] and json.load(open(os.path.join(R.P['home'], 'state.json')))['status'] == 'rolled-back')
+    shutil.rmtree(root)
+
+    # experiment stop during a stage: endpoint down on both polls -> ALL rolled back, slot freed, pushed
+    root = tree(); h = FakeHost(root); h.ep_down = True
+    rc, out = quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    t('exp stop: endpoint down at stage 1 -> everything rolled back, hold released, pushed',
+      rc == 1 and dropins() == [] and [x[0] for x in h.holds] == ['claim', 'release'] and 'ROLLOUT STOPPED' in h.notes, (rc, h.holds))
+    shutil.rmtree(root)
+    # crash loops on 2 units at stage 2: everything back (stage 1 too)
+    root = tree(); h = FakeHost(root)
+    orig = h.crash_loops
+    h.crash_loops = lambda t0, t1, _h=h: {'a': 3, 'b': 3} if _h.stage() == 2 else {}
+    rc, out = quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    t('exp stop: crash loops at stage 2 roll back stage 1 as well', rc == 1 and dropins() == [], (rc, len(dropins())))
+    shutil.rmtree(root)
+    # a watch on a non-experiment complete rollout does nothing
+    root = tree(); h = FakeHost(root)
+    quiet(R.Rollout(h, 'qwen35-01').go)
+    h.t += dt.timedelta(hours=30)
+    quiet(R.Rollout(h, 'qwen35-01').watch)
+    t('watch: ignores a non-experiment rollout', len(dropins()) == 80)
+    shutil.rmtree(root)
+
+
 def main():
     pure()
     R.Host.take_lock = lambda self: True
     driver()
+    experiment()
     print('\n%d/%d pass' % (sum(T), len(T)))
     return 0 if all(T) else 1
 

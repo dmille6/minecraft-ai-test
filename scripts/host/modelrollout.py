@@ -89,6 +89,22 @@ POLL_BLIND_MAX = 3               # unreadable stall polls in a row (15 min) = th
 # when a rollback could not prove the env gone: both count as rolled, so rollback retries them and no path frees
 # the slot while they exist (both reviewers r1).
 LIVE = ('applying', 'applied', 'passed', 'rollback-unproven')
+# EXPERIMENT MODE (OWNER 2026-10-31 ~14:00Z: all 80 bots on qwen3.5:9b for 24 h, then compare; ~14:15Z: the Blackwell is
+# for testing only, so the +24 h rollback is MANDATORY). Latency/load numbers are data, not stops. Stops (every one rolls
+# back EVERY stage, frees the slot and pushes): endpoint down twice in a row, a fleet stall, crash loops on >= 2 units,
+# the death gate, a tripper TRIP. After the rollout the install-hold is released (canaries go on: a later code canary keeps
+# 05-model.conf, so both arms run the model) and `watch` (cron, every 5 min) holds the same stops for the 24 h, records
+# hourly numbers, and at +24 h writes the comparison and rolls back -- unconditionally, also when the comparison fails.
+EXP_POOLS_PER_STAGE = 4          # 20 bots a stage
+EXP_WATCH_MIN = 10               # per stage: health checks at +5 and +10
+EXP_HOURS = 24
+EXP_HARD_HOURS = 25              # past this the watch rolls back FIRST, before anything else
+EXP_LOOP_UNITS = 2               # crash loops on this many units in the last hour = stop
+EXP_STALL_FRAC = 0.25            # a FLEET stall: >= max(2, 25 % of active) bots with no valid decision for 10 min ...
+EXP_STALL_POLLS = 2              # ... on two polls in a row
+EXP_EP_FAILS = 2                 # endpoint /api/version failing on two polls in a row
+DEATH_X, DEATH_Q = 1.25, 0.99    # deaths >= 2 AND > 1.25 x the 7-day rate x bot-h AND past its Poisson 99 % bound
+TIMEOUT_MS = 45000               # LLM_TIMEOUT_MS in all 80 env files (10-31)
 GATES = {'lat_p50_ms': 2500, 'lat_p95_ms': 5000, 'completion_p95': 300, 'model_share': 0.95, 'schema_valid': 0.99,
          'schema_gap_pp': 1.0, 'stall_bots': 1, 'min_rows': 200, 'load_valid': 0.99}
 EARLY_ABORT_N, EARLY_ABORT_X = 30, 3
@@ -315,6 +331,76 @@ def est_minutes(stages):
     return out
 
 
+def fleet_stall_trip(n_stalled, n_active):
+    """PURE. A FLEET stall (the model is not serving the fleet), not one slow bot: >= max(2, 25 % of active)."""
+    import math
+    return n_active > 0 and n_stalled >= max(2, math.ceil(EXP_STALL_FRAC * n_active))
+
+
+def poisson_upper(mu, q):
+    """PURE. Smallest k with P(X <= k) >= q, X ~ Poisson(mu) (rollout.py's)."""
+    import math
+    if mu <= 0:
+        return 0
+    k, p = 0, math.exp(-mu)
+    cdf = p
+    while cdf < q and k < 100000:
+        k += 1; p *= mu / k; cdf += p
+    return k
+
+
+def death_trip(deaths, bot_h, rate):
+    """PURE. -> (trip, why). The two-death floor, > DEATH_X x the 7-day baseline, and past its Poisson DEATH_Q bound (two
+    deaths in the first hour of 80 bots is ~44 % likely at the baseline rate: 1.25x alone would roll back on noise)."""
+    if rate is None or not bot_h:
+        return False, 'deaths %s over %.1f bot-h; no baseline rate: not judged' % (deaths, bot_h or 0)
+    mu = rate * bot_h
+    trip = deaths >= 2 and deaths > DEATH_X * mu and deaths > poisson_upper(mu, DEATH_Q)
+    return trip, 'deaths %d over %.1f bot-h vs %.2f expected at the 7-day rate %.4f/bot-h (trip at > %.2f and > %d)' % (
+        deaths, bot_h, mu, rate, DEATH_X * mu, poisson_upper(mu, DEATH_Q))
+
+
+def exp_reasons(f, w):
+    """PURE. Health facts f + the watch counters w (updated in place) -> the stop reasons ([] = go on)."""
+    why = []
+    w['ep_fail'] = 0 if f.get('endpoint_ok') else w.get('ep_fail', 0) + 1
+    if w['ep_fail'] >= EXP_EP_FAILS:
+        why.append('endpoint %s down on %d polls in a row' % (f.get('url'), w['ep_fail']))
+    if f.get('stall') is not None:
+        n, act = f['stall']
+        w['stall_hits'] = w.get('stall_hits', 0) + 1 if fleet_stall_trip(n, act) else 0
+        if w['stall_hits'] >= EXP_STALL_POLLS:
+            why.append('fleet stall: %d of %d active bots with no valid %s decision for 10 min, %d polls in a row' % (
+                n, act, f.get('model'), w['stall_hits']))
+    loops = f.get('crash_loops') or {}
+    if len(loops) >= EXP_LOOP_UNITS:
+        why.append('crash loops on %d units: %s' % (len(loops), ', '.join(sorted(loops)[:5])))
+    if f.get('death') and f['death'][0]:
+        why.append('death gate: ' + f['death'][1])
+    if (f.get('tripper') or {}).get('verdict') == 'TRIP':
+        why.append('tripper TRIP: ' + '; '.join(f['tripper'].get('trips') or [])[:200])
+    return why
+
+
+def is_timeout(L):
+    return bool(re.search(r'time ?out|timed out|abort', str(L.get('error') or ''), re.I)) or (L.get('latency_ms') or 0) >= TIMEOUT_MS
+
+
+def hour_stats(rows_by_bot, model, minutes):
+    """PURE. One window of llm rows -> the hourly record (work orders excluded: modelread's is_order)."""
+    import modelread as mr
+    rows = [r for v in rows_by_bot.values() for r in v if not mr.is_order(r)]
+    L = [r.get('llm') or {} for r in rows]
+    lat = [x.get('latency_ms') for x in L if x.get('schema_valid')]
+    n = len(rows)
+    return {'bots_with_rows': sum(1 for v in rows_by_bot.values() if v), 'decisions': n,
+            'decisions_per_min': round(n / minutes, 2) if minutes else None,
+            'lat_p50_ms': pct(lat, .5), 'lat_p95_ms': pct(lat, .95), 'lat_p99_ms': pct(lat, .99),
+            'timeouts': sum(1 for x in L if is_timeout(x)), 'invalid_share': round(sum(1 for x in L if not x.get('schema_valid')) / n, 4) if n else None,
+            'model_share': round(sum(1 for r in rows if mr.served_by(r, model)) / n, 4) if n else None,
+            'unserved': sum(1 for x in L if not x.get('endpoint'))}
+
+
 # --------------------------------------------------------------------------------------------------- the host --
 class Host:
     """Every side effect, so the driver can be run against a fake in the tests."""
@@ -445,8 +531,100 @@ class Host:
         if rc != 0:
             raise RuntimeError('rollout.py add: ' + out[-200:])
 
+    def endpoint_ok(self, url):
+        import urllib.request
+        try:
+            urllib.request.urlopen(url + '/api/version', timeout=10).read()
+            return True
+        except Exception:
+            return False
+
+    def stall(self, ctxdir):
+        """(stalled, active) over the ctx's pools, modelread's own stall rule (WARM_MIN after the ctx's declared_at)."""
+        mr = _modelread(ctxdir)
+        man, run, reg, pools, decl = mr.context()
+        bots = mr.roster(pools)
+        act = mr.units_active(bots)
+        t = mr.now()
+        llm = {b: mr.read_stream(b, 'llm', t - dt.timedelta(minutes=mr.STALL_MIN + 5), t) for b in bots}
+        st = mr.stall_bots(llm, act, mr.canary_model(reg), str(man.get('canary_code_version') or ''), t, decl)
+        return len(st), sum(1 for v in act.values() if v)
+
+    def crash_loops(self, t0, t1):
+        return _w5().crash_facts('mcbot@*.service', t0, t1).get('crash_loops') or {}
+
+    def tripper(self):
+        return _w5().tripper_fleet()
+
+    def deaths(self, t0, t1):
+        """(_death rows, active bot-h) of the fleet's bots (showcase excluded), a full file walk."""
+        w = _w5()
+        from lib.logwindow import load_window
+        rows = [r for r in load_window(t0, t1).rows if not str((r.get('bot') or {}).get('name') or '').startswith('showcase')]
+        f = w.window_facts(rows, '', start=t0)
+        return f['deaths'], f['bot_hours']
+
+    def baseline_7d(self, t0):
+        """The 7-day death rate per active bot-h before t0 (Elasticsearch: a wide window)."""
+        w = _w5()
+        from lib.estelemetry import EsEvents
+        ev = EsEvents.load('skill', since=t0 - dt.timedelta(days=7), until=t0, gaps='allow')
+        if not ev.total():
+            return None, 0.0
+        bh = w.es_slot_bot_hours(ev)
+        d = ev.count('_death', allow_zero=True)
+        return (d / bh if bh else None), bh
+
+    def hourly(self, t0, t1, model):
+        sys.path.insert(0, HERE)
+        import modelread as mr
+        mr.LOG_ROOT = os.environ.get('MODELREAD_LOG_ROOT', '/var/log/mcai')
+        rows = {}
+        for e in sorted(glob.glob(os.path.join(P['envdir'], '*.env'))):
+            b = os.path.basename(e)[:-4]
+            if pool_of(b):
+                rows[b] = mr.read_stream(b, 'llm', t0, t1)
+        return hour_stats(rows, model, (t1 - t0).total_seconds() / 60)
+
+    def notify(self, subject, body):
+        try:
+            _w5()
+            from lib import alarm as AL
+            AL.one_shot('qwen35-roll', {subject: body}, self.now())
+        except Exception as x:
+            print('notify failed: %s' % x)
+
+    def compare(self, timeout_s=2400):
+        """modelcompare.py -> (ok, text). Never raises: the rollback after it is unconditional."""
+        try:
+            r = subprocess.run(['nice', '-n', '10', 'python3', os.path.join(HERE, 'modelcompare.py')], capture_output=True,
+                               text=True, timeout=timeout_s)
+            return r.returncode == 0, (r.stdout + r.stderr)[-3000:]
+        except Exception as x:
+            return False, '%s: %s' % (type(x).__name__, x)
+
+    def own_lock(self):
+        self._ownfd = os.open(os.path.join(P['home'], 'watch.lock'), os.O_RDWR | os.O_CREAT, 0o664)
+        try:
+            fcntl.flock(self._ownfd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            return False
+
     def rollout_check(self, run):
         return self.sh(['python3', '-B', P['rollout_py'], 'check', '--env', 'fleet', '--run', run], timeout=1800)[1]
+
+
+def _w5():
+    """rollout.py (the W5 ledger: tripper_fleet, crash_facts, es_slot_bot_hours) and its lib, from their install."""
+    import importlib.util
+    d = os.path.dirname(os.path.dirname(P['rollout_py']))
+    if d not in sys.path:
+        sys.path.insert(0, d)
+    spec = importlib.util.spec_from_file_location('rollout_w5', P['rollout_py'])
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
 
 
 def _sigterm(signum, frame):
@@ -472,8 +650,8 @@ class Stop(Exception):
 
 
 class Rollout:
-    def __init__(self, host, run, dry=False, out=print):
-        self.h, self.run, self.dry, self.say = host, run, dry, out
+    def __init__(self, host, run, dry=False, out=print, experiment=False):
+        self.h, self.run, self.dry, self.say, self.exp = host, run, dry, out, experiment
         self.rid = run.rsplit('-', 1)[0] + '-roll' if re.search(r'-\d+$', run) else run + '-roll'   # qwen35-01 -> qwen35-roll
         self.statep = os.path.join(P['home'], 'state.json')
         self.reg = json.load(open(os.path.join(P['regdir'], '%s.json' % run)))
@@ -529,7 +707,7 @@ class Rollout:
     # -- plan
     def make_plan(self, journal):
         cp = canary_pools_of(journal, self.run)
-        stages = plan(self.all_pools(), cp)
+        stages = plan(self.all_pools(), [], EXP_POOLS_PER_STAGE) if self.exp else plan(self.all_pools(), cp)
         return cp, stages
 
     def describe_plan(self, journal):
@@ -567,11 +745,11 @@ class Rollout:
 
     # -- the stage steps
     def ctxdir(self, i):
-        return os.path.join(P['home'], 'stage-%d' % i)
+        return os.path.join(P['home'], 'stage-%s' % i)
 
     def write_ctx(self, i, at):
         d = self.ctxdir(i); os.makedirs(d, exist_ok=True)
-        run = '%s-s%d' % (self.rid, i)
+        run = '%s-s%s' % (self.rid, i)
         json.dump({'run_id': run, 'canary_pool': ','.join(self.rolled_pools()), 'declared_at': at,
                    'canary_code_version': self.st['fleet_sha'], 'declared_code_version': self.st['fleet_sha']},
                   open(os.path.join(d, 'manifest.json'), 'w'))
@@ -691,6 +869,101 @@ class Rollout:
         if act == 'hold':
             raise Stop('stage %d 60-min check WATCH (stage kept, a human decides): %s' % (i, str((r or {}).get('note'))[:300]), None)
 
+    # -- experiment mode
+    def health(self, ctxdir, since, tripper=False, deaths=False):
+        """The stop facts. Each probe is caught: an unreadable probe is recorded, never a pass for its own gate."""
+        f = {'url': self.url, 'model': self.model, 'endpoint_ok': self.h.endpoint_ok(self.url)}
+        now = self.h.now()
+        for k, fn in (('stall', lambda: self.h.stall(ctxdir)),
+                      ('crash_loops', lambda: self.h.crash_loops(now - dt.timedelta(minutes=60), now))):
+            try:
+                f[k] = fn()
+            except Exception as x:
+                f[k] = None; f.setdefault('unreadable', []).append('%s: %s: %s' % (k, type(x).__name__, str(x)[:120]))
+        if tripper:
+            try:
+                f['tripper'] = self.h.tripper()
+            except Exception as x:
+                f['tripper'] = {'verdict': 'UNREAD', 'why': str(x)[:120]}
+        if deaths:
+            b = self.st.get('death_baseline') or {}
+            try:
+                d, bh = self.h.deaths(ts(since), now)
+                f['death'] = death_trip(d, bh, b.get('rate'))
+            except Exception as x:
+                f['death'] = (False, 'deaths unreadable: %s: %s' % (type(x).__name__, str(x)[:120]))
+                f.setdefault('unreadable', []).append(f['death'][1])
+        return f
+
+    def exp_stage_watch(self, i):
+        s = self.st['stages'][i - 1]
+        d = self.write_ctx(i, s['t_apply'])
+        w = self.st.setdefault('stagewatch', {})
+        for k in range(EXP_WATCH_MIN // 5):
+            self.h.sleep(300)
+            last = k == EXP_WATCH_MIN // 5 - 1
+            f = self.health(d, self.st['started'], tripper=last, deaths=True)
+            why = exp_reasons(f, w)
+            self.save()
+            self.journal('rollout-health', 'stage %d +%d: %s' % (i, 5 * (k + 1), json.dumps(f, default=str)[:900]))
+            if f.get('unreadable'):
+                self.page('error', 'ROLLOUT %s stage %d: health probe(s) unreadable: %s' % (self.run, i, '; '.join(f['unreadable'])))
+            if why:
+                raise Stop('stage %d health: %s' % (i, '; '.join(why)), 'all')
+
+    def watch(self):
+        """cron, every 5 min, for the 24 h after an experiment completed. Never wraps canary-sched.py."""
+        if not self.load() or not self.st.get('experiment') or self.st.get('status') != 'complete':
+            return 0
+        if not self.h.own_lock():
+            self.say('another watch holds the lock'); return 0
+        now, t0 = self.h.now(), ts(self.st['completed'])
+        wp = os.path.join(P['home'], 'watch.json')
+        w = json.load(open(wp)) if os.path.exists(wp) else {}
+        def end(why, compare):
+            # ROLLBACK FIRST, UNCONDITIONALLY (owner 10-31 14:15Z: the Blackwell is for testing only); the comparison reads
+            # the fixed window [completed, completed + 24 h] afterwards, and its failure changes nothing
+            ok = self.rollback(list(range(1, len(self.st['stages']) + 1)))
+            self.st['status'] = 'rolled-back' if ok else 'stopped'; self.st['stop'] = why; self.save()
+            self.journal('rollout-ended', '%s :: rollback %s' % (why, 'PROVEN' if ok else 'INCOMPLETE'))
+            if compare:
+                cok, text = self.h.compare()                     # never raises
+                self.journal('rollout-compare', ('OK' if cok else 'FAILED') + ' :: ' + text[-600:])
+            msg = '%s: %s. Rollback to the baseline env %s.%s' % (self.run, why, 'PROVEN' if ok else 'INCOMPLETE -- fix by hand',
+                                                                    (' Report: %s' % os.path.join(P['home'], 'compare-24h.md')) if compare else '')
+            self.page('verdict', msg); self.h.notify('ROLLOUT ENDED', msg)
+            return 0 if ok else 1
+        # 1 the hard deadline, FIRST: nothing may keep the fleet on the test endpoint past it
+        if now >= t0 + dt.timedelta(hours=EXP_HARD_HOURS):
+            return end('past the +%d h hard deadline' % EXP_HARD_HOURS, not w.get('compared'))
+        if now >= t0 + dt.timedelta(hours=EXP_HOURS):
+            w['compared'] = True; json.dump(w, open(wp, 'w'))
+            return end('+%d h: the experiment window is over (mandatory rollback)' % EXP_HOURS, True)
+        # 2 the stops
+        f = self.health(os.path.join(P['home'], 'stage-watch'), self.st['completed'],
+                        tripper=now.minute % 15 < 5, deaths=now.minute % 30 < 5)
+        why = exp_reasons(f, w)
+        json.dump(w, open(wp, 'w'))
+        with open(os.path.join(P['home'], 'watch.jsonl'), 'a') as fh:
+            fh.write(json.dumps({'ts': iso(now), 'facts': f, 'why': why}, default=str) + '\n')
+        if f.get('unreadable'):
+            self.page('error', 'ROLLOUT %s watch: probe(s) unreadable: %s' % (self.run, '; '.join(f['unreadable'])))
+        if why:
+            return end('STOP: ' + '; '.join(why), False)
+        # 3 the hourly record (the last full hour, once)
+        hr = now.replace(minute=0, second=0)
+        key = iso(hr)
+        if w.get('last_hour') != key and hr - dt.timedelta(hours=1) >= t0 - dt.timedelta(minutes=5):
+            try:
+                rec = dict(self.h.hourly(hr - dt.timedelta(hours=1), hr, self.model), hour=iso(hr - dt.timedelta(hours=1)))
+            except Exception as x:
+                rec = {'hour': iso(hr - dt.timedelta(hours=1)), 'error': '%s: %s' % (type(x).__name__, x)}
+            with open(os.path.join(P['home'], 'hourly.jsonl'), 'a') as fh:
+                fh.write(json.dumps(rec, default=str) + '\n')
+            self.journal('rollout-hourly', json.dumps(rec, default=str)[:600])
+            w['last_hour'] = key; json.dump(w, open(wp, 'w'))
+        return 0
+
     # -- rollback (three steps + proof)
     def rollback(self, idxs):
         bots, pools = [], []
@@ -798,8 +1071,15 @@ class Rollout:
             if not ok:
                 self.say('REFUSED: install-hold not claimed: ' + out); return 2
             self.st = {'run': self.run, 'token': token, 'fleet_sha': man['declared_code_version'], 'model': self.model,
-                       'url': self.url, 'started': iso(self.h.now()), 'status': 'running',
+                       'url': self.url, 'started': iso(self.h.now()), 'status': 'running', 'experiment': self.exp,
                        'stages': [{'pools': s, 'status': 'pending'} for s in stages]}
+            if self.exp:
+                try:
+                    rate, bh = self.h.baseline_7d(self.h.now())
+                except Exception as x:
+                    rate, bh = None, 0.0
+                    self.say('7-day death baseline unreadable: %s' % x)
+                self.st['death_baseline'] = {'rate': rate, 'bot_h': bh}
             self.save()
         if not self.h.take_lock():
             if not resume:
@@ -819,25 +1099,31 @@ class Rollout:
                 cur = i
                 os.makedirs(self.ctxdir(i), exist_ok=True)
                 if s['status'] == 'pending':
-                    self.busy_check(i)
-                    self.load_test(i, len(self.bots(s['pools'])))
+                    if not self.exp:              # experiment: the load gates are data, not stops (owner 10-31)
+                        self.busy_check(i)
+                        self.load_test(i, len(self.bots(s['pools'])))
                     try:
                         self.apply(i)
                     except Stop as e:
                         raise Stop(str(e.args[0]), 'stage')
                     except Exception as e:
                         raise Stop('stage %d apply failed: %s: %s' % (i, type(e).__name__, e), 'stage')
-                self.watch_and_read(i)
-                self.ledger_check(i)
+                if self.exp:
+                    self.exp_stage_watch(i)
+                else:
+                    self.watch_and_read(i)
+                    self.ledger_check(i)
                 s['status'] = 'passed'; self.save()
                 self.journal('rollout-stage-passed', 'stage %d PASSED: %d bots on %s' % (i, len(self.bots(self.rolled_pools())), self.model))
                 self.page('info', 'ROLLOUT %s stage %d of %d passed: %d bots on %s' % (self.run, i, len(self.st['stages']), len(self.bots(self.rolled_pools())), self.model))
         except Stop as e:
-            scope = e.args[1] if len(e.args) > 1 else None
+            scope = 'all' if self.exp else (e.args[1] if len(e.args) > 1 else None)    # experiment: every stop is ALL
             self.finish_stop(str(e.args[0]), scope, cur)
+            if self.exp:
+                self.h.notify('ROLLOUT STOPPED', '%s experiment stopped and rolled back: %s' % (self.run, e.args[0]))
             return 1
         except Exception as e:     # an unexpected crash: roll the CURRENT stage back (it was never read) and stop
-            self.finish_stop('crash in stage %s: %s: %s' % (cur, type(e).__name__, e), 'stage', cur)
+            self.finish_stop('crash in stage %s: %s: %s' % (cur, type(e).__name__, e), 'all' if self.exp else 'stage', cur)
             return 1
         except BaseException as e:  # SIGTERM (a reboot, a kill) or ^C: no rollback here, but never silent
             with contextlib.suppress(Exception):
@@ -845,8 +1131,14 @@ class Rollout:
                 self.page('error', 'ROLLOUT %s INTERRUPTED at stage %s (%s): the slot stays held; `python3 %s run --resume` '
                           'or `python3 %s rollback --all`' % (self.run, cur, type(e).__name__, os.path.abspath(__file__), os.path.abspath(__file__)))
             raise
-        self.st['status'] = 'complete'; self.save()
+        self.st['status'] = 'complete'; self.st['completed'] = iso(self.h.now()); self.save()
         self.h.hold_release(self.st['token'])
+        if self.exp:
+            self.write_ctx('watch', self.st['completed'])
+            self.journal('rollout-experiment', '%d bots on %s from %s; the watch (cron) holds the stops; MANDATORY rollback at +%d h (%s)' % (
+                len(self.bots(self.rolled_pools())), self.model, self.st['completed'], EXP_HOURS,
+                iso(ts(self.st['completed']) + dt.timedelta(hours=EXP_HOURS))))
+            self.h.notify('ROLLOUT COMPLETE', '%s: %d bots on %s; rollback at +%d h' % (self.run, len(self.bots(self.rolled_pools())), self.model, EXP_HOURS))
         self.journal('rollout-complete', 'all %d stages passed: %d bots on %s via %s; install-hold released' % (
             len(self.st['stages']), len(self.bots(self.rolled_pools())), self.model, DROPIN))
         self.page('verdict', 'ROLLOUT %s COMPLETE: %d bots on %s; the slot is free. Update STATE.md.' % (self.run, len(self.bots(self.rolled_pools())), self.model))
@@ -863,9 +1155,11 @@ def cmd_read(ctxdir, M):
 def main(argv=None, host=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[1])
     sub = ap.add_subparsers(dest='cmd', required=True)
-    for c in ('plan', 'run', 'status', 'rollback', 'release'):
+    for c in ('plan', 'run', 'status', 'rollback', 'release', 'watch'):
         p = sub.add_parser(c)
         p.add_argument('--run', default='qwen35-01')
+        if c in ('run', 'plan'):
+            p.add_argument('--experiment', action='store_true', help='owner-directed: load gates are data; every stop rolls back ALL')
         if c == 'run':
             p.add_argument('--dry-run', action='store_true'); p.add_argument('--resume', action='store_true')
         if c == 'rollback':
@@ -876,11 +1170,13 @@ def main(argv=None, host=None):
     if a.cmd == '_read':
         return cmd_read(a.ctxdir, a.M)
     h = host or Host()
-    r = Rollout(h, a.run, dry=getattr(a, 'dry_run', False))
+    r = Rollout(h, a.run, dry=getattr(a, 'dry_run', False), experiment=getattr(a, 'experiment', False))
     if a.cmd == 'plan':
         print(r.describe_plan(read_jsonl(P['journal']))[2]); return 0
     if a.cmd == 'run':
         return r.go(resume=a.resume)
+    if a.cmd == 'watch':
+        return r.watch()
     st = r.load()
     if a.cmd == 'status':
         print(json.dumps(st, indent=1) if st else 'no rollout state at %s' % r.statep)
@@ -888,7 +1184,11 @@ def main(argv=None, host=None):
         return 0
     if not st:
         print('no rollout state at %s' % r.statep); return 2
-    if not h.take_lock():
+    if st.get('status') == 'complete' and st.get('experiment'):
+        # after a completed experiment the slot is free and canaries run: the canary lock is theirs; take the watch's own
+        if not h.own_lock():
+            print('REFUSED: the watch is running (its lock is held); retry in a few minutes'); return 2
+    elif not h.take_lock():
         print('REFUSED: %s is held (a running rollout, a canary loop or an installer)' % P['lock']); return 2
     if a.cmd == 'release':
         if st.get('status') != 'stopped':
