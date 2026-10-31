@@ -27,8 +27,8 @@
 //   until every other builder's open intent is settled, cancelled, or its sender retired (buildproj.mjs intentRetired); never on
 //   a timer. After the wait the block is HELD again and the face looked at again.
 
-import { walkFrom, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replantAlternative } from './buildsite.mjs'
-import { isSolid, replaceableCell } from './townplan.mjs'
+import { walkFrom, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replantAlternative, refUsable } from './buildsite.mjs'
+import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
 import * as V from './voidfill.mjs'
 
@@ -108,6 +108,50 @@ export function overburdenAbove (read, at, { max = OVERBURDEN_MAX, scaffold = FO
     digs.push({ at: p, name: n })
   }
   return { ok: true, digs: digs.reverse(), why: null, hard: false }
+}
+/**
+ * A SEALED FOREIGN COLUMN (wallstuck-01, LIVE showcase 10-30: the wall's W-01 step cells 23,69,-19 granite and 23,70,-19 dirt,
+ * set in the built steps after siting, under a granite block on the wall walk 23,71,-19 -- every face of both covered, so no dig
+ * stand sees one: `clear_failed no_stand` on every visit since 13:46Z, and each visit stopped `blocked` there) -> { ok, digs: [{ at,
+ * name, kind: 'overburden' | 'foreign' }] highest first, why, hard }. Pure. The column above `at`: this segment's OPEN record cells
+ * holding a foreign block (`isOpenForeign`, contiguous), then the overburden above the topmost of them (overburdenAbove: at most
+ * `max`, never a record cell, never the clears' own, never vetoed). Digging it highest first opens each cell's top face in turn.
+ */
+export function sealedAbove (read, at, { isOpenForeign = () => false, ...ob } = {}) {
+  const chain = [at]
+  for (let y = at[1] + 1; y <= at[1] + 64; y++) { const q = [at[0], y, at[2]]; if (!isOpenForeign(q)) break; chain.push(q) }
+  const top = chain[chain.length - 1]
+  const o = overburdenAbove(read, top, ob)
+  if (!o.ok) return { ok: false, digs: [], why: o.why, hard: o.hard }
+  const own = chain.slice().reverse().map(q => ({ at: q, name: nm(read(...q)), kind: 'foreign' }))
+  return { ok: true, digs: [...o.digs.map(d => ({ ...d, kind: 'overburden' })), ...own], why: null, hard: false }
+}
+/**
+ * THE FOOTING UNDER A HANGING RECORD CELL (wallstuck-01, LIVE showcase 10-30: wall cell 35,68,6 -- the column's lowest, sited on
+ * ground at y67 -- had the ground under it dug away after siting, every one of its six neighbours air: no face to place against, so
+ * `deferred` on every visit, stuck_on_cell, and the stalled wall's 6-h back-off) -> { ok, cells: [[x, y, z]] lowest first, why,
+ * hard }. Pure. Only when the cell below `at` is NOT a record cell (`isCell`): the cells below, down to the first solid one, every
+ * one clear (air or a plant), none a liquid (never a bridge: the owner's no-water rule), none vetoed (`mayPlace`), at most `max`.
+ * Placing them bottom-up gives the record cell its floor back (the ground it was sited on). Nothing to fill: { ok: false, why:
+ * 'floored' }.
+ */
+export const FOOTING_MAX = 3
+export function footingBelow (read, at, { max = FOOTING_MAX, isCell = () => false, mayPlace = () => true } = {}) {
+  const cells = []
+  for (let i = 1; ; i++) {
+    const q = [at[0], at[1] - i, at[2]]
+    const b = read(...q)
+    if (!b) return { ok: false, cells: [], why: `unknown ${kOf(q)}`, hard: false }
+    if (isCell(q)) return cells.length ? { ok: false, cells: [], why: `record_cell ${kOf(q)}`, hard: true } : { ok: false, cells: [], why: 'floored', hard: false }
+    if (isLiquid(b)) return { ok: false, cells: [], why: `liquid ${nm(b)} ${kOf(q)}`, hard: true }
+    if (refUsable(b)) break
+    if (!(AIR(nm(b)) || replaceableCell(b))) return { ok: false, cells: [], why: `kept ${nm(b)} ${kOf(q)}`, hard: true }
+    if (i > max) return { ok: false, cells: [], why: `deep ${max}+ below`, hard: true }
+    if (!mayPlace(q)) return { ok: false, cells: [], why: `vetoed ${kOf(q)}`, hard: true }
+    cells.push(q)
+  }
+  if (!cells.length) return { ok: false, cells: [], why: 'floored', hard: false }
+  return { ok: true, cells: cells.reverse(), why: null, hard: false }
 }
 /** Does segment `a` wait on segment `b` (directly or through its dependencies)? Such a segment cannot be leased while `b` is
  *  open, so `b` may clear a cell of it without meeting its builder (fell-01 r4). Pure. */
@@ -758,6 +802,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // town's bots occupy), and a cell deferred STUCK_VISITS visits ends the visit `stuck_on_cell` (a named row; the order backs off)
   const deferredSegs = new Set(), deferredCells = []
   let cellKeys = null   // pathsclose-01: the record's cell keys, built once when an overburden is first judged
+  // wallstuck-01: the foreign cells whose column could not be opened (`p.sealed`), and why each deferred cell was deferred (the
+  // visit's `deferred`: the caller's waiver names it)
+  const sealed = new Set(), deferWhy = new Map()
   // THE STUCK MAP, settled on EVERY exit (Codex r21 P2 / Claude P3-1: written only at the loop's end, a visit that deferred a cell
   // and then stopped early -- blocked, no_material, deps_open, a fence, the deadline -- never counted). Counts are per holder
   // file (buildproj stuckRead/stuckWrite: no lost update between two builders), summed for the threshold. An early exit keeps its
@@ -787,6 +834,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // it, and the town waited 6 h for a workshop its mats job could finish in minutes) AND ONLY WHEN NOTHING ELSE IS OPEN (Claude
     // r23 P3: another builder still working an independent segment must not be held off); this bot's own stop still backs IT off
     const ok = PJ.stuckWrite(dir, key, me, st.cells, { now: t, stuckAt: worst.length && stalled ? t : (Object.keys(st.cells).length ? prevAt : null) })
+    // wallstuck-01: what this visit deferred and why, with the summed count (the caller's waiver: wall.mjs wallWaiveDue)
+    out.deferred = [...new Set(deferredCells)].filter(k => !doneAt(k)).map(k => ({ k, why: deferWhy.get(k) ?? 'no_stand', visits: total(k) }))
     if (!deferredCells.length) return null
     if (!ok) {
       e.log('_build', { op: 'stuck_unwritten', cell: mine[0]?.split(',').map(Number) ?? null, n: mine.length })
@@ -796,6 +845,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     const waiting = record.cells.filter(c => deferredSegs.has(c.seg) && !isDone(c)).length
     if (worst.length) {
       e.log('_build', { op: 'stuck_on_cell', cell: worst[0].split(',').map(Number), visits: total(worst[0]), n: worst.length, segs: [...deferredSegs].join('+'), waiting, ...(stalled ? { stalled: true } : {}), ...(atEnd ? {} : { early: true }) })
+      // wallstuck-01 (`p.stuckStalledOnly`): a few hard cells do not back THIS BOT off (cognitive.mjs: its own stuck_on_cell stop
+      // holds its order 6 h) while the rest of the project is open: the named row stands, the stop is cell_deferred; only a
+      // STALLED project (nothing else open) stops stuck_on_cell
+      if (p.stuckStalledOnly && !stalled) return { stop: 'cell_deferred', why: `${worst.length} cell(s) no stand has reached in ${STUCK_VISITS}+ visits (first ${worst[0]}; ${waiting} open cell(s) wait on it); the rest of the project goes on` }
       return { stop: 'stuck_on_cell', why: `${worst.length} cell(s) no stand has reached in ${STUCK_VISITS}+ visits (first ${worst[0]}; ${waiting} open cell(s) wait on it)${stalled ? '; nothing else is open: the project is STALLED' : ''}` }
     }
     return { stop: 'cell_deferred', why: `${new Set(deferredCells).size} cell(s) no stand reaches now (segments ${[...deferredSegs].join(',')})${stalled ? `, every open segment waits on it (${waiting} cells)` : ''}: asked again next visit` }
@@ -850,7 +903,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // -- only while the cell still holds THAT block (Codex r1 P2: a listed grass cell now holding a spruce log is ours to dig)
         const listed = new Map((record.clear ?? []).map(c => [kOf(c.at), c.name]))
         const listedNow = at => listed.has(kOf(at)) && listed.get(kOf(at)) === nm(rd(...at))
-        const foreign = open.filter(c => { const k = foreignKind(nm(rd(...c.at)), scaffoldRe); return k && !(k === 'tree' && listedNow(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS }).sort((a, b) => a.at[1] - b.at[1])
+        const foreign = open.filter(c => { const k = foreignKind(nm(rd(...c.at)), scaffoldRe); return k && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS }).sort((a, b) => a.at[1] - b.at[1])
         if (foreign.length) {
           const f = foreign[0], name = nm(rd(...f.at)), kind = foreignKind(name, scaffoldRe)
           const sg = segGen
@@ -890,6 +943,28 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           const v = await digNamed(f.at, name, held)
           if (v === 'fence') { out.stop = 'fence:segment'; return out }
           if (v === 'aborted') { out.stop = 'aborted'; return out }
+          // wallstuck-01 (`p.sealed` = { mayDig(at) }): a foreign block NO STAND SEES is dug from the top of its column -- the
+          // overburden above it, then this segment's open foreign cells highest first (sealedAbove); a column that cannot be opened
+          // is SEALED: named, and deferred with the cells no stand reaches (F4: counted, stuck_on_cell, the waiver), never `blocked`
+          if (v === 'no_stand' && p.sealed && kind !== 'tree') {
+            cellKeys ??= new Set(record.cells.map(q => kOf(q.at)))
+            const openK = new Set(open.map(q => kOf(q.at)))
+            const sa = sealedAbove(rd, f.at, { isOpenForeign: q => openK.has(kOf(q)) && foreignKind(nm(rd(...q)), scaffoldRe) === 'scaffold', isCell: q => cellKeys.has(kOf(q)), listed: listedNow, mayDig: p.sealed.mayDig ?? (() => true), scaffold: scaffoldRe })
+            let dug = 0, sv = sa.ok ? null : 'refused'
+            if (sa.ok && sa.digs.length > 1) {
+              for (const d of sa.digs) {
+                const g = guard(); if (g) { out.stop = g; return out }
+                sv = await digNamed(d.at, d.name, held)
+                if (sv !== 'confirmed') break
+                dug++; out.cleared++; e.log('_build', { op: 'clear', seg, cell: d.at, block: d.name, kind: d.kind })
+              }
+              if (sv === 'fence') { out.stop = 'fence:segment'; return out }
+              if (sv === 'aborted') { out.stop = 'aborted'; return out }
+            }
+            if (dug) continue
+            sealed.add(kOf(f.at)); deferWhy.set(kOf(f.at), `sealed ${sa.why ?? sv ?? 'no_stand'}`)
+            bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'foreign', result: 'sealed', why: String(sa.why ?? sv ?? 'no_stand').slice(0, 80) }); continue
+          }
           // A FOREIGN DIG THAT DID NOT LAND IS NAMED (r3: live, `no_stand` spent the cell's attempts with no row at all)
           if (v !== 'confirmed') { bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign', result: v }); continue }
           out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign' })
@@ -1015,11 +1090,49 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             if (a.result === 'aborted') { out.stop = 'aborted'; return out }
             if (a.result === 'done') continue
           }
+          // wallstuck-01, THE FOOTING (`p.footing` = { mayPlace(at) }): a cell no stand reaches because the ground under it was dug
+          // away (footingBelow: the cell below is no record cell, the cells down to the first solid are clear) gets its floor back,
+          // bottom-up, each from a stand like any placement (a `kind=footing` place row); placed -> this segment is read again
+          if (p.footing && cand.length && !open.some(c => !isClear(c.at) && !sealed.has(kOf(c.at)))) {
+            cellKeys ??= new Set(record.cells.map(q => kOf(q.at)))
+            let laid = 0, stop = null
+            for (const c of cand) {
+              const fb = footingBelow(rd, c.at, { isCell: q => cellKeys.has(kOf(q)), mayPlace: p.footing.mayPlace ?? (() => true) })
+              if (!fb.ok) { if (fb.why !== 'floored') deferWhy.set(kOf(c.at), `footing ${fb.why}`); continue }
+              const block = blockFor(palette, p.footing.role ?? 'base', e.has)
+              if (!block) { deferWhy.set(kOf(c.at), 'footing no_material'); continue }
+              for (const q of fb.cells) {
+                const g = guard(); if (g) { out.stop = g; return out }
+                if ((tries.get(`f:${kOf(q)}`) ?? 0) >= BUILD_ATTEMPTS) { deferWhy.set(kOf(c.at), `footing attempts ${kOf(q)}`); break }
+                const fstep = stepFor(rd, home, q, nodes, domain)
+                if (!fstep) { deferWhy.set(kOf(c.at), `footing no_stand ${kOf(q)}`); break }
+                const fv = await click(q, block, fstep, seg, segGen, { want: b => isSolid(b), avoid: blocking })
+                if (fv === 'placed') { laid++; out.placed++; tally(block); e.log('_build', { op: 'place', seg, cell: q, block, kind: 'footing' }); continue }
+                if (fv.startsWith('fence:') || fv === 'aborted' || fv === 'no_material') { stop = fv; break }
+                tries.set(`f:${kOf(q)}`, (tries.get(`f:${kOf(q)}`) ?? 0) + 1)
+                if (fv === 'refused') out.refused++
+                if (fv === 'silent') out.silent++
+                deferWhy.set(kOf(c.at), `footing ${fv} ${kOf(q)}`); break
+              }
+              if (stop) break
+            }
+            if (stop) { out.stop = stop; return out }
+            if (laid) continue
+          }
           if (cand.length && !open.some(c => !isClear(c.at))) {
             // no stand reaches any placeable cell of this segment: DEFER them and go on (F4)
-            for (const c of cand) deferredCells.push(kOf(c.at))
+            for (const c of cand) { deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), 'no_stand') }
             deferredSegs.add(seg)
             e.log('_build', { op: 'deferred', seg, cell: cand[0].at, n: cand.length })
+            break
+          }
+          // wallstuck-01: every cell still holding a block is a SEALED foreign cell (its column could not be opened): those and the
+          // cells no stand reaches are DEFERRED (F4) -- the visit goes on with the next segment instead of stopping `blocked` here
+          if (p.sealed && open.some(c => sealed.has(kOf(c.at))) && open.every(c => isClear(c.at) || sealed.has(kOf(c.at)))) {
+            const defer = [...new Set([...cand.map(c => kOf(c.at)), ...open.filter(c => sealed.has(kOf(c.at))).map(c => kOf(c.at))])]
+            for (const k of defer) { deferredCells.push(k); if (!deferWhy.has(k)) deferWhy.set(k, 'no_stand') }
+            deferredSegs.add(seg)
+            e.log('_build', { op: 'deferred', seg, cell: defer[0].split(',').map(Number), n: defer.length, why: 'sealed' })
             break
           }
           out.stop = open.some(c => !isClear(c.at)) ? (needSapling ? 'no_sapling' : 'blocked') : 'attempts_spent'

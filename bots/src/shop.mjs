@@ -95,6 +95,17 @@ export function stuckStale (keys = [], record = null, cellDone = () => false) {
   const byKey = new Map((record?.cells ?? []).map(c => [c.at.join(','), c]))
   return keys.every(k => { const c = byKey.get(k); return !!c && cellDone(c) === true })
 }
+/** An OPEN record's stuck stamp is STALE when the record has other work: an open cell (`cellOpen(cell) === true`: the caller's world
+ *  read, read and not done; unread is not open) in a segment none of the stamp's cells is in -- the stamp was written when nothing
+ *  else was open (buildrun.mjs settleStuck `stalled`), so the 6-h back-off holds only the stuck segment, never the rest of the
+ *  project (wallstuck-01, LIVE showcase 10-30 23:17Z: Gale's stamp on W-03 held W-01's two open cells too). A light cell is never
+ *  "other work" (its torch is the material run's). Pure. */
+export function stuckOtherWork (keys = [], record = null, cellOpen = () => false) {
+  const byKey = new Map((record?.cells ?? []).map(c => [c.at.join(','), c]))
+  const segs = new Set(keys.map(k => byKey.get(k)?.seg).filter(Boolean))
+  if (!segs.size) return false
+  return (record?.cells ?? []).some(c => c.role !== 'light' && !segs.has(c.seg) && cellOpen(c) === true)
+}
 export const REPAIR_WINDOW_MS = 60 * 60_000
 export function repairBackoff (states = [], mem = null, now = Date.now()) {
   if (!mem) return states
