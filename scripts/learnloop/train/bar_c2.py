@@ -82,6 +82,20 @@ def main():
              'schema_valid >= 99': ct['schema_valid'] >= 99.0}
         rep['bar'][b] = {'base_scores': {k: bt[k] for k in ('schema_valid', 'hard', 'rep_fail', 'post_veto_repeat', 'agree_skill', 'agree_key')},
                          'gates': g, 'pass_offline': all(g.values()), 'paired': paired(items, cr, br)}
+    # DEGENERATE-POLICY CHECK (not part of the owner's bar; reported beside it): the skill mix per item kind. A
+    # candidate that "beats" rep_fail/post_veto by always answering one action (the teacher over-chose `surface`)
+    # shows here as a collapsed mix and a falling good-item agreement.
+    import collections
+    def mix(recs):
+        out = {}
+        for kind in ('good', 'fail', 'post_veto'):
+            c = collections.Counter((recs.get(i['id'], {}).get('proposal') or {}).get('skill') for i in items if i['eval_kind'] == kind)
+            n = sum(c.values()) or 1
+            out[kind] = {k: round(100.0 * v / n, 1) for k, v in c.most_common(6)}
+        return out
+    rep['skill_mix'] = {a.cand: mix(cr)}
+    for b in a.vs:
+        rep['skill_mix'][b] = mix(last_by_id(runfile(a.dir, b)))
     if a.bf16:
         ids = [i['id'] for i in items]
         q, f = E.load(runfile(a.dir, a.cand)), E.load(runfile(a.dir, a.bf16))

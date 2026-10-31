@@ -115,6 +115,32 @@ def keep_label(item, rec):
     return True, 'kept'
 
 
+def cap_skill_share(rows, cap, rng):
+    """Anti-collapse cap on the RELABELS (c2, 10-31): no single skill above `cap` of the kept relabels. A teacher that
+    prefers one action (qwen3.8:27b chose `surface` on 56% of kept relabels in the interim count) would otherwise teach
+    a policy that games rep_fail/post_veto by always answering it. ONE joint pass over the skills that start above the
+    cap: each is downsampled (seeded) to cap x T, where T = (the other skills) / (1 - cap x #over), so each ends at
+    exactly `cap` of the result and the other skills are untouched. -> (rows, {skill: dropped}).
+    Refused when the over-cap skills alone cannot fit (cap x #over >= 1)."""
+    by = collections.defaultdict(list)
+    for r in rows:
+        by[json.loads(r['assistant'])['skill']].append(r)
+    tot = sum(len(v) for v in by.values())
+    over = sorted(k for k, v in by.items() if len(v) > cap * tot)
+    if not over:
+        return rows, {}
+    if cap * len(over) >= 1:
+        raise SystemExit('REFUSED: %d skills over a %.2f cap cannot all be capped' % (len(over), cap))
+    rest = sum(len(v) for k, v in by.items() if k not in over)
+    t_new = rest / (1 - cap * len(over))
+    dropped = {}
+    for k in over:
+        keep = int(cap * t_new)
+        dropped[k] = len(by[k]) - keep
+        by[k] = rng.sample(sorted(by[k], key=lambda r: r['id']), keep)
+    return [r for v in by.values() for r in v], dropped
+
+
 def fast_id(line):
     return line[8:8 + 60].split('"', 1)[0] if line.startswith('{"id": "') else json.loads(line)['id']
 
@@ -264,6 +290,11 @@ def cmd_assemble(a):
                 kept[rec['id']] = ex
     if not kept:
         raise SystemExit('REFUSED: no relabel kept: %s' % dict(C))
+    relabels = list(kept.values())
+    if a.max_skill_share:
+        relabels, dropped = cap_skill_share(relabels, a.max_skill_share, random.Random(a.seed + 2))
+        for k, v in dropped.items():
+            C['relabel cap %.2f: %s dropped' % (a.max_skill_share, k)] = v
     good = [json.loads(l) for l in open(os.path.join(out, 'good.jsonl')) if l.strip()]
     if a.good_n is not None and a.good_n < len(good):
         # a seeded random subset (good.jsonl is in day order): sqrt-by-skill shares are kept in expectation
@@ -271,7 +302,7 @@ def cmd_assemble(a):
         C['good subset'] = a.good_n
     for g in good:
         g['assistant'] = canonical(json.loads(g['assistant']), g['sentinel'])
-    rows = list(kept.values()) + good
+    rows = relabels + good
     rng = random.Random(a.seed)
     rows.sort(key=lambda r: r['id']); rng.shuffle(rows)
     p = os.path.join(out, a.name)
@@ -300,6 +331,7 @@ def main(argv=None):
     q = sub.add_parser('assemble')
     q.add_argument('--out', required=True); q.add_argument('--labels', nargs='+', required=True)
     q.add_argument('--name', default='train.jsonl'); q.add_argument('--seed', type=int, default=20261030)
+    q.add_argument('--max-skill-share', type=float, default=0.30, help='anti-collapse cap on any one skill among relabels (0 = off)')
     q.add_argument('--good-n', type=int, default=None, help='use a seeded random subset of good.jsonl')
     q.add_argument('--pilot', nargs='*', default=None, help='pilot-1000.jsonl: its non-transient items join the pool')
     q.add_argument('--local-model', nargs='+', required=True, help='the local teacher(s) whose replay records these are')

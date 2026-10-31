@@ -103,6 +103,25 @@ def t_post_veto_item_that_itself_failed_cannot_be_relabelled_with_that_action():
     assert BC.keep_label(it, rec('gather', {'block': 'stone'}))[0]
 
 
+def t_skill_cap_limits_one_action_and_keeps_the_rest():
+    import random
+    mk = lambda i, sk: {'id': '%04d' % i, 'assistant': json.dumps({'skill': sk})}
+    mix = [('surface', 60), ('gather', 15), ('mine', 10), ('deposit', 10), ('goto', 5)]
+    rows, i = [], 0
+    for sk, n in mix:
+        for _ in range(n):
+            rows.append(mk(i, sk)); i += 1
+    out, dropped = BC.cap_skill_share(rows, 0.30, random.Random(1))
+    c = {}
+    for r in out:
+        k = json.loads(r['assistant'])['skill']; c[k] = c.get(k, 0) + 1
+    assert {k: c[k] for k in ('gather', 'mine', 'deposit', 'goto')} == {'gather': 15, 'mine': 10, 'deposit': 10, 'goto': 5}, c
+    assert c['surface'] == int(0.3 * 40 / 0.7) == 17 and dropped == {'surface': 43}, (c, dropped)
+    assert c['surface'] / sum(c.values()) <= 0.30
+    same, d2 = BC.cap_skill_share(out, 0.30, random.Random(1))      # already under the cap: unchanged
+    assert d2 == {} and len(same) == len(out)
+
+
 def t_label_filter_runs_the_hard_check():
     # positive control: score.check_action must fire on SOMETHING the filter sees -- craft of an item it cannot craft
     import score as S
