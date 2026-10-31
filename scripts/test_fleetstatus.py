@@ -729,6 +729,49 @@ def t_learnloop_line_is_in_the_header():
                                       for x in head), head
 
 
+def _lava_fixture(reader=False, retired=None, tool=True, modules=True):
+    import tempfile
+    d = tempfile.mkdtemp()
+    home, tree = os.path.join(d, 'lavasight'), os.path.join(d, 'src')
+    os.makedirs(os.path.join(home, 'app')); os.makedirs(tree)
+    if tool:
+        open(os.path.join(home, 'app', 'lavamap_publish.py'), 'w').write('print("lavamap OK: fixture")\n')
+    if retired is not None:
+        open(os.path.join(home, 'RETIRED'), 'w').write(retired)
+    if modules:
+        open(os.path.join(tree, 'index.mjs'), 'w').write('import x from "./skills.mjs"\n')
+        if reader:
+            open(os.path.join(tree, 'lavasight.mjs'), 'w').write("export const LAVAMAP_FILE = 'lava-map.json'\n")
+    return home, tree
+
+
+def t_lavamap_no_consumer_is_an_alarm_not_ok():
+    """audit 10-31: the publisher ran hourly for a feed nothing on the fleet read, and the line said 'lavamap OK'."""
+    home, tree = _lava_fixture()
+    line = FS.lavamap_line(None, home=home, tree=tree)
+    assert line.startswith('!! lavamap: the feed has NO CONSUMER') and '1 modules' in line, line
+
+
+def t_lavamap_retired_says_so():
+    home, tree = _lava_fixture(tool=False, retired='retired 10-31: lavasight-01 INCONCLUSIVE; data kept\n')
+    line = FS.lavamap_line(None, home=home, tree=tree)
+    assert line.startswith('lavamap RETIRED: no consumer') and 'INCONCLUSIVE' in line, line
+
+
+def t_lavamap_with_a_reader_runs_the_check():
+    home, tree = _lava_fixture(reader=True)
+    line = FS.lavamap_line(None, home=home, tree=tree)
+    assert line.startswith('lavamap OK: fixture') and 'lavasight.mjs' in line, line
+
+
+def t_lavamap_unreadable_tree_is_no_verdict():
+    home, tree = _lava_fixture(modules=False)
+    line = FS.lavamap_line(None, home=home, tree=tree)
+    assert line.startswith('!! lavamap: cannot tell'), line
+    home, _ = _lava_fixture(tool=False)
+    assert FS.lavamap_line(None, home=home, tree=tree) is None
+
+
 TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith('t_') and callable(f)]
 
 if __name__ == '__main__':

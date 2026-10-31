@@ -177,6 +177,16 @@ def t_rollout(RO):
     S = RO.showcase_ledger(d)
     check('showcase ledger joins staged + annotation', len(S) == 1 and S[0]['sha'] == 'fc3000135752' and S[0]['prev'] == '78975c36'
           and S[0]['reviewer'] == 'claude', S)
+    d2 = d + [{'t': '2026-10-28T08:40:00Z', 'event': 'staged', 'release': 'aa11bb22-6dd0ded8-fdd64ead', 'sha': 'aa11bb22cc',
+                'staged_at': '2026-10-28T08:40:00Z'},
+               {'t': '2026-10-28T08:40:15Z', 'event': 'activated', 'release': 'aa11bb22-6dd0ded8-fdd64ead', 'running_bots': 10},
+               {'t': '2026-10-28T11:00:00Z', 'event': 'activated', 'release': 'cc33dd44-6dd0ded8-fdd64ead', 'running_bots': 10}]
+    S2 = RO.showcase_ledger(d2)
+    check('showcase: a release replaced inside its hour is cut at the next staged time',
+          S2[0].get('superseded_by') == 'aa11bb22-6dd0ded8-fdd64ead'
+          and S2[0].get('until') == dt.datetime(2026, 10, 28, 8, 40, tzinfo=UTC), S2[0])
+    check('showcase: a release replaced after its hour keeps the full window',
+          'until' not in S2[1] and 'until' not in S2[2], S2[1:])
     check('same_sha', RO.same_sha('fc3000135752c9671a', 'fc300013') and not RO.same_sha('fc30001', 'fc30002')
           and not RO.same_sha('fc30', 'fc30'))
     ok = {'tripper': {'verdict': 'OK'}, 'bot_hours': 79.0, 'deaths': 1, 'baseline_rate': 0.05, 'bots_present': 80, 'bots_on_sha': 80}
@@ -246,7 +256,26 @@ def t_head(AH):
         json.dump({'generated_at': '2026-10-28T11:58:00Z', 'pending': ['a'],
                    'recent': ['... 60-min: PASS', '... 60-min: PENDING', '... 60-min: FAIL']},
                   open(os.path.join(d, 'rollout-fleet.json'), 'w'))
-        out = AH.lines(now, None, state_dir=d, conf=os.path.join(d, 'none'))
+        out = AH.lines(now, None, state_dir=d, conf=os.path.join(d, 'none'), sched_log=os.path.join(d, 'none.log'))
+        check('head: unreadable sched.log is an alarm', any(l.startswith('!! canary slot: sched.log UNREADABLE') for l in out), out)
+        def tk(mins_ago, dec, why='H1 townfloor-01: held: x'):
+            return f"{AH.AL._iso(now - dt.timedelta(minutes=mins_ago))} {dec}: {why}"
+        busy = [tk(m, 'BUSY', 'S1 canary declared') for m in (200, 195, 190)]
+        idle_ticks = [tk(m, 'BLOCK') for m in range(185, -1, -5)]
+        log = '\n'.join(busy[:1] + [tk(199, 'note', 'enabled but inactive')] + busy[1:] + idle_ticks) + '\n'
+        ticks = AH.parse_ticks(log)
+        check('slot: notes skipped, ticks parsed', len(ticks) == 3 + len(idle_ticks), len(ticks))
+        l1 = AH.slot_idle(ticks, now)
+        check('slot: idle 185 min after BUSY alarms', l1.startswith('!! canary slot IDLE 185 min') and 'townfloor-01' in l1, l1)
+        l2 = AH.slot_idle(AH.parse_ticks('\n'.join(busy + [tk(m, 'WAIT') for m in (30, 25, 0)])), now)
+        check('slot: free 30 min is not an alarm', not l2.startswith('!!') and 'free 30 min' in l2, l2)
+        l3 = AH.slot_idle(AH.parse_ticks('\n'.join(idle_ticks)), now)
+        check('slot: a streak older than the tail reads >=', l3.startswith('!! canary slot IDLE >= 185 min'), l3)
+        l4 = AH.slot_idle(AH.parse_ticks('\n'.join(idle_ticks[:-10] + [tk(40, 'LAUNCH', 'x')] + [tk(m, 'BUSY', 'S7 live') for m in (35, 5)])), now)
+        check('slot: launched then busy is not idle', l4.startswith('canary slot: busy'), l4)
+        l5 = AH.slot_idle(AH.parse_ticks('\n'.join(busy)), now)
+        check('slot: no tick for 190 min is a scheduler alarm', l5.startswith('!! canary scheduler: last tick'), l5)
+        check('slot: no ticks is an alarm', AH.slot_idle([], now).startswith('!! canary slot: NO scheduler tick'))
         txt = '\n'.join(out)
         check('head: no channel is an alarm line', out[0].startswith('!! alarm push: NO CHANNEL'), out[0])
         check('head: fresh OK summary printed plain', 'fleet goals OK: 0 open' in out)
@@ -279,10 +308,13 @@ MUTANTS = [
     ('haltwatch.py', "        if inc.get('dry_run') or not inc.get('stopped')", "        if not inc.get('stopped')", t_halt),
     ('rollout.py', "            if d >= 2 and d > poisson_upper(mu, 0.995):", "            if d > poisson_upper(mu, 0.995):", t_rollout),
     ('rollout.py', "    inside = [r for r in runs if t0 <= r[0] <= t1 + slack]", "    inside = [r for r in runs]", t_rollout),
+    ('rollout.py', "        if cut < a['t'] + CHECK_AFTER:", "        if False:", t_rollout),
     ('haltwatch.py', "f'mcbot@{unit_of.get(b, b)}.service'", "f'mcbot@{b}.service'", t_halt),
     ('driftwatch.py', "            if r['alarm']:                      # a zero median", "            if False:                      # a zero median", t_drift),
     ('driftwatch.py', "            if min(lo, hi) >= 0.025:", "            if False:", t_drift),
     ('lib/alarm.py', "        if last is None or now - last >= repush:", "        if True:", t_alarm),
+    ('lib/alarmhead.py', "    if t_last - start >= idle:", "    if False:", t_head),
+    ('lib/alarmhead.py', "        if d not in IDLE_DECISIONS:\n            bounded = True", "        if False:\n            bounded = True", t_head),
     ('lib/alarmhead.py', "    if age is None or age > stale:\n        return [f'!! {label}: STALE",
      "    if age is None:\n        return [f'!! {label}: STALE", t_head),
 ]

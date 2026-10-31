@@ -24,6 +24,13 @@ ES_KINDS = (   # (kind, label, stale after)
     ('showcase_goal', 'showcase goals', dt.timedelta(minutes=50)),
 )
 OPS = 'mcai-showcase-ops'
+SCHED_LOG = '~/digest/sched.log'    # canary-sched.py tick (cron */5): one '<ISO> <DECISION>: <reasons>' line per tick
+SLOT_IDLE = dt.timedelta(minutes=60)
+SCHED_STALE = dt.timedelta(minutes=20)
+TAIL_BYTES = 6_000_000              # ~2 days of ticks; a streak longer than the tail reads as 'idle >= <tail span>'
+# A tick whose decision is one of these means the slot is FREE and the head cannot launch (canary-sched.decide: block |
+# wait | idle). BUSY (a canary, deploy, install or chain is present), LAUNCH and LAUNCHING end a streak.
+IDLE_DECISIONS = ('BLOCK', 'WAIT', 'IDLE')
 
 
 def _age(now, s):
@@ -95,12 +102,68 @@ def es_lines(now, client):
     return out
 
 
-def lines(now, client=None, state_dir=STATE, conf=AL.CONF):
+def parse_ticks(text):
+    """PURE. sched.log text -> [(t, DECISION, reasons)] for its tick lines, oldest first ('note:' lines skipped)."""
+    out = []
+    for line in text.splitlines():
+        parts = line.split(' ', 2)
+        if len(parts) < 2 or not parts[0][:4].isdigit():
+            continue
+        dec = parts[1].rstrip(':').upper()
+        if dec == 'NOTE':
+            continue
+        try:
+            t = AL._ts(parts[0])
+        except (TypeError, ValueError):
+            continue
+        if t is not None:
+            out.append((t, dec, parts[2] if len(parts) > 2 else ''))
+    return out
+
+
+def slot_idle(ticks, now, idle=SLOT_IDLE, stale=SCHED_STALE):
+    """PURE. -> one header line. '!! ' when the scheduler has not ticked for `stale`, or when every tick for >= `idle`
+    found the slot FREE with nothing it could launch (the slot sat idle 11.5 h on 10-29 and 7 h on 10-31 unnoticed)."""
+    if not ticks:
+        return '!! canary slot: NO scheduler tick read from sched.log -- is canary-sched.py tick in cron here?'
+    t_last, dec, why = ticks[-1]
+    if now - t_last > stale:
+        return f'!! canary scheduler: last tick {AL._iso(t_last)} ({(now - t_last).total_seconds() / 60:.0f} min ago) -- cron stopped?'
+    if dec not in IDLE_DECISIONS:
+        return f'canary slot: {dec.lower()} at {AL._iso(t_last)}'
+    start, bounded = t_last, False
+    for t, d, _ in reversed(ticks):
+        if d not in IDLE_DECISIONS:
+            bounded = True
+            break
+        start = t
+    mins = (t_last - start).total_seconds() / 60
+    head = why.split(' | ')[0][:220]
+    if t_last - start >= idle:
+        return (f'!! canary slot IDLE {"" if bounded else ">= "}{mins:.0f} min (since {AL._iso(start)}) with nothing runnable '
+                f'in the queue: {dec} {head} -- release, re-variant or reorder the head, or queue the next canary')
+    return f'canary slot: free {mins:.0f} min, nothing runnable yet ({dec} {head[:120]})'
+
+
+def slot_lines(now, path=SCHED_LOG):
+    p = os.path.expanduser(path)
+    try:
+        with open(p, 'rb') as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - TAIL_BYTES))
+            text = f.read().decode('utf-8', errors='replace')
+    except OSError as e:
+        return [f'!! canary slot: sched.log UNREADABLE ({type(e).__name__}) at {p}']
+    return [slot_idle(parse_ticks(text), now)]
+
+
+def lines(now, client=None, state_dir=STATE, conf=AL.CONF, sched_log=SCHED_LOG):
     out = []
     try:
         ok, desc = AL.push_channel(conf)
         out.append(('' if ok else '!! ') + f'alarm push: {desc}' +
                    ('' if ok else ' -- alarms reach only this header and ~/digest/ALARMS.log'))
+        out += slot_lines(now, sched_log)
         for name, label, stale in FILES:
             out += file_lines(now, name, label, stale, state_dir)
         if client is not None:

@@ -31,8 +31,12 @@ sec "versions live (must be exactly one, or two with a code canary)"
 for d in /var/log/mcai/*/; do tail -c 200000 $d/skill-*.jsonl 2>/dev/null | grep -a '"version"' | tail -1 | grep -ao '"version": *"[^"]*"' | cut -d'"' -f4; done | sort | uniq -c
 sec "open loop"
 timeout 120 python3 scripts/check-open-loop.py 2>&1 | tail -3
-sec "quick status (2 h)"
-timeout 280 python3 /tmp/quickstatus.py 2>&1 | tail -12
+sec "quick status (3 h, fleetstatus.py)"
+# fleetstatus.py replaced the lost /tmp/quickstatus.py (gone since a reboot; this line printed "No such file" every 30 min
+# until 10-31). Installed copy: ~/estel/scripts/host/fleetstatus.py (scripts/host/fleetstatus.py on main), never /tmp.
+FS=$HOME/estel/scripts/host/fleetstatus.py
+if [ -f "$FS" ]; then timeout 280 python3 "$FS" --windows 3h 2>&1 | cut -c1-400 | head -60
+else echo "!! quick status: $FS is not installed (copy scripts/host/fleetstatus.py + scripts/lib there)"; fi
 if [ -n "$POOL" ]; then
   sec "canary read: $RUN on $POOL (+${ELAPSED} min)"
   if [ "$CV" = "$(python3 -c "import json;print(json.load(open('$M')).get('declared_code_version') or '')")" ]; then

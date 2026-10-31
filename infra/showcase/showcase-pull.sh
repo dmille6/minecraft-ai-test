@@ -36,10 +36,12 @@ log "timelapse -> NAS: reconcile every day dir the VM holds against the NAS (fra
 TLK="ssh $O -i $HOME/.ssh/id_showcase_tl"
 NB=/volume1/homes/mike/showcase-timelapse
 ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "mkdir -p $NB/frames" || { log "ALARM: NAS unreachable"; exit 7; }
-# the VM's inventory: <view>/<day> <n files>
-rsync -r --list-only -e "$TLK" "$VM:frames/" 2>"$TLS/.list.err" | awk '$NF ~ /\.png$/ {split($NF, p, "/"); c[p[1] "/" p[2]]++} END {for (k in c) print k, c[k]}' | sort > "$TLS/.vm.inv" \
+# the VM's inventory: <view>/<day> <n files>. ONLY published frames, frames/<view>/<YYYYmmdd>/<stamp>.png: the capture's
+# work area frames/.staging/ holds in-flight (and, after a killed capture, orphaned) pngs, and counting those as "day dirs"
+# made every night from 10-28 to 10-31 alarm "3 day dirs still short" over three orphans of a 10-27 06:45Z capture.
+rsync -r --list-only -e "$TLK" "$VM:frames/" 2>"$TLS/.list.err" | awk '$NF ~ /\.png$/ {n = split($NF, p, "/"); if (n == 3 && p[1] !~ /^\./ && p[2] ~ /^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/) c[p[1] "/" p[2]]++} END {for (k in c) print k, c[k]}' | sort > "$TLS/.vm.inv" \
   || { log "ALARM: cannot list the VM's frames: $(head -c 200 "$TLS/.list.err")"; exit 7; }
-ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "cd $NB/frames 2>/dev/null && find . -name '*.png' | awk -F/ '{c[\$2 \"/\" \$3]++} END {for (k in c) print k, c[k]}'" | sort > "$TLS/.nas.inv"
+ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "cd $NB/frames 2>/dev/null && find . -name '*.png' | awk -F/ 'NF == 4 && \$2 !~ /^\\./ && \$3 ~ /^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]\$/ {c[\$2 \"/\" \$3]++} END {for (k in c) print k, c[k]}'" | sort > "$TLS/.nas.inv"
 need=$(join -a1 -e 0 -o 1.1,1.2,2.2 "$TLS/.vm.inv" "$TLS/.nas.inv" | awk '$2 > $3 {print $1}')
 nd=0; bad=0
 for vd in $need; do
@@ -58,7 +60,7 @@ rsync -a -e "$TLK" "$VM:FRAME0.json" "$TLS/" 2>/dev/null || true
 tar -C "$TLS" -cf - video $( [ -f "$TLS/FRAME0.json" ] && echo FRAME0.json ) | ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "tar -C $NB -xf -" \
   || log "WARN: video / FRAME0 push incomplete"
 # positive control + completeness: after the pushes the NAS must hold at least what the VM holds, per day dir
-ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "cd $NB/frames && find . -name '*.png' | awk -F/ '{c[\$2 \"/\" \$3]++} END {for (k in c) print k, c[k]}'" | sort > "$TLS/.nas.inv"
+ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "cd $NB/frames && find . -name '*.png' | awk -F/ 'NF == 4 && \$2 !~ /^\\./ && \$3 ~ /^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]\$/ {c[\$2 \"/\" \$3]++} END {for (k in c) print k, c[k]}'" | sort > "$TLS/.nas.inv"
 short=$(join -a1 -e 0 -o 1.1,1.2,2.2 "$TLS/.vm.inv" "$TLS/.nas.inv" | awk '$2 > $3' | wc -l)
 total=$(awk '{s += $2} END {print s + 0}' "$TLS/.vm.inv")
 [ "$total" -gt 0 ] || log "WARN: the VM lists 0 frames (before frame 0, or the listing is wrong)"

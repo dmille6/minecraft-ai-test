@@ -134,7 +134,23 @@ def showcase_ledger(deploy):
                     'tier': n.get('tier') or s.get('tier'), 'reviewer': n.get('reviewer') or s.get('reviewer'),
                     'note': s.get('why') or '', 'piece': s.get('piece'), 'running_bots': r.get('running_bots'),
                     'legacy': False, 'check': checks.get((rel, r.get('t')))})
-    return out
+    return supersede(out, staged)
+
+
+def supersede(rows, staged):
+    """PURE. Mark each showcase row whose window [t0, t0 + 60] is cut short by the NEXT release: 'until' = the next
+    release's staged time (its bots restart between staged and activated), 'superseded_by' = its id. Without this a
+    release replaced inside its hour was judged on the next release's rows and read 'sha on 0/10 bots' (10-29..10-31:
+    every 0/10 check was a release superseded within 60 min; every unsuperseded one read 10/10)."""
+    rows = sorted(rows, key=lambda r: r['t'] or dt.datetime.min.replace(tzinfo=UTC))
+    for a, b in zip(rows, rows[1:]):
+        if a['t'] is None or b['t'] is None:
+            continue
+        s = staged.get(b['id'], {})
+        cut = min([x for x in (_ts(s.get('staged_at')), _ts(s.get('t')), b['t']) if x is not None and x > a['t']] or [b['t']])
+        if cut < a['t'] + CHECK_AFTER:
+            a['until'], a['superseded_by'] = cut, b['id']
+    return rows
 
 
 def due(rows, now, after=CHECK_AFTER, horizon=DUE_HORIZON):
@@ -190,7 +206,9 @@ def verdict(f):
 def describe(f, v, why):
     rate = f.get('baseline_rate')
     base = f'{rate:.4f}/bot-h over {f.get("baseline_bot_hours", 0):,.0f} bot-h' if rate is not None else 'none'
-    return (f"{v}: deaths {f.get('deaths', 0)} / {f.get('bot_hours', 0):.1f} active bot-h (baseline {base}); "
+    sup = (f"superseded by {f['superseded_by']} after {f.get('superseded_after_min')} min (window cut there); "
+           if f.get('superseded_by') else '')
+    return (f"{v}: {sup}deaths {f.get('deaths', 0)} / {f.get('bot_hours', 0):.1f} active bot-h (baseline {base}); "
             f"sha on {f.get('bots_on_sha', 0)}/{f.get('bots_present', 0)} bots ({f.get('rows', 0):,} rows); "
             f"tripper {(f.get('tripper') or {}).get('verdict')}; crash loops {len(f.get('crash_loops') or {})} "
             f"({f.get('unit_lines')} systemd unit lines read); "
@@ -363,7 +381,7 @@ def crash_facts(pattern, t0, t1):
 def run_check(row, log_root='/var/log/mcai'):
     from lib.logwindow import load_window
     t0 = row['t']
-    t1 = t0 + CHECK_AFTER
+    t1 = min(t0 + CHECK_AFTER, row.get('until') or t0 + CHECK_AFTER)
     ev = load_window(t0, t1, root=log_root, bots='showcase-*' if row['env'] == 'showcase' else '*')
     rows = ev.rows
     if row['env'] == 'fleet':
@@ -384,6 +402,8 @@ def run_check(row, log_root='/var/log/mcai'):
         f['tripper'] = tripper_showcase(t0, t1)
         f.update(crash_facts('mcshow@*.service', t0, t1))
     f['window'] = [AL._iso(t0), AL._iso(t1)]
+    if row.get('superseded_by'):
+        f['superseded_by'], f['superseded_after_min'] = row['superseded_by'], round((t1 - t0).total_seconds() / 60, 1)
     v, why = verdict(f)
     return v, why, f
 
