@@ -57,6 +57,13 @@ def main():
     ap.add_argument('--save-steps', type=int, default=0, help='checkpoint every N optimizer steps (0 = none); keeps 2')
     ap.add_argument('--resume', action='store_true', help='resume from the newest checkpoint under <out>/trainer')
     ap.add_argument('--m2b-verified', default='', help='ISO time of the +24 h drop16.sh --verify OK')
+    # CANDIDATE 2 (10-30): Qwen3.5-9B. Unsloth: bf16 LoRA on 9B needs ~22 GB (does not fit beside ethan-gpu's 6 GB on
+    # the 24 GB 3090) and "It is not recommended to do QLoRA (4-bit) training on the Qwen3.5 models"; so the precision
+    # is a parameter, chosen by the fit test (8-bit LoRA first). LoRA targets: Qwen3.5 has 8 full-attention layers
+    # (q/k/v/o) and 24 Gated DeltaNet layers (in_proj_qkv, in_proj_z, out_proj); the MLP is in every layer.
+    ap.add_argument('--quant', choices=('4bit', '8bit', '16bit'), default='4bit')
+    ap.add_argument('--targets', choices=('dense', 'qwen35'), default='dense')
+    ap.add_argument('--epochs', type=float, default=1.0, help='with --max-steps 0: epochs over the examples that fit')
     a = ap.parse_args()
     import re
     if not re.fullmatch(r'20\d\d-\d\d-\d\dT\d\d:\d\d(:\d\d)?Z', a.m2b_verified or ''):
@@ -72,10 +79,17 @@ def main():
     from transformers import TrainerCallback
 
     t_load = time.time()
-    model, tok = FastLanguageModel.from_pretrained(a.base, max_seq_length=a.max_seq, load_in_4bit=True, dtype=None)
+    qkw = {'4bit': {'load_in_4bit': True}, '8bit': {'load_in_4bit': False, 'load_in_8bit': True},
+           '16bit': {'load_in_4bit': False}}[a.quant]
+    model, tok = FastLanguageModel.from_pretrained(a.base, max_seq_length=a.max_seq, dtype=None, **qkw)
+    if hasattr(tok, 'tokenizer'):           # Qwen3.5 loads a multimodal PROCESSOR: text goes to its tokenizer
+        tok = tok.tokenizer
+    targets = ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']
+    if a.targets == 'qwen35':
+        targets += ['in_proj_qkv', 'in_proj_z', 'out_proj']
     model = FastLanguageModel.get_peft_model(
         model, r=16, lora_alpha=32, lora_dropout=0, bias='none',
-        target_modules=['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'],
+        target_modules=targets,
         use_gradient_checkpointing='unsloth', random_state=3407)
     load_s = time.time() - t_load
 
@@ -91,7 +105,7 @@ def main():
         raise SystemExit('no example fits in %d tokens' % a.max_seq)
     ds = Dataset.from_list(rows)
     # --max-steps 0 = exactly one epoch of the examples that fit (M3 bootstrap, 10-24)
-    steps = 50 if a.fit_test_only else (a.max_steps or math.ceil(len(rows) / a.grad_accum))
+    steps = (a.max_steps or 50) if a.fit_test_only else (a.max_steps or math.ceil(a.epochs * len(rows) / a.grad_accum))
 
     class Clock(TrainerCallback):
         def __init__(self):
@@ -132,7 +146,7 @@ def main():
     m = {'base': a.base, 'data': os.path.abspath(a.data), 'examples_in': len(rows) + dropped, 'examples_used': len(rows),
          'dropped_too_long': dropped, 'max_seq': a.max_seq, 'mean_tokens': round(mean_len), 'max_tokens': max(lens),
          'steps': steps, 'grad_accum': a.grad_accum, 'sequences_seen': steps * a.grad_accum, 'lr': a.lr,
-         'lora': {'r': 16, 'alpha': 32, 'dropout': 0}, 'load_s': round(load_s), 'train_wall_s': round(wall),
+         'lora': {'r': 16, 'alpha': 32, 'dropout': 0, 'targets': targets}, 'quant': a.quant, 'load_s': round(load_s), 'train_wall_s': round(wall),
          'tokens_per_s_timed': round(tok_s, 1) if tok_s else None, 'timed_steps': timed_steps,
          'peak_vram_allocated_gib': round(torch.cuda.max_memory_allocated() / 2**30, 2),
          'peak_vram_reserved_gib': round(torch.cuda.max_memory_reserved() / 2**30, 2),

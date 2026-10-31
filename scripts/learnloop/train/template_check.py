@@ -35,6 +35,10 @@ def main():
     ap.add_argument('--control-model', default='qwen3:8b', help="a model served with a DIFFERENT template ('' to skip)")
     ap.add_argument('--think-variants', action='store_true',
                     help='M3 10-24: also require think=false and think=true to serve the same count (Qwen3 arms)')
+    ap.add_argument('--served-think', choices=('unset', 'false'), default='unset',
+                    help="c2 10-30: 'false' = the model is served behind a think:false proxy (the qwen3.5 canary's path, "
+                         "scripts/host/nothinkproxy.py): the checked call sends think=false, and the same model with "
+                         "think=true is an extra Ollama-side control that must count differently")
     a = ap.parse_args()
     from transformers import AutoTokenizer
     tok = AutoTokenizer.from_pretrained(a.base)
@@ -49,12 +53,16 @@ def main():
             # HF-side control becomes the render WITHOUT the generation prompt (it must count differently, too)
             wrong = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
         hf = len(tok(good, add_special_tokens=False)['input_ids']); hf_wrong = len(tok(wrong, add_special_tokens=False)['input_ids'])
-        ol = ollama_count(a.url, a.model, it['system'], it['user'])
+        st = None if a.served_think == 'unset' else False
+        ol = ollama_count(a.url, a.model, it['system'], it['user'], think=st)
+        ot = ollama_count(a.url, a.model, it['system'], it['user'], think=True) if st is False else None
         oc = ollama_count(a.url, a.control_model, it['system'], it['user']) if a.control_model else None
         tv = {str(t): ollama_count(a.url, a.model, it['system'], it['user'], think=t) for t in (False, True)} if a.think_variants else {}
         rows.append({'id': it['id'], 'hf_no_think': hf, 'hf_think_on (control)': hf_wrong, 'ollama': ol,
-                     'ollama_think_variants': tv, 'ollama_control_model': oc, 'equal': ol == hf})
-        ok = ok and ol == hf and hf_wrong != hf and (oc is None or oc != hf) and all(v == hf for v in tv.values())
+                     'ollama_think_variants': tv, 'ollama_control_model': oc, 'ollama_think_on_control': ot,
+                     'served_think': a.served_think, 'equal': ol == hf})
+        ok = ok and ol == hf and hf_wrong != hf and (oc is None or oc != hf) and all(v == hf for v in tv.values()) \
+            and (ot is None or ot != hf)
     print(json.dumps({'model': a.model, 'items': rows, 'pass': ok}, indent=1))
     sys.exit(0 if ok else 1)
 
