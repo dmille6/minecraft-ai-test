@@ -1,0 +1,11 @@
+{
+ "run_id": "tombexit-01",
+ "sha": "1a0f9ddf162663ec03322fa894244b5ea28aa6e4",
+ "registered_at": "2026-10-31T20:15:23Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] tombexit-01 @ 1a0f9ddf on fleet base 2717bc1c (branch tombexit-on-2717bc1c). TOMBEXIT-01 (F2 of mineshaft-safety 2026-10-23 + an in-wall dig). Measured 7 d to 10-31 17:00Z (ES, 80 bots, 168 h): 211 deaths (drowning 57, fire 42, suffocation 42, other 40, fall 30). Suffocation: 37/42 had an _entombed in the 300 s before death and 39/42 a pillar_out (positive control: 300 random bot-time points, all with rows, 112 = 37% and 126 = 42%); the bot then sits idle 58-128 s inside a wall losing ~0.3 HP/s with no reflex acting. Part 1: the entombed arm fires only when no 64-node walk (walk / step-up with headroom / drop<=3, no dig) reaches a cell where it stood free in the last 120 s in an open component; bound 2 declines / 10 min / 8 blocks, then today's arm. Part 2: eye cell a full-cube suffocating block + health falling -> dig it (best tool, deadline = mineflayer digTime + 1.5 s, up to 16 digs for a refilling column; never under lava); _inwall_unseen instrument. Paper sandbox3 10-31 (base 281d5659 vs cand 7dc5cb8d, easy): base died idle ~10.1 s after every lethal trap (gravel column 2/2, stone feet+head 2/2, bare hands 1/1), cand freed in all (min HP 9/18/4); a 6-high gravel column killed the cand at the old cap of 4 -> cap 16 + immediate retry (r2). OWN LINES: _entombed_declined, _entombed_bound, _inwall (status, digs, stopped), _inwall_unseen, _tombexit_mode; suffocation deaths in the canary pools; _entombed rows per bot-h should fall. Exposure: every pool (87k _entombed / 7 d on all 80 bots; suffocation deaths in 15 of 16 pools, hive-d 9). Rollback env TOMBEXIT=0 (TOMBEXIT_INWALL=0 drops part 2), or the base sha. World: the in-wall dig breaks the one block inside the bot's head.",
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

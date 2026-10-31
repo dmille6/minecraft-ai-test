@@ -1,0 +1,11 @@
+{
+ "run_id": "lavatarget-01",
+ "sha": "dfb3ff13b0c04e113f57febc5e6b9d0f2c59dc2a",
+ "registered_at": "2026-10-31T21:11:01Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] lavatarget-01 @ dfb3ff13 on fleet base 52d9281a (branch lavatarget-on-52d9281a). LAVATARGET-01 (F5a of mineshaft-safety 2026-10-23). Measured 7 d to 10-31 17:00Z (ES, 80 bots, 168 h): 42 fire deaths; 41/42 had the bot's own lava guard refuse a leg naming lava in the 120 s before death, 29/42 an _explore_toward_known in the prior 120 s, 24/42 heading for iron_ore in the prior 60 s (positive control, 300 random bot-time points all with rows: 82 = 27%, 44 = 15%, lava_corridor 3 = 1%). knownTarget (explore's heading) skips a remembered sighting with lava THIS BOT's guards found within 6 blocks (cell to cell), or whose straight bearing passes within 2 blocks of it (lava within 3 of the bot counts only inside a 45-degree cone ahead); it takes the next sighting or today's random bearing; it refuses nothing. The per-bot ring (256 cells, 2 h) is fed by the route corridor guard (after its stop) and explore's blind-step guard, only for reasons naming lava. OWN LINES: _lavatarget_skip (n, target, lava_cell, why, distance, n_ring), _lavatarget_mode; fire deaths and _lava_corridor rows in the canary pools; explore success. Exposure: pools with lava-guard refusals (19k _lava_corridor / 7 d). Rollback env LAVATARGET=0, or the base sha. World: none.",
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

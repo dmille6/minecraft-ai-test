@@ -1,0 +1,11 @@
+{
+ "run_id": "airpocketwin-01",
+ "sha": "52d9281aad70f1fb62bec610da17fd6ab8e3cf07",
+ "registered_at": "2026-10-31T20:48:43Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] airpocketwin-01 @ 52d9281a on fleet base 1a0f9ddf (branch ap2win-on-1a0f9ddf). AIRPOCKETWIN-01: the drowning rescue's furnace-window handoff (the 10-09 ap2win fix d2df5521, both engines APPROVE then, never deployed), ported onto airpocket-01's own line as one commit (02fb644e on 281d5659). Paper sandbox3 10-31: aad2506a / 281d5659 still drown when a smelt holds the furnace window as the rescue fires (scene SMR: aad2506a 3/3 dead ~104 s after the flood, 281d5659 1/1 dead; the step equips INSIDE the open furnace window, win=2 slots 9/0/37, tool=hand, 60 s cooldown); the port survived SMR 3/3 (window=closed:~440 ms, equip in win=0) and scenes A, AF; the old live build dbb4d78 drowned 4/4 as control. Fleet exposure is LOW: 0 of 57 drowning deaths in 7 d (to 10-31 17:00Z) had a furnace window open at the rescue (5 had a furnace skill within 120 s, all failed/unreachable); this closes a proven trap, it is not expected to move the drowning count. What: before an equip that clicks, wait <=1.5 s while a container window is open or the interrupted skill is still busy; never click through an open window (owned -> no equip/dig, interrupt the owner, 5 s retry; unowned -> dig with the held item); admission prices tools by window ownership; quick-bar tool = selection; the 'window' pre-empt; rows end window=<...>:<ms>. OWN LINES: _air_pocket* rows with window=, _air_pocket_refused 'a container window is open'; drowning deaths in the canary pools. Exposure: any pool (smelt/furnace_drain run fleet-wide). Rollback: the base sha (no env switch).",
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}
