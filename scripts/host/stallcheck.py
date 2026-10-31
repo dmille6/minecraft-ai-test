@@ -841,7 +841,10 @@ def main(argv=None):
     push = state.get('push') or {}
     if not a.no_push and al and daily_push_due(push, fx['now']):
         body = '\n'.join([al.get('inputs', '')] + [f'- {f["line"][:200]}' for f in rank(findings)[:12]]).strip()
-        AL.one_shot('stallcheck', {f'daily {fx["now"]:%Y-%m-%d}: {len(rank(findings))} stalled': body}, fx['now'])
+        subject = f'stallcheck daily {fx["now"]:%Y-%m-%d}: {len(rank(findings))} stalled'
+        AL.one_shot('stallcheck', {f'daily {fx["now"]:%Y-%m-%d}': (al.get('stalled') or al.get('inputs', ''))[:600]},
+                    fx['now'], push=False)           # ONE line in ALARMS.log (it is greppable; the body is multi-line)
+        AL.notify(subject, body)
         push = {'day': fx['now'].strftime('%Y-%m-%d'), 'at': iso(fx['now'])}
     AL.write_json_atomic(sp, {'since': since, 'push': push})
     print(f'{iso(fx["now"])} ' + (al.get('stalled') or summary)[:300] + (f' | {al["inputs"][:200]}' if 'inputs' in al else ''))

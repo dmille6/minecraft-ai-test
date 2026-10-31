@@ -2285,10 +2285,8 @@
    ],
    "kind": "host",
    "lane": "ops",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
-   "next_step": "Land config/owner-commitments (this seed) + detectors on main, install the hourly cron on .31, show STALLED in the fleetstatus header",
-   "max_quiet_hours": 24,
    "evidence": {
     "branches": [
      "stallcheck*"
@@ -2298,7 +2296,11 @@
      "owner-commitments"
     ]
    },
-   "note": "Owner asked 10-31 ~17:30Z. Nothing on origin yet: branch/grep patterns are what the work WILL carry (stallcheck-1031 exists only locally)."
+   "note": "Keep this ledger true: a new owner decision gets a row in the same session.",
+   "done": {
+    "when": "2026-10-31",
+    "evidence": "main d0f2fcd6..69fee193 (Codex r3 + Claude r2 APPROVE); cron on .31 hourly :35 (install-stallcheck.sh); first run 18:07Z STALLED 30, header line + daily ntfy push live"
+   }
   },
   {
    "id": "audit-monitors-fixed",
