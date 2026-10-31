@@ -56,7 +56,7 @@ class FakeHost(R.Host):
     def now(self): return self.t
     def sleep(self, s):
         self.t += dt.timedelta(seconds=s)
-        if getattr(self, 'term_at_poll', None) and s == R.POLL_S:
+        if getattr(self, 'term_at_poll', None) and s in (R.POLL_S, R.EXP_CHECK_S[0]):
             raise SystemExit(143)
     def write_root(self, path, text):
         if R.DROPIN in path:
@@ -429,7 +429,7 @@ def experiment():
       (h.restarts[1][1] - h.restarts[0][1]).total_seconds() == 12
       and len(json.load(open(os.path.join(R.P['home'], 'stage-watch', 'manifest.json')))['canary_pool'].split(',')) == 16)
     # watch: healthy, hourly once per hour
-    h.t = R.ts(st['completed']) + dt.timedelta(hours=1, minutes=2)
+    h.t = R.ts(st['completed']).replace(minute=0) + dt.timedelta(hours=2, minutes=2)
     quiet(R.Rollout(h, 'qwen35-01').watch); quiet(R.Rollout(h, 'qwen35-01').watch)
     t('watch: healthy -> nothing rolled back; one hourly record per hour', len(dropins()) == 80 and getattr(h, 'hourlies', 0) == 1)
     # watch: fleet stall twice -> rollback all
@@ -476,6 +476,74 @@ def experiment():
     rc, out = quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
     t('exp stop: crash loops at stage 2 roll back stage 1 as well', rc == 1 and dropins() == [], (rc, len(dropins())))
     shutil.rmtree(root)
+    # r1 Codex: a torn watch.json never blocks the deadline rollback
+    root = tree(); h = FakeHost(root)
+    quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    open(os.path.join(R.P['home'], 'watch.json'), 'w').write('{"ep_fa')
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    h.t = R.ts(st['completed']) + dt.timedelta(hours=26)
+    rc, out = quiet(R.Rollout(h, 'qwen35-01').watch)
+    t('r1: a torn watch.json -> the deadline rollback still runs', dropins() == [], (rc, out[-200:]))
+    shutil.rmtree(root)
+    # r1 Codex: an incomplete watch rollback is retried by the next ticks until proven
+    root = tree(); h = FakeHost(root)
+    quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    h.t = R.ts(st['completed']) + dt.timedelta(hours=24, minutes=1); h.fail_remove = True
+    quiet(R.Rollout(h, 'qwen35-01').watch)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    t('r1: a failing rollback at +24 h -> stopped, still listed', st['status'] == 'stopped' and len(dropins()) == 80, st['status'])
+    h.fail_remove = False; h.t += dt.timedelta(minutes=5)
+    quiet(R.Rollout(h, 'qwen35-01').watch)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    t('r1: the next tick retries and proves it', dropins() == [] and st['status'] == 'rolled-back', (st['status'], len(dropins())))
+    shutil.rmtree(root)
+    # r1 Codex: unreadable probes are a stop after 3 in a row
+    w = {}
+    rs = [R.exp_reasons({'endpoint_ok': True, 'crash_loops': None, 'unread_keys': ['crash_loops']}, w) for _ in range(3)]
+    t('r1: the crash probe unreadable 3 times in a row stops (not before)', rs[0] == [] and rs[1] == [] and len(rs[2]) == 1, rs)
+    w = {}
+    R.exp_reasons({'endpoint_ok': True, 'tripper': {'verdict': 'UNREAD'}, 'unread_keys': ['tripper']}, w)
+    R.exp_reasons({'endpoint_ok': True}, w)                      # tripper not evaluated: its count stands
+    R.exp_reasons({'endpoint_ok': True, 'tripper': {'verdict': 'OK'}}, w)
+    t('r1: a readable evaluation resets the count; a tick that does not evaluate it leaves it', w['unread_tripper'] == 0)
+    root = tree(); h = FakeHost(root); h.crash_loops = lambda t0, t1: (_ for _ in ()).throw(RuntimeError('journal unreadable'))
+    rc, out = quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    t('r1: an unreadable crash probe on every check -> the rollout stops by stage 2 and rolls back', rc == 1 and dropins() == [], (rc, len(dropins())))
+    shutil.rmtree(root)
+    # r1 Codex: the stall context keeps each pool's own clock
+    root = tree(); h = FakeHost(root)
+    quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    m = json.load(open(os.path.join(R.P['home'], 'stage-watch', 'manifest.json')))
+    t('r1: the watch context carries one stall clock per pool (each stage its own)', len(m['pool_decl']) == 16
+      and len(set(m['pool_decl'].values())) == 4, m['pool_decl'])
+    shutil.rmtree(root)
+    # r1 Codex: --resume keeps experiment mode; a dead driver is rolled back by the watch
+    root = tree(); h = FakeHost(root); h.term_at_poll = True
+    try:
+        quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    except SystemExit:
+        pass
+    h.term_at_poll = False
+    r = R.Rollout(h, 'qwen35-01')                               # no --experiment on the command line
+    r.load(); r.st['pid'] = 999999999; r.save()
+    h.t += dt.timedelta(hours=4)
+    quiet(r.watch)
+    t('r1: a running experiment whose driver is gone > 3 h -> the watch rolls it back', dropins() == [], len(dropins()))
+    shutil.rmtree(root)
+    root = tree(); h = FakeHost(root); h.term_at_poll = True
+    try:
+        quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    except SystemExit:
+        pass
+    h.term_at_poll = False
+    st = json.load(open(os.path.join(R.P['home'], 'state.json'))); st['stages'][0]['status'] = 'passed'
+    json.dump(st, open(os.path.join(R.P['home'], 'state.json'), 'w'))
+    r = R.Rollout(h, 'qwen35-01')
+    rc, out = quiet(r.go, resume=True)
+    t('r1: --resume restores experiment mode (no load test, completes)', r.exp and h.load_calls == [] and rc == 0, (rc, out[-300:]))
+    shutil.rmtree(root)
+
     # a watch on a non-experiment complete rollout does nothing
     root = tree(); h = FakeHost(root)
     quiet(R.Rollout(h, 'qwen35-01').go)
