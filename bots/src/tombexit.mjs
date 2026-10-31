@@ -44,7 +44,10 @@ export const JUMP_CLEAR = 6             // a body that moved farther than this b
 
 export const INWALL_DROP_HP = 0.4       // health lost over the trend window that counts as "falling"
 export const INWALL_TREND_MS = 3000     // the trend window
-export const INWALL_MAX_DIGS = 4        // digs per episode (a refilling column of sand / gravel)
+// digs per episode. Paper 10-31 (IW-G5): a gravel column one taller than a cap of 4 killed the bot -- the episode ended
+// 'still in gravel' at ~8 HP and the 30 s back-off outlived its health. A refill dig takes ~0.5-1 s, so 16 covers any
+// natural column; and a refilled cell retries at once (inwallBackoffMs), only an undiggable / lava-capped cell backs off.
+export const INWALL_MAX_DIGS = 16
 export const INWALL_RETRY_MS = 2000     // after an episode, the next one may start this soon
 export const INWALL_UNSEEN_ROW_MS = 60_000
 export const INWALL_FAIL_BACKOFF_MS = 30_000  // an episode that did not free the eye: the next one waits this long
@@ -57,6 +60,14 @@ export const INWALL_DIG_MAX_MS = 30_000       // no single dig is allowed longer
  */
 export const inwallDigMs = (digTimeMs) =>
   Math.min(INWALL_DIG_MAX_MS, (Number.isFinite(digTimeMs) && digTimeMs > 0 ? digTimeMs : 8000) + INWALL_DIG_SLACK_MS)
+
+/**
+ * HOW LONG BEFORE THE NEXT EPISODE -> ms. Freed, or still buried after digging (a column that keeps refilling: dig on at
+ * once while health lasts), the short retry; nothing could be dug at all (undiggable, lava over it, the dig failed),
+ * the long back-off, so an impossible cell is not hammered.
+ */
+export const inwallBackoffMs = ({ stopped = 'freed', digsDone = 0 } = {}) =>
+  stopped === 'freed' || (digsDone > 0 && /^still in /.test(stopped)) ? INWALL_RETRY_MS : INWALL_FAIL_BACKOFF_MS
 
 /** The cell over the eye holds lava or a lava-like block: breaking the eye cell would pour it onto the head. */
 export const lavaOver = b => !!b && LAVA_LIKE.has(b.name)
