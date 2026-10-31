@@ -142,7 +142,8 @@ const liquid = b => !!b && (LIQUID.test(b.name ?? '') || b.waterlogged === true)
 const passable = b => !!b && !solid(b) && !liquid(b)
 
 /**
- * THE STANDABLE SURFACE CELL OF A COLUMN -> { y (feet), ground, water: false } | { water: true, y } | null (unread or none). Pure.
+ * THE STANDABLE SURFACE CELL OF A COLUMN -> { y (feet), ground, water: false } | { water: true, y } | { none: true } (read, but no
+ * standable cell in the window: a trunk, a wall, a cliff) | null (unread: outside the loaded chunks). Pure.
  * `read(x, y, z)` -> { name, boundingBox, waterlogged? } | null. Scans down from yHint + up to yHint - down: the first liquid
  * met from above is a WATER column (a lake, a river); canopy (leaves, logs) is passed through; the first other solid block with
  * two passable cells above it is the ground.
@@ -158,7 +159,7 @@ export function surfaceAt (read, x, z, yHint, { up = 12, down = 20 } = {}) {
     const a1 = read(x, y + 1, z), a2 = read(x, y + 2, z)
     if (passable(a1) && passable(a2)) return { y: y + 1, ground: b.name, water: false }
   }
-  return null
+  return { none: true }
 }
 
 /** Is (x, z) inside a protected zone grown by `margin` (zones: [{ box: [x0,y0,z0,x1,y1,z1] }] or {x0..z1})? -> id | null. Pure. */
@@ -187,6 +188,9 @@ export function lineClear (read, from, to, { zones = [], every = 3 } = {}) {
     const s = surfaceAt(read, x, z, y)
     if (!s) return { ok: false, why: 'unread', at: [x, z] }
     if (s.water) return { ok: false, why: 'water', at: [x, z] }
+    // a column with no standable cell (a trunk, a wall: LIVE 17:40Z, every spruce on the line read as "unread") is the
+    // pathfinder's to walk round -- only water and zones close a line
+    if (s.none) continue
     y = s.y
   }
   return { ok: true }
@@ -226,11 +230,11 @@ export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers 
     const lc = lineClear(read, pos, { x, z, y: pos.y }, { zones })
     if (!lc.ok) { whys.push(lc.why); continue }
     const s = surfaceAt(read, x, z, pos.y)
-    if (!s || s.water) { whys.push(s?.water ? 'water' : 'unread'); continue }
+    if (!s || s.water || s.none) { whys.push(s?.water ? 'water' : s?.none ? 'steep' : 'unread'); continue }
     return { ok: true, target: { x, y: s.y, z }, via: 'bearing', bend }
   }
-  const why = ['water', 'zone', 'unread', 'inward'].find(w => whys.includes(w)) ?? 'blocked'
-  return { ok: false, why }
+  const why = ['water', 'zone', 'unread', 'steep', 'inward'].find(w => whys.includes(w)) ?? 'blocked'
+  return { ok: false, why, whys: whys.join('/') }
 }
 
 /**
