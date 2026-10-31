@@ -202,6 +202,11 @@ await t('frontApproach: the column one outside a blueprint project\'s doorway st
 await t('stairFoot: the first columns out from a ziggurat\'s grand stair, the outermost row only', async () => {
   const rec = { face: 'e', cells: [{ at: [0, 0, 0], role: 'skin' }, { at: [1, 0, 0], role: 'stair' }, { at: [1, 0, 1], role: 'stair' }, { at: [2, 0, 0], role: 'stair' }] }
   assert.deepStrictEqual(P.stairFoot(rec).sort(), [[3, 0]])
+  // a v2 ziggurat with stairs on all four faces (zig2-01, geometry.FACES 4): one foot per face, from the box edge each stair is on
+  const r4 = { face: 'e', box: [0, 0, 4, 4], geometry: { FACES: 4 }, cells: [] }
+  for (let x = 0; x <= 4; x++) for (let z = 0; z <= 4; z++) r4.cells.push({ at: [x, 0, z], role: 'skin' })
+  for (const at of [[5, 0, 2], [-1, 0, 2], [2, 0, 5], [2, 0, -1]]) r4.cells.push({ at, role: 'stair' })
+  assert.deepStrictEqual(P.stairFoot(r4).map(c => c.join(',')).sort(), ['-2,2', '2,-2', '2,6', '6,2'])
 })
 await t('sitePaths: farm, well and a complete ziggurat reached, nearest first; an open project is no destination; unrouted -> no record', async () => {
   const srv = server()

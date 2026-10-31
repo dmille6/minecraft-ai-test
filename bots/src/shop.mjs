@@ -50,11 +50,15 @@ export const TOWNWALL = Object.freeze({ on: wallOn(process.env, process.env.MEMO
  * rest go on to the next open project. SHAFT=on|off, SHAFT_POOLS (default every pool: the canary's code runs only on the canary
  * pools, so the variant is the rollout). Off stops the building and the use; a sited stair's cells stay protected
  * (projectsGuarded).
+ * SHOWCASE-ON-FLEET (control session 10-31): the default leaves the SHOWCASE town out -- the owner's showcase list (10-29) has no
+ * town stair; a later option. SHAFT=on, or a SHAFT_POOLS naming `showcase`, turns it on there.
  */
+export const SHAFT_DEFAULT_OFF_POOLS = Object.freeze(['showcase'])
 export function shaftOn (env = process.env, pool = '') {
   const v = String(env?.SHAFT ?? '').toLowerCase()
   if (v === 'on' || v === '1' || v === 'true') return true
   if (v === 'off' || v === '0' || v === 'false') return false
+  if (env?.SHAFT_POOLS == null && SHAFT_DEFAULT_OFF_POOLS.includes(String(pool))) return false
   const pools = String(env?.SHAFT_POOLS ?? '*').split(',').map(q => q.trim()).filter(Boolean)
   return pools.includes('*') || pools.includes(String(pool))
 }
