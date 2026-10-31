@@ -213,9 +213,14 @@ export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf 
  * last visit stopped no_material. -> { ok, phase } | null. Unset (or EXPEDITION=off): never asked.
  */
 let expeditionAskOf = null
-/** A build visit that stopped for want of material, or found its project standing with nothing to do (a `due` upkeep it could
- *  not perform: LIVE showcase 10-31 16:54Z, the farm's 3 trees no bot can fell), had no use for the bot. */
-export const IDLE_STOPS = new Set(['no_material', 'complete'])
+/**
+ * HAS THE BUILD ORDER NO USE FOR THIS BOT? -> bool. Pure. Every project complete; or the bot's last visit stopped for want of
+ * material; or the ACTIVE project's record is itself complete (only a `due` upkeep left) and the last visit found nothing to do
+ * there (LIVE showcase 10-31 16:54Z: the finished farm's 3 trees no bot can fell kept `complete` false). A `complete` stop alone
+ * is not idle: the visit that completes one project ends `complete` while the next one stands open (Codex r4 BLOCK).
+ */
+export const buildIdle = ({ complete = false, record = null, lastStop = null } = {}) =>
+  !!complete || lastStop === 'no_material' || (lastStop === 'complete' && record?.structure_complete === true)
 export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'function' ? fn : null }
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
@@ -495,7 +500,7 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (!planned) return { order: null, skip: null }
   // EXPEDITION-01 (owner showcase item 5): a bot the town's projects cannot use (all complete, or its last visit found no
   // material) may go on a short expedition -- the same order, the visit's args say which (skills.mjs buildShop)
-  if ((complete || IDLE_STOPS.has(state.lastStop)) && expeditionAskOf) {
+  if (buildIdle({ complete, record, lastStop: state.lastStop }) && expeditionAskOf) {
     let ex = null
     try { ex = expeditionAskOf({ now, health, freeSlots, complete, lastStop: state.lastStop ?? null }) } catch { ex = null }
     if (ex?.ok) return { order: { skill: 'build_shop', args: { expedition: true, phase: ex.phase ?? 'trip' } }, skip: null }
