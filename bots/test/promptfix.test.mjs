@@ -18,6 +18,7 @@
  */
 import assert from 'node:assert'
 import { skillSchema } from '../src/llm.mjs'
+import { seenLine } from '../src/worldfacts.mjs'
 
 let n = 0
 const ok = (name, fn) => {
@@ -27,10 +28,9 @@ const ok = (name, fn) => {
 
 // --- the coordinate that had no y ------------------------------------------
 
-/** The exact render from worldfacts.mjs, reproduced so the shape is asserted. */
+/** The live render (worldfacts.mjs seenLine, promptcache-01), with promptLines' y fallback. */
 const renderSighting = (r, pos, d) =>
-  `${r.kind} seen at x=${r.x} y=${r.y ?? Math.round(pos.y)} z=${r.z} ` +
-  `(${d} blocks away, reported by ${r.by.join(' and ')})`
+  seenLine({ kind: r.kind, x: r.x, y: r.y ?? Math.round(pos.y), z: r.z, d, by: r.by }, null)
 
 ok('a sighting names all three axes', () => {
   const line = renderSighting({ kind: 'iron_ore', x: 33, y: 68, z: -180, by: ['Scout01'] },
