@@ -28,15 +28,17 @@ export const PATHS_BUILDERS = 4
 export const PATH_SEG_CELLS = 24
 export const PATH_DY = 12
 /**
- * THE SWITCH -> bool. PATHS=on|off; unset = on only in the pools PATHS_POOLS names (default 'showcase'): the fleet's towns keep
+ * THE SWITCH -> bool. PATHS=on|off; unset = on in the pools PATHS_POOLS names. zigfleet-02 (the fleet rollout): the default is
+ * '*', every pool (the canary's code runs only on the canary pools, so the variant IS the rollout); PATHS=off or PATHS_POOLS=showcase
+ * is the rollback. Before zigfleet-02 (default 'showcase'): the fleet's towns kept
  * their project list until the fleet rollout. Pure.
  */
 export function pathsOn (env = process.env, pool = '') {
   const v = String(env?.PATHS ?? '').toLowerCase()
   if (v === 'on' || v === '1' || v === 'true') return true
   if (v === 'off' || v === '0' || v === 'false') return false
-  const pools = String(env?.PATHS_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
-  return pools.includes(String(pool))
+  const pools = String(env?.PATHS_POOLS ?? '*').split(',').map(s => s.trim()).filter(Boolean)
+  return pools.includes('*') || pools.includes(String(pool))
 }
 /**
  * WHAT READS AS A FINISHED PATH CELL (buildrun.mjs cellDone by family): dirt_path first (never held, so a placement never picks

@@ -24,7 +24,8 @@ const cellsAt = (rec, x, z) => rec.cells.filter(c => c.at[0] === x && c.at[2] ==
 
 await t('the switch: on in the showcase pool by default, off in a fleet pool, WALL=on|off wins', () => {
   assert.strictEqual(W.wallOn({}, 'showcase'), true)
-  assert.strictEqual(W.wallOn({}, 'hive-a'), false)
+  assert.strictEqual(W.wallOn({}, 'hive-a'), true, 'zigfleet-02: the fleet default')
+  assert.strictEqual(W.wallOn({ WALL_POOLS: 'showcase' }, 'hive-a'), false, 'the pool-list rollback')
   assert.strictEqual(W.wallOn({ WALL: 'on' }, 'hive-a'), true)
   assert.strictEqual(W.wallOn({ WALL: 'off' }, 'showcase'), false)
 })
