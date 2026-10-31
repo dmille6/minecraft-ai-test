@@ -40,7 +40,7 @@ function plan ({ pavilion = 'E', taken = SECTORS } = {}) {
 
 // the workshop and the house (monument-01's ziggurat, the third project, has its own order test: ziggurat-project.test.mjs; the
 // paths, the fourth: paths.test.mjs)
-const P = S.PROJECTS.filter(p => p.plot !== 'monument' && p.plot !== 'paths' && p.plot !== 'wall' && p.plot !== 'shaft')   // shaft-02: town-stair.test.mjs
+const P = S.PROJECTS.filter(p => p.plot !== 'monument' && p.plot !== 'paths' && p.plot !== 'wall' && p.plot !== 'shaft' && p.plot !== 'treefarm')   // shaft-02: town-stair.test.mjs; treefarm-04: treefarm.test.mjs
 const st = (plot, exists, complete = false, damaged = false) => ({ plot, exists, complete, damaged })
 
 await t('the project order: the workshop until it stands, then the house; repairs first; HOUSE=off is the workshop alone', () => {

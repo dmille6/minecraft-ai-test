@@ -508,6 +508,8 @@ export function pathDests ({ plan, zones = [], caps = [], plinth = [], composter
     if (/^ziggurat@/.test(String(p.rec.blueprint))) { const f = stairFoot(p.rec); if (f.length) dests.push({ id: p.plot, to: p.plot, cols: f }); continue }
     // shaft-02: the town stair's collar exit (the surface cell beside its 5x5 where the walk down starts)
     if (/^shaft@/.test(String(p.rec.blueprint))) { if (Array.isArray(p.rec.exit) && p.rec.exit.length === 3) dests.push({ id: p.plot, to: p.plot, cols: [[p.rec.exit[0], p.rec.exit[2]]] }); continue }
+    // treefarm-04: a record that names its own FRONT columns (the tree farm's side facing home) is reached there
+    if (Array.isArray(p.rec.front) && p.rec.front.length && p.rec.front.every(c => Array.isArray(c) && c.length === 2 && c.every(Number.isFinite))) { dests.push({ id: p.plot, to: p.plot, cols: p.rec.front.map(c => [c[0], c[1]]) }); continue }
     const a = p.bp ? frontApproach(p.rec, p.bp, place) : null
     if (a) dests.push({ id: p.plot, to: p.plot, cols: [a] })
   }

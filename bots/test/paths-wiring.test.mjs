@@ -15,6 +15,8 @@ delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.e
 process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
 // wall-01: the wall (fifth, after the paths) has its own wiring test (wall-wiring.test.mjs); off here, so the paths stay the last project
 process.env.WALL = 'off'
+// treefarm-04: the tree farm (sixth, after the paths) has its own test (treefarm.test.mjs); off here, so this file's project lists stand
+process.env.TREEFARM = 'off'
 const SK = await import('../src/skills.mjs')
 const S = await import('../src/shop.mjs')
 const PJ = await import('../src/buildproj.mjs')
