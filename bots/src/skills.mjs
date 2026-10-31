@@ -123,7 +123,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived } from './paths.mjs'   // paths-01
-import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed } from './wall.mjs'   // wall-01
+import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg, STUCK_FORGET_MS as BUILD_STUCK_FORGET_MS } from './buildrun.mjs'
@@ -132,7 +132,7 @@ import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } 
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops } from './ziggurat.mjs'   // monument-01
 import { botBuildEffects } from './buildbot.mjs'
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
-import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, SHOP_PLOT, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -16767,7 +16767,11 @@ function projStuckLive (key, now = Date.now()) {
     let rec
     const stale = b ? keys => {
       if (rec === undefined) { const h = recordHead(dir, key); rec = h.ok ? h.head?.rec ?? null : null }
-      return !!rec?.structure_complete && stuckStale(keys, rec, c => recordCellDone(b, rec, c))
+      if (rec?.structure_complete) return stuckStale(keys, rec, c => recordCellDone(b, rec, c))
+      // wallstuck-01: an OPEN wall's stamp holds only its stuck segment -- another segment's open cell (read) is other work; and,
+      // as a complete record's, a stamp whose cells all read done (or were waived since: the visit that waived the last one
+      // stamped the stall first) holds nothing
+      return rec?.blueprint === WALL_BLUEPRINT && wallStuckOn() && (stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c)))
     } : null
     return projStuckAt(dir, key, { before: now + 60_000, stale })
   } catch { return null }
@@ -16788,6 +16792,15 @@ function zigRepairedWrite (key, at, why, by) {
     return true
   } catch { return false }
 }
+/** wallstuck-01: one record cell READ and not done through the bot (unread or waived: false -- never "open" on no evidence).
+ *  Never throws. */
+function recordCellOpen (bot, r, c) {
+  try {
+    if (wallWaived(r, c) || pathWaived(r, c)) return false
+    if (!bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))) return false
+    return !recordCellDone(bot, r, c)
+  } catch { return false }
+}
 /** One record cell reads done through the bot (its own palette; a sealed ziggurat core cell is done). Unread: false. Never throws. */
 function recordCellDone (bot, r, c) {
   try {
@@ -16796,6 +16809,7 @@ function recordCellDone (bot, r, c) {
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     // pathsclose-01: a WAIVED path cell (the record's own list) is done
     if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) return true
+    if (r.blueprint === WALL_BLUEPRINT && wallWaived(r, c)) return true   // wallstuck-01: a waived wall cell is done
     const b = read(...c.at)
     if (!b) return false
     return buildCellDone(b, bp.palette, c.role) || (mon && zigHidden(c, read))
@@ -17010,6 +17024,7 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     for (const c of r.cells ?? []) {
       if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) continue   // pathsclose-01: a waived path cell is no damage
+      if (r.blueprint === WALL_BLUEPRINT && wallWaived(r, c)) continue    // wallstuck-01: nor a waived wall cell
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
       if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role) && !(mon && zigHidden(c, read))) return true
     }
@@ -17669,6 +17684,24 @@ function wallInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   } catch { lights = 0 }
   return { plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records, pzones: recordZones(records.map(r => r.rec)), zig: r => r?.blueprint === MONUMENT_BLUEPRINT, lights }
 }
+/**
+ * WALLSTUCK-01 (LIVE showcase 10-30: the wall at 936 of 941 cells; Gale's 23:17Z stuck stamp on W-03's two cells held every build
+ * order 6 h; W-01's two sealed cells stopped every visit `blocked`). The wall visit's remedies and bounds (buildrun.mjs runVisit):
+ * `sealed` -- a foreign block no stand sees is dug from the top of its column (sealedAbove), else deferred, never `blocked`;
+ * `footing` -- a cell whose ground was dug away gets its floor back first (footingBelow); `stuckStalledOnly` -- a few hard cells
+ * never back this bot off while the rest is open; and after the visit the WAIVER (wall.mjs wallWaiveDue). The order's stamp holds
+ * only the stuck segment (projStuckLive: shop.mjs stuckOtherWork). mayDig/mayPlace: never a protected zone, never another project's
+ * record cell. WALLSTUCK=off is the rollback: the wall visit exactly as before.
+ */
+const wallStuckOn = () => !['off', '0', 'false', 'no'].includes(String(process.env.WALLSTUCK ?? '').trim().toLowerCase())
+function wallStuckOf (c) {
+  if (!wallStuckOn()) return {}
+  let others = null
+  const otherCells = () => (others ??= new Set(projectHeads().filter(x => x.plot !== WALL_PLOT).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))))
+  const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
+  const may = at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } }
+  return { sealed: { mayDig: may }, footing: { mayPlace: may, role: 'base' }, stuckStalledOnly: true }
+}
 async function buildWall (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -17769,8 +17802,26 @@ async function buildWall (ctx, args, signal) {
     // a segment this bot found BLOCKED lately waits; the visit works the others (wall.mjs wallVisitRecord)
     const blocked = (bot.wallBlocked ??= new Map())
     const r = await runVisit({ dir, key, me, home, stood, record: wallVisitRecord(rec, blocked), recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.wallStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: wallWalkR(rec, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+      domain: () => true, walkR: wallWalkR(rec, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,
+      ...wallStuckOf(c), ...(wallStuckOn() ? { alsoDone: q => wallWaived(rec, q) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     { const bs = blockedSeg(r.stop, r.why); if (bs) blocked.set(bs, Date.now()) }
+    // wallstuck-01: THE WAIVER (wall.mjs wallWaiveDue) -- a cell this visit deferred after the remedies, counted WALL_WAIVE_AFTER
+    // visits by the stuck map, is named on the record (a logged row with its reason) so the wall closes; the next visit reads it done
+    if (wallStuckOn()) {
+      try {
+        const due = wallWaiveDue(rec, r.deferred ?? [])
+        if (due.length) {
+          const pub = publishRecord(dir, key, cur => {
+            if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length) return null
+            const w = { ...(cur.waived ?? {}) }
+            for (const d of due) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
+            return { ...cur, waived: w }
+          }, { by: me })
+          if (pub.result === 'accepted') for (const d of due) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
+          bot.shopDamage = null
+        }
+      } catch { /* counted again next visit */ }
+    }
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       completed = true
@@ -17781,7 +17832,7 @@ async function buildWall (ctx, args, signal) {
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
-    const done = (() => { try { const p = wallProgress(rec, q => buildCellDone(read(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
+    const done = (() => { try { const h2 = recordHead(dir, key); const rw = h2.ok && h2.head ? h2.head.rec : rec; const p = wallProgress(rec, q => wallWaived(rw, q) || buildCellDone(read(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, `${r.why ?? r.stop}; built ${done}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {

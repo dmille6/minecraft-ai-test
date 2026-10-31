@@ -96,15 +96,27 @@ def tidy_ok(rec, cell):
     return box[0] - 1 <= x <= box[2] + 1 and box[1] - 1 <= z <= box[3] + 1 and rec['baseY'] <= y <= top + 2
 
 
-def overburden_ok(rec, cell, max_up=3):
+def overburden_ok(rec, cell, max_up=3, any_role=False):
     """pathsclose-01: is a `kind=overburden` clear a block set ON one of the record's PATH cells -- the same column, 1..max_up
-    above it (bots/src/buildrun.mjs overburdenAbove, OVERBURDEN_MAX 3) -- and never a record cell itself? -> bool. Pure."""
+    above it (bots/src/buildrun.mjs overburdenAbove, OVERBURDEN_MAX 3) -- and never a record cell itself? -> bool. Pure.
+    wallstuck-01 (`any_role`, the wall): above ANY of the record's cells (buildrun.mjs sealedAbove: the cap over a sealed column)."""
     cells = rec.get('cells') or []
     keys = {ck(c['at']) for c in cells}
     if ck(cell) in keys:
         return False
     x, y, z = cell
-    return any(c.get('role') == 'path' and c['at'][0] == x and c['at'][2] == z and 1 <= y - c['at'][1] <= max_up for c in cells)
+    return any((any_role or c.get('role') == 'path') and c['at'][0] == x and c['at'][2] == z and 1 <= y - c['at'][1] <= max_up for c in cells)
+
+
+def footing_ok(rec, cell, max_down=3):
+    """wallstuck-01: is a `kind=footing` placement the floor given back under a record cell -- the same column, 1..max_down BELOW the
+    column's lowest record cell (bots/src/buildrun.mjs footingBelow, FOOTING_MAX 3) -- and never a record cell itself? -> bool. Pure."""
+    cells = rec.get('cells') or []
+    if ck(cell) in {ck(c['at']) for c in cells}:
+        return False
+    x, y, z = cell
+    col = [c['at'][1] for c in cells if c['at'][0] == x and c['at'][2] == z]
+    return bool(col) and 1 <= min(col) - y <= max_down
 
 
 def xyz_of(s):
@@ -474,7 +486,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     out['zone'] += 1; lists['zone'].append('%s %s %s' % (bot, op, k))
             if op == 'place':
                 out['placements'] += 1
-                if rec is not None and k not in {ck(c['at']) for c in rec.get('cells') or []}:
+                if rec is not None and k not in {ck(c['at']) for c in rec.get('cells') or []} and not (f.get('kind') == 'footing' and plot == 'wall' and footing_ok(rec, cell)):
                     out['off_record'] += 1; lists['off_record'].append('%s %s %s' % (bot, k, f.get('block')))
                 if [t for t in placed[(pool, plot, k)] if (r['t'] - t).total_seconds() < PLACE_TWICE_MIN * 60]:
                     out['placed_twice'] += 1; lists['placed_twice'].append('%s %s' % (pool, k))
@@ -496,7 +508,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         ok = tidy_ok(rec, cell)
                     elif f.get('kind') == 'overburden':
                         # pathsclose-01 (10-30): dirt or grass SET ON a path cell after siting, dug so the shovel can lay it
-                        ok = overburden_ok(rec, cell)
+                        ok = overburden_ok(rec, cell, any_role=(plot == 'wall'))
                     else:
                         ok = k in {ck(c['at']) for c in rec.get('clear') or []}
                     if not ok:
@@ -712,6 +724,18 @@ def selftest():
     assert ob('6,70,5') == 0, 'above the path cell over a fill'
     assert ob('6,71,5') == 1, 'a record cell above a path cell is never overburden'
     assert J(base + [R('_build', 'project=paths op=clear seg=P-d-0 cell=5,70,5 block=dirt kind=cut', s=14)], pb)['clear_outside'] == 1, 'positive control: the same cell as a cut off the list'
+    # wallstuck-01: the wall's footing (1..3 below a column's lowest record cell, never a record cell) and the cap over a sealed column
+    wrec = {'v': 1, 'gen': 1, 'prev': None, 'cells': [{'at': [5, 68, 5], 'role': 'wall', 'seg': 'W-03'}, {'at': [5, 69, 5], 'role': 'wall', 'seg': 'W-03'},
+                                                      {'at': [6, 69, 5], 'role': 'step', 'seg': 'W-03'}], 'clear': [], 'replant': []}
+    wb = PP(wall={'record': wrec, 'records_files': 1, 'leases': {}})
+    ft = lambda c, kind='footing', proj='wall', pp=None: J(base + [R('_build', 'project=%s op=place seg=W-03 cell=%s block=cobblestone kind=%s' % (proj, c, kind), s=14)], pp or wb)['off_record']
+    assert ft('5,67,5') == 0 and ft('5,65,5') == 0 and ft('6,68,5') == 0, 'one and three below the lowest record cell: footing'
+    assert ft('5,64,5') == 1 and ft('5,70,5') == 1 and ft('7,67,5') == 1, 'four below, above the column, another column: off the record'
+    assert ft('5,67,5', kind='access') == 1, 'positive control: the same cell placed as anything but a footing'
+    assert ft('5,67,5', proj='paths', pp=pb) == 1, 'a footing is the wall\'s only'
+    wob = lambda c: J(base + [R('_build', 'project=wall op=clear seg=W-03 cell=%s block=granite kind=overburden' % c, s=14)], wb)['clear_outside']
+    assert wob('6,70,5') == 0 and wob('5,72,5') == 0, 'the cap over a step, three over a wall cell: overburden'
+    assert wob('5,73,5') == 1 and wob('6,69,5') == 1 and wob('7,70,5') == 1, 'four above, a record cell, another column: outside'
     # its completion is counted, never the workshop's (the world evidence and H8 stay the workshop's)
     rc = J(base + [R('_structure_complete', 'project=monument op=complete kind=ziggurat@1 gen=9', s=30, bot='board-b-Alpha')], both)
     assert rc['complete_towns'] == 2 and rc['projects_complete'] == 1, rc

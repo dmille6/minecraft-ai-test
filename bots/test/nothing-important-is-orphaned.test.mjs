@@ -48,6 +48,10 @@ const REQUIRED = [
   'bots/src/voidfill.mjs',
   'bots/test/voidfill.test.mjs',
   'bots/test/fixtures/voidfill-showcase-ziggurat-1030.json',
+  // wallstuck-01 (10-30): the wall's last cells -- a sealed column dug from its top, a dug-out floor given back, the waiver; the
+  // test reads the showcase wall's own geometry from the fixture
+  'bots/test/wallstuck.test.mjs',
+  'bots/test/fixtures/wallstuck-showcase-wall-1030.json',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',
