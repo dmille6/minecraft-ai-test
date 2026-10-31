@@ -143,7 +143,7 @@ await t('the surface read: canopy passed through, a lake is water, unread is nul
   assert.equal(E.surfaceAt(r, 25, 0, 70).water, true)
   assert.equal(E.surfaceAt(() => null, 1, 1, 70), null)
   const trunk = world({ blocks: Object.fromEntries([69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82].map(y => [`3,${y},3`, { name: 'spruce_log', boundingBox: 'block' }])) })
-  assert.deepEqual(E.surfaceAt(trunk, 3, 3, 70, { up: 12, down: 2 }), { none: true }, 'a trunk column: read, but nowhere to stand')
+  assert.deepEqual(E.surfaceAt(trunk, 3, 3, 70, { up: 12, down: 2 }), { none: true, obstructed: true }, 'a trunk column: read, but nowhere to stand')
 })
 
 await t('a leg never crosses water: it bends round a lake, and a lake across every bend turns the trip (no bridging)', async () => {
@@ -171,6 +171,16 @@ await t('LIVE 17:40Z: a tree trunk on the line does not close it (only water and
   const r = world({ blocks })
   assert.deepEqual(E.lineClear(r, { x: 0, y: 70, z: 0 }, { x: 18, y: 70, z: 0 }), { ok: true })
   assert.equal(E.legTarget(r, { pos: { x: 40, y: 70, z: 0 }, home: HOME, bearing: 0 }).ok, true)
+})
+
+await t('Codex r7: a ravine over water below the scan window closes the line (a drop, not a trunk)', async () => {
+  const base = world()
+  const r = (x, y, z) => {
+    if (x >= 43 && x <= 55) { if (y === 45) return { name: 'water', boundingBox: 'empty' }; if (y < 45) return { name: 'stone', boundingBox: 'block' }; return { name: 'air', boundingBox: 'empty' } }
+    return base(x, y, z)
+  }
+  const lc = E.lineClear(r, { x: 40, y: 70, z: 0 }, { x: 60, y: 70, z: 0 })
+  assert.equal(lc.ok, false); assert.equal(lc.why, 'drop')
 })
 
 await t('a protected zone (+8) is never entered by a leg, nor a marker put in it', async () => {
