@@ -117,6 +117,7 @@ const lineOf = rec => '\n' + JSON.stringify(rec) + '\n'
 function parseBuf (buf) {
   const last = buf.lastIndexOf(10)
   const records = []
+  records.upto = last + 1
   if (last >= 0) {
     for (const ln of buf.subarray(0, last).toString('utf8').split('\n')) {
       if (!ln) continue
@@ -130,23 +131,26 @@ function readWhole (f) {
   try { st = fs.statSync(f) } catch (e) { return e?.code === 'ENOENT' ? { missing: true } : null }
   if (st.size > LEDGER_MAX_READ_BYTES) return null
   // a concurrent rotation may delete N-1 between the stat and the read: that is a missing file, not an unreadable one
-  try { return { records: parseBuf(fs.readFileSync(f)) } } catch (e) { return e?.code === 'ENOENT' ? { missing: true } : null }
+  try { const records = parseBuf(fs.readFileSync(f)); return { records, upto: records.upto } } catch (e) { return e?.code === 'ENOENT' ? { missing: true } : null }
 }
 
 /** Every record of generations N-1 and N -> { records, ok }. ok false: the ledger could not be read (never "empty"). */
 export function readLedgerRecords (dir, hk) {
   try {
     const gens = ledgerGens(dir, hk)
-    if (!gens.length) return { records: [], ok: true }
+    if (!gens.length) return { records: [], ok: true, off: '0:0' }
     const g = gens.at(-1)
     const out = []
+    let upto = 0
     for (const n of [g - 1, g]) {
       if (n < 1) continue
       const r = readWhole(ledgerFile(dir, hk, n))
       if (!r) return { records: [], ok: false }
       if (!r.missing) out.push(...r.records)
+      if (n === g) upto = r.missing ? 0 : r.upto
     }
-    return { records: out, ok: true }
+    // THE FOLD OFFSET: the newest generation and the bytes of it this read parsed (furnaceseen-01 logs it at pick time)
+    return { records: out, ok: true, off: `${g}:${upto}` }
   } catch { return { records: [], ok: false } }
 }
 
@@ -154,7 +158,7 @@ export function readLedgerRecords (dir, hk) {
 export function readLedger (dir, hk, world = null) {
   const r = readLedgerRecords(dir, hk)
   // every record, checkpoints included, belongs to ONE world (a checkpoint is written per world, with its `w`)
-  return { view: foldLedger(r.records.filter(x => (x?.w ?? null) === (world ?? null))), ok: r.ok }
+  return { view: foldLedger(r.records.filter(x => (x?.w ?? null) === (world ?? null))), ok: r.ok, off: r.off ?? null }
 }
 
 export function rotateLedger (dir, hk, gen) {
