@@ -89,7 +89,14 @@ def canary_spans(journal, exclude_runs=()):
                 by[run]['prom'] = t
             if ph == 'recorded':
                 by[run]['dec'] = str(r.get('note') or '').split()[:1][0] if r.get('note') else None
-    return [(k, v['pools'], v['dep'], v['close'], v['dec'], v['prom']) for k, v in by.items() if v['dep']]
+    out = sorted(((k, v['pools'], v['dep'], v['close'], v['dec'], v['prom']) for k, v in by.items() if v['dep']),
+                 key=lambda x: x[2])
+    # ONE canary slot: a run with no close row (older journals) ended no later than the next run's deploy
+    for i, (k, ps, dep, close, dec, prom) in enumerate(out):
+        nxt = out[i + 1][2] if i + 1 < len(out) else None
+        if close is None and nxt is not None:
+            out[i] = (k, ps, dep, nxt, dec, prom)
+    return out
 
 
 def excluded_pools(spans, since, until):
@@ -101,6 +108,33 @@ def excluded_pools(spans, since, until):
             pools |= ps
             runs.append(run)
     return pools, runs
+
+
+def segments(spans, since, until):
+    """PURE. [since, until) cut at every canary boundary -> [(a, b, canary pools active in [a, b))]. A pool is excluded
+    only for the time it was a canary pool, not for the whole window."""
+    cuts = {since, until}
+    for run, ps, dep, close, dec, prom in spans:
+        for x in (dep, close):
+            if x and since < x < until:
+                cuts.add(x)
+    cuts = sorted(cuts)
+    out = []
+    for a, b in zip(cuts, cuts[1:]):
+        ex = set()
+        for run, ps, dep, close, dec, prom in spans:
+            if dep < b and (close or until) > a:
+                ex |= ps
+        out.append((a, b, ex))
+    return out
+
+
+def excluded_at(segs, pool, t):
+    """PURE. Was `pool` a canary pool at time t?"""
+    for a, b, ex in segs:
+        if a <= t < b:
+            return pool in ex
+    return False
 
 
 def confounds(spans, since, until):
@@ -165,8 +199,8 @@ def render(res):
          'Generated %s. Model **%s** at %s on every fleet bot from %s (stages started %s); rolled back by the watch at +24 h '
          '(owner rule 10-31: the Blackwell is for testing only).' % (res['generated'], res['model'], res['url'],
                                                                      res['completed'], res['started']), '',
-         'Windows: EXP %s .. %s; PRE %s .. %s; the 7-day median is over D1..D7 (24-h windows before PRE). Pools that were '
-         'canary pools at any moment of a window are excluded from that window.' % tuple(res['win'][k] for k in (
+         'Windows: EXP %s .. %s; PRE %s .. %s; the 7-day median is over D1..D7 (24-h windows before PRE). A pool is left '
+         'out for the time it was a canary pool (each window is cut at every canary boundary).' % tuple(res['win'][k] for k in (
              'EXP0', 'EXP1', 'PRE0', 'PRE1')), '']
     for sect, keys in (('Fleet value (Elasticsearch skill stream)', res['es_keys']),
                        ('Decision stream (llm-<bot>.jsonl)', res['dec_keys'])):
@@ -179,7 +213,7 @@ def render(res):
     L += ['## Denominators and exclusions', '']
     for w in ['EXP', 'PRE'] + res['days']:
         d = res[w]
-        L.append('- %s: %s bot-h (ES), %s decisions over %s bot-h (files); excluded pools %s (canaries %s)%s' % (
+        L.append('- %s: %s bot-h (ES), %s decisions over %s bot-h (files); canary pools left out for their canary time: %s (canaries %s)%s' % (
             w, fmt(d.get('bot_hours')), fmt(d.get('decisions')), fmt(d.get('bot_h')), ','.join(d.get('excluded') or []) or 'none',
             ','.join(d.get('excluded_runs') or []) or 'none', ('; ERRORS: ' + '; '.join(d['errors'])) if d.get('errors') else ''))
     L += ['', '## Confounds', '']
@@ -199,80 +233,92 @@ def all_pools():
     return sorted({m.group(1) for m in (BOT_RE.fullmatch(os.path.basename(e)[:-4]) for e in glob.glob(os.path.join(ENV_DIR, '*.env'))) if m})
 
 
-def es_metrics(since, until, pools):
-    if not pools:      # EsEvents turns pools=[] into NO filter: the whole fleet, canaries included (Codex r1)
-        return {}, ['no pools left after the canary exclusion (or no roster): every ES metric UNREADABLE']
+def es_metrics(since, until, pools_all, segs):
+    """Sums over the segments (each with its own canary pools left out), then the ratios."""
     sys.path.insert(0, W5); sys.path.insert(0, os.path.join(W5, 'host'))
     from lib.estelemetry import EsEvents
     import valuescore as V
-    out, errs = {}, []
-    orig = V._estelemetry
-
-    def scoped():
-        E = orig()
-
-        class Scoped(E):
-            @classmethod
-            def load(cls, *a, **k):
-                k.setdefault('pools', pools)
-                k.setdefault('gaps', 'allow')
-                return super(Scoped, cls).load(*a, **k)
-        return Scoped
-    try:
-        V._estelemetry = scoped
-        vs = V.measure(iso(since), iso(until), old=False)
-        out['bot_hours'] = vs.get('bot_hours')
-        out['items_per_bot_h'] = vs['units'] / vs['bot_hours'] if vs.get('bot_hours') else None
-        out['value_per_bot_h'] = vs.get('value_per_bot_h')
-    except Exception as x:
-        errs.append('valuescore: %s: %s' % (type(x).__name__, str(x)[:160]))
-    finally:
-        V._estelemetry = orig
-    try:
-        ev = EsEvents.load('skill', since=since, until=until, pools=pools, gaps='allow')
-        if not ev.total():
-            raise RuntimeError('no skill documents')
-        cov = ev.coverage()
-        bh = cov['bot_hours']
-        out.setdefault('bot_hours', bh)
-        out['deaths'] = int(ev.count('_death', allow_zero=True))
-        out['deaths_per_bot_h'] = out['deaths'] / bh if bh else None
-        names = ev.names()
-        for k in list(SKILLS) + sorted(n for n in names if n.startswith('build')):
-            st = ev.terms('skill.status', kind=k, allow_zero=True) if names.get(k) else {}
-            tot = sum(st.values())
-            out['%s_success' % k] = (st.get('success', 0) / tot) if tot else None
-            out['%s_n' % k] = tot
-        out['_build_per_bot_h'] = names.get('_build', 0) / bh if bh else None
-        r = ev._search({'size': 0, 'query': ev._query(), 'aggs': {'k': {'terms': {'field': 'skill.name', 'size': 1000},
-                                                                         'aggs': {'d': {'sum': {'field': 'skill.duration_ms'}},
-                                                                                  'c': {'value_count': {'field': 'skill.duration_ms'}}}}}})
-        bk = [b for b in ev._complete(r['aggregations']['k'], 'skill.name terms')['buckets'] if not str(b['key']).startswith('_')]
-        docs, with_d = sum(b['doc_count'] for b in bk), sum(b['c']['value'] for b in bk)
-        ms = sum(b['d']['value'] or 0 for b in bk)
-        out['duration_coverage'] = (with_d / docs) if docs else None
-        # a sum over a field nobody carries is 0, which would read as "100 % outside skills" (Codex r1)
-        out['time_outside_skills'] = (1 - ms / 3.6e6 / bh) if bh and docs and with_d / docs >= 0.95 else None
-        if out['time_outside_skills'] is None:
-            errs.append('time outside skills UNREADABLE: skill.duration_ms on %s of %d skill rows' % (with_d, docs))
-    except Exception as x:
-        errs.append('es: %s: %s' % (type(x).__name__, str(x)[:160]))
+    acc = {'units': 0.0, 'value': 0.0, 'bh': 0.0, 'deaths': 0, 'build_rows': 0, 'dur_ms': 0.0, 'dur_docs': 0, 'docs': 0}
+    st = {}
+    errs, segs_done = [], 0
+    for a, b, ex in segs:
+        pools = [p for p in pools_all if p not in ex]
+        if not pools:      # EsEvents turns pools=[] into NO filter: the whole fleet, canaries included (Codex r1)
+            errs.append('segment %s..%s: no pools left after the canary exclusion: skipped' % (iso(a)[11:16], iso(b)[11:16]))
+            continue
+        try:
+            ev = EsEvents.load('skill', since=a, until=b, pools=pools, gaps='allow')
+            if not ev.total():
+                raise RuntimeError('no skill documents (an ingest gap is not a quiet segment)')
+            bh = ev.coverage()['bot_hours']
+            names = ev.names()
+            rows_by_kind = {k: [{'delta': (x.get('skill') or {}).get('inventory_delta') or {},
+                                 'world': V.world_of((x.get('exp') or {}).get('pool'))}
+                                for x in ev.rows(k, fields=['skill.inventory_delta', 'exp.pool'], max_rows=400_000, allow_zero=True)]
+                            for k in V.INTAKE_KINDS if names.get(k)}
+            sc = V.score(rows_by_kind)
+            r = ev._search({'size': 0, 'query': ev._query(), 'aggs': {'k': {'terms': {'field': 'skill.name', 'size': 2000},
+                                                                             'aggs': {'d': {'sum': {'field': 'skill.duration_ms'}},
+                                                                                      'c': {'value_count': {'field': 'skill.duration_ms'}},
+                                                                                      's': {'terms': {'field': 'skill.status', 'size': 20}}}}}})
+            bk = ev._complete(r['aggregations']['k'], 'skill.name terms')['buckets']
+        except Exception as x:
+            errs.append('segment %s..%s: %s: %s' % (iso(a)[5:16], iso(b)[5:16], type(x).__name__, str(x)[:140]))
+            continue
+        segs_done += 1
+        acc['units'] += sc['units']; acc['value'] += sc['value']; acc['bh'] += bh
+        acc['deaths'] += names.get('_death', 0); acc['build_rows'] += names.get('_build', 0)
+        for bb in bk:
+            k = str(bb['key'])
+            if k.startswith('_'):
+                continue
+            acc['docs'] += bb['doc_count']; acc['dur_docs'] += bb['c']['value']; acc['dur_ms'] += bb['d']['value'] or 0
+            if k in SKILLS or k.startswith('build'):
+                ss = {x['key']: x['doc_count'] for x in bb['s']['buckets']}
+                c = st.setdefault(k, [0, 0]); c[0] += ss.get('success', 0); c[1] += bb['doc_count']
+    out = {'segments': len(segs), 'segments_read': segs_done}
+    if segs_done < len(segs):
+        errs.append('%d of %d segments unread: the ES numbers cover the rest only' % (len(segs) - segs_done, len(segs)))
+    bh = acc['bh']
+    out['bot_hours'] = round(bh, 1) if bh else None
+    out['intake_units'] = acc['units']
+    out['items_per_bot_h'] = acc['units'] / bh if bh else None
+    out['value_per_bot_h'] = acc['value'] / bh if bh else None
+    out['deaths'] = acc['deaths'] if segs_done else None
+    out['deaths_per_bot_h'] = acc['deaths'] / bh if bh else None
+    for k in SKILLS:
+        c = st.get(k)
+        out['%s_success' % k] = (c[0] / c[1]) if c and c[1] else None
+        out['%s_n' % k] = c[1] if c else 0
+    for k in sorted(x for x in st if x.startswith('build')):
+        out['%s_success' % k] = st[k][0] / st[k][1] if st[k][1] else None
+    out['_build_per_bot_h'] = acc['build_rows'] / bh if bh else None
+    cov = acc['dur_docs'] / acc['docs'] if acc['docs'] else None
+    out['duration_coverage'] = cov
+    # a sum over a field nobody carries is 0, which would read as "100 % outside skills" (Codex r1)
+    out['time_outside_skills'] = (1 - acc['dur_ms'] / 3.6e6 / bh) if bh and cov is not None and cov >= 0.95 else None
+    if bh and out['time_outside_skills'] is None:
+        errs.append('time outside skills UNREADABLE: skill.duration_ms on %s of %d skill rows' % (acc['dur_docs'], acc['docs']))
     return out, errs
 
 
-def file_metrics(since, until, pools, model):
+def file_metrics(since, until, pools_all, segs, model):
+    """Decision rows of every fleet bot, minus the rows a bot wrote while its pool was a canary pool; bot-hours in
+    10-minute slots holding >= 1 kept row (the unit rollout.py and the ES coverage use)."""
     import modelread as mr
-    if not pools:
-        raise RuntimeError('no pools left after the canary exclusion (or no roster)')
+    if not pools_all:
+        raise RuntimeError('no pools in the roster')
     rows, hours = {}, {}
     for e in sorted(glob.glob(os.path.join(ENV_DIR, '*.env'))):
         b = os.path.basename(e)[:-4]
         m = BOT_RE.fullmatch(b)
-        if not m or m.group(1) not in pools:
+        if not m or m.group(1) not in pools_all:
             continue
-        rows[b] = mr.read_stream(b, 'llm', since, until)
-        if rows[b]:
-            hours[b] = max(0.0, (min(rows[b][-1]['_t'], until) - max(rows[b][0]['_t'], since)).total_seconds() / 3600)
+        kept = [r for r in mr.read_stream(b, 'llm', since, until) if not excluded_at(segs, m.group(1), r['_t'])]
+        rows[b] = kept
+        slots = {int((r['_t'] - since).total_seconds() // 600) for r in kept}
+        if slots:
+            hours[b] = len(slots) / 6.0
     if sum(len(v) for v in rows.values()) < 1000:
         raise RuntimeError('positive control: only %d llm rows over %d bots' % (sum(len(v) for v in rows.values()), len(rows)))
     return decision_metrics(rows, model, hours)
@@ -294,11 +340,11 @@ def main():
         if name in ('EXP', 'PRE'):
             res['win'][name + '0'], res['win'][name + '1'] = iso(a), iso(b)
         ex, runs = excluded_pools(spans, a, b)
-        pools = [p for p in pools_all if p not in ex]
-        d, errs = es_metrics(a, b, pools)
+        segs = segments(spans, a, b)
+        d, errs = es_metrics(a, b, pools_all, segs)
         model = st.get('model') if name == 'EXP' else None
         try:
-            d.update(file_metrics(a, b, pools, model or 'qwen2.5:7b-instruct'))
+            d.update(file_metrics(a, b, pools_all, segs, model or 'qwen2.5:7b-instruct'))
         except Exception as x:
             errs.append('files: %s: %s' % (type(x).__name__, str(x)[:160]))
         d.update({'excluded': sorted(ex), 'excluded_runs': runs, 'errors': errs, 'confounds': confounds(spans, a, b)})

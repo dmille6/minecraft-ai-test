@@ -65,13 +65,22 @@ def main():
     md = C.render(res)
     t('render: deltas vs PRE and the median, UNREADABLE for a missing value',
       '| items_per_bot_h | 60 | 50 | +20% | 50 (3) | +20% |' in md and '| value_per_bot_h | UNREADABLE |' in md, md[:600])
-    out, errs = C.es_metrics(d(0), d(1), [])
-    t('es: an empty pool selection is UNREADABLE (never the whole fleet)', out == {} and errs and 'no pools' in errs[0])
+    J2 = [{'run': 'old', 'phase': 'deployed', 'note': 'board-c 2026', 'ts': '2026-10-31T01:00:00Z'},
+          {'run': 'new', 'phase': 'deployed', 'note': 'hive-d 2026', 'ts': '2026-10-31T05:00:00Z'},
+          {'run': 'new', 'phase': 'torn-down', 'note': '', 'ts': '2026-10-31T08:00:00Z'}]
+    sp2 = C.canary_spans(J2)
+    t('spans: a run with no close row ends at the next run\'s deploy (one slot), not never',
+      [s for s in sp2 if s[0] == 'old'][0][3] == d(5), sp2)
+    sg = C.segments(sp2, d(0), d(10))
+    t('segments: cut at every boundary, each with only the canary pools active then',
+      [(a.hour, b.hour, sorted(e)) for a, b, e in sg] == [(0, 1, []), (1, 5, ['board-c']), (5, 8, ['hive-d']), (8, 10, [])], sg)
+    t('excluded_at: by pool AND time', C.excluded_at(sg, 'hive-d', d(6)) and not C.excluded_at(sg, 'hive-d', d(9))
+      and not C.excluded_at(sg, 'board-c', d(6)))
     try:
-        C.file_metrics(d(0), d(1), [], 'm'); ok = False
+        C.file_metrics(d(0), d(1), [], sg, 'm'); ok = False
     except RuntimeError:
         ok = True
-    t('files: an empty pool selection raises', ok)
+    t('files: an empty roster raises', ok)
     print('\n%d/%d pass' % (sum(T), len(T)))
     return 0 if all(T) else 1
 
