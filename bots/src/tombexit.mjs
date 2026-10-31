@@ -47,6 +47,19 @@ export const INWALL_TREND_MS = 3000     // the trend window
 export const INWALL_MAX_DIGS = 4        // digs per episode (a refilling column of sand / gravel)
 export const INWALL_RETRY_MS = 2000     // after an episode, the next one may start this soon
 export const INWALL_UNSEEN_ROW_MS = 60_000
+export const INWALL_FAIL_BACKOFF_MS = 30_000  // an episode that did not free the eye: the next one waits this long
+export const INWALL_DIG_SLACK_MS = 1500       // over mineflayer's own digTime for the held item (latency, a late tick)
+export const INWALL_DIG_MAX_MS = 30_000       // no single dig is allowed longer than this
+
+/**
+ * THE IN-WALL DIG'S DEADLINE (Codex r1 blocker: a fixed 8 s cut bare-handed cobblestone (10 s) and deepslate (15 s) off
+ * before they broke). -> ms, from the dig time mineflayer computes for what is in the hand now, plus slack, capped.
+ */
+export const inwallDigMs = (digTimeMs) =>
+  Math.min(INWALL_DIG_MAX_MS, (Number.isFinite(digTimeMs) && digTimeMs > 0 ? digTimeMs : 8000) + INWALL_DIG_SLACK_MS)
+
+/** The cell over the eye holds lava or a lava-like block: breaking the eye cell would pour it onto the head. */
+export const lavaOver = b => !!b && LAVA_LIKE.has(b.name)
 
 /** TOMBEXIT=0 (or off/false/no) restores the base exactly: no decline, no in-wall dig, no sampler. Default on. */
 export const tombexitOn = (env = typeof process !== 'undefined' ? process.env : {}) =>
@@ -66,13 +79,19 @@ const isDanger = b => !!b && LAVA_LIKE.has(b.name)
 /** A body may stand in it: geometry empty, not liquid, not DANGER, not a cobweb. null (unknown) is NOT open. */
 export const bodyOpen = b => !!b && (b.boundingBox === 'empty' || b.name === 'air' || b.name === 'cave_air') &&
   !LIQUID.has(b.name) && !isDanger(b) && b.name !== 'cobweb' && b.name !== 'powder_snow'
-/** A body may stand ON it: solid, not DANGER. null is unknown, never a floor. */
-export const floorOk = b => !!b && b.boundingBox === 'block' && !isDanger(b)
+/**
+ * A body may stand ON it: a FULL-CUBE solid, not DANGER. null is unknown, never a floor. Full cube only (Codex r1): a
+ * fence or wall reports boundingBox 'block' but stands 1.5 high, so the integer-cell search would certify a corridor the
+ * body cannot pass; a slab or stair is conservatively not a floor either (fewer declines, never a false one).
+ */
+export const floorOk = b => !!b && b.boundingBox === 'block' && !isDanger(b) &&
+  (!Array.isArray(b.shapes) || (b.shapes.length === 1 && FULL(b.shapes[0])))
 
 const key = (x, y, z) => `${x},${y},${z}`
 const cellOf = p => ({ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) })
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
 const cellStr = c => `${c.x},${c.y},${c.z}`
+const FULL = s => Array.isArray(s) && s.length === 6 && s[0] <= 0 && s[1] <= 0 && s[2] <= 0 && s[3] >= 1 && s[4] >= 1 && s[5] >= 1
 
 /**
  * THE FREE-CELL RING. note() a cell the bot stood on, on the ground, where isEntombed was FALSE. A declined firing never
@@ -215,7 +234,6 @@ export function declineDecision ({ at, feet, free = [], areas = [], now } = {}) 
 
 /** Full-collision blocks that do NOT suffocate in vanilla (isSuffocating never, or not a full cube). */
 const NOT_SUFFOCATING = /(glass|leaves|^ice$|^packed_ice$|^blue_ice$|^frosted_ice$|barrier|beacon|slime_block|honey_block|scaffolding|powder_snow|soul_sand|^mud$|farmland|dirt_path|_pane$)/
-const FULL = s => Array.isArray(s) && s.length === 6 && s[0] <= 0 && s[1] <= 0 && s[2] <= 0 && s[3] >= 1 && s[4] >= 1 && s[5] >= 1
 
 /** Does this block suffocate a head inside it? A full-cube collision, not in the vanilla exceptions. null -> false. */
 export function suffocates (b) {

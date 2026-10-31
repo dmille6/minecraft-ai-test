@@ -13,7 +13,8 @@
 import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { walkBack, walkMoves, declineDecision, boundDecide, makeFreeRing, inwallDecision, suffocates, makeHealthTrend,
-         tombexitOn, inwallOn, tombexitModeDetail, MAX_NODES, BOUND_N, RING_MS, INWALL_DROP_HP } from '../src/tombexit.mjs'
+         tombexitOn, inwallOn, tombexitModeDetail, MAX_NODES, BOUND_N, RING_MS, INWALL_DROP_HP, inwallDigMs, lavaOver,
+         floorOk } from '../src/tombexit.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -173,6 +174,14 @@ await t('A15 walkMoves: walk, up (with headroom), drop<=3; never onto unknown, n
   assert.ok(!walkMoves(w.at, { x: 0, y: 0, z: 0 }).some(m => m.move === 'up'), 'no headroom, no step up')
 })
 
+await t('A16 (Codex r1) a fence in the floor of the way back: not a floor -- no decline over it', () => {
+  const w = tunnelDeadEnd()
+  const at = (x, y, z) => (x === -3 && y === -1 && z === 0 ? { name: 'oak_fence', boundingBox: 'block', shapes: [[0.375, 0, 0.375, 0.625, 1.5, 0.625]] } : w.at(x, y, z))
+  assert.strictEqual(walkBack({ at, feet: FEET(0, 0, 0), free: free([-5, 0, 0]) }).ok, false)
+  assert.strictEqual(floorOk({ name: 'stone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }), true, 'positive control')
+  assert.strictEqual(floorOk({ name: 'stone_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]] }), false)
+})
+
 // ---------------------------------------------------------------------------------------------- B. ring + bound
 await t('B1 ring: fresh() forgets cells older than RING_MS; note() of a revisited cell refreshes it', () => {
   const r = makeFreeRing()
@@ -225,6 +234,12 @@ await t('C5 health trend: then() is the newest reading at least the window old',
   const h = makeHealthTrend({ windowMs: 3000 })
   h.push(0, 20); h.push(1000, 19); h.push(2000, 18); h.push(3500, 17)
   assert.strictEqual(h.then(3500), 20); assert.strictEqual(h.then(4000), 19); assert.strictEqual(h.then(1000), null)
+})
+await t('C7 (Codex r1) the dig deadline follows mineflayer\'s dig time: bare-handed cobble 10 s and deepslate 15 s fit', () => {
+  assert.ok(inwallDigMs(10_000) > 10_000 && inwallDigMs(15_000) > 15_000)
+  assert.strictEqual(inwallDigMs(null), 9500)
+  assert.strictEqual(inwallDigMs(10 ** 6), 30_000)
+  assert.strictEqual(lavaOver({ name: 'lava' }), true); assert.strictEqual(lavaOver({ name: 'stone' }), false); assert.strictEqual(lavaOver(null), false)
 })
 await t('C6 switches: TOMBEXIT=0 turns both parts off; TOMBEXIT_INWALL=0 only the dig; default on', () => {
   assert.strictEqual(tombexitOn({}), true); assert.strictEqual(inwallOn({}), true)
