@@ -314,6 +314,18 @@ await t('R2 WIRING: the build leaves a standing site tree\'s columns (cells and 
   assert.ok(/if \(siteTreeWaive\(\(bot\.farmFails \?\?= new Map\(\)\), t\.key, why,/.test(src))
   assert.ok(/if \(hv\.waived\) return out\(/.test(src))
 })
+await t('R3 AN OPEN FARM\'S STUCK STAMP on cells a standing site tree holds is stale; on any other cell it stands', () => {
+  const srv = server({ '-28,67,13': 'spruce_log', '-28,68,13': 'spruce_log' })
+  const rec = { trees: [{ base: [-28, 67, 13], logs: [[-28, 67, 13], [-28, 68, 13]] }], cells: [] }
+  const held = F.treeHeldCols(F.siteTreesLeft(srv.read, rec))
+  assert.strictEqual(F.farmStampHeld(['-28,65,13', '-28,65,14'], held), true, 'the live stamp of 14:46Z')
+  assert.strictEqual(F.farmStampHeld(['-28,65,13', '-20,66,10'], held), false, 'one cell elsewhere: the stamp stands')
+  assert.strictEqual(F.farmStampHeld([], held), false)
+  srv.set([-28, 67, 13], 'air'); srv.set([-28, 68, 13], 'air')
+  assert.strictEqual(F.farmStampHeld(['-28,65,13'], F.treeHeldCols(F.siteTreesLeft(srv.read, rec))), false, 'the tree felled: the cells are the build\'s again')
+  const src = readFileSync(SKILLS_PATH, 'utf8').split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n')
+  assert.ok(/if \(rec\?\.blueprint === TREEFARM_BLUEPRINT\) return farmStampHeld\(keys, treeHeldCols\(siteTreesLeft\(farmRead\(b\), rec\)\)\)/.test(src), 'wired in projStuckLive')
+})
 await t('THE PLANTING STOCK: with the farm on, the peaceful kit\'s composter keeps the farm species\' saplings (spruce kept 16); off, it composts them', async () => {
   const C = await import('../src/composter.mjs')
   const bag = [{ name: 'spruce_sapling', count: 20 }, { name: 'jungle_sapling', count: 5 }]

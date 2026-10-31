@@ -441,6 +441,14 @@ export function siteTreeWaive (fails, key, why, rec = null) {
  *  project stuck_on_cell; a cut under a trunk would float it). -> Set "x,z". Pure. */
 export const treeHeldCols = standing => new Set((standing ?? []).flatMap(t => t.logs.flatMap(p => [-1, 0, 1].flatMap(dx => [-1, 0, 1].map(dz => `${p[0] + dx},${p[2] + dz}`)))))
 /**
+ * R3 (LIVE showcase 14:46Z: the r1 stamp on the two pit cells under the standing trunk held the farm's order for its 6 h back-off
+ * even after r2 left those cells to the felling): AN OPEN FARM'S STUCK STAMP IS STALE when every cell it names lies in a column a
+ * standing site tree holds (treeHeldCols) -- the build no longer waits on them; the harvest does the work there. -> bool. Pure.
+ */
+export function farmStampHeld (keys = [], held = new Set()) {
+  return keys.length > 0 && keys.every(k => { const [x, , z] = String(k).split(',').map(Number); return held.has(`${x},${z}`) })
+}
+/**
  * ONE PLOT'S HARVEST -> [[x, y, z], ...] in dig order: the trunk's logs straight up the plot column from one above the plot
  * cell (lowest first, at most trunkMax), then the stump (the plot cell) LAST -- the stump is the stance the upper logs are dug
  * from. Only the column: a branch (fancy oak) is left. An unread cell ends the trunk. Pure.
