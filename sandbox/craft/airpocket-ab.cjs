@@ -122,6 +122,17 @@ const SPEC = {
   // furnace window open when the rescue fires (aad2506a's town orders keep the brain from answering before ~t+30 s)
   SMR: { setup: ['fill 699 40 699 701 41 701 minecraft:air', 'setblock 702 40 700 minecraft:furnace[facing=west]'], flood: ['fill 699 40 699 701 41 701 minecraft:water replace minecraft:air'], floodOnSmelt: true,
          expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'air'], [701, 41, 701, 'air'], [700, 42, 700, 'stone'], [701, 42, 700, 'stone'], [702, 40, 700, 'furnace']], secs: 240 },
+  // apseal-01 (10-31): the fleet's top drowning trap -- water BESIDE (or above) the roof cell. 51 of 57 drownings in 7 d
+  // had the plan refuse "water beside the roof cell would fill the pocket". C (above) is one wet side; these are more:
+  //   C3  A + water on THREE sides of the roof cell (699/700 42 699/701: W, N, S), stone E -- the isolated-d 357,57,180 site
+  //   CT  A + water ABOVE the roof cell (700 43 700) with stone above that
+  //   C4  A + all FOUR sides of the roof cell wet (a stone roof pillar in a 3x3 water layer at 42, corners wet too)
+  C3: { setup: [COL, 'setblock 699 42 700 minecraft:water', 'setblock 700 42 699 minecraft:water', 'setblock 700 42 701 minecraft:water'],
+        expect: [[700, 41, 700, 'water'], [700, 42, 700, 'stone'], [699, 42, 700, 'water'], [700, 42, 699, 'water'], [700, 42, 701, 'water'], [701, 42, 700, 'stone'], [700, 43, 700, 'stone']], secs: 150 },
+  CT: { setup: [COL, 'setblock 700 43 700 minecraft:water'],
+        expect: [[700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'water'], [700, 44, 700, 'stone'], [701, 42, 700, 'stone']], secs: 150 },
+  C4: { setup: [COL, 'fill 699 42 699 701 42 701 minecraft:water', 'setblock 700 42 700 minecraft:stone'],
+        expect: [[700, 41, 700, 'water'], [700, 42, 700, 'stone'], [699, 42, 700, 'water'], [701, 42, 700, 'water'], [700, 42, 699, 'water'], [700, 42, 701, 'water'], [699, 42, 699, 'water'], [700, 43, 700, 'stone']], secs: 150 },
   CR: { setup: ['fill 700 40 700 700 41 700 minecraft:water'], expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone']], secs: 150 },
 }
 const CLEAR_ITEMS = 'kill @e[type=item,x=700,y=40,z=700,distance=..24]'
@@ -183,8 +194,11 @@ const tri = r => { const t = (r?.reply || '').trim(); return /Test passed/.test(
 const num = r => { const m = (r?.reply || '').match(/data: (-?[\d.]+)/); return m ? +m[1] : null }
 const CELLS = {   // cell -> candidate blocks, first that passes names it; any null reply = 'unknown'
   roof: [[700, 42, 700], ['air', 'water', 'stone', 'ice', 'cave_air']],
-  above: [[700, 43, 700], ['air', 'stone', 'lava', 'sand', 'water']],
-  side: [[701, 42, 700], ['stone', 'water', 'air']],
+  above: [[700, 43, 700], ['air', 'stone', 'lava', 'sand', 'water', 'cobblestone']],
+  side: [[701, 42, 700], ['stone', 'water', 'air', 'cobblestone']],
+  sideW: [[699, 42, 700], ['stone', 'water', 'air', 'cobblestone']],   // apseal-01: the other three sides of the roof cell
+  sideN: [[700, 42, 699], ['stone', 'water', 'air', 'cobblestone']],
+  sideS: [[700, 42, 701], ['stone', 'water', 'air', 'cobblestone']],
   head: [[700, 41, 700], ['water', 'air', 'stone', 'cobblestone']],
   feet: [[700, 40, 700], ['water', 'air', 'stone', 'cobblestone']],   // a block placed under a standing bot (cand 9ad287a)
   furnace: [[701, 40, 700], ['furnace', 'air', 'stone']],
