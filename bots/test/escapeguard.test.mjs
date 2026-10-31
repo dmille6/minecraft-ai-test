@@ -131,6 +131,8 @@ function makeBot (w, { y = Y0, inv = [] } = {}) {
 }
 // the protected zone around the scene (protectzone.mjs shape), absolute coordinates: the trial chambers' box in miniature
 const ZONE = { id: 'trial-chambers-test', kind: 'trial_chambers', label: 'the test chambers', x0: -8, y0: Y0 - 8, z0: -8, x1: 8, y1: Y0 + 8, z1: 8, floorY: null }
+// every cell round the tomb is a record cell (a sealed void in a project): nothing ordinary to cut through
+const ALLREC = c => (Math.abs(c.x) <= 3 && Math.abs(c.z) <= 3 && c.y >= Y0 - 2 && c.y <= Y0 + 6 ? 'monument' : false)
 const rows = []
 tapRecords(r => { if (/^_(escape_guard|needs_rescue)/.test(r?.skill?.name ?? '')) rows.push(r.skill) })
 /** The guard on a test bot: survival context (the entombed reflex holds the body), an injectable clock. */
@@ -189,6 +191,8 @@ await t('outOfAir: a solid head cell, or the head under with <= 8 s of air; wet 
   assert.ok(!outOfAir({ headUnder: true, airSeconds: 9 }), 'control: 9 s left is not yet an emergency')
   assert.ok(!outOfAir({ headUnder: false, airSeconds: 0 }), 'head in air')
   assert.ok(outOfAir({ headUnder: true, oxygen: 10 }) && !outOfAir({ headUnder: true, oxygen: 20 }), 'the server oxygen fallback')
+  assert.ok(outOfAir({ headUnder: true, airSeconds: 15, oxygen: 0 }), 'Codex r1: a fresh 15 s clock after a reconnect never hides the server\'s 0')
+  assert.ok(outOfAir({ headUnder: true, airSeconds: 3, oxygen: 20 }), 'and the clock\'s low reading wins over a stale full oxygen')
 })
 await t('waitStep: a refusal starts the wait; help once at 2 min; the last resort at 10 min for 90 s; moving away or 3 min quiet ends it', () => {
   const at = P(0, 40, 0)
@@ -246,6 +250,45 @@ await t('WRAPPER: every other purpose passes (the gate is survival only); ESCAPE
   assert.ok(rows.some(r => /phase=air/.test(r.detail)))
 })
 
+await t('WRAPPER: a dig by the drowning rescue or the flooded-pocket arm is never refused (it was admitted on the air state)', async () => {
+  for (const reflex of ['drown_rescue', 'flooded_pocket']) {
+    const bot = makeBot(TOMB({ '0,2,0': 'oak_planks' }))
+    attachEscapeGuard(bot, { zones: () => [ZONE], home: { x: 0, y: 64, z: 0 }, context: () => ({ reflex }) })
+    await bot.dig(bot.blockAt(V(0, Y0 + 2, 0)))
+    assert.strictEqual(bot.digs.length, 1, reflex)
+  }
+  const ctl = makeBot(TOMB({ '0,2,0': 'oak_planks' }))
+  attachEscapeGuard(ctl, { zones: () => [ZONE], home: { x: 0, y: 64, z: 0 }, context: () => ({ reflex: 'escape' }) })
+  assert.strictEqual(await ctl.dig(ctl.blockAt(V(0, Y0 + 2, 0))).then(() => 'dug', e => e.code), 'escape_guard', 'control: the entombed escape is refused')
+})
+await t('WRAPPER: the real dig re-reads the records (fresh) -- a record written inside the planners\' cache window is still refused', async () => {
+  const bot = makeBot(TOMB())
+  let rec = false
+  const asked = []
+  attachEscapeGuard(bot, { zones: () => [], home: { x: 0, y: 64, z: 0 }, context: () => ({ reflex: 'escape' }),
+    recordAt: (c, o) => { asked.push(!!o?.fresh); return o?.fresh ? rec : false } })
+  assert.strictEqual(bot.escapeGuard.mayBreak(bot.blockAt(V(1, Y0, 0))), true, 'the cached answer: no record yet')
+  rec = 'monument'
+  assert.strictEqual(await bot.dig(bot.blockAt(V(1, Y0, 0))).then(() => 'dug', e => e.code), 'escape_guard')
+  assert.deepStrictEqual(asked, [false, true], 'the planner used the snapshot, the dig asked fresh')
+})
+await t('MAROONED CADENCE (Claude + Codex r1): firings at the arm\'s real spacing (cap + its 60 s check + the ramp) still reach the last resort', async () => {
+  const w = TOMB()
+  const bot = makeBot(w, { inv: [PICK(100), COBBLE(64)] })
+  const { clock } = guarded(bot, { recordAt: ALLREC, zones: [] })
+  let refusals = 0, f = null
+  const t0 = clock.t
+  for (let k = 0; k < 12; k++) {
+    f = await firing(bot, refusals)
+    if (f.route !== 'guarded') break
+    refusals = f.refusals ?? refusals
+    clock.t += GUARD_BACKOFF_CAP_MS + 60_000 + 30_000
+  }
+  assert.notStrictEqual(f.route, 'guarded', 'the wait reset between firings: entombed forever at the marooned cadence')
+  assert.ok(bot.digs.some(d => d.cell === '0,2,0'))
+  assert.ok(clock.t - t0 <= ESCAPE_GUARD_WAIT_MS + GUARD_BACKOFF_CAP_MS + 90_000)
+})
+
 // ================================================================================================================
 // C. THE RECORD READER
 // ================================================================================================================
@@ -300,7 +343,6 @@ await t('POSITIVE CONTROL: with ESCAPEGUARD=off the same cell is the base\'s -- 
   assert.ok(bot.digs.some(d => d.cell === '0,2,0' && d.name === 'oak_planks'), `the base dig of the planks is gone: ${JSON.stringify(bot.digs)}`)
 })
 // every cell round the tomb is a record cell (a sealed void in a project): nothing ordinary to cut through
-const ALLREC = c => (Math.abs(c.x) <= 3 && Math.abs(c.z) <= 3 && c.y >= Y0 - 2 && c.y <= Y0 + 6 ? 'monument' : false)
 await t('ALL GUARDED: firings every 90 s hold the bot dry and in place, dig nothing, ask nothing, back off <= the cap, call for help once', async () => {
   const w = TOMB()
   const bot = makeBot(w, { inv: [PICK(100), COBBLE(64)] })
@@ -347,7 +389,7 @@ await t('WIRED: index installs the guard after protectzone with the records and 
   const idx = stripComments(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
   const a = idx.indexOf('attachProtectZone(bot, {'), b = idx.indexOf('attachEscapeGuard(bot, {')
   assert.ok(a > 0 && b > a, 'the guard is installed, and after protectzone (outermost of the two)')
-  assert.match(idx, /recordAt: c => escapeRecordAt\(bot, c\)/)
+  assert.match(idx, /recordAt: \(c, o\) => escapeRecordAt\(bot, c, Date\.now\(\), o\)/)
   assert.match(idx, /zones: \(\) => bot\.protectZones\?\.\(\) \?\? \[\]/)
   const rf = stripComments(readFileSync(REFLEX_PATH, 'utf8'))
   assert.strictEqual((rf.match(/climbOutcomeRoute\((climbed|pillarOutcome)\) === 'guarded'/g) ?? []).length, 2, 'both arms route guarded')

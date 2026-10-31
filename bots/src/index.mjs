@@ -1313,7 +1313,7 @@ function connect() {
       const reflexes = stopReflexes
       const eg = attachEscapeGuard(bot, {
         zones: () => bot.protectZones?.() ?? [],
-        recordAt: c => escapeRecordAt(bot, c),
+        recordAt: (c, o) => escapeRecordAt(bot, c, Date.now(), o),
         home: configuredHome(config.world),
         context: () => ({ skill: runner.current?.skill ?? null, args: runner.current?.args ?? null,
                           reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }),
