@@ -39,9 +39,12 @@ export const ESCAPE_GUARD_WAIT_MS = 10 * 60_000     // under the tripwire's Z1 (
 export const ESCAPE_GUARD_GRANT_MS = 90_000         // the last resort's window, then the clock starts again
 export const ESCAPE_GUARD_HELP_MS = 2 * 60_000      // still refused here this long: one `needs_rescue` row calls for help
 export const ESCAPE_GUARD_MOVE_RESET = 4            // blocks from the place the wait began: farther is somewhere else
-export const ESCAPE_GUARD_QUIET_MS = 3 * 60_000     // no guarded refusal this long: the bot is no longer trying to dig out here
+// no guarded refusal this long: the bot is no longer trying to dig out here. LONG on purpose (Claude + Codex r1 blocker): the
+// marooned arm re-fires only after its back-off PLUS its own 60 s check and only while the runner is idle, so a short window
+// reset the wait between firings and the last resort was never reached again
+export const ESCAPE_GUARD_QUIET_MS = 15 * 60_000
 /** The entombed / marooned arms' back-off after a guarded refusal never exceeds this (under QUIET_MS: the wait keeps running). */
-export const GUARD_BACKOFF_CAP_MS = ESCAPE_GUARD_QUIET_MS - 60_000
+export const GUARD_BACKOFF_CAP_MS = 2 * 60_000
 export const AIR_GUARD_SECONDS = 8                  // of 15 (air.mjs MAX_AIR_SECONDS): head under with this little left is an emergency
 export const RECORD_RADIUS = 160                    // an unreadable record is unknown within this of home; beyond, no record reaches
 export const TREEFARM_BAND = [-4, 24]               // a tree-farm column is guarded from home.y - 4 to home.y + 24 (its trees)
@@ -111,10 +114,15 @@ export function escapeDigDecision ({ on = true, purpose = 'survival', guard = nu
 export function outOfAir ({ headSolid = false, headUnder = false, airSeconds = null, oxygen = null } = {}) {
   if (headSolid) return true
   if (!headUnder) return false
-  if (Number.isFinite(airSeconds)) return airSeconds <= AIR_GUARD_SECONDS
-  if (Number.isFinite(oxygen)) return oxygen * 15 / 20 <= AIR_GUARD_SECONDS
-  return false
+  // THE LOWER READING WINS (Codex r1 blocker): the local clock restarts at 15 s on a reconnect under water while the server's
+  // oxygen may already be at 0 -- either one saying "nearly out" is an emergency
+  const fromOxygen = Number.isFinite(oxygen) ? oxygen * 15 / 20 : Infinity
+  const fromClock = Number.isFinite(airSeconds) ? airSeconds : Infinity
+  return Math.min(fromOxygen, fromClock) <= AIR_GUARD_SECONDS
 }
+/** The reflexes whose digs are for AIR (pickuplog.mjs activeReflexOf names): a drowning rescue or a flooded-pocket dig is
+ *  never refused -- it was admitted on the air state already (Codex r1 blocker: a refusal there costs a 60 s cooldown). */
+export const AIR_REFLEXES = new Set(['drown_rescue', 'flooded_pocket'])
 
 /** A fresh wait clock. */
 export const waitClock = () => ({ since: null, anchor: null, last: null, grantUntil: null, helped: false, episodes: 0 })
@@ -190,7 +198,7 @@ export const escapeGuardCounters = () => ({ refused: 0, passed_over: 0, ordinary
 /**
  * INSTALL THE GUARD on one bot -> the guard object (also bot.escapeGuard) | null.
  *   zones()       protectzone's live list (bot.protectZones)
- *   recordAt(c)   the build records' answer for a cell (skills.mjs escapeRecordAt)
+ *   recordAt(c, { fresh })  the build records' answer for a cell (skills.mjs escapeRecordAt); fresh: no cache
  *   home          { x, y, z } | null
  *   context()     { skill, args, holder, reflex } as digtown reads it
  *   onRow({ kind, status, detail, args })  telemetry (an escape_guard / needs_rescue row)
@@ -244,17 +252,19 @@ export function attachEscapeGuard (bot, { zones = () => [], recordAt = () => fal
     }
     return r.lastResort
   }
-  /** The decision for one block -> { allow, why, guard, cell }. `refusing` true: a refusal feeds the wait clock. */
-  const judge = (block, { purpose = null, refusing = true } = {}) => {
+  const reflexNow = () => { try { return context()?.reflex ?? null } catch { return null } }
+  /** The decision for one block -> { allow, why, guard, cell }. `refusing` true: a refusal feeds the wait clock. `fresh`: the
+   *  records are re-read (the real dig: a record written inside the planner's cache window is still seen -- Codex r1 blocker). */
+  const judge = (block, { purpose = null, refusing = true, fresh = false } = {}) => {
     const cell = cellOf(block?.position)
     if (!on() || !cell) return { allow: true, why: on() ? 'unguarded' : 'off', guard: null, cell }
     const p = purpose ?? purposeOf().purpose
     if (p !== 'survival') return { allow: true, why: 'not_survival', guard: null, cell }
     let list = []
     try { list = zones() ?? [] } catch { list = [] }
-    const g = guardOf({ cell, name: block?.name ?? null, zones: list, feet: bot.entity?.position ?? null, recordAt, home })
+    const g = guardOf({ cell, name: block?.name ?? null, zones: list, feet: bot.entity?.position ?? null, recordAt: c => recordAt(c, { fresh }), home })
     if (!g) { tick(false); return { allow: true, why: 'unguarded', guard: null, cell } }
-    const pre = escapeDigDecision({ on: true, purpose: 'survival', guard: g, air: air(), lastResort: false })
+    const pre = escapeDigDecision({ on: true, purpose: 'survival', guard: g, air: air() || (purpose == null && AIR_REFLEXES.has(reflexNow())), lastResort: false })
     if (pre.allow) return { ...pre, guard: g, cell }
     const last = tick(refusing, g, cell)
     return { ...escapeDigDecision({ on: true, purpose: 'survival', guard: g, air: false, lastResort: last }), guard: g, cell }
@@ -271,6 +281,8 @@ export function attachEscapeGuard (bot, { zones = () => [], recordAt = () => fal
       const d = judge(block, { purpose: 'survival', refusing: false })
       return d.allow ? null : guardRemedy(d.guard, d.cell, { leftMs: waitLeftMs(clock, now()) })
     },
+    /** The arm held the bot after a guarded refusal (reflex.mjs guardBranch): that is a refusal here, so the wait runs on. */
+    hold () { tick(true, null, null) },
     state: () => ({ ...clock, left_ms: waitLeftMs(clock, now()) }),
     counts: () => ({ ...counts }),
     take: () => { const c = { ...counts }; for (const k of Object.keys(counts)) counts[k] = 0; return c },
@@ -278,7 +290,7 @@ export function attachEscapeGuard (bot, { zones = () => [], recordAt = () => fal
   const inner = bot.dig
   const w = function (block, ...rest) {
     let d
-    try { d = judge(block) } catch { d = { allow: true, why: 'error' } }
+    try { d = judge(block, { fresh: true }) } catch { d = { allow: true, why: 'error' } }
     if (!d.allow) {
       counts.refused++
       const remedy = guardRemedy(d.guard, d.cell, { leftMs: waitLeftMs(clock, now()) })
