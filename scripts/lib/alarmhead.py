@@ -130,7 +130,8 @@ def is_idle(dec, why):
     if dec not in IDLE_DECISIONS:
         return False
     rs = why.split(' | ')
-    return not any(r.startswith(OCCUPIED) or (r.startswith('S7 ') and r.endswith(' is live')) for r in rs)
+    return not any(r.startswith(OCCUPIED) or (r.startswith('S7 ') and r.endswith(' is live'))
+                   or (r.startswith('S8 INSTALL-HOLD') and 'STALE' not in r) for r in rs)   # a live installer (Codex r2)
 
 
 def slot_idle(ticks, now, idle=SLOT_IDLE, stale=SCHED_STALE):

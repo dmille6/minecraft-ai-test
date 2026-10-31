@@ -283,6 +283,12 @@ def t_head(AH):
         l6 = AH.slot_idle(AH.parse_ticks('\n'.join(busy + [tk(m, 'BLOCK', 'S8 SCHED-PAUSE present | S1 canary declared: abc on x')
                                                              for m in range(120, -1, -5)])), now)
         check('slot: BLOCK with a declared canary is occupied, not idle', not l6.startswith('!!') and 'occupied' in l6, l6)
+        l8 = AH.slot_idle(AH.parse_ticks('\n'.join(busy + [tk(m, 'BLOCK', 'S8 SCHED-PAUSE present | S8 INSTALL-HOLD by x until '
+                                                             '2026-10-29T00:00:00Z') for m in range(120, -1, -5)])), now)
+        check('slot: BLOCK with a live install-hold is occupied', not l8.startswith('!!'), l8)
+        l9 = AH.slot_idle(AH.parse_ticks('\n'.join(busy + [tk(m, 'BLOCK', 'S8 INSTALL-HOLD by x until 2026-10-27T00:00:00Z -- '
+                                                             'STALE: the installer must release it') for m in range(120, -1, -5)])), now)
+        check('slot: a STALE install-hold is idle (alarm)', l9.startswith('!! canary slot IDLE 120 min'), l9)
         l7 = AH.slot_idle(AH.parse_ticks('\n'.join(busy + [tk(m, 'BLOCK') for m in range(120, 20, -5)]
                                                     + [tk(m, 'QUEUE', 'UNREADABLE x') for m in range(20, -1, -5)])), now)
         check('slot: non-decision lines are not ticks (scheduler alarm)', l7.startswith('!! canary scheduler: last tick'), l7)
@@ -326,6 +332,7 @@ MUTANTS = [
     ('lib/alarm.py', "        if last is None or now - last >= repush:", "        if True:", t_alarm),
     ('lib/alarmhead.py', "    if t_last - start >= idle:", "    if False:", t_head),
     ('lib/alarmhead.py', "    return not any(r.startswith(OCCUPIED)", "    return not any(False", t_head),
+    ('lib/alarmhead.py', "(r.startswith('S8 INSTALL-HOLD') and 'STALE' not in r)", "(False)", t_head),
     ('lib/alarmhead.py', "        if dec not in DECISIONS:\n            continue", "        if dec == 'NOTE':\n            continue", t_head),
     ('rollout.py', "    if superseded:\n        slack = dt.timedelta(0)", "    if False:\n        slack = dt.timedelta(0)", t_rollout),
     ('lib/alarmhead.py', "        if not is_idle(d, w):\n            bounded = True", "        if False:\n            bounded = True", t_head),
