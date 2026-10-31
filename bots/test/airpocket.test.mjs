@@ -9,14 +9,18 @@
 //   E. the trigger: never with an up route, at once when sealed, after 8 s otherwise, never during a cooldown;
 //   F. the step itself on a fake bot: success, abort on a breach (dig stopped), ice, never-rose, roof changed;
 //   G. the wiring in reflex.mjs (structural, comments stripped, each assertion seen to fail on a mutant);
-//   H. anchored mutants (present AND unique, `withMutant`) for every decision line.
+//   H. anchored mutants (present AND unique, `withMutant`) for every decision line;
+//   P. the window handoff (ported 10-31 from airpocket-02 d2df552; Paper scene SMR): no equip through a container window,
+//      no clicking equip while the interrupted skill unwinds, admission priced by who owns the window, the short cooldown;
+//   K9-K11. the pre-empt's 'window' decision (an owned window: interrupt its owner, leave the escape alone).
 import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { gunzipSync } from 'node:zlib'
-import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS } from '../src/airpocket.mjs'
+import { airPocketInputs, airPocketAfter, airPocketPreempt, airPocketPreemptDecision, AP_FAIL_COOLDOWN_MS } from '../src/airpocket.mjs'
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
          airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS,
-         standGate, standInPocket, digGate, standRef, standCandidates, airPocketRow, AP_ROW_MAX } from '../src/airpocket.mjs'
+         standGate, standInPocket, digGate, standRef, standCandidates, airPocketRow, AP_ROW_MAX,
+         windowHandoff, awaitWindowHandoff, AP_REFUSE_COOLDOWN_MS, AP_WINDOW_WAIT_MS, equipClicks, windowOwned, admissionTools } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -36,6 +40,19 @@ async function withMutant (path, old, neu, fn) {
   const body = src.replace(old, neu).replace(/from '\.\//g, "from '../src/")
   const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
   writeFileSync(out, body)
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
+
+/** Several anchored replacements in one mutant (each present AND unique), for a decision taken in two lines. */
+async function withMutantsAll (path, pairs, fn) {
+  let src = readFileSync(path, 'utf8')
+  for (const [old, neu] of pairs) {
+    assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))} is not in ${path.pathname}`)
+    assert.ok(src.split(old).length === 2, 'the mutation target is not unique; the mutant is ambiguous')
+    src = src.replace(old, neu)
+  }
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
 
@@ -666,6 +683,28 @@ await t('K1 inside a SEALED rescue an in-flight escape or maroon climb is pre-em
   assert.equal(airPocketPreempt({ ...base, active: true }), false)
   assert.equal(airPocketPreempt({ ...base, cooldownUntil: 2000 }), false)       // a failed step here does not re-preempt
 })
+await t('K9 NEVER THROUGH AN OWNED WINDOW (Codex r3 P2): "window" (interrupt the owner); an UNOWNED one asks the held-only admission (r4)', () => {
+  const base = { rescuing: true, routeSealed: true, escaping: true, now: 1, stepWouldRun: () => true }
+  assert.equal(airPocketPreemptDecision(base), 'preempt')                                   // positive control
+  assert.equal(airPocketPreemptDecision({ ...base, windowOpen: true, windowOwnedNow: true }), 'window')
+  assert.equal(airPocketPreempt({ ...base, windowOpen: true, windowOwnedNow: true }), false)      // the escape is not stopped
+  assert.equal(airPocketPreemptDecision({ ...base, windowOpen: true, windowOwnedNow: true, escaping: false }), false)   // nothing to pre-empt
+  assert.equal(airPocketPreemptDecision({ ...base, windowOpen: true, windowOwnedNow: true, cooldownUntil: 5 }), false)
+  let asked = 0
+  airPocketPreemptDecision({ ...base, windowOpen: true, windowOwnedNow: true, stepWouldRun: () => { asked++; return true } })
+  assert.equal(asked, 0)                                                                     // the stale price is never consulted
+  // UNOWNED (both r4): nothing will close it, so it must not block -- the held-only admission decides
+  assert.equal(airPocketPreemptDecision({ ...base, windowOpen: true, windowOwnedNow: false }), 'preempt')
+  assert.equal(airPocketPreemptDecision({ ...base, windowOpen: true, windowOwnedNow: false, stepWouldRun: () => false }), false)
+})
+await t('K10 MUTANT KILLED: pre-empting through an owned window (K9 catches it)', () =>
+  withMutant(AP_PATH, "  if (windowOpen && windowOwnedNow) return 'window'\n", '', m => {
+    assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: true, escaping: true, now: 1, stepWouldRun: () => true, windowOpen: true, windowOwnedNow: true }), true)
+  }))
+await t('K11 MUTANT KILLED: an unowned window blocking the pre-empt forever (K9 catches it)', () =>
+  withMutant(AP_PATH, "  if (windowOpen && windowOwnedNow) return 'window'\n", "  if (windowOpen) return 'window'\n", m => {
+    assert.equal(m.airPocketPreemptDecision({ rescuing: true, routeSealed: true, escaping: true, now: 1, stepWouldRun: () => true, windowOpen: true, windowOwnedNow: false }), 'window')
+  }))
 await t('K6 MUTANT KILLED: pre-empting for a step that would refuse (the r2 dead end; K1 catches it)', () =>
   withMutant(AP_PATH, 'return stepWouldRun() === true', 'return true', m => {
     assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: true, escaping: true, now: 1, stepWouldRun: () => false }), true)
@@ -754,6 +793,326 @@ await t('J4 MUTANT KILLED: ignoring othersBusy lets the step start under an in-f
     assert.equal(m.airPocketTrigger({ rescuing: true, routeSealed: true, othersBusy: true, now: 1 }), true)
   }))
 
+// ---------------------------------------------------------------- // P. THE WINDOW HANDOFF
+await t('P1 windowHandoff (pure): wait while open up to 1.5 s, then skip; while the skill unwinds, then unsettled; settle 250 ms then go', () => {
+  assert.equal(windowHandoff({ open: true, waitedMs: 0 }), 'wait')
+  assert.equal(windowHandoff({ open: true, waitedMs: 1499 }), 'wait')
+  assert.equal(windowHandoff({ open: true, waitedMs: 1500 }), 'skip')
+  assert.equal(windowHandoff({ open: false, waitedMs: 100, quietForMs: 100 }), 'wait')
+  assert.equal(windowHandoff({ open: false, waitedMs: 400, quietForMs: 250 }), 'go')
+  // the interrupted skill still unwinding, no window (yet): wait, then go ahead as airpocket-01 did -- never 'skip'
+  assert.equal(windowHandoff({ open: false, busy: true, waitedMs: 0, quietForMs: 0 }), 'wait')
+  assert.equal(windowHandoff({ open: false, busy: true, waitedMs: 1499, quietForMs: 0 }), 'wait')
+  assert.equal(windowHandoff({ open: false, busy: true, waitedMs: 1500, quietForMs: 0 }), 'unsettled')
+  // an open window outranks a busy skill: still 'skip', never an equip through it
+  assert.equal(windowHandoff({ open: true, busy: true, waitedMs: 1500 }), 'skip')
+  // busy is not "quiet": a busy runner with the settle long past still waits (positive control: the same clocks, idle, go)
+  assert.equal(windowHandoff({ open: false, busy: true, waitedMs: 600, quietForMs: 999 }), 'wait')
+  assert.equal(windowHandoff({ open: false, busy: false, waitedMs: 600, quietForMs: 999 }), 'go')
+  // no window ever seen: the skill's promise settled (finally included), nothing left to click -> go at once (r2, Claude P2)
+  assert.equal(windowHandoff({ open: false, busy: false, sawWindow: false, waitedMs: 10, quietForMs: 0 }), 'go')
+  assert.equal(windowHandoff({ open: false, busy: false, sawWindow: true, waitedMs: 10, quietForMs: 0 }), 'wait')
+})
+await t('P1b equipClicks (pure): a quick-bar item or the held one is a selection (no click); a main-inventory move clicks', () => {
+  assert.equal(equipClicks({ name: 'stone_pickaxe', slot: 37 }, 36), false)     // quick bar 36..44
+  assert.equal(equipClicks({ name: 'stone_pickaxe', slot: 44 }, 36), false)
+  assert.equal(equipClicks({ name: 'stone_pickaxe', slot: 9 }, 36), true)       // main inventory
+  assert.equal(equipClicks({ name: 'stone_pickaxe', slot: 35 }, 36), true)
+  assert.equal(equipClicks({ name: 'stone_pickaxe', slot: 45 }, 36), true)      // the off-hand slot: a move
+  assert.equal(equipClicks({ name: 'stone_pickaxe', slot: 9 }, 9), false)       // already held
+  assert.equal(equipClicks({ name: 'stone_pickaxe' }, 36), true)                // slot unknown: assume a click
+  assert.equal(equipClicks(null, 36), false)                                     // the hand: nothing to equip
+})
+await t('P2 an open window closes during the handoff: the equip happens only AFTER it closed (and settled)', async () => {
+  const bot = fakeBot({}); bot.currentWindow = { id: 3 }
+  let closedAt = null, equipAt = null
+  setTimeout(() => { bot.currentWindow = null; closedAt = Date.now() }, 60)        // real ms (the step's clock runs 10x)
+  const eq0 = bot.equip; bot.equip = async it => { equipAt = Date.now(); return eq0(it) }
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps()); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.window, 'closed'); assert.ok(equipAt != null && closedAt != null && equipAt >= closedAt)
+})
+await t('P3 a window that stays open: NO equip and NO dig (the inventory is stale through it); the stand never equips either', async () => {
+  const bot = fakeBot({}); bot.currentWindow = { id: 3 }
+  let equips = 0; bot.equip = async () => { equips++ }
+  // OWNED: the interrupted skill is still busy with it (its drain outlasts the wait)
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0, skillBusy: () => true })); clearInterval(bot._healthTimer)
+  assert.equal(equips, 0); assert.equal(bot.digSends.length, 0); assert.equal(r.window, 'open'); assert.equal(r.ok, false)
+  assert.match(r.why, /container window stayed open 1\d{3} ms: no equip, no dig/)
+  const fl = fakeBot({ cells: { ...HIVE_C, '0,-1,0': 'stone' }, riseTo: 1.1 }); fl.currentWindow = { id: 4 }
+  clearInterval(fl._healthTimer)
+  const at = { fx: 100, fy: 60, fz: 100, Vec3: V, sleep: ms => new Promise(r2 => setTimeout(r2, ms / 10)), now: fast() }
+  assert.equal(await standInPocket(fl, airPocketPlan(world({ ...HIVE_C, '0,-1,0': 'stone' })), { ...at, standItem: () => ({ name: 'cobblestone' }) }),
+    'stopped:a container window is open (0 placed)')
+})
+await t('P3b a window that stays open asks for the SHORT cooldown (handoffHeld): nothing was clicked or dug', async () => {
+  const bot = fakeBot({}); bot.currentWindow = { id: 3 }
+  bot.equip = async () => { throw new Error('no equip may happen') }
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0, skillBusy: () => true })); clearInterval(bot._healthTimer)
+  assert.equal(r.handoffHeld, true); assert.equal(bot.digSends.length, 0)
+  assert.equal(airPocketAfter(false, { drownFails: 2 }, 1000, { handoffHeld: true }).cooldownUntil, 1000 + AP_REFUSE_COOLDOWN_MS)
+  // positive control: an ordinary over-budget failure (no wait) is NOT handoffHeld and keeps the 60-s cooldown
+  const b2 = fakeBot({}); b2.inventory.items = () => []
+  const r2 = await airPocketStep(b2, airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0 })); clearInterval(b2._healthTimer)
+  assert.equal(r2.ok, false); assert.equal(r2.window, 'none'); assert.notEqual(r2.handoffHeld, true)
+  assert.equal(airPocketAfter(false, { drownFails: 2 }, 1000, { handoffHeld: r2.handoffHeld === true }).cooldownUntil, 1000 + AP_FAIL_COOLDOWN_MS)
+})
+await t('P3c MUTANT KILLED: not marking handoffHeld gives a held-off step the 60-s cooldown (P3b catches it)', async () => {
+  // the window-open refusal's own flag
+  await withMutant(AP_PATH, "      if (res.window === 'open' && windowOwned({ open: true, busy: skillBusy(), held: bot.inventoryUnsettled })) {\n        res.handoffHeld = true\n",
+    "      if (res.window === 'open' && windowOwned({ open: true, busy: skillBusy(), held: bot.inventoryUnsettled })) {\n", async m => {
+    const bot = fakeBot({}); bot.currentWindow = { id: 3 }
+    const r = await m.airPocketStep(bot, m.airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0, skillBusy: () => true })); clearInterval(bot._healthTimer)
+    assert.notEqual(r.handoffHeld, true)
+  })
+  // the over-budget refusal after a wait (P3d's scene)
+  await withMutant(AP_PATH, "      if (res.window !== 'none' || equipErr) res.handoffHeld = true\n", '', async m => {
+    const bot = fakeBot({ healthTick: 0 })
+    let busy = true; setTimeout(() => { busy = false }, 60)
+    const hp = setInterval(() => { bot.health = Math.max(1, bot.health - 2) }, 10)
+    const r = await m.airPocketStep(bot, m.airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0, skillBusy: () => busy, predict: (b, item) => (/_pickaxe$/.test(item?.name ?? '') ? 1500 : 7500) }))
+    clearInterval(hp); clearInterval(bot._healthTimer)
+    assert.equal(r.window, 'settled'); assert.match(r.why, /over the budget/); assert.notEqual(r.handoffHeld, true)
+  })
+  await withMutant(AP_PATH, 'cooldownUntil: now + (handoffHeld ? AP_REFUSE_COOLDOWN_MS : AP_FAIL_COOLDOWN_MS)',
+    'cooldownUntil: now + AP_FAIL_COOLDOWN_MS', m => {
+      assert.equal(m.airPocketAfter(false, { drownFails: 2 }, 1000, { handoffHeld: true }).cooldownUntil, 1000 + AP_FAIL_COOLDOWN_MS)
+    })
+})
+await t('P3d a WAIT-caused over-budget refusal (the skill unwound, no window) also gets the short cooldown (r2, Claude P2)', async () => {
+  const bot = fakeBot({ healthTick: 0 })
+  let busy = true; setTimeout(() => { busy = false }, 60)
+  // the pickaxe prices inside the budget at admission; during the 0.6-s (step clock) wait the bot loses health, so the
+  // re-price at the check is over it -- the wait spent the margin
+  const hp = setInterval(() => { bot.health = Math.max(1, bot.health - 2) }, 10)
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0, skillBusy: () => busy, predict: (b, item) => (/_pickaxe$/.test(item?.name ?? '') ? 1500 : 7500) }))
+  clearInterval(hp); clearInterval(bot._healthTimer)
+  assert.equal(r.window, 'settled'); assert.equal(r.ok, false); assert.match(r.why, /over the budget/); assert.equal(r.handoffHeld, true)
+})
+// THE SKILL, NOT ONLY ITS WINDOW (10-09). Real ms below; the step's clock runs 10x, so 1.5 s of step time is 150 real ms.
+// A pending open: no window when the step starts, the interrupted smelt's openFurnace answers 30 ms later, its drain
+// holds the window to 80 ms, and the skill returns (runner idle) at 100 ms. The equip must come after all of it.
+function pendingOpenScene (bot, { openAt = 30, closeAt = 80, idleAt = 100 } = {}) {
+  const ev = { open: null, close: null, idle: null, equip: null, busyCalls: [] }
+  let busy = true
+  setTimeout(() => { bot.currentWindow = { id: 7 }; ev.open = Date.now() }, openAt)
+  setTimeout(() => { bot.currentWindow = null; ev.close = Date.now() }, closeAt)
+  setTimeout(() => { busy = false; ev.idle = Date.now() }, idleAt)
+  const eq0 = bot.equip; bot.equip = async it => { ev.equip = Date.now(); ev.windowAtEquip = bot.currentWindow; return eq0(it) }
+  return { ev, skillBusy: () => { ev.busyCalls.push(Date.now()); return busy } }
+}
+await t('P5 a PENDING open (no window yet, the skill still unwinding): the equip waits for the open, the drain, the close and the unwind', async () => {
+  const bot = fakeBot({})
+  const { ev, skillBusy } = pendingOpenScene(bot)
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ skillBusy })); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.window, 'closed')
+  assert.ok(ev.equip != null && ev.idle != null && ev.equip >= ev.idle, JSON.stringify(ev))
+  assert.equal(ev.windowAtEquip, null)
+})
+await t('P5b MUTANT KILLED: a handoff that looks only at the window equips before the window even opened (P5 catches it)', async () => {
+  for (const [old, neu] of [["  if (!bot.currentWindow && !busy()) return 'none'\n", "  if (!bot.currentWindow) return 'none'\n"],
+                            ['busy: () => !unsettled && skillBusy(),', 'busy: () => false,']]) {
+    await withMutant(AP_PATH, old, neu, async m => {
+      const bot = fakeBot({})
+      const { ev, skillBusy } = pendingOpenScene(bot)
+      const r = await m.airPocketStep(bot, m.airPocketPlan(world(HIVE_C)), deps({ skillBusy })); clearInterval(bot._healthTimer)
+      assert.equal(r.window, 'none'); assert.ok(ev.equip != null && (ev.open == null || ev.equip < ev.open), JSON.stringify(ev))
+    })
+  }
+})
+await t('P6 the skill unwinds with no window ever: the equip follows the unwind (settled); an idle runner adds no wait (none)', async () => {
+  const bot = fakeBot({})
+  let busy = true, idleAt = null, equipAt = null
+  setTimeout(() => { busy = false; idleAt = Date.now() }, 40)
+  const eq0 = bot.equip; bot.equip = async it => { equipAt = Date.now(); return eq0(it) }
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => busy })); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.window, 'settled'); assert.ok(equipAt >= idleAt)
+  const b2 = fakeBot({})
+  const r2 = await airPocketStep(b2, airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => false })); clearInterval(b2._healthTimer)
+  assert.equal(r2.ok, true, r2.why); assert.equal(r2.window, 'none'); assert.ok(!/window=/.test(airPocketRow({ id: 'x', r: r2, requiredMs: 1, budgetMs: 2, difficulty: 'peaceful' })))
+})
+await t('P7 a skill that NEVER unwinds (no window): one bounded wait, then the equip goes ahead (unsettled), and the stand never waits on it again', async () => {
+  const bot = fakeBot({ cells: { ...HIVE_C, '0,-1,0': 'stone' }, riseTo: 1.1 })
+  const calls = []; let equipAt = null
+  const eq0 = bot.equip; bot.equip = async it => { if (equipAt == null) equipAt = Date.now(); return eq0(it) }
+  const plan = airPocketPlan(world({ ...HIVE_C, '0,-1,0': 'stone' }))
+  const t0 = Date.now()
+  const r = await airPocketStep(bot, plan, deps({ skillBusy: () => { calls.push(Date.now()); return true }, standItem: () => ({ name: 'cobblestone' }) }))
+  clearInterval(bot._healthTimer)
+  assert.equal(r.window, 'unsettled'); assert.ok(equipAt != null && equipAt - t0 >= AP_WINDOW_WAIT_MS / 10 - 5, `equip after ${equipAt - t0} real ms`)
+  assert.ok(r.stand && r.stand !== 'none', `the stand ran: ${r.stand}`)       // the stand's own handoff was reached
+  assert.equal(calls.filter(c => c > equipAt).length, 0, 'busy() consulted again after the first wait gave up')
+  assert.match(airPocketRow({ id: 'x', r, requiredMs: 1, budgetMs: 2, difficulty: 'peaceful' }), / window=unsettled:1\d{3} /)
+})
+await t('P7b MUTANT KILLED: forgetting the give-up makes every stand block wait on the hung skill again (P7 catches it)', async () =>
+  withMutant(AP_PATH, "      if (h === 'unsettled') unsettled = true\n", '', async m => {
+    const bot = fakeBot({ cells: { ...HIVE_C, '0,-1,0': 'stone' }, riseTo: 1.1 })
+    const calls = []; let equipAt = null
+    const eq0 = bot.equip; bot.equip = async it => { if (equipAt == null) equipAt = Date.now(); return eq0(it) }
+    const plan = m.airPocketPlan(world({ ...HIVE_C, '0,-1,0': 'stone' }))
+    await m.airPocketStep(bot, plan, deps({ skillBusy: () => { calls.push(Date.now()); return true }, standItem: () => ({ name: 'cobblestone' }) }))
+    clearInterval(bot._healthTimer)
+    assert.ok(calls.filter(c => c > equipAt).length > 0)
+  }))
+await t('P8 the wait POKES the guard (a skill that starts meanwhile is interrupted); mutant (no poke) caught', async () => {
+  const run = async mod => {
+    const bot = fakeBot({}); bot.currentWindow = { id: 3 }
+    setTimeout(() => { bot.currentWindow = null }, 60)
+    let pokes = 0, equipAt = null
+    const eq0 = bot.equip; bot.equip = async it => { if (equipAt == null) equipAt = Date.now(); return eq0(it) }
+    const guardAt = []
+    await mod.airPocketStep(bot, mod.airPocketPlan(world(HIVE_C)), deps({ guard: () => { guardAt.push(Date.now()); return null } }))
+    clearInterval(bot._healthTimer)
+    return guardAt.filter(g => g <= equipAt).length
+  }
+  assert.ok(await run({ airPocketStep, airPocketPlan }) > 0)
+  await withMutant(AP_PATH, '        poke: () => { guard(); try {', '        poke: () => { try {', async m => { assert.equal(await run(m), 0) })
+})
+await t('P9 awaitWindowHandoff never closes a window (the reviewers\' rule): a window that stays open is never touched', async () => {
+  let closes = 0
+  const bot = { currentWindow: { id: 9, close () { closes++ } }, closeWindow () { closes++ } }
+  const now = fast()
+  assert.equal(await awaitWindowHandoff(bot, { sleep: ms => new Promise(r => setTimeout(r, ms / 10)), now, busy: () => true }), 'open')
+  assert.equal(closes, 0); assert.deepEqual(bot.currentWindow.id, 9)
+})
+const bot0dig = r => (r.digMs == null ? 0 : 1)
+// THE QUICK BAR (r2): a selection clicks no window, so it needs no handoff, and with a window open it is still allowed
+const hb = (name, slot) => ({ name, slot })
+await t('P10 NO window, the skill still unwinding, the pickaxe in the quick bar: SELECTED at once (no wait, no click); success', async () => {
+  const bot = fakeBot({}); bot.heldItem = hb('cobblestone', 36)
+  bot.inventory.items = () => [hb('cobblestone', 36), hb('stone_pickaxe', 37)]
+  const eq = []; bot.equip = async it => { eq.push(it.slot); bot.heldItem = it }
+  let busyAsked = 0
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => { busyAsked++; return true } })); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.window, 'none'); assert.deepEqual(eq, [37]); assert.equal(busyAsked, 0)
+})
+await t('P10b a window OPEN with the pickaxe in the quick bar still waits (its slots are stale through the window); closes -> selected', async () => {
+  const bot = fakeBot({}); bot.currentWindow = { id: 3 }; bot.heldItem = hb('cobblestone', 36)
+  bot.inventory.items = () => [hb('cobblestone', 36), hb('stone_pickaxe', 37)]
+  const ev = { close: null, equip: null }
+  bot.equip = async it => { ev.equip = Date.now(); bot.heldItem = it }
+  setTimeout(() => { bot.currentWindow = null; ev.close = Date.now() }, 40)
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps()); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.window, 'closed'); assert.ok(ev.equip >= ev.close, JSON.stringify(ev))
+})
+await t('P11 after the wait the step picks AGAIN from the refreshed inventory (the window\'s close rewrote it)', async () => {
+  const bot = fakeBot({}); bot.currentWindow = { id: 3 }; bot.heldItem = hb('cobblestone', 36)
+  let bag = [hb('cobblestone', 36), hb('iron_pickaxe', 9)]                 // stale: the deposit already moved the iron one out
+  bot.inventory.items = () => bag
+  setTimeout(() => { bag = [hb('cobblestone', 36), hb('stone_pickaxe', 10)]; bot.currentWindow = null }, 40)
+  const eq = []; bot.equip = async it => { eq.push(it.name); bot.heldItem = it }
+  const pr = (b, item) => ({ iron_pickaxe: 200, stone_pickaxe: 300 }[item?.name] ?? 7500)
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ predict: pr })); clearInterval(bot._healthTimer)
+  assert.equal(r.window, 'closed'); assert.deepEqual(eq, ['stone_pickaxe']); assert.equal(r.tool, 'stone_pickaxe'); assert.equal(r.ok, true, r.why)
+})
+await t('P11b MUTANT KILLED: without the re-pick the step equips the pickaxe that is no longer there (P11 catches it)', async () =>
+  withMutant(AP_PATH, "        items = airPocketTools(bot.inventory?.items?.() ?? [])\n        best = pickFastestTool(items, item => predict(block, item))\n", '', async m => {
+    const bot = fakeBot({}); bot.currentWindow = { id: 3 }; bot.heldItem = hb('cobblestone', 36)
+    let bag = [hb('cobblestone', 36), hb('iron_pickaxe', 9)]
+    bot.inventory.items = () => bag
+    setTimeout(() => { bag = [hb('cobblestone', 36), hb('stone_pickaxe', 10)]; bot.currentWindow = null }, 40)
+    const eq = []; bot.equip = async it => { eq.push(it.name) }
+    await m.airPocketStep(bot, m.airPocketPlan(world(HIVE_C)), deps({ predict: (b, item) => ({ iron_pickaxe: 200, stone_pickaxe: 300 }[item?.name] ?? 7500) }))
+    clearInterval(bot._healthTimer)
+    assert.deepEqual(eq, ['iron_pickaxe'])
+  }))
+await t('P11c MUTANT KILLED: a handoff for a quick-bar selection waits on the busy skill for nothing (P10 catches it)', async () =>
+  withMutant(AP_PATH, '    if (bot.currentWindow || equipClicks(best.item, heldSlot())) {\n', '    if (true) {\n', async m => {
+    const bot = fakeBot({}); bot.heldItem = hb('cobblestone', 36)
+    bot.inventory.items = () => [hb('cobblestone', 36), hb('stone_pickaxe', 37)]
+    let busyAsked = 0
+    await m.airPocketStep(bot, m.airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => { busyAsked++; return true } })); clearInterval(bot._healthTimer)
+    assert.ok(busyAsked > 0)
+  }))
+await t('P11d MUTANT KILLED: skipping the handoff for a quick-bar tool WITH a window open selects through stale slots (P10b catches it)', async () =>
+  withMutant(AP_PATH, '    if (bot.currentWindow || equipClicks(best.item, heldSlot())) {\n', '    if (equipClicks(best.item, heldSlot())) {\n', async m => {
+    const bot = fakeBot({}); bot.currentWindow = { id: 3 }; bot.heldItem = hb('cobblestone', 36)
+    bot.inventory.items = () => [hb('cobblestone', 36), hb('stone_pickaxe', 37)]
+    let equipWhileOpen = false; bot.equip = async it => { if (bot.currentWindow) equipWhileOpen = true; bot.heldItem = it }
+    setTimeout(() => { bot.currentWindow = null }, 40)
+    await m.airPocketStep(bot, m.airPocketPlan(world(HIVE_C)), deps()); clearInterval(bot._healthTimer)
+    assert.equal(equipWhileOpen, true)
+  }))
+await t('P13 an equip REFUSED by a skill\'s inventory owner (withdraw\'s ownInventory refuses every equip, a selection too): short cooldown (r2, Codex P2)', async () => {
+  const run = async mod => {
+    const bot = fakeBot({}); bot.heldItem = hb('cobblestone', 36)
+    bot.inventory.items = () => [hb('cobblestone', 36), hb('stone_pickaxe', 37)]
+    bot.equip = async () => { throw Object.assign(new Error('inventory held: a withdraw owns the inventory (equip refused)'), { inventoryHeld: true }) }
+    const r = await mod.airPocketStep(bot, mod.airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0 })); clearInterval(bot._healthTimer)
+    return r
+  }
+  const r = await run({ airPocketStep, airPocketPlan })
+  assert.equal(r.ok, false); assert.equal(r.window, 'none'); assert.equal(bot0dig(r), 0); assert.equal(r.handoffHeld, true)
+  await withMutant(AP_PATH, "      if (res.window !== 'none' || equipErr) res.handoffHeld = true\n", "      if (res.window !== 'none') res.handoffHeld = true\n",
+    async m => { assert.notEqual((await run(m)).handoffHeld, true) })
+})
+await t('P12 the wait keeps the step\'s jump: a guard whose haltPath clears every control does not let a floating bot sink', async () => {
+  const run = async mod => {
+    const bot = fakeBot({}); bot.currentWindow = { id: 3 }
+    setTimeout(() => { bot.currentWindow = null }, 60)
+    let jumpAtEquip = null
+    const eq0 = bot.equip; bot.equip = async it => { if (jumpAtEquip == null) jumpAtEquip = bot.controls.jump; return eq0(it) }
+    await mod.airPocketStep(bot, mod.airPocketPlan(world(HIVE_C)), deps({ guard: () => { bot.controls.jump = false; return null } }))
+    clearInterval(bot._healthTimer)
+    return jumpAtEquip
+  }
+  assert.equal(await run({ airPocketStep, airPocketPlan }), true)
+  await withMutant(AP_PATH, " try { if (bot.controlState?.jump !== wantJump) bot.setControlState('jump', wantJump) } catch { /* not connected */ } } })",
+    ' } })', async m => { assert.equal(await run(m), false) })
+})
+await t('P4 MUTANT KILLED: equipping through an open window (P3 catches it)', async () =>
+  withMutantsAll(AP_PATH, [["      if (res.window === 'open' && windowOwned({", "      if (false && windowOwned({"],
+                           ["      if (res.window === 'open') {\n        // UNOWNED", "      if (false) {\n        // UNOWNED"]], async m => {
+    const bot = fakeBot({}); bot.currentWindow = { id: 3 }
+    let equips = 0; bot.equip = async () => { equips++ }
+    await m.airPocketStep(bot, m.airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0, skillBusy: () => true })); clearInterval(bot._healthTimer)
+    assert.equal(equips, 1)
+  }))
+// THE UNOWNED WINDOW (Claude r3 P2): no skill, no withdraw hold -- nothing will close it, nothing clicks through it
+await t('P14 windowOwned / admissionTools (pure): a skill or a withdraw hold owns it; an UNOWNED window prices only what is held', () => {
+  assert.equal(windowOwned({ open: true, busy: true }), true)
+  assert.equal(windowOwned({ open: true, held: { why: 'settle' } }), true)
+  assert.equal(windowOwned({ open: true, busy: false, held: null }), false)
+  assert.equal(windowOwned({ open: false, busy: true }), false)
+  const bag = [hb('cobblestone', 36), hb('stone_pickaxe', 9), hb('iron_pickaxe', 38)]
+  assert.deepEqual(admissionTools({ items: bag, held: hb('cobblestone', 36), windowOpen: false }).map(i => i.name), ['stone_pickaxe', 'iron_pickaxe'])
+  assert.deepEqual(admissionTools({ items: bag, held: hb('cobblestone', 36), windowOpen: true, owned: true }).map(i => i.name), ['stone_pickaxe', 'iron_pickaxe'])
+  assert.deepEqual(admissionTools({ items: bag, held: hb('cobblestone', 36), windowOpen: true, owned: false }), [])
+  assert.deepEqual(admissionTools({ items: bag, held: hb('stone_pickaxe', 36), windowOpen: true, owned: false }).map(i => i.name), ['stone_pickaxe'])
+})
+await t('P15 an UNOWNED window that stays open: no equip; the HELD pickaxe digs (window=unowned); a held block is refused, short cooldown', async () => {
+  const bot = fakeBot({}); bot.currentWindow = { id: 3 }; bot.heldItem = hb('stone_pickaxe', 36)
+  bot.inventory.items = () => [hb('stone_pickaxe', 36), hb('iron_pickaxe', 9)]
+  let equips = 0; bot.equip = async () => { equips++ }
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => false })); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.window, 'unowned'); assert.equal(equips, 0); assert.equal(r.tool, 'stone_pickaxe')
+  const b2 = fakeBot({}); b2.currentWindow = { id: 3 }; b2.heldItem = hb('cobblestone', 36)
+  b2.inventory.items = () => [hb('cobblestone', 36), hb('stone_pickaxe', 9)]
+  let eq2 = 0; b2.equip = async () => { eq2++ }
+  const r2 = await airPocketStep(b2, airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0, skillBusy: () => false })); clearInterval(b2._healthTimer)
+  assert.equal(r2.ok, false); assert.equal(eq2, 0); assert.equal(b2.digSends.length, 0); assert.equal(r2.handoffHeld, true)
+})
+await t('P15b MUTANT KILLED: treating every open window as owned refuses the held pickaxe (P15 catches it)', async () =>
+  withMutant(AP_PATH, "res.window === 'open' && windowOwned({ open: true, busy: skillBusy(), held: bot.inventoryUnsettled })", "res.window === 'open' && true", async m => {
+    const bot = fakeBot({}); bot.currentWindow = { id: 3 }; bot.heldItem = hb('stone_pickaxe', 36)
+    bot.inventory.items = () => [hb('stone_pickaxe', 36)]
+    const r = await m.airPocketStep(bot, m.airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => false })); clearInterval(bot._healthTimer)
+    assert.equal(r.ok, false)
+  }))
+await t('P15c MUTANT KILLED: equipping through an unowned window (P15 catches it)', async () =>
+  withMutant(AP_PATH, "    if (best.item && res.window !== 'unowned') {", '    if (best.item) {', async m => {
+    // the held pickaxe is the unowned window's only candidate: the original digs with it and equips nothing (P15); the
+    // mutant calls equip on it -- through the open window (Codex r4 P3: the old held-cobblestone fixture equipped 0 both ways)
+    const bot = fakeBot({}); bot.currentWindow = { id: 3 }; bot.heldItem = hb('stone_pickaxe', 36)
+    bot.inventory.items = () => [hb('stone_pickaxe', 36), hb('iron_pickaxe', 9)]
+    let equips = 0; bot.equip = async () => { equips++ }
+    await m.airPocketStep(bot, m.airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => false })); clearInterval(bot._healthTimer)
+    assert.equal(equips, 1)
+  }))
+await t('P15d MUTANT KILLED: admission ignoring ownership prices the main-inventory pickaxe through an unowned window (P14 catches it)', async () =>
+  withMutant(AP_PATH, 'return windowOpen && !owned ? airPocketTools([held].filter(Boolean)) : airPocketTools(items)', 'return airPocketTools(items)', m => {
+    assert.equal(m.admissionTools({ items: [hb('stone_pickaxe', 9)], held: hb('cobblestone', 36), windowOpen: true, owned: false }).length, 1)
+  }))
+
 // ---------------------------------------------------------------- G. wiring (structural; comments stripped)
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1')
 function wiring (src) {
@@ -771,13 +1130,19 @@ function wiring (src) {
                code.indexOf("kind: 'air_pocket_start'") > 0 && code.indexOf("kind: 'air_pocket_start'") < code.indexOf('r = await airPocketStep(') &&
                /msSinceClosing: Date\.now\(\) - lastClosingAt/.test(code) && /if \(closingOnAir\) lastClosingAt = Date\.now\(\)/.test(code) &&
                /guard: \(\) => \{ try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\); if \(bot\.pathfinder\?\.goal\) haltPath\(bot\)/.test(code) &&
-               /stepWouldRun: \(\) => prepareAirPocket\(\{ worstCase: true \}\)\.ok \}\)\) \{/.test(code) &&
+               /stepWouldRun: \(\) => prepareAirPocket\(\{ worstCase: true \}\)\.ok \}\)\s*if \(apPre === 'window'\)/.test(code) &&
                /const env = worstCase \? \{ \.\.\.digEnv\(bot\), inWater: true, notOnGround: true \} : digEnv\(bot\)/.test(code) &&
                /standItem: \(\{ unsupported = false \} = \{\}\) => unsupported\s*\? pickScaffold\(standCandidates\(bot\.inventory\?\.items\?\.\(\) \?\? \[\], \{ unsupported: true \}\), PLACEABLE\)\s*: scaffoldFor\(bot, 'air_pocket'\)/.test(code) &&
                /isEntombed\(bot\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /!runner\.isBusy\(\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /\} else if \(rescuing && route\.sealed === true && route\.dir !== 'up' && \(escaping \|\| marooned\) && !pocketing && !airPocketing &&\s*throttled\('air_pocket_held_off'/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
                /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
                /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) &&
-               code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') > 0 && code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') < trigger &&
+               code.indexOf('airPocketPreemptDecision({ rescuing, routeDir: route.dir') > 0 && code.indexOf('airPocketPreemptDecision({ rescuing, routeDir: route.dir') < trigger &&
+               // THE WINDOW HANDOFF (ported 10-31): the pre-empt sees the window and its owner; 'window' interrupts the owner
+               /windowOpen: !!bot\.currentWindow, windowOwnedNow: runner\?\.isBusy\?\.\(\) === true \|\| !!bot\.inventoryUnsettled,\s*stepWouldRun: \(\) => prepareAirPocket\(\{ worstCase: true \}\)\.ok \}\)\s*if \(apPre === 'window'\) \{\s*try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\) \}/.test(code) &&
+               /\} else if \(apPre === 'preempt'\) \{\s*airPocketWants = Date\.now\(\)/.test(code) &&
+               /, Date\.now\(\), \{ handoffHeld: r\.handoffHeld === true \}\)/.test(code) &&
+               /skillBusy: \(\) => \{ try \{ return runner\?\.isBusy\?\.\(\) === true \} catch \{ return false \} \},/.test(code.slice(code.indexOf('r = await airPocketStep('), code.indexOf('finally { airPocketing = false'))) &&
+               /const items = admissionTools\(\{ items: bot\.inventory\?\.items\?\.\(\) \?\? \[\], held: bot\.heldItem \?\? null, windowOpen: !!bot\.currentWindow,\s*owned: runner\?\.isBusy\?\.\(\) === true \|\| !!bot\.inventoryUnsettled \}\)/.test(code) &&
                /airPocketWants = Date\.now\(\)\s*try \{ if \(bot\.targetDigBlock\) bot\.stopDigging\(\) \}/.test(code) &&
                (code.match(/\(\) => ownsBody\(\(\) => (entombedGrant|maroonGrant)\)\(\) && !airPocketWanted\(\)/g) || []).length === 2 }
 }
@@ -803,7 +1168,16 @@ for (const [name, old, neu] of [
   ['the packet difficulty', 'const inputs = airPocketInputs(bot)', 'const inputs = { difficulty: bot.game?.difficulty, hungerActive: false }'],
   ['the closing-on-air clock', 'if (closingOnAir) lastClosingAt = Date.now()', ''],
   ['the skill guard', "guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null }", 'guard: () => null'],
-  ['the pre-empt asking the plan first', 'stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })) {', 'stepWouldRun: () => true })) {'],
+  ['the pre-empt asking the plan first', 'stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })\n', 'stepWouldRun: () => true })\n'],
+  ['the window passed to the pre-empt', '                                 windowOpen: !!bot.currentWindow, windowOwnedNow:', '                                 windowOwnedNow:'],
+  ['the window\'s ownership passed to the pre-empt', 'windowOwnedNow: runner?.isBusy?.() === true || !!bot.inventoryUnsettled,\n', 'windowOwnedNow: true,\n'],
+  ['interrupting the window\'s owner instead of the escape', "            try { if (runner?.isBusy?.()) runner.interrupt('air_pocket') } catch { /* nothing running */ }\n", ''],
+  ['the handoff-held short cooldown', ', Date.now(), { handoffHeld: r.handoffHeld === true })', ')'],
+  ['the skill-busy handoff', "skillBusy: () => { try { return runner?.isBusy?.() === true } catch { return false } },", ''],
+  ['the shared dig candidates', 'const items = admissionTools({', 'const items = ((x) => x.items)({'],
+  ['the window seen by admission', 'held: bot.heldItem ?? null, windowOpen: !!bot.currentWindow,', 'held: bot.heldItem ?? null, windowOpen: false,'],
+  ['the skill owning the window (the SM dead end without it)', 'owned: runner?.isBusy?.() === true || !!bot.inventoryUnsettled })', 'owned: false })'],
+  ['the withdraw hold owning the window', 'owned: runner?.isBusy?.() === true || !!bot.inventoryUnsettled })', 'owned: runner?.isBusy?.() === true })'],
   ['the worst-case price for the pre-empt', 'const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)', 'const env = digEnv(bot)'],
   ['the stand item', ": scaffoldFor(bot, 'air_pocket') })", ": null })"],
   ['the non-falling stand item off a floor', '? pickScaffold(standCandidates(bot.inventory?.items?.() ?? [], { unsupported: true }), PLACEABLE)', "? scaffoldFor(bot, 'air_pocket')"],
@@ -920,22 +1294,22 @@ const apWired = src => {
   const i = code.indexOf('const prepareAirPocket')
   assert.ok(i > 0, 'prepareAirPocket exists')
   const body = code.slice(i, code.indexOf('const runAirPocket', i))
-  assert.match(body, /const items = airPocketTools\(bot\.inventory\?\.items\?\.\(\) \?\? \[\]\)/, 'the price uses the step\'s candidate list')
+  assert.match(body, /const items = admissionTools\(\{ items: bot\.inventory\?\.items\?\.\(\) \?\? \[\],/, 'the price uses the step\'s candidate list (admissionTools -> airPocketTools)')
   assert.ok(!/_\(pickaxe\|shovel\|axe\)/.test(body), 'no private candidate filter in the price')
 }
 await t('L4 WIRED: the admission/pre-empt price (reflex prepareAirPocket) uses airPocketTools -- and the check fails on the old filter', () => {
   const src = readFileSync(REFLEX_PATH, 'utf8')
   apWired(src)
-  const anchor = 'const items = airPocketTools(bot.inventory?.items?.() ?? [])   // the step\'s own candidates'
+  const anchor = 'const items = admissionTools({ items: bot.inventory?.items?.() ?? [],'
   assert.equal(src.split(anchor).length, 2, 'anchor present and unique')
-  assert.throws(() => apWired(src.replace(anchor, "const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))   // x")))
+  assert.throws(() => apWired(src.replace(anchor, "const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name)); ({ items: [],")))
 })
 const mustFail = async (label, fn) => { let threw = false; try { await fn() } catch { threw = true } assert.ok(threw, `the mutant survived: ${label}`) }
 await t('L5 MUTANT KILLED: airPocketTools without the hygiene filter (L1 catches it)', () =>
   withMutant(AP_PATH, '  return all.filter(it => remaining(it) > HARD_STOP || !healthy.has(kind(it)))\n', '  return all\n', m => mustFail('L1', () => L1(m.airPocketTools))))
 await t('L6 MUTANT KILLED: the step with its own unfiltered list (L2 and L3 catch it)', () =>
-  withMutant(AP_PATH, '    const items = airPocketTools(bot.inventory?.items?.() ?? [])\n',
-    "    const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))\n", async m => {
+  withMutant(AP_PATH, '    let items = airPocketTools(bot.inventory?.items?.() ?? [])\n',
+    "    let items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))\n", async m => {
       await mustFail('L2', () => L2(m.airPocketStep)); await mustFail('L3', () => L3(m.airPocketStep))
     }))
 
