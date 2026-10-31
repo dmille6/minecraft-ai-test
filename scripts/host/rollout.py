@@ -177,7 +177,7 @@ def verdict(f):
     tr = f.get('tripper') or {}
     if tr.get('verdict') == 'TRIP':
         fail.append(f"tripper TRIP: {'; '.join(tr.get('trips') or [])[:160]}")
-    elif tr.get('verdict') != 'OK':
+    elif tr.get('verdict') not in ('OK', 'SKIP'):
         watch.append(f"tripper {tr.get('verdict') or 'UNREAD'}: {tr.get('why') or ''}"[:160])
     loops = f.get('crash_loops') or {}
     if loops:
@@ -307,11 +307,17 @@ def parse_trip_log(text):
     return out
 
 
-def trip_in_window(runs, t0, t1, slack=TRIP_SLACK):
+def trip_in_window(runs, t0, t1, slack=TRIP_SLACK, superseded=False):
     """PURE. The showcase tripwire's verdict over the rollout's hour: TRIP if any run in [t0, t1 + slack] tripped, OK if
-    at least one ran there and none tripped, UNREAD if none ran (the tripwire runs hourly at :35, so slack is 40 min)."""
+    at least one ran there and none tripped, UNREAD if none ran (the tripwire runs hourly at :35, so slack is 40 min).
+    SUPERSEDED (t1 = the next release's staged time): no slack, since a later run judges the successor's code (Codex r1),
+    and a short life with no run in it is SKIP (named, not a WATCH): the successor's own check covers what follows."""
+    if superseded:
+        slack = dt.timedelta(0)
     inside = [r for r in runs if t0 <= r[0] <= t1 + slack]
     if not inside:
+        if superseded:
+            return {'verdict': 'SKIP', 'why': f'no tripwire run in the release\'s life {t0:%H:%MZ}..{t1:%H:%MZ} (superseded)'}
         return {'verdict': 'UNREAD', 'why': f'no tripwire run between {t0:%H:%MZ} and {t1 + slack:%H:%MZ}'}
     trips = [r for r in inside if r[1] == 'TRIP']
     if trips:
@@ -319,9 +325,9 @@ def trip_in_window(runs, t0, t1, slack=TRIP_SLACK):
     return {'verdict': 'OK', 'runs': len(inside), 'why': ', '.join(f'{r[0]:%H:%MZ} {r[1]}' for r in inside)}
 
 
-def tripper_showcase(t0, t1, path=TRIP_LOG):
+def tripper_showcase(t0, t1, path=TRIP_LOG, superseded=False):
     try:
-        return trip_in_window(parse_trip_log(open(path, errors='replace').read()), t0, t1)
+        return trip_in_window(parse_trip_log(open(path, errors='replace').read()), t0, t1, superseded=superseded)
     except OSError as e:
         return {'verdict': 'UNREAD', 'why': f'{path}: {type(e).__name__}'}
 
@@ -399,7 +405,7 @@ def run_check(row, log_root='/var/log/mcai'):
         f.update(crash_facts('mcbot@*.service', t0, t1))
     else:
         f['baseline_rate'], f['baseline_bot_hours'] = file_baseline(t0, log_root)
-        f['tripper'] = tripper_showcase(t0, t1)
+        f['tripper'] = tripper_showcase(t0, t1, superseded=bool(row.get('superseded_by')))
         f.update(crash_facts('mcshow@*.service', t0, t1))
     f['window'] = [AL._iso(t0), AL._iso(t1)]
     if row.get('superseded_by'):

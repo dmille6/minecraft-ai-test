@@ -216,6 +216,11 @@ def t_rollout(RO):
     check('trip window OK', RO.trip_in_window(runs, t0, t0 + dt.timedelta(hours=1))['verdict'] == 'OK')
     t0b = dt.datetime(2026, 10, 28, 11, 30, tzinfo=UTC)
     check('trip window TRIP', RO.trip_in_window(runs, t0b, t0b + dt.timedelta(hours=1))['verdict'] == 'TRIP')
+    check('trip window superseded: no slack (a later TRIP is the successor\'s)',
+          RO.trip_in_window(runs, t0b, t0b + dt.timedelta(minutes=30), superseded=True)['verdict'] == 'SKIP')
+    check('trip window superseded, TRIP inside its life -> TRIP',
+          RO.trip_in_window(runs, t0b, t0b + dt.timedelta(minutes=70), superseded=True)['verdict'] == 'TRIP')
+    check('verdict tripper SKIP -> not WATCH', RO.verdict(dict(ok, tripper={'verdict': 'SKIP'}))[0] == 'PASS')
     check('trip window none -> UNREAD', RO.trip_in_window(runs, T + dt.timedelta(hours=3), T + dt.timedelta(hours=4))['verdict'] == 'UNREAD')
     rows = [{'t': t0 + dt.timedelta(minutes=k), 'name': '_death' if k == 5 else 'gather', 'bot': {'name': f'b{k % 2}'},
              'raw': {'code': {'version': ('abcdef1234+x' if k % 2 else '99999999+x')}}} for k in range(60)]
@@ -275,6 +280,12 @@ def t_head(AH):
         check('slot: launched then busy is not idle', l4.startswith('canary slot: busy'), l4)
         l5 = AH.slot_idle(AH.parse_ticks('\n'.join(busy)), now)
         check('slot: no tick for 190 min is a scheduler alarm', l5.startswith('!! canary scheduler: last tick'), l5)
+        l6 = AH.slot_idle(AH.parse_ticks('\n'.join(busy + [tk(m, 'BLOCK', 'S8 SCHED-PAUSE present | S1 canary declared: abc on x')
+                                                             for m in range(120, -1, -5)])), now)
+        check('slot: BLOCK with a declared canary is occupied, not idle', not l6.startswith('!!') and 'occupied' in l6, l6)
+        l7 = AH.slot_idle(AH.parse_ticks('\n'.join(busy + [tk(m, 'BLOCK') for m in range(120, 20, -5)]
+                                                    + [tk(m, 'QUEUE', 'UNREADABLE x') for m in range(20, -1, -5)])), now)
+        check('slot: non-decision lines are not ticks (scheduler alarm)', l7.startswith('!! canary scheduler: last tick'), l7)
         check('slot: no ticks is an alarm', AH.slot_idle([], now).startswith('!! canary slot: NO scheduler tick'))
         txt = '\n'.join(out)
         check('head: no channel is an alarm line', out[0].startswith('!! alarm push: NO CHANNEL'), out[0])
@@ -314,7 +325,10 @@ MUTANTS = [
     ('driftwatch.py', "            if min(lo, hi) >= 0.025:", "            if False:", t_drift),
     ('lib/alarm.py', "        if last is None or now - last >= repush:", "        if True:", t_alarm),
     ('lib/alarmhead.py', "    if t_last - start >= idle:", "    if False:", t_head),
-    ('lib/alarmhead.py', "        if d not in IDLE_DECISIONS:\n            bounded = True", "        if False:\n            bounded = True", t_head),
+    ('lib/alarmhead.py', "    return not any(r.startswith(OCCUPIED)", "    return not any(False", t_head),
+    ('lib/alarmhead.py', "        if dec not in DECISIONS:\n            continue", "        if dec == 'NOTE':\n            continue", t_head),
+    ('rollout.py', "    if superseded:\n        slack = dt.timedelta(0)", "    if False:\n        slack = dt.timedelta(0)", t_rollout),
+    ('lib/alarmhead.py', "        if not is_idle(d, w):\n            bounded = True", "        if False:\n            bounded = True", t_head),
     ('lib/alarmhead.py', "    if age is None or age > stale:\n        return [f'!! {label}: STALE",
      "    if age is None:\n        return [f'!! {label}: STALE", t_head),
 ]

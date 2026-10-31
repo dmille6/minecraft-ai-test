@@ -31,6 +31,10 @@ TAIL_BYTES = 6_000_000              # ~2 days of ticks; a streak longer than the
 # A tick whose decision is one of these means the slot is FREE and the head cannot launch (canary-sched.decide: block |
 # wait | idle). BUSY (a canary, deploy, install or chain is present), LAUNCH and LAUNCHING end a streak.
 IDLE_DECISIONS = ('BLOCK', 'WAIT', 'IDLE')
+DECISIONS = IDLE_DECISIONS + ('BUSY', 'LAUNCH', 'LAUNCHING')   # anything else (QUEUE UNREADABLE, a lock note) is no tick
+# decide() returns BLOCK with its busy reasons appended (block + busy): a BLOCK that also says a canary is declared, a loop
+# or deploy is running, the loop lock is held, drop-ins are present or a run is live is an OCCUPIED slot, not a free one.
+OCCUPIED = ('S1 canary declared', 'S2 running', 'S3 the loop lock', 'S4 canary drop-ins')
 
 
 def _age(now, s):
@@ -110,7 +114,7 @@ def parse_ticks(text):
         if len(parts) < 2 or not parts[0][:4].isdigit():
             continue
         dec = parts[1].rstrip(':').upper()
-        if dec == 'NOTE':
+        if dec not in DECISIONS:
             continue
         try:
             t = AL._ts(parts[0])
@@ -121,6 +125,14 @@ def parse_ticks(text):
     return out
 
 
+def is_idle(dec, why):
+    """PURE. True when a tick found the slot FREE with nothing it could launch."""
+    if dec not in IDLE_DECISIONS:
+        return False
+    rs = why.split(' | ')
+    return not any(r.startswith(OCCUPIED) or (r.startswith('S7 ') and r.endswith(' is live')) for r in rs)
+
+
 def slot_idle(ticks, now, idle=SLOT_IDLE, stale=SCHED_STALE):
     """PURE. -> one header line. '!! ' when the scheduler has not ticked for `stale`, or when every tick for >= `idle`
     found the slot FREE with nothing it could launch (the slot sat idle 11.5 h on 10-29 and 7 h on 10-31 unnoticed)."""
@@ -129,11 +141,11 @@ def slot_idle(ticks, now, idle=SLOT_IDLE, stale=SCHED_STALE):
     t_last, dec, why = ticks[-1]
     if now - t_last > stale:
         return f'!! canary scheduler: last tick {AL._iso(t_last)} ({(now - t_last).total_seconds() / 60:.0f} min ago) -- cron stopped?'
-    if dec not in IDLE_DECISIONS:
-        return f'canary slot: {dec.lower()} at {AL._iso(t_last)}'
+    if not is_idle(dec, why):
+        return f'canary slot: {dec.lower()} (occupied) at {AL._iso(t_last)}'
     start, bounded = t_last, False
-    for t, d, _ in reversed(ticks):
-        if d not in IDLE_DECISIONS:
+    for t, d, w in reversed(ticks):
+        if not is_idle(d, w):
             bounded = True
             break
         start = t
