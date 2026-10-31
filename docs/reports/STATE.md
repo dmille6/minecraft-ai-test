@@ -1,15 +1,15 @@
 # STATE — one screen of current state
 
-_Updated 2026-10-31 14:10Z (Fleet, Canary, Queue rows: shaft-03). Overwrite the facts below whenever they change; do not append history._
+_Updated 2026-10-31 17:55Z (Fleet, Canary, Queue rows: shaft-03 promoted; zigfleet-02 queued). Overwrite the facts below whenever they change; do not append history._
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 Live check: `python3 ~/canary-sched.py status | tail -20`, `tail ~/canary-journal.jsonl`, `head -30 ~/digest/latest.md`
 on the canary host; `sudo /srv/showcase/bin/showcase_ops.py status` on the showcase host.
 
 | | Now |
 |---|---|
-| **Fleet** | `aad2506a` (shaft-02, the town stair, KEPT goal-unverified 02:43Z, promoted 10-31 02:52Z) on zigfleet-01 `69116052` (main's building stack on lidplank-01 `4d43a9ca` / logsurface-01 `d1453ed2` / tdfull-01 `5aadb1ed`). qwen35-01 (model env, qwen3.5:9b) KEEP 06:10Z, torn down. This lineage is merged to main 10-31 (0d10d875). Rollback of the stair: `SHAFT=off`; of the building stack: `MONUMENT=off` + `HOUSE=off`, or `4d43a9ca` |
-| **Canary in slot** | shaft-03 `281d5659` on `aad2506a` (the stuck town stairs: 11 towns no progress since ~02:45Z -> the stair's body claim against the entombment reflex, no stair order from a mine, 30-min stair stamp, step 0 stand beside it, a support over cave pockets; tier 3, Codex + Claude APPROVE) deployed 10-31 14:01Z on placebo-d, hive-c, hive-a, board-a; reads +90 ~15:30Z, +180 ~17:00Z. Rollback `SHAFT=off` or `aad2506a` |
-| **Queue (front)** | after shaft-03 the head is townfloor-01 (HELD, stale) -> **the slot idles unless the next entry is placed before it**. bamboo-03, foldwatch-01, treefarm-03 PARKED. Cancelled 10-30 by the owner: monument-01, shaft-01, stonewithdraw-01. If shaft-03 REVERTs: no successor variant |
+| **Fleet** | `281d5659` (shaft-03, the stuck town stairs, KEPT goal-unverified 17:00Z, promoted 17:10Z) on shaft-02 `aad2506a` on zigfleet-01 `69116052`. 24 h qwen3.5 model experiment (05-model.conf drop-ins, install-hold until ~11-01 03:11Z). Rollback of the stair fix: `SHAFT=off` or `aad2506a` |
+| **Canary in slot** | none (shaft-03 closed KEEP 17:00Z); the qwen35 fleet move holds new launches until ~11-01 03:11Z |
+| **Queue (front)** | escapeguard-01 (S, held for the qwen35 move) -> **zigfleet-02** (P: voidfill + zigtidy-02 + pathsclose + wallstuck + treefarm-04 code (off) + paths/wall fleet-wide + furnaceseen-01; variants `693b28c9` on 281d5659, `2717bc1c` on escapeguard a11ffbb8; rollback PATHS=off WALL=off FURNACE_SEEN=off) -> tombexit-01 (S, another agent) -> townfloor-01 (PARKED). Closed 10-31: towniron-01 (superseded), cobbleoverflow-01 (no demand) |
 | **Showcase release** | `a50a6782` (pathsclose-01show) on `3fcc9449` (zigtidy-02show) on `f72cec58` (voidfill) on `2ece6abb` (coalsite + stuckwait) on `3f02eb0e` (coal stack) on `b2cea773` (wall r5). Ziggurat COMPLETE 4889/4889 (voidfill 22:27Z), treads tidied 23:25Z+. Paths COMPLETE 263/263 (00:14Z). Wall building but in a 6 h stuck back-off (Gale 23:17Z, cells 35,68,6 / 34,69,4) -> fix in progress. Start gate red: brain replay feed 10 of 50 prompts (running bots unaffected; `start-bots.sh` would refuse). Rollback: activate the previous release id |
 | **Death breaker** | ARMED 10-28 18:12Z: `mcai-tripper.timer` (5 min, `--apply`) on .31 from `/srv/mcai-tripper-armed`; alerts via ntfy |
 | **Pending owner decisions** | Vendor terms before any Claude/GPT teacher labels are trained on (learning loop; labels are evaluation-only until then); release or not of the HELD `qwen35c2-01` (learning-loop candidate 2); OpenAI credit for the GPT teacher arm. Escape digs through project cells (`reflex.mjs`, tier 3): guard not built, owner undecided |

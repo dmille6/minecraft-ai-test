@@ -69,6 +69,9 @@ const REQUIRED = [
   // test reads the showcase wall's own geometry from the fixture
   'bots/test/wallstuck.test.mjs',
   'bots/test/fixtures/wallstuck-showcase-wall-1030.json',
+  // furnaceseen-01 (cooperation B3, re-stacked 10-31 into zigfleet-02): the drain skips a furnace a townmate found empty
+  'bots/test/furnaceseen.test.mjs',
+  'bots/test/fixtures/seenskip-golden.json',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',
