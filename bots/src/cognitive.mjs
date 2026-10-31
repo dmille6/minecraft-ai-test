@@ -14,7 +14,7 @@ import { elevation, descendOrder, descentDone, supportOf, respawnfallOn, SPAWN_W
 import { Vec3 } from 'vec3'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, townFurnaces, furnaceLeasedNow, shopShareHeld, projectPartReserve } from './skills.mjs'
+import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, shopShareHeld, projectPartReserve, drainPickNow } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem, wellVisitOrder } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
 import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
@@ -52,7 +52,7 @@ import { townDepositOrder, townDepositOutcome, townDepositPlan, tailOrder, LOGS 
 // junkout-01 (its own statement): the visit latch, ticked on every decision (bagallowance.mjs, a leaf)
 import { visitLatchTick, visitLatchDeclined, VISIT_STAY_MS } from './bagallowance.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
-import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, drainPick, noteFurnacesLit, milestoneHolds } from './smeltjob.mjs'
+import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, milestoneHolds } from './smeltjob.mjs'
 import { recountOrder, recountOutcome } from './recount.mjs'
 import { bankClosed, inTown } from './chestfull.mjs'
 import { redundantRow, admitRow, HYGIENE_ITEMS } from './toolhygiene.mjs'
@@ -1390,11 +1390,9 @@ export class CognitiveLoop {
           if (r.order) order = r.order
           else {
             const d = drainOrder({ now: Date.now(), on: sw.on, atTown, holds, freeSlots: free,
-              pick: () => {
-                const fs = townFurnaces(bot)
-                bot.furnaceSeen = noteFurnacesLit(bot.furnaceSeen ?? {}, fs)
-                return drainPick({ furnaces: fs, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now: Date.now() })
-              },
+              // furnaceseen-01: the SAME pick as the skill's (skills.mjs drainPickNow): a furnace a townmate found empty is
+              // neither ordered nor walked to
+              pick: () => drainPickNow(bot).pick,
               state: this.drainState ?? {} })
             this.drainState = d.state
             if (d.order) { order = d.order; tally('+drain_issued') }   // '+': an extra counter, not a decision bucket (Codex code r2)
