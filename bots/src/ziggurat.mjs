@@ -56,15 +56,17 @@ export function zigPaletteOf (rec) {
 }
 
 /**
- * THE SWITCH -> bool. MONUMENT=on|off; unset = on only in the pools named by MONUMENT_POOLS (default 'showcase'): the fleet's
- * towns keep their workshop-only build job until the fleet rollout turns it on. Pure.
+ * THE SWITCH -> bool. MONUMENT=on|off; unset = on in the pools named by MONUMENT_POOLS. zigfleet-01 (the fleet rollout, owner
+ * showcase list 10-29: the ziggurat to the fleet once a fleet build carries it): the default is '*', every pool -- the canary's
+ * code runs only on the canary pools, so the variant IS the rollout. MONUMENT=off (or MONUMENT_POOLS=showcase) is the rollback.
+ * Pure.
  */
 export function monumentOn (env = process.env, pool = '') {
   const v = String(env?.MONUMENT ?? '').toLowerCase()
   if (v === 'on' || v === '1' || v === 'true') return true
   if (v === 'off' || v === '0' || v === 'false') return false
-  const pools = String(env?.MONUMENT_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
-  return pools.includes(String(pool))
+  const pools = String(env?.MONUMENT_POOLS ?? '*').split(',').map(s => s.trim()).filter(Boolean)
+  return pools.includes('*') || pools.includes(String(pool))
 }
 /** The geometry for a pool: MONUMENT_B (an even side, 12..48) overrides; the showcase's default is ZIG_SHOWCASE. Pure. */
 export function zigFor (env = process.env, pool = '') {
@@ -596,4 +598,18 @@ export function zigTidy (record, read, { skip = () => false } = {}) {
     }
   }
   return out.sort((a, b) => b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
+}
+/**
+ * THE TREAD TOPS (zigtidy-02): the cell above each column's highest record cell -> Map 'x,y,z' -> ZIG_TREAD_PRICE. A walk's scaffold
+ * block there is the climbing pillar the tidy digs later (a 1x1 tower beside a tier wall puts its block at the feet, on the tread),
+ * so shop.mjs footprintCost prices it (`soft`) and A* takes the grand stair unless it is far. Pure.
+ */
+export const ZIG_TREAD_PRICE = 60
+export function zigTreadTops (record, price = ZIG_TREAD_PRICE) {
+  const out = new Map()
+  if (!Array.isArray(record?.cells)) return out
+  const colTop = new Map()
+  for (const c of record.cells) { const k = `${c.at[0]},${c.at[2]}`; colTop.set(k, Math.max(colTop.get(k) ?? -Infinity, c.at[1])) }
+  for (const [k, y] of colTop) { const [x, z] = k.split(',').map(Number); out.set(`${x},${y + 1},${z}`, price) }
+  return out
 }

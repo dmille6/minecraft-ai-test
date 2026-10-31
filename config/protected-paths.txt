@@ -66,6 +66,7 @@ bots/src/ladder.mjs
 bots/src/shore.mjs
 bots/src/watermoves.mjs
 bots/src/fallpath.mjs
+bots/src/cornermoves.mjs
 bots/src/hard-stop.mjs
 bots/scripts/check-movement-writers.mjs
 # skills.mjs is 16k lines and mostly building/town work, so only its travel functions are listed
@@ -133,6 +134,9 @@ bots/src/keepout.mjs
 bots/src/digbudget.mjs
 bots/src/minewell.mjs
 bots/src/protectzone.mjs
+bots/src/escapeguard.mjs
+bots/src/skills.mjs::escapeRecordSnapshot
+bots/src/skills.mjs::escapeRecordAt
 bots/src/skills.mjs::mine
 bots/src/skills.mjs::mineGuarded
 bots/src/skills.mjs::tunnelToOre

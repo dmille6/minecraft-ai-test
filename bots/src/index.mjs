@@ -52,6 +52,7 @@ import { PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's 
 import { townPlanTick } from './skills.mjs'
 import { installFeatures } from './features.mjs'   // building features' spawn work: install + licence rows
 import { installNoBridge } from './nobridge.mjs'   // nobridge-01: no path scaffold over water on a walk
+import { installCornerRule } from './cornermoves.mjs'   // cornerwalk-01: no diagonal across a block corner on a walk
 import { shopAckInstall } from './skills.mjs'   // shop-01: the click acknowledgements, installed per connection before login
 import { SHOP, footprintEntry, withoutFootprint } from './shop.mjs'   // shop-01: the switch and the footprint price
 import { makeLidPlacePrice, lidPlaceOn, installLidPrice, chosenLidPlaces, lidplaceRowDue, lidplaceRowDetail, lidplaceHitsDetail, LIDPLACE_HITS_MS } from './lidplace.mjs'   // lidplace-01: no scaffold on a lid or a plan cell
@@ -59,6 +60,8 @@ import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
 import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01
+import { attachEscapeGuard, escapeGuardModeDetail } from './escapeguard.mjs'   // escapeguard-01
+import { escapeRecordAt } from './skills.mjs'   // escapeguard-01: the build records' answer for a cell
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
 import { attachLavastepGuard } from './lavastepmove.mjs'   // lavastep-01
@@ -648,6 +651,10 @@ function connect() {
     // 1x1 tower stays (nobridge.mjs says which moves place and why this override is the narrowest). The clones below copy it
     // with noBridge=true; the ascend, descend, water and tunnel profiles clear it.
     installNoBridge(moves, (x, y, z) => bot.blockAt(new Vec3(x, y, z)), () => bot.game?.minY ?? -64)
+    // CORNERWALK-01 (cornermoves.mjs): a diagonal step is kept only when BOTH side columns are open (the library keeps the
+    // cheaper side, and the 0.6-wide body clips the other side's corner and wedges). Before the clones below copy it: the
+    // walk, gather and composter profiles carry it; ascend, descend, deck and water clear it (an escape keeps every move).
+    installCornerRule(moves)
     // LIDPLACE-01 (lidplace.mjs): a scaffold or bridge block on a chest's lid, in a placed or reserved plan cell or in its stand
     // costs 20 more -- added to the NEIGHBOUR after the library has judged it legal (an exclusionAreasPlace price can push a
     // near-100 move over the library's cut and delete a bot's only way out: Codex r1 P1). The plan's guard set is kept by every
@@ -793,6 +800,7 @@ function connect() {
     withoutFootprint(ascendMoves)     // shop-01 x W3: an escape keeps its survival digs whatever profile is active
     ascendMoves.canDig = true
     ascendMoves.noBridge = false      // nobridge-01: an escape keeps every placement
+    ascendMoves.cornerRule = false    // cornerwalk-01: an escape keeps every diagonal
     ascendMoves.allow1by1towers = true
     ascendMoves.dontCreateFlow = true
     ascendMoves.allowParkour = false
@@ -840,6 +848,7 @@ function connect() {
     withoutFootprint(descendMoves)    // shop-01 x W3: an escape keeps its survival digs whatever profile is active
     descendMoves.canDig = false
     descendMoves.noBridge = false     // nobridge-01: an escape keeps every placement
+    descendMoves.cornerRule = false   // cornerwalk-01: an escape keeps every diagonal
     descendMoves.allow1by1towers = false
     descendMoves.allowParkour = false
     descendMoves.maxDropDown = 8
@@ -850,6 +859,7 @@ function connect() {
     const deckMoves = Object.create(Object.getPrototypeOf(moves))
     Object.assign(deckMoves, moves)
     withoutFootprint(deckMoves)       // shop-01 x W3: the sky descent's walk is an escape too
+    deckMoves.cornerRule = false      // cornerwalk-01: an escape keeps every diagonal
     deckMoves.canDig = false
     deckMoves.allow1by1towers = false
     deckMoves.allowParkour = false
@@ -893,6 +903,7 @@ function connect() {
     Object.assign(waterMoves, moves)
     withoutFootprint(waterMoves)      // shop-01 x W3: an escape keeps its survival digs whatever profile is active
     waterMoves.noBridge = false       // nobridge-01: an escape keeps every placement
+    waterMoves.cornerRule = false     // cornerwalk-01: an escape keeps every diagonal
     // The entry penalty is the whole reason water is unreachable, and unlike the
     // other profiles this one REPLACES the array rather than inheriting the
     // shared reference. Entering the water is the point of the manoeuvre.
@@ -1294,6 +1305,34 @@ function connect() {
       pzTimer.unref?.()
       bot.once('end', () => clearInterval(pzTimer))
     } catch (e) { log('warn', 'protected zone guard not attached', { err: e?.message }) }
+    // escapeguard-01 (OWNER 10-31 option B): A TRAPPED BOT'S ESCAPE NEVER DIGS A BUILD RECORD OR A ZONE'S STRUCTURE (escapeguard.mjs).
+    // Wraps bot.dig OUTSIDE protectzone (a refused dig is never sent, never counted); only SURVIVAL digs are judged -- every other
+    // purpose passes straight through to the guards below it. The planners ask bot.escapeGuard first and try another bearing.
+    // ESCAPEGUARD=off: not judged (the base's behaviour). One `_escape_guard` count row a minute when it did anything.
+    try {
+      const reflexes = stopReflexes
+      const eg = attachEscapeGuard(bot, {
+        zones: () => bot.protectZones?.() ?? [],
+        recordAt: (c, o) => escapeRecordAt(bot, c, Date.now(), o),
+        home: configuredHome(config.world),
+        context: () => ({ skill: runner.current?.skill ?? null, args: runner.current?.args ?? null,
+                          reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }),
+        onRow: ({ kind, status, detail, args }) => { try { logEvent({ kind, status, snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+      })
+      try { logEvent({ kind: 'escape_guard_mode', status: 'success', detail: escapeGuardModeDetail(process.env) }) } catch { /* telemetry */ }
+      if (eg) {
+        const egTimer = setInterval(() => {
+          try {
+            const c = eg.take()
+            if (!Object.values(c).some(v => v > 0)) return
+            logEvent({ kind: 'escape_guard', status: 'success', snapshot: snapshot(bot), args: { phase: 'counts', ...c },
+                       detail: `phase=counts ` + Object.entries(c).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`).join(' ') })
+          } catch { /* telemetry */ }
+        }, 60_000)
+        egTimer.unref?.()
+        bot.once('end', () => clearInterval(egTimer))
+      }
+    } catch (e) { log('warn', 'escape guard not attached', { err: e?.message }) }
     // lavastep-01: THE IN-FLIGHT GUARD (lavastepmove.mjs), OUTERMOST: while a danger move holds the body, bot.dig and
     // bot._genericPlace refuse everything but the move's own seal (a one-shot token). A refused call is never sent, so the
     // `_dig_town` instrument, keep-out and protectzone below it never see it. LAVASTEP=0: no mover, nothing attached.

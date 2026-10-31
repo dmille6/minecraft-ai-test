@@ -70,6 +70,17 @@ export const SAPLING_CHANCE = 0.3
  * planting's floor -- more than an hour of plants at one per ten minutes, and the bots pick up ~230 saplings an hour.
  */
 export const SAPLING_RESERVE = 16
+/** treefarm-04: the farm's species and switch, as treefarm.mjs FARM_SPECIES / treefarmOn (TREEFARM, TREEFARM_POOLS) -- restated
+ *  here because importing treefarm.mjs closes an import cycle through paths.mjs (treefarm.test.mjs asserts the two agree). */
+export const FARM_KEEP_SPECIES = Object.freeze(['birch_sapling', 'spruce_sapling', 'oak_sapling'])
+export function farmKeepsOn (env = process.env, pool = '') {
+  const v = String(env?.TREEFARM ?? '').trim().toLowerCase()
+  if (['on', '1', 'true', 'yes'].includes(v)) return true
+  if (['off', '0', 'false', 'no'].includes(v)) return false
+  return String(env?.TREEFARM_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean).includes(String(pool))
+}
+export const FARM_KEEPS = farmKeepsOn(process.env, process.env.MEMORY_POOL ?? '')
+const isFarmSapling = n => FARM_KEEP_SPECIES.includes(String(n ?? ''))
 
 const isSapling = name => typeof name === 'string' && /_sapling$/.test(name)
 
@@ -95,7 +106,7 @@ export const isCompostInput = name => isCompostJunk(name) || isSapling(name)
  * peaceful kit, the same switch) -- every one of the kit's plants (peacefulkit.mjs PEACEFUL_COMPOST: no reserve, a
  * peaceful world has no use for them). NEVER_COMPOST still wins over every list.
  */
-export function compostAllowance (items = [], { apples = false, plants = false, saplings = true } = {}) {
+export function compostAllowance (items = [], { apples = false, plants = false, saplings = true, farmKeeps = FARM_KEEPS } = {}) {
   const totals = {}
   for (const it of (Array.isArray(items) ? items : [])) {
     // `saplings: false` (junkout-01's VISIT fill, Claude r1 P2-5): no sapling goes in -- planting needs > 8 of a species
@@ -106,7 +117,9 @@ export function compostAllowance (items = [], { apples = false, plants = false, 
   const out = {}
   for (const [name, n] of Object.entries(totals)) {
     // SAPLINGS UNDER THE SWITCH (owner 10-07 ~19:50Z): oak and birch keep SAPLING_RESERVE, every other species none.
-    const keep = isSapling(name) ? (plants ? peacefulSaplingReserve(name, SAPLING_RESERVE) : SAPLING_RESERVE) : 0
+    // treefarm-04: where the town tree farm is on, its species keep SAPLING_RESERVE too (the peaceful kit composted every spruce
+    // sapling: the showcase's native species, the farm's planting stock)
+    const keep = isSapling(name) ? (plants && !(farmKeeps && isFarmSapling(name)) ? peacefulSaplingReserve(name, SAPLING_RESERVE) : SAPLING_RESERVE) : 0
     const a = isSapling(name) ? n - keep : name === 'apple' ? n - APPLE_RESERVE : n
     if (a > 0) out[name] = a
   }
