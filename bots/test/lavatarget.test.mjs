@@ -104,7 +104,7 @@ await t('R3 LAVATARGET=0: no ring is made, nothing is noted', () => {
 
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1')
 await t('W1 the corridor guard (index.mjs) and the blind-step guard (explore) feed the ring', () => {
-  assert.match(strip(readFileSync(IX_PATH, 'utf8')), /if \(!v\.safe\) \{\s*try \{ noteLavaFinding\(bot, v\) \}/)
+  assert.match(strip(readFileSync(IX_PATH, 'utf8')), /if \(!v\.safe\) \{\s*try \{ bot\.pathfinder\.setGoal\(null\) \} catch \{\s*\}\s*try \{ noteLavaFinding\(bot, v\) \}/)
   assert.match(strip(readFileSync(SK_PATH, 'utf8')), /if \(!v\.safe\) noteLavaFinding\(bot, v\)/)
 })
 await t('W2 explore writes `_lavatarget_skip` when knownTarget skipped one', () => {
