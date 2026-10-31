@@ -29,6 +29,9 @@ export const BODY_RADIUS = 64
 export const PATH_MS = 25_000
 export const PLAN_MS = 150                 // cornerWaypoints' A* per leg (the walk itself plans again as before)
 export const PROBE_MS = 2_000
+export const RISE_UP = 1.1      // a pillar step's place is sent once the feet are this far above the cell's floor (the jump's top is ~1.25)
+export const RISE_MS = 800
+export const LAND_MS = 1_500
 // never the clicked block of a probe, and never a support (they open, toggle or act): buildsite.mjs USES plus the rest
 // (r2, Claude r1 P3-7: crafter, chiseled bookshelf, flower pots and candles act on an empty-hand click)
 export const INTERACTABLE = /_trapdoor$|_door$|chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$|_bed$|_button$|^lever$|_fence_gate$|^anvil$|_anvil$|^bell$|^brewing_stand$|^composter$|^cartography_table$|^loom$|^stonecutter$|^grindstone$|^smithing_table$|^enchanting_table$|^beacon$|^dispenser$|^dropper$|^note_block$|^jukebox$|^repeater$|^comparator$|^daylight_detector$|_sign$|^cake$|^respawn_anchor$|^lodestone$|^campfire$|^soul_campfire$|^crafter$|^chiseled_bookshelf$|^flower_pot$|^potted_|candle$|candle_cake$/
@@ -253,6 +256,41 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
         return await blocks.wait(c, () => true, PROBE_MS)
       }
       return null
+    },
+    // VOIDFILL-01 (buildrun.mjs runVisit `p.access`): the bag's spare count; the pillar step's jump (RISE: jump held until the
+    // feet are RISE_UP above the cell's floor, one tick more so the server has the position, -> true; never airborne: false,
+    // jump released) and its landing (LAND: jump released, on the ground or LAND_MS); SETTLE after a dig underfoot (the drop);
+    // TOOL: the pickaxe with the most uses left (at least 2) in hand for the access's digs, nothing changed without one
+    count: n => Math.max(0, spare(n)),
+    rise: async feetY => {
+      bot.setControlState('jump', true)
+      const t0 = Date.now()
+      while (Date.now() - t0 < RISE_MS) {
+        if (aborted()) break
+        if (bot.entity.position.y >= feetY + RISE_UP) { await sleep(60); return true }
+        await sleep(20)
+      }
+      bot.setControlState('jump', false)
+      return false
+    },
+    land: async () => {
+      bot.setControlState('jump', false)
+      const t0 = Date.now()
+      await sleep(100)
+      while (Date.now() - t0 < LAND_MS && !bot.entity.onGround) await sleep(25)
+      await sleep(50)
+    },
+    settle: async () => {
+      const t0 = Date.now()
+      await sleep(150)
+      while (Date.now() - t0 < LAND_MS && !bot.entity.onGround) await sleep(25)
+      await sleep(100)
+    },
+    tool: async () => {
+      const left = i => (Number(i.maxDurability) || 0) - (Number(i.durabilityUsed) || 0)
+      const pick = items().filter(i => /_pickaxe$/.test(i.name) && left(i) >= 2).sort((a, b) => left(b) - left(a))[0]
+      if (!pick || bot.heldItem === pick) return
+      try { await bot.equip(pick, 'hand') } catch (e) { if (e?.aborted) throw e }
     },
     aborted,
     log,

@@ -9,6 +9,7 @@ import { monumentOn, MONUMENT_PLOT, MONUMENT_BLUEPRINT, MONUMENT_BUILDERS } from
 import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mjs'
 import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
+import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -60,6 +61,12 @@ export function shaftOn (env = process.env, pool = '') {
 export const SHAFT = Object.freeze({ on: shaftOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const SHAFT_BUILDERS = 1
 export const SHAFT_COOLDOWN_MS = 2 * 60_000    // a stair visit is short (the runner's clock) and digs, so it is asked again sooner
+/**
+ * TREEFARM-04: THE TOWN TREE FARM is the sixth project (treefarm.mjs; owner showcase list 10-29, item 4): after the paths (a leg
+ * reaches its front once it stands), a levelled grid of saplings with growth torches, harvested and replanted as upkeep. On in the
+ * showcase pool, off in the fleet's until its rollout (treefarm.mjs treefarmOn; TREEFARM=off is the rollback). Needs the paths.
+ */
+export const TREEFARM = Object.freeze({ on: treefarmOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -67,8 +74,9 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: MONUMENT_PLOT, blueprint: MONUMENT_BLUEPRINT, after: SHOP_PLOT, builders: MONUMENT_BUILDERS }),
   Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
+  Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
@@ -104,6 +112,32 @@ export function activeProject (states = [], list = projectsOn()) {
  *   mem   Map plot -> { n, first } (the bot's own, for the connection)
  */
 export const REPAIR_TRIES = 3
+/**
+ * THE TIDY AFTER A REPAIR (zigtidy-02, LIVE showcase 10-30: no tidy row from 07:16Z on -- since wall-01 r3 a finished ziggurat's
+ * tidy was only `due`, after every open project, and the paths stood open all day at 261/263 `clears_wait`; the voidfill repair's
+ * climbs left ten pillars by 22:30Z). For TIDY_AFTER_REPAIR_MS after the record's last REPAIR COMPLETION (a visit that placed and
+ * ended complete; `repairedAt`, a town file) the tidy is a REPAIR (first), still bounded per bot by ZIG_TIDY_VISITS a pillar and
+ * by repairBackoff; after it, `due` as before. A stamp more than a minute in the future (a bad clock) opens nothing. Pure.
+ */
+export const TIDY_AFTER_REPAIR_MS = 2 * 60 * 60_000
+export const tidyIsRepair = (repairedAt, now = Date.now()) => Number.isFinite(repairedAt) && repairedAt <= now + 60_000 && now - repairedAt < TIDY_AFTER_REPAIR_MS
+/** A COMPLETE record's stuck stamp is STALE when every cell it names is a record cell that reads done now (`cellDone(cell)`: the
+ *  caller's world read; unread is not done). zigtidy-02 (buildproj.mjs stuckAt `stale`). Pure. */
+export function stuckStale (keys = [], record = null, cellDone = () => false) {
+  const byKey = new Map((record?.cells ?? []).map(c => [c.at.join(','), c]))
+  return keys.every(k => { const c = byKey.get(k); return !!c && cellDone(c) === true })
+}
+/** An OPEN record's stuck stamp is STALE when the record has other work: an open cell (`cellOpen(cell) === true`: the caller's world
+ *  read, read and not done; unread is not open) in a segment none of the stamp's cells is in -- the stamp was written when nothing
+ *  else was open (buildrun.mjs settleStuck `stalled`), so the 6-h back-off holds only the stuck segment, never the rest of the
+ *  project (wallstuck-01, LIVE showcase 10-30 23:17Z: Gale's stamp on W-03 held W-01's two open cells too). A light cell is never
+ *  "other work" (its torch is the material run's). Pure. */
+export function stuckOtherWork (keys = [], record = null, cellOpen = () => false) {
+  const byKey = new Map((record?.cells ?? []).map(c => [c.at.join(','), c]))
+  const segs = new Set(keys.map(k => byKey.get(k)?.seg).filter(Boolean))
+  if (!segs.size) return false
+  return (record?.cells ?? []).some(c => c.role !== 'light' && !segs.has(c.seg) && cellOpen(c) === true)
+}
 export const REPAIR_WINDOW_MS = 60 * 60_000
 export function repairBackoff (states = [], mem = null, now = Date.now()) {
   if (!mem) return states
@@ -168,7 +202,8 @@ export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in th
 export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the ziggurat is built mostly from the cobble a bag already holds
 /** The projects a bag needs only MONUMENT_BAG_SLOTS_MIN free slots for (paths-01: a shovel's use draws nothing). */
 /** wall-01: the wall is built from the cobblestone the bags carry, as the ziggurat is. */
-export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, SHAFT_PLOT]))
+/** treefarm-04: the farm plants from the bag's saplings and takes its harvest into it. */
+export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, SHAFT_PLOT, TREEFARM_PLOT]))
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
@@ -220,7 +255,11 @@ export const footprintCost = (cells, profile, block) => {
   // check itself (Codex r6 BLOCK 1: a built-cells set refreshed every 60 s left a cell built since unpriced). So a walk never breaks
   // a built cell, and an OPEN one takes the pathfinder's scaffold -- LIVE showcase 10-29 16:00-16:40Z: 19 `_reflex_stuck` in the
   // foundation's hollows, builders who could neither break the canopy in the +1 halo nor pillar out of their own open cell.
-  return cells.solidOnly?.has?.(k) && block.boundingBox === 'block' ? 100 : 0
+  if (cells.solidOnly?.has?.(k) && block.boundingBox === 'block') return 100
+  // ZIGTIDY-02 (`cells.soft`: a COMPLETE ziggurat's tread tops, ziggurat.mjs zigTreadTops): a walk's scaffold there is PRICED, not
+  // forbidden -- LIVE showcase 10-30 16:45-22:30Z: ten dirt pillars on the finished treads, the walks to the top climbing each
+  // 2-high tier wall by a 1x1 tower beside it instead of taking the grand stair. A bot with no other way still climbs
+  return cells.soft?.get?.(k) ?? 0
 }
 /** The pathfinder entry for the footprint (one fn for exclusionAreasBreak and exclusionAreasPlace), TAGGED so an escape clone can
  *  drop it. `cells()` / `profile()` are read at search time. */

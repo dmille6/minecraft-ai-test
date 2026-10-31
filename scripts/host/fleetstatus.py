@@ -268,6 +268,74 @@ def _frontier_line(now, p):
     return f'frontier census (E0): {st}, tick {age.total_seconds() / 60:.0f} min ago, {what}'
 
 
+# LEARNING-LOOP ARCHIVE (M1, docs/reports/learning-loop-design-2026-10-21.md s.1.5): scripts/learnloop/nightly.py runs
+# from mike's crontab on this host at 01:50Z, extracts each finished day, checks it and archives it to the NAS through
+# the .30 relay, then rewrites ~/learnloop/heartbeat.json. The logs here rotate after 14 days, so that archive is the
+# only long-term copy of the decision stream: a missing, stale, behind or failing archive opens every report.
+LEARNLOOP_HB = '~/learnloop/heartbeat.json'
+LEARNLOOP_STALE = dt.timedelta(hours=26)         # daily cron; one missed night is an alarm
+LEARNLOOP_READY = dt.timedelta(days=1, hours=1, minutes=15)   # nightly.READY_AFTER: day D is extractable from here
+LEARNLOOP_GRACE = dt.timedelta(hours=3)          # cron 01:50Z + a run of minutes: D is due on the NAS by D+1 04:15Z
+LEARNLOOP_BAD = {'error': 'ERROR', 'archive_failed': 'ARCHIVE FAILED', 'at_risk': 'RAW AT RISK', 'behind': 'BEHIND',
+                 'control_failed': 'CONTROL FAILED', 'empty': 'NOTHING ARCHIVED'}
+
+
+def learnloop_line(now, path=None):
+    """One header line for the learning-loop archive. NEVER raises: missing, unreadable, stale, any status but ok, a
+    newest archived day older than the one due, or a NAS that disagrees with the local state are '!! ' lines; a healthy
+    archive says so with its denominators."""
+    p = os.path.expanduser(path or LEARNLOOP_HB)
+    try:
+        return _learnloop_line(now, p)
+    except Exception as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line
+        return f'!! learning-loop archive (M1): UNREADABLE heartbeat ({type(e).__name__}: {str(e)[:80]}) at {p}'
+
+
+def _learnloop_line(now, p):
+    try:
+        with open(p) as fh:
+            hb = json.load(fh)
+        at = _ts(hb['at'])
+        if at.tzinfo is None:
+            raise ValueError('timestamp without a zone')
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        return f'!! learning-loop archive (M1): NO HEARTBEAT ({type(e).__name__}) at {p} -- no nightly run has reported'
+    bad = []
+    age = now - at
+    if age > LEARNLOOP_STALE:
+        bad.append(f'STALE: last run {age.total_seconds() / 3600:.0f} h ago')
+    st = hb.get('status')
+    if st != 'ok':
+        bad.append(f'{LEARNLOOP_BAD.get(st, "status " + repr(st))}' + (f': {str(hb.get("error"))[:100]}' if hb.get('error') else ''))
+    for r in hb.get('this_run') or []:
+        if not r.get('archived'):
+            bad.append(f'{r.get("day")} not archived ({str(r.get("archive_error"))[:80]})')
+    if hb.get('at_risk'):
+        bad.append('raw rotates out before it is archived: ' + ', '.join(f'{x.get("day")} (expires {x.get("expires")})'
+                                                                        for x in hb['at_risk'][:4]))
+    newest = hb.get('newest_archived_day')
+    due = (now - LEARNLOOP_READY - LEARNLOOP_GRACE).date().isoformat()
+    if not newest or newest < due:
+        bad.append(f'newest archived day {newest}, {due} is due')
+    rec = hb.get('newest') or {}
+    if rec and not rec.get('controls_ok'):
+        bad.append(f'{newest} failed controls {rec.get("controls_failed")}')
+    for u in (hb.get('unresolved') or [])[:4]:          # an OLDER failed day must not hide behind a healthy newest one
+        bad.append(f'unresolved {u.get("day")}: {str(u.get("why"))[:90]}')
+    if len(hb.get('unresolved') or []) > 4:
+        bad.append(f'+{len(hb["unresolved"]) - 4} more unresolved')
+    nas = hb.get('nas') or {}
+    if nas.get('newest') != newest or (nas.get('sealed') or 0) < (hb.get('archived_days') or 0):
+        bad.append(f'NAS says newest {nas.get("newest")} ({nas.get("sealed")} sealed), local state {newest} '
+                   f'({hb.get("archived_days")})')
+    what = (f'newest {newest}: {rec.get("triples", 0):,} triples of {rec.get("llm_rows", 0):,} decision rows, '
+            f'{rec.get("bots")}/{rec.get("roster")} bots; {hb.get("archived_days")} day(s) sealed on the NAS; '
+            f'pending {hb.get("pending") or "none"}')
+    if bad:
+        return f'!! learning-loop archive (M1): {"; ".join(bad)} -- {what}; read ~/learnloop/nightly.log'
+    return f'learning-loop archive (M1): ok, run {age.total_seconds() / 3600:.0f} h ago, {what}'
+
+
 def elk_disk(now, client=None):
     """Header lines for the ELK host's disk. Never raises: an unreadable reading is itself an
     alarm line, because a disk check that cannot be read has not passed."""
@@ -622,6 +690,8 @@ def show(rep):
         print(rep['opsaudit'])
     if rep.get('frontier'):
         print(rep['frontier'])
+    if rep.get('learnloop'):
+        print(rep['learnloop'])
     if rep.get('coop'):
         print(rep['coop'])
     if rep.get('structcount'):
@@ -678,7 +748,7 @@ def main():
     evs = {w: EsEvents.load('skill', since=until - d, until=until, gaps='clip') for w, d in wins}
     widest = max(wins, key=lambda x: x[1])[0]
     rep = {'generated_at': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'),
-           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'frontier': frontier_line(now), 'coop': coop_line(now), 'structcount': structcount_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
+           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'frontier': frontier_line(now), 'learnloop': learnloop_line(now), 'coop': coop_line(now), 'structcount': structcount_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
     fleet = evs[widest].bots_present()
     for w, d in wins:
         rep['windows'][w] = window_report(evs[w], hourly=d <= dt.timedelta(hours=48), fleet=fleet)

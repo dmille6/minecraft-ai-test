@@ -696,6 +696,34 @@ export function wallVisitRecord (rec, blocked = new Map(), now = Date.now()) {
 export const blockedSeg = (stop, why) => (stop === 'blocked' ? (/^([A-Za-z0-9-]+): \d+ open/.exec(String(why ?? ''))?.[1] ?? null) : null)
 
 /**
+ * THE WAIVER (wallstuck-01, LIVE showcase 10-30: the wall at 936 of 941, its last cells over ground the bots dug out after siting;
+ * Gale's 23:17Z stuck stamp held every build order 6 h, and the wall would stall 6 h at a time for good). A cell THIS VISIT deferred
+ * (runVisit `deferred`: after the footing and the sealed-column remedies were tried), counted WALL_WAIVE_AFTER deferring visits by
+ * the F4 stuck map (summed over every builder), is WAIVED: the record names it (`waived`: { 'x,y,z': { why, at, by } }, a logged
+ * row) and every completeness test counts it done, so the wall closes. Bounded: at most WALL_WAIVE_MAX cells a record, ever. A gap
+ * is the wall's own kind of opening (gateways, sally ports): it can only add passage, so the escape proof (nothing reachable from
+ * home is cut off) still holds. Pure. -> [{ k, why }] the cells to waive now.
+ */
+export const WALL_WAIVE_AFTER = 5
+export const WALL_WAIVE_MAX = 12
+export function wallWaiveDue (rec, deferred = [], { after = WALL_WAIVE_AFTER, max = WALL_WAIVE_MAX } = {}) {
+  const cells = new Set((rec?.cells ?? []).filter(c => c.role !== 'light').map(c => c.at.join(',')))
+  const have = rec?.waived ?? {}
+  let room = max - Object.keys(have).length
+  const out = []
+  for (const d of deferred ?? []) {
+    if (room <= 0) break
+    const k = String(d?.k ?? '')
+    if (!cells.has(k) || have[k] || out.some(o => o.k === k)) continue
+    if ((Number(d?.visits) || 0) < after) continue
+    out.push({ k, why: String(d?.why ?? 'no_stand').slice(0, 80) }); room--
+  }
+  return out
+}
+/** Is a record cell waived (the record's own list)? Pure. */
+export const wallWaived = (rec, c) => !!rec?.waived && Object.prototype.hasOwnProperty.call(rec.waived, c.at.join(','))
+
+/**
  * THE LIGHTS LAST (LIVE showcase 10-30 06:58Z: a builder with no torch stopped `no_material light_for_W-00` after 27 cells -- runVisit
  * ends a visit at a cell it has no block for, and works the segments in order, so the first run's torch held every later run): the
  * light cells in their own LAST segment WALL_LIGHT_SEG. Applied at siting and, in memory, to a record sited before (the record file
