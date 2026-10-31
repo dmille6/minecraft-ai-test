@@ -620,7 +620,7 @@ class Host:
         except Exception as x:
             print('notify failed: %s' % x)
 
-    def compare(self, timeout_s=2400):
+    def compare(self, timeout_s=5400):
         """modelcompare.py -> (ok, text). Never raises: the rollback after it is unconditional."""
         try:
             r = subprocess.run(['nice', '-n', '10', 'python3', os.path.join(HERE, 'modelcompare.py')], capture_output=True,

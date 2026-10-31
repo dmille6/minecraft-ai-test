@@ -79,6 +79,8 @@ const REQUIRED = [
   // the staged model rollout after a model-env KEEP, and what it runs (OWNER 10-31 "roll out in stages 20 bots at a time")
   'scripts/host/modelrollout.py',
   'scripts/host/test_modelrollout.py',
+  'scripts/host/modelcompare.py',
+  'scripts/host/test_modelcompare.py',
   'scripts/host/holdtoken.py',
   'scripts/host/qwen35load.mjs',
   // CLAUDE.md's and STATE.md's history, moved out when both were cut to the active rules (10-28)
