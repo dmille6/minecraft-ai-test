@@ -353,32 +353,18 @@ export function frontApproach (rec, bp, place) {
 /** The ziggurat's GRAND-STAIR FOOT: for each stair cell, the first column outward along the stair face that is no record column
  *  -> [[x, z]] (unique). Pure. */
 export function stairFoot (rec) {
-  const V = { e: [1, 0], w: [-1, 0], s: [0, 1], n: [0, -1] }
-  const cols = new Set((rec?.cells ?? []).map(c => `${c.at[0]},${c.at[2]}`))
-  // each stair cell's FACE: the record's one face (v1), or -- a ziggurat with stairs on several faces (zig2-01 v2, FACES 4) -- the
-  // box edge the cell is nearest (a layer-0 stair stands outside the base: its edge distance is negative)
-  const b = Array.isArray(rec?.box) && rec.box.length === 4 ? rec.box : null
-  const faceOf = (x, z) => {
-    if (!b || !(rec?.geometry?.FACES > 1)) return rec?.face
-    const d = [['w', x - b[0]], ['e', b[2] - x], ['n', z - b[1]], ['s', b[3] - z]].sort((p, q) => p[1] - q[1])
-    return d[0][0]
-  }
-  const feet = new Map()
-  for (const c of (rec?.cells ?? []).filter(q => q.role === 'stair')) {
-    const face = faceOf(c.at[0], c.at[2]), f = V[face]
-    if (!f) continue
+  const f = { e: [1, 0], w: [-1, 0], s: [0, 1], n: [0, -1] }[rec?.face]
+  if (!f) return []
+  const cols = new Set((rec.cells ?? []).map(c => `${c.at[0]},${c.at[2]}`))
+  const out = new Map()
+  for (const c of (rec.cells ?? []).filter(q => q.role === 'stair')) {
     let [x, z] = [c.at[0], c.at[2]]
     for (let k = 0; k < 16 && cols.has(`${x},${z}`); k++) { x += f[0]; z += f[1] }
-    if (!feet.has(face)) feet.set(face, new Map())
-    feet.get(face).set(`${x},${z}`, [x, z])
+    out.set(`${x},${z}`, [x, z])
   }
-  // per face, only the outermost row (the foot), never a column beside the flight
-  const out = []
-  for (const [face, m] of [...feet].sort((p, q) => (p[0] < q[0] ? -1 : 1))) {
-    const f = V[face], far = Math.max(...[...m.values()].map(([x, z]) => x * f[0] + z * f[1]))
-    out.push(...[...m.values()].filter(([x, z]) => x * f[0] + z * f[1] === far))
-  }
-  return out
+  // only the outermost row (the foot), never a column beside the flight
+  const far = Math.max(...[...out.values()].map(([x, z]) => x * f[0] + z * f[1]))
+  return [...out.values()].filter(([x, z]) => x * f[0] + z * f[1] === far)
 }
 /** The ring at Chebyshev `d` round a point -> [[x, z]]. Pure. */
 export function ringCols (x0, z0, d) {
