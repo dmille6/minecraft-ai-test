@@ -58,7 +58,8 @@ import { MAX_DIG_MS } from './digbudget.mjs'
 import { lavastepOn } from './lavastep.mjs'
 // tombexit-01 (F2 of the mineshaft-safety design + the in-wall dig): the entombed arm fires only with no walk back
 import { tombexitOn, inwallOn, makeFreeRing, declineDecision, inwallDecision, makeHealthTrend, suffocates,
-         INWALL_MAX_DIGS, INWALL_RETRY_MS, INWALL_UNSEEN_ROW_MS, INWALL_TREND_MS } from './tombexit.mjs'
+         INWALL_MAX_DIGS, INWALL_RETRY_MS, INWALL_UNSEEN_ROW_MS, INWALL_TREND_MS, INWALL_FAIL_BACKOFF_MS,
+         inwallDigMs, lavaOver } from './tombexit.mjs'
 import { makeDangerMover } from './lavastepmove.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, plugSamePlace, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
@@ -1561,9 +1562,14 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const eye = bot.entity ? bot.blockAt(bot.entity.position.offset(0, 1.62, 0)) : null
         if (!suffocates(eye)) break
         names.push(eye.name)
+        if (eye.diggable === false) { stopped = `${eye.name} cannot be dug`; break }
+        // never pour lava onto the head (Claude r1 note): the eye cell is left and the episode backs off
+        if (lavaOver(bot.blockAt(eye.position.offset(0, 1, 0)))) { stopped = `lava over ${eye.name}: not opened`; break }
         // the best tool unless a container window is open (an equip clicks inside it: ap2win); else the hand in use
         if (!bot.currentWindow) { const tool = bestTool(bot, eye); if (tool) await bot.equip(tool, 'hand').catch(() => {}) }
-        try { await digBounded(bot, eye, 8000) } catch (e) { stopped = `dig failed on ${eye.name}: ${e.message}`; break }
+        let digMs = null
+        try { digMs = bot.digTime?.(eye) } catch { digMs = null }
+        try { await digBounded(bot, eye, inwallDigMs(digMs)) } catch (e) { stopped = `dig failed on ${eye.name}: ${e.message}`; break }
         await sleep(FALLING_SETTLE_MS)   // a falling column refills the cell: read it again
       }
       const eye = bot.entity ? bot.blockAt(bot.entity.position.offset(0, 1.62, 0)) : null
@@ -1572,7 +1578,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     finally {
       giveBody(runner, grant, 'inwall done')
       inwalling = false
-      inwallNextAt = Date.now() + INWALL_RETRY_MS
+      inwallNextAt = Date.now() + (stopped === 'freed' ? INWALL_RETRY_MS : INWALL_FAIL_BACKOFF_MS)
       try {
         logEvent({ kind: 'inwall', status: stopped === 'freed' ? 'success' : 'failed', snapshot: snapshot(bot),
                    detail: `at=${at0} ${why} digs=${digs} blocks=${names.join('/') || '-'} hp=${hp0}->${bot.health} -- ${stopped}`,
@@ -1770,7 +1776,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             if (!isEntombed(bot)) freeRing.note(pos, now)
           }
           healthTrend.push(now, bot.health)
-          if (tombWallOn && !inwalling && !escaping && !pocketing && !rescuing && !poolEscaping && !dangerMovingNow() && now >= inwallNextAt) {
+          if (tombWallOn && !inwalling && !escaping && !marooned && !pocketing && !rescuing && !poolEscaping && !dangerMovingNow() && now >= inwallNextAt) {
             const eye = bot.blockAt(pos.offset(0, 1.62, 0))
             const feetB = bot.blockAt(pos), belowB = bot.blockAt(pos.offset(0, -1, 0))
             const explained = !!bot.entity.isInWater || !!bot.entity.isInLava || !bot.entity.onGround ||
