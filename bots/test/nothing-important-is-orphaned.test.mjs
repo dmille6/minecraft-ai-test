@@ -136,6 +136,9 @@ const REQUIRED = [
   // tombexit-01 (10-31): the entombed arm's walk-back decline and the in-wall dig
   'bots/src/tombexit.mjs',
   'bots/test/tombexit.test.mjs',
+  // lavatarget-01 (10-31): explore never heads for a sighting beside lava the bot has seen
+  'bots/src/lavatarget.mjs',
+  'bots/test/lavatarget.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
