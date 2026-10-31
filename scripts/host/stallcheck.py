@@ -153,13 +153,28 @@ def validate(ledger):
             bad.append('dropped needs dropped.why')
         if st == 'done' and not ts((i.get('done') or {}).get('when')):
             bad.append('done needs done.when')
-        for d in i.get('depends_on') or []:
+        for k in ('evidence', 'parked', 'done', 'dropped'):
+            if i.get(k) is not None and not isinstance(i.get(k), dict):
+                bad.append(f'{k} must be an object')
+        ev = i.get('evidence') if isinstance(i.get('evidence'), dict) else {}
+        for k in ('runs', 'branches', 'grep', 'paths', 'fleet_paths'):
+            if ev.get(k) is not None and not (isinstance(ev[k], list) and all(isinstance(x, str) for x in ev[k])):
+                bad.append(f'evidence.{k} must be a list of strings')
+        for k in ('depends_on', 'covers_alarms', 'memory'):
+            if i.get(k) is not None and not isinstance(i.get(k), list):
+                bad.append(f'{k} must be a list')
+        if i.get('max_quiet_hours') is not None and (isinstance(i['max_quiet_hours'], bool) or
+                                                     not isinstance(i['max_quiet_hours'], (int, float))):
+            bad.append('max_quiet_hours must be a number')
+        for d in (i.get('depends_on') if isinstance(i.get('depends_on'), list) else []):
             if not isinstance(d, dict) or not ({'run', 'item', 'cron'} & set(d)):
                 bad.append(f'depends_on entry {d!r} names no run / item / cron')
             elif 'item' in d and d['item'] not in ids:
                 bad.append(f'depends_on item {d["item"]!r} is not a ledger row')
         if bad:
-            out.append(F('L', iid, f'ledger row {iid}: ' + '; '.join(bad), item=iid))
+            # a malformed row is reported and left OUT of every detector (one bad hand edit must not stop the check)
+            out.append(F('L', iid, f'ledger row {iid}: ' + '; '.join(bad) + ' -- row skipped until fixed', item=iid))
+            continue
         good.append(i)
     return good, out
 
@@ -387,7 +402,7 @@ def det_branches(branches, run_ids, owned_globs, now, reached=frozenset()):
         if not m or '-show' in b['name'] or not b.get('approve_ts'):
             continue
         name = m.group('name')
-        if any(r == name or r.startswith(name + '-') or name.startswith(r) for r in run_ids):
+        if any(r == name or r.startswith(name + '-') or name.startswith(r + '-') for r in run_ids):
             continue
         if any(fnmatch.fnmatch(b['name'], g) for g in owned_globs) or b.get('approve_sha') in reached:
             continue
@@ -598,10 +613,16 @@ def gather(a, errors):
     entries, journal, state_rows, fleet, canary_shas = [], [], [], None, set()
     try:
         S = load_sched(os.path.expanduser(a.sched))
-        st = S.gather(S.paths(), full=False)
+        P = S.paths()
+        sp = P.get('state')
+        if not sp or not os.access(sp, os.R_OK):
+            errors.append(f'scheduler state {sp} unreadable -- cancels/rearms are invisible, entry states are not trusted')
+        st = S.gather(P, full=False)
         journal, state_rows = st.get('journal') or [], st.get('state_rows') or []
         man = st.get('manifest') if isinstance(st.get('manifest'), dict) else {}
-        fleet = man.get('declared_code_version') or ''
+        # the manifest may hold an abbreviated sha (deploy-fleet writes the registration's); queue variants are keyed on the
+        # FULL sha: use the scheduler's own resolution, else resolve it in the clone below (Codex + Claude r1)
+        fleet = st.get('base_full') or man.get('declared_code_version') or ''
         for e in (st.get('queue') or {}).get('entries') or []:
             entries.append({'run': e.get('run'), 'state': S.entry_state(e, st), 'hold': e.get('hold'),
                             'after': e.get('after') or [], 'variants': sorted((e.get('variants') or {}).keys())})
@@ -616,9 +637,13 @@ def gather(a, errors):
     if not fleet:
         errors.append('fleet sha unknown (manifest declared_code_version)')
         fleet = None
-    elif g('cat-file', '-e', fleet + '^{commit}')[0] != 0:
-        errors.append(f'fleet sha {fleet[:8]} is not in the clone')
-        fleet = None
+    else:
+        rc, full = g('rev-parse', '--verify', '--quiet', fleet + '^{commit}')
+        if rc != 0 or not re.match(r'^[0-9a-f]{40}$', full.strip()):
+            errors.append(f'fleet sha {fleet[:8]} is not in the clone')
+            fleet = None
+        else:
+            fleet = full.strip()
     items, lfind = validate(ledger)
     qstates = {e['run']: e['state'] for e in entries}
     runs_all = set(qstates) | {r.get('run') for r in journal if r.get('run')}
@@ -739,9 +764,11 @@ def evaluate(fx, since):
     findings = list(fx['lfind'])
     findings += det_quiet(items, fx['ev'], now)
     findings += det_deps(items, fx['ev'], fx['crontab'], now, done_at)
-    findings += det_queue(fx['entries'], fx['fleet'], parked_runs, fx['runs_all'])
+    if fx['fleet']:            # with no fleet sha every entry would read 'no live variant' (INPUT MISSING already says why)
+        findings += det_queue(fx['entries'], fx['fleet'], parked_runs, fx['runs_all'])
     findings += det_branches(fx['branches'], fx['runs_all'], owned, now, fx.get('reached') or frozenset())
-    findings += det_lanes(fx['entries'], fx['fleet'], lane_of, since, now)
+    if fx['fleet']:
+        findings += det_lanes(fx['entries'], fx['fleet'], lane_of, since, now)
     findings += det_unshipped(fx['commits'], fx['promotions'], now, fx['fleet_on_main'], suppress)
     findings += det_goals(fx['alarms'], items)
     findings += det_monitors(fx['registry'], fx['cron_lines'], fx['mtimes'], now, (fx['memlist'] or {}).get('launchd'))
@@ -777,14 +804,21 @@ def main(argv=None):
     od = os.path.expanduser(a.out_dir)
     os.makedirs(od, exist_ok=True)
     errors = []
-    fx = gather(a, errors)
     sp = os.path.join(od, 'stallcheck-state.json')
     try:
         state = json.load(open(sp))
     except (OSError, ValueError):
         state = {}
     since = state.get('since') or {}
-    findings, counts = evaluate(fx, since)
+    try:
+        fx = gather(a, errors)
+        findings, counts = evaluate(fx, since)
+    except Exception as e:      # noqa: BLE001 -- a crash is an alarm in the header, never a silently stale file
+        now = dt.datetime.now(UTC)
+        AL.write_json_atomic(os.path.join(od, 'stallcheck-fleet.json'),
+                             {'generated_at': iso(now), 'summary': 'stallcheck crashed',
+                              'alarms': {'crash': f'stallcheck CRASHED ({type(e).__name__}: {str(e)[:200]}) -- see ~/digest/stallcheck.log'}})
+        raise
     since = update_since(since, findings, fx['now'])
     al, summary = header(findings, counts, errors)
     md = report_md(fx['now'], findings, counts, errors, since)

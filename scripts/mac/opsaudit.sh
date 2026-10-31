@@ -20,9 +20,10 @@ MEM="$HOME/.claude/projects/-Users-darrellmiller-Documents-code-minecraft-ai/mem
 # mtimes of every memory file and the loaded com.mcai LaunchAgents go to 10.0.0.31 ~/digest/owner-memories.json. stallcheck
 # flags an owner-*.md with no ledger row (config/owner-commitments.json) and a registered Mac job that is not loaded.
 ML=$D/owner-memories.json
-/usr/bin/python3 - "$MEM" "$ML" "$(launchctl list 2>/dev/null | awk '$3 ~ /^com\.mcai\./ {print $3}' | tr '\n' ' ')" <<'PY' && scp -q -o BatchMode=yes "$ML" mike@10.0.0.31:digest/owner-memories.json && log "owner-memories published" || log "owner-memories publish FAILED"
+LAUNCHD=$(launchctl list 2>/dev/null) && LAUNCHD=$(awk '$3 ~ /^com\.mcai\./ {print $3}' <<< "$LAUNCHD" | tr '\n' ' ') || LAUNCHD=UNKNOWN
+/usr/bin/python3 - "$MEM" "$ML" "$LAUNCHD" <<'PY' && scp -q -o BatchMode=yes -o ConnectTimeout=15 "$ML" mike@10.0.0.31:digest/owner-memories.json && log "owner-memories published" || log "owner-memories publish FAILED"
 import datetime as dt, json, os, sys
-d, out, labels = sys.argv[1], sys.argv[2], sys.argv[3].split()
+d, out, labels = sys.argv[1], sys.argv[2], (None if sys.argv[3] == 'UNKNOWN' else sys.argv[3].split())
 iso = lambda t: dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 files = {f: iso(os.path.getmtime(os.path.join(d, f))) for f in sorted(os.listdir(d)) if f.endswith('.md')}
 if not files:
@@ -77,5 +78,5 @@ else
   sed -n '/^OPSAUDIT /,$p' "$F.tmp" > "$F"
 fi
 rm -f "$F.tmp"
-scp -q -o BatchMode=yes "$F" mike@10.0.0.31:digest/opsaudit-latest.md && log "published: $(head -1 "$F")" || log "publish to .31 FAILED"
+scp -q -o BatchMode=yes -o ConnectTimeout=15 "$F" mike@10.0.0.31:digest/opsaudit-latest.md && log "published: $(head -1 "$F")" || log "publish to .31 FAILED"
 find "$D" -maxdepth 1 -name 'prompt-*.txt' -mtime +14 -delete; find "$D" -maxdepth 1 -name 'codex-*.err' -mtime +14 -delete

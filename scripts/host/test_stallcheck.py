@@ -87,6 +87,11 @@ def t_ledger(S):
     _, clean = S.validate({'items': [item('a'), item('b', state='done', done={'when': '2026-10-30', 'evidence': 'e'}),
                                      item('c', state='parked', parked={'until': '2026-11-05', 'why': 'w'})]})
     check('L quiet on a valid ledger', clean == [], clean)
+    good, fs = S.validate({'items': [item('a'), item('strdep', depends_on=['ledger-01']), item('evlist', evidence=['x']),
+                                     item('qstr', max_quiet_hours='2d')]})
+    check('L: malformed rows are findings AND left out of the detectors (no crash downstream)',
+          [i['id'] for i in good] == ['a'] and {f['key'] for f in fs} == {'L:strdep', 'L:evlist', 'L:qstr'}, (good, fs))
+    S.det_quiet(good, EV(), NOW); S.det_deps(good, EV(), '', NOW, {})
     _, empty = S.validate({'items': []})
     check('L fires on an EMPTY ledger (never a quiet zero)', len(empty) == 1, empty)
 
@@ -251,7 +256,7 @@ TESTS = [t_ledger, t_quiet, t_deps, t_queue, t_branches, t_lanes, t_unshipped, t
 SCHED_STUB = '''
 import json, os
 def paths():
-    return {}
+    return {"state": os.environ["SC_TEST_SCHED_STATE"]}
 def gather(P, full=True):
     return json.load(open(os.environ["SC_TEST_STATE"]))
 def entry_state(e, st):
@@ -294,16 +299,23 @@ def t_end_to_end():
                        env=dict(env, GIT_COMMITTER_DATE=rel(10), GIT_AUTHOR_DATE=rel(10)))
         clone = os.path.join(d, 'clone')
         sh('git', 'clone', '-q', org, clone)
-        state = {'manifest': {'declared_code_version': fleet},
+        state = {'manifest': {'declared_code_version': fleet[:7]},        # abbreviated, as deploy-fleet may write it
                  'journal': [{'ts': rel(6), 'run': 'ledger-01', 'phase': 'recorded', 'note': 'KEEP'},
                              {'ts': rel(6), 'run': 'ledger-01', 'phase': 'promoted', 'note': f'{fleet} fleet-wide'}],
                  'state_rows': [],
                  'queue': {'entries': [{'run': 'ledger-01', '_state': 'done', 'after': [], 'variants': {OLD: {}}},
                                        {'run': 'treefarm-03', '_state': 'ready', 'hold': 'PARKED', 'after': ['ledger-01'],
-                                        'variants': {OLD: {}}}]}}
+                                        'variants': {OLD: {}}},
+                                       {'run': 'live-01', '_state': 'ready', 'after': ['ledger-01'], 'variants': {fleet: {}}}]}}
         sp = os.path.join(d, 'state.json')
         json.dump(state, open(sp, 'w'))
         os.environ['SC_TEST_STATE'] = sp
+        ssf = os.path.join(d, 'sched-state.jsonl')
+        open(ssf, 'w').write('')
+        os.environ['SC_TEST_SCHED_STATE'] = ssf
+        S0 = load()
+        check('e2e positive control: with the full fleet sha the live variant is runnable',
+              S0.runnable(Q('x', variants=(fleet,)), [], fleet))
         stub = os.path.join(d, 'sched.py')
         open(stub, 'w').write(SCHED_STUB)
         ct = os.path.join(d, 'crontab')
@@ -322,23 +334,28 @@ def t_end_to_end():
                 'g:goal:hive-d/shop@1', 'm:list-missing'}
         check('e2e: the seeded stalls are all found', want <= keys, sorted(keys))
         check('e2e: the orphan cron line is unregistered', any(k.startswith('h:unregistered:') for k in keys), keys)
-        check('e2e: no input error on a complete fixture', 'inputs' not in st['alarms'], st['alarms'])
+        check('e2e: no input error on a complete fixture (an abbreviated manifest sha resolves)', 'inputs' not in st['alarms'], st['alarms'])
+        check('e2e: the entry with only a stale variant is the one dead entry', 'c:treefarm-03' in keys and
+              not any(k.startswith(('c:ledger', 'c:live-01')) for k in keys), keys)
         check('e2e: the header alarm', st['alarms'].get('stalled', '').startswith('STALLED: '), st['alarms'])
         check('e2e: the report opens with its line and names its denominators',
-              md.startswith('STALLCHECK ') and '2 ledger rows' in md and '2 queue entries' in md and '2 journal rows' in md, md[:400])
+              md.startswith('STALLCHECK ') and '2 ledger rows' in md and '3 queue entries' in md and '2 journal rows' in md, md[:400])
         # the same fixture through alarmhead: the fleetstatus header prints it
         from lib import alarmhead
         hl = alarmhead.file_lines(dt.datetime.now(UTC), 'stallcheck-fleet.json', 'stalled commitments',
                                   dt.timedelta(minutes=150), out)
         check('e2e: alarmhead prints !! STALLED', any(x.startswith('!! STALLED: ') for x in hl), hl)
         # a broken input is an alarm
+        os.unlink(ssf)
         json.dump({'manifest': {}, 'journal': [], 'state_rows': [], 'queue': {'entries': []}}, open(sp, 'w'))
         with contextlib.redirect_stdout(io.StringIO()):
             S.main(['run', '--repo', clone, '--sched', stub, '--goals', os.path.join(d, 'goals.json'), '--memories',
                     os.path.join(d, 'none.json'), '--out-dir', out, '--crontab', ct, '--no-push', '--no-fetch'])
         st = json.load(open(os.path.join(out, 'stallcheck-fleet.json')))
         check('e2e: an empty queue/journal/fleet is INPUT MISSING', 'NO entries' in st['alarms'].get('inputs', '')
-              and 'fleet sha unknown' in st['alarms'].get('inputs', ''), st['alarms'])
+              and 'fleet sha unknown' in st['alarms'].get('inputs', '') and 'scheduler state' in st['alarms'].get('inputs', ''),
+              st['alarms'])
+        check('e2e: with no fleet sha, no per-entry c/e noise', not any(f['det'] in 'ce' for f in st['findings']), st['findings'])
 
 
 # ------------------------------------------------------------------------------------------------------------- wiring --
