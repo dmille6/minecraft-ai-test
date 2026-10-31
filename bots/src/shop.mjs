@@ -213,6 +213,9 @@ export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf 
  * last visit stopped no_material. -> { ok, phase } | null. Unset (or EXPEDITION=off): never asked.
  */
 let expeditionAskOf = null
+/** A build visit that stopped for want of material, or found its project standing with nothing to do (a `due` upkeep it could
+ *  not perform: LIVE showcase 10-31 16:54Z, the farm's 3 trees no bot can fell), had no use for the bot. */
+export const IDLE_STOPS = new Set(['no_material', 'complete'])
 export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'function' ? fn : null }
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
@@ -492,7 +495,7 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (!planned) return { order: null, skip: null }
   // EXPEDITION-01 (owner showcase item 5): a bot the town's projects cannot use (all complete, or its last visit found no
   // material) may go on a short expedition -- the same order, the visit's args say which (skills.mjs buildShop)
-  if ((complete || state.lastStop === 'no_material') && expeditionAskOf) {
+  if ((complete || IDLE_STOPS.has(state.lastStop)) && expeditionAskOf) {
     let ex = null
     try { ex = expeditionAskOf({ now, health, freeSlots, complete, lastStop: state.lastStop ?? null }) } catch { ex = null }
     if (ex?.ok) return { order: { skill: 'build_shop', args: { expedition: true, phase: ex.phase ?? 'trip' } }, skip: null }

@@ -67,15 +67,15 @@ export const expeditionModeDetail = (on, markers = true) =>
 
 /**
  * MAY THIS BOT GO NOW? -> { ok, phase: 'trip'|'deposit', why }. Pure. Asked by shop.mjs buildOrder at town, when the town's
- * build order has nothing for the bot: every project complete (`complete`) or its last visit stopped for want of material
- * (`lastStop === 'no_material'`) -- never while a build project can use it. A haul left in the bag by a short clock is
+ * build order has nothing for the bot: every project complete (`complete`), or its last visit stopped for want of material
+ * or found nothing to do (`lastStop` 'no_material' | 'complete') -- never while a build project can use it. A haul left in the bag by a short clock is
  * deposited first (phase 'deposit', no other condition but the switch).
  */
 export function expeditionAdmit ({ on = false, complete = false, lastStop = null, health = 20, food = 20, freeSlots = 36,
   timeOfDay = 0, now = 0, lastTripAt = -Infinity, pendingDeposit = false, slotFree = true } = {}) {
   if (!on) return { ok: false, why: 'off' }
   if (pendingDeposit) return { ok: true, phase: 'deposit', why: 'pending_deposit' }
-  if (!complete && lastStop !== 'no_material') return { ok: false, why: 'project_open' }
+  if (!complete && lastStop !== 'no_material' && lastStop !== 'complete') return { ok: false, why: 'project_open' }
   if (now - (Number.isFinite(lastTripAt) ? lastTripAt : -Infinity) < TRIP_COOLDOWN_MS) return { ok: false, why: 'cooldown' }
   if (health < HEALTH_START) return { ok: false, why: 'health' }
   if (food < FOOD_START) return { ok: false, why: 'food' }
