@@ -63,10 +63,16 @@ export function noteLavaFinding (bot, verdict, now = Date.now()) {
   return !!ring && ring.note(verdict.at ?? verdict.cell, now)
 }
 
+// LINE_SKIP: the line test starts this far along the bearing (Claude review note): lava right beside the bot is within
+// LINE_R of the segment's START for every bearing, so without it a bot standing beside seen lava skipped every sighting
+// in every direction; lava that close is the route guard's business, not the heading's
+export const LINE_SKIP = 3
+/** -> the horizontal distance from p to the segment a->b, or Infinity when p's foot on it is within LINE_SKIP of a. */
 const segDist2D = (p, a, b) => {
   const vx = b.x - a.x, vz = b.z - a.z
   const L = vx * vx + vz * vz
   const u = L > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.z - a.z) * vz) / L)) : 0
+  if (u * Math.sqrt(L) < LINE_SKIP) return Infinity
   return Math.hypot(a.x + u * vx - p.x, a.z + u * vz - p.z)
 }
 
@@ -76,10 +82,13 @@ const segDist2D = (p, a, b) => {
  */
 export function lavaBlocksTarget ({ from, target, lava = [] } = {}) {
   if (!target || !lava.length) return null
+  // BOTH AS CELLS (Codex r1 blocker): sightings are stored as integer block coordinates and the ring as cells, so the
+  // distance is centre to centre -- adding 0.5 to one side only measured (45,43,0) to the ore at (40,40,0) as 6.54, not 5.83
   const ty = Number.isFinite(target.y) ? target.y : from?.y
+  const tc = { x: Math.floor(target.x) + 0.5, y: Math.floor(ty ?? 0) + 0.5, z: Math.floor(target.z) + 0.5 }
   let best = null
   for (const c of lava) {
-    const d = Math.hypot(c.x + 0.5 - target.x, c.y + 0.5 - (ty ?? c.y), c.z + 0.5 - target.z)
+    const d = Math.hypot(c.x + 0.5 - tc.x, ty == null ? 0 : c.y + 0.5 - tc.y, c.z + 0.5 - tc.z)
     if (d <= NEAR_R && (!best || best.why !== 'near' || d < best.distance)) best = { why: 'near', cell: c, distance: d }
   }
   if (best) return best
@@ -87,7 +96,7 @@ export function lavaBlocksTarget ({ from, target, lava = [] } = {}) {
   const lo = Math.min(from.y, ty ?? from.y) - LINE_DY, hi = Math.max(from.y, ty ?? from.y) + LINE_DY
   for (const c of lava) {
     if (c.y < lo || c.y > hi) continue
-    const d = segDist2D({ x: c.x + 0.5, z: c.z + 0.5 }, from, target)
+    const d = segDist2D({ x: c.x + 0.5, z: c.z + 0.5 }, from, tc)
     if (d <= LINE_R && (!best || d < best.distance)) best = { why: 'line', cell: c, distance: d }
   }
   return best
