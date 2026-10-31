@@ -241,7 +241,7 @@ def es_metrics(since, until, pools_all, segs):
     from collections import Counter
     acc = {'units': 0.0, 'value': 0.0, 'bh': 0.0, 'deaths': 0, 'build_rows': 0, 'dur_ms': 0.0, 'dur_docs': 0, 'docs': 0,
            'intake_docs': 0, 'intake_delta_docs': 0, 'rows': 0}
-    unweighted, by_item, kinds_seen = Counter(), Counter(), Counter()
+    unweighted, by_item, kinds_seen, delta_seen = Counter(), Counter(), Counter(), Counter()
     st, st_missing = {}, Counter()
     errs, segs_done = [], 0
     for a, b, ex in segs:
@@ -279,7 +279,8 @@ def es_metrics(since, until, pools_all, segs):
         acc['units'] += sc['units']; acc['value'] += sc['value']; acc['bh'] += bh; acc['rows'] += sc['rows']
         unweighted.update(sc['unweighted']); by_item.update(sc['units_by_item'])
         for k in V.INTAKE_KINDS:
-            acc['intake_docs'] += names.get(k, 0); acc['intake_delta_docs'] += delta_docs.get(k, 0); kinds_seen[k] += names.get(k, 0)
+            acc['intake_docs'] += names.get(k, 0); acc['intake_delta_docs'] += delta_docs.get(k, 0)
+            kinds_seen[k] += names.get(k, 0); delta_seen[k] += delta_docs.get(k, 0)
         acc['deaths'] += names.get('_death', 0); acc['build_rows'] += names.get('_build', 0)
         for bb in bk:
             k = str(bb['key'])
@@ -299,10 +300,10 @@ def es_metrics(since, until, pools_all, segs):
     # valuescore.measure's own checks, on the summed segments (Codex r2): every intake kind present, deltas on the intake
     # rows, and check_output (units, weighted value, unweighted share, look-alikes, sentinels) -- else UNREADABLE
     blind = []
-    if not kinds_seen.get('gather'):
-        blind.append('no gather rows')
-    if acc['intake_docs'] and acc['intake_delta_docs'] < 0.9 * acc['intake_docs']:
-        blind.append('skill.inventory_delta on %d of %d intake rows' % (acc['intake_delta_docs'], acc['intake_docs']))
+    try:      # valuescore's own input rule: every intake kind above its floor, each with its own inventory_delta share
+        V.check_inputs(dict(kinds_seen), dict(delta_seen), (until - since).total_seconds() / 3600)
+    except Exception as x:
+        blind.append('%s: %s' % (type(x).__name__, str(x)[:200]))
     try:
         V.check_output({'rows': acc['rows'], 'units': acc['units'], 'value': acc['value'], 'unweighted': dict(unweighted),
                         'units_by_item': dict(by_item)}, hours=(until - since).total_seconds() / 3600)
