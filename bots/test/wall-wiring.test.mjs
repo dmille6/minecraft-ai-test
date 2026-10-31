@@ -40,13 +40,14 @@ const WALL_CELLS = [[-12, 70, -12], [-12, 71, -12], [-12, 72, -12], [-11, 70, -1
 const wall = c => rec('wall', W.WALL_BLUEPRINT, WALL_CELLS.map((at, i) => ({ at, role: i < 3 ? 'wall' : 'step', seg: 'W-00' })), c, { zones: W.zoneBoxes(new Set(WALL_CELLS.flatMap(([x, , z]) => [-1, 0, 1].flatMap(dx => [-1, 0, 1].map(dz => `${x + dx},${z + dz}`))))) })
 const me = { username: 'WallBot', blockAt: () => null }
 
-await t('the showcase pool lists the wall fifth, after the paths; a fleet pool does not; WALL=off and PATHS=off are rollbacks', async () => {
+await t('the showcase pool lists the wall fifth, after the paths; since zigfleet-02 a fleet pool does too; WALL=off, PATHS=off and the *_POOLS=showcase lists are rollbacks', async () => {
   assert.deepStrictEqual(S.projectsOn().map(p => p.plot), ['shop', 'house1', 'monument', 'paths', 'wall'])
   const w = S.PROJECTS.find(p => p.plot === 'wall')
   assert.ok(w.after === 'paths' && S.buildersOf(w) === W.WALL_BUILDERS && w.blueprint === W.WALL_BLUEPRINT)
   assert.ok(S.LIGHT_PLOTS.has('wall'), 'an unsited wall needs 2 free bag slots: it builds from the bags\' cobblestone')
   const run = env => execFileSync(process.execPath, ['--input-type=module', '-e', "const S = await import('./src/shop.mjs'); console.log(S.projectsOn().map(p => p.plot).join(','))"], { cwd: new URL('..', import.meta.url), env: { ...process.env, ...env }, encoding: 'utf8' }).trim()
-  assert.strictEqual(run({ MEMORY_POOL: 'hive-a' }), 'shop,house1,monument', 'a fleet pool: no paths, no wall (zigfleet-01: the ziggurat is on)')
+  assert.strictEqual(run({ MEMORY_POOL: 'hive-a' }), 'shop,house1,monument,paths,wall', 'zigfleet-02: a fleet pool has the paths and the wall')
+  assert.strictEqual(run({ MEMORY_POOL: 'hive-a', PATHS_POOLS: 'showcase', WALL_POOLS: 'showcase' }), 'shop,house1,monument', 'the pool-list rollback')
   assert.strictEqual(run({ MEMORY_POOL: 'showcase', WALL: 'off' }), 'shop,house1,monument,paths')
   assert.strictEqual(run({ MEMORY_POOL: 'showcase', PATHS: 'off' }), 'shop,house1,monument', 'never without the paths it follows')
 })
