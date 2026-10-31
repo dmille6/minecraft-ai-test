@@ -238,8 +238,11 @@ def es_metrics(since, until, pools_all, segs):
     sys.path.insert(0, W5); sys.path.insert(0, os.path.join(W5, 'host'))
     from lib.estelemetry import EsEvents
     import valuescore as V
-    acc = {'units': 0.0, 'value': 0.0, 'bh': 0.0, 'deaths': 0, 'build_rows': 0, 'dur_ms': 0.0, 'dur_docs': 0, 'docs': 0}
-    st = {}
+    from collections import Counter
+    acc = {'units': 0.0, 'value': 0.0, 'bh': 0.0, 'deaths': 0, 'build_rows': 0, 'dur_ms': 0.0, 'dur_docs': 0, 'docs': 0,
+           'intake_docs': 0, 'intake_delta_docs': 0, 'rows': 0}
+    unweighted, by_item, kinds_seen = Counter(), Counter(), Counter()
+    st, st_missing = {}, Counter()
     errs, segs_done = [], 0
     for a, b, ex in segs:
         pools = [p for p in pools_all if p not in ex]
@@ -257,16 +260,26 @@ def es_metrics(since, until, pools_all, segs):
                                 for x in ev.rows(k, fields=['skill.inventory_delta', 'exp.pool'], max_rows=400_000, allow_zero=True)]
                             for k in V.INTAKE_KINDS if names.get(k)}
             sc = V.score(rows_by_kind)
+            q = ev._query()
+            q['bool']['filter'].append({'exists': {'field': 'skill.inventory_delta'}})
+            rd = ev._search({'size': 0, 'query': q, 'aggs': {'k': {'terms': {'field': 'skill.name', 'size': 2000}}}})
+            delta_docs = {x['key']: x['doc_count'] for x in ev._complete(rd['aggregations']['k'], 'delta kinds')['buckets']}
             r = ev._search({'size': 0, 'query': ev._query(), 'aggs': {'k': {'terms': {'field': 'skill.name', 'size': 2000},
                                                                              'aggs': {'d': {'sum': {'field': 'skill.duration_ms'}},
                                                                                       'c': {'value_count': {'field': 'skill.duration_ms'}},
-                                                                                      's': {'terms': {'field': 'skill.status', 'size': 20}}}}}})
+                                                                                      's': {'terms': {'field': 'skill.status', 'size': 20,
+                                                                                                      'missing': '<missing>'}}}}}})
             bk = ev._complete(r['aggregations']['k'], 'skill.name terms')['buckets']
+            for bb in bk:
+                ev._complete(bb['s'], 'skill.status terms')
         except Exception as x:
             errs.append('segment %s..%s: %s: %s' % (iso(a)[5:16], iso(b)[5:16], type(x).__name__, str(x)[:140]))
             continue
         segs_done += 1
-        acc['units'] += sc['units']; acc['value'] += sc['value']; acc['bh'] += bh
+        acc['units'] += sc['units']; acc['value'] += sc['value']; acc['bh'] += bh; acc['rows'] += sc['rows']
+        unweighted.update(sc['unweighted']); by_item.update(sc['units_by_item'])
+        for k in V.INTAKE_KINDS:
+            acc['intake_docs'] += names.get(k, 0); acc['intake_delta_docs'] += delta_docs.get(k, 0); kinds_seen[k] += names.get(k, 0)
         acc['deaths'] += names.get('_death', 0); acc['build_rows'] += names.get('_build', 0)
         for bb in bk:
             k = str(bb['key'])
@@ -275,23 +288,45 @@ def es_metrics(since, until, pools_all, segs):
             acc['docs'] += bb['doc_count']; acc['dur_docs'] += bb['c']['value']; acc['dur_ms'] += bb['d']['value'] or 0
             if k in SKILLS or k.startswith('build'):
                 ss = {x['key']: x['doc_count'] for x in bb['s']['buckets']}
-                c = st.setdefault(k, [0, 0]); c[0] += ss.get('success', 0); c[1] += bb['doc_count']
+                st_missing[k] += ss.get('<missing>', 0)
+                c = st.setdefault(k, [0, 0]); c[0] += ss.get('success', 0); c[1] += bb['doc_count'] - ss.get('<missing>', 0)
     out = {'segments': len(segs), 'segments_read': segs_done}
     if segs_done < len(segs):
         errs.append('%d of %d segments unread: the ES numbers cover the rest only' % (len(segs) - segs_done, len(segs)))
     bh = acc['bh']
     out['bot_hours'] = round(bh, 1) if bh else None
     out['intake_units'] = acc['units']
-    out['items_per_bot_h'] = acc['units'] / bh if bh else None
-    out['value_per_bot_h'] = acc['value'] / bh if bh else None
+    # valuescore.measure's own checks, on the summed segments (Codex r2): every intake kind present, deltas on the intake
+    # rows, and check_output (units, weighted value, unweighted share, look-alikes, sentinels) -- else UNREADABLE
+    blind = []
+    if not kinds_seen.get('gather'):
+        blind.append('no gather rows')
+    if acc['intake_docs'] and acc['intake_delta_docs'] < 0.9 * acc['intake_docs']:
+        blind.append('skill.inventory_delta on %d of %d intake rows' % (acc['intake_delta_docs'], acc['intake_docs']))
+    try:
+        V.check_output({'rows': acc['rows'], 'units': acc['units'], 'value': acc['value'], 'unweighted': dict(unweighted),
+                        'units_by_item': dict(by_item)}, hours=(until - since).total_seconds() / 3600)
+    except Exception as x:
+        blind.append('%s: %s' % (type(x).__name__, str(x)[:160]))
+    if blind or not bh:
+        errs.append('items/value UNREADABLE: ' + '; '.join(blind or ['no bot-hours']))
+        out['items_per_bot_h'] = out['value_per_bot_h'] = None
+    else:
+        out['items_per_bot_h'] = acc['units'] / bh
+        out['value_per_bot_h'] = acc['value'] / bh
     out['deaths'] = acc['deaths'] if segs_done else None
     out['deaths_per_bot_h'] = acc['deaths'] / bh if bh else None
     for k in SKILLS:
         c = st.get(k)
-        out['%s_success' % k] = (c[0] / c[1]) if c and c[1] else None
+        miss = st_missing.get(k, 0)
+        ok = c and c[1] and miss <= 0.05 * (c[1] + miss)       # a status nobody wrote is not a failure (Codex r2)
+        out['%s_success' % k] = (c[0] / c[1]) if ok else None
+        if c and not ok and c[1] + miss:
+            errs.append('%s success UNREADABLE: skill.status missing on %d of %d rows' % (k, miss, c[1] + miss))
         out['%s_n' % k] = c[1] if c else 0
     for k in sorted(x for x in st if x.startswith('build')):
-        out['%s_success' % k] = st[k][0] / st[k][1] if st[k][1] else None
+        miss = st_missing.get(k, 0)
+        out['%s_success' % k] = st[k][0] / st[k][1] if st[k][1] and miss <= 0.05 * (st[k][1] + miss) else None
     out['_build_per_bot_h'] = acc['build_rows'] / bh if bh else None
     cov = acc['dur_docs'] / acc['docs'] if acc['docs'] else None
     out['duration_coverage'] = cov

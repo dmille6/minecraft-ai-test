@@ -81,6 +81,46 @@ def main():
     except RuntimeError:
         ok = True
     t('files: an empty roster raises', ok)
+    # r2 Codex: missing deltas / missing statuses are UNREADABLE, not 0 (a fake ES with the shapes es_metrics reads)
+    import types
+    class FakeEv:
+        DOCS = []
+        def __init__(self, a, b, pools): self.a, self.b, self.pools = a, b, pools
+        @classmethod
+        def load(cls, stream, since=None, until=None, pools=None, gaps=None): return cls(since, until, pools)
+        def total(self): return len(self.DOCS)
+        def coverage(self): return {'bot_hours': 10.0}
+        def names(self):
+            from collections import Counter
+            return dict(Counter(x['skill']['name'] for x in self.DOCS))
+        def rows(self, k, fields=None, max_rows=0, allow_zero=False): return [x for x in self.DOCS if x['skill']['name'] == k]
+        def _query(self): return {'bool': {'filter': []}}
+        def _complete(self, agg, what): return agg
+        def _search(self, body):
+            from collections import Counter, defaultdict
+            exists = any('exists' in f for f in body['query']['bool']['filter'])
+            docs = [x for x in self.DOCS if not exists or 'inventory_delta' in x['skill']]
+            by = defaultdict(list)
+            for x in docs:
+                by[x['skill']['name']].append(x)
+            bk = []
+            for k, xs in by.items():
+                st = Counter(x['skill'].get('status', '<missing>') for x in xs)
+                bk.append({'key': k, 'doc_count': len(xs), 'd': {'value': sum(x['skill'].get('duration_ms', 0) for x in xs)},
+                           'c': {'value': sum(1 for x in xs if 'duration_ms' in x['skill'])},
+                           's': {'buckets': [{'key': kk, 'doc_count': n} for kk, n in st.items()]}})
+            return {'aggregations': {'k': {'buckets': bk}}}
+    fake = types.ModuleType('lib.estelemetry'); fake.EsEvents = FakeEv
+    sys.modules['lib.estelemetry'] = fake
+    seg = [(d(0), d(1), set())]
+    FakeEv.DOCS = [{'skill': {'name': 'gather', 'status': 'success', 'duration_ms': 1000}} for _ in range(10)]
+    out, errs = C.es_metrics(d(0), d(1), ['board-a'], seg)
+    t('r2: gather rows without inventory_delta -> items/value UNREADABLE, named (not 0)',
+      out['items_per_bot_h'] is None and out['value_per_bot_h'] is None and any('inventory_delta' in e for e in errs), (out, errs))
+    FakeEv.DOCS = [{'skill': {'name': 'gather', 'duration_ms': 1000, 'inventory_delta': {'oak_log': 1}}} for _ in range(10)]
+    out, errs = C.es_metrics(d(0), d(1), ['board-a'], seg)
+    t('r2: gather rows without skill.status -> gather success UNREADABLE (not 0 %)',
+      out['gather_success'] is None and any('status missing' in e for e in errs), (out.get('gather_success'), errs))
     print('\n%d/%d pass' % (sum(T), len(T)))
     return 0 if all(T) else 1
 
