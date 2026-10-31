@@ -144,14 +144,15 @@ def validate(ledger):
             bad.append('no memory file named')
         if st == 'open' and not i.get('next_step'):
             bad.append('open with no next_step')
+        obj = lambda k: i.get(k) if isinstance(i.get(k), dict) else {}     # type errors are reported below (Codex r2)
         if st == 'parked':
-            p = i.get('parked') or {}
+            p = obj('parked')
             if not ts(p.get('until')) or not p.get('why'):
                 bad.append('parked needs parked.until (a real date) and parked.why -- an undated park is the silence this '
                            'check exists to catch')
-        if st == 'dropped' and not (i.get('dropped') or {}).get('why'):
+        if st == 'dropped' and not obj('dropped').get('why'):
             bad.append('dropped needs dropped.why')
-        if st == 'done' and not ts((i.get('done') or {}).get('when')):
+        if st == 'done' and not ts(obj('done').get('when')):
             bad.append('done needs done.when')
         for k in ('evidence', 'parked', 'done', 'dropped'):
             if i.get(k) is not None and not isinstance(i.get(k), dict):

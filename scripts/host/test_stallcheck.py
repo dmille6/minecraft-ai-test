@@ -88,9 +88,10 @@ def t_ledger(S):
                                      item('c', state='parked', parked={'until': '2026-11-05', 'why': 'w'})]})
     check('L quiet on a valid ledger', clean == [], clean)
     good, fs = S.validate({'items': [item('a'), item('strdep', depends_on=['ledger-01']), item('evlist', evidence=['x']),
-                                     item('qstr', max_quiet_hours='2d')]})
+                                     item('qstr', max_quiet_hours='2d'), item('plist', state='parked', parked=['x']),
+                                     item('dlist', state='done', done='x'), item('xlist', state='dropped', dropped=[1])]})
     check('L: malformed rows are findings AND left out of the detectors (no crash downstream)',
-          [i['id'] for i in good] == ['a'] and {f['key'] for f in fs} == {'L:strdep', 'L:evlist', 'L:qstr'}, (good, fs))
+          [i['id'] for i in good] == ['a'] and {f['key'] for f in fs} == {'L:strdep', 'L:evlist', 'L:qstr', 'L:plist', 'L:dlist', 'L:xlist'}, (good, fs))
     S.det_quiet(good, EV(), NOW); S.det_deps(good, EV(), '', NOW, {})
     _, empty = S.validate({'items': []})
     check('L fires on an EMPTY ledger (never a quiet zero)', len(empty) == 1, empty)
