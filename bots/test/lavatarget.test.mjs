@@ -55,6 +55,16 @@ await t('S3 a target whose straight bearing crosses seen lava is skipped (line),
   assert.strictEqual(knownTarget(botAt(0, 0, s, [[30, 62, 9]])).x, 60, 'lava 8.5 off the line: still a target')
   assert.strictEqual(knownTarget(botAt(0, 0, s, [[30, 20, 0]])).x, 60, 'lava far below the band: still a target')
 })
+await t('S3b (Claude note) lava right beside the bot does not block every bearing: a target AWAY from it stays a target', () => {
+  const s = { iron_ore: [{ x: -60, y: 64, z: 0 }] }
+  assert.strictEqual(knownTarget(botAt(0, 0, s, [[1, 64, 0]])).x, -60)
+  assert.ok(knownTarget(botAt(0, 0, { iron_ore: [{ x: 60, y: 64, z: 0 }] }, [[5, 64, 0]])).lavaSkipped, 'lava 5 out along the bearing still blocks it')
+})
+await t('S5b (Codex r1) cell to cell: lava at (45,43,0) is 5.83 from the ore at (40,40,0) -- skipped', () => {
+  const k = knownTarget(botAt(0, 0, { iron_ore: [{ x: 40, y: 40, z: 0 }, { x: 0, y: 40, z: 80 }] }, [[45, 43, 0]]))
+  assert.strictEqual(k.z, 80); assert.strictEqual(k.lavaFirst.why, 'near')
+  assert.ok(Math.abs(k.lavaFirst.distance - Math.hypot(5, 3)) < 1e-9)
+})
 await t('S4 every sighting beside lava: no target; the skip is reported and explore falls back to its bearing', () => {
   const k = knownTarget(botAt(0, 0, { iron_ore: [{ x: 40, y: 40, z: 0 }] }, [[41, 40, 0]]))
   assert.strictEqual(k.kind, undefined); assert.strictEqual(k.lavaSkipped, 1)
