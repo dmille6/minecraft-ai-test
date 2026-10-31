@@ -117,6 +117,11 @@ const SPEC = {
   FMR: { setup: ['fill 699 40 699 701 41 701 minecraft:air', 'setblock 700 42 700 minecraft:ice', 'fill 699 43 699 701 45 701 minecraft:air'],
          flood: ['fill 699 40 699 701 41 701 minecraft:water replace minecraft:air'], floodOnPickaxe: true,
          expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'air'], [701, 41, 701, 'air'], [700, 42, 700, 'ice'], [701, 42, 700, 'stone'], [700, 43, 700, 'air']], secs: 150 },
+  // SMR (control-session 10-31, scratch variant): a DRY 3x3x2 stone room (feet 40, head 41, roof 42), a FURNACE in the
+  // wall (702 40 700 facing west); flooded (air only) 1.5 s after the bot logs `LLM -> smelt`, so the smelt holds the
+  // furnace window open when the rescue fires (aad2506a's town orders keep the brain from answering before ~t+30 s)
+  SMR: { setup: ['fill 699 40 699 701 41 701 minecraft:air', 'setblock 702 40 700 minecraft:furnace[facing=west]'], flood: ['fill 699 40 699 701 41 701 minecraft:water replace minecraft:air'], floodOnSmelt: true,
+         expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'air'], [701, 41, 701, 'air'], [700, 42, 700, 'stone'], [701, 42, 700, 'stone'], [702, 40, 700, 'furnace']], secs: 240 },
   CR: { setup: ['fill 700 40 700 700 41 700 minecraft:water'], expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone']], secs: 150 },
 }
 const CLEAR_ITEMS = 'kill @e[type=item,x=700,y=40,z=700,distance=..24]'
@@ -296,7 +301,7 @@ async function runTrial (arm, scene, k) {
   const { ok, envRel, botOut } = await startBot(tag, root)
   if (!ok) { await stopBot(); throw new Error('no spawn') }
   let difficultyBefore = null, difficultyDuring = null
-  const polls = []; let t0 = null; let deathT = null; let airAt0 = null; let floodT = null, floodBy = null, floodReply = null
+  const polls = []; let t0 = null; let deathT = null; let airAt0 = null; let floodT = null, floodBy = null, floodReply = null, smeltSeenAt = null
   try {
     rcon(`gamemode spectator ${NAME}`, `tp ${NAME} ${STAND.x} 60 ${STAND.z}`)
     await sleep(3000)
@@ -312,7 +317,13 @@ async function runTrial (arm, scene, k) {
     t0 = Date.now()
     brainActive = true
     while (Date.now() - t0 < spec.secs * 1000) {
-      if (spec.flood && floodT == null) {
+      if (spec.flood && floodT == null && spec.floodOnSmelt) {
+        let seenNow = false; try { seenNow = /LLM -> smelt args/.test(fs.readFileSync(botOut, 'utf8').split('\n').filter(l => Date.parse((l.match(/^\[([^\]]+)\]/) || [])[1] || 0) >= t0).join('\n')) } catch {}
+        if (seenNow && smeltSeenAt == null) smeltSeenAt = Date.now()
+        const fallback = Date.now() - t0 > 90000
+        if ((smeltSeenAt != null && Date.now() - smeltSeenAt >= 1500) || fallback) { floodReply = rcon(...spec.flood).map(x => x.reply.trim()).join(' | '); floodT = +((Date.now() - t0) / 1000).toFixed(2); floodBy = smeltSeenAt != null ? 'smelt+1.5s' : 'fallback' }
+      }
+      if (spec.flood && floodT == null && !spec.floodOnSmelt) {
         let seen = false
         try {
           const pat = spec.floodOnPickaxe ? `'"pkt":"dig","status":0,.*"name":"[a-z_]*pickaxe"' ${ROUT}/trace-${tag}.jsonl | grep -v '"x":700,"y":42,"z":700'` : `'"pkt":"dig","status":0' ${ROUT}/trace-${tag}.jsonl`
@@ -339,7 +350,7 @@ async function runTrial (arm, scene, k) {
   // per entry: Paper cuts a long `data get ... Inventory` reply with '...'
   try { invEnd = rcon(...[0, 1, 2, 3, 4, 5, 6, 7].map(i => `data get entity ${NAME} Inventory[${i}]`), `data get entity ${NAME} SelectedItemSlot`).map(x => x.reply.replace(/^.*entity data: /, '').trim()).join(' | ').slice(0, 2000) } catch (e) { invEnd = 'unreadable: ' + e.message }
   let furnaceEnd = null
-  if (scene === 'SM') { try { furnaceEnd = rcon('data get block 701 40 700 Items')[0].reply.replace(/^.*block data: /, '').trim().slice(0, 600) } catch (e) { furnaceEnd = 'unreadable: ' + e.message } }
+  if (scene === 'SM' || scene === 'SMR') { try { furnaceEnd = rcon(`data get block ${scene === 'SMR' ? '702 40 700' : '701 40 700'} Items`)[0].reply.replace(/^.*block data: /, '').trim().slice(0, 600) } catch (e) { furnaceEnd = 'unreadable: ' + e.message } }
   await stopBot()
   try { r31(`rm -f ${MAIN}/${envRel}`) } catch {}
   const skillText = (() => { try { return r31(`cat ${ROUT}/${tag}/skill-${NAME}.jsonl 2>/dev/null || true`) } catch { return '' } })()
