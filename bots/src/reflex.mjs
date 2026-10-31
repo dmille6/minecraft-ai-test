@@ -56,6 +56,9 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
 import { MAX_DIG_MS } from './digbudget.mjs'
 // lavastep-01 (F1, docs/reports/mineshaft-safety-2026-10-23.md): the danger arm's verified, bounded move
 import { lavastepOn } from './lavastep.mjs'
+// tombexit-01 (F2 of the mineshaft-safety design + the in-wall dig): the entombed arm fires only with no walk back
+import { tombexitOn, inwallOn, makeFreeRing, declineDecision, inwallDecision, makeHealthTrend, suffocates,
+         INWALL_MAX_DIGS, INWALL_RETRY_MS, INWALL_UNSEEN_ROW_MS, INWALL_TREND_MS } from './tombexit.mjs'
 import { makeDangerMover } from './lavastepmove.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, plugSamePlace, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
@@ -1505,6 +1508,78 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // AIRPOCKET (docs/reports/airpocket-design-2026-10-07.md): the dig step inside the drowning rescue. While it runs it
   // owns the body and every other tick returns at the top; a refusal or a failure cools down here.
   let airPocketing = false
+  // TOMBEXIT-01 (tombexit.mjs): the free-cell ring, the decline bound's areas, the health trend, the in-wall episode
+  const tombOn = tombexitOn()
+  const tombWallOn = inwallOn()
+  const freeRing = makeFreeRing()
+  let tombAreas = []
+  const healthTrend = makeHealthTrend()
+  let inwalling = false
+  let inwallNextAt = 0
+  let inwallUnseenAt = 0
+  let tombSampleKey = null, tombSampleAt = 0
+  // THE DECLINE (Part 1). Called only when every other condition of the entombed arm holds. A decline sets lastEscapeAt
+  // like a firing (the arm's 15 s interval throttles declines too), writes `_entombed_declined`, and the arm does not run:
+  // the bot is not entombed, it can walk back to where it just was free. A bound hand-over writes `_entombed_bound`.
+  const tombDeclines = () => {
+    if (!tombOn) return false
+    try {
+      const now = Date.now()
+      const pos = bot.entity.position
+      const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+      const d = declineDecision({ at, feet: pos, free: freeRing.fresh(now), areas: tombAreas, now })
+      tombAreas = d.areas
+      const cell = `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`
+      if (d.bound) {
+        logEvent({ kind: 'entombed_bound', status: 'failed', snapshot: snapshot(bot),
+                   detail: `cell=${cell} area_n=${d.bound.area_n} -- ${d.why}; today's arm runs`,
+                   args: { cell, area_n: d.bound.area_n, nodes: d.walk.nodes } })
+      }
+      if (!d.decline) return false
+      lastEscapeAt = now
+      const free = d.walk.free_cell
+      logEvent({ kind: 'entombed_declined', status: 'success', snapshot: snapshot(bot),
+                 detail: `cell=${cell} free=${free} free_age_s=${d.walk.free_t == null ? '-' : Math.round((now - d.walk.free_t) / 1000)} ` +
+                         `nodes=${d.walk.nodes} area_n=${d.bound.area_n} path=${d.walk.path.length} -- the walk back is open; not entombed`,
+                 args: { cell, free_cell: free, free_age_s: d.walk.free_t == null ? null : Math.round((now - d.walk.free_t) / 1000),
+                         path: d.walk.path.slice(0, 24), nodes: d.walk.nodes, area_n: d.bound.area_n } })
+      return true
+    } catch (e) { log('warn', 'tombexit: decline check failed; today\'s arm runs', { err: e.message }); return false }
+  }
+  // THE IN-WALL DIG (Part 2), never awaited by the tick: the body's own eye cell, bounded digs, its own flag.
+  const runInwall = async (why) => {
+    inwalling = true
+    let grant = null
+    const p0 = bot.entity.position
+    const at0 = `${Math.floor(p0.x)},${Math.floor(p0.y)},${Math.floor(p0.z)}`
+    const hp0 = bot.health
+    let digs = 0, stopped = 'freed'
+    const names = []
+    try {
+      grant = await takeBody(bot, runner, 'inwall', PRIORITY.damage)
+      for (; digs < INWALL_MAX_DIGS; digs++) {
+        const eye = bot.entity ? bot.blockAt(bot.entity.position.offset(0, 1.62, 0)) : null
+        if (!suffocates(eye)) break
+        names.push(eye.name)
+        // the best tool unless a container window is open (an equip clicks inside it: ap2win); else the hand in use
+        if (!bot.currentWindow) { const tool = bestTool(bot, eye); if (tool) await bot.equip(tool, 'hand').catch(() => {}) }
+        try { await digBounded(bot, eye, 8000) } catch (e) { stopped = `dig failed on ${eye.name}: ${e.message}`; break }
+        await sleep(FALLING_SETTLE_MS)   // a falling column refills the cell: read it again
+      }
+      const eye = bot.entity ? bot.blockAt(bot.entity.position.offset(0, 1.62, 0)) : null
+      if (suffocates(eye) && stopped === 'freed') stopped = `still in ${eye.name} after ${digs} digs`
+    } catch (e) { stopped = `threw: ${e.message}` }
+    finally {
+      giveBody(runner, grant, 'inwall done')
+      inwalling = false
+      inwallNextAt = Date.now() + INWALL_RETRY_MS
+      try {
+        logEvent({ kind: 'inwall', status: stopped === 'freed' ? 'success' : 'failed', snapshot: snapshot(bot),
+                   detail: `at=${at0} ${why} digs=${digs} blocks=${names.join('/') || '-'} hp=${hp0}->${bot.health} -- ${stopped}`,
+                   args: { at: at0, digs, blocks: names, hp0, hp1: bot.health ?? null, stopped } })
+      } catch { /* telemetry */ }
+    }
+  }
   let airPocketCooldownUntil = 0
   let airPocketBreatheUntil = 0   // after a pocket opens, escapes and maroon climbs wait (air refills first)
   // when the step last asked an in-flight escape / maroon climb to yield (a sealed rescue); their `alive` reads it
@@ -1680,6 +1755,41 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // AIRPOCKET OWNS THE BODY WHILE IT DIGS: no other arm may steer, release or re-seize until the step returns (it
       // is bounded by the health budget, ~30 s at most). The release above has already run.
       if (airPocketing) return
+      // TOMBEXIT-01: the free-cell sampler (Part 1) and the in-wall watch (Part 2), before every other arm's return.
+      if (tombOn) {
+        try {
+          const now = Date.now()
+          const pos = bot.entity.position
+          if (freeRing.touch(pos)) healthTrend.clear()
+          if (bot.health === 0) { freeRing.clear(); healthTrend.clear() }
+          // a ground cell where the predicate is false is a free cell (a declined firing never adds one: it is true there)
+          // sampled when the cell changes or every 5 s (isEntombed reads ~90 cells)
+          const ck = `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`
+          if (bot.entity.onGround && !bot.entity.isInWater && (ck !== tombSampleKey || now - tombSampleAt >= 5000)) {
+            tombSampleKey = ck; tombSampleAt = now
+            if (!isEntombed(bot)) freeRing.note(pos, now)
+          }
+          healthTrend.push(now, bot.health)
+          if (tombWallOn && !inwalling && !escaping && !pocketing && !rescuing && !poolEscaping && !dangerMovingNow() && now >= inwallNextAt) {
+            const eye = bot.blockAt(pos.offset(0, 1.62, 0))
+            const feetB = bot.blockAt(pos), belowB = bot.blockAt(pos.offset(0, -1, 0))
+            const explained = !!bot.entity.isInWater || !!bot.entity.isInLava || !bot.entity.onGround ||
+                              !!((bot.entity.metadata?.[0] ?? 0) & 0x01) || /lava|fire|magma|campfire/.test(`${feetB?.name} ${belowB?.name}`)
+            const dec = inwallDecision({ eye, healthNow: bot.health, healthThen: healthTrend.then(now), explained })
+            if (dec.act === 'dig') { void runInwall(dec.why); return }
+            if (dec.act === 'unseen' && now - inwallUnseenAt >= INWALL_UNSEEN_ROW_MS) {
+              inwallUnseenAt = now
+              const at = (dx, dy, dz) => bot.blockAt(pos.offset(dx, dy, dz))?.name ?? '?'
+              logEvent({ kind: 'inwall_unseen', status: 'failed', snapshot: snapshot(bot),
+                         detail: `health ${healthTrend.then(now)}->${bot.health} in ${INWALL_TREND_MS / 1000} s, nothing visible explains it: ` +
+                                 `eye=${eye?.name ?? '?'} feet=${feetB?.name ?? '?'} head+1=${at(0, 2, 0)} below=${belowB?.name ?? '?'} ` +
+                                 `y=${pos.y.toFixed(2)} sides=${at(1, 1, 0)}/${at(-1, 1, 0)}/${at(0, 1, 1)}/${at(0, 1, -1)}`,
+                         args: { eye: eye?.name ?? null, feet: feetB?.name ?? null, y: pos.y } })
+            }
+          }
+        } catch (e) { log('warn', 'tombexit sampler failed', { err: e.message }) }
+        if (inwalling) return   // the in-wall dig holds the body: no other arm steers until it returns (bounded)
+      }
 
       // --- survey: remember where the good things are ----------------------
       // The fleet's memory was entirely negative -- hazard sites and failed
@@ -3119,7 +3229,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       if (!escaping && entombedGrant) { giveBody(runner, entombedGrant, 'entombed arm ended'); entombedGrant = null }   // released within one tick of the arm's finally
       const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
       if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot) && Date.now() >= airPocketBreatheUntil &&
-          !pocketing && !pocketPending && Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
+          !pocketing && !pocketPending && Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS &&
+          !tombDeclines()) {   // tombexit-01: LAST, so it runs only when the arm would fire; a decline = not entombed
         // A WET CEILING IS NOT A MISSING PICKAXE (climbflood-01, Codex r1): with
         // failures already counted, this arm would ask for a tool BEFORE the
         // climb could classify the ceiling. Skipped while the ceiling is a flood

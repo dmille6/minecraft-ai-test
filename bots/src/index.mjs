@@ -62,6 +62,7 @@ import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
 import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
+import { tombexitModeDetail } from './tombexit.mjs'   // tombexit-01
 import { attachLavastepGuard } from './lavastepmove.mjs'   // lavastep-01
 import { cavefallModeDetail } from './cavefall.mjs'   // cavefall-01
 import { ceilEscapeModeDetail } from './ceilescape.mjs'   // ceilescape-01
@@ -305,6 +306,8 @@ function connect() {
     try { logEvent({ kind: 'poolescape_mode', status: 'success', snapshot: snapshot(bot), detail: poolEscapeModeDetail() }) } catch {}
     // lavastep-01: the licence row, once per spawn -- `_lavastep_mode`, a kind the base cannot write (lavastep.mjs)
     try { logEvent({ kind: 'lavastep_mode', status: 'success', snapshot: snapshot(bot), detail: lavastepModeDetail() }) } catch {}
+    // tombexit-01: the licence row, once per spawn (tombexit.mjs; TOMBEXIT=0 is the rollback)
+    try { logEvent({ kind: 'tombexit_mode', status: 'success', snapshot: snapshot(bot), detail: tombexitModeDetail() }) } catch {}
     // cavefall-01: the licence row, once per spawn -- `_cavefall_mode`, a kind the base cannot write (cavefall.mjs)
     try { logEvent({ kind: 'cavefall_mode', status: 'success', snapshot: snapshot(bot), detail: cavefallModeDetail(process.env) }) } catch {}
     // ceilescape-01: the licence row, once per spawn -- `_ceilescape_mode`, a kind the base cannot write (ceilescape.mjs)
