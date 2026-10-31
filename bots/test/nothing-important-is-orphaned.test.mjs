@@ -43,6 +43,7 @@ const REQUIRED = [
   'sandbox/coop/arms-e2e.cjs',
   'sandbox/coop/arms-batch.cjs',
   'sandbox/coop/arms-read.py',
+  'docs/reports/coop-b5-2026-10-31.md',
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
