@@ -45,6 +45,7 @@ const WINDOW_MS = Number(process.env.ARMS_WINDOW_MIN || 60) * 60000
 const TICK_MS = Number(process.env.ARMS_TICK_MS || 5 * 60000)
 const STARVE_MS = 30 * 60000
 const STAY_OVERRUN_MS = 8 * 60000
+const RELAY = process.env.ARMS_CALLER_RELAY || null
 const PY = process.env.OVERSEER_PY || `${process.env.HOME}/learnloop/venv/bin/python`
 const BRAIN_PORT = 11800 + 10 * Number(String(SERVER).replace('sandbox', '') || 0)   // + bot index
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -54,8 +55,12 @@ const SHARE = [0.20, 0.12, 0.08, 0.05, 0.03]           // at-town share per bot 
 const DIST = [60, 120, 180, 240, 300]                 // nominal distance when away (the snapshot's `dist`)
 
 const SSH = ['-o', 'ControlMaster=auto', '-o', `ControlPath=${process.env.HOME}/.ssh/cm-coop-%C`, '-o', 'ControlPersist=600', 'mike@10.0.0.30']
+// ARMS_RCON_LOCAL=1: the driver runs ON the worlds host (10.0.0.30) itself -- the same helper, no ssh (control session 10-31:
+// the arms do not run on the Mac mini, which is a controller only)
+const RCON_LOCAL = process.env.ARMS_RCON_LOCAL === '1'
 function rcon (...cmds) {
-  const out = execFileSync('ssh', [...SSH, `python3 /tmp/sbx-rcon.py ${SERVER} -`], { input: cmds.join('\n') + '\n', encoding: 'utf8', timeout: 120000 })
+  const opts = { input: cmds.join('\n') + '\n', encoding: 'utf8', timeout: 120000 }
+  const out = RCON_LOCAL ? execFileSync('python3', ['/tmp/sbx-rcon.py', SERVER, '-'], opts) : execFileSync('ssh', [...SSH, `python3 /tmp/sbx-rcon.py ${SERVER} -`], opts)
   const res = []; let cur = null
   for (const line of out.split('\n')) { if (line.startsWith('> ')) { cur = { cmd: line.slice(2), reply: '' }; res.push(cur) } else if (cur) cur.reply += (cur.reply ? '\n' : '') + line }
   return res
@@ -291,11 +296,25 @@ async function run () {
     const shown = { ...snap }; delete shown.refused
     for (const b of shown.roster) { delete b.seen_at; delete b.flags }
     fs.writeFileSync(f, JSON.stringify(shown))
-    const code = await new Promise(resolve => {
-      const c = spawn(PY, [`${R}/scripts/overseer/caller.py`, 'call', '--model', model, '--snapshot', f, '--out', o, '--purpose', 'paper', '--run', tag, '--wait-lock', '120'], { stdio: ['ignore', 'ignore', 'pipe'] })
-      const kill = setTimeout(() => { try { c.kill('SIGKILL') } catch {} }, 180000)
-      c.on('exit', x => { clearTimeout(kill); resolve(x) })
-    })
+    let code
+    if (RELAY) {
+      // the keys stay on the Mac: drop the request where the Mac's relay (sandbox/coop/caller-relay.sh) pulls it, wait for
+      // the reply it pushes back (design s.3.2: the caller pulls the snapshot, calls, writes the reply back). No reply in
+      // 240 s = a failed due call: an empty generation, never a bot change.
+      const id = `${tag}-g${snap.gen}`
+      fs.mkdirSync(RELAY, { recursive: true })
+      fs.writeFileSync(`${RELAY}/req-${id}.json.tmp`, JSON.stringify({ model, run: tag, snapshot: shown }))
+      fs.renameSync(`${RELAY}/req-${id}.json.tmp`, `${RELAY}/req-${id}.json`)
+      const got = await waitFor(() => fs.existsSync(`${RELAY}/resp-${id}.json`), 240000, 1000)
+      code = got ? 0 : 'relay_timeout'
+      if (got) fs.copyFileSync(`${RELAY}/resp-${id}.json`, o)
+    } else {
+      code = await new Promise(resolve => {
+        const c = spawn(PY, [`${R}/scripts/overseer/caller.py`, 'call', '--model', model, '--snapshot', f, '--out', o, '--purpose', 'paper', '--run', tag, '--wait-lock', '120'], { stdio: ['ignore', 'ignore', 'pipe'] })
+        const kill = setTimeout(() => { try { c.kill('SIGKILL') } catch {} }, 180000)
+        c.on('exit', x => { clearTimeout(kill); resolve(x) })
+      })
+    }
     let out = null; try { out = JSON.parse(fs.readFileSync(o, 'utf8')) } catch {}
     return { code, reply: out?.reply ?? null, meta: out?.meta ?? null }
   }
@@ -373,7 +392,7 @@ async function run () {
   const comp = {}; for (const p of per) for (const r of jl(p.skill)) { const n = r.skill?.name; if (Date.parse(r['@timestamp']) >= t0 && ['smelt_town', 'furnace_drain', 'make_material', 'build_shop', 'town_deposit', 'toolkit'].includes(n)) comp[n] = (comp[n] || 0) + 1 }
   const deaths = per.flatMap(p => jl(p.skill).filter(r => r.skill?.name === '_death' && Date.parse(r['@timestamp']) >= t0)).length
   const out = { arm: ARM, seed: SEED, server: SERVER, tag, window_min: (Date.now() - t0) / 60000,
-    sha: (() => { try { return execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() } catch { return '?' } })(),
+    sha: process.env.ARMS_SHA || (() => { try { return execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() } catch { return '?' } })(),
     place_rows: places.length, cells_per_h: +(places.length / ((Date.now() - t0) / 3600000)).toFixed(1), distinct_cells: cells.length, standing,
     completes, places_by_bot: byBot, build_visits: visits, town_jobs: comp, arrivals: st.map(s => s.arrived.length),
     honoured: roleRows('role_honoured').length, released: roleRows('role_released').length, file_gens: fileGen, calls,
@@ -392,7 +411,11 @@ async function cleanup () {
   if (owned) { try { rconMany([`kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..100]`, ...Array.from({ length: TOP - FLOOR }, (_, k) => `fill ${A0} ${FLOOR + 1 + k} ${A0} ${AX1} ${FLOOR + 1 + k} ${A1} minecraft:air`), `forceload remove ${A0} ${A0} ${AX1} ${A1}`]) } catch {} }
 }
 async function main () {
-  sbx.requireSandboxLock(SERVER, 'coop')
+  // ARMS_LOCK_PROBE_DIR: the worlds host cannot ssh to the lock host; the Mac's relay runs the SAME probe there every minute and
+  // copies its output here. The verdict is the library's own; a probe older than 3 minutes is refused (never "free").
+  const probeDir = process.env.ARMS_LOCK_PROBE_DIR
+  const exec = probeDir ? (() => { const f = `${probeDir}/lockprobe-${SERVER}.txt`; const st = fs.statSync(f); if (Date.now() - st.mtimeMs > 180000) throw new Error(`lock probe ${f} is stale`); return fs.readFileSync(f, 'utf8') }) : undefined
+  sbx.requireSandboxLock(SERVER, 'coop', { exec })
   const pl = rcon('list')[0].reply; if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
   fs.mkdirSync(OUTDIR, { recursive: true })
   owned = true

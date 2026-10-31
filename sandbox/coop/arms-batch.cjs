@@ -13,7 +13,7 @@ const RES = `${R}/sandbox/log/arms-e2e/results.jsonl`
 const LOG = `${R}/sandbox/log/arms-e2e/batch.log`
 const ARMS = (ARMS_S || 'rotation,random,greedy,oracle,frontier:claude-sonnet-5-5,frontier:gpt-6.1-sol,frontier:claude-haiku-5-5').split(',')
 const [p0, p1] = PAIRS_S.split('-').map(Number)
-const sha = execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+const sha = process.env.ARMS_SHA || execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
 const log = s => fs.appendFileSync(LOG, `${new Date().toISOString()} ${s}\n`)
 function shuffled (arr, seed) {
   let a = seed >>> 0
