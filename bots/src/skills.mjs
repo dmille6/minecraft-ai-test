@@ -165,6 +165,7 @@ import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OU
          ironSmeltCount, ironBankPlan } from './smeltjob.mjs'   // ironsmelt-01
 import { withDigScope } from './digtown.mjs'
 import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
+import { TREEFARM_BAND as ESCAPE_TREEFARM_BAND } from './escapeguard.mjs'   // escapeguard-01
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory, LID_WOOD, LID_BREAKABLE } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
 import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, keepOutLabel, stepCells } from './minewell.mjs'
@@ -6589,6 +6590,47 @@ function treeFarmRecordCells () {
     } catch { /* the next lower */ }
   }
   return null
+}
+/**
+ * ESCAPEGUARD-01: THE BUILD RECORDS AS ONE SNAPSHOT for the escape guard (escapeguard.mjs) -> { cells: Map "x,y,z" -> record,
+ * cols: Set "x,z" (the tree farm) } | null (a record could not be read: unknown). lidRecordAt's records and its unknown rules
+ * (an unread generation, generations without a head), read once per ESCAPE_RECORD_TTL_MS rather than per cell: a planner asks
+ * for many cells per firing. A project record's `air` cells are not guarded (digging one is the record's own work). Never throws.
+ */
+const ESCAPE_RECORD_TTL_MS = 10_000
+let escapeRecordCache = null
+export function escapeRecordSnapshot (bot, now = Date.now()) {
+  if (escapeRecordCache && now - escapeRecordCache.at < ESCAPE_RECORD_TTL_MS && escapeRecordCache.world === (bot?.worldId ?? null)) return escapeRecordCache.v
+  let v = null
+  try {
+    const cells = new Map()
+    const ph = planHead(townDir(), planKeyNow(), bot?.worldId ?? null)
+    if (!ph.ok || recordUnread(ph)) throw new Error('plan unread')
+    for (const k of planFurnitureCells(ph.head?.plan)) cells.set(k, 'townplan')
+    for (const k of bot?.townPlan?.cells ?? []) if (typeof k === 'string') cells.set(k, 'townplan')
+    const dir = townDir()
+    for (const proj of PROJECTS) {
+      const h = recordHead(dir, projKeyOf(proj.plot))
+      if (!h.ok || recordUnread(h) || ((h.gens?.length ?? 0) > 0 && !h.head)) throw new Error(`${proj.plot} unread`)
+      const name = proj.plot === SHOP_PLOT ? 'workshop' : proj.plot
+      for (const c of h.head?.rec?.cells ?? []) if (Array.isArray(c?.at) && c.role !== 'air') cells.set(`${c.at[0]},${c.at[1]},${c.at[2]}`, name)
+    }
+    const cols = treeFarmRecordCells()
+    if (!cols) throw new Error('treefarm unread')
+    v = { cells, cols }
+  } catch { v = null }
+  escapeRecordCache = { at: now, world: bot?.worldId ?? null, v }
+  return v
+}
+/** The guard's per-cell answer -> a record's name | false | null (unknown). The tree farm's columns count near ground level only. */
+export function escapeRecordAt (bot, c, now = Date.now()) {
+  const s = escapeRecordSnapshot(bot, now)
+  if (!s) return null
+  const hit = s.cells.get(`${c.x},${c.y},${c.z}`)
+  if (hit) return hit
+  const hy = Number(config.world.homeY)
+  if (s.cols.has(`${c.x},${c.z}`) && (!Number.isFinite(hy) || (c.y >= hy + ESCAPE_TREEFARM_BAND[0] && c.y <= hy + ESCAPE_TREEFARM_BAND[1]))) return 'treefarm'
+  return false
 }
 const chestHalves = (bot, chestPos) => {
   const halves = [chestPos]
