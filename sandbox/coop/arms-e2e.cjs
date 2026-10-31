@@ -88,13 +88,13 @@ const ARRIVALS_PER_H = SHARE.map(f => +(3600000 * f / STAY_MEAN).toFixed(2))
 const HOME = { x: 760, y: 120, z: 760 }
 const HK = `${HOME.x}_${HOME.y}_${HOME.z}`
 // the arena: x A0..AX1 (the town and, east of it, the field), z A0..A1, flat stone at FLOOR, air above to TOP
-const A0 = 704, A1 = 816, AX1 = 852, FLOOR = 119, TOP = 140
+const A0 = 704, A1 = 816, AX1 = 860, FLOOR = 119, TOP = 140
 // each bot's away spot: 75+ blocks east of home (outside TOWN_RADIUS 48), a pair of points 8 apart it walks between (the
 // stagnation watchdog relocates a bot that moves < 8 blocks in 180 s: an idle bot would walk off on its own)
 const FIELD = NAMES.map((_, i) => ({ x: 836.5, y: 120, z: 744 + 8 * i + 0.5 }))
 const FIELD2 = FIELD.map(p => ({ x: p.x + 8, y: p.y, z: p.z }))
 const WANDER = [{ x: 756, y: 120, z: 756 }, { x: 764, y: 120, z: 756 }]
-const CHESTS = [{ x: 763, y: 120, z: 757 }, { x: 762, y: 120, z: 760 }, { x: 763, y: 120, z: 763 }]
+const CHESTS = [{ x: 763, y: 120, z: 757 }, { x: 762, y: 120, z: 760 }, { x: 763, y: 120, z: 763 }, { x: 757, y: 120, z: 763 }]
 const FURNACE_AT = { x: 760, y: 120, z: 764 }
 const STAND = { x: 760.5, y: 120, z: 760.5 }
 const at = c => `${c.x} ${c.y} ${c.z}`
@@ -106,12 +106,16 @@ const CHEST_ITEMS = [
   [...stacks('stone_bricks', 384), ...stacks('oak_planks', 640), ...stacks('cobblestone', 512)],
   [...stacks('glass_pane', 128), ...stacks('cut_copper', 128), ...stacks('torch', 128), ['furnace', 6], ['crafting_table', 3], ...stacks('oak_log', 256)],
   [...stacks('raw_copper', 256), ...stacks('coal', 128)],
+  stacks('cobblestone', 27 * 64),                       // the ziggurat (MONUMENT=on): long work for the whole window
 ]
 function arenaCmds () {
   const c = [`forceload add ${A0} ${A0} ${AX1} ${A1}`, `kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..100]`]
   // one layer per fill (a 149 x 113 layer is 16.8k blocks: under the 32768 limit)
   for (const y of [FLOOR - 2, FLOOR - 1, FLOOR]) c.push(`fill ${A0} ${y} ${A0} ${AX1} ${y} ${A1} minecraft:stone`)
   for (let y = FLOOR + 1; y <= TOP; y++) c.push(`fill ${A0} ${y} ${A0} ${AX1} ${y} ${A1} minecraft:air`)
+  // a BARRIER ring round the whole arena (unbreakable, invisible): the slab floats over the seed's own terrain, and a bot that
+  // walked off the edge fell to its death (Paper pilot 10-31: 3 falls from the field, a livelock relocation toward x 877)
+  for (const [x0, z0, x1, z1] of [[A0, A0, AX1, A0], [A0, A1, AX1, A1], [A0, A0, A0, A1], [AX1, A0, AX1, A1]]) c.push(`fill ${x0} ${FLOOR + 1} ${z0} ${x1} ${FLOOR + 4} ${z1} minecraft:barrier`)
   c.push(`kill @e[type=item,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..100]`)
   return c
 }
@@ -230,7 +234,7 @@ async function run () {
     set('BOT_NAME', nm); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/coop-${tag}-${i}`); set('MEMORY_POOL', pool)
     set('MEMORY_SCOPE', 'shared'); set('MINECRAFT_PORT', PORTS[SERVER]); set('STUCK_SECONDS', 20); set('PLANT_ENABLED', 0); set('PLINTH_FIRST', 0)
     set('OLLAMA_BASE_URL', `http://127.0.0.1:${BRAIN_PORT + i}`); set('OLLAMA_BASE_URLS', `http://127.0.0.1:${BRAIN_PORT + i}`); set('MAX_CONSECUTIVE_FAILURES', 50)
-    set('FOUND', 'off'); set('SHAFT', 'off'); set('MONUMENT', 'off'); set('PATHS', process.env.ARMS_PATHS === 'off' ? 'off' : 'on'); set('TOWNWALL', 'off'); set('TREEFARM', 'off')
+    set('FOUND', 'off'); set('SHAFT', 'off'); set('MONUMENT', process.env.ARMS_MONUMENT === 'off' ? 'off' : 'on'); set('PATHS', process.env.ARMS_PATHS === 'off' ? 'off' : 'on'); set('TOWNWALL', 'off'); set('TREEFARM', 'off')
     set('ROLES', 'on'); set('SHOP', shopOn ? 'on' : 'off'); set('LLM_DECISION_COOLDOWN_MS', 8000)
     for (const ax of ['X', 'Y', 'Z']) { set(`HOME_${ax}`, HOME[ax.toLowerCase()]); set(`BOARD_${ax}`, HOME[ax.toLowerCase()]) }
     return env + '\n'
@@ -273,7 +277,8 @@ async function run () {
     gen++
     const snap = { v: 1, town: 'sbx', gen, t_min: Math.round((now - t0) / 60000), project: { plot: proj.plot, state: proj.complete ? 'complete' : proj.record ? 'building' : 'unsited',
       record_gen: proj.record_gen, cells: { placed_in_run: placeRows().length, total: proj.record?.cells?.length ?? null }, slots: { free: proj.slots_free } },
-      caps: { BUILD: 2, leased_max: 3 }, roster, refused, last_gen: { gen: gen - 1, leases: accepted.map(l => ({ bot: l.bot, job: l.job, expires_in_min: Math.round((l.expires_at - now) / 60000) })),
+      // the BUILD cap is the active project's own builders_max (workshop/house 2, ziggurat 3); leased_max 3 (design s.3.3)
+      caps: { BUILD: (() => { try { return SHOP.buildersOf(SHOP.PROJECTS.find(p => p.plot === proj.plot)) } catch { return 2 } })(), leased_max: 3 }, roster, refused, last_gen: { gen: gen - 1, leases: accepted.map(l => ({ bot: l.bot, job: l.job, expires_in_min: Math.round((l.expires_at - now) / 60000) })),
         released_since: roleRows('role_released').filter(r => Date.parse(r['@timestamp']) >= now - TICK_MS).map(r => r.bot?.name), honoured_since: roleRows('role_honoured').filter(r => Date.parse(r['@timestamp']) >= now - TICK_MS).map(r => r.bot?.name) } }
     const eligible = A.eligibleOf({ roster, project: proj, refused }, { buildOrder: SHOP.buildOrder, now })
     for (const b of snap.roster) b.eligible = eligible[b.bot]
@@ -384,7 +389,7 @@ async function cleanup () {
   if (owned) await stopBots().catch(() => {})
   for (const b of brains) { try { b.close() } catch {} }
   for (let i = 0; i < N; i++) { try { fs.unlinkSync(`${R}/sandbox/.env.coop-${SERVER}-${process.pid}-${i}`) } catch {} }
-  if (owned) { try { rconMany([`kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..100]`, ...arenaCmds().slice(2, -1), `forceload remove ${A0} ${A0} ${AX1} ${A1}`]) } catch {} }
+  if (owned) { try { rconMany([`kill @e[type=!player,x=${HOME.x},y=${HOME.y},z=${HOME.z},distance=..100]`, ...Array.from({ length: TOP - FLOOR }, (_, k) => `fill ${A0} ${FLOOR + 1 + k} ${A0} ${AX1} ${FLOOR + 1 + k} ${A1} minecraft:air`), `forceload remove ${A0} ${A0} ${AX1} ${A1}`]) } catch {} }
 }
 async function main () {
   sbx.requireSandboxLock(SERVER, 'coop')
