@@ -8,7 +8,7 @@ import { reserveKeyOf, reserveCount, takeAllowed, LOG_NAMES, PLANKS_OF } from '.
 import { monumentOn, MONUMENT_PLOT, MONUMENT_BLUEPRINT, MONUMENT_BUILDERS } from './ziggurat.mjs'
 import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mjs'
 import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
-import { SHAFT_PLOT, SHAFT_BLUEPRINT } from './shaftgeom.mjs'
+import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -136,7 +136,7 @@ export function stuckBackoff (states = [], stuckOf = null, now = Date.now()) {
     if (!st?.exists) return st
     let sa = null
     try { sa = stuckOf(st.plot) } catch { sa = null }
-    if (!(Number.isFinite(sa) && sa <= now + 60_000 && now - sa < SHOP_STUCK_RETRY_MS)) return st
+    if (!(Number.isFinite(sa) && sa <= now + 60_000 && now - sa < stuckWindowOf(st.plot))) return st
     return st.complete ? { ...st, damaged: false, due: true, stuck: true } : { ...st, free: false, stuck: true }
   })
 }
@@ -158,6 +158,11 @@ export const BUILDERS_MAX = 2
 export const SHOP_COOLDOWN_MS = Number(process.env.SHOP_COOLDOWN_MS) > 0 ? Number(process.env.SHOP_COOLDOWN_MS) : 10 * 60_000   // a setting (sandbox pacing)
 export const SHOP_SITE_RETRY_MS = 24 * 60 * 60_000       // S1: no site -> re-fit daily
 export const SHOP_STUCK_RETRY_MS = 6 * 60 * 60_000       // F4: a cell no stand reached in STUCK_VISITS visits -> ask again in 6 h
+/** shaft-03 (LIVE 10-31: 11 towns' stairs held 6 h at a time, then again, by single `walk_failed` / `no_reach` / `no_support`
+ *  visits -- the stamp is the PROJECT's, so one bot's failed visit holds every bot): a stair stamp holds 30 min. Its failures
+ *  are one visit's, not "a cell no stand reached in 3 visits"; the stair's own cooldown asks again in 2 min. */
+export const SHAFT_STUCK_RETRY_MS = 30 * 60_000
+export const stuckWindowOf = plot => (plot === SHAFT_PLOT ? SHAFT_STUCK_RETRY_MS : SHOP_STUCK_RETRY_MS)
 export const SHOP_HEALTH_MIN = 10
 export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
 export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the ziggurat is built mostly from the cobble a bag already holds
@@ -435,7 +440,7 @@ export function spendableFor (item, stock = {}, { reserve = {}, claims = {} } = 
  * or a bag without room is a skip with its reason.
  */
 export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
-  complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null } = {}) {
+  complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null, feet = null, groundY = null } = {}) {
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
@@ -449,7 +454,10 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE
   // (a skewed or bad clock) is ignored rather than holding the project skew + 6 h
   const sa = typeof stuckAt === 'function' ? stuckAt(now) : stuckAt
-  if (Number.isFinite(sa) && sa <= now + 60_000 && now - sa < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
+  if (Number.isFinite(sa) && sa <= now + 60_000 && now - sa < stuckWindowOf(plot0)) return { order: null, skip: 'stuck_on_cell' }
+  // shaft-03: the stair's visit starts at the surface or on the stair (shaftgeom.mjs stairStartRefusal): a bot in a mine under
+  // the town is asked again when it is up (its own surface or the stair's ascent; the order's cooldown is not charged)
+  if (plot0 === SHAFT_PLOT && stairStartRefusal(record, feet, groundY)) return { order: null, skip: 'underground' }
   if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }

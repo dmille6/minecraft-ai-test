@@ -131,7 +131,7 @@ import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, 
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
-import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount } from './shaftvisit.mjs'   // shaft-02
+import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
@@ -17465,7 +17465,8 @@ async function buildStair (ctx, args, signal) {
     const fence = () => { try { return projHoldsLease(dir, key, `slot${slot.slot}`, me, slot.gen) } catch { return false } }
     const e = stairBotEffects(bot, effects, { signal, fence, log: (op, d) => stairRow(bot, op, { k: d.k, at: d.at, why: d.why, feet: d.feet ?? '-' }) })
     const now = () => Date.now()
-    const r = await runStairVisit({
+    // shaft-03: the whole visit holds the 'stair' body claim (withStairClaim: the entombment reflex stands down inside the stair)
+    const r = await withStairClaim(ctx.runner, () => runStairVisit({
       rec, exit: rec.exit, built: new Set(rec.landings_built ?? []),
       onLanding: async feet => {
         const p = publishRecord(dir, key, cur => (cur && isStairRecord(cur) && !(cur.landings_built ?? []).includes(feet) ? { ...cur, landings_built: [...(cur.landings_built ?? []), feet].sort((a, b) => b - a) } : null), { by: me })
@@ -17480,7 +17481,7 @@ async function buildStair (ctx, args, signal) {
         publishRecord(dir, key, cur => (cur && isStairRecord(cur) && (cur.landings ?? []).includes(feet) ? stairDropped(cur, feet, { now: now(), why }) : null), { by: me })
         stairRecMem = null
       },
-    }, e, { deadline: t0 + budget - STAIR_VISIT_TAIL_MS })
+    }, e, { deadline: t0 + budget - STAIR_VISIT_TAIL_MS }))
     if (r.stop === 'complete' && !rec.structure_complete) {
       const pub = publishRecord(dir, key, cur => (cur && isStairRecord(cur) && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SHAFT_PLOT, op: 'complete', kind: SHAFT_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
@@ -17552,7 +17553,7 @@ export async function stairDescend (ctx, goalY, signal) {
     const t0 = Date.now(), fromY = Math.floor(p.y)
     const row = (ok, why, extra = {}) => { try { logEvent({ kind: 'shaft_use', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: shaftUseDetail({ dir: 'down', ok, why, landing: feet, from: fromY, to: Math.floor(bot.entity.position.y), goal: goalY, ms: Date.now() - t0, ...extra }) }) } catch { /* telemetry */ } }
     if (!use.ok) { row(false, use.why); return null }
-    const arrived = await stairWalk(bot, use.stand, STAIR_DOWN_MS, signal)
+    const arrived = await withStairClaim(ctx.runner, () => stairWalk(bot, use.stand, STAIR_DOWN_MS, signal))   // shaft-03: inside the stair
     if (!arrived) { bot.stairFails.set(feet, Date.now()); row(false, 'walk'); return null }
     row(true, 'arrived')
     return { arrived: true, landing: feet, done: goalY >= feet - 1 }
@@ -17592,7 +17593,7 @@ export async function stairAscend (ctx, signal) {
     }
     try { planned = await (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(plan) : plan()) } catch { planned = false }
     if (!planned) { row(false, 'no_plan'); return null }
-    const ok = await stairWalk(bot, rec.exit, STAIR_UP_MS, signal)
+    const ok = await withStairClaim(ctx.runner, () => stairWalk(bot, rec.exit, STAIR_UP_MS, signal))   // shaft-03: inside the stair
     row(ok, ok ? 'arrived' : 'walk')
     return ok ? { ok: true, detail: `climbed the town stair to ${rec.exit.join(',')} (from y=${feet[1]})` } : null
   } catch (e) { if (e?.aborted || signal?.aborted) throw e; return null }

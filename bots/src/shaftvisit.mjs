@@ -9,7 +9,7 @@
 // slot lease (fence), the pickaxe and the bag; two refusals of one cell end the visit. The visit ends where the work stopped
 // (the stair it just verified is the way out; surface and mine use it).
 import { Vec3 } from 'vec3'
-import { firstUndone, unitCells, standFor, nextOp, planOf, toWorld, LANDING_CELL, TORCH_EVERY, PILLAR, LINING_ITEMS, isFull } from './shaftgeom.mjs'
+import { firstUndone, unitCells, standFor, nextOp, planOf, toWorld, supportFor, LANDING_CELL, TORCH_EVERY, PILLAR, LINING_ITEMS, isFull } from './shaftgeom.mjs'
 import { withDigScope } from './digtown.mjs'
 
 export const UNITS_MAX = 40
@@ -29,6 +29,7 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
   const out = { stop: null, why: null, k: null, placed: 0, dug: 0, units: 0, landings: [], torches: 0 }
   const fails = new Map()
   const torched = new Set()
+  const supported = new Set()
   const end = (stop, why = null, k = null) => { out.stop = stop; out.why = why; out.k = k; return out }
   for (;;) {
     if (e.aborted()) { const err = new Error('aborted'); err.aborted = true; throw err }
@@ -44,7 +45,8 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
     if (w.kind === 'unknown') return end('unknown', 'an unloaded or unread cell', w.k)
     if (out.units >= unitsMax) return end('units', null, w.k)
     // WALK TO THE STAND: step k-1's (every step above is verified, so the walk is on the stair), the collar exit for step 0
-    const stand = standFor(plan, w, p.exit)
+    // shaft-03: step 0 from a ground cell beside it (step0Stand), not the exit two cells out (LIVE: `no_reach` on its tread)
+    const stand = standFor(plan, w, p.exit, e.read)
     if (!stand) return end('no_stand', 'no collar exit', w.k)
     if (!same(e.feet(), stand)) {
       await e.walkTo(stand)
@@ -71,6 +73,13 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
       let r
       if (op.op === 'place') {
         r = await e.place(op.at)
+        // shaft-03: NOTHING TO CLICK AGAINST (a cell over a cave pocket): place a support beside it first (supportFor), then the
+        // cell itself on the next pass -- once per cell; a support that does not take leaves the refusal as it was
+        if (r === 'no_support' && !supported.has(key)) {
+          supported.add(key)
+          const sup = supportFor(e.read, plan, op.at, e.feet())
+          if (sup && (await e.place(sup)) === 'confirmed') { out.placed++; e.log('place', { k: w.k, at: sup, why: 'support' }); continue }
+        }
         if (r === 'confirmed') { out.placed++; e.log('place', { k: w.k, at: op.at, why: op.why }) }
         else if (r === 'no_material') return end('no_material', 'no lining blocks in the bag (cobblestone)', w.k)
       } else {
@@ -94,6 +103,24 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
       try { if (await e.torch(head, [pil.x, head[1], pil.z])) out.torches++ } catch (err) { if (err?.aborted) throw err }
     }
   }
+}
+
+// ---- the stair's body claim -----------------------------------------------------------------------------------------------
+
+/**
+ * RUN fn HOLDING THE RUNNER'S 'stair' BODY CLAIM (shaft-03). The entombment reflex reads a bot inside the stair -- its centre over
+ * the next step down, rock over that column and on three sides -- as walled in, and pillars OUT. LIVE 10-31 (14 h, 11 towns): 19
+ * of the 21 aborted stair visits were that reflex (71 `_entombed` rows inside a stair's box), its pillar laid dirt in the stair's
+ * air cells, and board-d's stair read `step5:blocked` for 25 descents. mine's own stair holds this claim for the same reason
+ * (skills.mjs mine, 2026-09-11); it quiets that one reflex branch and nothing else (runner.mjs bodyClaimFor is typed). Renewed
+ * every `every` ms (the runner drops a claim not renewed within CLAIM_STEP_TTL_MS), released on every exit, and inert without
+ * a running skill (claimBody's own rule). -> fn(claim)'s result.
+ */
+export async function withStairClaim (runner, fn, { every = 20_000 } = {}) {
+  const claim = runner?.claimBody?.('stair') ?? null
+  const iv = claim ? setInterval(() => { try { claim.renew() } catch { /* inert */ } }, every) : null
+  iv?.unref?.()
+  try { return await fn(claim) } finally { if (iv) clearInterval(iv); try { claim?.release?.() } catch { /* inert */ } }
 }
 
 // ---- the effects on a real bot (skills.mjs buildStair and the Paper driver run the SAME code) ------------------------------

@@ -36,6 +36,7 @@ const REQUIRED = [
   'bots/src/shaftvisit.mjs',
   'bots/test/town-stair.test.mjs',
   'bots/test/town-stair-wiring.test.mjs',
+  'bots/test/town-stair-stuck.test.mjs',
   // monument-01 (10-29): the ziggurat's site, offline, by the bots' own functions (the fleet canary's per-world siting), and the
   // shop read that judges every project's record (the showcase tripwire's S6)
   'bots/scripts/zigsite-offline.mjs',

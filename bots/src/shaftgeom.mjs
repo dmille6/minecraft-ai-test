@@ -305,11 +305,55 @@ export function unitCells (plan, work) {
   const col = work.landing.cols[work.col]
   return { air: col.air, tread: null, lining: col.lining, end: col.end }
 }
-/** Where the bot stands for a unit: step k-1's stand (step 0: the collar exit); a stub column: the column before it (the first:
- *  the landing step's stand). Pure. */
-export function standFor (plan, work, exit) {
-  if (work.kind === 'step') return work.k === 0 ? exit : standOf(plan, work.k - 1)
+/** Where the bot stands for a unit: step k-1's stand (step 0: a ground cell beside it, else the collar exit); a stub column: the
+ *  column before it (the first: the landing step's stand). Pure. */
+export function standFor (plan, work, exit, read = null) {
+  if (work.kind === 'step') return work.k === 0 ? ((read && step0Stand(read, plan)) ?? exit) : standOf(plan, work.k - 1)
   return work.col === 0 ? standOf(plan, work.k) : work.landing.cols[work.col - 1].air[0]
+}
+/**
+ * STEP 0'S STAND (shaft-03, LIVE 10-31: placebo-a 228,70,-118 and placebo-d 157,80,86 -- `no_reach` from the collar exit, three
+ * visits, each a 6-h hold of the town's stair): the exit sits two cells out on the home side, and step 0 can be the far corner of
+ * the 3x3 (local v=2), 4+ blocks from the exit's eye -- past the 4.5 reach of a click on its tread. So the stand is a ground cell
+ * FACE-ADJACENT to step 0 in the shell ring round the 3x3 (never a stair cell): feet at g+1 (or g / g+2), a full floor, feet and
+ * head open. -> [x, y, z] | null (none: the caller keeps the exit). Pure.
+ */
+export function step0Stand (read, plan) {
+  const s = plan.steps[0]
+  if (!s) return null
+  const [u, v] = s.uv
+  for (const [du, dv] of [[0, -1], [-1, 0], [1, 0], [0, 1]]) {
+    const uu = u + du, vv = v + dv
+    if (uu >= 0 && uu <= 2 && vv >= 0 && vv <= 2) continue          // inside the 3x3: a stair cell (or the pillar)
+    const w = toWorld(plan.origin, plan.away, uu, vv)
+    for (const y of [plan.g + 1, plan.g, plan.g + 2]) {
+      if (plan.byKey.has(k3(w.x, y, w.z)) || plan.byKey.has(k3(w.x, y + 1, w.z))) continue
+      const fl = read(w.x, y - 1, w.z), f = read(w.x, y, w.z), h = read(w.x, y + 1, w.z)
+      if (isFull(fl) && isOpen(f) && isOpen(h)) return [w.x, y, w.z]
+    }
+  }
+  return null
+}
+/**
+ * A SUPPORT FOR A PLACEMENT WITH NONE (shaft-03, LIVE 10-31: board-a 366,66,121 -- the pillar over a cave pocket -- and placebo-b
+ * 267,60,-412, `no_support` twice each: a lining cell whose six neighbours are all air, so no face to click, and the visit ended
+ * with the town's stair held 6 h). -> a face neighbour of `cell` to place FIRST: not one of the stair's air cells, not the bot's
+ * feet or head, not full already, and itself touching a full block other than `cell`; below first (it carries what goes on top),
+ * then the sides, then above. null: no such cell (the refusal stands). Pure over read.
+ */
+export function supportFor (read, plan, cell, feet = null) {
+  const body = feet ? new Set([k3(...feet), k3(feet[0], feet[1] + 1, feet[2])]) : new Set()
+  const ck = k3(...cell)
+  for (const [dx, dy, dz] of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
+    const n = [cell[0] + dx, cell[1] + dy, cell[2] + dz], nk = k3(...n)
+    if (plan.air.has(nk) || body.has(nk)) continue
+    const b = read(...n)
+    if (!b || isFull(b)) continue
+    if (b.boundingBox !== 'empty' && !isWet(b) && !replaceable(b)) continue
+    const held = N6.some(([a, c, d]) => { const m = [n[0] + a, n[1] + c, n[2] + d]; return k3(...m) !== ck && isFull(read(...m)) })
+    if (held) return n
+  }
+  return null
 }
 
 // ---- siting -------------------------------------------------------------------------------------------------------------
@@ -491,6 +535,22 @@ export function chooseLanding (built = [], botY, goalY) {
   if (!below.length) return null
   const atOrAbove = below.filter(f => f >= goalY)
   return atOrAbove.length ? atOrAbove[0] : below[0]
+}
+/**
+ * MAY A STAIR VISIT START FROM THESE FEET? (shaft-03, LIVE 10-31: 21 of 49 visits in 14 h ended `walk_failed` with nothing done,
+ * 14 of them from bots far under the town -- y=-23, 16, 19, 25, 34 ... -- because `atTown` is a horizontal circle, and the visit's
+ * walk (no digs, no scaffold) cannot leave a mine.) The visit walks to a stand on the stair verified from the top, so it starts
+ * at the surface (feet at or above ground - SURFACE_SLACK) or on the stair itself (inside its box). -> null (yes) | 'underground'.
+ * `groundY` stands in for the stair's ground before it is sited (the town's home height). Pure.
+ */
+export const SURFACE_SLACK = 6
+export function stairStartRefusal (rec, feet, groundY = null) {
+  if (!Array.isArray(feet) || !feet.every(Number.isFinite)) return null
+  const sited = isStairRecord(rec)
+  const g = sited ? rec.site.g : groundY
+  if (!Number.isFinite(g) || feet[1] >= g - SURFACE_SLACK) return null
+  if (sited && Array.isArray(rec.box) && feet[0] >= rec.box[0] - 1 && feet[0] <= rec.box[2] + 1 && feet[2] >= rec.box[1] - 1 && feet[2] <= rec.box[3] + 1) return null
+  return 'underground'
 }
 /** Is (x, z) within NEAR_STAIR (Chebyshev) of the stair's pillar? Pure. */
 export const nearStair = (rec, x, z, r = NEAR_STAIR) => isStairRecord(rec) && Math.max(Math.abs(x - rec.site.center[0]), Math.abs(z - rec.site.center[1])) <= r
