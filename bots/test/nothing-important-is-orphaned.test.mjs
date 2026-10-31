@@ -153,6 +153,8 @@ const REQUIRED = [
   'scripts/learnloop/train/run_c2.sh',
   'scripts/learnloop/train/bar_c2.py',
   'scripts/learnloop/c2host/eval_c2.sh',
+  'scripts/learnloop/prompt_transform.mjs',
+  'bots/test/promptcache.test.mjs',
   // M2b: removes 10.0.0.16 from every bot endpoint list before training
   'scripts/host/drop16.sh',
   // the movement-writer ratchet, wired into package.json and the deploy
