@@ -265,6 +265,10 @@ def cmd_assemble(a):
     if not kept:
         raise SystemExit('REFUSED: no relabel kept: %s' % dict(C))
     good = [json.loads(l) for l in open(os.path.join(out, 'good.jsonl')) if l.strip()]
+    if a.good_n is not None and a.good_n < len(good):
+        # a seeded random subset (good.jsonl is in day order): sqrt-by-skill shares are kept in expectation
+        good = random.Random(a.seed + 1).sample(sorted(good, key=lambda r: r['id']), a.good_n)
+        C['good subset'] = a.good_n
     for g in good:
         g['assistant'] = canonical(json.loads(g['assistant']), g['sentinel'])
     rows = list(kept.values()) + good
@@ -296,6 +300,7 @@ def main(argv=None):
     q = sub.add_parser('assemble')
     q.add_argument('--out', required=True); q.add_argument('--labels', nargs='+', required=True)
     q.add_argument('--name', default='train.jsonl'); q.add_argument('--seed', type=int, default=20261030)
+    q.add_argument('--good-n', type=int, default=None, help='use a seeded random subset of good.jsonl')
     q.add_argument('--pilot', nargs='*', default=None, help='pilot-1000.jsonl: its non-transient items join the pool')
     q.add_argument('--local-model', nargs='+', required=True, help='the local teacher(s) whose replay records these are')
     a = ap.parse_args(argv)
