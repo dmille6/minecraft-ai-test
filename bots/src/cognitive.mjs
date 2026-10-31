@@ -28,8 +28,10 @@ import { townPlinthState } from './skills.mjs'
 // mats-01 (building tier section 3): the materials job and its recovery (mats.mjs decides; these supply readings)
 import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsTableReady, matsLeaseFree, matsRecountKeys, matsTownHasRoom } from './skills.mjs'
 import { materialOrder, returnOrder, matsOutcome, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'
-import { shopRecordHead, shopSlotsFree, shopDamaged, shopStuckAt } from './skills.mjs'
+import { shopRecordHead, shopSlotsFree, shopDamaged, shopStuckAt, shopActive } from './skills.mjs'
+import { poolStateDir } from './worldfacts.mjs'
 import { SHOP, buildOrder } from './shop.mjs'
+import { ROLES, readRoles, leaseFor, leasedFirst, leaseId, roleRowDetail, pruneReleased } from './roles.mjs'   // B5: the role leases
 // coalfirst-01 (OWNER 10-29): the coal run (coalrun.mjs decides; this supplies readings and keeps the state)
 import { coalRunOrder, coalRunOutcome, coalRunDetail, COAL_KINDS, COAL_ORE_RADIUS } from './coalrun.mjs'
 import { townCoalStock } from './skills.mjs'
@@ -772,6 +774,97 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
+  /** THE MATERIALS JOB's decision (mats-01; the body moved from the chain for B5's MAKE lease) -> order | null. */
+  #matsOrder (snap, ready) {
+    let out = null
+      try {
+        const bot = this.bot
+        const p = bot.entity?.position
+        const home = { x: config.world.homeX, z: config.world.homeZ }
+        const atTown = !!p && Math.hypot(home.x - p.x, home.z - p.z) <= TOWN_RADIUS
+        const sw = matsEnabled(process.env, config.memory.scope)
+        if (atTown && sw.on) {
+          const items = bot.inventory?.items?.() ?? []
+          const now = Date.now()
+          this.matsBody = (this.matsBody ?? []).filter(b => now - b.t < 60 * 60 * 1000)
+          const note = readMatsNote(bot)
+          const r = materialOrder({ now, on: sw.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order: null, ready }),
+            noteOpen: note?.phase === 'open', freeSlots: 36 - items.length, bagSpare: matsBagSpare(bot),
+            town: () => matsTownStock(bot), furnace: () => matsFurnaceCandidates(bot).length > 0, table: () => matsTableReady(bot),
+            lease: () => matsLeaseFree(bot), unknown: () => matsRecountKeys(bot).length, bankRoom: () => matsTownHasRoom(bot), bodyMs: this.matsBody.reduce((t, b) => t + b.ms, 0),
+            reserve: matsReserve().table, partReserve: projectPartReserve(bot), buffers: matsBuffers().table, state: this.matsState ?? {} })
+          this.matsState = r.state
+          if (r.order) { out = r.order; this.matsIssuedAt = now }
+          // why the job did not run, at most once per 30 min per reason, for the reasons that say something about the town
+          const why = ['inputs', 'no_furnace', 'no_table', 'index_coverage', 'index_unreadable', 'body_budget', 'room', 'stocked', 'town_full'].includes(r.skip) ? r.skip : null
+          this.matsSkipAt ??= {}
+          if (why && now - (this.matsSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000) {
+            this.matsSkipAt[why] = now
+            // every kind's own reason and the coverage the reading had (Claude r2 P2-A): `why` is the most informative across kinds
+            const cov = Number.isFinite(r.coverage) ? ` cov=${Math.round(r.coverage * 100) / 100}` : ''
+            logEvent({ kind: 'mats_skip', status: 'no_effect', detail: `why=${why} free=${36 - items.length}${cov} kinds=${r.kinds || '-'}`, snapshot: snap })
+          }
+        }
+      } catch { /* a world read must never break the decision loop */ }
+    return out
+  }
+
+  /** THE WORKSHOP's decision (shop-01; the body moved from the chain for B5's BUILD lease) -> order | null. */
+  #shopOrder (snap, ready) {
+    let out = null
+      try {
+        const bot = this.bot
+        const p = bot.entity?.position
+        const atTown = !!p && Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) <= TOWN_RADIUS
+        if (atTown) {
+          const now = Date.now()
+          const h = shopRecordHead()
+          const rec = h.ok ? (h.head?.rec ?? null) : null
+          const r = buildOrder({ on: SHOP.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order: null, ready }), now,
+            state: this.shopState ?? {}, record: rec, complete: !!rec?.structure_complete && !shopDamaged(bot, rec), slotsFree: shopSlotsFree(bot),
+            health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, planned: !!townPlanNow(bot), stuckAt: shopStuckAt,
+            feet: [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], groundY: config.world.homeY })   // shaft-03: the stair starts at the surface
+          if (r.order) { out = r.order; this.shopState = { ...(this.shopState ?? {}), lastAt: now } }
+          this.shopSkipAt ??= {}
+          if (r.skip && r.skip !== 'complete' && now - (this.shopSkipAt[r.skip] ?? -Infinity) >= 30 * 60 * 1000) {
+            this.shopSkipAt[r.skip] = now
+            logEvent({ kind: 'shop_skip', status: 'no_effect', detail: `why=${r.skip}`, snapshot: snap })
+          }
+        }
+      } catch { /* a world read must never break the decision loop */ }
+    return out
+  }
+
+  /** This bot's role lease (roles.mjs) to try first now -> { skill, lease } | null. Never throws. */
+  #roleLease () {
+    try {
+      const now = Date.now()
+      // next-visit (3.5): a lease does nothing until the bot is at town; it never causes travel
+      const p = this.bot.entity?.position
+      if (!p || Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) > TOWN_RADIUS) return null
+      const home = `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+      const rd = readRoles(poolStateDir(config.memory.pool), home)
+      // the binding: the town's ACTIVE project (skills.mjs shopActive) and its record generation (null while unsited)
+      const h = shopRecordHead()
+      let project = null
+      if (h.ok) { try { project = { plot: shopActive().plot ?? null, gen: h.head?.gen ?? null } } catch { project = null } }
+      const r = leaseFor({ doc: rd.ok ? rd.doc : null, bot: this.bot.username, world: config.memory.pool, home, now, project, maxGen: this.roleMaxGen ?? -Infinity })
+      this.roleReleased = pruneReleased(this.roleReleased ?? {}, now)
+      return leasedFirst({ lease: r.lease, released: this.roleReleased, now })
+    } catch { return null }
+  }
+
+  /** A tried lease's row: `_role_honoured` when its job gave the order, `_role_released` (refused) when not. Never throws. */
+  #roleOutcome (lease, order, snap) {
+    try {
+      const now = Date.now()
+      this.roleMaxGen = Math.max(this.roleMaxGen ?? -Infinity, lease.gen)
+      if (order) { logEvent({ kind: 'role_honoured', status: 'success', detail: roleRowDetail(lease, { now, skill: order.skill }), snapshot: snap }); return }
+      this.roleReleased = { ...(this.roleReleased ?? {}), [leaseId(lease)]: now }
+      logEvent({ kind: 'role_released', status: 'no_effect', detail: roleRowDetail(lease, { now, reason: 'refused' }), snapshot: snap })
+    } catch { /* telemetry only */ }
+  }
+
   // `dry` (ironpick-01): the same decision with its state NOT kept -- withdraw_pick asks whether the kit would make the iron
   // pickaxe now (toolkit.mjs withdrawDefersToKit); a dry run never charges the cooldown
   #toolkitOrder({ dry = false } = {}) {
@@ -1349,6 +1442,19 @@ export class CognitiveLoop {
     // with nothing chosen above (their tally counts a toolkit decision as `taken`): the kit is a bounded once-per-bot need
     // (no order once both tools are held), the smelt job a repeating one. Only planting and the model come after them.
     if (!order) order = this.#toolkitOrder()
+    // THE ROLE LEASE (B5, roles.mjs; ROLES=on only -- unset is today's chain, no file read). After every maintenance and town
+    // order above (the deposit, the milestone's orders, the toolkit), BEFORE the discretionary town jobs: a valid lease for this
+    // bot asks its job (build_shop or make_material) FIRST, through that job's own admission. If the job gives no order, the
+    // lease is released (one row) and the chain below runs as today, minus the one job already asked this decision.
+    let leasedTried = null
+    if (!order && ROLES.on) {
+      const first = this.#roleLease()
+      if (first) {
+        leasedTried = first.skill
+        order = first.skill === 'build_shop' ? (SHOP.on ? this.#shopOrder(snap, ready) : null) : this.#matsOrder(snap, ready)
+        this.#roleOutcome(first.lease, order, snap)
+      }
+    }
     // THE TOWN SMELT JOB AND THE FURNACE DRAIN (smeltjob-01; smeltjob.mjs decides, this supplies readings and keeps the
     // state). After every deterministic order but sapling planting, and only with NOTHING chosen above -- the milestone's
     // own work order, the town deposit, every town order -- AND no rung waiting on room (ready.noRoom): a ready milestone
@@ -1412,62 +1518,13 @@ export class CognitiveLoop {
     // deterministic order but planting, only with NOTHING chosen above and no rung waiting on room (smeltjob's rule: a ready
     // milestone step always wins). At town, shared towns only, never a trip; MATS=0 switches it off. The town-job body budget
     // (10 min per bot-hour) is this bot's own make_material + mats_return time over the last hour.
-    if (!order) {
-      try {
-        const bot = this.bot
-        const p = bot.entity?.position
-        const home = { x: config.world.homeX, z: config.world.homeZ }
-        const atTown = !!p && Math.hypot(home.x - p.x, home.z - p.z) <= TOWN_RADIUS
-        const sw = matsEnabled(process.env, config.memory.scope)
-        if (atTown && sw.on) {
-          const items = bot.inventory?.items?.() ?? []
-          const now = Date.now()
-          this.matsBody = (this.matsBody ?? []).filter(b => now - b.t < 60 * 60 * 1000)
-          const note = readMatsNote(bot)
-          const r = materialOrder({ now, on: sw.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order, ready }),
-            noteOpen: note?.phase === 'open', freeSlots: 36 - items.length, bagSpare: matsBagSpare(bot),
-            town: () => matsTownStock(bot), furnace: () => matsFurnaceCandidates(bot).length > 0, table: () => matsTableReady(bot),
-            lease: () => matsLeaseFree(bot), unknown: () => matsRecountKeys(bot).length, bankRoom: () => matsTownHasRoom(bot), bodyMs: this.matsBody.reduce((t, b) => t + b.ms, 0),
-            reserve: matsReserve().table, partReserve: projectPartReserve(bot), buffers: matsBuffers().table, state: this.matsState ?? {} })
-          this.matsState = r.state
-          if (r.order) { order = r.order; this.matsIssuedAt = now }
-          // why the job did not run, at most once per 30 min per reason, for the reasons that say something about the town
-          const why = ['inputs', 'no_furnace', 'no_table', 'index_coverage', 'index_unreadable', 'body_budget', 'room', 'stocked', 'town_full'].includes(r.skip) ? r.skip : null
-          this.matsSkipAt ??= {}
-          if (why && now - (this.matsSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000) {
-            this.matsSkipAt[why] = now
-            // every kind's own reason and the coverage the reading had (Claude r2 P2-A): `why` is the most informative across kinds
-            const cov = Number.isFinite(r.coverage) ? ` cov=${Math.round(r.coverage * 100) / 100}` : ''
-            logEvent({ kind: 'mats_skip', status: 'no_effect', detail: `why=${why} free=${36 - items.length}${cov} kinds=${r.kinds || '-'}`, snapshot: snap })
-          }
-        }
-      } catch { /* a world read must never break the decision loop */ }
-    }
+    // (B5: the body is #matsOrder, so a MAKE role lease can ask it first; asked once per decision)
+    if (!order && leasedTried !== 'make_material') order = this.#matsOrder(snap, ready)
     // THE WORKSHOP (shop-01; shop.mjs buildOrder decides, this supplies readings and keeps the state). After the materials job,
     // only with NOTHING chosen above: at town, shared towns only, never a trip; SHOP=off switches it off. The cooldown is charged
     // at issue and refunded on a decline (refundDeclined).
-    if (!order && SHOP.on) {
-      try {
-        const bot = this.bot
-        const p = bot.entity?.position
-        const atTown = !!p && Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) <= TOWN_RADIUS
-        if (atTown) {
-          const now = Date.now()
-          const h = shopRecordHead()
-          const rec = h.ok ? (h.head?.rec ?? null) : null
-          const r = buildOrder({ on: SHOP.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order, ready }), now,
-            state: this.shopState ?? {}, record: rec, complete: !!rec?.structure_complete && !shopDamaged(bot, rec), slotsFree: shopSlotsFree(bot),
-            health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, planned: !!townPlanNow(bot), stuckAt: shopStuckAt,
-            feet: [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], groundY: config.world.homeY })   // shaft-03: the stair starts at the surface
-          if (r.order) { order = r.order; this.shopState = { ...(this.shopState ?? {}), lastAt: now } }
-          this.shopSkipAt ??= {}
-          if (r.skip && r.skip !== 'complete' && now - (this.shopSkipAt[r.skip] ?? -Infinity) >= 30 * 60 * 1000) {
-            this.shopSkipAt[r.skip] = now
-            logEvent({ kind: 'shop_skip', status: 'no_effect', detail: `why=${r.skip}`, snapshot: snap })
-          }
-        }
-      } catch { /* a world read must never break the decision loop */ }
-    }
+    // (B5: the body is #shopOrder, so a BUILD role lease can ask it first; asked once per decision)
+    if (!order && SHOP.on && leasedTried !== 'build_shop') order = this.#shopOrder(snap, ready)
     // THE COAL RUN (coalfirst-01; coalrun.mjs coalRunOrder decides, this supplies readings and keeps the state). After every
     // town job, only with NOTHING chosen above (a ready milestone step, the deposit, every town order and the building jobs
     // win): while the town index shows the town short of coal, gather the coal ore in reach -- gather's own guards decide every
