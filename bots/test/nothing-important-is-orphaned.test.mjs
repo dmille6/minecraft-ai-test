@@ -31,6 +31,18 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  // B5 (10-31): the cooperation tier's role leases (bot side), the host assigner, the spend guard + caller, the Paper arms
+  'bots/src/roles.mjs',
+  'bots/test/roles.test.mjs',
+  'bots/test/assign.test.mjs',
+  'scripts/overseer/assign.mjs',
+  'scripts/overseer/spendguard.py',
+  'scripts/overseer/test_spendguard.py',
+  'scripts/overseer/caller.py',
+  'scripts/overseer/system_prompt.txt',
+  'sandbox/coop/arms-e2e.cjs',
+  'sandbox/coop/arms-batch.cjs',
+  'sandbox/coop/arms-read.py',
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
