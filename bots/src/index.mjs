@@ -60,6 +60,8 @@ import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
 import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01
+import { attachEscapeGuard, escapeGuardModeDetail } from './escapeguard.mjs'   // escapeguard-01
+import { escapeRecordAt } from './skills.mjs'   // escapeguard-01: the build records' answer for a cell
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
 import { attachLavastepGuard } from './lavastepmove.mjs'   // lavastep-01
@@ -1303,6 +1305,34 @@ function connect() {
       pzTimer.unref?.()
       bot.once('end', () => clearInterval(pzTimer))
     } catch (e) { log('warn', 'protected zone guard not attached', { err: e?.message }) }
+    // escapeguard-01 (OWNER 10-31 option B): A TRAPPED BOT'S ESCAPE NEVER DIGS A BUILD RECORD OR A ZONE'S STRUCTURE (escapeguard.mjs).
+    // Wraps bot.dig OUTSIDE protectzone (a refused dig is never sent, never counted); only SURVIVAL digs are judged -- every other
+    // purpose passes straight through to the guards below it. The planners ask bot.escapeGuard first and try another bearing.
+    // ESCAPEGUARD=off: not judged (the base's behaviour). One `_escape_guard` count row a minute when it did anything.
+    try {
+      const reflexes = stopReflexes
+      const eg = attachEscapeGuard(bot, {
+        zones: () => bot.protectZones?.() ?? [],
+        recordAt: c => escapeRecordAt(bot, c),
+        home: configuredHome(config.world),
+        context: () => ({ skill: runner.current?.skill ?? null, args: runner.current?.args ?? null,
+                          reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }),
+        onRow: ({ kind, status, detail, args }) => { try { logEvent({ kind, status, snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+      })
+      try { logEvent({ kind: 'escape_guard_mode', status: 'success', detail: escapeGuardModeDetail(process.env) }) } catch { /* telemetry */ }
+      if (eg) {
+        const egTimer = setInterval(() => {
+          try {
+            const c = eg.take()
+            if (!Object.values(c).some(v => v > 0)) return
+            logEvent({ kind: 'escape_guard', status: 'success', snapshot: snapshot(bot), args: { phase: 'counts', ...c },
+                       detail: `phase=counts ` + Object.entries(c).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`).join(' ') })
+          } catch { /* telemetry */ }
+        }, 60_000)
+        egTimer.unref?.()
+        bot.once('end', () => clearInterval(egTimer))
+      }
+    } catch (e) { log('warn', 'escape guard not attached', { err: e?.message }) }
     // lavastep-01: THE IN-FLIGHT GUARD (lavastepmove.mjs), OUTERMOST: while a danger move holds the body, bot.dig and
     // bot._genericPlace refuse everything but the move's own seal (a one-shot token). A refused call is never sent, so the
     // `_dig_town` instrument, keep-out and protectzone below it never see it. LAVASTEP=0: no mover, nothing attached.
