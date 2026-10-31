@@ -6599,8 +6599,8 @@ function treeFarmRecordCells () {
  */
 const ESCAPE_RECORD_TTL_MS = 10_000
 let escapeRecordCache = null
-export function escapeRecordSnapshot (bot, now = Date.now()) {
-  if (escapeRecordCache && now - escapeRecordCache.at < ESCAPE_RECORD_TTL_MS && escapeRecordCache.world === (bot?.worldId ?? null)) return escapeRecordCache.v
+export function escapeRecordSnapshot (bot, now = Date.now(), { fresh = false } = {}) {
+  if (!fresh && escapeRecordCache && now - escapeRecordCache.at < ESCAPE_RECORD_TTL_MS && escapeRecordCache.world === (bot?.worldId ?? null)) return escapeRecordCache.v
   let v = null
   try {
     const cells = new Map()
@@ -6609,10 +6609,10 @@ export function escapeRecordSnapshot (bot, now = Date.now()) {
     for (const k of planFurnitureCells(ph.head?.plan)) cells.set(k, 'townplan')
     for (const k of bot?.townPlan?.cells ?? []) if (typeof k === 'string') cells.set(k, 'townplan')
     const dir = townDir()
-    for (const proj of PROJECTS) {
-      const h = recordHead(dir, projKeyOf(proj.plot))
-      if (!h.ok || recordUnread(h) || ((h.gens?.length ?? 0) > 0 && !h.head)) throw new Error(`${proj.plot} unread`)
-      const name = proj.plot === SHOP_PLOT ? 'workshop' : proj.plot
+    for (const pj of PROJECTS) {
+      const h = recordHead(dir, projKeyOf(pj.plot))
+      if (!h.ok || recordUnread(h) || ((h.gens?.length ?? 0) > 0 && !h.head)) throw new Error(`${pj.plot} unread`)
+      const name = pj.plot === SHOP_PLOT ? 'workshop' : pj.plot
       for (const c of h.head?.rec?.cells ?? []) if (Array.isArray(c?.at) && c.role !== 'air') cells.set(`${c.at[0]},${c.at[1]},${c.at[2]}`, name)
     }
     const cols = treeFarmRecordCells()
@@ -6622,9 +6622,10 @@ export function escapeRecordSnapshot (bot, now = Date.now()) {
   escapeRecordCache = { at: now, world: bot?.worldId ?? null, v }
   return v
 }
-/** The guard's per-cell answer -> a record's name | false | null (unknown). The tree farm's columns count near ground level only. */
-export function escapeRecordAt (bot, c, now = Date.now()) {
-  const s = escapeRecordSnapshot(bot, now)
+/** The guard's per-cell answer -> a record's name | false | null (unknown). The tree farm's columns count near ground level only.
+ *  `fresh`: re-read now (the actual dig asks this way; the planners use the snapshot). */
+export function escapeRecordAt (bot, c, now = Date.now(), { fresh = false } = {}) {
+  const s = escapeRecordSnapshot(bot, now, { fresh })
   if (!s) return null
   const hit = s.cells.get(`${c.x},${c.y},${c.z}`)
   if (hit) return hit
