@@ -12,6 +12,7 @@ process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'showcase'
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-paths-pool-'))
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE; delete process.env.PATHS; delete process.env.PATHS_POOLS
+process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
 // wall-01: the wall (fifth, after the paths) has its own wiring test (wall-wiring.test.mjs); off here, so the paths stay the last project
 process.env.WALL = 'off'
 // treefarm-04: the tree farm (sixth, after the paths) has its own test (treefarm.test.mjs); off here, so this file's project lists stand
@@ -37,10 +38,11 @@ const PATH_CELLS = [[2, 69, 8], [3, 69, 8], [2, 69, 9], [3, 69, 9], [2, 68, 10],
 const paths = c => rec('paths', P.PATHS_BLUEPRINT, PATH_CELLS.map(at => ({ at, role: at[0] === 2 && at[1] === 68 ? 'fill' : 'path', seg: 'P-d-0' })), c, { zones: P.pathZones(PATH_CELLS.map(a => [a[0], a[2]])) })
 const me = { username: 'PathBot', blockAt: () => null }
 
-await t('the showcase pool lists the paths fourth; a fleet pool does not', async () => {
+await t('the showcase pool lists the paths fourth; since zigfleet-02 a fleet pool does too, PATHS_POOLS=showcase is the rollback', async () => {
   assert.deepStrictEqual(S.projectsOn().map(p => p.plot), ['shop', 'house1', 'monument', 'paths'])
   assert.strictEqual(S.PATHS.on, true)
-  assert.strictEqual(P.pathsOn({}, 'hive-a'), false)
+  assert.strictEqual(P.pathsOn({}, 'hive-a'), true, 'zigfleet-02: the fleet default')
+  assert.strictEqual(P.pathsOn({ PATHS_POOLS: 'showcase' }, 'hive-a'), false)
 })
 await t('ON FILES: the house and the ziggurat standing -> the paths, with no record yet (the order sites them); four slots', async () => {
   fresh(); shop(true); house(false)

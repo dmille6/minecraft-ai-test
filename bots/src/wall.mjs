@@ -52,25 +52,26 @@ export const WALL_PALETTE = Object.freeze({
   light: ['torch'],
 })
 /** Ground the wall is never set on: dug out and replaced by a cobblestone foundation (`base`). */
-export const WALL_SOFT = /^(sand|red_sand|suspicious_sand|gravel|suspicious_gravel|clay|mud|snow_block|powder_snow|ice|packed_ice|blue_ice|soul_sand|soul_soil|moss_block|dirt_path|farmland)$/
+export const WALL_SOFT = /^(sand|red_sand|suspicious_sand|gravel|suspicious_gravel|clay|mud|snow_block|powder_snow|packed_ice|blue_ice|soul_sand|soul_soil|moss_block|dirt_path|farmland)$/
 /** What a visit may dig out of an open record cell (buildrun.mjs `foreign`): terrain, the soft ground a foundation replaces, the
  *  plants a placement does not replace, a stray torch, and the pathfinder's scaffold (logs and leaves are TREE_CLEAR). */
-export const WALL_FOREIGN = /^(cobblestone|mossy_cobblestone|dirt|coarse_dirt|grass_block|podzol|rooted_dirt|mycelium|moss_block|stone|andesite|diorite|granite|tuff|netherrack|cobbled_deepslate|deepslate|gravel|suspicious_gravel|sand|red_sand|suspicious_sand|clay|mud|snow_block|powder_snow|ice|packed_ice|blue_ice|soul_sand|soul_soil|calcite|dripstone_block|smooth_basalt|dirt_path|farmland|[a-z_]+_sapling|mangrove_propagule|brown_mushroom|red_mushroom|dandelion|poppy|[a-z_]+_tulip|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|allium|blue_orchid|sunflower|lilac|rose_bush|peony|sweet_berry_bush|bush|firefly_bush|leaf_litter|wildflowers|pink_petals|moss_carpet|short_dry_grass|tall_dry_grass|torchflower|cactus_flower|pitcher_plant|snow|torch|wall_torch|[a-z_]+_planks|sandstone|red_sandstone)$/
+export const WALL_FOREIGN = /^(cobblestone|mossy_cobblestone|dirt|coarse_dirt|grass_block|podzol|rooted_dirt|mycelium|moss_block|stone|andesite|diorite|granite|tuff|netherrack|cobbled_deepslate|deepslate|gravel|suspicious_gravel|sand|red_sand|suspicious_sand|clay|mud|snow_block|powder_snow|packed_ice|blue_ice|soul_sand|soul_soil|calcite|dripstone_block|smooth_basalt|dirt_path|farmland|[a-z_]+_sapling|mangrove_propagule|brown_mushroom|red_mushroom|dandelion|poppy|[a-z_]+_tulip|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|allium|blue_orchid|sunflower|lilac|rose_bush|peony|sweet_berry_bush|bush|firefly_bush|leaf_litter|wildflowers|pink_petals|moss_carpet|short_dry_grass|tall_dry_grass|torchflower|cactus_flower|pitcher_plant|snow|torch|wall_torch|[a-z_]+_planks|sandstone|red_sandstone)$/
 /** The siting's price of each margin column past WALL.margin (a looser ring encloses forest, not town). */
 export const WALL_LOOSE = 10
 /** A clear's one-call bound (buildrun.mjs `clearMax`): a forest line's leaves leave the rest of the visit for the segments. */
 export const WALL_CLEAR_MAX = 60
 
 /**
- * THE SWITCH -> bool. WALL=on|off; unset = on only in the pools WALL_POOLS names (default 'showcase'): the fleet's towns keep their
+ * THE SWITCH -> bool. WALL=on|off; unset = on in the pools WALL_POOLS names. zigfleet-02 (the fleet rollout): the default is '*',
+ * every pool; WALL=off or WALL_POOLS=showcase is the rollback. Before zigfleet-02 (default 'showcase'): the fleet's towns kept their
  * project list until the fleet rollout. Pure.
  */
 export function wallOn (env = process.env, pool = '') {
   const v = String(env?.WALL ?? '').toLowerCase()
   if (v === 'on' || v === '1' || v === 'true') return true
   if (v === 'off' || v === '0' || v === 'false') return false
-  const pools = String(env?.WALL_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
-  return pools.includes(String(pool))
+  const pools = String(env?.WALL_POOLS ?? '*').split(',').map(s => s.trim()).filter(Boolean)
+  return pools.includes('*') || pools.includes(String(pool))
 }
 
 const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')

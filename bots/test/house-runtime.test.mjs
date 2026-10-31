@@ -11,6 +11,7 @@ process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'house-rt-logs-'))
 process.env.BOT_NAME = 'HouseBot'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
+process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
 const { config } = await import('../src/config.mjs')
 const P = await import('../src/buildproj.mjs')
 const K = await import('../src/skills.mjs')

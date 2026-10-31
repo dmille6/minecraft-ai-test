@@ -20,6 +20,8 @@ import { isWaterCell, isLavaCell } from './scaffold.mjs'
 
 /** What pillarOut / digStraightUp return when the shared flood check refused the dig. */
 export const FLOOD_RISK = 'flood_risk'
+/** escapeguard-01: what pillarOut / digStraightUp return when the ceiling is a build record or a protected structure. */
+export const ESCAPE_GUARDED = 'guarded'
 
 /** The move a refused bot can still make from where it is (design 4.1 step 5). */
 export const FLOOD_REMEDY = 'leave this cell sideways or downward (mine or goto away from the water), or wait'
@@ -32,10 +34,11 @@ export const FLOOD_REMEDY = 'leave this cell sideways or downward (mine or goto 
  * `escapeFailures >= ESCAPE_GIVE_UP_AFTER` arm). A flood refusal is neither: nothing was attempted, so nothing
  * failed, and no material fixes wet rock.
  *
- * @returns 'flood' | 'refusal' | 'preempted' | 'attempt'
+ * @returns 'flood' | 'guarded' | 'refusal' | 'preempted' | 'attempt'
  */
 export function climbOutcomeRoute (outcome) {
   if (outcome === FLOOD_RISK) return 'flood'
+  if (outcome === ESCAPE_GUARDED) return 'guarded'   // escapeguard-01: its own branch (reflex.mjs guardBranch), never the pickaxe ask
   if (outcome === 'needs_blocks' || outcome === 'needs_pickaxe') return 'refusal'
   if (outcome === 'preempted') return 'preempted'
   return 'attempt'

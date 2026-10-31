@@ -14,6 +14,7 @@ process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'showcase'
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-stuckwait-pool-'))
 for (const k of ['MONUMENT', 'MONUMENT_POOLS', 'HOUSE', 'PATHS', 'PATHS_POOLS', 'WALL', 'WALL_POOLS']) delete process.env[k]
+process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
 
 const S = await import('../src/shop.mjs')
 const SK = await import('../src/skills.mjs')

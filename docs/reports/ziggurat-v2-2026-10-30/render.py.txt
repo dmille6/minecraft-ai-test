@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""render.py <cells.json> <out.png> [cols] -- isometric voxel render (stdlib only: zlib + struct PNG) of ziggurat designs."""
+import json, sys, zlib, struct
+COL = {
+ 'cobblestone': (122,122,122), 'stone': (125,125,125), 'stone_bricks': (120,118,120), 'smooth_stone': (158,158,158), 'cracked_stone_bricks': (112,110,112),
+ 'andesite': (136,136,136), 'polished_andesite': (132,135,133), 'mossy_cobblestone': (100,120,90), 'mossy_stone_bricks': (104,122,98),
+ 'cobbled_deepslate': (77,77,80), 'deepslate_bricks': (70,70,71), 'polished_deepslate': (72,72,73), 'deepslate_tiles': (54,54,55),
+ 'tuff': (108,109,102), 'tuff_bricks': (98,103,95), 'polished_tuff': (98,105,98), 'blackstone': (42,36,41), 'polished_blackstone': (53,48,56), 'polished_blackstone_bricks': (48,42,49),
+ 'granite': (149,103,85), 'polished_granite': (154,106,89), 'bricks': (150,97,83), 'mud_bricks': (137,103,79), 'packed_mud': (142,106,79), 'terracotta': (152,94,67),
+ 'diorite': (188,182,183), 'polished_diorite': (192,193,194), 'calcite': (223,224,220), 'chiseled_stone_bricks': (119,118,119),
+ 'sandstone': (216,203,155), 'smooth_sandstone': (223,214,170), 'cut_sandstone': (217,206,159), 'chiseled_sandstone': (216,202,154),
+ 'red_sandstone': (186,99,29), 'smooth_red_sandstone': (181,97,31), 'cut_red_sandstone': (189,101,31),
+ 'torch': (255,200,60), 'lantern': (255,170,60), 'soul_lantern': (90,200,220), 'campfire': (255,110,30),
+}
+SMALL = {'torch', 'lantern', 'soul_lantern', 'campfire'}
+def render(designs, path, cols=3, scale=4):
+    tiles = []
+    for d in designs:
+        cs = d['cells']
+        xs = [c[0] for c in cs]; zs = [c[2] for c in cs]; ys = [c[1] for c in cs]
+        tiles.append((d, min(xs), max(xs), min(zs), max(zs), max(ys)))
+    S = scale; TW = 2 * S; TH = S  # iso: x right-down, z left-down
+    def size(t):
+        _, x0, x1, z0, z1, ym = t
+        w = ((x1 - x0) + (z1 - z0) + 2) * TW; h = ((x1 - x0) + (z1 - z0) + 2) * TH + (ym + 2) * 2 * S
+        return w, h
+    cw = max(size(t)[0] for t in tiles) + 20; chh = max(size(t)[1] for t in tiles) + 40
+    rows = (len(tiles) + cols - 1) // cols
+    W, H = cw * cols, chh * rows
+    bg = (246, 244, 238)
+    img = bytearray(bg * (W * H))
+    def put(x, y, c):
+        if 0 <= x < W and 0 <= y < H: i = (y * W + x) * 3; img[i:i + 3] = bytes(c)
+    def poly(pts, c):
+        ys_ = [p[1] for p in pts]
+        for y in range(int(min(ys_)), int(max(ys_)) + 1):
+            xs_ = []
+            n = len(pts)
+            for k in range(n):
+                (x1, y1), (x2, y2) = pts[k], pts[(k + 1) % n]
+                if (y1 <= y < y2) or (y2 <= y < y1):
+                    xs_.append(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
+            xs_.sort()
+            for a, b in zip(xs_[::2], xs_[1::2]):
+                for x in range(int(round(a)), int(round(b))): put(x, y, c)
+    shade = lambda c, f: tuple(max(0, min(255, int(v * f))) for v in c)
+    for idx, t in enumerate(tiles):
+        d, x0, x1, z0, z1, ym = t
+        ox = (idx % cols) * cw + 10 + ((z1 - z0) + 1) * TW
+        oy = (idx // cols) * chh + 30 + (ym + 2) * 2 * S
+        occ = {(c[0], c[1], c[2]) for c in d['cells'] if c[3] not in SMALL}
+        # painter's order: far to near (x + z ascending), low to high
+        for x, y, z, n in sorted(d['cells'], key=lambda c: (c[0] + c[2], c[1], c[0])):
+            sx = ox + ((x - x0) - (z - z0)) * TW; sy = oy + ((x - x0) + (z - z0)) * TH - (y) * 2 * S
+            col = COL.get(n, (200, 0, 200))
+            if n in SMALL:
+                r = S // 2 + 1
+                poly([(sx - r, sy - S - r), (sx + r, sy - S - r), (sx + r, sy - S + r), (sx - r, sy - S + r)], col)
+                continue
+            # seed-free texture: a light per-cell jitter so faces read as blocks
+            j = 0.94 + ((x * 73856093 ^ y * 19349663 ^ z * 83492791) % 13) / 100
+            top = shade(col, 1.08 * j); left = shade(col, 0.78 * j); right = shade(col, 0.62 * j)
+            if (x, y + 1, z) not in occ: poly([(sx, sy - TH * 2), (sx + TW, sy - TH), (sx, sy), (sx - TW, sy - TH)], top)
+            if (x, y, z + 1) not in occ: poly([(sx - TW, sy - TH), (sx, sy), (sx, sy + 2 * S), (sx - TW, sy + 2 * S - TH)], left)
+            if (x + 1, y, z) not in occ: poly([(sx, sy), (sx + TW, sy - TH), (sx + TW, sy + 2 * S - TH), (sx, sy + 2 * S)], right)
+    raw = b''.join(b'\x00' + bytes(img[y * W * 3:(y + 1) * W * 3]) for y in range(H))
+    def chunk(tag, data): return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', zlib.crc32(tag + data) & 0xffffffff)
+    png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', W, H, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b'')
+    open(path, 'wb').write(png)
+if __name__ == '__main__':
+    designs = json.load(open(sys.argv[1]))
+    render(designs, sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 3)
+    for d in designs: print(d['seed'], d['name'], len(d['cells']))

@@ -1,0 +1,256 @@
+{
+ "_": "furnaceseen-01: seenSkip truth table (bots/test/furnaceseen.test.mjs TABLE); scripts/host/furnaceseenread.py seen_skip must reproduce every row",
+ "SEEN_EMPTY_MS": 3600000,
+ "rows": [
+  {
+   "name": "a townmate's empty 10 min ago",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792842600000,
+     "bot": "Mate",
+     "state": "empty"
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": true,
+    "why": "townmate_empty"
+   }
+  },
+  {
+   "name": "no entry",
+   "inputs": {
+    "entry": null,
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": false,
+    "why": "no_entry"
+   }
+  },
+  {
+   "name": "the newest entry holds items (a load after the empty)",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792842600000,
+     "bot": "Mate",
+     "state": "holds"
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": false,
+    "why": "entry_not_empty"
+   }
+  },
+  {
+   "name": "the newest entry is lit",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792842600000,
+     "bot": "Mate",
+     "state": "lit"
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": false,
+    "why": "entry_not_empty"
+   }
+  },
+  {
+   "name": "my own empty entry (my memory rules for my findings)",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792842600000,
+     "bot": "Me",
+     "state": "empty"
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": false,
+    "why": "own_entry"
+   }
+  },
+  {
+   "name": "59:59 old: still trusted",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792839600001,
+     "bot": "Mate",
+     "state": "empty"
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": true,
+    "why": "townmate_empty"
+   }
+  },
+  {
+   "name": "60:00 old: expired",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792839600000,
+     "bot": "Mate",
+     "state": "empty"
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": false,
+    "why": "expired"
+   }
+  },
+  {
+   "name": "from the future (> 1 min): never trusted",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792843320000,
+     "bot": "Mate",
+     "state": "empty"
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": false,
+    "why": "expired"
+   }
+  },
+  {
+   "name": "I saw it LIT after the empty",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792842600000,
+     "bot": "Mate",
+     "state": "empty"
+    },
+    "litAt": 1792842900000,
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": false,
+    "why": "lit_since"
+   }
+  },
+  {
+   "name": "I saw it lit BEFORE the empty",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792842600000,
+     "bot": "Mate",
+     "state": "empty"
+    },
+    "litAt": 1792842000000,
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": true,
+    "why": "townmate_empty"
+   }
+  },
+  {
+   "name": "my own later look found items",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792842600000,
+     "bot": "Mate",
+     "state": "empty"
+    },
+    "own": {
+     "empty": false,
+     "at": 1792842900000,
+     "litSince": false
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": false,
+    "why": "own_newer_holds"
+   }
+  },
+  {
+   "name": "my own EARLIER look found items",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792842600000,
+     "bot": "Mate",
+     "state": "empty"
+    },
+    "own": {
+     "empty": false,
+     "at": 1792841400000,
+     "litSince": false
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": true,
+    "why": "townmate_empty"
+   }
+  },
+  {
+   "name": "my own later look found it empty too",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792842600000,
+     "bot": "Mate",
+     "state": "empty"
+    },
+    "own": {
+     "empty": true,
+     "at": 1792842900000,
+     "litSince": false
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": true,
+    "why": "townmate_empty"
+   }
+  },
+  {
+   "name": "an entry with no bot (unattributable)",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792842600000,
+     "bot": null,
+     "state": "empty"
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": false,
+    "why": "own_entry"
+   }
+  }
+ ]
+}

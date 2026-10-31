@@ -1,0 +1,80 @@
+shaft-02 (the town stair) -- REVIEW RECORD, 2026-10-30
+
+== DESIGN r1, Codex (codex exec, read-only, on zigfleet-on-d1453ed2) ==
+VERDICT: APPROVE
+
+Numbered blockers: None found.
+
+Non-blocking notes:
+
+- **§7 — survival digs:** Accept departure (a). No demonstrated blocker warrants adding mutation refusals or a `use_stair` rung. However, verification before use cannot guarantee against damage during traversal; replace “a broken stair is never walked” with the narrower admission guarantee.
+- **§8 — traffic:** Accept departure (b). Reservations and passing bays are not required for this design review. Retain the planned opposing-bot Paper scene to verify deployed behavior.
+- **§3 — landings:** Accept departure (c). Landings at 48/32/16 suffice; intermediate bays are unnecessary for ordinary stair traversal.
+- **§3 — geometry:** No unwalkable step found. A synthetic full-block world exercised the installed pathfinder movement methods across ground levels 56–90: **4,900 directed stair/stub edges passed**, without digs, placements, or air/tread overlaps. This checks movement generation, not live Paper execution.
+- **§3/§6 — stub continuation:** From stand `(1,f,6)`, the first outward mining cells are at `v=7`, heights `f+1,f,f-1`, outside the reservation. The current planner permits that bearing despite the starting stand being reserved.
+- **§6 — hooks:** The `mine` hook belongs before the home refusal, as specified; subsequent fallback checks must use the bot’s current position. Put the ascent attempt before `surfaceClimb`’s `already_surfaced` return so underground stairs above sea level remain usable. Preserve cancellation and internal deadlines.
+- **§6 — ascent probe:** Consume pathfinder search slices within the four-second budget; a single `getPathTo` call can return `partial` before that budget expires.
+
+No files edited.
+
+== DESIGN r1, Claude (independent subagent, read-only) ==
+VERDICT: BLOCK (2 blockers, both cheap). Geometry checked against movements.js: jump-up, drop-down, corner turns, surface
+entry, stub, and mine continuing from the stub end (planMineStart does not run forbid on p0; v=7 cells are not record
+cells) all fine.
+B1 a shaft `no_site` stops every bot in the town building anything for 24 h: cognitive keeps one lastStop per bot, and
+   shop.mjs buildOrder skips 24 h on `!record && lastStop==='no_site'`; the stair (open, no record, slot free, before the
+   ziggurat) stays the active project. Fix: a town-level no-site hold the active-project pick respects; never set the
+   bot's lastStop to `no_site` from the shaft. Test: shaft no_site -> next build_shop targets the next project.
+B2 a stair stopped partway reads damaged forever (cells below the stop are rock where `air` is planned) and repairs come
+   first (the wall-01 06:14Z case). Fix: the stop's generation truncates cells and landings to the steps above the stop
+   (or damage judges only steps above stop_k). Test: stopped stair, built cells good -> damaged false.
+Notes: own branches needed in buildShop dispatch (generic buildrun would fill `air` cells), shopFootprintRefresh (no
+halo), projectsOn (own switch), record `box` (recordZones); surface's ascent profile drops the footprint, so a climb near
+the stub may break lining (split it in the damage rows); shaftUsable "air open" = passable AND not liquid, tread =
+goodSolid; the shaft lowers shopKeepOut().bottom to ~15 town-wide (stairClear simulates deeper: give the stair its own
+keep-out part with a bbox early-out and kind 'stair'); hop after the pickaxe precondition; per-bot back-off for a failed
+landing; surface hop only when y < SEA_LEVEL (after already_surfaced); line-before-dig against a hidden face wants a
+Paper case; exposure: put the stair before house1 or only the third free bot reaches it.
+
+== DESIGN r2 (Claude, folding both) ==
+- B1: a refused siting publishes a `no_site` record (structure_complete, no cells, retry_at +24 h): the order moves on to
+  the next project at once; after retry_at the record is only `due` (after every open project) and the next visit re-sites.
+  The shaft visit returns stop `shaft_no_site`, never `no_site`.
+- B2: a stop publishes a generation whose cells and landings are truncated to the steps above the stop; damage reads only
+  the record's cells.
+- Notes adopted: own dispatch, footprint (exact cells, no halo), switch, box; `_shaft` damaged rows name the cells (the
+  read splits survival vs climb by the bots' rows near them); usable = passable and dry, tread goodSolid; the stair's own
+  keep-out part (bbox early-out, kind `stair`), kept out of shopKeepOut's bottom; hop requires a pickaxe; 10-min per-bot
+  back-off per landing after a failed walk; the stair goes right after the workshop in PROJECTS.
+- Surface hop: Codex (before already_surfaced, so stairs above sea level are usable) and Claude (only below sea level, so
+  a bot on a hill is not walked to the collar) disagreed. Converged: BEFORE already_surfaced, but only for a bot that is
+  roofed (a solid block in its column between its head and g+2) and below g-6; the ascent plan iterates the search's
+  slices within its 4 s budget (Codex note).
+- Codex's wording note: the use guarantees admission only to a route verified at the start of the walk, not that nothing
+  breaks it mid-walk.
+
+== CODE r1, Codex (codex exec, read-only, on shaft2-on-d24f6e36 @ 4cd7d82b) ==
+VERDICT: APPROVE, no blockers. Notes: stairWalk's abort listener stays attached (fixed r2); the visit leaves the builder
+underground at the work point, unlike design section 5 step 9 (kept: the verified stair is the way out; the next order is
+2 min away); its own run: 23 geometry/planner/pathfinder/visit checks passed (the mutant and wiring suites could not write
+in its read-only sandbox).
+
+== CODE r1, Claude (independent subagent) ==
+VERDICT: APPROVE, no blockers (every name in the new skills code resolves; buildproj/buildbot/matsWithdraw signatures
+match; atTown is horizontal 48 so an underground builder keeps getting orders; nextOp's order never opens beside liquid;
+no-site and stair records are handled by recordZones, stairKeepOut, paths, the footprint, shopCellsNow; the composed
+keep-out counts nothing twice). Notes: (1) no back-off on a failing visit -> the stair takes a free bot every 2 min (fixed
+r2: a no-progress failed visit writes the project's stuck stamp); (2)(3) stairWalk abort listener / profile restore after
+a timeout (fixed r2); (4) the _shaft_use row's `from` read the live position (fixed r2); (5) surface's `until` not
+honoured by the 120 s walk (kept); (6) a wall sited after the stair grows round it; a standing wall's zone may leave no
+stair site (recorded); (7) mine's refusal named the farm for a stair cell (fixed r2: KEEP_OUT_WORDS.stair); (8) the cobble
+withdraw is not a tracked project draw (recorded).
+
+== PAPER (sandbox3, bare mineflayer bot running runStairVisit/stairBotEffects over buildbot.mjs; sandbox/stair/stair-e2e.mjs) ==
+run 1 (survey stopped at a water cell beside step 29 -> the survey rule was aligned with the builder's sealing): K=29,
+  landing 48, past a cave, water lining, water in a later step's cell, lava lining, a gravel ceiling and a void tread:
+  complete in 91 s, 93 digs, 4 placements; server truth 98/98 air open, 0/231 bad solid, 0 liquid beside air; walk
+  exit->48 10.0 s, back 20.6 s; traffic (one down, one up at once) both arrived.
+run 2 (survey fixed): K=55, landings 48/32/16, two disconnects mid-build and reconnects, resumed from the world:
+  complete in 201 s; 192/192 air open, 0/464 bad solid, 0 liquid beside air; walk exit->48 10.0 s / 20.7 s up,
+  ->32 16.7 s / 35.1 s, ->16 23.5 s / 49.9 s; traffic to and from 16 both arrived.

@@ -1,0 +1,88 @@
+{
+ "run_id": "qwen35-01",
+ "sha": "86431a1529ca7cb7df9f9a80d10f70b057028430",
+ "registered_at": "2026-10-31T00:00:00Z",
+ "class": "model-env",
+ "canary_env": [
+  "OLLAMA_MODEL=qwen3.5:9b",
+  "OLLAMA_BASE_URLS=http://ai.ticrcorp.com:11438",
+  "OLLAMA_BASE_URL=http://ai.ticrcorp.com:11438"
+ ],
+ "draw_k": 2,
+ "promotion": "none",
+ "reads": [
+  "modelread"
+ ],
+ "poll_read": "modelread",
+ "notes": "qwen35-01 (OWNER 10-30 \"queue both\"): the bots' decision model qwen2.5:7b-instruct -> qwen3.5:9b for 2 pools (10 bots), ENV ONLY, same code: this sha is an empty commit on the fleet base aad2506a (identical tree). SERVED by the Blackwell Ollama http://ai.ticrcorp.com:11438 (0.33.2), stock tag qwen3.5:9b digest 6488c96fa5fa (Q4_K_M, unchanged since 09-03) -- the exact configuration that scored rep_fail 26.7 / post_veto 53.0 / hard 2.0 / schema 100% on the 600-item replay (blackwell-base-01, 10-27; qwen2.5:7b 67.0 / 95.0 / 14.2). The bots send no `think`; on this server think unset == think:false (40/40 byte-identical at T=0; think:true fills 512 tokens of thinking -- positive control). COVARIATE: the canary endpoint is the Blackwell (shared GPU), the control is the 5080. NO FALLBACK (a 7B fallback would mix models inside the arm); a dead or stalled endpoint ends the run at the next 5-min poll (poll_read modelread --poll: >= 2 active canary bots with no schema-valid qwen3.5 decision for 10 min -> REVERT; baseline had zero 10-min gaps on 80 bots over 6 h). promotion none: a KEEP records and tears down; promotion onto the 5080 is a separate owner-approved step after a recorded KEEP goal-verified.",
+ "own_lines": [
+  {
+   "read": "modelread",
+   "field": "stall_bots",
+   "op": "<=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "the poll already REVERTs within 5 min; this is the same rule at the read"
+  },
+  {
+   "read": "modelread",
+   "field": "model_share",
+   "op": ">=",
+   "value": 0.95,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "canary POST rows on the canary build served by qwen3.5:9b with no model_mismatch; a failed (unserved) decision counts against it"
+  },
+  {
+   "read": "modelread",
+   "field": "schema_gap_pp",
+   "op": "<=",
+   "value": 1.0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "owner: schema-valid at least the control's; 1 pp is the noise allowance at ~1,000 canary rows (control 99.8-100%)"
+  },
+  {
+   "read": "modelread",
+   "field": "lat_p50_ms",
+   "op": "<=",
+   "value": 2500,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "owner latency gate (canary schema-valid decisions over the window)"
+  },
+  {
+   "read": "modelread",
+   "field": "lat_p95_ms",
+   "op": "<=",
+   "value": 5000,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "owner latency gate"
+  },
+  {
+   "read": "modelread",
+   "field": "completion_p95",
+   "op": "<=",
+   "value": 300,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "a thinking render fills num_predict 512; no-think qwen3.5 completions measured p95 ~90-130"
+  }
+ ],
+ "exposure": {
+  "read": "modelread",
+  "field": "readable",
+  "min": 1,
+  "note": "model_share >= 0.95 on >= 200 canary POST rows: the arm really ran on qwen3.5:9b (KEEP goal-verified)"
+ },
+ "primary": {
+  "read": "modelread",
+  "field": "items_ratio_did",
+  "note": "REPORTED, not deciding (fun mode): items/bot-h ratio-DiD canary vs control (pre 180 min), with rep_fail_* / veto_repeat_* / refused_share_* (live forms of the replay metrics), decisions_bh_did (guard: a fall > 30% is named in the close), latency, completion tokens. Pre-registered owner bar for promoting onto the 5080: KEEP goal-verified AND items_ratio_did >= 0 AND rep_fail canary post below control post AND veto_repeat canary post below control post."
+ },
+ "harm": "funread: the death gate (two-death floor), crash loops, the own lines above; the model poll every 5 min.",
+ "teardown": "THREE steps (drop-ins, canary_pool, restart the pools 12 s apart) plus the env proof: no pool bot's live environ may still carry any canary KEY=VALUE (canary-loop v38 compares values; the baseline sets the same keys).",
+ "tier": 3
+}

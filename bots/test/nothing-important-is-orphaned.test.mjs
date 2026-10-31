@@ -31,6 +31,18 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
+  'docs/reports/mineshaft-2026-10-30/design.md',
+  'sandbox/stair/stair-e2e.mjs',
+  // escapeguard-01 (10-31): a trapped bot's escape never digs a build record or a protected zone's structure
+  'bots/src/escapeguard.mjs',
+  'bots/test/escapeguard.test.mjs',
+  // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)
+  'bots/src/shaftgeom.mjs',
+  'bots/src/shaftvisit.mjs',
+  'bots/test/town-stair.test.mjs',
+  'bots/test/town-stair-wiring.test.mjs',
+  'bots/test/town-stair-stuck.test.mjs',
   // monument-01 (10-29): the ziggurat's site, offline, by the bots' own functions (the fleet canary's per-world siting), and the
   // shop read that judges every project's record (the showcase tripwire's S6)
   'bots/scripts/zigsite-offline.mjs',
@@ -48,6 +60,7 @@ const REQUIRED = [
   'bots/test/treefarm.test.mjs',
   'bots/src/expedition.mjs',
   'bots/test/expedition.test.mjs',
+  'bots/test/showcase-on-fleet.test.mjs',
   // voidfill-01 (10-30): a sealed void in a project record repaired from inside; its test reproduces the showcase ziggurat's
   // own geometry from the fixture (the record's cells and a read-only scan of the world)
   'bots/src/voidfill.mjs',
@@ -69,6 +82,16 @@ const REQUIRED = [
   'bots/src/blueprints/workshop@1.json',
   'bots/src/blueprints/house@1.json',
   'scripts/test_protected.py',
+  // the model-env canary's read and stall poll, and the loop v38 installer (qwen35-01, 10-30)
+  'scripts/host/modelread.py',
+  'scripts/host/install-loop-v38.sh',
+  // the staged model rollout after a model-env KEEP, and what it runs (OWNER 10-31 "roll out in stages 20 bots at a time")
+  'scripts/host/modelrollout.py',
+  'scripts/host/test_modelrollout.py',
+  'scripts/host/modelcompare.py',
+  'scripts/host/test_modelcompare.py',
+  'scripts/host/holdtoken.py',
+  'scripts/host/qwen35load.mjs',
   // CLAUDE.md's and STATE.md's history, moved out when both were cut to the active rules (10-28)
   'docs/archive/CLAUDE-history-2026-10-28.md',
   'docs/archive/STATE-history-to-2026-10-28.md',
@@ -93,8 +116,26 @@ const REQUIRED = [
   // the 3 h / 24 h / 7 d fleet status built on it (replaces the lost quickstatus.py)
   'scripts/host/fleetstatus.py',
   'scripts/test_fleetstatus.py',
+  // the learning loop's nightly archive (M1): logs on .31 rotate after 14 days, this is the only long-term copy
+  'scripts/learnloop/extract_triples.py',
+  'scripts/learnloop/nightly.py',
+  'scripts/learnloop/nas-relay.sh',
+  'scripts/learnloop/test_learnloop.py',
+  'scripts/learnloop/build_clean.py',
+  'scripts/learnloop/test_build_clean.py',
+  'scripts/learnloop/teacher/teacher_pilot.py',
+  'scripts/learnloop/teacher/pilot_agreement.py',
+  'scripts/learnloop/train/train_sft.py',
+  'scripts/learnloop/train/run_c2.sh',
+  'scripts/learnloop/train/bar_c2.py',
+  'scripts/learnloop/c2host/eval_c2.sh',
+  // M2b: removes 10.0.0.16 from every bot endpoint list before training
+  'scripts/host/drop16.sh',
   // the movement-writer ratchet, wired into package.json and the deploy
   'bots/scripts/check-movement-writers.mjs',
+  // logsurface-01: the real-case columns cut from the region copies of failed log gathers (10-28), and their suite
+  'bots/test/fixtures/logsurface-columns.json',
+  'bots/test/logsurface.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

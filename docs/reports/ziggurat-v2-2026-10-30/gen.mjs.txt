@@ -1,0 +1,13 @@
+// cells of N seeds' v2 designs on flat ground (the dressed record, each cell's first palette name) -> JSON for render.py
+const T = process.argv[2]
+const fs = await import('node:fs')
+const D = await import(T + '/src/zigdesign.mjs'); const Z = await import(T + '/src/ziggurat.mjs')
+const stock = JSON.parse(process.argv[3])
+const seeds = process.argv.slice(4).map(Number)
+const out = []
+for (const seed of seeds) {
+  const d = D.zigDesign(seed, { stock })
+  const cells = d.dress({ body: Z.zigCells({ corner: { x: 0, z: 0 }, baseY: 0, face: 's' }, d.g), found: [], corner: { x: 0, z: 0 }, baseY: 0, face: 's' }).body
+  out.push({ seed, name: D.zigDesignName(d), cells: cells.filter(c => c.role !== 'core').map(c => [...c.at, d.palette[c.role][0]]) })
+}
+fs.writeFileSync(process.env.OUT ?? '/dev/stdout', JSON.stringify(out))

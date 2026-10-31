@@ -1,0 +1,17 @@
+{
+ "run": "qwen35c2-01",
+ "class": "model-env",
+ "after": [
+  "qwen35-01"
+ ],
+ "not_before": null,
+ "hold": "PREPARED, NOT LAUNCHED -- OWNER DECISION FIRST (learning-loop candidate 2; docs/reports/learnloop-c2-2026-10-31.md). It passes the owner bar as written against qwen3.5:9b (the qwen35-01 tag) but: most of its rep_fail gain is the Q8_0 quant (stock qwen3.5:9b-q8_0 already 20.3/33.0/hard 1.7), its hard is +2 items vs that, and its post-veto gain comes with surface on 65% of post-veto items. BEFORE RELEASE: (1) put cand-qwen35-9b-c2-q8 on the Blackwell Ollama 0.33.2 (from 10.0.0.16 ~/learnloop-train/runs/c2-01/cand-qwen35-9b-c2-bf16.gguf + its Modelfile: RENDERER/PARSER qwen3.5, stock PARAMETERs; quantize q8_0) and record its digest; (2) on .16: SERVED_THINK=unset URL=http://ai.ticrcorp.com:11438 MODELS=cand-qwen35-9b-c2-q8 bash ~/learnloop-train/run_c2.sh template-check must PASS (think unset == the trained no-think render ON THE BLACKWELL); (3) Blackwell capacity test at 20/min (qwen35load.mjs, as qwen35-01) p50 <= 2.5 s and p95 <= 5 s; (4) if the fleet tip moved off aad2506a: an empty-tree marker on the new tip (git commit-tree <base>^{tree} -p <base>), push, registration copy, replace-variant; (5) this entry is APPENDED behind townfloor-01 and the parked entries: move it to the head, then canary-sched.py queue release qwen35c2-01.",
+ "note": "OWNER 10-30 queue both: candidate 2 (Qwen3.5-9B 8-bit LoRA, cleaned data) for 10 bots (draw_k 2), ENV ONLY like qwen35-01, served by the Blackwell, no fallback, model poll REVERTs a stall, promotion none. Variant 840faa5b = empty-tree commit on aad2506a.",
+ "variants": {
+  "aad2506abcfe4fa55af4729693a20a425ffdc0b0": {
+   "registration": "/home/mike/mcai-analysis/qwen35c2-01.840faa5b.json",
+   "approved": "Codex (codex exec, read-only, blockers-only) r1: 2 blockers fixed (8ae87b16), r2: all FIXED, no new; Claude (independent review subagent) r1: 2 blockers fixed; tier: empty-tree canary (no bot code); model trained offline, replay + export check (q8_0 vs bf16 98.5%) + template check on the 3090",
+   "reads_src": "/home/mike/mcai-analysis"
+  }
+ }
+}

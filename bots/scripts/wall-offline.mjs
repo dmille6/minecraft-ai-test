@@ -23,7 +23,7 @@ import * as PJ from '../src/buildproj.mjs'
 import { runVisit, cellDone } from '../src/buildrun.mjs'
 import { installAckTracker } from '../src/buildack.mjs'
 import { recordZones, buildRowDetail, buildSegDetail } from '../src/shop.mjs'
-import { MONUMENT_BLUEPRINT } from '../src/ziggurat.mjs'
+import { isZigBlueprint } from '../src/ziggurat.mjs'
 import * as W from '../src/wall.mjs'
 
 const argv = process.argv.slice(2)
@@ -50,7 +50,7 @@ const comps = files.filter(f => f.startsWith(`composter-site-${hk}.g`)).sort((a,
 const cs = comps.length ? readJ(path.join(poolDir, comps[0])) : null
 const composter = cs && [cs.x, cs.y, cs.z].every(Number.isFinite) ? [cs.x, cs.y, cs.z] : ((plan.plots ?? []).find(p => p.kind === 'farm')?.composter ?? null)
 const t0 = Date.now()
-const inputs = { plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records, pzones: recordZones(records.map(r => r.rec)), zig: r => r?.blueprint === MONUMENT_BLUEPRINT, lights: Number(opt('torches', 0)) }
+const inputs = { plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records, pzones: recordZones(records.map(r => r.rec)), zig: r => isZigBlueprint(r?.blueprint), lights: Number(opt('torches', 0)) }
 const s = W.siteWall(base, inputs)
 const ms = Date.now() - t0
 const rec = s.record

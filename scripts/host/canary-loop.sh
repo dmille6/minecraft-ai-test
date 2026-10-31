@@ -53,6 +53,18 @@ esac
 if [ -n "$CENV" ] && [ "$(md5sum /usr/local/sbin/mcai-canary-tree 2>/dev/null | cut -d' ' -f1)" != "26da45dabfa8830b361d09b6a7dd236e" ]; then
   page error "registration $RUN sets canary_env, but /usr/local/sbin/mcai-canary-tree is not the pinned build (md5 26da45da...): re-verify its CANARY_ENV handling first"; exit 2
 fi
+# THE TEARDOWN PROOF COMPARES VALUES, NOT KEY NAMES (qwen35-01, 10-30). brain-01's keys were new (OLLAMA_BRAIN_PRIMARY),
+# so "the key is absent" proved the canary env was gone. A model swap overrides keys EVERY bot's own env file already sets
+# (OLLAMA_MODEL, OLLAMA_BASE_URLS): a key test can never pass for them, and every teardown would end teardown-incomplete
+# with the slot held open. The proof is that no live process still carries a canary KEY=VALUE pair, exactly as
+# fleet-deploy proves the deploy (grep -qxF on the same pairs). Prints the keys whose canary value is still live.
+_env_still_canary() { local kv; for kv in $CENV; do printf '%s\n' "$1" | grep -qxF -- "$kv" && printf '%s ' "${kv%%=*}"; done; return 0; }
+# A MODEL-ENV STALL GUARD (qwen35-01): `poll_read` names one of the registration's own `reads` whose `--poll` answers
+# `MODELPOLL <OK|REVERT|UNREADABLE> :: ...` every 5 min beside the death poll. A model canary has no fallback endpoint
+# (a fallback would mix models inside the arm), so a dead or stalled endpoint must end the run at the next poll, not at
+# +90. Only REVERT acts; it cannot stand in for the death gate, which runs first and is unchanged.
+POLLR=$(python3 -c "import json,re; r=json.load(open('$REG')); p=r.get('poll_read') or ''; print(p if not p else (p if re.fullmatch(r'[a-z0-9_]+', p) and p in (r.get('reads') or []) else 'BAD:'+str(p)))")
+case "$POLLR" in BAD:*) page error "registration $RUN poll_read ${POLLR#BAD:} is not a plain name listed in its reads"; exit 2;; esac
 PH=$(lastphase); echo "loop $RUN sha $SHA resumes from phase: $PH"
 _jhas() { grep -q "\"run\":\"$RUN\".*\"phase\":\"$1\"" $J 2>/dev/null; }
 _guards() { python3 -c "import json,sys; print(bool(json.load(open(sys.argv[1])).get('guards')))" $H/digest/reads/$RUN-verdict-$1.json 2>/dev/null; }
@@ -72,6 +84,10 @@ fi
 # death handler writes; -13b `flooded_pocket_rung`, which is fleet-wide on 1d6c97d and which a
 # CONTROL death carried at 00:01:45 while -13b was being reverted for it). Refuse the
 # registration here -- before the draw, before the deploy, before three hours of fleet time.
+# the stall guard must be staged before anything is deployed (a resumed run only pages, below: it never strands a deploy)
+if [ "$(mf canary_code_version)" != "$SHA" ] && [ -n "$POLLR" ] && [ ! -f "$RD/$POLLR.py" ]; then
+  page error "registration $RUN names poll_read $POLLR but $RD/$POLLR.py is absent: its stall guard would be down -- not launching"; exit 2
+fi
 if [ "$(mf canary_code_version)" != "$SHA" ] && [ -n "$FUN" ]; then
   journal funmode "fun mode (no \"lab\": true): lab preflights not required (v19 change rows, v31 licence, v33 bag fix, v34 underground safety, NEXT-SLOT, v30); generic read at +${FUN_READS// /, +}; draw wait capped at ${FUN_DRAW_CAP_MIN} min"
 fi
@@ -292,14 +308,14 @@ _teardown() {
       if [ -z "$pid" ] || [ "$pid" = 0 ]; then BAD="$BAD $b:no-process"; continue; fi
       envtxt=$(sudo cat /proc/$pid/environ 2>/dev/null | tr '\0' '\n') || { BAD="$BAD $b:unreadable"; continue; }
       [ -n "$envtxt" ] || { BAD="$BAD $b:unreadable"; continue; }
-      for k in $CENV_KEYS; do echo "$envtxt" | grep -q "^$k=" && BAD="$BAD $b:$k"; done
+      for k in $(_env_still_canary "$envtxt"); do BAD="$BAD $b:$k"; done
     done; done
     if [ -n "$BAD" ] || [ "$N" = 0 ]; then
       journal teardown-incomplete "env not proven cleared on ${N} bot(s):${BAD:- no bots found}"
       page error "TEARDOWN INCOMPLETE $RUN: canary env not proven cleared:${BAD:- no bots found} -- restart those units, then journal torn-down by hand"
       return 1
     fi
-    journal env-cleared "$CENV_KEYS proven absent on $N bot(s)"
+    journal env-cleared "the canary values of $CENV_KEYS proven absent on $N bot(s)"
   fi
   journal torn-down "$LIVE"
   page verdict "$FINAL $RUN; torn down; pools live: $LIVE"
@@ -416,6 +432,15 @@ for M in $READS; do
       "") ;;      # an empty poll is already paged above as DEATH POLL PRODUCED NO VERDICT; it does not reset the count
       *) PU=0;;
     esac
+    if [ -n "$POLLR" ]; then
+      MP=$(cd ${CANARY_READ_CWD:-/opt/minecraft-ai/scripts} && timeout 120 python3 $RD/$POLLR.py --poll 2>$H/digest/modelpoll-err-$RUN.log | tail -1)
+      case "$(echo "$MP" | awk '$1 == "MODELPOLL" {print $2}')" in
+        REVERT) journal poll-revert "$MP"; page verdict "$MP"; FINAL=REVERT; FINALV="$MP"; FROM=0; break 2;;
+        OK) MPF=0;;
+        *) MPF=$(( ${MPF:-0} + 1 )); journal modelpoll-failed "($MPF in a row) ${MP:-EMPTY: $(tail -2 $H/digest/modelpoll-err-$RUN.log 2>/dev/null | tr '\n' ' ' | cut -c1-200)}"
+           [ $(( MPF % 6 )) -eq 1 ] && page error "MODEL POLL NOT DECIDING ($MPF in a row): the stall guard is down -- ${MP:-no output}";;
+      esac
+    fi
     if [ $(( $(_now) - T0 )) -gt $(( DEADLINE * 60 )) ]; then journal deadline "no verdict by +$DEADLINE"; page error "deadline +$DEADLINE reached without a verdict: containment"; FINAL=INCONCLUSIVE; FINALV="deadline +$DEADLINE reached without a verdict (containment)"; break 2; fi
   done
   # THE READ SCRIPTS LIVE IN /tmp AND NOTHING PUTS THEM THERE.

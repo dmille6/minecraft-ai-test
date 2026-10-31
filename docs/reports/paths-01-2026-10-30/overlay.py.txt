@@ -1,0 +1,23 @@
+# the live paths record drawn over a `paths` timelapse frame (BlueMap flat/ortho: centre -13.5,0.5, distance 62, fov 75 ->
+# 2*62*tan(37.5 deg) = 95.15 blocks across 1440 px). Writes an SVG embedding the PNG; render with qlmanage.
+import json, base64, math, sys
+frame, rec_path, out, title = sys.argv[1:5]
+rec = json.load(open(rec_path))
+W = 1440; span = 2 * 62 * math.tan(math.radians(37.5)); s = W / span; cx, cz = -13.5, 0.5
+X = lambda x: W / 2 + (x - cx) * s
+Z = lambda z: W / 2 + (z - cz) * s
+img = base64.b64encode(open(frame, 'rb').read()).decode()
+o = [f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{W}" height="{W + 70}" viewBox="0 0 {W} {W + 70}" font-family="Helvetica" font-size="22">',
+     f'<rect width="100%" height="100%" fill="#111"/><image x="0" y="0" width="{W}" height="{W}" xlink:href="data:image/png;base64,{img}"/>']
+cols = {}
+for c in rec['cells']:
+    if c['role'] != 'path': continue
+    cols[(c['at'][0], c['at'][2])] = c['seg']
+legcol = {'farm': '#ffd34d', 'well': '#4dd2ff', 'house1': '#ff6b6b', 'shop': '#b07cff', 'monument': '#7dff7d'}
+for (x, z), seg in cols.items():
+    leg = seg.split('-')[1]
+    o.append(f'<rect x="{X(x):.1f}" y="{Z(z):.1f}" width="{s:.1f}" height="{s:.1f}" fill="none" stroke="{legcol.get(leg, "#fff")}" stroke-width="2.2"/>')
+for i, (leg, col) in enumerate(legcol.items()):
+    o.append(f'<rect x="{20 + i * 190}" y="{W + 18}" width="22" height="22" fill="none" stroke="{col}" stroke-width="4"/><text x="{50 + i * 190}" y="{W + 37}" fill="#eee">{leg}</text>')
+o.append(f'<text x="20" y="{W + 64}" fill="#bbb" font-size="18">{title}</text></svg>')
+open(out, 'w').write('\n'.join(o))

@@ -29,11 +29,14 @@ import { plinthFirstModeDetail, plinthFirstPolicy } from './plinth.mjs'   // pli
 import { wellcareModeDetail } from './wellcare.mjs'   // wellcare-01's licence row (its own statement)
 import { lidPlaceModeDetail } from './lidplace.mjs'   // lidplace-01's licence row
 import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
+import { furnaceSeenModeDetail } from './smeltjob.mjs'   // furnaceseen-01's mode row
 import { matsModeDetail, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'   // mats-01's licence row (its own statement)
 import { createHash as shopHash } from 'node:crypto'
 import { shopStoodTick, shopFootprintRefresh } from './skills.mjs'   // shop-01: the walks' seeds, the footprint
 import { SHOP, buildModeDetail, STOOD_EVERY_MS } from './shop.mjs'   // shop-01's licence row
 import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout-01: an open note's obligations held again at spawn
+import { SHAFT, SHAFT_COOLDOWN_MS } from './shop.mjs'   // shaft-02's licence row
+import { SHAFT_BLUEPRINT, LANDING_FEET } from './shaftgeom.mjs'
 import { expeditionInstall } from './skills.mjs'   // expedition-01: the order's ask and the licence row
 
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
@@ -81,9 +84,14 @@ export function installFeatures (bot) {
   // ONE TRUNK (W3, 10-28): the showcase lineage's building rows, moved here from index.mjs's spawn handler like the rows above
   // ledger-01: the licence row (once per spawn; `on=on|off`, the cooperation design's A7 contract)
   try { logEvent({ kind: 'ledger_mode', status: 'success', snapshot: snapshot(bot), detail: ledgerModeDetail() }) } catch {}
+  // furnaceseen-01: its mode row (the A7 contract `on=on|off`); the per-walk evidence is `_furnace_seen_skip`
+  try { logEvent({ kind: 'furnace_seen_mode', status: 'success', snapshot: snapshot(bot), detail: furnaceSeenModeDetail() }) } catch {}
   // mats-01: the licence row, once per spawn -- `_mats_mode`, a kind the base cannot write (mats.mjs)
   try { matsHoldNote(bot, readMatsNote(bot)) } catch {}   // holds live in memory: an open note's are set again at spawn
   try { const sw = matsEnabled(process.env, config.memory.scope); logEvent({ kind: 'mats_mode', status: 'success', snapshot: snapshot(bot), detail: matsModeDetail({ on: sw.on, why: sw.why, reserve: matsReserve(), buffers: matsBuffers() }) }) } catch {}
+  // shaft-02: the licence row, once per spawn -- `_shaft_mode`, a kind the base cannot write (on=0 under SHAFT=off: the rollback is
+  // visible too)
+  try { logEvent({ kind: 'shaft_mode', status: 'success', snapshot: snapshot(bot), detail: `on=${SHAFT.on ? 1 : 0} blueprint=${SHAFT_BLUEPRINT} landings=${LANDING_FEET.join('+')} cooldown_s=${SHAFT_COOLDOWN_MS / 1000}` }) } catch {}
   // shop-01: the licence row, once per spawn -- `_build_mode`, a kind the base cannot write (cooperation A7), naming the reserve in
   // force by a short hash; the spawn time (no dig in the first 3 s: the ghost-block rule); the walks' seeds and the footprint
   if (SHOP.on) {

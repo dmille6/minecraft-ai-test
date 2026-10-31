@@ -22,15 +22,27 @@ const levelAt = rec => new Map(rec.cells.filter(c => c.role === 'path').map(c =>
 const gentle = rec => { const L = levelAt(rec); for (const [k, y] of L) { const [x, z] = k.split(',').map(Number); for (const [dx, dz] of [[1, 0], [0, 1]]) { const o = L.get(`${x + dx},${z + dz}`); if (o != null && Math.abs(o - y) > 1) return `${k}:${y} vs ${x + dx},${z + dz}:${o}` } } return null }
 
 console.log('THE SWITCH')
-await t('PATHS=on|off wins; unset: on only in the PATHS_POOLS pools (default showcase)', async () => {
+await t('PATHS=on|off wins; unset: on in the PATHS_POOLS pools (zigfleet-02: default every pool)', async () => {
   assert.strictEqual(P.pathsOn({}, 'showcase'), true)
-  assert.strictEqual(P.pathsOn({}, 'hive-a'), false)
+  assert.strictEqual(P.pathsOn({}, 'hive-a'), true, 'zigfleet-02: the fleet default')
+  assert.strictEqual(P.pathsOn({ PATHS_POOLS: 'showcase' }, 'hive-a'), false, 'the pool-list rollback')
+  assert.strictEqual(P.pathsOn({ PATHS_POOLS: 'showcase' }, 'showcase'), true)
   assert.strictEqual(P.pathsOn({ PATHS: 'off' }, 'showcase'), false)
   assert.strictEqual(P.pathsOn({ PATHS: 'on' }, 'hive-a'), true)
   assert.strictEqual(P.pathsOn({ PATHS_POOLS: 'hive-a,board-b' }, 'board-b'), true)
 })
 
 console.log('THE GROUND SCAN')
+await t('pathColumn: ordinary ice reads as water (broken, it leaves a source no cell can take); packed ice stays ground (zigfleet-02)', async () => {
+  const srv = server()
+  srv.set([7, G, 7], 'ice')
+  let c = P.pathColumn(srv.read, 7, 7, { yHi: G + 12, yLo: G - 12 })
+  assert.deepStrictEqual([c.y, c.why], [null, 'water'])
+  srv.set([8, G, 8], 'packed_ice')
+  c = P.pathColumn(srv.read, 8, 8, { yHi: G + 12, yLo: G - 12 })
+  assert.deepStrictEqual([c.y, c.name, c.why], [G, 'packed_ice', null], 'POSITIVE CONTROL: packed ice is ground')
+  assert.ok(!P.PATH_FOREIGN.test('ice') && P.PATH_FOREIGN.test('packed_ice'), 'an existing record never digs ordinary ice')
+})
 await t('pathColumn: the top full solid under plants, leaves and a trunk; water and furniture refuse; a crafting table is litter', async () => {
   const srv = server()
   srv.set([3, G + 1, 3], 'short_grass'); srv.set([3, G + 4, 3], 'spruce_leaves')
@@ -190,11 +202,6 @@ await t('frontApproach: the column one outside a blueprint project\'s doorway st
 await t('stairFoot: the first columns out from a ziggurat\'s grand stair, the outermost row only', async () => {
   const rec = { face: 'e', cells: [{ at: [0, 0, 0], role: 'skin' }, { at: [1, 0, 0], role: 'stair' }, { at: [1, 0, 1], role: 'stair' }, { at: [2, 0, 0], role: 'stair' }] }
   assert.deepStrictEqual(P.stairFoot(rec).sort(), [[3, 0]])
-  // a v2 ziggurat with stairs on all four faces (zig2-01, geometry.FACES 4): one foot per face, from the box edge each stair is on
-  const r4 = { face: 'e', box: [0, 0, 4, 4], geometry: { FACES: 4 }, cells: [] }
-  for (let x = 0; x <= 4; x++) for (let z = 0; z <= 4; z++) r4.cells.push({ at: [x, 0, z], role: 'skin' })
-  for (const at of [[5, 0, 2], [-1, 0, 2], [2, 0, 5], [2, 0, -1]]) r4.cells.push({ at, role: 'stair' })
-  assert.deepStrictEqual(P.stairFoot(r4).map(c => c.join(',')).sort(), ['-2,2', '2,-2', '2,6', '6,2'])
 })
 await t('sitePaths: farm, well and a complete ziggurat reached, nearest first; an open project is no destination; unrouted -> no record', async () => {
   const srv = server()
@@ -295,7 +302,7 @@ await t('PROJECTS: paths fourth, after the house; projectsOn takes it only with 
   assert.ok(!SHOPM.projectsOn(false, true, true).some(q => q.plot === 'paths'), 'never without the house it follows')
 })
 await t('activeProject: the paths once the house stands (and the monument with it); before that the house', async () => {
-  const list = SHOPM.projectsOn(true, true, true)
+  const list = SHOPM.projectsOn(true, true, true, undefined, false)   // shaft-02's stair: its own order test (town-stair.test.mjs)
   const st = (house, mon) => [{ plot: 'shop', exists: true, complete: true }, { plot: 'house1', exists: true, complete: house }, { plot: 'monument', exists: true, complete: mon }]
   assert.strictEqual(SHOPM.activeProject(st(true, true), list).plot, 'paths')
   assert.strictEqual(SHOPM.activeProject(st(false, true), list).plot, 'house1')

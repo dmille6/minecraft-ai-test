@@ -15,6 +15,7 @@ process.env.MEMORY_POOL = 'showcase'
 // treefarm-04: the tree farm (sixth, after the paths) has its own test (treefarm.test.mjs); off here, so this file's project lists stand
 process.env.TREEFARM = 'off'
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-wall-pool-'))
+process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE; delete process.env.PATHS; delete process.env.PATHS_POOLS
 delete process.env.WALL; delete process.env.WALL_POOLS
 const SK = await import('../src/skills.mjs')
@@ -39,13 +40,14 @@ const WALL_CELLS = [[-12, 70, -12], [-12, 71, -12], [-12, 72, -12], [-11, 70, -1
 const wall = c => rec('wall', W.WALL_BLUEPRINT, WALL_CELLS.map((at, i) => ({ at, role: i < 3 ? 'wall' : 'step', seg: 'W-00' })), c, { zones: W.zoneBoxes(new Set(WALL_CELLS.flatMap(([x, , z]) => [-1, 0, 1].flatMap(dx => [-1, 0, 1].map(dz => `${x + dx},${z + dz}`))))) })
 const me = { username: 'WallBot', blockAt: () => null }
 
-await t('the showcase pool lists the wall fifth, after the paths; a fleet pool does not; WALL=off and PATHS=off are rollbacks', async () => {
+await t('the showcase pool lists the wall fifth, after the paths; since zigfleet-02 a fleet pool does too; WALL=off, PATHS=off and the *_POOLS=showcase lists are rollbacks', async () => {
   assert.deepStrictEqual(S.projectsOn().map(p => p.plot), ['shop', 'house1', 'monument', 'paths', 'wall'])
   const w = S.PROJECTS.find(p => p.plot === 'wall')
   assert.ok(w.after === 'paths' && S.buildersOf(w) === W.WALL_BUILDERS && w.blueprint === W.WALL_BLUEPRINT)
   assert.ok(S.LIGHT_PLOTS.has('wall'), 'an unsited wall needs 2 free bag slots: it builds from the bags\' cobblestone')
   const run = env => execFileSync(process.execPath, ['--input-type=module', '-e', "const S = await import('./src/shop.mjs'); console.log(S.projectsOn().map(p => p.plot).join(','))"], { cwd: new URL('..', import.meta.url), env: { ...process.env, ...env }, encoding: 'utf8' }).trim()
-  assert.strictEqual(run({ MEMORY_POOL: 'hive-a' }), 'shop,house1')
+  assert.strictEqual(run({ MEMORY_POOL: 'hive-a' }), 'shop,house1,monument,paths,wall', 'zigfleet-02: a fleet pool has the paths and the wall')
+  assert.strictEqual(run({ MEMORY_POOL: 'hive-a', PATHS_POOLS: 'showcase', WALL_POOLS: 'showcase' }), 'shop,house1,monument', 'the pool-list rollback')
   assert.strictEqual(run({ MEMORY_POOL: 'showcase', WALL: 'off' }), 'shop,house1,monument,paths')
   assert.strictEqual(run({ MEMORY_POOL: 'showcase', PATHS: 'off' }), 'shop,house1,monument', 'never without the paths it follows')
 })
@@ -111,7 +113,7 @@ const SRC = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url),
 for (const [name, re] of [
   ['build_shop dispatches the wall to its own visit', /if \(proj\.plot === WALL_PLOT\) return buildWall\(ctx, args, signal\)/],
   ['the wall\'s visit runs with its own palette, foreign set, walk radius and clear bound', /walkR: wallWalkR\(rec, home\), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,\n\s*\.\.\.wallStuckOf\(c\), [^\n]*\}, effects/],
-  ['the wall bills its open cells from town (the piece base: v1 billInTown; the bag\'s spare first)', /const bill = billOf\(rec, palette, read, \{ done: buildCellDone, inTown: billInTown\(town\) \}\)\n\s*const need = wallNeed\(bill, spare0, needFromTown, SHOP_BILL_CAP\)/],
+  ['the wall bills its open cells from town above the floor a project draw meets (the bag\'s spare first)', /const bill = billOf\(rec, palette, read, \{ done: buildCellDone, inTown: zigBillInTown\(bot, town\) \}\)\n\s*const need = wallNeed\(bill, spare0, needFromTown, SHOP_BILL_CAP\)/],
   ['the visit works the record with its lights last (in memory)', /const rec = wallLightsLast\(rh\.head\.rec\)/],
   ['the wall is sited ONCE (published only when there is no record)', /const pub = publishRecord\(dir, key, cur => \(cur \? null : \{ \.\.\.record, state: 'open' \}\), \{ by: me \}\)\n[^\n]*\n {4}if \(pub\.result === 'accepted'\) \{ try \{ logEvent\(\{ kind: 'build', status: 'success', snapshot: snapshot\(bot\), detail: buildRowDetail\(\{ project: WALL_PLOT, op: 'sited'/],
   ['the wall\'s sapling keep-out is its columns', /r\.blueprint === WALL_BLUEPRINT \? wallSaplingCols\(r\)/],

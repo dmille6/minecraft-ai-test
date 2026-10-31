@@ -8,6 +8,7 @@ import { reserveKeyOf, reserveCount, takeAllowed, LOG_NAMES, PLANKS_OF } from '.
 import { monumentOn, MONUMENT_PLOT, MONUMENT_BLUEPRINT, MONUMENT_BUILDERS } from './ziggurat.mjs'
 import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mjs'
 import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
+import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
@@ -26,8 +27,8 @@ export const HOUSE = Object.freeze({ on: !['off', '0', 'false', 'no'].includes(S
 /**
  * MONUMENT-01: THE ZIGGURAT is the third project (ziggurat.mjs; OWNER 10-29 "top priority" on the showcase): after the workshop,
  * built ALONGSIDE the house -- a bot whose first open project has no free admission slot works the next one (activeProject's
- * `free`) -- with its own builders (MONUMENT_BUILDERS) and its own visit (skills.mjs buildMonument). On in the showcase pool,
- * off in the fleet's until its rollout (ziggurat.mjs monumentOn; MONUMENT=off is the rollback).
+ * `free`) -- with its own builders (MONUMENT_BUILDERS) and its own visit (skills.mjs buildMonument). On in every pool since
+ * zigfleet-01, the fleet rollout (ziggurat.mjs monumentOn; MONUMENT=off is the rollback).
  */
 export const MONUMENT = Object.freeze({ on: monumentOn(process.env, process.env.MEMORY_POOL ?? '') })
 /**
@@ -43,6 +44,28 @@ export const PATHS = Object.freeze({ on: pathsOn(process.env, process.env.MEMORY
  */
 export const TOWNWALL = Object.freeze({ on: wallOn(process.env, process.env.MEMORY_POOL ?? '') })
 /**
+ * SHAFT-02: THE TOWN STAIR (shaftgeom.mjs; docs/reports/mineshaft-2026-10-30/design.md; OWNER 10-30 "a common mineshaft"): a
+ * lined 3x3 spiral stair to feet y=16 with landings at 48/32/16, ONE builder, its own excavation visit (skills.mjs buildStair).
+ * Right after the workshop (design r2: before the house, or only the third free bot reaches it): one bot takes its slot, the
+ * rest go on to the next open project. SHAFT=on|off, SHAFT_POOLS (default every pool: the canary's code runs only on the canary
+ * pools, so the variant is the rollout). Off stops the building and the use; a sited stair's cells stay protected
+ * (projectsGuarded).
+ * SHOWCASE-ON-FLEET (control session 10-31): the default leaves the SHOWCASE town out -- the owner's showcase list (10-29) has no
+ * town stair; a later option. SHAFT=on, or a SHAFT_POOLS naming `showcase`, turns it on there.
+ */
+export const SHAFT_DEFAULT_OFF_POOLS = Object.freeze(['showcase'])
+export function shaftOn (env = process.env, pool = '') {
+  const v = String(env?.SHAFT ?? '').toLowerCase()
+  if (v === 'on' || v === '1' || v === 'true') return true
+  if (v === 'off' || v === '0' || v === 'false') return false
+  if (env?.SHAFT_POOLS == null && SHAFT_DEFAULT_OFF_POOLS.includes(String(pool))) return false
+  const pools = String(env?.SHAFT_POOLS ?? '*').split(',').map(q => q.trim()).filter(Boolean)
+  return pools.includes('*') || pools.includes(String(pool))
+}
+export const SHAFT = Object.freeze({ on: shaftOn(process.env, process.env.MEMORY_POOL ?? '') })
+export const SHAFT_BUILDERS = 1
+export const SHAFT_COOLDOWN_MS = 2 * 60_000    // a stair visit is short (the runner's clock) and digs, so it is asked again sooner
+/**
  * TREEFARM-04: THE TOWN TREE FARM is the sixth project (treefarm.mjs; owner showcase list 10-29, item 4): after the paths (a leg
  * reaches its front once it stands), a levelled grid of saplings with growth torches, harvested and replanted as upkeep. On in the
  * showcase pool, off in the fleet's until its rollout (treefarm.mjs treefarmOn; TREEFARM=off is the rollback). Needs the paths.
@@ -50,13 +73,18 @@ export const TOWNWALL = Object.freeze({ on: wallOn(process.env, process.env.MEMO
 export const TREEFARM = Object.freeze({ on: treefarmOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
+  Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
   Object.freeze({ plot: 'house1', blueprint: 'house@1', after: SHOP_PLOT }),
   Object.freeze({ plot: MONUMENT_PLOT, blueprint: MONUMENT_BLUEPRINT, after: SHOP_PLOT, builders: MONUMENT_BUILDERS }),
   Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
   Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, farm = TREEFARM.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : on))
+/** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
+ *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
+ *  protection"). Pure. */
+export const projectsGuarded = (list = projectsOn()) => (list.some(p => p.plot === SHAFT_PLOT) ? list : [...list, PROJECTS.find(p => p.plot === SHAFT_PLOT)])
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
 export const buildersOf = p => p?.builders ?? BUILDERS_MAX
 /**
@@ -146,7 +174,7 @@ export function stuckBackoff (states = [], stuckOf = null, now = Date.now()) {
     if (!st?.exists) return st
     let sa = null
     try { sa = stuckOf(st.plot) } catch { sa = null }
-    if (!(Number.isFinite(sa) && sa <= now + 60_000 && now - sa < SHOP_STUCK_RETRY_MS)) return st
+    if (!(Number.isFinite(sa) && sa <= now + 60_000 && now - sa < stuckWindowOf(st.plot))) return st
     return st.complete ? { ...st, damaged: false, due: true, stuck: true } : { ...st, free: false, stuck: true }
   })
 }
@@ -168,13 +196,18 @@ export const BUILDERS_MAX = 2
 export const SHOP_COOLDOWN_MS = Number(process.env.SHOP_COOLDOWN_MS) > 0 ? Number(process.env.SHOP_COOLDOWN_MS) : 10 * 60_000   // a setting (sandbox pacing)
 export const SHOP_SITE_RETRY_MS = 24 * 60 * 60_000       // S1: no site -> re-fit daily
 export const SHOP_STUCK_RETRY_MS = 6 * 60 * 60_000       // F4: a cell no stand reached in STUCK_VISITS visits -> ask again in 6 h
+/** shaft-03 (LIVE 10-31: 11 towns' stairs held 6 h at a time, then again, by single `walk_failed` / `no_reach` / `no_support`
+ *  visits -- the stamp is the PROJECT's, so one bot's failed visit holds every bot): a stair stamp holds 30 min. Its failures
+ *  are one visit's, not "a cell no stand reached in 3 visits"; the stair's own cooldown asks again in 2 min. */
+export const SHAFT_STUCK_RETRY_MS = 30 * 60_000
+export const stuckWindowOf = plot => (plot === SHAFT_PLOT ? SHAFT_STUCK_RETRY_MS : SHOP_STUCK_RETRY_MS)
 export const SHOP_HEALTH_MIN = 10
 export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
 export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the ziggurat is built mostly from the cobble a bag already holds
 /** The projects a bag needs only MONUMENT_BAG_SLOTS_MIN free slots for (paths-01: a shovel's use draws nothing). */
 /** wall-01: the wall is built from the cobblestone the bags carry, as the ziggurat is. */
 /** treefarm-04: the farm plants from the bag's saplings and takes its harvest into it. */
-export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, TREEFARM_PLOT]))
+export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, SHAFT_PLOT, TREEFARM_PLOT]))
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
@@ -465,7 +498,7 @@ export function spendableFor (item, stock = {}, { reserve = {}, claims = {} } = 
  * or a bag without room is a skip with its reason.
  */
 export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
-  complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null } = {}) {
+  complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null, feet = null, groundY = null } = {}) {
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
@@ -477,13 +510,19 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
     if (ex?.ok) return { order: { skill: 'build_shop', args: { expedition: true, phase: ex.phase ?? 'trip' } }, skip: null }
   }
   if (complete) return { order: null, skip: 'complete' }
-  if (now - (state.lastAt ?? -Infinity) < SHOP_COOLDOWN_MS) return { order: null, skip: null }
+  // shaft-02: the town stair's visit is asked again after SHAFT_COOLDOWN_MS (its record's plot, or the active plot unsited)
+  let plot0 = record?.plot ?? null
+  if (!record) { try { plot0 = activePlotOf() } catch { plot0 = null } }
+  if (now - (state.lastAt ?? -Infinity) < (plot0 === SHAFT_PLOT ? SHAFT_COOLDOWN_MS : SHOP_COOLDOWN_MS)) return { order: null, skip: null }
   if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
   // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop.
   // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE
   // (a skewed or bad clock) is ignored rather than holding the project skew + 6 h
   const sa = typeof stuckAt === 'function' ? stuckAt(now) : stuckAt
-  if (Number.isFinite(sa) && sa <= now + 60_000 && now - sa < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
+  if (Number.isFinite(sa) && sa <= now + 60_000 && now - sa < stuckWindowOf(plot0)) return { order: null, skip: 'stuck_on_cell' }
+  // shaft-03: the stair's visit starts at the surface or on the stair (shaftgeom.mjs stairStartRefusal): a bot in a mine under
+  // the town is asked again when it is up (its own surface or the stair's ascent; the order's cooldown is not charged)
+  if (plot0 === SHAFT_PLOT && stairStartRefusal(record, feet, groundY)) return { order: null, skip: 'underground' }
   if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }

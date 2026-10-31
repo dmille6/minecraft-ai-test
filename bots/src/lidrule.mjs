@@ -70,6 +70,30 @@ export function serverLidBlocks (above, { cat = false } = {}) {
  * permission): a town structure in another material keeps its lid shut and the container is refused as before.
  */
 export const LID_BREAKABLE = /^(cobblestone|cobbled_deepslate|dirt|grass_block)$/
+/**
+ * LIDPLANK-01 (owner 10-28/29): THE WOOD FAMILY, WHEN NO BUILD RECORD OWNS THE CELL. Codex's lidclear design r1 P1 ("material
+ * is not permission") kept planks shut because a town STRUCTURE might be wood. The structures the bots build are recorded --
+ * the town plan's cells, the workshop's record, the tree farm's columns, the junk well and its plinth -- so the permission is
+ * the record, not the material: a full wood block (planks, logs, wood, stems, hyphae, bamboo block or mosaic) on a lid may be
+ * broken when the caller has READ every record and none holds the cell. A record cell keeps the old refusal, named; records
+ * that could not be read keep it too (never on a guess). Measured 10-28/29: 1,190 of 1,206 `_lid_clear` rows in 7 d (ES)
+ * were `refused lid=oak_planks`, all one chest (placebo-a 250,74,-141, in no record; cleared by an owner one-off 10-29
+ * 00:14Z); the region census then found 0 blocking lids on 306 town containers in 16 towns (non-air: vine 15, chest 3,
+ * oak_leaves 2, none of which blocks).
+ */
+export const LID_WOOD = /^(stripped_)?[a-z_]+_(log|wood|stem|hyphae)$|^[a-z_]+_planks$|^bamboo_(block|mosaic)$|^stripped_bamboo_block$/
+/**
+ * MAY THIS MATERIAL COME OFF A LID? -> null (yes) or the reason. Pure.
+ *   record  false: every build record was read and none holds the lid cell; a string: the record that holds it
+ *           ('townplan', 'workshop', 'treefarm'); anything else: unknown (not read) -- refused as before
+ */
+export function lidMaterialRefusal (name, { record } = {}) {
+  if (LID_BREAKABLE.test(name)) return null
+  if (!LID_WOOD.test(name)) return `${name} is not a block a bot may break off a lid`
+  if (record === false) return null
+  if (typeof record === 'string' && record) return `${name} is part of the ${record} record`
+  return `${name} is not a block a bot may break off a lid (the build records were not read)`
+}
 const LIQUID = /^(water|lava|flowing_water|flowing_lava|bubble_column|seagrass|tall_seagrass|kelp|kelp_plant)$/
 const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|anvil|chipped_anvil|damaged_anvil|pointed_dripstone|dragon_egg|scaffolding)$|_concrete_powder$/
 /** A cell that holds water: a liquid, or a waterlogged block (the props say so, as prismarine-block or a region read gives them). */
@@ -81,13 +105,15 @@ const wet = b => LIQUID.test(b?.name ?? '') || b?.props?.waterlogged === true ||
  *   above  the block above the lid
  *   sides  the lid's four horizontal neighbours
  *   well   true when the lid cell is part of a known junk well (well.mjs wellBreakCost > 0): never broken
+ *   record lidplank-01: the build record holding the lid cell, false for none (all read), else unknown (lidMaterialRefusal)
  * Every unknown cell refuses (never on a guess); water or lava above or beside -- a liquid, or a waterlogged block --
  * refuses (the break would let it flow into the lid cell and onto the bot); a falling block above refuses (it would drop
  * straight back onto the lid).
  */
-export function lidClearRefusal ({ lid = null, above = null, sides = [], well = false } = {}) {
+export function lidClearRefusal ({ lid = null, above = null, sides = [], well = false, record = undefined } = {}) {
   if (!lid || typeof lid.name !== 'string') return 'lid unknown'
-  if (!LID_BREAKABLE.test(lid.name)) return `${lid.name} is not a block a bot may break off a lid`
+  const material = lidMaterialRefusal(lid.name, { record })   // lidplank-01: wood only off a cell no build record holds
+  if (material) return material
   if (well) return 'the lid cell is part of the junk well'
   if (!above || typeof above.name !== 'string') return 'the cell above the lid is unknown'
   if (!Array.isArray(sides) || sides.length !== 4 || sides.some(b => !b || typeof b.name !== 'string')) return 'a cell beside the lid is unknown'

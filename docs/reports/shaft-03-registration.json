@@ -1,0 +1,11 @@
+{
+ "run_id": "shaft-03",
+ "sha": "281d56590ab5c2c36dde91a949d24e9836dd9f1b",
+ "registered_at": "2026-10-31T13:51:39Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] shaft-03 @ 281d5659 on fleet base aad2506a (shaft-02 KEEP goal-unverified + promoted 10-31 02:52Z; branch shaft-03-on-aad2506). THE TOWN STAIR GETS BUILT: since 02:45Z 11 of 16 towns' stairs made no progress (49 stair visits in 14 h: 21 aborted, 21 walk_failed, 3 no_reach, 2 no_support). Five fixes, one goal: (1) the visit and both use walks hold the runner's typed 'stair' body claim -- 19 of 21 aborts were the entombment reflex inside the stair, whose pillar-out laid dirt in the stair (board-d step5:blocked, 25 descents refused); (2) no stair order for a bot more than 6 below the stair's ground outside its box (14 of 21 walk_failed started in a mine under town; skip 'underground', no cooldown charged); (3) a stair stuck stamp holds 30 min, not 6 h (one failed visit held each pool's stair 6 h; old stamps stop holding at once); (4) step 0's stand is a ground cell beside it, not the collar exit (no_reach on its tread); (5) a support block is placed beside a lining cell over a cave pocket (no_support). Reviews: Codex (codex exec, blockers-only) APPROVE 0 blockers; Claude (independent review subagent) APPROVE 0 blockers. Tier 3 (protected.py: cognitive.mjs, skills.mjs::stairAscend/stairDescend). npm test 366/366 on 281d5659; eslint clean (lint:movement fails identically on the base: buildbot.mjs and two tests, untouched). OWN LINES: _build_visit project=shaft outcome= (aborted should fall from 21/49, walk_failed from 21/49), shop_skip why=underground, _shaft op=place why=support, _shaft op=landing, _shaft_use ok=1; _entombed rows inside a stair box (71 in 14 h before); deaths inside a stair's box. Exposure: 8 of the 11 drawable pools (board-a/b/d, hive-a/b, placebo-a/b/d) hold a stuck stair now; hive-c/hive-d/board-c have no stair record (their open workshop comes first). Rollback env: SHAFT=off (or the base sha aad2506a). World: supports are cobblestone in cave pockets beside the stair; nothing else new.",
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

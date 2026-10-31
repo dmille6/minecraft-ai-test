@@ -1584,7 +1584,8 @@ class Timelapse(unittest.TestCase):
         import types
         calls = []
         old = (TV.all_stamps, TV.build)
-        TV.all_stamps = lambda v: {'town': ['20261001T1800Z'], 'angled': [], 'topdown': []}[v]
+        # every other camera (iso, workshop, house1, ziggurat, paths, wall: the live EXTRA, wall-01 synced it) has no frames this month
+        TV.all_stamps = lambda v: {'town': ['20261001T1800Z']}.get(v, [])
         TV.build = lambda v, st, out, name: calls.append((v, st)) or {'view': v}
         old_argv = TV.sys.argv
         TV.sys.argv = ['tl_video.py', 'monthly', '--month', '2026-10']

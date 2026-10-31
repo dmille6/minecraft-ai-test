@@ -28,15 +28,17 @@ export const PATHS_BUILDERS = 4
 export const PATH_SEG_CELLS = 24
 export const PATH_DY = 12
 /**
- * THE SWITCH -> bool. PATHS=on|off; unset = on only in the pools PATHS_POOLS names (default 'showcase'): the fleet's towns keep
+ * THE SWITCH -> bool. PATHS=on|off; unset = on in the pools PATHS_POOLS names. zigfleet-02 (the fleet rollout): the default is
+ * '*', every pool (the canary's code runs only on the canary pools, so the variant IS the rollout); PATHS=off or PATHS_POOLS=showcase
+ * is the rollback. Before zigfleet-02 (default 'showcase'): the fleet's towns kept
  * their project list until the fleet rollout. Pure.
  */
 export function pathsOn (env = process.env, pool = '') {
   const v = String(env?.PATHS ?? '').toLowerCase()
   if (v === 'on' || v === '1' || v === 'true') return true
   if (v === 'off' || v === '0' || v === 'false') return false
-  const pools = String(env?.PATHS_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
-  return pools.includes(String(pool))
+  const pools = String(env?.PATHS_POOLS ?? '*').split(',').map(s => s.trim()).filter(Boolean)
+  return pools.includes('*') || pools.includes(String(pool))
 }
 /**
  * WHAT READS AS A FINISHED PATH CELL (buildrun.mjs cellDone by family): dirt_path first (never held, so a placement never picks
@@ -48,7 +50,7 @@ export const PATH_PALETTE = Object.freeze({
 /** Ground a shovel's use turns into dirt_path (vanilla ShovelItem's flattenables). */
 export const FLATTENABLE = /^(grass_block|dirt|coarse_dirt|podzol|mycelium|rooted_dirt)$/
 /** Ground that is neither flattenable nor path-looking: dug out of the cell (buildrun.mjs foreignKind) and paved with cobblestone. */
-export const PATH_FOREIGN = /^(sand|red_sand|suspicious_sand|clay|mud|packed_mud|snow_block|powder_snow|moss_block|ice|packed_ice|blue_ice|soul_sand|soul_soil|calcite|dripstone_block|smooth_basalt|netherrack|red_sandstone|terracotta|[a-z_]+_terracotta|muddy_mangrove_roots|[a-z_]*_ore|raw_[a-z]+_block)$/
+export const PATH_FOREIGN = /^(sand|red_sand|suspicious_sand|clay|mud|packed_mud|snow_block|powder_snow|moss_block|packed_ice|blue_ice|soul_sand|soul_soil|calcite|dripstone_block|smooth_basalt|netherrack|red_sandstone|terracotta|[a-z_]+_terracotta|muddy_mangrove_roots|[a-z_]*_ore|raw_[a-z]+_block)$/
 const DONE = new Set(PATH_PALETTE.path)
 const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 const LEAVES = /_leaves$/
@@ -75,6 +77,9 @@ export function pathColumn (read, x, z, { yHi, yLo }) {
     if (!b) return { y: null, name: null, why: 'unknown', above }
     const n = nm(b)
     if (isLiquid(b) || String(b.name ?? '').includes('waterlogged')) return { y: null, name: n, why: 'water', above }
+    // zigfleet-02 (Codex + Claude, the fleet's frozen towns): ordinary ice is WATER -- broken without silk touch it leaves a
+    // source block, which no path or wall cell can take (packed_ice / blue_ice never melt and stay ground)
+    if (n === 'ice') return { y: null, name: n, why: 'water', above }
     if (AIRN(n)) continue
     if (PLANT.test(n) || replaceableCell(b)) { above.push({ y, name: n, kind: 'plant' }); continue }
     if (LEAVES.test(n)) { above.push({ y, name: n, kind: 'leaves' }); continue }
@@ -348,32 +353,18 @@ export function frontApproach (rec, bp, place) {
 /** The ziggurat's GRAND-STAIR FOOT: for each stair cell, the first column outward along the stair face that is no record column
  *  -> [[x, z]] (unique). Pure. */
 export function stairFoot (rec) {
-  const V = { e: [1, 0], w: [-1, 0], s: [0, 1], n: [0, -1] }
-  const cols = new Set((rec?.cells ?? []).map(c => `${c.at[0]},${c.at[2]}`))
-  // each stair cell's FACE: the record's one face (v1), or -- a ziggurat with stairs on several faces (zig2-01 v2, FACES 4) -- the
-  // box edge the cell is nearest (a layer-0 stair stands outside the base: its edge distance is negative)
-  const b = Array.isArray(rec?.box) && rec.box.length === 4 ? rec.box : null
-  const faceOf = (x, z) => {
-    if (!b || !(rec?.geometry?.FACES > 1)) return rec?.face
-    const d = [['w', x - b[0]], ['e', b[2] - x], ['n', z - b[1]], ['s', b[3] - z]].sort((p, q) => p[1] - q[1])
-    return d[0][0]
-  }
-  const feet = new Map()
-  for (const c of (rec?.cells ?? []).filter(q => q.role === 'stair')) {
-    const face = faceOf(c.at[0], c.at[2]), f = V[face]
-    if (!f) continue
+  const f = { e: [1, 0], w: [-1, 0], s: [0, 1], n: [0, -1] }[rec?.face]
+  if (!f) return []
+  const cols = new Set((rec.cells ?? []).map(c => `${c.at[0]},${c.at[2]}`))
+  const out = new Map()
+  for (const c of (rec.cells ?? []).filter(q => q.role === 'stair')) {
     let [x, z] = [c.at[0], c.at[2]]
     for (let k = 0; k < 16 && cols.has(`${x},${z}`); k++) { x += f[0]; z += f[1] }
-    if (!feet.has(face)) feet.set(face, new Map())
-    feet.get(face).set(`${x},${z}`, [x, z])
+    out.set(`${x},${z}`, [x, z])
   }
-  // per face, only the outermost row (the foot), never a column beside the flight
-  const out = []
-  for (const [face, m] of [...feet].sort((p, q) => (p[0] < q[0] ? -1 : 1))) {
-    const f = V[face], far = Math.max(...[...m.values()].map(([x, z]) => x * f[0] + z * f[1]))
-    out.push(...[...m.values()].filter(([x, z]) => x * f[0] + z * f[1] === far))
-  }
-  return out
+  // only the outermost row (the foot), never a column beside the flight
+  const far = Math.max(...[...out.values()].map(([x, z]) => x * f[0] + z * f[1]))
+  return [...out.values()].filter(([x, z]) => x * f[0] + z * f[1] === far)
 }
 /** The ring at Chebyshev `d` round a point -> [[x, z]]. Pure. */
 export function ringCols (x0, z0, d) {
@@ -518,7 +509,10 @@ export function pathDests ({ plan, zones = [], caps = [], plinth = [], composter
   if (caps[0]) dests.push({ id: 'well', to: 'well', cols: ringCols(caps[0][0], caps[0][2], 4) })
   for (const p of projects) {
     if (!p?.rec?.structure_complete) continue                       // a path leads to what stands
-    if (p.rec.blueprint === 'ziggurat@1') { const f = stairFoot(p.rec); if (f.length) dests.push({ id: p.plot, to: p.plot, cols: f }); continue }
+    // zig2-01: either ziggurat blueprint (v2's record has no blueprint file either); its foot on the face toward home
+    if (/^ziggurat@/.test(String(p.rec.blueprint))) { const f = stairFoot(p.rec); if (f.length) dests.push({ id: p.plot, to: p.plot, cols: f }); continue }
+    // shaft-02: the town stair's collar exit (the surface cell beside its 5x5 where the walk down starts)
+    if (/^shaft@/.test(String(p.rec.blueprint))) { if (Array.isArray(p.rec.exit) && p.rec.exit.length === 3) dests.push({ id: p.plot, to: p.plot, cols: [[p.rec.exit[0], p.rec.exit[2]]] }); continue }
     // treefarm-04: a record that names its own FRONT columns (the tree farm's side facing home) is reached there
     if (Array.isArray(p.rec.front) && p.rec.front.length && p.rec.front.every(c => Array.isArray(c) && c.length === 2 && c.every(Number.isFinite))) { dests.push({ id: p.plot, to: p.plot, cols: p.rec.front.map(c => [c[0], c[1]]) }); continue }
     const a = p.bp ? frontApproach(p.rec, p.bp, place) : null
