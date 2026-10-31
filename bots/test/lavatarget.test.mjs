@@ -65,6 +65,12 @@ await t('S5b (Codex r1) cell to cell: lava at (45,43,0) is 5.83 from the ore at 
   assert.strictEqual(k.z, 80); assert.strictEqual(k.lavaFirst.why, 'near')
   assert.ok(Math.abs(k.lavaFirst.distance - Math.hypot(5, 3)) < 1e-9)
 })
+await t('S3c (Codex r2) lava right AHEAD of the bot still blocks the bearing behind it', () => {
+  const bot = botAt(0.5, 0.5, { iron_ore: [{ x: 60, y: 64, z: 0 }, { x: -60, y: 64, z: 0 }] }, [[2, 64, 0]])
+  const k = knownTarget(bot)
+  assert.strictEqual(k.x, -60, 'the sighting behind the lava is skipped, the one away from it taken')
+  assert.strictEqual(k.lavaFirst.why, 'line')
+})
 await t('S4 every sighting beside lava: no target; the skip is reported and explore falls back to its bearing', () => {
   const k = knownTarget(botAt(0, 0, { iron_ore: [{ x: 40, y: 40, z: 0 }] }, [[41, 40, 0]]))
   assert.strictEqual(k.kind, undefined); assert.strictEqual(k.lavaSkipped, 1)
