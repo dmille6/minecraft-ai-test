@@ -1552,6 +1552,13 @@ class Timelapse(unittest.TestCase):
             TL.subprocess.run, TL.small_gray, TL.terrain_ok = old
         return out, seen['jobs'], root
 
+    def test_extra_camera_cadence(self):
+        cfg = {'cameras': {'topdown': {}, 'angled': {}, 'town': {}, 'wall': {'every': 2, 'phase': 1}, 'exp': {'every': 2}}}
+        self.assertEqual(TL.extra_views(cfg), ['exp', 'town', 'wall'], 'no stamp: every camera')
+        self.assertEqual(TL.extra_views(cfg, '20261031T1800Z'), ['exp', 'town'], 'slot 72: phase 0')
+        self.assertEqual(TL.extra_views(cfg, '20261031T1815Z'), ['town', 'wall'], 'slot 73: phase 1')
+        self.assertEqual(TL.extra_views(cfg, '20261031T1815Z-event-x'), ['town', 'wall'])
+
     def test_town_camera_is_extra_and_never_costs_the_pair(self):
         self.assertEqual(TL.extra_views({'cameras': {'topdown': {}, 'angled': {}, 'town': {}}}), ['town'])
         (rc, msg, got, _, _, extra, err, raw), jobs, root = self._capture_with({'topdown', 'angled'}, 1)

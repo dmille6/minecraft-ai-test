@@ -29,11 +29,25 @@ NICE = ['nice', '-n', '19', 'ionice', '-c3']
 VIEWS = ('topdown', 'angled')        # the PAIR: published together or not at all; the missing-slot count reads it
 
 
-def extra_views(cfg):
+def extra_views(cfg, stamp=None):
     """Cameras beyond the pair (owner 10-25: `town`, a close-up on home). Each is captured in the SAME browser run and
     published on its own -- a failed extra frame never costs the pair, and the pair's slot accounting is unchanged.
-    Sorted, so the order is stable. Pure."""
-    return sorted(v for v in (cfg.get('cameras') or {}) if v not in VIEWS)
+    Sorted, so the order is stable. Pure.
+
+    A camera may name a CADENCE (expedition-01, 10-31: the eleventh camera pushed the run past the service's 13-minute
+    TimeoutStartSec and four slots were killed): `every` N slots (a slot is a 15-minute stamp), on the slots whose index
+    (minutes of the day // 15) is `phase` mod N. With a stamp, only the cameras due in that slot; without one, all."""
+    out = []
+    t = parse_stamp(stamp) if stamp else None
+    slot = (t.hour * 60 + t.minute) // 15 if t else None
+    for v, cam in (cfg.get('cameras') or {}).items():
+        if v in VIEWS:
+            continue
+        n = int((cam or {}).get('every') or 1)
+        if slot is not None and n > 1 and slot % n != int((cam or {}).get('phase') or 0) % n:
+            continue
+        out.append(v)
+    return sorted(out)
 
 
 def now_utc():
@@ -223,7 +237,7 @@ def capture(cfg, stamp):
     spec, finals = [], []
     stage = os.path.join(cfg['root'], 'frames', '.staging')
     os.makedirs(stage, exist_ok=True)
-    views = list(VIEWS) + extra_views(cfg)
+    views = list(VIEWS) + extra_views(cfg, stamp)
     for v in views:
         cam = cfg['cameras'][v]
         final = frame_path(cfg['root'], v, stamp)
@@ -337,7 +351,7 @@ def cmd_capture(cfg, a):
     row.update(capture_s=cs, capture_cpu_s=ccpu, capture_rc=crc, frames=len(got),
                bytes=sum(os.path.getsize(p) for p in got + extra),
                extra={os.path.basename(os.path.dirname(os.path.dirname(p))): os.path.getsize(p) for p in extra},
-               extra_expected=extra_views(cfg))
+               extra_expected=extra_views(cfg, stamp))
     if extra_err or raw_rc != 0:     # the diagnostics of an extra camera survive a published pair (review P3)
         row.update(extra_errors=extra_err, capture_raw_rc=raw_rc, capture_msg=msg[-300:])
     if a.frame0:
