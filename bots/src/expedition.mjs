@@ -365,6 +365,13 @@ export function haulOf (held0 = {}, held1 = {}, kit = {}) {
 /** The haul worth banking: every gained item but the markers' own materials. Pure. */
 export const bankableHaul = haul => Object.fromEntries(Object.entries(haul ?? {}).filter(([n, c]) => c > 0 && !/^(cobblestone|torch)$/.test(n)))
 
+/** THE DEPOSIT'S BASELINE for matsBank (it banks what the bag holds ABOVE its baseline): the bag less the haul. Pure. */
+export function depositBase (held = {}, haul = {}) {
+  const base = { ...held }
+  for (const [n, c] of Object.entries(haul ?? {})) base[n] = Math.max(0, (Number(held[n]) || 0) - (Number(c) || 0))
+  return base
+}
+
 /** What the kit still lacks in the bag -> { name: n } (empty: nothing to draw). Only a bag below a third of the kit draws. Pure. */
 export function kitNeed (held = {}, kit = KIT, markers = true) {
   if (!markers) return {}
