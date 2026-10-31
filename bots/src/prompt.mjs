@@ -263,7 +263,9 @@ export function buildSystemPrompt(skillNames) {
         ? ['  board   args: {}                       (walk to the town totem and checkpoint your own memory)']
         : []),
   ].join('\n')
-  // IDENTITY GOES LAST, AND THAT IS A PERFORMANCE DECISION.
+  // IDENTITY IS NOT IN THE SYSTEM MESSAGE AT ALL (promptcache-01) -- see identityLine() below.
+  //
+  // HISTORY: IDENTITY WENT LAST, AND THAT WAS A PERFORMANCE DECISION.
   //
   // llama.cpp (and therefore Ollama) reuses the KV cache for a shared prompt
   // PREFIX. This block used to open with `You are ${config.bot.name}` -- a
@@ -328,10 +330,47 @@ export function buildSystemPrompt(skillNames) {
     `  mineshaft stair, mine with y=16 walks down it with no digging.`,
     `- "reason" must be one short sentence explaining the choice.`,
     `- Copy the saw_end value from the end of the user message exactly.`,
-    ``,
-    // Last line on purpose -- see the note above buildSystemPrompt's return.
-    `You are ${config.bot.name}, an autonomous ${config.bot.role} agent in Minecraft.`,
   ].join('\n')
+}
+
+/**
+ * THE IDENTITY LINE OPENS THE USER MESSAGE, NOT THE SYSTEM MESSAGE (promptcache-01).
+ *
+ * "Identity last in the system prompt" was right for a pure-attention model, whose KV cache can be reused up to any
+ * token: two bots shared everything before their names. It is wrong for qwen3.5 (hybrid SSM): a recurrent state can only
+ * be restored at a saved checkpoint, and llama.cpp b12020 saves one at the START OF THE LAST USER MESSAGE. With the name
+ * at the end of the system message that checkpoint holds the bot's name, so no other bot can use it.
+ * Measured 10-31 on the 3090 (llama-server b12020, qwen3.5:9b Q8, 8 different bots, real prompts):
+ *     name at the end of the system message:  cache_n 0 for every bot (full ~2,600-token prefill)
+ *     name at the start of the user message:  cache_n 1,173 for every bot after the first
+ * The system message is now byte-identical across every bot of a memory scope. This line is the same sentence it was.
+ */
+export function identityLine () {
+  return `You are ${config.bot.name}, an autonomous ${config.bot.role} agent in Minecraft.`
+}
+
+/**
+ * RECENT EVENTS WITHOUT THE REPEATS (promptcache-01) -> string[]. Pure.
+ *
+ * Measured on 3,891 live prompts (10-31, Qwen3.5 tokenizer): the events block is ~320 of ~1,400 user tokens, and
+ *   - 89% of prompts end it with the decision's own outcome, which the LAST ACTION line already says (25 tok/row);
+ *   - consecutive identical events (the same failure 2-4 times running) cost 31 tok/row;
+ *   - bracketed diagnostics ("[probe: success, slate 4, A* reached a candidate]", "[collect threw nothing -- ...") are
+ *     35 tok/row, and the 160-char cut usually leaves the last one unterminated.
+ * So: brackets are dropped (LAST ACTION keeps the full detail of the newest outcome), consecutive identical events
+ * become one with "(xN)", and a final event equal to LAST ACTION is not repeated. Order is kept (oldest first).
+ */
+export function compactEvents (texts, lastOutcome = null) {
+  const strip = t => String(t).replace(/\s*\[[^\]]*(\]|$)/g, '').replace(/\s+$/, '')
+  let evs = (texts ?? []).map(t => String(t))
+  if (lastOutcome && evs.length && evs[evs.length - 1] === String(lastOutcome).slice(0, 160)) evs = evs.slice(0, -1)
+  const out = []
+  for (const e of evs.map(strip)) {
+    const prev = out[out.length - 1]
+    if (prev && prev.text === e) prev.n++
+    else out.push({ text: e, n: 1 })
+  }
+  return out.filter(o => o.text).map(o => o.n > 1 ? `${o.text} (x${o.n})` : o.text)
 }
 
 /**
@@ -698,6 +737,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
   const invStr = Object.entries(inv).map(([k, v]) => `${k} x${v}`).join(', ') || 'empty'
 
   const head = [
+    identityLine(),
     `TASK: ${milestone.describe}`,
     `PROGRESS: ${milestone.progress}`,
     noRoomHint(milestone, noRoom) ?? (milestone.hint ? `HINT: ${milestone.hint}` : ''),
@@ -730,13 +770,16 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
   const budget = config.llm.promptTokenBudget
   let events = memory.events.slice()
   let dropped = 0
-  const render = evs => [
-    ...head,
-    evs.length ? `RECENT EVENTS (oldest first):` : '',
-    ...evs.map(e => `  - ${e.text}`),
-    ``,
-    `saw_end: ${sentinel}`,
-  ].filter(Boolean).join('\n')
+  const render = evs => {
+    const shown = compactEvents(evs.map(e => e.text), lastOutcome)
+    return [
+      ...head,
+      shown.length ? `RECENT EVENTS (oldest first):` : '',
+      ...shown.map(t => `  - ${t}`),
+      ``,
+      `saw_end: ${sentinel}`,
+    ].filter(Boolean).join('\n')
+  }
 
   let user = render(events)
   while (estTokens(user) > budget && events.length > 0) {
