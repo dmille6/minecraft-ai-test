@@ -16967,7 +16967,9 @@ function projStuckLive (key, now = Date.now()) {
       // as a complete record's, a stamp whose cells all read done (or were waived since: the visit that waived the last one
       // stamped the stall first) holds nothing
       // treefarm-04 r3: an OPEN farm's stamp on cells a standing site tree holds is stale (the build leaves them to the felling)
-      if (rec?.blueprint === TREEFARM_BLUEPRINT) return farmStampHeld(keys, treeHeldCols(siteTreesLeft(farmRead(b), rec)))
+      // r4 (LIVE 15:40Z: the floor laid 34/34 under the felled trunk, and the stamp on its two cells still held the order): ...or
+      // when every cell it names reads done, as a complete record's
+      if (rec?.blueprint === TREEFARM_BLUEPRINT) return stuckStale(keys, rec, c => farmAlsoDone(c, farmRead(b)) || recordCellDone(b, rec, c)) || farmStampHeld(keys, treeHeldCols(siteTreesLeft(farmRead(b), rec)))
       return rec?.blueprint === WALL_BLUEPRINT && wallStuckOn() && (stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c)))
     } : null
     return projStuckAt(dir, key, { before: now + 60_000, stale })

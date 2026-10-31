@@ -325,7 +325,14 @@ await t('R3 AN OPEN FARM\'S STUCK STAMP on cells a standing site tree holds is s
   srv.set([-28, 67, 13], 'air'); srv.set([-28, 68, 13], 'air')
   assert.strictEqual(F.farmStampHeld(['-28,65,13'], F.treeHeldCols(F.siteTreesLeft(srv.read, rec))), false, 'the tree felled: the cells are the build\'s again')
   const src = readFileSync(SKILLS_PATH, 'utf8').split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n')
-  assert.ok(/if \(rec\?\.blueprint === TREEFARM_BLUEPRINT\) return farmStampHeld\(keys, treeHeldCols\(siteTreesLeft\(farmRead\(b\), rec\)\)\)/.test(src), 'wired in projStuckLive')
+  assert.ok(/if \(rec\?\.blueprint === TREEFARM_BLUEPRINT\) return stuckStale\(keys, rec, c => farmAlsoDone\(c, farmRead\(b\)\) \|\| recordCellDone\(b, rec, c\)\) \|\| farmStampHeld\(keys, treeHeldCols\(siteTreesLeft\(farmRead\(b\), rec\)\)\)/.test(src), 'wired in projStuckLive: done cells (r4) or held cells (r3)')
+  // r4: the stale test for done cells is shop.mjs stuckStale over the farm's palette (a floor cell done by any solid)
+  const SH = SHOP
+  const rec4 = { cells: [{ at: [-28, G + 1, 13], role: 'floor', seg: 'F' }] }
+  const done = c => R.cellDone(srv.read(...c.at), F.FARM_PALETTE, c.role)
+  assert.strictEqual(SH.stuckStale([`-28,${G + 1},13`], rec4, done), false, 'the cell open (air): the stamp stands')
+  srv.set([-28, G + 1, 13], 'cobblestone')
+  assert.strictEqual(SH.stuckStale([`-28,${G + 1},13`], rec4, done), true, 'filled: the stamp is stale')
 })
 await t('THE PLANTING STOCK: with the farm on, the peaceful kit\'s composter keeps the farm species\' saplings (spruce kept 16); off, it composts them', async () => {
   const C = await import('../src/composter.mjs')
