@@ -89,7 +89,10 @@ def arm_table(items, ans):
             continue
         c['answered'] += 1; c['valid'] += j['valid']; c['hard'] += j['hard']; c['nt'] += j['nt']
         c['rep'] += j['rep']; c['keep'] += j['keep']
+    sk = collections.Counter(ans[it['id']]['skill'] for it in items if ans.get(it['id']) and ans[it['id']]['valid'])
+    nv = sum(sk.values())
     return {'items': c['n'], 'answered': c['answered'], 'schema_valid': pct(c['valid'], c['answered']),
+            'surface_share': pct(sk.get('surface', 0), nv), 'skill_top5': {k: pct(v, nv) for k, v in sk.most_common(5)},
             'hard': pct(c['hard'], c['valid']), 'rep_logged_nontransient': pct(c['rep'], c['nt']),
             'keep': pct(c['keep'], c['answered']),
             'denominators': {'answered': c['answered'], 'valid': c['valid'], 'nontransient': c['nt']}}

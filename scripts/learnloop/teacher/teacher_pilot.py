@@ -265,7 +265,8 @@ def cmd_submit(a, submit=None):
     probe_ok = os.path.join(HOME, 'teacher-paid', arm, 'PROBE-OK')
     cond = 'blind' if a.probe else a.condition
     if a.probe:
-        batches = plan_batches(sorted(items, key=lambda i: i['id'])[:5], arm, 'blind')
+        off = a.probe_offset                     # a different 5 when an earlier probe is stuck at the vendor
+        batches = plan_batches(sorted(items, key=lambda i: i['id'])[off:off + 5], arm, 'blind')
     else:
         if not os.path.exists(probe_ok):
             raise SystemExit('REFUSED: no fetched, fully parsed 5-item probe for arm %s (%s)' % (arm, probe_ok))
@@ -420,6 +421,7 @@ def main(argv=None):
     ap.add_argument('--arm', choices=('B', 'C'))
     ap.add_argument('--condition', choices=('blind', 'informed'), default='blind')
     ap.add_argument('--probe', action='store_true')
+    ap.add_argument('--probe-offset', type=int, default=0, help='probe items [N, N+5) of the id-sorted pilot')
     ap.add_argument('--i-will-spend', action='store_true')
     ap.add_argument('--resubmit', action='store_true', help='allow a request set that is already reserved (check the console first)')
     a = ap.parse_args(argv)

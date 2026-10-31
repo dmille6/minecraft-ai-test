@@ -25,8 +25,8 @@ change is a HELD entry appended at the end (s.7). The Mac ran only the batch-API
   promotion none). It is **HELD and appended at the end**, so it cannot launch or block anyone (s.7).
 - **Kill rule:** not reached, because candidate 2 did not fail the bar. Whether it helps OUTPUT (items/bot-h, the design's
   primary) only a canary can say.
-- **Teacher pilot:** Claude Opus 5.5 arm done, **$11.61 actual**. The OpenAI arm was not run: that account has no
-  credit. The local teacher qwen3.8:27b agrees with Claude on the skill 58.9% of the time (kappa 0.48). The fleet's own
+- **Teacher pilot:** both paid arms done. Claude Opus 5.5 cost **$11.61**; GPT `gpt-6.1-sol` cost **$4.97**
+  (run 10-31 ~17:10-17:25Z after the owner added credit). Total paid **$16.58**. The local teacher qwen3.8:27b agrees with Claude on the skill 58.9% of the time (kappa 0.48). The fleet's own
   failed actions agree with Claude 18.5%, and Claude agrees with itself 75% across blind and informed prompts.
 
 **OWNER DECISION STILL NEEDED: read the vendors' output-use terms before any paid-teacher label is trained on.**
@@ -42,8 +42,12 @@ paid rows. Questions (i)-(iii) of design s.2.4 are still open. Whether even this
 | arm | model (why) | route | requests | result | cost (actual) |
 |---|---|---|---|---|---|
 | B | `claude-opus-5-5`: the current Opus and the design's choice. $4/$20 list, $2/$10 batch | Anthropic Message Batches, effort `low`, structured output = the fleet schema. No server-side fallback, because a fallback model would contaminate the arm | 5 probe + 1,000 blind + 200 informed | 1,205/1,205 succeeded and parsed | **$11.61** (5.27 M in / 107 k out) |
-| C | `gpt-6.1-sol`: newest OpenAI generation, batch $1/$5. `gpt-6-astra` ($5/$25 batch) costs ~5x; the design priced sol | OpenAI Batch | 5 probe | **NOT RUN.** OpenAI answered `400 Billing hard limit has been reached` and `429 You have no credits remaining`. No batch exists, and the reservation was released | $0 |
+| C | `gpt-6.1-sol`: newest OpenAI generation, batch $1/$5. `gpt-6-astra` ($5/$25 batch) costs ~5x; the design priced sol | OpenAI Batch, reasoning_effort `low`, strict json_schema, no fallback | 5 probe + 1,000 blind + 200 informed (10-31, after the owner added credit) | blind 941/1,000 parsed. The other 59 came back EMPTY: reasoning used the whole 4,096-token budget. They count as invalid (the arm's own outcome; no retry). Informed 196/200 | **$4.97** (3.14 M in / 362 k out) |
 
+- **OpenAI strict mode** rejects the fleet schema as written: every property must be in `required` (live 400 on a
+  one-item synchronous check). So `openai_strict_schema` makes the optional `args` fields required-but-nullable, which
+  keeps the grammar enforced, and fetch strips the nulls. The first probe used the old schema; it was cancelled before
+  it ran ($0, recorded `void`). A second probe on the next 5 items passed 5/5 ($0.015).
 - The Claude arm cost far less than the plan ($11.61 vs $26.44 expected for blind + informed). Answers were ~65 tokens
   with very little thinking at effort `low`. The plan assumed 1,500 output tokens per item.
 - Keys stayed on the Mac (mode 600). They were read in-process and never printed, logged or placed on a command line.
@@ -59,17 +63,26 @@ the same weight blob and renderer. Scoring uses the same filters as training (`t
 |---|---|---|---|---|
 | qwen3.8:27b (local) | 100.0 | 4.6 | 14.2 | 84.6 |
 | claude-opus-5-5 (paid) | 100.0 | 4.4 | 10.6 | 87.2 |
+| gpt-6.1-sol (paid) | 94.1 (59 empty) | 3.0 | 9.7 | 83.3 |
 | untuned qwen3.5:9b (reference: the student's base, T=0, think:false, 3090) | 100.0 | 7.0 | 22.5 | 75.8 |
 | the fleet's logged action (positive control) | 100.0 | 16.7 | 100 (by construction) | 13.9 |
 
 | agreement on the pilot | n | same skill | same skill + key arg | skill kappa |
 |---|---|---|---|---|
 | **qwen3.8:27b vs Claude** | 1,000 | **58.9%** | **50.5%** | **0.48** |
+| **qwen3.8:27b vs GPT** | 941 | **59.6%** | **51.4%** | **0.48** |
+| **Claude vs GPT** (paid teachers with each other) | 941 | **72.5%** | **61.4%** | **0.66** |
+| untuned qwen3.5:9b vs GPT | 941 | 38.6% | 27.8% | 0.27 |
 | untuned qwen3.5:9b (the canary model, the student's base) vs Claude | 1,000 | 36.2% | 26.2% | 0.25 |
 | fleet logged action vs Claude (floor) | 990 | 18.5% | 9.5% | 0.10 |
 | Claude informed vs Claude blind (the paid teacher's own consistency) | 200 | 75.0% | 67.0% | 0.69 |
 
-- Both teachers make the same keep/drop call on 85.8% of items. When both keep their answer, the action matches on 55.1%.
+- **`surface` share** of valid answers: qwen3.8:27b 48.5%, Claude 33.1%, GPT 35.4%, qwen3.5:9b 17.8%.
+- The two paid teachers agree with each other (72.5%) clearly more than the local teacher agrees with either (~59%).
+  The local teacher sits between the student's base (36-39%) and the paid pair. Same keep/drop call: Claude-GPT 89.8%,
+  local-Claude 85.8%, local-GPT 86.0%.
+- Hard is a share of VALID answers. GPT's 3.0 is over 941.
+- Local teacher vs Claude: both make the same keep/drop call on 85.8% of items. When both keep their answer, the action matches on 55.1%.
 - Read: the local teacher is far closer to Claude than the student's base is (58.9% vs 36.2%), and far closer than the fleet is, and just as valid (hard 4.6 vs 4.4). It re-chooses
   the failed action somewhat more often (14.2 vs 10.6). It also over-uses `surface`: 485 vs Claude's 331 of 1,000, though
   Claude agrees on 311 of its 485. That over-use shaped the dataset (s.2, the 30% cap).
@@ -265,8 +278,8 @@ Learning-loop unit tests green.
 
 1. **Vendor terms.** Read Anthropic's and OpenAI's output-use terms before any paid-teacher label trains anything.
    Also decide whether the measurement use made here is fine (design s.2.4 questions i-iii).
-2. **OpenAI credit.** The project has no credit (hard limit reached). Top it up if arm C (gpt-6.1-sol) is still wanted:
-   about $6 at this pilot's real token use.
+2. ~~OpenAI credit~~ added by the owner 10-31; arm C ran ($4.97). Its labels are quarantined like Claude's
+   (`~/learnloop/teacher-paid/C/` on the Mac).
 3. **Candidate 2's canary.** Options: release `qwen35c2-01` after its prerequisites (s.7); run a stock qwen3.5:9b-q8_0
    canary first; or neither.
 4. **Uploading the candidate to the Blackwell** (a shared box), which the canary prerequisite needs.
