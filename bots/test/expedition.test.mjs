@@ -142,6 +142,8 @@ await t('the surface read: canopy passed through, a lake is water, unread is nul
   assert.equal(E.surfaceAt(r, 5, 5, 70).y, 70, 'under the canopy')
   assert.equal(E.surfaceAt(r, 25, 0, 70).water, true)
   assert.equal(E.surfaceAt(() => null, 1, 1, 70), null)
+  const trunk = world({ blocks: Object.fromEntries([69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82].map(y => [`3,${y},3`, { name: 'spruce_log', boundingBox: 'block' }])) })
+  assert.deepEqual(E.surfaceAt(trunk, 3, 3, 70, { up: 12, down: 2 }), { none: true }, 'a trunk column: read, but nowhere to stand')
 })
 
 await t('a leg never crosses water: it bends round a lake, and a lake across every bend turns the trip (no bridging)', async () => {
@@ -152,7 +154,8 @@ await t('a leg never crosses water: it bends round a lake, and a lake across eve
   assert.notEqual(lt.bend, 0, 'straight ahead is the lake')
   assert.ok(Math.abs(lt.target.z) > 3, 'the target is off the water')
   const wide = world({ lake: { x0: 5, x1: 60, z0: -60, z1: 60 } })
-  assert.deepEqual(E.legTarget(wide, { pos, home: { x: -100, y: 70, z: 0 }, bearing: 0 }), { ok: false, why: 'water' })
+  const lw = E.legTarget(wide, { pos, home: { x: -100, y: 70, z: 0 }, bearing: 0 })
+  assert.equal(lw.ok, false); assert.equal(lw.why, 'water')
 })
 
 await t('MUTANT KILLED: a line check blind to water would walk the bot into the lake', async () => {
@@ -162,12 +165,21 @@ await t('MUTANT KILLED: a line check blind to water would walk the bot into the 
   })
 })
 
+await t('LIVE 17:40Z: a tree trunk on the line does not close it (only water and zones do)', async () => {
+  const blocks = {}
+  for (let y = 69; y <= 90; y++) blocks[`9,${y},0`] = { name: 'spruce_log', boundingBox: 'block' }
+  const r = world({ blocks })
+  assert.deepEqual(E.lineClear(r, { x: 0, y: 70, z: 0 }, { x: 18, y: 70, z: 0 }), { ok: true })
+  assert.equal(E.legTarget(r, { pos: { x: 40, y: 70, z: 0 }, home: HOME, bearing: 0 }).ok, true)
+})
+
 await t('a protected zone (+8) is never entered by a leg, nor a marker put in it', async () => {
   const zones = [{ id: 'village', box: [30, -64, -40, 140, 90, 40] }]
   const r = world()
   assert.equal(E.zoneHit(zones, 25, 0), 'village', 'the margin')
   assert.equal(E.zoneHit(zones, 21, 0), null)
-  assert.deepEqual(E.legTarget(r, { pos: { x: 10, y: 70, z: 0 }, home: { x: -100, y: 70, z: 0 }, bearing: 0, zones }), { ok: false, why: 'zone' }, 'a village across the bearing turns the trip')
+  const lz = E.legTarget(r, { pos: { x: 10, y: 70, z: 0 }, home: { x: -100, y: 70, z: 0 }, bearing: 0, zones })
+  assert.equal(lz.ok, false); assert.equal(lz.why, 'zone', 'a village across the bearing turns the trip')
   const small = [{ id: 'hut', box: [40, -64, -5, 60, 90, 5] }]
   const lt = E.legTarget(r, { pos: { x: 15, y: 70, z: 0 }, home: { x: -100, y: 70, z: 0 }, bearing: 0, zones: small })
   assert.equal(lt.ok, true)

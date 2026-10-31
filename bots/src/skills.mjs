@@ -17269,16 +17269,20 @@ async function exPlaceMarker (ctx, signal, stand, dir, { zones, trip, me }) {
 async function exGather (ctx, signal, until, zones) {
   const { bot } = ctx
   const read = exReader(bot)
-  let felled = 0, leaves = 0
+  let felled = 0, leaves = 0, trees = 0, digFail = null
+  const rej = {}
   const ids = Object.values(bot.registry?.blocksByName ?? {}).filter(b => /_log$/.test(b.name)).map(b => b.id)
   const lids = Object.values(bot.registry?.blocksByName ?? {}).filter(b => /_leaves$/.test(b.name)).map(b => b.id)
-  const near = (bot.findBlocks?.({ matching: ids, maxDistance: 14, count: 32 }) ?? [])
+  const near = (bot.findBlocks?.({ matching: ids, maxDistance: 20, count: 48 }) ?? [])
   const seen = new Set()
   for (const q of near) {
     if (Date.now() > until - 4_000 || felled >= 8) break
     const tree = naturalTree(read, [q.x, q.y, q.z])
-    if (!tree.ok || seen.has(tree.base.join(',')) || zoneHit(zones, q.x, q.z)) continue
+    if (!tree.ok) { rej[tree.why] = (rej[tree.why] ?? 0) + 1; continue }
+    if (seen.has(tree.base.join(','))) continue
+    if (zoneHit(zones, q.x, q.z)) { rej.zone = (rej.zone ?? 0) + 1; continue }
     seen.add(tree.base.join(','))
+    trees++
     for (const at of tree.logs.slice(0, 4)) {
       if (Date.now() > until - 4_000) break
       const b = bot.blockAt(new Vec3(at[0], at[1], at[2]))
@@ -17286,7 +17290,7 @@ async function exGather (ctx, signal, until, zones) {
       try {
         const wgm = bot.withGatherMovements
         try { bot.withGatherMovements = undefined; await withDigScope(bot, { purpose: 'target', by: 'expedition' }, () => collectManually(bot, b, signal)) } finally { bot.withGatherMovements = wgm }
-      } catch (e) { if (e?.aborted || signal?.aborted) throw e; break }
+      } catch (e) { if (e?.aborted || signal?.aborted) throw e; digFail = String(e?.failClass ?? e?.message ?? e).slice(0, 40); break }
       if (!/_log$/.test(read(at[0], at[1], at[2])?.name ?? '')) felled++
     }
     // leaves in reach (by hand: instant-ish) -- each may drop a sapling
@@ -17303,7 +17307,8 @@ async function exGather (ctx, signal, until, zones) {
     if (e?.name !== 'item' || !e.position || e.position.distanceTo(bot.entity.position) > 8) continue
     try { await goto(ctx, { x: Math.floor(e.position.x), y: Math.floor(e.position.y), z: Math.floor(e.position.z), range: 0 }, signal, { until: Math.min(until, Date.now() + 5_000) }) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
   }
-  return { felled, leaves }
+  const why = Object.entries(rej).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${k}:${v}`).join(',') || '-'
+  return { felled, leaves, logs: near.length, trees, why, digFail }
 }
 /** The haul into the town chests (mats-01's matsBank: nearest container first) -> items banked. */
 async function exDeposit (ctx, signal, haul) {
@@ -17365,6 +17370,10 @@ async function expeditionVisit (ctx, args, signal) {
     const zonesV = townPlanZones(bot)
     if (!zonesV.known) return { status: 'no_effect', detail: 'the protected zones could not be read; no expedition until they are', stop: 'expedition_zones_unknown' }
     const zones = zonesV.zones
+    // markers and felling also keep off every town PROJECT's record (+ PROJECT_GAP, and ZONE_MARGIN on top): LIVE 17:44Z a
+    // marker stood two blocks off the ziggurat's box. The walk itself may cross the town (its gateways), so legs use `zones` only
+    let keepOff = zones
+    try { keepOff = [...zones, ...recordZones(projectHeads().map(x => x.head.rec))] } catch { keepOff = zones }
     const held0 = heldMap(bot)
     // 1. THE KIT: only what the bag lacks, from town (the reserves kept: shop.mjs shopAllow)
     let kit = {}
@@ -17399,7 +17408,7 @@ async function expeditionVisit (ctx, args, signal) {
         dist, ring: trip.ring, elapsedMs: Date.now() - tOut, outMs, legFails })
       if (why) { trip.reason = why; break }
       const lt = legTarget(read, { pos: p, home, bearing: trip.bearing, markers, zones })
-      if (!lt.ok) { trip.reason = lt.why === 'inward' ? 'blocked' : lt.why; break }
+      if (!lt.ok) { trip.reason = lt.why === 'inward' ? 'blocked' : lt.why; trip.whys = lt.whys ?? null; break }
       const before = p.clone()
       try { await goto(ctx, { ...lt.target, range: 2 }, signal, { until: Math.min(tOut + outMs, Date.now() + 30_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       const after = bot.entity.position
@@ -17410,20 +17419,20 @@ async function expeditionVisit (ctx, args, signal) {
       if (crumbDue(trip.crumbs, cell, read)) trip.crumbs.push(cell)
       sinceMarker += moved
       if (EXPEDITION.markers && markerDue({ pos: after, home, sinceLast: sinceMarker, markers }) && standableAt(read, cell)) {
-        const m = await exPlaceMarker(ctx, signal, cell, dirV, { zones, trip, me })
+        const m = await exPlaceMarker(ctx, signal, cell, dirV, { zones: keepOff, trip, me })
         if (m && !m.partial) { markers.push(m); trip.markers++; sinceMarker = 0 } else sinceMarker = MARKER_EVERY - 8
       }
       exWrite(me, st)
     }
     const outTook = Date.now() - tOut
     // 3. GATHER at the turn (never on a danger turn, never in town, only with the way back's time spared)
-    let g = { felled: 0, leaves: 0 }
+    let g = { felled: 0, leaves: 0, logs: '-', trees: '-', why: 'not_run', digFail: null }
     const spare = deadline - Date.now() - Math.max(20_000, outTook * 1.2)
     const pT = bot.entity.position
     if (!['health', 'food', 'night', 'died', 'bag_full'].includes(trip.reason) && Math.hypot(pT.x - home.x, pT.z - home.z) >= MARKER_MIN_HOME + 16 && spare >= 8_000) {
-      g = await exGather(ctx, signal, Date.now() + Math.min(GATHER_MS, spare), zones)
+      g = await exGather(ctx, signal, Date.now() + Math.min(GATHER_MS, spare), keepOff)
     }
-    exRow(bot, 'turn', `trip=${trip.id} reason=${trip.reason} dist=${Math.round(trip.dist)} crumbs=${trip.crumbs.length} markers=${trip.markers} reused=${trip.reused} felled=${g.felled} leaves=${g.leaves}`)
+    exRow(bot, 'turn', `trip=${trip.id} reason=${trip.reason}${trip.whys ? `(${trip.whys})` : ''} dist=${Math.round(trip.dist)} crumbs=${trip.crumbs.length} markers=${trip.markers} reused=${trip.reused} felled=${g.felled} leaves=${g.leaves} logs_seen=${g.logs} trees=${g.trees} rej=${g.why}${g.digFail ? ` dig=${g.digFail}` : ''}`)
     // 4. BACK over the crumbs
     const r = await exFollowHome(ctx, signal, trip, deadline - 5_000, markers, () => exWrite(me, st))
     // 5. THE HAUL, banked now or next call
