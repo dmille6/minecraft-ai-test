@@ -13,7 +13,7 @@
 import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { walkBack, walkMoves, declineDecision, boundDecide, makeFreeRing, inwallDecision, suffocates, makeHealthTrend,
-         tombexitOn, inwallOn, tombexitModeDetail, MAX_NODES, BOUND_N, RING_MS, INWALL_DROP_HP, inwallDigMs, lavaOver,
+         tombexitOn, inwallOn, tombexitModeDetail, inwallBackoffMs, INWALL_MAX_DIGS, MAX_NODES, BOUND_N, RING_MS, INWALL_DROP_HP, inwallDigMs, lavaOver,
          floorOk } from '../src/tombexit.mjs'
 
 let pass = 0, fail = 0
@@ -240,6 +240,14 @@ await t('C7 (Codex r1) the dig deadline follows mineflayer\'s dig time: bare-han
   assert.strictEqual(inwallDigMs(null), 9500)
   assert.strictEqual(inwallDigMs(10 ** 6), 30_000)
   assert.strictEqual(lavaOver({ name: 'lava' }), true); assert.strictEqual(lavaOver({ name: 'stone' }), false); assert.strictEqual(lavaOver(null), false)
+})
+await t('C8 (Paper IW-G5) a refilling column retries at once; only a cell nothing could dig backs off; the cap covers a tall column', () => {
+  assert.ok(INWALL_MAX_DIGS >= 8)
+  const short = inwallBackoffMs({ stopped: 'freed' })
+  assert.strictEqual(inwallBackoffMs({ stopped: 'still in gravel after 16 digs', digsDone: 16 }), short)
+  assert.ok(inwallBackoffMs({ stopped: 'bedrock cannot be dug', digsDone: 0 }) > short)
+  assert.ok(inwallBackoffMs({ stopped: 'lava over sand: not opened', digsDone: 0 }) > short)
+  assert.ok(inwallBackoffMs({ stopped: 'dig failed on stone: dig exceeded', digsDone: 0 }) > short)
 })
 await t('C6 switches: TOMBEXIT=0 turns both parts off; TOMBEXIT_INWALL=0 only the dig; default on', () => {
   assert.strictEqual(tombexitOn({}), true); assert.strictEqual(inwallOn({}), true)

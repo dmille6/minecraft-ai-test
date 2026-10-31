@@ -58,8 +58,8 @@ import { MAX_DIG_MS } from './digbudget.mjs'
 import { lavastepOn } from './lavastep.mjs'
 // tombexit-01 (F2 of the mineshaft-safety design + the in-wall dig): the entombed arm fires only with no walk back
 import { tombexitOn, inwallOn, makeFreeRing, declineDecision, inwallDecision, makeHealthTrend, suffocates,
-         INWALL_MAX_DIGS, INWALL_RETRY_MS, INWALL_UNSEEN_ROW_MS, INWALL_TREND_MS, INWALL_FAIL_BACKOFF_MS,
-         inwallDigMs, lavaOver } from './tombexit.mjs'
+         INWALL_MAX_DIGS, INWALL_UNSEEN_ROW_MS, INWALL_TREND_MS,
+         inwallDigMs, lavaOver, inwallBackoffMs } from './tombexit.mjs'
 import { makeDangerMover } from './lavastepmove.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, plugSamePlace, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
@@ -1578,7 +1578,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     finally {
       giveBody(runner, grant, 'inwall done')
       inwalling = false
-      inwallNextAt = Date.now() + (stopped === 'freed' ? INWALL_RETRY_MS : INWALL_FAIL_BACKOFF_MS)
+      inwallNextAt = Date.now() + inwallBackoffMs({ stopped, digsDone: digs })
+      // the trend still holds the readings from inside the wall: without this, `_inwall_unseen` fired 2 s after a
+      // successful dig (Paper 10-31 IW-G, IW-2H)
+      healthTrend.clear()
       try {
         logEvent({ kind: 'inwall', status: stopped === 'freed' ? 'success' : 'failed', snapshot: snapshot(bot),
                    detail: `at=${at0} ${why} digs=${digs} blocks=${names.join('/') || '-'} hp=${hp0}->${bot.health} -- ${stopped}`,
