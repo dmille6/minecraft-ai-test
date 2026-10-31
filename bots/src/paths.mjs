@@ -50,7 +50,7 @@ export const PATH_PALETTE = Object.freeze({
 /** Ground a shovel's use turns into dirt_path (vanilla ShovelItem's flattenables). */
 export const FLATTENABLE = /^(grass_block|dirt|coarse_dirt|podzol|mycelium|rooted_dirt)$/
 /** Ground that is neither flattenable nor path-looking: dug out of the cell (buildrun.mjs foreignKind) and paved with cobblestone. */
-export const PATH_FOREIGN = /^(sand|red_sand|suspicious_sand|clay|mud|packed_mud|snow_block|powder_snow|moss_block|ice|packed_ice|blue_ice|soul_sand|soul_soil|calcite|dripstone_block|smooth_basalt|netherrack|red_sandstone|terracotta|[a-z_]+_terracotta|muddy_mangrove_roots|[a-z_]*_ore|raw_[a-z]+_block)$/
+export const PATH_FOREIGN = /^(sand|red_sand|suspicious_sand|clay|mud|packed_mud|snow_block|powder_snow|moss_block|packed_ice|blue_ice|soul_sand|soul_soil|calcite|dripstone_block|smooth_basalt|netherrack|red_sandstone|terracotta|[a-z_]+_terracotta|muddy_mangrove_roots|[a-z_]*_ore|raw_[a-z]+_block)$/
 const DONE = new Set(PATH_PALETTE.path)
 const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 const LEAVES = /_leaves$/
@@ -77,6 +77,9 @@ export function pathColumn (read, x, z, { yHi, yLo }) {
     if (!b) return { y: null, name: null, why: 'unknown', above }
     const n = nm(b)
     if (isLiquid(b) || String(b.name ?? '').includes('waterlogged')) return { y: null, name: n, why: 'water', above }
+    // zigfleet-02 (Codex + Claude, the fleet's frozen towns): ordinary ice is WATER -- broken without silk touch it leaves a
+    // source block, which no path or wall cell can take (packed_ice / blue_ice never melt and stay ground)
+    if (n === 'ice') return { y: null, name: n, why: 'water', above }
     if (AIRN(n)) continue
     if (PLANT.test(n) || replaceableCell(b)) { above.push({ y, name: n, kind: 'plant' }); continue }
     if (LEAVES.test(n)) { above.push({ y, name: n, kind: 'leaves' }); continue }
