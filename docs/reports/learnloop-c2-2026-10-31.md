@@ -59,17 +59,18 @@ the same weight blob and renderer. Scoring uses the same filters as training (`t
 |---|---|---|---|---|
 | qwen3.8:27b (local) | 100.0 | 4.6 | 14.2 | 84.6 |
 | claude-opus-5-5 (paid) | 100.0 | 4.4 | 10.6 | 87.2 |
+| untuned qwen3.5:9b (reference: the student's base, T=0, think:false, 3090) | 100.0 | 7.0 | 22.5 | 75.8 |
 | the fleet's logged action (positive control) | 100.0 | 16.7 | 100 (by construction) | 13.9 |
 
 | agreement on the pilot | n | same skill | same skill + key arg | skill kappa |
 |---|---|---|---|---|
 | **qwen3.8:27b vs Claude** | 1,000 | **58.9%** | **50.5%** | **0.48** |
-| untuned qwen3.5:9b (the canary model) vs Claude | PILOTREF | | | |
+| untuned qwen3.5:9b (the canary model, the student's base) vs Claude | 1,000 | 36.2% | 26.2% | 0.25 |
 | fleet logged action vs Claude (floor) | 990 | 18.5% | 9.5% | 0.10 |
 | Claude informed vs Claude blind (the paid teacher's own consistency) | 200 | 75.0% | 67.0% | 0.69 |
 
 - Both teachers make the same keep/drop call on 85.8% of items. When both keep their answer, the action matches on 55.1%.
-- Read: the local teacher is far closer to Claude than the fleet is, and just as valid (hard 4.6 vs 4.4). It re-chooses
+- Read: the local teacher is far closer to Claude than the student's base is (58.9% vs 36.2%), and far closer than the fleet is, and just as valid (hard 4.6 vs 4.4). It re-chooses
   the failed action somewhat more often (14.2 vs 10.6). It also over-uses `surface`: 485 vs Claude's 331 of 1,000, though
   Claude agrees on 311 of its 485. That over-use shaped the dataset (s.2, the 30% cap).
 
@@ -281,9 +282,9 @@ Learning-loop unit tests green.
 - **.16 `~/learnloop-train/`:** `runs/c2-01/` (lora, merged-16bit, GGUF bf16 sha 870196b0..., metrics, peft_probe) and
   `runs/base-qwen35-9b/`. Ollama models on the 3090: `cand-qwen35-9b-c2-q8` (eb0a1779b6b7), `cand-qwen35-9b-c2-bf16`
   (ee7b881747ec), `qwen35-9b-baseconv-q8` (0183a2f2850d).
-  - The 3090's Ollama is left running and enabled-state unchanged (disabled), with the eval override NUM_PARALLEL=2. No
-    bot points at it: 80/80 environ checked at 06:00Z (70 on .72, 10 qwen35-01 canary bots on the Blackwell, 0 on .16).
-    ethan-gpu was never touched.
+  - The 3090's Ollama is back as I found it: stopped and disabled, with its override at NUM_PARALLEL=2 (temporarily 1
+    while the 27B teacher ran). No bot points at it: 80/80 environ checked at 06:00Z (70 on .72, 10 qwen35-01 canary
+    bots on the Blackwell, 0 on .16). ethan-gpu was never touched.
 - **Mac:** `~/learnloop/spend.jsonl` (ledger), `~/learnloop/teacher-paid/B/` (quarantined Claude answers),
   `~/learnloop/c2/pilot-agreement.json`.
 - **Code:** `scripts/learnloop/build_clean.py`, `teacher/pilot_agreement.py`, `train/{train_sft.py, run_c2.sh,
