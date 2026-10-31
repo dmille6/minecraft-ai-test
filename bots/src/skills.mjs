@@ -17554,6 +17554,16 @@ async function expeditionVisit (ctx, args, signal) {
   const onDeath = () => { died = true }
   try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
   const trip = { id: `${me}-${Date.now().toString(36)}`, startedAt: Date.now(), open: true, crumbs: [], markers: 0, reused: 0, dist: 0, reason: null }
+  // THE PLACE IS CLAIMED BEFORE ANYTHING ELSE (Codex r2 BLOCK 3): the open trip is published with the slot, then the count of
+  // OTHER open trips is read again -- two bots racing for the last place both see each other and both stand down
+  st.trip = trip
+  exWrite(me, st)
+  if (exOutstanding(me) >= EXPEDITION_SLOTS) {
+    trip.open = false; exWrite(me, st)
+    releaseLease(dir, exKey(), `slot${slot.slot}`, me, slot.gen)
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    return { status: 'no_effect', detail: 'two bots are already out', stop: 'expedition_slots_full' }
+  }
   try {
     const zonesV = townPlanZones(bot)
     if (!zonesV.known) return { status: 'no_effect', detail: 'the protected zones could not be read; no expedition until they are', stop: 'expedition_zones_unknown' }
@@ -17569,7 +17579,6 @@ async function expeditionVisit (ctx, args, signal) {
     const b = tripBearing(trips, Date.now())
     if (b.bearing == null) return { status: 'no_effect', detail: 'every bearing is blocked by water or a zone for today', stop: 'expedition_no_bearing' }
     Object.assign(trip, { bearing: b.bearing, ring: ringOf(trips, Date.now()), reuse: b.reuse })
-    st.trip = trip
     exWrite(me, st)
     const read = exReader(bot)
     const markers = exMarkers()
@@ -17637,6 +17646,8 @@ async function expeditionVisit (ctx, args, signal) {
     try { exWrite(me, st) } catch { /* the file */ }
     return { status: 'failed', failClass: 'other', detail: String(e?.message ?? e).slice(0, 100), stop: 'expedition_error' }
   } finally {
+    // a try that never left (no crumb: zones unread, no bearing) is not out
+    if (trip.open && !trip.crumbs.length) { trip.open = false; try { exWrite(me, st) } catch { /* the file */ } }
     if (slot.ok) releaseLease(dir, exKey(), `slot${slot.slot}`, me, slot.gen)
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
   }
