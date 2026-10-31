@@ -176,6 +176,14 @@ await t('a protected zone (+8) is never entered by a leg, nor a marker put in it
   assert.equal(E.markerSpot(r, [30, 70, 0], { dx: 1, dz: 0 }, { zones }), null)
 })
 
+await t('LIVE 17:20Z: a bot west of home on an east bearing walks out along the spoke (it is not "inward")', async () => {
+  const lt = E.legTarget(world(), { pos: { x: -11.6, y: 71, z: 1.5 }, home: HOME, bearing: 0 })
+  assert.equal(lt.ok, true, lt.why)
+  assert.ok(lt.target.x >= 55 && Math.abs(lt.target.z) <= 1, `on the spoke, past the town: ${JSON.stringify(lt.target)}`)
+  const lt2 = E.legTarget(world(), { pos: { x: 40.5, y: 70, z: 6 }, home: HOME, bearing: 0 })
+  assert.ok(lt2.target.x >= 60 && Math.abs(lt2.target.z) <= 1, 'drifted off the spoke: back onto it')
+})
+
 await t('a known marker on the way is walked to (reuse) instead of a fresh cell', async () => {
   const r = world()
   const m = { at: [62, 70, 2], approach: [61, 70, 1] }

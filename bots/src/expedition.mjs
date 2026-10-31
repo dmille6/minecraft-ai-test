@@ -29,6 +29,7 @@ export const BEARINGS = 8
 export const RING_MIN = 100                     // short trips (owner: start well inside the 1,200 cap)
 export const RING_MAX = 300
 export const RING_STEP = 25
+export const TOWN_EXIT = 36                     // the first leg's target is this + LEG_STEP out on the spoke: past the wall, not among the buildings
 export const LEG_STEP = 20                      // blocks per outbound leg (inside view distance: the target chunk is loaded)
 export const CRUMB_MIN = 8                      // a breadcrumb at least this far from the last one
 export const CRUMB_HOP_MAX = 28                 // the return never plans a hop longer than this
@@ -194,7 +195,8 @@ export function lineClear (read, from, to, { zones = [], every = 3 } = {}) {
 const BENDS = [0, 25, -25, 50, -50]
 /**
  * THE NEXT OUTBOUND LEG -> { ok, target: {x, y, z}, via: 'marker'|'bearing', bend } | { ok: false, why }. Pure.
- * The ideal point is LEG_STEP along the bearing from the bot. A known marker within MARKER_REUSE_R of it, further from home
+ * The ideal point is on the bearing's SPOKE FROM HOME, LEG_STEP past the bot's own distance along it (LIVE showcase 10-31 17:20Z:
+ * aimed from the bot, a bot standing west of home on an east bearing read every target as inward and turned at 12 blocks). A known marker within MARKER_REUSE_R of it, further from home
  * than the bot by >= LEG_STEP / 2, is walked to instead (its approach cell: a cell a bot stood on). Otherwise the bearing,
  * then bends of +-25 and +-50 degrees, the first whose line is clear and whose end is a dry standable cell. All refused: the
  * most telling refusal (water before zone before unread).
@@ -203,7 +205,11 @@ export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers 
   const dHome = p => Math.hypot(p.x - home.x, p.z - home.z)
   const here = dHome(pos)
   const v0 = bearingVec(bearing)
-  const ideal = { x: pos.x + v0.dx * step, z: pos.z + v0.dz * step }
+  // ...and never a target inside the town (LIVE 17:20Z: Haven's first 20-block leg aimed among the buildings, stuck 35 s): the
+  // first leg goes TOWN_EXIT + step out, and the pathfinder finds the way through the town and its wall's gateways
+  const along = Math.max(TOWN_EXIT, (pos.x - home.x) * v0.dx + (pos.z - home.z) * v0.dz) + step
+  const spoke = off => ({ x: home.x + v0.dx * along - v0.dz * off, z: home.z + v0.dz * along + v0.dx * off })
+  const ideal = spoke(0)
   const near = k => Math.hypot(k.approach[0] - ideal.x, k.approach[2] - ideal.z)
   const m = (markers ?? [])
     .filter(k => Array.isArray(k?.approach) && near(k) <= MARKER_REUSE_R && dHome({ x: k.approach[0], z: k.approach[2] }) >= here + step / 2)
@@ -214,8 +220,8 @@ export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers 
   }
   const whys = []
   for (const bend of BENDS) {
-    const v = bearingVec(bearing, bend)
-    const x = Math.floor(pos.x + v.dx * step), z = Math.floor(pos.z + v.dz * step)
+    const q = spoke(Math.tan(bend * Math.PI / 180) * step)
+    const x = Math.floor(q.x), z = Math.floor(q.z)
     if (dHome({ x, z }) <= here + step / 3) { whys.push('inward'); continue }
     const lc = lineClear(read, pos, { x, z, y: pos.y }, { zones })
     if (!lc.ok) { whys.push(lc.why); continue }
