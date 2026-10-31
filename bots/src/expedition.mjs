@@ -150,16 +150,20 @@ const passable = b => !!b && !solid(b) && !liquid(b)
  */
 export function surfaceAt (read, x, z, yHint, { up = 12, down = 20 } = {}) {
   const top = Math.floor(yHint) + up
+  let ground = false
   for (let y = top; y >= Math.floor(yHint) - down; y--) {
     const b = read(x, y, z)
     if (b == null) return null
     if (liquid(b)) return { water: true, y }
     if (!solid(b)) continue
     if (CANOPY.test(b.name ?? '')) continue
+    ground = true
     const a1 = read(x, y + 1, z), a2 = read(x, y + 2, z)
     if (passable(a1) && passable(a2)) return { y: y + 1, ground: b.name, water: false }
   }
-  return { none: true }
+  // read, nowhere to stand: OBSTRUCTED when the scan met ground under something (a trunk on its soil, a wall); an all-air column is
+  // a DROP whose bottom (water, perhaps) lies below the window (Codex r7 BLOCK: a ravine over water read as "none")
+  return { none: true, obstructed: ground }
 }
 
 /** Is (x, z) inside a protected zone grown by `margin` (zones: [{ box: [x0,y0,z0,x1,y1,z1] }] or {x0..z1})? -> id | null. Pure. */
@@ -173,7 +177,7 @@ export function zoneHit (zones = [], x, z, margin = ZONE_MARGIN) {
 }
 
 /**
- * THE STRAIGHT LINE OF A LEG, SAMPLED -> { ok } | { ok: false, why: 'water'|'zone'|'unread', at }. Pure. Every `every` blocks from
+ * THE STRAIGHT LINE OF A LEG, SAMPLED -> { ok } | { ok: false, why: 'water'|'zone'|'unread'|'drop', at }. Pure. Every `every` blocks from
  * `from` to `to` (x/z), the column's surface is read: a water column is a crossing (no bridging, owner 10-27: the trip turns or
  * bends instead); a protected zone (+ margin) is never entered; an unread column (outside the loaded chunks) is refused.
  */
@@ -190,7 +194,8 @@ export function lineClear (read, from, to, { zones = [], every = 3 } = {}) {
     if (s.water) return { ok: false, why: 'water', at: [x, z] }
     // a column with no standable cell (a trunk, a wall: LIVE 17:40Z, every spruce on the line read as "unread") is the
     // pathfinder's to walk round -- only water and zones close a line
-    if (s.none) continue
+    if (s.none && s.obstructed) continue
+    if (s.none) return { ok: false, why: 'drop', at: [x, z] }
     y = s.y
   }
   return { ok: true }
@@ -233,7 +238,7 @@ export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers 
     if (!s || s.water || s.none) { whys.push(s?.water ? 'water' : s?.none ? 'steep' : 'unread'); continue }
     return { ok: true, target: { x, y: s.y, z }, via: 'bearing', bend }
   }
-  const why = ['water', 'zone', 'unread', 'steep', 'inward'].find(w => whys.includes(w)) ?? 'blocked'
+  const why = ['water', 'zone', 'drop', 'unread', 'steep', 'inward'].find(w => whys.includes(w)) ?? 'blocked'
   return { ok: false, why, whys: whys.join('/') }
 }
 
