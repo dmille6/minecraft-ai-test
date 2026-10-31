@@ -292,6 +292,28 @@ await t('THE WIRING: the harvest withholds collectManually\'s dig-approach; comp
   assert.ok(/\} finally \{ bot\.withGatherMovements = wgm \}/.test(src), 'restored on every exit')
   assert.strictEqual(src.split('!siteTreesLeft(read, rec).length && !cutsLeft(read, rec).length) {').length, 2)
 })
+await t('R2 A SITE TREE NO BOT CAN FELL is waived on the third failure not on the clock; a waived tree no longer holds the farm open', () => {
+  const fails = new Map()
+  const rec = { trees: [{ base: [1, 70, 1], logs: [[1, 70, 1], [1, 74, 1]] }], cells: [] }
+  assert.strictEqual(F.siteTreeWaive(fails, 'site:1,70,1', 'deadline', rec), false)
+  assert.strictEqual(F.siteTreeWaive(fails, 'site:1,70,1', 'deadline', rec), false, 'the clock never counts')
+  assert.strictEqual(F.siteTreeWaive(fails, 'site:1,70,1', 'no_safe_target', rec), false)
+  assert.strictEqual(F.siteTreeWaive(fails, 'site:1,70,1', 'no_safe_target', rec), false)
+  assert.strictEqual(F.siteTreeWaive(fails, 'site:1,70,1', 'no_safe_target', rec), true, 'the third')
+  assert.strictEqual(F.siteTreeWaive(new Map([['plot:1,70,1', 9]]), 'plot:1,70,1', 'x', rec), false, 'a grown plot is never waived')
+  const full = { waived: Object.fromEntries([1, 2, 3, 4].map(i => [`site:${i},0,0`, {}])) }
+  assert.strictEqual(F.siteTreeWaive(new Map([['site:9,9,9', 5]]), 'site:9,9,9', 'x', full), false, 'at most SITE_WAIVE_MAX')
+  const srv = server({ '1,70,1': 'spruce_log', '1,74,1': 'spruce_log' })
+  assert.strictEqual(F.siteTreesLeft(srv.read, rec).length, 1)
+  assert.strictEqual(F.siteTreesLeft(srv.read, { ...rec, waived: { 'site:1,70,1': { why: 'no_safe_target' } } }).length, 0)
+  assert.deepStrictEqual([...F.treeHeldCols(F.siteTreesLeft(srv.read, rec))].sort(), ['0,0', '0,1', '0,2', '1,0', '1,1', '1,2', '2,0', '2,1', '2,2'])
+})
+await t('R2 WIRING: the build leaves a standing site tree\'s columns (cells and clears) to its felling; a waiver ends the visit on the new head', () => {
+  const src = readFileSync(SKILLS_PATH, 'utf8').split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n')
+  assert.ok(/const near = treeHeldCols\(standing\)\n\s*const vrec = near\.size \? \{ \.\.\.rec, cells: rec\.cells\.filter\(q => !near\.has/.test(src))
+  assert.ok(/if \(siteTreeWaive\(\(bot\.farmFails \?\?= new Map\(\)\), t\.key, why,/.test(src))
+  assert.ok(/if \(hv\.waived\) return out\(/.test(src))
+})
 await t('THE PLANTING STOCK: with the farm on, the peaceful kit\'s composter keeps the farm species\' saplings (spruce kept 16); off, it composts them', async () => {
   const C = await import('../src/composter.mjs')
   const bag = [{ name: 'spruce_sapling', count: 20 }, { name: 'jungle_sapling', count: 5 }]

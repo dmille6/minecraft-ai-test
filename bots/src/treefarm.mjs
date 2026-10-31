@@ -415,11 +415,31 @@ export function farmCensus (read, rec) {
 export function siteTreesLeft (read, rec) {
   const out = []
   for (const t of rec?.trees ?? []) {
+    if (rec?.waived?.[`site:${t.base.join(',')}`]) continue          // r2: a site tree no bot could fell (siteTreeWaive)
     const logs = (t.logs ?? []).filter(p => { const b = read(...p); return !b || LOG.test(nm(b)) })
     if (logs.length) out.push({ base: t.base, logs })
   }
   return out
 }
+/**
+ * R2 (LIVE showcase 10-31 14:44Z, the first hour): A SITE TREE NO BOT CAN FELL -- a floating log the gather's dig guard refuses
+ * (`no_safe_target`) -- would keep the farm open for ever. A bot that failed one SITE_WAIVE_AFTER times, for a reason other than
+ * its visit's clock (`deadline`: the next visit goes on), names it WAIVED on the record (op=waived); siteTreesLeft then passes
+ * it. Bounded: at most SITE_WAIVE_MAX waivers a record. -> true when this failure makes the waiver due. Pure over `fails` (Map
+ * key -> n, the bot's own, mutated).
+ */
+export const SITE_WAIVE_AFTER = 3
+export const SITE_WAIVE_MAX = 4
+export function siteTreeWaive (fails, key, why, rec = null) {
+  if (!fails || !String(key).startsWith('site:') || why === 'deadline') return false
+  const n = (fails.get(key) ?? 0) + 1
+  fails.set(key, n)
+  return n >= SITE_WAIVE_AFTER && !rec?.waived?.[key] && Object.keys(rec?.waived ?? {}).length < SITE_WAIVE_MAX
+}
+/** THE COLUMNS A STANDING SITE TREE HOLDS (its logs' columns + 1): the build's record cells and clears there wait for its felling
+ *  (r2, LIVE 14:50Z: two floor cells in the pit under a 2-wide trunk had no stand, were deferred three visits and stamped the
+ *  project stuck_on_cell; a cut under a trunk would float it). -> Set "x,z". Pure. */
+export const treeHeldCols = standing => new Set((standing ?? []).flatMap(t => t.logs.flatMap(p => [-1, 0, 1].flatMap(dx => [-1, 0, 1].map(dz => `${p[0] + dx},${p[2] + dz}`)))))
 /**
  * ONE PLOT'S HARVEST -> [[x, y, z], ...] in dig order: the trunk's logs straight up the plot column from one above the plot
  * cell (lowest first, at most trunkMax), then the stump (the plot cell) LAST -- the stump is the stance the upper logs are dug

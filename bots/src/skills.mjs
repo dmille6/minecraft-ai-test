@@ -124,7 +124,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
-import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft } from './treefarm.mjs'   // treefarm-04
+import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg, STUCK_FORGET_MS as BUILD_STUCK_FORGET_MS } from './buildrun.mjs'
@@ -17894,16 +17894,16 @@ async function farmHarvest (ctx, rec, { dir, key, me, deadline, signal, log }) {
   const { bot } = ctx
   const read = farmRead(bot)
   const skipM = (bot.farmSkip ??= new Map())
-  const out = { felled: 0, trees: 0, failed: 0 }
+  const out = { felled: 0, trees: 0, failed: 0, waived: 0 }
   for (const t of harvestList(read, rec, { skip: farmSkipOf(bot) })) {
-    if (Date.now() > deadline - 90_000) break
+    if (Date.now() > deadline - 45_000) break                        // r2: the stair of a 180 s visit gave the harvest one minute
     const lease = projTakeLease(dir, key, 'seg-harvest', me, { now: Date.now() })
     if (!lease.ok) break                                             // another bot is felling: the build goes on
     let n = 0, why = null
     try {
       for (const at of t.order) {
         check(signal)
-        if (Date.now() > deadline - 60_000) { why = 'deadline'; break }
+        if (Date.now() > deadline - 25_000) { why = 'deadline'; break }
         const b = bot.blockAt(new Vec3(at[0], at[1], at[2]))
         if (!b || !/_log$/.test(b.name)) continue                    // already down (another bot, a gather)
         const name = b.name
@@ -17932,6 +17932,13 @@ async function farmHarvest (ctx, rec, { dir, key, me, deadline, signal, log }) {
       out.failed++
       skipM.set(t.key, Date.now() + FARM_SKIP_MS)
       log(harvestRow({ cell: t.order[0], block: 'log', kind: `${t.kind}_failed`, n, why }))
+      // r2: a site tree this bot failed SITE_WAIVE_AFTER times (not on the clock) is waived on the record (treefarm.mjs siteTreeWaive)
+      try {
+        if (siteTreeWaive((bot.farmFails ??= new Map()), t.key, why, recordHead(dir, key).head?.rec ?? rec)) {
+          const pub = publishRecord(dir, key, cur => (cur && !cur.waived?.[t.key] ? { ...cur, waived: { ...(cur.waived ?? {}), [t.key]: { why: String(why).slice(0, 40), at: Date.now(), by: me } } } : null), { by: me })
+          if (pub.result === 'accepted') { out.waived++; log({ project: TREEFARM_PLOT, op: 'waived', cell: t.order[0], kind: 'site', why: String(why).slice(0, 40), gen: pub.gen }) }
+        }
+      } catch { /* counted again next time */ }
     } else out.trees++
   }
   return out
@@ -17995,6 +18002,8 @@ async function buildTreeFarm (ctx, args, signal) {
     // 1. THE HARVEST: the site trees, then the grown plots (the logs are banked at the end)
     const hv = await farmHarvest(ctx, rec, { dir, key, me, deadline: t0 + budget - ZIG_VISIT_TAIL_MS, signal, log: rowLog })
     check(signal)
+    // r2: a waiver changed the record's generation -- the build runs on the new head next visit (runVisit fences on the generation)
+    if (hv.waived) return out(hv.felled ? 'success' : 'no_effect', 'waived', `waived ${hv.waived} site tree(s) no bot can fell; felled ${hv.felled} logs`, { stop: 'waived', cleared: hv.felled, slot: slot.slot, gen: rh.head.gen })
     // 2. THE BUILD: the floor, the soil, the saplings, the lights (runVisit). A clear within a column of a site tree still standing
     // waits for its felling (a cut under a trunk would float it)
     let dr = drawnRead(dir, key, me)
@@ -18007,8 +18016,8 @@ async function buildTreeFarm (ctx, args, signal) {
     const keep = townKeeps(ownCounts(heldB, drawn0), { wanted: bot.currentWants ?? [] }).keep
     const spare0 = Object.fromEntries(Object.entries(heldB).map(([n, k]) => [n, Math.max(0, k - (keep[n] ?? 0))]))
     const standing = siteTreesLeft(read, rec)
-    const near = new Set(standing.flatMap(t => t.logs.flatMap(p => [-1, 0, 1].flatMap(dx => [-1, 0, 1].map(dz => `${p[0] + dx},${p[2] + dz}`)))))
-    const vrec = near.size ? { ...rec, clear: (rec.clear ?? []).filter(q => !near.has(`${q.at[0]},${q.at[2]}`)) } : rec
+    const near = treeHeldCols(standing)
+    const vrec = near.size ? { ...rec, cells: rec.cells.filter(q => !near.has(`${q.at[0]},${q.at[2]}`)), clear: (rec.clear ?? []).filter(q => !near.has(`${q.at[0]},${q.at[2]}`)) } : rec
     const done = (b, pal, role) => buildCellDone(b, pal, role) || (role === 'plot' && /_log$/.test(String(b?.name ?? '')))
     const town = matsTownStock(bot)?.stock ?? {}
     const bill = billOf(vrec, palette, read, { done, inTown: billInTown(town) })
