@@ -72,7 +72,14 @@ const segDist2D = (p, a, b) => {
   const vx = b.x - a.x, vz = b.z - a.z
   const L = vx * vx + vz * vz
   const u = L > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.z - a.z) * vz) / L)) : 0
-  if (u * Math.sqrt(L) < LINE_SKIP) return Infinity
+  if (u * Math.sqrt(L) < LINE_SKIP) {
+    // NEAR THE BOT, ONLY WHAT IS AHEAD (Codex r2 blocker: a plain skip let a bot face lava 1.5 blocks in front of it and
+    // head for a sighting behind it): lava within LINE_SKIP blocks the bearing when it lies inside a 45-degree cone around
+    // it, and stands aside for every other bearing
+    const wx = p.x - a.x, wz = p.z - a.z, w = Math.hypot(wx, wz), l = Math.sqrt(L)
+    if (w === 0 || l === 0) return 0
+    return (wx * vx + wz * vz) / (w * l) >= Math.SQRT1_2 ? 0 : Infinity
+  }
   return Math.hypot(a.x + u * vx - p.x, a.z + u * vz - p.z)
 }
 
