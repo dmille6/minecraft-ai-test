@@ -13,7 +13,7 @@ on the canary host; `sudo /srv/showcase/bin/showcase_ops.py status` on the showc
 | **Showcase release** | `a50a6782` (pathsclose-01show) on `3fcc9449` (zigtidy-02show) on `f72cec58` (voidfill) on `2ece6abb` (coalsite + stuckwait) on `3f02eb0e` (coal stack) on `b2cea773` (wall r5). Ziggurat COMPLETE 4889/4889 (voidfill 22:27Z), treads tidied 23:25Z+. Paths COMPLETE 263/263 (00:14Z). Wall building but in a 6 h stuck back-off (Gale 23:17Z, cells 35,68,6 / 34,69,4) -> fix in progress. Start gate red: brain replay feed 10 of 50 prompts (running bots unaffected; `start-bots.sh` would refuse). Rollback: activate the previous release id |
 | **Death breaker** | ARMED 10-28 18:12Z: `mcai-tripper.timer` (5 min, `--apply`) on .31 from `/srv/mcai-tripper-armed`; alerts via ntfy |
 | **Pending owner decisions** | Vendor terms before any Claude/GPT teacher labels are trained on (learning loop; labels are evaluation-only until then); release or not of the HELD `qwen35c2-01` (learning-loop candidate 2); OpenAI credit for the GPT teacher arm. Escape digs through project cells (`reflex.mjs`, tier 3): guard not built, owner undecided |
-| **Open alarms** | The digest's quick-status line is broken (`/tmp/quickstatus.py` missing). Fleet stuck workshops: board-d, hive-d, isolated-b (one open project each, so stuckwait does not help) |
+| **Open alarms** | (10-31 audit closed: quick status, showcase rollout 0/10, timelapse `.staging`, lavamap retired, idle-slot alarm added.) Fleet stuck workshops: board-d, hive-d, isolated-b (one open project each, so stuckwait does not help) |
 
 ## In flight (fun mode)
 
