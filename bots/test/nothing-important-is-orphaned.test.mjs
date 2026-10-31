@@ -38,6 +38,8 @@ const REQUIRED = [
   'bots/src/paths.mjs',
   'bots/scripts/pathsite-offline.mjs',
   'bots/scripts/pathsbuild-offline.mjs',
+  // pathsclose-01 (10-30): the overburden on a path cell dug; a cell the visit may never lay deferred, then waived
+  'bots/test/pathsclose.test.mjs',
   // wall-01 (10-30): the town wall sited, built and walk-proven offline on a copy of the world, by the bots' own functions
   'bots/src/wall.mjs',
   'bots/scripts/wall-offline.mjs',
