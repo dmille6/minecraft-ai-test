@@ -544,6 +544,19 @@ def experiment():
     t('r1: --resume restores experiment mode (no load test, completes)', r.exp and h.load_calls == [] and rc == 0, (rc, out[-300:]))
     shutil.rmtree(root)
 
+    # r2 Codex: zero bot-hours and zero active units are unreadable probes, not passes
+    root = tree(); h = FakeHost(root)
+    h.death_n = (0, 0.0)
+    rc, out = quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    t('r2: a death walk with 0 bot-h on every check -> unreadable x3 -> stop and roll back', rc == 1 and dropins() == [], (rc, len(dropins())))
+    shutil.rmtree(root)
+    root = tree(); h = FakeHost(root)
+    real = R.Host.stall
+    h.stall = lambda ctx: (_ for _ in ()).throw(RuntimeError('no active mcbot unit'))
+    rc, out = quiet(R.Rollout(h, 'qwen35-01', experiment=True).go)
+    t('r2: a stall probe that sees no active unit -> unreadable x3 -> stop', rc == 1 and dropins() == [])
+    shutil.rmtree(root)
+
     # a watch on a non-experiment complete rollout does nothing
     root = tree(); h = FakeHost(root)
     quiet(R.Rollout(h, 'qwen35-01').go)

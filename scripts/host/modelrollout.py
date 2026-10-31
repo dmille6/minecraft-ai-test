@@ -568,6 +568,8 @@ class Host:
             n_st += len(mr.stall_bots(llm, act, mr.canary_model(reg), str(man.get('canary_code_version') or ''), t,
                                       ts(pd.get(p)) or decl))
             n_act += sum(1 for v in act.values() if v)
+        if not n_act:      # no active unit at all (or systemctl failing for every one): the probe saw nothing (Codex r2)
+            raise RuntimeError('no active mcbot unit among %d pools (positive control)' % len(pools))
         return n_st, n_act
 
     def crash_loops(self, t0, t1):
@@ -934,7 +936,8 @@ class Rollout:
             except Exception as x:
                 f['death'] = (False, 'deaths unreadable: %s: %s' % (type(x).__name__, str(x)[:120]))
                 f.setdefault('unreadable', []).append(f['death'][1])
-            if b.get('rate') is None or 'unreadable' in f['death'][1]:
+            if b.get('rate') is None or 'unreadable' in f['death'][1] or 'no baseline' in f['death'][1] \
+                    or re.search(r'over 0\.0 bot-h', f['death'][1]):        # no rows walked = the probe saw nothing (Codex r2)
                 f.setdefault('unread_keys', []).append('death')
         return f
 
