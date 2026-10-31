@@ -124,6 +124,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
+import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -133,7 +134,7 @@ import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } 
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops } from './ziggurat.mjs'   // monument-01
 import { botBuildEffects } from './buildbot.mjs'
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
-import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, setExpeditionAsk, repairBackoff, noteRepair, stuckBackoff } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -3122,6 +3123,9 @@ async function home(ctx, _args, signal) {
   // point is to keep walking while there is time, not to retry a fixed number
   // of times regardless of how long each one took.
   const deadline = Date.now() + HOME_BUDGET_MS
+  // EXPEDITION-01: an open expedition trail of this bot's is walked back first, over its breadcrumbs (expedition.mjs; a minute
+  // of the budget is kept for the direct walk below). EXPEDITION=off, no open trail, or not near it: nothing.
+  try { await expeditionHomeLeg(ctx, signal, deadline - 60_000) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   let repaired = false
   let last = null
   let noProgressRuns = 0
@@ -17083,9 +17087,340 @@ export function shopFootprintRefresh (bot) {
  * the reserve and the claim set (mats-01's withdraw), craft the stations the town lacks; run the visit (buildrun.mjs); on
  * completion publish the record's `structure_complete` transition. One `_build_visit` row per run, ALWAYS.
  */
+// ================================================================================================================================
+// EXPEDITION-01: SHORT SURFACE EXPEDITIONS (expedition.mjs decides; these read, walk, place, dig, bank and write). The order is
+// shop.mjs buildOrder's (`build_shop {expedition: true}`), asked through expeditionAsk only when the town's projects cannot use
+// the bot. The trail and the trip are this bot's file; the trip log and the marker index are the town's. `home` follows an
+// open trail first (expeditionHomeLeg). EXPEDITION=off: no order, no visit, no trail follow.
+const EXPEDITION = Object.freeze({ on: expeditionOn(process.env, process.env.MEMORY_POOL ?? ''), markers: exMarkersOn(process.env) })
+const exHk = () => `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+const exKey = () => `${EXPEDITION_KEY}-${exHk()}`
+const exFile = me => path.join(townDir(), `${exKey()}.bot-${me}.json`)
+const exTripsFile = () => path.join(townDir(), `${exKey()}.trips.jsonl`)
+const exMarkersFile = () => path.join(townDir(), `${exKey()}.markers.jsonl`)
+const exHome = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
+const exAtHome = (p, r = 40) => !!p && Math.hypot(p.x - config.world.homeX, p.z - config.world.homeZ) <= r
+const EX_TOWN_R = 48   // the order's own `atTown` (cognitive TOWN_RADIUS): an open trip whose bot is this close is closed
+let exBot = null
+function exRead (me) { try { const j = JSON.parse(fs.readFileSync(exFile(me), 'utf8')); return j && typeof j === 'object' ? j : {} } catch { return {} } }
+function exWrite (me, st) {
+  try {
+    const f = exFile(me), tmp = `${f}.${process.pid}.${Date.now().toString(36)}.tmp`
+    fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(tmp, JSON.stringify(st)); fs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+function exLines (f, max = 400) {
+  try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).slice(-max).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean) } catch { return [] }
+}
+function exAppend (f, obj) { try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.appendFileSync(f, JSON.stringify(obj) + '\n'); return true } catch { return false } }
+/** The town's standing markers: every placed entry less the ones a later `gone` line names. Never throws. */
+function exMarkers () {
+  const out = new Map()
+  for (const m of exLines(exMarkersFile(), 2000)) {
+    if (!Array.isArray(m?.at)) continue
+    const k = m.at.join(',')
+    if (m.gone) out.delete(k); else out.set(k, m)
+  }
+  return [...out.values()]
+}
+const exReader = bot => (x, y, z) => {
+  const b = bot.blockAt?.(new Vec3(x, y, z))
+  if (!b) return null
+  let wl = false
+  try { wl = b.getProperties?.()?.waterlogged === true } catch { wl = false }
+  return { name: b.name, boundingBox: b.boundingBox, waterlogged: wl }
+}
+const exRow = (bot, op, detail, status = 'success') => { try { logEvent({ kind: 'expedition', status, snapshot: snapshot(bot), detail: `op=${op} ${detail}`.slice(0, 295) }) } catch { /* telemetry */ } }
+function exSlotFree (me, now = Date.now()) {
+  try {
+    for (let k = 1; k <= EXPEDITION_SLOTS; k++) {
+      const s = projLeaseState(townDir(), exKey(), `slot${k}`)
+      if (!s || s.rec?.holder === me || now >= s.blocksUntil) return true
+    }
+    return false
+  } catch { return false }
+}
+/** An open trip whose bot is back at town is closed (it came home after its call: `late`). Never throws. */
+function exCloseAtTown (bot, st, via) {
+  try {
+    const me = bot.username ?? 'bot'
+    const t = st.trip
+    if (!t?.open) return
+    t.open = false
+    t.returned = false
+    t.via = via
+    st.lastTripAt = Date.now()
+    exWrite(me, st)
+    exAppend(exTripsFile(), { t: Date.now(), id: t.id, by: me, bearing: t.bearing, ring: t.ring, dist: Math.round(t.dist ?? 0), reason: t.reason ?? 'interrupted', returned: false, late: true, via, haul: 0, markers: t.markers ?? 0 })
+    try { logEvent({ kind: 'expedition_trip', status: 'no_effect', snapshot: snapshot(bot), detail: tripDetail({ ...t, ms: Date.now() - (t.startedAt ?? Date.now()) }) }) } catch { /* telemetry */ }
+  } catch { /* the next look closes it */ }
+}
+/** shop.mjs buildOrder's ask (set at install). -> expedition.mjs expeditionAdmit's answer | null. Never throws. */
+function expeditionAsk ({ now = Date.now(), health = 20, freeSlots = 36, complete = false, lastStop = null } = {}) {
+  try {
+    const bot = exBot
+    if (!EXPEDITION.on || !bot) return null
+    const me = bot.username ?? 'bot'
+    const st = exRead(me)
+    if (st.trip?.open && exAtHome(bot.entity?.position, EX_TOWN_R)) exCloseAtTown(bot, st, 'later')
+    const r = expeditionAdmit({ on: true, complete, lastStop, health, food: bot.food ?? 20, freeSlots, timeOfDay: bot.time?.timeOfDay ?? 0, now,
+      lastTripAt: st.lastTripAt ?? -Infinity, pendingDeposit: Object.keys(st.pendingDeposit ?? {}).length > 0, slotFree: exSlotFree(me, now) })
+    bot.exSkipAt ??= {}
+    if (!r.ok && !['off', 'project_open', 'cooldown'].includes(r.why) && now - (bot.exSkipAt[r.why] ?? -Infinity) >= 30 * 60_000) { bot.exSkipAt[r.why] = now; exRow(bot, 'skip', `why=${r.why}`, 'no_effect') }
+    return r
+  } catch { return null }
+}
+/** Once per spawn (features.mjs): the ask is wired and the licence row written. Never throws. */
+export function expeditionInstall (bot) {
+  exBot = bot
+  if (EXPEDITION.on) setExpeditionAsk(expeditionAsk)
+  try { logEvent({ kind: 'expedition_mode', status: 'success', snapshot: snapshot(bot), detail: expeditionModeDetail(EXPEDITION.on, EXPEDITION.markers) }) } catch { /* telemetry */ }
+}
+/** THE WAY BACK over a trip's breadcrumbs (expedition.mjs nextCrumb / markerHome), then the direct walk -> { home, via, hops }. */
+async function exFollowHome (ctx, signal, trip, until, markers, persist = () => {}) {
+  const { bot } = ctx
+  const home = exHome()
+  const crumbs = Array.isArray(trip.crumbs) ? trip.crumbs : []
+  let cursor = Number.isInteger(trip.cursor) ? trip.cursor : crumbs.length
+  const skip = new Set(), mskip = new Set()
+  let fails = 0, direct = 0, hops = 0, via = 'crumbs'
+  const loaded = c => bot.blockAt?.(new Vec3(c[0], c[1], c[2])) != null
+  while (Date.now() < until - 2_000) {
+    check(signal)
+    const p = bot.entity.position
+    if (exAtHome(p)) return { home: true, via, hops }
+    const i = fails < 3 ? nextCrumb(crumbs, p, cursor, { loaded, skip }) : -1
+    let target, kind, m = null
+    if (i >= 0) { target = crumbs[i]; kind = 'crumb' } else {
+      m = markerHome(markers, p, home, { skip: mskip })
+      if (m) { target = m.approach; kind = 'marker' } else { target = [home.x, home.y, home.z]; kind = 'direct' }
+    }
+    if (kind === 'direct' && ++direct > 2) break
+    try { await goto(ctx, { x: target[0], y: target[1], z: target[2], range: 2 }, signal, { until: Math.min(until, Date.now() + (kind === 'direct' ? 90_000 : 40_000)) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    hops++
+    const q = bot.entity.position
+    const arrived = Math.hypot(q.x - target[0], q.z - target[2]) <= 3.5 && Math.abs(q.y - target[1]) <= 3
+    if (kind === 'crumb') { if (arrived) { cursor = i; fails = 0 } else { skip.add(i); fails++ } }
+    if (kind === 'marker') { via = 'markers'; if (!arrived) mskip.add(m.approach.join(',')); else fails = 0 }
+    if (kind === 'direct') via = via === 'crumbs' ? 'crumbs+direct' : `${via}+direct`
+    trip.cursor = cursor
+    persist()
+  }
+  return { home: exAtHome(bot.entity.position), via, hops }
+}
+/** `home`'s first step: an open trail of this bot's is walked back (a trip whose call ended out of town). -> result | null. */
+export async function expeditionHomeLeg (ctx, signal, until) {
+  const { bot } = ctx
+  if (!EXPEDITION.on) return null
+  const me = bot.username ?? 'bot'
+  const st = exRead(me)
+  const trip = st.trip
+  const p = bot.entity?.position
+  if (!trip?.open || !Array.isArray(trip.crumbs) || !trip.crumbs.length || !p) return null
+  if (Date.now() - (trip.startedAt ?? 0) > TRAIL_TTL_MS || exAtHome(p)) return null
+  if (!trip.crumbs.some(c => Math.hypot(c[0] - p.x, c[2] - p.z) <= 48)) return null
+  exRow(bot, 'home_follow', `trip=${trip.id} crumbs=${trip.crumbs.length} cursor=${trip.cursor ?? '-'}`)
+  const r = await exFollowHome(ctx, signal, trip, until, exMarkers(), () => exWrite(me, st))
+  if (r.home) exCloseAtTown(bot, st, `home_${r.via}`)
+  return r
+}
+/** One marker beside the stand cell (expedition.mjs markerSpot): 2 cobble, a torch on top when held, each read back. */
+async function exPlaceMarker (ctx, signal, stand, dir, { zones, trip, me }) {
+  const { bot } = ctx
+  const read = exReader(bot)
+  const spot = markerSpot(read, stand, dir, { zones })
+  if (!spot) { exRow(bot, 'marker_skip', `trip=${trip.id} why=no_spot at=${stand.join(',')}`, 'no_effect'); return null }
+  const held = heldMap(bot)
+  if ((held.cobblestone ?? 0) < 2) { exRow(bot, 'marker_skip', `trip=${trip.id} why=no_cobble`, 'no_effect'); return null }
+  const [x, y, z] = spot
+  for (const dy of [0, 1]) {
+    try { await place(ctx, { item: 'cobblestone', x, y: y + dy, z }, signal, { by: 'expedition' }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    await sleep(250, signal)
+    if (read(x, y + dy, z)?.name !== 'cobblestone') { exRow(bot, 'marker_skip', `trip=${trip.id} why=place_failed dy=${dy} at=${spot.join(',')}`, 'no_effect'); return dy ? { at: spot, approach: stand, partial: true } : null }
+  }
+  let torch = false
+  if ((heldMap(bot).torch ?? 0) > 0) {
+    try { await place(ctx, { item: 'torch', x, y: y + 2, z }, signal, { by: 'expedition' }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    await sleep(250, signal)
+    torch = /torch$/.test(read(x, y + 2, z)?.name ?? '')
+  }
+  const home = exHome()
+  const entry = { at: spot, approach: stand, bearing: trip.bearing, trip: trip.id, by: me, t: Date.now(), torch, dist: Math.round(Math.hypot(x - home.x, z - home.z)) }
+  exAppend(exMarkersFile(), entry)
+  exRow(bot, 'marker', `trip=${trip.id} at=${spot.join(',')} torch=${torch ? 1 : 0} dist=${entry.dist}`)
+  return entry
+}
+/** A few logs of a natural tree near the turn, a few leaves for saplings, the drops picked up -> logs felled. */
+async function exGather (ctx, signal, until, zones) {
+  const { bot } = ctx
+  const read = exReader(bot)
+  let felled = 0, leaves = 0
+  const ids = Object.values(bot.registry?.blocksByName ?? {}).filter(b => /_log$/.test(b.name)).map(b => b.id)
+  const lids = Object.values(bot.registry?.blocksByName ?? {}).filter(b => /_leaves$/.test(b.name)).map(b => b.id)
+  const near = (bot.findBlocks?.({ matching: ids, maxDistance: 14, count: 32 }) ?? [])
+  const seen = new Set()
+  for (const q of near) {
+    if (Date.now() > until - 4_000 || felled >= 8) break
+    const tree = naturalTree(read, [q.x, q.y, q.z])
+    if (!tree.ok || seen.has(tree.base.join(',')) || zoneHit(zones, q.x, q.z)) continue
+    seen.add(tree.base.join(','))
+    for (const at of tree.logs.slice(0, 4)) {
+      if (Date.now() > until - 4_000) break
+      const b = bot.blockAt(new Vec3(at[0], at[1], at[2]))
+      if (!b || !/_log$/.test(b.name)) continue
+      try {
+        const wgm = bot.withGatherMovements
+        try { bot.withGatherMovements = undefined; await withDigScope(bot, { purpose: 'target', by: 'expedition' }, () => collectManually(bot, b, signal)) } finally { bot.withGatherMovements = wgm }
+      } catch (e) { if (e?.aborted || signal?.aborted) throw e; break }
+      if (!/_log$/.test(read(at[0], at[1], at[2])?.name ?? '')) felled++
+    }
+    // leaves in reach (by hand: instant-ish) -- each may drop a sapling
+    for (const lp of (bot.findBlocks?.({ matching: lids, maxDistance: 4, count: 8 }) ?? [])) {
+      if (Date.now() > until - 3_000 || leaves >= 6) break
+      const lb = bot.blockAt(lp)
+      if (!lb || !bot.canDigBlock?.(lb)) continue
+      try { await withDigScope(bot, { purpose: 'target', by: 'expedition' }, () => bot.dig(lb, true)); leaves++ } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    }
+  }
+  // the drops on the ground near the bot
+  for (const e of Object.values(bot.entities ?? {})) {
+    if (Date.now() > until - 1_000) break
+    if (e?.name !== 'item' || !e.position || e.position.distanceTo(bot.entity.position) > 8) continue
+    try { await goto(ctx, { x: Math.floor(e.position.x), y: Math.floor(e.position.y), z: Math.floor(e.position.z), range: 0 }, signal, { until: Math.min(until, Date.now() + 5_000) }) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+  }
+  return { felled, leaves }
+}
+/** The haul into the town chests (mats-01's matsBank: nearest container first) -> items banked. */
+async function exDeposit (ctx, signal, haul, bag0) {
+  const names = Object.keys(haul)
+  if (!names.length) return 0
+  let back = {}
+  try { back = await matsBank(ctx, names, bag0, signal, haul) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  return Object.values(back ?? {}).reduce((a, b) => a + (Number(b) || 0), 0)
+}
+async function expeditionVisit (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS) - 15_000
+  const deadline = t0 + budget
+  const me = bot.username ?? 'bot'
+  const home = exHome()
+  if (!EXPEDITION.on) return { status: 'no_effect', detail: 'expeditions are switched off (EXPEDITION=off)', stop: 'expedition_off' }
+  const st = exRead(me)
+  // A HAUL LEFT IN THE BAG by a short clock: banked first, alone
+  if (Object.keys(st.pendingDeposit ?? {}).length) {
+    const want = st.pendingDeposit, held = heldMap(bot)
+    const haul = Object.fromEntries(Object.entries(want).map(([n, c]) => [n, Math.min(Number(c) || 0, held[n] ?? 0)]).filter(([, c]) => c > 0))
+    const n = await exDeposit(ctx, signal, haul, held)
+    st.pendingDeposit = {}
+    exWrite(me, st)
+    exRow(bot, 'deposit', `items=${n} of=${Object.values(haul).reduce((a, b) => a + b, 0)}`)
+    return { status: n > 0 ? 'success' : 'no_effect', detail: `banked ${n} items from the last expedition`, stop: 'expedition_deposit' }
+  }
+  if (args?.phase === 'deposit') return { status: 'no_effect', detail: 'nothing left to bank', stop: 'expedition_deposit' }
+  if (st.trip?.open) { if (exAtHome(bot.entity?.position, EX_TOWN_R)) exCloseAtTown(bot, st, 'later'); else return { status: 'no_effect', detail: 'an expedition is still open', stop: 'expedition_open' } }
+  const dir = townDir()
+  const slot = takeSlot(dir, exKey(), me, EXPEDITION_SLOTS, { ttl: budget + 60_000 })
+  if (!slot.ok) return { status: 'no_effect', detail: `two bots are already out (${slot.why})`, stop: 'expedition_slots_full' }
+  let died = false
+  const onDeath = () => { died = true }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  const trip = { id: `${me}-${Date.now().toString(36)}`, startedAt: Date.now(), open: true, crumbs: [], markers: 0, reused: 0, dist: 0, reason: null }
+  try {
+    const zonesV = townPlanZones(bot)
+    if (!zonesV.known) return { status: 'no_effect', detail: 'the protected zones could not be read; no expedition until they are', stop: 'expedition_zones_unknown' }
+    const zones = zonesV.zones
+    const held0 = heldMap(bot)
+    // 1. THE KIT: only what the bag lacks, from town (the reserves kept: shop.mjs shopAllow)
+    let kit = {}
+    const need = kitNeed(held0, EX_KIT, EXPEDITION.markers)
+    if (Object.keys(need).length) {
+      try { const w = await matsWithdraw(ctx, need, signal, 20_000, matsReserve().table, shopAllow); kit = w.took ?? {} } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    }
+    const trips = exLines(exTripsFile())
+    const b = tripBearing(trips, Date.now())
+    if (b.bearing == null) return { status: 'no_effect', detail: 'every bearing is blocked by water or a zone for today', stop: 'expedition_no_bearing' }
+    Object.assign(trip, { bearing: b.bearing, ring: ringOf(trips, Date.now()), reuse: b.reuse })
+    st.trip = trip
+    exWrite(me, st)
+    const read = exReader(bot)
+    const markers = exMarkers()
+    exRow(bot, 'start', `trip=${trip.id} bearing=${trip.bearing} ring=${trip.ring} reuse=${b.reuse ? 1 : 0} markers_known=${markers.length} kit=${Object.entries(kit).map(([k, v]) => `${k}:${v}`).join(',') || '-'}`)
+    const start = bot.entity.position
+    const s0 = [Math.floor(start.x), Math.floor(start.y + 1e-6), Math.floor(start.z)]
+    trip.crumbs.push(s0)
+    // 2. OUT
+    const tOut = Date.now()
+    const outMs = (deadline - tOut) * OUT_SHARE
+    let legFails = 0, sinceMarker = 0
+    const dirV = bearingVec(trip.bearing)
+    for (;;) {
+      check(signal)
+      if (died) { trip.reason = 'died'; break }
+      const p = bot.entity.position
+      const dist = Math.hypot(p.x - home.x, p.z - home.z)
+      trip.dist = Math.max(trip.dist, dist)
+      const free = 36 - (bot.inventory?.items?.() ?? []).length
+      const why = turnReason({ health: bot.health ?? 20, food: bot.food ?? 20, freeSlots: free, timeOfDay: bot.time?.timeOfDay ?? 0, inWater: !!bot.entity?.isInWater,
+        dist, ring: trip.ring, elapsedMs: Date.now() - tOut, outMs, legFails })
+      if (why) { trip.reason = why; break }
+      const lt = legTarget(read, { pos: p, home, bearing: trip.bearing, markers, zones })
+      if (!lt.ok) { trip.reason = lt.why === 'inward' ? 'blocked' : lt.why; break }
+      const before = p.clone()
+      try { await goto(ctx, { ...lt.target, range: 2 }, signal, { until: Math.min(tOut + outMs, Date.now() + 30_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      const after = bot.entity.position
+      const moved = Math.hypot(after.x - before.x, after.z - before.z)
+      legFails = moved < 4 ? legFails + 1 : 0
+      if (lt.via === 'marker' && moved >= 4) trip.reused++
+      const cell = [Math.floor(after.x), Math.floor(after.y + 1e-6), Math.floor(after.z)]
+      if (crumbDue(trip.crumbs, cell, read)) trip.crumbs.push(cell)
+      sinceMarker += moved
+      if (EXPEDITION.markers && markerDue({ pos: after, home, sinceLast: sinceMarker, markers }) && standableAt(read, cell)) {
+        const m = await exPlaceMarker(ctx, signal, cell, dirV, { zones, trip, me })
+        if (m && !m.partial) { markers.push(m); trip.markers++; sinceMarker = 0 } else sinceMarker = MARKER_EVERY - 8
+      }
+      exWrite(me, st)
+    }
+    const outTook = Date.now() - tOut
+    // 3. GATHER at the turn (never on a danger turn, never in town, only with the way back's time spared)
+    let g = { felled: 0, leaves: 0 }
+    const spare = deadline - Date.now() - Math.max(20_000, outTook * 1.2)
+    const pT = bot.entity.position
+    if (!['health', 'food', 'night', 'died', 'bag_full'].includes(trip.reason) && Math.hypot(pT.x - home.x, pT.z - home.z) >= MARKER_MIN_HOME + 16 && spare >= 8_000) {
+      g = await exGather(ctx, signal, Date.now() + Math.min(GATHER_MS, spare), zones)
+    }
+    exRow(bot, 'turn', `trip=${trip.id} reason=${trip.reason} dist=${Math.round(trip.dist)} crumbs=${trip.crumbs.length} markers=${trip.markers} reused=${trip.reused} felled=${g.felled} leaves=${g.leaves}`)
+    // 4. BACK over the crumbs
+    const r = await exFollowHome(ctx, signal, trip, deadline - 5_000, markers, () => exWrite(me, st))
+    // 5. THE HAUL, banked now or next call
+    const haul = bankableHaul(haulOf(held0, heldMap(bot), kit))
+    let deposited = 0
+    if (r.home && deadline - Date.now() >= DEPOSIT_MIN_MS) deposited = await exDeposit(ctx, signal, haul, heldMap(bot))
+    else if (Object.keys(haul).length) st.pendingDeposit = haul
+    Object.assign(trip, { returned: !!r.home, via: r.via, deposited, haul, open: !r.home, ms: Date.now() - t0 })
+    st.lastTripAt = Date.now()
+    exWrite(me, st)
+    const nHaul = Object.values(haul).reduce((a, c) => a + c, 0)
+    if (r.home) exAppend(exTripsFile(), { t: Date.now(), id: trip.id, by: me, bearing: trip.bearing, ring: trip.ring, dist: Math.round(trip.dist), reason: trip.reason, returned: true, via: r.via, haul: nHaul, markers: trip.markers, reused: trip.reused, crumbs: trip.crumbs.length })
+    try { logEvent({ kind: 'expedition_trip', status: r.home ? 'success' : 'no_effect', snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: tripDetail({ ...trip, crumbs: trip.crumbs.length }) }) } catch { /* telemetry */ }
+    return { status: r.home && (nHaul > 0 || trip.markers > 0) ? 'success' : 'no_effect', detail: `expedition ${Math.round(trip.dist)} blocks on bearing ${trip.bearing} (${trip.reason}); ${trip.markers} markers placed, ${trip.reused} reused; brought ${nHaul} items${r.home ? ', home' : ', still on the way home'}`, stop: r.home ? 'expedition' : 'expedition_out' }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { exRow(bot, 'aborted', `trip=${trip.id} dist=${Math.round(trip.dist)} crumbs=${trip.crumbs.length}`, 'aborted'); exWrite(me, st); throw e }
+    exRow(bot, 'error', `trip=${trip.id} ${String(e?.message ?? e).slice(0, 120)}`, 'failed')
+    try { exWrite(me, st) } catch { /* the file */ }
+    return { status: 'failed', failClass: 'other', detail: String(e?.message ?? e).slice(0, 100), stop: 'expedition_error' }
+  } finally {
+    releaseLease(dir, exKey(), `slot${slot.slot}`, me, slot.gen)
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+  }
+}
+
 async function buildShop (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
+  // expedition-01: the expedition's visit (the order's args say which)
+  if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
   // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject)
   const proj = shopActive(bot, Date.now(), { visit: true })
   // monument-01: the ziggurat's visit is its own (computed cells, its siting, its rows)

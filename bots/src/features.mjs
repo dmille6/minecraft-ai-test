@@ -34,9 +34,12 @@ import { createHash as shopHash } from 'node:crypto'
 import { shopStoodTick, shopFootprintRefresh } from './skills.mjs'   // shop-01: the walks' seeds, the footprint
 import { SHOP, buildModeDetail, STOOD_EVERY_MS } from './shop.mjs'   // shop-01's licence row
 import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout-01: an open note's obligations held again at spawn
+import { expeditionInstall } from './skills.mjs'   // expedition-01: the order's ask and the licence row
 
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
 export function installFeatures (bot) {
+  // expedition-01: the ask buildOrder puts to a bot the projects cannot use, and `_expedition_mode` (on=0 under EXPEDITION=off)
+  try { expeditionInstall(bot) } catch (e) { log('warn', 'expedition not installed', { error: e.message }) }
   // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view
   try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
   // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)

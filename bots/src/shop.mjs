@@ -178,6 +178,13 @@ export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WAL
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
+/**
+ * EXPEDITION-01: the expedition's ask (skills.mjs expeditionAsk -> expedition.mjs expeditionAdmit over the bot's readings), set at
+ * load like activePlotOf. Asked by buildOrder only when the build order has nothing for the bot: every project complete, or the
+ * last visit stopped no_material. -> { ok, phase } | null. Unset (or EXPEDITION=off): never asked.
+ */
+let expeditionAskOf = null
+export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'function' ? fn : null }
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
 // the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
@@ -454,6 +461,13 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
+  // EXPEDITION-01 (owner showcase item 5): a bot the town's projects cannot use (all complete, or its last visit found no
+  // material) may go on a short expedition -- the same order, the visit's args say which (skills.mjs buildShop)
+  if ((complete || state.lastStop === 'no_material') && expeditionAskOf) {
+    let ex = null
+    try { ex = expeditionAskOf({ now, health, freeSlots, complete, lastStop: state.lastStop ?? null }) } catch { ex = null }
+    if (ex?.ok) return { order: { skill: 'build_shop', args: { expedition: true, phase: ex.phase ?? 'trip' } }, skip: null }
+  }
   if (complete) return { order: null, skip: 'complete' }
   if (now - (state.lastAt ?? -Infinity) < SHOP_COOLDOWN_MS) return { order: null, skip: null }
   if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
