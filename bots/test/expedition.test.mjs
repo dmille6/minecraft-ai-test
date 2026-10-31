@@ -61,6 +61,7 @@ await t('admission: never while a project can use the bot; health, food, room, d
   assert.deepEqual(E.expeditionAdmit(ok), { ok: true, phase: 'trip', why: 'go' })
   assert.equal(E.expeditionAdmit({ ...ok, complete: false }).why, 'project_open')
   assert.equal(E.expeditionAdmit({ ...ok, complete: false, lastStop: 'no_material' }).ok, true)
+  assert.equal(E.expeditionAdmit({ ...ok, complete: false, lastStop: 'complete' }).ok, true, 'a visit that found nothing to do')
   assert.equal(E.expeditionAdmit({ ...ok, complete: false, lastStop: 'deadline' }).why, 'project_open')
   assert.equal(E.expeditionAdmit({ ...ok, on: false }).why, 'off')
   assert.equal(E.expeditionAdmit({ ...ok, lastTripAt: ok.now - 5 * 60_000 }).why, 'cooldown')
@@ -96,7 +97,7 @@ await t('buildOrder asks only when the projects have nothing for the bot, and or
 })
 
 await t('MUTANT KILLED: buildOrder asking with an open project would send builders away', async () => {
-  await withMutant(SHOP_PATH, "if ((complete || state.lastStop === 'no_material') && expeditionAskOf) {", 'if (expeditionAskOf) {', async M => {
+  await withMutant(SHOP_PATH, "if ((complete || IDLE_STOPS.has(state.lastStop)) && expeditionAskOf) {", 'if (expeditionAskOf) {', async M => {
     M.setExpeditionAsk(() => ({ ok: true, phase: 'trip' }))
     const r = M.buildOrder({ on: true, shared: true, atTown: true, planned: true, now: 1e12, complete: false, record: { plot: 'treefarm' }, state: { lastStop: 'deadline', lastAt: 0 } })
     assert.equal(r.order?.args?.expedition, true, 'the mutant does send the builder out, so the test above has teeth')
