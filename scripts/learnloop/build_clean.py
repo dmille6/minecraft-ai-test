@@ -223,11 +223,26 @@ def cmd_pool(a):
 
 def cmd_assemble(a):
     out = os.path.expanduser(a.out)
+    C = collections.Counter()
     items = {}
     for l in open(os.path.join(out, 'relabel-pool.jsonl')):
         if l.strip():
             r = json.loads(l); items[r['id']] = r
-    C = collections.Counter(); kept = {}
+    # the pilot's NON-transient items may be trained on with LOCAL labels (TRAIN cell; only PAID labels are
+    # quarantined). Transient ones (cooldown, busy, ...) are left out: there a retry can be right and the gate decides.
+    for pp in a.pilot or []:
+        for l in open(os.path.expanduser(pp)):
+            if not l.strip():
+                continue
+            r = json.loads(l)
+            if r['id'] in items:
+                raise SystemExit('REFUSED: pilot id %s is also in the pool' % r['id'])
+            if r['logged'].get('skill') and logged_nontransient_failure(r):
+                r['kind'] = 'fail'; items[r['id']] = r
+                C['pilot items admitted (non-transient)'] += 1
+            else:
+                C['pilot items left out (transient or no logged skill)'] += 1
+    kept = {}
     for lp in a.labels:
         for l in open(os.path.expanduser(lp)):
             if not l.strip():
@@ -281,6 +296,7 @@ def main(argv=None):
     q = sub.add_parser('assemble')
     q.add_argument('--out', required=True); q.add_argument('--labels', nargs='+', required=True)
     q.add_argument('--name', default='train.jsonl'); q.add_argument('--seed', type=int, default=20261030)
+    q.add_argument('--pilot', nargs='*', default=None, help='pilot-1000.jsonl: its non-transient items join the pool')
     q.add_argument('--local-model', nargs='+', required=True, help='the local teacher(s) whose replay records these are')
     a = ap.parse_args(argv)
     return cmd_pool(a) if a.verb == 'pool' else cmd_assemble(a)
