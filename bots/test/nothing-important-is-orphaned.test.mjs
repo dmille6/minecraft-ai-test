@@ -70,6 +70,11 @@ const REQUIRED = [
   // the model-env canary's read and stall poll, and the loop v38 installer (qwen35-01, 10-30)
   'scripts/host/modelread.py',
   'scripts/host/install-loop-v38.sh',
+  // the staged model rollout after a model-env KEEP, and what it runs (OWNER 10-31 "roll out in stages 20 bots at a time")
+  'scripts/host/modelrollout.py',
+  'scripts/host/test_modelrollout.py',
+  'scripts/host/holdtoken.py',
+  'scripts/host/qwen35load.mjs',
   // CLAUDE.md's and STATE.md's history, moved out when both were cut to the active rules (10-28)
   'docs/archive/CLAUDE-history-2026-10-28.md',
   'docs/archive/STATE-history-to-2026-10-28.md',

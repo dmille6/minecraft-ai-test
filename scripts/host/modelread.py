@@ -44,6 +44,8 @@ PRE_MIN = 180
 WARM_MIN = 15
 STALL_MIN = 10
 MIN_ROWS = 200
+MIN_CONTROL = int(os.environ.get('MODELREAD_MIN_CONTROL', '40'))   # control bots with rows (positive control); the
+# staged rollout (modelrollout.py) lowers it, because its control shrinks to nothing by the last stage
 LOG_ROOT = os.environ.get('MODELREAD_LOG_ROOT', '/var/log/mcai')
 MANIFEST = os.environ.get('MODELREAD_MANIFEST', '/srv/mcbots/trial-manifest.json')
 REG_DIR = os.environ.get('MODELREAD_REG_DIR', os.path.expanduser('~/mcai-analysis/registrations'))
@@ -312,7 +314,7 @@ def do_read(M):
         L[b] = read_stream(b, 'llm', pre_start, post_end)
         S[b] = read_stream(b, 'skill', pre_start, post_end)
     total_rows = sum(len(v) for v in L.values())
-    assert total_rows > 1000 and sum(1 for b in ctl if L[b]) >= 40, \
+    assert total_rows > 1000 and sum(1 for b in ctl if L[b]) >= MIN_CONTROL, \
         'positive control failed: %d llm rows, %d control bots with rows' % (total_rows, sum(1 for b in ctl if L[b]))
 
     def part(rows, a, z, canary):
