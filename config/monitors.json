@@ -1,0 +1,346 @@
+{
+ "version": 1,
+ "rule": "Every cron line on the canary host and every Mac LaunchAgent is registered here with what it writes, how fresh that must be, and WHO READS IT (consumer). consumer null = nothing reads it: stallcheck (h) flags it until it is wired or retired. A new cron line gets a row in the same commit.",
+ "monitors": [
+  {
+   "id": "nightwatch",
+   "host": "31",
+   "cron": "/home/mike/nightwatch.sh",
+   "outputs": [
+    "~/digest/latest.md"
+   ],
+   "fresh_hours": 1.5,
+   "consumer": "STATE.md live check (head -30 ~/digest/latest.md); status replies",
+   "kind": "monitor"
+  },
+  {
+   "id": "ironfunnel",
+   "host": "31",
+   "cron": "ironfunnel.py",
+   "outputs": [
+    "~/digest/ironfunnel.log"
+   ],
+   "fresh_hours": 26,
+   "consumer": null,
+   "kind": "monitor"
+  },
+  {
+   "id": "programread",
+   "host": "31",
+   "cron": "programread.py",
+   "outputs": [
+    "~/digest/programread.log"
+   ],
+   "fresh_hours": 26,
+   "consumer": null,
+   "kind": "monitor"
+  },
+  {
+   "id": "canarywatch",
+   "host": "31",
+   "cron": "canarywatch.py",
+   "outputs": [
+    "~/digest/canarywatch.log"
+   ],
+   "fresh_hours": 1,
+   "consumer": "canary-sched.py reads its CANARY-UNREAD.txt (S-blocker); pages via page.jsonl",
+   "kind": "monitor"
+  },
+  {
+   "id": "stuckwatch",
+   "host": "31",
+   "cron": "stuckwatch.py",
+   "outputs": [
+    "~/digest/stuckwatch.log"
+   ],
+   "fresh_hours": 1,
+   "consumer": null,
+   "kind": "monitor"
+  },
+  {
+   "id": "avoidwatch",
+   "host": "31",
+   "cron": "avoidwatch.py",
+   "outputs": [
+    "~/digest/avoidwatch.log"
+   ],
+   "fresh_hours": 2,
+   "consumer": null,
+   "kind": "monitor"
+  },
+  {
+   "id": "monitor-bots",
+   "host": "31",
+   "cron": "monitor/monitor.py --role bots",
+   "outputs": [
+    "/var/log/mcai-monitor/cron.log"
+   ],
+   "fresh_hours": null,
+   "consumer": null,
+   "kind": "monitor"
+  },
+  {
+   "id": "restore-reads",
+   "host": "31",
+   "cron": "restore-reads.sh",
+   "outputs": [],
+   "fresh_hours": null,
+   "consumer": null,
+   "kind": "actuator"
+  },
+  {
+   "id": "resume-chains",
+   "host": "31",
+   "cron": "resume-chains.sh",
+   "outputs": [],
+   "fresh_hours": null,
+   "consumer": null,
+   "kind": "actuator"
+  },
+  {
+   "id": "canary-sched",
+   "host": "31",
+   "cron": "canary-sched.py tick",
+   "outputs": [
+    "~/digest/sched.log"
+   ],
+   "fresh_hours": 0.25,
+   "consumer": "fleetstatus header (alarmhead slot line); canary-sched.py status",
+   "kind": "monitor"
+  },
+  {
+   "id": "goalboard",
+   "host": "31",
+   "cron": "goalboard.py",
+   "outputs": [
+    "~/goalboard/out/goalboard.html"
+   ],
+   "fresh_hours": 26,
+   "consumer": "goalboard page (status replies)",
+   "kind": "monitor"
+  },
+  {
+   "id": "staffcensus",
+   "host": "31",
+   "cron": "staffcensus.py --tick",
+   "outputs": [
+    "~/staffcensus/out/tick.log"
+   ],
+   "fresh_hours": 0.5,
+   "consumer": "coopread daily census -> fleetstatus coop line",
+   "kind": "monitor"
+  },
+  {
+   "id": "staffcensus-check",
+   "host": "31",
+   "cron": "check-staffcensus.py",
+   "outputs": [
+    "~/staffcensus/out/check.log"
+   ],
+   "fresh_hours": 1,
+   "consumer": null,
+   "kind": "monitor"
+  },
+  {
+   "id": "frontiercensus",
+   "host": "31",
+   "cron": "frontiercensus-cron.sh",
+   "outputs": [
+    "~/frontiercensus/out/heartbeat.json"
+   ],
+   "fresh_hours": 0.5,
+   "consumer": "fleetstatus header (frontier line)",
+   "kind": "monitor"
+  },
+  {
+   "id": "frontiercensus-check",
+   "host": "31",
+   "cron": "check-frontiercensus.py",
+   "outputs": [
+    "~/frontiercensus/out/check.log"
+   ],
+   "fresh_hours": 1,
+   "consumer": "fleetstatus frontier line points at it on an alarm",
+   "kind": "monitor"
+  },
+  {
+   "id": "learnloop-nightly",
+   "host": "31",
+   "cron": "nightly.py --tick",
+   "outputs": [
+    "~/learnloop/heartbeat.json",
+    "~/learnloop/cron.log"
+   ],
+   "fresh_hours": 26,
+   "consumer": "fleetstatus header (learning-loop line)",
+   "kind": "monitor"
+  },
+  {
+   "id": "coopread",
+   "host": "31",
+   "cron": "coopread.py --day",
+   "outputs": [
+    "~/coopread/out/daily/*.json"
+   ],
+   "fresh_hours": 26,
+   "consumer": "fleetstatus header (coop line)",
+   "kind": "monitor"
+  },
+  {
+   "id": "valuescore",
+   "host": "31",
+   "cron": "valuescore.py",
+   "outputs": [
+    "~/digest/valuescore/*.json"
+   ],
+   "fresh_hours": 26,
+   "consumer": "driftwatch.py (daily drift alarm)",
+   "kind": "monitor"
+  },
+  {
+   "id": "structcount-pull",
+   "host": "31",
+   "cron": "structcount/bin/pull.py",
+   "outputs": [
+    "~/structcount/in"
+   ],
+   "fresh_hours": 2,
+   "consumer": "fleetstatus header (structure count line)",
+   "kind": "monitor"
+  },
+  {
+   "id": "failmine-weekly",
+   "host": "31",
+   "cron": "failmine.py weekly",
+   "outputs": [
+    "~/failmine/weekly.log"
+   ],
+   "fresh_hours": 192,
+   "consumer": null,
+   "kind": "monitor"
+  },
+  {
+   "id": "hazardmap",
+   "host": "31",
+   "cron": "hazardmap.py refresh",
+   "outputs": [
+    "~/hazardmap/refresh.log"
+   ],
+   "fresh_hours": 26,
+   "consumer": "fleetstatus header (hazardmap line)",
+   "kind": "monitor"
+  },
+  {
+   "id": "w5-haltwatch",
+   "host": "31",
+   "cron": "host/haltwatch.py",
+   "outputs": [
+    "~/digest/haltwatch-fleet.json"
+   ],
+   "fresh_hours": 0.34,
+   "consumer": "fleetstatus header (alarmhead)",
+   "kind": "monitor"
+  },
+  {
+   "id": "w5-goalwatch",
+   "host": "31",
+   "cron": "host/goalwatch.py",
+   "outputs": [
+    "~/digest/goalwatch-fleet.json"
+   ],
+   "fresh_hours": 0.84,
+   "consumer": "fleetstatus header (alarmhead); stallcheck (g)",
+   "kind": "monitor"
+  },
+  {
+   "id": "w5-driftwatch",
+   "host": "31",
+   "cron": "host/driftwatch.py",
+   "outputs": [
+    "~/digest/drift-latest.json"
+   ],
+   "fresh_hours": 26,
+   "consumer": "fleetstatus header (alarmhead)",
+   "kind": "monitor"
+  },
+  {
+   "id": "w5-rollout",
+   "host": "31",
+   "cron": "host/rollout.py check",
+   "outputs": [
+    "~/digest/rollout-fleet.json"
+   ],
+   "fresh_hours": 0.5,
+   "consumer": "fleetstatus header (alarmhead)",
+   "kind": "monitor"
+  },
+  {
+   "id": "qwen35-roll-watch",
+   "host": "31",
+   "cron": "modelrollout.py watch",
+   "outputs": [
+    "~/qwen35-rollout/watch.log"
+   ],
+   "fresh_hours": null,
+   "consumer": "the 24 h qwen3.5 experiment watch (journal rows + its mandatory rollback)",
+   "kind": "monitor",
+   "until": "2026-11-03"
+  },
+  {
+   "id": "stallcheck",
+   "host": "31",
+   "cron": "host/stallcheck.py run",
+   "outputs": [
+    "~/digest/stallcheck-fleet.json"
+   ],
+   "fresh_hours": 2.5,
+   "consumer": "fleetstatus header (alarmhead); the daily Codex ops audit prompt",
+   "kind": "monitor"
+  },
+  {
+   "id": "opsaudit",
+   "host": "mac",
+   "cron": null,
+   "launchd": "com.mcai.opsaudit",
+   "outputs": [],
+   "fresh_hours": null,
+   "consumer": "fleetstatus header (ops audit line) via ~/digest/opsaudit-latest.md on .31",
+   "kind": "monitor"
+  },
+  {
+   "id": "opsaudit-on-31",
+   "host": "31",
+   "cron": null,
+   "outputs": [
+    "~/digest/opsaudit-latest.md"
+   ],
+   "fresh_hours": 30,
+   "consumer": "fleetstatus header (ops audit line)",
+   "kind": "monitor",
+   "note": "written by the Mac LaunchAgent com.mcai.opsaudit"
+  },
+  {
+   "id": "owner-memories-on-31",
+   "host": "31",
+   "cron": null,
+   "outputs": [
+    "~/digest/owner-memories.json"
+   ],
+   "fresh_hours": 50,
+   "consumer": "stallcheck (m)",
+   "kind": "monitor",
+   "note": "pushed by opsaudit.sh on the Mac"
+  },
+  {
+   "id": "goalcensus-relay",
+   "host": "mac",
+   "cron": null,
+   "launchd": "com.mcai.goalcensus-relay",
+   "outputs": [],
+   "fresh_hours": null,
+   "consumer": null,
+   "kind": "monitor",
+   "note": "~/bin/goalcensus-relay.sh hourly on the Mac; consumer not established 10-31"
+  }
+ ]
+}

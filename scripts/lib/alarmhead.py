@@ -18,6 +18,8 @@ FILES = (   # (file, label, stale after)
     ('goalwatch-fleet.json', 'fleet goals', dt.timedelta(minutes=50)),
     ('rollout-fleet.json', 'fleet rollouts', dt.timedelta(minutes=30)),
     ('drift-latest.json', 'daily drift', dt.timedelta(hours=26)),
+    # stallcheck.py (hourly, OWNER 10-31): owner-approved items that silently stopped -> '!! STALLED: n items -- top 3 ...'
+    ('stallcheck-fleet.json', 'stalled commitments', dt.timedelta(minutes=150)),
 )
 ES_KINDS = (   # (kind, label, stale after)
     ('showcase_halt', 'showcase halt', dt.timedelta(minutes=20)),

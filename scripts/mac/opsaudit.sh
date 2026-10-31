@@ -15,6 +15,20 @@ log() { echo "$(date -u +%FT%TZ) $*"; }
 if [ ! -d "$R/.git" ]; then git clone -q git@github.com:dmille6/minecraft-ai-test.git "$R" || { log "clone failed"; exit 2; }; fi
 git -C "$R" fetch -q origin && git -C "$R" checkout -q --detach origin/main || { log "fetch failed"; exit 2; }
 SINCE=$(date -u -v-26H +%FT%H:%M:%SZ)
+MEM="$HOME/.claude/projects/-Users-darrellmiller-Documents-code-minecraft-ai/memory"
+# OWNER-MEMORY LIST for stallcheck (m) on .31 (OWNER 10-31): the memory dir lives only on this Mac, so once a day the names +
+# mtimes of every memory file and the loaded com.mcai LaunchAgents go to 10.0.0.31 ~/digest/owner-memories.json. stallcheck
+# flags an owner-*.md with no ledger row (config/owner-commitments.json) and a registered Mac job that is not loaded.
+ML=$D/owner-memories.json
+/usr/bin/python3 - "$MEM" "$ML" "$(launchctl list 2>/dev/null | awk '$3 ~ /^com\.mcai\./ {print $3}' | tr '\n' ' ')" <<'PY' && scp -q -o BatchMode=yes "$ML" mike@10.0.0.31:digest/owner-memories.json && log "owner-memories published" || log "owner-memories publish FAILED"
+import datetime as dt, json, os, sys
+d, out, labels = sys.argv[1], sys.argv[2], sys.argv[3].split()
+iso = lambda t: dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+files = {f: iso(os.path.getmtime(os.path.join(d, f))) for f in sorted(os.listdir(d)) if f.endswith('.md')}
+if not files:
+    sys.exit('no memory files in %s' % d)
+json.dump({'generated_at': iso(dt.datetime.now().timestamp()), 'files': files, 'launchd': labels}, open(out, 'w'), indent=1)
+PY
 {
 cat <<EOF
 You are an INDEPENDENT AUDITOR of the operator's decisions for the minecraft-ai bot fleet. The operator is a Claude
@@ -31,7 +45,9 @@ Report format (markdown, short, plain language for the owner):
      with or what risk it carries, the evidence (file/line or journal ts), and what you would have done instead.
   ## Agreed -- one line per significant decision you checked and agree with.
   ## Questions for the owner -- only if a decision is genuinely the owner's.
-Do not invent problems; "FLAGS: 0" is a valid result. Do not flag the owner's own decisions; flag the operator's
+Also read the STALLCHECK report below (owner-approved items that silently stopped, from config/owner-commitments.json):
+every STALLED item older than a day that the operator neither moved nor answered in STATE is a flag (medium; high if the
+owner was told it was moving). Do not invent problems; "FLAGS: 0" is a valid result. Do not flag the owner's own decisions; flag the operator's
 execution of them. A claim the operator made to the owner that the evidence contradicts is HIGH.
 EOF
 echo; echo "=== commits on main since $SINCE"; git -C "$R" log --since="$SINCE" --format='%h %ad %s' --date=iso-strict origin/main | head -80
@@ -44,6 +60,8 @@ for l in open('/home/mike/canary-journal.jsonl', errors='replace'):
   except Exception: continue
   if r.get('ts','')>='$SINCE': print(r.get('ts'), r.get('run'), r.get('phase'), (r.get('note') or '')[:400])
 \"" </dev/null | tail -c 50000
+echo; echo "=== STALLCHECK (10.0.0.31 ~/digest/stallcheck-latest.md, hourly; capped)"
+$SSH31 'head -c 25000 ~/digest/stallcheck-latest.md 2>/dev/null || echo "!! stallcheck-latest.md MISSING on 10.0.0.31"' </dev/null
 echo; echo "=== queue status now"; $SSH31 'python3 ~/canary-sched.py status 2>&1 | grep -v -E "^\S+ +(done|cancelled) " | cut -c1-260' </dev/null | head -40
 echo; echo "=== owner-decision memory notes changed since $SINCE (the operator's record of what the owner said)"
 find "$HOME/.claude/projects/-Users-darrellmiller-Documents-code-minecraft-ai/memory" -name 'owner-*.md' -newermt "$(date -v-26H '+%Y-%m-%d %H:%M:%S')" -print 2>/dev/null | while read -r m; do echo "--- $(basename "$m")"; sed -n '1,60p' "$m"; done | head -c 30000

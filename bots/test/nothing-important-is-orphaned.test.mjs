@@ -115,6 +115,15 @@ const REQUIRED = [
   // the 3 h / 24 h / 7 d fleet status built on it (replaces the lost quickstatus.py)
   'scripts/host/fleetstatus.py',
   'scripts/test_fleetstatus.py',
+  // the owner-commitments ledger and the hourly stall check (OWNER 10-31: 13 approved items had silently stopped)
+  'config/owner-commitments.json',
+  'config/monitors.json',
+  'scripts/host/stallcheck.py',
+  'scripts/host/test_stallcheck.py',
+  'scripts/host/install-stallcheck.sh',
+  'bots/test/stallcheck.test.mjs',
+  'scripts/lib/alarmhead.py',
+  'scripts/mac/opsaudit.sh',
   // the learning loop's nightly archive (M1): logs on .31 rotate after 14 days, this is the only long-term copy
   'scripts/learnloop/extract_triples.py',
   'scripts/learnloop/nightly.py',

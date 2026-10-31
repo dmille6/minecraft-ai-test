@@ -1,0 +1,2350 @@
+{
+ "version": 1,
+ "rule": "OWNER 2026-10-31: one row per owner-approved item. A new owner decision gets a row IN THE SAME SESSION (and its memory file). Park only with a real date (parked.until). scripts/host/stallcheck.py reads this file from origin/main hourly on the canary host; docs/PROCESS-fun-mode.md section Owner commitments ledger.",
+ "schema": {
+  "kind": "canary|direct|showcase|host|design",
+  "lane": "progress|survival|ops",
+  "state": "open|done|parked|dropped",
+  "evidence": "runs (queue/journal ids), branches (origin globs), grep (commit-message substrings, all refs), paths (main), fleet_paths (exist at the fleet sha once shipped)",
+  "depends_on": "[{run, until: kept|closed} | {item} | {cron: crontab substring}]",
+  "covers_alarms": "goalwatch alarm-key globs this row owns"
+ },
+ "memory_no_row": {
+  "owner-build-started.md": "a standing rule or preference, not a work item",
+  "owner-claude-only-review-bank-craft.md": "a standing rule or preference, not a work item",
+  "owner-decisions-2026-09-24.md": "a standing rule or preference, not a work item",
+  "owner-early-close-rule-1015.md": "a standing rule or preference, not a work item",
+  "owner-exposure-deaths-1007.md": "a standing rule or preference, not a work item",
+  "owner-goal-build-survive-cooperate.md": "a standing rule or preference, not a work item",
+  "owner-lastswing-next-and-bundle.md": "a standing rule or preference, not a work item",
+  "owner-no-more-stuck-drowning-hunts.md": "a standing rule or preference, not a work item",
+  "owner-one-control-session-1019.md": "a standing rule or preference, not a work item",
+  "owner-playground-fresh-start.md": "a standing rule or preference, not a work item",
+  "owner-program-window-abandoned.md": "a standing rule or preference, not a work item",
+  "owner-setting-fast-path-1016.md": "a standing rule or preference, not a work item",
+  "owner-short-canary-for-fixes.md": "a standing rule or preference, not a work item",
+  "owner-status-update-format.md": "a standing rule or preference, not a work item",
+  "owner-stay-peaceful-1008.md": "a standing rule or preference, not a work item",
+  "owner-multilane-1008.md": "a standing rule or preference, not a work item",
+  "owner-few-smart-bots-model-search.md": "a standing rule or preference, not a work item",
+  "owner-bag-plan-1007.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)",
+  "owner-chest-clear-once.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)",
+  "owner-chests-withdraw-1004.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)",
+  "owner-decisions-1004-chests.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)",
+  "owner-food-and-town-deposit-1005.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)",
+  "owner-ironpick-bagbudget-1020.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)",
+  "owner-queue-1003.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)",
+  "owner-queue-2026-09-29.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)",
+  "owner-stop-collecting-junk.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)",
+  "owner-town-ground-1013.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)",
+  "owner-wells-direct-1017.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)",
+  "owner-withdraw-and-kit-1016.md": "shipped or closed before the ledger was seeded 2026-10-31 (canary journal)"
+ },
+ "branches_accounted": {
+  "bb-on-*": "bamboo-02 dev-base variants (10-17); bamboo-02 ran and closed REVERT 10-19; bamboo-03 is its own (parked) row",
+  "farm-on-*": "treefarm-02 dev-base variants (10-17); treefarm-02 ran and closed REVERT 10-19",
+  "tk-on-*": "toolkit-02 dev-base variants (10-17); toolkit-02 KEEP + promoted 10-18",
+  "ts-on-*": "townsearch-02 dev-base variants (10-17); townsearch-02 KEEP + promoted 10-19",
+  "found2-on-*": "found-01 r11 record/review commits (no bot code); found-01 KEEP + promoted 10-24"
+ },
+ "items": [
+  {
+   "id": "mine-safety-lavastep",
+   "title": "F1 lavastep-01: never hold still in lava, step along the best-scored direction",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-mineshaft-answers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "lavastep-01"
+    ],
+    "branches": [
+     "lavastep*"
+    ],
+    "grep": [
+     "lavastep-01"
+    ],
+    "paths": [
+     "bots/src/lavastep.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-25",
+    "evidence": "journal lavastep-01 recorded KEEP 2026-10-25T16:32:31Z, promoted 16:42:23Z de07a7f5"
+   }
+  },
+  {
+   "id": "mine-safety-tombexit",
+   "title": "F2 tombexit-01: entombed exit contract (sandbox-tuned limits), stop false _entombed at dead ends/treads",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-mineshaft-answers-1023.md",
+    "owner-building-answers-1023.md",
+    "owner-two-queues-1025.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Build tombexit-01 from docs/reports/mineshaft-safety-2026-10-23.md F2 on the fleet tip 281d5659 (tier 3: two engines + Paper), queue it as the next SURVIVAL entry",
+   "max_quiet_hours": 24,
+   "evidence": {
+    "branches": [
+     "tombexit*"
+    ],
+    "grep": [
+     "tombexit"
+    ]
+   },
+   "note": "AUDIT 10-31: never started (owner order lavastep -> tombexit was the next survival item since 10-25). grep 'tombexit' already matches only the 10-23 design merge d38d7726; branch has no match yet."
+  },
+  {
+   "id": "mine-safety-lavatarget",
+   "title": "F5a lavatarget-01: lava-aware targeting (do not pick blocks/targets beside lava)",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-mineshaft-answers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Build lavatarget-01 (F5a, tier 2 by design) after tombexit-01; showcase/Paper evidence, queue in the survival stream",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "item": "mine-safety-tombexit"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "lavatarget*"
+    ],
+    "grep": [
+     "lavatarget"
+    ]
+   },
+   "note": "AUDIT 10-31: never started. grep 'lavatarget' only matches the design merge d38d7726."
+  },
+  {
+   "id": "mine-safety-minelava",
+   "title": "F4 minelava-01: mining probes lava ahead, seals, places blocks (slower but safer, owner M7)",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-mineshaft-answers-1023.md",
+    "owner-design-answers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Build minelava-01 (F4, tier 3; natural obsidian only, no water on lava per O5) after lavatarget-01",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "item": "mine-safety-lavatarget"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "minelava*"
+    ],
+    "grep": [
+     "minelava"
+    ]
+   },
+   "note": "AUDIT 10-31: never started. grep matches only design merge d38d7726."
+  },
+  {
+   "id": "mine-safety-lavasight",
+   "title": "F5b lavasight-01: lava seen by any bot remembered per world (hazard-map fed) and routed around",
+   "owner_date": "2026-10-24",
+   "memory": [
+    "owner-decisions-1024-efq.md",
+    "owner-mineshaft-answers-1023.md",
+    "owner-data-uses-1024.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Decide re-run: lavasight-01 closed INCONCLUSIVE 10-26 05:48Z; rebuild on the fleet tip (hazard map ~/hazardmap/out feeds it; lavamap cron was retired 10-31 'no consumer') and re-queue, or record why not",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "runs": [
+     "lavasight-01"
+    ],
+    "branches": [
+     "lavasight*"
+    ],
+    "grep": [
+     "lavasight"
+    ]
+   },
+   "note": "Ran once (INCONCLUSIVE 2026-10-26T05:48:37Z), never re-queued; the lavamap feed was retired 10-31 because nothing read it."
+  },
+  {
+   "id": "mine-safety-deepstair-deepminer",
+   "title": "F6 deepstair-01 + deepminer-01: two-lane stair to diamond depth, one deep miner per town (O9, O13), B8 deep miners",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-mineshaft-answers-1023.md",
+    "owner-cooperation-answers-1023.md",
+    "owner-design-answers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "After F2/F4/F5: design check vs the town stair shaft-03 (which reaches y=16), then build deepstair-01 + deepminer-01 (tier 3, branches at feet y=-53, single occupancy)",
+   "max_quiet_hours": 168,
+   "depends_on": [
+    {
+     "item": "mine-safety-tombexit"
+    },
+    {
+     "item": "mine-safety-minelava"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "deepstair*",
+     "deepminer*"
+    ],
+    "grep": [
+     "deepstair",
+     "deepminer"
+    ]
+   },
+   "note": "AUDIT 10-31: never started; grep matches only design merge d38d7726. Diamonds wait on this."
+  },
+  {
+   "id": "mine-safety-inwall",
+   "title": "F3 inwall-01: sandbox investigation of in-wall suffocation; no build until a cause reproduces",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-mineshaft-answers-1023.md"
+   ],
+   "kind": "design",
+   "lane": "survival",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Run the F3 sandbox investigation (sandbox lock via sbxlock.sh), write the result to docs/reports/; build only if a cause reproduces",
+   "max_quiet_hours": 168,
+   "evidence": {
+    "branches": [
+     "inwall*"
+    ],
+    "grep": [
+     "inwall"
+    ]
+   },
+   "note": "Never started; grep matches only design merge d38d7726."
+  },
+  {
+   "id": "diamonds-enchanting",
+   "title": "Diamond tier: diamonds -> pickaxes -> enchanting table (1,429 lapis stocked); no diamond armor while peaceful",
+   "owner_date": "2026-10-19",
+   "memory": [
+    "owner-decisions-1019-tech-overseer.md",
+    "owner-next-tiers-1023.md",
+    "owner-design-answers-1023.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "parked",
+   "owner": "control session",
+   "depends_on": [
+    {
+     "item": "mine-safety-deepstair-deepminer"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "diamond tier",
+     "enchanting"
+    ]
+   },
+   "parked": {
+    "until": "2026-11-14",
+    "why": "owner 10-19: hold until the mineshaft is built and underground safety is better (F2-F6 open)"
+   },
+   "note": "O8: one read-only chest census before sizing enchanting."
+  },
+  {
+   "id": "cavefall-01",
+   "title": "Falls into caves (30% of weekly deaths): cavefall-01",
+   "owner_date": "2026-10-24",
+   "memory": [
+    "owner-decisions-1024-efq.md",
+    "owner-mineshaft-answers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "cavefall-01"
+    ],
+    "branches": [
+     "cavefall*"
+    ],
+    "grep": [
+     "cavefall-01"
+    ],
+    "paths": [
+     "bots/src/cavefall.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-27",
+    "evidence": "journal cavefall-01 KEEP 2026-10-27T00:10:31Z, promoted 00:20:22Z a1c45d8b"
+   }
+  },
+  {
+   "id": "climbflood-plugcut",
+   "title": "Climb-flood escape: plug the wet face first, then cut (plugcut-01)",
+   "owner_date": "2026-10-24",
+   "memory": [
+    "owner-decisions-1024-efq.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "plugcut-01"
+    ],
+    "branches": [
+     "plugcut*"
+    ],
+    "grep": [
+     "plugcut-01"
+    ],
+    "paths": [
+     "bots/src/plugcut.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-27",
+    "evidence": "journal plugcut-01 KEEP 2026-10-27T18:59:24Z, promoted 19:09:15Z c030c2a4"
+   }
+  },
+  {
+   "id": "boarda-comet-ceilescape",
+   "title": "board-a-Comet 'no air route' escape: cheapest lateral exit or needs-rescue (ceilescape-01)",
+   "owner_date": "2026-10-24",
+   "memory": [
+    "owner-production-answers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "ceilescape-01"
+    ],
+    "branches": [
+     "boarda-comet*"
+    ],
+    "grep": [
+     "ceilescape-01"
+    ],
+    "paths": [
+     "bots/src/ceilescape.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-27",
+    "evidence": "journal ceilescape-01 KEEP 2026-10-27T06:38:59Z, promoted 06:48:40Z 8ad4d780"
+   }
+  },
+  {
+   "id": "respawnfall-01",
+   "title": "Respawn onto a high bot-built platform: climb down safely or needs-rescue (+ isolated-a/d)",
+   "owner_date": "2026-10-24",
+   "memory": [
+    "owner-decisions-1024-efq.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "respawnfall-01"
+    ],
+    "branches": [
+     "respawnfall*"
+    ],
+    "grep": [
+     "respawnfall-01"
+    ],
+    "paths": [
+     "bots/src/respawnfall.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-28",
+    "evidence": "journal respawnfall-01 KEEP 2026-10-28T13:12:25Z, promoted fleet-wide 13:22:18Z 1ac55837 (covers isolated-a/d, now shared)"
+   }
+  },
+  {
+   "id": "poolescape-01",
+   "title": "board-d walled water-pit trap: dig stairs/tunnel out with the pickaxe",
+   "owner_date": "2026-10-22",
+   "memory": [
+    "owner-board-d-pool-1022.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "poolescape-01"
+    ],
+    "grep": [
+     "poolescape-01"
+    ],
+    "paths": [
+     "bots/src/poolescape.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-23",
+    "evidence": "journal poolescape-01 KEEP 2026-10-23T07:55:44Z, promoted 08:05:35Z 6e1afb52; main f52aa902"
+   }
+  },
+  {
+   "id": "homefix-02",
+   "title": "homefix (X1 named exception): relocate/rescue home with dry destinations",
+   "owner_date": "2026-10-21",
+   "memory": [
+    "owner-expansion-decisions-1019.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "homefix-01",
+     "homefix-02"
+    ],
+    "grep": [
+     "homefix-02"
+    ]
+   },
+   "done": {
+    "when": "2026-10-22",
+    "evidence": "journal homefix-02 KEEP 2026-10-22T00:18:12Z, promoted 00:28:03Z d014ec2c (homefix-01 REVERTED 10-21)"
+   }
+  },
+  {
+   "id": "escapeguard-01",
+   "title": "Escape digs never break build records or protected-zone structures (fleet canary, then showcase re-stack)",
+   "owner_date": "2026-10-31",
+   "memory": [
+    "owner-showcase-projects-1029.md",
+    "autonomy-1031.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Release escapeguard-01 (variants dd6fc353 / a11ffbb8) once the 24 h qwen35 move's install-hold clears (~2026-11-01T03:11Z); after the fleet KEEP re-stack showcase piece 3b3bdeca on the live showcase release",
+   "max_quiet_hours": 24,
+   "depends_on": [
+    {
+     "item": "qwen35-fleet-experiment"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "escapeguard-01"
+    ],
+    "branches": [
+     "escapeguard*"
+    ],
+    "grep": [
+     "escapeguard"
+    ],
+    "paths": [
+     "bots/src/escapeguard.mjs"
+    ],
+    "fleet_paths": [
+     "bots/src/escapeguard.mjs"
+    ]
+   },
+   "note": "Owner chose B 10-31 (one-off restore of 3 S4 blocks); the guard itself was decided under autonomy-1031. Queue entry ready, HELD."
+  },
+  {
+   "id": "survival-lane-feed",
+   "title": "Keep the one lane alternating progress/survival (P,S,P,S); never idle the survival stream",
+   "owner_date": "2026-10-25",
+   "memory": [
+    "owner-two-queues-1025.md",
+    "stall-audit-practice-1031.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Put a built survival entry behind every progress entry (next: escapeguard-01, then tombexit-01); if none is built, start the build the same session",
+   "max_quiet_hours": 24,
+   "depends_on": [
+    {
+     "item": "mine-safety-tombexit"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "survival stream",
+     "P,S"
+    ]
+   },
+   "note": "AUDIT 10-31: survival stream empty for 3 days (after respawnfall-01 10-28). Process item: no commits expected (greps match nothing by design); evidence is the queue order itself."
+  },
+  {
+   "id": "furnaceseen-01",
+   "title": "B3 furnaceseen-01: owner-direct tier-1 rollout after ledger-01 KEEP (replay check as tripwire)",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-production-answers-1023.md",
+    "owner-cooperation-answers-1023.md",
+    "owner-comms-1021.md"
+   ],
+   "kind": "direct",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Push furnaceseen-on-281d566 (r6, re-stacked on 281d5659 10-31), one-engine review, then owner-direct fleet rollout with a 60-min tripwire and a ledger row",
+   "max_quiet_hours": 24,
+   "depends_on": [
+    {
+     "run": "ledger-01",
+     "until": "kept"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "furnaceseen*"
+    ],
+    "grep": [
+     "furnaceseen"
+    ]
+   },
+   "note": "AUDIT 10-31: approved + reviewed branch never queued after ledger-01 KEEP 2026-10-25T22:56Z. r6 exists locally (furnaceseen-on-281d566), not yet on origin; remote branches are stale bases 26e76fa/69b3f6f/6e1afb5."
+  },
+  {
+   "id": "cobbleoverflow-01",
+   "title": "Junk well takes surplus cobble when town chests are full, even below the 1000 cap",
+   "owner_date": "2026-10-16",
+   "memory": [
+    "owner-cobble-overflow-well-1016.md",
+    "owner-decisions-1016-wells-lids.md",
+    "owner-success-rate-fixes-1028.md"
+   ],
+   "kind": "direct",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Re-measure full-town refusals (>= 3 / 12 h was the trigger); if present rebuild cobbleoverflow-on-cc1000 (5fae06fe) on the fleet tip and roll out tier 2; if absent, record the measurement and re-park with a date",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "branches": [
+     "cobbleoverflow*"
+    ],
+    "grep": [
+     "cobbleoverflow"
+    ],
+    "paths": [
+     "docs/reports/cobbleoverflow-01.registration-draft.json"
+    ]
+   },
+   "note": "AUDIT 10-31: parked 10-16 on a cobblecapread BANK CLOSED tripwire whose cron never existed. Owner re-approved 10-28 (#4); tdfull-01 10-28 note says not built."
+  },
+  {
+   "id": "townfloor-01",
+   "title": "Town-floor repair (owner 10-14 'absolutely do what you recommend with the cobblestones')",
+   "owner_date": "2026-10-14",
+   "memory": [
+    "owner-town-projects-1014.md",
+    "owner-tiered-canaries-1019.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Rebuild: merge tf-on-5e66386 (da99ec95) onto the fleet tip 281d5659, review per protected.py tier, npm test, new registration, canary-sched replace-variant townfloor-01, release",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "run": "townzone-01",
+     "until": "kept"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "townfloor-01"
+    ],
+    "branches": [
+     "tf-on-*",
+     "townfloor*"
+    ],
+    "grep": [
+     "townfloor"
+    ]
+   },
+   "note": "AUDIT 10-31: parked on a dead variant (keyed 3b1ae8bb) although townzone-01 KEPT 10-16 04:52Z. Design docs/reports/townfloor-2026-10-14.md. Tier 3 (big behaviour per owner 10-19)."
+  },
+  {
+   "id": "bamboo-03",
+   "title": "Bamboo folds into sticks (bamboo-02 G3 revert fix)",
+   "owner_date": "2026-10-19",
+   "memory": [
+    "owner-cobble-bags-toolkit-iron-1019.md",
+    "owner-production-answers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "parked",
+   "owner": "control session",
+   "next_step": "At the weekly check: count exposable pools; if >= 4 (or 2-3 as tier 3) re-stack bb3 onto the fleet tip, drop shaft-01 from after, replace-variant",
+   "evidence": {
+    "runs": [
+     "bamboo-03"
+    ],
+    "branches": [
+     "bb3-*"
+    ],
+    "grep": [
+     "bamboo-03"
+    ]
+   },
+   "parked": {
+    "until": "2026-11-03",
+    "why": "owner 10-23 #7: parked at the back, exposable on 1 pool; re-check exposure weekly. Variants dead (adbec4f4/0b3a0d4c/6e1afb52) and after=shaft-01 (cancelled)"
+   },
+   "note": "AUDIT 10-31: sat on dead variants + a cancelled dependency with no weekly check ever run."
+  },
+  {
+   "id": "foldwatch-01",
+   "title": "Stagnation watchdog exempts a progressing bamboo fold (owner 10-19 #13)",
+   "owner_date": "2026-10-19",
+   "memory": [
+    "owner-townprojects-decisions-1019.md",
+    "owner-production-answers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "parked",
+   "owner": "control session",
+   "depends_on": [
+    {
+     "item": "bamboo-03"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "foldwatch-01"
+    ],
+    "branches": [
+     "fw-on-*"
+    ],
+    "grep": [
+     "foldwatch"
+    ]
+   },
+   "parked": {
+    "until": "2026-11-03",
+    "why": "stacked on bamboo-03 (dead variants); revive only after bamboo-03 is rebuilt, KEPT and promoted"
+   },
+   "note": "AUDIT 10-31: parked on dead variants."
+  },
+  {
+   "id": "treefarm-03",
+   "title": "Old fleet tree-farm entry (superseded by treefarm-04)",
+   "owner_date": "2026-10-15",
+   "memory": [
+    "owner-town-projects-1014.md",
+    "owner-production-answers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "parked",
+   "owner": "control session",
+   "depends_on": [
+    {
+     "item": "zigfleet-02"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "treefarm-03"
+    ],
+    "grep": [
+     "treefarm-03"
+    ]
+   },
+   "parked": {
+    "until": "2026-11-03",
+    "why": "dead variants; code superseded on main by treefarm-04. Cancel this entry once zigfleet-02 (carrying treefarm-04) is queued/rolled out"
+   },
+   "note": "AUDIT 10-31: parked on dead variants. treefarm-02 REVERTED 2026-10-19T15:53:58Z."
+  },
+  {
+   "id": "towniron-01",
+   "title": "Town iron reserve: iron task stays open below reserve; iron shovels only above it (64 units/town)",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-production-answers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Check what smeltgate-01/kitmulti-01 (10-29) already cover; rebuild the remainder of towniron-01 (a7a777e7, TIER 3) on the fleet tip and queue it, or record it as superseded",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "branches": [
+     "towniron*"
+    ],
+    "grep": [
+     "towniron"
+    ]
+   },
+   "note": "Built + reviewed 10-23 (record a7a777e7, tier 3), never queued; not in the queue or journal. Possibly partly superseded by the 10-28 iron/smelt fixes (unverified)."
+  },
+  {
+   "id": "zigfleet-02",
+   "title": "Bring main's showcase pieces to the fleet: voidfill-01, zigtidy-02, pathsclose-01, wallstuck-01, treefarm-04 + paths/wall switch on every pool",
+   "owner_date": "2026-10-29",
+   "memory": [
+    "owner-showcase-projects-1029.md",
+    "owner-fun-mode-1028.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Push zigfleet02-on-281d566 (e2f526fc + 8f61571b switch), one review, queue as the next PROGRESS entry (or owner-direct tier 2), then cancel treefarm-03",
+   "max_quiet_hours": 24,
+   "evidence": {
+    "branches": [
+     "zigfleet02*",
+     "zigfleet-02*"
+    ],
+    "grep": [
+     "zigfleet-02"
+    ],
+    "fleet_paths": [
+     "bots/src/voidfill.mjs",
+     "bots/src/treefarm.mjs"
+    ]
+   },
+   "note": "AUDIT 10-31: showcase pieces on main (voidfill 476300a1, wallstuck af847e06, pathsclose 4bf776f4, treefarm-04 1fb323d0..b98c60e5) never reached the fleet; fleet 281d5659 lacks voidfill.mjs/treefarm.mjs and paths/wall are pool-gated. Work started 10-31 on local branches (not yet on origin)."
+  },
+  {
+   "id": "showcase-ziggurat",
+   "title": "Showcase #1 ziggurat (monument revived) + fleet ziggurat via zigfleet-01",
+   "owner_date": "2026-10-29",
+   "memory": [
+    "owner-showcase-projects-1029.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "zigfleet-01"
+    ],
+    "branches": [
+     "zig-*",
+     "zigfleet-on-*",
+     "voidfill-show-*"
+    ],
+    "grep": [
+     "zigfleet-01",
+     "voidfill"
+    ],
+    "paths": [
+     "bots/src/ziggurat.mjs",
+     "bots/src/voidfill.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-30",
+    "evidence": "showcase COMPLETE 4889/4889 22:27Z (release f72cec58, main 476300a1); fleet zigfleet-01 KEEP 2026-10-30T22:51:17Z promoted 23:01:09Z 69116052"
+   }
+  },
+  {
+   "id": "ziggurat-v2",
+   "title": "Ziggurat v2 options 1-3: seeded shape, palette from town stock/biome, summit/corner details",
+   "owner_date": "2026-10-29",
+   "memory": [
+    "owner-ziggurat-variety-1029.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "grep": [
+     "zig2-01"
+    ],
+    "paths": [
+     "bots/src/zigdesign.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-30",
+    "evidence": "main cae83128; on the fleet via zigfleet-01 (promoted 2026-10-30T23:01Z 69116052)"
+   }
+  },
+  {
+   "id": "ziggurat-v2-llm-picks",
+   "title": "Ziggurat option 4: the brain/frontier picks and names the design",
+   "owner_date": "2026-10-29",
+   "memory": [
+    "owner-ziggurat-variety-1029.md",
+    "owner-comms-1021.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "parked",
+   "owner": "control session",
+   "evidence": {
+    "grep": [
+     "zig3",
+     "ziggurat option 4"
+    ]
+   },
+   "parked": {
+    "until": "2026-11-28",
+    "why": "owner 10-29: 'later'; ties to comms stage 2/3"
+   },
+   "note": "Never started: grep patterns are what the work would carry (no match yet)."
+  },
+  {
+   "id": "showcase-house-paths-wall",
+   "title": "Showcase #2: house-01 -> paths-01 -> wall-01 (+ house fleet-wide via zigfleet-01)",
+   "owner_date": "2026-10-29",
+   "memory": [
+    "owner-showcase-projects-1029.md",
+    "owner-building-answers-1023.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "house-01-show-*",
+     "paths-show-*",
+     "wall-show-*",
+     "wallstuck-show-*",
+     "pathsclose-show-*"
+    ],
+    "grep": [
+     "house-01",
+     "paths-01",
+     "wall-01",
+     "wallstuck"
+    ],
+    "paths": [
+     "bots/src/paths.mjs",
+     "bots/src/wall.mjs",
+     "bots/src/blueprints/house@1.json"
+    ]
+   },
+   "done": {
+    "when": "2026-10-31",
+    "evidence": "house-01 showcase 10-29 12:59Z; paths 263/263 10-31 00:14Z; wall 940/941 (1 waived) 10-31 01:12Z via wallstuck-01 release 2707f20c; house fleet-wide in zigfleet-01 69116052"
+   },
+   "note": "Fleet paths/wall switch is in zigfleet-02."
+  },
+  {
+   "id": "showcase-coal",
+   "title": "Showcase #3: coal into the town (coalfirst-01 fleet + showcase coal stack, coalsite-01)",
+   "owner_date": "2026-10-29",
+   "memory": [
+    "owner-showcase-projects-1029.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "coalfirst-01"
+    ],
+    "branches": [
+     "coalfirst-*",
+     "coalsite-show-*"
+    ],
+    "grep": [
+     "coalfirst-01",
+     "coalsite"
+    ],
+    "paths": [
+     "bots/src/coalrun.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-30",
+    "evidence": "fleet coalfirst-01 KEEP 2026-10-29T21:21:43Z promoted 21:31Z 16052ad8; showcase release 3f02eb0e 10-30 09:24Z (town coal 7 -> 40 in 3 h)"
+   }
+  },
+  {
+   "id": "showcase-treefarm",
+   "title": "Showcase #4: town tree farm (treefarm-04) with camera",
+   "owner_date": "2026-10-29",
+   "memory": [
+    "owner-showcase-projects-1029.md",
+    "owner-town-projects-1014.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "treefarm-04-show-*"
+    ],
+    "grep": [
+     "treefarm-04"
+    ],
+    "paths": [
+     "bots/src/treefarm.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-31",
+    "evidence": "showcase release 23782732 (r4) live 10-31 ~16:15Z; main 1fb323d0..b98c60e5; camera 'treefarm'"
+   },
+   "note": "Showcase done; completion of all 16 plots + path leg was still to check 18-20Z. Fleet tree farm rides zigfleet-02."
+  },
+  {
+   "id": "expedition-01-showcase",
+   "title": "Showcase #5: short surface expeditions with return home (breadcrumbs + cobble/torch markers)",
+   "owner_date": "2026-10-27",
+   "memory": [
+    "owner-showcase-projects-1029.md",
+    "owner-expeditions-1027.md",
+    "owner-design-answers-1023.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "expedition-01*",
+     "expeditions-design-1027"
+    ],
+    "grep": [
+     "expedition-01"
+    ],
+    "paths": [
+     "bots/src/expedition.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-31",
+    "evidence": "showcase release 17882cfa live 16:54Z (main 002610aa), camera 'expeditions'; r5 live 17:20Z"
+   },
+   "note": "Design doc docs/reports/expeditions-design-2026-10-27.md is only on branch expeditions-design-1027, not main. r3-r5 commits not yet on main."
+  },
+  {
+   "id": "expedition-01-fleet",
+   "title": "Expeditions on the fleet (surface, one per shared town, up to 1200 blocks)",
+   "owner_date": "2026-10-27",
+   "memory": [
+    "owner-expeditions-1027.md",
+    "owner-expansion-decisions-1019.md",
+    "owner-design-answers-1023.md",
+    "owner-next-tiers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Land expedition r3-r5 on main, merge the design doc, watch the showcase 2 h for trips returning home, then a fleet rollout (tier per protected.py) after zigfleet-02",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "item": "expedition-01-showcase"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "expedition-01*"
+    ],
+    "grep": [
+     "expedition-01"
+    ],
+    "fleet_paths": [
+     "bots/src/expedition.mjs"
+    ]
+   },
+   "note": "Not on the fleet (281d5659 has no expedition.mjs)."
+  },
+  {
+   "id": "expedition-outposts",
+   "title": "Outposts (one per town, valuables only) after expeditions; rails decided later",
+   "owner_date": "2026-10-19",
+   "memory": [
+    "owner-expansion-decisions-1019.md",
+    "owner-next-tiers-1023.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "parked",
+   "owner": "control session",
+   "depends_on": [
+    {
+     "item": "expedition-01-fleet"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "outpost"
+    ]
+   },
+   "parked": {
+    "until": "2026-11-14",
+    "why": "owner X5: after expeditions are live on the fleet; rails (X6/X7) not decided"
+   }
+  },
+  {
+   "id": "frontiercensus-e0",
+   "title": "E0 frontier census (host cron + fleetstatus line), expedition warm-up",
+   "owner_date": "2026-10-21",
+   "memory": [
+    "owner-expansion-decisions-1019.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "frontiercensus-02"
+    ],
+    "grep": [
+     "frontiercensus"
+    ],
+    "paths": [
+     "scripts/host/frontiercensus.py"
+    ]
+   },
+   "done": {
+    "when": "2026-10-22",
+    "evidence": "merged 5cc17edb; cron frontiercensus-cron.sh on .31 since 10-22 00:19Z"
+   }
+  },
+  {
+   "id": "common-mineshaft",
+   "title": "Common mineshaft / town stair (shaft-02 build+use, shaft-03 stall fix)",
+   "owner_date": "2026-10-30",
+   "memory": [
+    "owner-common-mineshaft-1030.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "shaft-02",
+     "shaft-03"
+    ],
+    "branches": [
+     "shaft2-on-*",
+     "shaft-03-on-*"
+    ],
+    "grep": [
+     "shaft-02",
+     "shaft-03"
+    ],
+    "paths": [
+     "bots/src/shaftgeom.mjs",
+     "bots/src/shaftvisit.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-31",
+    "evidence": "shaft-02 KEEP 2026-10-31T02:43:08Z promoted 02:52:59Z aad2506a; shaft-03 KEEP 2026-10-31T17:00:46Z promoted 17:10:28Z 281d5659 (fleet sha)"
+   }
+  },
+  {
+   "id": "shaft-followups",
+   "title": "Town stair follow-ups: hive-a no_support (no support row), towns that never site a stair (board-c/hive-c/hive-d/isolated-c)",
+   "owner_date": "2026-10-30",
+   "memory": [
+    "owner-common-mineshaft-1030.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Read goalwatch shaft goals on 281d5659; log the support click; decide whether stair siting should wait behind an open workshop",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "grep": [
+     "shaft-04",
+     "stair support"
+    ],
+    "branches": [
+     "shaft-04*",
+     "shaft4*"
+    ]
+   },
+   "covers_alarms": [
+    "goal:*/shaft@*"
+   ],
+   "note": "Covers the hive-a/shaft STUCK alarm named in the 10-31 audit. No work yet: branch/grep patterns are expected names (no match)."
+  },
+  {
+   "id": "shaft-01-stonewithdraw-01",
+   "title": "shaft-01 (old laddered shaft on a dev base) and stonewithdraw-01",
+   "owner_date": "2026-10-30",
+   "memory": [
+    "owner-common-mineshaft-1030.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "dropped",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "shaft-01",
+     "stonewithdraw-01"
+    ],
+    "branches": [
+     "shaft-on-1f066b0"
+    ]
+   },
+   "dropped": {
+    "why": "owner cancelled both 10-30 ~19:45Z (shaft-01 replaced by shaft-02)"
+   }
+  },
+  {
+   "id": "monument-01",
+   "title": "monument-01 (old ziggurat entry held behind cancelled minewell-02)",
+   "owner_date": "2026-10-30",
+   "memory": [
+    "owner-showcase-projects-1029.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "dropped",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "monument-01"
+    ],
+    "branches": [
+     "monument-on-*"
+    ]
+   },
+   "dropped": {
+    "why": "owner cancelled 10-30 ~17:20Z; ziggurat shipped as zigfleet-01"
+   }
+  },
+  {
+   "id": "stuck-workshops",
+   "title": "Stuck town workshops (board-d no visitor, hive-d earth blocked, isolated-b stuck_on_cell)",
+   "owner_date": "2026-10-28",
+   "memory": [
+    "owner-fun-mode-1028.md",
+    "owner-showcase-projects-1029.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Diagnose each stuck shop record (hive-d 69 h+), build a fix (stuckwait does not help a single open project) or offer the owner a one-off; fun mode wants a stuck visible goal in front of the owner within 2-3 h",
+   "max_quiet_hours": 24,
+   "evidence": {
+    "grep": [
+     "stuck workshop",
+     "shopstuck"
+    ],
+    "branches": [
+     "shopstuck*"
+    ]
+   },
+   "covers_alarms": [
+    "goal:*/shop@*"
+   ],
+   "note": "AUDIT 10-31: STUCK alarms with no owner (hive-d/shop ~69 h, board-d/shop; isolated-b stuck_on_cell). No work yet: patterns are expected names (no match)."
+  },
+  {
+   "id": "stuck-monument-house",
+   "title": "Stuck fleet monument/house records (hive-b/monument, board-a/house1)",
+   "owner_date": "2026-10-30",
+   "memory": [
+    "owner-fun-mode-1028.md",
+    "owner-showcase-projects-1029.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Read the hive-b monument and board-a house1 records; check whether zigfleet-02's voidfill/zigtidy/stale-stamp fixes cover them; else build a fix",
+   "max_quiet_hours": 24,
+   "depends_on": [
+    {
+     "item": "zigfleet-02"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "monument stuck",
+     "housestuck"
+    ]
+   },
+   "covers_alarms": [
+    "goal:*/monument@*",
+    "goal:*/house*@*"
+   ],
+   "note": "AUDIT 10-31: STUCK alarms with no owner. No work yet: patterns are expected names (no match)."
+  },
+  {
+   "id": "building-tier-trunk",
+   "title": "Building tier: matset/mats/shop-01 workshop, BUILD_RESERVE table, structcount -> fleet via trunk-01",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-building-answers-1023.md",
+    "owner-production-answers-1023.md",
+    "owner-two-queues-1025.md"
+   ],
+   "kind": "direct",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "trunk-01"
+    ],
+    "branches": [
+     "mats-on-*",
+     "shop-on-*",
+     "matset-on-*"
+    ],
+    "grep": [
+     "shop-01",
+     "mats-01",
+     "matset"
+    ],
+    "paths": [
+     "bots/src/shop.mjs",
+     "bots/src/mats.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-28",
+    "evidence": "showcase live 10-26 17:07Z (release b478af92); fleet via trunk-01 KEEP 2026-10-28T22:35:31Z promoted 22:45Z d4602c9e (b1bc6719 is an ancestor)"
+   },
+   "note": "mats-01/shop-01 never ran as separate canaries; they reached the fleet in the trunk merge."
+  },
+  {
+   "id": "workbench-01",
+   "title": "Workshop #1 priority: make_material/smelting/crafting prefer the workshop's furnaces + table",
+   "owner_date": "2026-10-28",
+   "memory": [
+    "owner-workshop-uses-1028.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "workbench-01*"
+    ],
+    "grep": [
+     "workbench-01"
+    ],
+    "paths": [
+     "bots/src/workbench.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-28",
+    "evidence": "showcase release 9389b53b (shopwalls-06 + workbench-01); fleet via trunk-01 (ba98979a) KEEP 2026-10-28T22:35:31Z"
+   }
+  },
+  {
+   "id": "shopchest",
+   "title": "Workshop #2: building-materials chest(s) inside, reachable stand, no lid, proven by a bot opening it",
+   "owner_date": "2026-10-28",
+   "memory": [
+    "owner-workshop-uses-1028.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Design + build shopchest on the showcase (prove a bot opens it from its stand), then fleet tier 2",
+   "max_quiet_hours": 168,
+   "evidence": {
+    "branches": [
+     "shopchest*"
+    ],
+    "grep": [
+     "shopchest"
+    ]
+   },
+   "note": "Backlog per owner ('after house-01 starts', which happened 10-29). Never started: no branch or commit."
+  },
+  {
+   "id": "storehouse-01",
+   "title": "Storehouse (sorted chest cluster on the bench; real building hive-a/hive-b) after shop-01",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-building-answers-1023.md",
+    "owner-town-plan-1020.md",
+    "owner-decisions-1021-list.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Showcase first: build storehouse-01b (plank roof, signs as labels), then fleet",
+   "max_quiet_hours": 168,
+   "evidence": {
+    "branches": [
+     "storehouse*"
+    ],
+    "grep": [
+     "storehouse-01"
+    ]
+   },
+   "note": "Never started; grep 'storehouse-01' only matches house-01 commits that mention it."
+  },
+  {
+   "id": "sortdeposit-01",
+   "title": "Sorted deposits: deposit to the chest holding that item / its group chest",
+   "owner_date": "2026-10-20",
+   "memory": [
+    "owner-town-plan-1020.md",
+    "owner-two-queues-1025.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Build on the showcase first (owner 10-25: showcase-first), then fleet tier 2",
+   "max_quiet_hours": 168,
+   "depends_on": [
+    {
+     "item": "storehouse-01"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "sortdeposit*"
+    ],
+    "grep": [
+     "sortdeposit"
+    ]
+   },
+   "note": "Not built; dropped from REQUIRED_KEPT 10-25 (owner '1 and 2'). grep matches only found-01 records."
+  },
+  {
+   "id": "farhome-01",
+   "title": "farhome-01 (town-plan piece; owner 10-21 #8 yes)",
+   "owner_date": "2026-10-21",
+   "memory": [
+    "owner-decisions-1021-list.md",
+    "owner-town-plan-1020.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Re-read docs/reports/town-plan-2026-10-20.md farhome-01; decide whether expedition return-home supersedes it; build or record superseded",
+   "max_quiet_hours": 168,
+   "evidence": {
+    "branches": [
+     "farhome*"
+    ],
+    "grep": [
+     "farhome"
+    ]
+   },
+   "note": "Never started: no branch or commit matches 'farhome' (patterns are expected names)."
+  },
+  {
+   "id": "town-plan-first-pieces",
+   "title": "Town plan first pieces: townindex-01, townplan-01, found-01 (indexsearch-01 INCONCLUSIVE, dropped from REQUIRED_KEPT)",
+   "owner_date": "2026-10-21",
+   "memory": [
+    "owner-town-plan-1020.md",
+    "owner-decisions-1021-list.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "townindex-01",
+     "indexsearch-01",
+     "townplan-01",
+     "found-01"
+    ],
+    "grep": [
+     "townindex-01",
+     "townplan-01",
+     "found-01"
+    ],
+    "paths": [
+     "bots/src/townindex.mjs",
+     "bots/src/townplan.mjs",
+     "bots/src/found.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-24",
+    "evidence": "townindex-01 KEEP 2026-10-23T01:07:33Z; townplan-01 KEEP 2026-10-24T15:15:30Z; found-01 KEEP 2026-10-24T21:45:12Z promoted 21dd0ce1"
+   }
+  },
+  {
+   "id": "reserve80",
+   "title": "Project may spend 80% of chest reserves while a building is in progress",
+   "owner_date": "2026-10-27",
+   "memory": [
+    "owner-project-reserve-80-1027.md"
+   ],
+   "kind": "direct",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "reserve80-1027"
+    ],
+    "grep": [
+     "reserve80"
+    ]
+   },
+   "done": {
+    "when": "2026-10-28",
+    "evidence": "reserve80 780f8def on the fleet via trunk-01 KEEP 2026-10-28T22:35:31Z (ancestor of 281d5659)"
+   }
+  },
+  {
+   "id": "nobridge-fell",
+   "title": "No pathfinder water bridging; builder fells a trunk in a project cell; no planting in footprints",
+   "owner_date": "2026-10-27",
+   "memory": [
+    "owner-no-water-bridging-1027.md"
+   ],
+   "kind": "direct",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "treebridge-1027"
+    ],
+    "grep": [
+     "nobridge"
+    ],
+    "paths": [
+     "bots/src/nobridge.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-28",
+    "evidence": "nobridge-01 + fell-01 r2 in the showcase lineage b1bc6719, on the fleet via trunk-01 2026-10-28T22:35:31Z"
+   }
+  },
+  {
+   "id": "tidy-water",
+   "title": "Tidy duty: bots dig stray blocks out of open water near town and bank them",
+   "owner_date": "2026-10-27",
+   "memory": [
+    "owner-no-water-bridging-1027.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "parked",
+   "owner": "control session",
+   "evidence": {
+    "grep": [
+     "watertidy"
+    ]
+   },
+   "parked": {
+    "until": "2026-11-14",
+    "why": "owner 10-27: approved but WAY DOWN the list, backlog after the current queue; do not pull forward"
+   },
+   "note": "Never started; grep is the expected name."
+  },
+  {
+   "id": "townprojects-stages-2-8",
+   "title": "Town projects stages 2-8: copper into builds (roofs/trim), blast furnaces, pavilion for copper-short towns, spyglass per town, storehouse plank roof",
+   "owner_date": "2026-10-19",
+   "memory": [
+    "owner-decisions-1019-tech-overseer.md",
+    "owner-townprojects-decisions-1019.md",
+    "owner-town-projects-1014.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Pick the next stage from the 10-19 plan that fits the building framework (shop/house/wall) and put it on the showcase list; yard-01/workshop-01 stay postponed (O1)",
+   "max_quiet_hours": 168,
+   "evidence": {
+    "grep": [
+     "pavilion-01",
+     "blastfurnace",
+     "copper trim"
+    ],
+    "paths": [
+     "docs/reports/townprojects-stages2-8-plan-2026-10-19.md"
+    ]
+   },
+   "note": "Plan on main; no stage built since smeltjob-01 except via the building tier. Only 'pavilion-01' grep matches today (house-01 commits mentioning it)."
+  },
+  {
+   "id": "junkout-01",
+   "title": "junkout-01: listed junk to the well every town visit + slim bag allowance",
+   "owner_date": "2026-10-21",
+   "memory": [
+    "owner-junkout-1021.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "junkout-01"
+    ],
+    "branches": [
+     "junkout-on-*"
+    ],
+    "grep": [
+     "junkout-01"
+    ]
+   },
+   "done": {
+    "when": "2026-10-25",
+    "evidence": "journal junkout-01 KEEP 2026-10-25T05:05:34Z, promoted 05:15:15Z d55ce14d"
+   },
+   "note": "List additions were not applied (consumer check); owner told 10-22."
+  },
+  {
+   "id": "ironsmelt-01",
+   "title": "Town iron smelting (smelt_town takes raw iron)",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-next-tiers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "ironsmelt-01"
+    ],
+    "grep": [
+     "ironsmelt-01"
+    ]
+   },
+   "done": {
+    "when": "2026-10-24",
+    "evidence": "journal ironsmelt-01 KEEP 2026-10-24T08:28:14Z, promoted 08:37:56Z fb8de72f"
+   }
+  },
+  {
+   "id": "success-iron-smelt",
+   "title": "Success fixes #2+#5: smelt_town finds indexed ore (smeltgate-01); toolkit draws across containers (kitmulti-01)",
+   "owner_date": "2026-10-28",
+   "memory": [
+    "owner-success-rate-fixes-1028.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "smeltgate-01",
+     "kitmulti-01"
+    ],
+    "branches": [
+     "kitmulti*"
+    ],
+    "grep": [
+     "smeltgate-01",
+     "kitmulti-01"
+    ]
+   },
+   "done": {
+    "when": "2026-10-29",
+    "evidence": "smeltgate-01 KEEP 2026-10-29T03:13:13Z; kitmulti-01 KEEP 06:27:29Z promoted aca2320a"
+   }
+  },
+  {
+   "id": "success-chest-reach",
+   "title": "Success fix #3: chest reach (chestreach-01) + fleet-wide diagonal corner fix (cornerwalk-01)",
+   "owner_date": "2026-10-28",
+   "memory": [
+    "owner-success-rate-fixes-1028.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "chestreach-01",
+     "cornerwalk-01"
+    ],
+    "grep": [
+     "chestreach-01",
+     "cornerwalk-01"
+    ],
+    "paths": [
+     "bots/src/cornermoves.mjs"
+    ]
+   },
+   "done": {
+    "when": "2026-10-29",
+    "evidence": "chestreach-01 KEEP 2026-10-29T09:42:14Z; cornerwalk-01 KEEP 13:31:44Z promoted 8f2bd82b"
+   }
+  },
+  {
+   "id": "success-towndeposit",
+   "title": "Success fix #4: no offer when nothing bankable (tdoffer-01), full chest remembered (tdfull-01), plank-lid rule (lidplank-01)",
+   "owner_date": "2026-10-28",
+   "memory": [
+    "owner-success-rate-fixes-1028.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "tdoffer-01",
+     "tdfull-01",
+     "lidplank-01"
+    ],
+    "grep": [
+     "tdoffer-01",
+     "tdfull-01",
+     "lidplank-01"
+    ]
+   },
+   "done": {
+    "when": "2026-10-30",
+    "evidence": "tdoffer-01 KEEP 2026-10-29T18:03:54Z; tdfull-01 KEEP 2026-10-30T12:25:22Z; lidplank-01 KEEP 2026-10-30T18:59:11Z promoted 4d43a9ca"
+   },
+   "note": "'New chests when full' and cobble overflow were not part of these runs (cobble overflow is its own row)."
+  },
+  {
+   "id": "success-logs",
+   "title": "Success fix #1: logs -- no log gather underground, surface first (logsurface-01)",
+   "owner_date": "2026-10-28",
+   "memory": [
+    "owner-success-rate-fixes-1028.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "logsurface-01"
+    ],
+    "grep": [
+     "logsurface-01"
+    ]
+   },
+   "done": {
+    "when": "2026-10-30",
+    "evidence": "logsurface-01 KEEP 2026-10-30T15:44:39Z promoted 15:54:21Z d1453ed2"
+   },
+   "note": "Unverified whether 'another tree on unreachable' and the relaxed water/falling-block refusal shipped inside logsurface-01."
+  },
+  {
+   "id": "coop-host-b0a-b1",
+   "title": "Cooperation B0a census fix, B1 daily coop census + fleetstatus line, X1 sighting read",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-cooperation-answers-1023.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "coophost-1023"
+    ],
+    "grep": [
+     "coophost"
+    ],
+    "paths": [
+     "scripts/host/coopread.py",
+     "scripts/host/staffcensus.py"
+    ]
+   },
+   "done": {
+    "when": "2026-10-23",
+    "evidence": "merged d1a0a884; cron coopread.py --day on .31"
+   }
+  },
+  {
+   "id": "comms-stage1-groundwork",
+   "title": "Comms/coop groundwork: chatgate-01 (owner-listed command names), keepout-01 (lava-site keep-out, safety lane), B2 ledger-01",
+   "owner_date": "2026-10-22",
+   "memory": [
+    "owner-comms-1021.md",
+    "owner-cooperation-answers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "chatgate-01",
+     "keepout-01",
+     "ledger-01"
+    ],
+    "branches": [
+     "chatgate-on-*",
+     "ledger-on-*"
+    ],
+    "grep": [
+     "chatgate-01",
+     "keepout-01",
+     "ledger-01"
+    ],
+    "paths": [
+     "bots/src/keepout.mjs",
+     "bots/src/ledger.mjs",
+     "scripts/host/ledgerread.py"
+    ]
+   },
+   "done": {
+    "when": "2026-10-25",
+    "evidence": "keepout-01 KEEP 2026-10-22T13:13:03Z; chatgate-01 KEEP 2026-10-24T01:52:20Z; ledger-01 KEEP 2026-10-25T22:56:01Z promoted 23:05:43Z 112beb04"
+   }
+  },
+  {
+   "id": "coop-b5-paper-arms",
+   "title": "B5 Paper arms: frontier assigner vs greedy (+ Haiku 4.5 arm, $150/mo guard, existing Mac keys)",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-cooperation-answers-1023.md",
+    "owner-decisions-1019-tech-overseer.md",
+    "owner-overseer-direction.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Build the B5 Paper arms per docs/reports/cooperation-tier-2026-10-23.md (frontier vs greedy vs scripted best case, Haiku arm, spend guard), report go/no-go",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "item": "furnaceseen-01"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "coop-b5*",
+     "assign*"
+    ],
+    "grep": [
+     "coop-b5",
+     "B5 Paper"
+    ]
+   },
+   "note": "Never started on origin (a local branch coop-b5-1031 exists at 230cb2ff with no B5 commits). B0b+B4 (shop-01) shipped via trunk-01."
+  },
+  {
+   "id": "coop-b6-b7-assign",
+   "title": "B6 shadow assigner in 3 towns -> B7 assign-01 live in 4 towns (tier 3, up to 7 d), 2 builders",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-cooperation-answers-1023.md",
+    "owner-decisions-1019-tech-overseer.md",
+    "owner-next-tiers-1023.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "After B5 says frontier >= greedy: shadow 3 towns, then queue assign-01 (live only if frontier >= greedy; else greedy live, frontier in shadow)",
+   "max_quiet_hours": 168,
+   "depends_on": [
+    {
+     "item": "coop-b5-paper-arms"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "assign-01*"
+    ],
+    "grep": [
+     "assign-01"
+    ]
+   },
+   "note": "Never started: no commit matches 'assign-01'."
+  },
+  {
+   "id": "comms-stage1-rest",
+   "title": "Comms stage 1 remainder: claims mirror, unreach-01 (share world state only)",
+   "owner_date": "2026-10-22",
+   "memory": [
+    "owner-comms-1021.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Build unreach-01 and the claims mirror per docs/reports/comms-design-2026-10-21.md order (after furnaceseen-01)",
+   "max_quiet_hours": 168,
+   "depends_on": [
+    {
+     "item": "furnaceseen-01"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "unreach*",
+     "claims*"
+    ],
+    "grep": [
+     "unreach-01",
+     "claims mirror"
+    ]
+   },
+   "note": "Done so far: chatgate-01, keepout-01, ledger-01. grep hits are only 10-21 design commits."
+  },
+  {
+   "id": "comms-stage2-talk",
+   "title": "Comms stage 2: visible templated chat on the showcase (TALK), timelapse captions",
+   "owner_date": "2026-10-22",
+   "memory": [
+    "owner-comms-1021.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Turn on templated TALK on the showcase (bench bots never write in v1) and add captions to tl_video.py",
+   "max_quiet_hours": 168,
+   "evidence": {
+    "branches": [
+     "talk*",
+     "showtalk*"
+    ],
+    "grep": [
+     "showcase TALK",
+     "talk-01"
+    ]
+   },
+   "note": "Never started after chatgate-01 KEEP 10-24; patterns are expected names (no match yet)."
+  },
+  {
+   "id": "comms-stage3",
+   "title": "Comms stage 3: requests / multi-bot projects with the foreman (no trades or rescue parties in v1)",
+   "owner_date": "2026-10-22",
+   "memory": [
+    "owner-comms-1021.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "parked",
+   "owner": "control session",
+   "depends_on": [
+    {
+     "item": "coop-b6-b7-assign"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "stage 3a"
+    ]
+   },
+   "parked": {
+    "until": "2026-11-28",
+    "why": "after stage 2 and the job assigner (B7)"
+   },
+   "note": "Never started; grep is the expected name."
+  },
+  {
+   "id": "strategist-layer",
+   "title": "Frontier strategist ('god') layer above the overseer, shadow first",
+   "owner_date": "2026-10-05",
+   "memory": [
+    "owner-strategist-layer.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "parked",
+   "owner": "control session",
+   "depends_on": [
+    {
+     "item": "coop-b6-b7-assign"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "strategist"
+    ]
+   },
+   "parked": {
+    "until": "2026-11-28",
+    "why": "owner 10-05: low priority, not before the overseer's first real job (B7 assign-01)"
+   }
+  },
+  {
+   "id": "qwen35-01-canary",
+   "title": "Model canary qwen35-01: qwen3.5:9b for 10 bots (Blackwell, env only)",
+   "owner_date": "2026-10-30",
+   "memory": [
+    "qwen35-canary-1030.md",
+    "owner-learning-loop-1021.md"
+   ],
+   "kind": "canary",
+   "lane": "ops",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "qwen35-01"
+    ],
+    "branches": [
+     "qwen35-*"
+    ],
+    "grep": [
+     "qwen35-01"
+    ]
+   },
+   "done": {
+    "when": "2026-10-31",
+    "evidence": "journal qwen35-01 KEEP 2026-10-31T06:10:06Z (keep-unpromoted; torn down)"
+   }
+  },
+  {
+   "id": "qwen35-fleet-experiment",
+   "title": "24 h: all bots on qwen3.5:9b on the Blackwell, compare at +24 h, then mandatory rollback (Blackwell is testing only)",
+   "owner_date": "2026-10-31",
+   "memory": [
+    "qwen35-canary-1030.md",
+    "owner-blackwell-testing-only-1031.md"
+   ],
+   "kind": "direct",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Watch stages (stage 1 applied 17:17Z); at +24 h run modelcompare -> ~/qwen35-rollout/compare-24h.md, then `modelrollout.py rollback --all` unless the owner keeps it; release the install-hold for escapeguard-01",
+   "max_quiet_hours": 24,
+   "evidence": {
+    "runs": [
+     "qwen35-roll",
+     "qwen35-roll-s1"
+    ],
+    "grep": [
+     "modelrollout",
+     "modelcompare"
+    ],
+    "paths": [
+     "scripts/host/modelrollout.py"
+    ]
+   },
+   "note": "Rollout started 2026-10-31T17:11:24Z, install-hold until 2026-11-01T03:11:24Z."
+  },
+  {
+   "id": "qwen35-production-serving",
+   "title": "Serve the kept model on the fleet's own GPUs (5080/3090): batching-server test on the 3090",
+   "owner_date": "2026-10-31",
+   "memory": [
+    "qwen35-canary-1030.md",
+    "owner-blackwell-testing-only-1031.md",
+    "owner-learning-loop-1021.md"
+   ],
+   "kind": "design",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Run the queued 3090 batching test (vLLM / llama-server -np, concurrency 1/4/8/16 on real prompts, never stop ~/ethan-gpu); decide whether the 5080 can carry the fleet on qwen3.5",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "grep": [
+     "batching",
+     "llama-server -np",
+     "vllm"
+    ]
+   },
+   "note": "Owner queued 10-31 ~14:10Z after the teacher pilot (which finished ~16:45Z). No commit yet: greps are expected words (no match)."
+  },
+  {
+   "id": "qwen35c2-01",
+   "title": "Learning-loop candidate 2 canary (cand-qwen35-9b-c2-q8): release or not",
+   "owner_date": "2026-10-30",
+   "memory": [
+    "owner-learning-loop-1021.md"
+   ],
+   "kind": "canary",
+   "lane": "ops",
+   "state": "open",
+   "owner": "owner",
+   "next_step": "Owner decision on release (report learnloop-c2); before release: Blackwell upload, think-unset template check, 20/min capacity test, variant on the current tip",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "runs": [
+     "qwen35c2-01"
+    ],
+    "branches": [
+     "qwen35c2-*"
+    ],
+    "grep": [
+     "qwen35c2",
+     "learnloop c2"
+    ],
+    "paths": [
+     "docs/reports/learnloop-c2-2026-10-31.md"
+    ]
+   },
+   "note": "Queue entry HELD at the end. Owner-only step. Autonomy-1031 call: keep held until the 3090 batching test says where it can be served."
+  },
+  {
+   "id": "learnloop",
+   "title": "Continuous learning loop: nightly collect -> label -> train -> check -> promote a clear winner (kill rule 2 failures)",
+   "owner_date": "2026-10-21",
+   "memory": [
+    "owner-learning-loop-1021.md",
+    "owner-data-uses-1024.md",
+    "owner-next-tiers-1023.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Plan candidate 3 or the next serving step from the c2 result (quantisation explains most of the gain); nightly extract keeps running",
+   "max_quiet_hours": 168,
+   "evidence": {
+    "branches": [
+     "learnloop*"
+    ],
+    "grep": [
+     "learnloop"
+    ],
+    "paths": [
+     "docs/reports/learnloop-c2-2026-10-31.md"
+    ]
+   },
+   "note": "M1 cron live since 10-22; boot-01 failed replay 10-30; candidate 2 passed 10-31 (main 230cb2ff). Kill rule not reached."
+  },
+  {
+   "id": "learnloop-owner-terms",
+   "title": "Owner: read vendor output terms before training on paid labels; top up OpenAI credit for the GPT teacher arm (~$6)",
+   "owner_date": "2026-10-30",
+   "memory": [
+    "owner-learning-loop-1021.md"
+   ],
+   "kind": "design",
+   "lane": "ops",
+   "state": "open",
+   "owner": "owner",
+   "next_step": "Owner reads Anthropic/OpenAI output terms and decides; optional OpenAI top-up; paid labels stay quarantined until then",
+   "max_quiet_hours": 168,
+   "evidence": {
+    "grep": [
+     "teacher pilot arm C"
+    ]
+   }
+  },
+  {
+   "id": "failmine-scenes",
+   "title": "Data use 2: weekly failure mining -> clustered deaths/stuck states -> Paper scenes",
+   "owner_date": "2026-10-24",
+   "memory": [
+    "owner-data-uses-1024.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "failmine-1024",
+     "scene-harness"
+    ],
+    "grep": [
+     "failmine"
+    ],
+    "paths": [
+     "scripts/host/failmine/failmine.py",
+     "docs/reports/failmine-2026-10-24.md"
+    ]
+   },
+   "done": {
+    "when": "2026-10-24",
+    "evidence": "cron failmine.py weekly (Sun 06:40) on .31; report docs/reports/failmine-2026-10-24.md"
+   },
+   "note": "Unverified how many permanent Paper scenes (board-a copper trap, cave falls) exist beyond the library gate used by ceilescape-01."
+  },
+  {
+   "id": "hazardmap",
+   "title": "Data use 3: per-seed hazard map (deaths, lava, water pits, cave falls)",
+   "owner_date": "2026-10-24",
+   "memory": [
+    "owner-data-uses-1024.md",
+    "owner-decisions-1024-efq.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "hazardmap-1024"
+    ],
+    "grep": [
+     "hazardmap"
+    ],
+    "paths": [
+     "scripts/host/hazardmap/hazardmap.py"
+    ]
+   },
+   "done": {
+    "when": "2026-10-24",
+    "evidence": "cron hazardmap.py refresh 05:10 on .31; report docs/reports/hazardmap-2026-10-24.md"
+   },
+   "note": "The lavasight consumer (lavamap cron) was retired 10-31; the map has no bot consumer until lavasight is re-run."
+  },
+  {
+   "id": "exposure-prediction",
+   "title": "Data use 4: pre-canary exposure/effect prediction by replaying logged decisions",
+   "owner_date": "2026-10-24",
+   "memory": [
+    "owner-data-uses-1024.md"
+   ],
+   "kind": "design",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Design the replay predictor (would have caught indexsearch-01 / furnaceseen-01), one engine, then a host script",
+   "max_quiet_hours": 168,
+   "evidence": {
+    "branches": [
+     "exposurepred*",
+     "predict*"
+    ],
+    "grep": [
+     "exposure prediction",
+     "exposurepred"
+    ]
+   },
+   "note": "Never started (approved for AFTER 2+3, which are done since 10-24); patterns are expected names (no match)."
+  },
+  {
+   "id": "driftwatch",
+   "title": "Data use 5 / fun mode: per-pool daily drift alarms (30% vs 7-day median) in the header",
+   "owner_date": "2026-10-24",
+   "memory": [
+    "owner-data-uses-1024.md",
+    "owner-fun-mode-1028.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "grep": [
+     "driftwatch",
+     "W5 alarms"
+    ],
+    "paths": [
+     "scripts/host/driftwatch.py"
+    ]
+   },
+   "done": {
+    "when": "2026-10-28",
+    "evidence": "W5 alarms merged dd0de4b0; cron driftwatch.py 01:20 on .31"
+   }
+  },
+  {
+   "id": "valuescore-scoreboard",
+   "title": "Value-weighted daily scoreboard (dirt and stair steps stop inflating it) + structure count",
+   "owner_date": "2026-10-23",
+   "memory": [
+    "owner-production-answers-1023.md",
+    "owner-next-tiers-1023.md",
+    "owner-building-answers-1023.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "scoreboard-value-1023",
+     "structcount-1023"
+    ],
+    "grep": [
+     "valuescore",
+     "structcount"
+    ],
+    "paths": [
+     "scripts/host/valuescore.py",
+     "scripts/host/structcount/structcount.py"
+    ]
+   },
+   "done": {
+    "when": "2026-10-23",
+    "evidence": "cron valuescore.py (valuescore-1023) and structcount pull.py on .31"
+   }
+  },
+  {
+   "id": "isolated2shared",
+   "title": "isolated-a..d become shared towns (phase 1 isolated-b, phase 2 a/c/d)",
+   "owner_date": "2026-10-20",
+   "memory": [
+    "owner-fleet-reshape-1020.md",
+    "owner-queue-speed-1023.md"
+   ],
+   "kind": "direct",
+   "lane": "ops",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "runs": [
+     "isolated2shared-01"
+    ],
+    "branches": [
+     "isolated2shared-on-*"
+    ],
+    "grep": [
+     "isolated2shared"
+    ]
+   },
+   "done": {
+    "when": "2026-10-23",
+    "evidence": "journal isolated2shared-01 owner-direct isolated-d 2026-10-23T15:28:13Z; hold released 19:31:24Z"
+   }
+  },
+  {
+   "id": "tier2-min4",
+   "title": "4-pool enforcement for tier 2 (12 h bound + R10)",
+   "owner_date": "2026-10-24",
+   "memory": [
+    "owner-decisions-1024-efq.md",
+    "owner-queue-speed-results-1023.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "dropped",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "tier2-min4-1024"
+    ],
+    "grep": [
+     "tier2-min4"
+    ]
+   },
+   "dropped": {
+    "why": "superseded by fun mode v37 (owner approved all 10-28): ordinary runs wait at most 30 min, draw_require_pools/R10 are lab-only; branch tier2-min4-1024 never merged to main"
+   },
+   "note": "Not an explicit owner cancel; the owner approved the fun-mode plan that retired this machinery. Confirm if unsure."
+  },
+  {
+   "id": "stallcheck-ledger",
+   "title": "Owner-commitments ledger + hourly stall detectors -> fleetstatus header, ntfy, digest for the Codex audit",
+   "owner_date": "2026-10-31",
+   "memory": [
+    "stall-audit-practice-1031.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Land config/owner-commitments (this seed) + detectors on main, install the hourly cron on .31, show STALLED in the fleetstatus header",
+   "max_quiet_hours": 24,
+   "evidence": {
+    "branches": [
+     "stallcheck*"
+    ],
+    "grep": [
+     "stallcheck",
+     "owner-commitments"
+    ]
+   },
+   "note": "Owner asked 10-31 ~17:30Z. Nothing on origin yet: branch/grep patterns are what the work WILL carry (stallcheck-1031 exists only locally)."
+  },
+  {
+   "id": "audit-monitors-fixed",
+   "title": "Audit 10-31 #10/#12: idle-slot alarm; showcase rollout 0/10, NAS timelapse .staging, digest quick status, lavamap shown OK",
+   "owner_date": "2026-10-31",
+   "memory": [
+    "stall-audit-practice-1031.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "grep": [
+     "audit 10-31"
+    ],
+    "paths": [
+     "scripts/host/rollout.py",
+     "scripts/host/fleetstatus.py"
+    ]
+   },
+   "done": {
+    "when": "2026-10-31",
+    "evidence": "main 131c9fc6 + r2 f363368e + r3 d1e8d0cf, STATE a0f4a87d (12:19 CDT)"
+   }
+  },
+  {
+   "id": "main-carries-fleet",
+   "title": "Main must carry every fleet promotion (coordinator merges stopped ~10-28)",
+   "owner_date": "2026-10-31",
+   "memory": [
+    "owner-common-mineshaft-1030.md",
+    "stall-audit-practice-1031.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Find why the coordinator's promotion merges stopped landing ~10-28; confirm the next promotion reaches main without a hand merge",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "grep": [
+     "Merge the fleet lineage"
+    ]
+   },
+   "note": "AUDIT 10-31 #13: hand-merged at 0d10d875 (fleet 281d5659 is now an ancestor of origin/main). Root cause not yet checked."
+  }
+ ]
+}

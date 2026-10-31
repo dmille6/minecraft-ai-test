@@ -156,6 +156,15 @@ row as a `canary-journal.jsonl` entry, phase `owner-direct` for fleet rollouts,
 or in the showcase ops journal, with those fields in the note. A rollout with
 no check-at outcome is an open loop.
 
+## Owner commitments ledger
+
+**A new owner decision gets a ledger row in the same session** (`config/owner-commitments.json`, plus its memory file):
+what was approved, its kind and lane, the next step, its evidence patterns and `max_quiet_hours`. Park only with a real date.
+`scripts/host/stallcheck.py` (hourly on the canary host) compares the ledger with the queue, the journal, git, the crontab
+and the STUCK alarms, and prints `!! STALLED: n items -- top 3 ...` in the fleetstatus header; the daily Codex ops audit
+reads its report. A new cron line gets a row in `config/monitors.json` naming who reads its output. (OWNER 10-31, after 13
+approved items had silently stopped.)
+
 ## Stuck goals reach the owner within 3 hours
 
 A visible goal is a structure, a project or a tech step the bots are working
