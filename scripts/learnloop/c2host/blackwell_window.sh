@@ -11,9 +11,15 @@ say(){ echo "$(date -u +%FT%TZ) $*"; }
 blocked(){
   [ -e $C/STOPB ] && { echo "STOPB file"; return 0; }
   [ "$(date -u +%s)" -ge "$DL" ] && { echo "deadline $DEADLINE"; return 0; }
-  ps -eo args | grep -E "[q]wen35load|[n]othinkproxy" >/dev/null && { echo "qwen35-01 test/proxy process running"; return 0; }
-  r=$(python3 $HOME/canary-sched.py status 2>/dev/null | awk "\$2==\"running\"{print \$1}" | tr "\n" " ")
-  [ -n "$r" ] && [ "$r" != "shaft-02 " ] && { echo "scheduler running entry: $r"; return 0; }
+  ps -eo args | grep -E "[q]wen35load|[n]othinkproxy|[q]wen35-01" >/dev/null && { echo "qwen35-01 test/proxy process running"; return 0; }
+  # FAIL CLOSED (Claude review B2): an unreadable scheduler is a stop, not a clear
+  local st; st=$(python3 $HOME/canary-sched.py status 2>/dev/null) || { echo "scheduler status failed"; return 0; }
+  echo "$st" | grep -q "^DECISION:" || { echo "scheduler status has no DECISION line"; return 0; }
+  r=$(echo "$st" | awk '$2=="running"||$2=="launching"{print $1}' | grep -v -x "shaft-02" | tr "\n" " ")
+  [ -n "$r" ] && { echo "scheduler entry running/launching: $r"; return 0; }
+  # the qwen35-01 model canary (served BY the Blackwell): any journal row for it at all is a stop
+  grep -q '"run":"qwen35' $HOME/canary-journal.jsonl 2>/dev/null && { echo "qwen35 canary in the journal"; return 0; }
+  [ -r $HOME/canary-journal.jsonl ] || { echo "journal unreadable"; return 0; }
   return 1
 }
 why=$(blocked) && { say "NOT STARTED: $why"; exit 0; }

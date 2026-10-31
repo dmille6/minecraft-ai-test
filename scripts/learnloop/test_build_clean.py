@@ -88,6 +88,21 @@ def t_label_filter_invalid_paid_and_missing():
     assert BC.keep_label(item(), {'id': 'x', 'transport_error': True})[1] == 'no answer'
 
 
+def t_label_filter_refuses_an_unknown_or_missing_source():
+    r = rec('gather', {'block': 'dirt'}); r.pop('provenance')
+    assert BC.keep_label(item(), r)[1] == 'unknown source'                  # never defaulted to local
+    assert BC.keep_label(item(), rec('gather', {'block': 'dirt'}, prov='teacher-local:claude-opus-5-5'))[1] == 'unknown source'
+    assert BC.keep_label(item(), rec('gather', {'block': 'dirt'}, prov='fleet:qwen2.5:7b-instruct'))[1] == 'unknown source'
+
+
+def t_post_veto_item_that_itself_failed_cannot_be_relabelled_with_that_action():
+    it = item('post_veto', 'gather', {'block': 'stone'}, vetoed=['explore', {}])
+    it['logged'].update({'label': 'bad', 'failure_class': 'failed:blocked'})
+    assert BC.keep_label(it, rec('gather', {'block': 'stone'}))[1] == 'repeats the logged failed action'
+    it['logged'].update({'failure_class': 'refused:cooldown'})               # transient: a retry may be right
+    assert BC.keep_label(it, rec('gather', {'block': 'stone'}))[0]
+
+
 def t_label_filter_runs_the_hard_check():
     # positive control: score.check_action must fire on SOMETHING the filter sees -- craft of an item it cannot craft
     import score as S

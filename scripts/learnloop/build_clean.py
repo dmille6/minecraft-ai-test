@@ -79,21 +79,36 @@ def canonical(d, sentinel):
                       separators=(',', ':'), ensure_ascii=False)
 
 
+LOCAL_TEACHERS = ('qwen3.8:27b', 'gemma4:26b', 'gpt-oss:120b')    # local, free, licence-checked (Apache-2.0)
+
+
+def logged_nontransient_failure(item):
+    lg = item['logged']
+    return lg.get('label') == 'bad' and not any(x in (lg.get('failure_class') or '') for x in BD.TRANSIENT)
+
+
 def keep_label(item, rec):
-    """The design's stage-2 filter (s.2.2). -> (keep: bool, why)."""
+    """The design's stage-2 filter (s.2.2). -> (keep: bool, why). The record must carry an explicit LOCAL provenance
+    (Codex r1 blocker: a missing provenance is never defaulted -- an unknown source is refused)."""
     if rec is None or rec.get('transport_error'):
         return False, 'no answer'
+    prov = rec.get('provenance') or ''
+    if BD.paid_refusal(prov, None):
+        return False, 'paid quarantine'
+    if prov not in tuple('teacher-local:%s' % m for m in LOCAL_TEACHERS):
+        return False, 'unknown source'
     if not rec.get('schemaValid'):
         return False, 'schema invalid'
-    if BD.paid_refusal(rec.get('provenance') or '', None):
-        return False, 'paid quarantine'
     p = rec.get('proposal') or {}
     sk, args = p.get('skill'), p.get('args') or {}
     if not sk:
         return False, 'no skill'
     if S.check_action(sk, args, S.facts(item['user']))[0]:
         return False, 'hard check'
-    if item['kind'] == 'fail' and S.key_of(sk, args) == S.key_of(item['logged']['skill'], item['logged']['args']):
+    # ANY item whose logged action failed for a non-transient reason -- a post-veto decision can itself have failed
+    # (Codex r1 blocker): the teacher must not re-choose it
+    if (item['kind'] == 'fail' or logged_nontransient_failure(item)) and \
+            S.key_of(sk, args) == S.key_of(item['logged']['skill'], item['logged']['args']):
         return False, 'repeats the logged failed action'
     if item['kind'] == 'post_veto' and S.key_of(sk, args) == S.key_of(item['vetoed'][0], item['vetoed'][1]):
         return False, 'repeats the vetoed action'
@@ -223,7 +238,10 @@ def cmd_assemble(a):
                 C['label for an unknown id'] += 1; continue
             if rec['id'] in kept:
                 C['already kept from an earlier teacher'] += 1; continue
-            rec.setdefault('provenance', 'teacher-local:%s' % rec.get('model'))
+            # provenance is ASSIGNED here only for a replay record of an allow-listed local model named on the
+            # command line; anything else keeps whatever it carries (none -> refused as an unknown source)
+            if 'provenance' not in rec and rec.get('model') in a.local_model and rec.get('model') in LOCAL_TEACHERS:
+                rec['provenance'] = 'teacher-local:%s' % rec['model']
             ok, why = keep_label(it, rec)
             C['%s:%s' % (it['kind'], why)] += 1
             if ok:
@@ -263,6 +281,7 @@ def main(argv=None):
     q = sub.add_parser('assemble')
     q.add_argument('--out', required=True); q.add_argument('--labels', nargs='+', required=True)
     q.add_argument('--name', default='train.jsonl'); q.add_argument('--seed', type=int, default=20261030)
+    q.add_argument('--local-model', nargs='+', required=True, help='the local teacher(s) whose replay records these are')
     a = ap.parse_args(argv)
     return cmd_pool(a) if a.verb == 'pool' else cmd_assemble(a)
 

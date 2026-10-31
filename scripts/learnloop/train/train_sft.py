@@ -64,6 +64,9 @@ def main():
     ap.add_argument('--quant', choices=('4bit', '8bit', '16bit'), default='4bit')
     ap.add_argument('--targets', choices=('dense', 'qwen35'), default='dense')
     ap.add_argument('--epochs', type=float, default=1.0, help='with --max-steps 0: epochs over the examples that fit')
+    ap.add_argument('--probe-items', default='', help='held-out items (m3-eval.jsonl): greedy answers of the TRAINED '
+                    '(PEFT) model are written to <out>/peft_probe.jsonl, to check the merged export against (c2 review)')
+    ap.add_argument('--probe-n', type=int, default=30)
     a = ap.parse_args()
     import re
     if not re.fullmatch(r'20\d\d-\d\d-\d\dT\d\d:\d\d(:\d\d)?Z', a.m2b_verified or ''):
@@ -163,6 +166,18 @@ def main():
     print(json.dumps(m, indent=1))
     if not ok:
         sys.exit(3)
+    if not a.fit_test_only and a.probe_items:
+        # the model AS TRAINED, before any merge/convert/quantise: greedy, the same no-think render as training
+        FastLanguageModel.for_inference(model)
+        probes = [json.loads(l) for l in open(a.probe_items) if l.strip()][:a.probe_n]
+        with open(os.path.join(a.out, 'peft_probe.jsonl'), 'w') as fh:
+            for it in probes:
+                p, _ = render(tok, {'system': it['system'], 'user': it['user'], 'assistant': ''})
+                ids = tok(p, add_special_tokens=False, return_tensors='pt').to(model.device)
+                with torch.no_grad():
+                    g = model.generate(**ids, max_new_tokens=160, do_sample=False)
+                fh.write(json.dumps({'id': it['id'], 'text': tok.decode(g[0][ids['input_ids'].shape[1]:], skip_special_tokens=True)}) + '\n')
+        print('peft probe:', len(probes), 'greedy answers ->', os.path.join(a.out, 'peft_probe.jsonl'))
     if not a.fit_test_only:
         model.save_pretrained(os.path.join(a.out, 'lora')); tok.save_pretrained(os.path.join(a.out, 'lora'))
         model.save_pretrained_merged(os.path.join(a.out, 'merged-16bit'), tok, save_method='merged_16bit')

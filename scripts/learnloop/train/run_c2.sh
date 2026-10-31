@@ -11,10 +11,15 @@
 #   bash run_c2.sh create         ollama create: cand q8_0 + bf16, base-conv q8_0 (ollama must be running)
 #   bash run_c2.sh template-check served prompt (think:false, the canary's proxy path) == trained render, per model
 #
-# SERVING: the stock qwen3.5 renderer THINKS when `think` is unset, and the bots' client sends none; the qwen35-01
-# canary serves through scripts/host/nothinkproxy.py (think:false). The candidate is trained on the enable_thinking=
-# False render and is served the same way, so it is a drop-in for that canary's serving path.
+# SERVING (corrected after the Claude review, B1): the bots' client sends NO `think`. On the 3090's Ollama 0.32.14 the
+# stock qwen3.5 renderer then THINKS (replay-cands-01: the no-think probe failed 5/5); on the Blackwell's Ollama 0.33.2
+# `think` unset renders exactly like think:false (qwen35-01 registration: 40/40 byte-identical at T=0) -- and the
+# qwen35-01 canary serves the stock tag there with `think` unset, no proxy. So: the OFFLINE replay here goes through a
+# think:false proxy (= what 0.33.2 does by default), for the candidate AND every model it is compared with; and a
+# candidate canary must first pass `template_check.py --served-think unset` against the Blackwell (the check below
+# with SERVED_THINK=unset URL=...), i.e. think unset == the trained no-think render ON THE SERVER THAT WILL SERVE IT.
 set -u
+set -o pipefail      # `| tee` must not hide train_sft.py's exit 3 (broken gradients) -- Claude review note
 T=$HOME/learnloop-train
 PY=$T/venv/bin/python
 export HF_HOME=$T/hf
@@ -47,6 +52,7 @@ case "${1:-}" in
     [ -f "$DATA" ] || die "no training file $DATA"
     nice -n 5 $PY "$T/train_sft.py" --base "$SNAP" --data "$DATA" --out "$T/runs/$RUN" --max-steps 0 --epochs "$EPOCHS" \
       --grad-accum "$GA" --quant 8bit --targets qwen35 --save-steps "${SAVE:-100}" ${RESUME:+--resume} \
+      --probe-items "$T/data/m3-eval.jsonl" --probe-n 30 \
       --m2b-verified "$DROP16_VERIFIED" 2>&1 | tee -a "$T/runs-$RUN.log"
     ;;
   export|export-base)
@@ -58,8 +64,10 @@ case "${1:-}" in
     PYTHONPATH=$LCPP/gguf-py $PY "$LCPP/convert_hf_to_gguf.py" "$M" --outtype bf16 --outfile "$OUT" || die "convert failed"
     sha256sum "$OUT" | tee "$OUT.sha256"
     (cd "$LCPP" && git rev-parse HEAD) > "$(dirname "$OUT")/llama.cpp.sha"
-    curl -sf -m 30 http://127.0.0.1:11434/api/show -d '{"model": "qwen3.5:9b-q8_0"}' > "$T/base-meta/qwen3.5_9b-q8_0.json" 2>/dev/null \
-      || [ -s "$T/base-meta/qwen3.5_9b-q8_0.json" ] || die "need the stock tag's metadata: start ollama and rerun"
+    # fetch to a temp file first (Codex r1 note: a failed fetch must not clobber the cached copy)
+    if curl -sf -m 30 http://127.0.0.1:11434/api/show -d '{"model": "qwen3.5:9b-q8_0"}' > "$T/base-meta/.q35.tmp" 2>/dev/null; then
+      mv "$T/base-meta/.q35.tmp" "$T/base-meta/qwen3.5_9b-q8_0.json"; else rm -f "$T/base-meta/.q35.tmp"; fi
+    [ -s "$T/base-meta/qwen3.5_9b-q8_0.json" ] || die "need the stock tag's metadata: start ollama and rerun"
     $PY - "$OUT" "$T/base-meta/qwen3.5_9b-q8_0.json" <<'PY' || die "Modelfile write failed"
 import json, os, sys
 gguf, meta_p = sys.argv[1:3]
@@ -78,10 +86,12 @@ PY
     ollama list | grep -E "$CAND|baseconv"
     ;;
   template-check)
-    for m in "$CAND-q8" "$CAND-bf16" qwen35-9b-baseconv-q8 qwen3.5:9b-q8_0; do
-      ollama list | grep -q "^$m" || { echo "skip $m (not created)"; continue; }
-      $PY "$T/template_check.py" --items "$T/data/m3-eval.jsonl" --model "$m" --base "$SNAP" --control-model qwen2.5:7b-instruct \
-        --served-think false --n 3 || die "template check FAILED for $m"
+    # SERVED_THINK=false (default: the offline replay's proxy path on this host) or unset (the Blackwell, before a canary)
+    URL=${URL:-http://127.0.0.1:11434}
+    for m in ${MODELS:-"$CAND-q8" "$CAND-bf16" qwen35-9b-baseconv-q8 qwen3.5:9b-q8_0}; do
+      curl -sf -m 10 "$URL/api/show" -d "{\"model\": \"$m\"}" >/dev/null || die "$m is not on $URL (a skipped model is not a pass)"
+      $PY "$T/template_check.py" --url "$URL" --items "$T/data/m3-eval.jsonl" --model "$m" --base "$SNAP" --control-model qwen2.5:7b-instruct \
+        --served-think "${SERVED_THINK:-false}" --n 3 || die "template check FAILED for $m"
     done
     ;;
   *) sed -n 2,16p "$0"; exit 2;;
