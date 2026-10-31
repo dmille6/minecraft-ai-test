@@ -65,6 +65,13 @@ def main():
     md = C.render(res)
     t('render: deltas vs PRE and the median, UNREADABLE for a missing value',
       '| items_per_bot_h | 60 | 50 | +20% | 50 (3) | +20% |' in md and '| value_per_bot_h | UNREADABLE |' in md, md[:600])
+    out, errs = C.es_metrics(d(0), d(1), [])
+    t('es: an empty pool selection is UNREADABLE (never the whole fleet)', out == {} and errs and 'no pools' in errs[0])
+    try:
+        C.file_metrics(d(0), d(1), [], 'm'); ok = False
+    except RuntimeError:
+        ok = True
+    t('files: an empty pool selection raises', ok)
     print('\n%d/%d pass' % (sum(T), len(T)))
     return 0 if all(T) else 1
 

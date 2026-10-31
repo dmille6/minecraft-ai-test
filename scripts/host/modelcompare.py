@@ -200,6 +200,8 @@ def all_pools():
 
 
 def es_metrics(since, until, pools):
+    if not pools:      # EsEvents turns pools=[] into NO filter: the whole fleet, canaries included (Codex r1)
+        return {}, ['no pools left after the canary exclusion (or no roster): every ES metric UNREADABLE']
     sys.path.insert(0, W5); sys.path.insert(0, os.path.join(W5, 'host'))
     from lib.estelemetry import EsEvents
     import valuescore as V
@@ -243,9 +245,16 @@ def es_metrics(since, until, pools):
             out['%s_n' % k] = tot
         out['_build_per_bot_h'] = names.get('_build', 0) / bh if bh else None
         r = ev._search({'size': 0, 'query': ev._query(), 'aggs': {'k': {'terms': {'field': 'skill.name', 'size': 1000},
-                                                                         'aggs': {'d': {'sum': {'field': 'skill.duration_ms'}}}}}})
-        ms = sum(b['d']['value'] or 0 for b in r['aggregations']['k']['buckets'] if not str(b['key']).startswith('_'))
-        out['time_outside_skills'] = (1 - ms / 3.6e6 / bh) if bh else None
+                                                                         'aggs': {'d': {'sum': {'field': 'skill.duration_ms'}},
+                                                                                  'c': {'value_count': {'field': 'skill.duration_ms'}}}}}})
+        bk = [b for b in ev._complete(r['aggregations']['k'], 'skill.name terms')['buckets'] if not str(b['key']).startswith('_')]
+        docs, with_d = sum(b['doc_count'] for b in bk), sum(b['c']['value'] for b in bk)
+        ms = sum(b['d']['value'] or 0 for b in bk)
+        out['duration_coverage'] = (with_d / docs) if docs else None
+        # a sum over a field nobody carries is 0, which would read as "100 % outside skills" (Codex r1)
+        out['time_outside_skills'] = (1 - ms / 3.6e6 / bh) if bh and docs and with_d / docs >= 0.95 else None
+        if out['time_outside_skills'] is None:
+            errs.append('time outside skills UNREADABLE: skill.duration_ms on %s of %d skill rows' % (with_d, docs))
     except Exception as x:
         errs.append('es: %s: %s' % (type(x).__name__, str(x)[:160]))
     return out, errs
@@ -253,6 +262,8 @@ def es_metrics(since, until, pools):
 
 def file_metrics(since, until, pools, model):
     import modelread as mr
+    if not pools:
+        raise RuntimeError('no pools left after the canary exclusion (or no roster)')
     rows, hours = {}, {}
     for e in sorted(glob.glob(os.path.join(ENV_DIR, '*.env'))):
         b = os.path.basename(e)[:-4]
