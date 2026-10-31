@@ -31,6 +31,16 @@ await t('PATHS=on|off wins; unset: on only in the PATHS_POOLS pools (default sho
 })
 
 console.log('THE GROUND SCAN')
+await t('pathColumn: ordinary ice reads as water (broken, it leaves a source no cell can take); packed ice stays ground (zigfleet-02)', async () => {
+  const srv = server()
+  srv.set([7, G, 7], 'ice')
+  let c = P.pathColumn(srv.read, 7, 7, { yHi: G + 12, yLo: G - 12 })
+  assert.deepStrictEqual([c.y, c.why], [null, 'water'])
+  srv.set([8, G, 8], 'packed_ice')
+  c = P.pathColumn(srv.read, 8, 8, { yHi: G + 12, yLo: G - 12 })
+  assert.deepStrictEqual([c.y, c.name, c.why], [G, 'packed_ice', null], 'POSITIVE CONTROL: packed ice is ground')
+  assert.ok(!P.PATH_FOREIGN.test('ice') && P.PATH_FOREIGN.test('packed_ice'), 'an existing record never digs ordinary ice')
+})
 await t('pathColumn: the top full solid under plants, leaves and a trunk; water and furniture refuse; a crafting table is litter', async () => {
   const srv = server()
   srv.set([3, G + 1, 3], 'short_grass'); srv.set([3, G + 4, 3], 'spruce_leaves')
