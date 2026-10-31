@@ -15,6 +15,12 @@ from STUB_POLL_REVERT_AT seconds after the deploy), the unit facts (FUNREAD_UNIT
   blind       no canary bot writes on the canary build -> +90 NOT_YET, +180 INCONCLUSIVE (never KEEP)
   readcrash   funread.py crashes -> +180 contained INCONCLUSIVE (a fun run never waits for its deadline)
   lab         `"lab": true`: the loop reads at the registration's minutes with verdict.py, not funread.py
+  modelpoll   a model-env run's poll_read answers MODELPOLL REVERT at +40 -> poll-revert, no read taken (qwen35-01)
+  modelok     the poll answers OK every time -> the run reads to +180 KEEP, no modelpoll-failed rows
+  modelcrash  the poll prints garbage -> modelpoll-failed rows (paged), never a REVERT by itself; still KEEP
+  pollbad     poll_read is not one of the registration's reads -> the loop refuses (exit 2) before any phase
+  envproof    _env_still_canary (the teardown proof) names a key only while its CANARY VALUE is live: a baseline value of
+              the same key (OLLAMA_MODEL in every bot's own env file) is not the canary
 """
 import os, sys, json, shutil, subprocess, tempfile, datetime as dt
 
@@ -41,6 +47,20 @@ print('VERDICT %s (+%d) :: stub lab read' % ('KEEP' if M >= 360 else 'NOT_YET', 
 '''
 
 
+STUB_MODELPOLL = r'''#!/usr/bin/env python3
+import sys, os
+now = float(open(os.environ['CANARY_FAKE_CLOCK']).read()); t0 = float(os.environ['STUB_T0'])
+if '--poll' in sys.argv:
+    open(os.environ['STUB_POLL_MARK'], 'a').write('p\n')
+    at = os.environ.get('STUB_MODELPOLL_REVERT_AT')
+    if os.environ.get('STUB_MODELPOLL_GARBAGE'):
+        print('Traceback: boom'); sys.exit(1)
+    if at and now - t0 >= float(at):
+        print('MODELPOLL REVERT :: stall: 3 of 10 active canary bots (stub)'); sys.exit(0)
+    print('MODELPOLL OK :: 0 of 10 stalled (stub)')
+'''
+
+
 def t(name, ok, detail=''):
     T.append(bool(ok))
     print('%s  %s' % ('PASS' if ok else 'FAIL', name) + ('' if ok else '\n        -> %s' % str(detail)[-1500:]))
@@ -60,6 +80,9 @@ def fixture(scenario):
         reg.update(reads=[], own_lines=[{'read': 'ownread', 'field': 'bad', 'op': '<=', 'value': 0, 'on_fail': 'REVERT'}])
     if scenario == 'exposed':
         reg.update(exposure={'read': 'ownread', 'field': 'acted', 'min': 1})
+    if scenario in ('modelpoll', 'modelok', 'modelcrash', 'pollbad'):
+        reg.update({'class': 'model-env', 'canary_env': ['OLLAMA_MODEL=qwen3.5:9b', 'OLLAMA_BASE_URLS=http://127.0.0.1:9'],
+                    'draw_k': 2, 'promotion': 'none', 'reads': ['modelread'], 'poll_read': 'modelread' if scenario != 'pollbad' else 'other'})
     if scenario == 'lab':
         reg.update(lab=True, reads=[], read_minutes=[180, 360], deadline_min=780)
         shutil.copy('/home/mike/v30check.py', os.path.join(h, 'v30check.py'))
@@ -101,12 +124,25 @@ def run(scenario, extra=None):
                FUNREAD_FREEZE=os.path.join(d, 'nofreeze'), FUNREAD_VERDICT=os.path.join(h, 'verdict.py'))
     env.update(extra or {})
     os.makedirs(os.path.join(d, 'rd'))
+    open(os.path.join(d, 'rd', 'modelread.py'), 'w').write(STUB_MODELPOLL)
+    env['STUB_POLL_MARK'] = os.path.join(d, 'pollmark')
     r = subprocess.run(['bash', LOOP, RUN, '--no-act'], capture_output=True, text=True, env=env, timeout=600)
     jl = [json.loads(l) for l in open(os.path.join(h, 'canary-journal.jsonl')) if l.strip()]
     ph = [(j['phase'], j['note']) for j in jl if j.get('run') == RUN]
     lab = open(os.path.join(d, 'labmark')).read().split() if os.path.exists(os.path.join(d, 'labmark')) else []
+    if os.path.exists(os.path.join(d, 'pollmark')):
+        lab = lab + ['polls=%d' % len(open(os.path.join(d, 'pollmark')).read().split())]
     shutil.rmtree(d, ignore_errors=True)
     return r, ph, lab
+
+
+def env_still_canary(cenv, envtxt):
+    """Run the loop's own _env_still_canary (its one-line definition, taken from the file) on a fake environ."""
+    src = [l for l in open(LOOP).read().splitlines() if l.startswith('_env_still_canary() {')]
+    assert len(src) == 1, 'ANCHOR MISSING OR NOT UNIQUE: _env_still_canary'
+    r = subprocess.run(['bash', '-c', 'CENV="$1"; %s\n_env_still_canary "$2"' % src[0], 'x', cenv, envtxt],
+                       capture_output=True, text=True, timeout=30)
+    return r.stdout.split()
 
 
 def phase(ph, name):
@@ -143,6 +179,30 @@ def main():
     r, ph, lab = run('lab')
     t('lab: verdict.py read at the registration minutes 180 and 360', lab == ['180', '360'] and 'would act: KEEP' in r.stdout,
       (lab, ph, r.stdout[-600:], r.stderr[-400:]))
+    r, ph, marks = run('modelpoll', {'STUB_MODELPOLL_REVERT_AT': '2400'})
+    t('modelpoll: poll-revert from the model poll before +90', any(n.startswith('MODELPOLL REVERT') for n in phase(ph, 'poll-revert'))
+      and not phase(ph, 'read-90'), ph)
+    t('modelpoll: would act REVERT', 'would act: REVERT' in r.stdout, r.stdout[-800:])
+    r, ph, marks = run('modelok')
+    t('modelok: the poll ran at every 5-min poll and the run read to +180 KEEP',
+      any(n.startswith('VERDICT KEEP (+180)') for n in phase(ph, 'read-180')) and not phase(ph, 'modelpoll-failed')
+      and any(m.startswith('polls=') and int(m[6:]) >= 15 for m in marks), (ph, marks))
+    r, ph, marks = run('modelcrash', {'STUB_MODELPOLL_GARBAGE': '1'})
+    t('modelcrash: modelpoll-failed journalled, no REVERT from it, still KEEP',
+      phase(ph, 'modelpoll-failed') and not phase(ph, 'poll-revert') and 'would act: KEEP' in r.stdout, (ph, r.stdout[-400:]))
+    r, ph, marks = run('pollbad')
+    t('pollbad: refused, exit 2, no read', r.returncode == 2 and not phase(ph, 'read-90') and 'poll_read other' in r.stdout,
+      (r.returncode, r.stdout[-400:], ph))
+    cenv = 'OLLAMA_MODEL=qwen3.5:9b OLLAMA_BASE_URLS=http://ai.ticrcorp.com:11438'
+    base = 'X=1\nOLLAMA_MODEL=qwen2.5:7b-instruct\nOLLAMA_BASE_URLS=http://10.0.0.72:11434\nY=2'
+    t('envproof: the baseline values of the same keys are not the canary', env_still_canary(cenv, base) == [],
+      env_still_canary(cenv, base))
+    live = 'X=1\nOLLAMA_MODEL=qwen3.5:9b\nOLLAMA_BASE_URLS=http://ai.ticrcorp.com:11438\nY=2'
+    t('envproof: a live canary value is named', env_still_canary(cenv, live) == ['OLLAMA_MODEL', 'OLLAMA_BASE_URLS'],
+      env_still_canary(cenv, live))
+    t('envproof: a prefix is not a match (exact line)', env_still_canary('OLLAMA_MODEL=qwen3.5:9b', 'OLLAMA_MODEL=qwen3.5:9b-q8_0') == [])
+    t('envproof: a new key (brain-01 shape) still works', env_still_canary('OLLAMA_BRAIN_PRIMARY=u|m', 'A=1\nOLLAMA_BRAIN_PRIMARY=u|m')
+      == ['OLLAMA_BRAIN_PRIMARY'])
     print('\n%d/%d pass' % (sum(T), len(T)))
     return 0 if all(T) else 1
 

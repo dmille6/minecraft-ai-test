@@ -450,6 +450,28 @@ export function pathSaplingCols (rec, margin = 1) {
 }
 /** A paths record's walk radius (buildrun.mjs walkR): every cell's Chebyshev distance from home + 7, at least 48. Pure. */
 export const pathWalkR = (rec, home) => Math.max(48, ...(rec?.cells ?? []).map(c => Math.max(Math.abs(c.at[0] - home.x), Math.abs(c.at[2] - home.z)) + 7))
+/**
+ * THE WAIVER (pathsclose-01): a path cell the visit may never lay -- what stands on it is a record cell, a block never dug (a
+ * container, a part), vetoed (another project's cell, a protected zone) or more than OVERBURDEN_MAX deep (buildrun.mjs
+ * overburdenAbove `hard`) -- is WAIVED once the F4 stuck map has counted it PATH_WAIVE_AFTER visits (summed over every builder):
+ * the record names it (`waived`: { 'x,y,z': { why, at, by } }, a logged row) and every completeness test counts it done, so the
+ * project closes instead of standing open. A soft refusal (an unread cell, a tree, the clears' own block) is never waived. Pure.
+ *   blocked  the visit's refusals [{ at, why, hard }]; counts the stuck map (buildproj.mjs stuckRead, summed)
+ * -> [{ k, why }] the cells to waive now
+ */
+export const PATH_WAIVE_AFTER = 3
+export function pathWaiveDue (rec, blocked = [], counts = {}, { after = PATH_WAIVE_AFTER } = {}) {
+  const cells = new Set((rec?.cells ?? []).filter(c => c.role === 'path').map(c => c.at.join(',')))
+  const have = rec?.waived ?? {}, out = new Map()
+  for (const b of blocked ?? []) {
+    const k = Array.isArray(b?.at) ? b.at.join(',') : null
+    if (!k || b.hard !== true || !cells.has(k) || have[k] || out.has(k)) continue
+    if ((Number(counts?.[k]?.visits) || 0) >= after) out.set(k, String(b.why ?? 'blocked'))
+  }
+  return [...out].map(([k, why]) => ({ k, why }))
+}
+/** Is a record cell waived (the record's own list)? Pure. */
+export const pathWaived = (rec, c) => !!rec?.waived && Object.prototype.hasOwnProperty.call(rec.waived, c.at.join(','))
 /** The record's progress -> { done, open } from a `done(cell)` test. Pure. */
 export function pathProgress (rec, done) {
   let d = 0, open = 0
@@ -486,6 +508,8 @@ export function pathDests ({ plan, zones = [], caps = [], plinth = [], composter
     if (/^ziggurat@/.test(String(p.rec.blueprint))) { const f = stairFoot(p.rec); if (f.length) dests.push({ id: p.plot, to: p.plot, cols: f }); continue }
     // shaft-02: the town stair's collar exit (the surface cell beside its 5x5 where the walk down starts)
     if (/^shaft@/.test(String(p.rec.blueprint))) { if (Array.isArray(p.rec.exit) && p.rec.exit.length === 3) dests.push({ id: p.plot, to: p.plot, cols: [[p.rec.exit[0], p.rec.exit[2]]] }); continue }
+    // treefarm-04: a record that names its own FRONT columns (the tree farm's side facing home) is reached there
+    if (Array.isArray(p.rec.front) && p.rec.front.length && p.rec.front.every(c => Array.isArray(c) && c.length === 2 && c.every(Number.isFinite))) { dests.push({ id: p.plot, to: p.plot, cols: p.rec.front.map(c => [c[0], c[1]]) }); continue }
     const a = p.bp ? frontApproach(p.rec, p.bp, place) : null
     if (a) dests.push({ id: p.plot, to: p.plot, cols: [a] })
   }

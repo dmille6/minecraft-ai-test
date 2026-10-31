@@ -297,13 +297,18 @@ export function stuckRead (dir, key, { holder = null, exclude = null, since = nu
 }
 /** When a visit last reported stuck_on_cell, over every holder's file (or `holder`'s) -> ms | null. The order's back-off reads
  *  this, so it holds for the PROJECT across restarts and across bots (Claude r21 P3-3), not per bot in memory. */
-export function stuckAt (dir, key, { holder = null, before = Infinity } = {}) {
+export function stuckAt (dir, key, { holder = null, before = Infinity, stale = null } = {}) {
   // `before`: a stamp later than it (a skewed or bad clock) is dropped BEFORE the latest is taken (Codex r23 P2: one future stamp
   // won the max and the guard then discarded it, masking every holder's valid stamp)
+  // `stale(cellKeys)` (zigtidy-02, LIVE showcase 10-30 22:27Z: Bravo's refused voidfill visit stamped two cells a racing visit
+  // filled the same minute; the finished ziggurat's next repair would have waited 6 h): true drops that holder's stamp
   let best = null
   for (const n of holder != null ? [path.basename(stuckFile(dir, key, holder))] : stuckNames(dir, key)) {
-    const t = Number(readJ(path.join(dir, n))?.stuckAt)
-    if (Number.isFinite(t) && t > 0 && t <= before && (best == null || t > best)) best = t
+    const j = readJ(path.join(dir, n))
+    const t = Number(j?.stuckAt)
+    if (!(Number.isFinite(t) && t > 0 && t <= before && (best == null || t > best))) continue
+    if (typeof stale === 'function') { let s = false; try { s = !!stale(Object.keys(stuckCells(j))) } catch { s = false } if (s) continue }
+    best = t
   }
   return best
 }

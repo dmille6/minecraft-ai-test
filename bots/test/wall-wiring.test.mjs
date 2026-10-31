@@ -12,6 +12,8 @@ process.env.BOT_NAME = 'WallBot'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'showcase'
+// treefarm-04: the tree farm (sixth, after the paths) has its own test (treefarm.test.mjs); off here, so this file's project lists stand
+process.env.TREEFARM = 'off'
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-wall-pool-'))
 process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE; delete process.env.PATHS; delete process.env.PATHS_POOLS
@@ -109,14 +111,15 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/
 const SRC = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 for (const [name, re] of [
   ['build_shop dispatches the wall to its own visit', /if \(proj\.plot === WALL_PLOT\) return buildWall\(ctx, args, signal\)/],
-  ['the wall\'s visit runs with its own palette, foreign set, walk radius and clear bound', /walkR: wallWalkR\(rec, home\), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX \}, effects/],
+  ['the wall\'s visit runs with its own palette, foreign set, walk radius and clear bound', /walkR: wallWalkR\(rec, home\), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,\n\s*\.\.\.wallStuckOf\(c\), [^\n]*\}, effects/],
   ['the wall bills its open cells from town above the floor a project draw meets (the bag\'s spare first)', /const bill = billOf\(rec, palette, read, \{ done: buildCellDone, inTown: zigBillInTown\(bot, town\) \}\)\n\s*const need = wallNeed\(bill, spare0, needFromTown, SHOP_BILL_CAP\)/],
   ['the visit works the record with its lights last (in memory)', /const rec = wallLightsLast\(rh\.head\.rec\)/],
   ['the wall is sited ONCE (published only when there is no record)', /const pub = publishRecord\(dir, key, cur => \(cur \? null : \{ \.\.\.record, state: 'open' \}\), \{ by: me \}\)\n[^\n]*\n {4}if \(pub\.result === 'accepted'\) \{ try \{ logEvent\(\{ kind: 'build', status: 'success', snapshot: snapshot\(bot\), detail: buildRowDetail\(\{ project: WALL_PLOT, op: 'sited'/],
   ['the wall\'s sapling keep-out is its columns', /r\.blueprint === WALL_BLUEPRINT \? wallSaplingCols\(r\)/],
   ['build_shop counts its pick as a repair visit (the back-off\'s count)', /const proj = shopActive\(bot, Date\.now\(\), \{ visit: true \}\)/],
   ['shopActive backs off a repair that does not take', /const states = repairBackoff\(activeMem\.states, rmem, now\)\.map/],
-  ['shopActive reads a tidy as upkeep (due), never as damage', /const damaged = complete && b \? recordDamaged\(b, rec, \{ tidy: false \}\) : false\n {8}return \{ plot: p\.plot, exists: !!rec, complete, damaged, due: complete && b && !damaged \? recordDamaged\(b, rec\) : false \}/],
+  // zigtidy-02: ...except within the tidy's repair window after a repair completion (shop.mjs tidyIsRepair; zigtidy2.test.mjs)
+  ['shopActive reads a tidy as upkeep (due), damage only in the repair window', /const tidyFirst = complete && p\.plot === MONUMENT_PLOT && tidyIsRepair\(zigRepairedAt\(projKeyOf\(p\.plot\), now\), now\)\n {8}const damaged = complete && b \? recordDamaged\(b, rec, \{ tidy: tidyFirst \}\) : false\n {8}return \{ plot: p\.plot, exists: !!rec, complete, damaged, due: complete && b && !damaged \? recordDamaged\(b, rec\) : false \}/],
 ]) {
   await t(`${name} (and a mutant of it fails)`, async () => {
     assert.ok(re.test(SRC), 'wired')

@@ -468,7 +468,7 @@ def t_structcount_line_never_raises():
 def t_structcount_line_is_in_the_header():
     out = io.StringIO()
     rep = run(fleet_docs(), stdout=out)
-    head = out.getvalue().splitlines()[:6]
+    head = out.getvalue().splitlines()[:8]
     assert 'structcount' in rep and any('structcount' in x for x in head), head
 
 
@@ -632,6 +632,102 @@ def t_showcase_head_is_in_the_header():
     rep = run(fleet_docs(stop_at_hour=12), stdout=out)   # Bravo's rows end 11:50; Alpha keeps one 19:53 row
     head = out.getvalue().splitlines()[:8]
     assert any(x.startswith('!! showcase PARTIAL: 1 of 2 bots') and 'absent self-isolated-a-Bravo' in x for x in head), head
+LNOW = dt.datetime(2026, 10, 22, 12, 0, tzinfo=dt.timezone.utc)
+
+
+def _llhb(**kw):
+    """A heartbeat.json as scripts/learnloop/nightly.py --tick writes it (healthy at LNOW); kw overrides."""
+    d = tempfile.mkdtemp(); p = os.path.join(d, 'heartbeat.json')
+    if kw.get('_absent'):
+        return p
+    newest = {'triples': 151549, 'llm_rows': 160559, 'model_rows': 151549, 'bots': 80, 'roster': 80,
+              'labels': {'good': 32726}, 'controls_ok': True, 'controls_failed': [], 'at': '2026-10-22T01:52:00Z'}
+    hb = {'at': '2026-10-22T01:55:00Z', 'status': 'ok', 'error': None, 'newest_archived_day': '2026-10-21',
+          'archived_days': 14, 'newest': newest, 'this_run': [{'day': '2026-10-21', 'archived': True, 'controls_ok': True}],
+          'pending': [], 'at_risk': [], 'unresolved': [], 'nas': {'last_good': '2026-10-22T01:54:00Z 2026-10-21', 'sealed': 14,
+                                               'newest': '2026-10-21'}}
+    hb.update(kw)
+    with open(p, 'w') as fh:
+        fh.write(kw['_raw'] if '_raw' in kw else json.dumps(hb))
+    return p
+
+
+def t_learnloop_healthy_line_names_its_denominators():
+    line = FS.learnloop_line(LNOW, path=_llhb())
+    assert line.startswith('learning-loop archive (M1): ok, run 10 h ago, newest 2026-10-21: 151,549 triples of 160,559 '
+                           'decision rows, 80/80 bots; 14 day(s) sealed on the NAS; pending none'), line
+
+
+def t_learnloop_missing_heartbeat_is_an_alarm_not_silence():
+    line = FS.learnloop_line(LNOW, path=_llhb(_absent=True))
+    assert line.startswith('!! learning-loop archive (M1): NO HEARTBEAT (FileNotFoundError)'), line
+
+
+def t_learnloop_stale_run_is_an_alarm():
+    line = FS.learnloop_line(dt.datetime(2026, 10, 23, 4, 0, tzinfo=dt.timezone.utc), path=_llhb())
+    assert line.startswith('!! learning-loop archive (M1): STALE: last run 26 h ago'), line
+    assert FS.learnloop_line(dt.datetime(2026, 10, 23, 3, 0, tzinfo=dt.timezone.utc), path=_llhb()).startswith('learning-loop archive (M1): ok')
+
+
+def t_learnloop_every_bad_status_is_an_alarm():
+    for st, want in (('error', 'ERROR: boom'), ('archive_failed', 'ARCHIVE FAILED'), ('at_risk', 'RAW AT RISK'),
+                     ('behind', 'BEHIND'), ('control_failed', 'CONTROL FAILED'), ('empty', 'NOTHING ARCHIVED'),
+                     ('weird', "status 'weird'")):
+        line = FS.learnloop_line(LNOW, path=_llhb(status=st, error='boom' if st == 'error' else None))
+        assert line.startswith('!! learning-loop archive (M1): ') and want in line, (st, line)
+
+
+def t_learnloop_behind_when_the_due_day_is_missing():
+    """At 10-23 04:20Z day 10-22 is due (ready 10-23 01:15Z + 3 h grace); a heartbeat still on 10-21 is BEHIND even
+    when its own status says ok."""
+    line = FS.learnloop_line(dt.datetime(2026, 10, 23, 4, 20, tzinfo=dt.timezone.utc),
+                             path=_llhb(at='2026-10-23T01:50:00Z'))
+    assert line.startswith('!! ') and 'newest archived day 2026-10-21, 2026-10-22 is due' in line, line
+    line = FS.learnloop_line(dt.datetime(2026, 10, 23, 4, 10, tzinfo=dt.timezone.utc),
+                             path=_llhb(at='2026-10-23T01:50:00Z'))
+    assert line.startswith('learning-loop archive (M1): ok'), line
+
+
+def t_learnloop_failed_controls_and_unarchived_days_are_alarms():
+    rec = {'triples': 1, 'llm_rows': 2, 'bots': 79, 'roster': 80, 'controls_ok': False, 'controls_failed': ['es']}
+    line = FS.learnloop_line(LNOW, path=_llhb(newest=rec))
+    assert line.startswith('!! ') and "failed controls ['es']" in line, line
+    line = FS.learnloop_line(LNOW, path=_llhb(this_run=[{'day': '2026-10-21', 'archived': False, 'archive_error': 'put x: FAIL'}]))
+    assert line.startswith('!! ') and '2026-10-21 not archived (put x: FAIL)' in line, line
+    line = FS.learnloop_line(LNOW, path=_llhb(at_risk=[{'day': '2026-10-09', 'expires': '2026-10-24'}]))
+    assert line.startswith('!! ') and 'raw rotates out before it is archived: 2026-10-09 (expires 2026-10-24)' in line, line
+
+
+def t_learnloop_older_unresolved_days_are_alarms():
+    """Codex r1 P2-7: a failed OLDER day stays in the header while the newest is healthy, until acknowledged."""
+    u = [{'day': '2026-10-09', 'why': "controls failed ['es']"}, {'day': '2026-10-12', 'why': 'raw members not proven'}]
+    line = FS.learnloop_line(LNOW, path=_llhb(unresolved=u))
+    assert line.startswith('!! ') and "unresolved 2026-10-09: controls failed ['es']" in line and 'unresolved 2026-10-12' in line, line
+    line = FS.learnloop_line(LNOW, path=_llhb(unresolved=[{'day': 'd%d' % i, 'why': 'x'} for i in range(7)]))
+    assert '+3 more unresolved' in line, line
+
+
+def t_learnloop_nas_disagreement_is_an_alarm():
+    line = FS.learnloop_line(LNOW, path=_llhb(nas={'sealed': 13, 'newest': '2026-10-20'}))
+    assert line.startswith('!! ') and 'NAS says newest 2026-10-20 (13 sealed)' in line, line
+    line = FS.learnloop_line(LNOW, path=_llhb(nas={}))
+    assert line.startswith('!! ') and 'NAS says newest None' in line, line
+
+
+def t_learnloop_malformed_heartbeat_never_raises():
+    for raw in ('{"at": "2026-10-22T01:55:00"}', '{"at": "2026-10-22T01:55:00Z", "newest": 5}', '[]', '{"at": 3}',
+                '{"at": "2026-10-22T01:55:00Z", "this_run": [5]}', '{"at": "2026-10-22T01:55:00Z", "at_risk": [1]}'):
+        line = FS.learnloop_line(LNOW, path=_llhb(_raw=raw))
+        assert line.startswith('!! learning-loop archive (M1): '), (raw, line)
+
+
+def t_learnloop_line_is_in_the_header():
+    out = io.StringIO()
+    rep = run(fleet_docs(), stdout=out)
+    head = out.getvalue().splitlines()[:8]
+    assert 'learnloop' in rep and any(x.startswith(('learning-loop archive (M1)', '!! learning-loop archive (M1)'))
+                                      for x in head), head
+
 
 TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith('t_') and callable(f)]
 
