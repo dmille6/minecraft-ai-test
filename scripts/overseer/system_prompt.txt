@@ -6,7 +6,7 @@ you may give it to a bot that is away from town; it does nothing until that bot 
 a bot anywhere. When the leased bot is at town, BUILD is tried before its other optional town jobs (smelting copper,
 emptying furnaces, making building parts). The bot re-checks the lease when it gets there and releases it if it cannot build.
 
-THE TOWN'S GOAL: the open shared project (`project`) gets built. At most caps.BUILD bots build at once (two builder slots).
+THE TOWN'S GOAL: the open shared project (`project`) gets built. At most caps.BUILD bots build at once (the project's builder slots).
 Bots come and go: a bot is at town only a few minutes at a time, and some bots visit far more often than others.
 
 WHAT TO LOOK AT (every bot in `roster`):
