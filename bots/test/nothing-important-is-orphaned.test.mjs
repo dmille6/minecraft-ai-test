@@ -87,6 +87,9 @@ const REQUIRED = [
   // logsurface-01: the real-case columns cut from the region copies of failed log gathers (10-28), and their suite
   'bots/test/fixtures/logsurface-columns.json',
   'bots/test/logsurface.test.mjs',
+  // tombexit-01 (10-31): the entombed arm's walk-back decline and the in-wall dig
+  'bots/src/tombexit.mjs',
+  'bots/test/tombexit.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
