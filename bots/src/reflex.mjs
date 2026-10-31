@@ -3343,18 +3343,6 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
               }
             }
           }
-          else if (climbOutcomeRoute(climbed) === 'guarded') {
-            // escapeguard-01: THE CEILING IS A BUILD RECORD OR A PROTECTED STRUCTURE (Frost 10-31: trial-chambers planks). Not a
-            // failed escape (nothing was dug) and not a shortage (no pickaxe or dirt opens it): the ramp, which passes over every
-            // guarded cell and tries another bearing; nothing moved -> the bot holds a dry cell and backs off (never past the
-            // guard's quiet window, so its wait reaches the last resort), and the walk out stays open to the goal layer.
-            const gb = await guardBranch(bot, { handler: 'entombed', refusals: guardRefusals,
-                                                yieldTo: () => drowningOwnsBody() || arbiterYield(() => entombedGrant), steering: steerRamp })
-            guardRefusals = gb.refusals
-            if (gb.preempted) { /* the drowning rescue took the body */ }
-            else if (gb.progressed) { climbRefusals = 0; refusalPlaceStreak = 0; escapeFailures = 0; guardRefusals = 0 }
-            else { escapeFailures = 0; lastEscapeAt = Date.now() + gb.backoffMs }
-          }
           else if (climbOutcomeRoute(climbed) === 'flood') {
             // CLIMB FLOOD (climbflood-01). The pillar refused because breaking
             // the ceiling would let water or lava in. This used to land in the
@@ -3373,12 +3361,24 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             else if (fb.progressed) { climbRefusals = 0; refusalPlaceStreak = 0; escapeFailures = 0 }
             else { escapeFailures = 0; lastEscapeAt = Date.now() + fb.backoffMs }
           }
+          else if (climbOutcomeRoute(climbed) === 'guarded') {
+            // escapeguard-01: THE CEILING IS A BUILD RECORD OR A PROTECTED STRUCTURE (Frost 10-31: trial-chambers planks). Not a
+            // failed escape (nothing was dug) and not a shortage (no pickaxe or dirt opens it): the ramp, which passes over every
+            // guarded cell and tries another bearing; nothing moved -> the bot holds a dry cell and backs off (never past the
+            // guard's quiet window, so its wait reaches the last resort), and the walk out stays open to the goal layer.
+            const gb = await guardBranch(bot, { handler: 'entombed', refusals: guardRefusals,
+                                                yieldTo: () => drowningOwnsBody() || arbiterYield(() => entombedGrant), steering: steerRamp })
+            guardRefusals = gb.refusals
+            if (gb.preempted) { /* the drowning rescue took the body */ }
+            else if (gb.progressed) { climbRefusals = 0; refusalPlaceStreak = 0; escapeFailures = 0; guardRefusals = 0 }
+            else { escapeFailures = 0; lastEscapeAt = Date.now() + gb.backoffMs }
+          }
           // THE SHARED POSTCONDITION (recovery.mjs): a climb that did not leave
           // this place -- four blocks up and dry, or eight sideways -- while the
           // bot is still walled in is a failed escape, whatever pillarOut returned.
           else if (climbed === 'preempted') { /* another owner took the body: not a failed escape, not a success */ }
           else if (bot.entity && (!escapedFrom(climbFrom, { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: !!bot.entity.isInWater }) || isEntombed(bot))) escapeFailures++   // success needs BOTH: somewhere else, and not walled in (Codex pass 3)
-          else { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0; floodRefusals = 0; guardRefusals = 0; plugStreakClear(bot) }
+          else { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0; guardRefusals = 0; floodRefusals = 0; plugStreakClear(bot) }
         } finally { escaping = false }
         return
       }
@@ -5069,12 +5069,12 @@ export async function escapeStairUp (bot, {
     const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
     const submerged = submergedAt(bot)
     const plan = headroomBreach({ at, canBreak, submerged })
-    // escapeguard-01: A GUARDED CEILING IS LEFT SIDEWAYS, LIKE A WET ONE. canBreak refused it (a build record or a zone's
-    // structure block over the head or resting on it); every bearing's jump needs it open, so the one move is the flood
-    // branch's: a step into a side column whose own cells and ceiling the same canBreak allows (floodSidestep), then the
-    // ramp from there. Not a flood: no flood row, no plug, `flood` stays null.
-    const ceilGuarded = !plan.ok && !plan.flood && [at(0, 2, 0), at(0, 3, 0)].some(b => b?.position && !bodyPassable(b) && !guardMay(bot, b))
     if (!plan.ok) {
+      // escapeguard-01: A GUARDED CEILING IS LEFT SIDEWAYS, LIKE A WET ONE. canBreak refused it (a build record or a zone's
+      // structure block over the head or resting on it); every bearing's jump needs it open, so the one move is the flood
+      // branch's: a step into a side column whose own cells and ceiling the same canBreak allows (floodSidestep), then the
+      // ramp from there. Not a flood: no flood row, `flood` stays null (the plug only places into wet faces).
+      const ceilGuarded = !plan.flood && [at(0, 2, 0), at(0, 3, 0)].some(b => b?.position && !bodyPassable(b) && !guardMay(bot, b))
       stopped = plan.reason
       if (ceilGuarded) stopped = `${plan.reason} (guarded: a build record or a protected structure)`
       if (plan.flood || ceilGuarded) {
@@ -5082,7 +5082,7 @@ export async function escapeStairUp (bot, {
         // PLUGCUT-01: PLUG THE WET FACE, THEN CUT (plugcut.mjs). Only when the caller asked (a pinned bot), only for the ceiling
         // cell itself, only while the bot's head is in air; every placement re-planned live; the cut then goes through the same
         // flood check on the next pass of this loop -- nothing here relaxes it.
-        if (plan.flood && plug && !submerged && plugRounds < PLUG_ROUNDS && key3(plan.cell ?? [0, 2, 0]) === '0,2,0') {
+        if (plug && !submerged && plugRounds < PLUG_ROUNDS && key3(plan.cell ?? [0, 2, 0]) === '0,2,0') {
           plugRounds++
           const r = await plugCeiling(bot, p, { yieldTo: () => (yielded = yieldTo()), deadline })
           if (yielded) { stopped = `yielded the body to ${yielded}`; return finish() }
@@ -6048,8 +6048,9 @@ export async function floodBranch (bot, { handler = '?', refusals = 0, yieldTo =
  */
 export async function guardBranch (bot, { handler = '?', refusals = 0, yieldTo = () => null, ramp = escapeStairUp, steering = () => {} } = {}) {
   const y0 = Math.round(bot.entity?.position?.y ?? 0)
-  const stair = await ramp(bot, { yieldTo, steering })
+  const cut = await ramp(bot, { yieldTo, steering })
     .catch(e => ({ steps: 0, climbed: 0, breached: 0, sidestepped: 0, flood: null, stopped: `threw: ${e.message}` }))
+  const stair = cut ?? { steps: 0, climbed: 0, stopped: 'no answer' }
   const step = floodChainStep({ refusals: refusals + 1, stair })
   const st = (() => { try { return bot.escapeGuard?.state?.() ?? null } catch { return null } })()
   logEvent({ kind: 'escape_guard_ramp', status: step.progressed ? 'success' : 'failed',
@@ -6059,6 +6060,7 @@ export async function guardBranch (bot, { handler = '?', refusals = 0, yieldTo =
   if (stair.yielded) return { progressed: step.progressed, preempted: true, refusals, backoffMs: 0, stair }
   if (step.progressed) return { progressed: true, preempted: false, refusals: 0, backoffMs: 0, stair }
   const backoffMs = Math.min(step.backoffMs, GUARD_BACKOFF_CAP_MS)
+  try { bot.escapeGuard?.hold?.() } catch { /* a bot without the guard */ }   // the hold is a refusal here: it feeds the wait
   const q = bot.entity.position
   const left = st?.left_ms
   logEvent({ kind: 'escape_guard_refused', status: 'failed',
@@ -6125,8 +6127,8 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
       // refusal RETURNS: it must never fall through to `digStraightUp`, which
       // would break the same cell by another route.
       if (upwardDigFloodRisk(bot, 'pillar_out')) return FLOOD_RISK
-      if (!guardMay(bot, head)) return ESCAPE_GUARDED   // escapeguard-01: a guarded ceiling RETURNS too, never digStraightUp
       const opened = head.position ?? bot.entity.position.offset(0, 2, 0)
+      if (!guardMay(bot, head)) return ESCAPE_GUARDED   // escapeguard-01: a guarded ceiling RETURNS too, never digStraightUp
       // Bounded: an escape routine that hangs on a dig strands the bot for
       // good, because nothing else is coming.
       // BARE HANDS, for the same reason as `harvestUnderfoot`: the climb needs
@@ -6601,8 +6603,8 @@ export async function digStraightUp(bot, startY, maxSteps = 20, { alive = () => 
     } else {
       // THE ONE FLOOD CHECK on every upward dig of this fallback too (climbflood-01).
       if (upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK
-      if (!guardMay(bot, above)) return ESCAPE_GUARDED   // escapeguard-01
       const opened = above.position ?? bot.entity.position.offset(0, 2, 0)
+      if (!guardMay(bot, above)) return ESCAPE_GUARDED   // escapeguard-01
       const tool = bestTool(bot, above)
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
       if (!alive()) return 'preempted'
