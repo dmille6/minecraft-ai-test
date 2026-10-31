@@ -80,6 +80,35 @@ export function foreignKind (n, scaffold = FOREIGN_CLEAR) {
   if (TREE_CLEAR.test(s)) return 'tree'
   return null
 }
+/**
+ * THE OVERBURDEN ON A TOOL CELL (pathsclose-01, LIVE showcase 10-30: the paths sat at 261/263 all day -- 304 of 307 visits since
+ * 12Z ended `clears_wait`, nothing done -- because two path cells, 19,67,16 and 20,69,24, had dirt/grass SET ON THEM after siting
+ * (one and two blocks: a scaffold's or a pillar's), and a shovel converts a cell only with air above; the visit dug a LISTED plant
+ * only, so the cells waited forever) -> { ok, digs: [{ at, name }] highest first, why, hard }. Pure. The column above `at` up to the
+ * first air: every block scaffold-class (FOREIGN_CLEAR, a crafting table) or a plant, at most `max` of them, none a record cell
+ * (`isCell`), none the clears' own (`listed`: clears() digs it, soft), none vetoed by the caller (`mayDig`: another project's
+ * cell, a protected zone). `hard` names a refusal no later visit changes by itself (the caller's waiver counts only those).
+ */
+export const OVERBURDEN_MAX = 3
+export function overburdenAbove (read, at, { max = OVERBURDEN_MAX, scaffold = FOREIGN_CLEAR, isCell = () => false, listed = () => false, mayDig = () => true } = {}) {
+  const digs = []
+  for (let i = 1; ; i++) {
+    const p = [at[0], at[1] + i, at[2]]
+    const b = read(...p)
+    if (!b) return { ok: false, digs: [], why: `unknown ${kOf(p)}`, hard: false }
+    const n = nm(b)
+    if (AIR(n)) break
+    if (i > max) return { ok: false, digs: [], why: `deep ${max}+ above`, hard: true }
+    if (listed(p)) return { ok: false, digs: [], why: `listed ${n} ${kOf(p)}`, hard: false }
+    if (isCell(p)) return { ok: false, digs: [], why: `record_cell ${kOf(p)}`, hard: true }
+    const kind = foreignKind(n, scaffold)
+    if (kind === 'tree') return { ok: false, digs: [], why: `tree ${n} ${kOf(p)}`, hard: false }
+    if (kind !== 'scaffold' && !replaceableCell(b)) return { ok: false, digs: [], why: `kept ${n} ${kOf(p)}`, hard: true }
+    if (!mayDig(p)) return { ok: false, digs: [], why: `vetoed ${kOf(p)}`, hard: true }
+    digs.push({ at: p, name: n })
+  }
+  return { ok: true, digs: digs.reverse(), why: null, hard: false }
+}
 /** Does segment `a` wait on segment `b` (directly or through its dependencies)? Such a segment cannot be leased while `b` is
  *  open, so `b` may clear a cell of it without meeting its builder (fell-01 r4). Pure. */
 export function dependsOn (record, a, b) {
@@ -728,6 +757,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // goes on with every segment that does not wait on its segment; later visits ask again (the walk grows with every stand the
   // town's bots occupy), and a cell deferred STUCK_VISITS visits ends the visit `stuck_on_cell` (a named row; the order backs off)
   const deferredSegs = new Set(), deferredCells = []
+  let cellKeys = null   // pathsclose-01: the record's cell keys, built once when an overburden is first judged
   // THE STUCK MAP, settled on EVERY exit (Codex r21 P2 / Claude P3-1: written only at the loop's end, a visit that deferred a cell
   // and then stopped early -- blocked, no_material, deps_open, a fence, the deadline -- never counted). Counts are per holder
   // file (buildproj stuckRead/stuckWrite: no lost update between two builders), summed for the threshold. An early exit keeps its
@@ -877,13 +907,47 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             ucs.sort((a, b) => Math.hypot(a.at[0] - f0[0], a.at[2] - f0[2]) - Math.hypot(b.at[0] - f0[0], b.at[2] - f0[2]) || a.at[1] - b.at[1])
             const kinds = new Map((record.clear ?? []).map(c => [kOf(c.at), c.kind]))
             let acted = false
-            const noStand = []
+            const noStand = [], waitCells = []
             for (const c of ucs) {
               const up = [c.at[0], c.at[1] + 1, c.at[2]]
+              // pathsclose-01 r2 (Codex r1 BLOCK): an overburden dig the server never answered left its cell UNKNOWN (the visit's
+              // read says null there, for the connection) -- asked again from a stand in reach before the cell is judged, as the
+              // record's own unknown cells are; unanswered twice, it waits (and is deferred below: counted, never a wait for good)
+              if (p.overburden) {
+                const uq = [1, 2, 3, 4].map(i => [c.at[0], c.at[1] + i, c.at[2]]).find(q => unknown.has(kOf(q)) && (tries.get(kOf(q)) ?? 0) < BUILD_ATTEMPTS)
+                if (uq) { if ((await resolveUnknown(uq)) == null) bump(uq); acted = true; break }
+              }
               const ub = rd(...up)
-              if (!ub) continue
+              if (!ub) { waitCells.push(c); continue }
+              if (!AIR(nm(ub)) && !(listedNow(up) && kinds.get(kOf(up)) === 'plant')) {
+                // THE OVERBURDEN (pathsclose-01, `p.overburden` = { mayDig(at), max? }): what was set on the cell after siting is
+                // dug, highest first, under this segment's lease (overburdenAbove); a refusal is named, and the cell is DEFERRED
+                // (F4: counted, stuck_on_cell after STUCK_VISITS, the order backs off) instead of waiting every visit for good
+                if (!p.overburden || listedNow(up)) { waitCells.push(c); continue }
+                cellKeys ??= new Set(record.cells.map(q => kOf(q.at)))
+                const ob = overburdenAbove(rd, c.at, { max: p.overburden.max ?? OVERBURDEN_MAX, isCell: at => cellKeys.has(kOf(at)), listed: listedNow, mayDig: p.overburden.mayDig ?? (() => true) })
+                if (!ob.ok) {
+                  (out.blocked ??= []).push({ at: c.at, why: ob.why, hard: ob.hard })
+                  e.log('_build', { op: 'overburden_refused', seg, cell: c.at, block: nm(ub), why: ob.why })
+                  if (ob.hard) noStand.push(c); else waitCells.push(c)
+                  continue
+                }
+                const sg = segGen
+                const held = () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now())
+                let v = null, dug = 0
+                for (const d of ob.digs) {
+                  const g = guard(); if (g) { out.stop = g; return out }
+                  v = await digNamed(d.at, d.name, held, dug ? null : unodes)
+                  if (v !== 'confirmed') break
+                  dug++; out.cleared++; e.log('_build', { op: 'clear', seg, cell: d.at, block: d.name, kind: 'overburden' })
+                }
+                if (v === 'fence') { out.stop = 'fence:segment'; return out }
+                if (v === 'aborted') { out.stop = 'aborted'; return out }
+                if (v === 'no_stand' && !dug) { noStand.push(c); continue }
+                if (v !== 'confirmed') { bump(c.at); e.log('_build', { op: 'clear_failed', seg, cell: c.at, block: nm(ub), kind: 'overburden', result: v }) }
+                acted = true; break
+              }
               if (!AIR(nm(ub))) {
-                if (!listedNow(up) || kinds.get(kOf(up)) !== 'plant') continue
                 const sg = segGen
                 const v = await digNamed(up, nm(ub), () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now()), unodes)
                 if (v === 'no_stand') { noStand.push(c); continue }
@@ -904,7 +968,11 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             }
             if (acted) continue
             if (open.every(c => p.use.can(rd(...c.at)) || (tries.get(kOf(c.at)) ?? 0) >= BUILD_ATTEMPTS)) {
-              if (noStand.length) { for (const c of noStand) deferredCells.push(kOf(c.at)); deferredSegs.add(seg); e.log('_build', { op: 'deferred', seg, cell: noStand[0].at, n: noStand.length }) } else out.waits = (out.waits ?? 0) + 1
+              // pathsclose-01: a cell that WAITS (an unread cell above it, a block on it the visit may not dig) is deferred with
+              // the ones no stand reaches -- the F4 count bounds it (stuck_on_cell, the order's back-off) instead of a
+              // `clears_wait` every visit for good; only an unread cell above with nothing else open is still a wait
+              const defer = [...noStand, ...waitCells.filter(c => e.read(c.at[0], c.at[1] + 1, c.at[2]))]
+              if (defer.length) { for (const c of defer) deferredCells.push(kOf(c.at)); deferredSegs.add(seg); e.log('_build', { op: 'deferred', seg, cell: defer[0].at, n: defer.length }) } else out.waits = (out.waits ?? 0) + 1
               break
             }
           }

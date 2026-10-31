@@ -121,11 +121,11 @@ import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
-import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress } from './paths.mjs'   // paths-01
+import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed } from './wall.mjs'   // wall-01
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
-import { runVisit, cellDone as buildCellDone, workableSeg } from './buildrun.mjs'
+import { runVisit, cellDone as buildCellDone, workableSeg, STUCK_FORGET_MS as BUILD_STUCK_FORGET_MS } from './buildrun.mjs'
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
@@ -16739,6 +16739,8 @@ function recordCellDone (bot, r, c) {
     const mon = isZigBlueprint(r.blueprint)
     const bp = mon ? { palette: zigPaletteOf(r) } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+    // pathsclose-01: a WAIVED path cell (the record's own list) is done
+    if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) return true
     const b = read(...c.at)
     if (!b) return false
     return buildCellDone(b, bp.palette, c.role) || (mon && zigHidden(c, read))
@@ -16953,6 +16955,7 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     const bp = mon ? { palette: zigPaletteOf(r) } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     for (const c of r.cells ?? []) {
+      if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) continue   // pathsclose-01: a waived path cell is no damage
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
       if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role) && !(mon && zigHidden(c, read))) return true
     }
@@ -17475,6 +17478,18 @@ function pathsExtendDue (bot, rec) {
     return newDests(rec, D.dests ?? []).some(d => !bot.pathsUnrouted?.has?.(d.to))
   } catch { return false }
 }
+/**
+ * PATHSCLOSE-01 (buildrun.mjs runVisit `p.overburden`): the paths visit may dig what was set on a path cell after siting. `mayDig(at)`
+ * never a cell of another project's record, never inside a protected zone (shopCtx's zones; unread zones never reach here: the
+ * visit stops zones_unknown first). PATHS_OVERBURDEN=off is the rollback: the cell waits, as before (now counted by F4).
+ */
+function pathOverburdenOf (c) {
+  if (['off', '0', 'false', 'no'].includes(String(process.env.PATHS_OVERBURDEN ?? '').trim().toLowerCase())) return null
+  let others = null
+  const otherCells = () => (others ??= new Set(projectHeads().filter(x => x.plot !== PATHS_PLOT).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))))
+  const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
+  return { mayDig: at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } } }
+}
 async function buildPaths (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -17575,13 +17590,29 @@ async function buildPaths (ctx, args, signal) {
     }
     bot.shopUnknown ??= new Set()
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: PATH_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.pathStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: pathWalkR(rec, home), foreign: PATH_FOREIGN, blockLayer: false, use }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+      domain: () => true, walkR: pathWalkR(rec, home), foreign: PATH_FOREIGN, blockLayer: false, use, overburden: pathOverburdenOf(c),
+      alsoDone: q => pathWaived(rec, q) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // pathsclose-01: THE WAIVER (paths.mjs pathWaiveDue) -- a cell the visit may never lay, counted PATH_WAIVE_AFTER visits by the
+    // stuck map, is named on the record (a logged row) so the project closes; the next visit then reads complete
+    try {
+      const due = pathWaiveDue(rec, r.blocked ?? [], vfStuckRead(dir, key, { since: Date.now() - BUILD_STUCK_FORGET_MS + 1 }))
+      if (due.length) {
+        const pub = publishRecord(dir, key, cur => {
+          if (!cur || cur.cells.length !== rec.cells.length) return null
+          const w = { ...(cur.waived ?? {}) }
+          for (const d of due) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
+          return { ...cur, waived: w }
+        }, { by: me })
+        if (pub.result === 'accepted') for (const d of due) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
+        bot.shopDamage = null
+      }
+    } catch { /* counted again next visit */ }
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null
       if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'complete', kind: PATHS_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
     }
-    const done = (() => { try { const read = planReader(bot); const p = pathProgress(rec, q => buildCellDone(read(...q.at), PATH_PALETTE, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
+    const done = (() => { try { const read = planReader(bot); const p = pathProgress(rec, q => pathWaived(rec, q) || buildCellDone(read(...q.at), PATH_PALETTE, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
     const status = r.placed > 0 || (r.used ?? 0) > 0 || r.cleared > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, `${r.why ?? r.stop}; used ${r.used ?? 0}, laid ${done}`, { stop: r.stop, placed: r.placed + (r.used ?? 0), refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: '-', back: '-' })
   } catch (e) {

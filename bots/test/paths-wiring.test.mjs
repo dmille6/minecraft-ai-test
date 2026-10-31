@@ -79,6 +79,15 @@ await t('A COMPLETE PATH IS DAMAGED when a cell no longer reads dirt_path or sto
   assert.strictEqual(SK.shopDamaged(at('dirt_path'), r), false)
   assert.strictEqual(SK.shopDamaged(at('dirt'), r), true)
 })
+await t('pathsclose-01: a WAIVED path cell is no damage (the complete record closes) -- and a cell not waived still is', async () => {
+  fresh(); shop(true); house(true); mon(true)
+  rec('paths', P.PATHS_BLUEPRINT, PATH_CELLS.map(at => ({ at, role: at[0] === 2 && at[1] === 68 ? 'fill' : 'path', seg: 'P-d-0' })), true, { zones: P.pathZones(PATH_CELLS.map(a => [a[0], a[2]])), waived: { '3,69,9': { why: 'kept chest 3,70,9', at: 1, by: 'A' } } })
+  const r = SK.shopRecordHead().head.rec
+  const reads = (open, n = 'dirt') => ({ blockAt: v => ({ name: `${v.x},${v.y},${v.z}` === open ? n : 'dirt_path', boundingBox: 'block' }) })
+  assert.strictEqual(SK.shopDamaged(reads('3,69,9'), r), false, 'the waived cell reads dirt: no damage')
+  assert.strictEqual(SK.shopDamaged(reads('2,69,9'), r), true, 'positive control: a cell NOT waived reading dirt is damage')
+  assert.strictEqual(SK.shopActive(reads('3,69,9')).plot, 'paths', 'nothing open: the last project, as before')
+})
 await t('THE NEXT PROJECT\'S SITING ZONES carry the path columns (+1), never a box over the town', async () => {
   fresh(); paths(false)
   const r = PJ.recordHead(dir(), PJ.projKey(HOME, 'paths')).head.rec
@@ -91,7 +100,10 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/
 const SRC = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 for (const [name, re] of [
   ['build_shop dispatches the paths to their own visit', /if \(proj\.plot === PATHS_PLOT\) return buildPaths\(ctx, args, signal\)/],
-  ['the paths\' visit passes the shovel\'s use to runVisit', /foreign: PATH_FOREIGN, blockLayer: false, use \}, effects/],
+  ['the paths\' visit passes the shovel\'s use to runVisit', /foreign: PATH_FOREIGN, blockLayer: false, use, overburden: pathOverburdenOf\(c\),/],
+  // pathsclose-01: the visit counts a waived cell done, and the waiver is computed from the visit's refusals and the stuck map
+  ['the paths\' visit counts a waived cell done', /alsoDone: q => pathWaived\(rec, q\) \}, effects/],
+  ['the waiver reads the visit\'s refusals and the summed stuck map', /const due = pathWaiveDue\(rec, r\.blocked \?\? \[\], vfStuckRead\(dir, key, \{ since: Date\.now\(\) - BUILD_STUCK_FORGET_MS \+ 1 \}\)\)/],
   ['the shovel is held only through equip, never an unequip', /if \(bot\.heldItem\?\.name !== it\.name\) \{ try \{ await bot\.equip\(it, 'hand'\) \}/],
   ['a laid network with a new destination is due a visit (recordDamaged)', /if \(r\.blueprint === PATHS_BLUEPRINT && pathsExtendDue\(bot, r\)\) return true/],
   ['the visit extends the record before its completion check', /const x = extendPaths\(planReader\(bot\), base, inputs\(\)\)/],
