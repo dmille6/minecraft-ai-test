@@ -9,6 +9,8 @@
 //   diamond   an iron + two stone pickaxes: down the stair to y=16, `mine` on to y=-53, branches, back, bank, a diamond pickaxe
 //   iron      two stone pickaxes only: an iron trip at the stair's y=16 landing
 //   blocked   as diamond, with dirt pillared into three of the stair's air cells first (the 11-01 fleet failure, 852/1,163)
+//   hazard    as diamond, plus a HAZARD FIELD at the work depth: a lava or water source every 4 blocks in x and z at y -53..-51
+//             (outside the stair's skirt), so every branch and tunnel meets liquid; the server's truth must still show 0 breaches
 // THE ARENA (181 x 181, rebuilt every run): bedrock -64, deepslate -63..-1, stone 0..69, grass 70, air above; a lava LAKE at
 // y -58..-55 under the whole deep layer (the fleet worlds' lava level, region scan 11-01); seeded hazards -- lava pockets
 // and water pockets at the work depth and along the descent band, iron clusters at 8..24, diamond clusters at -59..-48 -- and
@@ -25,7 +27,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import sbx from '../lib/sbxlock.cjs'
 
 const [BOT_ROOT, SCENE = 'diamond', SERVER = 'sandbox3', SEED_S = '11'] = process.argv.slice(2)
-if (!BOT_ROOT || !['diamond', 'iron', 'blocked'].includes(SCENE)) throw new Error('usage: deepmine-e2e.mjs <botRoot> <diamond|iron|blocked> [server] [seed]')
+if (!BOT_ROOT || !['diamond', 'iron', 'blocked', 'hazard'].includes(SCENE)) throw new Error('usage: deepmine-e2e.mjs <botRoot> <diamond|iron|blocked|hazard> [server] [seed]')
 const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
 sbx.requireSandboxLock(SERVER, 'deepmine')
@@ -131,6 +133,13 @@ function hazards () {
     cmds.push(`fill ${x} ${y} ${z} ${x + 1} ${y} ${z + 1} minecraft:${id}`)
     notes[id === 'lava' ? 'lavaPockets' : 'waterPockets']++
   }
+  if (SCENE === 'hazard') {
+    for (let x = A.x0 + 2; x <= A.x1 - 2; x += 4) for (let z = A.z0 + 2; z <= A.z1 - 2; z += 4) {
+      if (!far(x, z, 12)) continue
+      const y = ri(-53, -51), id = rnd() < 0.6 ? 'lava' : 'water'
+      cmds.push(set([x, y, z], id)); notes.field = (notes.field ?? 0) + 1
+    }
+  }
   return { cmds, native, notes }
 }
 async function carveStair () {
@@ -232,7 +241,8 @@ try {
   // the server's truth
   rcon('save-all flush'); await sleep(4000)
   const inv = rcon(`data get entity ${NAME} Inventory`)[0]?.reply ?? ''
-  const count = id => [...inv.matchAll(new RegExp(`count: (\\d+), id: "minecraft:${id}"|id: "minecraft:${id}", count: (\\d+)`, 'g'))].reduce((s, m) => s + Number(m[1] ?? m[2] ?? 1), 0)
+  // one item compound at a time ({count: 2, Slot: 3b, id: "minecraft:diamond"} -- the field order varies)
+  const count = id => [...inv.matchAll(/\{[^{}]*\}/g)].map(m => m[0]).filter(c => c.includes(`id: "minecraft:${id}"`)).reduce((s, c) => s + Number((c.match(/count: (\d+)/) ?? [])[1] ?? 1), 0)
   const pos = rcon(`data get entity ${NAME} Pos`)[0]?.reply ?? ''
   const nativeF = `${OUT}/${RUN}-native.json`
   fs.writeFileSync(nativeF, JSON.stringify(st.air))
@@ -244,7 +254,9 @@ try {
   } catch (e) { truth = { error: String(e?.message ?? e).slice(0, 200) } }
   const deep = events.filter(e => e.k === '_deepmine')
   const phases = [...new Set(deep.map(e => (e.d.match(/phase=(\w+)/) ?? [])[1]).filter(Boolean))]
-  const ok = !!end && /end=home/.test(end.d) && deaths === 0 && truth && truth.breach_n === 0 && (SCENE === 'iron' ? count('raw_iron') + 0 >= 0 : true)
+  const found = Number((end?.d?.match(/found=(\d+)/) ?? [])[1] ?? 0)
+  // THE LOOP CLOSED (Codex r1 note: zero ore must not pass): home, ore brought back, nobody died, nothing opened beside a liquid
+  const ok = !!end && /end=home/.test(end.d) && found > 0 && deaths === 0 && !!truth && truth.breach_n === 0 && truth.flowing === 0
   result({ ok, end: end?.d ?? null, deaths, minY: Number.isFinite(minY) ? Math.floor(minY) : null, phases, pos: pos.slice(-60),
     bag: { diamond: count('diamond'), diamond_pickaxe: count('diamond_pickaxe'), raw_iron: count('raw_iron'), iron_pickaxe: count('iron_pickaxe'), stone_pickaxe: count('stone_pickaxe'), cobblestone: count('cobblestone'), cobbled_deepslate: count('cobbled_deepslate'), torch: count('torch') },
     rows: deep.length, deepRows: deep.map(e => e.d).slice(-40), truth, hazards: hz.notes, ms: Date.now() - T0 })

@@ -18157,6 +18157,8 @@ async function deepMine (ctx, args, signal) {
     if (trip.phase === 'bank') {
       trip.bankTries = (trip.bankTries ?? 0) + 1
       if (trip.bankTries > 2) { deepClose(bot, 'home', `${trip.returnWhy ?? '-'}/bank_cut`); return out('no_effect', 'home from the deep trip (the deposit did not finish twice)') }
+      // HOME FIRST (Paper 11-01: from the collar, 19-26 blocks out, the deposit found `no town container`): the town-deposit walk
+      try { await stairWalk(bot, [config.world.homeX, config.world.homeY, config.world.homeZ], 45_000, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       const kit = kitNow()
       let made = false
       if (kit.diamonds >= DEEP_PICK_DIAMONDS && !(bot.inventory?.items?.() ?? []).some(i => i.name === 'diamond_pickaxe')) {
