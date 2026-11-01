@@ -64,10 +64,11 @@ export const RETURN_SEAL = 6                 // go home below this many
 export const HEALTH_MIN = 16                 // to start
 export const RETURN_HEALTH = 10              // go home below this
 export const IRON_TRIP_USES = 70             // total pickaxe uses for an iron trip (tunnels ~20-40, the stair's repairs, a reserve)
-export const DIAMOND_DESCENT_USES = 120       // uses of pickaxes BELOW iron for the stair down 69 blocks (~1.7/step) + reserve
+export const DIAMOND_DESCENT_USES = 220       // uses of pickaxes BELOW iron: the stair down 69 blocks took ~200 on Paper 11-01 (3 digs a step), + branches
 export const IRON_PICK_MIN = 40              // an iron (or better) pickaxe with at least this many uses: the diamonds need it
 export const RETURN_USES = 15                // go home when the bag's pickaxes have this few uses left in all
 export const RETURN_IRON_USES = 5            // a diamond trip goes home when its iron pickaxe is spent
+export const RETURN_LOW_USES = 10            // ...or when the pickaxes below iron are (Paper 11-01: the iron one then dug deepslate until it broke)
 export const BRANCH_LEN = 12                 // cells of one branch
 export const BRANCHES_MAX = 6                // branches a trip digs
 export const MISSES_MAX = 4                  // work rounds in a row with no ore -> go home
@@ -168,6 +169,7 @@ export function returnWhy (trip, { now = Date.now(), kit = null, health = 20 } =
     if (kit.free <= RETURN_FREE) return 'bag_full'
     if (kit.uses <= RETURN_USES) return 'pickaxe'
     if (trip.target === 'diamond' && kit.ironUses < RETURN_IRON_USES) return 'iron_pickaxe'
+    if (trip.target === 'diamond' && kit.lowUses <= RETURN_LOW_USES) return 'stone_pickaxes'
     if (kit.seal < RETURN_SEAL) return 'seal_blocks'
     if (trip.target === 'diamond' && kit.diamonds - (trip.diamonds0 ?? 0) >= DIAMOND_GOAL) return 'goal'
     if (trip.target === 'iron' && kit.rawIron - (trip.rawIron0 ?? 0) >= IRON_GOAL) return 'goal'
@@ -272,8 +274,9 @@ export function probeCell (read, c, { feet = false, open = new Set() } = {}) {
   if (isWet(b)) return 'water'
   for (const d of N6) {
     const n = add(c, d)
-    if (open.has(n.join(','))) continue
     const q = read(...n)
+    // an OPENED cell is read too (Codex r1 B2): one the miner opened that has since flooded is a hazard like any other
+    if (open.has(n.join(','))) { if (q && (isLava(q) || isWet(q))) return isLava(q) ? 'lava' : 'water'; continue }
     if (!q) return 'unknown'
     if (isLava(q)) return 'lava'
     if (isWet(q)) return 'water'
@@ -307,9 +310,15 @@ export function branchNext (read, cells, i, open = new Set()) {
  * reaches an opened cell (a flow from a cave the probe could not see past) is filled with a block: lava becomes stone-like,
  * water stops. Nothing else is placed.
  */
-export function sealTargets (read, opened = []) {
+export function sealTargets (read, opened = [], occupied = []) {
   const keys = new Set(opened.map(c => c.join(',')))
+  const body = new Set(occupied.map(c => c.join(',')))
   const out = new Map()
+  // an OPENED cell that has flooded is filled too (Codex r1 B2), never one the bot stands in
+  for (const c of opened) {
+    const k = c.join(','), q = read(...c)
+    if (!body.has(k) && q && (isLava(q) || isWet(q)) && !/kelp|seagrass/.test(String(q.name))) out.set(k, c)
+  }
   for (const c of opened) for (const d of N6) {
     const n = add(c, d), k = n.join(',')
     if (keys.has(k) || out.has(k)) continue

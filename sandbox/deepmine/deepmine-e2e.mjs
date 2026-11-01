@@ -101,7 +101,12 @@ async function buildArena () {
 function hazards () {
   const cmds = [], native = [], notes = { lavaPockets: 0, waterPockets: 0, diamonds: 0, iron: 0 }
   // the lava lake (the fleet worlds' lava level): y -58..-55 under everything but a 12-block skirt round the stair
-  for (let y = -58; y <= -55; y++) cmds.push(`fill ${A.x0} ${y} ${A.z0} ${A.x1} ${y} ${A.z1} minecraft:lava`)
+  // ...in PATCHES (the worlds' lava lakes are caves below the lava level, not a sheet): 10 lakes, 12-30 across, 4 deep
+  for (let i = 0; i < 10; i++) {
+    const w = ri(12, 30), d = ri(12, 30), x = ri(A.x0, A.x1 - w), z = ri(A.z0, A.z1 - d)
+    cmds.push(`fill ${x} -58 ${z} ${x + w} -55 ${z + d} minecraft:lava`)
+    notes.lakes = (notes.lakes ?? 0) + 1
+  }
   const far = (x, z, r = 9) => Math.max(Math.abs(x - C.x), Math.abs(z - C.z)) > r
   // diamond clusters at the work depth, every ~10 blocks (denser than the worlds: a 3-h canary-sized trip must meet some)
   for (let gx = A.x0 + 6; gx <= A.x1 - 6; gx += 11) for (let gz = A.z0 + 6; gz <= A.z1 - 6; gz += 11) {

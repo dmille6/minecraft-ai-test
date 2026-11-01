@@ -38,9 +38,10 @@ test('tripKit: uses split by tier (stone pays the descent, the iron one is kept 
 })
 test('tripTarget: diamond needs an iron pickaxe AND the descent\'s uses; iron needs only uses; neither -> null', () => {
   assert.equal(D.tripTarget(D.tripKit([iron(0), stone(0)])), 'diamond')
-  // an iron pickaxe alone pays the descent only with its spare uses above the diamond reserve: 250-40 = 210 >= 120
-  assert.equal(D.tripTarget(D.tripKit([iron(0)])), 'diamond')
-  assert.equal(D.tripTarget(D.tripKit([iron(200), stone(100)])), 'iron')   // 50 iron uses < 40+... : 31 low + 10 spare < 120
+  // an iron pickaxe alone: its spare uses above the diamond reserve (250-40 = 210) do not pay the 220 of the descent
+  assert.equal(D.tripTarget(D.tripKit([iron(0)])), 'iron')
+  assert.equal(D.tripTarget(D.tripKit([iron(0), stone(120)])), 'diamond', '11 + 210 >= 220')
+  assert.equal(D.tripTarget(D.tripKit([iron(200), stone(100)])), 'iron')   // 31 low + 10 spare < 220
   assert.equal(D.tripTarget(D.tripKit([stone(0)])), 'iron')
   assert.equal(D.tripTarget(D.tripKit([stone(100)])), null)                 // 31 uses < 70
   assert.equal(D.tripTarget(D.tripKit([])), null)
@@ -312,4 +313,26 @@ test('wired (B1): a trip at the surface in deepen/work turns home before any pha
   assert.equal(sk.split(NOT_UNDER).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
   assert.ok(strip(sk).includes(NOT_UNDER))
   assert.equal(strip(sk.replace(NOT_UNDER, 'if (false) {')).includes(NOT_UNDER), false)
+})
+
+// ---- 10. review r1 (Codex): a flooded opened cell is a hazard and a seal target; the iron one is not spent on rock -------------
+test('B2: an opened cell that has flooded stops the branch and is sealed (never the cell the bot stands in)', () => {
+  const w = world()
+  const r0 = drive(w, [0, -53, 0], 0, 3)
+  assert.equal(r0.stop, 'end')
+  w.set([3, -52, 0], 'lava')                              // the head cell of branch cell index 2 (x=3) floods after it was opened
+  const cells = D.branchCells([0, -53, 0], 0, 6)
+  const open = new Set(cells.slice(0, 3).flatMap(c => [c.feet.join(','), c.head.join(',')]))
+  assert.equal(D.branchNext(w.read, cells, 3, open).why, 'lava', 'the next cell beside the flooded one is not opened')
+  const opened = cells.slice(0, 3).flatMap(c => [c.feet, c.head])
+  assert.deepEqual(D.sealTargets(w.read, opened, [[1, -53, 0], [1, -52, 0]]).map(c => c.join(',')), ['3,-52,0'])
+  w.set([1, -52, 0], 'water')
+  assert.ok(!D.sealTargets(w.read, opened, [[1, -53, 0], [1, -52, 0]]).some(c => c.join(',') === '1,-52,0'), 'never the bot\'s own cell')
+})
+test('a diamond trip goes home when the pickaxes below iron are spent (the iron one is for the ore)', () => {
+  const t0 = 1_000_000
+  const trip = { ...D.newTrip({ id: 't', target: 'diamond', now: t0 }), arrivedAt: t0, diamonds0: 0, rawIron0: 0 }
+  const kit = { ...D.tripKit([iron(0), stone(125), stack('cobblestone', 64)]) }
+  assert.equal(D.returnWhy(trip, { now: t0, kit }), 'stone_pickaxes')
+  assert.equal(D.returnWhy({ ...trip, target: 'iron' }, { now: t0, kit }), null)
 })

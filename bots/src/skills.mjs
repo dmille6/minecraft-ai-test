@@ -17844,7 +17844,42 @@ function deepEffects (bot, signal, fence = () => true) {
   const acks = (bot.shopAcks ??= shopAckInstall(bot))
   const B = botBuildEffects(bot, { acks, keep: {}, withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
     aborted: () => !!signal?.aborted, log: () => {}, spawnedAt: () => bot.shopSpawnAt ?? 0 })
-  return { B, e: stairBotEffects(bot, B, { signal, fence, log: () => {} }) }
+  const e = stairBotEffects(bot, B, { signal, fence, log: () => {} })
+  // THE BRANCH'S DIGS TAKE THE CHEAPEST TOOL THAT HARVESTS (Codex r1 B1: the stair's equip takes the pickaxe with the most uses,
+  // so an ore could be dug with a tool that drops nothing, and the iron one spent on deepslate): toolfor's policy; no eligible
+  // tool for a block that needs one -> not dug ('no_tool')
+  const dig = async c => {
+    const b = bot.blockAt(new Vec3(c[0], c[1], c[2]))
+    if (!b) return 'refused'
+    if (b.name === 'air' || b.name === 'cave_air') return 'confirmed'
+    const tool = bestTool(bot, b)
+    const needs = b.harvestTools && Object.keys(b.harvestTools).length > 0
+    if (needs && !tool) return 'no_tool'
+    if (tool && bot.heldItem?.name !== tool.name) { try { await bot.equip(tool, 'hand') } catch (err) { if (err?.aborted) throw err } }
+    return withDigScope(bot, { purpose: 'target', by: 'deep_mine' }, () => B.dig(c))
+  }
+  e.dig = dig   // the stair effects' own `read` getter stays live (a fresh reader per call)
+  return { B, e }
+}
+/** A bounded walk on the TUNNEL profile (it may re-dig what fell or was placed in the way; its break veto refuses liquid and
+ *  falling-block neighbours) -> arrived within 1 of the cell. The trail back (Paper 11-01: on the no-dig profile every trail
+ *  stand behind an escape's placed block was `noPath`). */
+async function deepTrailWalk (bot, cell, ms, signal) {
+  if (typeof bot.withTunnelMovements !== 'function') return stairWalk(bot, cell, ms, signal)
+  let timer = null, onAbort = null
+  check(signal)
+  const walk = bot.withTunnelMovements(() => bot.pathfinder.goto(new goals.GoalBlock(cell[0], cell[1], cell[2])))
+  try {
+    await Promise.race([
+      walk,
+      new Promise(resolve => { timer = setTimeout(() => { haltPath(bot); resolve() }, ms) }),
+      ...(signal ? [new Promise(resolve => { onAbort = () => { haltPath(bot); resolve() }; signal.addEventListener?.('abort', onAbort, { once: true }) })] : []),
+    ])
+    await Promise.race([walk.catch(() => {}), new Promise(r => setTimeout(r, 2_000))])
+  } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { if (timer) clearTimeout(timer); if (onAbort) signal?.removeEventListener?.('abort', onAbort) }
+  check(signal)
+  const p = bot.entity?.position
+  return !!p && Math.abs(Math.floor(p.x) - cell[0]) <= 1 && Math.abs(Math.floor(p.z) - cell[2]) <= 1 && Math.abs(Math.floor(p.y + 1e-6) - cell[1]) <= 1
 }
 /**
  * REPAIR THE STAIR ON THE WAY DOWN (LIVE 11-01: 852 of 1,163 stair descents in 24 h found a step's air cell blocked -- dirt --
@@ -17902,7 +17937,8 @@ async function deepBranch (ctx, trip, signal, deadline) {
           if (r !== 'confirmed') { if (++tries >= 2) { stop = `dig_${r}`; break } continue }
           open.add(op.at.join(','))
           // SEAL what the dig let in (a flow the probe could not see past): a block into every liquid beside an opened cell
-          for (const s of deepSealTargets(stairRead(bot), [...open].map(k => k.split(',').map(Number)))) {
+          const me3 = deepFeet(bot)
+          for (const s of deepSealTargets(stairRead(bot), [...open].map(k => k.split(',').map(Number)), [me3, [me3[0], me3[1] + 1, me3[2]]])) {
             const pr = await e.place(s)
             if (pr === 'confirmed') { trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: s.join(',') }) } else { stop = `seal_${pr}`; break }
           }
@@ -17996,11 +18032,15 @@ async function deepMine (ctx, args, signal) {
         // to the collar first: the repair walks from the stair's own route
         if (deepRouteIndex(route, deepFeet(bot)) < 0) { await stairWalk(bot, rec.exit, 45_000, signal); await stairWalk(bot, route[0], DEEP_HOP_MS, signal) }
         const r = await deepRepair(ctx, rec, route, signal, deadline)
+        trip.lastRepair = r
         deepRow(bot, 'repair', { why: `${use.why}->${r}` })
         use = landingUsable(stairRead(bot), rec, DEEP_IRON_FEET)
       }
       if (!use.ok) {
         trip.descendTries = (trip.descendTries ?? 0) + 1
+        // A REPAIR STILL GOING (Codex r1 B3: four units a call): the descent stays, bounded by DESCEND_TRIES calls
+        const repairing = /blocked|tread|wet/.test(use.why ?? '') && trip.lastRepair && !['dig_refused', 'place_refused', 'no_support', 'no_reach', 'no_material', 'no_pickaxe', 'stair_busy', 'no_stand', 'stopped', 'landing_dropped'].includes(trip.lastRepair)
+        if (repairing && trip.descendTries < 6) return out('no_effect', `the town stair is being repaired on the way down (${use.why}); asked again`)
         if (trip.descendTries >= 3 || !/unknown/.test(use.why ?? '')) {
           // still at the top (nothing was dug below the stair yet): the trip simply ends
           if (deepRouteIndex(route, deepFeet(bot)) > 0) { trip.phase = 'return'; trip.returnWhy = `stair_${use.why}`; return out('no_effect', `the town stair reads ${use.why}; walking back up`) }
@@ -18090,12 +18130,16 @@ async function deepMine (ctx, args, signal) {
       if (onRoute < 0) {
         const back = deepTrailBack(trip.trail, feet)
         let fails = 0, walked = 0
-        for (const wp of back) {
-          check(signal)
-          if (Date.now() > deadline) break
-          if (await stairWalk(bot, wp, DEEP_HOP_MS, signal)) { walked++; fails = 0; continue }
-          if (++fails >= 3) break
-        }
+        // the trail back holds the 'stair' body claim (a branch end and mine's own stair read as walled in to the entombment
+        // reflex; Paper 11-01: it pillared and aborted the return)
+        await withStairClaim(ctx.runner, async () => {
+          for (const wp of back) {
+            check(signal)
+            if (Date.now() > deadline) break
+            if (await deepTrailWalk(bot, wp, DEEP_HOP_MS, signal)) { walked++; fails = 0; continue }
+            if (++fails >= 3) break
+          }
+        })
         if (route) onRoute = deepRouteIndex(route, deepFeet(bot))
         if (onRoute < 0) {
           if (walked === 0 || !back.length) trip.returnTries = !back.length ? DEEP_RETURN_TRIES : (trip.returnTries ?? 0) + 1
