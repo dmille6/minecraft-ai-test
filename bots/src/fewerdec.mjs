@@ -59,6 +59,8 @@ export const FEWERDEC_DEFAULTS = Object.freeze({
   vetoTtlMs: 90_000,
 })
 
+export const PAUSE_WAKE_CAP_MS = 60_000
+
 const off = v => v === '0' || v === 'false' || v === 'off'
 const num = (v, d) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) && n >= 0 ? n : d }
 
@@ -94,7 +96,8 @@ export function pauseRemainingMs ({ paused, pausedAt, now, recoveryMs }) {
 export function pauseWaitDecision ({ cfg, trigger, paused, pausedAt, now, recoveryMs }) {
   if (!cfg?.pauseWait || trigger !== 'idle') return { skip: false, wakeInMs: 0 }
   const left = pauseRemainingMs({ paused, pausedAt, now, recoveryMs })
-  return left > 0 ? { skip: true, wakeInMs: left + (cfg.pauseMarginMs ?? 0) } : { skip: false, wakeInMs: 0 }
+  // capped below the liveness watchdog's 120 s idle limit (Claude review note 3): a longer pause just skips once more
+  return left > 0 ? { skip: true, wakeInMs: Math.min(PAUSE_WAKE_CAP_MS, left + (cfg.pauseMarginMs ?? 0)) } : { skip: false, wakeInMs: 0 }
 }
 
 const bucket = n => (n <= 0 ? 0 : n < 4 ? 1 : n < 16 ? 2 : n < 64 ? 3 : 4)
@@ -148,8 +151,10 @@ export function continueAfterRun ({ cfg, source, skill, args, status, serving, g
 }
 
 /** CONTINUE, at a tick with no work order: the continuation order, or null. */
-export function continueOrder ({ cfg, cont, memoryRefuses }) {
+export function continueOrder ({ cfg, cont, trigger, memoryRefuses }) {
   if (!cfg?.cont || !cont?.skill) return null
+  // IDLE ONLY (Codex r1 BLOCKER): a death, a reflex handoff or startup must reach the model, never a stale continuation.
+  if (trigger !== 'idle') return null
   if ((cont.n ?? 0) >= (cfg.contMax ?? 0)) return null
   let refused = 'unknown'
   try { refused = memoryRefuses?.(cont.skill, cont.args) ?? null } catch { refused = 'unknown' }
@@ -164,8 +169,11 @@ export function continueOrder ({ cfg, cont, memoryRefuses }) {
  */
 export function continueSchedule ({ cfg, ranOk, window, now, cooldownMs }) {
   if (!cfg?.cont || !ranOk) return { delayMs: cooldownMs, window: null }
-  const w = window ?? { until: now + cooldownMs, early: 0 }
   const step = Math.min(cfg.contDelayMs ?? 0, cooldownMs)   // never slower than the cooldown it fills
+  // THE WINDOW IS SPENT (Claude review note 2): the cooldown went by in work, so it closes -- the next tick decides as
+  // usual (the model, if no order), and a success there opens a fresh window with a fresh early-tick budget.
+  if (window && now >= window.until) return { delayMs: step, window: null }
+  const w = window ?? { until: now + cooldownMs, early: 0 }
   if (w.early >= (cfg.earlyMax ?? 0)) return { delayMs: Math.max(step, w.until - now), window: { ...w } }
   return { delayMs: step, window: { ...w, early: w.early + 1 } }
 }
