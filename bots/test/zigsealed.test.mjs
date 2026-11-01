@@ -180,7 +180,7 @@ await t('zigSealedOf: on by default; ZIGSEALED=off is the rollback; mayDig vetoe
 })
 await t('buildMonument passes zigSealedOf to its visit (source, comments stripped)', () => {
   const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
-  const m = src.match(/access: zigAccessOf\(bot, c\), sealed: zigSealedOf\(c, zigOtherCells\(\)\) \}, effects/g)
+  const m = src.match(/access: zigAccessOf\(bot, c\), sealed: zigSealedOf\(c, zigOtherCells\(\)\), \.\.\.stuckVisitOpts\(rec, 'zig', zigHidden, stuckCellsOn\(\), zigPlaceOk\(c\)\) \}, effects/g)   // stuckcells-01: its options ride after the seal
   assert.strictEqual(m?.length, 1)
 })
 
