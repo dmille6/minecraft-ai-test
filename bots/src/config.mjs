@@ -53,6 +53,20 @@ function req(name, fallback) {
   return v
 }
 
+// COOLDOWN15 (cooldown15-01, 11-01): the decision cooldown is capped at 15 s. Every fleet env file sets
+// LLM_DECISION_COOLDOWN_MS=30000, so a canary has to be a code version the manifest and the tripper can see: the cap
+// lives here, not in five env files. LLM_DECISION_COOLDOWN_CAP_MS is the one-number rollback (set it to 30000 and the
+// env value passes through again); deploying the base sha is the other. A ceiling, never a floor: a shorter env value
+// passes through unchanged. A cap that is not a positive finite number is ignored (the env value stands), so a typo
+// cannot make a bot ask the model in a tight loop.
+export const COOLDOWN_CAP_DEFAULT_MS = 15000
+export function cappedCooldownMs(envMs, capMs) {
+  const v = Number(envMs)
+  const cap = Number(capMs)
+  if (!(Number.isFinite(cap) && cap > 0)) return v
+  return Number.isFinite(v) ? Math.min(v, cap) : cap
+}
+
 export const config = {
   code: { version: codeVersion() },
 
@@ -266,7 +280,11 @@ export const config = {
     // Client-side budget, deliberately well under numCtx.
     promptTokenBudget: Number(req('LLM_PROMPT_TOKEN_BUDGET', '3000')),
     // Handoff doc S16: strategic decisions every 30-90s, not per tick.
-    decisionCooldownMs: Number(req('LLM_DECISION_COOLDOWN_MS', '20000')),
+    // Capped (cooldown15-01): 30 s env -> 15 s. Earlier fixed-wait canaries: 7 s env on hive-d (09-09, 1.95x
+    // decisions/bot-h, latency tail flat); 20 s clamp x3 (09-11, all REVERT: explore share, veto share, and the extra
+    // calls became vetoed re-proposals). Since then the gate feeds vetoes back to the model (B2 veto feedback).
+    decisionCooldownMs: cappedCooldownMs(req('LLM_DECISION_COOLDOWN_MS', '20000'),
+      req('LLM_DECISION_COOLDOWN_CAP_MS', String(COOLDOWN_CAP_DEFAULT_MS))),
   },
 
   viewer: {
