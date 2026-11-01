@@ -115,7 +115,7 @@ await t('WIRED (skills.mjs, comments stripped): sited in the workshop; the draw 
   assert.ok(/if \(plot === SHOPCHEST_PLOT\) \{\s*const shopRec = /.test(src))
   assert.ok(src.includes("const nextOf = () => (firsts.length ? { block: firsts.shift(), first: true } : townSearchNext("), 'matsWithdraw tries `first` before the town')
   assert.ok(src.includes('const c = (curFirst ? firstAllow : allow)(n, want, '), 'no reserve on the materials chests')
-  assert.ok(src.includes('PD.onUncertain, { first }); took = w.took ?? {}'), 'buildShop passes them')
+  assert.ok(src.includes('PD.onUncertain, { first }); took = w.took ?? {}') && src.includes('const first = mats.filter(b => materialsWorthTry(matsChestNames(bot, b), need))'), 'buildShop passes them, by what this bot last saw')
   assert.ok(src.includes('prefer: mats.map(b => b.position) }'), 'the bank-back prefers them')
   assert.ok(src.includes("const pre = (prefer ?? []).filter(ok)") && src.includes('return [...pre, ...[...near, ...idx]'), 'matsBank puts them first')
   assert.ok(src.includes("for (const item of ['furnace', 'crafting_table', 'chest']) {"), 'the chest crafted when the town has none')

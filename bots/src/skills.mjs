@@ -13707,6 +13707,8 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
   const decide = (inChest, bag, { chestEmpty }) => {
     const here = {}
     for (const it of inChest) if (it?.name) here[it.name] = (here[it.name] ?? 0) + (it.count ?? 0)
+    // shopchest-01: a materials chest is outside the town index (townIndexed: in-town only) -- this bot remembers what it showed
+    if (curFirst) { try { (bot.matsChestSeen ??= new Map()).set(cur, { names: Object.fromEntries(Object.entries(here).map(([n, c]) => [n, [c]])), at: Date.now() }) } catch { /* memory only */ } }
     const others = (matsTownStock(bot, { exclude: cur }) ?? { stock: {} }).stock
     const takes = []
     for (const [n, want] of Object.entries(left)) {
@@ -17770,12 +17772,20 @@ function shopchestSiteFor (bot, shopRec, plan, stood) {
     return { ok: true, why: 'ok', record: shopchestRecord(st, p, { home: plan.home, plan, now: Date.now() }) }
   } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80) } }
 }
+/** SHOPCHEST-01: what a materials chest holds, as this bot last saw it (matsWithdraw's open; MATS_CHEST_SEEN_MS) -> names | null
+ *  (unknown: the draw tries it). Never throws. */
+const MATS_CHEST_SEEN_MS = 30 * 60_000
+function matsChestNames (bot, b) {
+  try { const m = bot.matsChestSeen?.get?.(containerKey(bot, b.position)); return m && Date.now() - m.at < MATS_CHEST_SEEN_MS ? m.names : null } catch { return null }
+}
 /** SHOPCHEST-01: the workshop's materials chests a build visit of `plot` uses -> [Block] (loaded, a chest now). Never throws. */
 const SHOPCHEST_ON = shopchestOn(process.env, process.env.MEMORY_POOL ?? '')
 function matsChestsFor (bot, plot) {
   try {
     const rec = projectHeads().find(x => x.plot === SHOPCHEST_PLOT)?.head?.rec ?? null
     return materialsChests(rec, { on: SHOPCHEST_ON, plot }).map(a => bot.blockAt?.(new Vec3(a[0], a[1], a[2]))).filter(b => b && blockNameOf(bot, b) === 'chest')
+      // a chest whose walk failed sits out withdraw's own travel backoff (an out-of-town chest's: withdrawVisit sets it)
+      .filter(b => !((bot.withdrawTravelBackoff?.get?.(posKey(b.position)) ?? 0) > Date.now()))
   } catch { return [] }
 }
 async function buildShop (ctx, args, signal) {
@@ -17909,7 +17919,7 @@ async function buildShop (ctx, args, signal) {
     // only when the index does not show it empty of every name needed (shopchest.mjs materialsWorthTry)
     const mats = matsChestsFor(bot, plot)
     if (Object.keys(need).length) {
-      const first = mats.filter(b => { let e = null; try { e = townIndexEntries(bot)?.[containerKey(bot, b.position)] ?? null } catch { e = null } return materialsWorthTry(e && indexStateOf(e) === 'known' ? e.obs?.names ?? {} : null, need) })
+      const first = mats.filter(b => materialsWorthTry(matsChestNames(bot, b), need))
       const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain, { first }); took = w.took ?? {}
       if (w.fromFirst) f.fromMats = w.fromFirst
     }
@@ -17979,8 +17989,9 @@ async function buildShop (ctx, args, signal) {
     // built), so this is A3's own fallback, ordinary town chests -- never kept as ballast
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
-    // shopchest-01: into the workshop's materials chests first (`prefer`), then the town's
-    if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() }, prefer: mats.map(b => b.position) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    // shopchest-01: into the workshop's materials chests first (`prefer`), then the town's; what this bot remembers of them is then
+    // stale (asked again at the next draw)
+    if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() }, prefer: mats.map(b => b.position) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { if (mats.length) bot.matsChestSeen?.clear?.() } }
     const status = r.placed > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
