@@ -1618,6 +1618,46 @@ class Timelapse(unittest.TestCase):
         kept, skipped = TV.dedup(list(frames), frames.get, level=0, min_frac=0.5)
         self.assertEqual((len(kept), skipped), (4, 8))     # first + 2 changes + last (unchanged, kept anyway)
 
+    def test_video_captions_showchat(self):
+        """showchat-01: the bots' spoken lines -> per-frame captions (since the previous included frame, tier 1 first) + tally."""
+        U = dt.timezone.utc
+        L = [(dt.datetime(2026, 11, 1, 14, 5, tzinfo=U), 'showcase-Echo', 3, 'deposit', 'Stored 16 spruce logs in the town chests.'),
+             (dt.datetime(2026, 11, 1, 14, 8, tzinfo=U), 'showcase-Bravo', 2, 'section', "Finished the storehouse's back wall (14 blocks)."),
+             (dt.datetime(2026, 11, 1, 14, 9, tzinfo=U), 'showcase-Juno', 1, 'project_done', 'The storehouse is finished!'),
+             (dt.datetime(2026, 11, 1, 14, 40, tzinfo=U), 'showcase-Gale', 2, 'ore', 'Found iron at y=48: +6 raw iron.')]
+        caps = TV.captions(['20261101T1400Z', '20261101T1415Z', '20261101T1430Z', '20261101T1445Z'], L)
+        self.assertEqual(caps[0], [], 'nothing spoken in the 15 min before the first frame')
+        self.assertEqual(caps[1], ["Bravo: Finished the storehouse's back wall (14 blocks).", 'Juno: The storehouse is finished!'],
+                         'two lines max: the tier-1 line and the newest other, oldest first; the tier-3 deposit yields')
+        self.assertEqual(caps[2], [])
+        self.assertEqual(caps[3], ['Gale: Found iron at y=48: +6 raw iron.'])
+        # a skipped (no-change) frame does not lose its lines: the window runs from the previous INCLUDED frame
+        self.assertEqual(TV.captions(['20261101T1400Z', '20261101T1445Z'], L)[1][0], 'Juno: The storehouse is finished!')
+        self.assertEqual(TV.tally(L, dt.datetime(2026, 11, 1, 14, 10, tzinfo=U)),
+                         'Nov 01 so far: 1 project finished, 1 section built, 1 load stored')
+        self.assertEqual(TV.tally(L, dt.datetime(2026, 11, 1, 13, 0, tzinfo=U)), '', 'nothing yet today -> no tally')
+        self.assertEqual(TV.tally(L, dt.datetime(2026, 11, 2, 1, 0, tzinfo=U)), '', 'a new UTC day starts at zero')
+        self.assertEqual(TV.caption_text('showcase-Iris', 'caf\u00e9 ' + 'x' * 200)[-3:], '...')
+        self.assertNotIn('\u00e9', TV.caption_text('showcase-Iris', 'caf\u00e9'))
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, 'showchat-lines.jsonl')
+            with open(p + '.1', 'w') as f:
+                f.write(json.dumps({'t': '2026-11-01T14:09:00.000Z', 'bot': 'showcase-Juno', 'tier': 1, 'cat': 'project_done',
+                                    'text': 'The storehouse is finished!'}) + '\n')
+            with open(p, 'w') as f:
+                f.write('{not json\n' + json.dumps({'t': '2026-11-01T14:40:00.000Z', 'bot': 'showcase-Gale', 'tier': 2, 'cat': 'ore',
+                                                    'text': '100% iron'}) + '\n')
+            got = TV.load_lines(p)
+            self.assertEqual([g[1] for g in got], ['showcase-Juno', 'showcase-Gale'], 'the rotated file too; a bad line skipped')
+            self.assertEqual(TV.load_lines(os.path.join(d, 'absent.jsonl')), [], 'no file -> no captions, no error')
+            vf = TV.overlay_filter('stamp', ['Gale: 100% iron'], 'Nov 01 so far: 1 ore find', d, 7)
+            self.assertEqual(vf.count('drawtext='), 3)
+            self.assertEqual(vf.count('expansion=none'), 2, 'the bots\' words are never expanded')
+            self.assertEqual(open(os.path.join(d, 'cap000007_0.txt')).read(), 'Gale: 100% iron')
+            self.assertNotIn('100%', vf, 'the words travel in a text file, never in the filter string')
+            bare = TV.overlay_filter('stamp', [], '', d, 8)
+            self.assertEqual(bare.count('drawtext='), 1, 'no lines -> exactly the old stamp-only filter')
+
     def test_status_lines(self):
         now = T0 + dt.timedelta(hours=1)
         rows = [{'t': FR.iso(T0 + dt.timedelta(minutes=15 * k)), 'ok': True, 'stamp':

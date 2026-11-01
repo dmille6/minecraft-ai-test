@@ -38,11 +38,45 @@ import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout
 import { SHAFT, SHAFT_COOLDOWN_MS } from './shop.mjs'   // shaft-02's licence row
 import { SHAFT_BLUEPRINT, LANDING_FEET } from './shaftgeom.mjs'
 import { expeditionInstall } from './skills.mjs'   // expedition-01: the order's ask and the licence row
+import { tapRecords } from './logger.mjs'   // showchat-01: the read-only record tap the announcements are made from
+import { showchatOn, showchatModeDetail, makeSpeaker, quietChatter, KILL_FILE } from './showchat.mjs'   // showchat-01
+import { poolStateDir } from './worldfacts.mjs'
+import fs from 'node:fs'
+import path from 'node:path'
+
+// showchat-01: ONE speaker per process. A reconnect builds a new bot object and calls installFeatures again: the old tap goes.
+let showchatUntap = null
+/** SHOWCHAT-01 (showchat.mjs): the showcase's templated announcements + the chatter filter. Never throws. */
+export function installShowchat (bot, { env = process.env, pool = config.memory.pool } = {}) {
+  const on = showchatOn(env, pool)
+  const dir = poolStateDir(pool)
+  let killed = false
+  try { killed = fs.existsSync(path.join(dir, KILL_FILE)) } catch {}
+  try { logEvent({ kind: 'showchat_mode', status: 'success', snapshot: snapshot(bot), detail: showchatModeDetail({ on, pool, killed }) }) } catch {}
+  if (!on) return null
+  if (showchatUntap) { try { showchatUntap() } catch {} showchatUntap = null }
+  const stats = { noise: 0 }
+  const say = quietChatter(bot, stats)
+  if (!say) return null
+  const sp = makeSpeaker({
+    bot, say, dir,
+    emit: row => { try { logEvent({ ...row, snapshot: snapshot(bot) }) } catch {} },
+    names: () => { try { return [...Object.keys(bot.players ?? {}), 'mike'] } catch { return ['mike'] } },
+  })
+  // the wrapper counts into its own object; the speaker's flush reports it
+  const untap = tapRecords(rec => { sp.stats.noise += stats.noise; stats.noise = 0; sp.onRecord(rec) })
+  const timer = setInterval(() => { try { sp.stats.noise += stats.noise; stats.noise = 0; sp.flush() } catch {} }, 60_000); timer.unref?.()
+  showchatUntap = () => { untap(); clearInterval(timer) }
+  bot.once?.('end', () => { if (showchatUntap) { try { sp.flush(true) } catch {} showchatUntap(); showchatUntap = null } })
+  return sp
+}
 
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
 export function installFeatures (bot) {
   // expedition-01: the ask buildOrder puts to a bot the projects cannot use, and `_expedition_mode` (on=0 under EXPEDITION=off)
   try { expeditionInstall(bot) } catch (e) { log('warn', 'expedition not installed', { error: e.message }) }
+  // showchat-01: the showcase's announcements (`_showchat_mode`; on=0 outside the showcase pool or under SHOWCHAT=off)
+  try { installShowchat(bot) } catch (e) { log('warn', 'showchat not installed', { error: e.message }) }
   // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view
   try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
   // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
