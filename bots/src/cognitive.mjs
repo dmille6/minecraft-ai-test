@@ -72,6 +72,7 @@ import { escapedFrom } from './recovery.mjs'
 import { runnerDeclined } from './declined.mjs'
 import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
+import { fewerDecConfig, pauseWaitDecision, decisionSig, vetoSkipDecision, continueAfterRun, continueOrder, continueSchedule, continueWait } from './fewerdec.mjs'
 
 // Only skills that can succeed WITHOUT a human present.
 //
@@ -407,6 +408,12 @@ export class CognitiveLoop {
     } catch (e) { log('warn', 'skill version reconcile failed', { err: e.message }) }
 
     this.admission = new AdmissionControl(this.lessons)
+    // FEWER DECISIONS (fewerdec.mjs; serving D, owner 11-01): the two switches, and the last MODEL decision VETOSKIP reads.
+    this.fewerDec = fewerDecConfig(process.env)
+    this.lastModelDecision = null
+    this.contState = null      // CONTINUE: the gather that may fill the cooldown ({ skill, args, n })
+    this.contWindow = null     // CONTINUE: the open cooldown window ({ until, early })
+    this.fdTally = null        // one fewerdec_tally row per 10 min: what the three rules did
     this.milestones = new MilestoneController(bot, config.bot.role, this.lessons, worldFacts)
     this.schema = skillSchema(SKILL_NAMES)
     this.system = buildSystemPrompt(SKILL_NAMES)
@@ -490,6 +497,17 @@ export class CognitiveLoop {
     const t = this.pendingTrigger
     this.pendingTrigger = null
     return t
+  }
+
+  /**
+   * A TICK THAT ASKS NOTHING (fewerdec.mjs). One row per skip, so the read counts skipped ticks next to the model calls
+   * in llm-<bot>.jsonl. Still a live loop: it reschedules, and the liveness watchdog is told the loop is alive.
+   */
+  #skipDecision (rule, detail, delayMs) {
+    this.lastDecisionAt = Date.now()
+    this.#fdCount(rule)
+    try { logEvent({ kind: 'decision_skipped', status: 'no_effect', detail: `rule=${rule} ${detail}`, snapshot: snapshot(this.bot) }) } catch { /* telemetry only */ }
+    this.#scheduleNext(Math.max(50, delayMs))
   }
 
   /** Called by the harness when something interesting happens. */
@@ -1091,6 +1109,13 @@ export class CognitiveLoop {
   async #tick(trigger) {
     { const at = this.bot.entity?.position; if (at) { const inv = this.bot.inventory?.items?.() ?? []; this.fixationSamples.push({ t: Date.now(), x: at.x, z: at.z, items: inv.reduce((n, it) => n + (it.count ?? 0), 0) }); const lo = Date.now() - 300_000; while (this.fixationSamples.length && this.fixationSamples[0].t < lo) this.fixationSamples.shift() } }
     if (this.stopped || this.runner.isBusy()) return
+    // PAUSEWAIT (fewerdec.mjs): inside the runner's failure pause every skill is refused, so an idle tick asks nothing and
+    // wakes when the pause ends. Non-idle triggers (death, a reflex handoff, startup) are never held here.
+    {
+      const pw = pauseWaitDecision({ cfg: this.fewerDec, trigger, paused: this.runner.paused, pausedAt: this.runner.pausedAt,
+                                     now: Date.now(), recoveryMs: config.skills.pauseRecoveryMs })
+      if (pw.skip) return this.#skipDecision('pausewait', `runner paused; wake in ${Math.ceil(pw.wakeInMs / 1000)}s`, pw.wakeInMs)
+    }
 
     // `chainComplete` is not a thing MilestoneController has ever defined -- the
     // getter is `allDone` (milestones.mjs). Both reads returned undefined, so
@@ -1561,6 +1586,10 @@ export class CognitiveLoop {
     // found_work: the cooldown AND the visit; build_plinth, prune_town, smelt_town, furnace_drain: the cooldown) and answers {}
     // for the rest -- so on the ground, still in town, the order can issue again. RESPAWNFALL-01 x JUNKOUT-01 (JIT 10-24): a
     // junkout visit the descent displaces is refunded the way keep-out's exit refunds one (visitDisplacedRefund; {} otherwise)
+    // CONTINUE (fewerdec.mjs): with no work order at all, the gather the model chose last -- if it served the task and
+    // gained items -- fills the cooldown. AFTER every order (planting included); the descent and keep-out exits below
+    // still override it.
+    if (!order) { const co = continueOrder({ cfg: this.fewerDec, cont: this.contState, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a) }); if (co) { order = co; this.#fdCount('continue') } }
     { const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = sd } }
     // found-01 (Codex JIT 10-23c r1 P2): the found slot charged its visit and cooldown when it ISSUED; an order the exit replaces
     // never ran, so it is refunded like a declined run (refundDeclined) -- out of the column, still in town, the slot can issue it again
@@ -1576,6 +1605,24 @@ export class CognitiveLoop {
       logEvent({ kind: 'work_order',
                  detail: `${order.skill} ${JSON.stringify(order.args)} — ${order.why}`,
                  snapshot: snap })
+    }
+    // VETOSKIP (fewerdec.mjs): right after a vetoed model call, with nothing changed, one idle tick is not asked again.
+    const fdSig = order ? null : decisionSig({ milestoneId: milestone?.id, pos: this.bot.entity?.position, items: this.bot.inventory?.items?.() ?? [] })
+    // CONTINUE: inside the cooldown window, an idle tick with no order and no continuation waits out the rest of it --
+    // the model is never asked earlier than it was before this change.
+    if (!order) {
+      const w = continueWait({ cfg: this.fewerDec, window: this.contWindow, now: Date.now(), trigger })
+      if (w > 0) { this.lastDecisionAt = Date.now(); this.#fdCount('continue_wait'); this.#scheduleNext(Math.max(50, w)); return }
+      this.contWindow = null
+    }
+    if (!order) {
+      const vs = vetoSkipDecision({ cfg: this.fewerDec, trigger, last: this.lastModelDecision, sig: fdSig, now: Date.now(),
+                                    memoryRefuses: (s, a) => this.admission.memoryRefuses(s, a) })
+      if (vs.skip) {
+        const last = this.lastModelDecision
+        this.lastModelDecision = { ...last, skips: (last.skips ?? 0) + 1 }
+        return this.#skipDecision('vetoskip', `${vs.why}: ${last.skill} ${JSON.stringify(last.args ?? {})}`.slice(0, 200), this.fewerDec.vetoSkipDelayMs)
+      }
     }
     const res = order
       ? { schemaValid: true, latencyMs: 0, raw: null,
@@ -1888,6 +1935,10 @@ export class CognitiveLoop {
       }
     }
     if (admitted) this.consecutiveRejections = 0
+    // VETOSKIP's memory: the last MODEL decision and its veto; an order in between clears it (its outcome is newer news).
+    this.lastModelDecision = order ? null
+      : { sig: fdSig, skill: res.proposal?.skill ?? null, args: res.proposal?.args ?? {}, at: Date.now(), skips: 0,
+          reason: res.schemaValid && res.proposal?.skill ? (rejection?.reason ?? null) : null }
     // THE ROOM ORDER'S OUTCOME, MEASURED: the bag's slots now against when it was issued (workorder.mjs roomOutcome).
     if (roomIssued) {
       try {
@@ -1923,6 +1974,19 @@ export class CognitiveLoop {
     const executed = !!admitted && outcome.status !== 'aborted' && !RUNNER_REFUSALS.has(runFailClass)
     let serving = false
     try { serving = executed && servesRung(admitted.skill, admitted.args, milestone, this.#wantedItems(milestone)) } catch { serving = false }
+    // CONTINUE's memory: what this run would let the next idle window continue (only a model gather, or a continuation of
+    // one, that succeeded, served the rung and gained items the task wants).
+    try {
+      let gained = 0
+      if (executed && outcome.status === 'success') {
+        const before = snap?.bot?.inventory ?? {}, after = {}
+        for (const it of this.bot.inventory?.items?.() ?? []) after[it.name] = (after[it.name] ?? 0) + (it.count ?? 0)
+        const wantedNow = this.#wantedItems(milestone)
+        for (const [k, v] of Object.entries(after)) if (!(wantedNow instanceof Set) || !wantedNow.size || wantedNow.has(k)) gained += Math.max(0, v - (before[k] ?? 0))
+      }
+      this.contState = continueAfterRun({ cfg: this.fewerDec, source: order ? (order.continuation ? 'continue' : 'order') : 'model',
+        skill: admitted?.skill, args: admitted?.args, status: executed ? outcome.status : 'not_run', serving, gained, prev: this.contState })
+    } catch { this.contState = null }
     const overlay = /\+prereq$/.test(String(milestone?.id ?? ''))
     // HOUSEKEEPING IS NOT AN ATTEMPT AT THE GOAL (hygiene, Claude review): housekeeping neither resets nor feeds the give-up.
     if (!isHousekeeping(admitted?.skill) && this.milestones.noteAttempt({ failed: outcome.status !== 'success', executed, serving, overlay, taskId: milestone?.id ?? null })) {
@@ -1982,6 +2046,23 @@ export class CognitiveLoop {
 
     // Pace the loop. Handoff doc S16: strategic decisions every 30-90s, with
     // deterministic skills filling the gaps -- not a model call per tick.
-    this.#scheduleNext()
+    // CONTINUE (fewerdec.mjs): after a run that succeeded, the next tick comes early and may only do deterministic work
+    // inside what is left of the cooldown; otherwise the cooldown as before.
+    const cs = continueSchedule({ cfg: this.fewerDec, ranOk: executed && outcome.status === 'success', window: this.contWindow,
+                                  now: Date.now(), cooldownMs: config.llm.decisionCooldownMs })
+    this.contWindow = cs.window
+    this.#scheduleNext(cs.delayMs)
+  }
+
+  /** One fewerdec_tally row per bot per 10 min (counts of skips, waits and continuations), for the canary read. */
+  #fdCount (what) {
+    const now = Date.now()
+    this.fdTally ??= { t0: now, c: {} }
+    this.fdTally.c[what] = (this.fdTally.c[what] ?? 0) + 1
+    if (now - this.fdTally.t0 >= 10 * 60 * 1000) {
+      const c = this.fdTally.c
+      try { logEvent({ kind: 'fewerdec_tally', status: 'success', detail: `secs=${Math.round((now - this.fdTally.t0) / 1000)} ` + Object.entries(c).sort().map(([k, v]) => `${k}=${v}`).join(' '), snapshot: snapshot(this.bot) }) } catch { /* telemetry only */ }
+      this.fdTally = { t0: now, c: {} }
+    }
   }
 }
