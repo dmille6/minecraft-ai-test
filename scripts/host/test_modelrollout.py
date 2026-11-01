@@ -700,7 +700,7 @@ def ab():
     t('fixture, true stall: rows stop at 16:24Z -> all 15 stalled at 16:35Z', len(R.stall_count(cut, act, 'qwen3.5:9b', tt, decl)) == 15)
     t('fixture: a different served model is not the model (alias / fallback) -> stalled', len(R.stall_count(by, act, 'qwen2.5:7b-instruct', tt, decl)) == 15)
     lines = {b: [json.dumps(dict({k: x for k, x in r.items() if k != '_t'})) for r in v] for b, v in by.items()}
-    rw = {b: R.raw_window(L, tt - dt.timedelta(minutes=10), tt) for b, L in lines.items()}
+    rw = {b: R.raw_window(L, tt - dt.timedelta(minutes=10), tt, 'qwen3.5:9b') for b, L in lines.items()}
     t('fixture, raw recount: every bot has valid decisions 16:25-16:35Z, none failed',
       all(v[0] > 0 for v in rw.values()) and sum(v[1] for v in rw.values()) == 0, rw)
     t('sanity: the old probe\'s 15/15 against these raw rows DISAGREES -> no stall stop',
@@ -717,6 +717,17 @@ def ab():
     ff = {'endpoint_ok': True, 'fails': (90, 100), 'raw': rw}
     t('sanity: the failed-share probe high twice but the raw rows show none failed -> no stop, a disagreement',
       R.exp_reasons(ff, {'fail_hits': 1}) == [] and ff.get('disagree'))
+    wrong = {'@timestamp': '2026-11-01T16:30:00Z', 'llm': {'schema_valid': True, 'endpoint': 'http://bw', 'model': 'other-model', 'latency_ms': 100}}
+    rww = {b: R.raw_window([json.dumps(wrong)] * 30, tt - dt.timedelta(minutes=10), tt, 'qwen3.5:9b') for b in ('x', 'y')}
+    w = {}
+    rs = [R.exp_reasons({'endpoint_ok': True, 'stall': (2, 2), 'fails': (60, 60), 'raw': rww}, w) for _ in range(2)]
+    t('r1 Codex: persistent WRONG-model serving -> the raw recount agrees -> the stop stands on the 2nd poll',
+      rs[0] == [] and len(rs[1]) == 2 and rww['x'] == (0, 30, 30), (rs, rww))
+    sfx = dict(wrong, llm=dict(wrong['llm'], model='qwen3.5:9b-q4_K_M'))
+    mm = dict(wrong, llm=dict(wrong['llm'], model='qwen3.5:9b', model_mismatch='asked x served y'))
+    t('raw recount: a suffixed tag counts; a model_mismatch row does not',
+      R.raw_window([json.dumps(sfx)], tt - dt.timedelta(minutes=10), tt, 'qwen3.5:9b')[0] == 1
+      and R.raw_window([json.dumps(mm)], tt - dt.timedelta(minutes=10), tt, 'qwen3.5:9b')[0] == 0)
     t('sanity: no raw recount -> no stop on stall (page)', R.exp_reasons({'endpoint_ok': True, 'stall': (15, 15)}, {'stall_hits': 1}) == [])
     root = tree(); h = FakeHost(root)
     quiet(R.Rollout(h, 'qwen35-01', ab_pools=AB).go)

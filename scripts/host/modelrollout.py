@@ -445,10 +445,11 @@ def stall_count(llm_by_bot, active, model, t, decl_by_bot, warm_min=None, stall_
     return sorted(out)
 
 
-def raw_window(lines, t0, t1):
+def raw_window(lines, t0, t1, model=None):
     """PURE. Raw llm-<bot>.jsonl LINES -> (valid, failed, total) model decisions in [t0, t1], parsed here, independent of
-    modelread (the sanity check must not share the probe's code). valid = schema_valid AND an endpoint answered; a row with
-    no endpoint and latency 0 is a work order (not counted); any other row is a failed decision."""
+    modelread (the sanity check must not share the probe's code). valid = schema_valid AND an endpoint answered AND (with
+    `model`) the row's model is that model or a suffixed tag of it with no model_mismatch (Codex r1: a wrong model must not
+    pass the recount); a row with no endpoint and latency 0 is a work order (not counted); any other row is a failure."""
     v = f = n = 0
     for l in lines:
         try:
@@ -462,7 +463,9 @@ def raw_window(lines, t0, t1):
         if not L.get('endpoint') and not L.get('latency_ms') and L.get('schema_valid'):
             continue
         n += 1
-        if L.get('schema_valid') and L.get('endpoint'):
+        m = str(L.get('model') or '')
+        right = model is None or ((m == model or m.startswith(model + '-')) and not L.get('model_mismatch'))
+        if L.get('schema_valid') and L.get('endpoint') and right:
             v += 1
         else:
             f += 1
@@ -695,6 +698,14 @@ class Host:
         their warm-up (the same eligibility the stall probe uses)."""
         import gzip
         man = json.load(open(os.path.join(ctxdir, 'manifest.json')))
+        regs = [x for x in glob.glob(os.path.join(ctxdir, '*.json')) if not x.endswith('manifest.json')]
+        self_model = None
+        for x in regs:
+            for kv in json.load(open(x)).get('canary_env') or []:
+                if kv.startswith('OLLAMA_MODEL='):
+                    self_model = kv.split('=', 1)[1]
+        if not self_model:
+            raise RuntimeError('raw recount: no OLLAMA_MODEL in the ctx registration')
         pools = [p for p in str(man.get('canary_pool') or '').split(',') if p]
         pd = man.get('pool_decl') or {}
         t1 = self.now(); t0 = t1 - dt.timedelta(minutes=minutes)
@@ -714,7 +725,7 @@ class Host:
             if gz and (t0.date() != t1.date() or (t0.hour == 23 and t0.minute >= 50)):   # across the ~23:59Z rotation
                 with gzip.open(gz[-1], 'rt', errors='replace') as fh:
                     lines += fh.readlines()
-            out[b] = raw_window(lines, t0, t1)
+            out[b] = raw_window(lines, t0, t1, self_model)
             d = ts(pd.get(pool_of(b))) or ts(man.get('declared_at'))
             if d is None or (t1 - d).total_seconds() >= EXP_WARM_MIN * 60:
                 eligible.add(b)
