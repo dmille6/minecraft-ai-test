@@ -109,6 +109,15 @@ class FakeHost(R.Host):
         l = getattr(self, 'loops', {})
         return l if bots is None else {u: n for u, n in l.items() if u[6:-8] in bots}
     def fails(self, ctxdir): return getattr(self, 'fail_n', (0, 100))
+    def raw_counts(self, ctxdir, minutes=10):
+        """Agrees with the scripted probes unless raw_disagree is set (then every bot looks healthy in the raw rows)."""
+        n, act = getattr(self, 'stall_n', (0, 80))
+        nf, nt = getattr(self, 'fail_n', (0, 100))
+        if getattr(self, 'raw_disagree', False):
+            n, nf = 0, 0
+        bots = ['b%d' % i for i in range(act)]
+        per_f, per_t = nf // max(act, 1), nt // max(act, 1)
+        return {b: ((0 if i < n else 3), per_f, per_t) for i, b in enumerate(bots)}, set(bots)
     def tripper(self): return {'verdict': getattr(self, 'trip', 'OK'), 'trips': ['x']}
     def deaths(self, t0, t1, bots=None):
         self.death_bots = bots
@@ -417,7 +426,8 @@ def experiment():
     r1 = R.exp_reasons({'endpoint_ok': False}, w); r2 = R.exp_reasons({'endpoint_ok': False}, w)
     t('reasons: endpoint down once no, twice in a row yes', r1 == [] and len(r2) == 1, (r1, r2))
     w = {}
-    r1 = R.exp_reasons({'endpoint_ok': True, 'stall': (30, 80)}, w); r2 = R.exp_reasons({'endpoint_ok': True, 'stall': (30, 80)}, w)
+    RAWS = {'b%d' % i: ((0 if i < 30 else 2), 0, 2) for i in range(80)}
+    r1 = R.exp_reasons({'endpoint_ok': True, 'stall': (30, 80), 'raw': RAWS}, w); r2 = R.exp_reasons({'endpoint_ok': True, 'stall': (30, 80), 'raw': RAWS}, w)
     t('reasons: a fleet stall once no, twice yes; a healthy poll resets', r1 == [] and len(r2) == 1
       and R.exp_reasons({'endpoint_ok': True, 'stall': (0, 80)}, w) == [] and w['stall_hits'] == 0)
     t('reasons: tripper TRIP and the death gate stop', len(R.exp_reasons({'endpoint_ok': True, 'tripper': {'verdict': 'TRIP', 'trips': ['x']},
@@ -625,7 +635,8 @@ def ab():
     shutil.rmtree(root)
     # degraded serving (the 10-31 lesson): >= 50 % failed decisions on two polls -> stop
     w = {}
-    r1 = R.exp_reasons({'endpoint_ok': True, 'fails': (512, 610)}, w); r2 = R.exp_reasons({'endpoint_ok': True, 'fails': (337, 375)}, w)
+    RAWF = {'b%d' % i: (1, 7, 8) for i in range(80)}
+    r1 = R.exp_reasons({'endpoint_ok': True, 'fails': (512, 610), 'raw': RAWF}, w); r2 = R.exp_reasons({'endpoint_ok': True, 'fails': (337, 375), 'raw': RAWF}, w)
     t('degraded: 512/610 then 337/375 failed (10-31 18:30/18:40Z) -> a stop on the second poll', r1 == [] and len(r2) == 1, (r1, r2))
     t('degraded: under 20 decisions or under 50 % is not a stop', R.exp_reasons({'endpoint_ok': True, 'fails': (10, 15)}, {}) == []
       and R.exp_reasons({'endpoint_ok': True, 'fails': (40, 100)}, {'fail_hits': 1}) == [])
@@ -669,6 +680,54 @@ def ab():
         h.t = R.ts(st['completed']) + dt.timedelta(minutes=15 * (k + 1)) - dt.timedelta(minutes=R.ts(st['completed']).minute % 15)
         quiet_and(lambda: R.Rollout(h, 'qwen35-01').watch())
     t('A/B: the tripper UNREAD on every evaluation does not stop the run', len(dropins()) == 15, len(dropins()))
+    shutil.rmtree(root)
+
+    # 11-01 16:30Z, the THIRD false stop: real rows (fixture) across the promptcache-01 promotion (16:24:44Z)
+    import modelread as MR
+    fx = [json.loads(l) for l in open(os.path.join(HERE, 'fixtures', 'ab2-stall-20261101-1615-1640.jsonl'))]
+    by = {}
+    for r in fx:
+        r['_t'] = R.ts(r['@timestamp']); by.setdefault(r['bot'], []).append(r)
+    for v in by.values():
+        v.sort(key=lambda r: r['_t'])
+    tt = R.ts('2026-11-01T16:35:01Z'); act = {b: True for b in by}
+    decl = {b: R.ts('2026-11-01T13:00:58Z') for b in by}
+    old = MR.stall_bots(by, act, 'qwen3.5:9b', 'dfb3ff13' + '0' * 32, tt, decl[next(iter(by))])
+    t('fixture reproduces the bug: the OLD probe (version filter on the start sha) reads 15 of 15 stalled at 16:35Z', len(old) == 15, old)
+    new = R.stall_count(by, act, 'qwen3.5:9b', tt, decl)
+    t('fixture: the NEW probe reads 0 of 15 stalled at 16:35Z (healthy rows on the promoted build)', new == [], new)
+    cut = {b: [r for r in v if r['_t'] < R.ts('2026-11-01T16:24:00Z')] for b, v in by.items()}
+    t('fixture, true stall: rows stop at 16:24Z -> all 15 stalled at 16:35Z', len(R.stall_count(cut, act, 'qwen3.5:9b', tt, decl)) == 15)
+    t('fixture: a different served model is not the model (alias / fallback) -> stalled', len(R.stall_count(by, act, 'qwen2.5:7b-instruct', tt, decl)) == 15)
+    lines = {b: [json.dumps(dict({k: x for k, x in r.items() if k != '_t'})) for r in v] for b, v in by.items()}
+    rw = {b: R.raw_window(L, tt - dt.timedelta(minutes=10), tt) for b, L in lines.items()}
+    t('fixture, raw recount: every bot has valid decisions 16:25-16:35Z, none failed',
+      all(v[0] > 0 for v in rw.values()) and sum(v[1] for v in rw.values()) == 0, rw)
+    t('sanity: the old probe\'s 15/15 against these raw rows DISAGREES -> no stall stop',
+      R.sanity({'raw': rw, 'raw_eligible': None})['stall'] is False)
+    w = {}
+    for _ in range(2):
+        why = R.exp_reasons({'endpoint_ok': True, 'stall': (15, 15), 'raw': rw}, w)
+    ff = {'endpoint_ok': True, 'stall': (15, 15), 'raw': rw}
+    w2 = {'stall_hits': 1}; why2 = R.exp_reasons(ff, w2)
+    t('the 16:35Z poll replayed: probe 15/15 twice + raw rows healthy -> NO stop, a disagreement to page', why == [] and why2 == [] and ff.get('disagree'), (why2, ff.get('disagree')))
+    rw_dead = {b: (0, 0, 0) for b in rw}
+    t('sanity: a true stall agrees (raw rows: no valid decision on any bot) -> the stop stands',
+      len(R.exp_reasons({'endpoint_ok': True, 'stall': (15, 15), 'raw': rw_dead}, {'stall_hits': 1})) == 1)
+    ff = {'endpoint_ok': True, 'fails': (90, 100), 'raw': rw}
+    t('sanity: the failed-share probe high twice but the raw rows show none failed -> no stop, a disagreement',
+      R.exp_reasons(ff, {'fail_hits': 1}) == [] and ff.get('disagree'))
+    t('sanity: no raw recount -> no stop on stall (page)', R.exp_reasons({'endpoint_ok': True, 'stall': (15, 15)}, {'stall_hits': 1}) == [])
+    root = tree(); h = FakeHost(root)
+    quiet(R.Rollout(h, 'qwen35-01', ab_pools=AB).go)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    h.t = R.ts(st['completed']) + dt.timedelta(hours=3); h.stall_n = (15, 15); h.raw_disagree = True
+    quiet(R.Rollout(h, 'qwen35-01').watch); h.t += dt.timedelta(minutes=5); rc, out = quiet(R.Rollout(h, 'qwen35-01').watch)
+    t('watch: probe stalls twice but the raw rows disagree -> still on, paged, pushed once', len(dropins()) == 15
+      and 'DISAGREE' in open(R.P['page']).read() and getattr(h, 'notes', []).count('PROBE DISAGREES') == 1, (len(dropins()), getattr(h, 'notes', [])))
+    h.raw_disagree = False; h.t += dt.timedelta(minutes=5)
+    quiet(R.Rollout(h, 'qwen35-01').watch)
+    t('watch: once the raw rows agree, the stop goes ahead (stall_hits already >= 2)', dropins() == [])
     shutil.rmtree(root)
 
     # +24 h: mandatory rollback in A/B too

@@ -134,6 +134,7 @@ const REQUIRED = [
   'scripts/host/batchload.mjs',
   'bots/test/llm-oai.test.mjs',
   'scripts/host/test_modelcompare.py',
+  'scripts/host/fixtures/ab2-stall-20261101-1615-1640.jsonl',
   // canary-sched v39 launch-time autorebase: its tests, installer and the Mac push relay (11-01)
   'scripts/host/canary-sched.py',
   'scripts/host/test_autorebase.py',

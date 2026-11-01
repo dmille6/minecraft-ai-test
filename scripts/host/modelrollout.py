@@ -389,13 +389,21 @@ def exp_reasons(f, w):
         n, act = f['stall']
         w['stall_hits'] = w.get('stall_hits', 0) + 1 if fleet_stall_trip(n, act) else 0
         if w['stall_hits'] >= EXP_STALL_POLLS:
-            why.append('fleet stall: %d of %d active bots with no valid %s decision for 10 min, %d polls in a row' % (
-                n, act, f.get('model'), w['stall_hits']))
+            msg = 'fleet stall: %d of %d active bots with no valid %s decision for 10 min, %d polls in a row' % (
+                n, act, f.get('model'), w['stall_hits'])
+            if sanity(f)['stall']:
+                why.append(msg)
+            else:      # the probe and the raw rows disagree: page, never roll back on it (11-01, the third false stop)
+                f.setdefault('disagree', []).append(msg + ' -- but the raw llm rows disagree: %s' % _raw_summary(f))
     if f.get('fails') is not None:
         nf, nt = f['fails']
         w['fail_hits'] = w.get('fail_hits', 0) + 1 if (nt >= EXP_FAIL_MIN and nf >= EXP_FAIL_SHARE * nt) else 0
         if w['fail_hits'] >= EXP_STALL_POLLS:
-            why.append('degraded serving: %d of %d model decisions failed in the last 10 min, %d polls in a row' % (nf, nt, w['fail_hits']))
+            msg = 'degraded serving: %d of %d model decisions failed in the last 10 min, %d polls in a row' % (nf, nt, w['fail_hits'])
+            if sanity(f)['fails']:
+                why.append(msg)
+            else:
+                f.setdefault('disagree', []).append(msg + ' -- but the raw llm rows disagree: %s' % _raw_summary(f))
     for k in ('stall', 'fails', 'crash_loops', 'tripper', 'death'):
         if k not in f:
             continue                       # not evaluated this time: the count stands
@@ -415,6 +423,66 @@ def exp_reasons(f, w):
     return why
 
 
+def stall_count(llm_by_bot, active, model, t, decl_by_bot, warm_min=None, stall_min=10):
+    """PURE. -> sorted stalled bots: active, past ITS warm-up, and no schema-valid decision SERVED BY `model` in the last
+    stall_min minutes. NO code.version filter (11-01: promptcache-01 promoted fleet-wide at 16:24:44Z mid-A/B; every row
+    took the new sha and modelread.stall_bots, which keeps only rows on the build declared at the start, read 15 healthy
+    bots as stalled). An env-only experiment must survive a code promotion."""
+    sys.path.insert(0, HERE)
+    import modelread as mr
+    warm = EXP_WARM_MIN if warm_min is None else warm_min
+    out = []
+    for b, rows in llm_by_bot.items():
+        if not active.get(b):
+            continue
+        d = decl_by_bot.get(b)
+        if d is not None and (t - d).total_seconds() < warm * 60:
+            continue
+        ok = any(t - dt.timedelta(minutes=stall_min) <= r['_t'] <= t and (r.get('llm') or {}).get('schema_valid') and mr.served_by(r, model)
+                 for r in rows)
+        if not ok:
+            out.append(b)
+    return sorted(out)
+
+
+def raw_window(lines, t0, t1):
+    """PURE. Raw llm-<bot>.jsonl LINES -> (valid, failed, total) model decisions in [t0, t1], parsed here, independent of
+    modelread (the sanity check must not share the probe's code). valid = schema_valid AND an endpoint answered; a row with
+    no endpoint and latency 0 is a work order (not counted); any other row is a failed decision."""
+    v = f = n = 0
+    for l in lines:
+        try:
+            r = json.loads(l)
+        except ValueError:
+            continue
+        tt = ts(r.get('@timestamp'))
+        if tt is None or not (t0 <= tt <= t1):
+            continue
+        L = r.get('llm') or {}
+        if not L.get('endpoint') and not L.get('latency_ms') and L.get('schema_valid'):
+            continue
+        n += 1
+        if L.get('schema_valid') and L.get('endpoint'):
+            v += 1
+        else:
+            f += 1
+    return v, f, n
+
+
+def sanity(f):
+    """PURE. Do the raw recount (f['raw']: {bot: (valid, failed, total)}, active bots only) and the probes agree?
+    -> {'stall': bool, 'fails': bool}; a missing recount agrees with nothing (page, never roll back on it)."""
+    raw = f.get('raw')
+    if not isinstance(raw, dict):
+        return {'stall': False, 'fails': False}
+    eligible = f.get('raw_eligible')
+    bots = [b for b in raw if eligible is None or b in eligible]
+    raw_stalled = sum(1 for b in bots if raw[b][0] == 0)
+    nf, nt = sum(raw[b][1] for b in raw), sum(raw[b][2] for b in raw)
+    return {'stall': fleet_stall_trip(raw_stalled, len(bots)),
+            'fails': nt >= EXP_FAIL_MIN and nf >= EXP_FAIL_SHARE * nt}
+
+
 def crash_verdict(f, journal_readable, bots=None):
     """PURE but for the callable. rollout.crash_facts -> {unit: restarts} of the crash-looping units (filtered to `bots`),
     or raises when the journal is genuinely unreadable: crash_facts' own '<journal unreadable>' (journalctl failed), or no
@@ -428,6 +496,14 @@ def crash_verdict(f, journal_readable, bots=None):
     if bots is not None:
         loops = {u: n for u, n in loops.items() if u[len('mcbot@'):-len('.service')] in bots}
     return loops
+
+
+def _raw_summary(f):
+    raw = f.get('raw')
+    if not isinstance(raw, dict):
+        return 'raw recount unavailable (%s)' % f.get('raw_error', 'not run')
+    return '%d of %d bots with >= 1 valid decision, %d failed of %d' % (
+        sum(1 for v in raw.values() if v[0]), len(raw), sum(v[1] for v in raw.values()), sum(v[2] for v in raw.values()))
 
 
 def is_timeout(L):
@@ -592,7 +668,6 @@ class Host:
     def stall(self, ctxdir):
         """(stalled, active) over the ctx's pools, modelread's own stall rule (WARM_MIN after the ctx's declared_at)."""
         mr = _modelread(ctxdir)
-        mr.WARM_MIN = EXP_WARM_MIN
         man, run, reg, pools, decl = mr.context()
         pd = man.get('pool_decl') or {}
         t = mr.now()
@@ -601,8 +676,7 @@ class Host:
             bots = mr.roster([p])
             act = mr.units_active(bots)
             llm = {b: mr.read_stream(b, 'llm', t - dt.timedelta(minutes=mr.STALL_MIN + 5), t) for b in bots}
-            n_st += len(mr.stall_bots(llm, act, mr.canary_model(reg), str(man.get('canary_code_version') or ''), t,
-                                      ts(pd.get(p)) or decl))
+            n_st += len(stall_count(llm, act, mr.canary_model(reg), t, {b: ts(pd.get(p)) or decl for b in bots}))
             n_act += sum(1 for v in act.values() if v)
         if not n_act:      # no active unit at all (or systemctl failing for every one): the probe saw nothing (Codex r2)
             raise RuntimeError('no active mcbot unit among %d pools (positive control)' % len(pools))
@@ -614,6 +688,39 @@ class Host:
         stopped itself because 60 min without a restart had no mcbot line at all)."""
         rc, out = self.sh(['sudo', '-n', 'journalctl', '--no-pager', '-o', 'cat', '-n', '1', '_PID=1'], timeout=60)
         return rc == 0 and bool(out.strip()) and 'No journal files' not in out and 'insufficient permissions' not in out
+
+    def raw_counts(self, ctxdir, minutes=10):
+        """The sanity recount: {bot: (valid, failed, total)} over the last `minutes`, from the raw llm files (the live file
+        and, across a rotation, the newest rotated .gz), parsed by raw_window -- no modelread code. Also the bots past
+        their warm-up (the same eligibility the stall probe uses)."""
+        import gzip
+        man = json.load(open(os.path.join(ctxdir, 'manifest.json')))
+        pools = [p for p in str(man.get('canary_pool') or '').split(',') if p]
+        pd = man.get('pool_decl') or {}
+        t1 = self.now(); t0 = t1 - dt.timedelta(minutes=minutes)
+        root = os.environ.get('MODELREAD_LOG_ROOT', '/var/log/mcai')
+        out, eligible = {}, set()
+        for e in sorted(glob.glob(os.path.join(P['envdir'], '*.env'))):
+            b = os.path.basename(e)[:-4]
+            if pool_of(b) not in pools:
+                continue
+            if self.sh(['systemctl', 'show', '-p', 'ActiveState', '--value', 'mcbot@%s.service' % b])[1].strip() != 'active':
+                continue
+            lines = []
+            live = os.path.join(root, b, 'llm-%s.jsonl' % b)
+            if os.path.exists(live):
+                lines += open(live, errors='replace').readlines()
+            gz = sorted(glob.glob(os.path.join(root, b, 'llm-%s.jsonl-*.gz' % b)))
+            if gz and (t0.date() != t1.date() or (t0.hour == 23 and t0.minute >= 50)):   # across the ~23:59Z rotation
+                with gzip.open(gz[-1], 'rt', errors='replace') as fh:
+                    lines += fh.readlines()
+            out[b] = raw_window(lines, t0, t1)
+            d = ts(pd.get(pool_of(b))) or ts(man.get('declared_at'))
+            if d is None or (t1 - d).total_seconds() >= EXP_WARM_MIN * 60:
+                eligible.add(b)
+        if not out:
+            raise RuntimeError('raw recount: no active bot in %s' % pools)
+        return out, eligible
 
     def crash_loops(self, t0, t1, bots=None):
         f = _w5().crash_facts('mcbot@*.service', t0, t1)
@@ -984,6 +1091,11 @@ class Rollout:
         f = {'url': self.url, 'model': self.model, 'endpoint_ok': self.h.endpoint_ok(self.url), 'ab': bool(self.ab)}
         now = self.h.now()
         mine = set(self.bots(self.rolled_pools())) if self.ab else None      # A/B: the stops look at the treated bots only
+        try:
+            f['raw'], el = self.h.raw_counts(ctxdir)
+            f['raw_eligible'] = sorted(el)
+        except Exception as x:
+            f['raw'] = None; f['raw_error'] = '%s: %s' % (type(x).__name__, str(x)[:120])
         for k, fn in (('stall', lambda: self.h.stall(ctxdir)),
                       ('fails', lambda: self.h.fails(ctxdir)),
                       ('crash_loops', lambda: self.h.crash_loops(now - dt.timedelta(minutes=60), now, mine))):
@@ -1033,6 +1145,9 @@ class Rollout:
             self.journal('rollout-health', 'stage %d check %d: %s' % (i, k + 1, json.dumps(f, default=str)[:900]))
             if f.get('unreadable'):
                 self.page('error', 'ROLLOUT %s stage %d: health probe(s) unreadable: %s' % (self.run, i, '; '.join(f['unreadable'])))
+            if f.get('disagree'):
+                self.page('error', 'ROLLOUT %s stage %d: PROBE vs RAW ROWS DISAGREE (no rollback): %s' % (self.run, i, '; '.join(f['disagree'])))
+                self.h.notify('PROBE DISAGREES', '; '.join(f['disagree'])[:900])
             if why:
                 raise Stop('stage %d health: %s' % (i, '; '.join(why)), 'all')
 
@@ -1099,6 +1214,10 @@ class Rollout:
             fh.write(json.dumps({'ts': iso(now), 'facts': f, 'why': why}, default=str) + '\n')
         if f.get('unreadable'):
             self.page('error', 'ROLLOUT %s watch: probe(s) unreadable: %s' % (self.run, '; '.join(f['unreadable'])))
+        if f.get('disagree'):
+            self.page('error', 'ROLLOUT %s watch: PROBE vs RAW ROWS DISAGREE (no rollback): %s' % (self.run, '; '.join(f['disagree'])))
+            if not w.get('disagree_pushed'):
+                self.h.notify('PROBE DISAGREES', '; '.join(f['disagree'])[:900]); w['disagree_pushed'] = iso(now); wsave()
         if why:
             return end('STOP: ' + '; '.join(why), False)
         # 3 the hourly record (the last full hour, once)
