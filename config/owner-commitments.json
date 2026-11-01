@@ -2545,6 +2545,34 @@
     }
    ],
    "note": "Control session 11-01 (owner away, autonomy-1031): owner 10-13 wanted the town ground protected/repaired; townplan 10-20 build order lists a tidy-up chore. Measured on region copies of all 16 fleet towns: pillars+pits alone route 0 more towns (quarried ground, 3-8 steps, cobblestone uncuttable by the paths router) -> the tidy also grades the paths' corridors. Report docs/reports/tidy-01-2026-11-01.md."
+  },
+  {
+   "id": "showchat-01",
+   "title": "Showcase chat = comms stage 2: templated, rate-limited in-game announcements of real events + timelapse captions",
+   "owner_date": "2026-11-01",
+   "memory": [
+    "owner-showcase-next-1101.md",
+    "owner-comms-1021.md",
+    "owner-decisions-1021-list.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Stage piece showchat-01show on the live showcase release (dry-run, gate, activate); read the Paper chat log + _say/_say_drop rows for 2 h (lines read well, caps held, no command-shaped line, chatter gone); check the 11-02 daily video's captions (tl_video.py on the showcase VM); then mark done. Later (owner C6): optional LLM choice among fixed phrasings",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "branches": [
+     "showchat*"
+    ],
+    "grep": [
+     "showchat-01"
+    ],
+    "paths": [
+     "bots/src/showchat.mjs"
+    ]
+   },
+   "note": "Built 11-01 (control session subagent): bots/src/showchat.mjs + features.mjs installShowchat; tl_video.py captions. Tier 2 (not protected). Reviews: Codex codex-exec blockers-only r1+r2 APPROVE; Claude independent subagent r1+r2 APPROVE. Kill switch: touch /var/lib/mcai/_pool-showcase/showchat.off; rollback SHOWCHAT=off."
   }
  ]
 }
