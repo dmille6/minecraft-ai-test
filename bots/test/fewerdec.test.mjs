@@ -53,7 +53,7 @@ test('CONFIG: unset = both rules on, repeat_loop only, one skip, 10 s delay; eac
 // ---------------------------------------------------------------- PAUSEWAIT
 test('PAUSEWAIT: an idle tick inside the pause skips and wakes at its end (+ margin); after it, or with no pause, it asks', () => {
   const base = { cfg: cfg(), trigger: 'idle', paused: true, pausedAt: 10_000, recoveryMs: 120_000 }
-  assert.deepEqual(FD.pauseWaitDecision({ ...base, now: 40_000 }), { skip: true, wakeInMs: 90_250 })
+  assert.deepEqual(FD.pauseWaitDecision({ ...base, now: 80_000 }), { skip: true, wakeInMs: 50_250 })
   assert.equal(FD.pauseWaitDecision({ ...base, now: 130_000 }).skip, false, 'expired: the next run() auto-resumes')
   assert.equal(FD.pauseWaitDecision({ ...base, paused: false, now: 40_000 }).skip, false)
   assert.equal(FD.pauseWaitDecision({ ...base, pausedAt: null, now: 40_000 }).skip, false, 'no timestamp, no guess')
@@ -222,12 +222,12 @@ test('CONTINUE AFTER RUN: only a successful, serving, gaining gather from the mo
 })
 test('CONTINUE ORDER: below the cap and admitted by the gate memory -> the same gather; at the cap or refused -> none', () => {
   const cont = { skill: 'gather', args: { block: 'dirt', count: 1 }, n: 0 }
-  const o = FD.continueOrder({ cfg: cfg(), cont, memoryRefuses: () => null })
+  const o = FD.continueOrder({ cfg: cfg(), trigger: 'idle', cont, memoryRefuses: () => null })
   assert.equal(o.skill, 'gather'); assert.deepEqual(o.args, { block: 'dirt', count: 1 }); assert.equal(o.continuation, true)
-  assert.equal(FD.continueOrder({ cfg: cfg(), cont: { ...cont, n: 2 }, memoryRefuses: () => null }), null)
-  for (const why of ['cooldown', 'learned_avoid', 'repeat_loop']) assert.equal(FD.continueOrder({ cfg: cfg(), cont, memoryRefuses: () => why }), null, why)
-  assert.equal(FD.continueOrder({ cfg: cfg(), cont, memoryRefuses: () => { throw new Error('x') } }), null, 'a read that throws never continues')
-  assert.equal(FD.continueOrder({ cfg: cfg({ cont: false }), cont, memoryRefuses: () => null }), null)
+  assert.equal(FD.continueOrder({ cfg: cfg(), trigger: 'idle', cont: { ...cont, n: 2 }, memoryRefuses: () => null }), null)
+  for (const why of ['cooldown', 'learned_avoid', 'repeat_loop']) assert.equal(FD.continueOrder({ cfg: cfg(), trigger: 'idle', cont, memoryRefuses: () => why }), null, why)
+  assert.equal(FD.continueOrder({ cfg: cfg(), trigger: 'idle', cont, memoryRefuses: () => { throw new Error('x') } }), null, 'a read that throws never continues')
+  assert.equal(FD.continueOrder({ cfg: cfg({ cont: false }), trigger: 'idle', cont, memoryRefuses: () => null }), null)
 })
 test('CONTINUE SCHEDULE: a success opens the cooldown window with early ticks; a failure is the plain cooldown; the model is never asked before the window ends', () => {
   const c = cfg()
@@ -237,6 +237,8 @@ test('CONTINUE SCHEDULE: a success opens the cooldown window with early ticks; a
   assert.deepEqual(s3, { delayMs: 28_000, window: { until: 30_000, early: 3 } }, 'early ticks spent: wait the rest of the window')
   assert.deepEqual(FD.continueSchedule({ cfg: c, ranOk: false, window: { until: 30_000, early: 1 }, now: 2_000, cooldownMs: 30_000 }), { delayMs: 30_000, window: null })
   assert.equal(FD.continueSchedule({ cfg: c, ranOk: true, window: null, now: 0, cooldownMs: 40 }).delayMs, 40, 'never slower than the cooldown')
+  assert.deepEqual(FD.continueSchedule({ cfg: c, ranOk: true, window: { until: 30_000, early: 3 }, now: 31_000, cooldownMs: 30_000 }), { delayMs: 500, window: null },
+    'a spent window closes: the next tick decides as usual, and a success there opens a fresh budget')
   assert.equal(FD.continueWait({ cfg: c, window: { until: 30_000 }, now: 1_000, trigger: 'idle' }), 29_000)
   assert.equal(FD.continueWait({ cfg: c, window: { until: 30_000 }, now: 31_000, trigger: 'idle' }), 0)
   assert.equal(FD.continueWait({ cfg: c, window: { until: 30_000 }, now: 1_000, trigger: 'entombed' }), 0, 'a reflex handoff is not held')
@@ -244,7 +246,7 @@ test('CONTINUE SCHEDULE: a success opens the cooldown window with early ticks; a
 })
 test('CONTINUE MUTANT KILLED: without the gate-memory check a cooling-down gather would be continued', async () => {
   await withMutant(FD_PATH, '  if (refused) return null\n', '', async M => {
-    assert.notEqual(M.continueOrder({ cfg: cfg(), cont: { skill: 'gather', args: { block: 'dirt', count: 1 }, n: 0 }, memoryRefuses: () => 'cooldown' }), null)
+    assert.notEqual(M.continueOrder({ cfg: cfg(), trigger: 'idle', cont: { skill: 'gather', args: { block: 'dirt', count: 1 }, n: 0 }, memoryRefuses: () => 'cooldown' }), null)
   })
 })
 
@@ -308,4 +310,44 @@ test('LOOP CONTINUE WINDOW: with a 400 ms cooldown, early ticks after a success 
     assert.ok(calls.length >= 3, `calls ${calls.length}`)
     for (let i = 1; i < calls.length; i++) assert.ok(calls[i] - calls[i - 1] >= 390, `model asked ${calls[i] - calls[i - 1]} ms after the previous call`)
   } finally { config.llm.decisionCooldownMs = was }
+})
+
+test('PAUSEWAIT: the wake is capped below the liveness limit (a long pause skips once more instead of tripping loop_restart)', () => {
+  const d = FD.pauseWaitDecision({ cfg: cfg(), trigger: 'idle', paused: true, pausedAt: 0, recoveryMs: 120_000, now: 0 })
+  assert.equal(d.skip, true); assert.equal(d.wakeInMs, FD.PAUSE_WAKE_CAP_MS); assert.ok(FD.PAUSE_WAKE_CAP_MS < 120_000)
+})
+test('CONTINUE x REPEAT WINDOW (Claude review note 1): model, 2 continuations, model, model -- the model repeat is not vetoed earlier than without continuations', async () => {
+  const { AdmissionControl } = await import('../src/admission.mjs')
+  const A = new AdmissionControl(null)
+  const bot = fieldBot(); const k = ['gather', { block: 'dirt', count: 1 }]
+  const model = () => A.check({ skill: k[0], args: k[1] }, bot, new Set(['dirt']))
+  const cont = () => { const r = A.check({ skill: k[0], args: k[1] }, bot, new Set(['dirt'])); if (r.ok && r.kind === 'normal') A.forgetLastAdmitted(AdmissionControl.key(...k)); return r }
+  const seq = [model(), cont(), cont(), model(), model(), model()].map(r => r.ok ? 'ok' : r.reason)
+  assert.deepEqual(seq, ['ok', 'ok', 'ok', 'ok', 'ok', 'ok'], 'four model proposals admitted, as before the change')
+  assert.equal(model().reason, 'repeat_loop', 'the fifth model proposal is the first veto, exactly as without continuations')
+  A.forgetLastAdmitted('gather:{"block":"sand"}'); assert.equal(A.recent.length, 4, 'another key is never removed')
+})
+
+test('CONTINUE (Codex r1 BLOCKER): a death, a reflex handoff, startup or a liveness restart is never answered by a continuation', () => {
+  const cont = { skill: 'gather', args: { block: 'dirt', count: 1 }, n: 0 }
+  for (const t of ['death', 'entombed', 'drowning', 'startup', 'liveness_restart', 'stagnation']) assert.equal(FD.continueOrder({ cfg: cfg(), trigger: t, cont, memoryRefuses: () => null }), null, t)
+})
+test('CONTINUE MUTANT KILLED: without the idle-only guard a death would get the stale gather', async () => {
+  await withMutant(FD_PATH, "  if (trigger !== 'idle') return null\n", '', async M => {
+    assert.notEqual(M.continueOrder({ cfg: cfg(), trigger: 'death', cont: { skill: 'gather', args: { block: 'dirt', count: 1 }, n: 0 }, memoryRefuses: () => null }), null)
+  })
+})
+test('LOOP CONTINUE x DEATH: a death notified right after a continuable gather reaches the model (TRIGGER: death)', async () => {
+  const runner = dirtRunner('success'); const bot = fieldBot(); runner.bot = bot
+  const L = new Lessons(path.join(dir, `l${seq++}.json`)); L.data.avoid = {}; L.data.worked = {}
+  const loop = new COG.CognitiveLoop(bot, runner, L, null)
+  loop.fewerDec = FD.fewerDecConfig({ FEWERDEC_PAUSEWAIT: '0', FEWERDEC_VETOSKIP: '0', FEWERDEC_CONTINUE_MAX: '50' })
+  const triggers = []
+  loop.llm = { decide: async ({ user }) => { triggers.push((/TRIGGER: (\w+)/.exec(user ?? '') ?? [])[1]); return { schemaValid: true, latencyMs: 1, raw: '{}', proposal: { skill: 'gather', args: { block: 'dirt', count: 1 }, reason: 'p' } } } }
+  loop.start()
+  await new Promise(r => setTimeout(r, 150))
+  // wait for a moment the runner is idle, then die
+  loop.notify('death', 'died and respawned')
+  await new Promise(r => setTimeout(r, 200)); loop.stop()
+  assert.ok(triggers.includes('death'), `the model saw: ${triggers}`)
 })
