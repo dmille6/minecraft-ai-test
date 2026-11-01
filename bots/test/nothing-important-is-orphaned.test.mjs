@@ -113,6 +113,8 @@ const REQUIRED = [
   // the 3 h / 24 h / 7 d fleet status built on it (replaces the lost quickstatus.py)
   'scripts/host/fleetstatus.py',
   'scripts/test_fleetstatus.py',
+  // cooldown15-01 (11-01): the decision cooldown cap (30 s env -> 15 s) and its one-number rollback
+  'bots/test/cooldown-cap.test.mjs',
   // the learning loop's nightly archive (M1): logs on .31 rotate after 14 days, this is the only long-term copy
   'scripts/learnloop/extract_triples.py',
   'scripts/learnloop/nightly.py',
