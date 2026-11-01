@@ -274,6 +274,8 @@ export function storeRecord (st, proof, { plan, stood = 0, now = 0 } = {}) {
     clear: st.site.clear.map(c => ({ at: c.at, kind: c.kind, name: c.name })), trees: [], felled: 0, replant: [],
     cells: cs, segments: proof.segments, interior: proof.interior, bom, builders_max: STORE_BUILDERS,
     door: st.door, front: st.front, frontOpen: st.frontOpen, inside: st.inside,
+    // the showcase read's tidy space (shopread tidy_ok: box + 1, baseY .. the top + 2, never a record cell) -- the interior's litter
+    baseY: st.site.s + 1,
     structure_complete: false, plan: { gen: plan.gen }, stood_seeds: stood, sitedAt: now,
   }
 }

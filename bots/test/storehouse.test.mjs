@@ -184,6 +184,9 @@ await t('BUILT END TO END: walls, eaves, roof, torches -- chests untouched, the 
     srv.set(stand, 'crafting_table'); tries.set(k3(stand), H.STORE_TIDY_TRIES)
     assert.deepStrictEqual(H.storeTidy(rec, srv.read, tries), [])
     assert.deepStrictEqual(H.storeTidy({ ...rec, blueprint: 'house@1' }, srv.read), [], 'only a storehouse record')
+    // the showcase read judges a tidy dig inside its record's box + 1, from baseY to the top + 2 (shopread tidy_ok)
+    const top = Math.max(...rec.cells.map(c => c.at[1]))
+    for (const at of rec.inside) assert.ok(at[0] >= rec.box[0] - 1 && at[0] <= rec.box[2] + 1 && at[2] >= rec.box[1] - 1 && at[2] <= rec.box[3] + 1 && at[1] >= rec.baseY && at[1] <= top + 2, `inside cell ${at} in the read's tidy space`)
   }
 })
 await t('MUTANT KILLED: a tidy that does not see a crafting table as litter leaves it in a chest\'s stand', async () => {
