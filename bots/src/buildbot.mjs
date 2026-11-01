@@ -86,6 +86,36 @@ export function pathCrosses (path, avoid) {
   return false
 }
 /**
+ * THE SEGMENT'S OPEN CELLS AS A STEP FENCE (storehouse-01, LIVE showcase 11-01 14:15Z: a builder standing INSIDE the storehouse,
+ * its back wall half laid, planned every walk to an outside stand straight through the wall's open gaps -- pathCrosses refused each
+ * plan, so every click was a `stand` ban and the wall stopped `attempts_spent` with 0 placed, visit after visit) -> an
+ * exclusionAreasStep entry pricing a feet or head cell in `avoid` at 101 (mineflayer-pathfinder drops a move over 100), so the A*
+ * routes AROUND the open cells, as the siting proof's walk does (they are obstacles there), instead of through them. null when
+ * there is nothing to avoid. Pure.
+ */
+export const STEP_FENCE_COST = 101
+export function stepFence (avoid) {
+  if (!avoid?.size) return null
+  const f = b => { const p = b?.position; return p && avoid.has(`${p.x},${p.y},${p.z}`) ? STEP_FENCE_COST : 0 }
+  f.segmentFence = true
+  return f
+}
+/** Run `fn` with the fence on `movements` (a NEW array: the profiles that share the old one by reference are untouched), and the
+ *  old array back after, on every exit (only if it is still ours). */
+export async function withStepFence (movements, avoid, fn) {
+  const fence = movements && Array.isArray(movements.exclusionAreasStep) ? stepFence(avoid) : null
+  if (!fence) return fn()
+  const prev = movements.exclusionAreasStep
+  const mine = [...prev, fence]
+  movements.exclusionAreasStep = mine
+  try { return await fn() } finally {
+    // ours: the old array back; replaced meanwhile but still carrying our fence (Codex r3 BLOCK: a timed-out walk's cleanup ran
+    // after the NEXT walk had saved the fenced array as its `prev`): our fence taken out by identity
+    if (movements.exclusionAreasStep === mine) movements.exclusionAreasStep = prev
+    else if (Array.isArray(movements.exclusionAreasStep) && movements.exclusionAreasStep.includes(fence)) movements.exclusionAreasStep = movements.exclusionAreasStep.filter(g => g !== fence)
+  }
+}
+/**
  * THE WAYPOINTS for a walk to `goal` -> [[x, y, z]] ending at goal: the planned path's corner cuts replaced by the step round the
  * clear side (cornerCut), re-planned from each `via`, at most `max` detours. `plan(from)` -> path [{ x, y, z }] | null (the
  * pathfinder's A*); null or an unplannable leg: the remaining walk is the plain goal (the walk as before). Pure.
@@ -187,7 +217,9 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     walkTo: async (s, { avoid = null } = {}) => {
       let timer = null, late = false
       try {
-        await withWalk(() => Promise.race([
+        // storehouse-01: the A* never routes through the segment's open cells (stepFence), so a stand behind them is reached the long
+        // way -- the fence scoped round the WHOLE race (Codex r3 BLOCK): it is off again before walkTo returns, the clock's end included
+        await withWalk(() => withStepFence(bot.pathfinder?.movements, avoid, () => Promise.race([
           (async () => {
             // round a corner the pathfinder would cut (cornerCut): planned once, walked leg by leg, inside the same clock
             let legs = [s], crosses = false
@@ -208,7 +240,7 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
             for (const w of legs) { if (aborted() || late) return; await bot.pathfinder.goto(new goals.GoalBlock(w[0], w[1], w[2])) }
           })(),
           new Promise(resolve => { timer = setTimeout(() => { late = true; timers.delete(timer); try { bot.pathfinder.setGoal(null) } catch { /* idle */ } resolve() }, pathMs); timers.add(timer) }),
-        ]))
+        ])))
       } catch (e) { if (e?.aborted || aborted()) throw e } finally { if (timer) { clearTimeout(timer); timers.delete(timer) } }
       return true
     },
