@@ -10,7 +10,7 @@
  "variants": {
   "dfb3ff13b0c04e113f57febc5e6b9d0f2c59dc2a": {
    "registration": "/home/mike/mcai-analysis/cooldown15-01.45ed1239.json",
-   "approved": "Codex (codex exec, read-only, blockers-only) r1: BLOCKERS none (its own 9 fresh-process config checks passed); tier 1 by protected.py (bots/src/config.mjs not protected) -- canary by choice; npm test + npm run check on 45ed1239",
+   "approved": "Codex (codex exec, read-only, blockers-only) r1: BLOCKERS none (its own 9 fresh-process config checks passed); tier 1 by protected.py (bots/src/config.mjs not protected) -- canary by choice; npm test on 45ed1239: 375/376, the one failure gather-reach.test.mjs (pathfinder visited-count under 8-job load, no cooldown use) passes alone 2/2; eslint clean; lint:movement fails on buildbot.mjs as on every base (pre-existing)",
    "reads_src": "/home/mike/mcai-analysis"
   }
  }
