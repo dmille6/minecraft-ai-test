@@ -124,6 +124,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
 import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
+import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
 import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, shopchestSite, shopchestRecord, materialsChests, materialsWorthTry } from './shopchest.mjs'   // shopchest-01
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
@@ -3368,6 +3369,16 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   if (preferAt) {
     const b = bot.blockAt(preferAt)
     if (b && isContainer(b) && depositTargetOk(hv, b.position) && (!cobbleOnly || inTown(hv, b.position))) chestBlock = b
+  }
+  // sortstore-01: no chest named -- the home of the group this deposit banks most of (else the overflow), when it is in reach and
+  // in town; a full or unusable one goes to the recovery's sweep of the other town chests exactly as the nearest would
+  if (!chestBlock && !preferAt && !noRecovery) {
+    try {
+      const sh = sortHomesNow(bot)
+      const k = sh ? sortDepositTarget(sh, depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })) : null
+      const b = k ? bot.blockAt(keyVec(k)) : null
+      if (b && isContainer(b) && notTried(b) && inTown(hv, b.position) && bot.entity.position.distanceTo(b.position) <= 48) chestBlock = b
+    } catch { /* the nearest, as before */ }
   }
   chestBlock = chestBlock || findChest()
   // chestreach-01: the retry after a walk home does not walk home again (its no-chest result stands)
@@ -8212,6 +8223,20 @@ async function compost(ctx, _args, signal) {
 // EMPTY container slot -- a move whose result the client can predict, so the cursor is never left loaded at a close.
 
 const isTownContainer = (bot, b) => ['chest', 'barrel', 'trapped_chest'].includes(blockNameOf(bot, b))
+// ---- sortstore-01: the sorted storehouse (sortstore.mjs has every rule) -------------------------------------------------
+const SORT = Object.freeze(sortSwitches(process.env, process.env.MEMORY_POOL ?? ''))
+/** The town plan's category homes now -> sortstore.mjs sortHomes(...) | null (sorting off, no plan, no home yet). Never throws. */
+export function sortHomesNow (bot) {
+  if (!SORT.on) return null
+  try { const h = sortHomes(townPlanNow(bot)?.plan ?? null); return sortsAnything(h) ? h : null } catch { return null }
+}
+/** A container block's own key and its double-chest partner's -> { k, alt }. */
+function sortKeys (bot, b) {
+  const p = b.position
+  let alt = null
+  try { const q = blockNameOf(bot, b) !== 'barrel' ? doubleChestPartner(p, blockProps(b)) : null; if (q) alt = posKey(q) } catch { alt = null }
+  return { k: posKey(p), alt }
+}
 const blockProps = b => { try { return b?.getProperties?.() ?? {} } catch { return {} } }
 /**
  * The town containers this bot can bank into from where it stands -> Block[], nearest first (then x, y, z), at most
@@ -8289,9 +8314,11 @@ async function openTown (bot, block, ms) {
  * loop; the CALLER settles the cursor with withdraw's server-confirmed settleCursor (or holds the window open).
  * Nothing is credited here (verifyTown reads the server).
  */
-async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null } = {}) {
+async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null, accept = null, explicit = null } = {}) {
   const bag = windowBag(bot, win)
-  const plan = townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, tail })
+  const plan0 = explicit ? { steps: explicit(bag) } : townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, tail })
+  // sortstore-01: a sorted home takes only its own group (`accept`); the tidy's put banks exactly the stacks it moved (`explicit`)
+  const plan = accept ? { ...plan0, steps: plan0.steps.filter(st => accept(st.name)) } : plan0
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
   // towndeposit-02: NO EMPTY CONTAINER SLOT at the open (the only room a whole-stack move uses) -- the caller remembers it full
@@ -8323,7 +8350,10 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
         const now = it ? win.slots[it.wslot] : null
         // logbank-01: a log HALF reads the slot's count before its right click (`from`), not the count it moves
         if (!now || now.name !== step.name || now.count !== (step.half ? step.from : step.count) || win.selectedItem) continue   // the bag moved under the plan
-        if (isCobble(step.name)) {
+        if (explicit) {
+          // sortstore-01: the tidy's put moves a stack the town already held from one town container to another (its take was the
+          // withdraw's draw): the town's totals are unchanged, so no cap or target claim is asked for (one would refuse cobble AT the cap)
+        } else if (isCobble(step.name)) {
           // every live reservation counts, this run's earlier stacks included (both reviews r1: the second stack of a
           // batch was judged against the count before the first)
           const adm = await cobbleReserve(bot, step.count, win.townPos ?? null)
@@ -8448,7 +8478,18 @@ async function townDeposit (ctx, _args, signal) {
   if (bot.cobbleOpenPending) { stop = 'a counting open in flight'; row('no_effect'); bankRows(0, slotsBefore); return { status: 'no_effect', detail: 'a town container has not answered an earlier open yet; the town deposit waits for it' } }
   if (bot.controlState?.sneak) { stop = 'sneaking'; row('no_effect'); bankRows(0, slotsBefore); return { status: 'no_effect', detail: 'sneaking (held by another subsystem); the town deposit waits for another visit' } }
   // towndeposit-02: a FULL container does not use up a try (tdMoreContainers), so the run may look past it
-  const containers = townContainers(bot, TD_MAX_CONTAINERS + TD_FULL_EXTRA)
+  // sortstore-01: SORTED -- every town container in reach, the homes of the bag's groups first (each takes its own group only),
+  // then the overflow, any other container, the other groups' homes (sortstore.mjs depositOrder / acceptsFor); one try per home
+  const sortH = sortHomesNow(bot)
+  const bankGroups = sortH ? [...new Set(startPlan.steps.map(st => itemGroup(st.name)))] : []
+  const sortMax = sortH ? sortTries(sortH, bankGroups) : TD_MAX_CONTAINERS
+  // ...and then THE OWN HOMES AGAIN, taking anything (Codex r1 BLOCK: with the overflow and the other fallbacks full, a roomy own home
+  // must still take what the unsorted deposit would have banked -- a sorted deposit never refuses for want of a category)
+  const sorted = sortH ? depositOrder(sortH, townContainers(bot, 16).map(b => ({ b, ...sortKeys(bot, b) })), bankGroups) : null
+  const containers = sortH
+    ? [...sorted.map(x => ({ b: x.b, any: false })), ...sorted.filter(x => depositTier(sortH, x.k, bankGroups, x.alt) === 0).map(x => ({ b: x.b, any: true }))]
+    : townContainers(bot, TD_MAX_CONTAINERS + TD_FULL_EXTRA)
+  const sortLog = []
   if (!containers.length) { stop = 'no town container'; row('no_effect'); bankRows(0, slotsBefore); return { status: 'no_effect', detail: 'no town chest within reach now; the town deposit waits for another visit' } }
   const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
   const left = () => deadline - TD_SETTLE_MS - Date.now()
@@ -8456,9 +8497,16 @@ async function townDeposit (ctx, _args, signal) {
   const stationary = deadline + TD_SETTLE_MS
   bot.stationaryUntil = stationary
   try {
-    for (const c of containers) {
+    for (const c0 of containers) {
+      const c = sortH ? c0.b : c0
       const at = `${c.position.x},${c.position.y},${c.position.z}`
-      if (!tdMoreContainers(tried)) break
+      if (sortH ? tried.filter(t => t?.result !== 'full').length >= sortMax : !tdMoreContainers(tried)) break
+      // sortstore-01: a home that takes none of what is left is passed without a walk or an open (not a try); the second pass over
+      // the own homes takes anything, but never re-opens one found full
+      const sk = sortH ? sortKeys(bot, c) : null
+      if (sortH && c0.any && tried.some(t => t.at === at && t.result === 'full')) continue
+      const accept = sortH ? (c0.any ? () => true : acceptsFor(sortH, sk.k, bankGroups, sk.alt)) : null
+      if (accept && !townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active, tail }).steps.some(st => accept(st.name))) continue
       if (left() <= 1000) { stop = 'budget'; break }
       check(signal)
       if (bot.entity.position.distanceTo(c.position.offset(0.5, 0.5, 0.5)) > STATION_REACH) {
@@ -8487,7 +8535,7 @@ async function townDeposit (ctx, _args, signal) {
       let r = { done: [], full: false, err: null }, settled = null
       const reservedHere = []
       try {
-        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail })
+        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
       } finally {
@@ -8515,6 +8563,7 @@ async function townDeposit (ctx, _args, signal) {
       // A TOWN CONTAINER TOOK ITEMS (rebase review P3): the town's memory hears it, as it does from the deposit verb --
       // that clears withdraw's pickaxe/ingredient misses for this container and is the bank's "room again" signal.
       if (v.verified.length) { rememberTown(bot, c.position, 'took'); const q = chestPartner(bot, c.position); if (q) rememberTown(bot, q, 'took') }
+      if (sortH && v.verified.length) sortLog.push(`${at}:t${c0.any ? 4 : depositTier(sortH, sk.k, bankGroups, sk.alt)}:${[...new Set(v.verified.map(x => x.step.name))].join('+')}`)
       for (const { step, it } of v.verified) {
         banked[step.name] = (banked[step.name] ?? 0) + step.count; stacks++
         if (it.maxDurability) tools.push(`${step.name}@${it.maxDurability - (it.durabilityUsed ?? 0)}`)
@@ -8529,6 +8578,8 @@ async function townDeposit (ctx, _args, signal) {
   } finally {
     if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
     bankRows(Object.values(banked).reduce((a, b) => a + b, 0), items().length)   // an abort too (the verified so far)
+    // sortstore-01: where each container's verified stacks went (t0 own home, t1 overflow, t2 unnamed, t3 another home)
+    if (sortH) { try { logEvent({ kind: 'sort_deposit', status: sortLog.length ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `via=town_deposit groups=${bankGroups.join('/')} tries=${sortMax} put=${sortLog.join(' ') || '-'}`.slice(0, 300) }) } catch { /* telemetry */ } }
   }
   const n = Object.values(banked).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
@@ -11453,7 +11504,7 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
  *  usable copy within PICK_MISS_TTL_MS and has taken nothing since (per container: both reviews). Since townsearch-01 the
  *  town pickaxe order searches with townSearchOrder, and since toolkit-03 the toolkit's draw too; this sweep is the model's
  *  `withdraw` verb's and the smelt job's (missKey/missTtl). */
-function withdrawSweep (bot, { pick = false, town = false, missKey = null, missTtl = 0 } = {}) {
+function withdrawSweep (bot, { pick = false, town = false, missKey = null, missTtl = 0, prefer = [] } = {}) {
   const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
   const tried = new Set()
   let mem = {}
@@ -11470,8 +11521,22 @@ function withdrawSweep (bot, { pick = false, town = false, missKey = null, missT
   const where = q => (town ? inTown(home, q) : depositTargetOk(home, q)) && !backedOff(q)
   const search = (radius, ok) => bot.findBlock({ ...(town ? { point: home, maxDistance: TOWN_SCAN_RADIUS } : { maxDistance: radius }),
     matching: b => isContainer(b) && (!b.position || (!tried.has(posKey(b.position)) && where(b.position) && ok(b.position))) })
+  // sortstore-01: the item's category homes first (`prefer`: keys), each under the same rules as the search, in reach
+  const preferred = radius => {
+    for (const k of prefer ?? []) {
+      try {
+        const q = keyVec(k)
+        if (tried.has(posKey(q)) || !where(q) || skip(q)) continue
+        const b = bot.blockAt?.(q)
+        if (!b || !isContainer(b)) continue
+        if (town ? !inTown(home, q) : !(bot.entity?.position?.distanceTo?.(q) <= radius)) continue
+        return b
+      } catch { /* the next */ }
+    }
+    return null
+  }
   return {
-    next (radius) { return search(radius, q => !skip(q)) },
+    next (radius) { return preferred(radius) ?? search(radius, q => !skip(q)) },
     any (radius) { return search(radius, q => !shut(q)) },   // misses included (the ingredients pass needs one)
     mark (q, double) {
       tried.add(posKey(q))
@@ -11579,7 +11644,7 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
     if (!have) return null
     return decideTakes([{ name: item, count: Math.min(have, Math.max(1, Math.min(64, Math.floor(Number(count) || 16)))) }], inChest, bag, chestEmpty, keep)
   }
-  const sweep = withdrawSweep(bot)
+  const sweep = withdrawSweep(bot, { prefer: (() => { const sh = sortHomesNow(bot); return sh ? withdrawPrefer(sh, item) : [] })() })
   let chestBlock = sweep.next(48)
   if (!chestBlock) {
     // deposit's shape: walk home through the rescue path, then RESCAN before judging the walk.
@@ -11851,7 +11916,9 @@ function townSearchView (bot, needs, tried = new Set()) {
  *  bot stands now, after every visit. */
 function townSearchNext (bot, needs, tried, want = {}, { missTtl = SEARCH_MISS_TTL_MS } = {}) {
   const view = townSearchView(bot, needs, tried)
-  const order = townSearchOrder(view.containers, needs, { counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl })
+  // sortstore-01: the needs' category homes first within each tier (null: sorting off, or no homes)
+  const sh = sortHomesNow(bot)
+  const order = townSearchOrder(view.containers, needs, { counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl, prefer: sh ? searchPrefer(sh, needs) : null })
   return { block: order.length ? view.byKey.get(order[0].k) : null, order, view }
 }
 /** A visit that could not look inside: this container leaves THIS bot's search for SEARCH_FAIL_SKIP_MS. A window that
@@ -16964,7 +17031,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // tidy is a repair too -- the pillars a repair's own climbs left are dug before the open projects (bounded per bot)
         const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
         const damaged = complete && b ? recordDamaged(b, rec, { tidy: tidyFirst }) : false
-        return { plot: p.plot, exists: !!rec, complete, damaged, due: complete && b && !damaged ? recordDamaged(b, rec) : false }
+        const due = complete && b && !damaged ? recordDamaged(b, rec) : false
+        // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
+        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && p.plot === STORE_PLOT && storeUpkeepDue(b, rec) }
       })
       activeMem = { ...(activeMem ?? {}), sig, at: now, states }
     }
@@ -17306,6 +17375,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // storehouse-01: a standing storehouse with litter in its interior (an idle crafting table in a chest's stand) wants a visit, its
     // tidy -- `due` only (after every open project), at most STORE_TIDY_TRIES offers a cell for this bot
     if (tidy && r.blueprint === STORE_BLUEPRINT && storeTidy(r, read, bot.storeTidyTries ?? null).length) return true
+    // sortstore-01: ...and its upkeep (a label to write, a misplaced stack to move): `due` only, after every open project
+    if (tidy && r.blueprint === STORE_BLUEPRINT && storeUpkeepDue(bot, r)) return true
     // paths-01 r2: a laid network with a destination it does not serve yet (a container's stand, a project completed since) wants
     // a visit: its extension (buildPaths), at most once per PATHS_EXTEND_MS per bot
     if (r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true
@@ -17772,6 +17843,258 @@ function matsChestsFor (bot, plot) {
       .filter(b => !((bot.withdrawTravelBackoff?.get?.(posKey(b.position)) ?? 0) > Date.now()))
   } catch { return [] }
 }
+// ---- sortstore-01: THE STOREHOUSE'S UPKEEP VISIT (the labels, then the tidy; sortstore.mjs has every rule) ---------------
+/** The town index's KNOWN entries as the tidy reads them -> { k: { names, used, size } }. Never throws ({} unreadable). */
+function sortKnownEntries (bot) {
+  const out = {}
+  try {
+    const now = Date.now()
+    for (const [k, e] of Object.entries(townIndexEntries(bot) ?? {})) {
+      if (indexStateOf(e, now) !== 'known' || !e?.obs) continue
+      out[k] = { names: e.obs.names ?? {}, used: Number(e.obs.used), size: Number(e.obs.size) }
+    }
+  } catch { /* nothing known */ }
+  return out
+}
+const sortBagFree = bot => 36 - (bot.inventory?.items?.() ?? []).length
+/** The tidy's moves for this bot now -> sortstore.mjs tidyMoves(...) | null. */
+function sortTidyPlan (bot, homes) {
+  const now = Date.now()
+  const back = (bot.sortMoveBackoff ??= new Map())
+  // a name the bag already holds is not moved by this bot (Paper 11-01: a taken stack merges into the bag's own, and the put -- whole
+  // stacks only -- could then neither tell the town's items from the bot's nor put them back): another bot, or this one later, moves it
+  const held = heldMap(bot)
+  return tidyMoves(homes, sortKnownEntries(bot), { maxSlots: Math.min(SORT_MOVE_STACKS, sortBagFree(bot) - SORT_BAG_SPARE), skip: (from, name) => (held[name] ?? 0) > 0 || (back.get(`${from}|${name}`) ?? 0) > now })
+}
+/** The plan store cells' stands by key (a label goes on the wall straight past the chest from its stand). */
+const sortStands = plan => new Map(((plan?.plots ?? []).find(p => p?.id === 'store')?.cells ?? []).filter(c => Array.isArray(c?.at) && Array.isArray(c?.stand)).map(c => [c.at.join(','), c.stand]))
+/** A label spot's need now (sortstore.mjs spotNeed over the live world). */
+function sortSpotNeed (bot, sp) {
+  try {
+    const b = bot.blockAt?.(new Vec3(...sp.at))
+    const w = bot.blockAt?.(new Vec3(...sp.wall))
+    let front = null
+    if (b && /_wall_sign$/.test(blockNameOf(bot, b) ?? '')) { try { front = b.getSignText?.()?.[0] ?? null } catch { front = null } }
+    return spotNeed(sp, b ? { name: blockNameOf(bot, b) } : null, front, w?.boundingBox === 'block')
+  } catch { return 'unknown' }
+}
+/** The label spots that want work from THIS bot (place or edit, under SIGN_TRIES each). */
+function sortSignWork (bot, rec, homes) {
+  if (!SORT.signs) return []
+  const tries = bot.sortSignTries ?? new Map()
+  return signSpots(rec, homes, sortStands(townPlanNow(bot)?.plan)).filter(sp => (tries.get(sp.at.join(',')) ?? 0) < SIGN_TRIES && ['place', 'edit'].includes(sortSpotNeed(bot, sp)))
+}
+/** IS THE STOREHOUSE'S UPKEEP DUE for this bot? A complete storehouse record with a label to write or a stack to move; at most once
+ *  per SORT_VISIT_GAP_MS a bot. Never throws. */
+export function storeUpkeepDue (bot, rec) {
+  try {
+    if (!SORT.on || rec?.blueprint !== STORE_BLUEPRINT || !rec.structure_complete) return false
+    if (Date.now() - (bot.sortVisitAt ?? -Infinity) < SORT_VISIT_GAP_MS) return false
+    const homes = sortHomesNow(bot)
+    if (!homes) return false
+    return sortSignWork(bot, rec, homes).length > 0 || (SORT.tidy && !!sortTidyPlan(bot, homes))
+  } catch { return false }
+}
+/** A sign item in the bag (never a hanging sign). */
+const sortSignItem = bot => (bot.inventory?.items?.() ?? []).find(it => /_sign$/.test(it?.name ?? '') && !/hanging/.test(it.name))
+/** SIGNS FOR THE LABELS -> the sign item or null: the bag's; else crafted (3 a craft: 6 planks and a stick) from the bag's wood;
+ *  else from logs drawn out of the town first (the withdraw verb: its sweep starts at the wood home). */
+async function sortGetSigns (ctx, n, signal) {
+  const { bot } = ctx
+  const s = sortSignItem(bot)
+  if (s) return s
+  if (sortBagFree(bot) < 3) return null
+  const held = heldMap(bot)
+  const woodOf = name => String(name).replace(/_(planks|log)$/, '')
+  const wood = Object.entries(held).filter(([k]) => /_(planks|log)$/.test(k) && !/stripped_/.test(k)).map(([k, c]) => [woodOf(k), c * (/_log$/.test(k) ? 4 : 1)]).sort((a, b) => b[1] - a[1])[0]
+  let w = wood && wood[1] >= 8 ? wood[0] : null
+  if (!w) {
+    const tot = {}
+    for (const e of Object.values(sortKnownEntries(bot))) for (const [k, v] of Object.entries(e.names ?? {})) if (/_log$/.test(k) && !/stripped_/.test(k)) tot[k] = (tot[k] ?? 0) + (Number(v?.[0]) || 0)
+    const log = Object.entries(tot).sort((a, b) => b[1] - a[1])[0]?.[0]
+    if (!log) return null
+    try { await withdraw(ctx, { item: log, count: 3 }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; return null }
+    if (!((heldMap(bot)[log] ?? 0) > 0)) return null
+    w = woodOf(log)
+  }
+  const item = `${w}_sign`
+  if (!bot.registry?.itemsByName?.[item]) return null
+  try { await craft(ctx, { item, count: Math.max(3, Math.ceil(n / 3) * 3) }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  return sortSignItem(bot)
+}
+/** ONE LABEL -> 'ok' | why not: in reach, the sign placed on the wall face (or a wrong one right-clicked: an unwaxed sign's editor
+ *  opens again), the text written, the server's copy read back (Paper 11-01 sandbox/sortstore/sign-proof.cjs: an update with no
+ *  editor open is refused, so no editor = no write). */
+async function sortLabelOne (ctx, sp, signal, deadline) {
+  const { bot } = ctx
+  const at = new Vec3(...sp.at)
+  const need0 = sortSpotNeed(bot, sp)
+  const row = (ok, why) => { try { logEvent({ kind: 'store_sign', status: ok ? 'success' : 'failed', snapshot: snapshot(bot), detail: `op=${need0} at=${sp.at.join(',')} chest=${sp.chest} label=${sp.lines[0]} ok=${ok ? 1 : 0} why=${why}`.slice(0, 300) }) } catch { /* telemetry */ } }
+  const tries = (bot.sortSignTries ??= new Map())
+  tries.set(sp.at.join(','), (tries.get(sp.at.join(',')) ?? 0) + 1)
+  try {
+    if (!(eyeToBlock(bot.entity.position, at) <= STATION_REACH - 0.5)) {
+      // to the chest's own STAND (never onto the chest: a body in the label cell refuses the place)
+      const goal = sp.stand ? new goals.GoalBlock(sp.stand[0], sp.stand[1], sp.stand[2]) : new goals.GoalNear(sp.at[0], sp.at[1] - 1, sp.at[2], 2)
+      try { await chestWalk(bot, goal, Math.max(1000, Math.min(15_000, deadline - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      check(signal)
+    }
+    if (!(eyeToBlock(bot.entity.position, at) <= STATION_REACH - 0.3)) { row(false, 'out_of_reach'); return 'out_of_reach' }
+    try { bot.setControlState('sneak', false) } catch { /* a test double */ }
+    let opened = false
+    const onOpen = p => { const l = p?.location; if (l && l.x === sp.at[0] && l.y === sp.at[1] && l.z === sp.at[2]) opened = true }
+    try { bot._client?.on?.('open_sign_entity', onOpen) } catch { /* a test double */ }
+    try {
+      if (need0 === 'place') {
+        const it = sortSignItem(bot)
+        if (!it) { row(false, 'no_sign'); return 'no_sign' }
+        await withTimeout(bot.equip(it, 'hand'), 3000, bot, { what: 'equip', needsDrop: false })
+        const wall = bot.blockAt(new Vec3(...sp.wall))
+        if (!wall || wall.boundingBox !== 'block') { row(false, 'no_wall'); return 'no_wall' }
+        try { await withTimeout(bot.placeBlock(wall, new Vec3(...sp.face)), 6000, bot, { what: 'place a sign', needsDrop: false }) } catch (e) { if (e?.aborted || signal?.aborted) throw e /* read back below */ }
+      } else {
+        const b = bot.blockAt(at)
+        if (!b || !/_wall_sign$/.test(blockNameOf(bot, b) ?? '')) { row(false, 'no_sign_block'); return 'no_sign_block' }
+        try { await withTimeout(bot.activateBlock(b), 4000, bot, { what: 'open a sign', needsDrop: false }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      }
+      for (const until = Date.now() + 2500; !opened && Date.now() < until;) await sleep(100, signal)
+      const sb = bot.blockAt(at)
+      if (!sb || !/_wall_sign$/.test(blockNameOf(bot, sb) ?? '')) { row(false, 'not_placed'); return 'not_placed' }
+      if (!opened) { row(false, 'no_editor'); return 'no_editor' }
+      bot.updateSign(sb, labelText(sp.lines))
+      for (const until = Date.now() + 3000; Date.now() < until;) {
+        await sleep(200, signal)
+        if (sortSpotNeed(bot, sp) === 'ok') { row(true, 'written'); return 'ok' }
+      }
+      row(false, 'text_not_read_back'); return 'unread'
+    } finally { try { (bot._client?.off ?? bot._client?.removeListener)?.call(bot._client, 'open_sign_entity', onOpen) } catch { /* gone */ } }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    row(false, `error:${String(e?.message ?? e).slice(0, 60)}`); return 'error'
+  }
+}
+/** PUT exactly `stacks` ({ name: n }: what the tidy took) into the town container `block` -> { put: { name: n }, ok, why }. The town
+ *  deposit's own container body -- open, observe, owned window, bankInto's clicks, settle, verify by a re-open -- with an explicit
+ *  plan: the bag's stacks of each name up to what was taken, never the bot's own stock beyond it. */
+async function sortPut (bot, block, stacks, deadline, signal) {
+  const pos = block.position
+  const win = await openTown(bot, block, Math.max(1000, Math.min(TD_OPEN_MS, deadline - Date.now())))
+  if (!win) return { put: {}, ok: false, why: 'unopenable' }
+  win.townPos = pos
+  await cobbleObserve(bot, pos, win)
+  const ixPre = townIndexObserve(bot, pos, win, 'sort_tidy')
+  const ixOp = indexId(bot, 'st')
+  let ixDirty = false
+  const own = ownInventory(bot, win)
+  let r = { done: [] }, settled = null
+  const explicit = bag => {
+    const left = { ...stacks }, out = []
+    for (const it of [...bag].sort((a, b) => b.count - a.count)) {
+      if (!(left[it.name] > 0) || it.count > left[it.name]) continue
+      out.push({ slot: it.slot, name: it.name, count: it.count }); left[it.name] -= it.count
+    }
+    return out
+  }
+  try {
+    r = await bankInto(bot, win, [], {}, deadline, signal, { explicit, onMutate: () => { ixDirty = true; townIndexDirty(bot, pos, 'sort_tidy', 'pre', ixOp) } })
+  } finally {
+    settled = await settleCursor(bot, win)
+    if (ixDirty) { if (settled.state === 'unresolved') indexHold(bot, win, pos, 'sort_tidy', ixOp); else townIndexDirty(bot, pos, 'sort_tidy', 'post', ixOp) }
+    if (settled.state === 'unresolved') holdUnsettled(bot, win, settled, own)
+    else { if (bot.currentWindow === win) own.close(); invalidateClicks(bot, 'sort tidy end'); own.restore() }
+  }
+  if (settled.state === 'unresolved') return { put: {}, ok: false, why: 'cursor' }
+  const v = await verifyTown(bot, block, r.done, Math.max(1000, Math.min(TD_OPEN_MS, deadline - Date.now())))
+  townIndexTransfers(bot, pos, v.verified.map(({ step, dest }) => ({ slot: dest, name: step.name, n: step.count })), { op: ixOp, pre: ixPre, ver: v.ix, by: 'sort_tidy', ok: 1 })
+  if (v.verified.length) { rememberTown(bot, pos, 'took'); const q = chestPartner(bot, pos); if (q) rememberTown(bot, q, 'took') }
+  const put = {}
+  for (const { step } of v.verified) put[step.name] = (put[step.name] ?? 0) + step.count
+  return { put, ok: v.ok, why: v.ok ? (r.err ?? 'done') : 'unverified' }
+}
+/** THE TIDY -> { moved, why }: one source's misplaced stacks out (the withdraw visit, verified against the server's bag), each into
+ *  its home (sortPut). What was taken and not put stays the bag's, its withdraw hold released (the sorted town deposit banks it). */
+async function sortTidyOne (ctx, homes, signal, deadline) {
+  const { bot } = ctx
+  const plan = sortTidyPlan(bot, homes)
+  if (!plan) return { moved: 0, why: 'nothing' }
+  const back = (bot.sortMoveBackoff ??= new Map())
+  const backoff = names => { for (const n of names) back.set(`${plan.from}|${n}`, Date.now() + SORT_MOVE_BACKOFF_MS) }
+  const row = (ok, d) => { try { logEvent({ kind: 'sort_tidy', status: ok ? 'success' : 'failed', snapshot: snapshot(bot), detail: `from=${plan.from} ${d}`.slice(0, 300) }) } catch { /* telemetry */ } }
+  const src = bot.blockAt?.(keyVec(plan.from))
+  if (!src || !isTownContainer(bot, src)) { backoff(plan.moves.map(m => m.name)); row(false, 'why=source_gone'); return { moved: 0, why: 'source_gone' } }
+  const keep = roomKeep(bot.currentWants ?? [])
+  const want = plan.moves.map(m => ({ name: m.name, count: m.count }))
+  const decide = (inChest, bag, { chestEmpty }) => {
+    const takes = want.map(t => ({ name: t.name, count: Math.min(t.count, haveIn(inChest, t.name)) })).filter(t => t.count > 0 && !bag.some(b => b?.name === t.name))
+    if (!takes.length) return null
+    const d = decideTakes(takes, inChest, bag, chestEmpty, keep)
+    // never make room by banking the bag's own stacks into the source: the tidy moves town stock only
+    if (d?.deposit?.length || d?.swap) return { skip: 'bag_room' }
+    return d
+  }
+  const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))
+  const v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000)
+  const took = v.verified ? { ...(v.moved?.took ?? {}) } : {}
+  if (!Object.keys(took).length) { backoff(plan.moves.map(m => m.name)); row(false, `why=take:${v.result?.failClass ?? v.skip ?? 'none'}`); return { moved: 0, why: 'take' } }
+  const done = {}, puts = []
+  try {
+    const byTo = new Map()
+    for (const m of plan.moves) { if (!(took[m.name] > 0)) continue; if (!byTo.has(m.to)) byTo.set(m.to, {}); byTo.get(m.to)[m.name] = took[m.name] }
+    for (const [to, st] of byTo) {
+      check(signal)
+      if (deadline - Date.now() < 8_000) break
+      const tb = bot.blockAt?.(keyVec(to))
+      if (!tb || !isTownContainer(bot, tb)) { puts.push(`${to}:gone`); continue }
+      try { await chestWalk(bot, new goals.GoalNear(tb.position.x, tb.position.y, tb.position.z, 2), Math.max(1000, Math.min(TD_WALK_MS, deadline - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      check(signal)
+      if (!(eyeToBlock(bot.entity.position, tb.position) <= OPEN_REACH)) { puts.push(`${to}:unreachable`); continue }
+      const p = await sortPut(bot, tb, st, deadline, signal)
+      for (const [n, c] of Object.entries(p.put)) done[n] = (done[n] ?? 0) + c
+      puts.push(`${to}:${Object.entries(p.put).map(([n, c]) => `${n}x${c}`).join('+') || p.why}`)
+    }
+  } finally {
+    for (const [n, c] of Object.entries(took)) releaseWithdrawHold(n, c)
+  }
+  const moved = Object.values(done).reduce((a, b) => a + b, 0)
+  const short = Object.entries(took).filter(([n, c]) => (done[n] ?? 0) < c).map(([n]) => n)
+  if (short.length) backoff(short)
+  row(moved > 0, `took=${Object.entries(took).map(([n, c]) => `${n}x${c}`).join('+')} put=${puts.join(' ') || '-'} moved=${moved} short=${short.join('+') || '-'}`)
+  return { moved, why: short.length ? 'short' : 'done' }
+}
+/** THE UPKEEP VISIT (a complete storehouse, `due`: after every open project): the labels, then one tidy move-set; one bot at a time
+ *  (the record's `sort` lease). `out` is buildShop's row writer. */
+async function storeUpkeepVisit (ctx, rec, signal, out) {
+  const { bot } = ctx
+  const dir = townDir(), key = projKeyOf(STORE_PLOT), me = bot.username ?? 'bot'
+  const homes = sortHomesNow(bot)
+  if (!homes) return out('no_effect', 'complete', 'the storehouse stands (no category homes)')
+  const lease = projTakeLease(dir, key, 'sort', me)
+  if (!lease.ok) return out('no_effect', 'slots_full', `the storehouse upkeep is another bot's now (${lease.why})`)
+  bot.sortVisitAt = Date.now()
+  const deadline = Date.now() + 150_000
+  const f = { signs: 0, signFails: 0, moved: 0 }
+  try {
+    const work = sortSignWork(bot, rec, homes)
+    if (work.length) {
+      const places = work.filter(sp => sortSpotNeed(bot, sp) === 'place').length
+      if (places) await sortGetSigns(ctx, places, signal)
+      for (const sp of work) {
+        check(signal)
+        if (deadline - Date.now() < 20_000) break
+        // no sign to place: a try against this spot too (Claude r1 note: a town with no wood stays `due` for ever otherwise)
+        if (sortSpotNeed(bot, sp) === 'place' && !sortSignItem(bot)) { f.signFails++; const tr = (bot.sortSignTries ??= new Map()); tr.set(sp.at.join(','), (tr.get(sp.at.join(',')) ?? 0) + 1); continue }
+        if ((await sortLabelOne(ctx, sp, signal, deadline)) === 'ok') f.signs++; else f.signFails++
+      }
+    }
+    if (SORT.tidy && deadline - Date.now() > 40_000) f.moved = (await sortTidyOne(ctx, homes, signal, deadline)).moved
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted', f); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), f, 'other')
+  } finally { releaseLease(dir, key, 'sort', me, lease.gen) }
+  return out(f.signs + f.moved > 0 ? 'success' : 'no_effect', 'upkeep', `the storehouse's upkeep: ${f.signs} label(s) written${f.signFails ? `, ${f.signFails} not` : ''}; ${f.moved} item(s) moved to their category chest`, f)
+}
+/** The upkeep's steps, for the sandbox drive (sandbox/sortstore/upkeep-e2e.mjs) and the tests: never called by the bot itself. */
+export const _sortUpkeep = Object.freeze({ sortLabelOne, sortGetSigns, sortTidyOne, sortSpotNeed, storeUpkeepDue })
 async function buildShop (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -17841,6 +18164,8 @@ async function buildShop (ctx, args, signal) {
   }
   shopFootprintRefresh(bot)
   const rec = rh.head.rec
+  // sortstore-01: a COMPLETE storehouse whose only want is its upkeep (labels, the tidy) gets the upkeep visit, not a build visit
+  if (plot === STORE_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && !storeTidy(rec, planReader(bot), bot.storeTidyTries ?? null).length && storeUpkeepDue(bot, rec)) return storeUpkeepVisit(ctx, rec, signal, out)
   // a COMPLETE workshop is judged against the world (r2): a damaged one is repaired by an ordinary visit
   if (rec.structure_complete && !shopDamaged(bot, rec)) {
     // this holder's share left by a visit killed after the completion is cleared here (each holder clears its own): the leftovers are the bag's own

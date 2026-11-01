@@ -30,6 +30,7 @@ import { wellcareModeDetail } from './wellcare.mjs'   // wellcare-01's licence r
 import { lidPlaceModeDetail } from './lidplace.mjs'   // lidplace-01's licence row
 import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
 import { furnaceSeenModeDetail } from './smeltjob.mjs'   // furnaceseen-01's mode row
+import { sortSwitches, sortModeDetail } from './sortstore.mjs'   // sortstore-01's mode row
 import { matsModeDetail, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'   // mats-01's licence row (its own statement)
 import { createHash as shopHash } from 'node:crypto'
 import { shopStoodTick, shopFootprintRefresh } from './skills.mjs'   // shop-01: the walks' seeds, the footprint
@@ -84,6 +85,8 @@ export function installFeatures (bot) {
   // ONE TRUNK (W3, 10-28): the showcase lineage's building rows, moved here from index.mjs's spawn handler like the rows above
   // ledger-01: the licence row (once per spawn; `on=on|off`, the cooperation design's A7 contract)
   try { logEvent({ kind: 'ledger_mode', status: 'success', snapshot: snapshot(bot), detail: ledgerModeDetail() }) } catch {}
+  // sortstore-01: the sorted storehouse's switches (the homes are the plan's, read when a deposit or the upkeep asks)
+  try { const sw = sortSwitches(process.env, process.env.MEMORY_POOL ?? ''); if (sw.on) logEvent({ kind: 'sortstore_mode', status: 'success', snapshot: snapshot(bot), detail: sortModeDetail(sw) }) } catch {}
   // furnaceseen-01: its mode row (the A7 contract `on=on|off`); the per-walk evidence is `_furnace_seen_skip`
   try { logEvent({ kind: 'furnace_seen_mode', status: 'success', snapshot: snapshot(bot), detail: furnaceSeenModeDetail() }) } catch {}
   // mats-01: the licence row, once per spawn -- `_mats_mode`, a kind the base cannot write (mats.mjs)

@@ -60,6 +60,11 @@ const REQUIRED = [
   'bots/test/treefarm.test.mjs',
   'bots/src/storehouse.mjs',
   'bots/test/storehouse.test.mjs',
+  // sortstore-01 (11-01): the sorted storehouse, its labels' Paper proof and the showcase fixture its tests read
+  'bots/src/sortstore.mjs',
+  'bots/test/sortstore.test.mjs',
+  'bots/test/fixtures/sortstore-showcase-1101.json',
+  'sandbox/sortstore/sign-proof.cjs',
   'bots/src/shopchest.mjs',
   'bots/test/shopchest.test.mjs',
   'bots/src/expedition.mjs',

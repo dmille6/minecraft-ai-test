@@ -118,6 +118,10 @@ export function activeProject (states = [], list = projectsOn()) {
   }
   if (open.length) return open.find(p => st(p).free !== false) ?? open[0]
   // wall-01: a complete project that only wants a visit for its upkeep (`due`: the ziggurat's tidy) after every open one
+  // sortstore-01: an upkeep marked `dueFirst` (the storehouse's labels and tidy: bounded, at most once per 10 min a bot) goes ahead of
+  // the other upkeeps (LIVE showcase 11-01 17-22Z: 74 of 80 build visits went to a complete ziggurat whose `due` stays true and does
+  // nothing; the storehouse, last in PROJECTS, would never get its turn)
+  for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due && s.dueFirst) return p }
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due) return p }
   return list[list.length - 1]
 }
