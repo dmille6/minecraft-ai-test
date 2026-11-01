@@ -184,6 +184,19 @@ await t('BUILT END TO END: walls, eaves, roof, torches -- chests untouched, the 
     srv.set(stand, 'crafting_table'); tries.set(k3(stand), H.STORE_TIDY_TRIES)
     assert.deepStrictEqual(H.storeTidy(rec, srv.read, tries), [])
     assert.deepStrictEqual(H.storeTidy({ ...rec, blueprint: 'house@1' }, srv.read), [], 'only a storehouse record')
+    // r4 (LIVE 11-01): leaves grown into the doorway's approach at head height are the tidy's too (the interior's only way in)
+    const ap = H.storeApproach(rec)
+    assert.strictEqual(ap.length, 2 + 3 * 3, 'the doorway (2) + the 3 front columns beside the door, 3 high')
+    const head = [rec.front[0][0], rec.door[1] + 1, rec.front[0][1]]
+    assert.ok(ap.some(a => k3(a) === k3(head)))
+    srv.set(head, 'spruce_leaves'); srv.set([rec.front[0][0], rec.door[1], rec.front[0][1]], 'spruce_log')
+    const tl = H.storeTidy(rec, srv.read, new Map())
+    assert.ok(tl.some(c => k3(c.at) === k3(head) && c.name === 'spruce_leaves'), 'the leaves at the door are tidied')
+    assert.ok(!tl.some(c => c.name === 'spruce_log'), 'never a log (the tree stays)')
+    const r3 = await buildOut(srv, rec, dir, key, pub.gen, bots, 2, () => H.storeTidy(rec, srv.read, new Map()))
+    assert.strictEqual(srv.read(...head).name, 'air', `${o}: the doorway's head room cleared ${JSON.stringify(r3.stops)}`)
+    srv.set([rec.front[0][0], rec.door[1], rec.front[0][1]], 'air')
+    for (const at of ap) assert.ok(at[0] >= rec.box[0] - 1 && at[0] <= rec.box[2] + 1 && at[2] >= rec.box[1] - 1 && at[2] <= rec.box[3] + 1 && at[1] >= rec.baseY && at[1] <= Math.max(...rec.cells.map(c => c.at[1])) + 2, `approach cell ${at} in the read's tidy space`)
     // the showcase read judges a tidy dig inside its record's box + 1, from baseY to the top + 2 (shopread tidy_ok)
     const top = Math.max(...rec.cells.map(c => c.at[1]))
     for (const at of rec.inside) assert.ok(at[0] >= rec.box[0] - 1 && at[0] <= rec.box[2] + 1 && at[2] >= rec.box[1] - 1 && at[2] <= rec.box[3] + 1 && at[1] >= rec.baseY && at[1] <= top + 2, `inside cell ${at} in the read's tidy space`)
@@ -232,6 +245,10 @@ await t('the project: seventh, after the workshop, two builders; projectsOn take
   // everything else complete: the storehouse is the active project
   const st = SHOP.projectsOn(true, true, true, true, false, true, true).map(q => ({ plot: q.plot, exists: true, complete: q.plot !== H.STORE_PLOT, damaged: false }))
   assert.strictEqual(SHOP.activeProject(st, SHOP.projectsOn(true, true, true, true, false, true, true)).plot, H.STORE_PLOT)
+})
+await t('r4: a storehouse\'s stuck stamp holds 30 min (the stair\'s), not the 6 h of a workshop', async () => {
+  assert.strictEqual(SHOP.stuckWindowOf(H.STORE_PLOT), SHOP.SHAFT_STUCK_RETRY_MS)
+  assert.strictEqual(SHOP.stuckWindowOf('house1'), SHOP.SHOP_STUCK_RETRY_MS)
 })
 await t('THE STEP FENCE (LIVE 11-01): a builder\'s walk routes around the segment\'s open cells (101 on a feet/head cell in them), only during the walk, never on the shared array', async () => {
   const BB = await import('../src/buildbot.mjs')
