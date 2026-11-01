@@ -16,6 +16,7 @@ process.env.MEMORY_POOL = 'showcase'
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-zigproj-pool-'))
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE
 process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
+process.env.STOREHOUSE = 'off'; process.env.SHOPCHEST = 'off'   // storehouse-01 / shopchest-01: storehouse.test.mjs, shopchest.test.mjs
 // paths-01: the town's paths (the fourth project, on in the showcase pool) are switched off here -- these are the ziggurat's order
 // tests; the paths' own are paths.test.mjs and paths-wiring.test.mjs
 process.env.PATHS = 'off'

@@ -242,12 +242,12 @@ const W = [
   ['index: the water clone drops the footprint', IX, /Object\.assign\(waterMoves, moves\)\n\s*withoutFootprint\(waterMoves\)/],
   ['skills: the presence heartbeat while the connection lives', SK, /beat = setInterval\(\(\) => mark\(false\), PRESENCE_BEAT_MS\)/],
   ['skills: the heartbeat started at once when installed after login', SK, /if \(bot\.entity\) start\(\)/],
-  ['skills: the visit fences itself on its own beat', SK, /unknown: bot\.shopUnknown, beat: true, placedBy \}/],
+  ['skills: the visit fences itself on its own beat', SK, /unknown: bot\.shopUnknown, beat: true, placedBy, \.\.\.storeOpts \}/],
   ['index: the acknowledgement tracker installed once per connection, before login', IX, /if \(SHOP\.on\) \{ try \{ bot\.shopAcks = shopAckInstall\(bot\) \} catch \{\} \}/],
   ['skills: mine\'s keep-out carries the workshop\'s record cells', SK, /const farm = composeKeepOut\(\{ forbid: null, bottom: null \}, shopKeepOut\(\)\)/],
   ['skills: gather never targets a record cell', SK, /if \(shopCells && b\.position && shopCells\.has\(/],
   ['skills: the visit draws with the part rule', SK, /const R0 = matsReserve\(\)\.table\n\s*const PD = projectDraw\(bot, R0, \{ forProject: true, base: shopAllow, /],
-  ['skills: matsWithdraw judges each take by its allow rule', SK, /const c = allow\(n, want, \{ others, here, reserve, taking: matsTaking\(bot, n\) \}\)/],
+  ['skills: matsWithdraw judges each take by its allow rule', SK, /const c = \(curFirst \? firstAllow : allow\)\(n, want, \{ others, here, reserve, taking: matsTaking\(bot, n\) \}\)/],
   ['skills: the slot released at its LATEST generation', SK, /releaseLease\(dir, key, `slot\$\{slot\.slot\}`, me, slotRef\.gen\)/],
   ['skills: the leftovers banked after the visit (A3 fallback: town chests), inside the skill\'s clock, each deposit booked as it lands', SK, /if \(left\.length && SHOP_SKILL_MS - \(Date\.now\(\) - t0\) >= SHOP_BANK_MIN_MS\) \{ try \{ back = await matsBank\(ctx, left, held0, signal, took, \{ onBanked: \(n2, c2\) => \{ backAll\[n2\] = /],
   ['skills: each verified take booked as it lands', SK, /base: shopAllow, then: \(k, c\) => \{ tookAll\[k\] = \(tookAll\[k\] \?\? 0\) \+ c; persist\(\) \} \}\)/],
@@ -262,7 +262,7 @@ const W = [
   ['skills: the drawn share read and clamped (with its baseline) at the visit\'s start', SK, /drawn0 = drawnHeld\(dr\.drawn, held0, dr\.bag\)/],
   ['skills: nothing drawn unless the record can be written (the failure counted)', SK, /if \(Object\.keys\(need\)\.length && !drawnWrite\(dir, key, me, drawn0, \{ bag: held0 \}\)\) return \(drawnFails\+\+, out\('no_effect', 'state_unwritable'/],
   ['skills: a share older than the completion is cleared on the repair path', SK, /if \(rec\.structure_complete && Object\.keys\(dr\.drawn\)\.length && !\(Number\(dr\.at\) > Number\(rec\.completeAt \?\? Infinity\)\)\) \{\n\s*if \(!drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+/],
-  ['skills: the share persisted after EVERY verified take', SK, /const w = await matsWithdraw\(ctx, need, signal, 30_000, R0, PD\.allow, PD\.onTook, PD\.onUncertain\); took = w\.took/],
+  ['skills: the share persisted after EVERY verified take', SK, /const w = await matsWithdraw\(ctx, need, signal, 30_000, R0, PD\.allow, PD\.onTook, PD\.onUncertain(, \{ first \})?\); took = w\.took/],
   ['skills: the share persisted after every placement', SK, /if \(kind === '_build' && d\?\.op === 'place'\) persist\(\)/],
   ['skills: the share persisted after every bank-back', SK, /backAll\[n2\] = \(backAll\[n2\] \?\? 0\) \+ c2; persist\(\)/],
   ['skills: the share persisted (or cleared on completion) in the finally, a failure counted', SK, /if \(drawn0\) \{ try \{ if \(completed\) \{ if \(!drawnWrite\(dir, key, me, \{\}\)\) drawnFails\+\+ \} else persist\(\) \} catch \{ drawnFails\+\+ \} \}\n\s*if \(bag0\) \{ try \{ logEvent\(\{ kind: 'build_bag'/],
@@ -345,7 +345,7 @@ await t('WIRED: build_shop draws the logs under the project reserve and crafts t
   assert.ok(/billOf\(rec, bp\.palette, read, \{ done: buildCellDone, inTown: billInTown\(town\), planks \}\)/.test(body), 'the bill reads planks as makeable')
   assert.ok(/const pf = planksFromLogs\(want, \{ spare: n => \(hn\[n\] \?\? 0\) - \(keep\[n\] \?\? 0\), town \}\)/.test(body), 'the shortfall is computed')
   assert.ok(/matsWithdraw\(ctx, \{ \[pf\.log\]: pf\.logs \}, signal, 30_000, R0, PD\.allow, PD\.onTook, PD\.onUncertain\)/.test(body), 'drawn under PD')
-  assert.ok(/if \(plankCraft\) \{ try \{ await craft\(ctx, plankCraft, signal\) \}[\s\S]{0,120}for \(const item of \['furnace', 'crafting_table'\]\)/.test(body), 'crafted, before the stations, inside the booked craft block')
+  assert.ok(/if \(plankCraft\) \{ try \{ await craft\(ctx, plankCraft, signal\) \}[\s\S]{0,120}for \(const item of \['furnace', 'crafting_table', 'chest'\]\)/.test(body), 'crafted, before the stations, inside the booked craft block')
   assert.ok(body.indexOf('const preCraft = heldMap(bot)') < body.indexOf('await craft(ctx, plankCraft, signal)'), 'after preCraft: booked in crafted')
 })
 

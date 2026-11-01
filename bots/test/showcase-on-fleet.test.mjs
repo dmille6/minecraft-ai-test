@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 for (const k of ['SHAFT', 'SHAFT_POOLS', 'TREEFARM', 'TREEFARM_POOLS', 'EXPEDITION', 'EXPEDITION_POOLS', 'MONUMENT', 'MONUMENT_POOLS',
-  'HOUSE', 'PATHS', 'PATHS_POOLS', 'WALL', 'WALL_POOLS']) delete process.env[k]
+  'HOUSE', 'PATHS', 'PATHS_POOLS', 'WALL', 'WALL_POOLS', 'STOREHOUSE', 'STOREHOUSE_POOLS', 'SHOPCHEST', 'SHOPCHEST_POOLS']) delete process.env[k]
 process.env.MEMORY_POOL = 'showcase'
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-sof-pool-'))
 const S = await import('../src/shop.mjs')
@@ -33,10 +33,10 @@ t('the tree farm and the expeditions: on in the showcase pool by default, off in
   assert.strictEqual(E.expeditionOn({}, 'showcase'), true)
   assert.strictEqual(E.expeditionOn({}, 'hive-a'), false)
 })
-t('at load in the showcase pool: SHAFT off, and the project list is the six plots the showcase has built, in order', () => {
+t('at load in the showcase pool: SHAFT off, and the project list is the six plots the showcase has built, then the materials chests and the storehouse (storehouse-01), in order', () => {
   assert.strictEqual(S.SHAFT.on, false)
   assert.strictEqual(S.TREEFARM.on, true)
-  assert.deepStrictEqual(S.projectsOn().map(p => p.plot), ['shop', 'house1', 'monument', 'paths', 'wall', 'treefarm'])
+  assert.deepStrictEqual(S.projectsOn().map(p => p.plot), ['shop', 'house1', 'monument', 'paths', 'wall', 'treefarm', 'shopchest', 'storehouse'])
   // the stair stays GUARDED when off (a sited stair's cells keep their protection); with no record it guards nothing
   assert.ok(S.projectsGuarded().some(p => p.plot === 'shaft'))
 })

@@ -17,6 +17,7 @@ process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has it
 process.env.WALL = 'off'
 // treefarm-04: the tree farm (sixth, after the paths) has its own test (treefarm.test.mjs); off here, so this file's project lists stand
 process.env.TREEFARM = 'off'
+process.env.STOREHOUSE = 'off'; process.env.SHOPCHEST = 'off'   // storehouse-01 / shopchest-01: storehouse.test.mjs, shopchest.test.mjs
 const SK = await import('../src/skills.mjs')
 const S = await import('../src/shop.mjs')
 const PJ = await import('../src/buildproj.mjs')
