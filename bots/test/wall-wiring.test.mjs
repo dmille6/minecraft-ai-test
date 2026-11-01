@@ -46,8 +46,8 @@ await t('the showcase pool lists the wall fifth, after the paths; since zigfleet
   assert.ok(w.after === 'paths' && S.buildersOf(w) === W.WALL_BUILDERS && w.blueprint === W.WALL_BLUEPRINT)
   assert.ok(S.LIGHT_PLOTS.has('wall'), 'an unsited wall needs 2 free bag slots: it builds from the bags\' cobblestone')
   const run = env => execFileSync(process.execPath, ['--input-type=module', '-e', "const S = await import('./src/shop.mjs'); console.log(S.projectsOn().map(p => p.plot).join(','))"], { cwd: new URL('..', import.meta.url), env: { ...process.env, ...env }, encoding: 'utf8' }).trim()
-  assert.strictEqual(run({ MEMORY_POOL: 'hive-a' }), 'shop,house1,monument,paths,wall', 'zigfleet-02: a fleet pool has the paths and the wall')
-  assert.strictEqual(run({ MEMORY_POOL: 'hive-a', PATHS_POOLS: 'showcase', WALL_POOLS: 'showcase' }), 'shop,house1,monument', 'the pool-list rollback')
+  assert.strictEqual(run({ MEMORY_POOL: 'hive-a' }), 'shop,house1,monument,paths,wall,tidy', 'zigfleet-02: a fleet pool has the paths and the wall (tidy-01: the tidy, last)')
+  assert.strictEqual(run({ MEMORY_POOL: 'hive-a', PATHS_POOLS: 'showcase', WALL_POOLS: 'showcase' }), 'shop,house1,monument,tidy', 'the pool-list rollback')
   assert.strictEqual(run({ MEMORY_POOL: 'showcase', WALL: 'off' }), 'shop,house1,monument,paths')
   assert.strictEqual(run({ MEMORY_POOL: 'showcase', PATHS: 'off' }), 'shop,house1,monument', 'never without the paths it follows')
 })
@@ -64,7 +64,7 @@ await t('ON FILES: the paths laid -> the wall, with no record yet (the order sit
   assert.strictEqual(SK.shopSlotsFree({ username: 'E' }), false, 'all four held')
 })
 await t('UPKEEP WAITS (LIVE 10-30): a finished ziggurat only DUE a tidy comes after the open wall; a damaged one is repaired first', async () => {
-  const L = S.projectsOn(true, true, true, true)
+  const L = S.projectsOn(true, true, true, true, undefined, undefined, false)   // tidy-01: its own order test (tidy.test.mjs)
   const st = (mon, wallDone = false) => [{ plot: 'shop', exists: true, complete: true }, { plot: 'house1', exists: true, complete: true }, { plot: 'monument', exists: true, complete: true, ...mon }, { plot: 'paths', exists: true, complete: true }, { plot: 'wall', exists: true, complete: wallDone }]
   assert.strictEqual(S.activeProject(st({ due: true }), L).plot, 'wall', 'a tidy due waits behind the wall')
   assert.strictEqual(S.activeProject(st({ damaged: true }), L).plot, 'monument', 'a broken cell is repaired first')
@@ -72,7 +72,7 @@ await t('UPKEEP WAITS (LIVE 10-30): a finished ziggurat only DUE a tidy comes af
   assert.strictEqual(S.activeProject(st({}, true), L).plot, 'wall', 'everything stands: the last project, quiet')
 })
 await t('A REPAIR THAT DOES NOT TAKE WAITS (LIVE 10-30 07:21Z: a path cell under a block, clears_wait every visit, the wall starved)', async () => {
-  const L = S.projectsOn(true, true, true, true)
+  const L = S.projectsOn(true, true, true, true, undefined, undefined, false)   // tidy-01: its own order test (tidy.test.mjs)
   const st = [{ plot: 'shop', exists: true, complete: true }, { plot: 'house1', exists: true, complete: true }, { plot: 'monument', exists: true, complete: true }, { plot: 'paths', exists: true, complete: true, damaged: true }, { plot: 'wall', exists: true, complete: false }]
   const mem = new Map(), t0 = 1_000_000
   const picks = []
