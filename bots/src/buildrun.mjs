@@ -31,6 +31,7 @@ import { walkFrom, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replant
 import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
 import * as V from './voidfill.mjs'
+import { waivePick } from './stuckcells.mjs'
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => k3(a[0], a[1], a[2])
@@ -407,7 +408,11 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // `alsoDone(cell, read)` (monument-01: ziggurat.mjs zigHidden, a core cell sealed on all six faces) counts a cell done that its
   // block alone does not; every completeness test of the visit goes through isDone
   const alsoDone = p.alsoDone ?? null
-  const isDone = (c, r = rd) => cellDone(r(...c.at), palette, c.role) || (!!alsoDone && alsoDone(c, r))
+  // stuckcells-01 (`p.waive`): the cells this visit waived count done from the moment they are waived (the record is written by
+  // the caller after the visit, from out.waived)
+  const waivedNow = new Map()
+  const alsoDoneV = (c, r) => (!!alsoDone && alsoDone(c, r)) || (waivedNow.size > 0 && waivedNow.has(kOf(c.at)))
+  const isDone = (c, r = rd) => cellDone(r(...c.at), palette, c.role) || (!!alsoDone && alsoDone(c, r)) || (waivedNow.size > 0 && waivedNow.has(kOf(c.at)))
   // A LAYERED BUILD (p.blockLayer, monument-01): a stand is never an open cell of ANY segment at the heights this segment builds --
   // two builders on one layer otherwise stood in each other's open cells (the fake server: both `body` until attempts_spent)
   const byY = p.blockLayer ? record.cells.reduce((m, c) => (m.has(c.at[1]) ? m.get(c.at[1]).push(c) : m.set(c.at[1], [c]), m), new Map()) : null
@@ -844,7 +849,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // STALLED (Claude r22 P2-2): every open segment is deferred or waits on one -- an EARTH cell (pad waits on earth, everything on
     // pad) stops the whole project; named on the row so the read reports the project stalled, never "no effect". A segment
     // another builder holds is neither deferred nor complete, so it is never stalled.
-    const stalled = atEnd && segmentsOf(record).every(s => deferredSegs.has(s.seg) || segComplete(rd, record, palette, s.seg, alsoDone))
+    const stalled = atEnd && segmentsOf(record).every(s => deferredSegs.has(s.seg) || segComplete(rd, record, palette, s.seg, alsoDoneV))
     // THE PROJECT BACK-OFF IS STAMPED ONLY AT THE LOOP'S END (Claude r22 P2-1: an early no_material after the threshold stamped
     // it, and the town waited 6 h for a workshop its mats job could finish in minutes) AND ONLY WHEN NOTHING ELSE IS OPEN (Claude
     // r23 P3: another builder still working an independent segment must not be held off); this bot's own stop still backs IT off
@@ -890,9 +895,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   }
   try {
   for (const { seg, deps } of segmentsOf(record)) {
-    if (segComplete(rd, record, palette, seg, alsoDone)) continue
+    if (segComplete(rd, record, palette, seg, alsoDoneV)) continue
     if (deps.some(d => deferredSegs.has(d))) { deferredSegs.add(seg); continue }   // waits on a deferred cell's segment
-    if (!deps.every(d => segComplete(rd, record, palette, d, alsoDone))) { out.stop = 'deps_open'; out.why = `${seg} waits for ${deps.filter(d => !segComplete(rd, record, palette, d, alsoDone)).join(',')}`; return out }
+    if (!deps.every(d => segComplete(rd, record, palette, d, alsoDoneV))) { out.stop = 'deps_open'; out.why = `${seg} waits for ${deps.filter(d => !segComplete(rd, record, palette, d, alsoDoneV)).join(',')}`; return out }
     const lease = PJ.takeLease(dir, key, `seg-${seg}`, me, { now: now() })
     if (!lease.ok) continue                                          // another builder holds it: the next segment
     let segGen = lease.gen, segAt = now()
@@ -1139,6 +1144,21 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             if (stop) { out.stop = stop; return out }
             if (laid) continue
           }
+          // stuckcells-01, THE WAIVER (`p.waive` = { mayWaive(c), max, have, after? }): a placeable cell no stand reaches, deferred
+          // WAIVE_AFTER visits (summed, this one counted), or sitting on a cell just waived in its column, is waived -- named, counted
+          // done -- and the segment is read again; bounded by the record's `max`
+          if (p.waive && cand.length && !open.some(c => !isClear(c.at))) {
+            const counts = PJ.stuckRead(dir, key, { since: now() - STUCK_FORGET_MS + 1 })
+            const have = p.waive.have ?? {}
+            const cellMap = (p.waive._cells ??= new Map(record.cells.map(q => [kOf(q.at), q])))
+            const due = waivePick(cand, { counts, after: p.waive.after, mayWaive: p.waive.mayWaive ?? (() => false), cellAt: k => cellMap.get(k) ?? null,
+              waived: k => waivedNow.has(k) || Object.prototype.hasOwnProperty.call(have, k), room: Math.max(0, (p.waive.max ?? 0) - Object.keys(have).length - waivedNow.size) })
+            if (due.length) {
+              for (const d of due) { waivedNow.set(kOf(d.c.at), d.why); e.log('_build', { op: 'waived', seg, cell: d.c.at, why: d.why }) }
+              out.waived = [...waivedNow].map(([k, why]) => ({ k, why }))
+              continue
+            }
+          }
           if (cand.length && !open.some(c => !isClear(c.at))) {
             // no stand reaches any placeable cell of this segment: DEFER them and go on (F4)
             for (const c of cand) { deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), 'no_stand') }
@@ -1153,6 +1173,18 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             for (const k of defer) { deferredCells.push(k); if (!deferWhy.has(k)) deferWhy.set(k, 'no_stand') }
             deferredSegs.add(seg)
             e.log('_build', { op: 'deferred', seg, cell: defer[0].split(',').map(Number), n: defer.length, why: 'sealed' })
+            break
+          }
+          // stuckcells-01 (`p.blockedDefers`): a cell holding a block this visit may not dig is DEFERRED with the cells no stand
+          // reaches (F4: counted, the project's stuck stamp, the town's other projects go on) instead of a `blocked` stop that keeps
+          // the project every bot's first order for good
+          if (p.blockedDefers && !needSapling && open.some(c => !isClear(c.at))) {
+            const hard = open.filter(c => !isClear(c.at))
+            for (const c of hard) { deferredCells.push(kOf(c.at)); deferWhy.set(kOf(c.at), `blocked ${nm(rd(...c.at)) || 'unread'}`) }
+            for (const c of cand) { deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), 'no_stand') }
+            deferredSegs.add(seg)
+            e.log('_build', { op: 'deferred', seg, cell: hard[0].at, n: hard.length + cand.length, why: 'blocked' })
+            out.blockedCells = (out.blockedCells ?? 0) + hard.length
             break
           }
           out.stop = open.some(c => !isClear(c.at)) ? (needSapling ? 'no_sapling' : 'blocked') : 'attempts_spent'

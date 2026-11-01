@@ -356,6 +356,45 @@ export function supportFor (read, plan, cell, feet = null) {
   return null
 }
 
+/**
+ * A SUPPORT CHAIN (stuckcells-01, LIVE 11-01: hive-a's stair held 31 h at step 3 -- lining 374,68,129 over a quarried pocket, every
+ * neighbour air; supportFor's one support beside it, and the visit ended `no_support` with nothing logged; placebo-a's landing-48
+ * stub hangs in a cave) -> [[x, y, z], ...] the cells to place IN ORDER (the first against a block that stands, each next against the
+ * one before, the last beside `cell`), or null. Pure. Breadth first from `cell`, at most `max` cells; a chain cell is never the
+ * stair's air nor the bot's body, is read and empty (or replaceable, or a liquid: sealed by the placement); every click's face
+ * (the block it is placed against, toward the cell placed) is within `reach` of the eye standing at `feet`; a ref is a full block
+ * (`isRef`); `exclude` cells a placement was already refused at. The shortest chain wins. supportFor's single support is the
+ * length-1 case.
+ */
+export const CHAIN_MAX = 3
+export function supportChain (read, plan, cell, feet, { max = CHAIN_MAX, reach = 4.5, isRef = isFull, exclude = new Set() } = {}) {
+  if (!feet) return null
+  const eye = [feet[0] + 0.5, feet[1] + 1.62, feet[2] + 0.5]
+  const body = new Set([k3(...feet), k3(feet[0], feet[1] + 1, feet[2])])
+  const faceD = (ref, to) => { const f = [to[0] - ref[0], to[1] - ref[1], to[2] - ref[2]]; return Math.hypot(ref[0] + 0.5 + f[0] * 0.5 - eye[0], ref[1] + 0.5 + f[1] * 0.5 - eye[1], ref[2] + 0.5 + f[2] * 0.5 - eye[2]) }
+  const fillable = n => { const nk = k3(...n); if (plan.air.has(nk) || body.has(nk) || exclude.has(nk)) return false; const b = read(...n); if (!b || isFull(b)) return false; return b.boundingBox === 'empty' || isWet(b) || replaceable(b) }
+  const start = { at: cell, up: null, d: 0 }
+  const seen = new Set([k3(...cell)])
+  const q = [start]
+  for (let h = 0; h < q.length; h++) {
+    const cur = q[h]
+    if (cur.d >= max) continue
+    for (const [dx, dy, dz] of N6) {
+      const n = [cur.at[0] + dx, cur.at[1] + dy, cur.at[2] + dz], nk = k3(...n)
+      if (seen.has(nk)) continue
+      seen.add(nk)
+      if (!fillable(n) || faceD(n, cur.at) > reach) continue
+      const node = { at: n, up: cur, d: cur.d + 1 }
+      // the chain's cells above this one (toward `cell`) are not refs: they are still air when this one is placed
+      const chainK = new Set(); for (let u = cur; u; u = u.up) chainK.add(k3(...u.at))
+      const held = N6.some(([a, b, c]) => { const m = [n[0] + a, n[1] + b, n[2] + c]; return !chainK.has(k3(...m)) && isRef(read(...m)) && faceD(m, n) <= reach })
+      if (held) { const out = []; for (let u = node; u && u !== start; u = u.up) out.push(u.at); return out }
+      q.push(node)
+    }
+  }
+  return null
+}
+
 // ---- siting -------------------------------------------------------------------------------------------------------------
 
 /** Candidate pillar columns at Chebyshev RING from home, in `sector` (townplan sectorOf) when given, nearest first. Pure. */
