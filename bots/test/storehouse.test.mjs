@@ -251,7 +251,15 @@ await t('THE STEP FENCE (LIVE 11-01): a builder\'s walk routes around the segmen
   await assert.rejects(BB.withStepFence(mv, avoid, async () => { throw new Error('walk failed') }))
   assert.strictEqual(mv.exclusionAreasStep, shared, 'restored on a throw too')
   const src = readFileSync(new URL('../src/buildbot.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-  assert.ok(src.includes('withStepFence(bot.pathfinder?.movements, avoid, async () => {'), 'walkTo walks inside the fence')
+  assert.ok(src.includes('await withWalk(() => withStepFence(bot.pathfinder?.movements, avoid, () => Promise.race(['), 'walkTo walks inside the fence, the whole race (its clock too)')
+  // Codex r3 BLOCK: a cleanup that runs after another walk replaced the array takes its own fence out by identity
+  const later = { exclusionAreasStep: shared }
+  let release
+  const slow = BB.withStepFence(later, avoid, () => new Promise(r => { release = r }))
+  const fenced = later.exclusionAreasStep
+  later.exclusionAreasStep = [...fenced, () => 0]      // another walk's own array, built on the fenced one
+  release(); await slow
+  assert.strictEqual(later.exclusionAreasStep.reduce((t, g) => t + g({ position: { x: -14, y: 71, z: 0 } }), 0), 0, 'no fence left behind')
 })
 await t('WIRED (skills.mjs, comments stripped): the storehouse site, its palette, its stand domain and tidy, its due', async () => {
   const src = readFileSync(SKILLS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')

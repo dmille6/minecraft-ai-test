@@ -108,7 +108,12 @@ export async function withStepFence (movements, avoid, fn) {
   const prev = movements.exclusionAreasStep
   const mine = [...prev, fence]
   movements.exclusionAreasStep = mine
-  try { return await fn() } finally { if (movements.exclusionAreasStep === mine) movements.exclusionAreasStep = prev }
+  try { return await fn() } finally {
+    // ours: the old array back; replaced meanwhile but still carrying our fence (Codex r3 BLOCK: a timed-out walk's cleanup ran
+    // after the NEXT walk had saved the fenced array as its `prev`): our fence taken out by identity
+    if (movements.exclusionAreasStep === mine) movements.exclusionAreasStep = prev
+    else if (Array.isArray(movements.exclusionAreasStep) && movements.exclusionAreasStep.includes(fence)) movements.exclusionAreasStep = movements.exclusionAreasStep.filter(g => g !== fence)
+  }
 }
 /**
  * THE WAYPOINTS for a walk to `goal` -> [[x, y, z]] ending at goal: the planned path's corner cuts replaced by the step round the
@@ -212,9 +217,10 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     walkTo: async (s, { avoid = null } = {}) => {
       let timer = null, late = false
       try {
-        await withWalk(() => Promise.race([
-          // storehouse-01: the A* never routes through the segment's open cells (stepFence), so a stand behind them is reached the long way
-          withStepFence(bot.pathfinder?.movements, avoid, async () => {
+        // storehouse-01: the A* never routes through the segment's open cells (stepFence), so a stand behind them is reached the long
+        // way -- the fence scoped round the WHOLE race (Codex r3 BLOCK): it is off again before walkTo returns, the clock's end included
+        await withWalk(() => withStepFence(bot.pathfinder?.movements, avoid, () => Promise.race([
+          (async () => {
             // round a corner the pathfinder would cut (cornerCut): planned once, walked leg by leg, inside the same clock
             let legs = [s], crosses = false
             try {
@@ -232,9 +238,9 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
             // (standBans) and the cell's next-best stand is tried
             if (crosses) return
             for (const w of legs) { if (aborted() || late) return; await bot.pathfinder.goto(new goals.GoalBlock(w[0], w[1], w[2])) }
-          }),
+          })(),
           new Promise(resolve => { timer = setTimeout(() => { late = true; timers.delete(timer); try { bot.pathfinder.setGoal(null) } catch { /* idle */ } resolve() }, pathMs); timers.add(timer) }),
-        ]))
+        ])))
       } catch (e) { if (e?.aborted || aborted()) throw e } finally { if (timer) { clearTimeout(timer); timers.delete(timer) } }
       return true
     },
