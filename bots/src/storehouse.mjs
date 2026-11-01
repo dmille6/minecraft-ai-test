@@ -281,19 +281,47 @@ export function storeRecord (st, proof, { plan, stood = 0, now = 0 } = {}) {
 }
 
 /**
- * THE TIDY of a storehouse record -> [{ at, kind: 'tidy', name }]: litter (storeLitter) standing in the record's `inside` cells now
- * (a crafting table an idle place put in a chest's stand, a scaffold block), at most STORE_TIDY_TRIES offers per cell per bot
- * (`tries` Map "x,y,z" -> n). Never a record cell (runVisit skips those too), never a container. Pure.
+ * THE DOORWAY'S APPROACH of a storehouse record -> [[x, y, z]]: the doorway's two cells and, outside it, the row of front columns
+ * beside the door's own (`frontOpen` within 1 of the door column across, 1 out) from the door's height to two above. Derived from
+ * `door` and `frontOpen`, so a record written before r4 has it too. Pure.
+ */
+export function storeApproach (rec) {
+  const d = rec?.door
+  if (!Array.isArray(d) || d.length !== 3) return []
+  const out = [[d[0], d[1], d[2]], [d[0], d[1] + 1, d[2]]]
+  const f = rec.front?.[0]
+  if (!Array.isArray(f) || f.length !== 2) return out
+  // the outward axis: from the door's column to the front column (one step, along x or z)
+  const ox = Math.sign(f[0] - d[0]), oz = Math.sign(f[1] - d[2])
+  if (Math.abs(ox) + Math.abs(oz) !== 1) return out
+  for (const c of rec.frontOpen ?? []) {
+    if (!Array.isArray(c) || c.length !== 2) continue
+    const out1 = (c[0] - d[0]) * ox + (c[1] - d[2]) * oz, lat = Math.abs((c[0] - d[0]) * oz + (c[1] - d[2]) * ox)
+    if (out1 !== 1 || lat > 1) continue
+    for (let y = d[1]; y <= d[1] + 2; y++) out.push([c[0], y, c[1]])
+  }
+  return out
+}
+/**
+ * THE TIDY of a storehouse record -> [{ at, kind: 'tidy', name }]: litter (storeLitter) or leaves standing in the record's `inside`
+ * cells or on its doorway's approach now (a crafting table an idle place put in a chest's stand, a scaffold block; r4, LIVE showcase
+ * 11-01 14:45Z: a spruce that grew from saplings planted beside the plot walled the doorway in with leaves at head height -- the
+ * interior, every chest's stand and the torches' stands unreachable), at most STORE_TIDY_TRIES offers per cell per bot (`tries`
+ * Map "x,y,z" -> n). Never a record cell (runVisit skips those too), never a container, never a log (the tree stays). Pure.
  */
 export const STORE_TIDY_TRIES = 2
 export function storeTidy (rec, read, tries = null) {
   const out = []
   if (rec?.blueprint !== STORE_BLUEPRINT) return out
-  for (const at of rec.inside ?? []) {
+  const seen = new Set()
+  for (const at of [...(rec.inside ?? []), ...storeApproach(rec)]) {
     if (!Array.isArray(at) || at.length !== 3) continue
-    if ((tries?.get?.(at.join(',')) ?? 0) >= STORE_TIDY_TRIES) continue
+    const k = at.join(',')
+    if (seen.has(k)) continue
+    seen.add(k)
+    if ((tries?.get?.(k) ?? 0) >= STORE_TIDY_TRIES) continue
     const n = nm(read(...at))
-    if (storeLitter(n)) out.push({ at, kind: 'tidy', name: n })
+    if (storeLitter(n) || LEAVES.test(n)) out.push({ at, kind: 'tidy', name: n })
   }
   return out
 }

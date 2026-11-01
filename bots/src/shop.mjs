@@ -213,7 +213,9 @@ export const SHOP_STUCK_RETRY_MS = 6 * 60 * 60_000       // F4: a cell no stand 
  *  visits -- the stamp is the PROJECT's, so one bot's failed visit holds every bot): a stair stamp holds 30 min. Its failures
  *  are one visit's, not "a cell no stand reached in 3 visits"; the stair's own cooldown asks again in 2 min. */
 export const SHAFT_STUCK_RETRY_MS = 30 * 60_000
-export const stuckWindowOf = plot => (plot === SHAFT_PLOT ? SHAFT_STUCK_RETRY_MS : SHOP_STUCK_RETRY_MS)
+// storehouse-01 r4 (LIVE showcase 11-01 14:45Z: the three torches deferred no_stand while a spruce's leaves walled the doorway in,
+// and the stamp held the whole order 6 h): a storehouse stamp holds 30 min, as the stair's -- its next visit tidies the doorway first
+export const stuckWindowOf = plot => (plot === SHAFT_PLOT || plot === STORE_PLOT ? SHAFT_STUCK_RETRY_MS : SHOP_STUCK_RETRY_MS)
 export const SHOP_HEALTH_MIN = 10
 export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
 export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the ziggurat is built mostly from the cobble a bag already holds
