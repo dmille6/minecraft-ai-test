@@ -2498,6 +2498,48 @@
     }
    ],
    "note": "Owner 11-01 ~13:00Z chose A+D. Measured 11-01: 96.1 model calls/min fleet; 43.2% vetoed, 6.5% runner-paused; bot-time 27.8% in skills, 67.0% decision cooldown. Coordinator 13:45Z added 'continue instead of wait' (CONTINUE). Control session 11-01: cooldown15-01 (setting canary, 30 s -> 15 s cap) queued AHEAD of fewerdec-01; fewerdec's after = cooldown15-01."
+  },
+  {
+   "id": "town-ground-tidy",
+   "title": "Town-ground tidy project: cut bot pillars, fill pits, grade the paths' corridors; tidy completion re-sites the paths",
+   "owner_date": "2026-10-13",
+   "memory": [
+    "owner-town-ground-1013.md",
+    "owner-town-plan-1020.md",
+    "autonomy-1031.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "tidy-01 canary (tier 2, TIDY=off rollback) queued after fewerdec-01 with a set-patch; read at +90/+180: build project=tidy op=sited, fills/cuts placed, no deaths linked to tidy visits; then project=paths op=retry_now and a paths op=sited in a canary town (offline 8 of 16 towns route after one tidy, 1 before)",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "runs": [
+     "tidy-01"
+    ],
+    "branches": [
+     "tidy01-*",
+     "tidy-01"
+    ],
+    "grep": [
+     "tidy-01"
+    ],
+    "paths": [
+     "bots/src/tidy.mjs",
+     "bots/scripts/tidy-offline.mjs"
+    ],
+    "fleet_paths": [
+     "bots/src/tidy.mjs"
+    ]
+   },
+   "depends_on": [
+    {
+     "run": "fleetbuild-01",
+     "until": "closed"
+    }
+   ],
+   "note": "Control session 11-01 (owner away, autonomy-1031): owner 10-13 wanted the town ground protected/repaired; townplan 10-20 build order lists a tidy-up chore. Measured on region copies of all 16 fleet towns: pillars+pits alone route 0 more towns (quarried ground, 3-8 steps, cobblestone uncuttable by the paths router) -> the tidy also grades the paths' corridors. Report docs/reports/tidy-01-2026-11-01.md."
   }
  ]
 }
