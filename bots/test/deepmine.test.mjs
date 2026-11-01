@@ -229,7 +229,7 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.rep
 const SK = new URL('../src/skills.mjs', import.meta.url)
 const CG = new URL('../src/cognitive.mjs', import.meta.url)
 const MINE_CREDIT = "...(Number.isFinite(ctx?.deepCredit) && bot.deepTrip ? { seaLevel: ctx.deepCredit } : {}),"
-const DEEPEN_CALL = "r = await mineGuarded({ ...ctx, deepCredit: DEEP_IRON_FEET }, { y: DEEP_DEEP_FEET }, signal)"
+const DEEPEN_CALL = "r = await mineGuarded({ ...ctx, deepCredit: DEEP_IRON_FEET }, { y: DEEP_DEEP_FEET }, sub.signal)"
 const GATHER_DIAMOND = "const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true })"
 const COG_CONT = "{ const o = deepTripOrder(this.bot?.deepTrip); if (o) order = o }"
 const COG_START = "const r = deepMineOrder({ now: Date.now(), holds: milestoneHolds({ order, ready }), atStairTop, stair: st,"
@@ -243,7 +243,7 @@ test('wired: mine prices a leaseholder\'s climb from the stair, the deepen call 
 })
 test('MUTANTS: each wiring anchor is present exactly once, and removing it is seen', () => {
   const src = { sk: readFileSync(SK, 'utf8'), cg: readFileSync(CG, 'utf8') }
-  const cases = [['sk', MINE_CREDIT, '', 'credit'], ['sk', DEEPEN_CALL, 'r = await mineGuarded(ctx, { y: DEEP_DEEP_FEET }, signal)', 'deepen'],
+  const cases = [['sk', MINE_CREDIT, '', 'credit'], ['sk', DEEPEN_CALL, 'r = await mineGuarded(ctx, { y: DEEP_DEEP_FEET }, sub.signal)', 'deepen'],
     ['sk', GATHER_DIAMOND, 'const tk = tunnelKindsFor(viaSource ?? blockName)', 'diamond'], ['cg', COG_CONT, '', 'cont'], ['cg', COG_START, 'const r = ({', 'start']]
   for (const [f, old, neu, key] of cases) {
     assert.equal(src[f].split(old).length, 2, `ANCHOR MISSING OR NOT UNIQUE: ${key}`)
@@ -267,4 +267,23 @@ test('MUTANT: without the admission branch, the trip\'s 5th identical call is re
     for (let i = 0; i < 6; i++) res.push(gate.check({ skill: 'deep_mine', args: { trip: 't1' } }, bot).reason ?? 'ok')
     assert.ok(res.includes('repeat_loop'), `mutant refused nothing: ${res}`)
   } finally { try { unlinkSync(out) } catch {} }
+})
+
+// ---- 8. Paper r1 (11-01): the reflexes and the loop between two calls of one trip ------------------------------------------------
+test('tripHoldsBody: underground phases of a live trip only; a stale trip (nobody advancing it) hands the body back', () => {
+  const now = 10_000_000
+  for (const phase of ['deepen', 'work', 'return']) assert.equal(D.tripHoldsBody({ phase, startedAt: now - 60_000 }, now), true, phase)
+  for (const phase of ['descend', 'bank', 'closed']) assert.equal(D.tripHoldsBody({ phase, startedAt: now }, now), false, phase)
+  assert.equal(D.tripHoldsBody(null, now), false)
+  assert.equal(D.tripHoldsBody({ phase: 'work', startedAt: now - D.TRIP_MAX_MS - 11 * 60_000 }, now), false, 'stale')
+})
+const RF = new URL('../src/reflex.mjs', import.meta.url)
+const MAROON_GATE = "!runner.isBusy() && !tripHoldsBody(bot.deepTrip) && Date.now() >= airPocketBreatheUntil"
+const NEXT_SOON = "this.#scheduleNext(deepTripOrder(this.bot?.deepTrip) ? DEEP_TRIP_NEXT_MS : undefined)"
+test('wired: the maroon lattice asks tripHoldsBody; the loop schedules an open trip\'s next call at once (mutants seen)', () => {
+  const rf = readFileSync(RF, 'utf8'), cg = readFileSync(CG, 'utf8')
+  assert.ok(strip(rf).includes(MAROON_GATE)); assert.ok(strip(cg).includes(NEXT_SOON))
+  assert.equal(rf.split(MAROON_GATE).length, 2, 'ANCHOR MISSING OR NOT UNIQUE: maroon'); assert.equal(cg.split(NEXT_SOON).length, 2, 'ANCHOR MISSING OR NOT UNIQUE: next')
+  assert.equal(strip(rf.replace(MAROON_GATE, "!runner.isBusy() && Date.now() >= airPocketBreatheUntil")).includes(MAROON_GATE), false)
+  assert.equal(strip(cg.replace(NEXT_SOON, 'this.#scheduleNext()')).includes(NEXT_SOON), false)
 })

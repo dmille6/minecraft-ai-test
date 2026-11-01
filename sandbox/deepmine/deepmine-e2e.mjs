@@ -186,6 +186,7 @@ try {
     .replace(/^HOME_X=.*$/m, `HOME_X=${HOME.x}`).replace(/^HOME_Y=.*$/m, `HOME_Y=${HOME.y}`).replace(/^HOME_Z=.*$/m, `HOME_Z=${HOME.z}`)
     .replace(/^BOARD_X=.*$/m, `BOARD_X=${HOME.x}`).replace(/^BOARD_Y=.*$/m, `BOARD_Y=${HOME.y}`).replace(/^BOARD_Z=.*$/m, `BOARD_Z=${HOME.z}`)
     .replace(/^CODE_VERSION=.*$/m, `CODE_VERSION=deepmine-${RUN}`)
+    .replace(/^WORLD_BORDER_RADIUS=.*$/m, 'WORLD_BORDER_RADIUS=20000')   // the arena is ~10,000 from the origin; gather filters by the border
   fs.writeFileSync(`${R}/${ENV}`, envSrc + `\nPOOL_STATE_DIR=${POOL}\nDEEPMINE=on\nSHAFT=on\n`)
   brain = spawn('node', [`${R}/sandbox/sandbox-brain.mjs`, '11499'], { env: { ...process.env, SANDBOX_SCRIPT: 'status' }, stdio: ['ignore', fs.openSync(`${OUT}/${RUN}-brain.log`, 'a'), 'inherit'] })
   await sleep(800)
