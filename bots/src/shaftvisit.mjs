@@ -9,11 +9,14 @@
 // slot lease (fence), the pickaxe and the bag; two refusals of one cell end the visit. The visit ends where the work stopped
 // (the stair it just verified is the way out; surface and mine use it).
 import { Vec3 } from 'vec3'
-import { firstUndone, unitCells, standFor, nextOp, planOf, toWorld, supportFor, LANDING_CELL, TORCH_EVERY, PILLAR, LINING_ITEMS, isFull } from './shaftgeom.mjs'
+import { firstUndone, unitCells, standFor, nextOp, planOf, toWorld, supportFor, supportChain, LANDING_CELL, TORCH_EVERY, PILLAR, LINING_ITEMS, isFull } from './shaftgeom.mjs'
 import { withDigScope } from './digtown.mjs'
 
 export const UNITS_MAX = 40
 export const CELL_TRIES = 2
+export const SUPPORT_TRIES = 3   // stuckcells-01: support chains tried for one cell in a visit
+// stuckcells-01's switch (stuckcells.mjs stuckCellsOn, inlined: the tests import copies of this module)
+const stuckCellsOn = () => !['off', '0', 'false', 'no'].includes(String(process.env.STUCKCELLS ?? '').trim().toLowerCase())
 const same = (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
 const kOf = a => a.join(',')
 
@@ -77,8 +80,28 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
         // cell itself on the next pass -- once per cell; a support that does not take leaves the refusal as it was
         if (r === 'no_support' && !supported.has(key)) {
           supported.add(key)
-          const sup = supportFor(e.read, plan, op.at, e.feet())
-          if (sup && (await e.place(sup)) === 'confirmed') { out.placed++; e.log('place', { k: w.k, at: sup, why: 'support' }); continue }
+          if (stuckCellsOn()) {
+            // stuckcells-01: a CHAIN of up to CHAIN_MAX supports (supportChain: the first against a block that stands, each next
+            // against the one before), every placement NAMED -- LIVE hive-a 31 h `no_support` with the support's outcome never logged
+            // a support the server does not take is excluded and the next chain tried (at most SUPPORT_TRIES chains a cell)
+            const exclude = new Set()
+            let ok = false
+            for (let tr = 0; tr < SUPPORT_TRIES && !ok; tr++) {
+              const chain = supportChain(e.read, plan, op.at, e.feet(), { exclude, isRef: b => isFull(b) && !INTERACTABLE.test(b?.name ?? '') })
+              if (!chain) { e.log('refused', { k: w.k, at: op.at, why: tr ? 'support:no_other_chain' : 'support:no_chain' }); break }
+              let laid = 0
+              for (const sc of chain) {
+                const sr = await e.place(sc)
+                if (sr !== 'confirmed') { exclude.add(kOf(sc)); e.log('refused', { k: w.k, at: sc, why: `support:${sr}` }); break }
+                laid++; out.placed++; e.log('place', { k: w.k, at: sc, why: laid > 1 ? `support${laid}` : 'support' })
+              }
+              ok = laid === chain.length
+            }
+            if (ok) continue
+          } else {
+            const sup = supportFor(e.read, plan, op.at, e.feet())
+            if (sup && (await e.place(sup)) === 'confirmed') { out.placed++; e.log('place', { k: w.k, at: sup, why: 'support' }); continue }
+          }
         }
         if (r === 'confirmed') { out.placed++; e.log('place', { k: w.k, at: op.at, why: op.why }) }
         else if (r === 'no_material') return end('no_material', 'no lining blocks in the bag (cobblestone)', w.k)

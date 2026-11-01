@@ -23,6 +23,7 @@ import pkg from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { installAckTracker } from './buildack.mjs'
 import { DIG_CONFIRM_MS } from './buildrun.mjs'
+import { readBlock } from './stuckcells.mjs'
 const { goals } = pkg
 
 export const BODY_RADIUS = 64
@@ -198,7 +199,8 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
   const spare = n => count(n) - (Number(keep?.[n]) || 0)
   const has = n => spare(n) > 0
   has.planks = () => [...new Set(items().map(i => i.name).filter(n => /_planks$/.test(n)))].find(n => spare(n) > 0) ?? null
-  const read = (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox } : null }
+  // stuckcells-01: a snow layer's properties ride with its name (hive-d's earth read `0 placeable` for 98 h on single layers)
+  const read = (x, y, z) => readBlock(bot.blockAt(new Vec3(x, y, z)))
   const write = (support, face, seq) => {
     bot._client.write('block_place', {
       location: new Vec3(support[0], support[1], support[2]), direction: FACE_DIR(face), hand: 0,

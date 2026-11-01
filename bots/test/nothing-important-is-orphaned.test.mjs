@@ -128,6 +128,12 @@ const REQUIRED = [
   'bots/test/tidy.test.mjs',
   'bots/scripts/tidy-offline.mjs',
   'docs/reports/tidy-01-2026-11-01.md',
+  // stuckcells-01 (11-01): the cells every project waits on (snow read, sealed pocket, waiver, blocked deferral, stair support chain)
+  'bots/src/stuckcells.mjs',
+  'bots/test/stuckcells.test.mjs',
+  'bots/scripts/stuckcells-offline.mjs',
+  'bots/scripts/stairstuck-offline.mjs',
+  'docs/reports/stuckcells-01-2026-11-01.md',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',
