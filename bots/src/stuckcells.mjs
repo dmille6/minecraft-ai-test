@@ -92,8 +92,9 @@ export function waivePick (cand = [], { counts = {}, waived = () => false, room 
 }
 
 /** A STAMP THE WAIVER WILL LIFT (skills.mjs projStuckLive): every cell an open record's stuck stamp names is done now, or would
- *  be waived by the next visit (mayWaive, `after` deferring visits already, room left). Pure. */
-export function stampLiftable (keys = [], rec = null, { done = () => false, counts = {}, mayWaive = () => false, max = 0, after = WAIVE_AFTER } = {}) {
+ *  be waived by the next visit (mayWaive, `after` deferring visits already, room left, `clear(c)`: the cell and every open cell of
+ *  its segment read clear -- the visit's own condition). Pure. */
+export function stampLiftable (keys = [], rec = null, { done = () => false, counts = {}, mayWaive = () => false, max = 0, after = WAIVE_AFTER, clear = () => false } = {}) {
   if (!keys.length || !rec) return false
   const byKey = new Map((rec.cells ?? []).map(c => [kOf(c.at), c]))
   let room = max - Object.keys(rec.waived ?? {}).length
@@ -101,7 +102,9 @@ export function stampLiftable (keys = [], rec = null, { done = () => false, coun
     const c = byKey.get(k)
     if (!c) return false
     if (done(c)) continue
-    if (!mayWaive(c) || recWaived(rec, c) || (Number(counts[k]?.visits) || 0) + 1 < after || room <= 0) return false
+    // ...and only a cell the next visit COULD waive (Claude r1 BLOCK: the visit waives a placeable cell only, in a segment whose
+    // open cells are all clear -- a stamp on a blocked or sealed cell lifted at once made the project every bot's first order again)
+    if (!mayWaive(c) || recWaived(rec, c) || !clear(c) || (Number(counts[k]?.visits) || 0) + 1 < after || room <= 0) return false
     room--
   }
   return true
@@ -118,7 +121,9 @@ export function visitOpts (rec, kind, base = null, on = stuckCellsOn(), mayPlace
   const extra = zig ? (c => recWaived(rec, c)) : ((c, read) => recWaived(rec, c) || sealedPocket(c, read))
   return {
     alsoDone: base ? (c, read) => base(c, read) || extra(c, read) : extra,
-    waive: { mayWaive: zig ? zigMayWaive : shopMayWaive, max: zig ? WAIVE_MAX_ZIG : WAIVE_MAX_SHOP, have: rec.waived ?? {} },
+    // never on a COMPLETE record's repair (Codex r1 BLOCK: its waivers could not be written; the repair would loop): a damaged
+    // cell there is deferred as before (the order's repair back-off)
+    ...(rec.structure_complete ? {} : { waive: { mayWaive: zig ? zigMayWaive : shopMayWaive, max: zig ? WAIVE_MAX_ZIG : WAIVE_MAX_SHOP, have: rec.waived ?? {} } }),
     // the ziggurat's FOOTING (the wall's remedy, buildrun.mjs footingBelow): a layer cell whose ground was dug away gets it back,
     // core blocks bottom-up, before any waiver; `mayPlace` the caller's (never a protected zone, never another record's cell)
     ...(zig ? { footing: { mayPlace, role: 'core' } } : { blockedDefers: true }),
@@ -126,11 +131,16 @@ export function visitOpts (rec, kind, base = null, on = stuckCellsOn(), mayPlace
 }
 /** The record after a visit's waivers (runVisit out.waived) -> the new record | null (nothing new; a complete record; a record
  *  whose cells changed). At most the bound the visit applied (it counted the record's own list). Pure. */
-export function withWaived (cur, waived = [], { cells = null, now = 0, by = null } = {}) {
-  if (!cur || cur.structure_complete || !waived?.length) return null
+export function withWaived (cur, waived = [], { cells = null, now = 0, by = null, max = Infinity, complete = false } = {}) {
+  if (!cur || (cur.structure_complete && !complete) || !waived?.length) return null
   if (cells != null && cur.cells.length !== cells) return null
+  const keys = new Set(cur.cells.map(c => kOf(c.at)))
   const w = { ...(cur.waived ?? {}) }
   let n = 0
-  for (const d of waived) if (d?.k && !w[d.k]) { w[d.k] = { why: String(d.why ?? 'no_stand').slice(0, 80), at: now, by }; n++ }
+  // the bound is the RECORD's (Claude r1: two builders' visits each counted from the same list): never past `max`, ever
+  for (const d of waived) if (d?.k && keys.has(d.k) && !w[d.k] && Object.keys(w).length < max) { w[d.k] = { why: String(d.why ?? 'no_stand').slice(0, 80), at: now, by }; n++ }
   return n ? { ...cur, waived: w } : null
 }
+/** THE COMPLETION'S RECORD (Claude r1: a waiver whose own publish was lost, then the visit's completion, left the complete record
+ *  reading damaged at that cell -- a repair loop): the visit's waivers merged into the record the completion writes. Pure. */
+export const completeWithWaived = (cur, waived = [], o = {}) => withWaived(cur, waived, { ...o, complete: true }) ?? cur

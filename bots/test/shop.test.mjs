@@ -242,7 +242,7 @@ const W = [
   ['index: the water clone drops the footprint', IX, /Object\.assign\(waterMoves, moves\)\n\s*withoutFootprint\(waterMoves\)/],
   ['skills: the presence heartbeat while the connection lives', SK, /beat = setInterval\(\(\) => mark\(false\), PRESENCE_BEAT_MS\)/],
   ['skills: the heartbeat started at once when installed after login', SK, /if \(bot\.entity\) start\(\)/],
-  ['skills: the visit fences itself on its own beat', SK, /unknown: bot\.shopUnknown, beat: true, placedBy, \.\.\.storeOpts \}/],
+  ['skills: the visit fences itself on its own beat', SK, /unknown: bot\.shopUnknown, beat: true, placedBy, \.\.\.storeOpts(,\n {6}\.\.\.\(shopLikeBp\(rec\.blueprint\) \? stuckVisitOpts\(rec, 'shop'\) : \{\}\))? \}/],   // stuckcells-01: the remedies ride after it
   ['index: the acknowledgement tracker installed once per connection, before login', IX, /if \(SHOP\.on\) \{ try \{ bot\.shopAcks = shopAckInstall\(bot\) \} catch \{\} \}/],
   ['skills: mine\'s keep-out carries the workshop\'s record cells', SK, /const farm = composeKeepOut\(\{ forbid: null, bottom: null \}, shopKeepOut\(\)\)/],
   ['skills: gather never targets a record cell', SK, /if \(shopCells && b\.position && shopCells\.has\(/],
