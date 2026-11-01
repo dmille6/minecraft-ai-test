@@ -387,6 +387,10 @@ export function pathAvoid ({ plan = null, zones = [], caps = [], plinth = [], co
   const plots = (plan?.plots ?? []).filter(p => p.keepout && Array.isArray(p.box)).map(p => p.box)
   const cols = new Set()
   for (const r of records) for (const c of r?.cells ?? []) cols.add(`${c.at[0]},${c.at[2]}`)
+  // storehouse-01: a record standing ON a plan plot (the storehouse, on the plan's store plot) names the columns in front of its
+  // doorway (`frontOpen`): the plot's own refusal does not hold there, so its leg can reach the door; every other refusal does
+  const open = new Set()
+  for (const r of records) for (const c of r?.frontOpen ?? []) if (Array.isArray(c) && c.length === 2) open.add(`${c[0]},${c[1]}`)
   const pl = new Set()
   for (const c of plinth) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) pl.add(`${c[0] + dx},${c[2] + dz}`)
   const fm = new Set()
@@ -402,8 +406,8 @@ export function pathAvoid ({ plan = null, zones = [], caps = [], plinth = [], co
   const f = (x, z) => {
     for (const zb of zones) { const b = zb?.box ?? zb; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return 'zone' }
     if (cells.has(`${x},${z}`)) return 'plan_cell'
-    if (ko && ko.boxAt(x, z)) return 'plan_box'
-    if (plots.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3])) return 'plan_plot'
+    if (ko && ko.boxAt(x, z) && !open.has(`${x},${z}`)) return 'plan_box'
+    if (plots.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) && !open.has(`${x},${z}`)) return 'plan_plot'
     if (caps.some(c => Math.max(Math.abs(c[0] - x), Math.abs(c[2] - z)) <= 3)) return 'well'
     if (pl.has(`${x},${z}`)) return 'well'
     if (composter && composter[0] === x && composter[2] === z) return 'farm'

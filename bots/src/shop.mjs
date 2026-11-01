@@ -10,6 +10,8 @@ import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mj
 import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
+import { storehouseOn, STORE_PLOT, STORE_BLUEPRINT, STORE_BUILDERS } from './storehouse.mjs'
+import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } from './shopchest.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -71,6 +73,15 @@ export const SHAFT_COOLDOWN_MS = 2 * 60_000    // a stair visit is short (the ru
  * showcase pool, off in the fleet's until its rollout (treefarm.mjs treefarmOn; TREEFARM=off is the rollback). Needs the paths.
  */
 export const TREEFARM = Object.freeze({ on: treefarmOn(process.env, process.env.MEMORY_POOL ?? '') })
+/**
+ * STOREHOUSE-01: THE TOWN STOREHOUSE is the seventh project (storehouse.mjs; town plan 10-20 + owner 10-23 Q1 "after shop-01"):
+ * walls, roof, a doorway and lights round the plan's store plot and the containers already in it. On in the showcase pool, off in
+ * the fleet's until its rollout (storehouse.mjs storehouseOn; STOREHOUSE=off is the rollback). Needs the house switch on.
+ */
+export const STOREHOUSE = Object.freeze({ on: storehouseOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** SHOPCHEST-01: THE WORKSHOP'S MATERIALS CHESTS (shopchest.mjs; OWNER 10-28 workshop uses no.2), a one-visit project after the
+ *  workshop, before the storehouse. SHOPCHEST=off is the rollback; on in the showcase pool only until a fleet rollout. */
+export const SHOPCHEST = Object.freeze({ on: shopchestOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -79,8 +90,10 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
   Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
+  Object.freeze({ plot: SHOPCHEST_PLOT, blueprint: SHOPCHEST_BLUEPRINT, after: SHOP_PLOT, builders: SHOPCHEST_BUILDERS }),
+  Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, store = STOREHOUSE.on, chest = SHOPCHEST.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
@@ -429,7 +442,8 @@ export function planksFromLogs (want = {}, { spare = () => 0, town = {} } = {}) 
 export function visitNeeds (record, bill, { saplingAt = () => false, town = {}, spare = {}, planks = 'oak_planks' } = {}) {
   const out = { ...bill }
   for (const r of record?.replant ?? []) if (r?.sapling && r.state !== 'skipped' && !saplingAt(r.cell)) out[r.sapling] = (out[r.sapling] ?? 0) + 1
-  for (const [item, input, n] of [['furnace', 'cobblestone', 8], ['crafting_table', planks, 4]]) {
+  // shopchest-01: a chest the town cannot supply is crafted the same way (8 planks)
+  for (const [item, input, n] of [['furnace', 'cobblestone', 8], ['crafting_table', planks, 4], ['chest', planks, 8]]) {
     const lack = (Number(bill[item]) || 0) - (Number(spare[item]) || 0)
     if (lack > 0 && (Number(town[item]) || 0) < lack) out[input] = (out[input] ?? 0) + n * lack
   }
@@ -580,4 +594,4 @@ export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP
 // `op=stuck_on_cell cell=...` and the read's STALLED POOLS could never see a stall; the fake runner's e.log kept the objects)
 export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'kind', 'saplings', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)
 export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
-export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'ms', 'why'], f)
+export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'fromMats', 'ms', 'why'], f)

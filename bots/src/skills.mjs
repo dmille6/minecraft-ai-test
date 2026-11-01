@@ -122,6 +122,9 @@ import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
+import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
+import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
+import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, shopchestSite, shopchestRecord, materialsChests, materialsWorthTry } from './shopchest.mjs'   // shopchest-01
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
@@ -13690,21 +13693,27 @@ export function uncertainTakes ({ err = null, visit = null } = {}) {
   if (f?.name && Number(f.n) > 0) out[f.name] = (out[f.name] ?? 0) + Number(f.n)
   return out
 }
-async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null, onUncertain = null) {
+async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null, onUncertain = null, { first = [] } = {}) {
   const { bot } = ctx
   const { deadline } = withdrawClock(ctx)
   const left = { ...take }
   const out = { took: {}, unsettled: false, looked: 0, tried: [], short: false, capped: 0 }
   const keep = roomKeep(bot.currentWants ?? [])
-  let cur = null
+  let cur = null, curFirst = false
+  // shopchest-01 (`first`: the workshop's materials chests, blocks): tried before the town's containers, every name up to what the
+  // chest shows (no town reserve: what is in them is the builders' own)
+  const firsts = (first ?? []).filter(Boolean)
+  const firstAllow = (n, want, o) => Math.max(0, Math.min(Number(want) || 0, Number(o?.here?.[n]) || 0))
   const decide = (inChest, bag, { chestEmpty }) => {
     const here = {}
     for (const it of inChest) if (it?.name) here[it.name] = (here[it.name] ?? 0) + (it.count ?? 0)
+    // shopchest-01: a materials chest is outside the town index (townIndexed: in-town only) -- this bot remembers what it showed
+    if (curFirst) { try { (bot.matsChestSeen ??= new Map()).set(cur, { names: Object.fromEntries(Object.entries(here).map(([n, c]) => [n, [c]])), at: Date.now() }) } catch { /* memory only */ } }
     const others = (matsTownStock(bot, { exclude: cur }) ?? { stock: {} }).stock
     const takes = []
     for (const [n, want] of Object.entries(left)) {
       if (!(want > 0)) continue
-      const c = allow(n, want, { others, here, reserve, taking: matsTaking(bot, n) })
+      const c = (curFirst ? firstAllow : allow)(n, want, { others, here, reserve, taking: matsTaking(bot, n) })
       if (c < Math.min(want, here[n] ?? 0)) out.capped++
       if (c > 0) takes.push({ name: n, count: c })
     }
@@ -13713,10 +13722,12 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
   const pc = passClock(deadline, reserveMs)
   const tried = new Set()
   const want = () => Object.values(left).some(n => n > 0)
-  let next = townSearchNext(bot, Object.keys(left).filter(n => left[n] > 0), tried)
+  const nextOf = () => (firsts.length ? { block: firsts.shift(), first: true } : townSearchNext(bot, Object.keys(left).filter(n => left[n] > 0), tried))
+  let next = nextOf()
   for (let i = 0; i < 12 && want() && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; i++) {
     check(signal)
     const cb = next.block
+    curFirst = next.first === true
     cur = containerKey(bot, cb.position)
     let v
     try { v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000) } catch (e) {
@@ -13733,7 +13744,8 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
     }
     const got = v.verified ? (v.moved?.took ?? {}) : {}
     for (const [k, c] of Object.entries(got)) { out.took[k] = (out.took[k] ?? 0) + c; if (k in left) left[k] = Math.max(0, left[k] - c); try { onTook?.(k, c) } catch { /* books only */ } }
-    next = townSearchNext(bot, Object.keys(left).filter(n => left[n] > 0), tried)
+    if (curFirst) out.fromFirst = (out.fromFirst ?? 0) + Object.values(got).reduce((a, b) => a + b, 0)
+    next = nextOf()
   }
   out.short = want()
   return out
@@ -13956,7 +13968,7 @@ const MATS_BANK_TRIES = 3
  *  THE SWEEP (Claude r2 P1-A): a full or unreachable nearest container never strands the part -- the town's containers are
  *  tried nearest first (townContainers: the town memory's full ones already skipped), at most MATS_BANK_TRIES, each attempt
  *  bounded; a walk that throws is the next container's turn. -> { name: banked } */
-async function matsBank (ctx, names, bag0, signal, caps = {}, { avoid = {}, full = [], onBanked = null, stats = {} } = {}) {
+async function matsBank (ctx, names, bag0, signal, caps = {}, { avoid = {}, full = [], onBanked = null, stats = {}, prefer = [] } = {}) {
   const { bot } = ctx
   const banked = {}
   const until = Date.now() + 10 * 60_000
@@ -13977,8 +13989,10 @@ async function matsBank (ctx, names, bag0, signal, caps = {}, { avoid = {}, full
 
     // only a block that IS a town container now takes one of the tries (a vanished index entry is no candidate at all)
     const isBox = p => { try { const b = bot.blockAt?.(p); return !!b && isTownContainer(bot, b) } catch { return false } }
-    return [...near, ...idx].filter(p => { const k = ck(p); if (seen.has(k) || (avoid?.[k] ?? 0) > now || full.includes(k) || !isBox(p)) return false; seen.add(k); return true })
-      .sort((a, b) => me.distanceTo(a) - me.distanceTo(b)).slice(0, MATS_BANK_TRIES)
+    const ok = p => { const k = ck(p); if (seen.has(k) || (avoid?.[k] ?? 0) > now || full.includes(k) || !isBox(p)) return false; seen.add(k); return true }
+    // shopchest-01 (`prefer`: the workshop's materials chests, Vec3s): first, before the town's containers (nearest first)
+    const pre = (prefer ?? []).filter(ok)
+    return [...pre, ...[...near, ...idx].filter(ok).sort((a, b) => me.distanceTo(a) - me.distanceTo(b))].slice(0, MATS_BANK_TRIES + pre.length)
   }
   for (const name of names) {
     const had = heldMap(bot)[name] ?? 0
@@ -16920,7 +16934,7 @@ const bpCache = new Map()
 // paths-01: the paths have none either (paths.mjs routes them; PATH_PALETTE)
 // wall-01: the wall has none either (wall.mjs sites it; WALL_PALETTE)
 // shaft-02: the town stair has none either (shaftgeom.mjs plans it; its visit and its damage test are its own)
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -17289,6 +17303,9 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // zigtidy-01: a finished ziggurat with climbing pillars on its treads wants a visit too (the tidy), until each pillar block has
     // been offered ZIG_TIDY_VISITS visits of this bot
     if (tidy && mon && zigTidyNow(bot, r, read).length) return true
+    // storehouse-01: a standing storehouse with litter in its interior (an idle crafting table in a chest's stand) wants a visit, its
+    // tidy -- `due` only (after every open project), at most STORE_TIDY_TRIES offers a cell for this bot
+    if (tidy && r.blueprint === STORE_BLUEPRINT && storeTidy(r, read, bot.storeTidyTries ?? null).length) return true
     // paths-01 r2: a laid network with a destination it does not serve yet (a container's stand, a project completed since) wants
     // a visit: its extension (buildPaths), at most once per PATHS_EXTEND_MS per bot
     if (r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true
@@ -17706,6 +17723,55 @@ async function expeditionVisit (ctx, args, signal) {
   }
 }
 
+/**
+ * STOREHOUSE-01: THE STOREHOUSE'S SITE AND RECORD for this town -> { ok, why, detail?, record }. The plan's store plot (storehouse.mjs
+ * storeSite), then buildsite.mjs proveSite over the live world with the storehouse's stand domain and the pool's stood cells. Never
+ * throws.
+ */
+function storeSiteFor (bot, plan, zones, stood) {
+  try {
+    const read = planReader(bot)
+    const st = storeSite(read, plan, { zones })
+    if (!st.ok) return st
+    const seeds = [...(stood ?? []), ...planTownCells(plan)]
+    const box = st.bp.cells.map(cl => placeBlueprint({ cells: [cl] }, st.site.anchor, st.site.s, st.site.orient)[0].at)
+    const dom = storeDomain({ box: [Math.min(...box.map(a => a[0])), Math.min(...box.map(a => a[2])), Math.max(...box.map(a => a[0])), Math.max(...box.map(a => a[2]))] })
+    const p = proveSite(read, plan.home, st.bp, st.site, { stood: seeds, domain: dom })
+    if (!p.ok) return { ok: false, why: p.why, detail: p.detail }
+    return { ok: true, why: 'ok', record: storeRecord(st, p, { plan, stood: seeds.length, now: Date.now() }) }
+  } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80) } }
+}
+/**
+ * SHOPCHEST-01: THE MATERIALS CHESTS' SITE AND RECORD inside the complete workshop -> { ok, why, detail?, record }. shopchest.mjs
+ * shopchestSite, then buildsite.mjs proveSite over the live world (the workshop's own ring domain) and the pool's stood cells.
+ * Never throws.
+ */
+function shopchestSiteFor (bot, shopRec, plan, stood) {
+  try {
+    const read = planReader(bot)
+    const st = shopchestSite(read, shopRec)
+    if (!st.ok) return st
+    const p = proveSite(read, plan.home, st.bp, st.site, { stood: [...(stood ?? []), ...planTownCells(plan)] })
+    if (!p.ok) return { ok: false, why: p.why, detail: p.detail }
+    return { ok: true, why: 'ok', record: shopchestRecord(st, p, { home: plan.home, plan, now: Date.now() }) }
+  } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80) } }
+}
+/** SHOPCHEST-01: what a materials chest holds, as this bot last saw it (matsWithdraw's open; MATS_CHEST_SEEN_MS) -> names | null
+ *  (unknown: the draw tries it). Never throws. */
+const MATS_CHEST_SEEN_MS = 30 * 60_000
+function matsChestNames (bot, b) {
+  try { const m = bot.matsChestSeen?.get?.(containerKey(bot, b.position)); return m && Date.now() - m.at < MATS_CHEST_SEEN_MS ? m.names : null } catch { return null }
+}
+/** SHOPCHEST-01: the workshop's materials chests a build visit of `plot` uses -> [Block] (loaded, a chest now). Never throws. */
+const SHOPCHEST_ON = shopchestOn(process.env, process.env.MEMORY_POOL ?? '')
+function matsChestsFor (bot, plot) {
+  try {
+    const rec = projectHeads().find(x => x.plot === SHOPCHEST_PLOT)?.head?.rec ?? null
+    return materialsChests(rec, { on: SHOPCHEST_ON, plot }).map(a => bot.blockAt?.(new Vec3(a[0], a[1], a[2]))).filter(b => b && blockNameOf(bot, b) === 'chest')
+      // a chest whose walk failed sits out withdraw's own travel backoff (an out-of-town chest's: withdrawVisit sets it)
+      .filter(b => !((bot.withdrawTravelBackoff?.get?.(posKey(b.position)) ?? 0) > Date.now()))
+  } catch { return [] }
+}
 async function buildShop (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -17744,15 +17810,32 @@ async function buildShop (ctx, args, signal) {
     // house-01: a later project is sited clear of every other project's record (recordZones: its box + PROJECT_GAP), in the
     // workshop's sector first, then the free sectors (buildsite.mjs projectSectors)
     let more = {}
-    if (plot !== SHOP_PLOT) {
+    // shopchest-01: the materials chests stand inside the complete workshop (shopchest.mjs shopchestSite), proven like any site
+    if (plot === SHOPCHEST_PLOT) {
+      const shopRec = projectHeads().find(x => x.plot === SHOP_PLOT)?.head?.rec ?? null
+      const ss = shopchestSiteFor(bot, shopRec, { ...h.head.plan, gen: h.head.gen }, stood)
+      if (!ss.ok) return out('no_effect', 'no_site', `no materials-chest site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''})`.slice(0, 160), { stop: 'no_site' })
+      const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, state: 'open' }), { by: me })
+      if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.cells[0]?.at, kind: `chests${ss.record.cells.length}/${ss.record.clear.length}clears`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    } else if (plot === STORE_PLOT) {
+      // storehouse-01: the storehouse stands on the plan's own store plot (storehouse.mjs storeSite), proven like any blueprint site
+      const ss = storeSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c.zones, stood)
+      if (!ss.ok) return out('no_effect', 'no_site', `no storehouse site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''})`.slice(0, 160), { stop: 'no_site' })
+      const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, state: 'open' }), { by: me })
+      if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.door, kind: `door/${ss.record.cells.length}cells/${ss.record.clear.length}clears/${ss.record.fill.length}fill`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    } else if (plot !== SHOP_PLOT) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
       more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot }
     }
+    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT) {
     const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
     if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
     if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: s.record.anchor, kind: `${s.record.sector}/${s.record.orient}/${s.record.sector_source}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    }
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', `the ${plot} record could not be read back`)
   }
@@ -17814,8 +17897,13 @@ async function buildShop (ctx, args, signal) {
     // the project reserve (OWNER 10-27): the workshop's own draws use the lowered table while it is active
     const R0 = matsReserve().table
     const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, c) => { tookAll[k] = (tookAll[k] ?? 0) + c; persist() } })
+    // shopchest-01: the workshop's materials chests first (shop.mjs materialsChests: a complete record, never their own visit), each
+    // only when the index does not show it empty of every name needed (shopchest.mjs materialsWorthTry)
+    const mats = matsChestsFor(bot, plot)
     if (Object.keys(need).length) {
-      const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
+      const first = mats.filter(b => materialsWorthTry(matsChestNames(bot, b), need))
+      const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain, { first }); took = w.took ?? {}
+      if (w.fromFirst) f.fromMats = w.fromFirst
     }
     // PLANKS FROM THE TOWN'S LOGS (shop.mjs planksFromLogs; LIVE showcase 10-28: walls stopped no_material for hours on a town
     // of 0 planks and 412 logs): the planks the needs still lack after the draw are drawn as logs, under the same project
@@ -17839,7 +17927,7 @@ async function buildShop (ctx, args, signal) {
     const preCraft = heldMap(bot)
     try {
       if (plankCraft) { try { await craft(ctx, plankCraft, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
-      for (const item of ['furnace', 'crafting_table']) {
+      for (const item of ['furnace', 'crafting_table', 'chest']) {
         const lack = (bill[item] ?? 0) - countItem(bot, item)
         if (lack > 0) { try { await craft(ctx, { item, count: lack }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
       }
@@ -17863,7 +17951,11 @@ async function buildShop (ctx, args, signal) {
     // unreadable: the visit neither moves nor skips a replant (r19, Claude r18 P2-2: an exception must never fell an unreplaced tree)
     let res = null, resFailed = false
     try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0 }) } catch { resFailed = true }
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    // storehouse-01: the storehouse's stands are in town (storehouse.mjs storeDomain), and its interior's litter is the visit's tidy
+    const storeOpts = rec.blueprint === STORE_BLUEPRINT ? { domain: storeDomain(rec), tidy: storeTidy(rec, read, (bot.storeTidyTries ??= new Map())) } : {}
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    // each tidy cell the visit offered counts once against this bot (storehouse.mjs STORE_TIDY_TRIES: an undiggable one stops asking)
+    if (storeOpts.tidy) for (const k of r.tidied ?? []) bot.storeTidyTries.set(k, (bot.storeTidyTries.get(k) ?? 0) + 1)
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null
@@ -17879,7 +17971,9 @@ async function buildShop (ctx, args, signal) {
     // built), so this is A3's own fallback, ordinary town chests -- never kept as ballast
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
-    if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    // shopchest-01: into the workshop's materials chests first (`prefer`), then the town's; what this bot remembers of them is then
+    // stale (asked again at the next draw)
+    if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() }, prefer: mats.map(b => b.position) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { if (mats.length) bot.matsChestSeen?.clear?.() } }
     const status = r.placed > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
