@@ -39,7 +39,15 @@ const plan = { mode: 'greenfield', groups: { v: 1, status: 'greenfield', homes: 
   { at: C, kind: 'chest', stand: [C[0], Y + 1, Z], role: 'overflow', group: null, state: 'placed' }] }] }
 const rec = { blueprint: 'storehouse@1', structure_complete: true, box: [X - 5, Z - 4, X + 5, Z + 4], cells: [] }
 for (let x = X - 4; x <= X + 4; x++) for (const y of [Y + 1, Y + 2, Y + 3]) rec.cells.push({ at: [x, y, Z - 3], role: 'upper' })
-const items = k => rcon(`data get block ${k[0]} ${k[1]} ${k[2]} Items`)[0].reply
+// a chest's whole contents, slot by slot (one `data get ... Items` reply is cut at ~100 characters)
+const items = k => {
+  const out = {}
+  for (const r of rcon(...Array.from({ length: 27 }, (_, i) => `data get block ${k[0]} ${k[1]} ${k[2]} Items[${i}]`))) {
+    const m = /id: "minecraft:(\w+)", count: (\d+)/.exec(r.reply)
+    if (m) out[m[1]] = (out[m[1]] ?? 0) + Number(m[2])
+  }
+  return out
+}
 async function main () {
   rcon(`forceload add ${X - 8} ${Z - 8} ${X + 8} ${Z + 8}`, `fill ${X - 6} ${Y} ${Z - 6} ${X + 6} ${Y + 6} ${Z + 6} minecraft:air`,
     `fill ${X - 5} ${Y} ${Z - 4} ${X + 5} ${Y} ${Z + 4} minecraft:stone`, `fill ${X - 4} ${Y + 1} ${Z - 3} ${X + 4} ${Y + 3} ${Z - 3} minecraft:stone_bricks`,
@@ -49,6 +57,8 @@ async function main () {
     // the stone home holds logs (misplaced); the wood home holds nothing
     `item replace block ${A[0]} ${A[1]} ${A[2]} container.0 with minecraft:spruce_log 64`, `item replace block ${A[0]} ${A[1]} ${A[2]} container.1 with minecraft:spruce_log 30`,
     `item replace block ${A[0]} ${A[1]} ${A[2]} container.2 with minecraft:cobblestone 64`,
+    // the wood home holds cobble (misplaced: its home is the stone home) -- the bot carries 20 cobble and 40 spruce logs of its own
+    `item replace block ${B[0]} ${B[1]} ${B[2]} container.5 with minecraft:cobblestone 64`, `item replace block ${B[0]} ${B[1]} ${B[2]} container.6 with minecraft:cobblestone 30`,
     `kill @e[type=item,x=${X - 6},y=${Y - 2},z=${Z - 6},dx=12,dy=10,dz=12]`)
   const bot = mineflayer.createBot({ host: '10.0.0.30', port: PORT, username: NAME, auth: 'offline', version: '1.21.8' })
   bot.loadPlugin(pathfinder)
@@ -57,7 +67,7 @@ async function main () {
   ;(await import(path.join(BOTS, 'src/craftsync.mjs'))).installCraftSync(bot, { log: () => {} })   // as index.mjs does at spawn: the clicks in lockstep
   const mv = new Movements(bot); mv.canDig = false; mv.allow1by1towers = false; mv.scafoldingBlocks = []
   bot.pathfinder.setMovements(mv)
-  rcon(`gamemode survival ${NAME}`, `clear ${NAME}`, `tp ${NAME} ${X + 0.5} ${Y + 1} ${Z + 1.5}`, `give ${NAME} minecraft:copper_ingot 20`, `give ${NAME} minecraft:oak_log 40`)
+  rcon(`gamemode survival ${NAME}`, `clear ${NAME}`, `tp ${NAME} ${X + 0.5} ${Y + 1} ${Z + 1.5}`, `give ${NAME} minecraft:spruce_log 40`, `give ${NAME} minecraft:cobblestone 20`, `give ${NAME} minecraft:copper_ingot 20`, `give ${NAME} minecraft:oak_log 40`)
   await sleep(3000)
   bot.townPlan = { gen: 1, plan, at: Date.now() }
   const ctx = { bot }
@@ -81,6 +91,7 @@ async function main () {
   P('due', SK._sortUpkeep.storeUpkeepDue(bot, rec))
   const before = { A: items(A), B: items(B) }
   const t = await SK._sortUpkeep.sortTidyOne(ctx, homes, ac.signal, Date.now() + 120_000)
+  R.tidy2 = await SK._sortUpkeep.sortTidyOne(ctx, homes, ac.signal, Date.now() + 120_000)
   R.bagAfterTidy = bot.inventory.items().map(i => `${i.name}x${i.count}`)
   R.tidy = { ...t, A: items(A), B: items(B), before }
   P('tidy', R.tidy)
