@@ -96,6 +96,11 @@ const REQUIRED = [
   // zigsealed-01 (11-01): the ziggurat's sealed skin column -- open cells of the waiting segments dug with the column
   'bots/test/zigsealed.test.mjs',
   'bots/test/fixtures/zigsealed-showcase-1101.json',
+  // g3-standing (11-01): the tripwire's G3 judges the bots' LATEST audits; the storehouse-01 false trip's real rows and geometry
+  'infra/showcase/test_trip_g3_standing.py',
+  'infra/showcase/fixtures/g3-storehouse-01-20261101.jsonl',
+  'bots/test/townplan-storehouse-geometry.test.mjs',
+  'bots/test/fixtures/storehouse-01-mirror-20261101.json',
   // fleetpaths-01 (11-01): a destination inside the plaza is served by it; a fleet town's unroutable paths write a no-site record
   'bots/test/fleetpaths.test.mjs',
   // zigbamboo (fleetbuild-01, 11-01): bamboo grown into open ziggurat foundation cells is dug

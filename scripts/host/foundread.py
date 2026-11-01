@@ -77,8 +77,36 @@ def plot_box_of(plan, at):
     return None
 
 
-def judge(rows, plans_by_pool, zones_by_pool):
-    """rows: [{t, per, arm, name, status, detail, bot, item}] sorted or not; plans_by_pool: {pool: (accepted [(gen, plan)])}."""
+AUDIT_NAMED = ('missing', 'other', 'occupied', 'lid', 'unreachable')   # the classes auditPlan names (names capped at AUDIT_NAMES_MAX)
+AUDIT_NAMES_MAX = 6
+
+
+def audit_clears(detail, names, at, cls):
+    """True when a LATER `_townplan_audit` row proves a lid:/unreachable: name on `at` is gone -- the bots' own rule
+    (bots/src/townplan.mjs auditPlan: lidBlocks for lid, walkable + standFor from the plan home for unreachable) read fresh.
+    Only a row that can tell clears: unknown=0 (an unloaded chest is never judged, so silence there is not "fine"), and either
+    the class count is 0, or the name list is COMPLETE (every named defect fits the 6 names and the 300-char cut) and omits it.
+    A row without the counts (an old or cut format) clears nothing."""
+    f = kv(detail)
+    try:
+        c = {k: int(f[k]) for k in AUDIT_NAMED + ('unknown',)}
+    except (KeyError, ValueError):
+        return False
+    if c['unknown'] != 0:
+        return False
+    if c[cls] == 0:
+        return True
+    complete = len(detail or '') < 300 and sum(c[k] for k in AUDIT_NAMED) <= AUDIT_NAMES_MAX
+    return complete and (cls, at) not in names
+
+
+def judge(rows, plans_by_pool, zones_by_pool, standing=False):
+    """rows: [{t, per, arm, name, status, detail, bot, item}] sorted or not; plans_by_pool: {pool: (accepted [(gen, plan)])}.
+    standing=False (the found-01 canary read): G3 counts a lid:/unreachable: name once, whatever came after (a REVERT stands).
+    standing=True (the showcase tripwire, 11-01 storehouse-01 false trip): G3 counts only a name the LATEST deciding audit still
+    carries -- a later audit by any bot that clears it (audit_clears) moves it to lists['lid_unreach_cleared']; named again
+    after that, it stands again. The tripwire stops the bots for a town that IS broken, not for a doorway that was blocked
+    while the walls went up (14:42-15:16Z: every bot's audit named the five chests, then every audit read unreachable=0)."""
     out = Counter()
     lists = defaultdict(list)
     rows = sorted(rows, key=lambda r: r['t'])
@@ -158,23 +186,34 @@ def judge(rows, plans_by_pool, zones_by_pool):
                     out['found_lost'] += 1; lists['lost'].append('%s %s gone in g%d' % (pool, k[1], gen))
     # G1 / G3 via the audits after the placement
     seen = set()
+    raised = {}         # standing: (k, cls) -> the audit row that named it, until a later audit clears it
     for r in rows:
         if r['name'] != '_townplan_audit' or r['arm'] != 'canary' or r['per'] != 'post':
             continue
         pool = pool_of(r['bot'])
-        for cls, at in audit_names(r['detail']):
+        names = audit_names(r['detail'])
+        if standing:
+            for (k, cls) in list(raised):
+                if k[0] == pool and audit_clears(r['detail'], names, k[1], cls):
+                    lists['lid_unreach_cleared'].append('%s %s %s named %s, cleared %s (audit %s)' % (
+                        pool, k[1], cls, raised[(k, cls)]['t'].strftime('%m-%d %H:%MZ'), r['t'].strftime('%m-%d %H:%MZ'), r['bot']))
+                    del raised[(k, cls)]
+        for cls, at in names:
             k = (pool, at)
-            if k not in fset or r['t'] < fset[k][0] or (k, cls) in seen:
+            if k not in fset or r['t'] < fset[k][0]:
+                continue
+            if standing and cls in ('lid', 'unreachable'):
+                raised.setdefault((k, cls), r)
+                continue
+            if (k, cls) in seen:
                 continue
             seen.add((k, cls))
             if cls in ('missing', 'other'):
                 out['found_lost'] += 1; lists['lost'].append('%s %s %s (audit %s)' % (pool, at, cls, r['bot']))
             else:
-                out['lid_unreach'] += 1
-                acc = plans_by_pool.get(pool) or []
-                box = plot_box_of(acc[-1][1], xyz_of(at)) if acc else None
-                blame = [a for a in adopters if a[1] == pool and a[0] <= r['t'] and box and box[0] - 1 <= a[2][0] <= box[2] + 1 and box[1] - 1 <= a[2][2] <= box[3] + 1]
-                lists['lid_unreach'].append('%s %s %s; %s' % (pool, at, cls, ('responsible: %s %s %s at %s' % (blame[-1][4], blame[-1][3], blame[-1][0].strftime('%H:%MZ'), ck(blame[-1][2]))) if blame else 'no SOFT/BOX adopter in that box before it (unrelated or the found placement itself)'))
+                g3_item(out, lists, plans_by_pool, adopters, pool, at, cls, r)
+    for ((pool, at), cls), r in sorted(raised.items(), key=lambda x: x[1]['t']):
+        g3_item(out, lists, plans_by_pool, adopters, pool, at, cls, r)
     # G4 two found chests sharing a side
     chests = [(pool, at) for _, pool, at, kind, _, _ in found if kind == 'chest']
     for i in range(len(chests)):
@@ -183,6 +222,15 @@ def judge(rows, plans_by_pool, zones_by_pool):
             if p1 == p2 and a[1] == b[1] and abs(a[0] - b[0]) + abs(a[2] - b[2]) == 1:
                 out['shared_side'] += 1; lists['shared_side'].append('%s %s|%s' % (p1, ck(a), ck(b)))
     return out, lists
+
+
+def g3_item(out, lists, plans_by_pool, adopters, pool, at, cls, r):
+    """One G3 count and its item string (the ACK.json key: keep the text stable)."""
+    out['lid_unreach'] += 1
+    acc = plans_by_pool.get(pool) or []
+    box = plot_box_of(acc[-1][1], xyz_of(at)) if acc else None
+    blame = [a for a in adopters if a[1] == pool and a[0] <= r['t'] and box and box[0] - 1 <= a[2][0] <= box[2] + 1 and box[1] - 1 <= a[2][2] <= box[3] + 1]
+    lists['lid_unreach'].append('%s %s %s; %s' % (pool, at, cls, ('responsible: %s %s %s at %s' % (blame[-1][4], blame[-1][3], blame[-1][0].strftime('%H:%MZ'), ck(blame[-1][2]))) if blame else 'no SOFT/BOX adopter in that box before it (unrelated or the found placement itself)'))
 
 
 def combine(out, lists):
@@ -247,6 +295,23 @@ def selftest():
     assert r3['lid_unreach'] == 1 and 'responsible: _deposit_new_chest soft' in r3['_lists']['lid_unreach'][0], r3['_lists']
     r3b = combine(*judge(base + [lid], plans, {}))
     assert r3b['lid_unreach'] == 1 and 'no SOFT/BOX adopter' in r3b['_lists']['lid_unreach'][0]
+    # G3 STANDING (the showcase tripwire): a later deciding audit clears the name; named again, it stands again
+    A = lambda s_, d: R('_townplan_audit', 'placed=1 present=1 missing=0 other=0 unknown=0 free=1 occupied=0 ' + d, s=s_)
+    un = A(600, 'lid=0 unreachable=1 gen=1 first=unreachable:9,64,-2')
+    ok = A(1200, 'lid=0 unreachable=0 gen=1')
+    assert combine(*judge(base + [un, ok], plans, {}))['lid_unreach'] == 1, 'the canary read keeps its latch'
+    rs = combine(*judge(base + [un, ok], plans, {}, standing=True))
+    assert rs['lid_unreach'] == 0 and 'cleared' in rs['_lists']['lid_unreach_cleared'][0], rs
+    assert combine(*judge(base + [un], plans, {}, standing=True))['lid_unreach'] == 1, 'positive control: never cleared, it stands'
+    assert combine(*judge(base + [un, ok, A(1800, 'lid=0 unreachable=1 gen=1 first=unreachable:9,64,-2')], plans, {}, standing=True))['lid_unreach'] == 1
+    # rows that cannot tell clear nothing: an unloaded cell, an old format without counts, a full name list that omits it
+    unk = R('_townplan_audit', 'placed=1 present=0 missing=0 other=0 unknown=1 free=1 occupied=0 lid=0 unreachable=0 gen=1', s=1200)
+    assert combine(*judge(base + [un, unk], plans, {}, standing=True))['lid_unreach'] == 1, 'unknown=1 never clears'
+    assert combine(*judge(base + [un, R('_townplan_audit', 'gen=1 placed=1', s=1200)], plans, {}, standing=True))['lid_unreach'] == 1
+    full = A(1200, 'lid=0 unreachable=7 gen=1 first=' + ';'.join('unreachable:50,64,%d' % i for i in range(6)))
+    assert combine(*judge(base + [un, full], plans, {}, standing=True))['lid_unreach'] == 1, '7 named defects: the 6-name list is not complete'
+    part = A(1200, 'lid=0 unreachable=1 gen=1 first=unreachable:50,64,1')
+    assert combine(*judge(base + [un, part], plans, {}, standing=True))['lid_unreach'] == 0, 'a complete list that omits it clears it'
     # G4 shared side
     c3 = {'at': [9, 64, -1], 'kind': 'chest', 'stand': [10, 64, 0], 'state': 'placed'}
     r4 = combine(*judge(base + [R('_found', 'order=F3 kind=chest step=place outcome=placed at=9,64,-1 gen=1', s=30)], {'board-a': [(1, plan(1, 0, [c1, c2, c3]))]}, {}))

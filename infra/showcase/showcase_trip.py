@@ -461,7 +461,8 @@ def plan_read(rows, since, plans=None):
                     if head is not None:
                         acc.setdefault(POOL, []).extend(a_)
                         zones.setdefault(POOL, []).extend(TP.zones_of(info['dir'], world))
-        fo, flists = FD.judge([mark(r) for r in rows if r['name'] in FD.ROW_KINDS], acc, zones)
+        # standing=True: G3 is the town's CURRENT access, by the bots' own latest audits (11-01 storehouse-01 false trip)
+        fo, flists = FD.judge([mark(r) for r in rows if r['name'] in FD.ROW_KINDS], acc, zones, standing=True)
     defects = {'D1 chain_invalid': pl['chain_invalid'] + rw.get('chain_invalid', 0), 'D2 invalid_rows': rw.get('invalid_rows', 0),
                'D3 never_hits': rw.get('never_hits', 0), 'D4 zone_cells': pl['zone_cells'], 'D5 root_occupied': rw.get('root_occupied', 0),
                'G1 found_lost': fo.get('found_lost', 0), 'G2 off_plan': fo.get('off_plan', 0), 'G3 lid_unreach': fo.get('lid_unreach', 0),
