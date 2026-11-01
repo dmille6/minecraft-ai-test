@@ -1,0 +1,11 @@
+{
+ "run_id": "apseal-01",
+ "sha": "efaa88b273351c1330b9683551f2f62b9529fbb7",
+ "registered_at": "2026-11-01T04:04:21Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] apseal-01 @ efaa88b2 on fleet base 50ee6552 (branch apseal-on-50ee6552; composed with airpocketwin-01 (9ab8f72c)). APSEAL-01: the drowning rescue SEALS the roof cell's wet sides, then digs the air pocket. Measured ES 7 d to 10-31 22Z (80 bots): 207 deaths, 56 drownings (top cause); 48 of 56 had the air-pocket plan refuse 'water beside the roof cell would fill the pocket' (or above) within 400 s of the death, first refusal at 18-20 HP ~85 s before it (47/48); 86 such refusal episodes in the week, 46 ended drowned. Positive control: 95 steps ran (60 success, 35 opened, 0 failed). Geometry (10-31 backup region copies, all 48 sites): 47 plan with 1-5 seals (1 kelp, still refused). What: a wet side/top of the roof cell that is plain water/bubble_column/seagrass is filled first with a non-falling block placed against the roof cell's face (forceLook ignore, read back solid); a failed seal stops before any dig; +1.5 s per seal in admission; refused when the bag lacks the blocks. Lava/kelp/waterlogged still refuse. Composed with the airpocketwin window handoff: seals run after it and never equip through an open window. Paper sandbox2/3 10-31: base 281d5659 drowned 4/4 (scenes C, C3 x2, CT; 103-104 s); 71881ee0 alive 8/8 (C x2, C3 x2, C4 x2, CT, A; breathing at 26 s, seals k/k); 963e99af (composed, all-KEEP tip) alive 5/5 (C3, CT, C4, A, AF). Reviews: Codex blockers-only r1 none; Claude subagent r1 none. OWN LINES: _air_pocket rows seal=k/N, _air_pocket_start seal=N, _air_pocket_refused reasons; drowning deaths in the canary pools. Exposure: any pool (wet-roof refusals ~12/day fleet-wide; low per 3 pools, KEEP may be goal-unverified). Rollback: the base sha (no env switch). World: bots place 1-5 blocks of their own cobble/dirt in water beside the dug cell.",
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

@@ -13,119 +13,230 @@
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "5524a2c949e9a0e55b10885a690276df479bdf7b",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "22c11f7c79f8220907bdb60e68a3dac112e5d76bf8f112345896845c32317753",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "2717bc1c6a5194e848889a4908400b820cce51f2": {
    "registration": "/home/mike/mcai-analysis/apseal-01.c9325cf1.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "c9325cf19fb50d1936fb2dfb5635468d3076cd7b",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "c403e5b9456c2ab589c4cb6826c9cfe65c89ea1958dc8963fd29558ffa79fe61",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "8d85e5b7c810d23fb7241730442cc5c7f1b49ece": {
    "registration": "/home/mike/mcai-analysis/apseal-01.23ec4955.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "23ec49556a1ca86cd40e9ae6ce039104cf5697e7",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "57582ddaffb41dc936377b8a92e4932635cd1151e58fa57ef4092400e3d0d04c",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "1a0f9ddf162663ec03322fa894244b5ea28aa6e4": {
    "registration": "/home/mike/mcai-analysis/apseal-01.96edda7b.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "96edda7b7390115b1604a90e6033cf1ee4ae93c3",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "b13dc5474c6b01eaae84d269333b2aa5d5d14801616e39edb262319271c86bdf",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "a4625f57a5bcc7f07792b3ff921e2e0a494c579e": {
    "registration": "/home/mike/mcai-analysis/apseal-01.eba93499.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "eba934994edd66022c0b3e6c109d12a10ed898b0",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "977642dfd8a4a6acbdf7da3c714ff5841bf39ff882747676c17c0b40626f96c7",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "837ff9b4c4670d576dde6d5a6f6947333a8287ec": {
    "registration": "/home/mike/mcai-analysis/apseal-01.a853ed5e.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "a853ed5e61ed3a0164c36782f2622ebd0e5115bd",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "7c0505741d6e2842f219c0470be290407db185c73331f7e2a5d52870e19209a6",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "4493a010e8a9c0ab3c6f44af9a113faaf2355bfa": {
    "registration": "/home/mike/mcai-analysis/apseal-01.3f8bf650.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "3f8bf650c7fa95835f967ebf5bb2f066623cfa66",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "545e8cae02f73b30e8eac5d8e443ec3534fb305522fb965bc1e8a4570bfafde2",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "ee0be340b5379db17c4f60ac5cc916d4718b4690": {
    "registration": "/home/mike/mcai-analysis/apseal-01.fb6df3ea.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "fb6df3ea68225c62283f0d67ac8c0672221be33c",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "e4f1ddaef491d00be1acb40bc6d235b75ae0d695cbd63a5ace476f066435f7f4",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "d40126ac97fb8176c48bfac6bf01abc29b778199": {
    "registration": "/home/mike/mcai-analysis/apseal-01.b8484299.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "b8484299145c05344b0006955979a64e6baea8a2",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "f6a8721c8c47fbd5be6a412aa19db3370436a334fba111997de11b18baefa5c3",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "3a03478ab6b7369542a81899f3b0ee4f18dc50cc": {
    "registration": "/home/mike/mcai-analysis/apseal-01.396f8d7b.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "396f8d7be613d02bae37a2e3e8e6e462eac30bb7",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "dbaa83fe0e4e8242845a491c01208d9cdd831e40c08df0931aff77644666fed8",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "52d9281aad70f1fb62bec610da17fd6ab8e3cf07": {
    "registration": "/home/mike/mcai-analysis/apseal-01.6d6b7f96.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "6d6b7f96b09e12f096f42a5c430e2f9124b9e5a5",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "bd600f221a295da7bfad8dfd25cd45d9bcdcb5eb64a57a5aeee20cef0580d039",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "49ed6ba21ff195fd2e9b0042d69fdec3c39860c1": {
    "registration": "/home/mike/mcai-analysis/apseal-01.a68efe02.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "a68efe0249a902c9d4fbbf7dc361d550c4ee9d2a",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "8904b8298c5b295381876fcc2499a9696fb113c75238f847527d4b40c888e275",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "dfb3ff13b0c04e113f57febc5e6b9d0f2c59dc2a": {
    "registration": "/home/mike/mcai-analysis/apseal-01.0dfda7f2.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "0dfda7f23923c13a01d34fb083e9c97926a77a4e",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "08d15d6f10422109ff74436669bdd3600ae461d7eb28659b9904a2dc0eb3d75c",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "861ed4bc1e5f83b2e2289a6ff984cb535a2a5937": {
    "registration": "/home/mike/mcai-analysis/apseal-01.f6bc4456.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "f6bc44564dba53585f7145c24fdf4aeada9f1775",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "a4d77dfe7558d392cb8c0e7663d204a477bf0473a7fcbf1d784ba3ba3cf1368a",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "bd11c61e234c4296853f5dbcf78beb12b309e30b": {
    "registration": "/home/mike/mcai-analysis/apseal-01.c6a2afe7.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "c6a2afe7963a0b7e9a16af38bf62cb95f9f5eeee",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "c278dc149e06a34d9d327a1072d946f8822044e57ea8158e7d232e0358023b3a",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "9f2db08c89f26ba79fea538d0e16f5fb3ae56b77": {
    "registration": "/home/mike/mcai-analysis/apseal-01.20f1d66e.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "20f1d66eb44d0266e702b6b40ddedb12be6c4518",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "d035abb9e9bdb291c9cb2190779c96a6455579f97eb69c80ea2415fd7e9c7a81",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   },
   "9246217d52541daefeccbcde062d4778ba41a7fc": {
    "registration": "/home/mike/mcai-analysis/apseal-01.963e99af.json",
    "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive",
    "canary_sha": "963e99af53429dc5d7d98eea61b7b33eee380ff3",
    "reads_src": "/home/mike/mcai-analysis",
-   "reads": {}
+   "reads": {},
+   "registration_sha256": "a1ec6c8bcbe5814b59b8a93c496401df13245c284f9c85d16ccc6683f88521dd",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
+  },
+  "aec5277f294c961b6acf7a5f1aa1d3abcb98694c": {
+   "registration": "/home/mike/mcai-analysis/apseal-01.8fee80f4.json",
+   "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive; npm test full on this variant passed",
+   "canary_sha": "8fee80f430b12a9c79a691b9b3835f38e7e11b61",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "registration_sha256": "2be5456d3d5f76c20e00b5a8c83f5ce54d7dd864ef6c1ad60ed906c4947be409",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
+  },
+  "e0d8b9c22f5678438b866b44a91e33dd5077e1a9": {
+   "registration": "/home/mike/mcai-analysis/apseal-01.0818f461.json",
+   "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive; npm test full on this variant passed",
+   "canary_sha": "0818f46122cf840543ee7e2c13bd31a1f1e56970",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "registration_sha256": "18c58018cead1a84e9f0e4e4faff80a6dab6060176750a6743cff3ab595ad792",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
+  },
+  "2cb9493920387dcc538a2e600681a37e80bc7c18": {
+   "registration": "/home/mike/mcai-analysis/apseal-01.717f16b9.json",
+   "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive; npm test full on this variant passed",
+   "canary_sha": "717f16b9b0c3e20e3406345f7ee462d73d9c6aa0",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "registration_sha256": "b21c666abb7ca1691e8fbf13e4b9b826b8b35eddc12562153b5950e8aa7d4f7d",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
+  },
+  "0adee69d013b0152520da167a7e73d03d39004aa": {
+   "registration": "/home/mike/mcai-analysis/apseal-01.239a1e85.json",
+   "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive; npm test full on this variant passed",
+   "canary_sha": "239a1e85d1186031489ae76d0614365aac3333c4",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "registration_sha256": "dc4190790771430f68f6153148ddfdaa6c1f5bcb0b79a729ba313425f9b12378",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
+  },
+  "548f367ec7f2048a2249f04e5dbf9f4f14b921c3": {
+   "registration": "/home/mike/mcai-analysis/apseal-01.d86cc200.json",
+   "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive; npm test full on this variant passed",
+   "canary_sha": "d86cc200165240a780215859a3dbd2ef1bfa7055",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "registration_sha256": "de07eb9172d34378d5d3a3347206cfa6690858fc19ebf030157abd72bbd983d1",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
+  },
+  "50ee6552bd83248661ccdb16943216f4eb222d2c": {
+   "registration": "/home/mike/mcai-analysis/apseal-01.efaa88b2.json",
+   "approved": "Codex (codex exec, blockers-only) r1 BLOCKERS none (Paper 1.21.8 handleUseItemOn checks reach, not face visibility); Claude (independent review subagent) r1 BLOCKERS none (3 notes, none blocking); tier 3 by protected.py (reflex.mjs, airpocket.mjs); npm test 366/366 on 71881ee0; airpocket.test 131/131 (base line) / 175/175 (composed); every variant eslint clean + pocket/drown/air/escape groups 34/34 files (lint:movement fails on every BASE too: buildbot.mjs, pre-existing); Paper base 4/4 drowned, cand 13/13 alive; npm test full on this variant passed",
+   "canary_sha": "efaa88b273351c1330b9683551f2f62b9529fbb7",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "registration_sha256": "a2b5d24c22fd5c320d9aa1007d9ec85702f16e09c8f95f550794f5dd30fbf3b0",
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/airpocket.mjs bots/src/reflex.mjs tier=3"
   }
  }
 }
