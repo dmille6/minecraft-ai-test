@@ -2416,7 +2416,7 @@
      "docs/reports/serving-A-2026-11-01.md"
     ]
    },
-   "note": "OWNER 11-01 ~13:00Z option A (+ D fewer decisions, a separate row when built). Target ~107 decisions/min across 80 bots, p50 <= 2.5 s, p95 <= 5 s, >= 99% schema-valid. Client change main a871a70f (oai+ endpoints, per-bot sticky, /health-gated failover; Codex + Claude APPROVE). Owner 11-01 ~13:10Z (via the control session) allowed llama-server on the 5080 with the live Ollama untouched; blocked on the pve4 host key (changed 10-02, never verified), not bypassed."
+   "note": "OWNER 11-01 ~13:00Z option A (+ D fewer decisions, a separate row when built). Target ~107 decisions/min across 80 bots, p50 <= 2.5 s, p95 <= 5 s, >= 99% schema-valid. Client change main e1e56bf8 (oai+ endpoints, per-bot sticky, /health-gated failover; Codex + Claude APPROVE). Owner 11-01 ~13:10Z (via the control session) allowed llama-server on the 5080 with the live Ollama untouched; blocked on the pve4 host key (changed 10-02, never verified), not bypassed."
   }
  ]
 }
