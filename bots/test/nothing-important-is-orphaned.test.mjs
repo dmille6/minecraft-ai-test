@@ -156,6 +156,9 @@ const REQUIRED = [
   'sandbox/corpus.tsv',
   // the scripts run-scenario.sh drives the sandbox bot with
   'bots/scripts/sandbox-say.mjs',
+  // drainpick-01 (11-01): the drain not offered where it cannot help; withdraw_pick crafts the stone pickaxe from the bag
+  'bots/test/drainpick.test.mjs',
+  'bots/test/pickcraft.test.mjs',
   // the checker for the ARBITER=1 startup crash, which existed and was called by nothing
   'scripts/ops/arbiterpreflight.py',
   // the deploy wrapper that refuses a canary with no reader
