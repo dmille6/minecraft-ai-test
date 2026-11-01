@@ -169,6 +169,7 @@ import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_M
 import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OUTPUT_OF, IRON_MISS_KEY, IRON_MISS_TTL_MS, indexRuledOut, SMELT_GATE, indexInputAbsent,
          ironSmeltCount, ironBankPlan } from './smeltjob.mjs'   // ironsmelt-01
 import { withDigScope } from './digtown.mjs'
+import { returnOverdue as deepReturnOverdue } from './deepmine.mjs'   // deepminer-01 r1
 import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
 import { planOf as stairPlanOf, firstUndone as stairFirstUndone, standFor as stairStandFor, stairCellKeys } from './shaftgeom.mjs'   // deepminer-01: the stair's repair on the way down
 import { renewLease as projRenewLease } from './buildproj.mjs'   // deepminer-01: the deep miner's lease
@@ -17876,6 +17877,7 @@ async function deepRepair (ctx, rec, route, signal, deadline) {
 async function deepBranch (ctx, trip, signal, deadline) {
   const { bot } = ctx
   const start = deepFeet(bot)
+  if (start[1] > DEEP_IRON_FEET + 4) return { cells: 0, stop: 'not_underground' }   // Claude r1 B1: never a branch at the surface
   const rec = stairRecordNow()
   // AWAY FROM THE STAIR first (its cells are the town's), then round the compass branch by branch
   const c = rec?.site?.center
@@ -17975,6 +17977,13 @@ async function deepMine (ctx, args, signal) {
   const sampler = setInterval(() => { try { if (bot.entity?.onGround && trip.phase !== 'return') trip.trail = deepTrailPush(trip.trail, deepFeet(bot)) } catch { /* sampling */ } }, 500)
   try {
     const kitNow = () => deepTripKit(bot.inventory?.items?.() ?? [])
+    // NOT UNDERGROUND ANY MORE (Claude r1 B1: a death respawns the bot at home with its kit -- keepInventory -- and the trip would
+    // go on at the surface, mine digging from the respawn point with the credit, branches in town): home and bank
+    if (['deepen', 'work'].includes(trip.phase) && bot.entity.position.y > DEEP_IRON_FEET + 4) {
+      trip.phase = 'return'; trip.returnWhy = 'not_underground'; trip.returnTries = DEEP_RETURN_TRIES; trip.surfaced = false
+      deepRow(bot, 'turn', { why: 'not_underground' })
+    }
+    if (trip.phase === 'return' && deepReturnOverdue(trip)) trip.returnTries = Math.max(trip.returnTries ?? 0, DEEP_RETURN_TRIES)
     if (['deepen', 'work'].includes(trip.phase)) {
       const why = deepReturnWhy(trip, { kit: kitNow(), health: bot.health })
       if (why) { trip.phase = 'return'; trip.returnWhy = why; deepRow(bot, 'turn', { why }) }
@@ -18102,6 +18111,8 @@ async function deepMine (ctx, args, signal) {
     }
     // ---- bank: a diamond pickaxe from 3 diamonds (owner M10), then the town deposit ----------------------------------------------
     if (trip.phase === 'bank') {
+      trip.bankTries = (trip.bankTries ?? 0) + 1
+      if (trip.bankTries > 2) { deepClose(bot, 'home', `${trip.returnWhy ?? '-'}/bank_cut`); return out('no_effect', 'home from the deep trip (the deposit did not finish twice)') }
       const kit = kitNow()
       let made = false
       if (kit.diamonds >= DEEP_PICK_DIAMONDS && !(bot.inventory?.items?.() ?? []).some(i => i.name === 'diamond_pickaxe')) {

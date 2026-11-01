@@ -73,7 +73,7 @@ export const BRANCHES_MAX = 6                // branches a trip digs
 export const MISSES_MAX = 4                  // work rounds in a row with no ore -> go home
 export const TORCH_EVERY = 8                 // a torch every 8 branch cells (never required)
 export const TRAIL_GAP = 2                   // a trail stand at least this far (Chebyshev) from the last
-export const TRAIL_MAX = 400
+export const TRAIL_MAX = 3000                // a 40-min trip at 2 apart never fills it (Claude r1 note: a full trail dropped the late stands)
 export const RETURN_TRIES = 3                // return calls without progress before the trip is abandoned
 export const DIAMOND_GOAL = 8                // a diamond trip goes home with this many diamonds
 export const IRON_GOAL = 24                  // an iron trip goes home with this much raw iron
@@ -177,6 +177,10 @@ export function returnWhy (trip, { now = Date.now(), kit = null, health = 20 } =
   if ((trip.branches ?? 0) >= BRANCHES_MAX && (trip.misses ?? 0) > 0) return 'branches'
   return null
 }
+/** A RETURN THAT HAS RUN TOO LONG -> bool (Claude r1 note: the return phase had no cap of its own). Pure. */
+export function returnOverdue (trip, now = Date.now()) {
+  return !!trip && (now - (trip.startedAt ?? 0) > TRIP_MAX_MS + 10 * 60_000 || (trip.calls ?? 0) > 2 * CALLS_MAX)
+}
 /** The ore kinds this trip works at this depth. Pure: diamonds only below y=0 (they barely generate above: scan 11-01). */
 export function workKinds (trip, y) {
   if (trip?.target === 'diamond' && Number.isFinite(y) && y < 0) return [...DIAMOND_KINDS, ...IRON_ORE_KINDS]
@@ -240,6 +244,9 @@ export function routeIndex (route = [], feet) {
 }
 
 // ---- the branch -------------------------------------------------------------------------------------------------------------------
+/** The rock a branch may dig: generated underground blocks only (never a placed or crafted block). Pure. */
+const NATURAL = /^(stone|deepslate|tuff|granite|diorite|andesite|calcite|dirt|coarse_dirt|rooted_dirt|clay|mud|gravel|sand|red_sand|sandstone|red_sandstone|smooth_basalt|dripstone_block|pointed_dripstone|moss_block|moss_carpet|glow_lichen|amethyst_block|budding_amethyst|infested_.*|.*_ore|raw_.*_block|cobweb|sculk|sculk_vein|cave_vines|cave_vines_plant|hanging_roots|spore_blossom|azalea|flowering_azalea|big_dripleaf|big_dripleaf_stem|small_dripleaf|terracotta|.*_terracotta|bedrock)$/
+export const isNatural = b => !!b && NATURAL.test(String(b.name ?? '').replace(/\[.*\]$/, '')) && b.name !== 'bedrock'
 export const BEARINGS = Object.freeze([[1, 0], [0, 1], [-1, 0], [0, -1]])
 const N6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
 const add = (c, d) => [c[0] + d[0], c[1] + d[1], c[2] + d[2]]
@@ -289,6 +296,9 @@ export function branchNext (read, cells, i, open = new Set()) {
   const { feet, head } = cells[i]
   const hz = probeCell(read, head, { open }) ?? probeCell(read, feet, { feet: true, open })
   if (hz) return { op: 'stop', why: hz, i }
+  // ONLY THE WORLD'S OWN ROCK IS DUG (Claude r1 B1): a branch never digs a block someone built or placed -- a chest, a table, a
+  // wall, a stair's lining -- whatever led the miner there; anything not on the natural list ends the branch
+  for (const c of [head, feet]) { const b = read(...c); if (b && !isOpen(b) && !isNatural(b)) return { op: 'stop', why: 'not_natural', i } }
   for (const c of [head, feet]) { const b = read(...c); if (b && !isOpen(b)) return { op: 'dig', at: c } }
   return { op: 'step', to: feet, i }
 }

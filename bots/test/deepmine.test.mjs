@@ -287,3 +287,29 @@ test('wired: the maroon lattice asks tripHoldsBody; the loop schedules an open t
   assert.equal(strip(rf.replace(MAROON_GATE, "!runner.isBusy() && Date.now() >= airPocketBreatheUntil")).includes(MAROON_GATE), false)
   assert.equal(strip(cg.replace(NEXT_SOON, 'this.#scheduleNext()')).includes(NEXT_SOON), false)
 })
+
+// ---- 9. review r1 (Claude): never a placed block; the return has a cap of its own -----------------------------------------------
+test('a branch digs only the world\'s own rock: a chest, planks, bricks, cobblestone or a table ends it before the dig (B1)', () => {
+  for (const placed of ['chest', 'oak_planks', 'stone_bricks', 'cobblestone', 'crafting_table', 'furnace', 'barrel']) {
+    const w = world({ '3,-52,0': placed })
+    const r = drive(w, [0, -53, 0], 0, 6)
+    assert.equal(r.stop, 'not_natural', placed); assert.equal(r.cells, 2, placed)
+  }
+  for (const rock of ['deepslate', 'tuff', 'deepslate_diamond_ore', 'iron_ore', 'granite']) {
+    const w = world({ '3,-52,0': rock })
+    assert.equal(drive(w, [0, -53, 0], 0, 6).stop, 'end', rock)
+  }
+})
+test('returnOverdue: a return past the trip\'s age or twice its calls is over (the stranded branch takes it)', () => {
+  const now = 50_000_000
+  assert.equal(D.returnOverdue({ startedAt: now - 60_000, calls: 3 }, now), false)
+  assert.equal(D.returnOverdue({ startedAt: now - D.TRIP_MAX_MS - 11 * 60_000, calls: 3 }, now), true)
+  assert.equal(D.returnOverdue({ startedAt: now, calls: 2 * D.CALLS_MAX + 1 }, now), true)
+})
+const NOT_UNDER = "if (['deepen', 'work'].includes(trip.phase) && bot.entity.position.y > DEEP_IRON_FEET + 4) {"
+test('wired (B1): a trip at the surface in deepen/work turns home before any phase step (mutant seen)', () => {
+  const sk = readFileSync(SK, 'utf8')
+  assert.equal(sk.split(NOT_UNDER).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.ok(strip(sk).includes(NOT_UNDER))
+  assert.equal(strip(sk.replace(NOT_UNDER, 'if (false) {')).includes(NOT_UNDER), false)
+})
