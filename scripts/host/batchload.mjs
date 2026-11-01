@@ -1,4 +1,4 @@
-// batchload.mjs <bots-dir> <items.jsonl> <out.jsonl> <url> <model> <open|closed> <rate_per_min|concurrency> <n> <offset> <api: oai|ollama> [seed]
+// batchload.mjs <bots-dir> <items.jsonl> <out.jsonl> <url> <model> <open|closed> <rate_per_min|concurrency> <n> <offset> <api: native|oai|ollama|ollama-nothink> [seed]
 // Batching-server capacity test (10-31). Same request path as qwen35load.mjs: the FLEET'S OWN client
 // (bots/src/llm.mjs LlmClient.decide: schema grammar, repair retry, sentinel check) with the fleet env settings.
 // api=oai: global fetch is wrapped so the client's Ollama /api/chat call is sent to llama-server's
@@ -20,6 +20,21 @@ if (api === 'ollama-nothink') {
     if (!String(u).endsWith('/api/chat')) return realFetch(u, init)
     const b = JSON.parse(init.body); b.think = false
     return realFetch(u, { ...init, body: JSON.stringify(b) })
+  }
+}
+if (api === 'native') {
+  // 11-01: the client's OWN llama-server path (OLLAMA_BASE_URLS entry `oai+<url>|<alias>`, llm.mjs #postOai). The
+  // wrapper only reads a clone of each answer to record the server's timings (cache_n is not in the decision row).
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (u, init) => {
+    const r = await realFetch(u, init)
+    if (String(u).endsWith('/v1/chat/completions') && r.ok) {
+      try {
+        const d = await r.clone().json(), t = d.timings || {}
+        timings.set(d.choices?.[0]?.message?.content ?? '', { cache_n: t.cache_n ?? null, prompt_n: t.prompt_n ?? null, prompt_ms: t.prompt_ms ?? null, predicted_ms: t.predicted_ms ?? null })
+      } catch {}
+    }
+    return r
   }
 }
 if (api === 'oai') {
@@ -47,7 +62,8 @@ if (api === 'oai') {
 }
 const { config } = await import(botsDir + '/src/config.mjs')
 const { LlmClient } = await import(botsDir + '/src/llm.mjs')
-const client = new LlmClient({ baseUrls: [url], baseUrl: url, model, numCtx: config.llm.numCtx, maxTokens: config.llm.maxTokens,
+const epUrl = api === 'native' ? `oai+${url}|${model}` : url
+const client = new LlmClient({ baseUrls: [epUrl], baseUrl: epUrl, model, numCtx: config.llm.numCtx, maxTokens: config.llm.maxTokens,
                                temperature: config.llm.temperature, timeoutMs: config.llm.timeoutMs })
 let s = Number(seedS) >>> 0
 const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return (s + 0.5) / 4294967296 }

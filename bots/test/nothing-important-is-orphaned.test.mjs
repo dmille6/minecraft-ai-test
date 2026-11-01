@@ -112,6 +112,10 @@ const REQUIRED = [
   'scripts/host/modelrollout.py',
   'scripts/host/test_modelrollout.py',
   'scripts/host/modelcompare.py',
+  // serving option A (OWNER 11-01): the llama-server control script, the load tool and the oai+ client tests.
+  'scripts/host/servea-llama.sh',
+  'scripts/host/batchload.mjs',
+  'bots/test/llm-oai.test.mjs',
   'scripts/host/test_modelcompare.py',
   // canary-sched v39 launch-time autorebase: its tests, installer and the Mac push relay (11-01)
   'scripts/host/canary-sched.py',
