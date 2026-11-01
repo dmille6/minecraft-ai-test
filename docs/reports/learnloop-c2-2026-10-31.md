@@ -306,3 +306,24 @@ Learning-loop unit tests green.
 - One overlap to note: my teacher sent requests to the Blackwell from 23:31:48Z to ~23:37Z on 10-30, inside the
   qwen35-01 load test's first minutes. I stopped it, left a note in `~/qwen35-01/`, and moved the bulk work to the 3090.
   The later Blackwell window (00:38-02:15Z) ran under a fail-closed guard and ended before the canary was launched.
+
+## 11. Release attempt (owner 11-01 ~12:50Z "sure release the test") -- BLOCKED at the upload, NOT released
+
+| time (Z) | step | result |
+|---|---|---|
+| 12:34 | (1) upload `cand-qwen35-9b-c2-q8` (9.8 GB Q8_0 blob) to the Blackwell `/api/blobs` | **413**: port 11438 is an aiohttp proxy (`Server: Python/3.11 aiohttp/3.9.5`) with a **64 MiB max request body**. Ollama's blob upload is one POST, so the weights cannot pass this endpoint |
+| 12:35-12:37 | stand-in for the gate: `ollama pull qwen3.5:9b-q8_0` onto the Blackwell (registry pull, a small request) | digest a8ee95bc3592, identical to the 3090's copy |
+| 12:37-12:54 | (3) capacity, stand-in (same size/arch/quant as the candidate), 20/min open loop, think unset, fleet client, 300 items | 300/300 valid, 0 errors, **p50 1.9 s / p95 4.90 s** / p99 6.9 s, completion p95 80, max in flight 4. Passes the gates, with 0.1 s to spare at p95. The candidate answers shorter (completion p95 51) but is UNMEASURED there |
+| 12:55 | (2) think-unset render on the Blackwell (stock qwen3.5 renderer, which the candidate's Modelfile uses) | PASS: 2,629 / 2,521 / 2,647 tokens = the HF no-think render; the qwen2.5 control differs |
+| 12:35 | (5) move ahead of promptcache-01 | too late: the scheduler launched promptcache-01 at 12:35:02Z, the moment lavatarget-01 promoted (fleet `dfb3ff13`). It was still in its draw at 12:38Z. I did not stop a live canary for an entry that cannot run anyway |
+| -- | (4) variant on the live tip, (6) release | not done: pointless until the upload is possible, and the tip moves again when promptcache-01 closes |
+
+The entry's HOLD now says all of this. 80/80 bots were on .72 throughout (the `qwen35-roll` rollout of 12:35:03Z was
+rolled back at 12:35:28Z, before the capacity test began).
+
+**To unblock (owner, one of):** (a) raise the Blackwell proxy's body limit, or open a direct Ollama port for one
+upload; (b) a pull path: a private Hugging Face repo (needs a token, and the weights go to a third party), or a
+registry on our side that the Blackwell can reach (that means traffic from the Blackwell's 192.168.19x network: owner
+call). After that: upload -> create with the Modelfile (RENDERER/PARSER qwen3.5, stock PARAMETERs) -> think-unset
+template check on the candidate itself -> capacity for the candidate itself -> empty-tree variant on the live tip ->
+head of queue -> release. About 40 minutes of work.
