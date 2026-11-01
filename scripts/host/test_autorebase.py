@@ -346,6 +346,8 @@ def t_pure_verdict_and_norm(CS):
     assert 'timeout' in v(124, {'a.test.mjs': 'ok', 'b.test.mjs': 'FAIL'}, {'b.test.mjs': 'ok'}, {}, [])[0]
     assert 'reported 1 files' in v(0, {'a.test.mjs': 'ok'}, {}, {}, [], expected=2)[0]
     assert v(0, {'a.test.mjs': 'ok', 'b.test.mjs': 'ok'}, {}, {}, [], expected=2)[0] == ''
+    assert 'no completed answer' in v(1, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': '?'}, {'a.test.mjs': 'FAIL'}, [])[0]
+    assert 'NOT on the base' in v(1, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': '?'}, [])[0]
     many = {'f%d.test.mjs' % i: 'FAIL' for i in range(7)}
     assert 'more than' in v(1, many, {}, {}, [])[0]
     a = 'diff --git a/x b/x\nindex 111..222 100644\n--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@ fn\n a\n-b\n+c\n d\n'
@@ -374,6 +376,8 @@ MUTANTS = [
      "    if job is None or job.get('state') == 'refused':\n        return ('autorebase will cherry-pick"),
     ('the pick is not reproducible', "           'GIT_COMMITTER_DATE': '@%s +0000' % cdate.strip()}\n",
      "           'GIT_COMMITTER_DATE': '@%d +0000' % time.time_ns()}\n"),
+    ('an unanswered re-run counts as a failure', "    unknown = [f for f in still if alone_new.get(f) != 'FAIL']\n",
+     "    unknown = []\n"),
     ('a timed-out suite counts', "    if full_rc == 124:\n", "    if False:\n"),
     ('the variant is not added', "        rc = cmd_queue(P, ['add-variant', '--reads-src', reads_src, run, base, regp, approved])\n",
      "        rc = 0\n"),

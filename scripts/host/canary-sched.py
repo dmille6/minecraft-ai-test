@@ -1520,6 +1520,10 @@ def test_verdict(full_rc, full, alone_new, alone_base, touched, expected=None, m
         len(full) - len(fails), len(full), ', '.join('%s %s' % (f, alone_new.get(f, '?')) for f in fails))
     if not still:
         return '', summary + ' (all pass alone)'
+    unknown = [f for f in still if alone_new.get(f) != 'FAIL']
+    if unknown:
+        return 'no completed answer when re-run alone on the new tip (timeout, crash or no result line): %s' % (
+            ', '.join(unknown)), summary
     mine = [f for f in still if any(t.endswith('/' + f) or t == f for t in touched)]
     if mine:
         return 'test file(s) the change touches fail alone: %s' % ', '.join(mine), summary
@@ -1596,8 +1600,9 @@ def _ar_steps(P, job, run, base, tip):
         raise ArRefuse('fetch from %s failed: %s' % (P['ar_origin'], err.strip()[-200:]))
     have = lambda x: gitx(R, 'cat-file', '-e', '%s^{commit}' % x)[0] == 0
     if not all(have(x) for x in (pt['base'], tip, base)):
-        gitx(R, 'fetch', '-q', P['git'], '+HEAD:refs/deploy/HEAD', '+refs/remotes/origin/*:refs/deploy/origin/*',
-             timeout=1800)
+        # the deploy repo is root-owned: a local fetch runs upload-pack with the -c config cleared, so name it there
+        gitx(R, 'fetch', '-q', '--upload-pack=git -c safe.directory=* upload-pack', P['git'], '+HEAD:refs/deploy/HEAD',
+             '+refs/remotes/origin/*:refs/deploy/origin/*', timeout=1800)
     miss = [x[:8] for x in (pt['base'], tip, base) if not have(x)]
     if miss:
         raise ArRefuse('commits %s are in neither origin nor the deploy repo' % ', '.join(miss))
@@ -1633,6 +1638,8 @@ def _ar_steps(P, job, run, base, tip):
     # REPRODUCIBLE: committer pinned (name, email, the source tip's committer time), so a rebuild after
     # `autorebase-clear` makes the SAME sha and finds its own branch (and any push of it) instead of refusing on it
     _, cdate, _ = gitx(R, 'log', '-1', '--format=%ct', tip)
+    if not re.match(r'^\d+$', cdate.strip()):
+        raise ArRefuse('cannot read the committer time of %s (%r)' % (tip[:8], cdate.strip()[:40]))
     pin = {'GIT_COMMITTER_NAME': 'canary-sched autorebase', 'GIT_COMMITTER_EMAIL': 'autorebase@mcai.invalid',
            'GIT_COMMITTER_DATE': '@%s +0000' % cdate.strip()}
     rc, out, err = gitx(W, '-c', 'user.name=canary-sched autorebase', '-c', 'user.email=autorebase@mcai.invalid',
@@ -1689,7 +1696,8 @@ def _ar_steps(P, job, run, base, tip):
         def alone(f):
             rc1, o1 = run_cmd(nice + [npm, 'test', '--', f], B, 900, {'TEST_JOBS': '1'})
             r1 = test_results(o1).get(f, '?')
-            return 'ok' if r1 == 'ok' and rc1 == 0 else ('FAIL' if r1 == 'FAIL' else '?')   # '?': no answer, never ok
+            # 'FAIL' only for a COMPLETED failing run (a FAIL line, a non-zero exit, not the timeout kill); '?' is no answer
+            return 'ok' if r1 == 'ok' and rc1 == 0 else ('FAIL' if r1 == 'FAIL' and rc1 not in (0, 124) else '?')
         for f in fails:
             alone_new[f] = alone(f)
         still = [f for f in fails if alone_new.get(f) != 'ok']
