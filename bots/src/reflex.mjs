@@ -2845,8 +2845,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // aside while sky_descend owns the episode (respawnfall.mjs skyEscapeBlocked)
         // DEEPMINER-01: ...and while a town deep miner's trip is underground (deepmine.mjs tripHoldsBody): its return is the way
         // out (Paper 11-01: the lattice pillared a miner out of its own stair between two calls); a stale trip hands it back
-        if (!escaping && !marooned && !dangerMovingNow() && !skyEscapeBlocked(bot) && !runner.isBusy() && !tripHoldsBody(bot.deepTrip) && Date.now() >= airPocketBreatheUntil &&
-          Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
+        if (!escaping && !marooned && !dangerMovingNow() && !skyEscapeBlocked(bot) && !runner.isBusy() && Date.now() >= airPocketBreatheUntil &&
+          !tripHoldsBody(bot.deepTrip) && Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
         lastMaroonCheck = Date.now()
         const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
         // ONE PREDICATE WITH `isEntombed`, OR THE TWO BRANCHES LEAVE A GAP.
