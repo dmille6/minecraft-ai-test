@@ -76,6 +76,9 @@ const REQUIRED = [
   'bots/test/treefarm.test.mjs',
   'bots/src/storehouse.mjs',
   'bots/test/storehouse.test.mjs',
+  // showchat-01 (11-01): the showcase's templated chat announcements (comms stage 2) + the timelapse captions
+  'bots/src/showchat.mjs',
+  'bots/test/showchat.test.mjs',
   'bots/src/shopchest.mjs',
   'bots/test/shopchest.test.mjs',
   'bots/src/expedition.mjs',
