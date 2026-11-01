@@ -17903,11 +17903,12 @@ const sortBagFree = bot => 36 - (bot.inventory?.items?.() ?? []).length
 function sortTidyPlan (bot, homes) {
   const now = Date.now()
   const back = (bot.sortMoveBackoff ??= new Map())
-  // a name the bag already holds is not moved by this bot (Paper 11-01: a taken stack merges into the bag's own, and the put -- whole
-  // stacks only -- could then neither tell the town's items from the bot's nor put them back): another bot, or this one later, moves it
   const held = heldMap(bot)
-  return tidyMoves(homes, sortKnownEntries(bot), { maxSlots: Math.min(SORT_MOVE_STACKS, sortBagFree(bot) - SORT_BAG_SPARE), skip: (from, name) => (held[name] ?? 0) > 0 || (back.get(`${from}|${name}`) ?? 0) > now })
+  return tidyMoves(homes, sortKnownEntries(bot), { maxSlots: Math.min(SORT_MOVE_STACKS, sortBagFree(bot) - SORT_BAG_SPARE), skip: (from, name) => sortHeldUnstackable(bot, held, name) || (back.get(`${from}|${name}`) ?? 0) > now })
 }
+/** A name the bag holds that does not stack (a tool, armour: stackSize 1) is never moved by this bot (Codex r4 BLOCK: the floor keeps a
+ *  COUNT, so the put could bank the bot's healthy pickaxe and keep the town's worn one); stackable names are kept whole by the floor. */
+const sortHeldUnstackable = (bot, held, name) => (held[name] ?? 0) > 0 && (bot.registry?.itemsByName?.[name]?.stackSize ?? 64) <= 1
 /** The plan store cells' stands by key (a label goes on the wall straight past the chest from its stand). */
 const sortStands = plan => new Map(((plan?.plots ?? []).find(p => p?.id === 'store')?.cells ?? []).filter(c => Array.isArray(c?.at) && Array.isArray(c?.stand)).map(c => [c.at.join(','), c.stand]))
 /** A label spot's need now (sortstore.mjs spotNeed over the live world). */
@@ -18015,10 +18016,12 @@ async function sortLabelOne (ctx, sp, signal, deadline) {
     row(false, `error:${String(e?.message ?? e).slice(0, 60)}`); return 'error'
   }
 }
-/** PUT exactly `stacks` ({ name: n }: what the tidy took) into the town container `block` -> { put: { name: n }, ok, why }. The town
- *  deposit's own container body -- open, observe, owned window, bankInto's clicks, settle, verify by a re-open -- with an explicit
- *  plan: the bag's stacks of each name up to what was taken, never the bot's own stock beyond it. */
-async function sortPut (bot, block, stacks, deadline, signal) {
+/** PUT what the tidy took (`stacks`: { name: n }) into the town container `block` -> { put: { name: n }, ok, why }. The town deposit's
+ *  own container body -- open, observe, owned window, bankInto's clicks, settle, verify by a re-open -- with an explicit plan: whole
+ *  bag stacks of each name, the biggest first, never taking the bag's total of a name below `floor` (its count BEFORE the take: the
+ *  withdraw's shift-clicks MERGE a taken stack into the bag's own partial one -- Paper 11-01 -- so a stack is not the town's or the
+ *  bot's; the floor keeps the bot's own stock whole, and at most one partial stack of the town's stays in the bag). */
+async function sortPut (bot, block, stacks, deadline, signal, floor = {}) {
   const pos = block.position
   const win = await openTown(bot, block, Math.max(1000, Math.min(TD_OPEN_MS, deadline - Date.now())))
   if (!win) return { put: {}, ok: false, why: 'unopenable' }
@@ -18030,10 +18033,12 @@ async function sortPut (bot, block, stacks, deadline, signal) {
   const own = ownInventory(bot, win)
   let r = { done: [] }, settled = null
   const explicit = bag => {
+    const total = {}
+    for (const it of bag) total[it.name] = (total[it.name] ?? 0) + it.count
     const left = { ...stacks }, out = []
     for (const it of [...bag].sort((a, b) => b.count - a.count)) {
-      if (!(left[it.name] > 0) || it.count > left[it.name]) continue
-      out.push({ slot: it.slot, name: it.name, count: it.count }); left[it.name] -= it.count
+      if (!(left[it.name] > 0) || it.count > left[it.name] || total[it.name] - it.count < (Number(floor[it.name]) || 0)) continue
+      out.push({ slot: it.slot, name: it.name, count: it.count }); left[it.name] -= it.count; total[it.name] -= it.count
     }
     return out
   }
@@ -18067,7 +18072,9 @@ async function sortTidyOne (ctx, homes, signal, deadline) {
   const keep = roomKeep(bot.currentWants ?? [])
   const want = plan.moves.map(m => ({ name: m.name, count: m.count }))
   const decide = (inChest, bag, { chestEmpty }) => {
-    const takes = want.map(t => ({ name: t.name, count: Math.min(t.count, haveIn(inChest, t.name)) })).filter(t => t.count > 0 && !bag.some(b => b?.name === t.name))
+    const hb = {}
+    for (const b of bag) if (b?.name) hb[b.name] = (hb[b.name] ?? 0) + (b.count ?? 0)
+    const takes = want.map(t => ({ name: t.name, count: Math.min(t.count, haveIn(inChest, t.name)) })).filter(t => t.count > 0 && !sortHeldUnstackable(bot, hb, t.name))
     if (!takes.length) return null
     const d = decideTakes(takes, inChest, bag, chestEmpty, keep)
     // never make room by banking the bag's own stacks into the source: the tidy moves town stock only
@@ -18075,6 +18082,7 @@ async function sortTidyOne (ctx, homes, signal, deadline) {
     return d
   }
   const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))
+  const floor = heldMap(bot)   // the bag's own counts before the take (sortPut never puts below them)
   const v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000)
   const took = v.verified ? { ...(v.moved?.took ?? {}) } : {}
   if (!Object.keys(took).length) { backoff(plan.moves.map(m => m.name)); row(false, `why=take:${v.result?.failClass ?? v.skip ?? 'none'}`); return { moved: 0, why: 'take' } }
@@ -18090,7 +18098,7 @@ async function sortTidyOne (ctx, homes, signal, deadline) {
       try { await chestWalk(bot, new goals.GoalNear(tb.position.x, tb.position.y, tb.position.z, 2), Math.max(1000, Math.min(TD_WALK_MS, deadline - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       check(signal)
       if (!(eyeToBlock(bot.entity.position, tb.position) <= OPEN_REACH)) { puts.push(`${to}:unreachable`); continue }
-      const p = await sortPut(bot, tb, st, deadline, signal)
+      const p = await sortPut(bot, tb, st, deadline, signal, floor)
       for (const [n, c] of Object.entries(p.put)) done[n] = (done[n] ?? 0) + c
       puts.push(`${to}:${Object.entries(p.put).map(([n, c]) => `${n}x${c}`).join('+') || p.why}`)
     }
@@ -18098,7 +18106,8 @@ async function sortTidyOne (ctx, homes, signal, deadline) {
     for (const [n, c] of Object.entries(took)) releaseWithdrawHold(n, c)
   }
   const moved = Object.values(done).reduce((a, b) => a + b, 0)
-  const short = Object.entries(took).filter(([n, c]) => (done[n] ?? 0) < c).map(([n]) => n)
+  // short: a name of which nothing went in (a partial stack merged into the bag's own is not short: the floor kept it)
+  const short = Object.entries(took).filter(([n]) => !((done[n] ?? 0) > 0)).map(([n]) => n)
   if (short.length) backoff(short)
   row(moved > 0, `took=${Object.entries(took).map(([n, c]) => `${n}x${c}`).join('+')} put=${puts.join(' ') || '-'} moved=${moved} short=${short.join('+') || '-'}`)
   return { moved, why: short.length ? 'short' : 'done' }
