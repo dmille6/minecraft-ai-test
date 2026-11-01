@@ -274,7 +274,7 @@ await t('MUTANT killed: the access trigger removed -> the void is never filled',
 console.log('WIRING (structural: the monument visit is not reachable offline)')
 const SKILLS = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
 await t('the monument visit passes the access, and draws its cap + spare from town when the stuck map holds cells (Codex r1 BLOCK)', () => {
-  assert.strictEqual(SKILLS.split('access: zigAccessOf(bot, c) }, effects').length, 2, 'the access is wired into the monument visit once')
+  assert.strictEqual(SKILLS.split('access: zigAccessOf(bot, c), sealed: zigSealedOf(c, zigOtherCells()) }, effects').length, 2, 'the access is wired into the monument visit once')
   assert.match(SKILLS, /if \(zigAccessOf\(bot, c\) && Object\.keys\(vfStuckRead\(dir, key\)\)\.length\) want\.cobblestone = \(want\.cobblestone \?\? 0\) \+ VF_ACCESS_DIG_MAX \+ VF_ACCESS_SPARE/)
   assert.ok(SKILLS.indexOf('VF_ACCESS_SPARE } catch') < SKILLS.indexOf('const need = needFromTown(want, spare0)', SKILLS.indexOf('VF_ACCESS_SPARE } catch')), 'the extra draw is added before the need is computed')
 })
