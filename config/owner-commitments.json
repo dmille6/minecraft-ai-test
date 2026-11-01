@@ -2419,6 +2419,47 @@
    "note": "OWNER 11-01 ~13:00Z option A (+ D fewer decisions, a separate row when built). Target ~107 decisions/min across 80 bots, p50 <= 2.5 s, p95 <= 5 s, >= 99% schema-valid. Client change main e1e56bf8 (oai+ endpoints, per-bot sticky, /health-gated failover; Codex + Claude APPROVE). Owner 11-01 ~13:10Z (via the control session) allowed llama-server on the 5080 with the live Ollama untouched; blocked on the pve4 host key (changed 10-02, never verified), not bypassed."
   },
   {
+   "id": "cooldown15-setting",
+   "title": "Decision cooldown 30 s -> 15 s (setting canary cooldown15-01): bots spend less time standing between decisions",
+   "owner_date": "2026-11-01",
+   "memory": [
+    "cooldown15-canary-1101.md",
+    "cooldown-20s-canary.md",
+    "decision-cooldown-is-two-thirds-of-fleet-life.md",
+    "owner-setting-fast-path-1016.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "cooldown15-01 (45ed1239 on dfb3ff13, patch set) queued after fleetbuild-01, ahead of fewerdec-01; read +90/+180: generic gate + own lines (calls/min/bot DiD >= +15%; control 5080 p95 <= 1.2x own pre and <= 5 s; repeat_loop share +<=5 pp control-adjusted; items/value per bot-h and in-skill share reported); after promotion a 60-min 5080 p95 tripwire (rollback LLM_DECISION_COOLDOWN_CAP_MS=30000)",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "runs": [
+     "cooldown15-01"
+    ],
+    "branches": [
+     "cooldown15-*"
+    ],
+    "grep": [
+     "cooldown15"
+    ],
+    "paths": [
+     "docs/reports/cooldown15-01-2026-11-01.md"
+    ],
+    "fleet_paths": [
+     "bots/test/cooldown-cap.test.mjs"
+    ]
+   },
+   "depends_on": [
+    {
+     "run": "fleetbuild-01",
+     "until": "closed"
+    }
+   ],
+   "note": "Not an owner decision: the control session's call (owner away) under serving D and the owner setting fast path 10-16. Env-only (CANARY_ENV) was not possible at 4 pools: model-env is capped at draw_k 1..2, so the cap is in config.mjs like the 09-11 20 s clamp."
+  },
+  {
    "id": "serving-d-fewer-decisions",
    "title": "Serving D: fewer LLM decisions so any server (5080 today, llama.cpp later) carries the fleet; bots continue instead of waiting",
    "owner_date": "2026-11-01",
@@ -2452,11 +2493,11 @@
    },
    "depends_on": [
     {
-     "run": "fleetbuild-01",
+     "run": "cooldown15-01",
      "until": "closed"
     }
    ],
-   "note": "Owner 11-01 ~13:00Z chose A+D. Measured 11-01: 96.1 model calls/min fleet; 43.2% vetoed, 6.5% runner-paused; bot-time 27.8% in skills, 67.0% decision cooldown. Coordinator 13:45Z added 'continue instead of wait' (CONTINUE)."
+   "note": "Owner 11-01 ~13:00Z chose A+D. Measured 11-01: 96.1 model calls/min fleet; 43.2% vetoed, 6.5% runner-paused; bot-time 27.8% in skills, 67.0% decision cooldown. Coordinator 13:45Z added 'continue instead of wait' (CONTINUE). Control session 11-01: cooldown15-01 (setting canary, 30 s -> 15 s cap) queued AHEAD of fewerdec-01; fewerdec's after = cooldown15-01."
   }
  ]
 }

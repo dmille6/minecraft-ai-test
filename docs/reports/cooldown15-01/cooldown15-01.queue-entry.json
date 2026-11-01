@@ -1,0 +1,17 @@
+{
+ "run": "cooldown15-01",
+ "class": "",
+ "after": [
+  "fleetbuild-01"
+ ],
+ "not_before": null,
+ "hold": null,
+ "note": "control session 11-01 (owner away; owner setting fast path 10-16): PROGRESS entry, SETTING canary -- decision cooldown capped at 15 s in config.mjs (fleet env 30 s). Placed BEFORE fewerdec-01 (both change cadence; fewerdec builds on this result: its after is set to cooldown15-01, and v39 autorebases it onto whatever tip this leaves). Variant keyed on dfb3ff13; patch source set (config.mjs + 1 test + orphan list; touches no file of apseal-01, and only a non-adjacent hunk of fleetbuild-01's orphan-list edit). Read lines in the registration; post-promotion 60-min 5080 p95 tripwire. Report docs/reports/cooldown15-01-2026-11-01.md.",
+ "variants": {
+  "dfb3ff13b0c04e113f57febc5e6b9d0f2c59dc2a": {
+   "registration": "/home/mike/mcai-analysis/cooldown15-01.45ed1239.json",
+   "approved": "Codex (codex exec, read-only, blockers-only) r1: BLOCKERS none (its own 9 fresh-process config checks passed); tier 1 by protected.py (bots/src/config.mjs not protected) -- canary by choice; npm test + npm run check on 45ed1239",
+   "reads_src": "/home/mike/mcai-analysis"
+  }
+ }
+}

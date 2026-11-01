@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""cooldown15 capacity estimate: decision rows (llm-*.jsonl) + skill rows (skill-*.jsonl), one window, all bots.
+usage: python3 - START END < cdcap.py   (ISO Z)"""
+import bisect, datetime as dt, glob, json, os, statistics, sys
+from collections import defaultdict
+
+S = dt.datetime.fromisoformat(sys.argv[1].replace('Z', '+00:00')).timestamp()
+E = dt.datetime.fromisoformat(sys.argv[2].replace('Z', '+00:00')).timestamp()
+ROOT = '/var/log/mcai'
+
+
+def t(s):
+    return dt.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+
+
+def q(xs, p):
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(p * len(xs)))] if xs else None
+
+
+llm = defaultdict(list)   # bot -> [(ts, is_model, latency_s, trigger, endpoint, error)]
+skills = defaultdict(list)  # bot -> [(start, end)]
+lines = 0; bad = 0; dur_found = 0
+for d in sorted(glob.glob(ROOT + '/*/')):
+    bot = os.path.basename(d.rstrip('/'))
+    if bot.startswith('_'):
+        continue
+    for kind in ('llm', 'skill'):
+        p = os.path.join(d, '%s-%s.jsonl' % (kind, bot))
+        if not os.path.exists(p):
+            continue
+        with open(p, 'rb') as f:
+            for raw in f:
+                lines += 1
+                try:
+                    r = json.loads(raw)
+                    ts = t(r['@timestamp'])
+                except Exception:
+                    bad += 1; continue
+                if ts < S - 600 or ts > E + 600:
+                    continue
+                if kind == 'llm':
+                    L = r.get('llm') or {}
+                    is_model = bool(L.get('endpoint')) and bool(L.get('latency_ms'))
+                    llm[bot].append((ts, is_model, (L.get('latency_ms') or 0) / 1000.0, r.get('trigger'),
+                                     L.get('endpoint'), L.get('error'), (r.get('exp') or {}).get('pool')))
+                else:
+                    sk = r.get('skill') or {}
+                    dur = sk.get('duration_ms')
+                    if dur is None:
+                        dur = (r.get('outcome') or {}).get('duration_ms')
+                    if dur is None:
+                        dur = r.get('duration_ms')
+                    if dur is None:
+                        continue
+                    dur_found += 1
+                    skills[bot].append((ts, ts + dur / 1000.0, sk.get('name'), r.get('trigger')))
+print('lines walked', lines, 'bad', bad, 'bots llm', len(llm), 'bots skill', len(skills), 'skill rows w/ duration', dur_found)
+
+# --- timestamp semantics: llm-triggered skill row start minus the llm row ts
+deltas = []
+for bot, rows in llm.items():
+    st = sorted(s[0] for s in skills.get(bot, []))
+    for (ts, m, lat, trig, ep, err, pool) in rows:
+        if m and not err and S <= ts <= E:
+            i = bisect.bisect_left(st, ts - 5)
+            if i < len(st) and st[i] - ts < 10:
+                deltas.append(st[i] - ts)
+print('skill_start - llm_ts (admitted model calls): p10/p50/p90', q(deltas, .1), q(deltas, .5), q(deltas, .9), 'n', len(deltas))
+
+# --- load on the 5080, by 10-min bin; latency vs in-flight
+calls = []
+for bot, rows in llm.items():
+    for (ts, m, lat, trig, ep, err, pool) in rows:
+        if m and S <= ts <= E:
+            calls.append((ts - lat, ts, lat, ep, pool))
+eps = defaultdict(int)
+for c in calls:
+    eps[c[3]] += 1
+print('model calls by endpoint', dict(eps))
+EP = max(eps, key=eps.get)
+c5 = sorted([c for c in calls if c[3] == EP])
+mins = (E - S) / 60
+lat = [c[2] for c in c5]
+print('%s: %d calls in %.0f min = %.1f/min; p50 %.2f p95 %.2f p99 %.2f s; mean in flight %.2f' % (
+    EP, len(c5), mins, len(c5) / mins, q(lat, .5), q(lat, .95), q(lat, .99), sum(lat) / (E - S)))
+bins = defaultdict(list)
+for c in c5:
+    bins[int((c[1] - S) // 600)].append(c[2])
+print('10-min bins: rate/min p50 p95')
+for b in sorted(bins):
+    v = bins[b]
+    print('  bin %2d  %5.1f  %.2f  %.2f' % (b, len(v) / 10, q(v, .5), q(v, .95)))
+# in flight at start
+ev = sorted([(c[0], 1) for c in c5] + [(c[1], -1) for c in c5])
+starts = [c[0] for c in c5]
+# count in flight at each start: number of calls with start < s < end
+ends_sorted = sorted(c[1] for c in c5)
+byk = defaultdict(list)
+for c in c5:
+    n_started = bisect.bisect_left(starts, c[0])          # calls started before
+    n_ended = bisect.bisect_right(ends_sorted, c[0])       # calls ended before this start
+    k = n_started - n_ended
+    byk[min(k, 8)].append(c[2])
+print('latency by calls already in flight at start: k n p50 p95')
+for k in sorted(byk):
+    v = byk[k]
+    print('  k=%d  n=%5d  p50 %.2f  p95 %.2f  mean %.2f' % (k, len(v), q(v, .5), q(v, .95), statistics.mean(v)))
+
+
+# --- cadence projection: same decision sequence, cooldown C instead of 30
+def first_tick(e, c):
+    """first timer check >= e given cooldown c and a 10 s busy re-check (cognitive.mjs #scheduleNext)."""
+    if e <= c:
+        return c
+    import math
+    return c + 10 * math.ceil((e - c) / 10.0)
+
+
+OVER = defaultdict(int)
+
+
+def project(C, base=30.0):
+    tot_g = tot_g2 = 0.0; n = kept = 0; idle_wait = 0.0
+    for bot, rows in llm.items():
+        rows = sorted(rows)
+        sk = sorted(skills.get(bot, []))
+        sst = [s[0] for s in sk]
+        for a, b in zip(rows, rows[1:]):
+            if not (S <= a[0] <= E and S <= b[0] <= E):
+                continue
+            endA = a[0]
+            startB = b[0] - b[2]
+            g = startB - endA
+            if g < 0:
+                continue
+            n += 1
+            tot_g += g
+            # busy until: the latest end of a skill that started in [endA-5, startB)
+            i = bisect.bisect_left(sst, endA - 5)
+            e = 0.0
+            while i < len(sk) and sk[i][0] < startB:
+                if not str(sk[i][2] or '_').startswith('_'):
+                    e = max(e, sk[i][1] - endA)
+                i += 1
+            tick = first_tick(e, base)
+            over = g - tick
+            OVER[min(max(int(over // 2) * 2, -10), 40)] += 1
+            if b[3] != 'idle' or over < -1.0 or over > 8.0:
+                tot_g2 += g; kept += 1      # not a cooldown-timed tick: unchanged
+                continue
+            idle_wait += max(0.0, tick - max(e, 0.0))
+            tot_g2 += first_tick(e, C) + max(over, 0.0)
+    return n, kept, tot_g, tot_g2, idle_wait
+
+
+for C in (20.0, 15.0, 10.0):
+    OVER.clear()
+    n, kept, g, g2, iw = project(C)
+    print('cooldown %2.0f s: gaps %d (unchanged %d = %.1f%%), tick rate x%.3f; idle cooldown share of gap time at 30 s %.1f%%' % (
+        C, n, kept, 100.0 * kept / max(n, 1), g / g2, 100.0 * iw / g))
+    if C == 15.0: print('  gap minus predicted tick (2 s bins):', dict(sorted(OVER.items())))
+
+# per-pool rate (calls/min/bot) on the 5080 for the control arm baseline
+pb = defaultdict(set); pc = defaultdict(int)
+for bot, rows in llm.items():
+    for (ts, m, lat, trig, ep, err, pool) in rows:
+        if m and S <= ts <= E:
+            pb[pool].add(bot); pc[pool] += 1
+print('calls/min/bot by pool:', {p: round(pc[p] / len(pb[p]) / mins, 2) for p in sorted(pc)})
+veto = sum(1 for bot, rows in llm.items() for r in rows if r[1] and S <= r[0] <= E and r[5] == 'repeat_loop')
+print('repeat_loop share of model calls: %.1f%%' % (100.0 * veto / max(len(calls), 1)))
