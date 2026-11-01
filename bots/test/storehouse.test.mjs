@@ -238,13 +238,14 @@ await t('MUTANT KILLED: without the frontOpen exemption the doorway\'s front is 
 await t('the project: seventh, after the workshop, two builders; projectsOn takes it only with its switch and the house\'s', async () => {
   const p = SHOP.PROJECTS.find(q => q.plot === H.STORE_PLOT)
   assert.ok(p && p.after === 'shop' && p.blueprint === H.STORE_BLUEPRINT && SHOP.buildersOf(p) === 2)
-  assert.strictEqual(SHOP.PROJECTS.at(-1).plot, H.STORE_PLOT, 'last: the workshop stays PROJECTS[0] (skills.mjs workshopStations reads hs[0])')
-  assert.ok(SHOP.projectsOn(true, true, true, true, false, true, true).some(q => q.plot === H.STORE_PLOT))
-  assert.ok(!SHOP.projectsOn(true, true, true, true, false, true, false).some(q => q.plot === H.STORE_PLOT))
-  assert.ok(!SHOP.projectsOn(false, true, true, true, false, true, true).some(q => q.plot === H.STORE_PLOT))
+  assert.strictEqual(SHOP.PROJECTS[0].plot, 'shop', 'the workshop stays PROJECTS[0] (skills.mjs workshopStations reads hs[0])')
+  assert.strictEqual(SHOP.PROJECTS.at(-1).plot, 'tidy', 'tidy-01 stays the last project')
+  assert.ok(SHOP.projectsOn(true, true, true, true, false, true, false, true).some(q => q.plot === H.STORE_PLOT))
+  assert.ok(!SHOP.projectsOn(true, true, true, true, false, true, false, false).some(q => q.plot === H.STORE_PLOT))
+  assert.ok(!SHOP.projectsOn(false, true, true, true, false, true, false, true).some(q => q.plot === H.STORE_PLOT))
   // everything else complete: the storehouse is the active project
-  const st = SHOP.projectsOn(true, true, true, true, false, true, true).map(q => ({ plot: q.plot, exists: true, complete: q.plot !== H.STORE_PLOT, damaged: false }))
-  assert.strictEqual(SHOP.activeProject(st, SHOP.projectsOn(true, true, true, true, false, true, true)).plot, H.STORE_PLOT)
+  const st = SHOP.projectsOn(true, true, true, true, false, true, false, true).map(q => ({ plot: q.plot, exists: true, complete: q.plot !== H.STORE_PLOT, damaged: false }))
+  assert.strictEqual(SHOP.activeProject(st, SHOP.projectsOn(true, true, true, true, false, true, false, true)).plot, H.STORE_PLOT)
 })
 await t('r4: a storehouse\'s stuck stamp holds 30 min (the stair\'s), not the 6 h of a workshop', async () => {
   assert.strictEqual(SHOP.stuckWindowOf(H.STORE_PLOT), SHOP.SHAFT_STUCK_RETRY_MS)
