@@ -2417,6 +2417,46 @@
     ]
    },
    "note": "OWNER 11-01 ~13:00Z option A (+ D fewer decisions, a separate row when built). Target ~107 decisions/min across 80 bots, p50 <= 2.5 s, p95 <= 5 s, >= 99% schema-valid. Client change main e1e56bf8 (oai+ endpoints, per-bot sticky, /health-gated failover; Codex + Claude APPROVE). Owner 11-01 ~13:10Z (via the control session) allowed llama-server on the 5080 with the live Ollama untouched; blocked on the pve4 host key (changed 10-02, never verified), not bypassed."
+  },
+  {
+   "id": "serving-d-fewer-decisions",
+   "title": "Serving D: fewer LLM decisions so any server (5080 today, llama.cpp later) carries the fleet; bots continue instead of waiting",
+   "owner_date": "2026-11-01",
+   "memory": [
+    "owner-serving-plan-1101.md",
+    "decision-cooldown-is-the-gap.md",
+    "the-decision-stream-is-a-separate-file.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "fewerdec-01 canary (PAUSEWAIT + VETOSKIP + CONTINUE, tier 3) queued after fleetbuild-01 with a set-patch; read at +90/+180: model calls/min/bot down >= ~15% vs control, items/bot-h and in-skill share not worse (in-skill expected up), decision_skipped + fewerdec_tally rows present on the canary pool",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "runs": [
+     "fewerdec-01"
+    ],
+    "branches": [
+     "fewerdec-*"
+    ],
+    "grep": [
+     "fewerdec"
+    ],
+    "paths": [
+     "bots/src/fewerdec.mjs"
+    ],
+    "fleet_paths": [
+     "bots/src/fewerdec.mjs"
+    ]
+   },
+   "depends_on": [
+    {
+     "run": "fleetbuild-01",
+     "until": "closed"
+    }
+   ],
+   "note": "Owner 11-01 ~13:00Z chose A+D. Measured 11-01: 96.1 model calls/min fleet; 43.2% vetoed, 6.5% runner-paused; bot-time 27.8% in skills, 67.0% decision cooldown. Coordinator 13:45Z added 'continue instead of wait' (CONTINUE)."
   }
  ]
 }
