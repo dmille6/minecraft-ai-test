@@ -164,16 +164,23 @@ await t('the chain is killed by its own mutant: without it each cell up the hole
   } finally { try { unlinkSync(out) } catch {} }
   assert.ok(why instanceof assert.AssertionError, `the mutant survived or died for another reason: ${why?.stack?.split('\n')[0] ?? 'survived'}`)
 })
-await t('withWaived: merged, never on a complete record or a changed cell count; nothing new -> null', () => {
-  const rec = { cells: [1, 2], waived: { 'a': { why: 'x' } } }
-  assert.deepStrictEqual(Object.keys(SC.withWaived(rec, [{ k: 'b', why: 'y' }], { cells: 2 }).waived), ['a', 'b'])
-  assert.strictEqual(SC.withWaived(rec, [{ k: 'a' }], { cells: 2 }), null)
-  assert.strictEqual(SC.withWaived({ ...rec, structure_complete: true }, [{ k: 'b' }]), null)
-  assert.strictEqual(SC.withWaived(rec, [{ k: 'b' }], { cells: 3 }), null)
+await t('withWaived: merged, only record cells, never past the record\'s bound, never on a complete record or a changed cell count; the completion merges them', () => {
+  const rec = { cells: [{ at: [0, 0, 1] }, { at: [0, 0, 2] }, { at: [0, 0, 3] }], waived: { '0,0,1': { why: 'x' } } }
+  assert.deepStrictEqual(Object.keys(SC.withWaived(rec, [{ k: '0,0,2', why: 'y' }], { cells: 3 }).waived), ['0,0,1', '0,0,2'])
+  assert.strictEqual(SC.withWaived(rec, [{ k: '0,0,1' }], { cells: 3 }), null, 'nothing new')
+  assert.strictEqual(SC.withWaived(rec, [{ k: '9,9,9' }], { cells: 3 }), null, 'not a record cell')
+  assert.deepStrictEqual(Object.keys(SC.withWaived(rec, [{ k: '0,0,2' }, { k: '0,0,3' }], { cells: 3, max: 2 }).waived), ['0,0,1', '0,0,2'], 'the bound is the record\'s')
+  assert.strictEqual(SC.withWaived({ ...rec, structure_complete: true }, [{ k: '0,0,2' }]), null)
+  assert.strictEqual(SC.withWaived(rec, [{ k: '0,0,2' }], { cells: 4 }), null)
+  assert.deepStrictEqual(Object.keys(SC.completeWithWaived(rec, [{ k: '0,0,3' }], { cells: 3 }).waived), ['0,0,1', '0,0,3'], 'the completion carries the visit\'s waivers (Claude r1)')
+  assert.strictEqual(SC.completeWithWaived(rec, [], {}), rec)
+  assert.strictEqual(SC.visitOpts({ cells: [], structure_complete: true }, 'shop', null, true).waive, undefined, 'never a waiver on a complete record\'s repair (Codex r1 BLOCK)')
+  assert.ok(SC.visitOpts({ cells: [] }, 'shop', null, true).waive, 'positive control: an open record has one')
 })
-await t('stampLiftable: a stamp on cells all done or due their waiver is lifted; one cell neither, or no room, holds', () => {
+await t('stampLiftable: a stamp on cells all done or due their waiver is lifted; one cell neither, no room, or a cell not CLEAR (Claude r1 BLOCK) holds', () => {
   const rec = { cells: [{ at: [0, 0, 0], role: 'fill', seg: 'earth' }, { at: [1, 0, 0], role: 'base', seg: 'pad' }] }
-  const o = { counts: { '0,0,0': { visits: 5 } }, mayWaive: SC.shopMayWaive, max: 6 }
+  const o = { counts: { '0,0,0': { visits: 5 } }, mayWaive: SC.shopMayWaive, max: 6, clear: () => true }
+  assert.strictEqual(SC.stampLiftable(['0,0,0'], rec, { ...o, clear: () => false }), false, 'a blocked or sealed cell: the visit cannot waive it, the stamp holds')
   assert.strictEqual(SC.stampLiftable(['0,0,0'], rec, o), true)
   assert.strictEqual(SC.stampLiftable(['0,0,0', '1,0,0'], rec, o), false, 'a pad cell holds')
   assert.strictEqual(SC.stampLiftable(['0,0,0', '1,0,0'], rec, { ...o, done: c => c.role === 'base' }), true)
@@ -199,7 +206,17 @@ await t('a cell holding a block the visit may not dig is DEFERRED (counted to st
     assert.strictEqual(srv.read(10, G + 1, 10).name, 'chest', 'the chest is never dug')
     assert.ok(PJ.stuckAt(pr.dir, pr.key), 'the project is stamped: stuckBackoff lets the next project go')
   }
-  await killedBy('          if (p.blockedDefers && !needSapling && open.some(c => !isClear(c.at))) {', '          if (false) {', scenario)
+  await killedBy('          if (p.blockedDefers && !needSapling && notClear.length && notClear.every(permanent)) {', '          if (false) {', scenario)
+})
+await t('a TRANSIENT obstruction keeps `blocked` (Codex r1 BLOCK): a diggable foreign block whose dig is refused, with blockedDefers on', async () => {
+  const srv = server()
+  srv.set([10, G + 1, 10], 'dirt')
+  const rec = { v: 1, plot: 'shop', cells: [{ at: [10, G + 1, 10], role: 'base', seg: 'pad' }], clear: [], replant: [], segments: [{ seg: 'pad', deps: [] }] }
+  const pr = projectOf(rec), e = bot(srv, 'A', { inv: { stone_bricks: 8 }, dig: async () => 'refused' })
+  const stops = []
+  for (let v = 0; v < R.STUCK_VISITS; v++) stops.push((await R.runVisit(pr.p('A', { domain: () => true, walkR: 40, ...SC.visitOpts(rec, 'shop', null, true) }), e, { maxSteps: 200 })).stop)
+  assert.deepStrictEqual(stops, Array(R.STUCK_VISITS).fill('blocked'), 'retried at once every visit, never stamped')
+  assert.strictEqual(PJ.stuckAt(pr.dir, pr.key), null)
 })
 await t('CONTROL (the live behaviour): `blocked` every visit, no stamp', async () => {
   const { srv, rec } = blockedScene(), pr = projectOf(rec), e = bot(srv, 'A', { inv: { stone_bricks: 8 } })
