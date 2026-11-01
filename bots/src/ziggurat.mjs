@@ -49,6 +49,16 @@ export const ZIG_PALETTE = Object.freeze({
  *  skin or stair cell is dug and replaced (Codex r6 BLOCK 2). */
 export const ZIG_FOREIGN = /^(cobblestone|dirt|coarse_dirt|grass_block|podzol|rooted_dirt|mycelium|moss_block|stone|andesite|diorite|granite|tuff|netherrack|cobbled_deepslate|deepslate|gravel|sand|red_sand|clay|mud|snow_block|packed_ice|mossy_cobblestone|calcite|dripstone_block|smooth_basalt|[a-z_]+_sapling|mangrove_propagule|brown_mushroom|red_mushroom|dandelion|poppy|[a-z_]+_tulip|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|allium|blue_orchid|sunflower|lilac|rose_bush|peony|sweet_berry_bush|bush|firefly_bush|leaf_litter|wildflowers|pink_petals|moss_carpet|short_dry_grass|tall_dry_grass|torchflower|cactus_flower|pitcher_plant|snow|torch|wall_torch|[a-z_]+_planks|sandstone|red_sandstone|blackstone|basalt)$/
 
+/**
+ * ZIGBAMBOO (fleetbuild-01, measured 11-01 on the fleet's region copies): bamboo grown into open foundation cells after siting held
+ * six fleet ziggurats' foundation faces -- hive-b F-E 3 of 3 open cells, placebo-c F-E 9 of 9, hive-a F-E 2 of 6, isolated-a/c/d
+ * F-E and F-S 4-11 -- and every upper tier waits on the foundation (hive-b `blocked: F-E: 3 open, 0 placeable now` for 24 h at
+ * 545/4498). ZIG_FOREIGN has no bamboo, so the visit neither dug nor placed there. The grown plants a base cut fells whole (bamboo,
+ * sugar cane: the stalk above pops) are foreign here. Not cactus (it hurts the digger). ZIGBAMBOO=off is the rollback. Pure.
+ */
+export const ZIG_FOREIGN_GROWN = new RegExp(ZIG_FOREIGN.source.replace(/\)\$$/, '|bamboo|sugar_cane)$'))
+export const zigBambooOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.ZIGBAMBOO ?? '').trim().toLowerCase())
+
 /** THE PALETTE A RECORD IS BUILT AND JUDGED WITH: a v2 record carries its own (zigdesign.mjs); a v1 record -- the showcase's
  *  sited ziggurat@1 -- has none and keeps ZIG_PALETTE, the very object it was built with. Pure. */
 export function zigPaletteOf (rec) {
