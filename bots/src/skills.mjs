@@ -17792,6 +17792,22 @@ function zigTidyNow (bot, rec, read) {
  * record, never inside a protected zone (shopCtx's zones; unread zones never reach here: the visit stops zones_unknown first).
  * VOIDFILL=off is the rollback: no access, the visit exactly as before.
  */
+/**
+ * ZIGSEALED-01 (LIVE showcase 10-31 16:58Z on, 8 h: the F-W skin cell -55,67,-35 held grass whose only open face was its own open
+ * cell above, capped by dirt in two open skin cells of L00-W/L01-W; no stand saw it, `clear_failed no_stand` and `blocked` on every
+ * visit, the ziggurat at 4885/4889): the monument visit gets wallstuck-01's sealed-column dig (buildrun.mjs runVisit `p.sealed`,
+ * sealedAbove) -- the column dug from its top, the open cells of the segments waiting on this one included -- else the cell is
+ * deferred, never `blocked`. mayDig: never a protected zone, never another project's record cell. ZIGSEALED=off is the rollback.
+ */
+export function zigSealedOf (c, otherCells, env = process.env) {
+  if (['off', '0', 'false', 'no'].includes(String(env.ZIGSEALED ?? '').trim().toLowerCase())) return null
+  const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
+  return { mayDig: at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } } }
+}
+function zigOtherCells () {
+  let others = null
+  return () => (others ??= new Set(projectHeads().filter(x => x.plot !== MONUMENT_PLOT).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))))
+}
 function zigAccessOf (bot, c) {
   if (['off', '0', 'false', 'no'].includes(String(process.env.VOIDFILL ?? '').trim().toLowerCase())) return null
   let others = null
@@ -17975,7 +17991,7 @@ async function buildMonument (ctx, args, signal) {
     } catch { tidy = [] }
     const r = await runVisitCounted(bot, { dir, key, me, home, stood, record: rec, tidy, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zigHidden, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z],
-      access: zigAccessOf(bot, c) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+      access: zigAccessOf(bot, c), sealed: zigSealedOf(c, zigOtherCells()) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       completed = true
