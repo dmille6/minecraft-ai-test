@@ -233,6 +233,26 @@ await t('the project: seventh, after the workshop, two builders; projectsOn take
   const st = SHOP.projectsOn(true, true, true, true, false, true, true).map(q => ({ plot: q.plot, exists: true, complete: q.plot !== H.STORE_PLOT, damaged: false }))
   assert.strictEqual(SHOP.activeProject(st, SHOP.projectsOn(true, true, true, true, false, true, true)).plot, H.STORE_PLOT)
 })
+await t('THE STEP FENCE (LIVE 11-01): a builder\'s walk routes around the segment\'s open cells (101 on a feet/head cell in them), only during the walk, never on the shared array', async () => {
+  const BB = await import('../src/buildbot.mjs')
+  const avoid = new Set(['-14,71,0'])
+  const f = BB.stepFence(avoid)
+  assert.strictEqual(f({ position: { x: -14, y: 71, z: 0 } }), 101)
+  assert.ok(BB.STEP_FENCE_COST > 100, 'over the pathfinder\'s 100 cut: the move is dropped')
+  assert.strictEqual(f({ position: { x: -15, y: 71, z: 0 } }), 0)
+  assert.strictEqual(BB.stepFence(new Set()), null)
+  const shared = [() => 0]
+  const mv = { exclusionAreasStep: shared }, clone = { exclusionAreasStep: shared }
+  let inside = null
+  await BB.withStepFence(mv, avoid, async () => { inside = mv.exclusionAreasStep.reduce((t, g) => t + g({ position: { x: -14, y: 71, z: 0 } }), 0) })
+  assert.strictEqual(inside, 101, 'priced during the walk')
+  assert.strictEqual(mv.exclusionAreasStep, shared, 'the old array back after')
+  assert.strictEqual(clone.exclusionAreasStep.length, 1, 'the other profiles sharing the array untouched')
+  await assert.rejects(BB.withStepFence(mv, avoid, async () => { throw new Error('walk failed') }))
+  assert.strictEqual(mv.exclusionAreasStep, shared, 'restored on a throw too')
+  const src = readFileSync(new URL('../src/buildbot.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  assert.ok(src.includes('withStepFence(bot.pathfinder?.movements, avoid, async () => {'), 'walkTo walks inside the fence')
+})
 await t('WIRED (skills.mjs, comments stripped): the storehouse site, its palette, its stand domain and tidy, its due', async () => {
   const src = readFileSync(SKILLS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   assert.ok(/if \(plot === STORE_PLOT\) \{\s*const ss = storeSiteFor\(/.test(src), 'buildShop sites the storehouse on its plot')
