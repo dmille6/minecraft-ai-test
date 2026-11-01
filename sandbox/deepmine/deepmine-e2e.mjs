@@ -160,7 +160,7 @@ const arenaRead = airSet => (x, y, z) => {
 // ---------------------------------------------------------------- run
 const NAME = 'sandbox-Deep'
 const POOL = `${R}/sandbox/state/_pool-deep-${RUN}`
-const ENV = `sandbox/deepmine/deep-${RUN}.env`
+const ENV = `sandbox/log/deepmine-e2e/deep-${RUN}.env`   // under sandbox/log (ignored): never an untracked file in the tree
 const LOGD = `./sandbox/log/deepmine-${RUN}`
 let brain = null, botp = null
 const kill = p => { try { p?.kill('SIGTERM') } catch {} }
