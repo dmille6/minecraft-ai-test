@@ -2795,6 +2795,47 @@
      "docs/reports/wholemap-expeditions-design-2026-11-01.md"
     ]
    }
+  },
+  {
+   "id": "prodchain-drain-pick",
+   "title": "Production chain: furnace_drain (4 ok of 3,227/day) and withdraw_pick (137 of 739) -- no pointless drain offers, withdraw_pick crafts the stone pickaxe (drainpick-01)",
+   "owner_date": "2026-11-01",
+   "memory": [
+    "drainpick-01-1101.md",
+    "owner-success-rate-fixes-1028.md",
+    "rank-by-bot-time-not-count.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "drainpick-01 (94a72905 on 963e99af, ONE commit, patch set for the v39 autorebase) queued after tidy-01; read at +90/+180: generic gate + own lines -- _withdraw_pick outcome=crafted_pick count and server-side stone_pickaxe gain, craft_failed share; furnace_drain orders/bot-h and stop=empty|unreachable share vs control; ledger phase=intent|close records present; showcase after promotion: unreachable drains at the 4 buried furnaces fall (~316 -> <= 80/day), workshop drains unaffected",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "runs": [
+     "drainpick-01"
+    ],
+    "branches": [
+     "drainpick-*"
+    ],
+    "grep": [
+     "drainpick-01"
+    ],
+    "paths": [
+     "bots/test/drainpick.test.mjs",
+     "bots/test/pickcraft.test.mjs"
+    ],
+    "fleet_paths": [
+     "bots/test/drainpick.test.mjs"
+    ]
+   },
+   "depends_on": [
+    {
+     "run": "tidy-01",
+     "until": "closed"
+    }
+   ],
+   "note": "OWNER 11-01 ~22:05Z 'lets sort out 1,2,3 with both claude and codex and get those fixed' (relayed by the coordinator); falls under owner 10-28 success-rate fixes. Tier 2 (not protected). Codex codex-exec blockers-only r1 CHANGE (load intent before the click) -> r2 APPROVE -> r3 APPROVE (unreachable memory delta); Claude independent subagent r1/r2/r3 APPROVE. Rollback: the base sha."
   }
  ]
 }
