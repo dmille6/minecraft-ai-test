@@ -1,0 +1,17 @@
+# rows.py: live decision rows (last 120 min, all bots) -> /tmp/servea-rows.jsonl. Full walk of today's llm-*.jsonl.
+import json,glob,datetime
+cut=(datetime.datetime.now(datetime.UTC)-datetime.timedelta(minutes=120)).strftime('%Y-%m-%dT%H:%M')
+tot=kept=0;bots=set()
+with open('/tmp/servea-rows.jsonl','w') as o:
+  for f in sorted(glob.glob('/var/log/mcai/*/llm-*.jsonl')):
+    for line in open(f,'rb'):
+      tot+=1
+      try: r=json.loads(line)
+      except Exception: continue
+      if r.get('@timestamp','')<cut: continue
+      t=(r.get('prompt') or {}).get('text') or ''
+      if not t or not (r.get('llm') or {}).get('latency_ms'): continue   # work-order rows have latency 0
+      kept+=1; bots.add(r['bot']['name'])
+      o.write(json.dumps({'ts':r['@timestamp'],'bot':r['bot']['name'],'role':r['bot'].get('role'),
+        'scope':(r.get('exp') or {}).get('memory_scope'),'text':t,'pt':r['llm'].get('prompt_tokens')})+'\n')
+print(f'walked {tot} rows, kept {kept} model decisions since {cut} from {len(bots)} bots')

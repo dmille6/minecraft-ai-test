@@ -1,0 +1,74 @@
+// servea-items.mjs <bots-dir> <rows.jsonl> <out.jsonl> <n> [seed]
+// Load-test items for serving A (11-01): REAL live decision prompts from the fleet's llm-*.jsonl, re-laid out in the
+// promptcache-01 layout with <bots-dir>'s OWN exported functions (main at 96261fff carries promptcache-01's code):
+//   system = buildSystemPrompt(skill names for the row's memory scope)  -- no identity line, shared per scope
+//   user   = identityLine() for the row's REAL bot name/role, then the live user text with RECENT EVENTS through
+//            compactEvents(events, LAST ACTION) and peer lessons re-rendered with seenLine()/hazardLine()
+//   schema = skillSchema(names), sentinel = the live prompt's own saw_end value.
+// Sampling: <n> rows, round-robin across bots (shuffled), so every live name appears. Read-only apart from <out>.
+import fs from 'node:fs'
+process.env.LOG_DIR = process.env.LOG_DIR || '/tmp/servea-items-logs'
+process.env.LOG_LEVEL = 'error'
+process.env.OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'items'
+const [botsDir, rowsPath, outPath, nS, seedS = '1101'] = process.argv.slice(2)
+const { config } = await import(botsDir + '/src/config.mjs')
+const P = await import(botsDir + '/src/prompt.mjs')
+const { seenLine, hazardLine } = await import(botsDir + '/src/worldfacts.mjs')
+const { SKILLS } = await import(botsDir + '/src/skills.mjs')
+const { skillSchema } = await import(botsDir + '/src/llm.mjs')
+let s = Number(seedS) >>> 0
+const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return (s + 0.5) / 4294967296 }
+const SEEN = /^(\S+) seen at x=(-?\d+) y=(-?\d+) z=(-?\d+) \((\d+) blocks away, reported by (.+)\)$/
+const HAZ = /^((?:\S+ and )*\S+) hit (\S+) (\d+)x near (-?\d+),(-?\d+),(-?\d+) — avoid it$/
+const rows = fs.readFileSync(rowsPath, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l))
+const byBot = new Map()
+for (const r of rows) { if (!byBot.has(r.bot)) byBot.set(r.bot, []); byBot.get(r.bot).push(r) }
+for (const v of byBot.values()) v.sort(() => rnd() - 0.5)
+const bots = [...byBot.keys()].sort(() => rnd() - 0.5)
+const picked = []
+for (let i = 0; picked.length < Number(nS); i++) {
+  const b = bots[i % bots.length], v = byBot.get(b)
+  if (v.length) picked.push(v.pop())
+  if (bots.every(x => !byBot.get(x).length)) break
+}
+picked.sort(() => rnd() - 0.5)
+const sysCache = new Map()
+let changedEv = 0, changedLess = 0, noSentinel = 0
+const out = fs.createWriteStream(outPath)
+for (const r of picked) {
+  config.bot.name = r.bot; config.bot.role = r.role; config.memory.scope = r.scope
+  const hasBoard = r.scope === 'board' || r.scope === 'checkpoint'
+  const names = Object.keys(SKILLS).filter(n => !SKILLS[n].chatOnly).filter(n => n !== 'board' || hasBoard)
+  if (!sysCache.has(r.scope)) sysCache.set(r.scope, P.buildSystemPrompt(names))
+  const lines = r.text.split('\n')
+  const sentLine = lines.find(l => l.startsWith('saw_end: '))
+  if (!sentLine) { noSentinel++; continue }
+  const lastLine = lines.find(l => l.startsWith('LAST ACTION: '))
+  const lastOutcome = lastLine ? lastLine.slice('LAST ACTION: '.length) : null
+  const u = [P.identityLine()]
+  for (let i = 0; i < lines.length;) {
+    const l = lines[i]
+    if (l === 'RECENT EVENTS (oldest first):') {
+      const evs = []; i++
+      while (i < lines.length && lines[i].startsWith('  - ')) { evs.push(lines[i].slice(4)); i++ }
+      const shown = P.compactEvents(evs, lastOutcome)
+      if (shown.length !== evs.length) changedEv++
+      if (shown.length) u.push(l, ...shown.map(t => `  - ${t}`))
+      continue
+    }
+    if (l.startsWith('  - ')) {
+      const body = l.slice(4)
+      let m = SEEN.exec(body)
+      if (m) { u.push('  - ' + seenLine({ kind: m[1], x: m[2], y: m[3], z: m[4], d: m[5], by: m[6].split(' and ') }, r.bot)); changedLess++; i++; continue }
+      m = HAZ.exec(body)
+      if (m) { u.push('  - ' + hazardLine(m[1].split(' and '), { kind: m[2], count: m[3], x: m[4], y: m[5], z: m[6] })); changedLess++; i++; continue }
+    }
+    u.push(l); i++
+  }
+  out.write(JSON.stringify({ id: `${r.bot}:${r.ts}`, bot: r.bot, scope: r.scope, system: sysCache.get(r.scope),
+    user: u.join('\n'), sentinel: sentLine.slice('saw_end: '.length).trim(), schema: skillSchema(names),
+    live_prompt_tokens: r.pt, transform: 'promptcache-01' }) + '\n')
+}
+out.end()
+console.error(`rows ${rows.length} from ${byBot.size} bots -> ${picked.length - noSentinel} items; scopes ${[...sysCache.keys()].join(',')}; ` +
+  `events compacted in ${changedEv}, peer lessons re-rendered ${changedLess}, no sentinel ${noSentinel}`)

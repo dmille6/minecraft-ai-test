@@ -1,0 +1,20 @@
+# stats.py <out.jsonl...>: gates over ALL requests (a client timeout counts with its full latency, never dropped).
+import json, sys
+def pct(xs, q):
+    xs = sorted(xs); return xs[min(len(xs)-1, int(round(q/100*(len(xs)-1))))] if xs else None
+for p in sys.argv[1:]:
+    rows = [json.loads(l) for l in open(p) if l.strip()]
+    lat = [r.get('latencyMs') or 0 for r in rows]
+    valid = sum(1 for r in rows if r.get('schemaValid'))
+    span = (max(r['t_done_ms'] for r in rows) - min(r['t_arrive_ms'] for r in rows)) / 1000
+    S = [r['server'] for r in rows if r.get('server')]
+    cache = round(sum(x.get('cache_n') or 0 for x in S) / max(1, sum((x.get('cache_n') or 0) + (x.get('prompt_n') or 0) for x in S)), 3) if S else None
+    print(p.split('/')[-1], json.dumps(dict(n=len(rows), valid=valid, valid_share=round(valid/len(rows), 4),
+        failed=sum(1 for r in rows if r.get('transport_error')), retries=sum(r.get('retryCount') or 0 for r in rows),
+        p50=pct(lat, 50), p95=pct(lat, 95), p99=pct(lat, 99), done_per_min=round(valid/span*60, 1),
+        mean_prompt=round(sum(r.get('prompt_tokens') or 0 for r in rows if r.get('prompt_tokens')) / max(1, sum(1 for r in rows if r.get('prompt_tokens')))),
+        mean_out=round(sum(r.get('completion_tokens') or 0 for r in rows) / max(1, valid), 1),
+        max_inflight=max(r['inflight_at_arrival'] for r in rows), cached_share=cache,
+        srv_prompt_ms_p50=pct([x['prompt_ms'] for x in S if x.get('prompt_ms') is not None], 50),
+        srv_gen_ms_p50=pct([x['predicted_ms'] for x in S if x.get('predicted_ms') is not None], 50),
+        models=sorted(set(str(r.get('servedModel')) for r in rows)))))

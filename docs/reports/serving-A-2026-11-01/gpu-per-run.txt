@@ -1,0 +1,9 @@
+# 3090 sampler (every 2 s): ethan busy = share of samples where ethan-gpu slot is_processing; VRAM MiB
+cand-c2-q8 r20: samples 75, ethan busy 72%, gpu util p50 77%, vram total max 16475, llama-server max 10404, ethan 6056
+cand-c2-q8 r40: samples 87, ethan busy 67%, gpu util p50 78%, vram total max 16485, llama-server max 10414, ethan 6056
+cand-c2-q8 r60: samples 103, ethan busy 64%, gpu util p50 85%, vram total max 16485, llama-server max 10414, ethan 6056
+cand-c2-q8 r80: samples 131, ethan busy 59%, gpu util p50 79%, vram total max 16487, llama-server max 10416, ethan 6056
+cand-c2-q8 r6: samples 97, ethan busy 97%, gpu util p50 78%, vram total max 16473, llama-server max 10402, ethan 6056
+cand-c2-q8 r10: samples 93, ethan busy 99%, gpu util p50 81%, vram total max 16475, llama-server max 10404, ethan 6056
+cand-c2-q8 r14: samples 93, ethan busy 60%, gpu util p50 77%, vram total max 16475, llama-server max 10404, ethan 6056
+failover r0: samples 23, ethan busy 100%, gpu util p50 82%, vram total max 16475, llama-server max 10404, ethan 6056

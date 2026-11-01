@@ -1,0 +1,36 @@
+// failover.mjs <bots-dir> <items.jsonl> <llama_url> <alias> <n> : the FALLBACK, live. The bots' own client is built with
+// OLLAMA_BASE_URLS = "oai+<llama_url>|<alias>,http://127.0.0.1:<port>|qwen2.5:7b-instruct" where the second entry is a
+// stand-in Ollama on this host (answers /api/chat with a valid decision for the item's sentinel; it is a stand-in so
+// the live 5080 fleet server is not loaded). Two workers run <n> real promptcache-layout items. The driver stops the
+// llama-server (servea-llama.sh stop) while this runs; every decision must still come back valid, served by the
+// stand-in once the server is gone. Prints one line per decision: i, endpoint, model, valid, latency.
+import fs from 'node:fs'
+import http from 'node:http'
+const [botsDir, itemsPath, llamaUrl, alias, nS] = process.argv.slice(2)
+process.env.LOG_DIR = '/tmp/servea-failover-logs'; process.env.LOG_LEVEL = 'error'; process.env.OLLAMA_MODEL = alias
+const items = fs.readFileSync(itemsPath, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)).slice(0, Number(nS))
+const srv = http.createServer((req, res) => {
+  let b = ''; req.on('data', c => { b += c }); req.on('end', () => {
+    const body = JSON.parse(b || '{}')
+    const sent = /saw_end: (\S+)/.exec(body.messages?.at(-1)?.content ?? body.messages?.[1]?.content ?? '')?.[1] ?? ''
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ model: 'qwen2.5:7b-instruct', message: { content: JSON.stringify({ reason: 'stand-in', skill: 'status', args: {}, saw_end: sent }) } }))
+  })
+})
+await new Promise(ok => srv.listen(0, '127.0.0.1', ok))
+const fb = `http://127.0.0.1:${srv.address().port}`
+const { LlmClient } = await import(botsDir + '/src/llm.mjs')
+const client = new LlmClient({ baseUrls: [`oai+${llamaUrl}|${alias}`, `${fb}|qwen2.5:7b-instruct`], model: alias, numCtx: 8192,
+                               maxTokens: 512, temperature: 0.7, timeoutMs: 20000, stickyKey: 'board-a-Alpha' })
+let next = 0
+const t0 = Date.now()
+await Promise.all([0, 1].map(async () => {
+  while (next < items.length) {
+    const i = next++, it = items[i]
+    // The stand-in sees the user message; the real sentinel is the item's.
+    const r = await client.decide({ system: it.system, user: it.user, sentinel: it.sentinel, schema: it.schema })
+    console.log(JSON.stringify({ i, t_s: ((Date.now() - t0) / 1000).toFixed(1), endpoint: r.endpoint === fb ? 'STAND-IN' : r.endpoint,
+                                 model: r.model, valid: r.schemaValid, latency_ms: r.latencyMs, error: r.error }))
+  }
+}))
+srv.close()

@@ -1,0 +1,14 @@
+#!/bin/bash
+# drive.sh <host> <tag> <gguf> <rates...>: per rate, restart llama-server (cold cache, servea-llama.sh), then 3 min of
+# open-loop Poisson arrivals from .31 through the bots' OWN client (batchload api=native = llm.mjs oai+ path),
+# promptcache-layout live items (live-pc.jsonl, 800 items, 80 real names). Appends "RUN tag rate t0 t1" to runs.log.
+H=$1; TAG=$2; G=$3; shift 3; OFF=0
+for rate in "$@"; do
+  n=$((rate * 3))
+  ssh mike@$H "~/batchtest/servea-llama.sh stop >/dev/null; ~/batchtest/servea-llama.sh start $G $TAG" </dev/null | tail -1
+  t0=$(date +%s)
+  ssh mike@10.0.0.31 "cd ~/servea && node batchload.mjs ~/servea/bots ~/servea/live-pc.jsonl out/$TAG-r$rate.jsonl http://$H:18080 $TAG open $rate $n $OFF native 2>&1 | tail -1" </dev/null
+  echo "RUN $TAG $rate $t0 $(date +%s)" | tee -a runs.log
+  OFF=$(( (OFF + n) % 800 ))
+done
+ssh mike@$H "~/batchtest/servea-llama.sh stop" </dev/null
