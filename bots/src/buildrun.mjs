@@ -1178,8 +1178,13 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           // stuckcells-01 (`p.blockedDefers`): a cell holding a block this visit may not dig is DEFERRED with the cells no stand
           // reaches (F4: counted, the project's stuck stamp, the town's other projects go on) instead of a `blocked` stop that keeps
           // the project every bot's first order for good
-          if (p.blockedDefers && !needSapling && open.some(c => !isClear(c.at))) {
-            const hard = open.filter(c => !isClear(c.at))
+          // ONLY A PERMANENT OBSTRUCTION (Codex r1 BLOCK): every cell still holding a block is READ, known, and holds a block the
+          // visit never digs (no foreignKind: a container, a station, a kept part); an unread cell, an unknown one, or a diggable
+          // foreign block whose dig failed this visit keeps the old `blocked` stop (the next visit retries it at once)
+          const notClear = open.filter(c => !isClear(c.at))
+          const permanent = c => { const b = rd(...c.at); return !!b && !unknown.has(kOf(c.at)) && !sealed.has(kOf(c.at)) && !foreignKind(nm(b), scaffoldRe) }
+          if (p.blockedDefers && !needSapling && notClear.length && notClear.every(permanent)) {
+            const hard = notClear
             for (const c of hard) { deferredCells.push(kOf(c.at)); deferWhy.set(kOf(c.at), `blocked ${nm(rd(...c.at)) || 'unread'}`) }
             for (const c of cand) { deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), 'no_stand') }
             deferredSegs.add(seg)

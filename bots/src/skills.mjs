@@ -118,7 +118,7 @@ import { TOWNINDEX, observation, appendIndex, readIndex, indexHomeKey, indexUnkn
 // THE TOWN PLAN (townplan-01) and FOUNDING (found-01): the files, the planner, the orders (the section before SKILL_CONTRACTS)
 import { planKey, planHead, publishPlan } from './planstore.mjs'
 import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintainPlan, growPlan, auditPlan, auditDetail, keepouts, accessKept,
-         readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard, planFurnitureCells, sectorOf } from './townplan.mjs'
+         readyCell, townPlanRowDetail, footprintTier, tierAllowed, sectorCard, planFurnitureCells, sectorOf, replaceableCell as tpReplaceable } from './townplan.mjs'
 import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-01: the plan's place guard, read by index.mjs's place price
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
@@ -133,7 +133,7 @@ import { runVisit, cellDone as buildCellDone, workableSeg, STUCK_FORGET_MS as BU
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
-import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE_MAX_SHOP, WAIVE_MAX_ZIG, stampLiftable, visitOpts as stuckVisitOpts, withWaived } from './stuckcells.mjs'   // stuckcells-01
+import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE_MAX_SHOP, WAIVE_MAX_ZIG, stampLiftable, visitOpts as stuckVisitOpts, withWaived, completeWithWaived, readBlock } from './stuckcells.mjs'   // stuckcells-01
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
@@ -17044,7 +17044,10 @@ function projStuckLive (key, now = Date.now()) {
         const zig = isZigBlueprint(rec.blueprint)
         let counts = {}
         try { counts = vfStuckRead(dir, key, { since: now - BUILD_STUCK_FORGET_MS + 1 }) } catch { counts = {} }
-        return stampLiftable(keys, rec, { done: c => recordCellDone(b, rec, c), counts, mayWaive: zig ? zigMayWaive : shopMayWaive, max: zig ? WAIVE_MAX_ZIG : WAIVE_MAX_SHOP })
+        // the visit's own condition for a waiver (Claude r1 BLOCK): the cell reads clear, and so does every open cell of its segment
+        const clearAt = q => { try { const v = b.blockAt?.(new Vec3(q.at[0], q.at[1], q.at[2])); return !!v && (v.name === 'air' || v.name === 'cave_air' || tpReplaceable(readBlock(v))) } catch { return false } }
+        const segClear = c => clearAt(c) && (rec.cells ?? []).every(q => q.seg !== c.seg || !recordCellOpen(b, rec, q) || clearAt(q))
+        return stampLiftable(keys, rec, { done: c => recordCellDone(b, rec, c), counts, mayWaive: zig ? zigMayWaive : shopMayWaive, max: zig ? WAIVE_MAX_ZIG : WAIVE_MAX_SHOP, clear: segClear })
       }
       return rec?.blueprint === WALL_BLUEPRINT && wallStuckOn() && (stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c)))
     } : null
@@ -17394,7 +17397,8 @@ export function shopFootprintRefresh (bot) {
 function stuckCellsPublish (bot, dir, key, rec, r, me, plot) {
   if (!stuckCellsOn() || !r?.waived?.length) return
   try {
-    const pub = publishRecord(dir, key, cur => withWaived(cur, r.waived, { cells: rec.cells.length, now: Date.now(), by: me }), { by: me })
+    const max = isZigBlueprint(rec.blueprint) ? WAIVE_MAX_ZIG : WAIVE_MAX_SHOP
+    const pub = publishRecord(dir, key, cur => withWaived(cur, r.waived, { cells: rec.cells.length, now: Date.now(), by: me, max }), { by: me })
     if (pub.result === 'accepted') for (const d of r.waived) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
     bot.shopDamage = null
   } catch { /* waived again next visit */ }
@@ -17560,7 +17564,8 @@ async function buildShop (ctx, args, signal) {
       ...stuckVisitOpts(rec, 'shop') }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     stuckCellsPublish(bot, dir, key, rec, r, me, plot)
     if (r.stop === 'complete') {
-      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      // stuckcells-01 (Claude r1): the visit's waivers ride on the completion too (their own publish may have been lost)
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...(stuckCellsOn() && r.waived?.length ? completeWithWaived(cur, r.waived, { cells: rec.cells.length, now: Date.now(), by: me, max: isZigBlueprint(rec.blueprint) ? WAIVE_MAX_ZIG : WAIVE_MAX_SHOP }) : cur), structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null
       completed = true
       // cleared AT the completion, before the bank-back (r10 Claude P3, r11 both): the leftovers are the bag's own from here
@@ -18076,7 +18081,8 @@ async function buildMonument (ctx, args, signal) {
       access: zigAccessOf(bot, c), sealed: zigSealedOf(c, zigOtherCells()), ...stuckVisitOpts(rec, 'zig', zigHidden, stuckCellsOn(), zigPlaceOk(c)) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     stuckCellsPublish(bot, dir, key, rec, r, me, MONUMENT_PLOT)
     if (r.stop === 'complete') {
-      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      // stuckcells-01 (Claude r1): the visit's waivers ride on the completion too (their own publish may have been lost)
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...(stuckCellsOn() && r.waived?.length ? completeWithWaived(cur, r.waived, { cells: rec.cells.length, now: Date.now(), by: me, max: isZigBlueprint(rec.blueprint) ? WAIVE_MAX_ZIG : WAIVE_MAX_SHOP }) : cur), structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       completed = true
       bot.shopDamage = null
       // zigtidy-02: a visit that PLACED and ended complete (a repair, or the first completion) opens the tidy's repair window
