@@ -72,6 +72,10 @@ import { escapedFrom } from './recovery.mjs'
 import { runnerDeclined } from './declined.mjs'
 import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
+// deepminer-01 (OWNER 11-01 item 2): the town deep miner (deepmine.mjs decides; skills.mjs deepMine walks and digs)
+import { deepMineOrder, deepTripOrder, tripKit as deepTripKit } from './deepmine.mjs'
+import { deepLeaseNow, deepStairNow } from './skills.mjs'
+import { nearStair as deepNearStair, SURFACE_SLACK as DEEP_SURFACE_SLACK } from './shaftgeom.mjs'
 
 // Only skills that can succeed WITHOUT a human present.
 //
@@ -1208,6 +1212,11 @@ export class CognitiveLoop {
       const visit = this.#visitOrder(milestone, { tickOnly: blocked })
       if (visit) order = visit
     }
+    // DEEPMINER-01: AN OPEN DEEP TRIP GOES ON (deepmine.mjs deepTripOrder: one deep_mine call per phase step). Ahead of the
+    // milestone's order and every town job: a trip half way down the stair, at depth or on the way back must not be left to the
+    // model (the trip bounds itself: CALLS_MAX, TRIP_MAX_MS, RETURN_TRIES; its bank phase runs the town deposit itself). The
+    // keep-out exit and the sky descent below still override it.
+    { const o = deepTripOrder(this.bot?.deepTrip); if (o) order = o }
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
@@ -1504,6 +1513,28 @@ export class CognitiveLoop {
           this.coalRunSkipAt[why] = Date.now()
           logEvent({ kind: 'coal_run', status: r.order ? 'success' : 'no_effect', snapshot: snap,
                      detail: coalRunDetail({ skip: r.skip, issued: r.order?.args?.block ?? null, town, held: heldCoal, free }) })
+        }
+      } catch { /* a world read must never break the decision loop */ }
+    }
+    // THE DEEP MINER STARTS A TRIP (deepminer-01; deepmine.mjs deepMineOrder decides, this supplies readings). After every
+    // town job and the coal run, only with NOTHING chosen above: on the town's surface by its finished stair, one miner per town
+    // (the lease), its own cooldown and the town's soft preference for its last miner.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const p = bot.entity?.position
+        const st = deepStairNow()
+        const rec = st.rec
+        const atStairTop = !!p && st.usable && deepNearStair(rec, p.x, p.z, 40) && p.y >= rec.site.g - DEEP_SURFACE_SLACK && p.y <= rec.site.g + 12
+        const r = deepMineOrder({ now: Date.now(), holds: milestoneHolds({ order, ready }), atStairTop, stair: st,
+          kit: deepTripKit(bot.inventory?.items?.() ?? []), health: bot.health ?? 20, me: bot.username ?? '',
+          state: { cooldownUntil: bot.deepMineCooldownUntil ?? 0 }, lease: () => deepLeaseNow() })
+        if (r.order) order = r.order
+        this.deepSkipAt ??= {}
+        const why = ['pickaxe', 'seal_blocks', 'room', 'lease_busy', 'preferred_other', 'stair_unfinished', 'no_bottom_landing'].includes(r.skip) ? r.skip : null
+        if (why && atStairTop !== false && Date.now() - (this.deepSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000) {
+          this.deepSkipAt[why] = Date.now()
+          logEvent({ kind: 'deepmine_skip', status: 'no_effect', detail: `why=${why}`, snapshot: snap })
         }
       } catch { /* a world read must never break the decision loop */ }
     }
