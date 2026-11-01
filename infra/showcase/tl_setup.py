@@ -71,6 +71,8 @@ marker-sets: {{
   town: {{ label: "Town", toggleable: true, default-hidden: false, markers: {{
     home: {{ type: "poi", position: {{ x: {x}, y: {y}, z: {z} }}, label: "showcase home" }}
   }} }}
+  # wholemap.py's route layer (whole-map S0): a missing file is ignored by HOCON; wholemap.py only writes validated JSON
+  include file("/srv/showcase/wholemap/bluemap-markers.json")
 }}
 '''
 

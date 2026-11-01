@@ -31,6 +31,11 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  // wholemap-s0 (11-01): the whole-map coverage instrument (seen% / stood% / reach / tiles), its BlueMap route layer + installer
+  'infra/showcase/wholemap.py',
+  'infra/showcase/test_wholemap.py',
+  'infra/showcase/install-wholemap.sh',
+  'bots/test/wholemap.test.mjs',
   // B5 (10-31): the cooperation tier's role leases (bot side), the host assigner, the spend guard + caller, the Paper arms
   'bots/src/roles.mjs',
   'bots/test/roles.test.mjs',

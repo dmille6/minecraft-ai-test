@@ -352,6 +352,34 @@
    "consumer": "canary-sched.py v39 autorebase-build on .31: it confirms each push with git ls-remote and refuses (pages, head blocked) after 45 min without it",
    "kind": "monitor",
    "note": "~/bin/autorebase-relay.sh every 2 min on the Mac (scripts/host/autorebase-relay.sh): pushes NEW refs/heads/autorebase/* the canary host requests; log ~/Library/Logs/autorebase-relay.log"
+  },
+  {
+   "id": "wholemap-full",
+   "host": "40",
+   "cron": null,
+   "timer": "showcase-wholemap-full.timer",
+   "outputs": [
+    "/srv/showcase/wholemap/coverage.json",
+    "/srv/showcase/wholemap/bluemap-markers.json"
+   ],
+   "fresh_hours": 26,
+   "consumer": "fleetstatus SHOWCASE block 'expeditions:' line (row kind showcase_wholemap in mcai-showcase-ops, seen% UNKNOWN after 36 h); the BlueMap web map's Expeditions / zones layers; the copper hall floor map (tiles)",
+   "kind": "monitor",
+   "note": "infra/showcase/wholemap.py full, daily 03:20Z on the showcase VM (installed by infra/showcase/install-wholemap.sh; systemd timer, not cron). Ledger wholemap-s0."
+  },
+  {
+   "id": "wholemap-trips",
+   "host": "40",
+   "cron": null,
+   "timer": "showcase-wholemap-trips.timer",
+   "outputs": [
+    "/srv/showcase/wholemap/coverage.json",
+    "/var/log/showcase/heartbeat.jsonl"
+   ],
+   "fresh_hours": 2,
+   "consumer": "fleetstatus SHOWCASE block 'expeditions:' line (UNKNOWN when the newest showcase_wholemap row is > 3 h old)",
+   "kind": "monitor",
+   "note": "infra/showcase/wholemap.py trips, hourly :12 on the showcase VM: trips + the BlueMap route layer, reusing the last scan."
   }
  ]
 }

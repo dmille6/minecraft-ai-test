@@ -544,6 +544,65 @@ def w5_alarm_lines(now, client):
         return [f'!! W5 alarms unavailable ({type(e).__name__}: {str(e)[:100]}) -- install scripts/lib/alarmhead.py and alarm.py']
 
 
+# WHOLE-MAP EXPEDITIONS S0 (11-01, ledger wholemap-s0): infra/showcase/wholemap.py on 10.0.0.40 ships one row of kind
+# showcase_wholemap per run into /var/log/showcase/heartbeat.jsonl (filebeat -> mcai-showcase-ops; this host has no
+# route to 10.0.0.40, so ES is the copy). Hourly `trips` runs carry the trip numbers; the daily `full` scan the seen%.
+# Missing or stale is UNKNOWN with the remedy, never 0.
+WHOLEMAP_KIND = 'showcase_wholemap'
+WHOLEMAP_ROW_STALE = dt.timedelta(hours=3)      # the trips timer is hourly
+WHOLEMAP_SCAN_STALE = dt.timedelta(hours=36)    # the full scan is daily
+WHOLEMAP_REMEDY = 'on 10.0.0.40: systemctl status showcase-wholemap-trips.timer; sudo systemctl start showcase-wholemap@full'
+
+
+def _fmt(v, suffix=''):
+    return 'UNKNOWN' if v is None else f'{v}{suffix}'
+
+
+def wholemap_text(row, now):
+    """The expeditions line from the newest showcase_wholemap row (None = no row). Pure; never raises on odd rows."""
+    if not row:
+        return f'!! expeditions: UNKNOWN -- no {WHOLEMAP_KIND} row in {SHOWCASE_OPS} ({WHOLEMAP_REMEDY})'
+    try:
+        t = _ts(row.get('t') or row.get('@timestamp'))
+    except (ValueError, TypeError, KeyError):
+        t = None
+    if t is None:
+        return f'!! expeditions: UNKNOWN -- the newest {WHOLEMAP_KIND} row has no time ({WHOLEMAP_REMEDY})'
+    age = now - t
+    if row.get('ok') is False:
+        return (f'!! expeditions: UNKNOWN -- wholemap.py refused {t:%m-%d %H:%MZ}: {str(row.get("why") or "")[:120]} '
+                f'({WHOLEMAP_REMEDY})')
+    if age > WHOLEMAP_ROW_STALE:
+        return (f'!! expeditions: UNKNOWN -- newest {WHOLEMAP_KIND} row is {age.total_seconds() / 3600:.1f} h old '
+                f'(hourly expected; {WHOLEMAP_REMEDY})')
+    seen = f'seen% UNKNOWN (no scan yet: {WHOLEMAP_REMEDY})'
+    try:
+        st = _ts(row['scan_at']) if row.get('scan_at') else None
+    except (ValueError, TypeError):
+        st = None
+    if st is not None and row.get('seen_pct') is not None:
+        sage = now - st
+        if sage > WHOLEMAP_SCAN_STALE:
+            seen = f'seen% UNKNOWN (scan {sage.total_seconds() / 3600:.0f} h old: {WHOLEMAP_REMEDY})'
+        else:
+            seen = (f'seen% {row["seen_pct"]} ({row.get("seen_chunks")} chunks of ~{row.get("seen_den")}; '
+                    f'{row.get("seen_pct_generated")}% of {row.get("generated_reachable")} generated; scan '
+                    f'{sage.total_seconds() / 3600:.0f} h old)')
+    return (f'expeditions: trips 24h {_fmt(row.get("trips_24h"))}, home% {_fmt(row.get("home_pct_24h"))}, '
+            f'furthest {_fmt(row.get("furthest_24h"))}, {seen}, stage S1 {_fmt(row.get("s1_bearings"))}/8 bearings')
+
+
+def wholemap_line(now, client):
+    """NEVER raises: an unreadable stream is an UNKNOWN line."""
+    try:
+        r = client('POST', f'{SHOWCASE_OPS}/_search', {'size': 1, 'sort': [{'@timestamp': {'order': 'desc'}}],
+                                                         'query': {'term': {'kind': WHOLEMAP_KIND}}})
+        hits = r['hits']['hits']
+        return wholemap_text(hits[0]['_source'] if hits else None, now)
+    except Exception as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line
+        return f'!! expeditions: UNKNOWN -- {SHOWCASE_OPS} unreadable ({type(e).__name__}: {str(e)[:100]})'
+
+
 def showcase_report(until, client=None, window_h=3):
     """The SHOWCASE block (docs/reports/showcase-2026-10-20.md section 4). It reads ONLY the showcase's own
     streams -- the fleet sections above never see a showcase row -- and never raises: an unreadable stream is a
@@ -600,6 +659,7 @@ def showcase_report(until, client=None, window_h=3):
     except Exception as e:
         lines.append(f'SHOWCASE TIMELAPSE: heartbeat unreadable ({type(e).__name__}: {str(e)[:120]}) -- not a healthy '
                      f'timelapse, an unread one')
+    lines.append(wholemap_line(until, client))
     try:
         r = client('POST', 'mcai-misc-showcase/_count?ignore_unavailable=true&allow_no_indices=true',
                    {'query': {'range': {'@timestamp': {'gte': _est._iso(until - dt.timedelta(hours=24))}}}})

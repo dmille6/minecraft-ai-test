@@ -772,6 +772,39 @@ def t_lavamap_unreadable_tree_is_no_verdict():
     assert FS.lavamap_line(None, home=home, tree=tree) is None
 
 
+def t_wholemap_line_formats_and_never_zeroes():
+    """ledger wholemap-s0: the expeditions line names its denominators; missing / stale / refused is UNKNOWN, never 0."""
+    now = dt.datetime(2026, 11, 2, 12, 0, tzinfo=dt.timezone.utc)
+    row = {'kind': 'showcase_wholemap', 't': '2026-11-02T11:30:00Z', 'ok': True, 'trips_24h': 109, 'home_pct_24h': 85.3,
+           'furthest_24h': 271, 's1_bearings': 0, 'scan_at': '2026-11-02T03:20:00Z', 'seen_pct': 0.308,
+           'seen_chunks': 1067, 'seen_den': 346728.7, 'seen_pct_generated': 7.06, 'generated_reachable': 15114}
+    line = FS.wholemap_text(row, now)
+    assert line.startswith('expeditions: trips 24h 109, home% 85.3, furthest 271, seen% 0.308 (1067 chunks of ~346728.7')
+    assert line.endswith('stage S1 0/8 bearings'), line
+    assert FS.wholemap_text(None, now).startswith('!! expeditions: UNKNOWN -- no showcase_wholemap row')
+    assert 'h old' in FS.wholemap_text(dict(row, t='2026-11-02T06:00:00Z'), now)
+    assert FS.wholemap_text(dict(row, t='2026-11-02T06:00:00Z'), now).startswith('!! expeditions: UNKNOWN')
+    old_scan = FS.wholemap_text(dict(row, scan_at='2026-10-30T00:00:00Z'), now)
+    assert 'seen% UNKNOWN (scan 84 h old' in old_scan and 'trips 24h 109' in old_scan, old_scan
+    no_scan = FS.wholemap_text({k: v for k, v in row.items() if k not in ('scan_at', 'seen_pct')}, now)
+    assert 'seen% UNKNOWN (no scan yet' in no_scan, no_scan
+    refused = FS.wholemap_text({'kind': 'showcase_wholemap', 't': '2026-11-02T11:30:00Z', 'ok': False, 'why': 'no region'}, now)
+    assert refused.startswith('!! expeditions: UNKNOWN -- wholemap.py refused') and 'no region' in refused
+    assert FS.wholemap_text({'ok': True}, now).startswith('!! expeditions: UNKNOWN')       # no time: not a crash
+    assert ' 0,' not in FS.wholemap_text(dict(row, trips_24h=None), now).split('seen%')[0].replace('trips 24h UNKNOWN', '')
+
+    def dead(method, path, body=None, timeout=120):
+        raise RuntimeError('refused')
+    assert FS.wholemap_line(now, dead).startswith('!! expeditions: UNKNOWN -- mcai-showcase-ops unreadable')
+
+    def one(method, path, body=None, timeout=120):
+        assert body['query'] == {'term': {'kind': 'showcase_wholemap'}}
+        return {'hits': {'hits': [{'_source': row}]}}
+    assert FS.wholemap_line(now, one) == line
+    out = FS.showcase_report(dt.datetime(2026, 10, 14, 19, 55, tzinfo=dt.timezone.utc), client=dead)
+    assert any(x.startswith('!! expeditions: UNKNOWN') for x in out['lines']), out['lines']
+
+
 TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith('t_') and callable(f)]
 
 if __name__ == '__main__':

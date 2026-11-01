@@ -404,7 +404,7 @@ def t_committed_config():
     check('the committed ledger is not trivially small', len(items) >= 30, len(items))
     check('the ledger has open items to watch', sum(1 for i in items if i['state'] == 'open') >= 5)
     reg = json.load(open(os.path.join(ROOT, 'config/monitors.json')))['monitors']
-    check('every monitor has an id and a host', all(r.get('id') and r.get('host') in ('31', 'mac') for r in reg))
+    check('every monitor has an id and a host', all(r.get('id') and r.get('host') in ('31', 'mac', '40') for r in reg))
     check('the registry registers stallcheck itself', any(r.get('cron') == 'host/stallcheck.py run' for r in reg))
 
 
