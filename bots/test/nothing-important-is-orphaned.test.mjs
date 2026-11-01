@@ -60,6 +60,9 @@ const REQUIRED = [
   'bots/test/treefarm.test.mjs',
   'bots/src/storehouse.mjs',
   'bots/test/storehouse.test.mjs',
+  // showchat-01 (11-01): the showcase's templated chat announcements (comms stage 2) + the timelapse captions
+  'bots/src/showchat.mjs',
+  'bots/test/showchat.test.mjs',
   // sortstore-01 (11-01): the sorted storehouse, its labels' Paper proof and the showcase fixture its tests read
   'bots/src/sortstore.mjs',
   'bots/test/sortstore.test.mjs',
