@@ -2616,7 +2616,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Build scripts/host/wholemap.py (region-file reader -> coverage.json; denominators printed) + BlueMap marker file + fleetstatus showcase line; tooling/tier 1, no showcase piece; can run alongside items 1-3",
+   "next_step": "LIVE 11-01 23:08Z on the showcase VM (infra/showcase/wholemap.py, showcase-wholemap-full.timer daily 03:20Z + -trips.timer hourly; BlueMap layer via include in maps/showcase.conf; fleetstatus 'expeditions:' line on .31). Exit criterion (design s.0): metric and layer live 48 h -> read on/after 11-03 23:10Z: the fleetstatus line not UNKNOWN, two daily scans in coverage rows, the layer in live/markers.json; then state done",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
@@ -2626,10 +2626,12 @@
      "wholemap-s0"
     ],
     "paths": [
-     "docs/reports/wholemap-expeditions-design-2026-11-01.md"
+     "docs/reports/wholemap-expeditions-design-2026-11-01.md",
+     "infra/showcase/install-wholemap.sh",
+     "infra/showcase/wholemap.py"
     ]
    },
-   "note": "Baseline 11-01: seen 1,066 of ~346,800 reachable chunks (0.31%); stood-in 347 chunks; generated 17,176 of 391,876 border chunks."
+   "note": "Baseline 11-01: seen 1,066 of ~346,800 reachable chunks (0.31%); stood-in 347 chunks; generated 17,176 of 391,876 border chunks. First real run 11-01 23:08Z (72 s CPU, 113 MB): seen 1,067 reachable (1,069 raw) / 346,728.7 border-reachable est = 0.308% [15,114 reachable generated + 0.885 x 374,700 ungenerated]; 7.06% of 15,114 generated reachable; 0.273% of 391,876 raw; within 300: 906/1,114 = 81.3%; stood 347 chunks (604,647 rows, 10 bots, 10-25..11-01); reach of 2,434,475 land columns: land 77.6% / +ice 94.3% / +shallow 98.5% / +swim24 99.7% / +swim 100% (design: 77.6/94.3/98.5/100); 0 unreadable chunks. Spot-check: InhabitedTime of chunks (0,0) 10,303,659, (-12,10) 33,691, (17,-3) 34,348, (40,40) 0, (-60,5) 0 identical from an independent NBT reader. Trips 24 h 109, home 85.3%, furthest 271, S1 0/8. Reviews: Codex BLOCK r1 (no home seed -> 0%) fixed, APPROVE r2; Claude APPROVE."
   },
   {
    "id": "wholemap-s1",

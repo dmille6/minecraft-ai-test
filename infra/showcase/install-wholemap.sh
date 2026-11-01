@@ -17,6 +17,7 @@ BM=/srv/showcase/bluemap
 CONF=$BM/config/maps/showcase.conf
 LAYER=/srv/showcase/wholemap/bluemap-markers.json
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+BAK=/srv/showcase/wholemap/showcase.conf.bak-wholemap-$STAMP   # NOT in maps/: BlueMap reads that dir as map configs
 
 install -m 755 "$SRC/wholemap.py" /srv/showcase/bin/wholemap.py
 install -d -o mike -g mike /srv/showcase/wholemap
@@ -65,7 +66,7 @@ if grep -qF "include file(\"$LAYER\")" "$CONF"; then
   echo "   ok  $CONF already includes the layer"
   exit 0
 fi
-cp -p "$CONF" "$CONF.bak-wholemap-$STAMP"
+cp -p "$CONF" "$BAK"
 python3 - "$CONF" "$LAYER" <<'PY'
 import os, sys
 p, layer = sys.argv[1], sys.argv[2]
@@ -103,10 +104,10 @@ if (cd "$T" && sudo -u mike nice -n 19 java -Xmx1G -jar "$BM/bluemap-cli.jar" -c
   if [ -n "$M" ] && python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert 'wm-zones' in d and 'town' in d, list(d); print('   ok  proof render: sets', sorted(d))" "$M"; then ok=1; fi
 fi
 if [ "$ok" != 1 ]; then
-  cp -p "$CONF.bak-wholemap-$STAMP" "$CONF"
+  cp -p "$BAK" "$CONF"
   echo "   FAILED: the scratch render did not load the layer; $CONF restored from backup. Log: $T/proof.log"
   tail -5 "$T/proof.log"
   exit 1
 fi
 rm -rf "$T"
-echo "   ok  $CONF includes $LAYER (backup $CONF.bak-wholemap-$STAMP); live within the next timelapse render"
+echo "   ok  $CONF includes $LAYER (backup $BAK); live within the next timelapse render"
