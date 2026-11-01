@@ -133,6 +133,7 @@ import { runVisit, cellDone as buildCellDone, workableSeg, STUCK_FORGET_MS as BU
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
+import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE_MAX_SHOP, WAIVE_MAX_ZIG, stampLiftable, visitOpts as stuckVisitOpts, withWaived } from './stuckcells.mjs'   // stuckcells-01
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
@@ -17105,6 +17106,15 @@ function projStuckLive (key, now = Date.now()) {
       if (rec?.blueprint === TREEFARM_BLUEPRINT) return stuckStale(keys, rec, c => farmAlsoDone(c, farmRead(b)) || recordCellDone(b, rec, c)) || farmStampHeld(keys, treeHeldCols(siteTreesLeft(farmRead(b), rec)))
       // tidy-01: an open tidy's stamp holds only its stuck segment too (the wall's rule): the other pits and corridors go on
       if (rec?.blueprint === TIDY_BLUEPRINT) return stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c))
+      // stuckcells-01: an OPEN workshop's, house's or ziggurat's stamp holds nothing once every cell it names reads done (a sealed
+      // pocket, a waived cell) or is due its waiver on the next visit (stuckcells.mjs stampLiftable: the visit that waives it must
+      // be let in; a 6-h stamp would hold it)
+      if (stuckCellsOn() && (shopLikeBp(rec?.blueprint) || isZigBlueprint(rec?.blueprint))) {
+        const zig = isZigBlueprint(rec.blueprint)
+        let counts = {}
+        try { counts = vfStuckRead(dir, key, { since: now - BUILD_STUCK_FORGET_MS + 1 }) } catch { counts = {} }
+        return stampLiftable(keys, rec, { done: c => recordCellDone(b, rec, c), counts, mayWaive: zig ? zigMayWaive : shopMayWaive, max: zig ? WAIVE_MAX_ZIG : WAIVE_MAX_SHOP })
+      }
       return rec?.blueprint === WALL_BLUEPRINT && wallStuckOn() && (stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c)))
     } : null
     return projStuckAt(dir, key, { before: now + 60_000, stale })
@@ -17131,9 +17141,21 @@ function zigRepairedWrite (key, at, why, by) {
 function recordCellOpen (bot, r, c) {
   try {
     if (wallWaived(r, c) || pathWaived(r, c)) return false
+    if (stuckCellsOn() && recWaived(r, c)) return false                 // stuckcells-01: a waived cell is never open
     if (!bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))) return false
     return !recordCellDone(bot, r, c)
   } catch { return false }
+}
+/** stuckcells-01: a workshop's or a house's record (the projects whose sealed earth/base pocket is done and whose earth may be
+ *  waived). Pure. */
+const shopLikeBp = bp => bp === SHOP_BLUEPRINT || /^house@/.test(String(bp ?? ''))
+/** stuckcells-01: the done rule's extras for a record (a waived cell; a sealed pocket of a workshop or a house) -> (c, read) ->
+ *  bool | null (none: STUCKCELLS=off, or a record the remedies do not cover). Pure over the record. */
+function stuckCellsDone (r) {
+  if (!stuckCellsOn() || !r) return null
+  if (shopLikeBp(r.blueprint)) return (c, read) => recWaived(r, c) || sealedPocket(c, read)
+  if (isZigBlueprint(r.blueprint)) return c => recWaived(r, c)
+  return null
 }
 /** One record cell reads done through the bot (its own palette; a sealed ziggurat core cell is done). Unread: false. Never throws. */
 function recordCellDone (bot, r, c) {
@@ -17146,7 +17168,8 @@ function recordCellDone (bot, r, c) {
     if (r.blueprint === WALL_BLUEPRINT && wallWaived(r, c)) return true   // wallstuck-01: a waived wall cell is done
     const b = read(...c.at)
     if (!b) return false
-    return buildCellDone(b, bp.palette, c.role) || (mon && zigHidden(c, read))
+    const extra = stuckCellsDone(r)
+    return buildCellDone(b, bp.palette, c.role) || (mon && zigHidden(c, read)) || (!!extra && extra(c, read))
   } catch { return false }
 }
 export function shopRecordHead () {
@@ -17377,11 +17400,13 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     const mon = isZigBlueprint(r.blueprint)
     const bp = mon ? { palette: zigPaletteOf(r) } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+    const stuckX = stuckCellsDone(r)
     for (const c of r.cells ?? []) {
       if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) continue   // pathsclose-01: a waived path cell is no damage
       if (r.blueprint === WALL_BLUEPRINT && wallWaived(r, c)) continue    // wallstuck-01: nor a waived wall cell
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
-      if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role) && !(mon && zigHidden(c, read))) return true
+      // stuckcells-01: nor a waived cell, nor a workshop's or a house's sealed pocket (its visit reads them done)
+      if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role) && !(mon && zigHidden(c, read)) && !(stuckX && stuckX(c, read))) return true
     }
     // zigtidy-01: a finished ziggurat with climbing pillars on its treads wants a visit too (the tidy), until each pillar block has
     // been offered ZIG_TIDY_VISITS visits of this bot
@@ -17433,6 +17458,16 @@ export function shopFootprintRefresh (bot) {
  * the reserve and the claim set (mats-01's withdraw), craft the stations the town lacks; run the visit (buildrun.mjs); on
  * completion publish the record's `structure_complete` transition. One `_build_visit` row per run, ALWAYS.
  */
+/** STUCKCELLS-01: the cells a visit waived (runVisit out.waived) are written to the record (`waived`, merged; never on a complete
+ *  or a re-sited record, never past the bound the visit applied) with a `build` row each. Never throws (the next visit waives again). */
+function stuckCellsPublish (bot, dir, key, rec, r, me, plot) {
+  if (!stuckCellsOn() || !r?.waived?.length) return
+  try {
+    const pub = publishRecord(dir, key, cur => withWaived(cur, r.waived, { cells: rec.cells.length, now: Date.now(), by: me }), { by: me })
+    if (pub.result === 'accepted') for (const d of r.waived) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
+    bot.shopDamage = null
+  } catch { /* waived again next visit */ }
+}
 async function buildShop (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -17590,7 +17625,9 @@ async function buildShop (ctx, args, signal) {
     // unreadable: the visit neither moves nor skips a replant (r19, Claude r18 P2-2: an exception must never fell an unreplaced tree)
     let res = null, resFailed = false
     try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0 }) } catch { resFailed = true }
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      ...stuckVisitOpts(rec, 'shop') }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    stuckCellsPublish(bot, dir, key, rec, r, me, plot)
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null
@@ -18313,7 +18350,7 @@ function zigProgressNow (bot, rec) {
   try {
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     const pal = zigPaletteOf(rec)
-    const p = zigProgress(rec, c => { const b = read(...c.at); return !!b && (buildCellDone(b, pal, c.role) || zigHidden(c, read)) })
+    const p = zigProgress(rec, c => { const b = read(...c.at); return !!b && (buildCellDone(b, pal, c.role) || zigHidden(c, read) || (stuckCellsOn() && recWaived(rec, c))) })
     return `${p.done}/${p.done + p.open}@${p.layer ?? 'top'}`
   } catch { return '-' }
 }
@@ -18342,6 +18379,13 @@ export function zigSealedOf (c, otherCells, env = process.env) {
   if (['off', '0', 'false', 'no'].includes(String(env.ZIGSEALED ?? '').trim().toLowerCase())) return null
   const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
   return { mayDig: at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } } }
+}
+/** stuckcells-01: where the ziggurat's footing may place (zigSealedOf's rule, without its ZIGSEALED switch): never a protected
+ *  zone, never another project's record cell. */
+function zigPlaceOk (c) {
+  const others = zigOtherCells()
+  const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
+  return at => { try { return !inZone(at) && !others().has(at.join(',')) } catch { return false } }
 }
 function zigOtherCells () {
   let others = null
@@ -18509,7 +18553,7 @@ async function buildMonument (ctx, args, signal) {
     const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, n) => { tookAll[k] = (tookAll[k] ?? 0) + n; persist() } })
     const segFree = sg => { const st = projLeaseState(dir, key, `seg-${sg}`); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil }
     // nothing is drawn by a builder that would only wait (every open segment held, or the next layer waiting on another's)
-    if (Object.keys(need).length && workableSeg(rec, read, palette, segFree, zigHidden)) {
+    if (Object.keys(need).length && workableSeg(rec, read, palette, segFree, stuckCellsOn() ? (q, rr) => zigHidden(q, rr) || recWaived(rec, q) : zigHidden)) {
       const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
     }
     check(signal)
@@ -18525,12 +18569,13 @@ async function buildMonument (ctx, args, signal) {
     // zigtidy-01: on a finished ziggurat (or one with 3 cells or fewer open), the pillars on its treads are dug after the clears
     let tidy = []
     try {
-      const isDone = c => { const b = read(...c.at); return !!b && (buildCellDone(b, palette, c.role) || zigHidden(c, read)) }
+      const isDone = c => { const b = read(...c.at); return !!b && (buildCellDone(b, palette, c.role) || zigHidden(c, read) || (stuckCellsOn() && recWaived(rec, c))) }
       if (rec.structure_complete || zigProgress(rec, isDone).open <= 3) tidy = zigTidyNow(bot, rec, read)
     } catch { tidy = [] }
     const r = await runVisitCounted(bot, { dir, key, me, home, stood, record: rec, tidy, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: zigBambooOn() ? ZIG_FOREIGN_GROWN : ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zigHidden, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z],
-      access: zigAccessOf(bot, c), sealed: zigSealedOf(c, zigOtherCells()) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+      access: zigAccessOf(bot, c), sealed: zigSealedOf(c, zigOtherCells()), ...stuckVisitOpts(rec, 'zig', zigHidden, stuckCellsOn(), zigPlaceOk(c)) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    stuckCellsPublish(bot, dir, key, rec, r, me, MONUMENT_PLOT)
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       completed = true
