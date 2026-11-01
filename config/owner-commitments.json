@@ -1296,9 +1296,9 @@
    ],
    "kind": "showcase",
    "lane": "progress",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
-   "next_step": "Design + build shopchest on the showcase (prove a bot opens it from its stand), then fleet tier 2",
+   "next_step": "DONE on the showcase 11-01: two chests 22,73,28 and 26,73,28 in workshop@1 (Bravo 14:08Z, 50 s); bots open them from their stands (draws fromMats=34 and the storehouse's torches fromMats=3; leftovers banked back). Fleet tier 2 rollout when the fleet builds workshops (SHOPCHEST_POOLS)",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
@@ -1308,7 +1308,7 @@
      "shopchest"
     ]
    },
-   "note": "Backlog per owner ('after house-01 starts', which happened 10-29). Never started: no branch or commit."
+   "note": "Built 11-01 (control session): shopchest.mjs, SHOPCHEST=off rollback. Owner's proof (a bot opens it from its stand) seen live 14:15Z+."
   },
   {
    "id": "storehouse-01",
@@ -1323,17 +1323,18 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Showcase first: build storehouse-01b (plank roof, signs as labels), then fleet",
+   "next_step": "Showcase COMPLETE 11-01 15:16:23Z (release bb89931e; pieces storehouse-01show..r4; camera `storehouse`): watch it stays complete (tidy upkeep keeps the doorway/stands clear). Then: labels (signs: no sign code exists -- design it), barrels in the 6 gap cells (13 containers), sortdeposit-01; fleet rollout only after (STOREHOUSE_POOLS)",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
      "storehouse*"
     ],
     "grep": [
-     "storehouse-01"
+     "storehouse-01",
+     "storehouse.mjs"
     ]
    },
-   "note": "Never started; grep 'storehouse-01' only matches house-01 commits that mention it."
+   "note": "Built 11-01 (control session, owner away): 99-cell stone-brick/plank/glass/cut-copper building round the plan store plot's 6 chests (-15..-8,70..73,-4..3), side doorway -10,71,3, 3 wall torches; paths leg to the door laid 15:17Z (6 cells). STOREHOUSE=off rollback. Live fixes r3 (walks route round open wall cells: buildbot stepFence) and r4 (doorway tidy of a grown spruce's leaves; 30-min stuck window)."
   },
   {
    "id": "sortdeposit-01",
