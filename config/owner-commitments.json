@@ -2847,6 +2847,35 @@
     }
    ],
    "note": "OWNER 11-01 ~22:05Z 'lets sort out 1,2,3 with both claude and codex and get those fixed' (relayed by the coordinator); falls under owner 10-28 success-rate fixes. Tier 2 (not protected). Codex codex-exec blockers-only r1 CHANGE (load intent before the click) -> r2 APPROVE -> r3 APPROVE (unreachable memory delta); Claude independent subagent r1/r2/r3 APPROVE. Rollback: the base sha."
+  },
+  {
+   "id": "stuck-fleet-projects",
+   "title": "Unstick the fleet's stuck projects generically (snow read, sealed pocket, bounded in-visit waiver, blocked deferral, stair support chain): stuckcells-01",
+   "owner_date": "2026-11-01",
+   "memory": [
+    "owner-showcase-projects-1029.md",
+    "owner-workshop-uses-1028.md",
+    "autonomy-1031.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "stuckcells-01 queued after tidy-01 (PROGRESS, set-patch f1f5c16c..stuckcells01-on-f1f5c16); read +90/+180: build op=waived rows, hive-d/isolated-b/board-d shop + board-a house1 + placebo-a ziggurat move, _shaft support rows; then fleet KEEP -> showcase restack",
+   "max_quiet_hours": 24,
+   "evidence": {
+    "branches": [
+     "stuckcells01*",
+     "stuckcells-*"
+    ],
+    "grep": [
+     "stuckcells-01"
+    ],
+    "fleet_paths": [
+     "bots/src/stuckcells.mjs"
+    ]
+   },
+   "note": "OWNER 11-01 ~22:05Z 'lets sort out 1,2,3 with both claude and codex' (+ the mineshaft cases). Codex r2 APPROVE + Claude r2 APPROVE. Offline on region copies: 5/5 stuck building projects complete; placebo-a stair passes its cave landing; hive-a stair no_support does not reproduce offline (now logged). Report docs/reports/stuckcells-01-2026-11-01.md."
   }
  ]
 }
