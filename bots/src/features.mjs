@@ -67,8 +67,10 @@ export function installShowchat (bot, { env = process.env, pool = config.memory.
   // the wrapper counts into its own object; the speaker's flush reports it
   const untap = tapRecords(rec => { sp.stats.noise += stats.noise; stats.noise = 0; sp.onRecord(rec) })
   const timer = setInterval(() => { try { sp.stats.noise += stats.noise; stats.noise = 0; sp.flush() } catch {} }, 60_000); timer.unref?.()
-  showchatUntap = () => { untap(); clearInterval(timer) }
-  bot.once?.('end', () => { if (showchatUntap) { try { sp.flush(true) } catch {} showchatUntap(); showchatUntap = null } })
+  const mine = () => { untap(); clearInterval(timer) }
+  showchatUntap = mine
+  // only THIS bot's speaker goes with this bot's `end` (a late `end` from an old bot never untaps the new one)
+  bot.once?.('end', () => { try { sp.flush(true) } catch {} mine(); if (showchatUntap === mine) showchatUntap = null })
   return sp
 }
 
