@@ -493,7 +493,8 @@ const blockFor = (bp, role) => { if (role === 'fill') return 'cobblestone'; cons
  * The world is the read with the clears applied (air). The FILL is proven as its own first segment `earth` (cobblestone, from
  * the bottom up), then the blueprint's segments in order. `stood` = the walk's seeds, cells a bot stood on (D3).
  */
-export function proveSite (read, home, bp, site, { stood = [] } = {}) {
+export function proveSite (read, home, bp, site, { stood = [], domain = null } = {}) {
+  // storehouse-01: a building inside the town (its plan plot beside the plaza) names its stands' domain (stepFor's), as the visit does
   const over = new Map()
   for (const c of site.clear) over.set(k3(...c.at), AIR)
   const R = overlay(read, over)
@@ -518,7 +519,7 @@ export function proveSite (read, home, bp, site, { stood = [] } = {}) {
     while (left.length) {
       let pick = -1, step = null
       for (let i = 0; i < left.length; i++) {
-        step = stepFor(R, home, left[i].at, nodes)
+        step = stepFor(R, home, left[i].at, nodes, domain)
         if (step) { pick = i; break }
       }
       if (pick < 0 && !fresh) { nodes = walkNow(); fresh = true; walks++; continue }
