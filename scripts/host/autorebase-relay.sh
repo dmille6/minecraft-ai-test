@@ -14,6 +14,8 @@ HOST=mike@10.0.0.31
 GH=git@github.com:dmille6/minecraft-ai-test.git
 R=$HOME/mcai-autorebase-relay.git
 LABEL=com.mcai.autorebase-relay
+HREPO=${AR_HOST_REPO:-/home/mike/autorebase/repo.git}    # overrides: only for a scratch-tree test of the relay
+HPUSH=${AR_HOST_PUSH:-/home/mike/autorebase/push}
 log() { echo "$(date -u +%FT%TZ) $*"; }
 
 if [ "${1:-}" = "--install-launchd" ]; then
@@ -36,7 +38,7 @@ fi
 
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=10"
 export GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=10"
-reqs=$($SSH $HOST 'cat ~/autorebase/push/*.req 2>/dev/null' </dev/null) || exit 0
+reqs=$($SSH $HOST "cat $HPUSH/*.req 2>/dev/null" </dev/null) || exit 0
 [ -n "$reqs" ] || exit 0
 [ -d "$R" ] || git init -q --bare "$R"
 # origin first, so a push sends only the new commits (the host ref alone would make the first push the whole history)
@@ -50,16 +52,16 @@ echo "$reqs" | while read -r branch sha; do
   remote=$(git ls-remote "$GH" "refs/heads/$branch" </dev/null | cut -f1)
   if [ -n "$remote" ]; then
     [ "$remote" = "$sha" ] && log "already on origin: $branch $sha" || log "REFUSED: origin has $branch at $remote, request says $sha"
-    $SSH $HOST "mv -f ~/autorebase/push/$flat.req ~/autorebase/push/$flat.done" </dev/null
+    $SSH $HOST "mv -f $HPUSH/$flat.req $HPUSH/$flat.done" </dev/null
     continue
   fi
-  git -C "$R" fetch -q "ssh://$HOST/home/mike/autorebase/repo.git" "+refs/heads/$branch:refs/heads/$branch" </dev/null \
+  git -C "$R" fetch -q "ssh://$HOST$HREPO" "+refs/heads/$branch:refs/heads/$branch" </dev/null \
     || { log "fetch of $branch failed"; continue; }
   got=$(git -C "$R" rev-parse "refs/heads/$branch")
   [ "$got" = "$sha" ] || { log "REFUSED: the host's $branch is $got, request says $sha"; continue; }
   if git -C "$R" push -q "$GH" "$sha:refs/heads/$branch" </dev/null; then
     log "pushed $branch $sha"
-    $SSH $HOST "mv -f ~/autorebase/push/$flat.req ~/autorebase/push/$flat.done" </dev/null
+    $SSH $HOST "mv -f $HPUSH/$flat.req $HPUSH/$flat.done" </dev/null
   else
     log "push of $branch failed"
   fi
