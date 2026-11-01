@@ -341,6 +341,17 @@
    "consumer": null,
    "kind": "monitor",
    "note": "~/bin/goalcensus-relay.sh hourly on the Mac; consumer not established 10-31"
+  },
+  {
+   "id": "autorebase-relay",
+   "host": "mac",
+   "cron": null,
+   "launchd": "com.mcai.autorebase-relay",
+   "outputs": [],
+   "fresh_hours": null,
+   "consumer": "canary-sched.py v39 autorebase-build on .31: it confirms each push with git ls-remote and refuses (pages, head blocked) after 45 min without it",
+   "kind": "monitor",
+   "note": "~/bin/autorebase-relay.sh every 2 min on the Mac (scripts/host/autorebase-relay.sh): pushes NEW refs/heads/autorebase/* the canary host requests; log ~/Library/Logs/autorebase-relay.log"
   }
  ]
 }
