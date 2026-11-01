@@ -249,7 +249,7 @@ await t('MUTANT KILLED: a build that does not read a grown tree done fells it ou
 
 await t('the project order: the farm after the paths, only with the paths and the house on; a standing farm\'s harvest waits behind an open project', () => {
   // (on, monument, paths, wall, shaft, farm); the town stair (shaft-02) has its own order test: left out here
-  const L = SHOP.projectsOn(true, true, true, true, true, true).filter(p => p.plot !== 'shaft')
+  const L = SHOP.projectsOn(true, true, true, true, true, true, false).filter(p => p.plot !== 'shaft')   // tidy-01: tidy.test.mjs
   assert.ok(L.some(p => p.plot === F.TREEFARM_PLOT))
   assert.ok(!SHOP.projectsOn(true, true, true, true, true, false).some(p => p.plot === F.TREEFARM_PLOT), 'TREEFARM=off')
   assert.ok(!SHOP.projectsOn(true, true, false, true, true, true).some(p => p.plot === F.TREEFARM_PLOT), 'never without the paths')
