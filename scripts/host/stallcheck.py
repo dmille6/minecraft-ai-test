@@ -344,6 +344,18 @@ def det_queue(entries, fleet, parked_runs, journal_runs):
     return out
 
 
+def ar_dead(S, job, t):
+    """The scheduler's autorebase job for this entry refused, or went silent (its heartbeat older than the scheduler's
+    AR_STALE_MIN): either way the entry cannot launch without a human."""
+    if not job:
+        return False
+    if job.get('state') == 'refused':
+        return True
+    hb = S.ts(job.get('hb') or job.get('at'))
+    return job.get('state') in ('starting', 'running') and (hb is None or t is None or
+                                                          (t - hb).total_seconds() > S.AR_STALE_MIN * 60)
+
+
 def has_variant(e, fleet):
     """PURE. A variant for the fleet sha, or (canary-sched v39) a patch source whose autorebase onto it has not refused."""
     return bool(fleet and (fleet in (e.get('variants') or []) or (e.get('patch') and not e.get('ar_refused'))))
@@ -644,7 +656,7 @@ def gather(a, errors):
             entries.append({'run': e.get('run'), 'state': S.entry_state(e, st), 'hold': e.get('hold'),
                             'after': e.get('after') or [], 'variants': sorted((e.get('variants') or {}).keys()),
                             'patch': bool(pt) and hasattr(S, 'ar_job_path'),
-                            'ar_refused': bool(jp and (S.ar_read_job(jp) or {}).get('state') == 'refused')})
+                            'ar_refused': bool(jp and ar_dead(S, S.ar_read_job(jp), st.get('now')))})
             canary_shas |= {str(v.get('canary_sha')) for v in (e.get('variants') or {}).values() if isinstance(v, dict)
                             and re.match(r'^[0-9a-f]{40}$', str(v.get('canary_sha')))}
         if not entries:

@@ -1398,6 +1398,11 @@ def ar_start(P, st, e):
     os.makedirs(os.path.dirname(p), exist_ok=True)
     job = {'state': 'starting', 'run': run, 'base': base, 'tip': tip, 'src_base': e['patch']['base'],
            'at': iso(now()), 'hb': iso(now()), 'step': 'start', 'steps': []}
+    for q in glob.glob(os.path.join(P['ar_home'], 'jobs', '*.json')):
+        j = ar_read_job(q) or {}
+        hb = ts(j.get('hb') or j.get('at'))
+        if j.get('state') in ('starting', 'running') and hb and (now() - hb).total_seconds() <= AR_STALE_MIN * 60:
+            return None                     # one build at a time on this host (one repo, one npm)
     try:
         fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     except FileExistsError:
@@ -1489,14 +1494,19 @@ def test_results(out):
     return res
 
 
-def test_verdict(full_rc, full, alone_new, alone_base, touched, max_base_fail=3):
+def test_verdict(full_rc, full, alone_new, alone_base, touched, expected=None, max_base_fail=3):
     """PURE. Did the suite pass, base-relatively? full: {file: ok|FAIL} of the full run on the new tip; alone_new: the
     same for each full-run failure re-run ALONE on the new tip; alone_base: each still-failing file re-run alone on the
     BASE. A file passes when it passed in the full run, or alone. A file that fails alone on the new tip is accepted only
     when it ALSO fails alone on the base, the change does not touch it, and at most max_base_fail files are like that.
+    expected: how many test files the worktree holds -- the full run must have reported every one of them.
     -> ('', summary) or (why refused, summary)."""
     if not full:
         return 'the full run printed no per-file results (rc %s)' % full_rc, ''
+    if full_rc == 124:
+        return 'the full run was killed at the timeout after %d files' % len(full), ''
+    if expected is not None and len(full) != expected:
+        return 'the full run reported %d files, the worktree has %d' % (len(full), expected), ''
     fails = sorted(f for f, r in full.items() if r != 'ok')
     if full_rc == 0 and not fails:
         return '', 'npm test %d/%d in the full run' % (len(full), len(full))
@@ -1567,6 +1577,12 @@ def _ar_steps(P, job, run, base, tip):
     src = (e.get('variants') or {}).get(pt['base']) or {}
     if src.get('canary_sha') != tip:
         raise ArRefuse('the source variant keyed on %s does not have canary_sha %s' % (pt['base'][:8], tip[:8]))
+    reads_src = src.get('reads_src') or os.path.join(P['home'], 'mcai-analysis')
+    for name, want in sorted((src.get('reads') or {}).items()):
+        rp = os.path.join(reads_src, '%s.py' % name)
+        if not os.path.exists(rp) or md5(rp) != want:
+            raise ArRefuse('read %s in %s is not the md5 the source variant pinned (%s): the reviewed reads changed'
+                           % (name, reads_src, want[:8]))
     S('entry', 'patch %s..%s (%s), template registration %s' % (pt['base'][:8], tip[:8], pt.get('branch') or '-',
                                                                   src.get('registration')))
     # 2. the scratch repo: a bare clone of origin, plus the deploy repo for anything origin lacks
@@ -1614,9 +1630,14 @@ def _ar_steps(P, job, run, base, tip):
     rc_mb, out_mb = run_cmd(nice + [npm, 'run', 'lint:movement'], B, 600)
     S('worktree', '%s at %s; npm ci ok; movement lint on the base rc %s' % (W, base[:8], rc_mb))
     # 5. (a) cherry-pick, no conflict
+    # REPRODUCIBLE: committer pinned (name, email, the source tip's committer time), so a rebuild after
+    # `autorebase-clear` makes the SAME sha and finds its own branch (and any push of it) instead of refusing on it
+    _, cdate, _ = gitx(R, 'log', '-1', '--format=%ct', tip)
+    pin = {'GIT_COMMITTER_NAME': 'canary-sched autorebase', 'GIT_COMMITTER_EMAIL': 'autorebase@mcai.invalid',
+           'GIT_COMMITTER_DATE': '@%s +0000' % cdate.strip()}
     rc, out, err = gitx(W, '-c', 'user.name=canary-sched autorebase', '-c', 'user.email=autorebase@mcai.invalid',
                         '-c', 'commit.gpgsign=false', '-c', 'rerere.enabled=false', 'cherry-pick', '-x',
-                        '--allow-empty-message', *commits, timeout=600)
+                        '--allow-empty-message', *commits, timeout=600, env_extra=pin)
     if rc != 0:
         _, unmerged, _ = gitx(W, 'diff', '--name-only', '--diff-filter=U')
         gitx(W, 'cherry-pick', '--abort')
@@ -1645,12 +1666,16 @@ def _ar_steps(P, job, run, base, tip):
         raise ArRefuse('protected.py tier changed: %s on the source base, %s on %s -- needs the review that tier asks for'
                        % (t0, t1, base[:8]))
     S('tier', 'protected.py tier %s on both bases' % t1)
+    if any(f.startswith('bots/package') for f in files):
+        rc, out = run_cmd(nice + [npm, 'ci', '--no-audit', '--no-fund', '--prefer-offline'], B, 1200)
+        if rc != 0:
+            raise ArRefuse('npm ci failed on the new tip (a dependency change, rc %s): %s' % (rc, ' '.join(out.split())[-300:]))
     # 8. (c) lint, movement lint (no worse than the base), the full suite (base-relative for host-load failures)
     rc, out = run_cmd(nice + [npm, 'run', 'lint'], B, 900)
     if rc != 0:
         raise ArRefuse('eslint (npm run lint, no-undef) fails on the new tip: %s' % ' '.join(out.split())[-300:])
     rc_mv, out_mv = run_cmd(nice + [npm, 'run', 'lint:movement'], B, 600)
-    if rc_mv != 0 and (rc_mb == 0 or not movement_fails(out_mv) <= movement_fails(out_mb)):
+    if rc_mv != 0 and (rc_mb == 0 or not movement_fails(out_mv) or not movement_fails(out_mv) <= movement_fails(out_mb)):
         raise ArRefuse('the movement-writer lint is worse on the new tip (rc %s, FAIL %s) than on the base (rc %s, FAIL %s)'
                        % (rc_mv, sorted(movement_fails(out_mv)), rc_mb, sorted(movement_fails(out_mb))))
     S('lint', 'eslint ok; movement lint rc %s (base rc %s)' % (rc_mv, rc_mb))
@@ -1661,7 +1686,10 @@ def _ar_steps(P, job, run, base, tip):
     alone_new, alone_base = {}, {}
     fails = sorted(f for f, r in full.items() if r != 'ok')
     if fails and len(fails) <= AR_MAX_RERUN:
-        alone = lambda f: test_results(run_cmd(nice + [npm, 'test', '--', f], B, 900, {'TEST_JOBS': '1'})[1]).get(f, '?')
+        def alone(f):
+            rc1, o1 = run_cmd(nice + [npm, 'test', '--', f], B, 900, {'TEST_JOBS': '1'})
+            r1 = test_results(o1).get(f, '?')
+            return 'ok' if r1 == 'ok' and rc1 == 0 else ('FAIL' if r1 == 'FAIL' else '?')   # '?': no answer, never ok
         for f in fails:
             alone_new[f] = alone(f)
         still = [f for f in fails if alone_new.get(f) != 'ok']
@@ -1674,7 +1702,8 @@ def _ar_steps(P, job, run, base, tip):
                 raise ArRefuse('the worktree could not be put back on %s after the base comparison' % nt[:8])
     if any(f.startswith('bots/package') for f in files):
         alone_base = {}                     # a dependency change: the base's node modules are not the base's -- no allowance
-    why, summary = test_verdict(rc_t, full, alone_new, alone_base, files)
+    expected = len(glob.glob(os.path.join(B, 'test', '*.test.mjs')))
+    why, summary = test_verdict(rc_t, full, alone_new, alone_base, files, expected)
     if why:
         raise ArRefuse('npm test: %s (%s)' % (why, summary))
     S('tests', summary)
@@ -1744,7 +1773,7 @@ def _ar_steps(P, job, run, base, tip):
     import io, contextlib
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        rc = cmd_queue(P, ['add-variant', run, base, regp, approved])
+        rc = cmd_queue(P, ['add-variant', '--reads-src', reads_src, run, base, regp, approved])
     if rc != 0:
         raise ArRefuse('queue add-variant refused: %s' % ' '.join(buf.getvalue().split())[-400:])
     S('variant', 'queued %s for %s' % (nt[:8], base[:8]))
@@ -1964,6 +1993,9 @@ def _cmd_queue(P, args):
         with_queue(P, setp)
         print('patch source of %s: %s..%s (%d commit(s), %d file(s), normalized diff sha256 %s)'
               % (run, sb[:8], tip[:8], len(commits), len(files), h[:16])); return 0
+    rs = None
+    if sub == 'add-variant' and len(args) >= 3 and args[1] == '--reads-src':
+        rs, args = args[2], args[:1] + args[3:]
     if sub == 'add-variant' and len(args) >= 5:
         run, base, reg, approved = args[1], args[2], args[3], ' '.join(args[4:])
         if not HEX40.match(base):
@@ -1978,6 +2010,8 @@ def _cmd_queue(P, args):
             print('REFUSED: %s is not queued exactly once' % run); return 2
         e2 = {'run': run, 'class': hit[0].get('class', ''),
               'variants': {base: {'registration': os.path.abspath(reg), 'approved': approved}}}
+        if rs:
+            e2['variants'][base]['reads_src'] = rs
         bad = validate_entry(P, e2, st['journal'])
         if bad:
             print('REFUSED:\n  ' + '\n  '.join(bad)); return 2

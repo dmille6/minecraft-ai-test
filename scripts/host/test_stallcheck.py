@@ -162,6 +162,12 @@ def t_queue(S):
     check('c quiet: an entry with a patch source and no refusal', not ({'c:rebaseable', 'c:afterrebaseable'} & keys), keys)
     check('c fires: an entry whose autorebase refused', 'c:arrefused' in keys, keys)
     check('runnable: a patch source counts as a variant', S.runnable(ar[0], ar, FLEET) and not S.runnable(ar[1], ar, FLEET))
+    import types, datetime as _dt
+    now_ = _dt.datetime(2026, 11, 1, 12, 0, tzinfo=_dt.timezone.utc)
+    CSs = types.SimpleNamespace(AR_STALE_MIN=20, ts=lambda x: _dt.datetime.fromisoformat(x.replace('Z', '+00:00')) if x else None)
+    check('ar_dead: refused, and a silent running job, are dead; a fresh one and none are not',
+          S.ar_dead(CSs, {'state': 'refused'}, now_) and S.ar_dead(CSs, {'state': 'running', 'hb': '2026-11-01T11:00:00Z'}, now_)
+          and not S.ar_dead(CSs, {'state': 'running', 'hb': '2026-11-01T11:55:00Z'}, now_) and not S.ar_dead(CSs, None, now_))
 
 
 def t_branches(S):

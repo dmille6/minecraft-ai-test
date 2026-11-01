@@ -107,7 +107,7 @@ fi
 
 say "6. verify"
 T=$(python3 $H/canary-sched.py tick --no-act 2>&1); echo "$T" | cut -c1-300
-if ! echo "$T" | grep -qE '(BUSY|BLOCK|WAIT|IDLE|LAUNCH|AUTOREBASE|LAUNCHING)'; then
+if ! echo "$T" | grep -qE '(BUSY|BLOCK|WAIT|IDLE|LAUNCH|AUTOREBASE|LAUNCHING|holds the scheduler lock)'; then
   cp -p "$BK/backup-$STAMP/canary-sched.py" $H/canary-sched.py; cp -p "$BK/backup-$STAMP/stallcheck.py" $SC
   die "tick --no-act did not decide: rolled back"
 fi

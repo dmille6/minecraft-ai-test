@@ -82,6 +82,7 @@ class ArFix(TC.Fix):
         # SB: a tree with bots/src/a.mjs, b.mjs, the real protected.py and an empty protected list
         gc(g, 'checkout', '-q', '--detach', self.base)
         for rel, body in (('bots/src/a.mjs', '\n'.join(A_LINES) + '\n'), ('bots/src/b.mjs', 'export const b = 1\n'),
+                          ('bots/test/a.test.mjs', '// fixture\n'), ('bots/test/b.test.mjs', '// fixture\n'),
                           ('config/protected-paths.txt', 'bots/src/zzz-not-in-the-change.mjs\n')):
             os.makedirs(os.path.join(g, os.path.dirname(rel)), exist_ok=True)
             open(os.path.join(g, rel), 'w').write(body)
@@ -283,6 +284,27 @@ def t_base_flake_accepted_and_named(CS):
         F.cleanup()
 
 
+def t_clear_then_rebuild_same_sha(CS):
+    """A refusal AFTER the branch exists (here: the deploy repo cannot fetch), then `autorebase-clear`: the rebuild
+    makes the SAME sha (pinned committer), accepts its own branch, and the variant is queued."""
+    F = ArFix('clean')
+    try:
+        seed(CS, F)
+        gc(F.git, 'remote', 'remove', 'origin')
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'refused' and 'deploy repo' in job['why'], job
+        br = 'refs/heads/autorebase/foo-01-on-%s' % F.lb[:8]
+        first = sh('git', 'ls-remote', F.origin, br).split()[0]
+        gc(F.git, 'remote', 'add', 'origin', F.origin)
+        rc, out = TC.human(CS, F, 'autorebase-clear', 'foo-01', 'test: fixed the deploy repo remote')
+        assert rc == 0 and 'moved' in out, out
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'done' and job['variant'] == first, (job, first)
+        TC.expect(CS, F, 'launch')
+    finally:
+        F.cleanup()
+
+
 def t_no_patch_blocks_like_before(CS):
     F = ArFix('clean')
     try:
@@ -321,6 +343,9 @@ def t_pure_verdict_and_norm(CS):
                           ['bots/test/a.test.mjs'])[0]
     assert v(1, {}, {}, {}, [])[0]                                                                   # no results: refuse
     assert v(1, {'a.test.mjs': 'ok'}, {}, {}, [])[0]                                                 # rc 1, none named
+    assert 'timeout' in v(124, {'a.test.mjs': 'ok', 'b.test.mjs': 'FAIL'}, {'b.test.mjs': 'ok'}, {}, [])[0]
+    assert 'reported 1 files' in v(0, {'a.test.mjs': 'ok'}, {}, {}, [], expected=2)[0]
+    assert v(0, {'a.test.mjs': 'ok', 'b.test.mjs': 'ok'}, {}, {}, [], expected=2)[0] == ''
     many = {'f%d.test.mjs' % i: 'FAIL' for i in range(7)}
     assert 'more than' in v(1, many, {}, {}, [])[0]
     a = 'diff --git a/x b/x\nindex 111..222 100644\n--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@ fn\n a\n-b\n+c\n d\n'
@@ -332,7 +357,7 @@ def t_pure_verdict_and_norm(CS):
     assert CS.tier_label(2, '') == 'undecidable'
 
 
-TESTS = [t_pure_verdict_and_norm, t_no_patch_blocks_like_before, t_set_patch_refuses_merge_range,
+TESTS = [t_pure_verdict_and_norm, t_no_patch_blocks_like_before, t_clear_then_rebuild_same_sha, t_set_patch_refuses_merge_range,
          t_clean_builds_and_launches, t_conflict_pages_and_blocks, t_diff_change_refuses, t_failing_test_refuses,
          t_tier_change_refuses, t_base_flake_accepted_and_named]
 
@@ -347,7 +372,10 @@ MUTANTS = [
      "    new_only = []\n"),
     ('a refused job is retried', "    if job is None:\n        return ('autorebase will cherry-pick",
      "    if job is None or job.get('state') == 'refused':\n        return ('autorebase will cherry-pick"),
-    ('the variant is not added', "        rc = cmd_queue(P, ['add-variant', run, base, regp, approved])\n",
+    ('the pick is not reproducible', "           'GIT_COMMITTER_DATE': '@%s +0000' % cdate.strip()}\n",
+     "           'GIT_COMMITTER_DATE': '@%d +0000' % time.time_ns()}\n"),
+    ('a timed-out suite counts', "    if full_rc == 124:\n", "    if False:\n"),
+    ('the variant is not added', "        rc = cmd_queue(P, ['add-variant', '--reads-src', reads_src, run, base, regp, approved])\n",
      "        rc = 0\n"),
 ]
 
