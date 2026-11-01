@@ -32,6 +32,9 @@ const NAME = 'sandbox-Bucket'
 const res = []
 const bot = mineflayer.createBot({ host: '10.0.0.30', port: PORTS[SERVER], username: NAME, version: '1.21.8', auth: 'offline' })
 await new Promise(r => bot.once('spawn', r))
+// bucket.mjs's aims are plain {x,y,z}; mineflayer's lookAt needs a Vec3 (point.minus) -- converted here, and noted for deepminer-02
+const look0 = bot.lookAt.bind(bot)
+bot.lookAt = (p, force) => look0(p instanceof Vec3 ? p : new Vec3(p.x, p.y, p.z), force)
 await sleep(2000)
 try {
   for (let t = 0; t < Number(TRIALS_S); t++) {
