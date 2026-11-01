@@ -157,6 +157,10 @@ def tree(keep=True):
     return root
 
 
+def quiet_and(fn):
+    return quiet(fn)
+
+
 def quiet(fn, *a, **k):
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
@@ -635,6 +639,34 @@ def ab():
     got = R.Host().crash_loops(None, None, {'isolated-a-Alpha'}); allu = R.Host().crash_loops(None, None)
     R._w5 = orig
     t('Host.crash_loops: filtered to the given bots; unfiltered without', list(got) == ['mcbot@isolated-a-Alpha.service'] and len(allu) == 2, got)
+
+    # 11-01: a QUIET journal (no restart in the hour) is healthy; a failing journalctl is unreadable
+    qj = {'crash_loops': {}, 'unit_lines': 0}
+    t('crash probe: quiet hour + readable journal -> {} (no stop, not unreadable)', R.crash_verdict(qj, lambda: True) == {})
+    def raises(fn):
+        try:
+            fn(); return False
+        except RuntimeError:
+            return True
+    t('crash probe: journalctl failing (crash_facts marks it) -> unreadable', raises(lambda: R.crash_verdict(
+        {'crash_loops': {'<journal unreadable>': 3}, 'unit_lines': None}, lambda: True)))
+    t('crash probe: no mcbot line AND the manager journal unreadable -> unreadable', raises(lambda: R.crash_verdict(qj, lambda: False)))
+    t('crash probe: lines present -> the control is not even asked', R.crash_verdict({'crash_loops': {'mcbot@a-b-C.service': 3},
+      'unit_lines': 7}, lambda: 1 / 0) == {'mcbot@a-b-C.service': 3})
+    w = {}
+    for _ in range(4):
+        r = R.exp_reasons({'endpoint_ok': True, 'crash_loops': R.crash_verdict(qj, lambda: True)}, w)
+    t('crash probe: four quiet hours in a row never stop the run', r == [] and w['unread_crash_loops'] == 0)
+    # A/B: an unreadable fleet tripper is not a stop (it is not one when readable either)
+    root = tree(); h = FakeHost(root)
+    h.tripper = lambda: {'verdict': 'UNREAD', 'why': 'x'}
+    rc, out = quiet_and(lambda: R.Rollout(h, 'qwen35-01', ab_pools=AB).go())
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    for k in range(4):
+        h.t = R.ts(st['completed']) + dt.timedelta(minutes=15 * (k + 1)) - dt.timedelta(minutes=R.ts(st['completed']).minute % 15)
+        quiet_and(lambda: R.Rollout(h, 'qwen35-01').watch())
+    t('A/B: the tripper UNREAD on every evaluation does not stop the run', len(dropins()) == 15, len(dropins()))
+    shutil.rmtree(root)
 
     # +24 h: mandatory rollback in A/B too
     root = tree(); h = FakeHost(root)

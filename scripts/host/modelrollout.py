@@ -405,6 +405,21 @@ def exp_reasons(f, w):
     return why
 
 
+def crash_verdict(f, journal_readable, bots=None):
+    """PURE but for the callable. rollout.crash_facts -> {unit: restarts} of the crash-looping units (filtered to `bots`),
+    or raises when the journal is genuinely unreadable: crash_facts' own '<journal unreadable>' (journalctl failed), or no
+    mcbot line in the window AND the manager's newest line cannot be read either. No mcbot line with a readable journal
+    is the HEALTHY case (no restart in the hour)."""
+    loops = f.get('crash_loops') or {}
+    if '<journal unreadable>' in loops:
+        raise RuntimeError('systemd journal unreadable (journalctl failed)')
+    if not f.get('unit_lines') and not journal_readable():
+        raise RuntimeError('no mcbot unit line in the window and the manager journal is not readable (positive control)')
+    if bots is not None:
+        loops = {u: n for u, n in loops.items() if u[len('mcbot@'):-len('.service')] in bots}
+    return loops
+
+
 def is_timeout(L):
     return bool(re.search(r'time ?out|timed out|abort', str(L.get('error') or ''), re.I)) or (L.get('latency_ms') or 0) >= TIMEOUT_MS
 
@@ -583,14 +598,16 @@ class Host:
             raise RuntimeError('no active mcbot unit among %d pools (positive control)' % len(pools))
         return n_st, n_act
 
+    def journal_readable(self):
+        """The positive control for the crash probe: the service manager's NEWEST journal line, whatever its unit (PID 1
+        logs session scopes every minute or so). A quiet hour for the bots is not an unreadable journal (11-01: the A/B
+        stopped itself because 60 min without a restart had no mcbot line at all)."""
+        rc, out = self.sh(['sudo', '-n', 'journalctl', '--no-pager', '-o', 'cat', '-n', '1', '_PID=1'], timeout=60)
+        return rc == 0 and bool(out.strip()) and 'No journal files' not in out and 'insufficient permissions' not in out
+
     def crash_loops(self, t0, t1, bots=None):
         f = _w5().crash_facts('mcbot@*.service', t0, t1)
-        loops = f.get('crash_loops') or {}
-        if '<journal unreadable>' in loops or not f.get('unit_lines'):
-            raise RuntimeError('systemd journal unreadable or no mcbot unit lines in the window (positive control)')
-        if bots is not None:
-            loops = {u: n for u, n in loops.items() if u[len('mcbot@'):-len('.service')] in bots}
-        return loops
+        return crash_verdict(f, (lambda: self.journal_readable()), bots)
 
     def fails(self, ctxdir, minutes=10):
         """(failed, total) model decisions of the ctx's bots in the last `minutes` (work orders excluded)."""
@@ -972,7 +989,8 @@ class Rollout:
                 f['tripper'] = {'verdict': 'UNREAD', 'why': str(x)[:120]}
             if f['tripper'].get('verdict') not in ('OK', 'TRIP'):
                 f.setdefault('unreadable', []).append('tripper: %s' % f['tripper'].get('why'))
-                f.setdefault('unread_keys', []).append('tripper')
+                if not self.ab:            # A/B: the fleet tripper is not a stop, so its blindness is not one either
+                    f.setdefault('unread_keys', []).append('tripper')
         if deaths:
             b = self.st.get('death_baseline') or {}
             if b.get('rate') is None:          # recover the baseline; a gate without one is a probe that is down
