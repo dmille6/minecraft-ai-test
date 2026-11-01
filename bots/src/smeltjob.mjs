@@ -264,6 +264,24 @@ export const DRAIN_EMPTY_TTL_MS = 6 * 60 * 60 * 1000
 export const DRAIN_MIN_FREE = 2
 /** The drain looks within the town radius of home (composter.mjs TOWN_RADIUS, straight-line). */
 export const DRAIN_RADIUS = 48
+/** drainpick-01: no furnace is a candidate while the bot stands MORE than this many blocks below it (a mine under town).
+ *  MEASURED 24 h to 11-01 21:38Z (80 bots, start position = the bot's last skill row before the drain): from > 8 below,
+ *  902 of 1,166 drains failed "could not be reached" (77%, median 0.7 s, 1 block moved); from 3-8 below 51 of 234; level
+ *  59 of 1,507. Not offering it costs nothing: the bot is offered the drain again once it is back on the town's level. */
+export const DRAIN_BELOW_MAX = 8
+/** drainpick-01: a furnace THIS bot walked to and could not reach is not its candidate for this long. MEASURED on the showcase
+ *  (24 h to 11-01 21:38Z, 10 bots): 316 drains failed unreachable, 145 bot-min, 290 of them at 4 furnaces 8-14 blocks BELOW
+ *  town level (y 58-62, buried; not the workshop's, whose floor is y 71), each retried after the 20-min backoff -- the order
+ *  picks the nearest furnace again. 12 h: one failure per bot per furnace per half day; a furnace any bot CAN reach is still
+ *  drained by that bot. In-process (a restart forgets it, as the own empty memory). */
+export const DRAIN_UNREACHABLE_MS = 12 * 60 * 60 * 1000
+/** This bot could not reach furnace `k` -> the new map { k: until }, expired entries dropped. Pure. */
+export function noteFurnaceUnreachable (map = {}, k, now = 0) {
+  const out = {}
+  for (const [key, until] of Object.entries(map ?? {})) if (Number(until) > now) out[key] = until
+  if (k) out[k] = now + DRAIN_UNREACHABLE_MS
+  return out
+}
 
 /**
  * IS THE JOB ON? -> { on, why }. Pure. Off with SMELT_JOB=0|off|false (the kill switch), and off in an ISOLATED pool
@@ -358,11 +376,15 @@ export function smeltTownOutcome (status, why = null, now = 0, state = {}) {
  * A LIT furnace is never opened: it is cooking (somebody's batch, or a stage-4 load), and an unlit one with input and
  * fuel cannot exist in vanilla for more than a tick (it would light).
  */
-export function drainPick ({ furnaces = [], leased = () => false, seen = {}, now = 0, skip = null } = {}) {
+export function drainPick ({ furnaces = [], leased = () => false, seen = {}, now = 0, skip = null, unreachable = {} } = {}) {
   const cands = []
   for (const f of furnaces) {
     if (!f?.k || f.lit) continue
     if (!(f.dist <= DRAIN_RADIUS)) continue
+    // drainpick-01: the bot is in a mine below this furnace (`above`: furnace y - bot y, townFurnaces): not from here
+    if (Number.isFinite(f.above) && f.above > DRAIN_BELOW_MAX) continue
+    // drainpick-01: this bot walked there and could not reach it, recently (noteFurnaceUnreachable)
+    if (Number(unreachable?.[f.k]) > now) continue
     if (leased(f.k)) continue
     const m = seen[f.k]
     if (m?.empty && !m.litSince && now - (m.at ?? 0) < DRAIN_EMPTY_TTL_MS) continue
@@ -377,33 +399,40 @@ export function drainPick ({ furnaces = [], leased = () => false, seen = {}, now
 // ---- furnaceseen-01: a townmate's EMPTY finding saves the walk (cooperation tier B3; design r9.1 6.3 B3, 6.4) -----------------
 /** FURNACE_SEEN=off is the one-setting rollback (the drain walks exactly as on the base). */
 export const FURNACE_SEEN = Object.freeze({ on: !['0', 'off', 'false', 'no'].includes(String(process.env.FURNACE_SEEN ?? '').trim().toLowerCase()) })
-/** A townmate's empty finding is trusted this long (comms 4.5: the station fact's 60-min TTL). */
-export const SEEN_EMPTY_MS = 60 * 60 * 1000
+/** An EMPTY ledger entry is trusted this long -- the bot's own memory's life (DRAIN_EMPTY_TTL_MS, 6 h). drainpick-01: it was
+ *  the station fact's 60 min, and over 24 h to 11-01 21:38Z 1,156 of 1,897 "is empty" drains walked past a townmate's empty
+ *  entry 1-6 h old with nothing newer in the ledger (every town load writes a newer entry: smelt / smelt_town / make_material
+ *  'load', so a furnace loaded since is never skipped). 4 drains of 3,227 took anything. */
+export const SEEN_EMPTY_MS = DRAIN_EMPTY_TTL_MS
 
 /**
  * THE SKIP -> { skip, why }. Pure: a function of EXACTLY the inputs the drain logs at pick time (design 6.4, Claude r9 #2), so
  * the read's defect line replays this same function on the logged inputs.
+ * drainpick-01: the bot's OWN empty entry skips too ('own_empty'). Its memory (bot.furnaceSeen) is in-process and every
+ * restart empties it -- ~9 spawns a bot a day -- and 274 of the 1,897 empties were a bot re-opening a furnace its OWN ledger
+ * entry had found empty (median 40 min before). When the memory does exist, drainPick has already ruled on it, and a later
+ * own look that found items still wins (own_newer_holds).
  *   entry   the furnace's NEWEST `station` entry in the ledger fold the bot read ({ id, at, bot, state }) or null
  *   litAt   this bot's own last sight of the furnace LIT (the block state; ms) or null
  *   own     this bot's own furnaceSeen entry ({ empty, at, litSince }) or null
  *   me      this bot's name
- * Skip only when the newest entry is a TOWNMATE's EMPTY, younger than SEEN_EMPTY_MS (and not from the future), and nothing
- * newer contradicts it: this bot saw the furnace lit at or after it, or this bot's own later look found items. The bot's own
- * findings are its own memory's (drainPick's DRAIN_EMPTY_TTL_MS), never this rule's. A load after the empty is a newer
- * entry (its state `holds` or `lit`), so the fold itself carries that contrary evidence.
+ * Skip only when the newest entry is an attributed EMPTY (a townmate's or this bot's own), younger than SEEN_EMPTY_MS (and
+ * not from the future), and nothing newer contradicts it: this bot saw the furnace lit at or after it, or this bot's own later
+ * look found items. A load after the empty is a newer entry (its state `holds` or `lit`), so the fold itself carries that
+ * contrary evidence; so is a smelt's emptied close (drainpick-01: phase `close`, state `empty`).
  */
 export function seenSkip ({ entry = null, litAt = null, own = null, me = null, now = 0 } = {}) {
   if (!entry) return { skip: false, why: 'no_entry' }
   if (entry.state !== 'empty') return { skip: false, why: 'entry_not_empty' }
-  if (!entry.bot || entry.bot === me) return { skip: false, why: 'own_entry' }
+  if (!entry.bot) return { skip: false, why: 'no_bot' }
   const at = Number(entry.at)
   if (!Number.isFinite(at) || !(now - at < SEEN_EMPTY_MS) || at > now + 60_000) return { skip: false, why: 'expired' }
   if (litAt != null && Number(litAt) >= at) return { skip: false, why: 'lit_since' }
   if (own && !own.empty && Number(own.at) >= at) return { skip: false, why: 'own_newer_holds' }
-  return { skip: true, why: 'townmate_empty' }
+  return { skip: true, why: entry.bot === me ? 'own_empty' : 'townmate_empty' }
 }
 /** The `_furnace_seen_mode` row (once per spawn). */
-export const furnaceSeenModeDetail = () => `phase=mode on=${FURNACE_SEEN.on ? 'on' : 'off'} v=1 ttl_min=${SEEN_EMPTY_MS / 60000} rule=townmate_empty`
+export const furnaceSeenModeDetail = () => `phase=mode on=${FURNACE_SEEN.on ? 'on' : 'off'} v=2 ttl_min=${SEEN_EMPTY_MS / 60000} rule=town_empty`
 /** The skip's inputs in the row's own words (the read parses ONE format): se= sl= so= off=. Pure. */
 export const seenFields = ({ entry = null, litAt = null, own = null, off = null } = {}) =>
   `se=${entry?.id ?? '-'} sl=${litAt ?? '-'} so=${own ? `${own.empty ? 'e' : 'h'}:${own.at ?? '-'}` : '-'} off=${off ?? '-'}`

@@ -1,6 +1,6 @@
 {
- "_": "furnaceseen-01: seenSkip truth table (bots/test/furnaceseen.test.mjs TABLE); scripts/host/furnaceseenread.py seen_skip must reproduce every row",
- "SEEN_EMPTY_MS": 3600000,
+ "_": "furnaceseen-01 (drainpick-01: 6 h, own entries skip): seenSkip truth table (bots/test/furnaceseen.test.mjs TABLE); scripts/host/furnaceseenread.py seen_skip must reproduce every row",
+ "SEEN_EMPTY_MS": 21600000,
  "rows": [
   {
    "name": "a townmate's empty 10 min ago",
@@ -66,7 +66,7 @@
    }
   },
   {
-   "name": "my own empty entry (my memory rules for my findings)",
+   "name": "my own empty entry, no memory of it (a restart)",
    "inputs": {
     "entry": {
      "id": "mate-1",
@@ -78,16 +78,56 @@
     "now": 1792843200000
    },
    "out": {
-    "skip": false,
-    "why": "own_entry"
+    "skip": true,
+    "why": "own_empty"
    }
   },
   {
-   "name": "59:59 old: still trusted",
+   "name": "my own empty entry, and I saw it lit since",
    "inputs": {
     "entry": {
      "id": "mate-1",
-     "at": 1792839600001,
+     "at": 1792842600000,
+     "bot": "Me",
+     "state": "empty"
+    },
+    "litAt": 1792842900000,
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": false,
+    "why": "lit_since"
+   }
+  },
+  {
+   "name": "my own empty entry, my later look found items",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792842600000,
+     "bot": "Me",
+     "state": "empty"
+    },
+    "own": {
+     "empty": false,
+     "at": 1792842900000,
+     "litSince": false
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": false,
+    "why": "own_newer_holds"
+   }
+  },
+  {
+   "name": "a townmate's empty 3 h ago (was expired at 60 min)",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792832400000,
      "bot": "Mate",
      "state": "empty"
     },
@@ -100,11 +140,28 @@
    }
   },
   {
-   "name": "60:00 old: expired",
+   "name": "5:59:59 old: still trusted",
    "inputs": {
     "entry": {
      "id": "mate-1",
-     "at": 1792839600000,
+     "at": 1792821600001,
+     "bot": "Mate",
+     "state": "empty"
+    },
+    "me": "Me",
+    "now": 1792843200000
+   },
+   "out": {
+    "skip": true,
+    "why": "townmate_empty"
+   }
+  },
+  {
+   "name": "6:00:00 old: expired",
+   "inputs": {
+    "entry": {
+     "id": "mate-1",
+     "at": 1792821600000,
      "bot": "Mate",
      "state": "empty"
     },
@@ -249,7 +306,7 @@
    },
    "out": {
     "skip": false,
-    "why": "own_entry"
+    "why": "no_bot"
    }
   }
  ]

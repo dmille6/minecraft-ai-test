@@ -178,7 +178,9 @@ await t('THE SEARCH RESUMES: a town of more containers than one order may open, 
   for (let i = 0; i < 4 && per.reduce((a, b) => a + b, 0) < grid.length; i++) {
     const before = w.spy.opened.length
     const r = await pick(w)
-    assert.equal(r.status, 'no_effect', r.detail)                    // the bag holds the ingredients: nothing else to fetch
+    // the bag holds the ingredients: nothing else to fetch, so the order crafts (drainpick-01); this fake world has no
+    // recipes, so that craft fails -- the search itself is what this test reads (pickcraft.test.mjs runs the real craft)
+    assert.equal(r.status, 'failed', r.detail); assert.match(r.detail, /stone_pickaxe craft from the bag failed/)
     per.push(w.spy.opened.length - before)
     later(WITHDRAW_COOLDOWN_MS)                                       // a no_effect order costs only the cooldown
   }
@@ -207,7 +209,8 @@ await t('A MISS AFTER A STALE COUNT WINS: the journal still says "holds one" fro
   for (const c of [...CHESTS, FAR]) CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.notePickMisses(e, [kOf(c)]))
   const n0 = RECS.length
   const r = await pick(w)
-  assert.equal(r.status, 'no_effect', r.detail)
+  assert.equal(r.status, 'failed', r.detail)   // a ready bag: the order crafts (drainpick-01); no recipes in this fake world
+  assert.match(r.detail, /stone_pickaxe craft from the bag failed/)
   assert.deepEqual(w.spy.opened, [], 'nothing opened')
   assert.match(rows(n0).at(-1), / cand=0,- /, rows(n0).at(-1))
   // positive control: the same count AFTER the miss makes it the first candidate
