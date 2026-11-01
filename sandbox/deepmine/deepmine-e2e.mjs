@@ -134,9 +134,10 @@ function hazards () {
     notes[id === 'lava' ? 'lavaPockets' : 'waterPockets']++
   }
   if (SCENE === 'hazard') {
-    for (let x = A.x0 + 2; x <= A.x1 - 2; x += 4) for (let z = A.z0 + 2; z <= A.z1 - 2; z += 4) {
+    // three layers (the miner works where its last tunnel left it: -53 .. -44 on Paper 11-01)
+    for (const band of [[-53, -51], [-50, -48], [-47, -44]]) for (let x = A.x0 + 2 + (band[0] & 1); x <= A.x1 - 2; x += 4) for (let z = A.z0 + 2; z <= A.z1 - 2; z += 4) {
       if (!far(x, z, 12)) continue
-      const y = ri(-53, -51), id = rnd() < 0.6 ? 'lava' : 'water'
+      const y = ri(band[0], band[1]), id = rnd() < 0.6 ? 'lava' : 'water'
       cmds.push(set([x, y, z], id)); notes.field = (notes.field ?? 0) + 1
     }
   }
@@ -241,8 +242,8 @@ try {
   // the server's truth
   rcon('save-all flush'); await sleep(4000)
   const inv = rcon(`data get entity ${NAME} Inventory`)[0]?.reply ?? ''
-  // one item compound at a time ({count: 2, Slot: 3b, id: "minecraft:diamond"} -- the field order varies)
-  const count = id => [...inv.matchAll(/\{[^{}]*\}/g)].map(m => m[0]).filter(c => c.includes(`id: "minecraft:${id}"`)).reduce((s, c) => s + Number((c.match(/count: (\d+)/) ?? [])[1] ?? 1), 0)
+  // the server's own count, one item at a time (`data get` truncates a long inventory): `clear <p> <item> 0` only counts
+  const count = id => { const r = rcon(`clear ${NAME} minecraft:${id} 0`)[0]?.reply ?? ''; return Number((r.match(/Found (\d+) matching/) ?? [])[1] ?? 0) }
   const pos = rcon(`data get entity ${NAME} Pos`)[0]?.reply ?? ''
   const nativeF = `${OUT}/${RUN}-native.json`
   fs.writeFileSync(nativeF, JSON.stringify(st.air))
