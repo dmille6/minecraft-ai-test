@@ -17801,6 +17801,8 @@ const DEEP_STEP_MS = 140_000
 const DEEP_HOP_MS = 9_000
 const DEEP_REPAIR_MS = 80_000
 const deepRow = (bot, op, d = {}) => { try { logEvent({ kind: 'deepmine', status: d.status ?? 'success', snapshot: snapshot(bot), detail: deepRowDetail({ op, phase: bot.deepTrip?.phase ?? '-', target: bot.deepTrip?.target ?? '-', trip: bot.deepTrip?.id ?? '-', y: Math.floor(bot.entity?.position?.y ?? NaN), ...d }) }) } catch { /* telemetry */ } }
+/** Above this y a trip is NOT underground (Claude r2 note 1: relative to the stair's ground, so an iron trip's tunnel up to y 24 stays a trip). */
+const deepSurfaceY = rec => (Number.isFinite(rec?.site?.g) ? rec.site.g - 8 : config.world.homeY - 9)
 const deepFeet = bot => { const p = bot.entity.position; return [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] }
 /** THE TOWN'S DEEPMINE LEASE NOW -> { free, last, releasedAt }. Never throws (unreadable = busy). */
 export function deepLeaseNow (now = Date.now()) {
@@ -17856,6 +17858,8 @@ function deepEffects (bot, signal, fence = () => true) {
     const needs = b.harvestTools && Object.keys(b.harvestTools).length > 0
     if (needs && !tool) return 'no_tool'
     if (tool && bot.heldItem?.name !== tool.name) { try { await bot.equip(tool, 'hand') } catch (err) { if (err?.aborted) throw err } }
+    // THE HAND IS CHECKED, NOT ASSUMED (Codex r2 B1: a failed equip left the last tool in hand): no dig with anything else
+    if (tool && bot.heldItem?.name !== tool.name) return 'equip_failed'
     return withDigScope(bot, { purpose: 'target', by: 'deep_mine' }, () => B.dig(c))
   }
   e.dig = dig   // the stair effects' own `read` getter stays live (a fresh reader per call)
@@ -17912,7 +17916,7 @@ async function deepRepair (ctx, rec, route, signal, deadline) {
 async function deepBranch (ctx, trip, signal, deadline) {
   const { bot } = ctx
   const start = deepFeet(bot)
-  if (start[1] > DEEP_IRON_FEET + 4) return { cells: 0, stop: 'not_underground' }   // Claude r1 B1: never a branch at the surface
+  if (start[1] > deepSurfaceY(stairRecordNow())) return { cells: 0, stop: 'not_underground' }   // Claude r1 B1: never a branch at the surface
   const rec = stairRecordNow()
   // AWAY FROM THE STAIR first (its cells are the town's), then round the compass branch by branch
   const c = rec?.site?.center
@@ -17930,7 +17934,18 @@ async function deepBranch (ctx, trip, signal, deadline) {
         check(signal)
         if (Date.now() > deadline) { stop = 'time'; break }
         const op = deepBranchNext(stairRead(bot), cells, i, open)
-        if (op.op === 'stop') { stop = op.why; break }
+        if (op.op === 'stop') {
+          // A LIQUID STOP SEALS FIRST (Codex r2 B2: an opened cell that flooded after the last seal pass): every flooded opened cell
+          // and liquid face beside one is filled before the branch ends, never the bot's own cells
+          if (op.why === 'lava' || op.why === 'water') {
+            const me4 = deepFeet(bot)
+            for (const sc of deepSealTargets(stairRead(bot), [...open].map(k => k.split(',').map(Number)), [me4, [me4[0], me4[1] + 1, me4[2]]])) {
+              const pr = await e.place(sc)
+              if (pr === 'confirmed') { trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: sc.join(',') }) }
+            }
+          }
+          stop = op.why; break
+        }
         if (op.op === 'dig') {
           if (!e.toolOk()) { stop = 'pickaxe'; break }
           const r = await withDigScope(bot, { purpose: 'target', by: 'deep_mine' }, () => e.dig(op.at))
@@ -18015,7 +18030,7 @@ async function deepMine (ctx, args, signal) {
     const kitNow = () => deepTripKit(bot.inventory?.items?.() ?? [])
     // NOT UNDERGROUND ANY MORE (Claude r1 B1: a death respawns the bot at home with its kit -- keepInventory -- and the trip would
     // go on at the surface, mine digging from the respawn point with the credit, branches in town): home and bank
-    if (['deepen', 'work'].includes(trip.phase) && bot.entity.position.y > DEEP_IRON_FEET + 4) {
+    if (['deepen', 'work'].includes(trip.phase) && bot.entity.position.y > deepSurfaceY(stairRecordNow())) {
       trip.phase = 'return'; trip.returnWhy = 'not_underground'; trip.returnTries = DEEP_RETURN_TRIES; trip.surfaced = false
       deepRow(bot, 'turn', { why: 'not_underground' })
     }
