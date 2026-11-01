@@ -89,6 +89,10 @@ const REQUIRED = [
   // zigsealed-01 (11-01): the ziggurat's sealed skin column -- open cells of the waiting segments dug with the column
   'bots/test/zigsealed.test.mjs',
   'bots/test/fixtures/zigsealed-showcase-1101.json',
+  // fleetpaths-01 (11-01): a destination inside the plaza is served by it; a fleet town's unroutable paths write a no-site record
+  'bots/test/fleetpaths.test.mjs',
+  // zigbamboo (fleetbuild-01, 11-01): bamboo grown into open ziggurat foundation cells is dug
+  'bots/test/zigbamboo.test.mjs',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',

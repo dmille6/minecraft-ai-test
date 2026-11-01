@@ -122,14 +122,14 @@ import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
-import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived } from './paths.mjs'   // paths-01
+import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
 import { runVisit, cellDone as buildCellDone, workableSeg, STUCK_FORGET_MS as BUILD_STUCK_FORGET_MS } from './buildrun.mjs'
-import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
+import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
@@ -16939,7 +16939,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     if (!(activeMem?.states && activeMem.sig === sig && now - activeMem.at < 60_000)) {
       const states = list.map(p => {
         const h = recordHead(dir, projKeyOf(p.plot))
-        const rec = h.ok ? h.head?.rec ?? null : null
+        const rec0 = h.ok ? h.head?.rec ?? null : null
+        // fleetpaths-01: FLEETPATHS=off reads a no-site paths record as no record (the projects after the paths wait, as before)
+        const rec = !fleetPathsOn() && pathsNoSiteRec(rec0) ? null : rec0
         const complete = !!rec?.structure_complete
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
@@ -17061,7 +17063,14 @@ function recordCellDone (bot, r, c) {
     return buildCellDone(b, bp.palette, c.role) || (mon && zigHidden(c, read))
   } catch { return false }
 }
-export function shopRecordHead () { try { return recordHead(townDir(), shopKey()) } catch { return { ok: false, head: null, gens: [], rejected: [] } } }
+export function shopRecordHead () {
+  try {
+    const h = recordHead(townDir(), shopKey())
+    // fleetpaths-01 (Codex r1 BLOCK 2): FLEETPATHS=off reads a no-site paths record as no record here too (the order's own read)
+    if (h.ok && h.head && !fleetPathsOn() && pathsNoSiteRec(h.head.rec)) return { ...h, head: null }
+    return h
+  } catch { return { ok: false, head: null, gens: [], rejected: [] } }
+}
 // THE PROJECT RESERVE AT RUNTIME (OWNER 10-27; mats.mjs projectReserveState decides). The progress clock is a town file written
 // at every visit that placed a block; when an open project has none yet, it is started at the first reading (one window).
 const shopProgressFile = (key = shopKey()) => path.join(townDir(), `${key}.progress.json`)
@@ -17291,6 +17300,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // paths-01 r2: a laid network with a destination it does not serve yet (a container's stand, a project completed since) wants
     // a visit: its extension (buildPaths), at most once per PATHS_EXTEND_MS per bot
     if (r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true
+    // fleetpaths-01: a no-site paths record is only DUE, after its retry (the shaft's rule)
+    if (r.blueprint === PATHS_BLUEPRINT && pathsNoSiteRec(r)) return tidy && pathsDue(r)
     return false
   } catch { return false }
 }
@@ -18369,7 +18380,7 @@ async function buildMonument (ctx, args, signal) {
       if (rec.structure_complete || zigProgress(rec, isDone).open <= 3) tidy = zigTidyNow(bot, rec, read)
     } catch { tidy = [] }
     const r = await runVisitCounted(bot, { dir, key, me, home, stood, record: rec, tidy, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zigHidden, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z],
+      domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: zigBambooOn() ? ZIG_FOREIGN_GROWN : ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zigHidden, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z],
       access: zigAccessOf(bot, c), sealed: zigSealedOf(c, zigOtherCells()) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
@@ -18425,12 +18436,13 @@ function pathsInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDi
   let composter = null
   try { const st = readTownSite(dir, townSiteKey()).site; if (st) composter = [st.x, st.y, st.z] } catch { /* none */ }
   composter ??= (h.head.plan.plots ?? []).find(q => q.kind === 'farm')?.composter ?? null
-  return { plan: { ...h.head.plan, gen: h.head.gen }, zones: c.zones, caps, plinth: c.wells, composter, farm: c.farm, projects, place: placeBlueprint }
+  return { plan: { ...h.head.plan, gen: h.head.gen }, zones: c.zones, caps, plinth: c.wells, composter, farm: c.farm, projects, place: placeBlueprint, hubDests: fleetPathsOn() }
 }
 /** Is an extension of a laid paths record due for this bot (a destination the record does not serve; not asked in the last
  *  PATHS_EXTEND_MS)? Cheap: no routing. Never throws. */
 function pathsExtendDue (bot, rec) {
   try {
+    if (pathsNoSiteRec(rec)) return false                         // fleetpaths-01: nothing laid to extend
     if (Date.now() - (bot?.pathsExtendAt ?? -Infinity) < PATHS_EXTEND_MS) return false
     const h = townPlanHead(bot)
     if (!h.ok || !h.head) return false
@@ -18472,17 +18484,29 @@ async function buildPaths (ctx, args, signal) {
   let rh = recordHead(dir, key)
   if (!rh.ok) return out('no_effect', 'record_unreadable', 'the paths record could not be read')
   const inputs = () => pathsInputs(bot, c, h, dir)
-  if (!rh.head) {
+  // fleetpaths-01: a NO-SITE record (paths.mjs pathsNoSite) stands until its retry: the visit ends at once, nothing re-sited
+  // FLEETPATHS=off: a no-site record reads as no record (re-sited now, as before; shopActive reads it absent too)
+  const noSiteGone = rec => pathsDue(rec) || (!fleetPathsOn() && pathsNoSiteRec(rec))
+  if (rh.head && pathsNoSiteRec(rh.head.rec) && !noSiteGone(rh.head.rec)) return out('no_effect', 'paths_no_site', `no path network (${rh.head.rec.why ?? '-'}); asked again after ${new Date(Number(rh.head.rec.retryAt) || 0).toISOString()}`.slice(0, 160), { stop: 'paths_no_site' })
+  if (!rh.head || noSiteGone(rh.head.rec)) {
     // SITING (paths.mjs sitePaths): from the core's edge to every complete project's front, the farm, the well and the town's
     // containers' stands, round water, the zones, the plan's cells, the wells, the farm and every other project's record columns
     const s = sitePaths(planReader(bot), inputs())
+    const fresh = cur => (!cur || noSiteGone(cur))                // nothing published yet, or a no-site record past its retry
     if (!s.ok) {
-      // an UNREAD column (a chunk not loaded from here) is asked again at the next order; anything else waits the daily re-fit
-      const stop = /unknown|unreachable/.test(s.why) ? 'site_unread' : 'no_site'
-      return out('no_effect', stop, `no path network (${s.why}): ${(s.dests ?? []).map(d => d.id).join(',')}`.slice(0, 160), { stop })
+      // fleetpaths-01 (paths.mjs pathsSiteStop): an UNREAD column the routing met is asked again at the next order (no record);
+      // on READ ground the answer is the terrain's -- a NO-SITE record, once for the town, re-sited after its retry (before it,
+      // every fleet town's every visit re-ran the siting and ended `site_unread`)
+      // FLEETPATHS=off (the rollback): the stop as before -- no record, asked again at the next order
+      const stop = fleetPathsOn() ? pathsSiteStop(s) : (/unknown|unreachable/.test(s.why) ? 'site_unread' : 'no_site')
+      const why = `no path network (${s.why}): ${(s.dests ?? []).map(d => d.id).join(',')}`.slice(0, 160)
+      if (stop !== 'paths_no_site') return out('no_effect', stop, why, { stop })
+      const pub = publishRecord(dir, key, cur => (fresh(cur) ? pathsNoSite({ home, now: Date.now(), by: me, why: s.why }) : null), { by: me })
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'no_site', cell: [home.x, home.y, home.z], kind: String(s.why).slice(0, 80), gen: pub.gen }) }) } catch { /* telemetry */ } }
+      return out('no_effect', stop, why, { stop })
     }
     const record = s.record
-    const pub = publishRecord(dir, key, cur => (cur ? null : { ...record, state: 'open' }), { by: me })
+    const pub = publishRecord(dir, key, cur => (fresh(cur) ? { ...record, state: 'open' } : null), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
     if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'sited', cell: [home.x, home.y, home.z], kind: `legs${record.legs.length}/cols${record.columns}/cells${record.cells.length}/fill${record.earthwork.fill}/cut${record.earthwork.cut}/clear${record.clear.length}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     rh = recordHead(dir, key)
