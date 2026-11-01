@@ -86,6 +86,9 @@ const REQUIRED = [
   // furnaceseen-01 (cooperation B3, re-stacked 10-31 into zigfleet-02): the drain skips a furnace a townmate found empty
   'bots/test/furnaceseen.test.mjs',
   'bots/test/fixtures/seenskip-golden.json',
+  // zigsealed-01 (11-01): the ziggurat's sealed skin column -- open cells of the waiting segments dug with the column
+  'bots/test/zigsealed.test.mjs',
+  'bots/test/fixtures/zigsealed-showcase-1101.json',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',

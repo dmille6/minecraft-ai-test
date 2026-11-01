@@ -117,10 +117,25 @@ export function overburdenAbove (read, at, { max = OVERBURDEN_MAX, scaffold = FO
  * holding a foreign block (`isOpenForeign`, contiguous), then the overburden above the topmost of them (overburdenAbove: at most
  * `max`, never a record cell, never the clears' own, never vetoed). Digging it highest first opens each cell's top face in turn.
  */
-export function sealedAbove (read, at, { isOpenForeign = () => false, ...ob } = {}) {
+export function sealedAbove (read, at, { isOpenForeign = () => false, isOpenAbove = () => false, ...ob } = {}) {
   const chain = [at]
-  for (let y = at[1] + 1; y <= at[1] + 64; y++) { const q = [at[0], y, at[2]]; if (!isOpenForeign(q)) break; chain.push(q) }
-  const top = chain[chain.length - 1]
+  let top = at
+  for (let y = at[1] + 1; y <= at[1] + 64; y++) {
+    const q = [at[0], y, at[2]]
+    if (isOpenForeign(q)) { chain.push(q); top = q; continue }
+    // zigsealed-01 (`isOpenAbove`): an OPEN record cell above -- this segment's, or one of a segment that waits on it -- is part of
+    // the column: one holding air or a plant is passed through (nothing to dig), one holding a scaffold-class block is dug with
+    // the chain (it is open: its own segment places it later), a veto refuses; anything else ends the chain (the overburden
+    // judges it: a record cell there is a hard refusal, as before)
+    if (!isOpenAbove(q)) break
+    const b = read(...q)
+    if (!b) return { ok: false, digs: [], why: `unknown ${kOf(q)}`, hard: false }
+    const n = nm(b)
+    if (AIR(n) || (replaceableCell(b) && !isSolid(b))) { top = q; continue }
+    if (foreignKind(n, ob.scaffold ?? FOREIGN_CLEAR) !== 'scaffold') break
+    if (ob.mayDig && !ob.mayDig(q)) return { ok: false, digs: [], why: `vetoed ${kOf(q)}`, hard: true }
+    chain.push(q); top = q
+  }
   const o = overburdenAbove(read, top, ob)
   if (!o.ok) return { ok: false, digs: [], why: o.why, hard: o.hard }
   const own = chain.slice().reverse().map(q => ({ at: q, name: nm(read(...q)), kind: 'foreign' }))
@@ -949,7 +964,12 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           if (v === 'no_stand' && p.sealed && kind !== 'tree') {
             cellKeys ??= new Set(record.cells.map(q => kOf(q.at)))
             const openK = new Set(open.map(q => kOf(q.at)))
-            const sa = sealedAbove(rd, f.at, { isOpenForeign: q => openK.has(kOf(q)) && foreignKind(nm(rd(...q)), scaffoldRe) === 'scaffold', isCell: q => cellKeys.has(kOf(q)), listed: listedNow, mayDig: p.sealed.mayDig ?? (() => true), scaffold: scaffoldRe })
+            // zigsealed-01 (LIVE showcase 10-31 16:58Z on: the ziggurat's F-W skin cell -55,67,-35 grass under its own open air cell
+            // and two DIRT cells of L00-W/L01-W above it -- the column's only open face sealed by open cells of the segments that
+            // wait on F-W, `clear_failed no_stand` + `blocked` every visit for 8 h): the open cells above that this segment or a
+            // segment waiting on it owns are part of the column (those segments cannot be leased while this one is open, fell r4)
+            const aboveK = new Set(record.cells.filter(q => q.at[0] === f.at[0] && q.at[2] === f.at[2] && q.at[1] > f.at[1] && (q.seg === seg || dependsOn(record, q.seg, seg)) && !isDone(q)).map(q => kOf(q.at)))
+            const sa = sealedAbove(rd, f.at, { isOpenForeign: q => openK.has(kOf(q)) && foreignKind(nm(rd(...q)), scaffoldRe) === 'scaffold', isOpenAbove: q => aboveK.has(kOf(q)), isCell: q => cellKeys.has(kOf(q)), listed: listedNow, mayDig: p.sealed.mayDig ?? (() => true), scaffold: scaffoldRe })
             let dug = 0, sv = sa.ok ? null : 'refused'
             if (sa.ok && sa.digs.length > 1) {
               for (const d of sa.digs) {
