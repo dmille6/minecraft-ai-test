@@ -318,7 +318,9 @@ await t('a support the server refuses is NAMED (`support:<result>`) and the next
 console.log('WIRING')
 await t('buildShop and buildMonument pass the options and publish the waivers; the order\'s stale rule; the done rules read the waiver', () => {
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  for (const line of ["...stuckVisitOpts(rec, 'shop') }", "...stuckVisitOpts(rec, 'zig', zigHidden, stuckCellsOn(), zigPlaceOk(c)) }", 'stuckCellsPublish(bot, dir, key, rec, r, me, plot)', 'stuckCellsPublish(bot, dir, key, rec, r, me, MONUMENT_PLOT)',
+  // main: the storehouse shares buildShop -- the remedies ride only on a workshop's or a house's visit
+  assert.ok(src.split("...stuckVisitOpts(rec, 'shop') }").length === 2 || src.split("...(shopLikeBp(rec.blueprint) ? stuckVisitOpts(rec, 'shop') : {}) }").length === 2, 'the shop visit is wired once')
+  for (const line of [ "...stuckVisitOpts(rec, 'zig', zigHidden, stuckCellsOn(), zigPlaceOk(c)) }", 'stuckCellsPublish(bot, dir, key, rec, r, me, plot)', 'stuckCellsPublish(bot, dir, key, rec, r, me, MONUMENT_PLOT)',
     'return stampLiftable(keys, rec, {', 'if (stuckCellsOn() && recWaived(r, c)) return false']) assert.strictEqual(src.split(line).length, 2, `wired once: ${line}`)
   assert.deepStrictEqual(SC.visitOpts({ cells: [] }, 'shop', null, false), {}, 'STUCKCELLS=off: the visit as before')
 })
