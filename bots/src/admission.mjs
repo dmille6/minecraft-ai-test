@@ -187,6 +187,10 @@ export class AdmissionControl {
   /** Called after an escape action, so the model gets a clean slate to choose from. */
   clearRepeatWindow() { this.recent = [] }
 
+  /** fewerdec CONTINUE: a continuation admitted as `normal` gives back its repeat-window place (only the newest entry,
+   *  only when it is that key), so the model's own repeat is judged on the model's own choices. */
+  forgetLastAdmitted(key) { if (this.recent.length && this.recent[this.recent.length - 1] === key) this.recent.pop() }
+
   /**
    * WOULD THE GATE'S MEMORY REFUSE THIS? -> 'cooldown' | 'learned_avoid' | 'repeat_loop' | null. A READ: nothing here
    * mutates (no probation count, no streak, no window push). CONSERVATIVE on purpose (orderroom-01): a remedy order is

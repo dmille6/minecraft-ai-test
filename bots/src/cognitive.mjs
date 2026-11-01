@@ -1646,7 +1646,7 @@ export class CognitiveLoop {
     // CONTINUE (fewerdec.mjs): with no work order at all, the gather the model chose last -- if it served the task and
     // gained items -- fills the cooldown. AFTER every order (planting included); the descent and keep-out exits below
     // still override it.
-    if (!order) { const co = continueOrder({ cfg: this.fewerDec, cont: this.contState, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a) }); if (co) { order = co; this.#fdCount('continue') } }
+    if (!order) { const co = continueOrder({ cfg: this.fewerDec, cont: this.contState, trigger, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a) }); if (co) { order = co; this.#fdCount('continue') } }
     { const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = sd } }
     // found-01 (Codex JIT 10-23c r1 P2): the found slot charged its visit and cooldown when it ISSUED; an order the exit replaces
     // never ran, so it is refunded like a declined run (refundDeclined) -- out of the column, still in town, the slot can issue it again
@@ -1730,6 +1730,9 @@ export class CognitiveLoop {
       log('info', `LLM -> ${admitted.skill}`, {
         args: admitted.args, reason: res.proposal.reason?.slice(0, 90), ms: res.latencyMs,
       })
+      // CONTINUE (Claude review note 1): a continuation does not take a place in the gate's repeat window, so the model's
+      // own repeat of a good gather is judged as before; the continuation is bounded by FEWERDEC_CONTINUE_MAX instead.
+      if (order?.continuation && admitted.kind === 'normal') this.admission.forgetLastAdmitted(AdmissionControl.key(admitted.skill, admitted.args))
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
       runFailClass = r.failClass ?? null
