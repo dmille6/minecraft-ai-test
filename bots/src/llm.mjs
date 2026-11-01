@@ -207,11 +207,8 @@ export class LlmClient {
    * can contain two models, which is exactly why the SERVED model is what gets
    * logged (see #post) rather than the configured one.
    */
-  constructor({ baseUrls, baseUrl, model, numCtx, maxTokens = 512, temperature, timeoutMs }) {
-    const eps = (baseUrls?.length ? baseUrls : [baseUrl]).map(entry => {
-      const [url, m] = String(entry).split('|')
-      return { url: url.trim().replace(/\/$/, ''), model: m?.trim() || null }
-    })
+  constructor({ baseUrls, baseUrl, model, numCtx, maxTokens = 512, temperature, timeoutMs, stickyKey = null }) {
+    const eps = stickyOrder((baseUrls?.length ? baseUrls : [baseUrl]).map(parseEndpoint), stickyKey)
     this.pool = new EndpointPool(eps)
     this.baseUrl = eps[0].url       // retained for logging and back-compat
     this.model = model
@@ -328,6 +325,23 @@ export class LlmClient {
     // rather than paying that timeout again.
     let lastErr = null
     for (const ep of this.pool.available()) {
+      // A llama-server that FAILED is asked /health before it gets a real request again: it answers 503 while it
+      // loads a model (tens of seconds after a restart), and a refused or dead port answers at once, so a recovering
+      // endpoint costs a 2 s probe instead of a full decision timeout. A healthy one is never probed -- health stays
+      // derived from real traffic (SATURATED IS NOT DOWN, see EndpointPool), the probe only gates the way back.
+      if (ep.api === 'oai' && ep.fails > 0) {
+        const why = await probeHealth(ep.url)
+        if (why) { lastErr = new Error(why); this.pool.markFail(ep, why); continue }
+      }
+      if (ep.api === 'oai') {
+        try {
+          return await this.#postOai(ep, { messages, schema })
+        } catch (e) {
+          lastErr = e
+          this.pool.markFail(ep, e.message)
+          continue
+        }
+      }
       const started = Date.now()
       const ctl = new AbortController()
       const t = setTimeout(() => ctl.abort(), this.timeoutMs)
@@ -391,6 +405,144 @@ export class LlmClient {
     throw new Error(`all ${this.pool.eps.length} llm endpoint(s) failed; last: ${lastErr?.message ?? 'unknown'}`)
   }
 
+  /**
+   * ONE REQUEST TO A llama.cpp llama-server (serving option A, OWNER 11-01), OpenAI-compatible
+   * `/v1/chat/completions`. Returns exactly what the Ollama branch returns -- the same keys in `meta` -- because the
+   * decision row is an allowlist written into a `dynamic: strict` index (logger.mjs logLlm): a new key would reject
+   * the whole document. So the server's `timings.cache_n` (prefix tokens reused) is deliberately NOT carried.
+   *
+   *   - `response_format: json_schema` is the same schema Ollama gets as `format`; llama-server compiles it to the
+   *     same kind of grammar, so every length cap and pattern above still makes debris unsayable.
+   *   - Thinking OFF twice: the server runs `--reasoning off`, and `enable_thinking: false` goes to the chat template.
+   *     A qwen3.5 that thinks spends the whole 512-token budget on reasoning and returns EMPTY content (measured on the
+   *     3090's Ollama 10-31: 0 valid).
+   *   - `cache_prompt: true` lets the server reuse a slot's KV for the shared prefix (the system message, ~1,170
+   *     tokens, reusable across bots only in the promptcache-01 layout). Slot choice is the server's: it picks the idle
+   *     slot whose cached prompt is most similar. Pinning `id_slot` per bot would queue a bot behind its own busy slot
+   *     while seven others sit idle.
+   *   - `keep_alive` and `num_ctx` are server-side settings here (`-c`, per slot), so they are not sent.
+   *   - `model` is what the server SAYS it served: llama-server answers with its `--alias`, whatever name is asked
+   *     for, so the alias is the honest served-model name (verified 11-01 on b12020).
+   */
+  async #postOai(ep, { messages, schema }) {
+    const started = Date.now()
+    const ctl = new AbortController()
+    const t = setTimeout(() => ctl.abort(), this.timeoutMs)
+    try {
+      const r = await fetch(`${ep.url}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: ctl.signal,
+        body: JSON.stringify(oaiRequestBody({ model: ep.model ?? this.model, messages, schema,
+                                              temperature: this.temperature, maxTokens: this.maxTokens })),
+      })
+      if (!r.ok) throw new Error(`llama-server ${r.status}: ${(await r.text()).slice(0, 120)}`)
+      const d = await r.json()
+      const out = oaiResponse(d, ep, this.model)
+      this.pool.markOk(ep, Date.now() - started)
+      if (ep.url !== this.baseUrl) {
+        log('info', 'llm served by fallback endpoint', { endpoint: ep.url, ms: Date.now() - started })
+      }
+      return out
+    } finally {
+      clearTimeout(t)
+    }
+  }
+
+}
+
+/**
+ * One `OLLAMA_BASE_URLS` entry -> {url, model, api, weight}. Pure.
+ *
+ *   http://host:11434|qwen2.5:7b-instruct            Ollama /api/chat (every env file written before 11-01)
+ *   oai+http://host:18080|cand-c2-q8                 llama.cpp llama-server, OpenAI-compatible API
+ *   oai+http://host:18080|cand-c2-q8|3               ... with a sticky-assignment weight (default 1)
+ *
+ * The prefix is stripped from `url`, so the decision row's `endpoint` is a plain url as before.
+ */
+export function parseEndpoint (entry) {
+  const [rawUrl, m, w] = String(entry).split('|')
+  let url = rawUrl.trim()
+  const api = url.startsWith('oai+') ? 'oai' : 'ollama'
+  if (api === 'oai') url = url.slice('oai+'.length)
+  const weight = Number(w?.trim())
+  return { url: url.replace(/\/$/, ''), model: m?.trim() || null, api,
+           weight: Number.isFinite(weight) && weight > 0 ? weight : 1 }
+}
+
+/** FNV-1a, 32-bit. Stable across restarts and hosts, so a bot keeps its server for life. Pure. */
+export function stickyHash (key) {
+  let h = 0x811c9dc5
+  for (const ch of String(key)) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0 }
+  return h >>> 0
+}
+
+/**
+ * PER-BOT STICKY ASSIGNMENT across llama-servers. Pure; returns a new array.
+ *
+ * A llama-server's prefix cache lives in ITS slots: a bot whose requests alternate between two servers pays the full
+ * prefill on each. So the leading run of `oai` endpoints is one group, and each bot (`key`, the bot name) is given
+ * ONE of them as its primary, chosen by a weighted hash -- the same server for the life of the name. The rest of the
+ * group follows in listed order (failover to the other llama-server), then everything after the group, in order
+ * (normally the Ollama fallback). Weights split the fleet by capacity: `|3` and `|1` send ~3/4 of bots to the first.
+ *
+ * No key, or a group of one, changes nothing, and a list with no `oai+` entry is returned in its own order: every env
+ * file written before this change keeps exactly the order it had.
+ */
+export function stickyOrder (eps, key) {
+  let n = 0
+  while (n < eps.length && eps[n].api === 'oai') n++
+  if (n < 2 || key == null || key === '') return [...eps]
+  const group = eps.slice(0, n)
+  const total = group.reduce((a, e) => a + e.weight, 0)
+  let x = (stickyHash(key) / 2 ** 32) * total, pick = 0
+  for (; pick < n - 1; pick++) { x -= group[pick].weight; if (x < 0) break }
+  return [group[pick], ...group.filter((_, i) => i !== pick), ...eps.slice(n)]
+}
+
+/** The `/v1/chat/completions` body for one decision. Pure. */
+export function oaiRequestBody ({ model, messages, schema, temperature, maxTokens }) {
+  return {
+    model, messages, stream: false, temperature, max_tokens: maxTokens,
+    cache_prompt: true,
+    chat_template_kwargs: { enable_thinking: false },
+    response_format: { type: 'json_schema', json_schema: { name: 'decision', schema } },
+  }
+}
+
+/** A llama-server answer -> the shape #post returns for Ollama, with the SAME meta keys. Pure. */
+export function oaiResponse (d, ep, fallbackModel = null) {
+  const t = d?.timings ?? {}
+  const ns = ms => (typeof ms === 'number' ? Math.round(ms * 1e6) : null)
+  const p = ns(t.prompt_ms), g = ns(t.predicted_ms)
+  return {
+    content: d?.choices?.[0]?.message?.content,
+    endpoint: ep.url,
+    model: d?.model ?? ep.model ?? fallbackModel,
+    meta: {
+      prompt_tokens: d?.usage?.prompt_tokens ?? null,
+      completion_tokens: d?.usage?.completion_tokens ?? null,
+      total_duration_ns: p != null && g != null ? p + g : null,
+      // Nothing loads per request on llama-server (the model is resident for the server's life).
+      load_duration_ns: 0,
+      prompt_eval_duration_ns: p,
+      eval_duration_ns: g,
+    },
+  }
+}
+
+/** GET /health on a llama-server -> null when it answers 200, else a reason. 2 s budget. */
+export async function probeHealth (url, timeoutMs = 2000) {
+  const ctl = new AbortController()
+  const t = setTimeout(() => ctl.abort(), timeoutMs)
+  try {
+    const r = await fetch(`${url}/health`, { signal: ctl.signal })
+    return r.ok ? null : `llama-server /health ${r.status}`
+  } catch (e) {
+    return `llama-server /health unreachable: ${String(e?.message ?? e).slice(0, 80)}`
+  } finally {
+    clearTimeout(t)
+  }
 }
 
 
@@ -421,8 +573,8 @@ export class EndpointPool {
   constructor(urls, { cooldownMs = 60_000, maxCooldownMs = 900_000 } = {}) {
     // Accepts plain strings (every existing caller) or {url, model} entries.
     this.eps = urls.map(u => (typeof u === 'string' ? { url: u, model: null } : u))
-      .map(({ url, model }) => ({ url, model: model ?? null,
-                                  fails: 0, downUntil: 0, calls: 0, totalMs: 0 }))
+      .map(({ url, model, api }) => ({ url, model: model ?? null, api: api ?? 'ollama',
+                                       fails: 0, downUntil: 0, calls: 0, totalMs: 0 }))
     this.cooldownMs = cooldownMs
     this.maxCooldownMs = maxCooldownMs
   }
@@ -492,5 +644,7 @@ export function makeClient() {
     maxTokens: config.llm.maxTokens,
     temperature: config.llm.temperature,
     timeoutMs: config.llm.timeoutMs,
+    // Each bot keeps ONE llama-server for its prefix cache (stickyOrder); inert for Ollama-only pools.
+    stickyKey: config.bot.name,
   })
 }
