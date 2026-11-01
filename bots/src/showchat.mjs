@@ -84,18 +84,28 @@ export function projectName (id) {
 
 const SEG_NAMES = Object.freeze({
   'wall-F': 'front wall', 'wall-B': 'back wall', 'wall-L': 'left wall', 'wall-R': 'right wall',
-  'roof-edge': 'roof edge', 'roof-inner': 'roof', 'fit-out': 'fittings', pad: 'floor', ring: 'corner posts',
-  F: 'field', L: 'lights',
+  'roof-edge': 'roof edge', 'roof-inner': 'roof', 'fit-out': 'fittings', pad: 'floor', ring: 'corner posts', earth: 'groundwork',
+  'W-L': 'lights',
 })
-/** A section id -> words, or null for a section not worth naming (path legs: P-...). Pure. */
-export function segName (seg) {
+const SIDE = Object.freeze({ N: 'north', E: 'east', S: 'south', W: 'west' })
+/**
+ * A section id (blueprint `seg`) -> words, or null for a section not worth naming (path legs P-...). Pure. Ids seen on the
+ * showcase 10-29..11-01: storehouse/house wall-F..fit-out, earth; ziggurat F, F-N/E/S/W, L00-E..L09-W (layer, side); wall W-00..
+ * W-08, W-L; tree farm F, L; workshop pad, ring.
+ */
+export function segName (seg, project = '') {
   const s = String(seg ?? '').trim()
   if (!s || /^P-/.test(s)) return null
+  if (project === 'treefarm' && s === 'F') return 'planting field'
+  if (project === 'treefarm' && s === 'L') return 'lights'
   if (SEG_NAMES[s]) return SEG_NAMES[s]
-  const tier = /^T(\d+)$/.exec(s)
-  if (tier) return `tier ${Number(tier[1]) + 1}`
-  const face = /^([A-Z])-([NESW]{1,2})$/.exec(s)
-  if (face) return `${({ N: 'north', E: 'east', S: 'south', W: 'west', NE: 'north-east', NW: 'north-west', SE: 'south-east', SW: 'south-west' })[face[2]]} face`
+  if (s === 'F') return 'foundation'
+  let m = /^F-([NESW])$/.exec(s)
+  if (m) return `${SIDE[m[1]]} foundation`
+  m = /^L(\d{1,2})-([NESW])$/.exec(s)
+  if (m) return `layer ${Number(m[1]) + 1}, ${SIDE[m[2]]} side`
+  m = /^W-(\d{1,2})$/.exec(s)
+  if (m) return `section ${Number(m[1]) + 1}`
   return `${s.replace(/[_-]+/g, ' ')} section`
 }
 
@@ -175,7 +185,7 @@ export function lineFor (rec) {
   }
   if (kind === '_build_seg' && proj && proj !== 'tidy') {
     const seg = field(d, 'seg'), open = Number(field(d, 'open')), done = Number(field(d, 'done'))
-    const words = segName(seg)
+    const words = segName(seg, proj)
     if (!seg || !Number.isFinite(open)) return null
     return { cat: 'section', tier: 2, key: `seg:${proj}:${seg}`, dedupeMs: 12 * 3600_000, seg: { id: `${proj}:${seg}`, open },
       text: words ? `Finished the ${projectName(proj)}'s ${words}${done > 1 ? ` (${done} blocks)` : ''}.` : null }
@@ -237,13 +247,16 @@ export function lineFor (rec) {
 }
 
 /**
- * THE TOWN'S MEMORY OF A SECTION -> { announce, segs }. Pure. A section is news only when the town last saw it OPEN (open > 0)
- * and now sees it closed: a section first seen already closed (the feature arriving late, a restart) says nothing.
+ * THE TOWN'S MEMORY OF A SECTION -> { announce, segs }. Pure. A `_build_seg` row is written only for a section a builder WORKED
+ * this visit (buildrun.mjs skips complete ones), so a row with open=0 means "this visit closed it" -- 58 of the 103 sections
+ * closed on the showcase 10-29..11-01 were closed in the visit that first logged them. So a closed row is news unless the
+ * town's memory already holds that section CLOSED (a repeat row: 24 of the 103 logged open=0 more than once, up to 5 times).
+ * A section seen open again (damage, a rebuild) and then closed is news again.
  */
 export function segTransition (segs, id, open) {
   const prev = segs?.[id]
   const next = { ...(segs ?? {}), [id]: open }
-  return { announce: open === 0 && Number.isFinite(prev) && prev > 0, segs: next }
+  return { announce: open === 0 && prev !== 0, segs: next }
 }
 
 // ---- pure: the output filter -------------------------------------------------------------------------------------------

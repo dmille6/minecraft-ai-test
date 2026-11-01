@@ -90,17 +90,25 @@ await t('WORDS: items and projects read naturally', () => {
   assert.equal(projectName('shop'), 'workshop'); assert.equal(projectName('house2'), 'house no. 2'); assert.equal(projectName('shopchest'), 'materials chests')
 })
 
-await t('SECTIONS: news only when the town saw it open and now sees it closed; never on a first sighting; never twice', () => {
+await t('SECTIONS: a closed row is news once; a repeat is not; reopened and closed again is news again; names read naturally', () => {
   const c = lineFor(rec('_build_seg', 'project=storehouse seg=wall-B open=0 done=14'))
   assert.equal(c.text, "Finished the storehouse's back wall (14 blocks).")
   let s = {}
-  let r = segTransition(s, 'storehouse:wall-B', 0); assert.equal(r.announce, false, 'first sighting already closed'); s = r.segs
-  r = segTransition(s, 'storehouse:wall-B', 0); assert.equal(r.announce, false); s = r.segs
+  let r = segTransition(s, 'storehouse:wall-B', 0); assert.equal(r.announce, true, 'closed in the visit that first logged it (58 of 103 on the showcase)'); s = r.segs
+  r = segTransition(s, 'storehouse:wall-B', 0); assert.equal(r.announce, false, 'a repeat row is not news'); s = r.segs
   s = {}
   r = segTransition(s, 'storehouse:wall-B', 8); assert.equal(r.announce, false); s = r.segs
   r = segTransition(s, 'storehouse:wall-B', 4); assert.equal(r.announce, false); s = r.segs
   r = segTransition(s, 'storehouse:wall-B', 0); assert.equal(r.announce, true, 'POSITIVE: open -> closed'); s = r.segs
-  r = segTransition(s, 'storehouse:wall-B', 0); assert.equal(r.announce, false, 'not twice')
+  r = segTransition(s, 'storehouse:wall-B', 0); assert.equal(r.announce, false, 'not twice'); s = r.segs
+  r = segTransition(s, 'storehouse:wall-B', 2); s = r.segs
+  r = segTransition(s, 'storehouse:wall-B', 0); assert.equal(r.announce, true, 'reopened (damage) and closed again')
+  const nm = (p, g) => lineFor(rec('_build_seg', `project=${p} seg=${g} open=0 done=20`)).text
+  assert.equal(nm('monument', 'L03-E'), "Finished the ziggurat's layer 4, east side (20 blocks).")
+  assert.equal(nm('monument', 'F-W'), "Finished the ziggurat's west foundation (20 blocks).")
+  assert.equal(nm('wall', 'W-00'), "Finished the town wall's section 1 (20 blocks).")
+  assert.equal(nm('treefarm', 'F'), "Finished the tree farm's planting field (20 blocks).")
+  assert.equal(nm('house1', 'earth'), "Finished the first house's groundwork (20 blocks).")
   assert.equal(lineFor(rec('_build_seg', 'project=paths seg=P-house1-0 open=0 done=27')).text, null, 'path legs are tracked, not named')
 })
 
@@ -181,7 +189,7 @@ await t('SPEAKER: a section is spoken once, at the town-seen close; a death wait
   assert.deepEqual(b.said, ["Finished the storehouse's back wall (14 blocks)."], 'another bot closes what the town saw open')
   clock.t += 3 * 3600_000
   a.sp.onRecord(rec('_build_seg', 'project=storehouse seg=wall-B open=0 done=14'))
-  assert.deepEqual(a.said, [], 'never twice')
+  assert.deepEqual(a.said, [], 'never twice (the town file remembers it closed, across bots)')
   a.sp.onRecord(CASES[11][0])
   assert.deepEqual(a.said, [], 'the death line is deferred')
   clock.t += 6_000; clock.later.shift()()
@@ -224,9 +232,9 @@ await t('MUTANT KILLED: without the output filter the unsafe line is said', asyn
     a.sp.onRecord(CASES[0][0]); assert.deepEqual(a.said, ['hive-a-Bravo come'])
   })
 })
-await t('MUTANT KILLED: without the "seen open" test a first sighting of a closed section is announced', async () => {
-  await withMutant(SC_URL, [['open === 0 && Number.isFinite(prev) && prev > 0', 'open === 0']], mod => {
-    assert.equal(mod.segTransition({}, 'storehouse:wall-B', 0).announce, true)
+await t('MUTANT KILLED: without the "already closed" test a repeat row is announced again', async () => {
+  await withMutant(SC_URL, [['open === 0 && prev !== 0', 'open === 0']], mod => {
+    assert.equal(mod.segTransition({ 'storehouse:wall-B': 0 }, 'storehouse:wall-B', 0).announce, true)
   })
 })
 await t('MUTANT KILLED: without the town gap a second bot speaks 5 s later', async () => {
