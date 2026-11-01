@@ -17953,7 +17953,12 @@ async function deepMine (ctx, args, signal) {
     const slot = takeSlot(dir, key, me, DEEPMINE.slots, { ttl: DEEPMINE_LEASE_TTL_MS })
     if (!slot.ok) return out('no_effect', `the town's deep miner slot is taken (${slot.why})`)
     bot.deepTrip = { ...deepNewTrip({ id: `${me}-${t0.toString(36)}`, target, now: t0, slot: slot.slot, gen: slot.gen, from: deepFeet(bot) }), diamonds0: kit.diamonds, rawIron0: kit.rawIron }
-    deepRow(bot, 'start', { why: `uses${kit.uses}/iron${kit.ironUses}/seal${kit.seal}/free${kit.free}` })
+    // TORCHES AND BLOCKS FROM TOWN at the start (the stair visit's own top-up: matsWithdraw under the town's reserve; the town
+    // deposit banks a bag's torches, so a miner would otherwise go down with none). Never required: a short take is only a row.
+    if (kit.torches < 8 || kit.seal < 48) {
+      try { await matsWithdraw(ctx, { ...(kit.torches < 8 ? { torch: 16 } : {}), ...(kit.seal < 48 ? { cobblestone: 64 } : {}) }, signal, 30_000, matsReserve().table) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    }
+    deepRow(bot, 'start', { why: `uses${kit.uses}/iron${kit.ironUses}/seal${kit.seal}/free${kit.free}/torch${deepTripKit(bot.inventory?.items?.() ?? []).torches}` })
   }
   const trip = bot.deepTrip
   trip.calls = (trip.calls ?? 0) + 1
@@ -18016,11 +18021,18 @@ async function deepMine (ctx, args, signal) {
     if (trip.phase === 'deepen') {
       const y0 = Math.floor(bot.entity.position.y)
       let r = null
-      try { r = await mineGuarded({ ...ctx, deepCredit: DEEP_IRON_FEET }, { y: DEEP_DEEP_FEET }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; r = { status: 'failed', detail: String(e?.message ?? e).slice(0, 80) } }
+      // BOUNDED INSIDE THIS CALL (Paper 11-01: the runner's 180 s cut aborted the first descent mid-stair): a child signal ends
+      // mine at this call's deadline; the trip goes on from wherever it stopped at the next call
+      const sub = new AbortController()
+      const onUp = () => sub.abort()
+      signal?.addEventListener?.('abort', onUp, { once: true })
+      const cut = setTimeout(() => sub.abort(), Math.max(5_000, deadline - Date.now()))
+      try { r = await mineGuarded({ ...ctx, deepCredit: DEEP_IRON_FEET }, { y: DEEP_DEEP_FEET }, sub.signal) } catch (e) { if (signal?.aborted) throw e; r = { status: e?.aborted ? 'cut' : 'failed', detail: e?.aborted ? 'this call\'s time' : String(e?.message ?? e).slice(0, 80) } } finally { clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
       const y1 = Math.floor(bot.entity.position.y)
       trip.deepenTries = (trip.deepenTries ?? 0) + 1
       const stalled = y1 >= y0 - 1
-      if (y1 <= DEEP_OK_Y || (stalled && trip.deepenTries >= 2) || trip.deepenTries >= 5) { trip.phase = 'work'; trip.arrivedAt = Date.now() }
+      trip.deepenStalls = stalled ? (trip.deepenStalls ?? 0) + 1 : 0
+      if (y1 <= DEEP_OK_Y || trip.deepenStalls >= 3 || trip.deepenTries >= 6) { trip.phase = 'work'; trip.arrivedAt = Date.now() }
       deepRow(bot, 'deepen', { why: `${r?.status ?? '-'}:${String(r?.detail ?? '').slice(0, 60).replace(/\s+/g, '_')}`, n: `${y0}->${y1}` })
       return out(y1 < y0 ? 'success' : 'no_effect', `deepened from y=${y0} to y=${y1}`)
     }
@@ -18033,7 +18045,12 @@ async function deepMine (ctx, args, signal) {
       trip.kindIdx = (trip.kindIdx ?? 0) + 1
       let r = null
       bot.deepTunnelKinds = DEEP_DIAMOND_KINDS.includes(kind)   // gather's tunnel takes diamond ore for this call only
-      try { r = await gather(ctx, { block: kind, count: 2, maxDistance: 24 }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; r = { status: 'failed' } } finally { bot.deepTunnelKinds = false }
+      // bounded inside this call like the deepen (gather has no deadline of its own: the runner's cut is its clock)
+      const sub = new AbortController()
+      const onUp = () => sub.abort()
+      signal?.addEventListener?.('abort', onUp, { once: true })
+      const cut = setTimeout(() => sub.abort(), Math.max(5_000, deadline - Date.now()))
+      try { r = await gather(ctx, { block: kind, count: 2, maxDistance: 24 }, sub.signal) } catch (e) { if (signal?.aborted) throw e; r = { status: e?.aborted ? 'cut' : 'failed' } } finally { bot.deepTunnelKinds = false; clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
       const gained = oreGain(before, deepOre(bot))
       if (gained > 0) { trip.found = (trip.found ?? 0) + gained; trip.misses = 0; deepRow(bot, 'ore', { why: kind, found: trip.found, n: gained }); return out('success', `mined ${gained} ore (${kind}) at y=${y}`) }
       // nothing of this kind: after every kind has had a turn, a branch moves the search

@@ -73,7 +73,7 @@ import { runnerDeclined } from './declined.mjs'
 import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
 // deepminer-01 (OWNER 11-01 item 2): the town deep miner (deepmine.mjs decides; skills.mjs deepMine walks and digs)
-import { deepMineOrder, deepTripOrder, tripKit as deepTripKit } from './deepmine.mjs'
+import { deepMineOrder, deepTripOrder, tripKit as deepTripKit, TRIP_NEXT_MS as DEEP_TRIP_NEXT_MS } from './deepmine.mjs'
 import { deepLeaseNow, deepStairNow } from './skills.mjs'
 import { nearStair as deepNearStair, SURFACE_SLACK as DEEP_SURFACE_SLACK } from './shaftgeom.mjs'
 
@@ -2013,6 +2013,7 @@ export class CognitiveLoop {
 
     // Pace the loop. Handoff doc S16: strategic decisions every 30-90s, with
     // deterministic skills filling the gaps -- not a model call per tick.
-    this.#scheduleNext()
+    // DEEPMINER-01: an open deep trip's next call comes at once (the trip is one job cut into 180 s calls, not a decision)
+    this.#scheduleNext(deepTripOrder(this.bot?.deepTrip) ? DEEP_TRIP_NEXT_MS : undefined)
   }
 }

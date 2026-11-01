@@ -183,6 +183,18 @@ export function workKinds (trip, y) {
   return [...IRON_ORE_KINDS]
 }
 
+/**
+ * DOES AN OPEN TRIP OWN THE BODY BETWEEN ITS CALLS? -> bool. Pure. Paper 11-01: in the seconds between two deep_mine calls the
+ * maroon lattice read a miner in its own stair at y=-33 as "no path can start" and pillared it out of the trip. While a trip is
+ * underground (deepen, work, return) and not older than TRIP_MAX_MS + 10 min, its own return is the way out; past that (a trip
+ * nobody advances any more) the reflexes own the body again.
+ */
+export function tripHoldsBody (trip, now = Date.now()) {
+  return !!trip && ['deepen', 'work', 'return'].includes(trip.phase) && now - (trip.startedAt ?? 0) < TRIP_MAX_MS + 10 * 60_000
+}
+/** The pause before the next decision while a trip is open (the fleet's 20 s cooldown is a gap the reflexes read as idle). */
+export const TRIP_NEXT_MS = 1_000
+
 // ---- the trail (the way back) ---------------------------------------------------------------------------------------------------
 const cheb = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]))
 /** Add a stand to the trail -> a new trail. Pure. Kept when TRAIL_GAP or more from the last stand; capped (oldest kept). */
