@@ -16962,7 +16962,8 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     const states = repairBackoff(activeMem.states, rmem, now).map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now) }))
     // stuckwait-01: a project inside its stuck back-off waits behind the others (shop.mjs stuckBackoff); the repair count reads
     // the states before it
-    const waited = stuckBackoff(states, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)
+    // zigtidy-02: a complete record's stamp whose cells all read done now is stale (projStuckLive)
+    const waited = stuckBackoff(states, plot => projStuckLive(projKeyOf(plot), now), now)
     const pick = activeProject(waited, list)
     if (visit) noteRepair(rmem, pick, states, now)
     return pick

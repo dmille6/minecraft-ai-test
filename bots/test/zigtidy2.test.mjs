@@ -132,6 +132,8 @@ await t('skills.mjs (structural): the window wired into shopActive, the stamp wr
   assert.ok(/return projStuckLive\(shopKey\(\), now\)/.test(fnAt('export function shopStuckAt (')))
   assert.ok(/projStuckAt\(dir, key, \{ before: now \+ 60_000, stale \}\)/.test(fnAt('function projStuckLive (')))
   assert.ok(/fp\.soft\.set\(k, v\)/.test(fnAt('export function shopFootprintRefresh (')))
+  // the showcase stack's stuckwait-01: the per-project back-off reads the same live stamp
+  assert.ok(/stuckBackoff\(states, plot => projStuckLive\(projKeyOf\(plot\), now\), now\)/.test(sa))
 })
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
