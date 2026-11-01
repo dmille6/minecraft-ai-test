@@ -184,6 +184,9 @@ def pure():
       [len(s) for s in st] == [6, 4, 4, 2] and st[0][:2] == ['board-b', 'placebo-b'] and sorted(flat) == sorted(POOLS), st)
     t('plan: stages interleave the arms (stage 2 is not one arm)', len({p.rsplit('-', 1)[0] for p in st[1]}) >= 3, st[1])
     t('rate: 30 bots -> 39.9/min, 20 -> 26.6', R.stage_rate(30) == 39.9 and R.stage_rate(20) == 26.6)
+    t('probe: Ollama /api/version; oai+ llama-server /health without the prefix (serving A)',
+      R.probe_url('http://h:11438') == 'http://h:11438/api/version'
+      and R.probe_url('oai+http://10.0.0.16:18080/') == 'http://10.0.0.16:18080/health')
     s40 = {'n': 200, 'transport_errors': 0, 'valid_share': 1.0, 'p50': 5287, 'p95': 16830, 'max': 21329}
     s20 = {'n': 600, 'transport_errors': 0, 'valid_share': 1.0, 'p50': 1495, 'p95': 3682, 'max': 8170}
     t('load gate: the measured 42/min run (p50 5.3 s, p95 16.8 s) FAILS', not R.load_verdict(s40, 200)[0])

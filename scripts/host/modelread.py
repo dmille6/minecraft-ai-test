@@ -272,13 +272,23 @@ def context():
     return man, run, reg, pools, decl
 
 
+def probe_url(entry):
+    """PURE. One OLLAMA_BASE_URLS entry -> the url that says whether it answers. Ollama: /api/version. A llama.cpp
+    llama-server (`oai+<url>|alias[|weight]`, serving A 11-01): /health on the url WITHOUT the prefix -- probing
+    `oai+http://...` would fail every time and name a live server as down in the stall message."""
+    url = entry.split('|')[0].strip().rstrip('/')
+    if url.startswith('oai+'):
+        return url[len('oai+'):].rstrip('/') + '/health'
+    return url + '/api/version'
+
+
 def endpoint_ok(reg):
     for kv in reg.get('canary_env') or []:
         if kv.startswith('OLLAMA_BASE_URLS='):
-            url = kv.split('=', 1)[1].split(',')[0].split('|')[0]
+            url = probe_url(kv.split('=', 1)[1].split(',')[0])
             try:
                 import urllib.request
-                urllib.request.urlopen(url + '/api/version', timeout=5).read()
+                urllib.request.urlopen(url, timeout=5).read()
                 return True
             except Exception:
                 return False

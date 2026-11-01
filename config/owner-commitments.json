@@ -1991,7 +1991,7 @@
    ],
    "kind": "design",
    "lane": "ops",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
    "next_step": "Run the queued 3090 batching test (vLLM / llama-server -np, concurrency 1/4/8/16 on real prompts, never stop ~/ethan-gpu); decide whether the 5080 can carry the fleet on qwen3.5",
    "max_quiet_hours": 48,
@@ -2002,7 +2002,11 @@
      "vllm"
     ]
    },
-   "note": "Owner queued 10-31 ~14:10Z after the teacher pilot (which finished ~16:45Z). No commit yet: greps are expected words (no match)."
+   "note": "Owner queued 10-31 ~14:10Z after the teacher pilot (which finished ~16:45Z). No commit yet: greps are expected words (no match). DONE 10-31: batching test ran (docs/reports/batching-3090-2026-10-31.md, main 48ca4d31); the follow-on is the owner's option A, row serving-a.",
+   "done": {
+    "when": "2026-10-31",
+    "evidence": "docs/reports/batching-3090-2026-10-31.md (main 48ca4d31): llama-server ~46/min ceiling on the shared 3090, no qwen3.5 config within gates at 20/min; follow-on = row serving-a"
+   }
   },
   {
    "id": "qwen35c2-01",
@@ -2371,6 +2375,48 @@
     ]
    },
    "note": "Control session decision 10-31 (owner away, autonomy-1031): the showcase line had drifted 26 protected items behind the fleet, so the kept escape guard could not reach it. No automatic detector yet: the showcase release lives on the showcase host, which stallcheck on the canary host does not read; the quiet-hours check on the evidence grep is the reminder."
+  },
+  {
+   "id": "serving-a",
+   "title": "Serving option A: qwen3.5 for the fleet from fleet-owned GPUs (prompt diet + llama.cpp llama-server on the 5080, 3090 as a second server)",
+   "owner_date": "2026-11-01",
+   "memory": [
+    "owner-serving-plan-1101.md",
+    "promptcache-01-1031.md",
+    "qwen35-canary-1030.md"
+   ],
+   "kind": "canary",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "promptcache-01 closes KEEP -> apseal-01 closes -> release servea-01 (HELD: ~5-10 bots on the 3090 llama-server, cand-c2-q8, fallback Ollama qwen2.5 on the 5080) at the rate the 3090 measured within gates; 5080 llama-server install waits on the owner verifying pve4's changed SSH host key (runbook docs/reports/serving-A-2026-11-01.md s.4)",
+   "max_quiet_hours": 36,
+   "depends_on": [
+    {
+     "run": "promptcache-01",
+     "until": "kept"
+    },
+    {
+     "run": "apseal-01",
+     "until": "closed"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "servea-01"
+    ],
+    "branches": [
+     "servea01-on-*"
+    ],
+    "grep": [
+     "serving A",
+     "servea"
+    ],
+    "paths": [
+     "docs/reports/serving-A-2026-11-01.md"
+    ]
+   },
+   "note": "OWNER 11-01 ~13:00Z option A (+ D fewer decisions, a separate row when built). Target ~107 decisions/min across 80 bots, p50 <= 2.5 s, p95 <= 5 s, >= 99% schema-valid. Client change main a871a70f (oai+ endpoints, per-bot sticky, /health-gated failover; Codex + Claude APPROVE). Owner 11-01 ~13:10Z (via the control session) allowed llama-server on the 5080 with the live Ollama untouched; blocked on the pve4 host key (changed 10-02, never verified), not bypassed."
   }
  ]
 }

@@ -97,6 +97,9 @@ def main():
     t('did: arithmetic', abs(M.ratio_did(10, 12, 10, 10) - 0.2) < 1e-9)
     t('did: None without a denominator', M.ratio_did(0, 12, 10, 10) is None and M.ratio_did(None, 1, 1, 1) is None)
     t('share: None, never 0, without a denominator', M.share(0, 0) is None and M.share(0, 5) == 0)
+    t('probe: Ollama entry -> /api/version', M.probe_url('http://h:11438|qwen3.5:9b') == 'http://h:11438/api/version')
+    t('probe: oai+ llama-server -> /health WITHOUT the prefix (serving A)',
+      M.probe_url('oai+http://10.0.0.16:18080/|cand-c2-q8|3') == 'http://10.0.0.16:18080/health')
     print('\n%d/%d pass' % (sum(T), len(T)))
     return 0 if all(T) else 1
 

@@ -187,6 +187,16 @@ def url_of(kvs):
     return None
 
 
+def probe_url(url):
+    """PURE. The url that says whether the rollout's endpoint answers: Ollama /api/version; a llama.cpp llama-server
+    (`oai+<url>`, serving A 11-01) /health on the url without the prefix. Probing `oai+http://...` fails every poll,
+    and two failed polls ROLL BACK every stage (EXP_EP_FAILS)."""
+    url = str(url).strip().rstrip('/')
+    if url.startswith('oai+'):
+        return url[len('oai+'):].rstrip('/') + '/health'
+    return url + '/api/version'
+
+
 def pool_of(bot):
     m = BOT_RE.fullmatch(bot)
     return m.group(1) if m else None
@@ -574,7 +584,7 @@ class Host:
     def endpoint_ok(self, url):
         import urllib.request
         try:
-            urllib.request.urlopen(url + '/api/version', timeout=10).read()
+            urllib.request.urlopen(probe_url(url), timeout=10).read()
             return True
         except Exception:
             return False
