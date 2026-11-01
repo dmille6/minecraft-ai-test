@@ -446,6 +446,32 @@ def t_unknown_is_never_zero(W):
         assert W.main(['full'] + args) == 2
 
 
+def t_unreadable_home_is_unknown(W):
+    """Codex r1 blocker: home's chunks unreadable but inhabited chunks elsewhere must NOT publish reach/seen 0%."""
+    grid = W.Grid(-2, -2, 2, 2)
+    grid.put_chunk(2, 2, bytes([W.LAND]) * 256)          # only a far chunk is readable; home (0, 0) is UNK
+    try:
+        W.reach(grid)
+        raise AssertionError('reach() measured a flood with no home seed')
+    except W.ZeroLooksWrong:
+        pass
+    # end to end: a scan whose only readable chunk is far from home, inhabited -> exit 2 and an ok:false row
+    root, args, ship = _fixture(W)
+    far = W.Grid(-2, -2, 2, 2)
+    far.put_chunk(2, 2, bytes([W.LAND]) * 256)
+    info = {'region_files': 1, 'bad_files': [], 'chunks_parsed': 1, 'full_chunks': 1, 'not_full_chunks': 0,
+            'unreadable_chunks': 24, 'unreadable_sample': [], 'columns': {}, 'bbox_chunks': [-2, -2, 2, 2]}
+    real = W.scan_regions
+    W.scan_regions = lambda d: (far, info, {(2, 2)}, {(2, 2)}, {(2, 2)})
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+            rc = W.main(['full'] + args)
+    finally:
+        W.scan_regions = real
+    assert rc == 2 and 'home' in err.getvalue(), (rc, err.getvalue())
+    assert json.loads(open(ship).read().splitlines()[-1])['ok'] is False
+
+
 def t_stood_is_cumulative(W):
     root, args, ship = _fixture(W)
     with contextlib.redirect_stdout(io.StringIO()):
@@ -499,6 +525,8 @@ MUTANTS = [
      't_border_and_denominators'),
     ('unknown tile reads 0%', "def pct(n, d):\n    return None if not d else", "def pct(n, d):\n    return 0.0 if not d else",
      't_tiles'),
+    ('no home seed floods nothing, reported as measured', "        if start is None:\n            # home's",
+     "        if False:\n            # home's", 't_unreadable_home_is_unknown'),
     ('FIXTURE bot counted as stood', "BOT_NAME = re.compile(r'^showcase-[A-Z][a-z]+$')",
      "BOT_NAME = re.compile(r'^showcase-')", 't_stood'),
 ]

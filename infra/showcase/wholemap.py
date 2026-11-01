@@ -391,7 +391,12 @@ def reach(grid, home=HOME):
     out = {'_land_cols': land_total, '_landice_cols': sum(1 for v in grid.c if v in (LAND, ICE))}
     for tier in TIERS:
         pm = passable_mask(grid, tier, shore)
-        r = flood(grid, find_start(grid, home, pm), pm)
+        start = find_start(grid, home, pm)
+        if start is None:
+            # home's chunks unreadable / not generated: an empty flood would publish reach 0 and seen 0 as if measured
+            raise ZeroLooksWrong(f'no walkable {tier} column within 16 of home {home}: the home chunks are unreadable or '
+                                 f'absent, so reach and seen% cannot be measured (not 0)')
+        r = flood(grid, start, pm)
         land = sum(1 for i, v in enumerate(r) if v and grid.c[i] == LAND)
         landice = sum(1 for i, v in enumerate(r) if v and grid.c[i] in (LAND, ICE))
         out[tier] = {'reached': r, 'land_cols': land, 'landice_cols': landice, 'cols': sum(r)}
@@ -479,14 +484,14 @@ def tile_of(cx, cz, width=BORDER_WIDTH, center=BORDER_CENTER, n=TILES):
     return (i, j) if 0 <= i < n and 0 <= j < n else None
 
 
-def tiles(generated, reachable, seen, stood, share, rng, n=TILES):
+def tiles(generated, reachable, seen, stood, share, rng, n=TILES, width=BORDER_WIDTH):
     """Per tile: chunks, generated, reachable, seen, stood, denominator (reachable + share x ungenerated), seen_pct.
     seen_pct is None (UNKNOWN, not 0) for a tile with no denominator. Pure."""
     t = {}
     (x0, x1), (z0, z1) = rng
     for cx in range(x0, x1 + 1):
         for cz in range(z0, z1 + 1):
-            k = tile_of(cx, cz, n=n)
+            k = tile_of(cx, cz, width=width, n=n)
             if k is None:
                 continue
             e = t.setdefault(k, {'chunks': 0, 'generated': 0, 'reachable': 0, 'seen': 0, 'stood': 0})
@@ -888,7 +893,7 @@ def run_full(a, out):
         'reach': {'metric_tier': METRIC_TIER, 'land_cols_total': R['_land_cols'], 'landice_cols_total': R['_landice_cols'],
                   'tiers': reach_out},
         'tiles': {'n': TILES, 'size_blocks': round(a.border_width / TILES, 1),
-                  'grid': tiles(generated, reachable, seen, stood, den['landice_share'], rng)},
+                  'grid': tiles(generated, reachable, seen, stood, den['landice_share'], rng, width=a.border_width)},
         'furthest_seen_blocks': round(max((math.hypot(c[0] * 16 + 8, c[1] * 16 + 8) for c in seen_raw), default=0)),
     }
     out['coverage'] = cov
