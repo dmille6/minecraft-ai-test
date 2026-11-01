@@ -315,14 +315,16 @@ def det_queue(entries, fleet, parked_runs, journal_runs):
     journal_runs: every run id the journal knows (an `after` on a journal-only run is not 'unknown')."""
     out = []
     by = {e['run']: e for e in entries}
-    live = {e['run']: bool(fleet and fleet in (e.get('variants') or [])) for e in entries}
+    live = {e['run']: has_variant(e, fleet) for e in entries}
     for e in entries:
         if e.get('state') in ('done', 'cancelled', 'running', 'launching'):
             continue
         run, why = e['run'], []
         if not live[run]:
             why.append(f'NO variant for the fleet sha {str(fleet)[:8]} (variants keyed on '
-                       f'{", ".join(v[:8] for v in e.get("variants") or []) or "none"}) -- it can never launch')
+                       f'{", ".join(v[:8] for v in e.get("variants") or []) or "none"})'
+                       + (' and its autorebase REFUSED' if e.get('patch') else ', no patch source to autorebase')
+                       + ' -- it can never launch')
         for a in e.get('after') or []:
             o = by.get(a)
             if o is None:
@@ -342,9 +344,14 @@ def det_queue(entries, fleet, parked_runs, journal_runs):
     return out
 
 
+def has_variant(e, fleet):
+    """PURE. A variant for the fleet sha, or (canary-sched v39) a patch source whose autorebase onto it has not refused."""
+    return bool(fleet and (fleet in (e.get('variants') or []) or (e.get('patch') and not e.get('ar_refused'))))
+
+
 def runnable(e, entries, fleet):
     """PURE. Could the scheduler launch this entry once the slot is free?"""
-    if e.get('state') != 'ready' or (e.get('hold') or '').strip() or fleet not in (e.get('variants') or []):
+    if e.get('state') != 'ready' or (e.get('hold') or '').strip() or not has_variant(e, fleet):
         return False
     by = {x['run']: x for x in entries}
     return all((by.get(a) or {}).get('state') == 'done' for a in e.get('after') or [])
@@ -631,8 +638,13 @@ def gather(a, errors):
         # FULL sha: use the scheduler's own resolution, else resolve it in the clone below (Codex + Claude r1)
         fleet = st.get('base_full') or man.get('declared_code_version') or ''
         for e in (st.get('queue') or {}).get('entries') or []:
+            pt = e.get('patch') if isinstance(e.get('patch'), dict) else None
+            jp = S.ar_job_path(P, e.get('run'), fleet, pt['tip']) if pt and pt.get('tip') and \
+                hasattr(S, 'ar_job_path') and re.match(r'^[0-9a-f]{40}$', str(fleet)) else None
             entries.append({'run': e.get('run'), 'state': S.entry_state(e, st), 'hold': e.get('hold'),
-                            'after': e.get('after') or [], 'variants': sorted((e.get('variants') or {}).keys())})
+                            'after': e.get('after') or [], 'variants': sorted((e.get('variants') or {}).keys()),
+                            'patch': bool(pt) and hasattr(S, 'ar_job_path'),
+                            'ar_refused': bool(jp and (S.ar_read_job(jp) or {}).get('state') == 'refused')})
             canary_shas |= {str(v.get('canary_sha')) for v in (e.get('variants') or {}).values() if isinstance(v, dict)
                             and re.match(r'^[0-9a-f]{40}$', str(v.get('canary_sha')))}
         if not entries:

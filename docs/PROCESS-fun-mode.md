@@ -117,6 +117,8 @@ canary is reading, because that would change the canary's baseline.
 There is **one canary slot**. The tripper matches `canary_pool` literally and
 `deploy-fleet.sh` ships per sha.
 
+- **Pre-build only the variant on the current fleet tip; the scheduler rebases at launch** (`queue set-patch`; it
+  cherry-picks onto whatever tip is live, launches only if the diff is identical and the suite passes, else pages and blocks).
 - **Bundle up to four compatible changes on one variant sha.** Different files
   do not make changes independent; say why they compose.
 - **The read is generic, at +90 and +180:** the tripper, the death gate with

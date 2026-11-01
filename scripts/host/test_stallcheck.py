@@ -138,8 +138,9 @@ def t_deps(S):
     check('b fires: an item dependency DONE 48 h ago', len(fs) == 1, fs)
 
 
-def Q(run, state='ready', hold=None, after=(), variants=(FLEET,)):
-    return {'run': run, 'state': state, 'hold': hold, 'after': list(after), 'variants': list(variants)}
+def Q(run, state='ready', hold=None, after=(), variants=(FLEET,), patch=False, ar_refused=False):
+    return {'run': run, 'state': state, 'hold': hold, 'after': list(after), 'variants': list(variants), 'patch': patch,
+            'ar_refused': ar_refused}
 
 
 def t_queue(S):
@@ -154,6 +155,13 @@ def t_queue(S):
     check('c quiet: a live entry after a done one, and after a journal-only run', not ({'c:fine', 'c:afterjournal'} & keys), keys)
     fs = S.det_queue(entries, FLEET, {'dead-01': 'ledger-row'}, {'old-07'})
     check('c quiet: a dead entry the ledger parks with a date', 'c:dead-01' not in {f['key'] for f in fs}, fs)
+    # canary-sched v39: a patch source makes an entry launchable on any tip, until its autorebase refuses
+    ar = [Q('rebaseable', variants=(OLD,), patch=True), Q('arrefused', variants=(OLD,), patch=True, ar_refused=True),
+          Q('afterrebaseable', after=['rebaseable'])]
+    keys = {f['key'] for f in S.det_queue(ar, FLEET, {}, set())}
+    check('c quiet: an entry with a patch source and no refusal', not ({'c:rebaseable', 'c:afterrebaseable'} & keys), keys)
+    check('c fires: an entry whose autorebase refused', 'c:arrefused' in keys, keys)
+    check('runnable: a patch source counts as a variant', S.runnable(ar[0], ar, FLEET) and not S.runnable(ar[1], ar, FLEET))
 
 
 def t_branches(S):

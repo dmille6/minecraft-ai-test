@@ -16,6 +16,13 @@
     canary-sched.py continue <run> <why>          release the hold that follows a death-driven REVERT (R11)
     canary-sched.py install-hold <owner> <minutes> | install-release
                                                   stop NEW launches for an installer; exits 2 unless the slot is free now
+    canary-sched.py queue set-patch <run> <src_base> [<branch>]
+                                                  declare the entry's change (AUTOREBASE source): the variant keyed on
+                                                  <src_base>, its commits src_base..canary_sha, and their normalized diff
+    canary-sched.py queue add-variant <run> <base> <registration> <approved...>
+                                                  add ONE variant (validated as `queue add` validates it)
+    canary-sched.py autorebase-clear <run> <why>  forget the head's refused/dead autorebase job: the next tick may build again
+    canary-sched.py autorebase-build <run> <base> <tip>   (internal: the background build a tick starts)
 
 DESIGN: docs/reports/canary-throughput-2026-10-08.md (Codex + Claude, four review rounds). The owner asked for more
 canary throughput (10-08 ~02:30Z). Both engines rejected concurrent lanes for now and agreed on this: chain-after.sh
@@ -46,6 +53,19 @@ THE CHECKS
   H5 NEXT-SLOT.json admits only underground-safety    H6 a bag fix needs drawrec TARGET_K >= 4
   R10 drawexposure.py answers for the head
 
+AUTOREBASE (v39, 11-01). The queue used to need a variant pre-built for every fleet tip the entries ahead of it could
+produce (fleetbuild-01 had 32). Now an entry may declare a PATCH SOURCE (`queue set-patch`): one of its variants, a linear
+range src_base..tip, and the sha256 of its normalized diff. When the head has no variant for the live fleet base, the tick
+starts ONE background build (`autorebase-build`, never more than one per (run, base, tip), never a retry) and waits (H2):
+cherry-pick the range onto the base in a scratch worktree (~/autorebase), then ALL of: (a) no conflict, (b) the normalized
+diff base..new is byte-identical to the reviewed one (index lines and hunk line numbers are the only things normalized
+away), (c) `npm ci`, eslint (`npm run lint`), the movement-writer lint no worse than on the base, `npm test` in full,
+(d) protected.py's tier unchanged. Only then: branch autorebase/<run>-on-<base8>, pushed (this host has no push
+credential: a request file the Mac relay pushes, confirmed here by `git ls-remote`), fetched into the deploy repo,
+registered (a copy of the source variant's registration), and added by `queue add-variant`; the NEXT tick launches it
+normally (H3/H4 and every slot check still apply). Any failure pages the exact reason and leaves the head BLOCKED (never
+skipped, never retried) until a human builds the variant or runs `autorebase-clear`. Every step is a sched-state row.
+
 FUN MODE (v37, OWNER 2026-10-28, W4). A registration that does not say `"lab": true` is an ORDINARY run: R10
 (drawexposure), H5 (NEXT-SLOT) and H6 (bag-fix 4-pool draw) are lab-only and do not apply to it. For a fun-mode run R11
 EXPIRES 2 h after the run closed unless one of its deaths was CHANGE-LINKED (a rung-linked / change-row death, or an
@@ -54,7 +74,7 @@ releases either at once. `approved` names the reviewer (any non-empty name); a c
 whose diff touches config/protected-paths.txt (decided by the BASE's scripts/lib/protected.py; undecidable = protected)
 must name both engines (Claude and Codex).
 """
-import os, sys, json, re, glob, hashlib, subprocess, fcntl, tempfile, shutil, datetime as dt
+import os, sys, json, re, glob, hashlib, subprocess, fcntl, tempfile, shutil, time, datetime as dt
 
 UTC = dt.timezone.utc
 CLOSED_PHASES = ('promoted', 'torn-down')
@@ -74,6 +94,10 @@ ABANDON_AFTER_DRAWN_MIN = 20
 R11_EXPIRE_H = 2.0      # v37: an R11 hold whose deaths were not change-linked releases itself this long after the close
 CHANGE_LINKED = re.compile(r'rung-linked death|linked death|death-linked|change row inside a death window', re.I)
 HEX40 = re.compile(r'^[0-9a-f]{40}$')
+AR_STALE_MIN = 20       # an autorebase job whose heartbeat (every 30 s) is older than this died
+AR_PUSH_WAIT_MIN = 45   # the relay pushes within minutes; past this the job refuses (is the Mac relay running?)
+AR_TEST_TIMEOUT_S = 45 * 60
+AR_MAX_RERUN = 6         # full-run failures re-run alone (host-load flakes); more than this refuses outright
 SLOT_PROCS = (  # basename of argv[0] or argv[1]; never a substring of the whole command line (pgrep -f self-matches)
     ('canary-loop.sh', lambda b: b == 'canary-loop.sh'),
     ('chain-*.sh', lambda b: bool(re.match(r'^chain-.*\.sh$', b))),
@@ -123,6 +147,11 @@ def paths():
         'openloop_lib': g('SCHED_OPENLOOP_LIB', os.path.join(H, 'mcai-analysis', 'lib')),
         'proc': g('SCHED_PROC', '/proc'),
         'out': g('SCHED_OUT_DIR', H),
+        'ar_home': g('SCHED_AR_HOME', os.path.join(H, 'autorebase')),
+        'ar_origin': g('SCHED_AR_ORIGIN', 'https://github.com/dmille6/minecraft-ai-test.git'),
+        'ar_push': g('SCHED_AR_PUSH', 'relay'),          # relay: a request file the Mac pushes | direct: git push (tests)
+        'ar_sudo': g('SCHED_AR_SUDO', '1'),              # the deploy repo is root-owned: fetch into it with sudo -n
+        'ar_npm': g('SCHED_AR_NPM', 'npm'),
     }
 
 
@@ -424,8 +453,9 @@ def head_blockers(e, st):
     if not base:
         out.append(('H2', 'the fleet base could not be resolved to a full sha', False))
     elif base not in vs:
-        out.append(('H2', 'no variant for the fleet base %s (have: %s)' % (base[:7], ', '.join(k[:7] for k in vs) or 'none'),
-                    False))
+        why, waiting, _ = ar_view(e, st)
+        out.append(('H2', 'no variant for the fleet base %s (have: %s): %s'
+                    % (base[:7], ', '.join(k[:7] for k in vs) or 'none', why), waiting))
     else:
         for code, why in (st.get('variant_checks') or []):
             out.append((code, why, False))
@@ -436,6 +466,108 @@ def head_blockers(e, st):
     if lab and e.get('class') == 'bag-fix' and not st.get('drawrec_k4'):
         out.append(('H6', 'bag fix needs drawrec.sh TARGET_K >= 4', False))
     return out
+
+
+# ------------------------------------------------------------------------------------------- autorebase (pure) --
+def patch_problem(pt):
+    """'' when a patch source has the shape `queue set-patch` writes, else why not."""
+    if not isinstance(pt, dict):
+        return 'patch is not an object'
+    for k in ('base', 'tip'):
+        if not HEX40.match(str(pt.get(k) or '')):
+            return 'patch %s %r is not a full sha' % (k, pt.get(k))
+    if not re.match(r'^[0-9a-f]{64}$', str(pt.get('diff_sha256') or '')):
+        return 'patch has no diff_sha256'
+    return ''
+
+
+def ar_view(e, st):
+    """PURE. The head has no variant for the fleet base: (why, waiting, start_a_build)."""
+    pt = e.get('patch')
+    if not pt:
+        return ('no patch source, so no autorebase: build the variant by hand, or `queue set-patch %s <src_base>`'
+                % e.get('run'), False, False)
+    bad = patch_problem(pt)
+    if bad:
+        return ('autorebase cannot run: %s' % bad, False, False)
+    job = st.get('ar_job')
+    rng = '%s..%s' % (pt['base'][:8], pt['tip'][:8])
+    if job is None:
+        return ('autorebase will cherry-pick %s onto it (one background build, then a later tick launches)' % rng,
+                True, True)
+    s = job.get('state')
+    clear = '`canary-sched.py autorebase-clear %s <why>` to build again' % e.get('run')
+    if s == 'refused':
+        return ('autorebase REFUSED at step %s: %s -- the head stays blocked: build the variant by hand (`queue '
+                'add-variant`), or fix the cause and %s' % (job.get('step'), str(job.get('why'))[:400], clear), False, False)
+    if s in ('starting', 'running'):
+        hb = ts(job.get('hb') or job.get('at'))
+        if hb is None or (st['now'] - hb).total_seconds() > AR_STALE_MIN * 60:
+            return ('the autorebase job (pid %s) went silent at step %s (heartbeat %s): it died; %s'
+                    % (job.get('pid'), job.get('step'), job.get('hb') or job.get('at'), clear), False, False)
+        return ('autorebase of %s is building (step %s, pid %s, heartbeat %s)' % (rng, job.get('step'), job.get('pid'),
+                                                                               job.get('hb')), True, False)
+    if s == 'done':
+        return ('autorebase built %s but the queue has no variant for this base (removed by hand?); %s'
+                % (str(job.get('variant'))[:8], clear), False, False)
+    return ('autorebase job state %r is unknown; %s' % (s, clear), False, False)
+
+
+def ar_should_start(st):
+    """PURE. Start the head's autorebase build now? Only when the fleet base is settled (no canary declared, no drop-in,
+    no loop/chain/deploy/install process, no pause or install-hold) and the missing variant is the ONLY thing between
+    the head and a launch."""
+    e = head_entry(st)
+    base = st.get('base_full')
+    if e is None or not base or base in (e.get('variants') or {}) or entry_state(e, st) != 'ready':
+        return False
+    man = st.get('manifest')
+    if not isinstance(man, dict) or man.get('canary_pool') or man.get('canary_code_version'):
+        return False
+    if st.get('procs') or st.get('dropins') or st.get('pause') or st.get('install_hold') is not None or st.get('death_hold'):
+        return False
+    if [b for b in head_blockers(e, st) if b[0] != 'H2']:
+        return False
+    return ar_view(e, st)[2]
+
+
+def norm_diff(text):
+    """PURE. A diff with the two things a rebase changes without changing the change removed: `index` lines (blob
+    ids) and hunk-header line numbers (and the function-context text git appends to them). Everything else -- file
+    headers, modes, every context, added and removed line, binary literals -- must be byte-identical."""
+    out = []
+    for l in text.split('\n'):
+        if l.startswith('index '):
+            continue
+        if l.startswith('@@ ') and re.match(r'^@@ -\d+(,\d+)? \+\d+(,\d+)? @@', l):
+            out.append('@@')
+            continue
+        out.append(l)
+    return '\n'.join(out)
+
+
+def movement_fails(out):
+    """PURE. The file list after `FAIL:` in check-movement-writers output (empty set = no FAIL block)."""
+    got, on = set(), False
+    for l in out.splitlines():
+        if l.startswith('FAIL:'):
+            on = True
+            continue
+        if on:
+            if not l.strip():
+                break
+            got.add(l.strip())
+    return got
+
+
+def tier_label(rc, out):
+    """PURE. protected.py's answer as one word: none | 3 | tooling | undecidable."""
+    if rc == 0:
+        return 'none'
+    if rc == 1:
+        last = (out.strip().splitlines() or [''])[-1].strip()
+        return {'tier=3': '3', 'tier=tooling': 'tooling'}.get(last, '3')
+    return 'undecidable'
 
 
 def decide(st):
@@ -947,6 +1079,9 @@ def gather(P, full=True, r10=None):
     st['base_full'] = full_sha(P, man.get('declared_code_version'))
     st['stage'], st['variant_checks'], st['r10'] = [], [], ''
     e = head_entry(st)
+    st['ar_job'] = None
+    if e and st['base_full'] and st['base_full'] not in (e.get('variants') or {}) and not patch_problem(e.get('patch')):
+        st['ar_job'] = ar_read_job(ar_job_path(P, e['run'], st['base_full'], e['patch']['tip']))
     if full and e and st['base_full'] and st['base_full'] in (e.get('variants') or {}):
         v = e['variants'][st['base_full']]
         st['variant_checks'], st['stage'] = variant_checks(P, e, v, st['base_full'], st)
@@ -1137,6 +1272,12 @@ def _tick(P, no_act):
             # fleet since that second check: never launch on it -- the next tick starts over (Codex IMPL-3)
             print('%s RE-CHECK: the head/base changed during the exposure check; deferring to the next tick' % stamp)
             return 0
+    if d[0] != 'launch' and ar_should_start(st):
+        e = head_entry(st)
+        print('%s AUTOREBASE %s: no variant for %s; %s' % (stamp, e['run'], st['base_full'][:7],
+                                                           'NO-ACT' if no_act else 'starting the background build'))
+        if not no_act:
+            ar_start(P, st, e)
     if d[0] == 'launch':
         e, v = d[1], d[2]
         print('%s LAUNCH %s (variant on %s, canary %s)%s' % (stamp, e['run'], st['base_full'][:7],
@@ -1175,6 +1316,443 @@ def _tick(P, no_act):
     return 0
 
 
+# ------------------------------------------------------------------------------------------ autorebase (impure) --
+def gitx(gdir, *a, timeout=600, env_extra=None):
+    """git with the user's and the system's config ignored (a diff must not depend on diff.* settings), never a prompt.
+    -> (rc, stdout str, stderr str); stdout decoded with surrogateescape, so binary bytes survive a round trip."""
+    env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT='0',
+               GIT_ASKPASS='/bin/false', LC_ALL='C')
+    env.update(env_extra or {})
+    r = subprocess.run(['git', '-c', 'safe.directory=*', '-c', 'core.quotePath=true', '-C', gdir] + list(a),
+                       capture_output=True, timeout=timeout, env=env)
+    return (r.returncode, r.stdout.decode('utf-8', 'surrogateescape'),
+            r.stderr.decode('utf-8', 'replace'))
+
+
+DIFF_ARGS = ('diff', '--no-color', '--no-ext-diff', '--no-textconv', '--binary', '--no-renames', '-U3',
+             '--diff-algorithm=myers', '--indent-heuristic', '--inter-hunk-context=0', '--src-prefix=a/',
+             '--dst-prefix=b/', '--no-relative')
+
+
+def diff_hash(gdir, a, b):
+    """(sha256 of norm_diff(git diff a b), the changed paths) or raises."""
+    rc, out, err = gitx(gdir, *DIFF_ARGS, a, b)
+    if rc != 0:
+        raise RuntimeError('git diff %s %s failed: %s' % (a[:8], b[:8], err.strip()[-200:]))
+    rc2, names, err2 = gitx(gdir, 'diff', '--no-renames', '--name-only', a, b)
+    if rc2 != 0:
+        raise RuntimeError('git diff --name-only failed: %s' % err2.strip()[-200:])
+    return (hashlib.sha256(norm_diff(out).encode('utf-8', 'surrogateescape')).hexdigest(),
+            [x for x in names.splitlines() if x])
+
+
+def linear_range(gdir, a, b):
+    """(commits a..b oldest first, '' ) or ([], why not)."""
+    if gitx(gdir, 'merge-base', '--is-ancestor', a, b)[0] != 0:
+        return [], '%s is not an ancestor of %s' % (a[:8], b[:8])
+    rc, out, err = gitx(gdir, 'rev-list', '--reverse', '--parents', '%s..%s' % (a, b))
+    if rc != 0:
+        return [], 'rev-list failed: %s' % err.strip()[-200:]
+    rows = [l.split() for l in out.splitlines() if l.strip()]
+    if not rows:
+        return [], 'the range %s..%s is empty' % (a[:8], b[:8])
+    merges = [r[0][:8] for r in rows if len(r) > 2]
+    if merges:
+        return [], 'the range %s..%s holds merge commits (%s): a patch source must be linear' % (a[:8], b[:8], ', '.join(merges))
+    return [r[0] for r in rows], ''
+
+
+def ar_job_path(P, run, base, tip):
+    return os.path.join(P['ar_home'], 'jobs', '%s--%s--%s.json' % (run, base[:12], tip[:12]))
+
+
+def ar_read_job(p):
+    try:
+        with open(p) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return None
+    except Exception as x:
+        return {'state': 'refused', 'step': 'job-file', 'why': 'the job file %s is unreadable: %s' % (p, x)}
+
+
+def ar_write_job(p, job):
+    tmp = '%s.tmp-%d' % (p, os.getpid())
+    with open(tmp, 'w') as f:
+        json.dump(job, f, indent=1)
+        f.flush(); os.fsync(f.fileno())
+    os.replace(tmp, p)
+
+
+def ar_page(P, level, run, msg):
+    os.makedirs(os.path.dirname(P['page']), exist_ok=True)
+    with open(P['page'], 'a') as f:
+        f.write(json.dumps({'ts': iso(now()), 'run': run, 'level': level, 'msg': 'canary-sched autorebase: ' + msg}) + '\n')
+
+
+def ar_start(P, st, e):
+    """Create the job file EXCLUSIVELY (a second tick can never start a second build, and a crash before the helper
+    writes its pid leaves `starting`, which goes stale -> blocked, never retried), then start the helper detached."""
+    run, base, tip = e['run'], st['base_full'], e['patch']['tip']
+    p = ar_job_path(P, run, base, tip)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    job = {'state': 'starting', 'run': run, 'base': base, 'tip': tip, 'src_base': e['patch']['base'],
+           'at': iso(now()), 'hb': iso(now()), 'step': 'start', 'steps': []}
+    try:
+        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        return None
+    with os.fdopen(fd, 'w') as f:
+        json.dump(job, f, indent=1)
+    append_state(P, {'state': 'autorebase', 'run': run, 'base': base, 'tip': tip, 'step': 'start', 'ok': True,
+                     'detail': 'background build started for %s..%s onto %s' % (e['patch']['base'][:8], tip[:8], base[:8])})
+    log = os.path.join(P['ar_home'], 'logs', '%s--%s.log' % (run, base[:12]))
+    os.makedirs(os.path.dirname(log), exist_ok=True)
+    with open(log, 'a') as out:
+        pr = subprocess.Popen([sys.executable, os.path.abspath(__file__), 'autorebase-build', run, base, tip],
+                              stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, cwd=P['home'],
+                              start_new_session=True, close_fds=True)
+    return pr.pid
+
+
+class ArRefuse(Exception):
+    pass
+
+
+class ArJob:
+    """The job file, a heartbeat thread, and one sched-state row per step."""
+
+    def __init__(self, P, run, base, tip):
+        import threading
+        self.P, self.run, self.base, self.tip = P, run, base, tip
+        self.p = ar_job_path(P, run, base, tip)
+        self.lk = threading.Lock()
+        self.job = ar_read_job(self.p)
+        self.stop = threading.Event()
+        self.t = threading.Thread(target=self._beat, daemon=True)
+
+    def _beat(self):
+        while not self.stop.wait(30):
+            with self.lk:
+                self.job['hb'] = iso(now())
+                ar_write_job(self.p, self.job)
+
+    def begin(self):
+        with self.lk:
+            self.job.update({'state': 'running', 'pid': os.getpid(), 'hb': iso(now())})
+            ar_write_job(self.p, self.job)
+        self.t.start()
+
+    def step(self, name, detail='', ok=True):
+        print('%s [%s] %s %s' % (iso(now()), name, 'ok' if ok else 'FAIL', detail), flush=True)
+        with self.lk:
+            self.job['step'] = name
+            self.job['hb'] = iso(now())
+            self.job.setdefault('steps', []).append({'step': name, 'ok': ok, 'at': iso(now()), 'detail': detail[:600]})
+            ar_write_job(self.p, self.job)
+        append_state(self.P, {'state': 'autorebase', 'run': self.run, 'base': self.base, 'tip': self.tip, 'step': name,
+                              'ok': ok, 'detail': detail[:600]})
+
+    def end(self, state, **kw):
+        self.stop.set()
+        with self.lk:
+            self.job.update(kw)
+            self.job.update({'state': state, 'hb': iso(now()), 'ended': iso(now())})
+            ar_write_job(self.p, self.job)
+
+
+def run_cmd(argv, cwd, timeout, env_extra=None):
+    """-> (rc, combined output). A timeout kills the whole process group and returns rc 124."""
+    env = dict(os.environ); env.update(env_extra or {})
+    pr = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          env=env, start_new_session=True)
+    try:
+        out, _ = pr.communicate(timeout=timeout)
+        return pr.returncode, out.decode('utf-8', 'replace')
+    except subprocess.TimeoutExpired:
+        import signal
+        try:
+            os.killpg(pr.pid, signal.SIGKILL)
+        except Exception:
+            pass
+        out, _ = pr.communicate()
+        return 124, out.decode('utf-8', 'replace') + '\n[killed after %d s]' % timeout
+
+
+def test_results(out):
+    """PURE. {file: 'ok'|'FAIL'} from run-tests.mjs lines (`ok   x.test.mjs ...`, `FAIL x.test.mjs ...`)."""
+    res = {}
+    for l in out.splitlines():
+        m = re.match(r'^(ok|FAIL)\s+(\S+\.test\.mjs)\b', l)
+        if m:
+            res[m.group(2)] = m.group(1)
+    return res
+
+
+def test_verdict(full_rc, full, alone_new, alone_base, touched, max_base_fail=3):
+    """PURE. Did the suite pass, base-relatively? full: {file: ok|FAIL} of the full run on the new tip; alone_new: the
+    same for each full-run failure re-run ALONE on the new tip; alone_base: each still-failing file re-run alone on the
+    BASE. A file passes when it passed in the full run, or alone. A file that fails alone on the new tip is accepted only
+    when it ALSO fails alone on the base, the change does not touch it, and at most max_base_fail files are like that.
+    -> ('', summary) or (why refused, summary)."""
+    if not full:
+        return 'the full run printed no per-file results (rc %s)' % full_rc, ''
+    fails = sorted(f for f, r in full.items() if r != 'ok')
+    if full_rc == 0 and not fails:
+        return '', 'npm test %d/%d in the full run' % (len(full), len(full))
+    if full_rc != 0 and not fails:
+        return 'npm test exited %s with no failing file named' % full_rc, ''
+    if len(fails) > AR_MAX_RERUN:
+        return '%d files failed in the full run (more than %d are not re-run)' % (len(fails), AR_MAX_RERUN), ''
+    still = sorted(f for f in fails if alone_new.get(f) != 'ok')
+    flaky = [f for f in fails if f not in still]
+    summary = 'npm test %d/%d in the full run; re-run alone: %s' % (
+        len(full) - len(fails), len(full), ', '.join('%s %s' % (f, alone_new.get(f, '?')) for f in fails))
+    if not still:
+        return '', summary + ' (all pass alone)'
+    mine = [f for f in still if any(t.endswith('/' + f) or t == f for t in touched)]
+    if mine:
+        return 'test file(s) the change touches fail alone: %s' % ', '.join(mine), summary
+    new_only = [f for f in still if alone_base.get(f) != 'FAIL']
+    if new_only:
+        return 'fail alone on the new tip and NOT on the base: %s' % ', '.join(new_only), summary
+    if len(still) > max_base_fail:
+        return '%d files fail alone on both the new tip and the base (> %d): the host is not fit to judge' % (
+            len(still), max_base_fail), summary
+    return '', summary + '; failing on the BASE too on this host (not the change): %s' % ', '.join(still)
+
+
+def ar_build(P, run, base, tip):
+    job = ArJob(P, run, base, tip)
+    if not job.job or job.job.get('state') != 'starting':
+        print('REFUSED: job %s is %s, not `starting` (a build runs only once)' % (job.p, (job.job or {}).get('state')))
+        return 2
+    job.begin()
+    try:
+        res = _ar_steps(P, job, run, base, tip)
+        job.end('done', **res)
+        ar_page(P, 'info', run, 'built %s for fleet base %s (%s); the next free-slot tick launches it'
+                % (res['variant'][:8], base[:8], res['branch']))
+        return 0
+    except ArRefuse as x:
+        why = str(x)
+        job.step(job.job.get('step') or '?', 'REFUSED: ' + why, ok=False)
+        job.end('refused', why=why)
+        ar_page(P, 'error', run, '%s BLOCKED: no variant for fleet base %s and the autorebase refused at step %s: %s -- '
+                'build it by hand (`queue add-variant`) or fix and `canary-sched.py autorebase-clear %s <why>`'
+                % (run, base[:8], job.job.get('step'), why[:400], run))
+        return 3
+    except Exception as x:
+        import traceback
+        why = 'crashed: %s: %s | %s' % (type(x).__name__, x, ' '.join(traceback.format_exc().split())[-300:])
+        job.step(job.job.get('step') or '?', why, ok=False)
+        job.end('refused', why=why)
+        ar_page(P, 'error', run, '%s BLOCKED: the autorebase for fleet base %s %s' % (run, base[:8], why[:400]))
+        return 3
+
+
+def _ar_steps(P, job, run, base, tip):
+    S = job.step
+    # 1. the entry and its declared change
+    q = load_queue(P)
+    hit = [e for e in q.get('entries') or [] if e.get('run') == run]
+    if len(hit) != 1:
+        raise ArRefuse('%s is not queued exactly once' % run)
+    e = hit[0]
+    pt = e.get('patch') or {}
+    if patch_problem(pt) or pt.get('tip') != tip:
+        raise ArRefuse('the queued patch source changed or is malformed (%s)' % (patch_problem(pt) or 'tip %s' % pt.get('tip')))
+    if base in (e.get('variants') or {}):
+        raise ArRefuse('a variant for %s already exists: nothing to build' % base[:8])
+    src = (e.get('variants') or {}).get(pt['base']) or {}
+    if src.get('canary_sha') != tip:
+        raise ArRefuse('the source variant keyed on %s does not have canary_sha %s' % (pt['base'][:8], tip[:8]))
+    S('entry', 'patch %s..%s (%s), template registration %s' % (pt['base'][:8], tip[:8], pt.get('branch') or '-',
+                                                                  src.get('registration')))
+    # 2. the scratch repo: a bare clone of origin, plus the deploy repo for anything origin lacks
+    R = os.path.join(P['ar_home'], 'repo.git')
+    if not os.path.isdir(R):
+        rc, _, err = gitx(P['ar_home'], 'clone', '-q', '--bare', P['ar_origin'], R, timeout=1800)
+        if rc != 0:
+            raise ArRefuse('clone of %s failed: %s' % (P['ar_origin'], err.strip()[-200:]))
+    rc, _, err = gitx(R, 'fetch', '-q', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*', timeout=1800)
+    if rc != 0:
+        raise ArRefuse('fetch from %s failed: %s' % (P['ar_origin'], err.strip()[-200:]))
+    have = lambda x: gitx(R, 'cat-file', '-e', '%s^{commit}' % x)[0] == 0
+    if not all(have(x) for x in (pt['base'], tip, base)):
+        gitx(R, 'fetch', '-q', P['git'], '+HEAD:refs/deploy/HEAD', '+refs/remotes/origin/*:refs/deploy/origin/*',
+             timeout=1800)
+    miss = [x[:8] for x in (pt['base'], tip, base) if not have(x)]
+    if miss:
+        raise ArRefuse('commits %s are in neither origin nor the deploy repo' % ', '.join(miss))
+    S('repo', R)
+    # 3. the change is linear and is the one reviewed
+    commits, why = linear_range(R, pt['base'], tip)
+    if why:
+        raise ArRefuse(why)
+    h0, files = diff_hash(R, pt['base'], tip)
+    if h0 != pt['diff_sha256']:
+        raise ArRefuse('the source range %s..%s no longer has the queued diff (sha256 %s, queued %s)'
+                       % (pt['base'][:8], tip[:8], h0[:12], pt['diff_sha256'][:12]))
+    S('reviewed-diff', '%d commit(s), %d file(s), normalized diff sha256 %s' % (len(commits), len(files), h0[:16]))
+    # 4. a scratch worktree on the live base; node modules; the movement lint on the base (its own known state)
+    gitx(R, 'worktree', 'prune')
+    W = os.path.join(P['ar_home'], 'work', '%s--%s' % (run, base[:8]))
+    if os.path.exists(W):
+        gitx(R, 'worktree', 'remove', '--force', W)
+        shutil.rmtree(W, ignore_errors=True)
+    os.makedirs(os.path.dirname(W), exist_ok=True)
+    rc, _, err = gitx(R, 'worktree', 'add', '-q', '--detach', W, base)
+    if rc != 0:
+        raise ArRefuse('worktree add failed: %s' % err.strip()[-200:])
+    B = os.path.join(W, 'bots')
+    npm = P['ar_npm']
+    nice = ['nice', '-n', '10']
+    rc, out = run_cmd(nice + [npm, 'ci', '--no-audit', '--no-fund', '--prefer-offline'], B, 1200)
+    if rc != 0:
+        raise ArRefuse('npm ci failed on the base (rc %s): %s' % (rc, ' '.join(out.split())[-300:]))
+    rc_mb, out_mb = run_cmd(nice + [npm, 'run', 'lint:movement'], B, 600)
+    S('worktree', '%s at %s; npm ci ok; movement lint on the base rc %s' % (W, base[:8], rc_mb))
+    # 5. (a) cherry-pick, no conflict
+    rc, out, err = gitx(W, '-c', 'user.name=canary-sched autorebase', '-c', 'user.email=autorebase@mcai.invalid',
+                        '-c', 'commit.gpgsign=false', '-c', 'rerere.enabled=false', 'cherry-pick', '-x',
+                        '--allow-empty-message', *commits, timeout=600)
+    if rc != 0:
+        _, unmerged, _ = gitx(W, 'diff', '--name-only', '--diff-filter=U')
+        gitx(W, 'cherry-pick', '--abort')
+        raise ArRefuse('the cherry-pick of %s..%s onto %s does not apply cleanly: conflict in %s (%s)'
+                       % (pt['base'][:8], tip[:8], base[:8], ', '.join(unmerged.split()) or '(no unmerged path)',
+                          ' '.join((out + err).split())[-240:]))
+    rc, nt, _ = gitx(W, 'rev-parse', 'HEAD')
+    nt = nt.strip()
+    picked, why = linear_range(R, base, nt)
+    if why or len(picked) != len(commits):
+        raise ArRefuse('the picked range %s..%s has %d commits, the source %d (%s)'
+                       % (base[:8], nt[:8], len(picked), len(commits), why or 'an empty pick was skipped?'))
+    S('cherry-pick', '%d commit(s) onto %s -> %s, no conflicts' % (len(commits), base[:8], nt[:8]))
+    # 6. (b) the diff is the reviewed diff
+    h1, files1 = diff_hash(R, base, nt)
+    if h1 != h0:
+        raise ArRefuse('the rebased diff is NOT the reviewed diff (normalized sha256 %s vs %s; files %s): the base changed '
+                       'lines in or beside the change, so it needs a human rebase and a review'
+                       % (h1[:12], h0[:12], ', '.join(files1)[:200]))
+    S('diff-identical', 'normalized diff sha256 %s == the reviewed one' % h1[:16])
+    # 7. (d) protected.py's tier is unchanged
+    PR = dict(P, git=R)
+    t0 = tier_label(*protected_run(PR, pt['base'], tip))
+    t1 = tier_label(*protected_run(PR, base, nt))
+    if t0 != t1:
+        raise ArRefuse('protected.py tier changed: %s on the source base, %s on %s -- needs the review that tier asks for'
+                       % (t0, t1, base[:8]))
+    S('tier', 'protected.py tier %s on both bases' % t1)
+    # 8. (c) lint, movement lint (no worse than the base), the full suite (base-relative for host-load failures)
+    rc, out = run_cmd(nice + [npm, 'run', 'lint'], B, 900)
+    if rc != 0:
+        raise ArRefuse('eslint (npm run lint, no-undef) fails on the new tip: %s' % ' '.join(out.split())[-300:])
+    rc_mv, out_mv = run_cmd(nice + [npm, 'run', 'lint:movement'], B, 600)
+    if rc_mv != 0 and (rc_mb == 0 or not movement_fails(out_mv) <= movement_fails(out_mb)):
+        raise ArRefuse('the movement-writer lint is worse on the new tip (rc %s, FAIL %s) than on the base (rc %s, FAIL %s)'
+                       % (rc_mv, sorted(movement_fails(out_mv)), rc_mb, sorted(movement_fails(out_mb))))
+    S('lint', 'eslint ok; movement lint rc %s (base rc %s)' % (rc_mv, rc_mb))
+    rc_t, out_t = run_cmd(nice + [npm, 'test'], B, AR_TEST_TIMEOUT_S)
+    with open(os.path.join(P['ar_home'], 'logs', '%s--%s.npmtest.out' % (run, base[:12])), 'w') as f:
+        f.write(out_t)
+    full = test_results(out_t)
+    alone_new, alone_base = {}, {}
+    fails = sorted(f for f, r in full.items() if r != 'ok')
+    if fails and len(fails) <= AR_MAX_RERUN:
+        alone = lambda f: test_results(run_cmd(nice + [npm, 'test', '--', f], B, 900, {'TEST_JOBS': '1'})[1]).get(f, '?')
+        for f in fails:
+            alone_new[f] = alone(f)
+        still = [f for f in fails if alone_new.get(f) != 'ok']
+        if still:
+            if gitx(W, 'checkout', '-q', '--detach', base)[0] != 0 or gitx(W, 'rev-parse', 'HEAD')[1].strip() != base:
+                raise ArRefuse('npm test failed (%s) and the worktree could not be put on the base to compare' % still)
+            for f in still:
+                alone_base[f] = alone(f)
+            if gitx(W, 'checkout', '-q', '--detach', nt)[0] != 0 or gitx(W, 'rev-parse', 'HEAD')[1].strip() != nt:
+                raise ArRefuse('the worktree could not be put back on %s after the base comparison' % nt[:8])
+    if any(f.startswith('bots/package') for f in files):
+        alone_base = {}                     # a dependency change: the base's node modules are not the base's -- no allowance
+    why, summary = test_verdict(rc_t, full, alone_new, alone_base, files)
+    if why:
+        raise ArRefuse('npm test: %s (%s)' % (why, summary))
+    S('tests', summary)
+    # 9. the branch, pushed (relay or direct), confirmed by ls-remote
+    branch = 'autorebase/%s-on-%s' % (run, base[:8])
+    rc, cur, _ = gitx(R, 'rev-parse', '--verify', '--quiet', 'refs/heads/%s' % branch)
+    if rc == 0 and cur.strip() != nt:
+        raise ArRefuse('branch %s already exists here at %s' % (branch, cur.strip()[:8]))
+    if rc != 0:
+        rc, _, err = gitx(R, 'update-ref', 'refs/heads/%s' % branch, nt, '')
+        if rc != 0:
+            raise ArRefuse('update-ref %s failed: %s' % (branch, err.strip()[-200:]))
+    remote = lambda: (gitx(R, 'ls-remote', P['ar_origin'], 'refs/heads/%s' % branch, timeout=120)[1].split() or [''])[0]
+    r0 = remote()
+    if r0 and r0 != nt:
+        raise ArRefuse('origin already has %s at %s (not %s)' % (branch, r0[:8], nt[:8]))
+    if not r0:
+        if P['ar_push'] == 'direct':
+            rc, _, err = gitx(R, 'push', '-q', P['ar_origin'], '%s:refs/heads/%s' % (nt, branch), timeout=600)
+            if rc != 0:
+                raise ArRefuse('git push failed: %s' % err.strip()[-200:])
+        else:
+            d = os.path.join(P['ar_home'], 'push')
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, branch.replace('/', '__') + '.req'), 'w') as f:
+                f.write('%s %s\n' % (branch, nt))
+        S('push-request', '%s %s via %s' % (branch, nt[:8], P['ar_push']))
+        t_end = time.time() + AR_PUSH_WAIT_MIN * 60
+        while True:
+            r0 = remote()
+            if r0:
+                break
+            if time.time() > t_end:
+                raise ArRefuse('origin does not show %s after %d min: is the Mac relay (launchd com.mcai.autorebase-relay) '
+                               'running?' % (branch, AR_PUSH_WAIT_MIN))
+            time.sleep(20)
+        if r0 != nt:
+            raise ArRefuse('origin shows %s at %s, not %s' % (branch, r0[:8], nt[:8]))
+    S('pushed', '%s at %s on origin' % (branch, nt[:8]))
+    # 10. the deploy repo can resolve it (H3, fleet-deploy)
+    cmd = (['sudo', '-n'] if P['ar_sudo'] == '1' else []) + [
+        'git', '-C', P['git'], 'fetch', '-q', 'origin', '+refs/heads/%s:refs/remotes/origin/%s' % (branch, branch)]
+    rc, out = run_cmd(cmd, P['home'], 600)
+    if rc != 0 or full_sha(P, nt) != nt:
+        raise ArRefuse('the deploy repo %s cannot resolve %s after the fetch (rc %s): %s' % (P['git'], nt[:8], rc,
+                                                                                            ' '.join(out.split())[-200:]))
+    S('deploy-repo', '%s resolves %s' % (P['git'], nt[:8]))
+    # 11. the registration: the source variant's, re-pointed
+    with open(src['registration']) as f:
+        reg = json.load(f)
+    reg['sha'] = nt
+    reg['registered_at'] = iso(now())
+    note = ('[AUTOREBASE] %s @ %s on fleet base %s (branch %s): canary-sched cherry-picked %s..%s (%d commit(s), the '
+            'reviewed variant on %s) with no conflicts; normalized diff identical (sha256 %s); protected tier %s '
+            'unchanged; eslint ok; %s. ' % (run, nt[:8], base[:8], branch, pt['base'][:8], tip[:8], len(commits),
+                                            pt['base'][:8], h1[:16], t1, summary))
+    reg['notes'] = note + str(reg.get('notes') or '')
+    regp = os.path.join(os.path.dirname(os.path.abspath(src['registration'])), '%s.%s.json' % (run, nt[:8]))
+    if os.path.exists(regp):
+        raise ArRefuse('%s already exists: reconcile it by hand' % regp)
+    with open(regp + '.tmp', 'w') as f:
+        json.dump(reg, f, indent=1); f.write('\n')
+    os.replace(regp + '.tmp', regp)
+    S('registration', regp)
+    # 12. the variant, through the same validation as a hand-added one
+    approved = '%s || AUTOREBASE (canary-sched v39) onto %s: %s' % (src.get('approved') or '', base[:8], note.strip())
+    import io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = cmd_queue(P, ['add-variant', run, base, regp, approved])
+    if rc != 0:
+        raise ArRefuse('queue add-variant refused: %s' % ' '.join(buf.getvalue().split())[-400:])
+    S('variant', 'queued %s for %s' % (nt[:8], base[:8]))
+    gitx(R, 'worktree', 'remove', '--force', W)
+    shutil.rmtree(W, ignore_errors=True)
+    return {'variant': nt, 'branch': branch, 'registration': regp, 'tests': summary}
+
+
 # ------------------------------------------------------------------------------------------------------ queue --
 def with_queue(P, fn):
     fd = os.open(P['queue_lock'], os.O_RDWR | os.O_CREAT, 0o664)
@@ -1198,31 +1776,39 @@ def with_queue(P, fn):
 TWO_ENGINES = (re.compile(r'claude', re.I), re.compile(r'codex|chatgpt|gpt', re.I))
 
 
-def protected_check(P, base, canary):
-    """v37: (protected, why) for base..canary, decided by the BASE's scripts/lib/protected.py against the BASE's
-    config/protected-paths.txt (git show), so a canary cannot edit its own protection. Undecidable = protected
-    (protected.py's own rule: exit 2 is never "not protected")."""
+def protected_run(P, base, canary):
+    """(rc, output) of the BASE's scripts/lib/protected.py against the BASE's config/protected-paths.txt (git show), so
+    a canary cannot edit its own protection. rc 0 not protected, 1 protected, 2 undecidable (also: it could not run)."""
     d = tempfile.mkdtemp(prefix='sched-prot-')
     try:
         got = {}
         for rel in ('scripts/lib/protected.py', 'config/protected-paths.txt'):
             rc, out = git(P, 'show', '%s:%s' % (base, rel))
             if rc != 0:
-                return True, '%s is absent at the base %s: undecidable, so protected' % (rel, base[:7])
+                return 2, '%s is absent at the base %s: undecidable, so protected' % (rel, base[:7])
             got[rel] = os.path.join(d, os.path.basename(rel))
             with open(got[rel], 'w') as f:
                 f.write(out + '\n')
         r = subprocess.run(['python3', got['scripts/lib/protected.py'], '--repo', P['git'], '--base', base, '--head', canary,
                             '--list', got['config/protected-paths.txt']], capture_output=True, text=True, timeout=180)
-        if r.returncode == 0:
-            return False, 'not protected'
-        if r.returncode == 1:
-            return True, ' '.join(r.stdout.split())[:300]
-        return True, 'protected.py could not decide (exit %d): %s' % (r.returncode, ' '.join((r.stdout + r.stderr).split())[-200:])
+        if r.returncode in (0, 1):
+            return r.returncode, r.stdout
+        return 2, 'protected.py could not decide (exit %d): %s' % (r.returncode, ' '.join((r.stdout + r.stderr).split())[-200:])
     except Exception as x:
-        return True, 'protected check could not run: %s' % x
+        return 2, 'protected check could not run: %s' % x
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+def protected_check(P, base, canary):
+    """v37: (protected, why) for base..canary (protected_run). Undecidable = protected (protected.py's own rule: exit 2
+    is never "not protected")."""
+    rc, out = protected_run(P, base, canary)
+    if rc == 0:
+        return False, 'not protected'
+    if rc == 1:
+        return True, ' '.join(out.split())[:300]
+    return True, out
 
 
 def approval_problem(approved, protected):
@@ -1348,6 +1934,63 @@ def _cmd_queue(P, args):
         if os.path.exists(dst):
             os.replace(dst, '%s.replaced-%s' % (dst, iso(now())))   # never deployed: moved aside, kept for the record
         print('replaced the variants of %s (a staged registration was moved aside)' % run); return 0
+    if sub == 'set-patch' and len(args) in (3, 4):
+        run, sb = args[1], args[2]
+        branch = args[3] if len(args) == 4 else ''
+        q = load_queue(P)
+        hit = [x for x in q.get('entries') or [] if x.get('run') == run]
+        if len(hit) != 1:
+            print('REFUSED: %s is not queued exactly once' % run); return 2
+        v = (hit[0].get('variants') or {}).get(sb)
+        if not HEX40.match(sb) or not v or not HEX40.match(str(v.get('canary_sha') or '')):
+            print('REFUSED: %s has no variant keyed on the full sha %s (have: %s)' % (
+                run, sb, ', '.join(k[:8] for k in hit[0].get('variants') or {}))); return 2
+        tip = v['canary_sha']
+        commits, why = linear_range(P['git'], sb, tip)
+        if why:
+            print('REFUSED: %s' % why); return 2
+        try:
+            h, files = diff_hash(P['git'], sb, tip)
+        except Exception as x:
+            print('REFUSED: %s' % x); return 2
+        pt = {'base': sb, 'tip': tip, 'branch': branch, 'commits': len(commits), 'files': files, 'diff_sha256': h,
+              'set_at': iso(now())}
+
+        def setp(q):
+            h2 = [x for x in q['entries'] if x.get('run') == run]
+            if len(h2) != 1 or (h2[0].get('variants') or {}).get(sb, {}).get('canary_sha') != tip:
+                raise SystemExit('REFUSED: %s changed while the patch was computed' % run)
+            h2[0]['patch'] = pt
+        with_queue(P, setp)
+        print('patch source of %s: %s..%s (%d commit(s), %d file(s), normalized diff sha256 %s)'
+              % (run, sb[:8], tip[:8], len(commits), len(files), h[:16])); return 0
+    if sub == 'add-variant' and len(args) >= 5:
+        run, base, reg, approved = args[1], args[2], args[3], ' '.join(args[4:])
+        if not HEX40.match(base):
+            print('REFUSED: base %r is not a full sha' % base); return 2
+        st = gather(P, full=False)
+        if deployment(run_rows(st['journal'], run))[0] is not None:
+            print('REFUSED: %s has deployed; a deployed run is never re-registered' % run); return 2
+        if journal_status(run, st) == 'live':
+            print('REFUSED: a loop for %s is running' % run); return 2
+        hit = [x for x in (st.get('queue') or {}).get('entries') or [] if x.get('run') == run]
+        if len(hit) != 1:
+            print('REFUSED: %s is not queued exactly once' % run); return 2
+        e2 = {'run': run, 'class': hit[0].get('class', ''),
+              'variants': {base: {'registration': os.path.abspath(reg), 'approved': approved}}}
+        bad = validate_entry(P, e2, st['journal'])
+        if bad:
+            print('REFUSED:\n  ' + '\n  '.join(bad)); return 2
+
+        def addv(q):
+            h2 = [x for x in q['entries'] if x.get('run') == run]
+            if len(h2) != 1:
+                raise SystemExit('REFUSED: %s is not queued exactly once' % run)
+            if base in (h2[0].get('variants') or {}):
+                raise SystemExit('REFUSED: %s already has a variant for %s' % (run, base[:8]))
+            h2[0].setdefault('variants', {})[base] = e2['variants'][base]
+        with_queue(P, addv)
+        print('added variant %s of %s for base %s' % (e2['variants'][base]['canary_sha'][:8], run, base[:8])); return 0
     if sub in ('hold', 'release', 'not-before') and len(args) >= 2:
         run = args[1]
 
@@ -1521,12 +2164,40 @@ def cmd_install_hold(P, args):
         fcntl.flock(fd, fcntl.LOCK_UN); os.close(fd)
 
 
+def _cmd_ar_clear(P, args):
+    if len(args) < 2:
+        print('usage: autorebase-clear <run> <why>'); return 2
+    run, why = args[0], ' '.join(args[1:])
+    jobs = sorted(glob.glob(os.path.join(P['ar_home'], 'jobs', '%s--*.json' % glob.escape(run))))
+    if not jobs:
+        print('nothing to clear: no autorebase job for %s' % run); return 0
+    t = now()
+    for p in jobs:
+        j = ar_read_job(p) or {}
+        hb = ts(j.get('hb') or j.get('at'))
+        if j.get('state') in ('starting', 'running') and hb and (t - hb).total_seconds() <= AR_STALE_MIN * 60:
+            print('REFUSED: the job %s is still running (pid %s, heartbeat %s)' % (p, j.get('pid'), j.get('hb'))); return 2
+    d = os.path.join(P['ar_home'], 'jobs', 'cleared')
+    os.makedirs(d, exist_ok=True)
+    for p in jobs:
+        os.replace(p, os.path.join(d, '%s.cleared-%s' % (os.path.basename(p), iso(t))))
+    append_state(P, {'state': 'human', 'run': run, 'how': 'autorebase-clear', 'why': why, 'by': os.environ.get('USER', '?'),
+                     'jobs': [os.path.basename(p) for p in jobs]})
+    print('autorebase-clear %s: %d job file(s) moved to %s; the next tick may build again' % (run, len(jobs), d)); return 0
+
+
 def cmd_status(P):
     st = gather(P, full=True)
     for e in (st.get('queue') or {}).get('entries') or []:
-        print('%-20s %-10s %-18s hold=%s not_before=%s after=%s variants=%s' % (
+        pt = e.get('patch') or {}
+        print('%-20s %-10s %-18s hold=%s not_before=%s after=%s variants=%s%s' % (
             e.get('run'), entry_state(e, st), e.get('class') or '-', e.get('hold'), e.get('not_before'), e.get('after'),
-            ','.join(k[:7] for k in e.get('variants') or {})))
+            ','.join(k[:7] for k in e.get('variants') or {}),
+            ' patch=%s..%s' % (str(pt.get('base'))[:7], str(pt.get('tip'))[:7]) if pt else ''))
+    if st.get('ar_job'):
+        j = st['ar_job']
+        print('AUTOREBASE %s on %s: %s at step %s%s' % (j.get('run'), str(j.get('base'))[:8], j.get('state'), j.get('step'),
+                                                       (' -- ' + str(j.get('why'))[:300]) if j.get('why') else ''))
     if st.get('r11_expired'):
         print('R11 EXPIRED (v37): %s closed %s on an unlinked death-driven REVERT (%s); >= %.0f h ago, so no hold'
               % (st['r11_expired'][0], st['r11_expired'][2], st['r11_expired'][1], R11_EXPIRE_H))
@@ -1550,6 +2221,10 @@ def main(argv):
         return cmd_install_hold(P, argv[1:])
     if cmd == 'install-release':
         return cmd_install_hold(P, ['release'])
+    if cmd == 'autorebase-clear':
+        return with_tick_lock(P, _cmd_ar_clear, argv[1:])
+    if cmd == 'autorebase-build' and len(argv) == 4:
+        return ar_build(P, argv[1], argv[2], argv[3])
     print(__doc__); return 2
 
 
