@@ -14434,7 +14434,7 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
   // -- no digging, so it comes BEFORE the home refusal (a walk from home to the collar digs nothing at home). Any failure leaves
   // mine exactly as it was (the checks below run from wherever the bot stands); a goal at the landing is the whole call.
   {
-    const hop = Number.isFinite(ctx?.deepCredit) ? null : await stairDescend(ctx, goalY, signal)
+    const hop = await stairDescend(ctx, goalY, signal)
     if (hop?.done) return { status: 'success', detail: `reached the town stair's landing at y=${hop.landing} (the stair, no digging)`, via: 'town_stair' }
   }
   const dHome = Math.hypot(bot.entity.position.x - config.world.homeX,
@@ -17731,6 +17731,7 @@ export async function stairDescend (ctx, goalY, signal) {
   const { bot } = ctx
   try {
     if (!SHAFT.on) return null
+    if (Number.isFinite(ctx?.deepCredit)) return null   // deepminer-01: the deep miner's own deepen call starts at the stair's bottom landing
     const rec = stairRecordNow()
     const p = bot.entity?.position
     if (!p || !isStairRecord(rec) || !nearStair(rec, p.x, p.z)) return null
@@ -17899,17 +17900,18 @@ async function deepRepair (ctx, rec, route, signal, deadline) {
   const stand = stairStandFor(plan, w, rec.exit, stairRead(bot))
   if (!stand) return 'no_stand'
   const at = deepRouteIndex(route, deepFeet(bot)), want = deepRouteIndex(route, stand)
-  if (at >= 0 && want >= 0 && at !== want) { const h = await deepHops(bot, route, at, want, signal, deadline); if (!h.ok) return 'walk' }
+  if (at >= 0 && want >= 0 && at !== want) { const h = await withStairClaim(ctx.runner, () => deepHops(bot, route, at, want, signal, deadline)); if (!h.ok) return 'walk' }
   const dir = townDir(), key = projKeyOf(SHAFT_PLOT), me = bot.username ?? 'bot'
   const slot = takeSlot(dir, key, me, SHAFT_BUILDERS)
   if (!slot.ok) return 'stair_busy'
   let fx = null
   try {
     fx = deepEffects(bot, signal, () => { try { return projHoldsLease(dir, key, `slot${slot.slot}`, me, slot.gen) } catch { return false } })
-    const r = await runStairVisit({ rec, exit: rec.exit, built: new Set(rec.landings_built ?? []),
-      onLanding: async () => true, onStop: async () => {}, onDropLanding: async () => {} }, fx.e, { deadline: Math.min(deadline, Date.now() + DEEP_REPAIR_MS), unitsMax: 4 })
-    stairRow(bot, 'visit', { k: r.k ?? '-', why: `deep_repair:${r.stop}`, n: `${r.dug}d/${r.placed}p/${r.units}u/0t` })
-    return r.stop === 'complete' ? 'repaired' : r.stop
+    // inside the 'stair' body claim like every stair visit (town-stair-stuck WIRED: the entombment reflex reads the stair as walled in)
+    const vr = await withStairClaim(ctx.runner, () => runStairVisit({ rec, exit: rec.exit, built: new Set(rec.landings_built ?? []),
+      onLanding: async () => true, onStop: async () => {}, onDropLanding: async () => {} }, fx.e, { deadline: Math.min(deadline, Date.now() + DEEP_REPAIR_MS), unitsMax: 4 }))
+    stairRow(bot, 'visit', { k: vr.k ?? '-', why: `deep_repair:${vr.stop}`, n: `${vr.dug}d/${vr.placed}p/${vr.units}u/0t` })
+    return vr.stop === 'complete' ? 'repaired' : vr.stop
   } finally { releaseLease(dir, key, `slot${slot.slot}`, me, slot.gen); try { fx?.B?.close?.() } catch { /* gone */ } }
 }
 /** One branch of the layout: probed, dug, sealed and lit a cell at a time; every stand joins the trail. -> { cells, stop }. */
