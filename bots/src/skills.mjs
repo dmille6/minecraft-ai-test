@@ -169,7 +169,7 @@ import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_M
 import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OUTPUT_OF, IRON_MISS_KEY, IRON_MISS_TTL_MS, indexRuledOut, SMELT_GATE, indexInputAbsent,
          ironSmeltCount, ironBankPlan } from './smeltjob.mjs'   // ironsmelt-01
 import { withDigScope } from './digtown.mjs'
-import { returnOverdue as deepReturnOverdue } from './deepmine.mjs'   // deepminer-01 r1
+import { returnOverdue as deepReturnOverdue, trailProgress as deepTrailProgress } from './deepmine.mjs'   // deepminer-01 r1
 import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
 import { planOf as stairPlanOf, firstUndone as stairFirstUndone, standFor as stairStandFor, stairCellKeys } from './shaftgeom.mjs'   // deepminer-01: the stair's repair on the way down
 import { renewLease as projRenewLease } from './buildproj.mjs'   // deepminer-01: the deep miner's lease
@@ -18147,6 +18147,7 @@ async function deepMine (ctx, args, signal) {
       if (onRoute < 0) {
         const back = deepTrailBack(trip.trail, feet)
         let fails = 0, walked = 0
+        const sealedAt = new Set()
         // the trail back holds the 'stair' body claim (a branch end and mine's own stair read as walled in to the entombment
         // reflex; Paper 11-01: it pillared and aborted the return)
         await withStairClaim(ctx.runner, async () => {
@@ -18154,12 +18155,29 @@ async function deepMine (ctx, args, signal) {
             check(signal)
             if (Date.now() > deadline) break
             if (await deepTrailWalk(bot, wp, DEEP_HOP_MS, signal)) { walked++; fails = 0; continue }
+            // SEAL THE WAY BACK (Paper 11-01 hazard field: lava beside a trail cell refused the leg every call): a block into each
+            // liquid face of the next stand's two cells within reach, never the bot's own cells; then that stand once more
+            if (fails === 0 && !sealedAt.has(wp.join(','))) {
+              sealedAt.add(wp.join(','))
+              const me5 = deepFeet(bot), read = stairRead(bot)
+              const liquid = deepSealTargets(read, [wp, [wp[0], wp[1] + 1, wp[2]]], [me5, [me5[0], me5[1] + 1, me5[2]]])
+              let placed = 0
+              if (liquid.length) {
+                const fx = deepEffects(bot, signal)
+                try { for (const c of liquid) if ((await fx.e.place(c)) === 'confirmed') { placed++; trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: `trail:${c.join(',')}` }) } } finally { try { fx.B.close?.() } catch { /* gone */ } }
+              }
+              if (placed && await deepTrailWalk(bot, wp, DEEP_HOP_MS, signal)) { walked++; continue }
+            }
             if (++fails >= 3) break
           }
         })
         if (route) onRoute = deepRouteIndex(route, deepFeet(bot))
         if (onRoute < 0) {
-          if (walked === 0 || !back.length) trip.returnTries = !back.length ? DEEP_RETURN_TRIES : (trip.returnTries ?? 0) + 1
+          // PROGRESS IS THE TRAIL INDEX, not stands walked (Paper 11-01: one stand back and forth every call never counted)
+          const prog = deepTrailProgress(trip.trail, deepFeet(bot))
+          if (!back.length) trip.returnTries = DEEP_RETURN_TRIES
+          else if (!(prog < (trip.returnBest ?? Infinity))) trip.returnTries = (trip.returnTries ?? 0) + 1
+          trip.returnBest = Math.min(trip.returnBest ?? Infinity, prog)
           return out(walked ? 'success' : 'no_effect', `walking the trail back (${walked} stands)`)
         }
       }

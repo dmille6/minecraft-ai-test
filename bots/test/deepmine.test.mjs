@@ -336,3 +336,15 @@ test('a diamond trip goes home when the pickaxes below iron are spent (the iron 
   assert.equal(D.returnWhy(trip, { now: t0, kit }), 'stone_pickaxes')
   assert.equal(D.returnWhy({ ...trip, target: 'iron' }, { now: t0, kit }), null)
 })
+
+// ---- 11. Paper r4 (hazard field): the return's progress is the trail index ---------------------------------------------------------
+test('trailProgress: nearer the trail start is lower; off the trail is Infinity (a back-and-forth stand does not count as progress)', () => {
+  const tr = [[0, 16, 0], [2, 14, 0], [4, 12, 0], [4, 12, 4], [4, 12, 8]]
+  assert.equal(D.trailProgress(tr, [4, 12, 8]), 4)
+  assert.equal(D.trailProgress(tr, [4, 12, 5]), 3)
+  assert.equal(D.trailProgress(tr, [0, 16, 0]), 0)
+  assert.equal(D.trailProgress(tr, [90, 0, 90]), Infinity)
+  let best = Infinity, tries = 0
+  for (const at of [[4, 12, 5], [4, 12, 7], [4, 12, 5], [4, 12, 7]]) { const p = D.trailProgress(tr, at); if (!(p < best)) tries++; best = Math.min(best, p) }
+  assert.equal(tries, 3, 'oscillating between two stands counts as no progress')
+})

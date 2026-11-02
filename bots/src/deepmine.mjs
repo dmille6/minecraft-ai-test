@@ -223,6 +223,15 @@ export function trailBack (trail = [], feet, near = 12) {
   return trail.slice(0, best + 1).reverse()
 }
 
+/**
+ * THE RETURN'S PROGRESS -> the trail index of the stand nearest the bot (lower = nearer the stub), or Infinity off the trail. Pure.
+ * Paper 11-01 (hazard field): a return that walked one stand back and forth beside a refused lava leg never counted as stuck.
+ */
+export function trailProgress (trail = [], feet, near = 12) {
+  const b = trailBack(trail, feet, near)
+  return b.length ? b.length - 1 : Infinity
+}
+
 // ---- the stair route ------------------------------------------------------------------------------------------------------------
 /**
  * THE STAIR'S STANDS, top down, to a landing's stub end -> [[x,y,z]] | null. Pure. Step 0's stand (the ground cell over its tread)
