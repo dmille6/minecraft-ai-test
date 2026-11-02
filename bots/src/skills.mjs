@@ -6183,6 +6183,9 @@ async function retakeStation (ctx, w, signal, by = 'smelt') {
     if (w.changed) { row('left', `changed since placement (${w.changed}); not provably ours`); return `left the ${name}: it changed since it was placed` }
     const def = bot.registry?.itemsByName?.[name]
     if (!roomForOne(bot.inventory.items(), name, def?.stackSize ?? 64)) { row('left', `no room to carry it (${bot.inventory.items().length}/${BAG_SLOTS} slots)`); return `left the ${name}: no room to carry it` }
+    // r1 BLOCKER (Claude): a block that needs a tool (a furnace: a pickaxe) dug without one drops NOTHING -- left, never destroyed
+    const ht = bot.registry?.blocksByName?.[name]?.harvestTools
+    if (ht && !bot.inventory.items().some(i => ht[i.type])) { row('left', 'no tool that harvests it in the bag'); return `left the ${name}: no tool to carry it` }
     const before = countItem(bot, name)
     const beforeDig = () => {
       if (w.changed) throw Object.assign(new Error(`changed since placement (${w.changed}); not provably ours`), { failClass: 'not_ours' })
@@ -12992,7 +12995,7 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   if (session.placedWatch) {
     const w = session.placedWatch
     const cnt = which => { const v = fslot(which); return v === undefined ? undefined : (v?.count ?? 0) }
-    const d = smeltRetake({ placed: true, aborted: !!signal?.aborted, input: cnt('inputItem'), output: cnt('outputItem') })
+    const d = smeltRetake({ placed: true, aborted: !!signal?.aborted, input: cnt('inputItem'), output: cnt('outputItem'), fuel: cnt('fuelItem') })
     const k = posKey(w.at)
     const others = k !== session.furnace && furnaceLeasedNow(k)
     if (d.retake && !others) retook = await retakeStation(ctx, w, signal, 'smelt')
@@ -18542,7 +18545,7 @@ const tidyRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)
  */
 function strayNow (bot, I = null) {
   I ??= tidyInputs(bot)
-  const isStray = b => STRAY_NAMES.includes(bot.registry?.blocks?.[b.type]?.name)
+  const isStray = b => STRAY_NAMES.includes(bot.registry?.blocks?.[b.type]?.name)   // furnaces surveyed, only SWEEP_NAMES dug
   const found = (bot.findBlocks?.({ point: new Vec3(I.home.x, I.home.y, I.home.z), maxDistance: Math.ceil(SWEEP_R * 1.5), count: 256, matching: isStray }) ?? []).map(p => {
     const b = bot.blockAt?.(p)
     if (!b) return null

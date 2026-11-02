@@ -24,6 +24,10 @@
 
 export const STATIONKEEP = Object.freeze({ on: String(process.env.STATIONKEEP ?? '').trim().toLowerCase() !== 'off' })
 export const STRAY_NAMES = Object.freeze(['crafting_table', 'furnace'])
+/** What the tidy's sweep DIGS: tables only (r1 BLOCKERS, Codex + Claude: a furnace's contents and another session's lease
+ *  cannot be proven from the survey -- a furnace is never swept; smelt takes its own back). Furnaces are still surveyed and
+ *  reported (they take no public slot from the tables). */
+export const SWEEP_NAMES = Object.freeze(['crafting_table'])
 /** The nearest-to-home strays of each kind that stay: the plaza's public stations. */
 export const KEEP_PUBLIC = Object.freeze({ crafting_table: 2, furnace: 2 })
 /** Strays one tidy visit digs (each a walk and a dig: the visit's budget is SHOP_SKILL_MS). */
@@ -43,15 +47,17 @@ const isName = n => STRAY_NAMES.includes(n)
  *   aborted    the call is being aborted (an aborted skill does not dig)
  *   input      the input slot's count at the last read of the window (undefined = unreadable)
  *   output     the output slot's count at the last read (undefined = unreadable)
- * Fuel left in the slot is not a reason to stay: the furnace's drop and its contents land where the bot stands to dig it.
+ *   fuel       the fuel slot's count (undefined = unreadable): any left keeps the furnace (r1 BLOCKER)
  */
-export function smeltRetake ({ placed = false, aborted = false, input, output } = {}) {
+export function smeltRetake ({ placed = false, aborted = false, input, output, fuel } = {}) {
   if (!STATIONKEEP.on) return { retake: false, why: 'off' }
   if (!placed) return { retake: false, why: 'not_placed' }
   if (aborted) return { retake: false, why: 'aborted' }
-  if (input === undefined || output === undefined) return { retake: false, why: 'unread' }
+  if (input === undefined || output === undefined || fuel === undefined) return { retake: false, why: 'unread' }
   if ((Number(input) || 0) > 0) return { retake: false, why: 'input_left' }
   if ((Number(output) || 0) > 0) return { retake: false, why: 'output_left' }
+  // Codex r1 BLOCKER: fuel the drain could not take back (a full bag, a kept sword) would spill where it may not be collected
+  if ((Number(fuel) || 0) > 0) return { retake: false, why: 'fuel_left' }
   return { retake: true, why: 'drained' }
 }
 
@@ -95,6 +101,7 @@ export function strayStations (found = [], { home, avoid = () => null, cells = n
     n[c.name] = (n[c.name] ?? 0) + 1
     if (n[c.name] <= (keep[c.name] ?? 0)) { kept.push(c); continue }
     if (given(c.k)) { skip('given_up'); continue }
+    if (!SWEEP_NAMES.includes(c.name)) { skip(`not_swept_${c.name}`); continue }
     sweep.push(c)
   }
   return { sweep: sweep.map(({ k, ...c }) => c), kept: kept.map(({ k, ...c }) => c), skipped }
