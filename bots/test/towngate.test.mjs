@@ -240,7 +240,7 @@ await t('wiring (a): the visit order plans cobble only through the overflow gate
   assert.match(COG, /if \(rw\.order && ov\?\.ok\) rw\.order = \{ \.\.\.rw\.order, args: \{ \.\.\.rw\.order\.args, overflow: true, keep: \[\.\.\.new Set\(\[\.\.\.\(rw\.order\.args\?\.keep \?\? \[\]\), \.\.\.wantedNow\(\)\]\)\] \}/, 'r1 BLOCKER: every wanted name rides with the overflow')
   assert.match(SKS, /if \(!pit && listedOnly && overflow\) \{ out\.overflow = overflowNow\(bot\); if \(out\.overflow\.ok\) out\.cap = 'at_cap' \}/)
   assert.match(SKS, /kind: 'overflow', status: 'success'/)
-  assert.match(SKS, /const cap = cobbleWellCap\(bot, items, \{ cap: MARKS\.cobble\.high, floorOnly: true \}\)/, 'r1 BLOCKER: the counted floor, never the admission fallback')
+  assert.match(SKS, /wellCobbleSwitch\(cobbleTownViewFor\(bot\), stacks\[0\]\.count, \{ cap: MARKS\.cobble\.high, held: \(h\.cobblestone \?\? 0\) \+ \(h\.cobbled_deepslate \?\? 0\), floorOnly: true \}\)/, 'r1 BLOCKER: the counted floor at HIGH, never the admission fallback; a withdraw hold keeps it shut')
   assert.match(SKS, /if \(!roles\.has\(cell\.role\) && cell\.role !== 'fill'\) continue/, 'r1 BLOCKER: foundation fill cells are cobble bill')
 })
 await t('wiring (b): admission refuses through stationGate; cognitive runs the redirect and falls back to the craft', () => {
