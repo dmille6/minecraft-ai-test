@@ -131,6 +131,7 @@ import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, 
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
 import { torchSafe, outShareOf, multiCall, trailAge, PLANNER_V } from './expedition.mjs'   // wholemap-s1a
 import { HALL_PLOT, HALL_BLUEPRINT, hallSite, hallOpening, hallRecordDomain, copperhallModeDetail } from './copperhall.mjs'   // copperhall-01
+import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -17066,8 +17067,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
 function hallOpenNow (bot) {
   let o = { open: false, why: 'copper_unknown', have: null, need: null }
   try {
-    const st = bot ? matsTownStock(bot)?.stock ?? null : null
-    if (st) o = hallOpening({ ingots: Number(st.copper_ingot) || 0, cut: Number(st.cut_copper) || 0, reserve: Number(matsReserve().table?.copper_ingot) || 512 })
+    // every town container's latest observation (copperhall.mjs townCopperOf), not matsTownStock's fresh-only sum (LIVE 11-02: 0)
+    const c = bot ? townCopperOf(townIndexEntries(bot), e => indexStateOf(e)) : { unknown: true }
+    if (!c.unknown) o = { ...hallOpening({ ingots: c.ingots, cut: c.cut, reserve: Number(matsReserve().table?.copper_ingot) || 512 }), cut: c.cut, containers: c.containers, stale: c.stale }
   } catch { /* not open */ }
   try {
     if (bot && Date.now() - (bot.hallGateAt ?? -Infinity) >= 30 * 60_000) { bot.hallGateAt = Date.now(); logEvent({ kind: 'copperhall_gate', status: o.open ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: copperhallModeDetail(true, o) }) }

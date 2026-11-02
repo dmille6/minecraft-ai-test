@@ -60,9 +60,32 @@ export function hallOpening ({ ingots = null, cut = null, reserve = 512, needed 
   return { open: ingots >= need, need, have: ingots, why: ingots >= need ? 'ok' : 'copper_wait', floor, batches }
 }
 
+/**
+ * THE TOWN'S COPPER from the town index's entries (townindex.mjs readIndex: "x,y,z" -> { obs: { names: { name: [n, slots] } }, ... })
+ * -> { ingots, cut, containers, stale } | { unknown: true }. Pure. Each container's LATEST observation counts, fresh or stale (LIVE
+ * 11-02 01:14-01:39Z: matsTownStock sums only FRESH entries in loaded chunks, and the copper chests' observations were older than
+ * INDEX_STALE_MS -- every gate row read 0 ingots while the index showed 130); a `dirty` entry (a mutation under way) and an entry
+ * with no observation count nothing (the count can only be low, never high). No entries at all: unknown.
+ */
+export function townCopperOf (entries, stateOf = () => 'known') {
+  if (!entries || typeof entries !== 'object') return { unknown: true }
+  let ingots = 0, cut = 0, containers = 0, stale = 0
+  for (const [k, e] of Object.entries(entries)) {
+    if (!/^-?\d+,-?\d+,-?\d+$/.test(k) || !e?.obs?.names) continue
+    let st = 'unknown'
+    try { st = stateOf(e) } catch { st = 'unknown' }
+    if (st !== 'known' && st !== 'stale') continue
+    containers++
+    if (st === 'stale') stale++
+    ingots += Number(e.obs.names.copper_ingot?.[0]) || 0
+    cut += Number(e.obs.names.cut_copper?.[0]) || 0
+  }
+  return containers ? { ingots, cut, containers, stale } : { unknown: true }
+}
+
 /** `_copperhall_mode` row detail. Pure. */
 export const copperhallModeDetail = (on, o = null) => `on=${on ? 1 : 0} plot=${HALL_PLOT} blueprint=${HALL_BLUEPRINT} builders=${HALL_BUILDERS} cut_needed=${HALL_CUT_NEEDED}` +
-  (o ? ` open=${o.open ? 1 : 0} ingots=${o.have ?? '-'} need=${o.need ?? '-'} why=${o.why}` : '')
+  (o ? ` open=${o.open ? 1 : 0} ingots=${o.have ?? '-'} cut=${o.cut ?? '-'} need=${o.need ?? '-'} containers=${o.containers ?? '-'} stale=${o.stale ?? '-'} why=${o.why}` : '')
 
 /** The hall's anchor for a plan -> { anchor: {x, z}, orient } | { why }. Pure. The plan must have a `hall` plot in sector SW. */
 export function hallAnchor (plan) {
