@@ -713,3 +713,30 @@ Codex arithmetic corrections, applied: the border spans 626 x 626 chunks, and ra
 **r2 re-check (blocker fixes only): Codex APPROVE, Claude APPROVE.** All seven blockers are fixed and no new blocker was found.
 Both noted that the flat-world proof does not cover the live pad's earthwork (up to about 5 fill); that is the sandbox gate in
 the copper hall doc §6.
+
+---
+
+## 13. Owner decisions (11-01 ~23:30Z, relayed by the control session)
+
+The owner confirmed the control session's defaults for the four questions in section 11:
+
+| | decision | applies from |
+|---|---|---|
+| **O1** | **Yes: a chain of outposts**, one per ~400-block route node (lifts X5 "one outpost per town") | S2 |
+| **O2** | **Yes, both:** bots generate terrain as they walk (at most 2 frontier bots, the MSPT guard), **plus** a throttled overnight pre-generation of the next ring **only while TPS stays >= 19.5** (snapshot first) | S4 |
+| **O3** | **Yes:** night travel on **known routes** only; frontier legs stay daytime | S3 |
+| **O4** | **No beds at outposts**; respawn stays at town | S2-S4 |
+
+## 14. Build log
+
+- **S0, 11-01 23:08Z:** `infra/showcase/wholemap.py` live on the showcase VM (daily full scan + hourly trips; BlueMap layer; the
+  fleetstatus `expeditions:` line). First run: seen 1,067 reachable chunks of ~346,729 (0.308%), 7.06% of 15,114 generated
+  reachable; stood 347. Main `0e570478`.
+- **S1a, 11-02:** dead bearings (two obstacle turns short of the ring), zones judged at the walk's height, detours round a zone
+  (DETOUR_PAD 10), no torch within 3 of ice, multi-call trips (rings past 225: out share 0.6, the trail home may finish next call),
+  a late close near town costs the ring nothing. **Offline on the showcase terrain** (region export |x|, |z| <= 420, the real
+  zones, legTarget leg to leg, no pathfinder): bearing 0: 306 (detour round the east village; was 0), 1: 317 (was 56), 2: 157 water
+  (was 57 zone), 3: 313, 4: 316, 5: 135 water, 6: 316 (was 236), 7: 318 (detour; was 95 water). Bearings 2 and 5 wait for S1b's swim.
+  **Not in S1a:** a second call continuing OUTWARD (every order is issued at town; that needs `cognitive.mjs`, protected) -- it
+  goes with S1b's canary.
+

@@ -421,3 +421,21 @@ Non-blocking points taken:
 **r2 re-check (blocker fixes only): Codex APPROVE, Claude APPROVE.** All seven blockers are fixed and no new blocker was found.
 Both noted that the flat-world proof does not cover the live pad's earthwork (up to about 5 fill); that is the sandbox gate in
 the copper hall doc §6.
+
+---
+
+## 12. Build notes (copperhall-01, 11-02)
+
+- **The sandbox gate (section 6) on the real terrain:** a read-only region export of the SW terrace (11-02 00:41Z) with the live
+  plan, zones and records. The flat-world proof does not carry over unchanged: the pad's ground spans 62..74 (a 65 / 68 step, bot
+  pits and pillars), and the house's earthwork limits (fill 40, cut 30) refuse every level. **Least earthwork at floor 65 (s 66):
+  fill 107 (at most 3 a column), cut 135 (grass and dirt), 3 spruce felled with 3 replant cells, 3 pit-bottom cells left as covered
+  voids.** Every segment proves (copper-trim 30 cells from 18 stands, lintel 3 from 3) and the interior is 95/95 reachable. So the
+  hall has its own limits (`HALL_EARTH`: 5 a column, 160 fill, 160 cut) and a void rule for a pit's bottom fill cell. The export
+  is `bots/test/fixtures/copperhall-01-terrain-20261102.json`.
+- **Bill with the earthwork:** cobblestone 107, stone_bricks 306, planks 117, glass_pane 13, cut_copper 33, torch 4, chest 4.
+- **Copper 11-02 01:00Z:** 130 ingots + 10 cut copper + 3 blocks in 9 town containers (the index's latest obs); the hall opens at
+  319, so it waits. While it waits the order never offers it (and never falls back to it: the showcase's expeditions keep running).
+- **Cameras** `copperhall` (every 2, phase 0) and `patina` (every 8, phase 2) in the host's tl.conf from 11-02 ~00:58Z: before
+  pictures of the plot until the hall opens.
+

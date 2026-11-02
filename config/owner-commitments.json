@@ -2594,7 +2594,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "After showcase items 1-3: build hall@1 + copperhall.mjs (own hallSite/hallDomain, screenSite domain arg, no-fallback copper segments) per docs/reports/copperhall-design-2026-11-01.md section 6; open only when town copper_ingot >= 103 + 36*ceil((33-cut_copper)/4) (319 on 11-01); tier 2 showcase first, 2 h watch, cameras copperhall + patina",
+   "next_step": "LIVE on the showcase 11-02 01:14Z (release d2d13c5d, piece copperhall-01show): the hall WAITS (never offered, never the order's fallback) until the town index shows >= 319 copper_ingot (103 floor + 36 x batches; 130 + 10 cut on 11-02); then it sites itself (real-terrain proof floor 65: fill 107, cut 135, 3 voids) and builds; 2 h watch from the opening; cameras copperhall + patina capturing since 11-02 ~01:00Z. Lever: item 2 (shaft + deep miner) and coal to town.",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
@@ -2607,7 +2607,7 @@
      "docs/reports/copperhall-design-2026-11-01.md"
     ]
    },
-   "note": "Design 11-01 r2 (Codex + Claude reviews). Copper 130 ingots vs floor 103 (27 spendable); smelt_town ~25/day since SHAFT off, 58/day 7-day mean; coal is the binding input."
+   "note": "Built 11-02 (Codex + Claude r1 BLOCK: waiting hall as the showcase order's fallback stopped expeditions; fixed; r2 both APPROVE). Tier 2. Kill switch COPPERHALL=off. The design's flat-world proof did not carry over: the house EARTH refused the terrace; HALL_EARTH col 5 / 160 / 160 + pit-bottom voids."
   },
   {
    "id": "wholemap-s0",
@@ -2637,7 +2637,7 @@
      "infra/showcase/wholemap.py"
     ]
    },
-   "note": "Baseline 11-01: seen 1,066 of ~346,800 reachable chunks (0.31%); stood-in 347 chunks; generated 17,176 of 391,876 border chunks. First real run 11-01 23:08Z (72 s CPU, 113 MB): seen 1,067 reachable (1,069 raw) / 346,728.7 border-reachable est = 0.308% [15,114 reachable generated + 0.885 x 374,700 ungenerated]; 7.06% of 15,114 generated reachable; 0.273% of 391,876 raw; within 300: 906/1,114 = 81.3%; stood 347 chunks (604,647 rows, 10 bots, 10-25..11-01); reach of 2,434,475 land columns: land 77.6% / +ice 94.3% / +shallow 98.5% / +swim24 99.7% / +swim 100% (design: 77.6/94.3/98.5/100); 0 unreadable chunks. Spot-check: InhabitedTime of chunks (0,0) 10,303,659, (-12,10) 33,691, (17,-3) 34,348, (40,40) 0, (-60,5) 0 identical from an independent NBT reader. Trips 24 h 109, home 85.3%, furthest 271, S1 0/8. Reviews: Codex BLOCK r1 (no home seed -> 0%) fixed, APPROVE r2; Claude APPROVE."
+   "note": "Baseline 11-01: seen 1,066 of ~346,800 reachable chunks (0.31%); stood-in 347 chunks; generated 17,176 of 391,876 border chunks. First real run 11-01 23:08Z (72 s CPU, 113 MB): seen 1,067 reachable (1,069 raw) / 346,728.7 border-reachable est = 0.308% [15,114 reachable generated + 0.885 x 374,700 ungenerated]; 7.06% of 15,114 generated reachable; 0.273% of 391,876 raw; within 300: 906/1,114 = 81.3%; stood 347 chunks (604,647 rows, 10 bots, 10-25..11-01); reach of 2,434,475 land columns: land 77.6% / +ice 94.3% / +shallow 98.5% / +swim24 99.7% / +swim 100% (design: 77.6/94.3/98.5/100); 0 unreadable chunks. Spot-check: InhabitedTime of chunks (0,0) 10,303,659, (-12,10) 33,691, (17,-3) 34,348, (40,40) 0, (-60,5) 0 identical from an independent NBT reader. Trips 24 h 109, home 85.3%, furthest 271, S1 0/8. Reviews: Codex BLOCK r1 (no home seed -> 0%) fixed, APPROVE r2; Claude APPROVE. Landed on main 0e570478 (Codex r1 BLOCK no-home-seed zero, fixed; r2 APPROVE; Claude review notes only)."
   },
   {
    "id": "wholemap-s1",
@@ -2652,7 +2652,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "After items 1-3 (alongside the copper hall's copper wait): S1a tier 2 showcase first (bearing-loop fix, y-aware zones, village detour, ice-safe markers, multi-call trips); then S1b swim leg: two engines + Paper repro + fleet canary; exit criteria in docs/reports/wholemap-expeditions-design-2026-11-01.md section 4",
+   "next_step": "S1a LIVE on the showcase 11-02 01:14Z (release d2d13c5d, piece wholemap-s1a-show, main wholemap-s1a commits): read the 72 h exit (each of 8 bearings >= 3 trips >= 300 or a recorded impassable reason; home >= 95%; <= 1 linked death; markers >= 90%) from 11-05 01:15Z; then S1b swim leg <= 24 (tier 3: two engines + search + Paper repro + fleet canary, bundled with the out-of-town trip continuation, which needs cognitive.mjs)",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
@@ -2666,7 +2666,7 @@
      "docs/reports/wholemap-expeditions-design-2026-11-01.md"
     ]
    },
-   "note": "11-01: 127 trips; zone 51 (38 on bearing 2 over the underground trial chambers: tripBearing blocks only < 40 blocks), water 25 (lake on bearings 5/7, crossings 12-17 blocks)."
+   "note": "11-01: 127 trips; zone 51 (38 on bearing 2), water 25. S1a built 11-02 (Codex + Claude r1 BLOCK stuck-trail slot, fixed; r2 both APPROVE). Offline on the showcase terrain: bearings 0 306 / 1 317 / 3 313 / 4 316 / 6 316 / 7 318 past 300; 2 (157) and 5 (135) end at water -> S1b. Multi-call = the trail home may finish in a later call; continuing OUTWARD in a second call is deferred (needs a cognitive order out of town, protected)."
   },
   {
    "id": "wholemap-s2",
@@ -2697,7 +2697,8 @@
     "paths": [
      "docs/reports/wholemap-expeditions-design-2026-11-01.md"
     ]
-   }
+   },
+   "note": "Owner 11-01 ~23:30Z confirmed: O1 a CHAIN of outposts every ~400 blocks (lifts X5); O2 generate as they walk + throttled overnight pre-generation of the next ring only while TPS >= 19.5; O3 night travel on known routes only, frontier legs daytime; O4 no beds at outposts (respawn at town). Design doc section 13."
   },
   {
    "id": "wholemap-s3",
@@ -2733,7 +2734,8 @@
     "paths": [
      "docs/reports/wholemap-expeditions-design-2026-11-01.md"
     ]
-   }
+   },
+   "note": "Owner 11-01 ~23:30Z confirmed: O1 a CHAIN of outposts every ~400 blocks (lifts X5); O2 generate as they walk + throttled overnight pre-generation of the next ring only while TPS >= 19.5; O3 night travel on known routes only, frontier legs daytime; O4 no beds at outposts (respawn at town). Design doc section 13."
   },
   {
    "id": "wholemap-s4",
@@ -2767,7 +2769,8 @@
     "paths": [
      "docs/reports/wholemap-expeditions-design-2026-11-01.md"
     ]
-   }
+   },
+   "note": "Owner 11-01 ~23:30Z confirmed: O1 a CHAIN of outposts every ~400 blocks (lifts X5); O2 generate as they walk + throttled overnight pre-generation of the next ring only while TPS >= 19.5; O3 night travel on known routes only, frontier legs daytime; O4 no beds at outposts (respawn at town). Design doc section 13."
   },
   {
    "id": "wholemap-s5-rails",
