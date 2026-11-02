@@ -67,7 +67,7 @@ BRANCH_GRACE_H = 12       # an approved canary branch should be in the queue wit
 BRANCH_RECENT_D = 14      # older branches are history, not pending work
 LANE_GRACE_H = 2          # a lane may be empty for a launch or a rebuild; longer is a stall
 UNSHIPPED_D = 2           # bots/src on main but not on the fleet (showcase first, then the fleet)
-PROMO_GRACE_H = 6         # a promotion the coordinator has not merged to main (it merges within 1-25 min)
+PROMO_GRACE_H = 6         # a promotion promomerge.py has not merged to main (it tries within ~15 min + a suite) -> PAGE
 PROMO_RECENT_D = 14
 STUCK_OWNER_H = 6         # a STUCK project alarm with no ledger owner
 MEMORY_LIST_STALE_H = 50  # opsaudit.sh pushes the list daily
@@ -813,6 +813,11 @@ def evaluate(fx, since):
     return findings, counts
 
 
+def promo_pages(findings):
+    """PURE. The findings that page at once -> {key: line}: (f) promotions NOT on main after PROMO_GRACE_H."""
+    return {f['key']: f['line'] for f in findings if f.get('det') == 'f' and str(f.get('key')).startswith('f:promo:')}
+
+
 def daily_push_due(state, now, hour=13):
     """PURE. One push a day, the first run at or after `hour` UTC (08:00 CDT)."""
     return now.hour >= hour and (state or {}).get('day') != now.strftime('%Y-%m-%d')
@@ -862,6 +867,11 @@ def main(argv=None):
     AL.write_json_atomic(os.path.join(od, 'stallcheck-fleet.json'),
                          {'generated_at': iso(fx['now']), 'alarms': al, 'summary': summary, 'counts': counts,
                           'findings': rank(findings)})
+    # (f) promotions off main PAGE at once (11-02, audit flag 4: six promotions sat off main ~30 h while this detector
+    # reported them only in the daily digest). Deduplicated by key in their own state file: NEW push, STILL every 6 h,
+    # CLEARED when main carries it. promomerge.py is the merge itself; this is the backstop for when it is dead.
+    if not a.no_push:
+        AL.raise_alarms('stallcheck-promo', promo_pages(findings), fx['now'], os.path.join(od, 'stallcheck-promo-state.json'))
     push = state.get('push') or {}
     if not a.no_push and al and daily_push_due(push, fx['now']):
         body = '\n'.join([al.get('inputs', '')] + [f'- {f["line"][:200]}' for f in rank(findings)[:12]]).strip()

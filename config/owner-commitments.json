@@ -172,9 +172,9 @@
    ],
    "kind": "canary",
    "lane": "survival",
-   "state": "open",
+   "state": "parked",
    "owner": "control session",
-   "next_step": "Decide re-run: lavasight-01 closed INCONCLUSIVE 10-26 05:48Z; rebuild on the fleet tip (hazard map ~/hazardmap/out feeds it; lavamap cron was retired 10-31 'no consumer') and re-queue, or record why not",
+   "next_step": "11-09: read lava deaths 7 d after lavatarget-01's promotion; rebuild + queue, or drop with the number",
    "max_quiet_hours": 48,
    "evidence": {
     "runs": [
@@ -187,7 +187,11 @@
      "lavasight"
     ]
    },
-   "note": "Ran once (INCONCLUSIVE 2026-10-26T05:48:37Z), never re-queued; the lavamap feed was retired 10-31 because nothing read it."
+   "note": "Ran once (INCONCLUSIVE 2026-10-26T05:48:37Z), never re-queued; the lavamap feed was retired 10-31 because nothing read it.",
+   "parked": {
+    "until": "2026-11-09",
+    "why": "control session 11-02 (audit 11-01 flag 6): lavatarget-01 (F5a: explore never heads for a sighting beside lava this bot saw) was promoted 11-01 12:34Z and is the per-bot half of the same goal. lavasight-01 ran once (INCONCLUSIVE 10-26, 0 canary deaths in 60 bot-h; under fun mode that would be a KEEP) but its branch is on 112beb0 and its lavamap publisher was retired 10-31. On 11-09 read the 7 d of lava deaths since lavatarget's promotion (scoreboard / fleetstatus 7 d): if lava is still a top-3 death cause, rebuild lavasight-01 on the fleet tip with install-lavamap.sh re-installed (tier 3, two engines) and queue it in the survival lane; else drop it with that number."
+   }
   },
   {
    "id": "mine-safety-deepstair-deepminer",
@@ -1395,9 +1399,8 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "open",
+   "state": "dropped",
    "owner": "control session",
-   "next_step": "Re-read docs/reports/town-plan-2026-10-20.md farhome-01; decide whether expedition return-home supersedes it; build or record superseded",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
@@ -1407,7 +1410,11 @@
      "farhome"
     ]
    },
-   "note": "Never started: no branch or commit matches 'farhome' (patterns are expected names)."
+   "note": "Never started: no branch or commit matches 'farhome' (patterns are expected names).",
+   "dropped": {
+    "why": "superseded (control session 11-02, audit 11-01 flag 5): chestreach-01 (KEEP 10-29 09:42Z, promoted 5acfe13c, on the fleet) is the same remedy -- a deposit walk from OUTSIDE town that finds no route walks `home` first, then the chest again (chestfull.mjs homeFirst; measured 141 of 164 such failures). farhome-01 asked for exactly this for town-chest targets (town-plan 7.6). Goal not separately re-measured; reopen as a new row if 'No path' to town chests is still the top deposit failure.",
+    "when": "2026-11-02"
+   }
   },
   {
    "id": "town-plan-first-pieces",
@@ -1838,16 +1845,16 @@
   },
   {
    "id": "comms-stage1-rest",
-   "title": "Comms stage 1 remainder: claims mirror, unreach-01 (share world state only)",
+   "title": "Comms stage 1 remainder: unreach-01 (the milestone peer give-up 25 -> 8, measured first)",
    "owner_date": "2026-10-22",
    "memory": [
     "owner-comms-1021.md"
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "open",
+   "state": "parked",
    "owner": "control session",
-   "next_step": "Build unreach-01 and the claims mirror per docs/reports/comms-design-2026-10-21.md order (after furnaceseen-01)",
+   "next_step": "11-16: unreach-01 read (a), then a tier-1 constant rollout or drop",
    "max_quiet_hours": 168,
    "depends_on": [
     {
@@ -1856,15 +1863,41 @@
    ],
    "evidence": {
     "branches": [
-     "unreach*",
+     "unreach*"
+    ],
+    "grep": [
+     "unreach-01"
+    ]
+   },
+   "note": "Done so far: chatgate-01, keepout-01, ledger-01. grep hits are only 10-21 design commits. Split 11-02: claims mirror -> its own dropped row.",
+   "parked": {
+    "until": "2026-11-16",
+    "why": "control session 11-02 (audit 11-01 flag 7): unreach-01's design (comms-design 7, C11) is a host read then a controlled DiD canary -- lab-mode measurement under fun mode. Revisit after the queued progress/survival canaries (fewerdec, drainpick, stuckcells, deepminer) close: run read (a) (skips by milestone; later success of a skipped milestone by the same bot); if skipped milestones later succeed for the same bot, ship the 25-attempt budget as a tier-1 constant rollout (owner-direct, 60-min tripwire); else drop it with the number. The claims mirror is closed separately (comms-stage1-claims-mirror)."
+   }
+  },
+  {
+   "id": "comms-stage1-claims-mirror",
+   "title": "Comms stage 1: the claims mirror (found-01 / monument-01 / furnace leases -> ledger)",
+   "owner_date": "2026-10-22",
+   "memory": [
+    "owner-comms-1021.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "dropped",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
      "claims*"
     ],
     "grep": [
-     "unreach-01",
      "claims mirror"
     ]
    },
-   "note": "Done so far: chatgate-01, keepout-01, ledger-01. grep hits are only 10-21 design commits."
+   "dropped": {
+    "when": "2026-11-02",
+    "why": "control session 11-02 (audit 11-01 flag 7): its own design gives it no behaviour change and a measured value of 0 (comms-design 4.5: 'none (visibility + a duplicate-claim gate) | 0 today'); it was to ride inside found-01 / monument-01, which shipped without it. Visibility of who builds what now comes from the showcase chat (showchat-01) and B5's role leases. Reopen only if a duplicate claim is seen."
+   }
   },
   {
    "id": "comms-stage2-talk",
@@ -2178,9 +2211,8 @@
    ],
    "kind": "design",
    "lane": "ops",
-   "state": "open",
+   "state": "dropped",
    "owner": "control session",
-   "next_step": "Design the replay predictor (would have caught indexsearch-01 / furnaceseen-01), one engine, then a host script",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
@@ -2192,7 +2224,11 @@
      "exposurepred"
     ]
    },
-   "note": "Never started (approved for AFTER 2+3, which are done since 10-24); patterns are expected names (no match)."
+   "note": "Never started (approved for AFTER 2+3, which are done since 10-24); patterns are expected names (no match).",
+   "dropped": {
+    "when": "2026-11-02",
+    "why": "control session 11-02 (audit 11-01 flag 8): fun mode (OWNER 10-28, docs/PROCESS-fun-mode.md) moved exposure licences, pre-registration and null bands to lab mode; a fun-mode canary is read generically at +90/+180, 'INCONCLUSIVE with no harm is a KEEP', and an unexposed canary is labelled 'KEEP, goal unverified' (owner early-close rule 10-15). A replay predictor of exposure has no decision left to feed. Reopen with lab mode, if the owner declares an experiment that needs a pre-launch exposure estimate."
+   }
   },
   {
    "id": "driftwatch",
@@ -2368,14 +2404,20 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "Find why the coordinator's promotion merges stopped landing ~10-28; confirm the next promotion reaches main without a hand merge",
+   "next_step": "Observe the first AUTOMATIC merge: the next promotion (tidy-01 if KEEP) must reach main through promomerge.py without a hand merge; then done",
    "max_quiet_hours": 48,
    "evidence": {
     "grep": [
-     "Merge the fleet lineage"
+     "Merge the fleet lineage",
+     "reconcile: merge the fleet line",
+     "promomerge: merge promotion"
+    ],
+    "paths": [
+     "scripts/host/promomerge.py",
+     "scripts/mac/promomerge.sh"
     ]
    },
-   "note": "AUDIT 10-31 #13: hand-merged at 0d10d875 (fleet 281d5659 is now an ancestor of origin/main). Root cause not yet checked."
+   "note": "AUDIT 10-31 #13: hand-merged at 0d10d875 (fleet 281d5659 is now an ancestor of origin/main). Root cause not yet checked. 11-02: root cause = no job ever did it (canary-loop.sh only pages 'operator: fast-forward main'; the 'coordinator' was a session habit). Reconciled by hand (merge of c711879e into main, control session 11-02) and made mechanical: scripts/host/promomerge.py (Mac LaunchAgent com.mcai.promomerge, 15 min) + stallcheck (f) pages promotions off main > 6 h."
   },
   {
    "id": "showcase-protected-follows-fleet",
@@ -3057,6 +3099,30 @@
     "when": "2026-11-02",
     "evidence": "rule main dcedd094 12:33Z (before use); card evidence fde6c920/4150b7ad; both engines no blockers; round 20261101 regate 13:51Z -> best 20261101-qwen35-4b (5080 80/min vs c2 0; 3090 14 vs 10 = 1.4x not enough, recorded); servea-01 adopted (replace-variant, registration servea-01.d48467f8-4bll.json), HELD after deepminer-01"
    }
+  },
+  {
+   "id": "monitors-no-consumer-1101",
+   "title": "Audit 11-01 flag 9: seven monitors whose output nothing read -- wired or retired",
+   "owner_date": "2026-10-31",
+   "memory": [
+    "stall-audit-practice-1031.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Install alarmhead MONITOR_LOGS on .31 (install-promomerge.sh copies it) and remove the three retired cron lines; check the header prints the four wired lines; then done",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "grep": [
+     "MONITOR_LOGS"
+    ],
+    "paths": [
+     "scripts/lib/alarmhead.py",
+     "config/monitors.json"
+    ]
+   },
+   "note": "Wired into the fleetstatus header (alarmhead MONITOR_LOGS): ironfunnel, stuckwatch, staffcensus-check, failmine-weekly. Retired (cron removed, data kept; monitors.json kind=retired): programread, avoidwatch, monitor-bots."
   }
  ]
 }

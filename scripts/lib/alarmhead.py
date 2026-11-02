@@ -20,6 +20,19 @@ FILES = (   # (file, label, stale after)
     ('drift-latest.json', 'daily drift', dt.timedelta(hours=26)),
     # stallcheck.py (hourly, OWNER 10-31): owner-approved items that silently stopped -> '!! STALLED: n items -- top 3 ...'
     ('stallcheck-fleet.json', 'stalled commitments', dt.timedelta(minutes=150)),
+    # promomerge.py (Mac tick every 15 min; a tick that runs the suite holds its lock ~20-40 min): every fleet promotion is
+    # merged into main, or '!! promotion ... does NOT merge into main' (audit 11-01 flag 4)
+    ('promomerge-fleet.json', 'promotion merge', dt.timedelta(minutes=120)),
+)
+# MONITOR LOGS (audit 11-01 flag 9: cron outputs nothing read). Each is wired here, so the fleetstatus header IS its consumer:
+# (log under ~, label, stale after, the line to show: regex on the last matching line, alarm when that line matches `bad`
+# or fails `ok`). Retired instead (config/monitors.json `retired`): programread, avoidwatch, monitor-bots.
+MONITOR_LOGS = (
+    ('digest/ironfunnel.log', 'iron funnel', dt.timedelta(hours=26), r'^iron funnel', None, None),
+    ('digest/stuckwatch.log', 'pinned bots', dt.timedelta(minutes=90),
+     r'^\d{4}-\d\d-\d\dT\S+ (\d+ of \d+ bots|stuckwatch OK)|stuckwatch REFUSED', r' [1-9]\d* of \d+ bots|REFUSED', None),
+    ('staffcensus/out/check.log', 'staff census check', dt.timedelta(minutes=90), r'^\d{4}-\d\d-\d\dT\S+ ', None, r'staff census OK'),
+    ('failmine/weekly.log', 'failmine weekly', dt.timedelta(days=8), r'\S', r'Error|Traceback|BlindInput', None),
 )
 ES_KINDS = (   # (kind, label, stale after)
     ('showcase_halt', 'showcase halt', dt.timedelta(minutes=20)),
@@ -65,6 +78,32 @@ def file_lines(now, name, label, stale, state_dir=STATE):
     if al:
         return [f'!! {x}' for x in al.values()]
     return [d.get('summary') or d.get('line') or f'{label}: OK']
+
+
+def monitor_lines(now, home='~', logs=MONITOR_LOGS, tail_bytes=200_000):
+    """One header line per wired monitor log: its newest matching line; '!! ' when stale, missing, `bad` or not `ok`."""
+    import re
+    out = []
+    for rel, label, stale, pick, bad, ok in logs:
+        p = os.path.join(os.path.expanduser(home), rel)
+        try:
+            with open(p, 'rb') as f:
+                f.seek(0, 2)
+                f.seek(max(0, f.tell() - tail_bytes))
+                text = f.read().decode('utf8', 'replace')
+            mt = dt.datetime.fromtimestamp(os.path.getmtime(p), dt.timezone.utc)
+        except OSError as e:
+            out.append(f'!! {label}: NO OUTPUT ({type(e).__name__}) at {p}')
+            continue
+        hits = [l for l in text.splitlines() if re.search(pick, l)]
+        last = hits[-1].strip() if hits else '(no line)'
+        if now - mt > stale:
+            out.append(f'!! {label}: STALE (last written {AL._iso(mt)}; > {stale.total_seconds() / 3600:.0f} h) at {p}')
+        elif not hits or (bad and re.search(bad, last)) or (ok and not re.search(ok, last)):
+            out.append(f'!! {label}: {last[:220]} ({p})')
+        else:
+            out.append(f'{label}: {last[:220]}')
+    return out
 
 
 def es_lines(now, client):
@@ -172,7 +211,7 @@ def slot_lines(now, path=SCHED_LOG):
     return [slot_idle(parse_ticks(text), now)]
 
 
-def lines(now, client=None, state_dir=STATE, conf=AL.CONF, sched_log=SCHED_LOG):
+def lines(now, client=None, state_dir=STATE, conf=AL.CONF, sched_log=SCHED_LOG, home='~'):
     out = []
     try:
         ok, desc = AL.push_channel(conf)
@@ -181,6 +220,7 @@ def lines(now, client=None, state_dir=STATE, conf=AL.CONF, sched_log=SCHED_LOG):
         out += slot_lines(now, sched_log)
         for name, label, stale in FILES:
             out += file_lines(now, name, label, stale, state_dir)
+        out += monitor_lines(now, home)
         if client is not None:
             out += es_lines(now, client)
     except Exception as e:          # noqa: BLE001

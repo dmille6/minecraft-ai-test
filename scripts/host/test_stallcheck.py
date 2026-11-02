@@ -207,6 +207,12 @@ def t_unshipped(S):
     fs = S.det_unshipped([], [], NOW, False, {})
     check('f fires: the fleet sha is not on main', [f['key'] for f in fs] == ['f:fleet-not-on-main'], fs)
     check('feature_of', S.feature_of('treefarm-04 r4 on main (x)') == 'treefarm-04' and S.feature_of('shaft-03: y') == 'shaft-03')
+    # 11-02 (audit flag 4): a promotion off main PAGES at once, the unshipped / fleet-not-on-main lines do not
+    fs = S.det_unshipped(commits, [('shaft-03', '5' * 40, H(10), False)], NOW, False, {})
+    pg = S.promo_pages(fs)
+    check('promo_pages: only the promotion off main pages', list(pg) == ['f:promo:shaft-03'] and 'NOT on main' in pg['f:promo:shaft-03'], pg)
+    check('promo_pages: positive control -- the same findings hold unshipped and fleet-not-on-main lines',
+          {'f:unshipped:treefarm-04', 'f:fleet-not-on-main'} <= {f['key'] for f in fs}, [f['key'] for f in fs])
 
 
 def t_goals(S):
@@ -394,6 +400,9 @@ def t_wiring():
     inst = code(os.path.join(ROOT, 'scripts/host/install-stallcheck.sh'))
     check('installer: an hourly cron line running stallcheck.py run', re.search(r"\d+ \* \* \* \* .*stallcheck\.py run", inst) is not None)
     check('installer: never wraps canary-sched.py (flock deadlock rule)', 'canary-sched' not in inst and 'flock' not in inst)
+    sc = code(os.path.join(ROOT, 'scripts/host/stallcheck.py'))
+    check('main() pages the promotions off main through raise_alarms (its own dedup state)',
+          re.search(r"AL\.raise_alarms\('stallcheck-promo', promo_pages\(findings\)", sc) is not None)
 
 
 def t_committed_config():
@@ -420,6 +429,7 @@ MUTANTS = [
     ('e lane runnable', "if any(runnable(e, entries, fleet) for e in mine):", "if True:"),
     ('f unshipped feature', "if h > UNSHIPPED_D * 24 and feat not in suppress:", "if False:"),
     ('f promotion not on main', "if not on_main and h > PROMO_GRACE_H:", "if False:"),
+    ('f promotion pages', "if f.get('det') == 'f' and str(f.get('key')).startswith('f:promo:')}", "if False}"),
     ('g unowned STUCK', "if h <= STUCK_OWNER_H or any(fnmatch.fnmatch(key, p) for p in pats):", "if True:"),
     ('h no consumer', "if (r.get('kind') or 'monitor') == 'monitor' and not (r.get('consumer') or '').strip():", "if False:"),
     ('h unregistered cron', "if not any(r.get('cron') and r['cron'] in line for r in regs):", "if False:"),

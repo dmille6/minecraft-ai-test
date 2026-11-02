@@ -350,6 +350,38 @@ def t_head(AH):
 
 
 # ------------------------------------------------------------------------------------------------ mutants
+def t_monitor_logs(AH):
+    """audit 11-01 flag 9: the wired monitor logs reach the header; each alarms on its bad line, stays plain on a good one."""
+    with tempfile.TemporaryDirectory() as d:
+        now = dt.datetime.now(UTC)
+        def w(rel, text, age_h=0):
+            p = os.path.join(d, rel); os.makedirs(os.path.dirname(p), exist_ok=True); open(p, 'w').write(text)
+            t = (now - dt.timedelta(hours=age_h)).timestamp(); os.utime(p, (t, t))
+        w('digest/ironfunnel.log', 'old\niron funnel, last 24 h, 1440 bot-h: raw iron gathered 351\n', 2)
+        w('digest/stuckwatch.log', '2026-11-02T14:17:28Z stuckwatch OK (80 bots, 80 moving, none pinned over 240 min)\n'
+          '2026-11-02T14:47:29Z 2 of 80 bots PINNED for >= 240 min (<= 3 distinct positions):\n  isolated-d-Delta at (1, 2, 3)\n')
+        w('staffcensus/out/check.log', '2026-11-02T14:33:01Z staff census OK -- newest tick 2.7 min ago\n')
+        w('failmine/weekly.log', 'PICKS\n  File "x", line 1\nBlindInput: fall-1899: outside the cut\n', 30)
+        out = AH.monitor_lines(now, d)
+        txt = '\n'.join(out)
+        check('monitor logs: iron funnel shown plain', any(l.startswith('iron funnel: iron funnel, last 24 h') for l in out), out)
+        check('monitor logs: 2 pinned bots alarm', any(l.startswith('!! pinned bots: 2026-11-02T14:47:29Z 2 of 80') for l in out), out)
+        check('monitor logs: staff census OK plain', any(l.startswith('staff census check: 2026') for l in out), out)
+        check('monitor logs: a failmine traceback alarms', any(l.startswith('!! failmine weekly: BlindInput') for l in out), out)
+        w('digest/stuckwatch.log', '2026-11-02T15:17:28Z stuckwatch OK (80 bots, 80 moving, none pinned over 240 min)\n')
+        w('staffcensus/out/check.log', '2026-11-02T15:03:01Z StaffCensusStale: newest good heartbeat 3 h old\n')
+        out = AH.monitor_lines(now, d)
+        check('monitor logs: none pinned is plain', any(l.startswith('pinned bots: 2026-11-02T15:17:28Z stuckwatch OK') for l in out), out)
+        check('monitor logs: a staff census line that is not OK alarms', any(l.startswith('!! staff census check: ') for l in out), out)
+        w('digest/ironfunnel.log', 'iron funnel, last 24 h\n', 30)
+        os.remove(os.path.join(d, 'failmine/weekly.log'))
+        out = AH.monitor_lines(now, d)
+        check('monitor logs: a stale log alarms', any(l.startswith('!! iron funnel: STALE') for l in out), out)
+        check('monitor logs: a missing log alarms', any(l.startswith('!! failmine weekly: NO OUTPUT') for l in out), out)
+        full = AH.lines(now, None, state_dir=d, conf=os.path.join(d, 'none'), sched_log=os.path.join(d, 'none.log'), home=d)
+        check('monitor logs: lines() includes them', any(l.startswith('!! iron funnel: STALE') for l in full), full)
+
+
 MUTANTS = [
     ('goalwatch.py', "    if idle < stall:\n        return None\n", "    if idle > stall:\n        return None\n", t_goal),
     ('goalwatch.py', "        return status == 'success' and d.get('op') in PROGRESS_OPS", "        return d.get('op') in PROGRESS_OPS", t_goal),
@@ -372,12 +404,16 @@ MUTANTS = [
     ('lib/alarmhead.py', "        if not is_idle(d, w):\n            bounded = True", "        if False:\n            bounded = True", t_head),
     ('lib/alarmhead.py', "    if age is None or age > stale:\n        return [f'!! {label}: STALE",
      "    if age is None:\n        return [f'!! {label}: STALE", t_head),
+    ('lib/alarmhead.py', "        elif not hits or (bad and re.search(bad, last)) or (ok and not re.search(ok, last)):", "        elif False:", t_monitor_logs),
+    ('lib/alarmhead.py', "        if now - mt > stale:", "        if False:", t_monitor_logs),
+    ('lib/alarmhead.py', "        out += monitor_lines(now, home)\n", "\n", t_monitor_logs),
 ]
 
 
 def run_all(mods):
     t_alarm(mods['lib/alarm.py']); t_goal(mods['goalwatch.py']); t_halt(mods['haltwatch.py'])
     t_rollout(mods['rollout.py']); t_drift(mods['driftwatch.py']); t_head(mods['lib/alarmhead.py'])
+    t_monitor_logs(mods['lib/alarmhead.py'])
 
 
 def main():

@@ -139,6 +139,12 @@ const REQUIRED = [
   'bots/scripts/stuckcells-offline.mjs',
   'bots/scripts/stairstuck-offline.mjs',
   'docs/reports/stuckcells-01-2026-11-01.md',
+  // promomerge (11-02, audit 11-01 flag 4): every fleet promotion merged into main mechanically, or it pages
+  'scripts/host/promomerge.py',
+  'scripts/host/test_promomerge.py',
+  'scripts/host/install-promomerge.sh',
+  'scripts/mac/promomerge.sh',
+  'bots/test/promomerge.test.mjs',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',

@@ -21,19 +21,25 @@
     "~/digest/ironfunnel.log"
    ],
    "fresh_hours": 26,
-   "consumer": null,
+   "consumer": "fleetstatus header (alarmhead MONITOR_LOGS, audit 11-01 flag 9, 11-02): 'iron funnel:' line, its newest nightly line; '!!' when stale > 26 h",
    "kind": "monitor"
   },
   {
    "id": "programread",
    "host": "31",
-   "cron": "programread.py",
+   "cron": null,
    "outputs": [
     "~/digest/programread.log"
    ],
-   "fresh_hours": 26,
+   "fresh_hours": null,
    "consumer": null,
-   "kind": "monitor"
+   "kind": "retired",
+   "retired": {
+    "when": "2026-11-02",
+    "why": "its five program numbers belonged to the 24-27 Sep program window the owner abandoned 09-28; the canary throughput it now prints is in STATE.md / the scoreboard",
+    "data": "kept: ~/digest/programread.log",
+    "cron_was": "programread.py"
+   }
   },
   {
    "id": "canarywatch",
@@ -54,30 +60,42 @@
     "~/digest/stuckwatch.log"
    ],
    "fresh_hours": 1,
-   "consumer": null,
+   "consumer": "fleetstatus header (alarmhead MONITOR_LOGS, audit 11-01 flag 9, 11-02): 'pinned bots:' line; '!!' when a bot is pinned >= 240 min, REFUSED, or stale > 90 min",
    "kind": "monitor"
   },
   {
    "id": "avoidwatch",
    "host": "31",
-   "cron": "avoidwatch.py",
+   "cron": null,
    "outputs": [
     "~/digest/avoidwatch.log"
    ],
-   "fresh_hours": 2,
+   "fresh_hours": null,
    "consumer": null,
-   "kind": "monitor"
+   "kind": "retired",
+   "retired": {
+    "when": "2026-11-02",
+    "why": "leaf-02's 09-22 persistent-avoid tripwire: 0.00 log blocks/bot against a 0.68 baseline for weeks; the death breaker and driftwatch are the standing tripwires",
+    "data": "kept: ~/digest/avoidwatch.log",
+    "cron_was": "avoidwatch.py"
+   }
   },
   {
    "id": "monitor-bots",
    "host": "31",
-   "cron": "monitor/monitor.py --role bots",
+   "cron": null,
    "outputs": [
     "/var/log/mcai-monitor/cron.log"
    ],
    "fresh_hours": null,
    "consumer": null,
-   "kind": "monitor"
+   "kind": "retired",
+   "retired": {
+    "when": "2026-11-02",
+    "why": "the 09-era fail_class series (monitor.py --role bots): driftwatch + valuescore give the daily series now, and its cron.log only reported walk-incomplete warnings",
+    "data": "kept: /var/log/mcai-monitor/cron.log",
+    "cron_was": "monitor/monitor.py --role bots"
+   }
   },
   {
    "id": "restore-reads",
@@ -138,7 +156,7 @@
     "~/staffcensus/out/check.log"
    ],
    "fresh_hours": 1,
-   "consumer": null,
+   "consumer": "fleetstatus header (alarmhead MONITOR_LOGS, audit 11-01 flag 9, 11-02): 'staff census check:' line; '!!' when its newest line is not 'staff census OK' or stale > 90 min",
    "kind": "monitor"
   },
   {
@@ -216,7 +234,7 @@
     "~/failmine/weekly.log"
    ],
    "fresh_hours": 192,
-   "consumer": null,
+   "consumer": "fleetstatus header (alarmhead MONITOR_LOGS, audit 11-01 flag 9, 11-02): 'failmine weekly:' line; '!!' on a traceback / BlindInput or stale > 8 d (it failed 11-01: BlindInput)",
    "kind": "monitor"
   },
   {
@@ -463,6 +481,31 @@
    "consumer": "control session (pages via the digest; transitions in the journal)",
    "kind": "actuator",
    "note": "serving A, OWNER 11-02 'do what you recommend': every 3 min, scripts/host/servea-waiter.sh (copy ~/bin/servea-waiter.sh): install the oai+ probe fix between canaries -> release servea-01 at the head (5080 server start + guarded load check) -> on KEEP release llmoai-01 -> on promotion start modelrollout 20/40/60/80 -> done. `servea-waiter.sh status`; stop it with `launchctl unload ~/Library/LaunchAgents/com.mcai.servea-waiter.plist` or `servea-waiter.sh set halt`. docs/reports/serving-A-2026-11-01.md s.8"
+  },
+  {
+   "id": "promomerge",
+   "host": "mac",
+   "cron": null,
+   "launchd": "com.mcai.promomerge",
+   "outputs": [
+    "~/Library/Logs/promomerge.log"
+   ],
+   "fresh_hours": null,
+   "consumer": "canary host ~/digest/promomerge-fleet.json (published each tick) -> fleetstatus header 'promotion merge' line; alarms through lib/alarm.py (ntfy) on a conflict / failed test / promotion off main > 3 h",
+   "kind": "actuator",
+   "note": "scripts/mac/promomerge.sh every 15 min (StartInterval 900) runs scripts/host/promomerge.py tick: merges each fleet promotion into main in ~/promomerge/repo, node --check, full suite on the test host, pushes (never forced). Audit 11-01 flag 4."
+  },
+  {
+   "id": "promomerge-on-31",
+   "host": "31",
+   "cron": null,
+   "outputs": [
+    "~/digest/promomerge-fleet.json"
+   ],
+   "fresh_hours": 2,
+   "consumer": "fleetstatus header (alarmhead FILES 'promotion merge'); stallcheck (f) pages promotions off main > 6 h as the backstop",
+   "kind": "monitor",
+   "note": "written by `promomerge.py publish` over ssh from the Mac tick (~/promomerge/app on .31, scripts/host/install-promomerge.sh)"
   }
  ]
 }
