@@ -1,0 +1,592 @@
+{
+ "instrument_check_ok": true,
+ "scores": {
+  "qwen2.5-7b-instruct": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 15.0,
+   "bad": 15.0,
+   "rep_fail": 59.0,
+   "post_veto_repeat": 95.0,
+   "agree_skill": 75.5,
+   "agree_key": 69.0,
+   "hard_on_fail_items": 20.0,
+   "hard_on_good_items": 5.5,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  },
+  "cand-c2-q8": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 1.5,
+   "bad": 1.5,
+   "rep_fail": 15.7,
+   "post_veto_repeat": 8.0,
+   "agree_skill": 67.0,
+   "agree_key": 57.0,
+   "hard_on_fail_items": 2.3,
+   "hard_on_good_items": 1.0,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  },
+  "20261101-qwen35-4b": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 2.3,
+   "bad": 2.3,
+   "rep_fail": 15.3,
+   "post_veto_repeat": 7.0,
+   "agree_skill": 68.5,
+   "agree_key": 60.5,
+   "hard_on_fail_items": 2.3,
+   "hard_on_good_items": 3.0,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  },
+  "base-qwen35-4b-q8": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 1.7,
+   "bad": 1.7,
+   "rep_fail": 20.0,
+   "post_veto_repeat": 46.0,
+   "agree_skill": 53.5,
+   "agree_key": 44.5,
+   "hard_on_fail_items": 1.3,
+   "hard_on_good_items": 2.0,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  },
+  "20261101-qwen35-4b-bf16": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 1.8,
+   "bad": 1.8,
+   "rep_fail": 15.0,
+   "post_veto_repeat": 7.0,
+   "agree_skill": 66.5,
+   "agree_key": 58.5,
+   "hard_on_fail_items": 2.0,
+   "hard_on_good_items": 2.5,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  },
+  "20261101-qwen35-9b": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 2.2,
+   "bad": 2.2,
+   "rep_fail": 16.3,
+   "post_veto_repeat": 6.0,
+   "agree_skill": 68.0,
+   "agree_key": 58.0,
+   "hard_on_fail_items": 2.7,
+   "hard_on_good_items": 2.5,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  },
+  "base-qwen35-9b-q8": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 2.3,
+   "bad": 2.3,
+   "rep_fail": 19.3,
+   "post_veto_repeat": 38.0,
+   "agree_skill": 44.5,
+   "agree_key": 37.5,
+   "hard_on_fail_items": 3.0,
+   "hard_on_good_items": 2.0,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  }
+ },
+ "logged": {
+  "n": 600,
+  "missing": 0,
+  "schema_valid": 100.0,
+  "retry": 0.0,
+  "hard": 13.2,
+  "bad": 13.2,
+  "rep_fail": 100.0,
+  "post_veto_repeat": 90.0,
+  "agree_skill": 100.0,
+  "agree_key": 100.0,
+  "hard_on_fail_items": 19.3,
+  "hard_on_good_items": 3.5,
+  "denominators": {
+   "all": 600,
+   "fail": 300,
+   "post_veto": 100,
+   "good": 200
+  }
+ },
+ "candidates": {
+  "20261101-qwen35-4b": {
+   "key": "run:20261101-qwen35-4b/cand-q8_0.gguf",
+   "params_b": 4.0,
+   "vs_incumbent": {
+    "gates": {
+     "complete coverage": true,
+     "schema_valid >= incumbent - 0.5 pp": true,
+     "hard <= incumbent": true,
+     "rep_fail <= incumbent": true
+    },
+    "pass": true
+   },
+   "vs_best": {
+    "gates": {
+     "complete coverage": true,
+     "rep_fail <= best + 2.0 pp": true,
+     "post_veto <= best + 5.0 pp": true,
+     "hard <= best + 0.5 pp": false,
+     "schema_valid >= 99": true
+    },
+    "pass": false
+   },
+   "new_best": false,
+   "why": "did not pass both gates",
+   "capacity_rule": {
+    "significance": {
+     "hard": {
+      "cand_only": 7,
+      "best_only": 2,
+      "p": 0.1797,
+      "significantly_worse": false
+     },
+     "rep_fail": {
+      "cand_only": 10,
+      "best_only": 11,
+      "p": 1.0,
+      "significantly_worse": false
+     },
+     "post_veto": {
+      "cand_only": 3,
+      "best_only": 4,
+      "p": 1.0,
+      "significantly_worse": false
+     }
+    },
+    "within_gate_rate": {
+     "cand": 14,
+     "best": 10
+    },
+    "pass": false,
+    "why": "capacity 14/min < 1.5 x best 10/min",
+    "rule": {
+     "_doc": "OWNER 11-02 ~12:45Z (relayed by the control session), written BEFORE round 3 was re-gated: a candidate that passes the incumbent gate and schema_valid >= 99 (and its export check where one exists) may become BEST when it is NOT significantly worse than the current best on hard (600 items), rep_fail (300) and post_veto (100) -- paired exact two-sided sign test on discordant items, 'significantly worse' = more candidate-only failures AND p < alpha -- AND serves >= ratio x the best's within-gate decisions/min, both measured in the same session on the fleet's serving card (latency.card) by latency.ladder. The incumbent gate is unchanged. A best that fails the lowest rung counts as that rung.",
+     "alpha": 0.05,
+     "ratio": 1.5
+    }
+   },
+   "paired_vs_base": {
+    "fail": {
+     "items": 300,
+     "cand_repeats_base_not": 20,
+     "base_repeats_cand_not": 34,
+     "both_repeat": 26,
+     "sign_test_p": 0.0759
+    },
+    "post_veto": {
+     "items": 100,
+     "cand_repeats_base_not": 1,
+     "base_repeats_cand_not": 40,
+     "both_repeat": 6,
+     "sign_test_p": 0.0
+    }
+   },
+   "paired_vs_best": {
+    "fail": {
+     "items": 300,
+     "cand_repeats_base_not": 10,
+     "base_repeats_cand_not": 11,
+     "both_repeat": 36,
+     "sign_test_p": 1.0
+    },
+    "post_veto": {
+     "items": 100,
+     "cand_repeats_base_not": 3,
+     "base_repeats_cand_not": 4,
+     "both_repeat": 4,
+     "sign_test_p": 1.0
+    }
+   },
+   "paired_vs_incumbent": {
+    "fail": {
+     "items": 300,
+     "cand_repeats_base_not": 13,
+     "base_repeats_cand_not": 144,
+     "both_repeat": 33,
+     "sign_test_p": 0.0
+    },
+    "post_veto": {
+     "items": 100,
+     "cand_repeats_base_not": 1,
+     "base_repeats_cand_not": 89,
+     "both_repeat": 6,
+     "sign_test_p": 0.0
+    }
+   },
+   "export_check_q8_vs_bf16": {
+    "expected_items": 600,
+    "answered_q4": 600,
+    "answered_16bit": 600,
+    "complete_coverage": true,
+    "items_both_valid": 600,
+    "same_skill": 583,
+    "same_skill_pct": 97.2,
+    "schema_valid_q4": 100.0,
+    "schema_valid_16bit": 100.0,
+    "pass": true
+   },
+   "training_effect_vs_own_base": {
+    "hard": [
+     2.3,
+     1.7
+    ],
+    "rep_fail": [
+     15.3,
+     20.0
+    ],
+    "post_veto_repeat": [
+     7.0,
+     46.0
+    ],
+    "agree_skill": [
+     68.5,
+     53.5
+    ]
+   }
+  },
+  "20261101-qwen35-9b": {
+   "key": "run:20261101-qwen35-9b/cand-q8_0.gguf",
+   "params_b": 9.0,
+   "vs_incumbent": {
+    "gates": {
+     "complete coverage": true,
+     "schema_valid >= incumbent - 0.5 pp": true,
+     "hard <= incumbent": true,
+     "rep_fail <= incumbent": true
+    },
+    "pass": true
+   },
+   "vs_best": {
+    "gates": {
+     "complete coverage": true,
+     "rep_fail <= best + 2.0 pp": true,
+     "post_veto <= best + 5.0 pp": true,
+     "hard <= best + 0.5 pp": false,
+     "schema_valid >= 99": true
+    },
+    "pass": false
+   },
+   "new_best": false,
+   "why": "did not pass both gates",
+   "capacity_rule": {
+    "significance": {
+     "hard": {
+      "cand_only": 6,
+      "best_only": 2,
+      "p": 0.2891,
+      "significantly_worse": false
+     },
+     "rep_fail": {
+      "cand_only": 9,
+      "best_only": 7,
+      "p": 0.8036,
+      "significantly_worse": false
+     },
+     "post_veto": {
+      "cand_only": 1,
+      "best_only": 3,
+      "p": 0.625,
+      "significantly_worse": false
+     }
+    },
+    "within_gate_rate": {
+     "cand": 8,
+     "best": 10
+    },
+    "pass": false,
+    "why": "capacity 8/min < 1.5 x best 10/min",
+    "rule": {
+     "_doc": "OWNER 11-02 ~12:45Z (relayed by the control session), written BEFORE round 3 was re-gated: a candidate that passes the incumbent gate and schema_valid >= 99 (and its export check where one exists) may become BEST when it is NOT significantly worse than the current best on hard (600 items), rep_fail (300) and post_veto (100) -- paired exact two-sided sign test on discordant items, 'significantly worse' = more candidate-only failures AND p < alpha -- AND serves >= ratio x the best's within-gate decisions/min, both measured in the same session on the fleet's serving card (latency.card) by latency.ladder. The incumbent gate is unchanged. A best that fails the lowest rung counts as that rung.",
+     "alpha": 0.05,
+     "ratio": 1.5
+    }
+   },
+   "paired_vs_base": {
+    "fail": {
+     "items": 300,
+     "cand_repeats_base_not": 22,
+     "base_repeats_cand_not": 31,
+     "both_repeat": 27,
+     "sign_test_p": 0.2717
+    },
+    "post_veto": {
+     "items": 100,
+     "cand_repeats_base_not": 1,
+     "base_repeats_cand_not": 33,
+     "both_repeat": 5,
+     "sign_test_p": 0.0
+    }
+   },
+   "paired_vs_best": {
+    "fail": {
+     "items": 300,
+     "cand_repeats_base_not": 9,
+     "base_repeats_cand_not": 7,
+     "both_repeat": 40,
+     "sign_test_p": 0.8036
+    },
+    "post_veto": {
+     "items": 100,
+     "cand_repeats_base_not": 1,
+     "base_repeats_cand_not": 3,
+     "both_repeat": 5,
+     "sign_test_p": 0.625
+    }
+   },
+   "paired_vs_incumbent": {
+    "fail": {
+     "items": 300,
+     "cand_repeats_base_not": 13,
+     "base_repeats_cand_not": 141,
+     "both_repeat": 36,
+     "sign_test_p": 0.0
+    },
+    "post_veto": {
+     "items": 100,
+     "cand_repeats_base_not": 0,
+     "base_repeats_cand_not": 89,
+     "both_repeat": 6,
+     "sign_test_p": 0.0
+    }
+   },
+   "export_check_q8_vs_bf16": null,
+   "training_effect_vs_own_base": {
+    "hard": [
+     2.2,
+     2.3
+    ],
+    "rep_fail": [
+     16.3,
+     19.3
+    ],
+    "post_veto_repeat": [
+     6.0,
+     38.0
+    ],
+    "agree_skill": [
+     68.0,
+     44.5
+    ]
+   }
+  }
+ },
+ "skill_mix": {
+  "qwen2.5-7b-instruct": {
+   "good": {
+    "gather": 33.5,
+    "explore": 26.0,
+    "mine": 13.0,
+    "goto": 8.5,
+    "deposit": 7.0
+   },
+   "fail": {
+    "gather": 33.0,
+    "explore": 21.7,
+    "goto": 16.3,
+    "deposit": 13.7,
+    "mine": 9.7
+   },
+   "post_veto": {
+    "explore": 33.0,
+    "gather": 29.0,
+    "goto": 22.0,
+    "craft": 11.0,
+    "mine": 3.0
+   }
+  },
+  "cand-c2-q8": {
+   "good": {
+    "gather": 22.0,
+    "explore": 20.0,
+    "mine": 15.5,
+    "goto": 15.0,
+    "surface": 13.0
+   },
+   "fail": {
+    "surface": 56.7,
+    "gather": 12.7,
+    "goto": 9.7,
+    "mine": 6.7,
+    "deposit": 5.3
+   },
+   "post_veto": {
+    "surface": 64.0,
+    "home": 9.0,
+    "goto": 8.0,
+    "explore": 8.0,
+    "gather": 5.0
+   }
+  },
+  "20261101-qwen35-4b": {
+   "good": {
+    "gather": 26.5,
+    "explore": 22.5,
+    "goto": 12.5,
+    "mine": 12.5,
+    "surface": 10.5
+   },
+   "fail": {
+    "surface": 53.3,
+    "gather": 14.0,
+    "mine": 8.3,
+    "goto": 8.0,
+    "deposit": 5.7
+   },
+   "post_veto": {
+    "surface": 67.0,
+    "home": 9.0,
+    "explore": 9.0,
+    "goto": 5.0,
+    "gather": 4.0
+   }
+  },
+  "base-qwen35-4b-q8": {
+   "good": {
+    "gather": 22.5,
+    "explore": 22.5,
+    "surface": 14.5,
+    "mine": 12.5,
+    "deposit": 10.0
+   },
+   "fail": {
+    "surface": 22.7,
+    "explore": 21.0,
+    "home": 15.7,
+    "gather": 12.0,
+    "goto": 11.7
+   },
+   "post_veto": {
+    "explore": 38.0,
+    "home": 16.0,
+    "gather": 14.0,
+    "goto": 14.0,
+    "surface": 12.0
+   }
+  },
+  "20261101-qwen35-4b-bf16": {
+   "good": {
+    "gather": 26.5,
+    "explore": 22.5,
+    "goto": 12.5,
+    "surface": 12.0,
+    "mine": 11.0
+   },
+   "fail": {
+    "surface": 54.7,
+    "gather": 13.7,
+    "goto": 8.3,
+    "mine": 8.0,
+    "deposit": 5.7
+   },
+   "post_veto": {
+    "surface": 66.0,
+    "explore": 10.0,
+    "home": 9.0,
+    "goto": 5.0,
+    "deposit": 3.0
+   }
+  },
+  "20261101-qwen35-9b": {
+   "good": {
+    "gather": 26.0,
+    "explore": 19.5,
+    "mine": 15.5,
+    "goto": 14.5,
+    "surface": 10.5
+   },
+   "fail": {
+    "surface": 53.3,
+    "gather": 12.7,
+    "mine": 10.3,
+    "goto": 6.7,
+    "deposit": 6.0
+   },
+   "post_veto": {
+    "surface": 66.0,
+    "explore": 10.0,
+    "home": 9.0,
+    "goto": 4.0,
+    "mine": 4.0
+   }
+  },
+  "base-qwen35-9b-q8": {
+   "good": {
+    "gather": 32.0,
+    "explore": 19.5,
+    "goto": 14.5,
+    "deposit": 12.0,
+    "surface": 7.5
+   },
+   "fail": {
+    "surface": 25.0,
+    "gather": 20.0,
+    "goto": 17.0,
+    "explore": 11.7,
+    "deposit": 11.3
+   },
+   "post_veto": {
+    "goto": 23.0,
+    "gather": 20.0,
+    "explore": 19.0,
+    "home": 13.0,
+    "surface": 10.0
+   }
+  }
+ },
+ "new_best": null
+}

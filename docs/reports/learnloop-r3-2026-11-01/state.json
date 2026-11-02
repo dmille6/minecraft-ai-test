@@ -223,329 +223,781 @@
    "at": "2026-11-02T03:47:25Z"
   },
   "latency": {
-   "partial": {
-    "qwen2.5-7b-instruct@20": {
-     "rate_per_min": 20,
-     "n": 60,
-     "valid": 60,
-     "timeouts_or_errors": 0,
-     "done_per_min": 24.1,
-     "p50_ms": 2239,
-     "p95_ms": 5838,
-     "p99_ms": 6538,
-     "prompt_tokens_p50": 2442,
-     "completion_p50": 63,
-     "cached_share_mean": 0.457,
-     "gates_p50_2500_p95_5000": false,
-     "role": "incumbent"
-    },
-    "qwen2.5-7b-instruct@50": {
-     "rate_per_min": 50,
-     "n": 150,
-     "valid": 150,
-     "timeouts_or_errors": 0,
-     "done_per_min": 48.8,
-     "p50_ms": 7417,
-     "p95_ms": 12416,
-     "p99_ms": 13699,
-     "prompt_tokens_p50": 2364,
-     "completion_p50": 61,
-     "cached_share_mean": 0.442,
-     "gates_p50_2500_p95_5000": false,
-     "role": "incumbent"
-    },
-    "qwen2.5-7b-instruct@80": {
-     "rate_per_min": 80,
-     "n": 240,
-     "valid": 231,
-     "timeouts_or_errors": 9,
-     "done_per_min": 54.2,
-     "p50_ms": 27709,
-     "p95_ms": 88932,
-     "p99_ms": 89780,
-     "prompt_tokens_p50": 2353,
-     "completion_p50": 60,
-     "cached_share_mean": 0.495,
-     "gates_p50_2500_p95_5000": false,
-     "role": "incumbent"
-    },
-    "qwen2.5-7b-instruct@107": {
-     "rate_per_min": 107,
-     "n": 321,
-     "valid": 109,
-     "timeouts_or_errors": 212,
-     "done_per_min": 25.1,
-     "p50_ms": 34427,
-     "p95_ms": 44895,
-     "p99_ms": 89318,
-     "prompt_tokens_p50": 2398,
-     "completion_p50": 61,
-     "cached_share_mean": 0.446,
-     "gates_p50_2500_p95_5000": false,
-     "role": "incumbent"
-    },
-    "qwen2.5-7b-instruct@130": {
-     "rate_per_min": 130,
-     "n": 390,
-     "valid": 89,
-     "timeouts_or_errors": 301,
-     "done_per_min": 20.5,
-     "p50_ms": 28455,
-     "p95_ms": 44850,
-     "p99_ms": 89750,
-     "prompt_tokens_p50": 2413,
-     "completion_p50": 64,
-     "cached_share_mean": 0.44,
-     "gates_p50_2500_p95_5000": false,
-     "role": "incumbent"
-    },
-    "cand-c2-q8@20": {
-     "rate_per_min": 20,
-     "n": 60,
-     "valid": 60,
-     "timeouts_or_errors": 0,
-     "done_per_min": 24.2,
-     "p50_ms": 3050,
-     "p95_ms": 5563,
-     "p99_ms": 6351,
-     "prompt_tokens_p50": 2506,
-     "completion_p50": 41,
-     "cached_share_mean": 0.432,
-     "gates_p50_2500_p95_5000": false,
-     "role": "best"
-    },
-    "cand-c2-q8@50": {
-     "rate_per_min": 50,
-     "n": 150,
-     "valid": 150,
-     "timeouts_or_errors": 0,
-     "done_per_min": 48.5,
-     "p50_ms": 16614,
-     "p95_ms": 23970,
-     "p99_ms": 26497,
-     "prompt_tokens_p50": 2428,
-     "completion_p50": 42,
-     "cached_share_mean": 0.426,
-     "gates_p50_2500_p95_5000": false,
-     "role": "best"
-    },
-    "cand-c2-q8@80": {
-     "rate_per_min": 80,
-     "n": 240,
-     "valid": 57,
-     "timeouts_or_errors": 183,
-     "done_per_min": 13.0,
-     "p50_ms": 24717,
-     "p95_ms": 43632,
-     "p99_ms": 89272,
-     "prompt_tokens_p50": 2495,
-     "completion_p50": 41,
-     "cached_share_mean": 0.397,
-     "gates_p50_2500_p95_5000": false,
-     "role": "best"
-    },
-    "cand-c2-q8@107": {
-     "rate_per_min": 107,
-     "n": 321,
-     "valid": 49,
-     "timeouts_or_errors": 272,
-     "done_per_min": 11.2,
-     "p50_ms": 26643,
-     "p95_ms": 42571,
-     "p99_ms": 44377,
-     "prompt_tokens_p50": 2478,
-     "completion_p50": 41,
-     "cached_share_mean": 0.389,
-     "gates_p50_2500_p95_5000": false,
-     "role": "best"
-    },
-    "cand-c2-q8@130": {
-     "rate_per_min": 130,
-     "n": 390,
-     "valid": 46,
-     "timeouts_or_errors": 344,
-     "done_per_min": 10.5,
-     "p50_ms": 26531,
-     "p95_ms": 42206,
-     "p99_ms": 44850,
-     "prompt_tokens_p50": 2478,
-     "completion_p50": 42,
-     "cached_share_mean": 0.386,
-     "gates_p50_2500_p95_5000": false,
-     "role": "best"
-    },
-    "20261101-qwen35-4b@20": {
-     "rate_per_min": 20,
-     "n": 60,
-     "valid": 60,
-     "timeouts_or_errors": 0,
-     "done_per_min": 24.2,
-     "p50_ms": 1668,
-     "p95_ms": 3084,
-     "p99_ms": 3739,
-     "prompt_tokens_p50": 2506,
-     "completion_p50": 42,
-     "cached_share_mean": 0.432,
-     "gates_p50_2500_p95_5000": true,
-     "role": "candidate:qwen35-4b"
-    },
-    "20261101-qwen35-4b@50": {
-     "rate_per_min": 50,
-     "n": 150,
-     "valid": 150,
-     "timeouts_or_errors": 0,
-     "done_per_min": 49.3,
-     "p50_ms": 5989,
-     "p95_ms": 11996,
-     "p99_ms": 14673,
-     "prompt_tokens_p50": 2428,
-     "completion_p50": 41,
-     "cached_share_mean": 0.428,
-     "gates_p50_2500_p95_5000": false,
-     "role": "candidate:qwen35-4b"
-    },
-    "20261101-qwen35-4b@80": {
-     "rate_per_min": 80,
-     "n": 240,
-     "valid": 213,
-     "timeouts_or_errors": 27,
-     "done_per_min": 50.2,
-     "p50_ms": 31924,
-     "p95_ms": 84628,
-     "p99_ms": 89733,
-     "prompt_tokens_p50": 2407,
-     "completion_p50": 41,
-     "cached_share_mean": 0.443,
-     "gates_p50_2500_p95_5000": false,
-     "role": "candidate:qwen35-4b"
-    },
-    "20261101-qwen35-4b@107": {
-     "rate_per_min": 107,
-     "n": 321,
-     "valid": 127,
-     "timeouts_or_errors": 194,
-     "done_per_min": 29.2,
-     "p50_ms": 34904,
-     "p95_ms": 44752,
-     "p99_ms": 89577,
-     "prompt_tokens_p50": 2444,
-     "completion_p50": 41,
-     "cached_share_mean": 0.426,
-     "gates_p50_2500_p95_5000": false,
-     "role": "candidate:qwen35-4b"
-    },
-    "20261101-qwen35-4b@130": {
-     "rate_per_min": 130,
-     "n": 390,
-     "valid": 84,
-     "timeouts_or_errors": 306,
-     "done_per_min": 19.3,
-     "p50_ms": 26070,
-     "p95_ms": 44645,
-     "p99_ms": 89454,
-     "prompt_tokens_p50": 2478,
-     "completion_p50": 41,
-     "cached_share_mean": 0.422,
-     "gates_p50_2500_p95_5000": false,
-     "role": "candidate:qwen35-4b"
-    },
-    "20261101-qwen35-9b@20": {
-     "rate_per_min": 20,
-     "n": 60,
-     "valid": 60,
-     "timeouts_or_errors": 0,
-     "done_per_min": 24.2,
-     "p50_ms": 2933,
-     "p95_ms": 6005,
-     "p99_ms": 6863,
-     "prompt_tokens_p50": 2506,
-     "completion_p50": 42,
-     "cached_share_mean": 0.424,
-     "gates_p50_2500_p95_5000": false,
-     "role": "candidate:qwen35-9b"
-    },
-    "20261101-qwen35-9b@50": {
-     "rate_per_min": 50,
-     "n": 150,
-     "valid": 150,
-     "timeouts_or_errors": 0,
-     "done_per_min": 48.4,
-     "p50_ms": 11077,
-     "p95_ms": 18487,
-     "p99_ms": 19883,
-     "prompt_tokens_p50": 2428,
-     "completion_p50": 41,
-     "cached_share_mean": 0.428,
-     "gates_p50_2500_p95_5000": false,
-     "role": "candidate:qwen35-9b"
-    },
-    "20261101-qwen35-9b@80": {
-     "rate_per_min": 80,
-     "n": 240,
-     "valid": 69,
-     "timeouts_or_errors": 171,
-     "done_per_min": 15.8,
-     "p50_ms": 26674,
-     "p95_ms": 44314,
-     "p99_ms": 88779,
-     "prompt_tokens_p50": 2491,
-     "completion_p50": 41,
-     "cached_share_mean": 0.41,
-     "gates_p50_2500_p95_5000": false,
-     "role": "candidate:qwen35-9b"
-    },
-    "20261101-qwen35-9b@107": {
-     "rate_per_min": 107,
-     "n": 321,
-     "valid": 49,
-     "timeouts_or_errors": 272,
-     "done_per_min": 11.2,
-     "p50_ms": 25813,
-     "p95_ms": 43009,
-     "p99_ms": 44474,
-     "prompt_tokens_p50": 2478,
-     "completion_p50": 42,
-     "cached_share_mean": 0.389,
-     "gates_p50_2500_p95_5000": false,
-     "role": "candidate:qwen35-9b"
-    },
-    "20261101-qwen35-9b@130": {
-     "rate_per_min": 130,
-     "n": 390,
-     "valid": 52,
-     "timeouts_or_errors": 338,
-     "done_per_min": 11.9,
-     "p50_ms": 27122,
-     "p95_ms": 44036,
-     "p99_ms": 89753,
-     "prompt_tokens_p50": 2495,
-     "completion_p50": 41,
-     "cached_share_mean": 0.392,
-     "gates_p50_2500_p95_5000": false,
-     "role": "candidate:qwen35-9b"
-    }
+   "within_gate_rate": {
+    "20261101-qwen35-4b": 80,
+    "cand-c2-q8": 0,
+    "20261101-qwen35-9b": 0
    },
-   "ethan_note": "ethan-gpu shares the 3090: absolute numbers are pessimistic; compare models within the run",
+   "ladder_used": [
+    20,
+    40,
+    60,
+    80,
+    107
+   ],
+   "card": "the 5080 (pve4) llama-server b12020 -np 6 x 6144, beside the live fleet Ollama qwen2.5:7b (8.7 GB resident)",
+   "method": "card evidence (serving agent, 11-02 12:31-12:46Z, serving-A method (docs/reports/serving-A-2026-11-01.md s.7), files copied read-only from .31 ~/servea/out)",
+   "evidence": "/home/mike/learnloop/rounds/20261101/card-5080/card-rates-5080.json",
+   "evidence_sha256": "f81929e36e7b84676e004edcbb3fedb1d3cde09bddecf29d1e38d5470771446c",
+   "cannot": {
+    "cand-c2-q8": "cannot load on the 5080 beside the fleet qwen2.5: 9B Q8 needs ~10.4 GB at np 8 (9.8 GB weights), the card has 16.3 GB with qwen2.5 resident at 8.7 GB (serving-A s.4/s.7)",
+    "20261101-qwen35-9b": "same as cand-c2-q8: a 9B Q8 does not fit beside the resident qwen2.5"
+   },
    "status": "done",
-   "at": "2026-11-02T05:06:05Z"
+   "at": "2026-11-02T13:51:39Z"
   },
   "gate": {
-   "new_best": null,
+   "new_best": "20261101-qwen35-4b",
    "gate": "/home/mike/learnloop/rounds/20261101/gate.json",
    "status": "done",
-   "at": "2026-11-02T05:06:06Z"
+   "at": "2026-11-02T13:51:40Z"
   },
   "register": {
-   "prepared": null,
-   "why": "no new best this round",
+   "prepared": "/home/mike/learnloop/rounds/20261101/queue-entry.HELD.json",
+   "run": "ll261101-01",
+   "queue_add": false,
    "status": "done",
-   "at": "2026-11-02T05:06:06Z"
+   "at": "2026-11-02T13:51:40Z"
   },
   "report": {
    "report": "/home/mike/learnloop/rounds/20261101/REPORT.md",
    "status": "done",
-   "at": "2026-11-02T05:06:06Z"
+   "at": "2026-11-02T13:51:40Z"
   }
  },
- "closed": "2026-11-02T05:06:06Z"
+ "closed": "2026-11-02T13:51:40Z",
+ "superseded": [
+  {
+   "at": "2026-11-02T12:33:11Z",
+   "phases": {
+    "latency": {
+     "partial": {
+      "qwen2.5-7b-instruct@20": {
+       "rate_per_min": 20,
+       "n": 60,
+       "valid": 60,
+       "timeouts_or_errors": 0,
+       "done_per_min": 24.1,
+       "p50_ms": 2239,
+       "p95_ms": 5838,
+       "p99_ms": 6538,
+       "prompt_tokens_p50": 2442,
+       "completion_p50": 63,
+       "cached_share_mean": 0.457,
+       "gates_p50_2500_p95_5000": false,
+       "role": "incumbent"
+      },
+      "qwen2.5-7b-instruct@50": {
+       "rate_per_min": 50,
+       "n": 150,
+       "valid": 150,
+       "timeouts_or_errors": 0,
+       "done_per_min": 48.8,
+       "p50_ms": 7417,
+       "p95_ms": 12416,
+       "p99_ms": 13699,
+       "prompt_tokens_p50": 2364,
+       "completion_p50": 61,
+       "cached_share_mean": 0.442,
+       "gates_p50_2500_p95_5000": false,
+       "role": "incumbent"
+      },
+      "qwen2.5-7b-instruct@80": {
+       "rate_per_min": 80,
+       "n": 240,
+       "valid": 231,
+       "timeouts_or_errors": 9,
+       "done_per_min": 54.2,
+       "p50_ms": 27709,
+       "p95_ms": 88932,
+       "p99_ms": 89780,
+       "prompt_tokens_p50": 2353,
+       "completion_p50": 60,
+       "cached_share_mean": 0.495,
+       "gates_p50_2500_p95_5000": false,
+       "role": "incumbent"
+      },
+      "qwen2.5-7b-instruct@107": {
+       "rate_per_min": 107,
+       "n": 321,
+       "valid": 109,
+       "timeouts_or_errors": 212,
+       "done_per_min": 25.1,
+       "p50_ms": 34427,
+       "p95_ms": 44895,
+       "p99_ms": 89318,
+       "prompt_tokens_p50": 2398,
+       "completion_p50": 61,
+       "cached_share_mean": 0.446,
+       "gates_p50_2500_p95_5000": false,
+       "role": "incumbent"
+      },
+      "qwen2.5-7b-instruct@130": {
+       "rate_per_min": 130,
+       "n": 390,
+       "valid": 89,
+       "timeouts_or_errors": 301,
+       "done_per_min": 20.5,
+       "p50_ms": 28455,
+       "p95_ms": 44850,
+       "p99_ms": 89750,
+       "prompt_tokens_p50": 2413,
+       "completion_p50": 64,
+       "cached_share_mean": 0.44,
+       "gates_p50_2500_p95_5000": false,
+       "role": "incumbent"
+      },
+      "cand-c2-q8@20": {
+       "rate_per_min": 20,
+       "n": 60,
+       "valid": 60,
+       "timeouts_or_errors": 0,
+       "done_per_min": 24.2,
+       "p50_ms": 3050,
+       "p95_ms": 5563,
+       "p99_ms": 6351,
+       "prompt_tokens_p50": 2506,
+       "completion_p50": 41,
+       "cached_share_mean": 0.432,
+       "gates_p50_2500_p95_5000": false,
+       "role": "best"
+      },
+      "cand-c2-q8@50": {
+       "rate_per_min": 50,
+       "n": 150,
+       "valid": 150,
+       "timeouts_or_errors": 0,
+       "done_per_min": 48.5,
+       "p50_ms": 16614,
+       "p95_ms": 23970,
+       "p99_ms": 26497,
+       "prompt_tokens_p50": 2428,
+       "completion_p50": 42,
+       "cached_share_mean": 0.426,
+       "gates_p50_2500_p95_5000": false,
+       "role": "best"
+      },
+      "cand-c2-q8@80": {
+       "rate_per_min": 80,
+       "n": 240,
+       "valid": 57,
+       "timeouts_or_errors": 183,
+       "done_per_min": 13.0,
+       "p50_ms": 24717,
+       "p95_ms": 43632,
+       "p99_ms": 89272,
+       "prompt_tokens_p50": 2495,
+       "completion_p50": 41,
+       "cached_share_mean": 0.397,
+       "gates_p50_2500_p95_5000": false,
+       "role": "best"
+      },
+      "cand-c2-q8@107": {
+       "rate_per_min": 107,
+       "n": 321,
+       "valid": 49,
+       "timeouts_or_errors": 272,
+       "done_per_min": 11.2,
+       "p50_ms": 26643,
+       "p95_ms": 42571,
+       "p99_ms": 44377,
+       "prompt_tokens_p50": 2478,
+       "completion_p50": 41,
+       "cached_share_mean": 0.389,
+       "gates_p50_2500_p95_5000": false,
+       "role": "best"
+      },
+      "cand-c2-q8@130": {
+       "rate_per_min": 130,
+       "n": 390,
+       "valid": 46,
+       "timeouts_or_errors": 344,
+       "done_per_min": 10.5,
+       "p50_ms": 26531,
+       "p95_ms": 42206,
+       "p99_ms": 44850,
+       "prompt_tokens_p50": 2478,
+       "completion_p50": 42,
+       "cached_share_mean": 0.386,
+       "gates_p50_2500_p95_5000": false,
+       "role": "best"
+      },
+      "20261101-qwen35-4b@20": {
+       "rate_per_min": 20,
+       "n": 60,
+       "valid": 60,
+       "timeouts_or_errors": 0,
+       "done_per_min": 24.2,
+       "p50_ms": 1668,
+       "p95_ms": 3084,
+       "p99_ms": 3739,
+       "prompt_tokens_p50": 2506,
+       "completion_p50": 42,
+       "cached_share_mean": 0.432,
+       "gates_p50_2500_p95_5000": true,
+       "role": "candidate:qwen35-4b"
+      },
+      "20261101-qwen35-4b@50": {
+       "rate_per_min": 50,
+       "n": 150,
+       "valid": 150,
+       "timeouts_or_errors": 0,
+       "done_per_min": 49.3,
+       "p50_ms": 5989,
+       "p95_ms": 11996,
+       "p99_ms": 14673,
+       "prompt_tokens_p50": 2428,
+       "completion_p50": 41,
+       "cached_share_mean": 0.428,
+       "gates_p50_2500_p95_5000": false,
+       "role": "candidate:qwen35-4b"
+      },
+      "20261101-qwen35-4b@80": {
+       "rate_per_min": 80,
+       "n": 240,
+       "valid": 213,
+       "timeouts_or_errors": 27,
+       "done_per_min": 50.2,
+       "p50_ms": 31924,
+       "p95_ms": 84628,
+       "p99_ms": 89733,
+       "prompt_tokens_p50": 2407,
+       "completion_p50": 41,
+       "cached_share_mean": 0.443,
+       "gates_p50_2500_p95_5000": false,
+       "role": "candidate:qwen35-4b"
+      },
+      "20261101-qwen35-4b@107": {
+       "rate_per_min": 107,
+       "n": 321,
+       "valid": 127,
+       "timeouts_or_errors": 194,
+       "done_per_min": 29.2,
+       "p50_ms": 34904,
+       "p95_ms": 44752,
+       "p99_ms": 89577,
+       "prompt_tokens_p50": 2444,
+       "completion_p50": 41,
+       "cached_share_mean": 0.426,
+       "gates_p50_2500_p95_5000": false,
+       "role": "candidate:qwen35-4b"
+      },
+      "20261101-qwen35-4b@130": {
+       "rate_per_min": 130,
+       "n": 390,
+       "valid": 84,
+       "timeouts_or_errors": 306,
+       "done_per_min": 19.3,
+       "p50_ms": 26070,
+       "p95_ms": 44645,
+       "p99_ms": 89454,
+       "prompt_tokens_p50": 2478,
+       "completion_p50": 41,
+       "cached_share_mean": 0.422,
+       "gates_p50_2500_p95_5000": false,
+       "role": "candidate:qwen35-4b"
+      },
+      "20261101-qwen35-9b@20": {
+       "rate_per_min": 20,
+       "n": 60,
+       "valid": 60,
+       "timeouts_or_errors": 0,
+       "done_per_min": 24.2,
+       "p50_ms": 2933,
+       "p95_ms": 6005,
+       "p99_ms": 6863,
+       "prompt_tokens_p50": 2506,
+       "completion_p50": 42,
+       "cached_share_mean": 0.424,
+       "gates_p50_2500_p95_5000": false,
+       "role": "candidate:qwen35-9b"
+      },
+      "20261101-qwen35-9b@50": {
+       "rate_per_min": 50,
+       "n": 150,
+       "valid": 150,
+       "timeouts_or_errors": 0,
+       "done_per_min": 48.4,
+       "p50_ms": 11077,
+       "p95_ms": 18487,
+       "p99_ms": 19883,
+       "prompt_tokens_p50": 2428,
+       "completion_p50": 41,
+       "cached_share_mean": 0.428,
+       "gates_p50_2500_p95_5000": false,
+       "role": "candidate:qwen35-9b"
+      },
+      "20261101-qwen35-9b@80": {
+       "rate_per_min": 80,
+       "n": 240,
+       "valid": 69,
+       "timeouts_or_errors": 171,
+       "done_per_min": 15.8,
+       "p50_ms": 26674,
+       "p95_ms": 44314,
+       "p99_ms": 88779,
+       "prompt_tokens_p50": 2491,
+       "completion_p50": 41,
+       "cached_share_mean": 0.41,
+       "gates_p50_2500_p95_5000": false,
+       "role": "candidate:qwen35-9b"
+      },
+      "20261101-qwen35-9b@107": {
+       "rate_per_min": 107,
+       "n": 321,
+       "valid": 49,
+       "timeouts_or_errors": 272,
+       "done_per_min": 11.2,
+       "p50_ms": 25813,
+       "p95_ms": 43009,
+       "p99_ms": 44474,
+       "prompt_tokens_p50": 2478,
+       "completion_p50": 42,
+       "cached_share_mean": 0.389,
+       "gates_p50_2500_p95_5000": false,
+       "role": "candidate:qwen35-9b"
+      },
+      "20261101-qwen35-9b@130": {
+       "rate_per_min": 130,
+       "n": 390,
+       "valid": 52,
+       "timeouts_or_errors": 338,
+       "done_per_min": 11.9,
+       "p50_ms": 27122,
+       "p95_ms": 44036,
+       "p99_ms": 89753,
+       "prompt_tokens_p50": 2495,
+       "completion_p50": 41,
+       "cached_share_mean": 0.392,
+       "gates_p50_2500_p95_5000": false,
+       "role": "candidate:qwen35-9b"
+      }
+     },
+     "ethan_note": "ethan-gpu shares the 3090: absolute numbers are pessimistic; compare models within the run",
+     "status": "done",
+     "at": "2026-11-02T05:06:05Z"
+    },
+    "gate": {
+     "new_best": null,
+     "gate": "/home/mike/learnloop/rounds/20261101/gate.json",
+     "status": "done",
+     "at": "2026-11-02T05:06:06Z"
+    },
+    "register": {
+     "prepared": null,
+     "why": "no new best this round",
+     "status": "done",
+     "at": "2026-11-02T05:06:06Z"
+    },
+    "report": {
+     "report": "/home/mike/learnloop/rounds/20261101/REPORT.md",
+     "status": "done",
+     "at": "2026-11-02T05:06:06Z"
+    }
+   },
+   "gates": {
+    "vs_incumbent": {
+     "schema_valid_floor_pp": 0.5,
+     "hard_le": true,
+     "rep_fail_le": true
+    },
+    "vs_best": {
+     "rep_fail_tol_pp": 2.0,
+     "post_veto_tol_pp": 5.0,
+     "hard_tol_pp": 0.5,
+     "schema_valid_min": 99.0
+    },
+    "new_best_if": "passes vs_incumbent and vs_best AND (rep_fail + post_veto_repeat strictly below best's, OR at most 60% of best's parameters)"
+   },
+   "latency": {
+    "rates": [
+     20,
+     50,
+     80,
+     107,
+     130
+    ],
+    "minutes": 3,
+    "models": [
+     "candidates",
+     "best",
+     "incumbent"
+    ]
+   },
+   "why": "regate under the written rule of config version dcedd09404892f37d226bf1520c2d997e924874c"
+  },
+  {
+   "at": "2026-11-02T12:38:04Z",
+   "phases": {},
+   "gates": {
+    "vs_incumbent": {
+     "schema_valid_floor_pp": 0.5,
+     "hard_le": true,
+     "rep_fail_le": true
+    },
+    "vs_best": {
+     "rep_fail_tol_pp": 2.0,
+     "post_veto_tol_pp": 5.0,
+     "hard_tol_pp": 0.5,
+     "schema_valid_min": 99.0
+    },
+    "new_best_if": "passes vs_incumbent AND [ (passes vs_best AND rep_fail+post_veto strictly below best's, OR <= 60% of best's parameters) OR capacity_rule ]",
+    "capacity_rule": {
+     "_doc": "OWNER 11-02 ~12:45Z (relayed by the control session), written BEFORE round 3 was re-gated: a candidate that passes the incumbent gate and schema_valid >= 99 (and its export check where one exists) may become BEST when it is NOT significantly worse than the current best on hard (600 items), rep_fail (300) and post_veto (100) -- paired exact two-sided sign test on discordant items, 'significantly worse' = more candidate-only failures AND p < alpha -- AND serves >= ratio x the best's within-gate decisions/min, both measured in the same session on the fleet's serving card (latency.card) by latency.ladder. The incumbent gate is unchanged. A best that fails the lowest rung counts as that rung.",
+     "alpha": 0.05,
+     "ratio": 1.5
+    }
+   },
+   "latency": {
+    "_doc": "within-gate rate = highest ladder rung at which p50 <= 2.5 s and p95 <= 5 s over ALL requests with every request valid, holding at every lower rung; per model the ladder stops at the first failing rung. Method = the serving agent's (docs/reports/serving-A-2026-11-01.md s.3): server restarted before each rung, 3 min open-loop Poisson, LIVE promptcache-layout prompts with the 80 real bot names, the bots' own oai+ client (batchload api native), T 0.7, 45 s timeout.",
+    "ladder": [
+     4,
+     6,
+     8,
+     10,
+     12,
+     14,
+     17,
+     20,
+     25,
+     30,
+     40
+    ],
+    "minutes": 3,
+    "ladder_items": "~/learnloop/r3/live-pc.servea-1101.jsonl",
+    "ladder_bots_dir": "~/learnloop/replay/bots-59ff9bd52838/bots",
+    "card": "the 3090 (10.0.0.16) llama-server b12020, servea flags (-np 8 --no-kv-unified -c 49152 -fa on --jinja --reasoning off), shared with ethan-gpu -- the card servea serves the fleet from; switch to the 5080 once it is measured",
+    "models": [
+     "candidates",
+     "best"
+    ]
+   },
+   "why": "regate under the written rule of config version 493821420f5042a130c9db54c23b70e25be2589c"
+  },
+  {
+   "at": "2026-11-02T13:51:39Z",
+   "phases": {
+    "latency": {
+     "ladder_runs": {
+      "cand-c2-q8": {
+       "4": {
+        "rate_per_min": 4,
+        "n": 12,
+        "valid": 12,
+        "timeouts_or_errors": 0,
+        "done_per_min": 8.7,
+        "p50_ms": 1840,
+        "p95_ms": 2683,
+        "p99_ms": 2683,
+        "prompt_tokens_p50": 2431,
+        "completion_p50": 43,
+        "cached_share_mean": 0.37,
+        "gates_p50_2500_p95_5000": true,
+        "role": "best"
+       },
+       "6": {
+        "rate_per_min": 6,
+        "n": 18,
+        "valid": 18,
+        "timeouts_or_errors": 0,
+        "done_per_min": 9.1,
+        "p50_ms": 1915,
+        "p95_ms": 4001,
+        "p99_ms": 4001,
+        "prompt_tokens_p50": 2542,
+        "completion_p50": 43,
+        "cached_share_mean": 0.39,
+        "gates_p50_2500_p95_5000": true,
+        "role": "best"
+       },
+       "8": {
+        "rate_per_min": 8,
+        "n": 24,
+        "valid": 24,
+        "timeouts_or_errors": 0,
+        "done_per_min": 9.8,
+        "p50_ms": 1707,
+        "p95_ms": 3299,
+        "p99_ms": 5262,
+        "prompt_tokens_p50": 2447,
+        "completion_p50": 41,
+        "cached_share_mean": 0.428,
+        "gates_p50_2500_p95_5000": true,
+        "role": "best"
+       },
+       "10": {
+        "rate_per_min": 10,
+        "n": 30,
+        "valid": 30,
+        "timeouts_or_errors": 0,
+        "done_per_min": 11.9,
+        "p50_ms": 2435,
+        "p95_ms": 3906,
+        "p99_ms": 4453,
+        "prompt_tokens_p50": 2482,
+        "completion_p50": 41,
+        "cached_share_mean": 0.399,
+        "gates_p50_2500_p95_5000": true,
+        "role": "best"
+       },
+       "12": {
+        "rate_per_min": 12,
+        "n": 36,
+        "valid": 36,
+        "timeouts_or_errors": 0,
+        "done_per_min": 15.0,
+        "p50_ms": 3040,
+        "p95_ms": 5077,
+        "p99_ms": 6245,
+        "prompt_tokens_p50": 2484,
+        "completion_p50": 43,
+        "cached_share_mean": 0.428,
+        "gates_p50_2500_p95_5000": false,
+        "role": "best"
+       }
+      },
+      "20261101-qwen35-4b": {
+       "4": {
+        "rate_per_min": 4,
+        "n": 12,
+        "valid": 12,
+        "timeouts_or_errors": 0,
+        "done_per_min": 8.6,
+        "p50_ms": 1612,
+        "p95_ms": 1939,
+        "p99_ms": 1939,
+        "prompt_tokens_p50": 2431,
+        "completion_p50": 43,
+        "cached_share_mean": 0.37,
+        "gates_p50_2500_p95_5000": true,
+        "role": "candidate:qwen35-4b"
+       },
+       "6": {
+        "rate_per_min": 6,
+        "n": 18,
+        "valid": 18,
+        "timeouts_or_errors": 0,
+        "done_per_min": 9.2,
+        "p50_ms": 1433,
+        "p95_ms": 3184,
+        "p99_ms": 3184,
+        "prompt_tokens_p50": 2542,
+        "completion_p50": 42,
+        "cached_share_mean": 0.39,
+        "gates_p50_2500_p95_5000": true,
+        "role": "candidate:qwen35-4b"
+       },
+       "8": {
+        "rate_per_min": 8,
+        "n": 24,
+        "valid": 24,
+        "timeouts_or_errors": 0,
+        "done_per_min": 9.9,
+        "p50_ms": 1516,
+        "p95_ms": 2517,
+        "p99_ms": 3144,
+        "prompt_tokens_p50": 2447,
+        "completion_p50": 42,
+        "cached_share_mean": 0.428,
+        "gates_p50_2500_p95_5000": true,
+        "role": "candidate:qwen35-4b"
+       },
+       "10": {
+        "rate_per_min": 10,
+        "n": 30,
+        "valid": 30,
+        "timeouts_or_errors": 0,
+        "done_per_min": 11.9,
+        "p50_ms": 1533,
+        "p95_ms": 2868,
+        "p99_ms": 3156,
+        "prompt_tokens_p50": 2482,
+        "completion_p50": 41,
+        "cached_share_mean": 0.399,
+        "gates_p50_2500_p95_5000": true,
+        "role": "candidate:qwen35-4b"
+       },
+       "12": {
+        "rate_per_min": 12,
+        "n": 36,
+        "valid": 36,
+        "timeouts_or_errors": 0,
+        "done_per_min": 15.1,
+        "p50_ms": 1757,
+        "p95_ms": 3047,
+        "p99_ms": 3238,
+        "prompt_tokens_p50": 2484,
+        "completion_p50": 42,
+        "cached_share_mean": 0.428,
+        "gates_p50_2500_p95_5000": true,
+        "role": "candidate:qwen35-4b"
+       },
+       "14": {
+        "rate_per_min": 14,
+        "n": 42,
+        "valid": 42,
+        "timeouts_or_errors": 0,
+        "done_per_min": 17.7,
+        "p50_ms": 2202,
+        "p95_ms": 4003,
+        "p99_ms": 4639,
+        "prompt_tokens_p50": 2520,
+        "completion_p50": 42,
+        "cached_share_mean": 0.431,
+        "gates_p50_2500_p95_5000": true,
+        "role": "candidate:qwen35-4b"
+       },
+       "17": {
+        "rate_per_min": 17,
+        "n": 51,
+        "valid": 51,
+        "timeouts_or_errors": 0,
+        "done_per_min": 21.5,
+        "p50_ms": 2312,
+        "p95_ms": 6344,
+        "p99_ms": 7204,
+        "prompt_tokens_p50": 2545,
+        "completion_p50": 43,
+        "cached_share_mean": 0.428,
+        "gates_p50_2500_p95_5000": false,
+        "role": "candidate:qwen35-4b"
+       }
+      },
+      "20261101-qwen35-9b": {
+       "4": {
+        "rate_per_min": 4,
+        "n": 12,
+        "valid": 12,
+        "timeouts_or_errors": 0,
+        "done_per_min": 8.6,
+        "p50_ms": 2210,
+        "p95_ms": 2672,
+        "p99_ms": 2672,
+        "prompt_tokens_p50": 2431,
+        "completion_p50": 44,
+        "cached_share_mean": 0.37,
+        "gates_p50_2500_p95_5000": true,
+        "role": "candidate:qwen35-9b"
+       },
+       "6": {
+        "rate_per_min": 6,
+        "n": 18,
+        "valid": 18,
+        "timeouts_or_errors": 0,
+        "done_per_min": 9.2,
+        "p50_ms": 2006,
+        "p95_ms": 3678,
+        "p99_ms": 3678,
+        "prompt_tokens_p50": 2542,
+        "completion_p50": 43,
+        "cached_share_mean": 0.39,
+        "gates_p50_2500_p95_5000": true,
+        "role": "candidate:qwen35-9b"
+       },
+       "8": {
+        "rate_per_min": 8,
+        "n": 24,
+        "valid": 24,
+        "timeouts_or_errors": 0,
+        "done_per_min": 9.8,
+        "p50_ms": 2165,
+        "p95_ms": 3689,
+        "p99_ms": 3883,
+        "prompt_tokens_p50": 2447,
+        "completion_p50": 42,
+        "cached_share_mean": 0.411,
+        "gates_p50_2500_p95_5000": true,
+        "role": "candidate:qwen35-9b"
+       },
+       "10": {
+        "rate_per_min": 10,
+        "n": 30,
+        "valid": 30,
+        "timeouts_or_errors": 0,
+        "done_per_min": 11.9,
+        "p50_ms": 2767,
+        "p95_ms": 4525,
+        "p99_ms": 5325,
+        "prompt_tokens_p50": 2482,
+        "completion_p50": 40,
+        "cached_share_mean": 0.414,
+        "gates_p50_2500_p95_5000": false,
+        "role": "candidate:qwen35-9b"
+       }
+      }
+     },
+     "within_gate_rate": {
+      "cand-c2-q8": 10,
+      "20261101-qwen35-4b": 14,
+      "20261101-qwen35-9b": 8
+     },
+     "card": "the 3090 (10.0.0.16) llama-server b12020, servea flags (-np 8 --no-kv-unified -c 49152 -fa on --jinja --reasoning off), shared with ethan-gpu -- the card servea serves the fleet from; switch to the 5080 once it is measured",
+     "method": "ladder, serving-A method",
+     "status": "done",
+     "at": "2026-11-02T13:15:50Z"
+    },
+    "gate": {
+     "new_best": null,
+     "gate": "/home/mike/learnloop/rounds/20261101/gate.json",
+     "status": "done",
+     "at": "2026-11-02T13:15:51Z"
+    },
+    "register": {
+     "prepared": null,
+     "why": "no new best this round",
+     "status": "done",
+     "at": "2026-11-02T13:15:51Z"
+    },
+    "report": {
+     "report": "/home/mike/learnloop/rounds/20261101/REPORT.md",
+     "status": "done",
+     "at": "2026-11-02T13:15:51Z"
+    }
+   },
+   "gates": {
+    "vs_incumbent": {
+     "schema_valid_floor_pp": 0.5,
+     "hard_le": true,
+     "rep_fail_le": true
+    },
+    "vs_best": {
+     "rep_fail_tol_pp": 2.0,
+     "post_veto_tol_pp": 5.0,
+     "hard_tol_pp": 0.5,
+     "schema_valid_min": 99.0
+    },
+    "new_best_if": "passes vs_incumbent AND [ (passes vs_best AND rep_fail+post_veto strictly below best's, OR <= 60% of best's parameters) OR capacity_rule ]",
+    "capacity_rule": {
+     "_doc": "OWNER 11-02 ~12:45Z (relayed by the control session), written BEFORE round 3 was re-gated: a candidate that passes the incumbent gate and schema_valid >= 99 (and its export check where one exists) may become BEST when it is NOT significantly worse than the current best on hard (600 items), rep_fail (300) and post_veto (100) -- paired exact two-sided sign test on discordant items, 'significantly worse' = more candidate-only failures AND p < alpha -- AND serves >= ratio x the best's within-gate decisions/min, both measured in the same session on the fleet's serving card (latency.card) by latency.ladder. The incumbent gate is unchanged. A best that fails the lowest rung counts as that rung.",
+     "alpha": 0.05,
+     "ratio": 1.5
+    }
+   },
+   "latency": {
+    "_doc": "within-gate rate = highest ladder rung at which p50 <= 2.5 s and p95 <= 5 s over ALL requests with every request valid, holding at every lower rung; per model the ladder stops at the first failing rung. Method = the serving agent's (docs/reports/serving-A-2026-11-01.md s.3): server restarted before each rung, 3 min open-loop Poisson, LIVE promptcache-layout prompts with the 80 real bot names, the bots' own oai+ client (batchload api native), T 0.7, 45 s timeout.",
+    "ladder": [
+     4,
+     6,
+     8,
+     10,
+     12,
+     14,
+     17,
+     20,
+     25,
+     30,
+     40
+    ],
+    "minutes": 3,
+    "ladder_items": "~/learnloop/r3/live-pc.servea-1101.jsonl",
+    "ladder_bots_dir": "~/learnloop/replay/bots-59ff9bd52838/bots",
+    "card": "the 3090 (10.0.0.16) llama-server b12020, servea flags (-np 8 --no-kv-unified -c 49152 -fa on --jinja --reasoning off), shared with ethan-gpu -- the card servea serves the fleet from; switch to the 5080 once it is measured",
+    "models": [
+     "candidates",
+     "best"
+    ]
+   },
+   "why": "regate under the written rule of config version 4150b7addc15408a3d8d0014748695e5dbb4502c"
+  }
+ ]
 }

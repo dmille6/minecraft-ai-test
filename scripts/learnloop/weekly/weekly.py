@@ -177,7 +177,12 @@ def latency_summary(recs, minutes, rate):
             'done_per_min': round(len(ok) / span, 1) if span else None, 'p50_ms': q(.5), 'p95_ms': q(.95), 'p99_ms': q(.99),
             'prompt_tokens_p50': pt[len(pt) // 2] if pt else None, 'completion_p50': ct[len(ct) // 2] if ct else None,
             'cached_share_mean': round(sum(cached) / len(cached), 3) if cached else None,
-            'gates_p50_2500_p95_5000': bool(L) and q(.5) <= 2500 and q(.95) <= 5000 and len(ok) == len(recs)}
+            # the fleet gate: p50 <= 2.5 s, p95 <= 5 s, >= 99% valid (a timeout is not valid)
+            # and the run is COMPLETE: rate x minutes requests recorded, failures included (Codex r3: a truncated run
+            # with one fast answer must not read as a held rate)
+            'complete': len(recs) >= rate * minutes,
+            'gates_p50_2500_p95_5000': bool(L) and q(.5) <= 2500 and q(.95) <= 5000 and len(ok) >= 0.99 * len(recs)
+                                       and len(recs) >= rate * minutes}
 
 
 TIMEOUT_MS = 45000
@@ -639,6 +644,14 @@ def ph_latency_ladder(R):
     (serving-A-2026-11-01 drive.sh): server restarted before every rung (cold cache), open-loop Poisson for `minutes`,
     LIVE promptcache-layout items with the 80 real bot names, the bots' own oai+ client (batchload api native)."""
     lc = R.cfg['latency']; L = lc['ladder']
+    if lc.get('card_rates'):
+        # the fleet's serving card is not the loop's own GPU: its within-gate rates come from ladder runs measured ON
+        # that card (card_rates.py, same functions), pinned by file hashes. No GPU use here.
+        ev = json.load(open(ex(lc['card_rates'])))
+        rungs = ev['ladder']                               # the card's ONE ladder (card_rates.py refuses a mixed one)
+        return {'within_gate_rate': ev['rates'], 'ladder_used': rungs, 'card': ev['card'], 'method': 'card evidence (%s)' % ev['measured_by'],
+                'evidence': ex(lc['card_rates']), 'evidence_sha256': hashlib.sha256(open(ex(lc['card_rates']), 'rb').read()).hexdigest(),
+                'cannot': ev.get('cannot')}
     want = [m for m in model_list(R) if m[2].startswith('candidate') or (m[2] in ('best', 'incumbent') and m[2] in lc['models'])]
     os.makedirs(R.p('latency'), exist_ok=True)
     res = R.state['phases'].get('latency', {}).get('ladder_runs', {})
@@ -652,8 +665,8 @@ def ph_latency_ladder(R):
         return None
     if any(todo(m[0]) is not None for m in want):
         claim('latency')
-        off = 0
         for alias, key, role, _ in want:
+            off = 0                                            # every model sees the SAME items at each rung (Claude r1)
             while True:
                 r = todo(alias)
                 if r is None:
@@ -670,7 +683,7 @@ def ph_latency_ladder(R):
                                                                             'pass' if sm['gates_p50_2500_p95_5000'] else 'FAIL'))
         gpu('unserve', HOLDER, check=False); release()
     rates = {a: within_gate_rate({int(k): v for k, v in res.get(a, {}).items()}, L) for a, _, _, _ in want}
-    return {'ladder_runs': res, 'within_gate_rate': rates, 'card': lc.get('card'), 'method': 'ladder, serving-A method'}
+    return {'ladder_runs': res, 'within_gate_rate': rates, 'ladder_used': L, 'card': lc.get('card'), 'method': 'ladder, serving-A method'}
 
 
 def disc_counts(items, cand, best, S):
@@ -730,10 +743,11 @@ def ph_gate(R):
         crule = g.get('capacity_rule')
         if not nb and crule and best and vi['pass'] and sc[alias]['schema_valid'] >= g['vs_best']['schema_valid_min']:
             sw = significantly_worse(disc_counts(items, recs[alias], recs[best], E.S), crule['alpha'])
-            wr = (R.state['phases'].get('latency') or {}).get('within_gate_rate') or {}
-            ok, cwhy = capacity_rule(sw, wr.get(alias), wr.get(best), R.cfg['latency'].get('ladder') or [1], crule['ratio'])
+            lat = R.state['phases'].get('latency') or {}
+            wr = lat.get('within_gate_rate') or {}
+            ok, cwhy = capacity_rule(sw, wr.get(alias), wr.get(best), lat.get('ladder_used') or R.cfg['latency'].get('ladder') or [1], crule['ratio'])
             cap = {'significance': sw, 'within_gate_rate': {'cand': wr.get(alias), 'best': wr.get(best)}, 'pass': ok, 'why': cwhy,
-                   'rule': crule}
+                   'card': lat.get('card'), 'method': lat.get('method'), 'evidence': lat.get('evidence'), 'rule': crule}
             if ok:
                 nb, why = True, 'CAPACITY RULE (owner 11-02): ' + cwhy
         out['candidates'][alias] = {'key': key, 'params_b': params, 'vs_incumbent': vi, 'vs_best': vb, 'new_best': nb, 'why': why,
@@ -950,12 +964,19 @@ def main(argv=None):
         R = Round(a.round)
         if current_round() is not None:
             raise SystemExit('REFUSED: another round is open')
+        # a round that PROMOTED a best cannot be re-decided here (Codex + Claude r1): its model would re-enter as `best`,
+        # not as a candidate, and the earlier promotion would stand unexamined
+        if (R.state['phases'].get('gate') or {}).get('new_best') or (registry().get('best') or {}).get('round') == R.id:
+            raise SystemExit('REFUSED: round %s promoted a best; reconcile the registry by hand first' % R.id)
         cur = json.load(open(a.config or os.path.join(os.path.dirname(scripts_root()), 'config', 'learnloop-weekly.json')))
         old = {k: R.state['phases'].pop(k) for k in ('latency', 'gate', 'register', 'report') if k in R.state['phases']}
         R.state.setdefault('superseded', []).append({'at': iso(), 'phases': old, 'gates': R.cfg.get('gates'), 'latency': R.cfg.get('latency'),
                                                     'why': 'regate under the written rule of config version %s' % (open(os.path.join(LL, 'VERSION')).read().strip() if os.path.exists(os.path.join(LL, 'VERSION')) else '?')})
+        stamp = iso().replace(':', '')
         if os.path.exists(R.p('gate.json')):
-            os.replace(R.p('gate.json'), R.p('gate.superseded-%s.json' % iso().replace(':', '')))
+            os.replace(R.p('gate.json'), R.p('gate.superseded-%s.json' % stamp))
+        if os.path.isdir(R.p('latency')):                    # the raw requests behind the superseded decision stay
+            os.replace(R.p('latency'), R.p('latency.superseded-%s' % stamp))
         R.cfg['gates'] = cur['gates']; R.cfg['latency'] = cur['latency']
         json.dump(R.cfg, open(R.p('config.json'), 'w'), indent=1)
         R.state['status'] = 'open'; R.save(); R.log('REGATE: latency/gate/register/report re-run under the current written gates')

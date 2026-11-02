@@ -2941,7 +2941,7 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "Owner: 4B as the next model canary (needs serving host + template check + capacity test + marker); read each weekly round REPORT.md (~/learnloop/weekly-latest.md on .31); act on a new best or a referee drift flag",
+   "next_step": "Read each weekly round (~/learnloop/weekly-latest.md on .31); the 4B (registry best since 11-02 13:51Z) is live-tested by servea-01 (rows serving-a / serving-a-4b-rollout); next round keeps training the 4B line and is gated by gates.capacity_rule",
    "max_quiet_hours": 192,
    "evidence": {
     "grep": [
@@ -2958,7 +2958,7 @@
      "cron": "learnloop-weekly"
     }
    ],
-   "note": "Round 3 (11-01) built the pipeline: cron every 10 min on .31 (weekly.py tick), llgpu.sh forced-command key .31->.16, referee launchd on the Mac (com.mcai.learnloop-referee). Owner 11-01 vendor terms = A: paid labels never train. A round waits (does not fail) while another GPU user is on the 3090. Round 20261101 closed 11-02 05:06Z: r3 4B/9B tie c2 on rep_fail/post-veto, miss hard tolerance by 4-5 items; c2 stays best; 4B passes latency gates at 20/min on the 3090 (docs/reports/learnloop-r3-2026-11-01.md)."
+   "note": "Round 3 (11-01) built the pipeline: cron every 10 min on .31 (weekly.py tick), llgpu.sh forced-command key .31->.16, referee launchd on the Mac (com.mcai.learnloop-referee). Owner 11-01 vendor terms = A: paid labels never train. A round waits (does not fail) while another GPU user is on the 3090. Round 20261101 closed 11-02 05:06Z: r3 4B/9B tie c2 on rep_fail/post-veto, miss hard tolerance by 4-5 items; c2 stays best; 4B passes latency gates at 20/min on the 3090 (docs/reports/learnloop-r3-2026-11-01.md). 11-02: owner capacity rule written (main dcedd094) BEFORE applying; regate made the r3 4B BEST on the 5080 evidence (80/min vs c2 0); servea-01 adopted with the learning-loop registration (docs/reports/learnloop-r3-2026-11-01.md s.8)."
   },
   {
    "id": "state-generated",
@@ -3031,6 +3031,32 @@
     ]
    },
    "note": "OWNER 11-02 ~13:40Z 'do what you recommend' (after ~12:45Z: the round-3 4B is the serving direction and the next model canary). The learning-loop agent adopts servea-01's registration (replace-variant). The 4B measured within gates to 80/min on the 5080 beside the live fleet (report s.7)."
+  },
+  {
+   "id": "learnloop-capacity-rule",
+   "title": "Learning loop new-best rule loosened for capacity (owner 11-02): not significantly worse (paired sign test p<0.05) on hard/rep_fail/post_veto AND >= 1.5x within-gate decisions/min on the fleet serving card; incumbent gate unchanged; applied to round 3 only through the written rule",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "learnloop-weekly-r3-1101.md",
+    "owner-serving-plan-1101.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "done",
+   "owner": "control session",
+   "evidence": {
+    "grep": [
+     "capacity rule"
+    ],
+    "paths": [
+     "scripts/learnloop/weekly/card_rates.py",
+     "config/learnloop-weekly.json"
+    ]
+   },
+   "done": {
+    "when": "2026-11-02",
+    "evidence": "rule main dcedd094 12:33Z (before use); card evidence fde6c920/4150b7ad; both engines no blockers; round 20261101 regate 13:51Z -> best 20261101-qwen35-4b (5080 80/min vs c2 0; 3090 14 vs 10 = 1.4x not enough, recorded); servea-01 adopted (replace-variant, registration servea-01.d48467f8-4bll.json), HELD after deepminer-01"
+   }
   }
  ]
 }

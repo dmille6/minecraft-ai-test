@@ -232,6 +232,7 @@ const REQUIRED = [
   'scripts/learnloop/weekly/llgpu.sh',
   'scripts/learnloop/weekly/export_lora_gguf.py',
   'scripts/learnloop/weekly/referee.py',
+  'scripts/learnloop/weekly/card_rates.py',
   'scripts/learnloop/weekly/install-weekly.sh',
   'scripts/learnloop/weekly/test_weekly.py',
   'config/learnloop-weekly.json',

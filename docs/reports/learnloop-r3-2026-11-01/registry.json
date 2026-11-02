@@ -1,1 +1,49 @@
-{"best": {"alias": "cand-c2-q8", "model_key": "cand-c2-q8", "params_b": 9.0, "round": "c2-2026-10-31", "scores": null, "note": "candidate 2 (Qwen3.5-9B 8-bit LoRA, 5,768 examples), passed the owner bar 10-31; seeded by hand 11-01"}, "history": [{"at": "2026-11-01T13:10:00Z", "round": "seed", "from": null, "to": "cand-c2-q8"}]}
+{
+ "best": {
+  "alias": "20261101-qwen35-4b",
+  "model_key": "run:20261101-qwen35-4b/cand-q8_0.gguf",
+  "params_b": 4.0,
+  "round": "20261101",
+  "scores": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 2.3,
+   "bad": 2.3,
+   "rep_fail": 15.3,
+   "post_veto_repeat": 7.0,
+   "agree_skill": 68.5,
+   "agree_key": 60.5,
+   "hard_on_fail_items": 2.3,
+   "hard_on_good_items": 3.0,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  }
+ },
+ "history": [
+  {
+   "at": "2026-11-01T13:10:00Z",
+   "round": "seed",
+   "from": null,
+   "to": "cand-c2-q8"
+  },
+  {
+   "at": "2026-11-02T13:51:40Z",
+   "round": "20261101",
+   "from": {
+    "alias": "cand-c2-q8",
+    "model_key": "cand-c2-q8",
+    "params_b": 9.0,
+    "round": "c2-2026-10-31",
+    "scores": null,
+    "note": "candidate 2 (Qwen3.5-9B 8-bit LoRA, 5,768 examples), passed the owner bar 10-31; seeded by hand 11-01"
+   },
+   "to": "20261101-qwen35-4b"
+  }
+ ]
+}

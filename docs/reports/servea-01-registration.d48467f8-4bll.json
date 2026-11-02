@@ -1,0 +1,157 @@
+{
+ "run_id": "servea-01",
+ "sha": "d48467f8fe271cb0ddbc73985a871fb0062e6cf9",
+ "registered_at": "2026-11-02T14:00:00Z",
+ "class": "model-env",
+ "canary_env": [
+  "OLLAMA_MODEL=r3-qwen35-4b-q8",
+  "OLLAMA_BASE_URLS=oai+http://10.0.0.72:18080|r3-qwen35-4b-q8,http://10.0.0.72:11434|qwen2.5:7b-instruct",
+  "OLLAMA_BASE_URL=http://10.0.0.72:11434",
+  "LLM_TIMEOUT_MS=20000"
+ ],
+ "draw_k": 2,
+ "promotion": "none",
+ "reads": [
+  "modelread"
+ ],
+ "poll_read": "modelread",
+ "notes": "SERVING OPTION A (OWNER 11-01) + OWNER 11-02 ~12:45Z: the learning loop's ROUND-3 4B (20261101-qwen35-4b, Q8_0, sha256 99b8680e...) is the serving direction and the next model canary. 2 pools (10 bots) on llama.cpp llama-server b12020 on the 5080 (/root/servea, user space, -np 6 x 6144, 6.1 GB beside the fleet's Ollama qwen2.5:7b 8.7 GB; card 14.8/16.3 GB), fallback per decision to that same Ollama qwen2.5 (resident, so instant). CODE: the oai+ client (llm.mjs, main e1e56bf8), inert without an oai+ entry. CAPACITY (11-02 12:31-12:46Z, live promptcache-layout prompts, 80 real names, BESIDE the live fleet's ~65-75/min on the same GPU): within gates up to 80/min (p50 2.3 s p95 3.9 s 240/240); 107/min p50 2.9 s p95 5.2 s 321/321; live fleet p95 rose 3.1 -> <= 5.04 s during the ladder, 0 failed. 10 bots ~13/min is far inside. Replay (round 20261101 REPORT): schema 100 / hard 2.3 / rep_fail 15.3 / post_veto 7.0 vs qwen2.5 15.0 / 59.0 / 95.0. Server: on the 5080 `source /root/servea/env.sh; /root/servea/servea-llama.sh start /root/servea/models/r3-qwen35-4b-q8.gguf r3-qwen35-4b-q8 6 6144` BEFORE release; stop after teardown. Fallback rows carry model qwen2.5 + model_mismatch, so model_share measures what the 4B actually carried. docs/reports/serving-A-2026-11-01.md s.7 LEARNING LOOP (11-02 14:00Z): adopted -- env and own lines unchanged; the learnloop block records why this model is the loop BEST.",
+ "own_lines": [
+  {
+   "read": "modelread",
+   "field": "stall_bots",
+   "op": "<=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "the poll already REVERTs within 5 min; with the Ollama fallback a stall means the client path itself is broken"
+  },
+  {
+   "read": "modelread",
+   "field": "model_share",
+   "op": ">=",
+   "value": 0.9,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "canary POST rows served by r3-qwen35-4b-q8 (the 5080 llama-server) with no model_mismatch; a fallback to qwen2.5 counts against it. 0.9: a server restart legitimately sends some decisions to the fallback"
+  },
+  {
+   "read": "modelread",
+   "field": "schema_gap_pp",
+   "op": "<=",
+   "value": 1.0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "owner: >= 99% schema-valid / at least the control's"
+  },
+  {
+   "read": "modelread",
+   "field": "lat_p50_ms",
+   "op": "<=",
+   "value": 2500,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "owner latency gate"
+  },
+  {
+   "read": "modelread",
+   "field": "lat_p95_ms",
+   "op": "<=",
+   "value": 5000,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "owner latency gate"
+  },
+  {
+   "read": "modelread",
+   "field": "completion_p95",
+   "op": "<=",
+   "value": 300,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "a thinking render fills max_tokens 512; no-think r3-4b completions measured mean 44-46"
+  }
+ ],
+ "exposure": {
+  "read": "modelread",
+  "field": "readable",
+  "min": 1,
+  "note": "model_share on >= 200 canary POST rows: the arm really ran on the 4B"
+ },
+ "primary": {
+  "read": "modelread",
+  "field": "items_ratio_did",
+  "note": "REPORTED, not deciding (fun mode): items/bot-h ratio-DiD vs control, rep_fail / veto_repeat / refused_share, decisions_bh_did, latency, completion tokens: the round-3 4B live."
+ },
+ "harm": "funread: the death gate (two-death floor), crash loops, the own lines above; the model poll every 5 min.",
+ "teardown": "THREE steps (drop-ins, canary_pool, restart the pool 12 s apart) plus the env proof (no canary KEY=VALUE left in a pool bot's environ); then stop the 5080 llama-server (source /root/servea/env.sh; /root/servea/servea-llama.sh stop).",
+ "tier": 3,
+ "learnloop": {
+  "adopted_by": "learning-loop agent 11-02 (OWNER 11-02 ~12:45Z: the round-3 4B is the serving direction and the next model canary)",
+  "model": "round 20261101 Qwen3.5-4B (unsloth @3764fa35, Apache-2.0) + bf16 LoRA r16 on 5,800 examples (3,000 fleet good-by-output + 2,800 qwen3.8:27b relabels, 0 paid), q8_0 via export_lora_gguf.py; GGUF sha256 99b8680e78e490d1...",
+  "best_decision": "CAPACITY RULE (owner 11-02): not significantly worse on any of ['hard', 'post_veto', 'rep_fail'], and 80/min within the gates vs best 0/min (>= 1.5x; best fails the lowest rung 20/min)",
+  "rule": "config/learnloop-weekly.json gates.capacity_rule, main dcedd094 (written 12:33Z, before the regate) + card evidence path fde6c920/4150b7ad (both engines, no blockers)",
+  "replay_600_promptcache_llama_server": {
+   "20261101-qwen35-4b": {
+    "schema_valid": 100.0,
+    "hard": 2.3,
+    "rep_fail": 15.3,
+    "post_veto_repeat": 7.0,
+    "agree_skill": 68.5
+   },
+   "cand-c2-q8": {
+    "schema_valid": 100.0,
+    "hard": 1.5,
+    "rep_fail": 15.7,
+    "post_veto_repeat": 8.0,
+    "agree_skill": 67.0
+   },
+   "qwen2.5-7b-instruct": {
+    "schema_valid": 100.0,
+    "hard": 15.0,
+    "rep_fail": 59.0,
+    "post_veto_repeat": 95.0,
+    "agree_skill": 75.5
+   },
+   "base-qwen35-4b-q8": {
+    "schema_valid": 100.0,
+    "hard": 1.7,
+    "rep_fail": 20.0,
+    "post_veto_repeat": 46.0,
+    "agree_skill": 53.5
+   }
+  },
+  "significance_vs_c2": {
+   "hard": {
+    "cand_only": 7,
+    "best_only": 2,
+    "p": 0.1797,
+    "significantly_worse": false
+   },
+   "rep_fail": {
+    "cand_only": 10,
+    "best_only": 11,
+    "p": 1.0,
+    "significantly_worse": false
+   },
+   "post_veto": {
+    "cand_only": 3,
+    "best_only": 4,
+    "p": 1.0,
+    "significantly_worse": false
+   }
+  },
+  "capacity_card_5080": {
+   "cand": 80,
+   "best": 0
+  },
+  "capacity_3090_same_method": {
+   "20261101-qwen35-4b": 14,
+   "cand-c2-q8": 10,
+   "note": "11-02 12:39-13:16Z ladder (superseded regate): 1.4x, below 1.5x on the 3090"
+  },
+  "export_check_q8_vs_bf16": "583/600 = 97.2% PASS",
+  "watch_in_the_read": "live rep_fail/veto_repeat (modelread), and the surface share: the 4B answers surface on 53% of failure / 67% of post-veto replay items (the paid referees chose surface on 55% of this week's failure sample)",
+  "evidence": "/home/mike/learnloop/rounds/20261101/ (gate.json, card-5080/, REPORT.md); docs/reports/learnloop-r3-2026-11-01.md s.8"
+ }
+}

@@ -229,3 +229,68 @@ busy throughout (99% util at the start). Every model failed the gates at 50/min 
 3. Retention: each round keeps its GGUFs (about 25 GB a round). Disk is 490 GB free; pruning non-best rounds is not
    automated yet.
 
+
+## 8. 11-02: the owner's capacity rule, applied to round 3 (OWNER 11-02 ~12:45Z, relayed)
+
+**Owner:** the round-3 4B becomes the serving direction and the next model canary. The "new best" rule is loosened
+so that a smaller, faster model can win on capacity when its quality is near-equal.
+
+**The rule, written and pushed to main BEFORE it was applied** (`dcedd094`, 12:33Z; `config/learnloop-weekly.json`
+`gates.capacity_rule`; code `weekly.py` `significantly_worse` / `within_gate_rate` / `capacity_rule`):
+- A candidate must pass the unchanged incumbent gate, schema-valid >= 99, and its export check where one exists.
+- It must NOT be significantly worse than the current best on hard (600 items), rep_fail (300) or post_veto (100).
+  "Significantly worse" means more candidate-only failures AND an exact two-sided sign test on the discordant items
+  with p < 0.05.
+- It must serve **>= 1.5x the best's within-gate decisions/min on the fleet's serving card**, both measured in the
+  same session. The within-gate rate is the highest ladder rung where p50 <= 2.5 s, p95 <= 5 s over ALL requests
+  (timeouts count), >= 99% are valid, and the run is complete; it must also hold at every lower rung. The method is
+  the serving agent's: a cold server per rung, 3 min open-loop, live promptcache-layout prompts with the 80 real
+  names, and the bots' own `oai+` client.
+- A best that cannot be served on that card counts at the card's lowest rung.
+- `card_rates.py` (`fde6c920`/`4150b7ad`) computes the rates from ladder runs measured on a card the loop may not
+  touch (the 5080), using the same functions. The files are hashed, and every model is measured on one ladder.
+- `weekly.py regate` re-decides a closed round under the current written gates. It keeps every superseded decision
+  and its raw files, and refuses a round that had already promoted a best.
+
+**Reviews (both engines, blockers only):**
+- `dcedd094`: Codex found 2 blockers (regate overwrote the superseded latency files; regate on a promoted round).
+  Claude found none, with 3 notes. All were fixed in `49382142`, and both reviewers then reported NO BLOCKERS.
+- Card evidence `bd20fec4`: Claude found 1 blocker (the floor from a mixed ladder). Codex found 2 (incomplete runs
+  counted as held; mixed or duplicate rungs). All were fixed in `fde6c920` (+ servedModel `4150b7ad`), and both
+  reviewers then reported NO BLOCKERS.
+- Tests: `test_weekly.py` 26/26 with 17 mutants killed.
+
+**Applied to round 3, by the rule only** (round dir `state.json.superseded` keeps all three decisions):
+
+| decision | serving card | 4B within-gate | c2 within-gate | significance vs c2 (cand-only / best-only, p) | result |
+|---|---|---|---|---|---|
+| 05:06Z (old rule) | -- | -- | -- | hard 7/2 | not best (hard tolerance) |
+| 13:16Z regate, the loop's own 3090 ladder | 3090 beside ethan-gpu | 14/min (17 fails p95 6.3 s) | 10/min (12 fails) | hard 7/2 p 0.18, rep_fail 10/11 p 1.0, post_veto 3/4 p 1.0 | 1.4x < 1.5x: **not best** |
+| **13:51Z regate, the fleet's serving card** | **the 5080** (servea-01 serves from it), serving-agent ladder 12:31-12:46Z beside the live fleet | **80/min** (107 fails p95 5.2 s) | **0**: cannot load beside the fleet's qwen2.5 (9B Q8 ~10.4 GB + 8.7 GB > 16.3 GB) | same | **NEW BEST** |
+
+The registry best is now `20261101-qwen35-4b` (`~/learnloop/registry.json`, history kept). The 9B r3 is not best: it
+cannot load on the 5080 either.
+
+**The canary: `servea-01`, adopted** (the control session asked for it to be adopted rather than a second entry
+queued):
+- `canary-sched.py queue replace-variant servea-01`. The variant is the same (dfb3ff13 -> d48467f8, the oai+
+  client patch).
+- The registration is `~/mcai-analysis/servea-01.d48467f8-4bll.json` (copy:
+  `docs/reports/servea-01-registration.d48467f8-4bll.json`). Env and own lines are UNCHANGED from the serving agent's
+  4B registration: 2 pools (10 bots), first entry `oai+http://10.0.0.72:18080|r3-qwen35-4b-q8`, fallback the
+  5080's qwen2.5, own lines stall / model_share >= 0.9 / schema gap / latency / completion.
+- A `learnloop` evidence block was added: model, rule, replay scores, significance, capacity on both cards, the
+  export check, and what to watch.
+- Sizing: 10 bots (~13/min) against 80/min within gates on the 5080. That is the staged rollout's first step;
+  20/40/60/80 follow via the serving agent's rollout.
+- The modelread md5 was re-pinned to the current file.
+- It stays HELD, after deepminer-01. The serving agent's waiter (`com.mcai.servea-waiter`) releases it, following
+  its hold text.
+- The 3090 copy `~/batchtest/models/r3-qwen35-4b-q8.gguf` (a hard link) and a marker branch I pushed before the
+  adoption decision (`servea4b01-on-dfb3ff13`, an empty-tree commit) are unused.
+
+**For the owner:**
+1. On the loop's own 3090 the 4B is only 1.4x c2, which fails the rule there. It wins because the fleet's serving
+   card is the 5080, where c2 cannot run beside qwen2.5 at all. That is the rule as written, but its margin comes
+   from VRAM, not speed.
+2. The 5080 evidence was measured by the serving agent, not in the loop's own session. It is pinned by file hashes.

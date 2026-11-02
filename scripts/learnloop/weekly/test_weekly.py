@@ -116,7 +116,13 @@ def latency_summary_counts_timeouts_against_the_gate():
     assert s['valid'] == 60 and s['gates_p50_2500_p95_5000'] and s['p50_ms'] == 1030
     recs[5] = {'id': 5, 'transport_error': True, 't_done_ms': 45000}
     s = W.latency_summary(recs, 3, 20)
-    assert s['timeouts_or_errors'] == 1 and not s['gates_p50_2500_p95_5000']
+    assert s['timeouts_or_errors'] == 1 and not s['gates_p50_2500_p95_5000']      # 59/60 valid < 99%
+    big = [{'id': i, 'latencyMs': 1000, 'schemaValid': True, 't_done_ms': 100 * i} for i in range(200)]
+    big[7] = {'id': 7, 'latencyMs': 1200, 'schemaValid': False, 't_done_ms': 700}
+    assert W.latency_summary(big, 3, 66)['gates_p50_2500_p95_5000']                  # 199/200 >= 99%
+    for i in (11, 13):
+        big[i] = {'id': i, 'latencyMs': 1200, 'schemaValid': False, 't_done_ms': 100 * i}
+    assert not W.latency_summary(big, 3, 66)['gates_p50_2500_p95_5000']              # 197/200 < 99%
 
 
 @t
@@ -155,6 +161,42 @@ def capacity_rule_owner_1102():
     bad = W.significantly_worse({'hard': (12, 1), 'rep_fail': (10, 11), 'post_veto': (3, 4)}, 0.05)
     assert not W.capacity_rule(bad, 40, 6, L, 1.5)[0]
     assert not W.capacity_rule(fine, None, 6, L, 1.5)[0] and not W.capacity_rule(fine, 14, None, L, 1.5)[0]
+
+
+@t
+def a_truncated_run_is_not_a_held_rate():
+    one = [{'id': 0, 'latencyMs': 900, 'schemaValid': True, 't_done_ms': 900}]
+    assert not W.latency_summary(one, 3, 40)['gates_p50_2500_p95_5000']
+    full = [{'id': i, 'latencyMs': 900, 'schemaValid': True, 't_done_ms': 1500 * i} for i in range(120)]
+    assert W.latency_summary(full, 3, 40)['gates_p50_2500_p95_5000']
+
+
+@t
+def card_rates_from_ladder_files():
+    with tempfile.TemporaryDirectory() as d:
+        def run(rate, p95_ms, n):
+            recs = [{'id': i, 'model': 'm4b', 'latencyMs': 1000 if i < n * 0.9 else p95_ms, 'schemaValid': True, 't_done_ms': 1000 * i} for i in range(n)]
+            open(os.path.join(d, 'm-r%d.jsonl' % rate), 'w').write(''.join(json.dumps(r) + '\n' for r in recs))
+        run(20, 1600, 60); run(40, 2700, 120); run(80, 3900, 240); run(107, 5200, 321)
+        out = os.path.join(d, 'cr.json')
+        subprocess.run([sys.executable, os.path.join(HERE, 'card_rates.py'), '--card', 'x', '--by', 'y', '--model', 'cand=m4b@%s/m-r*.jsonl' % d,
+                        '--cannot', 'best=VRAM', '--ladder', '20,40,80,107', '--out', out], check=True, capture_output=True)
+        ev = json.load(open(out))
+        assert ev['rates'] == {'cand': 80, 'best': 0}, ev['rates']
+        # a model credited from a late first rung is refused (Claude r3): the ladder starts at 10, the files at 20
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'card_rates.py'), '--card', 'x', '--by', 'y', '--model', 'cand=m4b@%s/m-r*.jsonl' % d,
+                            '--ladder', '10,20,40,80,107', '--out', out + '2'], capture_output=True, text=True)
+        assert r.returncode != 0 and 'lacks ladder rungs' in (r.stdout + r.stderr), r.stdout + r.stderr
+        r = subprocess.run([sys.executable, os.path.join(HERE, 'card_rates.py'), '--card', 'x', '--by', 'y', '--model', 'cand=other@%s/m-r*.jsonl' % d,
+                            '--ladder', '20,40,80,107', '--out', out + '3'], capture_output=True, text=True)
+        assert r.returncode != 0 and 'not other' in (r.stdout + r.stderr)
+        # a truncated rung (one fast answer of the 120 an 40/min x 3 min run must hold) does not count as held
+        open(os.path.join(d, 'm-r40.jsonl'), 'w').write(json.dumps({'id': 0, 'model': 'm4b', 'latencyMs': 900, 'schemaValid': True, 't_done_ms': 900}) + '\n')
+        subprocess.run([sys.executable, os.path.join(HERE, 'card_rates.py'), '--card', 'x', '--by', 'y', '--model', 'cand=m4b@%s/m-r*.jsonl' % d,
+                        '--ladder', '20,40,80,107', '--out', out], check=True, capture_output=True)
+        assert json.load(open(out))['rates']['cand'] == 20
+        assert W.capacity_rule(W.significantly_worse({'hard': (1, 1)}, 0.05), 80, 0, [20, 40, 80, 107], 1.5)[0]
+        assert not W.capacity_rule(W.significantly_worse({'hard': (1, 1)}, 0.05), 20, 0, [20, 40, 80, 107], 1.5)[0]   # floor = the card's lowest rung
 
 
 # ---------------------------------------------------------------- build_clean assemble: the replay buffer
@@ -344,7 +386,9 @@ def mutants_are_killed():
         ("if not (passed_inc and passed_best):", "if False:", new_best_needs_both_gates_and_better_or_smaller),
         ("c_params <= 0.6 * best_params", "c_params <= 1.0 * best_params", new_best_needs_both_gates_and_better_or_smaller),
         ("return z < -z_crit, round(z, 2)", "return abs(z) > z_crit, round(z, 2)", drift_flags_only_a_real_drop),
-        ("and len(ok) == len(recs)}", "}", latency_summary_counts_timeouts_against_the_gate),
+        ("and len(ok) >= 0.99 * len(recs)\n", "\n", latency_summary_counts_timeouts_against_the_gate),
+        ("and len(ok) >= 0.99 * len(recs)\n", "and len(ok) >= 0.9 * len(recs)\n", latency_summary_counts_timeouts_against_the_gate),
+        ("                                       and len(recs) >= rate * minutes}", "                                       }", a_truncated_run_is_not_a_held_rate),
         ("c['missing'] == 0 and inc['missing'] == 0 and", "", incumbent_gate_s4a),
         ("and gate_vs_best(sc[small[2]], sc[lead[2]], gb)['pass']", "", smaller_winner_must_pass_against_the_leader),
         ("small[1] <= 0.6 * lead[1]", "True", smaller_winner_must_pass_against_the_leader),

@@ -1,0 +1,106 @@
+{
+ "card": "the 5080 (pve4) llama-server b12020 -np 6 x 6144, beside the live fleet Ollama qwen2.5:7b (8.7 GB resident)",
+ "measured_by": "serving agent, 11-02 12:31-12:46Z, serving-A method (docs/reports/serving-A-2026-11-01.md s.7), files copied read-only from .31 ~/servea/out",
+ "ladder": [
+  20,
+  40,
+  60,
+  80,
+  107
+ ],
+ "rates": {
+  "20261101-qwen35-4b": 80,
+  "cand-c2-q8": 0,
+  "20261101-qwen35-9b": 0
+ },
+ "runs": {
+  "20261101-qwen35-4b": {
+   "20": {
+    "rate_per_min": 20,
+    "n": 60,
+    "valid": 60,
+    "timeouts_or_errors": 0,
+    "done_per_min": 24.3,
+    "p50_ms": 966,
+    "p95_ms": 1743,
+    "p99_ms": 2104,
+    "prompt_tokens_p50": 2471,
+    "completion_p50": 43,
+    "cached_share_mean": 0.45,
+    "complete": true,
+    "gates_p50_2500_p95_5000": true
+   },
+   "40": {
+    "rate_per_min": 40,
+    "n": 120,
+    "valid": 120,
+    "timeouts_or_errors": 0,
+    "done_per_min": 41.6,
+    "p50_ms": 1392,
+    "p95_ms": 2787,
+    "p99_ms": 3118,
+    "prompt_tokens_p50": 2510,
+    "completion_p50": 42,
+    "cached_share_mean": 0.452,
+    "complete": true,
+    "gates_p50_2500_p95_5000": true
+   },
+   "60": {
+    "rate_per_min": 60,
+    "n": 180,
+    "valid": 180,
+    "timeouts_or_errors": 0,
+    "done_per_min": 62.3,
+    "p50_ms": 1831,
+    "p95_ms": 3139,
+    "p99_ms": 4872,
+    "prompt_tokens_p50": 2471,
+    "completion_p50": 41,
+    "cached_share_mean": 0.46,
+    "complete": true,
+    "gates_p50_2500_p95_5000": true
+   },
+   "80": {
+    "rate_per_min": 80,
+    "n": 240,
+    "valid": 240,
+    "timeouts_or_errors": 0,
+    "done_per_min": 82.8,
+    "p50_ms": 2292,
+    "p95_ms": 3963,
+    "p99_ms": 4880,
+    "prompt_tokens_p50": 2490,
+    "completion_p50": 42,
+    "cached_share_mean": 0.457,
+    "complete": true,
+    "gates_p50_2500_p95_5000": true
+   },
+   "107": {
+    "rate_per_min": 107,
+    "n": 321,
+    "valid": 321,
+    "timeouts_or_errors": 0,
+    "done_per_min": 111.4,
+    "p50_ms": 2927,
+    "p95_ms": 5243,
+    "p99_ms": 6545,
+    "prompt_tokens_p50": 2481,
+    "completion_p50": 42,
+    "cached_share_mean": 0.47,
+    "complete": true,
+    "gates_p50_2500_p95_5000": false
+   }
+  }
+ },
+ "files": {
+  "/home/mike/learnloop/rounds/20261101/card-5080/5080-r3-qwen35-4b-q8-r107.jsonl": "98187a779604220bcd06806d1a49420874ea73726fe973fb211da0f7ca3cfba6",
+  "/home/mike/learnloop/rounds/20261101/card-5080/5080-r3-qwen35-4b-q8-r20.jsonl": "bb2ecbdd164d313760a6d8ae406690924a9448e0a1c106ee14dae6d1c4426685",
+  "/home/mike/learnloop/rounds/20261101/card-5080/5080-r3-qwen35-4b-q8-r40.jsonl": "40938728672c50f0225f656fafeb320c13784d8aec78a6a87a8ad71632a53498",
+  "/home/mike/learnloop/rounds/20261101/card-5080/5080-r3-qwen35-4b-q8-r60.jsonl": "37190dda1b511d233c0b2d4a71dd02e5d98e852f98fe0ffb73b024a677b062b2",
+  "/home/mike/learnloop/rounds/20261101/card-5080/5080-r3-qwen35-4b-q8-r80.jsonl": "c97963714d1280aef3337be6f34252ed2f33d91481a569c4d8106820d0e66f6d"
+ },
+ "cannot": {
+  "cand-c2-q8": "cannot load on the 5080 beside the fleet qwen2.5: 9B Q8 needs ~10.4 GB at np 8 (9.8 GB weights), the card has 16.3 GB with qwen2.5 resident at 8.7 GB (serving-A s.4/s.7)",
+  "20261101-qwen35-9b": "same as cand-c2-q8: a 9B Q8 does not fit beside the resident qwen2.5"
+ }
+}

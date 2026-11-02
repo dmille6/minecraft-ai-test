@@ -116,3 +116,34 @@ KeyError: 'kind'
 2026-11-02T05:06:06Z register done
 2026-11-02T05:06:06Z report done
 2026-11-02T05:06:06Z round closed
+2026-11-02T12:33:11Z REGATE: latency/gate/register/report re-run under the current written gates
+2026-11-02T12:35:05Z ladder cand-c2-q8 @4/min: p50 1714 p95 2786 valid 12/12 -> pass
+2026-11-02T12:38:04Z the first regate (12:33Z) was stopped by hand after 1 rung (review: ladder items must match across models); its rung moved to latency.aborted-regate1-*
+2026-11-02T12:38:04Z REGATE: latency/gate/register/report re-run under the current written gates
+2026-11-02T12:39:39Z ladder cand-c2-q8 @4/min: p50 1840 p95 2683 valid 12/12 -> pass
+2026-11-02T12:41:55Z ladder cand-c2-q8 @6/min: p50 1915 p95 4001 valid 18/18 -> pass
+2026-11-02T12:44:32Z ladder cand-c2-q8 @8/min: p50 1707 p95 3299 valid 24/24 -> pass
+2026-11-02T12:47:13Z ladder cand-c2-q8 @10/min: p50 2435 p95 3906 valid 30/30 -> pass
+2026-11-02T12:49:49Z ladder cand-c2-q8 @12/min: p50 3040 p95 5077 valid 36/36 -> FAIL
+2026-11-02T12:51:29Z ladder 20261101-qwen35-4b @4/min: p50 1612 p95 1939 valid 12/12 -> pass
+2026-11-02T12:53:33Z ladder 20261101-qwen35-4b @6/min: p50 1433 p95 3184 valid 18/18 -> pass
+2026-11-02T12:56:07Z ladder 20261101-qwen35-4b @8/min: p50 1516 p95 2517 valid 24/24 -> pass
+2026-11-02T12:58:45Z ladder 20261101-qwen35-4b @10/min: p50 1533 p95 2868 valid 30/30 -> pass
+2026-11-02T13:01:15Z ladder 20261101-qwen35-4b @12/min: p50 1757 p95 3047 valid 36/36 -> pass
+2026-11-02T13:03:46Z ladder 20261101-qwen35-4b @14/min: p50 2202 p95 4003 valid 42/42 -> pass
+2026-11-02T13:06:19Z ladder 20261101-qwen35-4b @17/min: p50 2312 p95 6344 valid 51/51 -> FAIL
+2026-11-02T13:08:16Z ladder 20261101-qwen35-9b @4/min: p50 2210 p95 2672 valid 12/12 -> pass
+2026-11-02T13:10:24Z ladder 20261101-qwen35-9b @6/min: p50 2006 p95 3678 valid 18/18 -> pass
+2026-11-02T13:13:03Z ladder 20261101-qwen35-9b @8/min: p50 2165 p95 3689 valid 24/24 -> pass
+2026-11-02T13:15:46Z ladder 20261101-qwen35-9b @10/min: p50 2767 p95 4525 valid 30/30 -> FAIL
+2026-11-02T13:15:50Z latency done
+2026-11-02T13:15:51Z gate done
+2026-11-02T13:15:51Z register done
+2026-11-02T13:15:51Z report done
+2026-11-02T13:15:51Z round closed
+2026-11-02T13:51:39Z REGATE: latency/gate/register/report re-run under the current written gates
+2026-11-02T13:51:39Z latency done
+2026-11-02T13:51:40Z gate done
+2026-11-02T13:51:40Z register done
+2026-11-02T13:51:40Z report done
+2026-11-02T13:51:40Z round closed

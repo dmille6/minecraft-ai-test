@@ -30,10 +30,12 @@ _Hand-written context the sources cannot say. Keep it short; date each line; del
 - **qwen3.5 A/B** (15 bots isolated-a/isolated-c/placebo-c on the Blackwell, 65 control): restarted 11-01 ~22:25Z after the
   false stop; hourly `qwen35-roll` rows; 24 h compare + mandatory rollback from that start.
 - **Serving** (OWNER 11-01 vendor terms = A; serving = A + D; OWNER 11-02 ~12:45Z: Qwen3.5-4B r3 = serving direction + next
-  model canary): servea-01 = 4B on the 5080, 10 bots, HELD for the learning agent's variant; 5080 host key verified 11-02.
+  model canary): servea-01 = 4B on the 5080, 10 bots, HELD (learning agent's registration adopted 11-02 ~14:00Z); 5080 host key verified 11-02.
   These owner questions are ANSWERED; what remains are technical holds (see Queue).
 - **Learning loop** weekly (cron on the canary host); round 3 closed 11-02 05:06Z; the owner's 11-02 capacity rule is written
-  (main dcedd094) before round 3 is re-gated.
+  (main dcedd094) before round 3 was re-gated: 13:51Z regate on the 5080 evidence -> **best = r3 Qwen3.5-4B** (80/min within
+  gates vs c2 0, not significantly worse on hard/rep_fail/post_veto; on the 3090 it is 1.4x, recorded). servea-01 adopted
+  with the learning-loop registration (`servea-01.d48467f8-4bll.json`), still HELD for the servea waiter.
 - **Showcase (11-02 13:29Z):** release `4c92880a` = fleet c711879e protected tree (tombexit, airpocketwin, lavatarget,
   promptcache, apseal, zigsealed, fleetbuild) + every showcase piece (expeditions/wholemap S1a, storehouse/shopchest,
   sortstore, showchat, copperhall, stale-stuck rule, SHAFT off); prev `d698024b` is the rollback. From now on

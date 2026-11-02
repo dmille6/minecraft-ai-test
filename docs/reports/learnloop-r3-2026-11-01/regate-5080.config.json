@@ -1,0 +1,124 @@
+{
+ "_doc": "learning loop weekly pipeline (round 3, 11-01). Read by scripts/learnloop/weekly/weekly.py on 10.0.0.31. Owner 11-01: train on fleet outcomes + LOCAL teacher labels only; paid Claude/GPT labels are referee-only. Changing a number here changes the next round, not a running one (each round copies this file into its directory at creation).",
+ "cadence_days": 7,
+ "window_days": 9,
+ "new_days": 2,
+ "heldout_worlds": [
+  "board-a",
+  "placebo-d",
+  "isolated-c"
+ ],
+ "pool": {
+  "f_n": 6000,
+  "pv_n": 2000,
+  "g_n": 9000
+ },
+ "teacher": {
+  "model": "qwen3.8:27b",
+  "budget_items": 2000,
+  "conc": 2
+ },
+ "assemble": {
+  "good_n": 3000,
+  "relabel_n": 2800,
+  "max_skill_share": 0.3,
+  "buffer_rounds": 3,
+  "seed_buffer": {
+   "pool": "~/learnloop/r3/buffer-c2/relabel-pool.pc.jsonl",
+   "pilot": "~/learnloop/r3/buffer-c2/pilot-1000.pc.jsonl",
+   "labels": [
+    "~/learnloop/c2/labels-qwen3_8_27b-pool.jsonl",
+    "~/learnloop/c2/labels-qwen3_8_27b-poolB.jsonl",
+    "~/learnloop/c2/labels-qwen3_8_27b-pilot.jsonl"
+   ]
+  }
+ },
+ "candidates": [
+  {
+   "key": "qwen35-4b",
+   "base": "qwen35-4b",
+   "quant": "16bit",
+   "params_b": 4.0,
+   "export_check": true
+  },
+  {
+   "key": "qwen35-9b",
+   "base": "qwen35-9b",
+   "quant": "8bit",
+   "params_b": 9.0,
+   "export_check": false,
+   "_export_check": "bf16 9B (18 GB) does not fit beside ethan-gpu's 6 GB; c2's check passed 98.5% with the same converter"
+  }
+ ],
+ "eval_items": "~/learnloop/r3/m3-eval.v0.pc.jsonl",
+ "bots_dir": "~/learnloop/replay/bots-96261fffbdaf/bots",
+ "incumbent": {
+  "name": "qwen2.5:7b-instruct",
+  "model_key": "qwen2.5-7b-instruct"
+ },
+ "replay": {
+  "conc": 2
+ },
+ "latency": {
+  "_doc": "within-gate rate = highest ladder rung at which p50 <= 2.5 s and p95 <= 5 s over ALL requests with every request valid, holding at every lower rung; per model the ladder stops at the first failing rung. Method = the serving agent's (docs/reports/serving-A-2026-11-01.md s.3): server restarted before each rung, 3 min open-loop Poisson, LIVE promptcache-layout prompts with the 80 real bot names, the bots' own oai+ client (batchload api native), T 0.7, 45 s timeout.",
+  "ladder": [
+   4,
+   6,
+   8,
+   10,
+   12,
+   14,
+   17,
+   20,
+   25,
+   30,
+   40
+  ],
+  "minutes": 3,
+  "ladder_items": "~/learnloop/r3/live-pc.servea-1101.jsonl",
+  "ladder_bots_dir": "~/learnloop/replay/bots-59ff9bd52838/bots",
+  "card": "the 5080 (servea-01 serves the 4B from it)",
+  "models": [
+   "candidates",
+   "best"
+  ],
+  "card_rates": "~/learnloop/rounds/20261101/card-5080/card-rates-5080.json"
+ },
+ "gates": {
+  "vs_incumbent": {
+   "schema_valid_floor_pp": 0.5,
+   "hard_le": true,
+   "rep_fail_le": true
+  },
+  "vs_best": {
+   "rep_fail_tol_pp": 2.0,
+   "post_veto_tol_pp": 5.0,
+   "hard_tol_pp": 0.5,
+   "schema_valid_min": 99.0
+  },
+  "new_best_if": "passes vs_incumbent AND [ (passes vs_best AND rep_fail+post_veto strictly below best's, OR <= 60% of best's parameters) OR capacity_rule ]",
+  "capacity_rule": {
+   "_doc": "OWNER 11-02 ~12:45Z (relayed by the control session), written BEFORE round 3 was re-gated: a candidate that passes the incumbent gate and schema_valid >= 99 (and its export check where one exists) may become BEST when it is NOT significantly worse than the current best on hard (600 items), rep_fail (300) and post_veto (100) -- paired exact two-sided sign test on discordant items, 'significantly worse' = more candidate-only failures AND p < alpha -- AND serves >= ratio x the best's within-gate decisions/min, both measured in the same session on the fleet's serving card (latency.card) by latency.ladder. The incumbent gate is unchanged. A best that fails the lowest rung counts as that rung.",
+   "alpha": 0.05,
+   "ratio": 1.5
+  }
+ },
+ "referee": {
+  "n": 200,
+  "arms": [
+   "B",
+   "C"
+  ],
+  "baseline": {
+   "local_vs_B_skill_pct": 58.9,
+   "local_vs_C_skill_pct": 59.6,
+   "B_vs_C_skill_pct": 72.5,
+   "n": 1000
+  },
+  "drift_z": 2.0
+ },
+ "register": {
+  "queue_add": false,
+  "why": "a model canary needs a serving host and a marker commit on the fleet tip; the pipeline prepares a HELD entry, a person adds it (weekly.py register --marker <sha>)"
+ }
+}

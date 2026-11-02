@@ -81,7 +81,8 @@
   "models": [
    "candidates",
    "best"
-  ]
+  ],
+  "_card_doc": "The FLEET'S SERVING CARD is the card the model canary would serve from. When that is the loop's own 3090, the ladder above runs there. When it is another host (round 3: the 5080, servea-01), the round's regate config sets latency.card_rates to a card_rates.py file computed from ladder runs measured ON that card by whoever may touch it (the serving agent), with the same latency_summary / within_gate_rate functions; a model that cannot be loaded there has rate 0 and counts at that card's lowest measured rung."
  },
  "gates": {
   "vs_incumbent": {

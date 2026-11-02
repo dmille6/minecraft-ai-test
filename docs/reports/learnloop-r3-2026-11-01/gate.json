@@ -185,8 +185,44 @@
     },
     "pass": false
    },
-   "new_best": false,
-   "why": "did not pass both gates",
+   "new_best": true,
+   "why": "CAPACITY RULE (owner 11-02): not significantly worse on any of ['hard', 'post_veto', 'rep_fail'], and 80/min within the gates vs best 0/min (>= 1.5x; best fails the lowest rung 20/min)",
+   "capacity_rule": {
+    "significance": {
+     "hard": {
+      "cand_only": 7,
+      "best_only": 2,
+      "p": 0.1797,
+      "significantly_worse": false
+     },
+     "rep_fail": {
+      "cand_only": 10,
+      "best_only": 11,
+      "p": 1.0,
+      "significantly_worse": false
+     },
+     "post_veto": {
+      "cand_only": 3,
+      "best_only": 4,
+      "p": 1.0,
+      "significantly_worse": false
+     }
+    },
+    "within_gate_rate": {
+     "cand": 80,
+     "best": 0
+    },
+    "pass": true,
+    "why": "not significantly worse on any of ['hard', 'post_veto', 'rep_fail'], and 80/min within the gates vs best 0/min (>= 1.5x; best fails the lowest rung 20/min)",
+    "card": "the 5080 (pve4) llama-server b12020 -np 6 x 6144, beside the live fleet Ollama qwen2.5:7b (8.7 GB resident)",
+    "method": "card evidence (serving agent, 11-02 12:31-12:46Z, serving-A method (docs/reports/serving-A-2026-11-01.md s.7), files copied read-only from .31 ~/servea/out)",
+    "evidence": "/home/mike/learnloop/rounds/20261101/card-5080/card-rates-5080.json",
+    "rule": {
+     "_doc": "OWNER 11-02 ~12:45Z (relayed by the control session), written BEFORE round 3 was re-gated: a candidate that passes the incumbent gate and schema_valid >= 99 (and its export check where one exists) may become BEST when it is NOT significantly worse than the current best on hard (600 items), rep_fail (300) and post_veto (100) -- paired exact two-sided sign test on discordant items, 'significantly worse' = more candidate-only failures AND p < alpha -- AND serves >= ratio x the best's within-gate decisions/min, both measured in the same session on the fleet's serving card (latency.card) by latency.ladder. The incumbent gate is unchanged. A best that fails the lowest rung counts as that rung.",
+     "alpha": 0.05,
+     "ratio": 1.5
+    }
+   },
    "paired_vs_base": {
     "fail": {
      "items": 300,
@@ -290,6 +326,42 @@
    },
    "new_best": false,
    "why": "did not pass both gates",
+   "capacity_rule": {
+    "significance": {
+     "hard": {
+      "cand_only": 6,
+      "best_only": 2,
+      "p": 0.2891,
+      "significantly_worse": false
+     },
+     "rep_fail": {
+      "cand_only": 9,
+      "best_only": 7,
+      "p": 0.8036,
+      "significantly_worse": false
+     },
+     "post_veto": {
+      "cand_only": 1,
+      "best_only": 3,
+      "p": 0.625,
+      "significantly_worse": false
+     }
+    },
+    "within_gate_rate": {
+     "cand": 0,
+     "best": 0
+    },
+    "pass": false,
+    "why": "capacity 0/min < 1.5 x best 20/min",
+    "card": "the 5080 (pve4) llama-server b12020 -np 6 x 6144, beside the live fleet Ollama qwen2.5:7b (8.7 GB resident)",
+    "method": "card evidence (serving agent, 11-02 12:31-12:46Z, serving-A method (docs/reports/serving-A-2026-11-01.md s.7), files copied read-only from .31 ~/servea/out)",
+    "evidence": "/home/mike/learnloop/rounds/20261101/card-5080/card-rates-5080.json",
+    "rule": {
+     "_doc": "OWNER 11-02 ~12:45Z (relayed by the control session), written BEFORE round 3 was re-gated: a candidate that passes the incumbent gate and schema_valid >= 99 (and its export check where one exists) may become BEST when it is NOT significantly worse than the current best on hard (600 items), rep_fail (300) and post_veto (100) -- paired exact two-sided sign test on discordant items, 'significantly worse' = more candidate-only failures AND p < alpha -- AND serves >= ratio x the best's within-gate decisions/min, both measured in the same session on the fleet's serving card (latency.card) by latency.ladder. The incumbent gate is unchanged. A best that fails the lowest rung counts as that rung.",
+     "alpha": 0.05,
+     "ratio": 1.5
+    }
+   },
    "paired_vs_base": {
     "fail": {
      "items": 300,
@@ -522,5 +594,5 @@
    }
   }
  },
- "new_best": null
+ "new_best": "20261101-qwen35-4b"
 }
