@@ -122,24 +122,28 @@ def parse_suite(text):
 
 
 def triage(failed, alone_merge, alone_main, alone_fleet):
-    """PURE. failed: files failing in the full run. alone_*: {file: [bool passed, ...]} runs of the file alone on each tree.
-    -> {'flake': [...], 'preexisting': [...], 'hard': [...]}. flake = passed alone on the merge at least once; pre-existing =
-    still failing alone on the merge and failing alone on main or on the promoted sha; hard = fails only on the merge."""
+    """PURE. failed: files failing in the full run. alone_*: {file: [result, ...]} runs of the file alone on each tree, each
+    result 'pass' | 'fail' (the file ran to its summary and FAILED) | 'absent' (no such test on that tree) | 'error' (timeout,
+    no summary). -> {'flake', 'preexisting', 'hard'}. flake = passed alone on the merge at least once; pre-existing = a
+    CONFIRMED 'fail' alone on main or on the promoted sha (Codex r1: an absent or broken run proves nothing -- a new test
+    failing on the merge and missing on main must not pass as pre-existing); everything else is hard."""
     out = {'flake': [], 'preexisting': [], 'hard': []}
     for f in failed:
-        if any(alone_merge.get(f) or []):
+        if 'pass' in (alone_merge.get(f) or []):
             out['flake'].append(f)
-        elif not all(alone_main.get(f) or [False]) or not all(alone_fleet.get(f) or [False]):
+        elif 'fail' in (alone_main.get(f) or []) or 'fail' in (alone_fleet.get(f) or []):
             out['preexisting'].append(f)
         else:
             out['hard'].append(f)
     return out
 
 
-def push_safe_without_retest(changed_files):
-    """PURE. The files main changed while the suite ran -> may the re-merge onto the new main be pushed untested? Only when
-    nothing the suite can see changed: nothing under bots/ (code, tests, package files)."""
-    return not any(f.startswith('bots/') for f in changed_files)
+def push_safe_without_retest(changes):
+    """PURE. changes: [(status letter, path)] main gained while the suite ran (git diff --name-status) -> may the re-merge
+    onto the new main be pushed untested? Only for an allowlist the suite cannot see (Codex r1: the suite runs scripts/ and
+    config/ tests too): Markdown under docs/ that was added or modified -- the hourly STATE.md relay and reports. A deletion
+    re-tests (nothing-important-is-orphaned lists docs)."""
+    return bool(changes) and all(st[:1] in ('A', 'M') and p.startswith('docs/') and p.endswith('.md') for st, p in changes)
 
 
 def alarms_for(state, pending, missing, now):
@@ -311,6 +315,10 @@ def cmd_tick(a):
                 e.update(status='syntax', files=bad)
             else:
                 merge = git(repo, 'rev-parse', 'HEAD').stdout.strip()
+                # the suite holds this tick for ~20-40 min: say so in the header first (a CI > 2 h then reads STALE)
+                publish({'generated_at': iso(dt.datetime.now(UTC)), 'main': main, 'alarms': alarms_for(state, pending, missing, now),
+                         'summary': f'promotion merge: testing {run_id} {sha[:8]} merged onto main {main[:8]} on the test host '
+                                    f'(since {iso(dt.datetime.now(UTC))})'})
                 try:
                     r = remote_ci(repo, main, sha, merge)
                 except Exception as ex:   # noqa: BLE001 -- a CI that cannot run is a status, never a silent stop
@@ -351,7 +359,7 @@ def _push(repo, run_id, sha, main, merge, state, now):
         new = git(repo, 'rev-parse', 'origin/main').stdout.strip()
         if ancestor(repo, sha, new):
             return {'status': 'merged-elsewhere', 'detail': f'origin/main {new[:8]} already carries it'}
-        changed = git(repo, 'diff', '--name-only', main, new).stdout.split()
+        changed = [tuple(l.split('\t')[:2]) for l in git(repo, 'diff', '--name-status', '--no-renames', main, new).stdout.splitlines() if '\t' in l]
         if not push_safe_without_retest(changed):
             return {'status': 'stale-main', 'detail': f'main moved to {new[:8]} with bots/ changes while the suite ran; re-test next tick'}
         ok, files = merge_onto(repo, new, run_id, sha)
@@ -367,9 +375,11 @@ def _alone(tree, f, env):
         p = subprocess.run(['nice', '-n', '19', 'node', 'scripts/run-tests.mjs', f], cwd=os.path.join(tree, 'bots'),
                            capture_output=True, text=True, timeout=1800, env=env)
     except subprocess.TimeoutExpired:
-        return False
+        return 'error'
+    if not os.path.isfile(os.path.join(tree, 'bots', 'test', f)):
+        return 'absent'
     done, failed = parse_suite(p.stdout)
-    return done and f not in failed
+    return 'error' if not done else ('fail' if f in failed else 'pass')
 
 
 def _busy():
@@ -426,9 +436,9 @@ def cmd_ci(a):
         am[f] = []
         for _ in range(2):
             am[f].append(_alone(trees['merge'], f, env1))
-            if am[f][-1]:
+            if am[f][-1] == 'pass':
                 break
-        if not any(am[f]):
+        if 'pass' not in am[f]:
             amain[f] = [_alone(trees['main'], f, env1)]
             afl[f] = [_alone(trees['fleet'], f, env1)]
     tr = triage(failed, am, amain, afl)

@@ -83,14 +83,22 @@ def t_parse_and_triage(S):
     check('parse_suite: completed, two failed', S.parse_suite(out) == (True, ['a.test.mjs', 'b.test.mjs']), S.parse_suite(out))
     check('parse_suite: green', S.parse_suite('398/398 files passed\n') == (True, []))
     check('parse_suite: no summary line = not completed', S.parse_suite('FAILED (1): a.test.mjs\n')[0] is False)
-    tr = S.triage(['f.mjs', 'p.mjs', 'q.mjs', 'h.mjs'],
-                  {'f.mjs': [False, True], 'p.mjs': [False, False], 'q.mjs': [False, False], 'h.mjs': [False, False]},
-                  {'p.mjs': [False], 'q.mjs': [True], 'h.mjs': [True]}, {'p.mjs': [True], 'q.mjs': [False], 'h.mjs': [True]})
-    check('triage: flake / pre-existing on main / pre-existing on the fleet / hard',
-          tr == {'flake': ['f.mjs'], 'preexisting': ['p.mjs', 'q.mjs'], 'hard': ['h.mjs']}, tr)
-    check('triage: no base runs recorded = not proof of pre-existing', S.triage(['z'], {'z': [False]}, {}, {})['preexisting'] == ['z'])
-    check('push_safe_without_retest: docs/config only', S.push_safe_without_retest(['docs/reports/STATE.md', 'config/x.json']))
-    check('push_safe_without_retest: any bots/ path re-tests', not S.push_safe_without_retest(['docs/a.md', 'bots/src/skills.mjs']))
+    tr = S.triage(['f.mjs', 'p.mjs', 'q.mjs', 'h.mjs', 'n.mjs', 'e.mjs'],
+                  {'f.mjs': ['fail', 'pass'], 'p.mjs': ['fail', 'fail'], 'q.mjs': ['fail', 'fail'], 'h.mjs': ['fail', 'fail'],
+                   'n.mjs': ['fail', 'fail'], 'e.mjs': ['fail', 'fail']},
+                  {'p.mjs': ['fail'], 'q.mjs': ['pass'], 'h.mjs': ['pass'], 'n.mjs': ['absent'], 'e.mjs': ['error']},
+                  {'p.mjs': ['pass'], 'q.mjs': ['fail'], 'h.mjs': ['pass'], 'n.mjs': ['pass'], 'e.mjs': ['error']})
+    check('triage: flake / pre-existing on main / on the fleet / hard / new test absent on main / broken base runs',
+          tr == {'flake': ['f.mjs'], 'preexisting': ['p.mjs', 'q.mjs'], 'hard': ['h.mjs', 'n.mjs', 'e.mjs']}, tr)
+    check('triage: no base runs recorded = not proof of pre-existing', S.triage(['z'], {'z': ['fail']}, {}, {})['hard'] == ['z'])
+    check('push_safe_without_retest: Markdown under docs/ added or modified',
+          S.push_safe_without_retest([('M', 'docs/reports/STATE.md'), ('A', 'docs/reports/x-2026-11-02.md')]))
+    check('push_safe_without_retest: scripts/ or config/ re-tests (the suite runs them)',
+          not S.push_safe_without_retest([('M', 'docs/a.md'), ('M', 'scripts/host/stallcheck.py')])
+          and not S.push_safe_without_retest([('M', 'config/monitors.json')]))
+    check('push_safe_without_retest: a deleted doc or a bots/ path re-tests',
+          not S.push_safe_without_retest([('D', 'docs/reports/a.md')]) and not S.push_safe_without_retest([('M', 'bots/src/skills.mjs')]))
+    check('push_safe_without_retest: nothing listed is not a licence', not S.push_safe_without_retest([]))
 
 
 def t_alarms(S):
@@ -176,6 +184,15 @@ def t_end_to_end():
         sh(work, 'git', 'push', '-q', 'origin', 'main')
         r = S._push(scratch, 'fleet-02', fleet2, m3, sh(scratch, 'git', 'rev-parse', 'HEAD'), {}, NOW)
         check('e2e: main moved under bots/ -> stale-main, nothing pushed', ok and r.get('status') == 'stale-main', r)
+        commit(work, 'scripts/host/x.py', 'x = 1\n', 'main: scripts change')
+        sh(work, 'git', 'push', '-q', 'origin', 'main')
+        sh(scratch, 'git', 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*')
+        m3b = sh(scratch, 'git', 'rev-parse', 'origin/main')
+        ok, _ = S.merge_onto(scratch, m3b, 'fleet-02', fleet2)
+        commit(work, 'scripts/host/y.py', 'y = 1\n', 'main: another scripts change')
+        sh(work, 'git', 'push', '-q', 'origin', 'main')
+        r = S._push(scratch, 'fleet-02', fleet2, m3b, sh(scratch, 'git', 'rev-parse', 'HEAD'), {}, NOW)
+        check('e2e: main moved under scripts/ -> stale-main too (Codex r1)', ok and r.get('status') == 'stale-main', r)
         # a conflict: the fleet and main edit the same line
         sh(work, 'git', 'checkout', '-q', 'fleet')
         fleet3 = commit(work, 'bots/src/a.mjs', 'export const a = 99\n', 'fleet: a')
@@ -229,9 +246,12 @@ def t_wiring():
 MUTANTS = [
     ('no retry on the same main', "return entry.get('main') != main and (t is None or hours(now, t) >= retry_h)", "return True"),
     ('the newest target', "return pending[-1] if pending else None", "return pending[0] if pending else None"),
-    ('triage flake', "if any(alone_merge.get(f) or []):", "if False:"),
-    ('triage pre-existing', "elif not all(alone_main.get(f) or [False]) or not all(alone_fleet.get(f) or [False]):", "elif False:"),
-    ('bots/ re-tests', "return not any(f.startswith('bots/') for f in changed_files)", "return True"),
+    ('triage flake', "if 'pass' in (alone_merge.get(f) or []):", "if False:"),
+    ('triage pre-existing', "elif 'fail' in (alone_main.get(f) or []) or 'fail' in (alone_fleet.get(f) or []):", "elif False:"),
+    ('triage confirmed fail only', "elif 'fail' in (alone_main.get(f) or []) or 'fail' in (alone_fleet.get(f) or []):",
+     "elif set(alone_main.get(f) or []) - {'pass'} or set(alone_fleet.get(f) or []) - {'pass'}:"),
+    ('untested push allowlist', "all(st[:1] in ('A', 'M') and p.startswith('docs/') and p.endswith('.md') for st, p in changes)",
+     "all(not p.startswith('bots/') for st, p in changes)"),
     ('conflict alarm', "if st == 'conflict':", "if False:"),
     ('pending alarm threshold', "elif hours(now, t) > PENDING_ALARM_H:", "elif False:"),
     ('missing alarm', "if hours(now, t) > MISSING_GRACE_H:", "if False:"),
