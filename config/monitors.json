@@ -506,6 +506,19 @@
    "consumer": "fleetstatus header (alarmhead FILES 'promotion merge'); stallcheck (f) pages promotions off main > 6 h as the backstop",
    "kind": "monitor",
    "note": "written by `promomerge.py publish` over ssh from the Mac tick (~/promomerge/app on .31, scripts/host/install-promomerge.sh)"
+  },
+  {
+   "id": "flowledger",
+   "host": "31",
+   "cron": "host/flowledger.py run",
+   "outputs": [
+    "~/digest/flowledger.log",
+    "~/flowledger/out/latest.json",
+    "~/flowledger/out/history.jsonl"
+   ],
+   "fresh_hours": 2.5,
+   "consumer": "fleetstatus header (alarmhead MONITOR_LOGS 'flow ledger:' line, '!!' on ALARMS/ERROR or stale > 150 min); its alarms in ~/digest/ALARMS.log (STATE.md Open alarms + push); resource-model-1102 stage reads (marks-01, towngate-01)",
+   "kind": "monitor"
   }
  ]
 }

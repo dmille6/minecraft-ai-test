@@ -234,6 +234,12 @@ const REQUIRED = [
   'scripts/host/install-stallcheck.sh',
   'bots/test/stallcheck.test.mjs',
   'scripts/lib/alarmhead.py',
+  // flowledger-01 (resource-model-1102 s.9): per-town stock + flow, bags counted, alarms in the fleetstatus header
+  'scripts/host/flowledger.py',
+  'scripts/host/flowstock.mjs',
+  'scripts/host/test_flowledger.py',
+  'scripts/host/install-flowledger.sh',
+  'bots/test/flowledger.test.mjs',
   'scripts/mac/opsaudit.sh',
   // the learning loop's nightly archive (M1): logs on .31 rotate after 14 days, this is the only long-term copy
   'scripts/learnloop/extract_triples.py',

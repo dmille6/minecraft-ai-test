@@ -33,6 +33,9 @@ MONITOR_LOGS = (
      r'^\d{4}-\d\d-\d\dT\S+ (\d+ of \d+ bots|stuckwatch OK)|stuckwatch REFUSED', r' [1-9]\d* of \d+ bots|REFUSED', None),
     ('staffcensus/out/check.log', 'staff census check', dt.timedelta(minutes=90), r'^\d{4}-\d\d-\d\dT\S+ ', None, r'staff census OK'),
     ('failmine/weekly.log', 'failmine weekly', dt.timedelta(days=8), r'\S', r'Error|Traceback|BlindInput', None),
+    # flowledger-01 (resource-model-1102 s.9): hourly per-town stock + flow, bags counted; its alarms go here, not to a log
+    ('digest/flowledger.log', 'flow ledger', dt.timedelta(minutes=150), r'^\d{4}-\d\d-\d\dT\S+ flowledger ',
+     r' flowledger (ALARMS|ERROR)', None),
 )
 ES_KINDS = (   # (kind, label, stale after)
     ('showcase_halt', 'showcase halt', dt.timedelta(minutes=20)),

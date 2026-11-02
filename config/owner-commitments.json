@@ -3278,6 +3278,39 @@
     ]
    },
    "note": "Pit filling with cobble ties to resource-model-1102 (sink)."
+  },
+  {
+   "id": "flowledger-01",
+   "title": "resource-model-1102 stage 1: flowledger-01 -- hourly per-town stock + flow (bags counted) with the s.9 alarms, in the fleetstatus header and ALARMS.log",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "owner-resource-model-1102.md",
+    "owner-bags-yard-1102.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Installed on .31 (cron :05, ~/flowledger). Close when 24 h of hourly runs exist and the sinks/bags alarms are past WARMING: read the header line ('flow ledger:'), confirm >= 12 of 16 towns close, then state=done.",
+   "max_quiet_hours": 36,
+   "depends_on": [
+    {
+     "cron": "host/flowledger.py run"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "flowledger-01"
+    ],
+    "paths": [
+     "scripts/host/flowledger.py",
+     "scripts/host/flowstock.mjs",
+     "scripts/host/test_flowledger.py",
+     "scripts/host/install-flowledger.sh",
+     "bots/test/flowledger.test.mjs"
+    ]
+   },
+   "note": "First real run 11-02 16:27Z (6 h, 449,476 rows, 80 bots, 16 towns): cobble new 14,239, well 8,259 (58%), bags 32,422, chests 11,347 (16/16 fully counted); balance closes 14/16 (residual 1,110 vs null 11,302 of 22,554 in, 98% measured); departures p50 33 p75 34, 221 of 614 at >= 34. Codex r1 3 blockers (inferred deltas closing by construction; build placements from net bag loss; yard bamboo left out) fixed -> r2 APPROVE."
   }
  ]
 }
