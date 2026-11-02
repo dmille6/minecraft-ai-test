@@ -704,7 +704,8 @@ export function siteBlueprint (read, plan, bp, ctx = {}) {
     for (const orient of ORIENTS) {
       for (let x = home.x - DOMAIN.line; x <= home.x + DOMAIN.line; x++) {
         for (let z = home.z - DOMAIN.line; z <= home.z + DOMAIN.line; z++) {
-          const r = screenSite(read, home, bp, { x, z }, orient, res, { sector })
+          // stockyard-01: a caller may name its earthwork limits (`ctx.earth`: the yard's 17 x 15 floor); else screenSite's EARTH
+          const r = screenSite(read, home, bp, { x, z }, orient, res, { sector, ...(ctx.earth ? { earth: ctx.earth } : {}) })
           if (r.ok) ok.push(r); else rejects[r.why] = (rejects[r.why] ?? 0) + 1
         }
       }
