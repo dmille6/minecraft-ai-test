@@ -17634,7 +17634,7 @@ async function exFollowHome (ctx, signal, trip, until, markers, persist = () => 
     if (kind === 'marker') { via = 'markers'; if (!arrived) mskip.add(m.approach.join(',')); else fails = 0 }
     if (kind === 'direct') via = via === 'crumbs' ? 'crumbs+direct' : `${via}+direct`
     trip.cursor = cursor
-    trip.trailAt = Date.now()
+    if (arrived) trip.trailAt = Date.now()   // only a hop that got there freshens the trail (Claude r1 BLOCK: a stuck bot's tries)
     persist()
   }
   return { home: exAtHome(bot.entity.position), via, hops }
@@ -17846,7 +17846,7 @@ async function expeditionVisit (ctx, args, signal) {
         const m = await exPlaceMarker(ctx, signal, cell, dirV, { zones: keepOff, trip, me })
         if (m && !m.partial) { markers.push(m); trip.markers++; sinceMarker = 0 } else sinceMarker = MARKER_EVERY - 8
       }
-      trip.trailAt = Date.now()
+      if (moved >= 4) trip.trailAt = Date.now()
       exWrite(me, st)
     }
     const outTook = Date.now() - tOut

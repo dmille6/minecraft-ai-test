@@ -128,8 +128,17 @@ export function ringOf (trips = [], now = 0) {
 export const multiCall = ring => (Number(ring) || 0) > ONE_CALL_RING
 /** The outbound share of a trip's call -> fraction. Pure. */
 export const outShareOf = ring => multiCall(ring) ? LONG_OUT_SHARE : OUT_SHARE
-/** How old an open trail is, for `home`'s TRAIL_TTL_MS: since its last walked leg (trailAt), else its start -> ms. Pure. */
-export const trailAge = (trip = {}, now = 0) => now - (Number(trip?.trailAt) || Number(trip?.startedAt) || 0)
+/**
+ * How old an open trail is, for `home`'s TRAIL_TTL_MS and the slot count -> ms. Pure. Since its last leg that MOVED the bot (trailAt;
+ * a stuck bot's failed hops never stamp it), else its start; and a trip older than TRIP_MAX_MS from its start is past every TTL
+ * (Claude review r1 BLOCK: a bot stuck out of town must not hold an expedition slot for ever).
+ */
+export const TRIP_MAX_MS = 12 * 60 * 60_000
+export function trailAge (trip = {}, now = 0) {
+  const t0 = Number(trip?.startedAt) || 0
+  if (now - t0 > TRIP_MAX_MS) return Infinity
+  return now - (Number(trip?.trailAt) || t0)
+}
 
 /**
  * THE NEXT TRIP'S BEARING -> { bearing, reuse } | { bearing: null, why }. Pure. A bearing is BLOCKED for 24 h after a trip on it
