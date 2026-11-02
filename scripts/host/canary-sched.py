@@ -66,6 +66,24 @@ registered (a copy of the source variant's registration), and added by `queue ad
 normally (H3/H4 and every slot check still apply). Any failure pages the exact reason and leaves the head BLOCKED (never
 skipped, never retried) until a human builds the variant or runs `autorebase-clear`. Every step is a sched-state row.
 
+AUTOREBASE TEST STEP v40 (11-02). v39 judged each full-run failure on ONE alone run on the new tip and ONE on the base;
+on .31 (80 bots, load 12-20 on 24 cores) timing-sensitive files fail alone at random, so cooldown15-01 (a config cap) was
+refused onto c711879e ("fail alone on the new tip and NOT on the base: gather-reach, plinth-skill") and the slot sat idle
+2.5 h. The same files passed on the Mac. v40 keeps every other check and judges each failing file by its KIND:
+  touched  the change edits the test file itself, or a file every test runs through (bots/package*.json,
+           bots/scripts/run-tests.mjs, bots/node_modules): ONE alone run on the new tip; it passes or the build refuses.
+  imports  the change edits a file in the test's import closure (static and literal dynamic imports, require, any string
+           literal that names a repo file or directory, followed transitively), OR that closure cannot be fully listed
+           (a computed import, a child process, a Worker, any fs read or listing): no pass-once allowance. Alone runs alternate base / new (same
+           load period), up to AR_RERUN_TRIES each; accepted only when the BASE fails it too on this host (it fails
+           every run on both, or it flakes on both); a file that fails only on the new tip, or flakes on the new tip
+           while the base passes every run, refuses.
+  clear    nothing in its closure changed: up to AR_RERUN_TRIES alone runs on the new tip with backoff; passing once is
+           a host flake (named in the registration). Failing every time, it is accepted only when it fails every alone
+           run on the base too.
+Alone runs are at normal priority (one file, TEST_JOBS=1; the full suite stays at nice 10), each output is kept in
+~/autorebase/logs/<run>--<base>.rerun.out, and at most 3 files may be accepted as failing on the base.
+
 FUN MODE (v37, OWNER 2026-10-28, W4). A registration that does not say `"lab": true` is an ORDINARY run: R10
 (drawexposure), H5 (NEXT-SLOT) and H6 (bag-fix 4-pool draw) are lab-only and do not apply to it. For a fun-mode run R11
 EXPIRES 2 h after the run closed unless one of its deaths was CHANGE-LINKED (a rung-linked / change-row death, or an
@@ -98,6 +116,9 @@ AR_STALE_MIN = 20       # an autorebase job whose heartbeat (every 30 s) is olde
 AR_PUSH_WAIT_MIN = 45   # the relay pushes within minutes; past this the job refuses (is the Mac relay running?)
 AR_TEST_TIMEOUT_S = 45 * 60
 AR_MAX_RERUN = 6         # full-run failures re-run alone (host-load flakes); more than this refuses outright
+AR_RERUN_TRIES = 3       # v40: at most this many alone runs of one file on each side (the new tip, the base)
+AR_RERUN_TIMEOUT_S = 900
+AR_RERUN_BUDGET_S = 80 * 60   # v40: all re-runs of one build; past it no new run starts and an undecided file refuses
 SLOT_PROCS = (  # basename of argv[0] or argv[1]; never a substring of the whole command line (pgrep -f self-matches)
     ('canary-loop.sh', lambda b: b == 'canary-loop.sh'),
     ('chain-*.sh', lambda b: bool(re.match(r'^chain-.*\.sh$', b))),
@@ -152,6 +173,7 @@ def paths():
         'ar_push': g('SCHED_AR_PUSH', 'relay'),          # relay: a request file the Mac pushes | direct: git push (tests)
         'ar_sudo': g('SCHED_AR_SUDO', '1'),              # the deploy repo is root-owned: fetch into it with sudo -n
         'ar_npm': g('SCHED_AR_NPM', 'npm'),
+        'ar_backoff': g('SCHED_AR_BACKOFF_S', '60,180'),  # v40: the sleep before the 2nd, 3rd re-run alone on the new tip
     }
 
 
@@ -1494,11 +1516,170 @@ def test_results(out):
     return res
 
 
-def test_verdict(full_rc, full, alone_new, alone_base, touched, expected=None, max_base_fail=3):
-    """PURE. Did the suite pass, base-relatively? full: {file: ok|FAIL} of the full run on the new tip; alone_new: the
-    same for each full-run failure re-run ALONE on the new tip; alone_base: each still-failing file re-run alone on the
-    BASE. A file passes when it passed in the full run, or alone. A file that fails alone on the new tip is accepted only
-    when it ALSO fails alone on the base, the change does not touch it, and at most max_base_fail files are like that.
+# a file every test runs through: a change to one of these touches every test (no flake allowance for any)
+def is_global_test_input(path):
+    """PURE."""
+    return (path.startswith('bots/package') or path == 'bots/scripts/run-tests.mjs' or path.startswith('bots/node_modules/')
+            or path == 'bots/.npmrc')
+
+
+_CL_SPEC = re.compile(r'''(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\w*\s*\(\s*)(['"])([^'"\n]+)\1''')
+_CL_LIT = re.compile(r'''(?=(['"`])([^'"`\n\\$]{1,300})\1)''')      # every literal, overlapping (a mis-paired quote cannot hide one)
+_CL_FILE = re.compile(r'^[\w@.~/-]*[\w-]\.(?:mjs|cjs|js|json|jsonl|py|sh|txt|md)$')
+_CL_DYN = re.compile(r'''\b(?:import|require\w*)\s*\(\s*(?!(['"])[^'"\n]*\1\s*[,)]|`[^`$\n]*`\s*[,)])''')
+_CL_CHILD = re.compile(r'''(?<![.\w$])(?:spawn|spawnSync|fork|execFile|execFileSync|execSync|exec)\s*\(|\bWorker\s*\(|child_process|worker_threads''')
+# a filesystem read or listing whose path may be computed: the file read may be one no literal names (comments too)
+_CL_FS = re.compile(r'''\b(?:readFileSync|readFile|createReadStream|readdirSync|readdir|opendirSync|opendir|globSync|glob|existsSync|'''
+                    r'''statSync|lstatSync|accessSync|openSync)\s*\(|['"`](?:node:)?fs(?:/promises)?['"`]''')   # any use of the fs module (Codex r1: an alias)
+_CL_ESC = re.compile(r'''(['"`])(?:\.{1,2}/|[\w@.-]+/)[^'"`\n\s]*\\''')     # a path-like literal with an escape (Codex r1: '../src/\u0078.mjs')
+_CL_BARE_DIRS = ('bots', 'bots/src', 'bots/test', 'bots/test/helpers', 'bots/test/fixtures', 'bots/scripts', '', 'config',
+                 'scripts', 'scripts/host', 'scripts/lib')
+CODE_EXT = ('.mjs', '.cjs', '.js')
+
+
+def import_closure(read, listdir, rel):
+    """PURE given its readers. Every repo file the test file `rel` can reach: static imports, literal dynamic imports and
+    requires, and ANY string literal that names an existing repo file (relative to the file, or a bare name under the
+    usual dirs) or directory (all files under it), followed transitively through code files. Comments are NOT stripped:
+    a path in a comment only makes the closure bigger, which is the safe direction. read(rel) -> text | None (missing),
+    listdir(rel) -> [repo-relative files under that directory] | None (not a directory).
+    -> (set of repo-relative paths, [why the closure is OPEN: a computed import, a child process, a Worker, or any
+    filesystem read/listing -- its path may be built from parts no literal names; measured 11-02 on main this costs 3 of
+    the 35 'clear' files for a config.mjs change]).
+    An import edge the change REMOVED cannot hide a file: the file that held the edge is changed and still reachable."""
+    seen, opens, stack = set(), [], [rel]
+    while stack:
+        r = stack.pop()
+        if r in seen:
+            continue
+        s = read(r)
+        if s is None:
+            continue
+        seen.add(r)
+        if not r.endswith(CODE_EXT):
+            continue
+        if _CL_DYN.search(s):
+            opens.append('%s: a computed import/require' % r)
+        if _CL_CHILD.search(s):
+            opens.append('%s: a child process or Worker' % r)
+        if _CL_FS.search(s):
+            opens.append('%s: a filesystem read or listing (the fs module)' % r)
+        if _CL_ESC.search(s):
+            opens.append('%s: a path-like string literal with an escape' % r)
+        d = os.path.dirname(r)
+        specs = set(m.group(2) for m in _CL_SPEC.finditer(s))
+        if any('\\' in x for x in specs):                 # Claude r2: '\x2e./src/a.mjs' is '../src/a.mjs' to node
+            opens.append('%s: an import specifier with an escape' % r)
+        cands = specs | set(m.group(2) for m in _CL_LIT.finditer(s))
+        for c in cands:
+            c = c.strip()
+            if not c or c.startswith(('node:', 'http:', 'https:')) or c in ('.', '..', '/', './', '../'):
+                continue
+            if c.startswith('.'):
+                bases = (d,)
+            elif '/' in c:
+                bases = (d, 'bots', '')
+            elif _CL_FILE.match(c):
+                bases = (d,) + _CL_BARE_DIRS
+            else:
+                continue
+            for b in bases:
+                q = os.path.normpath(os.path.join(b, c))
+                if q.startswith('..') or q == '.' or os.path.isabs(q):
+                    continue
+                tries = [q] + ([q + x for x in CODE_EXT] if c.startswith('.') and not q.endswith(CODE_EXT) else [])
+                hit = False
+                for t in tries:
+                    if read(t) is not None:
+                        stack.append(t); hit = True
+                        break
+                if not hit:
+                    under = listdir(q)
+                    if under is not None:
+                        stack.extend(under); hit = True
+                if hit:
+                    break
+            else:
+                if c in specs and c.startswith('.'):
+                    opens.append('%s: the relative import %r does not resolve' % (r, c[:80]))
+    return seen, opens
+
+
+def rerun_kind(f, changed, closure):
+    """PURE. f: a failing test file's basename; changed: the change's paths; closure(rel) -> (paths, opens).
+    -> ('touched' | 'imports' | 'clear', why)."""
+    rel = 'bots/test/' + f
+    if any(t == rel or t.endswith('/' + f) or t == f for t in changed):
+        return 'touched', 'the change edits it'
+    g = sorted(t for t in changed if is_global_test_input(t))
+    if g:
+        return 'touched', 'the change edits %s, which every test runs through' % ', '.join(g[:3])
+    clos, opens = closure(rel)
+    hit = sorted(set(clos) & set(changed))
+    if hit:
+        return 'imports', 'the change edits %s in its import closure (%d files)' % (', '.join(hit[:3]), len(clos))
+    if opens:
+        return 'imports', 'its import closure cannot be fully listed (%s)' % opens[0]
+    return 'clear', 'none of the %d files in its import closure changed' % len(clos)
+
+
+def next_rerun(kind, new, base, tries=AR_RERUN_TRIES):
+    """PURE. The next alone run for one failing file: 'new' (the rebased tip), 'base', or None (decided).
+    new / base: the results so far, each 'ok' | 'FAIL' | '?' (no completed answer)."""
+    if '?' in new or '?' in base:
+        return None
+    if not new:
+        return 'new'
+    if new[0] == 'ok':
+        return None
+    if kind == 'touched':
+        return None
+    if kind == 'clear':
+        if 'ok' in new:
+            return None
+        if len(new) < tries:
+            return 'new'
+        if 'ok' in base or len(base) >= tries:
+            return None
+        return 'base'
+    if 'FAIL' in base and 'ok' in new:              # imports: flaky on both sides -- decided
+        return None
+    if len(base) >= tries:
+        return None
+    return 'base' if len(base) < len(new) else 'new'
+
+
+def file_verdict(kind, new, base, tries=AR_RERUN_TRIES):
+    """PURE. -> (status, text); status: 'pass' (ok alone at once), 'flake' (clear, passed alone on a retry), 'base' (the
+    base fails it on this host too), 'refuse'."""
+    rn = lambda xs: '%d/%d' % (xs.count('ok'), len(xs))
+    if not new:
+        return 'refuse', 'never re-run alone'
+    if '?' in new or '?' in base:
+        return 'refuse', 'no completed answer when re-run alone (timeout, crash or no result line): new %s, base %s' % (
+            ','.join(new), ','.join(base) or '-')
+    if new[0] == 'ok':
+        return 'pass', 'ok alone'
+    if kind == 'touched':
+        return 'refuse', 'fails alone and the change touches it (no retry for a file the change touches)'
+    if kind == 'clear' and 'ok' in new:
+        return 'flake', 'host flake: passed alone on try %d of %d (the change touches nothing it imports)' % (
+            new.index('ok') + 1, len(new))
+    if len(base) >= tries and len(new) >= tries and set(base) == {'FAIL'} and set(new) == {'FAIL'}:
+        return 'base', 'fails every alone run on the new tip (%d) AND on the base (%d)' % (len(new), len(base))
+    if kind == 'imports' and 'FAIL' in base and 'ok' in new:
+        return 'base', 'flaky on the base too: alone the new tip passed %s, the base %s' % (rn(new), rn(base))
+    if not base:
+        return 'refuse', 'fails alone on the new tip (passed %s) and was never run on the base' % rn(new)
+    if 'ok' in new:
+        return 'refuse', ('flaky alone on the new tip only (passed %s) while the base passed %s, and the change touches '
+                          'what it imports' % (rn(new), rn(base)))
+    return 'refuse', 'fails alone on the new tip (passed %s) and NOT on the base (passed %s)' % (rn(new), rn(base))
+
+
+def test_verdict(full_rc, full, reruns, expected=None, max_base_fail=3):
+    """PURE. Did the suite pass, base-relatively? full: {file: ok|FAIL} of the full run on the new tip; reruns: for each
+    full-run failure {'kind', 'why', 'new': [...], 'base': [...], 'spent': bool} (the alone runs, see next_rerun);
     expected: how many test files the worktree holds -- the full run must have reported every one of them.
     -> ('', summary) or (why refused, summary)."""
     if not full:
@@ -1514,26 +1695,114 @@ def test_verdict(full_rc, full, alone_new, alone_base, touched, expected=None, m
         return 'npm test exited %s with no failing file named' % full_rc, ''
     if len(fails) > AR_MAX_RERUN:
         return '%d files failed in the full run (more than %d are not re-run)' % (len(fails), AR_MAX_RERUN), ''
-    still = sorted(f for f in fails if alone_new.get(f) != 'ok')
-    flaky = [f for f in fails if f not in still]
-    summary = 'npm test %d/%d in the full run; re-run alone: %s' % (
-        len(full) - len(fails), len(full), ', '.join('%s %s' % (f, alone_new.get(f, '?')) for f in fails))
-    if not still:
-        return '', summary + ' (all pass alone)'
-    unknown = [f for f in still if alone_new.get(f) != 'FAIL']
-    if unknown:
-        return 'no completed answer when re-run alone on the new tip (timeout, crash or no result line): %s' % (
-            ', '.join(unknown)), summary
-    mine = [f for f in still if any(t.endswith('/' + f) or t == f for t in touched)]
-    if mine:
-        return 'test file(s) the change touches fail alone: %s' % ', '.join(mine), summary
-    new_only = [f for f in still if alone_base.get(f) != 'FAIL']
-    if new_only:
-        return 'fail alone on the new tip and NOT on the base: %s' % ', '.join(new_only), summary
-    if len(still) > max_base_fail:
+    res, bad = {}, []
+    for f in fails:
+        r = reruns.get(f) or {}
+        st, txt = file_verdict(r.get('kind') or 'touched', list(r.get('new') or []), list(r.get('base') or []))
+        if st == 'refuse' and r.get('spent'):
+            txt += ' [the re-run budget of %d min ran out]' % (AR_RERUN_BUDGET_S // 60)
+        res[f] = (st, txt)
+        if st == 'refuse':
+            bad.append(f)
+    summary = 'npm test %d/%d in the full run; re-run alone: %s' % (len(full) - len(fails), len(full), '; '.join(
+        '%s [%s] new %s base %s -> %s' % (f, (reruns.get(f) or {}).get('kind', '?'), ','.join((reruns.get(f) or {}).get('new') or []) or '-',
+                                         ','.join((reruns.get(f) or {}).get('base') or []) or '-', res[f][0]) for f in fails))
+    if bad:
+        return '; '.join('%s %s (%s)' % (f, res[f][1], (reruns.get(f) or {}).get('why', '')) for f in bad[:3]), summary
+    based = [f for f in fails if res[f][0] == 'base']
+    if len(based) > max_base_fail:
         return '%d files fail alone on both the new tip and the base (> %d): the host is not fit to judge' % (
-            len(still), max_base_fail), summary
-    return '', summary + '; failing on the BASE too on this host (not the change): %s' % ', '.join(still)
+            len(based), max_base_fail), summary
+    flakes = [f for f in fails if res[f][0] == 'flake']
+    out = summary
+    if flakes:
+        out += '; host flakes (passed alone on a retry, nothing they import changed): %s' % ', '.join(flakes)
+    if based:
+        out += '; failing on the BASE too on this host (not the change): %s' % ', '.join(based)
+    if not flakes and not based:
+        out += ' (all pass alone)'
+    return '', out
+
+
+def ar_backoff(P):
+    try:
+        return [max(0, int(x)) for x in str(P.get('ar_backoff') or '').split(',') if x.strip()] or [0]
+    except ValueError:
+        return [60, 180]
+
+
+def ar_put(W, sha):
+    if gitx(W, 'checkout', '-q', '--detach', sha)[0] != 0 or gitx(W, 'rev-parse', 'HEAD')[1].strip() != sha:
+        raise ArRefuse('the worktree could not be put on %s for an alone re-run' % sha[:8])
+
+
+def ar_reruns(P, job, run, base, nt, W, B, npm, fails, changed):
+    """Each full-run failure re-run ALONE (TEST_JOBS=1, normal priority) as next_rerun plans it. The KIND of every file is
+    decided first, on the new tip's tree. -> {file: {'kind', 'why', 'new', 'base', 'spent'}}."""
+    ar_put(W, nt)
+
+    def read(rel):
+        q = os.path.join(W, rel)
+        if not os.path.isfile(q):
+            return None
+        try:
+            with open(q, encoding='utf-8', errors='replace') as fh:
+                return fh.read()
+        except OSError:
+            return None
+
+    def listdir(rel):
+        q = os.path.join(W, rel)
+        if not rel or not os.path.isdir(q):
+            return None
+        out = []
+        for dp, dns, fns in os.walk(q):
+            dns[:] = [x for x in dns if x not in ('node_modules', '.git')]
+            out += [os.path.relpath(os.path.join(dp, x), W) for x in fns]
+            if len(out) > 20000:
+                break
+        return out
+
+    kinds = {}
+    for f in fails:
+        kinds[f] = rerun_kind(f, changed, lambda rel: import_closure(read, listdir, rel))
+    logp = os.path.join(P['ar_home'], 'logs', '%s--%s.rerun.out' % (run, base[:12]))
+    back = ar_backoff(P)
+    t_end = time.time() + AR_RERUN_BUDGET_S
+    out = {}
+
+    def alone(f, sha):
+        ar_put(W, sha)
+        rc1, o1 = run_cmd([npm, 'test', '--', f], B, AR_RERUN_TIMEOUT_S, {'TEST_JOBS': '1'})
+        r1 = test_results(o1).get(f, '?')
+        # the file's own result line decides (the runner's filter is a substring: well.test.mjs also runs minewell);
+        # 'FAIL' needs a completed failing run (non-zero exit, not this kill), anything else is no answer ('?')
+        ans = 'ok' if r1 == 'ok' else ('FAIL' if r1 == 'FAIL' and rc1 not in (0, 124) else '?')
+        with open(logp, 'a') as fh:
+            fh.write('\n===== %s %s alone on %s (%s): rc %s -> %s\n' % (iso(now()), f, sha[:8],
+                                                                      'new tip' if sha == nt else 'base', rc1, ans))
+            fh.write(o1[-200000:])
+        return ans
+
+    for f in fails:
+        kind, why = kinds[f]
+        r = {'kind': kind, 'why': why, 'new': [], 'base': [], 'spent': False}
+        while True:
+            side = next_rerun(kind, r['new'], r['base'])
+            if side is None:
+                break
+            if time.time() > t_end:
+                r['spent'] = True
+                break
+            if side == 'new' and r['new']:
+                time.sleep(back[min(len(r['new']) - 1, len(back) - 1)])
+            r[side].append(alone(f, nt if side == 'new' else base))
+        st, txt = file_verdict(kind, r['new'], r['base'])
+        job.step('rerun', '%s [%s: %s] new %s base %s -> %s: %s' % (f, kind, why, ','.join(r['new']) or '-',
+                                                                    ','.join(r['base']) or '-', st, txt))
+        out[f] = r
+    ar_put(W, nt)
+    return out
 
 
 def ar_build(P, run, base, tip):
@@ -1686,32 +1955,17 @@ def _ar_steps(P, job, run, base, tip):
         raise ArRefuse('the movement-writer lint is worse on the new tip (rc %s, FAIL %s) than on the base (rc %s, FAIL %s)'
                        % (rc_mv, sorted(movement_fails(out_mv)), rc_mb, sorted(movement_fails(out_mb))))
     S('lint', 'eslint ok; movement lint rc %s (base rc %s)' % (rc_mv, rc_mb))
+    S('full-suite', 'npm test (full, nice 10) starting on %s' % nt[:8])
     rc_t, out_t = run_cmd(nice + [npm, 'test'], B, AR_TEST_TIMEOUT_S)
     with open(os.path.join(P['ar_home'], 'logs', '%s--%s.npmtest.out' % (run, base[:12])), 'w') as f:
         f.write(out_t)
     full = test_results(out_t)
-    alone_new, alone_base = {}, {}
     fails = sorted(f for f, r in full.items() if r != 'ok')
+    reruns = {}
     if fails and len(fails) <= AR_MAX_RERUN:
-        def alone(f):
-            rc1, o1 = run_cmd(nice + [npm, 'test', '--', f], B, 900, {'TEST_JOBS': '1'})
-            r1 = test_results(o1).get(f, '?')
-            # 'FAIL' only for a COMPLETED failing run (a FAIL line, a non-zero exit, not the timeout kill); '?' is no answer
-            return 'ok' if r1 == 'ok' and rc1 == 0 else ('FAIL' if r1 == 'FAIL' and rc1 not in (0, 124) else '?')
-        for f in fails:
-            alone_new[f] = alone(f)
-        still = [f for f in fails if alone_new.get(f) != 'ok']
-        if still:
-            if gitx(W, 'checkout', '-q', '--detach', base)[0] != 0 or gitx(W, 'rev-parse', 'HEAD')[1].strip() != base:
-                raise ArRefuse('npm test failed (%s) and the worktree could not be put on the base to compare' % still)
-            for f in still:
-                alone_base[f] = alone(f)
-            if gitx(W, 'checkout', '-q', '--detach', nt)[0] != 0 or gitx(W, 'rev-parse', 'HEAD')[1].strip() != nt:
-                raise ArRefuse('the worktree could not be put back on %s after the base comparison' % nt[:8])
-    if any(f.startswith('bots/package') for f in files):
-        alone_base = {}                     # a dependency change: the base's node modules are not the base's -- no allowance
+        reruns = ar_reruns(P, job, run, base, nt, W, B, npm, fails, files)
     expected = len(glob.glob(os.path.join(B, 'test', '*.test.mjs')))
-    why, summary = test_verdict(rc_t, full, alone_new, alone_base, files, expected)
+    why, summary = test_verdict(rc_t, full, reruns, expected)
     if why:
         raise ArRefuse('npm test: %s (%s)' % (why, summary))
     S('tests', summary)
@@ -1777,7 +2031,7 @@ def _ar_steps(P, job, run, base, tip):
     os.replace(regp + '.tmp', regp)
     S('registration', regp)
     # 12. the variant, through the same validation as a hand-added one
-    approved = '%s || AUTOREBASE (canary-sched v39) onto %s: %s' % (src.get('approved') or '', base[:8], note.strip())
+    approved = '%s || AUTOREBASE (canary-sched v40) onto %s: %s' % (src.get('approved') or '', base[:8], note.strip())
     import io, contextlib
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):

@@ -152,6 +152,38 @@ def t_halt(H):
     check('fleet: dry-run incident ignored', H.judge_fleet([dict(inc, dry_run=True)], fu2, T)[0] is None)
     half = {k: ('inactive' if i < 41 else 'active') for i, k in enumerate(sorted(fu))}
     check('fleet: under half running -> halt', 'only 39/80' in (H.judge_fleet([], half, T)[0] or ''))
+    # 11-02: the slot push (a blocked head held the free slot 2.5 h; the header saw it, nothing pushed it)
+    check('slot: a plain slot line pushes nothing', H.slot_alarm('canary slot: free 30 min, nothing runnable yet (x)') == {})
+    check('slot: IDLE line -> one stable key', H.slot_alarm('!! canary slot IDLE 95 min (since x) ...') ==
+          {'slot:idle': 'canary slot IDLE 95 min (since x) ...'})
+    check('slot: scheduler silence -> its own key', list(H.slot_alarm('!! canary scheduler: last tick x')) == ['slot:scheduler'])
+    with tempfile.TemporaryDirectory() as d:
+        now = dt.datetime.now(UTC).replace(microsecond=0)
+        tk = lambda m, dec, why: f"{H.AL._iso(now - dt.timedelta(minutes=m))} {dec}: {why}"
+        why = ('H2 cooldown15-01: no variant for the fleet base c711879 (have: dfb3ff1): autorebase REFUSED at step lint: '
+               'npm test: fail alone on the new tip and NOT on the base: gather-reach.test.mjs')
+        log = os.path.join(d, 'sched.log')
+        open(log, 'w').write('\n'.join([tk(160, 'BUSY', 'S2 running: canary-loop.sh')] +
+                                       [tk(m, 'BLOCK', why) for m in range(150, -1, -5)]) + '\n')
+        args = ['--label', 'fleet', '--state-dir', d, '--no-push', '--sched-log', log, '--incidents', d,
+                '--manifest', os.path.join(d, 'none.json')]
+        with contextlib.redirect_stdout(io.StringIO()) as o1:
+            H.main(args)
+        alog = open(os.path.join(d, 'ALARMS.log')).read() if os.path.exists(os.path.join(d, 'ALARMS.log')) else ''
+        check('slot push: a head BLOCKED 150 min is a NEW slotwatch alarm', 'NEW     slotwatch slot:idle' in alog
+              and 'cooldown15-01' in alog, alog)
+        ps = json.load(open(os.path.join(d, 'slotwatch.pushstate.json')))
+        check('slot push: its own push state', list(ps) == ['slot:idle'], ps)
+        hw = json.load(open(os.path.join(d, 'haltwatch-fleet.json')))
+        check('slot push: kept out of the haltwatch header state', not any('slot' in k for k in hw.get('alarms') or {}), hw)
+        with contextlib.redirect_stdout(io.StringIO()):
+            H.main(args)
+        alog2 = open(os.path.join(d, 'ALARMS.log')).read()
+        check('slot push: deduplicated (no second NEW)', alog2.count('slotwatch slot:idle') == 1, alog2)
+        open(log, 'a').write(tk(0, 'LAUNCH', 'cooldown15-01') + '\n')
+        with contextlib.redirect_stdout(io.StringIO()):
+            H.main(args)
+        check('slot push: a launch clears it', 'CLEARED slotwatch slot:idle' in open(os.path.join(d, 'ALARMS.log')).read())
 
 
 # ------------------------------------------------------------------------------------------------ rollout
@@ -327,6 +359,8 @@ MUTANTS = [
     ('rollout.py', "    inside = [r for r in runs if t0 <= r[0] <= t1 + slack]", "    inside = [r for r in runs]", t_rollout),
     ('rollout.py', "        if cut < a['t'] + CHECK_AFTER:", "        if False:", t_rollout),
     ('haltwatch.py', "f'mcbot@{unit_of.get(b, b)}.service'", "f'mcbot@{b}.service'", t_halt),
+    ('haltwatch.py', "        AL.raise_alarms('slotwatch', slot, now,", "        AL.raise_alarms('slotwatch', {}, now,", t_halt),
+    ('haltwatch.py', "    if not line or not line.startswith('!! '):\n        return {}", "    if not line:\n        return {}", t_halt),
     ('driftwatch.py', "            if r['alarm']:                      # a zero median", "            if False:                      # a zero median", t_drift),
     ('driftwatch.py', "            if min(lo, hi) >= 0.025:", "            if False:", t_drift),
     ('lib/alarm.py', "        if last is None or now - last >= repush:", "        if True:", t_alarm),

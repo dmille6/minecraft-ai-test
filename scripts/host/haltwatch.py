@@ -14,6 +14,15 @@ One long-failed unit (board-a-Charlie) is not a halt; it is printed as the denom
     python3 haltwatch.py --label fleet                                                 (cron */5 on .31)
 
 Writes <state-dir>/haltwatch-<label>.json, ALARMS.log events and pushes (lib/alarm.py, deduplicated, 6 h re-push).
+
+SLOT PUSH (fleet only, 11-02). The canary slot sat idle 2.5 h (23:50Z-02:25Z) behind a BLOCKED head (an autorebase
+refusal: "no variant for the fleet base"). alarmhead.slot_idle saw it -- '!! canary slot IDLE' from 00:50Z -- but that
+line exists only in the fleetstatus header, which nobody ran, and canary-sched's own BLOCKED page goes to
+~/digest/page.jsonl, which nothing pushes. Now every fleet run also reads ~/digest/sched.log through the SAME
+alarmhead.slot_idle and PUSHES its '!! ' line (a free slot that BLOCK / WAIT / IDLE ticks held >= 60 min, or a scheduler
+that stopped ticking) as source `slotwatch`, deduplicated by its own push state (slotwatch.pushstate.json): pushed when it
+starts, every 6 h while it lasts, once when it clears. It is kept out of haltwatch-fleet.json's alarms (the header already
+prints the slot line itself).
 """
 import argparse
 import datetime as dt
@@ -26,6 +35,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
 from lib import alarm as AL  # noqa: E402
+from lib import alarmhead as AH  # noqa: E402
 
 UTC = dt.timezone.utc
 GRACE = dt.timedelta(minutes=15)
@@ -57,6 +67,15 @@ def units(pattern):
 
 
 # ------------------------------------------------------------------------------------------------ pure decisions
+def slot_alarm(line):
+    """PURE. alarmhead's slot line -> {key: text} to push (empty when it is not a '!! ' line). Two stable keys, so an idle
+    streak whose minutes and head text change every tick is ONE alarm, not a new one per run."""
+    if not line or not line.startswith('!! '):
+        return {}
+    text = line[3:]
+    return {'slot:idle' if text.startswith('canary slot IDLE') else 'slot:scheduler': text}
+
+
 def judge_showcase(deploy_rows, unit_states, now, grace=GRACE):
     """PURE. deploy_rows: parsed deploy.jsonl rows in file order; unit_states: {unit: 'active'|...} or None.
     -> (alarm line | None, summary line)."""
@@ -142,6 +161,7 @@ def main(argv=None):
     ap.add_argument('--ship')
     ap.add_argument('--no-push', action='store_true')
     ap.add_argument('--no-state', action='store_true')
+    ap.add_argument('--sched-log', default=AH.SCHED_LOG, help="canary-sched.py tick's log (fleet: the slot push)")
     a = ap.parse_args(argv)
     now = dt.datetime.now(UTC).replace(microsecond=0)
     try:
@@ -170,6 +190,15 @@ def main(argv=None):
     AL.write_json_atomic(os.path.join(sd, f'haltwatch-{a.label}.json'), rep)
     AL.raise_alarms(f'haltwatch-{a.label}', active, now, os.path.join(sd, f'haltwatch-{a.label}.pushstate.json'),
                     log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
+    if a.label == 'fleet':
+        try:
+            sline = AH.slot_lines(now, a.sched_log)[0]
+        except Exception as e:      # noqa: BLE001
+            sline = f'!! canary slot: the slot check FAILED ({type(e).__name__}: {str(e)[:120]})'
+        slot = slot_alarm(sline)
+        print(sline)
+        AL.raise_alarms('slotwatch', slot, now, os.path.join(sd, 'slotwatch.pushstate.json'),
+                        log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
     if a.ship:
         AL.ship_row(a.ship, {'kind': f'{a.label}_halt', 't': AL._iso(now), 'ok': not line,
                              'event': 'halt' if line else 'running', 'why': line or summ})

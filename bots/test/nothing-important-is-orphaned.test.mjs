@@ -168,6 +168,7 @@ const REQUIRED = [
   'scripts/host/canary-sched.py',
   'scripts/host/test_autorebase.py',
   'scripts/host/install-autorebase.sh',
+  'scripts/host/install-autorebase-v40.sh',
   'scripts/host/autorebase-relay.sh',
   'scripts/host/holdtoken.py',
   'scripts/host/qwen35load.mjs',

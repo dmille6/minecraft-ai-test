@@ -11,6 +11,9 @@ Each scenario seeds a queue whose head has a variant only for SB, declares the p
   failtest    a test the change breaks fails in full and alone    -> refused at npm test
   tier        LB lists the changed file as protected              -> refused: tier none -> 3
   baseflake   a test fails on the new tip AND on the base         -> accepted, named in the registration
+  flake       v40: a file the change cannot reach fails, then passes alone -> a host flake, accepted
+  changedflake  the same in a file that imports the change, base always passes -> refused
+  flakeboth   a file importing the change flakes on the new tip AND on the base -> accepted
 and that a refused job is never retried by a later tick.
 
 --mutants: each mutant edits ONE anchored line (asserted present and UNIQUE first), and must make a scenario fail.
@@ -45,28 +48,53 @@ def gc(cwd, *a):
 
 A_LINES = ['export const a%d = %d' % (i, i) for i in range(1, 21)]
 
-NPM_STUB = r'''#!/bin/bash
-# stub npm: ci | run lint | run lint:movement | test [-- file]. FIX_NPM_TEST=change: a.test.mjs fails where the change
-# is present; =base: it fails everywhere (a host flake that the base has too).
-changed() { grep -q 'CHANGED' src/a.mjs; }
-case "$1" in
-  ci) exit 0;;
-  run) [ "$2" = lint ] && exit "${FIX_LINT:-0}"; echo "movement-writers: ok"; exit 0;;
-  test)
-    f="${3:-}"
-    afail=0
-    if [ "${FIX_NPM_TEST:-}" = change ] && changed; then afail=1; fi
-    if [ "${FIX_NPM_TEST:-}" = base ]; then afail=1; fi
-    if [ -n "$f" ]; then
-      if [ "$f" = a.test.mjs ] && [ $afail = 1 ]; then echo "FAIL a.test.mjs  9ms  [1/1]"; echo "0/1 files passed"; exit 1; fi
-      echo "ok   $f  1ms  [1/1]"; echo "1/1 files passed"; exit 0
-    fi
-    if [ $afail = 1 ]; then echo "FAIL a.test.mjs  9ms  [1/2]"; else echo "ok   a.test.mjs  9ms  [1/2]"; fi
-    echo "ok   b.test.mjs  1ms  [2/2]"
-    exit $afail;;
-esac
-exit 0
-'''
+NPM_STUB = r"""#!/usr/bin/env python3
+# stub npm: ci | run lint | run lint:movement | test [-- file]. FIX_PLAN (JSON): {file: {"full": "ok"|"FAIL",
+# "new": "FOF?", "base": "OOF"}} -- the full-run result, and the successive ALONE results on the new tip (src/a.mjs has
+# the change) and on the base (F = FAIL, O = ok, ? = no result line); the last letter repeats. Unplanned files pass.
+import glob, json, os, sys
+a = sys.argv[1:]
+if not a or a[0] == 'ci':
+    sys.exit(0)
+if a[0] == 'run':
+    if a[1] == 'lint':
+        sys.exit(int(os.environ.get('FIX_LINT', '0')))
+    print('movement-writers: ok'); sys.exit(0)
+plan = json.loads(os.environ.get('FIX_PLAN') or '{}')
+side = 'new' if 'CHANGED' in open('src/a.mjs').read() else 'base'
+files = sorted(os.path.basename(x) for x in glob.glob('test/*.test.mjs'))
+if len(a) >= 3:
+    f = a[2]
+    seq = (plan.get(f) or {}).get(side) or 'O'
+    cdir = os.environ['FIX_COUNT_DIR']; os.makedirs(cdir, exist_ok=True)
+    cp = os.path.join(cdir, '%s.%s' % (f, side))
+    n = int(open(cp).read()) if os.path.exists(cp) else 0
+    open(cp, 'w').write(str(n + 1))
+    with open(os.path.join(cdir, 'calls'), 'a') as fh:
+        fh.write('%s %s\n' % (f, side))
+    r = seq[min(n, len(seq) - 1)]
+    if r == 'O':
+        print('ok   %s  1ms  [1/1]' % f); sys.exit(0)
+    if r == 'F':
+        print('FAIL %s  9ms  [1/1]' % f); sys.exit(1)
+    print('crashed'); sys.exit(1)
+bad = 0
+for i, f in enumerate(files):
+    r = (plan.get(f) or {}).get('full', 'ok')
+    print('%s %s  1ms  [%d/%d]' % ('FAIL' if r == 'FAIL' else 'ok  ', f, i + 1, len(files)))
+    bad |= r == 'FAIL'
+sys.exit(1 if bad else 0)
+"""
+
+
+# the npm stub's plan per scenario (see NPM_STUB): a.test.mjs imports the changed a.mjs, c.test.mjs does not
+PLANS = {
+    'failtest': {'a.test.mjs': {'full': 'FAIL', 'new': 'F', 'base': 'O'}},               # a TRUE break: always fails with it
+    'baseflake': {'a.test.mjs': {'full': 'FAIL', 'new': 'F', 'base': 'F'}},              # the host fails it without the change too
+    'flake': {'c.test.mjs': {'full': 'FAIL', 'new': 'FO', 'base': 'O'}},                 # a host flake in a file the change cannot reach
+    'changedflake': {'a.test.mjs': {'full': 'FAIL', 'new': 'FO', 'base': 'O'}},          # the same flake, in a file that imports the change
+    'flakeboth': {'a.test.mjs': {'full': 'FAIL', 'new': 'FO', 'base': 'OF'}},            # it imports the change, but the base flakes too
+}
 
 
 class ArFix(TC.Fix):
@@ -82,7 +110,9 @@ class ArFix(TC.Fix):
         # SB: a tree with bots/src/a.mjs, b.mjs, the real protected.py and an empty protected list
         gc(g, 'checkout', '-q', '--detach', self.base)
         for rel, body in (('bots/src/a.mjs', '\n'.join(A_LINES) + '\n'), ('bots/src/b.mjs', 'export const b = 1\n'),
-                          ('bots/test/a.test.mjs', '// fixture\n'), ('bots/test/b.test.mjs', '// fixture\n'),
+                          ('bots/test/a.test.mjs', "import '../src/a.mjs'  // imports the changed file\n"),
+                          ('bots/test/b.test.mjs', '// fixture\n'),
+                          ('bots/test/c.test.mjs', "import { b } from '../src/b.mjs'  // imports nothing the change edits\n"),
                           ('config/protected-paths.txt', 'bots/src/zzz-not-in-the-change.mjs\n')):
             os.makedirs(os.path.join(g, os.path.dirname(rel)), exist_ok=True)
             open(os.path.join(g, rel), 'w').write(body)
@@ -131,10 +161,11 @@ class ArFix(TC.Fix):
         e = super().env()
         fix = {'SCHED_AR_HOME': self.ar, 'SCHED_AR_ORIGIN': self.origin, 'SCHED_AR_PUSH': 'direct',
                'SCHED_AR_SUDO': '0', 'SCHED_AR_NPM': self.npm}
-        if self.scenario == 'failtest':
-            fix['FIX_NPM_TEST'] = 'change'
-        if self.scenario == 'baseflake':
-            fix['FIX_NPM_TEST'] = 'base'
+        fix['FIX_COUNT_DIR'] = os.path.join(self.d, 'npmcount')
+        fix['SCHED_AR_BACKOFF_S'] = '0,0'
+        plan = PLANS.get(self.scenario)
+        if plan:
+            fix['FIX_PLAN'] = json.dumps(plan)
         e.update(fix)
         e.update(extra)
         return e
@@ -160,6 +191,10 @@ class ArFix(TC.Fix):
     def pages(self):
         p = os.path.join(self.home, 'digest', 'page.jsonl')
         return [json.loads(l) for l in open(p)] if os.path.exists(p) else []
+
+    def calls(self):
+        p = os.path.join(self.d, 'npmcount', 'calls')
+        return [tuple(l.split()) for l in open(p)] if os.path.exists(p) else []
 
     def states(self):
         p = os.path.join(self.home, 'digest', 'sched-state.jsonl')
@@ -256,6 +291,58 @@ def t_failing_test_refuses(CS):
         job = tick_and_wait(CS, F)
         assert_blocked_no_retry(CS, F, job, 'lint', 'npm test')
         assert 'a.test.mjs' in job['why'] and 'NOT on the base' in job['why'], job['why']
+        assert 'passed 0/3' in job['why'] and 'passed 3/3' in job['why'], job['why']
+        c = F.calls()
+        assert c.count(('a.test.mjs', 'new')) == 3 and c.count(('a.test.mjs', 'base')) == 3, c
+        assert [x[1] for x in c] == ['new', 'base', 'new', 'base', 'new', 'base'], 'imports kind interleaves: %s' % c
+        assert os.path.exists(os.path.join(F.ar, 'logs', 'foo-01--%s.rerun.out' % F.lb[:12])), 'alone outputs kept'
+    finally:
+        F.cleanup()
+
+
+def t_clear_flake_accepted(CS):
+    """v40: a file the change cannot reach (c.test.mjs imports b.mjs only) fails in the full run and on its first alone
+    run, passes on the retry: a host flake, accepted and named; the base is never run."""
+    F = ArFix('flake')
+    try:
+        seed(CS, F)
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'done', (job, F.logtail())
+        assert 'host flakes' in job['tests'] and 'c.test.mjs' in job['tests'], job['tests']
+        assert F.calls() == [('c.test.mjs', 'new'), ('c.test.mjs', 'new')], F.calls()
+        reg = json.load(open(job['registration']))
+        assert 'host flakes' in reg['notes'], reg['notes']
+        assert any(s['step'] == 'rerun' and '[clear' in s['detail'] for s in job['steps']), job['steps']
+        TC.expect(CS, F, 'launch')
+    finally:
+        F.cleanup()
+
+
+def t_changed_flake_refused(CS):
+    """v40: the SAME flake pattern in a file that imports the changed a.mjs is refused: passing once on the new tip is no
+    allowance when the base never fails it."""
+    F = ArFix('changedflake')
+    try:
+        seed(CS, F)
+        job = tick_and_wait(CS, F)
+        assert_blocked_no_retry(CS, F, job, 'lint', 'npm test')
+        assert 'a.test.mjs' in job['why'] and 'flaky alone on the new tip only' in job['why'], job['why']
+        assert 'bots/src/a.mjs' in job['why'], job['why']
+        assert F.calls().count(('a.test.mjs', 'base')) == 3, F.calls()
+    finally:
+        F.cleanup()
+
+
+def t_flaky_both_accepted(CS):
+    """v40: a file that imports the change and flakes on the new tip is accepted when the BASE flakes it too."""
+    F = ArFix('flakeboth')
+    try:
+        seed(CS, F)
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'done', (job, F.logtail())
+        assert 'BASE too' in job['tests'] and 'a.test.mjs' in job['tests'], job['tests']
+        assert F.calls() == [('a.test.mjs', 'new'), ('a.test.mjs', 'base'), ('a.test.mjs', 'new'), ('a.test.mjs', 'base')], \
+            'stops as soon as both sides have flaked: %s' % F.calls()
     finally:
         F.cleanup()
 
@@ -335,21 +422,79 @@ def t_set_patch_refuses_merge_range(CS):
 
 def t_pure_verdict_and_norm(CS):
     v = CS.test_verdict
-    assert v(0, {'a.test.mjs': 'ok'}, {}, {}, [])[0] == ''
-    assert v(1, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': 'ok'}, {}, [])[0] == ''                       # load flake
-    assert 'NOT on the base' in v(1, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': 'ok'}, [])[0]
-    assert v(1, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': 'FAIL'}, [])[0] == ''
-    assert 'touches' in v(1, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': 'FAIL'},
-                          ['bots/test/a.test.mjs'])[0]
-    assert v(1, {}, {}, {}, [])[0]                                                                   # no results: refuse
-    assert v(1, {'a.test.mjs': 'ok'}, {}, {}, [])[0]                                                 # rc 1, none named
-    assert 'timeout' in v(124, {'a.test.mjs': 'ok', 'b.test.mjs': 'FAIL'}, {'b.test.mjs': 'ok'}, {}, [])[0]
-    assert 'reported 1 files' in v(0, {'a.test.mjs': 'ok'}, {}, {}, [], expected=2)[0]
-    assert v(0, {'a.test.mjs': 'ok', 'b.test.mjs': 'ok'}, {}, {}, [], expected=2)[0] == ''
-    assert 'no completed answer' in v(1, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': '?'}, {'a.test.mjs': 'FAIL'}, [])[0]
-    assert 'NOT on the base' in v(1, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': 'FAIL'}, {'a.test.mjs': '?'}, [])[0]
+    R = lambda kind, new, base='': {'kind': kind, 'why': 'w', 'new': [{'O': 'ok', 'F': 'FAIL', '?': '?'}[c] for c in new],
+                                    'base': [{'O': 'ok', 'F': 'FAIL', '?': '?'}[c] for c in base]}
+    A = {'a.test.mjs': 'FAIL'}
+    assert v(0, {'a.test.mjs': 'ok'}, {})[0] == ''
+    assert v(1, A, {'a.test.mjs': R('imports', 'O')})[0] == ''                                   # full-run contention
+    assert v(1, A, {'a.test.mjs': R('touched', 'O')})[0] == ''
+    # a TRUE break is refused whatever its kind
+    for k in ('clear', 'imports'):
+        assert 'NOT on the base' in v(1, A, {'a.test.mjs': R(k, 'FFF', 'OOO')})[0], k
+        assert 'NOT on the base' in v(1, A, {'a.test.mjs': R(k, 'FFF', 'FFO')})[0], k               # base flakes, new never passes
+    assert 'touches it' in v(1, A, {'a.test.mjs': R('touched', 'F')})[0]
+    # flakes: accepted only where the change cannot reach
+    assert v(1, A, {'a.test.mjs': R('clear', 'FO')})[0] == ''
+    assert 'host flakes' in v(1, A, {'a.test.mjs': R('clear', 'FFO')})[1]
+    assert 'new tip only' in v(1, A, {'a.test.mjs': R('imports', 'FOO', 'OOO')})[0]               # changed-file flake
+    assert v(1, A, {'a.test.mjs': R('imports', 'FO', 'OF')})[0] == ''                              # the base flakes too
+    assert v(1, A, {'a.test.mjs': R('imports', 'FFF', 'FFF')})[0] == ''                            # broken on the base too
+    assert v(1, A, {'a.test.mjs': R('clear', 'FFF', 'FFF')})[0] == ''
+    assert v(1, A, {'a.test.mjs': R('clear', 'FFF', 'F')})[0]                                      # one base sample is not enough
+    assert 'never run on the base' in v(1, A, {'a.test.mjs': R('clear', 'FFF')})[0]
+    assert v(1, A, {})[0]                                                                          # no re-run at all: refuse
+    sp = dict(R('clear', 'FF'), spent=True)
+    assert 'budget' in v(1, A, {'a.test.mjs': sp})[0]
+    # the plan: who runs next
+    n = CS.next_rerun
+    assert n('touched', [], []) == 'new' and n('touched', ['FAIL'], []) is None                   # no retry when touched
+    assert n('clear', ['FAIL'], []) == 'new' and n('clear', ['FAIL', 'ok'], []) is None
+    assert n('clear', ['FAIL'] * 3, []) == 'base' and n('clear', ['FAIL'] * 3, ['ok']) is None
+    assert n('imports', ['FAIL'], []) == 'base' and n('imports', ['FAIL'], ['ok']) == 'new'
+    assert n('imports', ['FAIL', 'ok'], ['FAIL']) is None and n('imports', ['FAIL'] * 3, ['ok'] * 3) is None
+    assert n('clear', ['?'], []) is None
+    # unanswered runs never count as a result
+    assert 'no completed answer' in v(1, A, {'a.test.mjs': R('clear', '?')})[0]
+    assert 'no completed answer' in v(1, A, {'a.test.mjs': R('imports', 'FFF', 'FF?')})[0]
+    assert v(1, {}, {})[0]                                                                         # no results: refuse
+    assert v(1, {'a.test.mjs': 'ok'}, {})[0]                                                       # rc 1, none named
+    assert 'timeout' in v(124, {'a.test.mjs': 'ok', 'b.test.mjs': 'FAIL'}, {'b.test.mjs': R('clear', 'O')})[0]
+    assert 'reported 1 files' in v(0, {'a.test.mjs': 'ok'}, {}, expected=2)[0]
+    assert v(0, {'a.test.mjs': 'ok', 'b.test.mjs': 'ok'}, {}, expected=2)[0] == ''
     many = {'f%d.test.mjs' % i: 'FAIL' for i in range(7)}
-    assert 'more than' in v(1, many, {}, {}, [])[0]
+    assert 'more than' in v(1, many, {})[0]
+    four = {'f%d.test.mjs' % i: 'FAIL' for i in range(4)}
+    assert 'not fit' in v(1, four, {f: R('clear', 'FFF', 'FFF') for f in four})[0]
+    # the kind: touched / imports (closure or open) / clear
+    tree = {'bots/test/t.test.mjs': "import x from '../src/x.mjs'\nconst d = new URL('../../config/k.json', import.meta.url)\n",
+            'bots/src/x.mjs': "import './y'\nconst p = path.join(HERE, 'data.json')\nconst re = /a/; re.exec('s')\n",
+            'bots/src/y.mjs': '', 'bots/src/data.json': '{}', 'config/k.json': '{}', 'bots/src/z.mjs': '',
+            'bots/test/u.test.mjs': "const m = await import(name)\n", 'bots/test/w.test.mjs': "spawn('node', [f])\n",
+            'bots/test/d.test.mjs': "const all = new URL('../src/', import.meta.url)\n",
+            'bots/test/r.test.mjs': "const src = readFileSync(path.join(HERE, '..', 'src', name))\n",
+            'bots/test/al.test.mjs': "import { readFileSync as rf } from 'node:fs'; const d = rf(parts.join('/'))\n",
+            'bots/test/es.test.mjs': "import x from '../src/\\u0078.mjs'\n",
+            'bots/test/es3.test.mjs': "import x from '\\x2e./src/a.mjs'\n",
+            'bots/test/es2.test.mjs': "const p = '../src/\\u0078.mjs'  // only the escape rule sees this one\n",
+            'bots/test/un.test.mjs': "import x from '../src/nowhere.mjs'\n",
+            'bots/test/wk.test.mjs': "const w = new threads.Worker(f)\n"}
+    rd = lambda r: tree.get(r)
+    ls = lambda r: sorted(k for k in tree if k.startswith(r.rstrip('/') + '/')) or None
+    clos, opens = CS.import_closure(rd, ls, 'bots/test/t.test.mjs')
+    assert clos == {'bots/test/t.test.mjs', 'bots/src/x.mjs', 'bots/src/y.mjs', 'bots/src/data.json', 'config/k.json'}, clos
+    assert opens == [], opens                                                                      # regex .exec is not a child
+    K = lambda f, ch: CS.rerun_kind(f, ch, lambda rel: CS.import_closure(rd, ls, rel))[0]
+    assert K('t.test.mjs', ['bots/src/z.mjs']) == 'clear'
+    assert K('t.test.mjs', ['bots/src/data.json']) == 'imports'
+    assert K('t.test.mjs', ['config/k.json']) == 'imports'
+    assert K('t.test.mjs', ['bots/test/t.test.mjs']) == 'touched'
+    assert K('t.test.mjs', ['bots/package-lock.json']) == 'touched'
+    assert K('u.test.mjs', ['bots/src/z.mjs']) == 'imports'                                         # a computed import: open
+    assert K('w.test.mjs', ['bots/src/z.mjs']) == 'imports'                                         # a child process: open
+    assert K('d.test.mjs', ['bots/src/z.mjs']) == 'imports'                                         # a directory literal
+    assert K('r.test.mjs', ['bots/src/z.mjs']) == 'imports'                                         # a computed fs read: open
+    for f in ('al', 'es', 'es2', 'es3', 'un', 'wk'):                       # Codex r1: an fs alias, an escaped specifier; an unresolved edge
+        assert K(f + '.test.mjs', ['bots/src/z.mjs']) == 'imports', f
     a = 'diff --git a/x b/x\nindex 111..222 100644\n--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@ fn\n a\n-b\n+c\n d\n'
     b = 'diff --git a/x b/x\nindex 333..444 100644\n--- a/x\n+++ b/x\n@@ -9,3 +9,3 @@ other\n a\n-b\n+c\n d\n'
     assert CS.norm_diff(a) == CS.norm_diff(b)
@@ -361,7 +506,8 @@ def t_pure_verdict_and_norm(CS):
 
 TESTS = [t_pure_verdict_and_norm, t_no_patch_blocks_like_before, t_clear_then_rebuild_same_sha, t_set_patch_refuses_merge_range,
          t_clean_builds_and_launches, t_conflict_pages_and_blocks, t_diff_change_refuses, t_failing_test_refuses,
-         t_tier_change_refuses, t_base_flake_accepted_and_named]
+         t_tier_change_refuses, t_base_flake_accepted_and_named, t_clear_flake_accepted, t_changed_flake_refused,
+         t_flaky_both_accepted]
 
 MUTANTS = [
     ('never starts a build', "    return ar_view(e, st)[2]\n", "    return False\n"),
@@ -370,14 +516,29 @@ MUTANTS = [
     ('a changed diff is not refused', "    if h1 != h0:\n", "    if False:\n"),
     ('a failing suite is not refused', "    if why:\n        raise ArRefuse('npm test", "    if False:\n        raise ArRefuse('npm test"),
     ('a tier change is not refused', "    if t0 != t1:\n", "    if False:\n"),
-    ('a base-passing failure counts as a base failure', "    new_only = [f for f in still if alone_base.get(f) != 'FAIL']\n",
-     "    new_only = []\n"),
+    ('a flake on the new tip alone is accepted where the change reaches',
+     "    if kind == 'imports' and 'FAIL' in base and 'ok' in new:\n        return 'base'",
+     "    if kind == 'imports' and 'ok' in new:\n        return 'base'"),
+    ('a file importing the change is treated as clear', "    if hit:\n        return 'imports'", "    if False:\n        return 'imports'"),
+    ('an open closure is treated as clear', "    if opens:\n        return 'imports'", "    if False:\n        return 'imports'"),
+    ('a touched file is retried', "    if kind == 'touched':\n        return None\n", ""),
+    ('one all-FAIL base sample is enough', "    if len(base) >= tries and len(new) >= tries and set(base) == {'FAIL'}",
+     "    if set(base) == {'FAIL'}"),
+    ('a clear file that never passes is not compared with the base', "        if 'ok' in base or len(base) >= tries:\n            return None\n        return 'base'",
+     "        return None"),
+    ('the closure ignores literal paths', "set(m.group(2) for m in _CL_LIT.finditer(s))", "set()"),
+    ('an fs read does not open the closure', "        if _CL_FS.search(s):\n", "        if False:\n"),
+    ('an unresolved import edge is not open', "                if c in specs and c.startswith('.'):\n", "                if False:\n"),
+    ('an escaped specifier is not open', "        if any('\\\\' in x for x in specs):", "        if False:"),
+    ('an escaped literal is not open', "        if _CL_ESC.search(s):\n", "        if False:\n"),
+    ('a directory literal is not expanded', "                    under = listdir(q)\n", "                    under = None\n"),
+    ('a global test input is not touched', "    if g:\n        return 'touched'", "    if False:\n        return 'touched'"),
     ('a refused job is retried', "    if job is None:\n        return ('autorebase will cherry-pick",
      "    if job is None or job.get('state') == 'refused':\n        return ('autorebase will cherry-pick"),
     ('the pick is not reproducible', "           'GIT_COMMITTER_DATE': '@%s +0000' % cdate.strip()}\n",
      "           'GIT_COMMITTER_DATE': '@%d +0000' % time.time_ns()}\n"),
-    ('an unanswered re-run counts as a failure', "    unknown = [f for f in still if alone_new.get(f) != 'FAIL']\n",
-     "    unknown = []\n"),
+    ('an unanswered re-run counts as a failure', "    if '?' in new or '?' in base:\n        return 'refuse'",
+     "    if False:\n        return 'refuse'"),
     ('a timed-out suite counts', "    if full_rc == 124:\n", "    if False:\n"),
     ('the variant is not added', "        rc = cmd_queue(P, ['add-variant', '--reads-src', reads_src, run, base, regp, approved])\n",
      "        rc = 0\n"),
