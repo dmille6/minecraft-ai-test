@@ -144,6 +144,7 @@ import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
+import { bandOf } from './stocktarget.mjs'   // marks-01: the town's band on the bank rows
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
 import { scaffoldCount } from './exit-contract.mjs'
 /** Is this a pillar/scaffold block (well.mjs pillarCount's names)? */
@@ -3715,7 +3716,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     for (const r of stockRows) {
       const after = stockTownViewFor(bot, r.group)
       logEvent({ kind: 'stock_bank', status: r.went > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot),
-                 detail: `group=${r.group} name=${r.name} planned=${r.planned} moved=${r.went} kept=${bagNow.reduce((t, x) => t + (x?.name === r.name ? (x.count ?? 0) : 0), 0)} target=${targetOf(r.group)} decision=${r.decision ?? '-'} town_before=${r.townBefore ?? '?'} town_after=${after?.lb ?? '?'} complete=${r.complete ?? '?'} claims=${r.claims} refused=${r.refused}${r.nowell ? ' nowell=1' : ''}` })
+                 detail: `group=${r.group} name=${r.name} planned=${r.planned} moved=${r.went} kept=${bagNow.reduce((t, x) => t + (x?.name === r.name ? (x.count ?? 0) : 0), 0)} target=${targetOf(r.group)} decision=${r.decision ?? '-'} town_before=${r.townBefore ?? '?'} town_after=${after?.lb ?? '?'} complete=${r.complete ?? '?'} claims=${r.claims} refused=${r.refused}${r.nowell ? ' nowell=1' : ''} band=${bandOf(r.group, after?.complete ? after.lb : null) ?? '-'}` })
     }
   }
   // THE COBBLE RULE'S ROWS, from the SERVER's bag after the close (craftsync's recount; 'none' without craftsync): one
@@ -3727,7 +3728,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     for (const r of cobbleRows) {
       r.townAfter = after.lb
       logEvent({ kind: 'cobble_bank', status: r.went > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot),
-                 detail: `name=${r.name} planned=${r.planned} tried=${r.tried.join(',') || '-'} moved=${r.went} before=${cobbleBefore} kept=${kept} src=${sb.source} reserve=${COBBLE_RESERVE} no_room=${r.noRoom} town_before=${r.townBefore ?? '?'} town_after=${r.townAfter ?? '?'} complete=${r.complete ?? '?'} cap=${TOWN_COBBLE_CAP} at_cap=${r.atCap} unknown=${r.unknown} outside=${r.outside} unknown_keys=${after.unknown.length}${r.unknownKey ? ` first_unknown=${r.unknownKey}` : ''}` })
+                 detail: `name=${r.name} planned=${r.planned} tried=${r.tried.join(',') || '-'} moved=${r.went} before=${cobbleBefore} kept=${kept} src=${sb.source} reserve=${COBBLE_RESERVE} no_room=${r.noRoom} town_before=${r.townBefore ?? '?'} town_after=${r.townAfter ?? '?'} complete=${r.complete ?? '?'} cap=${TOWN_COBBLE_CAP} at_cap=${r.atCap} unknown=${r.unknown} outside=${r.outside} unknown_keys=${after.unknown.length}${r.unknownKey ? ` first_unknown=${r.unknownKey}` : ''} band=${bandOf('cobble', after.complete ? after.lb : null)}` })
     }
   }
   // COBBLE NEVER GROWS THE BANK (the 10-04 SYNTHESIS: existing storage only; both reviews 10-07): when everything this
