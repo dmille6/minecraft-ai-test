@@ -2983,7 +2983,11 @@
      "scripts/mac/state-relay.sh"
     ]
    },
-   "note": "Codex ops audit 11-01 HIGH 1 (STATE contradicted completed events and owner decisions a day after a manual refresh; 10-31 the same flag). Control session 11-02."
+   "note": "Codex ops audit 11-01 HIGH 1 (STATE contradicted completed events and owner decisions a day after a manual refresh; 10-31 the same flag). Control session 11-02.",
+   "done": {
+    "when": "2026-11-02",
+    "evidence": "main b0452cba + r1 09c4e003 + relay 8a1a097f; stategen cron :20 on the canary host, LaunchAgent com.mcai.state-relay; first relayed STATE 8a114113 (13:24Z)"
+   }
   },
   {
    "id": "serving-a-4b-rollout",
