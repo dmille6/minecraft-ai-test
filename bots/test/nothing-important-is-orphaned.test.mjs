@@ -171,6 +171,11 @@ const REQUIRED = [
   'scripts/host/servea-llama.sh',
   'scripts/host/batchload.mjs',
   'bots/test/llm-oai.test.mjs',
+  'scripts/host/servea-waiter.sh',
+  'scripts/host/servea-install.sh',
+  'scripts/host/servea-check.sh',
+  'scripts/host/servea-q.py',
+  'scripts/host/test_servea_q.py',
   'scripts/host/test_modelcompare.py',
   'scripts/host/fixtures/ab2-stall-20261101-1615-1640.jsonl',
   // canary-sched v39 launch-time autorebase: its tests, installer and the Mac push relay (11-01)

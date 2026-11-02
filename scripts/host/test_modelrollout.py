@@ -193,6 +193,50 @@ def pure():
       [len(s) for s in st] == [6, 4, 4, 2] and st[0][:2] == ['board-b', 'placebo-b'] and sorted(flat) == sorted(POOLS), st)
     t('plan: stages interleave the arms (stage 2 is not one arm)', len({p.rsplit('-', 1)[0] for p in st[1]}) >= 3, st[1])
     t('rate: 30 bots -> 39.9/min, 20 -> 26.6', R.stage_rate(30) == 39.9 and R.stage_rate(20) == 26.6)
+    P16 = [a + '-' + l for a in ('board', 'hive', 'isolated', 'placebo') for l in 'abcd']
+    st4 = R.plan(P16, ['hive-b', 'board-c'], 4, 4)
+    # LIVE-FLEET GUARD (serving A 11-02): the owner's stop, p95 > 5 s for 2 min, during synthetic load
+    g, why, seq = {}, None, []
+    for p95 in (6000, 6000, 6000, 6000):
+        g, why = R.live_guard(g, {'rows': 70, 'p95': p95}); seq.append(why)
+    t('guard: p95 > 5 s on 4 samples in a row (2 min) stops, not before', seq[:3] == [None] * 3 and seq[3] and 'p95' in seq[3], seq)
+    g, w1 = R.live_guard({}, {'rows': 70, 'p95': 6000}); g, w2 = R.live_guard(g, {'rows': 70, 'p95': 3000})
+    g, w3 = R.live_guard(g, {'rows': 70, 'p95': 6000})
+    t('guard: one good sample resets the count', g['hi'] == 1 and not (w1 or w2 or w3), g)
+    g, b1 = R.live_guard({}, {'rows': 3, 'p95': 100}); g, b2 = R.live_guard(g, {'rows': 0, 'p95': None})
+    t('guard: a BLIND guard (< 25 rows twice) stops; a low p95 on 3 rows is no all-clear', (not b1) and b2 and 'BLIND' in b2, (b1, b2))
+    g, _ = R.live_guard({}, {'rows': 70, 'p95': 5000})
+    t('guard: exactly 5000 ms is not over the gate', g['hi'] == 0)
+    d = tempfile.mkdtemp()
+    try:
+        now = 1793620000.0
+        def row(bot, start, lat, ep):
+            return json.dumps({'@timestamp': dt.datetime.fromtimestamp(start, dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+                               'bot': {'name': bot}, 'llm': {'latency_ms': lat, 'endpoint': ep}})
+        os.makedirs(os.path.join(d, 'b1'))
+        with open(os.path.join(d, 'b1', 'llm-b1.jsonl'), 'w') as f:
+            f.write('\n'.join([row('b1', now - 30, 2000, 'http://10.0.0.72:11434'), row('b1', now - 20, 9000, 'http://10.0.0.72:18080'),
+                                row('b1', now - 50, 45000, None), row('b1', now - 10, 1000, 'http://ai.ticrcorp.com:11438'),
+                                row('b1', now - 300, 9999, 'http://10.0.0.72:11434'), row('b1', now - 5, 0, 'http://10.0.0.72:11434')]) + '\n')
+        os.utime(os.path.join(d, 'b1', 'llm-b1.jsonl'), (now, now))
+        L = R.live_fleet('10.0.0.72', 60, now=now, logglob=os.path.join(d, '*', 'llm-*.jsonl'))
+        t('live_fleet: both 5080 ports + the failed row (by END time in the window); other hosts, old rows, work orders out',
+          L['rows'] == 3 and L['failed'] == 1 and L['bots'] == 1, L)
+    finally:
+        shutil.rmtree(d)
+    src = open(os.path.join(HERE, 'modelrollout.py')).read()
+    anc = "    hi = hi + 1 if (rows >= GUARD_MIN_ROWS and p95 is not None and p95 > GATES['lat_p95_ms']) else 0"
+    assert src.count(anc) == 1, 'ANCHOR MISSING OR NOT UNIQUE'
+    ns = {'__file__': os.path.join(HERE, 'modelrollout.py'), '__name__': 'modelrollout_mutant'}
+    exec(compile(src.replace(anc, '    hi = 0'), 'mutant', 'exec'), ns)
+    g, why = {}, None
+    for _ in range(6):
+        g, why = ns['live_guard'](g, {'rows': 70, 'p95': 9000})
+    t('MUTANT KILLED: a guard that never counts high samples never stops', why is None)
+    t('plan --first-pools 4: 20/40/60/80 bots, the canary pools first and counted, every pool once',
+      [len(x) for x in st4] == [4, 4, 4, 4] and st4[0][:2] == R.order_pools(['hive-b', 'board-c'])
+      and sorted(p for x in st4 for p in x) == sorted(P16), st4)
+    t('plan without --first-pools is unchanged: 30/50/70/80 bots', [len(x) for x in R.plan(P16, ['hive-b', 'board-c'])] == [6, 4, 4, 2])
     t('probe: Ollama /api/version; oai+ llama-server /health without the prefix (serving A)',
       R.probe_url('http://h:11438') == 'http://h:11438/api/version'
       and R.probe_url('oai+http://10.0.0.16:18080/') == 'http://10.0.0.16:18080/health')
@@ -284,6 +328,20 @@ def driver():
     t('load fail: rc 1, nothing applied, no restart, hold released', rc == 1 and dropins() == [] and h.restarts == []
       and [x[0] for x in h.holds] == ['claim', 'release'], (rc, h.holds, out[-300:]))
     t('load fail: paged "slot is free"', 'the slot is free' in open(R.P['page']).read())
+    shutil.rmtree(root)
+
+    # the LIVE-FLEET GUARD killed the synthetic load (serving A 11-02): a FAIL even though the rows it got look fine
+    class GuardHost(FakeHost):
+        def loadtest(self, url, model, rate, n, out, seed):
+            rows, ab = FakeHost.loadtest(self, url, model, rate, n, out, seed)
+            self.guard_why = None if n == R.PROBE_N else 'LIVE FLEET p95 > 5000 ms on 4 samples in a row (120 s)'
+            return rows, ab
+    root = tree(); h = GuardHost(root)
+    rc, out = quiet(R.Rollout(h, 'qwen35-01').go)
+    j = [r for r in R.read_jsonl(R.P['journal']) if r.get('phase') == 'rollout-loadtest']
+    t('guard trip: rc 1, nothing applied, no restart, hold released, the journal names the guard',
+      rc == 1 and dropins() == [] and h.restarts == [] and [x[0] for x in h.holds] == ['claim', 'release']
+      and j and 'guard: LIVE FLEET' in j[-1]['note'], (rc, h.holds, j[-1:] if j else None))
     shutil.rmtree(root)
 
     # read fail at stage 2

@@ -24,7 +24,7 @@ STAGES (pools of 5 bots). Stage 1 = the canary's own pools again + POOLS_PER_STA
 time (the last stage takes what is left). 16 pools: 10 -> 30 -> 50 -> 70 -> 80 bots on the model, four stages.
 
 EACH STAGE
-  1 busy check   PROBE_N sequential-ish decisions through the fleet client; median > the p50 gate = the Blackwell is
+  1 busy check   PROBE_N sequential-ish decisions through the fleet client; median > the p50 gate = the endpoint is
                  already busy (someone else's job, or the live stages): wait 10 min, 3 tries, then STOP.
   2 load test    qwen35load.mjs (the fleet's own client, real logged prompts, Poisson arrivals) at the stage's OWN rate
                  (its bots x 1.33 decisions/min) for LOAD_MIN, ON TOP of the bots already rolled -- so the synthetic
@@ -136,7 +136,12 @@ P = {
     'bots': os.environ.get('ROLL_BOTS', '/opt/minecraft-ai/bots'),
     'rollout_py': os.environ.get('ROLL_ROLLOUT_PY', os.path.join(H, 'w5alarms', 'scripts', 'host', 'rollout.py')),
     'heavyread': os.environ.get('ROLL_HEAVYREAD', os.path.join(H, 'mcai-analysis', 'heavyread.sh')),
+    # LIVE-FLEET GUARD during every synthetic load (serving A 11-02, both reviewers r1): an endpoint substring (e.g.
+    # '10.0.0.72'); unset = off, so the Blackwell runs are unchanged. See live_fleet() / live_guard().
+    'fleet_guard': os.environ.get('ROLL_FLEET_GUARD', ''),
+    'llmlogs': os.environ.get('ROLL_LLM_LOGS', '/var/log/mcai/*/llm-*.jsonl'),
 }
+GUARD_EVERY_S, GUARD_HI_N, GUARD_BLIND_N, GUARD_MIN_ROWS = 30, 4, 2, 25   # p95 > 5 s on 4 samples 30 s apart = 2 min
 
 
 def iso(t):
@@ -210,15 +215,71 @@ def order_pools(pools):
     return sorted(pools, key=key)
 
 
-def plan(all_pools, canary_pools, per_stage=POOLS_PER_STAGE):
-    """PURE. -> [[pools of stage 1], ...]. Stage 1 = the canary's pools + per_stage more; then per_stage at a time."""
+def plan(all_pools, canary_pools, per_stage=POOLS_PER_STAGE, first=None):
+    """PURE. -> [[pools of stage 1], ...]. Stage 1 = the canary's pools + per_stage more; then per_stage at a time.
+    `first` (serving A, OWNER 11-02 "20/40/60/80"): stage 1 holds `first` pools IN TOTAL, the canary's pools counted
+    in it (2 canary pools + 2 more = 20 bots), then per_stage at a time: 4 -> 8 -> 12 -> 16 pools."""
     canary = [p for p in order_pools(canary_pools) if p in all_pools]
     rest = [p for p in order_pools(all_pools) if p not in canary]
-    stages = [canary + rest[:per_stage]]
-    rest = rest[per_stage:]
+    k = per_stage if first is None else max(0, first - len(canary))
+    stages = [canary + rest[:k]]
+    rest = rest[k:]
     while rest:
         stages.append(rest[:per_stage]); rest = rest[per_stage:]
     return [s for s in stages if s]
+
+
+def live_fleet(sub, window_s=60, now=None, logglob=None):
+    """The LIVE fleet's decisions that ENDED (start + latency) in the last window_s seconds and were served by an
+    endpoint containing `sub`, or by nothing at all (a failed decision counts against the guard, never for it).
+    Reads the last 1 MiB of each bot's current llm-*.jsonl: a live watch, not a baseline. -> {rows, bots, p50, p95,
+    failed}. Work-order rows (latency 0) are skipped. `rows` is the positive control: too few = the guard is blind."""
+    now = time.time() if now is None else now
+    lat, bots, failed = [], set(), 0
+    for f in glob.glob(logglob or P['llmlogs']):
+        try:
+            if now - os.path.getmtime(f) > 600:
+                continue
+            with open(f, 'rb') as fh:
+                off = max(0, os.path.getsize(f) - (1 << 20)); fh.seek(off)
+                if off:
+                    fh.readline()           # only a mid-file seek lands inside a line
+                for line in fh:
+                    try:
+                        r = json.loads(line)
+                        L = r.get('llm') or {}
+                        if not L.get('latency_ms'):
+                            continue
+                        end = dt.datetime.fromisoformat(r['@timestamp'].replace('Z', '+00:00')).timestamp() + L['latency_ms'] / 1000
+                    except Exception:
+                        continue
+                    if now - end > window_s or end > now + 5:
+                        continue
+                    ep = L.get('endpoint')
+                    if ep and sub not in ep:
+                        continue
+                    failed += 0 if ep else 1
+                    bots.add((r.get('bot') or {}).get('name'))
+                    lat.append(L['latency_ms'])
+        except OSError:
+            continue
+    return {'rows': len(lat), 'bots': len(bots), 'p50': pct(lat, 0.5), 'p95': pct(lat, 0.95), 'failed': failed}
+
+
+def live_guard(state, sample):
+    """PURE. One live-fleet sample -> (state, stop reason or None). The owner's stop (11-01/11-02): live fleet p95 >
+    5 s for 2 minutes = GUARD_HI_N samples in a row GUARD_EVERY_S apart. A sample with < GUARD_MIN_ROWS rows is BLIND;
+    GUARD_BLIND_N blind samples in a row also stop (a guard that cannot see is not an all-clear)."""
+    hi, blind = state.get('hi', 0), state.get('blind', 0)
+    rows, p95 = sample.get('rows') or 0, sample.get('p95')
+    blind = blind + 1 if rows < GUARD_MIN_ROWS else 0
+    hi = hi + 1 if (rows >= GUARD_MIN_ROWS and p95 is not None and p95 > GATES['lat_p95_ms']) else 0
+    st = {'hi': hi, 'blind': blind}
+    if hi >= GUARD_HI_N:
+        return st, 'LIVE FLEET p95 > %d ms on %d samples in a row (%d s): last %s' % (GATES['lat_p95_ms'], hi, hi * GUARD_EVERY_S, sample)
+    if blind >= GUARD_BLIND_N:
+        return st, 'LIVE FLEET GUARD BLIND: < %d rows on %d samples in a row: last %s' % (GUARD_MIN_ROWS, blind, sample)
+    return st, None
 
 
 def stage_rate(n_bots):
@@ -622,10 +683,16 @@ class Host:
         pr = subprocess.Popen(['node', os.path.join(HERE, 'qwen35load.mjs'), P['bots'], sl, out, url, model, str(rate), str(seed)],
                               stdout=err, stderr=err)
         aborted, t0 = False, time.time()
+        self.guard_why, gst, tg = None, {}, time.time()
         while pr.poll() is None:
             time.sleep(10)
             if early_abort(read_jsonl(out)) or time.time() - t0 > LOAD_HARD_S:
                 pr.kill(); aborted = True
+            elif P['fleet_guard'] and time.time() - tg >= GUARD_EVERY_S:
+                tg = time.time()
+                gst, why = live_guard(gst, live_fleet(P['fleet_guard']))
+                if why:
+                    pr.kill(); aborted = True; self.guard_why = why
         pr.wait()
         return read_jsonl(out), aborted
 
@@ -860,8 +927,9 @@ class Stop(Exception):
 
 
 class Rollout:
-    def __init__(self, host, run, dry=False, out=print, experiment=False, ab_pools=None):
+    def __init__(self, host, run, dry=False, out=print, experiment=False, ab_pools=None, first_pools=None):
         self.h, self.run, self.dry, self.say, self.exp = host, run, dry, out, experiment or bool(ab_pools)
+        self.first = first_pools            # stage 1's total pools (None = canary pools + POOLS_PER_STAGE)
         self.ab = list(ab_pools or [])      # A/B (control session 10-31 21:45Z): ONE stage on these pools, no install-hold
         self.rid = run.rsplit('-', 1)[0] + '-roll' if re.search(r'-\d+$', run) else run + '-roll'   # qwen35-01 -> qwen35-roll
         self.statep = os.path.join(P['home'], 'state.json')
@@ -918,7 +986,7 @@ class Rollout:
     # -- plan
     def make_plan(self, journal):
         cp = canary_pools_of(journal, self.run)
-        stages = [self.ab] if self.ab else plan(self.all_pools(), [], EXP_POOLS_PER_STAGE) if self.exp else plan(self.all_pools(), cp)
+        stages = [self.ab] if self.ab else plan(self.all_pools(), [], EXP_POOLS_PER_STAGE) if self.exp else plan(self.all_pools(), cp, POOLS_PER_STAGE, self.first)
         return cp, stages
 
     def describe_plan(self, journal):
@@ -993,7 +1061,7 @@ class Rollout:
             self.journal('rollout-busycheck', 'stage %d try %d: BUSY or failing: %s' % (i, k, s))
             if k < BUSY_TRIES:
                 self.h.sleep(BUSY_WAIT_S)
-        raise Stop('stage %d: the Blackwell is busy or failing before the load test (%d probes): %s' % (i, BUSY_TRIES, s))
+        raise Stop('stage %d: the serving endpoint is busy or failing before the load test (%d probes): %s' % (i, BUSY_TRIES, s))
 
     def load_test(self, i, n_bots):
         rate = stage_rate(n_bots)
@@ -1001,6 +1069,9 @@ class Rollout:
         rows, aborted = self.h.loadtest(self.url, self.model, rate, n, os.path.join(self.ctxdir(i), 'load.jsonl'), 1031 + i)
         s = load_stats(rows)
         ok, why = load_verdict(s, n)
+        g = getattr(self.h, 'guard_why', None)
+        if g:                              # the live-fleet guard killed the synthetic load: always a FAIL
+            ok, why = False, ['guard: ' + g] + why
         self.journal('rollout-loadtest', 'stage %d: %.1f/min synthetic (+%d bots) on top of %d rolled bots: %s%s -> %s' % (
             i, rate, n_bots, len(self.bots(self.rolled_pools())), json.dumps(s), ' (EARLY ABORT)' if aborted else '',
             'PASS' if ok else 'FAIL: ' + '; '.join(why)))
@@ -1455,18 +1526,24 @@ def main(argv=None, host=None):
         if c in ('run', 'plan'):
             p.add_argument('--experiment', action='store_true', help='owner-directed: load gates are data; every stop rolls back ALL')
             p.add_argument('--pools', help='A/B: ONE stage on these pools (comma list), no install-hold; implies --experiment')
+            p.add_argument('--first-pools', type=int, default=None,
+                           help='stage 1 holds this many pools IN TOTAL, the canary pools counted (serving A: 4 = 20 bots)')
         if c == 'run':
             p.add_argument('--dry-run', action='store_true'); p.add_argument('--resume', action='store_true')
         if c == 'rollback':
             g = p.add_mutually_exclusive_group(required=True)
             g.add_argument('--all', action='store_true'); g.add_argument('--stage', type=int)
     p = sub.add_parser('_read'); p.add_argument('ctxdir'); p.add_argument('M', type=int)
+    p = sub.add_parser('_fleet'); p.add_argument('sub'); p.add_argument('--window', type=int, default=60)
     a = ap.parse_args(argv)
     if a.cmd == '_read':
         return cmd_read(a.ctxdir, a.M)
+    if a.cmd == '_fleet':                  # one live-fleet sample (servea-check.sh's guard uses it)
+        print(json.dumps(live_fleet(a.sub, a.window))); return 0
     h = host or Host()
     r = Rollout(h, a.run, dry=getattr(a, 'dry_run', False), experiment=getattr(a, 'experiment', False),
-                ab_pools=[x for x in (getattr(a, 'pools', None) or '').split(',') if x])
+                ab_pools=[x for x in (getattr(a, 'pools', None) or '').split(',') if x],
+                first_pools=getattr(a, 'first_pools', None))
     if a.cmd == 'plan':
         print(r.describe_plan(read_jsonl(P['journal']))[2]); return 0
     if a.cmd == 'run':

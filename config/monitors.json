@@ -448,6 +448,21 @@
    "consumer": "STATE.md 'Showcase release' cell (stategen reads the newest showcase_restack row from mcai-showcase-ops) + ALARMS.log/push 'restack-showcase showcase:restack' while the showcase protected tree is behind the fleet KEEP",
    "kind": "monitor",
    "note": "infra/showcase/restack_prep.py run, hourly :25 as root: after a fleet KEEP+promotion builds the showcase-on-fleet commit (merge-tree, parent = live release), record compat (recordcompat.mjs) and npm test (nice 19, 3 jobs); PREPARES + ALERTS only (activation needs both engines' APPROVE at the gate). Codex ops audit 11-01 MEDIUM 3."
+  },
+  {
+   "id": "servea-waiter",
+   "host": "mac",
+   "cron": null,
+   "launchd": "com.mcai.servea-waiter",
+   "outputs": [
+    "~/.servea-waiter/waiter.log",
+    "canary host ~/digest/page.jsonl (run servea-roll)",
+    "canary host ~/canary-journal.jsonl (run servea, phase waiter)"
+   ],
+   "fresh_hours": null,
+   "consumer": "control session (pages via the digest; transitions in the journal)",
+   "kind": "actuator",
+   "note": "serving A, OWNER 11-02 'do what you recommend': every 3 min, scripts/host/servea-waiter.sh (copy ~/bin/servea-waiter.sh): install the oai+ probe fix between canaries -> release servea-01 at the head (5080 server start + guarded load check) -> on KEEP release llmoai-01 -> on promotion start modelrollout 20/40/60/80 -> done. `servea-waiter.sh status`; stop it with `launchctl unload ~/Library/LaunchAgents/com.mcai.servea-waiter.plist` or `servea-waiter.sh set halt`. docs/reports/serving-A-2026-11-01.md s.8"
   }
  ]
 }

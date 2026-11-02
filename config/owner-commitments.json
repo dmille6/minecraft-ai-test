@@ -2416,7 +2416,7 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "servea-01 (HELD) now serves the round-3 4B from the 5080 (10 bots): the learning-loop agent adopts the entry (replace-variant with its 4B registration), install the modelread oai+ probe fix, start the 5080 llama-server, release; then stage 20/40/60/80 bots with modelrollout (oai+ fix installed), load-testing each stage",
+   "next_step": "servea-01 + llmoai-01 + the staged 4B rollout run automatically (row serving-a-4b-rollout; com.mcai.servea-waiter); after done-complete: a systemd unit for the 5080 llama-server (owner OK: an OS-level change on pve4), so a reboot does not drop the fleet to the qwen2.5 fallback",
    "max_quiet_hours": 36,
    "depends_on": [
     {
@@ -2984,6 +2984,49 @@
     ]
    },
    "note": "Codex ops audit 11-01 HIGH 1 (STATE contradicted completed events and owner decisions a day after a manual refresh; 10-31 the same flag). Control session 11-02."
+  },
+  {
+   "id": "serving-a-4b-rollout",
+   "title": "Run servea-01 (round-3 4B on the 5080, 10 bots) at the head; if KEPT, stage the 4B 20/40/60/80 bots on the 5080; the 4B becomes the fleet's model if all stages pass",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "owner-serving-plan-1101.md"
+   ],
+   "kind": "canary",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "automatic (com.mcai.servea-waiter): servea-install between canaries -> servea-01 at the head (after deepminer-01) -> llmoai-01 on KEEP -> modelrollout --first-pools 4 on llmoai-01's promotion; a human only on a halt page",
+   "max_quiet_hours": 36,
+   "depends_on": [
+    {
+     "run": "servea-01",
+     "until": "kept"
+    },
+    {
+     "run": "llmoai-01",
+     "until": "kept"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "servea-01",
+     "llmoai-01",
+     "servea-roll"
+    ],
+    "branches": [
+     "llmoai01-on-*",
+     "servea01-on-*"
+    ],
+    "grep": [
+     "servea",
+     "llmoai"
+    ],
+    "paths": [
+     "scripts/host/servea-waiter.sh"
+    ]
+   },
+   "note": "OWNER 11-02 ~13:40Z 'do what you recommend' (after ~12:45Z: the round-3 4B is the serving direction and the next model canary). The learning-loop agent adopts servea-01's registration (replace-variant). The 4B measured within gates to 80/min on the 5080 beside the live fleet (report s.7)."
   }
  ]
 }
