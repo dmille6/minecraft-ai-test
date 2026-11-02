@@ -164,14 +164,27 @@ def alone_result(text, f, exists=True):
     return 'fail'
 
 
-def hunks_carried(diff3):
+# CODE TOKENS for hunks_carried: a string literal is ONE token and a comment is NO token (Codex r1: main's `// enableSafety();`
+# must not carry the fleet's executable `enableSafety();`; nor may a string that spells it). Strings first, so a `//` inside
+# one stays in the string. `#` comments only for Python / shell files.
+_STR = r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|`(?:\\.|[^`\\])*`'
+_TOK_JS = re.compile(_STR + r'|(?P<c>//[^\n]*|/\*[\s\S]*?\*/)|\w+|[^\w\s]')
+_TOK_HASH = re.compile(_STR + r'|(?P<c>#[^\n]*)|\w+|[^\w\s]')
+
+
+def code_tokens(text, hash_comments=False):
+    """PURE. Tokens of code: words, punctuation, whole string literals; comments dropped."""
+    return [m.group(0) for m in (_TOK_HASH if hash_comments else _TOK_JS).finditer(text) if not m.group('c')]
+
+
+def hunks_carried(diff3, hash_comments=False):
     """PURE. `git merge-file --diff3 -p -L main -L base -L fleet` output -> (carried, resolved text). Carried = in EVERY conflict
     region (1) the fleet side's TOKENS are a subsequence of main's (main already holds what the fleet wrote, among its own
     additions -- a longer parameter list, more imports), and (2) every token the fleet REMOVED from the base is gone from main
     as well (main has no more of it than the fleet: a fleet deletion main still carries is not carried). Resolved takes main's
     side. The common shape here: a feature lands on main first (showcase) and its fleet variant is promoted later (tidy-01)."""
     from collections import Counter
-    tok = lambda ls: re.findall(r'\w+|[^\w\s]', ''.join(ls))
+    tok = lambda ls: code_tokens(''.join(ls), hash_comments)
     out, ok, i, L = [], True, 0, diff3.splitlines(keepends=True)
     while i < len(L):
         if not L[i].startswith('<<<<<<< '):
@@ -297,6 +310,13 @@ def merge_onto(repo, main, run_id, sha):
     return False, files or ['(merge failed: ' + (p.stderr or p.stdout).strip()[-120:] + ')']
 
 
+def _mode(repo, rev, f):
+    """The tree entry's mode + type for f at rev (None when absent)."""
+    p = git(repo, 'ls-tree', '-z', rev, '--', f, check=False)
+    e = p.stdout.split('\0')[0]
+    return e.split('\t', 1)[0].rsplit(' ', 1)[0] if p.returncode == 0 and '\t' in e else None
+
+
 def _blob(repo, rev, f):
     p = git(repo, 'show', f'{rev}:{f}', check=False)
     return p.stdout if p.returncode == 0 else None
@@ -307,10 +327,12 @@ def carried_by_main(repo, main, sha, prev):
     of `git diff prev sha`: main equals the fleet copy, or a 3-way merge (base = prev) resolves to main's own text with every
     conflict a fleet-subset-of-main region (hunks_carried). -> (bool, first file that is not carried or '')."""
     import tempfile
-    files = git(repo, 'diff', '--name-only', '--no-renames', prev, sha).stdout.split()
+    files = [f for f in git(repo, 'diff', '--name-only', '-z', '--no-renames', prev, sha).stdout.split('\0') if f]   # Codex r1: NUL, not spaces
     if not files:
         return False, '(empty change)'
     for f in files:
+        if _mode(repo, main, f) != _mode(repo, sha, f):      # Codex r1: an executable bit / symlink / type change is not carried
+            return False, f
         m, b, t = _blob(repo, main, f), _blob(repo, prev, f), _blob(repo, sha, f)
         if m == t:
             continue
@@ -324,7 +346,7 @@ def carried_by_main(repo, main, sha, prev):
             p = run(['git', 'merge-file', '--diff3', '-p', '-L', 'main', '-L', 'base', '-L', 'fleet', *paths])
         if p.returncode < 0 or p.returncode > 127:
             return False, f
-        carried, resolved = hunks_carried(p.stdout)
+        carried, resolved = hunks_carried(p.stdout, hash_comments=f.endswith(('.py', '.sh')) or '.' not in os.path.basename(f))
         if not carried or resolved != m:
             return False, f
     return True, ''

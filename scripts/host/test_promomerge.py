@@ -138,6 +138,13 @@ def t_carried(S):
     check('hunks_carried: a fleet DELETION main still has is not carried', S.hunks_carried(d3d)[0] is False)
     d3e = '<<<<<<< main\nif (x) y()\n||||||| base\nif (!x)\n=======\nif (x)\n>>>>>>> fleet\n'
     check('hunks_carried: a deletion main made too is carried', S.hunks_carried(d3e)[0] is True)
+    d3f = '<<<<<<< main\n// enableSafety();\n||||||| base\n=======\nenableSafety();\n>>>>>>> fleet\n'
+    check('hunks_carried: main\'s COMMENT does not carry the fleet\'s call (Codex r1)', S.hunks_carried(d3f)[0] is False)
+    d3g = '<<<<<<< main\nlog("enableSafety();")\n||||||| base\n=======\nenableSafety();\n>>>>>>> fleet\n'
+    check('hunks_carried: a string spelling it does not carry it', S.hunks_carried(d3g)[0] is False)
+    d3h = '<<<<<<< main\n# enable_safety()\n||||||| base\n=======\nenable_safety()\n>>>>>>> fleet\n'
+    check('hunks_carried: a Python comment does not carry a call', S.hunks_carried(d3h, hash_comments=True)[0] is False)
+    check('code_tokens: a // inside a string stays in the string', S.code_tokens('u = "http://x" // c') == ['u', '=', '"http://x"'])
     check('hunks_carried: no conflict = carried, text unchanged', S.hunks_carried('a\nb\n') == (True, 'a\nb\n'))
     anc = {('p1', 's'), ('p1', 'm'), ('p0', 's'), ('p0', 'm'), ('p2', 's')}
     promos = [('r0', 'p0', 1), ('r1', 'p1', 2), ('r2', 'p2', 3), ('rs', 's', 4)]
@@ -258,6 +265,17 @@ def t_end_to_end():
         check('e2e main-first: the plain merge conflicts', not ok and files == ['bots/src/list.mjs'], (ok, files))
         check('e2e main-first: main carries the variant (base = the previous promotion)', S.carried_by_main(scratch, m5, fv, fleet2) == (True, ''))
         check('e2e main-first: a variant line main lacks is NOT carried', S.carried_by_main(scratch, m5, fleet3, fleet2)[0] is False)
+        sh(work, 'git', 'checkout', '-q', '-B', 'fleetx', fv)
+        os.chmod(os.path.join(work, 'bots/src/list.mjs'), 0o755)
+        sh(work, 'git', 'add', 'bots/src/list.mjs')
+        sh(work, 'git', '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'fleet: +x')
+        fx = sh(work, 'git', 'rev-parse', 'HEAD'); sh(work, 'git', 'push', '-q', 'origin', 'fleetx')
+        sh(work, 'git', 'checkout', '-q', '-B', 'fleets', fleet2)
+        fs_ = commit(work, 'bots/src/new feature.mjs', 'export const n = 1\n', 'fleet: a path with a space')
+        sh(work, 'git', 'push', '-q', 'origin', 'fleets')
+        sh(scratch, 'git', 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*')
+        check('e2e: a mode change main lacks is NOT carried (Codex r1)', S.carried_by_main(scratch, m5, fx, fleet2)[0] is False)
+        check('e2e: a new file whose path has a space is NOT carried (Codex r1)', S.carried_by_main(scratch, m5, fs_, fleet2) == (False, 'bots/src/new feature.mjs'))
         ok, _ = S.merge_ours(scratch, m5, 'tidy-01', fv)
         r = S._push(scratch, 'tidy-01', fv, m5, sh(scratch, 'git', 'rev-parse', 'HEAD'), {}, NOW, tree_is_main=True)
         on = sh(work, 'git', 'ls-remote', origin, 'refs/heads/main').split()[0]
@@ -311,6 +329,7 @@ MUTANTS = [
     ('timeout is not a confirmed fail', "if not m or m.group(1).startswith('signal') or '[killed: timeout]' in m.group(2):",
      "if not m:"),
     ('carried needs a subsequence', "        if not all(any(x == y for y in it) for x in tt):", "        if False:"),
+    ('comments are not code', "if not m.group('c')]", "]"),
     ('carried needs the deletions', "        if any(cm[k] > ct[k] for k, n in Counter(tb).items() if n > ct[k]):", "        if False:"),
     ('suite completion', "return bool(PASSED_LINE.search(text)), failed", "return True, failed"),
 ]

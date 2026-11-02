@@ -113,8 +113,9 @@ make it deterministic), and **composed**: test the refusal chain, not the single
 - **The death gate needs two canary deaths** (and more than 1.25x the control rate) to trip. One
   death gets named in the read; it is not a verdict.
 - **Never promise a look before rollout.** The loop auto-promotes about 10 minutes after a KEEP.
-  The coordinator merges a promoted sha to main within 1–25 minutes, so re-fetch rather than race
-  it.
+  `promomerge.py` (Mac LaunchAgent, every 15 min) then merges the promoted sha into main: clean
+  merge + full suite on .30, or an ancestry-only merge when main already carries it, else it pages
+  (`!! promotion ... does NOT merge into main`). Do not race it; re-fetch. A page means a hand merge.
 - A gate's install state is its **digest**, not its name: `gatedigest.py` compares the live bundle
   against the registered one. Do not grep for a version string.
 
