@@ -3316,7 +3316,7 @@
    "id": "stationkeep-01",
    "title": "resource-model-1102 stage 2: stationkeep-01 -- smelt takes back the furnace it placed once drained; the tidy sweeps stray crafting tables off the plaza (2 nearest stay public)",
    "kind": "canary",
-   "next_step": "Queued after bagdiet-01 (variant 2b6f8a25 on f1f5c16c, branch stationkeep-on-f1f5c16, patch set for the v39 autorebase). Read +90/+180 generic; own lines: _station_retaken outcome=back share (smelt), _station_swept by=tidy outcome=back, _station_sweep strays/kept; craft success share not lower. Goal check 24 h after promotion: flowledger 'stations left' per town falling.",
+   "next_step": "Queued (released 11-02 ~19:00Z) after bagdiet-01 (variant 2b6f8a25 on f1f5c16c, branch stationkeep-on-f1f5c16, patch set for the v39 autorebase). Read +90/+180 generic; own lines: _station_retaken outcome=back share (smelt), _station_swept by=tidy outcome=back, _station_sweep strays/kept; craft success share not lower. Goal check 24 h after promotion: flowledger 'stations left' per town falling.",
    "depends_on": [
     {
      "run": "bagdiet-01",
@@ -3349,7 +3349,7 @@
    "id": "marks-01",
    "title": "resource-model-1102 stage 3: marks-01 -- one per-group policy table (LOW/TARGET/HIGH/bagKeep) with a hysteresis latch, from the owner's numbers; _stock_band and _marks_mode rows",
    "kind": "canary",
-   "next_step": "Queued after stationkeep-01 (variant e67ce26b on f1f5c16c, branch marks-on-f1f5c16). No behaviour change by design: read +90/+180 generic; _marks_mode on every canary bot; town_deposit / withdraw success shares not lower (denominators); _stock_band rows present.",
+   "next_step": "Queued (released 11-02 ~19:00Z) after stationkeep-01 (variant e67ce26b on f1f5c16c, branch marks-on-f1f5c16). No behaviour change by design: read +90/+180 generic; _marks_mode on every canary bot; town_deposit / withdraw success shares not lower (denominators); _stock_band rows present.",
    "depends_on": [
     {
      "run": "stationkeep-01",
@@ -3382,7 +3382,7 @@
    "id": "towngate-01",
    "title": "resource-model-1102 stage 4 (TIER 3): towngate-01 -- the metered well overflow on every town visit (proven at HIGH, no yard room, no open bill; _overflow rows) + the table-craft gate redirected to take_station",
    "kind": "canary",
-   "next_step": "Queued after marks-01 (variant 16047cec on f5bd6772 = f1f5c16c + stationkeep + marks, branch towngate-on-f5bd677; the autorebase cherry-picks its 2 commits onto the tip that carries both). Read +90/+180 generic + defect lines: 0 protected items in _overflow; 0 _overflow rows with town < high. KEEP goals: bags >= 34 slots leaving town (flowledger ge34) fall > 50 %; fleet bag cobble falls; tables+furnaces crafted per 13 h < 40 (was 152) with craft success share not lower.",
+   "next_step": "Queued (released 11-02 ~19:00Z) after marks-01 (variant 62b8dd24 on f5bd6772 = f1f5c16c + stationkeep + marks, branch towngate-on-f5bd677; the autorebase cherry-picks its 2 commits onto the tip that carries both). Read +90/+180 generic + defect lines: 0 protected items in _overflow; 0 _overflow rows with town < high. KEEP goals: bags >= 34 slots leaving town (flowledger ge34) fall > 50 %; fleet bag cobble falls; tables+furnaces crafted per 13 h < 40 (was 152) with craft success share not lower.",
    "depends_on": [
     {
      "run": "marks-01",
