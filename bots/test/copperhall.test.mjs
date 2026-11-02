@@ -74,6 +74,24 @@ await t('the opening rule: 318 ingots with 10 cut refuses, 319 opens; an unknown
   assert.ok(o.have - o.floor >= H.INGOTS_PER_BATCH * o.batches)
 })
 
+await t('r3 (LIVE 11-02: every gate row read 0): the town copper is each container\'s LATEST observation, fresh or stale; dirty and unobserved count nothing', () => {
+  const obs = (ci, cc, at = 1) => ({ obs: { at, names: { ...(ci ? { copper_ingot: [ci, 3] } : {}), ...(cc ? { cut_copper: [cc, 1] } : {}), torch: [12, 1] } } })
+  const entries = { '-9,71,2': obs(64), '-13,71,2': obs(66, 10), '-5,71,8': obs(0), '-7,71,8': obs(40), '1,71,1': { last: { t: 'dirty' } }, _ingredient_miss: { '-9,71,2': {} } }
+  const state = e => (e === entries['-7,71,8'] ? 'dirty' : e === entries['-9,71,2'] ? 'stale' : 'known')
+  assert.deepEqual(H.townCopperOf(entries, state), { ingots: 130, cut: 10, containers: 3, stale: 1 })
+  assert.deepEqual(H.townCopperOf(null), { unknown: true }, 'no index: unknown (never opens)')
+  assert.deepEqual(H.townCopperOf({}, state), { unknown: true }, 'no observed container: unknown, not 0')
+  assert.equal(H.hallOpening({ ingots: 130, cut: 10 }).open, false)
+})
+
+await t('MUTANT KILLED: a count of FRESH entries only (the live bug) reads the stale copper chest as nothing', async () => {
+  await withMutant(HALL_PATH, "    if (st !== 'known' && st !== 'stale') continue\n", "    if (st !== 'known') continue\n", async M => {
+    const entries = { '-9,71,2': { obs: { names: { copper_ingot: [130, 3] } } }, '-5,71,8': { obs: { names: { torch: [1, 1] } } } }
+    assert.equal(M.townCopperOf(entries, e => (e === entries['-9,71,2'] ? 'stale' : 'known')).ingots, 0)
+    assert.equal(H.townCopperOf(entries, e => (e === entries['-9,71,2'] ? 'stale' : 'known')).ingots, 130)
+  })
+})
+
 await t('MUTANT KILLED: an opening rule without the project floor opens at 216, and the draws would lock themselves out', async () => {
   await withMutant(HALL_PATH, '  const need = floor + INGOTS_PER_BATCH * batches\n', '  const need = INGOTS_PER_BATCH * batches\n', async M => {
     assert.equal(M.hallOpening({ ingots: 216, cut: 10 }).open, true)
@@ -192,6 +210,7 @@ await t('wiring (structural): the order reads the gate, the visit sites the hall
   const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
   const one = (re, what) => assert.equal((src.match(re) ?? []).length, 1, what)
   one(/const waiting = p\.plot === HALL_PLOT && !rec \? !hallOpenNow\(b\)\.open : false/g, 'the order state')
+  one(/const c = bot \? townCopperOf\(townIndexEntries\(bot\), e => indexStateOf\(e\)\) : \{ unknown: true \}/g, 'the gate counts the index')
   one(/if \(!o\.open\) return out\('no_effect', 'copper_wait'/g, 'the visit gate')
   one(/: rec\.blueprint === HALL_BLUEPRINT \? \{ domain: hallRecordDomain\(rec, projectHeads\(\)\.map\(x => x\.head\.rec\)\) \}/g, 'the stand domain')
   one(/if \(plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT\) \{/g, 'the generic siting skips the hall')
