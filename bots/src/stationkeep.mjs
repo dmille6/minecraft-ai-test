@@ -137,9 +137,10 @@ export function sweepVisitDetail ({ found = 0, sweep = 0, kept = 0, dug = 0, bac
 export const TAKE_R = 16
 /** The nearest takeable table to `pos` -> { at, name, d } | null. Pure over a strayStations result (strays first, then the kept
  *  public ones: a bot taking a public table leaves the next nearest stray public). */
-export function nearestTakeable (s, pos, r = TAKE_R) {
+export function nearestTakeable (s, pos, r = TAKE_R, given = () => false) {
   if (!s || !pos) return null
-  const all = [...(s.sweep ?? []), ...(s.kept ?? [])].filter(c => c?.name === 'crafting_table' && Array.isArray(c.at))
+  // Claude r1 note: a PUBLIC table a take failed on is given up too (strayStations' `given` filters only the sweep list)
+  const all = [...(s.sweep ?? []), ...(s.kept ?? [])].filter(c => c?.name === 'crafting_table' && Array.isArray(c.at) && !given(c.at.join(',')))
     .map(c => ({ at: c.at, name: c.name, d: Math.hypot(c.at[0] + 0.5 - pos.x, c.at[1] - pos.y, c.at[2] + 0.5 - pos.z) }))
     .filter(c => c.d <= r).sort((a, b) => a.d - b.d)
   return all[0] ?? null

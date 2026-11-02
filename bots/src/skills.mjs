@@ -18609,7 +18609,8 @@ export function projectCobbleBill (bot, now = Date.now()) {
         const roles = new Set(Object.entries(pal).filter(([, names]) => (Array.isArray(names) ? names : []).some(n => n === 'cobblestone' || n === 'cobbled_deepslate')).map(([r]) => r))
         let n = 0
         for (const cell of rec.cells ?? []) {
-          if (!roles.has(cell.role)) continue
+          // Codex r1 BLOCKER: a foundation `fill` cell is billed as cobblestone (shop.mjs billOf), whatever the palette says
+          if (!roles.has(cell.role) && cell.role !== 'fill') continue
           const b = bot.blockAt?.(new Vec3(cell.at[0], cell.at[1], cell.at[2]))
           if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, pal, cell.role)) n++
         }
@@ -18624,7 +18625,9 @@ export function projectCobbleBill (bot, now = Date.now()) {
  *  the town's counted cobble. Never throws (a failed read is { ok: false }). */
 export function overflowNow (bot, items = bot?.inventory?.items?.() ?? []) {
   try {
-    const cap = cobbleWellCap(bot, items, { cap: MARKS.cobble.high })
+    // Codex r1 BLOCKER: PROVEN means the counted floor itself >= HIGH (floorOnly) -- never the bank's admission fallback, which
+    // reads 'at_cap' at 981 + a 64 stack
+    const cap = cobbleWellCap(bot, items, { cap: MARKS.cobble.high, floorOnly: true })
     const g = overflowGate({ cap, yardRoom: YARD_ROOM.cobble, yardFull: null, bill: cap === 'at_cap' ? projectCobbleBill(bot) : 0 })
     let town = null
     try { town = cobbleTownViewFor(bot).lb } catch { town = null }
@@ -18639,7 +18642,7 @@ export function strayTableNear (bot, now = Date.now()) {
   const p = bot.entity?.position
   if (c && now - c.at < 60_000 && c.pos && p && Math.hypot(c.pos.x - p.x, c.pos.z - p.z) < 4) return c.v
   let v = null
-  try { v = p ? nearestTakeable(strayNow(bot), p) : null } catch { v = null }
+  try { v = p ? nearestTakeable(strayNow(bot), p, undefined, k => sweepGivenUp(bot.sweepGiven, k)) : null } catch { v = null }
   bot.strayTableCache = { at: now, v, pos: p ? { x: p.x, z: p.z } : null }
   return v
 }
