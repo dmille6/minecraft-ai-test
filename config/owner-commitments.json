@@ -3140,6 +3140,45 @@
    "note": "Capacity vs rate: 4 bays x 76 = 304 a town; the fleet mined ~14,300 cobble family into bags in 12.7 h (11-02) and builds placed ~5,000 -- a yard holds about a day of a town's surplus. Bays are 2 wide (fake server: a 3-wide middle row above the eye had no sight line). Not in it: dirt/stone variants (the well's list), a camera."
   },
   {
+   "id": "resource-model-1102",
+   "title": "Long-term resource management (owner 11-02 'long term what is the best approach to managing resources ... bags, chests and stockpiles? use codex and claude'): a town-local, demand-driven economy -- one per-item policy table (LOW/TARGET/HIGH + hysteresis), working-set bags, bounded tiers (chests -> storehouse -> yard), a repeatable project catalogue picked by stock, the well as a metered valve above HIGH",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "owner-bags-yard-1102.md",
+    "owner-stockpile-1102.md",
+    "owner-cobble-overflow-well-1016.md",
+    "owner-project-reserve-80-1027.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Design on main (docs/reports/resource-management-2026-11-02.md; Codex + Claude independent designs, reconciled, one blocker round each, all blockers fixed). Owner answers Q1-Q3 (§12). Then build in queue order: bagdiet-01 (queued) -> flowledger-01 (tooling, parallel) -> stationkeep-01 (tier 2) -> marks-01 (tier 1-2) -> towngate-01 (TIER 3 canary: overflow + station craft gate) -> stockyard 2x fleet -> picker-01 + first sink -> sinkrate-01. Each stage gets its own ledger row when built.",
+   "max_quiet_hours": 72,
+   "owner_pending": "Resource model (docs/reports/resource-management-2026-11-02.md §12): (1) yard full -> surplus stone down the well every town visit, metered, bags only (recommended) or keep in bags? (2) fleet yard 2x (recommended) not 4x? (3) first repeatable sink: road segments from the paths (recommended), ziggurat growth, or wall towers?",
+   "depends_on": [
+    {
+     "run": "bagdiet-01",
+     "until": "closed"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "resource-model-1102",
+     "flowledger-01",
+     "stationkeep-01",
+     "marks-01",
+     "towngate-01",
+     "picker-01",
+     "sinkrate-01"
+    ],
+    "paths": [
+     "docs/reports/resource-management-2026-11-02.md"
+    ]
+   },
+   "note": "Measured 11-02 00:05-15:30Z (Events, live files, 1,142,691 rows, 80 bots; positive control 28,386 rows with inventory_delta): new cobble family from the world ~35,100 (mine 17,033, goto 8,280, gather 6,272, surface 2,220, home 1,314); only 687 gather rows-worth targeted cobblestone/stone (~2%: the rest is byproduct, so gather caps cannot fix it); the well took 17,679 cobble family (~half of supply); monument visits place 8.8 blocks each (throughput is the binding sink limit). Correction to stockyard-1102's note: a 304-block yard is ~2-4 h of a town's surplus, not a day. Supersedes the parked cobbleoverflow-on-cc1000 once towngate-01 is built; the yard-full question on stockyard-1102 is the same as Q1 here."
+  },
+  {
    "id": "comms-stage1-claims-mirror",
    "title": "Comms stage 1: the claims mirror (found-01 / monument-01 / furnace leases -> ledger)",
    "owner_date": "2026-10-22",
