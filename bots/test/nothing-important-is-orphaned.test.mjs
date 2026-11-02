@@ -89,6 +89,8 @@ const REQUIRED = [
   'bots/test/fleetpaths.test.mjs',
   // zigbamboo (fleetbuild-01, 11-01): bamboo grown into open ziggurat foundation cells is dug
   'bots/test/zigbamboo.test.mjs',
+  // marks-01 (resource-model-1102 stage 3): the per-group policy table
+  'bots/test/marks.test.mjs',
   // tidy-01 (11-01): the town-ground tidy (pillars, pits, the paths' corridors graded) and its offline proof on region copies
   'bots/src/tidy.mjs',
   'bots/test/tidy.test.mjs',

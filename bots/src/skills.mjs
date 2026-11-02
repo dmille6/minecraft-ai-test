@@ -147,6 +147,7 @@ import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
+import { stockBandDetail } from './stocktarget.mjs'   // marks-01: the town's band after a deposit
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
 import { scaffoldCount } from './exit-contract.mjs'
 /** Is this a pillar/scaffold block (well.mjs pillarCount's names)? */
@@ -3736,6 +3737,8 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
       logEvent({ kind: 'cobble_bank', status: r.went > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot),
                  detail: `name=${r.name} planned=${r.planned} tried=${r.tried.join(',') || '-'} moved=${r.went} before=${cobbleBefore} kept=${kept} src=${sb.source} reserve=${COBBLE_RESERVE} no_room=${r.noRoom} town_before=${r.townBefore ?? '?'} town_after=${r.townAfter ?? '?'} complete=${r.complete ?? '?'} cap=${TOWN_COBBLE_CAP} at_cap=${r.atCap} unknown=${r.unknown} outside=${r.outside} unknown_keys=${after.unknown.length}${r.unknownKey ? ` first_unknown=${r.unknownKey}` : ''}` })
     }
+    // marks-01: the town's band after this deposit, its own row (the bank rows' formats are read by anchored parsers: unchanged)
+    try { logEvent({ kind: 'stock_band', status: 'success', snapshot: snapshot(bot), detail: stockBandDetail('cobble', after.complete ? after.lb : null) }) } catch { /* telemetry */ }
   }
   // COBBLE NEVER GROWS THE BANK (the 10-04 SYNTHESIS: existing storage only; both reviews 10-07): when everything this
   // deposit could not place was cobble, the chests are simply full for it -- no recovery, no new chest, no bank closure.
