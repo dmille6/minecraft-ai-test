@@ -18163,7 +18163,7 @@ async function deepMine (ctx, args, signal) {
               // faces only: the stand's own two cells are walked into, never filled (Claude r4 note 1)
               // the stand's faces, then the leg's exposed liquid (the walk guard refuses lava anywhere beside the way)
               const faces = deepSealTargets(read, [wp, [wp[0], wp[1] + 1, wp[2]]], [me5, [me5[0], me5[1] + 1, me5[2]], wp, [wp[0], wp[1] + 1, wp[2]]])
-              const liquid = [...new Map([...faces, ...deepLegSealTargets(read, me5, wp)].map(c => [c.join(','), c])).values()].slice(0, 8)
+              const liquid = [...new Map([...faces, ...deepLegSealTargets(read, me5, wp, 6, new Set(isStairRecord(stairRecordNow()) ? stairCellKeys(stairRecordNow()) : []))].map(c => [c.join(','), c])).values()].slice(0, 8)
               let placed = 0
               if (liquid.length) {
                 const fx = deepEffects(bot, signal)

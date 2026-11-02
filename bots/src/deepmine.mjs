@@ -344,9 +344,13 @@ export function sealTargets (read, opened = [], occupied = []) {
  * cell in the box round the bot's cells and the next stand's (one block of margin) that touches an OPEN cell of that box is
  * exposed to the walk; never the bot's cells or the stand's own cells (they are walked into).
  */
-export function legSealTargets (read, from, to, max = 6) {
+export function legSealTargets (read, from, to, max = 6, keep = new Set()) {
   if (!Array.isArray(from) || !Array.isArray(to)) return []
-  const skip = new Set([from, [from[0], from[1] + 1, from[2]], to, [to[0], to[1] + 1, to[2]]].map(c => c.join(',')))
+  // never the bot's cells, the stand's, the straight line between them (it is walked through), or `keep` (the town stair's cells:
+  // a block in a stair air cell reads as blocked to the next descent -- Claude r5 note 1)
+  const mid = [Math.round((from[0] + to[0]) / 2), Math.round((from[1] + to[1]) / 2), Math.round((from[2] + to[2]) / 2)]
+  const skip = new Set([from, [from[0], from[1] + 1, from[2]], to, [to[0], to[1] + 1, to[2]], mid, [mid[0], mid[1] + 1, mid[2]]].map(c => c.join(',')))
+  for (const k of keep) skip.add(k)
   const x0 = Math.min(from[0], to[0]) - 1, x1 = Math.max(from[0], to[0]) + 1
   const y0 = Math.min(from[1], to[1]) - 1, y1 = Math.max(from[1], to[1]) + 2
   const z0 = Math.min(from[2], to[2]) - 1, z1 = Math.max(from[2], to[2]) + 1

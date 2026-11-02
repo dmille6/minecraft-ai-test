@@ -364,3 +364,11 @@ test('legSealTargets: liquid exposed to the leg anywhere in its box (one block o
   const w2 = world({ ...set, '0,-52,0': 'water' })
   assert.ok(!D.legSealTargets(w2.read, [0, -53, 0], [3, -53, 0]).some(c => c.join(',') === '0,-52,0'), 'never the bot\'s own cell')
 })
+
+test('legSealTargets never fills the cell between the bot and the stand, nor a kept (stair) cell', () => {
+  const w = world({ '0,-53,0': 'air', '0,-52,0': 'air', '1,-53,0': 'water', '1,-52,0': 'air', '2,-53,0': 'air', '2,-52,0': 'air', '1,-51,1': 'lava', '1,-52,1': 'air' })
+  const t = D.legSealTargets(w.read, [0, -53, 0], [2, -53, 0]).map(c => c.join(','))
+  assert.ok(!t.includes('1,-53,0'), 'the straight-line cell is walked through, never filled')
+  assert.ok(t.includes('1,-51,1'))
+  assert.ok(!D.legSealTargets(w.read, [0, -53, 0], [2, -53, 0], 6, new Set(['1,-51,1'])).some(c => c.join(',') === '1,-51,1'), 'kept cells are never filled')
+})
