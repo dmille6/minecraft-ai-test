@@ -24,6 +24,7 @@
 
 import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
+import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND } from './landplan.mjs'   // groundskeeper-01
 
 export const TIDY_PLOT = 'tidy'
 export const TIDY_BLUEPRINT = 'tidy@1'
@@ -33,7 +34,10 @@ export const TIDY = Object.freeze({ r: 32, dy: 14, pillarMin: 2, pillarMax: 6, p
 /** A bot's materials: what a pillar may be made of to be cut (dirt placed in the light turns grass_block). */
 export const SPOIL = /^(dirt|coarse_dirt|grass_block|cobblestone|mossy_cobblestone|cobbled_deepslate|netherrack|[a-z_]+_planks)$/
 /** What a fill places: the bag's dirt first, then cobblestone. Done = any full solid (not leaves). */
-export const TIDY_PALETTE = Object.freeze({ earth: ['dirt', 'cobblestone', 'coarse_dirt', 'cobbled_deepslate', '*solid'] })
+export const TIDY_PALETTE = Object.freeze({ earth: ['dirt', 'cobblestone', 'coarse_dirt', 'cobbled_deepslate', '*solid'],
+  // groundskeeper-01: a BURIED fill cell (under a column's top fill) takes the town's surplus cobblestone first (a sink for the
+  // resource model, resource-model-1102); the top stays dirt (it greens); a road's light is a torch
+  core: ['cobblestone', 'cobbled_deepslate', 'dirt', 'coarse_dirt', '*solid'], light: ['torch'] })
 /** A complete tidy is surveyed again after this long (the bots keep digging and climbing). */
 export const TIDY_RESURVEY_MS = 48 * 60 * 60_000
 /** A cut a bot found no stand for (or that did not come down) in this many of its visits is given up by that bot; the record
@@ -95,7 +99,7 @@ export function tidyColumn (read, x, z, { yHi, yLo }) {
  *   cells       Set "x,y,z" never touched (every project's record cells: belt and braces under `avoid`)
  *   r           half-width of the tidied square (TIDY.r)
  */
-export function surveyTidy (read, { home, avoid = () => null, cells = new Set(), r = TIDY.r, T = TIDY } = {}) {
+export function surveyTidy (read, { home, avoid = () => null, cells = new Set(), r = TIDY.r, rMin = -1, T = TIDY } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   if (!home || ![home.x, home.y, home.z].every(Number.isFinite)) return { ok: false, why: 'no_home', cut: [], fill: [], pillars: [], pits: [], skipped }
@@ -103,12 +107,14 @@ export function surveyTidy (read, { home, avoid = () => null, cells = new Set(),
   const memo = new Map()
   // the scan reaches 2 past the square (the pit rule's 5x5 median, the rims)
   const col = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, tidyColumn(read, x, z, { yHi, yLo })); return memo.get(k) }
-  const inSq = (x, z) => Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) <= r
+  // groundskeeper-01 (`rMin`, a later stage's BAND): only columns beyond Chebyshev rMin of home (the town square is stage 0's)
+  const inSq = (x, z) => { const d = Math.max(Math.abs(x - home.x), Math.abs(z - home.z)); return d <= r && d > rMin }
   const ground = c => !!c && !c.why && c.y != null
   const free = (x, z) => !avoid(x, z)
   const cut = [], fill = [], pillars = [], pits = []
   // ---- PILLARS ----
   for (let x = home.x - r; x <= home.x + r; x++) for (let z = home.z - r; z <= home.z + r; z++) {
+    if (!inSq(x, z)) continue
     const c = col(x, z)
     if (!ground(c) || c.tree) continue
     const ns = N8.map(([dx, dz]) => col(x + dx, z + dz))
@@ -135,6 +141,7 @@ export function surveyTidy (read, { home, avoid = () => null, cells = new Set(),
   // ---- PITS ----
   const low = new Set()
   for (let x = home.x - r; x <= home.x + r; x++) for (let z = home.z - r; z <= home.z + r; z++) {
+    if (!inSq(x, z)) continue
     const c = col(x, z)
     if (!ground(c)) continue
     const ys = []
@@ -457,3 +464,263 @@ export function siteTidy (read, { home, avoid = () => null, cells = new Set(), p
   if (best.record) best.record.tried = tried
   return { ok: true, why: best.record ? 'ok' : 'nothing', record: best.record, survey, grade: best.grade, tried }
 }
+
+// ---- GROUNDSKEEPER-01: THE LAND PLAN'S STAGES ------------------------------------------------------------------------------------
+//
+// The groundskeeper (groundskeeper.mjs: one leased bot a town) works the town's land plan (landplan.mjs) stage by stage, the ring
+// order: stage 0 is tidy-01's town square as it is; stage 1 grades the ring road and the spokes' first reach; each later stage
+// tidies one outward band (its pillars and pits, tidy-01's survey with rMin) and grades the spokes through it. A stage is one
+// generation of the same tidy record (`stage`), so the visit, the leases, the waiver and the completion are tidy-01's.
+
+/** A road light every this many road columns (a torch on the corridor's edge column). */
+export const ROAD_LIGHT_EVERY = 12
+/** A felled road trunk's sapling (oak for dark oak: one sapling never grows a dark oak). */
+export const SAPLING_OF = Object.freeze({ oak_log: 'oak_sapling', birch_log: 'birch_sapling', spruce_log: 'spruce_sapling', jungle_log: 'jungle_sapling', acacia_log: 'acacia_sapling', dark_oak_log: 'oak_sapling', cherry_log: 'cherry_sapling', mangrove_log: 'mangrove_propagule', pale_oak_log: 'oak_sapling' })
+const SOIL_RE = /^(grass_block|dirt|podzol|coarse_dirt|rooted_dirt|moss_block|mycelium)$/
+/** A sapling's room: this many air cells above its soil (birch needs 6; sapling-clearance measured 09-28). */
+export const REPLANT_AIR = 6
+const LOG_RE = /_(log|wood)$|^mangrove_roots$/
+
+/**
+ * THE ROAD'S EARTHWORK -> { cut, fill, clear, trees, skipped }. Pure over `read`. Each road column ([x, z, L], landplan.mjs
+ * roadLevels) brought to its level L: filled with earth from its ground up to L (only into air, a plant or leaves -- leaves are
+ * cleared first), or cut down to L (only through natural ground or the bots' spoil, never beside water); then its head room
+ * (L+1, L+2) opened: leaves cleared, and a TRUNK standing there felled whole (every log of that column above the ground, kind
+ * `tree`, one replant owed: `trees`). A column whose earthwork would touch a record cell, or that cannot be brought level, is left
+ * (named in `skipped`): the road is graded round it by the paths later.
+ */
+export function roadWork (read, cols, { home, cells = new Set(), lim, avoid = () => null, T = TIDY } = {}) {
+  const skipped = {}
+  const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
+  const cut = [], fill = [], clear = [], trees = []
+  const wet = wetAt(read)
+  for (const [x, z, L] of cols) {
+    // Codex r1 BLOCKER 1: the plan was routed once; a zone, the plan's cells or a project sited SINCE are refused NOW (the tidy's
+    // own guard: zones, the plan, wells, the farm, every project's record and reservation) -- never cut, filled or cleared
+    if (avoid(x, z)) { skip('road_guarded'); continue }
+    const c = tidyColumn(read, x, z, { yHi: home.y + T.dy, yLo: home.y - T.dy })
+    if (c.why || c.y == null) { skip(`road_${c.why ?? 'no_ground'}`); continue }
+    const g = c.y
+    const add = [], lv = [], cu = []
+    let bad = null
+    if (L > g) {
+      for (let y = g + 1; y <= L; y++) {
+        const b = read(x, y, z), n = nm(b)
+        if (cells.has(`${x},${y},${z}`)) { bad = 'road_guarded'; break }
+        if (b && LEAVES.test(n)) lv.push({ at: [x, y, z], kind: 'leaves', name: n })
+        else if (!b || !(AIRN(n) || replaceableCell(b))) { bad = 'road_fill_blocked'; break }   // (the cell guard is above: every fill and leaves cell)
+        add.push({ at: [x, y, z] })
+      }
+    } else if (L < g) {
+      for (let y = g; y > L; y--) {
+        const b = read(x, y, z), n = nm(b)
+        if (cells.has(`${x},${y},${z}`)) { bad = 'road_guarded'; break }
+        if (!b || !lim.cut.test(n)) { bad = 'road_cut_blocked'; break }
+        if (wet(x, y, z)) { bad = 'road_wet'; break }
+        cu.push({ at: [x, y, z], name: n })
+      }
+    }
+    if (bad) { skip(bad); continue }
+    // the head room over the finished level: leaves cleared, a trunk felled whole (its logs from the ground up)
+    let trunk = null
+    for (let y = Math.max(L, g) + 1; y <= Math.max(L, g) + 2; y++) {
+      const b = read(x, y, z), n = nm(b)
+      if (!b) { bad = 'road_unknown'; break }
+      if (cells.has(`${x},${y},${z}`)) { bad = 'road_guarded'; break }
+      if (LEAVES.test(n) && !lv.some(q => q.at[1] === y)) lv.push({ at: [x, y, z], kind: 'leaves', name: n })
+      else if (LOG_RE.test(n)) trunk = n
+    }
+    if (bad) { skip(bad); continue }
+    if (trunk) {
+      const logs = []
+      for (let y = g + 1; y <= g + T.dy; y++) { const b = read(x, y, z), n = nm(b); if (!b) break; if (LOG_RE.test(n)) logs.push({ at: [x, y, z], kind: 'tree', name: n }); else if (!AIRN(n) && !LEAVES.test(n)) break }
+      if (logs.some(q => cells.has(q.at.join(',')))) { skip('road_guarded'); continue }
+      clear.push(...logs)
+      trees.push({ col: [x, z], name: trunk })
+    }
+    fill.push(...add); clear.push(...lv); cut.push(...cu)
+  }
+  return { cut, fill, clear, trees, skipped }
+}
+
+/**
+ * REPLANT CELLS for felled road trunks -> [{ cell, species, sapling, state }]. Pure. In the land plan's TREEFARM zone (else any
+ * wild sector), within its worked radius, on soil with REPLANT_AIR air above, spaced 4 apart, never in a corridor, a refusal of
+ * `avoid` or a record cell's column; nearest home first. Fewer cells than trees: the rest are owed none (the visit fells a trunk
+ * only once every listed replant stands: buildrun.mjs B4).
+ */
+export function replantCells (read, land, trees, { avoid = () => null, cells = new Set(), r = LAND.workR, T = TIDY } = {}) {
+  const home = land?.home
+  if (!home || !trees.length) return []
+  const road = corridorAt(land)
+  const cellCols = new Set([...cells].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
+  const want = [...new Set(['treefarm', 'wild'])]
+  const out = [], used = []
+  for (const kind of want) {
+    const cand = []
+    for (let x = home.x - r; x <= home.x + r; x += 2) for (let z = home.z - r; z <= home.z + r; z += 2) {
+      if (zoneAt(land, x, z) !== kind) continue
+      cand.push([Math.max(Math.abs(x - home.x), Math.abs(z - home.z)), x, z])
+    }
+    cand.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2])
+    for (const [, x, z] of cand) {
+      if (out.length >= trees.length) return out
+      if (used.some(([ux, uz]) => Math.max(Math.abs(ux - x), Math.abs(uz - z)) < 4)) continue
+      if (road(x, z) || avoid(x, z) || cellCols.has(`${x},${z}`)) continue
+      const c = tidyColumn(read, x, z, { yHi: home.y + T.dy, yLo: home.y - T.dy })
+      if (c.why || c.y == null || c.tree || !SOIL_RE.test(c.name)) continue
+      let open = true
+      for (let y = c.y + 1; y <= c.y + REPLANT_AIR; y++) { const b = read(x, y, z); if (!b || !AIRN(nm(b))) { open = false; break } }
+      if (!open) continue
+      const t = trees[out.length]
+      out.push({ cell: [x, c.y + 1, z], species: t.name.replace(/_(log|wood)$/, ''), sapling: SAPLING_OF[t.name] ?? 'oak_sapling', state: 'pending' })
+      used.push([x, z])
+    }
+  }
+  return out
+}
+
+/**
+ * ROAD LIGHTS -> [{ at }]: a torch every ROAD_LIGHT_EVERY road columns, on the first corridor-edge column beside the road (not a
+ * road column, not refused by `avoid`, its ground a full solid with air above), at most `n`. Pure.
+ */
+export function roadLights (read, cols, { home, avoid = () => null, n = 0, cells = new Set(), T = TIDY } = {}) {
+  if (!(n > 0) || !cols.length) return []
+  const roadSet = new Set(cols.map(([x, z]) => k2(x, z)))
+  const out = []
+  const sorted = [...cols].sort((a, b) => Math.atan2(a[1] - home.z, a[0] - home.x) - Math.atan2(b[1] - home.z, b[0] - home.x) || a[0] - b[0] || a[1] - b[1])
+  for (let i = 0; i < sorted.length && out.length < n; i += ROAD_LIGHT_EVERY) {
+    const [x, z] = sorted[i]
+    for (const [dx, dz] of N8) {
+      const ex = x + dx, ez = z + dz
+      if (roadSet.has(k2(ex, ez)) || avoid(ex, ez)) continue
+      const c = tidyColumn(read, ex, ez, { yHi: home.y + T.dy, yLo: home.y - T.dy })
+      if (c.why || c.y == null || c.tree) continue
+      const at = [ex, c.y + 1, ez]
+      const b = read(...at)
+      if (!b || !AIRN(nm(b)) || cells.has(at.join(','))) continue
+      if (out.some(o => Math.max(Math.abs(o.at[0] - ex), Math.abs(o.at[2] - ez)) < 6)) continue
+      out.push({ at })
+      break
+    }
+  }
+  return out
+}
+
+/**
+ * A STAGE'S SITING -> { ok, why, record, survey, road }. Pure over `read`. Stage 0 is siteTidy itself (tidy-01). A later stage:
+ * tidy-01's survey over its band (rMin, rMax] when it has one, and the earthwork of its road columns (landplan.mjs stageRoadCols)
+ * graded with `lim`, their trunks felled with replant cells owed, and `lights` torches beside the roads; the record is tidy-01's
+ * (tidyRecord: layered fills, cuts, clears) with `stage`. A column the road touches is the road's alone. `null` record: nothing to
+ * do in this stage (the caller moves to the next).
+ */
+export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, L = LAND } = {}) {
+  const st = typeof stage === 'object' ? stage : stageOf(stage, L)
+  if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now }); if (s.record) s.record.stage = 0; return { ...s, road: null } }
+  if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
+  const survey = st.rMax > 0 ? surveyTidy(read, { home, avoid, cells, r: st.rMax, rMin: st.rMin }) : { ok: true, cut: [], fill: [], pillars: [], pits: [], skipped: {} }
+  if (!survey.ok) return { ok: false, why: survey.why, record: null, survey, road: null }
+  const rcols = stageRoadCols(land, st, { L })
+  let road = rcols.length ? roadWork(read, rcols, { home, cells, avoid, lim: lim ?? gradeLim(read, 6) }) : { cut: [], fill: [], clear: [], trees: [], skipped: {} }
+  // NEVER WORSE (offline, hive-d: a ring graded 4 over the plaza's edge cut the town off its roads): with `walkFrom` (the town's
+  // edge columns), the walk from the town -- over all the land, and along the roads -- is measured on the ground as it is and as
+  // this stage's road work would leave it; a road work that reaches fewer columns either way is dropped (named), the band's
+  // pillars and pits stay
+  if (walkFrom && (road.cut.length || road.fill.length)) {
+    const after = tidyOverlay(read, { cut: road.cut, clear: road.clear, cells: road.fill })
+    const roadSet = new Set((land.roads ?? []).flatMap(r => r.cols.map(([x, z]) => k2(x, z))))
+    const freeR = Math.max(TIDY.r / 2, (land.inner ?? 0) + 2)
+    const allow = (x, z) => roadSet.has(k2(x, z)) || Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) <= freeR
+    // one column scan for both walks on each ground (Codex r1 note: four full scans a stage), out to this stage's reach + 8; the
+    // after-ground reuses every column the road work does not touch
+    const r = Math.min(L.workR, Math.max(st.upto ?? -1, st.rMax ?? -1, TIDY.r) + 8)
+    const reach = (rd, memo) => [walkReach(rd, home, { r, from: walkFrom, column: tidyColumn, memo }).reach, walkReach(rd, home, { r, from: walkFrom, column: tidyColumn, allow, memo }).reach]
+    const memo0 = new Map()
+    const [w0, a0] = reach(read, memo0)
+    const memo1 = new Map(memo0)
+    for (const c of [...road.cut, ...road.fill, ...road.clear]) memo1.delete(k2(c.at[0], c.at[2]))
+    const [w1, a1] = reach(after, memo1)
+    if (w1 < w0 || a1 < a0) road = { cut: [], fill: [], clear: [], trees: [], skipped: { ...road.skipped, road_walk_worse: rcols.length }, walk: { w0, w1, a0, a1 } }
+    else road.walk = { w0, w1, a0, a1 }
+  }
+  const rk = new Set([...road.cut, ...road.fill].map(c => k2(c.at[0], c.at[2])))
+  const s = { ...survey, cut: survey.cut.filter(c => !rk.has(k2(c.at[0], c.at[2]))), fill: survey.fill.filter(c => !rk.has(k2(c.at[0], c.at[2]))), clear: road.clear }
+  s.pits = survey.pits.filter(p => s.fill.some(f => f.pit === p.id))
+  s.pillars = survey.pillars.filter(p => s.cut.some(c => c.pillar === p.id))
+  s.cut.push(...road.cut.map(c => ({ ...c, pillar: 'road' })))
+  const cols = [...new Set(road.fill.map(c => k2(c.at[0], c.at[2])))]
+  for (let i = 0; i < cols.length; i += GRADE_SEG_COLS) {
+    const id = `r${i / GRADE_SEG_COLS}`
+    const mine = new Set(cols.slice(i, i + GRADE_SEG_COLS))
+    const fs = road.fill.filter(c => mine.has(k2(c.at[0], c.at[2])))
+    s.pits.push({ id, cols: [...mine].map(q => q.split(',').map(Number)), road: true, n: fs.length })
+    for (const f of fs) s.fill.push({ ...f, pit: id })
+  }
+  const lightAt = roadLights(read, rcols, { home, avoid: (x, z) => avoid(x, z) ?? (rk.has(k2(x, z)) ? 'road' : null), n: lights, cells })
+  let record = tidyRecord(s, { home, plan, now, r: Math.max(st.rMax, st.upto ?? -1, TIDY.r) })
+  if (!record && !road.clear.length && !lightAt.length) return { ok: true, why: 'nothing', record: null, survey, road }
+  record ??= { v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r: Math.max(st.upto ?? -1, TIDY.r), cells: [], clear: [], cut: [], replant: [], segments: [], zones: [], pillars: 0, pits: 0, skipped: {}, bom: { earth: 0 }, builders_max: TIDY_BUILDERS, structure_complete: false, plan: plan?.gen != null ? { gen: plan.gen } : null, sitedAt: now }
+  record.clear = [...(record.clear ?? [])]
+  for (const c of road.clear) if (!record.clear.some(q => q.at.join(',') === c.at.join(','))) record.clear.push(c)
+  record.clear.sort((a, b) => a.at[1] - b.at[1])
+  record.replant = replantCells(read, land, road.trees, { avoid, cells })
+  if (lightAt.length) {
+    record.segments.push({ seg: 'T-L', deps: [] })
+    for (const l of lightAt) record.cells.push({ at: l.at, role: 'light', seg: 'T-L' })
+  }
+  record.stage = st.k
+  record.stageId = st.id
+  record.land = { seed: land.seed, sitedAt: land.sitedAt ?? null }
+  record.road = { cols: rcols.length, cut: road.cut.length, fill: road.fill.length, trees: road.trees.length, replant: record.replant.length, lights: lightAt.length, skipped: road.skipped, walk: road.walk ?? null }
+  record.r = Math.max(record.r ?? 0, st.upto ?? -1, st.rMax ?? -1)
+  return { ok: true, why: 'ok', record, survey, road }
+}
+
+/**
+ * THE BURIED FILLS TAKE THE COBBLE (groundskeeper-01, a resource-model sink): every fill cell under its column's top fill cell gets
+ * role `core` (cobblestone first, TIDY_PALETTE.core); the top keeps `earth` (dirt first: it greens). Pure; returns a new record.
+ */
+export function coreFills (rec) {
+  if (!rec?.cells?.length) return rec
+  const top = new Map()
+  for (const c of rec.cells) if (c.role === 'earth') { const k = k2(c.at[0], c.at[2]); top.set(k, Math.max(top.get(k) ?? -Infinity, c.at[1])) }
+  return { ...rec, cells: rec.cells.map(c => (c.role === 'earth' && c.at[1] < top.get(k2(c.at[0], c.at[2])) ? { ...c, role: 'core' } : c)) }
+}
+
+/**
+ * THE CUTS IN WALKING ORDER (groundskeeper-01: 43 of 215 tidy visits on 11-02 ended `deadline` with 1-5 blocks cut in ~130 s --
+ * runVisit dug the record's cuts highest first across the whole square, a walk across town between two digs). -> the same cuts:
+ * grouped by column (top first within a column, so nothing is left floating), the columns visited nearest-neighbour from `start`
+ * ([x, z]). Pure.
+ */
+export function chainCuts (cuts, start) {
+  const byCol = new Map()
+  for (const c of cuts) { const k = k2(c.at[0], c.at[2]); if (!byCol.has(k)) byCol.set(k, []); byCol.get(k).push(c) }
+  for (const v of byCol.values()) v.sort((a, b) => b.at[1] - a.at[1])
+  const left = [...byCol.keys()].map(k => k.split(',').map(Number))
+  const out = []
+  let [px, pz] = start ?? [0, 0]
+  while (left.length) {
+    let bi = 0, bd = Infinity
+    for (let i = 0; i < left.length; i++) { const d = Math.abs(left[i][0] - px) + Math.abs(left[i][1] - pz); if (d < bd || (d === bd && (left[i][0] < left[bi][0] || (left[i][0] === left[bi][0] && left[i][1] < left[bi][1])))) { bd = d; bi = i } }
+    const [x, z] = left.splice(bi, 1)[0]
+    out.push(...byCol.get(k2(x, z)))
+    px = x; pz = z
+  }
+  return out
+}
+
+/** THE TOWN'S EDGE (the walk guard's start): the columns just outside the plan's core plaza box (home +- 6 without one). Pure. */
+export function townEdge (plan, home = plan?.home) {
+  const core = (plan?.plots ?? []).find(p => p.id === 'core' && Array.isArray(p.box))?.box ?? (home ? [home.x - 6, home.z - 6, home.x + 6, home.z + 6] : null)
+  if (!core) return []
+  const out = []
+  for (let x = core[0] - 1; x <= core[2] + 1; x++) for (let z = core[1] - 1; z <= core[3] + 1; z++) if (x < core[0] || x > core[2] || z < core[1] || z > core[3]) out.push([x, z])
+  return out
+}
+
+/** Codex r1 BLOCKER 2: a stage's CLEARS (a felled road trunk, the road's head-room leaves) are its work too: a stage completes only
+ *  when none still stands (unread = standing), or when this bot's visits made no clear progress GK_CLEAR_VISITS times (a trunk
+ *  no stand reaches, a sapling the town lacks: named, the stage moves on). -> how many still stand. Pure. */
+export const GK_CLEAR_VISITS = 5
+export const tidyClearsLeft = (rec, read) => (rec?.clear ?? []).filter(c => { const b = read(...c.at); return !b || nm(b) === c.name }).length
