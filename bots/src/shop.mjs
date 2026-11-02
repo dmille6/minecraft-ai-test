@@ -11,6 +11,7 @@ import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
 import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
+import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -76,6 +77,9 @@ export const TREEFARM = Object.freeze({ on: treefarmOn(process.env, process.env.
  * rollback).
  */
 export const TIDY = Object.freeze({ on: tidyOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** GROUNDSKEEPER-01 (groundskeeper.mjs): one leased bot a town works the tidy -- its only builder (the lease is the slot, the yard
+ *  clerk's pattern) -- through the land plan's stages; GROUNDSKEEPER=off is tidy-01 exactly as before (3 builders). */
+export const GROUNDS = Object.freeze({ on: TIDY.on && gkOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -84,7 +88,7 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
   Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
-  Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: TIDY_BUILDERS }),
+  Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 : TIDY_BUILDERS }),
 ])
 export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
@@ -222,6 +226,16 @@ export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WAL
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
+/** groundskeeper-01: does THIS bot hold its town's keeper lease now (skills.mjs keeperNow; no cognitive change)? */
+let keeperOf = () => false
+export function setKeeperNow (fn) { if (typeof fn === 'function') keeperOf = fn }
+/** The order's cooldown for a plot -> ms: the stair's SHAFT_COOLDOWN_MS, the KEEPER's tidy GK.cooldownMs (its grounds are its job),
+ *  else SHOP_COOLDOWN_MS. Pure but for the keeper hook. */
+export function orderCooldown (plot) {
+  if (plot === SHAFT_PLOT) return SHAFT_COOLDOWN_MS
+  if (plot === TIDY_PLOT) { let k = false; try { k = !!keeperOf() } catch { k = false } if (k) return GK.cooldownMs }
+  return SHOP_COOLDOWN_MS
+}
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
 // the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
@@ -526,7 +540,7 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   // shaft-02: the town stair's visit is asked again after SHAFT_COOLDOWN_MS (its record's plot, or the active plot unsited)
   let plot0 = record?.plot ?? null
   if (!record) { try { plot0 = activePlotOf() } catch { plot0 = null } }
-  if (now - (state.lastAt ?? -Infinity) < (plot0 === SHAFT_PLOT ? SHAFT_COOLDOWN_MS : SHOP_COOLDOWN_MS)) return { order: null, skip: null }
+  if (now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }
   if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
   // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop.
   // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE

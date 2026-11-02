@@ -774,7 +774,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // THE TIDY (p.tidy, zigtidy-01: ziggurat.mjs zigTidy -- the climbing pillars left on a finished build's treads, never record
     // cells): dug after the record's own clears, highest first, under the same lease and the same per-call bound
     const todo = [...(record.clear ?? []).filter(c => unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name).sort((a, b) => a.at[1] - b.at[1]),
-      ...(p.tidy ?? []).filter(c => !roleAt.has(kOf(c.at)) && nm(e.read(...c.at)) === c.name).sort((a, b) => b.at[1] - a.at[1])]
+      ...(p.tidy ?? []).filter(c => !roleAt.has(kOf(c.at)) && nm(e.read(...c.at)) === c.name).sort((a, b) => (p.tidyKeepOrder ? 0 : b.at[1] - a.at[1]))]
+    // groundskeeper-01 (`p.tidyKeepOrder`): the caller's order is kept -- the town tidy's cuts chained column by column from the
+    // bot (tidy.mjs chainCuts: top first within a column), not highest first across the town (a walk across it between two digs)
     if (!todo.length) return null
     const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
     if (!seg.ok) return null                                       // another builder is clearing: its segments wait for it
@@ -1190,6 +1192,15 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             deferredSegs.add(seg)
             e.log('_build', { op: 'deferred', seg, cell: hard[0].at, n: hard.length + cand.length, why: 'blocked' })
             out.blockedCells = (out.blockedCells ?? 0) + hard.length
+            break
+          }
+          // groundskeeper-01 (`p.deferSpent`, the town tidy: 89 of 215 tidy visits on 11-02 ended here, `1 open, 0 placeable now`,
+          // the rest of the record untouched): a segment whose open cells are all clear but spent this visit's attempts is DEFERRED
+          // like a cell no stand reaches (F4: counted, the waiver after WALL_WAIVE_AFTER visits) and the visit goes on
+          if (p.deferSpent && !cand.length && open.length && open.every(c => isClear(c.at))) {
+            for (const c of open) { deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), 'attempts_spent') }
+            deferredSegs.add(seg)
+            e.log('_build', { op: 'deferred', seg, cell: open[0].at, n: open.length, why: 'attempts_spent' })
             break
           }
           out.stop = open.some(c => !isClear(c.at)) ? (needSapling ? 'no_sapling' : 'blocked') : 'attempts_spent'

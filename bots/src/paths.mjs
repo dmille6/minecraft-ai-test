@@ -204,7 +204,11 @@ export function gridUnread (grid, [x0, z0, x1, z1]) {
  * or null for a hub brush: any level) whose level is within one of the target's. `discount(x, z)` halves a brush's price (the
  * plan's own segments). Deterministic: equal costs pop by x, then z, then heading, then level.
  */
-export function routeLeg (grid, sources, targets, { discount = () => false, maxPops = 600_000 } = {}) {
+export function routeLeg (grid, sources, targets, { discount = () => false, maxPops = 600_000, from = null, h = null } = {}) {
+  // groundskeeper-01 (`h(x, z)`: an ADMISSIBLE lower bound of the cost from a brush to the targets, landplan.mjs's straight-line
+  // step count): A* -- the heap orders by cost + h, the same answer in far fewer pops. Absent (every paths siting): h = 0, the
+  // heap's order and every answer exactly as before
+  const H = h ?? (() => 0)
   const heap = []
   const less = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3] || a[4] - b[4]
   const push = it => { heap.push(it); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (less(heap[i], heap[p]) >= 0) break; [heap[i], heap[p]] = [heap[p], heap[i]]; i = p } }
@@ -216,11 +220,13 @@ export function routeLeg (grid, sources, targets, { discount = () => false, maxP
   const best = new Map(), prev = new Map()
   const sk = (x, z, d, s) => `${x},${z},${d},${s}`
   for (const [x, z] of [...sources].sort((a, b) => a[0] - b[0] || a[1] - b[1])) {
-    for (const s of grid.levels(x, z)) { const c0 = grid.cost(x, z, s); const k = sk(x, z, 4, s); if (c0 < (best.get(k) ?? Infinity)) { best.set(k, c0); push([c0, x, z, 4, s]) } }
+    // groundskeeper-01 (`from`: Map "x,z" -> level, landplan.mjs routeRoad): a source brush starts only within one of the level the
+    // road before it ended at, so a chain of legs stays one +-1 road. Absent (every paths siting): every level, as before
+    for (const s of grid.levels(x, z)) { if (from && from.has(`${x},${z}`) && Math.abs(from.get(`${x},${z}`) - s) > 1) continue; const c0 = grid.cost(x, z, s); const k = sk(x, z, 4, s); if (c0 < (best.get(k) ?? Infinity)) { best.set(k, c0); push([c0 + H(x, z), x, z, 4, s, c0]) } }
   }
   let pops = 0
   while (heap.length && pops++ < maxPops) {
-    const [c, x, z, d, s] = pop()
+    const [, x, z, d, s, c] = pop()
     if (c > (best.get(sk(x, z, d, s)) ?? Infinity)) continue
     const tk = `${x},${z}`
     if (targets.has(tk) && (targets.get(tk) == null || Math.abs(targets.get(tk) - s) <= 1)) {
@@ -236,7 +242,7 @@ export function routeLeg (grid, sources, targets, { discount = () => false, maxP
         const disc = discount(nx, nz) ? COST.planSeg : 1
         const nc = c + disc * (COST.step + grid.cost(nx, nz, ns)) + COST.rise * Math.abs(ns - s) + (d !== 4 && d !== nd ? COST.turn : 0)
         const k = sk(nx, nz, nd, ns)
-        if (nc < (best.get(k) ?? Infinity)) { best.set(k, nc); prev.set(k, sk(x, z, d, s)); push([nc, nx, nz, nd, ns]) }
+        if (nc < (best.get(k) ?? Infinity)) { best.set(k, nc); prev.set(k, sk(x, z, d, s)); push([nc + H(nx, nz), nx, nz, nd, ns, nc]) }
       }
     }
   }
