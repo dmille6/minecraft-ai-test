@@ -280,13 +280,13 @@ test('tripHoldsBody: underground phases of a live trip only; a stale trip (nobod
 })
 const RF = new URL('../src/reflex.mjs', import.meta.url)
 const MAROON_GATE = "!tripHoldsBody(bot.deepTrip) && Date.now() - lastMaroonCheck > MAROON_CHECK_MS"
-const NEXT_SOON = "this.#scheduleNext(deepTripOrder(this.bot?.deepTrip) ? DEEP_TRIP_NEXT_MS : undefined)"
+const NEXT_SOON = "if (deepTripOrder(this.bot?.deepTrip)) delay = Math.min(delay, DEEP_TRIP_NEXT_MS)"
 test('wired: the maroon lattice asks tripHoldsBody; the loop schedules an open trip\'s next call at once (mutants seen)', () => {
   const rf = readFileSync(RF, 'utf8'), cg = readFileSync(CG, 'utf8')
   assert.ok(strip(rf).includes(MAROON_GATE)); assert.ok(strip(cg).includes(NEXT_SOON))
   assert.equal(rf.split(MAROON_GATE).length, 2, 'ANCHOR MISSING OR NOT UNIQUE: maroon'); assert.equal(cg.split(NEXT_SOON).length, 2, 'ANCHOR MISSING OR NOT UNIQUE: next')
   assert.equal(strip(rf.replace(MAROON_GATE, "Date.now() - lastMaroonCheck > MAROON_CHECK_MS")).includes(MAROON_GATE), false)
-  assert.equal(strip(cg.replace(NEXT_SOON, 'this.#scheduleNext()')).includes(NEXT_SOON), false)
+  assert.equal(strip(cg.replace(NEXT_SOON, '')).includes(NEXT_SOON), false)
 })
 
 // ---- 9. review r1 (Claude): never a placed block; the return has a cap of its own -----------------------------------------------

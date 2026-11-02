@@ -33,6 +33,10 @@ import { SHOP, buildOrder } from './shop.mjs'
 // coalfirst-01 (OWNER 10-29): the coal run (coalrun.mjs decides; this supplies readings and keeps the state)
 import { coalRunOrder, coalRunOutcome, coalRunDetail, COAL_KINDS, COAL_ORE_RADIUS } from './coalrun.mjs'
 import { townCoalStock } from './skills.mjs'
+// deepminer-01 (OWNER 11-01 item 2): the town deep miner (deepmine.mjs decides; skills.mjs deepMine walks and digs)
+import { deepMineOrder, deepTripOrder, tripKit as deepTripKit, TRIP_NEXT_MS as DEEP_TRIP_NEXT_MS } from './deepmine.mjs'
+import { deepLeaseNow, deepStairNow } from './skills.mjs'
+import { nearStair as deepNearStair, SURFACE_SLACK as DEEP_SURFACE_SLACK } from './shaftgeom.mjs'
 import { hasTripPickaxe, nearHome } from './oretunnel.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -72,10 +76,6 @@ import { escapedFrom } from './recovery.mjs'
 import { runnerDeclined } from './declined.mjs'
 import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
-// deepminer-01 (OWNER 11-01 item 2): the town deep miner (deepmine.mjs decides; skills.mjs deepMine walks and digs)
-import { deepMineOrder, deepTripOrder, tripKit as deepTripKit, TRIP_NEXT_MS as DEEP_TRIP_NEXT_MS } from './deepmine.mjs'
-import { deepLeaseNow, deepStairNow } from './skills.mjs'
-import { nearStair as deepNearStair, SURFACE_SLACK as DEEP_SURFACE_SLACK } from './shaftgeom.mjs'
 
 // Only skills that can succeed WITHOUT a human present.
 //
@@ -631,6 +631,9 @@ export class CognitiveLoop {
    */
   #scheduleNext(delay = config.llm.decisionCooldownMs) {
     if (this.stopped || !this.running) return
+    // DEEPMINER-01: an open deep trip's next call comes at once (one job cut into 180 s calls, not a decision; Paper 11-01: the
+    // gap between calls is when the reflexes read a miner in its own tunnel as stuck)
+    if (deepTripOrder(this.bot?.deepTrip)) delay = Math.min(delay, DEEP_TRIP_NEXT_MS)
     clearTimeout(this.nextTimer)
     this.nextTimer = setTimeout(() => {
       if (this.stopped || !this.running) return
@@ -2013,7 +2016,6 @@ export class CognitiveLoop {
 
     // Pace the loop. Handoff doc S16: strategic decisions every 30-90s, with
     // deterministic skills filling the gaps -- not a model call per tick.
-    // DEEPMINER-01: an open deep trip's next call comes at once (the trip is one job cut into 180 s calls, not a decision)
-    this.#scheduleNext(deepTripOrder(this.bot?.deepTrip) ? DEEP_TRIP_NEXT_MS : undefined)
+    this.#scheduleNext()
   }
 }
