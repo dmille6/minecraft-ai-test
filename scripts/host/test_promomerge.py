@@ -125,7 +125,27 @@ def t_alarms(S):
     check('summary: all carried', 'main carries all 3' in S.summary_line({}, [], 3))
 
 
-TESTS = [t_promotions, t_should_attempt, t_parse_and_triage, t_alarms]
+def t_carried(S):
+    d3 = ('a\n<<<<<<< main\nimport tidy\nimport store\n||||||| base\n=======\nimport tidy\n>>>>>>> fleet\nb\n'
+          '<<<<<<< main\nx = [tidy, store]\n||||||| base\nx = []\n=======\nx = [tidy]\n>>>>>>> fleet\n')
+    ok, res = S.hunks_carried(d3)
+    check('hunks_carried: a fleet side made of main lines is carried; main side kept', ok and res == 'a\nimport tidy\nimport store\nb\nx = [tidy, store]\n', (ok, res))
+    d3b = d3 + '<<<<<<< main\nimport store\n||||||| base\n=======\nimport tidy\n>>>>>>> fleet\n'
+    check('hunks_carried: one fleet line main lacks -> not carried', S.hunks_carried(d3b)[0] is False)
+    d3c = '<<<<<<< main\nB\nA\n||||||| base\n=======\nA\nB\n>>>>>>> fleet\n'
+    check('hunks_carried: order matters (a subsequence, not a set)', S.hunks_carried(d3c)[0] is False)
+    d3d = '<<<<<<< main\nif (!x) y()\n||||||| base\nif (!x)\n=======\nif (x)\n>>>>>>> fleet\n'
+    check('hunks_carried: a fleet DELETION main still has is not carried', S.hunks_carried(d3d)[0] is False)
+    d3e = '<<<<<<< main\nif (x) y()\n||||||| base\nif (!x)\n=======\nif (x)\n>>>>>>> fleet\n'
+    check('hunks_carried: a deletion main made too is carried', S.hunks_carried(d3e)[0] is True)
+    check('hunks_carried: no conflict = carried, text unchanged', S.hunks_carried('a\nb\n') == (True, 'a\nb\n'))
+    anc = {('p1', 's'), ('p1', 'm'), ('p0', 's'), ('p0', 'm'), ('p2', 's')}
+    promos = [('r0', 'p0', 1), ('r1', 'p1', 2), ('r2', 'p2', 3), ('rs', 's', 4)]
+    check('pick_prev: the newest earlier promotion main also carries', S.pick_prev(promos, 's', lambda a, b: (a, b) in anc, 'm') == 'p1')
+    check('pick_prev: none', S.pick_prev(promos, 's', lambda a, b: False, 'm') is None)
+
+
+TESTS = [t_promotions, t_should_attempt, t_parse_and_triage, t_alarms, t_carried]
 
 
 # ------------------------------------------------------------------------------------------------------- end to end --
@@ -222,6 +242,28 @@ def t_end_to_end():
         ok, _ = S.merge_onto(scratch, m4, 'fleet-04', fleet4)
         check('e2e: node --check catches a broken file in the merge', ok and S.syntax_errors(scratch, m4, fleet4) == ['bots/src/d.mjs'])
         check('positive control: base sha resolves', len(base) == 40)
+        # MAIN-FIRST: a feature lands on main (with main's own extra line), then its fleet variant is promoted on top of the last
+        # promotion main carries -> conflict, carried_by_main, an ancestry-only merge pushed with main's tree unchanged
+        sh(work, 'git', 'fetch', '-q', 'origin')
+        sh(work, 'git', 'checkout', '-q', 'main'); sh(work, 'git', 'reset', '-q', '--hard', 'origin/main')
+        sh(work, 'git', 'merge', '-q', '--no-ff', '-m', 'carry fleet2', fleet2); sh(work, 'git', 'push', '-q', 'origin', 'main')
+        commit(work, 'bots/src/list.mjs', 'export const L = [\n  "tidy",\n  "store",\n]\n', 'main: tidy + store (main first)')
+        sh(work, 'git', 'push', '-q', 'origin', 'main')
+        sh(work, 'git', 'checkout', '-q', '-B', 'fleetv', fleet2)
+        fv = commit(work, 'bots/src/list.mjs', 'export const L = [\n  "tidy",\n]\n', 'fleet variant: tidy')
+        sh(work, 'git', 'push', '-q', 'origin', 'fleetv')
+        sh(scratch, 'git', 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*')
+        m5 = sh(scratch, 'git', 'rev-parse', 'origin/main')
+        ok, files = S.merge_onto(scratch, m5, 'tidy-01', fv)
+        check('e2e main-first: the plain merge conflicts', not ok and files == ['bots/src/list.mjs'], (ok, files))
+        check('e2e main-first: main carries the variant (base = the previous promotion)', S.carried_by_main(scratch, m5, fv, fleet2) == (True, ''))
+        check('e2e main-first: a variant line main lacks is NOT carried', S.carried_by_main(scratch, m5, fleet3, fleet2)[0] is False)
+        ok, _ = S.merge_ours(scratch, m5, 'tidy-01', fv)
+        r = S._push(scratch, 'tidy-01', fv, m5, sh(scratch, 'git', 'rev-parse', 'HEAD'), {}, NOW, tree_is_main=True)
+        on = sh(work, 'git', 'ls-remote', origin, 'refs/heads/main').split()[0]
+        check('e2e main-first: pushed; main now has the promotion as an ancestor and its own tree',
+              ok and r.get('status') == 'pushed' and subprocess.run(['git', '-C', scratch, 'merge-base', '--is-ancestor', fv, on]).returncode == 0
+              and sh(scratch, 'git', 'diff', m5, on) == '', r)
         for k, v in env_keep.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -268,6 +310,8 @@ MUTANTS = [
     ('missing alarm', "if hours(now, t) > MISSING_GRACE_H:", "if False:"),
     ('timeout is not a confirmed fail', "if not m or m.group(1).startswith('signal') or '[killed: timeout]' in m.group(2):",
      "if not m:"),
+    ('carried needs a subsequence', "        if not all(any(x == y for y in it) for x in tt):", "        if False:"),
+    ('carried needs the deletions', "        if any(cm[k] > ct[k] for k, n in Counter(tb).items() if n > ct[k]):", "        if False:"),
     ('suite completion', "return bool(PASSED_LINE.search(text)), failed", "return True, failed"),
 ]
 

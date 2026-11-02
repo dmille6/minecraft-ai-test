@@ -102,6 +102,15 @@ def pick_target(pending):
     return pending[-1] if pending else None
 
 
+def pick_prev(promos, sha, is_anc, main):
+    """PURE given is_anc(a, b). The newest earlier promotion that is an ancestor of `sha` AND of main (main carries its
+    content) -> its sha, else None: the base for carried_by_main."""
+    for _, s, _ in reversed(promos):
+        if s != sha and is_anc(s, sha) and is_anc(s, main):
+            return s
+    return None
+
+
 def should_attempt(entry, main, now, retry_h=RETRY_FAILED_H):
     """PURE. entry: this sha's last attempt record (or None). A failure is not retried on the same main (it would fail the
     same way and re-page); once main moved (a human may have fixed it) it is retried after retry_h."""
@@ -153,6 +162,44 @@ def alone_result(text, f, exists=True):
     if not m or m.group(1).startswith('signal') or '[killed: timeout]' in m.group(2):
         return 'error'
     return 'fail'
+
+
+def hunks_carried(diff3):
+    """PURE. `git merge-file --diff3 -p -L main -L base -L fleet` output -> (carried, resolved text). Carried = in EVERY conflict
+    region (1) the fleet side's TOKENS are a subsequence of main's (main already holds what the fleet wrote, among its own
+    additions -- a longer parameter list, more imports), and (2) every token the fleet REMOVED from the base is gone from main
+    as well (main has no more of it than the fleet: a fleet deletion main still carries is not carried). Resolved takes main's
+    side. The common shape here: a feature lands on main first (showcase) and its fleet variant is promoted later (tidy-01)."""
+    from collections import Counter
+    tok = lambda ls: re.findall(r'\w+|[^\w\s]', ''.join(ls))
+    out, ok, i, L = [], True, 0, diff3.splitlines(keepends=True)
+    while i < len(L):
+        if not L[i].startswith('<<<<<<< '):
+            out.append(L[i]); i += 1; continue
+        mine, theirs, base, part = [], [], [], 'main'
+        i += 1
+        while i < len(L) and not L[i].startswith('>>>>>>> '):
+            if L[i].startswith('||||||| '):
+                part = 'base'
+            elif L[i].startswith('=======') and part in ('main', 'base'):
+                part = 'fleet'
+            elif part == 'main':
+                mine.append(L[i])
+            elif part == 'fleet':
+                theirs.append(L[i])
+            else:
+                base.append(L[i])
+            i += 1
+        i += 1
+        tm, tt, tb = tok(mine), tok(theirs), tok(base)
+        it = iter(tm)
+        if not all(any(x == y for y in it) for x in tt):
+            ok = False
+        cm, ct = Counter(tm), Counter(tt)
+        if any(cm[k] > ct[k] for k, n in Counter(tb).items() if n > ct[k]):
+            ok = False
+        out.extend(mine)
+    return ok, ''.join(out)
 
 
 def push_safe_without_retest(changes):
@@ -250,6 +297,53 @@ def merge_onto(repo, main, run_id, sha):
     return False, files or ['(merge failed: ' + (p.stderr or p.stdout).strip()[-120:] + ')']
 
 
+def _blob(repo, rev, f):
+    p = git(repo, 'show', f'{rev}:{f}', check=False)
+    return p.stdout if p.returncode == 0 else None
+
+
+def carried_by_main(repo, main, sha, prev):
+    """Does main already carry everything the promotion changed since `prev` (an earlier promotion main carries)? Per file
+    of `git diff prev sha`: main equals the fleet copy, or a 3-way merge (base = prev) resolves to main's own text with every
+    conflict a fleet-subset-of-main region (hunks_carried). -> (bool, first file that is not carried or '')."""
+    import tempfile
+    files = git(repo, 'diff', '--name-only', '--no-renames', prev, sha).stdout.split()
+    if not files:
+        return False, '(empty change)'
+    for f in files:
+        m, b, t = _blob(repo, main, f), _blob(repo, prev, f), _blob(repo, sha, f)
+        if m == t:
+            continue
+        if m is None or t is None:
+            return False, f
+        with tempfile.TemporaryDirectory() as d:
+            paths = []
+            for n, txt in (('m', m), ('b', b or ''), ('t', t)):
+                paths.append(os.path.join(d, n))
+                open(paths[-1], 'w').write(txt)
+            p = run(['git', 'merge-file', '--diff3', '-p', '-L', 'main', '-L', 'base', '-L', 'fleet', *paths])
+        if p.returncode < 0 or p.returncode > 127:
+            return False, f
+        carried, resolved = hunks_carried(p.stdout)
+        if not carried or resolved != m:
+            return False, f
+    return True, ''
+
+
+def merge_ours(repo, main, run_id, sha):
+    """Record that main carries `sha` (carried_by_main said so): a merge whose tree IS main's. -> (ok, files)."""
+    git(repo, 'merge', '--abort', check=False)
+    git(repo, 'checkout', '-q', '--detach', '-f', main)
+    msg = (f'promomerge: record promotion {run_id} {sha[:8]} on main (automatic; main already carries its change)\n\n'
+           f'The canary loop promoted {sha} fleet-wide. Every file it changed since the previous promotion already reads the same\n'
+           f'on main {main[:8]} (the feature landed on main first), so this merge keeps main\'s tree (-s ours) and only records\n'
+           f'the ancestry. scripts/host/promomerge.py carried_by_main.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n')
+    p = git(repo, 'merge', '--no-ff', '-q', '-s', 'ours', '-m', msg, sha, check=False)
+    if p.returncode != 0 or git(repo, 'diff', '--quiet', main, 'HEAD', check=False).returncode != 0:
+        return False, ['(merge -s ours failed)']
+    return True, []
+
+
 def syntax_errors(repo, main, sha):
     changed = set(git(repo, 'diff', '--name-only', main, 'HEAD').stdout.split()) | set(git(repo, 'diff', '--name-only', sha, 'HEAD').stdout.split())
     bad = []
@@ -324,7 +418,18 @@ def cmd_tick(a):
         e = {'run': run_id, 'main': main, 'at': iso(now)}
         log(f'attempt {run_id} {sha[:8]} onto main {main[:8]}')
         ok, files = merge_onto(repo, main, run_id, sha)
-        if not ok:
+        prev = pick_prev(promos, sha, lambda a, b: ancestor(repo, a, b), main)
+        carried = (not ok) and prev is not None and carried_by_main(repo, main, sha, prev)[0]
+        if carried:
+            ok2, _ = merge_ours(repo, main, run_id, sha)
+            if ok2:
+                e.update(status='carried', detail=f'main already carries it (since {prev[:8]}); ancestry-only merge, tree unchanged')
+                merge = git(repo, 'rev-parse', 'HEAD').stdout.strip()
+                e.update(_push(repo, run_id, sha, main, merge, state, now, remerge=lambda m: merge_ours(repo, m, run_id, sha)
+                               if carried_by_main(repo, m, sha, prev)[0] else (False, ['(no longer carried)']), tree_is_main=True))
+            else:
+                e.update(status='conflict', files=files)
+        elif not ok:
             e.update(status='conflict', files=files)
         else:
             bad = syntax_errors(repo, main, sha)
@@ -364,8 +469,9 @@ def cmd_tick(a):
     return 0
 
 
-def _push(repo, run_id, sha, main, merge, state, now):
-    """Push the tested merge to main, never forced. -> fields for the attempt record."""
+def _push(repo, run_id, sha, main, merge, state, now, remerge=None, tree_is_main=False):
+    """Push the tested merge to main, never forced. -> fields for the attempt record. remerge(new_main) -> (ok, files) redoes
+    the merge onto a main that moved (default: merge_onto)."""
     for attempt in range(3):
         p = git(repo, 'push', '-q', 'origin', 'HEAD:refs/heads/main', check=False, timeout=300)
         if p.returncode == 0:
@@ -377,9 +483,9 @@ def _push(repo, run_id, sha, main, merge, state, now):
         if ancestor(repo, sha, new):
             return {'status': 'merged-elsewhere', 'detail': f'origin/main {new[:8]} already carries it'}
         changed = [tuple(l.split('\t')[:2]) for l in git(repo, 'diff', '--name-status', '--no-renames', main, new).stdout.splitlines() if '\t' in l]
-        if not push_safe_without_retest(changed):
+        if not tree_is_main and not push_safe_without_retest(changed):
             return {'status': 'stale-main', 'detail': f'main moved to {new[:8]} with bots/ changes while the suite ran; re-test next tick'}
-        ok, files = merge_onto(repo, new, run_id, sha)
+        ok, files = (remerge or (lambda m: merge_onto(repo, m, run_id, sha)))(new)
         if not ok:
             return {'status': 'conflict', 'files': files, 'main': new}
         main = new
