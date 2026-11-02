@@ -75,6 +75,7 @@ export function installShowchat (bot, { env = process.env, pool = config.memory.
   bot.once?.('end', () => { try { sp.flush(true) } catch {} mine(); if (showchatUntap === mine) showchatUntap = null })
   return sp
 }
+import { deepModeDetail } from './deepmine.mjs'   // deepminer-01's licence row
 
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
 export function installFeatures (bot) {
@@ -135,6 +136,8 @@ export function installFeatures (bot) {
   // shaft-02: the licence row, once per spawn -- `_shaft_mode`, a kind the base cannot write (on=0 under SHAFT=off: the rollback is
   // visible too)
   try { logEvent({ kind: 'shaft_mode', status: 'success', snapshot: snapshot(bot), detail: `on=${SHAFT.on ? 1 : 0} blueprint=${SHAFT_BLUEPRINT} landings=${LANDING_FEET.join('+')} cooldown_s=${SHAFT_COOLDOWN_MS / 1000}` }) } catch {}
+  // deepminer-01: the licence row, once per spawn -- `_deepmine_mode`, a kind the base cannot write (on=0 under DEEPMINE=off)
+  try { logEvent({ kind: 'deepmine_mode', status: 'success', snapshot: snapshot(bot), detail: deepModeDetail() }) } catch {}
   // shop-01: the licence row, once per spawn -- `_build_mode`, a kind the base cannot write (cooperation A7), naming the reserve in
   // force by a short hash; the spawn time (no dig in the first 3 s: the ghost-block rule); the walks' seeds and the footprint
   if (SHOP.on) {

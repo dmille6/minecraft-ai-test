@@ -190,7 +190,7 @@
   },
   {
    "id": "mine-safety-deepstair-deepminer",
-   "title": "F6 deepstair-01 + deepminer-01: two-lane stair to diamond depth, one deep miner per town (O9, O13), B8 deep miners",
+   "title": "deepminer-01: one deep miner per town down the finished town stair to y=16 (iron) / y=-53 (diamonds); F6 two-lane deep stair dropped for now (the town stair + trail is the way back)",
    "owner_date": "2026-10-23",
    "memory": [
     "owner-mineshaft-answers-1023.md",
@@ -201,27 +201,35 @@
    "lane": "survival",
    "state": "open",
    "owner": "control session",
-   "next_step": "After F2/F4/F5: design check vs the town stair shaft-03 (which reaches y=16), then build deepstair-01 + deepminer-01 (tier 3, branches at feet y=-53, single occupancy)",
-   "max_quiet_hours": 168,
+   "next_step": "deepminer-01 canary (tier 3; Codex + Claude APPROVE; Paper diamond/hazard/blocked/iron ok) queued as PROGRESS after stuckcells-01 (ahead of the held servea-01) with a set-patch on 963e99af (the v39 autorebase stacks it on the live tip); read +90/+180 generic + _deepmine end=stranded / op=error / deaths below y=0 / two holders of one lease; goal check: a _deepmine end=home with found>0 and a diamond_pickaxe in a canary bag. Draw needs towns with a finished stair (11 of 16; the 5 without: board-c, hive-a, hive-c, hive-d, placebo-a): if both drawn pools lack one, close INCONCLUSIVE early and re-queue.",
+   "max_quiet_hours": 48,
    "depends_on": [
     {
-     "item": "mine-safety-tombexit"
-    },
-    {
-     "item": "mine-safety-minelava"
+     "run": "stuckcells-01",
+     "until": "closed"
     }
    ],
    "evidence": {
+    "runs": [
+     "deepminer-01"
+    ],
     "branches": [
-     "deepstair*",
-     "deepminer*"
+     "deepminer*",
+     "deepminer01-*"
     ],
     "grep": [
-     "deepstair",
+     "deepminer-01",
      "deepminer"
+    ],
+    "paths": [
+     "bots/src/deepmine.mjs",
+     "docs/reports/deepminer-2026-11-01.md"
+    ],
+    "fleet_paths": [
+     "bots/src/deepmine.mjs"
     ]
    },
-   "note": "AUDIT 10-31: never started; grep matches only design merge d38d7726. Diamonds wait on this."
+   "note": "AUDIT 10-31: never started; grep matches only design merge d38d7726. Diamonds wait on this. | 11-01 (control-session subagent): built deepminer-01 (docs/reports/deepminer-2026-11-01.md). Shaft use 24 h: 11 finished stairs; 131/1,163 descents arrived (852 refused on dirt-blocked steps), 38/~711 ascents, 0 diamonds fleet-wide."
   },
   {
    "id": "mine-safety-inwall",
@@ -2876,6 +2884,43 @@
     ]
    },
    "note": "OWNER 11-01 ~22:05Z 'lets sort out 1,2,3 with both claude and codex' (+ the mineshaft cases). Codex r2 APPROVE + Claude r2 APPROVE. Offline on region copies: 5/5 stuck building projects complete; placebo-a stair passes its cave landing; hive-a stair no_support does not reproduce offline (now logged). Report docs/reports/stuckcells-01-2026-11-01.md."
+  },
+  {
+   "id": "showcase-mineshaft-deepminer",
+   "title": "Showcase item 2: the town mineshaft ON in the showcase (SHAFT off since 10-30) with a stair camera, then the deep miner there",
+   "owner_date": "2026-11-01",
+   "memory": [
+    "owner-showcase-next-1101.md",
+    "owner-common-mineshaft-1030.md",
+    "owner-mineshaft-answers-1023.md",
+    "owner-design-answers-1023.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "After deepminer-01 KEEP + promotion: reconcile the showcase (commit-tree: promoted tree + showcase deltas, parent = live release; gate; activate) with SHAFT on and DEEPMINE on; when the showcase stair is sited (_shaft op=sited, plan sector NE), add a `shaft` camera in /srv/showcase/timelapse/tl.conf (angled close-up of the collar, every 2 phase 1, and storehouse to every 2 phase 0 so the slot budget stays ~650 s of 780) + `shaft` in tl_video.py EXTRA; read 2 h: steps built, landings, no stuck goal",
+   "max_quiet_hours": 72,
+   "evidence": {
+    "runs": [
+     "deepminer-01"
+    ],
+    "grep": [
+     "showcase shaft",
+     "SHAFT on",
+     "shaft camera"
+    ],
+    "paths": [
+     "docs/reports/deepminer-2026-11-01.md"
+    ]
+   },
+   "depends_on": [
+    {
+     "run": "deepminer-01",
+     "until": "kept"
+    }
+   ],
+   "note": "Owner 11-01 ~22:15Z item 2; owner 11-01 ~22:40Z: water buckets on lava allowed -> deepminer-02 (bucket.mjs pour/scoop proven 5/5 on Paper; lookAt Vec3 fix needed), obsidian -> enchanting table after pickaxes (M10)."
   }
  ]
 }

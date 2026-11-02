@@ -274,6 +274,11 @@ export class AdmissionControl {
     // RESPAWNFALL-01: the climb down from a high platform is the same kind of deterministic safety order (cognitive.mjs issues
     // it only for an elevated bot after a spawn); no repeat window or learned rule may keep a bot standing at a deadly edge
     if (skill === 'sky_descend' && !bot?.inventoryUnsettled) return { ok: true, skill, args: {}, kind: 'sky_descend' }
+    // DEEPMINER-01: the town deep miner's trip is a deterministic job (cognitive.mjs issues it, one call per phase step, the same
+    // args every call): the repeat window, a cooldown or a learned rule must not strand a trip half way (it bounds itself:
+    // deepmine.mjs CALLS_MAX, TRIP_MAX_MS, RETURN_TRIES)
+    if (skill === 'deep_mine' && !bot?.inventoryUnsettled) return { ok: true, skill, args: args ?? {}, kind: 'deep_mine' }
+    if (skill === 'deep_mine') return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
     if (skill === 'sky_descend') return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
     if (skill === 'keepout_exit') return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
 

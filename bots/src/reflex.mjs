@@ -62,6 +62,7 @@ import { makeDangerMover } from './lavastepmove.mjs'
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, plugSamePlace, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
          PLUG_BUDGET_MS, PLUG_SETTLE_MS, PLUG_STEP_RETRIES, PLUG_SURFACE_MS, isUtilityBlock } from './plugcut.mjs'
 import { configuredHome } from './townground.mjs'
+import { tripHoldsBody } from './deepmine.mjs'   // deepminer-01: an open deep trip owns the body between its calls
 // ceilescape-01: a ramp swing that cannot finish is never started (ceilescape.mjs decides; escapeStairUp executes)
 import { ceilEscapeOn, ceilingEscapeDecision, firstSwingEscalation, envSettled, envTag, dirName, swingFits, cellFloods,
          rescueRowDue, CE_SETTLE_SAMPLE_MS, CE_REPLANS } from './ceilescape.mjs'
@@ -2693,8 +2694,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // real search and this loop ticks twice a second.
         // RESPAWNFALL-01: the whole maroon lattice (need_scaffold, need_pickaxe, stranded_high and its step_off, climb) stands
         // aside while sky_descend owns the episode (respawnfall.mjs skyEscapeBlocked)
+        // DEEPMINER-01: ...and while a town deep miner's trip is underground (deepmine.mjs tripHoldsBody): its return is the way
+        // out (Paper 11-01: the lattice pillared a miner out of its own stair between two calls); a stale trip hands it back
         if (!escaping && !marooned && !dangerMovingNow() && !skyEscapeBlocked(bot) && !runner.isBusy() && Date.now() >= airPocketBreatheUntil &&
-          Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
+          !tripHoldsBody(bot.deepTrip) && Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
         lastMaroonCheck = Date.now()
         const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
         // ONE PREDICATE WITH `isEntombed`, OR THE TWO BRANCHES LEAVE A GAP.
