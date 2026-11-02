@@ -87,6 +87,12 @@ const REQUIRED = [
   // stationkeep-01 (resource-model-1102 stage 2): smelt retakes its furnace, the tidy sweeps stray stations
   'bots/src/stationkeep.mjs',
   'bots/test/stationkeep.test.mjs',
+  // groundskeeper-01 (owner 11-02, groundskeeper-1102): the land plan, the keeper lease, the offline proof
+  'bots/src/landplan.mjs',
+  'bots/src/groundskeeper.mjs',
+  'bots/test/groundskeeper.test.mjs',
+  'bots/scripts/landplan-offline.mjs',
+  'docs/reports/groundskeeper-2026-11-02.md',
   'bots/scripts/tidy-offline.mjs',
   'docs/reports/tidy-01-2026-11-01.md',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
