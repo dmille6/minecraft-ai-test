@@ -106,7 +106,7 @@ await t('WIRED: shopActive applies unsitedBackoff after the stuck back-off; buil
   once(SK, /const waitedU = unsitedWaitOn\(\) \? unsitedBackoff\(waited, unsitedOfPlot, now\) : waited/, 'the backoff in shopActive')
   // rebase onto stuckproj-01: the pick reads waitedU through starve-01's marks (an unsited state is never marked starved)
   once(SK, /const marked = starve \? starveMark\(waitedU, \{[^\n]*\}\) : waitedU/, 'starve marks the unsited-backed states')
-  once(SK, /let pick = activeProject\(marked, list\)/, 'the pick reads it')
+  once(SK, /let pick = activeProject\(marked, (list|order)\)/, 'the pick reads it')
   once(SK, /if \(unsitedWaitOn\(\) && r\?\.stop === 'no_site'\) \{/, 'the stamp on no_site')
   once(SK, /if \(h\.ok && !h\.head && unsitedWrite\(dir, key, \{ plot: proj\.plot/, 'only with no record')
   once(SK, /build_shop: \{ run: buildShop, /, 'the skill runs the wrapper')

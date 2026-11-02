@@ -265,7 +265,7 @@ await t('THE WIRING: shopActive marks with the shared lease stamp and the bot\'s
   // idlework-01 rebase: starve marks the states after the unsited back-off (waitedU); the two marks are disjoint (exists vs not)
   one("const marked = starve ? starveMark(waitedU, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waitedU")
   one("const v = projLastTake(dir, list.find(p => p.plot === plot), now); sc.set(plot, { at: now, v }); return v }")
-  one('let pick = activeProject(marked, list)')
+  one('let pick = activeProject(marked, order)')   // gkforever-01 rebase: the keeper's order
   one('if (st?.starved) { b.starveTried.set(pick.plot, now); b.starvePick = { plot: pick.plot, at: now } } else b.starvePick = null')
   one('try { return await buildShopVisit(ctx, args, signal) } finally { try { if (ctx?.bot) ctx.bot.starvePick = null }')
   one("for (const v of [Number(st?.rec?.at), Number(st?.releasedAt)])")
