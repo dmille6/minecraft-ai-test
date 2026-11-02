@@ -130,6 +130,7 @@ import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, s
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
 import { torchSafe, outShareOf, multiCall, trailAge, PLANNER_V } from './expedition.mjs'   // wholemap-s1a
+import { HALL_PLOT, HALL_BLUEPRINT, hallSite, hallOpening, hallRecordDomain, copperhallModeDetail } from './copperhall.mjs'   // copperhall-01
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -17032,9 +17033,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // tidy is a repair too -- the pillars a repair's own climbs left are dug before the open projects (bounded per bot)
         const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
         const damaged = complete && b ? recordDamaged(b, rec, { tidy: tidyFirst }) : false
-        const due = complete && b && !damaged ? recordDamaged(b, rec) : false
-        // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
-        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && p.plot === STORE_PLOT && storeUpkeepDue(b, rec) }
+        // copperhall-01: the unsited hall WAITS on its opening rule (copperhall.mjs hallOpening: the town's copper), so the order
       })
       activeMem = { ...(activeMem ?? {}), sig, at: now, states }
     }
@@ -17053,6 +17052,33 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     if (visit) noteRepair(rmem, pick, states, now)
     return pick
   } catch { return projectsOn()[0] }
+}
+/**
+ * COPPERHALL-01: may the hall open now? -> copperhall.mjs hallOpening over the town index's copper (matsTownStock) and the reserve
+ * table's copper_ingot. No bot, an unread index or a throw: not open (an unknown count never opens). One `_copperhall_gate` row per
+ * 30 min per bot with the counts. Never throws.
+ */
+function hallOpenNow (bot) {
+  let o = { open: false, why: 'copper_unknown', have: null, need: null }
+  try {
+    const st = bot ? matsTownStock(bot)?.stock ?? null : null
+    if (st) o = hallOpening({ ingots: Number(st.copper_ingot) || 0, cut: Number(st.cut_copper) || 0, reserve: Number(matsReserve().table?.copper_ingot) || 512 })
+  } catch { /* not open */ }
+  try {
+    if (bot && Date.now() - (bot.hallGateAt ?? -Infinity) >= 30 * 60_000) { bot.hallGateAt = Date.now(); logEvent({ kind: 'copperhall_gate', status: o.open ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: copperhallModeDetail(true, o) }) }
+  } catch { /* telemetry */ }
+  return o
+}
+/** COPPERHALL-01: the hall's site and record (copperhall.mjs hallSite: the plan's hall plot, proven) -> { ok, why, detail?, record }. */
+function hallSiteFor (bot, plan, c, stood) {
+  try {
+    const others = projectHeads().filter(x => x.plot !== HALL_PLOT).map(x => x.head.rec)
+    const r = hallSite(planReader(bot), plan, blueprintOf(HALL_BLUEPRINT), {
+      zones: [...c.zones, ...recordZones(others.filter(o => !Array.isArray(o?.box)))], wells: c.wells, farm: c.farm, z0: c.z0,
+      others: others.filter(o => Array.isArray(o?.box)), stood: [...(stood ?? []), ...planTownCells(plan)], now: Date.now(),
+    })
+    return r.ok ? { ok: true, why: 'ok', record: r.record } : r
+  } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80) } }
 }
 /** Has project `p` an admission slot this holder may take (none held, its own, or lapsed)? Unreadable: free (the order's own
  *  slot check then decides, as before). */
@@ -18159,11 +18185,20 @@ async function buildShop (ctx, args, signal) {
       const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, state: 'open' }), { by: me })
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.door, kind: `door/${ss.record.cells.length}cells/${ss.record.clear.length}clears/${ss.record.fill.length}fill`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    } else if (plot === HALL_PLOT) {
+      // copperhall-01: sited only when the town holds its copper (the order skips it while it waits: this is the visit's own check)
+      const o = hallOpenNow(bot)
+      if (!o.open) return out('no_effect', 'copper_wait', `the copper hall waits for copper (${o.have ?? '?'} of ${o.need ?? '?'} ingots)`, { stop: 'copper_wait' })
+      const ss = hallSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood)
+      if (!ss.ok) return out('no_effect', 'no_site', `no copper-hall site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''})`.slice(0, 160), { stop: 'no_site' })
+      const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, state: 'open' }), { by: me })
+      if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `hall/${ss.record.cells.length}cells/${ss.record.fill.length}fill/${ss.record.earthwork.cut}cut/${ss.record.earthwork.voids ?? 0}voids`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     } else if (plot !== SHOP_PLOT) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
       more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot }
     }
-    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT) {
+    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT) {
     const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
     if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
@@ -18288,7 +18323,9 @@ async function buildShop (ctx, args, signal) {
     let res = null, resFailed = false
     try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0 }) } catch { resFailed = true }
     // storehouse-01: the storehouse's stands are in town (storehouse.mjs storeDomain), and its interior's litter is the visit's tidy
-    const storeOpts = rec.blueprint === STORE_BLUEPRINT ? { domain: storeDomain(rec), tidy: storeTidy(rec, read, (bot.storeTidyTries ??= new Map())) } : {}
+    // copperhall-01: the hall's stands are its own domain too (copperhall.mjs hallRecordDomain: the pad + 3, off every other record)
+    const storeOpts = rec.blueprint === STORE_BLUEPRINT ? { domain: storeDomain(rec), tidy: storeTidy(rec, read, (bot.storeTidyTries ??= new Map())) }
+      : rec.blueprint === HALL_BLUEPRINT ? { domain: hallRecordDomain(rec, projectHeads().map(x => x.head.rec)) } : {}
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     // each tidy cell the visit offered counts once against this bot (storehouse.mjs STORE_TIDY_TRIES: an undiggable one stops asking)
     if (storeOpts.tidy) for (const k of r.tidied ?? []) bot.storeTidyTries.set(k, (bot.storeTidyTries.get(k) ?? 0) + 1)

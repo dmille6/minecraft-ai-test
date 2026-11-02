@@ -11,6 +11,7 @@ import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
 import { storehouseOn, STORE_PLOT, STORE_BLUEPRINT, STORE_BUILDERS } from './storehouse.mjs'
+import { copperhallOn, HALL_PLOT, HALL_BLUEPRINT, HALL_BUILDERS } from './copperhall.mjs'   // copperhall-01
 import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } from './shopchest.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
@@ -82,6 +83,10 @@ export const STOREHOUSE = Object.freeze({ on: storehouseOn(process.env, process.
 /** SHOPCHEST-01: THE WORKSHOP'S MATERIALS CHESTS (shopchest.mjs; OWNER 10-28 workshop uses no.2), a one-visit project after the
  *  workshop, before the storehouse. SHOPCHEST=off is the rollback; on in the showcase pool only until a fleet rollout. */
 export const SHOPCHEST = Object.freeze({ on: shopchestOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** COPPERHALL-01: THE COPPER HALL (copperhall.mjs; owner 11-01 showcase item 5), after the storehouse, before the tidy (last). Offered
+ *  only once the town holds its copper (activeProject skips a `waiting` project). COPPERHALL=off is the rollback; on in the
+ *  showcase pool only. Needs the house and storehouse switches on. */
+export const COPPERHALL = Object.freeze({ on: copperhallOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -92,8 +97,9 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
   Object.freeze({ plot: SHOPCHEST_PLOT, blueprint: SHOPCHEST_BLUEPRINT, after: SHOP_PLOT, builders: SHOPCHEST_BUILDERS }),
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
+  Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, store = STOREHOUSE.on, chest = SHOPCHEST.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
@@ -114,6 +120,8 @@ export function activeProject (states = [], list = projectsOn()) {
     const s = st(p)
     if (s.exists && s.complete) continue
     if (p.after && !st(list.find(q => q.plot === p.after) ?? { plot: p.after }).complete) continue
+    // copperhall-01: an unsited project WAITING on its opening rule (the hall's copper) is not offered; the next one is
+    if (!s.exists && s.waiting === true) continue
     open.push(p)
   }
   if (open.length) return open.find(p => st(p).free !== false) ?? open[0]

@@ -39,6 +39,8 @@ import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout
 import { SHAFT, SHAFT_COOLDOWN_MS } from './shop.mjs'   // shaft-02's licence row
 import { SHAFT_BLUEPRINT, LANDING_FEET } from './shaftgeom.mjs'
 import { expeditionInstall } from './skills.mjs'   // expedition-01: the order's ask and the licence row
+import { copperhallModeDetail } from './copperhall.mjs'   // copperhall-01's licence row
+import { COPPERHALL } from './shop.mjs'
 import { tapRecords } from './logger.mjs'   // showchat-01: the read-only record tap the announcements are made from
 import { showchatOn, showchatModeDetail, makeSpeaker, quietChatter, KILL_FILE } from './showchat.mjs'   // showchat-01
 import { poolStateDir } from './worldfacts.mjs'
@@ -78,6 +80,8 @@ export function installShowchat (bot, { env = process.env, pool = config.memory.
 export function installFeatures (bot) {
   // expedition-01: the ask buildOrder puts to a bot the projects cannot use, and `_expedition_mode` (on=0 under EXPEDITION=off)
   try { expeditionInstall(bot) } catch (e) { log('warn', 'expedition not installed', { error: e.message }) }
+  // copperhall-01: the copper hall's licence row (copperhall.mjs; the project itself is shop.mjs PROJECTS, its gate skills.mjs hallOpenNow)
+  try { logEvent({ kind: 'copperhall_mode', status: 'success', snapshot: snapshot(bot), detail: copperhallModeDetail(COPPERHALL.on) }) } catch { /* telemetry */ }
   // showchat-01: the showcase's announcements (`_showchat_mode`; on=0 outside the showcase pool or under SHOWCHAT=off)
   try { installShowchat(bot) } catch (e) { log('warn', 'showchat not installed', { error: e.message }) }
   // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view

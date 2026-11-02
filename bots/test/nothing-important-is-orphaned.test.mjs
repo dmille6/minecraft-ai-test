@@ -73,6 +73,11 @@ const REQUIRED = [
   'bots/src/expedition.mjs',
   'bots/test/expedition.test.mjs',
   'bots/test/showcase-on-fleet.test.mjs',
+  // copperhall-01 (11-02): the showcase copper hall, its blueprint and its test over the showcase terrace's own region export
+  'bots/src/copperhall.mjs',
+  'bots/src/blueprints/hall@1.json',
+  'bots/test/copperhall.test.mjs',
+  'bots/test/fixtures/copperhall-01-terrain-20261102.json',
   // voidfill-01 (10-30): a sealed void in a project record repaired from inside; its test reproduces the showcase ziggurat's
   // own geometry from the fixture (the record's cells and a read-only scan of the world)
   'bots/src/voidfill.mjs',

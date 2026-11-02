@@ -188,13 +188,13 @@ const speciesOf = name => (LOG.exec(name) ?? [])[1] ?? null
  *   refused a liquid in the fill span or L .. L+5, bot furniture ANYWHERE from the floor up to L+4 (Claude/Codex siting r1 P2:
  *           a chest under the pad was a `plant` clear), a mushroom, an unknown read
  */
-export function columnAt (read, x, z, L) {
+export function columnAt (read, x, z, L, earth = EARTH) {
   const out = { ok: true, fill: [], plants: [], cut: [], litter: [], logs: [], leaves: [] }
   // a gravity block is a floor only when the chain under it ends on a floor that does not fall (Codex siting r2 P2)
   const floorAt = y => { for (let k = 0; k < 16; k++) { const b = read(x, y - k, z); if (!solidFloor(b)) return false; if (!GRAVITY.test(nm(b))) return true } return false }
   let f = L
-  while (f >= L - EARTH.col) { if (!read(x, f, z)) return { ok: false, why: 'unknown' }; if (floorAt(f)) break; f-- }
-  if (f < L - EARTH.col) return { ok: false, why: 'fill_too_deep' }
+  while (f >= L - earth.col) { if (!read(x, f, z)) return { ok: false, why: 'unknown' }; if (floorAt(f)) break; f-- }
+  if (f < L - earth.col) return { ok: false, why: 'fill_too_deep' }
   const classify = (y, b, inVolume) => {
     const n = nm(b)
     if (isLiquid(b)) return { ok: false, why: 'liquid' }
@@ -216,7 +216,7 @@ export function columnAt (read, x, z, L) {
   }
   for (let y = L + 1; y <= L + 5; y++) { const b = read(x, y, z); if (!b) return { ok: false, why: 'unknown' }; if (isLiquid(b)) return { ok: false, why: 'liquid' } }
   for (let y = L + 1; y <= L + 4; y++) { const bad = classify(y, read(x, y, z), true); if (bad) return bad }
-  if (out.cut.length > EARTH.col) return { ok: false, why: 'cut_too_high' }
+  if (out.cut.length > earth.col) return { ok: false, why: 'cut_too_high' }
   return out
 }
 
@@ -227,16 +227,16 @@ export function columnAt (read, x, z, L) {
  * GROUND'S OWN LEVEL (the most common top floor of the pad's columns, ties lower); with no top floor at all, the level that got
  * furthest through the pad.
  */
-export function levelFor (read, home, pad) {
+export function levelFor (read, home, pad, earth = EARTH) {
   let best = null, why = null, mostCols = -1
   const at = new Map()
   for (let L = home.y - 12; L <= home.y + 12; L++) {
     const cols = []
     let bad = null
-    for (const [x, z] of pad) { const c = columnAt(read, x, z, L); if (!c.ok) { bad = c; break } cols.push(c) }
+    for (const [x, z] of pad) { const c = columnAt(read, x, z, L, earth); if (!c.ok) { bad = c; break } cols.push(c) }
     if (bad) { at.set(L, bad); if (cols.length > mostCols) { mostCols = cols.length; why = bad } continue }
     const fill = cols.reduce((n, c) => n + c.fill.length, 0), cut = cols.reduce((n, c) => n + c.cut.length, 0), litter = cols.reduce((n, c) => n + c.litter.length, 0)
-    if (fill > EARTH.fill || cut > EARTH.cut || litter > LITTER_MAX) {
+    if (fill > earth.fill || cut > earth.cut || litter > LITTER_MAX) {
       const w = { why: litter > LITTER_MAX ? 'litter_over_40' : 'earthwork' }
       at.set(L, w)
       if (cols.length >= mostCols) { mostCols = cols.length; why = w }
@@ -268,10 +268,11 @@ export function topFloorLevel (read, home, pad) {
 /**
  * THE SCREEN of one candidate (sections 1-4 above) -> { ok, why, ...site }. Pure. `res` = reservations(plan, ctx).
  */
-export function screenSite (read, home, bp, anchor, orient, res, { sector = null } = {}) {
+export function screenSite (read, home, bp, anchor, orient, res, { sector = null, domain = null, earth = EARTH } = {}) {
   const { pad, ring } = footprint(bp, anchor, orient)
   const all = [...pad, ...ring]
-  for (const [x, z] of all) if (!inDomain(home, x, z)) return { ok: false, why: 'domain' }
+  // copperhall-01: a building on its own plan plot inside the town (the hall) names its domain; every other caller: the ring
+  for (const [x, z] of all) if (!(domain ? domain(x, z) : inDomain(home, x, z))) return { ok: false, why: 'domain' }
   if (sector) for (const [x, z] of all) if (sectorOf(home, x, z) !== sector) return { ok: false, why: 'sector' }
   if (!facesHome(bp, home, anchor, orient)) return { ok: false, why: 'door_not_toward_home' }
   // ---- the plan and the records over the whole span a level may take ----
@@ -279,7 +280,8 @@ export function screenSite (read, home, bp, anchor, orient, res, { sector = null
   const xs = all.map(c => c[0]), zs = all.map(c => c[1])
   if (boxMeetsZones([Math.min(...xs), home.y - 16, Math.min(...zs), Math.max(...xs), home.y + 20, Math.max(...zs)], res.zones)) return { ok: false, why: 'zone' }
   // ---- the floor level (B4, D2) ----
-  const lv = levelFor(read, home, pad)
+  // copperhall-01: a larger building on a sloping plan plot names its own earthwork limits (`earth`); every other caller: EARTH
+  const lv = levelFor(read, home, pad, earth)
   if (!lv.ok) return { ok: false, why: lv.why, detail: lv.detail }
   const { L, cols } = lv
   const s = L + 1, g0 = L
