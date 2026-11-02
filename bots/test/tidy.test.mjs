@@ -287,7 +287,8 @@ console.log('WIRING (structural: build_shop reaches the visit; a finished tidy i
 const code = readFileSync(SKILLS_PATH, 'utf8').split('\n').map(l => l.replace(/^\s*\/\/.*$/, '').replace(/\s+\/\/ .*$/, '')).join('\n')
 await t('skills.mjs: build_shop dispatches the tidy; recordDamaged answers its re-survey; completion asks the paths again', async () => {
   assert.strictEqual(code.split('if (proj.plot === TIDY_PLOT) return buildTidy(ctx, args, signal)').length, 2)
-  assert.strictEqual(code.split('if (r?.blueprint === TIDY_BLUEPRINT) return tidy && tidyDue(r)').length, 2)
+  // stationkeep-01: ...or the plaza has a stray table to sweep (strayDue)
+  assert.strictEqual(code.split('if (r?.blueprint === TIDY_BLUEPRINT) return tidy && (tidyDue(r) || strayDue(bot))').length, 2)
   assert.strictEqual(code.split('const pp = publishRecord(dir, pk, cur => pathsRetryNow(cur, now, pathsNoSiteRec), { by: me })').length, 2)
   assert.match(code, /async function buildTidy \(ctx, args, signal\)/)
 })
