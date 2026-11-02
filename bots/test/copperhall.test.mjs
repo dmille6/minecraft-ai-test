@@ -95,6 +95,29 @@ await t('the order: a WAITING hall is never offered (the next project is); an op
   assert.equal(H.copperhallOn({}, 'showcase'), true); assert.equal(H.copperhallOn({}, 'hive-a'), false); assert.equal(H.copperhallOn({ COPPERHALL: 'off' }, 'showcase'), false)
 })
 
+await t('Claude r1 BLOCK: in the SHOWCASE switch set (tidy and stair off) a waiting hall is not the fallback: the order reads the storehouse complete and the expeditions are asked', () => {
+  const SC = S.projectsOn(true, true, true, true, false, true, false, true, true, true)
+  assert.equal(SC.at(-1).plot, 'hall', 'the hall is the showcase list\'s last')
+  const doneSC = SC.filter(p => p.plot !== 'hall').map(p => ({ plot: p.plot, exists: true, complete: true, damaged: false }))
+  const pick = S.activeProject([...doneSC, { plot: 'hall', exists: false, complete: false, damaged: false, waiting: true }], SC)
+  assert.equal(pick.plot, 'storehouse')
+  S.setExpeditionAsk(() => ({ ok: true, phase: 'trip' }))
+  try {
+    const r = S.buildOrder({ on: true, shared: true, atTown: true, planned: true, now: 1e12, complete: true, record: { plot: 'storehouse', structure_complete: true }, state: {} })
+    assert.equal(r.order?.args?.expedition, true, 'the idle builder may go out')
+  } finally { S.setExpeditionAsk(null) }
+  // the open hall is offered as before
+  assert.equal(S.activeProject([...doneSC, { plot: 'hall', exists: false, complete: false, damaged: false }], SC).plot, 'hall')
+})
+
+await t('MUTANT KILLED: the old fallback makes the waiting hall the showcase\'s active project', async () => {
+  await withMutant(SHOP_PATH, '  for (let i = list.length - 1; i >= 0; i--) { const s = st(list[i]); if (!(!s.exists && s.waiting === true)) return list[i] }\n', '', async M => {
+    const SC = M.projectsOn(true, true, true, true, false, true, false, true, true, true)
+    const doneSC = SC.filter(p => p.plot !== 'hall').map(p => ({ plot: p.plot, exists: true, complete: true, damaged: false }))
+    assert.equal(M.activeProject([...doneSC, { plot: 'hall', exists: false, complete: false, damaged: false, waiting: true }], SC).plot, 'hall')
+  })
+})
+
 await t('MUTANT KILLED: an order blind to `waiting` offers the hall before the copper is there', async () => {
   await withMutant(SHOP_PATH, '    if (!s.exists && s.waiting === true) continue\n', '', async M => {
     assert.equal(M.activeProject([...done, { plot: 'hall', exists: false, complete: false, damaged: false, waiting: true }], P).plot, 'hall')
