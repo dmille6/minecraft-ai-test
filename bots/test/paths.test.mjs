@@ -22,9 +22,11 @@ const levelAt = rec => new Map(rec.cells.filter(c => c.role === 'path').map(c =>
 const gentle = rec => { const L = levelAt(rec); for (const [k, y] of L) { const [x, z] = k.split(',').map(Number); for (const [dx, dz] of [[1, 0], [0, 1]]) { const o = L.get(`${x + dx},${z + dz}`); if (o != null && Math.abs(o - y) > 1) return `${k}:${y} vs ${x + dx},${z + dz}:${o}` } } return null }
 
 console.log('THE SWITCH')
-await t('PATHS=on|off wins; unset: on only in the PATHS_POOLS pools (default showcase)', async () => {
+await t('PATHS=on|off wins; unset: on in the PATHS_POOLS pools (zigfleet-02: default every pool)', async () => {
   assert.strictEqual(P.pathsOn({}, 'showcase'), true)
-  assert.strictEqual(P.pathsOn({}, 'hive-a'), false)
+  assert.strictEqual(P.pathsOn({}, 'hive-a'), true, 'zigfleet-02: the fleet default')
+  assert.strictEqual(P.pathsOn({ PATHS_POOLS: 'showcase' }, 'hive-a'), false, 'the pool-list rollback')
+  assert.strictEqual(P.pathsOn({ PATHS_POOLS: 'showcase' }, 'showcase'), true)
   assert.strictEqual(P.pathsOn({ PATHS: 'off' }, 'showcase'), false)
   assert.strictEqual(P.pathsOn({ PATHS: 'on' }, 'hive-a'), true)
   assert.strictEqual(P.pathsOn({ PATHS_POOLS: 'hive-a,board-b' }, 'board-b'), true)

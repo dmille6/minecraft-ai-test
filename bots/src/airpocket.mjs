@@ -32,6 +32,9 @@ export const AP_EQUIP_MS = 1500               // equip is bounded too (Codex r1)
 export const AP_NOT_CLOSING_MS = 4000         // a non-sealed rescue must have stopped closing on air this long
 export const AP_WANT_LAPSE_MS = 3000          // a pre-empt request lapses unless renewed (it is renewed every tick)
 export const AP_BREATHE_HOLD_MS = 10_000      // after a pocket opens, no escape starts for 10 s (air refills to 300 in ~4 s)
+export const AP_WINDOW_WAIT_MS = 1500         // an open window, or an interrupted skill still unwinding, gets this long before any equip
+export const AP_WINDOW_SETTLE_MS = 250        // and this long after both clear, for the closing skill's last clicks
+export const AP_SEAL_MS = 1500                // admission's price of ONE seal (bounded equip + look + the server's answer)
 
 import { difficultyOf } from './foodskip.mjs'
 import { TOOL_HYGIENE, remaining, HARD_STOP } from './toolfor.mjs'
@@ -44,6 +47,10 @@ const NO_DIG = /^(bedrock|barrier|end_portal_frame|command_block|structure_block
 // button, lever, bed or sign opens or toggles it instead of placing -- and a door or trapdoor could let water in.
 const INTERACTIVE = /(door|trapdoor|fence_gate|_button|_bed|_sign|_hanging_sign|anvil|shulker_box)$|^(lever|chest|trapped_chest|ender_chest|barrel|furnace|blast_furnace|smoker|crafting_table|enchanting_table|brewing_stand|beacon|hopper|dispenser|dropper|lectern|loom|stonecutter|grindstone|smithing_table|cartography_table|fletching_table|bell|note_block|jukebox|respawn_anchor|composter|cauldron|water_cauldron|lava_cauldron|powder_snow_cauldron|repeater|comparator|daylight_detector|command_block|structure_block|jigsaw|spawner|trial_spawner|vault|crafter|decorated_pot|chiseled_bookshelf)$/
 const ICE = /^(ice|frosted_ice)$/            // breaks into WATER over water; packed/blue ice do not and take the pocket rule
+// A SEAL CAN FILL THESE (apseal-01): members of vanilla's `replaceable` block tag that hold water, so a block placed into
+// the cell replaces it. NOT kelp / kelp_plant (not replaceable) and NOT a waterlogged solid (a stair, a slab: the place
+// would be refused and the block keeps leaking water into the dug cell) -- those still refuse.
+const SEALABLE = /^(water|bubble_column|seagrass|tall_seagrass)$/
 const AIRLIKE = /^(air|cave_air|void_air)$/
 
 function waterlogged (b) {
@@ -56,20 +63,31 @@ const isWater = b => !!b && (WATERLIKE.test(b.name || '') || waterlogged(b))
 const isLiquid = b => !!b && (isWater(b) || LAVALIKE.test(b.name || ''))
 const isAir = b => !!b && AIRLIKE.test(b.name || '')
 const isSolid = b => !!b && b.boundingBox === 'block'
+const sealable = b => !!b && SEALABLE.test(b.name || '') && !waterlogged(b)
 
 /**
  * WHICH CELL, IF ANY, BECOMES A BREATHING POCKET? Pure.
  *
  * `at(dx, dy, dz)` -> block (or null = unknown) relative to the bot's FEET cell. Head = (0,1,0).
  * The first non-water cell above the head must be at dy 2 or 3 (within 2 cells of the head) and be either
- *   - POCKET: solid, diggable, not a falling block, with no liquid / falling block / unknown on its four sides or
- *     above it, so the dug cell stays air; or
+ *   - POCKET: solid, diggable, not a falling block, with no falling block / unknown on its four sides or above it,
+ *     and no liquid there EITHER -- unless that liquid is plain water a block can be placed into (SEALABLE): then the
+ *     cell is listed in `seal` and the step fills it first (a block placed against the roof cell's own face), so the dug
+ *     cell stays air. Lava, kelp and a waterlogged solid beside or above still refuse; or
  *   - ICE:    plain ice with AIR directly above it (breaking it opens a water column one cell from the air).
  * Or the HEAD cell itself is plain ice with air directly above it (homefix-02 C1): kind 'ice', dy 1.
- * @returns {{ ok: boolean, why: string|null, kind: 'pocket'|'ice'|null, dy: number|null, name: string|null }}
+ *
+ * WHY SEAL (apseal-01, fleet 7 d to 10-31 22Z): 56 of 207 deaths were drownings, the top cause, and 48 of the 56 had this
+ * plan refuse "water beside the roof cell would fill the pocket" in the 400 s before (first refusal at 18-20 HP, ~85 s
+ * before the death, in 47 of 48). The rescue had nothing else: the refusal named no remedy the bot could perform. The
+ * roof cell itself is always a solid, non-interactive block beside every wet cell, so a seal always has a reference.
+ * @returns {{ ok: boolean, why: string|null, kind: 'pocket'|'ice'|null, dy: number|null, name: string|null,
+ *            seal: Array<{dx: number, dy: number, dz: number, face: number[]}> }}
+ *   seal: the cells to fill before the dig, relative to the feet cell; each is filled by a place against the ROOF cell
+ *   (feet + (0, dy, 0)) on its face `face`, which points at the cell.
  */
 export function airPocketPlan (at) {
-  const refuse = (why, extra = {}) => ({ ok: false, why, kind: null, dy: null, name: null, ...extra })
+  const refuse = (why, extra = {}) => ({ ok: false, why, kind: null, dy: null, name: null, seal: [], ...extra })
   const feet = at(0, 0, 0), head = at(0, 1, 0)
   if (feet == null || head == null) return refuse('own cells unknown')
   // THE HEAD CELL IS THE ICE (homefix-02 C1, docs/reports/homefix-02-design-2026-10-21.md §1.3, §4 C1): hive-d's frozen
@@ -82,7 +100,7 @@ export function airPocketPlan (at) {
     const top = at(0, 2, 0)
     if (top == null) return refuse('above the ice unknown', { dy: 1, name: head.name })
     if (!isAir(top)) return refuse(`head ice with ${top.name} above, not air`, { dy: 1, name: head.name })
-    return { ok: true, why: null, kind: 'ice', dy: 1, name: head.name }
+    return { ok: true, why: null, kind: 'ice', dy: 1, name: head.name, seal: [] }
   }
   if (!isWater(head)) return refuse(`head cell is ${head.name}, not water`)
   if (!isWater(feet) && !isAir(feet)) return refuse(`feet cell is ${feet.name}`)
@@ -98,18 +116,28 @@ export function airPocketPlan (at) {
       const top = at(0, dy + 1, 0)
       if (top == null) return refuse('above the ice unknown', { dy, name: b.name })
       if (!isAir(top)) return refuse(`ice with ${top.name} above, not air`, { dy, name: b.name })
-      return { ok: true, why: null, kind: 'ice', dy, name: b.name }
+      return { ok: true, why: null, kind: 'ice', dy, name: b.name, seal: [] }
     }
     if (!isSolid(b)) return refuse(`${b.name} is not a full block`, { dy, name: b.name })
     if (NO_DIG.test(b.name)) return refuse(`${b.name} is not dug`, { dy, name: b.name })
-    const around = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => at(dx, dy, dz))
+    const around = SIDES.map(([dx, dz]) => at(dx, dy, dz))
     const top = at(0, dy + 1, 0)
     if (around.some(s => s == null) || top == null) return refuse('a neighbour of the roof cell is unknown', { dy, name: b.name })
-    const wet = around.find(isLiquid)
-    if (wet) return refuse(`${wet.name} beside the roof cell would fill the pocket`, { dy, name: b.name })
-    if (isLiquid(top)) return refuse(`${top.name} above the roof cell would fill the pocket`, { dy, name: b.name })
+    const seal = []
+    for (let i = 0; i < SIDES.length; i++) {
+      const s = around[i]
+      if (!isLiquid(s)) continue
+      if (!sealable(s)) return refuse(`${s.name} beside the roof cell would fill the pocket`, { dy, name: b.name })
+      seal.push({ dx: SIDES[i][0], dy, dz: SIDES[i][1], face: [SIDES[i][0], 0, SIDES[i][1]] })
+    }
+    if (isLiquid(top)) {
+      if (!sealable(top)) return refuse(`${top.name} above the roof cell would fill the pocket`, { dy, name: b.name })
+      seal.push({ dx: 0, dy: dy + 1, dz: 0, face: [0, 1, 0] })
+    }
     if (FALLING.test(top.name)) return refuse(`${top.name} above the roof cell would fall in`, { dy, name: b.name })
-    return { ok: true, why: null, kind: 'pocket', dy, name: b.name }
+    // the seals are placed AGAINST the roof cell: an interactive roof would be used instead of placed on
+    if (seal.length && INTERACTIVE.test(b.name)) return refuse(`${b.name} cannot take a seal (placing on it would use it)`, { dy, name: b.name })
+    return { ok: true, why: null, kind: 'pocket', dy, name: b.name, seal }
   }
   return refuse('no roof within 2 of the head')
 }
@@ -127,12 +155,13 @@ export function airPocketBudgetMs ({ health, envelope }) {
 
 /**
  * MAY THE STEP START? Pure. `digMs` is the client's prediction for the chosen tool in the bot's situation
- * (predictedDigMs with digEnv: in water, off the ground). Required = digMs x 1.5 + 3 s.
+ * (predictedDigMs with digEnv: in water, off the ground). Required = digMs x 1.5 + 3 s + 1.5 s per seal.
  */
-export function airPocketAdmit ({ health, difficulty, hungerActive = false, digMs }) {
+export function airPocketAdmit ({ health, difficulty, hungerActive = false, digMs, seals = 0 }) {
   const envelope = airPocketEnvelope({ difficulty, hungerActive })
   if (!(Number.isFinite(digMs) && digMs > 0)) return { ok: false, why: 'dig time unknown', envelope, requiredMs: null, budgetMs: null }
-  const requiredMs = digMs * AP_MARGIN + AP_LATENCY_MS
+  // each seal is placed before the dig, so its time comes out of the same health budget (apseal-01)
+  const requiredMs = digMs * AP_MARGIN + AP_LATENCY_MS + Math.max(0, seals | 0) * AP_SEAL_MS
   const budgetMs = airPocketBudgetMs({ health, envelope })
   const ok = requiredMs <= budgetMs
   return { ok, why: ok ? null : `needs ${Math.round(requiredMs)} ms, budget ${Math.round(budgetMs)} ms (health ${health}, ${envelope} HP/s)`, envelope, requiredMs, budgetMs }
@@ -182,14 +211,26 @@ export function airPocketTrigger ({ rescuing, routeDir, routeSealed, heldMs, act
  * climb is told to yield (its `alive` turns false, its current dig is stopped) and the step runs on the next tick. The
  * flooded-pocket rung is never pre-empted (it is a rescue of its own).
  */
-export function airPocketPreempt ({ rescuing, routeDir, routeSealed, escaping = false, marooned = false, pocketing = false,
-                                    active = false, now = Date.now(), cooldownUntil = 0, stepWouldRun = () => false }) {
+export function airPocketPreempt (args = {}) { return airPocketPreemptDecision(args) === 'preempt' }
+/**
+ * The pre-empt's full decision. Pure. -> 'preempt' | 'window' | false. 'window' (airpocket-02 r3/r4, ported 10-31): an
+ * escape would be pre-empted, but an OWNED container window is open -- the price behind stepWouldRun is optimistic until it
+ * closes (the inventory is stale through it; the step may then refuse), and a cancelled escape does not come back for
+ * 15-60 s. So the escape is left alone and the caller interrupts the window's owner; the next tick decides again with the
+ * window shut. An UNOWNED window is never closed by anyone, so it must not block the pre-empt: it falls through to
+ * stepWouldRun, whose admission prices only the held item there -- exactly what the step will dig with.
+ */
+export function airPocketPreemptDecision ({ rescuing, routeDir, routeSealed, escaping = false, marooned = false, pocketing = false,
+                                            active = false, now = Date.now(), cooldownUntil = 0, stepWouldRun = () => false,
+                                            windowOpen = false, windowOwnedNow = false } = {}) {
   if (!rescuing || active || pocketing || now < cooldownUntil) return false
   if (routeDir === 'up' || routeSealed !== true) return false
   if (!(escaping || marooned)) return false
+  // NEVER THROUGH AN OWNED WINDOW: the caller interrupts its owner; asked again with the window shut
+  if (windowOpen && windowOwnedNow) return 'window'
   // ONLY FOR A STEP THAT WOULD RUN (both reviews r2): an escape is never stopped for a step that then refuses. Asked
   // last, because it reads blocks (plan + admission, no side effects).
-  return stepWouldRun() === true
+  return stepWouldRun() === true ? 'preempt' : false
 }
 
 const DIG_TOOL = /_(pickaxe|shovel|axe)$/
@@ -208,6 +249,85 @@ export function airPocketTools (items = [], { hygiene = TOOL_HYGIENE.on } = {}) 
   const kind = it => it.name.match(DIG_TOOL)[1]
   const healthy = new Set(all.filter(it => remaining(it) > HARD_STOP).map(kind))
   return all.filter(it => remaining(it) > HARD_STOP || !healthy.has(kind(it)))
+}
+
+/**
+ * THE WINDOW HANDOFF (ported 10-31 from airpocket-02's ap2win-on-cd4eb7a, d2df552, onto airpocket-01's own line; Paper
+ * scene SMR on aad2506a, 3 of 3 deaths): the rescue's step interrupts a skill (`runner.interrupt` only aborts the signal;
+ * the skill unwinds later, and smelt's `finally` drains the furnace for up to 12 s) and then equips at once. mineflayer
+ * clicks `bot.currentWindow || bot.inventory` with player-inventory slot numbers, so that equip clicks INSIDE the furnace
+ * window (win=2 slots 9/0/37 on the wire), the pickaxe never reaches the hand, the dig is priced bare-handed, and the bot
+ * drowns. So, before any CLICKING equip, the step waits -- bounded -- while a window is open and while the interrupted
+ * skill is still busy (a window that is not open YET -- an openFurnace in flight -- is the same race with nothing to see):
+ *   window open            -> 'wait', then 'skip' at AP_WINDOW_WAIT_MS (no inventory click at all)
+ *   skill busy, no window  -> 'wait', then 'unsettled' at AP_WINDOW_WAIT_MS: the equip goes ahead, as airpocket-01 did (a
+ *                             skill that ignores its abort while holding no window -- a hung goto -- gets no veto)
+ *   both clear             -> 'go': at once when no window was ever seen (the skill's promise settled, its finally
+ *                             included -- nothing is left to click), else once quiet for AP_WINDOW_SETTLE_MS
+ * WHY 'unsettled' MAY EQUIP (airpocket-02 r2, both engines traced mineflayer 4.37.1 on 1.21): clickWindow awaits nothing
+ * from the network for container or ordinary inventory slots, and its quick-bar dig delay never sleeps (it compares
+ * `new Date()` with `performance.now()`), so an equip's clicks go out in one macrotask and the synchronous re-check
+ * covers them. A skill wrapper around bot.equip that awaits first (craftsync's lockstep) is not covered. Pure.
+ */
+export function windowHandoff ({ open, busy = false, sawWindow = true, waitedMs, quietForMs = Infinity }) {
+  if (open) return waitedMs >= AP_WINDOW_WAIT_MS ? 'skip' : 'wait'
+  if (busy) return waitedMs >= AP_WINDOW_WAIT_MS ? 'unsettled' : 'wait'
+  return !sawWindow || quietForMs >= AP_WINDOW_SETTLE_MS ? 'go' : 'wait'
+}
+
+/**
+ * WHO OWNS THE OPEN WINDOW? Pure. A running skill (the runner is busy: its interrupt unwinds it and its finally closes the
+ * window) or a withdraw's settle hold (bot.inventoryUnsettled: the survival release closes it). Otherwise the window is
+ * UNOWNED -- an open that timed out on our side and was granted late (skills.mjs withTimeout's onTimeout closes nothing)
+ * -- and nothing will ever close it. Nothing clicks through an unowned window, so what is held is still truly held: the
+ * step digs with it and equips nothing.
+ */
+export function windowOwned ({ open, busy = false, held = false }) { return !!open && (!!busy || !!held) }
+
+/**
+ * WHAT ADMISSION PRICES. Pure. Exactly what the step will be able to use: every dig candidate (airPocketTools) unless an
+ * UNOWNED window is open, where the step can only dig with what is held. NOT "only what is held whenever a window is
+ * open" (airpocket-02 Paper scene SM, 10-09): a skill-owned window refused the drowning bot at admission, a refusal never
+ * reaches the interrupt that would have closed the window, and the bot drowned beside its own smelt. And not "every tool
+ * always": with an unowned window the pre-empt would stop an escape for a step that then refuses, every 5 s.
+ */
+export function admissionTools ({ items = [], held = null, windowOpen = false, owned = false }) {
+  return windowOpen && !owned ? airPocketTools([held].filter(Boolean)) : airPocketTools(items)
+}
+
+/**
+ * DOES THIS EQUIP CLICK A WINDOW? Pure. mineflayer's equip of an item already in the quick bar (inventory slots 36..44)
+ * only changes the selection (held_item_slot) -- no window click, safe with an interrupted skill still unwinding. Only a
+ * move out of the main inventory clicks (moveSlotItem). The held item needs nothing; an item with no known slot is
+ * assumed to click. (With a window OPEN the step still waits: bot.inventory's slots are stale through it.)
+ */
+export function equipClicks (item, heldSlot = null) {
+  if (!item) return false
+  if (Number.isInteger(item.slot) && item.slot === heldSlot) return false
+  return !(Number.isInteger(item.slot) && item.slot >= 36 && item.slot <= 44)
+}
+
+/**
+ * Await the handoff. Impure (reads bot.currentWindow and busy(), sleeps; poke() on every poll stops a skill that starts
+ * meanwhile and re-asserts the step's controls -- cognition is not gated while the step runs, and the guard's haltPath
+ * clears every control). Never closes a window. -> 'none' (nothing to wait for) | 'closed' (a window was seen and closed)
+ * | 'settled' (a skill unwound; no window seen) | 'open' (skip) | 'unsettled' (go; the skill never unwound).
+ */
+export async function awaitWindowHandoff (bot, { sleep, now, busy = () => false, poke = () => {} }) {
+  const t0 = now()
+  if (!bot.currentWindow && !busy()) return 'none'
+  let quietAt = null, sawWindow = false
+  while (true) {
+    const open = !!bot.currentWindow, b = busy()
+    if (open) sawWindow = true
+    if (open || b) quietAt = null
+    else if (quietAt == null) quietAt = now()
+    const d = windowHandoff({ open, busy: b, sawWindow, waitedMs: now() - t0, quietForMs: quietAt == null ? 0 : now() - quietAt })
+    if (d === 'go') return sawWindow ? 'closed' : 'settled'
+    if (d === 'skip' || d === 'unsettled') return d === 'skip' ? 'open' : 'unsettled'
+    try { poke() } catch { /* a guard that throws stops nothing here */ }
+    await sleep(50)
+  }
 }
 
 /** The fastest of the candidate items (null = the hand) by the caller's prediction. Pure. */
@@ -243,13 +363,17 @@ export function airPocketInputs (bot) {
  * ceiling and progress clocks restart (a bot that sinks back is lifted by the ordinary `up dist=1` route; a stale fail
  * memory would otherwise suppress the rescue right there). Failure or abort: a 60-s cooldown here, the memory kept.
  */
-export function airPocketAfter (ok, state, now = Date.now()) {
+export function airPocketAfter (ok, state, now = Date.now(), { handoffHeld = false } = {}) {
   // `ok` is true for a success AND for an OPENED pocket: either way the place now has air.
   // BREATHE FIRST (Paper sandbox bf99227/aca3063 A): ~2 s after success the entombed escape fired, its pillar seized the
   // body and released the float, and the bot sank with Air at 46-58 of 300 (~2 s of breath) until the rescue lifted it.
   // So escapes and maroon climbs do not start until AP_BREATHE_HOLD_MS after the pocket opens.
   if (ok) return { ...state, drownFails: 0, drownFailPos: null, drownFailHealth: null, seizedAt: now, lastProgressAt: now, breatheUntil: now + AP_BREATHE_HOLD_MS }
-  return { ...state, cooldownUntil: now + AP_FAIL_COOLDOWN_MS }
+  // A STEP THE WINDOW HANDOFF HELD OFF (an owned window still open, or an over-budget refusal after the handoff waited, or
+  // an equip that threw -- withdraw's ownInventory refuses every equip): nothing was dug, the wait itself may have spent
+  // the margin, and the window or skill is gone seconds later -- a 60-s cooldown there would be a new dead end for a
+  // drowning bot, so the step is retried on the short (refusal) cooldown
+  return { ...state, cooldownUntil: now + (handoffHeld ? AP_REFUSE_COOLDOWN_MS : AP_FAIL_COOLDOWN_MS) }
 }
 
 /**
@@ -259,7 +383,7 @@ export function airPocketAfter (ok, state, now = Date.now()) {
  */
 export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => new Promise(r => setTimeout(r, ms)),
                                                  now = () => Date.now(), maxHealth = 20, envelope, guard = () => null,
-                                                 standItem = () => null } = {}) {
+                                                 standItem = () => null, skillBusy = () => false, sealItem = () => null } = {}) {
   const t0 = now()
   const p0 = bot.entity.position
   const fx = Math.floor(p0.x), fy = Math.floor(p0.y), fz = Math.floor(p0.z)
@@ -276,8 +400,8 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
   try {
     const block = bot.blockAt(cellPos)
     if (!block || block.name !== plan.name) { res.why = `roof cell changed to ${block?.name ?? 'unknown'}`; return res }
-    const items = airPocketTools(bot.inventory?.items?.() ?? [])
-    const best = pickFastestTool(items, item => predict(block, item))
+    let items = airPocketTools(bot.inventory?.items?.() ?? [])
+    let best = pickFastestTool(items, item => predict(block, item))
     if (!best) { res.why = 'no dig time for any tool'; return res }
     // HORIZONTAL CONTROLS OFF FIRST (Codex r1): an `out` rescue may have been holding forward; the dig turns the head, so a
     // held forward would carry the bot off the planned column.
@@ -292,18 +416,81 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     let wantJump = !standing
     try { bot.setControlState('jump', wantJump) } catch { /* not connected */ }
     res.standing = standing
+    const sealN = Array.isArray(plan.seal) ? plan.seal.length : 0
     // BOUNDED EQUIP, THEN VERIFY WHAT IS ACTUALLY HELD (Codex r1): a rejected or slow equip must not leave the prediction
     // describing a tool the bot is not holding. The dig is re-priced with the held item and must still fit.
-    if (best.item) {
+    // THE WINDOW HANDOFF FIRST (windowHandoff): no equip while an interrupted skill's container window is open, and no
+    // CLICKING equip while the interrupted skill has not unwound. With no window open a quick-bar tool needs no click
+    // (equipClicks) and no wait. A window still open after the wait: an OWNED one (a busy skill, a withdraw hold) -> NO
+    // equip and NO dig -- mineflayer refreshes bot.inventory and bot.heldItem only at the window's close, so any price taken
+    // through it is stale, and the skill is already interrupted, so the retry 5 s later finds it shut; an UNOWNED one ->
+    // dig with what is held, equip nothing. A skill that never unwinds is waited for ONCE per step: after 'unsettled' the
+    // stand's handoff watches the window only. The wait re-asserts the step's jump (the guard's haltPath clears controls).
+    let unsettled = false
+    const handoff = async () => {
+      const h = await awaitWindowHandoff(bot, { sleep, now, busy: () => !unsettled && skillBusy(),
+        poke: () => { guard(); try { if (bot.controlState?.jump !== wantJump) bot.setControlState('jump', wantJump) } catch { /* not connected */ } } })
+      if (h === 'unsettled') unsettled = true
+      return h
+    }
+    const heldSlot = () => bot.heldItem?.slot ?? null
+    res.window = 'none'
+    // the seals' block equip clicks like the tool's (apseal-01 on airpocketwin): either one waits for the handoff
+    if (bot.currentWindow || equipClicks(best.item, heldSlot()) || (sealN && equipClicks(sealItem(), heldSlot()))) {
+      const tw = now()
+      res.window = await handoff()
+      res.windowMs = Math.round(now() - tw)
+      // re-checked synchronously at the call: a window that opened after the handoff resolved
+      if (res.window !== 'open' && bot.currentWindow) res.window = 'open'
+      if (res.window === 'open' && windowOwned({ open: true, busy: skillBusy(), held: bot.inventoryUnsettled })) {
+        res.handoffHeld = true
+        res.why = `a container window stayed open ${res.windowMs} ms: no equip, no dig (the inventory is stale until it closes)`; return res
+      }
+      if (res.window === 'open') {
+        // UNOWNED: nothing will close it and nothing clicks through it -- dig with what is held, equip nothing
+        res.window = 'unowned'
+        best = pickFastestTool(admissionTools({ held: bot.heldItem ?? null, windowOpen: true, owned: false }), item => predict(block, item))
+      } else if (res.window !== 'none') {
+        // waited: the inventory may have changed under the skill's last clicks (a deposit, a drain) -- pick again from it
+        items = airPocketTools(bot.inventory?.items?.() ?? [])
+        best = pickFastestTool(items, item => predict(block, item))
+      }
+      if (!best) { res.handoffHeld = true; res.why = 'no dig time for any tool (after the handoff)'; return res }
+    }
+    // SEAL FIRST (apseal-01): every wet side (and a wet top) of the roof cell is filled with a block placed against the
+    // roof cell, each read back solid, BEFORE the dig -- dug with water beside it, the cell floods and there is no air.
+    // A seal that fails stops the step here: nothing is dug, so nothing is worse than the refusal this replaces.
+    // AFTER THE WINDOW HANDOFF (airpocketwin): a seal's equip never clicks through an open window -- an unowned one (that
+    // nothing will close) holds the step off; one that opens meanwhile stops the seals before their next equip.
+    if (sealN) {
+      if (res.window === 'unowned' || bot.currentWindow) {
+        res.handoffHeld = true; res.why = 'a container window is open: no seal equip, no dig'; res.seal = `0/${sealN}`; return res
+      }
+      const sealAbort = () => { try { const g = guard(); if (g) return g } catch { /* a guard that throws stops nothing */ }
+                                return budgetLeft() <= 0 ? 'health budget spent' : null }
+      const s = await sealRoof(bot, plan, { fx, fy, fz, Vec3, sleep, now, sealItem, isAborted: sealAbort, mayEquip: () => !bot.currentWindow })
+      res.seal = s.tag
+      try { if (bot.controlState?.jump !== wantJump) bot.setControlState('jump', wantJump) } catch { /* not connected (after the seals) */ }
+      if (!s.ok) {
+        if (/container window/.test(s.why)) res.handoffHeld = true
+        res.why = `seal ${s.tag}: ${s.why}`; res.outcome = /^aborted/.test(s.why) ? 'aborted' : 'failed'; return res
+      }
+      if (bot.currentWindow) { res.handoffHeld = true; res.why = 'a container window opened during the seals: no equip, no dig'; return res }
+    }
+    let equipErr = null
+    if (best.item && res.window !== 'unowned') {
       let t
-      try { await Promise.race([bot.equip(best.item, 'hand'), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('equip timeout')), AP_EQUIP_MS) })]) } catch { /* verified below */ } finally { clearTimeout(t) }
+      try { await Promise.race([bot.equip(best.item, 'hand'), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('equip timeout')), AP_EQUIP_MS) })]) } catch (e) { equipErr = e } finally { clearTimeout(t) }
     }
     const held = bot.heldItem ?? null
     const heldMs = predict(block, best.item && held?.name === best.item.name ? best.item : held)
     res.tool = held?.name ?? 'hand'
     res.predictedMs = Number.isFinite(heldMs) ? Math.round(heldMs) : null
     if (!(Number.isFinite(heldMs) && heldMs > 0) || heldMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
-      res.why = `the held ${res.tool} needs ${res.predictedMs} ms: over the budget after equip`; return res
+      // the handoff waited or held the equip off, or the equip was refused (withdraw's ownInventory refuses EVERY equip
+      // during a visit, a quick-bar selection too): nothing dug, so the caller retries on the SHORT cooldown
+      if (res.window !== 'none' || equipErr) res.handoffHeld = true
+      res.why = `the held ${res.tool} needs ${res.predictedMs} ms: over the budget after equip${equipErr ? ` (equip refused: ${String(equipErr.message ?? equipErr).slice(0, 40)})` : ''}`; return res
     }
     const p1 = bot.entity.position
     if (Math.floor(p1.x) !== fx || Math.floor(p1.z) !== fz || Math.floor(p1.y) < fy - 1) { res.why = 'moved off the planned column'; return res }
@@ -358,7 +545,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
         if (eyeInAirSince == null) { eyeInAirSince = now(); healthAtEyeIn = bot.health }
         if (airPocketConfirmed({ eyeInAirSince, now: now(), health: bot.health, healthAtEyeIn, maxHealth })) {
           res.ok = true; res.outcome = 'success'; res.why = `breathing in ${plan.kind === 'ice' ? 'the opened column' : 'the dug pocket'}`
-          res.stand = await standInPocket(bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem, isAborted: () => aborted })
+          res.stand = await standInPocket(bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem, isAborted: () => aborted, handoff })
           return res
         }
       } else { eyeInAirSince = null; healthAtEyeIn = null }
@@ -408,7 +595,8 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
  * synchronously by `standGate`, and the place is sent with forceLook 'ignore', which writes the packet inside the call
  * with no await before it. The timeout that follows bounds only the wait for the server's answer.
  */
-export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem, isAborted = () => null }) {
+export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem, isAborted = () => null,
+                                                  handoff = () => awaitWindowHandoff(bot, { sleep, now }) }) {
   try {
     const airY = fy + plan.dy + (plan.kind === 'ice' ? 1 : 0)   // the cell the eye must be in
     const need = airY - fy - 1                                  // blocks to stand on so feet sit at airY - 1
@@ -423,6 +611,9 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
       if (!item) return `stopped:no ${pick.supported ? '' : 'non-falling '}placeable block (${placed} placed)`
       if (!pick.supported && FALLING.test(item.name || '')) return `stopped:${item.name} would fall (${placed} placed)`
       if (isAborted()) return `stopped:aborted: ${isAborted()} (${placed} placed)`
+      // no equip while a container window is open, no CLICKING equip before the handoff (windowHandoff); with no window a
+      // quick-bar block is a selection and needs no wait
+      if ((bot.currentWindow || equipClicks(item, bot.heldItem?.slot ?? null)) && (await handoff() === 'open' || bot.currentWindow)) return `stopped:a container window is open (${placed} placed)`
       try { await Promise.race([bot.equip(item, 'hand'), sleep(1500)]) } catch { /* verified by the gate */ }
       try { bot.setControlState('jump', true) } catch {}
       const by = now() + 2500
@@ -431,7 +622,7 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
       if (bot.entity.position.y < cellY + 1.05) return `stopped:did not rise above y=${cellY} (${placed} placed)`
       const ref = bot.blockAt(new Vec3(fx + pick.dx, cellY + pick.dy, fz + pick.dz))
       const face = new Vec3(pick.face[0], pick.face[1], pick.face[2])
-      try { await Promise.race([bot.lookAt(ref.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
+      try { await Promise.race([bot.lookAt(ref.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5), true), sleep(500)]) } catch { /* a late look turns only the head (seal) */ }
       const no = standGate({ aborted: isAborted(), held: bot.heldItem?.name ?? null, want: item.name, pos: bot.entity.position, fx, fz, cellY })
       if (no) return `stopped:${no} (${placed} placed)`
       if (typeof bot._placeBlockWithOptions !== 'function') return `stopped:no place primitive (${placed} placed)`
@@ -495,6 +686,63 @@ export function standGate ({ aborted, held, want, pos, fx, fz, cellY }) {
   return null
 }
 
+/**
+ * FILL THE ROOF CELL'S WET NEIGHBOURS (apseal-01). Impure, never throws. For each planned seal cell: still wet (a cell
+ * already solid counts as sealed), the roof cell is still the planned block (it is every seal's reference), a
+ * non-falling block from `sealItem()` (the cell has water under it, so a falling block would drop out), a bounded equip
+ * and look, then `sealGate` synchronously and the place sent with forceLook 'ignore' (no await before the packet: no
+ * place can land after this returns -- standInPocket's rule), and the cell read back solid.
+ * -> { ok, tag: 'placed/total', why }
+ */
+export async function sealRoof (bot, plan, { fx, fy, fz, Vec3, sleep, now = () => Date.now(), sealItem = () => null, isAborted = () => null,
+                                            mayEquip = () => true }) {
+  const cells = Array.isArray(plan?.seal) ? plan.seal : []
+  let placed = 0
+  const done = (ok, why = null) => ({ ok, tag: `${placed}/${cells.length}`, why })
+  try {
+    for (const c of cells) {
+      const ab = isAborted(); if (ab) return done(false, `aborted: ${ab}`)
+      const at = new Vec3(fx + c.dx, fy + c.dy, fz + c.dz)
+      const cur = bot.blockAt(at)
+      if (isSolid(cur) && !isLiquid(cur)) { placed++; continue }
+      if (!sealable(cur)) return done(false, `${at.x},${at.y},${at.z} is ${cur?.name ?? 'unknown'}, not water a block can fill`)
+      const ref = bot.blockAt(new Vec3(at.x - c.face[0], at.y - c.face[1], at.z - c.face[2]))
+      if (!ref || ref.name !== plan.name) return done(false, `the roof cell changed to ${ref?.name ?? 'unknown'}`)
+      const item = sealItem()
+      if (!item) return done(false, 'no non-falling block to seal with')
+      if (FALLING.test(item.name || '')) return done(false, `${item.name} would fall`)
+      if (bot.heldItem?.name !== item.name) {
+        if (!mayEquip(item)) return done(false, 'a container window is open (no seal equip)')
+        try { await Promise.race([bot.equip(item, 'hand'), sleep(AP_EQUIP_MS)]) } catch { /* verified by the gate */ }
+      }
+      const face = new Vec3(c.face[0], c.face[1], c.face[2])
+      try { await Promise.race([bot.lookAt(ref.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
+      const no = sealGate({ aborted: isAborted(), held: bot.heldItem?.name ?? null, want: item.name, pos: bot.entity.position, fx, fy, fz })
+      if (no) return done(false, no)
+      if (typeof bot._placeBlockWithOptions !== 'function') return done(false, 'no place primitive')
+      // SENT HERE, synchronously: forceLook 'ignore' leaves no await before mineflayer writes the place packet
+      const sent = bot._placeBlockWithOptions(ref, face, { forceLook: 'ignore', swingArm: 'right' })
+      Promise.resolve(sent).catch(() => {})     // the seal's 5-s answer timeout must not surface as an unhandled rejection
+      try { await Promise.race([sent, sleep(1500)]) } catch { /* the read-back decides */ }
+      const after = bot.blockAt(at)
+      if (!isSolid(after) || isLiquid(after)) return done(false, `${at.x},${at.y},${at.z} did not turn solid (${after?.name ?? 'unknown'})`)
+      placed++
+    }
+    return done(true)
+  } catch (e) { return done(false, `threw ${String(e?.message ?? e).slice(0, 40)}`) }
+}
+
+/**
+ * May a seal be SENT now? Pure; null = yes, otherwise the reason. Not aborted, the block the place will use is in hand,
+ * and the bot is still in the planned column (the seal cells are planned relative to it).
+ */
+export function sealGate ({ aborted, held, want, pos, fx, fy, fz }) {
+  if (aborted) return `aborted: ${aborted} (before a seal)`
+  if (!held || held !== want) return `the seal's ${want} is not in hand (holding ${held ?? 'nothing'})`
+  if (!pos || Math.floor(pos.x) !== fx || Math.floor(pos.z) !== fz || Math.floor(pos.y) < fy - 1) return 'moved off the planned column'
+  return null
+}
+
 export const AP_ROW_MAX = 300   // logger.mjs cuts every detail at 300 characters
 // FLOORED, never rounded (Codex r9): the read's C3 tests `health < 3`, and rounding would turn 2.99 into 3 and hide it
 const r1 = h => (Number.isFinite(h) ? Math.floor(h * 10) / 10 : h)
@@ -512,7 +760,9 @@ export function airPocketRow ({ id, r, requiredMs, budgetMs, difficulty }) {
   const head = `id=${id} outcome=${r.outcome} kind=${r.kind} cell=${r.cell} block=${r.block} tool=${r.tool} ` +
                `predicted_ms=${r.predictedMs} dig_ms=${r.digMs ?? -1} ms=${r.ms ?? -1} envelope=${r.envelope} ` +
                `health=${r1(r.healthStart)}->${r1(r.healthEnd)} | required_ms=${Math.round(requiredMs)} budget_ms=${Math.round(budgetMs)} ` +
-               `difficulty=${difficulty} | standing=${r.standing ? 1 : 0} eye=${r.eye} ` +
+               `difficulty=${difficulty} | standing=${r.standing ? 1 : 0}${r.seal ? ` seal=${r.seal}` : ''}` +
+               // only when it says something: a window (or an unwinding skill) the handoff waited for
+               `${r.window && r.window !== 'none' ? ` window=${r.window}${Number.isFinite(r.windowMs) ? `:${r.windowMs}` : ''}` : ''} eye=${r.eye} ` +
                `stand=${String(r.stand ?? 'none').slice(0, 40)} -- `
   // a success's why is always "breathing in …" (the outcome already says it); a failure's why is the diagnosis
   return (head + (r.outcome === 'success' ? '' : String(r.why ?? ''))).slice(0, AP_ROW_MAX)
@@ -520,6 +770,6 @@ export function airPocketRow ({ id, r, requiredMs, budgetMs, difficulty }) {
 
 /** One telemetry line for a step result. Pure. */
 export function airPocketDetail (r) {
-  return `outcome=${r.outcome} kind=${r.kind} cell=${r.cell} block=${r.block} tool=${r.tool} standing=${r.standing ? 1 : 0} predicted_ms=${r.predictedMs} ` +
+  return `outcome=${r.outcome} kind=${r.kind} cell=${r.cell} block=${r.block} tool=${r.tool} standing=${r.standing ? 1 : 0}${r.seal ? ` seal=${r.seal}` : ''} predicted_ms=${r.predictedMs} ` +
          `dig_ms=${r.digMs ?? -1} ms=${r.ms ?? -1} envelope=${r.envelope} health=${r.healthStart}->${r.healthEnd} eye=${r.eye} stand=${r.stand ?? 'none'} -- ${r.why}`
 }

@@ -224,7 +224,10 @@ export function attachEscapeGuard (bot, { zones = () => [], recordAt = () => fal
       const p = bot.entity?.position
       if (!p) return false
       const head = bot.blockAt?.(p.offset(0, 1, 0))
-      const headSolid = !!head && head.boundingBox === 'block'
+      // tombexit-01 composition: the EYE cell too (y + 1.62 is one cell higher than y + 1 for a body standing on a slab), so
+      // the in-wall dig of the cell that is actually suffocating the bot is never held by the guard's wait
+      const eye = bot.blockAt?.(p.offset(0, 1.62, 0))
+      const headSolid = (!!head && head.boundingBox === 'block') || (!!eye && eye.boundingBox === 'block')
       const r = bot.airRescue
       const fresh = r && Number.isFinite(r.at) && now() - r.at <= 1500
       const headUnder = fresh ? !!r.headUnder : !!head && /^(water|bubble_column)$/.test(head.name ?? '')

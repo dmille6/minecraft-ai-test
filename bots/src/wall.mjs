@@ -62,15 +62,16 @@ export const WALL_LOOSE = 10
 export const WALL_CLEAR_MAX = 60
 
 /**
- * THE SWITCH -> bool. WALL=on|off; unset = on only in the pools WALL_POOLS names (default 'showcase'): the fleet's towns keep their
+ * THE SWITCH -> bool. WALL=on|off; unset = on in the pools WALL_POOLS names. zigfleet-02 (the fleet rollout): the default is '*',
+ * every pool; WALL=off or WALL_POOLS=showcase is the rollback. Before zigfleet-02 (default 'showcase'): the fleet's towns kept their
  * project list until the fleet rollout. Pure.
  */
 export function wallOn (env = process.env, pool = '') {
   const v = String(env?.WALL ?? '').toLowerCase()
   if (v === 'on' || v === '1' || v === 'true') return true
   if (v === 'off' || v === '0' || v === 'false') return false
-  const pools = String(env?.WALL_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
-  return pools.includes(String(pool))
+  const pools = String(env?.WALL_POOLS ?? '*').split(',').map(s => s.trim()).filter(Boolean)
+  return pools.includes('*') || pools.includes(String(pool))
 }
 
 const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')

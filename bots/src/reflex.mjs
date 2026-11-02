@@ -46,8 +46,8 @@ import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS, sideExit } from 
 import { PRIORITY } from './arbiter.mjs'
 import { survivalRelease } from './withdrawpick.mjs'
 import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketRow, airPocketInputs, airPocketAfter,
-         airPocketPreempt, AP_WANT_LAPSE_MS,
-         AP_REFUSE_COOLDOWN_MS, standCandidates, airPocketTools } from './airpocket.mjs'
+         airPocketPreemptDecision, AP_WANT_LAPSE_MS,
+         AP_REFUSE_COOLDOWN_MS, standCandidates, admissionTools } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 import { digScoped } from './digtown.mjs'
 // poolescape-01: the walled-water-pit rung (poolescape.mjs plans one step; poolEscape below executes it)
@@ -57,6 +57,10 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
 import { MAX_DIG_MS } from './digbudget.mjs'
 // lavastep-01 (F1, docs/reports/mineshaft-safety-2026-10-23.md): the danger arm's verified, bounded move
 import { lavastepOn } from './lavastep.mjs'
+// tombexit-01 (F2 of the mineshaft-safety design + the in-wall dig): the entombed arm fires only with no walk back
+import { tombexitOn, inwallOn, makeFreeRing, declineDecision, inwallDecision, makeHealthTrend, suffocates,
+         INWALL_MAX_DIGS, INWALL_UNSEEN_ROW_MS, INWALL_TREND_MS,
+         inwallDigMs, lavaOver, inwallBackoffMs } from './tombexit.mjs'
 import { makeDangerMover } from './lavastepmove.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, plugSamePlace, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
@@ -1417,6 +1421,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // the bot sinks back, its own scan now reads `up dist=1` into the pocket and the ordinary rescue lifts it there.
   // PLAN + ADMISSION, no side effects: what the step WOULD do here. The pre-empt asks it first (both reviews r2: an
   // escape must never be stopped for a step that would then be refused).
+  // a seal cell has water under it: only a non-falling placeable may fill it (standCandidates' unsupported rule), counted
+  // exactly as pickScaffold picks (placeable AND ranked)
+  const sealCandidates = items => standCandidates(items, { unsupported: true }).filter(it => PLACEABLE.test(it.name) && scaffoldRank(it.name) != null)
+  const sealItemFor = items => pickScaffold(sealCandidates(items), PLACEABLE)
+  const sealBlocksHeld = items => sealCandidates(items).reduce((n, it) => n + (it.count ?? 1), 0)
   const prepareAirPocket = ({ worstCase = false } = {}) => {
     const at = bot.entity?.position
     if (!at) return { ok: false, why: 'no position' }
@@ -1429,13 +1438,24 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // standing dig, the pre-empt fired, and half a second later the floating price was refused. Floating + in water is
     // the slowest the step can face, so a pre-empt admitted on it is never followed by a budget refusal.
     const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)
-    const items = airPocketTools(bot.inventory?.items?.() ?? [])   // the step's own candidates (toolhygiene composition)
+    // THE STEP'S OWN CANDIDATES (airPocketTools: toolhygiene's composition), priced by WHO OWNS an open window
+    // (admissionTools, the window handoff): a skill-owned window is closed by the step's own interrupt, so every tool counts
+    // (a held-only price refused at admission, and a refusal never reaches the interrupt); an unowned one is never closed,
+    // so only what is held counts (else the pre-empt stops an escape for a step that then refuses)
+    const items = admissionTools({ items: bot.inventory?.items?.() ?? [], held: bot.heldItem ?? null, windowOpen: !!bot.currentWindow,
+                                   owned: runner?.isBusy?.() === true || !!bot.inventoryUnsettled })   // the step's own candidates
     let fastest = null
     for (const item of [null, ...items]) {
       const ms = predictedDigMs(block, item, env)
       if (Number.isFinite(ms) && ms > 0 && (fastest == null || ms < fastest)) fastest = ms
     }
-    const admit = airPocketAdmit({ health: bot.health, difficulty: inputs.difficulty, hungerActive: inputs.hungerActive, digMs: fastest })
+    // THE SEALS NEED BLOCKS (apseal-01): one non-falling placeable per wet neighbour of the roof cell, counted the way the
+    // step will pick them (sealItemFor); with too few the step would stop half-sealed, so it is refused here instead
+    const sealN = plan.seal?.length ?? 0
+    if (sealN && sealBlocksHeld(bot.inventory?.items?.() ?? []) < sealN) return { ok: false, why: `no ${sealN} non-falling block(s) to seal the roof cell's wet side(s)`, fx, fy, fz, inputs }
+    // an UNOWNED window is never closed, and the step never clicks a seal equip through it: refused here, as the step would
+    if (sealN && bot.currentWindow && !(runner?.isBusy?.() === true || !!bot.inventoryUnsettled)) return { ok: false, why: 'an unowned container window is open: no seal equip', fx, fy, fz, inputs }
+    const admit = airPocketAdmit({ health: bot.health, difficulty: inputs.difficulty, hungerActive: inputs.hungerActive, digMs: fastest, seals: sealN })
     if (!admit.ok) return { ok: false, why: admit.why, fx, fy, fz, inputs }
     return { ok: true, plan, admit, inputs, fx, fy, fz }
   }
@@ -1460,7 +1480,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // THE START ROW, before anything moves: the read judges deaths DURING an attempt against it (Codex r1).
     const attemptId = `${Date.now().toString(36)}`
     logEvent({ kind: 'air_pocket_start', status: 'success',
-               detail: `id=${attemptId} kind=${plan.kind} cell=${fx},${fy + plan.dy},${fz} block=${plan.name} health=${bot.health} ` +
+               detail: `id=${attemptId} kind=${plan.kind} cell=${fx},${fy + plan.dy},${fz} block=${plan.name} health=${bot.health} seal=${plan.seal?.length ?? 0} ` +
                        `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} envelope=${admit.envelope} ${trig}`, snapshot: snapshot(bot) })
     let r
     try {
@@ -1468,14 +1488,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       try { runner?.interrupt?.('air_pocket') } catch { /* nothing running */ }
       r = await airPocketStep(bot, plan, { Vec3, predict: (b, item) => predictedDigMs(b, item, digEnv(bot)), envelope: admit.envelope,
                                            guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null },
+                                           // the window handoff waits for the interrupted skill to unwind (its finally: smelt's drain)
+                                           skillBusy: () => { try { return runner?.isBusy?.() === true } catch { return false } },
                                            standItem: ({ unsupported = false } = {}) => unsupported
                                              ? pickScaffold(standCandidates(bot.inventory?.items?.() ?? [], { unsupported: true }), PLACEABLE)
-                                             : scaffoldFor(bot, 'air_pocket') })
+                                             : scaffoldFor(bot, 'air_pocket'),
+                                           sealItem: () => sealItemFor(bot.inventory?.items?.() ?? []) })
     } finally { airPocketing = false; airPocketWants = 0 }
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : r.outcome === 'opened' ? 'no_effect' : 'failed',
                detail: airPocketRow({ id: attemptId, r, requiredMs: admit.requiredMs, budgetMs: admit.budgetMs,
                                       difficulty: inputs.difficulty }), snapshot: snapshot(bot) })
-    const st = airPocketAfter(r.ok || r.outcome === 'opened', { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil, breatheUntil: airPocketBreatheUntil })
+    const st = airPocketAfter(r.ok || r.outcome === 'opened', { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil, breatheUntil: airPocketBreatheUntil }, Date.now(), { handoffHeld: r.handoffHeld === true })
     drownFails = st.drownFails; drownFailPos = st.drownFailPos; drownFailHealth = st.drownFailHealth
     seizedAt = st.seizedAt; lastProgressAt = st.lastProgressAt; airPocketCooldownUntil = st.cooldownUntil; airPocketBreatheUntil = st.breatheUntil
     return true
@@ -1507,6 +1530,86 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // AIRPOCKET (docs/reports/airpocket-design-2026-10-07.md): the dig step inside the drowning rescue. While it runs it
   // owns the body and every other tick returns at the top; a refusal or a failure cools down here.
   let airPocketing = false
+  // TOMBEXIT-01 (tombexit.mjs): the free-cell ring, the decline bound's areas, the health trend, the in-wall episode
+  const tombOn = tombexitOn()
+  const tombWallOn = inwallOn()
+  const freeRing = makeFreeRing()
+  let tombAreas = []
+  const healthTrend = makeHealthTrend()
+  let inwalling = false
+  let inwallNextAt = 0
+  let inwallUnseenAt = 0
+  let tombSampleKey = null, tombSampleAt = 0
+  // THE DECLINE (Part 1). Called only when every other condition of the entombed arm holds. A decline sets lastEscapeAt
+  // like a firing (the arm's 15 s interval throttles declines too), writes `_entombed_declined`, and the arm does not run:
+  // the bot is not entombed, it can walk back to where it just was free. A bound hand-over writes `_entombed_bound`.
+  const tombDeclines = () => {
+    if (!tombOn) return false
+    try {
+      const now = Date.now()
+      const pos = bot.entity.position
+      const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+      const d = declineDecision({ at, feet: pos, free: freeRing.fresh(now), areas: tombAreas, now })
+      tombAreas = d.areas
+      const cell = `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`
+      if (d.bound) {
+        logEvent({ kind: 'entombed_bound', status: 'failed', snapshot: snapshot(bot),
+                   detail: `cell=${cell} area_n=${d.bound.area_n} -- ${d.why}; today's arm runs`,
+                   args: { cell, area_n: d.bound.area_n, nodes: d.walk.nodes } })
+      }
+      if (!d.decline) return false
+      lastEscapeAt = now
+      const free = d.walk.free_cell
+      logEvent({ kind: 'entombed_declined', status: 'success', snapshot: snapshot(bot),
+                 detail: `cell=${cell} free=${free} free_age_s=${d.walk.free_t == null ? '-' : Math.round((now - d.walk.free_t) / 1000)} ` +
+                         `nodes=${d.walk.nodes} area_n=${d.bound.area_n} path=${d.walk.path.length} -- the walk back is open; not entombed`,
+                 args: { cell, free_cell: free, free_age_s: d.walk.free_t == null ? null : Math.round((now - d.walk.free_t) / 1000),
+                         path: d.walk.path.slice(0, 24), nodes: d.walk.nodes, area_n: d.bound.area_n } })
+      return true
+    } catch (e) { log('warn', 'tombexit: decline check failed; today\'s arm runs', { err: e.message }); return false }
+  }
+  // THE IN-WALL DIG (Part 2), never awaited by the tick: the body's own eye cell, bounded digs, its own flag.
+  const runInwall = async (why) => {
+    inwalling = true
+    let grant = null
+    const p0 = bot.entity.position
+    const at0 = `${Math.floor(p0.x)},${Math.floor(p0.y)},${Math.floor(p0.z)}`
+    const hp0 = bot.health
+    let digs = 0, stopped = 'freed'
+    const names = []
+    try {
+      grant = await takeBody(bot, runner, 'inwall', PRIORITY.damage)
+      for (; digs < INWALL_MAX_DIGS; digs++) {
+        const eye = bot.entity ? bot.blockAt(bot.entity.position.offset(0, 1.62, 0)) : null
+        if (!suffocates(eye)) break
+        names.push(eye.name)
+        if (eye.diggable === false) { stopped = `${eye.name} cannot be dug`; break }
+        // never pour lava onto the head (Claude r1 note): the eye cell is left and the episode backs off
+        if (lavaOver(bot.blockAt(eye.position.offset(0, 1, 0)))) { stopped = `lava over ${eye.name}: not opened`; break }
+        // the best tool unless a container window is open (an equip clicks inside it: ap2win); else the hand in use
+        if (!bot.currentWindow) { const tool = bestTool(bot, eye); if (tool) await bot.equip(tool, 'hand').catch(() => {}) }
+        let digMs = null
+        try { digMs = bot.digTime?.(eye) } catch { digMs = null }
+        try { await digBounded(bot, eye, inwallDigMs(digMs)) } catch (e) { stopped = `dig failed on ${eye.name}: ${e.message}`; break }
+        await sleep(FALLING_SETTLE_MS)   // a falling column refills the cell: read it again
+      }
+      const eye = bot.entity ? bot.blockAt(bot.entity.position.offset(0, 1.62, 0)) : null
+      if (suffocates(eye) && stopped === 'freed') stopped = `still in ${eye.name} after ${digs} digs`
+    } catch (e) { stopped = `threw: ${e.message}` }
+    finally {
+      giveBody(runner, grant, 'inwall done')
+      inwalling = false
+      inwallNextAt = Date.now() + inwallBackoffMs({ stopped, digsDone: digs })
+      // the trend still holds the readings from inside the wall: without this, `_inwall_unseen` fired 2 s after a
+      // successful dig (Paper 10-31 IW-G, IW-2H)
+      healthTrend.clear()
+      try {
+        logEvent({ kind: 'inwall', status: stopped === 'freed' ? 'success' : 'failed', snapshot: snapshot(bot),
+                   detail: `at=${at0} ${why} digs=${digs} blocks=${names.join('/') || '-'} hp=${hp0}->${bot.health} -- ${stopped}`,
+                   args: { at: at0, digs, blocks: names, hp0, hp1: bot.health ?? null, stopped } })
+      } catch { /* telemetry */ }
+    }
+  }
   let airPocketCooldownUntil = 0
   let airPocketBreatheUntil = 0   // after a pocket opens, escapes and maroon climbs wait (air refills first)
   // when the step last asked an in-flight escape / maroon climb to yield (a sealed rescue); their `alive` reads it
@@ -1683,6 +1786,41 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // AIRPOCKET OWNS THE BODY WHILE IT DIGS: no other arm may steer, release or re-seize until the step returns (it
       // is bounded by the health budget, ~30 s at most). The release above has already run.
       if (airPocketing) return
+      // TOMBEXIT-01: the free-cell sampler (Part 1) and the in-wall watch (Part 2), before every other arm's return.
+      if (tombOn) {
+        try {
+          const now = Date.now()
+          const pos = bot.entity.position
+          if (freeRing.touch(pos)) healthTrend.clear()
+          if (bot.health === 0) { freeRing.clear(); healthTrend.clear() }
+          // a ground cell where the predicate is false is a free cell (a declined firing never adds one: it is true there)
+          // sampled when the cell changes or every 5 s (isEntombed reads ~90 cells)
+          const ck = `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`
+          if (bot.entity.onGround && !bot.entity.isInWater && (ck !== tombSampleKey || now - tombSampleAt >= 5000)) {
+            tombSampleKey = ck; tombSampleAt = now
+            if (!isEntombed(bot)) freeRing.note(pos, now)
+          }
+          healthTrend.push(now, bot.health)
+          if (tombWallOn && !inwalling && !escaping && !marooned && !pocketing && !rescuing && !poolEscaping && !dangerMovingNow() && now >= inwallNextAt) {
+            const eye = bot.blockAt(pos.offset(0, 1.62, 0))
+            const feetB = bot.blockAt(pos), belowB = bot.blockAt(pos.offset(0, -1, 0))
+            const explained = !!bot.entity.isInWater || !!bot.entity.isInLava || !bot.entity.onGround ||
+                              !!((bot.entity.metadata?.[0] ?? 0) & 0x01) || /lava|fire|magma|campfire/.test(`${feetB?.name} ${belowB?.name}`)
+            const dec = inwallDecision({ eye, healthNow: bot.health, healthThen: healthTrend.then(now), explained })
+            if (dec.act === 'dig') { void runInwall(dec.why); return }
+            if (dec.act === 'unseen' && now - inwallUnseenAt >= INWALL_UNSEEN_ROW_MS) {
+              inwallUnseenAt = now
+              const at = (dx, dy, dz) => bot.blockAt(pos.offset(dx, dy, dz))?.name ?? '?'
+              logEvent({ kind: 'inwall_unseen', status: 'failed', snapshot: snapshot(bot),
+                         detail: `health ${healthTrend.then(now)}->${bot.health} in ${INWALL_TREND_MS / 1000} s, nothing visible explains it: ` +
+                                 `eye=${eye?.name ?? '?'} feet=${feetB?.name ?? '?'} head+1=${at(0, 2, 0)} below=${belowB?.name ?? '?'} ` +
+                                 `y=${pos.y.toFixed(2)} sides=${at(1, 1, 0)}/${at(-1, 1, 0)}/${at(0, 1, 1)}/${at(0, 1, -1)}`,
+                         args: { eye: eye?.name ?? null, feet: feetB?.name ?? null, y: pos.y } })
+            }
+          }
+        } catch (e) { log('warn', 'tombexit sampler failed', { err: e.message }) }
+        if (inwalling) return   // the in-wall dig holds the body: no other arm steers until it returns (bounded)
+      }
 
       // --- survey: remember where the good things are ----------------------
       // The fleet's memory was entirely negative -- hazard sites and failed
@@ -2457,9 +2595,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // AIRPOCKET PRE-EMPTS AN IN-FLIGHT ESCAPE inside a SEALED rescue (Paper sandbox 10-07: a bare-handed escape dig
           // held `escaping` ~58 s and the budget ran out while the step waited). The escape's `alive` turns false and its
           // current dig is stopped; once it returns, the trigger below runs the step.
-          if (airPocketPreempt({ rescuing, routeDir: route.dir, routeSealed: route.sealed, escaping, marooned, pocketing,
+          const apPre = airPocketPreemptDecision({ rescuing, routeDir: route.dir, routeSealed: route.sealed, escaping, marooned, pocketing,
                                  active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil,
-                                 stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })) {
+                                 windowOpen: !!bot.currentWindow, windowOwnedNow: runner?.isBusy?.() === true || !!bot.inventoryUnsettled,
+                                 stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })
+          if (apPre === 'window') {
+            // AN OWNED WINDOW IS OPEN (the window handoff): the escape keeps running; the window's owner is interrupted so it
+            // closes, and the next tick decides with a fresh inventory (an unowned one never gets here: airPocketPreemptDecision)
+            try { if (runner?.isBusy?.()) runner.interrupt('air_pocket') } catch { /* nothing running */ }
+            if (throttled('air_pocket_window_open', 30_000)) {
+              logEvent({ kind: 'air_pocket_refused', status: 'no_effect',
+                         detail: `reason=a container window is open (${runner?.isBusy?.() ? 'its skill interrupted' : 'a withdraw hold'}; the escape is not pre-empted) ` +
+                                 `health=${bot.health} held_ms=${Date.now() - seizedAt}`, snapshot: snapshot(bot) })
+            }
+          } else if (apPre === 'preempt') {
             airPocketWants = Date.now()
             try { if (bot.targetDigBlock) bot.stopDigging() } catch { /* not digging */ }
             if (throttled('air_pocket_preempt', 30_000)) {
@@ -3131,7 +3280,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       if (!escaping && entombedGrant) { giveBody(runner, entombedGrant, 'entombed arm ended'); entombedGrant = null }   // released within one tick of the arm's finally
       const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
       if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot) && Date.now() >= airPocketBreatheUntil &&
-          !pocketing && !pocketPending && Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
+          !pocketing && !pocketPending && Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS &&
+          !tombDeclines()) {   // tombexit-01: LAST, so it runs only when the arm would fire; a decline = not entombed
         // A WET CEILING IS NOT A MISSING PICKAXE (climbflood-01, Codex r1): with
         // failures already counted, this arm would ask for a tool BEFORE the
         // climb could classify the ceiling. Skipped while the ceiling is a flood

@@ -9,6 +9,7 @@
 // Same statements, same order, same try/catch: nothing here may throw into the spawn handler.
 
 import { log, logEvent } from './logger.mjs'
+import { lavatargetModeDetail } from './lavatarget.mjs'   // lavatarget-01's licence row
 import { snapshot } from './state.mjs'
 import { config } from './config.mjs'
 import { kitSearchModeDetail, ironpickModeDetail } from './toolkit.mjs'
@@ -89,6 +90,8 @@ export function installFeatures (bot) {
   try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
   // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
   try { logEvent({ kind: 'cobblecap_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleCapModeDetail() }) } catch {}
+  // lavatarget-01: the licence row, once per spawn (LAVATARGET=0 -> on=0)
+  try { logEvent({ kind: 'lavatarget_mode', status: 'success', snapshot: snapshot(bot), detail: lavatargetModeDetail() }) } catch {}
   // lidplace-01: the licence row, once per spawn -- `_lidplace_mode`, a kind the base cannot write (lidplace.mjs lidPlaceModeDetail;
   // on=0 under LIDPLACE=0, so the rollback is visible too)
   try { logEvent({ kind: 'lidplace_mode', status: 'success', snapshot: snapshot(bot), detail: lidPlaceModeDetail(process.env) }) } catch {}

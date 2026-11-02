@@ -9,6 +9,7 @@ import { protectTownBlocks, worldIdFromLogin, composterFloorFilter, composterSaf
 import { townWalkMovements } from './towndeposit.mjs'
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
+import { noteLavaFinding } from './lavatarget.mjs'   // lavatarget-01: the corridor guard's lava cells feed explore's heading
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
 import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
 import { knownWellCells, installWellWatch } from './skills.mjs'
@@ -64,6 +65,7 @@ import { attachEscapeGuard, escapeGuardModeDetail } from './escapeguard.mjs'   /
 import { escapeRecordAt } from './skills.mjs'   // escapeguard-01: the build records' answer for a cell
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
+import { tombexitModeDetail } from './tombexit.mjs'   // tombexit-01
 import { attachLavastepGuard } from './lavastepmove.mjs'   // lavastep-01
 import { cavefallModeDetail } from './cavefall.mjs'   // cavefall-01
 import { ceilEscapeModeDetail } from './ceilescape.mjs'   // ceilescape-01
@@ -307,6 +309,8 @@ function connect() {
     try { logEvent({ kind: 'poolescape_mode', status: 'success', snapshot: snapshot(bot), detail: poolEscapeModeDetail() }) } catch {}
     // lavastep-01: the licence row, once per spawn -- `_lavastep_mode`, a kind the base cannot write (lavastep.mjs)
     try { logEvent({ kind: 'lavastep_mode', status: 'success', snapshot: snapshot(bot), detail: lavastepModeDetail() }) } catch {}
+    // tombexit-01: the licence row, once per spawn (tombexit.mjs; TOMBEXIT=0 is the rollback)
+    try { logEvent({ kind: 'tombexit_mode', status: 'success', snapshot: snapshot(bot), detail: tombexitModeDetail() }) } catch {}
     // cavefall-01: the licence row, once per spawn -- `_cavefall_mode`, a kind the base cannot write (cavefall.mjs)
     try { logEvent({ kind: 'cavefall_mode', status: 'success', snapshot: snapshot(bot), detail: cavefallModeDetail(process.env) }) } catch {}
     // ceilescape-01: the licence row, once per spawn -- `_ceilescape_mode`, a kind the base cannot write (ceilescape.mjs)
@@ -1097,6 +1101,7 @@ function connect() {
         const v = corridorSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), nodes)
         if (!v.safe) {
           try { bot.pathfinder.setGoal(null) } catch { /* not connected */ }
+          try { noteLavaFinding(bot, v) } catch { /* lavatarget-01: after the stop, never instead of it */ }
           if (Date.now() - lavaCorridorLoggedAt > 5_000) { lavaCorridorLoggedAt = Date.now(); logEvent({ kind: 'lava_corridor', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')} after ${v.samples} samples; the leg is refused`, snapshot: snapshot(bot) }) }
           return
         }
