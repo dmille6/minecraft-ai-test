@@ -36,13 +36,16 @@ import { COALFIRST, COAL_KINDS } from './coalrun.mjs'
 const { goals, Movements } = pkg
 
 export const IRON_KINDS = ['iron_ore', 'deepslate_iron_ore']
+export const DIAMOND_KINDS = ['diamond_ore', 'deepslate_diamond_ore']   // deepminer-01 (deepmine.mjs DIAMOND_KINDS: a test holds them equal)
 /**
  * THE ORES THAT TUNNEL -> { kinds, label } | null. Pure. Iron always; COAL too since coalfirst-01 (OWNER 10-29 "coal ... mined":
  * buried coal escalated to mine({y}), which stairs toward dryness, not toward the ore -- the defect this tunnel was built for).
  * The tunnel is the same for both: planner, break veto, lava guard, pickaxe budget, home rule. COALFIRST=off: iron only.
  */
-export function tunnelKindsFor (name, { coal = COALFIRST.on } = {}) {
+export function tunnelKindsFor (name, { coal = COALFIRST.on, diamond = false } = {}) {
   if (IRON_KINDS.includes(name)) return { kinds: IRON_KINDS, label: 'iron' }
+  // deepminer-01: DIAMOND ore tunnels only on a town deep miner's call (deepmine.mjs; gather passes `diamond` from bot.deepTunnelKinds)
+  if (diamond && DIAMOND_KINDS.includes(name)) return { kinds: DIAMOND_KINDS, label: 'diamond' }
   if (coal && COAL_KINDS.includes(name)) return { kinds: COAL_KINDS, label: 'coal' }
   return null
 }
