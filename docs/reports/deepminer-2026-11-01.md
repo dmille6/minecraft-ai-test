@@ -115,7 +115,25 @@ iron clusters, and a town stair carved from shaftgeom's own plan with a publishe
 trip starts by itself. The server's truth afterwards from the saved region files (`regiontruth.py`): `breach` (opened cells
 with lava or water beside them) must be 0. Results: `sandbox/log/deepmine-e2e/results.jsonl`, summarised below.
 
-(results filled in below)
+Runs (sandbox2, 11-01/11-02; each a fresh arena; `ok` = home + ore brought back + 0 deaths + 0 breaches + 0 flowing liquid):
+
+| run | code | scene | result |
+|---|---|---|---|
+| r1-r3 | WIP | diamond | found the gaps the canary would have: the runner's 180 s cut aborted `mine` mid-stair; the maroon lattice pillared the miner out of its own tunnel between calls; gather saw nothing past the sandbox border radius (sandbox artefact); the stone pickaxes ran out and the iron one dug deepslate; the trail back walked the no-dig profile into escape-placed blocks. All fixed. |
+| 6 | 61d6ca56 | diamond | **ok**: stair 59 hops (26 s) -> `mine` to -52 (2 calls) -> 2 diamonds -> 3 branches -> home on `stone_pickaxes` via the trail + stair (117 s) -> bank; 0 deaths; truth breach 0, flowing 0, 272 cells dug |
+| 7 | 78c26950 | hazard (1,564 liquid sources at the work depth) | **ok**: 1 diamond; the break veto refused a lava-beside diamond 5x, lava_corridor refused a leg; breach 0, flowing 0 |
+| 8 | 78c26950 | blocked (dirt in 3 stair air cells, the fleet's failure) | **ok**: `repair step12:blocked->repaired` with the stair's own visit code, then down; 4 ores; home |
+| 9 | 78c26950 | iron (stone pickaxes only) | **ok**: iron trip at y=16, 2 raw iron, home |
+| final | e5354979 | diamond | **ok**: **8 diamonds**, 1 branch, home, **a diamond pickaxe crafted** at the town table, torches withdrawn from town (12 left) ; 21 min; breach 0 |
+| final2 | ec77a45a | iron / blocked / diamond(seed 105) | ok / ok / home with 0 ore (no ore in reach in that seed: `ok` false by the predicate, loop safe) |
+| final2 | ec77a45a | hazard (4,612 sources, 3 layers) | **abandoned** at -47 (no death): the walk guard refused every leg back beside lava -> the designed residual (surface once, then abandon) |
+| final3 | d26b9382 | hazard | 6 diamonds, then abandoned at -36 after `surface` (no death): lava sealed in rock beside the way back (the walk guard reads buried lava) -> fixed in d59bce0b (the leg seal fills lava within 2 of the leg, buried or not) |
+| final5 | d59bce0b | hazard x2 (4,612 sources) | **both home**: seed 102 sealed 11 lava cells on the way back (buried lava filled by a face click: Paper accepts it), 0 ore in reach that seed; seed 106 **ok**: 2 diamonds, 6 seals, home via trail + stair; 0 deaths, breach 0 |
+| bucket | probe | lava source beside a branch's next cell, 5 trials | **5/5**: water poured into the open cell turns the lava source to obsidian, the water is scooped back, the bucket returns, cells dry (bucket.mjs pour/scoop on Paper 1.21.8; the probe converts the aims to Vec3: bucket.mjs passes plain {x,y,z} to `lookAt` -- a latent bug for deepminer-02) |
+
+Deaths in all runs: 0. Server-truth breaches (an opened cell with lava or water beside it) in all runs: 0. Flowing liquid left: 0.
+The hazard field is ~3x denser than the fleet worlds' work depth (region scan: 1-2.6k lava blocks per 289 chunks at -48..-33);
+its abandons are the owner-accepted O11 residual (the bot is alive at depth with its kit; today's exit chain takes over).
 
 ## 7. Water buckets on lava (owner 11-01 ~22:40Z) -- deepminer-02
 
