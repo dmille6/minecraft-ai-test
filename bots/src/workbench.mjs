@@ -51,3 +51,25 @@ export function preferredNow (preferred, skip = {}, now = Date.now()) {
 /** Should a job's run on a workshop station skip it next time? -> bool. Pure: it was a workshop station AND the run did not
  *  succeed, or the furnace held something before (another session's or foreign contents). */
 export const skipAfterRun = ({ kind, status, prior = 0 } = {}) => kind === 'w' && (status !== 'success' || (Number(prior) || 0) > 0)
+
+/**
+ * BAGDIET-01: THE TABLES A CRAFT TRIES BEFORE IT PUTS DOWN ITS OWN -> up to `max` blocks, nearest first, deduplicated by key.
+ * Pure over `found` (bot.findBlocks' positions as blocks, any order) and `distOf(b)`. MEASURED 11-02 (block dumps of four towns):
+ * 25-34 crafting tables stand within 16 blocks of home and 69-120 within 80 -- the craft walked to the ONE nearest table and,
+ * when that one could not be reached, placed the carried table (its retake came back 88 of 184 times, 11-02 00:00-12:43Z), so
+ * every unreachable table in a plaza bred another next to it. The next nearest are tried first; past them the old path stands.
+ */
+export const TABLE_TRIES = 3
+export function tableCandidates (found = [], distOf = () => 0, { max = TABLE_TRIES, keyOf = b => b?.position ? `${b.position.x},${b.position.y},${b.position.z}` : null } = {}) {
+  const seen = new Set()
+  const out = []
+  const list = (Array.isArray(found) ? found : []).filter(Boolean).map(b => ({ b, d: Number(distOf(b)) })).filter(x => Number.isFinite(x.d))
+  list.sort((a, b) => a.d - b.d)
+  for (const { b } of list) {
+    const k = keyOf(b)
+    if (k == null || seen.has(k)) continue
+    seen.add(k); out.push(b)
+    if (out.length >= Math.max(1, Number(max) || 1)) break
+  }
+  return out
+}

@@ -378,12 +378,23 @@ export function drawnAfter ({ drawn = {}, took = {}, crafted = {}, placed = {}, 
   for (const k of names) { const v = Math.min(n(bag1, k), n(drawn, k) + n(took, k) + n(crafted, k) - n(placed, k) - n(back, k)); if (v > 0) out[k] = v }
   return out
 }
-/** What the visit still needs from town -> { name: n }: the bill less the bag, capped at SHOP_BILL_CAP in all. Pure. */
-export function needFromTown (bill, bag = {}, cap = SHOP_BILL_CAP) {
+/**
+ * BAGDIET-01: THE MOST OF ONE NAME A LIGHT PROJECT'S VISIT HOLDS (monument, tree farm) -- the bill is clamped to this before the
+ * bag is subtracted, so a bag that already holds a visit's worth draws nothing. MEASURED 11-02 00:00-12:43Z (80 bots, 473
+ * monument visits): a visit placed p50 0, p99 58, max 62 blocks, while it drew up to SHOP_BILL_CAP (256) every time the open
+ * bill was large -- 16,112 cobblestone and 3,566 cobbled_deepslate drawn, 4,172 placed, 143 back; 214 visits drew while the
+ * bag already held >= 128 of what they drew. The ziggurats' draws were the fleet's largest cobble inflow into bags (build_shop
+ * +17,713 cobble family against mine +14,259). One stack covers the largest visit seen.
+ */
+export const PROJECT_VISIT_HOLD = 64
+/** What the visit still needs from town -> { name: n }: the bill (each name clamped to `hold`) less the bag, capped at
+ *  SHOP_BILL_CAP in all. Pure. `hold` Infinity (the default: the workshop/house visits) is the bill as it was. */
+export function needFromTown (bill, bag = {}, cap = SHOP_BILL_CAP, hold = Infinity) {
   const out = {}
   let left = cap
+  const h = Number.isFinite(Number(hold)) && Number(hold) >= 0 ? Number(hold) : Infinity
   for (const [n, c] of Object.entries(bill).sort((a, b) => b[1] - a[1])) {
-    const want = Math.max(0, c - (Number(bag[n]) || 0))
+    const want = Math.max(0, Math.min(c, h) - (Number(bag[n]) || 0))
     const take = Math.min(want, left)
     if (take > 0) { out[n] = take; left -= take }
   }
@@ -464,6 +475,19 @@ export const buildBagDetail = (project, bal, { exit = '-', silent = '-', drawn =
 /** The skill's contract time (skills.mjs build_shop maxMs) and the least left for a bank to start (Claude r3 P3-1). */
 export const SHOP_SKILL_MS = 600_000
 export const SHOP_BANK_MIN_MS = 150_000
+/**
+ * BAGDIET-01: THE LIGHT PROJECTS' BANK-BACK GATE. The monument, wall and tree-farm visits run on the runner's clock (`budget`
+ * = SKILL_TIMEOUT_MS, 180 s on the fleet) and stop themselves ZIG_VISIT_TAIL_MS (60 s) before it, so `budget - elapsed` is at
+ * most ~60 s at the bank-back -- under SHOP_BANK_MIN_MS (150 s) on every visit: measured 11-02, 473 monument visits banked back
+ * 0 cobblestone of 16,112 drawn. A bank-back of the visit's own leftovers starts while LIGHT_BANK_MIN_MS is left.
+ */
+export const LIGHT_BANK_MIN_MS = 40_000
+/** May a visit start its bank-back? -> boolean. Pure: `budgetMs` the visit's clock, `elapsedMs` spent, `minMs` the floor. */
+export function bankBackDue (budgetMs, elapsedMs, minMs = LIGHT_BANK_MIN_MS) {
+  const b = Number(budgetMs), e = Number(elapsedMs), m = Number(minMs)
+  if (![b, e, m].every(Number.isFinite)) return false
+  return b - e >= m
+}
 /**
  * HOW MUCH OF A NAME THE VISIT MAY TAKE from the container it stands at (matsWithdraw's `allow`) -> n. Pure. A reserved family
  * is mats.mjs takeAllowed (the BUILD_RESERVE and the outstanding draws, judged at the take); a building PART has no reserve
