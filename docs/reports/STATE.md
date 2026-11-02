@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-02T18:20:01Z._
+_Generated 2026-11-02T19:20:01Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `f1f5c16c` = tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) on fleetbuild-01 `c711879e` (KEEP 11-01 23:37Z, promoted 11-01 23:47Z) on apseal-01 `963e99af` (KEEP 11-01 20:05Z, promoted 11-01 20:15Z) on promptcache-01 `9246217d` (KEEP 11-01 16:14Z, promoted 11-01 16:24Z) on lavatarget-01 `dfb3ff13` (KEEP 11-01 12:24Z, promoted 11-01 12:34Z) on airpocketwin-01 `52d9281a` (KEEP 11-01 08:31Z, promoted 11-01 08:41Z). Live builds: {'10aa0e1decc8a58c6d533904933547c2747fdb13+003b4f': 20, 'f1f5c16cf13c095b0dd2e39535c3a39856d54706+184910': 60} |
 | **Canary in slot** | **fewerdec-01** deployed 11-02 16:44Z; reads +90 11-02 18:14Z, +180 11-02 19:44Z; KEEP auto-promotes ~10 min after the +180 KEEP |
-| **Queue (front)** | drainpick-01 -> stuckcells-01 -> deepminer-01 -> bagdiet-01. Held: servea-01 (HELD: released AUTOMATICALLY by the servea waiter (Mac launchd com.mcai.servea-waiter, scripts/h...); stationkeep-01 (HELD: (control-session subagent 11-02, resource-model-1102): full npm test suites on .30 still r...); marks-01 (HELD: (control-session subagent 11-02, resource-model-1102): full npm test suites on .30 still r...); towngate-01 (HELD: (control-session subagent 11-02, resource-model-1102): full npm test suites on .30 still r...); llmoai-01 (HELD: serving A (OWNER 11-02 'do what you recommend'): the oai+ client to the whole fleet, neede...). Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
+| **Queue (front)** | drainpick-01 -> stuckcells-01 -> deepminer-01 -> bagdiet-01 -> stationkeep-01 -> marks-01 -> towngate-01. Held: servea-01 (HELD: released AUTOMATICALLY by the servea waiter (Mac launchd com.mcai.servea-waiter, scripts/h...); llmoai-01 (HELD: serving A (OWNER 11-02 'do what you recommend'): the oai+ client to the whole fleet, neede...). Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
 | **Scheduler** | busy S1 canary declared: 10aa0e1decc8a58c6d533904933547c2747fdb13 on board-a,hive-c,hive-d,hive-b / S6 open loop: canary 10aa0e1 is deployed on board-a,hive-c,hive-d,hive-b with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting |
-| **Showcase release** | `4c92880a` (15,415 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet f1f5c16c (tidy-01); row 11-02 17:25Z) |
+| **Showcase release** | `4c92880a` (16,397 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet f1f5c16c (tidy-01); row 11-02 18:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
-| **Owner-direct / rollouts (24 h)** | qwen35-roll-s1: owner-direct-check 11-01 23:20Z; qwen35-roll: rollout-hourly 11-02 18:01Z |
+| **Owner-direct / rollouts (24 h)** | qwen35-roll-s1: owner-direct-check 11-01 23:20Z; qwen35-roll: rollout-hourly 11-02 19:01Z |
 | **Pending owner decisions** | **stockyard-1102**: When a town's yard is full (304 blocks), does surplus cobble go down the well (10-16 approval) or stay in bags (11-02 'the well only for true junk')? Today: it stays in bags. |
-| **Open alarms** | STALLCHECK 2026-11-02T17:35:01Z STALLED: 29. OPSAUDIT 2026-11-01 FLAGS: 10 (2 high). 12 active alarm(s): stuck goals 10 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-d/shaft@68_65_68, hive-d/shop@68_65_68, isolated-b/shop@355_73_147, isolated-c/monument@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h |
+| **Open alarms** | STALLCHECK 2026-11-02T18:35:01Z STALLED: 33. OPSAUDIT 2026-11-01 FLAGS: 10 (2 high). 14 active alarm(s): stuck goals 11 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-a/monument@355_73_147, hive-d/shaft@68_65_68, hive-d/shop@68_65_68, isolated-b/shop@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, flowledger read:balance |
 <!-- GENERATED:END -->
 
 ## Notes
