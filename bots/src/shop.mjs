@@ -13,6 +13,7 @@ import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from
 import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
 import { storehouseOn, STORE_PLOT, STORE_BLUEPRINT, STORE_BUILDERS } from './storehouse.mjs'
 import { copperhallOn, HALL_PLOT, HALL_BLUEPRINT, HALL_BUILDERS } from './copperhall.mjs'   // copperhall-01
+import { yardOn, YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS } from './yard.mjs'   // stockyard-01
 import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } from './shopchest.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
@@ -96,6 +97,9 @@ export const SHOPCHEST = Object.freeze({ on: shopchestOn(process.env, process.en
  *  only once the town holds its copper (activeProject skips a `waiting` project). COPPERHALL=off is the rollback; on in the
  *  showcase pool only. Needs the house and storehouse switches on. */
 export const COPPERHALL = Object.freeze({ on: copperhallOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** STOCKYARD-01: THE TOWN STOCKPILE YARD (yard.mjs; OWNER 11-02 ~13:00Z), before the tidy (last): never ahead of an open project (an
+ *  unsited yard that cannot site would hold the order), no `after`; one builder. YARD=off is the rollback; on in the showcase pool only until a fleet rollout. */
+export const YARD = Object.freeze({ on: yardOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -107,9 +111,10 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOPCHEST_PLOT, blueprint: SHOPCHEST_BLUEPRINT, after: SHOP_PLOT, builders: SHOPCHEST_BUILDERS }),
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
   Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),
+  Object.freeze({ plot: YARD_PLOT, blueprint: YARD_BLUEPRINT, builders: YARD_BUILDERS }),
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: TIDY_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
@@ -428,12 +433,23 @@ export function drawnAfter ({ drawn = {}, took = {}, crafted = {}, placed = {}, 
   for (const k of names) { const v = Math.min(n(bag1, k), n(drawn, k) + n(took, k) + n(crafted, k) - n(placed, k) - n(back, k)); if (v > 0) out[k] = v }
   return out
 }
-/** What the visit still needs from town -> { name: n }: the bill less the bag, capped at SHOP_BILL_CAP in all. Pure. */
-export function needFromTown (bill, bag = {}, cap = SHOP_BILL_CAP) {
+/**
+ * BAGDIET-01: THE MOST OF ONE NAME A LIGHT PROJECT'S VISIT HOLDS (monument, tree farm) -- the bill is clamped to this before the
+ * bag is subtracted, so a bag that already holds a visit's worth draws nothing. MEASURED 11-02 00:00-12:43Z (80 bots, 473
+ * monument visits): a visit placed p50 0, p99 58, max 62 blocks, while it drew up to SHOP_BILL_CAP (256) every time the open
+ * bill was large -- 16,112 cobblestone and 3,566 cobbled_deepslate drawn, 4,172 placed, 143 back; 214 visits drew while the
+ * bag already held >= 128 of what they drew. The ziggurats' draws were the fleet's largest cobble inflow into bags (build_shop
+ * +17,713 cobble family against mine +14,259). One stack covers the largest visit seen.
+ */
+export const PROJECT_VISIT_HOLD = 64
+/** What the visit still needs from town -> { name: n }: the bill (each name clamped to `hold`) less the bag, capped at
+ *  SHOP_BILL_CAP in all. Pure. `hold` Infinity (the default: the workshop/house visits) is the bill as it was. */
+export function needFromTown (bill, bag = {}, cap = SHOP_BILL_CAP, hold = Infinity) {
   const out = {}
   let left = cap
+  const h = Number.isFinite(Number(hold)) && Number(hold) >= 0 ? Number(hold) : Infinity
   for (const [n, c] of Object.entries(bill).sort((a, b) => b[1] - a[1])) {
-    const want = Math.max(0, c - (Number(bag[n]) || 0))
+    const want = Math.max(0, Math.min(c, h) - (Number(bag[n]) || 0))
     const take = Math.min(want, left)
     if (take > 0) { out[n] = take; left -= take }
   }
@@ -516,6 +532,19 @@ export const buildBagDetail = (project, bal, { exit = '-', silent = '-', drawn =
 export const SHOP_SKILL_MS = 600_000
 export const SHOP_BANK_MIN_MS = 150_000
 /**
+ * BAGDIET-01: THE LIGHT PROJECTS' BANK-BACK GATE. The monument, wall and tree-farm visits run on the runner's clock (`budget`
+ * = SKILL_TIMEOUT_MS, 180 s on the fleet) and stop themselves ZIG_VISIT_TAIL_MS (60 s) before it, so `budget - elapsed` is at
+ * most ~60 s at the bank-back -- under SHOP_BANK_MIN_MS (150 s) on every visit: measured 11-02, 473 monument visits banked back
+ * 0 cobblestone of 16,112 drawn. A bank-back of the visit's own leftovers starts while LIGHT_BANK_MIN_MS is left.
+ */
+export const LIGHT_BANK_MIN_MS = 40_000
+/** May a visit start its bank-back? -> boolean. Pure: `budgetMs` the visit's clock, `elapsedMs` spent, `minMs` the floor. */
+export function bankBackDue (budgetMs, elapsedMs, minMs = LIGHT_BANK_MIN_MS) {
+  const b = Number(budgetMs), e = Number(elapsedMs), m = Number(minMs)
+  if (![b, e, m].every(Number.isFinite)) return false
+  return b - e >= m
+}
+/**
  * HOW MUCH OF A NAME THE VISIT MAY TAKE from the container it stands at (matsWithdraw's `allow`) -> n. Pure. A reserved family
  * is mats.mjs takeAllowed (the BUILD_RESERVE and the outstanding draws, judged at the take); a building PART has no reserve
  * (Paper r1: takeAllowed answers 0 for a name with no reserve key, so stone bricks, panes, cut copper, stations and saplings
@@ -575,7 +604,8 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
   let plot = record?.plot ?? null
   if (!record) { try { plot = activePlotOf() } catch { plot = null } }
-  if (freeSlots < (LIGHT_PLOTS.has(plot) ? MONUMENT_BAG_SLOTS_MIN : SHOP_BAG_SLOTS_MIN)) return { order: null, skip: 'room' }
+  // stockyard-01: the yard's visit EMPTIES a bag (its piles take the bag's surplus): a full bag is the reason for it, never a refusal
+  if (plot !== YARD_PLOT && freeSlots < (LIGHT_PLOTS.has(plot) ? MONUMENT_BAG_SLOTS_MIN : SHOP_BAG_SLOTS_MIN)) return { order: null, skip: 'room' }
   return { order: { skill: 'build_shop', args: {} }, skip: null }
 }
 

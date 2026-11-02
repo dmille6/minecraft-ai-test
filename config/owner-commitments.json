@@ -1876,30 +1876,6 @@
    }
   },
   {
-   "id": "comms-stage1-claims-mirror",
-   "title": "Comms stage 1: the claims mirror (found-01 / monument-01 / furnace leases -> ledger)",
-   "owner_date": "2026-10-22",
-   "memory": [
-    "owner-comms-1021.md"
-   ],
-   "kind": "canary",
-   "lane": "progress",
-   "state": "dropped",
-   "owner": "control session",
-   "evidence": {
-    "branches": [
-     "claims*"
-    ],
-    "grep": [
-     "claims mirror"
-    ]
-   },
-   "dropped": {
-    "when": "2026-11-02",
-    "why": "control session 11-02 (audit 11-01 flag 7): its own design gives it no behaviour change and a measured value of 0 (comms-design 4.5: 'none (visibility + a duplicate-claim gate) | 0 today'); it was to ride inside found-01 / monument-01, which shipped without it. Visibility of who builds what now comes from the showcase chat (showchat-01) and B5's role leases. Reopen only if a duplicate claim is seen."
-   }
-  },
-  {
    "id": "comms-stage2-talk",
    "title": "Comms stage 2: visible templated chat on the showcase (TALK), timelapse captions",
    "owner_date": "2026-10-22",
@@ -3098,6 +3074,93 @@
    "done": {
     "when": "2026-11-02",
     "evidence": "rule main dcedd094 12:33Z (before use); card evidence fde6c920/4150b7ad; both engines no blockers; round 20261101 regate 13:51Z -> best 20261101-qwen35-4b (5080 80/min vs c2 0; 3090 14 vs 10 = 1.4x not enough, recorded); servea-01 adopted (replace-variant, registration servea-01.d48467f8-4bll.json), HELD after deepminer-01"
+   }
+  },
+  {
+   "id": "bags-bagdiet-1102",
+   "title": "Bags full of cobble again (19,665 in bags, ~250/bot) and stray crafting tables: the ziggurat visits draw 256 a visit and never bank back; craft breeds tables in plazas -- bagdiet-01 (visit hold 64, bank-back on the fleet clock, three table candidates)",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "owner-bags-yard-1102.md",
+    "owner-ironpick-bagbudget-1020.md",
+    "owner-cobble-bags-toolkit-iron-1019.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "bagdiet-01 queued (PROGRESS, after servea-01, before llmoai-01; set-patch c711879e..92a3d847, v39 autorebase). Read +90/+180 generic; own lines: _build_bag project=monument took per visit p90 <= 64 and back > 0 on visits that took; _table_retaken success share up; craft 'placed the carried table' rows down. Goal check 24 h after promotion: fleet bag cobblestone (latest row per bot) below the 11-02 19,665.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "run": "bagdiet-01",
+     "until": "kept"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "bagdiet-01"
+    ],
+    "branches": [
+     "bagdiet-on-*"
+    ],
+    "grep": [
+     "bagdiet-01"
+    ],
+    "paths": [
+     "bots/test/bagdiet.test.mjs"
+    ]
+   },
+   "note": "Measured 11-02 00:00-12:43Z (80 bots): 473 monument visits drew 16,112 cobblestone + 3,566 deepslate, placed 4,172, banked back 143; build_shop +17,713 cobble family into bags vs mine +14,259. Unreachable-chest deposit failures (354,72,151: 50 of 57 'could not reach' rows) were ONE trapped bot (isolated-d-Delta at 359,58,181 for 9 h: stranded escape failed 40x, climb-flood refused 80x), not a walled chest -- the chest stands on an open stone-brick plaza. Station crafts: 0 of 283 table/furnace crafts with one already in the bag; tables are lost (retake 88/184 back), furnaces never retaken by smelt."
+  },
+  {
+   "id": "stockyard-1102",
+   "title": "Town stockpile yard (owner 11-02 ~13:00Z + ~13:10Z): a paved yard at the town's edge with ramp piles for bulk (cobblestone, deepslate, bamboo blocks), kept clear (stone floor, buffer, aisle upkeep), one clerk bot moving chest surplus to it and refilling chests from it",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "owner-bags-yard-1102.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "stockyard-01 on main (tier 2: not protected; Codex + Claude r2 APPROVE). Showcase first: the next showcase release carries YARD on (showcase pool default); watch 2 h for _build project=yard sited/placed, then _yard kind=stock/clerk rows with placed > 0; then a fleet rollout (YARD_POOLS) as its own canary.",
+   "max_quiet_hours": 48,
+   "owner_pending": "When a town's yard is full (304 blocks), does surplus cobble go down the well (10-16 approval) or stay in bags (11-02 'the well only for true junk')? Today: it stays in bags.",
+   "evidence": {
+    "grep": [
+     "stockyard-01"
+    ],
+    "paths": [
+     "bots/src/yard.mjs",
+     "bots/test/yard.test.mjs",
+     "bots/src/blueprints/yard@1.json"
+    ]
+   },
+   "note": "Capacity vs rate: 4 bays x 76 = 304 a town; the fleet mined ~14,300 cobble family into bags in 12.7 h (11-02) and builds placed ~5,000 -- a yard holds about a day of a town's surplus. Bays are 2 wide (fake server: a 3-wide middle row above the eye had no sight line). Not in it: dirt/stone variants (the well's list), a camera."
+  },
+  {
+   "id": "comms-stage1-claims-mirror",
+   "title": "Comms stage 1: the claims mirror (found-01 / monument-01 / furnace leases -> ledger)",
+   "owner_date": "2026-10-22",
+   "memory": [
+    "owner-comms-1021.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "dropped",
+   "owner": "control session",
+   "evidence": {
+    "branches": [
+     "claims*"
+    ],
+    "grep": [
+     "claims mirror"
+    ]
+   },
+   "dropped": {
+    "when": "2026-11-02",
+    "why": "control session 11-02 (audit 11-01 flag 7): its own design gives it no behaviour change and a measured value of 0 (comms-design 4.5: 'none (visibility + a duplicate-claim gate) | 0 today'); it was to ride inside found-01 / monument-01, which shipped without it. Visibility of who builds what now comes from the showcase chat (showchat-01) and B5's role leases. Reopen only if a duplicate claim is seen."
    }
   },
   {
