@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-02T15:20:02Z._
+_Generated 2026-11-02T16:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `c711879e` = fleetbuild-01 `c711879e` (KEEP 11-01 23:37Z, promoted 11-01 23:47Z) on apseal-01 `963e99af` (KEEP 11-01 20:05Z, promoted 11-01 20:15Z) on promptcache-01 `9246217d` (KEEP 11-01 16:14Z, promoted 11-01 16:24Z) on lavatarget-01 `dfb3ff13` (KEEP 11-01 12:24Z, promoted 11-01 12:34Z) on airpocketwin-01 `52d9281a` (KEEP 11-01 08:31Z, promoted 11-01 08:41Z) on tombexit-01 `1a0f9ddf` (KEEP 11-01 04:43Z, promoted 11-01 04:53Z). Live builds: {'c711879efec34974a1bc1c2d7ffd686c94a07104+a2162c': 60, 'f1f5c16cf13c095b0dd2e39535c3a39856d54706+184910': 20} |
-| **Canary in slot** | **tidy-01** deployed 11-02 12:36Z; reads +90 11-02 14:06Z, +180 11-02 15:36Z; KEEP auto-promotes ~10 min after the +180 KEEP |
+| **Fleet** | `f1f5c16c` = tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) on fleetbuild-01 `c711879e` (KEEP 11-01 23:37Z, promoted 11-01 23:47Z) on apseal-01 `963e99af` (KEEP 11-01 20:05Z, promoted 11-01 20:15Z) on promptcache-01 `9246217d` (KEEP 11-01 16:14Z, promoted 11-01 16:24Z) on lavatarget-01 `dfb3ff13` (KEEP 11-01 12:24Z, promoted 11-01 12:34Z) on airpocketwin-01 `52d9281a` (KEEP 11-01 08:31Z, promoted 11-01 08:41Z) |
+| **Canary in slot** | EMPTY (last close tidy-01 KEEP 11-02 15:37Z) |
 | **Queue (front)** | fewerdec-01 -> drainpick-01 -> stuckcells-01 -> deepminer-01 -> bagdiet-01. Held: servea-01 (HELD: released AUTOMATICALLY by the servea waiter (Mac launchd com.mcai.servea-waiter, scripts/h...); llmoai-01 (HELD: serving A (OWNER 11-02 'do what you recommend'): the oai+ client to the whole fleet, neede...). Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
-| **Scheduler** | busy S1 canary declared: f1f5c16cf13c095b0dd2e39535c3a39856d54706 on placebo-a,placebo-d,board-c,board-b / S6 open loop: canary f1f5c16 is deployed on placebo-a,placebo-d,board-c,board-b with no KEEP/REVERT/INCONCLUSIVE recorded — read it b |
-| **Showcase release** | `4c92880a` (11,722 rows), `d698024b` (6,918 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet c711879e (fleetbuild-01); row 11-02 14:25Z) |
+| **Scheduler** | wait H2 fewerdec-01: no variant for the fleet base f1f5c16 (have: dfb3ff1, c711879): autorebase of c711879e..ab92e108 is building (step rerun, pid 387394, heartbeat 2026-11-02T16:19:32Z) |
+| **Showcase release** | `4c92880a` (16,483 rows), `d698024b` (1,344 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet c711879e (fleetbuild-01); row 11-02 15:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
-| **Owner-direct / rollouts (24 h)** | qwen35-roll-s1: owner-direct-check 11-01 23:20Z; qwen35-roll: rollout-hourly 11-02 15:01Z |
+| **Owner-direct / rollouts (24 h)** | qwen35-roll-s1: owner-direct-check 11-01 23:20Z; qwen35-roll: rollout-hourly 11-02 16:01Z |
 | **Pending owner decisions** | **stockyard-1102**: When a town's yard is full (304 blocks), does surplus cobble go down the well (10-16 approval) or stay in bags (11-02 'the well only for true junk')? Today: it stays in bags. |
-| **Open alarms** | STALLCHECK 2026-11-02T14:35:02Z STALLED: 43. OPSAUDIT 2026-11-01 FLAGS: 10 (2 high). 13 active alarm(s): stuck goals 11 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-a/monument@355_73_147, hive-d/shaft@68_65_68, hive-d/shop@68_65_68, isolated-b/shop@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h |
+| **Open alarms** | STALLCHECK 2026-11-02T15:35:01Z STALLED: 45. OPSAUDIT 2026-11-01 FLAGS: 10 (2 high). 13 active alarm(s): stuck goals 10 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-d/shaft@68_65_68, hive-d/shop@68_65_68, isolated-b/shop@355_73_147, isolated-c/monument@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, flowledger read:balance |
 <!-- GENERATED:END -->
 
 ## Notes
