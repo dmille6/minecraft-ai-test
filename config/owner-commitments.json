@@ -1354,7 +1354,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "LIVE on the showcase 11-01 23:07Z (release ea374099 on bb89931e, piece sortstore-01show; rollback bb89931e or SORTSTORE=off): read the _store_sign / _sort_tidy / _sort_deposit rows and the storehouse chests (index + RCON read) for 2 h -- labels on the 6 interior chests, misplaced stacks moving to their homes, town deposits landing t0/t1; camera `storehouse`. Then fleet tier 2 with STOREHOUSE (SORTSTORE_POOLS)",
+   "next_step": "LIVE on the showcase: r1 ea374099 11-01 23:06Z, r2 (the tidy moves cobble/logs) release 45f668ac 11-02 01:38Z on d2d13c5d (rollback d2d13c5d, or SORTSTORE=off). Labels 6/6 written 23:06Z and read back by RCON. Read the _sort_tidy / _sort_deposit / _store_sign rows and the storehouse chests (slot-by-slot RCON read) at +2 h: cobble/logs leaving the wood/tools/metal homes; overflow -9,71,2 chest_unreachable x3 (watch). Camera `storehouse`. Then fleet tier 2 with STOREHOUSE (SORTSTORE_POOLS)",
    "max_quiet_hours": 48,
    "depends_on": [
     {
