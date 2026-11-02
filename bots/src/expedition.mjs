@@ -21,6 +21,11 @@
 //   6. DEPOSIT the haul in the town chests (or next call, when the clock is short)
 // The trail survives the call: a trip that is still open when the call ends is followed home by `home` (and closed at town).
 //
+// WHOLEMAP-S1a (docs/reports/wholemap-expeditions-design-2026-11-01.md section 4 S1): a zone UNDER the walk is walked over
+// (zoneHit surfaceY); a zone on the spoke is walked ROUND (zoneDetour / detourLeg, the shorter side, then the other); a bearing
+// is dead after two obstacle turns short of the ring (deadBearings, this planner's rows only); no marker torch by ice
+// (torchSafe); a ring past ONE_CALL_RING is a multi-call trip (more of the call out; the trail home may finish next call, by
+// `home`, and counts for the ring); a late close near town costs the ring nothing; the ring grows 100 -> 300.
 // EXPEDITION=off is the kill switch; unset = on only in EXPEDITION_POOLS (default 'showcase'). Markers alone: EXPEDITION_MARKERS=off.
 
 export const EXPEDITION_KEY = 'expedition'
@@ -48,7 +53,16 @@ export const ROOM_START = 6, ROOM_TURN = 2
 export const DAY_START_MAX = 9_500              // ticks: a trip (3600 ticks at most) starts early enough to be home by dusk
 export const DAY_TURN = 12_000                  // turn back at sunset
 export const KIT = Object.freeze({ cobblestone: 12, torch: 6 })
-export const TRAIL_TTL_MS = 3 * 60 * 60_000     // an open trail older than this is not followed by `home`
+export const TRAIL_TTL_MS = 3 * 60 * 60_000     // an open trail not walked for this long is not followed by `home` (per leg: wholemap-s1)
+// WHOLEMAP-S1a (docs/reports/wholemap-expeditions-design-2026-11-01.md section 4 S1, items 1-3, 5, 6): 300-block trips
+export const PLANNER_V = 2                      // trip rows written by this planner carry v: 2; only they block a bearing (an older row was another planner's)
+export const ZONE_UNDER = 8                     // a zone whose box top is >= this far below the surface is under the walk (the trial chambers: y <= 31, grass at 66)
+export const DEAD_TURNS = 2                     // two obstacle turns on one bearing in 24 h block it for the rest of the day (any distance short of the ring)
+export const DETOUR_PAD = 10                    // the detour walks the zone's box grown by ZONE_MARGIN + this (its edges stay outside the margin)
+export const DETOUR_ARRIVE = 4                  // a detour waypoint is passed within this (x/z)
+export const ONE_CALL_RING = 225                // a ring beyond this is a MULTI-CALL trip: more of the call goes out, the trail home may finish next call
+export const LONG_OUT_SHARE = 0.6               // a multi-call trip's outbound share of its call
+export const ICE_TORCH_R = 3                    // no marker torch within this (a cube) of `ice` (block light > 11 melts it: a hole in the road)
 
 const OFF = ['off', '0', 'false', 'no']
 const ON = ['on', '1', 'true', 'yes']
@@ -101,11 +115,21 @@ export function bearingVec (k, offsetDeg = 0) {
 export function ringOf (trips = [], now = 0) {
   let r = RING_MIN
   for (const t of trips) {
-    if (t?.returned && t?.reason === 'reached') r += RING_STEP
-    else if (!t?.returned && now - (Number(t?.t) || 0) < 24 * 60 * 60_000) r -= 2 * RING_STEP
+    // a MULTI-CALL trip (wholemap-s1 item 6) that reached its ring and came home over its own trail in a later call is a success
+    const trail = t?.multi === true && /^home_/.test(String(t?.via ?? ''))
+    if ((t?.returned || trail) && t?.reason === 'reached') r += RING_STEP
+    else if (!t?.returned && !trail && now - (Number(t?.t) || 0) < 24 * 60 * 60_000 &&
+      // a late close near town (a stuck in the town's streets, an interrupt at 12 blocks) says nothing about the ring's reach
+      (Number(t?.dist) || 0) >= (Number(t?.ring) || RING_MIN) / 2) r -= 2 * RING_STEP
   }
   return Math.max(RING_MIN, Math.min(RING_MAX, r))
 }
+/** A trip on `ring` is a MULTI-CALL trip (more of the call goes out; its trail home may finish in a later call) -> bool. Pure. */
+export const multiCall = ring => (Number(ring) || 0) > ONE_CALL_RING
+/** The outbound share of a trip's call -> fraction. Pure. */
+export const outShareOf = ring => multiCall(ring) ? LONG_OUT_SHARE : OUT_SHARE
+/** How old an open trail is, for `home`'s TRAIL_TTL_MS: since its last walked leg (trailAt), else its start -> ms. Pure. */
+export const trailAge = (trip = {}, now = 0) => now - (Number(trip?.trailAt) || Number(trip?.startedAt) || 0)
 
 /**
  * THE NEXT TRIP'S BEARING -> { bearing, reuse } | { bearing: null, why }. Pure. A bearing is BLOCKED for 24 h after a trip on it
@@ -114,8 +138,8 @@ export function ringOf (trips = [], now = 0) {
  * open bearing in 24 h (ties: rotation by the trip count, so the spokes fan out).
  */
 export function tripBearing (trips = [], now = 0) {
-  const day = trips.filter(t => now - (Number(t?.t) || 0) < 24 * 60 * 60_000)
-  const blocked = new Set(day.filter(t => (Number(t?.dist) || 0) < 40 && ['water', 'zone', 'blocked'].includes(t?.reason)).map(t => t.bearing))
+  const day = trips.filter(t => now - (Number(t?.t) || 0) < 24 * 60 * 60_000 && (Number(t?.v) || 0) >= PLANNER_V)
+  const blocked = deadBearings(day)
   if (day.length % 2 === 1) {
     const good = [...day].reverse().find(t => t?.returned && (Number(t?.haul) || 0) > 0 && !blocked.has(t.bearing))
     if (good) return { bearing: good.bearing, reuse: true }
@@ -130,6 +154,24 @@ export function tripBearing (trips = [], now = 0) {
     if (best == null || c < best.c) best = { k, c }
   }
   return best ? { bearing: best.k, reuse: false } : { bearing: null, why: 'no_bearing' }
+}
+
+const OBSTACLE = ['water', 'zone', 'blocked', 'drop', 'steep', 'unread']
+/**
+ * THE DEAD BEARINGS of a day's trip rows -> Set of bearings. Pure. A bearing is dead after ONE obstacle turn (water, a zone, a
+ * refused leg) before 40 blocks, or after DEAD_TURNS obstacle turns at any distance short of the trip's ring (wholemap-s1 item
+ * 1: LIVE 10-31..11-01, 38 trips on bearing 2 hit the same zone at 54-55 blocks and the < 40 rule never fired).
+ */
+export function deadBearings (day = []) {
+  const n = new Map(), out = new Set()
+  for (const t of day) {
+    if (!OBSTACLE.includes(t?.reason)) continue
+    const d = Number(t?.dist) || 0
+    if (d < 40) { out.add(t.bearing); continue }
+    if (d < (Number(t?.ring) || RING_MIN)) n.set(t.bearing, (n.get(t.bearing) ?? 0) + 1)
+  }
+  for (const [k, c] of n) if (c >= DEAD_TURNS) out.add(k)
+  return out
 }
 
 // ---- the surface ----------------------------------------------------------------------------------------------------------
@@ -166,14 +208,72 @@ export function surfaceAt (read, x, z, yHint, { up = 12, down = 20 } = {}) {
   return { none: true, obstructed: ground }
 }
 
-/** Is (x, z) inside a protected zone grown by `margin` (zones: [{ box: [x0,y0,z0,x1,y1,z1] }] or {x0..z1})? -> id | null. Pure. */
-export function zoneHit (zones = [], x, z, margin = ZONE_MARGIN) {
+/**
+ * Is (x, z) inside a protected zone grown by `margin` (zones: [{ box: [x0,y0,z0,x1,y1,z1] }] or {x0..z1})? -> id | null. Pure.
+ * `surfaceY` (the walk's feet there, wholemap-s1 item 2): a zone whose box top is ZONE_UNDER or more below it is UNDER the walk
+ * and is not hit (the trial chambers stop at y 31 under grass at 66: the owner's protection is against tunnelling in, which
+ * protectzone.mjs guards unchanged, not against walking over the grass). No `surfaceY`: every zone, at any height.
+ */
+export function zoneHit (zones = [], x, z, margin = ZONE_MARGIN, { surfaceY = null } = {}) {
   for (const q of zones ?? []) {
     const b = Array.isArray(q?.box) ? q.box : [q?.x0, q?.y0, q?.z0, q?.x1, q?.y1, q?.z1]
     if (!b.every(Number.isFinite)) continue
+    if (Number.isFinite(surfaceY) && b[4] <= surfaceY - ZONE_UNDER) continue
     if (x >= b[0] - margin && x <= b[3] + margin && z >= b[2] - margin && z <= b[5] + margin) return String(q.id ?? 'zone')
   }
   return null
+}
+
+/**
+ * THE WAY ROUND A ZONE ON THE SPOKE (wholemap-s1 item 3) -> { waypoints: [[x, z]...], zone, side } | null. Pure. The first zone
+ * the bearing's spoke from home meets beyond `from` blocks (within `reach`), at the walk's height `y` (a zone under the walk is
+ * no obstacle), is walked round on its box grown by ZONE_MARGIN + DETOUR_PAD: the corners between the spoke's entry and exit,
+ * the SHORTER way round (or `side` +1 / -1 when given: the other way, after the shorter one was refused), then the spoke point
+ * just past the exit. The legs after it rejoin the spoke.
+ */
+export function zoneDetour (zones = [], home, bearing, { from = 0, reach = 400, y = null, side = 0 } = {}) {
+  const v = bearingVec(bearing)
+  let best = null
+  for (const q of zones ?? []) {
+    const b = Array.isArray(q?.box) ? q.box : [q?.x0, q?.y0, q?.z0, q?.x1, q?.y1, q?.z1]
+    if (!b.every(Number.isFinite)) continue
+    if (Number.isFinite(y) && b[4] <= y - ZONE_UNDER) continue
+    const g = ZONE_MARGIN + DETOUR_PAD
+    const [x0, z0, x1, z1] = [b[0] - g, b[2] - g, b[3] + g, b[5] + g]
+    // the spoke P(s) = home + v s against the rectangle (slabs)
+    let lo = -Infinity, hi = Infinity
+    for (const [o, d, a, c] of [[home.x, v.dx, x0, x1], [home.z, v.dz, z0, z1]]) {
+      if (Math.abs(d) < 1e-9) { if (o < a || o > c) { lo = Infinity; break } continue }
+      const s1 = (a - o) / d, s2 = (c - o) / d
+      lo = Math.max(lo, Math.min(s1, s2)); hi = Math.min(hi, Math.max(s1, s2))
+    }
+    if (!(lo <= hi) || hi <= from || lo > from + reach) continue
+    if (!best || lo < best.lo) best = { lo: Math.max(lo, 0), hi, rect: [x0, z0, x1, z1], id: String(q.id ?? 'zone') }
+  }
+  if (!best) return null
+  const [x0, z0, x1, z1] = best.rect
+  const w = x1 - x0, h = z1 - z0, per = 2 * (w + h)
+  const at = s => ({ x: home.x + v.dx * s, z: home.z + v.dz * s })
+  // a boundary point's perimeter coordinate (corner order: (x0,z0) 0, (x1,z0) w, (x1,z1) w+h, (x0,z1) 2w+h)
+  const tOf = p => {
+    const e = 1e-6
+    if (Math.abs(p.z - z0) < e) return p.x - x0
+    if (Math.abs(p.x - x1) < e) return w + (p.z - z0)
+    if (Math.abs(p.z - z1) < e) return w + h + (x1 - p.x)
+    return 2 * w + h + (z1 - p.z)
+  }
+  const clampR = p => ({ x: Math.min(x1, Math.max(x0, p.x)), z: Math.min(z1, Math.max(z0, p.z)) })
+  const E = clampR(at(best.lo)), X = clampR(at(best.hi))
+  const tE = tOf(E), tX = tOf(X)
+  const corners = [[x0, z0, 0], [x1, z0, w], [x1, z1, w + h], [x0, z1, 2 * w + h]]
+  const fwd = ((tX - tE) % per + per) % per
+  const dir = side === 1 || side === -1 ? side : (fwd <= per - fwd ? 1 : -1)
+  const span = dir === 1 ? fwd : per - fwd
+  const pass = corners.map(([cx, cz, t]) => ({ cx, cz, d: dir === 1 ? ((t - tE) % per + per) % per : ((tE - t) % per + per) % per }))
+    .filter(c => c.d > 1e-6 && c.d < span - 1e-6).sort((a, b) => a.d - b.d)
+  const out = at(best.hi + DETOUR_PAD)
+  const waypoints = [...pass.map(c => [Math.round(c.cx), Math.round(c.cz)]), [Math.round(out.x), Math.round(out.z)]]
+  return { waypoints, zone: best.id, side: dir, length: Math.round(span) }
 }
 
 /**
@@ -187,9 +287,10 @@ export function lineClear (read, from, to, { zones = [], every = 3 } = {}) {
   let y = from.y
   for (let i = 1; i <= n; i++) {
     const x = Math.floor(from.x + dx * i / n), z = Math.floor(from.z + dz * i / n)
-    const zid = zoneHit(zones, x, z)
-    if (zid) return { ok: false, why: 'zone', at: [x, z], zone: zid }
     const s = surfaceAt(read, x, z, y)
+    // the zone at the walk's height there (wholemap-s1 item 2); an unread column is judged at every height
+    const zid = zoneHit(zones, x, z, ZONE_MARGIN, { surfaceY: s && Number.isFinite(s.y) ? s.y : s ? y : null })
+    if (zid) return { ok: false, why: 'zone', at: [x, z], zone: zid }
     if (!s) return { ok: false, why: 'unread', at: [x, z] }
     if (s.water) return { ok: false, why: 'water', at: [x, z] }
     // a column with no standable cell (a trunk, a wall: LIVE 17:40Z, every spruce on the line read as "unread") is the
@@ -202,6 +303,9 @@ export function lineClear (read, from, to, { zones = [], every = 3 } = {}) {
 }
 
 const BENDS = [0, 25, -25, 50, -50]
+// a leg's END cell may lie up to 20 above the bot (a 1:1 hillside over a 20-block leg: offline 11-02, bearing 6 met a 21-block rise
+// at 236 that the scan's default 12 read as nowhere to stand); the line samples every 3 blocks keep the default
+const TARGET_WINDOW = Object.freeze({ up: 20, down: 20 })
 /**
  * THE NEXT OUTBOUND LEG -> { ok, target: {x, y, z}, via: 'marker'|'bearing', bend } | { ok: false, why }. Pure.
  * The ideal point is on the bearing's SPOKE FROM HOME, LEG_STEP past the bot's own distance along it (LIVE showcase 10-31 17:20Z:
@@ -210,9 +314,21 @@ const BENDS = [0, 25, -25, 50, -50]
  * then bends of +-25 and +-50 degrees, the first whose line is clear and whose end is a dry standable cell. All refused: the
  * most telling refusal (water before zone before unread).
  */
-export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers = [], zones = [] } = {}) {
+export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers = [], zones = [], detour = null } = {}) {
   const dHome = p => Math.hypot(p.x - home.x, p.z - home.z)
   const here = dHome(pos)
+  // A DETOUR IN HAND (wholemap-s1 item 3) is walked first: its waypoints in order, then the spoke again
+  if (detour && Array.isArray(detour.waypoints) && detour.waypoints.length) {
+    const r = detourLeg(read, { pos, home, step, zones, detour })
+    if (r.ok) return r
+    if (r.why !== 'detour_done') {
+      // this side refused (water, a drop): the other way round, once per detour
+      const o = detour.tried === 2 ? null : zoneDetour(zones, home, bearing, { from: Math.max(0, here - step), y: pos.y, side: -detour.side })
+      const r2 = o && detourLeg(read, { pos, home, step, zones, detour: { ...o, tried: 2 } })
+      if (r2?.ok) return r2
+      return { ...r, whys: `${r.whys ?? ''}/other_side_${r2?.why ?? 'none'}` }
+    }
+  }
   const v0 = bearingVec(bearing)
   // ...and never a target inside the town (LIVE 17:20Z: Haven's first 20-block leg aimed among the buildings, stuck 35 s): the
   // first leg goes TOWN_EXIT + step out, and the pathfinder finds the way through the town and its wall's gateways
@@ -225,7 +341,7 @@ export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers 
     .sort((a, b) => near(a) - near(b))[0]
   if (m) {
     const t = { x: m.approach[0], y: m.approach[1], z: m.approach[2] }
-    if (lineClear(read, pos, t, { zones }).ok) return { ok: true, target: t, via: 'marker', bend: 0, marker: m.at ?? null }
+    if (lineClear(read, pos, t, { zones }).ok) return { ok: true, target: t, via: 'marker', bend: 0, marker: m.at ?? null, detour: null }
   }
   const whys = []
   for (const bend of BENDS) {
@@ -234,12 +350,59 @@ export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers 
     if (dHome({ x, z }) <= here + step / 3) { whys.push('inward'); continue }
     const lc = lineClear(read, pos, { x, z, y: pos.y }, { zones })
     if (!lc.ok) { whys.push(lc.why); continue }
-    const s = surfaceAt(read, x, z, pos.y)
+    const s = surfaceAt(read, x, z, pos.y, TARGET_WINDOW)
     if (!s || s.water || s.none) { whys.push(s?.water ? 'water' : s?.none ? 'steep' : 'unread'); continue }
-    return { ok: true, target: { x, y: s.y, z }, via: 'bearing', bend }
+    return { ok: true, target: { x, y: s.y, z }, via: 'bearing', bend, detour: null }
+  }
+  // A ZONE ON THE SPOKE: the way round it (the shorter side, then the other), when the bot is not already walking one
+  if (whys.includes('zone')) {
+    for (const side of [0, 'other']) {
+      const d0 = zoneDetour(zones, home, bearing, { from: Math.max(0, here - step), y: pos.y })
+      if (!d0) break
+      const d = side === 0 ? d0 : zoneDetour(zones, home, bearing, { from: Math.max(0, here - step), y: pos.y, side: -d0.side })
+      const r = d && detourLeg(read, { pos, home, step, zones, detour: { ...d, tried: side === 0 ? 1 : 2 } })
+      if (r?.ok) return r
+      if (r) whys.push(`detour_${r.why}`)
+    }
   }
   const why = ['water', 'zone', 'drop', 'unread', 'steep', 'inward'].find(w => whys.includes(w)) ?? 'blocked'
   return { ok: false, why, whys: whys.join('/') }
+}
+
+/**
+ * ONE LEG OF A DETOUR -> legTarget's answer, with `detour` (the waypoints still ahead; empty: back on the spoke). Pure. Waypoints
+ * within DETOUR_ARRIVE are passed; the leg goes toward the next one, at most `step` (or out past the town: TOWN_EXIT + step from
+ * home, the first leg of a trip that starts at a zone's edge), then bends of +-25 / +-50 degrees off that line. No outward rule:
+ * a detour's later legs may close on home.
+ */
+const DETOUR_TRIES = [...[0, 25, -25, 50, -50, 75, -75].map(b => [b, 1]), ...[0, 40, -40, 80, -80].map(b => [b, 0.5])]
+export function detourLeg (read, { pos, home, step = LEG_STEP, zones = [], detour } = {}) {
+  const wps = [...(detour?.waypoints ?? [])]
+  while (wps.length && Math.hypot(wps[0][0] - pos.x, wps[0][1] - pos.z) <= DETOUR_ARRIVE) wps.shift()
+  const rest = { ...detour, waypoints: wps }
+  if (!wps.length) return { ok: false, why: 'detour_done', detour: rest }
+  const [wx, wz] = wps[0]
+  const dx = wx - pos.x, dz = wz - pos.z, L = Math.hypot(dx, dz)
+  const here = Math.hypot(pos.x - home.x, pos.z - home.z)
+  const len = Math.min(L, Math.max(step, TOWN_EXIT + step - here))
+  const ux = dx / L, uz = dz / L
+  const whys = []
+  // a detour hugs a zone on one side: wider bends, and a half leg, before it gives up (offline on the showcase terrain, 11-02:
+  // bearing 0's edge walk past the east village met hills and trees that a 20-block leg at +-50 could not step round)
+  for (const [bend, f] of DETOUR_TRIES) {
+    const a = bend * Math.PI / 180
+    const bx = ux * Math.cos(a) - uz * Math.sin(a), bz = ux * Math.sin(a) + uz * Math.cos(a)
+    const x = Math.floor(pos.x + bx * len * f), z = Math.floor(pos.z + bz * len * f)
+    // every detour leg closes on its waypoint (a wide bend that only slides along a shore would zigzag there for ever)
+    if (L - Math.hypot(wx - x, wz - z) < Math.max(2, 0.1 * len * f)) { whys.push('no_progress'); continue }
+    const lc = lineClear(read, pos, { x, z, y: pos.y }, { zones })
+    if (!lc.ok) { whys.push(lc.why); continue }
+    const s = surfaceAt(read, x, z, pos.y, TARGET_WINDOW)
+    if (!s || s.water || s.none) { whys.push(s?.water ? 'water' : s?.none ? 'steep' : 'unread'); continue }
+    return { ok: true, target: { x, y: s.y, z }, via: 'detour', bend, detour: rest }
+  }
+  const why = ['water', 'zone', 'drop', 'unread', 'steep'].find(w => whys.includes(w)) ?? 'blocked'
+  return { ok: false, why, whys: whys.join('/'), detour: rest }
 }
 
 /**
@@ -326,7 +489,7 @@ export function markerSpot (read, stand, dir = { dx: 1, dz: 0 }, { zones = [] } 
   const sides = [[-fwd[1], fwd[0]], [fwd[1], -fwd[0]], [-fwd[0], -fwd[1]]]
   for (const [ox, oz] of sides) {
     const [x, y, z] = [stand[0] + ox, stand[1], stand[2] + oz]
-    if (zoneHit(zones, x, z)) continue
+    if (zoneHit(zones, x, z, ZONE_MARGIN, { surfaceY: y })) continue
     const g = read(x, y - 1, z)
     if (!solid(g) || FALLING.test(g?.name ?? '') || /_leaves$/.test(g?.name ?? '') || liquid(g)) continue
     if (![0, 1, 2].every(k => { const b = read(x, y + k, z); return passable(b) && !/(torch|chest)$/.test(b?.name ?? '') })) continue
@@ -334,6 +497,21 @@ export function markerSpot (read, stand, dir = { dx: 1, dz: 0 }, { zones = [] } 
     return [x, y, z]
   }
   return null
+}
+
+/**
+ * MAY A MARKER'S TORCH GO AT `at`? -> bool. Pure. Not with `ice` (or frosted ice) within ICE_TORCH_R of it, a cube (wholemap-s1
+ * item 5): block light above 11 melts ice beside it, and a marker by a frozen lake would cut a hole in the road. Packed and blue
+ * ice do not melt. An unread cell in the cube refuses (no torch is better than a hole).
+ */
+export function torchSafe (read, at, r = ICE_TORCH_R) {
+  if (!Array.isArray(at)) return false
+  for (let a = -r; a <= r; a++) for (let b = -r; b <= r; b++) for (let c = -r; c <= r; c++) {
+    const q = read(at[0] + a, at[1] + b, at[2] + c)
+    if (q == null) return false
+    if (/^(ice|frosted_ice)$/.test(q.name ?? '')) return false
+  }
+  return true
 }
 
 /** A standing marker at `at` (its base): two cobblestone (a torch or nothing on top). Pure. */

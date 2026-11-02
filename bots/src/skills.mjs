@@ -129,6 +129,7 @@ import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, sh
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
+import { torchSafe, outShareOf, multiCall, trailAge, PLANNER_V } from './expedition.mjs'   // wholemap-s1a
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -17554,7 +17555,7 @@ function exOutstanding (me, now = Date.now()) {
     const pre = `${exKey()}.bot-`
     for (const f of fs.readdirSync(townDir())) {
       if (!f.startsWith(pre) || !f.endsWith('.json') || f === `${pre}${me}.json`) continue
-      try { const j = JSON.parse(fs.readFileSync(path.join(townDir(), f), 'utf8')); if (j?.trip?.open && now - (Number(j.trip.startedAt) || 0) < TRAIL_TTL_MS) n++ } catch { /* a torn file: none */ }
+      try { const j = JSON.parse(fs.readFileSync(path.join(townDir(), f), 'utf8')); if (j?.trip?.open && trailAge(j.trip, now) < TRAIL_TTL_MS) n++ } catch { /* a torn file: none */ }
     }
   } catch { /* none */ }
   return n
@@ -17580,7 +17581,7 @@ function exCloseAtTown (bot, st, via) {
     t.via = via
     st.lastTripAt = Date.now()
     exWrite(me, st)
-    exAppend(exTripsFile(), { t: Date.now(), id: t.id, by: me, bearing: t.bearing, ring: t.ring, dist: Math.round(t.dist ?? 0), reason: t.reason ?? 'interrupted', returned: false, late: true, via, haul: 0, markers: t.markers ?? 0 })
+    exAppend(exTripsFile(), { t: Date.now(), v: t.v ?? null, multi: t.multi === true, id: t.id, by: me, bearing: t.bearing, ring: t.ring, dist: Math.round(t.dist ?? 0), reason: t.reason ?? 'interrupted', returned: false, late: true, via, haul: 0, markers: t.markers ?? 0 })
     try { logEvent({ kind: 'expedition_trip', status: 'no_effect', snapshot: snapshot(bot), detail: tripDetail({ ...t, ms: Date.now() - (t.startedAt ?? Date.now()) }) }) } catch { /* telemetry */ }
   } catch { /* the next look closes it */ }
 }
@@ -17633,6 +17634,7 @@ async function exFollowHome (ctx, signal, trip, until, markers, persist = () => 
     if (kind === 'marker') { via = 'markers'; if (!arrived) mskip.add(m.approach.join(',')); else fails = 0 }
     if (kind === 'direct') via = via === 'crumbs' ? 'crumbs+direct' : `${via}+direct`
     trip.cursor = cursor
+    trip.trailAt = Date.now()
     persist()
   }
   return { home: exAtHome(bot.entity.position), via, hops }
@@ -17646,7 +17648,7 @@ export async function expeditionHomeLeg (ctx, signal, until) {
   const trip = st.trip
   const p = bot.entity?.position
   if (!trip?.open || !Array.isArray(trip.crumbs) || !trip.crumbs.length || !p) return null
-  if (Date.now() - (trip.startedAt ?? 0) > TRAIL_TTL_MS || exAtHome(p)) return null
+  if (trailAge(trip, Date.now()) > TRAIL_TTL_MS || exAtHome(p)) return null
   if (!trip.crumbs.some(c => Math.hypot(c[0] - p.x, c[2] - p.z) <= 48)) return null
   exRow(bot, 'home_follow', `trip=${trip.id} crumbs=${trip.crumbs.length} cursor=${trip.cursor ?? '-'}`)
   const r = await exFollowHome(ctx, signal, trip, until, exMarkers(), () => exWrite(me, st))
@@ -17668,7 +17670,10 @@ async function exPlaceMarker (ctx, signal, stand, dir, { zones, trip, me }) {
     if (read(x, y + dy, z)?.name !== 'cobblestone') { exRow(bot, 'marker_skip', `trip=${trip.id} why=place_failed dy=${dy} at=${spot.join(',')}`, 'no_effect'); return dy ? { at: spot, approach: stand, partial: true } : null }
   }
   let torch = false
-  if ((heldMap(bot).torch ?? 0) > 0) {
+  // wholemap-s1a: never a torch by ice (it would melt a hole in the road); the pillar stands without one
+  const iceOk = torchSafe(read, [x, y + 2, z])
+  if (!iceOk) exRow(bot, 'torch_skip', `trip=${trip.id} why=ice_near at=${spot.join(',')}`, 'no_effect')
+  if (iceOk && (heldMap(bot).torch ?? 0) > 0) {
     try { await place(ctx, { item: 'torch', x, y: y + 2, z }, signal, { by: 'expedition' }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     await sleep(250, signal)
     torch = /torch$/.test(read(x, y + 2, z)?.name ?? '')
@@ -17694,7 +17699,7 @@ async function exGather (ctx, signal, until, zones) {
     const tree = naturalTree(read, [q.x, q.y, q.z])
     if (!tree.ok) { rej[tree.why] = (rej[tree.why] ?? 0) + 1; continue }
     if (seen.has(tree.base.join(','))) continue
-    if (zoneHit(zones, q.x, q.z)) { rej.zone = (rej.zone ?? 0) + 1; continue }
+    if (zoneHit(zones, q.x, q.z, undefined, { surfaceY: tree.base[1] })) { rej.zone = (rej.zone ?? 0) + 1; continue }
     seen.add(tree.base.join(','))
     trees++
     for (const at of tree.logs.slice(0, 4)) {
@@ -17769,7 +17774,7 @@ async function expeditionVisit (ctx, args, signal) {
   let died = false
   const onDeath = () => { died = true }
   try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
-  const trip = { id: `${me}-${Date.now().toString(36)}`, startedAt: Date.now(), open: true, crumbs: [], markers: 0, reused: 0, dist: 0, reason: null }
+  const trip = { id: `${me}-${Date.now().toString(36)}`, v: PLANNER_V, startedAt: Date.now(), trailAt: Date.now(), open: true, crumbs: [], markers: 0, reused: 0, dist: 0, reason: null, detour: null }
   // THE PLACE IS CLAIMED BEFORE ANYTHING ELSE (Codex r2 BLOCK 3): the open trip is published with the slot, then the count of
   // OTHER open trips is read again -- two bots racing for the last place both see each other and both stand down
   st.trip = trip
@@ -17799,16 +17804,17 @@ async function expeditionVisit (ctx, args, signal) {
     const b = tripBearing(trips, Date.now())
     if (b.bearing == null) return { status: 'no_effect', detail: 'every bearing is blocked by water or a zone for today', stop: 'expedition_no_bearing' }
     Object.assign(trip, { bearing: b.bearing, ring: ringOf(trips, Date.now()), reuse: b.reuse })
+    trip.multi = multiCall(trip.ring)
     exWrite(me, st)
     const read = exReader(bot)
     const markers = exMarkers()
-    exRow(bot, 'start', `trip=${trip.id} bearing=${trip.bearing} ring=${trip.ring} reuse=${b.reuse ? 1 : 0} markers_known=${markers.length} kit=${Object.entries(kit).map(([k, v]) => `${k}:${v}`).join(',') || '-'}`)
+    exRow(bot, 'start', `trip=${trip.id} bearing=${trip.bearing} ring=${trip.ring} multi=${trip.multi ? 1 : 0} reuse=${b.reuse ? 1 : 0} markers_known=${markers.length} kit=${Object.entries(kit).map(([k, v]) => `${k}:${v}`).join(',') || '-'}`)
     const start = bot.entity.position
     const s0 = [Math.floor(start.x), Math.floor(start.y + 1e-6), Math.floor(start.z)]
     trip.crumbs.push(s0)
     // 2. OUT
     const tOut = Date.now()
-    const outMs = (deadline - tOut) * OUT_SHARE
+    const outMs = (deadline - tOut) * outShareOf(trip.ring)
     let legFails = 0, sinceMarker = 0
     const dirV = bearingVec(trip.bearing)
     for (;;) {
@@ -17821,7 +17827,11 @@ async function expeditionVisit (ctx, args, signal) {
       const why = turnReason({ health: bot.health ?? 20, food: bot.food ?? 20, freeSlots: free, timeOfDay: bot.time?.timeOfDay ?? 0, inWater: !!bot.entity?.isInWater,
         dist, ring: trip.ring, elapsedMs: Date.now() - tOut, outMs, legFails })
       if (why) { trip.reason = why; break }
-      const lt = legTarget(read, { pos: p, home, bearing: trip.bearing, markers, zones })
+      const lt = legTarget(read, { pos: p, home, bearing: trip.bearing, markers, zones, detour: trip.detour })
+      // wholemap-s1a: a detour round a zone is carried leg to leg (its waypoints still ahead), and logged when it starts
+      const dNext = lt.detour?.waypoints?.length ? lt.detour : null
+      if (dNext && !trip.detour) { trip.detours = (trip.detours ?? 0) + 1; exRow(bot, 'detour', `trip=${trip.id} zone=${dNext.zone} side=${dNext.side} length=${dNext.length} waypoints=${dNext.waypoints.map(w => w.join(',')).join(';')}`) }
+      trip.detour = dNext
       if (!lt.ok) { trip.reason = lt.why === 'inward' ? 'blocked' : lt.why; trip.whys = lt.whys ?? null; break }
       const before = p.clone()
       try { await goto(ctx, { ...lt.target, range: 2 }, signal, { until: Math.min(tOut + outMs, Date.now() + 30_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -17836,6 +17846,7 @@ async function expeditionVisit (ctx, args, signal) {
         const m = await exPlaceMarker(ctx, signal, cell, dirV, { zones: keepOff, trip, me })
         if (m && !m.partial) { markers.push(m); trip.markers++; sinceMarker = 0 } else sinceMarker = MARKER_EVERY - 8
       }
+      trip.trailAt = Date.now()
       exWrite(me, st)
     }
     const outTook = Date.now() - tOut
@@ -17857,7 +17868,7 @@ async function expeditionVisit (ctx, args, signal) {
     st.lastTripAt = Date.now()
     exWrite(me, st)
     const nHaul = Object.values(haul).reduce((a, c) => a + c, 0)
-    if (r.home) exAppend(exTripsFile(), { t: Date.now(), id: trip.id, by: me, bearing: trip.bearing, ring: trip.ring, dist: Math.round(trip.dist), reason: trip.reason, returned: true, via: r.via, haul: nHaul, markers: trip.markers, reused: trip.reused, crumbs: trip.crumbs.length })
+    if (r.home) exAppend(exTripsFile(), { t: Date.now(), v: trip.v, multi: trip.multi === true, detours: trip.detours ?? 0, id: trip.id, by: me, bearing: trip.bearing, ring: trip.ring, dist: Math.round(trip.dist), reason: trip.reason, returned: true, via: r.via, haul: nHaul, markers: trip.markers, reused: trip.reused, crumbs: trip.crumbs.length })
     try { logEvent({ kind: 'expedition_trip', status: r.home ? 'success' : 'no_effect', snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: tripDetail({ ...trip, crumbs: trip.crumbs.length }) }) } catch { /* telemetry */ }
     return { status: r.home && (nHaul > 0 || trip.markers > 0) ? 'success' : 'no_effect', detail: `expedition ${Math.round(trip.dist)} blocks on bearing ${trip.bearing} (${trip.reason}); ${trip.markers} markers placed, ${trip.reused} reused; brought ${nHaul} items${r.home ? ', home' : ', still on the way home'}`, stop: r.home ? 'expedition' : 'expedition_out' }
   } catch (e) {
