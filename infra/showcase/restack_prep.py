@@ -58,6 +58,24 @@ def kept_promotions(journal, resolve):
     return [p for p in FR.promotions(journal, resolve) if p[2] in keep]
 
 
+def unresolved_newer(journal, resolve, kept):
+    """Codex r1 BLOCK 1: a KEEP run's `promoted` row NEWER than the newest resolved one whose sha this clone cannot resolve
+    (a failed fetch, a sha not pushed) -> [(ts, run, hex)]. Non-empty = the target is unknown: never in_sync on an older
+    build. Pure."""
+    keep = {r.get('run') for r in journal
+            if r.get('phase') == 'recorded' and str(r.get('note', '')).strip().split(' ')[0].upper() == 'KEEP'}
+    t0 = kept[0][0] if kept else None
+    out = []
+    for r in journal:
+        if r.get('phase') != 'promoted' or r.get('run') not in keep:
+            continue
+        t = FR.parse_ts(r.get('ts'))
+        hx = FR.HEX.findall(str(r.get('note', '')))
+        if t and hx and not any(resolve(h) for h in hx) and (t0 is None or t > t0):
+            out.append((t, r.get('run'), hx[0]))
+    return out
+
+
 def plan(live, kept, prot, is_anc):
     """-> {'status': in_sync|no_fleet|no_base|diverged|restack|error, ...}. Pure.
       live   the live release sha; kept the kept promotions (newest first); prot(a, b) -> [hit] | None (protected_diff)
@@ -250,6 +268,11 @@ def run(a):
     live = rel.get('sha')
     row['live'] = live
     kept = kept_promotions(feed.get('journal') or [], SO.resolve)
+    lost = unresolved_newer(feed.get('journal') or [], SO.resolve, kept)
+    if lost:
+        row.update(status='error', detail=f'the newest KEEP promotion {lost[-1][1]} ({lost[-1][2][:12]}) is not in the showcase '
+                                          f'clone: fetch failed or the sha was never pushed -- the target is unknown')
+        return report(row, a.dry_run) or 1
     main_tip = git('rev-parse', '--verify', '--quiet', 'origin/main^{commit}', check=False).stdout.strip() or None
     pats = SO.read_protected([live, kept[0][1] if kept else None, main_tip])
     prot = lambda x, y: SO.protected_diff(x, y, pats) if pats else None
@@ -312,7 +335,12 @@ def main():
     ap.add_argument('--no-tests', action='store_true')
     ap.add_argument('--dry-run', action='store_true')
     a = ap.parse_args()
-    return run(a)
+    try:
+        return run(a)
+    except Exception as e:  # noqa: BLE001 -- Codex r1 BLOCK 2: a crash is an alarm, never a silent stop
+        report({'t': FR.iso(now_utc()), 'status': 'error', 'live': (SO.current_release() or {}).get('sha'),
+                'detail': f'restack_prep crashed: {type(e).__name__}: {str(e)[:200]}'}, a.dry_run)
+        return 1
 
 
 if __name__ == '__main__':

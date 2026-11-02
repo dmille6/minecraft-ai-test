@@ -43,6 +43,12 @@ J = [{'ts': '2026-11-02T01:00:00Z', 'run': 'x-01', 'phase': 'recorded', 'note': 
 k = RP.kept_promotions(J, lambda h: h if len(h) == 40 else None)
 check('only KEEP runs count as kept promotions', [x[2] for x in k] == ['x-01'])
 
+J2 = J + [{'ts': '2026-11-02T03:00:00Z', 'run': 'z-01', 'phase': 'recorded', 'note': 'KEEP'},
+            {'ts': '2026-11-02T03:10:00Z', 'run': 'z-01', 'phase': 'promoted', 'note': f'{C} fleet-wide'}]
+res = lambda h: h if h == A else None          # the clone knows A only: C (newer) did not fetch
+k2 = RP.kept_promotions(J2, res)
+check('Codex r1 BLOCK 1: a newer KEEP promotion this clone cannot resolve is reported (never in_sync on the older one)',
+      [x[1] for x in RP.unresolved_newer(J2, res, k2)] == ['z-01'] and RP.unresolved_newer(J, res, RP.kept_promotions(J, res)) == [])
 check('failed files parsed', RP.failed_files('...\nFAILED (2): a.test.mjs b.test.mjs\n377/379 files passed\n') == {'a.test.mjs', 'b.test.mjs'})
 check('a clean run is the empty set', RP.failed_files('wall 1s\n379/379 files passed\n') == set())
 check('an unfinished run is None (never a pass)', RP.failed_files('ok a.test.mjs\nTIMEOUT\n') is None)

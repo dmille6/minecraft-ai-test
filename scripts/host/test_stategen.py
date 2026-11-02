@@ -75,5 +75,7 @@ bad = G.generated_block({'journal': None, 'journal_error': 'gone', 'queue': None
 check('every unreadable source is a !! line', all(s in bad for s in ('!! journal UNREADABLE', '!! scheduler status UNREADABLE',
                                                                       '!! ledger UNREADABLE', '!! ALARMS.log UNREADABLE',
                                                                       '!! showcase stream UNREADABLE')))
+stale = G.generated_block(dict(facts, fetch_error='git fetch rc=128: no network'), NOW)
+check('Codex r1 BLOCK 3: a failed fetch is a !! line', '!! the ledger and NOTES are from a STALE clone' in stale)
 print(f'\n{"FAILED " + str(len(FAILS)) if FAILS else "all passed"}')
 sys.exit(1 if FAILS else 0)

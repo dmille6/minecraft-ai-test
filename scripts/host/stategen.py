@@ -242,6 +242,8 @@ def generated_block(f, now):
         rows.append(('Owner-direct / rollouts (24 h)', '; '.join(
             f'{r}: {v["phase"]} {hm(v["t"])}' for r, v in sorted(J['rollouts'].items(), key=lambda kv: kv[1]['t'])[-5:])))
     P = f.get('pending')
+    if f.get('fetch_error'):
+        rows.append(('Ledger', f'!! the ledger and NOTES are from a STALE clone ({f["fetch_error"]}): owner decisions may be newer on main'))
     if P is None:
         rows.append(('Pending owner decisions', f'!! ledger UNREADABLE ({f.get("ledger_error")})'))
     else:
@@ -298,7 +300,9 @@ def collect(now, fetch=True):
         f['queue'], f['queue_error'] = None, str(e)[:120]
     try:
         if fetch:
-            sh(['git', '-C', REPO, 'fetch', '-q', 'origin', 'main'], timeout=180)
+            frc, _, ferr = sh(['git', '-C', REPO, 'fetch', '-q', 'origin', 'main'], timeout=180)
+            if frc:   # Codex r1 BLOCK 3: a failed fetch is said, never a fresh-looking STATE from a stale ledger
+                f['fetch_error'] = f'git fetch rc={frc}: {ferr.strip()[:80]}'
         rc, out, err = sh(['git', '-C', REPO, 'show', 'origin/main:config/owner-commitments.json'])
         if rc:
             raise RuntimeError(err.strip()[:100])

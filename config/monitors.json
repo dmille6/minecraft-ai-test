@@ -432,7 +432,7 @@
    "fresh_hours": null,
    "consumer": "main docs/reports/STATE.md (its commits); a stale generated copy (> 3 h) is logged and not committed -- stallcheck's stategen freshness check is the alarm",
    "kind": "relay",
-   "note": "scripts/mac/state-relay.sh, StartInterval 3600: scp ~/digest/STATE.md from the canary host, splice main's NOTES block, commit + push only when the generated block changed (or the committed copy is > 6 h old); fetch + rebase, never force."
+   "note": "scripts/mac/state-relay.sh, hourly at :30 (StartCalendarInterval): scp ~/digest/STATE.md from the canary host, splice main's NOTES block, commit + push only when the generated block changed (or the committed copy is > 6 h old); fetch + rebase, never force."
   },
   {
    "id": "showcase-restack",
