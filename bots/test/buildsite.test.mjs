@@ -596,7 +596,7 @@ await t('MUTANT the never-a-floor rule dropped in walkFrom', () => mutantKilled(
   const over = M.overlay(world(cells), new Map([[`30,${G},0`, { name: 'cobblestone', boundingBox: 'block' }]]))
   assert.ok(!M.walkFrom(over, HOME, new Set([`30,${G},0`])).has(`31,${G + 1},0`))
 }))
-await t('MUTANT the earthwork total ignored', () => mutantKilled('if (fill > EARTH.fill || cut > EARTH.cut || litter > LITTER_MAX) {', 'if (false) {', M => {
+await t('MUTANT the earthwork total ignored', () => mutantKilled('if (fill > earth.fill || cut > earth.cut || litter > LITTER_MAX) {', 'if (false) {', M => {
   assert.strictEqual(M.screenSite(world(dipBump(41)), HOME, BP, A, O, M.reservations(plan(), {}), { sector: 'E' }).why, 'earthwork')
 }))
 await t('MUTANT the replant gate dropped in siteBlueprint', () => mutantKilled("if (!rp.ok) { proofFails.no_replant_cell = (proofFails.no_replant_cell ?? 0) + 1; continue }", '', M => {
