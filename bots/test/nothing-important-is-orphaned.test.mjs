@@ -79,6 +79,11 @@ const REQUIRED = [
   // showchat-01 (11-01): the showcase's templated chat announcements (comms stage 2) + the timelapse captions
   'bots/src/showchat.mjs',
   'bots/test/showchat.test.mjs',
+  // sortstore-01 (11-01): the sorted storehouse, its labels' Paper proof and the showcase fixture its tests read
+  'bots/src/sortstore.mjs',
+  'bots/test/sortstore.test.mjs',
+  'bots/test/fixtures/sortstore-showcase-1101.json',
+  'sandbox/sortstore/sign-proof.cjs',
   'bots/src/shopchest.mjs',
   'bots/test/shopchest.test.mjs',
   'bots/src/expedition.mjs',

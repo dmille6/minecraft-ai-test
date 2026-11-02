@@ -201,7 +201,7 @@ export function needCount (o, need) {
 /** The miss TTL of one need: missTtl itself (a number), or its entry in a { need: ms } map, else SEARCH_MISS_TTL_MS. Pure. */
 export const missTtlOf = (missTtl, need) => (missTtl && typeof missTtl === 'object' ? (Number.isFinite(missTtl[need]) ? missTtl[need] : SEARCH_MISS_TTL_MS) : missTtl)
 export function townSearchOrder (containers = [], needs = [], { counts = {}, misses = {}, tookAt = {}, skip = [], want = {},
-                                                               now = Date.now(), missTtl = SEARCH_MISS_TTL_MS, countTtl = OBS_TTL_MS } = {}) {
+                                                               now = Date.now(), missTtl = SEARCH_MISS_TTL_MS, countTtl = OBS_TTL_MS, prefer = null } = {}) {
   const out = new Set(Array.isArray(skip) ? skip : [...(skip ?? [])])
   const seen = new Set()
   const res = []
@@ -230,9 +230,10 @@ export function townSearchOrder (containers = [], needs = [], { counts = {}, mis
       allOut = false
     }
     if (allOut) continue
-    res.push({ k, tier: has ? 0 : 1, cover, d: Number.isFinite(c.d) ? c.d : Infinity })
+    // sortstore-01: within a tier, the needs' category homes first (`prefer`, a Set of keys: sortstore.mjs searchPrefer)
+    res.push({ k, tier: has ? 0 : 1, home: prefer?.has?.(k) ? 0 : 1, cover, d: Number.isFinite(c.d) ? c.d : Infinity })
   }
-  res.sort((a, b) => a.tier - b.tier || b.cover - a.cover || a.d - b.d || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0))
+  res.sort((a, b) => a.tier - b.tier || a.home - b.home || b.cover - a.cover || a.d - b.d || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0))
   return res
 }
 
