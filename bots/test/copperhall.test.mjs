@@ -84,6 +84,24 @@ await t('r3 (LIVE 11-02: every gate row read 0): the town copper is each contain
   assert.equal(H.hallOpening({ ingots: 130, cut: 10 }).open, false)
 })
 
+await t('Codex r3 BLOCK: a single chest that became the other half of a double chest is counted once (the newer double observation)', () => {
+  const entries = {
+    '-9,71,2': { obs: { at: 5, h: ['-9,71,2', '-9,71,3'], names: { copper_ingot: [160, 3], cut_copper: [10, 1] } } },
+    '-9,71,3': { obs: { at: 2, h: ['-9,71,3'], names: { copper_ingot: [160, 3], cut_copper: [10, 1] } } },
+  }
+  assert.deepEqual(H.townCopperOf(entries), { ingots: 160, cut: 10, containers: 1, stale: 0 })
+  // a half observed AFTER the double (it was split again): its own observation counts
+  entries['-9,71,3'].obs.at = 9
+  assert.equal(H.townCopperOf(entries).containers, 2)
+})
+
+await t('MUTANT KILLED: without the halves rule the double chest counts twice and the hall opens on 160', async () => {
+  await withMutant(HALL_PATH, '    if (covered.has(k) && covered.get(k) >= (Number(e.obs.at) || 0)) continue\n', '', async M => {
+    const entries = { a: null, '-9,71,2': { obs: { at: 5, h: ['-9,71,2', '-9,71,3'], names: { copper_ingot: [160, 3] } } }, '-9,71,3': { obs: { at: 2, names: { copper_ingot: [160, 3] } } } }
+    assert.equal(M.townCopperOf(entries).ingots, 320)
+  })
+})
+
 await t('MUTANT KILLED: a count of FRESH entries only (the live bug) reads the stale copper chest as nothing', async () => {
   await withMutant(HALL_PATH, "    if (st !== 'known' && st !== 'stale') continue\n", "    if (st !== 'known') continue\n", async M => {
     const entries = { '-9,71,2': { obs: { names: { copper_ingot: [130, 3] } } }, '-5,71,8': { obs: { names: { torch: [1, 1] } } } }
