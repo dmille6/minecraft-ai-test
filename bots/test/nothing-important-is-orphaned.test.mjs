@@ -80,6 +80,9 @@ const REQUIRED = [
   // tidy-01 (11-01): the town-ground tidy (pillars, pits, the paths' corridors graded) and its offline proof on region copies
   'bots/src/tidy.mjs',
   'bots/test/tidy.test.mjs',
+  // stationkeep-01 (resource-model-1102 stage 2): smelt retakes its furnace, the tidy sweeps stray stations
+  'bots/src/stationkeep.mjs',
+  'bots/test/stationkeep.test.mjs',
   'bots/scripts/tidy-offline.mjs',
   'docs/reports/tidy-01-2026-11-01.md',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
