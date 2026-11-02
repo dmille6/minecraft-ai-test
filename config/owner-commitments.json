@@ -1328,7 +1328,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Showcase COMPLETE 11-01 15:16:23Z (release bb89931e; pieces storehouse-01show..r4; camera `storehouse`): watch it stays complete (tidy upkeep keeps the doorway/stands clear). Then: labels (signs: no sign code exists -- design it), barrels in the 6 gap cells (13 containers), sortdeposit-01; fleet rollout only after (STOREHOUSE_POOLS)",
+   "next_step": "Showcase COMPLETE 11-01 15:16:23Z (release bb89931e; pieces storehouse-01show..r4; camera `storehouse`): watch it stays complete (tidy upkeep keeps the doorway/stands clear). Labels + sorting = sortdeposit-01 (sortstore-01, built 11-01). Barrels in the gap cells NOT built (decided 11-01: the plan has a free interior chest cell for the next homeless group; farm/misc use the overflow). Fleet rollout only after (STOREHOUSE_POOLS)",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
@@ -1343,9 +1343,10 @@
   },
   {
    "id": "sortdeposit-01",
-   "title": "Sorted deposits: deposit to the chest holding that item / its group chest",
+   "title": "Sorted storehouse (owner 11-01 item 1): deposits to each item's category chest, category-first search, a bounded tidy, sign labels",
    "owner_date": "2026-10-20",
    "memory": [
+    "owner-showcase-next-1101.md",
     "owner-town-plan-1020.md",
     "owner-two-queues-1025.md"
    ],
@@ -1353,8 +1354,8 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Build on the showcase first (owner 10-25: showcase-first), then fleet tier 2",
-   "max_quiet_hours": 168,
+   "next_step": "LIVE on the showcase 11-01 23:07Z (release ea374099 on bb89931e, piece sortstore-01show; rollback bb89931e or SORTSTORE=off): read the _store_sign / _sort_tidy / _sort_deposit rows and the storehouse chests (index + RCON read) for 2 h -- labels on the 6 interior chests, misplaced stacks moving to their homes, town deposits landing t0/t1; camera `storehouse`. Then fleet tier 2 with STOREHOUSE (SORTSTORE_POOLS)",
+   "max_quiet_hours": 48,
    "depends_on": [
     {
      "item": "storehouse-01"
@@ -1362,13 +1363,18 @@
    ],
    "evidence": {
     "branches": [
+     "sortstore*",
      "sortdeposit*"
     ],
     "grep": [
+     "sortstore-01",
      "sortdeposit"
+    ],
+    "paths": [
+     "bots/src/sortstore.mjs"
     ]
    },
-   "note": "Not built; dropped from REQUIRED_KEPT 10-25 (owner '1 and 2'). grep matches only found-01 records."
+   "note": "Built 11-01 (control session subagent): bots/src/sortstore.mjs + skills.mjs wiring (town_deposit order + accept, deposit verb first chest, search/withdraw home first, storehouse upkeep visit: labels + tidy). Tier 2 (not protected). Codex blockers-only r1 BLOCK (a full overflow left roomy homes unused) -> r2 APPROVE, r3 APPROVE (dueFirst); Claude independent subagent r1 APPROVE. Paper 1.21.8 proofs sandbox/sortstore/sign-proof.cjs + upkeep-e2e.mjs. Kill switch SORTSTORE=off (SORT_TIDY=off / SORT_SIGNS=off alone)."
   },
   {
    "id": "farhome-01",
