@@ -34,19 +34,22 @@ const HOME = { x: 0, y: 64, z: 0 }
 const S = (x, z, name = 'crafting_table', extra = {}) => ({ at: [x, 64, z], name, lit: false, ...extra })
 
 await t('smeltRetake: only a placed, drained furnace, never on an abort or an unread window', () => {
-  assert.deepEqual(SK.smeltRetake({ placed: true, input: 0, output: 0 }), { retake: true, why: 'drained' })
-  assert.equal(SK.smeltRetake({ placed: false, input: 0, output: 0 }).retake, false)
-  assert.equal(SK.smeltRetake({ placed: true, aborted: true, input: 0, output: 0 }).why, 'aborted')
-  assert.equal(SK.smeltRetake({ placed: true, input: 3, output: 0 }).why, 'input_left')
-  assert.equal(SK.smeltRetake({ placed: true, input: 0, output: 2 }).why, 'output_left')
+  assert.deepEqual(SK.smeltRetake({ placed: true, input: 0, output: 0, fuel: 0 }), { retake: true, why: 'drained' })
+  assert.equal(SK.smeltRetake({ placed: true, input: 0, output: 0, fuel: 1 }).why, 'fuel_left', 'r1 BLOCKER: fuel left keeps it')
+  assert.equal(SK.smeltRetake({ placed: true, input: 0, output: 0 }).why, 'unread', 'an unread fuel slot is not empty')
+  assert.equal(SK.smeltRetake({ placed: false, input: 0, output: 0, fuel: 0 }).retake, false)
+  assert.equal(SK.smeltRetake({ placed: true, aborted: true, input: 0, output: 0, fuel: 0 }).why, 'aborted')
+  assert.equal(SK.smeltRetake({ placed: true, input: 3, output: 0, fuel: 0 }).why, 'input_left')
+  assert.equal(SK.smeltRetake({ placed: true, input: 0, output: 2, fuel: 0 }).why, 'output_left')
   assert.equal(SK.smeltRetake({ placed: true, input: undefined, output: 0 }).why, 'unread')
 })
 
-await t('strays: the KEEP_PUBLIC nearest of each kind stay, the rest are swept nearest first', () => {
+await t('strays: the KEEP_PUBLIC nearest of each kind stay; the other TABLES are swept nearest first; a furnace is NEVER swept (r1 BLOCKERS)', () => {
   const found = [S(10, 0), S(2, 0), S(5, 0), S(20, 0), S(3, 3, 'furnace'), S(9, 9, 'furnace'), S(15, 15, 'furnace')]
   const r = SK.strayStations(found, { home: HOME })
   assert.deepEqual(r.kept.map(c => c.at.join(',')), ['2,64,0', '3,64,3', '5,64,0', '9,64,9'])
-  assert.deepEqual(r.sweep.map(c => c.at.join(',')), ['10,64,0', '20,64,0', '15,64,15'])   // 20 < 21.2
+  assert.deepEqual(r.sweep.map(c => c.at.join(',')), ['10,64,0', '20,64,0'])
+  assert.equal(r.skipped.not_swept_furnace, 1, 'the third furnace is reported, not dug')
 })
 
 await t('strays: guarded columns, record cells, lit or holding furnaces, outside, given up and other names never swept', () => {
@@ -196,6 +199,15 @@ await t('SMELT: input left in the furnace (the job not drained) -> the furnace s
   assert.ok((await rowsSince(n)).some(x => x.kind === '_station_retaken' && /outcome=left why=input_left/.test(x.detail)))
 })
 
+await t('SMELT: no pickaxe in the bag -> the furnace is LEFT (a bare-hand dig drops nothing), never destroyed (r1 BLOCKER)', async () => {
+  const n = await mark()
+  const { bot, digs, world } = makeBot([item('raw_iron', 4), item('coal', 1), item('furnace', 1)])
+  const r = await smelt(bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(digs.filter(d => d.name === 'furnace').length, 0); assert.ok([...world.values()].includes('furnace'))
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_station_retaken' && /outcome=left why=no_tool/.test(x.detail)))
+})
+
 await t('SMELT: no block events to prove it is ours -> left, never dug', async () => {
   const n = await mark()
   const { bot, digs } = makeBot([item('raw_iron', 4), item('coal', 1), item('furnace', 1), PICK()], { eventless: true })
@@ -247,9 +259,11 @@ const mut = async (old, neu, probe) => {
 }
 const probeKeep = M => { const r = M.strayStations([S(1, 0), S(2, 0), S(3, 0)], { home: HOME }); assert.deepEqual(r.sweep.map(c => c.at[0]), [3]) }
 const probeGuard = M => { assert.equal(M.strayStations([S(1, 0), S(2, 0), S(3, 0)], { home: HOME, avoid: x => (x === 3 ? 'z' : null) }).sweep.length, 0) }
-const probeHolds = M => { assert.equal(M.strayStations([S(1, 0, 'furnace'), S(2, 0, 'furnace'), S(3, 0, 'furnace')], { home: HOME, holds: () => true }).sweep.length, 0) }
-const probeInput = M => { assert.equal(M.smeltRetake({ placed: true, input: 2, output: 0 }).retake, false) }
-const probeAbort = M => { assert.equal(M.smeltRetake({ placed: true, aborted: true, input: 0, output: 0 }).retake, false) }
+const probeHolds = M => { assert.equal(M.strayStations([S(1, 0, 'furnace'), S(2, 0, 'furnace'), S(3, 0, 'furnace')], { home: HOME, holds: () => true }).skipped.holds, 3) }
+const probeFuel = M => { assert.equal(M.smeltRetake({ placed: true, input: 0, output: 0, fuel: 2 }).retake, false) }
+const probeNoFurnaceSweep = M => { assert.equal(M.strayStations([S(1, 0, 'furnace'), S(2, 0, 'furnace'), S(3, 0, 'furnace')], { home: HOME }).sweep.length, 0) }
+const probeInput = M => { assert.equal(M.smeltRetake({ placed: true, input: 2, output: 0, fuel: 0 }).retake, false) }
+const probeAbort = M => { assert.equal(M.smeltRetake({ placed: true, aborted: true, input: 0, output: 0, fuel: 0 }).retake, false) }
 const probeGiven = M => { assert.equal(M.strayStations([S(1, 0), S(2, 0), S(3, 0)], { home: HOME, given: () => true }).sweep.length, 0) }
 await t('mutants: every decision line is load-bearing (anchors asserted present and unique)', async () => {
   await mut("    if (n[c.name] <= (keep[c.name] ?? 0)) { kept.push(c); continue }", "    if (false) { kept.push(c); continue }", probeKeep)
@@ -258,7 +272,9 @@ await t('mutants: every decision line is load-bearing (anchors asserted present 
   await mut("  if ((Number(input) || 0) > 0) return { retake: false, why: 'input_left' }", "", probeInput)
   await mut("  if (aborted) return { retake: false, why: 'aborted' }", "", probeAbort)
   await mut("    if (given(c.k)) { skip('given_up'); continue }", "", probeGiven)
-  assert.ok(killed.length === 6 && killed.every(Boolean), `killed ${killed.filter(Boolean).length}/${killed.length}`)
+  await mut("  if ((Number(fuel) || 0) > 0) return { retake: false, why: 'fuel_left' }", "", probeFuel)
+  await mut("    if (!SWEEP_NAMES.includes(c.name)) { skip(`not_swept_${c.name}`); continue }", "", probeNoFurnaceSweep)
+  assert.ok(killed.length === 8 && killed.every(Boolean), `killed ${killed.filter(Boolean).length}/${killed.length}`)
   console.log(`  mutants killed ${killed.filter(Boolean).length}/${killed.length}`)
 })
 
