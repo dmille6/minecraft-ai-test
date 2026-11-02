@@ -139,6 +139,8 @@ import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
 import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
+import { tableCandidates, TABLE_TRIES } from './workbench.mjs'   // bagdiet-01: the craft's table candidates
+import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs'   // bagdiet-01: the light projects' hold and bank-back gate
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
@@ -5297,21 +5299,33 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
   const rs = { tries: 0, tableYields: false, pickupDealt: false, owed: owedNow, stationDid }
 
   if (!recipe) {
+    const isTable = b => bot.registry.blocks[b.type]?.name === 'crafting_table'
     const nearTable = bot.findBlock({
       matching: b => bot.registry.blocks[b.type]?.name === 'crafting_table',
       maxDistance: 32,
     })
+    // BAGDIET-01 (workbench.mjs tableCandidates): the next nearest tables too, before the carried one is put down
+    let nearTables = nearTable ? [nearTable] : []
+    try {
+      if (typeof bot.findBlocks === 'function') {
+        const more = (bot.findBlocks({ matching: isTable, maxDistance: 32, count: TABLE_TRIES * 2 }) ?? []).map(v => bot.blockAt?.(v)).filter(b => b && isTable(b))
+        const me = bot.entity?.position
+        nearTables = tableCandidates([...nearTables, ...more], b => (me ? me.distanceTo(b.position) : 0), { max: TABLE_TRIES })
+        if (nearTable && !nearTables.some(b => posKey(b.position) === posKey(nearTable.position))) nearTables.unshift(nearTable)
+      }
+    } catch { /* the nearest alone, as before */ }
     // workbench-01: a town job's craft (ctx.preferWorkshop) tries the complete workshop's own table first, within the same 32,
     // then the nearest one as before when the workshop's could not be reached
     const wsTables = ctx.preferWorkshop ? [...(bot.shopStations?.tables ?? [])].map(k => bot.blockAt?.(keyVec(k))).filter(b => b && bot.registry.blocks[b.type]?.name === 'crafting_table' && bot.entity.position.distanceTo(b.position) <= WORKSHOP_REACH) : []
-    const tableTries = preferWorkshop([...wsTables, nearTable].filter(Boolean), b => posKey(b.position), bot.shopStations?.tables)
-    for (const tableBlock of tableTries) {
+    const tableTries = preferWorkshop([...wsTables, ...nearTables].filter(Boolean), b => posKey(b.position), bot.shopStations?.tables)
+    for (const [ti, tableBlock] of tableTries.entries()) {
       check(signal)
       // Two attempts at getting close, because the first often fails on the
       // approach rather than the destination -- a bot standing on the table's
       // own block, or one leaf between it and the goal. GoalNear(1) puts it
       // adjacent; GoalNear(3) is the fallback that still leaves it in reach.
-      for (const range of [1, 3]) {
+      // BAGDIET-01: a later candidate gets the looser goal alone (a bounded third and fourth walk, not two each)
+      for (const range of (ti === 0 ? [1, 3] : [3])) {
         try {
           await withTimeout(bot.pathfinder.goto(
             new goals.GoalNear(tableBlock.position.x, tableBlock.position.y, tableBlock.position.z, range)), 12000, bot)
@@ -6494,6 +6508,10 @@ function refuseNoRoom(bot, item, plan, room, why, sofar = '', protect = []) {
  * with room to receive it. The dig goes through collectManually (reach, dig, read-back, pickup), and the table
  * must ARRIVE in the bag. Every outcome is a `_table_retaken` row.
  */
+/** BAGDIET-01: the dug table's drop is looked for this far from the cell's centre (was 4: 31 of 184 retakes 11-02 00:00-12:43Z
+ *  ended "its drop is not in sight"), and the bag is read TABLE_LATE_LOOKS more times (100 ms apart) before a retake fails. */
+const TABLE_DROP_R = 6
+const TABLE_LATE_LOOKS = 10
 async function retakeTables(ctx, watched, signal) {
   try { return await retakeWatched(ctx, watched, signal) } finally { for (const w of watched) w.stop() }
 }
@@ -6554,7 +6572,7 @@ async function retakeWatched(ctx, watched, signal) {
         if (e?.name !== 'item' || !e.position) return false
         let n = null
         try { n = e.getDroppedItem?.()?.name } catch {}
-        return n === 'crafting_table' && e.position.distanceTo(centre) < 4
+        return n === 'crafting_table' && e.position.distanceTo(centre) < TABLE_DROP_R
       })
       const Goal = pickupGoalClass(goals)
       if (drop && Goal) {
@@ -6568,6 +6586,8 @@ async function retakeWatched(ctx, watched, signal) {
         walked = walked || ' after walking into its pickup box'
       } else walked = drop ? ' (no pickup goal available)' : ' (its drop is not in sight)'
     }
+    // BAGDIET-01: a LATE arrival is still an arrival (the bag's window update can trail the collect): one bounded last look
+    for (let i = 0; i < TABLE_LATE_LOOKS && !back; i++) { await sleep(100, signal); back = countItem(bot, 'crafting_table') > before }
     if (back) { row('success', `dug and back in the bag${walked}`); said.push('took the table back') } else {
       row('failed', `dug but it did not arrive (${bot.blockAt(at)?.name ?? 'unknown'} there now)${walked}`)
       said.push('dug the table but it did not arrive')
@@ -18550,7 +18570,8 @@ async function buildMonument (ctx, args, signal) {
     // VOIDFILL-01 (Codex r1 BLOCK): cells the stuck map holds may take an access -- the cap it opens and re-places, and the spare
     // its climb-out keeps, beyond the open cells' own bill: drawn here, or the access refuses no_material every visit
     try { if (zigAccessOf(bot, c) && Object.keys(vfStuckRead(dir, key)).length) want.cobblestone = (want.cobblestone ?? 0) + VF_ACCESS_DIG_MAX + VF_ACCESS_SPARE } catch { /* no extra draw */ }
-    const need = needFromTown(want, spare0)
+    // BAGDIET-01: a visit holds at most PROJECT_VISIT_HOLD of a name (the bag's spare counts): a bag holding a visit's worth draws nothing
+    const need = needFromTown(want, spare0, SHOP_BILL_CAP, PROJECT_VISIT_HOLD)
     let took = {}
     bag0 = held0
     if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
@@ -18593,7 +18614,7 @@ async function buildMonument (ctx, args, signal) {
     }
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
-    if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    if (left.length && bankBackDue(budget, Date.now() - t0, LIGHT_BANK_MIN_MS)) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, `${r.why ?? r.stop}; built ${zigProgressNow(bot, rec)}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
@@ -18978,7 +18999,7 @@ async function buildWall (ctx, args, signal) {
     }
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
-    if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    if (left.length && bankBackDue(budget, Date.now() - t0, LIGHT_BANK_MIN_MS)) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const done = (() => { try { const h2 = recordHead(dir, key); const rw = h2.ok && h2.head ? h2.head.rec : rec; const p = wallProgress(rec, q => wallWaived(rw, q) || buildCellDone(read(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, `${r.why ?? r.stop}; built ${done}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
@@ -19338,7 +19359,7 @@ async function buildTreeFarm (ctx, args, signal) {
     const done = (b, pal, role) => buildCellDone(b, pal, role) || (role === 'plot' && /_log$/.test(String(b?.name ?? '')))
     const town = matsTownStock(bot)?.stock ?? {}
     const bill = billOf(vrec, palette, read, { done, inTown: billInTown(town) })
-    const need = needFromTown(bill, spare0, SHOP_BILL_CAP)
+    const need = needFromTown(bill, spare0, SHOP_BILL_CAP, PROJECT_VISIT_HOLD)
     let took = {}
     if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: heldB })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
     const R0 = matsReserve().table
@@ -19374,7 +19395,7 @@ async function buildTreeFarm (ctx, args, signal) {
     const caps = { ...took }
     for (const [n, k] of Object.entries(heldNow)) if (/_log$/.test(n) && k > (held0[n] ?? 0)) caps[n] = (caps[n] ?? 0) + (k - (held0[n] ?? 0))
     const left = [...new Set([...leftoverNames(took, held0, heldNow), ...Object.keys(caps).filter(n => /_log$/.test(n))])]
-    if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, caps, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    if (left.length && bankBackDue(budget, Date.now() - t0, LIGHT_BANK_MIN_MS)) { try { back = await matsBank(ctx, left, held0, signal, caps, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const prog = (() => { try { const p = farmProgress(rec, q => farmAlsoDone(q, read) || buildCellDone(read(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
     const census = Object.entries(farmCensus(read, rec)).map(([k, v]) => `${k}:${v}`).join(',')
     const status = r.placed > 0 || r.cleared > 0 || hv.felled > 0 ? 'success' : 'no_effect'
