@@ -21,6 +21,8 @@ import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
+import { stationGate } from './stationkeep.mjs'   // towngate-01 (b)
+import { strayTableNear } from './skills.mjs'   // towngate-01 (b): the nearest stray table (cached)
 
 
 const REPEAT_WINDOW = 4
@@ -517,6 +519,14 @@ export class AdmissionControl {
       // detail names the remedy (dig with the held copy / the skill places the carried station).
       const redundant = redundantCraft(args.item, bot.inventory?.items?.() ?? [], { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })
       if (redundant) return { ok: false, reason: 'redundant_craft', detail: redundant.detail, redundant }
+      // TOWNGATE-01 (b): A TABLE CRAFT WITH A STRAY TABLE IN REACH IS REDIRECTED (stationkeep.mjs stationGate): refused with the
+      // remedy as a deterministic redirect -- take_station digs that table into the bag, which is the item the craft would make, so
+      // a rung that wants it is satisfied by the remedy. cognitive.mjs runs the redirect in the same decision, and admits this craft
+      // (stationGateOff) when the redirect itself is refused; a failed take gives the table up, so the next craft is admitted.
+      if (!this.stationGateOff && args.item === 'crafting_table') {
+        const gate = stationGate({ item: args.item, items: bot.inventory?.items?.() ?? [], near: strayTableNear(bot) })
+        if (gate) return { ok: false, ...gate }
+      }
       // NO SWORD IN A PEACEFUL WORLD (peacefulkit.mjs, owner 10-07; the food policy's switch). Before any walk to a table.
       const noSword = swordCraftRefusal(args.item, foodSkipNow(bot).active)
       if (noSword) return { ok: false, reason: 'peaceful_no_sword', detail: noSword }
