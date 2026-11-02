@@ -1636,14 +1636,14 @@ export function foodSkipNow (bot) {
  * reach the cap, and measured 10-19 the deposit and the well then both refused in 163 + 196 visits a day). The rule is
  * cobblecap.mjs wellCobbleSwitch.
  */
-export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? [], { floorOnly = false, cap = TOWN_COBBLE_CAP } = {}) {
+export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? [], { floorOnly = false } = {}) {
   try {
     const stacks = cobbleWellStacks(items)
     if (!stacks.length) return 'none'
     // cobblekeep-01 (cobblecap.mjs wellCobbleSwitch): the AVAILABLE floor as before, OR the bank's own at-cap refusal of
     // this smallest stack on counted stock (no incoming reservation); cobble a withdraw holds is never thrown
     const h = withdrawHolds()
-    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })   // towngate-01: the overflow asks at the table's HIGH
+    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })
   } catch { return 'unknown' }
 }
 
@@ -19202,7 +19202,10 @@ export function overflowNow (bot, items = bot?.inventory?.items?.() ?? []) {
   try {
     // Codex r1 BLOCKER: PROVEN means the counted floor itself >= HIGH (floorOnly) -- never the bank's admission fallback, which
     // reads 'at_cap' at 981 + a 64 stack
-    const cap = cobbleWellCap(bot, items, { cap: MARKS.cobble.high, floorOnly: true })
+    // (its own switch call, not cobbleWellCap's: that line is the stonecap/cobblekeep mutants' anchor, and its cap is the bank's)
+    const stacks = cobbleWellStacks(items)
+    const h = withdrawHolds()
+    const cap = !stacks.length ? 'none' : wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: MARKS.cobble.high, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly: true })
     const g = overflowGate({ cap, yardRoom: YARD_ROOM.cobble, yardFull: null, bill: cap === 'at_cap' ? projectCobbleBill(bot) : 0 })
     let town = null
     try { town = cobbleTownViewFor(bot).lb } catch { town = null }
