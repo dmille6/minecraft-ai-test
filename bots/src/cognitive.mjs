@@ -16,6 +16,8 @@ import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, shopShareHeld, projectPartReserve, drainPickNow } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem, wellVisitOrder } from './well.mjs'
+import { OVERFLOW } from './well.mjs'   // towngate-01 (a)
+import { overflowNow } from './skills.mjs'   // towngate-01 (a): the visit's metered overflow
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
 import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
 import { townWellStandY } from './skills.mjs'
@@ -910,15 +912,20 @@ export class CognitiveLoop {
       // THE WELL: listed junk only, never a name the goal wants (Claude design r1 P3-6), near the well (VISIT_WELL_REACH)
       let w = null
       const well = () => (w ??= townWellState(bot))
+      // TOWNGATE-01 (a): ...and, with the town PROVEN at HIGH, no yard room and no open bill a lease could serve now, whole cobble
+      // stacks above the bag's keep (well.mjs overflowGate; read lazily, only past wellVisitOrder's cheap gates; the skill re-judges)
+      let ov = null
+      const overflowOk = () => (ov ??= (OVERFLOW.on ? overflowNow(bot, items) : { ok: false })).ok
       const rw = wellVisitOrder({
         now, slots: items.length, inZone, distHome, dy,
-        visitJunkStacks: () => disposePlan(items, { keep: wantedNow() }).junkStacks,
+        visitJunkStacks: () => disposePlan(items, { keep: wantedNow(), cobbleAtCap: overflowOk() }).junkStacks,
         well, distWell: () => { const c = well()?.cap; return c ? Math.hypot(c.x + 0.5 - p.x, c.z + 0.5 - p.z) : null },
         inside: () => insideTownWell(bot), keep: wantedNow,
         depth: skill => wellOutOfReach({ feetY: p.y, standY: townWellStandY(bot, skill) ?? config.world.homeY }),
         state: this.wellVisitState, wellState: this.wellState ?? {}, myName: bot.username ?? '',
       })
       this.wellVisitState = rw.state
+      if (rw.order && ov?.ok) rw.order = { ...rw.order, args: { ...rw.order.args, overflow: true }, why: `${rw.order.why}; the town is proven at its cobble HIGH, so surplus cobble stacks above the keep go too (metered)` }
       if (rw.order) { this.wellState = { ...(this.wellState ?? {}), lastDisposeAt: now }; return rw.order }
       // THE COMPOSTER: compost junk and the peaceful plants, never a sapling (Claude design r1 P2-5)
       const peaceful = foodSkipNow(bot).active
@@ -1609,6 +1616,19 @@ export class CognitiveLoop {
             wanted: !!wantedNow?.has?.(rejection.redundant.item), source: order ? 'order' : 'model', wantedSet: wantedNow })
           logEvent({ kind: 'redundant_craft', status: 'no_effect', detail: row.detail, args: row.args, snapshot: snapshot(this.bot) })
         } catch { /* a log row must never break the decision loop */ }
+      }
+      // TOWNGATE-01 (b): A TABLE CRAFT REDIRECTED (stationkeep.mjs stationGate) RUNS ITS REMEDY IN THIS DECISION: take_station,
+      // through the gate like any proposal. If the gate refuses the redirect, the ORIGINAL craft is admitted (never a dead end).
+      if (rejection?.reason === 'station_in_reach' && rejection.redirect) {
+        let c2 = this.admission.check(rejection.redirect, this.bot, wantedNow)
+        let via = 'take_station'
+        if (!c2.ok) {
+          this.admission.stationGateOff = true
+          try { c2 = this.admission.check(res.proposal, this.bot, wantedNow) } finally { this.admission.stationGateOff = false }
+          via = 'craft'
+        }
+        try { logEvent({ kind: 'station_redirect', status: c2.ok ? 'success' : 'refused', snapshot: snapshot(this.bot), detail: `via=${via} ${rejection.detail}${c2.ok ? '' : ` -- refused: ${String(c2.detail ?? '').slice(0, 80)}`}`.slice(0, 300) }) } catch { /* a log row must never break the decision loop */ }
+        if (c2.ok) { admitted = c2; rejection = null } else rejection = c2
       }
       // ...and one per ADMITTED craft of a hygiene item: the read's G1 judges it on this snapshot and wanted set.
       if (check.ok && check.skill === 'craft' && HYGIENE_ITEMS.has(check.args?.item)) {
