@@ -167,7 +167,7 @@ def alone_result(text, f, exists=True):
 # CODE TOKENS for hunks_carried: a string literal is ONE token and a comment is NO token (Codex r1: main's `// enableSafety();`
 # must not carry the fleet's executable `enableSafety();`; nor may a string that spells it). Strings first, so a `//` inside
 # one stays in the string. `#` comments only for Python / shell files.
-_STR = r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|`(?:\\.|[^`\\])*`'
+_STR = r'"""(?:\\[\s\S]|[^\\])*?"""|\'\'\'(?:\\[\s\S]|[^\\])*?\'\'\'|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|`(?:\\.|[^`\\])*`'
 _TOK_JS = re.compile(_STR + r'|(?P<c>//[^\n]*|/\*[\s\S]*?\*/)|\w+|[^\w\s]')
 _TOK_HASH = re.compile(_STR + r'|(?P<c>#[^\n]*)|\w+|[^\w\s]')
 
@@ -322,6 +322,9 @@ def _blob(repo, rev, f):
     return p.stdout if p.returncode == 0 else None
 
 
+CARRY_EXT = ('.mjs', '.cjs', '.js', '.json', '.md')
+
+
 def carried_by_main(repo, main, sha, prev):
     """Does main already carry everything the promotion changed since `prev` (an earlier promotion main carries)? Per file
     of `git diff prev sha`: main equals the fleet copy, or a 3-way merge (base = prev) resolves to main's own text with every
@@ -346,7 +349,9 @@ def carried_by_main(repo, main, sha, prev):
             p = run(['git', 'merge-file', '--diff3', '-p', '-L', 'main', '-L', 'base', '-L', 'fleet', *paths])
         if p.returncode < 0 or p.returncode > 127:
             return False, f
-        carried, resolved = hunks_carried(p.stdout, hash_comments=f.endswith(('.py', '.sh')) or '.' not in os.path.basename(f))
+        if not f.endswith(CARRY_EXT):        # Codex r3: token containment is judged only for the bot's JS / JSON / Markdown;
+            return False, f                  # any other file must read the same on main and the promotion
+        carried, resolved = hunks_carried(p.stdout)
         if not carried or resolved != m:
             return False, f
     return True, ''

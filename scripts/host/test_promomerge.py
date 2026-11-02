@@ -146,6 +146,8 @@ def t_carried(S):
     check('hunks_carried: a Python comment does not carry a call', S.hunks_carried(d3h, hash_comments=True)[0] is False)
     d3i = '<<<<<<< main\n"""\nenable_safety()\n"""\n||||||| base\n=======\nenable_safety()\n>>>>>>> fleet\n'
     check('hunks_carried: a Python triple-quoted string does not carry a call (Codex r2)', S.hunks_carried(d3i, hash_comments=True)[0] is False)
+    d3j = '<<<<<<< main\n"""start \\"""\nenable_safety()\n"""\n||||||| base\n=======\nenable_safety()\n>>>>>>> fleet\n'
+    check('hunks_carried: an escaped delimiter does not end a triple-quoted string (Codex r3)', S.hunks_carried(d3j, hash_comments=True)[0] is False)
     check('code_tokens: a triple-quoted string is one token', S.code_tokens('x = """a\nb()"""', True) == ['x', '=', '"""a\nb()"""'])
     check('code_tokens: a // inside a string stays in the string', S.code_tokens('u = "http://x" // c') == ['u', '=', '"http://x"'])
     check('hunks_carried: no conflict = carried, text unchanged', S.hunks_carried('a\nb\n') == (True, 'a\nb\n'))
@@ -278,6 +280,12 @@ def t_end_to_end():
         sh(work, 'git', 'push', '-q', 'origin', 'fleets')
         sh(scratch, 'git', 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*')
         check('e2e: a mode change main lacks is NOT carried (Codex r1)', S.carried_by_main(scratch, m5, fx, fleet2)[0] is False)
+        sh(work, 'git', 'checkout', '-q', '-B', 'fleetpy', fleet2)
+        fpy = commit(work, 'scripts/host/z.py', 'z = 2\n', 'fleet: a python file')
+        sh(work, 'git', 'push', '-q', 'origin', 'fleetpy')
+        sh(scratch, 'git', 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*')
+        check('e2e: a non-JS file that differs is NOT carried (Codex r3: only JS/JSON/Markdown are judged)',
+              S.carried_by_main(scratch, m5, fpy, fleet2) == (False, 'scripts/host/z.py'))
         check('e2e: a new file whose path has a space is NOT carried (Codex r1)', S.carried_by_main(scratch, m5, fs_, fleet2) == (False, 'bots/src/new feature.mjs'))
         ok, _ = S.merge_ours(scratch, m5, 'tidy-01', fv)
         r = S._push(scratch, 'tidy-01', fv, m5, sh(scratch, 'git', 'rev-parse', 'HEAD'), {}, NOW, tree_is_main=True)
