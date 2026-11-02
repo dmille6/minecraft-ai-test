@@ -179,7 +179,15 @@ export function pathGrid (column, avoid, box, read) {
     }
     return lm.get(k)
   }
-  return { col, cost, levels, inside }
+  // fleetpaths-01: a column ALREADY scanned (no new read) -> its answer | undefined (gridUnread counts what the routing met)
+  const peek = (x, z) => cm.get(key(x, z)) ?? undefined
+  return { col, cost, levels, inside, peek }
+}
+/** THE UNREAD COLUMNS a routing met (pathColumn `unknown`: a chunk not loaded from here) over `box` -> count. Pure. */
+export function gridUnread (grid, [x0, z0, x1, z1]) {
+  let n = 0
+  for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) if (grid.peek?.(x, z)?.why === 'unknown') n++
+  return n
 }
 
 /**
@@ -241,6 +249,9 @@ export function hubBrushes ([x0, z0, x1, z1]) {
   return out
 }
 
+/** Is any of `cols` ([[x, z]]) INSIDE the hub box [x0, z0, x1, z1] (its edge included, never outside it: the showcase's chest
+ *  stands beside its plaza keep their legs)? Pure. */
+export const atHub = ([x0, z0, x1, z1], cols = []) => cols.some(([x, z]) => x >= x0 && x <= x1 && z >= z0 && z <= z1)
 /**
  * THE NETWORK -> { legs: [{ id, to, nodes: [[x, z, s]], join, ok, why, cost }], laid: Map "x,z" -> { leg, s } }. Pure.
  *   grid   pathGrid(...)
@@ -248,11 +259,14 @@ export function hubBrushes ([x0, z0, x1, z1]) {
  *   dests  [{ id, to, cols: [[x, z]] }] in the order given (the caller sorts nearest first): a leg from a brush over any of its
  *          columns to the hub or to a brush already laid (its level within one)
  */
-export function pathNetwork (grid, { hub, dests = [], discount = () => false, laid0 = null } = {}) {
+export function pathNetwork (grid, { hub, dests = [], discount = () => false, laid0 = null, hubDests = true } = {}) {
   // laid0 (paths-01 r2, an extension): the brushes of a network already laid ("x,z" -> { leg, s }), joined like any leg
   const legs = [], laid = new Map(laid0 ?? [])
   const hubs = hubBrushes(hub).filter(([x, z]) => grid.levels(x, z).length)
   for (const d of dests) {
+    // fleetpaths-01: a destination AT the hub (a column inside the core plaza: every fleet town's composter stands in its plaza)
+    // is served by the plaza itself -- no leg is laid, none is owed
+    if (hubDests && atHub(hub, d.cols)) { legs.push({ id: d.id, to: d.to ?? d.id, nodes: [], join: 'hub', ok: true, why: 'at_hub', cost: 0, ...(d.optional ? { optional: true } : {}) }); continue }
     const targets = new Map(hubs.map(([x, z]) => [`${x},${z}`, null]))
     for (const [k, v] of laid) targets.set(k, v.s)
     const r = routeLeg(grid, brushesOver(d.cols), targets, { discount })
@@ -546,7 +560,7 @@ function pathInputs (read, o = {}) {
   const grid = pathGrid((x, z) => pathColumn(read, x, z, { yHi: home.y + PATH_DY, yLo: home.y - PATH_DY }), avoid, box, read)
   const segs = (plan.paths ?? []).map(p => p.seg).filter(Array.isArray)
   const discount = (x, z) => segs.some(s => x >= s[0] && x + 1 <= s[2] && z >= s[1] && z + 1 <= s[3])
-  return { home, core, dests, avoid, grid, discount }
+  return { home, core, dests, avoid, grid, discount, box }
 }
 /** The stand clears of the containers a network reaches (a leg routed to them), not yet in `have` (keys). Pure. */
 function reachedStandClears (read, net, dests, have = new Set()) {
@@ -561,15 +575,50 @@ export function sitePaths (read, o = {}) {
   const I = pathInputs(read, o)
   if (!I.grid) return I
   const { home, core, dests, grid, discount } = I
-  const net = pathNetwork(grid, { hub: core, dests, discount })
+  const net = pathNetwork(grid, { hub: core, dests, discount, hubDests: o.hubDests !== false })
   const missed = net.legs.filter(l => !l.ok && !l.optional)
-  if (missed.length) return { ok: false, why: `unrouted:${missed.map(l => `${l.id}:${l.why}`).join(',')}`, record: null, net, dests }
+  // fleetpaths-01: `unread` -- the unread columns the routing met: an unrouted leg on ground with unread columns may route once
+  // they are read (the caller asks again at the next order); on fully read ground it is the terrain's answer (a no-site record)
+  if (missed.length) return { ok: false, why: `unrouted:${missed.map(l => `${l.id}:${l.why}`).join(',')}`, record: null, net, dests, unread: gridUnread(grid, I.box) }
   const record = pathRecord(net, grid, read, { home, plan: o.plan, now: o.now ?? Date.now() })
-  if (!record.cells.length) return { ok: false, why: 'no_route', record: null, net, dests }
+  // (Codex r1 BLOCK 1: an optional leg unrouted over unread columns is asked again, never a day's no-site record)
+  if (!record.cells.length) return { ok: false, why: 'no_route', record: null, net, dests, unread: gridUnread(grid, I.box) }
   record.clear.push(...reachedStandClears(read, net, dests, new Set(record.clear.map(c => c.at.join(',')))))
   record.clear.sort((a, b) => a.at[1] - b.at[1])
   return { ok: true, why: 'ok', record, net, dests }
 }
+/**
+ * THE NO-SITE RECORD (fleetpaths-01, the shaft's pattern: shaftgeom.mjs noSiteRecord). Measured 11-01 on the fleet's region copies:
+ * no fleet town's ground routes (16 of 16 towns, every required leg `unreachable` -- the bots have pillared and pitted their towns:
+ * 34-40% of 4-adjacent ground columns differ by 2 or more against the showcase's 14%), and every visit re-ran the siting and ended
+ * `site_unread`, asked again at the next order. A town whose siting fails on READ ground writes this record once: complete (so the
+ * order moves on and the projects after the paths -- the wall -- may start), no cells, no zones, re-sited after PATHS_NO_SITE_RETRY_MS
+ * (pathsDue: `due`, after every open project). Pure.
+ */
+export const PATHS_NO_SITE_RETRY_MS = 24 * 60 * 60_000
+/** THE SWITCH (fleetpaths-01) -> bool: FLEETPATHS=off is the rollback (no hub destinations, no no-site record: the visit as
+ *  before). Pure. */
+export const fleetPathsOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.FLEETPATHS ?? '').trim().toLowerCase())
+export function pathsNoSite ({ home, now = 0, by = '?', why = '' } = {}) {
+  return { v: 1, blueprint: PATHS_BLUEPRINT, plot: PATHS_PLOT, home: home ? { x: home.x, y: home.y, z: home.z } : null, state: 'no_site', structure_complete: true,
+    completeAt: now, retryAt: now + PATHS_NO_SITE_RETRY_MS, why: String(why).slice(0, 160), cells: [], clear: [], replant: [], segments: [], legs: [], zones: [], sitedBy: by }
+}
+/** Is a paths record a no-site record? Pure. */
+export const pathsNoSiteRec = rec => rec?.blueprint === PATHS_BLUEPRINT && rec?.state === 'no_site'
+/**
+ * A FAILED SITING'S STOP (sitePaths' answer) -> 'site_unread' (an unread column the routing met: no record, asked again at the next
+ * order) | 'no_site' (no plan, no core: the order's daily re-fit, as before) | 'paths_no_site' (read ground no leg crosses, or
+ * nothing to lay: the no-site record). Pure.
+ */
+export function pathsSiteStop (s) {
+  if (s?.ok) return null
+  if (Number(s?.unread) > 0 || /unknown/.test(String(s?.why))) return 'site_unread'
+  if (/^unrouted:|^no_route$/.test(String(s?.why))) return 'paths_no_site'
+  return 'no_site'
+}
+/** Is a no-site paths record past its retry (re-sited at the next visit)? Pure. */
+export const pathsDue = (rec, now = Date.now()) => pathsNoSiteRec(rec) && now >= (Number(rec.retryAt) || Infinity)
+
 /**
  * THE NETWORK EXTENDED (paths-01 r2) -> { ok, why, record | null, added: [leg ids] }. Pure. A paths record written before a
  * destination existed (the store row's chests, a new project) gains a leg to each destination none of its columns touches,
@@ -578,6 +627,7 @@ export function sitePaths (read, o = {}) {
  * when nothing is added or a joint would step more than 1.
  */
 export function extendPaths (read, record, o = {}) {
+  if (pathsNoSiteRec(record)) return { ok: false, why: 'no_site', record: null, added: [] }   // fleetpaths-01: nothing laid to extend
   const I = pathInputs(read, o)
   if (!I.grid) return { ok: false, why: I.why, record: null, added: [] }
   const { home, dests, grid, discount } = I
@@ -592,7 +642,7 @@ export function extendPaths (read, record, o = {}) {
     const ys = BRUSH.map(([dx, dz]) => lv.get(`${x + dx},${z + dz}`))
     if (ys.every(y => y != null)) laid0.set(k, { leg: 'laid', s: Math.max(...ys) })
   }
-  const net = pathNetwork(grid, { hub: I.core, dests: todo, discount, laid0 })
+  const net = pathNetwork(grid, { hub: I.core, dests: todo, discount, laid0, hubDests: o.hubDests !== false })
   const fresh = net.legs.filter(l => l.ok && l.nodes.length)
   // the destinations no leg reached (the caller stops asking for them on this connection)
   const failed = net.legs.filter(l => !l.ok).map(l => l.to)

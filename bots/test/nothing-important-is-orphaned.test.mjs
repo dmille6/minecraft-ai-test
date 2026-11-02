@@ -87,9 +87,16 @@ const REQUIRED = [
   // test reads the showcase wall's own geometry from the fixture
   'bots/test/wallstuck.test.mjs',
   'bots/test/fixtures/wallstuck-showcase-wall-1030.json',
+  // furnaceseen-01 (cooperation B3, re-stacked 10-31 into zigfleet-02): the drain skips a furnace a townmate found empty
+  'bots/test/furnaceseen.test.mjs',
+  'bots/test/fixtures/seenskip-golden.json',
   // zigsealed-01 (11-01): the ziggurat's sealed skin column -- open cells of the waiting segments dug with the column
   'bots/test/zigsealed.test.mjs',
   'bots/test/fixtures/zigsealed-showcase-1101.json',
+  // fleetpaths-01 (11-01): a destination inside the plaza is served by it; a fleet town's unroutable paths write a no-site record
+  'bots/test/fleetpaths.test.mjs',
+  // zigbamboo (fleetbuild-01, 11-01): bamboo grown into open ziggurat foundation cells is dug
+  'bots/test/zigbamboo.test.mjs',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',
@@ -149,6 +156,8 @@ const REQUIRED = [
   'scripts/learnloop/train/run_c2.sh',
   'scripts/learnloop/train/bar_c2.py',
   'scripts/learnloop/c2host/eval_c2.sh',
+  'scripts/learnloop/prompt_transform.mjs',
+  'bots/test/promptcache.test.mjs',
   // M2b: removes 10.0.0.16 from every bot endpoint list before training
   'scripts/host/drop16.sh',
   // the movement-writer ratchet, wired into package.json and the deploy
@@ -156,6 +165,12 @@ const REQUIRED = [
   // logsurface-01: the real-case columns cut from the region copies of failed log gathers (10-28), and their suite
   'bots/test/fixtures/logsurface-columns.json',
   'bots/test/logsurface.test.mjs',
+  // tombexit-01 (10-31): the entombed arm's walk-back decline and the in-wall dig
+  'bots/src/tombexit.mjs',
+  'bots/test/tombexit.test.mjs',
+  // lavatarget-01 (10-31): explore never heads for a sighting beside lava the bot has seen
+  'bots/src/lavatarget.mjs',
+  'bots/test/lavatarget.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
