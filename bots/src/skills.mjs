@@ -18162,8 +18162,12 @@ async function deepMine (ctx, args, signal) {
               const me5 = deepFeet(bot), read = stairRead(bot)
               // faces only: the stand's own two cells are walked into, never filled (Claude r4 note 1)
               // the stand's faces, then the leg's exposed liquid (the walk guard refuses lava anywhere beside the way)
+              const keep = new Set(isStairRecord(stairRecordNow()) ? stairCellKeys(stairRecordNow()) : [])
+              const mid = [Math.round((me5[0] + wp[0]) / 2), Math.round((me5[1] + wp[1]) / 2), Math.round((me5[2] + wp[2]) / 2)]
+              for (const c of [mid, [mid[0], mid[1] + 1, mid[2]]]) keep.add(c.join(','))
               const faces = deepSealTargets(read, [wp, [wp[0], wp[1] + 1, wp[2]]], [me5, [me5[0], me5[1] + 1, me5[2]], wp, [wp[0], wp[1] + 1, wp[2]]])
-              const liquid = [...new Map([...faces, ...deepLegSealTargets(read, me5, wp, 6, new Set(isStairRecord(stairRecordNow()) ? stairCellKeys(stairRecordNow()) : []))].map(c => [c.join(','), c])).values()].slice(0, 8)
+              // ONE PROTECTED SET for both lists (Codex r7 B1): never the stair's cells or the straight-line cells, whichever list found it
+              const liquid = [...new Map([...faces, ...deepLegSealTargets(read, me5, wp, 6, keep)].map(c => [c.join(','), c])).values()].filter(c => !keep.has(c.join(','))).slice(0, 8)
               let placed = 0
               if (liquid.length) {
                 const fx = deepEffects(bot, signal)
