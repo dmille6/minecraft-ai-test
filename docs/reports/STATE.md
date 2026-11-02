@@ -24,9 +24,10 @@ _Generated 2026-11-02T15:20:02Z._
 <!-- NOTES:BEGIN (hand-written; stategen.py keeps this block verbatim) -->
 _Hand-written context the sources cannot say. Keep it short; date each line; delete what is done._
 
-- **Fleet vs main (11-02, audit 11-01 MEDIUM 4):** none of the six promotions since zigfleet-02 (1a0f9ddf .. c711879e) is an
-  ancestor of main, and main LACKS their code (airpocket/apseal/escapeguard hunks). The fleet line and main split at 281d5659;
-  a trial merge conflicts in ~36 files. Owner row `main-carries-fleet`: the coordinator's promotion merge is broken -- open.
+- **Fleet vs main (11-02, audit 11-01 flag 4): RECONCILED.** main 9294d28b carries all promotions to fleetbuild-01 c711879e
+  (merge 65b735f8; full suite on .30: 6 failures, all failing alone on main too). From now `promomerge.py` (Mac, 15 min)
+  merges each promotion (suite on .30) or records it when main already carries it, else pages `!! promotion ... does NOT
+  merge into main` (header line `promotion merge`). Row `main-carries-fleet` closes when tidy-01 f1f5c16c lands that way.
 - **qwen3.5 A/B** (15 bots isolated-a/isolated-c/placebo-c on the Blackwell, 65 control): restarted 11-01 ~22:25Z after the
   false stop; hourly `qwen35-roll` rows; 24 h compare + mandatory rollback from that start.
 - **Serving** (OWNER 11-01 vendor terms = A; serving = A + D; OWNER 11-02 ~12:45Z: Qwen3.5-4B r3 = serving direction + next
