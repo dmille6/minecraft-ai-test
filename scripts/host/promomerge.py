@@ -167,7 +167,7 @@ def alone_result(text, f, exists=True):
 # CODE TOKENS for hunks_carried: a string literal is ONE token and a comment is NO token (Codex r1: main's `// enableSafety();`
 # must not carry the fleet's executable `enableSafety();`; nor may a string that spells it). Strings first, so a `//` inside
 # one stays in the string. `#` comments only for Python / shell files.
-_STR = r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|`(?:\\.|[^`\\])*`'
+_STR = r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'|`(?:\\.|[^`\\])*`'
 _TOK_JS = re.compile(_STR + r'|(?P<c>//[^\n]*|/\*[\s\S]*?\*/)|\w+|[^\w\s]')
 _TOK_HASH = re.compile(_STR + r'|(?P<c>#[^\n]*)|\w+|[^\w\s]')
 

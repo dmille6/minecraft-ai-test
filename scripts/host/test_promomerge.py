@@ -144,6 +144,9 @@ def t_carried(S):
     check('hunks_carried: a string spelling it does not carry it', S.hunks_carried(d3g)[0] is False)
     d3h = '<<<<<<< main\n# enable_safety()\n||||||| base\n=======\nenable_safety()\n>>>>>>> fleet\n'
     check('hunks_carried: a Python comment does not carry a call', S.hunks_carried(d3h, hash_comments=True)[0] is False)
+    d3i = '<<<<<<< main\n"""\nenable_safety()\n"""\n||||||| base\n=======\nenable_safety()\n>>>>>>> fleet\n'
+    check('hunks_carried: a Python triple-quoted string does not carry a call (Codex r2)', S.hunks_carried(d3i, hash_comments=True)[0] is False)
+    check('code_tokens: a triple-quoted string is one token', S.code_tokens('x = """a\nb()"""', True) == ['x', '=', '"""a\nb()"""'])
     check('code_tokens: a // inside a string stays in the string', S.code_tokens('u = "http://x" // c') == ['u', '=', '"http://x"'])
     check('hunks_carried: no conflict = carried, text unchanged', S.hunks_carried('a\nb\n') == (True, 'a\nb\n'))
     anc = {('p1', 's'), ('p1', 'm'), ('p0', 's'), ('p0', 'm'), ('p2', 's')}
