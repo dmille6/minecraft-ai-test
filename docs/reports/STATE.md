@@ -1,27 +1,45 @@
-# STATE — one screen of current state
+# STATE — one screen of current state (GENERATED hourly)
 
-_Updated 2026-11-01 12:45Z (control session; answers the 10-31 Codex ops-audit HIGH flag: STATE contradicted completed events)._
+_Built by `scripts/host/stategen.py` on the canary host from the journal, the queue, the ledger, the showcase stream and the alarms; `scripts/mac/state-relay.sh` commits it here. **Edit only the NOTES block**; everything else is overwritten. The live copy is `~/digest/STATE.md` on the canary host._
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
-Live check: `python3 ~/canary-sched.py status | tail -20`, `tail ~/canary-journal.jsonl`, `head -30 ~/digest/latest.md`,
-`~/digest/stallcheck-latest.md` on the canary host; `sudo /srv/showcase/bin/showcase_ops.py status` on the showcase host.
+
+<!-- GENERATED:BEGIN -->
+_Generated 2026-11-02T13:04:22Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `52d9281a` = airpocketwin-01 (KEEP 08:31Z, promoted 08:41Z) on tombexit-01 `1a0f9ddf` (KEEP 04:43Z) on zigfleet-02 `2717bc1c` (KEEP 00:52Z: paths/wall fleet-wide, voidfill, zigtidy, wallstuck, furnaceseen, treefarm code off) on escapeguard-01 `a11ffbb8` (KEEP 10-31 21:35Z) on shaft-03. All 80 bots on qwen2.5:7b on the 5080 (no model experiment running -- see In flight) |
-| **Canary in slot** | lavatarget-01 KEEP (goal-unverified) recorded 12:24Z, promoting ~12:35Z |
-| **Queue (front)** | promptcache-01 (P, prompt diet) -> apseal-01 (S, sea-level drowning: seal the roof cell's wet sides) -> fleetbuild-01 (P: FLEETPATHS no-site so walls start, ZIGBAMBOO, zigsealed) -> cooldown15-01 (P, setting: decision cooldown cap 30 s -> 15 s in config.mjs, 4 pools; read lines + capacity in docs/reports/cooldown15-01-2026-11-01.md) -> fewerdec-01 (P, serving D: PAUSEWAIT/VETOSKIP/CONTINUE; predicted -15..20% model calls, in-skill share up) -> tidy-01 (P, town-ground tidy: cut pillars, fill pits, grade the paths' corridors, re-site the paths; offline 7/16 towns' paths route after it, 1 before; docs/reports/tidy-01-2026-11-01.md) -> drainpick-01 -> stuckcells-01 (P, the stuck fleet projects: snow read, sealed pocket, bounded waiver, blocked deferral, stair support chain; offline 5/5 stuck builds complete; docs/reports/stuckcells-01-2026-11-01.md) -> servea-01 (HELD: serving A, 10 bots on the 5080 llama-server, round-3 4B; awaiting the learning agent's registration; docs/reports/serving-A-2026-11-01.md s.7) -> parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 (dead variants), qwen35c2-01 (held). Scheduler v39 auto-rebases a head with a `patch` onto the live tip |
-| **Showcase release** | `d698024b` (11-02 01:57Z: copperhall-01 r3, the copper gate reads the town index: 130 + 10 cut of 319) on `45f668ac` (sortstore-01 r2) on `d2d13c5d` (11-02 01:14Z: **copperhall-01** + **wholemap-s1a**, branch wholemap-show-on-931e864) on `931e8643` (showchat-01) on `ea374099` (sortstore-01) on `bb89931e` (storehouse-01 r4) ... on `01e64d4e` (= fleet 2717bc1c protected tree + SHAFT off). Rollback 931e8643. Rule: showcase protected code follows the latest fleet KEEP. All 8 project records complete; the **copper hall waits for copper** (130 ingots + 10 cut of 319; cameras copperhall + patina). Expeditions S1a live (300-block trips; 72 h read from 11-05 01:15Z). Whole-map S0 coverage: seen 0.308% (1,067 of ~346,729 reachable chunks). 10/10 bots, tripwire WATCH |
-| **Death breaker** | ARMED (`mcai-tripper.timer`, 5 min, `--apply`) on .31; ntfy alerts |
-| **Pending owner decisions** | Vendor output terms before any Claude/GPT teacher label is trained on (labels quarantined, eval-only); release of `qwen35c2-01`; qwen3.5 for the fleet needs serving the 5080/3090 cannot give at 107/min (see batching report) -- owner rule: Blackwell is testing-only |
-| **Open alarms** | Stallcheck STALLED ~32 (dead-variant parked entries, towniron re-stacks, mine-safety lane items, crons nobody reads). Stuck fleet projects: board-a house1 (39 h, no_stand), workshops board-d / hive-d / isolated-b, hive-a shaft (no_support), ziggurats hive-b (bamboo -> fleetbuild-01), isolated-d, placebo-a. Cooperation census control `xfer_through_chain` FAILED 11-01 |
+| **Fleet** | `c711879e` = fleetbuild-01 `c711879e` (KEEP 11-01 23:37Z, promoted 11-01 23:47Z) on apseal-01 `963e99af` (KEEP 11-01 20:05Z, promoted 11-01 20:15Z) on promptcache-01 `9246217d` (KEEP 11-01 16:14Z, promoted 11-01 16:24Z) on lavatarget-01 `dfb3ff13` (KEEP 11-01 12:24Z, promoted 11-01 12:34Z) on airpocketwin-01 `52d9281a` (KEEP 11-01 08:31Z, promoted 11-01 08:41Z) on tombexit-01 `1a0f9ddf` (KEEP 11-01 04:43Z, promoted 11-01 04:53Z). Live builds: {'c711879efec34974a1bc1c2d7ffd686c94a07104+a2162c': 60, 'f1f5c16cf13c095b0dd2e39535c3a39856d54706+184910': 20} |
+| **Canary in slot** | **tidy-01** deployed 11-02 12:36Z; reads +90 11-02 14:06Z, +180 11-02 15:36Z; KEEP auto-promotes ~10 min after the +180 KEEP |
+| **Queue (front)** | drainpick-01 -> stuckcells-01 -> deepminer-01. Held: fewerdec-01 (HELD: 11-02 12:30Z by control session: autorebase REFUSED on c711879e -- keepout.test.mjs fails ...); servea-01 (HELD: serving option A (OWNER 11-01) + OWNER 11-02 ~12:45Z: the round-3 4B (r3-qwen35-4b-q8) is ...); llmoai-01 (HELD: serving A (OWNER 11-02 'do what you recommend'): the oai+ client to the whole fleet, neede...); qwen35c2-01 (HELD: OWNER RELEASED 11-01 12:50Z but BLOCKED on upload: the Blackwell port 11438 is an aiohttp ...). Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
+| **Scheduler** | busy S1 canary declared: f1f5c16cf13c095b0dd2e39535c3a39856d54706 on placebo-a,placebo-d,board-c,board-b / S6 open loop: canary f1f5c16 is deployed on placebo-a,placebo-d,board-c,board-b with no KEEP/REVERT/INCONCLUSIVE recorded — read it b |
+| **Showcase release** | `d698024b` (15,058 rows); 10 bots in 3 h. !! no `showcase_restack` row: the protected-follows-fleet check is not running (restack_prep.py) |
+| **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
+| **Owner-direct / rollouts (24 h)** | qwen35-roll-s1: owner-direct-check 11-01 23:20Z; qwen35-roll: rollout-hourly 11-02 13:00Z |
+| **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
+| **Open alarms** | STALLCHECK 2026-11-02T12:35:01Z STALLED: 43. OPSAUDIT 2026-11-01 FLAGS: 10 (2 high). 14 active alarm(s): stuck goals 12 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-a/monument@355_73_147, hive-d/shaft@68_65_68, hive-d/shop@68_65_68, isolated-b/shop@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h |
+<!-- GENERATED:END -->
 
-## In flight
+## Notes
 
-- **qwen3.5 A/B (15 bots isolated-a/isolated-c/placebo-c on the Blackwell vs 65 control):** started 10-31 22:03Z, FALSE-STOPPED ~1 h later (crash_loops probe treated a quiet journal as unreadable; rollback proven). Probe fix + relaunch in progress; 24 h DiD compare + mandatory rollback from the new start. The 80-bot run 10-31 17:11-18:58Z collapsed (512/610 decisions aborted at 90 s in the 18:30Z bin) and auto-rolled back -- the Blackwell cannot serve 80 bots on qwen3.5.
-- **Cooperation B5 Paper arms** on the worlds host (sandboxes 5/6/8, lock `coop`, Mac relay `caller_relay.py`): still running at 12:30Z; read with `sandbox/coop/arms-read.py`; B6 shadow only if the oracle beats rotation.
-- **Learning loop (weekly, live 11-01):** cron `weekly.py tick` on .31 (*/10), GPU via `llgpu.sh` (restricted key) on the 3090, paid referee on the Mac (eval only). Round 20261101 closed 11-02 05:06Z: r3 4B (Qwen3.5-4B) and r3 9B tie candidate 2 on rep_fail/post-veto, miss the hard tolerance by 4-5 items of 600 (not significant), so c2 stays best, no HELD entry; the 4B is the only qwen3.5 model passing p50/p95 gates at 20/min on the 3090 (1.67/3.08 s). Owner call: 4B as next model canary. Referee: no drift. `docs/reports/learnloop-r3-2026-11-01.md`
-- **Survival lane** (10-23 order restarted 10-31): tombexit, airpocketwin, lavatarget KEPT; apseal-01 queued; minelava not built (2/42 fire deaths). Town-ground tidy = tidy-01, queued (P).
+<!-- NOTES:BEGIN (hand-written; stategen.py keeps this block verbatim) -->
+_Hand-written context the sources cannot say. Keep it short; date each line; delete what is done._
+
+- **Fleet vs main (11-02, audit 11-01 MEDIUM 4):** none of the six promotions since zigfleet-02 (1a0f9ddf .. c711879e) is an
+  ancestor of main, and main LACKS their code (airpocket/apseal/escapeguard hunks). The fleet line and main split at 281d5659;
+  a trial merge conflicts in ~36 files. Owner row `main-carries-fleet`: the coordinator's promotion merge is broken -- open.
+- **qwen3.5 A/B** (15 bots isolated-a/isolated-c/placebo-c on the Blackwell, 65 control): restarted 11-01 ~22:25Z after the
+  false stop; hourly `qwen35-roll` rows; 24 h compare + mandatory rollback from that start.
+- **Serving** (OWNER 11-01 vendor terms = A; serving = A + D; OWNER 11-02 ~12:45Z: Qwen3.5-4B r3 = serving direction + next
+  model canary): servea-01 = 4B on the 5080, 10 bots, HELD for the learning agent's variant; 5080 host key verified 11-02.
+  These owner questions are ANSWERED; what remains are technical holds (see Queue).
+- **Learning loop** weekly (cron on the canary host); round 3 closed 11-02 05:06Z; the owner's 11-02 capacity rule is written
+  (main dcedd094) before round 3 is re-gated.
+- **Showcase:** restack onto fleet c711879e in progress (control session 11-02, audit MEDIUM 3); from now on
+  `restack_prep.py` prepares each restack and alarms `restack-showcase`.
+- **tidy-01** is in the slot as a fleet canary although it is a tier-2 town feature with the showcase switched off (audit 11-01
+  flag 10): its showcase observation was not done first. Decide at its +180 read whether a showcase run is still owed.
 
 ## Lab mode
 
 None declared.
+<!-- NOTES:END -->

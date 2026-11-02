@@ -142,6 +142,15 @@ const REQUIRED = [
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',
+  // STATE is generated (11-02, Codex ops audit HIGH 1): the generator, its tests and the Mac relay that commits it
+  'scripts/host/stategen.py',
+  'scripts/host/test_stategen.py',
+  'scripts/mac/state-relay.sh',
+  // the showcase restack after each fleet promotion (11-02, audit MEDIUM 3): prep job, record-compat harness, installer
+  'infra/showcase/restack_prep.py',
+  'infra/showcase/test_restack_prep.py',
+  'infra/showcase/recordcompat.mjs',
+  'infra/showcase/install-restack.sh',
   // the process the owner set on 2026-10-28; CLAUDE.md points every session at it
   'docs/PROCESS-fun-mode.md',
   // fun-mode tier 3: the protected list and its one decider, which both gates call (W1, 10-28)

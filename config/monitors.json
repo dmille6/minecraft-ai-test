@@ -407,6 +407,47 @@
    "consumer": "weekly.py report on .31 (referee-result.json -> drift flag in the round REPORT.md)",
    "kind": "monitor",
    "note": "paid Claude/GPT referee on each round's 200-item sample, EVALUATION ONLY (owner 11-01 terms = A); ledger ~/learnloop/spend.jsonl, cap $100/month/vendor at 80%, $6/arm/round on the planning estimate (~$2.7 actual per round)"
+  },
+  {
+   "id": "stategen",
+   "host": "31",
+   "cron": "host/stategen.py run",
+   "outputs": [
+    "~/digest/STATE.md",
+    "~/digest/STATE.json"
+   ],
+   "fresh_hours": 2,
+   "consumer": "docs/reports/STATE.md on main (relayed hourly by state-relay on the Mac) -- the one screen every session reads first; the daily Codex ops audit reads its diff",
+   "kind": "monitor",
+   "note": "scripts/host/stategen.py, hourly :20 from ~/stategen/app/scripts (private clone ~/stategen/repo, fetched each run). Builds STATE from the journal, canary-sched status, the ledger (owner_pending rows), the showcase stream + showcase_restack row, ALARMS.log, stallcheck/opsaudit; keeps main's NOTES block (Codex ops audit 11-01 HIGH 1)."
+  },
+  {
+   "id": "state-relay",
+   "host": "mac",
+   "cron": null,
+   "launchd": "com.mcai.state-relay",
+   "outputs": [
+    "~/Library/Logs/state-relay.log"
+   ],
+   "fresh_hours": null,
+   "consumer": "main docs/reports/STATE.md (its commits); a stale generated copy (> 3 h) is logged and not committed -- stallcheck's stategen freshness check is the alarm",
+   "kind": "relay",
+   "note": "scripts/mac/state-relay.sh, StartInterval 3600: scp ~/digest/STATE.md from the canary host, splice main's NOTES block, commit + push only when the generated block changed (or the committed copy is > 6 h old); fetch + rebase, never force."
+  },
+  {
+   "id": "showcase-restack",
+   "host": "40",
+   "cron": null,
+   "timer": "showcase-restack.timer",
+   "outputs": [
+    "/srv/showcase/ops/restack-latest.json",
+    "/srv/showcase/ops/restack.jsonl",
+    "/var/log/showcase/heartbeat.jsonl"
+   ],
+   "fresh_hours": 2,
+   "consumer": "STATE.md 'Showcase release' cell (stategen reads the newest showcase_restack row from mcai-showcase-ops) + ALARMS.log/push 'restack-showcase showcase:restack' while the showcase protected tree is behind the fleet KEEP",
+   "kind": "monitor",
+   "note": "infra/showcase/restack_prep.py run, hourly :25 as root: after a fleet KEEP+promotion builds the showcase-on-fleet commit (merge-tree, parent = live release), record compat (recordcompat.mjs) and npm test (nice 19, 3 jobs); PREPARES + ALERTS only (activation needs both engines' APPROVE at the gate). Codex ops audit 11-01 MEDIUM 3."
   }
  ]
 }

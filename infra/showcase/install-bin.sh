@@ -8,10 +8,11 @@ S=$T/infra/showcase
 install -d /srv/showcase/bin
 for f in followrule.py make_env.py showcase_ops.py tl_showcase.py tl_video.py rcon.py backup_stage.py showcase-feed.py \
          tl_setup.py site_search.py world-init.sh start-bots.sh stop-bots.sh replay-prompts.sh replay-prompts.mjs \
-         stamp_town.py pregen.py wholemap.py; do
+         stamp_town.py pregen.py wholemap.py restack_prep.py recordcompat.mjs; do
   install -m 755 "$S/$f" /srv/showcase/bin/
 done
 install -m 644 "$T/scripts/lib/showcasestatus.py" /srv/showcase/bin/
+install -m 644 "$T/scripts/lib/alarm.py" /srv/showcase/bin/    # restack_prep.py alerts through it
 install -m 644 "$T/scripts/lib/protected.py" /srv/showcase/bin/    # the one protected-path decider (W1); showcase_ops imports it
 echo "   ok  tools in /srv/showcase/bin ($(git -C "$T" rev-parse --short HEAD))"
 

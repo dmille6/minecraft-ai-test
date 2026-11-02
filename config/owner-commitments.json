@@ -7,7 +7,8 @@
   "state": "open|done|parked|dropped",
   "evidence": "runs (queue/journal ids), branches (origin globs), grep (commit-message substrings, all refs), paths (main), fleet_paths (exist at the fleet sha once shipped)",
   "depends_on": "[{run, until: kept|closed} | {item} | {cron: crontab substring}]",
-  "covers_alarms": "goalwatch alarm-key globs this row owns"
+  "covers_alarms": "goalwatch alarm-key globs this row owns",
+  "owner_pending": "optional: the question still waiting on the OWNER (one line). stategen.py lists these as 'Pending owner decisions' in STATE.md; a technical blocker is NOT owner_pending (it is a queue hold or next_step)"
  },
  "memory_no_row": {
   "owner-build-started.md": "a standing rule or preference, not a work item",
@@ -2388,17 +2389,19 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "After each fleet KEEP+promotion, restack the showcase pieces onto the promoted sha (branch showcase-on-fleet: single-parent commit on the live release whose tree = promoted tree + non-protected showcase deltas), npm test, one review, record/stage/activate",
+   "next_step": "AUTOMATED 11-02: infra/showcase/restack_prep.py (showcase VM, hourly :25) prepares the restack after every fleet KEEP+promotion (merge-tree onto the promoted build, parent = live release, record compat, npm test) and alarms 'restack-showcase' with the next steps; the operator reviews (Codex + Claude, the gate needs both), records, stages --piece, activates. A conflict or no_base alarm = restack by hand (the 11-02 restack 4c92880a on c711879e is the worked example).",
    "max_quiet_hours": 72,
    "evidence": {
     "grep": [
-     "showcase-on-fleet"
+     "restack_prep",
+     "showcase-on-fleet",
+     "showcase-on-fleet r2"
     ],
     "branches": [
      "showcase-on-fleet*"
     ]
    },
-   "note": "Control session decision 10-31 (owner away, autonomy-1031): the showcase line had drifted 26 protected items behind the fleet, so the kept escape guard could not reach it. No automatic detector yet: the showcase release lives on the showcase host, which stallcheck on the canary host does not read; the quiet-hours check on the evidence grep is the reminder."
+   "note": "Control session decision 10-31 (owner away, autonomy-1031): the showcase line had drifted 26 protected items behind the fleet, so the kept escape guard could not reach it. No automatic detector yet: the showcase release lives on the showcase host, which stallcheck on the canary host does not read; the quiet-hours check on the evidence grep is the reminder. 11-02: restacked onto c711879e (release 4c92880a: tombexit, airpocketwin, lavatarget, promptcache, apseal, zigsealed, fleetbuild) after the Codex ops audit 11-01 MEDIUM 3; the detector now runs on the showcase VM and its row reaches STATE via mcai-showcase-ops."
   },
   {
    "id": "serving-a",
@@ -2956,6 +2959,31 @@
     }
    ],
    "note": "Round 3 (11-01) built the pipeline: cron every 10 min on .31 (weekly.py tick), llgpu.sh forced-command key .31->.16, referee launchd on the Mac (com.mcai.learnloop-referee). Owner 11-01 vendor terms = A: paid labels never train. A round waits (does not fail) while another GPU user is on the 3090. Round 20261101 closed 11-02 05:06Z: r3 4B/9B tie c2 on rep_fail/post-veto, miss hard tolerance by 4-5 items; c2 stays best; 4B passes latency gates at 20/min on the 3090 (docs/reports/learnloop-r3-2026-11-01.md)."
+  },
+  {
+   "id": "state-generated",
+   "title": "STATE.md is GENERATED hourly from the sources (journal, queue, ledger, showcase stream, alarms) with a preserved hand NOTES block",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "opsaudit-daily-codex.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "done",
+   "owner": "control session",
+   "next_step": "Running: scripts/host/stategen.py (canary host cron :20) -> ~/digest/STATE.md; scripts/mac/state-relay.sh (Mac LaunchAgent com.mcai.state-relay) commits it to main. Hand edits go in the NOTES block only. Pending owner questions go in a ledger row's owner_pending.",
+   "max_quiet_hours": 72,
+   "evidence": {
+    "grep": [
+     "stategen",
+     "STATE: generated"
+    ],
+    "paths": [
+     "scripts/host/stategen.py",
+     "scripts/mac/state-relay.sh"
+    ]
+   },
+   "note": "Codex ops audit 11-01 HIGH 1 (STATE contradicted completed events and owner decisions a day after a manual refresh; 10-31 the same flag). Control session 11-02."
   }
  ]
 }

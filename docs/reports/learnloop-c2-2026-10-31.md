@@ -318,8 +318,15 @@ Learning-loop unit tests green.
 | 12:35 | (5) move ahead of promptcache-01 | too late: the scheduler launched promptcache-01 at 12:35:02Z, the moment lavatarget-01 promoted (fleet `dfb3ff13`). It was still in its draw at 12:38Z. I did not stop a live canary for an entry that cannot run anyway |
 | -- | (4) variant on the live tip, (6) release | not done: pointless until the upload is possible, and the tip moves again when promptcache-01 closes |
 
-The entry's HOLD now says all of this. 80/80 bots were on .72 throughout (the `qwen35-roll` rollout of 12:35:03Z was
-rolled back at 12:35:28Z, before the capacity test began).
+The entry's HOLD now says all of this. **Corrected 11-02 (Codex ops audit 11-01, HIGH 2):** the `qwen35-roll` rollout
+of 12:35:03Z was interrupted at 12:35:26Z and its rollback **STARTED** at 12:35:28Z; the rollback was **proven complete at
+12:40:04Z** (`rollout-rolled-back`: the model env absent on all 15 bots), three minutes into the capacity test, so
+"rolled back before the capacity test began" was wrong. Checked from the decision streams (`llm-<bot>.jsonl`, all 80 bots,
+11-01 12:30-13:00Z): only **2 rows** went to the Blackwell from that rollout (isolated-a-Alpha 12:35:11Z, isolated-a-Bravo
+12:35:23Z), both before the test; in the test window 12:37:00-12:54:59Z **0 of 1,949 fleet decision rows** (80 bots with
+rows; 1,744 to .72, 205 unserved/local) went to the Blackwell. Positive control: the same query finds those 2 rows and
+the next rollout's rows from 12:56:30Z on (`rollout-start` 12:56:21Z, after the test ended at 12:54). So the capacity
+numbers above were measured without fleet traffic on the Blackwell and stand; they are not repeated.
 
 **To unblock (owner, one of):** (a) raise the Blackwell proxy's body limit, or open a direct Ollama port for one
 upload; (b) a pull path: a private Hugging Face repo (needs a token, and the weights go to a third party), or a

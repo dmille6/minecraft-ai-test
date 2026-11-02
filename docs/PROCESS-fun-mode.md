@@ -149,6 +149,11 @@ There is **one canary slot**. The tripper matches `canary_pool` literally and
   reconciles instead.
 - **Protected code follows the fleet line** (control session 10-31): a showcase release's protected tree equals the latest fleet
   KEEP+promotion, plus only non-protected showcase pieces on top (`showcase-on-fleet`); after each promotion, restack onto it.
+- **The restack is prepared automatically** (11-02): `infra/showcase/restack_prep.py` on the showcase VM (hourly :25) sees a
+  KEEP+promotion the showcase lacks, builds the commit (tree = promoted build + the showcase deltas, parent = the live
+  release), runs record compat and `npm test`, and alarms `restack-showcase` with the next steps. **It never activates:**
+  a protected change needs both engines' APPROVE at the gate. The operator reviews, records, stages `--piece`, activates.
+  A `conflict` / `no_base` alarm means restack by hand.
 
 ## Rollout ledger
 
@@ -201,6 +206,11 @@ that has trapped a goal for days. The rules:
 - `docs/reports/STATE.md` is **one screen** of current state: the live fleet
   sha, the showcase release, the canary in the slot, the queue head, pending
   owner decisions and open alarms. History goes in `docs/archive/`.
+  **It is generated** (11-02): `scripts/host/stategen.py` builds it hourly on the
+  canary host from the journal, the queue, the ledger, the showcase stream and the
+  alarms, and `scripts/mac/state-relay.sh` commits it. Hand edits go **only** in
+  its NOTES block, which the generator keeps. A question waiting on the owner is a
+  ledger row's `owner_pending`; a technical blocker is a queue hold.
 - One short line when a rollout closes, and one daily summary.
 - Analysis has a time limit: 30 minutes, then decide with what you have.
 
