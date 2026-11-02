@@ -1,0 +1,18 @@
+// failover-real.mjs <bots-dir> <items.jsonl> <llama_url> <alias> <ollama_url> <ollama_model> <n> : the 5080 fallback, LIVE
+// against the fleet's REAL Ollama. The bots' own client, OLLAMA_BASE_URLS = "oai+<llama>|<alias>,<ollama>|<model>",
+// two workers, <n> real promptcache-layout items; the driver stops the llama-server mid-run. One line per decision.
+import fs from 'node:fs'
+const [botsDir, itemsPath, llamaUrl, alias, olUrl, olModel, nS] = process.argv.slice(2)
+process.env.LOG_DIR = '/tmp/servea-failover-logs'; process.env.LOG_LEVEL = 'error'; process.env.OLLAMA_MODEL = alias
+const items = fs.readFileSync(itemsPath, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)).slice(100, 100 + Number(nS))
+const { LlmClient } = await import(botsDir + '/src/llm.mjs')
+const c = new LlmClient({ baseUrls: [`oai+${llamaUrl}|${alias}`, `${olUrl}|${olModel}`], model: alias, numCtx: 8192, maxTokens: 512,
+                          temperature: 0.7, timeoutMs: 20000, stickyKey: 'board-a-Alpha' })
+let next = 0; const t0 = Date.now()
+await Promise.all([0, 1].map(async () => {
+  while (next < items.length) {
+    const i = next++, it = items[i]
+    const r = await c.decide({ system: it.system, user: it.user, sentinel: it.sentinel, schema: it.schema })
+    console.log(JSON.stringify({ i, t_s: ((Date.now() - t0) / 1000).toFixed(1), endpoint: r.endpoint, model: r.model, valid: r.schemaValid, latency_ms: r.latencyMs, error: r.error }))
+  }
+}))

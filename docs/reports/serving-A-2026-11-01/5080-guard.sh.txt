@@ -1,0 +1,19 @@
+#!/bin/bash
+# guard.sh: every 30 s read the live fleet on the 5080; ABORT (stop llama-server on the 5080, kill the load generator by
+# its pid file) if fleet p95 > 5000 ms on 4 consecutive checks (2 min), or the watch is blind (< 25 rows) twice running.
+cd "$(dirname "$0")"; hi=0; blind=0
+while [ ! -f guard.stop ]; do
+  l=$(ssh -o ConnectTimeout=10 mike@10.0.0.31 'python3 ~/servea/fleetwatch.py 60' </dev/null 2>/dev/null)
+  echo "$(date -u +%T) $l" >> guard.log
+  p95=$(echo "$l" | python3 -c 'import json,sys; d=json.loads(sys.stdin.read() or "{}"); print(d.get("p95") or 0, d.get("rows") or 0)' 2>/dev/null)
+  set -- $p95; P=${1:-0}; R=${2:-0}
+  [ "$P" -gt 5000 ] && hi=$((hi+1)) || hi=0
+  [ "$R" -lt 25 ] && blind=$((blind+1)) || blind=0
+  if [ $hi -ge 4 ] || [ $blind -ge 2 ]; then
+    echo "$(date -u +%T) ABORT hi=$hi blind=$blind $l" | tee -a guard.log runs.log
+    ssh root@10.0.0.72 'source /root/servea/env.sh; /root/servea/servea-llama.sh stop' </dev/null >> guard.log 2>&1
+    ssh mike@10.0.0.31 'p=$(cat ~/servea/batchload.pid 2>/dev/null) && kill $p 2>/dev/null' </dev/null
+    touch aborted; break
+  fi
+  sleep 30
+done

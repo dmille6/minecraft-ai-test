@@ -1,0 +1,18 @@
+#!/bin/bash
+# drive.sh: 4B on the 5080 (np 6) at 20/40/60/80/107 per min, 3 min of arrivals each, cold restart per rate; stops
+# climbing at the first rate that fails BOTH gates by 2x (p50 > 5 s and p95 > 10 s), or when guard.sh aborts.
+cd "$(dirname "$0")"; TAG=r3-qwen35-4b-q8; OFF=0
+ssh root@10.0.0.72 'nohup bash -c "while [ ! -f /root/servea/run/sampler.stop ]; do echo \$(date +%s),\$(nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader,nounits | tr -d \" \"),\$(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits | tr -d \" \" | tr \"\n\" \";\"); sleep 2; done" > /root/servea/logs/gpu.csv 2>&1 & echo started-sampler' </dev/null
+for rate in 20 40 60 80 107; do
+  [ -f aborted ] && break
+  n=$((rate * 3))
+  ssh root@10.0.0.72 "source /root/servea/env.sh; /root/servea/servea-llama.sh stop >/dev/null; /root/servea/servea-llama.sh start /root/servea/models/$TAG.gguf $TAG 6 6144" </dev/null | tail -1
+  t0=$(date +%s)
+  ssh mike@10.0.0.31 "cd ~/servea && (node batchload.mjs ~/servea/bots ~/servea/live-pc.jsonl out/5080-$TAG-r$rate.jsonl http://10.0.0.72:18080 $TAG open $rate $n $OFF native > out/5080-r$rate.log 2>&1 & echo \$! > batchload.pid; wait); tail -1 out/5080-r$rate.log; python3 stats.py out/5080-$TAG-r$rate.jsonl" </dev/null | tee -a stats.txt
+  echo "RUN $TAG $rate $t0 $(date +%s)" | tee -a runs.log
+  OFF=$(( (OFF + n) % 800 ))
+  bad=$(tail -1 stats.txt | python3 -c 'import json,sys; l=sys.stdin.read(); d=json.loads(l.split(" ",1)[1]); print(1 if d["p50"]>5000 and d["p95"]>10000 else 0)' 2>/dev/null)
+  [ "$bad" = 1 ] && { echo "STOP CLIMBING at $rate" | tee -a runs.log; break; }
+done
+ssh root@10.0.0.72 'source /root/servea/env.sh; /root/servea/servea-llama.sh stop; touch /root/servea/run/sampler.stop' </dev/null | tee -a runs.log
+touch guard.stop; echo "DRIVE END $(date +%s)" >> runs.log

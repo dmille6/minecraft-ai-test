@@ -2413,7 +2413,7 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "promptcache-01 closes KEEP -> apseal-01 closes -> release servea-01 (HELD: ~5-10 bots on the 3090 llama-server, cand-c2-q8, fallback Ollama qwen2.5 on the 5080) at the rate the 3090 measured within gates; 5080 llama-server install waits on the owner verifying pve4's changed SSH host key (runbook docs/reports/serving-A-2026-11-01.md s.4)",
+   "next_step": "servea-01 (HELD) now serves the round-3 4B from the 5080 (10 bots): the learning-loop agent adopts the entry (replace-variant with its 4B registration), install the modelread oai+ probe fix, start the 5080 llama-server, release; then stage 20/40/60/80 bots with modelrollout (oai+ fix installed), load-testing each stage",
    "max_quiet_hours": 36,
    "depends_on": [
     {
@@ -2440,7 +2440,7 @@
      "docs/reports/serving-A-2026-11-01.md"
     ]
    },
-   "note": "OWNER 11-01 ~13:00Z option A (+ D fewer decisions, a separate row when built). Target ~107 decisions/min across 80 bots, p50 <= 2.5 s, p95 <= 5 s, >= 99% schema-valid. Client change main e1e56bf8 (oai+ endpoints, per-bot sticky, /health-gated failover; Codex + Claude APPROVE). Owner 11-01 ~13:10Z (via the control session) allowed llama-server on the 5080 with the live Ollama untouched; blocked on the pve4 host key (changed 10-02, never verified), not bypassed."
+   "note": "OWNER 11-01 ~13:00Z option A (+ D fewer decisions, a separate row when built). Target ~107 decisions/min across 80 bots, p50 <= 2.5 s, p95 <= 5 s, >= 99% schema-valid. Client change main e1e56bf8 (oai+ endpoints, per-bot sticky, /health-gated failover; Codex + Claude APPROVE). Owner 11-01 ~13:10Z (via the control session) allowed llama-server on the 5080 with the live Ollama untouched; blocked on the pve4 host key (changed 10-02, never verified), not bypassed. 11-02: owner verified pve4's key; 5080 installed in /root/servea (Ollama untouched), round-3 4B within gates to 80/min beside the live fleet (p50 2.3 s p95 3.9 s), fleet p95 <= 5.04 s during the ladder, live fallback 30/30; OWNER 11-02 ~12:45Z: the 4B is the serving direction and the next model canary."
   },
   {
    "id": "cooldown15-setting",

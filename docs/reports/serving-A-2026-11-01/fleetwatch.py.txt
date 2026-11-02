@@ -1,0 +1,28 @@
+# fleetwatch.py [window_s]: the LIVE fleet's decisions answered by the 5080's Ollama whose END (start + latency) is in
+# the last window_s seconds -> one JSON line {rows, bots, p50, p95, failed, files}. Reads the tail (last 1 MiB) of every
+# bot's current llm-*.jsonl: a live watch, not a baseline. Positive control: rows and bots are printed; a watch that
+# sees too few rows is BLIND and the caller treats that as an abort, never as "quiet".
+import json, glob, os, sys, time, datetime
+W = float(sys.argv[1]) if len(sys.argv) > 1 else 60
+now = time.time(); lat = []; bots = set(); failed = 0; files = 0
+for f in glob.glob('/var/log/mcai/*/llm-*.jsonl'):
+    try:
+        if now - os.path.getmtime(f) > 600: continue
+        files += 1
+        with open(f, 'rb') as fh:
+            fh.seek(max(0, os.path.getsize(f) - (1 << 20))); fh.readline()
+            for line in fh:
+                try: r = json.loads(line)
+                except Exception: continue
+                L = r.get('llm') or {}
+                if not L.get('latency_ms'): continue            # work-order rows
+                t0 = datetime.datetime.fromisoformat(r['@timestamp'].replace('Z', '+00:00')).timestamp()
+                end = t0 + L['latency_ms'] / 1000
+                if now - end > W or end > now + 5: continue
+                if L.get('endpoint') and '10.0.0.72:11434' not in L['endpoint']: continue
+                bots.add(r['bot']['name'])
+                if not L.get('endpoint'): failed += 1
+                lat.append(L['latency_ms'])
+    except Exception: continue
+lat.sort(); q = lambda p: lat[min(len(lat) - 1, int(round(p * (len(lat) - 1))))] if lat else None
+print(json.dumps({'t': time.strftime('%H:%M:%S', time.gmtime(now)), 'rows': len(lat), 'bots': len(bots), 'p50': q(.5), 'p95': q(.95), 'failed': failed, 'files': files}))
