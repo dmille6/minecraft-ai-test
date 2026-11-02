@@ -483,6 +483,9 @@ await t('wholemap-s1a item 6: a ring past one call is a multi-call trip (more of
   assert.equal(E.ringOf(Array(12).fill(ok), 0), E.RING_MAX, 'growth 100 -> 300, capped')
   assert.equal(E.trailAge({ startedAt: 0, trailAt: 5_000 }, 6_000), 1_000, 'the trail TTL runs from its last walked leg')
   assert.equal(E.trailAge({ startedAt: 1_000 }, 6_000), 5_000)
+  // Claude r1 BLOCK: a trip stuck out of town (its hops never arrive, so trailAt stays old) -- and past TRIP_MAX_MS from its
+  // start, whatever trailAt says -- is past every TTL: it no longer holds an expedition slot
+  assert.equal(E.trailAge({ startedAt: 0, trailAt: 13 * 3_600_000 - 1_000 }, 13 * 3_600_000), Infinity)
 })
 
 await t('MUTANT KILLED: a ring penalty for every late close keeps the ring at 100 (stucks in the streets)', async () => {
@@ -501,6 +504,9 @@ await t('wholemap-s1a wiring (structural): the visit carries the detour leg to l
   one(/const outMs = \(deadline - tOut\) \* outShareOf\(trip\.ring\)/g, 'the out share')
   one(/v: trip\.v, multi: trip\.multi === true/g, 'the returned row')
   one(/if \(trailAge\(trip, Date\.now\(\)\) > TRAIL_TTL_MS \|\| exAtHome\(p\)\) return null/g, 'home follows by trail age')
+  one(/if \(arrived\) trip\.trailAt = Date\.now\(\)/g, 'only an arrived hop freshens the trail')
+  one(/if \(moved >= 4\) trip\.trailAt = Date\.now\(\)/g, 'only a leg that moved freshens it outbound')
+  assert.ok(!/trip\.trailAt = Date\.now\(\)\n\s*persist\(\)/.test(src), 'no unconditional stamp in the walk home')
   assert.equal(E.PLANNER_V, 2)
 })
 
