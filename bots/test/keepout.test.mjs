@@ -584,9 +584,14 @@ test('ONE WRITER AT A TIME: two processes recording 40 deaths each lose none (th
   const file = path.join(dir, 'world-facts.json')
   const drv = path.join(dir, 'drv.mjs')
   writeFileSync(drv, `const { WorldFacts } = await import(${JSON.stringify(new URL('../src/worldfacts.mjs', import.meta.url).href)})
-const wf = new WorldFacts(${JSON.stringify(file)}); const off = Number(process.argv[2])
+const wf = new WorldFacts(${JSON.stringify(file)}); const off = Number(process.argv[2]); const go = Number(process.argv[3])
+while (Date.now() < go) { /* START BARRIER: both writers begin together, not one import-time apart */ }
 for (let i = 0; i < 40; i++) wf.reportDeath('fire', { x: off + i * 20, y: 60, z: 0 }, 'b' + off)`)
-  const run = off => new Promise((res, rej) => execFile(process.execPath, [drv, String(off)], { env: process.env }, e => (e ? rej(e) : res())))
+  // THE START BARRIER (fewerdec-01 rebuild 11-02): the 40 writes take ~10-17 ms and the two imports jitter by about as
+  // much, so without it the race was a coin toss -- measured 43 / 69 / 80 kept on .31 for the unlocked mutant (the
+  // autorebase saw 0/3 there); with it the mutant kept 40-43 of 80 in 10 of 10 trials.
+  const go = Date.now() + 1500
+  const run = off => new Promise((res, rej) => execFile(process.execPath, [drv, String(off), String(go)], { env: process.env }, e => (e ? rej(e) : res())))
   await Promise.all([run(0), run(100000)])
   const d = JSON.parse(readFileSync(file, 'utf8'))
   assert.equal(d.sites.filter(q => q.kind === 'death:fire').length, 80, 'every death kept')
@@ -763,8 +768,9 @@ test('MUTANT KILLED: the unlocked read-merge-write loses deaths under the same r
   await withMutantsAll(WF_URL, [["    const r = this.#withLock(owned => this.#updateLocked(mutate, owned), critical ? WF_LOCK_CRITICAL_MS : WF_LOCK_ROUTINE_MS)", '    const r = this.#updateLocked(mutate)']], async () => {
     const mutant = readdirMutant()
     const dir = mkdtempSync(path.join(tmpdir(), 'mcai-ko-race-m-')), file = path.join(dir, 'world-facts.json'), drv = path.join(dir, 'drv.mjs')
-    writeFileSync(drv, `const { WorldFacts } = await import(${JSON.stringify(mutant)}); const wf = new WorldFacts(${JSON.stringify(file)}); const off = Number(process.argv[2]); for (let i = 0; i < 40; i++) wf.reportDeath('fire', { x: off + i * 20, y: 60, z: 0 }, 'b' + off)`)
-    const run = off => new Promise((res, rej) => execFile(process.execPath, [drv, String(off)], { env: process.env }, e => (e ? rej(e) : res())))
+    writeFileSync(drv, `const { WorldFacts } = await import(${JSON.stringify(mutant)}); const wf = new WorldFacts(${JSON.stringify(file)}); const off = Number(process.argv[2]); const go = Number(process.argv[3]); while (Date.now() < go) {} for (let i = 0; i < 40; i++) wf.reportDeath('fire', { x: off + i * 20, y: 60, z: 0 }, 'b' + off)`)
+    const go = Date.now() + 1500   // the same start barrier as the positive test above
+    const run = off => new Promise((res, rej) => execFile(process.execPath, [drv, String(off), String(go)], { env: process.env }, e => (e ? rej(e) : res())))
     await Promise.all([run(0), run(100000)])
     assert.ok(JSON.parse(readFileSync(file, 'utf8')).sites.length < 80, 'the mutant lost deaths')
   })
