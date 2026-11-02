@@ -91,6 +91,17 @@ def t_parse_and_triage(S):
     check('triage: flake / pre-existing on main / on the fleet / hard / new test absent on main / broken base runs',
           tr == {'flake': ['f.mjs'], 'preexisting': ['p.mjs', 'q.mjs'], 'hard': ['h.mjs', 'n.mjs', 'e.mjs']}, tr)
     check('triage: no base runs recorded = not proof of pre-existing', S.triage(['z'], {'z': ['fail']}, {}, {})['hard'] == ['z'])
+    fail_out = ('FAILING DETAIL\n\n--- a.test.mjs (exit 1) ---\n  FAIL x\n\nslowest files:\n  1ms a.test.mjs\n'
+                'FAILED (1): a.test.mjs\n0/1 files passed\n')
+    tout = ('FAILING DETAIL\n\n--- a.test.mjs (exit signal SIGKILL) ---\n  PASS y\n[killed: timeout]\n\nslowest files:\n'
+            'FAILED (1): a.test.mjs\n0/1 files passed\n')
+    check('alone_result: a completed failure is a confirmed fail', S.alone_result(fail_out, 'a.test.mjs') == 'fail')
+    check('alone_result: a runner timeout is an error (Codex r2)', S.alone_result(tout, 'a.test.mjs') == 'error')
+    check('alone_result: pass / absent / no summary',
+          S.alone_result('1/1 files passed\n', 'a.test.mjs') == 'pass' and S.alone_result('', 'a.test.mjs', False) == 'absent'
+          and S.alone_result('FAILED (1): a.test.mjs\n', 'a.test.mjs') == 'error')
+    check('alone_result: a failure with no detail block is not confirmed',
+          S.alone_result('FAILED (1): a.test.mjs\n0/1 files passed\n', 'a.test.mjs') == 'error')
     check('push_safe_without_retest: Markdown under docs/ added or modified',
           S.push_safe_without_retest([('M', 'docs/reports/STATE.md'), ('A', 'docs/reports/x-2026-11-02.md')]))
     check('push_safe_without_retest: scripts/ or config/ re-tests (the suite runs them)',
@@ -255,6 +266,8 @@ MUTANTS = [
     ('conflict alarm', "if st == 'conflict':", "if False:"),
     ('pending alarm threshold', "elif hours(now, t) > PENDING_ALARM_H:", "elif False:"),
     ('missing alarm', "if hours(now, t) > MISSING_GRACE_H:", "if False:"),
+    ('timeout is not a confirmed fail', "if not m or m.group(1).startswith('signal') or '[killed: timeout]' in m.group(2):",
+     "if not m:"),
     ('suite completion', "return bool(PASSED_LINE.search(text)), failed", "return True, failed"),
 ]
 

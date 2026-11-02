@@ -138,6 +138,23 @@ def triage(failed, alone_merge, alone_main, alone_fleet):
     return out
 
 
+def alone_result(text, f, exists=True):
+    """PURE. One alone run's run-tests.mjs output -> 'pass' | 'fail' | 'absent' | 'error'. A file the runner killed (its
+    per-file timeout: '[killed: timeout]', exit 'signal SIGKILL') or that died on a signal is 'error', never a confirmed
+    'fail' (Codex r2: a timed-out base run must not prove a merge failure pre-existing)."""
+    if not exists:
+        return 'absent'
+    done, failed = parse_suite(text)
+    if not done:
+        return 'error'
+    if f not in failed:
+        return 'pass'
+    m = re.search(r'^--- ' + re.escape(f) + r' \(exit ([^,)]+)[^\n]*---\n(.*?)(?=^--- |\nslowest files:|\Z)', text, re.M | re.S)
+    if not m or m.group(1).startswith('signal') or '[killed: timeout]' in m.group(2):
+        return 'error'
+    return 'fail'
+
+
 def push_safe_without_retest(changes):
     """PURE. changes: [(status letter, path)] main gained while the suite ran (git diff --name-status) -> may the re-merge
     onto the new main be pushed untested? Only for an allowlist the suite cannot see (Codex r1: the suite runs scripts/ and
@@ -376,10 +393,7 @@ def _alone(tree, f, env):
                            capture_output=True, text=True, timeout=1800, env=env)
     except subprocess.TimeoutExpired:
         return 'error'
-    if not os.path.isfile(os.path.join(tree, 'bots', 'test', f)):
-        return 'absent'
-    done, failed = parse_suite(p.stdout)
-    return 'error' if not done else ('fail' if f in failed else 'pass')
+    return alone_result(p.stdout, f, os.path.isfile(os.path.join(tree, 'bots', 'test', f)))
 
 
 def _busy():
