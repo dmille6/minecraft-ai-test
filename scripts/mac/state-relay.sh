@@ -10,7 +10,7 @@ set -u
 HOSTA=mike@10.0.0.31
 D=$HOME/state-relay; R=$D/repo; mkdir -p "$D"
 log() { echo "$(date -u +%FT%TZ) $*"; }
-[ -d "$R/.git" ] || git clone -q https://github.com/dmille6/minecraft-ai-test.git "$R" || { log "clone failed"; exit 1; }
+[ -d "$R/.git" ] || git clone -q git@github.com:dmille6/minecraft-ai-test.git "$R" || { log "clone failed"; exit 1; }
 scp -q -o BatchMode=yes -o ConnectTimeout=20 "$HOSTA:digest/STATE.md" "$D/STATE.gen.md" || { log "scp failed"; exit 1; }
 for attempt in 1 2; do
   git -C "$R" fetch -q origin main && git -C "$R" checkout -q -B main origin/main || { log "fetch failed"; exit 1; }
