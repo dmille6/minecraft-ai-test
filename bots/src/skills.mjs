@@ -126,6 +126,7 @@ import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
+import { STATIONKEEP, STRAY_NAMES, SWEEP_MAX, SWEEP_R, SWEEP_CACHE_MS, smeltRetake, strayStations, noteSweep, sweepGivenUp, stationRowDetail, sweepVisitDetail } from './stationkeep.mjs'   // stationkeep-01
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -6176,13 +6177,14 @@ function ingredientsBack(before, now, consumes = []) {
  * is not crafting_table -> crafting_table (a break, an unload, a world switch) taints it, even if a crafting table
  * stands there again by the retake. No way to watch (no block events) is "unsure", and unsure is left alone.
  */
-function watchPlaced(bot, at) {
-  const w = { at, stateId: bot.blockAt?.(at)?.stateId, changed: null, stop: () => {} }
+function watchPlaced(bot, at, name = 'crafting_table') {
+  // stationkeep-01: any station name (smelt watches the furnace it placed); a furnace's lit state is the same name, no change
+  const w = { at, name, stateId: bot.blockAt?.(at)?.stateId, changed: null, stop: () => {} }
   if (typeof bot.on !== 'function') { w.changed = 'no block events to watch it by'; return w }
   const ev = `blockUpdate:${new Vec3(at.x, at.y, at.z)}`   // prismarine-world's per-cell event: blockUpdate:(x, y, z)
   const fn = (was, now) => {
     if (w.changed) return
-    if (was?.name !== 'crafting_table' || now?.name !== 'crafting_table') w.changed = `${was?.name ?? 'unknown'} -> ${now?.name ?? 'unknown'}`
+    if (was?.name !== name || now?.name !== name) w.changed = `${was?.name ?? 'unknown'} -> ${now?.name ?? 'unknown'}`
   }
   // ITS CHUNK UNLOADING loses the history: a break while it was unloaded sends no blockUpdate, and the reload just
   // shows whatever stands there now (Codex review). prismarine-world emits the column's corner.
@@ -6194,6 +6196,48 @@ function watchPlaced(bot, at) {
     try { const off = (bot.off ?? bot.removeListener); off?.call(bot, ev, fn); off?.call(bot, 'chunkColumnUnload', onUnload) } catch {}
   }
   return w
+}
+
+/**
+ * STATIONKEEP-01: DIG BACK ONE STATION -> a phrase for the caller's detail, or null. `w` is a watch (watchPlaced) of a station
+ * THIS CALL placed (smelt's furnace), or of a stray the tidy's sweep found (`w.stray`: no placement to prove, the block name at
+ * its cell is the whole test). Never when aborted, when the block there is not that station, when the watch saw it change
+ * (not provably ours), or with no room. The dig is collectManually's (walk, best tool -- a furnace dug bare-handed drops
+ * nothing -- dig, read-back, pickup); the station must ARRIVE in the bag. One `_station_retaken` (or `_station_swept`) row.
+ * An abort mid-dig rethrows. The watch is stopped on every path.
+ */
+async function retakeStation (ctx, w, signal, by = 'smelt') {
+  const { bot } = ctx
+  const name = w.name ?? 'furnace'
+  const at = w.at
+  const kind = w.stray ? 'station_swept' : 'station_retaken'
+  const row = (outcome, why) => { try { logEvent({ kind, status: outcome === 'back' ? 'success' : outcome === 'failed' ? 'failed' : 'no_effect', snapshot: snapshot(bot), detail: stationRowDetail({ at, name, by, outcome, why }) }) } catch { /* telemetry */ } }
+  try {
+    if (signal?.aborted) { row('left', 'aborted; an aborted skill does not dig'); return null }
+    const block = bot.blockAt?.(at)
+    if (block?.name !== name) { row('gone', `no longer a ${name} (${block?.name ?? 'unknown'})`); return null }
+    if (w.changed) { row('left', `changed since placement (${w.changed}); not provably ours`); return `left the ${name}: it changed since it was placed` }
+    const def = bot.registry?.itemsByName?.[name]
+    if (!roomForOne(bot.inventory.items(), name, def?.stackSize ?? 64)) { row('left', `no room to carry it (${bot.inventory.items().length}/${BAG_SLOTS} slots)`); return `left the ${name}: no room to carry it` }
+    const before = countItem(bot, name)
+    const beforeDig = () => {
+      if (w.changed) throw Object.assign(new Error(`changed since placement (${w.changed}); not provably ours`), { failClass: 'not_ours' })
+      const now = bot.blockAt?.(at)
+      if (now?.name !== name) throw Object.assign(new Error(`now ${now?.name ?? 'unknown'}`), { failClass: 'not_ours' })
+      w.stop()
+    }
+    try {
+      await collectManually(bot, block, signal, { beforeDig })
+    } catch (e) {
+      if (e?.aborted || signal?.aborted) { row('left', 'aborted mid-dig'); throw e }
+      row(e?.failClass === 'not_ours' ? 'left' : 'failed', `dig: ${String(e?.message ?? e).slice(0, 80)}`)
+      return `could not take the ${name} back`
+    }
+    let back = countItem(bot, name) > before
+    for (let i = 0; i < 15 && !back; i++) { await sleep(100, signal); back = countItem(bot, name) > before }
+    row(back ? 'back' : 'failed', back ? 'dug and back in the bag' : `dug but it did not arrive (${bot.blockAt?.(at)?.name ?? 'unknown'} there now)`)
+    return back ? `took the ${name} back` : `dug the ${name} but it did not arrive`
+  } finally { try { w.stop() } catch { /* already stopped */ } }
 }
 
 /** Failure classes that end the whole recipe tree instead of being reported as a missing ingredient. */
@@ -12541,6 +12585,7 @@ async function smelt (ctx, args, signal, opts = {}) {
     return { ...r, furnace: session.furnace, lease: session.unleased ? 'unleased' : session.leaseN, prior: session.prior,
              drainStop: session.drainStop ?? null, closing: session.closing }
   } finally {
+    try { session.placedWatch?.stop() } catch { /* stationkeep-01: never left listening */ }
     endLease(session)
     // ONE ROW PER LEASE ACTUALLY HELD, timed from its acquisition to just before its release (Codex code r1 P1-4, Claude
     // r1 P2-4): a session that switched furnaces (it placed its own) logs both, each with its own interval.
@@ -12678,13 +12723,15 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   const findFurnace = take
   let block = findFurnace()
   let placed = 0
+  // stationkeep-01: the furnace this call puts down is watched from its placement, and dug back once the job is drained
+  const watchMine = put => { if (STATIONKEEP.on && put?.at && !session.placedWatch) session.placedWatch = watchPlaced(bot, put.at, 'furnace') }
   if (!block && bot.inventory.items().some(i => i.name === 'furnace')) {
     check(signal)
     // The SAME `place` the crafting-table path uses -- it searches eight
     // horizontal neighbours plus a step up or down and READS THE BLOCK BACK,
     // which is the repair that made the tech tree work at all.
     const put = await place(ctx, { item: 'furnace' }, signal)
-    if (put.status === 'success') { placed = 1; block = findFurnace() }
+    if (put.status === 'success') { placed = 1; watchMine(put); block = findFurnace() }
   }
   // EVERY FURNACE IN REACH IS IN ANOTHER BOT'S SESSION and none is carried: a transient fact, not a lesson. A busy furnace
   // is never a reason to CRAFT one (that would recreate the scatter -- Claude r2 N4); the remedy is time.
@@ -12732,6 +12779,7 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
       const put = await place(ctx, { item: 'furnace' }, signal)
       if (put.status === 'success') {
         placed = 1
+        watchMine(put)
         const mine = findFurnace()
         if (mine) {
           block = mine
@@ -13022,6 +13070,24 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
 
   const gained = countItem(bot, plan.output) - before
   const ran = Date.now() >= deadline - SMELT_RECOVERY_MS
+  // STATIONKEEP-01: THE FURNACE THIS CALL PLACED GOES BACK INTO THE BAG once the job is drained (stationkeep.mjs smeltRetake:
+  // the last read of its window shows no input and no output). Not when another session holds it (it is not this job's
+  // furnace and someone else's lease is live).
+  let retook = null
+  if (session.placedWatch) {
+    const w = session.placedWatch
+    const cnt = which => { const v = fslot(which); return v === undefined ? undefined : (v?.count ?? 0) }
+    const d = smeltRetake({ placed: true, aborted: !!signal?.aborted, input: cnt('inputItem'), output: cnt('outputItem') })
+    const k = posKey(w.at)
+    const others = k !== session.furnace && furnaceLeasedNow(k)
+    if (d.retake && !others) retook = await retakeStation(ctx, w, signal, 'smelt')
+    else {
+      try { logEvent({ kind: 'station_retaken', status: 'no_effect', snapshot: snapshot(bot), detail: stationRowDetail({ at: w.at, name: 'furnace', by: 'smelt', outcome: 'left', why: others ? 'leased_by_another' : d.why }) }) } catch { /* telemetry */ }
+      w.stop()
+    }
+    session.placedWatch = null
+  }
+  const tail = retook ? `; ${retook}` : ''
 
   // SUCCESS IS A MEASUREMENT OR IT IS NOT A SUCCESS. `status` earned 115
   // recorded wins for doing nothing because a promise resolved; the count of
@@ -13032,7 +13098,7 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
       detail: `smelted ${gained}x ${plan.output} from ${plan.input} ` +
               `(batch ${plan.batch}, burned ${Object.entries(burned).map(([k, v]) => `${v}x ${k}`).join(' + ') || `${plan.fuel.count}x ${plan.fuel.name}`}` +
               `${placed ? ', placed the furnace first' : ''})` +
-              (gained < plan.batch ? ` — ${plan.batch - gained} still to do, call smelt again` : ''),
+              (gained < plan.batch ? ` — ${plan.batch - gained} still to do, call smelt again` : '') + tail,
     }
   }
   if (ran) {
@@ -17415,7 +17481,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     if (r.blueprint === TREEFARM_BLUEPRINT) return tidy && !!farmDueFor(bot, r)
     // tidy-01: a finished tidy is never DAMAGED (the bots' next pillars are the next survey's): only DUE its re-survey (tidy.mjs
     // tidyDue), after every open project
-    if (r?.blueprint === TIDY_BLUEPRINT) return tidy && tidyDue(r)
+    // stationkeep-01: ...or the plaza has a stray station to sweep (stationkeep.mjs; cached, never throws)
+    if (r?.blueprint === TIDY_BLUEPRINT) return tidy && (tidyDue(r) || strayDue(bot))
     // shaft-02: the town stair judges its own cells (shaftgeom.mjs stairDamaged); a no-site record is only DUE, after its retry
     if (r?.blueprint === SHAFT_BLUEPRINT) return stairDamaged(stairRead(bot), r) || (tidy && stairDue(r))
     // monument-01: a sealed core cell of the ziggurat is done (ziggurat.mjs zigHidden), as its visit judges it; v2: the record's
@@ -19040,6 +19107,59 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   return { home, avoid, cells, pin, plan: P.plan }
 }
 const tidyRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+/**
+ * STATIONKEEP-01: THE PLAZA'S STRAY STATIONS NOW -> stationkeep.mjs strayStations' result + { found }. Every crafting table and
+ * furnace findBlocks sees round the plan's home, judged against the tidy's own `avoid` and record cells (tidyInputs). A furnace
+ * the town ledger last saw holding anything (or lit) stays; with the ledger UNREADABLE no furnace is a stray (fail closed: its
+ * contents are unknown). Throws when the town's records cannot be read (the caller treats that as nothing to do).
+ */
+function strayNow (bot, I = null) {
+  I ??= tidyInputs(bot)
+  const isStray = b => STRAY_NAMES.includes(bot.registry?.blocks?.[b.type]?.name)
+  const found = (bot.findBlocks?.({ point: new Vec3(I.home.x, I.home.y, I.home.z), maxDistance: Math.ceil(SWEEP_R * 1.5), count: 256, matching: isStray }) ?? []).map(p => {
+    const b = bot.blockAt?.(p)
+    if (!b) return null
+    let lit = false
+    try { const v = b.getProperties?.()?.lit; lit = v === true || v === 'true' } catch { lit = false }
+    return { at: [p.x, p.y, p.z], name: b.name, lit }
+  }).filter(Boolean)
+  let view = null
+  try { const r = readLedger(townDir(), ledgerHomeKey(homeVec()), bot.worldId ?? null); if (r.ok) view = r.view } catch { view = null }
+  const holds = k => (view ? !!view.furnaces?.[k] && view.furnaces[k].state !== 'empty' : true)
+  const mem = bot.sweepGiven
+  return { ...strayStations(found, { home: I.home, avoid: I.avoid, cells: I.cells, holds, given: k => sweepGivenUp(mem, k) }), found: found.length }
+}
+/** Does the plaza have a stray to sweep (the tidy's order: a complete tidy with strays is a repair visit)? Cached SWEEP_CACHE_MS;
+ *  never throws (unreadable = no). */
+export function strayDue (bot, now = Date.now()) {
+  if (!STATIONKEEP.on) return false
+  if (bot.strayCache && now - bot.strayCache.at < SWEEP_CACHE_MS) return bot.strayCache.v
+  let v = false
+  try { v = strayNow(bot).sweep.length > 0 } catch { v = false }
+  bot.strayCache = { at: now, v }
+  return v
+}
+/** STATIONKEEP-01: dig up to SWEEP_MAX strays, nearest home first, until `deadline` -> { dug, back, s }. One `_station_sweep`
+ *  row a visit that looked; one `_station_swept` row a stray. A stray tried that still stands counts toward this bot's give-up. */
+async function sweepStrays (ctx, signal, { deadline = Date.now() + 60_000, I = null } = {}) {
+  const { bot } = ctx
+  let s
+  try { s = strayNow(bot, I) } catch { return { dug: 0, back: 0, s: null } }
+  const mem = (bot.sweepGiven ??= new Map())
+  let dug = 0, back = 0
+  const tried = []
+  for (const c of s.sweep.slice(0, SWEEP_MAX)) {
+    if (Date.now() >= deadline) break
+    check(signal)
+    tried.push(c.at.join(','))
+    const said = await retakeStation(ctx, { at: new Vec3(...c.at), name: c.name, stray: true, changed: null, stop: () => {} }, signal, 'tidy')
+    if (said) { dug++; if (said.startsWith('took')) back++ }
+  }
+  noteSweep(mem, tried, k => STRAY_NAMES.includes(bot.blockAt?.(keyVec(k))?.name))
+  bot.strayCache = null
+  if (s.found || tried.length) { try { logEvent({ kind: 'station_sweep', status: back > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: sweepVisitDetail({ found: s.found, sweep: s.sweep.length, kept: s.kept.length, dug, back, skipped: s.skipped }) }) } catch { /* telemetry */ } }
+  return { dug, back, s }
+}
 async function buildTidy (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -19075,7 +19195,14 @@ async function buildTidy (ctx, args, signal) {
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the tidy record could not be read back')
   }
   const rec = rh.head.rec
-  if (rec.structure_complete) return out('no_effect', 'complete', 'the town ground is tidy')
+  if (rec.structure_complete) {
+    // STATIONKEEP-01: a complete tidy's visit (strayDue made it a repair) sweeps the plaza's stray stations, nothing else
+    if (STATIONKEEP.on) {
+      const sw = await sweepStrays(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
+      if (sw.s?.sweep?.length) return out(sw.back > 0 ? 'success' : 'no_effect', 'swept', `the town ground is tidy; swept ${sw.back} of ${sw.s.sweep.length} stray station(s) (${sw.s.kept.length} kept for the plaza)`, { stop: 'swept', cleared: sw.dug })
+    }
+    return out('no_effect', 'complete', 'the town ground is tidy')
+  }
   const palette = TIDY_PALETTE
   const mem = (bot.tidyGiven ??= new Map())
   // a cell ANOTHER project's record names now (a project sited since the survey) is never the tidy's: never dug, never filled (read
@@ -19133,6 +19260,9 @@ async function buildTidy (ctx, args, signal) {
     const cuts = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')))
     const r = await runVisit({ dir, key, me, home, stood, record: rec, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: TIDY_CLEAR_MAX, alsoDone: q => waivedK(q), stuckStalledOnly: true }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // STATIONKEEP-01: the plaza's stray stations, with what is left of the visit (30 s at least)
+    let swept = null
+    if (STATIONKEEP.on && t0 + budget - ZIG_VISIT_TAIL_MS - Date.now() >= 30_000 && r.stop !== 'aborted') { try { swept = await sweepStrays(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts)
     const read2 = tidyRead(bot)
     const cutAt = new Map((rec.cut ?? []).map(q => [q.at.join(','), q]))
@@ -19178,7 +19308,7 @@ async function buildTidy (ctx, args, signal) {
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
-    return out(status, completed ? 'complete' : r.stop, `${r.why ?? r.stop}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}`, { stop: completed ? 'complete' : r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    return out(status, completed ? 'complete' : r.stop, `${r.why ?? r.stop}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}${swept?.s?.sweep?.length ? `; swept ${swept.back} of ${swept.s.sweep.length} stray station(s)` : ''}`, { stop: completed ? 'complete' : r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
