@@ -284,7 +284,8 @@ await t('WIRED (skills.mjs, comments stripped): the storehouse site, its palette
   assert.ok(/if \(plot === STORE_PLOT\) \{\s*const ss = storeSiteFor\(/.test(src), 'buildShop sites the storehouse on its plot')
   assert.ok(src.includes('id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE }'), 'blueprintOf knows the palette')
   assert.ok(/rec\.blueprint === STORE_BLUEPRINT \? \{ domain: storeDomain\(rec\), tidy: storeTidy\(/.test(src), 'the visit gets the domain and the tidy')
-  assert.ok(src.includes('...placedBy, ...storeOpts }') || src.includes('placedBy, ...storeOpts }'), 'passed to runVisit')
+  // stuckcells-01: the workshop's/house's remedies ride after the storehouse options (never on the storehouse: shopLikeBp)
+  assert.ok(src.includes('...placedBy, ...storeOpts }') || src.includes('placedBy, ...storeOpts }') || src.includes("placedBy, ...storeOpts,\n      ...(shopLikeBp(rec.blueprint) ? stuckVisitOpts(rec, 'shop') : {}) }"), 'passed to runVisit')
   assert.ok(src.includes('if (tidy && r.blueprint === STORE_BLUEPRINT && storeTidy(r, read, bot.storeTidyTries ?? null).length) return true'), 'due on litter')
 })
 
