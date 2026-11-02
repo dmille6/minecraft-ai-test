@@ -70,8 +70,15 @@ export function hallOpening ({ ingots = null, cut = null, reserve = 512, needed 
 export function townCopperOf (entries, stateOf = () => 'known') {
   if (!entries || typeof entries !== 'object') return { unknown: true }
   let ingots = 0, cut = 0, containers = 0, stale = 0
+  // a container another entry's NEWER observation names among its halves (`obs.h`: a single chest that became the other half of a
+  // double chest) is that entry's now, not its own (Codex r3 BLOCK: both counted, 160 read as 320)
+  const covered = new Map()
+  for (const [k, e] of Object.entries(entries)) {
+    for (const h of Array.isArray(e?.obs?.h) ? e.obs.h : []) if (h !== k) covered.set(h, Math.max(covered.get(h) ?? -Infinity, Number(e.obs.at) || 0))
+  }
   for (const [k, e] of Object.entries(entries)) {
     if (!/^-?\d+,-?\d+,-?\d+$/.test(k) || !e?.obs?.names) continue
+    if (covered.has(k) && covered.get(k) >= (Number(e.obs.at) || 0)) continue
     let st = 'unknown'
     try { st = stateOf(e) } catch { st = 'unknown' }
     if (st !== 'known' && st !== 'stale') continue
