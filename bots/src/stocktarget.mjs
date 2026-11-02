@@ -114,10 +114,80 @@ export const PROJECT_PARTS = Object.freeze([
  * THE BUILD RESERVE (building tier §3.3, owner B3; OWNER 10-23: logs 512, copper ingots 512, cobblestone 256, torches 32,
  * sand 16, planks 71, sticks 40 -- the cobble-256 table of reserve-proposal-2026-10-23.md, superseding Q6's "512 for each",
  * which funded 0 of 13 workshops): what a town keeps that no
- * building job may spend. DECLARED here; NOTHING READS IT until mats-01, which adds the env override (a setting) and the
- * `_mats_mode` licence row. Keys are the reserved stock classes of §3.3, per town.
+ * building job may spend. mats.mjs reads it (matsReserve: the MATS_RESERVE override, the `_mats_mode` row) and, from marks-01,
+ * it is the LOW of the policy table below (MARKS). Keys are the reserved stock classes of §3.3, per town.
  */
 export const BUILD_RESERVE = Object.freeze({ cobblestone: 256, logs: 512, planks: 71, sticks: 40, copper_ingot: 512, sand: 16, torch: 32 })
+
+/**
+ * THE POLICY TABLE (marks-01; resource-model-1102 §3, docs/reports/resource-management-2026-11-02.md; OWNER 11-02 answered). ONE
+ * row per stock group: { low, target, high, bagKeep } -- every number is an owner number already written above, gathered here so
+ * every layer reads one table and no module keeps its own:
+ *   low      the refill / project floor: BUILD_RESERVE where the owner set one (cobble 256, sand 16, stick 40), else 0
+ *   target   the chest cap: the group's target (TOWN_COBBLE_CAP 1000, TOWN_WOOD_TARGET 4000, sand 64, ...)
+ *   high     chests + yard full: target + the yard's room for the group (YARD_ROOM: the fleet has no yard yet, so 0 -- the
+ *            stockyard fleet stage sets it); towngate-01's metered overflow acts only above it
+ *   bagKeep  what the bag keeps of the group (STOCK_RESERVE 64). NEVER below the escape stone (bankable COBBLE_RESERVE, well
+ *            STONE_GUARD and COBBLE_WELL_RESERVE, each 64: the exit contract) -- stocktarget.test / marks.test assert it.
+ * Per-type wood groups carry low 0: the owner's wood reserve (logs 512, planks 71) is a TOTAL over types, mats.mjs enforces it.
+ * HYSTERESIS (latchStep): below LOW the replenish latch is set until TARGET; above HIGH the dispose latch is set until
+ * HIGH - one stack. An unknown count never sets the dispose latch and clears it (fail closed: unknown stock is never surplus).
+ */
+export const YARD_ROOM = Object.freeze({ cobble: 0 })
+const LOWS = { cobble: BUILD_RESERVE.cobblestone, sand: BUILD_RESERVE.sand, stick: BUILD_RESERVE.sticks }
+export const MARKS = Object.freeze(Object.fromEntries(STOCK_GROUP_NAMES.filter(g => kindOf(g) === 'bulk').map(g => {
+  const target = targetOf(g)
+  return [g, Object.freeze({ low: Math.min(LOWS[g] ?? 0, target), target, high: target + (YARD_ROOM[g] ?? 0), bagKeep: STOCK_RESERVE })]
+})))
+/** A group's marks, or null (an untargeted group or a tool: no marks, today's rules). */
+export const markOf = g => MARKS[g] ?? null
+/** What the bag keeps of a group (the table's bagKeep; STOCK_RESERVE for a group without marks). */
+export const bagKeepOf = g => MARKS[g]?.bagKeep ?? STOCK_RESERVE
+/**
+ * THE BAND a town count falls in -> 'unknown' | 'below_low' | 'low_target' | 'target_high' | 'above_high' | null (no marks).
+ * Pure. `n` null/undefined/NaN is 'unknown' (never 0).
+ */
+export function bandOf (g, n) {
+  const m = MARKS[g]
+  if (!m) return null
+  if (n == null || !Number.isFinite(Number(n))) return 'unknown'
+  const v = Number(n)
+  if (v < m.low) return 'below_low'
+  if (v < m.target) return 'low_target'
+  if (v <= m.high) return 'target_high'
+  return 'above_high'
+}
+/**
+ * THE LATCHES, one step -> { replenish, dispose }. Pure. `prev` the latches before ({} = none set); `n` the town count now.
+ *   replenish  set when n < low; held until n >= target
+ *   dispose    set when n > high; held until n <= max(0, high - 64); an UNKNOWN count clears it
+ */
+export function latchStep (prev = {}, g, n) {
+  const m = MARKS[g]
+  if (!m) return { replenish: false, dispose: false }
+  const known = n != null && Number.isFinite(Number(n))
+  const v = Number(n)
+  let replenish = !!prev.replenish, dispose = !!prev.dispose
+  if (known) {
+    if (v < m.low) replenish = true
+    else if (v >= m.target) replenish = false
+    if (v > m.high) dispose = true
+    else if (v <= Math.max(0, m.high - 64)) dispose = false   // r1 BLOCKER (Claude): a HIGH below one stack releases at 0
+  } else dispose = false
+  return { replenish, dispose }
+}
+/** The `_stock_band` row (one per town deposit that named cobble): the counted town and its band. Pure. An incomplete count is
+ *  `town=-` and band `unknown`. */
+export function stockBandDetail (g, n) {
+  const m = MARKS[g]
+  if (!m) return `group=${g} band=-`
+  return `group=${g} town=${n == null ? '-' : n} band=${bandOf(g, n)} low=${m.low} target=${m.target} high=${m.high}`
+}
+/** The `_marks_mode` licence row: the cobble row of the table and the yard room. Pure. */
+export const marksModeDetail = () => {
+  const c = MARKS.cobble
+  return `phase=mode cobble=${c.low}/${c.target}/${c.high} bagkeep=${c.bagKeep} sand=${MARKS.sand.low}/${MARKS.sand.target}/${MARKS.sand.high} stick=${MARKS.stick.low}/${MARKS.stick.target} yard_room=${YARD_ROOM.cobble}`
+}
 
 /**
  * NEVER DISPOSED, whatever any table says (the owner's list: iron, ores, ingots, tools, saplings, the composter's inputs;
@@ -150,7 +220,7 @@ export function stockCounts (items = []) {
  * the group's names together and the name's total stays within `creditCap`. The cobble rule's choice
  * (bankable.mjs cobbleBankStacks) is this with group 'cobble' and creditCap 64.
  */
-export function groupWholeStacks (items = [], g, { reserve = STOCK_RESERVE, creditCap = Infinity } = {}) {
+export function groupWholeStacks (items = [], g, { reserve = bagKeepOf(g), creditCap = Infinity } = {}) {   // marks-01: the table's bagKeep
   const names = new Set(namesOf(g))
   const list = (Array.isArray(items) ? items : []).map((it, i) => ({ it, i, n: Number(it?.count) || 0 }))
     .filter(x => x.it && names.has(x.it.name) && x.n > 0)
