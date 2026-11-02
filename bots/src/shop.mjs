@@ -131,6 +131,10 @@ export function activeProject (states = [], list = projectsOn()) {
   // nothing; the storehouse, last in PROJECTS, would never get its turn)
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due && s.dueFirst) return p }
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due) return p }
+  // copperhall-01 (Claude review r1 BLOCK): never a WAITING project as the fallback -- in the showcase (tidy and stair off) the
+  // hall is the list's last, and an unsited "active" hall made every order a build_shop that ended copper_wait, the expeditions
+  // never asked; the last project that is not waiting reads complete and the order stays quiet (the bot may go out)
+  for (let i = list.length - 1; i >= 0; i--) { const s = st(list[i]); if (!(!s.exists && s.waiting === true)) return list[i] }
   return list[list.length - 1]
 }
 /**
