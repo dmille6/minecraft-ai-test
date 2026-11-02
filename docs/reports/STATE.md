@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-02T21:20:02Z._
+_Generated 2026-11-02T22:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `10aa0e1d` = fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) on tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) on fleetbuild-01 `c711879e` (KEEP 11-01 23:37Z, promoted 11-01 23:47Z) on apseal-01 `963e99af` (KEEP 11-01 20:05Z, promoted 11-01 20:15Z) on promptcache-01 `9246217d` (KEEP 11-01 16:14Z, promoted 11-01 16:24Z) on lavatarget-01 `dfb3ff13` (KEEP 11-01 12:24Z, promoted 11-01 12:34Z) |
-| **Canary in slot** | **drainpick-01** running (no `deployed` row yet: drawing or preflight) |
+| **Fleet** | `10aa0e1d` = fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) on tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) on fleetbuild-01 `c711879e` (KEEP 11-01 23:37Z, promoted 11-01 23:47Z) on apseal-01 `963e99af` (KEEP 11-01 20:05Z, promoted 11-01 20:15Z) on promptcache-01 `9246217d` (KEEP 11-01 16:14Z, promoted 11-01 16:24Z) on lavatarget-01 `dfb3ff13` (KEEP 11-01 12:24Z, promoted 11-01 12:34Z). Live builds: {'10aa0e1decc8a58c6d533904933547c2747fdb13+003b4f': 70, 'e54d1cce6b76e0f66877a1042ecd7765566092c5+851cf8': 10} |
+| **Canary in slot** | **drainpick-01** deployed 11-02 21:37Z; reads +90 11-02 23:07Z, +180 11-03 00:37Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | stuckcells-01 -> deepminer-01 -> bagdiet-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01. Held: servea-01 (HELD: released AUTOMATICALLY by the servea waiter (Mac launchd com.mcai.servea-waiter, scripts/h...); llmoai-01 (HELD: serving A (OWNER 11-02 'do what you recommend'): the oai+ client to the whole fleet, neede...). Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
-| **Scheduler** | busy S2 running: canary-loop.sh (pid 472775: bash /home/mike/canary-loop.sh drainpick-01) / S7 drainpick-01 is live |
-| **Showcase release** | `4c92880a` (16,779 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **tests_failed** (live 4c92880a sits on f1f5c16c (tidy-01); behind by 1: fewerdec-01; compat identical: 8 records: same heads, build order and damage in 3 worlds; tests tests_fai; row 11-02 20:25Z) |
+| **Scheduler** | busy S1 canary declared: e54d1cce6b76e0f66877a1042ecd7765566092c5 on board-d,hive-a / S6 open loop: canary e54d1cc is deployed on board-d,hive-a with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 drainpick |
+| **Showcase release** | `4c92880a` (16,920 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **tests_failed** (live 4c92880a sits on f1f5c16c (tidy-01); behind by 1: fewerdec-01; compat identical: 8 records: same heads, build order and damage in 3 worlds; tests tests_fai; row 11-02 21:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
-| **Owner-direct / rollouts (24 h)** | qwen35-roll-s1: owner-direct-check 11-01 23:20Z; qwen35-roll: rollout-hourly 11-02 21:01Z |
+| **Owner-direct / rollouts (24 h)** | qwen35-roll-s1: owner-direct-check 11-01 23:20Z; qwen35-roll: rollout-hourly 11-02 22:01Z |
 | **Pending owner decisions** | **stockyard-1102**: When a town's yard is full (304 blocks), does surplus cobble go down the well (10-16 approval) or stay in bags (11-02 'the well only for true junk')? Today: it stays in bags. |
-| **Open alarms** | STALLCHECK 2026-11-02T20:35:01Z STALLED: 36. OPSAUDIT 2026-11-01 FLAGS: 10 (2 high). 14 active alarm(s): stuck goals 11 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-a/monument@355_73_147, hive-b/monument@355_73_147, hive-d/shaft@68_65_68, hive-d/shop@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, flowledger bags |
+| **Open alarms** | STALLCHECK 2026-11-02T21:35:01Z STALLED: 39. OPSAUDIT 2026-11-01 FLAGS: 10 (2 high). 14 active alarm(s): stuck goals 11 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-a/monument@355_73_147, hive-b/monument@355_73_147, hive-d/shaft@68_65_68, hive-d/shop@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, flowledger bags |
 <!-- GENERATED:END -->
 
 ## Notes
