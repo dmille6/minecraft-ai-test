@@ -249,6 +249,32 @@ export const MAX_STACKS_PER_VISIT = 9
  * a scaffold-capable decoration only while the bag keeps STONE_GUARD RESERVE_STONE after it (`stone`: the reserve held).
  * `junkStacks` counts every listed stack in the bag (what the trigger reads).
  */
+/**
+ * TOWNGATE-01 (a): THE METERED OVERFLOW (resource-model-1102 §8, OWNER 11-02 Q1 "yes": yard full -> surplus stone down the well,
+ * metered, from bags only). On EVERY town visit (the junkout visit order, below 34 slots), whole cobble stacks above the bag's keep
+ * (cobbleWellStacks: COBBLE_WELL_RESERVE = the table's bagKeep, 64) go down the well ONLY when every one of these holds:
+ *   cap       the town is PROVEN at HIGH (cobbleWellCap against stocktarget MARKS.cobble.high: the counted floor, never what is
+ *             on its way) -- 'at_cap'
+ *   yard      the yard is full, or there is no yard (YARD_ROOM 0: the fleet has none yet); a yard with room is never bypassed
+ *   bill      no open cobble bill a lease could serve now (projectCobbleBill: 0); UNKNOWN is no
+ * Cobble is never pruned out of chests or piles by this; every throw is an `_overflow` row. OVERFLOW=off is the rollback.
+ * -> { ok, why }. Pure.
+ */
+export const OVERFLOW = Object.freeze({ on: String(process.env.OVERFLOW ?? '').trim().toLowerCase() !== 'off' })
+export function overflowGate ({ cap = 'unknown', yardRoom = 0, yardFull = null, bill = null, on = OVERFLOW.on } = {}) {
+  if (!on) return { ok: false, why: 'off' }
+  if (cap !== 'at_cap') return { ok: false, why: `town_${cap}` }
+  if ((Number(yardRoom) || 0) > 0 && yardFull !== true) return { ok: false, why: 'yard_room' }
+  if (bill == null || !Number.isFinite(Number(bill))) return { ok: false, why: 'bill_unknown' }
+  if (Number(bill) > 0) return { ok: false, why: 'project_bill' }
+  return { ok: true, why: 'proven_high' }
+}
+/** The `_overflow` row: one per cobble name a metered throw sent down. Pure. */
+export function overflowRowDetail ({ name = '-', n = 0, town = null, target = 0, high = 0, why = '-' } = {}) {
+  const p = !Number.isFinite(Number(town)) ? '-' : high > target ? ((Number(town) - target) / (high - target)).toFixed(2) : 'max'
+  return `item=${name} n=${n} town=${town ?? '-'} target=${target} high=${high} pressure=${p} why=${why}`
+}
+
 export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false, cobbleAtCap = false, stock = null, keep = null } = {}) {
   // `keep` (junkout-01's visit, Claude r1 P3-6): names the active goal wants -- never planned, whatever the list says
   const kept = new Set(Array.isArray(keep) ? keep : [])

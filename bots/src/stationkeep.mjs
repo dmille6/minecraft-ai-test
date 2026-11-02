@@ -124,3 +124,34 @@ export function sweepVisitDetail ({ found = 0, sweep = 0, kept = 0, dug = 0, bac
   const sk = Object.entries(skipped).map(([k, v]) => `${k}:${v}`).join(',') || '-'
   return `found=${found} strays=${sweep} kept=${kept} dug=${dug} back=${back} skipped=${sk}`.slice(0, 300)
 }
+
+// ---- TOWNGATE-01 (b): THE STATION-CRAFT GATE (resource-model-1102 §11 row 4b; the gate's input is wired in admission.mjs, which
+// is protected: tier 3). MEASURED 11-02 04:20-16:20Z (Events, 866 craft rows): 228 crafts of a table, furnace or chest; 105 of
+// the crafting-table crafts were made with a table in the bot's own perception. A craft of a crafting_table by a bot holding
+// none, with a STRAY table (strayStations: never a plan, workshop or project table) within TAKE_R of it, is refused and
+// REDIRECTED in the same decision to take_station, which digs that table into the bag -- the same item the craft would have
+// made, so the rung that wanted it (the tech ladder's "hold a crafting_table") is satisfied by the remedy. A take that fails
+// gives that table up for this bot (sweepGivenUp), so the next craft is admitted: never a dead end. Furnaces and chests are
+// never taken (contents, leases, town storage): their gate stays toolhygiene's "one is already in the bag".
+/** How far from the bot a stray table may stand to be taken instead of crafted (a short walk; craft itself looks within 32). */
+export const TAKE_R = 16
+/** The nearest takeable table to `pos` -> { at, name, d } | null. Pure over a strayStations result (strays first, then the kept
+ *  public ones: a bot taking a public table leaves the next nearest stray public). */
+export function nearestTakeable (s, pos, r = TAKE_R) {
+  if (!s || !pos) return null
+  const all = [...(s.sweep ?? []), ...(s.kept ?? [])].filter(c => c?.name === 'crafting_table' && Array.isArray(c.at))
+    .map(c => ({ at: c.at, name: c.name, d: Math.hypot(c.at[0] + 0.5 - pos.x, c.at[1] - pos.y, c.at[2] + 0.5 - pos.z) }))
+    .filter(c => c.d <= r).sort((a, b) => a.d - b.d)
+  return all[0] ?? null
+}
+/**
+ * THE GATE -> null (admit) | { reason: 'station_in_reach', detail, redirect: { skill: 'take_station', args } }. Pure.
+ *   item   the craft's item; items the bag; near nearestTakeable's answer (or null); on the switch
+ */
+export function stationGate ({ item, items = [], near = null, on = STATIONKEEP.on } = {}) {
+  if (!on || item !== 'crafting_table' || !near) return null
+  if ((Array.isArray(items) ? items : []).some(it => it?.name === 'crafting_table' && (it.count ?? 1) > 0)) return null   // toolhygiene's rule
+  const [x, y, z] = near.at
+  return { reason: 'station_in_reach', detail: `a crafting_table stands at ${x},${y},${z} (${Math.round(near.d)} blocks away): take_station takes it into the bag instead of crafting another`,
+    redirect: { skill: 'take_station', args: { x, y, z, name: 'crafting_table' } } }
+}

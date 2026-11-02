@@ -87,6 +87,8 @@ const REQUIRED = [
   'bots/test/fixtures/zigsealed-showcase-1101.json',
   // fleetpaths-01 (11-01): a destination inside the plaza is served by it; a fleet town's unroutable paths write a no-site record
   'bots/test/fleetpaths.test.mjs',
+  // towngate-01 (resource-model-1102 stage 4): the metered overflow and the station-craft gate
+  'bots/test/towngate.test.mjs',
   // zigbamboo (fleetbuild-01, 11-01): bamboo grown into open ziggurat foundation cells is dug
   'bots/test/zigbamboo.test.mjs',
   // marks-01 (resource-model-1102 stage 3): the per-group policy table

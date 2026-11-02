@@ -91,7 +91,8 @@ import { planPlinthSteps, plinthProgress, plinthHazard, plinthWant, leaseState, 
 import { townRecordsShared, plinthPlanCap, plinthCapLoss, capRefusalNext, PLINTH_LOST_PATIENCE_MS, PLINTH_STRUCT_CONFIRM_MS } from './plinth.mjs'
 // plinthfirst-01: every new junk well is a raised one (its own statement)
 import { plinthFirstOn, plinthFirstPolicy, plinthFirstSearch, plinthFirstRefusal, plinthFirstMinK, naturalPitPending, areaLoaded, PLINTH_FIRST_WHY } from './plinth.mjs'
-import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
+import { STONE_GUARD, wellGround } from './well.mjs'
+import { overflowGate, overflowRowDetail, OVERFLOW } from './well.mjs'   // towngate-01 (a)   // wellBreakCost: imported above (lidclear-01's statement)
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -126,7 +127,7 @@ import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
-import { STATIONKEEP, STRAY_NAMES, SWEEP_MAX, SWEEP_R, SWEEP_CACHE_MS, smeltRetake, strayStations, noteSweep, sweepGivenUp, stationRowDetail, sweepVisitDetail } from './stationkeep.mjs'   // stationkeep-01
+import { STATIONKEEP, STRAY_NAMES, SWEEP_MAX, SWEEP_R, SWEEP_CACHE_MS, smeltRetake, strayStations, noteSweep, sweepGivenUp, stationRowDetail, sweepVisitDetail, nearestTakeable, SWEEP_TRIES } from './stationkeep.mjs'   // stationkeep-01 (+ towngate-01 b)
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -144,10 +145,12 @@ import { tableCandidates, TABLE_TRIES } from './workbench.mjs'   // bagdiet-01: 
 import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs'   // bagdiet-01: the light projects' hold and bank-back gate
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
+import { stuckWindowOf } from './shop.mjs'   // towngate-01: a stalled project's bill cannot be served now
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
 import { stockBandDetail } from './stocktarget.mjs'   // marks-01: the town's band after a deposit
+import { MARKS, YARD_ROOM } from './stocktarget.mjs'   // towngate-01: the overflow's HIGH
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
 import { scaffoldCount } from './exit-contract.mjs'
 /** Is this a pillar/scaffold block (well.mjs pillarCount's names)? */
@@ -1633,14 +1636,14 @@ export function foodSkipNow (bot) {
  * reach the cap, and measured 10-19 the deposit and the well then both refused in 163 + 196 visits a day). The rule is
  * cobblecap.mjs wellCobbleSwitch.
  */
-export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? [], { floorOnly = false } = {}) {
+export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? [], { floorOnly = false, cap = TOWN_COBBLE_CAP } = {}) {
   try {
     const stacks = cobbleWellStacks(items)
     if (!stacks.length) return 'none'
     // cobblekeep-01 (cobblecap.mjs wellCobbleSwitch): the AVAILABLE floor as before, OR the bank's own at-cap refusal of
     // this smallest stack on counted stock (no incoming reservation); cobble a withdraw holds is never thrown
     const h = withdrawHolds()
-    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })
+    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })   // towngate-01: the overflow asks at the table's HIGH
   } catch { return 'unknown' }
 }
 
@@ -9620,7 +9623,7 @@ const wellRefused = (bot, order, reason, said) => {
  * releases the bag, then judges where the throws went, retakes misses and asks the server again.
  * -> { refused, acc, account, misses, retaken, recollected, source, closedOpen, stop, aborted, slotsBefore, slotsAfter }
  */
-async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal, pruned = null, listedOnly = false, keep = null }) {
+async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal, pruned = null, listedOnly = false, keep = null, overflow = false }) {
   const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null, gclicked: 0, stoneMin: null, swords: 0, peaceful: null, swordsKept: 0, swordsAllowed: false, cobble: 0, cobbleLeft: null, cobbleAllowed: false, pruned: pruned ? { ...pruned } : null }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
                 misses: 0, retaken: 0, recollected: 0, source: 'local', closedOpen: false, stop: null, aborted: null, slotsBefore: null, slotsAfter: null }
   const read = readWellCell(bot)
@@ -9643,6 +9646,9 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       // junkout-01's VISIT dispose (`listedOnly`): the owner's list only -- no swords, no cobble at the cap, no at-target stock
       out.swordsAllowed = !pit && !listedOnly && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
       out.cap = pit || listedOnly ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
+      // TOWNGATE-01 (a): the visit's METERED OVERFLOW, judged again on the server's bag: whole cobble stacks above the keep, only
+      // with the town proven at HIGH, the yard full (none on the fleet) and no open bill a lease could serve now
+      if (!pit && listedOnly && overflow) { out.overflow = overflowNow(bot); if (out.overflow.ok) out.cap = 'at_cap' }
       out.stock = pit || listedOnly ? null : pruneStockOpts(bot, pruned)   // and every other group at its target (stocktarget design 3.4), and what a prune took
       const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: listedOnly ? keep : null })   // the bag AS THE SERVER HOLDS IT
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
@@ -9740,12 +9746,14 @@ const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {
+  // towngate-01 (a): the visit order's overflow flag (the skill re-judges it: an order's flag is never the permission)
   // `_args.pruned` (name -> count): what THIS bot's prune_town just took out of a town chest (stocktarget design 3.5);
   // never the model's (chatOnly), and never more than the server-verified take
   const pruned = _args?.pruned && typeof _args.pruned === 'object' ? _args.pruned : null
   // junkout-01: the TOWN-VISIT order (well.mjs wellVisitOrder): listed junk only, and its own row (`_junkout phase=well`)
   const visit = _args?.visit === true && !pruned
   const keep = visit && Array.isArray(_args?.keep) ? _args.keep.filter(n => typeof n === 'string') : null   // the goal's wanted names
+  const overflow = visit && OVERFLOW.on && _args?.overflow === true
   const { bot } = ctx
   wellClickedLast = new Set()   // THIS visit's clicks only (Codex r2: a visit that aborts before its throw is graded on none)
   const items = () => bot.inventory?.items?.() ?? []
@@ -9775,7 +9783,7 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  const entryPlan = visit ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned) })
+  const entryPlan = visit ? disposePlan(items(), { keep, cobbleAtCap: overflow && overflowNow(bot, items()).ok }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned) })
   if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
@@ -9798,7 +9806,7 @@ async function disposeWell (ctx, _args, signal) {
     bot.stationaryUntil = stationary
     const aim = wellAim({ from: q(), cap, facing, rise: q().y - (cap.y + 1) })
     if (!aim.ok) return fail('well_off_stand', 'off_stand', `the throw was refused from here: ${aim.why}; the next visit stands again`)
-    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit, keep })
+    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit, keep, overflow })
     // THE VISITOR'S DUTY without junk to throw: a well found open is closed.
     if (ph.refused === 'nothing_listed' && wellIdentity(read, cap).open) closedOnly = await setWellOpen(bot, cap, false, g.restoreBound, tickNA)
     if (ph.refused === 'nothing_listed' && ph.closedOpen) closedOnly = true
@@ -9825,6 +9833,13 @@ async function disposeWell (ctx, _args, signal) {
                 cobble: ph.acc?.cobble ?? 0, stock: ph.acc?.stockThrown ?? 0, slotsBefore: ph.slotsBefore ?? slotsBefore, stop }
   if (ph.aborted) { logEvent({ kind: 'well_dispose', status: 'aborted', snapshot: snapshot(bot), detail }); visitRow('aborted', phF); throw ph.aborted }
   const n = ph.account.n
+  // TOWNGATE-01 (a): EVERY METERED THROW IS A ROW (`_overflow`, a subset of this visit's well throws): per cobble name sent down
+  if (ph.overflow?.ok) {
+    for (const nm of ['cobblestone', 'cobbled_deepslate']) {
+      const k = Number(ph.account?.lost?.[nm]) || 0
+      if (k > 0) { try { logEvent({ kind: 'overflow', status: 'success', snapshot: snapshot(bot), detail: overflowRowDetail({ name: nm, n: k, town: ph.overflow.town, target: MARKS.cobble.target, high: MARKS.cobble.high, why: ph.overflow.why }) }) } catch { /* telemetry */ } }
+    }
+  }
   if (n > 0 && !/^error: /.test(stop)) {
     logEvent({ kind: 'well_dispose', status: 'success', snapshot: snapshot(bot), detail })
     visitRow('success', phF)
@@ -19120,6 +19135,8 @@ const tidyRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)
  * contents are unknown). Throws when the town's records cannot be read (the caller treats that as nothing to do).
  */
 function strayNow (bot, I = null) {
+  // a test seam (towngate.test.mjs): a fake world has no town plan for tidyInputs; never set on a live bot
+  if (typeof bot.strayNowOverride === 'function') return bot.strayNowOverride()
   I ??= tidyInputs(bot)
   const isStray = b => STRAY_NAMES.includes(bot.registry?.blocks?.[b.type]?.name)   // furnaces surveyed, only SWEEP_NAMES dug
   const found = (bot.findBlocks?.({ point: new Vec3(I.home.x, I.home.y, I.home.z), maxDistance: Math.ceil(SWEEP_R * 1.5), count: 256, matching: isStray }) ?? []).map(p => {
@@ -19145,6 +19162,87 @@ export function strayDue (bot, now = Date.now()) {
   bot.strayCache = { at: now, v }
   return v
 }
+/**
+ * TOWNGATE-01 (a): THE TOWN'S OPEN COBBLE BILL A LEASE COULD SERVE NOW -> a count, or null when it cannot be read (the overflow
+ * then stays shut). 0 when there is no active record, it is complete, every builder slot is taken, or the project is STALLED
+ * (shopStuckAt within its stuck window: its open cells wait on a cell no stand reaches -- that bill cannot be served now). Else
+ * the LOADED open cells of the record whose role takes cobble. Cached SWEEP_CACHE_MS on the bot; never throws.
+ */
+export function projectCobbleBill (bot, now = Date.now()) {
+  const c = bot.cobbleBillCache
+  if (c && now - c.at < SWEEP_CACHE_MS) return c.v
+  let v = null
+  try {
+    const h = shopRecordHead()
+    if (h.ok) {
+      const rec = h.head?.rec ?? null
+      const sa = shopStuckAt(now)
+      if (!rec || rec.structure_complete || !shopSlotsFree(bot)) v = 0
+      else if (Number.isFinite(sa) && sa <= now + 60_000 && now - sa < stuckWindowOf(rec.plot)) v = 0
+      else {
+        const pal = isZigBlueprint(rec.blueprint) ? zigPaletteOf(rec) : (blueprintOf(rec.blueprint ?? SHOP_BLUEPRINT)?.palette ?? {})
+        const roles = new Set(Object.entries(pal).filter(([, names]) => (Array.isArray(names) ? names : []).some(n => n === 'cobblestone' || n === 'cobbled_deepslate')).map(([r]) => r))
+        let n = 0
+        for (const cell of rec.cells ?? []) {
+          if (!roles.has(cell.role)) continue
+          const b = bot.blockAt?.(new Vec3(cell.at[0], cell.at[1], cell.at[2]))
+          if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, pal, cell.role)) n++
+        }
+        v = n
+      }
+    }
+  } catch { v = null }
+  bot.cobbleBillCache = { at: now, v }
+  return v
+}
+/** TOWNGATE-01 (a): may this visit send whole cobble stacks above the keep down the well? -> well.mjs overflowGate's { ok, why } +
+ *  the town's counted cobble. Never throws (a failed read is { ok: false }). */
+export function overflowNow (bot, items = bot?.inventory?.items?.() ?? []) {
+  try {
+    const cap = cobbleWellCap(bot, items, { cap: MARKS.cobble.high })
+    const g = overflowGate({ cap, yardRoom: YARD_ROOM.cobble, yardFull: null, bill: cap === 'at_cap' ? projectCobbleBill(bot) : 0 })
+    let town = null
+    try { town = cobbleTownViewFor(bot).lb } catch { town = null }
+    return { ...g, cap, town }
+  } catch { return { ok: false, why: 'unread', cap: 'unknown', town: null } }
+}
+/** TOWNGATE-01 (b): the nearest stray (or public) crafting table within TAKE_R of the bot that it has not given up -> { at, name, d }
+ *  | null. Cached 60 s; never throws (unreadable = null: the craft is admitted). */
+export function strayTableNear (bot, now = Date.now()) {
+  if (!STATIONKEEP.on) return null
+  const c = bot.strayTableCache
+  const p = bot.entity?.position
+  if (c && now - c.at < 60_000 && c.pos && p && Math.hypot(c.pos.x - p.x, c.pos.z - p.z) < 4) return c.v
+  let v = null
+  try { v = p ? nearestTakeable(strayNow(bot), p) : null } catch { v = null }
+  bot.strayTableCache = { at: now, v, pos: p ? { x: p.x, z: p.z } : null }
+  return v
+}
+/**
+ * TOWNGATE-01 (b): take_station x y z name -- dig ONE stray crafting table into the bag (the admission gate's redirect of a table
+ * craft). Re-proves the table is a stray now (strayNow: never a plan, workshop or project table), then retakeStation (walk, tool,
+ * dig, pickup). A take that did not bring it back counts toward this bot giving it up (the next craft is then admitted).
+ */
+async function takeStation (ctx, args, signal) {
+  const { bot } = ctx
+  const at = [Number(args?.x), Number(args?.y), Number(args?.z)]
+  const name = String(args?.name ?? 'crafting_table')
+  if (name !== 'crafting_table' || !at.every(Number.isFinite)) return { status: 'failed', failClass: 'bad_args', detail: 'take_station takes one crafting_table at x,y,z' }
+  const k = at.join(',')
+  let s = null
+  try { s = strayNow(bot) } catch { s = null }
+  const listed = s && [...(s.sweep ?? []), ...(s.kept ?? [])].some(c => c.at.join(',') === k && c.name === name)
+  bot.strayTableCache = null
+  const giveUp = () => { const m = (bot.sweepGiven ??= new Map()); m.set(k, Math.max(m.get(k) ?? 0, SWEEP_TRIES)) }   // ONE failed take is enough: the next craft is admitted
+  if (!listed) { try { logEvent({ kind: 'station_taken', status: 'no_effect', snapshot: snapshot(bot), detail: stationRowDetail({ at, name, by: 'take', outcome: 'left', why: s ? 'not_a_stray_now' : 'town_unread' }) }) } catch { /* telemetry */ } giveUp(); return { status: 'no_effect', detail: `the table at ${k} is not a stray now (a plan, workshop or project table, or gone); craft one instead` } }
+  const before = countItem(bot, name)
+  const said = await retakeStation(ctx, { at: new Vec3(...at), name, stray: true, changed: null, stop: () => {} }, signal, 'take')
+  const back = countItem(bot, name) > before
+  if (!back) giveUp()
+  return back ? { status: 'success', detail: `took the crafting_table at ${k} into the bag instead of crafting one` }
+    : { status: 'failed', failClass: 'station_not_taken', detail: `${said ?? 'the table did not come back'}; this table is given up -- craft item=crafting_table` }
+}
+
 /** STATIONKEEP-01: dig up to SWEEP_MAX strays, nearest home first, until `deadline` -> { dug, back, s }. One `_station_sweep`
  *  row a visit that looked; one `_station_swept` row a stray. A stray tried that still stands counts toward this bot's give-up. */
 async function sweepStrays (ctx, signal, { deadline = Date.now() + 60_000, I = null } = {}) {
@@ -19860,6 +19958,8 @@ export const SKILL_CONTRACTS = {
   // The town order: town containers only, never a trip; since townsearch-01 up to 16 + 8 of them, bounded by the runner's
   // 180 s watchdog (the clock withdrawClock reads), not by this number.
   withdraw_pick: { expects: ['inventory_gain'],   maxMs: 120_000 },
+  // towngate-01 (b): a stray crafting table dug into the bag (the admission gate's redirect of a table craft)
+  take_station: { expects: ['inventory_gain'], maxMs: 60_000 },
   // Banks whole stacks into a town container: the change it exists for is the loss from the bag.
   town_deposit: { expects: ['inventory_loss'],    maxMs: 60_000 },
   prune_town: { expects: ['prune_effect'], maxMs: 180_000 },
@@ -21059,6 +21159,8 @@ export const SKILLS = {
   compost:  { run: compost,  usage: 'compost',                       args: [], chatOnly: true },
   build_composter: { run: buildComposter, usage: 'build_composter', args: [], chatOnly: true },
   withdraw_pick: { run: withdrawPick, usage: 'withdraw_pick', args: [], chatOnly: true },
+  // towngate-01 (b): never the model's choice -- only the admission gate's redirect of a table craft (admission.mjs)
+  take_station: { run: takeStation, usage: 'take_station', args: [], chatOnly: true },
   // Same rule: the deterministic town deposit (towndeposit.mjs townDepositOrder), never the model's choice.
   town_deposit: { run: townDeposit, usage: 'town_deposit', args: [], chatOnly: true },
   // CHEST PRUNING (stocktarget-01, prune.mjs): a deterministic town order, never the model's choice.
