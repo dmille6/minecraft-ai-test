@@ -2594,7 +2594,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "LIVE on the showcase 11-02 01:14Z (release d2d13c5d, piece copperhall-01show): the hall WAITS (never offered, never the order's fallback) until the town index shows >= 319 copper_ingot (103 floor + 36 x batches; 130 + 10 cut on 11-02); then it sites itself (real-terrain proof floor 65: fill 107, cut 135, 3 voids) and builds; 2 h watch from the opening; cameras copperhall + patina capturing since 11-02 ~01:00Z. Lever: item 2 (shaft + deep miner) and coal to town.",
+   "next_step": "LIVE on the showcase 11-02 01:14Z (release d2d13c5d, piece copperhall-01show; r3 gate fix release d698024b 01:57Z, piece copperhall-01show-r3: `_copperhall_gate` now reads 130 ingots / 10 cut / 9 containers, need 319): the hall WAITS (never offered, never the order's fallback) until the town index shows >= 319 copper_ingot (103 floor + 36 x batches; 130 + 10 cut on 11-02); then it sites itself (real-terrain proof floor 65: fill 107, cut 135, 3 voids) and builds; 2 h watch from the opening; cameras copperhall + patina capturing since 11-02 ~01:00Z. Lever: item 2 (shaft + deep miner) and coal to town.",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
@@ -2607,7 +2607,7 @@
      "docs/reports/copperhall-design-2026-11-01.md"
     ]
    },
-   "note": "Built 11-02 (Codex + Claude r1 BLOCK: waiting hall as the showcase order's fallback stopped expeditions; fixed; r2 both APPROVE). Tier 2. Kill switch COPPERHALL=off. The design's flat-world proof did not carry over: the house EARTH refused the terrace; HALL_EARTH col 5 / 160 / 160 + pit-bottom voids."
+   "note": "Built 11-02 (Codex + Claude r1 BLOCK: waiting hall as the showcase order's fallback stopped expeditions; fixed; r2 both APPROVE). Tier 2. Kill switch COPPERHALL=off. The design's flat-world proof did not carry over: the house EARTH refused the terrace; HALL_EARTH col 5 / 160 / 160 + pit-bottom voids. r3 (LIVE 01:14-01:39Z every gate row read 0: matsTownStock counts fresh loaded-chunk containers only) -> townCopperOf over the index's latest obs; Codex r3 BLOCK (double chest counted twice) fixed r3b; Claude r3 APPROVE, Codex r3b APPROVE. Watch: a copper segment stuck no_material while the gate row shows stale>0 = mats' fresh-only count (its recount is the remedy)."
   },
   {
    "id": "wholemap-s0",
