@@ -3262,22 +3262,34 @@
    "memory": [
     "owner-groundskeeper-1102.md"
    ],
-   "kind": "design",
+   "kind": "canary",
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Design + build on tidy-01 (promoted 11-02 15:47Z f1f5c16c; 11-02 logs: 5 towns sited, 149 clears, 321 places, 21 bots, 43 deadline exits, 23 stuck_on_cell): a one-bot-per-town lease (like the yard clerk), ring order town -> routes to chests/well/yard -> outward rings, fell trees in footprints and replant in the tree farm, fill pits with surplus cobble (a resource-model sink), cut spoil pillars, light; leaves nature beyond the worked ring, protected zones untouched. Start after resource-model stationkeep-01 is built (shared plaza-sweep code). OWNER 11-02 asked for a PLAN behind it: extend the existing town plan (plots/paths reservations) with a per-town land plan -- seeded road network (ring + spokes toward resources, expedition routes/outposts and future rails), zones, reserved corridors other builds may not block, ring order -- generated deterministically in code; the groundskeeper executes it (roads first, then zones). The mayor/overseer (LLM, not live: B5 INCONCLUSIVE) is later given only choices within the plan (which spoke next, monument sites, names), never geometry.",
+   "next_step": "BUILT 11-02 (control-session subagent): groundskeeper-01 @ cf2cb997 (branch groundskeeper-on-62b8dd2, on towngate-01's variant 62b8dd24 = f1f5c16c + stationkeep-01 + marks-01 + towngate-01; tier 2, Codex r1 2 blockers fixed, r2 none). One leased bot per town (`keeper` lease on the tidy record) works tidy-01 first, then the deterministic LAND PLAN (bots/src/landplan.mjs: seeded ring + 3-5 spokes, zones, reserved road corridors, ring-order stages town -> roads -> bands 48/64/80, never-worse walk guard). Offline on the 16 fleet towns: road columns walkable from the town 17.6% -> 40.6% of 7,212; land walk 41.7% -> 47.3%. QUEUED after towngate-01, before llmoai-01. NEXT: read its +90/+180 (generic + _keeper/_land_plan/tidy visit stops); a SHOWCASE run is owed (TIDY/GROUNDSKEEPER are off there by default) -- needs the owner's go and both reviews before any showcase release. Later: the mayor picks only within the plan's `choices`.",
    "max_quiet_hours": 72,
-   "depends_on": [],
+   "depends_on": [
+    {
+     "run": "towngate-01",
+     "until": "closed"
+    }
+   ],
    "evidence": {
+    "runs": [
+     "groundskeeper-01"
+    ],
+    "branches": [
+     "groundskeeper-on-*"
+    ],
     "grep": [
      "groundskeeper"
     ],
     "paths": [
+     "docs/reports/groundskeeper-2026-11-02.md",
      "docs/reports/tidy-01-2026-11-01.md"
     ]
    },
-   "note": "Pit filling with cobble ties to resource-model-1102 (sink)."
+   "note": "Pit fills: buried cells cobblestone first (role core) -- the resource-model-1102 sink. 11-02 tidy-01 visits (215, 25 bots, 20 h): 92 deadline + 89 attempts_spent; fixed by chainCuts/tidyKeepOrder and deferSpent. Not done: the expedition outposts' own bearings are not read yet (spokes use the plan's gate/shaft + seeded); a land plan is never re-sited when the town plan changes; rings close in 2 of 16 towns offline (worked where they route)."
   },
   {
    "id": "flowledger-01",
