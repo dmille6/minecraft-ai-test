@@ -169,6 +169,10 @@ import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_M
 import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OUTPUT_OF, IRON_MISS_KEY, IRON_MISS_TTL_MS, indexRuledOut, SMELT_GATE, indexInputAbsent,
          ironSmeltCount, ironBankPlan } from './smeltjob.mjs'   // ironsmelt-01
 import { withDigScope } from './digtown.mjs'
+import { returnOverdue as deepReturnOverdue, trailProgress as deepTrailProgress, legSealTargets as deepLegSealTargets } from './deepmine.mjs'   // deepminer-01 r1
+import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
+import { planOf as stairPlanOf, firstUndone as stairFirstUndone, standFor as stairStandFor, stairCellKeys } from './shaftgeom.mjs'   // deepminer-01: the stair's repair on the way down
+import { renewLease as projRenewLease } from './buildproj.mjs'   // deepminer-01: the deep miner's lease
 import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
 import { TREEFARM_BAND as ESCAPE_TREEFARM_BAND } from './escapeguard.mjs'   // escapeguard-01
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory, LID_WOOD, LID_BREAKABLE } from './lidrule.mjs'
@@ -2526,7 +2530,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // bitten before by deriving a failure class from prose.
       // IRON TUNNELS TO THE ORE IT CAN SEE (oretunnel.mjs), instead of stairing toward dryness. Once per run.
       // coalfirst-01: and coal (oretunnel.mjs tunnelKindsFor), with the same tunnel
-      const tk = tunnelKindsFor(viaSource ?? blockName)
+      const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true })   // deepminer-01: diamond ore tunnels on a deep miner's call
       if (tk && !escalated) {
         escalated = true
         check(signal)
@@ -14807,6 +14811,8 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
     // src/exit-contract.mjs for where that analogy breaks.
     const exit = canContinueDescent({
       y: bot.entity.position.y, health: bot.health, items: bot.inventory.items(),
+      // DEEPMINER-01 (owner O7): a deep-miner leaseholder's climb is priced from the town stair's bottom landing
+      ...(Number.isFinite(ctx?.deepCredit) && bot.deepTrip ? { seaLevel: ctx.deepCredit } : {}),
     })
     if (!exit.ok) {
       noteExitShort(bot, exit)   // tool hygiene: pickaxe crafts stay admitted until the swings are met (toolhygiene.mjs)
@@ -17725,6 +17731,7 @@ export async function stairDescend (ctx, goalY, signal) {
   const { bot } = ctx
   try {
     if (!SHAFT.on) return null
+    if (Number.isFinite(ctx?.deepCredit)) return null   // deepminer-01: the deep miner's own deepen call starts at the stair's bottom landing
     const rec = stairRecordNow()
     const p = bot.entity?.position
     if (!p || !isStairRecord(rec) || !nearStair(rec, p.x, p.z)) return null
@@ -17781,6 +17788,437 @@ export async function stairAscend (ctx, signal) {
     row(ok, ok ? 'arrived' : 'walk')
     return ok ? { ok: true, detail: `climbed the town stair to ${rec.exit.join(',')} (from y=${feet[1]})` } : null
   } catch (e) { if (e?.aborted || signal?.aborted) throw e; return null }
+}
+
+// ================================================================================================================================
+// DEEPMINER-01: THE TOWN'S DEEP MINER (deepmine.mjs decides; this walks, digs, places and measures; design
+// docs/reports/deepminer-2026-11-01.md; OWNER 11-01 item 2). ONE `deep_mine` CALL ADVANCES THE TRIP ONE PHASE STEP (the runner
+// cuts every skill at 180 s): descend the town stair a hop at a time (repairing a blocked step with the stair's own visit code),
+// deepen with `mine` (exit credit from the stair's bottom landing: owner O7), work the ore in reach (gather's tunnel) or dig a
+// probed, sealed, torch-lit branch, walk the trail back and the stair up, bank and make a diamond pickaxe. The trip state is
+// bot.deepTrip; the town's `deepmine` lease is the single occupancy (owner O13).
+// ================================================================================================================================
+const DEEP_STEP_MS = 140_000
+const DEEP_HOP_MS = 9_000
+const DEEP_REPAIR_MS = 80_000
+const deepRow = (bot, op, d = {}) => { try { logEvent({ kind: 'deepmine', status: d.status ?? 'success', snapshot: snapshot(bot), detail: deepRowDetail({ op, phase: bot.deepTrip?.phase ?? '-', target: bot.deepTrip?.target ?? '-', trip: bot.deepTrip?.id ?? '-', y: Math.floor(bot.entity?.position?.y ?? NaN), ...d }) }) } catch { /* telemetry */ } }
+/** Above this y a trip is NOT underground (Claude r2 note 1: relative to the stair's ground, so an iron trip's tunnel up to y 24 stays a trip). */
+const deepSurfaceY = rec => (Number.isFinite(rec?.site?.g) ? rec.site.g - 8 : config.world.homeY - 9)
+const deepFeet = bot => { const p = bot.entity.position; return [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] }
+/** THE TOWN'S DEEPMINE LEASE NOW -> { free, last, releasedAt }. Never throws (unreadable = busy). */
+export function deepLeaseNow (now = Date.now()) {
+  try {
+    const dir = townDir(), key = projKeyOf(DEEPMINE_PLOT)
+    let free = false, last = null, releasedAt = null
+    for (let k = 1; k <= DEEPMINE.slots; k++) {
+      const s = projLeaseState(dir, key, `slot${k}`, { ttl: DEEPMINE_LEASE_TTL_MS })
+      if (k === 1 && s?.rec?.holder) { last = s.rec.holder; releasedAt = s.released ? (s.releasedAt ?? null) : null }
+      if (s == null || s.released || (s.gen != null && now >= s.blocksUntil)) free = true
+    }
+    return { free, last, releasedAt }
+  } catch { return { free: false, last: null, releasedAt: null } }
+}
+/** Is the town stair usable for a trip: complete with its bottom landing built? -> { usable, why, rec }. */
+export function deepStairNow () {
+  const rec = stairRecordNow()
+  if (!SHAFT.on) return { usable: false, why: 'shaft_off', rec }
+  if (!isStairRecord(rec)) return { usable: false, why: 'no_stair', rec }
+  if (!rec.structure_complete) return { usable: false, why: 'stair_unfinished', rec }
+  if (!(rec.landings_built ?? []).includes(DEEP_IRON_FEET) || !Array.isArray(rec.exit)) return { usable: false, why: 'no_bottom_landing', rec }
+  return { usable: true, why: null, rec }
+}
+/** Walk route[from..to] a few stands at a time on the town-deposit profile (no digs) -> { ok, at } (the index reached). */
+async function deepHops (bot, route, from, to, signal, deadline) {
+  const dir = to >= from ? 1 : -1
+  let i = from
+  while (i !== to) {
+    check(signal)
+    if (Date.now() > deadline) return { ok: false, at: i, why: 'time' }
+    const next = dir > 0 ? Math.min(to, i + 3) : Math.max(to, i - 3)
+    if (await stairWalk(bot, route[next], DEEP_HOP_MS, signal)) { i = next; continue }
+    const one = i + dir
+    if (await stairWalk(bot, route[one], DEEP_HOP_MS, signal)) { i = one; continue }
+    return { ok: false, at: i, why: 'hop' }
+  }
+  return { ok: true, at: i }
+}
+/** The build effects for the deep miner's digs and placements (the stair visit's: witnessed digs, acknowledged clicks). */
+function deepEffects (bot, signal, fence = () => true) {
+  const acks = (bot.shopAcks ??= shopAckInstall(bot))
+  const B = botBuildEffects(bot, { acks, keep: {}, withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+    aborted: () => !!signal?.aborted, log: () => {}, spawnedAt: () => bot.shopSpawnAt ?? 0 })
+  const e = stairBotEffects(bot, B, { signal, fence, log: () => {} })
+  // THE BRANCH'S DIGS TAKE THE CHEAPEST TOOL THAT HARVESTS (Codex r1 B1: the stair's equip takes the pickaxe with the most uses,
+  // so an ore could be dug with a tool that drops nothing, and the iron one spent on deepslate): toolfor's policy; no eligible
+  // tool for a block that needs one -> not dug ('no_tool')
+  const dig = async c => {
+    const b = bot.blockAt(new Vec3(c[0], c[1], c[2]))
+    if (!b) return 'refused'
+    if (b.name === 'air' || b.name === 'cave_air') return 'confirmed'
+    const tool = bestTool(bot, b)
+    const needs = b.harvestTools && Object.keys(b.harvestTools).length > 0
+    if (needs && !tool) return 'no_tool'
+    if (tool && bot.heldItem?.name !== tool.name) { try { await bot.equip(tool, 'hand') } catch (err) { if (err?.aborted) throw err } }
+    // THE HAND IS CHECKED, NOT ASSUMED (Codex r2 B1: a failed equip left the last tool in hand): no dig with anything else
+    if (tool && bot.heldItem?.name !== tool.name) return 'equip_failed'
+    return withDigScope(bot, { purpose: 'target', by: 'deep_mine' }, () => B.dig(c))
+  }
+  e.dig = dig   // the stair effects' own `read` getter stays live (a fresh reader per call)
+  return { B, e }
+}
+/** A bounded walk on the TUNNEL profile (it may re-dig what fell or was placed in the way; its break veto refuses liquid and
+ *  falling-block neighbours) -> arrived within 1 of the cell. The trail back (Paper 11-01: on the no-dig profile every trail
+ *  stand behind an escape's placed block was `noPath`). */
+async function deepTrailWalk (bot, cell, ms, signal) {
+  if (typeof bot.withTunnelMovements !== 'function') return stairWalk(bot, cell, ms, signal)
+  let timer = null, onAbort = null
+  check(signal)
+  const walk = bot.withTunnelMovements(() => bot.pathfinder.goto(new goals.GoalBlock(cell[0], cell[1], cell[2])))
+  try {
+    await Promise.race([
+      walk,
+      new Promise(resolve => { timer = setTimeout(() => { haltPath(bot); resolve() }, ms) }),
+      ...(signal ? [new Promise(resolve => { onAbort = () => { haltPath(bot); resolve() }; signal.addEventListener?.('abort', onAbort, { once: true }) })] : []),
+    ])
+    await Promise.race([walk.catch(() => {}), new Promise(r => setTimeout(r, 2_000))])
+  } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { if (timer) clearTimeout(timer); if (onAbort) signal?.removeEventListener?.('abort', onAbort) }
+  check(signal)
+  const p = bot.entity?.position
+  return !!p && Math.abs(Math.floor(p.x) - cell[0]) <= 1 && Math.abs(Math.floor(p.z) - cell[2]) <= 1 && Math.abs(Math.floor(p.y + 1e-6) - cell[1]) <= 1
+}
+/**
+ * REPAIR THE STAIR ON THE WAY DOWN (LIVE 11-01: 852 of 1,163 stair descents in 24 h found a step's air cell blocked -- dirt --
+ * and fell back to digging): the first undone step is repaired by the stair's OWN visit code (shaftvisit.mjs runStairVisit:
+ * survey, lining, tread, air top down), holding the stair builder's slot, after a hop walk to its stand. -> 'repaired' | why.
+ */
+async function deepRepair (ctx, rec, route, signal, deadline) {
+  const { bot } = ctx
+  const plan = stairPlanOf(rec)
+  const w = stairFirstUndone(stairRead(bot), plan)
+  if (!w) return 'repaired'
+  if (w.kind === 'unknown') return 'unknown'
+  const stand = stairStandFor(plan, w, rec.exit, stairRead(bot))
+  if (!stand) return 'no_stand'
+  const at = deepRouteIndex(route, deepFeet(bot)), want = deepRouteIndex(route, stand)
+  if (at >= 0 && want >= 0 && at !== want) { const h = await withStairClaim(ctx.runner, () => deepHops(bot, route, at, want, signal, deadline)); if (!h.ok) return 'walk' }
+  const dir = townDir(), key = projKeyOf(SHAFT_PLOT), me = bot.username ?? 'bot'
+  const slot = takeSlot(dir, key, me, SHAFT_BUILDERS)
+  if (!slot.ok) return 'stair_busy'
+  let fx = null
+  try {
+    fx = deepEffects(bot, signal, () => { try { return projHoldsLease(dir, key, `slot${slot.slot}`, me, slot.gen) } catch { return false } })
+    // inside the 'stair' body claim like every stair visit (town-stair-stuck WIRED: the entombment reflex reads the stair as walled in)
+    const vr = await withStairClaim(ctx.runner, () => runStairVisit({ rec, exit: rec.exit, built: new Set(rec.landings_built ?? []),
+      onLanding: async () => true, onStop: async () => {}, onDropLanding: async () => {} }, fx.e, { deadline: Math.min(deadline, Date.now() + DEEP_REPAIR_MS), unitsMax: 4 }))
+    stairRow(bot, 'visit', { k: vr.k ?? '-', why: `deep_repair:${vr.stop}`, n: `${vr.dug}d/${vr.placed}p/${vr.units}u/0t` })
+    return vr.stop === 'complete' ? 'repaired' : vr.stop
+  } finally { releaseLease(dir, key, `slot${slot.slot}`, me, slot.gen); try { fx?.B?.close?.() } catch { /* gone */ } }
+}
+/** One branch of the layout: probed, dug, sealed and lit a cell at a time; every stand joins the trail. -> { cells, stop }. */
+async function deepBranch (ctx, trip, signal, deadline) {
+  const { bot } = ctx
+  const start = deepFeet(bot)
+  if (start[1] > deepSurfaceY(stairRecordNow())) return { cells: 0, stop: 'not_underground' }   // Claude r1 B1: never a branch at the surface
+  const rec = stairRecordNow()
+  // AWAY FROM THE STAIR first (its cells are the town's), then round the compass branch by branch
+  const c = rec?.site?.center
+  const away = Array.isArray(c) ? (Math.abs(start[0] - c[0]) >= Math.abs(start[2] - c[1]) ? (start[0] >= c[0] ? 0 : 2) : (start[2] >= c[1] ? 1 : 3)) : 0
+  const b = (away + (trip.branches ?? 0)) % 4
+  const cells = deepBranchCells(start, b, DEEP_BRANCH_LEN)
+  const stair = isStairRecord(rec) ? new Set(stairCellKeys(rec)) : new Set()
+  if (cells.some(q => stair.has(q.feet.join(',')) || stair.has(q.head.join(',')))) return { cells: 0, stop: 'stair_cells' }
+  const { B, e } = deepEffects(bot, signal)
+  const open = new Set([start.join(','), [start[0], start[1] + 1, start[2]].join(',')])
+  let i = 0, stop = 'end', tries = 0
+  try {
+    return await withStairClaim(ctx.runner, async () => {
+      for (let guard = 0; guard < DEEP_BRANCH_LEN * 4; guard++) {
+        check(signal)
+        if (Date.now() > deadline) { stop = 'time'; break }
+        const op = deepBranchNext(stairRead(bot), cells, i, open)
+        if (op.op === 'stop') {
+          // A LIQUID STOP SEALS FIRST (Codex r2 B2: an opened cell that flooded after the last seal pass): every flooded opened cell
+          // and liquid face beside one is filled before the branch ends, never the bot's own cells
+          if (op.why === 'lava' || op.why === 'water') {
+            const me4 = deepFeet(bot)
+            for (const sc of deepSealTargets(stairRead(bot), [...open].map(k => k.split(',').map(Number)), [me4, [me4[0], me4[1] + 1, me4[2]]])) {
+              const pr = await e.place(sc)
+              if (pr === 'confirmed') { trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: sc.join(',') }) }
+            }
+          }
+          stop = op.why; break
+        }
+        if (op.op === 'dig') {
+          if (!e.toolOk()) { stop = 'pickaxe'; break }
+          const r = await withDigScope(bot, { purpose: 'target', by: 'deep_mine' }, () => e.dig(op.at))
+          if (r !== 'confirmed') { if (++tries >= 2) { stop = `dig_${r}`; break } continue }
+          open.add(op.at.join(','))
+          // SEAL what the dig let in (a flow the probe could not see past): a block into every liquid beside an opened cell
+          const me3 = deepFeet(bot)
+          for (const s of deepSealTargets(stairRead(bot), [...open].map(k => k.split(',').map(Number)), [me3, [me3[0], me3[1] + 1, me3[2]]])) {
+            const pr = await e.place(s)
+            if (pr === 'confirmed') { trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: s.join(',') }) } else { stop = `seal_${pr}`; break }
+          }
+          if (stop !== 'end') break
+          continue
+        }
+        // step into the cell (the walk profile: the cell is open and probed)
+        if (!(await stairWalk(bot, op.to, DEEP_HOP_MS, signal))) { stop = 'step'; break }
+        trip.trail = deepTrailPush(trip.trail, deepFeet(bot))
+        trip.cells = (trip.cells ?? 0) + 1
+        i = op.i + 1; tries = 0
+        if (i % DEEP_TORCH_EVERY === 0 && B.has('torch')) {
+          const behind = cells[i - 2]?.feet
+          if (behind) { try { if (await e.torch(behind, [behind[0], behind[1] - 1, behind[2]])) trip.torches = (trip.torches ?? 0) + 1 } catch (err) { if (err?.aborted) throw err } }
+        }
+      }
+      return { cells: i, stop }
+    })
+  } finally { try { B.close?.() } catch { /* gone */ } }
+}
+const deepOre = bot => { const n = {}; for (const it of bot.inventory?.items?.() ?? []) if (/^(diamond|raw_iron|coal|raw_copper|raw_gold|redstone|lapis_lazuli|emerald)$/.test(it.name)) n[it.name] = (n[it.name] ?? 0) + (it.count ?? 1); return n }
+const oreGain = (a, b) => Object.keys(b).reduce((s, k) => s + Math.max(0, (b[k] ?? 0) - (a[k] ?? 0)), 0)
+function deepClose (bot, end, why) {
+  const t = bot.deepTrip
+  if (!t) return
+  try { releaseLease(townDir(), projKeyOf(DEEPMINE_PLOT), `slot${t.slot}`, bot.username ?? 'bot', t.gen) } catch { /* lapses at its TTL */ }
+  const kit = deepTripKit(bot.inventory?.items?.() ?? [])
+  const got = (kit.diamonds - (t.diamonds0 ?? 0)) + (kit.rawIron - (t.rawIron0 ?? 0))
+  bot.deepMineCooldownUntil = Date.now() + (end === 'home' && (t.found ?? 0) > 0 ? DEEPMINE_COOLDOWN_MS : DEEPMINE_FAIL_BACKOFF_MS)
+  deepRow(bot, 'end', { end, why, found: t.found ?? 0, n: `cells${t.cells ?? 0}/seal${t.sealed ?? 0}/torch${t.torches ?? 0}/br${t.branches ?? 0}/calls${t.calls}/net${got}`, ms: Date.now() - t.startedAt, status: end === 'home' ? 'success' : 'no_effect' })
+  t.phase = 'closed'
+  t.end = end
+  bot.deepTrip = null
+}
+/** deep_mine -- ONE PHASE STEP OF THE TOWN DEEP MINER'S TRIP (cognitive.mjs issues it; chatOnly, housekeeping). */
+async function deepMine (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now(), deadline = t0 + DEEP_STEP_MS
+  const out = (status, detail, failClass = null) => ({ status, detail, ...(failClass ? { failClass } : {}) })
+  if (!DEEPMINE.on) { if (bot.deepTrip) deepClose(bot, 'off', 'switched off'); return out('no_effect', 'the deep miner is switched off (DEEPMINE)') }
+  const me = bot.username ?? 'bot'
+  const dir = townDir(), key = projKeyOf(DEEPMINE_PLOT)
+  // ---- a new trip: the lease first (single occupancy), the kit and the stair checked again at the start --------------------------
+  if (!bot.deepTrip) {
+    const st = deepStairNow()
+    if (!st.usable) return out('no_effect', `no usable town stair (${st.why})`)
+    const kit = deepTripKit(bot.inventory?.items?.() ?? [])
+    const target = deepTripTarget(kit)
+    if (!target) return out('no_effect', 'the bag cannot pay for a trip (pickaxe uses)')
+    const slot = takeSlot(dir, key, me, DEEPMINE.slots, { ttl: DEEPMINE_LEASE_TTL_MS })
+    if (!slot.ok) return out('no_effect', `the town's deep miner slot is taken (${slot.why})`)
+    bot.deepTrip = { ...deepNewTrip({ id: `${me}-${t0.toString(36)}`, target, now: t0, slot: slot.slot, gen: slot.gen, from: deepFeet(bot) }), diamonds0: kit.diamonds, rawIron0: kit.rawIron }
+    // TORCHES AND BLOCKS FROM TOWN at the start (the stair visit's own top-up: matsWithdraw under the town's reserve; the town
+    // deposit banks a bag's torches, so a miner would otherwise go down with none). Never required: a short take is only a row.
+    if (kit.torches < 8 || kit.seal < 48) {
+      try { await matsWithdraw(ctx, { ...(kit.torches < 8 ? { torch: 16 } : {}), ...(kit.seal < 48 ? { cobblestone: 64 } : {}) }, signal, 30_000, matsReserve().table) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    }
+    deepRow(bot, 'start', { why: `uses${kit.uses}/iron${kit.ironUses}/seal${kit.seal}/free${kit.free}/torch${deepTripKit(bot.inventory?.items?.() ?? []).torches}` })
+  }
+  const trip = bot.deepTrip
+  trip.calls = (trip.calls ?? 0) + 1
+  // the lease is renewed by every call (single occupancy); a lost lease is retaken if free, else the trip goes home
+  {
+    const g = projRenewLease(dir, key, `slot${trip.slot}`, me, trip.gen, { ttl: DEEPMINE_LEASE_TTL_MS })
+    if (g != null) trip.gen = g
+    else { const s = takeSlot(dir, key, me, DEEPMINE.slots, { ttl: DEEPMINE_LEASE_TTL_MS }); if (s.ok) { trip.slot = s.slot; trip.gen = s.gen } else if (['descend', 'deepen', 'work'].includes(trip.phase)) { trip.phase = 'return'; trip.returnWhy = 'lease_lost' } }
+  }
+  const st = deepStairNow()
+  const rec = st.rec
+  const route = isStairRecord(rec) ? deepStairRoute(rec, DEEP_IRON_FEET) : null
+  // the trail is sampled while the bot walks, digs and tunnels (a stand on the ground every TRAIL_GAP)
+  const sampler = setInterval(() => { try { if (bot.entity?.onGround && trip.phase !== 'return') trip.trail = deepTrailPush(trip.trail, deepFeet(bot)) } catch { /* sampling */ } }, 500)
+  try {
+    const kitNow = () => deepTripKit(bot.inventory?.items?.() ?? [])
+    // NOT UNDERGROUND ANY MORE (Claude r1 B1: a death respawns the bot at home with its kit -- keepInventory -- and the trip would
+    // go on at the surface, mine digging from the respawn point with the credit, branches in town): home and bank
+    if (['deepen', 'work'].includes(trip.phase) && bot.entity.position.y > deepSurfaceY(stairRecordNow())) {
+      trip.phase = 'return'; trip.returnWhy = 'not_underground'; trip.returnTries = DEEP_RETURN_TRIES; trip.surfaced = false
+      deepRow(bot, 'turn', { why: 'not_underground' })
+    }
+    if (trip.phase === 'return' && deepReturnOverdue(trip)) trip.returnTries = Math.max(trip.returnTries ?? 0, DEEP_RETURN_TRIES)
+    if (['deepen', 'work'].includes(trip.phase)) {
+      const why = deepReturnWhy(trip, { kit: kitNow(), health: bot.health })
+      if (why) { trip.phase = 'return'; trip.returnWhy = why; deepRow(bot, 'turn', { why }) }
+    }
+    // ---- descend: the collar, then the stair a hop at a time; a blocked step is repaired first ---------------------------------
+    if (trip.phase === 'descend') {
+      if (!st.usable || !route) { deepClose(bot, 'no_stair', st.why ?? 'route'); return out('no_effect', `the town stair is not usable (${st.why ?? 'route'})`) }
+      let use = landingUsable(stairRead(bot), rec, DEEP_IRON_FEET)
+      if (!use.ok && /blocked|tread|wet/.test(use.why ?? '')) {
+        // to the collar first: the repair walks from the stair's own route
+        if (deepRouteIndex(route, deepFeet(bot)) < 0) { await stairWalk(bot, rec.exit, 45_000, signal); await stairWalk(bot, route[0], DEEP_HOP_MS, signal) }
+        const r = await deepRepair(ctx, rec, route, signal, deadline)
+        trip.lastRepair = r
+        deepRow(bot, 'repair', { why: `${use.why}->${r}` })
+        use = landingUsable(stairRead(bot), rec, DEEP_IRON_FEET)
+      }
+      if (!use.ok) {
+        trip.descendTries = (trip.descendTries ?? 0) + 1
+        // A REPAIR STILL GOING (Codex r1 B3: four units a call): the descent stays, bounded by DESCEND_TRIES calls
+        const repairing = /blocked|tread|wet/.test(use.why ?? '') && trip.lastRepair && !['dig_refused', 'place_refused', 'no_support', 'no_reach', 'no_material', 'no_pickaxe', 'stair_busy', 'no_stand', 'stopped', 'landing_dropped'].includes(trip.lastRepair)
+        if (repairing && trip.descendTries < 6) return out('no_effect', `the town stair is being repaired on the way down (${use.why}); asked again`)
+        if (trip.descendTries >= 3 || !/unknown/.test(use.why ?? '')) {
+          // still at the top (nothing was dug below the stair yet): the trip simply ends
+          if (deepRouteIndex(route, deepFeet(bot)) > 0) { trip.phase = 'return'; trip.returnWhy = `stair_${use.why}`; return out('no_effect', `the town stair reads ${use.why}; walking back up`) }
+          deepClose(bot, 'stair', use.why); return out('no_effect', `the town stair is not walkable (${use.why}); the builder's next visit repairs it`)
+        }
+        return out('no_effect', `the town stair reads ${use.why}; asked again`)
+      }
+      let at = deepRouteIndex(route, deepFeet(bot))
+      if (at < 0) {
+        await stairWalk(bot, rec.exit, 45_000, signal)
+        if (!(await stairWalk(bot, route[0], DEEP_HOP_MS, signal))) { trip.descendTries = (trip.descendTries ?? 0) + 1; if (trip.descendTries >= 3) deepClose(bot, 'collar', 'walk'); return out('no_effect', 'could not reach the town stair\'s collar') }
+        at = 0
+      }
+      const h = await withStairClaim(ctx.runner, () => deepHops(bot, route, at, route.length - 1, signal, deadline))
+      if (!h.ok) {
+        trip.descendTries = (trip.descendTries ?? 0) + 1
+        if (trip.descendTries >= 3) { trip.phase = 'return'; trip.returnWhy = 'descend_walk' }
+        return out('no_effect', `stopped on the town stair at step ${h.at} of ${route.length - 1} (${h.why})`)
+      }
+      trip.trail = [route[route.length - 1]]
+      trip.phase = trip.target === 'diamond' ? 'deepen' : 'work'
+      if (trip.phase === 'work') trip.arrivedAt = Date.now()
+      deepRow(bot, 'landing', { why: `hops${route.length - 1}`, ms: Date.now() - t0 })
+      return out('success', `walked down the town stair to y=${DEEP_IRON_FEET}`)
+    }
+    // ---- deepen: mine on down from the stub end, with the stair's exit credit ----------------------------------------------------
+    if (trip.phase === 'deepen') {
+      const y0 = Math.floor(bot.entity.position.y)
+      let r = null
+      // BOUNDED INSIDE THIS CALL (Paper 11-01: the runner's 180 s cut aborted the first descent mid-stair): a child signal ends
+      // mine at this call's deadline; the trip goes on from wherever it stopped at the next call
+      const sub = new AbortController()
+      const onUp = () => sub.abort()
+      signal?.addEventListener?.('abort', onUp, { once: true })
+      const cut = setTimeout(() => sub.abort(), Math.max(5_000, deadline - Date.now()))
+      try { r = await mineGuarded({ ...ctx, deepCredit: DEEP_IRON_FEET }, { y: DEEP_DEEP_FEET }, sub.signal) } catch (e) { if (signal?.aborted) throw e; r = { status: e?.aborted ? 'cut' : 'failed', detail: e?.aborted ? 'this call\'s time' : String(e?.message ?? e).slice(0, 80) } } finally { clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
+      const y1 = Math.floor(bot.entity.position.y)
+      trip.deepenTries = (trip.deepenTries ?? 0) + 1
+      const stalled = y1 >= y0 - 1
+      trip.deepenStalls = stalled ? (trip.deepenStalls ?? 0) + 1 : 0
+      if (y1 <= DEEP_OK_Y || trip.deepenStalls >= 3 || trip.deepenTries >= 6) { trip.phase = 'work'; trip.arrivedAt = Date.now() }
+      deepRow(bot, 'deepen', { why: `${r?.status ?? '-'}:${String(r?.detail ?? '').slice(0, 60).replace(/\s+/g, '_')}`, n: `${y0}->${y1}` })
+      return out(y1 < y0 ? 'success' : 'no_effect', `deepened from y=${y0} to y=${y1}`)
+    }
+    // ---- work: the ore in reach (gather's tunnel), else a branch ------------------------------------------------------------------
+    if (trip.phase === 'work') {
+      const y = Math.floor(bot.entity.position.y)
+      const kinds = deepWorkKinds(trip, y)
+      const before = deepOre(bot)
+      const kind = kinds[(trip.kindIdx ?? 0) % kinds.length]
+      trip.kindIdx = (trip.kindIdx ?? 0) + 1
+      let r = null
+      bot.deepTunnelKinds = DEEP_DIAMOND_KINDS.includes(kind)   // gather's tunnel takes diamond ore for this call only
+      // bounded inside this call like the deepen (gather has no deadline of its own: the runner's cut is its clock)
+      const sub = new AbortController()
+      const onUp = () => sub.abort()
+      signal?.addEventListener?.('abort', onUp, { once: true })
+      const cut = setTimeout(() => sub.abort(), Math.max(5_000, deadline - Date.now()))
+      try { r = await gather(ctx, { block: kind, count: 2, maxDistance: 24 }, sub.signal) } catch (e) { if (signal?.aborted) throw e; r = { status: e?.aborted ? 'cut' : 'failed' } } finally { bot.deepTunnelKinds = false; clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
+      const gained = oreGain(before, deepOre(bot))
+      if (gained > 0) { trip.found = (trip.found ?? 0) + gained; trip.misses = 0; deepRow(bot, 'ore', { why: kind, found: trip.found, n: gained }); return out('success', `mined ${gained} ore (${kind}) at y=${y}`) }
+      // nothing of this kind: after every kind has had a turn, a branch moves the search
+      if ((trip.kindIdx % kinds.length) !== 0) return out('no_effect', `no ${kind} in reach at y=${y} (${r?.failClass ?? r?.status ?? '-'})`)
+      if ((trip.branches ?? 0) >= DEEP_BRANCHES_MAX) { trip.misses = (trip.misses ?? 0) + 1; return out('no_effect', 'every branch dug; no ore in reach') }
+      const b = await deepBranch(ctx, trip, signal, deadline)
+      trip.branches = (trip.branches ?? 0) + 1
+      trip.misses = (trip.misses ?? 0) + 1
+      deepRow(bot, 'branch', { why: b.stop, n: b.cells })
+      return out(b.cells > 0 ? 'success' : 'no_effect', `branch ${trip.branches}: ${b.cells} cells (${b.stop})`)
+    }
+    // ---- return: the trail back to the stub, then the stair up a hop at a time -----------------------------------------------------
+    if (trip.phase === 'return') {
+      // THE WAY BACK IS LOST after DEEP_RETURN_TRIES calls without progress: today's climb (surface: the stair's ascent when it
+      // plans, else the dig up), once per trip; then the trip is abandoned (owner O11's residual: the exit contract takes over)
+      if ((trip.returnTries ?? 0) >= DEEP_RETURN_TRIES) {
+        if (!trip.surfaced) {
+          trip.surfaced = true
+          try { await surface(ctx, {}, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+          const g = rec?.site?.g ?? config.world.homeY
+          if (bot.entity.position.y >= g - 2) { trip.phase = 'bank'; deepRow(bot, 'surfaced', { why: 'surface' }); return out('success', 'climbed out (surface)') }
+        }
+        deepClose(bot, 'stranded', trip.returnWhy ?? 'trail'); return out('failed', 'the way back is lost; the trip is abandoned (the exit contract and surface take over)', 'other')
+      }
+      const feet = deepFeet(bot)
+      const ri = route ? deepRouteIndex(route, feet) : -1
+      let onRoute = ri >= 0 ? ri : -1
+      if (onRoute < 0) {
+        const back = deepTrailBack(trip.trail, feet)
+        let fails = 0, walked = 0
+        const sealedAt = new Set()
+        // the trail back holds the 'stair' body claim (a branch end and mine's own stair read as walled in to the entombment
+        // reflex; Paper 11-01: it pillared and aborted the return)
+        await withStairClaim(ctx.runner, async () => {
+          for (const wp of back) {
+            check(signal)
+            if (Date.now() > deadline) break
+            if (await deepTrailWalk(bot, wp, DEEP_HOP_MS, signal)) { walked++; fails = 0; continue }
+            // SEAL THE WAY BACK (Paper 11-01 hazard field: lava beside a trail cell refused the leg every call): a block into each
+            // liquid face of the next stand's two cells within reach, never the bot's own cells; then that stand once more
+            if (fails === 0 && !sealedAt.has(wp.join(','))) {
+              sealedAt.add(wp.join(','))
+              const me5 = deepFeet(bot), read = stairRead(bot)
+              // faces only: the stand's own two cells are walked into, never filled (Claude r4 note 1)
+              // the stand's faces, then the leg's exposed liquid (the walk guard refuses lava anywhere beside the way)
+              const keep = new Set(isStairRecord(stairRecordNow()) ? stairCellKeys(stairRecordNow()) : [])
+              const mid = [Math.round((me5[0] + wp[0]) / 2), Math.round((me5[1] + wp[1]) / 2), Math.round((me5[2] + wp[2]) / 2)]
+              for (const c of [mid, [mid[0], mid[1] + 1, mid[2]]]) keep.add(c.join(','))
+              const faces = deepSealTargets(read, [wp, [wp[0], wp[1] + 1, wp[2]]], [me5, [me5[0], me5[1] + 1, me5[2]], wp, [wp[0], wp[1] + 1, wp[2]]])
+              // ONE PROTECTED SET for both lists (Codex r7 B1): never the stair's cells or the straight-line cells, whichever list found it
+              const liquid = [...new Map([...faces, ...deepLegSealTargets(read, me5, wp, 6, keep)].map(c => [c.join(','), c])).values()].filter(c => !keep.has(c.join(','))).slice(0, 8)
+              let placed = 0
+              if (liquid.length) {
+                const fx = deepEffects(bot, signal)
+                try { for (const c of liquid) if ((await fx.e.place(c)) === 'confirmed') { placed++; trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: `trail:${c.join(',')}` }) } } finally { try { fx.B.close?.() } catch { /* gone */ } }
+              }
+              if (placed && await deepTrailWalk(bot, wp, DEEP_HOP_MS, signal)) { walked++; continue }
+            }
+            if (++fails >= 3) break
+          }
+        })
+        if (route) onRoute = deepRouteIndex(route, deepFeet(bot))
+        if (onRoute < 0) {
+          // PROGRESS IS THE TRAIL INDEX, not stands walked (Paper 11-01: one stand back and forth every call never counted)
+          const prog = deepTrailProgress(trip.trail, deepFeet(bot))
+          if (!back.length) trip.returnTries = DEEP_RETURN_TRIES
+          else if (!(prog < (trip.returnBest ?? Infinity))) trip.returnTries = (trip.returnTries ?? 0) + 1
+          trip.returnBest = Math.min(trip.returnBest ?? Infinity, prog)
+          return out(walked ? 'success' : 'no_effect', `walking the trail back (${walked} stands)`)
+        }
+      }
+      const h = await withStairClaim(ctx.runner, () => deepHops(bot, route, onRoute, 0, signal, deadline))
+      if (!h.ok) { if (h.at === onRoute) trip.returnTries = (trip.returnTries ?? 0) + 1; return out('no_effect', `climbing the town stair: step ${h.at} (${h.why})`) }
+      await stairWalk(bot, rec.exit, DEEP_HOP_MS, signal)
+      trip.phase = 'bank'
+      deepRow(bot, 'surfaced', { why: 'stair', ms: Date.now() - t0 })
+      return out('success', 'climbed the town stair')
+    }
+    // ---- bank: a diamond pickaxe from 3 diamonds (owner M10), then the town deposit ----------------------------------------------
+    if (trip.phase === 'bank') {
+      trip.bankTries = (trip.bankTries ?? 0) + 1
+      if (trip.bankTries > 2) { deepClose(bot, 'home', `${trip.returnWhy ?? '-'}/bank_cut`); return out('no_effect', 'home from the deep trip (the deposit did not finish twice)') }
+      // HOME FIRST (Paper 11-01: from the collar, 19-26 blocks out, the deposit found `no town container`): the town-deposit walk
+      try { await stairWalk(bot, [config.world.homeX, config.world.homeY, config.world.homeZ], 45_000, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      const kit = kitNow()
+      let made = false
+      if (kit.diamonds >= DEEP_PICK_DIAMONDS && !(bot.inventory?.items?.() ?? []).some(i => i.name === 'diamond_pickaxe')) {
+        try { const r = await craft(ctx, { item: 'diamond_pickaxe', count: 1 }, signal); made = r?.status === 'success' } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        deepRow(bot, 'pickaxe', { why: made ? 'made' : 'not_made' })
+      }
+      try { await townDeposit(ctx, {}, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      deepClose(bot, 'home', trip.returnWhy ?? '-')
+      return out('success', `home from the deep trip${made ? ' with a new diamond pickaxe' : ''}`)
+    }
+    deepClose(bot, 'phase', String(trip.phase))
+    return out('no_effect', 'the trip had no phase')
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    deepRow(bot, 'error', { why: String(e?.message ?? e).slice(0, 80).replace(/\s+/g, '_'), status: 'failed' })
+    if ((trip.calls ?? 0) >= DEEP_CALLS_MAX) deepClose(bot, 'error', 'calls')
+    return out('failed', String(e?.message ?? e).slice(0, 100), 'other')
+  } finally { clearInterval(sampler) }
 }
 
 // MONUMENT-01: THE ZIGGURAT (ziggurat.mjs; shop.mjs PROJECTS' third entry). build_shop's visit when the active project is the
@@ -18940,6 +19378,7 @@ export const SKILL_CONTRACTS = {
   // own verified count of parts made (mats_effect); the recovery's is that count or the bag's loss of what it banked
   make_material: { expects: ['mats_effect', 'count_effect'], maxMs: 180_000 },
   build_shop: { expects: ['world_change'], maxMs: 600_000 },
+  deep_mine: { expects: ['position', 'inventory_gain'], maxMs: 180_000 },   // deepminer-01: one phase step of the trip
   mats_return: { expects: ['mats_effect', 'inventory_loss'], maxMs: 120_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
   toolkit: { expects: ['kit_effect'], maxMs: 240_000 },
@@ -20134,6 +20573,7 @@ export const SKILLS = {
   furnace_drain: { run: furnaceDrain, usage: 'furnace_drain', args: [], chatOnly: true },
   make_material: { run: makeMaterial, usage: 'make_material item=<bricks|panes|cut_copper|copper_door|torch|count>', args: ['item'], chatOnly: true },
   build_shop: { run: buildShop, usage: 'build_shop', args: [], chatOnly: true },
+  deep_mine: { run: deepMine, usage: 'deep_mine', args: [], chatOnly: true },   // deepminer-01 (cognitive.mjs issues it; never the model's)
   mats_return: { run: matsReturn, usage: 'mats_return', args: [], chatOnly: true },
   toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },
   // KEEPOUT-01: a deterministic order from cognitive.mjs (a body inside a fire column), never the model's choice; rescue-class:

@@ -135,6 +135,9 @@ bots/src/digbudget.mjs
 bots/src/minewell.mjs
 bots/src/protectzone.mjs
 bots/src/escapeguard.mjs
+# deepminer-01 (11-01): the town deep miner -- how deep it goes, which cells a branch opens, what it seals, its exit credit
+bots/src/deepmine.mjs
+bots/src/skills.mjs::deep*
 bots/src/skills.mjs::escapeRecordSnapshot
 bots/src/skills.mjs::escapeRecordAt
 bots/src/skills.mjs::mine

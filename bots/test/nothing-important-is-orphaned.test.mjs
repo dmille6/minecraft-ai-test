@@ -38,6 +38,11 @@ const REQUIRED = [
   'bots/src/escapeguard.mjs',
   'bots/test/escapeguard.test.mjs',
   // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)
+  // deepminer-01 (11-01): the town deep miner (the trip, the branch layout, the way back) and its Paper driver
+  'bots/src/deepmine.mjs',
+  'bots/test/deepmine.test.mjs',
+  'sandbox/deepmine/deepmine-e2e.mjs',
+  'docs/reports/deepminer-2026-11-01.md',
   'bots/src/shaftgeom.mjs',
   'bots/src/shaftvisit.mjs',
   'bots/test/town-stair.test.mjs',
