@@ -3156,7 +3156,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "OWNER ANSWERED 11-02: Q1 yes (yard full -> metered well, bags only), Q2 fleet yard 2x, Q3 all three sinks approved (roads, ziggurat growth, wall towers) -- towers and ziggurats need design creativity (seeded variety, not one template). Build in queue order: bagdiet-01 (queued) -> flowledger-01 (tooling, parallel) -> stationkeep-01 (tier 2) -> marks-01 (tier 1-2) -> towngate-01 (TIER 3) -> stockyard 2x fleet -> picker-01 + roads/towers/ziggurat growth -> sinkrate-01. Each stage gets its own ledger row when built.",
+   "next_step": "OWNER ANSWERED 11-02 (Q1 well yes, Q2 yard 2x, Q3 all three sinks). BUILT 11-02: flowledger-01 (tooling, LIVE on .31 cron :05, fleetstatus header 'flow ledger:'), stationkeep-01 -> marks-01 -> towngate-01 queued after bagdiet-01. NEXT (not built): stage 5 stockyard on the fleet at 2x (after the 1x showcase observation; clerk on backlog only), stage 6 picker-01 + first sinks (roads, ziggurat growth, wall towers -- towers and ziggurats with seeded variety), mats bill-driven only, stage 7 sinkrate-01 (blocks per visit >= 40), then monuments-1102.",
    "max_quiet_hours": 72,
    "depends_on": [
     {
@@ -3311,6 +3311,105 @@
     ]
    },
    "note": "First real run 11-02 16:27Z (6 h, 449,476 rows, 80 bots, 16 towns): cobble new 14,239, well 8,259 (58%), bags 32,422, chests 11,347 (16/16 fully counted); balance closes 14/16 (residual 1,110 vs null 11,302 of 22,554 in, 98% measured); departures p50 33 p75 34, 221 of 614 at >= 34. Codex r1 3 blockers (inferred deltas closing by construction; build placements from net bag loss; yard bamboo left out) fixed -> r2 APPROVE."
+  },
+  {
+   "id": "stationkeep-01",
+   "title": "resource-model-1102 stage 2: stationkeep-01 -- smelt takes back the furnace it placed once drained; the tidy sweeps stray crafting tables off the plaza (2 nearest stay public)",
+   "kind": "canary",
+   "next_step": "Queued after bagdiet-01 (variant 2b6f8a25 on f1f5c16c, branch stationkeep-on-f1f5c16, patch set for the v39 autorebase). Read +90/+180 generic; own lines: _station_retaken outcome=back share (smelt), _station_swept by=tidy outcome=back, _station_sweep strays/kept; craft success share not lower. Goal check 24 h after promotion: flowledger 'stations left' per town falling.",
+   "depends_on": [
+    {
+     "run": "bagdiet-01",
+     "until": "closed"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "stationkeep-01"
+    ],
+    "branches": [
+     "stationkeep-on-*"
+    ],
+    "grep": [
+     "stationkeep-01"
+    ]
+   },
+   "note": "Not in it: the bag allowance's furnace row (the design's 'no furnace in the bag'): with none, every smelt away from town would craft one; furnaces are never swept (contents and leases cannot be proven from the survey: both reviews).",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "owner-resource-model-1102.md",
+    "owner-bags-yard-1102.md"
+   ],
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "max_quiet_hours": 72
+  },
+  {
+   "id": "marks-01",
+   "title": "resource-model-1102 stage 3: marks-01 -- one per-group policy table (LOW/TARGET/HIGH/bagKeep) with a hysteresis latch, from the owner's numbers; _stock_band and _marks_mode rows",
+   "kind": "canary",
+   "next_step": "Queued after stationkeep-01 (variant e67ce26b on f1f5c16c, branch marks-on-f1f5c16). No behaviour change by design: read +90/+180 generic; _marks_mode on every canary bot; town_deposit / withdraw success shares not lower (denominators); _stock_band rows present.",
+   "depends_on": [
+    {
+     "run": "stationkeep-01",
+     "until": "closed"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "marks-01"
+    ],
+    "branches": [
+     "marks-on-*"
+    ],
+    "grep": [
+     "marks-01"
+    ]
+   },
+   "note": "Not in it: dropping cobble/stone from gather advice above LOW -- measured 11-02 (8,201 gather rows, 6 h): 87 targeted cobble/stone, 50 by bots below 64; no advice or rung names stone above bagKeep (stockpile_stone caps at 64), so the lever left is admission.mjs (tier 3). The yard's reader lands with the stockyard fleet stage (no yard.mjs on the fleet line).",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "owner-resource-model-1102.md",
+    "owner-bags-yard-1102.md"
+   ],
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "max_quiet_hours": 72
+  },
+  {
+   "id": "towngate-01",
+   "title": "resource-model-1102 stage 4 (TIER 3): towngate-01 -- the metered well overflow on every town visit (proven at HIGH, no yard room, no open bill; _overflow rows) + the table-craft gate redirected to take_station",
+   "kind": "canary",
+   "next_step": "Queued after marks-01 (variant 16047cec on f5bd6772 = f1f5c16c + stationkeep + marks, branch towngate-on-f5bd677; the autorebase cherry-picks its 2 commits onto the tip that carries both). Read +90/+180 generic + defect lines: 0 protected items in _overflow; 0 _overflow rows with town < high. KEEP goals: bags >= 34 slots leaving town (flowledger ge34) fall > 50 %; fleet bag cobble falls; tables+furnaces crafted per 13 h < 40 (was 152) with craft success share not lower.",
+   "depends_on": [
+    {
+     "run": "marks-01",
+     "until": "closed"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "towngate-01"
+    ],
+    "branches": [
+     "towngate-on-*"
+    ],
+    "grep": [
+     "towngate-01"
+    ]
+   },
+   "note": "Supersedes the parked cobbleoverflow-on-cc1000 once kept. Furnaces and chests are never taken by the gate (their gate stays 'one already in the bag').",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "owner-resource-model-1102.md",
+    "owner-bags-yard-1102.md"
+   ],
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "max_quiet_hours": 72
   }
  ]
 }
