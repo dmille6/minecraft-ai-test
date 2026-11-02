@@ -360,7 +360,11 @@ test('legSealTargets: liquid exposed to the leg anywhere in its box (one block o
   const set = { '2,-52,-1': 'lava', '2,-52,-3': 'lava', '0,-53,0': 'air', '0,-52,0': 'air', '1,-53,0': 'air', '1,-52,0': 'air', '2,-53,0': 'air', '2,-52,0': 'air', '3,-53,0': 'air', '3,-52,0': 'air' }
   const w = world(set)
   const t = D.legSealTargets(w.read, [0, -53, 0], [3, -53, 0]).map(c => c.join(','))
-  assert.deepEqual(t, ['2,-52,-1'])
+  assert.deepEqual(t, ['2,-52,-1'], 'the buried lava three out is beyond the margin')
+  // buried lava within two of the leg IS a target (the walk guard reads rock-sealed lava too, Paper r6)
+  const w3 = world({ ...set, '1,-53,2': 'lava', '1,-52,-2': 'water' })
+  const t3 = D.legSealTargets(w3.read, [0, -53, 0], [3, -53, 0]).map(c => c.join(','))
+  assert.ok(t3.includes('1,-53,2'), String(t3)); assert.ok(!t3.includes('1,-52,-2'), 'water in rock is no hazard')
   const w2 = world({ ...set, '0,-52,0': 'water' })
   assert.ok(!D.legSealTargets(w2.read, [0, -53, 0], [3, -53, 0]).some(c => c.join(',') === '0,-52,0'), 'never the bot\'s own cell')
 })

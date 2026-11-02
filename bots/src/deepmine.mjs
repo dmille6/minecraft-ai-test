@@ -351,16 +351,23 @@ export function legSealTargets (read, from, to, max = 6, keep = new Set()) {
   const mid = [Math.round((from[0] + to[0]) / 2), Math.round((from[1] + to[1]) / 2), Math.round((from[2] + to[2]) / 2)]
   const skip = new Set([from, [from[0], from[1] + 1, from[2]], to, [to[0], to[1] + 1, to[2]], mid, [mid[0], mid[1] + 1, mid[2]]].map(c => c.join(',')))
   for (const k of keep) skip.add(k)
-  const x0 = Math.min(from[0], to[0]) - 1, x1 = Math.max(from[0], to[0]) + 1
-  const y0 = Math.min(from[1], to[1]) - 1, y1 = Math.max(from[1], to[1]) + 2
-  const z0 = Math.min(from[2], to[2]) - 1, z1 = Math.max(from[2], to[2]) + 1
+  // LAVA within TWO of the leg, buried or not (Paper 11-01 r6: the walk guard -- lavaguard.mjs cellLavaSafe -- reads the cardinal
+  // cells of every route sample and the 3 below, rock or no rock, so lava sealed in the wall still refuses the leg); WATER only
+  // where it touches an open cell within ONE (water in rock is no hazard to a walk)
+  const M = 2
+  const x0 = Math.min(from[0], to[0]) - M, x1 = Math.max(from[0], to[0]) + M
+  const y0 = Math.min(from[1], to[1]) - 3, y1 = Math.max(from[1], to[1]) + 2
+  const z0 = Math.min(from[2], to[2]) - M, z1 = Math.max(from[2], to[2]) + M
+  const inner = (x, y, z) => x >= x0 + 1 && x <= x1 - 1 && z >= z0 + 1 && z <= z1 - 1 && y >= y0 + 2
   const out = []
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) {
     const k = `${x},${y},${z}`
     if (skip.has(k)) continue
     const q = read(x, y, z)
     if (!q || !(isLava(q) || isWet(q)) || /kelp|seagrass/.test(String(q.name))) continue
-    const exposed = N6.some(d => { const n = [x + d[0], y + d[1], z + d[2]]; if (n[0] < x0 || n[0] > x1 || n[1] < y0 || n[1] > y1 || n[2] < z0 || n[2] > z1) return false; const b = read(...n); return !!b && isOpen(b) })
+    if (isLava(q)) { out.push([x, y, z]); continue }
+    if (!inner(x, y, z)) continue
+    const exposed = N6.some(d => { const n = [x + d[0], y + d[1], z + d[2]]; if (!inner(...n)) return false; const b = read(...n); return !!b && isOpen(b) })
     if (exposed) out.push([x, y, z])
   }
   const d2 = c => (c[0] - from[0]) ** 2 + (c[1] - from[1]) ** 2 + (c[2] - from[2]) ** 2
