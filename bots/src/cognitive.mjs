@@ -950,7 +950,9 @@ export class CognitiveLoop {
         state: this.wellVisitState, wellState: this.wellState ?? {}, myName: bot.username ?? '',
       })
       this.wellVisitState = rw.state
-      if (rw.order && ov?.ok) rw.order = { ...rw.order, args: { ...rw.order.args, overflow: true }, why: `${rw.order.why}; the town is proven at its cobble HIGH, so surplus cobble stacks above the keep go too (metered)` }
+      // Codex r1 BLOCKER: the order's `keep` is filtered to listed junk (wellVisitOrder); an overflow carries EVERY wanted name, so a
+      // goal that wants cobble keeps it at the throw too
+      if (rw.order && ov?.ok) rw.order = { ...rw.order, args: { ...rw.order.args, overflow: true, keep: [...new Set([...(rw.order.args?.keep ?? []), ...wantedNow()])] }, why: `${rw.order.why}; the town is proven at its cobble HIGH, so surplus cobble stacks above the keep go too (metered)` }
       if (rw.order) { this.wellState = { ...(this.wellState ?? {}), lastDisposeAt: now }; return rw.order }
       // THE COMPOSTER: compost junk and the peaceful plants, never a sapling (Claude design r1 P2-5)
       const peaceful = foodSkipNow(bot).active

@@ -45,6 +45,13 @@ await t('overflow: open only when proven at HIGH, no yard room and no open bill;
   assert.equal(W.overflowGate({ cap: 'at_cap', bill: 0, yardRoom: 304, yardFull: true }).ok, true)
   assert.equal(W.overflowGate({ cap: 'at_cap', bill: 0, on: false }).why, 'off')
 })
+await t('overflow: PROVEN at HIGH is the counted floor -- 981 counted + a 64 stack is NOT at HIGH (r1 BLOCKER)', async () => {
+  const { wellCobbleSwitch } = await import('../src/cobblecap.mjs')
+  const view = { avail: 981, lbLo: 981, taking: 0, complete: true }
+  assert.equal(wellCobbleSwitch(view, 64, { cap: 1000 }), 'at_cap', 'positive control: the bank\'s admission fallback says at_cap here')
+  assert.equal(wellCobbleSwitch(view, 64, { cap: 1000, floorOnly: true }), 'below', 'the overflow\'s proof (floorOnly) does not')
+  assert.equal(wellCobbleSwitch({ avail: 1000, complete: true }, 64, { cap: 1000, floorOnly: true }), 'at_cap')
+})
 await t('overflow: the fleet HIGH is the cap (no yard) -- the gate asks the table, not a literal', () => {
   assert.equal(ST.MARKS.cobble.high, ST.TOWN_COBBLE_CAP + ST.YARD_ROOM.cobble)
 })
@@ -79,6 +86,7 @@ await t('nearestTakeable: strays first by distance, then the public ones; tables
   const s = { sweep: [{ at: [30, 64, 0], name: 'crafting_table' }], kept: [{ at: [2, 64, 0], name: 'crafting_table' }, { at: [1, 64, 0], name: 'furnace' }] }
   assert.deepEqual(SK.nearestTakeable(s, { x: 0.5, y: 64, z: 0.5 }).at, [2, 64, 0])
   assert.equal(SK.nearestTakeable({ sweep: [{ at: [40, 64, 0], name: 'crafting_table' }], kept: [] }, { x: 0, y: 64, z: 0 }), null)
+  assert.deepEqual(SK.nearestTakeable(s, { x: 0.5, y: 64, z: 0.5 }, SK.TAKE_R, k => k === '2,64,0'), null, 'a given-up PUBLIC table is not offered (30 is beyond reach)')
 })
 
 // the refusal CHAIN through the real AdmissionControl (toolhygiene.test.mjs's harness)
@@ -229,10 +237,11 @@ const ADM = strip(readFileSync(path.join(SRC, 'admission.mjs'), 'utf8'))
 const SKS = strip(readFileSync(path.join(SRC, 'skills.mjs'), 'utf8'))
 await t('wiring (a): the visit order plans cobble only through the overflow gate and flags the order; the skill re-judges', () => {
   assert.match(COG, /visitJunkStacks: \(\) => disposePlan\(items, \{ keep: wantedNow\(\), cobbleAtCap: overflowOk\(\) \}\)\.junkStacks/)
-  assert.match(COG, /if \(rw\.order && ov\?\.ok\) rw\.order = \{ \.\.\.rw\.order, args: \{ \.\.\.rw\.order\.args, overflow: true \}/)
+  assert.match(COG, /if \(rw\.order && ov\?\.ok\) rw\.order = \{ \.\.\.rw\.order, args: \{ \.\.\.rw\.order\.args, overflow: true, keep: \[\.\.\.new Set\(\[\.\.\.\(rw\.order\.args\?\.keep \?\? \[\]\), \.\.\.wantedNow\(\)\]\)\] \}/, 'r1 BLOCKER: every wanted name rides with the overflow')
   assert.match(SKS, /if \(!pit && listedOnly && overflow\) \{ out\.overflow = overflowNow\(bot\); if \(out\.overflow\.ok\) out\.cap = 'at_cap' \}/)
   assert.match(SKS, /kind: 'overflow', status: 'success'/)
-  assert.match(SKS, /const cap = cobbleWellCap\(bot, items, \{ cap: MARKS\.cobble\.high \}\)/)
+  assert.match(SKS, /const cap = cobbleWellCap\(bot, items, \{ cap: MARKS\.cobble\.high, floorOnly: true \}\)/, 'r1 BLOCKER: the counted floor, never the admission fallback')
+  assert.match(SKS, /if \(!roles\.has\(cell\.role\) && cell\.role !== 'fill'\) continue/, 'r1 BLOCKER: foundation fill cells are cobble bill')
 })
 await t('wiring (b): admission refuses through stationGate; cognitive runs the redirect and falls back to the craft', () => {
   assert.match(ADM, /if \(!this\.stationGateOff && args\.item === 'crafting_table'\) \{\s*const gate = stationGate\(/)
