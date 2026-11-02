@@ -3248,6 +3248,30 @@
     ]
    },
    "note": "Follows resource-model-1102 stages; one-off designs, not a repeated template."
+  },
+  {
+   "id": "groundskeeper-1102",
+   "title": "Groundskeeper (owner 11-02: 'have one of the bots work on tidying the town first, then tidying the surrounding area slowly working their way out to make the land more organized and easy to maneuver ... a grounds keeper'): one leased bot per town grows tidy-01 from the town outward ring by ring",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "owner-groundskeeper-1102.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Design + build on tidy-01 (promoted 11-02 15:47Z f1f5c16c; 11-02 logs: 5 towns sited, 149 clears, 321 places, 21 bots, 43 deadline exits, 23 stuck_on_cell): a one-bot-per-town lease (like the yard clerk), ring order town -> routes to chests/well/yard -> outward rings, fell trees in footprints and replant in the tree farm, fill pits with surplus cobble (a resource-model sink), cut spoil pillars, light; leaves nature beyond the worked ring, protected zones untouched. Start after resource-model stationkeep-01 is built (shared plaza-sweep code).",
+   "max_quiet_hours": 72,
+   "depends_on": [],
+   "evidence": {
+    "grep": [
+     "groundskeeper"
+    ],
+    "paths": [
+     "docs/reports/tidy-01-2026-11-01.md"
+    ]
+   },
+   "note": "Pit filling with cobble ties to resource-model-1102 (sink)."
   }
  ]
 }
