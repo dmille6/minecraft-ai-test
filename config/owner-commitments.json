@@ -3153,9 +3153,8 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Design on main (docs/reports/resource-management-2026-11-02.md; Codex + Claude independent designs, reconciled, one blocker round each, all blockers fixed). Owner answers Q1-Q3 (§12). Then build in queue order: bagdiet-01 (queued) -> flowledger-01 (tooling, parallel) -> stationkeep-01 (tier 2) -> marks-01 (tier 1-2) -> towngate-01 (TIER 3 canary: overflow + station craft gate) -> stockyard 2x fleet -> picker-01 + first sink -> sinkrate-01. Each stage gets its own ledger row when built.",
+   "next_step": "OWNER ANSWERED 11-02: Q1 yes (yard full -> metered well, bags only), Q2 fleet yard 2x, Q3 all three sinks approved (roads, ziggurat growth, wall towers) -- towers and ziggurats need design creativity (seeded variety, not one template). Build in queue order: bagdiet-01 (queued) -> flowledger-01 (tooling, parallel) -> stationkeep-01 (tier 2) -> marks-01 (tier 1-2) -> towngate-01 (TIER 3) -> stockyard 2x fleet -> picker-01 + roads/towers/ziggurat growth -> sinkrate-01. Each stage gets its own ledger row when built.",
    "max_quiet_hours": 72,
-   "owner_pending": "Resource model (docs/reports/resource-management-2026-11-02.md §12): (1) yard full -> surplus stone down the well every town visit, metered, bags only (recommended) or keep in bags? (2) fleet yard 2x (recommended) not 4x? (3) first repeatable sink: road segments from the paths (recommended), ziggurat growth, or wall towers?",
    "depends_on": [
     {
      "run": "bagdiet-01",
@@ -3225,6 +3224,30 @@
     ]
    },
    "note": "Wired into the fleetstatus header (alarmhead MONITOR_LOGS): ironfunnel, stuckwatch, staffcensus-check, failmine-weekly. Retired (cron removed, data kept; monitors.json kind=retired): programread, avoidwatch, monitor-bots."
+  },
+  {
+   "id": "monuments-1102",
+   "title": "Unique creative monuments as the stone sink (owner 11-02: 'once these are done, creating some more creative monuments and designs that are unique would be an interesting way to spend the extra stone ... use claude and codex for unique one off designs')",
+   "owner_date": "2026-11-02",
+   "memory": [
+    "owner-resource-model-1102.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "After resource-model-1102's picker-01 lands: Claude + Codex each design one-off monuments (no two alike) expressed as buildable blueprints the picker can fund by phase; showcase first, camera on each.",
+   "max_quiet_hours": 168,
+   "depends_on": [],
+   "evidence": {
+    "grep": [
+     "monuments-1102"
+    ],
+    "paths": [
+     "docs/reports/resource-management-2026-11-02.md"
+    ]
+   },
+   "note": "Follows resource-model-1102 stages; one-off designs, not a repeated template."
   }
  ]
 }
