@@ -34,8 +34,10 @@ _Hand-written context the sources cannot say. Keep it short; date each line; del
   These owner questions are ANSWERED; what remains are technical holds (see Queue).
 - **Learning loop** weekly (cron on the canary host); round 3 closed 11-02 05:06Z; the owner's 11-02 capacity rule is written
   (main dcedd094) before round 3 is re-gated.
-- **Showcase:** restack onto fleet c711879e in progress (control session 11-02, audit MEDIUM 3); from now on
-  `restack_prep.py` prepares each restack and alarms `restack-showcase`.
+- **Showcase (11-02 13:29Z):** release `4c92880a` = fleet c711879e protected tree (tombexit, airpocketwin, lavatarget,
+  promptcache, apseal, zigsealed, fleetbuild) + every showcase piece (expeditions/wholemap S1a, storehouse/shopchest,
+  sortstore, showchat, copperhall, stale-stuck rule, SHAFT off); prev `d698024b` is the rollback. From now on
+  `restack_prep.py` (showcase VM, :25) prepares each restack and alarms `restack-showcase`; activation stays by hand.
 - **tidy-01** is in the slot as a fleet canary although it is a tier-2 town feature with the showcase switched off (audit 11-01
   flag 10): its showcase observation was not done first. Decide at its +180 read whether a showcase run is still owed.
 
