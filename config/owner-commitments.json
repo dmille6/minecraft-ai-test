@@ -2378,9 +2378,8 @@
    ],
    "kind": "host",
    "lane": "ops",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
-   "next_step": "Observe the first AUTOMATIC merge: the next promotion (tidy-01 if KEEP) must reach main through promomerge.py without a hand merge; then done",
    "max_quiet_hours": 48,
    "evidence": {
     "grep": [
@@ -2393,7 +2392,11 @@
      "scripts/mac/promomerge.sh"
     ]
    },
-   "note": "AUDIT 10-31 #13: hand-merged at 0d10d875 (fleet 281d5659 is now an ancestor of origin/main). Root cause not yet checked. 11-02: root cause = no job ever did it (canary-loop.sh only pages 'operator: fast-forward main'; the 'coordinator' was a session habit). Reconciled by hand (merge of c711879e into main, control session 11-02) and made mechanical: scripts/host/promomerge.py (Mac LaunchAgent com.mcai.promomerge, 15 min) + stallcheck (f) pages promotions off main > 6 h."
+   "note": "AUDIT 10-31 #13: hand-merged at 0d10d875 (fleet 281d5659 is now an ancestor of origin/main). Root cause not yet checked. 11-02: root cause = no job ever did it (canary-loop.sh only pages 'operator: fast-forward main'; the 'coordinator' was a session habit). Reconciled by hand (merge of c711879e into main, control session 11-02) and made mechanical: scripts/host/promomerge.py (Mac LaunchAgent com.mcai.promomerge, 15 min) + stallcheck (f) pages promotions off main > 6 h.",
+   "done": {
+    "when": "2026-11-02",
+    "evidence": "reconciled by hand (merge 65b735f8 of fleet c711879e; main 9294d28b; .30 full suite 6 failures, every one failing alone on main too; Codex + Claude review, blocker fixed). FIRST AUTOMATIC merge: tidy-01's promotion f1f5c16c (15:47Z) recorded by promomerge.py as 45230cad (ancestry-only, main already carried it), alarm NEW 16:02Z -> CLEARED 16:13Z."
+   }
   },
   {
    "id": "showcase-protected-follows-fleet",
@@ -3210,9 +3213,8 @@
    ],
    "kind": "host",
    "lane": "ops",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
-   "next_step": "Install alarmhead MONITOR_LOGS on .31 (install-promomerge.sh copies it) and remove the three retired cron lines; check the header prints the four wired lines; then done",
    "max_quiet_hours": 48,
    "evidence": {
     "grep": [
@@ -3223,7 +3225,11 @@
      "config/monitors.json"
     ]
    },
-   "note": "Wired into the fleetstatus header (alarmhead MONITOR_LOGS): ironfunnel, stuckwatch, staffcensus-check, failmine-weekly. Retired (cron removed, data kept; monitors.json kind=retired): programread, avoidwatch, monitor-bots."
+   "note": "Wired into the fleetstatus header (alarmhead MONITOR_LOGS): ironfunnel, stuckwatch, staffcensus-check, failmine-weekly. Retired (cron removed, data kept; monitors.json kind=retired): programread, avoidwatch, monitor-bots.",
+   "done": {
+    "when": "2026-11-02",
+    "evidence": "alarmhead MONITOR_LOGS installed in ~/estel and ~/w5alarms on .31 (md5 = main); the fleetstatus header prints iron funnel / pinned bots / staff census check / failmine weekly; cron lines for programread, avoidwatch, monitor-bots removed (backup ~/promomerge/crontab.bak-*), data kept."
+   }
   },
   {
    "id": "monuments-1102",
