@@ -218,7 +218,8 @@ export function trailPush (trail = [], cell, gap = TRAIL_GAP) {
 export function trailBack (trail = [], feet, near = 12) {
   if (!trail.length || !Array.isArray(feet)) return []
   let best = -1, bd = Infinity
-  for (let i = 0; i < trail.length; i++) { const d = cheb(trail[i], feet); if (d <= bd) { bd = d; best = i } }
+  // ties go to the EARLIEST stand (Claude r4 note 2: a branch loop's junction read as further back)
+  for (let i = 0; i < trail.length; i++) { const d = cheb(trail[i], feet); if (d < bd) { bd = d; best = i } }
   if (best < 0 || bd > near) return []
   return trail.slice(0, best + 1).reverse()
 }
@@ -330,7 +331,7 @@ export function sealTargets (read, opened = [], occupied = []) {
   }
   for (const c of opened) for (const d of N6) {
     const n = add(c, d), k = n.join(',')
-    if (keys.has(k) || out.has(k)) continue
+    if (keys.has(k) || out.has(k) || body.has(k)) continue   // never the bot's own cells (Codex r4 B1)
     const q = read(...n)
     if (q && (isLava(q) || isWet(q)) && !/kelp|seagrass/.test(String(q.name))) out.set(k, n)
   }

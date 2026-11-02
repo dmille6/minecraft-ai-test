@@ -18160,7 +18160,8 @@ async function deepMine (ctx, args, signal) {
             if (fails === 0 && !sealedAt.has(wp.join(','))) {
               sealedAt.add(wp.join(','))
               const me5 = deepFeet(bot), read = stairRead(bot)
-              const liquid = deepSealTargets(read, [wp, [wp[0], wp[1] + 1, wp[2]]], [me5, [me5[0], me5[1] + 1, me5[2]]])
+              // faces only: the stand's own two cells are walked into, never filled (Claude r4 note 1)
+              const liquid = deepSealTargets(read, [wp, [wp[0], wp[1] + 1, wp[2]]], [me5, [me5[0], me5[1] + 1, me5[2]], wp, [wp[0], wp[1] + 1, wp[2]]])
               let placed = 0
               if (liquid.length) {
                 const fx = deepEffects(bot, signal)

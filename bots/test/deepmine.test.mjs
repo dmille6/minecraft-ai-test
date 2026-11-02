@@ -348,3 +348,9 @@ test('trailProgress: nearer the trail start is lower; off the trail is Infinity 
   for (const at of [[4, 12, 5], [4, 12, 7], [4, 12, 5], [4, 12, 7]]) { const p = D.trailProgress(tr, at); if (!(p < best)) tries++; best = Math.min(best, p) }
   assert.equal(tries, 3, 'oscillating between two stands counts as no progress')
 })
+
+test('Codex r4 B1: a liquid in the bot\'s own cells beside an opened cell is never a seal target', () => {
+  const w = world({ '1,-53,0': 'water', '1,-52,0': 'water' })
+  const s = D.sealTargets(w.read, [[2, -53, 0], [2, -52, 0]], [[1, -53, 0], [1, -52, 0]]).map(c => c.join(','))
+  assert.ok(!s.includes('1,-53,0') && !s.includes('1,-52,0'), String(s))
+})
