@@ -119,6 +119,44 @@ def latency_summary_counts_timeouts_against_the_gate():
     assert s['timeouts_or_errors'] == 1 and not s['gates_p50_2500_p95_5000']
 
 
+@t
+def timeouts_count_at_full_latency():
+    recs = [{'id': i, 'latencyMs': 1000, 'schemaValid': True, 't_done_ms': 1000 * i} for i in range(18)]
+    recs += [{'id': 18, 'transport_error': True, 't_done_ms': 45000}, {'id': 19, 'transport_error': True, 't_done_ms': 45000}]
+    s = W.latency_summary(recs, 3, 20)
+    assert s['p95_ms'] == 45000 and s['p50_ms'] == 1000, s     # dropped timeouts would read p95 1000 ms
+
+
+@t
+def sign_test_and_significance():
+    assert W.sign_p(0, 0) == 1.0 and abs(W.sign_p(7, 2) - 0.1797) < 1e-3 and W.sign_p(9, 0) < 0.01
+    sw = W.significantly_worse({'hard': (7, 2), 'rep_fail': (10, 11), 'post_veto': (9, 0)}, 0.05)
+    assert not sw['hard']['significantly_worse'] and not sw['rep_fail']['significantly_worse'] and sw['post_veto']['significantly_worse']
+    assert not W.significantly_worse({'hard': (0, 9)}, 0.05)['hard']['significantly_worse']   # better, not worse
+
+
+@t
+def within_gate_rate_needs_every_lower_rung():
+    ok = lambda b: {'gates_p50_2500_p95_5000': b}
+    L = [4, 6, 8, 10]
+    assert W.within_gate_rate({4: ok(True), 6: ok(True), 8: ok(False)}, L) == 6
+    assert W.within_gate_rate({4: ok(False), 6: ok(True)}, L) == 0          # a lucky pass above a failure does not count
+    assert W.within_gate_rate({4: ok(True), 6: ok(True), 8: ok(True), 10: ok(True)}, L) == 10
+    assert W.within_gate_rate({}, L) is None and W.within_gate_rate({6: ok(True)}, L) is None
+
+
+@t
+def capacity_rule_owner_1102():
+    fine = W.significantly_worse({'hard': (7, 2), 'rep_fail': (10, 11), 'post_veto': (3, 4)}, 0.05)
+    L = [4, 6, 8, 10, 12, 14, 17, 20]
+    assert W.capacity_rule(fine, 14, 6, L, 1.5)[0]
+    assert W.capacity_rule(fine, 9, 6, L, 1.5)[0] and not W.capacity_rule(fine, 8, 6, L, 1.5)[0]     # 1.5x exactly
+    assert W.capacity_rule(fine, 6, 0, L, 1.5)[0] and not W.capacity_rule(fine, 4, 0, L, 1.5)[0]     # best below the floor = 4
+    bad = W.significantly_worse({'hard': (12, 1), 'rep_fail': (10, 11), 'post_veto': (3, 4)}, 0.05)
+    assert not W.capacity_rule(bad, 40, 6, L, 1.5)[0]
+    assert not W.capacity_rule(fine, None, 6, L, 1.5)[0] and not W.capacity_rule(fine, 14, None, L, 1.5)[0]
+
+
 # ---------------------------------------------------------------- build_clean assemble: the replay buffer
 
 def item(i, kind='fail', skill='mine', world='hive-b', day='2026-10-25'):
@@ -310,6 +348,12 @@ def mutants_are_killed():
         ("c['missing'] == 0 and inc['missing'] == 0 and", "", incumbent_gate_s4a),
         ("and gate_vs_best(sc[small[2]], sc[lead[2]], gb)['pass']", "", smaller_winner_must_pass_against_the_leader),
         ("small[1] <= 0.6 * lead[1]", "True", smaller_winner_must_pass_against_the_leader),
+        ("    L = sorted((r.get('latencyMs') or TIMEOUT_MS) for r in recs)", "    L = sorted(r['latencyMs'] for r in recs if r.get('latencyMs'))", timeouts_count_at_full_latency),
+        ("'significantly_worse': c > b and p < alpha}", "'significantly_worse': p < alpha}", sign_test_and_significance),
+        ("            return best\n        best = r", "            continue\n        best = r", within_gate_rate_needs_every_lower_rung),
+        ("    if cand_rate >= ratio * ref and cand_rate > 0:", "    if cand_rate >= ref and cand_rate > 0:", capacity_rule_owner_1102),
+        ("    if worse:\n        return False", "    if False:\n        return False", capacity_rule_owner_1102),
+        ("    ref = best_rate if best_rate > 0 else floor", "    ref = best_rate", capacity_rule_owner_1102),
     ]
     bp = os.path.join(HERE, '..', 'build_clean.py')
     bcases = [

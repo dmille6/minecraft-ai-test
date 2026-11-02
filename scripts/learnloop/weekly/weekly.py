@@ -165,7 +165,9 @@ def drift(agree_n, n, base_pct, z_crit):
 
 def latency_summary(recs, minutes, rate):
     ok = [r for r in recs if not r.get('transport_error') and r.get('schemaValid')]
-    L = sorted(r['latencyMs'] for r in ok)
+    # percentiles over ALL requests (owner rule 11-02, the serving agent's stats.py): a timeout or error counts at its
+    # full latency (the client timeout when the record has none), never dropped
+    L = sorted((r.get('latencyMs') or TIMEOUT_MS) for r in recs)
     q = (lambda p: L[min(len(L) - 1, int(p * len(L)))] if L else None)
     done_t = [r['t_done_ms'] for r in recs if r.get('t_done_ms') is not None]
     span = max(done_t) / 60000.0 if done_t else None
@@ -176,6 +178,60 @@ def latency_summary(recs, minutes, rate):
             'prompt_tokens_p50': pt[len(pt) // 2] if pt else None, 'completion_p50': ct[len(ct) // 2] if ct else None,
             'cached_share_mean': round(sum(cached) / len(cached), 3) if cached else None,
             'gates_p50_2500_p95_5000': bool(L) and q(.5) <= 2500 and q(.95) <= 5000 and len(ok) == len(recs)}
+
+
+TIMEOUT_MS = 45000
+
+
+def sign_p(a, b):
+    """Exact two-sided sign test on discordant pair counts a, b."""
+    n = a + b
+    if n == 0:
+        return 1.0
+    k = min(a, b)
+    return min(1.0, 2 * sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n)
+
+
+def significantly_worse(disc, alpha):
+    """disc: {metric: (cand_bad_best_ok, best_bad_cand_ok)}. -> {metric: {...}}; a metric is SIGNIFICANTLY WORSE when the
+    candidate has more discordant failures AND the exact two-sided sign test gives p < alpha."""
+    out = {}
+    for m, (c, b) in disc.items():
+        p = sign_p(c, b)
+        out[m] = {'cand_only': c, 'best_only': b, 'p': round(p, 4), 'significantly_worse': c > b and p < alpha}
+    return out
+
+
+def within_gate_rate(by_rate, ladder):
+    """The highest ladder rate at which the latency gates hold AND hold at every lower rung (a lucky pass above a
+    failure does not count). by_rate: {rate: summary with 'gates_p50_2500_p95_5000'}. 0 = fails the lowest rung.
+    None = the ladder was not measured from its first rung."""
+    best = 0
+    for r in sorted(ladder):
+        if r not in by_rate:
+            return best if best else None
+        if not by_rate[r]['gates_p50_2500_p95_5000']:
+            return best
+        best = r
+    return best
+
+
+def capacity_rule(sw, cand_rate, best_rate, ladder, ratio):
+    """OWNER 11-02 rule (written before round 3 was re-gated): a candidate may become BEST when it is NOT significantly
+    worse than the best on hard, rep_fail and post_veto (paired sign test, p < alpha) AND serves >= ratio x the best's
+    within-gate decisions/min on the fleet's serving card, same session. A best that fails the lowest rung counts as
+    that rung (conservative: its true rate is lower). -> (ok, why)."""
+    worse = [m for m, v in sw.items() if v['significantly_worse']]
+    if worse:
+        return False, 'significantly worse than best on %s' % worse
+    if cand_rate is None or best_rate is None:
+        return False, 'within-gate rate not measured (cand %s, best %s)' % (cand_rate, best_rate)
+    floor = min(ladder)
+    ref = best_rate if best_rate > 0 else floor
+    if cand_rate >= ratio * ref and cand_rate > 0:
+        return True, 'not significantly worse on any of %s, and %s/min within the gates vs best %s/min (>= %.1fx%s)' % (
+            sorted(sw), cand_rate, best_rate, ratio, '' if best_rate else '; best fails the lowest rung %s/min' % floor)
+    return False, 'capacity %s/min < %.1f x best %s/min' % (cand_rate, ratio, ref)
 
 
 # ---------------------------------------------------------------- plumbing
@@ -525,10 +581,10 @@ def model_list(R):
     return out
 
 
-def batchload(R, alias, items, out, mode, param, n, temperature):
+def batchload(R, alias, items, out, mode, param, n, temperature, api='oai', bots_dir=None, offset=0):
     env = {'LLM_TEMPERATURE': str(temperature)}
-    cmd = ['nice', '-n', '10', 'node', os.path.join(scripts_root(), 'host', 'batchload.mjs'), ex(R.cfg['bots_dir']), items, out,
-           GPU_URL, alias, mode, str(param), str(n), '0', 'oai']
+    cmd = ['nice', '-n', '10', 'node', os.path.join(scripts_root(), 'host', 'batchload.mjs'), ex(bots_dir or R.cfg['bots_dir']), items, out,
+           GPU_URL, alias, mode, str(param), str(n), str(offset), api]
     r = subprocess.run(cmd, capture_output=True, text=True, env=dict(os.environ, **env), timeout=7200)
     open(out + '.log', 'w').write(r.stdout + r.stderr)
     if r.returncode != 0:
@@ -556,6 +612,8 @@ def ph_replay(R):
 
 
 def ph_latency(R):
+    if R.cfg['latency'].get('ladder'):
+        return ph_latency_ladder(R)
     lc = R.cfg['latency']; items = ex(R.cfg['eval_items'])
     want = [m for m in model_list(R) if m[2].startswith('candidate') or (m[2] in ('best', 'incumbent') and m[2] in lc['models'])]
     os.makedirs(R.p('latency'), exist_ok=True)
@@ -573,6 +631,65 @@ def ph_latency(R):
             R.log('latency %s @%d/min: p50 %s p95 %s valid %d/%d done/min %s' % (alias, rate, s['p50_ms'], s['p95_ms'], s['valid'], s['n'], s['done_per_min']))
         gpu('unserve', HOLDER, check=False); release()
     return {'partial': res, 'ethan_note': 'ethan-gpu shares the 3090: absolute numbers are pessimistic; compare models within the run'}
+
+
+def ph_latency_ladder(R):
+    """OWNER 11-02 capacity measurement: per model, ascending rungs of the ladder until the first rung that fails the
+    gates (p50 <= 2.5 s, p95 <= 5 s over ALL requests, every request valid). Method = the serving agent's
+    (serving-A-2026-11-01 drive.sh): server restarted before every rung (cold cache), open-loop Poisson for `minutes`,
+    LIVE promptcache-layout items with the 80 real bot names, the bots' own oai+ client (batchload api native)."""
+    lc = R.cfg['latency']; L = lc['ladder']
+    want = [m for m in model_list(R) if m[2].startswith('candidate') or (m[2] in ('best', 'incumbent') and m[2] in lc['models'])]
+    os.makedirs(R.p('latency'), exist_ok=True)
+    res = R.state['phases'].get('latency', {}).get('ladder_runs', {})
+    def todo(alias):
+        got = res.get(alias, {})
+        for r in sorted(L):
+            if str(r) not in got:
+                return r
+            if not got[str(r)]['gates_p50_2500_p95_5000']:
+                return None
+        return None
+    if any(todo(m[0]) is not None for m in want):
+        claim('latency')
+        off = 0
+        for alias, key, role, _ in want:
+            while True:
+                r = todo(alias)
+                if r is None:
+                    break
+                out = R.p('latency', '%s-L%d.jsonl' % (alias, r))
+                gpu('serve', HOLDER, key, alias, timeout=900)          # cold cache before every rung
+                n = r * lc['minutes']
+                batchload(R, alias, ex(lc['ladder_items']), out, 'open', r, n, 0.7, api='native', bots_dir=lc['ladder_bots_dir'], offset=off)
+                off = (off + n) % 800
+                sm = latency_summary(lines(out), lc['minutes'], r); sm['role'] = role
+                res.setdefault(alias, {})[str(r)] = sm
+                R.state['phases'].setdefault('latency', {})['ladder_runs'] = res; R.save()
+                R.log('ladder %s @%d/min: p50 %s p95 %s valid %d/%d -> %s' % (alias, r, sm['p50_ms'], sm['p95_ms'], sm['valid'], sm['n'],
+                                                                            'pass' if sm['gates_p50_2500_p95_5000'] else 'FAIL'))
+        gpu('unserve', HOLDER, check=False); release()
+    rates = {a: within_gate_rate({int(k): v for k, v in res.get(a, {}).items()}, L) for a, _, _, _ in want}
+    return {'ladder_runs': res, 'within_gate_rate': rates, 'card': lc.get('card'), 'method': 'ladder, serving-A method'}
+
+
+def disc_counts(items, cand, best, S):
+    """Paired discordant counts (cand bad & best ok, best bad & cand ok) for hard (all items), rep_fail (fail items),
+    post_veto (post-veto items)."""
+    out = {'hard': [0, 0], 'rep_fail': [0, 0], 'post_veto': [0, 0]}
+    for it in items:
+        x, y = cand.get(it['id']) or {}, best.get(it['id']) or {}
+        def flags(r):
+            p = r.get('proposal') or {}; sk, args = p.get('skill'), p.get('args') or {}
+            v = bool(r.get('schemaValid'))
+            h = bool(S.check_action(sk, args, S.facts(it['user']))[0]) if v else False
+            rf = v and it['eval_kind'] == 'fail' and S.key_of(sk, args) == S.key_of(it['logged']['skill'], it['logged']['args'])
+            pv = v and it['eval_kind'] == 'post_veto' and S.key_of(sk, args) == S.key_of(it['vetoed'][0], it['vetoed'][1])
+            return {'hard': h, 'rep_fail': rf, 'post_veto': pv}
+        fx, fy = flags(x), flags(y)
+        for m in out:
+            out[m][0] += fx[m] and not fy[m]; out[m][1] += fy[m] and not fx[m]
+    return {m: tuple(v) for m, v in out.items()}
 
 
 def ph_gate(R):
@@ -609,7 +726,18 @@ def ph_gate(R):
         vi = gate_vs_incumbent(sc[alias], sc[inc], g['vs_incumbent'])
         vb = gate_vs_best(sc[alias], sc[best] if best else None, g['vs_best'])
         nb, why = becomes_best(sc[alias], sc[best] if best else None, params, best_params, vi['pass'], vb['pass'])
+        cap = None
+        crule = g.get('capacity_rule')
+        if not nb and crule and best and vi['pass'] and sc[alias]['schema_valid'] >= g['vs_best']['schema_valid_min']:
+            sw = significantly_worse(disc_counts(items, recs[alias], recs[best], E.S), crule['alpha'])
+            wr = (R.state['phases'].get('latency') or {}).get('within_gate_rate') or {}
+            ok, cwhy = capacity_rule(sw, wr.get(alias), wr.get(best), R.cfg['latency'].get('ladder') or [1], crule['ratio'])
+            cap = {'significance': sw, 'within_gate_rate': {'cand': wr.get(alias), 'best': wr.get(best)}, 'pass': ok, 'why': cwhy,
+                   'rule': crule}
+            if ok:
+                nb, why = True, 'CAPACITY RULE (owner 11-02): ' + cwhy
         out['candidates'][alias] = {'key': key, 'params_b': params, 'vs_incumbent': vi, 'vs_best': vb, 'new_best': nb, 'why': why,
+                                    'capacity_rule': cap,
                                     'paired_vs_base': B.paired(items, recs[alias], recs[base]),
                                     'paired_vs_best': B.paired(items, recs[alias], recs[best]) if best else None,
                                     'paired_vs_incumbent': B.paired(items, recs[alias], recs[inc]),
@@ -798,7 +926,7 @@ def heartbeat(status, R=None, note=''):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('verb', choices=('tick', 'status', 'new', 'report', 'register'))
+    ap.add_argument('verb', choices=('tick', 'status', 'new', 'report', 'register', 'regate'))
     ap.add_argument('--id'); ap.add_argument('--round'); ap.add_argument('--marker'); ap.add_argument('--config')
     a = ap.parse_args(argv)
     os.makedirs(HOME, exist_ok=True)
@@ -815,6 +943,23 @@ def main(argv=None):
         R = new_round(a.id, a.config); print('round', R.id, advance(R)); heartbeat('ok', R); return 0
     if a.verb == 'report':
         R = Round(a.round) if a.round else current_round(); print(write_report(R)); return 0
+    if a.verb == 'regate':
+        # re-decide a CLOSED round under the CURRENT written gates (owner 11-02: the capacity rule is applied to round 3
+        # only through the rule as committed). The round's data, training and replay stay; latency/gate/register/report
+        # are re-run with the current config's `gates` and `latency` sections. The superseded decision is kept.
+        R = Round(a.round)
+        if current_round() is not None:
+            raise SystemExit('REFUSED: another round is open')
+        cur = json.load(open(a.config or os.path.join(os.path.dirname(scripts_root()), 'config', 'learnloop-weekly.json')))
+        old = {k: R.state['phases'].pop(k) for k in ('latency', 'gate', 'register', 'report') if k in R.state['phases']}
+        R.state.setdefault('superseded', []).append({'at': iso(), 'phases': old, 'gates': R.cfg.get('gates'), 'latency': R.cfg.get('latency'),
+                                                    'why': 'regate under the written rule of config version %s' % (open(os.path.join(LL, 'VERSION')).read().strip() if os.path.exists(os.path.join(LL, 'VERSION')) else '?')})
+        if os.path.exists(R.p('gate.json')):
+            os.replace(R.p('gate.json'), R.p('gate.superseded-%s.json' % iso().replace(':', '')))
+        R.cfg['gates'] = cur['gates']; R.cfg['latency'] = cur['latency']
+        json.dump(R.cfg, open(R.p('config.json'), 'w'), indent=1)
+        R.state['status'] = 'open'; R.save(); R.log('REGATE: latency/gate/register/report re-run under the current written gates')
+        print('round', R.id, advance(R)); heartbeat('ok', R); return 0
     if a.verb == 'register':
         raise SystemExit('register --marker is a human step: see the HELD entry in the round dir and canary-sched.py queue add')
     R = current_round()

@@ -60,18 +60,27 @@
   "conc": 2
  },
  "latency": {
-  "rates": [
+  "_doc": "within-gate rate = highest ladder rung at which p50 <= 2.5 s and p95 <= 5 s over ALL requests with every request valid, holding at every lower rung; per model the ladder stops at the first failing rung. Method = the serving agent's (docs/reports/serving-A-2026-11-01.md s.3): server restarted before each rung, 3 min open-loop Poisson, LIVE promptcache-layout prompts with the 80 real bot names, the bots' own oai+ client (batchload api native), T 0.7, 45 s timeout.",
+  "ladder": [
+   4,
+   6,
+   8,
+   10,
+   12,
+   14,
+   17,
    20,
-   50,
-   80,
-   107,
-   130
+   25,
+   30,
+   40
   ],
   "minutes": 3,
+  "ladder_items": "~/learnloop/r3/live-pc.servea-1101.jsonl",
+  "ladder_bots_dir": "~/learnloop/replay/bots-59ff9bd52838/bots",
+  "card": "the 3090 (10.0.0.16) llama-server b12020, servea flags (-np 8 --no-kv-unified -c 49152 -fa on --jinja --reasoning off), shared with ethan-gpu -- the card servea serves the fleet from; switch to the 5080 once it is measured",
   "models": [
    "candidates",
-   "best",
-   "incumbent"
+   "best"
   ]
  },
  "gates": {
@@ -86,7 +95,12 @@
    "hard_tol_pp": 0.5,
    "schema_valid_min": 99.0
   },
-  "new_best_if": "passes vs_incumbent and vs_best AND (rep_fail + post_veto_repeat strictly below best's, OR at most 60% of best's parameters)"
+  "new_best_if": "passes vs_incumbent AND [ (passes vs_best AND rep_fail+post_veto strictly below best's, OR <= 60% of best's parameters) OR capacity_rule ]",
+  "capacity_rule": {
+   "_doc": "OWNER 11-02 ~12:45Z (relayed by the control session), written BEFORE round 3 was re-gated: a candidate that passes the incumbent gate and schema_valid >= 99 (and its export check where one exists) may become BEST when it is NOT significantly worse than the current best on hard (600 items), rep_fail (300) and post_veto (100) -- paired exact two-sided sign test on discordant items, 'significantly worse' = more candidate-only failures AND p < alpha -- AND serves >= ratio x the best's within-gate decisions/min, both measured in the same session on the fleet's serving card (latency.card) by latency.ladder. The incumbent gate is unchanged. A best that fails the lowest rung counts as that rung.",
+   "alpha": 0.05,
+   "ratio": 1.5
+  }
  },
  "referee": {
   "n": 200,
