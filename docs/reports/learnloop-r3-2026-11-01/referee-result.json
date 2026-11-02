@@ -1,0 +1,62 @@
+{
+ "items": 200,
+ "agreement": {
+  "C": {
+   "pair": "local:qwen3.8:27b vs paid:teacher-paid:openai:gpt-6.1-sol",
+   "n": 192,
+   "same_skill_pct": 72.4,
+   "skill_kappa": 0.567,
+   "same_key_pct": 69.8,
+   "same_skill": 139,
+   "usd": 0.7373
+  },
+  "B": {
+   "pair": "local:qwen3.8:27b vs paid:teacher-paid:anthropic:claude-opus-5-5",
+   "n": 200,
+   "same_skill_pct": 71.5,
+   "skill_kappa": 0.553,
+   "same_key_pct": 69.0,
+   "same_skill": 143,
+   "usd": 1.7705
+  },
+  "B_vs_C": {
+   "pair": "paid:teacher-paid:openai:gpt-6.1-sol vs paid:teacher-paid:anthropic:claude-opus-5-5",
+   "n": 192,
+   "same_skill_pct": 80.7,
+   "skill_kappa": 0.708,
+   "same_key_pct": 73.4,
+   "same_skill": 155
+  }
+ },
+ "arms": {
+  "local:qwen3.8:27b": {
+   "answered": 200,
+   "schema_valid": 100.0,
+   "hard": 0.5,
+   "rep_logged_nontransient": 15.5,
+   "surface_share": 60.0
+  },
+  "paid:teacher-paid:openai:gpt-6.1-sol": {
+   "answered": 200,
+   "schema_valid": 96.0,
+   "hard": 2.1,
+   "rep_logged_nontransient": 8.0,
+   "surface_share": 55.2
+  },
+  "paid:teacher-paid:anthropic:claude-opus-5-5": {
+   "answered": 200,
+   "schema_valid": 100.0,
+   "hard": 2.5,
+   "rep_logged_nontransient": 12.0,
+   "surface_share": 55.0
+  }
+ },
+ "round": "20261101",
+ "at": "2026-11-01T17:10:52Z",
+ "arms_done": {
+  "C": true,
+  "B": true
+ },
+ "refused": null,
+ "note": "paid answers stay in ~/learnloop/teacher-paid on the Mac (evaluation only); this file has counts only"
+}

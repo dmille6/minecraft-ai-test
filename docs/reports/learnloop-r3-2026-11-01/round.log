@@ -1,0 +1,118 @@
+2026-11-01T13:05:15Z harvest done
+2026-11-01T13:06:28Z pool done
+2026-11-01T13:06:41Z transform done
+2026-11-01T13:06:43Z teach waits: GPU busy: BUSY other GPU process: 617269:296MiB:/home/mike/batchtest/llama-b12020/llama-b12020/llama-server -m /home/mike/batchtest/models/cand-c2-q8.gguf --alias cand-
+2026-11-01T13:14:04Z config.json replaced by hand before export (export_check for the 4B; the disk was grown to 1 TB)
+2026-11-01T13:18:07Z teach waits: teacher started on 2000 items
+2026-11-01T13:23:56Z config.json replaced by hand: candidate order 4B then 9B
+2026-11-01T13:25:01Z teach waits: teacher running: 56 of 2000 labelled
+2026-11-01T13:55:01Z teach waits: teacher running: 371 of 2000 labelled
+2026-11-01T14:25:02Z teach waits: teacher running: 697 of 2000 labelled
+2026-11-01T14:55:01Z teach waits: teacher running: 1004 of 2000 labelled
+2026-11-01T15:25:02Z teach waits: teacher running: 1324 of 2000 labelled
+2026-11-01T15:55:01Z teach waits: teacher running: 1641 of 2000 labelled
+2026-11-01T16:25:01Z teach waits: teacher running: 1948 of 2000 labelled
+2026-11-01T16:31:22Z teach waits: teacher started on 2000 items
+2026-11-01T16:34:46Z teach done
+2026-11-01T16:34:46Z referee done
+2026-11-01T16:34:51Z assemble FAILED: command failed (1): /usr/bin/python3 -B /home/mike/learnloop/r3/app/scripts/learnloop/build_clean.py assemble --out /home/mike/learnloop/rounds/20261101/data --name train-20261101.jsonl --pool-file /home/mike/learnloop/rounds/20261101/data/teach-items.jsonl --good-file /home/mike/learnloop/rounds/20261101/data/good.pc.jsonl --labels /home/mike/learnloop/rounds/20261101/data/labels-qwen3_8_27b.jsonl --local-model qwen3.8:27b --good-n 3000 --relabel-n 2800 --max-skill-share 0.3 --seed 20261101 --forbid-ids /home/mike/learnloop/r3/m3-eval.v0.pc.jsonl --buffer-pool /home/mike/learnloop/r3/buffer-c2/relabel-pool.pc.jsonl /home/mike/learnloop/r3/buffer-c2/pilot-1000.pc.jsonl --buffer-labels /home/mike/learnloop/c2/labels-qwen3_8_27b-pool.jsonl /home/mike/learnloop/c2/labels-qwen3_8_27b-poolB.jsonl /home/mike/learnloop/c2/labels-qwen3_8_27b-pilot.jsonl
+Traceback (most recent call last):
+  File "/home/mike/learnloop/r3/app/scripts/learnloop/build_clean.py", line 421, in <module>
+    main()
+  File "/home/mike/learnloop/r3/app/scripts/learnloop/build_clean.py", line 417, in main
+    return cmd_pool(a) if a.verb == 'pool' else cmd_assemble(a)
+                                                ^^^^^^^^^^^^^^^
+  File "/home/mike/learnloop/r3/app/scripts/learnloop/build_clean.py", line 344, in cmd_assemble
+    if it is None or rec['id'] in bkept or it['kind'] not in ('fail', 'post_veto'):
+                                           ~~^^^^^^^^
+KeyError: 'kind'
+
+2026-11-01T16:35:19Z reopened by hand after the assemble KeyError fix
+2026-11-01T16:35:26Z assemble done
+2026-11-01T16:48:11Z assemble redone by hand: the cap now applies while filling (the first set had 1,442 relabels); the 4B run that started on it was stopped at step ~14 and moved aside
+2026-11-01T16:48:19Z assemble done
+2026-11-01T16:48:21Z train:qwen35-4b waits: training 20261101-qwen35-4b started
+2026-11-01T16:55:02Z train:qwen35-4b waits: training 20261101-qwen35-4b
+2026-11-01T17:25:02Z train:qwen35-4b waits: training 20261101-qwen35-4b
+2026-11-01T17:55:02Z train:qwen35-4b waits: training 20261101-qwen35-4b
+2026-11-01T18:25:02Z train:qwen35-4b waits: training 20261101-qwen35-4b
+2026-11-01T18:55:02Z train:qwen35-4b waits: training 20261101-qwen35-4b
+2026-11-01T19:25:01Z train:qwen35-4b waits: training 20261101-qwen35-4b
+2026-11-01T19:33:12Z train:qwen35-4b done
+2026-11-01T19:33:13Z export:qwen35-4b waits: export-q8_0 20261101-qwen35-4b started
+2026-11-01T19:40:04Z export:qwen35-4b waits: export-bf16 20261101-qwen35-4b started
+2026-11-01T19:50:03Z export:qwen35-4b done
+2026-11-01T19:50:05Z train:qwen35-9b waits: training 20261101-qwen35-9b started
+2026-11-01T19:50:56Z config.json replaced by hand: latency also for the incumbent
+2026-11-01T20:00:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T20:10:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T20:20:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T20:30:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T20:40:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T20:50:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T21:00:01Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T21:10:01Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T21:20:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T21:30:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T21:40:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T21:50:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T22:00:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T22:10:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T22:20:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T22:30:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T22:40:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T22:50:01Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T23:00:01Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T23:10:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T23:20:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T23:30:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T23:40:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-01T23:50:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T00:00:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T00:10:03Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T00:20:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T00:30:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T00:40:03Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T00:50:03Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T01:00:03Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T01:10:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T01:20:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T01:30:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T01:40:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T01:50:02Z train:qwen35-9b waits: training 20261101-qwen35-9b
+2026-11-02T02:00:03Z train:qwen35-9b done
+2026-11-02T02:00:04Z export:qwen35-9b waits: export-q8_0 20261101-qwen35-9b started
+2026-11-02T02:10:03Z export:qwen35-9b done
+2026-11-02T02:10:04Z replay qwen2.5-7b-instruct (incumbent) qwen2.5-7b-instruct
+2026-11-02T02:22:02Z replay cand-c2-q8 (best) cand-c2-q8
+2026-11-02T02:35:14Z replay 20261101-qwen35-4b (candidate:qwen35-4b) run:20261101-qwen35-4b/cand-q8_0.gguf
+2026-11-02T02:45:24Z replay base-qwen35-4b-q8 (base:qwen35-4b) run:base-qwen35-4b/base-q8_0.gguf
+2026-11-02T03:00:56Z replay 20261101-qwen35-4b-bf16 (bf16:qwen35-4b) run:20261101-qwen35-4b/cand-bf16.gguf
+2026-11-02T03:13:39Z replay 20261101-qwen35-9b (candidate:qwen35-9b) run:20261101-qwen35-9b/cand-q8_0.gguf
+2026-11-02T03:27:03Z replay base-qwen35-9b-q8 (base:qwen35-9b) run:base-qwen35-9b/base-q8_0.gguf
+2026-11-02T03:47:25Z replay done
+2026-11-02T03:50:09Z latency qwen2.5-7b-instruct @20/min: p50 2239 p95 5838 valid 60/60 done/min 24.1
+2026-11-02T03:53:21Z latency qwen2.5-7b-instruct @50/min: p50 7417 p95 12416 valid 150/150 done/min 48.8
+2026-11-02T03:57:46Z latency qwen2.5-7b-instruct @80/min: p50 27709 p95 88932 valid 231/240 done/min 54.2
+2026-11-02T04:02:15Z latency qwen2.5-7b-instruct @107/min: p50 34427 p95 44895 valid 109/321 done/min 25.1
+2026-11-02T04:06:44Z latency qwen2.5-7b-instruct @130/min: p50 28455 p95 44850 valid 89/390 done/min 20.5
+2026-11-02T04:09:43Z latency cand-c2-q8 @20/min: p50 3050 p95 5563 valid 60/60 done/min 24.2
+2026-11-02T04:13:00Z latency cand-c2-q8 @50/min: p50 16614 p95 23970 valid 150/150 done/min 48.5
+2026-11-02T04:17:38Z latency cand-c2-q8 @80/min: p50 24717 p95 43632 valid 57/240 done/min 13.0
+2026-11-02T04:22:15Z latency cand-c2-q8 @107/min: p50 26643 p95 42571 valid 49/321 done/min 11.2
+2026-11-02T04:26:50Z latency cand-c2-q8 @130/min: p50 26531 p95 42206 valid 46/390 done/min 10.5
+2026-11-02T04:29:34Z latency 20261101-qwen35-4b @20/min: p50 1668 p95 3084 valid 60/60 done/min 24.2
+2026-11-02T04:32:45Z latency 20261101-qwen35-4b @50/min: p50 5989 p95 11996 valid 150/150 done/min 49.3
+2026-11-02T04:37:09Z latency 20261101-qwen35-4b @80/min: p50 31924 p95 84628 valid 213/240 done/min 50.2
+2026-11-02T04:41:38Z latency 20261101-qwen35-4b @107/min: p50 34904 p95 44752 valid 127/321 done/min 29.2
+2026-11-02T04:46:08Z latency 20261101-qwen35-4b @130/min: p50 26070 p95 44645 valid 84/390 done/min 19.3
+2026-11-02T04:49:04Z latency 20261101-qwen35-9b @20/min: p50 2933 p95 6005 valid 60/60 done/min 24.2
+2026-11-02T04:52:21Z latency 20261101-qwen35-9b @50/min: p50 11077 p95 18487 valid 150/150 done/min 48.4
+2026-11-02T04:56:53Z latency 20261101-qwen35-9b @80/min: p50 26674 p95 44314 valid 69/240 done/min 15.8
+2026-11-02T05:01:27Z latency 20261101-qwen35-9b @107/min: p50 25813 p95 43009 valid 49/321 done/min 11.2
+2026-11-02T05:06:02Z latency 20261101-qwen35-9b @130/min: p50 27122 p95 44036 valid 52/390 done/min 11.9
+2026-11-02T05:06:05Z latency done
+2026-11-02T05:06:06Z gate done
+2026-11-02T05:06:06Z register done
+2026-11-02T05:06:06Z report done
+2026-11-02T05:06:06Z round closed

@@ -2095,7 +2095,7 @@
    ],
    "kind": "design",
    "lane": "ops",
-   "state": "open",
+   "state": "done",
    "owner": "owner",
    "next_step": "Owner reads Anthropic/OpenAI output terms and decides; optional OpenAI top-up; paid labels stay quarantined until then",
    "max_quiet_hours": 168,
@@ -2103,6 +2103,10 @@
     "grep": [
      "teacher pilot arm C"
     ]
+   },
+   "done": {
+    "when": "2026-11-01",
+    "evidence": "OWNER 11-01 ~13:00Z: vendor terms = A -- paid Claude/GPT labels are referee/evaluation only (quarantined ~/learnloop/teacher-paid/ on the Mac), training uses fleet outcomes + local-teacher labels (memory owner-serving-plan-1101.md)"
    }
   },
   {
@@ -2921,6 +2925,37 @@
     }
    ],
    "note": "Owner 11-01 ~22:15Z item 2; owner 11-01 ~22:40Z: water buckets on lava allowed -> deepminer-02 (bucket.mjs pour/scoop proven 5/5 on Paper; lookAt Vec3 fix needed), obsidian -> enchanting table after pickaxes (M10)."
+  },
+  {
+   "id": "learnloop-continuous",
+   "title": "Learning loop continuous (owner 11-01): weekly harvest -> local-teacher relabel -> train -> GGUF -> replay gate vs incumbent + best -> HELD model entry; paid Claude/GPT as referee only; smaller base allowed",
+   "owner_date": "2026-11-01",
+   "memory": [
+    "owner-serving-plan-1101.md",
+    "owner-learning-loop-1021.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Owner: 4B as the next model canary (needs serving host + template check + capacity test + marker); read each weekly round REPORT.md (~/learnloop/weekly-latest.md on .31); act on a new best or a referee drift flag",
+   "max_quiet_hours": 192,
+   "evidence": {
+    "grep": [
+     "learnloop weekly",
+     "learnloop round"
+    ],
+    "paths": [
+     "scripts/learnloop/weekly/weekly.py",
+     "config/learnloop-weekly.json"
+    ]
+   },
+   "depends_on": [
+    {
+     "cron": "learnloop-weekly"
+    }
+   ],
+   "note": "Round 3 (11-01) built the pipeline: cron every 10 min on .31 (weekly.py tick), llgpu.sh forced-command key .31->.16, referee launchd on the Mac (com.mcai.learnloop-referee). Owner 11-01 vendor terms = A: paid labels never train. A round waits (does not fail) while another GPU user is on the 3090. Round 20261101 closed 11-02 05:06Z: r3 4B/9B tie c2 on rep_fail/post-veto, miss hard tolerance by 4-5 items; c2 stays best; 4B passes latency gates at 20/min on the 3090 (docs/reports/learnloop-r3-2026-11-01.md)."
   }
  ]
 }

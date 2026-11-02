@@ -380,6 +380,33 @@
    "consumer": "fleetstatus SHOWCASE block 'expeditions:' line (UNKNOWN when the newest showcase_wholemap row is > 3 h old)",
    "kind": "monitor",
    "note": "infra/showcase/wholemap.py trips, hourly :12 on the showcase VM: trips + the BlueMap route layer, reusing the last scan."
+  },
+  {
+   "id": "learnloop-weekly",
+   "host": "31",
+   "cron": "weekly.py tick",
+   "outputs": [
+    "~/learnloop/weekly-heartbeat.json",
+    "~/learnloop/weekly-latest.md",
+    "~/learnloop/weekly-cron.log"
+   ],
+   "fresh_hours": 3,
+   "consumer": "fleetstatus header (learning loop weekly line: !! on stale/failed/a phase waiting > 48 h) + owner-commitments row learnloop-continuous",
+   "kind": "monitor",
+   "note": "round 3 (11-01): scripts/learnloop/weekly/weekly.py, every 10 min; a round every 7 days; GPU phases go through ~/learnloop-train/r3/llgpu.sh on the 3090 (restricted key)"
+  },
+  {
+   "id": "learnloop-referee",
+   "host": "mac",
+   "cron": null,
+   "launchd": "com.mcai.learnloop-referee",
+   "outputs": [
+    "~/learnloop/referee/referee.log"
+   ],
+   "fresh_hours": null,
+   "consumer": "weekly.py report on .31 (referee-result.json -> drift flag in the round REPORT.md)",
+   "kind": "monitor",
+   "note": "paid Claude/GPT referee on each round's 200-item sample, EVALUATION ONLY (owner 11-01 terms = A); ledger ~/learnloop/spend.jsonl, cap $100/month/vendor at 80%, $6/arm/round on the planning estimate (~$2.7 actual per round)"
   }
  ]
 }

@@ -1,0 +1,1 @@
+{"best": {"alias": "cand-c2-q8", "model_key": "cand-c2-q8", "params_b": 9.0, "round": "c2-2026-10-31", "scores": null, "note": "candidate 2 (Qwen3.5-9B 8-bit LoRA, 5,768 examples), passed the owner bar 10-31; seeded by hand 11-01"}, "history": [{"at": "2026-11-01T13:10:00Z", "round": "seed", "from": null, "to": "cand-c2-q8"}]}

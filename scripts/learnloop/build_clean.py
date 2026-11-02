@@ -147,6 +147,39 @@ def cap_skill_share(rows, cap, rng):
     return [r for v in by.values() for r in v], dropped
 
 
+def alloc_relabels(new, buf, cap, n, rng):
+    """Choose up to n relabels with no skill above `cap` of the total: the largest feasible total T <= n with
+    sum_k min(count_k, floor(cap x T)) >= T; per skill THIS round's rows first, then the buffer (seeded). -> (rows,
+    {skill: taken})."""
+    by = collections.defaultdict(lambda: ([], []))
+    for r in new:
+        by[json.loads(r['assistant'])['skill']][0].append(r)
+    for r in buf:
+        by[json.loads(r['assistant'])['skill']][1].append(r)
+    cnt = {k: len(a) + len(b) for k, (a, b) in by.items()}
+    feas = lambda T: sum(min(c, int(cap * T)) for c in cnt.values()) >= T
+    T = min(n, sum(cnt.values()))
+    while T > 0 and not feas(T):
+        T -= 1
+    q = {k: min(c, int(cap * T)) for k, c in cnt.items()}       # per-skill ceiling; sum(q) >= T by feasibility
+    picked = {}
+    for k in sorted(q):
+        a = sorted(by[k][0], key=lambda r: r['id'])
+        picked[k] = rng.sample(a, min(q[k], len(a)))
+    sel = [r for k in sorted(picked) for r in picked[k]]
+    if len(sel) >= T:                                              # this round alone fills it (any subset keeps the cap)
+        out = rng.sample(sorted(sel, key=lambda r: r['id']), T)
+    else:
+        cand = []
+        for k in sorted(q):
+            b = sorted(by[k][1], key=lambda r: r['id'])
+            cand += rng.sample(b, min(len(b), q[k] - len(picked[k])))
+        out = sel + rng.sample(sorted(cand, key=lambda r: r['id']), T - len(sel))
+    got = collections.Counter(json.loads(r['assistant'])['skill'] for r in out)
+    assert all(v <= cap * len(out) + 1e-9 for v in got.values()) or cap >= 1.0, got
+    return out, dict(got.most_common())
+
+
 def split_problem(r, split, eval_ids):
     """None if item r belongs to the pool's TRAIN split, else why not."""
     if r['id'] in eval_ids:
@@ -268,9 +301,28 @@ def cmd_assemble(a):
     out = os.path.expanduser(a.out)
     C = collections.Counter()
     items = {}
-    for l in open(os.path.join(out, 'relabel-pool.jsonl')):
+    for l in open(os.path.expanduser(a.pool_file) if a.pool_file else os.path.join(out, 'relabel-pool.jsonl')):
         if l.strip():
             r = json.loads(l); items[r['id']] = r
+    # ROUND 3 REPLAY BUFFER: earlier rounds' relabel pools (+ their LOCAL labels) join as a second tier: this round's
+    # kept relabels come first, the buffer only tops up to --relabel-n. Buffer items pass the same filter.
+    buf_items = {}
+    for bp in a.buffer_pool or []:
+        for l in open(os.path.expanduser(bp)):
+            if l.strip():
+                r = json.loads(l)
+                if r['id'] in items:
+                    raise SystemExit('REFUSED: buffer id %s is also in this round\'s pool' % r['id'])
+                if r.get('kind') is None:
+                    # a pilot item: trainable only when its logged action failed non-transiently (as --pilot does)
+                    r['kind'] = 'fail' if (r.get('logged', {}).get('skill') and logged_nontransient_failure(r)) else 'other'
+                buf_items[r['id']] = r
+    forbid = set()
+    for ep in a.forbid_ids or []:
+        forbid |= {json.loads(l)['id'] for l in open(os.path.expanduser(ep)) if l.strip()}
+    clash = (set(items) | set(buf_items)) & forbid
+    if clash:
+        raise SystemExit('REFUSED: %d pool/buffer ids are evaluation ids, e.g. %s' % (len(clash), sorted(clash)[:3]))
     # the pilot's NON-transient items may be trained on with LOCAL labels (TRAIN cell; only PAID labels are
     # quarantined). Transient ones (cooldown, busy, ...) are left out: there a retry can be right and the gate decides.
     # SPLIT CHECK (Codex r3 blocker): every admitted item must be in the pool's own split -- a training world, a
@@ -312,14 +364,47 @@ def cmd_assemble(a):
             if ok:
                 ex = dict(it); ex['assistant'] = canonical(rec['proposal'], it['sentinel']); ex['provenance'] = rec['provenance']
                 kept[rec['id']] = ex
-    if not kept:
+    if not kept and not buf_items:
         raise SystemExit('REFUSED: no relabel kept: %s' % dict(C))
     relabels = list(kept.values())
-    if a.max_skill_share:
-        relabels, dropped = cap_skill_share(relabels, a.max_skill_share, random.Random(a.seed + 2))
-        for k, v in dropped.items():
-            C['relabel cap %.2f: %s dropped' % (a.max_skill_share, k)] = v
-    good = [json.loads(l) for l in open(os.path.join(out, 'good.jsonl')) if l.strip()]
+    if buf_items:
+        bkept = {}
+        for lp in a.buffer_labels or []:
+            for l in open(os.path.expanduser(lp)):
+                if not l.strip():
+                    continue
+                rec = json.loads(l)
+                it = buf_items.get(rec['id'])
+                if it is None or rec['id'] in bkept or it.get('kind') not in ('fail', 'post_veto'):
+                    continue
+                if 'provenance' not in rec and rec.get('model') in a.local_model and rec.get('model') in LOCAL_TEACHERS:
+                    rec['provenance'] = 'teacher-local:%s' % rec['model']
+                ok, why = keep_label(it, rec)
+                C['buffer %s:%s' % (it['kind'], why)] += 1
+                if ok:
+                    ex = dict(it); ex['assistant'] = canonical(rec['proposal'], it['sentinel']); ex['provenance'] = rec['provenance']
+                    ex['buffer'] = True; bkept[rec['id']] = ex
+        C['buffer kept'] = len(bkept)
+    else:
+        bkept = {}
+    if not relabels and not bkept:
+        raise SystemExit('REFUSED: no relabel kept (this round or the buffer): %s' % dict(C))
+    if a.relabel_n:
+        # ROUND 3 (11-01): the cap is applied while FILLING, not after. Filling to relabel_n first and capping after
+        # dropped 1,358 `surface` answers and left 1,442 of the 2,800 wanted, though the buffer held other skills.
+        relabels, alloc = alloc_relabels(relabels, list(bkept.values()), a.max_skill_share or 1.0, a.relabel_n, random.Random(a.seed + 3))
+        C['buffer used'] = sum(1 for r in relabels if r.get('buffer'))
+        C['relabel allocation (cap %.2f)' % (a.max_skill_share or 1.0)] = alloc
+    else:
+        relabels += list(bkept.values())
+        if a.max_skill_share:
+            relabels, dropped = cap_skill_share(relabels, a.max_skill_share, random.Random(a.seed + 2))
+            for k, v in dropped.items():
+                C['relabel cap %.2f: %s dropped' % (a.max_skill_share, k)] = v
+    good = [json.loads(l) for l in open(os.path.expanduser(a.good_file) if a.good_file else os.path.join(out, 'good.jsonl')) if l.strip()]
+    gclash = {g['id'] for g in good} & forbid
+    if gclash:
+        raise SystemExit('REFUSED: %d good ids are evaluation ids' % len(gclash))
     if a.good_n is not None and a.good_n < len(good):
         # a seeded random subset (good.jsonl is in day order): sqrt-by-skill shares are kept in expectation
         good = random.Random(a.seed + 1).sample(sorted(good, key=lambda r: r['id']), a.good_n)
@@ -360,6 +445,12 @@ def main(argv=None):
     q.add_argument('--good-n', type=int, default=None, help='use a seeded random subset of good.jsonl')
     q.add_argument('--pilot', nargs='*', default=None, help='pilot-1000.jsonl: its non-transient items join the pool')
     q.add_argument('--local-model', nargs='+', required=True, help='the local teacher(s) whose replay records these are')
+    q.add_argument('--pool-file', default=None, help='round 3: the relabel pool in the layout to train on (e.g. relabel-pool.pc.jsonl)')
+    q.add_argument('--good-file', default=None, help='round 3: the good set in the layout to train on (good.pc.jsonl)')
+    q.add_argument('--buffer-pool', nargs='*', default=None, help='round 3 replay buffer: earlier rounds\' pools (same layout)')
+    q.add_argument('--buffer-labels', nargs='*', default=None, help='their LOCAL teacher labels')
+    q.add_argument('--relabel-n', type=int, default=None, help='relabels wanted: this round first, the buffer tops up')
+    q.add_argument('--forbid-ids', nargs='*', default=None, help='jsonl files whose ids must never be trained on (the gate set)')
     a = ap.parse_args(argv)
     return cmd_pool(a) if a.verb == 'pool' else cmd_assemble(a)
 

@@ -67,6 +67,8 @@ def main():
     ap.add_argument('--probe-items', default='', help='held-out items (m3-eval.jsonl): greedy answers of the TRAINED '
                     '(PEFT) model are written to <out>/peft_probe.jsonl, to check the merged export against (c2 review)')
     ap.add_argument('--probe-n', type=int, default=30)
+    ap.add_argument('--no-merged', action='store_true', help='save the LoRA adapter only (round 3: the 3090 has no disk '
+                    'for merged-16bit; weekly/export_lora_gguf.py merges on the fly into the GGUF)')
     a = ap.parse_args()
     import re
     if not re.fullmatch(r'20\d\d-\d\d-\d\dT\d\d:\d\d(:\d\d)?Z', a.m2b_verified or ''):
@@ -180,8 +182,11 @@ def main():
         print('peft probe:', len(probes), 'greedy answers ->', os.path.join(a.out, 'peft_probe.jsonl'))
     if not a.fit_test_only:
         model.save_pretrained(os.path.join(a.out, 'lora')); tok.save_pretrained(os.path.join(a.out, 'lora'))
-        model.save_pretrained_merged(os.path.join(a.out, 'merged-16bit'), tok, save_method='merged_16bit')
-        print('saved', os.path.join(a.out, 'lora'), 'and', os.path.join(a.out, 'merged-16bit'))
+        if a.no_merged:
+            print('saved', os.path.join(a.out, 'lora'), '(adapter only: --no-merged)')
+        else:
+            model.save_pretrained_merged(os.path.join(a.out, 'merged-16bit'), tok, save_method='merged_16bit')
+            print('saved', os.path.join(a.out, 'lora'), 'and', os.path.join(a.out, 'merged-16bit'))
 
 
 if __name__ == '__main__':

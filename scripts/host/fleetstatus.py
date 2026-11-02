@@ -404,6 +404,42 @@ def _learnloop_line(now, p):
     return f'learning-loop archive (M1): ok, run {age.total_seconds() / 3600:.0f} h ago, {what}'
 
 
+LEARNLOOP_WEEKLY_HB = '~/learnloop/weekly-heartbeat.json'
+LEARNLOOP_WEEKLY_STALE = dt.timedelta(hours=3)    # cron ticks twice an hour
+LEARNLOOP_WEEKLY_WAIT = dt.timedelta(hours=48)    # a phase waiting this long (GPU never free) is an alarm
+
+
+def learnloop_weekly_line(now, path=None, round_dir='~/learnloop/rounds'):
+    """One header line for the WEEKLY learning-loop pipeline (round 3, scripts/learnloop/weekly/weekly.py). NEVER raises.
+    '!! ' when the heartbeat is missing / stale / failed, or the open round's phase has waited > 48 h."""
+    p = os.path.expanduser(path or LEARNLOOP_WEEKLY_HB)
+    try:
+        with open(p) as fh:
+            hb = json.load(fh)
+        at = _ts(hb['at'])
+        bad = []
+        if now - at > LEARNLOOP_WEEKLY_STALE:
+            bad.append(f'STALE: last tick {(now - at).total_seconds() / 3600:.0f} h ago')
+        if hb.get('status') != 'ok':
+            bad.append(f'round {hb.get("round")} {hb.get("status")} at {hb.get("phase")}: {str(hb.get("note"))[:100]}')
+        waited = None
+        if hb.get('round') and hb.get('phase'):
+            sp = os.path.join(os.path.expanduser(round_dir), hb['round'], 'state.json')
+            if os.path.exists(sp):
+                e = (json.load(open(sp)).get('phases') or {}).get(hb['phase']) or {}
+                first = e.get('waiting_since') or e.get('at')
+                if e.get('status') == 'waiting' and first:
+                    waited = now - _ts(first)
+                    if waited > LEARNLOOP_WEEKLY_WAIT:
+                        bad.append(f'{hb["phase"]} waiting {waited.total_seconds() / 3600:.0f} h: {str(e.get("wait"))[:90]}')
+        what = f'round {hb.get("round") or "none open"}, phase {hb.get("phase")}, best {hb.get("best")}'
+        if bad:
+            return f'!! learning loop weekly: {"; ".join(bad)} -- {what}; read ~/learnloop/weekly-latest.md'
+        return f'learning loop weekly: ok, {what}' + (f' ({str(hb.get("note"))[:80]})' if hb.get('note') else '')
+    except Exception as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line
+        return f'!! learning loop weekly: NO/UNREADABLE heartbeat ({type(e).__name__}) at {p}'
+
+
 def elk_disk(now, client=None):
     """Header lines for the ELK host's disk. Never raises: an unreadable reading is itself an
     alarm line, because a disk check that cannot be read has not passed."""
@@ -830,6 +866,8 @@ def show(rep):
         print(rep['structcount'])
     if rep.get('showcase_head'):
         print(rep['showcase_head'])
+    if rep.get('learnloop_weekly'):          # after the showcase head: the header's first 8 lines carry it (test)
+        print(rep['learnloop_weekly'])
     for line in rep.get('w5_alarms') or []:
         print(line)
     print(f'names proven in the widest window: {rep["proven"]}')
@@ -880,7 +918,7 @@ def main():
     evs = {w: EsEvents.load('skill', since=until - d, until=until, gaps='clip') for w, d in wins}
     widest = max(wins, key=lambda x: x[1])[0]
     rep = {'generated_at': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'),
-           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'frontier': frontier_line(now), 'lavamap': lavamap_line(now), 'hazardmap': hazardmap_line(now), 'structcount': structcount_line(now), 'coop': coop_line(now), 'learnloop': learnloop_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
+           'elk_disk': elk_disk(now), 'opsaudit': opsaudit_line(now), 'frontier': frontier_line(now), 'lavamap': lavamap_line(now), 'hazardmap': hazardmap_line(now), 'structcount': structcount_line(now), 'coop': coop_line(now), 'learnloop': learnloop_line(now), 'learnloop_weekly': learnloop_weekly_line(now), 'proven': prove_names(evs[widest]), 'windows': {}}
     fleet = evs[widest].bots_present()
     for w, d in wins:
         rep['windows'][w] = window_report(evs[w], hourly=d <= dt.timedelta(hours=48), fleet=fleet)
