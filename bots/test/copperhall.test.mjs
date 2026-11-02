@@ -81,22 +81,22 @@ await t('MUTANT KILLED: an opening rule without the project floor opens at 216, 
   assert.equal(H.hallOpening({ ingots: 216, cut: 10 }).open, false)
 })
 
-const P = S.projectsOn(true, true, true, true, false, true, true, true, true, true)
+const P = S.projectsOn(true, true, true, true, false, true, true, true, true)
 const done = P.filter(p => !['hall', 'tidy'].includes(p.plot)).map(p => ({ plot: p.plot, exists: true, complete: true, damaged: false }))
 await t('the order: a WAITING hall is never offered (the next project is); an open one is, after the storehouse', () => {
   assert.ok(P.some(p => p.plot === 'hall'))
-  assert.equal(S.activeProject([...done, { plot: 'hall', exists: false, complete: false, damaged: false, waiting: true }], P).plot, 'tidy')
+  assert.equal(S.activeProject([...done, { plot: 'hall', exists: false, complete: false, damaged: false, waiting: true }], P).plot, 'storehouse', 'this base has no tidy: the last not waiting')
   assert.equal(S.activeProject([...done, { plot: 'hall', exists: false, complete: false, damaged: false }], P).plot, 'hall')
   assert.equal(S.activeProject([...done, { plot: 'hall', exists: true, complete: false, damaged: false, waiting: true }], P).plot, 'hall', 'a sited hall never waits')
   const noStore = done.map(s => (s.plot === 'storehouse' ? { ...s, complete: false } : s))
   assert.equal(S.activeProject([...noStore, { plot: 'hall', exists: false, complete: false, damaged: false }], P).plot, 'storehouse')
-  assert.ok(!S.projectsOn(true, true, true, true, false, true, false, true, true, false).some(p => p.plot === 'hall'), 'COPPERHALL=off')
-  assert.ok(!S.projectsOn(true, true, true, true, false, true, false, false, true, true).some(p => p.plot === 'hall'), 'never without the storehouse')
+  assert.ok(!S.projectsOn(true, true, true, true, false, true, true, true, false).some(p => p.plot === 'hall'), 'COPPERHALL=off')
+  assert.ok(!S.projectsOn(true, true, true, true, false, true, false, true, true).some(p => p.plot === 'hall'), 'never without the storehouse')
   assert.equal(H.copperhallOn({}, 'showcase'), true); assert.equal(H.copperhallOn({}, 'hive-a'), false); assert.equal(H.copperhallOn({ COPPERHALL: 'off' }, 'showcase'), false)
 })
 
 await t('Claude r1 BLOCK: in the SHOWCASE switch set (tidy and stair off) a waiting hall is not the fallback: the order reads the storehouse complete and the expeditions are asked', () => {
-  const SC = S.projectsOn(true, true, true, true, false, true, false, true, true, true)
+  const SC = S.projectsOn(true, true, true, true, false, true, true, true, true)
   assert.equal(SC.at(-1).plot, 'hall', 'the hall is the showcase list\'s last')
   const doneSC = SC.filter(p => p.plot !== 'hall').map(p => ({ plot: p.plot, exists: true, complete: true, damaged: false }))
   const pick = S.activeProject([...doneSC, { plot: 'hall', exists: false, complete: false, damaged: false, waiting: true }], SC)
@@ -112,7 +112,7 @@ await t('Claude r1 BLOCK: in the SHOWCASE switch set (tidy and stair off) a wait
 
 await t('MUTANT KILLED: the old fallback makes the waiting hall the showcase\'s active project', async () => {
   await withMutant(SHOP_PATH, '  for (let i = list.length - 1; i >= 0; i--) { const s = st(list[i]); if (!(!s.exists && s.waiting === true)) return list[i] }\n', '', async M => {
-    const SC = M.projectsOn(true, true, true, true, false, true, false, true, true, true)
+    const SC = M.projectsOn(true, true, true, true, false, true, true, true, true)
     const doneSC = SC.filter(p => p.plot !== 'hall').map(p => ({ plot: p.plot, exists: true, complete: true, damaged: false }))
     assert.equal(M.activeProject([...doneSC, { plot: 'hall', exists: false, complete: false, damaged: false, waiting: true }], SC).plot, 'hall')
   })

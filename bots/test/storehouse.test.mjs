@@ -238,7 +238,7 @@ await t('MUTANT KILLED: without the frontOpen exemption the doorway\'s front is 
 await t('the project: seventh, after the workshop, two builders; projectsOn takes it only with its switch and the house\'s', async () => {
   const p = SHOP.PROJECTS.find(q => q.plot === H.STORE_PLOT)
   assert.ok(p && p.after === 'shop' && p.blueprint === H.STORE_BLUEPRINT && SHOP.buildersOf(p) === 2)
-  assert.strictEqual(SHOP.PROJECTS.at(-1).plot, H.STORE_PLOT, 'last: the workshop stays PROJECTS[0] (skills.mjs workshopStations reads hs[0])')
+  assert.strictEqual(SHOP.PROJECTS.at(-2).plot, H.STORE_PLOT, 'next to last (copperhall-01: the hall after it): the workshop stays PROJECTS[0] (skills.mjs workshopStations reads hs[0])')
   assert.ok(SHOP.projectsOn(true, true, true, true, false, true, true).some(q => q.plot === H.STORE_PLOT))
   assert.ok(!SHOP.projectsOn(true, true, true, true, false, true, false).some(q => q.plot === H.STORE_PLOT))
   assert.ok(!SHOP.projectsOn(false, true, true, true, false, true, true).some(q => q.plot === H.STORE_PLOT))

@@ -17033,7 +17033,12 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // tidy is a repair too -- the pillars a repair's own climbs left are dug before the open projects (bounded per bot)
         const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
         const damaged = complete && b ? recordDamaged(b, rec, { tidy: tidyFirst }) : false
+        const due = complete && b && !damaged ? recordDamaged(b, rec) : false
         // copperhall-01: the unsited hall WAITS on its opening rule (copperhall.mjs hallOpening: the town's copper), so the order
+        // never offers it early and works the next project meanwhile
+        const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
+        // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
+        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && p.plot === STORE_PLOT && storeUpkeepDue(b, rec), ...(waiting ? { waiting } : {}) }
       })
       activeMem = { ...(activeMem ?? {}), sig, at: now, states }
     }
