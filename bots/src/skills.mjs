@@ -169,7 +169,7 @@ import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_M
 import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OUTPUT_OF, IRON_MISS_KEY, IRON_MISS_TTL_MS, indexRuledOut, SMELT_GATE, indexInputAbsent,
          ironSmeltCount, ironBankPlan } from './smeltjob.mjs'   // ironsmelt-01
 import { withDigScope } from './digtown.mjs'
-import { returnOverdue as deepReturnOverdue, trailProgress as deepTrailProgress } from './deepmine.mjs'   // deepminer-01 r1
+import { returnOverdue as deepReturnOverdue, trailProgress as deepTrailProgress, legSealTargets as deepLegSealTargets } from './deepmine.mjs'   // deepminer-01 r1
 import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
 import { planOf as stairPlanOf, firstUndone as stairFirstUndone, standFor as stairStandFor, stairCellKeys } from './shaftgeom.mjs'   // deepminer-01: the stair's repair on the way down
 import { renewLease as projRenewLease } from './buildproj.mjs'   // deepminer-01: the deep miner's lease
@@ -18161,7 +18161,9 @@ async function deepMine (ctx, args, signal) {
               sealedAt.add(wp.join(','))
               const me5 = deepFeet(bot), read = stairRead(bot)
               // faces only: the stand's own two cells are walked into, never filled (Claude r4 note 1)
-              const liquid = deepSealTargets(read, [wp, [wp[0], wp[1] + 1, wp[2]]], [me5, [me5[0], me5[1] + 1, me5[2]], wp, [wp[0], wp[1] + 1, wp[2]]])
+              // the stand's faces, then the leg's exposed liquid (the walk guard refuses lava anywhere beside the way)
+              const faces = deepSealTargets(read, [wp, [wp[0], wp[1] + 1, wp[2]]], [me5, [me5[0], me5[1] + 1, me5[2]], wp, [wp[0], wp[1] + 1, wp[2]]])
+              const liquid = [...new Map([...faces, ...deepLegSealTargets(read, me5, wp)].map(c => [c.join(','), c])).values()].slice(0, 8)
               let placed = 0
               if (liquid.length) {
                 const fx = deepEffects(bot, signal)

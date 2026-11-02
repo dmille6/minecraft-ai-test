@@ -338,6 +338,31 @@ export function sealTargets (read, opened = [], occupied = []) {
   return [...out.values()]
 }
 
+/**
+ * THE LEG'S EXPOSED LIQUID -> [[x,y,z]] to fill, nearest the bot first, at most `max`. Pure. Paper 11-01 (hazard field): the walk
+ * guard (lava_corridor) refuses a leg with lava beside it anywhere along the way, not only at the next stand's faces. Every liquid
+ * cell in the box round the bot's cells and the next stand's (one block of margin) that touches an OPEN cell of that box is
+ * exposed to the walk; never the bot's cells or the stand's own cells (they are walked into).
+ */
+export function legSealTargets (read, from, to, max = 6) {
+  if (!Array.isArray(from) || !Array.isArray(to)) return []
+  const skip = new Set([from, [from[0], from[1] + 1, from[2]], to, [to[0], to[1] + 1, to[2]]].map(c => c.join(',')))
+  const x0 = Math.min(from[0], to[0]) - 1, x1 = Math.max(from[0], to[0]) + 1
+  const y0 = Math.min(from[1], to[1]) - 1, y1 = Math.max(from[1], to[1]) + 2
+  const z0 = Math.min(from[2], to[2]) - 1, z1 = Math.max(from[2], to[2]) + 1
+  const out = []
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) {
+    const k = `${x},${y},${z}`
+    if (skip.has(k)) continue
+    const q = read(x, y, z)
+    if (!q || !(isLava(q) || isWet(q)) || /kelp|seagrass/.test(String(q.name))) continue
+    const exposed = N6.some(d => { const n = [x + d[0], y + d[1], z + d[2]]; if (n[0] < x0 || n[0] > x1 || n[1] < y0 || n[1] > y1 || n[2] < z0 || n[2] > z1) return false; const b = read(...n); return !!b && isOpen(b) })
+    if (exposed) out.push([x, y, z])
+  }
+  const d2 = c => (c[0] - from[0]) ** 2 + (c[1] - from[1]) ** 2 + (c[2] - from[2]) ** 2
+  return out.sort((a, b) => d2(a) - d2(b)).slice(0, max)
+}
+
 // ---- rows -----------------------------------------------------------------------------------------------------------------------
 /** The `_deepmine` row's detail (the read's defect lines key on op= and end=). Pure. */
 export function deepRowDetail ({ op = '-', phase = '-', target = '-', why = '-', y = '-', trip = '-', found = '-', n = '-', ms = '-', end = '-' } = {}) {

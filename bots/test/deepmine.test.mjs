@@ -354,3 +354,13 @@ test('Codex r4 B1: a liquid in the bot\'s own cells beside an opened cell is nev
   const s = D.sealTargets(w.read, [[2, -53, 0], [2, -52, 0]], [[1, -53, 0], [1, -52, 0]]).map(c => c.join(','))
   assert.ok(!s.includes('1,-53,0') && !s.includes('1,-52,0'), String(s))
 })
+
+test('legSealTargets: liquid exposed to the leg anywhere in its box (one block of margin), never the bot\'s or the stand\'s cells, nearest first', () => {
+  // an open corridor x 0..3 at y -53/-52; lava beside it at (2,-52,-1) (not a face of the next stand (3,..)); lava sealed in rock at (2,-52,-3)
+  const set = { '2,-52,-1': 'lava', '2,-52,-3': 'lava', '0,-53,0': 'air', '0,-52,0': 'air', '1,-53,0': 'air', '1,-52,0': 'air', '2,-53,0': 'air', '2,-52,0': 'air', '3,-53,0': 'air', '3,-52,0': 'air' }
+  const w = world(set)
+  const t = D.legSealTargets(w.read, [0, -53, 0], [3, -53, 0]).map(c => c.join(','))
+  assert.deepEqual(t, ['2,-52,-1'])
+  const w2 = world({ ...set, '0,-52,0': 'water' })
+  assert.ok(!D.legSealTargets(w2.read, [0, -53, 0], [3, -53, 0]).some(c => c.join(',') === '0,-52,0'), 'never the bot\'s own cell')
+})
