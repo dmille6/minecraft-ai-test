@@ -17,6 +17,7 @@ import { townPlanModeDetail } from './townplan.mjs'   // townplan-01's licence r
 import { townPlanZones, townPlanSeed } from './skills.mjs'
 import { installCobbleCap } from './skills.mjs'
 import { cobbleCapModeDetail } from './cobblecap.mjs'
+import { marksModeDetail } from './stocktarget.mjs'   // marks-01
 import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
 import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
@@ -45,6 +46,8 @@ export function installFeatures (bot) {
   try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
   // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
   try { logEvent({ kind: 'cobblecap_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleCapModeDetail() }) } catch {}
+  // marks-01: the policy table's licence row, once per spawn (stocktarget.mjs MARKS)
+  try { logEvent({ kind: 'marks_mode', status: 'success', snapshot: snapshot(bot), detail: marksModeDetail() }) } catch {}
   // lavatarget-01: the licence row, once per spawn (LAVATARGET=0 -> on=0)
   try { logEvent({ kind: 'lavatarget_mode', status: 'success', snapshot: snapshot(bot), detail: lavatargetModeDetail() }) } catch {}
   // lidplace-01: the licence row, once per spawn -- `_lidplace_mode`, a kind the base cannot write (lidplace.mjs lidPlaceModeDetail;
