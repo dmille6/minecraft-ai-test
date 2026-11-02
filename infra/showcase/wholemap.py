@@ -693,12 +693,14 @@ def build_marker_sets(markers, trips, trail_lines, zones, plan):
                                                                         f'{p.get("state")}',
             'line-width': 1, 'line-color': color((255, 255, 255)), 'fill-color': color((255, 255, 255), 0.08),
             'depth-test': False, 'max-distance': 800}
+    # every set default-hidden (11-02): shown, they buried every timelapse camera; the `expeditions` camera turns them
+    # on by name (tl.conf `markers`), and a web viewer toggles them in the menu
     return {
-        'wm-expeditions': {'label': 'Expeditions: markers', 'toggleable': True, 'default-hidden': False, 'sorting': 10,
+        'wm-expeditions': {'label': 'Expeditions: markers', 'toggleable': True, 'default-hidden': True, 'sorting': 10,
                            'markers': pts},
-        'wm-trails': {'label': 'Expeditions: walked trips', 'toggleable': True, 'default-hidden': False, 'sorting': 11,
+        'wm-trails': {'label': 'Expeditions: walked trips', 'toggleable': True, 'default-hidden': True, 'sorting': 11,
                       'markers': lines},
-        'wm-zones': {'label': 'Villages and protected zones', 'toggleable': True, 'default-hidden': False, 'sorting': 12,
+        'wm-zones': {'label': 'Villages and protected zones', 'toggleable': True, 'default-hidden': True, 'sorting': 12,
                      'markers': zs},
         'wm-townplan': {'label': 'Town plan plots', 'toggleable': True, 'default-hidden': True, 'sorting': 13,
                         'markers': plots},

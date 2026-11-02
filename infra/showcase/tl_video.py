@@ -204,6 +204,19 @@ def build(view, stamps, out_mp4, label):
     return side
 
 
+# Stored frames the videos leave out: (first stamp, end stamp exclusive, views exempt). Frames on disk stay; BlueMap
+# renders only the current world, so these cannot be re-rendered.
+#   route-layer-1101: the whole-map S0 route layer (wm-* marker sets: trails, zone boxes, expedition pins) was drawn
+#   over every camera from the 23:15Z capture after its 11-01 23:08Z install until the 11-02 capture fix
+#   (capture.mjs per-camera `markers`). The `expeditions` camera is the one view meant to show it.
+BLEMISHED = (('20261101T2315Z', '20261102T1330Z', ('expeditions',)),)
+
+
+def blemished(view, stamp, windows=BLEMISHED):
+    """True when this stored frame sits in a BLEMISHED window its view is not exempt from. Pure (tested)."""
+    return any(lo <= stamp[:14] < hi and view not in exempt for lo, hi, exempt in windows)
+
+
 def frame_path(root, view, stamp):
     return os.path.join(root, 'frames', view, stamp[:8], stamp + '.png')    # same layout as tl_showcase.frame_path
 
@@ -215,7 +228,7 @@ def all_stamps(view):
         for day in os.listdir(d):
             if os.path.isdir(os.path.join(d, day)):
                 out += [f[:-4] for f in os.listdir(os.path.join(d, day)) if f.endswith('.png')]
-    return sorted(out)
+    return sorted(s for s in out if not blemished(view, s))
 
 
 def paired_stamps():

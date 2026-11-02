@@ -10,6 +10,23 @@ import puppeteer from 'puppeteer';
 // canvas lives in #map-container, outside it.
 const HIDE_UI = `#app { display: none !important; }`;
 
+// Marker sets (11-02: the whole-map route layer drew trails, zone boxes and pins over EVERY camera). A job may carry
+// `markers`: the ids of the marker sets to SHOW; every other set is hidden (BlueMap's own `bm-*` sets are left alone).
+// A job without `markers` leaves the map's defaults (the .30 timelapse). Returns the sets left wrongly shown/hidden.
+const applyMarkers = show => {
+  const root = window.bluemap?.mapViewer?.markers;
+  if (!root?.markerSets) return ['no marker root'];
+  const bad = [];
+  for (const [id, set] of root.markerSets) {
+    if (id.startsWith('bm-')) continue;
+    const want = show.includes(id);
+    if (set.visible !== want) set.visible = want;
+    if (set.visible !== want) bad.push(id);
+  }
+  window.bluemap.mapViewer.redraw?.();
+  return bad;
+};
+
 const chunks = [];
 for await (const c of process.stdin) chunks.push(c);
 const jobs = JSON.parse(Buffer.concat(chunks).toString());
@@ -41,6 +58,10 @@ try {
         }, j.fov);
         if (got !== j.fov) throw new Error(`could not set fov (got ${got})`);
       }
+      if (Array.isArray(j.markers)) {
+        const bad = await page.evaluate(applyMarkers, j.markers);
+        if (bad.length) throw new Error(`marker visibility not applied: ${bad.join(',')}`);
+      }
       // tiles stream in after the first idle; wait for a second quiet period, then settle
       await page.waitForNetworkIdle({ idleTime: 2000, timeout: 120000 }).catch(() => {});
       await new Promise(r => setTimeout(r, j.settle_ms ?? 6000));
@@ -50,6 +71,12 @@ try {
       if (j.fov) {
         const fovNow = await page.evaluate(() => window.bluemap.mapViewer.camera.fov);
         if (fovNow !== j.fov) throw new Error(`fov drifted to ${fovNow} before capture`);
+      }
+      if (Array.isArray(j.markers)) {
+        // again just before the shot: the 10 s markers.json refresh can add a set created after the first pass
+        const bad = await page.evaluate(applyMarkers, j.markers);
+        if (bad.length) throw new Error(`marker visibility drifted: ${bad.join(',')}`);
+        await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
       }
       await page.screenshot({ path: j.out, type: 'png' });
       console.log(`ok ${j.out}${errs.length ? ' pageerrors=' + errs.length : ''}`);

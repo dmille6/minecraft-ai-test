@@ -50,6 +50,18 @@ def extra_views(cfg, stamp=None):
     return sorted(out)
 
 
+# Marker sets a camera shows unless it names its own `markers` list (11-02): the `town` home pin every camera carried
+# before 11-01. The whole-map route layer (wm-*: trails, zone boxes, expedition pins) belongs to the `expeditions`
+# camera only; on any other view it buried the frame.
+DEFAULT_MARKERS = ('town',)
+
+
+def camera_markers(cam):
+    """The marker-set ids capture.mjs leaves visible for this camera; every other set is hidden. Pure (tested)."""
+    m = (cam or {}).get('markers')
+    return [str(x) for x in m] if isinstance(m, list) else list(DEFAULT_MARKERS)
+
+
 def now_utc():
     return dt.datetime.now(dt.timezone.utc)
 
@@ -248,7 +260,7 @@ def capture(cfg, stamp):
             os.remove(out)
         spec.append({'url': f"{cfg['web']}/{camera_hash(cfg['map_id'], cam)}", 'out': out,
                      'width': cam.get('width', cfg['width']), 'height': cam.get('height', cfg['height']), 'fov': cam.get('fov'),
-                     'settle_ms': cfg.get('settle_ms', 6000)})
+                     'settle_ms': cfg.get('settle_ms', 6000), 'markers': camera_markers(cam)})
     env = dict(os.environ, PUPPETEER_CACHE_DIR=os.path.join(cfg['capture_dir'], '.cache'))
     c0, t0 = child_cpu_s(), time.time()
     try:

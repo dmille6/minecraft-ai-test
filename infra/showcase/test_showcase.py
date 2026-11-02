@@ -1559,6 +1559,38 @@ class Timelapse(unittest.TestCase):
         self.assertEqual(TL.extra_views(cfg, '20261031T1815Z'), ['town', 'wall'], 'slot 73: phase 1')
         self.assertEqual(TL.extra_views(cfg, '20261031T1815Z-event-x'), ['town', 'wall'])
 
+    def test_route_layer_window_is_left_out_of_the_videos(self):
+        self.assertTrue(TV.blemished('angled', '20261101T2315Z'), 'first overlaid capture')
+        self.assertTrue(TV.blemished('treefarm', '20261102T1215Z'))
+        self.assertTrue(TV.blemished('town', '20261102T1315Z-event-x'), 'an event stamp in the window too')
+        self.assertFalse(TV.blemished('angled', '20261101T2300Z'), 'the last clean capture before it')
+        self.assertFalse(TV.blemished('angled', '20261102T1330Z'), 'end is exclusive: the first fixed capture')
+        self.assertFalse(TV.blemished('expeditions', '20261102T1215Z'), 'the routes camera is meant to show it')
+        root = tempfile.mkdtemp()
+        for st in ('20261101T2300Z', '20261101T2315Z', '20261102T1330Z'):
+            for v in ('angled', 'expeditions'):
+                os.makedirs(os.path.join(root, 'frames', v, st[:8]), exist_ok=True)
+                open(os.path.join(root, 'frames', v, st[:8], st + '.png'), 'wb').close()
+        old = TV.ROOT
+        TV.ROOT = root
+        try:
+            self.assertEqual(TV.all_stamps('angled'), ['20261101T2300Z', '20261102T1330Z'])
+            self.assertEqual(TV.all_stamps('expeditions'), ['20261101T2300Z', '20261101T2315Z', '20261102T1330Z'])
+        finally:
+            TV.ROOT = old
+            shutil.rmtree(root)
+
+    def test_route_layer_only_where_a_camera_names_it(self):
+        # 11-02: the wm-* route layer drew over EVERY camera; a camera shows only the sets it names, default the home pin
+        self.assertEqual(TL.camera_markers({}), ['town'])
+        self.assertEqual(TL.camera_markers(None), ['town'])
+        self.assertEqual(TL.camera_markers({'markers': ['town', 'wm-trails']}), ['town', 'wm-trails'])
+        self.assertEqual(TL.camera_markers({'markers': []}), [], 'an empty list hides every set')
+        self.assertEqual(TL.camera_markers({'markers': 'wm-trails'}), ['town'], 'a malformed value falls back to the default')
+        _, jobs, _ = self._capture_with({'topdown', 'angled', 'town'}, 0)
+        self.assertTrue(jobs and all(j['markers'] == ['town'] for j in jobs), 'every job carries its marker list')
+        self.assertFalse(any(m.startswith('wm-') for j in jobs for m in j['markers']))
+
     def test_town_camera_is_extra_and_never_costs_the_pair(self):
         self.assertEqual(TL.extra_views({'cameras': {'topdown': {}, 'angled': {}, 'town': {}}}), ['town'])
         (rc, msg, got, _, _, extra, err, raw), jobs, root = self._capture_with({'topdown', 'angled'}, 1)

@@ -317,6 +317,9 @@ def t_marker_sets(W):
     ms = _layer(W)
     assert W.validate_marker_sets(ms)
     assert len(ms['wm-expeditions']['markers']) == 1 and len(ms['wm-trails']['markers']) == 1
+    # 11-02: shown by default they buried every timelapse camera; only the `expeditions` camera turns them on
+    assert all(s['default-hidden'] is True and s['toggleable'] is True for s in ms.values()), \
+        {k: s['default-hidden'] for k, s in ms.items()}
     z = ms['wm-zones']['markers']
     assert set(z) == {'village-taiga-6_1', 'trial-chambers-home-se'}
     assert 'underground' in z['trial-chambers-home-se']['label'] and len(z['village-taiga-6_1']['shape']) == 4
