@@ -1642,10 +1642,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     emit: ({ phase, how, goal, ms }) => {
       if (phase !== 'end') return
       const p = bot.entity?.position
-      if (Date.now() < swimCentreQuiet && how !== 'centred') return
+      const centred = goal.centredAt != null   // reached the centre at some tick of this aim, however it then ended
+      if (Date.now() < swimCentreQuiet && !centred) return
       swimCentreQuiet = Date.now() + 3_000
-      logEvent({ kind: 'swim_centre', status: how === 'centred' ? 'success' : 'no_effect', snapshot: snapshot(bot),
-                 detail: `why=${goal.why} col=${goal.cx},${goal.cz} how=${how} ms=${ms} at=${p ? `${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}` : '?'} ` +
+      logEvent({ kind: 'swim_centre', status: centred ? 'success' : 'no_effect', snapshot: snapshot(bot),
+                 detail: `why=${goal.why} col=${goal.cx},${goal.cz} how=${how} centred=${centred ? 1 : 0} ms=${ms} at=${p ? `${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}` : '?'} ` +
                          `head=${bot.blockAt?.(bot.entity.position.offset(0, 1.62, 0))?.name ?? '?'} health=${bot.health}` })
     },
   }) : null
