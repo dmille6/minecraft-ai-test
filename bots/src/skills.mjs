@@ -137,7 +137,7 @@ import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
-import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
+import { runStairVisit, runStairEgress, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02 (+ shafttrap-01: the egress)
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { groupOfItem } from './townindex.mjs'
@@ -174,6 +174,7 @@ import { withDigScope } from './digtown.mjs'
 import { returnOverdue as deepReturnOverdue, trailProgress as deepTrailProgress, legSealTargets as deepLegSealTargets } from './deepmine.mjs'   // deepminer-01 r1
 import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
 import { planOf as stairPlanOf, firstUndone as stairFirstUndone, standFor as stairStandFor, stairCellKeys } from './shaftgeom.mjs'   // deepminer-01: the stair's repair on the way down
+import { egressReserveMs, egressDetail } from './shaftgeom.mjs'   // shafttrap-01: a stair visit ends at the collar
 import { renewLease as projRenewLease } from './buildproj.mjs'   // deepminer-01: the deep miner's lease
 import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
 import { TREEFARM_BAND as ESCAPE_TREEFARM_BAND } from './escapeguard.mjs'   // escapeguard-01
@@ -17696,6 +17697,42 @@ export function stairRecordNow (now = Date.now()) {
 }
 const stairRow = (bot, op, d = {}) => { try { logEvent({ kind: 'shaft', status: 'success', snapshot: snapshot(bot), detail: shaftRowDetail({ op, ...d }) }) } catch { /* telemetry */ } }
 
+// shafttrap-01: THE VISIT'S WAY OUT (shaftvisit.mjs runStairEgress): hops on the town-deposit walk (stairWalk, deepminer-01's hop
+// size and bound) and the visit's own server-witnessed dig for a foreign block in one of the stair's air cells; ends 4 s before
+// the skill's budget (the runner cuts it there). One `_shaft op=egress` row per egress, one `op=egress_dig` per block cleared.
+const EGRESS_HOP_MS = 9_000
+const EGRESS_TAIL_MS = 4_000
+/** -> runStairEgress's result, or null (not under the collar: no row). Throws only an abort. */
+async function visitEgress (bot, rec, signal, deadline, e0 = null) {
+  const plan = stairPlanOf(rec)
+  const p = bot.entity?.position
+  if (!p || Math.floor(p.y + 1e-6) >= plan.g + 1) return null
+  let fx = null
+  try {
+    let e = e0
+    if (!e) {
+      const acks = (bot.shopAcks ??= shopAckInstall(bot))
+      fx = botBuildEffects(bot, { acks, keep: {}, withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+        aborted: () => !!signal?.aborted, log: () => {}, spawnedAt: () => bot.shopSpawnAt ?? 0 })
+      e = stairBotEffects(bot, fx, { signal, log: () => {} })
+    }
+    const t0 = Date.now()
+    const r = await runStairEgress(plan, {
+      get read () { return stairRead(bot) },
+      feet: () => { const q = bot.entity.position; return [Math.floor(q.x), Math.floor(q.y + 1e-6), Math.floor(q.z)] },
+      walkTo: c => stairWalk(bot, c, EGRESS_HOP_MS, signal),
+      dig: c => e.dig(c),
+      now: () => Date.now(),
+      aborted: () => !!signal?.aborted,
+      log: (op, d) => {
+        if (op === 'egress_dig') { stairRow(bot, 'egress_dig', { k: d.k, at: d.at, why: 'foreign_in_air' }); return }
+        try { logEvent({ kind: 'shaft', status: d.ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=egress ${egressDetail({ ...d, ms: Date.now() - t0 })}` }) } catch { /* telemetry */ }
+      },
+    }, { exit: rec.exit, deadline })
+    return r
+  } finally { try { fx?.close() } catch { /* gone */ } }
+}
+
 async function buildStair (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -17758,7 +17795,11 @@ async function buildStair (ctx, args, signal) {
   const rec = rh.head.rec
   if (rec.state === 'no_site') return out('no_effect', 'shaft_no_site', `no town stair site (${rec.why ?? '-'}); asked again after ${new Date(rec.retryAt ?? 0).toISOString()}`, { stop: 'shaft_no_site' })
   shopFootprintRefresh(bot)
-  if (rec.structure_complete && !stairDamaged(stairRead(bot), rec)) return out('no_effect', 'complete', 'the town stair stands')
+  if (rec.structure_complete && !stairDamaged(stairRead(bot), rec)) {
+    // shafttrap-01: a bot ASKED to build while standing in a finished stair (stairStartRefusal admits one inside its box) leaves it
+    const x = await withStairClaim(ctx.runner, () => visitEgress(bot, rec, signal, t0 + budget - EGRESS_TAIL_MS))
+    return out('no_effect', 'complete', `the town stair stands${x ? ` (way out: ${x.why})` : ''}`)
+  }
   const slot = takeSlot(dir, key, me, SHAFT_BUILDERS)
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   let effects = null
@@ -17780,7 +17821,9 @@ async function buildStair (ctx, args, signal) {
     const e = stairBotEffects(bot, effects, { signal, fence, log: (op, d) => stairRow(bot, op, { k: d.k, at: d.at, why: d.why, feet: d.feet ?? '-' }) })
     const now = () => Date.now()
     // shaft-03: the whole visit holds the 'stair' body claim (withStairClaim: the entombment reflex stands down inside the stair)
-    const r = await withStairClaim(ctx.runner, () => runStairVisit({
+    // shafttrap-01: ...and so does the egress after it (the visit ends at the collar, never deep in the stair)
+    let egress = null
+    const r = await withStairClaim(ctx.runner, async () => { const v = await runStairVisit({
       rec, exit: rec.exit, built: new Set(rec.landings_built ?? []),
       onLanding: async feet => {
         const p = publishRecord(dir, key, cur => (cur && isStairRecord(cur) && !(cur.landings_built ?? []).includes(feet) ? { ...cur, landings_built: [...(cur.landings_built ?? []), feet].sort((a, b) => b - a) } : null), { by: me })
@@ -17795,7 +17838,10 @@ async function buildStair (ctx, args, signal) {
         publishRecord(dir, key, cur => (cur && isStairRecord(cur) && (cur.landings ?? []).includes(feet) ? stairDropped(cur, feet, { now: now(), why }) : null), { by: me })
         stairRecMem = null
       },
-    }, e, { deadline: t0 + budget - STAIR_VISIT_TAIL_MS }))
+    }, e, { deadline: t0 + budget - STAIR_VISIT_TAIL_MS, reserve: egressReserveMs })
+      egress = await visitEgress(bot, rec, signal, t0 + budget - EGRESS_TAIL_MS, e)
+      return v
+    })
     if (r.stop === 'complete' && !rec.structure_complete) {
       const pub = publishRecord(dir, key, cur => (cur && isStairRecord(cur) && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SHAFT_PLOT, op: 'complete', kind: SHAFT_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
@@ -17812,7 +17858,7 @@ async function buildStair (ctx, args, signal) {
     }
     // a stop that names its own remedy (Claude r1: a refusal names what to do)
     const remedy = { no_pickaxe: ' -- craft or withdraw a pickaxe (toolkit)', no_material: ' -- carry cobblestone (withdraw it at town)', walk_failed: ' -- the stair is blocked above the work; the next visit repairs it from the top' }[r.stop] ?? ''
-    return out(status, r.stop, `${r.why ?? r.stop} at step ${r.k ?? '-'}: dug ${r.dug}, placed ${r.placed}${remedy}`, { stop: r.stop, placed: r.placed, slot: slot.slot, gen: rh.head.gen })
+    return out(status, r.stop, `${r.why ?? r.stop} at step ${r.k ?? '-'}: dug ${r.dug}, placed ${r.placed}${remedy}${egress ? ` (way out: ${egress.why})` : ''}`, { stop: r.stop, placed: r.placed, slot: slot.slot, gen: rh.head.gen })
   } catch (err) {
     if (err?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw err }
     return out('failed', 'error', String(err?.message ?? err).slice(0, 100), {}, 'other')
