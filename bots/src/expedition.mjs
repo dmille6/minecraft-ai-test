@@ -794,6 +794,7 @@ export function beyondGain (read, span, { home, bearing, zones = [], swim = 0, l
  * further off, a dry leg to the near end first. The nearest such bridge wins.
  */
 export const BRIDGE_USE_R = 28
+export const BRIDGE_ON = 3.5                    // the bot is AT a bridge's near end within this (x/z, to its centre)
 export const BRIDGE_BACK = 24                   // a bridge's near end may lie this much nearer home than the bot
 export function bridgeLeg (read, { pos, home, bridges = [], zones = [] } = {}) {
   const dHome = p => Math.hypot(p[0] - home.x, p[2] - home.z)
@@ -807,7 +808,9 @@ export function bridgeLeg (read, { pos, home, bridges = [], zones = [] } = {}) {
     .sort((a, b) => Math.hypot(a.near[0] - pos.x, a.near[2] - pos.z) - Math.hypot(b.near[0] - pos.x, b.near[2] - pos.z))
   for (const b of c) {
     const dn = Math.hypot(b.near[0] + 0.5 - pos.x, b.near[2] + 0.5 - pos.z)
-    if (dn <= 2) {
+    // at the near end: within goto's own arrival (range 2 to the block, so up to ~2.4 from its centre; both reviews r1 BLOCKER: a bot
+    // stopped 2.1 out read `bridge_in` again, moved 0, and turned 'blocked' at the bridge)
+    if (dn <= BRIDGE_ON) {
       // the deck must still be standable at both ends (a bridge the world no longer has is not walked)
       if (!standableAt(read, b.far) || !standableAt(read, b.land)) continue
       return { ok: true, target: { x: b.land[0], y: b.land[1], z: b.land[2] }, via: 'bridge', bend: 0, wet: 0, bridge: b.id ?? null, detour: null,

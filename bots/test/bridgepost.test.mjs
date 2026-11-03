@@ -188,6 +188,9 @@ await t('THE PLANNER walks a finished bridge (no swim allowed: the control refus
   const atNear = E.bridgeLeg(r, { pos: { x: 9.5, y: 70, z: 0.5 }, home, bridges })
   assert.equal(atNear.via, 'bridge'); assert.deepEqual([atNear.target.x, atNear.target.y, atNear.target.z], span.land); assert.deepEqual(atNear.shore, span.near)
   assert.equal(E.bridgeLeg(r, { pos: { x: 25.5, y: 70, z: 0.5 }, home, bridges }), null, 'not taken back from the landing')
+  // both reviews r1 BLOCKER: goto (range 2) leaves the bot up to ~2.4 from the near end's centre: that is AT the bridge, not 'bridge_in' again
+  for (const x of [7.4, 7.7, 8.2]) assert.equal(E.bridgeLeg(r, { pos: { x, y: 70, z: 0.5 }, home, bridges })?.via, 'bridge', `at x ${x}`)
+  assert.equal(E.bridgeLeg(r, { pos: { x: 4.5, y: 70, z: 0.5 }, home, bridges })?.via, 'bridge_in', 'the control: 5 off walks to it first')
   // a broken deck: its far end gone is not walked
   r.set(span.far.map((v, i) => (i === 1 ? v - 1 : v)), WATER); r.set([22, 69, 0], WATER)
   const br = world(); // fresh: the bridge never built, ends read as water
@@ -237,6 +240,8 @@ await t('wiring (structural): the switch, the siting at a dry water turn, the br
   one(/const bw = await exBridgeWork\(ctx, signal, trip, bsite, deadline - 12_000\)/g, 'the build')
   one(/bridges: EXPEDITION\.bridge \? exBridgesNow\(bot, bSites, read, trip\) : \[\]/g, 'the planner walks finished bridges')
   one(/const swim = lt\.via === 'swim' \|\| lt\.via === 'bridge'/g, 'a bridge crossing keeps both ends and its gate')
+  one(/exPlaceMarker\(ctx, signal, cell, dirV, \{ zones: markerOff, trip, me \}\)/g, 'no marker on a bridge footprint')
+  one(/const markerOff = bSites\.length \? \[\.\.\.keepOff, \.\.\.bridgeZones\(bSites\)\] : keepOff/g, 'the bridge footprints join the marker keep-off')
   one(/z = \[\.\.\.z, \.\.\.bridgeZones\(exBridgeSites\(\)\)\]/g, 'the tidy reservation')
   one(/for \(const k of bridgeCellKeys\(exBridgeSites\(\)\)\) guard\.add\(k\)/g, 'the tidy dig guard')
   const v = src.indexOf('async function expeditionVisit'), f = src.indexOf('} finally {', src.indexOf('const bw = await exBridgeWork'))

@@ -17990,7 +17990,9 @@ function exBridgesNow (bot, sites, read, trip) {
     for (const b of bridgesDone(sites)) {
       if (Math.hypot(b.near[0] - p.x, b.near[2] - p.z) <= 64) {
         const s = sites.find(q => q.id === b.id)
-        if (s && !bridgeIntact(read, bridgePlan(s.span))) {
+        const plan = s ? bridgePlan(s.span) : []
+        // a cell not loaded (null) says nothing: the bridge is offered, bridgeLeg reads its ends again (Claude review r1 note 2)
+        if (s && plan.every(q => read(...q.cell) != null) && !bridgeIntact(read, plan)) {
           if (!s.brokenSeen) { s.brokenSeen = true; s.complete = false; exAppend(exBridgesFile(), { op: 'state', id: s.id, complete: false, why: 'broken', trip: trip.id, t: Date.now() }); exRow(bot, 'bridge_broken', `trip=${trip.id} id=${s.id}`, 'no_effect') }
           continue
         }
@@ -18098,6 +18100,9 @@ async function expeditionVisit (ctx, args, signal) {
         if (l.ok) { bsite = cand; blease = l }
       }
     }
+    // a MARKER (and a felling) never goes on a bridge site's footprint (Codex review r1 BLOCKER 2: a pillar on a finished walkway made it
+    // unwalkable and unrepairable); the siting itself keeps `keepOff` (a second sighting of the same site must not read as a zone)
+    const markerOff = bSites.length ? [...keepOff, ...bridgeZones(bSites)] : keepOff
     const b = bsite ? { bearing: bsite.bearing, reuse: false } : tripBearing(trips, Date.now())
     if (b.bearing == null) return { status: 'no_effect', detail: 'every bearing is blocked by water or a zone for today', stop: 'expedition_no_bearing' }
     Object.assign(trip, { bearing: b.bearing, ring: ringOf(trips, Date.now()), reuse: b.reuse })
@@ -18159,7 +18164,7 @@ async function expeditionVisit (ctx, args, signal) {
       }
       sinceMarker += moved
       if (EXPEDITION.markers && markerDue({ pos: after, home, sinceLast: sinceMarker, markers }) && standableAt(read, cell)) {
-        const m = await exPlaceMarker(ctx, signal, cell, dirV, { zones: keepOff, trip, me })
+        const m = await exPlaceMarker(ctx, signal, cell, dirV, { zones: markerOff, trip, me })
         if (m && !m.partial) { markers.push(m); trip.markers++; sinceMarker = 0 } else sinceMarker = MARKER_EVERY - 8
       }
       if (moved >= 4) trip.trailAt = Date.now()
@@ -18169,6 +18174,9 @@ async function expeditionVisit (ctx, args, signal) {
     // bridgepost-01: THE SITE of a crossing that turned this dry bot (the town's index; a site seen by SITE_SEEN trips is built)
     if (EXPEDITION.bridge && !bsite && trip.reason === 'water' && /water|swim_/.test(String(trip.whys ?? '')) && !bot.entity?.isInWater) exSiteBridge(bot, trip, read, keepOff, home)
     // bridgepost-01: THE BUILD -- to the near end's stand, then the deck from what stands, to the call's end (12 s kept)
+    // a bridge trip that never got to its site (it turned for time, a refused leg, water ...) is a failed visit: three in 24 h rest the
+    // site (bridge.mjs bridgeToBuild), so one slot is not held chasing a site it cannot reach (Claude review r1 note 1)
+    if (bsite && trip.reason !== 'bridge_work') { exAppend(exBridgesFile(), { op: 'state', id: bsite.id, failed: true, why: `unreached:${trip.reason}`, trip: trip.id, t: Date.now() }); exRow(bot, 'bridge_build', `trip=${trip.id} id=${bsite.id} stop=unreached reason=${trip.reason}`, 'no_effect') }
     if (trip.reason === 'bridge_work' && bsite) {
       const nr = bsite.span.near
       try { await chestWalk(bot, new goals.GoalBlock(nr[0], nr[1], nr[2]), Math.max(2_000, Math.min(30_000, deadline - 15_000 - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -18182,7 +18190,7 @@ async function expeditionVisit (ctx, args, signal) {
     const spare = gatherSpare({ deadline, now: Date.now(), outTook, multi: trip.multi === true })
     const pT = bot.entity.position
     if (!['health', 'food', 'night', 'died', 'bag_full'].includes(trip.reason) && !bot.entity?.isInWater && Math.hypot(pT.x - home.x, pT.z - home.z) >= MARKER_MIN_HOME + 16 && spare >= 8_000) {
-      g = await exGather(ctx, signal, Date.now() + Math.min(GATHER_MS, spare), keepOff)
+      g = await exGather(ctx, signal, Date.now() + Math.min(GATHER_MS, spare), markerOff)
     }
     exRow(bot, 'turn', `trip=${trip.id} reason=${trip.reason}${trip.whys ? `(${trip.whys})` : ''} dist=${Math.round(trip.dist)} crumbs=${trip.crumbs.length} markers=${trip.markers} reused=${trip.reused} cross=${trip.crossings ?? 0} felled=${g.felled} leaves=${g.leaves} logs_seen=${g.logs} trees=${g.trees} rej=${g.why}${g.digFail ? ` dig=${g.digFail}` : ''}`)
     // 4. BACK over the crumbs
