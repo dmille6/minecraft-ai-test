@@ -124,16 +124,16 @@ await t('the ring grows with trips that reached it and came home, shrinks on lat
 await t('the bearing: fans out over the least-travelled, skips one blocked early by water, reuses a good one every other trip', async () => {
   const now = 1e9
   assert.deepEqual(E.tripBearing([], now), { bearing: 0, reuse: false })
-  const t1 = [{ t: now - 1, v: 2, bearing: 0, dist: 20, reason: 'water', returned: true, haul: 0 }]
+  const t1 = [{ t: now - 1, v: E.PLANNER_V, bearing: 0, dist: 20, reason: 'water', returned: true, haul: 0 }]
   const b1 = E.tripBearing(t1, now)
   assert.notEqual(b1.bearing, 0, 'the water bearing is blocked for the day')
   assert.equal(b1.reuse, false, 'nothing good to reuse yet')
-  const t2 = [{ t: now - 2, v: 2, bearing: 3, dist: 120, reason: 'reached', returned: true, haul: 6 }]
+  const t2 = [{ t: now - 2, v: E.PLANNER_V, bearing: 3, dist: 120, reason: 'reached', returned: true, haul: 6 }]
   assert.deepEqual(E.tripBearing(t2, now), { bearing: 3, reuse: true }, 'odd count: the good bearing again (its markers walked)')
-  const t3 = [...t2, { t: now - 1, v: 2, bearing: 3, dist: 130, reason: 'reached', returned: true, haul: 4 }]
+  const t3 = [...t2, { t: now - 1, v: E.PLANNER_V, bearing: 3, dist: 130, reason: 'reached', returned: true, haul: 4 }]
   const b3 = E.tripBearing(t3, now)
   assert.equal(b3.reuse, false); assert.notEqual(b3.bearing, 3, 'even count: a fresh spoke')
-  const all = Array.from({ length: 8 }, (_, k) => ({ t: now - 1, v: 2, bearing: k, dist: 10, reason: 'zone' }))
+  const all = Array.from({ length: 8 }, (_, k) => ({ t: now - 1, v: E.PLANNER_V, bearing: k, dist: 10, reason: 'zone' }))
   assert.equal(E.tripBearing(all, now).bearing, null)
   // wholemap-s1a: rows from the older planner (no v) never block a bearing -- it planned without zone heights or detours
   assert.notEqual(E.tripBearing(all.map(({ v, ...r }) => r), now).bearing, null)
@@ -162,10 +162,13 @@ await t('a leg never crosses water: it bends round a lake, and a lake across eve
   assert.equal(lw.ok, false); assert.equal(lw.why, 'water')
 })
 
-await t('MUTANT KILLED: a line check blind to water would walk the bot into the lake', async () => {
-  await withMutant(EX_PATH, "    if (s.water) return { ok: false, why: 'water', at: [x, z] }\n", '', async M => {
-    const wide = world({ lake: { x0: 5, x1: 60, z0: -60, z1: 60 } })
-    assert.equal(M.lineClear(wide, { x: 0, y: 70, z: 0 }, { x: 20, y: 70, z: 0 }).ok, true, 'the mutant passes the lake')
+await t('MUTANT KILLED: a line check blind to water would walk the bot into the lake (dry legs: any water refuses; a swim: its width does)', async () => {
+  const wide = world({ lake: { x0: 5, x1: 34, z0: -60, z1: 60 } })
+  assert.equal(E.lineClear(wide, { x: 0, y: 70, z: 0 }, { x: 20, y: 70, z: 0 }).ok, false, 'a dry leg refuses the first wet column')
+  const sw = E.lineClear(wide, { x: 0, y: 70, z: 0 }, { x: 40, y: 70, z: 0 }, { swim: E.SWIM_MAX })
+  assert.equal(sw.ok, false); assert.equal(sw.wide, E.SWIM_MAX + 1, '30 wet columns: refused at the 17th')
+  await withMutant(EX_PATH, "      if (wet > swim) return { ok: false, why: 'water', at: [x, z], wide: wet }\n", '', async M => {
+    assert.equal(M.lineClear(wide, { x: 0, y: 70, z: 0 }, { x: 40, y: 70, z: 0 }, { swim: M.SWIM_MAX }).ok, true, 'the mutant swims 30 blocks')
   })
 })
 
@@ -433,7 +436,7 @@ await t('MUTANT KILLED: a detour leg that need not close on its waypoint zigzags
 
 await t('wholemap-s1a item 1: a bearing is dead after two obstacle turns short of the ring at any distance (the 54-55 loop), not after one', async () => {
   const now = 1e9
-  const z = (d, extra = {}) => ({ t: now - 1, v: 2, bearing: 2, dist: d, ring: 100, reason: 'zone', returned: true, haul: 0, ...extra })
+  const z = (d, extra = {}) => ({ t: now - 1, v: E.PLANNER_V, bearing: 2, dist: d, ring: 100, reason: 'zone', returned: true, haul: 0, ...extra })
   assert.deepEqual([...E.deadBearings([z(55)])], [], 'one turn at 55: not yet')
   assert.deepEqual([...E.deadBearings([z(55), z(54)])], [2], 'two: dead for the day')
   assert.deepEqual([...E.deadBearings([z(30)])], [2], 'one turn before 40, as before')
@@ -446,8 +449,8 @@ await t('wholemap-s1a item 1: a bearing is dead after two obstacle turns short o
 await t('MUTANT KILLED: without the two-strike rule, the zone loop on one bearing is chosen again and again', async () => {
   await withMutant(EX_PATH, '  for (const [k, c] of n) if (c >= DEAD_TURNS) out.add(k)\n', '', async M => {
     const now = 1e9
-    const day = Array.from({ length: 7 }, (_, i) => ({ t: now - 10 + i, v: 2, bearing: (i + 3) % 8, dist: 200, ring: 150, reason: 'reached', returned: true, haul: 0 }))
-      .concat([0, 1].map(i => ({ t: now - 2 + i, v: 2, bearing: 2, dist: 55, ring: 100, reason: 'zone', returned: true, haul: 0 })))
+    const day = Array.from({ length: 7 }, (_, i) => ({ t: now - 10 + i, v: E.PLANNER_V, bearing: (i + 3) % 8, dist: 200, ring: 150, reason: 'reached', returned: true, haul: 0 }))
+      .concat([0, 1].map(i => ({ t: now - 2 + i, v: E.PLANNER_V, bearing: 2, dist: 55, ring: 100, reason: 'zone', returned: true, haul: 0 })))
     assert.equal(M.deadBearings(day).has(2), false)
     assert.equal(E.deadBearings(day).has(2), true)
   })
@@ -497,7 +500,7 @@ await t('MUTANT KILLED: a ring penalty for every late close keeps the ring at 10
 await t('wholemap-s1a wiring (structural): the visit carries the detour leg to leg, checks ice before a torch, sizes the out share by the ring, rows carry v', async () => {
   const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
   const one = (re, what) => assert.equal((src.match(re) ?? []).length, 1, what)
-  one(/legTarget\(read, \{ pos: p, home, bearing: trip\.bearing, markers, zones, detour: trip\.detour \}\)/g, 'legTarget gets the trip detour')
+  one(/legTarget\(read, \{ pos: p, home, bearing: trip\.bearing, markers, zones, detour: trip\.detour, swim: EXPEDITION\.swim \? SWIM_MAX : 0 \}\)/g, 'legTarget gets the trip detour')
   one(/trip\.detour = dNext/g, 'the detour is kept')
   one(/const iceOk = torchSafe\(read, \[x, y \+ 2, z\]\)/g, 'the ice check')
   one(/if \(iceOk && \(heldMap\(bot\)\.torch \?\? 0\) > 0\) \{/g, 'the torch waits for it')
@@ -507,7 +510,7 @@ await t('wholemap-s1a wiring (structural): the visit carries the detour leg to l
   one(/if \(arrived\) trip\.trailAt = Date\.now\(\)/g, 'only an arrived hop freshens the trail')
   one(/if \(moved >= 4\) trip\.trailAt = Date\.now\(\)/g, 'only a leg that moved freshens it outbound')
   assert.ok(!/trip\.trailAt = Date\.now\(\)\n\s*persist\(\)/.test(src), 'no unconditional stamp in the walk home')
-  assert.equal(E.PLANNER_V, 2)
+  assert.equal(E.PLANNER_V, 3, 'expwater-01: the swimming planner')
 })
 
 console.log(`\nexpedition: ${pass} passed, ${fail} failed`)
