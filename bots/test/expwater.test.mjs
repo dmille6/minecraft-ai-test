@@ -277,6 +277,11 @@ await t('wiring (structural): the visit passes the swim width, keeps both shores
   one(/nextCrumb\(crumbs, p, cursor, \{ loaded, skip, gates \}\)/g, 'the way home keeps the gates')
   one(/const gf = i < 0 && !bot\.entity\?\.isInWater \? heldGate\(gates, cursor\) : null/g, 'a dry bot is held to its gate')
   one(/if \(gateTries\+\+ >= GATE_RETRIES\) \{ via = `\$\{via\}\+gate_hold`; break \}/g, 'then the trail stays open')
+  // Codex review r2 BLOCKER: `home` does not walk direct across the water after its trail leg stopped held at a crossing
+  one(/exLeg = await expeditionHomeLeg\(ctx, signal, deadline - 60_000\)/g, 'home keeps the trail leg\'s answer')
+  one(/if \(exHeldNow\(exLeg, bot\)\) return \{ status: 'no_effect'/g, 'and stops on a gate hold before its direct walk')
+  const h = src.indexOf('async function home(ctx'), held = src.indexOf('if (exHeldNow(exLeg, bot))', h), walk = src.indexOf('last = await goto(ctx, { x: homeX, y: homeY, z: homeZ', h)
+  assert.ok(h > 0 && held > h && walk > held, 'the hold is checked before the direct walk')
   one(/\(trip\.gates \?\?= \[\]\)\.push\(f\)/g, 'a dry far shore is a gate')
   one(/if \(swim && lt\.shore && crumbDue\(trip\.crumbs, lt\.shore, read, \{ shore: true \}\)\) trip\.crumbs\.push\(lt\.shore\)/g, 'the near shore')
   one(/if \(crumbDue\(trip\.crumbs, cell, read, \{ shore: swim \}\)\) trip\.crumbs\.push\(cell\)/g, 'the far shore')

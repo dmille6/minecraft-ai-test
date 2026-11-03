@@ -3225,7 +3225,12 @@ async function home(ctx, _args, signal) {
   const deadline = Date.now() + HOME_BUDGET_MS
   // EXPEDITION-01: an open expedition trail of this bot's is walked back first, over its breadcrumbs (expedition.mjs; a minute
   // of the budget is kept for the direct walk below). EXPEDITION=off, no open trail, or not near it: nothing.
-  try { await expeditionHomeLeg(ctx, signal, deadline - 60_000) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  let exLeg = null
+  try { exLeg = await expeditionHomeLeg(ctx, signal, deadline - 60_000) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  // expwater-01 (Codex review r2 BLOCKER): a DRY bot held at a crossing it has not swum back does not take the direct walk across water
+  // no swim checked. The remedy is deterministic and from here: the trail stays open and the next `home` swims the checked crossing
+  // again; past TRAIL_TTL_MS expeditionHomeLeg returns null and this walk goes direct
+  if (exHeldNow(exLeg, bot)) return { status: 'no_effect', failClass: 'travel_incomplete', stop: 'expedition_gate_hold', detail: 'held at an expedition crossing not yet swum back: the trail stays open and the next home retries the checked crossing (direct walk after the trail expires)' }
   let repaired = false
   let last = null
   let noProgressRuns = 0
@@ -17829,6 +17834,10 @@ async function exFollowHome (ctx, signal, trip, until, markers, persist = () => 
     persist()
   }
   return { home: exAtHome(bot.entity.position), via, hops }
+}
+/** expwater-01: did `home`'s trail leg stop HELD at a crossing (dry, not home)? -> bool. Never throws. */
+function exHeldNow (r, bot) {
+  try { return !!r && !r.home && /gate_hold/.test(String(r.via ?? '')) && !bot.entity?.isInWater } catch { return false }
 }
 /** `home`'s first step: an open trail of this bot's is walked back (a trip whose call ended out of town). -> result | null. */
 export async function expeditionHomeLeg (ctx, signal, until) {
