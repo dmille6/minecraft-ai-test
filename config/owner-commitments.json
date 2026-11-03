@@ -4173,7 +4173,8 @@
      "sandbox/farms/farm-proof.cjs"
     ]
    },
-   "note": "Measured 11-03: showcase near-town cow/sheep/pig rows 0 since 10-31 (852/10,438 on 10-28); fleet near-town cows 8.3%, sheep 2.7% of 57,341 rows. Seeds are NEVER_KEEP + composted + never banked today: the keep switch ships with the farm."
+   "note": "Measured 11-03: showcase near-town cow/sheep/pig rows 0 since 10-31 (852/10,438 on 10-28); fleet near-town cows 8.3%, sheep 2.7% of 57,341 rows. Seeds are NEVER_KEEP + composted + never banked today: the keep switch ships with the farm.",
+   "owner_answers": "OWNER 2026-11-03 ~23:00Z \"sure whatever you think\": leather-01 YES (surplus adults inside the pen only, keep 2 breeders); bakery-01 waits until trading gives bread a use."
   },
   {
    "id": "storehub-1103",
