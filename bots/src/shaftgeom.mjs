@@ -695,6 +695,46 @@ export function egressDetail ({ ok = false, why = '-', from = '-', to = '-', hop
   return `ok=${ok ? 1 : 0} why=${why} from=${from} to=${to} hops=${hops} cleared=${cleared} ms=${ms}`
 }
 
+// ---- the reflexes' hand-over (shafttrap-02) ------------------------------------------------------------------------------
+//
+// WHY. LIVE fleet 11-02 00:00Z..11-03 22:00Z (46 h, 80 bots, 14 of 16 towns with a complete stair): 1,429 trap episodes on 68
+// bots (3,305 bot-minutes) began with the bot ON a town stair -- first row `_entombed` 995, `_marooned` 431 -- and 553 of them
+// pillared dirt into the stair's air cells (1,279 repair digs `why=air`), 749 met the escape guard (`record=shaft`), 163 ended
+// in `_needs_rescue`. The entries are mostly NOT stair visits (build_shop 443; gather 384, goto 154, explore 113, surface 67,
+// ...). The way out the guard names ("the walk out stays open") is runStairEgress, so the marooned and entombed arms and
+// surface's ascent run it FIRST when the feet are on the stair, and today's escape only when it could not get the bot out.
+
+/** shafttrap-02's switch: SHAFTTRAP=0|off|false|no restores the base (no hand-over, surface plans as before). */
+export const stairTrapOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.SHAFTTRAP ?? '').trim().toLowerCase())
+/** A failed egress from step k is not tried again from the same step for this long (today's escape runs instead). */
+export const EGRESS_RETRY_MS = 5 * 60_000
+/** The reflex's egress budget: the deepest fleet stair (K 65) at egressReserveMs plus a margin; Paper: step 44 -> exit in 35 s. */
+export const EGRESS_REFLEX_MS = 90_000
+/**
+ * WHAT THE ARM DOES AFTER THE EGRESS -> 'skip' (it did not run: today's escape, unchanged) | 'out' (at the collar exit: no escape)
+ * | 'yield' (another owner took the body mid-way: no escape either, exactly like a pre-empted pillar) | 'retry' (not out, but it
+ * moved up or cleared a block: this firing ends, the next one starts higher) | 'fallthrough' (nothing gained: today's escape
+ * runs now). Pure. A failed egress is never a new dead end: every result that did not gain falls through to the escape the arm
+ * had before.
+ */
+export function egressHandoff (r) {
+  if (!r || !r.ran) return 'skip'
+  if (r.aborted) return 'yield'
+  if (r.ok) return 'out'
+  if ((Number(r.hops) || 0) > 0 || (Number(r.cleared) || 0) > 0) return 'retry'
+  return 'fallthrough'
+}
+/** MAY THE ARM TRY THE EGRESS FROM STEP k NOW? -> bool. Pure over the arm's memo { k, at } of its last fall-through. */
+export function egressDue (memo, k, now, retryMs = EGRESS_RETRY_MS) {
+  if (!Number.isInteger(k)) return false
+  if (!memo || memo.k == null) return true
+  return !(memo.k === k && now - (Number(memo.at) || 0) < retryMs)
+}
+/** The `_stair_handoff` row's detail. Pure. */
+export function handoffDetail ({ handler = '-', k = '-', h = '-', r = null, ms = '-' } = {}) {
+  return `handler=${handler} k=${k} then=${h} egress=${r?.why ?? '-'} hops=${r?.hops ?? 0} cleared=${r?.cleared ?? 0} ms=${ms}`
+}
+
 // ---- protection ---------------------------------------------------------------------------------------------------------
 
 /**
