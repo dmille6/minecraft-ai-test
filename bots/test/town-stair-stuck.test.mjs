@@ -94,7 +94,14 @@ await t('WIRED: the stair visit and both use walks run inside withStairClaim(ctx
     'const arrived = await withStairClaim(ctx.runner, () => stairWalk(bot, use.stand, STAIR_DOWN_MS, signal))',
     'const ok = await withStairClaim(ctx.runner, () => stairWalk(bot, rec.exit, STAIR_UP_MS, signal))']) assert.strictEqual(src.split(a).length, 2, `missing or not unique: ${a}`)
   assert.strictEqual(src.split('await runStairVisit(').length, 1, 'no unclaimed visit call')
-  assert.strictEqual(src.split('await stairWalk(').length, 1, 'no unclaimed stair walk')
+  // deepminer-01: the deep miner's section walks on and off the stair -- its stair hops (deepHops) run only under the claim
+  // (all three call sites), its other walks (collar, branch steps, home) are off the stair; the rest of the file keeps the rule
+  const d0 = src.indexOf('const DEEP_STEP_MS = 140_000'), d1 = src.indexOf('function zigProgressNow (bot, rec)', d0)
+  assert.ok(d0 > 0 && d1 > d0, 'the deep miner section is found')
+  const deep = src.slice(d0, d1), rest = src.slice(0, d0) + src.slice(d1)
+  assert.strictEqual(rest.split('await stairWalk(').length, 1, 'no unclaimed stair walk')
+  assert.strictEqual(deep.split('withStairClaim(ctx.runner, () => deepHops(').length, 4, 'all three deep stair hop walks hold the claim')
+  assert.strictEqual(deep.split('await deepHops(').length, 1, 'no unclaimed deep stair hop walk')
   const rx = strip(readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
   assert.match(rx, /const climbing = !!runner\?\.bodyClaimFor\?\.\('climb'\) \|\| !!runner\?\.bodyClaimFor\?\.\('stair'\)/)
   assert.match(rx, /!escaping && !marooned && !climbing && !inDanger && isEntombed\(bot\)/)
