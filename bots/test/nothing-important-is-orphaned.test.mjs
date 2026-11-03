@@ -83,6 +83,10 @@ const REQUIRED = [
   'bots/src/blueprints/yard@1.json',
   'docs/reports/stockyard-2026-11-02/make_yard.py',
   'bots/test/yard.test.mjs',
+  // yardsite-01 (11-03): the yard beyond the town ring, the 2x yard, its offline proof and its test
+  'bots/src/blueprints/yard@2.json',
+  'bots/scripts/yard-offline.mjs',
+  'bots/test/yardsite.test.mjs',
   // copperhall-01 (11-02): the showcase copper hall, its blueprint and its test over the showcase terrace's own region export
   'bots/src/copperhall.mjs',
   'bots/src/blueprints/hall@1.json',

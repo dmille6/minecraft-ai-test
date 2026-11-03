@@ -122,7 +122,7 @@ import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintain
 import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-01: the plan's place guard, read by index.mjs's place price
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
-import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
+import { loadBlueprint, siteBlueprint, siteBlueprintAsync, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
 import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
@@ -137,6 +137,7 @@ import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDe
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
+import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
@@ -17176,6 +17177,31 @@ function hallOpenNow (bot) {
   return o
 }
 /** COPPERHALL-01: the hall's site and record (copperhall.mjs hallSite: the plan's hall plot, proven) -> { ok, why, detail?, record }. */
+/**
+ * YARDSITE-01: THE YARD'S SITE -> { ok, record (with `band`), tried } | { ok: false, why, tried }. Never throws. yard.mjs
+ * yardSitingPlan's order (2x first under YARD_SIZE=auto, each band nearest first), each a buildsite.mjs siteBlueprint over the
+ * land plan's yard and wild sectors (yard.mjs yardSectors; no land plan: the workshop's sectors), clear of every reservation: the
+ * protected zones, every record + PROJECT_GAP (the land plan's road corridors among them: projectHeads), an unsited copper hall's
+ * pad and the expedition markers. `tried`: blueprint/band:screened for the visit's row.
+ */
+async function yardSiteFor (bot, plan, c, stood, signal = null) {
+  const tried = []
+  try {
+    const others = projectHeads().filter(x => x.plot !== YARD_PLOT).map(x => x.head.rec)
+    const zones = [...c.zones, ...recordZones(others), ...hallPadZones(plan), ...townMarkerZones()]
+    const sectors = yardSectors(landHead(), projectSectors(plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null))
+    const read = planReader(bot)
+    for (const step of yardSitingPlan(plan.home, { size: yardSize(), bpOf: id => blueprintOf(id) })) {
+      // cooperative (buildsite.mjs siteBlueprintAsync): a search out to 80 runs 10-60 s and must never stall the bot's keep-alives
+      const s = await siteBlueprintAsync(read, plan, blueprintOf(step.blueprint), { zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors, plot: YARD_PLOT,
+        earth: step.earth, domain: step.domain, standDomain: step.standDomain, walkR: step.walkR, line: step.line, sectorBy: step.sectorBy, rankKey: step.rankKey }, { aborted: () => !!signal?.aborted })
+      if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
+      tried.push(`${step.blueprint}/${step.band}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
+      if (s.ok) return { ok: true, why: 'ok', record: { ...s.record, band: step.band }, tried }
+    }
+    return { ok: false, why: 'no_site', tried }
+  } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80), tried } }
+}
 function hallSiteFor (bot, plan, c, stood) {
   try {
     const others = projectHeads().filter(x => x.plot !== HALL_PLOT).map(x => x.head.rec)
@@ -17530,7 +17556,7 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // stockyard-01 (Claude r1 BLOCK 1): a standing yard with WORK for this bot (yard.mjs yardWork: a bag surplus, the clerk, a
     // refill, aisle clutter) wants a visit -- the order reads `complete` through shopDamaged, so work only in shopActive's states
     // never reached the order. `tidy: false` (the visit's own branch, the repair loop) judges the cells alone
-    if (tidy && r.blueprint === YARD_BLUEPRINT && yardWorkNow(bot, r)?.kind) return true
+    if (tidy && isYardBlueprint(r.blueprint) && yardWorkNow(bot, r)?.kind) return true
     // zigtidy-01: a finished ziggurat with climbing pillars on its treads wants a visit too (the tidy), until each pillar block has
     // been offered ZIG_TIDY_VISITS visits of this bot
     if (tidy && mon && zigTidyNow(bot, r, read).length) return true
@@ -18310,7 +18336,7 @@ function yardWorkNow (bot, rec, now = Date.now()) {
   // a visit that did nothing rests the yard's work for this bot (YARD_REST_MS): a visit that cannot act is never re-sent at once
   if (Number(bot?.yardRestUntil) > now) return null
   try {
-    const bp = blueprintOf(YARD_BLUEPRINT), read = planReader(bot)
+    const bp = blueprintOf(isYardBlueprint(rec?.blueprint) ? rec.blueprint : YARD_BLUEPRINT), read = planReader(bot)
     const held = heldMap(bot)
     const nb = bambooBlocks(held)
     const items = bot.inventory?.items?.() ?? []
@@ -18321,7 +18347,7 @@ function yardWorkNow (bot, rec, now = Date.now()) {
 }
 async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now()) {
   const { bot } = ctx
-  const dir = townDir(), key = projKeyOf(YARD_PLOT), me = bot.username ?? 'bot', home = planHomeP(), bp = blueprintOf(YARD_BLUEPRINT)
+  const dir = townDir(), key = projKeyOf(YARD_PLOT), me = bot.username ?? 'bot', home = planHomeP(), bp = blueprintOf(isYardBlueprint(rec?.blueprint) ? rec.blueprint : YARD_BLUEPRINT)
   // the runner's clock, as the monument's (its watchdog aborts every skill at SKILL_TIMEOUT_MS): the visit ends ZIG_VISIT_TAIL_MS before it
   const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
   const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
@@ -18366,7 +18392,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now()) {
       spawnedAt: () => bot.shopSpawnAt ?? 0,
     })
     bot.shopUnknown ??= new Set()
-    const base = { dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), recordGen, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.yardStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy }
+    const base = { dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), recordGen, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.yardStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...yardVisitOpts(rec, home) }
     const bare = { ...rec, cells: [], segments: [], clear: [], replant: [] }
     let r = null
     if (w.kind === 'stock' || w.kind === 'clerk') {
@@ -18520,11 +18546,19 @@ async function buildShop (ctx, args, signal) {
       const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, state: 'open' }), { by: me })
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `hall/${ss.record.cells.length}cells/${ss.record.fill.length}fill/${ss.record.earthwork.cut}cut/${ss.record.earthwork.voids ?? 0}voids`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    } else if (plot === YARD_PLOT) {
+      // yardsite-01: the yard sites in the land plan's yard zone, out beyond the town ring where it is full (yardSiteFor)
+      const ss = await yardSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
+      check(signal)
+      if (!ss.ok) return out('no_effect', 'no_site', `no yard site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''}) ${(ss.tried ?? []).join(' ')}`.slice(0, 160), { stop: 'no_site' })
+      const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
+      if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.sector}/${ss.record.orient}/${ss.record.sector_source}/band${ss.record.band}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     } else if (plot !== SHOP_PLOT) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
       more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot, ...(plot === YARD_PLOT ? { earth: YARD_EARTH } : {}) }
     }
-    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT) {
+    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT) {
     const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
     if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
@@ -18653,7 +18687,9 @@ async function buildShop (ctx, args, signal) {
     // storehouse-01: the storehouse's stands are in town (storehouse.mjs storeDomain), and its interior's litter is the visit's tidy
     // copperhall-01: the hall's stands are its own domain too (copperhall.mjs hallRecordDomain: the pad + 3, off every other record)
     const storeOpts = rec.blueprint === STORE_BLUEPRINT ? { domain: storeDomain(rec), tidy: storeTidy(rec, read, (bot.storeTidyTries ??= new Map())) }
-      : rec.blueprint === HALL_BLUEPRINT ? { domain: hallRecordDomain(rec, projectHeads().map(x => x.head.rec)) } : {}
+      : rec.blueprint === HALL_BLUEPRINT ? { domain: hallRecordDomain(rec, projectHeads().map(x => x.head.rec)) }
+      // yardsite-01: a yard sited beyond the town ring stands and walks out to its band (yard.mjs yardVisitOpts; an older record: {})
+        : isYardBlueprint(rec.blueprint) ? yardVisitOpts(rec, home) : {}
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     // each tidy cell the visit offered counts once against this bot (storehouse.mjs STORE_TIDY_TRIES: an undiggable one stops asking)
     if (storeOpts.tidy) for (const k of r.tidied ?? []) bot.storeTidyTries.set(k, (bot.storeTidyTries.get(k) ?? 0) + 1)
@@ -18663,7 +18699,7 @@ async function buildShop (ctx, args, signal) {
       completed = true
       // cleared AT the completion, before the bank-back (r10 Claude P3, r11 both): the leftovers are the bag's own from here
       if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
-      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'complete', kind: bp.id, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'complete', kind: rec.blueprint ?? bp.id, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
     }
     // THE LEFTOVERS GO BACK (design 5 "returns what is left", cooperation A3), AFTER the completion is published (Claude r3 P3-1):
     // what this visit drew and did not place (shop.mjs leftoverNames) is banked in town chests, nearest first (mats-01's matsBank
