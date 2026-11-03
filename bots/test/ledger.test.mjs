@@ -250,11 +250,16 @@ test('the DRAIN on an empty town furnace: one open record, and its row\'s out/in
   assert.deepEqual([fld('out'), fld('in'), fld('fuel')], [asRow(rec.slots.out), asRow(rec.slots.in), asRow(rec.slots.fuel)])
   const st = rows.find(x => x?.skill?.name === '_ledger_station')
   assert.ok(st, 'the licence row `_ledger_station`, one per record'); assert.match(st.skill.detail, new RegExp(`^id=${rec.id} f=2,64,0 phase=open by=drain state=empty outcome=entry `))
-  // a second drain of the same empty furnace 0 s later coalesces into the first (the cache furnaceseen-01 will read)
+  // a second open of the same empty furnace 0 s later coalesces into the first (the cache furnaceseen-01 reads)
   bot2: {
     const b = drainWorld(fakeFurnace())
+    // drainpick-01: the DRAIN itself no longer walks there -- the bot's own empty entry is trusted (a restart empties its
+    // memory, so the ledger is what remembers): no target, nothing opened, nothing written
+    const n0 = ledgerNow().length
     const r2 = await S.SKILLS.furnace_drain.run({ bot: b }, {}, null)
-    assert.equal(r2.stop, 'empty')
+    assert.equal(r2.stop, 'no_target'); assert.equal(ledgerNow().length, n0)
+    // ...and any other opener of it still coalesces into the first
+    S.ledgerFurnace(b, new Vec3(2, 64, 0), fakeFurnace(), 'drain', 'open')
     const last = ledgerNow().at(-1)
     assert.deepEqual([last.outcome, last.into], ['coalesced', rec.id])
     break bot2
@@ -323,6 +328,139 @@ test('SMELT at a town furnace: an OPEN record before any click and a LOAD record
   assert.ok(load.at > open.at && load.id !== open.id, 'the load has its own id and time')
   const sess = rows.find(x => x?.skill?.name === '_furnace_session')
   assert.ok(sess, 'the session row'); assert.match(sess.skill.detail, new RegExp(` open=${open.id} in=0 fuel=0 out=0 loads=1/1$`))
+  // drainpick-01: the smelt drained the furnace at its close (the abort took the input and fuel back): it SAYS so -- the
+  // newest entry is an EMPTY `close`, after the load, so a drain trusts it instead of walking to the load's `holds`
+  const close = recs.find(r => r.phase === 'close')
+  assert.ok(close, `a close record (${JSON.stringify(recs.map(r => r.phase))})`)
+  assert.deepEqual([close.state, close.by, close.outcome], ['empty', 'smelt', 'entry'])
+  assert.ok(close.at >= load.at && close.id !== load.id)
+  assert.equal(L.foldLedger(ledgerNow()).furnaces['2,64,0'].id, close.id, 'the fold\'s newest entry is the close')
+})
+
+/** The SMELT fake of the test above: a furnace whose takes work (or, `takeInputFails`, refuse the input back). */
+function smeltFake ({ takeInputFails = false, name = 'LedgerBot3' } = {}) {
+  const ID = n => mcData.itemsByName[n].id
+  const bag = { raw_iron: 2, coal: 1 }
+  const slots = { input: null, fuel: null, output: null }
+  const fu = {
+    inputItem: () => slots.input, fuelItem: () => slots.fuel, outputItem: () => slots.output, fuel: 0,
+    async putInput (type, _m, count) { const n = mcData.items[type].name; bag[n] -= count; slots.input = { name: n, type, count } },
+    async putFuel (type, _m, count) { const n = mcData.items[type].name; bag[n] -= count; slots.fuel = { name: n, type, count } },
+    async takeOutput () { const o = slots.output; slots.output = null; if (o) bag[o.name] = (bag[o.name] ?? 0) + o.count; return o },
+    async takeInput () { if (takeInputFails) throw new Error('the server refused the take'); const o = slots.input; slots.input = null; if (o) bag[o.name] = (bag[o.name] ?? 0) + o.count; return o },
+    async takeFuel () { const o = slots.fuel; slots.fuel = null; if (o) bag[o.name] = (bag[o.name] ?? 0) + o.count; return o },
+    close () {}, emptySlotCount: () => 30,
+  }
+  const at = new Vec3(2, 64, 0)
+  const fid = mcData.blocksByName.furnace.id
+  return {
+    entity: { position: new Vec3(1, 64, 0), velocity: { y: 0 } }, username: name, health: 20, food: 20, registry: mcData,
+    inventory: { items: () => Object.entries(bag).filter(([, c]) => c > 0).map(([n, count], i) => ({ name: n, count, type: ID(n), slot: 9 + i })) },
+    findBlocks: () => [at], findBlock: ({ matching }) => { const b = { type: fid, position: at }; return matching(b) ? b : null },
+    blockAt: p => (p.x === at.x && p.y === at.y && p.z === at.z ? { type: fid, name: 'furnace', position: at, getProperties: () => ({ lit: false }) } : { type: 0, name: 'air', position: p }),
+    lookAt: async () => {}, equip: async () => {}, pathfinder: { goto: async () => {}, setGoal () {}, stop () {} },
+    openFurnace: async () => fu,
+  }
+}
+async function smeltPhases (mod, bot) {
+  L.resetLedgerCap()
+  const before = ledgerNow().length
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), 400)
+  await mod.SKILLS.smelt.run({ bot }, { item: 'raw_iron', count: 2 }, ac.signal).catch(() => null)
+  return ledgerNow().slice(before).map(r => r.phase)
+}
+test('drainpick-01 (Codex r1 blocker): A SMELT THAT DIES BETWEEN ITS CLICK AND ITS LOAD RECORD leaves an `intent` (holds) newest, never the open\'s empty -- the drain still walks there', async () => {
+  const bot = smeltFake({ name: 'LedgerBot5' })
+  const fu = await bot.openFurnace()
+  const put = fu.putInput
+  // the items are in, then the connection dies: every later window read and click fails (no closing drain can say "empty")
+  let dead = false
+  fu.putInput = async (...a) => { await put(...a); dead = true; throw new Error('disconnected') }
+  for (const k of ['inputItem', 'fuelItem', 'outputItem', 'takeInput', 'takeFuel', 'takeOutput']) { const f = fu[k]; fu[k] = (...a) => { if (dead) throw new Error('disconnected'); return f(...a) } }
+  bot.openFurnace = async () => fu
+  L.resetLedgerCap()
+  const before = ledgerNow().length
+  await S.SKILLS.smelt.run({ bot }, { item: 'raw_iron', count: 2 }, new AbortController().signal).catch(() => null)
+  const recs = ledgerNow().slice(before)
+  assert.deepEqual(recs.map(r => r.phase).slice(0, 2), ['open', 'intent'], JSON.stringify(recs.map(r => [r.phase, r.state])))
+  const intent = recs.find(r => r.phase === 'intent')
+  assert.equal(intent.state, 'holds'); assert.deepEqual(intent.slots.in, ['raw_iron', 2])
+  assert.ok(!recs.some(r => r.phase === 'load'), 'positive control: the load record never came')
+  const newest = L.foldLedger(ledgerNow()).furnaces['2,64,0']
+  assert.notEqual(newest.state, 'empty', `the fold's newest (${newest.phase}) is not an empty the drain would trust`)
+  const SJ = await import('../src/smeltjob.mjs')
+  assert.equal(SJ.seenSkip({ entry: newest, me: 'LedgerBot5', now: Date.now() }).skip, false)
+})
+
+test('MUTANT KILLED (drainpick-01): without the intent record, the dead-connection smelt leaves the open\'s EMPTY newest (the Codex r1 blocker)', async () => {
+  const P = new URL('../src/skills.mjs', import.meta.url)
+  const src = fs.readFileSync(P, 'utf8')
+  const old = "ledgerIntent(bot, block.position, furnace, session.opts?.by ?? 'smelt', plan.input, plan.batch)"
+  assert.equal(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, '').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const M = await import(out.href)
+    const bot = smeltFake({ name: 'LedgerBot6' })
+    const fu = await bot.openFurnace()
+    const put = fu.putInput
+    let dead = false
+    fu.putInput = async (...a) => { await put(...a); dead = true; throw new Error('disconnected') }
+    for (const k of ['inputItem', 'fuelItem', 'outputItem', 'takeInput', 'takeFuel', 'takeOutput']) { const f = fu[k]; fu[k] = (...a) => { if (dead) throw new Error('disconnected'); return f(...a) } }
+    bot.openFurnace = async () => fu
+    L.resetLedgerCap()
+    await M.SKILLS.smelt.run({ bot }, { item: 'raw_iron', count: 2 }, new AbortController().signal).catch(() => null)
+    assert.equal(L.foldLedger(ledgerNow()).furnaces['2,64,0'].state, 'empty', 'the mutant leaves the empty newest: the test above kills it')
+  } finally { try { fs.unlinkSync(out) } catch {} }
+})
+
+test('MUTANT KILLED (drainpick-01): without the close record, a smelt that emptied its furnace leaves the load\'s `holds` newest', async () => {
+  const P = new URL('../src/skills.mjs', import.meta.url)
+  const src = fs.readFileSync(P, 'utf8')
+  const old = "if (LEDGER.on && closingContents(session.closing).empty) {"
+  assert.equal(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.ok((await smeltPhases(S, smeltFake())).includes('close'), 'positive control: the real code writes it')
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, 'if (false) {').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const M = await import(out.href)
+    const ph = await smeltPhases(M, smeltFake({ name: 'LedgerBot4' }))
+    assert.ok(ph.includes('load') && !ph.includes('close'), JSON.stringify(ph))
+  } finally { try { fs.unlinkSync(out) } catch {} }
+})
+
+test('drainpick-01: a smelt whose close is NOT empty (a take that fails leaves the input) writes no close record -- the load\'s `holds` stands', async () => {
+  L.resetLedgerCap()
+  const ID = n => mcData.itemsByName[n].id
+  const bag = { raw_iron: 2, coal: 1 }
+  const slots = { input: null, fuel: null, output: null }
+  const fu = {
+    inputItem: () => slots.input, fuelItem: () => slots.fuel, outputItem: () => slots.output, fuel: 0,
+    async putInput (type, _m, count) { const n = mcData.items[type].name; bag[n] -= count; slots.input = { name: n, type, count } },
+    async putFuel (type, _m, count) { const n = mcData.items[type].name; bag[n] -= count; slots.fuel = { name: n, type, count } },
+    async takeOutput () { const o = slots.output; slots.output = null; if (o) bag[o.name] = (bag[o.name] ?? 0) + o.count; return o },
+    async takeInput () { throw new Error('the server refused the take') },
+    async takeFuel () { const o = slots.fuel; slots.fuel = null; if (o) bag[o.name] = (bag[o.name] ?? 0) + o.count; return o },
+    close () {}, emptySlotCount: () => 30,
+  }
+  const at = new Vec3(2, 64, 0)
+  const fid = mcData.blocksByName.furnace.id
+  const bot = {
+    entity: { position: new Vec3(1, 64, 0), velocity: { y: 0 } }, username: 'LedgerBot2', health: 20, food: 20, registry: mcData,
+    inventory: { items: () => Object.entries(bag).filter(([, c]) => c > 0).map(([name, count], i) => ({ name, count, type: ID(name), slot: 9 + i })) },
+    findBlocks: () => [at], findBlock: ({ matching }) => { const b = { type: fid, position: at }; return matching(b) ? b : null },
+    blockAt: p => (p.x === at.x && p.y === at.y && p.z === at.z ? { type: fid, name: 'furnace', position: at, getProperties: () => ({ lit: false }) } : { type: 0, name: 'air', position: p }),
+    lookAt: async () => {}, equip: async () => {}, pathfinder: { goto: async () => {}, setGoal () {}, stop () {} },
+    openFurnace: async () => fu,
+  }
+  const before = ledgerNow().length
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), 400)
+  await S.SKILLS.smelt.run({ bot }, { item: 'raw_iron', count: 2 }, ac.signal).catch(() => null)
+  const recs = ledgerNow().slice(before)
+  assert.ok(recs.some(r => r.phase === 'load'), 'positive control: the load was recorded')
+  assert.equal(recs.filter(r => r.phase === 'close').length, 0, 'no close record: the furnace still holds the input')
 })
 
 test('drainDetail stays under the 300-char detail cap with the ledger id', () => {

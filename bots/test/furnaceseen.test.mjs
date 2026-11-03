@@ -48,18 +48,22 @@ const TABLE = [
   ['no entry', { entry: null, me: 'Me', now: NOW }, false, 'no_entry'],
   ['the newest entry holds items (a load after the empty)', { entry: E({ state: 'holds' }), me: 'Me', now: NOW }, false, 'entry_not_empty'],
   ['the newest entry is lit', { entry: E({ state: 'lit' }), me: 'Me', now: NOW }, false, 'entry_not_empty'],
-  ['my own empty entry (my memory rules for my findings)', { entry: E({ bot: 'Me' }), me: 'Me', now: NOW }, false, 'own_entry'],
-  ['59:59 old: still trusted', { entry: E({ at: NOW - SJ.SEEN_EMPTY_MS + 1 }), me: 'Me', now: NOW }, true, 'townmate_empty'],
-  ['60:00 old: expired', { entry: E({ at: NOW - SJ.SEEN_EMPTY_MS }), me: 'Me', now: NOW }, false, 'expired'],
+  // drainpick-01: my OWN empty entry skips too (my in-process memory is gone after a restart; the ledger remembers)
+  ['my own empty entry, no memory of it (a restart)', { entry: E({ bot: 'Me' }), me: 'Me', now: NOW }, true, 'own_empty'],
+  ['my own empty entry, and I saw it lit since', { entry: E({ bot: 'Me' }), litAt: NOW - 5 * MIN, me: 'Me', now: NOW }, false, 'lit_since'],
+  ['my own empty entry, my later look found items', { entry: E({ bot: 'Me' }), own: { empty: false, at: NOW - 5 * MIN, litSince: false }, me: 'Me', now: NOW }, false, 'own_newer_holds'],
+  ['a townmate\'s empty 3 h ago (was expired at 60 min)', { entry: E({ at: NOW - 180 * MIN }), me: 'Me', now: NOW }, true, 'townmate_empty'],
+  ['5:59:59 old: still trusted', { entry: E({ at: NOW - SJ.SEEN_EMPTY_MS + 1 }), me: 'Me', now: NOW }, true, 'townmate_empty'],
+  ['6:00:00 old: expired', { entry: E({ at: NOW - SJ.SEEN_EMPTY_MS }), me: 'Me', now: NOW }, false, 'expired'],
   ['from the future (> 1 min): never trusted', { entry: E({ at: NOW + 2 * MIN }), me: 'Me', now: NOW }, false, 'expired'],
   ['I saw it LIT after the empty', { entry: E(), litAt: NOW - 5 * MIN, me: 'Me', now: NOW }, false, 'lit_since'],
   ['I saw it lit BEFORE the empty', { entry: E(), litAt: NOW - 20 * MIN, me: 'Me', now: NOW }, true, 'townmate_empty'],
   ['my own later look found items', { entry: E(), own: { empty: false, at: NOW - 5 * MIN, litSince: false }, me: 'Me', now: NOW }, false, 'own_newer_holds'],
   ['my own EARLIER look found items', { entry: E(), own: { empty: false, at: NOW - 30 * MIN, litSince: false }, me: 'Me', now: NOW }, true, 'townmate_empty'],
   ['my own later look found it empty too', { entry: E(), own: { empty: true, at: NOW - 5 * MIN, litSince: false }, me: 'Me', now: NOW }, true, 'townmate_empty'],
-  ['an entry with no bot (unattributable)', { entry: E({ bot: null }), me: 'Me', now: NOW }, false, 'own_entry'],
+  ['an entry with no bot (unattributable)', { entry: E({ bot: null }), me: 'Me', now: NOW }, false, 'no_bot'],
 ]
-test('THE SKIP, truth table: skip only a TOWNMATE\'s EMPTY newest entry < 60 min, with no newer lit sighting or own contrary look', () => {
+test('THE SKIP, truth table: skip only an attributed EMPTY newest entry (a townmate\'s or my own) < 6 h, with no newer lit sighting or own contrary look', () => {
   for (const [name, inp, skip, why] of TABLE) assert.deepEqual(SJ.seenSkip(inp), { skip, why }, name)
 })
 test('the GOLDEN table the read\'s Python port replays is exactly this function\'s output (a change to either fails here or there)', () => {
@@ -71,7 +75,7 @@ test('the GOLDEN table the read\'s Python port replays is exactly this function\
 test('the logged inputs (se= sl= so= off=) carry everything the replay needs, in one format', () => {
   assert.equal(SJ.seenFields({ entry: E(), litAt: NOW, own: { empty: true, at: NOW - 1 }, off: '1:2048' }), `se=mate-1 sl=${NOW} so=e:${NOW - 1} off=1:2048`)
   assert.equal(SJ.seenFields({}), 'se=- sl=- so=- off=-')
-  assert.match(SJ.furnaceSeenModeDetail(), /^phase=mode on=on v=1 ttl_min=60 rule=townmate_empty$/)
+  assert.match(SJ.furnaceSeenModeDetail(), /^phase=mode on=on v=2 ttl_min=360 rule=town_empty$/)
 })
 
 // ---- the pick and the order consult the same rule -----------------------------------------------------------------

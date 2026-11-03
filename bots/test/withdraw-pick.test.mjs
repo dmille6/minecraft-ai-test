@@ -177,7 +177,9 @@ await t('NO PICKAXE IN TOWN: the exact ingredients come out, the miss is remembe
   assert.equal(townPickMiss(w.bot), true, 'its only container is a recent miss: complete coverage')
   const opened = w.spy.opened.length
   const r2 = await pick(w.bot)
-  assert.equal(r2.status, 'no_effect', r2.detail)
+  // drainpick-01: the ingredients are held, so the next order crafts the pickaxe (this fake world has no recipes: the craft
+  // fails, craft_failed, and backs off); pickcraft.test.mjs runs the real craft
+  assert.equal(r2.status, 'failed', r2.detail); assert.match(r2.detail, /stone_pickaxe craft from the bag failed/)
   assert.equal(w.spy.opened.length, opened, 'no chest opened again: the miss is per container, and the ingredients are held')
 })
 
@@ -398,7 +400,9 @@ await t('ROUND 9 REPRO: every chest a recent PICKAXE miss, the ingredients still
   assert.equal(r.status, 'success', r.detail)
   assert.equal(count(w.bag, 'cobblestone'), 3); assert.equal(count(w.bag, 'stick'), 2)
   assert.match(lastPickRow(), /^outcome=took_ingredients /)
-  assert.equal(townOrder({ ...base, now: 1e9 + 1e7, state: {} }).order, null, 'and once they are held, nothing more to fetch: no order')
+  // drainpick-01: once they are held the order is issued again -- to CRAFT the pickaxe (it used to be "nothing to fetch", and
+  // 98 of 118 such bags then crafted nothing); pickcraft.test.mjs runs that craft for real
+  assert.equal(townOrder({ ...base, now: 1e9 + 1e7, state: {} }).order?.skill, 'withdraw_pick', 'once they are held, the order crafts')
 })
 
 await t('ROUND 9: a chest with no pickaxe AND no ingredient is remembered as both -- the next order is not issued; a deposit there reopens it', async () => {

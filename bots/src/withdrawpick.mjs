@@ -51,22 +51,45 @@ const held = (items, match) => (Array.isArray(items) ? items : []).reduce((n, it
 /**
  * WHAT ONE STONE PICKAXE STILL NEEDS -> [{ need, count }] (exact). Pure. 3 cobblestone (or its variants) and 2 sticks,
  * minus what is held; 4 planks for the crafting table only when none is carried and none is within STATION_REACH
- * (`tableNear`) -- planks held, and logs at 4 planks each, count toward them. With these in the bag craftReady turns true
- * and the existing rung work order makes the pickaxe.
+ * (`tableNear`) -- planks held, and logs at 4 planks each, count toward them.
+ * drainpick-01: STICKS THE BAG CAN MAKE ARE NOT A DEFICIT. Two planks make four sticks, and `craft stone_pickaxe` makes them
+ * itself (craftLevel's sub-crafts: logs -> planks -> sticks). MEASURED 24 h to 11-01 21:38Z (80 bots): 464 of 739
+ * withdraw_pick orders failed "none of stick:N in the N container(s) tried here", and 449 of those 464 bags held logs or
+ * >= 2 planks (and 3+ cobblestone). So the sticks count as held when the bag's wood covers 2 planks for them on top of the
+ * table's 4 (when a table is needed); only otherwise are sticks -- the direct remedy -- searched for, exactly as before.
  */
+export const STICK_PLANKS = 2
+/** The wood a name makes planks of ('oak' for oak_planks / oak_log / stripped_oak_log), or null. Pure. */
+const woodOf = n => (/_planks$/.test(n) ? n.replace(/_planks$/, '') : /_(log|stem)$/.test(n) ? n.replace(/^stripped_/, '').replace(/_(log|stem)$/, '') : null)
 export function stonePickDeficits (items = [], { tableNear = false } = {}) {
   const out = []
-  const cobble = held(items, NEEDS.cobblestone.match)
+  // ONE RECIPE TAKES ONE KIND (Claude r1 note 1): mineflayer's recipes are per variant, so 2 cobblestone + 1 deepslate is not
+  // 3 of the pickaxe's stone, and 3 oak + 3 birch planks are not a table's 4 -- the largest single kind counts
+  const kinds = {}
+  const wood = {}
+  for (const it of Array.isArray(items) ? items : []) {
+    const n = it?.name, c = it?.count ?? 0
+    if (!n || !(c > 0)) continue
+    if (NEEDS.cobblestone.match(n)) kinds[n] = (kinds[n] ?? 0) + c
+    const w = woodOf(n)
+    if (w) wood[w] = (wood[w] ?? 0) + (/_planks$/.test(n) ? c : 4 * c)
+  }
+  const cobble = Math.max(0, ...Object.values(kinds))
   if (cobble < 3) out.push({ need: 'cobblestone', count: 3 - cobble })
   const sticks = held(items, NEEDS.stick.match)
-  if (sticks < 2) out.push({ need: 'stick', count: 2 - sticks })
   const tableCarried = held(items, n => n === 'crafting_table') > 0
-  if (!tableCarried && !tableNear) {
-    const planks = held(items, NEEDS.planks.match) + 4 * held(items, n => /_(log|stem)$/.test(n))
-    if (planks < 4) out.push({ need: 'planks', count: 4 - planks })
-  }
+  const tablePlanks = !tableCarried && !tableNear ? 4 : 0
+  const [w1 = 0, w2 = 0] = Object.values(wood).sort((a, b) => b - a)
+  const stickShort = Math.max(0, 2 - sticks)
+  // the table's 4 and the sticks' 2 from one wood, or from two
+  const makeable = stickShort > 0 && (w1 >= tablePlanks + STICK_PLANKS || (tablePlanks > 0 && w1 >= tablePlanks && w2 >= STICK_PLANKS))
+  if (stickShort > 0 && !makeable) out.push({ need: 'stick', count: stickShort })
+  if (w1 < tablePlanks) out.push({ need: 'planks', count: tablePlanks - w1 })
   return out
 }
+
+/** Does the bag hold (or make, by stonePickDeficits) everything one stone pickaxe takes here? Pure. */
+export const stonePickReady = (items = [], opts = {}) => stonePickDeficits(items, opts).length === 0
 
 /**
  * THE INGREDIENT BRANCH'S OWN NEGATIVE EVIDENCE (withdraw-habit review: a town with no pickaxe is exactly when the

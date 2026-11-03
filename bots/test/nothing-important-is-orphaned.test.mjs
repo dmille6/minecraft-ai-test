@@ -35,6 +35,9 @@ const REQUIRED = [
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
   // escapeguard-01 (10-31): a trapped bot's escape never digs a build record or a protected zone's structure
+  // serving D (owner 11-01): fewer LLM decisions -- pausewait, vetoskip, continue
+  'bots/src/fewerdec.mjs',
+  'bots/test/fewerdec.test.mjs',
   'bots/src/escapeguard.mjs',
   'bots/test/escapeguard.test.mjs',
   // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)
@@ -130,6 +133,9 @@ const REQUIRED = [
   'sandbox/corpus.tsv',
   // the scripts run-scenario.sh drives the sandbox bot with
   'bots/scripts/sandbox-say.mjs',
+  // drainpick-01 (11-01): the drain not offered where it cannot help; withdraw_pick crafts the stone pickaxe from the bag
+  'bots/test/drainpick.test.mjs',
+  'bots/test/pickcraft.test.mjs',
   // the checker for the ARBITER=1 startup crash, which existed and was called by nothing
   'scripts/ops/arbiterpreflight.py',
   // the deploy wrapper that refuses a canary with no reader

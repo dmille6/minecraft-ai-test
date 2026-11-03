@@ -51,7 +51,7 @@ import { inTown, depositTargetOk, walkFailure, backsOffTarget, travelTimeoutActi
          TOWN_SCAN_RADIUS, TOWN_DY, wellKeepout, homeFirst } from './chestfull.mjs'
 import { STORAGE_NEAR, startableJunk } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
-import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
+import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, stonePickReady, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
   ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete, containerIngredientMiss,
   townSearchOrder, needCount, INGREDIENT_MISS_KEY, WITHDRAW_PICK_VISITS, WITHDRAW_INGREDIENT_VISITS, WITHDRAW_VISIT_MIN_MS, WITHDRAW_INGREDIENT_RESERVE_MS, SEARCH_FAIL_SKIP_MS, SEARCH_FAIL_SKIP, passClock, searchTally, SEARCH_MISS_TTL_MS } from './withdrawpick.mjs'
 // The toolkit (toolkit-01): the iron axe and shovel from town iron; the spent-stone keep is hygiene.mjs's
@@ -172,7 +172,7 @@ import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, ma
   projectReserveOn, projectReserveState, effectiveReserve, matsKindForProject, reserveModeDetail, reserveDrawDetail } from './mats.mjs'
 import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, DRAIN_RADIUS,
          copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns,
-         FURNACE_SEEN, SEEN_EMPTY_MS, seenSkip, seenFields, noteFurnacesLitAt,
+         FURNACE_SEEN, SEEN_EMPTY_MS, seenSkip, seenFields, noteFurnacesLitAt, noteFurnaceUnreachable,
          SMELT_COPPER_VISITS, SMELT_COAL_VISITS, SMELT_COPPER_RESERVE_MS, SMELT_COAL_RESERVE_MS, SMELT_SEARCH_MORE, SMELT_SEARCH_STALLED,
          COAL_MISS_KEY, COAL_MISS_TTL_MS, SMELT_JOB_FUEL, SMELT_MIN_SMELT_MS, SMELT_LATE } from './smeltjob.mjs'
 import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OUTPUT_OF, IRON_MISS_KEY, IRON_MISS_TTL_MS, indexRuledOut, SMELT_GATE, indexInputAbsent,
@@ -4087,6 +4087,22 @@ export function readFurnaceWindow (furnace) {
  * `seen` is a caller's own readFurnaceWindow(): the drain passes the read its row prints, so the row and the record come
  * from ONE in-memory read (design 6.4, Claude r9 #5).
  */
+/**
+ * drainpick-01: THE LOAD'S INTENT, recorded BEFORE the first click that puts anything into a town furnace -> the record or
+ * null. Phase `intent`, the slots as they will be (the input added to what the window shows), so its state is `holds` and it
+ * supersedes an empty open in the fold: a bot that dies between the click and the load's own record cannot leave an EMPTY
+ * newest over a loaded furnace for the drain's 6 h trust. Never throws.
+ */
+export function ledgerIntent (bot, pos, furnace, by, name, count) {
+  if (!LEDGER.on) return null
+  try {
+    const cur = (() => { try { return furnace.inputItem?.() ?? null } catch { return null } })()
+    const input = { name, count: (cur?.name === name ? (cur.count ?? 0) : 0) + (Number(count) || 1) }
+    const fuel = (() => { try { return furnace.fuelItem?.() ?? null } catch { return null } })()
+    const output = (() => { try { return furnace.outputItem?.() ?? null } catch { return null } })()
+    return ledgerObserve(bot, pos, furnace, by, 'intent', { input, fuel, output, lit: false }).rec
+  } catch { return null }
+}
 export function ledgerFurnace (bot, pos, furnace, by = '-', phase = 'open', seen = null) {
   return ledgerObserve(bot, pos, furnace, by, phase, seen).rec
 }
@@ -4132,10 +4148,11 @@ export function drainPickNow (bot, now = Date.now()) {
     if (d.skip) skipped.push({ k: f.k, inputs: inp, why: d.why })
     return d.skip
   } : null
-  const pick = drainPick({ furnaces: fs0, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now, skip })
+  const unreachable = bot.furnaceUnreachable ?? {}   // drainpick-01: furnaces this bot could not reach (furnaceDrain)
+  const pick = drainPick({ furnaces: fs0, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now, skip, unreachable })
   // THE WALK THE RULE SAVED: the furnace the base pick (no rule) would have walked to. A skipped furnace that a nearer one
   // would have beaten anyway saved nothing (changed=0); the read's exposure counts changed=1 only (Claude r1 P2-3)
-  const basePick = skipped.length ? drainPick({ furnaces: fs0, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now }) : null
+  const basePick = skipped.length ? drainPick({ furnaces: fs0, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now, unreachable }) : null
   bot.furnaceSkipLogged ??= {}
   for (const s of skipped) {
     const changed = basePick?.k === s.k ? 1 : 0
@@ -11745,7 +11762,9 @@ export function townIngredientMiss (bot) {
   try {
     const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
     const needs = stonePickDeficits(bot.inventory.items(), { tableNear }).map(d => d.need)
-    return needs.length === 0 || townSearchEmpty(bot, needs)
+    // drainpick-01: a bag that holds (or makes) everything one stone pickaxe takes is NOT futile -- the order crafts it
+    // (withdrawPickRun's pickCraftHere); it used to be ruled out, and 98 of 118 such bags then crafted nothing
+    return needs.length > 0 && townSearchEmpty(bot, needs)
   } catch { return false }
 }
 
@@ -11975,6 +11994,28 @@ const VISIT_STOPS = ['transfer_unsettled', 'inventory_full', 'container_open', '
  *  room (a partial stack), so their pass still runs (Codex final P2). A transfer's own inventory_full still ends the order. */
 const pickPassEnds = v => v.result?.failClass === 'no_room' || (v.result?.failClass === 'inventory_full' && !v.moved)
 
+/** The clock a stone-pickaxe craft at a town table needs inside the order (two 12 s table walks, the crafts, a placement). */
+export const PICK_CRAFT_MIN_MS = 30_000
+/**
+ * drainpick-01: CRAFT THE STONE PICKAXE HERE (the withdraw found none, and the bag holds or makes what one takes:
+ * stonePickReady). The existing `craft` does it -- sticks from planks, planks from logs, the table placed from the bag when
+ * none is in reach -- preferring the town workshop's table (workbench-01). Its result is the order's: success
+ * `crafted_pick`; anything else fails `craft_failed` (townOrderOutcome's backoff, so a craft that cannot succeed here is
+ * not re-ordered every cooldown), with craft's own detail -- its remedy -- carried. After a verified ingredient TAKE the take
+ * stays the result (`late` / `failed`: the caller's own row): too little clock, or a failed craft, is `took_ingredients`.
+ * Too little of the clock left otherwise: `has_ingredients`, as before (the next order crafts: its deficits are empty).
+ */
+async function pickCraftHere (ctx, signal, msLeft, finish, why, late = null, failed = null) {
+  if (msLeft(Infinity) < PICK_CRAFT_MIN_MS) {
+    return late ? late() : finish({ status: 'no_effect', detail: `no usable pickaxe in the town chests looked at; ${why}, and too little of the order's clock is left to craft it -- the next order does` }, 'has_ingredients')
+  }
+  check(signal)
+  const r = await craft({ ...ctx, preferWorkshop: true, stations: {} }, { item: 'stone_pickaxe', count: 1 }, signal)
+  if (r?.status === 'success') return finish({ status: 'success', detail: `no usable pickaxe in town; crafted a stone_pickaxe from the bag (${String(why).slice(0, 80)}): ${String(r.detail ?? '').slice(0, 120)}` }, 'crafted_pick')
+  if (failed) return failed(r)
+  return finish({ status: 'failed', failClass: r?.failClass ?? 'craft_failed', detail: `no usable pickaxe in town, and the stone_pickaxe craft from the bag failed: ${String(r?.detail ?? r?.status ?? 'no result').slice(0, 160)}` }, 'craft_failed')
+}
+
 async function withdrawPickRun (ctx, signal, tried, st, finish) {
   const { bot } = ctx
   const { deadline, msLeft } = withdrawClock(ctx)
@@ -12028,7 +12069,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   const deficits = stonePickDeficits(bot.inventory.items(), { tableNear })
   st.need = deficits.length ? deficits.map(d => `${d.need}:${d.count}`).join(',') : 'none'
   if (!deficits.length && pickNoRoom) return finish(pickNoRoom, pickNoRoom.failClass)
-  if (!deficits.length) return finish({ status: 'no_effect', detail: 'no usable pickaxe in the town chests looked at, and the bag already holds what one stone pickaxe takes' }, 'has_ingredients')
+  if (!deficits.length) return pickCraftHere(ctx, signal, msLeft, finish, 'the bag already holds what one stone pickaxe takes')
   // 2. THE INGREDIENTS, the same way: the containers whose last count covers most of the deficits first (the pickaxe pass's
   //    own opens are counted too), then the unknown, nearest first; at most WITHDRAW_INGREDIENT_VISITS this order.
   const pickName = (d, inChest) => {
@@ -12068,6 +12109,15 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
       // a visit that could not look inside moves on to the next container; anything else that happened there is the answer
       if (v.result.status !== 'success') searchFailSkip(bot, cb, v.result.failClass)
       if (v.result.status !== 'success' && SEARCH_FAIL_SKIP.has(v.result.failClass)) continue
+      // drainpick-01: the ingredients came and the bag now makes one: the pickaxe is crafted in this order, not left to a rung
+      // order that may never come (433 of 464 stick-short orders were followed by no craft in the bot's next 7 skills)
+      if (v.result.status === 'success' && !v.moved?.tool && stonePickReady(bot.inventory.items(), { tableNear })) {
+        // the take is the order's result whatever the craft does (it happened, and was verified): a craft that fails here
+        // leaves the ingredients in the bag, says why in the row, and the next order tries the craft first-hand
+        const took = () => finish(v.result, 'took_ingredients')
+        return pickCraftHere(ctx, signal, msLeft, finish, v.result.detail, took,
+          r => finish({ ...v.result, detail: `${v.result.detail}; the stone_pickaxe craft then failed: ${String(r?.detail ?? r?.status ?? '-').slice(0, 120)}` }, 'took_ingredients'))
+      }
       return finish(v.result, v.result.status === 'success' ? (v.moved?.tool ? 'took_pick' : 'took_ingredients') : v.result.failClass ?? v.result.status)
     }
     if (v.skip) fullChests++
@@ -12942,6 +12992,10 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
     }
 
     check(signal)
+    // drainpick-01 (Codex r1 blocker): THE INTENT BEFORE THE CLICK. The drain now trusts an empty entry 6 h (own ones too), and
+    // the load's record comes only after the clicks: a disconnect between them left the open's EMPTY newest over a furnace
+    // holding the batch. This entry (state holds) supersedes it first; a load that never lands costs one drain walk.
+    ledgerIntent(bot, block.position, furnace, session.opts?.by ?? 'smelt', plan.input, plan.batch)
     await furnace.putInput(inDef.id, null, plan.batch)
     await loadNext()
     loaded = true
@@ -13006,6 +13060,12 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
     if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
     if (bot.furnaceWindowUntil === stationary) bot.furnaceWindowUntil = 0
     session.closing = furnace?.closing ?? null
+    // drainpick-01: A SMELT THAT EMPTIED THE FURNACE SAYS SO. Its last ledger entry was its own LOAD (state holds), so the drain
+    // walked to every furnace a finished smelt had left empty (~190 of 1,897 "is empty" drains, 24 h to 11-01 21:38Z). Only
+    // a closing read that is readable and EMPTY writes (closingContents: no slot unreadable, nothing left), as phase `close`.
+    if (LEDGER.on && closingContents(session.closing).empty) {
+      try { ledgerObserve(bot, block.position, furnace, session.opts?.by ?? 'smelt', 'close', { input: null, fuel: null, output: null, lit: false }) } catch { /* never breaks the smelt */ }
+    }
     const after = fslot('fuelItem')
     const drained = swordDrainRow(furnace?.swordFate ?? null, !!left, after === undefined ? undefined : after?.name === 'wooden_sword', furnace?.drainStop ?? null)
     if (drained) swordRow(drained.outcome, drained.what, left ? staged.active : foodSkipNow(bot).active)
@@ -13147,6 +13207,8 @@ export function townFurnaces (bot) {
     const home = homeVec()
     const found = bot.findBlocks?.({ point: home, maxDistance: DRAIN_RADIUS, count: 32,
       matching: b => bot.registry?.blocks?.[b.type]?.name === 'furnace' }) ?? []
+    // drainpick-01: how far ABOVE the bot each furnace is (smeltjob.mjs drainPick DRAIN_BELOW_MAX); null when unreadable
+    const by = Number(bot.entity?.position?.y)
     const out = []
     for (const p of found) {
       const dist = Math.hypot(p.x - home.x, p.z - home.z)
@@ -13157,7 +13219,7 @@ export function townFurnaces (bot) {
       if (!b || bot.registry?.blocks?.[b.type]?.name !== 'furnace') continue
       let lit = null
       try { const v = b.getProperties?.()?.lit; lit = v === true || v === 'true' } catch { lit = null }
-      out.push({ k: posKey(p), pos: p, dist, lit: lit === true })
+      out.push({ k: posKey(p), pos: p, dist, lit: lit === true, above: Number.isFinite(by) ? p.y - by : null })
     }
     return out
   } catch { return [] }
@@ -13581,7 +13643,7 @@ async function furnaceDrain (ctx, _args, signal) {
     }
     check(signal)
     const reach = bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5))
-    if (reach > STATION_REACH) { f.stop = 'unreachable'; return (result = { status: 'failed', failClass: 'no_path', detail: `the furnace at ${at} is ${Math.round(reach)} blocks away and could not be reached` }) }
+    if (reach > STATION_REACH) { f.stop = 'unreachable'; try { bot.furnaceUnreachable = noteFurnaceUnreachable(bot.furnaceUnreachable, at, Date.now()) } catch { /* advisory */ } return (result = { status: 'failed', failClass: 'no_path', detail: `the furnace at ${at} is ${Math.round(reach)} blocks away and could not be reached` }) }
     block = bot.blockAt?.(pos)
     if (!block || bot.registry?.blocks?.[block.type]?.name !== 'furnace') { f.stop = 'gone'; return (result = { status: 'no_effect', detail: `no furnace at ${at} now` }) }
     if (isLit(block)) { f.stop = 'lit'; return (result = { status: 'no_effect', detail: `the furnace at ${at} started cooking; it is left alone` }) }
@@ -13912,6 +13974,7 @@ export async function matsSession (ctx, { input, n, planksName, out: outName, ow
         if (priorOut) { try { await furnace.takeOutput(); res.prior[priorOut.name] = (res.prior[priorOut.name] ?? 0) + (priorOut.count ?? 0) } catch { /* empty */ } }
         check(signal)
         const inDef = bot.registry.itemsByName[input], fDef = bot.registry.itemsByName[planksName]
+        ledgerIntent(bot, cand.pos, furnace, 'make_material', input, n)   // drainpick-01: before the click (smeltInner's note)
         await furnace.putInput(inDef.id, null, n)
         // the load record again, with the bag's input left AFTER the load (the window's bag): the recovery's balance measures the
         // input that came back against it (mats.mjs recoveryBalance)
