@@ -69,7 +69,7 @@ if (!argv.includes('--no-land') && !land && LP) {
   const rz = [...recordZones(noPaths), ...hz]
   const reserved = (x, z) => { for (const zb of rz) { const b = zb.box; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return zb.why } return null }
   const t0 = Date.now()
-  const L = await LP.planLand(read, { home, plan, seed: LP.landSeed(pool, home), avoid: roadAvoid, reserved, limOf: n => T.gradeLim(read, n), caps, composter })
+  const L = await LP.planLand(read, { home, plan, seed: LP.landSeed(pool, home), avoid: roadAvoid, reserved, limOf: n => T.gradeLim(read, n), caps, composter, sited: LP.sitedSectors?.(home, noPaths) ?? [] })
   planMs = Date.now() - t0
   land = L.plan ?? null
   landFrom = land ? 'drawn offline' : `not drawn (${L.why ?? '?'})`
