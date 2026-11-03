@@ -96,7 +96,7 @@ await t('MUTANT KILLED: a swim blind to the liquid swims lava', async () => {
   })
 })
 await t('MUTANT KILLED: a swim blind to the far bank aims at a shore it cannot climb onto', async () => {
-  await withMutant(EX_PATH, '      if (s.none || s.y - waterY > SWIM_EXIT) return { ok: false, why: \'water\', at: [x, z], bank: s.none ? \'none\' : s.y - waterY }\n', '', async M => {
+  await withMutant(EX_PATH, '      if (s.none || s.y <= waterY || s.y - waterY > SWIM_EXIT) return { ok: false, why: \'water\', at: [x, z], bank: s.none ? \'none\' : s.y - waterY }\n', '', async M => {
     assert.equal(M.legTarget(world({ river: { x0: 8, x1: 10 }, bank: 69 + M.SWIM_EXIT }), { pos: POS, home: HOME, bearing: 0, swim: M.SWIM_MAX }).ok, true)
   })
 })
@@ -109,7 +109,7 @@ await t('MUTANT KILLED: a swim blind to the NEAR bank strands the way home in th
   })
 })
 await t('MUTANT KILLED: without the shore leg a crossing starts 19 blocks from the water (its near-shore crumb is no shore)', async () => {
-  await withMutant(EX_PATH, '  if (b && Math.hypot(b[0] - pos.x, b[2] - pos.z) > SHORE_NEAR && standableAt(read, b)) {\n', '  if (false) {\n', async M => {
+  await withMutant(EX_PATH, '  if (b && Math.hypot(b[0] - pos.x, b[2] - pos.z) > SHORE_NEAR && dHome({ x: b[0], z: b[2] }) > here && standableAt(read, b)) {\n', '  if (false) {\n', async M => {
     assert.equal(M.legTarget(world({ river: { x0: 20, x1: 24 } }), { pos: POS, home: HOME, bearing: 0, swim: M.SWIM_MAX }).via, 'swim')
   })
 })
@@ -128,6 +128,23 @@ await t('the NARROWEST crossing of the bends is swum (a lake 18 wide straight on
   await withMutant(EX_PATH, '      if (!best || lc.wet < best.lc.wet) best = { bend, lc, target: { x, y: s.y, z } }\n', '      if (!best) best = { bend, lc, target: { x, y: s.y, z } }\n', async M => {
     const m = M.legTarget(base, { pos: POS, home: HOME, bearing: 0, swim: M.SWIM_MAX })
     assert.ok(m.wet > 6, `the mutant swims the first it meets: ${m.wet}`)
+  })
+})
+
+await t('Claude review r1 BLOCKER: a KELP column in deep water is water, never a far shore on the lake bed', async () => {
+  // bank feet 63 (ground 62) to x 24; water 50..62 from x 25 on, deep; a kelp column at x 30..31 from the bed to the surface
+  const r = (x, y, z) => {
+    if (x <= 24) return y === 62 ? GRASS : y < 62 ? STONE : AIR
+    if (y < 50) return STONE
+    if (y <= 62) return (x === 30 || x === 31) ? { name: y === 62 ? 'kelp' : 'kelp_plant', boundingBox: 'empty' } : { name: 'water', boundingBox: 'empty' }
+    return AIR
+  }
+  const pos = { x: 20, y: 63, z: 0 }
+  assert.equal(E.surfaceAt(r, 30, 0, 63).water, true, 'kelp reads as water')
+  const lt = E.legTarget(r, { pos, home: HOME, bearing: 0, swim: E.SWIM_MAX })
+  assert.equal(lt.ok, false, `no shore in the sea: ${JSON.stringify(lt.target)}`)
+  await withMutant(EX_PATH, "const liquid = b => !!b && (LIQUID.test(b.name ?? '') || AQUATIC.test(b.name ?? '') || b.waterlogged === true)\n", "const liquid = b => !!b && (LIQUID.test(b.name ?? '') || b.waterlogged === true)\n", async M => {
+    assert.equal(M.surfaceAt(r, 30, 0, 63).water, false, 'the mutant reads the kelp column as ground on the bed')
   })
 })
 
