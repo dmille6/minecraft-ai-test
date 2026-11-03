@@ -137,7 +137,8 @@ import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
-import { runStairVisit, runStairEgress, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02 (+ shafttrap-01: the egress)
+import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
+import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's way out
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { tableCandidates, TABLE_TRIES } from './workbench.mjs'   // bagdiet-01: the craft's table candidates
 import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs'   // bagdiet-01: the light projects' hold and bank-back gate
@@ -17717,42 +17718,6 @@ export function stairRecordNow (now = Date.now()) {
 }
 const stairRow = (bot, op, d = {}) => { try { logEvent({ kind: 'shaft', status: 'success', snapshot: snapshot(bot), detail: shaftRowDetail({ op, ...d }) }) } catch { /* telemetry */ } }
 
-// shafttrap-01: THE VISIT'S WAY OUT (shaftvisit.mjs runStairEgress): hops on the town-deposit walk (stairWalk, deepminer-01's hop
-// size and bound) and the visit's own server-witnessed dig for a foreign block in one of the stair's air cells; ends 4 s before
-// the skill's budget (the runner cuts it there). One `_shaft op=egress` row per egress, one `op=egress_dig` per block cleared.
-const EGRESS_HOP_MS = 9_000
-const EGRESS_TAIL_MS = 4_000
-/** -> runStairEgress's result, or null (not under the collar: no row). Throws only an abort. */
-async function visitEgress (bot, rec, signal, deadline, e0 = null) {
-  const plan = stairPlanOf(rec)
-  const p = bot.entity?.position
-  if (!p || Math.floor(p.y + 1e-6) >= plan.g + 1) return null
-  let fx = null
-  try {
-    let e = e0
-    if (!e) {
-      const acks = (bot.shopAcks ??= shopAckInstall(bot))
-      fx = botBuildEffects(bot, { acks, keep: {}, withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
-        aborted: () => !!signal?.aborted, log: () => {}, spawnedAt: () => bot.shopSpawnAt ?? 0 })
-      e = stairBotEffects(bot, fx, { signal, log: () => {} })
-    }
-    const t0 = Date.now()
-    const r = await runStairEgress(plan, {
-      get read () { return stairRead(bot) },
-      feet: () => { const q = bot.entity.position; return [Math.floor(q.x), Math.floor(q.y + 1e-6), Math.floor(q.z)] },
-      walkTo: c => stairWalk(bot, c, EGRESS_HOP_MS, signal),
-      dig: c => e.dig(c),
-      now: () => Date.now(),
-      aborted: () => !!signal?.aborted,
-      log: (op, d) => {
-        if (op === 'egress_dig') { stairRow(bot, 'egress_dig', { k: d.k, at: d.at, why: 'foreign_in_air' }); return }
-        try { logEvent({ kind: 'shaft', status: d.ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=egress ${egressDetail({ ...d, ms: Date.now() - t0 })}` }) } catch { /* telemetry */ }
-      },
-    }, { exit: rec.exit, deadline })
-    return r
-  } finally { try { fx?.close() } catch { /* gone */ } }
-}
-
 async function buildStair (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -17886,6 +17851,42 @@ async function buildStair (ctx, args, signal) {
     releaseLease(dir, key, `slot${slot.slot}`, me, slot.gen)
     try { effects?.close() } catch { /* gone */ }
   }
+}
+
+// shafttrap-01: THE VISIT'S WAY OUT (shaftvisit.mjs runStairEgress): hops on the town-deposit walk (stairWalk, deepminer-01's hop
+// size and bound) and the visit's own server-witnessed dig for a foreign block in one of the stair's air cells; ends 4 s before
+// the skill's budget (the runner cuts it there). One `_shaft op=egress` row per egress, one `op=egress_dig` per block cleared.
+const EGRESS_HOP_MS = 9_000
+const EGRESS_TAIL_MS = 4_000
+/** -> runStairEgress's result, or null (not under the collar: no row). Throws only an abort. */
+async function visitEgress (bot, rec, signal, deadline, e0 = null) {
+  const plan = stairPlanOf(rec)
+  const p = bot.entity?.position
+  if (!p || Math.floor(p.y + 1e-6) >= plan.g + 1) return null
+  let fx = null
+  try {
+    let e = e0
+    if (!e) {
+      const acks = (bot.shopAcks ??= shopAckInstall(bot))
+      fx = botBuildEffects(bot, { acks, keep: {}, withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+        aborted: () => !!signal?.aborted, log: () => {}, spawnedAt: () => bot.shopSpawnAt ?? 0 })
+      e = stairBotEffects(bot, fx, { signal, log: () => {} })
+    }
+    const t0 = Date.now()
+    const r = await runStairEgress(plan, {
+      get read () { return stairRead(bot) },
+      feet: () => { const q = bot.entity.position; return [Math.floor(q.x), Math.floor(q.y + 1e-6), Math.floor(q.z)] },
+      walkTo: c => stairWalk(bot, c, EGRESS_HOP_MS, signal),
+      dig: c => e.dig(c),
+      now: () => Date.now(),
+      aborted: () => !!signal?.aborted,
+      log: (op, d) => {
+        if (op === 'egress_dig') { stairRow(bot, 'egress_dig', { k: d.k, at: d.at, why: 'foreign_in_air' }); return }
+        try { logEvent({ kind: 'shaft', status: d.ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=egress ${egressDetail({ ...d, ms: Date.now() - t0 })}` }) } catch { /* telemetry */ }
+      },
+    }, { exit: rec.exit, deadline })
+    return r
+  } finally { try { fx?.close() } catch { /* gone */ } }
 }
 
 // ---- the use: mine's descent and surface's ascent through the town stair (design section 6) ----------------------------------
