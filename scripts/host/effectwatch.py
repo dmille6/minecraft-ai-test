@@ -410,13 +410,16 @@ def read_target(cache, lin, promos, ti, t, horizon, expo=None, guard=False, side
     s = sign * d
     res['delta'], res['signed'] = d, s
     # noise: the same read 1..7 days earlier, builds before the target on both sides
-    pl = []
+    pl, in_holes = [], 0
     for k in range(1, ANCHORS + 1):
         sh = dt.timedelta(hours=24 * k)
         b2, p2 = [h - sh for h in bh], [h - sh for h in ph]
         c1, k1 = select(cache, b2, lin.before(ti), em, False if em else None)
         c2, k2 = select(cache, p2, lin.before(ti), em, False if em else None)
-        if k1['holes'] or k2['holes'] or min(k1['coverage'], k2['coverage']) < MIN_COVERAGE:
+        if k1['holes'] or k2['holes']:
+            in_holes += 1
+            continue
+        if min(k1['coverage'], k2['coverage']) < MIN_COVERAGE:
             continue
         m1 = EM.measure(c1, t['metric'], t.get('params') or {})
         m2 = EM.measure(c2, t['metric'], t.get('params') or {})
@@ -427,7 +430,8 @@ def read_target(cache, lin, promos, ti, t, horizon, expo=None, guard=False, side
             pl.append(x)
     res['placebo'] = pl
     if len(pl) < MIN_ANCHORS:
-        res.update(verdict='UNREADABLE', why=f'{len(pl)} readable placebo anchors < {MIN_ANCHORS} (noise unknown)')
+        res.update(verdict='UNREADABLE', why=f'{len(pl)} readable placebo anchors < {MIN_ANCHORS} (noise unknown)'
+                                             + (f'; {in_holes} in cache holes' if in_holes else ''))
         return res
     tau = max(2 * statistics.stdev(pl), FLOOR[scale][mb['kind']])
     res['tau'] = tau
@@ -550,7 +554,7 @@ def is_hole_only(v):
     if v.get('verdict') != 'UNREADABLE' or not v.get('targets'):
         return False
     tg = [r for r in v['targets'] if not r['guardrail'] and r['verdict'] == 'UNREADABLE' and not r.get('pending72')]
-    return bool(tg) and all('cache hole' in r.get('why', '') or 'placebo anchors' in r.get('why', '') for r in tg)
+    return bool(tg) and all('cache hole' in r.get('why', '') for r in tg)
 
 
 def one_line(v):
@@ -658,7 +662,8 @@ def cmd_run(a):
     for v in verdicts:
         counts[v['verdict']] = counts.get(v['verdict'], 0) + 1
     upcoming = sorted((hceil(p['P']) + dt.timedelta(hours=26) + EC.FINAL_AFTER + DUE_AFTER, p['run']) for p in promos
-                      if p['P'] >= since and not os.path.exists(os.path.join(sd, 'effect', p['run'], 'h24.json')))
+                      if p['P'] >= since and not os.path.exists(os.path.join(sd, 'effect', p['run'], 'h24.json'))
+                      and hceil(p['P']) + dt.timedelta(hours=26) + EC.FINAL_AFTER + DUE_AFTER > now)
     nxt = f'; next {upcoming[0][1]} h24 ~{iso(upcoming[0][0])[5:16]}Z' if upcoming else ''
     summary = (f'promotion effects: {len(verdicts)} reads since {a.since[:10]} -- ' +
                ', '.join(f'{k} {counts[k]}' for k in ('EFFECT', 'NO-EFFECT', 'WORSE', 'UNREADABLE') if k in counts) + nxt)
