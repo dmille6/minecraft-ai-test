@@ -434,6 +434,11 @@ await t('gkstall-01: the waiver room scales with the stage (a tenth of its cells
   const d = many.cells.slice(0, 20).map(c => ({ k: c.at.join(','), why: 'no_stand', visits: 2 }))
   assert.strictEqual(W.wallWaiveDue(many, d, T.gkWaiveOpts(many, 12)).length, 20, 'a road stage waives 20 of 300 (cap 30)')
   assert.strictEqual(W.wallWaiveDue(many, d, { after: 2 }).length, 12, 'control: the wall cap alone stops at 12')
+  // Codex fold r1 BLOCKER: a cave seal (a cell with an opener) and a carried prev cell are never waived; a plain fill is
+  const sealRec = { cells: [{ at: [1, 60, 1], role: 'core', seg: 'S', opener: [1, 61, 1] }, { at: [2, 66, 2], role: 'earth', seg: 'T' }, { at: [3, 66, 3], role: 'earth', seg: 'P', prev: true }] }
+  const dd = ['1,60,1', '2,66,2', '3,66,3'].map(k => ({ k, why: 'no_stand', visits: 2 }))
+  assert.deepStrictEqual(W.wallWaiveDue(sealRec, T.gkWaivable(sealRec, dd), T.gkWaiveOpts(sealRec, 12)), [{ k: '2,66,2', why: 'no_stand' }])
+  assert.strictEqual(W.wallWaiveDue(sealRec, dd, T.gkWaiveOpts(sealRec, 12)).length, 3, 'control: unfiltered, the seal would be waived')
   assert.strictEqual(T.gkStopAfterWaive('stuck_on_cell', 1), 'cell_waived')
   assert.strictEqual(T.gkStopAfterWaive('cell_deferred', 2), 'cell_waived')
   assert.strictEqual(T.gkStopAfterWaive('stuck_on_cell', 0), 'stuck_on_cell', 'nothing waived: the back-off stands')
@@ -441,7 +446,7 @@ await t('gkstall-01: the waiver room scales with the stage (a tenth of its cells
 })
 await t('wiring (gkstall-01): the tidy visit waives with gkWaiveOpts, reports the mapped stop, and a stuck keeper lets the lease go', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/const waive = wallWaiveDue\(rec, r\.deferred \?\? \[\], GROUNDS\.on \? gkWaiveOpts\(rec, WALL_WAIVE_MAX\) : \{\}\)/.test(s), 'the tidy waiver options')
+  assert.ok(/const waive = GROUNDS\.on \? wallWaiveDue\(rec, gkWaivable\(rec, r\.deferred \?\? \[\]\), gkWaiveOpts\(rec, WALL_WAIVE_MAX\)\) : wallWaiveDue\(rec, r\.deferred \?\? \[\]\)/.test(s), 'the tidy waiver options')
   assert.ok(/const stop1 = GROUNDS\.on \? gkStopAfterWaive\(r\.stop, waivedN\) : r\.stop/.test(s), 'the mapped stop')
   assert.ok(/return out\(status, completed \? 'complete' : stop1,/.test(s), 'the visit reports it')
   assert.ok(/if \(GROUNDS\.on && stop1 === 'stuck_on_cell'\) \{ try \{ const k = keeperState\(bot, true\); if \(k\.lease\?\.rec\?\.holder === me\) \{ releaseKeeper\(bot, k\.lease, 'stuck'\)/.test(s), 'the stuck keeper releases')

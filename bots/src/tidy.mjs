@@ -891,5 +891,11 @@ export const GK_WAIVE_AFTER = 2
 export const GK_WAIVE_SHARE = 0.1
 // (the stage's OWN cells: a terrace record's carried `prev` cells from the stage before are never worked, so they buy no room -- Claude fold note)
 export const gkWaiveOpts = (rec, max0 = 12) => ({ after: GK_WAIVE_AFTER, max: Math.max(max0, Math.ceil(GK_WAIVE_SHARE * (rec?.cells ?? []).filter(c => !c?.prev).length)) })
+/** The deferred cells the keeper's waiver may name -> the deferred list less every cave SEAL (a record cell with an `opener`,
+ *  townterrace-01: a pocket under a cut must be filled, never waived -- Codex fold r1 BLOCKER) and every carried `prev` cell. Pure. */
+export function gkWaivable (rec, deferred = []) {
+  const keep = new Set((rec?.cells ?? []).filter(c => c && !c.opener && !c.prev).map(c => c.at.join(',')))
+  return (deferred ?? []).filter(d => keep.has(String(d?.k ?? '')))
+}
 /** The visit's stop once its waiver has run -> stop. A visit that waived a cell freed the stage: not stuck, asked again at once. Pure. */
 export const gkStopAfterWaive = (stop, waivedN) => (waivedN > 0 && (stop === 'stuck_on_cell' || stop === 'cell_deferred') ? 'cell_waived' : stop)
