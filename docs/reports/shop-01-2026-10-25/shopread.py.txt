@@ -111,11 +111,18 @@ def tidy_clear_ok(chain, cell, kind, t_ms, guard):
     expedition marker block. A cell guarded at or before the clear (t_ms) is never the tidy's, planned or not (buildTidy's own dig
     guard: the projects' cells + the markers); a guard that came later (a house sited on a dug pillar) does not re-judge it."""
     k = ck(cell)
-    g = guard.get(k)
-    if g is not None and (t_ms is None or g <= t_ms):
+    if tidy_guarded(cell, t_ms, guard):
         return False
     lists = ('cells',) if kind == 'foreign' else ('cut', 'clear')
     return any(k == ck(c['at']) for rec in chain or [] for name in lists for c in rec.get(name) or [] if isinstance(c, dict) and c.get('at'))
+
+
+def tidy_guarded(cell, t_ms, guard):
+    """Was the cell another project's record cell or a marker block when it was dug? -> bool. Pure. (tidy_clear_ok's refusal; the
+    read names such an item `guarded` so the tripwire's tree-debris split -- a log or leaves block cleared off a list is a WATCH --
+    never softens it: Codex r1 BLOCKER, a log on another project's cell read as debris.)"""
+    g = guard.get(ck(cell))
+    return g is not None and (t_ms is None or g <= t_ms)
 
 
 def overburden_ok(rec, cell, max_up=3, any_role=False):
@@ -581,6 +588,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     stalled_pools.setdefault(pool, f.get('waiting') or '?')
             elif op == 'clear':
                 out['clears'] += 1
+                why = ''
                 if rec is not None:
                     if plot == TIDY:
                         # tidyread-01 (11-03, showcase 62e2aff0 TRIP): the tidy record has no box; its cuts are judged against
@@ -589,6 +597,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                             guards[pool] = tidy_guard(projects.get(pool))
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                         ok = tidy_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'), t_ms, guards[pool])
+                        why = ' guarded' if tidy_guarded(cell, t_ms, guards[pool]) else ''
                     elif f.get('kind') == 'foreign':
                         ok = k in {ck(c['at']) for c in rec.get('cells') or []}
                     elif f.get('kind') == 'tidy':
@@ -601,7 +610,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     else:
                         ok = k in {ck(c['at']) for c in rec.get('clear') or []}
                     if not ok:
-                        out['clear_outside'] += 1; lists['clear_outside'].append('%s %s %s %s' % (bot, k, f.get('kind'), f.get('block')))
+                        out['clear_outside'] += 1; lists['clear_outside'].append('%s %s %s %s%s' % (bot, k, f.get('kind'), f.get('block'), why))
                 if f.get('kind') == 'tree':
                     out['tree_clears'] += 1
                     m = re.match(r'^(\d+)/(\d+)$', f.get('saplings') or '')
@@ -830,6 +839,9 @@ def selftest():
     assert tc('-30,71,-30')['clear_outside'] == 0, 'listed, and no project holds it'
     m2 = dict(mrec, cells=mrec['cells'] + [{'at': [-30, 71, -30], 'role': 'core', 'seg': 'L01-N'}], at=T0MS - 120_000)
     assert tc('-30,71,-30', pp=TP_(mon=m2))['clear_outside'] == 1, 'a listed cut ON another project\'s record cell trips'
+    lg = J(base + [R('_build', 'project=tidy op=clear seg=T-00-0 cell=-30,71,-30 block=oak_log kind=tree saplings=0/0', s=14)], TP_(mon=m2))
+    assert lg['_lists']['clear_outside'] == ['board-a-Alpha -30,71,-30 tree oak_log guarded'], ('Codex r1 BLOCKER: a guarded log is named guarded, never debris', lg['_lists']['clear_outside'])
+    assert tc('3,74,-10')['_lists']['clear_outside'] == ['board-a-Alpha 3,74,-10 tidy dirt'], 'an off-list cut keeps the old words (ACK matches by text)'
     assert tc('-30,71,-30', pp=TP_(mon=dict(m2, at=T0MS + 3_600_000)))['clear_outside'] == 0, 'a project sited on the dug cell later does not re-judge it'
     cl1 = dict(tg1, cut=tg1['cut'] + [{'at': [40, 71, 40], 'kind': 'tidy', 'name': 'cobblestone'}])
     f1_ = [(1, json.dumps(cl1).encode())]

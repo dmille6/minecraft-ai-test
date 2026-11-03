@@ -50,8 +50,9 @@ M = [
  # tidyread-01 (11-03): a project=tidy clear against the tidy record's own lists across every stage generation
  ("                    if plot == TIDY:\n", "                    if False:\n"),
  ("ok = tidy_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell,", "ok = tidy_clear_ok([rec], cell,"),
- ("    if g is not None and (t_ms is None or g <= t_ms):\n        return False", "    if False:\n        return False"),
- ("    if g is not None and (t_ms is None or g <= t_ms):", "    if g is not None:"),
+ ("    if tidy_guarded(cell, t_ms, guard):\n        return False", "    if False:\n        return False"),
+ ("    return g is not None and (t_ms is None or g <= t_ms)", "    return g is not None"),
+ ("                        why = ' guarded' if tidy_guarded(cell, t_ms, guards[pool]) else ''", "                        why = ''"),
  ("    out = dict((pr or {}).get('markers') or {})", "    out = {}"),
  ("    lists = ('cells',) if kind == 'foreign' else ('cut', 'clear')", "    lists = ('cut', 'clear')"),
  ("    lists = ('cells',) if kind == 'foreign' else ('cut', 'clear')", "    lists = ('cells',) if kind == 'foreign' else ('cut',)"),
