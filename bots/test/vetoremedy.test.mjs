@@ -154,7 +154,7 @@ function fieldBot () {
 const RETURN = { id: 'return#7', wants: null, wantsAny: null, describe: 'Return home with what you gathered.', progress: '566 blocks from home', hint: 'use the home skill.' }
 /** The loop on a `return` rung whose model always asks for a goto 50 blocks up (the gate refuses it: unreachable_elevation).
  *  -> the sequence: c = a model call, h = a home run, x = any other run. */
-async function driveReturn (mod, { remedy, homeStatus = 'success', ms = 1300, proposal = GOTO_UP } = {}) {
+async function driveReturn (mod, { remedy, homeStatus = 'success', ms = 1300, proposal = GOTO_UP, rung = RETURN, extraInv = [], chest = false } = {}) {
   const { config } = await import('../src/config.mjs')
   const was = config.llm.decisionCooldownMs
   config.llm.decisionCooldownMs = 400
@@ -162,14 +162,16 @@ async function driveReturn (mod, { remedy, homeStatus = 'success', ms = 1300, pr
   const untap = tapRecords(r => { if (r?.skill?.name === '_work_order') rows.push(r.skill.detail) })
   try {
     const out = { seq: '', at: [] }
-    const runner = { isBusy: () => false, run: async (skill) => { out.seq += skill === 'home' ? 'h' : 'x'; out.at.push(Date.now())
+    const runner = { isBusy: () => false, run: async (skill) => { out.seq += skill === 'home' ? 'h' : skill === 'deposit' ? 'd' : 'x'; out.at.push(Date.now())
       return homeStatus === 'success' ? { status: 'success', detail: 'home (3b from the town centre)', contractEvidence: ['position: moved 40 blocks'] }
                                       : { status: 'failed', failClass: 'no_path', detail: 'no route exists toward 0,0' } } }
     const L = new Lessons(path.join(dir, `l${seq++}.json`)); L.data.avoid = {}; L.data.worked = {}
-    const loop = new mod.CognitiveLoop(fieldBot(), runner, L, null)
+    const bot = fieldBot(); bot.inventory.items().push(...extraInv)
+    if (chest) { const blk = { position: new Vec3(402, 70, 400), type: mcData.blocksByName.chest.id, name: 'chest' }; bot.findBlock = (o) => { try { return o?.matching?.(blk) ? blk : null } catch { return null } } }
+    const loop = new mod.CognitiveLoop(bot, runner, L, null)
     loop.fewerDec = FD.fewerDecConfig({ FEWERDEC_PAUSEWAIT: '0', FEWERDEC_VETOSKIP: '0' })
     if (remedy) loop.vetoRemedy = remedy
-    loop.milestones.status = () => ({ ...RETURN })
+    loop.milestones.status = () => ({ ...rung })
     loop.milestones.refresh = () => false
     loop.llm = { decide: async ({ user }) => { if (!/TRIGGER: startup/.test(user ?? '')) { out.seq += 'c'; out.at.push(Date.now()) } return { schemaValid: true, latencyMs: 1, raw: '{}', proposal: { ...proposal, reason: 'p' } } } }
     loop.start(); await new Promise(r => setTimeout(r, ms)); loop.stop()
@@ -232,4 +234,55 @@ test('DEPOSIT_ALL x THE REAL GATE: the named kept item is refused and the unname
   assert.equal(r?.skill, 'deposit')
   const all = A.check({ skill: r.skill, args: { ...r.args } }, bot, null)
   assert.notEqual(all.reason, 'deposit_nothing_to_bank', `the remedy banks the surplus: ${JSON.stringify(all)}`)
+})
+
+const SURPLUS = { id: 'deposit_surplus#3', wants: null, wantsAny: null, describe: 'Put your surplus in the town chest before heading out again.', progress: '12 bankable items carried', hint: 'deposit' }
+const SURPLUS_BAG = [{ name: 'apple', count: 4, slot: 11, type: mcData.itemsByName.apple.id }, { name: 'raw_copper', count: 12, slot: 12, type: mcData.itemsByName.raw_copper.id }]
+test('LOOP DEPOSIT_ALL: a named kept-item deposit on deposit_surplus is followed by deposit-everything on the next tick', async () => {
+  const r = await driveReturn((await import('../src/cognitive.mjs')), { rung: SURPLUS, extraInv: SURPLUS_BAG, chest: true, proposal: { skill: 'deposit', args: { item: 'apple' } } })
+  assert.match(r.seq, /^cd/, r.seq)
+  assert.ok(r.at[1] - r.at[0] < 300, `deposit ran ${r.at[1] - r.at[0]} ms after the veto`)
+  assert.ok(r.rows.some(d => /^deposit \{\} — veto remedy deposit_all/.test(d)), `${r.rows}`)
+})
+test('LOOP DEPOSIT_ALL OFF (positive control): the old loop only waits and asks again', async () => {
+  const r = await driveReturn((await import('../src/cognitive.mjs')), { rung: SURPLUS, extraInv: SURPLUS_BAG, chest: true, proposal: { skill: 'deposit', args: { item: 'apple' } }, remedy: VR.vetoRemedyConfig({ VETOREMEDY_RULES: 'return_home' }) })
+  assert.ok(r.seq.length >= 2 && /^c+$/.test(r.seq), r.seq)
+})
+test('LOOP DROPPED REMEDY: a remedy the next tick cannot use (rung changed) never brings the model call forward', async () => {
+  const COG = await import('../src/cognitive.mjs')
+  const { config } = await import('../src/config.mjs')
+  const was = config.llm.decisionCooldownMs; config.llm.decisionCooldownMs = 400
+  try {
+    const at = []
+    const runner = { isBusy: () => false, run: async () => ({ status: 'success', detail: 'ok', contractEvidence: ['position: moved 3 blocks'] }) }
+    const L = new Lessons(path.join(dir, `l${seq++}.json`)); L.data.avoid = {}; L.data.worked = {}
+    const loop = new COG.CognitiveLoop(fieldBot(), runner, L, null)
+    loop.fewerDec = FD.fewerDecConfig({ FEWERDEC_PAUSEWAIT: '0', FEWERDEC_VETOSKIP: '0' })
+    let n = 0
+    loop.milestones.status = () => ({ ...RETURN, id: `return#${n}` })   // the rung id changes after every call
+    loop.milestones.refresh = () => false
+    loop.llm = { decide: async ({ user }) => { if (!/TRIGGER: startup/.test(user ?? '')) at.push(Date.now()); n++; return { schemaValid: true, latencyMs: 1, raw: '{}', proposal: { ...GOTO_UP, reason: 'p' } } } }
+    loop.start(); await new Promise(r => setTimeout(r, 1500)); loop.stop()
+    assert.ok(at.length >= 2, `calls ${at.length}`)
+    for (let i = 1; i < at.length; i++) assert.ok(at[i] - at[i - 1] >= 380, `model asked ${at[i] - at[i - 1]} ms after the previous veto`)
+  } finally { config.llm.decisionCooldownMs = was }
+})
+test('LOOP DROPPED REMEDY MUTANT KILLED: without the drop wait the model is asked ~250 ms after the veto', async () => {
+  await withMutant(COG_PATH, "        else if (pend && trigger === 'idle') remedyDropUntil = (pend.at ?? 0) + config.llm.decisionCooldownMs } }\n", '  } }\n', async M => {
+    const { config } = await import('../src/config.mjs')
+    const was = config.llm.decisionCooldownMs; config.llm.decisionCooldownMs = 400
+    try {
+      const at = []
+      const runner = { isBusy: () => false, run: async () => ({ status: 'success', detail: 'ok' }) }
+      const L = new Lessons(path.join(dir, `l${seq++}.json`)); L.data.avoid = {}; L.data.worked = {}
+      const loop = new M.CognitiveLoop(fieldBot(), runner, L, null)
+      loop.fewerDec = FD.fewerDecConfig({ FEWERDEC_PAUSEWAIT: '0', FEWERDEC_VETOSKIP: '0' })
+      let n = 0
+      loop.milestones.status = () => ({ ...RETURN, id: `return#${n}` })
+      loop.milestones.refresh = () => false
+      loop.llm = { decide: async ({ user }) => { if (!/TRIGGER: startup/.test(user ?? '')) at.push(Date.now()); n++; return { schemaValid: true, latencyMs: 1, raw: '{}', proposal: { ...GOTO_UP, reason: 'p' } } } }
+      loop.start(); await new Promise(r => setTimeout(r, 1500)); loop.stop()
+      assert.ok(at.some((t, i) => i > 0 && t - at[i - 1] < 350), `gaps ${at.map((t, i) => i ? t - at[i - 1] : 0)}`)
+    } finally { config.llm.decisionCooldownMs = was }
+  })
 })
