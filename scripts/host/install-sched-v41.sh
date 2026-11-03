@@ -10,6 +10,9 @@
 #   ~/canary-sched.py                v40 (7f52a99f) -> v41
 #   ~/canary-loop.sh                 v38 (bff4daa7) -> v39
 #   ~/mcai-analysis/funread.py       dfccdd56 -> fun_reads
+#   ~/digest/RULES-IN-FORCE.md       GATE DIGEST 971142ea (v37) -> 5de4b571 (v38): funread.py is part of the gate bundle,
+#                                    so gatedigest.py refuses every launch until the new generation is registered
+#                                    (found at the 11-03 install; registered by hand at 06:5xZ, now part of the install)
 # Nothing else: verdict.py, the gate bundle, drawrec.sh, the queue and the crontab are untouched.
 #
 # STAGE (Mac):  git archive <sha> | ssh mike@10.0.0.31 'rm -rf ~/sched41-install/src && mkdir -p ~/sched41-install/src && tar -x -C ~/sched41-install/src'
@@ -24,6 +27,7 @@ SCHED_BASE=7f52a99ffc2fb6c0cc582d6fc6957572
 LOOP_BASE=bff4daa7e0423730113130517231a126
 FR=$H/mcai-analysis/funread.py
 FR_BASE=dfccdd568c1d39495d8302ac1a0a7d2f
+RU=$H/digest/RULES-IN-FORCE.md
 die() { echo "REFUSED: $*"; [ -n "${HELD:-}" ] && python3 $H/canary-sched.py install-release >/dev/null 2>&1; exit 2; }
 say() { echo "== $(date -u +%FT%TZ) $*"; }
 m5() { md5sum < "$1" | cut -c1-32; }
@@ -60,6 +64,7 @@ restore() {   # restore <stamp>: every file of the backup
   cp -p "$B/canary-sched.py" $H/canary-sched.py.rb && mv $H/canary-sched.py.rb $H/canary-sched.py
   cp -p "$B/canary-loop.sh" $H/canary-loop.sh.rb && mv $H/canary-loop.sh.rb $H/canary-loop.sh
   cp -p "$B/funread.py" $FR.rb && mv $FR.rb $FR
+  [ -f "$B/RULES-IN-FORCE.md" ] && cp -p "$B/RULES-IN-FORCE.md" $RU.rb && mv $RU.rb $RU
 }
 
 if [ "${1:-}" = "--rollback" ]; then
@@ -122,9 +127,10 @@ python3 $H/canary-sched.py tick --no-act > $BK/tick-before-$STAMP.out 2>&1
 python3 $H/canary-sched.py status > $BK/status-before-$STAMP.out 2>&1
 
 say "4. backup $BK/backup-$STAMP, then install all three"
-mkdir -p "$BK/backup-$STAMP" && cp -p $H/canary-sched.py $H/canary-loop.sh $FR "$BK/backup-$STAMP/" && \
+mkdir -p "$BK/backup-$STAMP" && cp -p $H/canary-sched.py $H/canary-loop.sh $FR $RU "$BK/backup-$STAMP/" && \
   cp -p $H/canary-queue.json "$BK/backup-$STAMP/canary-queue.json" || die "backup failed"
-put "$SRC/scripts/funread.py" $FR 644 && put "$S/canary-loop.sh" $H/canary-loop.sh 755 && put "$S/canary-sched.py" $H/canary-sched.py 755 \
+put "$SRC/scripts/funread.py" $FR 644 && put "$S/RULES-IN-FORCE.md" $RU 644 && put "$S/canary-loop.sh" $H/canary-loop.sh 755 && \
+  put "$S/canary-sched.py" $H/canary-sched.py 755 \
   || { restore $STAMP; die "an installed file differs from the staged one: rolled back"; }
 
 say "5. verify"
@@ -141,7 +147,8 @@ e,b,d=m.parse_status(open('$BK/status-$STAMP.out').read())
 o=[l.split()[0] for l in open('$BK/status-before-$STAMP.out') if m.LINE.match(l)]
 sys.exit(0 if [x['run'] for x in e]==o and d else 1)" || { restore $STAMP; die "servea-q no longer parses status like before: rolled back"; }
 cmp -s $H/canary-queue.json "$BK/backup-$STAMP/canary-queue.json" || echo "NOTE: the queue changed during the install (another writer?)"
-GD1=$(python3 $H/verdict.py --gate-digest 2>/dev/null | md5sum | cut -c1-32)
-[ "$GD0" = "$GD1" ] || echo "WARNING: gate digest output changed ($GD0 -> $GD1): check gatedigest.py before the next launch"
+python3 $H/mcai-analysis/gatedigest.py --verdict $H/verdict.py --rules $RU > $BK/gatedigest-$STAMP.out 2>&1 \
+  || { cat $BK/gatedigest-$STAMP.out; restore $STAMP; die "gatedigest.py refuses the installed gate (funread.py is in its bundle): rolled back"; }
+tail -1 $BK/gatedigest-$STAMP.out
 python3 $H/canary-sched.py install-release; HELD=""
 say "done: canary-sched.py $(m5 $H/canary-sched.py | cut -c1-8), canary-loop.sh $(m5 $H/canary-loop.sh | cut -c1-8), funread.py $(m5 $FR | cut -c1-8); rollback stamp $STAMP"
