@@ -26,7 +26,7 @@ import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND } from './landplan.mjs'   // groundskeeper-01
 import { PARK_PALETTE } from './park.mjs'   // townterrace-01: the park's roles
-import { siteTerrace, terraceOn, TERRACE_STAGE } from './terrace.mjs'   // townterrace-01: the terrace stage
+import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
 
 export const TIDY_PLOT = 'tidy'
 export const TIDY_BLUEPRINT = 'tidy@1'
@@ -96,6 +96,79 @@ export function tidyColumn (read, x, z, { yHi, yLo }) {
   return { y: null, name: null, why: 'no_ground', tree }
 }
 
+// ---- THE WATER RULE (owner 11-01, applied to the tidy 11-03: "lets go with the 11-1 rule") ------------------------------------
+//
+// Water is terrain; bridges, boats and buckets are allowed (owner-water-boats-bridges-1101). The tidy's old refusal -- no fill and no
+// cut within one block of any liquid -- goes. Every stage (stage 0's pits and corridors, the land plan's roads, the terrace) uses this
+// one rule:
+//   FILL  a fill cell may hold water (an embankment, a bridge footing: the block replaces it), never lava, never a waterlogged block
+//         (a part: its water stays). A pit beside water is filled to the water's surface.
+//   CUT   allowed beside water only when the water cannot flow into the opened cell: every water block 4-beside a cut cell at that
+//         cell's height (water spreads sideways and down, never up) gets a DAM -- a fill cell placed into that water first -- and
+//         the visit re-checks at the dig (buildrun.mjs `tidyOk`: no water beside the cell now, else the cut waits). Never a cut
+//         within one block of lava, never beside a waterlogged block (it cannot be dammed), never a dam in a column the stage may
+//         not touch (`waterOk`: wells, farm irrigation within 4 of farmland, the protected zones -- all refused, at siting and
+//         again at work time).
+// TIDY_WATER=strict is the rollback: the old refusal everywhere.
+/** THE WATER RULE'S SWITCH -> 'owner-1101' (default) | 'strict' (the old refusal). Pure. */
+export function tidyWater (env = process.env) {
+  const v = String(env?.TIDY_WATER ?? '').trim().toLowerCase()
+  return v === 'strict' || v === 'off' || v === '0' ? 'strict' : 'owner-1101'
+}
+const isWaterB = b => !!b && /^(water|bubble_column)$/.test(nm(b))
+const isLavaB = b => !!b && nm(b) === 'lava'
+const loggedB = b => !!b && String(b.name ?? '').includes('waterlogged')
+const anyLiquid = b => !!b && (isLiquid(b) || loggedB(b))
+/** A fill may go into this cell under the 11-01 rule: air, a plant, or water (never lava, never a waterlogged block). Pure. */
+export const fillIntoOk = (b, water = 'owner-1101') => !!b && (AIRN(nm(b)) || replaceableCell(b) || (water !== 'strict' && isWaterB(b)))
+/**
+ * A CUT CELL BESIDE WATER -> { ok, why, dams: [[x, y, z]] }. Pure over `read`. Strict: any liquid within one block refuses. The 11-01
+ * rule: lava within one block, or a waterlogged block 4-beside, refuses ('cut_lava' / 'cut_logged'); each water block 4-beside at the
+ * cut cell's height is a dam (refused when `mayDam(x, y, z)` says no: 'cut_wet_guarded'); `removed(k)` names the cells the same
+ * earthwork removes (a neighbour cut too is no wall -- its own check dams it).
+ */
+export function cutWater (read, x, y, z, { water = 'owner-1101', mayDam = () => true, removed = () => false } = {}) {
+  if (water === 'strict') {
+    for (const [dx, dz] of N8) for (let dy = -1; dy <= 1; dy++) if (anyLiquid(read(x + dx, y + dy, z + dz))) return { ok: false, why: 'cut_wet', dams: [] }
+    return { ok: true, why: null, dams: [] }
+  }
+  for (const [dx, dz] of [[0, 0], ...N8]) for (let dy = -1; dy <= 1; dy++) if (isLavaB(read(x + dx, y + dy, z + dz))) return { ok: false, why: 'cut_lava', dams: [] }
+  const dams = []
+  for (const [dx, dz] of N4) {
+    const at = [x + dx, y, z + dz], b = read(...at)
+    if (loggedB(b)) return { ok: false, why: 'cut_logged', dams: [] }
+    if (!isWaterB(b)) continue
+    if (removed(at.join(','))) continue
+    if (!mayDam(...at)) return { ok: false, why: 'cut_wet_guarded', dams: [] }
+    dams.push(at)
+  }
+  return { ok: true, why: null, dams }
+}
+/** AT THE DIG (buildrun.mjs `tidyOk`): may this cut cell come out NOW -- no water 4-beside it at its height (its dams are in), no
+ *  lava within one block, no waterlogged block beside? Pure over `read`; unread reads unsafe. */
+export function cutSafeNow (read, at, water = 'owner-1101') {
+  const [x, y, z] = at
+  for (const [dx, dz] of N4) { const b = read(x + dx, y, z + dz); if (!b || isWaterB(b) || loggedB(b) || isLavaB(b)) return false }
+  if (water === 'strict') return true
+  for (const [dx, dz] of [[0, 0], ...N8]) for (let dy = -1; dy <= 1; dy++) if (isLavaB(read(x + dx, y + dy, z + dz))) return false
+  return true
+}
+/** A WATER COLUMN'S BED AND SURFACE -> { bed, surface, depth } | null: under the open water (water blocks only, no lava, no ice) the
+ *  first full solid, within `depth` blocks. Pure over `read`. */
+export function waterColumn (read, x, z, { yHi, yLo, depth = 6 } = {}) {
+  let surface = null
+  for (let y = yHi; y >= yLo; y--) {
+    const b = read(x, y, z)
+    if (!b) return null
+    const n = nm(b)
+    if (surface == null) { if (AIRN(n) || replaceableCell(b)) continue; if (!isWaterB(b)) return null; surface = y; continue }
+    if (isWaterB(b)) { if (surface - y + 1 > depth) return null; continue }
+    if (b.boundingBox === 'block' && !isLiquid(b) && !loggedB(b)) return { bed: y, surface, depth: surface - y }
+    return null
+  }
+  return null
+}
+
 /**
  * THE SURVEY -> { cut: [{ at, name, pillar }], fill: [{ at, pit }], pillars: [...], pits: [...], skipped: { reason: n }, cols }.
  * Pure over `read`.
@@ -104,7 +177,7 @@ export function tidyColumn (read, x, z, { yHi, yLo }) {
  *   cells       Set "x,y,z" never touched (every project's record cells: belt and braces under `avoid`)
  *   r           half-width of the tidied square (TIDY.r)
  */
-export function surveyTidy (read, { home, avoid = () => null, cells = new Set(), r = TIDY.r, rMin = -1, T = TIDY } = {}) {
+export function surveyTidy (read, { home, avoid = () => null, cells = new Set(), r = TIDY.r, rMin = -1, water = 'strict', waterOk = () => false, T = TIDY } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   if (!home || ![home.x, home.y, home.z].every(Number.isFinite)) return { ok: false, why: 'no_home', cut: [], fill: [], pillars: [], pits: [], skipped }
@@ -174,6 +247,16 @@ export function surveyTidy (read, { home, avoid = () => null, cells = new Set(),
     const inC = new Set(comp)
     const rim = new Map()
     for (const [x, z] of cs) for (const [dx, dz] of N8) { const n = k2(x + dx, z + dz); if (!inC.has(n)) rim.set(n, col(x + dx, z + dz)) }
+    // the 11-01 water rule: a rim column of open water is the rim at its SURFACE (the pit is filled to the water, never into it);
+    // strict, or water the stage may not touch (`waterOk`: wells, farm irrigation, protected zones), is the old refusal
+    if (water !== 'strict') {
+      for (const [k, c] of rim) {
+        if (c?.why !== 'water') continue
+        const [rx, rz] = k.split(',').map(Number)
+        const wc = waterOk(rx, rz) ? waterColumn(read, rx, rz, { yHi, yLo }) : null
+        if (wc) rim.set(k, { y: wc.surface, name: 'water', why: null, tree: false, water: true })
+      }
+    }
     if ([...rim.values()].some(c => c?.why === 'water')) { skip('pit_water'); continue }
     if (![...rim.values()].every(ground)) { skip('pit_rim'); continue }
     if (cs.some(([x, z]) => col(x, z).tree)) { skip('pit_tree'); continue }
@@ -344,9 +427,12 @@ const fillable = b => !!b && (AIRN(nm(b)) || replaceableCell(b) || LEAVES.test(n
 const wetAt = read => (x, y, z) => { for (const [dx, dz] of N8) for (let dy = -1; dy <= 1; dy++) { const b = read(x + dx, y + dy, z + dz); if (b && (isLiquid(b) || String(b.name ?? '').includes('waterlogged'))) return true } return false }
 /** The grading router's limits (paths.mjs columnCost `lim`): fill and cut `n`, a cut through natural ground or the bots' spoil and
  *  never beside water, a fill only into air, a plant or leaves. The bigger allowance is tried too (gradeBest). */
-export const gradeLim = (read, n = 4) => {
+export const gradeLim = (read, n = 4, water = tidyWater()) => {
   const wet = wetAt(read)
-  return { fillMax: n, cutMax: n, cut: GRADE_CUT, fillOk: b => fillable(b), cutOk: (b, x, y, z) => !wet(x, y, z) }
+  // the 11-01 water rule: a fill may go into water; a cut beside water is the earthwork's to dam (gradeTidy / roadWork: cutWater),
+  // so the router refuses only a cut within one block of lava or beside a waterlogged block
+  if (water !== 'strict') return { fillMax: n, cutMax: n, cut: GRADE_CUT, water, fillOk: b => fillable(b) || fillIntoOk(b, water), cutOk: (b, x, y, z) => cutWater(read, x, y, z, { water }).ok }
+  return { fillMax: n, cutMax: n, cut: GRADE_CUT, water, fillOk: b => fillable(b), cutOk: (b, x, y, z) => !wet(x, y, z) }
 }
 export const GRADE_CUT = new RegExp(`${NATURAL.source}|${SPOIL.source}`)
 export const TIDY_GRADES = Object.freeze([4, 6, 8])
@@ -357,7 +443,7 @@ export const TIDY_GRADES = Object.freeze([4, 6, 8])
  * cut would reach a cell beside water (a cut there lets the water in), or into a record cell, is left to the paths (named).
  */
 export const GRADE_FRONT = 3
-export function gradeTidy (read, pin, { cells = new Set(), lim = gradeLim(read, 4), reserved = () => null } = {}) {
+export function gradeTidy (read, pin, { cells = new Set(), lim = gradeLim(read, 4), reserved = () => null, waterOk = () => false } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   if (!pin?.plan?.home) return { ok: false, why: 'no_plan', cut: [], fill: [], legs: [], skipped }
@@ -378,7 +464,9 @@ export function gradeTidy (read, pin, { cells = new Set(), lim = gradeLim(read, 
   // only through natural ground) lays each of those brushes without a cut
   const byCol = new Map()
   for (const l of routed) for (const [x, z, sv] of l.nodes) for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const k = k2(x + dx, z + dz); byCol.set(k, Math.min(byCol.get(k) ?? Infinity, sv)) }
-  const cut = [], fill = [], clear = []
+  const cut = [], fill = [], clear = [], dam = []
+  const water = lim.water ?? 'strict'
+  const damK = new Set()
   for (const [k, L] of [...byCol].sort()) {
     const [x, z] = k.split(',').map(Number)
     const g = s.grid.col(x, z)?.y
@@ -392,26 +480,30 @@ export function gradeTidy (read, pin, { cells = new Set(), lim = gradeLim(read, 
         if (cells.has(`${x},${y},${z}`)) { bad = 'grade_guarded'; break }
         // leaves in a fill cell are cleared first (a log is a tree: the column is left to the paths)
         if (b && LEAVES.test(n)) lv.push({ at: [x, y, z], kind: 'leaves', name: n })
-        else if (!b || !(AIRN(n) || replaceableCell(b))) { bad = 'grade_fill_blocked'; break }
+        else if (!b || !(AIRN(n) || replaceableCell(b) || (water !== 'strict' && waterOk(x, z) && fillIntoOk(b, water)))) { bad = 'grade_fill_blocked'; break }
         add.push({ at: [x, y, z] })
       }
       if (bad) { skip(bad); continue }
       fill.push(...add); clear.push(...lv)
     } else {
-      const add = []
+      const add = [], dm = []
       let bad = null
       for (let y = g; y > L; y--) {
         const b = read(x, y, z), n = nm(b)
         if (cells.has(`${x},${y},${z}`)) { bad = 'grade_guarded'; break }
         if (!b || !lim.cut.test(n)) { bad = 'grade_cut_blocked'; break }
-        if (wet(x, y, z)) { bad = 'grade_wet'; break }
+        // the 11-01 water rule (cutWater): dam the water beside the cell first, or (strict) the old refusal
+        const cw = water === 'strict' ? (wet(x, y, z) ? { ok: false, why: 'grade_wet' } : { ok: true, dams: [] }) : cutWater(read, x, y, z, { water, mayDam: (dx, dy, dz) => waterOk(dx, dz) && !reserved(dx, dz) && !cells.has(`${dx},${dy},${dz}`) })
+        if (!cw.ok) { bad = cw.why === 'cut_wet' ? 'grade_wet' : cw.why; break }
+        dm.push(...cw.dams)
         add.push({ at: [x, y, z], name: n })
       }
       if (bad) { skip(bad); continue }
       cut.push(...add)
+      for (const d of dm) if (!damK.has(d.join(','))) { damK.add(d.join(',')); dam.push({ at: d, dam: true }) }
     }
   }
-  return { ok: true, why: 'ok', cut, fill, clear, legs, skipped, home }
+  return { ok: true, why: 'ok', cut, fill: [...fill, ...dam.filter(d => !fill.some(f => f.at.join(',') === d.at.join(',')))], clear, legs, skipped, home, dams: dam.length }
 }
 
 /**
@@ -421,8 +513,10 @@ export function gradeTidy (read, pin, { cells = new Set(), lim = gradeLim(read, 
  * leave it (tidyOverlay), and the one leaving the fewest required legs unrouted is the record (ties: fewer cells). A column the
  * grading touches is the grading's alone. The bot's own (skills.mjs buildTidy) and the offline proof's (scripts/tidy-offline.mjs).
  */
-export function siteTidy (read, { home, avoid = () => null, cells = new Set(), pin = null, plan = null, r = TIDY.r, now = Date.now(), grades = TIDY_GRADES } = {}) {
-  const survey = surveyTidy(read, { home, avoid, cells, r })
+export function siteTidy (read, { home, avoid = () => null, cells = new Set(), pin = null, plan = null, r = TIDY.r, now = Date.now(), grades = TIDY_GRADES, water = 'strict', waterOk = () => false } = {}) {
+  // townterrace-01 (owner 11-01 rule): `water` 'owner-1101' fills beside and into water, dams a cut's water first; `waterOk(x, z)`
+  // the columns whose water the stage may touch (never a well, farm irrigation, a protected zone). Default strict: tidy-01 as before
+  const survey = surveyTidy(read, { home, avoid, cells, r, water, waterOk })
   if (!survey.ok) return { ok: false, why: survey.why, record: null, survey, grade: null, tried: [] }
   const build = grade => {
     // a column the grading touches is the grading's alone (a pit's fill on a column it cuts would float; a pillar's cut under its
@@ -454,7 +548,7 @@ export function siteTidy (read, { home, avoid = () => null, cells = new Set(), p
   let best = null
   if (pin) {
     for (const n of grades) {
-      const grade = gradeTidy(read, pin, { cells, lim: gradeLim(read, n), reserved: avoid })
+      const grade = gradeTidy(read, pin, { cells, lim: gradeLim(read, n, water), reserved: avoid, waterOk })
       grade.n = n
       if (!grade.ok) { tried.push({ n, why: grade.why }); if (grade.why === 'paths_route') break; continue }
       const record = build(grade)
@@ -518,26 +612,30 @@ const LOG_RE = /_(log|wood)$|^mangrove_roots$/
  * `tree`, one replant owed: `trees`). A column whose earthwork would touch a record cell, or that cannot be brought level, is left
  * (named in `skipped`): the road is graded round it by the paths later.
  */
-export function roadWork (read, cols, { home, cells = new Set(), lim, avoid = () => null, T = TIDY } = {}) {
+export function roadWork (read, cols, { home, cells = new Set(), lim, avoid = () => null, waterOk = () => false, T = TIDY } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   const cut = [], fill = [], clear = [], trees = []
   const wet = wetAt(read)
+  const water = lim?.water ?? 'strict'
+  const damK = new Set()
   for (const [x, z, L] of cols) {
     // Codex r1 BLOCKER 1: the plan was routed once; a zone, the plan's cells or a project sited SINCE are refused NOW (the tidy's
     // own guard: zones, the plan, wells, the farm, every project's record and reservation) -- never cut, filled or cleared
     if (avoid(x, z)) { skip('road_guarded'); continue }
-    const c = tidyColumn(read, x, z, { yHi: home.y + T.dy, yLo: home.y - T.dy })
+    let c = tidyColumn(read, x, z, { yHi: home.y + T.dy, yLo: home.y - T.dy })
+    // the 11-01 water rule: a road column of open water is an EMBANKMENT -- filled from its bed up to the road's level
+    if (c.why === 'water' && water !== 'strict' && waterOk(x, z)) { const wc = waterColumn(read, x, z, { yHi: home.y + T.dy, yLo: home.y - T.dy }); if (wc && L - wc.bed <= (lim?.fillMax ?? 6) && L >= wc.surface) c = { y: wc.bed, name: 'water_bed', why: null, tree: false } }
     if (c.why || c.y == null) { skip(`road_${c.why ?? 'no_ground'}`); continue }
     const g = c.y
-    const add = [], lv = [], cu = []
+    const add = [], lv = [], cu = [], dm = []
     let bad = null
     if (L > g) {
       for (let y = g + 1; y <= L; y++) {
         const b = read(x, y, z), n = nm(b)
         if (cells.has(`${x},${y},${z}`)) { bad = 'road_guarded'; break }
         if (b && LEAVES.test(n)) lv.push({ at: [x, y, z], kind: 'leaves', name: n })
-        else if (!b || !(AIRN(n) || replaceableCell(b))) { bad = 'road_fill_blocked'; break }   // (the cell guard is above: every fill and leaves cell)
+        else if (!b || !(AIRN(n) || replaceableCell(b) || (water !== 'strict' && waterOk(x, z) && fillIntoOk(b, water)))) { bad = 'road_fill_blocked'; break }   // (the cell guard is above: every fill and leaves cell)
         add.push({ at: [x, y, z] })
       }
     } else if (L < g) {
@@ -545,7 +643,9 @@ export function roadWork (read, cols, { home, cells = new Set(), lim, avoid = ()
         const b = read(x, y, z), n = nm(b)
         if (cells.has(`${x},${y},${z}`)) { bad = 'road_guarded'; break }
         if (!b || !lim.cut.test(n)) { bad = 'road_cut_blocked'; break }
-        if (wet(x, y, z)) { bad = 'road_wet'; break }
+        const cw = water === 'strict' ? (wet(x, y, z) ? { ok: false, why: 'cut_wet' } : { ok: true, dams: [] }) : cutWater(read, x, y, z, { water, mayDam: (dx, dy, dz) => waterOk(dx, dz) && !avoid(dx, dz) && !cells.has(`${dx},${dy},${dz}`) })
+        if (!cw.ok) { bad = cw.why === 'cut_wet' ? 'road_wet' : `road_${cw.why}`; break }
+        dm.push(...cw.dams)
         cu.push({ at: [x, y, z], name: n })
       }
     }
@@ -568,6 +668,7 @@ export function roadWork (read, cols, { home, cells = new Set(), lim, avoid = ()
       trees.push({ col: [x, z], name: trunk })
     }
     fill.push(...add); clear.push(...lv); cut.push(...cu)
+    for (const d of dm) if (!damK.has(d.join(','))) { damK.add(d.join(',')); fill.push({ at: d, dam: true }) }
   }
   return { cut, fill, clear, trees, skipped }
 }
@@ -646,23 +747,29 @@ export function roadLights (read, cols, { home, avoid = () => null, n = 0, cells
  */
 export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, env = process.env, L = LAND } = {}) {
   const st = typeof stage === 'object' ? stage : stageOf(stage, L)
-  if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now }); if (s.record) { s.record.stage = 0; s.record.stageId = st.id; s.record.terraceV = 1 } return { ...s, road: null } }
+  // the owner's 11-01 water rule for every stage (tidyWater: TIDY_WATER=strict is the old refusal): the stage may touch the water of
+  // a column it may touch at all, never within farmGuard of farmland (the farm's irrigation)
+  const water = tidyWater(env)
+  const reach = Math.max(TIDY.r, st.rMax ?? -1, st.upto ?? -1)
+  let farmAt = null
+  const waterOk = (x, z) => { if (avoid(x, z)) return false; farmAt ??= farmGuardOf(read, [home.x - reach, home.z - reach, home.x + reach, home.z + reach], home); return !farmAt(x, z) }
+  if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now, water, waterOk }); if (s.record) { s.record.stage = 0; s.record.stageId = st.id; s.record.terraceV = 1 } return { ...s, road: null } }
   // townterrace-01: the terrace stage (terrace.mjs siteTerrace) inside the wall; TERRACE=off (or no terrace inputs) reads as
   // nothing to do, and the ring order goes on
   if (st.id === TERRACE_STAGE) {
     if (!terraceOn(env) || !terrace) return { ok: true, why: 'off', record: null, survey: null, road: null }
     // ASYNC (the grading's solves are seconds of work on a rough town: `pause` yields the bot's event loop between them); every
     // caller awaits siteStage
-    return siteTerrace(read, { home, plan, land, avoid, cells, walkFrom, now, ...terrace }).then(t => {
+    return siteTerrace(read, { home, plan, land, avoid, cells, walkFrom, now, water, ...terrace }).then(t => {
       if (t.record) { t.record.stage = legacyStage(st); t.record.terraceV = 1; t.record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null }
       return { ...t, survey: null, road: null }
     })
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
-  const survey = st.rMax > 0 ? surveyTidy(read, { home, avoid, cells, r: st.rMax, rMin: st.rMin }) : { ok: true, cut: [], fill: [], pillars: [], pits: [], skipped: {} }
+  const survey = st.rMax > 0 ? surveyTidy(read, { home, avoid, cells, r: st.rMax, rMin: st.rMin, water, waterOk }) : { ok: true, cut: [], fill: [], pillars: [], pits: [], skipped: {} }
   if (!survey.ok) return { ok: false, why: survey.why, record: null, survey, road: null }
   const rcols = stageRoadCols(land, st, { L })
-  let road = rcols.length ? roadWork(read, rcols, { home, cells, avoid, lim: lim ?? gradeLim(read, 6) }) : { cut: [], fill: [], clear: [], trees: [], skipped: {} }
+  let road = rcols.length ? roadWork(read, rcols, { home, cells, avoid, waterOk, lim: { ...(lim ?? gradeLim(read, 6, water)), water } }) : { cut: [], fill: [], clear: [], trees: [], skipped: {} }
   // NEVER WORSE (offline, hive-d: a ring graded 4 over the plaza's edge cut the town off its roads): with `walkFrom` (the town's
   // edge columns), the walk from the town -- over all the land, and along the roads -- is measured on the ground as it is and as
   // this stage's road work would leave it; a road work that reaches fewer columns either way is dropped (named), the band's

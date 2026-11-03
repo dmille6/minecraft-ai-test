@@ -385,6 +385,124 @@ await t('COMPOSED: a park element the bag lacks never blocks the visit with the 
   assert.strictEqual(b.r.stop, 'no_material', `${b.r.stop}: ${b.r.why}`)
 })
 
+console.log('THE OWNER\'S 11-01 WATER RULE (water is terrain): fills beside and into water, a cut beside water dams it first')
+const TIDY_PATH = new URL('../src/tidy.mjs', import.meta.url)
+await t('cutWater: strict refuses any liquid within one block; the 11-01 rule dams each water block 4-beside, refuses lava, a waterlogged block and a dam it may not place', async () => {
+  const srv = server()
+  srv.set([11, G, 0], 'water')
+  assert.deepStrictEqual(T.cutWater(srv.read, 10, G, 0, { water: 'strict' }), { ok: false, why: 'cut_wet', dams: [] })
+  assert.deepStrictEqual(T.cutWater(srv.read, 10, G, 0), { ok: true, why: null, dams: [[11, G, 0]] })
+  assert.strictEqual(T.cutWater(srv.read, 10, G, 0, { mayDam: () => false }).why, 'cut_wet_guarded', 'a well, the farm\'s irrigation, a zone: never dammed')
+  assert.deepStrictEqual(T.cutWater(srv.read, 10, G + 1, 0).dams, [], 'water below the cell does not flow up into it')
+  srv.set([9, G - 1, 1], 'lava')
+  assert.strictEqual(T.cutWater(srv.read, 10, G, 0).why, 'cut_lava')
+  const s2 = server(); s2.set([10, G, 1], 'oak_stairs[waterlogged=true]')
+  assert.strictEqual(T.cutWater(s2.read, 10, G, 0).why, 'cut_logged')
+  assert.strictEqual(T.tidyWater({ TIDY_WATER: 'strict' }), 'strict'); assert.strictEqual(T.tidyWater({}), 'owner-1101')
+})
+await t('fills: into water under the rule (an embankment), never into lava; a pit beside a pond is filled to the water\'s surface (strict: pit_water)', async () => {
+  assert.ok(T.fillIntoOk({ name: 'water', boundingBox: 'empty' }) && !T.fillIntoOk({ name: 'water', boundingBox: 'empty' }, 'strict') && !T.fillIntoOk({ name: 'lava', boundingBox: 'empty' }))
+  const srv = server()
+  col(srv, 10, 0, G - 2, G, 'air')                          // a pit 3 deep
+  col(srv, 11, 0, G - 1, G, 'water'); col(srv, 11, 1, G - 1, G, 'water'); col(srv, 11, -1, G - 1, G, 'water')   // a pond beside it, surface G
+  const strict = T.surveyTidy(srv.read, { home: HOME })
+  assert.ok(strict.skipped.pit_water >= 1 && !strict.fill.some(f => f.at[0] === 10 && f.at[2] === 0))
+  const rule = T.surveyTidy(srv.read, { home: HOME, water: 'owner-1101', waterOk: () => true })
+  assert.deepStrictEqual(rule.fill.filter(f => f.at[0] === 10 && f.at[2] === 0).map(f => f.at[1]).sort(), [G - 2, G - 1, G], 'filled to the surface')
+  const guarded = T.surveyTidy(srv.read, { home: HOME, water: 'owner-1101', waterOk: () => false })
+  assert.ok(!guarded.fill.some(f => f.at[0] === 10 && f.at[2] === 0), 'water the stage may not touch: as before')
+})
+await t('the terrace beside a pond: strict keeps the bank (cut_wet); the rule cuts it with a dam into the pond first, and grades the pond\'s edge as an embankment', async () => {
+  const pond = () => { const srv = server(); plateau(srv, 14, 24, -4, 4, G + 2); for (let z = -4; z <= 4; z++) col(srv, 25, z, G + 1, G + 2, 'water'); return srv }
+  const a = TR.gradeTerraces(pond().read, BOX, { home: HOME, levels: [G, G + 1] })
+  const b = TR.gradeTerraces(pond().read, BOX, { home: HOME, levels: [G, G + 1], water: 'owner-1101' })
+  assert.ok((a.skipped.cut_wet ?? 0) > 0, JSON.stringify(a.skipped))
+  assert.ok(b.cut.some(c => c.at[0] === 24), 'the bank beside the pond is cut')
+  assert.ok(b.dam.length > 0 && b.dam.every(d => d.at[0] === 25), JSON.stringify(b.dam.slice(0, 3)))
+  for (const c of b.cut.filter(q => q.at[0] === 24)) { const d = b.dam.some(q => q.at.join(',') === `25,${c.at[1]},${c.at[2]}`) || b.fill.some(q => q.at.join(',') === `25,${c.at[1]},${c.at[2]}`); assert.ok(d, `the cut ${c.at} has its water dammed or filled`) }
+  const c = TR.gradeTerraces(pond().read, BOX, { home: HOME, levels: [G, G + 1], water: 'owner-1101', farm: (x) => x === 25 })
+  assert.ok(!c.cut.some(q => q.at[0] === 24 && q.at[1] > G + 1) || c.dam.length === 0, 'the farm\'s water is never dammed')
+  assert.ok(!c.dam.length && !c.fill.some(q => q.at[0] === 25))
+})
+await t('MUTANT KILLED: without the dams the cut beside water carries none (the water would flow in)', async () => {
+  await withMutant(TIDY_PATH, '    dams.push(at)\n', '\n', async M => {
+    const srv = server(); srv.set([11, G, 0], 'water')
+    assert.deepStrictEqual(M.cutWater(srv.read, 10, G, 0).dams, [])
+  })
+})
+// THE FLOOD TEST: the fake server lets water flow into a cell dug beside it (4 sides, its height), and places into water
+const floodVisit = async (RM, { rec, cuts, extra = {} }) => {
+  const srv = server()
+  for (const [k, v] of Object.entries(rec.world ?? {})) srv.set(k.split(',').map(Number), v)
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tw-'))
+  const key = PJ.projKey(HOME, 'tidy')
+  const pub = PJ.publishRecord(dir, key, () => ({ ...rec }))
+  const slot = PJ.takeSlot(dir, key, 'A', 1)
+  const e = bot(srv, 'A', { inv: { cobblestone: 32, dirt: 32 }, feet: [0, G + 1, 0] })
+  const dig0 = e.dig
+  e.dig = async (c, expect) => {
+    const v = await dig0(c, expect)
+    if (v === 'confirmed' && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => srv.read(c[0] + dx, c[1], c[2] + dz)?.name === 'water')) srv.set(c, 'water')   // it floods
+    return v
+  }
+  let held = null
+  const hold0 = e.hold; e.hold = async n => { const ok = await hold0(n); if (ok) held = n; return ok }
+  const send0 = e.send
+  e.send = (support, face, seq) => { const tg = support.map((v, i) => v + face[i]); if (srv.read(...tg)?.name === 'water' && held) { srv.set(tg, 'air'); e.inv[held]++ } return send0(support, face, seq) }
+  const r = await RM.runVisit({ dir, key, me: 'A', home: HOME, stood: [], record: rec, tidy: cuts, recordGen: pub.gen, palette: T.TIDY_PALETTE, slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: 48, clearMax: 16, tidyKeepOrder: true, deferSpent: true, ...extra }, e, { maxSteps: 400 })
+  return { r, srv }
+}
+const FLOOD = () => {
+  // a bank column (10, z=0) at G+1 above flat ground, a pond cell beside it at (11, G+1, 0) held up by a wall of stone round it
+  const world = { [`10,${G + 1},0`]: 'dirt', [`11,${G + 1},0`]: 'water', [`12,${G + 1},0`]: 'stone', [`11,${G + 1},1`]: 'stone', [`11,${G + 1},-1`]: 'stone' }
+  return { v: 1, blueprint: T.TIDY_BLUEPRINT, plot: 'tidy', home: HOME, world, cells: [{ at: [11, G + 1, 0], role: 'core', seg: 'T-D', dam: true }], clear: [], cut: [{ at: [10, G + 1, 0], kind: 'tidy', name: 'dirt' }], replant: [], segments: [{ seg: 'T-D', deps: [] }], zones: [], structure_complete: false }
+}
+await t('THE FLOOD TEST: the dam goes into the water first and the cut comes out after it -- dry; the dig-time check holds a cut whose water is not dammed', async () => {
+  const rec = FLOOD()
+  const { r, srv } = await floodVisit(R, { rec, cuts: rec.cut, extra: { intoWater: true, tidyOk: (q, rd) => T.cutSafeNow(rd, q.at) } })
+  assert.strictEqual(srv.read(11, G + 1, 0).name, 'cobblestone', `the dam: ${r.stop} ${r.why}`)
+  assert.strictEqual(srv.read(10, G + 1, 0).name, 'air', 'the cut is out, and dry')
+  // a cut whose water is not dammed (no dam in the record: water came since the siting) waits at the dig
+  const rec2 = { ...FLOOD(), cells: [], segments: [] }
+  const b = await floodVisit(R, { rec: rec2, cuts: rec2.cut, extra: { intoWater: true, tidyOk: (q, rd) => T.cutSafeNow(rd, q.at) } })
+  assert.strictEqual(b.srv.read(10, G + 1, 0).name, 'dirt', 'held: never dug beside open water')
+  assert.deepStrictEqual(b.r.tidyWet, [`10,${G + 1},0`])
+})
+await t('MUTANT KILLED (the flood): without the dig-time check the cut comes out before its dam and the water floods in', async () => {
+  await withMutant(BUILDRUN_PATH, "        if (c.kind === 'tidy' && p.tidyOk && !p.tidyOk(c, rd)) { (out.tidyWet ??= []).push(kOf(c.at)); continue }\n", '\n', async RM => {
+    const rec = FLOOD()
+    const { srv } = await floodVisit(RM, { rec, cuts: rec.cut, extra: { intoWater: true, tidyOk: (q, rd) => T.cutSafeNow(rd, q.at) } })
+    assert.strictEqual(srv.read(10, G + 1, 0).name, 'water', 'flooded')
+  })
+})
+await t('MUTANT KILLED: without `intoWater` the dam cannot go into the water (the cut then waits for good, never floods)', async () => {
+  await withMutant(BUILDRUN_PATH, " || (!!p.intoWater && /^(water|bubble_column)$/.test(nm(b)))) }", ') }', async RM => {
+    const rec = FLOOD()
+    const { srv } = await floodVisit(RM, { rec, cuts: rec.cut, extra: { intoWater: true, tidyOk: (q, rd) => T.cutSafeNow(rd, q.at) } })
+    assert.strictEqual(srv.read(11, G + 1, 0).name, 'water'); assert.strictEqual(srv.read(10, G + 1, 0).name, 'dirt')
+  })
+})
+await t('roadWork under the rule: a cut beside water carries its dam; a road column of shallow open water is an embankment from its bed', async () => {
+  const srv = server()
+  col(srv, 30, 0, G + 1, G + 1, 'dirt'); srv.set([31, G + 1, 0], 'water')
+  col(srv, 30, 5, G - 1, G, 'water')
+  const lim = { ...T.gradeLim(srv.read, 6, 'owner-1101'), water: 'owner-1101' }
+  const r = T.roadWork(srv.read, [[30, 0, G], [30, 5, G]], { home: HOME, lim, waterOk: () => true })
+  assert.ok(r.cut.some(c => c.at.join(',') === `30,${G + 1},0`) && r.fill.some(f => f.dam && f.at.join(',') === `31,${G + 1},0`), JSON.stringify(r))
+  assert.deepStrictEqual(r.fill.filter(f => f.at[0] === 30 && f.at[2] === 5).map(f => f.at[1]).sort(), [G - 1, G])
+  const st = T.roadWork(srv.read, [[30, 0, G], [30, 5, G]], { home: HOME, lim: { ...T.gradeLim(srv.read, 6, 'strict'), water: 'strict' } })
+  assert.ok(st.skipped.road_wet === 1 && st.skipped.road_water === 1, JSON.stringify(st.skipped))
+})
+await t('WIRING: buildTidy passes intoWater and the dig-time check; siteStage reads the rule (TIDY_WATER=strict: the old refusal)', async () => {
+  const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.ok(/\.\.\.\(GROUNDS\.on \? \{ intoWater: tidyWater\(\) !== 'strict', tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) \} : \{\}\)/.test(s))
+  const srv = server()
+  col(srv, 10, 0, G - 2, G, 'air'); col(srv, 11, 0, G - 1, G, 'water'); col(srv, 11, 1, G - 1, G, 'water'); col(srv, 11, -1, G - 1, G, 'water')
+  const on = await T.siteStage(srv.read, { home: HOME, land: null, stage: 0, now: 0, env: {} })
+  const off = await T.siteStage(srv.read, { home: HOME, land: null, stage: 0, now: 0, env: { TIDY_WATER: 'strict' } })
+  const has = r => (r.record?.cells ?? []).some(c => c.at[0] === 10 && c.at[2] === 0)
+  assert.ok(has(on) && !has(off))
+})
 console.log('THE RING ORDER AND THE LAND PLAN')
 await t('the terrace is stage 1, right after the plaza; the roads follow it', async () => {
   const st = LP.landStages()
