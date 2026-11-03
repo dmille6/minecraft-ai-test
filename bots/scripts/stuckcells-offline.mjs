@@ -8,6 +8,7 @@
 // <dump.json>: scripts/host/townplan_blockdump.py over COPIES of the region files. <pool-state-dir>: a COPY of /var/lib/mcai/_pool-<pool>
 // (the project's record, its stuck maps). Both are read only: the state is copied again into a temp dir and the visits write there.
 // --off: STUCKCELLS=off (the visit as the fleet runs it today; the read drops a snow layer's properties, as buildbot.mjs did).
+// --cascade: a dug bamboo / sugar cane block breaks the stalk above it (vanilla); MONUSTUCK=off in the env runs the visit without monustuck-01.
 // The fake builder: walks are instant to the planned stand, every click the server would take is taken (an empty target cell,
 // the block in the bag), digs land. Bags hold every block. Time moves 10 min a visit.
 import fs from 'node:fs'
@@ -76,7 +77,8 @@ function builder (name, feet) {
     waitAck: (seq, ms) => acks.tracker.wait(seq, ms),
     track: () => {}, untrack: () => {},
     conn: () => `${name}-c1`, acked: () => acks.tracker.acked, seen: () => ({ online: true, offlineSince: null, leftAt: null }),
-    dig: async (c, expect) => { const b = read(...c); if (expect && b?.name !== expect) return 'refused'; set(c, 'air'); return 'confirmed' },
+    // --cascade (monustuck-01): the server breaks a bamboo / sugar cane stalk above a broken stalk block, as vanilla does
+    dig: async (c, expect) => { const b = read(...c); if (expect && b?.name !== expect) return 'refused'; set(c, 'air'); if (flag('cascade') && /^(bamboo|sugar_cane)$/.test(b?.name ?? '')) for (let y = c[1] + 1; read(c[0], y, c[2])?.name === b.name; y++) set([c[0], y, c[2]], 'air'); return 'confirmed' },
     probe: async c => read(...c)?.name ?? null, aborted: () => false,
     log: (k, d) => rows.push({ bot: name, k, ...d }),
     now: () => t, sleep: async ms => { t += ms }, spawnedAt: () => 0,
