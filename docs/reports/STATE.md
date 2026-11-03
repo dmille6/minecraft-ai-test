@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-02T23:20:01Z._
+_Generated 2026-11-03T00:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-02T23:20:01Z._
 | **Canary in slot** | **drainpick-01** deployed 11-02 21:37Z; reads +90 11-02 23:07Z, +180 11-03 00:37Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | stuckcells-01 -> deepminer-01 -> bagdiet-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01. Held: servea-01 (HELD: released AUTOMATICALLY by the servea waiter (Mac launchd com.mcai.servea-waiter, scripts/h...); llmoai-01 (HELD: serving A (OWNER 11-02 'do what you recommend'): the oai+ client to the whole fleet, neede...). Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
 | **Scheduler** | busy S1 canary declared: e54d1cce6b76e0f66877a1042ecd7765566092c5 on board-d,hive-a / S6 open loop: canary e54d1cc is deployed on board-d,hive-a with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 drainpick |
-| **Showcase release** | `4c92880a` (18,658 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **tests_failed** (live 4c92880a sits on f1f5c16c (tidy-01); behind by 1: fewerdec-01; compat identical: 8 records: same heads, build order and damage in 3 worlds; tests tests_fai; row 11-02 22:25Z) |
+| **Showcase release** | `4c92880a` (19,515 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **tests_failed** (live 4c92880a sits on f1f5c16c (tidy-01); behind by 1: fewerdec-01; compat identical: 8 records: same heads, build order and damage in 3 worlds; tests tests_fai; row 11-02 23:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | qwen35-roll: rollout-compare 11-02 22:36Z |
-| **Pending owner decisions** | **stockyard-1102**: When a town's yard is full (304 blocks), does surplus cobble go down the well (10-16 approval) or stay in bags (11-02 'the well only for true junk')? Today: it stays in bags. |
-| **Open alarms** | STALLCHECK 2026-11-02T22:35:01Z STALLED: 38. OPSAUDIT 2026-11-02 FLAGS: 8 (1 high). 15 active alarm(s): stuck goals 11 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-a/monument@355_73_147, hive-b/monument@355_73_147, hive-d/shaft@68_65_68, hive-d/shop@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, flowledger bags, flowledger starved:placebo-b |
+| **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
+| **Open alarms** | STALLCHECK 2026-11-02T23:35:01Z STALLED: 32. OPSAUDIT 2026-11-02 FLAGS: 8 (1 high). 19 active alarm(s): stuck goals 12 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-a/monument@355_73_147, hive-b/monument@355_73_147, hive-d/shaft@68_65_68, hive-d/shop@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, flowledger bags, flowledger starved:placebo-b, flowledger stations:hive-b |
 <!-- GENERATED:END -->
 
 ## Notes
