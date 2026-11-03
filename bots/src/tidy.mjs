@@ -47,10 +47,11 @@ export const TIDY_CUT_TRIES = 3
 export const TIDY_CLEAR_MAX = 48
 
 /**
- * THE SWITCH -> bool. TIDY=on|off; unset = every pool TIDY_POOLS names (default '*'), except the showcase unless named: the
- * showcase's ground is the owner's picture (14% rough; its own zigtidy cleans the ziggurat). Pure.
+ * THE SWITCH -> bool. TIDY=on|off; unset = every pool TIDY_POOLS names (default '*'), except a pool TIDY_DEFAULT_OFF_POOLS names
+ * unless named. The showcase was that pool until its groundskeeper release (11-03: tidy-01 + groundskeeper-01 owe a showcase
+ * run, Codex ops audit 11-02 flag 2); TIDY=off on the showcase bots is the rollback. Pure.
  */
-export const TIDY_DEFAULT_OFF_POOLS = Object.freeze(['showcase'])
+export const TIDY_DEFAULT_OFF_POOLS = Object.freeze([])
 export function tidyOn (env = process.env, pool = '') {
   const v = String(env?.TIDY ?? '').trim().toLowerCase()
   if (v === 'on' || v === '1' || v === 'true') return true
