@@ -4324,6 +4324,26 @@
     ]
    },
    "note": "Placement (control session): proof in parallel now; books follow T2 in the fleet P lane; showcase only once its villagers have jobs (T3a frees village-taiga-6_1)."
+  },
+  {
+   "id": "monustuck-1103",
+   "title": "Stuck fleet ziggurats (control session item monustuck, owner 11-03 'design all using both claude and codex ... deploy where you feel is right'): the bamboo grove under F-E of the 355,73,147 seed (placebo-c 41 h, hive-a 35 h, isolated-a/c recurring, isolated-d 82 h) and board-d's wedged dig walk (46/67 visits cut at 338,71,114)",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "monustuck-1103.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "monustuck-01 (branch monustuck-01 on fleet 53fd28ee; tier 2 by protected.py, canary by choice): control session queues it in the P lane after swimcentre-01; read +90/+180 generic + own lines (_build op=clear kind=stalk, op=waived beside sealed, op=stand_banned; hive-a/board-d monument progress). Piece 2 bamboowalk-01 (tier 3 movement, Paper proof on board-d's grove first) after it.",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "paths": [
+     "docs/reports/monustuck-design-2026-11-03.md"
+    ]
+   },
+   "note": "Codex designed independently and agreed on the root causes; reconciliation in the design doc s.4. Codex review blockers-only r1: none."
   }
  ]
 }

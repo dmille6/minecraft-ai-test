@@ -168,6 +168,8 @@ const REQUIRED = [
   'bots/scripts/stuckcells-offline.mjs',
   'bots/scripts/stairstuck-offline.mjs',
   'docs/reports/stuckcells-01-2026-11-01.md',
+  // monustuck-01 (11-03): the stuck fleet ziggurats (bamboo stalk felled at its foot, waiver beside a sealed cell, dig-walk bans)
+  'docs/reports/monustuck-design-2026-11-03.md',
   // promomerge (11-02, audit 11-01 flag 4): every fleet promotion merged into main mechanically, or it pages
   'scripts/host/promomerge.py',
   'scripts/host/test_promomerge.py',
