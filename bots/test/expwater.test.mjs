@@ -145,13 +145,14 @@ await t('A WHOLE TRIP ACROSS A RIVER, composed: out over the water with crumbs o
   const home = { x: 0, y: 70, z: 0 }
   const crumbs = [[0, 70, 0]]
   let pos = { x: 0, y: 70, z: 0 }, reason = null, legs = 0, swims = 0
+  const gates = []
   while (!(reason = E.turnReason({ dist: Math.hypot(pos.x, pos.z), ring: 120 })) && legs < 30) {
     const lt = E.legTarget(r, { pos, home, bearing: 0, swim: E.SWIM_MAX })
     assert.ok(lt.ok, `leg ${legs} refused: ${lt.why} ${lt.whys}`)
     if (lt.via === 'swim') { swims++; if (E.crumbDue(crumbs, lt.shore, r, { shore: true })) crumbs.push(lt.shore) }
     pos = lt.target
     const cell = [pos.x, pos.y, pos.z]
-    if (E.crumbDue(crumbs, cell, r, { shore: lt.via === 'swim' })) crumbs.push(cell)
+    if (E.crumbDue(crumbs, cell, r, { shore: lt.via === 'swim' })) { crumbs.push(cell); if (lt.via === 'swim') gates.push(crumbs.length - 1) }
     legs++
   }
   assert.equal(reason, 'reached'); assert.equal(swims, 1, 'one crossing')
@@ -162,13 +163,26 @@ await t('A WHOLE TRIP ACROSS A RIVER, composed: out over the water with crumbs o
   assert.ok(Math.hypot(b[0] - a[0], b[2] - a[2]) <= 28, `the shores are one hop apart: ${a} -> ${b}`)
   let cursor = crumbs.length, here = { x: pos.x, z: pos.z }, crossedBack = false
   for (let n = 0; n < 50; n++) {
-    const i = E.nextCrumb(crumbs, here, cursor)
+    const i = E.nextCrumb(crumbs, here, cursor, { gates })
     if (i < 0) break
-    if (here.x > 40 && crumbs[i][0] < 30) crossedBack = true
+    if (here.x > 40 && crumbs[i][0] < 30) { crossedBack = true; assert.deepEqual([here.x, crumbs[i][0]], [b[0], a[0]], 'the crossing back is the checked one: far shore -> near shore') }
     here = { x: crumbs[i][0], z: crumbs[i][2] }; cursor = i
     if (i === 0) break
   }
   assert.equal(cursor, 0, 'home over the crumbs'); assert.ok(crossedBack, 'the way home swims back across')
+})
+
+await t('A CROSSING IS A GATE on the way home: no hop cuts past the far shore, and from it the next hop is its near shore (Codex design)', async () => {
+  // crumbs out along x: 0 town, 10, 20 the near shore, 30 the far shore (gate 3), 40, 50
+  const crumbs = [[0, 70, 0], [10, 70, 0], [20, 70, 0], [30, 70, 0], [40, 70, 0], [50, 70, 0]]
+  assert.equal(E.nextCrumb(crumbs, { x: 45, z: 0 }, 5), 2, 'no gate (the control): the lowest in reach, 25 away, past the far shore')
+  assert.equal(E.nextCrumb(crumbs, { x: 45, z: 0 }, 5, { gates: [3] }), 3, 'with the gate: the far shore first')
+  assert.equal(E.nextCrumb(crumbs, { x: 30, z: 0 }, 3), 1, 'no gate: from the far shore it cuts past the near one')
+  assert.equal(E.nextCrumb(crumbs, { x: 30, z: 0 }, 3, { gates: [3] }), 2, 'with the gate: the near shore')
+  assert.equal(E.nextCrumb(crumbs, { x: 20, z: 0 }, 2, { gates: [3] }), 0, 'across: the gate no longer binds')
+  await withMutant(EX_PATH, '  for (const f of gates ?? []) { if (!Number.isInteger(f)) continue; if (f < top) lo = Math.max(lo, f); else if (f === top) lo = Math.max(lo, f - 1) }\n', '', async M => {
+    assert.equal(M.nextCrumb(crumbs, { x: 45, z: 0 }, 5, { gates: [3] }), 2, 'the mutant cuts past the crossing')
+  })
 })
 
 await t('a REFUSED WALK near town blocks its bearing for EXIT_RETRY_MS, not the day; water near town still does (LIVE 11-03: 5 of 8 dead bearings)', async () => {
@@ -206,16 +220,25 @@ await t('a MULTI-CALL trip gathers at the turn (LIVE 11-03: 0 of 35 trips did; t
 })
 
 await t('the switch and the licence row: EXPEDITION_SWIM=off is dry legs only; the mode row names the swim width', async () => {
-  assert.equal(E.swimOn({}), true); assert.equal(E.swimOn({ EXPEDITION_SWIM: 'off' }), false)
-  assert.match(E.expeditionModeDetail(true, true, true), new RegExp(`swim=${E.SWIM_MAX} `))
-  assert.match(E.expeditionModeDetail(true, true, false), / swim=0 /)
+  assert.equal(E.swimWidth({}), E.SWIM_MAX); assert.equal(E.swimWidth({ EXPEDITION_SWIM: 'on' }), E.SWIM_MAX)
+  assert.equal(E.swimWidth({ EXPEDITION_SWIM: 'off' }), 0); assert.equal(E.swimWidth({ EXPEDITION_SWIM: '0' }), 0)
+  assert.equal(E.swimWidth({ EXPEDITION_SWIM: '8' }), 8, 'an operator narrows it'); assert.equal(E.swimWidth({ EXPEDITION_SWIM: '99' }), 24, 'capped')
+  assert.equal(E.swimOn({ EXPEDITION_SWIM: 'off' }), false)
+  assert.match(E.expeditionModeDetail(true, true, E.SWIM_MAX), new RegExp(`swim=${E.SWIM_MAX} `))
+  assert.match(E.expeditionModeDetail(true, true, 0), / swim=0 /)
+  // the width is what the leg gets: an 8-wide limit refuses the 11-wide river the default swims
+  const r = world({ river: { x0: 4, x1: 14 } })
+  assert.equal(E.legTarget(r, { pos: POS, home: HOME, bearing: 0, swim: E.swimWidth({}) }).ok, true)
+  assert.equal(E.legTarget(r, { pos: POS, home: HOME, bearing: 0, swim: E.swimWidth({ EXPEDITION_SWIM: '8' }) }).ok, false)
 })
 
 await t('wiring (structural): the visit passes the swim width, keeps both shores, logs the crossing, sizes the gather by gatherSpare', async () => {
   const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
   const one = (re, what) => assert.equal((src.match(re) ?? []).length, 1, what)
-  one(/swim: EXPEDITION\.swim \? SWIM_MAX : 0 \}\)/g, 'legTarget gets the swim width')
-  one(/swim: exSwimOn\(process\.env\)/g, 'the switch')
+  one(/detour: trip\.detour, swim: EXPEDITION\.swim \}\)/g, 'legTarget gets the swim width')
+  one(/swim: exSwimWidth\(process\.env\)/g, 'the switch')
+  one(/nextCrumb\(crumbs, p, cursor, \{ loaded, skip, gates: Array\.isArray\(trip\.gates\) \? trip\.gates : \[\] \}\)/g, 'the way home keeps the gates')
+  one(/\(trip\.gates \?\?= \[\]\)\.push\(f\)/g, 'a dry far shore is a gate')
   one(/if \(swim && lt\.shore && crumbDue\(trip\.crumbs, lt\.shore, read, \{ shore: true \}\)\) trip\.crumbs\.push\(lt\.shore\)/g, 'the near shore')
   one(/if \(crumbDue\(trip\.crumbs, cell, read, \{ shore: swim \}\)\) trip\.crumbs\.push\(cell\)/g, 'the far shore')
   one(/exRow\(bot, 'cross', /g, 'the crossing row')

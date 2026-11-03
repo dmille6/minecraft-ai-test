@@ -129,7 +129,7 @@ import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acce
 import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, shopchestSite, shopchestRecord, materialsChests, materialsWorthTry } from './shopchest.mjs'   // shopchest-01
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
 import { torchSafe, outShareOf, multiCall, trailAge, PLANNER_V } from './expedition.mjs'   // wholemap-s1a
-import { swimOn as exSwimOn, gatherSpare, SWIM_MAX } from './expedition.mjs'   // expwater-01
+import { swimWidth as exSwimWidth, gatherSpare } from './expedition.mjs'   // expwater-01
 import { HALL_PLOT, HALL_BLUEPRINT, hallSite, hallOpening, hallRecordDomain, copperhallModeDetail } from './copperhall.mjs'   // copperhall-01
 import { hallPadZone } from './copperhall.mjs'   // groundskeeper-01 on the showcase: an unsited hall's pad is reserved
 import { markerZones, markerCellKeys } from './expedition.mjs'   // groundskeeper-01 on the showcase: the markers are reserved
@@ -17637,7 +17637,7 @@ export function shopFootprintRefresh (bot) {
 // shop.mjs buildOrder's (`build_shop {expedition: true}`), asked through expeditionAsk only when the town's projects cannot use
 // the bot. The trail and the trip are this bot's file; the trip log and the marker index are the town's. `home` follows an
 // open trail first (expeditionHomeLeg). EXPEDITION=off: no order, no visit, no trail follow.
-const EXPEDITION = Object.freeze({ on: expeditionOn(process.env, process.env.MEMORY_POOL ?? ''), markers: exMarkersOn(process.env), swim: exSwimOn(process.env) })
+const EXPEDITION = Object.freeze({ on: expeditionOn(process.env, process.env.MEMORY_POOL ?? ''), markers: exMarkersOn(process.env), swim: exSwimWidth(process.env) })
 const exHk = () => `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
 const exKey = () => `${EXPEDITION_KEY}-${exHk()}`
 const exFile = me => path.join(townDir(), `${exKey()}.bot-${me}.json`)
@@ -17801,7 +17801,7 @@ async function exFollowHome (ctx, signal, trip, until, markers, persist = () => 
     check(signal)
     const p = bot.entity.position
     if (exAtHome(p)) return { home: true, via, hops }
-    const i = fails < 3 ? nextCrumb(crumbs, p, cursor, { loaded, skip }) : -1
+    const i = fails < 3 ? nextCrumb(crumbs, p, cursor, { loaded, skip, gates: Array.isArray(trip.gates) ? trip.gates : [] }) : -1
     let target, kind, m = null
     if (i >= 0) { target = crumbs[i]; kind = 'crumb' } else {
       m = markerHome(markers, p, home, { skip: mskip })
@@ -18010,7 +18010,7 @@ async function expeditionVisit (ctx, args, signal) {
         dist, ring: trip.ring, elapsedMs: Date.now() - tOut, outMs, legFails })
       if (why) { trip.reason = why; break }
       // expwater-01: a leg may swim a narrow crossing when no dry bend is open (EXPEDITION_SWIM=off: dry legs only)
-      const lt = legTarget(read, { pos: p, home, bearing: trip.bearing, markers, zones, detour: trip.detour, swim: EXPEDITION.swim ? SWIM_MAX : 0 })
+      const lt = legTarget(read, { pos: p, home, bearing: trip.bearing, markers, zones, detour: trip.detour, swim: EXPEDITION.swim })
       // wholemap-s1a: a detour round a zone is carried leg to leg (its waypoints still ahead), and logged when it starts
       const dNext = lt.detour?.waypoints?.length ? lt.detour : null
       if (dNext && !trip.detour) { trip.detours = (trip.detours ?? 0) + 1; exRow(bot, 'detour', `trip=${trip.id} zone=${dNext.zone} side=${dNext.side} length=${dNext.length} waypoints=${dNext.waypoints.map(w => w.join(',')).join(';')}`) }
@@ -18030,7 +18030,8 @@ async function expeditionVisit (ctx, args, signal) {
       if (crumbDue(trip.crumbs, cell, read, { shore: swim })) trip.crumbs.push(cell)
       if (swim) {
         const dry = !bot.entity?.isInWater && standableAt(read, cell)
-        if (dry) trip.crossings = (trip.crossings ?? 0) + 1
+        // the far shore's crumb is a GATE the way home never cuts past (expedition.mjs nextCrumb `gates`)
+        if (dry) { trip.crossings = (trip.crossings ?? 0) + 1; const f = trip.crumbs.length - 1; if (f >= 1 && trip.crumbs[f].join(',') === cell.join(',')) (trip.gates ??= []).push(f) }
         exRow(bot, 'cross', `trip=${trip.id} wet=${lt.wet} bend=${lt.bend} from=${(lt.shore ?? []).join(',')} to=${lt.target.x},${lt.target.y},${lt.target.z} at=${cell.join(',')} dry=${dry ? 1 : 0} moved=${Math.round(moved)}`, dry ? 'success' : 'no_effect')
       }
       sinceMarker += moved
