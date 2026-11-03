@@ -19998,9 +19998,9 @@ async function buildTidy (ctx, args, signal) {
     const skipOf = rd0 => q => (isTerrace ? terraceSkip(q, rd0, { has: n => !!effects?.has?.(n), tools }) : null)
     const skipV = skipOf(read)
     const equipUse = (re, name) => async () => {
-      const it = (bot.inventory?.items?.() ?? []).find(i => (re ? re.test(i.name) : i.name === name))
-      if (!it) return false
-      if (bot.heldItem?.name !== it.name) { try { await bot.equip(it, 'hand') } catch (e) { if (e?.aborted) throw e } }
+      const tool = (bot.inventory?.items?.() ?? []).find(i => (re ? re.test(i.name) : i.name === name))
+      if (!tool) return false
+      if (bot.heldItem?.name !== tool.name) { try { await bot.equip(tool, 'hand') } catch (e) { if (e?.aborted) throw e } }
       return re ? re.test(bot.heldItem?.name ?? '') : bot.heldItem?.name === name
     }
     // the hoe tills (vanilla: grass, dirt or a path with air above -> farmland); the bone meal greens a grass block with air above

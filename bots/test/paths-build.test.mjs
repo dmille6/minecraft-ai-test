@@ -98,7 +98,8 @@ await t('THE TOOL CHECK AT THE SEND: an equip that does not take is never sent (
   }
   await scenario(R)
   let killed = false
-  await withMutant("|| !AIR(nm(rd(c.at[0], c.at[1] + 1, c.at[2]))) || !p.use.held()) return 'refused'", "|| !AIR(nm(rd(c.at[0], c.at[1] + 1, c.at[2])))) return 'refused'",
+  // townterrace-01: the use's tool is `u` (useFor: a tool per cell; the paths' shovel is p.use for every cell)
+  await withMutant("|| !AIR(nm(rd(c.at[0], c.at[1] + 1, c.at[2]))) || !u.held()) return 'refused'", "|| !AIR(nm(rd(c.at[0], c.at[1] + 1, c.at[2])))) return 'refused'",
     async M => { try { await scenario(M) } catch { killed = true } })
   assert.ok(killed, 'the mutant survived')
 })
