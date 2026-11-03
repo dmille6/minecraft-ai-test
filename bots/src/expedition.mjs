@@ -31,7 +31,8 @@
 // EXPWATER-01 (owner 11-01 "water/boats/bridges OK", 11-03 "do it"; docs/reports/expwater-design-2026-11-03.md): a leg may SWIM a
 // narrow water crossing. Every dry bend is tried first (a walk round still wins); then the same bends again with water allowed: at
 // most SWIM_MAX wet columns in the leg, each a WATER surface (never lava, never a bubble column) no more than SWIM_DROP below the
-// bank, and the leg's end a dry standable cell on the far shore no more than SWIM_EXIT above the water (a bot can climb out). The
+// bank, and both shores LEVEL with the water (SWIM_EXIT: the pathfinder with the bots' shore egress never planned a one-block-up exit in
+// Paper). The
 // pathfinder swims it (index.mjs: a wet step costs ~2, entering 1). A crossing gets a breadcrumb on BOTH shores, so the way home
 // swims back over the same water. Wider water still turns the trip, its width logged (`swim_wide:N`) for a boat or bridge piece.
 // Measured 11-03 on the showcase: from all four live water walls the planner reaches the 300 ring (crossings of 2-16 columns). EXPEDITION_SWIM=off: dry legs only.
@@ -72,9 +73,9 @@ export const ONE_CALL_RING = 225                // a ring beyond this is a MULTI
 export const LONG_OUT_SHARE = 0.6               // a multi-call trip's outbound share of its call
 export const ICE_TORCH_R = 3                    // no marker torch within this (a cube) of `ice` (block light > 11 melts it: a hole in the road)
 // EXPWATER-01
-export const SWIM_MAX = 20                      // wet columns a leg may swim (offline 11-03: the narrowest crossings past the live walls are 1-16; 17 met once)
+export const SWIM_MAX = 16                      // wet columns a leg may swim (Paper 11-03, the bots' walk prices + shore egress, level shores: 8 wide 20/20, 14 wide 19/20, 20 wide 18/20)
 export const SWIM_DROP = 4                      // the water's surface at most this far below the bank it is entered from (no ravine plunge)
-export const SWIM_EXIT = 2                      // the far shore's stand cell at most this far above the water block (one block up out of the water)
+export const SWIM_EXIT = 1                      // a shore's stand cell at most this far above the water block: LEVEL with the water (Paper 11-03: a one-block-up shore planned 0 of 10 exits)
 export const SHORE_NEAR = 8                     // a swim leg starts within this of the water; further, a dry leg to the near shore comes first (> 4: the visit's legFails counts a leg that moved < 4 as refused)
 export const SWIM_REACH = SWIM_MAX + 4          // a swim leg's end may lie this far past its dry end point, to reach the far shore
 export const EXIT_RETRY_MS = 3 * 60 * 60_000    // a refused walk ('blocked') short of 40 blocks blocks its bearing this long, not the whole day
@@ -332,6 +333,8 @@ export function lineClear (read, from, to, { zones = [], every = 3, swim = 0 } =
       // columns within `swim` (a wider crossing is refused with its width so far)
       if (s.liquid !== 'water') return { ok: false, why: 'water', at: [x, z], liquid: s.liquid ?? null }
       if (s.y < y - 1 - SWIM_DROP) return { ok: false, why: 'drop', at: [x, z], water_y: s.y }
+      // the NEAR bank of each run is a shore too (the way home climbs out onto it): level with the water, like the far one
+      if (!run && y - s.y > SWIM_EXIT) return { ok: false, why: 'water', at: [x, z], bank: y - s.y }
       if (!wet) bank = dryAt   // the last dry standable column before the first water: the near shore
       wet++; run++; waterY = s.y
       if (wet > swim) return { ok: false, why: 'water', at: [x, z], wide: wet }
