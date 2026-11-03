@@ -4309,7 +4309,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Step 1 NOW (sandbox, no queue slot): find why the anvil and enchanting-table actions failed in sandbox4 (trading design T6) and prove a working path (server-verified enchanted tool, XP spent, anvil damage). Step 2 after trading T2 coalsale-01 is KEPT (emeralds + a librarian sighting from trading-scout-01): a fleet progress-lane canary that buys books and applies them, tier per protected.py.",
+   "next_step": "Step 1 DONE 11-03 (anvilproof, sandbox3, Paper 1.21.8-60, mineflayer 4.37.1): anvil and enchanting table WORK server-verified (Mending book onto an iron pickaxe, cost 2 levels, 10->8; rename cost 1; refused at 0 levels; table 10->7 levels, 3 lapis, Efficiency). Do NOT use anvil.combine/rename (prismarine-item reads no stored_enchantments: 'Not anvil-able'); drive the window by hand; table items must be window-numbered and 'ready' fires early. Step 2 after trading T2 coalsale-01 is KEPT (emeralds + an observed librarian book offer): a fleet progress-lane canary that buys books and applies them with an anvilApply actuator (exported pure anvilPlan), XP from play only, a town anvil (31 iron); tier per protected.py.",
    "max_quiet_hours": 48,
    "depends_on": [
     {
@@ -4318,7 +4318,9 @@
    ],
    "evidence": {
     "paths": [
-     "docs/reports/trading-design-2026-11-03.md"
+     "docs/reports/anvilproof-2026-11-03.md",
+     "docs/reports/trading-design-2026-11-03.md",
+     "sandbox/trading/anvil-proof.cjs"
     ]
    },
    "note": "Placement (control session): proof in parallel now; books follow T2 in the fleet P lane; showcase only once its villagers have jobs (T3a frees village-taiga-6_1)."
