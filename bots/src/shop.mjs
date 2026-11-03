@@ -278,8 +278,13 @@ let expeditionAskOf = null
  * there (LIVE showcase 10-31 16:54Z: the finished farm's 3 trees no bot can fell kept `complete` false). A `complete` stop alone
  * is not idle: the visit that completes one project ends `complete` while the next one stands open (Codex r4 BLOCK).
  */
+// IDLEKEEP-01 (LIVE showcase 11-03 04:15-06:17Z: copperrun-01 never exposed -- 0 copper_run rows, 0 expedition rows -- while
+// 87 of 113 build visits ended `keeper_held` in ~0.2 s: with every other project complete, the only open one was the
+// groundskeeper's tidy, which is another bot's, so every non-keeper's order came back each 10 min, did nothing, and its
+// lastStop `keeper_held` was never idle). `keeper_held` is the order having no use for this bot, like `no_material`.
+export const IDLE_STOPS = Object.freeze(['no_material', 'keeper_held'])
 export const buildIdle = ({ complete = false, record = null, lastStop = null } = {}) =>
-  !!complete || lastStop === 'no_material' || (lastStop === 'complete' && record?.structure_complete === true)
+  !!complete || IDLE_STOPS.includes(lastStop) || (lastStop === 'complete' && record?.structure_complete === true)
 export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'function' ? fn : null }
 /**
  * COPPERRUN-01: the copper run's ask (skills.mjs copperAsk -> copperhall.mjs copperRunOrder), set at install like the expedition's.

@@ -90,7 +90,8 @@ export function expeditionAdmit ({ on = false, complete = false, lastStop = null
   timeOfDay = 0, now = 0, lastTripAt = -Infinity, pendingDeposit = false, slotFree = true } = {}) {
   if (!on) return { ok: false, why: 'off' }
   if (pendingDeposit) return { ok: true, phase: 'deposit', why: 'pending_deposit' }
-  if (!complete && lastStop !== 'no_material' && lastStop !== 'complete') return { ok: false, why: 'project_open' }   // buildOrder asks only when shop.mjs buildIdle
+  // idlekeep-01: `keeper_held` (the only open project is another bot's grounds) is idle as no_material is (shop.mjs IDLE_STOPS)
+  if (!complete && lastStop !== 'no_material' && lastStop !== 'keeper_held' && lastStop !== 'complete') return { ok: false, why: 'project_open' }   // buildOrder asks only when shop.mjs buildIdle
   if (now - (Number.isFinite(lastTripAt) ? lastTripAt : -Infinity) < TRIP_COOLDOWN_MS) return { ok: false, why: 'cooldown' }
   if (health < HEALTH_START) return { ok: false, why: 'health' }
   if (food < FOOD_START) return { ok: false, why: 'food' }
