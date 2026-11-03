@@ -401,7 +401,8 @@ await t('wiring: the tidy, the land plan and the tidy visit\'s dig guard read th
   assert.ok(/\.\.\.hallPadZones\(P\.plan\), \.\.\.townMarkerZones\(\)\]\)/.test(s), 'tidyInputs avoid')
   assert.ok(/const hz = \[\.\.\.hallPadZones\(P\.plan\), \.\.\.townMarkerZones\(\)\]/.test(s), 'landInputs')
   assert.ok(/for \(const k of markerCellKeys\(exMarkers\(\)\)\) guard\.add\(k\)/.test(s), 'the dig-time guard')
-  assert.ok(/function townMarkerZones \(\) \{ try \{ return markerZones\(exMarkers\(\)\) \} catch \{ return \[\] \} \}/.test(s), 'never throws')
+  // bridgepost-01: the bridges' footprints join the markers, each read in its own try (never throws)
+  assert.ok(/function townMarkerZones \(\) \{\s*let z = \[\]\s*try \{ z = markerZones\(exMarkers\(\)\) \} catch \{ z = \[\] \}\s*try \{ z = \[\.\.\.z, \.\.\.bridgeZones\(exBridgeSites\(\)\)\] \} catch \{\s*\}\s*return z\s*\}/.test(s), 'never throws')
 })
 
 // GKSTALL-01 (LIVE showcase 11-03: stage 0 held 1 h 40 min on one pit cell, waived on the 5th deferring visit, each visit ~30 min

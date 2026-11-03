@@ -133,6 +133,9 @@ import { swimWidth as exSwimWidth, gatherSpare, heldGate, GATE_RETRIES } from '.
 import { HALL_PLOT, HALL_BLUEPRINT, hallSite, hallOpening, hallRecordDomain, copperhallModeDetail } from './copperhall.mjs'   // copperhall-01
 import { hallPadZone } from './copperhall.mjs'   // groundskeeper-01 on the showcase: an unsited hall's pad is reserved
 import { markerZones, markerCellKeys } from './expedition.mjs'   // groundskeeper-01 on the showcase: the markers are reserved
+import { beyondGain, lineClear as exLineClear } from './expedition.mjs'   // bridgepost-01
+import { bridgeOn, bridgeSite, bridgeSites, bridgeToBuild, bridgesDone, bridgePlan, bridgeIntact, bridgeNeed, buildBridge, bridgeZones, bridgeCellKeys, spanDetail, BRIDGE_CARRY } from './bridge.mjs'   // bridgepost-01
+import { bridgeIo } from './bridgeio.mjs'   // bridgepost-01
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
@@ -17657,12 +17660,17 @@ export function shopFootprintRefresh (bot) {
 // shop.mjs buildOrder's (`build_shop {expedition: true}`), asked through expeditionAsk only when the town's projects cannot use
 // the bot. The trail and the trip are this bot's file; the trip log and the marker index are the town's. `home` follows an
 // open trail first (expeditionHomeLeg). EXPEDITION=off: no order, no visit, no trail follow.
-const EXPEDITION = Object.freeze({ on: expeditionOn(process.env, process.env.MEMORY_POOL ?? ''), markers: exMarkersOn(process.env), swim: exSwimWidth(process.env) })
+const EXPEDITION = Object.freeze({ on: expeditionOn(process.env, process.env.MEMORY_POOL ?? ''), markers: exMarkersOn(process.env), swim: exSwimWidth(process.env), bridge: bridgeOn(process.env) })
 const exHk = () => `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
 const exKey = () => `${EXPEDITION_KEY}-${exHk()}`
 const exFile = me => path.join(townDir(), `${exKey()}.bot-${me}.json`)
 const exTripsFile = () => path.join(townDir(), `${exKey()}.trips.jsonl`)
 const exMarkersFile = () => path.join(townDir(), `${exKey()}.markers.jsonl`)
+// bridgepost-01: the town's bridge sites (bridge.mjs bridgeSites: `sight` lines from refused crossings, `state` lines)
+const exBridgesFile = () => path.join(townDir(), `${exKey()}.bridges.jsonl`)
+const exBridgeKey = () => `${exKey()}.bridge`
+/** The town's bridge sites. Never throws (unreadable: none). */
+function exBridgeSites () { try { return bridgeSites(exLines(exBridgesFile(), 4000)) } catch { return [] } }
 const exHome = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
 const exAtHome = (p, r = 40) => !!p && Math.hypot(p.x - config.world.homeX, p.z - config.world.homeZ) <= r
 const EX_TOWN_R = 48   // the order's own `atTown` (cognitive TOWN_RADIUS): an open trip whose bot is this close is closed
@@ -17731,7 +17739,7 @@ function exCloseAtTown (bot, st, via) {
     t.via = via
     st.lastTripAt = Date.now()
     exWrite(me, st)
-    exAppend(exTripsFile(), { t: Date.now(), v: t.v ?? null, multi: t.multi === true, id: t.id, by: me, bearing: t.bearing, ring: t.ring, dist: Math.round(t.dist ?? 0), reason: t.reason ?? 'interrupted', returned: false, late: true, via, haul: 0, markers: t.markers ?? 0 })
+    exAppend(exTripsFile(), { t: Date.now(), v: t.v ?? null, multi: t.multi === true, id: t.id, by: me, bearing: t.bearing, ring: t.ring, dist: Math.round(t.dist ?? 0), reason: t.reason ?? 'interrupted', returned: false, late: true, via, haul: 0, markers: t.markers ?? 0, bridge: t.bridge ?? null })
     try { logEvent({ kind: 'expedition_trip', status: 'no_effect', snapshot: snapshot(bot), detail: tripDetail({ ...t, ms: Date.now() - (t.startedAt ?? Date.now()) }) }) } catch { /* telemetry */ }
   } catch { /* the next look closes it */ }
 }
@@ -17806,7 +17814,7 @@ export function copperRunInstall (bot) {
 export function expeditionInstall (bot) {
   exBot = bot
   if (EXPEDITION.on) setExpeditionAsk(expeditionAsk)
-  try { logEvent({ kind: 'expedition_mode', status: 'success', snapshot: snapshot(bot), detail: expeditionModeDetail(EXPEDITION.on, EXPEDITION.markers, EXPEDITION.swim) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'expedition_mode', status: 'success', snapshot: snapshot(bot), detail: `${expeditionModeDetail(EXPEDITION.on, EXPEDITION.markers, EXPEDITION.swim)} bridge=${EXPEDITION.bridge ? 1 : 0}` }) } catch { /* telemetry */ }
 }
 /** THE WAY BACK over a trip's breadcrumbs (expedition.mjs nextCrumb / markerHome), then the direct walk -> { home, via, hops }. */
 async function exFollowHome (ctx, signal, trip, until, markers, persist = () => {}) {
@@ -17958,6 +17966,63 @@ async function exDeposit (ctx, signal, haul) {
   for (const [n, c] of Object.entries(haul)) { const r = Math.min(c - (Number(back?.[n]) || 0), heldMap(ctx.bot)[n] ?? 0); if (r > 0) left[n] = r }
   return { n: Object.values(back ?? {}).reduce((a, b) => a + (Number(b) || 0), 0), left }
 }
+// ---- BRIDGEPOST-01: bridges at refused crossings (bridge.mjs decides; these read, write and build) ------------------------------
+/** A refused crossing (a dry bot turned for water): the site near it, logged and appended to the town's bridge index. Never throws. */
+function exSiteBridge (bot, trip, read, zones, home) {
+  try {
+    const p = bot.entity.position
+    const pos = { x: p.x, y: p.y, z: p.z }
+    const r = bridgeSite(read, pos, { home, bearingV: bearingVec(trip.bearing), zones,
+      beyond: s => beyondGain(read, s, { home, bearing: trip.bearing, zones, swim: EXPEDITION.swim }),
+      reach: n => exLineClear(read, pos, { x: n[0], y: n[1], z: n[2] }, { zones }).ok })
+    if (!r.ok) { exRow(bot, 'bridge_site', `trip=${trip.id} ok=0 at=${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)} tried=${Object.entries(r.tried ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}:${v}`).join(',') || '-'}`, 'no_effect'); return null }
+    exAppend(exBridgesFile(), { op: 'sight', id: r.key, span: r.span, bearing: trip.bearing, trip: trip.id, by: bot.username ?? 'bot', t: Date.now(), gain: r.gain })
+    exRow(bot, 'bridge_site', `trip=${trip.id} ok=1 id=${r.key} ${spanDetail(r.span)} gain=${r.gain}`)
+    return r
+  } catch (e) { exRow(bot, 'bridge_site', `trip=${trip.id} ok=0 error=${String(e?.message ?? e).slice(0, 80)}`, 'failed'); return null }
+}
+/** The finished bridges legTarget may walk: a bridge whose near end is in sight must read INTACT (a broken one is marked for repair and
+ *  not walked); one further off is offered (nothing about it can be read from here, and bridgeLeg re-reads its ends). Never throws. */
+function exBridgesNow (bot, sites, read, trip) {
+  try {
+    const p = bot.entity.position
+    const out = []
+    for (const b of bridgesDone(sites)) {
+      if (Math.hypot(b.near[0] - p.x, b.near[2] - p.z) <= 64) {
+        const s = sites.find(q => q.id === b.id)
+        if (s && !bridgeIntact(read, bridgePlan(s.span))) {
+          if (!s.brokenSeen) { s.brokenSeen = true; s.complete = false; exAppend(exBridgesFile(), { op: 'state', id: s.id, complete: false, why: 'broken', trip: trip.id, t: Date.now() }); exRow(bot, 'bridge_broken', `trip=${trip.id} id=${s.id}`, 'no_effect') }
+          continue
+        }
+      }
+      out.push(b)
+    }
+    return out
+  } catch { return [] }
+}
+/** BUILD the site's bridge from where the deck stands (bridge.mjs buildBridge over bridgeio.mjs) until `until` -> buildBridge's result. */
+async function exBridgeWork (ctx, signal, trip, site, until) {
+  const { bot } = ctx
+  const read = exReader(bot)
+  const plan = bridgePlan(site.span)
+  const io = bridgeIo(bot, {
+    Vec3,
+    walkTo: async c => { try { await chestWalk(bot, new goals.GoalBlock(c[0], c[1], c[2]), Math.max(1_000, Math.min(20_000, until - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e } },
+    sleep: ms => sleep(ms, signal),
+    aborted: () => !!signal?.aborted,
+    torchOk: st => torchSafe(read, st.cell),
+    onPlace: (st, ok, why) => exRow(bot, 'bridge_place', `trip=${trip.id} site=${site.id} cell=${st.cell.join(',')} kind=${st.kind} ok=${ok ? 1 : 0}${why ? ` why=${why}` : ''}`, ok ? 'success' : 'no_effect'),
+  })
+  const need0 = bridgeNeed(read, plan)
+  const r = await buildBridge(io, plan, { until })
+  const intact = r.stop === 'done' && bridgeIntact(read, plan)
+  const need1 = bridgeNeed(read, plan)
+  if (intact) exAppend(exBridgesFile(), { op: 'state', id: site.id, complete: true, trip: trip.id, by: bot.username ?? 'bot', t: Date.now() })
+  else if (/^(place_failed|stand|blocked)/.test(r.stop) || r.stop === 'done') exAppend(exBridgesFile(), { op: 'state', id: site.id, failed: true, why: r.stop, trip: trip.id, t: Date.now() })
+  exRow(bot, intact ? 'bridge_done' : 'bridge_build', `trip=${trip.id} id=${site.id} stop=${r.stop} placed=${r.placed} steps=${r.steps} need0=${need0.cobblestone} need=${need1.cobblestone} w=${site.span.w} intact=${intact ? 1 : 0}`, r.placed > 0 || intact ? 'success' : 'no_effect')
+  return { ...r, intact }
+}
+export const BRIDGE_AT = 24   // a bridge trip turns to its work within this of the site's near end
 async function expeditionVisit (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -17986,7 +18051,7 @@ async function expeditionVisit (ctx, args, signal) {
   exWrite(me, st)
   const slot = exOutstanding(me) >= EXPEDITION_SLOTS ? { ok: false, why: 'trips still out' } : takeSlot(dir, exKey(), me, EXPEDITION_SLOTS, { ttl: budget + 60_000 })
   if (!slot.ok) return { status: 'no_effect', detail: `two bots are already out (${slot.why})`, stop: 'expedition_slots_full' }
-  let died = false
+  let died = false, bsite = null, blease = null
   const onDeath = () => { died = true }
   try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
   const trip = { id: `${me}-${Date.now().toString(36)}`, v: PLANNER_V, startedAt: Date.now(), trailAt: Date.now(), open: true, crumbs: [], markers: 0, reused: 0, dist: 0, reason: null, detour: null }
@@ -18016,10 +18081,28 @@ async function expeditionVisit (ctx, args, signal) {
       try { const w = await matsWithdraw(ctx, need, signal, 20_000, matsReserve().table, shopAllow); kit = w.took ?? {} } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     }
     const trips = exLines(exTripsFile())
-    const b = tripBearing(trips, Date.now())
+    // bridgepost-01: A SITE SEEN BY >= SITE_SEEN TRIPS and not yet built takes this trip, on its bearing (one builder at a time: the
+    // bridge lease), when the bag holds the cobble -- even on a day every bearing is blocked (that is when a site matters)
+    const bSites = EXPEDITION.bridge ? exBridgeSites() : []
+    if (EXPEDITION.bridge) {
+      const cand = bridgeToBuild(bSites, Date.now())
+      const cost = cand ? 5 * cand.span.w : 0
+      if (cand && Number.isInteger(cand.bearing)) {
+        let cob = heldMap(bot).cobblestone ?? 0
+        if (cob < cost + EX_KIT.cobblestone) {
+          try { await matsWithdraw(ctx, { cobblestone: Math.min(BRIDGE_CARRY, cost + EX_KIT.cobblestone - cob) }, signal, 20_000, matsReserve().table, shopAllow) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+          cob = heldMap(bot).cobblestone ?? 0
+        }
+        const l = cob >= Math.min(cost, 25) + EX_KIT.cobblestone ? takeSlot(dir, exBridgeKey(), me, 1, { ttl: budget + 60_000 }) : { ok: false, why: 'cobble' }
+        exRow(bot, 'bridge_pick', `trip=${trip.id} id=${cand.id} seen=${cand.seen.size} w=${cand.span.w} cobble=${cob} cost=${cost} lease=${l.ok ? 1 : 0}${l.ok ? '' : ` why=${l.why}`}`, l.ok ? 'success' : 'no_effect')
+        if (l.ok) { bsite = cand; blease = l }
+      }
+    }
+    const b = bsite ? { bearing: bsite.bearing, reuse: false } : tripBearing(trips, Date.now())
     if (b.bearing == null) return { status: 'no_effect', detail: 'every bearing is blocked by water or a zone for today', stop: 'expedition_no_bearing' }
     Object.assign(trip, { bearing: b.bearing, ring: ringOf(trips, Date.now()), reuse: b.reuse })
-    trip.multi = multiCall(trip.ring)
+    trip.multi = multiCall(trip.ring) || !!bsite
+    if (bsite) trip.bridge = bsite.id
     exWrite(me, st)
     const read = exReader(bot)
     const markers = exMarkers()
@@ -18029,7 +18112,8 @@ async function expeditionVisit (ctx, args, signal) {
     trip.crumbs.push(s0)
     // 2. OUT
     const tOut = Date.now()
-    const outMs = (deadline - tOut) * outShareOf(trip.ring)
+    // bridgepost-01: a bridge trip spends most of its call getting there (the build runs to the call's end; `home` finishes the way back)
+    const outMs = (deadline - tOut) * (bsite ? 0.85 : outShareOf(trip.ring))
     let legFails = 0, sinceMarker = 0
     const dirV = bearingVec(trip.bearing)
     for (;;) {
@@ -18042,16 +18126,21 @@ async function expeditionVisit (ctx, args, signal) {
       const why = turnReason({ health: bot.health ?? 20, food: bot.food ?? 20, freeSlots: free, timeOfDay: bot.time?.timeOfDay ?? 0, inWater: !!bot.entity?.isInWater,
         dist, ring: trip.ring, elapsedMs: Date.now() - tOut, outMs, legFails })
       if (why) { trip.reason = why; break }
-      // expwater-01: a leg may swim a narrow crossing when no dry bend is open (EXPEDITION_SWIM=off: dry legs only)
-      const lt = legTarget(read, { pos: p, home, bearing: trip.bearing, markers, zones, detour: trip.detour, swim: EXPEDITION.swim })
+      // bridgepost-01: a bridge trip goes to work at its site
+      const dSite = bsite ? Math.hypot(p.x - (bsite.span.near[0] + 0.5), p.z - (bsite.span.near[2] + 0.5)) : Infinity
+      if (dSite <= BRIDGE_AT) { trip.reason = 'bridge_work'; break }
+      // expwater-01: a leg may swim a narrow crossing when no dry bend is open (EXPEDITION_SWIM=off: dry legs only); bridgepost-01: a
+      // finished bridge in reach is walked first
+      const lt = legTarget(read, { pos: p, home, bearing: trip.bearing, markers, zones, detour: trip.detour, swim: EXPEDITION.swim,
+        bridges: EXPEDITION.bridge ? exBridgesNow(bot, bSites, read, trip) : [] })
       // wholemap-s1a: a detour round a zone is carried leg to leg (its waypoints still ahead), and logged when it starts
       const dNext = lt.detour?.waypoints?.length ? lt.detour : null
       if (dNext && !trip.detour) { trip.detours = (trip.detours ?? 0) + 1; exRow(bot, 'detour', `trip=${trip.id} zone=${dNext.zone} side=${dNext.side} length=${dNext.length} waypoints=${dNext.waypoints.map(w => w.join(',')).join(';')}`) }
       trip.detour = dNext
-      if (!lt.ok) { trip.reason = lt.why === 'inward' ? 'blocked' : lt.why; trip.whys = lt.whys ?? null; break }
+      if (!lt.ok) { trip.reason = bsite && dSite <= 2 * BRIDGE_AT ? 'bridge_work' : lt.why === 'inward' ? 'blocked' : lt.why; trip.whys = lt.whys ?? null; break }
       const before = p.clone()
       // expwater-01: a crossing's NEAR shore is a breadcrumb (the way home swims back to it), however close the last one
-      const swim = lt.via === 'swim'
+      const swim = lt.via === 'swim' || lt.via === 'bridge'   // bridgepost-01: a bridge crossing keeps its two ends as a swim's shores
       if (swim && lt.shore && crumbDue(trip.crumbs, lt.shore, read, { shore: true })) trip.crumbs.push(lt.shore)
       try { await goto(ctx, { ...lt.target, range: 2 }, signal, { until: Math.min(tOut + outMs, Date.now() + 30_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       const after = bot.entity.position
@@ -18066,7 +18155,7 @@ async function expeditionVisit (ctx, args, signal) {
         const dry = !bot.entity?.isInWater && standableAt(read, cell) && moved >= 4 && cell.join(',') !== (lt.shore ?? []).join(',')
         // the far shore's crumb is a GATE the way home never cuts past (expedition.mjs nextCrumb `gates`)
         if (dry) { trip.crossings = (trip.crossings ?? 0) + 1; const f = trip.crumbs.length - 1; if (f >= 1 && trip.crumbs[f].join(',') === cell.join(',')) (trip.gates ??= []).push(f) }
-        exRow(bot, 'cross', `trip=${trip.id} wet=${lt.wet} bend=${lt.bend} from=${(lt.shore ?? []).join(',')} to=${lt.target.x},${lt.target.y},${lt.target.z} at=${cell.join(',')} dry=${dry ? 1 : 0} moved=${Math.round(moved)}`, dry ? 'success' : 'no_effect')
+        exRow(bot, 'cross', `trip=${trip.id} via=${lt.via}${lt.bridge ? ` bridge=${lt.bridge}` : ''} wet=${lt.wet} bend=${lt.bend} from=${(lt.shore ?? []).join(',')} to=${lt.target.x},${lt.target.y},${lt.target.z} at=${cell.join(',')} dry=${dry ? 1 : 0} moved=${Math.round(moved)}`, dry ? 'success' : 'no_effect')
       }
       sinceMarker += moved
       if (EXPEDITION.markers && markerDue({ pos: after, home, sinceLast: sinceMarker, markers }) && standableAt(read, cell)) {
@@ -18077,6 +18166,16 @@ async function expeditionVisit (ctx, args, signal) {
       exWrite(me, st)
     }
     const outTook = Date.now() - tOut
+    // bridgepost-01: THE SITE of a crossing that turned this dry bot (the town's index; a site seen by SITE_SEEN trips is built)
+    if (EXPEDITION.bridge && !bsite && trip.reason === 'water' && /water|swim_/.test(String(trip.whys ?? '')) && !bot.entity?.isInWater) exSiteBridge(bot, trip, read, keepOff, home)
+    // bridgepost-01: THE BUILD -- to the near end's stand, then the deck from what stands, to the call's end (12 s kept)
+    if (trip.reason === 'bridge_work' && bsite) {
+      const nr = bsite.span.near
+      try { await chestWalk(bot, new goals.GoalBlock(nr[0], nr[1], nr[2]), Math.max(2_000, Math.min(30_000, deadline - 15_000 - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      const bw = await exBridgeWork(ctx, signal, trip, bsite, deadline - 12_000)
+      trip.bridgeStop = bw.stop; trip.bridgePlaced = bw.placed
+      exWrite(me, st)
+    }
     // 3. GATHER at the turn (never on a danger turn, never in town, only with the way back's time spared)
     let g = { felled: 0, leaves: 0, logs: '-', trees: '-', why: 'not_run', digFail: null }
     // expwater-01: a multi-call trip keeps only MULTI_HOME_MS for its way back in this call (`home` finishes it next call)
@@ -18096,7 +18195,7 @@ async function expeditionVisit (ctx, args, signal) {
     st.lastTripAt = Date.now()
     exWrite(me, st)
     const nHaul = Object.values(haul).reduce((a, c) => a + c, 0)
-    if (r.home) exAppend(exTripsFile(), { t: Date.now(), v: trip.v, multi: trip.multi === true, detours: trip.detours ?? 0, id: trip.id, by: me, bearing: trip.bearing, ring: trip.ring, dist: Math.round(trip.dist), reason: trip.reason, returned: true, via: r.via, haul: nHaul, markers: trip.markers, reused: trip.reused, crumbs: trip.crumbs.length, crossings: trip.crossings ?? 0 })
+    if (r.home) exAppend(exTripsFile(), { t: Date.now(), v: trip.v, multi: trip.multi === true, detours: trip.detours ?? 0, id: trip.id, by: me, bearing: trip.bearing, ring: trip.ring, dist: Math.round(trip.dist), reason: trip.reason, returned: true, via: r.via, haul: nHaul, markers: trip.markers, reused: trip.reused, crumbs: trip.crumbs.length, crossings: trip.crossings ?? 0, bridge: trip.bridge ?? null })
     try { logEvent({ kind: 'expedition_trip', status: r.home ? 'success' : 'no_effect', snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: tripDetail({ ...trip, crumbs: trip.crumbs.length }) }) } catch { /* telemetry */ }
     return { status: r.home && (nHaul > 0 || trip.markers > 0) ? 'success' : 'no_effect', detail: `expedition ${Math.round(trip.dist)} blocks on bearing ${trip.bearing} (${trip.reason}); ${trip.markers} markers placed, ${trip.reused} reused; brought ${nHaul} items${r.home ? ', home' : ', still on the way home'}`, stop: r.home ? 'expedition' : 'expedition_out' }
   } catch (e) {
@@ -18108,6 +18207,7 @@ async function expeditionVisit (ctx, args, signal) {
     // a try that never left (no crumb: zones unread, no bearing) is not out
     if (trip.open && !trip.crumbs.length) { trip.open = false; try { exWrite(me, st) } catch { /* the file */ } }
     if (slot.ok) releaseLease(dir, exKey(), `slot${slot.slot}`, me, slot.gen)
+    if (blease?.ok) { try { releaseLease(dir, exBridgeKey(), `slot${blease.slot}`, me, blease.gen) } catch { /* it lapses at its ttl */ } }
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
   }
 }
@@ -20534,7 +20634,13 @@ function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   return { plan: P.plan, home: P.plan.home, avoid: tidyAvoid(avoid, hz), reserved, caps: P.caps, composter: P.composter, sited: sitedSectors(P.plan.home, recs) }
 }
 /** The town's standing expedition markers as reservations (expedition.mjs markerZones over exMarkers) -> [zone]. Never throws. */
-function townMarkerZones () { try { return markerZones(exMarkers()) } catch { return [] } }
+function townMarkerZones () {
+  let z = []
+  try { z = markerZones(exMarkers()) } catch { z = [] }
+  // bridgepost-01: every bridge site's footprint (built or not) is reserved too: the tidy never works a deck or a rail
+  try { z = [...z, ...bridgeZones(exBridgeSites())] } catch { /* no bridges */ }
+  return z
+}
 /** An UNSITED copper hall's fixed pad while the hall is on (copperhall.mjs hallPadZone) -> [zone] | []: the land plan routes round
  *  it and the tidy never works it, so the hall can still site when its copper comes. A sited hall's record guards it. Never throws. */
 function hallPadZones (plan) {
@@ -20854,6 +20960,7 @@ async function buildTidy (ctx, args, signal) {
   try { guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) } catch { return out('no_effect', 'record_unreadable', 'the other projects\' records could not be read') }
   // groundskeeper-01 on the showcase (Codex + Claude r1 BLOCKER): a marker placed after the stage was sited is never dug either
   try { for (const k of markerCellKeys(exMarkers())) guard.add(k) } catch { /* no markers */ }
+  try { for (const k of bridgeCellKeys(exBridgeSites())) guard.add(k) } catch { /* no bridges */ }   // bridgepost-01
   // townterrace-01: the terrace stage re-checks every refusal at WORK time (a zone, a project, a marker, a road sited since): a cell in
   // a column refused now is never cut, filled, cleared or planted (read as waived)
   const isTerrace = GROUNDS.on && rec.stageId === TERRACE_STAGE

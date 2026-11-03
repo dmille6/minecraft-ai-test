@@ -500,11 +500,11 @@ await t('MUTANT KILLED: a ring penalty for every late close keeps the ring at 10
 await t('wholemap-s1a wiring (structural): the visit carries the detour leg to leg, checks ice before a torch, sizes the out share by the ring, rows carry v', async () => {
   const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
   const one = (re, what) => assert.equal((src.match(re) ?? []).length, 1, what)
-  one(/legTarget\(read, \{ pos: p, home, bearing: trip\.bearing, markers, zones, detour: trip\.detour, swim: EXPEDITION\.swim \}\)/g, 'legTarget gets the trip detour')
+  one(/legTarget\(read, \{ pos: p, home, bearing: trip\.bearing, markers, zones, detour: trip\.detour, swim: EXPEDITION\.swim,\s*bridges: /g, 'legTarget gets the trip detour')
   one(/trip\.detour = dNext/g, 'the detour is kept')
   one(/const iceOk = torchSafe\(read, \[x, y \+ 2, z\]\)/g, 'the ice check')
   one(/if \(iceOk && \(heldMap\(bot\)\.torch \?\? 0\) > 0\) \{/g, 'the torch waits for it')
-  one(/const outMs = \(deadline - tOut\) \* outShareOf\(trip\.ring\)/g, 'the out share')
+  one(/const outMs = \(deadline - tOut\) \* \(bsite \? 0\.85 : outShareOf\(trip\.ring\)\)/g, 'the out share')
   one(/v: trip\.v, multi: trip\.multi === true/g, 'the returned row')
   one(/if \(trailAge\(trip, Date\.now\(\)\) > TRAIL_TTL_MS \|\| exAtHome\(p\)\) return null/g, 'home follows by trail age')
   one(/if \(arrived\) trip\.trailAt = Date\.now\(\)/g, 'only an arrived hop freshens the trail')
