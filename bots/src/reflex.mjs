@@ -36,7 +36,7 @@ import { scoopLeavesAir, isWaterSource } from './bucket.mjs'
 // not a cycle.
 import { rideFloorDown } from './skills.mjs'
 import { stairEgressReflex, stairStandingOn } from './skills.mjs'   // shafttrap-02: a bot on the town stair walks it up first
-import { egressHandoff, egressDue, handoffDetail, EGRESS_REFLEX_MS } from './shaftgeom.mjs'   // shafttrap-02
+import { egressHandoff, egressDue, handoffDetail, stairWalkThroughNow, EGRESS_REFLEX_MS } from './shaftgeom.mjs'   // shafttrap-02
 // Re-exported from its new home so existing importers and tests keep working;
 // it lives in mining.mjs because skills.mjs needs it too and reflex.mjs already
 // imports FROM skills.mjs -- putting it here would have made an import cycle.
@@ -1636,6 +1636,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     if (deepTripOnStair(bot.deepTrip) || runner?.bodyClaimFor?.('stair')) return null
     const on = stairStandingOn(bot)
     return on && egressDue(stairEgressMemo, on.k, Date.now()) ? on : null
+  }
+  // A WALK THROUGH THE STAIR IS NOT ENTOMBMENT. LIVE 46 h: 3,643 of the 3,810 in-stair `_entombed` rows had the feet in the head
+  // cell of the next step or the one after (a body in transit between treads: rock overhead and on three sides by design), and
+  // the skill that ended with them was ABORTED (gather 855, goto 782, explore 466, surface 331, home 250, ...): the arm cut
+  // a moving walk short and pillared. While a skill runs and the pathfinder is moving the bot on the stair, the arm waits; a
+  // walk that stalls stops moving and the arm (and its hand-over) applies. One row a minute says it.
+  let stairWalkRowAt = 0
+  const stairWalkThrough = () => {
+    if (!stairWalkThroughNow({ busy: runner.isBusy(), moving: !!bot.pathfinder?.isMoving?.(), on: !!stairStandingOn(bot) })) return false
+    if (Date.now() - stairWalkRowAt > 60_000) { stairWalkRowAt = Date.now(); try { logEvent({ kind: 'stair_walk_through', status: 'success', detail: `the walk of ${runner.current?.skill ?? '?'} is moving through the town stair: not entombed`, snapshot: snapshot(bot) }) } catch { /* telemetry */ } }
+    return true
   }
   const stairExitFirst = async (handler, grantOf, on) => {
     if (!on || (config.reflex.arbiter && runner?.arb && !grantOf())) return 'skip'
@@ -3320,7 +3331,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       if (!escaping && entombedGrant) { giveBody(runner, entombedGrant, 'entombed arm ended'); entombedGrant = null }   // released within one tick of the arm's finally
       const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
       if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot) && Date.now() >= airPocketBreatheUntil &&
+          // shafttrap-02: a skill's walk moving through the town stair is not entombed (the walk is the way)
           !pocketing && !pocketPending && Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS &&
+          !stairWalkThrough() &&
           !tombDeclines()) {   // tombexit-01: LAST, so it runs only when the arm would fire; a decline = not entombed
         // A WET CEILING IS NOT A MISSING PICKAXE (climbflood-01, Codex r1): with
         // failures already counted, this arm would ask for a tool BEFORE the
