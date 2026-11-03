@@ -31,7 +31,7 @@
 #                      longer than CREW_YIELD_MS (the bot yields a raced take at once) -- leases taken after the read's cut only
 #   G2 (tidy, gkhelpers-01) a `kind=gather` clear (the park gather) is a plant block (GATHER_BLOCKS: park.mjs GATHER_NAMES), never
 #                      another project's record cell or a marker (tidy_guard), never in the park (the land plan's park box + 1), never a
-#                      cell of the tidy chain (gather_ok)
+#                      FILL cell of the tidy chain (gather_ok)
 #   G5 felled_unplanted  a `kind=tree` clear whose row says fewer replant cells read a sapling than the record has (saplings=a/b,
 #                      a < b); a tree clear without the field is g5_unjudged (also a gate)
 #   G6 unknown_stood   a bot's OWN build row whose position (its stand) is IN or ON a cell its own `op=unknown` row named, before
@@ -137,7 +137,7 @@ def gather_ok(chain, cell, block, t_ms, guard, park_box):
     """gkhelpers-01: is a `project=tidy op=clear kind=gather` (the park gather, bots/src/skills.mjs parkGather) a plant the gather may
     take? -> (bool, why). Pure. A GATHER_BLOCKS block; never guarded (another project's record cell or a marker when it was dug:
     tidy_guarded), never inside the park's box + 1 (park_box [x0, z0, x1, z1]: the land plan's), never a cell of any generation of the
-    tidy chain (its fills, cuts, clears). The protected zones are G3's."""
+    tidy chain (a cut or a clear-list leaf may be taken). The protected zones are G3's."""
     if block not in GATHER_BLOCKS:
         return False, ''
     guarded = tidy_guarded(cell, t_ms, guard)
