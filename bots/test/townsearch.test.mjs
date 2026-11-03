@@ -19,6 +19,12 @@ process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
 process.env.SKILL_TIMEOUT_MS = '180000'   // the production clock: withdraw is clamped to it (the suite sets 300 ms)
 const freshPool = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-townsearch-pool-')); process.env.POOL_STATE_DIR = d; return d }
 freshPool()
+/** Delete the town index's files from the current pool (indexsearch-02: a test of the miss memory alone). */
+const dropTownIndex = () => {
+  const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else if (/^town-index-.*\.jsonl$/.test(e.name)) fs.unlinkSync(f) } }
+  walk(process.env.POOL_STATE_DIR)
+  return import('../src/townindex.mjs').then(m => m.resetIndexCache())
+}
 
 const W = await import('../src/withdrawpick.mjs')
 const CF = await import('../src/chestfull.mjs')
@@ -338,7 +344,7 @@ await t('THE ROW (Codex r2): the order\'s verb= and the search\'s counters come 
     deposited: [{ name: 'bamboo', count: 64 }, { name: 'bamboo', count: 64 }], took: { cobbled_deepslate: 3, stick: 2, oak_planks: 4 },
     tried, search: { town: 32, pick: 20, ing: 6, ...W.searchTally(tried) } })
   assert.equal(row.length, 300, 'cut')
-  assert.match(row, /^outcome=took_ingredients need=\S+ uses=- verification=server verb=withdraw_pick line=- town=32 cand=20,6 visits=24 maxrep=1 vfail=1 cursor=/)
+  assert.match(row, /^outcome=took_ingredients need=\S+ uses=- verification=server verb=withdraw_pick line=- town=32 cand=20,6 visits=24 maxrep=1 vfail=1 ix=\S+ cursor=/)
   assert.equal(row.split('verb=').length, 2, 'verb= once')
   const plain = W.withdrawRow({ outcome: 'took', need: 'stick:2', verification: 'server', tried: ['1,2,3:success'], verb: 'withdraw' })
   assert.match(plain, / took=- verb=withdraw tried=\[1,2,3:success\]$/, 'the model verb\'s row keeps its layout')
@@ -578,6 +584,9 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     const first = new Set(w.spy.opened)
     assert.equal(first.size, WITHDRAW_PICK_VISITS + WITHDRAW_INGREDIENT_VISITS)
     later(WITHDRAW_COOLDOWN_MS + WITHDRAW_BACKOFF_MS)
+    // indexsearch-02: the town index's observations of order 1's opens would hold those containers back too -- drop them, so
+    // this pins the MISS MEMORY alone (the index's own skip is test/indexsearch2.test.mjs)
+    await dropTownIndex()
     const n = w.spy.opened.length
     await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
     assert.deepEqual(w.spy.opened.slice(n).filter(k => first.has(k)), [], 'order 2 re-opened none of order 1\'s containers')
@@ -664,8 +673,8 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     await fn(S).catch(e => { throw new Error(`positive control ${name} fails on the real code: ${e.message}`) })
   }
   const M = [
-    ['the journal\'s counts ignored', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl }', '{ counts: {}, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl }', journalFirst],
-    ['the misses ignored', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl }', '{ counts: view.counts, misses: {}, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl }', resumes],
+    ['the journal\'s counts ignored', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl, index }', '{ counts: {}, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl, index }', journalFirst],
+    ['the misses ignored', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl, index }', '{ counts: view.counts, misses: {}, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl, index }', resumes],
     ['the gate ignores the journal', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, now: view.now, missTtl }).length === 0', '{ counts: {}, misses: view.misses, tookAt: view.tookAt, skip: view.skip, now: view.now, missTtl }).length === 0', gateSeesCount],
     ['the gate ignores coverage', '  if (!view.coverage || !view.containers.length) return false', '  if (!view.containers.length) return false', gateCoverage],
     ['no skip after a visit that could not look inside', '  bot.withdrawSearchSkip.set(containerKey(bot, cb.position), now + SEARCH_FAIL_SKIP_MS)', '  void 0', failSkip],

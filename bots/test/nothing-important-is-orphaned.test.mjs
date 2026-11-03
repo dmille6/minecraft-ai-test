@@ -31,6 +31,8 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  'bots/src/indexsearch2.mjs',        // indexsearch-02 = storehub piece C
+  'bots/test/indexsearch2.test.mjs',
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',

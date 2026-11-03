@@ -51,6 +51,7 @@ import { inTown, depositTargetOk, walkFailure, backsOffTarget, travelTimeoutActi
          TOWN_SCAN_RADIUS, TOWN_DY, wellKeepout, homeFirst } from './chestfull.mjs'
 import { STORAGE_NEAR, startableJunk } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
+import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, stonePickReady, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
   ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete, containerIngredientMiss,
   townSearchOrder, needCount, INGREDIENT_MISS_KEY, WITHDRAW_PICK_VISITS, WITHDRAW_INGREDIENT_VISITS, WITHDRAW_VISIT_MIN_MS, WITHDRAW_INGREDIENT_RESERVE_MS, SEARCH_FAIL_SKIP_MS, SEARCH_FAIL_SKIP, passClock, searchTally, SEARCH_MISS_TTL_MS } from './withdrawpick.mjs'
@@ -11814,14 +11815,14 @@ async function withdrawPick (ctx, _args, signal) {
     return withdrawRowOut(bot, r, { outcome, need: st.need, uses: st.uses, ...st.diag, bagBefore, bagAfter: bagTotal(bot.inventory.items()),
       deposited: Object.entries(st.moved?.gave ?? {}).map(([name, count]) => ({ name, count })),
       took: { ...(st.moved?.took ?? {}), ...(st.moved?.tool ? { [st.moved.tool.name]: 1 } : {}) }, verb: 'withdraw_pick', tried,
-      search: st.search ? { ...st.search, ...searchTally(tried) } : null })
+      search: st.search ? { ...st.search, ...searchTally(tried), ix: withdrawIxTag(st.search.ix) } : null })
   }
   try {
     return await withdrawPickRun(ctx, signal, tried, st, finish)
   } catch (e) {
     // an aborted or errored ORDER carries the search's counters too (Claude r2 P3: the watchdog's aborts are the long ones)
     if (!st.written) withdrawThrowRow(bot, e, { verb: 'withdraw_pick', need: st.need, uses: st.uses, bagBefore, tried,
-                                               search: st.search ? { ...st.search, ...searchTally(tried) } : null })
+                                               search: st.search ? { ...st.search, ...searchTally(tried), ix: withdrawIxTag(st.search.ix) } : null })
     throw e
   }
 }
@@ -11867,7 +11868,7 @@ function townSearchView (bot, needs, tried = new Set()) {
     const halves = partner ? [k, posKey(partner)] : [k]
     if (halves.some(h => zoneShut(keyVec(h)))) continue
     byKey.set(k, b)
-    containers.push({ k, d: me ? me.distanceTo(p) : Infinity })
+    containers.push({ k, halves, d: me ? me.distanceTo(p) : Infinity })
     const failUntil = bot.withdrawSearchSkip?.get?.(k)
     if (halves.some(h => tried.has(h)) || (Number.isFinite(failUntil) && failUntil > now) ||
         halves.some(h => ['unusable', 'unavailable'].includes(containerStatus(mem?.[h])))) skip.push(k)
@@ -11887,9 +11888,37 @@ function townSearchView (bot, needs, tried = new Set()) {
  *  bot stands now, after every visit. */
 function townSearchNext (bot, needs, tried, want = {}, { missTtl = SEARCH_MISS_TTL_MS } = {}) {
   const view = townSearchView(bot, needs, tried)
-  const order = townSearchOrder(view.containers, needs, { counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl })
+  const index = townSearchIndex(bot, view, needs, tried)
+  const order = townSearchOrder(view.containers, needs, { counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl, index })
+  // a recheck handed out is spent for this pass (its open re-observes the container), whether or not the caller visits it
+  if (index && order[0]?.ixneg) searchRechecks(tried).add(order[0].k)
   return { block: order.length ? view.byKey.get(order[0].k) : null, order, view }
 }
+// indexsearch-02 (storehub piece C; indexsearch2.mjs): the rechecks one PASS has handed out, keyed by the pass's own `tried` Set
+// (every caller makes one per pass), so no caller keeps the count
+const RECHECKS = new WeakMap()
+const searchRechecks = tried => { let s = RECHECKS.get(tried); if (!s) { s = new Set(); if (tried && typeof tried === 'object') RECHECKS.set(tried, s) } return s }
+/** THE INDEX'S EVIDENCE FOR THIS SEARCH VIEW -> townSearchOrder's `index`, or null (INDEXSEARCH2=off, the index off or
+ *  unreadable, or a need the index cannot judge: today's search). The hub registry's intake chests (storehub piece A/D) are
+ *  never negatives; no hub exists yet, so the set is empty. */
+function townSearchIndex (bot, view, needs, tried) {
+  if (!INDEXSEARCH2.on || !indexJudges(needs)) return null
+  try {
+    const entries = townIndexEntries(bot)
+    if (!entries) return null
+    const ev = indexEvidence(entries, view.containers, needs, { now: view.now, tookAt: view.tookAt, untrusted: HUB_INTAKE_NONE })
+    if (!ev.judged) return null
+    const used = searchRechecks(tried)
+    // a recheck already handed out to a container still in the list stays this pass's (the caller may re-rank before visiting)
+    const pending = [...used].some(k => ev.neg.has(k) && !view.skip.includes(k))
+    return { neg: ev.neg, pos: ev.pos, recheck: pending ? INDEX_RECHECK_VISITS : Math.max(0, INDEX_RECHECK_VISITS - used.size) }
+  } catch { return null }
+}
+const HUB_INTAKE_NONE = Object.freeze(new Set())
+/** One pass's index tag for the rows: `<negatives held back at its start>/<rechecks handed out>` (indexsearch2.mjs). */
+const indexSearchTag = (neg, tried) => `${neg}/${tried ? searchRechecks(tried).size : 0}`
+/** withdraw_pick's: the pickaxe pass's, then the ingredient pass's (`-`: that pass never ran). */
+const withdrawIxTag = ix => (ix ? `${indexSearchTag(ix.pick, ix.pickTried)},${ix.ingTried ? indexSearchTag(ix.ing, ix.ingTried) : '-'}` : '-')
 /** A visit that could not look inside: this container leaves THIS bot's search for SEARCH_FAIL_SKIP_MS. A window that
  *  would not open (container_open) still ends the order, but is skipped too, so the next order does not start there
  *  (Claude r1 P3: a journal holder that always times out would otherwise end every order). */
@@ -11973,7 +12002,8 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   let next = townSearchNext(bot, [need], pickTried)
   // `line`: which trigger fired (trip = a usable but non-trip pickaxe in the bag; any = none usable) -- its own field, so it
   // survives the ingredient pass rewriting need= (Claude trip review P2)
-  st.search = { town: next.view.containers.length, pick: next.order.length, ing: '-', line: need === 'trippick' ? 'trip' : 'any' }
+  st.search = { town: next.view.containers.length, pick: next.order.length, ing: '-', line: need === 'trippick' ? 'trip' : 'any',
+                ix: { pick: next.order.ixNeg ?? 0, pickTried, ing: '-', ingTried: null } }
   for (let n = 0; n < WITHDRAW_PICK_VISITS && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
     check(signal)
     const cb = next.block
@@ -12026,7 +12056,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   for (let n = 0; n < WITHDRAW_INGREDIENT_VISITS && timeForAVisit(); n++) {
     check(signal)
     const nx = townSearchNext(bot, needs, ingTried, want)
-    if (n === 0) st.search.ing = nx.order.length
+    if (n === 0) { st.search.ing = nx.order.length; st.search.ix.ing = nx.order.ixNeg ?? 0; st.search.ix.ingTried = ingTried }
     const cb = nx.block
     if (!cb) break
     const v = await withdrawVisit(ctx, cb, ingredientDecision, signal, msLeft, deadline - 2_000)
@@ -12109,7 +12139,7 @@ async function toolkit (ctx, args, signal) {
     searchWritten = true
     if (st.searchT1 == null) { Object.assign(st.search, searchTally(tried), { left: -1 }); st.searchT1 = Date.now() }
     logEvent({ kind: 'kit_search', status, snapshot: snapshot(bot), durationMs: Math.max(0, st.searchT1 - st.searchT0),
-      detail: kitSearchRow({ outcome, ...st.search, tried }) })
+      detail: kitSearchRow({ outcome, ...st.search, ix: st.search.ix ? indexSearchTag(st.search.ix.neg, st.search.ix.tried) : '-', tried }) })
   }
   const row = status => {
     written = true
@@ -12182,7 +12212,8 @@ async function toolkit (ctx, args, signal) {
       let got = null, noSticks = heldBack > 0, progressed = false
       st.searchT0 = Date.now()
       let next = townSearchNext(bot, [need], kitTried)
-      st.search = { need, town: next.view.containers.length, cand: next.order.length, visits: 0, vfail: 0, maxrep: 0, left: next.order.length }
+      st.search = { need, town: next.view.containers.length, cand: next.order.length, visits: 0, vfail: 0, maxrep: 0, left: next.order.length,
+                    ix: { neg: next.order.ixNeg ?? 0, tried: kitTried } }
       for (let n = 0; n < KIT_SEARCH_VISITS && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
         check(signal)
         const cb = next.block
