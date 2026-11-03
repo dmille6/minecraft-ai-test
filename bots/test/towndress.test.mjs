@@ -289,6 +289,7 @@ const W = [
   /kind === 'dress' \? \{ alsoDone: q => dressSignRole\(q\.role\) \} : \{\}/,
   /bot\.finiteStreak = isSinkPlot\(proj\.plot\) \? 0 : \(bot\.finiteStreak \?\? 0\) \+ 1/,
   /const r = await sortLabelOne\(ctx, sp, signal, deadline, \{ kind: 'town_sign' \}\)/,
+  /if \(!item\) \{ const tr = \(bot\.sortSignTries \?\?= new Map\(\)\); for \(const sp of work\) tr\.set\(sp\.at\.join\(','\), \(tr\.get\(sp\.at\.join\(','\)\) \?\? 0\) \+ 1\) \}/,
   /buildRowDetail\(\{ project: SINK_PLOTS\.dress, op: 'place', seg: sp\.seg, cell: sp\.at,/,
 ]
 await t('the dress sink is wired: sign cells are upkeep not damage, the gate reads torches, the visit writes signs first and logs each placement, the runner skips sign cells, the sink turn counts finite visits', () => {

@@ -20271,6 +20271,9 @@ async function dressSignsVisit (ctx, rec, signal, deadline) {
   if (!work.length || deadline - Date.now() < 30_000) return out
   const item = await sortGetSigns(ctx, work.length, signal)
   check(signal)
+  // towndress-01 r2 (Codex r2 BLOCKER): no sign to place counts a try on every spot (SIGN_TRIES bounds the upkeep's `due`), else a
+  // town with no wood offered the dress sink on every sink turn for good
+  if (!item) { const tr = (bot.sortSignTries ??= new Map()); for (const sp of work) tr.set(sp.at.join(','), (tr.get(sp.at.join(',')) ?? 0) + 1) }
   if (!item) { try { logEvent({ kind: 'dress', status: 'no_effect', snapshot: snapshot(bot), detail: dressRowDetail({ op: 'signs', want: work.length, why: 'no_sign_item' }) }) } catch { /* telemetry */ } return out }
   for (const sp of work) {
     if (deadline - Date.now() < 20_000) break
