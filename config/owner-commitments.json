@@ -4110,6 +4110,35 @@
    },
    "note": "Measured 11-03: showcase 63 villagers, 0 employed, 0 offers (6_1's 7 stuck in village trapdoor rings); fleet employed novices 554-605 blocks from 11 towns. Sandbox4: job claim 5.5 s (mobGriefing true and false), openVillager + trade sell/buy server-confirmed; anvil/enchanting table unproven.",
    "owner_pending": "Trade trip range (recommend one surveyed route <= 650 blocks, 10-min budget) and whether village 6_1 stays as is (recommended) or gets a one-off fix."
+  },
+  {
+   "id": "farms-1103",
+   "title": "Farms: crop farms + bakery (wheat/carrot/potato near town, harvest + replant, bread) and animal pens (lure/lead cows+sheep, breed, shear wool, leather) -- owner 11-03 'yes design all using both claude and codex, put them in the queue and implement and deploy where you feel is right'",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "farms-1103.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Design + Codex reconciliation + Paper proof (15/15 on sandbox3) on main. Piece 1 cropfarm-01show (seed keep + wheat farm project + seedgrass gather, tier 2) built on the showcase release branch, plus the shopread G9 farm_dig rule on main (not installed); the control session folds + releases it after showcase 10, before the 15-bot step. Then bakery-01, pens-01, herd-01 (tier 3, two engines), leather-01.",
+   "max_quiet_hours": 72,
+   "depends_on": [],
+   "evidence": {
+    "grep": [
+     "cropfarm",
+     "farms-1103"
+    ],
+    "branches": [
+     "farms-01show"
+    ],
+    "paths": [
+     "docs/reports/farms-design-2026-11-03.md",
+     "sandbox/farms/farm-proof.cjs"
+    ]
+   },
+   "note": "Measured 11-03: showcase near-town cow/sheep/pig rows 0 since 10-31 (852/10,438 on 10-28); fleet near-town cows 8.3%, sheep 2.7% of 57,341 rows. Seeds are NEVER_KEEP + composted + never banked today: the keep switch ships with the farm."
   }
  ]
 }

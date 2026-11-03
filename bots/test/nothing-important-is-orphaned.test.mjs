@@ -272,6 +272,10 @@ const REQUIRED = [
   'docs/reports/job-assigner-2026-11-03.md',
   // comms stage 3 (requests): the design + Codex's independent design and the reconciliation (11-03)
   'docs/reports/requests-design-2026-11-03.md',
+  // farms (11-03): crop farms, bakery, animal pens -- the design (Codex + reconciliation) and its Paper proof
+  'docs/reports/farms-design-2026-11-03.md',
+  'sandbox/farms/farm-proof.cjs',
+  'sandbox/farms/farm-proof.jsonl',
   // villager trading (11-03): the design + Codex's independent design, the Paper sandbox proofs and the read-only census helpers
   'docs/reports/trading-design-2026-11-03.md',
   'sandbox/trading/trade-proof.cjs',

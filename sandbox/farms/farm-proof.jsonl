@@ -1,0 +1,15 @@
+{"step":"till","ok":true,"t":5.7,"call":"activateBlock(grass, up) holding wooden_hoe"}
+{"step":"plant","ok":true,"t":6.6,"call":"placeBlock(farmland, up) holding wheat_seeds","seeds":[8,7]}
+{"step":"grow","ok":true,"t":71.2,"s":64.579,"rtick":300}
+{"step":"harvest","ok":true,"t":74.8,"wheat":[16,17],"seeds":[7,10],"farmlandKept":true}
+{"step":"replant","ok":true,"t":76}
+{"step":"fence_ring","ok":true,"t":104.5,"placed":16,"of":16}
+{"step":"gate_open_close","ok":true,"t":107.8,"open":true,"shut":true}
+{"step":"wheat_lure","ok":true,"t":123.6,"d0":2.1053219715358313,"d1":2.1475006351707147,"cowAt":{"x":2517.3024263489774,"y":100,"z":2521.418293442791}}
+{"step":"lead_attach","ok":true,"t":125.4,"attachPackets":[{"entityId":3915,"vehicleId":3746}],"leadsLeft":1}
+{"step":"lead_walk","ok":true,"t":131.3,"d":2.609841884958544,"cowAt":{"x":2517.3024263489774,"y":100,"z":2521.418293442791}}
+{"step":"lead_tie_fence","ok":true,"t":132.3,"attachPackets":[{"entityId":3915,"vehicleId":3924}]}
+{"step":"breed","ok":true,"t":141,"fed":2,"wheat":[17,15],"calfAfterS":3.005}
+{"step":"shear","ok":true,"t":160.1,"out":[{"k":0,"d":1.62,"wool":[0,2],"sheared":true,"flag":"Sheep has the following entity data: 1b\n"},{"k":1,"d":6.97,"wool":[2,5],"sheared":true,"flag":"Sheep has the following entity data: 1b\n"},{"k":2,"d":4.62,"wool":[5,5],"sheared":true,"flag":"Sheep has the following entity data: 1b\n"}]}
+{"step":"attack","ok":true,"t":181.7,"hits":11,"leather":[0,2],"beef":[0,1]}
+{"step":"bread","ok":true,"t":187.3,"wheatLeft":12}
