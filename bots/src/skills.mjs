@@ -21516,7 +21516,8 @@ async function buildCropFarm (ctx, args, signal) {
     let want = seedNeed(read, rec, s.held)
     let took = {}
     if (want > 0 && s.town > 0 && Date.now() >= (bot.cropDrawUntil ?? 0)) {
-      try { const w = await matsWithdraw(ctx, { wheat_seeds: Math.min(want, s.town) }, signal, 30_000, matsReserve().table); took = w.took ?? {} } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+      // shopAllow (Codex r2): takeAllowed takes nothing of a name with no reserve key
+      try { const w = await matsWithdraw(ctx, { wheat_seeds: Math.min(want, s.town) }, signal, 30_000, matsReserve().table, shopAllow); took = w.took ?? {} } catch (err) { if (err?.aborted || signal?.aborted) throw err }
       for (const [k, v] of Object.entries(took)) tookAll[k] = (tookAll[k] ?? 0) + v
       if (!(took.wheat_seeds > 0)) bot.cropDrawUntil = Date.now() + 10 * 60_000
       want = seedNeed(read, rec, countItem(bot, 'wheat_seeds'))
