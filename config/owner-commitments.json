@@ -3874,6 +3874,27 @@
     ]
    },
    "note": "cooldown15-01 reverted 11-02 at +63 min by the rate-only death gate on 2 unlinked lava deaths (both bots idle in failed-walk streaks), no read ran. 10 s waits for 5080 capacity (4B fleet-wide)."
+  },
+  {
+   "id": "showcase-15bots-1103",
+   "title": "Showcase 10 -> 15 bots once there is work for them; a second brain past 15 (owner 11-03 \"i agree to all those things, do it\")",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "owner-showcase-work-1103.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Wait for the work pieces (picker-01 + sinks, groundskeeper helpers + park-gather, water-crossing expeditions) to be released on the showcase and build_shop turn-aways to fall; then add 5 bots on the Studio gemma4 brain (measured 10 bots = 7.9 calls/min, p95 3.7 s; design figure 10-12, 8 concurrent = 9-10 s) and read Studio latency for 2 h. Past 15: a second brain (the 4B on the 5080) for the extra bots.",
+   "max_quiet_hours": 48,
+   "depends_on": [],
+   "evidence": {
+    "grep": [
+     "showcase-15bots"
+    ]
+   },
+   "note": "Capacity read 11-03: showcase host 16 cores, 6/31 GB, load 3-4, MSPT ~7 -- the brain is the limit, not the server."
   }
  ]
 }
