@@ -3,7 +3,7 @@
 Owner 11-03 (ledger `townterrace-1103`): "yes, do it, add it to the grounds keeper". Clear the trees inside the town wall, grade the
 town into terraces at the building floors, and add a seeded park/garden. Builds on groundskeeper-01 (`groundskeeper-2026-11-02.md`).
 
-Branch `townterrace-on-c2a0de4f` (4 commits) on the showcase release line `showcase-yard2-on-e54d1cce` c2a0de4f (= the
+Branch `townterrace-on-c2a0de4f` (HEAD after 5de9c9d7) on the showcase release line `showcase-yard2-on-e54d1cce` c2a0de4f (= the
 groundskeeper release 62e2aff0 + copperrun-01 + stockyard-01/yardsite-01). Tier 2 (`protected.py`: not protected).
 Rollback: `TERRACE=off` (the stage reads as nothing to do; the ring order goes on), or the base sha. A code rollback is clean: a
 stage record's `stage` number stays groundskeeper-01's (`legacyStage`: the terrace 0, roads 1 ...), today's order is read from
@@ -235,7 +235,7 @@ Notes not acted on:
 
 ## Tests
 
-- `bots/test/terrace.test.mjs`: 36 tests. They cover the levels, floors, the 1-Lipschitz grading against a plateau, refusals,
+- `bots/test/terrace.test.mjs`: 47 tests (36 for the stage, 11 for the water rule). They cover the levels, floors, the 1-Lipschitz grading against a plateau, refusals,
   cave seals, the farm guard, trees and replant pairing, the walk guard, park determinism and skips, the hedge rule, the skip rule,
   the bill, and a real `runVisit` of a park on buildfake (tilled, planted, greened, a missing element passed). They also cover
   `stageCarry`, `legacyStage` and `recStageK`, and the wiring.
@@ -244,7 +244,22 @@ Notes not acted on:
   family. A composed control shows the skip rule's absence stops the visit `no_material`.
 - `groundskeeper.test.mjs` follows the new order: 33 passed.
 - eslint over `src/*.mjs` is clean.
-- Full suite on the worlds host: see the commit that records it.
+- **Full suite on the worlds host** (one at a time under `~/suite.lock`, nice 19, 6 jobs):
+  - branch 73cc0331: 389/395;
+  - base c2a0de4f: 389/394.
+
+  Two of the branch's failures were mine: `paths-wiring` and `paths-build` mutant anchors moved with the per-cell tool use. They
+  are fixed in 5de9c9d7 (14/14 and 5/5).
+
+  The other four fail identically on the base:
+  - `nothing-important-is-orphaned` (`bots/test/bagdiet.test.mjs` is listed but absent);
+  - `oretunnel`;
+  - `outcome-not-intention`;
+  - `well`.
+
+  `lavastep` also failed on the base only; it is a known wall-clock flake.
+
+  `check-movement-writers` fails identically on both (`buildbot.mjs`, two tests). eslint is clean.
 
 ## What the showcase 2-h read should check
 
