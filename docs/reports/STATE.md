@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-03T00:20:01Z._
+_Generated 2026-11-03T02:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `10aa0e1d` = fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) on tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) on fleetbuild-01 `c711879e` (KEEP 11-01 23:37Z, promoted 11-01 23:47Z) on apseal-01 `963e99af` (KEEP 11-01 20:05Z, promoted 11-01 20:15Z) on promptcache-01 `9246217d` (KEEP 11-01 16:14Z, promoted 11-01 16:24Z) on lavatarget-01 `dfb3ff13` (KEEP 11-01 12:24Z, promoted 11-01 12:34Z). Live builds: {'10aa0e1decc8a58c6d533904933547c2747fdb13+003b4f': 70, 'e54d1cce6b76e0f66877a1042ecd7765566092c5+851cf8': 10} |
-| **Canary in slot** | **drainpick-01** deployed 11-02 21:37Z; reads +90 11-02 23:07Z, +180 11-03 00:37Z; KEEP auto-promotes ~10 min after the +180 KEEP |
-| **Queue (front)** | stuckcells-01 -> deepminer-01 -> bagdiet-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01. Held: servea-01 (HELD: released AUTOMATICALLY by the servea waiter (Mac launchd com.mcai.servea-waiter, scripts/h...); llmoai-01 (HELD: serving A (OWNER 11-02 'do what you recommend'): the oai+ client to the whole fleet, neede...). Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
-| **Scheduler** | busy S1 canary declared: e54d1cce6b76e0f66877a1042ecd7765566092c5 on board-d,hive-a / S6 open loop: canary e54d1cc is deployed on board-d,hive-a with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 drainpick |
-| **Showcase release** | `4c92880a` (19,515 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **tests_failed** (live 4c92880a sits on f1f5c16c (tidy-01); behind by 1: fewerdec-01; compat identical: 8 records: same heads, build order and damage in 3 worlds; tests tests_fai; row 11-02 23:25Z) |
+| **Fleet** | `e54d1cce` = drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) on fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) on tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) on fleetbuild-01 `c711879e` (KEEP 11-01 23:37Z, promoted 11-01 23:47Z) on apseal-01 `963e99af` (KEEP 11-01 20:05Z, promoted 11-01 20:15Z) on promptcache-01 `9246217d` (KEEP 11-01 16:14Z, promoted 11-01 16:24Z) |
+| **Canary in slot** | EMPTY (last close drainpick-01 KEEP 11-03 00:35Z) |
+| **Queue (front)** | deepminer-01 -> stuckcells-01 -> bagdiet-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01. Held: servea-01 (HELD: released AUTOMATICALLY by the servea waiter (Mac launchd com.mcai.servea-waiter, scripts/h...); llmoai-01 (HELD: serving A (OWNER 11-02 'do what you recommend'): the oai+ client to the whole fleet, neede...). Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
+| **Scheduler** | launch deepminer-01 |
+| **Showcase release** | `4c92880a` (17,171 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **tests_failed** (live 4c92880a sits on f1f5c16c (tidy-01); behind by 2: drainpick-01, fewerdec-01; compat identical: 8 records: same heads, build order and damage in 3 worlds; t; row 11-03 01:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | qwen35-roll: rollout-compare 11-02 22:36Z |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
-| **Open alarms** | STALLCHECK 2026-11-02T23:35:01Z STALLED: 32. OPSAUDIT 2026-11-02 FLAGS: 8 (1 high). 19 active alarm(s): stuck goals 12 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-a/monument@355_73_147, hive-b/monument@355_73_147, hive-d/shaft@68_65_68, hive-d/shop@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, flowledger bags, flowledger starved:placebo-b, flowledger stations:hive-b |
+| **Open alarms** | STALLCHECK 2026-11-03T01:35:01Z STALLED: 42. OPSAUDIT 2026-11-02 FLAGS: 8 (1 high). 22 active alarm(s): stuck goals 12 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-a/monument@355_73_147, hive-d/shaft@68_65_68, hive-d/shop@68_65_68, isolated-b/shop@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, flowledger bags, flowledger starved:placebo-b, flowledger stations:board-d |
 <!-- GENERATED:END -->
 
 ## Notes
