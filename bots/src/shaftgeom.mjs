@@ -669,7 +669,18 @@ export function egressNext (read, plan, i, body = []) {
       if (!b) { if (j >= i - 1) return { op: 'stop', why: 'unknown', at: c, k: j }; return { op: 'hop', to: j + 1 } }
       if (isWet(b)) { if (j >= i - 1) return { op: 'stop', why: 'wet', at: c, k: j }; return { op: 'hop', to: j + 1 } }
       if (b.boundingBox === 'empty') continue
-      if (j >= i - 1) return { op: 'dig', at: c, k: j }
+      if (j >= i - 1) {
+        // NEVER OPEN A LIQUID'S BARRIER (Codex r1 blocker 1): the foreign block may be what holds back water or lava in the cell
+        // beside it -- a liquid or an unread cell at any face of it stops the way out, nothing dug
+        for (const [dx, dy, dz] of N6) {
+          const n = [c[0] + dx, c[1] + dy, c[2] + dz]
+          if (skip.has(k3(...n))) continue
+          const nb = read(...n)
+          if (!nb) return { op: 'stop', why: 'unknown', at: n, k: j }
+          if (isWet(nb)) return { op: 'stop', why: 'wet', at: n, k: j }
+        }
+        return { op: 'dig', at: c, k: j }
+      }
       return { op: 'hop', to: j + 1 }
     }
     if (j < i) {

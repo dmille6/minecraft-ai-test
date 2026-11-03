@@ -17858,6 +17858,14 @@ async function buildStair (ctx, args, signal) {
 // the skill's budget (the runner cuts it there). One `_shaft op=egress` row per egress, one `op=egress_dig` per block cleared.
 const EGRESS_HOP_MS = 9_000
 const EGRESS_TAIL_MS = 4_000
+/** IS A PLAYER'S BODY (this bot's or another's) STANDING ON THIS CELL? -> bool. Its box (0.6 wide) over the cell's top face and its
+ *  feet within 1.5 above it (on it, or in the jump off it). Never throws (unknown entities: none). */
+export function bodyOnCell (bot, c) {
+  try {
+    const all = [bot.entity, ...Object.values(bot.entities ?? {})].filter(en => en && en.position && (en === bot.entity || en.type === 'player'))
+    return all.some(en => { const p = en.position; return Math.abs(p.x - (c[0] + 0.5)) < 0.8 && Math.abs(p.z - (c[2] + 0.5)) < 0.8 && p.y >= c[1] + 0.9 && p.y <= c[1] + 2.5 })
+  } catch { return false }
+}
 /** -> runStairEgress's result, or null (not under the collar: no row). Throws only an abort. */
 async function visitEgress (bot, rec, signal, deadline, e0 = null) {
   const plan = stairPlanOf(rec)
@@ -17878,6 +17886,7 @@ async function visitEgress (bot, rec, signal, deadline, e0 = null) {
       feet: () => { const q = bot.entity.position; return [Math.floor(q.x), Math.floor(q.y + 1e-6), Math.floor(q.z)] },
       walkTo: c => stairWalk(bot, c, EGRESS_HOP_MS, signal),
       dig: c => e.dig(c),
+      occupied: c => bodyOnCell(bot, c),
       now: () => Date.now(),
       aborted: () => !!signal?.aborted,
       log: (op, d) => {
