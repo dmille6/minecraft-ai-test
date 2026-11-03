@@ -19931,7 +19931,7 @@ async function buildTidy (ctx, args, signal) {
     fwRead ??= planReader(bot)
     const b = fwRead(...q.at)
     if (!b || !/^(water|bubble_column)$/.test(String(b.name ?? ''))) return false
-    try { farmNow ??= farmGuardOf(fwRead, [home.x - (Number(rec.r) || 32) - 4, home.z - (Number(rec.r) || 32) - 4, home.x + (Number(rec.r) || 32) + 4, home.z + (Number(rec.r) || 32) + 4], home) } catch { return true }
+    try { farmNow ??= farmGuardOf(fwRead, [home.x - (Number(rec.r) || 32) - 4, home.z - (Number(rec.r) || 32) - 4, home.x + (Number(rec.r) || 32) + 4, home.z + (Number(rec.r) || 32) + 4], home, { except: landHead(dir)?.park?.box ?? null }) } catch { return true }   // (only a WATER cell reaches here: unreadable farmland fails closed on water alone)
     return farmNow(q.at[0], q.at[2])
   }
   const waivedK = q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !!guardNow(q.at[0], q.at[2]))
