@@ -3650,7 +3650,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "tlvideo-01 installed on the showcase VM: read the first ~4 h of captures (0 killed slots, pair every slot, active cameras every 15 min, Paper MSPT/TPS vs the before-sample in ~/tlbench), then the 11-04 00:20Z daily clips + reel; close done with the proof clip path",
+   "next_step": "LIVE on the showcase VM since 11-03 05:36Z (main 2f4866dc + fd5ddbcf r1). Read the 11-04 00:20Z daily clips + daily/2026-11-03-reel.mp4 (first full day; frames before 05:45Z have the old floating framing) and the 24-h slot count (goal: 0 killed, pair 96/96); then close done with the clip path. Sample: videos/tlvideo-01-sample-20261103/reel.mp4",
    "max_quiet_hours": 48,
    "evidence": {
     "grep": [
@@ -3662,7 +3662,7 @@
      "infra/timelapse/capture.mjs"
     ]
    },
-   "note": "Measured 11-03 04:30Z before: every slot 03:30-04:28Z ran past the 13-min TimeoutStartSec and was killed (no frame, no heartbeat row); 11-02 had 47/96 pair frames and 16-30 per extra camera, so daily clips were ~5 frames at 10 fps. Cause: one new headless-Chrome page (SwiftShader) per camera, ~80 s/frame at CPUQuota 200%, 9-10 cameras per slot."
+   "note": "Measured 11-03 04:30Z before: every slot 03:30-04:28Z ran past the 13-min TimeoutStartSec and was killed (no frame, no heartbeat row); 11-02 had 47/96 pair frames and 16-30 per extra camera, so daily clips were ~5 frames at 10 fps. Cause: one new headless-Chrome page (SwiftShader) per camera, ~80 s/frame at CPUQuota 200%, 9-10 cameras per slot. AFTER (05:45-08:45Z, 13 slots): 13/13 ok, 0 killed, 0 deadline skips, 80 frames (24.6/h), median 33 s/frame, slot run median 218 s (max 366 of 690 budget), ~1.0 core average CPU; ~2.0 GB/day of frames (229 GB free; thin acts below 80 GB). Paper: 5-s avg MSPT median 6.7 ms during capture vs 6.3 idle baseline (05:23-05:36Z, no capture), TPS 20.0 throughout; bot llm client overhead median 65.5 ms during capture = between captures = idle baseline. Verification `shoot` waited for the 06:00Z slot (holder named) and ran after it."
   },
   {
    "id": "effectwatch-1103",
