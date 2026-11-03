@@ -35,6 +35,8 @@ import { scoopLeavesAir, isWaterSource } from './bucket.mjs'
 // hit 'no routine wired'. skills.mjs does not import reflex.mjs, so this is
 // not a cycle.
 import { rideFloorDown } from './skills.mjs'
+import { stairEgressReflex, stairStandingOn } from './skills.mjs'   // shafttrap-02: a bot on the town stair walks it up first
+import { egressHandoff, egressDue, handoffDetail, EGRESS_REFLEX_MS } from './shaftgeom.mjs'   // shafttrap-02
 // Re-exported from its new home so existing importers and tests keep working;
 // it lives in mining.mjs because skills.mjs needs it too and reflex.mjs already
 // imports FROM skills.mjs -- putting it here would have made an import cycle.
@@ -385,6 +387,11 @@ export function climbNeedAbove (blockAt, feet, { cap = PILLAR_MAX_BLOCKS, passab
     if (dry(blockAt(fx, y, fz)) && dry(blockAt(fx, y + 1, fz)) && lateral(y)) return Math.max(1, Math.min(cap, y - fy))   // feet in the lower open cell
   }
   return cap
+}
+
+/** SHAFTTRAP-02: is a deep miner's trip using the stair (deepmine.mjs tripHoldsBody, or its descent, within an hour)? -> bool. Pure. */
+export function deepTripOnStair (trip, now = Date.now()) {
+  return tripHoldsBody(trip, now) || (trip?.phase === 'descend' && now - (Number(trip.startedAt) || 0) < 60 * 60_000)
 }
 
 export function maroonState({ upIsOpen, haveBlocks, entombed, canStartPath,
@@ -1617,6 +1624,28 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // a SHORT lapse: the pre-empt renews it every tick (500 ms) while it holds, so a request whose step never follows (the
   // scan stopped reading sealed after the climb moved the bot) frees the climb within 3 s (Claude r3)
   const airPocketWanted = () => airPocketWants > 0 && Date.now() - airPocketWants < AP_WANT_LAPSE_MS
+  // SHAFTTRAP-02: A BOT ON THE TOWN STAIR WALKS IT UP BEFORE ANY PILLAR, RAMP OR ESCAPE DIG. LIVE 46 h: 1,429 trap episodes began
+  // on a stair (entombed arm 995, marooned 431); their pillars filled the stair's air cells (553) and their ramps met the escape
+  // guard (`record=shaft`, 749; 163 `_needs_rescue`). The candidate is cheap (no world read); the egress (skills.mjs
+  // stairEgressReflex -> shaftvisit.mjs runStairEgress) runs only with the arm's own grant, and stops at once when the grant is
+  // lost, the drowning rescue or the air pocket wants the body, or a danger move holds it. A stair the bot is MEANT to be in --
+  // a deep miner's open trip, a skill's 'stair' claim (mine's descent, a visit) -- is never walked up. A failed egress from one
+  // step is not tried again from it for EGRESS_RETRY_MS; what the arm does next is shaftgeom.mjs egressHandoff.
+  const stairEgressMemo = { k: null, at: 0 }
+  const stairExitCandidate = () => {
+    if (deepTripOnStair(bot.deepTrip) || runner?.bodyClaimFor?.('stair')) return null
+    const on = stairStandingOn(bot)
+    return on && egressDue(stairEgressMemo, on.k, Date.now()) ? on : null
+  }
+  const stairExitFirst = async (handler, grantOf, on) => {
+    if (!on || (config.reflex.arbiter && runner?.arb && !grantOf())) return 'skip'
+    const t0 = Date.now()
+    const r = await stairEgressReflex(bot, { alive: () => ownsBody(grantOf)() && !airPocketWanted() && !drowningOwnsBody(), ms: EGRESS_REFLEX_MS })
+    const h = egressHandoff(r)
+    if (h === 'fallthrough') { stairEgressMemo.k = on.k; stairEgressMemo.at = Date.now() } else if (h === 'out') stairEgressMemo.k = null
+    try { logEvent({ kind: 'stair_handoff', status: h === 'out' ? 'success' : 'failed', detail: handoffDetail({ handler, k: on.k, h, r, ms: Date.now() - t0 }), snapshot: snapshot(bot) }) } catch { /* telemetry */ }
+    return h
+  }
   // LAVASTEP-01: THE DANGER MOVER (lavastepmove.mjs). The air rescue outranks it: while the drowning rescue or the air
   // pocket holds the body no move starts, and one in flight ends without touching the rescue's controls. LAVASTEP=0 leaves
   // it null, and the danger arm below runs today's escape() exactly.
@@ -2874,11 +2903,21 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const cappedNeedsTool = (!upIsOpen || entombedNow || canStartPath)
           ? false
           : !!shaftCapNeedsTool(bot)
-        const mstate = (!upIsOpen || entombedNow)
+        let mstate = (!upIsOpen || entombedNow)
           ? 'none'
           : maroonState({ upIsOpen, haveBlocks, blockCount, climbNeed: climbNeedAbove(bmap(bot), bot.entity.position), entombed: entombedNow,
                           canStartPath, cappedNeedsTool,
                           y: bot.entity?.position?.y })
+        // SHAFTTRAP-02: on the town stair, the egress before the climb's pillar or the ramp (need_scaffold); out, pre-empted or
+        // progress -> nothing more this check; nothing gained -> today's lattice, now
+        const stairOn = (mstate === 'climb' || mstate === 'need_scaffold') && !pocketing && !pocketPending && !inDanger ? stairExitCandidate() : null
+        if (stairOn) {
+          marooned = true
+          let h = 'skip'
+          try { maroonGrant = await takeBody(bot, runner, 'marooned', PRIORITY.escape); h = await stairExitFirst('marooned', () => maroonGrant, stairOn) }
+          finally { marooned = false; giveBody(runner, maroonGrant, 'stair egress ended'); maroonGrant = null }
+          if (h === 'out' || h === 'yield' || h === 'retry') mstate = 'none'
+        }
         if (!pocketing && !pocketPending && mstate === 'need_scaffold' && !inDanger &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
@@ -3342,6 +3381,14 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                      snapshot: snapshot(bot) })
           log('error', 'reflex: entombed, pillaring out', { y: Math.round(bot.entity.position.y) })
           entombedGrant = await takeBody(bot, runner, 'entombed', PRIORITY.escape)
+          // SHAFTTRAP-02: on the town stair, the egress before the pillar; out -> a success (the counters clear); pre-empted or
+          // progress -> this firing ends; nothing gained -> today's pillar and its chain, now
+          const stairOn = stairExitCandidate()
+          if (stairOn) {
+            const h = await stairExitFirst('entombed', () => entombedGrant, stairOn)
+            if (h === 'out') { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0; guardRefusals = 0; floodRefusals = 0; return }
+            if (h === 'yield' || h === 'retry') return
+          }
           // Bracket the whole escape, not each helper: pillarOut may hand off to
           // digStraightUp partway through, and what matters is the net cost of
           // getting out of the hole, attributed to the reflex that caused it.

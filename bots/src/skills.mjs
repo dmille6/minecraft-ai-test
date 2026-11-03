@@ -176,6 +176,7 @@ import { returnOverdue as deepReturnOverdue, trailProgress as deepTrailProgress,
 import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
 import { planOf as stairPlanOf, firstUndone as stairFirstUndone, standFor as stairStandFor, stairCellKeys } from './shaftgeom.mjs'   // deepminer-01: the stair's repair on the way down
 import { egressReserveMs, egressDetail } from './shaftgeom.mjs'   // shafttrap-01: a stair visit ends at the collar
+import { stairStepAt, stairTrapOn, EGRESS_REFLEX_MS } from './shaftgeom.mjs'   // shafttrap-02: the reflexes hand a bot on the stair to the egress
 import { renewLease as projRenewLease } from './buildproj.mjs'   // deepminer-01: the deep miner's lease
 import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
 import { TREEFARM_BAND as ESCAPE_TREEFARM_BAND } from './escapeguard.mjs'   // escapeguard-01
@@ -17878,6 +17879,46 @@ async function visitEgress (bot, rec, signal, deadline, e0 = null) {
   } finally { try { fx?.close() } catch { /* gone */ } }
 }
 
+// shafttrap-02: THE REFLEXES' WAY OUT OF THE STAIR (reflex.mjs marooned/entombed arms; shaftgeom.mjs egressHandoff). LIVE fleet
+// 11-02..11-03 (46 h): 1,429 trap episodes on 68 bots began ON a town stair, 995 at the entombed arm and 431 at the marooned arm,
+// mostly after gather/goto/explore (not a visit): those arms pillared into the stair's air cells (553 episodes) and ramped into its
+// rock (escape guard `record=shaft`, 749). The egress walks it up instead, clearing foreign blocks from its own air cells.
+/** IS THIS BOT STANDING ON ITS TOWN'S COMPLETE STAIR, BELOW THE COLLAR? -> { k, rec, plan } | null. Cheap (the record is memoised
+ *  20 s; no world read). Never throws. */
+export function stairStandingOn (bot) {
+  try {
+    if (!SHAFT.on || !stairTrapOn()) return null
+    const rec = stairRecordNow()
+    if (!isStairRecord(rec) || !rec.structure_complete || !Array.isArray(rec.exit)) return null
+    const p = bot.entity?.position
+    if (!p) return null
+    const plan = stairPlanOf(rec)
+    const feet = [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]
+    if (feet[1] >= plan.g + 1) return null
+    const at = stairStepAt(plan, feet)
+    return at ? { k: at.k, rec, plan } : null
+  } catch { return null }
+}
+/**
+ * THE EGRESS FOR A REFLEX ARM -> { ran: false, why } (not on the stair) | { ran: true, aborted: true } (alive() went false: another
+ * owner took the body; the walk is halted) | { ran: true, ...runStairEgress's result }. The arm holds the body (its own grant);
+ * alive() is polled every 200 ms. Bounded by `ms`. Never throws.
+ */
+export async function stairEgressReflex (bot, { alive = () => true, ms = EGRESS_REFLEX_MS } = {}) {
+  const on = stairStandingOn(bot)
+  if (!on) return { ran: false, why: 'off_stair' }
+  const ac = new AbortController()
+  const iv = setInterval(() => { let ok = false; try { ok = !!alive() } catch { ok = false } if (!ok) ac.abort() }, 200)
+  iv?.unref?.()
+  try {
+    const r = await visitEgress(bot, on.rec, ac.signal, Date.now() + ms)
+    return r ? { ran: true, ...r } : { ran: false, why: 'surface' }
+  } catch (e) {
+    if (e?.aborted || ac.signal.aborted) { try { haltPath(bot) } catch { /* gone */ } return { ran: true, aborted: true, ok: false, why: 'yield', hops: 0, cleared: 0 } }
+    return { ran: true, ok: false, why: `threw:${String(e?.message ?? e).slice(0, 40)}`, hops: 0, cleared: 0 }
+  } finally { clearInterval(iv) }
+}
+
 // ---- the use: mine's descent and surface's ascent through the town stair (design section 6) ----------------------------------
 const STAIR_DOWN_MS = 90_000
 const STAIR_UP_MS = 120_000
@@ -17943,10 +17984,18 @@ export async function stairAscend (ctx, signal) {
     const p = bot.entity?.position
     if (!p || !isStairRecord(rec) || !Array.isArray(rec.exit) || !nearStair(rec, p.x, p.z)) return null
     const feet = [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]
-    if (feet[1] > rec.site.g - 6 || !stairRoofed(stairRead(bot), feet, rec.site.g + 2)) return null
-    if (!(rec.landings_built ?? []).length) return null
     const t0 = Date.now()
     const row = (ok, why) => { try { logEvent({ kind: 'shaft_use', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: shaftUseDetail({ dir: 'up', ok, why, from: feet[1], to: Math.floor(bot.entity.position.y), ms: Date.now() - t0 }) }) } catch { /* telemetry */ } }
+    // shafttrap-02: A BOT STANDING ON THE (complete) STAIR WALKS IT UP WITH THE EGRESS, which clears a foreign block from the stair's
+    // own air cells, instead of a plan that answers `no_plan` on one dirt block (LIVE 46 h: 304 in-stair no_plan, 0 arrived); not out
+    // -> null, today's climb (unchanged)
+    if (stairStandingOn(bot)) {
+      const x = await withStairClaim(ctx.runner, () => visitEgress(bot, rec, signal, t0 + STAIR_UP_MS))
+      row(!!x?.ok, x?.ok ? 'egress' : `egress_${x?.why ?? 'none'}`)
+      return x?.ok ? { ok: true, detail: `walked the town stair up to ${rec.exit.join(',')} (from y=${feet[1]}, cleared ${x.cleared})` } : null
+    }
+    if (feet[1] > rec.site.g - 6 || !stairRoofed(stairRead(bot), feet, rec.site.g + 2)) return null
+    if (!(rec.landings_built ?? []).length) return null
     // THE PLAN FIRST (Codex r1 note: iterate the search's slices within the budget; one getPathTo slice answers `partial`)
     let planned = false
     const plan = async () => {
