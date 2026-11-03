@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-03T14:20:01Z._
+_Generated 2026-11-03T15:20:01Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `5d862a8a` = stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) on fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) on tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) on fleetbuild-01 `c711879e` (KEEP 11-01 23:37Z, promoted 11-01 23:47Z) |
 | **Canary in slot** | EMPTY (last close servea-01 KEEP 11-03 13:51Z) |
-| **Queue (front)** | bagdiet-01 -> swimcentre-01 -> bundle-1103a -> towngate-01 -> groundskeeper-01. Held: llmoai-01 (HELD: serving A (OWNER 11-02 'do what you recommend'): the oai+ client to the whole fleet, neede...). Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
-| **Scheduler** | block S7 run servea-01 drew or deployed and is not closed (no promoted / torn-down + recorded + ledger row, no live loop): finish its three-step teardown and ledger by hand, then `canary-sched.py closed servea-01 <why>` |
-| **Showcase release** | `adbf9e41` (22,991 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 5d862a8a (stuckcells-01); row 11-03 13:25Z) |
+| **Queue (front)** | bagdiet-01 -> swimcentre-01 -> bundle-1103a -> towngate-01 -> groundskeeper-01 -> llmoai-01. Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
+| **Scheduler** | wait H2 bagdiet-01: no variant for the fleet base 5d862a8 (have: c711879): autorebase of c711879e..92a3d847 is building (step start, pid None, heartbeat 2026-11-03T15:20:02Z) |
+| **Showcase release** | `adbf9e41` (25,454 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 5d862a8a (stuckcells-01); row 11-03 14:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | qwen35-roll: rollout-compare 11-02 22:36Z |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
-| **Open alarms** | STALLCHECK 2026-11-03T13:35:01Z STALLED: 67. OPSAUDIT 2026-11-02 FLAGS: 8 (1 high). 33 active alarm(s): stuck goals 4 (hive-a/monument@355_73_147, isolated-d/monument@355_73_147, placebo-b/tidy@282_65_-388, placebo-c/monument@355_73_147); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-03T14:35:01Z STALLED: 68. OPSAUDIT 2026-11-02 FLAGS: 8 (1 high). 36 active alarm(s): stuck goals 5 (hive-a/monument@355_73_147, isolated-a/monument@355_73_147, isolated-d/monument@355_73_147, placebo-b/tidy@282_65_-388, placebo-c/monument@355_73_147); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
