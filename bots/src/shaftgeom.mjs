@@ -602,6 +602,89 @@ export function roofed (read, feet, top) {
   return false
 }
 
+// ---- the egress (shafttrap-01) ------------------------------------------------------------------------------------------
+//
+// WHY. LIVE 11-03 (showcase, 07:50-21:56Z, 10 bots, 158,154 rows): 11 of 16 `_needs_rescue` rows were bots IN THIS STAIR with
+// `guard=record record=shaft` (fleet the same day: 74 of 87, 40 bots). A stair visit ENDS where its work stopped (runStairVisit's
+// own words: "the stair it just verified is the way out") and hands the body back deep in the stair; the next idle tick the
+// maroon arm's probe (a route to the same y, 8 blocks off) cannot succeed in a spiral, so it pillars dirt into the stair's own
+// air cells and ramps into its rock, which the escape guard (correctly) refuses as the stair record: hold, "I'm stuck", a
+// last resort after 10 min. 144 of 303 in-stair `_marooned`/`_entombed` rows came straight after a stair visit ended; 8 of the
+// 11 rescues. The pillared dirt is then what blocks the next ascent (`_shaft_use dir=up why=no_plan`, often in 2-400 ms: the
+// real A* from a stand finds the exit in a finished stair and returns noPath in 31 nodes with one dirt block in an air cell)
+// and what the next visit re-digs (296 `_shaft op=dig why=air` on a complete stair, 135 visits).
+// THE REMEDY, EXECUTABLE FROM WHERE THE BOT STANDS: the visit walks the stair up to the collar before it returns, a few stands
+// at a time, and a foreign block in one of the stair's own AIR cells on the way (the scaffold another bot's escape left) is
+// dug out of it -- the stair's record says that cell is air, so the dig restores the record and cuts nothing of it.
+
+export const EGRESS_HOP = 3                       // stands per hop (deepminer-01's deepHops: 3, then 1)
+export const EGRESS_STEP_MS = 800                 // measured descents 11-03: 53 steps in 30-37 s (0.6-0.7 s a step), plus slack
+export const EGRESS_BASE_MS = 8_000               // the collar walk and one clear
+export const EGRESS_CLEARS_MAX = 8                // foreign blocks cleared in one egress
+/** THE TIME A VISIT KEEPS FOR ITS WAY OUT FROM STEP k -> ms (0 at the top). Pure. */
+export const egressReserveMs = k => (Number.isInteger(k) && k > 0 ? EGRESS_BASE_MS + EGRESS_STEP_MS * k : 0)
+
+const cheb3 = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]))
+/**
+ * WHICH STEP IS THE BOT ON? -> { k, via: [cells to walk first] } | null (not on the stair). Pure. The step whose stand is nearest
+ * the feet, Chebyshev at most 1 (a bot whose centre is over the next step down still stands on its own tread); on a landing's
+ * stub, the landing's step, walking the stub's feet cells back to it first. Ties go to the higher step (the way out).
+ */
+export function stairStepAt (plan, feet) {
+  if (!plan || !Array.isArray(feet) || feet.length !== 3 || !feet.every(Number.isFinite)) return null
+  let best = null, bd = Infinity
+  for (let k = 0; k < plan.steps.length; k++) {
+    const d = cheb3(standOf(plan, k), feet)
+    if (d < bd) { bd = d; best = k }
+  }
+  if (best != null && bd <= 1) return { k: best, via: [] }
+  for (const l of plan.landings) {
+    const cols = l.cols.map(c => c.air[0])                    // the stub's feet cells, v0 .. v1
+    let i = -1, d = Infinity
+    cols.forEach((c, j) => { const dj = cheb3(c, feet); if (c[1] === feet[1] && dj <= 1 && dj <= d) { d = dj; i = j } })   // nearest, ties outward
+    if (i >= 0) return { k: l.k, via: cols.slice(0, i).reverse() }
+  }
+  return null
+}
+/**
+ * THE NEXT MOVE OF THE WAY OUT FROM STEP i -> { op: 'done' } | { op: 'hop', to } | { op: 'dig', at, k } |
+ * { op: 'stop', why: 'wet' | 'tread' | 'unknown', at, k }. Pure over read(x,y,z) -> { name, boundingBox, props? } | null.
+ * Looks at what the next hop passes, nearest first: the bot's own head room (its step's third air cell), then each step above
+ * up to EGRESS_HOP -- its three air cells and its tread. A foreign solid in an air cell within one step is dug from here; one
+ * farther is approached (a hop to the step under it). A liquid in an air cell, a missing tread, or an unread cell next to the
+ * bot stops the way out (never dug into, never stepped over: the visit's own scan is the repair for those); farther away, the
+ * bot first walks up to it. `body` = the bot's feet and head cells (never "blocked" by the bot itself).
+ */
+export function egressNext (read, plan, i, body = []) {
+  if (!plan || !Number.isInteger(i) || i < 0 || i >= plan.steps.length) return { op: 'stop', why: 'unknown', at: null, k: i }
+  if (i === 0) return { op: 'done' }
+  const skip = new Set((body ?? []).filter(Array.isArray).map(c => k3(...c)))
+  const top = Math.max(0, i - EGRESS_HOP)
+  for (let j = i; j >= top; j--) {
+    const s = plan.steps[j]
+    const cells = j === i ? [s.air[2]] : s.air
+    for (const c of cells) {
+      if (skip.has(k3(...c))) continue
+      const b = read(...c)
+      if (!b) { if (j >= i - 1) return { op: 'stop', why: 'unknown', at: c, k: j }; return { op: 'hop', to: j + 1 } }
+      if (isWet(b)) { if (j >= i - 1) return { op: 'stop', why: 'wet', at: c, k: j }; return { op: 'hop', to: j + 1 } }
+      if (b.boundingBox === 'empty') continue
+      if (j >= i - 1) return { op: 'dig', at: c, k: j }
+      return { op: 'hop', to: j + 1 }
+    }
+    if (j < i) {
+      const t = read(...s.tread)
+      const solid = !!t && t.boundingBox === 'block' && !isWet(t)
+      if (!solid) { if (j >= i - 1) return { op: 'stop', why: t ? 'tread' : 'unknown', at: s.tread, k: j }; return { op: 'hop', to: j + 1 } }
+    }
+  }
+  return { op: 'hop', to: top }
+}
+/** The `_shaft op=egress` row's detail. Pure. */
+export function egressDetail ({ ok = false, why = '-', from = '-', to = '-', hops = 0, cleared = 0, ms = '-' } = {}) {
+  return `ok=${ok ? 1 : 0} why=${why} from=${from} to=${to} hops=${hops} cleared=${cleared} ms=${ms}`
+}
+
 // ---- protection ---------------------------------------------------------------------------------------------------------
 
 /**
