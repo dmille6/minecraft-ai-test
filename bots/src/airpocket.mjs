@@ -399,6 +399,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
   let aborted = null
   let watch = null
   let digging = false
+  let riseSteered = false   // swimcentre-01: the rise loop pressed forward (cleared on every exit, the throw included)
   try {
     const block = bot.blockAt(cellPos)
     if (!block || block.name !== plan.name) { res.why = `roof cell changed to ${block?.name ?? 'unknown'}`; return res }
@@ -538,7 +539,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     // RISE AND CONFIRM: the eye must reach air and stay there while health rises (or is at its maximum)
     let eyeInAirSince = null, healthAtEyeIn = null
     const until = now() + AP_RISE_MS + AP_CONFIRM_MS + 1000
-    const centreOff = () => { if (centre) { try { bot.setControlState('forward', false) } catch { /* not connected */ } } }
+    const centreOff = () => { if (riseSteered) { riseSteered = false; try { bot.setControlState('forward', false) } catch { /* not connected */ } } }
     while (now() < until) {
       if (aborted) { centreOff(); res.why = aborted; res.outcome = 'aborted'; return res }
       const pos = bot.entity.position
@@ -548,6 +549,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       if (centre) {
         const cs = centreSteer({ pos, vel: bot.entity.velocity, cx: fx, cz: fz })
         try { bot.setControlState('forward', cs.forward) } catch { /* not connected */ }
+        riseSteered = riseSteered || cs.forward
         if (cs.look) { try { bot.lookAt(pos.offset(cs.look.x - pos.x, 1.62, cs.look.z - pos.z), true) } catch { /* not connected */ } }
       }
       const eye = bot.blockAt(new Vec3(Math.floor(pos.x), Math.floor(pos.y + 1.62), Math.floor(pos.z)))
@@ -575,6 +577,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     return res
   } finally {
     if (watch) clearInterval(watch)
+    if (riseSteered) { riseSteered = false; try { bot.setControlState('forward', false) } catch { /* not connected */ } }
     // A failed or aborted step stops its own dig of the roof cell (Codex r1).
     const ours = () => !!bot.targetDigBlock?.position && (bot.targetDigBlock.position.equals?.(cellPos) ??
       (bot.targetDigBlock.position.x === cellPos.x && bot.targetDigBlock.position.y === cellPos.y && bot.targetDigBlock.position.z === cellPos.z))

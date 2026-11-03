@@ -4,7 +4,7 @@
 // neighbour and nothing moved it sideways) and 7 an `out` route that stalled at the column boundary.
 import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
-import { bodyColumns, caps, riseCentreTarget, centreSteer, makeCentreSteer, swimCentreOn, CENTRE_TOL } from '../src/swimcentre.mjs'
+import { bodyColumns, caps, riseCentreTarget, riseCentreDecision, centreSteer, makeCentreSteer, swimCentreOn, CENTRE_TOL } from '../src/swimcentre.mjs'
 import { drowningControls } from '../src/reflex.mjs'
 
 let pass = 0, fail = 0
@@ -186,7 +186,9 @@ await ta('S10 WIRED: the hold and the rescue both ask riseCentre before their st
   const r = stripComments(readFileSync(REFLEX, 'utf8'))
   assert.equal((r.match(/const rc = holdState !== 'float' \? riseCentre\(airRoute\) : null/g) || []).length, 1, 'hold')
   assert.equal((r.match(/const rc = riseCentre\(route\)\n\s*const stroke = rc \?/g) || []).length, 1, 'rescue')
-  assert.ok(/swimCentre\.aim\(t\.cx, t\.cz, t\.why\)/.test(r), 'riseCentre aims the steerer')
+  assert.ok(/swimCentre\.aim\(d\.cx, d\.cz, d\.why\)/.test(r), 'riseCentre aims the steerer')
+  assert.ok(/if \(d\.act === 'release'\) \{ swimCentre\.release\(d\.why\); return null \}/.test(r), 'a release decision releases the live aim')
+  assert.ok(/if \(d\.act === 'guarded'\) \{\n\s*swimCentre\.release\('lava'\)/.test(r), 'a guard refusal releases the live aim')
   assert.ok(/const swimCentre = swimCentreOn\(\) \? makeCentreSteer\(bot,/.test(r), 'the steerer is made behind the switch')
   const p = stripComments(readFileSync(POCKET, 'utf8'))
   assert.ok(/const cs = centreSteer\(\{ pos, vel: bot\.entity\.velocity, cx: fx, cz: fz \}\)/.test(p), 'pocket rise')
@@ -224,6 +226,57 @@ await ta('S13 MUTANT KILLED: a steerer that ignores may() writes over the new ow
     const st = m.makeCentreSteer(bot, { now: () => t, may: () => false })
     st.aim(10, 20); st.tick()
     assert.ok(writes.some(([n, v]) => n === 'forward' && v === true), 'the mutant yielded anyway: S8 would not catch it')
+  })
+})
+
+await ta('S14 THE REFUSAL CHAIN (riseCentreDecision): another owner -> release; no target -> release; lava on the stroke -> guarded; else aim', () => {
+  const at = scene([[10, 21]])
+  const route = { dir: 'out', target: { x: 10.4, y: 60, z: 21.4 } }
+  const pos = { x: 10.4, y: 58.2, z: 20.4 }
+  assert.deepEqual(riseCentreDecision({ may: () => false, route, pos, at }), { act: 'release', why: 'yielded' })
+  assert.deepEqual(riseCentreDecision({ route: { dir: null, sealed: true }, pos, at }), { act: 'release', why: 'no_target' })
+  const seen = []
+  const lava = riseCentreDecision({ route, pos, at, guard: (feet, step) => { seen.push(step); return { safe: false, why: 'lava ahead', cell: [10, 58, 22] } } })
+  assert.equal(lava.act, 'guarded'); assert.deepEqual(seen, [[0, 1]], 'the out stroke is swept toward +z')
+  const ok = riseCentreDecision({ route, pos, at, guard: () => ({ safe: true }) })
+  assert.deepEqual([ok.act, ok.cx, ok.cz, ok.why, ok.forward], ['aim', 10, 21, 'out', true])
+  const edgeSeen = []
+  riseCentreDecision({ route: { dir: 'up' }, pos: { x: 10.8, y: 58.2, z: 21.5 }, at: scene([[10, 21]]), guard: (f, st) => { edgeSeen.push(st); return { safe: true } } })
+  assert.deepEqual(edgeSeen, [[0, 0]], 'centring inside the own column enters no new cell')
+})
+
+await ta('S15 B1 (composed): an aim followed by a guard refusal and its release -> no physics tick presses forward again', () => {
+  const writes = []; let t = 0
+  const bot = { entity: { position: { x: 10.4, y: 58.2, z: 20.4, offset (dx, dy, dz) { return { x: this.x + dx, y: this.y + dy, z: this.z + dz } } }, velocity: { x: 0, z: 0 } },
+                setControlState: (n, v) => writes.push([n, v]), lookAt: () => {}, on: () => {} }
+  const st = makeCentreSteer(bot, { now: () => t })
+  const at = scene([[10, 21]]); const route = { dir: 'out', target: { x: 10.4, y: 60, z: 21.4 } }
+  const decide = guardSafe => {   // reflex.mjs riseCentre, minus the bot plumbing
+    const d = riseCentreDecision({ route, pos: bot.entity.position, at, guard: () => ({ safe: guardSafe }) })
+    if (d.act === 'release') { st.release(d.why); return null }
+    if (d.act === 'guarded') { st.release('lava'); return { forward: false } }
+    st.aim(d.cx, d.cz, d.why); return { forward: d.forward }
+  }
+  decide(true); st.tick(); assert.deepEqual(writes.at(-1), ['forward', true])
+  t = 500; const r = decide(false); assert.equal(r.forward, false)
+  const n = writes.length
+  for (t = 550; t <= 700; t += 50) st.tick()
+  assert.ok(!writes.slice(n).some(([k, v]) => k === 'forward' && v === true), 'a stale aim pressed forward after the refusal')
+  assert.equal(st.active(), null)
+})
+
+await ta('S16 WIRED (B2): the one predicate gating the decision and every tick excludes the escape, maroon, in-wall and stranded owners and a busy skill', () => {
+  const r = stripComments(readFileSync(REFLEX, 'utf8'))
+  const m = r.match(/const centreMay = \(\) => ([^\n]+\n[^\n]+)/)
+  assert.ok(m, 'centreMay missing')
+  for (const f of ['!airPocketing', '!pocketing', '!poolEscaping', '!rampSteering', '!dangerMovingNow()', '!escaping', '!marooned', '!inwalling', '!strandedRunning', '(rescuing || !runner?.isBusy?.())']) assert.ok(m[1].includes(f), `centreMay lacks ${f}`)
+  assert.ok(/may: \(\) => centreMay\(\)/.test(r), 'the steerer uses it'); assert.ok(/riseCentreDecision\(\{ may: centreMay,/.test(r), 'the decision uses it')
+})
+
+await ta('S17 MUTANT KILLED: a decision that skips the lava guard aims through lava (S14 catches it)', async () => {
+  await withMutant(SRC, "  if (!hv?.safe) return { act: 'guarded', why: 'lava', hv }\n", '', async m => {
+    const d = m.riseCentreDecision({ route: { dir: 'out', target: { x: 10.4, y: 60, z: 21.4 } }, pos: { x: 10.4, y: 58.2, z: 20.4 }, at: scene([[10, 21]]), guard: () => ({ safe: false }) })
+    assert.equal(d.act, 'aim', 'the mutant still refused: S14 would not catch it')
   })
 })
 
