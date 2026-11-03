@@ -644,7 +644,11 @@
     "until": "2026-11-10",
     "why": "owner-approved 10-14 and NOT superseded: tidy-01 (surface pillars/pits/paths corridors) and the stockpile yard (cobble sink) cover part of it, but no fleet code fills the dug-out band under the towns (10 layers below the platform). Queue entry stays PARKED on its dead variant (3b1ae8bb); revival is a tier-3 rebuild of tf-on-5e66386 (da99ec95) onto the fleet tip"
    },
-   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": DROP for now: townfloor-01 cancelled in the queue; revisit if town hollows cause falls."
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": DROP for now: townfloor-01 cancelled in the queue; revisit if town hollows cause falls.",
+   "dropped": {
+    "when": "2026-11-03",
+    "why": "OWNER 2026-11-03 ~21:30Z \"yes to all\": dropped on the control session recommendation; queue entry cancelled (canary-sched.py cancel); code stays on its branches, a revival is a new run id."
+   }
   },
   {
    "id": "bamboo-03",
@@ -675,7 +679,11 @@
     "why": "owner 10-23 #7 (parked at the back, exposable on 1 pool) still stands and the code is NOT superseded (no bamboo fold on main or the fleet). Queue entry stays PARKED on dead variants; reviving it is a full re-stack onto the fleet tip. Owner asked 11-03: revive or drop (owner_pending on bamboo-03)"
    },
    "note": "AUDIT 10-31: sat on dead variants + a cancelled dependency with no weekly check ever run. | stall triage 11-03 ~21Z: re-parked to 11-10 with an owner question (park had expired 11-03)",
-   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": DROP: bamboo-03 + foldwatch-01 cancelled in the queue (code stays on branches; revival = new run id)."
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": DROP: bamboo-03 + foldwatch-01 cancelled in the queue (code stays on branches; revival = new run id).",
+   "dropped": {
+    "when": "2026-11-03",
+    "why": "OWNER 2026-11-03 ~21:30Z \"yes to all\": dropped on the control session recommendation; queue entry cancelled (canary-sched.py cancel); code stays on its branches, a revival is a new run id."
+   }
   },
   {
    "id": "foldwatch-01",
@@ -711,7 +719,11 @@
    },
    "note": "AUDIT 10-31: parked on dead variants. | stall triage 11-03 ~21Z: re-parked to 11-10 with bamboo-03",
    "next_step": "Follows bamboo-03 (owner_pending there): revive after bamboo-03 is KEPT, or cancel with it",
-   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": DROP with bamboo-03; cancelled in the queue."
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": DROP with bamboo-03; cancelled in the queue.",
+   "dropped": {
+    "when": "2026-11-03",
+    "why": "OWNER 2026-11-03 ~21:30Z \"yes to all\": dropped on the control session recommendation; queue entry cancelled (canary-sched.py cancel); code stays on its branches, a revival is a new run id."
+   }
   },
   {
    "id": "treefarm-03",
@@ -3900,7 +3912,11 @@
    "state": "parked",
    "title": "chestreach-01 NO-EFFECT at h24: fix or remove (chestreach-01 h24 NO-EFFECT: skill.share.v1{\"name\": \"deposit\", \"status\": \"success\"} 0.4643 (130/280) -> 0.6355 (204/321) +36.9% (noise x/1.62, 80 bots 1,604 bot-h; skill.share.v1: ) | also chestreach-01 NO-EFFECT at h72",
    "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close.",
-   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK."
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK.",
+   "parked": {
+    "until": "2026-11-10",
+    "why": "OWNER 2026-11-03 \"yes to all\": keep the shipped change (no harm shown); re-run the effect read 11-10."
+   }
   },
   {
    "covers_alarms": [
@@ -3927,7 +3943,11 @@
    "state": "parked",
    "title": "tdoffer-01 NO-EFFECT at h24: fix or remove (tdoffer-01 h24 NO-EFFECT: skill.share.v1{\"name\": \"town_deposit\", \"status\": \"no_effect\"} 0.1925 (51/265) -> 0.0828 (13/157) -57.0% (noise x/4.26, 80 bots 1,582 bot-h; skill.share.v1)",
    "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close.",
-   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK."
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK.",
+   "parked": {
+    "until": "2026-11-10",
+    "why": "OWNER 2026-11-03 \"yes to all\": keep the shipped change (no harm shown); re-run the effect read 11-10."
+   }
   },
   {
    "covers_alarms": [
@@ -3954,7 +3974,11 @@
    "state": "parked",
    "title": "tdfull-01 NO-EFFECT at h24: fix or remove (tdfull-01 h24 NO-EFFECT: skill.share.v1{\"name\": \"town_deposit\", \"status\": \"success\"} 0.5932 (105/177) -> 0.9691 (314/324) +63.4% (noise x/1.89, 80 bots 1,516 bot-h; skill.share.v1:) | also tdfull-01 NO-EFFECT at h72",
    "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close.",
-   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK."
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK.",
+   "parked": {
+    "until": "2026-11-10",
+    "why": "OWNER 2026-11-03 \"yes to all\": keep the shipped change (no harm shown); re-run the effect read 11-10."
+   }
   },
   {
    "covers_alarms": [
@@ -3981,7 +4005,11 @@
    "state": "parked",
    "title": "logsurface-01 NO-EFFECT at h72: fix or remove (logsurface-01 h72 NO-EFFECT: skill.share.v1{\"name\": \"gather_log\", \"status\": \"success\"} 0.2991 (227/759) -> 0.5515 (407/738) +84.4% (noise x/2.43, 80 bots 1,359 bot-h; skill.share.v)",
    "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close.",
-   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK."
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK.",
+   "parked": {
+    "until": "2026-11-10",
+    "why": "OWNER 2026-11-03 \"yes to all\": keep the shipped change (no harm shown); re-run the effect read 11-10."
+   }
   },
   {
    "covers_alarms": [
@@ -4219,7 +4247,9 @@
    "next_step": "BUILT 11-03 (not released): piece 1 = towndress-01show on the live showcase release showcase-gkpick-on-adbf9e41 (cbd2f51b): the `dress` sink (towndress.mjs: batches of <= 8 lamps / wall-top torches / named signposts, torch-gated, per-fixture zones, signs by the storehouse label writer) + the picker's sink turn (shop.mjs activeProject: after 3 finite visits a sink goes first -- LIVE 11-03 131 picks, 0 sited). Codex design reconciled; Codex review r1 + r2 BLOCKERS fixed (dc973713, 7315f8f5). Tripwire rule (shopread.py SINK_PLOTS += dress, selftest + 79/79 mutants) on main, NOT installed. NEXT: control session folds into the next showcase restack, installs the tripwire rule, activates; reads +30 min / +2 h / +24 h per docs/reports/towndress-design-2026-11-03.md section 6. Then docks-01 (Paper proof first), museum-01, bees-01.",
    "max_quiet_hours": 72,
    "depends_on": [
-    "picker-sinks-1103"
+    {
+     "item": "picker-sinks-1103"
+    }
    ],
    "evidence": {
     "grep": [
@@ -4267,6 +4297,31 @@
     ]
    },
    "note": "Kill switch EXPEDITION_BRIDGE=off. Codex designed independently (outposts first; deck one above the water; 17-32-only sites) -- reconciled in the design doc section 5. Sandbox incident: the first driver run touched sandbox3 while farms held it (design doc section 9)."
+  },
+  {
+   "id": "anvilbooks-1103",
+   "title": "Owner 11-03 'add prove the anvil works, then buy books. to the queue': (1) Paper sandbox proof of anvil combine (book + tool) and enchanting table on 1.21.8 (both FAILED in the trading sandbox run), then (2) buy enchanted books from librarians (Mending, Unbreaking, Efficiency, Fortune, Silk Touch) and apply them to tools",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "trading-1103.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Step 1 NOW (sandbox, no queue slot): find why the anvil and enchanting-table actions failed in sandbox4 (trading design T6) and prove a working path (server-verified enchanted tool, XP spent, anvil damage). Step 2 after trading T2 coalsale-01 is KEPT (emeralds + a librarian sighting from trading-scout-01): a fleet progress-lane canary that buys books and applies them, tier per protected.py.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "item": "trading-1103"
+    }
+   ],
+   "evidence": {
+    "paths": [
+     "docs/reports/trading-design-2026-11-03.md"
+    ]
+   },
+   "note": "Placement (control session): proof in parallel now; books follow T2 in the fleet P lane; showcase only once its villagers have jobs (T3a frees village-taiga-6_1)."
   }
  ]
 }
