@@ -3377,7 +3377,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // failures already counted, this arm would ask for a tool BEFORE the
         // climb could classify the ceiling. Skipped while the ceiling is a flood
         // risk, so the firing reaches the flood branch instead.
-        if (escapeFailures >= ESCAPE_GIVE_UP_AFTER && !ceilingFloodRisk(bot)) {
+        // SHAFTTRAP-02: not while a hand-over to the stair's egress is due (a failed one waits EGRESS_RETRY_MS: then this runs)
+        if (escapeFailures >= ESCAPE_GIVE_UP_AFTER && !ceilingFloodRisk(bot) && !stairExitCandidate()) {
           // Hand it to the watchdog, which can relocate, go home, or reconnect.
           // Repeating an escape that has failed four times is not a strategy.
           escapeGiveUps++
