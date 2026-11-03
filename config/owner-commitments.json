@@ -3677,6 +3677,162 @@
     ]
    },
    "note": "Read-and-alarm only: never touches the queue, the scheduler or promotion. Design: Claude + Codex independent designs reconciled 11-03; Claude review r1 2 blockers fixed."
+  },
+  {
+   "covers_alarms": [
+    "effect:chestreach-01"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-chestreach-01"
+    ],
+    "runs": [
+     "chestreach-01"
+    ]
+   },
+   "id": "effect-chestreach-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "next_step": "Fix (a follow-up change with an effect target) or remove (revert behind its switch); or show the read is wrong (name the confound) and park with a date.",
+   "owner": "control session",
+   "owner_date": "2026-11-03",
+   "state": "open",
+   "title": "chestreach-01 NO-EFFECT at h24: fix or remove (chestreach-01 h24 NO-EFFECT: skill.share.v1{\"name\": \"deposit\", \"status\": \"success\"} 0.4643 (130/280) -> 0.6355 (204/321) +36.9% (noise x/1.62, 80 bots 1,604 bot-h; skill.share.v1: ) | also chestreach-01 NO-EFFECT at h72",
+   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close."
+  },
+  {
+   "covers_alarms": [
+    "effect:tdoffer-01"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-tdoffer-01"
+    ],
+    "runs": [
+     "tdoffer-01"
+    ]
+   },
+   "id": "effect-tdoffer-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "next_step": "Fix (a follow-up change with an effect target) or remove (revert behind its switch); or show the read is wrong (name the confound) and park with a date.",
+   "owner": "control session",
+   "owner_date": "2026-11-03",
+   "state": "open",
+   "title": "tdoffer-01 NO-EFFECT at h24: fix or remove (tdoffer-01 h24 NO-EFFECT: skill.share.v1{\"name\": \"town_deposit\", \"status\": \"no_effect\"} 0.1925 (51/265) -> 0.0828 (13/157) -57.0% (noise x/4.26, 80 bots 1,582 bot-h; skill.share.v1)",
+   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close."
+  },
+  {
+   "covers_alarms": [
+    "effect:tdfull-01"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-tdfull-01"
+    ],
+    "runs": [
+     "tdfull-01"
+    ]
+   },
+   "id": "effect-tdfull-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "next_step": "Fix (a follow-up change with an effect target) or remove (revert behind its switch); or show the read is wrong (name the confound) and park with a date.",
+   "owner": "control session",
+   "owner_date": "2026-11-03",
+   "state": "open",
+   "title": "tdfull-01 NO-EFFECT at h24: fix or remove (tdfull-01 h24 NO-EFFECT: skill.share.v1{\"name\": \"town_deposit\", \"status\": \"success\"} 0.5932 (105/177) -> 0.9691 (314/324) +63.4% (noise x/1.89, 80 bots 1,516 bot-h; skill.share.v1:) | also tdfull-01 NO-EFFECT at h72",
+   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close."
+  },
+  {
+   "covers_alarms": [
+    "effect:logsurface-01"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-logsurface-01"
+    ],
+    "runs": [
+     "logsurface-01"
+    ]
+   },
+   "id": "effect-logsurface-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "next_step": "Fix (a follow-up change with an effect target) or remove (revert behind its switch); or show the read is wrong (name the confound) and park with a date.",
+   "owner": "control session",
+   "owner_date": "2026-11-03",
+   "state": "open",
+   "title": "logsurface-01 NO-EFFECT at h72: fix or remove (logsurface-01 h72 NO-EFFECT: skill.share.v1{\"name\": \"gather_log\", \"status\": \"success\"} 0.2991 (227/759) -> 0.5515 (407/738) +84.4% (noise x/2.43, 80 bots 1,359 bot-h; skill.share.v)",
+   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close."
+  },
+  {
+   "covers_alarms": [
+    "effect:zigfleet-02"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-zigfleet-02"
+    ],
+    "runs": [
+     "zigfleet-02"
+    ]
+   },
+   "id": "effect-zigfleet-02",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "next_step": "Fix (a follow-up change with an effect target) or remove (revert behind its switch); or show the read is wrong (name the confound) and park with a date.",
+   "owner": "control session",
+   "owner_date": "2026-11-03",
+   "state": "open",
+   "title": "zigfleet-02 NO-EFFECT at h24: fix or remove (zigfleet-02 h24 NO-EFFECT: skill.share.v1{\"name\": \"furnace_drain\", \"status\": \"no_effect\"} 0.6103 (1,364/2,235) -> 0.582 (1,118/1,921) -4.6% (noise x/1.13, 80 bots 1,245 bot-h; skil)",
+   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close."
+  },
+  {
+   "covers_alarms": [
+    "effect:promptcache-01"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-promptcache-01"
+    ],
+    "runs": [
+     "promptcache-01"
+    ]
+   },
+   "id": "effect-promptcache-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "next_step": "Fix (a follow-up change with an effect target) or remove (revert behind its switch); or show the read is wrong (name the confound) and park with a date.",
+   "owner": "control session",
+   "owner_date": "2026-11-03",
+   "state": "open",
+   "title": "promptcache-01 NO-EFFECT at h24: fix or remove (promptcache-01 h24 NO-EFFECT: llm.prompt_tokens_mean.v1 2552 (216,660,658/84,907) -> 2443 (247,217,516/101,213) -4.3% (noise x/1.05, 80 bots 1,343 bot-h; llm.prompt_tokens_mean.v1:)",
+   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close."
   }
  ]
 }
