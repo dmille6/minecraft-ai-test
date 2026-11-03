@@ -68,7 +68,7 @@ import { makeDangerMover } from './lavastepmove.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, plugSamePlace, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
          PLUG_BUDGET_MS, PLUG_SETTLE_MS, PLUG_STEP_RETRIES, PLUG_SURFACE_MS, isUtilityBlock } from './plugcut.mjs'
-import { swimUnderOn, swimUnderPlan, swimUnderAdmit, swimUnder, swimUnderBackoffMs, swimNoPlanBackoffMs, swimUnderRowDetail } from './swimunder.mjs'
+import { swimUnderOn, swimUnderPlan, swimUnderAdmit, swimUnder, swimUnderBackoffMs, swimNoPlanBackoffMs, swimUnderRowDetail, startCells } from './swimunder.mjs'
 import { configuredHome } from './townground.mjs'
 import { tripHoldsBody } from './deepmine.mjs'   // deepminer-01: an open deep trip owns the body between its calls
 // ceilescape-01: a ramp swing that cannot finish is never started (ceilescape.mjs decides; escapeStairUp executes)
@@ -1848,7 +1848,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       if (!plan.ok) swimSpots.set(key, { failures: plan.unloaded > 0 ? (st?.failures ?? 0) : tries, until: Date.now() + swimNoPlanBackoffMs(tries, plan) })
       if (!plan.ok || throttled('swim_under_wait', 60_000)) {
         logEvent({ kind: 'swim_under_refused', status: 'no_effect', snapshot: snapshot(bot),
-                   detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} -- ${adm.why}` })
+                   detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} -- ${adm.why} | ${startCells(at, [o.x, o.y, o.z])}` })
       }
       return null
     }

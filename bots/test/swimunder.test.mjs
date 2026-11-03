@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { Vec3 } from 'vec3'
 import { swimUnderPlan, swimUnderAdmit, swimUnderStep, swimUnderAbort, swimBackRoute, swimUnder, swimUnderOn, exitKind, swimFits, airEstimate,
-  swimUnderBackoffMs, swimNoPlanBackoffMs, SU_MAX_WET_RUN, SU_ABORT_OXYGEN } from '../src/swimunder.mjs'
+  swimUnderBackoffMs, swimNoPlanBackoffMs, startCells, SU_MAX_WET_RUN, SU_ABORT_OXYGEN } from '../src/swimunder.mjs'
 
 const require = createRequire(import.meta.url)
 const Block = require('prismarine-block')('1.21.8')
@@ -161,6 +161,12 @@ await ta('P6 never beside lava, never through a bubble column, never into an unl
   assert.equal(swimNoPlanBackoffMs(1, unloaded), 0)
   assert.deepEqual([1, 2, 6].map(t => swimNoPlanBackoffMs(t, { ok: false, unloaded: 0 })), [60_000, 300_000, 3_600_000])
   assert.equal(swimFits(null), false)
+})
+
+await ta('P8 the refusal row names the start\'s cells (below, head, roof, the four sides): the fleet read can tell a sealed start from a missing route', () => {
+  const d = startCells(worldOf(ISOD).at, ISOD.feet)
+  assert.match(d, /^feet=water below=water head=air roof=granite N=furnace S=crafting_table E=water W=water$/)
+  assert.match(startCells(() => null, [0, 0, 0]), /feet=unloaded/)
 })
 
 await ta('P7 the start must be in water: a dry entombed bot is not this move', () => {

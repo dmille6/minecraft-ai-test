@@ -162,6 +162,12 @@ export function swimUnderPlan ({ at = () => null, start, radius = SU_RADIUS, max
   return { ok: true, route, exit: found ? 'dry' : 'open', wet: pick.wet, wetRun, reason: null }
 }
 
+/** The start's neighbourhood for a refusal row: below, the four sides at the feet, the head, the roof. Pure. */
+export function startCells (at, [x, y, z]) {
+  const n = (dx, dy, dz) => { const b = at(x + dx, y + dy, z + dz); return b ? `${b.name}${b.isWaterlogged ? '~' : ''}` : 'unloaded' }
+  return `feet=${n(0, 0, 0)} below=${n(0, -1, 0)} head=${n(0, 1, 0)} roof=${n(0, 2, 0)} N=${n(0, 0, -1)} S=${n(0, 0, 1)} E=${n(1, 0, 0)} W=${n(-1, 0, 0)}`
+}
+
 /** MAY A FIRING START -> { ok, why }. Pure. Full air and enough health; the plan itself already bounds the breath. */
 export function swimUnderAdmit ({ plan, oxygen = null, health = 0, headAir = false, env } = {}) {
   if (!swimUnderOn(env)) return { ok: false, why: 'SWIMUNDER=0' }
