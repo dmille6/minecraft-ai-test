@@ -133,6 +133,8 @@ export function cutWater (read, x, y, z, { water = 'owner-1101', mayDam = () => 
     return { ok: true, why: null, dams: [] }
   }
   for (const [dx, dz] of [[0, 0], ...N8]) for (let dy = -1; dy <= 1; dy++) if (isLavaB(read(x + dx, y + dy, z + dz))) return { ok: false, why: 'cut_lava', dams: [] }
+  // water OVER the cell (a pond's bed) is never cut under (Claude water r1 BLOCKER)
+  { const up = read(x, y + 1, z); if (isWaterB(up) || loggedB(up)) return { ok: false, why: 'cut_under_water', dams: [] } }
   const dams = []
   for (const [dx, dz] of N4) {
     const at = [x + dx, y, z + dz], b = read(...at)
@@ -149,6 +151,8 @@ export function cutWater (read, x, y, z, { water = 'owner-1101', mayDam = () => 
 export function cutSafeNow (read, at, water = 'owner-1101') {
   const [x, y, z] = at
   for (const [dx, dz] of N4) { const b = read(x + dx, y, z + dz); if (!b || isWaterB(b) || loggedB(b) || isLavaB(b)) return false }
+  // water OVER the cell would pour in (Codex water r1 BLOCKER 1)
+  { const b = read(x, y + 1, z); if (!b || isWaterB(b) || loggedB(b) || isLavaB(b)) return false }
   if (water === 'strict') return true
   for (const [dx, dz] of [[0, 0], ...N8]) for (let dy = -1; dy <= 1; dy++) if (isLavaB(read(x + dx, y + dy, z + dz))) return false
   return true
@@ -427,11 +431,11 @@ const fillable = b => !!b && (AIRN(nm(b)) || replaceableCell(b) || LEAVES.test(n
 const wetAt = read => (x, y, z) => { for (const [dx, dz] of N8) for (let dy = -1; dy <= 1; dy++) { const b = read(x + dx, y + dy, z + dz); if (b && (isLiquid(b) || String(b.name ?? '').includes('waterlogged'))) return true } return false }
 /** The grading router's limits (paths.mjs columnCost `lim`): fill and cut `n`, a cut through natural ground or the bots' spoil and
  *  never beside water, a fill only into air, a plant or leaves. The bigger allowance is tried too (gradeBest). */
-export const gradeLim = (read, n = 4, water = tidyWater()) => {
+export const gradeLim = (read, n = 4, water = tidyWater(), { waterOk = () => false } = {}) => {
   const wet = wetAt(read)
-  // the 11-01 water rule: a fill may go into water; a cut beside water is the earthwork's to dam (gradeTidy / roadWork: cutWater),
-  // so the router refuses only a cut within one block of lava or beside a waterlogged block
-  if (water !== 'strict') return { fillMax: n, cutMax: n, cut: GRADE_CUT, water, fillOk: b => fillable(b) || fillIntoOk(b, water), cutOk: (b, x, y, z) => cutWater(read, x, y, z, { water }).ok }
+  // the 11-01 water rule: a fill may go into water the stage may touch; a cut beside water only where its dams may go (Codex water r1
+  // BLOCKER 2: the router routes round a cut whose dam the earthwork would refuse -- the same `waterOk` as the earthwork's)
+  if (water !== 'strict') return { fillMax: n, cutMax: n, cut: GRADE_CUT, water, fillOk: (b, x, y, z) => fillable(b) || (fillIntoOk(b, water) && (x == null || waterOk(x, z))), cutOk: (b, x, y, z) => cutWater(read, x, y, z, { water, mayDam: (dx, dy, dz) => waterOk(dx, dz) }).ok }
   return { fillMax: n, cutMax: n, cut: GRADE_CUT, water, fillOk: b => fillable(b), cutOk: (b, x, y, z) => !wet(x, y, z) }
 }
 export const GRADE_CUT = new RegExp(`${NATURAL.source}|${SPOIL.source}`)
@@ -548,7 +552,7 @@ export function siteTidy (read, { home, avoid = () => null, cells = new Set(), p
   let best = null
   if (pin) {
     for (const n of grades) {
-      const grade = gradeTidy(read, pin, { cells, lim: gradeLim(read, n, water), reserved: avoid, waterOk })
+      const grade = gradeTidy(read, pin, { cells, lim: gradeLim(read, n, water, { waterOk }), reserved: avoid, waterOk })
       grade.n = n
       if (!grade.ok) { tried.push({ n, why: grade.why }); if (grade.why === 'paths_route') break; continue }
       const record = build(grade)

@@ -396,6 +396,8 @@ await t('cutWater: strict refuses any liquid within one block; the 11-01 rule da
   assert.deepStrictEqual(T.cutWater(srv.read, 10, G + 1, 0).dams, [], 'water below the cell does not flow up into it')
   srv.set([9, G - 1, 1], 'lava')
   assert.strictEqual(T.cutWater(srv.read, 10, G, 0).why, 'cut_lava')
+  const s3 = server(); s3.set([10, G + 1, 0], 'water')
+  assert.strictEqual(T.cutWater(s3.read, 10, G, 0).why, 'cut_under_water', 'never under a pond (Claude water r1)')
   const s2 = server(); s2.set([10, G, 1], 'oak_stairs[waterlogged=true]')
   assert.strictEqual(T.cutWater(s2.read, 10, G, 0).why, 'cut_logged')
   assert.strictEqual(T.tidyWater({ TIDY_WATER: 'strict' }), 'strict'); assert.strictEqual(T.tidyWater({}), 'owner-1101')
@@ -468,8 +470,15 @@ await t('THE FLOOD TEST: the dam goes into the water first and the cut comes out
   assert.strictEqual(b.srv.read(10, G + 1, 0).name, 'dirt', 'held: never dug beside open water')
   assert.deepStrictEqual(b.r.tidyWet, [`10,${G + 1},0`])
 })
-await t('MUTANT KILLED (the flood): without the dig-time check the cut comes out before its dam and the water floods in', async () => {
-  await withMutant(BUILDRUN_PATH, "        if (c.kind === 'tidy' && p.tidyOk && !p.tidyOk(c, rd)) { (out.tidyWet ??= []).push(kOf(c.at)); continue }\n", '\n', async RM => {
+async function withMutants (p, pairs, fn) {
+  let src = readFileSync(p, 'utf8')
+  for (const [old, neu] of pairs) { assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))}`); assert.ok(src.split(old).length === 2, 'ANCHOR NOT UNIQUE'); src = src.replace(old, neu) }
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
+await t('MUTANT KILLED (the flood): without the dig-time checks (before the walk and after it) the cut comes out before its dam and the water floods in', async () => {
+  await withMutants(BUILDRUN_PATH, [["        if (c.kind === 'tidy' && p.tidyOk && !p.tidyOk(c, rd)) { (out.tidyWet ??= []).push(kOf(c.at)); continue }\n", '\n'], ["    if (safe && !safe()) return 'unsafe'\n", '\n']], async RM => {
     const rec = FLOOD()
     const { srv } = await floodVisit(RM, { rec, cuts: rec.cut, extra: { intoWater: true, tidyOk: (q, rd) => T.cutSafeNow(rd, q.at) } })
     assert.strictEqual(srv.read(10, G + 1, 0).name, 'water', 'flooded')
@@ -482,11 +491,51 @@ await t('MUTANT KILLED: without `intoWater` the dam cannot go into the water (th
     assert.strictEqual(srv.read(11, G + 1, 0).name, 'water'); assert.strictEqual(srv.read(10, G + 1, 0).name, 'dirt')
   })
 })
+await t('Codex water r1: water OVER a cut reads unsafe; water that comes DURING the walk to the dig holds the cut (re-checked after the walk)', async () => {
+  const srv = server(); srv.set([10, G + 1, 0], 'water')
+  assert.strictEqual(T.cutSafeNow(srv.read, [10, G, 0]), false)
+  const rec = { ...FLOOD(), cells: [], segments: [], world: { [`10,${G + 1},0`]: 'dirt' } }
+  const visit = async RM => {
+    const srv2 = server()
+    for (const [k, v] of Object.entries(rec.world)) srv2.set(k.split(',').map(Number), v)
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'tw-'))
+    const key = PJ.projKey(HOME, 'tidy')
+    const pub = PJ.publishRecord(dir, key, () => ({ ...rec }))
+    const slot = PJ.takeSlot(dir, key, 'A', 1)
+    const e = bot(srv2, 'A', { inv: { cobblestone: 8 }, feet: [0, G + 1, 0] })
+    const walk0 = e.walkTo
+    e.walkTo = async (s0, o) => { const r = await walk0(s0, o); srv2.set([11, G + 1, 0], 'water'); return r }   // a stream breaks in while the bot walks
+    const dig0 = e.dig
+    e.dig = async (c, x) => { const v = await dig0(c, x); if (v === 'confirmed' && srv2.read(c[0] + 1, c[1], c[2])?.name === 'water') srv2.set(c, 'water'); return v }
+    await RM.runVisit({ dir, key, me: 'A', home: HOME, stood: [], record: rec, tidy: rec.cut, recordGen: pub.gen, palette: T.TIDY_PALETTE, slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: 48, clearMax: 16, tidyKeepOrder: true, intoWater: true, tidyOk: (q, rd) => T.cutSafeNow(rd, q.at) }, e, { maxSteps: 200 })
+    return srv2.read(10, G + 1, 0).name
+  }
+  assert.strictEqual(await visit(R), 'dirt', 'held at the dig')
+  await withMutant(BUILDRUN_PATH, "    if (safe && !safe()) return 'unsafe'\n", '\n', async RM => { assert.strictEqual(await visit(RM), 'water', 'MUTANT: dug after the walk, flooded') })
+})
+await t('Codex water r1: the router never routes a cut whose dam the earthwork would refuse (gradeLim takes the same waterOk); the terrace fills its pond edge', async () => {
+  const srv = server(); srv.set([11, G, 0], 'water')
+  assert.strictEqual(T.gradeLim(srv.read, 4, 'owner-1101').cutOk(null, 10, G, 0), false, 'no waterOk: no dam, no cut')
+  assert.strictEqual(T.gradeLim(srv.read, 4, 'owner-1101', { waterOk: () => true }).cutOk(null, 10, G, 0), true)
+  assert.strictEqual(T.gradeLim(srv.read, 4, 'owner-1101', { waterOk: () => false }).fillOk({ name: 'water', boundingBox: 'empty' }, 11, G, 0), false)
+  const s2 = server()
+  for (let x = 20; x <= 26; x++) for (let z = -3; z <= 3; z++) col(s2, x, z, G - 1, G, 'water')   // a pond 2 deep, surface G
+  const gr = TR.gradeTerraces(s2.read, [14, -6, 30, 6], { home: HOME, levels: [G], water: 'owner-1101' })
+  const wetFills = gr.fill.filter(f => s2.read(...f.at).name === 'water')
+  assert.ok(wetFills.length > 0, `the pond's edge is filled (an embankment): ${JSON.stringify(gr.skipped)}`)
+  assert.ok(wetFills.every(f => f.at[0] === 20 || f.at[0] === 26 || f.at[2] === 3 || f.at[2] === -3), 'only its edge ring')
+  // a shallow pond on HIGH ground the terrace lowers: its edge is never cut under the water (Claude water r1 BLOCKER)
+  const s4 = server()
+  plateau(s4, 14, 30, -6, 6, G + 3)
+  for (let x = 20; x <= 26; x++) for (let z = -3; z <= 3; z++) s4.set([x, G + 3, z], 'water')
+  const g4 = TR.gradeTerraces(s4.read, [12, -8, 32, 8], { home: HOME, levels: [G, G + 1], water: 'owner-1101' })
+  assert.ok(!g4.cut.some(c => s4.read(c.at[0], c.at[1] + 1, c.at[2])?.name === 'water'), 'a cut under water')
+})
 await t('roadWork under the rule: a cut beside water carries its dam; a road column of shallow open water is an embankment from its bed', async () => {
   const srv = server()
   col(srv, 30, 0, G + 1, G + 1, 'dirt'); srv.set([31, G + 1, 0], 'water')
   col(srv, 30, 5, G - 1, G, 'water')
-  const lim = { ...T.gradeLim(srv.read, 6, 'owner-1101'), water: 'owner-1101' }
+  const lim = { ...T.gradeLim(srv.read, 6, 'owner-1101', { waterOk: () => true }), water: 'owner-1101' }
   const r = T.roadWork(srv.read, [[30, 0, G], [30, 5, G]], { home: HOME, lim, waterOk: () => true })
   assert.ok(r.cut.some(c => c.at.join(',') === `30,${G + 1},0`) && r.fill.some(f => f.dam && f.at.join(',') === `31,${G + 1},0`), JSON.stringify(r))
   assert.deepStrictEqual(r.fill.filter(f => f.at[0] === 30 && f.at[2] === 5).map(f => f.at[1]).sort(), [G - 1, G])

@@ -241,7 +241,7 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
   const memo = new Map()
   const col = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, tidyColumn(rd, x, z, { yHi, yLo })); return memo.get(k) }
   const ground = c => !!c && !c.why && c.y != null
-  const lim = gradeLim(read, Math.max(T.maxCut, T.maxFill), water)
+  const lim = gradeLim(read, Math.max(T.maxCut, T.maxFill), water, { waterOk: (x, z) => !avoid(x, z) && !farm(x, z) })
   const wet = (x, y, z) => { for (const [dx, dz] of N8) for (let dy = -1; dy <= 1; dy++) if (wetBlock(read(x + dx, y + dy, z + dz))) return true; return wetBlock(read(x, y + 1, z)) }
   // the owner's 11-01 water rule (tidy.mjs cutWater): a cut beside water dams it first; a dam or a fill into water only where the
   // stage may touch the column (never a refusal, never the farm's irrigation, never a record cell)
@@ -256,6 +256,7 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
   }
   // THE WATER'S EDGE (11-01 rule): an open-water column 4-beside free ground (a pond's or a stream's edge ring, at most maxFill deep)
   // is free too, its ground its bed: graded, it is an EMBANKMENT -- the terrace's edge filled into the water
+  const edgeK = new Set()
   if (water !== 'strict') {
     const edge = []
     for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
@@ -265,7 +266,7 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
       const wc = waterColumn(rd, x, z, { yHi, yLo, depth: T.maxFill })
       if (wc) edge.push([x, z, wc.bed])
     }
-    for (const [x, z, bed] of edge) { free.add(k2(x, z)); g.set(k2(x, z), bed); memo.set(k2(x, z), { y: bed, name: 'water_bed', why: null, tree: false }); skip('col_water_edge') }
+    for (const [x, z, bed] of edge) { edgeK.add(k2(x, z)); free.add(k2(x, z)); g.set(k2(x, z), bed); memo.set(k2(x, z), { y: bed, name: 'water_bed', why: null, tree: false }); skip('col_water_edge') }
   }
   const nbIn = set => k => { const [x, z] = k.split(',').map(Number); const out = []; for (const [dx, dz] of N4) { const n = k2(x + dx, z + dz); if (set.has(n)) out.push(n) } return out }
   const nbFree = nbIn(free)
@@ -330,7 +331,7 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
     work = new Map()
     for (const k of keys) {
       const [x, z] = k.split(',').map(Number)
-      const r = columnWork(rd, x, z, g.get(k), H.get(k), { cells, lim, wet, water, mayDam, T })
+      const r = columnWork(rd, x, z, g.get(k), H.get(k), { cells, lim, wet, water, mayDam, edge: edgeK.has(k), T })
       if (r.why) { kept.add(k); skip(r.why); newly++; continue }
       work.set(k, r)
     }
@@ -415,7 +416,7 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
 }
 
 /** ONE COLUMN'S EARTHWORK from its ground g0 to h -> { cut, fill, floor, leaves, why }. Pure. `rd` reads the felled logs as air. */
-function columnWork (rd, x, z, g0, h, { cells, lim, wet, water = 'strict', mayDam = () => false, T }) {
+function columnWork (rd, x, z, g0, h, { cells, lim, wet, water = 'strict', mayDam = () => false, edge = false, T }) {
   const out = { cut: [], fill: [], floor: [], leaves: [], dams: [], why: null }
   if (h === g0) return out
   if (h > g0) {
@@ -427,7 +428,7 @@ function columnWork (rd, x, z, g0, h, { cells, lim, wet, water = 'strict', mayDa
       // the 11-01 rule: a fill may go into water (an embankment), never into lava or a waterlogged block
       if (wetBlock(b) && !(water !== 'strict' && fillIntoOk(b, water) && mayDam(x, y, z))) { out.why = 'fill_wet'; return out }
       if (LEAVES_RE.test(n)) out.leaves.push({ at: [x, y, z], kind: 'leaves', name: n })
-      else if (!(AIRN(n) || replaceableCell(b))) { out.why = 'fill_blocked'; return out }
+      else if (!(AIRN(n) || replaceableCell(b) || (water !== 'strict' && fillIntoOk(b, water) && mayDam(x, y, z)))) { out.why = 'fill_blocked'; return out }   // (Codex water r1 BLOCKER 3)
       out.fill.push({ at: [x, y, z] })
     }
     // the head room over the new ground: leaves there are cleared (the terrace is walked)
@@ -435,6 +436,9 @@ function columnWork (rd, x, z, g0, h, { cells, lim, wet, water = 'strict', mayDa
     return out
   }
   if (g0 - h > T.maxCut) { out.why = 'cut_deep'; return out }
+  // a pond's edge column (its ground the BED, the water over it) is filled, never cut: a cut there drains the pond into the terrace
+  // (Claude water r1 BLOCKER)
+  if (edge) { out.why = 'cut_under_water'; return out }
   for (let y = g0; y > h; y--) {
     const b = rd(x, y, z), n = nm(b)
     if (!b) { out.why = 'cut_unread'; return out }
