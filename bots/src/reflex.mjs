@@ -65,6 +65,7 @@ import { makeDangerMover } from './lavastepmove.mjs'
 // plugcut-01: plug the wet face, then cut -- the ceiling's, then a step's (plugcut.mjs plans; plugFaces executes)
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, plugSamePlace, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
          PLUG_BUDGET_MS, PLUG_SETTLE_MS, PLUG_STEP_RETRIES, PLUG_SURFACE_MS, isUtilityBlock } from './plugcut.mjs'
+import { swimUnderOn, swimUnderPlan, swimUnderAdmit, swimUnder, swimUnderBackoffMs, swimUnderRowDetail } from './swimunder.mjs'
 import { configuredHome } from './townground.mjs'
 import { tripHoldsBody } from './deepmine.mjs'   // deepminer-01: an open deep trip owns the body between its calls
 // ceilescape-01: a ramp swing that cannot finish is never started (ceilescape.mjs decides; escapeStairUp executes)
@@ -1735,6 +1736,77 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     return res
     } finally { poolEscaping = false }
   }
+  // SWIMUNDER-01 (swimunder.mjs): AFTER A FLOOD REFUSAL, A BOT WHOSE FEET ARE IN WATER SWIMS OUT UNDER THE WALL. The flood
+  // branch's ramp gained nothing and its row names "leave this cell sideways or downward ... or wait"; goto is the pathfinder
+  // that cannot start from a sealed liquid node. This is the sideways-or-downward move made executable: a planned swim of a
+  // few cells to dry ground (or an open surface), turned back along its own wake if anything changes. Same ownership as
+  // poolescape: the float hold, the stranded ladder and the in-wall exit stand aside while it steers; it yields to the
+  // drowning rescue and to a danger move every tick. No plan or no admission -> the existing back-off, unchanged.
+  let swimmingUnder = false
+  const swimSpots = new Map()
+  const swimUnderTry = async (hook, grantOf) => {
+    if (!swimUnderOn()) return null
+    const p = bot.entity?.position
+    if (!p) return null
+    const o = p.floored()
+    const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+    if (!isWaterCell(at(o.x, o.y, o.z))) return null
+    if (poolEscaping || swimmingUnder || strandedRunning > 0) return null
+    if (!ownsBody(grantOf)() || airPocketWanted() || drowningOwnsBody()) return null
+    const key = poolSpotKey(p), st = swimSpots.get(key)
+    if (st && Date.now() < st.until) return null
+    const plan = swimUnderPlan({ at, start: [o.x, o.y, o.z] })
+    const adm = swimUnderAdmit({ plan, oxygen: bot.oxygenLevel, health: bot.health })
+    if (!adm.ok) {
+      // no way out within reach is a fact of this place: back off like a failed firing. Air or health is a wait, not a fact.
+      const tries = (st?.failures ?? 0) + (plan.ok ? 0 : 1)
+      if (!plan.ok) swimSpots.set(key, { failures: tries, until: Date.now() + swimUnderBackoffMs(tries) })
+      if (!plan.ok || throttled('swim_under_wait', 60_000)) {
+        logEvent({ kind: 'swim_under_refused', status: 'no_effect', snapshot: snapshot(bot),
+                   detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} -- ${adm.why}` })
+      }
+      return null
+    }
+    swimmingUnder = true
+    let resv = null
+    const renew = () => {
+      try {
+        if (typeof runner?.reserve !== 'function') return
+        const cur = runner.activeReservation?.() ?? null
+        if (cur && !(resv && cur.gen === resv.gen)) return
+        resv = runner.reserve('swimunder', 20_000, 'swimunder')
+      } catch {}
+    }
+    const tries = (st?.failures ?? 0) + 1
+    let res, keep = null
+    try {
+      const held = runner?.activeReservation?.() ?? null
+      if (held && held.owner !== 'swimunder') return null
+      logEvent({ kind: 'swim_under_start', status: 'success', snapshot: snapshot(bot),
+                 detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} exit=${plan.exit} cells=${plan.route.length} ` +
+                         `wet=${plan.wet} run=${plan.wetRun} air=${bot.oxygenLevel} hp=${bot.health} via ${plan.route.map(c => c.join(',')).join(' ')}` })
+      renew()
+      keep = setInterval(renew, 5_000)
+      for (let w = 0; w < 30 && runner?.current; w++) await sleep(100)
+      try { bot.pathfinder?.setGoal?.(null) } catch {}
+      res = await swimUnder(bot, { plan, alive: () => ownsBody(grantOf)() && !runner?.current,
+                                   yieldTo: () => drowningOwnsBody() || arbiterYield(grantOf), oxygen: () => bot.oxygenLevel, renew })
+    } catch (e) {
+      res = { outcome: 'failed', why: `threw: ${e.message}`, len: plan.route.length }
+    } finally {
+      clearInterval(keep)
+      swimmingUnder = false
+      try { if (resv) runner.releaseReservation(resv.gen) } catch {}
+    }
+    if (res.outcome === 'out') swimSpots.delete(key)
+    else if (res.outcome !== 'yielded') {
+      swimSpots.set(key, { failures: tries, until: Date.now() + swimUnderBackoffMs(tries) })
+      if (swimSpots.size > 32) swimSpots.delete(swimSpots.keys().next().value)
+    }
+    logEvent({ kind: 'swim_under', status: res.outcome === 'out' ? 'success' : res.outcome === 'yielded' ? 'no_effect' : 'failed',
+               snapshot: snapshot(bot), detail: `hook=${hook} ${swimUnderRowDetail(res)}` })
+    return res
+  }
   let strandedSince = 0
   // Cleared by the same displacement test as strandedSince -- see the block that
   // maintains strandedFrom.
@@ -1801,7 +1873,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             if (!isEntombed(bot)) freeRing.note(pos, now)
           }
           healthTrend.push(now, bot.health)
-          if (tombWallOn && !inwalling && !escaping && !marooned && !pocketing && !rescuing && !poolEscaping && !dangerMovingNow() && now >= inwallNextAt) {
+          if (tombWallOn && !inwalling && !escaping && !marooned && !pocketing && !rescuing && !poolEscaping && !swimmingUnder && !dangerMovingNow() && now >= inwallNextAt) {
             const eye = bot.blockAt(pos.offset(0, 1.62, 0))
             const feetB = bot.blockAt(pos), belowB = bot.blockAt(pos.offset(0, -1, 0))
             const explained = !!bot.entity.isInWater || !!bot.entity.isInLava || !bot.entity.onGround ||
@@ -1908,7 +1980,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         (sealedSince && Date.now() - sealedSince > SEALED_ESCAPE_MS)
       // RESPAWNFALL-01: not while sky_descend owns the episode (held or open): its rungs include the walk-off and a dig_down
       // priced by health, and the owner's rule for a platform bot is climb down safely or stay put (respawnfall.mjs)
-      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && longEnough && !poolEscaping && !dangerMovingNow() && !rampSteering && !skyEscapeBlocked(bot) &&
+      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && longEnough && !poolEscaping && !swimmingUnder && !dangerMovingNow() && !rampSteering && !skyEscapeBlocked(bot) &&
           Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
         // `trapped` comes from the lattice's own observation rather than a
         // separate flag, so this branch and the plan it obeys are reading the
@@ -2177,7 +2249,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // `runner.isBusy() && bot.pathfinder.goal` -- for the whole crossing.
         // goto and explore hold a goal the entire way, so a bot swimming under
         // pathfinder is owned by the test that was always there.
-        owned: rescuing || rampSteering,
+        owned: rescuing || rampSteering || swimmingUnder,   // swimunder-01 steers its own body
         ashore: ashore(),
         feet: feetBlock,
         head: headBlock,
@@ -2189,7 +2261,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // Treading water is jump without a direction; swimming is jump WITH
         // one. `float` is the single case where up is the only thing wanted,
         // because the head is already out and the bot is simply staying there.
-        if (!pocketing && !poolEscaping && !dangerMovingNow()) {   // lavastep-01: a danger move steers its own body; the flooded-pocket rung is sinking or pillaring: the hold must not jump against it (pocket corpus run 4); poolescape-01 steers its own body
+        if (!pocketing && !poolEscaping && !swimmingUnder && !dangerMovingNow()) {   // swimunder-01 steers its own body; lavastep-01: a danger move steers its own body; the flooded-pocket rung is sinking or pillaring: the hold must not jump against it (pocket corpus run 4); poolescape-01 steers its own body
           bot.setControlState('jump', true)
           if (holdState === 'surface_out' && airRoute?.target) {
             // LAVA GUARD 2: the push toward the air target must not sweep the body into lava (3-wide, +3 cells, feet
@@ -3218,7 +3290,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             const fb = await floodBranch(bot, { handler: 'marooned', refusals: floodRefusals,
                                                 yieldTo: () => drowningOwnsBody() || arbiterYield(() => maroonGrant), steering: steerRamp })
             floodRefusals = fb.refusals
-            if (!fb.progressed && !fb.preempted) lastMaroonCheck = Date.now() + fb.backoffMs
+            if (!fb.progressed && !fb.preempted) {
+              // swimunder-01: the refused bot's feet in water -> the swim out under the wall, before the back-off holds it
+              const so = await swimUnderTry('marooned', () => maroonGrant).catch(e => { log('warn', 'swim under failed', { err: e.message }); return null })
+              if (so?.outcome === 'out') floodRefusals = 0
+              else lastMaroonCheck = Date.now() + fb.backoffMs
+            }
           } else if (climbOutcomeRoute(pillarOutcome) === 'guarded') {
             // escapeguard-01: THE CEILING IS A BUILD RECORD OR A PROTECTED STRUCTURE. The same shape as the flood branch: the
             // ramp, whose every dig passes over a guarded cell (another bearing); nothing moved -> hold, back off, no prereq.
@@ -3512,7 +3589,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             floodRefusals = fb.refusals
             if (fb.preempted) { /* the drowning rescue took the body: not this branch's outcome (Codex r3) */ }
             else if (fb.progressed) { climbRefusals = 0; refusalPlaceStreak = 0; escapeFailures = 0 }
-            else { escapeFailures = 0; lastEscapeAt = Date.now() + fb.backoffMs }
+            else {
+              escapeFailures = 0
+              // swimunder-01: the refused bot's feet in water -> the swim out under the wall, before the back-off holds it
+              const so = await swimUnderTry('entombed', () => entombedGrant).catch(e => { log('warn', 'swim under failed', { err: e.message }); return null })
+              if (so?.outcome === 'out') { floodRefusals = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
+              else lastEscapeAt = Date.now() + fb.backoffMs
+            }
           }
           else if (climbOutcomeRoute(climbed) === 'guarded') {
             // escapeguard-01: THE CEILING IS A BUILD RECORD OR A PROTECTED STRUCTURE (Frost 10-31: trial-chambers planks). Not a
