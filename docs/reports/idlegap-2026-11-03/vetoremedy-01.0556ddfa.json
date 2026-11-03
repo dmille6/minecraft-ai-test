@@ -1,0 +1,62 @@
+{
+ "run_id": "vetoremedy-01",
+ "sha": "0556ddfa4b102ee231c6b14364510304d4b4e56a",
+ "registered_at": "2026-11-03T21:30:00Z",
+ "promotion": "fleet-wide",
+ "change_rows": [
+  "_work_order"
+ ],
+ "licence": {
+  "class": "text",
+  "row": "_work_order",
+  "text": "veto remedy",
+  "min_rows": 1,
+  "note": "Written only by this build: the work_order row of a queued remedy reads '<skill> {} \u2014 veto remedy <rule>: ...' (vetoremedy.mjs why). The base has no 'veto remedy' text anywhere."
+ },
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "busy.share.v1",
+    "params": {
+     "cls": "between"
+    },
+    "direction": "decrease",
+    "minimum": 0.05,
+    "scale": "relative",
+    "claim": "between share of observed bot-time falls >= 5% relative (43.3% post-15s baseline; the two rules address ~11 of 34.5 between-hours/80 bot-h)"
+   },
+   {
+    "metric": "llm.veto_share.v1",
+    "params": {
+     "error": "unreachable_elevation"
+    },
+    "direction": "decrease",
+    "minimum": 0.2,
+    "scale": "relative",
+    "claim": "return-rung goto vetoes fall: home replaces the next model call after each veto (12.1% of model calls 11-03 19:45-20:45Z)"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "failclass.rate.v1",
+    "params": {
+     "name": "_death",
+     "fail_class": "drowning"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   }
+  ],
+  "note": "home from underground climbs (surface) and is exposure; deaths are the guardrail, the death gate reads the canary."
+ },
+ "notes": "[FUN MODE] vetoremedy-01 @ 0556ddfa branch vetoremedy01-on-53fd28e on fleet 53fd28ee (cooldown15-02). idlegap (OWNER 11-03 item 6, cut the 54% between). MEASURED (canary host, full walks llm-/skill-<bot>.jsonl, lib/busytime.classify, 80 bots, 11-03 19:45-20:45Z = 80.0 bot-h): between 43.3%; 62% of between follows an admission veto (4,487 of 7,834 model calls vetoed; each ~2.2 s model + ~15.5 s cooldown); the return rung's vetoes hold 9.0 of 34.5 between-hours (unreachable_elevation goto home from underground 3.82, deposit_nothing_to_bank 1.80, learned_avoid goto 1.68, repeat goto 0.87, cooldown goto 0.51); 24 h: 382 of ~1,920 bot-h on return, 81% of 33,201 calls vetoed, home proposed 907x. CHANGE (bots/src/vetoremedy.mjs + cognitive.mjs wiring): after a MODEL veto on an idle tick, return_home (return rung, any vetoed proposal but home -> home {}) and deposit_all (deposit_surplus, named deposit refused nothing-to-bank/item-missing -> deposit {}) queue a work ORDER for the next tick (250 ms), after every other order, before CONTINUE; exits override; admission.check judges it; not queued for refused orders, after a livelock relocation, when gate memory refuses it, or past 1/rule/45 s, 20/h; a dropped remedy waits out the veto's cooldown. OFF: VETOREMEDY=0 (env, no code); VETOREMEDY_RULES=deposit_all drops only return_home. TIER 3 (protected.py: cognitive.mjs). Reviews blockers-only one round: Codex none, Claude subagent none (shared note fixed: dropped remedy early call). READ +90/+180 generic (tripper, death gate two-death floor, crash loops) plus OWN LINES canary vs control: (1) MECHANISM (defect): 'veto remedy' work_order rows >= 1 per canary bot-h on bots with return/deposit_surplus vetoes, else not live; (2) CALLS (defect): canary model calls/bot-h not up > 5% vs control-adjusted pre; (3) SPIN (defect): no bot with > 20 remedies of one rule in an hour; (4) between share and return-rung bot-h REPORTED; (5) deaths on canary bots inside a home run named in the read. Pools must contain return-rung bots (24 h: 80/80 bots touched return).",
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

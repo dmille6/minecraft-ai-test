@@ -1,0 +1,19 @@
+{
+ "run": "vetoremedy-01",
+ "class": "",
+ "after": [
+  "swimcentre-01"
+ ],
+ "not_before": null,
+ "hold": "DRAFT (idlegap agent 11-03 ~21:30Z): the control session places it; full npm test on .30 ~/ci/vetoremedy-01.log",
+ "note": "PROGRESS entry (busy time; owner 11-03 item 6). vetoremedy-01: a model veto on return/deposit_surplus runs the rung's own skill (home / deposit {}) on the next tick instead of a cooldown + another vetoed call. Report docs/reports/idlegap-design-2026-11-03.md. Off: VETOREMEDY=0.",
+ "variants": {
+  "53fd28eea23b44b1ade02b8bd9ea380379c15c38": {
+   "registration": "/home/mike/mcai-analysis/vetoremedy-01.0556ddfa.json",
+   "approved": "Codex (codex exec read-only, blockers-only) r1 BLOCKERS none; Claude independent subagent r1 BLOCKERS none; shared note (dropped remedy -> early model call) fixed in 0556ddfa with a loop test + mutant; design: Codex independent, reconciled (docs/reports/idlegap-design-2026-11-03.md); tier 3 by protected.py (bots/src/cognitive.mjs); vetoremedy.test.mjs 26/26 (6 anchored mutants), fewerdec/livelock*/towndeposit pass, eslint clean; no new mineflayer/Paper behaviour (home/deposit are existing skills issued as orders)",
+   "canary_sha": "0556ddfa4b102ee231c6b14364510304d4b4e56a",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {}
+  }
+ }
+}

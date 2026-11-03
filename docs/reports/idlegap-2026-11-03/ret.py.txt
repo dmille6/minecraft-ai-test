@@ -1,0 +1,31 @@
+import sys, os, datetime as dt, collections as C, re
+sys.path.insert(0,'.')
+from lib import telemetry as TM, effectmetrics as EM
+UTC=dt.timezone.utc
+lo=dt.datetime.fromisoformat(sys.argv[1]).replace(tzinfo=UTC); hi=dt.datetime.fromisoformat(sys.argv[2]).replace(tzinfo=UTC)
+root='/var/log/mcai'; bots=sorted(d for d in os.listdir(root) if not d.startswith('_'))
+home=C.Counter(); homey=C.defaultdict(C.Counter); hdet=C.Counter(); retprop=C.Counter(); retbots=set(); rettime=C.Counter(); ms_calls=C.Counter()
+src=C.Counter()
+for b in bots:
+    rows=sorted(TM.stream_rows(root,b,lo,hi,'llm'),key=lambda x:x[0])
+    for i,(t,r) in enumerate(rows):
+        mf=str((r.get('messages') or [{}])[0].get('milestone')).split('#')[0]
+        tc=(r.get('tool_calls') or [{}]); tc=tc[0] if tc else {}
+        sk=tc.get('skill'); y=((r.get('bot') or {}).get('pos') or {}).get('y')
+        if EM.is_model_call(r): ms_calls[mf]+=1
+        if mf=='return':
+            retbots.add(b)
+            if EM.is_model_call(r): retprop[(sk, 'veto' if (r.get('llm') or {}).get('error') else (r.get('outcome') or {}).get('status'))]+=1
+            if i+1<len(rows): rettime[b]+=min(600,(rows[i+1][0]-t).total_seconds())
+        if sk=='home':
+            st=(r.get('outcome') or {}).get('status'); src['model' if EM.is_model_call(r) else 'order']+=1
+            home[st]+=1
+            yb='<0' if y is None or y<0 else '<40' if y<40 else '<60' if y<60 else '>=60'
+            homey[yb][st]+=1
+            hdet[(st,re.sub(r'\d+','N',str((r.get('outcome') or {}).get('detail')))[:90])]+=1
+print('model calls by milestone family', ms_calls.most_common(12))
+print('bots ever on return', len(retbots), 'bot-h on return', round(sum(rettime.values())/3600,1), 'top', [(b,round(v/3600,1)) for b,v in rettime.most_common(8)])
+print('return: model proposals', retprop.most_common(15))
+print('home decisions', home.most_common(), 'source', src)
+for yb in homey: print(' y', yb, homey[yb].most_common())
+for k,v in hdet.most_common(12): print(' ',v,k)

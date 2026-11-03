@@ -281,6 +281,10 @@ const REQUIRED = [
   'sandbox/farms/farm-proof.jsonl',
   // villager trading (11-03): the design + Codex's independent design, the Paper sandbox proofs and the read-only census helpers
   'docs/reports/trading-design-2026-11-03.md',
+  // idlegap (owner 11-03 item 6): what fills the between time, vetoremedy-01's registration and queue entry
+  'docs/reports/idlegap-design-2026-11-03.md',
+  'docs/reports/idlegap-2026-11-03/gap.py.txt',
+  'docs/reports/idlegap-2026-11-03/vetoremedy-01.0556ddfa.json',
   'sandbox/trading/trade-proof.cjs',
   'sandbox/trading/scout-proof.cjs',
   'sandbox/trading/census/villagers.py',

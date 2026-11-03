@@ -1,0 +1,79 @@
+"""Attribute busytime classes (esp. 'between') to the decision that PRECEDES each slice."""
+import sys, os, bisect, datetime as dt, collections as C, json, statistics as S
+sys.path.insert(0, '.')
+from lib import telemetry as TM, effectmetrics as EM, busytime as BT
+UTC=dt.timezone.utc
+lo=dt.datetime.fromisoformat(sys.argv[1]).replace(tzinfo=UTC); hi=dt.datetime.fromisoformat(sys.argv[2]).replace(tzinfo=UTC)
+ver = sys.argv[3] if len(sys.argv) > 3 else None
+root='/var/log/mcai'; M=dt.timedelta(minutes=30)
+bots=sorted(d for d in os.listdir(root) if not d.startswith('_'))
+REJ_PREFIX=None
+def cat_of(r):
+    L=r.get('llm') or {}; o=r.get('outcome') or {}; tc=r.get('tool_calls') or []
+    sk=(tc[0].get('skill') if tc else None) or '-'
+    if not EM.is_model_call(r):
+        reason=(tc[0].get('reason') if tc else '') or ''
+        src='cont' if reason.startswith('continue ') else 'order'
+        return f'{src}:{sk}:{o.get("status")}'
+    e=L.get('error')
+    if e:
+        e=str(e)
+        if e.startswith('truncation'): e='truncation'
+        return f'veto:{e}'
+    return f'model:{o.get("status")}'
+tot=C.Counter(); bycat=C.defaultdict(C.Counter); ncat=C.Counter(); gaps=C.defaultdict(list); between_total=0
+skillnext=C.Counter()
+nb=0
+for b in bots:
+    srows=sorted(TM.stream_rows(root,b,lo-M,hi+M,'skill'), key=lambda x:x[0])
+    lrows=sorted(TM.stream_rows(root,b,lo-M,hi+M,'llm'), key=lambda x:x[0])
+    if ver:
+        lrows=[x for x in lrows if str((x[1].get('code') or {}).get('version','')).startswith(ver)]
+        if not lrows: continue
+    nb+=1
+    skills, pauses, deaths, stamps = [], [], [], []
+    for t,r in srows:
+        sk=r.get('skill') or {}; n=sk.get('name')
+        if not n: continue
+        e=t.timestamp(); stamps.append(e)
+        iv=BT.skill_interval(e,n,sk.get('duration_ms'))
+        if iv: skills.append(iv)
+        if n=='_decision_skipped':
+            ps=BT.pause_seconds(sk.get('detail'))
+            if ps: pauses.append((e,ps))
+        if n=='_death': deaths.append(e)
+    llms=[]; decs=[]
+    for t,r in lrows:
+        e=t.timestamp(); stamps.append(e)
+        if EM.is_model_call(r):
+            try: lat=float((r.get('llm') or {}).get('latency_ms') or 0)/1000
+            except: lat=0.0
+            llms.append((e,lat))
+        decs.append((e,cat_of(r)))
+    a0,b0=lo.timestamp(),hi.timestamp()
+    whole=BT.classify(a0,b0,skills,llms,pauses,deaths,stamps)
+    for k,v in whole.items(): tot[k]+=v
+    skills.sort(); sst=[s[0] for s in skills]
+    for i,(t,c) in enumerate(decs):
+        if t<a0 or t>=b0: continue
+        t2=decs[i+1][0] if i+1<len(decs) else b0
+        t2=min(t2,b0)
+        if t2<=t: continue
+        # local intervals
+        j0=bisect.bisect_left(sst,t-BT.MAX_SKILL_S)
+        loc=[s for s in skills[j0:] if s[0]<t2+60 and s[1]>t-60]
+        ll=[x for x in llms if t-60<=x[0]<=t2+60]
+        pp=[x for x in pauses if t-700<=x[0]<=t2+60]
+        dd=[x for x in deaths if t-3600<=x<=t2]
+        stt=[x for x in stamps if t-700<=x<=t2+700]
+        sec=BT.classify(t,t2,loc,ll,pp,dd,stt)
+        ncat[c]+=1
+        for k,v in sec.items(): bycat[c][k]+=v
+        gaps[c].append(sec['between'])
+obs=sum(v for k,v in tot.items() if k!='unobserved')
+print(f'bots {nb} window {lo:%m-%d %H:%M}-{hi:%H:%M} observed {obs/3600:.1f} bot-h; ' + ' '.join(f'{k} {100*v/obs:.1f}%' for k,v in tot.items() if k!='unobserved'))
+bt=sum(bycat[c]['between'] for c in bycat); print(f'between attributed {bt/3600:.1f} bot-h of {tot["between"]/3600:.1f}')
+print(f'{"after decision":40s} {"n":>6s} {"betw h":>7s} {"%betw":>6s} {"med s":>6s} {"llm h":>6s} {"prod h":>6s} {"walk h":>6s} {"idle h":>6s}')
+for c,_ in sorted(bycat.items(), key=lambda kv:-kv[1]['between'])[:40]:
+    d=bycat[c]
+    print(f'{c[:40]:40s} {ncat[c]:6d} {d["between"]/3600:7.2f} {100*d["between"]/max(bt,1):6.1f} {S.median(gaps[c]):6.1f} {d["llm_wait"]/3600:6.2f} {d["productive"]/3600:6.2f} {d["walking"]/3600:6.2f} {d["idle"]/3600:6.2f}')

@@ -4167,6 +4167,37 @@
     ]
    },
    "note": "Measured 11-03 (24 h full walks): storage skills 9.1 of 1,923 fleet bot-h (0.47%), 0.7 of 240 showcase bot-h; withdraw_pick 7.9 chests/search (86% of visits miss), kit search 4.1 (78% miss); 67/312 fleet chests full; most item kinds in >1 chest. Not a time lever: the value is the visible building, clerk work for the 10->15 showcase raise, and searches that go to the right chest. Codex: 1 hopper + 1 clerk; Claude: 20 hoppers; chosen 4->20 pairs grown from surplus."
+  },
+  {
+   "id": "idlegap-1103",
+   "title": "Busy time: cut the 54% 'between' (measure what fills it, rank by bot-time, fix the top causes) -- owner 11-03 item 6 + 'yes design all using both claude and codex, put them in the queue and implement and deploy where you feel is right'",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "idlegap-1103.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "vetoremedy-01 (0556ddfa on fleet 53fd28ee, branch vetoremedy01-on-53fd28e; registration ~/mcai-analysis/vetoremedy-01.0556ddfa.json; draft entry docs/reports/idlegap-2026-11-03/vetoremedy-01.queue-entry.json) -> the control session queues it (P, after swimcentre-01). Then repeatwork-01 (progress-aware repeat window + onDepositMilestone '#N' fix, admission.mjs) and patrolcont-01 (explore continuation on patrol; the showcase's top cause).",
+   "max_quiet_hours": 48,
+   "depends_on": [],
+   "evidence": {
+    "grep": [
+     "vetoremedy",
+     "idlegap-1103",
+     "repeatwork-01",
+     "patrolcont-01"
+    ],
+    "branches": [
+     "vetoremedy01-on-53fd28e"
+    ],
+    "paths": [
+     "docs/reports/idlegap-design-2026-11-03.md",
+     "bots/src/vetoremedy.mjs"
+    ]
+   },
+   "note": "Measured 11-03 19:45-20:45Z (80 bots, 80.0 bot-h, 15 s cooldown): between 43.3%; 62% of it follows an admission veto (4,487/7,834 calls vetoed); the return rung's vetoes = 9.0 of 34.5 between-hours (24 h: 382 bot-h on return, 81% of its calls vetoed)."
   }
  ]
 }
