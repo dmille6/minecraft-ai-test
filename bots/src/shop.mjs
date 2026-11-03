@@ -170,7 +170,9 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   // when no finite project has a slot for this bot (LIVE showcase 11-03 09:40-15:38Z: 67 of 101 tidy visits `keeper_held` -- the
   // keeper's grounds were every other bot's `open[0]` fallback), after the bounded upkeeps that go first, and -- after SINK_STREAK
   // sink visits (`upkeepTurn`) -- after one ordinary upkeep too. With no sink to offer, the order is exactly as before.
-  const sink = list.find(p => p.sink && (st(p).sinkOpen || st(p).sinkNext) && st(p).free !== false && !st(p).stuck) ?? null
+  // towndress-01 r1 (Codex r1 BLOCKER): a standing sink with upkeep DUE (a dress batch's unwritten signs) is offered too -- else, its next
+  // batch unfunded, the signs waited behind every free finite project for good
+  const sink = list.find(p => p.sink && (st(p).sinkOpen || st(p).sinkNext || (st(p).exists && st(p).complete && st(p).due)) && st(p).free !== false && !st(p).stuck) ?? null
   // towndress-01 (LIVE showcase 11-03 18:38-20:49Z: 131 `_sink op=pick` rows wanted a sink, 0 sited -- every visit went to a finite
   // project that always had a free slot: the stair 57, the tidy 23, the waiting hall 7): after SINK_TURN_AFTER finite visits in a
   // row a bot's next pick is the sink (`sinkTurn`), after the repairs; then the finite order again

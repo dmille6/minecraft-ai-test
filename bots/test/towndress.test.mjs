@@ -259,6 +259,17 @@ await t('a finite project with a free slot comes first; on the sink turn the sin
   const none = st0().map(s => (s.plot === 'dress' ? { ...s, sinkNext: false } : s))
   assert.strictEqual(SH.activeProject(none, LIST, { sinkTurn: true }).plot, 'hall', 'no sink offered: as before')
 })
+await t('Codex r1 BLOCKER: a standing batch with signs DUE and no next batch funded is still offered on the sink turn (never starved by the hall)', () => {
+  const st = st0().map(s => (s.plot === 'dress' ? { ...s, exists: true, complete: true, sinkNext: false, due: true } : s))
+  assert.strictEqual(SH.activeProject(st, LIST, { sinkTurn: true }).plot, 'dress')
+  assert.strictEqual(SH.activeProject(st.map(s => (s.plot === 'dress' ? { ...s, due: false } : s)), LIST, { sinkTurn: true }).plot, 'hall', 'POSITIVE CONTROL: nothing due, no batch: the hall')
+})
+await t('MUTANT KILLED: a sink offer that ignores a standing sink\'s due upkeep leaves its signs unwritten', async () => {
+  await killed(SHOP_PATH, ' || (st(p).exists && st(p).complete && st(p).due))', ')', M => {
+    const st = st0().map(s => (s.plot === 'dress' ? { ...s, exists: true, complete: true, sinkNext: false, due: true } : s))
+    assert.strictEqual(M.activeProject(st, LIST, { sinkTurn: true }).plot, 'dress')
+  })
+})
 await t('MUTANT KILLED: without the sink turn the sink never wins over an open finite project', async () => {
   await killed(SHOP_PATH, '  if (sink && sinkTurn) return sink\n', '', M => {
     assert.strictEqual(M.activeProject(st0(), LIST, { sinkTurn: true }).plot, 'dress')

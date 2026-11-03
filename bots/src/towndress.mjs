@@ -133,6 +133,9 @@ export function cellGuard (records = []) {
     const names = r?.palette?.[c.role]
     if (/door/.test(String(c.role)) || (Array.isArray(names) && names.some(n => /_door$/.test(n)))) for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) doors.add(k2(c.at[0] + dx, c.at[2] + dz))
   }
+  // a record's clear and cut lists are its digs: no dress cell stands in one (a visit digs a listed block by its name only, but a
+  // later generation may list again)
+  for (const r of records) for (const c of [...(r?.clear ?? []), ...(Array.isArray(r?.cut) ? r.cut : [])]) if (Array.isArray(c?.at)) cells.add(kOf(c.at))
   return { cols, cells, doors }
 }
 const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]]
