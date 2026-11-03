@@ -3539,7 +3539,7 @@
    "lane": "survival",
    "state": "open",
    "owner": "survival agent / control session",
-   "next_step": "swimcentre-01 (S) queued after bagdiet-01 (P), before stationkeep-01 (P), held until its full suite on .30 passes; read +90/+180 (generic + _swim_centre rows, canary drowning deaths, y .2 share); after promotion read the goal from ES (drowning/day vs 9-10, .2 share). Next S: drop-and-dig-01 (report section 7), queued only behind a P entry; at most one S in every two slots.",
+   "next_step": "swimcentre-01 (S) queued after bagdiet-01 (P), before stationkeep-01 (P), released 11-03 ~06:35Z after its full suite on .30 (379/384; the 5 failures pass alone: 3 need .git, plinth-skill/well timing under load); read +90/+180 (generic + _swim_centre rows, canary drowning deaths, y .2 share); after promotion read the goal from ES (drowning/day vs 9-10, .2 share). Next S: drop-and-dig-01 (report section 7), queued only behind a P entry; at most one S in every two slots.",
    "max_quiet_hours": 48,
    "depends_on": [],
    "evidence": {
