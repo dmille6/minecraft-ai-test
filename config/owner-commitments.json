@@ -3129,7 +3129,6 @@
    "owner": "control session",
    "next_step": "stockyard-01 on main (tier 2: not protected; Codex + Claude r2 APPROVE). Showcase first: the next showcase release carries YARD on (showcase pool default); watch 2 h for _build project=yard sited/placed, then _yard kind=stock/clerk rows with placed > 0; then a fleet rollout (YARD_POOLS) as its own canary.",
    "max_quiet_hours": 48,
-   "owner_pending": "When a town's yard is full (304 blocks), does surplus cobble go down the well (10-16 approval) or stay in bags (11-02 'the well only for true junk')? Today: it stays in bags.",
    "evidence": {
     "grep": [
      "stockyard-01"
@@ -3140,7 +3139,7 @@
      "bots/src/blueprints/yard@1.json"
     ]
    },
-   "note": "Capacity vs rate: 4 bays x 76 = 304 a town; the fleet mined ~14,300 cobble family into bags in 12.7 h (11-02) and builds placed ~5,000 -- a yard holds about a day of a town's surplus. Bays are 2 wide (fake server: a 3-wide middle row above the eye had no sight line). Not in it: dirt/stone variants (the well's list), a camera."
+   "note": "Capacity vs rate: 4 bays x 76 = 304 a town; the fleet mined ~14,300 cobble family into bags in 12.7 h (11-02) and builds placed ~5,000 -- a yard holds about a day of a town's surplus. Bays are 2 wide (fake server: a 3-wide middle row above the eye had no sight line). Not in it: dirt/stone variants (the well's list), a camera. OWNER ANSWERED 11-02 (resource-model-1102 Q1): yard full -> metered well, bags only (built as towngate-01)."
   },
   {
    "id": "resource-model-1102",
