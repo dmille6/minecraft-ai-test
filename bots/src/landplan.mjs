@@ -363,8 +363,10 @@ export async function planLand (read, { home, plan, seed = 0, avoid = () => null
  */
 export function landStages (L = LAND) {
   const out = [{ k: 0, id: 'town', rMin: -1, rMax: L.rimR, roads: null, upto: -1 }]
-  out.push({ k: 1, id: 'roads', rMin: -1, rMax: -1, roads: 'ring+spokes', upto: L.rimR + L.rimStep })
-  let k = 2
+  // townterrace-01 (owner 11-03): the in-wall trees, the terraces and the park, right after the plaza (terrace.mjs)
+  out.push({ k: 1, id: 'terrace', rMin: -1, rMax: -1, roads: null, upto: -1 })
+  out.push({ k: 2, id: 'roads', rMin: -1, rMax: -1, roads: 'ring+spokes', upto: L.rimR + L.rimStep })
+  let k = 3
   for (let r = L.rimR; r < L.workR; r += L.rimStep, k++) out.push({ k, id: `rim${Math.min(L.workR, r + L.rimStep)}`, rMin: r, rMax: Math.min(L.workR, r + L.rimStep), roads: 'spokes', upto: Math.min(L.workR, r + 2 * L.rimStep) })
   return out
 }
@@ -372,6 +374,19 @@ export function landStages (L = LAND) {
 export const nextStage = (k, L = LAND) => landStages(L).find(s => s.k === (Number.isFinite(k) ? k : 0) + 1) ?? null
 /** A stage by number -> its entry (stage 0 when unknown). Pure. */
 export const stageOf = (k, L = LAND) => landStages(L).find(s => s.k === k) ?? landStages(L)[0]
+/**
+ * A TIDY RECORD'S STAGE NUMBER in today's ring order -> int. Pure. By its `stageId` when it names one (townterrace-01 put the terrace
+ * stage at 1: a record a groundskeeper-01 build sited at stage 1 `roads` is stage 2 now); a record of stage 1 or later sited before
+ * the terrace stage existed (no `terraceV`) reads as stage 0, so the terrace stage comes next and the stages after it are asked
+ * again (each finds what is still to do); else its number (0 when it has none).
+ */
+export function recStageK (rec, L = LAND) {
+  const id = rec?.stageId
+  const st = id ? landStages(L).find(s => s.id === id) : null
+  const k = st ? st.k : (Number.isFinite(Number(rec?.stage)) ? Number(rec.stage) : 0)
+  if (k >= 1 && id !== 'terrace' && !(Number(rec?.terraceV) >= 1)) return 0
+  return k
+}
 
 /**
  * A STAGE'S ROAD COLUMNS -> [[x, z, L]]: stage 1 the ring's columns and every spoke's within `upto`; a later stage every spoke's
@@ -414,7 +429,12 @@ export function zoneAt (land, x, z) {
   return land.zones?.[SECTORS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]] ?? 'wild'
 }
 /** THE LAND RECORD AS A RESERVATION (the pseudo-record skills.mjs projectHeads appends): its corridors as zones, no cells. Pure. */
-export const landReservation = land => (land ? { plot: LAND_PLOT, blueprint: LAND_BLUEPRINT, zones: land.corridors ?? [], cells: [], structure_complete: true, state: 'plan' } : null)
+export const landReservation = land => (land ? { plot: LAND_PLOT, blueprint: LAND_BLUEPRINT, zones: [...(land.corridors ?? []), ...parkZones(land)], cells: [], structure_complete: true, state: 'plan' } : null)
+/** townterrace-01: the land plan's PARK as a reservation zone (other builds keep off it; the groundskeeper plants it). Pure. */
+export function parkZones (land) {
+  const b = land?.park?.box
+  return Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) ? [{ box: [b[0], -64, b[1], b[2], 320, b[3]], why: 'land:park' }] : []
+}
 
 /**
  * WALKING CONNECTIVITY (the offline proof's "easy to move through") -> { cols, reach, share, pts, reached }. Pure over `read`. A BFS
