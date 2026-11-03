@@ -131,6 +131,8 @@ import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditio
 import { torchSafe, outShareOf, multiCall, trailAge, PLANNER_V } from './expedition.mjs'   // wholemap-s1a
 import { HALL_PLOT, HALL_BLUEPRINT, hallSite, hallOpening, hallRecordDomain, copperhallModeDetail } from './copperhall.mjs'   // copperhall-01
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
+import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
+import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
@@ -17164,7 +17166,7 @@ function hallOpenNow (bot) {
   try {
     // every town container's latest observation (copperhall.mjs townCopperOf), not matsTownStock's fresh-only sum (LIVE 11-02: 0)
     const c = bot ? townCopperOf(townIndexEntries(bot), e => indexStateOf(e)) : { unknown: true }
-    if (!c.unknown) o = { ...hallOpening({ ingots: c.ingots, cut: c.cut, reserve: Number(matsReserve().table?.copper_ingot) || 512 }), cut: c.cut, containers: c.containers, stale: c.stale }
+    if (!c.unknown) o = { ...hallOpening({ ingots: c.ingots, cut: c.cut, reserve: Number(matsReserve().table?.copper_ingot) || 512 }), cut: c.cut, containers: c.containers, stale: c.stale, raw: c.raw, blocks: c.blocks }
   } catch { /* not open */ }
   try {
     if (bot && Date.now() - (bot.hallGateAt ?? -Infinity) >= 30 * 60_000) { bot.hallGateAt = Date.now(); logEvent({ kind: 'copperhall_gate', status: o.open ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: copperhallModeDetail(true, o) }) }
@@ -17683,6 +17685,58 @@ function expeditionAsk ({ now = Date.now(), health = 20, freeSlots = 36, complet
   } catch { return null }
 }
 /** Once per spawn (features.mjs): the ask is wired and the licence row written. Never throws. */
+/**
+ * COPPERRUN-01: IS THE HALL WAITING? -> bool. The hall is one of this town's projects and has no record yet (unsited). Never throws:
+ * an unreadable record head is not waiting (the run does not issue).
+ */
+function hallWaitingNow () {
+  try {
+    if (!projectsOn().some(p => p.plot === HALL_PLOT)) return false
+    const h = recordHead(townDir(), projKeyOf(HALL_PLOT))
+    return !!h.ok && !h.head?.rec && !(h.gens?.length)
+  } catch { return false }
+}
+/** COPPERRUN-01: the nearest EXPOSED copper ore within COPPER_ORE_RADIUS, off the home floor -> { block, dist, at } | null. */
+const COPPER_OPEN = new Set(['air', 'cave_air'])
+function copperOreNear (bot) {
+  const ids = COPPER_KINDS.map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id != null)
+  const p = bot.entity?.position
+  if (!ids.length || !p) return null
+  const home = { x: config.world.homeX, z: config.world.homeZ }
+  const open = q => [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => COPPER_OPEN.has(bot.blockAt?.(q.offset(dx, dy, dz))?.name))
+  const found = (bot.findBlocks?.({ matching: ids, maxDistance: COPPER_ORE_RADIUS, count: 32 }) ?? []).filter(q => !nearHome(q, home) && open(q))
+  if (!found.length) return null
+  const q = found.reduce((a, b) => (p.distanceTo(a) <= p.distanceTo(b) ? a : b))
+  return { block: bot.blockAt?.(q)?.name ?? null, dist: p.distanceTo(q), at: `${q.x},${q.y},${q.z}` }
+}
+let crBot = null
+/** shop.mjs buildOrder's copper ask (set at install). -> copperhall.mjs copperRunOrder's answer | null. One `_copper_run` row per
+ *  issue, and per skip reason that says something about the town at most once per 30 min. Never throws. */
+function copperAsk ({ now = Date.now(), freeSlots = 36 } = {}) {
+  try {
+    const bot = crBot
+    if (!COPPERRUN.on || !COPPERHALL_ON.on || !bot) return null
+    const items = bot.inventory?.items?.() ?? []
+    const held = items.filter(it => it?.name === 'raw_copper' || it?.name === 'copper_ingot').reduce((n, it) => n + (it.count ?? 0), 0)
+    let gate = null
+    const r = copperRunOrder({ now, on: true, waiting: hallWaitingNow, gate: () => (gate = hallOpenNow(bot)), held, freeSlots,
+      tripPick: hasTripPickaxe(items), site: () => projectSiteNow(bot), ore: () => copperOreNear(bot), state: bot.copperRunState ?? {} })
+    bot.copperRunState = r.state
+    const why = r.order ? 'issued' : (['stocked', 'no_ore', 'same_ore', 'pickaxe', 'carrying', 'site_unknown', 'on_site', 'copper_unknown'].includes(r.skip) ? r.skip : null)
+    bot.copperRunSkipAt ??= {}
+    if (why && (why === 'issued' || now - (bot.copperRunSkipAt[why] ?? -Infinity) >= 30 * 60_000)) {
+      bot.copperRunSkipAt[why] = now
+      try { logEvent({ kind: 'copper_run', status: r.order ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: copperRunDetail({ skip: r.skip, issued: r.order?.args?.block ?? null, gate, held, free: freeSlots }) }) } catch { /* telemetry */ }
+    }
+    return r
+  } catch { return null }
+}
+/** COPPERRUN-01, once per spawn (features.mjs): the ask is wired where the hall is on, and the licence row written. Never throws. */
+export function copperRunInstall (bot) {
+  crBot = bot
+  if (COPPERRUN.on && COPPERHALL_ON.on) setCopperAsk(copperAsk)
+  try { logEvent({ kind: 'copperrun_mode', status: 'success', snapshot: snapshot(bot), detail: copperRunModeDetail(COPPERRUN.on, COPPERHALL_ON.on) }) } catch { /* telemetry */ }
+}
 export function expeditionInstall (bot) {
   exBot = bot
   if (EXPEDITION.on) setExpeditionAsk(expeditionAsk)

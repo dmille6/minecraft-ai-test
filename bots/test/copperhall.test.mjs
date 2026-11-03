@@ -78,7 +78,7 @@ await t('r3 (LIVE 11-02: every gate row read 0): the town copper is each contain
   const obs = (ci, cc, at = 1) => ({ obs: { at, names: { ...(ci ? { copper_ingot: [ci, 3] } : {}), ...(cc ? { cut_copper: [cc, 1] } : {}), torch: [12, 1] } } })
   const entries = { '-9,71,2': obs(64), '-13,71,2': obs(66, 10), '-5,71,8': obs(0), '-7,71,8': obs(40), '1,71,1': { last: { t: 'dirty' } }, _ingredient_miss: { '-9,71,2': {} } }
   const state = e => (e === entries['-7,71,8'] ? 'dirty' : e === entries['-9,71,2'] ? 'stale' : 'known')
-  assert.deepEqual(H.townCopperOf(entries, state), { ingots: 130, cut: 10, containers: 3, stale: 1 })
+  assert.deepEqual(H.townCopperOf(entries, state), { ingots: 130, cut: 10, containers: 3, stale: 1, raw: 0, blocks: 0 })
   assert.deepEqual(H.townCopperOf(null), { unknown: true }, 'no index: unknown (never opens)')
   assert.deepEqual(H.townCopperOf({}, state), { unknown: true }, 'no observed container: unknown, not 0')
   assert.equal(H.hallOpening({ ingots: 130, cut: 10 }).open, false)
@@ -89,7 +89,7 @@ await t('Codex r3 BLOCK: a single chest that became the other half of a double c
     '-9,71,2': { obs: { at: 5, h: ['-9,71,2', '-9,71,3'], names: { copper_ingot: [160, 3], cut_copper: [10, 1] } } },
     '-9,71,3': { obs: { at: 2, h: ['-9,71,3'], names: { copper_ingot: [160, 3], cut_copper: [10, 1] } } },
   }
-  assert.deepEqual(H.townCopperOf(entries), { ingots: 160, cut: 10, containers: 1, stale: 0 })
+  assert.deepEqual(H.townCopperOf(entries), { ingots: 160, cut: 10, containers: 1, stale: 0, raw: 0, blocks: 0 })
   // a half observed AFTER the double (it was split again): its own observation counts
   entries['-9,71,3'].obs.at = 9
   assert.equal(H.townCopperOf(entries).containers, 2)

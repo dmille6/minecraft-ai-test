@@ -40,6 +40,7 @@ import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout
 import { SHAFT, SHAFT_COOLDOWN_MS } from './shop.mjs'   // shaft-02's licence row
 import { SHAFT_BLUEPRINT, LANDING_FEET } from './shaftgeom.mjs'
 import { expeditionInstall } from './skills.mjs'   // expedition-01: the order's ask and the licence row
+import { copperRunInstall } from './skills.mjs'   // copperrun-01: the hall's copper ask and its licence row
 import { copperhallModeDetail } from './copperhall.mjs'   // copperhall-01's licence row
 import { COPPERHALL } from './shop.mjs'
 import { YARD } from './shop.mjs'   // stockyard-01's licence row
@@ -83,6 +84,7 @@ export function installShowchat (bot, { env = process.env, pool = config.memory.
 export function installFeatures (bot) {
   // expedition-01: the ask buildOrder puts to a bot the projects cannot use, and `_expedition_mode` (on=0 under EXPEDITION=off)
   try { expeditionInstall(bot) } catch (e) { log('warn', 'expedition not installed', { error: e.message }) }
+  try { copperRunInstall(bot) } catch (e) { log('warn', 'copper run not installed', { error: e.message }) }
   // copperhall-01: the copper hall's licence row (copperhall.mjs; the project itself is shop.mjs PROJECTS, its gate skills.mjs hallOpenNow)
   try { logEvent({ kind: 'copperhall_mode', status: 'success', snapshot: snapshot(bot), detail: copperhallModeDetail(COPPERHALL.on) }) } catch { /* telemetry */ }
   // stockyard-01: the stockpile yard's licence row (yard.mjs; the project itself is shop.mjs PROJECTS, its visit skills.mjs yardVisit)
