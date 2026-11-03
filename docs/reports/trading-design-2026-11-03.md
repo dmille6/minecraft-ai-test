@@ -139,8 +139,129 @@ Setup by RCON on a floating glass-walled arena (sandbox only): summoned unemploy
 
 ## 8. Owner decisions needed
 
-1. **Showcase village 6_1 is a dead end.** Its 7 villagers are stuck inside village-built trapdoor rings; freeing them would
-   break village blocks. Leave it (recommended), or a one-off owner world fix (open one trapdoor), logged.
-2. **How far may a trade trip go?** Fleet buyers are 554-605 blocks out; expeditions today stop at 300. Recommended: one
-   surveyed route <= 650 blocks per town, 10-minute trip budget.
-3. **What to buy.** Recommended: building blocks for monuments first (mason), books only when a librarian is seen.
+1. ~~Showcase village 6_1 is a dead end~~ ANSWERED 11-03: bots may open doors/trapdoors; T3a villageunlock-01 (section 9).
+2. ~~How far may a trade trip go?~~ ANSWERED 11-03: no fixed budget; expedition guardrails + a 45-min stranded cap (section 9).
+3. ~~What to buy~~ ANSWERED 11-03: mason building blocks first; books after the anvil proof (T6).
+
+## 9. Owner answers 11-03 ~21:45Z and what changed
+
+1. **"we can edit the world when it comes to opening doors etc, that is fine."** Read (control session): bots may open or remove
+   village doors / trapdoors / fences to free villagers; still no admin commands. **New piece T3a villageunlock-01, built.**
+2. **"why do we need a 10 min budget on trading? why not let the bots roam?"** T2 is redesigned below without a fixed trip
+   budget.
+3. Mason building blocks first stays; books wait for the anvil proof (T6).
+
+### T3a villageunlock-01 (showcase, tier 3: it adds one allowance to `protectzone.mjs`)
+
+**Facts it rests on (region copy 11-03).** The 6_1 rings are OPEN bottom spruce trapdoors facing outward:
+- 79..84,73,-5..-3 holds 4 villagers in 3 walkable cells (the 4th cell has leaves at head height).
+- 86..89,76,10..12, in the leatherworker house, holds 3 villagers in 2 cells. Only its north side opens onto the house floor;
+  the other 4 trapdoors back onto cobble walls with panes above.
+
+**Sandbox4 proof** (`sandbox/trading/unlock-proof.cjs`, a replica of the outdoor ring):
+
+| Step | Result |
+|---|---|
+| Control: ring intact, 90 s | still jobless |
+| One side (4 trapdoors) closed, 90 s | still jobless |
+| Whole ring closed | a job in 5.7 s |
+
+The bot toggled each trapdoor with a survival `activateBlock`. All 10 trapdoors stayed in place (a state change only), and the
+villager kept health 20.
+
+**Design.**
+- `bots/src/villageunlock.mjs` `penAround` floods the feet level from the villager (at most 12 cells).
+- It collects only barriers that are a real way out: an OPEN **bottom-half** wooden trapdoor with a solid block under it and
+  room above it, or a CLOSED fence gate. The cell beyond it must be standable: level, one step down or one step up.
+- A drop or a step-up inside the pen means the villager is not penned. A pen with nothing to toggle is `walled` and is left
+  alone. Nothing is ever broken or placed, and doors, beds, job sites and chests are never touched.
+- The candidate is a jobless adult villager seen in the same cell for at least 20 min, by sightings less than 10 min apart and
+  the newest less than 5 min old. It is fed from the merchant scout.
+- The ask runs first in `buildOrder`'s idle branch. Limits: one try per villager per 6 h, one per bot per 30 min, and one bot
+  per pen through a pool lease file.
+- The skill walks there, then re-checks two things: the villager (by uuid) is still there, jobless and penned, and each barrier,
+  right before its click.
+- The one guard change: `protectzone.mjs` lets `activateBlock` through only for a wooden trapdoor or fence gate whose exact
+  cell the running unlock named (`withUnlockScope`). Every other op and block stays refused.
+
+**On the real fixture** it collects 7 trapdoors for the outdoor ring and 2 for the house ring (the 2 onto the house floor).
+
+**End-to-end on this code** (`sandbox/trading/unlock-e2e.mjs`, sandbox4, a protected zone over the arena):
+
+| | Outdoor-ring replica | House-ring replica |
+|---|---|---|
+| Plain `activateBlock` without the scope | refused | refused |
+| Trapdoors toggled | 10 | 4 (6 left open) |
+| Trapdoors still in place | all | all |
+| Villager job after the run | toolsmith | toolsmith |
+| Next ask | null | null |
+
+**Tripwire.**
+- S4 compares block NAMES, so a toggle is INTACT. Main's `showcase_trip.py` `canon()` now cuts a `[state]` suffix from
+  trapdoor and fence-gate names only. A removed or different block is still a BREACH.
+- The selftest gains 5 assertions. `infra/showcase/test_trip_unlock_mutants.py` kills 4 of 4 mutants, and the S6 suite still
+  kills 17 of 17.
+- S6 H3 needs no change: it counts `_build` place/clear/replant rows only.
+- **Not installed.**
+
+**Reviews (two engines).**
+- Round 1: Codex raised 3 blockers: a two-bot re-open, shutters and hole covers being collected, and a stale sighting.
+  Claude (an independent subagent) found none.
+- r1 fixed all three. The re-check found the stale-lease takeover still racy.
+- r2 fixed it with `takeLease`: announce then check over per-slot O_EXCL files. Codex: FIXED, no new blocker.
+- The tripwire rule had no blocker from either engine. Both asked for a narrower state strip; r1 did that.
+- Branch `villageunlock-01` = `982db9e6`.
+
+### T2 coalsale-01, redesigned without a fixed trip budget
+
+**Measured** from the showcase expeditions (196 trips in the logs):
+- Round-trip speed is a median **2.95 blocks/s** (p10 2.02, p90 4.09).
+- The longest trip went 313 blocks out. 56 of 196 stopped on their own time cap, and 35 of 196 visits ended "still on the way
+  home".
+
+**Travel time.** A 600-block trade trip is 1,200 blocks of walking:
+- about **6.8 min** at the median speed;
+- about **10 min** at p10, before any dwell.
+
+A fixed 10-minute budget would cut many trips off before the villager.
+
+**Guardrails (expedition-style).**
+- One trip per bot at a time.
+- Breadcrumbs and markers both ways, reusing `expedition.mjs` `nextCrumb` / `markerHome`.
+- Town reserves are left alone: only coal above the town's own reserve and fuel need is carried, and at most 4 trades' worth
+  (60 coal).
+
+**Turning home.** The bot turns home for a reason, not on a timer:
+- every carried coal is sold;
+- the buyer's coal offer is used up (`nbTradeUses == maximumNbTradeUses`) and no other buyer is known;
+- 4 emeralds are earned;
+- night falls (a trade needs an awake villager);
+- health is at or below 10;
+- the bag is full.
+
+**Roaming.** When the known buyer has nothing, the bot roams for more buyers:
+- legs of about 64 blocks in a spiral around the village;
+- the scout logs every villager it sees (`_merchant_seen ... trades=yes`), and an offer is only trusted once a live window
+  shows it;
+- at most 3 legs per trip.
+
+**Safety cap: 45 min**, only for a stranded or lost bot, never as a work budget.
+- It is about 4.4x the slow (p10) round trip at 600 blocks.
+- At the cap the bot walks home over its breadcrumbs and writes `stop=stranded`.
+
+**Where.**
+- First the pools whose nearest employed villager is within reach. Measured 11-03: hive-c (librarian 281) and placebo-b
+  (leatherworker 288, librarian 293, armorer 321).
+- Then the 11 shared-seed pools, at 554-605 blocks.
+- A per-town "known buyer" comes from 24 h of scout rows.
+
+**Tier 3:** a targeted long walk uses `goto` legs and expedition code. The trade executor itself (`openVillager` + `trade`,
+server-confirmed) is proven in sandbox4. It is not built yet.
+
+### Queue (updated)
+
+- T1 trading-scout-01 and T3a villageunlock-01 go to the showcase **together**; T3a builds on T1's branch.
+- Then read the 6_1 villagers' jobs over the next 24 h on the showcase. The scout rows say `changed ... <profession>`.
+- T2 in the fleet lane after T1's fleet sightings, as a P item behind bagdiet-01 / swimcentre-01 / bundle-1103a.
+- The showcase trade visit (selling to the freed 6_1 villagers, about 85 blocks from home) becomes the simplest T2 test
+  ground once one is employed.

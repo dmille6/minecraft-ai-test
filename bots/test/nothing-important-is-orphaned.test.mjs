@@ -302,6 +302,9 @@ const REQUIRED = [
   'sandbox/trading/census/poi.py',
   'sandbox/trading/census/vdump.py',
   'sandbox/trading/census/blocks.py',
+  'sandbox/trading/unlock-proof.cjs',
+  'sandbox/trading/unlock-e2e.mjs',
+  'infra/showcase/test_trip_unlock_mutants.py',
   'scripts/mac/opsaudit.sh',
   // the learning loop's nightly archive (M1): logs on .31 rotate after 14 days, this is the only long-term copy
   'scripts/learnloop/extract_triples.py',
