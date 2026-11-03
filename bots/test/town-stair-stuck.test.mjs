@@ -97,7 +97,11 @@ await t('WIRED: the stair visit and both use walks run inside withStairClaim(ctx
     'const arrived = await withStairClaim(ctx.runner, () => stairWalk(bot, use.stand, STAIR_DOWN_MS, signal))',
     'const ok = await withStairClaim(ctx.runner, () => stairWalk(bot, rec.exit, STAIR_UP_MS, signal))']) assert.strictEqual(src.split(a).length, 2, `missing or not unique: ${a}`)
   assert.strictEqual(src.split('await runStairVisit(').length, 2, 'one visit call, the claimed one above')
-  assert.strictEqual(src.split('visitEgress(bot,').length, 3, 'the egress runs at its two claimed call sites only')
+  // shafttrap-02: ...and surface's ascent from ON the stair (claimed), and the reflex arms' egress (the arm's grant holds the body:
+  // the runner is idle there, so a claim would be inert)
+  for (const a of ['const x = await withStairClaim(ctx.runner, () => visitEgress(bot, rec, signal, t0 + STAIR_UP_MS))',
+    'const r = await visitEgress(bot, on.rec, ac.signal, Date.now() + ms)']) assert.strictEqual(src.split(a).length, 2, `missing or not unique: ${a}`)
+  assert.strictEqual(src.split('visitEgress(bot,').length, 5, 'the egress runs at its three claimed call sites and the reflex one only')
   // the egress's walks are the hop walk (stairWalk) behind its injected walkTo, inside visitEgress (called only under the claim)
   const v0 = src.indexOf('async function visitEgress ('), v1 = src.indexOf('async function stairWalk (', v0)
   assert.ok(v0 > 0 && v1 > v0 && src.slice(v0, v1).includes('walkTo: c => stairWalk(bot, c, EGRESS_HOP_MS, signal)'), 'the egress hops on stairWalk')

@@ -56,6 +56,7 @@ const REQUIRED = [
   'bots/test/town-stair-wiring.test.mjs',
   'bots/test/town-stair-stuck.test.mjs',
   'bots/test/stair-egress.test.mjs',   // shafttrap-01: a stair visit ends at the collar
+  'bots/test/stair-handoff.test.mjs',   // shafttrap-02: the reflexes hand a bot on the town stair to the egress first
   'sandbox/shafttrap/egress-e2e.mjs',  // shafttrap-01: its Paper driver
   // monument-01 (10-29): the ziggurat's site, offline, by the bots' own functions (the fleet canary's per-world siting), and the
   // shop read that judges every project's record (the showcase tripwire's S6)
