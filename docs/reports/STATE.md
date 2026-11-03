@@ -41,10 +41,9 @@ _Hand-written context the sources cannot say. Keep it short; date each line; del
   promptcache, apseal, zigsealed, fleetbuild) + every showcase piece (expeditions/wholemap S1a, storehouse/shopchest,
   sortstore, showchat, copperhall, stale-stuck rule, SHAFT off); prev `d698024b` is the rollback. From now on
   `restack_prep.py` (showcase VM, :25) prepares each restack and alarms `restack-showcase`; activation stays by hand.
-- **Showcase (11-03):** groundskeeper release `62e2aff0` was live 02:41-03:11Z, then ROLLED BACK to `4c92880a`: the tripwire's
-  S6 H2 read the tidy's own 4 stage-0 cuts as clear_outside (shopread.py has no rule for the tidy record) -> TRIP. Not acked (owner).
-  Needs a shopread tidy rule (tooling) before re-activation. **stockyard-01 was NOT shipped:** no site on the showcase offline
-  (0 of 31,684 candidates); needs a siting design (ledger stockyard-1102).
+- **Showcase (11-03):** tripwire S6 tidy rule tidyread-01 (main 230c204b) installed 04:02Z; groundskeeper + copperrun release
+  `dc617030` live 04:15Z (60-min PASS, 2-h 0 deaths; tidy stage 0 stuck on 21,66,0 until waived 06:07Z, no land plan yet;
+  copperrun unexposed); yard release `c2a0de4f` (yardsite-01, main 556ba468: yard@1 SW homes beyond the wall) live 06:17Z, read 07:17Z.
 
 ## Lab mode
 
