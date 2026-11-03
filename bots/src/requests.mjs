@@ -56,6 +56,7 @@ const num = (d, k) => { const v = Number(field(d, k)); return Number.isFinite(v)
 /** copper counted as ingots (a block is 9); raw copper smelts 1:1 */
 export const COPPER_UNITS = Object.freeze({ copper_ingot: 1, raw_copper: 1, copper_block: 9 })
 const XYZ = /^-?\d+,-?\d+,-?\d+$/
+export const KIT_UNFILLED = new Set(['no_iron', 'no_sticks', 'unseen', 'stalled'])
 
 /**
  * ONE RECORD -> a request event | null. Pure. Events:
@@ -95,11 +96,13 @@ export function eventFor (rec) {
       const hit = tried.split(';').map(x => x.split(':')).find(([c, r]) => r === 'success' && XYZ.test(c))
       return { t: 'kit_took', chest: hit ? hit[0] : null }
     }
-    return outcome ? { t: 'kit_none', outcome } : null
+    // toolkit.mjs kitSearchOutcome: more (progress, the search goes on) is no event; no_iron / no_sticks / unseen / stalled
+    // are UNFILLED with that outcome (only no_iron is "the chests had none")
+    return outcome && KIT_UNFILLED.has(outcome) ? { t: 'kit_none', outcome } : null
   }
   if (kind === '_toolkit' && field(d, 'phase') === 'kit' && field(d, 'outcome') === 'crafted') {
     const drew = num(d, 'drew'), crafted = field(d, 'crafted')
-    if (!drew || drew <= 0 || !crafted || !/^[a-z_]+$/.test(crafted)) return null
+    if (!drew || drew <= 0 || !crafted || !/^[a-z_]+(\+[a-z_]+)*$/.test(crafted)) return null   // `iron_axe+iron_shovel` (Codex r1)
     return { t: 'kit_crafted', drew, crafted }
   }
   return null

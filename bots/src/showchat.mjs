@@ -253,14 +253,15 @@ export function lineFor (rec) {
           `${fills > 0 ? `, ${fills === 1 ? 'one delivery' : `${fills} deliveries`} from our bags` : ''}!` }
     }
     if (rop === 'filled' && field(d, 'kind') === 'kit' && qty > 0) {
-      const tool = (field(d, 'for') ?? '').replace(/_/g, ' ')
+      const tools = String(field(d, 'for') ?? '').split('+').filter(x => /^[a-z_]+$/.test(x)).map(x => x.replace(/_/g, ' '))
       const where = xyz(field(d, 'at'))
-      if (!/^[a-z ]+$/.test(tool) || !tool) return null
-      return { cat: 'request', tier: 2, key: field(d, 'for') === 'iron_pickaxe' ? `ironpick:${bot}` : `kit:${bot}`, dedupeMs: 30 * 60_000,
-        text: `I needed ${itemPhrase(item, qty)} for ${/^[aeiou]/.test(tool) ? 'an' : 'a'} ${tool} and found ${qty === 1 ? 'it' : 'them'} in the town chest` +
+      if (!tools.length) return null
+      const words = tools.map(x => `${/^[aeiou]/.test(x) ? 'an' : 'a'} ${x}`).join(' and ')
+      return { cat: 'request', tier: 2, key: tools.includes('iron pickaxe') ? `ironpick:${bot}` : `kit:${bot}`, dedupeMs: 30 * 60_000,
+        text: `I needed ${itemPhrase(item, qty)} for ${words} and found ${qty === 1 ? 'it' : 'them'} in the town chest` +
           `${where ? ` at ${where}` : 's'}.` }
     }
-    if (rop === 'unfilled' && field(d, 'kind') === 'kit') {
+    if (rop === 'unfilled' && field(d, 'kind') === 'kit' && field(d, 'outcome') === 'no_iron') {   // the other outcomes are not 'none' (Codex r1)
       return { cat: 'request', tier: 3, key: `kitnone:${bot}`, dedupeMs: 60 * 60_000, text: 'I needed iron ingots for my tools, but the town chests had none.' }
     }
     return null

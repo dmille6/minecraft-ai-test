@@ -8,7 +8,7 @@
 //     producing / fill only while open; met with its time; a request no gate refreshes for 6 h expires;
 //   - the kit request: a took search + its craft within 120 s = filled from that chest; a late craft is nothing; none = unfilled;
 //   - the 11-01..03 replay (bots/test/fixtures/requests-showcase-1101-1103.jsonl, 415 real rows, thinned): 1 open, 4 updates,
-//     4 bag fills, 1 met after 2,363 min; 44 kit fills;
+//     4 bag fills, 1 met after 2,363 min; 51 kit fills;
 //   - the chat lines read naturally, are safe for the output filter, and parse as no command;
 //   - install: on -> mode row + tap; off / a fleet pool -> mode row on=0 and nothing tapped; wired in installFeatures.
 // Mutants (anchors asserted present and unique) prove the best view, the open-only producing rule and the kit window live.
@@ -53,7 +53,7 @@ const RUN_SKIP = 'skip=on_site ingots=106 raw=7 blocks=0 cut=22 need=211 held=0 
 const DEP_CU = 'slots 30->28 stacks 2/2 clicked 2 bagdelta 24 tools - logs banked 0 kept 16 keep 16 banked raw_copper:8,cobblestone:16 stop done'
 const DEP_LOG = 'slots 34->34 stacks 1/1 clicked 1 bagdelta 16 tools - logs banked 16 kept 16 keep 16 stock 1/0 banked spruce_log:16 stop done containers -5,71,8=took'
 const KIT_TOOK = 'outcome=took need=kit_iron_any town=9 cand=3 visits=2 vfail=0 maxrep=1 left=0 tried=[-5,71,8:none;-9,71,-2:success]'
-const KIT_NONE = 'outcome=none need=kit_iron_any town=9 cand=9 visits=7 vfail=0 maxrep=1 left=0 tried=[-9,71,2:none;-8,71,6:none]'
+const KIT_NONE = 'outcome=no_iron need=kit_iron_any town=9 cand=9 visits=7 vfail=0 maxrep=1 left=0 tried=[-9,71,2:none;-8,71,6:none]'
 const KIT_CRAFT = 'phase=kit outcome=crafted needs=iron_pickaxe drew=3 sticks=0 used=3 crafted=iron_pickaxe credit=0->0 parts=1 town=9 cand=8 visits=1 vfail=0 maxrep=1 left=0 stop=- before=iron_axe@218'
 const KIT_MODE = 'phase=mode on=1 mode=on note=TOOLKIT_unset'
 
@@ -63,7 +63,10 @@ await t('READER: real records -> events; the rest -> nothing', () => {
   assert.deepEqual(R.eventFor(rec('_copper_run', RUN)), { t: 'producing', for: 'hall', item: 'copper_ingot', block: 'copper_ore' })
   assert.deepEqual(R.eventFor(rec('_town_deposit', DEP_CU)), { t: 'deposit', units: 8 })
   assert.deepEqual(R.eventFor(rec('_kit_search', KIT_TOOK)), { t: 'kit_took', chest: '-9,71,-2' })
-  assert.deepEqual(R.eventFor(rec('_kit_search', KIT_NONE)), { t: 'kit_none', outcome: 'none' })
+  assert.deepEqual(R.eventFor(rec('_kit_search', KIT_NONE)), { t: 'kit_none', outcome: 'no_iron' })
+  assert.equal(R.eventFor(rec('_kit_search', KIT_NONE.replace('no_iron', 'more'))), null, 'more: the search goes on (Codex r1)')
+  assert.deepEqual(R.eventFor(rec('_kit_search', KIT_NONE.replace('no_iron', 'no_sticks'))), { t: 'kit_none', outcome: 'no_sticks' })
+  assert.deepEqual(R.eventFor(rec('_toolkit', KIT_CRAFT.replace('crafted=iron_pickaxe', 'crafted=iron_axe+iron_shovel'))), { t: 'kit_crafted', drew: 3, crafted: 'iron_axe+iron_shovel' }, 'a multi-tool craft (Codex r1)')
   assert.deepEqual(R.eventFor(rec('_toolkit', KIT_CRAFT)), { t: 'kit_crafted', drew: 3, crafted: 'iron_pickaxe' })
   for (const r of [rec('_copper_run', RUN_SKIP, 'no_effect'), rec('_town_deposit', DEP_LOG), rec('_toolkit', KIT_MODE), rec('_town_deposit', DEP_CU, 'failed'),
     rec('_copperhall_gate', 'on=1 why=copper_unknown'), rec('_build', 'project=hall op=place')]) assert.equal(R.eventFor(r), null, r.skill.detail)
@@ -110,7 +113,7 @@ await t('KIT: a took search + its craft within 120 s is filled from the chest; a
   k2 = R.stepKit(k.pend, { t: 'kit_crafted', drew: 3, crafted: 'iron_pickaxe' }, T0 + 121_000)
   assert.deepEqual(k2.rows, [], 'a craft 121 s after the search is not this draw')
   assert.deepEqual(R.stepKit(null, { t: 'kit_crafted', drew: 3, crafted: 'iron_pickaxe' }, T0).rows, [], 'a craft with no search (own iron) is no request')
-  assert.deepEqual(R.stepKit(null, { t: 'kit_none', outcome: 'none' }, T0).rows, [{ op: 'unfilled', kind: 'kit', item: 'iron_ingot', outcome: 'none' }])
+  assert.deepEqual(R.stepKit(null, { t: 'kit_none', outcome: 'no_iron' }, T0).rows, [{ op: 'unfilled', kind: 'kit', item: 'iron_ingot', outcome: 'no_iron' }])
 })
 
 const FIX = fs.readFileSync(new URL('./fixtures/requests-showcase-1101-1103.jsonl', import.meta.url), 'utf8').trim().split('\n').map(l => JSON.parse(l))
@@ -127,16 +130,16 @@ const replay = (mod, rows = FIX) => {
   for (const o of out) { const op = /op=(\S+)/.exec(o.detail)[1]; ops[op] = (ops[op] ?? 0) + 1 }
   return { out, ops, dir }
 }
-await t('REPLAY 11-01..03 (415 real rows, 10 bots, one town file): 1 open, 4 updates, 93 producing, 4 bag fills, 1 met after 2,363 min, 44 kit fills', () => {
+await t('REPLAY 11-01..03 (415 real rows, 10 bots, one town file): 1 open, 4 updates, 93 producing, 4 bag fills, 1 met after 2,363 min, 51 kit fills (every took search, 7 of them multi-tool)', () => {
   const { out, ops, dir } = replay(R)
-  assert.deepEqual(ops, { open: 1, update: 4, producing: 93, fill: 4, met: 1, filled: 44 })
+  assert.deepEqual(ops, { open: 1, update: 4, producing: 93, fill: 4, met: 1, filled: 51 })
   const met = out.find(o => /op=met/.test(o.detail))
   assert.equal(met.detail, 'op=met kind=project for=hall item=copper_ingot need=211 mins=2363 fills=4 filled=39')
   assert.ok(new Date(met.t).toISOString().startsWith('2026-11-03T16:38'), 'the hall opened 16:38Z')
   const j = fs.readFileSync(path.join(dir, R.JOURNAL_FILE), 'utf8').trim().split('\n').map(JSON.parse)
   assert.equal(j.length, out.length, 'every row is in the town journal')
   assert.ok(j.every(x => x.v === 1 && x.by && x.op && x.t), 'journal lines carry v, by, op, t')
-  assert.ok(out.every(o => /^[a-z]+=[a-z0-9_,:-]+( [a-z]+=[a-z0-9_,:-]+)*$/.test(o.detail)), 'details are key=value tokens only (no free text)')
+  assert.ok(out.every(o => /^[a-z]+=[a-z0-9_,:+-]+( [a-z]+=[a-z0-9_,:+-]+)*$/.test(o.detail)), 'details are key=value tokens only (no free text)')
 })
 await t('MUTANT KILLED: without the best view the partial views flap the request (the 11-01..03 have=0 / have=130 minutes)', async () => {
   await withMutant(R_URL, [['const best = views.reduce((a, v) => (v.have > a.have ? v : a))', 'const best = views[views.length - 1]']], mod => {
@@ -184,7 +187,8 @@ await t('CHAT: each op reads as a plain line; tiers and keys; nothing for expire
     ['op=met kind=project for=hall item=copper_ingot need=211 mins=20 fills=0 filled=0', 1, 'The copper hall has all the copper it needs!'],
     ['op=filled kind=kit for=iron_pickaxe item=iron_ingot qty=3 src=chest at=-9,71,-2', 2, 'I needed 3 iron ingots for an iron pickaxe and found them in the town chest at -9, 71, -2.'],
     ['op=filled kind=kit for=iron_shovel item=iron_ingot qty=1 src=chest at=-', 2, 'I needed 1 iron ingot for an iron shovel and found it in the town chests.'],
-    ['op=unfilled kind=kit item=iron_ingot outcome=none', 3, 'I needed iron ingots for my tools, but the town chests had none.'],
+    ['op=unfilled kind=kit item=iron_ingot outcome=no_iron', 3, 'I needed iron ingots for my tools, but the town chests had none.'],
+    ['op=filled kind=kit for=iron_axe+iron_shovel item=iron_ingot qty=4 src=chest at=-9,71,2', 2, 'I needed 4 iron ingots for an iron axe and an iron shovel and found them in the town chest at -9, 71, 2.'],
   ]
   for (const [d, tier, text] of L) {
     const c = say(d)
@@ -194,6 +198,7 @@ await t('CHAT: each op reads as a plain line; tiers and keys; nothing for expire
     assert.equal(addressed(c.text, 'showcase-Gale'), null, `parses as no command: ${c.text}`)
   }
   assert.equal(say('op=filled kind=kit for=iron_pickaxe item=iron_ingot qty=3 src=chest at=-9,71,-2').key, 'ironpick:showcase-Gale', 'shares the iron-pick line\'s key: never both')
+  for (const o of ['no_sticks', 'unseen', 'stalled']) assert.equal(say(`op=unfilled kind=kit item=iron_ingot outcome=${o}`), null, `${o} is not "the chests had none" (Codex r1)`)
   assert.equal(say('op=expire kind=project for=hall item=copper_ingot qty=105 mins=360 fills=0 filled=0'), null)
   assert.equal(say('op=open kind=project for=hall item=Copper!x qty=5'), null, 'a non-registry item name is never spoken')
 })
@@ -211,7 +216,7 @@ await t('CHAT: the 11-01..03 replay through one speaker -- the hall\'s requests 
   for (let i = 1; i < prod.length; i++) assert.ok(prod[i][0] - prod[i - 1][0] >= H, `at most once an hour: ${new Date(prod[i - 1][0]).toISOString()} ${new Date(prod[i][0]).toISOString()} ${prod[i][1]}`)
   assert.ok(said.some(([, x]) => x === 'The copper hall needs 427 more copper ingots (the town has 0).'), 'POSITIVE: the open line')
   assert.ok(said.some(([, x]) => /^The copper hall has all the copper it needs after 39 h/.test(x)), 'the met line')
-  assert.ok(said.filter(([, x]) => /^I needed \d+ iron ingots? for/.test(x)).length >= 20, 'kit lines (44 rows, 30-min per-bot dedupe)')
+  assert.ok(said.filter(([, x]) => /^I needed \d+ iron ingots? for/.test(x)).length >= 20, 'kit lines (51 rows, 30-min per-bot dedupe)')
 })
 
 // INSTALL
