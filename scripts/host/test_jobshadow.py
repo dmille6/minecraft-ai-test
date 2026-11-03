@@ -280,8 +280,16 @@ class Shadow(unittest.TestCase):
         self.assertEqual(JS.role_of('_build_visit', {}, 'project=monument outcome=complete ms=129 why=stands', 'x')[0], None)
         self.assertEqual(JS.role_of('_build_visit', {}, 'project=shaft outcome=no_support placed=0 slot=1 ms=24704', 'x')[0], None)
         self.assertEqual(JS.role_of('_expedition', {}, 'op=skip why=no_kit', 'x')[0], None)
-        self.assertEqual(JS.role_of('_deepmine', {}, 'op=ore kind=diamond', 'x'), ('deep_miner', None, True))
+        self.assertEqual(JS.role_of('_deepmine', {}, 'op=ore why=diamond n=2', 'x'), ('deep_miner', None, True))
         self.assertEqual(JS.role_of('_deepmine', {}, 'op=error why=x', 'x')[0], None)
+        # review r2 (Codex): zero-progress producer rows are attempts
+        self.assertEqual(JS.role_of('_deepmine', {}, 'op=branch phase=work why=lava n=0', 'success'), ('deep_miner', None, False))
+        self.assertEqual(JS.role_of('_deepmine', {}, 'op=branch phase=work why=len n=12', 'success'), ('deep_miner', None, True))
+        self.assertEqual(JS.role_of('_deepmine', {}, 'op=pickaxe why=not_made', 'success'), ('deep_miner', None, False))
+        self.assertEqual(JS.role_of('_deepmine', {}, 'op=pickaxe why=made', 'success'), ('deep_miner', None, True))
+        self.assertEqual(JS.role_of('_deepmine', {}, 'op=ore why=diamond n=0', 'success')[2], False)
+        self.assertEqual(JS.role_of('_expedition', {}, 'op=marker_skip trip=t why=no_spot', 'no_effect'), ('explorer', None, False))
+        self.assertEqual(JS.role_of('_expedition', {}, 'op=marker trip=t at=1,2,3', 'success'), ('explorer', None, True))
         self.assertEqual(JS.role_of('mine', {}, '', 'failed'), ('miner', None, False))
         self.assertEqual(JS.role_of('mine', {}, '', 'no_effect')[0], None)
         self.assertEqual(JS.role_of('gather', {'block': 'iron_ore'}, '', 'success')[0], 'miner')
@@ -342,6 +350,15 @@ class Shadow(unittest.TestCase):
         self.assertEqual(s['valid_share'], 0.6)
         self.assertEqual(s['error_runs'], 2)
         self.assertFalse(s['go']['valid_ok'])
+        # review r2 (Claude): runs that left NO row (a crash outside the try, flock skipped, cron silent) are missed by the
+        # schedule: 2 runs written 60 min apart -> 7 scheduled runs x 16 towns expected
+        t0 = dt.datetime(2026, 11, 3, 5, tzinfo=UTC)
+        iso = lambda t: t.isoformat().replace('+00:00', 'Z')
+        runs = [{'kind': 'run', 'ok': True, 'ts': iso(t0), 'expected': list(JS.EXPECTED_POOLS)},
+                {'kind': 'run', 'ok': True, 'ts': iso(t0 + dt.timedelta(minutes=60)), 'expected': list(JS.EXPECTED_POOLS)}]
+        s = JS.summarize([tick] * 32 + runs, now=t0 + dt.timedelta(minutes=60))
+        self.assertEqual(s['expected_town_ticks'], 7 * 16)
+        self.assertFalse(s['go']['valid_ok'])
 
     def test_planned_rotation_is_not_churn(self):
         # review r1 (Claude B1): one steady need for 24 h passes the churn gate -- term rotations are planned, not churn
@@ -377,6 +394,8 @@ MUTANTS = [   # (file, anchor, replacement): each must make the suite FAIL; the 
     ('lib/jobrules.py', "            if h['bot'] not in nb:\n                release(role, h, 'native', 0)", "            if False:\n                pass"),
     ('lib/jobrules.py', "        if caps_ok(r2):", "        if True:"),
     ('host/jobshadow.py', "    valid = round(len(ticks) / expected, 3) if expected else None", "    valid = 1.0"),
+    ('host/jobshadow.py', "        expected = max(expected, (int(span // RUN_EVERY_MIN) + 1) * len(EXPECTED_POOLS))", "        pass"),
+    ('host/jobshadow.py', "        return _num(det, 'n') > 0", "        return True"),
     ('host/jobshadow.py', "        prog = sum(int(v) for _, v in counts) > 0", "        prog = True"),
     ('lib/jobrules.py', "                    if st['displace'][role] >= DISPLACE_TICKS or starving:", '                    if True:'),
     ('lib/jobrules.py', "        return on\n    if on:", "        return False\n    if on:"),

@@ -55,6 +55,7 @@ OUT_DIR = f'{HOME}/jobshadow/out'
 DIGEST_LOG = f'{HOME}/digest/jobshadow.log'
 FLOW_LATEST = f'{HOME}/flowledger/out/latest.json'
 MIN_BOTS = 40
+RUN_EVERY_MIN = 10        # the cron cadence (install-jobshadow.sh): the schedule the validity gate expects
 # the fleet's 16 towns (owner shape: 80 bots / 16 towns): a town that drops out of the rows is a MISSING tick, not absent
 EXPECTED_POOLS = tuple(f'{g}-{c}' for g in ('board', 'hive', 'isolated', 'placebo') for c in 'abcd')
 MIN_TOWNS_READ = 12
@@ -75,9 +76,29 @@ def canon(n):
 
 # ------------------------------------------------------------------------------------------------ pure helpers
 PROGRESS_RE = re.compile(r'\b(placed|cleared|planted|dug|filled|felled|repaired)=(\d+)')
-DEEP_PROGRESS = {'landing', 'repair', 'deepen', 'ore', 'branch', 'seal', 'surfaced', 'pickaxe', 'turn'}
-DEEP_TRY = {'start'}
-SKIP_RE = re.compile(r'\bop=(skip|refuse\w*|declin\w*|off|error)\b')
+# the producers' own vocabularies (skills.mjs deepRow / exRow, 11-03): which ops MOVED something, which are only attempts.
+# review r2 (Codex): `branch n=0`, `pickaxe why=not_made`, `marker_skip` are attempts, never progress
+DEEP_ALWAYS = {'landing', 'deepen', 'seal', 'surfaced'}
+DEEP_TRY = {'start', 'turn', 'repair', 'ore', 'branch', 'pickaxe', 'end'}
+EXP_PROGRESS = {'start', 'marker', 'deposit', 'detour', 'home_follow'}
+EXP_TRY = {'turn', 'aborted', 'marker_skip', 'torch_skip'}
+
+
+def _num(det, k):
+    m = re.search(rf'\b{k}=(\d+)\b', det)
+    return int(m.group(1)) if m else 0
+
+
+def deep_progress(op, det):
+    if op in DEEP_ALWAYS:
+        return True
+    if op in ('ore', 'branch'):
+        return _num(det, 'n') > 0
+    if op == 'repair':
+        return 'repaired' in det
+    if op == 'pickaxe':
+        return re.search(r'\bwhy=made\b', det) is not None
+    return False
 
 
 def role_of(name, args, detail, status, complete_plots=()):
@@ -106,10 +127,10 @@ def role_of(name, args, detail, status, complete_plots=()):
     if (name or '').startswith('_'):
         op = re.search(r'\bop=(\w+)', det)
         op = op.group(1) if op else None
-        if n == 'deepmine' and op in DEEP_PROGRESS | DEEP_TRY:
-            return 'deep_miner', None, op in DEEP_PROGRESS
-        if n == 'expedition' and op and not SKIP_RE.search(det):
-            return 'explorer', None, True
+        if n == 'deepmine' and op in DEEP_ALWAYS | DEEP_TRY:
+            return 'deep_miner', None, status != 'no_effect' and deep_progress(op, det)
+        if n == 'expedition' and op in EXP_PROGRESS | EXP_TRY:
+            return 'explorer', None, status != 'no_effect' and op in EXP_PROGRESS
         return None, None, False
     ok = status == 'success'
     if status in ('no_effect', 'refused'):
@@ -321,7 +342,14 @@ def add_hours(rs, staffing_roles, minutes, now_ms):
 
 
 # ------------------------------------------------------------------------------------------------ the summary (pure)
-def summarize(rows, hours=24):
+def _ts(x):
+    try:
+        return dt.datetime.fromisoformat(str(x).replace('Z', '+00:00'))
+    except ValueError:
+        return None
+
+
+def summarize(rows, hours=24, now=None):
     """The 24-h read -> dict. rows: tick + eval rows. Every rate with its denominator. PURE."""
     ticks = [r for r in rows if r.get('kind') == 'tick']
     evals = [r for r in rows if r.get('kind') == 'eval']
@@ -367,7 +395,13 @@ def summarize(rows, hours=24):
     gap_roles = [r for r, v in roles.items() if len(v['gap_towns']) >= 4]
     # VALIDITY against the expected schedule (review r1): every run (ok or ERROR) writes a `run` row naming the towns it should
     # have ticked; a failed run or a missing town counts as missing town-ticks, never as nothing
+    # review r2 (Claude): a run that died outside its try, a run flock skipped or a cron that never fired writes NO row, so the
+    # denominator is also taken from the SCHEDULE (one run every RUN_EVERY_MIN from the first run in the window) and the larger wins
     expected = sum(len(r.get('expected') or []) for r in runs)
+    tss = sorted(t for t in (_ts(r.get('ts')) for r in runs) if t)
+    if tss:
+        span = ((now or tss[-1]) - tss[0]).total_seconds() / 60
+        expected = max(expected, (int(span // RUN_EVERY_MIN) + 1) * len(EXPECTED_POOLS))
     valid = round(len(ticks) / expected, 3) if expected else None
     return {'ticks': len(ticks), 'skips': len(skips), 'runs': len(runs), 'error_runs': sum(1 for r in runs if not r.get('ok')),
             'expected_town_ticks': expected, 'valid_share': valid, 'towns': len(towns), 'evals': len(evals), 'town_hours': round(town_hours, 1),
@@ -433,7 +467,28 @@ def seen_update(seen, rows, now):
 
 
 def cmd_run(a):
+    """Every failure, wherever it happens, writes the ERROR line and a `run ok:false` row (review r2)."""
     now = dt.datetime.now(UTC).replace(microsecond=0)
+    try:
+        return _run(a, now)
+    except Exception as e:  # noqa: BLE001
+        return _fail(a, now, e)
+
+
+def _fail(a, now, e):
+    od = os.path.expanduser(a.out_dir)
+    os.makedirs(od, exist_ok=True)
+    line = f'{now.isoformat()[:19]}Z jobshadow ERROR {type(e).__name__}: {str(e)[:200]}'
+    with open(os.path.expanduser(a.digest_log), 'a') as f:
+        f.write(line + '\n')
+    with open(os.path.join(od, f"ticks-{now.strftime('%Y-%m-%d')}.jsonl"), 'a') as fh:
+        fh.write(json.dumps({'kind': 'run', 'ok': False, 'ts': now.isoformat().replace('+00:00', 'Z'),
+                             'expected': list(EXPECTED_POOLS), 'error': line[:300]}) + '\n')
+    print(line)
+    return 1
+
+
+def _run(a, now):
     od = os.path.expanduser(a.out_dir)
     os.makedirs(od, exist_ok=True)
     state_path = os.path.join(od, 'state.json')
@@ -452,14 +507,7 @@ def cmd_run(a):
             raise RuntimeError(f"positive control failed: jobfacts read {len(facts['towns'])} of {len(pools)} pools; "
                                f"unreadable {facts['unreadable'][:4]}")
     except Exception as e:  # noqa: BLE001 -- a failed read is a line, never silence
-        line = f'{now.isoformat()[:19]}Z jobshadow ERROR {type(e).__name__}: {str(e)[:200]}'
-        with open(os.path.expanduser(a.digest_log), 'a') as f:
-            f.write(line + '\n')
-        with open(os.path.join(od, f"ticks-{now.strftime('%Y-%m-%d')}.jsonl"), 'a') as fh:
-            fh.write(json.dumps({'kind': 'run', 'ok': False, 'ts': now.isoformat().replace('+00:00', 'Z'),
-                                 'expected': list(EXPECTED_POOLS), 'error': line[:300]}) + '\n')
-        print(line)
-        return 1
+        return _fail(a, now, e)
     flow = read_flow(a.flow, now)
     window_start = now - dt.timedelta(minutes=a.window_min)
     seen = seen_update(state.get('seen'), rows, now)
@@ -534,7 +582,7 @@ def cmd_summary(a):
                 continue
             if dt.datetime.fromisoformat(r['ts'].replace('Z', '+00:00')) >= cut:
                 rows.append(r)
-    s = summarize(rows, a.hours)
+    s = summarize(rows, a.hours, dt.datetime.now(UTC))
     json.dump(s, open(os.path.join(od, 'summary.json'), 'w'), indent=1, sort_keys=True)
     print(json.dumps(s, indent=1, sort_keys=True))
     return 0
