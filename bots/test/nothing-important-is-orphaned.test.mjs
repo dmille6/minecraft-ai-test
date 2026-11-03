@@ -112,6 +112,8 @@ const REQUIRED = [
   'bots/test/yard.test.mjs',
   // picker-01 (11-03): the town sinks' reconciled design (Claude + Codex); the code is on branch picker-01show until it lands
   'docs/reports/picker-sinks-2026-11-03.md',
+  // towndress-01 (11-03): lights, signs, docks, museum, bees -- the reconciled design (Claude + Codex); the code is on branch towndress-01show
+  'docs/reports/towndress-design-2026-11-03.md',
   // storehub (11-03): the storage hub's reconciled design (Claude + Codex) and its appendix; design only, no code yet
   'docs/reports/storehub-design-2026-11-03.md',
   'docs/reports/storehub-design-2026-11-03/codex-design.md',

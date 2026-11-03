@@ -84,6 +84,8 @@ M = [
  ("                        ok = sink_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'), t_ms)", "                        ok = True"),
  ("    name = 'cells' if kind == 'foreign' else 'clear'", "    name = 'clear'"),
  ("                elif plot in SINK_PLOTS and rec is not None:", "                elif False:"),
+ # towndress-01 (11-03): the dress sink is a sink plot (its growing chain judged by the generations in force)
+ ("SINK_PLOTS = ('road', 'tower', 'shrine', 'dress')", "SINK_PLOTS = ('road', 'tower', 'shrine')"),
 ]
 bad = 0
 for old, new in M:

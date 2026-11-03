@@ -4204,6 +4204,35 @@
     ]
    },
    "note": "Measured 11-03 19:45-20:45Z (80 bots, 80.0 bot-h, 15 s cooldown): between 43.3%; 62% of it follows an admission veto (4,487/7,834 calls vetoed); the return rung's vetoes = 9.0 of 34.5 between-hours (24 h: 382 bot-h on return, 81% of its calls vetoed)."
+  },
+  {
+   "id": "towndress-1103",
+   "title": "towndress (owner 11-03): four smaller world projects designed together, shipped by value/effort as picker-offered sinks -- (1) lighting + town signs, (2) docks + lighthouses at water crossings, (3) museum (one of every obtained item in signed chests), (4) bee farms (fleet pools with nests only)",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "towndress-1103.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "BUILT 11-03 (not released): piece 1 = towndress-01show on the live showcase release showcase-gkpick-on-adbf9e41 (cbd2f51b): the `dress` sink (towndress.mjs: batches of <= 8 lamps / wall-top torches / named signposts, torch-gated, per-fixture zones, signs by the storehouse label writer) + the picker's sink turn (shop.mjs activeProject: after 3 finite visits a sink goes first -- LIVE 11-03 131 picks, 0 sited). Codex design reconciled; Codex review r1 + r2 BLOCKERS fixed (dc973713, 7315f8f5). Tripwire rule (shopread.py SINK_PLOTS += dress, selftest + 79/79 mutants) on main, NOT installed. NEXT: control session folds into the next showcase restack, installs the tripwire rule, activates; reads +30 min / +2 h / +24 h per docs/reports/towndress-design-2026-11-03.md section 6. Then docks-01 (Paper proof first), museum-01, bees-01.",
+   "max_quiet_hours": 72,
+   "depends_on": [
+    "picker-sinks-1103"
+   ],
+   "evidence": {
+    "grep": [
+     "towndress"
+    ],
+    "branches": [
+     "towndress-01show"
+    ],
+    "paths": [
+     "docs/reports/towndress-design-2026-11-03.md"
+    ]
+   },
+   "note": "The sink turn also lets picker-01's road/tower/shrine sinks run live for the first time (never sited since 18:38Z). The stair's repeated 1-block repair (41 'complete' visits in 2.3 h) is left to the stair's owner. Lanterns deferred (recipe + placement unproven)."
   }
  ]
 }
