@@ -51,6 +51,22 @@ After success: patrol `explore` successes leave 2.13 h (6.2%) — CONTINUE only 
 small; **after a successful model decision 51.8%** of between, `patrol explore` success alone 31.4%. Its lever is the 15 s
 cooldown (arrives with the next restack onto 53fd28ee) and piece 3 below, not the veto remedy.
 
+### Deposit refusals (coordinator input, storehub design 00d9056e: 16,381 deposit proposals/day, 15,831 refused before they start)
+
+In the measured hour, every deposit veto together leaves **5.2 of 34.5 between-hours (15%)**: deposit_nothing_to_bank on
+`return` 1.80 and on `deposit_surplus` 1.79, deposit_not_worth_it on `deposit_surplus` 0.50 and on `return` 0.30,
+item_missing 0.13, nothing_to_bank on `idle` 0.25 and `gather_dirt_16` 0.14, the rest < 0.1 each. vetoremedy-01 converts
+**~4.0 h** of it (all of `return` -> home; named nothing/missing on `deposit_surplus` -> deposit {}). Of the remaining ~1.2 h,
+deposit_not_worth_it **on the deposit_surplus rung itself** (0.50 h) is the `onDepositMilestone` id bug below: the rung is
+current only with storage within 48, but the gate's `'deposit_surplus'` never equals `deposit_surplus#N`.
+
+Piece **depositoffer-01** (after repeatwork-01, or folded into it): one exported pure `depositRunnable(items, ctx)` = the
+gate's own `depositPlan(...).length > 0 && depositDue(...)`, used by admission AND by the prompt: when it is false the
+prompt does not offer `deposit` (and drops the CARRYING/deposit hint), so the model is not asked a question whose answer is a
+certain veto. Removing the option is deterministic only if the per-call schema's skill enum drops it too (today
+`this.schema` is built once in the constructor), so that part is cognitive.mjs + admission.mjs = tier 3. Expected: the
+~1.2 h residual plus fewer model calls (deposit is 12% of decisions).
+
 ## 2. Designs
 
 ### Claude
@@ -112,6 +128,7 @@ own lines cover the climbing exposure.
 | repeatwork-01 (progress-aware repeat window + onDepositMilestone fix) | 3 (admission.mjs) | fleet canary | design |
 | patrolcont-01 (explore continuation on patrol) | 3 by wiring | fleet canary; reaches the showcase by restack | design |
 | unreachable_elevation names its remedy | 3 (admission.mjs) | fold into repeatwork-01 | design |
+| depositoffer-01 (deposit not offered / schema enum when the gate would refuse it) | 3 (cognitive + admission) | fleet canary, with repeatwork-01 | design |
 
 Queue (Claude): vetoremedy-01 is a **progress** entry; after swimcentre-01 (S), i.e. bagdiet-01 (P) -> swimcentre-01 (S) ->
 **vetoremedy-01 (P)** -> next S, ahead of bundle-1103a if the control session wants the larger busy-time lever first, else
