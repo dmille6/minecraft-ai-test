@@ -3989,7 +3989,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "cooldown15-02 at the queue head (autorebase onto the fleet tip, draw targets 4 pools, +90/+180 read). KEEP -> promoted: re-measure decisions/min/bot and raise DEC_PER_BOT_MIN in ~/servea-rollout/modelrollout.py before the 4B rollout stages. REVERT on deaths -> check linkage before a third try.",
+   "next_step": "cooldown15-02 KEEP at +180 (11-03 19:14Z); own lines (control session 18:25Z): calls/min/bot ratio-DiD 1.42 (canary 1.17->1.70), control 5080 p95 1.09x (2.81->3.08 s), repeat_loop -3.7 pp; 0 deaths. Auto-promote follows. DEC_PER_BOT_MIN 1.33 -> 1.70 in scripts/host/modelrollout.py (main + ~/servea-rollout on .31, tests 136/136). Next: after promotion, 60-min fleet check (5080 p95 <= 5 s, no rise in aborted/timeout decisions); else LLM_DECISION_COOLDOWN_CAP_MS=30000.",
    "max_quiet_hours": 24,
    "depends_on": [
     {

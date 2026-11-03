@@ -192,7 +192,7 @@ def pure():
     t('plan: 4 stages of 6/4/4/2 pools, the canary pools first, every pool exactly once',
       [len(s) for s in st] == [6, 4, 4, 2] and st[0][:2] == ['board-b', 'placebo-b'] and sorted(flat) == sorted(POOLS), st)
     t('plan: stages interleave the arms (stage 2 is not one arm)', len({p.rsplit('-', 1)[0] for p in st[1]}) >= 3, st[1])
-    t('rate: 30 bots -> 39.9/min, 20 -> 26.6', R.stage_rate(30) == 39.9 and R.stage_rate(20) == 26.6)
+    t('rate: 30 bots -> 51.0/min, 20 -> 34.0', R.stage_rate(30) == 51.0 and R.stage_rate(20) == 34.0)
     P16 = [a + '-' + l for a in ('board', 'hive', 'isolated', 'placebo') for l in 'abcd']
     st4 = R.plan(P16, ['hive-b', 'board-c'], 4, 4)
     # LIVE-FLEET GUARD (serving A 11-02): the owner's stop, p95 > 5 s for 2 min, during synthetic load
@@ -310,7 +310,7 @@ def driver():
       sum(1 for r in R.read_jsonl(R.P['journal']) if r.get('phase') == 'owner-direct') == 4
       and sum(1 for r in R.read_jsonl(R.P['journal']) if r.get('phase') == 'owner-direct-check') == 4)
     t('happy: load tests at each stage\'s own rate (30, 20, 20, 10 bots)',
-      [r for r, n in h.load_calls if n != R.PROBE_N] == [39.9, 26.6, 26.6, 13.3], h.load_calls)
+      [r for r, n in h.load_calls if n != R.PROBE_N] == [51.0, 34.0, 34.0, 17.0], h.load_calls)
     t('happy: journal phases are rollout-* only (never a canary phase)',
       all(p.startswith('rollout-') for p in phases()) and 'rollout-complete' in phases(), phases())
     t('happy: the model env file holds exactly the registration pairs',

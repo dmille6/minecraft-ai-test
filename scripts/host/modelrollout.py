@@ -74,7 +74,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 UTC = dt.timezone.utc
 H = os.path.expanduser('~')
 
-DEC_PER_BOT_MIN = 1.33          # the fleet's measured decision rate (10-30)
+DEC_PER_BOT_MIN = 1.70          # measured at the 15 s gap (cooldown15-02 canary 11-03: 1.70/min/bot; was 1.33 at 30 s)
 POOLS_PER_STAGE = 4             # 20 bots (owner)
 LOAD_MIN = 5
 PROBE_N = 5
