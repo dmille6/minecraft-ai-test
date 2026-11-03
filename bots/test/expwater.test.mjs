@@ -82,10 +82,12 @@ await t('never LAVA, never a BUBBLE COLUMN, never a plunge into ravine water, ne
   }
   const ravine = world({ river: { x0: 8, x1: 10 }, surface: 69 - E.SWIM_DROP - 2 })
   assert.equal(E.legTarget(ravine, { pos: POS, home: HOME, bearing: 0, swim: E.SWIM_MAX }).ok, false, 'a ravine')
-  const high = world({ river: { x0: 8, x1: 10 }, bank: 69 + E.SWIM_EXIT })   // far stand cell SWIM_EXIT + 1 above the water
-  assert.equal(E.legTarget(high, { pos: POS, home: HOME, bearing: 0, swim: E.SWIM_MAX }).ok, false, 'a bank too high to climb out')
-  const step = world({ river: { x0: 8, x1: 10 }, bank: 70 })   // one block up out of the water: climbable
-  assert.equal(E.legTarget(step, { pos: POS, home: HOME, bearing: 0, swim: E.SWIM_MAX }).ok, true, 'one block up is fine (the positive control)')
+  // Paper 11-03 (sandbox/swim/swim.mjs): the pathfinder with the bots' shore egress planned 0 of 10 exits onto a one-block-up shore
+  const step = world({ river: { x0: 8, x1: 10 }, bank: 70 })
+  assert.equal(E.legTarget(step, { pos: POS, home: HOME, bearing: 0, swim: E.SWIM_MAX }).ok, false, 'a far shore one block up: refused')
+  const sunk = world({ river: { x0: 8, x1: 10 }, surface: 68 })   // the water one below BOTH banks: no way out on either side
+  assert.equal(E.legTarget(sunk, { pos: POS, home: HOME, bearing: 0, swim: E.SWIM_MAX }).ok, false, 'a near bank one block up: the way home could not climb out')
+  assert.equal(E.legTarget(world({ river: { x0: 8, x1: 10 } }), { pos: POS, home: HOME, bearing: 0, swim: E.SWIM_MAX }).ok, true, 'level shores (the positive control)')
 })
 
 await t('MUTANT KILLED: a swim blind to the liquid swims lava', async () => {
@@ -96,6 +98,14 @@ await t('MUTANT KILLED: a swim blind to the liquid swims lava', async () => {
 await t('MUTANT KILLED: a swim blind to the far bank aims at a shore it cannot climb onto', async () => {
   await withMutant(EX_PATH, '      if (s.none || s.y - waterY > SWIM_EXIT) return { ok: false, why: \'water\', at: [x, z], bank: s.none ? \'none\' : s.y - waterY }\n', '', async M => {
     assert.equal(M.legTarget(world({ river: { x0: 8, x1: 10 }, bank: 69 + M.SWIM_EXIT }), { pos: POS, home: HOME, bearing: 0, swim: M.SWIM_MAX }).ok, true)
+  })
+})
+await t('MUTANT KILLED: a swim blind to the NEAR bank strands the way home in the water', async () => {
+  await withMutant(EX_PATH, "      if (!run && y - s.y > SWIM_EXIT) return { ok: false, why: 'water', at: [x, z], bank: y - s.y }\n", '', async M => {
+    // the near bank one up, the far bank level with the water (sunk river, raised far side lowered): only the near-bank rule refuses
+    const r = (x, y, z) => { const b = world({ river: { x0: 8, x1: 10 }, surface: 68, bank: 68 })(x, y, z); return b }
+    assert.equal(E.legTarget(r, { pos: POS, home: HOME, bearing: 0, swim: E.SWIM_MAX }).ok, false, 'the guard refuses')
+    assert.equal(M.legTarget(r, { pos: POS, home: HOME, bearing: 0, swim: M.SWIM_MAX }).ok, true, 'the mutant swims')
   })
 })
 await t('MUTANT KILLED: without the shore leg a crossing starts 19 blocks from the water (its near-shore crumb is no shore)', async () => {
