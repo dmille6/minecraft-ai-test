@@ -129,7 +129,7 @@ import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acce
 import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, shopchestSite, shopchestRecord, materialsChests, materialsWorthTry } from './shopchest.mjs'   // shopchest-01
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
 import { torchSafe, outShareOf, multiCall, trailAge, PLANNER_V } from './expedition.mjs'   // wholemap-s1a
-import { swimWidth as exSwimWidth, gatherSpare } from './expedition.mjs'   // expwater-01
+import { swimWidth as exSwimWidth, gatherSpare, heldGate, GATE_RETRIES } from './expedition.mjs'   // expwater-01
 import { HALL_PLOT, HALL_BLUEPRINT, hallSite, hallOpening, hallRecordDomain, copperhallModeDetail } from './copperhall.mjs'   // copperhall-01
 import { hallPadZone } from './copperhall.mjs'   // groundskeeper-01 on the showcase: an unsited hall's pad is reserved
 import { markerZones, markerCellKeys } from './expedition.mjs'   // groundskeeper-01 on the showcase: the markers are reserved
@@ -17795,13 +17795,22 @@ async function exFollowHome (ctx, signal, trip, until, markers, persist = () => 
   const crumbs = Array.isArray(trip.crumbs) ? trip.crumbs : []
   let cursor = Number.isInteger(trip.cursor) ? trip.cursor : crumbs.length
   const skip = new Set(), mskip = new Set()
-  let fails = 0, direct = 0, hops = 0, via = 'crumbs'
+  let fails = 0, direct = 0, hops = 0, via = 'crumbs', gateTries = 0
+  const gates = Array.isArray(trip.gates) ? trip.gates : []
   const loaded = c => bot.blockAt?.(new Vec3(c[0], c[1], c[2])) != null
   while (Date.now() < until - 2_000) {
     check(signal)
     const p = bot.entity.position
     if (exAtHome(p)) return { home: true, via, hops }
-    const i = fails < 3 ? nextCrumb(crumbs, p, cursor, { loaded, skip, gates: Array.isArray(trip.gates) ? trip.gates : [] }) : -1
+    const i = fails < 3 ? nextCrumb(crumbs, p, cursor, { loaded, skip, gates }) : -1
+    // expwater-01: a crossing not yet swum back holds a DRY bot to its gate: the crossing again (GATE_RETRIES), then the trail stays
+    // open for `home` -- never a marker or the direct walk across water no swim checked (Codex review r1 BLOCKER 2)
+    const gf = i < 0 && !bot.entity?.isInWater ? heldGate(gates, cursor) : null
+    if (gf != null) {
+      if (gateTries++ >= GATE_RETRIES) { via = `${via}+gate_hold`; break }
+      skip.delete(gf); skip.delete(gf - 1); fails = 0
+      continue
+    }
     let target, kind, m = null
     if (i >= 0) { target = crumbs[i]; kind = 'crumb' } else {
       m = markerHome(markers, p, home, { skip: mskip })
