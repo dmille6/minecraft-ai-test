@@ -889,6 +889,7 @@ export const tidyClearsLeft = (rec, read) => (rec?.clear ?? []).filter(c => { co
  */
 export const GK_WAIVE_AFTER = 2
 export const GK_WAIVE_SHARE = 0.1
-export const gkWaiveOpts = (rec, max0 = 12) => ({ after: GK_WAIVE_AFTER, max: Math.max(max0, Math.ceil(GK_WAIVE_SHARE * (rec?.cells ?? []).length)) })
+// (the stage's OWN cells: a terrace record's carried `prev` cells from the stage before are never worked, so they buy no room -- Claude fold note)
+export const gkWaiveOpts = (rec, max0 = 12) => ({ after: GK_WAIVE_AFTER, max: Math.max(max0, Math.ceil(GK_WAIVE_SHARE * (rec?.cells ?? []).filter(c => !c?.prev).length)) })
 /** The visit's stop once its waiver has run -> stop. A visit that waived a cell freed the stage: not stuck, asked again at once. Pure. */
 export const gkStopAfterWaive = (stop, waivedN) => (waivedN > 0 && (stop === 'stuck_on_cell' || stop === 'cell_deferred') ? 'cell_waived' : stop)

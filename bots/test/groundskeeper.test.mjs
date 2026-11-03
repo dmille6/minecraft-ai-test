@@ -427,8 +427,9 @@ await t('gkstall-01: a fill no stand reaches is waived on its 2nd deferring visi
   })
 })
 await t('gkstall-01: the waiver room scales with the stage (a tenth of its cells, never below the wall cap); the stop after a waiver', async () => {
-  assert.strictEqual(T.gkWaiveOpts({ cells: new Array(75) }, 12).max, 12)
-  assert.strictEqual(T.gkWaiveOpts({ cells: new Array(900) }, 12).max, 90)
+  assert.strictEqual(T.gkWaiveOpts({ cells: Array.from({ length: 75 }, () => ({})) }, 12).max, 12)
+  assert.strictEqual(T.gkWaiveOpts({ cells: Array.from({ length: 900 }, () => ({})) }, 12).max, 90)
+  assert.strictEqual(T.gkWaiveOpts({ cells: [...Array.from({ length: 300 }, () => ({})), ...Array.from({ length: 3000 }, () => ({ prev: true }))] }, 12).max, 30, 'carried prev cells buy no room')
   const many = { cells: Array.from({ length: 300 }, (_, i) => ({ at: [i, 66, 0], role: 'earth', seg: 'R' })) }
   const d = many.cells.slice(0, 20).map(c => ({ k: c.at.join(','), why: 'no_stand', visits: 2 }))
   assert.strictEqual(W.wallWaiveDue(many, d, T.gkWaiveOpts(many, 12)).length, 20, 'a road stage waives 20 of 300 (cap 30)')
