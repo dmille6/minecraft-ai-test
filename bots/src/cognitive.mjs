@@ -1631,8 +1631,12 @@ export class CognitiveLoop {
     // still override it.
     // VETO REMEDY (vetoremedy.mjs): the remedy a model veto queued on the previous tick -- used once, AFTER every order (any
     // order wins), before the continuation; the descent and keep-out exits below still override it.
+    // A remedy DROPPED here (the rung changed, the TTL ran out) leaves an idle tick ~250 ms after the veto: it waits out the
+    // veto's own cooldown below instead of asking the model early (Claude review note 1).
+    let remedyDropUntil = 0
     { const pend = this.pendingRemedy; this.pendingRemedy = null
-      if (!order) { const vr = takeRemedy({ cfg: this.vetoRemedy, pending: pend, trigger, milestoneId: milestone?.id ?? null, now: Date.now() }); if (vr) { order = vr; this.#fdCount('veto_remedy') } } }
+      if (!order) { const vr = takeRemedy({ cfg: this.vetoRemedy, pending: pend, trigger, milestoneId: milestone?.id ?? null, now: Date.now() }); if (vr) { order = vr; this.#fdCount('veto_remedy') }
+        else if (pend && trigger === 'idle') remedyDropUntil = (pend.at ?? 0) + config.llm.decisionCooldownMs } }
     if (!order) { const co = continueOrder({ cfg: this.fewerDec, cont: this.contState, trigger, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a) }); if (co) { order = co; this.#fdCount('continue') } }
     { const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = sd } }
     // found-01 (Codex JIT 10-23c r1 P2): the found slot charged its visit and cooldown when it ISSUED; an order the exit replaces
@@ -1655,7 +1659,7 @@ export class CognitiveLoop {
     // CONTINUE: inside the cooldown window, an idle tick with no order and no continuation waits out the rest of it --
     // the model is never asked earlier than it was before this change.
     if (!order) {
-      const w = continueWait({ cfg: this.fewerDec, window: this.contWindow, now: Date.now(), trigger })
+      const w = Math.max(continueWait({ cfg: this.fewerDec, window: this.contWindow, now: Date.now(), trigger }), remedyDropUntil - Date.now())
       if (w > 0) { this.lastDecisionAt = Date.now(); this.#fdCount('continue_wait'); this.#scheduleNext(Math.max(50, w)); return }
       this.contWindow = null
     }

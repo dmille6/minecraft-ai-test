@@ -29,7 +29,8 @@
 // startup reach the model). It never queues a remedy the gate's memory already refuses (cooldown / learned_avoid / repeat_loop),
 // and a remedy is used once and expires after REMEDY_TTL_MS or when the rung changes. It cannot spin: one remedy per veto, and
 // a veto needs a model call, so remedies come at most at today's model cadence -- and every remedy replaces the model call the
-// cooldown would have made, so model calls/min can only fall.
+// cooldown would have made; a remedy the next tick drops (rung changed, TTL) waits out the veto's cooldown before the model
+// is asked (cognitive.mjs remedyDropUntil), so no model call comes earlier than today.
 //
 // Switches: VETOREMEDY=0 turns it off; VETOREMEDY_RULES=return_home,deposit_all picks the rules.
 
