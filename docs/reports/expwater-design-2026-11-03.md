@@ -116,7 +116,9 @@ points it refuses for water:
 |---|---|---|
 | Claude, independent, blockers only | r1 | BLOCK: kelp read as ground, so a swim could aim at the sea floor. Fixed. |
 | Codex, blockers only | r1 | BLOCK: a range-2 arrival could stop the bot wet; a failed gate hop fell through to a direct walk across unchecked water. Both fixed. |
-| both | r2 | Re-check only: see the branch's last commit message. |
+| Claude | r2 | APPROVE: kelp fixed; landing 3 inland and the gate hold add no blocker. |
+| Codex | r2 | BLOCK: `home()` ignored the gate hold and walked direct. Fixed in r5 (`home` returns `expedition_gate_hold`, trail kept open). |
+| Codex | r3 | APPROVE |
 
 ## 7. Tier
 
