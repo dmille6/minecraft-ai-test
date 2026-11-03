@@ -41,8 +41,10 @@ _Hand-written context the sources cannot say. Keep it short; date each line; del
   promptcache, apseal, zigsealed, fleetbuild) + every showcase piece (expeditions/wholemap S1a, storehouse/shopchest,
   sortstore, showchat, copperhall, stale-stuck rule, SHAFT off); prev `d698024b` is the rollback. From now on
   `restack_prep.py` (showcase VM, :25) prepares each restack and alarms `restack-showcase`; activation stays by hand.
-- **tidy-01** is in the slot as a fleet canary although it is a tier-2 town feature with the showcase switched off (audit 11-01
-  flag 10): its showcase observation was not done first. Decide at its +180 read whether a showcase run is still owed.
+- **Showcase (11-03 02:41Z):** release `62e2aff0` (prev `4c92880a` = rollback) = restack to fleet e54d1cce + tidy-01 +
+  groundskeeper-01 (no stationkeep/marks/towngate), TIDY on in the showcase, the unsited copper hall's pad and the expedition
+  markers reserved. Owed showcase run for tidy-01 (audit 11-02 flag 2) and groundskeeper-01: 2 h read ~04:42Z. **stockyard-01 was
+  NOT shipped:** offline it has no site on the showcase (0 of 31,684 candidates); needs a siting design (ledger stockyard-1102).
 
 ## Lab mode
 
