@@ -80,6 +80,10 @@ const REQUIRED = [
   'bots/test/shopchest.test.mjs',
   'bots/src/expedition.mjs',
   'bots/test/expedition.test.mjs',
+  'bots/test/expwater.test.mjs',
+  'bots/scripts/expwater-offline.mjs',
+  'sandbox/swim/swim.mjs',
+  'sandbox/swim/swimrelay.py',
   'bots/test/showcase-on-fleet.test.mjs',
   // bagdiet-01 (11-02): the light projects' visit hold, their bank-back gate, the craft's table candidates
   'bots/test/bagdiet.test.mjs',

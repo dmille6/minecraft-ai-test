@@ -27,6 +27,15 @@
 // (torchSafe); a ring past ONE_CALL_RING is a multi-call trip (more of the call out; the trail home may finish next call, by
 // `home`, and counts for the ring); a late close near town costs the ring nothing; the ring grows 100 -> 300.
 // EXPEDITION=off is the kill switch; unset = on only in EXPEDITION_POOLS (default 'showcase'). Markers alone: EXPEDITION_MARKERS=off.
+//
+// EXPWATER-01 (owner 11-01 "water/boats/bridges OK", 11-03 "do it"; docs/reports/expwater-design-2026-11-03.md): a leg may SWIM a
+// narrow water crossing. Every dry bend is tried first (a walk round still wins); then the same bends again with water allowed: at
+// most SWIM_MAX wet columns in the leg, each a WATER surface (never lava, never a bubble column) no more than SWIM_DROP below the
+// bank, and both shores LEVEL with the water (SWIM_EXIT: the pathfinder with the bots' shore egress never planned a one-block-up exit in
+// Paper). The
+// pathfinder swims it (index.mjs: a wet step costs ~2, entering 1). A crossing gets a breadcrumb on BOTH shores, so the way home
+// swims back over the same water. Wider water still turns the trip, its width logged (`swim_wide:N`) for a boat or bridge piece.
+// Measured 11-03 on the showcase: from all four live water walls the planner reaches the 300 ring (crossings of 2-16 columns). EXPEDITION_SWIM=off: dry legs only.
 
 export const EXPEDITION_KEY = 'expedition'
 export const EXPEDITION_SLOTS = 2               // at most two bots out at once per town
@@ -55,7 +64,7 @@ export const DAY_TURN = 12_000                  // turn back at sunset
 export const KIT = Object.freeze({ cobblestone: 12, torch: 6 })
 export const TRAIL_TTL_MS = 3 * 60 * 60_000     // an open trail not walked for this long is not followed by `home` (per leg: wholemap-s1)
 // WHOLEMAP-S1a (docs/reports/wholemap-expeditions-design-2026-11-01.md section 4 S1, items 1-3, 5, 6): 300-block trips
-export const PLANNER_V = 2                      // trip rows written by this planner carry v: 2; only they block a bearing (an older row was another planner's)
+export const PLANNER_V = 3                      // trip rows written by this planner carry v: 3; only they block a bearing (an older row was another planner's: expwater-01's v 3 swims, so a v 2 'water' turn says nothing about it)
 export const ZONE_UNDER = 8                     // a zone whose box top is >= this far below the surface is under the walk (the trial chambers: y <= 31, grass at 66)
 export const DEAD_TURNS = 2                     // two obstacle turns on one bearing in 24 h block it for the rest of the day (any distance short of the ring)
 export const DETOUR_PAD = 10                    // the detour walks the zone's box grown by ZONE_MARGIN + this (its edges stay outside the margin)
@@ -63,6 +72,15 @@ export const DETOUR_ARRIVE = 4                  // a detour waypoint is passed w
 export const ONE_CALL_RING = 225                // a ring beyond this is a MULTI-CALL trip: more of the call goes out, the trail home may finish next call
 export const LONG_OUT_SHARE = 0.6               // a multi-call trip's outbound share of its call
 export const ICE_TORCH_R = 3                    // no marker torch within this (a cube) of `ice` (block light > 11 melts it: a hole in the road)
+// EXPWATER-01
+export const SWIM_MAX = 16                      // wet columns a leg may swim (Paper 11-03, the bots' walk prices + shore egress, level shores: 8 wide 20/20, 14 wide 19/20, 20 wide 18/20)
+export const SWIM_DROP = 4                      // the water's surface at most this far below the bank it is entered from (no ravine plunge)
+export const SWIM_EXIT = 1                      // a shore's stand cell at most this far above the water block: LEVEL with the water (Paper 11-03: a one-block-up shore planned 0 of 10 exits)
+export const SHORE_INLAND = 3                   // a swim leg's target lies this far past the first dry cell (goto's range 2 never stops it wet)
+export const SHORE_BACK = 4                     // a shore leg may give back this much distance from home (a crossing at a wide bend), no more: no shore-to-shore shuttle
+export const SHORE_NEAR = 8                     // a swim leg starts within this of the water; further, a dry leg to the near shore comes first (> 4: the visit's legFails counts a leg that moved < 4 as refused)
+export const SWIM_REACH = SWIM_MAX + 4          // a swim leg's end may lie this far past its dry end point, to reach the far shore
+export const EXIT_RETRY_MS = 3 * 60 * 60_000    // a refused walk ('blocked') short of 40 blocks blocks its bearing this long, not the whole day
 
 const OFF = ['off', '0', 'false', 'no']
 const ON = ['on', '1', 'true', 'yes']
@@ -75,10 +93,20 @@ export function expeditionOn (env = process.env, pool = '') {
   return pools.includes('*') || pools.includes(String(pool))
 }
 export const markersOn = (env = process.env) => !OFF.includes(String(env?.EXPEDITION_MARKERS ?? '').trim().toLowerCase())
+/** EXPWATER-01: how wide a crossing a leg may swim -> wet columns (0: dry legs only, the 11-02 planner). EXPEDITION_SWIM=off|0 -> 0;
+ *  a number -> that width (1..24: an operator narrows it to 8 -- 20/20 in Paper -- if live crossings strand); unset/on -> SWIM_MAX. Pure. */
+export function swimWidth (env = process.env) {
+  const v = String(env?.EXPEDITION_SWIM ?? '').trim().toLowerCase()
+  if (OFF.includes(v)) return 0
+  const n = Number(v)
+  if (v !== '' && Number.isFinite(n)) return Math.max(0, Math.min(24, Math.floor(n)))
+  return SWIM_MAX
+}
+export const swimOn = (env = process.env) => swimWidth(env) > 0
 
 /** `_expedition_mode` licence row detail. Pure. */
-export const expeditionModeDetail = (on, markers = true) =>
-  `on=${on ? 1 : 0} markers=${markers ? 1 : 0} slots=${EXPEDITION_SLOTS} ring=${RING_MIN}-${RING_MAX} leg=${LEG_STEP} marker_every=${MARKER_EVERY} cooldown_min=${TRIP_COOLDOWN_MS / 60_000}`
+export const expeditionModeDetail = (on, markers = true, swim = 0) =>
+  `on=${on ? 1 : 0} markers=${markers ? 1 : 0} swim=${swim === true ? SWIM_MAX : Number(swim) || 0} slots=${EXPEDITION_SLOTS} ring=${RING_MIN}-${RING_MAX} leg=${LEG_STEP} marker_every=${MARKER_EVERY} cooldown_min=${TRIP_COOLDOWN_MS / 60_000}`
 
 /**
  * MAY THIS BOT GO NOW? -> { ok, phase: 'trip'|'deposit', why }. Pure. Asked by shop.mjs buildOrder at town, when the town's
@@ -149,7 +177,7 @@ export function trailAge (trip = {}, now = 0) {
  */
 export function tripBearing (trips = [], now = 0) {
   const day = trips.filter(t => now - (Number(t?.t) || 0) < 24 * 60 * 60_000 && (Number(t?.v) || 0) >= PLANNER_V)
-  const blocked = deadBearings(day)
+  const blocked = deadBearings(day, now)
   if (day.length % 2 === 1) {
     const good = [...day].reverse().find(t => t?.returned && (Number(t?.haul) || 0) > 0 && !blocked.has(t.bearing))
     if (good) return { bearing: good.bearing, reuse: true }
@@ -172,11 +200,15 @@ const OBSTACLE = ['water', 'zone', 'blocked', 'drop', 'steep', 'unread']
  * refused leg) before 40 blocks, or after DEAD_TURNS obstacle turns at any distance short of the trip's ring (wholemap-s1 item
  * 1: LIVE 10-31..11-01, 38 trips on bearing 2 hit the same zone at 54-55 blocks and the < 40 rule never fired).
  */
-export function deadBearings (day = []) {
+export function deadBearings (day = [], now = null) {
   const n = new Map(), out = new Set()
   for (const t of day) {
     if (!OBSTACLE.includes(t?.reason)) continue
     const d = Number(t?.dist) || 0
+    // EXPWATER-01: a REFUSED WALK near town (the leg's goto moved < 4 blocks twice: a bot in the street, a gateway being built) says
+    // nothing about the bearing's ground -- it blocks for EXIT_RETRY_MS, not the day (LIVE 11-03 12:10Z: five of the eight dead
+    // bearings were 'blocked' at 19-34 blocks)
+    if (d < 40 && t.reason === 'blocked' && Number.isFinite(now) && now - (Number(t?.t) || 0) >= EXIT_RETRY_MS) continue
     if (d < 40) { out.add(t.bearing); continue }
     if (d < (Number(t?.ring) || RING_MIN)) n.set(t.bearing, (n.get(t.bearing) ?? 0) + 1)
   }
@@ -190,7 +222,10 @@ const LIQUID = /^(water|lava|bubble_column)$/
 const CANOPY = /(_leaves|_log|_wood|^mangrove_roots|^bamboo|^vine|^cocoa)$/
 const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|.*concrete_powder)$/
 const solid = b => !!b && b.boundingBox === 'block'
-const liquid = b => !!b && (LIQUID.test(b.name ?? '') || b.waterlogged === true)
+// expwater-01 (Claude review r1 BLOCKER): kelp and seagrass are always under water, and the reader gives them no waterlogged flag -- a
+// kelp column read as dry ground on the lake bed, and a swim leg aimed 12 blocks under the surface
+const AQUATIC = /^(kelp|kelp_plant|seagrass|tall_seagrass)$/
+const liquid = b => !!b && (LIQUID.test(b.name ?? '') || AQUATIC.test(b.name ?? '') || b.waterlogged === true)
 const passable = b => !!b && !solid(b) && !liquid(b)
 
 /**
@@ -206,7 +241,7 @@ export function surfaceAt (read, x, z, yHint, { up = 12, down = 20 } = {}) {
   for (let y = top; y >= Math.floor(yHint) - down; y--) {
     const b = read(x, y, z)
     if (b == null) return null
-    if (liquid(b)) return { water: true, y }
+    if (liquid(b)) return { water: true, y, liquid: LIQUID.test(b.name ?? '') ? b.name : 'water' }
     if (!solid(b)) continue
     if (CANOPY.test(b.name ?? '')) continue
     ground = true
@@ -291,28 +326,54 @@ export function zoneDetour (zones = [], home, bearing, { from = 0, reach = 400, 
  * `from` to `to` (x/z), the column's surface is read: a water column is a crossing (no bridging, owner 10-27: the trip turns or
  * bends instead); a protected zone (+ margin) is never entered; an unread column (outside the loaded chunks) is refused.
  */
-export function lineClear (read, from, to, { zones = [], every = 3 } = {}) {
+export function lineClear (read, from, to, { zones = [], every = 3, swim = 0 } = {}) {
   const dx = to.x - from.x, dz = to.z - from.z
-  const n = Math.max(1, Math.ceil(Math.hypot(dx, dz) / every))
-  let y = from.y
+  // EXPWATER-01: a swim line is read EVERY block (a crossing's width is counted, not sampled)
+  const n = Math.max(1, Math.ceil(Math.hypot(dx, dz) / (swim > 0 ? 1 : every)))
+  let y = from.y, wet = 0, run = 0, waterY = null, last = null, bank = null, dryAt = null, exit = null
   for (let i = 1; i <= n; i++) {
     const x = Math.floor(from.x + dx * i / n), z = Math.floor(from.z + dz * i / n)
+    if (last && last[0] === x && last[1] === z) continue
+    last = [x, z]
     const s = surfaceAt(read, x, z, y)
     // the zone at the walk's height there (wholemap-s1 item 2); an unread column is judged at every height
     const zid = zoneHit(zones, x, z, ZONE_MARGIN, { surfaceY: s && Number.isFinite(s.y) ? s.y : s ? y : null })
     if (zid) return { ok: false, why: 'zone', at: [x, z], zone: zid }
     if (!s) return { ok: false, why: 'unread', at: [x, z] }
-    if (s.water) return { ok: false, why: 'water', at: [x, z] }
+    if (s.water) {
+      if (!(swim > 0)) return { ok: false, why: 'water', at: [x, z] }
+      // a SWIM (expwater-01): only water (lava, a bubble column: never), its surface not a plunge below the bank, the leg's wet
+      // columns within `swim` (a wider crossing is refused with its width so far)
+      if (s.liquid !== 'water') return { ok: false, why: 'water', at: [x, z], liquid: s.liquid ?? null }
+      if (s.y < y - 1 - SWIM_DROP) return { ok: false, why: 'drop', at: [x, z], water_y: s.y }
+      // the NEAR bank of each run is a shore too (the way home climbs out onto it): level with the water, like the far one
+      if (!run && y - s.y > SWIM_EXIT) return { ok: false, why: 'water', at: [x, z], bank: y - s.y }
+      if (!wet) bank = dryAt   // the last dry standable column before the first water: the near shore
+      wet++; run++; waterY = s.y
+      if (wet > swim) return { ok: false, why: 'water', at: [x, z], wide: wet }
+      continue
+    }
+    // out of the water: the shore must be one a swimmer climbs out onto (feet at most SWIM_EXIT above the water block)
+    if (run > 0) {
+      if (s.none || s.y <= waterY || s.y - waterY > SWIM_EXIT) return { ok: false, why: 'water', at: [x, z], bank: s.none ? 'none' : s.y - waterY }
+      run = 0
+      exit = [x, s.y, z]   // the first dry column past the water: the far shore
+    }
     // a column with no standable cell (a trunk, a wall: LIVE 17:40Z, every spruce on the line read as "unread") is the
     // pathfinder's to walk round -- only water and zones close a line
     if (s.none && s.obstructed) continue
     if (s.none) return { ok: false, why: 'drop', at: [x, z] }
     y = s.y
+    dryAt = [x, s.y, z]
   }
-  return { ok: true }
+  if (run > 0) return { ok: false, why: 'water', at: last, open: true, wet }   // a line that ends in the water is no leg
+  return wet > 0 ? { ok: true, wet, water_y: waterY, bank, exit } : { ok: true }
 }
 
 const BENDS = [0, 25, -25, 50, -50]
+// EXPWATER-01: a swim looks for the NARROW place, so its bends are finer and a little wider (offline 11-03 on the showcase: bearing
+// 3's lake is 17+ wide at 0 and +-25 and 1-9 wide at 15-20 degrees)
+const SWIM_BENDS = [0, 15, -15, 25, -25, 35, -35, 50, -50, 65, -65]
 // a leg's END cell may lie up to 20 above the bot (a 1:1 hillside over a 20-block leg: offline 11-02, bearing 6 met a 21-block rise
 // at 236 that the scan's default 12 read as nowhere to stand); the line samples every 3 blocks keep the default
 const TARGET_WINDOW = Object.freeze({ up: 20, down: 20 })
@@ -324,7 +385,7 @@ const TARGET_WINDOW = Object.freeze({ up: 20, down: 20 })
  * then bends of +-25 and +-50 degrees, the first whose line is clear and whose end is a dry standable cell. All refused: the
  * most telling refusal (water before zone before unread).
  */
-export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers = [], zones = [], detour = null } = {}) {
+export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers = [], zones = [], detour = null, swim = 0 } = {}) {
   const dHome = p => Math.hypot(p.x - home.x, p.z - home.z)
   const here = dHome(pos)
   // A DETOUR IN HAND (wholemap-s1 item 3) is walked first: its waypoints in order, then the spoke again
@@ -364,6 +425,13 @@ export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers 
     if (!s || s.water || s.none) { whys.push(s?.water ? 'water' : s?.none ? 'steep' : 'unread'); continue }
     return { ok: true, target: { x, y: s.y, z }, via: 'bearing', bend, detour: null }
   }
+  // EXPWATER-01: NO DRY BEND -- the same bends again, swimming a narrow crossing (every dry way was tried first)
+  if (swim > 0 && whys.includes('water')) {
+    const sw = swimLeg(read, { pos, home, here, spoke, step, zones, swim })
+    if (sw.ok) return sw
+    if (sw.wide) whys.push(`swim_wide:${sw.wide}`)
+    else if (sw.why) whys.push(`swim_${sw.why}`)
+  }
   // A ZONE ON THE SPOKE: the way round it (the shorter side, then the other), when the bot is not already walking one
   if (whys.includes('zone')) {
     for (const side of [0, 'other']) {
@@ -377,6 +445,59 @@ export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers 
   }
   const why = ['water', 'zone', 'drop', 'unread', 'steep', 'inward'].find(w => whys.includes(w)) ?? 'blocked'
   return { ok: false, why, whys: whys.join('/') }
+}
+
+/**
+ * EXPWATER-01: A SWIM LEG -> { ok, target, via: 'swim', bend, wet, shore } | { ok: false, why, wide? }. Pure. The bends of legTarget in
+ * order, each with water allowed (lineClear `swim`): the end point, pushed on along the same line up to SWIM_REACH further when it is
+ * in the water, to the first dry standable cell (the far shore); the narrowest refusal's width is kept for the log. `shore` is the
+ * bot's own cell: the near shore's breadcrumb.
+ */
+export function swimLeg (read, { pos, home, here, spoke, step = LEG_STEP, zones = [], swim = SWIM_MAX } = {}) {
+  const dHome = p => Math.hypot(p.x - home.x, p.z - home.z)
+  let wide = null, why = null, best = null
+  for (const bend of SWIM_BENDS) {
+    const q = spoke(Math.tan(bend * Math.PI / 180) * step)
+    const ux = q.x - pos.x, uz = q.z - pos.z, L = Math.hypot(ux, uz)
+    if (!(L > 0)) continue
+    for (let ext = 0; ext <= SWIM_REACH; ext += 2) {
+      const x = Math.floor(q.x + ux / L * ext), z = Math.floor(q.z + uz / L * ext)
+      if (dHome({ x, z }) <= here + step / 3) break
+      const s = surfaceAt(read, x, z, pos.y, TARGET_WINDOW)
+      if (!s || s.none) { why ??= s ? 'steep' : 'unread'; break }
+      if (s.water) {
+        // no far shore within reach: the water's width to here (at least) is the refusal's
+        if (ext + 2 > SWIM_REACH) { const o = lineClear(read, pos, { x, z, y: pos.y }, { zones, swim: Infinity }); if (o.why === 'water' && o.wet > 0) wide = Math.min(wide ?? Infinity, o.wet) }
+        continue
+      }
+      const lc = lineClear(read, pos, { x, z, y: pos.y }, { zones, swim })
+      if (!lc.ok) { if (lc.wide) wide = Math.min(wide ?? Infinity, lc.wide); else why ??= lc.why; break }
+      if (!lc.wet) break   // a dry line here was the dry pass's to find (it refused the end cell): no swim needed, none taken
+      if (!standableAt(read, [x, s.y, z])) break   // the far shore is a cell a bot stands on, dry (Claude review r1)
+      // ...and the target is SHORE_INLAND past the far shore's first dry column (Codex review r1 BLOCKER 1: goto's range 2 may stop a
+      // bot in the water beside it): along the same line, dry, standable, no more water; a strip narrower than that is no landing. Near
+      // the shore, not at the leg's end, so the two shore crumbs are one swim apart
+      const ex = lc.exit ?? [x, s.y, z], vx = x - pos.x, vz = z - pos.z, vl = Math.hypot(vx, vz) || 1
+      const ix = Math.floor(ex[0] + 0.5 + vx / vl * SHORE_INLAND), iz = Math.floor(ex[2] + 0.5 + vz / vl * SHORE_INLAND)
+      const si = surfaceAt(read, ix, iz, s.y, TARGET_WINDOW)
+      if (!si || si.water || si.none || !standableAt(read, [ix, si.y, iz])) { why ??= 'shore_narrow'; continue }   // a bar between two runs: on, past the next
+      // the shore's own stretch is dry (read from the far shore, so no resampling of the swim changes its count)
+      const li = lineClear(read, { x: ex[0], y: ex[1], z: ex[2] }, { x: ix, z: iz, y: ex[1] }, { zones, every: 1 })
+      if (!li.ok) { why ??= 'shore_narrow'; continue }
+      // the NARROWEST crossing of all the bends is taken (ties: the bend order, straight first)
+      if (!best || lc.wet < best.lc.wet) best = { bend, lc, target: { x: ix, y: si.y, z: iz } }
+      break
+    }
+  }
+  if (!best) return { ok: false, why: wide != null ? 'water' : (why ?? 'water'), wide }
+  // the water starts well ahead: walk DRY to its near shore first (the crossing leg then starts there, and its two crumbs are the two
+  // shores, one swim apart)
+  const b = best.lc.bank
+  if (b && Math.hypot(b[0] - pos.x, b[2] - pos.z) > SHORE_NEAR && dHome({ x: b[0], z: b[2] }) >= here - SHORE_BACK && standableAt(read, b)) {
+    return { ok: true, target: { x: b[0], y: b[1], z: b[2] }, via: 'shore', bend: best.bend, wet: 0, detour: null }
+  }
+  return { ok: true, target: best.target, via: 'swim', bend: best.bend, wet: best.lc.wet, water_y: best.lc.water_y, detour: null,
+    shore: [Math.floor(pos.x), Math.floor(pos.y + 1e-6), Math.floor(pos.z)] }
 }
 
 /**
@@ -441,10 +562,12 @@ export function standableAt (read, [x, y, z]) {
   return solid(g) && !FALLING.test(g?.name ?? '') && !liquid(g) && passable(f) && passable(h)
 }
 /** Record a breadcrumb at `cell`? -> bool. Pure. The first one always; then at least CRUMB_MIN from the last, on a standable cell. */
-export function crumbDue (crumbs = [], cell, read = null) {
+export function crumbDue (crumbs = [], cell, read = null, { shore = false } = {}) {
   if (read && !standableAt(read, cell)) return false
   const last = crumbs[crumbs.length - 1]
   if (!last) return true
+  // EXPWATER-01: a crossing's shores are both kept (the way home swims from the one to the other), however close the last crumb
+  if (shore) return !(last[0] === cell[0] && last[1] === cell[1] && last[2] === cell[2])
   return Math.hypot(cell[0] - last[0], cell[2] - last[2]) >= CRUMB_MIN
 }
 
@@ -453,19 +576,38 @@ export function crumbDue (crumbs = [], cell, read = null) {
  * below `cursor` whose crumb is within CRUMB_HOP_MAX (x/z) and loaded (`loaded(cell)`), so a meander is cut short; none in
  * reach: the crumb just below the cursor (the adjacent one on the walked route), if loaded. `skip` holds indices whose hop failed.
  */
-export function nextCrumb (crumbs = [], pos, cursor = crumbs.length, { loaded = () => true, skip = new Set() } = {}) {
+export function nextCrumb (crumbs = [], pos, cursor = crumbs.length, { loaded = () => true, skip = new Set(), gates = [] } = {}) {
   const top = Math.min(cursor, crumbs.length)
-  for (let i = 0; i < top; i++) {
+  // EXPWATER-01: A CROSSING IS A GATE (Codex design 11-03): `gates` are the FAR-shore crumbs' indices (the near shore is the one before).
+  // The way home never cuts past one -- a hop that skipped it would cross the water somewhere no swim was checked: beyond a gate the
+  // lowest hop is the gate itself, and standing on it the next is its near shore
+  let lo = 0
+  for (const f of gates ?? []) { if (!Number.isInteger(f)) continue; if (f < top) lo = Math.max(lo, f); else if (f === top) lo = Math.max(lo, f - 1) }
+  for (let i = lo; i < top; i++) {
     if (skip.has(i)) continue
     const c = crumbs[i]
     if (Math.hypot(c[0] - pos.x, c[2] - pos.z) <= CRUMB_HOP_MAX && loaded(c)) return i
   }
-  for (let i = top - 1; i >= 0; i--) {
+  for (let i = top - 1; i >= lo; i--) {
     if (skip.has(i)) continue
     return loaded(crumbs[i]) ? i : -1
   }
   return -1
 }
+
+/**
+ * EXPWATER-01 (Codex review r1 BLOCKER 2): THE CROSSING NOT YET SWUM BACK -> the gate's index | null. Pure. A gate f (a far-shore crumb)
+ * is unresolved while the bot has not reached its near shore f - 1 (cursor >= f): the outermost such gate is the one ahead of it. While
+ * one is, a DRY bot's way home does not fall through to a marker or the direct walk (either would cross the water where no swim was
+ * checked); it retries the crossing, then leaves the trail open for `home` to follow later (TRAIL_TTL_MS; past it, `home` walks direct).
+ * A WET bot may take any way out of the water.
+ */
+export function heldGate (gates = [], cursor = Infinity) {
+  let out = null
+  for (const f of gates ?? []) if (Number.isInteger(f) && f >= 1 && cursor >= f && (out == null || f > out)) out = f
+  return out
+}
+export const GATE_RETRIES = 2
 
 /** A marker closer to home than the bot, in hop reach -> the marker | null (the return's fallback after failed crumbs). Pure. */
 export function markerHome (markers = [], pos, home, { skip = new Set() } = {}) {
@@ -571,6 +713,16 @@ export function naturalTree (read, [x, y, z], { maxH = 16 } = {}) {
   return { ok: true, base: [x, b0, z], top: [x, t, z], logs }
 }
 
+/**
+ * EXPWATER-01: THE GATHER'S SPARE TIME at the turn -> ms. Pure. A one-call trip keeps its whole way back (20 s, or 1.2 x the walk
+ * out); a MULTI-CALL trip's way home may finish next call (`home` follows its trail), so it keeps only MULTI_HOME_MS of the call --
+ * LIVE 11-03: every multi-call trip's spare was negative by construction (out 0.6 of the call, back 1.2 x that), 0 of 35 trips gathered.
+ */
+export const MULTI_HOME_MS = 20_000
+export function gatherSpare ({ deadline = 0, now = 0, outTook = 0, multi = false } = {}) {
+  return deadline - now - (multi ? MULTI_HOME_MS : Math.max(20_000, outTook * 1.2))
+}
+
 /** THE HAUL: what the bag gained over the trip, less the kit it drew -> { name: n }. Pure. */
 export function haulOf (held0 = {}, held1 = {}, kit = {}) {
   const out = {}
@@ -604,5 +756,5 @@ export function kitNeed (held = {}, kit = KIT, markers = true) {
 /** `_expedition_trip` row detail (under 300 characters). Pure. */
 export function tripDetail (t = {}) {
   const haul = Object.entries(t.haul ?? {}).map(([k, v]) => `${k}:${v}`).join(',') || '-'
-  return `trip=${t.id ?? '-'} bearing=${t.bearing ?? '-'} ring=${t.ring ?? '-'} dist=${Math.round(t.dist ?? 0)} reason=${t.reason ?? '-'} returned=${t.returned ? 1 : 0} via=${t.via ?? '-'} crumbs=${t.crumbs ?? 0} markers=${t.markers ?? 0} reused=${t.reused ?? 0} deposited=${t.deposited ?? 0} ms=${t.ms ?? 0} haul=${haul}`.slice(0, 295)
+  return `trip=${t.id ?? '-'} bearing=${t.bearing ?? '-'} ring=${t.ring ?? '-'} dist=${Math.round(t.dist ?? 0)} reason=${t.reason ?? '-'} returned=${t.returned ? 1 : 0} via=${t.via ?? '-'} crumbs=${t.crumbs ?? 0} markers=${t.markers ?? 0} reused=${t.reused ?? 0} cross=${t.crossings ?? 0} deposited=${t.deposited ?? 0} ms=${t.ms ?? 0} haul=${haul}`.slice(0, 295)
 }
