@@ -220,7 +220,10 @@ const LIQUID = /^(water|lava|bubble_column)$/
 const CANOPY = /(_leaves|_log|_wood|^mangrove_roots|^bamboo|^vine|^cocoa)$/
 const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|.*concrete_powder)$/
 const solid = b => !!b && b.boundingBox === 'block'
-const liquid = b => !!b && (LIQUID.test(b.name ?? '') || b.waterlogged === true)
+// expwater-01 (Claude review r1 BLOCKER): kelp and seagrass are always under water, and the reader gives them no waterlogged flag -- a
+// kelp column read as dry ground on the lake bed, and a swim leg aimed 12 blocks under the surface
+const AQUATIC = /^(kelp|kelp_plant|seagrass|tall_seagrass)$/
+const liquid = b => !!b && (LIQUID.test(b.name ?? '') || AQUATIC.test(b.name ?? '') || b.waterlogged === true)
 const passable = b => !!b && !solid(b) && !liquid(b)
 
 /**
@@ -236,7 +239,7 @@ export function surfaceAt (read, x, z, yHint, { up = 12, down = 20 } = {}) {
   for (let y = top; y >= Math.floor(yHint) - down; y--) {
     const b = read(x, y, z)
     if (b == null) return null
-    if (liquid(b)) return { water: true, y, liquid: b.waterlogged === true && !LIQUID.test(b.name ?? '') ? 'water' : b.name }
+    if (liquid(b)) return { water: true, y, liquid: LIQUID.test(b.name ?? '') ? b.name : 'water' }
     if (!solid(b)) continue
     if (CANOPY.test(b.name ?? '')) continue
     ground = true
@@ -350,7 +353,7 @@ export function lineClear (read, from, to, { zones = [], every = 3, swim = 0 } =
     }
     // out of the water: the shore must be one a swimmer climbs out onto (feet at most SWIM_EXIT above the water block)
     if (run > 0) {
-      if (s.none || s.y - waterY > SWIM_EXIT) return { ok: false, why: 'water', at: [x, z], bank: s.none ? 'none' : s.y - waterY }
+      if (s.none || s.y <= waterY || s.y - waterY > SWIM_EXIT) return { ok: false, why: 'water', at: [x, z], bank: s.none ? 'none' : s.y - waterY }
       run = 0
     }
     // a column with no standable cell (a trunk, a wall: LIVE 17:40Z, every spruce on the line read as "unread") is the
@@ -467,6 +470,7 @@ export function swimLeg (read, { pos, home, here, spoke, step = LEG_STEP, zones 
       const lc = lineClear(read, pos, { x, z, y: pos.y }, { zones, swim })
       if (!lc.ok) { if (lc.wide) wide = Math.min(wide ?? Infinity, lc.wide); else why ??= lc.why; break }
       if (!lc.wet) break   // a dry line here was the dry pass's to find (it refused the end cell): no swim needed, none taken
+      if (!standableAt(read, [x, s.y, z])) break   // the far shore is a cell a bot stands on, dry (Claude review r1)
       // the NARROWEST crossing of all the bends is taken (ties: the bend order, straight first)
       if (!best || lc.wet < best.lc.wet) best = { bend, lc, target: { x, y: s.y, z } }
       break
@@ -476,7 +480,7 @@ export function swimLeg (read, { pos, home, here, spoke, step = LEG_STEP, zones 
   // the water starts well ahead: walk DRY to its near shore first (the crossing leg then starts there, and its two crumbs are the two
   // shores, one swim apart)
   const b = best.lc.bank
-  if (b && Math.hypot(b[0] - pos.x, b[2] - pos.z) > SHORE_NEAR && standableAt(read, b)) {
+  if (b && Math.hypot(b[0] - pos.x, b[2] - pos.z) > SHORE_NEAR && dHome({ x: b[0], z: b[2] }) > here && standableAt(read, b)) {
     return { ok: true, target: { x: b[0], y: b[1], z: b[2] }, via: 'shore', bend: best.bend, wet: 0, detour: null }
   }
   return { ok: true, target: best.target, via: 'swim', bend: best.bend, wet: best.lc.wet, water_y: best.lc.water_y, detour: null,

@@ -18053,7 +18053,8 @@ async function expeditionVisit (ctx, args, signal) {
       // ...and its FAR shore, where the leg ended dry (a bot still wet turns for 'water' at the loop's top and swims home)
       if (crumbDue(trip.crumbs, cell, read, { shore: swim })) trip.crumbs.push(cell)
       if (swim) {
-        const dry = !bot.entity?.isInWater && standableAt(read, cell)
+        // a crossing counts (and its far shore is a gate) only where the bot got OVER: dry, moved, not back on the near shore
+        const dry = !bot.entity?.isInWater && standableAt(read, cell) && moved >= 4 && cell.join(',') !== (lt.shore ?? []).join(',')
         // the far shore's crumb is a GATE the way home never cuts past (expedition.mjs nextCrumb `gates`)
         if (dry) { trip.crossings = (trip.crossings ?? 0) + 1; const f = trip.crumbs.length - 1; if (f >= 1 && trip.crumbs[f].join(',') === cell.join(',')) (trip.gates ??= []).push(f) }
         exRow(bot, 'cross', `trip=${trip.id} wet=${lt.wet} bend=${lt.bend} from=${(lt.shore ?? []).join(',')} to=${lt.target.x},${lt.target.y},${lt.target.z} at=${cell.join(',')} dry=${dry ? 1 : 0} moved=${Math.round(moved)}`, dry ? 'success' : 'no_effect')
