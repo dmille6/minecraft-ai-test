@@ -3540,6 +3540,68 @@
    "note": "Keep wells, farms (farmland water), trial chamber, expedition markers, finished builds, the copper hall's reserved site untouched; seal any cave opened by a cut; seeded variety per town. 11-03: the owner's 11-01 water rule folded in (coordinator relay 'lets go with the 11-1 rule'). Offline (16 fleet copies + showcase): walk-and-back inside the wall 20,942 -> 26,165 columns after stage 0, stuck-prone 8,875 -> 6,886, 0 protected touches, 30 trees felled with 30 replants; the water rule adds 50 cells across 17 towns."
   },
   {
+   "id": "gkhelpers-1103",
+   "title": "Groundskeeper HELPERS (owner 11-03 'i agree to all those things, do it', A): the keeper takes 1-2 helper bots on its segments, so tidy/terrace/park work is multi-bot; plus the keeper fills the storehouse floor holes (the chests' standing cells) first",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "gkhelpers-1103.md",
+    "owner-groundskeeper-1102.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "BUILT, NOT RELEASED: showcase branch gkhelpers-01show (on the live release adbf9e41) + tripwire rules gkhelpers-read-01 (main-based; shopread crew H4 + gather H2, NOT installed). Release = install the read on the showcase host, then stage gkhelpers-01show as a piece and activate; 2-h read: helper_take rows, >1 bot placing tidy cells, keeper_held turn-aways down from 67/176, floor_planned then the 6 storehouse holes filled, H4/H2 0.",
+   "max_quiet_hours": 72,
+   "depends_on": [],
+   "evidence": {
+    "branches": [
+     "gkhelpers-01show",
+     "gkhelpers-read-01"
+    ],
+    "grep": [
+     "gkhelpers-01",
+     "gkhelpers-read-01"
+    ],
+    "paths": [
+     "bots/test/gkhelpers.test.mjs"
+    ]
+   },
+   "note": "Offline on a 11-03 16:06Z copy: 15 open tidy segments, 13 ready, 10 mutually >2 columns apart (3 bots never wait on each other); 6 storehouse floor holes open (-10,68..70,3 / -10,69..70,2 / -11,70,4)."
+  },
+  {
+   "id": "parkgather-1103",
+   "title": "Park gather (owner 11-03, B): close the park-materials gap -- the crew collects the park's plants round home (flowers, tall flowers, azalea, cane/bamboo above the root, leaves with shears), carries them (chests never take saplings/bamboo/poppies) and the keeper tops the park up in its own box",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "gkhelpers-1103.md",
+    "owner-townterrace-1103.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "BUILT with gkhelpers-01show (not released). Showcase offline: within 96 the only free flowers are none (all 11 are inside the protected village zone), 9 sugar cane (park box has no water -> no_water), 24k spruce leaves -> with shears a 14-cell hedge top-up; helpers' 16 spruce saplings -> a park tree. Flowers need another source (outside 96, or a flower biome) -- open question for the owner.",
+   "max_quiet_hours": 72,
+   "depends_on": [
+    {
+     "run": "gkhelpers-01show",
+     "until": "released"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "gkhelpers-01show"
+    ],
+    "grep": [
+     "park gather",
+     "parkTopUp",
+     "gkhelpers-01"
+    ]
+   },
+   "note": "Never sweet berry bushes, cactus or vines; never a reserved column (zones, project records/boxes, the park, the tidy's own cells)."
+  },
+  {
    "id": "survival-supply-1103",
    "title": "Keep a steady supply of SURVIVAL canaries (drowning first), alternating with progress and never survival-only -- owner 11-03 'sure as long as we dont spend all our time on survival fixes and never move the project forward'",
    "owner_date": "2026-11-03",
