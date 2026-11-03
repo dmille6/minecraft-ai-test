@@ -100,6 +100,11 @@ const REQUIRED = [
   'bots/test/fleetpaths.test.mjs',
   // zigbamboo (fleetbuild-01, 11-01): bamboo grown into open ziggurat foundation cells is dug
   'bots/test/zigbamboo.test.mjs',
+  // tidy-01 (11-01): the town-ground tidy (pillars, pits, the paths' corridors graded) and its offline proof on region copies
+  'bots/src/tidy.mjs',
+  'bots/test/tidy.test.mjs',
+  'bots/scripts/tidy-offline.mjs',
+  'docs/reports/tidy-01-2026-11-01.md',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',

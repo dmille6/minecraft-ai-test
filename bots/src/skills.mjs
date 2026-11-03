@@ -127,12 +127,13 @@ import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
 import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
 import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, shopchestSite, shopchestRecord, materialsChests, materialsWorthTry } from './shopchest.mjs'   // shopchest-01
-import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn } from './paths.mjs'   // paths-01
-import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
 import { torchSafe, outShareOf, multiCall, trailAge, PLANNER_V } from './expedition.mjs'   // wholemap-s1a
 import { HALL_PLOT, HALL_BLUEPRINT, hallSite, hallOpening, hallRecordDomain, copperhallModeDetail } from './copperhall.mjs'   // copperhall-01
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
+import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
+import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
+import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -17086,7 +17087,7 @@ const bpCache = new Map()
 // paths-01: the paths have none either (paths.mjs routes them; PATH_PALETTE)
 // wall-01: the wall has none either (wall.mjs sites it; WALL_PALETTE)
 // shaft-02: the town stair has none either (shaftgeom.mjs plans it; its visit and its damage test are its own)
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -17219,6 +17220,8 @@ function projStuckLive (key, now = Date.now()) {
       // r4 (LIVE 15:40Z: the floor laid 34/34 under the felled trunk, and the stamp on its two cells still held the order): ...or
       // when every cell it names reads done, as a complete record's
       if (rec?.blueprint === TREEFARM_BLUEPRINT) return stuckStale(keys, rec, c => farmAlsoDone(c, farmRead(b)) || recordCellDone(b, rec, c)) || farmStampHeld(keys, treeHeldCols(siteTreesLeft(farmRead(b), rec)))
+      // tidy-01: an open tidy's stamp holds only its stuck segment too (the wall's rule): the other pits and corridors go on
+      if (rec?.blueprint === TIDY_BLUEPRINT) return stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c))
       return rec?.blueprint === WALL_BLUEPRINT && wallStuckOn() && (stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c)))
     } : null
     return projStuckAt(dir, key, { before: now + 60_000, stale })
@@ -17481,6 +17484,9 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // treefarm-04: a standing farm is never DAMAGED (its harvest and replant are upkeep: `due`, after every open project, when the
     // caller asks with the tidy) -- a grown tree, an empty plot, a lost torch (treefarm.mjs farmDue)
     if (r.blueprint === TREEFARM_BLUEPRINT) return tidy && !!farmDueFor(bot, r)
+    // tidy-01: a finished tidy is never DAMAGED (the bots' next pillars are the next survey's): only DUE its re-survey (tidy.mjs
+    // tidyDue), after every open project
+    if (r?.blueprint === TIDY_BLUEPRINT) return tidy && tidyDue(r)
     // shaft-02: the town stair judges its own cells (shaftgeom.mjs stairDamaged); a no-site record is only DUE, after its retry
     if (r?.blueprint === SHAFT_BLUEPRINT) return stairDamaged(stairRead(bot), r) || (tidy && stairDue(r))
     // monument-01: a sealed core cell of the ziggurat is done (ziggurat.mjs zigHidden), as its visit judges it; v2: the record's
@@ -18258,6 +18264,8 @@ async function buildShop (ctx, args, signal) {
   if (proj.plot === SHAFT_PLOT) return buildStair(ctx, args, signal)
   // treefarm-04: the town tree farm's visit (treefarm.mjs siting; the harvest, then the build)
   if (proj.plot === TREEFARM_PLOT) return buildTreeFarm(ctx, args, signal)
+  // tidy-01: the town-ground tidy's visit (tidy.mjs survey and grading; cuts, then layered fills)
+  if (proj.plot === TIDY_PLOT) return buildTidy(ctx, args, signal)
   const plot = proj.plot
   const f = { project: plot }
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
@@ -19358,6 +19366,182 @@ async function buildWall (ctx, args, signal) {
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
     if (drawn0) { try { if (completed) { if (!drawnWrite(dir, key, me, {})) drawnFails++ } else persist() } catch { drawnFails++ } }
     if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(WALL_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
+  }
+}
+
+// ================================================================================================================================
+// TIDY-01: THE TOWN-GROUND TIDY (tidy.mjs; shop.mjs PROJECTS' last entry, no `after`). build_shop's visit when the active project is
+// the tidy -- a bot no other project admits. The same record, slot, segment and visit machinery as the wall, its key
+// `project-<home>.tidy`, `_build*` rows with project=tidy, TIDY_BUILDERS slots. A visit digs the cut list top first (runVisit
+// `tidy`, under the clear lease) and lays the layered fills from the bag's dirt and cobblestone (the rest of the cobblestone drawn
+// from town under the project reserve, OWNER 10-27). When every cut is down (or given up by this bot) and every fill laid (or
+// waived), the record completes and a paths NO-SITE record is asked again at once (tidy.mjs pathsRetryNow). TIDY=off: no tidy.
+// ================================================================================================================================
+/** The tidy's siting inputs: its guard (zones, the plan, wells, the farm, every other project's record and reservation), the
+ *  record cells never touched, and the paths' siting inputs when the paths are unsited or stand as a no-site record (the grading).
+ *  Throws on an unreadable file. */
+function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
+  const P = pathsInputs(bot, c, h, dir)
+  const recs = projectHeads().map(x => x.head.rec).filter(Boolean)
+  const home = P.plan.home
+  const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home }), recordZones(recs))
+  const cells = new Set(recs.flatMap(q => (q.cells ?? []).map(x => x.at.join(','))))
+  const ph = recordHead(dir, projKeyOf(PATHS_PLOT))
+  if (!ph.ok) throw new Error('paths record unreadable')
+  const pathsRec = ph.head?.rec ?? null
+  const pin = (!pathsRec || pathsNoSiteRec(pathsRec)) && projectsOn().some(p => p.plot === PATHS_PLOT) ? P : null
+  return { home, avoid, cells, pin, plan: P.plan }
+}
+const tidyRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+async function buildTidy (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: TIDY_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === TIDY_PLOT)) return out('no_effect', 'off', 'the tidy is switched off (TIDY, SHOP or TOWNPLAN)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(TIDY_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  bot.shopVisitKey = key
+  const stood = stoodRead(dir, stoodKey(), home)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the tidy record could not be read')
+  if (!rh.head || tidyDue(rh.head.rec)) {
+    // THE SURVEY (tidy.mjs siteTidy): the bots' pillars and pits round home, and the paths' corridors graded when the paths have no
+    // network; a re-survey (TIDY_RESURVEY_MS after a completion) is a new generation of the same record
+    let I, s
+    try { I = tidyInputs(bot, c, h, dir); s = siteTidy(planReader(bot), { ...I, now: Date.now() }) } catch { return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' }) }
+    if (!s.ok) return out('no_effect', 'no_site', `no tidy (${s.why})`, { stop: 'no_site' })
+    const fresh = cur => !cur || tidyDue(cur)
+    const body = s.record ? { ...s.record, state: 'open', sitedBy: me } : tidyNothing({ home, now: Date.now(), by: me, skipped: s.survey?.skipped ?? {} })
+    const pub = publishRecord(dir, key, cur => (fresh(cur) ? body : null), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: s.record ? 'sited' : 'nothing', cell: [home.x, home.y, home.z], kind: `pillars${s.record?.pillars ?? 0}/cut${s.record?.cut.length ?? 0}/pits${s.record?.pits ?? 0}/fill${s.record?.cells.length ?? 0}/grade${s.record?.grade?.n ?? '-'}:${s.record?.grade?.cut ?? 0}+${s.record?.grade?.fill ?? 0}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the tidy record could not be read back')
+  }
+  const rec = rh.head.rec
+  if (rec.structure_complete) return out('no_effect', 'complete', 'the town ground is tidy')
+  const palette = TIDY_PALETTE
+  const mem = (bot.tidyGiven ??= new Map())
+  // a cell ANOTHER project's record names now (a project sited since the survey) is never the tidy's: never dug, never filled (read
+  // as done)
+  let guard
+  try { guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) } catch { return out('no_effect', 'record_unreadable', 'the other projects\' records could not be read') }
+  const waivedK = q => guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(',')))
+  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }
+  let effects = null
+  let bag0 = null, tookAll = {}, backAll = {}, placedBy = {}, diedAt = null, drawn0 = null, drawnFails = 0, completed = false
+  const persist = () => {
+    if (!drawn0 || completed) return
+    const b1 = heldMap(bot)
+    if (!drawnWrite(dir, key, me, drawnAfter({ drawn: drawn0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: b1 }), { bag: b1 })) drawnFails++
+  }
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    const held0 = heldMap(bot)
+    const dr = drawnRead(dir, key, me)
+    drawn0 = drawnHeld(dr.drawn, held0, dr.bag)
+    const keep = townKeeps(ownCounts(held0, drawn0), { wanted: bot.currentWants ?? [] }).keep
+    const spare = n => Math.max(0, (held0[n] ?? 0) - (keep[n] ?? 0))
+    const read = planReader(bot)
+    // THE BILL: the open fills (any earth: the bag's spare dirt first, then cobblestone), less the bag's spare dirt and cobblestone,
+    // drawn as cobblestone (the town's stone reserve: the project allowance), SHOP_BILL_CAP a visit
+    const open = (rec.cells ?? []).filter(q => !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
+    const want = Math.max(0, open - spare('dirt') - spare('cobblestone'))
+    const need = want > 0 ? needFromTown({ cobblestone: want }, {}, SHOP_BILL_CAP) : {}
+    let took = {}
+    bag0 = held0
+    if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
+    const R0 = matsReserve().table
+    const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, n) => { tookAll[k] = (tookAll[k] ?? 0) + n; persist() } })
+    const segFree = sg => { const st = projLeaseState(dir, key, `seg-${sg}`); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil }
+    if (Object.keys(need).length && workableSeg(rec, read, palette, segFree, waivedK)) {
+      const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
+    }
+    check(signal)
+    effects = botBuildEffects(bot, {
+      acks,
+      keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: TIDY_PLOT, ...d }) : buildRowDetail({ project: TIDY_PLOT, ...d }) }) } catch { /* telemetry */ } if (kind === '_build' && d?.op === 'place') persist() },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
+    // clear lease, never a record cell)
+    const cuts = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')))
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: TIDY_CLEAR_MAX, alsoDone: q => waivedK(q), stuckStalledOnly: true }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts)
+    const read2 = tidyRead(bot)
+    const cutAt = new Map((rec.cut ?? []).map(q => [q.at.join(','), q]))
+    tidyNoteCuts(mem, r.tidied ?? [], k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
+    // THE WAIVER (wall.mjs wallWaiveDue, generic over record cells): a fill this visit deferred, counted WALL_WAIVE_AFTER visits by
+    // the stuck map, is named on the record so the tidy closes
+    let rw = rec
+    try {
+      const waive = wallWaiveDue(rec, r.deferred ?? [])
+      if (waive.length) {
+        const pub = publishRecord(dir, key, cur => {
+          if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length) return null
+          const w = { ...(cur.waived ?? {}) }
+          for (const d of waive) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
+          return { ...cur, waived: w }
+        }, { by: me })
+        if (pub.result === 'accepted') for (const d of waive) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
+        const h2 = recordHead(dir, key); if (h2.ok && h2.head) rw = h2.head.rec
+      }
+    } catch { /* counted again next visit */ }
+    // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
+    // cut or fill cell is left, never done on no evidence
+    const prog = tidyProgress(rw, read2, { fillDone: q => guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || buildCellDone(read2(...q.at), palette, q.role), given: k => guard.has(k) || tidyGivenUp(mem, k) })
+    const unread = [...(rw.cut ?? []), ...(rw.cells ?? [])].some(q => !read2(...q.at))
+    if (!prog.cutLeft && !prog.fillLeft && !unread) {
+      const now = Date.now()
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length } : null), { by: me })
+      completed = true
+      if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
+      if (pub.result === 'accepted') {
+        try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'complete', kind: TIDY_BLUEPRINT, gen: pub.gen ?? '-', n: prog.cutDone + prog.fillDone }) }) } catch { /* telemetry */ }
+        // THE PATHS ASKED AGAIN (the tidy's purpose): a paths no-site record waiting out its 24 h retry is due now
+        if (rw.cells.length || rw.cut.length) {
+          try {
+            const pk = projKeyOf(PATHS_PLOT)
+            const pp = publishRecord(dir, pk, cur => pathsRetryNow(cur, now, pathsNoSiteRec), { by: me })
+            if (pp.result === 'accepted') { bot.shopDamage = null; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'retry_now', kind: 'tidy_complete', gen: pp.gen }) }) } catch { /* telemetry */ } }
+          } catch { /* the paths' own 24 h retry stands */ }
+        }
+      }
+    }
+    let back = {}
+    const left = leftoverNames(took, held0, heldMap(bot))
+    if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
+    return out(status, completed ? 'complete' : r.stop, `${r.why ?? r.stop}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}`, { stop: completed ? 'complete' : r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    if (drawn0) { try { if (completed) { if (!drawnWrite(dir, key, me, {})) drawnFails++ } else persist() } catch { drawnFails++ } }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(TIDY_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
   }
 }
 

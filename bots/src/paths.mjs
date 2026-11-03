@@ -111,25 +111,31 @@ export const COST = Object.freeze({ step: 1, rise: 0.8, turn: 8, fill: 1.5, cut:
 const BRUSH = [[0, 0], [1, 0], [0, 1], [1, 1]]
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]]
 /** A ground block a cut may dig down through, and a cut's new top may be: natural full ground. */
-const NATURAL = /^(grass_block|dirt|coarse_dirt|podzol|mycelium|rooted_dirt|stone|andesite|diorite|granite|tuff|deepslate|gravel|sand|red_sand|clay|sandstone|red_sandstone|calcite|[a-z_]*_ore|moss_block|mud|packed_mud|terracotta|[a-z_]+_terracotta)$/
+export const NATURAL = /^(grass_block|dirt|coarse_dirt|podzol|mycelium|rooted_dirt|stone|andesite|diorite|granite|tuff|deepslate|gravel|sand|red_sand|clay|sandstone|red_sandstone|calcite|[a-z_]*_ore|moss_block|mud|packed_mud|terracotta|[a-z_]+_terracotta)$/
 
 /**
  * ONE COLUMN AT LEVEL s -> its price, or Infinity. Pure. `c` is pathColumn's answer, `read` the world (a cut reads the ground
  * under the top). Fill: the cells g+1..s must hold only what the clears take (they do: the scan passed them); cut: every cell
  * s+1..g natural full ground and the cell at s too.
  */
-export function columnCost (c, s, read, x, z, flat = false) {
+export function columnCost (c, s, read, x, z, flat = false, lim = null) {
   if (!c || c.why || c.y == null) return Infinity
   const g = c.y
-  if (s > g + FILL_MAX || s < g - CUT_MAX) return Infinity
+  // tidy-01 (`lim`: the town tidy's GRADING router, tidy.mjs TIDY_GRADE): a wider fill and cut, and a cut through the bots' own
+  // spoil as well as natural ground. Absent (every paths siting): FILL_MAX / CUT_MAX / NATURAL, exactly as before
+  const fillMax = lim?.fillMax ?? FILL_MAX, cutMax = lim?.cutMax ?? CUT_MAX, cuttable = lim?.cut ?? NATURAL
+  if (s > g + fillMax || s < g - cutMax) return Infinity
   // a container's STAND (paths-01 r2, `flat`): laid at its own ground only -- never a fill into the feet cell a bot opens the
   // chest from, never a cut that drops it below the chest's reach
   if (flat && s !== g) return Infinity
   let v = 0
+  // tidy-01 (`lim.fillOk(block, x, y, z)`): the grading fills only cells the tidy can fill (air, a plant, leaves it clears)
+  if (s > g && lim?.fillOk) for (let y = g + 1; y <= s; y++) if (!lim.fillOk(read(x, y, z), x, y, z)) return Infinity
+  if (s < g && lim?.cutOk) for (let y = s + 1; y <= g; y++) if (!lim.cutOk(read(x, y, z), x, y, z)) return Infinity
   if (s > g) v += COST.fill * (s - g) + COST.pave
   else {
     if (s < g) {
-      for (let y = s; y <= g; y++) { const b = read(x, y, z); if (!b || !NATURAL.test(nm(b))) return Infinity }
+      for (let y = s; y <= g; y++) { const b = read(x, y, z); if (!b || !cuttable.test(nm(b))) return Infinity }
       v += COST.cut * (g - s)
     }
     const top = s === g ? c.name : nm(read(x, s, z))
@@ -147,7 +153,8 @@ export function columnCost (c, s, read, x, z, flat = false) {
  * THE GRID over a box -> { col(x, z), cost(x, z, s), levels(x, z) -> [s], inside(x, z) }. Pure, memoised. `column(x, z)` is
  * pathColumn's answer; `avoid(x, z)` -> reason | null; `read` the world.
  */
-export function pathGrid (column, avoid, box, read) {
+export function pathGrid (column, avoid, box, read, lim = null) {
+  const fillMax = lim?.fillMax ?? FILL_MAX, cutMax = lim?.cutMax ?? CUT_MAX
   const [bx0, bz0, bx1, bz1] = box
   const cm = new Map(), lm = new Map(), km = new Map()
   const key = (x, z) => x * 65536 + z
@@ -156,14 +163,15 @@ export function pathGrid (column, avoid, box, read) {
     const k = key(x, z)
     if (!cm.has(k)) {
       let c = null
-      if (x >= bx0 && x <= bx1 && z >= bz0 && z <= bz1) { const why = avoid(x, z); c = why ? { y: null, why, above: [] } : column(x, z) }
+      // tidy-01 (`lim.avoid`): the grading router's own refusals on top of the paths' (another project's reservation)
+      if (x >= bx0 && x <= bx1 && z >= bz0 && z <= bz1) { const why = avoid(x, z) ?? lim?.avoid?.(x, z) ?? null; c = why ? { y: null, why, above: [] } : column(x, z) }
       cm.set(k, c)
     }
     return cm.get(k)
   }
   const cost = (x, z, s) => {
     const k = `${x},${z},${s}`
-    if (!km.has(k)) km.set(k, BRUSH.reduce((t, [dx, dz]) => t + columnCost(col(x + dx, z + dz), s, read, x + dx, z + dz, !!avoid.flat?.has?.(`${x + dx},${z + dz}`)), 0))
+    if (!km.has(k)) km.set(k, BRUSH.reduce((t, [dx, dz]) => t + columnCost(col(x + dx, z + dz), s, read, x + dx, z + dz, !!avoid.flat?.has?.(`${x + dx},${z + dz}`), lim), 0))
     return km.get(k)
   }
   const levels = (x, z) => {
@@ -173,7 +181,7 @@ export function pathGrid (column, avoid, box, read) {
       const out = []
       if (inside(x, z) && cs.every(c => c && !c.why && c.y != null)) {
         const ys = cs.map(c => c.y)
-        for (let s = Math.max(...ys) - CUT_MAX; s <= Math.min(...ys) + FILL_MAX; s++) if (Number.isFinite(cost(x, z, s))) out.push(s)
+        for (let s = Math.max(...ys) - cutMax; s <= Math.min(...ys) + fillMax; s++) if (Number.isFinite(cost(x, z, s))) out.push(s)
       }
       lm.set(k, out)
     }
@@ -557,7 +565,7 @@ function pathInputs (read, o = {}) {
   const { home, core, dests, avoid } = D
   const { plan, r = 56 } = o
   const box = [home.x - r, home.z - r, home.x + r, home.z + r]
-  const grid = pathGrid((x, z) => pathColumn(read, x, z, { yHi: home.y + PATH_DY, yLo: home.y - PATH_DY }), avoid, box, read)
+  const grid = pathGrid((x, z) => pathColumn(read, x, z, { yHi: home.y + PATH_DY, yLo: home.y - PATH_DY }), avoid, box, read, o.lim ?? null)
   const segs = (plan.paths ?? []).map(p => p.seg).filter(Array.isArray)
   const discount = (x, z) => segs.some(s => x >= s[0] && x + 1 <= s[2] && z >= s[1] && z + 1 <= s[3])
   return { home, core, dests, avoid, grid, discount, box }
@@ -579,13 +587,14 @@ export function sitePaths (read, o = {}) {
   const missed = net.legs.filter(l => !l.ok && !l.optional)
   // fleetpaths-01: `unread` -- the unread columns the routing met: an unrouted leg on ground with unread columns may route once
   // they are read (the caller asks again at the next order); on fully read ground it is the terrain's answer (a no-site record)
-  if (missed.length) return { ok: false, why: `unrouted:${missed.map(l => `${l.id}:${l.why}`).join(',')}`, record: null, net, dests, unread: gridUnread(grid, I.box) }
+  // tidy-01: `grid` is returned too (the tidy's grading lays the earthwork of the legs that DID route)
+  if (missed.length) return { ok: false, why: `unrouted:${missed.map(l => `${l.id}:${l.why}`).join(',')}`, record: null, net, dests, unread: gridUnread(grid, I.box), grid }
   const record = pathRecord(net, grid, read, { home, plan: o.plan, now: o.now ?? Date.now() })
   // (Codex r1 BLOCK 1: an optional leg unrouted over unread columns is asked again, never a day's no-site record)
   if (!record.cells.length) return { ok: false, why: 'no_route', record: null, net, dests, unread: gridUnread(grid, I.box) }
   record.clear.push(...reachedStandClears(read, net, dests, new Set(record.clear.map(c => c.at.join(',')))))
   record.clear.sort((a, b) => a.at[1] - b.at[1])
-  return { ok: true, why: 'ok', record, net, dests }
+  return { ok: true, why: 'ok', record, net, dests, grid }
 }
 /**
  * THE NO-SITE RECORD (fleetpaths-01, the shaft's pattern: shaftgeom.mjs noSiteRecord). Measured 11-01 on the fleet's region copies:

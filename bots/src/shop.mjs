@@ -10,6 +10,7 @@ import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mj
 import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
+import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
 import { storehouseOn, STORE_PLOT, STORE_BLUEPRINT, STORE_BUILDERS } from './storehouse.mjs'
 import { copperhallOn, HALL_PLOT, HALL_BLUEPRINT, HALL_BUILDERS } from './copperhall.mjs'   // copperhall-01
 import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } from './shopchest.mjs'
@@ -87,6 +88,14 @@ export const SHOPCHEST = Object.freeze({ on: shopchestOn(process.env, process.en
  *  only once the town holds its copper (activeProject skips a `waiting` project). COPPERHALL=off is the rollback; on in the
  *  showcase pool only. Needs the house and storehouse switches on. */
 export const COPPERHALL = Object.freeze({ on: copperhallOn(process.env, process.env.MEMORY_POOL ?? '') })
+/**
+ * TIDY-01: THE TOWN-GROUND TIDY is the LAST project, with no `after` (tidy.mjs): only a bot no other project admits works it -- every
+ * other open project full, stuck or waiting -- so it never displaces building. It cuts the bots' pillars, fills their pits and
+ * grades the paths' corridors; it reserves nothing (projectsGuarded leaves it out: no footprint, no sapling box, no siting zone,
+ * never another project's input). On in every fleet pool, off in the showcase unless named (tidy.mjs tidyOn; TIDY=off is the
+ * rollback).
+ */
+export const TIDY = Object.freeze({ on: tidyOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -98,12 +107,17 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOPCHEST_PLOT, blueprint: SHOPCHEST_BLUEPRINT, after: SHOP_PLOT, builders: SHOPCHEST_BUILDERS }),
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
   Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),
+  Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: TIDY_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
-export const projectsGuarded = (list = projectsOn()) => (list.some(p => p.plot === SHAFT_PLOT) ? list : [...list, PROJECTS.find(p => p.plot === SHAFT_PLOT)])
+export const projectsGuarded = (list = projectsOn()) => {
+  // tidy-01: the tidy guards nothing (its fills are ground, its cuts are spoil): never a footprint, a keep-out or a siting input
+  const l = list.filter(p => p.plot !== TIDY_PLOT)
+  return l.some(p => p.plot === SHAFT_PLOT) ? l : [...l, PROJECTS.find(p => p.plot === SHAFT_PLOT)]
+}
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
 export const buildersOf = p => p?.builders ?? BUILDERS_MAX
 /**
@@ -238,7 +252,8 @@ export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the zig
 /** The projects a bag needs only MONUMENT_BAG_SLOTS_MIN free slots for (paths-01: a shovel's use draws nothing). */
 /** wall-01: the wall is built from the cobblestone the bags carry, as the ziggurat is. */
 /** treefarm-04: the farm plants from the bag's saplings and takes its harvest into it. */
-export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, SHAFT_PLOT, TREEFARM_PLOT]))
+/** tidy-01: the tidy fills from the dirt and cobblestone a bag already holds. */
+export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, SHAFT_PLOT, TREEFARM_PLOT, TIDY_PLOT]))
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
