@@ -540,17 +540,9 @@
     "grep": [
      "survival stream",
      "P,S"
-    ],
-    "runs": [
-     "swimcentre-01",
-     "apseal-01",
-     "airpocketwin-01",
-     "lavatarget-01",
-     "tombexit-01",
-     "escapeguard-01"
     ]
    },
-   "note": "AUDIT 10-31: survival stream empty for 3 days (after respawnfall-01 10-28). Process item: no commits expected (greps match nothing by design); evidence is the queue order itself. | stall triage 11-03 ~21Z: next_step named escapeguard-01/tombexit-01 (both KEPT 10-31/11-01); evidence now = the survival runs themselves"
+   "note": "AUDIT 10-31: survival stream empty for 3 days (after respawnfall-01 10-28). Process item: no commits expected (greps match nothing by design); evidence is the queue order itself. | stall triage 11-03 ~21Z: next_step named escapeguard-01/tombexit-01 (both KEPT 10-31/11-01); evidence stays commit greps only: runs on this ops row would re-map those runs to the ops lane in detector e"
   },
   {
    "id": "furnaceseen-01",
