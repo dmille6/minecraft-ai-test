@@ -117,6 +117,23 @@ def tidy_clear_ok(chain, cell, kind, t_ms, guard):
     return any(k == ck(c['at']) for rec in chain or [] for name in lists for c in rec.get(name) or [] if isinstance(c, dict) and c.get('at'))
 
 
+def tidy_place_ok(chain, cell, t_ms, skew_ms=60_000):
+    """tidyread-02 (11-03, the terrace agent's replay): is a `project=tidy op=place` cell a fill of the tidy record IN FORCE when it
+    was placed? -> bool. Pure. groundskeeper-01 publishes each land-plan stage as a NEW generation of the tidy record whose cells
+    are that stage's only (it carries nothing over), so judged against the HEAD alone, stage 0's fills read off_record the moment
+    stage 1 is sited while they are still in the read window. The row names no generation, so the generations in force are those
+    sited at or before the placement (`at` <= t + skew: a visit that began under one stage may place after the next one is
+    published); a generation with no `at` counts (the chain itself is validated by record_chain). A cell on none of them is still
+    off_record. No time on the row: every generation of the chain."""
+    for g in chain or []:
+        at = g.get('at')
+        if t_ms is not None and isinstance(at, (int, float)) and at > t_ms + skew_ms:
+            continue
+        if any(ck(c.get('at')) == ck(cell) for c in g.get('cells') or [] if isinstance(c, dict) and c.get('at')):
+            return True
+    return False
+
+
 def tidy_guarded(cell, t_ms, guard):
     """Was the cell another project's record cell or a marker block when it was dug? -> bool. Pure. (tidy_clear_ok's refusal; the
     read names such an item `guarded` so the tripwire's tree-debris split -- a log or leaves block cleared off a list is a WATCH --
@@ -575,7 +592,13 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     out['zone'] += 1; lists['zone'].append('%s %s %s' % (bot, op, k))
             if op == 'place':
                 out['placements'] += 1
-                if rec is not None and k not in {ck(c['at']) for c in rec.get('cells') or []} and not (f.get('kind') == 'footing' and plot == 'wall' and footing_ok(rec, cell)):
+                if plot == TIDY and rec is not None:
+                    # tidyread-02: a tidy fill is judged against the generations in force when it was placed (tidy_place_ok)
+                    t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
+                    off = not tidy_place_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)
+                else:
+                    off = rec is not None and k not in {ck(c['at']) for c in rec.get('cells') or []} and not (f.get('kind') == 'footing' and plot == 'wall' and footing_ok(rec, cell))
+                if off:
                     out['off_record'] += 1; lists['off_record'].append('%s %s %s' % (bot, k, f.get('block')))
                 if [t for t in placed[(pool, plot, k)] if (r['t'] - t).total_seconds() < PLACE_TWICE_MIN * 60]:
                     out['placed_twice'] += 1; lists['placed_twice'].append('%s %s' % (pool, k))
@@ -835,6 +858,17 @@ def selftest():
     assert tc('31,74,0', kind='leaves', block='oak_leaves')['clear_outside'] == 0, 'a stage 1 road clear'
     assert tc('3,74,-10')['clear_outside'] == 1 and tc('5,70,5')['clear_outside'] == 1, 'positive control: a tidy cut off every list trips'
     assert tc('17,64,-2')['clear_outside'] == 1, 'a fill cell cut as a tidy is off the cut lists'
+    # tidyread-02 (11-03, the terrace agent's replay): a stage-0 FILL placed in the read window after stage 1 is the head (stage 1
+    # carries no cells over) is judged against the generations in force when it was placed, never the head alone
+    tpl = lambda c, s_=14, pp=None: J(base + [R('_build', 'project=tidy op=place seg=T-00-0 cell=%s block=cobblestone' % c, s=s_)], pp or TP_())
+    assert tpl('17,64,-2')['off_record'] == 0, 'a stage-0 fill read after the head moved to stage 1'
+    assert tpl('5,70,5')['off_record'] == 1 and tpl('30,72,0')['off_record'] == 1, 'positive control: a planted off-record fill (and a stage-1 CUT cell) trips'
+    assert tpl('17,64,-2', pp=TP_(chain_=chain[-1:]))['off_record'] == 1, 'control: judged against the head alone (the old rule), it trips'
+    c3 = record_chain(files + [(3, json.dumps(dict(tg2, gen=3, prev=2, stage=2, at=T0MS + 3_600_000, cells=[{'at': [50, 70, 50], 'role': 'core', 'seg': 'T-02-0'}], prevSha=hashlib.sha256(files[1][1]).hexdigest())).encode())])
+    assert [c['_gen'] for c in c3] == [1, 2, 3]
+    assert tpl('50,70,50', pp=TP_(chain_=c3))['off_record'] == 1, 'a cell of a stage sited AFTER the placement (beyond the skew) is not in force'
+    assert tpl('50,70,50', s_=3_700, pp=TP_(chain_=c3))['off_record'] == 0 and tpl('17,64,-2', s_=3_700, pp=TP_(chain_=c3))['off_record'] == 0, 'after it: both stages in force'
+    assert tidy_place_ok(chain, [17, 64, -2], None) and not tidy_place_ok(chain, [5, 70, 5], None) and not tidy_place_ok([], [17, 64, -2], 0)
     assert tc('17,64,-2', kind='foreign')['clear_outside'] == 0, 'a foreign block dug out of a fill cell is its own'
     assert tc('-30,71,-30')['clear_outside'] == 0, 'listed, and no project holds it'
     m2 = dict(mrec, cells=mrec['cells'] + [{'at': [-30, 71, -30], 'role': 'core', 'seg': 'L01-N'}], at=T0MS - 120_000)
