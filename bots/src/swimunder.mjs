@@ -158,10 +158,16 @@ export function swimUnderPlan ({ at = () => null, start, radius = SU_RADIUS, max
 }
 
 /** MAY A FIRING START -> { ok, why }. Pure. Full air and enough health; the plan itself already bounds the breath. */
-export function swimUnderAdmit ({ plan, oxygen = null, health = 0, env } = {}) {
+export function swimUnderAdmit ({ plan, oxygen = null, health = 0, headAir = false, env } = {}) {
   if (!swimUnderOn(env)) return { ok: false, why: 'SWIMUNDER=0' }
   if (!plan?.ok) return { ok: false, why: plan?.reason ?? 'no plan' }
-  if (!(Number.isFinite(oxygen) && oxygen >= SU_MIN_OXYGEN)) return { ok: false, why: `air ${oxygen} of 20, below ${SU_MIN_OXYGEN}: breathe first` }
+  // AIR UNREPORTED IS FULL AIR WHEN THE HEAD IS OUT (Paper 11-03, sandbox6): mineflayer sets oxygenLevel only from the bot's
+  // own air_supply metadata, which the server sends when the air CHANGES; a bot that has breathed since it spawned never got
+  // one, so the guarded reading is null (oxygen.mjs). With the eye in air the server regenerates 4 ticks of air per tick: a
+  // pinned bot has had full air for hours. A null reading with the head under water is refused.
+  if (!Number.isFinite(oxygen)) {
+    if (headAir !== true) return { ok: false, why: 'air unreported and the head is under water: breathe first' }
+  } else if (oxygen < SU_MIN_OXYGEN) return { ok: false, why: `air ${oxygen} of 20, below ${SU_MIN_OXYGEN}: breathe first` }
   if (!(health >= SU_MIN_HEALTH)) return { ok: false, why: `health ${health}, below ${SU_MIN_HEALTH}` }
   return { ok: true, why: null }
 }
@@ -226,6 +232,15 @@ export function swimUnderAbort ({ oxygen = null, health = 20, health0 = 20, step
   return null
 }
 
+/**
+ * THE AIR THE BODY HAS LEFT when the server has not reported it -> 0..20. Pure. Vanilla: an eye in water loses 1 tick of
+ * air per tick (300 = 20 units), an eye in air regains 4. Used only while `oxygen()` is null (Paper 11-03: the reading
+ * stays null until the server first sends a change, i.e. until the head has been under water for a moment).
+ */
+export function airEstimate (prev = 20, eyeWet = false) {
+  return Math.max(0, Math.min(20, prev + (eyeWet ? -1 / 15 : 4 / 15)))
+}
+
 /** The way back: the cells already taken, reversed, down to the last one where the head was in air (the start if none). */
 export function swimBackRoute ({ taken = [], start, headAirAt = () => false } = {}) {
   const back = []
@@ -269,9 +284,11 @@ export async function swimUnder (bot, { plan, alive = () => true, yieldTo = () =
   const t0 = now()
   const start = (p => [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)])(bot.entity.position)
   const res = { outcome: 'failed', exit: plan.exit, len: plan.route.length, wet: plan.wet, wetRun: plan.wetRun, done: 0,
-                from: key(start), to: key(plan.route[plan.route.length - 1]), minAir: oxygen(), hp0: bot.health, hp1: bot.health, ms: 0, why: null }
+                from: key(start), to: key(plan.route[plan.route.length - 1]), minAir: oxygen() ?? null, hp0: bot.health, hp1: bot.health, ms: 0, why: null }
   const at = (x, y, z) => { try { return bot.blockAt?.(new Vec3(x, y, z)) ?? null } catch { return null } }
   const fitsAt = c => swimFits(at(...c)) && swimFits(at(c[0], c[1] + 1, c[2]))
+  let est = Number.isFinite(oxygen()) ? oxygen() : 20     // admitted with the head in air: full (swimUnderAdmit)
+  const eyeWet = () => { try { const p = bot.entity.position; return headWet(at(Math.floor(p.x), Math.floor(p.y + 1.62), Math.floor(p.z))) } catch { return false } }
   // the first collision cell over the feet (y+2..y+4) in either column of a sideways move; none -> y+5
   const ceilOver = (a, b) => {
     for (let y = b[1] + 2; y <= b[1] + 4; y++) if (!swimFits(at(a[0], y, a[2])) || !swimFits(at(b[0], y, b[2]))) return y
@@ -299,8 +316,9 @@ export async function swimUnder (bot, { plan, alive = () => true, yieldTo = () =
         if (!alive()) return { stop: 'ownership lost', yielded: true }
         const y = yieldTo()
         if (y) return { stop: y, yielded: true }
-        const air = oxygen()
-        if (Number.isFinite(air)) res.minAir = Math.min(res.minAir ?? air, air)
+        const rep = oxygen()
+        const air = Number.isFinite(rep) ? rep : Math.floor(est)
+        res.minAir = Math.min(Number.isFinite(res.minAir) ? res.minAir : 20, air)
         const ab = back ? (now() - s0 > SU_STEP_MS * 2 ? `no progress back for ${now() - s0} ms`
                            : now() - tBack > SU_BUDGET_MS ? `the way back over the ${SU_BUDGET_MS / 1000} s budget` : null)
                         : swimUnderAbort({ oxygen: air, health: bot.health, health0: res.hp0, stepMs: now() - s0, elapsedMs: now() - t0, wetAhead, wetBack })
@@ -314,6 +332,7 @@ export async function swimUnder (bot, { plan, alive = () => true, yieldTo = () =
         if (st.look) look(st.look.x, st.look.z)
         set('forward', !!st.forward); set('jump', !!st.jump)
         await nextTick(bot)
+        est = airEstimate(est, eyeWet())
       }
       if (!back) res.done = i + 1
       from = to
