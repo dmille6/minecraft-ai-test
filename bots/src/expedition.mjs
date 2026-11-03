@@ -76,6 +76,8 @@ export const ICE_TORCH_R = 3                    // no marker torch within this (
 export const SWIM_MAX = 16                      // wet columns a leg may swim (Paper 11-03, the bots' walk prices + shore egress, level shores: 8 wide 20/20, 14 wide 19/20, 20 wide 18/20)
 export const SWIM_DROP = 4                      // the water's surface at most this far below the bank it is entered from (no ravine plunge)
 export const SWIM_EXIT = 1                      // a shore's stand cell at most this far above the water block: LEVEL with the water (Paper 11-03: a one-block-up shore planned 0 of 10 exits)
+export const SHORE_INLAND = 3                   // a swim leg's target lies this far past the first dry cell (goto's range 2 never stops it wet)
+export const SHORE_BACK = 4                     // a shore leg may give back this much distance from home (a crossing at a wide bend), no more: no shore-to-shore shuttle
 export const SHORE_NEAR = 8                     // a swim leg starts within this of the water; further, a dry leg to the near shore comes first (> 4: the visit's legFails counts a leg that moved < 4 as refused)
 export const SWIM_REACH = SWIM_MAX + 4          // a swim leg's end may lie this far past its dry end point, to reach the far shore
 export const EXIT_RETRY_MS = 3 * 60 * 60_000    // a refused walk ('blocked') short of 40 blocks blocks its bearing this long, not the whole day
@@ -328,7 +330,7 @@ export function lineClear (read, from, to, { zones = [], every = 3, swim = 0 } =
   const dx = to.x - from.x, dz = to.z - from.z
   // EXPWATER-01: a swim line is read EVERY block (a crossing's width is counted, not sampled)
   const n = Math.max(1, Math.ceil(Math.hypot(dx, dz) / (swim > 0 ? 1 : every)))
-  let y = from.y, wet = 0, run = 0, waterY = null, last = null, bank = null, dryAt = null
+  let y = from.y, wet = 0, run = 0, waterY = null, last = null, bank = null, dryAt = null, exit = null
   for (let i = 1; i <= n; i++) {
     const x = Math.floor(from.x + dx * i / n), z = Math.floor(from.z + dz * i / n)
     if (last && last[0] === x && last[1] === z) continue
@@ -355,6 +357,7 @@ export function lineClear (read, from, to, { zones = [], every = 3, swim = 0 } =
     if (run > 0) {
       if (s.none || s.y <= waterY || s.y - waterY > SWIM_EXIT) return { ok: false, why: 'water', at: [x, z], bank: s.none ? 'none' : s.y - waterY }
       run = 0
+      exit = [x, s.y, z]   // the first dry column past the water: the far shore
     }
     // a column with no standable cell (a trunk, a wall: LIVE 17:40Z, every spruce on the line read as "unread") is the
     // pathfinder's to walk round -- only water and zones close a line
@@ -364,7 +367,7 @@ export function lineClear (read, from, to, { zones = [], every = 3, swim = 0 } =
     dryAt = [x, s.y, z]
   }
   if (run > 0) return { ok: false, why: 'water', at: last, open: true, wet }   // a line that ends in the water is no leg
-  return wet > 0 ? { ok: true, wet, water_y: waterY, bank } : { ok: true }
+  return wet > 0 ? { ok: true, wet, water_y: waterY, bank, exit } : { ok: true }
 }
 
 const BENDS = [0, 25, -25, 50, -50]
@@ -471,8 +474,18 @@ export function swimLeg (read, { pos, home, here, spoke, step = LEG_STEP, zones 
       if (!lc.ok) { if (lc.wide) wide = Math.min(wide ?? Infinity, lc.wide); else why ??= lc.why; break }
       if (!lc.wet) break   // a dry line here was the dry pass's to find (it refused the end cell): no swim needed, none taken
       if (!standableAt(read, [x, s.y, z])) break   // the far shore is a cell a bot stands on, dry (Claude review r1)
+      // ...and the target is SHORE_INLAND past the far shore's first dry column (Codex review r1 BLOCKER 1: goto's range 2 may stop a
+      // bot in the water beside it): along the same line, dry, standable, no more water; a strip narrower than that is no landing. Near
+      // the shore, not at the leg's end, so the two shore crumbs are one swim apart
+      const ex = lc.exit ?? [x, s.y, z], vx = x - pos.x, vz = z - pos.z, vl = Math.hypot(vx, vz) || 1
+      const ix = Math.floor(ex[0] + 0.5 + vx / vl * SHORE_INLAND), iz = Math.floor(ex[2] + 0.5 + vz / vl * SHORE_INLAND)
+      const si = surfaceAt(read, ix, iz, s.y, TARGET_WINDOW)
+      if (!si || si.water || si.none || !standableAt(read, [ix, si.y, iz])) { why ??= 'shore_narrow'; continue }   // a bar between two runs: on, past the next
+      // the shore's own stretch is dry (read from the far shore, so no resampling of the swim changes its count)
+      const li = lineClear(read, { x: ex[0], y: ex[1], z: ex[2] }, { x: ix, z: iz, y: ex[1] }, { zones, every: 1 })
+      if (!li.ok) { why ??= 'shore_narrow'; continue }
       // the NARROWEST crossing of all the bends is taken (ties: the bend order, straight first)
-      if (!best || lc.wet < best.lc.wet) best = { bend, lc, target: { x, y: s.y, z } }
+      if (!best || lc.wet < best.lc.wet) best = { bend, lc, target: { x: ix, y: si.y, z: iz } }
       break
     }
   }
@@ -480,7 +493,7 @@ export function swimLeg (read, { pos, home, here, spoke, step = LEG_STEP, zones 
   // the water starts well ahead: walk DRY to its near shore first (the crossing leg then starts there, and its two crumbs are the two
   // shores, one swim apart)
   const b = best.lc.bank
-  if (b && Math.hypot(b[0] - pos.x, b[2] - pos.z) > SHORE_NEAR && dHome({ x: b[0], z: b[2] }) > here && standableAt(read, b)) {
+  if (b && Math.hypot(b[0] - pos.x, b[2] - pos.z) > SHORE_NEAR && dHome({ x: b[0], z: b[2] }) >= here - SHORE_BACK && standableAt(read, b)) {
     return { ok: true, target: { x: b[0], y: b[1], z: b[2] }, via: 'shore', bend: best.bend, wet: 0, detour: null }
   }
   return { ok: true, target: best.target, via: 'swim', bend: best.bend, wet: best.lc.wet, water_y: best.lc.water_y, detour: null,
@@ -581,6 +594,20 @@ export function nextCrumb (crumbs = [], pos, cursor = crumbs.length, { loaded = 
   }
   return -1
 }
+
+/**
+ * EXPWATER-01 (Codex review r1 BLOCKER 2): THE CROSSING NOT YET SWUM BACK -> the gate's index | null. Pure. A gate f (a far-shore crumb)
+ * is unresolved while the bot has not reached its near shore f - 1 (cursor >= f): the outermost such gate is the one ahead of it. While
+ * one is, a DRY bot's way home does not fall through to a marker or the direct walk (either would cross the water where no swim was
+ * checked); it retries the crossing, then leaves the trail open for `home` to follow later (TRAIL_TTL_MS; past it, `home` walks direct).
+ * A WET bot may take any way out of the water.
+ */
+export function heldGate (gates = [], cursor = Infinity) {
+  let out = null
+  for (const f of gates ?? []) if (Number.isInteger(f) && f >= 1 && cursor >= f && (out == null || f > out)) out = f
+  return out
+}
+export const GATE_RETRIES = 2
 
 /** A marker closer to home than the bot, in hop reach -> the marker | null (the return's fallback after failed crumbs). Pure. */
 export function markerHome (markers = [], pos, home, { skip = new Set() } = {}) {

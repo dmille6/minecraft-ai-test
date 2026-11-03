@@ -109,7 +109,7 @@ await t('MUTANT KILLED: a swim blind to the NEAR bank strands the way home in th
   })
 })
 await t('MUTANT KILLED: without the shore leg a crossing starts 19 blocks from the water (its near-shore crumb is no shore)', async () => {
-  await withMutant(EX_PATH, '  if (b && Math.hypot(b[0] - pos.x, b[2] - pos.z) > SHORE_NEAR && dHome({ x: b[0], z: b[2] }) > here && standableAt(read, b)) {\n', '  if (false) {\n', async M => {
+  await withMutant(EX_PATH, '  if (b && Math.hypot(b[0] - pos.x, b[2] - pos.z) > SHORE_NEAR && dHome({ x: b[0], z: b[2] }) >= here - SHORE_BACK && standableAt(read, b)) {\n', '  if (false) {\n', async M => {
     assert.equal(M.legTarget(world({ river: { x0: 20, x1: 24 } }), { pos: POS, home: HOME, bearing: 0, swim: M.SWIM_MAX }).via, 'swim')
   })
 })
@@ -119,13 +119,13 @@ await t('MUTANT KILLED: without the swim pass the stream turns the trip again', 
   })
 })
 
-await t('the NARROWEST crossing of the bends is swum (a lake 18 wide straight on, 3 wide at 50 degrees left)', async () => {
-  // a lake x 5..22 across z -8..40; a 3-wide channel for z < -8 (the north side, bend -50 heads there)
-  const base = world({ lakes: [{ x0: 5, x1: 22, z0: -8, z1: 60 }, { x0: 5, x1: 7, z0: -60, z1: -9 }] })
+await t('the NARROWEST crossing of the bends is swum (a lake 14 wide straight on, 3 wide at 50 degrees left)', async () => {
+  // a lake x 5..18 across z -8..60; a 3-wide channel for z < -8 (the north side, bend -50 heads there)
+  const base = world({ lakes: [{ x0: 5, x1: 18, z0: -8, z1: 60 }, { x0: 5, x1: 7, z0: -60, z1: -9 }] })
   const lt = E.legTarget(base, { pos: POS, home: HOME, bearing: 0, swim: E.SWIM_MAX })
   assert.equal(lt.ok, true); assert.equal(lt.via, 'swim')
   assert.ok(lt.bend < 0 && lt.wet <= 6, `the narrow channel: bend ${lt.bend} wet ${lt.wet}`)
-  await withMutant(EX_PATH, '      if (!best || lc.wet < best.lc.wet) best = { bend, lc, target: { x, y: s.y, z } }\n', '      if (!best) best = { bend, lc, target: { x, y: s.y, z } }\n', async M => {
+  await withMutant(EX_PATH, '      if (!best || lc.wet < best.lc.wet) best = { bend, lc, target: { x: ix, y: si.y, z: iz } }\n', '      if (!best) best = { bend, lc, target: { x: ix, y: si.y, z: iz } }\n', async M => {
     const m = M.legTarget(base, { pos: POS, home: HOME, bearing: 0, swim: M.SWIM_MAX })
     assert.ok(m.wet > 6, `the mutant swims the first it meets: ${m.wet}`)
   })
@@ -202,6 +202,25 @@ await t('A CROSSING IS A GATE on the way home: no hop cuts past the far shore, a
   })
 })
 
+await t('Codex review r1 BLOCKER 1: a swim leg lands SHORE_INLAND past the far shore (goto range 2 never stops it in the water); a strip too narrow is no landing', async () => {
+  const r = world({ river: { x0: 8, x1: 12 } })
+  const lt = E.legTarget(r, { pos: POS, home: HOME, bearing: 0, swim: E.SWIM_MAX })
+  assert.equal(lt.via, 'swim'); assert.ok(lt.target.x - 12 >= E.SHORE_INLAND, `target ${lt.target.x}: past the water by ${lt.target.x - 12}`)
+  // a 2-wide sand-bar between two rivers: not a landing; the swim takes both in one leg when it can (5 + 2 + 5 wet) or not at all
+  const bar = (x, y, z) => (x >= 13 && x <= 14) ? (y === 69 ? GRASS : y < 69 ? STONE : AIR) : world({ river: { x0: 8, x1: 19 } })(x, y, z)
+  const lb = E.legTarget(bar, { pos: POS, home: HOME, bearing: 0, swim: E.SWIM_MAX })
+  assert.ok(!lb.ok || lb.target.x >= 19 + E.SHORE_INLAND, `never a target on the bar: ${JSON.stringify(lb.target)}`)
+})
+
+await t('Codex review r1 BLOCKER 2: a crossing not yet swum back HOLDS a dry bot (heldGate), and is released once its near shore is reached', async () => {
+  assert.equal(E.heldGate([3], 6), 3, 'beyond the gate')
+  assert.equal(E.heldGate([3], 3), 3, 'on the far shore')
+  assert.equal(E.heldGate([3], 2), null, 'back on the near shore: released')
+  assert.equal(E.heldGate([3, 7], 9), 7, 'the outermost first')
+  assert.equal(E.heldGate([3, 7], 6), 3)
+  assert.equal(E.heldGate([], 9), null)
+})
+
 await t('a REFUSED WALK near town blocks its bearing for EXIT_RETRY_MS, not the day; water near town still does (LIVE 11-03: 5 of 8 dead bearings)', async () => {
   const now = 1e10
   const row = (reason, age, k = 4) => ({ t: now - age, v: E.PLANNER_V, bearing: k, dist: 21, ring: 300, reason, returned: true, haul: 0 })
@@ -254,7 +273,10 @@ await t('wiring (structural): the visit passes the swim width, keeps both shores
   const one = (re, what) => assert.equal((src.match(re) ?? []).length, 1, what)
   one(/detour: trip\.detour, swim: EXPEDITION\.swim \}\)/g, 'legTarget gets the swim width')
   one(/swim: exSwimWidth\(process\.env\)/g, 'the switch')
-  one(/nextCrumb\(crumbs, p, cursor, \{ loaded, skip, gates: Array\.isArray\(trip\.gates\) \? trip\.gates : \[\] \}\)/g, 'the way home keeps the gates')
+  one(/const gates = Array\.isArray\(trip\.gates\) \? trip\.gates : \[\]/g, 'the trip\'s gates')
+  one(/nextCrumb\(crumbs, p, cursor, \{ loaded, skip, gates \}\)/g, 'the way home keeps the gates')
+  one(/const gf = i < 0 && !bot\.entity\?\.isInWater \? heldGate\(gates, cursor\) : null/g, 'a dry bot is held to its gate')
+  one(/if \(gateTries\+\+ >= GATE_RETRIES\) \{ via = `\$\{via\}\+gate_hold`; break \}/g, 'then the trail stays open')
   one(/\(trip\.gates \?\?= \[\]\)\.push\(f\)/g, 'a dry far shore is a gate')
   one(/if \(swim && lt\.shore && crumbDue\(trip\.crumbs, lt\.shore, read, \{ shore: true \}\)\) trip\.crumbs\.push\(lt\.shore\)/g, 'the near shore')
   one(/if \(crumbDue\(trip\.crumbs, cell, read, \{ shore: swim \}\)\) trip\.crumbs\.push\(cell\)/g, 'the far shore')
