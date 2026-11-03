@@ -209,7 +209,7 @@ await t('a complete yard and a bag with a stack of surplus: the order reads it N
   assert.strictEqual(SKM.shopDamaged(light, done), false)
 })
 await t('MUTANT KILLED: without the yard branch in recordDamaged (r0), the full bag reads complete and the order offers nothing', async () => {
-  await withMutant(new URL('../src/skills.mjs', import.meta.url), '    if (tidy && r.blueprint === YARD_BLUEPRINT && yardWorkNow(bot, r)?.kind) return true', '    if (false) return true', async M => {
+  await withMutant(new URL('../src/skills.mjs', import.meta.url), '    if (tidy && isYardBlueprint(r.blueprint) && yardWorkNow(bot, r)?.kind) return true', '    if (false) return true', async M => {
     const { bot: full } = await yardBot([64, 64, 64, 64, 64, 64, 64, 64, 51])
     assert.strictEqual(M.shopDamaged(full, done), false)
   })
