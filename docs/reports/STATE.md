@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-03T10:20:01Z._
+_Generated 2026-11-03T11:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `5d862a8a` = stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) on fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) on tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) on fleetbuild-01 `c711879e` (KEEP 11-01 23:37Z, promoted 11-01 23:47Z) |
-| **Canary in slot** | EMPTY (last close stuckcells-01 KEEP 11-03 09:53Z) |
-| **Queue (front)** | servea-01 -> bagdiet-01 -> swimcentre-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01. Held: llmoai-01 (HELD: serving A (OWNER 11-02 'do what you recommend'): the oai+ client to the whole fleet, neede...). Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
-| **Scheduler** | wait H2 servea-01: no variant for the fleet base 5d862a8 (have: dfb3ff1): autorebase of dfb3ff13..d48467f8 is building (step full-suite, pid 181188, heartbeat 2026-11-03T10:20:01Z) |
-| **Showcase release** | `adbf9e41` (14,929 rows), `dc617030` (1,746 rows), `c2a0de4f` (1,481 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 259a36f3 (deepminer-01); row 11-03 09:25Z) |
+| **Fleet** | `5d862a8a` = stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) on fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) on tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) on fleetbuild-01 `c711879e` (KEEP 11-01 23:37Z, promoted 11-01 23:47Z). Live builds: {'209beee1696c9da35f6587e180bb5fe7e9f09c3a+29da98': 10, '5d862a8a2d81f700b4b3db5c596c13576f9afe5c+7efadc': 70} |
+| **Canary in slot** | **servea-01** deployed 11-03 10:48Z; reads +90 11-03 12:18Z, +180 11-03 13:48Z; KEEP auto-promotes ~10 min after the +180 KEEP |
+| **Queue (front)** | bagdiet-01 -> swimcentre-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01. Held: llmoai-01 (HELD: serving A (OWNER 11-02 'do what you recommend'): the oai+ client to the whole fleet, neede...). Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
+| **Scheduler** | busy S1 canary declared: 209beee1696c9da35f6587e180bb5fe7e9f09c3a on hive-c,hive-b / S6 open loop: canary 209beee is deployed on hive-c,hive-b with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 servea-01 i |
+| **Showcase release** | `adbf9e41` (18,077 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 5d862a8a (stuckcells-01); row 11-03 10:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | qwen35-roll: rollout-compare 11-02 22:36Z |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
-| **Open alarms** | STALLCHECK 2026-11-03T09:35:01Z STALLED: 62. OPSAUDIT 2026-11-02 FLAGS: 8 (1 high). 38 active alarm(s): stuck goals 11 (board-a/house1@355_73_147, board-d/shop@355_73_147, hive-a/monument@355_73_147, hive-d/shaft@68_65_68, isolated-a/monument@355_73_147, isolated-a/wall@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-03T10:35:01Z STALLED: 62. OPSAUDIT 2026-11-02 FLAGS: 8 (1 high). 35 active alarm(s): stuck goals 7 (board-a/house1@355_73_147, hive-a/monument@355_73_147, hive-b/monument@355_73_147, isolated-a/monument@355_73_147, isolated-c/monument@355_73_147, placebo-b/tidy@282_65_-388 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
