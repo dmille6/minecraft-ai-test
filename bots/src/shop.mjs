@@ -119,7 +119,7 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
   Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),
   Object.freeze({ plot: YARD_PLOT, blueprint: YARD_BLUEPRINT, builders: YARD_BUILDERS }),
-  Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 : TIDY_BUILDERS }),
+  Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 + GK.helpersMax : TIDY_BUILDERS }),   // gkhelpers-01: the keeper and its helpers
 ])
 export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
@@ -668,4 +668,4 @@ export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP
 // `op=stuck_on_cell cell=...` and the read's STALLED POOLS could never see a stall; the fake runner's e.log kept the objects)
 export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'kind', 'saplings', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)
 export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
-export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'fromMats', 'ms', 'why'], f)
+export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'crew', 'gathered', 'floor', 'fromMats', 'ms', 'why'], f)   // gkhelpers-01: crew gathered floor

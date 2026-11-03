@@ -158,7 +158,7 @@ await t('Codex r1 BLOCKER 2: a clear still standing is work left (tidyClearsLeft
   col(srv, 33, 0, G + 1, G + 3, 'air')
   assert.strictEqual(T.tidyClearsLeft(rec, srv.read), 0)
   const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/if \(!prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk\) \{/.test(sk), 'the completion waits on the clears')
+  assert.ok(/if \(caps\.complete && !crewHeld && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk\) \{/.test(sk), 'the completion waits on the clears (gkhelpers-01: the keeper\'s, and never over a crew bot\'s plants)')
 })
 await t('NEVER WORSE: a stage whose road work would wall the town in is dropped (named); control: a road over a dip is kept', async () => {
   const land = await flatPlan()
@@ -331,7 +331,7 @@ await t('buildTidy passes the keeper knobs to runVisit and sites stages; shopAct
   assert.ok(/if \(land\) out\.push\(\{ plot: LAND_PLOT, key: projKeyOf\(LAND_PLOT\), head: \{ rec: landReservation\(land\) \} \}\)/.test(s), 'the reservation')
   assert.ok(/const recs = projectHeads\(\)\.filter\(x => x\.plot !== LAND_PLOT\)/.test(s), 'the tidy never refuses its own corridors')
   const sh = strip(readFileSync(SHOP_PATH, 'utf8'))
-  assert.ok(/builders: GROUNDS\.on \? 1 : TIDY_BUILDERS/.test(sh), 'one builder: the keeper')
+  assert.ok(/builders: GROUNDS\.on \? 1 \+ GK\.helpersMax : TIDY_BUILDERS/.test(sh), 'gkhelpers-01: the keeper and its helpers')
   assert.ok(/< orderCooldown\(plot0\)\) return \{ order: null, skip: null \}/.test(sh), 'the order cooldown')
 })
 await t('the wall opens a gateway where a land road crosses (wall.mjs); landReservation\'s zones say land:road', async () => {
@@ -446,10 +446,10 @@ await t('gkstall-01: the waiver room scales with the stage (a tenth of its cells
 })
 await t('wiring (gkstall-01): the tidy visit waives with gkWaiveOpts, reports the mapped stop, and a stuck keeper lets the lease go', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/const waive = GROUNDS\.on \? wallWaiveDue\(rec, gkWaivable\(rec, r\.deferred \?\? \[\]\), gkWaiveOpts\(rec, WALL_WAIVE_MAX\)\) : wallWaiveDue\(rec, r\.deferred \?\? \[\]\)/.test(s), 'the tidy waiver options')
+  assert.ok(/const waive = !caps\.waive \? \[\] : GROUNDS\.on \? wallWaiveDue\(rec, gkWaivable\(rec, r\.deferred \?\? \[\]\), gkWaiveOpts\(rec, WALL_WAIVE_MAX\)\) : wallWaiveDue\(rec, r\.deferred \?\? \[\]\)/.test(s), 'the tidy waiver options')
   assert.ok(/const stop1 = GROUNDS\.on \? gkStopAfterWaive\(r\.stop, waivedN\) : r\.stop/.test(s), 'the mapped stop')
   assert.ok(/return out\(status, completed \? 'complete' : stop1,/.test(s), 'the visit reports it')
-  assert.ok(/if \(GROUNDS\.on && stop1 === 'stuck_on_cell'\) \{ try \{ const k = keeperState\(bot, true\); if \(k\.lease\?\.rec\?\.holder === me\) \{ releaseKeeper\(bot, k\.lease, 'stuck'\)/.test(s), 'the stuck keeper releases')
+  assert.ok(/if \(GROUNDS\.on && role === 'keeper' && stop1 === 'stuck_on_cell'\) \{ try \{ const k = keeperState\(bot, true\); if \(k\.lease\?\.rec\?\.holder === me\) \{ releaseKeeper\(bot, k\.lease, 'stuck'\)/.test(s), 'the stuck keeper releases')
 })
 
 // YARDZONE-01 (LIVE showcase 11-03: the yard sited before any land plan took W; the plan offline seeded W the tree farm zone)

@@ -39,7 +39,7 @@
 import { tidyColumn, gradeLim, tidyRecord, replantCells, tidyOverlay, TIDY, TIDY_BLUEPRINT, TIDY_PLOT, TIDY_BUILDERS, REPLANT_AIR, cutWater, fillIntoOk, waterColumn } from './tidy.mjs'
 import { isLiquid, replaceableCell } from './townplan.mjs'
 import { rng, corridorAt } from './landplan.mjs'
-import { haveOf, hasHoe, PARK_USE_ROLES, PARK_PLACE_ROLES, TILL_RE, SOIL_RE } from './park.mjs'
+import { haveOf, hasHoe, PARK_USE_ROLES, PARK_PLACE_ROLES, TILL_RE, SOIL_RE, ELEMENT_ITEMS } from './park.mjs'
 
 export const TERRACE_STAGE = 'terrace'
 /**
@@ -858,3 +858,60 @@ const pickWalk = w => ({ cols: w.cols, reach: w.reach, back: w.back, traps: w.tr
 const inBoxP = (b, x, z) => Array.isArray(b) && x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]
 /** The park as the land plan keeps it (skills.mjs publishes it once on the land record) -> { box, trees, seed } | null. Pure. */
 export const landPark = rec => (rec?.park?.box ? { box: rec.park.box, trees: rec.park.trees ?? [], seed: rec.park.seed ?? null } : null)
+
+/**
+ * GKHELPERS-01: THE PARK TOPPED UP (owner 11-03 B). A park sited while the town held nothing for it (LIVE showcase 11-03: all four
+ * quadrants a meadow, every other element `no_<x>`) gets the elements the town holds NOW, in the same box, cross path and entrances
+ * -- never re-rolled, never over a cell any generation already has. -> { cells, segments, park } | null (nothing new). Pure over `read`.
+ *   park    the park as it stands ({ box, seed, kinds, placed, skipped }: the land plan's, else the terrace record's)
+ *   have    { item: n } the town's stock + the bag; an element is added only once the town holds TOPUP_MIN of it
+ *   taken   (x, z) -> bool: a column a record cell of the chain already has (the meadow's, a tilled plot's, any fill)
+ *   near    (x, z) -> bool: a road or path column (no hedge beside one); water(x, y, z)
+ *   segN    the top-up's number (its segments T-PU<n>-T|P|H: the tilling first, then the plantings, then the hedge)
+ *   y0, y1  the ground's search heights (the column's top: the highest solid non-plant block in them)
+ */
+export const TOPUP_MIN = Object.freeze({ flowers: 4, tall_flowers: 2, azalea: 2, trees: 1, bamboo: 3, crops: 3, cane: 2, hedge: 8 })
+export function parkTopUp (read, { park, have = {}, taken = () => false, near = () => false, water = () => false, segN = 0, y0, y1, T = TERRACE } = {}) {
+  if (!Array.isArray(park?.box) || park.box.length !== 4) return null
+  const placed = park.placed ?? {}
+  const fresh = {}
+  for (const [el, min] of Object.entries(TOPUP_MIN)) {
+    if ((placed[el] ?? 0) > 0) continue
+    if (haveOf(have, el) < min) continue
+    if (el === 'crops' && !hasHoe(have)) continue
+    for (const n of ELEMENT_ITEMS[el] ?? []) if (Number(have[n]) > 0) fresh[n] = Number(have[n])
+  }
+  if (!Object.keys(fresh).length) return null
+  for (const [n, v] of Object.entries(have)) if (/_hoe$/.test(n) && Number(v) > 0) fresh[n] = v
+  const topMemo = new Map()
+  const top = (x, z) => {
+    const k = k2(x, z)
+    if (topMemo.has(k)) return topMemo.get(k)
+    let t = -Infinity
+    for (let y = y1; y >= y0; y--) { const b = read(x, y, z); if (!b) break; const n = nm(b); if (b.boundingBox === 'block' && !/leaves$/.test(n)) { t = y; break } }
+    topMemo.set(k, t)
+    return t
+  }
+  const soilTop = (x, z) => { const t = top(x, z); return Number.isFinite(t) && SOIL_RE.test(nm(read(x, t, z))) }
+  const lay = parkLayout(read, park.box, { seed: Number(park.seed) || 0, top, orig: top, soilTop, have: fresh, water, near, T })
+  // a till and its crop stand together or not at all; never a column a cell of the chain has
+  const bad = new Set(lay.cells.filter(c => taken(c.at[0], c.at[2])).map(c => k2(c.at[0], c.at[2])))
+  const cells = lay.cells.filter(c => !bad.has(k2(c.at[0], c.at[2])) && Number.isFinite(c.at[1]))
+  if (!cells.length) return null
+  const segs = [], out = []
+  for (const [suf, f] of [['T', c => c.role === 'till'], ['P', c => PARK_PLACE_ROLES.has(c.role) && c.role !== 'hedge'], ['H', c => c.role === 'hedge']]) {
+    const mine = cells.filter(f)
+    if (!mine.length) continue
+    const seg = `T-PU${segN}-${suf}`
+    segs.push({ seg, deps: [] })
+    for (const c of mine) out.push({ at: c.at, role: c.role, seg, el: c.el, topup: segN })
+  }
+  if (!out.length) return null
+  const nowPlaced = {}
+  for (const c of out) if (c.role !== 'till') nowPlaced[c.el] = (nowPlaced[c.el] ?? 0) + 1
+  const skipped = { ...(park.skipped ?? {}) }
+  for (const el of Object.keys(nowPlaced)) delete skipped[el]
+  const kinds = { ...(park.kinds ?? {}) }
+  for (const [q, el] of Object.entries(lay.kinds ?? {})) if (el !== 'meadow' && nowPlaced[el]) kinds[q] = el
+  return { cells: out, segments: segs, park: { ...park, kinds, placed: { ...placed, ...nowPlaced }, skipped, trees: [...(park.trees ?? []), ...lay.trees.filter(t => out.some(c => c.at.join(',') === t.join(',')))], topups: (park.topups ?? 0) + 1 } }
+}

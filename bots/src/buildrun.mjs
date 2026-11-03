@@ -302,10 +302,11 @@ export function nodesWithout (nodes, banned) {
  * are open) or find every open segment held. Pure. build_shop draws the planks' LOGS only when this names one (shopwalls-02:
  * LIVE 10-28, builders waiting on another's roof lease drew 9 logs each, 36 planks into bags, and stopped deps_open).
  */
-export function workableSeg (record, read, palette, free = () => true, alsoDone = null) {
+export function workableSeg (record, read, palette, free = () => true, alsoDone = null, { skipOpenDeps = false } = {}) {
   for (const { seg, deps } of segmentsOf(record)) {
     if (segComplete(read, record, palette, seg, alsoDone)) continue
-    if (!deps.every(d => segComplete(read, record, palette, d, alsoDone))) return null
+    // gkhelpers-01: with `skipOpenDeps` (runVisit's own option) a segment waiting on an open one is passed, as the visit passes it
+    if (!deps.every(d => segComplete(read, record, palette, d, alsoDone))) { if (skipOpenDeps) continue; return null }
     if (free(seg)) return seg
   }
   return null
@@ -914,9 +915,18 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   for (const { seg, deps } of segmentsOf(record)) {
     if (segComplete(rd, record, palette, seg, alsoDone)) continue
     if (deps.some(d => deferredSegs.has(d))) { deferredSegs.add(seg); continue }   // waits on a deferred cell's segment
-    if (!deps.every(d => segComplete(rd, record, palette, d, alsoDone))) { out.stop = 'deps_open'; out.why = `${seg} waits for ${deps.filter(d => !segComplete(rd, record, palette, d, alsoDone)).join(',')}`; return out }
+    if (!deps.every(d => segComplete(rd, record, palette, d, alsoDone))) {
+      // gkhelpers-01 (`p.skipOpenDeps`, the groundskeeper's crew): a segment whose layer below is open (another bot's, or not
+      // reached yet) is passed, and the visit goes on to the next independent one -- not ended `deps_open`
+      if (p.skipOpenDeps) { out.depsWaited = (out.depsWaited ?? 0) + 1; continue }
+      out.stop = 'deps_open'; out.why = `${seg} waits for ${deps.filter(d => !segComplete(rd, record, palette, d, alsoDone)).join(',')}`; return out
+    }
+    // gkhelpers-01 (`p.segOk(seg)`): a segment another bot's live one comes too near is never taken (groundskeeper.mjs crewSegOk)
+    if (p.segOk && !p.segOk(seg)) { out.segsNear = (out.segsNear ?? 0) + 1; continue }
     const lease = PJ.takeLease(dir, key, `seg-${seg}`, me, { now: now() })
     if (!lease.ok) continue                                          // another builder holds it: the next segment
+    // gkhelpers-01 (`p.segYield(seg, gen)`): two bots that checked at once and took neighbours -- the later one gives it back
+    if (p.segYield && p.segYield(seg, lease.gen)) { PJ.releaseLease(dir, key, `seg-${seg}`, me, lease.gen); out.segsNear = (out.segsNear ?? 0) + 1; continue }
     let segGen = lease.gen, segAt = now()
     const row = { seg, open: 0, done: 0 }
     let finished = false
@@ -1213,7 +1223,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   }
   // the loop's end: this visit's deferrals counted, built cells dropped (F4)
   { let r = null; try { r = settleStuck(true) } catch { /* the next visit counts (Claude r22 P3) */ } if (r) { out.stop = r.stop; out.why = r.why; return out } }
-  out.stop = record.cells.every(c => isDone(c)) ? 'complete' : needSapling ? 'no_sapling' : out.waits ? 'clears_wait' : 'unknown'
+  // gkhelpers-01: a visit that passed segments (their layer below open, or another bot's too near) and found nothing else ends
+  // deps_open, as before the crew's option
+  out.stop = record.cells.every(c => isDone(c)) ? 'complete' : needSapling ? 'no_sapling' : out.waits ? 'clears_wait' : (out.depsWaited || out.segsNear) ? 'deps_open' : 'unknown'
   if (out.stop === 'no_sapling') out.why = `${needSapling}: withdraw saplings from town (C1)`
   return out
 }

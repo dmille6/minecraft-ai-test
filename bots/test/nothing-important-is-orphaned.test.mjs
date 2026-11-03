@@ -132,6 +132,7 @@ const REQUIRED = [
   'bots/src/terrace.mjs',
   'bots/src/park.mjs',
   'bots/test/terrace.test.mjs',
+  'bots/test/gkhelpers.test.mjs',   // gkhelpers-01: the grounds crew, the storehouse floor, the park gather
   'bots/scripts/terrace-offline.mjs',
   'docs/reports/townterrace-2026-11-03.md',
   'docs/reports/tidy-01-2026-11-01.md',

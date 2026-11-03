@@ -94,6 +94,24 @@ export function recordHead (dir, key) {
   }
   return { ok: true, head, gens, rejected }
 }
+/** gkhelpers-01: THE RECORD'S CHAIN -> [rec] root first, the same walk as recordHead (a rejected file is no link). [] when the
+ *  directory cannot be read. Never throws. */
+export function recordChain (dir, key) {
+  let gens
+  try { gens = gensOf(dir, REC_RE(key)) } catch { return [] }
+  const out = []
+  let head = null
+  for (const g of gens) {
+    let buf, rec
+    try { buf = fs.readFileSync(recFile(dir, key, g)); rec = JSON.parse(buf.toString('utf8')) } catch { continue }
+    if (!rec || rec.gen !== g) continue
+    if (!head) { if (rec.prev !== null) continue; head = { gen: g, sha: sha(buf) }; out.push(rec); continue }
+    if (rec.prev !== head.gen || rec.prevSha !== head.sha) continue
+    head = { gen: g, sha: sha(buf) }
+    out.push(rec)
+  }
+  return out
+}
 /** The record's newest generation NUMBER (a directory listing only; the caller's cache key) -> n | null. Never throws. */
 export function recordGenNow (dir, key) { try { return gensOf(dir, REC_RE(key)).at(-1) ?? null } catch { return null } }
 /**
@@ -143,6 +161,28 @@ export function leaseState (dir, key, name, { ttl = LEASE_TTL_MS } = {}) {
     const until = rec ? Number(rec.until ?? 0) : mtimeMs + ttl
     return { gen: g, rec, released, ...(released ? { releasedAt: releasedAtOf(`${f}.released`) } : {}), holdsUntil: released ? 0 : until, blocksUntil: released ? 0 : until + RECLAIM_MS }
   } catch { return { gen: null, rec: null, released: false, holdsUntil: 0, blocksUntil: Infinity } }
+}
+/**
+ * gkhelpers-01: EVERY LIVE LEASE whose name starts with `prefix` (`seg-`: the record's segment leases) in ONE directory listing ->
+ * { name: { holder, at, gen } } held now (unreleased, `until` ahead). The town directory holds thousands of lease generations; one
+ * leaseState per segment is one listing each. Never throws: an unreadable directory reads as null (the caller fails closed).
+ */
+export function liveLeases (dir, key, prefix, now = Date.now()) {
+  let names
+  try { names = fs.readdirSync(dir) } catch (e) { return e?.code === 'ENOENT' ? {} : null }
+  const re = new RegExp(`^${esc(key)}\\.(${esc(prefix)}[^.]*)\\.lease\\.g(\\d+)\\.json$`)
+  const top = new Map()
+  for (const n of names) { const m = re.exec(n); if (m && Number(m[2]) > (top.get(m[1]) ?? -1)) top.set(m[1], Number(m[2])) }
+  const out = {}
+  for (const [name, g] of top) {
+    const f = leaseFile(dir, key, name, g)
+    if (fs.existsSync(`${f}.released`)) continue
+    const rec = readJ(f)
+    // a torn generation (unreadable) is held by someone unknown until its reclaim: read as live, holder '?'
+    if (!rec) { out[name] = { holder: '?', at: -Infinity, gen: g }; continue }
+    if (now < Number(rec.until ?? 0)) out[name] = { holder: rec.holder, at: Number(rec.at), gen: g }
+  }
+  return out
 }
 /** A `.released` marker's time: the ms it holds (releaseLease writes Date.now()), else its mtime; null when unreadable. */
 function releasedAtOf (f) {
@@ -345,6 +385,30 @@ export function drawnWrite (dir, key, holder, drawn, { bag = {}, now = Date.now(
     fs.renameSync(tmp, f)
     return true
   } catch { return false }
+}
+
+// ---- gkhelpers-01: the crew's pantry -------------------------------------------------------------------------------------------
+// What each grounds-crew bot carries for the park (its park plants), so the keeper's top-up knows what the crew can plant: banking
+// them is not open to it (towndeposit.mjs notForChest: saplings, bamboo, poppy, dandelion never go in a chest -- owner 10-04).
+const pantryFile = (dir, key, holder) => path.join(dir, `${key}.pantry.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+const PANTRY_RE = key => new RegExp(`^${esc(key)}\\.pantry\\.[A-Za-z0-9_-]+\\.json$`)
+/** Replace the holder's pantry (a temp file renamed into place). -> true | false (never throws). */
+export function pantryWrite (dir, key, holder, items, { now = Date.now() } = {}) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    const f = pantryFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    writeSynced(tmp, JSON.stringify({ v: 1, holder, at: now, items: counts(items) }))
+    fs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+/** Every crew pantry -> { holder: { at, items } }. {} when none or unreadable (an unread pantry is nothing carried). */
+export function pantryRead (dir, key) {
+  const out = {}
+  let names = []
+  try { names = fs.readdirSync(dir).filter(n => PANTRY_RE(key).test(n)) } catch { return out }
+  for (const n of names) { const r = readJ(path.join(dir, n)); if (r?.holder && r.items && typeof r.items === 'object') out[r.holder] = { at: Number(r.at) || 0, items: r.items } }
+  return out
 }
 
 // ---- intents ------------------------------------------------------------------------------------------------------------------
