@@ -724,3 +724,18 @@ export function townEdge (plan, home = plan?.home) {
  *  no stand reaches, a sapling the town lacks: named, the stage moves on). -> how many still stand. Pure. */
 export const GK_CLEAR_VISITS = 5
 export const tidyClearsLeft = (rec, read) => (rec?.clear ?? []).filter(c => { const b = read(...c.at); return !b || nm(b) === c.name }).length
+/**
+ * GKSTALL-01 (LIVE showcase 11-03 04:27-06:07Z: stage 0 held 1 h 40 min on ONE pit cell, 21,66,0, two cells waiting on it, no land
+ * plan published and no road graded). The cell was a 1x1 hole two deep (its fill tops at 66, the ground round it at 67): the only
+ * support is the cobble below it, and no walked node's eye has a sight line to that top face past the rim. It was waived only on
+ * the 5th deferring visit (WALL_WAIVE_AFTER), and every visit cost about 30 min: the keeper's stuck_on_cell stop backed its whole
+ * build order off 6 h while it still held the lease, so the next visit waited for the lease to lapse and another bot to take it.
+ * The keeper's grounds therefore waive a fill after GK_WAIVE_AFTER deferring visits (summed over every builder, this one counted:
+ * below STUCK_VISITS, so a waivable cell never reaches the 6-h back-off), with room for a tenth of the stage's cells (a road stage
+ * has hundreds), and a visit that waived ends `cell_waived`, never stuck_on_cell. -> wallWaiveDue's options. Pure.
+ */
+export const GK_WAIVE_AFTER = 2
+export const GK_WAIVE_SHARE = 0.1
+export const gkWaiveOpts = (rec, max0 = 12) => ({ after: GK_WAIVE_AFTER, max: Math.max(max0, Math.ceil(GK_WAIVE_SHARE * (rec?.cells ?? []).length)) })
+/** The visit's stop once its waiver has run -> stop. A visit that waived a cell freed the stage: not stuck, asked again at once. Pure. */
+export const gkStopAfterWaive = (stop, waivedN) => (waivedN > 0 && (stop === 'stuck_on_cell' || stop === 'cell_deferred') ? 'cell_waived' : stop)
