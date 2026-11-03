@@ -93,6 +93,21 @@ test('DEPOSIT_ALL: on deposit_surplus a NAMED deposit refused as nothing-to-bank
   assert.equal(ask({ ...base, cfg: cfg({ VETOREMEDY_RULES: 'return_home' }), rejection: { ok: false, reason: 'deposit_nothing_to_bank' } }), null)
 })
 
+test('BUDGET: one remedy per rule per 45 s, at most 20 per rule per hour; another rule has its own budget', () => {
+  const now = 10_000_000
+  assert.ok(ask({ history: [], now }))
+  assert.equal(ask({ history: [{ rule: 'return_home', at: now - 30_000 }], now }), null, 'inside the gap')
+  assert.ok(ask({ history: [{ rule: 'return_home', at: now - 46_000 }], now }), 'after the gap')
+  assert.ok(ask({ history: [{ rule: 'deposit_all', at: now - 1_000 }], now }), 'another rule does not count')
+  const full = Array.from({ length: 20 }, (_, i) => ({ rule: 'return_home', at: now - 50_000 - i * 60_000 }))
+  assert.equal(ask({ history: full, now }), null, '20 in the last hour')
+  assert.ok(ask({ history: full.map(h => ({ ...h, at: h.at - 3_600_000 })), now }), 'an hour later the budget is back')
+})
+test('MUTANT KILLED: without the budget a remedy every veto would be queued', async () => {
+  await withMutant(VR_PATH, '  if (!remedyBudgetOk({ cfg, rule: out.rule, history, now })) return null\n', '', async M => {
+    assert.equal(M.vetoRemedy({ cfg: M.vetoRemedyConfig({}), trigger: 'idle', milestoneId: 'return#1', proposal: GOTO_UP, rejection: UNREACH, memoryRefuses: free, history: [{ rule: 'return_home', at: 999 }], now: 1000 })?.skill, 'home')
+  })
+})
 test('TAKE: the queued remedy is used only on an idle tick, inside its TTL, on the same rung', () => {
   const order = { skill: 'home', args: {}, remedy: true }
   const pending = { order, at: 1000, milestoneId: 'return#12' }
@@ -178,6 +193,11 @@ test('LOOP RETURN_HOME: model calls do not rise -- with the remedy at most as ma
   const on = await driveReturn(COG), offR = await driveReturn(COG, { remedy: VR.vetoRemedyConfig({ VETOREMEDY: '0' }) })
   const n = s => (s.match(/c/g) ?? []).length
   assert.ok(n(on.seq) <= n(offR.seq), `calls on ${n(on.seq)} (${on.seq}) vs off ${n(offR.seq)} (${offR.seq})`)
+})
+test('LOOP RETURN_HOME: a SUCCEEDING home is still budgeted -- one remedy per 45 s, the vetoes in between take the old path', async () => {
+  const r = await driveReturn((await import('../src/cognitive.mjs')), { ms: 1500 })
+  assert.equal((r.seq.match(/h/g) ?? []).length, 1, r.seq)
+  assert.ok((r.seq.match(/c/g) ?? []).length >= 2, r.seq)
 })
 test('LOOP RETURN_HOME: a failing home is not re-issued while it cools down (the gate memory), so the loop cannot spin', async () => {
   const r = await driveReturn((await import('../src/cognitive.mjs')), { homeStatus: 'failed', ms: 1500 })

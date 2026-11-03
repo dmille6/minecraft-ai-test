@@ -36,6 +36,11 @@
 export const REMEDY_RULES = Object.freeze(['return_home', 'deposit_all'])
 export const REMEDY_TTL_MS = 5_000
 export const REMEDY_DELAY_MS = 250
+// THE EXPOSURE BUDGET (Codex design: `home` succeeds 347 of 912 times and a failed climb is exposure): one remedy of a rule per
+// REMEDY_MIN_GAP_MS and at most REMEDY_MAX_PER_HOUR per rule, whatever the gate's memory says. The vetoes in between take the
+// old path (cooldown, then the model).
+export const REMEDY_MIN_GAP_MS = 45_000
+export const REMEDY_MAX_PER_HOUR = 20
 
 const off = v => v === '0' || v === 'false' || v === 'off'
 
@@ -47,7 +52,16 @@ export function vetoRemedyConfig (env = process.env) {
     rules: new Set(rules ? rules.split(',').map(s => s.trim()).filter(Boolean) : REMEDY_RULES),
     ttlMs: REMEDY_TTL_MS,
     delayMs: REMEDY_DELAY_MS,
+    minGapMs: REMEDY_MIN_GAP_MS,
+    maxPerHour: REMEDY_MAX_PER_HOUR,
   }
+}
+
+/** PURE. The budget: may `rule` be used at `now`, given `history` = [{ rule, at }] of remedies already queued? */
+export function remedyBudgetOk ({ cfg, rule, history, now }) {
+  const mine = (history ?? []).filter(h => h?.rule === rule && now - h.at < 3_600_000)
+  if (mine.length >= (cfg?.maxPerHour ?? REMEDY_MAX_PER_HOUR)) return false
+  return !mine.some(h => now - h.at < (cfg?.minGapMs ?? REMEDY_MIN_GAP_MS))
 }
 
 /** The rung family: `return#1232` -> `return`. A prerequisite override (`return#1232+prereq`) is NOT the rung: the prerequisite
@@ -65,7 +79,7 @@ const WILDCARD = new Set(['', 'none', 'null', 'any', 'all', 'everything', 'items
  * `memoryRefuses(skill, args)` is the admission gate's read-only memory check (admission.mjs); a remedy it refuses is not
  * queued (the model, or the next remedy, takes the turn instead of a refused order).
  */
-export function vetoRemedy ({ cfg, trigger, milestoneId, proposal, rejection, fromOrder = false, memoryRefuses }) {
+export function vetoRemedy ({ cfg, trigger, milestoneId, proposal, rejection, fromOrder = false, memoryRefuses, history = [], now = Date.now() }) {
   if (!cfg?.on || fromOrder || trigger !== 'idle' || !rejection?.reason || !proposal?.skill) return null
   const rung = rungOf(milestoneId)
   let out = null
@@ -76,6 +90,7 @@ export function vetoRemedy ({ cfg, trigger, milestoneId, proposal, rejection, fr
     out = { skill: 'deposit', args: {}, rule: 'deposit_all' }
   }
   if (!out) return null
+  if (!remedyBudgetOk({ cfg, rule: out.rule, history, now })) return null
   let refused = 'unknown'
   try { refused = memoryRefuses?.(out.skill, out.args) ?? null } catch { refused = 'unknown' }
   if (refused) return null
