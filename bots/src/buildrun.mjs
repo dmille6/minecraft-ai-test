@@ -414,6 +414,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // obstacle to the visit's walk (default: the light only)
   const useOf = c => (p.useFor ? p.useFor(c) : p.use) ?? null
   const openRole = p.openRole ?? (r => r === 'light')
+  // townterrace-01 (`p.intoWater`, the owner's 11-01 water rule): a record cell holding WATER is open to a placement too (an
+  // embankment, a dam: the block replaces the water); never lava, never a waterlogged block
+  const isClear = at => { const b = rd(...at); return !!b && (nm(b) === 'air' || replaceableCell(b) || (!!p.intoWater && /^(water|bubble_column)$/.test(nm(b)))) }
   const isDone = (c, r = rd) => cellDone(r(...c.at), palette, c.role) || (!!alsoDone && alsoDone(c, r))
   // A LAYERED BUILD (p.blockLayer, monument-01): a stand is never an open cell of ANY segment at the heights this segment builds --
   // two builders on one layer otherwise stood in each other's open cells (the fake server: both `body` until attempts_spent)
@@ -482,7 +485,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       try {
         const why = PJ.fenceRefusal(dir, key, me, { slot: p.slot, slotGen, seg, segGen, recordGen: p.recordGen, beatConn: p.beat ? conn : null, now: now() })
         if (why) { cancel(); return `fence:${why}` }
-        if (!replaceableCell(rd(...cell)) && nm(rd(...cell)) !== 'air') { cancel(); return 'refused' }
+        if (!isClear(cell)) { cancel(); return 'refused' }   // (isClear: air, a replaceable plant, or -- p.intoWater -- water)
         e.send(here.support, here.face, seq)   // SYNCHRONOUS after the fence: no await between them
         const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
         release()
@@ -770,7 +773,6 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // ---- 2. clears, low before high; logs only once every replant reads planted ---------------------------------------------------
   // Re-run after every segment that completes: a log no ground stand reaches comes down once the pad gives it an eye
   const replanted = () => (record.replant ?? []).every(r => r.state === 'skipped' || SAPLING.test(nm(rd(...r.cell))))
-  const isClear = at => { const b = rd(...at); return !!b && (nm(b) === 'air' || replaceableCell(b)) }
   const clears = async () => {
     // ONLY THE BLOCK THE RECORD NAMES THERE: a cell already built into (the pad laid over a felled trunk's cell) is never dug;
     // an UNKNOWN cell is asked again first. AND NEVER A RECORD CELL THAT READS DONE (Paper 10-25 SHOP-TERRAIN board-a: a town's
@@ -808,6 +810,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // a TIDY entry evaluated here (a stand looked for) is reported (out.tidied): the caller's per-cell bound counts only these
         // (Codex zigtidy r1: counted at the list, a deadline or the clear bound spent untouched pillars' visits)
         if (c.kind === 'tidy') (out.tidied ??= []).push(kOf(c.at))
+        // townterrace-01 (`p.tidyOk(cut, read)`, the owner's 11-01 water rule): a tidy cut is dug only when the world NOW lets it out --
+        // no water beside it at its height (its dams are in) -- re-read at the dig; else it waits (counted toward its give-up above)
+        if (c.kind === 'tidy' && p.tidyOk && !p.tidyOk(c, rd)) { (out.tidyWet ??= []).push(kOf(c.at)); continue }
         if (!digStand(rd, c.at, nodes)) continue                    // no stand reaches it now: nothing tried, nothing counted
         const g = guard(); if (g) return g
         tried++

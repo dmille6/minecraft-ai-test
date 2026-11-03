@@ -36,7 +36,7 @@
 // (skills.mjs tidyInputs); siteTerrace adds the land plan's corridors; the visit re-checks every one at work time (skills.mjs
 // buildTidy `terraceGuardNow`).
 
-import { tidyColumn, gradeLim, tidyRecord, replantCells, tidyOverlay, TIDY, TIDY_BLUEPRINT, TIDY_PLOT, TIDY_BUILDERS, REPLANT_AIR } from './tidy.mjs'
+import { tidyColumn, gradeLim, tidyRecord, replantCells, tidyOverlay, TIDY, TIDY_BLUEPRINT, TIDY_PLOT, TIDY_BUILDERS, REPLANT_AIR, cutWater, fillIntoOk, waterColumn } from './tidy.mjs'
 import { isLiquid, replaceableCell } from './townplan.mjs'
 import { rng, corridorAt } from './landplan.mjs'
 import { haveOf, hasHoe, PARK_USE_ROLES, PARK_PLACE_ROLES, TILL_RE, SOIL_RE } from './park.mjs'
@@ -233,7 +233,7 @@ export function lip (keys, v, nb, dir) {
  *   levels       terraceLevels;  felled Set "x,y,z" of the logs this stage fells (read as air)
  *   farm(x, z)   within T.farmGuard of farmland (never touched)
  */
-export function gradeTerraces (read, box, { home, avoid = () => null, cells = new Set(), levels = [], felled = new Set(), farm = () => false, alpha = 0.5, keep = null, T = TERRACE } = {}) {
+export function gradeTerraces (read, box, { home, avoid = () => null, cells = new Set(), levels = [], felled = new Set(), farm = () => false, alpha = 0.5, keep = null, water = 'strict', T = TERRACE } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   const yHi = home.y + T.dy, yLo = home.y - T.dy
@@ -241,8 +241,11 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
   const memo = new Map()
   const col = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, tidyColumn(rd, x, z, { yHi, yLo })); return memo.get(k) }
   const ground = c => !!c && !c.why && c.y != null
-  const lim = gradeLim(read, Math.max(T.maxCut, T.maxFill))
+  const lim = gradeLim(read, Math.max(T.maxCut, T.maxFill), water)
   const wet = (x, y, z) => { for (const [dx, dz] of N8) for (let dy = -1; dy <= 1; dy++) if (wetBlock(read(x + dx, y + dy, z + dz))) return true; return wetBlock(read(x, y + 1, z)) }
+  // the owner's 11-01 water rule (tidy.mjs cutWater): a cut beside water dams it first; a dam or a fill into water only where the
+  // stage may touch the column (never a refusal, never the farm's irrigation, never a record cell)
+  const mayDam = (x, y, z) => !avoid(x, z) && !farm(x, z) && !cells.has(k3(x, y, z))
   const free = new Set(), g = new Map()
   for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
     const c = col(x, z)
@@ -250,6 +253,19 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
     if (avoid(x, z)) { skip('col_guarded'); continue }
     if (farm(x, z)) { skip('col_farm'); continue }
     free.add(k2(x, z)); g.set(k2(x, z), c.y)
+  }
+  // THE WATER'S EDGE (11-01 rule): an open-water column 4-beside free ground (a pond's or a stream's edge ring, at most maxFill deep)
+  // is free too, its ground its bed: graded, it is an EMBANKMENT -- the terrace's edge filled into the water
+  if (water !== 'strict') {
+    const edge = []
+    for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
+      const c = col(x, z)
+      if (c?.why !== 'water' || avoid(x, z) || farm(x, z)) continue
+      if (!N4.some(([dx, dz]) => free.has(k2(x + dx, z + dz)))) continue
+      const wc = waterColumn(rd, x, z, { yHi, yLo, depth: T.maxFill })
+      if (wc) edge.push([x, z, wc.bed])
+    }
+    for (const [x, z, bed] of edge) { free.add(k2(x, z)); g.set(k2(x, z), bed); memo.set(k2(x, z), { y: bed, name: 'water_bed', why: null, tree: false }); skip('col_water_edge') }
   }
   const nbIn = set => k => { const [x, z] = k.split(',').map(Number); const out = []; for (const [dx, dz] of N4) { const n = k2(x + dx, z + dz); if (set.has(n)) out.push(n) } return out }
   const nbFree = nbIn(free)
@@ -279,7 +295,7 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
   // `keep`: columns the caller keeps (the walk guard's: a column a grading turned stuck-prone)
   const kept = new Set([...(keep ?? [])].filter(k => free.has(k)))
   if (kept.size) skipped.walk_kept = kept.size
-  let H = new Map(), work = new Map(), seals = []
+  let H = new Map(), work = new Map(), seals = [], dams = []
   for (let it = 0; it < T.iters; it++) {
     const keys = [...free].filter(k => !kept.has(k))
     const ks = new Set(keys), nb = nbIn(ks)
@@ -314,7 +330,7 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
     work = new Map()
     for (const k of keys) {
       const [x, z] = k.split(',').map(Number)
-      const r = columnWork(rd, x, z, g.get(k), H.get(k), { cells, lim, wet, T })
+      const r = columnWork(rd, x, z, g.get(k), H.get(k), { cells, lim, wet, water, mayDam, T })
       if (r.why) { kept.add(k); skip(r.why); newly++; continue }
       work.set(k, r)
     }
@@ -350,6 +366,12 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
       for (const s of [...add, ...w.floor]) { const sk = s.at.join(','); if (!sealK.has(sk)) { sealK.add(sk); seals.push(s) } }
     }
     if (newly) continue
+    // the dams the cuts need (a dam in a column this grading cuts at that height is no dam: a cut there removes it -- that column's own
+    // cut then dams its own water), and never a dam on another cut or fill cell of the grading
+    dams = []
+    const damK = new Set(), workK = new Set()
+    for (const w of work.values()) for (const c of [...w.cut, ...w.fill]) workK.add(c.at.join(','))
+    for (const w of work.values()) for (const d of w.dams) { const dk = d.join(','); if (!damK.has(dk) && !workK.has(dk)) { damK.add(dk); dams.push({ at: d }) } }
     // a worked column stepping more than 1 to a neighbour -- worse than today's step there -- is kept and the grading solved again
     for (const k of work.keys()) {
       const [x, z] = k.split(',').map(Number)
@@ -384,14 +406,17 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
   for (const [, w] of [...work].sort()) { cut.push(...w.cut); for (const f of w.fill) { fillK.add(f.at.join(',')); fill.push(f) } clearLeaves.push(...w.leaves) }
   // a seal whose column or opener column was kept by the check is dropped; a cell that is also a fill stays the fill
   const seal = seals.filter(s => work.has(k2(s.opener[0], s.opener[2])) && !fillK.has(s.at.join(',')))
+  // a dam whose cut column was kept by the check is dropped with it
+  const cutCols = new Set(cut.map(c => k2(c.at[0], c.at[2])))
+  const dam = dams.filter(d => N4.some(([dx, dz]) => cutCols.has(k2(d.at[0] + dx, d.at[2] + dz))) && !fillK.has(d.at.join(',')))
   const finalH = new Map()
   for (const k of free) finalH.set(k, work.has(k) ? H.get(k) : g.get(k))
-  return { H: finalH, g, kept, worked: new Set(work.keys()), cut, fill, seal, clearLeaves, levels, alpha, skipped, free }
+  return { H: finalH, g, kept, worked: new Set(work.keys()), cut, fill, seal, dam, clearLeaves, levels, alpha, skipped, free }
 }
 
 /** ONE COLUMN'S EARTHWORK from its ground g0 to h -> { cut, fill, floor, leaves, why }. Pure. `rd` reads the felled logs as air. */
-function columnWork (rd, x, z, g0, h, { cells, lim, wet, T }) {
-  const out = { cut: [], fill: [], floor: [], leaves: [], why: null }
+function columnWork (rd, x, z, g0, h, { cells, lim, wet, water = 'strict', mayDam = () => false, T }) {
+  const out = { cut: [], fill: [], floor: [], leaves: [], dams: [], why: null }
   if (h === g0) return out
   if (h > g0) {
     if (h - g0 > T.maxFill) { out.why = 'fill_deep'; return out }
@@ -399,7 +424,8 @@ function columnWork (rd, x, z, g0, h, { cells, lim, wet, T }) {
       const b = rd(x, y, z), n = nm(b)
       if (!b) { out.why = 'fill_unread'; return out }
       if (cells.has(k3(x, y, z))) { out.why = 'fill_guarded'; return out }
-      if (wetBlock(b)) { out.why = 'fill_wet'; return out }
+      // the 11-01 rule: a fill may go into water (an embankment), never into lava or a waterlogged block
+      if (wetBlock(b) && !(water !== 'strict' && fillIntoOk(b, water) && mayDam(x, y, z))) { out.why = 'fill_wet'; return out }
       if (LEAVES_RE.test(n)) out.leaves.push({ at: [x, y, z], kind: 'leaves', name: n })
       else if (!(AIRN(n) || replaceableCell(b))) { out.why = 'fill_blocked'; return out }
       out.fill.push({ at: [x, y, z] })
@@ -415,7 +441,12 @@ function columnWork (rd, x, z, g0, h, { cells, lim, wet, T }) {
     if (cells.has(k3(x, y, z))) { out.why = 'cut_guarded'; return out }
     if (AIRN(n) || replaceableCell(b)) continue                  // an air pocket inside the cut: nothing to dig there
     if (!lim.cut.test(n)) { out.why = 'cut_blocked'; return out }
-    if (wet(x, y, z)) { out.why = 'cut_wet'; return out }
+    if (water === 'strict') { if (wet(x, y, z)) { out.why = 'cut_wet'; return out } } else {
+      // the 11-01 rule: the water beside the cell is dammed first (the visit digs the cut only once no water is beside it)
+      const cw = cutWater(rd, x, y, z, { water, mayDam })
+      if (!cw.ok) { out.why = cw.why; return out }
+      out.dams.push(...cw.dams)
+    }
     out.cut.push({ at: [x, y, z], name: n })
   }
   // the floor at h must be ground: an air floor (a cave under the cut level) is filled up from the first solid below
@@ -682,7 +713,7 @@ export function parkLayout (read, pbox, { seed = 0, top, orig, soilTop, have = {
  *   walkFrom           the town's edge (tidy.mjs townEdge): a grading that leaves fewer columns inside walkable-and-back from it, or
  *                      more stuck-prone ones, is not taken (every blend refused: no grading at all; the trees and the park stay)
  */
-export async function siteTerrace (read, { home, plan = null, land = null, avoid = () => null, cells = new Set(), records = [], wall = null, caps = [], have = {}, walkFrom = null, seed = null, now = Date.now(), pause = null, T = TERRACE } = {}) {
+export async function siteTerrace (read, { home, plan = null, land = null, avoid = () => null, cells = new Set(), records = [], wall = null, caps = [], have = {}, walkFrom = null, seed = null, now = Date.now(), pause = null, water = 'strict', T = TERRACE } = {}) {
   if (!home) return { ok: false, why: 'no_home', record: null }
   const box = wallInterior(wall, home)
   const road = corridorAt(land)
@@ -719,10 +750,10 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
     let gr = null, walk1 = null, worse = false
     for (let round = 0; round <= T.walkRounds; round++) {
       if (pause) await pause()
-      gr = gradeTerraces(read, box, { home, avoid: guard, cells, levels, felled, farm, alpha, keep, T })
+      gr = gradeTerraces(read, box, { home, avoid: guard, cells, levels, felled, farm, alpha, keep, water, T })
       if (process.env.TERRACE_PROFILE) console.error('grade', alpha, round, Date.now() - now)
       if (pause) await pause()
-      walk1 = walkFrom ? terraceWalk(tidyOverlay(read, { cut: gr.cut, clear: [...fellRec.clear, ...gr.clearLeaves], cells: [...gr.fill, ...gr.seal] }, 'dirt'), box, home, walkFrom) : null
+      walk1 = walkFrom ? terraceWalk(tidyOverlay(read, { cut: gr.cut, clear: [...fellRec.clear, ...gr.clearLeaves], cells: [...gr.fill, ...gr.seal, ...gr.dam] }, 'dirt'), box, home, walkFrom) : null
       if (!walk0 || !walk1) break
       const fresh = [...walk1.trapSet].filter(k => !walk0.trapSet.has(k))
       worse = walk1.back < walk0.back || walk1.traps > walk0.traps
@@ -734,7 +765,7 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
       }
       if (keep.size === n0) break
     }
-    const fillN = gr.fill.length + gr.seal.length
+    const fillN = gr.fill.length + gr.seal.length + gr.dam.length
     tried.push({ alpha, cut: gr.cut.length, fill: fillN, worse, kept: keep.size, ...(walk1 ? { back: walk1.back, traps: walk1.traps } : {}) })
     if (worse) continue
     const bal = Math.abs(gr.cut.length - fillN), size = gr.cut.length + fillN
@@ -744,8 +775,8 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
   let gr = best?.gr ?? null
   if (!gr) {
     skipped.terrace_walk_worse = T.alphas.length
-    const g0 = gradeTerraces(read, box, { home, avoid: guard, cells, levels, felled, farm, alpha: 0.5, T })
-    gr = { ...g0, cut: [], fill: [], seal: [], clearLeaves: [], H: new Map(g0.g), worked: new Set(), kept: new Set(g0.free) }
+    const g0 = gradeTerraces(read, box, { home, avoid: guard, cells, levels, felled, farm, alpha: 0.5, water, T })
+    gr = { ...g0, cut: [], fill: [], seal: [], dam: [], clearLeaves: [], H: new Map(g0.g), worked: new Set(), kept: new Set(g0.free) }
   }
   for (const [k, v] of Object.entries(gr.skipped ?? {})) skipped[k] = (skipped[k] ?? 0) + v
   // THE PARK on the graded ground (in the land plan's place when it has one)
@@ -762,7 +793,7 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
   // a park cell in a column the stage may not touch now (a park from the land plan, a project sited since) is dropped
   // Claude r1 BLOCKER: never a park cell on one of the stage's own cuts (a cut column's H+1 is its lowest cut: the cut would never be
   // dug under a record cell, and the stage would never complete)
-  const cutK = new Set(gr.cut.map(c => c.at.join(',')))
+  const cutK = new Set([...gr.cut, ...gr.dam].map(c => c.at.join(',')))
   if (park) park.cells = park.cells.filter(c => !guard(c.at[0], c.at[2]) && !cells.has(c.at.join(',')) && !cutK.has(c.at.join(',')))
   if (park) park.trees = park.trees.filter(t => park.cells.some(c => c.at.join(',') === t.join(',')))
   // THE RECORD: tidy-01's (tidyRecord: layered fills, top-first cuts, the leaves' clears), then the trees, the seals, the park
@@ -786,6 +817,11 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
   tr.trees.forEach((t, i) => { for (const l of t.logs) if (!clearK.has(l.at.join(','))) { clearK.add(l.at.join(',')); record.clear.push({ at: l.at, kind: 'tree', name: l.name, tree: i }) } })
   record.clear.sort((a, b) => a.at[1] - b.at[1])
   record.replant = replant
+  // the dams (owner 11-01 rule: a cut beside water waits for them -- the visit's dig-time check): placed into the water, cobblestone
+  if (gr.dam.length) {
+    record.segments.unshift({ seg: 'T-D', deps: [] })
+    for (const c of gr.dam) record.cells.push({ at: c.at, role: 'core', seg: 'T-D', dam: true })
+  }
   if (gr.seal.length) {
     record.segments.push({ seg: 'T-S', deps: [] })
     for (const c of gr.seal) record.cells.push({ at: c.at, role: 'core', seg: 'T-S', opener: c.opener })
@@ -806,7 +842,7 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
   record.stageId = TERRACE_STAGE
   record.terrace = {
     box, levels, floors: floors.map(f => `${f.why}:${f.y}`), alpha: best ? gr.alpha : null, tried,
-    cut: gr.cut.length, fill: gr.fill.length, seal: gr.seal.length, net: gr.cut.length - gr.fill.length - gr.seal.length,
+    cut: gr.cut.length, fill: gr.fill.length, seal: gr.seal.length, dam: gr.dam.length, water, net: gr.cut.length - gr.fill.length - gr.seal.length - gr.dam.length,
     columns: gr.free.size, worked: gr.worked.size, kept: gr.kept.size, trees: tr.trees.length, logs: felled.size, replant: replant.length, skipped,
     walk: walk0 ? { before: pickWalk(walk0), after: best?.walk1 ? pickWalk(best.walk1) : null } : null,
   }

@@ -145,7 +145,7 @@ import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted 
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, landStages } from './landplan.mjs'   // groundskeeper-01
 import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
-import { legacyStage, stageCarry } from './tidy.mjs'   // townterrace-01
+import { legacyStage, stageCarry, tidyWater, cutSafeNow } from './tidy.mjs'   // townterrace-01
 import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from './park.mjs'   // townterrace-01: the park
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -19995,6 +19995,9 @@ async function buildTidy (ctx, args, signal) {
     const r = await runVisit({ dir, key, me, home, stood, record: recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q) || !!skipV(q), stuckStalledOnly: true,
       ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true } : {}),
+      // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
+      // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)
+      ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) } : {}),
       ...(isTerrace ? { useFor: q => (q.role === 'till' ? hoeUse : q.role === 'meadow' ? mealUse : null), openRole: role => OPEN_ROLES.has(role) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts)
     const read2 = tidyRead(bot)
