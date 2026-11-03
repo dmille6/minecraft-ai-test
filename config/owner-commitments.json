@@ -48,7 +48,10 @@
   "ts-on-*": "townsearch-02 dev-base variants (10-17); townsearch-02 KEEP + promoted 10-19",
   "found2-on-*": "found-01 r11 record/review commits (no bot code); found-01 KEEP + promoted 10-24",
   "towniron-*": "towniron-01 r2-r6 + record + sandbox variants (10-23..10-24); never queued; ledger row dropped 11-03 as superseded (kitmulti-01 / ironsmelt-01 / toolkit; kit_no_iron 55 of 1,408 in 24 h)",
-  "furnaceseen-*": "furnaceseen-01 variants (10-23..10-31); r6 shipped inside zigfleet-02 (KEEP + promoted 11-01 01:02Z, 2717bc1c); ledger row done 11-03"
+  "furnaceseen-*": "furnaceseen-01 variants (10-23..10-31); r6 shipped inside zigfleet-02 (KEEP + promoted 11-01 01:02Z, 2717bc1c); ledger row done 11-03",
+  "showcase-*-on-*": "showcase fold/restack branches (named <x>-on-<sha> but never canaries): released through the showcase ops journal; 11-03: showcase-gk2-on-e54d1cce = release dc617030, showcase-yard2-on-e54d1cce = c2a0de4f, showcase-shaft-on-259a36f3 = adbf9e41; showcase-gk-/showcase-yard-gk-on-e54d1cce superseded by gk2/yard2",
+  "copperrun-on-*": "copperrun-01 showcase piece; folded into showcase-gk2-on-e54d1cce (its tip dc617030 is copperrun-01), live 11-03 04:15Z",
+  "townterrace-on-*": "townterrace-01 showcase piece; folded into showcase-shaft-on-259a36f3 (release adbf9e41, live 11-03 07:50:54Z); row townterrace-1103"
  },
  "items": [
   {
@@ -92,7 +95,7 @@
    ],
    "kind": "canary",
    "lane": "survival",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
    "next_step": "Build tombexit-01 from docs/reports/mineshaft-safety-2026-10-23.md F2 on the fleet tip 281d5659 (tier 3: two engines + Paper), queue it as the next SURVIVAL entry",
    "max_quiet_hours": 24,
@@ -104,7 +107,11 @@
      "tombexit"
     ]
    },
-   "note": "AUDIT 10-31: never started (owner order lavastep -> tombexit was the next survival item since 10-25). grep 'tombexit' already matches only the 10-23 design merge d38d7726; branch has no match yet."
+   "note": "AUDIT 10-31: never started (owner order lavastep -> tombexit was the next survival item since 10-25). grep 'tombexit' already matches only the 10-23 design merge d38d7726; branch has no match yet.",
+   "done": {
+    "when": "2026-11-01T04:53:02Z",
+    "evidence": "journal tombexit-01 KEEP 2026-11-01T04:43:11Z, promoted 04:53:02Z 1a0f9ddf"
+   }
   },
   {
    "id": "mine-safety-lavatarget",
@@ -115,7 +122,7 @@
    ],
    "kind": "canary",
    "lane": "survival",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
    "next_step": "Build lavatarget-01 (F5a, tier 2 by design) after tombexit-01; showcase/Paper evidence, queue in the survival stream",
    "max_quiet_hours": 48,
@@ -132,7 +139,11 @@
      "lavatarget"
     ]
    },
-   "note": "AUDIT 10-31: never started. grep 'lavatarget' only matches the design merge d38d7726."
+   "note": "AUDIT 10-31: never started. grep 'lavatarget' only matches the design merge d38d7726.",
+   "done": {
+    "when": "2026-11-01T12:34:48Z",
+    "evidence": "journal lavatarget-01 KEEP 2026-11-01T12:24:56Z, promoted 12:34:48Z dfb3ff13"
+   }
   },
   {
    "id": "mine-safety-minelava",
@@ -206,7 +217,7 @@
    ],
    "kind": "canary",
    "lane": "survival",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
    "next_step": "deepminer-01 canary (tier 3; Codex + Claude APPROVE; Paper diamond/hazard/blocked/iron ok) queued as PROGRESS after stuckcells-01 (ahead of the held servea-01) with a set-patch on 963e99af (the v39 autorebase stacks it on the live tip); read +90/+180 generic + _deepmine end=stranded / op=error / deaths below y=0 / two holders of one lease; goal check: a _deepmine end=home with found>0 and a diamond_pickaxe in a canary bag. Draw needs towns with a finished stair (11 of 16; the 5 without: board-c, hive-a, hive-c, hive-d, placebo-a): if both drawn pools lack one, close INCONCLUSIVE early and re-queue.",
    "max_quiet_hours": 48,
@@ -236,7 +247,11 @@
      "bots/src/deepmine.mjs"
     ]
    },
-   "note": "AUDIT 10-31: never started; grep matches only design merge d38d7726. Diamonds wait on this. | 11-01 (control-session subagent): built deepminer-01 (docs/reports/deepminer-2026-11-01.md). Shaft use 24 h: 11 finished stairs; 131/1,163 descents arrived (852 refused on dirt-blocked steps), 38/~711 ascents, 0 diamonds fleet-wide."
+   "note": "AUDIT 10-31: never started; grep matches only design merge d38d7726. Diamonds wait on this. | 11-01 (control-session subagent): built deepminer-01 (docs/reports/deepminer-2026-11-01.md). Shaft use 24 h: 11 finished stairs; 131/1,163 descents arrived (852 refused on dirt-blocked steps), 38/~711 ascents, 0 diamonds fleet-wide.",
+   "done": {
+    "when": "2026-11-03T06:09:58Z",
+    "evidence": "journal deepminer-01 KEEP 2026-11-03T06:00:15Z, promoted 06:09:58Z 259a36f3; bots/src/deepmine.mjs on the fleet"
+   }
   },
   {
    "id": "mine-safety-inwall",
@@ -474,7 +489,7 @@
    ],
    "kind": "canary",
    "lane": "survival",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
    "next_step": "Release escapeguard-01 (variants dd6fc353 / a11ffbb8) once the 24 h qwen35 move's install-hold clears (~2026-11-01T03:11Z); after the fleet KEEP re-stack showcase piece 3b3bdeca on the live showcase release",
    "max_quiet_hours": 24,
@@ -500,7 +515,11 @@
      "bots/src/escapeguard.mjs"
     ]
    },
-   "note": "Owner chose B 10-31 (one-off restore of 3 S4 blocks); the guard itself was decided under autonomy-1031. Queue entry ready, HELD."
+   "note": "Owner chose B 10-31 (one-off restore of 3 S4 blocks); the guard itself was decided under autonomy-1031. Queue entry ready, HELD.",
+   "done": {
+    "when": "2026-10-31T21:45:15Z",
+    "evidence": "journal escapeguard-01 KEEP 2026-10-31T21:35:24Z, promoted 21:45:15Z a11ffbb8; fleet 53fd28ee escapeguard.mjs == main; showcase follows via the 4c92880a restack (fleet c711879e protected tree)"
+   }
   },
   {
    "id": "survival-lane-feed",
@@ -514,20 +533,24 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "Put a built survival entry behind every progress entry (next: escapeguard-01, then tombexit-01); if none is built, start the build the same session",
+   "next_step": "swimcentre-01 is the queued SURVIVAL entry (after bagdiet-01). Next survival item after it is NOT built: drop-and-dig (swimcentre-01-1103 memory) or minelava-01 (row mine-safety-minelava) -- start that build now",
    "max_quiet_hours": 24,
-   "depends_on": [
-    {
-     "item": "mine-safety-tombexit"
-    }
-   ],
+   "depends_on": [],
    "evidence": {
     "grep": [
      "survival stream",
      "P,S"
+    ],
+    "runs": [
+     "swimcentre-01",
+     "apseal-01",
+     "airpocketwin-01",
+     "lavatarget-01",
+     "tombexit-01",
+     "escapeguard-01"
     ]
    },
-   "note": "AUDIT 10-31: survival stream empty for 3 days (after respawnfall-01 10-28). Process item: no commits expected (greps match nothing by design); evidence is the queue order itself."
+   "note": "AUDIT 10-31: survival stream empty for 3 days (after respawnfall-01 10-28). Process item: no commits expected (greps match nothing by design); evidence is the queue order itself. | stall triage 11-03 ~21Z: next_step named escapeguard-01/tombexit-01 (both KEPT 10-31/11-01); evidence now = the survival runs themselves"
   },
   {
    "id": "furnaceseen-01",
@@ -602,9 +625,9 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "open",
+   "state": "parked",
    "owner": "control session",
-   "next_step": "Rebuild: merge tf-on-5e66386 (da99ec95) onto the fleet tip 281d5659, review per protected.py tier, npm test, new registration, canary-sched replace-variant townfloor-01, release",
+   "next_step": "On the owner answer: rebuild = merge tf-on-5e66386 (da99ec95) onto the fleet tip, review per protected.py tier, npm test, replace-variant townfloor-01, release; drop = canary-sched.py cancel townfloor-01, row dropped",
    "max_quiet_hours": 48,
    "depends_on": [
     {
@@ -624,7 +647,12 @@
      "townfloor"
     ]
    },
-   "note": "AUDIT 10-31: parked on a dead variant (keyed 3b1ae8bb) although townzone-01 KEPT 10-16 04:52Z. Design docs/reports/townfloor-2026-10-14.md. Tier 3 (big behaviour per owner 10-19)."
+   "note": "AUDIT 10-31: parked on a dead variant (keyed 3b1ae8bb) although townzone-01 KEPT 10-16 04:52Z. Design docs/reports/townfloor-2026-10-14.md. Tier 3 (big behaviour per owner 10-19). | stall triage 11-03 ~21Z: parked (was open + quiet 71 h on a dead variant) with an owner question",
+   "parked": {
+    "until": "2026-11-10",
+    "why": "owner-approved 10-14 and NOT superseded: tidy-01 (surface pillars/pits/paths corridors) and the stockpile yard (cobble sink) cover part of it, but no fleet code fills the dug-out band under the towns (10 layers below the platform). Queue entry stays PARKED on its dead variant (3b1ae8bb); revival is a tier-3 rebuild of tf-on-5e66386 (da99ec95) onto the fleet tip"
+   },
+   "owner_pending": "townfloor-01 (fill the dug-out ground under the towns with surplus cobble): rebuild it now that tidy-01 + the stock yard ship, or drop it?"
   },
   {
    "id": "bamboo-03",
@@ -638,7 +666,7 @@
    "lane": "progress",
    "state": "parked",
    "owner": "control session",
-   "next_step": "At the weekly check: count exposable pools; if >= 4 (or 2-3 as tier 3) re-stack bb3 onto the fleet tip, drop shaft-01 from after, replace-variant",
+   "next_step": "On the owner answer: revive = re-stack bb3 onto the fleet tip, drop shaft-01 from after, replace-variant, then foldwatch-01; drop = canary-sched.py cancel bamboo-03 and foldwatch-01, rows dropped",
    "evidence": {
     "runs": [
      "bamboo-03"
@@ -651,10 +679,11 @@
     ]
    },
    "parked": {
-    "until": "2026-11-03",
-    "why": "owner 10-23 #7: parked at the back, exposable on 1 pool; re-check exposure weekly. Variants dead (adbec4f4/0b3a0d4c/6e1afb52) and after=shaft-01 (cancelled)"
+    "until": "2026-11-10",
+    "why": "owner 10-23 #7 (parked at the back, exposable on 1 pool) still stands and the code is NOT superseded (no bamboo fold on main or the fleet). Queue entry stays PARKED on dead variants; reviving it is a full re-stack onto the fleet tip. Owner asked 11-03: revive or drop (owner_pending on bamboo-03)"
    },
-   "note": "AUDIT 10-31: sat on dead variants + a cancelled dependency with no weekly check ever run."
+   "note": "AUDIT 10-31: sat on dead variants + a cancelled dependency with no weekly check ever run. | stall triage 11-03 ~21Z: re-parked to 11-10 with an owner question (park had expired 11-03)",
+   "owner_pending": "bamboo-03 + foldwatch-01 (bamboo folds into sticks, ~1 exposable pool): revive (full re-stack, tier per protected.py) or drop both?"
   },
   {
    "id": "foldwatch-01",
@@ -685,10 +714,11 @@
     ]
    },
    "parked": {
-    "until": "2026-11-03",
-    "why": "stacked on bamboo-03 (dead variants); revive only after bamboo-03 is rebuilt, KEPT and promoted"
+    "until": "2026-11-10",
+    "why": "owner 10-23 #7 (parked at the back, exposable on 1 pool) still stands and the code is NOT superseded (no bamboo fold on main or the fleet). Queue entry stays PARKED on dead variants; reviving it is a full re-stack after bamboo-03 is rebuilt, KEPT and promoted. Owner asked 11-03: revive or drop (owner_pending on bamboo-03)"
    },
-   "note": "AUDIT 10-31: parked on dead variants."
+   "note": "AUDIT 10-31: parked on dead variants. | stall triage 11-03 ~21Z: re-parked to 11-10 with bamboo-03",
+   "next_step": "Follows bamboo-03 (owner_pending there): revive after bamboo-03 is KEPT, or cancel with it"
   },
   {
    "id": "treefarm-03",
@@ -700,7 +730,7 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "parked",
+   "state": "dropped",
    "owner": "control session",
    "depends_on": [
     {
@@ -715,11 +745,11 @@
      "treefarm-03"
     ]
    },
-   "parked": {
-    "until": "2026-11-03",
-    "why": "dead variants; code superseded on main by treefarm-04. Cancel this entry once zigfleet-02 (carrying treefarm-04) is queued/rolled out"
+   "note": "AUDIT 10-31: parked on dead variants. treefarm-02 REVERTED 2026-10-19T15:53:58Z.",
+   "dropped": {
+    "why": "superseded: zigfleet-02 brought treefarm-04 to the fleet (KEEP + promoted 11-01 01:02Z 2717bc1c; fleet treefarm.mjs == main). Queue entry cancelled 11-03 ~21:05Z with canary-sched.py cancel (its own hold said cancel once a fleet tree-farm run exists)"
    },
-   "note": "AUDIT 10-31: parked on dead variants. treefarm-02 REVERTED 2026-10-19T15:53:58Z."
+   "next_step": ""
   },
   {
    "id": "towniron-01",
@@ -758,7 +788,7 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
    "next_step": "Push zigfleet02-on-281d566 (e2f526fc + 8f61571b switch), one review, queue as the next PROGRESS entry (or owner-direct tier 2), then cancel treefarm-03",
    "max_quiet_hours": 24,
@@ -775,7 +805,11 @@
      "bots/src/treefarm.mjs"
     ]
    },
-   "note": "AUDIT 10-31: showcase pieces on main (voidfill 476300a1, wallstuck af847e06, pathsclose 4bf776f4, treefarm-04 1fb323d0..b98c60e5) never reached the fleet; fleet 281d5659 lacks voidfill.mjs/treefarm.mjs and paths/wall are pool-gated. Work started 10-31 on local branches (not yet on origin)."
+   "note": "AUDIT 10-31: showcase pieces on main (voidfill 476300a1, wallstuck af847e06, pathsclose 4bf776f4, treefarm-04 1fb323d0..b98c60e5) never reached the fleet; fleet 281d5659 lacks voidfill.mjs/treefarm.mjs and paths/wall are pool-gated. Work started 10-31 on local branches (not yet on origin).",
+   "done": {
+    "when": "2026-11-01T01:02:41Z",
+    "evidence": "journal zigfleet-02 KEEP 2026-11-01T00:52:48Z, promoted 01:02:41Z 2717bc1c; fleet voidfill.mjs/treefarm.mjs/wall.mjs == main"
+   }
   },
   {
    "id": "showcase-ziggurat",
@@ -2070,7 +2104,7 @@
    ],
    "kind": "direct",
    "lane": "ops",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
    "next_step": "Watch stages (stage 1 applied 17:17Z); at +24 h run modelcompare -> ~/qwen35-rollout/compare-24h.md, then `modelrollout.py rollback --all` unless the owner keeps it; release the install-hold for escapeguard-01",
    "max_quiet_hours": 24,
@@ -2087,7 +2121,11 @@
      "scripts/host/modelrollout.py"
     ]
    },
-   "note": "Rollout started 2026-10-31T17:11:24Z, install-hold until 2026-11-01T03:11:24Z."
+   "note": "Rollout started 2026-10-31T17:11:24Z, install-hold until 2026-11-01T03:11:24Z.",
+   "done": {
+    "when": "2026-11-02T22:36:00Z",
+    "evidence": "~/qwen35-rollout/state.json status rolled-back (mandatory +24 h rollback PROVEN), report ~/qwen35-rollout/compare-24h.md 11-02 22:36Z; the 4B (serving-a-4b-rollout) is the serving direction since 11-02"
+   }
   },
   {
    "id": "qwen35-production-serving",
@@ -2597,7 +2635,7 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
    "next_step": "fewerdec-01 canary (PAUSEWAIT + VETOSKIP + CONTINUE, tier 3) queued after fleetbuild-01 with a set-patch; read at +90/+180: model calls/min/bot down >= ~15% vs control, items/bot-h and in-skill share not worse (in-skill expected up), decision_skipped + fewerdec_tally rows present on the canary pool",
    "max_quiet_hours": 48,
@@ -2624,7 +2662,11 @@
      "until": "closed"
     }
    ],
-   "note": "Owner 11-01 ~13:00Z chose A+D. Measured 11-01: 96.1 model calls/min fleet; 43.2% vetoed, 6.5% runner-paused; bot-time 27.8% in skills, 67.0% decision cooldown. Coordinator 13:45Z added 'continue instead of wait' (CONTINUE). Control session 11-01: cooldown15-01 (setting canary, 30 s -> 15 s cap) queued AHEAD of fewerdec-01; fewerdec's after = cooldown15-01."
+   "note": "Owner 11-01 ~13:00Z chose A+D. Measured 11-01: 96.1 model calls/min fleet; 43.2% vetoed, 6.5% runner-paused; bot-time 27.8% in skills, 67.0% decision cooldown. Coordinator 13:45Z added 'continue instead of wait' (CONTINUE). Control session 11-01: cooldown15-01 (setting canary, 30 s -> 15 s cap) queued AHEAD of fewerdec-01; fewerdec's after = cooldown15-01.",
+   "done": {
+    "when": "2026-11-02T19:57:22Z",
+    "evidence": "journal fewerdec-01 KEEP 2026-11-02T19:47:31Z, promoted 19:57:22Z 10aa0e1d; fleet fewerdec.mjs == main"
+   }
   },
   {
    "id": "town-ground-tidy",
@@ -2639,8 +2681,8 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "tidy-01 canary (tier 2, TIDY=off rollback) queued after fewerdec-01 with a set-patch; read at +90/+180: build project=tidy op=sited, fills/cuts placed, no deaths linked to tidy visits; then project=paths op=retry_now and a paths op=sited in a canary town (offline 8 of 16 towns route after one tidy, 1 before)",
-   "max_quiet_hours": 48,
+   "next_step": "tidy-01 SHIPPED (KEEP 11-02 15:37Z, promoted 15:47Z f1f5c16c). Open for the fleet tidy STUCK goal: placebo-b/tidy@282_65_-388 STUCK 24 h+ (last progress 11-02 20:25Z; visits end aborted why=interrupted) -- read the record and the aborted visits, fix (fleet follow-up) or offer the owner a one-off; then mark done",
+   "max_quiet_hours": 24,
    "evidence": {
     "runs": [
      "tidy-01"
@@ -2655,9 +2697,6 @@
     "paths": [
      "bots/src/tidy.mjs",
      "bots/scripts/tidy-offline.mjs"
-    ],
-    "fleet_paths": [
-     "bots/src/tidy.mjs"
     ]
    },
    "depends_on": [
@@ -2666,7 +2705,10 @@
      "until": "closed"
     }
    ],
-   "note": "Control session 11-01 (owner away, autonomy-1031): owner 10-13 wanted the town ground protected/repaired; townplan 10-20 build order lists a tidy-up chore. Measured on region copies of all 16 fleet towns: pillars+pits alone route 0 more towns (quarried ground, 3-8 steps, cobblestone uncuttable by the paths router) -> the tidy also grades the paths' corridors. Report docs/reports/tidy-01-2026-11-01.md."
+   "note": "Control session 11-01 (owner away, autonomy-1031): owner 10-13 wanted the town ground protected/repaired; townplan 10-20 build order lists a tidy-up chore. Measured on region copies of all 16 fleet towns: pillars+pits alone route 0 more towns (quarried ground, 3-8 steps, cobblestone uncuttable by the paths router) -> the tidy also grades the paths' corridors. Report docs/reports/tidy-01-2026-11-01.md. | stall triage 11-03 ~21Z: canary closed KEEP + promoted; fleet_paths removed (tidy.mjs on the fleet) and the row now owns goal:*/tidy@* (detector g had no owner for placebo-b)",
+   "covers_alarms": [
+    "goal:*/tidy@*"
+   ]
   },
   {
    "id": "showchat-01",
@@ -2935,7 +2977,7 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
    "next_step": "drainpick-01 (94a72905 on 963e99af, ONE commit, patch set for the v39 autorebase) queued after tidy-01; read at +90/+180: generic gate + own lines -- _withdraw_pick outcome=crafted_pick count and server-side stone_pickaxe gain, craft_failed share; furnace_drain orders/bot-h and stop=empty|unreachable share vs control; ledger phase=intent|close records present; showcase after promotion: unreachable drains at the 4 buried furnaces fall (~316 -> <= 80/day), workshop drains unaffected",
    "max_quiet_hours": 48,
@@ -2963,7 +3005,11 @@
      "until": "closed"
     }
    ],
-   "note": "OWNER 11-01 ~22:05Z 'lets sort out 1,2,3 with both claude and codex and get those fixed' (relayed by the coordinator); falls under owner 10-28 success-rate fixes. Tier 2 (not protected). Codex codex-exec blockers-only r1 CHANGE (load intent before the click) -> r2 APPROVE -> r3 APPROVE (unreachable memory delta); Claude independent subagent r1/r2/r3 APPROVE. Rollback: the base sha."
+   "note": "OWNER 11-01 ~22:05Z 'lets sort out 1,2,3 with both claude and codex and get those fixed' (relayed by the coordinator); falls under owner 10-28 success-rate fixes. Tier 2 (not protected). Codex codex-exec blockers-only r1 CHANGE (load intent before the click) -> r2 APPROVE -> r3 APPROVE (unreachable memory delta); Claude independent subagent r1/r2/r3 APPROVE. Rollback: the base sha.",
+   "done": {
+    "when": "2026-11-03T00:45:44Z",
+    "evidence": "journal drainpick-01 KEEP 2026-11-03T00:35:53Z, promoted 00:45:44Z e54d1cce"
+   }
   },
   {
    "id": "stuck-fleet-projects",
@@ -2976,7 +3022,7 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
    "next_step": "stuckcells-01 queued after tidy-01 (PROGRESS, set-patch f1f5c16c..stuckcells01-on-f1f5c16); read +90/+180: build op=waived rows, hive-d/isolated-b/board-d shop + board-a house1 + placebo-a ziggurat move, _shaft support rows; then fleet KEEP -> showcase restack",
    "max_quiet_hours": 24,
@@ -2992,7 +3038,11 @@
      "bots/src/stuckcells.mjs"
     ]
    },
-   "note": "OWNER 11-01 ~22:05Z 'lets sort out 1,2,3 with both claude and codex' (+ the mineshaft cases). Codex r2 APPROVE + Claude r2 APPROVE. Offline on region copies: 5/5 stuck building projects complete; placebo-a stair passes its cave landing; hive-a stair no_support does not reproduce offline (now logged). Report docs/reports/stuckcells-01-2026-11-01.md."
+   "note": "OWNER 11-01 ~22:05Z 'lets sort out 1,2,3 with both claude and codex' (+ the mineshaft cases). Codex r2 APPROVE + Claude r2 APPROVE. Offline on region copies: 5/5 stuck building projects complete; placebo-a stair passes its cave landing; hive-a stair no_support does not reproduce offline (now logged). Report docs/reports/stuckcells-01-2026-11-01.md.",
+   "done": {
+    "when": "2026-11-03T10:03:27Z",
+    "evidence": "journal stuckcells-01 KEEP 2026-11-03T09:53:35Z, promoted 10:03:27Z 5d862a8a; the remaining STUCK goals are owned by stuck-monument-house (monument/house) and town-ground-tidy (tidy)"
+   }
   },
   {
    "id": "showcase-mineshaft-deepminer",
@@ -3037,7 +3087,8 @@
    "owner_date": "2026-11-01",
    "memory": [
     "owner-serving-plan-1101.md",
-    "owner-learning-loop-1021.md"
+    "owner-learning-loop-1021.md",
+    "owner-capacity-rule-1102.md"
    ],
    "kind": "host",
    "lane": "ops",
@@ -3653,12 +3704,7 @@
    "owner": "control session",
    "next_step": "RELEASED 2026-11-03 18:38:32Z on the showcase as cbd2f51b-6dd0ded8-fdd64ead (fold branch showcase-gkpick-on-adbf9e41: gkhelpers a3fed85e + picker 63004aff + expwater cbd2f51b on adbf9e41; suite .30 393/399, the 6 base failures; Codex fold APPROVE at 63004aff and cbd2f51b); shopread main 7ce76849 installed 17:54Z (bak .bak-20261103T1754Z-gkpick); verified 10/10 bots; tripwire WATCH, H1-H8 0. Reads +60 min (~19:38Z, rollout.py auto) and +2 h (~20:38Z). PRIOR: BUILT with gkhelpers-01show (not released). Showcase offline: within 96 the only free flowers are none (all 11 are inside the protected village zone), 9 sugar cane (park box has no water -> no_water), 24k spruce leaves -> with shears a 14-cell hedge top-up; helpers' 16 spruce saplings -> a park tree. Flowers need another source (outside 96, or a flower biome) -- open question for the owner.",
    "max_quiet_hours": 72,
-   "depends_on": [
-    {
-     "run": "gkhelpers-01show",
-     "until": "released"
-    }
-   ],
+   "depends_on": [],
    "evidence": {
     "branches": [
      "gkhelpers-01show"
@@ -3669,7 +3715,8 @@
      "gkhelpers-01"
     ]
    },
-   "note": "Never sweet berry bushes, cactus or vines; never a reserved column (zones, project records/boxes, the park, the tidy's own cells)."
+   "note": "Never sweet berry bushes, cactus or vines; never a reserved column (zones, project records/boxes, the park, the tidy's own cells). | stall triage 11-03 ~21Z: depends_on {run: gkhelpers-01show} removed: gkhelpers-01show is a showcase fold branch, never a canary run, and it was RELEASED 11-03 18:38:32Z in cbd2f51b-6dd0ded8-fdd64ead (row gkhelpers-1103)",
+   "owner_pending": "park flowers: none free within 96 of home outside the protected village zone -- gather farther out (or a flower biome), or plant the park without flowers?"
   },
   {
    "id": "survival-supply-1103",

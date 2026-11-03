@@ -293,18 +293,6 @@
    "kind": "monitor"
   },
   {
-   "id": "qwen35-roll-watch",
-   "host": "31",
-   "cron": "modelrollout.py watch",
-   "outputs": [
-    "~/qwen35-rollout/watch.log"
-   ],
-   "fresh_hours": null,
-   "consumer": "the 24 h qwen3.5 experiment watch (journal rows + its mandatory rollback)",
-   "kind": "monitor",
-   "until": "2026-11-03"
-  },
-  {
    "id": "stallcheck",
    "host": "31",
    "cron": "host/stallcheck.py run",
@@ -537,7 +525,7 @@
   {
    "id": "effectwatch",
    "host": "31",
-   "cron": "host/effectcache.py build + host/effectwatch.py run",
+   "cron": "host/effectcache.py build",
    "outputs": [
     "~/digest/effect-fleet.json",
     "~/digest/busy-fleet.json",
