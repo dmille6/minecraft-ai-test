@@ -46,7 +46,9 @@
   "farm-on-*": "treefarm-02 dev-base variants (10-17); treefarm-02 ran and closed REVERT 10-19",
   "tk-on-*": "toolkit-02 dev-base variants (10-17); toolkit-02 KEEP + promoted 10-18",
   "ts-on-*": "townsearch-02 dev-base variants (10-17); townsearch-02 KEEP + promoted 10-19",
-  "found2-on-*": "found-01 r11 record/review commits (no bot code); found-01 KEEP + promoted 10-24"
+  "found2-on-*": "found-01 r11 record/review commits (no bot code); found-01 KEEP + promoted 10-24",
+  "towniron-*": "towniron-01 r2-r6 + record + sandbox variants (10-23..10-24); never queued; ledger row dropped 11-03 as superseded (kitmulti-01 / ironsmelt-01 / toolkit; kit_no_iron 55 of 1,408 in 24 h)",
+  "furnaceseen-*": "furnaceseen-01 variants (10-23..10-31); r6 shipped inside zigfleet-02 (KEEP + promoted 11-01 01:02Z, 2717bc1c); ledger row done 11-03"
  },
  "items": [
   {
@@ -538,9 +540,9 @@
    ],
    "kind": "direct",
    "lane": "progress",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
-   "next_step": "Push furnaceseen-on-281d566 (r6, re-stacked on 281d5659 10-31), one-engine review, then owner-direct fleet rollout with a 60-min tripwire and a ledger row",
+   "next_step": "none: shipped (see done.evidence).",
    "max_quiet_hours": 24,
    "depends_on": [
     {
@@ -556,7 +558,11 @@
      "furnaceseen"
     ]
    },
-   "note": "AUDIT 10-31: approved + reviewed branch never queued after ledger-01 KEEP 2026-10-25T22:56Z. r6 exists locally (furnaceseen-on-281d566), not yet on origin; remote branches are stale bases 26e76fa/69b3f6f/6e1afb5."
+   "note": "AUDIT 10-31: approved + reviewed branch never queued after ledger-01 KEEP 2026-10-25T22:56Z. r6 exists locally (furnaceseen-on-281d566), not yet on origin; remote branches are stale bases 26e76fa/69b3f6f/6e1afb5. CLOSED 11-03: it was never a stalled rollout -- it rode zigfleet-02 (the 10-31 commit b4e971d9 says so); the row was not updated.",
+   "done": {
+    "when": "2026-11-01",
+    "evidence": "SHIPPED inside zigfleet-02 (journal: deployed 10-31 21:54Z, KEEP 11-01 00:52Z, promoted 11-01 01:02Z 2717bc1c fleet-wide), as commit 40bec9d7 (r6); its +/- lines are byte-identical to main's fa796381 (stallcheck's 'main commit not on the fleet' was the cherry-pick's other sha). Still on the fleet: e54d1cce carries FURNACE_SEEN, seenSkip and the _furnace_seen_* rows; drainpick-01 extended it with own_empty. Measured 24 h to 11-03 02:50Z (files, 80 bots): furnace_seen_mode on=on in 683 of 683 spawn rows; furnace_seen_skip 5,699 (townmate_empty 5,486, own_empty 213). Recorded 11-03 (audit 11-02 flag 6) by the control session."
+   }
   },
   {
    "id": "cobbleoverflow-01",
@@ -724,9 +730,9 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "open",
+   "state": "dropped",
    "owner": "control session",
-   "next_step": "Check what smeltgate-01/kitmulti-01 (10-29) already cover; rebuild the remainder of towniron-01 (a7a777e7, TIER 3) on the fleet tip and queue it, or record it as superseded",
+   "next_step": "none: superseded (see dropped.why). Reopen as a NEW run on the fleet tip if kit_no_iron exceeds ~150/day fleet-wide or appears in 4+ towns.",
    "max_quiet_hours": 48,
    "evidence": {
     "branches": [
@@ -736,7 +742,11 @@
      "towniron"
     ]
    },
-   "note": "Built + reviewed 10-23 (record a7a777e7, tier 3), never queued; not in the queue or journal. Possibly partly superseded by the 10-28 iron/smelt fixes (unverified)."
+   "note": "Built + reviewed 10-23 (record a7a777e7, tier 3), never queued; not in the queue or journal. Possibly partly superseded by the 10-28 iron/smelt fixes (unverified). CLOSED 11-03: dropped as superseded with the 24 h numbers.",
+   "dropped": {
+    "when": "2026-11-03",
+    "why": "superseded (control session 11-03, audit 11-02 flag 5; first closed in commit b4e971d9 10-31 but the row was never updated). Its problem was towns short of iron and the kit eating the last ingots. The fleet now has kitmulti-01 (multi-container draw, TOWN_IRON_RESERVE 16 per town), ironsmelt-01 (iron first in the town smelt), toolkit-03/ironpick-01 and drainpick-01 (fleet e54d1cce). Measured, files on .31, 24 h to 11-03 02:50Z, 80 bots, 16 pools, 1,858,152 rows: toolkit 1,408 runs, 1,150 success, kit_no_iron 55 (3.9%; 49 of them in ONE town, hive-c) vs 673 of 1,048 on 10-28 before kitmulti; toolkit succeeded in 16 of 16 pools; toolkit crafted 138 iron shovels and 104 iron pickaxes (+58 craft, +27 withdraw_pick). ironfunnel 24 h: raw iron 360 gathered, 393 ingots smelted (3-50/day on 10-14..10-20). What is left of the branch (a town iron-ore rung, deliver_iron, a stone shovel while short; towniron-on-fb8de72 a7a777e7, tier 3 on a 10-23 base, 8 files incl. cognitive/index/milestones) answers a shortage the fleet no longer shows. Iron pickaxes gone 348 vs 40 crafted (ironfunnel) is wear (263 at <=3 uses), not a town reserve."
+   }
   },
   {
    "id": "zigfleet-02",
@@ -1535,9 +1545,9 @@
    ],
    "kind": "design",
    "lane": "progress",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
-   "next_step": "Pick the next stage from the 10-19 plan that fits the building framework (shop/house/wall) and put it on the showcase list; yard-01/workshop-01 stay postponed (O1)",
+   "next_step": "none: split. Delivered or replaced stages are mapped in done.evidence; what is left (crown-01, blast furnaces, spyglass per town) is row townprojects-copper-sinks, parked with a date.",
    "max_quiet_hours": 168,
    "evidence": {
     "grep": [
@@ -1549,7 +1559,38 @@
      "docs/reports/townprojects-stages2-8-plan-2026-10-19.md"
     ]
    },
-   "note": "Plan on main; no stage built since smeltjob-01 except via the building tier. Only 'pavilion-01' grep matches today (house-01 commits mentioning it)."
+   "note": "Plan on main; no stage built since smeltjob-01 except via the building tier. Only 'pavilion-01' grep matches today (house-01 commits mentioning it). CLOSED 11-03 as split.",
+   "done": {
+    "when": "2026-11-03",
+    "evidence": "SPLIT 11-03 (audit 11-02 flag 7), the 10-19 plan's stages mapped: 2 structureguard-01 -> delivered by the ziggurat stack (protectzone-01 KEEP 10-22; showcase-ziggurat done 10-30; zigfleet-01 KEEP 10-30 promoted 69116052). smeltfuel-01 (smelt_town finds town coal) -> replaced by coalfirst-01 (KEEP 10-29, promoted 16052ad8; showcase-coal done). 3 pavilion-01 (first roof + the copper parts job; replaced yard-01) -> replaced by house-01 (showcase-house-paths-wall done 10-31) and the mats cut_copper/copper_door parts job (building-tier-trunk done 10-28); the roof is planks, not copper. 4 crown-01 (the monument's copper crown) -> NOT built: row townprojects-copper-sinks. 5 hall-01 -> copperhall-01 (LIVE on the showcase 11-02, waiting on copper; copperrun-01 prepared 11-03). 6 storehouse-01 -> storehouse-01 (LIVE on the showcase 11-02; its plank roof is in storehouse.mjs). 7 projectdemand-01 -> resource-model-1102's picker-01 (stage 6, bill-driven project catalogue). 8 rails -> wholemap-s5-rails (parked to 2026-12-27). Title extras: blast furnaces and a spyglass per town -> 0 commits, never built: row townprojects-copper-sinks. Stock yard (stockyard-1102), groundskeeper (groundskeeper-1102), tree farm (showcase-treefarm done) and the workshop (workbench-01/shopchest done) are their own rows."
+   }
+  },
+  {
+   "id": "townprojects-copper-sinks",
+   "title": "Town projects stages 2-8 remainder: crown-01 (the ziggurat's copper crown), blast furnaces per town, a spyglass per town",
+   "owner_date": "2026-10-19",
+   "memory": [
+    "owner-decisions-1019-tech-overseer.md",
+    "owner-townprojects-decisions-1019.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "parked",
+   "owner": "control session",
+   "next_step": "After the copper hall is BUILT on the showcase (copperhall-01, fed by copperrun-01): measure the town copper rate with the run on; if it carries a second sink, design crown-01 as a resource-model sink (picker-01 catalogue) on the showcase first; blast furnaces and spyglass after it.",
+   "max_quiet_hours": 168,
+   "evidence": {
+    "grep": [
+     "crown-01",
+     "blastfurnace",
+     "spyglass-01"
+    ]
+   },
+   "parked": {
+    "until": "2026-11-17",
+    "why": "Every stage left is a copper sink, and the showcase cannot yet fund the first one: the hall has waited on copper since 11-02 (138 of 247 ingots, 11-03). Building more sinks before copperrun-01 shows a copper flow would stack waiting projects. Re-check on 11-17, or sooner when the hall completes."
+   },
+   "note": "Split out of townprojects-stages-2-8 on 11-03 (audit 11-02 flag 7)."
   },
   {
    "id": "junkout-01",
@@ -2630,14 +2671,16 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "LIVE on the showcase 11-02 01:14Z (release d2d13c5d, piece copperhall-01show; r3 gate fix release d698024b 01:57Z, piece copperhall-01show-r3: `_copperhall_gate` now reads 130 ingots / 10 cut / 9 containers, need 319): the hall WAITS (never offered, never the order's fallback) until the town index shows >= 319 copper_ingot (103 floor + 36 x batches; 130 + 10 cut on 11-02); then it sites itself (real-terrain proof floor 65: fill 107, cut 135, 3 voids) and builds; 2 h watch from the opening; cameras copperhall + patina capturing since 11-02 ~01:00Z. Lever: item 2 (shaft + deep miner) and coal to town.",
+   "next_step": "11-03: the hall WAITS on copper (gate 138 ingots / 18 cut, need 247), because nothing gathers copper (0 of 3,198 showcase gather/mine rows in 48 h). copperrun-01 is PREPARED for the next showcase release: release branch copperrun-on-d6257276 (0de6f192, on the stockyard+groundskeeper release tip d6257276), main b6ad7488; tier 2, one-engine review, npm test on .30. Once live: read `_copper_run` (issued / no_ore / same_ore) and the `_copperhall_gate` have= over 2 h. If most asks end no_ore (exposed copper is scarce near town), the next step is copper tunnelling (oretunnel COPPER_KINDS + a copper run anywhere), which is tier 3 and goes through a fleet canary. Then the earlier plan: it sites itself at >= need, builds; 2 h watch from the opening; cameras copperhall + patina.",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
-     "copperhall*"
+     "copperhall*",
+     "copperrun*"
     ],
     "grep": [
-     "copperhall-01"
+     "copperhall-01",
+     "copperrun-01"
     ],
     "paths": [
      "docs/reports/copperhall-design-2026-11-01.md"
