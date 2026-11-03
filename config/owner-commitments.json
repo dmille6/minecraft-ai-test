@@ -3578,6 +3578,43 @@
     ]
    },
    "note": "Bundles: operator-formed (bundle plan/make/split), tier none only, not stacked, disjoint footprints / change rows, max 3, whole-bundle rollback, members return as singles on any non-KEEP (no live bisection). Fast plan: mechanical (tier none, single, no new src file, <=150 executable src lines). Bundles keep +90/+180."
+  },
+  {
+   "id": "jobassign-1103",
+   "title": "Owner 11-03 gap 4: a RULE-BASED job assigner per town (roles from town needs, hysteresis/term/rest, fairness, caps for 5-bot towns) with hooks for a later LLM mayor that picks among rule-generated options -- shadow -> advisory -> binding",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "owner-gaps-1103.md",
+    "jobassign-1103.md"
+   ],
+   "kind": "host",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Stage 1 jobshadow-01 (tier 1 host read, log only) installed on the canary host, cron every 10 min. At +24 h run `python3 -B host/jobshadow.py summary` in ~/jobshadow/app/scripts and apply the go/no-go of docs/reports/job-assigner-2026-11-03.md s.7: (a) >= 95% of expected town-ticks valid, (b) unplanned releases <= 1 per town-hour, (c) a real gap = a supported role with coverage < 50% in >= 4 of 16 towns. Gap -> build stage 2 (writer) + 3 (roles-01 advisory A1, tier 2, showcase first); no gap -> ask the owner whether specialisation/legibility alone is worth stage 3.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "cron": "host/jobshadow.py run"
+    }
+   ],
+   "evidence": {
+    "paths": [
+     "docs/reports/job-assigner-2026-11-03.md",
+     "scripts/lib/jobrules.py",
+     "scripts/host/jobshadow.py"
+    ],
+    "grep": [
+     "jobshadow-01",
+     "jobshadow-02",
+     "roles-01"
+    ],
+    "branches": [
+     "jobassign-*",
+     "roles-01*"
+    ]
+   },
+   "note": "Design reconciled from independent Codex + Claude designs, blocker-reviewed by both (3 rounds). Mayor = stage 7/8 (local model replay first, $15/month sub-budget inside the $150 guard for any frontier arm); B6/B7 frontier overseer stay unlaunched (B5 INCONCLUSIVE). Existing keeper / deepmine / builder-slot / yard leases are imported as native role holders, never overridden."
   }
  ]
 }

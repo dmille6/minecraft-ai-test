@@ -290,6 +290,11 @@ class Shadow(unittest.TestCase):
         self.assertEqual(JS.role_of('_deepmine', {}, 'op=ore why=diamond n=0', 'success')[2], False)
         self.assertEqual(JS.role_of('_expedition', {}, 'op=marker_skip trip=t why=no_spot', 'no_effect'), ('explorer', None, False))
         self.assertEqual(JS.role_of('_expedition', {}, 'op=marker trip=t at=1,2,3', 'success'), ('explorer', None, True))
+        # review r3: a stalled deepen and an empty deposit are attempts
+        self.assertEqual(JS.role_of('_deepmine', {}, 'op=deepen why=failed n=-40->-40', 'success'), ('deep_miner', None, False))
+        self.assertEqual(JS.role_of('_deepmine', {}, 'op=deepen why=success n=16->-12', 'success'), ('deep_miner', None, True))
+        self.assertEqual(JS.role_of('_expedition', {}, 'op=deposit items=0 of=0', 'success')[2], False)
+        self.assertEqual(JS.role_of('_expedition', {}, 'op=deposit items=12 of=3', 'success')[2], True)
         self.assertEqual(JS.role_of('mine', {}, '', 'failed'), ('miner', None, False))
         self.assertEqual(JS.role_of('mine', {}, '', 'no_effect')[0], None)
         self.assertEqual(JS.role_of('gather', {'block': 'iron_ore'}, '', 'success')[0], 'miner')
@@ -356,9 +361,16 @@ class Shadow(unittest.TestCase):
         iso = lambda t: t.isoformat().replace('+00:00', 'Z')
         runs = [{'kind': 'run', 'ok': True, 'ts': iso(t0), 'expected': list(JS.EXPECTED_POOLS)},
                 {'kind': 'run', 'ok': True, 'ts': iso(t0 + dt.timedelta(minutes=60)), 'expected': list(JS.EXPECTED_POOLS)}]
-        s = JS.summarize([tick] * 32 + runs, now=t0 + dt.timedelta(minutes=60))
+        s = JS.summarize([tick] * 32 + runs, hours=1, now=t0 + dt.timedelta(minutes=60))
         self.assertEqual(s['expected_town_ticks'], 7 * 16)
         self.assertFalse(s['go']['valid_ok'])
+        # review r3: runs that survive only at the END of a 24-h window do not shrink the schedule (it starts at the window or
+        # at the first run ever, whichever is later)
+        late = [{'kind': 'run', 'ok': True, 'ts': iso(t0 + dt.timedelta(hours=23, minutes=10 * k)), 'expected': list(JS.EXPECTED_POOLS)} for k in range(6)]
+        s = JS.summarize([tick] * 96 + late, hours=24, now=t0 + dt.timedelta(hours=24), first_run=t0 - dt.timedelta(days=2))
+        self.assertGreaterEqual(s['expected_town_ticks'], 144 * 16)
+        s = JS.summarize([tick] * 96 + late, hours=24, now=t0 + dt.timedelta(hours=24), first_run=t0 + dt.timedelta(hours=23))
+        self.assertEqual(s['expected_town_ticks'], 7 * 16, 'a shadow 1 h old is judged on its own hour')
 
     def test_planned_rotation_is_not_churn(self):
         # review r1 (Claude B1): one steady need for 24 h passes the churn gate -- term rotations are planned, not churn
@@ -396,6 +408,8 @@ MUTANTS = [   # (file, anchor, replacement): each must make the suite FAIL; the 
     ('host/jobshadow.py', "    valid = round(len(ticks) / expected, 3) if expected else None", "    valid = 1.0"),
     ('host/jobshadow.py', "        expected = max(expected, (int(span // RUN_EVERY_MIN) + 1) * len(EXPECTED_POOLS))", "        pass"),
     ('host/jobshadow.py', "        return _num(det, 'n') > 0", "        return True"),
+    ('host/jobshadow.py', "        return bool(m) and int(m.group(2)) < int(m.group(1))", "        return True"),
+    ('host/jobshadow.py', "            start = now - dt.timedelta(hours=hours)", "            start = tss[0]"),
     ('host/jobshadow.py', "        prog = sum(int(v) for _, v in counts) > 0", "        prog = True"),
     ('lib/jobrules.py', "                    if st['displace'][role] >= DISPLACE_TICKS or starving:", '                    if True:'),
     ('lib/jobrules.py', "        return on\n    if on:", "        return False\n    if on:"),

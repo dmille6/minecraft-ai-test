@@ -78,8 +78,8 @@ def canon(n):
 PROGRESS_RE = re.compile(r'\b(placed|cleared|planted|dug|filled|felled|repaired)=(\d+)')
 # the producers' own vocabularies (skills.mjs deepRow / exRow, 11-03): which ops MOVED something, which are only attempts.
 # review r2 (Codex): `branch n=0`, `pickaxe why=not_made`, `marker_skip` are attempts, never progress
-DEEP_ALWAYS = {'landing', 'deepen', 'seal', 'surfaced'}
-DEEP_TRY = {'start', 'turn', 'repair', 'ore', 'branch', 'pickaxe', 'end'}
+DEEP_ALWAYS = {'landing', 'seal', 'surfaced'}
+DEEP_TRY = {'start', 'turn', 'repair', 'ore', 'branch', 'pickaxe', 'end', 'deepen'}
 EXP_PROGRESS = {'start', 'marker', 'deposit', 'detour', 'home_follow'}
 EXP_TRY = {'turn', 'aborted', 'marker_skip', 'torch_skip'}
 
@@ -94,6 +94,9 @@ def deep_progress(op, det):
         return True
     if op in ('ore', 'branch'):
         return _num(det, 'n') > 0
+    if op == 'deepen':                     # review r3: n=y0->y1, written on a stall too; progress only when it went down
+        m = re.search(r'\bn=(-?\d+)->(-?\d+)', det)
+        return bool(m) and int(m.group(2)) < int(m.group(1))
     if op == 'repair':
         return 'repaired' in det
     if op == 'pickaxe':
@@ -130,7 +133,8 @@ def role_of(name, args, detail, status, complete_plots=()):
         if n == 'deepmine' and op in DEEP_ALWAYS | DEEP_TRY:
             return 'deep_miner', None, status != 'no_effect' and deep_progress(op, det)
         if n == 'expedition' and op in EXP_PROGRESS | EXP_TRY:
-            return 'explorer', None, status != 'no_effect' and op in EXP_PROGRESS
+            prog = op in EXP_PROGRESS and not (op == 'deposit' and _num(det, 'items') == 0)   # review r3: an empty deposit
+            return 'explorer', None, status != 'no_effect' and prog
         return None, None, False
     ok = status == 'success'
     if status in ('no_effect', 'refused'):
@@ -349,7 +353,7 @@ def _ts(x):
         return None
 
 
-def summarize(rows, hours=24, now=None):
+def summarize(rows, hours=24, now=None, first_run=None):
     """The 24-h read -> dict. rows: tick + eval rows. Every rate with its denominator. PURE."""
     ticks = [r for r in rows if r.get('kind') == 'tick']
     evals = [r for r in rows if r.get('kind') == 'eval']
@@ -400,7 +404,14 @@ def summarize(rows, hours=24, now=None):
     expected = sum(len(r.get('expected') or []) for r in runs)
     tss = sorted(t for t in (_ts(r.get('ts')) for r in runs) if t)
     if tss:
-        span = ((now or tss[-1]) - tss[0]).total_seconds() / 60
+        # review r3: the schedule starts at the window's start, or at the FIRST RUN EVER when the shadow is younger than the
+        # window -- never at the first surviving run inside it (silent failures before it would be invisible)
+        start = tss[0]
+        if now is not None:
+            start = now - dt.timedelta(hours=hours)
+            if first_run is not None and first_run > start:
+                start = first_run
+        span = ((now or tss[-1]) - start).total_seconds() / 60
         expected = max(expected, (int(span // RUN_EVERY_MIN) + 1) * len(EXPECTED_POOLS))
     valid = round(len(ticks) / expected, 3) if expected else None
     return {'ticks': len(ticks), 'skips': len(skips), 'runs': len(runs), 'error_runs': sum(1 for r in runs if not r.get('ok')),
@@ -573,16 +584,21 @@ def _run(a, now):
 def cmd_summary(a):
     od = os.path.expanduser(a.out_dir)
     cut = dt.datetime.now(UTC) - dt.timedelta(hours=a.hours)
-    rows = []
+    rows, first = [], None
     for f in sorted(glob.glob(os.path.join(od, 'ticks-*.jsonl'))):
         for line in open(f):
             try:
                 r = json.loads(line)
             except ValueError:
                 continue
-            if dt.datetime.fromisoformat(r['ts'].replace('Z', '+00:00')) >= cut:
+            t = _ts(r.get('ts'))
+            if t is None:
+                continue
+            if r.get('kind') == 'run' and (first is None or t < first):
+                first = t
+            if t >= cut:
                 rows.append(r)
-    s = summarize(rows, a.hours, dt.datetime.now(UTC))
+    s = summarize(rows, a.hours, dt.datetime.now(UTC), first)
     json.dump(s, open(os.path.join(od, 'summary.json'), 'w'), indent=1, sort_keys=True)
     print(json.dumps(s, indent=1, sort_keys=True))
     return 0

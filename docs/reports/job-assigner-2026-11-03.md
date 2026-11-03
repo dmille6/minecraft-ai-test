@@ -448,6 +448,15 @@ round 2's commit:
 | Codex r2 | Zero-progress deep-miner and expedition rows (`branch n=0`, `pickaxe why=not_made`, `marker_skip ... no_effect`) still read as progress | The producers' own vocabularies (`skills.mjs deepRow` / `exRow`): `landing/deepen/seal/surfaced` always progress; `ore`/`branch` only with `n > 0`; `repair` only when repaired; `pickaxe` only when made; expedition `start/marker/deposit/detour/home_follow`; skips and `no_effect` are attempts. Tests for each named row. |
 | Claude r2 | Validity's denominator was the runs that wrote a row: a crash outside the try, a run `flock` skipped or a silent cron was invisible | The whole run is wrapped (every failure writes `run ok:false`), and the expected town-ticks are also taken from the **schedule** (one run per 10 min from the first run in the window × 16 towns); the larger wins. Tested with two runs 60 min apart (7 × 16 expected). |
 
+**Round 3** (both engines, the round-2 fixes only). Both found the same two residues, fixed in round 3's commit:
+
+| From | Blocker | Fix |
+|---|---|---|
+| Claude r3, Codex r3 | `deepen` is written on every call, a stall included (`n=-40->-40`, status defaults to success); Codex also: an expedition `deposit items=0` | `deepen` counts only when `n=y0->y1` went down; an empty deposit is an attempt. Tests for both rows. |
+| Codex r3 (Claude r3 as a note) | The schedule started at the first SURVIVING run in the window: six runs at the end of 24 h read 100% valid | The schedule starts at the window's start, or at the first run ever when the shadow is younger than the window. Tested both ways. |
+
+**Round 4** re-checked these two fixes only (below the table's commit).
+
 Non-blocking notes acted on: the displacement count restarts when the waiting role is not ahead (consecutive, as designed);
 the cron line takes `flock -n` (no overlapping runs); clerk demand is the backlog only. Left as notes: `jobfacts` reads the
 `*On({}, pool)` defaults, not the pools' drop-ins, and gives `activeProject` no `waiting`/`due`/`free`, so `active_build` can
