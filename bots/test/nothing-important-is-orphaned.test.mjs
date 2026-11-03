@@ -170,6 +170,7 @@ const REQUIRED = [
   'docs/reports/stuckcells-01-2026-11-01.md',
   // monustuck-01 (11-03): the stuck fleet ziggurats (bamboo stalk felled at its foot, waiver beside a sealed cell, dig-walk bans)
   'docs/reports/monustuck-design-2026-11-03.md',
+  'docs/reports/shafttrap-design-2026-11-03.md',   // shafttrap-1103: the town stair trap (design + Codex reconciliation)
   // promomerge (11-02, audit 11-01 flag 4): every fleet promotion merged into main mechanically, or it pages
   'scripts/host/promomerge.py',
   'scripts/host/test_promomerge.py',

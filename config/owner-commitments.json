@@ -4346,6 +4346,29 @@
     ]
    },
    "note": "Codex designed independently and agreed on the root causes; reconciliation in the design doc s.4. Codex review blockers-only r1: none."
+  },
+  {
+   "id": "shafttrap-1103",
+   "title": "Bots trapped in the town stair (control session item shafttrap, owner 11-03 'design all using both claude and codex ... deploy where you feel is right'): 11 of 16 showcase _needs_rescue rows (fleet 74 of 87) guard=record record=shaft -- a stair visit ends deep in the stair, the maroon probe cannot succeed in a spiral, the escape pillars into the stair and its digs are refused as the record",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "shafttrap-1103.md"
+   ],
+   "kind": "showcase",
+   "lane": "survival",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "shafttrap-01 (branch showcase-shafttrap-on-cbd2f51b, tier 2 by protected.py: not protected) is READY TO STAGE: the control session folds it into the next showcase release (before the 10 -> 15 bot step) and reads the 2 h generic read + _shaft op=egress rows, in-box _marooned/_entombed after a visit (144/14 h), shaft _needs_rescue (11/14 h), pillar placements (124), repair digs (296). Then shafttrap-02 (fleet S canary, tier 3: the marooned/entombed arms and stairAscend hand a bot on the stair to runStairEgress first; with shafttrap-01 folded in) -- NOT built: build on the fleet sha, two engines, a whole-bot Paper proof of the reflex composition first.",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "paths": [
+     "docs/reports/shafttrap-design-2026-11-03.md"
+    ],
+    "branches": [
+     "showcase-shafttrap-on-cbd2f51b"
+    ]
+   },
+   "note": "Codex designed independently (agreed: visit egress + a fleet stair dispatcher; its pathfinder-start-node cause refuted by the real A* and Paper scene edge). Codex review r1: 2 blockers (liquid barrier, body on the block) fixed; r2: 1 (body cells skipped in the liquid check) fixed. Paper sandbox3 11-03 at ad9a819f: before, before_clean, clean, pillared, lava, edge, stub all pass."
   }
  ]
 }
