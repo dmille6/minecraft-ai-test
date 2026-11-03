@@ -270,6 +270,8 @@ const REQUIRED = [
   'scripts/host/install-jobshadow.sh',
   'bots/test/jobshadow.test.mjs',
   'docs/reports/job-assigner-2026-11-03.md',
+  // comms stage 3 (requests): the design + Codex's independent design and the reconciliation (11-03)
+  'docs/reports/requests-design-2026-11-03.md',
   'scripts/mac/opsaudit.sh',
   // the learning loop's nightly archive (M1): logs on .31 rotate after 14 days, this is the only long-term copy
   'scripts/learnloop/extract_triples.py',

@@ -2015,30 +2015,31 @@
   },
   {
    "id": "comms-stage3",
-   "title": "Comms stage 3: requests / multi-bot projects with the foreman (no trades or rescue parties in v1)",
+   "title": "Comms stage 3: requests and hand-offs that get fulfilled, said in the showcase chat (no trades or rescue parties in v1)",
    "owner_date": "2026-10-22",
    "memory": [
-    "owner-comms-1021.md"
+    "owner-comms-1021.md",
+    "requests-1103.md"
    ],
-   "kind": "design",
+   "kind": "showcase",
    "lane": "progress",
-   "state": "parked",
+   "state": "open",
    "owner": "control session",
-   "depends_on": [
-    {
-     "item": "coop-b6-b7-assign"
-    }
-   ],
+   "depends_on": [],
    "evidence": {
+    "branches": [
+     "chatfix-01*",
+     "requests-0*"
+    ],
     "grep": [
+     "requests-01",
+     "chatfix-01",
      "stage 3a"
     ]
    },
-   "parked": {
-    "until": "2026-11-28",
-    "why": "after stage 2 and the job assigner (B7)"
-   },
-   "note": "Never started; grep is the expected name."
+   "note": "11-03: reopened from parked (owner 11-03 \"design all ... implement and deploy\"); the foreman dependency dropped (frontier assigner did not beat greedy, coop-b5).",
+   "next_step": "Design docs/reports/requests-design-2026-11-03.md (Claude + Codex, 11-03). Fold chatfix-01show (91298adb, plural + one stuck line per place) and requests-01show (8c69ac38, the requests board: project copper + kit iron as _request rows, town journal, chat lines; observe-and-say) into the next showcase release; 2-h generic read + _request rows present + lines heard; goal seen within a day (~18 kit lines/day). Then requests-02 (verified receipts + the request read), requests-03 (production board) when a project waits on an item; requests-04 (bag hand-off) only if the read shows executable surplus.",
+   "max_quiet_hours": 72
   },
   {
    "id": "strategist-layer",
