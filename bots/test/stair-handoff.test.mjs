@@ -81,7 +81,7 @@ async function armFiring (G_, w, st, e, memo, now) {
   let r
   try { r = { ran: true, ...(await runStairEgress(PLAN, e, { exit: exitCell })) } } catch (err) { r = err?.aborted ? { ran: true, aborted: true } : { ran: true, ok: false, why: 'threw' } }
   const h = G_.egressHandoff(r)
-  if (h === 'fallthrough' || h === 'retry') { memo.k = on.k; memo.at = now } else if (h === 'out') memo.k = null
+  if (h === 'fallthrough' || (h === 'retry' && (Number(r?.hops) || 0) > 0)) { memo.k = on.k; memo.at = now } else if (h === 'out') memo.k = null
   return { h, escaped: h === 'fallthrough' || h === 'skip', r }
 }
 
@@ -190,22 +190,30 @@ await t('OFF THE STAIR: a cave beside it is not handed over (skip -> today\'s es
 })
 
 /** stairBotEffects' dig on a fake bot: counts equips and server digs; `during` runs inside the equip (a rescue taking the body). */
-async function digWith (SVmod, signal, during = () => {}) {
-  const n = { equip: 0, dig: 0 }
+async function digWith (SVmod, signal, during = () => {}, { dig = 'confirmed', probes = [] } = {}) {
+  const n = { equip: 0, dig: 0, probe: 0 }
   const bot = { blockAt: () => ({ name: 'dirt' }), heldItem: null, inventory: { items: () => [{ name: 'stone_pickaxe', maxDurability: 131, durabilityUsed: 0 }] },
     equip: async () => { n.equip++; during() } }
-  const e = SVmod.stairBotEffects(bot, { dig: async () => { n.dig++; return 'confirmed' }, feet: () => [0, 0, 0] }, { signal })
+  const e = SVmod.stairBotEffects(bot, { dig: async () => { n.dig++; return dig }, probe: async () => { n.probe++; return probes.shift() ?? null }, feet: () => [0, 0, 0] }, { signal })
   const r = await e.dig([0, 0, 0])
   return { r, n }
 }
 await t('Codex r1 blocker 2: no equip and no dig once the signal is aborted; a rescue taking the body during the equip stops the dig', async () => {
   const a = await digWith({ stairBotEffects }, { aborted: true })
-  assert.strictEqual(a.r, 'aborted'); assert.deepStrictEqual(a.n, { equip: 0, dig: 0 })
+  assert.strictEqual(a.r, 'aborted'); assert.deepStrictEqual(a.n, { equip: 0, dig: 0, probe: 0 })
   const sig = { aborted: false }
   const b = await digWith({ stairBotEffects }, sig, () => { sig.aborted = true })
-  assert.strictEqual(b.r, 'aborted'); assert.deepStrictEqual(b.n, { equip: 1, dig: 0 })
+  assert.strictEqual(b.r, 'aborted'); assert.deepStrictEqual(b.n, { equip: 1, dig: 0, probe: 0 })
   const c = await digWith({ stairBotEffects }, { aborted: false })
-  assert.strictEqual(c.r, 'confirmed', 'POSITIVE CONTROL: owned, it digs'); assert.deepStrictEqual(c.n, { equip: 1, dig: 1 })
+  assert.strictEqual(c.r, 'confirmed', 'POSITIVE CONTROL: owned, it digs'); assert.deepStrictEqual(c.n, { equip: 1, dig: 1, probe: 0 })
+})
+
+await t('Paper 11-03: an unconfirmed dig asks the server (the probe, at most twice): air confirms, a block stands, silence stays unconfirmed', async () => {
+  assert.strictEqual((await digWith({ stairBotEffects }, { aborted: false }, () => {}, { dig: 'unconfirmed', probes: ['dirt'] })).r, 'standing')
+  assert.strictEqual((await digWith({ stairBotEffects }, { aborted: false }, () => {}, { dig: 'unconfirmed', probes: [null, 'air'] })).r, 'confirmed')
+  const q = await digWith({ stairBotEffects }, { aborted: false }, () => {}, { dig: 'unconfirmed', probes: [] })
+  assert.strictEqual(q.r, 'unconfirmed'); assert.strictEqual(q.n.probe, 2)
+  assert.strictEqual((await digWith({ stairBotEffects }, { aborted: false }, () => {}, { dig: 'confirmed' })).n.probe, 0, 'a confirmed dig is not probed')
 })
 
 console.log('3. WIRING (comments stripped; anchored on executable lines)')
@@ -229,7 +237,7 @@ await t('the entombed arm: the hand-over runs after takeBody and BEFORE pillarOu
 await t('the entombed arm\'s give-up (the pickaxe ask) waits while a hand-over is due; after a fall-through it runs as before', () => {
   assert.ok(RSRC.includes('if (escapeFailures >= ESCAPE_GIVE_UP_AFTER && !ceilingFloodRisk(bot) && !stairExitCandidate()) {'))
   const h = span(RSRC, 'const stairExitFirst = async', 'return h\n')
-  assert.ok(h.includes("if (h === 'fallthrough' || h === 'retry') { stairEgressMemo.k = on.k; stairEgressMemo.at = Date.now() }"), 'the memo makes the candidate null for that step')
+  assert.ok(h.includes("if (h === 'fallthrough' || (h === 'retry' && (Number(r?.hops) || 0) > 0)) { stairEgressMemo.k = on.k; stairEgressMemo.at = Date.now() }"), 'the memo makes the candidate null for that step')
 })
 await t('the egress runs only with the arm\'s grant and stops when the drowning rescue or the air pocket wants the body', () => {
   const h = span(RSRC, 'const stairExitFirst = async', 'return h\n')
@@ -291,7 +299,7 @@ await t('MUTANT KILLED: progress read as nothing gained pillars from a step the 
 })
 
 await t('MUTANT KILLED: without the check after the equip, the dig starts after a rescue took the body', async () => {
-  await withMutant(VISIT, "await equipFor(c); if (signal?.aborted) return 'aborted';", 'await equipFor(c);', async M => {
+  await withMutant(VISIT, "      await equipFor(c)\n      if (signal?.aborted) return 'aborted'\n", '      await equipFor(c)\n', async M => {
     const sig = { aborted: false }
     const b = await digWith(M, sig, () => { sig.aborted = true })
     assert.strictEqual(b.n.dig, 1, 'the mutant digs')

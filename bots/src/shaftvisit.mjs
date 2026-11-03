@@ -289,7 +289,21 @@ export function stairBotEffects (bot, B, { signal = null, fence = () => true, lo
     feet: () => B.feet(),
     walkTo: async c => { await B.walkTo(c); return true },
     // shafttrap-02 (Codex r1 blocker 2): never an equip or a dig once the signal is aborted (a reflex lost the body to a rescue)
-    dig: async c => { if (signal?.aborted) return 'aborted'; await equipFor(c); if (signal?.aborted) return 'aborted'; return withDigScope(bot, { purpose: 'target', by: 'build_stair' }, () => B.dig(c)) },
+    dig: async c => {
+      if (signal?.aborted) return 'aborted'
+      await equipFor(c)
+      if (signal?.aborted) return 'aborted'
+      let v = await withDigScope(bot, { purpose: 'target', by: 'build_stair' }, () => B.dig(c))
+      // shafttrap-02 (Paper 11-03): A DIG THE SERVER DID NOT CONFIRM may have left client air over the server's block (memory "ghost
+      // blocks are rejected digs"): the egress then hopped into it forever. Ask the server (buildrun.mjs's probe, twice): air confirms,
+      // any other name means it stands (and the probe's block update has put it back in the client's world)
+      for (let i = 0; v === 'unconfirmed' && typeof B.probe === 'function' && i < 2; i++) {
+        if (signal?.aborted) return 'aborted'
+        const n = await B.probe(c)
+        if (n != null) v = /^(air|cave_air)$/.test(n) ? 'confirmed' : 'standing'
+      }
+      return v
+    },
     place: async c => {
       const item = LINING_ITEMS.find(n => B.has(n))
       if (!item) return 'no_material'
