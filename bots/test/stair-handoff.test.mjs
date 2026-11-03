@@ -201,6 +201,11 @@ await t('the entombed arm: the hand-over runs after takeBody and BEFORE pillarOu
   assert.ok(/if \(h === 'out'\) \{ escapeFailures = 0;[^}]*return \}/.test(arm))
   assert.ok(arm.includes("if (h === 'yield' || h === 'retry') return"))
 })
+await t('the entombed arm\'s give-up (the pickaxe ask) waits while a hand-over is due; after a fall-through it runs as before', () => {
+  assert.ok(RSRC.includes('if (escapeFailures >= ESCAPE_GIVE_UP_AFTER && !ceilingFloodRisk(bot) && !stairExitCandidate()) {'))
+  const h = span(RSRC, 'const stairExitFirst = async', 'return h\n')
+  assert.ok(h.includes("if (h === 'fallthrough' || h === 'retry') { stairEgressMemo.k = on.k; stairEgressMemo.at = Date.now() }"), 'the memo makes the candidate null for that step')
+})
 await t('the egress runs only with the arm\'s grant and stops when the drowning rescue or the air pocket wants the body', () => {
   const h = span(RSRC, 'const stairExitFirst = async', 'return h\n')
   assert.ok(h.includes('!grantOf()'), 'no grant (the arbiter refused) -> skip')

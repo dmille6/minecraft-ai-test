@@ -1643,7 +1643,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     const t0 = Date.now()
     const r = await stairEgressReflex(bot, { alive: () => ownsBody(grantOf)() && !airPocketWanted() && !drowningOwnsBody(), ms: EGRESS_REFLEX_MS })
     const h = egressHandoff(r)
-    if (h === 'fallthrough') { stairEgressMemo.k = on.k; stairEgressMemo.at = Date.now() } else if (h === 'out') stairEgressMemo.k = null
+    // a fall-through, and progress (Claude r1 note 1: a bot back at the step it climbed from is not handed over again inside the wait)
+    if (h === 'fallthrough' || h === 'retry') { stairEgressMemo.k = on.k; stairEgressMemo.at = Date.now() } else if (h === 'out') stairEgressMemo.k = null
     try { logEvent({ kind: 'stair_handoff', status: h === 'out' ? 'success' : 'failed', detail: handoffDetail({ handler, k: on.k, h, r, ms: Date.now() - t0 }), snapshot: snapshot(bot) }) } catch { /* telemetry */ }
     return h
   }
