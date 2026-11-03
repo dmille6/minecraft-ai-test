@@ -131,6 +131,7 @@ import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, s
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
 import { torchSafe, outShareOf, multiCall, trailAge, PLANNER_V } from './expedition.mjs'   // wholemap-s1a
+import { swimOn as exSwimOn, gatherSpare, SWIM_MAX } from './expedition.mjs'   // expwater-01
 import { HALL_PLOT, HALL_BLUEPRINT, hallSite, hallOpening, hallRecordDomain, copperhallModeDetail } from './copperhall.mjs'   // copperhall-01
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
@@ -17660,7 +17661,7 @@ export function shopFootprintRefresh (bot) {
 // shop.mjs buildOrder's (`build_shop {expedition: true}`), asked through expeditionAsk only when the town's projects cannot use
 // the bot. The trail and the trip are this bot's file; the trip log and the marker index are the town's. `home` follows an
 // open trail first (expeditionHomeLeg). EXPEDITION=off: no order, no visit, no trail follow.
-const EXPEDITION = Object.freeze({ on: expeditionOn(process.env, process.env.MEMORY_POOL ?? ''), markers: exMarkersOn(process.env) })
+const EXPEDITION = Object.freeze({ on: expeditionOn(process.env, process.env.MEMORY_POOL ?? ''), markers: exMarkersOn(process.env), swim: exSwimOn(process.env) })
 const exHk = () => `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
 const exKey = () => `${EXPEDITION_KEY}-${exHk()}`
 const exFile = me => path.join(townDir(), `${exKey()}.bot-${me}.json`)
@@ -17809,7 +17810,7 @@ export function copperRunInstall (bot) {
 export function expeditionInstall (bot) {
   exBot = bot
   if (EXPEDITION.on) setExpeditionAsk(expeditionAsk)
-  try { logEvent({ kind: 'expedition_mode', status: 'success', snapshot: snapshot(bot), detail: expeditionModeDetail(EXPEDITION.on, EXPEDITION.markers) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'expedition_mode', status: 'success', snapshot: snapshot(bot), detail: expeditionModeDetail(EXPEDITION.on, EXPEDITION.markers, EXPEDITION.swim) }) } catch { /* telemetry */ }
 }
 /** THE WAY BACK over a trip's breadcrumbs (expedition.mjs nextCrumb / markerHome), then the direct walk -> { home, via, hops }. */
 async function exFollowHome (ctx, signal, trip, until, markers, persist = () => {}) {
@@ -18032,20 +18033,30 @@ async function expeditionVisit (ctx, args, signal) {
       const why = turnReason({ health: bot.health ?? 20, food: bot.food ?? 20, freeSlots: free, timeOfDay: bot.time?.timeOfDay ?? 0, inWater: !!bot.entity?.isInWater,
         dist, ring: trip.ring, elapsedMs: Date.now() - tOut, outMs, legFails })
       if (why) { trip.reason = why; break }
-      const lt = legTarget(read, { pos: p, home, bearing: trip.bearing, markers, zones, detour: trip.detour })
+      // expwater-01: a leg may swim a narrow crossing when no dry bend is open (EXPEDITION_SWIM=off: dry legs only)
+      const lt = legTarget(read, { pos: p, home, bearing: trip.bearing, markers, zones, detour: trip.detour, swim: EXPEDITION.swim ? SWIM_MAX : 0 })
       // wholemap-s1a: a detour round a zone is carried leg to leg (its waypoints still ahead), and logged when it starts
       const dNext = lt.detour?.waypoints?.length ? lt.detour : null
       if (dNext && !trip.detour) { trip.detours = (trip.detours ?? 0) + 1; exRow(bot, 'detour', `trip=${trip.id} zone=${dNext.zone} side=${dNext.side} length=${dNext.length} waypoints=${dNext.waypoints.map(w => w.join(',')).join(';')}`) }
       trip.detour = dNext
       if (!lt.ok) { trip.reason = lt.why === 'inward' ? 'blocked' : lt.why; trip.whys = lt.whys ?? null; break }
       const before = p.clone()
+      // expwater-01: a crossing's NEAR shore is a breadcrumb (the way home swims back to it), however close the last one
+      const swim = lt.via === 'swim'
+      if (swim && lt.shore && crumbDue(trip.crumbs, lt.shore, read, { shore: true })) trip.crumbs.push(lt.shore)
       try { await goto(ctx, { ...lt.target, range: 2 }, signal, { until: Math.min(tOut + outMs, Date.now() + 30_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       const after = bot.entity.position
       const moved = Math.hypot(after.x - before.x, after.z - before.z)
       legFails = moved < 4 ? legFails + 1 : 0
       if (lt.via === 'marker' && moved >= 4) trip.reused++
       const cell = [Math.floor(after.x), Math.floor(after.y + 1e-6), Math.floor(after.z)]
-      if (crumbDue(trip.crumbs, cell, read)) trip.crumbs.push(cell)
+      // ...and its FAR shore, where the leg ended dry (a bot still wet turns for 'water' at the loop's top and swims home)
+      if (crumbDue(trip.crumbs, cell, read, { shore: swim })) trip.crumbs.push(cell)
+      if (swim) {
+        const dry = !bot.entity?.isInWater && standableAt(read, cell)
+        if (dry) trip.crossings = (trip.crossings ?? 0) + 1
+        exRow(bot, 'cross', `trip=${trip.id} wet=${lt.wet} bend=${lt.bend} from=${(lt.shore ?? []).join(',')} to=${lt.target.x},${lt.target.y},${lt.target.z} at=${cell.join(',')} dry=${dry ? 1 : 0} moved=${Math.round(moved)}`, dry ? 'success' : 'no_effect')
+      }
       sinceMarker += moved
       if (EXPEDITION.markers && markerDue({ pos: after, home, sinceLast: sinceMarker, markers }) && standableAt(read, cell)) {
         const m = await exPlaceMarker(ctx, signal, cell, dirV, { zones: keepOff, trip, me })
@@ -18057,12 +18068,13 @@ async function expeditionVisit (ctx, args, signal) {
     const outTook = Date.now() - tOut
     // 3. GATHER at the turn (never on a danger turn, never in town, only with the way back's time spared)
     let g = { felled: 0, leaves: 0, logs: '-', trees: '-', why: 'not_run', digFail: null }
-    const spare = deadline - Date.now() - Math.max(20_000, outTook * 1.2)
+    // expwater-01: a multi-call trip keeps only MULTI_HOME_MS for its way back in this call (`home` finishes it next call)
+    const spare = gatherSpare({ deadline, now: Date.now(), outTook, multi: trip.multi === true })
     const pT = bot.entity.position
-    if (!['health', 'food', 'night', 'died', 'bag_full'].includes(trip.reason) && Math.hypot(pT.x - home.x, pT.z - home.z) >= MARKER_MIN_HOME + 16 && spare >= 8_000) {
+    if (!['health', 'food', 'night', 'died', 'bag_full'].includes(trip.reason) && !bot.entity?.isInWater && Math.hypot(pT.x - home.x, pT.z - home.z) >= MARKER_MIN_HOME + 16 && spare >= 8_000) {
       g = await exGather(ctx, signal, Date.now() + Math.min(GATHER_MS, spare), keepOff)
     }
-    exRow(bot, 'turn', `trip=${trip.id} reason=${trip.reason}${trip.whys ? `(${trip.whys})` : ''} dist=${Math.round(trip.dist)} crumbs=${trip.crumbs.length} markers=${trip.markers} reused=${trip.reused} felled=${g.felled} leaves=${g.leaves} logs_seen=${g.logs} trees=${g.trees} rej=${g.why}${g.digFail ? ` dig=${g.digFail}` : ''}`)
+    exRow(bot, 'turn', `trip=${trip.id} reason=${trip.reason}${trip.whys ? `(${trip.whys})` : ''} dist=${Math.round(trip.dist)} crumbs=${trip.crumbs.length} markers=${trip.markers} reused=${trip.reused} cross=${trip.crossings ?? 0} felled=${g.felled} leaves=${g.leaves} logs_seen=${g.logs} trees=${g.trees} rej=${g.why}${g.digFail ? ` dig=${g.digFail}` : ''}`)
     // 4. BACK over the crumbs
     const r = await exFollowHome(ctx, signal, trip, deadline - 5_000, markers, () => exWrite(me, st))
     // 5. THE HAUL, banked now or next call
@@ -18073,7 +18085,7 @@ async function expeditionVisit (ctx, args, signal) {
     st.lastTripAt = Date.now()
     exWrite(me, st)
     const nHaul = Object.values(haul).reduce((a, c) => a + c, 0)
-    if (r.home) exAppend(exTripsFile(), { t: Date.now(), v: trip.v, multi: trip.multi === true, detours: trip.detours ?? 0, id: trip.id, by: me, bearing: trip.bearing, ring: trip.ring, dist: Math.round(trip.dist), reason: trip.reason, returned: true, via: r.via, haul: nHaul, markers: trip.markers, reused: trip.reused, crumbs: trip.crumbs.length })
+    if (r.home) exAppend(exTripsFile(), { t: Date.now(), v: trip.v, multi: trip.multi === true, detours: trip.detours ?? 0, id: trip.id, by: me, bearing: trip.bearing, ring: trip.ring, dist: Math.round(trip.dist), reason: trip.reason, returned: true, via: r.via, haul: nHaul, markers: trip.markers, reused: trip.reused, crumbs: trip.crumbs.length, crossings: trip.crossings ?? 0 })
     try { logEvent({ kind: 'expedition_trip', status: r.home ? 'success' : 'no_effect', snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: tripDetail({ ...trip, crumbs: trip.crumbs.length }) }) } catch { /* telemetry */ }
     return { status: r.home && (nHaul > 0 || trip.markers > 0) ? 'success' : 'no_effect', detail: `expedition ${Math.round(trip.dist)} blocks on bearing ${trip.bearing} (${trip.reason}); ${trip.markers} markers placed, ${trip.reused} reused; brought ${nHaul} items${r.home ? ', home' : ', still on the way home'}`, stop: r.home ? 'expedition' : 'expedition_out' }
   } catch (e) {
