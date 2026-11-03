@@ -136,8 +136,10 @@ export function parkBill (rec, read, { held = {}, stock = {}, done = () => false
 // every element skipped but a 4-cell meadow (no_flowers, no_sapling, no_bamboo, no_azalea, no_sugar_cane, no_leaves...): no town
 // chest holds any of them and the ten bots' bags held 16 spruce saplings and 1 azalea. The crew now COLLECTS what the surroundings
 // grow -- a flower, a tall flower's lower half, an azalea bush, the upper canes of sugar cane and bamboo (the root stays: it grows
-// back), natural leaves only with shears in the bag -- banks it in a town chest with the saplings, azalea and bamboo its own bag
-// spares, and the keeper adds the elements the town now holds to the park (terrace.mjs parkTopUp). PURE here.
+// back), natural leaves only with shears (crafted from 2 spare iron ingots when the park wants a hedge) -- and KEEPS it: a chest
+// never takes saplings, bamboo or poppies (towndeposit.mjs notForChest, owner 10-04), so each crew bot names what it carries in the
+// crew's pantry (buildproj.mjs pantryWrite), the keeper adds the elements the town and the crew hold to the park (terrace.mjs
+// parkTopUp), and the carrier plants them. PURE here.
 // Never sweet berry bushes, cactus or vines (no list names them); never a crop, a sapling or anything in a reserved column.
 // ================================================================================================================================
 export const GATHER_CAP = Object.freeze({ flowers: 24, tall_flowers: 8, azalea: 8, bamboo: 9, cane: 6, hedge: 24, trees: 4 })

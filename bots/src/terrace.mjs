@@ -911,6 +911,9 @@ export function parkTopUp (read, { park, have = {}, taken = () => false, near = 
   for (const c of out) if (c.role !== 'till') nowPlaced[c.el] = (nowPlaced[c.el] ?? 0) + 1
   const skipped = { ...(park.skipped ?? {}) }
   for (const el of Object.keys(nowPlaced)) delete skipped[el]
+  // an element the town now holds that still found no place (cane with no water in the box, no room) keeps the layout's reason: a
+  // `no_water` is no want (park.mjs parkWant), so the crew stops gathering what the park cannot use
+  for (const [el, why] of Object.entries(lay.skipped ?? {})) if (!nowPlaced[el] && Object.keys(TOPUP_MIN).includes(el) && haveOf(fresh, el) >= (TOPUP_MIN[el] ?? 1)) skipped[el] = why
   const kinds = { ...(park.kinds ?? {}) }
   for (const [q, el] of Object.entries(lay.kinds ?? {})) if (el !== 'meadow' && nowPlaced[el]) kinds[q] = el
   return { cells: out, segments: segs, park: { ...park, kinds, placed: { ...placed, ...nowPlaced }, skipped, trees: [...(park.trees ?? []), ...lay.trees.filter(t => out.some(c => c.at.join(',') === t.join(',')))], topups: (park.topups ?? 0) + 1 } }

@@ -20406,12 +20406,25 @@ async function parkGather (ctx, signal, { deadline, effects: e }) {
   if (!Object.keys(want).length) return { n: 0, why: 'nothing_wanted' }
   let reserved
   try { reserved = gatherGuard(bot, dir, land, park) } catch { return { n: 0, why: 'guard_unread' } }
-  const ids = GATHER_NAMES.map(x => bot.registry?.blocksByName?.[x]?.id).filter(Number.isFinite)
-  let found = []
-  try { found = bot.findBlocks?.({ matching: ids, maxDistance: GK.gatherR, count: 256 }) ?? [] } catch { found = [] }
+  // THE SHEARS (a leaf block drops itself only to shears; the LIVE showcase's surroundings are spruce: 15,143 unreserved leaf blocks
+  // within 64, no free flower): crafted in the 2x2 grid from 2 iron ingots the bag spares, only while the park wants a hedge
+  if (want.hedge > 0 && countItem(bot, 'shears') < 1) {
+    try {
+      const keep = townKeeps(heldMap(bot), { wanted: bot.currentWants ?? [] }).keep
+      if (countItem(bot, 'iron_ingot') - (Number(keep.iron_ingot) || 0) >= 2) {
+        const recipe = bot.recipesFor?.(bot.registry.itemsByName.shears.id, null, 1, null)?.[0]
+        if (recipe) { await withTimeout(bot.craft(recipe, 1, null), 10_000, bot, { what: 'park shears' }); try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'park_shears', n: countItem(bot, 'shears') }) }) } catch { /* telemetry */ } }
+      }
+    } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+  }
+  const shears = countItem(bot, 'shears') > 0
+  // two searches (the nearest 128 of each): the leaves alone would fill one (thousands of them round a spruce town)
+  const find = names => { const ids = names.map(x => bot.registry?.blocksByName?.[x]?.id).filter(Number.isFinite); try { return ids.length ? bot.findBlocks?.({ matching: ids, maxDistance: GK.gatherR, count: 128 }) ?? [] : [] } catch { return [] } }
+  const leafN = GATHER_NAMES.filter(x => /_leaves$/.test(x))
+  const found = [...find(GATHER_NAMES.filter(x => !/_leaves$/.test(x))), ...(shears && want.hedge > 0 ? find(leafN) : [])]
   const cands = found.map(v => ({ at: [v.x, v.y, v.z], name: bot.blockAt?.(v)?.name })).filter(c => c.name)
   const read = planReader(bot)
-  const targets = gatherTargets(cands, { read, reserved, home, r: GK.gatherR, from: e.feet(), want, max: GK.gatherMax, shears: countItem(bot, 'shears') > 0 })
+  const targets = gatherTargets(cands, { read, reserved, home, r: GK.gatherR, from: e.feet(), want, max: GK.gatherMax, shears })
   if (!targets.length) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'park_gather', kind: Object.keys(want).join('+'), n: 0, why: `no_source:${cands.length}` }) }) } catch { /* telemetry */ } return { n: 0, why: 'no_source' } }
   let n = 0
   const got = {}
@@ -20423,6 +20436,8 @@ async function parkGather (ctx, signal, { deadline, effects: e }) {
     check(signal)
     // the world read again at the dig: still the named block, still unreserved, in reach from where the walk ended
     if (reserved(...t.at) || String(read(...t.at)?.name ?? '').replace(/\[.*\]$/, '') !== t.name || !digReachFrom(e.feet(), t.at)) continue
+    // a leaf block is cut with the shears in hand (equip only: never an unequip -- the toss bug)
+    if (t.el === 'hedge') { const sh = (bot.inventory?.items?.() ?? []).find(i => i.name === 'shears'); if (!sh) continue; if (bot.heldItem?.name !== 'shears') { try { await bot.equip(sh, 'hand') } catch (err) { if (err?.aborted) throw err } } if (bot.heldItem?.name !== 'shears') continue }
     const v = await e.dig(t.at, t.name)
     if (v !== 'confirmed') continue
     n++

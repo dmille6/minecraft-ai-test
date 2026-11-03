@@ -8,7 +8,7 @@
 //      a reservation of every project record's cells and box, the protected zones and the park), and the top-up those plants would
 //      buy (parkTopUp with the town's stock plus everything gathered)
 //
-//   node scripts/gkhelpers-offline.mjs <dump.json> <pool-state-dir> [--json]
+//   node scripts/gkhelpers-offline.mjs <dump.json> <pool-state-dir> [--shears] [--json]   (--shears: the gatherer holds shears)
 import fs from 'node:fs'
 import { dumpReader, poolRecords } from './buildsite-offline.mjs'
 import { recordHead } from '../src/buildproj.mjs'
@@ -78,16 +78,21 @@ if (park) {
   const names = new Set(PK.GATHER_NAMES)
   const [x0, z0, x1, z1] = dump.box, [y0, y1] = dump.y
   const cands = []
+  // every plant block in the dump within the gather's reach (the bot's findBlocks sees only its loaded chunks: this is the most)
   for (let x = Math.max(x0, home.x - GK.GK.gatherR); x <= Math.min(x1, home.x + GK.GK.gatherR); x++) for (let z = Math.max(z0, home.z - GK.GK.gatherR); z <= Math.min(z1, home.z + GK.GK.gatherR); z++) for (let y = y0; y <= y1; y++) { const n = String(read(x, y, z)?.name ?? '').replace(/\[.*\]$/, ''); if (names.has(n)) cands.push({ at: [x, y, z], name: n }) }
   const byKind = {}
   for (const c of cands) byKind[c.name] = (byKind[c.name] ?? 0) + 1
-  const targets = PK.gatherTargets(cands, { read, reserved, home, r: GK.GK.gatherR, want, max: 500 })
+  const targets = PK.gatherTargets(cands, { read, reserved, home, r: GK.GK.gatherR, want, max: 500, shears: argv.includes('--shears') })
+  // why each plant the gather may take (a gatherKind, wanted) was not a target: its reservation, else the shape rule
+  const refusedBy = {}
+  const tk = new Set(targets.map(t => t.at.join(',')))
+  for (const c of cands) { const g = PK.gatherKind(c.name); if (!g || !(want[g.el] > 0) || tk.has(c.at.join(','))) continue; const why = reserved(...c.at) ?? (g.shears ? 'no_shears' : 'shape'); refusedBy[why] = (refusedBy[why] ?? 0) + 1 }
   const gotten = {}
   for (const t of targets) gotten[t.item] = (gotten[t.item] ?? 0) + t.n
   const taken = new Set([...(tidy?.cells ?? []), ...(tidy?.cut ?? [])].map(q => `${q.at[0]},${q.at[2]}`))
   const have = { ...stock }; for (const [n, v] of Object.entries(gotten)) have[n] = (have[n] ?? 0) + v
   const top = TR.parkTopUp(read, { park, have, taken: (x, z) => taken.has(`${x},${z}`), segN: 0, y0: home.y - 16, y1: home.y + 16 })
-  out.park = { box: park.box, placed: park.placed, want, plantBlocks: cands.length, byKind, targets: targets.length, unreserved: targets.filter(t => !reserved(...t.at)).length, gotten, standless: targets.filter(t => !PK.gatherStand(read, t)).length,
+  out.park = { box: park.box, placed: park.placed, want, plantBlocks: cands.length, byKind, refusedBy, targets: targets.length, unreserved: targets.filter(t => !reserved(...t.at)).length, gotten, standless: targets.filter(t => !PK.gatherStand(read, t)).length,
     topup: top ? { cells: top.cells.length, byEl: top.cells.reduce((m, c) => ((m[c.el] = (m[c.el] ?? 0) + 1), m), {}), skipped: top.park.skipped } : null }
 }
 if (argv.includes('--json')) console.log(JSON.stringify(out))

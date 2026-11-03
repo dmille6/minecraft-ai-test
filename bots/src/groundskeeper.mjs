@@ -23,7 +23,8 @@ export const GK = Object.freeze({ leaseTtlMs: 30 * 60_000, termMs: 4 * 60 * 60_0
   helpersMax: 2, helperTtlMs: 12 * 60_000, helperRestMs: 10 * 60_000, segGap: 2,
   // gkhelpers-01 (owner 11-03 B): THE PARK GATHER -- at most `gatherMax` plant blocks a visit, within `gatherR` of home; the keeper
   // gathers at most every `gatherEveryMs` (its plan work comes first)
-  gatherMax: 12, gatherR: 64, gatherEveryMs: 20 * 60_000 })
+  // (96: the LIVE showcase's nearest free sugar cane stands 65-96 from home; its flowers are all inside the protected village)
+  gatherMax: 12, gatherR: 96, gatherEveryMs: 20 * 60_000 })
 /** THE SWITCH -> bool. GROUNDSKEEPER=on|off; unset = every NAMED pool the tidy is on in (tidy.mjs tidyOn: every fleet pool, not
  *  the showcase unless TIDY_POOLS names it); an unnamed pool (a test bot, a scratch run) keeps tidy-01's order. Off: tidy-01
  *  exactly as before (the last project, 3 builders, no stages). Pure. */
