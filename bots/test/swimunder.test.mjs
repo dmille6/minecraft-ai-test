@@ -8,7 +8,7 @@ import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { Vec3 } from 'vec3'
-import { swimUnderPlan, swimUnderAdmit, swimUnderStep, swimUnderAbort, swimBackRoute, swimUnder, swimUnderOn, exitKind, swimFits,
+import { swimUnderPlan, swimUnderAdmit, swimUnderStep, swimUnderAbort, swimBackRoute, swimUnder, swimUnderOn, exitKind, swimFits, airEstimate,
   swimUnderBackoffMs, SU_MAX_WET_RUN, SU_ABORT_OXYGEN } from '../src/swimunder.mjs'
 
 const require = createRequire(import.meta.url)
@@ -172,6 +172,9 @@ await ta('A1 admission: full air and health 14+; SWIMUNDER=0 is off; a missing p
   assert.match(swimUnderAdmit({ plan, oxygen: 20, health: 10, env: {} }).why, /health/)
   assert.match(swimUnderAdmit({ plan, oxygen: 20, health: 20, env: { SWIMUNDER: '0' } }).why, /SWIMUNDER=0/)
   assert.equal(swimUnderAdmit({ plan: { ok: false, reason: 'no way out' }, oxygen: 20, health: 20, env: {} }).why, 'no way out')
+  // Paper 11-03: the guarded reading is null until the server first reports a change; a breathing bot never got one
+  assert.equal(swimUnderAdmit({ plan, oxygen: null, health: 20, headAir: true, env: {} }).ok, true, 'null air with the head out is full air')
+  assert.match(swimUnderAdmit({ plan, oxygen: null, health: 20, headAir: false, env: {} }).why, /unreported/)
   assert.equal(swimUnderOn({}), true); assert.equal(swimUnderOn({ SWIMUNDER: 'off' }), false)
 })
 
@@ -272,6 +275,18 @@ await ta('B6 THE DRY EXIT CLOSES at the last step -> the firing stops before it;
   assert.equal(bot.health, 20)
 })
 
+await ta('B7 AIR UNREPORTED (Paper 11-03: oxygenLevel null for a bot that has only breathed): the swim still runs and watches an estimate', async () => {
+  const w = worldOf(ISOD)
+  const bot = simBot(w, [358.5, 58.2, 180.5]); settle(bot)
+  const plan = swimUnderPlan({ at: w.at, start: feetCell(bot) })
+  const res = await runActuator(bot, { plan, oxygen: () => null })
+  assert.equal(res.outcome, 'out', `${res.outcome}: ${res.why}`)
+  assert.ok(Number.isFinite(res.minAir) && res.minAir >= 12 && res.minAir < 20, `estimated min air ${res.minAir}`)
+  assert.ok(Math.abs(res.minAir - 17) <= 3, `estimate ${res.minAir} vs the sim's own air (~17 at the deepest)`)
+  let e = 20; for (let i = 0; i < 150; i++) e = airEstimate(e, true)
+  assert.ok(Math.abs(e - 10) < 1e-9, `150 wet ticks = 10 units, got ${e}`)
+})
+
 await ta('B5 A YIELD STOPS STEERING AT ONCE: the drowning rescue taking the body ends the firing with every control released', async () => {
   const w = worldOf(ISOD)
   const bot = simBot(w, [358.5, 58.2, 180.5]); settle(bot)
@@ -288,6 +303,7 @@ await ta('W1 WIRED: both flood-branch refusal arms try the swim before the back-
   assert.equal((r.match(/await swimUnderTry\('marooned', \(\) => maroonGrant\)/g) || []).length, 1, 'marooned arm')
   assert.equal((r.match(/await swimUnderTry\('entombed', \(\) => entombedGrant\)/g) || []).length, 1, 'entombed arm')
   assert.ok(/owned: rescuing \|\| rampSteering \|\| swimmingUnder,/.test(r), 'the float hold counts it as an owner')
+  assert.ok(/swimUnderAdmit\(\{ plan, oxygen: bot\.oxygenLevel, health: bot\.health, headAir: !!eye && !isWaterCell\(eye\)/.test(r), 'admission is told whether the head is in air (null air)')
   assert.ok(/if \(!pocketing && !poolEscaping && !swimmingUnder && !dangerMovingNow\(\)\) \{/.test(r), 'the hold never jumps against it')
   assert.ok(/longEnough && !poolEscaping && !swimmingUnder && !dangerMovingNow\(\)/.test(r), 'the stranded ladder stands aside')
   assert.ok(/res = await swimUnder\(bot, \{ plan, alive: \(\) => ownsBody\(grantOf\)\(\) && !airPocketWanted\(\) && !runner\?\.current,\n\s*yieldTo: \(\) => drowningOwnsBody\(\) \|\| arbiterYield\(grantOf\)/.test(r), 'it yields to the drowning rescue')
