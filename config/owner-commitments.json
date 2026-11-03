@@ -3170,7 +3170,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "SITING DESIGNED + BUILT 11-03 (yardsite-01, tier 2; Codex r1 + Claude r1 BLOCKERS none, Claude's race note fixed): the yard sites in the land plan's yard -> wild -> homes zones (never farms/treefarm/monument/industry; no land plan: the workshop's sectors), from the town ring (Chebyshev 22) out to workR 80, nearest band first, footprint centre in sector, fill 4 deep; access = the proof's walk from town; clear of protected zones, every record + gap (road corridors), the unsited hall pad and the markers (showcase). YARD_SIZE=1|2|auto (auto: yard@2 18x26 656 slots where it fits, else yard@1 304). siteBlueprintAsync (yields 40 ms; offline longest stall 1.0-3.2 s). Offline (bots/scripts/yard-offline.mjs; control = stockyard-01's call, no_site 17/17): showcase yard@1 SW (land:homes) anchor -48,44 Chebyshev 44..58 fill 93 cut 57 6 trees (the yard zone E is under the taiga village box); fleet 3/16 (hive-d yard@2, placebo-a yard@1, placebo-d yard@1), 13 none. main 556ba468 (land-optional wiring); showcase release c2a0de4f-6dd0ded8-fdd64ead (branch showcase-yard2-on-e54d1cce; npm test .30 387/394 at c45f2361, the rest 4/4 alone) ACTIVATED 06:17:06Z. NEXT: its 60-min rollout-check (07:17Z) and the yard sited/floored/filled read; the fleet run needs groundskeeper-01's land plan on the fleet (main without it sites from the workshop sectors: hive-d none) and covers 3 of 16 towns as of 11-02.",
+   "next_step": "c2a0de4f live 06:17:06Z: yard@1 sited 06:18Z at -50,5 (W, workshop sectors, 1x), floor complete 07:03Z (349 cells), clerk stocked 97+ cobble by 07:17Z; 60-min check PASS (0 deaths/10 bot-h); 07:35Z tripwire TRIP S6 H1 off_record 138 = the clerk's pile stock (138/138 on pileSlots, none on record cells; the read knew only record cells) -> rolled back to dc617030 (start-bots 17/17), coordinator acked; yardread-01 (main 110e9ef2) taught shopread the yard (replay 138 -> 0, planted controls 1); yard re-released in adbf9e41 07:50:54Z with yardzone-01 (the land plan pins a sited yard's sector). NEXT: the 2-h read of adbf9e41 (piles, clerk, refills).",
    "max_quiet_hours": 48,
    "evidence": {
     "grep": [
@@ -3315,7 +3315,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "SHOWCASE RE-RELEASE 11-03: the tripwire fix tidyread-01 (tooling, Codex r1 1 BLOCKER fixed -> r2 none, Claude r1 none; main 230c204b; installed /srv/showcase/trip/shopread.py 04:02Z, backup .bak-20261103-tidyread): shopread judges project=tidy clears against the tidy record's cut/clear lists across every stage generation, a cut on another project's cell or a marker block trips (`guarded`); replay of 02:41Z..: old TRIP H2 4, new WATCH H2 0, planted off-list/project/marker/zone cuts trip. Release dc617030-6dd0ded8-fdd64ead (62e2aff0 + copperrun-01 cherry-pick; Codex + Claude delta none; npm test .30 388/392, base env set) ACTIVATED 04:15:26Z: 60-min rollout-check PASS (0 deaths / 10.0 bot-h, sha 10/10, tripwire WATCH); 2-h read 06:16Z: 11,882 rows / 10 bots, 0 deaths, keeper takes 4 (Alpha g5, Iris g12, Alpha g14, Comet g15; never two holders: each took after the last lapse), tidy stage 0: 16 fills placed, 5 deferred, stuck 3x on pit cell 21,66,0, WAIVED 06:07Z (no_stand, 5th visit) -> tidy g2; land_plan rows 0 (stage 0 not complete), roads 0 graded; tripwire 04:35Z/05:35Z WATCH, S6 H1/H2/H3 0; far zones 05:00Z all INTACT. copperrun UNEXPOSED (0 copper_run rows, 0 expedition rows from the same idle branch; mode on 10/10; gate 106 ingots + 22 cut of 211). Then the yard release c2a0de4f-6dd0ded8-fdd64ead activated 06:17:06Z on top (stockyard-1102). NEXT: the +120 min read of stage 0 completing and the land plan publishing (stage 1 roads); fleet variant dad74f97 unchanged (no yard/expedition/copperhall in its tree; shopread is showcase-only).",
+   "next_step": "11-03 ~07:00-07:57Z (showcase follow-ups session): stage-0 stall ROOT CAUSE: pit cell 21,66,0 is a 1x1 hole two deep (fill tops at 66, rim at 67); its only support is the cobble below and no walked node's eye sees that face past the rim (offline stepFor null on a dump of the 06:30Z copy); waived only on the 5th deferring visit, each ~30 min apart because the keeper's stuck_on_cell stop backed its whole order off 6 h while it held the lease. FIX gkstall-01 (+r1 prev cells, +r2 seals never waived, Codex fold BLOCKER): waive after 2 visits (< STUCK_VISITS), room 10% of the stage's own cells, stop cell_waived, a stuck keeper releases the lease. yardzone-01: sitedSectors pins already-sited tree farm/yard sectors in landShape (showcase offline: W treefarm, yard fixed in W, no second yard zone). idlekeep-01 (main 032883ae): keeper_held is idle -> copper run/expedition asked (copperrun was unexposed: 87/113 visits keeper_held). Tripwire: tidyread-02 (main 227cf333) + yardread-01 (main 110e9ef2) installed. Showcase release adbf9e41-6dd0ded8-fdd64ead (restack 259a36f3 + these + showshaft + townterrace-01 + yardsite) ACTIVATED 07:50:54Z; NEXT: 60-min check 08:51Z, 2-h read ~09:51Z (stage 0 completes, land plan publishes, terrace then roads). FLEET: replacement variant groundskeeper-02-on-62b8dd2 a7655c17 (dad74f97 + gkstall + yardzone) prepared, queue NOT touched (control session to replace-variant).",
    "max_quiet_hours": 72,
    "depends_on": [
     {
@@ -3331,12 +3331,19 @@
      "groundskeeper-on-*",
      "showcase-gk-on-e54d1cce",
      "showcase-gk2-on-e54d1cce",
-     "tidyread-01"
+     "tidyread-01",
+     "groundskeeper-02-on-62b8dd2",
+     "showcase-shaft-on-259a36f3"
     ],
     "grep": [
      "groundskeeper",
      "groundskeeper-01show",
-     "tidyread-01"
+     "tidyread-01",
+     "gkstall-01",
+     "yardzone-01",
+     "idlekeep-01",
+     "tidyread-02",
+     "yardread-01"
     ],
     "paths": [
      "docs/reports/groundskeeper-2026-11-02.md",
@@ -3514,7 +3521,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "BUILT 11-03 (not activated): branch townterrace-on-c2a0de4f on the showcase release line showcase-yard2-on-e54d1cce c2a0de4f (groundskeeper + copperrun + yardsite) -- terrace stage (land-plan stage 1, after the plaza) + seeded park + the owner's 11-01 water rule (fills beside/into water, cuts behind dams, dig-time check; TIDY_WATER=strict rollback). Reviews Codex + Claude to BLOCKERS none; full suite on .30 = base's own 4 failures. NEXT: the showcase owner releases it AFTER the groundskeeper re-release (needs the tripwire tidy rule, 442d0496/230c204b, installed); 2-h read per docs/reports/townterrace-2026-11-03.md (walk failures, stuck cells, in-town deposit failures down; H1-H6 0 for project=tidy; 0 protected blocks; stage completes), then the fleet groundskeeper canary. Open: park materials (no town chest holds flowers/saplings/seeds/bamboo/leaves: a park gather is needed); lily pads (no on-water actuator).",
+   "next_step": "Folded into showcase release adbf9e41-6dd0ded8-fdd64ead (27e80ac1's 14 commits on showshaft; conflicts kept both; Codex fold r1 BLOCKER: the keeper's 2-visit waiver could name a cave seal -> gkWaivable excludes seals + prev cells, r2 APPROVE; Claude APPROVE) ACTIVATED 07:50:54Z. NEXT: the 2-h read per the report's section (terrace stage sited after stage 0, park_planned, H1-H6 0) ~09:51Z; park materials absent from every town chest (park tiny until a park gather).",
    "max_quiet_hours": 72,
    "depends_on": [],
    "evidence": {
@@ -3522,7 +3529,8 @@
      "townterrace"
     ],
     "branches": [
-     "townterrace-on-*"
+     "townterrace-on-*",
+     "showcase-shaft-on-259a36f3"
     ],
     "paths": [
      "docs/reports/groundskeeper-2026-11-02.md",
