@@ -77,6 +77,7 @@ import { runnerDeclined } from './declined.mjs'
 import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
 import { fewerDecConfig, pauseWaitDecision, decisionSig, vetoSkipDecision, continueAfterRun, continueOrder, continueSchedule, continueWait } from './fewerdec.mjs'
+import { vetoRemedyConfig, vetoRemedy, takeRemedy } from './vetoremedy.mjs'
 
 // Only skills that can succeed WITHOUT a human present.
 //
@@ -418,6 +419,9 @@ export class CognitiveLoop {
     this.contState = null      // CONTINUE: the gather that may fill the cooldown ({ skill, args, n })
     this.contWindow = null     // CONTINUE: the open cooldown window ({ until, early })
     this.fdTally = null        // one fewerdec_tally row per 10 min: what the three rules did
+    // VETO REMEDY (vetoremedy.mjs; idlegap): a model veto on `return` / `deposit_surplus` queues the rung's own skill for the next tick
+    this.vetoRemedy = vetoRemedyConfig(process.env)
+    this.pendingRemedy = null  // { order, at, milestoneId }: used once, by the very next tick
     this.milestones = new MilestoneController(bot, config.bot.role, this.lessons, worldFacts)
     this.schema = skillSchema(SKILL_NAMES)
     this.system = buildSystemPrompt(SKILL_NAMES)
@@ -527,6 +531,7 @@ export class CognitiveLoop {
    * snapshot genuinely differs, then clears the repeat window.
    */
   async #escape() {
+    this.lastEscapeAt = Date.now()   // VETO REMEDY: a tick that relocated queues no remedy (vetoremedy.mjs)
     const p = this.bot.entity?.position
     if (!p) return
     const ang = Math.random() * Math.PI * 2
@@ -1623,6 +1628,10 @@ export class CognitiveLoop {
     // CONTINUE (fewerdec.mjs): with no work order at all, the gather the model chose last -- if it served the task and
     // gained items -- fills the cooldown. AFTER every order (planting included); the descent and keep-out exits below
     // still override it.
+    // VETO REMEDY (vetoremedy.mjs): the remedy a model veto queued on the previous tick -- used once, AFTER every order (any
+    // order wins), before the continuation; the descent and keep-out exits below still override it.
+    { const pend = this.pendingRemedy; this.pendingRemedy = null
+      if (!order) { const vr = takeRemedy({ cfg: this.vetoRemedy, pending: pend, trigger, milestoneId: milestone?.id ?? null, now: Date.now() }); if (vr) { order = vr; this.#fdCount('veto_remedy') } } }
     if (!order) { const co = continueOrder({ cfg: this.fewerDec, cont: this.contState, trigger, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a) }); if (co) { order = co; this.#fdCount('continue') } }
     { const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = sd } }
     // found-01 (Codex JIT 10-23c r1 P2): the found slot charged its visit and cooldown when it ISSUED; an order the exit replaces
@@ -1970,6 +1979,15 @@ export class CognitiveLoop {
           logEvent({ kind: 'livelock_not_fixated', status: 'no_effect', detail: `${fx.reason}: moved ${fx.moved ?? '?'} gained ${fx.gained ?? '?'} over ${fx.n} samples / ${Math.round((fx.span ?? 0) / 1000)} s (rejections ${this.consecutiveRejections}${rejection?.reason === 'repeat_loop' ? ', repeat_loop' : ''})`, snapshot: snapshot(this.bot) })
         } else if (!(this.livelockLatchedUntil > Date.now())) await this.#escape()
       }
+      // VETO REMEDY (vetoremedy.mjs): the rung's own skill is queued for the next tick -- not after a relocation this tick
+      // (the bot is somewhere else now and the model decides there), never for a refused ORDER
+      if (!((this.lastEscapeAt ?? -Infinity) >= started)) {
+        try {
+          const vr = vetoRemedy({ cfg: this.vetoRemedy, trigger, milestoneId: milestone?.id ?? null, proposal: res.proposal, rejection,
+                                  fromOrder: !!order, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a) })
+          if (vr) this.pendingRemedy = { order: vr, at: Date.now(), milestoneId: milestone?.id ?? null }
+        } catch { /* a remedy must never cost the bot its decision */ }
+      }
     }
     if (admitted) this.consecutiveRejections = 0
     // VETOSKIP's memory: the last MODEL decision and its veto; an order in between clears it (its outcome is newer news).
@@ -2088,7 +2106,8 @@ export class CognitiveLoop {
     const cs = continueSchedule({ cfg: this.fewerDec, ranOk: executed && outcome.status === 'success', window: this.contWindow,
                                   now: Date.now(), cooldownMs: config.llm.decisionCooldownMs })
     this.contWindow = cs.window
-    this.#scheduleNext(cs.delayMs)
+    // VETO REMEDY: a queued remedy runs on the next tick, not after the cooldown (it replaces that tick's model call)
+    this.#scheduleNext(this.pendingRemedy ? Math.min(cs.delayMs, this.vetoRemedy.delayMs) : cs.delayMs)
   }
 
   /** One fewerdec_tally row per bot per 10 min (counts of skips, waits and continuations), for the canary read. */
