@@ -339,7 +339,7 @@ await t('the haul is the bag gained less the kit, and the markers\' cobble and t
 await t('WIRED: buildShop dispatches the expedition, home follows the trail first, features installs the ask, the ask is set', async () => {
   const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
   assert.equal(sk.split('if (args?.expedition === true) return expeditionVisit(ctx, args, signal)').length, 2)
-  assert.equal(sk.split('try { await expeditionHomeLeg(ctx, signal, deadline - 60_000) }').length, 2)
+  assert.equal(sk.split('try { exLeg = await expeditionHomeLeg(ctx, signal, deadline - 60_000) }').length, 2)
   assert.equal(sk.split('if (EXPEDITION.on) setExpeditionAsk(expeditionAsk)').length, 2)
   const homeAt = sk.indexOf('async function home(ctx, _args, signal) {')
   const hookAt = sk.indexOf('await expeditionHomeLeg(ctx, signal, deadline - 60_000)')
