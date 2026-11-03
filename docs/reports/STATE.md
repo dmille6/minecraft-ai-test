@@ -4,18 +4,17 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-03T22:20:01Z._
+_Generated 2026-11-03T23:20:01Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `53fd28ee` = cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z) on stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) on fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) on tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) |
 | **Canary in slot** | **bagdiet-01** deployed 11-03 20:59Z; reads +90 11-03 22:29Z, +180 11-03 23:59Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | swimcentre-01 -> bundle-1103a |
-| **Showcase release** | `cbd2f51b` (23,087 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 53fd28ee (cooldown15-02); row 11-03 21:25Z) |
+| **Showcase release** | `cbd2f51b` (22,313 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 53fd28ee (cooldown15-02); row 11-03 22:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
-| **Owner-direct / rollouts (24 h)** | qwen35-roll: rollout-compare 11-02 22:36Z |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
-| **Open alarms** | STALLCHECK 2026-11-03T21:35:01Z STALLED: 50. OPSAUDIT 2026-11-02 FLAGS: 8 (1 high). 35 active alarm(s): stuck goals 6 (board-d/monument@355_73_147, hive-a/monument@355_73_147, hive-a/wall@355_73_147, isolated-a/monument@355_73_147, placebo-b/tidy@282_65_-388, placebo-c/monument@355_73_147); effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24, flowledger bags |
+| **Open alarms** | STALLCHECK 2026-11-03T22:35:02Z STALLED: 47. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 37 active alarm(s): stuck goals 8 (board-d/monument@355_73_147, hive-a/monument@355_73_147, hive-a/wall@355_73_147, isolated-a/monument@355_73_147, isolated-c/monument@355_73_147, isolated-d/monument@355_73_147 ...); effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24, flowledger bags |
 <!-- GENERATED:END -->
 
 ## Notes
