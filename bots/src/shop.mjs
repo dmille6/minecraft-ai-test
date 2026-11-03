@@ -16,6 +16,7 @@ import { copperhallOn, HALL_PLOT, HALL_BLUEPRINT, HALL_BUILDERS } from './copper
 import { yardOn, YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS } from './yard.mjs'   // stockyard-01
 import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } from './shopchest.mjs'
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
+import { sinksOn, sinkKindsOn, SINK_KINDS, SINK_PLOTS, SINK_BLUEPRINTS, SINK_BUILDERS, SINK, SINK_STREAK, isSinkPlot, sinkKindOf } from './sinks.mjs'   // picker-01
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -107,6 +108,14 @@ export const YARD = Object.freeze({ on: yardOn(process.env, process.env.MEMORY_P
 /** GROUNDSKEEPER-01 (groundskeeper.mjs): one leased bot a town works the tidy -- its only builder (the lease is the slot, the yard
  *  clerk's pattern) -- through the land plan's stages; GROUNDSKEEPER=off is tidy-01 exactly as before (3 builders). */
 export const GROUNDS = Object.freeze({ on: TIDY.on && gkOn(process.env, process.env.MEMORY_POOL ?? '') })
+/**
+ * PICKER-01: THE TOWN SINKS (sinks.mjs; OWNER 11-02 resource model Q3 + 11-03 "do it"): three REPEATABLE projects -- road segments,
+ * wall towers, ziggurat growth (shrines) -- each a growing record of seeded instances, offered only when no finite project has a
+ * slot for this bot, after the bounded upkeeps that go first and before the others, while the town's stone is above its target
+ * (activeProject's sink tier; skills.mjs shopActive computes each sink's `sinkOpen` / `sinkNext`). Before the tidy (last). On in
+ * the showcase pool only (sinks.mjs sinksOn); SINKS=off is the rollback; SINK_KINDS narrows the kinds.
+ */
+export const SINKS = Object.freeze({ on: sinksOn(process.env, process.env.MEMORY_POOL ?? ''), kinds: Object.freeze(sinkKindsOn(process.env)) })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -119,16 +128,20 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
   Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),
   Object.freeze({ plot: YARD_PLOT, blueprint: YARD_BLUEPRINT, builders: YARD_BUILDERS }),
+  ...SINK_KINDS.map(k => Object.freeze({ plot: SINK_PLOTS[k], blueprint: SINK_BLUEPRINTS[k], builders: SINK_BUILDERS, sink: true })),   // picker-01
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 + GK.helpersMax : TIDY_BUILDERS }),   // gkhelpers-01: the keeper and its helpers
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
 export const projectsGuarded = (list = projectsOn()) => {
   // tidy-01: the tidy guards nothing (its fills are ground, its cuts are spoil): never a footprint, a keep-out or a siting input
   const l = list.filter(p => p.plot !== TIDY_PLOT)
-  return l.some(p => p.plot === SHAFT_PLOT) ? l : [...l, PROJECTS.find(p => p.plot === SHAFT_PLOT)]
+  const out = l.some(p => p.plot === SHAFT_PLOT) ? l : [...l, PROJECTS.find(p => p.plot === SHAFT_PLOT)]
+  // picker-01: every sink plot stays guarded whatever the switch (SINKS=off stops the building, never a sited instance's protection)
+  for (const p of PROJECTS) if (p.sink && !out.some(q => q.plot === p.plot)) out.push(p)
+  return out
 }
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
 export const buildersOf = p => p?.builders ?? BUILDERS_MAX
@@ -138,11 +151,13 @@ export const buildersOf = p => p?.builders ?? BUILDERS_MAX
  * whose `after` project is complete -- monument-01: the first such with an admission slot free for this bot (`free`, absent =
  * free), else the first such -- else the LAST project (everything stands: the order reads it complete and stays quiet).
  */
-export function activeProject (states = [], list = projectsOn()) {
+export function activeProject (states = [], list = projectsOn(), { upkeepTurn = false } = {}) {
   const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged) return p }
   const open = []
   for (const p of list) {
+    // picker-01: a sink is never in the finite order (its tier is below)
+    if (p.sink) continue
     const s = st(p)
     if (s.exists && s.complete) continue
     if (p.after && !st(list.find(q => q.plot === p.after) ?? { plot: p.after }).complete) continue
@@ -150,7 +165,20 @@ export function activeProject (states = [], list = projectsOn()) {
     if (!s.exists && s.waiting === true) continue
     open.push(p)
   }
-  if (open.length) return open.find(p => st(p).free !== false) ?? open[0]
+  // PICKER-01 (sinks.mjs): the sink a bot may work now -- an open instance, or the next one the picker wants (`sinkOpen` / `sinkNext`:
+  // skills.mjs shopActive's states, in the picker's order: sinks.mjs sinkOrder), with an admission slot for this bot. Offered only
+  // when no finite project has a slot for this bot (LIVE showcase 11-03 09:40-15:38Z: 67 of 101 tidy visits `keeper_held` -- the
+  // keeper's grounds were every other bot's `open[0]` fallback), after the bounded upkeeps that go first, and -- after SINK_STREAK
+  // sink visits (`upkeepTurn`) -- after one ordinary upkeep too. With no sink to offer, the order is exactly as before.
+  const sink = list.find(p => p.sink && (st(p).sinkOpen || st(p).sinkNext) && st(p).free !== false && !st(p).stuck) ?? null
+  const freeOpen = open.find(p => st(p).free !== false)
+  if (freeOpen) return freeOpen
+  if (open.length && !sink) return open[0]
+  if (sink) {
+    for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due && s.dueFirst) return p }
+    if (upkeepTurn) for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due && !p.sink) return p }
+    return sink
+  }
   // wall-01: a complete project that only wants a visit for its upkeep (`due`: the ziggurat's tidy) after every open one
   // sortstore-01: an upkeep marked `dueFirst` (the storehouse's labels and tidy: bounded, at most once per 10 min a bot) goes ahead of
   // the other upkeeps (LIVE showcase 11-01 17-22Z: 74 of 80 build visits went to a complete ziggurat whose `due` stays true and does
@@ -160,8 +188,9 @@ export function activeProject (states = [], list = projectsOn()) {
   // copperhall-01 (Claude review r1 BLOCK): never a WAITING project as the fallback -- in the showcase (tidy and stair off) the
   // hall is the list's last, and an unsited "active" hall made every order a build_shop that ended copper_wait, the expeditions
   // never asked; the last project that is not waiting reads complete and the order stays quiet (the bot may go out)
-  for (let i = list.length - 1; i >= 0; i--) { const s = st(list[i]); if (!(!s.exists && s.waiting === true)) return list[i] }
-  return list[list.length - 1]
+  // picker-01: never a sink as the fallback (a sink is offered only by its own tier, above)
+  for (let i = list.length - 1; i >= 0; i--) { const s = st(list[i]); if (!list[i].sink && !(!s.exists && s.waiting === true)) return list[i] }
+  return list.filter(p => !p.sink).at(-1) ?? list[list.length - 1]
 }
 /**
  * A REPAIR THAT DOES NOT TAKE WAITS (wall-01, LIVE showcase 10-30 07:21Z on: a path cell under a block someone set on it read as
@@ -265,7 +294,8 @@ export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the zig
 /** wall-01: the wall is built from the cobblestone the bags carry, as the ziggurat is. */
 /** treefarm-04: the farm plants from the bag's saplings and takes its harvest into it. */
 /** tidy-01: the tidy fills from the dirt and cobblestone a bag already holds. */
-export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, SHAFT_PLOT, TREEFARM_PLOT, TIDY_PLOT]))
+/** picker-01: a sink is built from the cobblestone and stone a bag already holds, as the ziggurat is. */
+export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, SHAFT_PLOT, TREEFARM_PLOT, TIDY_PLOT, ...Object.values(SINK_PLOTS)]))
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
@@ -303,6 +333,7 @@ export function setKeeperNow (fn) { if (typeof fn === 'function') keeperOf = fn 
  *  else SHOP_COOLDOWN_MS. Pure but for the keeper hook. */
 export function orderCooldown (plot) {
   if (plot === SHAFT_PLOT) return SHAFT_COOLDOWN_MS
+  if (isSinkPlot(plot)) return SINK.cooldownMs   // picker-01: a sink visit is bounded and its work is ready (the stair's rule)
   if (plot === TIDY_PLOT) { let k = false; try { k = !!keeperOf() } catch { k = false } if (k) return GK.cooldownMs }
   return SHOP_COOLDOWN_MS
 }
@@ -583,17 +614,21 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
+  // picker-01: a SINK as the active project is no finite work -- the copper run (a waiting finite project's need) and the expedition
+  // (one slot) are asked first, as for a bot the projects cannot use; the expedition's ask is told the projects are done
+  let sinkNow = false
+  try { sinkNow = isSinkPlot(record?.plot ?? activePlotOf()) } catch { sinkNow = false }
   // EXPEDITION-01 (owner showcase item 5): a bot the town's projects cannot use (all complete, or its last visit found no
   // material) may go on a short expedition -- the same order, the visit's args say which (skills.mjs buildShop)
   // copperrun-01: the waiting hall's copper first (its own skips say why not); then the expedition exactly as before
-  if (buildIdle({ complete, record, lastStop: state.lastStop }) && copperAskOf) {
+  if ((sinkNow || buildIdle({ complete, record, lastStop: state.lastStop })) && copperAskOf) {
     let cr = null
     try { cr = copperAskOf({ now, health, freeSlots }) } catch { cr = null }
     if (cr?.order) return { order: cr.order, skip: null }
   }
-  if (buildIdle({ complete, record, lastStop: state.lastStop }) && expeditionAskOf) {
+  if ((sinkNow || buildIdle({ complete, record, lastStop: state.lastStop })) && expeditionAskOf) {
     let ex = null
-    try { ex = expeditionAskOf({ now, health, freeSlots, complete, lastStop: state.lastStop ?? null }) } catch { ex = null }
+    try { ex = expeditionAskOf({ now, health, freeSlots, complete: complete || sinkNow, lastStop: state.lastStop ?? null }) } catch { ex = null }
     if (ex?.ok) return { order: { skill: 'build_shop', args: { expedition: true, phase: ex.phase ?? 'trip' } }, skip: null }
   }
   if (complete) return { order: null, skip: 'complete' }

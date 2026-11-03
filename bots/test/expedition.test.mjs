@@ -103,7 +103,7 @@ await t('buildOrder asks only when the projects have nothing for the bot, and or
 })
 
 await t('MUTANT KILLED: buildOrder asking with an open project would send builders away', async () => {
-  await withMutant(SHOP_PATH, "if (buildIdle({ complete, record, lastStop: state.lastStop }) && expeditionAskOf) {", 'if (expeditionAskOf) {', async M => {
+  await withMutant(SHOP_PATH, "if ((sinkNow || buildIdle({ complete, record, lastStop: state.lastStop })) && expeditionAskOf) {", 'if (expeditionAskOf) {', async M => {
     M.setExpeditionAsk(() => ({ ok: true, phase: 'trip' }))
     const r = M.buildOrder({ on: true, shared: true, atTown: true, planned: true, now: 1e12, complete: false, record: { plot: 'treefarm' }, state: { lastStop: 'deadline', lastAt: 0 } })
     assert.equal(r.order?.args?.expedition, true, 'the mutant does send the builder out, so the test above has teeth')

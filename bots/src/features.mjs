@@ -46,6 +46,8 @@ import { copperhallModeDetail } from './copperhall.mjs'   // copperhall-01's lic
 import { COPPERHALL } from './shop.mjs'
 import { YARD } from './shop.mjs'   // stockyard-01's licence row
 import { yardModeDetail } from './yard.mjs'
+import { SINKS } from './shop.mjs'   // picker-01's licence row
+import { sinkModeDetail } from './sinks.mjs'
 import { tapRecords } from './logger.mjs'   // showchat-01: the read-only record tap the announcements are made from
 import { showchatOn, showchatModeDetail, makeSpeaker, quietChatter, KILL_FILE } from './showchat.mjs'   // showchat-01
 import { poolStateDir } from './worldfacts.mjs'
@@ -90,6 +92,8 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'copperhall_mode', status: 'success', snapshot: snapshot(bot), detail: copperhallModeDetail(COPPERHALL.on) }) } catch { /* telemetry */ }
   // stockyard-01: the stockpile yard's licence row (yard.mjs; the project itself is shop.mjs PROJECTS, its visit skills.mjs yardVisit)
   try { logEvent({ kind: 'yard_mode', status: 'success', snapshot: snapshot(bot), detail: yardModeDetail(YARD.on) }) } catch { /* telemetry */ }
+  // picker-01: the town sinks' licence row (sinks.mjs; the plots are shop.mjs PROJECTS' sink entries, the visit skills.mjs buildSink)
+  try { logEvent({ kind: 'sink_mode', status: 'success', snapshot: snapshot(bot), detail: sinkModeDetail(SINKS.on, SINKS.kinds) }) } catch { /* telemetry */ }
   // showchat-01: the showcase's announcements (`_showchat_mode`; on=0 outside the showcase pool or under SHOWCHAT=off)
   try { installShowchat(bot) } catch (e) { log('warn', 'showchat not installed', { error: e.message }) }
   // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view

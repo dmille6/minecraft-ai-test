@@ -147,7 +147,7 @@ await t('Claude r1 BLOCK: in the SHOWCASE switch set (tidy and stair off) a wait
 })
 
 await t('MUTANT KILLED: the old fallback makes the waiting hall the showcase\'s active project', async () => {
-  await withMutant(SHOP_PATH, '  for (let i = list.length - 1; i >= 0; i--) { const s = st(list[i]); if (!(!s.exists && s.waiting === true)) return list[i] }\n', '', async M => {
+  await withMutant(SHOP_PATH, '  for (let i = list.length - 1; i >= 0; i--) { const s = st(list[i]); if (!list[i].sink && !(!s.exists && s.waiting === true)) return list[i] }\n', '', async M => {
     const SC = M.projectsOn(true, true, true, true, false, true, false, true, true, true)
     const doneSC = SC.filter(p => p.plot !== 'hall').map(p => ({ plot: p.plot, exists: true, complete: true, damaged: false }))
     assert.equal(M.activeProject([...doneSC, { plot: 'hall', exists: false, complete: false, damaged: false, waiting: true }], SC).plot, 'hall')

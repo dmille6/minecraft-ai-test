@@ -166,6 +166,8 @@ import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterR
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
+import { SINKS } from './shop.mjs'   // picker-01
+import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords } from './sinks.mjs'   // picker-01
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -17111,7 +17113,8 @@ const bpCache = new Map()
 // paths-01: the paths have none either (paths.mjs routes them; PATH_PALETTE)
 // wall-01: the wall has none either (wall.mjs sites it; WALL_PALETTE)
 // shaft-02: the town stair has none either (shaftgeom.mjs plans it; its visit and its damage test are its own)
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
+// picker-01: a sink's palette is its record's (every instance's roles): its blueprint here names no palette of its own
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -17151,9 +17154,11 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // never offers it early and works the next project meanwhile
         const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
         // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
-        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && p.plot === STORE_PLOT && storeUpkeepDue(b, rec), ...(waiting ? { waiting } : {}) }
+        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && p.plot === STORE_PLOT && storeUpkeepDue(b, rec), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}) }
       })
-      activeMem = { ...(activeMem ?? {}), sig, at: now, states }
+      // PICKER-01: each sink's open instance or its next one (sinks.mjs sinkNextGate over this bot's pressure), and the picker's order
+      const sk = sinkStatesNow(b, states, now)
+      activeMem = { ...(activeMem ?? {}), sig, at: now, states: sk.states, sinkOrder: sk.order }
     }
     // monument-01: whether each open project has an admission slot for THIS bot, read fresh (leases move faster than records):
     // a bot whose first open project is full works the next one (shop.mjs activeProject `free`)
@@ -17167,8 +17172,10 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // zigtidy-02: a complete record's stamp whose cells all read done now is stale (projStuckLive)
     const waited = stuckBackoff(states, plot => projStuckLive(projKeyOf(plot), now), now)
     // GROUNDSKEEPER-01: the town's keeper (groundskeeper.mjs) works the grounds FIRST; every other bot never does (the lease)
-    const order = b ? keeperOrder(b, waited, list, now) : list
-    const pick = activeProject(waited, order)
+    const order0 = b ? keeperOrder(b, waited, list, now) : list
+    // picker-01: the sinks in the picker's order (sinks.mjs sinkOrder); after SINK_STREAK sink visits an upkeep goes first
+    const order = sinkListOrder(order0, activeMem.sinkOrder ?? [])
+    const pick = activeProject(waited, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK })
     if (visit) noteRepair(rmem, pick, states, now)
     return pick
   } catch { return projectsOn()[0] }
@@ -17328,7 +17335,7 @@ function recordCellOpen (bot, r, c) {
 function recordCellDone (bot, r, c) {
   try {
     const mon = isZigBlueprint(r.blueprint)
-    const bp = mon ? { palette: zigPaletteOf(r) } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
+    const bp = mon ? { palette: zigPaletteOf(r) } : isSinkBlueprint(r.blueprint) ? { palette: r.palette ?? {} } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     // pathsclose-01: a WAIVED path cell (the record's own list) is done
     if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) return true
@@ -17343,6 +17350,9 @@ export function shopRecordHead () {
     const h = recordHead(townDir(), shopKey())
     // fleetpaths-01 (Codex r1 BLOCK 2): FLEETPATHS=off reads a no-site paths record as no record here too (the order's own read)
     if (h.ok && h.head && !fleetPathsOn() && pathsNoSiteRec(h.head.rec)) return { ...h, head: null }
+    // picker-01: a sink whose record stands and that wants its NEXT instance reads as unsited -- the order then issues the visit that
+    // sites it (cognitive.mjs passes `complete` from this head: a standing record would read complete and the order stay quiet)
+    if (h.ok && h.head?.rec?.structure_complete && isSinkPlot(h.head.rec.plot) && sinkNextNow(h.head.rec.plot)) return { ...h, head: null }
     return h
   } catch { return { ok: false, head: null, gens: [], rejected: [] } }
 }
@@ -17566,7 +17576,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // monument-01: a sealed core cell of the ziggurat is done (ziggurat.mjs zigHidden), as its visit judges it; v2: the record's
     // own palette (ziggurat.mjs zigPaletteOf -- a v1 record keeps ZIG_PALETTE)
     const mon = isZigBlueprint(r.blueprint)
-    const bp = mon ? { palette: zigPaletteOf(r) } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
+    // picker-01: a sink judges every instance's cells by the record's own palette (a finished tower is repaired like any project)
+    const bp = mon ? { palette: zigPaletteOf(r) } : isSinkBlueprint(r.blueprint) ? { palette: r.palette ?? {} } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     for (const c of r.cells ?? []) {
       if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) continue   // pathsclose-01: a waived path cell is no damage
@@ -17616,11 +17627,11 @@ export function shopFootprintRefresh (bot) {
       // wall-01: the wall's cells, no halo (a +1 halo round a rampart would price the ground on both sides of the town's whole
       // perimeter): a built cell is never broken by a walk, an open one never takes a walk's scaffold
       // shaft-02: the town stair's cells, no halo (its air cells: never a walk's scaffold; its tread and lining: never a walk's dig)
-      if (r.blueprint === SHAFT_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k) } else if (isZigBlueprint(r.blueprint)) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k); if (r.structure_complete) for (const [k, v] of zigTreadTops(r)) fp.soft.set(k, v) } else if (r.blueprint === PATHS_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k); for (const k of above(r)) { fp.add(k); cells.add(k) } } else if (r.blueprint === WALL_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k) } else if (r.blueprint === TREEFARM_BLUEPRINT) { for (const k of farmFootprint(r)) fp.add(k) } else for (const k of footprintCells(r)) fp.add(k)
+      if (r.blueprint === SHAFT_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k) } else if (isZigBlueprint(r.blueprint)) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k); if (r.structure_complete) for (const [k, v] of zigTreadTops(r)) fp.soft.set(k, v) } else if (r.blueprint === PATHS_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k); for (const k of above(r)) { fp.add(k); cells.add(k) } } else if (r.blueprint === WALL_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k) } else if (isSinkBlueprint(r.blueprint)) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k) } else if (r.blueprint === TREEFARM_BLUEPRINT) { for (const k of farmFootprint(r)) fp.add(k) } else for (const k of footprintCells(r)) fp.add(k)
       for (const k of recordCellKeys(r)) cells.add(k)
     }
     bot.shopFootprint = fp
-    bot.shopSaplingBox = recs.length ? recs.map(r => (r.blueprint === PATHS_BLUEPRINT ? pathSaplingCols(r) : r.blueprint === WALL_BLUEPRINT ? wallSaplingCols(r) : saplingBox(r))).filter(Boolean) : null
+    bot.shopSaplingBox = recs.length ? recs.map(r => (r.blueprint === PATHS_BLUEPRINT ? pathSaplingCols(r) : r.blueprint === WALL_BLUEPRINT ? wallSaplingCols(r) : isSinkBlueprint(r.blueprint) ? sinkSaplingCols(r) : saplingBox(r))).filter(Boolean) : null
     // groundskeeper-01: no sapling in a road corridor (owner 10-27: no planting in footprints)
     try { const lc = landSaplingCols(landHead(dir)); if (lc) bot.shopSaplingBox = [...(bot.shopSaplingBox ?? []), lc] } catch { /* the plan's keep-out waits */ }
     bot.shopCells = cells
@@ -18510,6 +18521,8 @@ async function buildShop (ctx, args, signal) {
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
   // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject)
   const proj = shopActive(bot, Date.now(), { visit: true })
+  // picker-01: the sink visits in a row (after SINK_STREAK an upkeep goes first: shop.mjs activeProject `upkeepTurn`)
+  bot.sinkStreak = isSinkPlot(proj.plot) ? (bot.sinkStreak ?? 0) + 1 : 0
   // monument-01: the ziggurat's visit is its own (computed cells, its siting, its rows)
   if (proj.plot === MONUMENT_PLOT) return buildMonument(ctx, args, signal)
   // paths-01: the town's paths are their own visit too (paths.mjs siting, a shovel's use)
@@ -18522,6 +18535,8 @@ async function buildShop (ctx, args, signal) {
   if (proj.plot === TREEFARM_PLOT) return buildTreeFarm(ctx, args, signal)
   // tidy-01: the town-ground tidy's visit (tidy.mjs survey and grading; cuts, then layered fills)
   if (proj.plot === TIDY_PLOT) return buildTidy(ctx, args, signal)
+  // picker-01: a town sink's visit (sinks.mjs: site the next instance when the picker wants one, else build the open one)
+  if (isSinkPlot(proj.plot)) return buildSink(ctx, args, signal, proj)
   const plot = proj.plot
   const f = { project: plot }
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
@@ -20070,6 +20085,245 @@ async function buildWall (ctx, args, signal) {
     if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(WALL_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
   }
 }
+
+// ================================================================================================================================
+// PICKER-01: THE TOWN SINKS (sinks.mjs; shop.mjs PROJECTS' sink entries, activeProject's sink tier; docs/reports/picker-sinks-2026-11-03.md).
+// shopActive's sink states (an open instance, or the next one the picker wants over this bot's pressure), the reservations a sink is
+// sited clear of, and build_shop's visit for a sink plot: site the next instance when the picker wants one (sinks.mjs siteSink: the
+// seeded design, the screen, the build proof) and append it to the plot's record, else build the open instance (or repair a finished
+// one) with the wall's visit machinery -- 3 builder slots, quadrant segments, the bill drawn from the bag first. SINKS=off: none.
+// ================================================================================================================================
+/** This bot's stone pressure (sinks.mjs sinkPressure over the town index and its own bag). Never throws: unread is no pressure. */
+function sinkPressureNow (bot) {
+  try { const t = matsTownStock(bot); return sinkPressure({ town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: heldMap(bot) }) } catch { return { p: -1, avail: 0, known: false, town: null, bag: 0 } }
+}
+/** Has a kind what it stands on? A road the land plan's rails, a shrine a sited ziggurat, a tower nothing. Never throws. */
+function sinkReady (kind) {
+  try {
+    if (kind === 'road') return roadRails(landHead()).length > 0
+    if (kind === 'shrine') { const m = recordHead(townDir(), projKeyOf(MONUMENT_PLOT)); return Array.isArray(m.head?.rec?.box) }
+    return true
+  } catch { return false }
+}
+/**
+ * THE SINK STATES for activeProject (shopActive) -> { states, order }. Each sink's state carries `sinkOpen` (its newest instance stands
+ * open) or `sinkNext` (sinks.mjs sinkNextGate: no open instance, under SINK.maxOpen in town, under the kind's instancesMax, outside
+ * this bot's no-site wait, its precondition met, the pressure above 0), and the picker's order (sinks.mjs sinkOrder). One `_sink
+ * op=pick` row per 10 min a bot. Never throws (an error: no sink offered).
+ */
+function sinkStatesNow (bot, states, now = Date.now()) {
+  try {
+    if (!states.some(s => s?.sink)) return { states, order: [] }
+    const recs = Object.fromEntries(SINK_KINDS.map(k => [k, states.find(s => s.plot === SINK_PLOTS[k])?.rec ?? null]))
+    const openCount = SINK_KINDS.filter(k => sinkOpen(recs[k])).length
+    let pr = null
+    const st = {}
+    const out = states.map(s => {
+      if (!s?.sink) return s
+      const kind = sinkKindOf(s.plot), rec = recs[kind]
+      const { rec: _rec, ...rest } = s
+      const open = sinkOpen(rec)
+      let next = false, why = open ? 'open' : 'no_bot'
+      if (!open && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: pr, openCount, noSiteUntil: bot.sinkNoSite?.[kind] ?? 0, now, ready: sinkReady(kind) }); next = g.want; why = g.why }
+      st[kind] = { open, want: next, sitedAt: instancesOf(rec).at(-1)?.sitedAt ?? 0, why }
+      return { ...rest, sinkOpen: open, sinkNext: next, sinkWhy: why }
+    })
+    const order = sinkOrder(st, lastSitedKind(recs))
+    if (bot && now - (bot.sinkPickAt ?? -Infinity) >= 10 * 60_000) {
+      bot.sinkPickAt = now
+      try { logEvent({ kind: 'sink', status: 'success', snapshot: snapshot(bot), detail: sinkRowDetail({ op: 'pick', p: pr?.p, avail: pr?.avail, known: pr ? (pr.known ? 1 : 0) : null, order: order.join(',') || '-', open: openCount, why: SINK_KINDS.map(k => `${k}:${st[k]?.why ?? 'off'}`).join(',') }) }) } catch { /* telemetry */ }
+    }
+    return { states: out, order }
+  } catch { return { states: states.map(s => (s?.sink ? { plot: s.plot, exists: s.exists, complete: s.complete, damaged: s.damaged, due: false, sink: true } : s)), order: [] } }
+}
+/** The project list with its sink entries in the picker's order (the finite entries where they stand). Pure. */
+export function sinkListOrder (list, order = []) {
+  const sinks = list.filter(p => p.sink)
+  if (sinks.length < 2) return list
+  const rank = p => { const i = order.indexOf(sinkKindOf(p.plot)); return i < 0 ? Infinity : i }
+  const sorted = sinks.slice().sort((a, b) => rank(a) - rank(b))
+  let i = 0
+  return list.map(p => (p.sink ? sorted[i++] : p))
+}
+/** Does the sink plot want its next instance (shopActive's last states)? Never throws. */
+function sinkNextNow (plot) { try { return !!activeMem?.states?.find(s => s.plot === plot)?.sinkNext } catch { return false } }
+/**
+ * THE RESERVATIONS A SINK IS SITED CLEAR OF -> guard(x, z, y0, y1) -> reason | null. buildsite.mjs reservations over the plan, the
+ * protected zones, wells and the farm, plus every record's zone (projectHeads: every project, every sink instance, the land plan's
+ * road corridors), an unsited copper hall's pad and the expedition markers; the ziggurat's +8 apron (`z0`) unless `noZ0` (a shrine
+ * belongs to the ziggurat: its record zone, box + 3, still holds). Throws on an unreadable record (the visit stops).
+ */
+function sinkGuardFor (c, plan, { noZ0 = false, kind = null } = {}) {
+  const others = guardRecords(projectHeads().map(x => x.head.rec).filter(Boolean), kind)
+  const zs = [...c.zones, ...recordZones(others), ...hallPadZones(plan), ...townMarkerZones()]
+  const res = reservations(plan, { zones: zs, wells: c.wells, farm: c.farm, z0: noZ0 ? null : c.z0 })
+  return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zs.find(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
+}
+/** What a design may spend -> { avail: { stone: n }, torch, campfire }: the town's stock above 64 of each stone plus this bot's bag
+ *  above its keeps; torches when the town (above its reserve) and the bag hold 8, a campfire when either holds one. Never throws. */
+function sinkAvailNow (bot) {
+  const out = { avail: {}, torch: false, campfire: false }
+  try {
+    const town = matsTownStock(bot)?.stock ?? {}, bag = matsBagSpare(bot)
+    for (const n of SINK_STONES) { const v = Math.max(0, (Number(town[n]) || 0) - 64) + (Number(bag[n]) || 0); if (v > 0) out.avail[n] = v }
+    out.torch = Math.max(0, (Number(town.torch) || 0) - (Number(matsReserve().table?.torch) || 0)) + (Number(heldMap(bot).torch) || 0) >= 8
+    out.campfire = (Number(town.campfire) || 0) + (Number(heldMap(bot).campfire) || 0) >= 1
+  } catch { /* cobblestone alone, no lights */ }
+  return out
+}
+/** SITE THE NEXT INSTANCE of a sink kind (sinks.mjs siteSink) -> its result. Yields to the event loop first. Never throws. */
+async function sinkSiteFor (bot, kind, rec0, plan, c, stood, signal) {
+  try {
+    await new Promise(resolve => setImmediate(resolve))
+    check(signal)
+    const n = instancesOf(rec0).length + 1
+    const av = sinkAvailNow(bot)
+    const walls = projectHeads().find(x => x.plot === WALL_PLOT)?.head?.rec ?? null
+    const zig = projectHeads().find(x => x.plot === MONUMENT_PLOT)?.head?.rec ?? null
+    const feet = bot.entity?.position ? [Math.floor(bot.entity.position.x), Math.floor(bot.entity.position.y + 1e-6), Math.floor(bot.entity.position.z)] : null
+    return siteSink(planReader(bot), { kind, n, id: `${SINK_LETTER[kind]}${n}`, home: planHomeP(), pool: config.memory.pool, avail: av.avail, torch: av.torch, campfire: av.campfire,
+      guard: sinkGuardFor(c, plan, { kind }), guardShrine: sinkGuardFor(c, plan, { noZ0: true, kind }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])] })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80), tried: [] }
+  }
+}
+async function buildSink (ctx, args, signal, proj) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const plot = proj.plot, kind = sinkKindOf(plot)
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: plot }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === plot)) return out('no_effect', 'off', `the ${plot} sink is switched off (SINKS, SINK_KINDS, SHOP or TOWNPLAN)`)
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(plot), me = bot.username ?? 'bot', home = planHomeP()
+  bot.shopVisitKey = key
+  const stood = stoodRead(dir, stoodKey(), home)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', `the ${plot} record could not be read`)
+  const rec0 = rh.head?.rec ?? null
+  // THE NEXT INSTANCE (the picker): no record, or a standing one that is not damaged -- the gate asked again with this bot's readings
+  if (!rec0 || (rec0.structure_complete && !shopDamaged(bot, rec0))) {
+    const recs = Object.fromEntries(SINK_KINDS.map(k => [k, k === kind ? rec0 : (recordHead(dir, projKeyOf(SINK_PLOTS[k])).head?.rec ?? null)]))
+    const pr = sinkPressureNow(bot)
+    const g = sinkNextGate({ kind, rec: rec0, pressure: pr, openCount: SINK_KINDS.filter(k => sinkOpen(recs[k])).length, noSiteUntil: bot.sinkNoSite?.[kind] ?? 0, now: Date.now(), ready: sinkReady(kind) })
+    if (!g.want) return out('no_effect', 'complete', `the ${plot} sink wants no instance now (${g.why}; pressure ${pr.p})`, { stop: 'complete' })
+    const r = await sinkSiteFor(bot, kind, rec0, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
+    check(signal)
+    const tried = (r.tried ?? []).join(' ')
+    const t = matsTownStock(bot)
+    if (r.ok && !sinkFundable(r.inst.cells.length, { town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: heldMap(bot) })) { r.ok = false; r.why = 'unfunded' }
+    if (!r.ok) {
+      bot.sinkNoSite = { ...(bot.sinkNoSite ?? {}), [kind]: Date.now() + SINK.noSiteMs }
+      try { logEvent({ kind: 'sink', status: 'no_effect', snapshot: snapshot(bot), detail: sinkRowDetail({ op: 'no_site', kind, n: instancesOf(rec0).length + 1, p: pr.p, tried, why: r.why }) }) } catch { /* telemetry */ }
+      return out('no_effect', 'no_site', `no ${kind} site (${r.why}${r.detail ? ` ${r.detail}` : ''}) ${tried}`.slice(0, 160), { stop: 'no_site' })
+    }
+    const n0 = instancesOf(rec0).length
+    const pub = publishRecord(dir, key, cur => ((instancesOf(cur).length === n0 && (!cur || cur.structure_complete)) ? appendInstance(cur, { kind, home, inst: r.inst, meta: { ...r.meta, sitedBy: me, sitedAt: Date.now() }, plan: { gen: h.head.gen } }) : null), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') {
+      try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: r.meta.centre ?? r.meta.box?.slice(0, 2), kind: `${r.meta.id}/${r.meta.summary}`.slice(0, 48), n: r.inst.cells.length, gen: pub.gen }) }) } catch { /* telemetry */ }
+      try { logEvent({ kind: 'sink', status: 'success', snapshot: snapshot(bot), detail: sinkRowDetail({ op: 'sited', kind, id: r.meta.id, n: r.meta.n, p: pr.p, design: r.meta.summary, cells: r.inst.cells.length, tried }) }) } catch { /* telemetry */ }
+    }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', `the ${plot} record could not be read back`)
+  }
+  shopFootprintRefresh(bot)
+  const rec = rh.head.rec
+  const palette = rec.palette ?? {}
+  if (rec.structure_complete && !shopDamaged(bot, rec)) return out('no_effect', 'complete', `the ${plot} sink stands`)
+  const slot = takeSlot(dir, key, me, buildersOf(proj))
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }
+  let effects = null
+  let bag0 = null, tookAll = {}, backAll = {}, placedBy = {}, diedAt = null, drawn0 = null, drawnFails = 0, completed = false
+  const persist = () => {
+    if (!drawn0 || completed) return
+    const b1 = heldMap(bot)
+    if (!drawnWrite(dir, key, me, drawnAfter({ drawn: drawn0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: b1 }), { bag: b1 })) drawnFails++
+  }
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    const held0 = heldMap(bot)
+    let dr = drawnRead(dir, key, me)
+    if (rec.structure_complete && Object.keys(dr.drawn).length && !(Number(dr.at) > Number(rec.completeAt ?? Infinity))) {
+      if (!drawnWrite(dir, key, me, {})) drawnFails++
+      dr = { drawn: {}, bag: {}, at: null }
+    }
+    drawn0 = drawnHeld(dr.drawn, held0, dr.bag)
+    const keep = townKeeps(ownCounts(held0, drawn0), { wanted: bot.currentWants ?? [] }).keep
+    const spare0 = Object.fromEntries(Object.entries(held0).map(([n, k]) => [n, Math.max(0, k - (keep[n] ?? 0))]))
+    // THE BILL: the open cells' blocks (each role's first name the town stocks, else its first), less the bag's spare -- a sink is
+    // built from the stone a bag already carries -- capped at SHOP_BILL_CAP, from town under the project reserve (OWNER 10-27)
+    const read = planReader(bot)
+    const town = matsTownStock(bot)?.stock ?? {}
+    const bill = billOf(rec, palette, read, { done: buildCellDone, inTown: zigBillInTown(bot, town) })
+    const need = needFromTown(bill, spare0, SHOP_BILL_CAP)
+    let took = {}
+    bag0 = held0
+    if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
+    const R0 = matsReserve().table
+    const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, n) => { tookAll[k] = (tookAll[k] ?? 0) + n; persist() } })
+    const segFree = sg => { const st = projLeaseState(dir, key, `seg-${sg}`); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil }
+    if (Object.keys(need).length && workableSeg(rec, read, palette, segFree)) {
+      const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
+    }
+    check(signal)
+    effects = botBuildEffects(bot, {
+      acks,
+      keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (k, d) => { try { logEvent({ kind: String(k).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: k === '_build_seg' ? buildSegDetail({ project: plot, ...d }) : buildRowDetail({ project: plot, ...d }) }) } catch { /* telemetry */ } if (k === '_build' && d?.op === 'place') persist() },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    // the stands' domain (every instance's box + 6), the walk's radius, the layer rule, the walk-through lights (sinks.mjs sinkVisitOpts);
+    // a builder that ends on the build walks off it to the newest instance's approach
+    const ins = instancesOf(rec).at(-1) ?? null
+    const boxes = instancesOf(rec).map(i => i.box).filter(b => Array.isArray(b) && b.length === 4)
+    const onBuild = ft => !!ft && boxes.some(b => ft[0] >= b[0] && ft[0] <= b[2] && ft[2] >= b[1] && ft[2] <= b[3])
+    const leave = Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : {}
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      ...sinkVisitOpts(rec, home), ...leave }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    if (r.stop === 'complete') {
+      const pub = publishRecord(dir, key, cur => (cur && instancesOf(cur).length === instancesOf(rec).length ? completeInstance(cur) : null), { by: me })
+      completed = true
+      bot.shopDamage = null
+      if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'complete', kind: `${ins?.id ?? '-'}/${rec.blueprint}`, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+    }
+    let back = {}
+    const left = leftoverNames(took, held0, heldMap(bot))
+    if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    const done = (() => { try { const p = sinkProgress(rec, q => buildCellDone(read(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
+    const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
+    return out(status, r.stop, `${r.why ?? r.stop}; built ${done} (${ins?.id ?? '-'})`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    if (drawn0) { try { if (completed) { if (!drawnWrite(dir, key, me, {})) drawnFails++ } else persist() } catch { drawnFails++ } }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(plot, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
+  }
+}
+/** The sink visit's steps, for the tests and the sandbox (never called by the bot itself). */
+export const _sinkSteps = Object.freeze({ sinkStatesNow, sinkGuardFor, sinkAvailNow })
 
 // ================================================================================================================================
 // TIDY-01: THE TOWN-GROUND TIDY (tidy.mjs; shop.mjs PROJECTS' last entry, no `after`). build_shop's visit when the active project is
