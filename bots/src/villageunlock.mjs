@@ -10,6 +10,9 @@
 // (state change only), villager health 20.
 // SO: find the pen a still, jobless villager stands in, and close EVERY open trapdoor (and open every closed fence gate) that
 // bounds it. Never break, never place, never touch a door, a bed, a job site or a chest. A pen bounded by anything else is left.
+import fsMod from 'node:fs'
+import pathMod from 'node:path'
+
 export const VU = Object.freeze({
   maxCells: 12,              // a pen is small: the measured rings hold 4 and 2 cells
   stuckMs: 20 * 60_000,      // a villager that has not left its cell for 20 min (scout sightings)
@@ -33,6 +36,30 @@ export function villagerStillPenned (e, pen) {
   if (!pen?.cells?.some(c => c.x === fx && c.z === fz)) return 'left_pen'
   return 'ok'
 }
+/**
+ * ONE BOT PER PEN (Codex r1 blocker 1 + re-check). ANNOUNCE THEN CHECK, like sandbox/sbxlock.sh: a lease file per time slot
+ * (slot = floor(now / leaseMs)) created O_EXCL, so a slot has one holder and a past slot's file is stale by construction (no
+ * rival ever unlinks a live one); then the neighbouring slots are read, and a fresh one held by another bot retracts this one.
+ * Two takers can both retract; they cannot both proceed. -> { ok, file? , why? }. Never throws.
+ */
+export function takeLease ({ dir, key, name, now = Date.now(), leaseMs = VU.leaseMs, fsx = fsMod }) {
+  if (!dir || !key || !name) return { ok: false, why: 'lease_args' }
+  const file = k => pathMod.join(dir, `villageunlock-${key}.${k}.lease`)
+  const slot = Math.floor(now / leaseMs)
+  const rival = k => { try { const h = JSON.parse(fsx.readFileSync(file(k), 'utf8')); return h.bot !== name && now - (h.at ?? 0) < leaseMs ? h.bot : null } catch { return null } }
+  try { fsx.writeFileSync(file(slot), JSON.stringify({ bot: name, at: now }), { flag: 'wx' }) } catch (e) {
+    if (e?.code !== 'EEXIST') return { ok: false, why: 'lease_busy' }
+    // this slot is taken: ours (a retry in the same slot) proceeds, another bot's stops us
+    let h = null
+    try { h = JSON.parse(fsx.readFileSync(file(slot), 'utf8')) } catch { h = null }
+    if (h?.bot !== name) return { ok: false, why: `leased:${h?.bot ?? '?'}` }
+  }
+  const other = rival(slot - 1) ?? rival(slot + 1)
+  if (other) { try { fsx.unlinkSync(file(slot)) } catch { /* gone */ } return { ok: false, why: `leased:${other}` } }
+  try { fsx.unlinkSync(file(slot - 2)) } catch { /* none */ }   // a long-dead slot; never a live neighbour
+  return { ok: true, file: file(slot) }
+}
+
 /** The pen's lease key: its smallest cell. Pure. */
 export const penKey = pen => { const c = [...(pen?.cells ?? [])].sort((a, b) => a.x - b.x || a.z - b.z)[0]; return c ? `${c.x}_${c.y}_${c.z}` : null }
 export function unlockSwitch (env = process.env) {
