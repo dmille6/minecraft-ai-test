@@ -142,7 +142,8 @@ make it deterministic), and **composed**: test the refusal chain, not the single
   changes beyond one unit, `servea-boot.service` (11-03, owner "get everything running": restarts
   llama-server after a reboot only while `/root/servea/AUTOSTART` exists). Its host key was verified 11-02 (ED25519 `SHA256:IvXdH5Pv…TZxo`). Never disable
   `rpcbind` on a Proxmox node. Never print keys. The Mac mini is a controller only: no models
-  and no heavy jobs on it; full test suites run on 10.0.0.30, one at a time, under `nice -n 19`.
+  and no heavy jobs on it; full test suites run on a test host via `python3 scripts/host/suite-run.py` (ci2 10.0.0.34 first,
+  then 10.0.0.30; one suite per host under its `~/suite.lock`, `nice -n 19`).
 - The Blackwell is for tests only; long-term serving runs on the 5080 and the 3090 (owner 10-31).
 - **Reviews follow fun mode:** one engine, one round, blockers only. Two engines plus a real
   search of open source, issues and forums are for **protected scope**

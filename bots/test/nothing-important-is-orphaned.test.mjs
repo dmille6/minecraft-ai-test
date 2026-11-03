@@ -178,6 +178,8 @@ const REQUIRED = [
   'scripts/mac/promomerge.sh',
   'bots/test/promomerge.test.mjs',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
+  // ci2 (11-03, owner "build the 2nd test suite on pve3"): the full-suite dispatcher over ci2 (10.0.0.34) and .30
+  'scripts/host/suite-run.py',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',
   // STATE is generated (11-02, Codex ops audit HIGH 1): the generator, its tests and the Mac relay that commits it

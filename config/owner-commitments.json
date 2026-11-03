@@ -4369,6 +4369,26 @@
     ]
    },
    "note": "Codex designed independently (agreed: visit egress + a fleet stair dispatcher; its pathfinder-start-node cause refuted by the real A* and Paper scene edge). Codex review r1: 2 blockers (liquid barrier, body on the block) fixed; r2: 1 (body cells skipped in the liquid check) fixed. Paper sandbox3 11-03 at ad9a819f: before, before_clean, clean, pillared, lava, edge, stub all pass."
+  },
+  {
+   "id": "ci2-1103",
+   "title": "Owner 11-03 'build the 2nd test suite on pve3': a second full-test-suite host (vm-minecraft-ci2, pve3 vmid 107, 10.0.0.34) and a dispatcher that picks whichever of ci2/.30 has its ~/suite.lock free",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "ci2-test-host-1103.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Prove: full suite at one main sha on ci2 and on .30 (same pass/fail set except known flakes); then state done.",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "paths": [
+     "scripts/host/suite-run.py"
+    ]
+   },
+   "note": "VM: 16 vCPU host, 24 GB, 60 GB local-lvm, vmbr0, Ubuntu 24.04 cloud image, onboot=1; Node 22.23.4 (nodesource, = .31), npm ci node_modules cache per package-lock hash."
   }
  ]
 }
