@@ -9,4 +9,5 @@ ExecStart=/usr/bin/python3 /srv/showcase/bin/tl_video.py %i
 Nice=19
 IOSchedulingClass=idle
 CPUQuota=200%
+CPUWeight=20
 TimeoutStartSec=3h

@@ -10,6 +10,20 @@ showcase-bluemap-web.service) with the same puppeteer capture.mjs the .30 timela
     tl_showcase.py capture [--event LABEL] [--frame0]   render + both frames + one heartbeat row
     tl_showcase.py render-full                          the ONE full render before frame 0 (never from the timer)
     tl_showcase.py status                               the heartbeat line fleetstatus prints
+    tl_showcase.py shoot --views a,b --out DIR [--wait-s 900] [--render]
+                                                        a VERIFICATION capture: same renderer, same lock, never frames/
+    tl_showcase.py plan                                 what the next slot would shoot and why (read-only)
+
+THE RENDERER LOCK (tlvideo-01; audit 11-02 flag 8: a 14-view verification run shared the BlueMap web server and the
+13:30Z slot was killed): logs/renderer.lock, flock, held from the snapshot through the last screenshot by `capture`,
+`render-full` and `shoot`. The timer's capture never waits (a busy renderer is a `skip` row naming the holder); `shoot`
+waits up to --wait-s for the slot to finish.
+THE SCHEDULE (tlvideo-01): every slot shoots the pair; each other camera is DUE when its interval has passed since its
+last frame -- `interval_min` while ACTIVE (its `project` record placed a block, or its own last frames changed, within
+`active_hours`), `idle_min` otherwise. Due cameras are shot most-overdue first, active first, until the slot's BUDGET
+(budget_s from the run's start); capture.mjs itself skips a job that would end past the deadline, so a slot is never
+killed wholesale and the rest waits for the next slot. logs/views.json keeps each camera's last frame, last change and
+per-frame cost.
 
 A FAILED STEP IS A ROW, NOT A CRASH: the heartbeat records ok:false and the failed step; no frame is written for
 that slot; the next timer run tries again. Two captures never overlap (flock -n; an overrun is a `skip` row).
@@ -27,6 +41,13 @@ from showcasestatus import missing_slots       # noqa: E402  (one implementation
 CONF = os.environ.get('TL_CONF', '/srv/showcase/timelapse/tl.conf')
 NICE = ['nice', '-n', '19', 'ionice', '-c3']
 VIEWS = ('topdown', 'angled')        # the PAIR: published together or not at all; the missing-slot count reads it
+DEFAULT_INTERVAL_MIN = 15            # an ACTIVE camera: every slot
+DEFAULT_IDLE_MIN = 120               # a quiet camera: every 2 h
+DEFAULT_ACTIVE_HOURS = 3.0
+DEFAULT_BUDGET_S = 690               # 11.5 min of the 13-min TimeoutStartSec backstop; the timer is every 15 min
+DEFAULT_FRAME_S = 60.0               # the cost guess for a camera with no measured frame yet
+CHANGE_FRAC = 0.002                  # = tl_video MIN_CHANGED_FRAC: a frame "changed" when this share of pixels moved
+CHANGE_LEVEL = 12
 
 
 def extra_views(cfg, stamp=None):
@@ -60,6 +81,173 @@ def camera_markers(cam):
     """The marker-set ids capture.mjs leaves visible for this camera; every other set is hidden. Pure (tested)."""
     m = (cam or {}).get('markers')
     return [str(x) for x in m] if isinstance(m, list) else list(DEFAULT_MARKERS)
+
+
+def cam_interval(cfg, cam, active):
+    """Minutes between frames for one camera: interval_min while active, idle_min otherwise. A legacy `every` N
+    (slots of 15 min) is the idle interval when idle_min is absent. Pure (tested)."""
+    cam = cam or {}
+    if active:
+        return float(cam.get('interval_min') or cfg.get('interval_min') or DEFAULT_INTERVAL_MIN)
+    if cam.get('idle_min'):
+        return float(cam['idle_min'])
+    if cam.get('every'):
+        return float(int(cam['every']) * 15)
+    return float(cfg.get('idle_min') or DEFAULT_IDLE_MIN)
+
+
+def _iso(t):
+    return t.strftime('%Y-%m-%dT%H:%M:%SZ') if t else None
+
+
+def _t(s):
+    try:
+        return dt.datetime.strptime(s[:19], '%Y-%m-%dT%H:%M:%S').replace(tzinfo=dt.timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def cam_active(cfg, cam, vstate, now, progress):
+    """ACTIVE when the camera's `project` record(s) placed a block within active_hours (progress: {name: datetime}),
+    or its own last change is that recent. -> (bool, why). Pure (tested)."""
+    hours = float(cfg.get('active_hours') or DEFAULT_ACTIVE_HOURS)
+    lim = now - dt.timedelta(hours=hours)
+    names = (cam or {}).get('project') or []
+    names = [names] if isinstance(names, str) else list(names)
+    for n in names:
+        if progress.get(n) and progress[n] >= lim:
+            return True, f'project {n} placed {_iso(progress[n])}'
+    ch = _t((vstate or {}).get('last_change'))
+    if ch and ch >= lim:
+        return True, f'frame changed {_iso(ch)}'
+    return False, 'quiet'
+
+
+def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0):
+    """The cameras this slot shoots, in order: the pair always first, then every DUE camera (its interval has passed
+    since its last frame, 2 min of slack for timer jitter), active before idle, most overdue first, until the estimated
+    cost reaches the budget. -> (views, why {view: reason}, deferred [views]). Pure (tested)."""
+    cams = cfg.get('cameras') or {}
+    est = lambda v: float((state.get(v) or {}).get('frame_s') or cfg.get('frame_s') or DEFAULT_FRAME_S)
+    left = budget_s - spent_s - sum(est(v) for v in VIEWS)
+    due, why = [], {v: 'pair' for v in VIEWS}
+    for v in sorted(cams):
+        if v in VIEWS or (cams[v] or {}).get('off'):
+            continue
+        vs = state.get(v) or {}
+        act, aw = cam_active(cfg, cams[v], vs, now, progress)
+        iv = cam_interval(cfg, cams[v], act)
+        last = _t(vs.get('last'))
+        age = (now - last).total_seconds() / 60 if last else 1e9
+        if age + 2 >= iv:
+            due.append((0 if act else 1, -age / iv, v, f'{"active" if act else "idle"} every {iv:g} min; '
+                                                       f'{"never shot" if not last else f"last {age:.0f} min ago"}; {aw}'))
+    out, deferred = list(VIEWS), []
+    for _, _, v, w in sorted(due):
+        if est(v) <= left:
+            out.append(v)
+            why[v] = w
+            left -= est(v)
+        else:
+            deferred.append(v)
+    return out, why, deferred
+
+
+def project_progress(cfg):
+    """{project name: last placement time} from the showcase pool's project-<town>.<name>.progress.json records
+    (read-only). A missing or unreadable record is simply absent."""
+    import glob
+    d = cfg.get('project_dir', '/var/lib/mcai/_pool-showcase')
+    out = {}
+    for p in glob.glob(os.path.join(d, 'project-*.progress.json')):
+        name = os.path.basename(p).split('.')[1] if os.path.basename(p).count('.') >= 3 else None
+        try:
+            at = json.load(open(p)).get('at')
+            t = dt.datetime.fromtimestamp(at / 1000, dt.timezone.utc)
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+        if name and (name not in out or t > out[name]):
+            out[name] = t
+    return out
+
+
+def state_path(cfg):
+    return os.path.join(cfg['root'], 'logs', 'views.json')
+
+
+def load_state(cfg):
+    try:
+        return json.load(open(state_path(cfg)))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(cfg, st):
+    p = state_path(cfg)
+    with open(p + '.part', 'w') as f:
+        json.dump(st, f, indent=1, sort_keys=True)
+    os.replace(p + '.part', p)
+
+
+def changed_fraction(a, b, level=CHANGE_LEVEL):
+    """Share of pixels (two equal-length grayscale byte strings) that moved by more than level. Pure (tested)."""
+    if len(a) != len(b) or not a:
+        return 1.0
+    return sum(1 for x, y in zip(a, b) if abs(x - y) > level) / len(a)
+
+
+def update_view_state(vs, now, gray, prev_gray, frame_s, frac=CHANGE_FRAC):
+    """One published frame -> the camera's new state: last, last_change (when it moved >= frac vs the previous frame),
+    an EWMA of its per-frame seconds, the last changed fraction. Pure (tested)."""
+    vs = dict(vs or {})
+    vs['last'] = _iso(now)
+    f = changed_fraction(prev_gray, gray) if prev_gray else None
+    vs['changed'] = None if f is None else round(f, 5)
+    if f is not None and f >= frac:
+        vs['last_change'] = _iso(now)
+    if frame_s:
+        old = vs.get('frame_s')
+        vs['frame_s'] = round(frame_s if not old else 0.6 * old + 0.4 * frame_s, 1)
+    return vs
+
+
+class RendererBusy(Exception):
+    pass
+
+
+class renderer_lock:
+    """The ONE renderer lock (logs/renderer.lock): BlueMap CLI render + web server + capture.mjs. wait_s=0 -> raise
+    RendererBusy at once (naming the holder); otherwise wait up to wait_s."""
+    def __init__(self, cfg, owner, wait_s=0):
+        self.path, self.owner, self.wait_s = os.path.join(cfg['root'], 'logs', 'renderer.lock'), owner, wait_s
+
+    def __enter__(self):
+        self.f = open(self.path, 'a+')
+        t0 = time.time()
+        while True:
+            try:
+                fcntl.flock(self.f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.time() - t0 >= self.wait_s:
+                    self.f.seek(0)
+                    holder = self.f.read().strip()[:200]
+                    self.f.close()
+                    raise RendererBusy(holder or 'unknown holder')
+                time.sleep(2)
+        self.f.seek(0)
+        self.f.truncate()
+        self.f.write(json.dumps({'owner': self.owner, 'pid': os.getpid(), 't': _iso(now_utc())}))
+        self.f.flush()
+        return self
+
+    def __exit__(self, *a):
+        try:
+            self.f.seek(0)
+            self.f.truncate()
+        finally:
+            self.f.close()
+        return False
 
 
 def now_utc():
@@ -245,11 +433,13 @@ def publish_pair(staged, finals, min_bytes=MIN_PNG_BYTES, size=os.path.getsize, 
     return True, None
 
 
-def capture(cfg, stamp):
+def capture(cfg, stamp, views=None, deadline=None, est=None):
+    """Shoot `views` (default: the pair + every extra camera due by the legacy cadence) in one browser run. deadline: an
+    epoch second capture.mjs must not run a job past (each job carries its estimated cost est[view] s)."""
     spec, finals = [], []
     stage = os.path.join(cfg['root'], 'frames', '.staging')
     os.makedirs(stage, exist_ok=True)
-    views = list(VIEWS) + extra_views(cfg, stamp)
+    views = list(views) if views else list(VIEWS) + extra_views(cfg, stamp)
     for v in views:
         cam = cfg['cameras'][v]
         final = frame_path(cfg['root'], v, stamp)
@@ -260,16 +450,24 @@ def capture(cfg, stamp):
             os.remove(out)
         spec.append({'url': f"{cfg['web']}/{camera_hash(cfg['map_id'], cam)}", 'out': out,
                      'width': cam.get('width', cfg['width']), 'height': cam.get('height', cfg['height']), 'fov': cam.get('fov'),
-                     'settle_ms': cfg.get('settle_ms', 6000), 'markers': camera_markers(cam)})
+                     'settle_ms': cam.get('settle_ms', cfg.get('settle_ms', 6000)), 'markers': camera_markers(cam),
+                     'reuse': bool(cfg.get('reuse_page', True)), 'pin': bool(cfg.get('pin_height', True)),
+                     'deadline_ms': int(deadline * 1000) if deadline else None,
+                     'est_ms': int(1000 * float((est or {}).get(v) or DEFAULT_FRAME_S))})
     env = dict(os.environ, PUPPETEER_CACHE_DIR=os.path.join(cfg['capture_dir'], '.cache'))
     c0, t0 = child_cpu_s(), time.time()
+    tmo = cfg.get('capture_timeout_s', 400)
+    if deadline:
+        tmo = max(60, min(tmo, deadline - time.time() + 60))
+    out_txt = ''
     try:
         c = subprocess.run(NICE + ['node', os.path.join(cfg['capture_dir'], 'capture.mjs')],
                            input=json.dumps(spec), text=True, capture_output=True, env=env,
-                           cwd=cfg['capture_dir'], timeout=cfg.get('capture_timeout_s', 400))
-        rc, msg = c.returncode, (c.stdout + c.stderr).strip()[-400:]
+                           cwd=cfg['capture_dir'], timeout=tmo)
+        rc, msg, out_txt = c.returncode, (c.stdout + c.stderr).strip()[-400:], c.stdout
     except subprocess.TimeoutExpired:
         rc, msg = 'timeout', 'capture timed out'
+    capture.timings = job_timings(out_txt)
     got, extra = [], []
     raw_rc = rc
     n = len(VIEWS)
@@ -296,6 +494,23 @@ def capture(cfg, stamp):
         if os.path.exists(s['out']):
             os.remove(s['out'])
     return rc, msg, got, round(time.time() - t0, 1), round(child_cpu_s() - c0, 1), extra, extra_err, raw_rc
+
+
+def job_timings(stdout):
+    """capture.mjs `ok <out> ms=<n>` / `skip <out> deadline` lines -> {view: seconds or 'deadline'}. Staged files are
+    <stage>/<view>-<stamp>.png. Pure (tested)."""
+    out = {}
+    for line in (stdout or '').splitlines():
+        parts = line.split()
+        if len(parts) < 2 or parts[0] not in ('ok', 'skip'):
+            continue
+        v = os.path.basename(parts[1]).split('-', 1)[0]      # camera names carry no '-'
+        if parts[0] == 'skip':
+            out[v] = 'deadline'
+            continue
+        ms = [p for p in parts[2:] if p.startswith('ms=')]
+        out[v] = round(int(ms[0][3:]) / 1000, 1) if ms else None
+    return out
 
 
 def frame_path(root, view, stamp):
@@ -327,14 +542,19 @@ def frame0_time(cfg):
 
 
 def cmd_capture(cfg, a):
-    lock = open(os.path.join(cfg['root'], 'logs', 'capture.lock'), 'w')
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        heartbeat(cfg, {'ok': False, 'step': 'skip', 'why': 'previous capture still running'})
-        return 0
     t = now_utc()
     stamp = stamp_of(t) + (f'-event-{a.event}' if a.event else '')
+    try:
+        with renderer_lock(cfg, f'capture {stamp}', wait_s=0):
+            return _capture_locked(cfg, a, t, stamp)
+    except RendererBusy as e:
+        heartbeat(cfg, {'ok': False, 'step': 'skip', 'stamp': stamp, 'why': f'renderer busy: {e}'})
+        return 0
+
+
+def _capture_locked(cfg, a, t, stamp):
+    start = time.time()
+    budget = float(cfg.get('budget_s') or DEFAULT_BUDGET_S)
     if cfg.get('save_hold', True):
         try:
             import rcon
@@ -359,11 +579,35 @@ def cmd_capture(cfg, a):
     if rc != 0:
         heartbeat(cfg, dict(row, ok=False, step='render', why=f'bluemap rc={rc} (see logs/render.log)'))
         return 0
-    crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(cfg, stamp)
+    state = load_state(cfg)
+    views, why, deferred = plan_views(cfg, state, t, project_progress(cfg), budget, time.time() - start)
+    est = {v: (state.get(v) or {}).get('frame_s') for v in views}
+    crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(cfg, stamp, views, deadline=start + budget, est=est)
+    timings = getattr(capture, 'timings', {})
+    for p in got + extra:             # the schedule's memory: last frame, last change, per-frame cost
+        v = os.path.basename(os.path.dirname(os.path.dirname(p)))
+        prev = state.get(v) or {}
+        gpath = os.path.join(cfg['root'], 'logs', 'gray', v + '.gray')
+        gray = small_gray(p)
+        try:
+            prev_gray = open(gpath, 'rb').read()
+        except OSError:
+            prev_gray = b''
+        sec = timings.get(v) if isinstance(timings.get(v), (int, float)) else None
+        state[v] = update_view_state(prev, t, gray, prev_gray, sec)
+        if gray:
+            os.makedirs(os.path.dirname(gpath), exist_ok=True)
+            with open(gpath + '.part', 'wb') as f:
+                f.write(gray)
+            os.replace(gpath + '.part', gpath)
+    save_state(cfg, state)
+    skipped = sorted(v for v, x in timings.items() if x == 'deadline')
     row.update(capture_s=cs, capture_cpu_s=ccpu, capture_rc=crc, frames=len(got),
                bytes=sum(os.path.getsize(p) for p in got + extra),
                extra={os.path.basename(os.path.dirname(os.path.dirname(p))): os.path.getsize(p) for p in extra},
-               extra_expected=extra_views(cfg, stamp))
+               extra_expected=[v for v in views if v not in VIEWS], deferred=deferred, deadline_skipped=skipped,
+               frame_s={v: x for v, x in timings.items() if x != 'deadline'}, budget_s=budget,
+               active=sorted(v for v in why if why[v].startswith('active')))
     if extra_err or raw_rc != 0:     # the diagnostics of an extra camera survive a published pair (review P3)
         row.update(extra_errors=extra_err, capture_raw_rc=raw_rc, capture_msg=msg[-300:])
     if a.frame0:
@@ -394,13 +638,53 @@ def cmd_capture(cfg, a):
 
 
 def cmd_render_full(cfg, a):
-    sok, swhy, _ = snapshot(cfg)
-    if not sok:
-        print(json.dumps({'full_render_rc': 'snapshot', 'why': swhy}))
-        return 1
-    rc, rs, rcpu = render(cfg, full=True)
+    with renderer_lock(cfg, 'render-full', wait_s=900):
+        sok, swhy, _ = snapshot(cfg)
+        if not sok:
+            print(json.dumps({'full_render_rc': 'snapshot', 'why': swhy}))
+            return 1
+        rc, rs, rcpu = render(cfg, full=True)
     print(json.dumps({'full_render_rc': rc, 'render_s': rs, 'render_cpu_s': rcpu}))
     return 0 if rc == 0 else 1
+
+
+def cmd_shoot(cfg, a):
+    """A VERIFICATION capture: the named cameras into --out, under the renderer lock (waits for a running slot), never
+    into frames/, no heartbeat row, no schedule state. --render first renders the changed chunks (as a slot does)."""
+    views = [v for v in a.views.split(',') if v]
+    bad = [v for v in views if v not in (cfg.get('cameras') or {})]
+    if bad:
+        print(json.dumps({'shoot': 'refused', 'why': f'unknown camera(s) {bad}'}))
+        return 2
+    os.makedirs(a.out, exist_ok=True)
+    try:
+        with renderer_lock(cfg, f'shoot {",".join(views)} -> {a.out}', wait_s=a.wait_s):
+            if a.render:
+                sok, swhy, _ = snapshot(cfg)
+                if not sok:
+                    print(json.dumps({'shoot': 'snapshot', 'why': swhy}))
+                    return 1
+                rc, _, _ = render(cfg)
+                if rc != 0:
+                    print(json.dumps({'shoot': 'render', 'rc': rc}))
+                    return 1
+            stamp = stamp_of(now_utc())
+            vcfg = dict(cfg, root=a.out)          # staging + "frames" land under --out, never the timelapse root
+            crc, msg, got, cs, _, extra, err, _ = capture(vcfg, stamp, views, deadline=time.time() + a.budget_s)
+    except RendererBusy as e:
+        print(json.dumps({'shoot': 'busy', 'why': str(e)}))
+        return 3
+    print(json.dumps({'shoot': 'done', 'rc': crc, 'files': got + extra, 'errors': err, 'capture_s': cs,
+                      'timings': getattr(capture, 'timings', {})}))
+    return 0
+
+
+def cmd_plan(cfg, a):
+    t = now_utc()
+    views, why, deferred = plan_views(cfg, load_state(cfg), t, project_progress(cfg),
+                                      float(cfg.get('budget_s') or DEFAULT_BUDGET_S), 75.0)
+    print(json.dumps({'t': _iso(t), 'views': views, 'why': why, 'deferred': deferred}, indent=1))
+    return 0
 
 
 def cmd_status(cfg, a):
@@ -425,10 +709,18 @@ def main():
     c.add_argument('--frame0', action='store_true')
     sub.add_parser('render-full')
     sub.add_parser('status')
+    sub.add_parser('plan')
+    sh = sub.add_parser('shoot')
+    sh.add_argument('--views', required=True)
+    sh.add_argument('--out', required=True)
+    sh.add_argument('--wait-s', type=float, default=900)
+    sh.add_argument('--budget-s', type=float, default=1800)
+    sh.add_argument('--render', action='store_true')
     a = ap.parse_args()
     cfg = load_conf()
     os.makedirs(os.path.join(cfg['root'], 'logs'), exist_ok=True)
-    return {'capture': cmd_capture, 'render-full': cmd_render_full, 'status': cmd_status}[a.cmd](cfg, a)
+    return {'capture': cmd_capture, 'render-full': cmd_render_full, 'status': cmd_status, 'shoot': cmd_shoot,
+            'plan': cmd_plan}[a.cmd](cfg, a)
 
 
 if __name__ == '__main__':

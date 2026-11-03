@@ -7,8 +7,13 @@ User=mike
 Environment=TL_CONF=/srv/showcase/timelapse/tl.conf
 ExecStart=/usr/bin/python3 /srv/showcase/bin/tl_showcase.py capture
 # A 15-min cadence: never let one capture run into the next slot's
+# tlvideo-01: a BACKSTOP only -- the run plans to end by budget_s (tl.conf, 690 s) and capture.mjs skips any job that
+# would end past it, so a slot is never killed wholesale (11-02/03: every slot ran past 13 min and lost all its frames).
 TimeoutStartSec=13min
+# under contention Paper (nice -5) and the bots (weight 100) win the CPU first; CPUQuota stays the ceiling
+CPUWeight=20
 Nice=19
 IOSchedulingClass=idle
-CPUQuota=200%
+# 400% (tlvideo-01, measured 11-03): ~25 s per frame instead of ~45 s at 200%; Paper MSPT/TPS read in the ledger row
+CPUQuota=400%
 MemoryMax=6G

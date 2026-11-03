@@ -3615,6 +3615,32 @@
     ]
    },
    "note": "Design reconciled from independent Codex + Claude designs, blocker-reviewed by both (3 rounds). Mayor = stage 7/8 (local model replay first, $15/month sub-budget inside the $150 guard for any frontier arm); B6/B7 frontier overseer stay unlaunched (B5 INCONCLUSIVE). Existing keeper / deepmine / builder-slot / yard leases are imported as native role holders, never overridden."
+  },
+  {
+   "id": "showcase-videos-1103",
+   "title": "Better showcase videos: frequent captures of active projects (adaptive per-camera schedule inside a slot budget), one renderer lock shared with verification runs, dissolve playback at 30 fps, a daily highlights reel, raw-frame retention -- owner 11-03 gap 5",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "owner-gaps-1103.md",
+    "owner-showcase-projects-1029.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "tlvideo-01 installed on the showcase VM: read the first ~4 h of captures (0 killed slots, pair every slot, active cameras every 15 min, Paper MSPT/TPS vs the before-sample in ~/tlbench), then the 11-04 00:20Z daily clips + reel; close done with the proof clip path",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "grep": [
+     "tlvideo-01"
+    ],
+    "paths": [
+     "infra/showcase/tl_showcase.py",
+     "infra/showcase/tl_video.py",
+     "infra/timelapse/capture.mjs"
+    ]
+   },
+   "note": "Measured 11-03 04:30Z before: every slot 03:30-04:28Z ran past the 13-min TimeoutStartSec and was killed (no frame, no heartbeat row); 11-02 had 47/96 pair frames and 16-30 per extra camera, so daily clips were ~5 frames at 10 fps. Cause: one new headless-Chrome page (SwiftShader) per camera, ~80 s/frame at CPUQuota 200%, 9-10 cameras per slot."
   }
  ]
 }

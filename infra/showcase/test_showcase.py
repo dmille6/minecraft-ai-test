@@ -1625,7 +1625,7 @@ class Timelapse(unittest.TestCase):
         old = (TV.all_stamps, TV.build)
         # every other camera (iso, workshop, house1, ziggurat, paths, wall: the live EXTRA, wall-01 synced it) has no frames this month
         TV.all_stamps = lambda v: {'town': ['20261001T1800Z']}.get(v, [])
-        TV.build = lambda v, st, out, name: calls.append((v, st)) or {'view': v}
+        TV.build = lambda v, st, out, name, **kw: calls.append((v, st)) or {'view': v}
         old_argv = TV.sys.argv
         TV.sys.argv = ['tl_video.py', 'monthly', '--month', '2026-10']
         try:
@@ -1696,6 +1696,192 @@ class Timelapse(unittest.TestCase):
             self.assertNotIn('100%', vf, 'the words travel in a text file, never in the filter string')
             bare = TV.overlay_filter('stamp', [], '', d, 8)
             self.assertEqual(bare.count('drawtext='), 1, 'no lines -> exactly the old stamp-only filter')
+
+    # ---- tlvideo-01 (owner 11-03 "better showcase videos"): schedule, renderer lock, playback, reel, retention ----
+    def test_camera_interval_active_idle_and_legacy_every(self):
+        self.assertEqual(TL.cam_interval({}, {}, True), 15.0)
+        self.assertEqual(TL.cam_interval({}, {}, False), 120.0)
+        self.assertEqual(TL.cam_interval({}, {'interval_min': 30, 'idle_min': 240}, True), 30.0)
+        self.assertEqual(TL.cam_interval({}, {'interval_min': 30, 'idle_min': 240}, False), 240.0)
+        self.assertEqual(TL.cam_interval({}, {'every': 8}, False), 120.0, 'a legacy every-8 camera = 2 h when quiet')
+        self.assertEqual(TL.cam_interval({'idle_min': 60}, {}, False), 60.0, 'the conf-wide default')
+
+    def test_camera_active_from_project_record_or_its_own_change(self):
+        now = T0 + dt.timedelta(hours=10)
+        cam = {'project': ['storehouse', 'shopchest']}
+        self.assertEqual(TL.cam_active({}, cam, {}, now, {'shopchest': now - dt.timedelta(hours=1)})[0], True)
+        self.assertEqual(TL.cam_active({}, cam, {}, now, {'shopchest': now - dt.timedelta(hours=4)})[0], False,
+                         'a placement older than active_hours (3) is quiet')
+        self.assertEqual(TL.cam_active({}, {'project': 'tidy'}, {}, now, {'tidy': now})[0], True, 'a bare name works')
+        self.assertEqual(TL.cam_active({}, {}, {'last_change': FR.iso(now - dt.timedelta(hours=2))}, now, {})[0], True)
+        self.assertEqual(TL.cam_active({}, {}, {'last_change': FR.iso(now - dt.timedelta(hours=5))}, now, {})[0], False)
+        self.assertEqual(TL.cam_active({'active_hours': 6}, {}, {'last_change': FR.iso(now - dt.timedelta(hours=5))},
+                                       now, {})[0], True)
+        self.assertEqual(TL.cam_active({}, cam, None, now, {})[0], False, 'no state, no record: quiet')
+
+    def test_plan_pair_first_due_by_interval_active_first_inside_budget(self):
+        now = T0 + dt.timedelta(hours=10)
+        ago = lambda m: FR.iso(now - dt.timedelta(minutes=m))
+        cfg = {'cameras': {'topdown': {}, 'angled': {}, 'hall': {'project': 'hall'}, 'zig': {}, 'wall': {},
+                           'patina': {'idle_min': 480}, 'off1': {'off': True}}}
+        state = {'topdown': {'frame_s': 30}, 'angled': {'frame_s': 30},
+                 'hall': {'last': ago(15), 'frame_s': 30},           # active, its 15 min passed
+                 'zig': {'last': ago(130), 'frame_s': 30},           # idle, 2 h passed
+                 'wall': {'last': ago(60), 'frame_s': 30},           # idle, not due
+                 'patina': {'last': ago(300), 'frame_s': 30}}        # idle 8 h, not due
+        prog = {'hall': now - dt.timedelta(minutes=20)}
+        views, why, deferred = TL.plan_views(cfg, state, now, prog, budget_s=600)
+        self.assertEqual(views, ['topdown', 'angled', 'hall', 'zig'])
+        self.assertTrue(why['hall'].startswith('active every 15 min'), why['hall'])
+        self.assertEqual(deferred, [])
+        # a tight budget: the pair (60 s) + one 30-s camera fit; the active one goes first, the idle one waits
+        views, _, deferred = TL.plan_views(cfg, state, now, prog, budget_s=95)
+        self.assertEqual((views, deferred), (['topdown', 'angled', 'hall'], ['zig']))
+        # the pair is never dropped, even with no budget left
+        self.assertEqual(TL.plan_views(cfg, state, now, prog, budget_s=10)[0], ['topdown', 'angled'])
+        # a never-shot camera is due at once; the 2-min slack absorbs timer jitter (14 min after its last frame = due)
+        cfg['cameras']['new'] = {}
+        state['hall']['last'] = ago(14)
+        views, _, _ = TL.plan_views(cfg, state, now, prog, budget_s=600)
+        self.assertIn('new', views)
+        self.assertIn('hall', views)
+        self.assertNotIn('off1', views)
+        # the run's elapsed seconds (snapshot + render) come out of the budget
+        self.assertEqual(TL.plan_views(cfg, state, now, prog, budget_s=600, spent_s=500)[0], ['topdown', 'angled', 'hall'])
+
+    def test_view_state_tracks_change_and_cost(self):
+        now = T0 + dt.timedelta(hours=1)
+        a, b = bytes([10]) * 1000, bytes([10]) * 990 + bytes([200]) * 10
+        vs = TL.update_view_state({}, now, a, b'', 40.0)
+        self.assertEqual((vs['last'], vs.get('last_change'), vs['changed'], vs['frame_s']), (FR.iso(now), None, None, 40.0),
+                         'the first frame has nothing to compare with: no change claimed')
+        vs2 = TL.update_view_state(vs, now + dt.timedelta(minutes=15), b, a, 20.0)
+        self.assertEqual(vs2['last_change'], FR.iso(now + dt.timedelta(minutes=15)), '1% of pixels moved')
+        self.assertEqual(vs2['frame_s'], 32.0, 'EWMA 0.6 old + 0.4 new')
+        vs3 = TL.update_view_state(vs2, now + dt.timedelta(minutes=30), b, b, None)
+        self.assertEqual(vs3['last_change'], vs2['last_change'], 'an unchanged frame keeps the last change time')
+        self.assertEqual(vs3['frame_s'], 32.0, 'no timing -> cost unchanged')
+        self.assertEqual(vs3['changed'], 0.0)
+
+    def test_job_timings_from_capture_lines(self):
+        out = ('ok /r/frames/.staging/topdown-20261103T0500Z.png ms=21500 reused\n'
+               'skip /r/frames/.staging/patina-20261103T0500Z.png deadline\n'
+               'ok /r/frames/.staging/angled-20261103T0500Z-event-x.png ms=9000\nnoise line\n')
+        self.assertEqual(TL.job_timings(out), {'topdown': 21.5, 'patina': 'deadline', 'angled': 9.0})
+        self.assertEqual(TL.job_timings(''), {})
+
+    def test_renderer_lock_is_exclusive_and_names_its_holder(self):
+        root = tempfile.mkdtemp()
+        os.makedirs(os.path.join(root, 'logs'))
+        cfg = {'root': root}
+        try:
+            with TL.renderer_lock(cfg, 'capture 20261103T0500Z'):
+                code = ('import sys, json; sys.path.insert(0, %r); import tl_showcase as T\n'
+                        'try:\n with T.renderer_lock({"root": %r}, "shoot", wait_s=0): print("GOT")\n'
+                        'except T.RendererBusy as e: print("BUSY", e)\n') % (HERE, root)
+                r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
+                self.assertIn('BUSY', r.stdout, r.stderr)
+                self.assertIn('capture 20261103T0500Z', r.stdout, 'the refusal names who holds the renderer')
+            r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
+            self.assertIn('GOT', r.stdout, 'released on exit')
+        finally:
+            shutil.rmtree(root)
+
+    def test_capture_jobs_carry_reuse_and_deadline(self):
+        import types
+        root = tempfile.mkdtemp()
+        cam = {'x': 0.5, 'y': 70, 'z': 0.5, 'distance': 95, 'rotation': 0.0, 'angle': 0.0, 'ortho': 1, 'mode': 'flat', 'fov': None}
+        cfg = {'root': root, 'web': 'http://x', 'map_id': 'm', 'width': 1920, 'height': 1080, 'capture_dir': root,
+               'capture_timeout_s': 870, 'cameras': {'topdown': cam, 'angled': cam, 'hall': dict(cam, settle_ms=3000)}}
+        seen = {}
+
+        def fake_run(cmd, input=None, timeout=None, **kw):
+            seen['jobs'], seen['timeout'] = json.loads(input), timeout
+            return types.SimpleNamespace(returncode=0, stdout='', stderr='')
+        old = TL.subprocess.run
+        TL.subprocess.run = fake_run
+        try:
+            dl = time.time() + 300
+            TL.capture(cfg, '20261103T0500Z', ['topdown', 'angled', 'hall'], deadline=dl, est={'hall': 25})
+        finally:
+            TL.subprocess.run = old
+            shutil.rmtree(root)
+        j = seen['jobs']
+        self.assertEqual([x['reuse'] for x in j], [True] * 3)
+        self.assertEqual([x['pin'] for x in j], [True] * 3, 'the camera height is pinned (deterministic framing)')
+        self.assertEqual({x['deadline_ms'] for x in j}, {int(dl * 1000)})
+        self.assertEqual(j[2]['est_ms'], 25000)
+        self.assertEqual(j[0]['est_ms'], 60000, 'no measured cost -> the default guess')
+        self.assertEqual(j[2]['settle_ms'], 3000, 'a camera may name its own settle')
+        self.assertLessEqual(seen['timeout'], 361, 'the subprocess timeout follows the deadline, not the 870-s ceiling')
+
+    def test_video_playback_rate_holds_and_dissolve(self):
+        self.assertEqual(TV.src_fps_for(5), 2.0, 'few frames: never faster than 2 per second')
+        self.assertEqual(TV.src_fps_for(96), 4.8, '96 frames -> 20 s')
+        self.assertEqual(TV.src_fps_for(400), 8.0)
+        self.assertEqual(TV.src_fps_for(400, hi=10), 10)
+        self.assertEqual(TV.hold_sequence(4, 2.0), [1, 2, 3, 4, 4, 4, 4, 4], 'first 0.5 s, last 2.5 s at 2 fps')
+        self.assertEqual(TV.hold_sequence(1, 4.0), [1] * 12)
+        self.assertEqual(TV.hold_sequence(0, 4.0), [])
+        cmd = TV.encode_cmd('/t/s%06d.png', 4.8, '/o.mp4')
+        self.assertEqual(cmd[cmd.index('-framerate') + 1], '4.8')
+        vf = cmd[cmd.index('-vf') + 1]
+        self.assertIn('framerate=fps=30', vf)
+        self.assertIn('scene=100', vf, 'no scene-cut detection: a new building is not a cut')
+        self.assertNotIn('minterpolate', ' '.join(cmd))
+
+    def test_activity_and_reel_plan(self):
+        frames = {'a': bytes([0]) * 100, 'b': bytes([0]) * 50 + bytes([99]) * 50, 'c': bytes([0]) * 50 + bytes([99]) * 50,
+                  'd': bytes([99]) * 100}
+        kept, skipped, act = TV.dedup_scored(['a', 'b', 'c', 'd'], frames.get, level=0, min_frac=0.1)
+        self.assertEqual((kept, skipped, act), (['a', 'b', 'd'], 1, 1.0))
+        self.assertEqual(TV.dedup(['a', 'b', 'c', 'd'], frames.get, level=0, min_frac=0.1), (['a', 'b', 'd'], 1))
+        self.assertEqual(TV.dedup_scored(['a'], frames.get), (['a'], 0, 0.0))
+        d = tempfile.mkdtemp()
+        try:
+            mk = lambda v, inc, act: (open(os.path.join(d, v), 'w').close(), {'view': v, 'included': inc, 'activity': act,
+                                                                                  'out': os.path.join(d, v)})[1]
+            sides = [mk('angled', 40, 0.5), mk('topdown', 40, 0.9), mk('hall', 30, 0.8), mk('zig', 3, 2.0),
+                     mk('wall', 10, 0.0), mk('tidy', 12, 0.3), mk('town', 20, 0.4), mk('iso', 20, 0.35), mk('exp', 9, 0.6)]
+            sides.append({'view': 'gone', 'included': 50, 'activity': 9, 'out': os.path.join(d, 'nope')})
+            self.assertEqual(TV.plan_reel(sides), ['angled', 'hall', 'exp', 'town', 'iso'],
+                             'overview first; then the most active; too few frames, no change, topdown, a missing clip: out')
+            self.assertEqual(TV.plan_reel([s for s in sides if s['view'] != 'angled'], n=2), ['hall', 'exp'])
+        finally:
+            shutil.rmtree(d)
+
+    def test_raw_frame_retention_keeps_hourly_and_recent(self):
+        today = dt.date(2026, 12, 1)
+        old = ['20261101T1000Z', '20261101T1015Z', '20261101T1045Z', '20261101T1100Z', '20261101T1130Z-event-x']
+        recent = ['20261125T1000Z', '20261125T1015Z']
+        drop = TV.thin_plan(old + recent, today)
+        self.assertEqual(drop, ['20261101T1015Z', '20261101T1045Z'], 'first per hour + event frames kept; recent untouched')
+        self.assertEqual(TV.thin_plan(old, today, retain_days=60), [])
+        # Codex r1: the survivor is the first frame the videos can USE -- a blemished 13:00Z must not win the hour
+        hour = ['20261102T1300Z', '20261102T1315Z', '20261102T1330Z', '20261102T1345Z']
+        drop = TV.thin_plan(hour, today, usable=lambda s: not TV.blemished('angled', s))
+        self.assertEqual(sorted(set(hour) - set(drop)), ['20261102T1330Z'])
+        lo2 = dt.datetime(2026, 11, 2, 13, tzinfo=UTC)
+        self.assertEqual(TV.sample([s for s in hour if s not in drop and not TV.blemished('angled', s)], lo2,
+                                   lo2 + dt.timedelta(hours=1), 60), ['20261102T1330Z'], 'the hour still has its frame')
+        self.assertEqual(TV.thin_plan(hour, today, usable=lambda s: False), hour[1:], 'nothing usable: the first stays')
+        # the hourly representatives are exactly what weekly/history sample
+        lo = dt.datetime(2026, 11, 1, tzinfo=UTC)
+        kept = sorted(set(old) - set(drop))
+        self.assertEqual(TV.sample(kept, lo, lo + dt.timedelta(days=1), 60), TV.sample(old, lo, lo + dt.timedelta(days=1), 60))
+
+    def test_video_views_found_from_frame_dirs(self):
+        d = tempfile.mkdtemp()
+        try:
+            for v in ('angled', 'topdown', 'grounds', '.staging', 'town'):
+                os.makedirs(os.path.join(d, 'frames', v))
+            vv = TV.video_views(d)
+            self.assertEqual(vv[:2], ('angled', 'topdown'))
+            self.assertIn('grounds', vv, 'a new camera needs no EXTRA edit')
+            self.assertNotIn('.staging', vv)
+            self.assertEqual(len(vv), len(set(vv)))
+        finally:
+            shutil.rmtree(d)
 
     def test_status_lines(self):
         now = T0 + dt.timedelta(hours=1)
