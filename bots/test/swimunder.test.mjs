@@ -301,15 +301,48 @@ await ta('B5 A YIELD STOPS STEERING AT ONCE: the drowning rescue taking the body
   assert.equal(bot.control.forward, false); assert.equal(bot.control.jump, false)
 })
 
+// ---- the pillar's early roof check reads the roof from where a floating body rests (Paper 11-03, placebo-d cut) -----------
+// feet cell 33 water (the body dipped to 33.9), 34 water (where it floats), 35 air (its head), 36 stone roof, 37 water
+const dipWorld = synth((x, y, z) => (x === 0 && z === 0)
+  ? (y <= 32 ? 'minecraft:stone' : y <= 34 ? 'minecraft:water[level=0]' : y === 35 ? 'minecraft:air' : y === 36 ? 'minecraft:stone' : y === 37 ? 'minecraft:water[level=0]' : 'minecraft:stone')
+  : (y === 37 ? 'minecraft:water[level=0]' : 'minecraft:stone'))
+function pillarBot (world, y) {
+  const placed = []
+  const bot = {
+    entity: { position: new Vec3(0.5, y, 0.5), velocity: new Vec3(0, 0, 0), onGround: false, isInWater: true, yaw: 0, pitch: 0 },
+    health: 20, heldItem: null, placed,
+    inventory: { items: () => [{ name: 'cobblestone', count: 64, type: 1 }], emptySlotCount: () => 30, slots: [] },
+    blockAt: p => world.getBlock(p),
+    async equip (it) { bot.heldItem = it }, async unequip () {}, async placeBlock (b) { placed.push(b.position?.toString?.()) },
+    async dig () {}, stopDigging () {}, setControlState () {}, clearControlStates () {}, async look () {}, async lookAt () {},
+    pathfinder: { setGoal () {}, stop () {}, goal: null, isMoving: () => false }, once () {}, on () {}, removeListener () {},
+  }
+  return bot
+}
+const reflexMod = await import('../src/reflex.mjs')
+await ta('D1 THE DIP: a floating body that dipped below its cell (y 33.9) under a wet roof is refused BEFORE the pillar places anything', async () => {
+  const bot = pillarBot(dipWorld, 33.9)
+  const out = await Promise.race([reflexMod.pillarOut(bot, 3), new Promise(r => setTimeout(() => r('timeout'), 3000))])
+  assert.equal(out, 'flood_risk'); assert.equal(bot.placed.length, 0, `placed ${bot.placed}`)
+})
+
+await ta('D2 MUTANT KILLED: without the rest-height read the pillar does not refuse at the dip (D1 catches it)', async () => {
+  await withMutant(REFLEX, '    if (swimUnderOn()) {\n      const fp = bot.entity.position\n', '    if (false) {\n      const fp = bot.entity.position\n', async m => {
+    const bot = pillarBot(dipWorld, 33.9)
+    const out = await Promise.race([m.pillarOut(bot, 3), new Promise(r => setTimeout(() => r('timeout'), 3000))])
+    assert.ok(!(out === 'flood_risk' && bot.placed.length === 0), `the mutant still refused before placing (${out}): D1 would not catch it`)
+  })
+})
+
 // ---- wiring (structural: behaviour cannot reach the reflex closure) -------------------------------------------------
 await ta('W1 WIRED: both flood-branch refusal arms try the swim before the back-off; the stand-asides know it steers', () => {
   const r = stripComments(readFileSync(REFLEX, 'utf8'))
   assert.equal((r.match(/await swimUnderTry\('marooned', \(\) => maroonGrant\)/g) || []).length, 1, 'marooned arm')
   assert.equal((r.match(/await swimUnderTry\('entombed', \(\) => entombedGrant\)/g) || []).length, 1, 'entombed arm')
-  assert.ok(/owned: rescuing \|\| rampSteering \|\| swimmingUnder,/.test(r), 'the float hold counts it as an owner')
+  assert.ok(/swimmingUnder = true\n\s*steerRamp\(true\)/.test(r) && /swimmingUnder = false\n\s*steerRamp\(false\)/.test(r), 'the float hold counts it as an owner (rampSteering), set and cleared')
   assert.ok(/swimUnderAdmit\(\{ plan, oxygen: bot\.oxygenLevel, health: bot\.health, headAir: !!eye && !isWaterCell\(eye\)/.test(r), 'admission is told whether the head is in air (null air)')
-  assert.ok(/if \(!pocketing && !poolEscaping && !swimmingUnder && !dangerMovingNow\(\)\) \{/.test(r), 'the hold never jumps against it')
-  assert.ok(/longEnough && !poolEscaping && !swimmingUnder && !dangerMovingNow\(\)/.test(r), 'the stranded ladder stands aside')
+  assert.ok(/longEnough && !poolEscaping && !dangerMovingNow\(\) && !rampSteering &&/.test(r), 'the stranded ladder stands aside (rampSteering)')
+  assert.ok(/!rescuing && !poolEscaping && !swimmingUnder && !dangerMovingNow\(\) && now >= inwallNextAt/.test(r), 'the in-wall exit stands aside')
   assert.ok(/res = await swimUnder\(bot, \{ plan, alive: \(\) => ownsBody\(grantOf\)\(\) && !airPocketWanted\(\) && !runner\?\.current,\n\s*yieldTo: \(\) => drowningOwnsBody\(\) \|\| arbiterYield\(grantOf\)/.test(r), 'it yields to the drowning rescue')
 })
 
