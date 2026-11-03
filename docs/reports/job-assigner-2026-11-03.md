@@ -462,6 +462,27 @@ the cron line takes `flock -n` (no overlapping runs); clerk demand is the backlo
 `*On({}, pool)` defaults, not the pools' drop-ins, and gives `activeProject` no `waiting`/`due`/`free`, so `active_build` can
 differ from what a bot picks (the tick row carries `active_build`; a mismatch with the rows' actual projects shows in the read).
 
-## 13. First real run
+## 13. Install and first real runs (11-03)
 
-_Filled in below after the install._
+- **Suite** on the worlds host (`flock ~/suite.lock nice -n 19`, `TEST_JOBS=6`), tree `d7dd45fb`: 399/404 files passed;
+  `jobshadow.test.mjs` and `nothing-important-is-orphaned.test.mjs` passed. The 5 failures (oretunnel, outcome-not-intention,
+  roles, well, lavastep) touch none of this change's files. The first four fail the same way in promomerge's main suite the
+  same morning (06:09Z), and lavastep failed in another session's 03:21Z suite.
+- **Installed** on the canary host from main `f551763c`: `~/jobshadow/app`, cron `2-59/10` under `flock -n`, nice 19.
+- **Runs:** the first by hand at 06:14Z, the first cron run at 06:22Z.
+  - 16 of 16 towns ticked, 0 skipped.
+  - Positive controls: 97,338 and 99,245 rows; 80 bots; `_build_visit` 90 and 103.
+  - Needs on: 38 and 39. Covered (moved something in 60 min): 11 and 15.
+- **`summary` after 2 runs:** 32 of 32 expected town-ticks valid; unplanned releases 0.94 per town-hour (the first ticks'
+  imports).
+
+  | Role | Need-ticks | Covered | Tried |
+  |---|---|---|---|
+  | builder | 30 | 6 | 18 |
+  | groundskeeper | 16 | 0 | 2 |
+  | deep miner | 20 | 11 | 11 |
+  | miner | 9 | 9 | 9 |
+
+- **The clerk and the explorer are `unsupported` in every town** (no yard record, no `_expedition` rows on the fleet). The
+  deep miner shows live in all 16 pools: `_deepmine` rows at `259a36f3` from board-b as well as the canary pools.
+- These two runs are only a first look. **The read is the +24 h `summary`** (ledger row `jobassign-1103`).
