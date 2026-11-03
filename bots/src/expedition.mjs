@@ -91,12 +91,20 @@ export function expeditionOn (env = process.env, pool = '') {
   return pools.includes('*') || pools.includes(String(pool))
 }
 export const markersOn = (env = process.env) => !OFF.includes(String(env?.EXPEDITION_MARKERS ?? '').trim().toLowerCase())
-/** EXPWATER-01: may a leg swim a narrow crossing? EXPEDITION_SWIM=off -> dry legs only (the 11-02 planner). Pure. */
-export const swimOn = (env = process.env) => !OFF.includes(String(env?.EXPEDITION_SWIM ?? '').trim().toLowerCase())
+/** EXPWATER-01: how wide a crossing a leg may swim -> wet columns (0: dry legs only, the 11-02 planner). EXPEDITION_SWIM=off|0 -> 0;
+ *  a number -> that width (1..24: an operator narrows it to 8 -- 20/20 in Paper -- if live crossings strand); unset/on -> SWIM_MAX. Pure. */
+export function swimWidth (env = process.env) {
+  const v = String(env?.EXPEDITION_SWIM ?? '').trim().toLowerCase()
+  if (OFF.includes(v)) return 0
+  const n = Number(v)
+  if (v !== '' && Number.isFinite(n)) return Math.max(0, Math.min(24, Math.floor(n)))
+  return SWIM_MAX
+}
+export const swimOn = (env = process.env) => swimWidth(env) > 0
 
 /** `_expedition_mode` licence row detail. Pure. */
-export const expeditionModeDetail = (on, markers = true, swim = false) =>
-  `on=${on ? 1 : 0} markers=${markers ? 1 : 0} swim=${swim ? SWIM_MAX : 0} slots=${EXPEDITION_SLOTS} ring=${RING_MIN}-${RING_MAX} leg=${LEG_STEP} marker_every=${MARKER_EVERY} cooldown_min=${TRIP_COOLDOWN_MS / 60_000}`
+export const expeditionModeDetail = (on, markers = true, swim = 0) =>
+  `on=${on ? 1 : 0} markers=${markers ? 1 : 0} swim=${swim === true ? SWIM_MAX : Number(swim) || 0} slots=${EXPEDITION_SLOTS} ring=${RING_MIN}-${RING_MAX} leg=${LEG_STEP} marker_every=${MARKER_EVERY} cooldown_min=${TRIP_COOLDOWN_MS / 60_000}`
 
 /**
  * MAY THIS BOT GO NOW? -> { ok, phase: 'trip'|'deposit', why }. Pure. Asked by shop.mjs buildOrder at town, when the town's
@@ -551,14 +559,19 @@ export function crumbDue (crumbs = [], cell, read = null, { shore = false } = {}
  * below `cursor` whose crumb is within CRUMB_HOP_MAX (x/z) and loaded (`loaded(cell)`), so a meander is cut short; none in
  * reach: the crumb just below the cursor (the adjacent one on the walked route), if loaded. `skip` holds indices whose hop failed.
  */
-export function nextCrumb (crumbs = [], pos, cursor = crumbs.length, { loaded = () => true, skip = new Set() } = {}) {
+export function nextCrumb (crumbs = [], pos, cursor = crumbs.length, { loaded = () => true, skip = new Set(), gates = [] } = {}) {
   const top = Math.min(cursor, crumbs.length)
-  for (let i = 0; i < top; i++) {
+  // EXPWATER-01: A CROSSING IS A GATE (Codex design 11-03): `gates` are the FAR-shore crumbs' indices (the near shore is the one before).
+  // The way home never cuts past one -- a hop that skipped it would cross the water somewhere no swim was checked: beyond a gate the
+  // lowest hop is the gate itself, and standing on it the next is its near shore
+  let lo = 0
+  for (const f of gates ?? []) { if (!Number.isInteger(f)) continue; if (f < top) lo = Math.max(lo, f); else if (f === top) lo = Math.max(lo, f - 1) }
+  for (let i = lo; i < top; i++) {
     if (skip.has(i)) continue
     const c = crumbs[i]
     if (Math.hypot(c[0] - pos.x, c[2] - pos.z) <= CRUMB_HOP_MAX && loaded(c)) return i
   }
-  for (let i = top - 1; i >= 0; i--) {
+  for (let i = top - 1; i >= lo; i--) {
     if (skip.has(i)) continue
     return loaded(crumbs[i]) ? i : -1
   }

@@ -119,7 +119,7 @@ if (trips) {
   const N = Number(opt('legs', 12))
   for (const spec of trips.split(';')) {
     const [ax, ay, az, kb] = spec.split(',').map(Number)
-    for (const swim of [0, E.SWIM_MAX]) {
+    for (const swim of [0, ...String(opt('swims', String(E.SWIM_MAX))).split(',').map(Number)]) {
       let pos = { x: ax, y: ay, z: az }, detour = null
       const kinds = []
       let end = 'legs'
