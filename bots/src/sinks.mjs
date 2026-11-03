@@ -556,9 +556,11 @@ export function screenStepped (read, { x0, z0, g, guard = () => null, hy = 70, s
   if (!best || best.why) return { ok: false, why: best?.why ?? 'level' }
   const L = best.L
   if (L + 1 + g.n * g.H + 3 > yHi) return { ok: false, why: 'too_high' }
+  // liquid anywhere from L-2 to one above the highest ground the site cuts (Codex r1 BLOCKER 1: a cut at L+3 beside water released it)
   const P = SITE_LIM.liquidPad
+  const yTop = Math.max(L + 2, ...cols.map(([, , gr]) => gr.y + 1))
   for (let x = x0 - A - P; x < x0 + B + A + P; x++) for (let z = z0 - A - P; z < z0 + B + A + P; z++) {
-    for (let y = L - 2; y <= L + 2; y++) if (wet(read(x, y, z))) return { ok: false, why: 'liquid' }
+    for (let y = L - 2; y <= yTop; y++) if (wet(read(x, y, z))) return { ok: false, why: 'liquid' }
   }
   const fill = [], cut = []
   for (const [x, z, gr] of cols) {
@@ -907,6 +909,12 @@ export function siteSink (read, ctx = {}) {
   }
   return { ok: false, why: 'kind', tried }
 }
+
+/**
+ * THE RECORDS A KIND IS SITED CLEAR OF -> the records less a road's own (Codex r1 BLOCKER 2: the last segment's zone, box + 1, held
+ * the next segment's first column: every full segment ended its spoke). A tower or a shrine keeps its own earlier instances. Pure.
+ */
+export const guardRecords = (recs = [], kind) => (kind === 'road' ? recs.filter(r => r?.plot !== SINK_PLOTS.road) : recs)
 
 // ---- the growing record ------------------------------------------------------------------------------------------------------------
 export const PROJECT_GAP = 3

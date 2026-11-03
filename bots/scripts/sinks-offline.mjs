@@ -49,8 +49,8 @@ const kinds = (opt('kinds') ?? 'road,tower,shrine').split(',')
 const count = Number(opt('count') ?? 1)
 // the growing records (one per kind), as the bots would publish them
 const recs = Object.fromEntries(S.SINK_KINDS.map(k => [k, null]))
-const guardFor = (withZ0) => {
-  const sinkZones = S.SINK_KINDS.flatMap(k => recs[k]?.zones ?? [])
+const guardFor = (withZ0, kind) => {
+  const sinkZones = S.guardRecords(S.SINK_KINDS.map(k => recs[k]).filter(Boolean), kind).flatMap(r => r.zones ?? [])
   const zones = [...R.zones, ...recordZones([...others, ...(land && LP ? [LP.landReservation(land)] : [])]), ...hall, ...(EX.markerZones?.(markers) ?? []), ...sinkZones]
   const res = reservations(plan, { zones, wells: R.wells, farm: R.farm, z0: withZ0 && zig ? { box: zig.box } : null })
   return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zones.find(zb => { const b = zb.box; return x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
@@ -61,7 +61,7 @@ for (let round = 1; round <= count; round++) {
     const n = S.instancesOf(recs[kind]).length + 1
     const id = `${S.SINK_LETTER[kind]}${n}`
     const t0 = Date.now()
-    const r = S.siteSink(read, { kind, n, id, home, pool, avail, torch, guard: guardFor(true), guardShrine: guardFor(false), wall, zig, land, rec: recs[kind], stood: [] })
+    const r = S.siteSink(read, { kind, n, id, home, pool, avail, torch, guard: guardFor(true, kind), guardShrine: guardFor(false, kind), wall, zig, land, rec: recs[kind], stood: [] })
     const ms = Date.now() - t0
     if (!r.ok) { out.failed.push({ kind, n, why: r.why, tried: r.tried, proofs: r.proofs, ms }); continue }
     recs[kind] = S.appendInstance(recs[kind], { kind, home, inst: r.inst, meta: { ...r.meta, sitedAt: Date.now() } })

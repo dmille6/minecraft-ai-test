@@ -253,12 +253,27 @@ await t('screenStepped: fill <= 3 a column, never a cut under sand, liquid withi
   assert.match(S.screenStepped(srv.read, { x0: 20, z0: 20, g, hy: HOME.y }).why, /liquid/)
   const s2 = server(); for (let y = G - 4; y <= G; y++) s2.set([22, y, 22], 'air')
   assert.ok(['fill_deep', 'cut_deep'].includes(S.screenStepped(s2.read, { x0: 20, z0: 20, g, hy: HOME.y }).why) || S.screenStepped(s2.read, { x0: 20, z0: 20, g, hy: HOME.y }).L < G, 'a 5-deep hole under the base is never filled')
+  // Codex r1 BLOCKER 1: water beside the TOP of a cut (L+3 here) refuses -- the cut would release it
+  const s5 = server(); for (let y = G + 1; y <= G + 3; y++) s5.set([22, y, 22], 'dirt'); s5.set([22, G + 3, 27], 'water')
+  assert.strictEqual(S.screenStepped(s5.read, { x0: 20, z0: 20, g, hy: HOME.y }).why, 'liquid', 'water at L+3 beside a cut to L+3')
+  const s6 = server(); for (let y = G + 1; y <= G + 3; y++) s6.set([22, y, 22], 'dirt')
+  assert.ok(S.screenStepped(s6.read, { x0: 20, z0: 20, g, hy: HOME.y }).ok, 'POSITIVE CONTROL: the same cut with no water is sited')
   const s3 = server(); s3.set([21, G + 1, 21], 'dirt'); s3.set([21, G + 2, 21], 'sand')
   const r3 = S.screenStepped(s3.read, { x0: 20, z0: 20, g, hy: HOME.y })
   assert.ok(!r3.ok || !r3.clear.some(c => c.kind === 'cut' && c.at[0] === 21 && c.at[2] === 21), 'sand, and the dirt under it, are never cut: built over at its level or refused')
   const s4 = server(); s4.set([21, G + 1, 21], 'dirt')
   const r4 = S.screenStepped(s4.read, { x0: 20, z0: 20, g, hy: HOME.y })
   assert.ok(r4.ok && r4.L === G && r4.clear.some(c => c.kind === 'cut' && c.at.join() === [21, G + 1, 21].join()), 'POSITIVE CONTROL: the same bump of dirt alone is cut')
+})
+
+await t('MUTANT KILLED: a liquid check that stops at L+2 sites a cut to L+3 beside water (Codex r1 BLOCKER 1)', async () => {
+  const g = { B: 5, S: 1, H: 2, n: 2, W: 1, stairs: 'perp', spin: 1, face0: 's', all4: false }
+  const site = M => { const w = server(); for (let y = G + 1; y <= G + 3; y++) w.set([22, y, 22], 'dirt'); w.set([22, G + 3, 27], 'water'); return M.screenStepped(w.read, { x0: 20, z0: 20, g, hy: HOME.y }) }
+  assert.strictEqual(site(S).why, 'liquid')
+  await withMutant(SINKS_PATH, '  const yTop = Math.max(L + 2, ...cols.map(([, , gr]) => gr.y + 1))\n', '  const yTop = L + 2\n', async M => {
+    const r = site(M)
+    assert.ok(r.ok && r.clear.some(c => c.kind === 'cut' && c.at[1] === G + 3), 'the mutant cuts beside the water')
+  })
 })
 
 console.log('THE REAL VISIT RUNNER BUILDS IT (buildrun.mjs runVisit on the fake server)')
@@ -346,6 +361,19 @@ await t('the surface steps +-1 at most (a 3-high bump is ramped), stops before w
   assert.strictEqual(S.roadSegment(server().read, { id: 'R2', rail: RAIL, k: 1, style: STYLE, prevY: G - 2, hy: HOME.y, home: HOME }).why, 'step_from_prev')
   assert.strictEqual(S.roadSegment(server().read, { id: 'R2', rail: RAIL, k: 1, style: STYLE, prevY: G + 3, hy: HOME.y, home: HOME }).ok, true, 'a higher last end is ramped down to')
 })
+await t('a road grows: segment k+1 starts where k ended, clear of every record but the road\'s own (Codex r1 BLOCKER 2)', () => {
+  const k0 = S.roadSegment(server().read, { id: 'R1', rail: RAIL, k: 0, style: STYLE, hy: HOME.y, home: HOME })
+  const road = S.appendInstance(null, { kind: 'road', home: HOME, inst: k0, meta: { id: 'R1', n: 1, spoke: 's0', k: 0, box: k0.box, end: k0.end, sitedAt: 1 } })
+  const tower = { plot: 'tower', zones: [{ box: [40, -64, 40, 45, 320, 45], why: 'project:tower:T1' }] }
+  const guardOf = recs => { const zs = SH.recordZones(recs); return (x, z) => zs.find(q => x >= q.box[0] && x <= q.box[3] && z >= q.box[2] && z <= q.box[5])?.why ?? null }
+  const land = { roads: [{ id: 's0', kind: 'spoke', rail: { from: RAIL.from, to: RAIL.to } }] }
+  const site = recs => S.siteSink(server().read, { kind: 'road', n: 2, id: 'R2', home: HOME, pool: 'test', avail: AVAIL, torch: true, land, rec: road, guard: guardOf(recs), stood: [] })
+  assert.strictEqual(site([road, tower]).ok, false, 'the bug: with the road\'s own zone the next segment is reserved')
+  const r = site(S.guardRecords([road, tower], 'road'))
+  assert.ok(r.ok && r.meta.k === 1, JSON.stringify(r.tried))
+  assert.ok(Math.max(...r.inst.cells.map(c => c.at[2])) < Math.min(...k0.cells.map(c => c.at[2])) + 1, 'it continues outward')
+  assert.deepStrictEqual(S.guardRecords([road, tower], 'tower'), [road, tower], 'every other kind keeps every record')
+})
 await t('MUTANT KILLED: without the envelope the road climbs a 3-high bump in one step', async () => {
   const srv = server()
   for (let x = -1; x <= 1; x++) for (let y = G + 1; y <= G + 3; y++) srv.set([x, y, -28], 'stone')
@@ -380,6 +408,8 @@ const W = [
   /: isSinkBlueprint\(r\.blueprint\) \? \{ palette: r\.palette \?\? \{\} \} : blueprintOf\(r\.blueprint \?\? SHOP_BLUEPRINT\)/,
   /const pick = activeProject\(waited, order, \{ upkeepTurn: \(b\?\.sinkStreak \?\? 0\) >= SINK_STREAK \}\)/,
   /\.\.\.sinkVisitOpts\(rec, home\), \.\.\.leave \}, effects/,
+  /const others = guardRecords\(projectHeads\(\)\.map\(x => x\.head\.rec\)\.filter\(Boolean\), kind\)/,
+  /guard: sinkGuardFor\(c, plan, \{ kind \}\), guardShrine: sinkGuardFor\(c, plan, \{ noZ0: true, kind \}\)/,
 ]
 await t('build_shop dispatches a sink plot to buildSink; a sink wanting its next instance reads unsited; its palette judges damage; the picker\'s order and upkeep turn reach activeProject; the visit takes the sink options', () => {
   for (const re of W) assert.ok(re.test(SK), String(re))

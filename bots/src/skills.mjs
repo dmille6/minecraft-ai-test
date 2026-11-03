@@ -163,7 +163,7 @@ import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PL
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
-import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES } from './sinks.mjs'   // picker-01
+import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords } from './sinks.mjs'   // picker-01
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -20149,8 +20149,8 @@ function sinkNextNow (plot) { try { return !!activeMem?.states?.find(s => s.plot
  * road corridors), an unsited copper hall's pad and the expedition markers; the ziggurat's +8 apron (`z0`) unless `noZ0` (a shrine
  * belongs to the ziggurat: its record zone, box + 3, still holds). Throws on an unreadable record (the visit stops).
  */
-function sinkGuardFor (c, plan, { noZ0 = false } = {}) {
-  const others = projectHeads().map(x => x.head.rec).filter(Boolean)
+function sinkGuardFor (c, plan, { noZ0 = false, kind = null } = {}) {
+  const others = guardRecords(projectHeads().map(x => x.head.rec).filter(Boolean), kind)
   const zones = [...c.zones, ...recordZones(others), ...hallPadZones(plan), ...townMarkerZones()]
   const res = reservations(plan, { zones, wells: c.wells, farm: c.farm, z0: noZ0 ? null : c.z0 })
   return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zones.find(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
@@ -20178,7 +20178,7 @@ async function sinkSiteFor (bot, kind, rec0, plan, c, stood, signal) {
     const zig = projectHeads().find(x => x.plot === MONUMENT_PLOT)?.head?.rec ?? null
     const feet = bot.entity?.position ? [Math.floor(bot.entity.position.x), Math.floor(bot.entity.position.y + 1e-6), Math.floor(bot.entity.position.z)] : null
     return siteSink(planReader(bot), { kind, n, id: `${SINK_LETTER[kind]}${n}`, home: planHomeP(), pool: config.memory.pool, avail: av.avail, torch: av.torch, campfire: av.campfire,
-      guard: sinkGuardFor(c, plan), guardShrine: sinkGuardFor(c, plan, { noZ0: true }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])] })
+      guard: sinkGuardFor(c, plan, { kind }), guardShrine: sinkGuardFor(c, plan, { noZ0: true, kind }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])] })
   } catch (e) {
     if (e?.aborted || signal?.aborted) throw e
     return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80), tried: [] }
