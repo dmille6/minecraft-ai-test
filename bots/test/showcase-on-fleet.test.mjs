@@ -36,10 +36,10 @@ t('the tree farm and the expeditions: on in the showcase pool by default, off in
   assert.strictEqual(E.expeditionOn({}, 'showcase'), true)
   assert.strictEqual(E.expeditionOn({}, 'hive-a'), false)
 })
-t('at load in the showcase pool: SHAFT on (showshaft-01), and the project list is the workshop, the stair, the five plots the showcase has built, then the materials chests, the storehouse (storehouse-01), the copper hall (copperhall-01), the stockpile yard (stockyard-01) and the tidy (tidy-01 + groundskeeper-01, last), in order', () => {
+t('at load in the showcase pool: SHAFT on (showshaft-01), and the project list is the workshop, the stair, the five plots the showcase has built, then the materials chests, the storehouse (storehouse-01), the copper hall (copperhall-01), the stockpile yard (stockyard-01), the town sinks (picker-01) and the tidy (tidy-01 + groundskeeper-01, last), in order', () => {
   assert.strictEqual(S.SHAFT.on, true)
   assert.strictEqual(S.TREEFARM.on, true)
-  assert.deepStrictEqual(S.projectsOn().map(p => p.plot), ['shop', 'shaft', 'house1', 'monument', 'paths', 'wall', 'treefarm', 'shopchest', 'storehouse', 'hall', 'yard', 'tidy'])
+  assert.deepStrictEqual(S.projectsOn().map(p => p.plot), ['shop', 'shaft', 'house1', 'monument', 'paths', 'wall', 'treefarm', 'shopchest', 'storehouse', 'hall', 'yard', 'road', 'tower', 'shrine', 'tidy'])
   // the stair stays GUARDED when off (a sited stair's cells keep their protection); with no record it guards nothing
   assert.ok(S.projectsGuarded().some(p => p.plot === 'shaft'))
 })

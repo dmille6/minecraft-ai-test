@@ -88,6 +88,10 @@ const REQUIRED = [
   'bots/src/blueprints/yard@1.json',
   'docs/reports/stockyard-2026-11-02/make_yard.py',
   'bots/test/yard.test.mjs',
+  // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
+  'bots/src/sinks.mjs',
+  'bots/scripts/sinks-offline.mjs',
+  'bots/test/sinks.test.mjs',
   // yardsite-01 (11-03): the yard beyond the town ring, the 2x yard, its offline proof and its test
   'bots/src/blueprints/yard@2.json',
   'bots/scripts/yard-offline.mjs',
