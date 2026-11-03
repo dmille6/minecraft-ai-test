@@ -1653,8 +1653,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     const t0 = Date.now()
     const r = await stairEgressReflex(bot, { alive: () => ownsBody(grantOf)() && !airPocketWanted() && !drowningOwnsBody(), ms: EGRESS_REFLEX_MS })
     const h = egressHandoff(r)
-    // a fall-through, and progress (Claude r1 note 1: a bot back at the step it climbed from is not handed over again inside the wait)
-    if (h === 'fallthrough' || h === 'retry') { stairEgressMemo.k = on.k; stairEgressMemo.at = Date.now() } else if (h === 'out') stairEgressMemo.k = null
+    // a fall-through, and a climb that ended higher (Claude r1 note 1: a bot back at the step it climbed from is not handed over again
+    // inside the wait); a clear without a hop is not (Paper 11-03: one dirt block dug, the hop to follow next firing from the same step)
+    if (h === 'fallthrough' || (h === 'retry' && (Number(r?.hops) || 0) > 0)) { stairEgressMemo.k = on.k; stairEgressMemo.at = Date.now() } else if (h === 'out') stairEgressMemo.k = null
     try { logEvent({ kind: 'stair_handoff', status: h === 'out' ? 'success' : 'failed', detail: handoffDetail({ handler, k: on.k, h, r, ms: Date.now() - t0 }), snapshot: snapshot(bot) }) } catch { /* telemetry */ }
     return h
   }

@@ -179,13 +179,15 @@ function livePathfinder (b) {
     goto (g) { changed(); st.goal = g; return new Promise((resolve, reject) => { st.reject = reject }) },
     stop () {},
   }
-  b.withTownDepositWalk = async fn => { const prev = st.movements; b.pathfinder.setMovements('town'); try { return await fn() } finally { b.pathfinder.setMovements(prev) } }
+  // index.mjs's wrapper: its finally installs the DEFAULT profile ('walk'), whatever was there before
+  b.withTownDepositWalk = async fn => { b.pathfinder.setMovements('town'); try { return await fn() } finally { b.pathfinder.setMovements('walk') } }
   return st
 }
-async function rescueMidHop (mod) {
+async function rescueMidHop (mod, { startProfile = 'walk' } = {}) {
   const s = G.standOf(plan, 44)
   const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 } })
   const st = livePathfinder(b)
+  st.movements = startProfile   // 'gather': an interrupted gather walk whose own finally has not run yet
   let owned = true
   const rescueGoal = { rescue: true }
   setTimeout(() => { owned = false; b.pathfinder.setGoal(rescueGoal); b.setControlState('jump', true) }, 300)   // the rescue seizes and strokes
@@ -200,6 +202,10 @@ await t('shafttrap-02 (Codex r1 blocker 1): a rescue that takes the body mid-hop
   assert.strictEqual(st.controls.jump, true, 'the rescue\'s jump stands')
   assert.strictEqual(st.movements, 'walk', 'the walk profile is restored')
 })
+await t('Claude r2 blocker: an egress that starts while an interrupted gather walk still holds its digging profile never re-installs it', async () => {
+  const { st } = await rescueMidHop(K, { startProfile: 'gather' })
+  assert.strictEqual(st.movements, 'walk', 'the default profile, not gather\'s')
+})
 async function withSkillsMutant (old, neu, fn) {
   const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
   assert.strictEqual(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
@@ -211,6 +217,16 @@ await t('MUTANT KILLED: a signal that only the 200 ms poll aborts lets the next 
   await withSkillsMutant('const sig = { get aborted () { return lost() },', 'const sig = { get aborted () { return ac.signal.aborted },', async M => {
     const { st, rescueGoal } = await rescueMidHop(M)
     assert.notStrictEqual(st.goal, rescueGoal, 'the mutant walked over the rescue\'s goal')
+  })
+})
+await t('MUTANT KILLED: the default profile read before the probe re-installs gather\'s digging profile', async () => {
+  await withSkillsMutant(`  let townMoves = null
+  try { if (typeof bot.withTownDepositWalk === 'function') townMoves = await bot.withTownDepositWalk(async () => bot.pathfinder.movements) } catch { townMoves = null }
+  const walkMoves = bot.pathfinder?.movements ?? null`, `  const walkMoves = bot.pathfinder?.movements ?? null
+  let townMoves = null
+  try { if (typeof bot.withTownDepositWalk === 'function') townMoves = await bot.withTownDepositWalk(async () => bot.pathfinder.movements) } catch { townMoves = null }`, async M => {
+    const { st } = await rescueMidHop(M, { startProfile: 'gather' })
+    assert.strictEqual(st.movements, 'gather', 'the mutant leaks gather\'s profile')
   })
 })
 await t('MUTANT KILLED: restoring the walk profile the plain way clears the rescue\'s stroke', async () => {

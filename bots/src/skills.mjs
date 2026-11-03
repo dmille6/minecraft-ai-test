@@ -17908,9 +17908,11 @@ export async function stairEgressReflex (bot, { alive = () => true, ms = EGRESS_
   const on = stairStandingOn(bot)
   if (!on) return { ran: false, why: 'off_stair' }
   // the two walk profiles, read while this arm holds the body (the town-deposit walk: no digs, towers or scaffold)
-  const walkMoves = bot.pathfinder?.movements ?? null
+  // Claude r2 BLOCKER: the default profile is read AFTER the probe (whose finally has just put it back) -- read before, it could be an
+  // interrupted skill's (gather's: digs and towers) not yet restored by its own finally, and every hop would re-install it
   let townMoves = null
   try { if (typeof bot.withTownDepositWalk === 'function') townMoves = await bot.withTownDepositWalk(async () => bot.pathfinder.movements) } catch { townMoves = null }
+  const walkMoves = bot.pathfinder?.movements ?? null
   if (!walkMoves || !townMoves || townMoves === walkMoves) return { ran: false, why: 'no_town_walk' }
   const ac = new AbortController()
   const lost = () => { if (!ac.signal.aborted) { let ok = false; try { ok = !!alive() } catch { ok = false } if (!ok) ac.abort() } return ac.signal.aborted }
@@ -17954,7 +17956,8 @@ async function stairWalkOwned (bot, cell, ms, signal, { townMoves, walkMoves }) 
   } finally {
     if (timer) clearTimeout(timer)
     if (onAbort) signal?.removeEventListener?.('abort', onAbort)
-    try { if (signal?.aborted) quiet(() => bot.pathfinder.setMovements(walkMoves)); else bot.pathfinder.setMovements(walkMoves) } catch { /* not connected */ }
+    // ...and only over its own profile: one someone else set while it ran is theirs
+    try { if (bot.pathfinder.movements === townMoves) { if (signal?.aborted) quiet(() => bot.pathfinder.setMovements(walkMoves)); else bot.pathfinder.setMovements(walkMoves) } } catch { /* not connected */ }
   }
   check(signal)
   const p = bot.entity?.position
