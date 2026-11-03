@@ -119,6 +119,11 @@ await t('deepTripOnStair: a deep miner\'s open trip (descend/deepen/work/return)
   assert.strictEqual(deepTripOnStair(null, now), false)
 })
 
+await t('stairWalkThroughNow: only a running skill whose pathfinder is moving the bot on the stair', () => {
+  assert.strictEqual(G.stairWalkThroughNow({ busy: true, moving: true, on: true }), true)
+  for (const x of [{ busy: false, moving: true, on: true }, { busy: true, moving: false, on: true }, { busy: true, moving: true, on: false }, {}]) assert.strictEqual(G.stairWalkThroughNow(x), false, JSON.stringify(x))
+})
+
 console.log('2. THE CHAIN ON A FLEET STAIR (the real A*)')
 await t('BEFORE: idle at step 44 the arm\'s probe is false (it would pillar), the walk out exists', () => {
   const w = world()
@@ -238,6 +243,14 @@ await t('stairAscend: on the stair the egress (visitEgress) replaces the plan; o
   const on = a.indexOf('if (stairStandingOn(bot)) {')
   assert.ok(on > 0 && on < a.indexOf('const plan = async'), 'before the plan')
   assert.ok(a.slice(on, a.indexOf('const plan = async')).includes('visitEgress(bot, rec, signal'))
+})
+
+await t('the entombed arm waits while a walk moves through the stair (before tombDeclines, so a decline is not paid for it)', () => {
+  const cond = span(RSRC, "if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot)", '!tombDeclines()) {')
+  assert.ok(cond.includes('!stairWalkThrough() &&'), 'in the arm\'s condition')
+  assert.ok(cond.indexOf('!stairWalkThrough()') > 0, 'before the decline (the span ends at it)')
+  const w = span(RSRC, 'const stairWalkThrough = () =>', 'const stairExitFirst')
+  assert.ok(w.includes('stairWalkThroughNow({ busy: runner.isBusy(), moving: !!bot.pathfinder?.isMoving?.(), on: !!stairStandingOn(bot) })'))
 })
 
 console.log('4. MUTANTS (each anchor present and unique)')

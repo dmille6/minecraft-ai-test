@@ -11,9 +11,13 @@
 // `_inventory_mutation`, `_escape_guard*` rows.
 //
 //   node sandbox/shafttrap/handoff-e2e.mjs <botRoot> <scene,scene,...> [server] [minutes]
-//   pillared       step 44, dirt in three air cells (its head room, steps 40 and 30): the arm hands over, the egress digs the dirt
-//                  and ends at the collar exit; nothing placed in the stair, every other planned cell as planned
-//   pillared_base  the same with SHAFTTRAP=0: the chain as it is on the fleet today (the control)
+//   blocked        idle at step 44, dirt in step 43's feet and head cells (the way up) and in step 30: the maroon probe has no route
+//                  and the column over the head is open (maroonState climb) -> the arm hands over, the egress digs the dirt and
+//                  ends at the collar exit; nothing placed in the stair, every other planned cell as planned
+//   blocked_base   the same with SHAFTTRAP=0: the chain as it is on the fleet today (the control)
+//   descend        a scripted `goto` (the sandbox brain on loopback) from the collar to the 16 landing's stub end: the walk goes
+//                  down the stair; the entombed arm must not cut it short (no `_entombed` while it moves), it arrives
+//   descend_base   the same with SHAFTTRAP=0 (the control: does the base's entombed arm interrupt the walk, as LIVE 3,643 rows?)
 //   tread          step 44, step 43's tread removed: the egress stops `tread` at once (nothing gained) -> the arm's own escape
 //                  runs in the same firing; no second hand-over from that step inside EGRESS_RETRY_MS
 // Refuses unless a sandbox lock covering SERVER has `shafttrap` as its owner's first word. World edits on its arena only.
@@ -23,7 +27,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 
-const [BOT_ROOT, SCENES_S = 'pillared,tread,pillared_base', SERVER = 'sandbox3', MIN_S = '6'] = process.argv.slice(2)
+const [BOT_ROOT, SCENES_S = 'blocked,blocked_base,descend,descend_base,tread', SERVER = 'sandbox3', MIN_S = '6'] = process.argv.slice(2)
 if (!BOT_ROOT) throw new Error('usage: handoff-e2e.mjs <botRoot> <scenes> [server] [minutes]')
 const require = createRequire(import.meta.url)
 const sbx = require('../lib/sbxlock.cjs')
@@ -107,10 +111,21 @@ function writeRecord (poolDir) {
 
 // ---------------------------------------------------------------- the whole bot
 const procs = []
-function launchBot (label, env0 = {}) {
+const BRAIN_PORT = 11560 + Object.keys(sbx.PORTS).indexOf(SERVER)
+function launchBrain (line, dir) {
+  const child = spawn(process.execPath, [path.join(BOT_ROOT, 'sandbox/sandbox-brain.mjs'), String(BRAIN_PORT)], {
+    env: { ...process.env, SANDBOX_SCRIPT: line, SANDBOX_DELAY_MS: '20000' }, stdio: ['ignore', 'pipe', 'pipe'] })
+  const out = fs.createWriteStream(path.join(dir, 'brain.out')); child.stdout.pipe(out); child.stderr.pipe(out)
+  procs.push(child)
+  return child
+}
+function launchBot (label, env0 = {}, script = null) {
   const dir = fs.mkdtempSync(path.join(OUT, `${label}-`))
   for (const d of ['log', 'state', 'pool']) fs.mkdirSync(path.join(dir, d), { recursive: true })
   const rec = writeRecord(path.join(dir, 'pool'))
+  const brain = script ? launchBrain(script, dir) : null
+  const llm = script ? { LLM_ENABLED: 'true', OLLAMA_BASE_URL: `http://127.0.0.1:${BRAIN_PORT}`, OLLAMA_BASE_URLS: `http://127.0.0.1:${BRAIN_PORT}`, OLLAMA_NUM_CTX: '8192',
+    LLM_MAX_TOKENS: '512', LLM_TEMPERATURE: '0.7', LLM_TIMEOUT_MS: '45000', LLM_PROMPT_TOKEN_BUDGET: '3000', LLM_DECISION_COOLDOWN_MS: '8000' } : {}
   const env = { ...process.env,
     BOT_NAME: NAME, BOT_ROLE: 'gatherer', EXP_INSTANCE: 'sandbox', EXP_BLOCK: 'sandbox', EXP_ARM: 'sandbox', MEMORY_SCOPE: 'checkpoint',
     MEMORY_POOL: `sbx-handoff-${label}`, POOL_STATE_DIR: path.join(dir, 'pool'), MINECRAFT_HOST: '10.0.0.30', MINECRAFT_PORT: String(PORTS[SERVER]),
@@ -120,15 +135,16 @@ function launchBot (label, env0 = {}) {
     ENABLE_AGENT_CODE_EXECUTION: 'false', VIEWER_ENABLED: 'false', VIEWER_PORT: '0', LOG_LEVEL: 'info',
     CODE_VERSION: `sandbox-handoff-${label}`, RUN_ID: 'sandbox-shafttrap02', LOG_DIR: path.join(dir, 'log'), STATE_DIR: path.join(dir, 'state'),
     HOME_X: String(HOME.x), HOME_Y: String(HOME.y), HOME_Z: String(HOME.z), BOARD_X: String(HOME.x), BOARD_Y: String(HOME.y), BOARD_Z: String(HOME.z),
-    SHAFT: 'on', ...env0 }
+    SHAFT: 'on', ...llm, ...env0 }
   const child = spawn(process.execPath, ['--max-old-space-size=768', 'src/index.mjs'], { cwd: path.join(BOT_ROOT, 'bots'), env, stdio: ['ignore', 'pipe', 'pipe'] })
   const out = fs.createWriteStream(path.join(dir, 'bot.out')); child.stdout.pipe(out); child.stderr.pipe(out)
   procs.push(child)
-  return { dir, child, rec, log: path.join(dir, 'log', `skill-${NAME}.jsonl`) }
+  return { dir, child, brain, rec, log: path.join(dir, 'log', `skill-${NAME}.jsonl`) }
 }
 const rowsOf = b => { try { return fs.readFileSync(b.log, 'utf8').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean) } catch { return [] } }
 const kind = r => r?.skill?.name ?? ''
 async function stopBot (b) {
+  try { b.brain?.kill('SIGTERM') } catch {}
   try { b.child.kill('SIGTERM') } catch {}
   for (let k = 0; k < 25 && b.child.exitCode === null && b.child.signalCode === null; k++) await sleep(200)
   if (b.child.exitCode === null && b.child.signalCode === null) { try { b.child.kill('SIGKILL') } catch {} }
@@ -138,11 +154,13 @@ async function stopBot (b) {
 async function scene (name) {
   batch(PLAN.cells.map(c => set(c.at, c.role === 'air' ? 'air' : 'stone')))
   const extra = []
-  if (name === 'pillared' || name === 'pillared_base') extra.push(PLAN.steps[44].air[2], PLAN.steps[40].air[0], PLAN.steps[30].air[1])
+  if (name === 'blocked' || name === 'blocked_base') extra.push(PLAN.steps[43].air[0], PLAN.steps[43].air[1], PLAN.steps[30].air[1])
   if (extra.length) rcon(...extra.map(c => set(c, 'dirt')))
   let tread = null
   if (name === 'tread') { tread = PLAN.steps[43].tread; rcon(set(tread, 'air')) }
-  const b = launchBot(name, name === 'pillared_base' ? { SHAFTTRAP: '0' } : {})
+  const descend = name === 'descend' || name === 'descend_base'
+  const stub16 = G.stubEnd(PLAN.landings.find(l => l.feet === 16))
+  const b = launchBot(name, /_base$/.test(name) ? { SHAFTTRAP: '0' } : {}, descend ? `goto ${stub16[0]} ${stub16[1]} ${stub16[2]};idle` : null)
   let joined = false
   for (let k = 0; k < 60; k++) { await sleep(2000); if (r1('list').includes(NAME)) { joined = true; break } }
   if (!joined) throw new Error('the bot did not join: ' + r1('list'))
@@ -150,16 +168,18 @@ async function scene (name) {
   batch([`gamemode survival ${NAME}`, `clear ${NAME}`, `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 900 1 true`,
     `item replace entity ${NAME} container.0 with minecraft:stone_pickaxe[damage=31] 1`,
     `item replace entity ${NAME} container.1 with minecraft:cobblestone 64`, `item replace entity ${NAME} container.2 with minecraft:dirt 16`,
-    `tp ${NAME} ${s44[0] + 0.5} ${s44[1]} ${s44[2] + 0.5}`], 20)
+    descend ? `tp ${NAME} ${EXIT[0] + 0.5} ${EXIT[1]} ${EXIT[2] + 0.5}` : `tp ${NAME} ${s44[0] + 0.5} ${s44[1]} ${s44[2] + 0.5}`], 20)
   const placedAt = Date.now()
   P_(name, 'placed', posOf(), { stand: s44, exit: EXIT, scene: extra.map(c => c.join(',')), tread })
   const deadline = Date.now() + MINUTES * 60_000
-  let outAt = null, last = null
+  let outAt = null, last = null, arrivedAt = null
+  const atStub = p => !!p && Math.abs(Math.floor(p[0]) - stub16[0]) <= 1 && Math.abs(Math.floor(p[2]) - stub16[2]) <= 1 && Math.abs(Math.floor(p[1] + 1e-6) - stub16[1]) <= 1
   const atExit = p => !!p && Math.abs(Math.floor(p[0]) - EXIT[0]) <= 1 && Math.abs(Math.floor(p[2]) - EXIT[2]) <= 1 && Math.floor(p[1] + 1e-6) >= GY + 1
   while (Date.now() < deadline) {
     await sleep(3000)
     if (b.child.exitCode !== null || b.child.signalCode !== null) break
     last = posOf()
+    if (descend) { if (atStub(last)) { arrivedAt ??= Date.now(); if (Date.now() - arrivedAt > 15_000) break } continue }
     if (name === 'tread') { const ho = rowsOf(b).filter(r => kind(r) === '_stair_handoff'); if (ho.length && Date.now() - placedAt > 4 * 60_000) break; continue }
     if (atExit(last)) { outAt ??= Date.now(); if (Date.now() - outAt > 20_000) break } else outAt = null
   }
@@ -174,12 +194,16 @@ async function scene (name) {
   const airBadNotScene = tr.air.bad.filter(k => !extraK.has(k))
   const placedInStair = rows.filter(r => kind(r) === '_inventory_mutation').length
   let ok = null, verdict = ''
-  if (name === 'pillared') {
+  const entombedWhileGoto = rows.filter(r => kind(r) === '_entombed').length
+  if (name === 'blocked') {
     ok = atExit(last) && handoffs.some(h => /then=out/.test(h.d)) && !tr.solid.bad.length && !tr.air.bad.length
     verdict = 'handed over, out at the collar, every planned cell as planned (the dirt dug, nothing else)'
-  } else if (name === 'pillared_base') {
+  } else if (name === 'blocked_base' || name === 'descend_base') {
     ok = handoffs.length === 0
     verdict = 'CONTROL: no hand-over with SHAFTTRAP=0; what the base does is recorded (trail, cells)'
+  } else if (name === 'descend') {
+    ok = arrivedAt != null && entombedWhileGoto === 0 && !tr.solid.bad.length && !tr.air.bad.length
+    verdict = 'the walk down the stair is not cut short by the entombed arm; it arrives at the 16 stub end; the stair as planned'
   } else if (name === 'tread') {
     const ft = handoffs.filter(h => /then=fallthrough/.test(h.d) && /egress=tread/.test(h.d))
     const i = trail.findIndex(x => x.k === '_stair_handoff')
@@ -188,7 +212,7 @@ async function scene (name) {
     verdict = 'one hand-over from step 44 (tread -> fallthrough), then the arm\'s own escape; not again from that step'
   }
   const res = { at: new Date().toISOString(), sha, server: SERVER, scene: name, ok, verdict, minutes: MINUTES,
-    end: last, atExit: atExit(last), exit: EXIT, handoffs, trail: trail.slice(0, 40), kinds,
+    end: last, atExit: atExit(last), exit: EXIT, arrived: arrivedAt != null, entombedRows: entombedWhileGoto, handoffs, trail: trail.slice(0, 40), kinds,
     truth: { air_ok: tr.air.ok, air_bad: tr.air.bad, air_bad_not_scene: airBadNotScene, solid_ok: tr.solid.ok, solid_bad: tr.solid.bad }, inventoryMutations: placedInStair,
     synthetic: 'arena + stair carved by RCON from shaftgeom plan; stair record written to the pool dir; bot placed by tp with a fleet-like bag; scene blocks by RCON; model off (reflexes only)' }
   fs.appendFileSync(RES, JSON.stringify(res) + '\n')

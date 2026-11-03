@@ -730,6 +730,9 @@ export function egressDue (memo, k, now, retryMs = EGRESS_RETRY_MS) {
   if (!memo || memo.k == null) return true
   return !(memo.k === k && now - (Number(memo.at) || 0) < retryMs)
 }
+/** IS THIS A WALK THROUGH THE STAIR (the entombed arm waits)? -> bool. Pure: a skill runs, the pathfinder is moving, the feet are on
+ *  the town's complete stair (skills.mjs stairStandingOn, which is off with SHAFTTRAP=0). */
+export const stairWalkThroughNow = ({ busy = false, moving = false, on = false } = {}) => !!(busy && moving && on)
 /** The `_stair_handoff` row's detail. Pure. */
 export function handoffDetail ({ handler = '-', k = '-', h = '-', r = null, ms = '-' } = {}) {
   return `handler=${handler} k=${k} then=${h} egress=${r?.why ?? '-'} hops=${r?.hops ?? 0} cleared=${r?.cleared ?? 0} ms=${ms}`

@@ -259,7 +259,8 @@ await t('C6 switches: TOMBEXIT=0 turns both parts off; TOMBEXIT_INWALL=0 only th
 // ---------------------------------------------------------------------------------------------- D. wiring (structural)
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1')
 const RX = strip(readFileSync(REFLEX_PATH, 'utf8'))
-const armRx = /isEntombed\(bot\) && Date\.now\(\) >= airPocketBreatheUntil &&\s*!pocketing && !pocketPending && Date\.now\(\) - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS &&\s*!tombDeclines\(\)\) \{/
+// shafttrap-02 adds the walk-through stand-down just before the decline (tombDeclines stays LAST)
+const armRx = /isEntombed\(bot\) && Date\.now\(\) >= airPocketBreatheUntil &&\s*!pocketing && !pocketPending && Date\.now\(\) - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS &&\s*(?:!stairWalkThrough\(\) &&\s*)?!tombDeclines\(\)\) \{/
 await t('D1 the entombed arm asks tombDeclines() LAST (only when it would fire)', () => {
   assert.match(RX, armRx)
 })
