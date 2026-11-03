@@ -199,5 +199,27 @@ await t('MUTANT: an issue from a project site (no site check) is caught', async 
   })
 })
 
+// IDLEKEEP-01 (LIVE showcase 11-03 04:15-06:17Z: 0 copper_run rows while 87 of 113 build visits ended keeper_held)
+const EX = await import('../src/expedition.mjs')
+await t('idlekeep-01: a bot whose last visit found the grounds another\'s (keeper_held) is idle: the copper run is asked, then the expedition', () => {
+  const asked = []
+  SHOP.setCopperAsk(o => { asked.push(o); return { order: { skill: 'gather', args: { block: 'copper_ore', count: 16, copperrun: true } } } })
+  try {
+    const tidyOpen = { plot: 'tidy', structure_complete: false }
+    const r = SHOP.buildOrder({ ...BASE, complete: false, record: tidyOpen, state: { lastAt: 0, lastStop: 'keeper_held' } })
+    assert.equal(r.order.args.copperrun, true)
+    assert.equal(asked.length, 1)
+    // control: the same open tidy after a working stop is a visit, never the run
+    const c = SHOP.buildOrder({ ...BASE, complete: false, record: tidyOpen, state: { lastAt: 0, lastStop: 'deadline' } })
+    assert.deepEqual(c.order, { skill: 'build_shop', args: {} })
+    assert.equal(asked.length, 1)
+    assert.equal(SHOP.buildIdle({ lastStop: 'keeper_held' }), true)
+    assert.equal(SHOP.buildIdle({ lastStop: 'cell_waived' }), false, 'a keeper whose visit waived a cell has work')
+  } finally { SHOP.setCopperAsk(null) }
+  const ok = { on: true, complete: false, health: 20, food: 20, freeSlots: 30, timeOfDay: 1000, now: 1e12 }
+  assert.equal(EX.expeditionAdmit({ ...ok, lastStop: 'keeper_held' }).ok, true, 'the expedition admits the same idle bot')
+  assert.equal(EX.expeditionAdmit({ ...ok, lastStop: 'slots_full' }).why, 'project_open', 'control')
+})
+
 console.log(`\ncopperrun: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
