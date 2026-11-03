@@ -28,7 +28,8 @@
 import { fnv1a, rng } from './zigdesign.mjs'
 import { walkFrom, stepFor, overlay, solidFloor } from './buildsite.mjs'
 import { isLiquid, isPassable, isTreeish, replaceableCell, isFurniture } from './townplan.mjs'
-import { TOWN_COBBLE_CAP, BUILD_RESERVE } from './stocktarget.mjs'
+import { TOWN_COBBLE_CAP } from './stocktarget.mjs'
+import { matsReserve } from './mats.mjs'   // the owner's reserve table, read through its one reader (matset.test)
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => `${a[0]},${a[1]},${a[2]}`
@@ -54,7 +55,7 @@ export const SINK = Object.freeze({
   billMax: 512,               // an instance's whole bill: its own bounded phase (the town's chests hold 1,000 cobblestone)
   bagKeep: 64,                // the bag's cobblestone the pressure never counts (the escape stone: STONE_GUARD, COBBLE_RESERVE)
   target: TOWN_COBBLE_CAP,    // TARGET: the town's chests at their cap
-  low: BUILD_RESERVE.cobblestone,   // LOW: the owner's reserve (10-23) -- funding never counts below it
+  low: Number(matsReserve().table?.cobblestone) || 256,   // LOW: the owner's reserve (10-23, MATS_RESERVE) -- funding never counts below it
   highSpan: 512,              // HIGH - TARGET without a yard read (the 1x yard holds 304, the 2x 656)
   instancesMax: Object.freeze({ road: 6, tower: 8, shrine: 6 }),
   noSiteMs: 6 * 60 * 60_000,  // a kind that found no site waits this long (per bot) before it is searched again

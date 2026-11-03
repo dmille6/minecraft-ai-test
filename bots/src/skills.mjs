@@ -20151,9 +20151,9 @@ function sinkNextNow (plot) { try { return !!activeMem?.states?.find(s => s.plot
  */
 function sinkGuardFor (c, plan, { noZ0 = false, kind = null } = {}) {
   const others = guardRecords(projectHeads().map(x => x.head.rec).filter(Boolean), kind)
-  const zones = [...c.zones, ...recordZones(others), ...hallPadZones(plan), ...townMarkerZones()]
-  const res = reservations(plan, { zones, wells: c.wells, farm: c.farm, z0: noZ0 ? null : c.z0 })
-  return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zones.find(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
+  const zs = [...c.zones, ...recordZones(others), ...hallPadZones(plan), ...townMarkerZones()]
+  const res = reservations(plan, { zones: zs, wells: c.wells, farm: c.farm, z0: noZ0 ? null : c.z0 })
+  return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zs.find(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
 }
 /** What a design may spend -> { avail: { stone: n }, torch, campfire }: the town's stock above 64 of each stone plus this bot's bag
  *  above its keeps; torches when the town (above its reserve) and the bag hold 8, a campfire when either holds one. Never throws. */
