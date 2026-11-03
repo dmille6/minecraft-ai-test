@@ -140,6 +140,11 @@ await t('Codex r1 blocker 1: dirt holding back lava or water beside it is never 
   const w3 = world()
   w3.set(PLAN.steps[39].air[0], 'dirt')
   assert.strictEqual(G.egressNext(w3.read, PLAN, 40).op, 'dig', 'POSITIVE CONTROL: dry around it, it is dug')
+  // Codex r2: water in the bot's OWN head cell beside the dirt -- the body cells are skipped as obstacles, never as liquids
+  const w4 = world()
+  const s40 = PLAN.steps[40]
+  w4.set(PLAN.steps[39].air[0], 'dirt'); w4.set(s40.air[1], 'water')
+  assert.strictEqual(G.egressNext(w4.read, PLAN, 40, [s40.air[0], s40.air[1]]).why, 'wet', 'water at the bot\'s head beside the dirt')
 })
 await t('egressReserveMs: 0 at the top, grows with depth; the bottom step fits in the skill budget with the work tail', () => {
   assert.strictEqual(G.egressReserveMs(0), 0)

@@ -673,8 +673,7 @@ export function egressNext (read, plan, i, body = []) {
         // NEVER OPEN A LIQUID'S BARRIER (Codex r1 blocker 1): the foreign block may be what holds back water or lava in the cell
         // beside it -- a liquid or an unread cell at any face of it stops the way out, nothing dug
         for (const [dx, dy, dz] of N6) {
-          const n = [c[0] + dx, c[1] + dy, c[2] + dz]
-          if (skip.has(k3(...n))) continue
+          const n = [c[0] + dx, c[1] + dy, c[2] + dz]   // the bot's own feet/head cells too (Codex r2: water at the head)
           const nb = read(...n)
           if (!nb) return { op: 'stop', why: 'unknown', at: n, k: j }
           if (isWet(nb)) return { op: 'stop', why: 'wet', at: n, k: j }
