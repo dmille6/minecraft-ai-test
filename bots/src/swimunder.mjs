@@ -175,7 +175,7 @@ export function swimUnderAdmit ({ plan, oxygen = null, health = 0, env } = {}) {
  * centres the body in its column, then rises (jump held) or sinks (jump released: water gravity). Arrived when the feet
  * are in `to`, centred within SU_CENTRE_TOL, and -- for a sideways move -- inside the band.
  */
-export function swimUnderStep ({ pos, vel = { x: 0, y: 0, z: 0 }, from, to }) {
+export function swimUnderStep ({ pos, vel = { x: 0, y: 0, z: 0 }, from, to, ceil = null }) {
   const cx = to[0] + 0.5, cz = to[2] + 0.5
   const ex = cx - pos.x, ez = cz - pos.z
   const dist = Math.hypot(ex, ez)
@@ -189,12 +189,18 @@ export function swimUnderStep ({ pos, vel = { x: 0, y: 0, z: 0 }, from, to }) {
     return dist > SU_CENTRE_TOL / 2 && dist > speed * SU_COAST
   }
   if (!vertical) {
-    const lo = to[1], inBand = pos.y >= lo - 0.05 && pos.y <= lo + SU_BAND
-    const arrived = inCell && centred && inBand
+    // THE PASSAGE: the feet must be at or above the target cell's floor and low enough for the 1.8 body to pass under the
+    // lower of the two columns' ceilings (`ceil`: the y of the first collision cell over the feet in either column; unknown
+    // = the tightest case, to.y + 2). A body outside it does not stroke into the next column (its head would catch the
+    // wall); inside it, jump keeps the feet near the floor of a tight passage and lets an open one float (no band to hunt:
+    // Codex r1 note 1 -- at an open surface a band of 0.25 was never held and the stroke never ran).
+    const lo = to[1], top = (Number.isFinite(ceil) ? ceil : lo + 2) - 1.8
+    const fitsH = pos.y >= lo - 0.05 && pos.y <= top + 0.02
+    const arrived = inCell && centred
     const inToColumn = Math.floor(pos.x) === to[0] && Math.floor(pos.z) === to[2]
-    // the height first: a body outside the band does not stroke into the next column (its head would catch the wall)
-    const go = !arrived && (inBand || inToColumn) && stroke()
-    return { forward: go, jump: hold(lo), look: dist > 1e-3 ? { x: cx, z: cz } : null, arrived }
+    const go = !arrived && (fitsH || inToColumn) && stroke()
+    const jump = pos.y < Math.min(lo + 0.3, top - 0.1)
+    return { forward: go, jump, look: dist > 1e-3 ? { x: cx, z: cz } : null, arrived }
   }
   // vertical: centre first (a 0.6 body straddling the column edge catches the neighbour's block), holding the height;
   // then rise (jump held) or sink (jump released: water gravity)
@@ -205,10 +211,15 @@ export function swimUnderStep ({ pos, vel = { x: 0, y: 0, z: 0 }, from, to }) {
 }
 
 /** SHOULD THE FIRING TURN BACK -> reason | null. Pure. */
-export function swimUnderAbort ({ oxygen = null, health = 20, health0 = 20, stepMs = 0, elapsedMs = 0, yielded = null, changed = null } = {}) {
+export function swimUnderAbort ({ oxygen = null, health = 20, health0 = 20, stepMs = 0, elapsedMs = 0, yielded = null, changed = null,
+  wetAhead = null, wetBack = null } = {}) {
   if (yielded) return `yielded: ${yielded}`
   if (changed) return `the way changed: ${changed}`
-  if (Number.isFinite(oxygen) && oxygen <= SU_ABORT_OXYGEN) return `air ${oxygen} of 20`
+  // LOW AIR TURNS BACK ONLY WHEN BACK IS THE NEARER AIR (Claude r1 note 1): with fewer head-under-water cells ahead than
+  // behind, pressing on is the shorter way to a breath; the stall and budget clocks still bound it
+  if (Number.isFinite(oxygen) && oxygen <= SU_ABORT_OXYGEN && !(Number.isFinite(wetAhead) && Number.isFinite(wetBack) && wetAhead < wetBack)) {
+    return `air ${oxygen} of 20`
+  }
   if (health < health0 - 2) return `health ${health} (from ${health0})`
   if (stepMs > SU_STEP_MS) return `no progress for ${stepMs} ms`
   if (elapsedMs > SU_BUDGET_MS) return `over the ${SU_BUDGET_MS / 1000} s budget`
@@ -254,38 +265,51 @@ const nextTick = bot => new Promise(resolve => {
  *   yieldTo()   -> reason | null: the drowning rescue or a danger move needs the body (checked every tick)
  *   oxygen()    -> the guarded air reading (0..20)
  */
-export async function swimUnder (bot, { plan, alive = () => true, yieldTo = () => null, oxygen = () => bot.oxygenLevel, renew = () => {} } = {}) {
-  const t0 = Date.now()
+export async function swimUnder (bot, { plan, alive = () => true, yieldTo = () => null, oxygen = () => bot.oxygenLevel, renew = () => {}, onStep = null, now = Date.now } = {}) {
+  const t0 = now()
   const start = (p => [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)])(bot.entity.position)
   const res = { outcome: 'failed', exit: plan.exit, len: plan.route.length, wet: plan.wet, wetRun: plan.wetRun, done: 0,
                 from: key(start), to: key(plan.route[plan.route.length - 1]), minAir: oxygen(), hp0: bot.health, hp1: bot.health, ms: 0, why: null }
   const at = (x, y, z) => { try { return bot.blockAt?.(new Vec3(x, y, z)) ?? null } catch { return null } }
   const fitsAt = c => swimFits(at(...c)) && swimFits(at(c[0], c[1] + 1, c[2]))
+  // the first collision cell over the feet (y+2..y+4) in either column of a sideways move; none -> y+5
+  const ceilOver = (a, b) => {
+    for (let y = b[1] + 2; y <= b[1] + 4; y++) if (!swimFits(at(a[0], y, a[2])) || !swimFits(at(b[0], y, b[2]))) return y
+    return b[1] + 5
+  }
   const headAirAt = c => { const h = at(c[0], c[1] + 1, c[2]); return swimFits(h) && !headWet(h) }
   const set = (k, v) => { try { bot.setControlState(k, v) } catch {} }
   const clear = () => { set('forward', false); set('jump', false); set('sprint', false); set('sneak', false) }
   const look = (x, z) => { try { bot.lookAt(new Vec3(x, bot.entity.position.y + 1.62, z), true) } catch {} }
+  let tBack = 0
   const drive = async (cells, back) => {
+    if (back) tBack = now()
     let from = back ? null : start
     for (let i = 0; i < cells.length; i++) {
       const to = cells[i]
       from = from ?? (p => [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)])(bot.entity.position)
       const last = !back && i === cells.length - 1 && plan.exit === 'dry'
       if (!last && !fitsAt(to)) return { stop: `cell ${key(to)} no longer fits` }
-      const s0 = Date.now()
+      if (last && exitKind(at, to) !== 'dry') return { stop: `the dry exit ${key(to)} is no longer dry ground` }   // Claude r1 note 1
+      const wetAt = c => { const h = at(c[0], c[1] + 1, c[2]); return headWet(h) || !swimFits(h) }
+      const wetAhead = back ? null : cells.slice(i).filter(c => !(plan.exit === 'dry' && c === cells.at(-1)) && wetAt(c)).length
+      const wetBack = back ? null : swimBackRoute({ taken: cells.slice(0, i + 1), start, headAirAt }).filter(wetAt).length
+      const s0 = now()
       for (;;) {
         if (!alive()) return { stop: 'ownership lost', yielded: true }
         const y = yieldTo()
         if (y) return { stop: y, yielded: true }
         const air = oxygen()
         if (Number.isFinite(air)) res.minAir = Math.min(res.minAir ?? air, air)
-        const ab = back ? (Date.now() - s0 > SU_STEP_MS * 2 ? `no progress back for ${Date.now() - s0} ms` : null)
-                        : swimUnderAbort({ oxygen: air, health: bot.health, health0: res.hp0, stepMs: Date.now() - s0, elapsedMs: Date.now() - t0 })
+        const ab = back ? (now() - s0 > SU_STEP_MS * 2 ? `no progress back for ${now() - s0} ms`
+                           : now() - tBack > SU_BUDGET_MS ? `the way back over the ${SU_BUDGET_MS / 1000} s budget` : null)
+                        : swimUnderAbort({ oxygen: air, health: bot.health, health0: res.hp0, stepMs: now() - s0, elapsedMs: now() - t0, wetAhead, wetBack })
         if (ab) return { stop: ab }
         const p = bot.entity.position
         const st = last
           ? { forward: true, jump: to[1] > from[1], look: { x: to[0] + 0.5, z: to[2] + 0.5 }, arrived: (bot.entity.onGround === true && Math.floor(p.x) === to[0] && Math.floor(p.z) === to[2] && Math.floor(p.y + 1e-6) === to[1]) }
-          : swimUnderStep({ pos: p, vel: bot.entity.velocity ?? {}, from, to })
+          : swimUnderStep({ pos: p, vel: bot.entity.velocity ?? {}, from, to, ceil: to[1] === from[1] ? ceilOver(from, to) : null })
+        if (onStep) onStep({ i, back, from, to, st })
         if (st.arrived) break
         if (st.look) look(st.look.x, st.look.z)
         set('forward', !!st.forward); set('jump', !!st.jump)
@@ -303,6 +327,10 @@ export async function swimUnder (bot, { plan, alive = () => true, yieldTo = () =
     if (!out.stop) { res.outcome = 'out'; return res }
     res.why = out.stop
     if (out.yielded) { res.outcome = 'yielded'; return res }   // the rescue owns the body now: never steer against it
+    // STOPPED AT AN EXIT ALREADY (Codex r1 note 2): an open surface or dry ground on the way is the goal met, not a failure
+    const here = (p => [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)])(bot.entity.position)
+    const ek = key(here) !== key(start) ? exitKind(at, here) : null
+    if (ek) { res.outcome = 'out'; res.exit = ek; res.why += `; stopped at an ${ek} exit ${key(here)}`; return res }
     // TURN BACK along the wake to the last cell where the head was in air
     const back = swimBackRoute({ taken: plan.route.slice(0, res.done + 1), start, headAirAt })
     clear()
@@ -311,9 +339,9 @@ export async function swimUnder (bot, { plan, alive = () => true, yieldTo = () =
     if (ret.stop) res.why += `; back: ${ret.stop}`
     return res
   } finally {
-    clear()
+    if (res.outcome !== 'yielded') clear()   // a yield hands the body over: never one more write under the new owner (Claude r1 note 3)
     res.hp1 = bot.health
-    res.ms = Date.now() - t0
+    res.ms = now() - t0
     await sleep(0)
   }
 }

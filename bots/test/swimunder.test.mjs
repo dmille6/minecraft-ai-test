@@ -88,7 +88,7 @@ function simBot (world, feet) {
 // drive the async actuator: tick the physics every microtask turn until it resolves (or maxTicks)
 async function runActuator (bot, opts, maxTicks = 2000) {
   let done = false, res = null
-  const p = swimUnder(bot, opts).then(r => { done = true; res = r })
+  const p = swimUnder(bot, { now: () => bot.ticks * 50, ...opts }).then(r => { done = true; res = r })   // the sim's clock: 50 ms a tick (Codex r1 note 1)
   for (let i = 0; i < maxTicks && !done; i++) { await new Promise(r => setImmediate(r)); bot.tick() }
   if (!done) throw new Error(`actuator still running after ${maxTicks} ticks`)
   await p
@@ -182,6 +182,8 @@ await ta('A2 abort: low air, lost health, a stalled cell, the budget, a yield, a
   assert.match(swimUnderAbort({ oxygen: 18, stepMs: 99_999 }), /no progress/)
   assert.match(swimUnderAbort({ oxygen: 18, elapsedMs: 99_999 }), /budget/)
   assert.match(swimUnderAbort({ yielded: 'the drowning rescue' }), /yielded/)
+  assert.equal(swimUnderAbort({ oxygen: SU_ABORT_OXYGEN, wetAhead: 1, wetBack: 3 }), null, 'low air with the nearer breath ahead presses on')
+  assert.match(swimUnderAbort({ oxygen: SU_ABORT_OXYGEN, wetAhead: 3, wetBack: 1 }), /air/, 'low air with the nearer breath behind turns back')
   assert.deepEqual([1, 2, 5].map(swimUnderBackoffMs), [300_000, 600_000, 3_600_000])
 })
 
@@ -196,6 +198,10 @@ await ta('C1 the controller: a sideways move outside its height band does not st
   assert.equal(s.forward, false); assert.equal(s.jump, false, 'above the band: sink')
   const s2 = swimUnderStep({ pos: { x: 0.5, y: 9.1, z: 0.5 }, from: [0, 9, 0], to: [1, 9, 0] })
   assert.equal(s2.forward, true)
+  // an OPEN passage (first ceiling 5 over the feet): a body floating at the surface strokes (Codex r1 note 1: the old 0.25
+  // band was never held at a surface and the firing stalled)
+  const s3 = swimUnderStep({ pos: { x: 0.5, y: 9.6, z: 0.5 }, from: [0, 9, 0], to: [1, 9, 0], ceil: 14 })
+  assert.equal(s3.forward, true)
   const up = swimUnderStep({ pos: { x: 3.5, y: 9.0, z: 0.5 }, from: [3, 9, 0], to: [3, 10, 0] })
   assert.equal(up.jump, true); assert.equal(up.forward, false)
   const off = swimUnderStep({ pos: { x: 3.9, y: 9.0, z: 0.5 }, from: [3, 9, 0], to: [3, 10, 0] })
@@ -251,6 +257,21 @@ await ta('B4 THE WAY BACK: the way closes behind the wall mid-swim -> the firing
   assert.equal(bot.health, 20)
 })
 
+await ta('B6 THE DRY EXIT CLOSES at the last step -> the firing stops before it; it ends at air (an open surface on the way counts as out), health 20', async () => {
+  const w = worldOf(ISOD)
+  const bot = simBot(w, [358.5, 58.2, 180.5]); settle(bot)
+  const plan = swimUnderPlan({ at: w.at, start: feetCell(bot) })
+  const dry = plan.route.at(-1), pen = plan.route.at(-2)
+  const tick0 = bot.tick; bot.tick = () => { const f = feetCell(bot); if (f[0] === pen[0] && f[1] === pen[1] && f[2] === pen[2]) w.edits.set(dry.join(','), 'minecraft:stone'); tick0() }
+  const res = await runActuator(bot, { plan, oxygen: () => bot.oxygenLevel })
+  assert.match(res.why, /no longer dry ground|no longer fits/)
+  assert.ok(res.outcome === 'returned' || (res.outcome === 'out' && res.exit === 'open'), `${res.outcome} ${res.exit}: a closed dry exit must end at air (an open surface counts as out)`)
+  settle(bot, 40, true)
+  const f = feetCell(bot)
+  assert.equal(w.at(f[0], f[1] + 1, f[2]).name, 'air', `ended with the head in ${w.at(f[0], f[1] + 1, f[2]).name} at ${f}`)
+  assert.equal(bot.health, 20)
+})
+
 await ta('B5 A YIELD STOPS STEERING AT ONCE: the drowning rescue taking the body ends the firing with every control released', async () => {
   const w = worldOf(ISOD)
   const bot = simBot(w, [358.5, 58.2, 180.5]); settle(bot)
@@ -269,7 +290,7 @@ await ta('W1 WIRED: both flood-branch refusal arms try the swim before the back-
   assert.ok(/owned: rescuing \|\| rampSteering \|\| swimmingUnder,/.test(r), 'the float hold counts it as an owner')
   assert.ok(/if \(!pocketing && !poolEscaping && !swimmingUnder && !dangerMovingNow\(\)\) \{/.test(r), 'the hold never jumps against it')
   assert.ok(/longEnough && !poolEscaping && !swimmingUnder && !dangerMovingNow\(\)/.test(r), 'the stranded ladder stands aside')
-  assert.ok(/res = await swimUnder\(bot, \{ plan, alive: \(\) => ownsBody\(grantOf\)\(\) && !runner\?\.current,\n\s*yieldTo: \(\) => drowningOwnsBody\(\) \|\| arbiterYield\(grantOf\)/.test(r), 'it yields to the drowning rescue')
+  assert.ok(/res = await swimUnder\(bot, \{ plan, alive: \(\) => ownsBody\(grantOf\)\(\) && !airPocketWanted\(\) && !runner\?\.current,\n\s*yieldTo: \(\) => drowningOwnsBody\(\) \|\| arbiterYield\(grantOf\)/.test(r), 'it yields to the drowning rescue')
 })
 
 // ---- mutants: each must break the behaviour test that guards it ------------------------------------------------------
@@ -288,7 +309,7 @@ await ta('M2 MUTANT KILLED: no breath bound -> the over-long tunnel is planned (
 })
 
 await ta('M3 MUTANT KILLED: a sideways stroke outside the height band -> C1 catches it', async () => {
-  await withMutant(SRC, '    const go = !arrived && (inBand || inToColumn) && stroke()\n', '    const go = !arrived && stroke()\n', async m => {
+  await withMutant(SRC, '    const go = !arrived && (fitsH || inToColumn) && stroke()\n', '    const go = !arrived && stroke()\n', async m => {
     const s = m.swimUnderStep({ pos: { x: 0.5, y: 10.2, z: 0.5 }, from: [0, 9, 0], to: [1, 9, 0] })
     assert.equal(s.forward, true, 'the mutant still held the stroke: C1 would not catch it')
   })
@@ -302,7 +323,7 @@ await ta('M4 MUTANT KILLED: no way back (a stopped firing just ends) -> B4 catch
     const c3 = plan.route[3]
     const tick0 = bot.tick; bot.tick = () => { if (feetCell(bot)[0] === plan.route[1][0] && feetCell(bot)[2] === plan.route[1][2]) w.edits.set(c3.join(','), 'minecraft:stone'); tick0() }
     let done = false, res = null
-    const p = m.swimUnder(bot, { plan, oxygen: () => bot.oxygenLevel }).then(r => { done = true; res = r })
+    const p = m.swimUnder(bot, { plan, oxygen: () => bot.oxygenLevel, now: () => bot.ticks * 50 }).then(r => { done = true; res = r })
     for (let i = 0; i < 2000 && !done; i++) { await new Promise(r => setImmediate(r)); bot.tick() }
     await p
     assert.notEqual(res.outcome, 'returned', 'the mutant still returned: B4 would not catch it')
