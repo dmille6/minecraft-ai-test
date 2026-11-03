@@ -154,9 +154,9 @@ const byRole = {}
 for (const c of parkCells) byRole[c.role.replace(/\d$/, '')] = (byRole[c.role.replace(/\d$/, '')] ?? 0) + 1
 const out = {
   pool, home, box, ms, wall: !!wall, levels: st.levels, floors: rec?.terrace?.floors ?? null, alpha: rec?.terrace?.alpha ?? null, tried: rec?.terrace?.tried ?? st.tried ?? null,
-  stage0: s0.record ? { cut: s0.record.cut.length, fill: s0.record.cells.length } : null,
+  stage0: s0.record ? { cut: s0.record.cut.length, fill: s0.record.cells.length, pits: s0.record.pits, skipped: s0.record.skipped ?? null } : null, water: T.tidyWater(),
   walk: { before, stage0: mid, after },
-  volumes: rec ? { cut: rec.terrace.cut, fill: rec.terrace.fill, seal: rec.terrace.seal, net: rec.terrace.net, columns: rec.terrace.columns, worked: rec.terrace.worked, kept: rec.terrace.kept } : null,
+  volumes: rec ? { cut: rec.terrace.cut, fill: rec.terrace.fill, seal: rec.terrace.seal, dam: rec.terrace.dam ?? 0, net: rec.terrace.net, columns: rec.terrace.columns, worked: rec.terrace.worked, kept: rec.terrace.kept } : null,
   trees: rec ? { felled: rec.terrace.trees, logs: rec.terrace.logs, replant: rec.terrace.replant } : null,
   steps: { checked: steps, over1: stepsOver, over1Worse: stepsOverWorse },
   protected: Object.fromEntries(Object.entries(prot).map(([k, v]) => [k, v.length])), protectedSample: Object.fromEntries(Object.entries(prot).filter(([, v]) => v.length).map(([k, v]) => [k, v.slice(0, 4)])),
