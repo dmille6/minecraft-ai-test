@@ -1024,6 +1024,39 @@
    "note": "Not on the fleet (281d5659 has no expedition.mjs)."
   },
   {
+   "id": "expedition-water",
+   "title": "Expeditions cross water so the showcase map reopens (owner 11-01 water/boats/bridges OK; 11-03 'i agree to all those things, do it'): swim narrow level-shore water now, bridges for 17-32 next, boats later",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "owner-water-boats-bridges-1101.md",
+    "owner-expeditions-1027.md",
+    "owner-showcase-next-1101.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "expwater-01 BUILT on the live showcase release adbf9e41: branch expwater-01-show-on-adbf9e41 (swim legs <= 16 wet columns onto LEVEL shores only, crossing gates on the way home, near-town 'blocked' bearings retried after 3 h, PLANNER_V 3, multi-call gather). Paper repro sandbox3: level shores 8w 20/20, 14w 19/20, 20w 18/20; one-block-up shore 0/10. Offline: the bearing-2 lake (164) now reaches the 300 ring; 4 other water turn points stay refused (swim_wide:17 / banks above the water) -> bridge piece. NEXT: record the piece (showcase_ops.py record) and stage+activate it on the showcase (owner/control session), then the 2-h read: _expedition op=cross dry=1 vs dry=0 (>= 10% dry=0 -> EXPEDITION_SWIM=8), trips past 164 on bearing 2, 'every bearing is blocked' count down, hauls > 0, deaths (default gate). Then bridge-01 (tier 3: Paper first) sited from the swim_wide rows.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "item": "expedition-01-showcase"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "expwater-01*"
+    ],
+    "grep": [
+     "expwater-01"
+    ],
+    "paths": [
+     "docs/reports/expwater-design-2026-11-03.md"
+    ]
+   },
+   "note": "Design doc docs/reports/expwater-design-2026-11-03.md (S1b of the wholemap design, narrowed by the Paper repro). Reviews: Claude independent r1 BLOCK (kelp read as lake-bed ground) fixed, r2 APPROVE; Codex r1 BLOCK x2 (range-2 arrival in the water; gate fall-through) fixed, r2 see branch. Kill switch EXPEDITION_SWIM=off. Boats: mineflayer sends no vehicle_move (own driver needed, wholemap-s2)."
+  },
+  {
    "id": "expedition-outposts",
    "title": "Outposts (one per town, valuables only) after expeditions; rails decided later",
    "owner_date": "2026-10-19",
