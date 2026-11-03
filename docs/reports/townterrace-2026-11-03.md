@@ -239,9 +239,12 @@ Notes not acted on:
   cave seals, the farm guard, trees and replant pairing, the walk guard, park determinism and skips, the hedge rule, the skip rule,
   the bill, and a real `runVisit` of a park on buildfake (tilled, planted, greened, a missing element passed). They also cover
   `stageCarry`, `legacyStage` and `recStageK`, and the wiring.
-- 9 mutants, each anchor asserted present and unique, all killed: the floor seal, the free-column refusal, the anchors' bound,
-  the hedge's road rule, the seal's opener rule, `useFor`, the foreign pass on a tool's cell, the bone meal tally, and the crop
-  family. A composed control shows the skip rule's absence stops the visit `no_material`.
+- 13 mutants, each anchor asserted present and unique, all killed:
+  - the stage: the floor seal, the free-column refusal, the anchors' bound, the hedge's road rule, the seal's opener rule;
+  - the visit: `useFor`, the foreign pass on a tool's cell, the bone meal tally, the crop family;
+  - the water rule: the dams, the dig-time checks (the flood), `intoWater`, the post-walk check.
+
+  A composed control shows the skip rule's absence stops the visit `no_material`.
 - `groundskeeper.test.mjs` follows the new order: 33 passed.
 - eslint over `src/*.mjs` is clean.
 - **Full suite on the worlds host** (one at a time under `~/suite.lock`, nice 19, 6 jobs):
