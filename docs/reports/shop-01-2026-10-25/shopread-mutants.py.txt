@@ -49,7 +49,7 @@ M = [
  ("            elif op == 'known':\n                unknown_open.pop((bot, k), None)", "            elif op == 'known':\n                pass"),
  # tidyread-01 (11-03): a project=tidy clear against the tidy record's own lists across every stage generation
  ("                    if plot == TIDY:\n", "                    if False:\n"),
- ("ok = tidy_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell,", "ok = tidy_clear_ok([rec], cell,"),
+ ("chain_t = project_of(projects.get(pool), plot).get('chain') or [rec]", "chain_t = [rec]"),
  ("    if tidy_guarded(cell, t_ms, guard):\n        return False", "    if False:\n        return False"),
  ("    return g is not None and (t_ms is None or g <= t_ms)", "    return g is not None"),
  ("                        why = ' guarded' if tidy_guarded(cell, t_ms, guards[pool]) else ''", "                        why = ''"),
@@ -61,6 +61,23 @@ M = [
  ("        if plot in (TIDY, LAND):", "        if plot in (LAND,):"),
  ("            if m.get('gone') if isinstance(m, dict) else True:", "            if not isinstance(m, dict):"),
  ("                     'projects': projects, 'markers': read_markers(d)}", "                     'projects': projects, 'markers': {}}"),
+ # gkhelpers-01: the grounds crew (G4) and the park gather (G2)
+ ("        if h0 == h1 and n0 != n1 and a0 < b1 and a1 < b0:", "        if False:"),
+ ("            if h0 == h1 or min(b0, b1) - max(a0, a1) <= yield_ms:", "            if True:"),
+ ("            if h0 == h1 or min(b0, b1) - max(a0, a1) <= yield_ms:", "            if h0 == h1:"),
+ ("            if any(max(abs(x - u), abs(z - v)) <= gap for x, z in c0 for u, v in c1):", "            if any(x == u and z == v for x, z in c0 for u, v in c1):"),
+ ("        if m and int(m.group(1)) > helpers_max:", "        if False:"),
+ ("        return {(c['at'][0], c['at'][2]) for c in (rec or {}).get('cells') or [] if isinstance(c, dict) and c.get('seg') == seg and not c.get('prev') and c.get('at')}", "        return set()"),
+ ("                cut_ms = max(CREW_EPOCH_MS, int(cut.timestamp() * 1000) if hasattr(cut, 'timestamp') else 0)", "                cut_ms = max(0, int(cut.timestamp() * 1000) if hasattr(cut, 'timestamp') else 0)"),
+ ("(keeper|helper\\d+|slot\\d+|seg-", "(slot\\d+|seg-"),
+ ("    if block not in GATHER_BLOCKS:\n        return False, ''", "    if False:\n        return False, ''"),
+ ("        return False, ' guarded'", "        pass"),
+ ("        return False, ' in_park'", "        pass"),
+ ("        return False, ' tidy_cell'", "        pass"),
+ ("                        if f.get('kind') == 'gather':", "                        if False:"),
+ ("                    lists['lease_overlap'].append('%s %s %s g%s: crew %s' % (pool, plot, name, gen, why)); out['lease_overlap'] += 1", "                    pass"),
+ ("            if nxt is not None:\n                end = min(end, nxt)", "            if False:\n                end = min(end, nxt)"),
+ ("            out_.append((g, r, int(r.get('at') or 0), min(end, now_ms)))", "            out_.append((g, r, int(r.get('at') or 0), end))"),
 ]
 bad = 0
 for old, new in M:

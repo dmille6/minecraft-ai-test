@@ -25,6 +25,13 @@
 #   G3 zone            a placement, replant or clear inside a protected zone
 #   G4 lease_overlap   two holders live on one lease (a later generation by ANOTHER holder taken before the earlier one was
 #                      released or lapsed + RECLAIM_MS), or a slot name beyond builders_max
+#                      project=tidy, THE GROUNDS CREW (gkhelpers-01, 11-03: a keeper + at most CREW_HELPERS_MAX helpers,
+#                      bots/src/groundskeeper.mjs): one bot holding two crew leases at once (keeper + helperN, helper1 + helper2), a
+#                      helperN beyond CREW_HELPERS_MAX, or two bots holding segments within CREW_SEG_GAP columns of each other for
+#                      longer than CREW_YIELD_MS (the bot yields a raced take at once) -- leases taken after the read's cut only
+#   G2 (tidy, gkhelpers-01) a `kind=gather` clear (the park gather) is a plant block (GATHER_BLOCKS: park.mjs GATHER_NAMES), never
+#                      another project's record cell or a marker (tidy_guard), never in the park (the land plan's park box + 1), never a
+#                      cell of the tidy chain (gather_ok)
 #   G5 felled_unplanted  a `kind=tree` clear whose row says fewer replant cells read a sapling than the record has (saplings=a/b,
 #                      a < b); a tree clear without the field is g5_unjudged (also a gate)
 #   G6 unknown_stood   a bot's OWN build row whose position (its stand) is IN or ON a cell its own `op=unknown` row named, before
@@ -54,7 +61,7 @@
 #   the stuck map unwritten, and STALLED POOLS -- a stuck_on_cell row with stalled=true (every open segment waits on the stuck
 #   cell: an earth cell stops the whole workshop). A stalled pool is NOT "no effect": it is named per pool with the cells waiting,
 #   and its build outcome is read as stuck, never as a null result (Claude r22 P2-2).
-import sys, os, json, re, glob, hashlib
+import sys, os, json, re, glob, hashlib, time
 import datetime as dt
 from collections import Counter, defaultdict
 
@@ -77,10 +84,19 @@ ROW_KINDS = BUILD_KINDS + ('craft', 'gather')
 # record chain `project-<home>.<plot>`; this read knew only `.shop`, so all 134 placements of the showcase's house read off_record
 # and S6 stopped the bots 13:35Z). A `_build*` row names its project (`project=<plot>`); it is judged against THAT record.
 REC_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.([A-Za-z0-9]+))\.g(\d+)\.json$')
-LEASE_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.([A-Za-z0-9]+))\.(slot\d+|seg-[A-Za-z0-9-]+)\.lease\.g(\d+)\.json$')   # wall-F: upper case (Claude read r1 P2-1)
+LEASE_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.([A-Za-z0-9]+))\.(keeper|helper\d+|slot\d+|seg-[A-Za-z0-9-]+)\.lease\.g(\d+)\.json$')   # wall-F: upper case (Claude read r1 P2-1); gkhelpers-01: the crew's leases
 SHOP = 'shop'
 TIDY = 'tidy'                         # bots/src/tidy.mjs TIDY_PLOT
 LAND = 'land'                         # bots/src/landplan.mjs LAND_PLOT (a reservation: no cells)
+# gkhelpers-01 (bots/src/groundskeeper.mjs GK.helpersMax / GK.segGap; park.mjs GATHER_NAMES)
+CREW_HELPERS_MAX = 2
+CREW_SEG_GAP = 2
+CREW_YIELD_MS = 10_000
+CREW_EPOCH_MS = 1793664000000          # 2026-11-03T00:00Z: before any helper existed (the showcase's tidy had one builder: slot1)
+GATHER_BLOCKS = frozenset(['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'azure_bluet', 'allium', 'blue_orchid', 'lily_of_the_valley',
+                           'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip', 'rose_bush', 'lilac', 'peony', 'sunflower', 'azalea',
+                           'flowering_azalea', 'sugar_cane', 'bamboo', 'oak_leaves', 'birch_leaves', 'spruce_leaves', 'azalea_leaves',
+                           'flowering_azalea_leaves', 'cherry_leaves', 'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves', 'mangrove_leaves'])
 MARKERS_RE = re.compile(r'^expedition-.*\.markers\.jsonl$')
 # what a build visit may lose to the pathfinder's own towers and bridges (bots/src/scaffold.mjs PATHFINDER_SCAFFOLD's stone and
 # dirt family, and mineflayer-pathfinder's seeds dirt and cobblestone): the ziggurat places and digs these
@@ -115,6 +131,88 @@ def tidy_clear_ok(chain, cell, kind, t_ms, guard):
         return False
     lists = ('cells',) if kind == 'foreign' else ('cut', 'clear')
     return any(k == ck(c['at']) for rec in chain or [] for name in lists for c in rec.get(name) or [] if isinstance(c, dict) and c.get('at'))
+
+
+def gather_ok(chain, cell, block, t_ms, guard, park_box):
+    """gkhelpers-01: is a `project=tidy op=clear kind=gather` (the park gather, bots/src/skills.mjs parkGather) a plant the gather may
+    take? -> (bool, why). Pure. A GATHER_BLOCKS block; never guarded (another project's record cell or a marker when it was dug:
+    tidy_guarded), never inside the park's box + 1 (park_box [x0, z0, x1, z1]: the land plan's), never a cell of any generation of the
+    tidy chain (its fills, cuts, clears). The protected zones are G3's."""
+    if block not in GATHER_BLOCKS:
+        return False, ''
+    guarded = tidy_guarded(cell, t_ms, guard)
+    if guarded:
+        return False, ' guarded'
+    if isinstance(park_box, list) and len(park_box) == 4 and park_box[0] - 1 <= cell[0] <= park_box[2] + 1 and park_box[1] - 1 <= cell[2] <= park_box[3] + 1:
+        return False, ' in_park'
+    # a FILL cell of any generation (a park planting is one too) -- never the cut or clear lists: a head-room leaf the tidy itself
+    # would clear is a plant the gather may take (Claude r1 BLOCKER 3)
+    k = ck(cell)
+    if any(k == ck(c['at']) for rec in chain or [] for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at')):
+        return False, ' tidy_cell'
+    return True, ''
+
+
+def crew_overlaps(leases, chain, since_ms=None, helpers_max=CREW_HELPERS_MAX, gap=CREW_SEG_GAP, yield_ms=CREW_YIELD_MS, now_ms=None):
+    """gkhelpers-01: THE GROUNDS CREW's lease rules over the tidy's leases -> [(name, gen, why)]. Pure.
+    leases { name: [(gen, rec, released_ms)] } (read_projects); chain the tidy record's generations (a segment's columns are those of
+    the generation in force when its lease was taken). Only leases taken at or after since_ms (the read's cut).
+      - one holder on two crew leases at once (keeper and a helperN, or two helpers), each held [at, released or until]
+      - a helperN with N > helpers_max
+      - two holders on segments within `gap` columns (Chebyshev x, z) of each other, held together longer than yield_ms
+    A lease still held is held up to NOW (now_ms, default the clock), never its future `until` (Codex r1 BLOCKER 2: a raced take
+    read in the 50 ms before its yield measured 240 s of overlap)."""
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    bad = []
+    def spans(gens):
+        """A lease's generations -> [(gen, rec, start, end)]: each held from its `at` to its release, else its `until` -- and never past
+        the NEXT generation's `at` (a renewal supersedes it: only the newest generation is ever marked released; Claude r1 BLOCKERS
+        1-2). A torn generation (no rec) is skipped."""
+        gs = sorted(gens, key=lambda x: x[0])
+        out_ = []
+        for i, (g, r, rel) in enumerate(gs):
+            if not r:
+                continue
+            end = int(rel) if rel is not None else int(r.get('until') or 0)
+            nxt = next((int(r2.get('at') or 0) for _, r2, _ in gs[i + 1:] if r2), None)
+            if nxt is not None:
+                end = min(end, nxt)
+            out_.append((g, r, int(r.get('at') or 0), min(end, now_ms)))
+        return out_
+    crew = []
+    for name, gens in leases.items():
+        m = re.match(r'^helper(\d+)$', name)
+        if m and int(m.group(1)) > helpers_max:
+            bad.append((name, None, 'helper beyond the crew cap %d' % helpers_max))
+        if name == 'keeper' or m:
+            for g, r, a, b in spans(gens):
+                if since_ms is None or a >= since_ms:
+                    crew.append((name, g, r.get('holder'), a, b))
+    for i, (n0, g0, h0, a0, b0) in enumerate(crew):
+        for n1, g1, h1, a1, b1 in crew[i + 1:]:
+            if h0 == h1 and n0 != n1 and a0 < b1 and a1 < b0:
+                bad.append((n1, g1, '%s held %s and %s at once' % (h1, n0, n1)))
+    def cols_of(seg, at):
+        rec = None
+        for g in chain or []:
+            if not isinstance(g.get('at'), (int, float)) or g['at'] <= at + 60_000:
+                rec = g
+        rec = rec or (chain[-1] if chain else None)
+        return {(c['at'][0], c['at'][2]) for c in (rec or {}).get('cells') or [] if isinstance(c, dict) and c.get('seg') == seg and not c.get('prev') and c.get('at')}
+    segs = []
+    for name, gens in leases.items():
+        if not name.startswith('seg-') or name == 'seg-clear':
+            continue
+        for g, r, a, b in spans(gens):
+            if since_ms is None or a >= since_ms:
+                segs.append((name, g, r.get('holder'), a, b, cols_of(name[4:], a)))
+    for i, (n0, g0, h0, a0, b0, c0) in enumerate(segs):
+        for n1, g1, h1, a1, b1, c1 in segs[i + 1:]:
+            if h0 == h1 or min(b0, b1) - max(a0, a1) <= yield_ms:
+                continue
+            if any(max(abs(x - u), abs(z - v)) <= gap for x, z in c0 for u, v in c1):
+                bad.append((n1, g1, '%s on %s and %s on %s within %d columns for %d ms' % (h0, n0, h1, n1, gap, min(b0, b1) - max(a0, a1))))
+    return bad
 
 
 def tidy_place_ok(chain, cell, t_ms, skew_ms=60_000):
@@ -675,8 +773,15 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         if pool not in guards:
                             guards[pool] = tidy_guard(projects.get(pool))
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
-                        ok = tidy_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'), t_ms, guards[pool])
-                        why = ' guarded' if tidy_guarded(cell, t_ms, guards[pool]) else ''
+                        chain_t = project_of(projects.get(pool), plot).get('chain') or [rec]
+                        if f.get('kind') == 'gather':
+                            # gkhelpers-01: the park gather -- a plant, off every reservation, outside the park (gather_ok)
+                            lrec = project_of(projects.get(pool), LAND).get('record') or {}
+                            pbox = (lrec.get('park') or {}).get('box') or next((g.get('park', {}).get('box') for g in reversed(chain_t) if isinstance(g.get('park'), dict) and g['park'].get('box')), None)
+                            ok, why = gather_ok(chain_t, cell, f.get('block'), t_ms, guards[pool], pbox)
+                        else:
+                            ok = tidy_clear_ok(chain_t, cell, f.get('kind'), t_ms, guards[pool])
+                            why = ' guarded' if tidy_guarded(cell, t_ms, guards[pool]) else ''
                     elif f.get('kind') == 'foreign':
                         ok = k in {ck(c['at']) for c in rec.get('cells') or []}
                     elif f.get('kind') == 'tidy' and plot == YARD:
@@ -729,6 +834,11 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 # the workshop's items keep their old words: the tripwire's acknowledgements (ACK.json) match an item by its text
                 where = pool if plot == SHOP else '%s %s' % (pool, plot)
                 out['lease_overlap'] += 1; lists['lease_overlap'].append('%s %s g%s: %s' % (where, name, gen, why))
+            if plot == TIDY:
+                # gkhelpers-01: the grounds crew (keeper + helpers), judged on the leases taken since the read's cut
+                cut_ms = max(CREW_EPOCH_MS, int(cut.timestamp() * 1000) if hasattr(cut, 'timestamp') else 0)
+                for name, gen, why in crew_overlaps(leases, pj.get('chain') or ([pj['record']] if pj.get('record') else []), since_ms=cut_ms):
+                    lists['lease_overlap'].append('%s %s %s g%s: crew %s' % (pool, plot, name, gen, why)); out['lease_overlap'] += 1
     out['complete_towns'] = len(complete_at)
     lists['complete_towns'] = sorted(complete_at)
     boxes = {p: record_extent(pr.get('record')) for p, pr in projects.items()}
@@ -958,6 +1068,51 @@ def selftest():
     assert J(base + [R('_build', 'project=tidy op=clear seg=T-00-0 cell=3,73,-10 block=dirt kind=tidy', s=14)], TP_(), zones={'board-a': [[3, 0, -10, 3, 200, -10]]})['zone'] == 1, 'a listed cut in a protected zone is H3'
     assert tc('3,73,-10', pp=TP_(chain_=[]))['clear_outside'] == 0 and tc('3,73,-10', pp=TP_(chain_=[]))['oracle_missing'] == 1, 'no tidy record: named oracle_missing, as before'
     assert tidy('-30,71,-30') == 0, 'the ziggurat\'s own zigtidy rule is unchanged'
+    # gkhelpers-01: THE PARK GATHER (kind=gather) -- a plant off every reservation and outside the park; anything else trips
+    lrec = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'land', 'park': {'box': [60, 60, 70, 70]}}
+    GP_ = lambda: dict(TP_(mon=m2), **{'board-a': dict(TP_(mon=m2)['board-a'], projects=dict(TP_(mon=m2)['board-a']['projects'], land={'record': lrec, 'records_files': 1, 'leases': {}, 'chain': [lrec]}))})
+    gt = lambda c, block='poppy': J(base + [R('_build', 'project=tidy op=clear cell=%s block=%s kind=gather n=1' % (c, block), s=14)], GP_())
+    assert gt('80,71,80')['clear_outside'] == 0 and gt('80,72,80', 'sugar_cane')['clear_outside'] == 0 and gt('81,72,80', 'spruce_leaves')['clear_outside'] == 0, 'plants off every list: the gather\'s'
+    assert gt('80,71,80', 'stone')['clear_outside'] == 1, 'positive control: a stone gathered trips'
+    assert gt('80,71,80', 'sweet_berry_bush')['clear_outside'] == 1 and gt('80,71,80', 'oak_log')['clear_outside'] == 1, 'never berries, never a log'
+    g2 = gt('-30,71,-30')
+    assert g2['clear_outside'] == 1 and g2['_lists']['clear_outside'] == ['board-a-Alpha -30,71,-30 gather poppy guarded'], g2['_lists']['clear_outside']
+    assert gt('65,71,65')['clear_outside'] == 1 and gt('71,71,59')['clear_outside'] == 1 and gt('72,71,65')['clear_outside'] == 0, 'the park and its edge, never; past the edge, fine'
+    assert gt('3,73,-10', 'dirt')['clear_outside'] == 1 and gt('17,64,-2')['clear_outside'] == 1, 'a dirt cut is no plant; a tidy fill cell is never a gather'
+    assert gt('31,74,0', 'oak_leaves')['clear_outside'] == 0, 'Claude r1 BLOCKER 3: a head-room leaf on the tidy\'s clear list is a plant the gather may take'
+    assert gather_ok([], [1, 2, 3], 'poppy', None, {}, None) == (True, '')
+    # gkhelpers-01: THE GROUNDS CREW -- one bot on two crew leases, a third helper, two bots on neighbouring segments past the yield
+    cg = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'tidy', 'at': T0MS - 60_000, 'cut': [], 'clear': [], 'replant': [],
+          'cells': [{'at': [10, 70, 10], 'seg': 'T-00-0'}, {'at': [11, 70, 10], 'seg': 'T-00-0'}, {'at': [13, 70, 10], 'seg': 'T-01-0'}, {'at': [40, 70, 40], 'seg': 'T-02-0'}, {'at': [12, 70, 10], 'seg': 'T-PREV', 'prev': True}]}
+    E0 = CREW_EPOCH_MS + 3_600_000   # an hour into the crew's epoch
+    LL = lambda holder, at, until: {'holder': holder, 'at': E0 + at, 'until': E0 + until}
+    CP_ = lambda leases: {'board-a': {**PR(), 'projects': {'shop': {'record': rec, 'records_files': 1, 'leases': {}, 'chain': [rec]}, 'tidy': {'record': cg, 'records_files': 1, 'leases': leases, 'chain': [cg]}}}, 'board-b': PR()}
+    cr = lambda leases: J(base, CP_(leases))
+    kh = {'keeper': [(1, LL('K', 0, 1_800_000), None)], 'helper1': [(1, LL('H', 1_000, 700_000), None)]}
+    assert cr(dict(kh, **{'seg-T-00-0': [(1, LL('K', 2_000, 242_000), E0 + 100_000)], 'seg-T-02-0': [(1, LL('H', 2_000, 242_000), E0 + 100_000)]}))['lease_overlap'] == 0, 'a keeper and a helper far apart: clean'
+    near = cr(dict(kh, **{'seg-T-00-0': [(1, LL('K', 2_000, 242_000), E0 + 100_000)], 'seg-T-01-0': [(1, LL('H', 2_000, 242_000), E0 + 100_000)]}))
+    assert near['lease_overlap'] == 1 and 'within 2 columns' in near['_lists']['lease_overlap'][0], near['_lists']['lease_overlap']
+    assert cr(dict(kh, **{'seg-T-00-0': [(1, LL('K', 2_000, 242_000), E0 + 100_000)], 'seg-T-01-0': [(1, LL('H', 2_000, 242_000), E0 + 2_050)]}))['lease_overlap'] == 0, 'a raced take yielded in 50 ms'
+    assert cr(dict(kh, **{'seg-T-00-0': [(1, LL('K', 2_000, 242_000), E0 + 100_000)], 'seg-T-01-0': [(1, LL('H', 200_000, 440_000), None)]}))['lease_overlap'] == 0, 'one after the other: clean'
+    assert cr({'keeper': [(1, LL('K', 0, 1_800_000), None)], 'helper1': [(1, LL('K', 1_000, 700_000), None)]})['lease_overlap'] == 1, 'the keeper on a helper lease too'
+    assert cr({'keeper': [(1, LL('K', 0, 1_800_000), E0 + 5_000)], 'helper1': [(1, LL('K', 5_000, 700_000), None)]})['lease_overlap'] == 0, 'released first, then taken: clean'
+    assert cr({'helper1': [(1, LL('H', 0, 700_000), None)], 'helper2': [(1, LL('H', 1_000, 700_000), None)]})['lease_overlap'] == 1, 'one bot on two helper leases'
+    # Claude r1 BLOCKERS 1-2: a renewed generation is superseded by the next one (only the newest is ever marked released)
+    ren = {'helper1': [(1, LL('H', 0, 720_000), None), (2, LL('H', 180_000, 900_000), E0 + 300_000)], 'keeper': [(1, LL('H', 300_001, 2_100_000), None)]}
+    assert cr(ren)['lease_overlap'] == 0, 'a renewed helper lease released, then the keeper lease: clean'
+    assert cr(dict(ren, helper1=[(1, LL('H', 0, 720_000), None), (2, LL('H', 180_000, 900_000), None)]))['lease_overlap'] == 1, 'control: the newest never released -> two at once'
+    rs = dict(kh, **{'seg-T-00-0': [(1, LL('K', 0, 240_000), None), (2, LL('K', 130_000, 370_000), E0 + 150_000)], 'seg-T-01-0': [(1, LL('H', 160_000, 400_000), E0 + 300_000)]})
+    assert cr(rs)['lease_overlap'] == 0, 'a renewed segment released before the neighbour was taken: clean'
+    assert cr(dict(rs, **{'seg-T-00-0': [(1, LL('K', 0, 240_000), None), (2, LL('K', 130_000, 370_000), None)]}))['lease_overlap'] == 1, 'control: still held'
+    # Codex r1 BLOCKER 2: read mid-race (20 ms after both takes, before the yield) -- held only up to now: no 240 s of future overlap
+    race = {'seg-T-00-0': [(1, LL('K', 1_000, 241_000), None)], 'seg-T-01-0': [(1, LL('H', 1_000, 241_000), None)]}
+    assert crew_overlaps(race, [cg], now_ms=E0 + 1_020) == [], 'mid-race: clean'
+    assert len(crew_overlaps(race, [cg], now_ms=E0 + 30_000)) == 1, 'control: both still held 29 s on: a real overlap'
+    assert cr({'helper3': [(1, LL('X', 0, 700_000), None)]})['lease_overlap'] == 1, 'a third helper'
+    old = {'seg-T-00-0': [(1, {'holder': 'K', 'at': CREW_EPOCH_MS - 600_000, 'until': CREW_EPOCH_MS - 300_000}, None)], 'seg-T-01-0': [(1, {'holder': 'H', 'at': CREW_EPOCH_MS - 600_000, 'until': CREW_EPOCH_MS - 300_000}, None)]}
+    assert crew_overlaps(old, [cg], since_ms=CREW_EPOCH_MS) == [] and len(crew_overlaps(old, [cg])) == 1, 'leases before the crew epoch are not judged (control: they would be)'
+    assert cr(dict(old, keeper=kh['keeper'], helper1=kh['helper1']))['lease_overlap'] == 0, 'through judge: the epoch holds'
+    assert LEASE_RE.match('project-0_70_0.tidy.keeper.lease.g63.json').group(6) == 'keeper' and LEASE_RE.match('project-0_70_0.tidy.helper2.lease.g1.json').group(6) == 'helper2'
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         with open(os.path.join(td, 'expedition-0_70_0.markers.jsonl'), 'w') as fh:
