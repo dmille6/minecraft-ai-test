@@ -160,7 +160,8 @@ export function wallCandidate (read, inside, m, { home, avoid = () => null, pzon
     for (const sg of spokes) if (x >= sg[0] - 1 && x <= sg[2] + 1 && z >= sg[1] - 1 && z <= sg[3] + 1) return { s: 'gate', why: 'spoke' }
     for (const zb of pzones) {
       const b = zb?.box ?? zb
-      if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return String(zb?.why ?? '') === 'project:paths' ? { s: 'gate', why: 'path' } : { s: 'gap', why: String(zb?.why ?? 'project') }
+      // groundskeeper-01: a land plan road's corridor (landplan.mjs, `land:road`) is a gateway too: the wall opens where it crosses
+      if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return String(zb?.why ?? '') === 'project:paths' ? { s: 'gate', why: 'path' } : String(zb?.why ?? '') === 'land:road' ? { s: 'gate', why: 'road' } : { s: 'gap', why: String(zb?.why ?? 'project') }
     }
     return null
   }
