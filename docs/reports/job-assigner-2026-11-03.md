@@ -7,7 +7,7 @@ approach the mayor/overseer project again". Ledger row `jobassign-1103`.
 and the same 6-hour census, without seeing each other's. This file reconciles the two (§11 lists where they disagreed). Both
 engines then reviewed this file and the stage-1 code once, blockers only (§12).
 
-**Status.** Stage 1 (the shadow) is built, tested and installed on the canary host as host tooling (§7). Nothing on a bot
+**Status.** Stage 1 (the shadow) is built, tested and installed on the canary host as a host read (§7). Nothing on a bot
 changes. Stages 2 and later are designed here, not built.
 
 ## 0. The answer
@@ -183,7 +183,7 @@ minutes, because a bot arrives at town about once a bot-hour.
 
 | Level | Mechanism | Reaches | Tier |
 |---|---|---|---|
-| **A0, shadow** | nothing reads the result | nothing | tooling |
+| **A0, shadow** | nothing reads the result | nothing | 1 (a read-only host report; `protected.py`: not protected) |
 | **A1, first right** | each non-protected module's own take gets one optional input, the role file's holder. A non-holder's take answers `preferred_other` while a *fresh* holder exists (seen ≤ 10 min, offer ≤ 90 min old), and then **today's chain runs minus that one job**. A stale holder, a missing file or a stale file means today's behaviour. | who does the keeper, builder-slot, clerk and tree-farm work; no new travel | **2**: `groundskeeper.mjs keeperDecision`, `shop.mjs buildOrder` slots, `yard.mjs`, `treefarm.mjs` (none protected). The deep miner's `lease()` input lives in `deepmine.mjs`, which **is protected**, so it is tier 3 and goes in a later bundle. |
 | **A2, at-town sort** | the shipped B5 reader (`roles.mjs` + its `cognitive.mjs` hook, `ROLES=on`): a held BUILD/MAKE lease goes first among the discretionary town jobs | the order of jobs during the 9.3% of time at town | **3**: activating dormant protected code on the fleet |
 | **A3, the goal line outside town** | a held role adds its item to the milestone `wanted` hoist that `prompt.mjs` already applies (miner: `iron_ore`; farmer: logs; builder: the bill's short part) | the 50% gather share. The milestone channel moved verb choice from 8.4% to 27–60% (`workorder.mjs` header) | **3**: the argument is passed from `cognitive.mjs` |
@@ -272,7 +272,7 @@ matter. It does not choose who goes where, because greedy already ties a frontie
 
 ## 7. Shadow, advisory, binding
 
-### Stage 1: the shadow (built, host tooling)
+### Stage 1: the shadow (built; tier 1, a read-only host report)
 
 `scripts/host/jobshadow.py run`, every 10 minutes on the canary host at nice 19. A 70-minute walk takes about 15 s and 0.7 GB
 RSS (measured).
@@ -300,30 +300,34 @@ directory byte-identical.
 
 | Measure | Definition | Denominator |
 |---|---|---|
-| **coverage** (primary) | a role with demand on: did any bot of the town do that role's work in the last 60 min | need-ticks per role per town |
+| **coverage** (primary) | a role with demand on: did any bot of the town do that role's work **that moved something** in the last 60 min (a build visit with placed + cleared + planted > 0, a successful skill row, a deep-miner progress op) | need-ticks per role per town |
+| tried | the same, counting attempts that moved nothing (a visit that placed 0, a failed skill row) | need-ticks |
 | **gap towns** | towns where a role's coverage is < 50% over ≥ 6 need-ticks | towns with that need |
 | **concordance**, rules vs random | an assigned bot did its role's work in the 30 min after the tick, for the rules and for a seeded random staffing of the same size. **This is prediction, not effect** (the shadow mayor's lesson): reported, never a gate | assigned bot-ticks per arm |
 | specialisation | bots doing builder work per builder-need tick (today about 5 of 5) | builder-need ticks |
-| churn | role takes + releases per town-hour | town-hours |
+| churn | role takes + releases per town-hour, and the **unplanned** releases (not a term rotation, not a native import) per town-hour | town-hours |
 | starvation | ticks a role waited ≥ 120 min | need-ticks |
 | unsupported / unknown | ticks a role was unsupported; index known/unknown containers | ticks |
 
 **Positive controls on every run.** A failure writes an `ERROR` line, never a quiet zero:
 - rows > 0;
 - ≥ 40 bots;
-- `Events.count('_build_visit')`, which raises `ZeroLooksWrong` on 0;
+- `_build_visit` > 0 (asserted explicitly: `Events.count` raises `ZeroLooksWrong` only when a near-miss name exists);
 - `jobfacts` read ≥ 12 of the pools seen.
 
+Every run, ok or ERROR, writes a `run` row naming the 16 towns it should have ticked, so a failed run or a town missing from the
+rows counts as missing town-ticks.
+
 **Stage-1 go/no-go, at +24 h** (`jobshadow.py summary`):
-- (a) ≥ 95% of town-ticks valid;
-- (b) churn ≤ 1 event per town-hour;
+- (a) ≥ 95% of the expected town-ticks (16 towns × every run, failed runs included) valid;
+- (b) unplanned releases ≤ 1 per town-hour (planned term rotations are the design, not churn);
 - (c) **a real gap**: some supported role with coverage < 50% in ≥ 4 of 16 towns.
 
 If (c) fails for every role, the assigner has nothing to fix in coverage. Then only the specialisation and legibility case
 remains. The read says so, and the next stage goes to the owner as that question rather than being built by default
 (INCONCLUSIVE is a legitimate close).
 
-### Stage 2: the writer (tooling)
+### Stage 2: the writer (tier 1)
 
 The shadow writes `roles-<home>.json`: v1, plus `roles[]`, `mode: "shadow"`, under the writer lock. Bots run with `ROLES` off,
 so nothing reads it. The check: `readRoles` parses it, `leaseFor` returns `off`, and `gen` is monotone.
@@ -352,13 +356,13 @@ Build it only if advisory shows non-holders still doing more than 30% of a role'
 
 | # | Piece | Tier | What | KEEP read |
 |---|---|---|---|---|
-| **1** | **jobshadow-01** (built) | tooling | `jobrules.py` + `jobshadow.py` + `jobfacts.mjs` + tests; cron every 10 min on the canary host; log only | the first real run, then +24 h `summary`: the §7 go/no-go |
-| 2 | jobshadow-02, the writer | tooling | `roles-<home>.json` in the pool directories, `mode: "shadow"`, under the writer lock | 6 h: files fresh in 16/16 towns, gen monotone, 0 reader errors |
+| **1** | **jobshadow-01** (built) | 1 (host report) | `jobrules.py` + `jobshadow.py` + `jobfacts.mjs` + tests; cron every 10 min on the canary host; log only | the first real run, then +24 h `summary`: the §7 go/no-go |
+| 2 | jobshadow-02, the writer | 1 (host script; bots run `ROLES` off) | `roles-<home>.json` in the pool directories, `mode: "shadow"`, under the writer lock | 6 h: files fresh in 16/16 towns, gen monotone, 0 reader errors |
 | 3 | roles-01, advisory A1 | 2 | first right in the groundskeeper, shop slots, yard and tree farm; `jobroles.mjs` reader (not protected); default = today's when the file is missing or stale | showcase 2 h, then the fleet with a 60-minute tripwire; the §7 advisory lines |
 | 4 | roleswant-01, A3 (+ A2, + the deepmine first right) | 3 (two engines, a search, the slot) | a held role's item into `wanted`; `ROLES=on` for the at-town sort; the deep miner's `lease()` reads the role holder. Bundled: all three are the town decision in protected files, and each falls back to today's path on a missing or stale file | holders' role-work share outside town vs control ≥ +10 points; gather yield not down more than 15%; the death gate; +90/+180 generic |
 | 5 | roles-02, binding | 2 (+3 for the deepmine half) | exclusive first right with the stale-holder fallback | §7 binding |
 | 6 | rollout | — | 20 bots per stage, a read per stage (the owner's qwen rule) | coverage and the death gate per stage |
-| 7 | mayor-replay | tooling | a local model picks among the logged options; `opt0` is applied | §6 mayor go/no-go |
+| 7 | mayor-replay | 1 (host, replay only) | a local model picks among the logged options; `opt0` is applied | §6 mayor go/no-go |
 | 8 | mayor-advisory | 2 (config) | apply the mayor's pick in one pool | no worse than `opt0` on coverage; the death gate; the owner's read of what got built |
 | — | A4 bounded return | 3 | only if stage 4 shows holders never arrive | arrivals per offer, travel failures, deaths |
 
@@ -412,7 +416,7 @@ summary only.
 | Roles per bot | 1 primary + 1 duty | one | **One:** legible, and the shadow's measures stay clean. |
 
 **Both engines agreed independently on:**
-- the shadow is host tooling;
+- the shadow is a host read, not a bot canary;
 - the native lease holder wins;
 - B5 rules out a throughput claim;
 - the mayor picks among options, with the rules as the fallback;
@@ -420,7 +424,25 @@ summary only.
 
 ## 12. Blocker reviews (one round, both engines)
 
-_Filled in below after the reviews._
+Both engines reviewed this file and the stage-1 code at `827b892e` (the first commit on the branch), blockers only,
+without seeing each other's review. Both said **BLOCKERS**. Every one is fixed, with a test, in the next commit; a second round
+re-checked only those fixes (below).
+
+| From | Blocker | Fix |
+|---|---|---|
+| Claude 3, Codex 1 | A live native lease holder never took over a role the rules had given to another bot, and could be handed a second role | Step 0 of `assign`: native holders are imported first (a rules holder of that role is released `native`, no rest; a native bot leaves any other role); imports may exceed a cap, nobody native is evicted. Tests: the repro, one role per bot when native twice. |
+| Claude 4, Codex 2 | A starving primary could make a 4th primary; caps were not re-enforced when bots dropped out; a mayor option could break a cap | At a primary or miner cap, starvation displaces a primary (a miner) instead of taking a free seat; after the held-role checks the least urgent non-native holders go until seats and primaries fit; `caps_ok` filters every option. Tests for each. |
+| Codex 3 | Visits and rows that moved nothing (`no_tool placed=0`, a complete visit with no counts, `_expedition op=skip`) counted as role work, hiding gaps | `role_of` returns progress: a build visit counts when placed + cleared + planted (+ dug/filled/felled/repaired) > 0; skill rows on `success`; deep-miner progress ops; skips and errors are no work. Coverage uses progress; attempts are reported as `tried`. |
+| Claude 2, Codex 4 | The validity gate could not see a failed run or a missing town | A `run` row every run (ok or ERROR) naming the 16 expected towns; validity = ticks / expected town-ticks. |
+| Codex 5 | The `_build_visit` control does not raise on 0 when no near-miss name exists | `proof['build_visit'] > 0` asserted. |
+| Claude 1 | The churn gate failed on correct behaviour (term rotations) | Gate (b) counts unplanned releases only; a 24-h steady-need test passes it while total churn > 1 (the positive control). |
+| Codex 6 | Stage 1 is tier 1 by fun mode (a non-protected read-only report), not tooling | Relabelled (§7, §8). |
+| Codex 7 | A stale shadow becomes a stallcheck finding, which reaches the owner's daily notice | **Not taken as a blocker:** the "never page the owner" line was this review brief's own over-strict wording. A dead monitor surfacing like every other monitor is the project's rule ("alarm log nobody reads"). The shadow itself raises no alarm. |
+
+Non-blocking notes acted on: the displacement count restarts when the waiting role is not ahead (consecutive, as designed);
+the cron line takes `flock -n` (no overlapping runs); clerk demand is the backlog only. Left as notes: `jobfacts` reads the
+`*On({}, pool)` defaults, not the pools' drop-ins, and gives `activeProject` no `waiting`/`due`/`free`, so `active_build` can
+differ from what a bot picks (the tick row carries `active_build`; a mismatch with the rows' actual projects shows in the read).
 
 ## 13. First real run
 

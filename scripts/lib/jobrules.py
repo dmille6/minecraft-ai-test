@@ -110,7 +110,7 @@ def demand(facts, latches=None, seen=None):
     need('groundskeeper', gk, 'grounds_open' if gk else ('no_workshop' if not shop.get('complete') else 'grounds_done'),
          supported=bool(tidy.get('on')))
     yard = _proj(facts, 'yard') or {}
-    need('clerk', bool(yard.get('complete')) and (latches['cobble'] or (cobble or 0) > MARKS['cobble'][1] + 128),
+    need('clerk', bool(yard.get('complete')) and (cobble or 0) > MARKS['cobble'][1] + 128,
          'yard_backlog' if yard.get('complete') else 'no_yard', supported=bool(yard.get('exists')))
     farm = _proj(facts, 'treefarm') or {}
     need('farmer', bool(farm.get('complete')) or latches['logs'], 'logs_low' if latches['logs'] else ('farm_due' if farm.get('complete') else 'stocked'),
@@ -166,6 +166,29 @@ def assign(needs, bots, state=None, now=0, native=None):
             st['rest'].setdefault(h['bot'], {})[role] = now + rest_min * 60_000
         ev.append(('release', role, h['bot'], why))
 
+    def holder_of(name):
+        return next((r for r, hs in st['held'].items() for h in hs if h['bot'] == name), None)
+
+    # 0. NATIVE OWNERSHIP FIRST (review r1, both engines): a live module-lease holder HOLDS that role. It is imported (its term
+    #    starts now unless it already held the role), a rules holder of the same role who is not native is released `native`
+    #    (no rest), and a native holder holding another role leaves that one. Imports may exceed a cap: then no new takes, and
+    #    nobody native is evicted (design s.5).
+    nat_bots = {b for bs in native.values() for b in bs}
+    for role in ROLES:
+        nb = [b for b in native.get(role, ()) if b in byname]
+        if not nb:
+            continue
+        for b in nb:
+            other = holder_of(b)
+            if other and other != role:
+                release(other, next(h for h in st['held'][other] if h['bot'] == b), f'native:{role}', 0)
+            if not any(h['bot'] == b for h in st['held'].get(role, [])):
+                st['held'].setdefault(role, []).append({'bot': b, 'term0': now, 'renew': now})
+                ev.append(('take', role, b, 'native'))
+        for h in list(st['held'].get(role, [])):
+            if h['bot'] not in nb:
+                release(role, h, 'native', 0)
+
     # 1. the held roles: release on lost bot, safety, term end, unsupported, demand off past the grace
     for role in ROLES:
         n = needs.get(role) or {'on': False, 'slots': 0, 'supported': False}
@@ -174,6 +197,8 @@ def assign(needs, bots, state=None, now=0, native=None):
         else:
             st['off'].setdefault(role, now)
         for h in list(st['held'].get(role, [])):
+            if h['bot'] in native.get(role, ()):
+                continue                                  # native: the module lease decides when it ends
             b = byname.get(h['bot'])
             if b is None or b.get('seen_min') is None or b['seen_min'] > FRESH:
                 release(role, h, 'gone', 0)
@@ -181,22 +206,34 @@ def assign(needs, bots, state=None, now=0, native=None):
                 release(role, h, 'flagged', 0)
             elif not n.get('supported', True):
                 release(role, h, 'unsupported', 0)
-            elif now - h['term0'] >= ROLE[role]['term'] * 60_000 and h['bot'] not in native.get(role, ()):
+            elif now - h['term0'] >= ROLE[role]['term'] * 60_000:
                 release(role, h, 'term', ROLE[role]['rest'])
             elif not n['on'] and now - st['off'][role] >= GRACE * 60_000:
                 release(role, h, 'no_work', NO_WORK_COOLDOWN)
         # more holders than seats (the demand shrank): the newest go
-        hs = sorted(st['held'].get(role, []), key=lambda h: h['term0'])
-        keep = max(n['slots'], 0) if n['on'] else len(hs)
+        hs = sorted([h for h in st['held'].get(role, []) if h['bot'] not in nat_bots], key=lambda h: h['term0'])
+        keep = max(n['slots'] - len([b for b in native.get(role, ()) if b in byname]), 0) if n['on'] else len(hs)
         for h in hs[keep:]:
             release(role, h, 'seats', NO_WORK_COOLDOWN)
+    # the town caps hold after eligibility changed (fewer seats now than holders, or more primaries than PRIMARY_MAX): the least
+    # urgent non-native holders go (review r1)
+    def over():
+        held = [(r, h) for r, hs in st['held'].items() for h in hs]
+        prim = [(r, h) for r, h in held if r in PRIMARY]
+        return held, prim
+    seats0 = max(0, len(elig) - FREE_MIN)
+    while True:
+        held, prim = over()
+        pool = held if len(held) > seats0 else (prim if len(prim) > PRIMARY_MAX else [])
+        pool = [(r, h) for r, h in pool if h['bot'] not in nat_bots]
+        if not pool:
+            break
+        r, h = min(pool, key=lambda t: (needs.get(t[0], {}).get('u0', 0), -t[1]['term0'], t[1]['bot']))
+        release(r, h, 'seats', NO_WORK_COOLDOWN)
     for b in list(st['rest']):
         st['rest'][b] = {r: u for r, u in st['rest'][b].items() if u > now}
         if not st['rest'][b]:
             del st['rest'][b]
-
-    def holder_of(name):
-        return next((r for r, hs in st['held'].items() for h in hs if h['bot'] == name), None)
 
     def counts():
         c = {r: len(st['held'].get(r, [])) for r in ROLES}
@@ -226,15 +263,19 @@ def assign(needs, bots, state=None, now=0, native=None):
         while len(st['held'].get(role, [])) < n['slots']:
             c, prim, total = counts()
             starving = unf_min(role) >= STARVE
-            if role in PRIMARY and prim >= PRIMARY_MAX and not starving:
+            prim_full = role in PRIMARY and prim >= PRIMARY_MAX
+            if prim_full and not starving:
                 break
-            if role in ('miner', 'deep_miner') and c['miner'] + c['deep_miner'] >= MINERS_MAX:
+            miners_full = role in ('miner', 'deep_miner') and c['miner'] + c['deep_miner'] >= MINERS_MAX
+            if miners_full and not starving:
                 break
             free = [byname[x] for x in sorted(elig) if holder_of(x) is None and role not in st['rest'].get(x, {})]
-            if total >= seats or not free:
-                # full: displace the least urgent held role past its dwell, when this one is much more urgent for 2 ticks
-                victims = [(urgency(needs[r], 0), r, h) for r, hs in st['held'].items() for h in hs
-                           if r != role and now - h['term0'] >= MIN_DWELL * 60_000 and h['bot'] not in native.get(r, ())]
+            if total >= seats or not free or prim_full or miners_full:
+                # full: displace the least urgent held role past its dwell, when this one is much more urgent for 2 CONSECUTIVE
+                # ticks, or starving. At a primary (or miner) cap the victim must be a primary (a miner): a cap is never broken.
+                victims = [(urgency(needs.get(r, {'u0': 0}), 0), r, h) for r, hs in st['held'].items() for h in hs
+                           if r != role and now - h['term0'] >= MIN_DWELL * 60_000 and h['bot'] not in nat_bots
+                           and (not prim_full or r in PRIMARY) and (not miners_full or r in ('miner', 'deep_miner'))]
                 if not victims:
                     break
                 vu, vr, vh = min(victims, key=lambda t: (t[0], t[1]))
@@ -244,6 +285,10 @@ def assign(needs, bots, state=None, now=0, native=None):
                         release(vr, vh, f'displaced_by:{role}', NO_WORK_COOLDOWN)
                         st['displace'].pop(role, None)
                         continue
+                else:
+                    st['displace'].pop(role, None)        # not ahead this tick: the count restarts (consecutive)
+                break
+            if total >= seats or not free:
                 break
             pick = _rank_bots(role, free, st, now, native.get(role))[0]
             st['held'].setdefault(role, []).append({'bot': pick['bot'], 'term0': now, 'renew': now})
@@ -257,6 +302,18 @@ def assign(needs, bots, state=None, now=0, native=None):
     st['held'] = {r: hs for r, hs in st['held'].items() if hs}
     return {'roles': staffing, 'events': ev, 'seats': seats, 'eligible': len(elig),
             'starving': [r for r in ROLES if r in st['unfilled'] and unf_min(r) >= STARVE]}, st
+
+
+def caps_ok(roles):
+    """Does a staffing keep the town caps (one role per bot, seats per role, primaries, miners)? PURE."""
+    allb = [b for bs in roles.values() for b in bs]
+    if len(allb) != len(set(allb)):
+        return False
+    if any(len(bs) > ROLE[r]['cap'] for r, bs in roles.items()):
+        return False
+    if sum(len(roles.get(r, [])) for r in PRIMARY) > PRIMARY_MAX:
+        return False
+    return len(roles.get('miner', [])) + len(roles.get('deep_miner', [])) <= MINERS_MAX
 
 
 def options(needs, staffing, facts, bots, now=0):
@@ -274,7 +331,9 @@ def options(needs, staffing, facts, bots, now=0):
         _, vr, vb = min(held)
         r2 = {r: [b for b in bs if not (r == vr and b == vb)] for r, bs in roles.items()}
         r2.setdefault(unstaffed[0], []).append(vb)
-        out.append({'id': 'opt1', 'roles': {r: bs for r, bs in r2.items() if bs}, 'change': f'swap:{vr}->{unstaffed[0]}'})
+        r2 = {r: bs for r, bs in r2.items() if bs}
+        if caps_ok(r2):
+            out.append({'id': f'opt{len(out)}', 'roles': r2, 'change': f'swap:{vr}->{unstaffed[0]}'})
     projs = facts.get('projects') or []
     done = {p['plot'] for p in projs if p.get('complete')}
     open_ok = [p['plot'] for p in projs if p.get('on') and not p.get('complete') and p['plot'] not in ('tidy', 'yard')

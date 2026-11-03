@@ -15,7 +15,7 @@ python3 -B "$SRC/scripts/host/test_jobshadow.py"
 cp "$SRC/scripts/host/jobshadow.py" "$SRC/scripts/host/jobfacts.mjs" "$H/app/scripts/host/"
 cp "$SRC/scripts/lib/jobrules.py" "$H/app/scripts/lib/jobrules.py"
 git -C "$SRC" rev-parse HEAD > "$H/app/INSTALLED_FROM"
-LINE='2-59/10 * * * * cd /home/mike/jobshadow/app/scripts && /usr/bin/nice -n 19 /usr/bin/python3 -B host/jobshadow.py run >> /home/mike/jobshadow/out/cron.log 2>&1 # jobshadow'
+LINE='2-59/10 * * * * cd /home/mike/jobshadow/app/scripts && /usr/bin/flock -n /home/mike/jobshadow/run.lock /usr/bin/nice -n 19 /usr/bin/python3 -B host/jobshadow.py run >> /home/mike/jobshadow/out/cron.log 2>&1 # jobshadow'
 crontab -l > "$H/crontab.bak-$(date -u +%Y%m%dT%H%MZ)"
 if ! crontab -l | grep -qF 'host/jobshadow.py run'; then (crontab -l; echo "$LINE") | crontab -; fi
 crontab -l | grep -F 'host/jobshadow.py run'

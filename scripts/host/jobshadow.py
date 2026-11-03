@@ -55,6 +55,8 @@ OUT_DIR = f'{HOME}/jobshadow/out'
 DIGEST_LOG = f'{HOME}/digest/jobshadow.log'
 FLOW_LATEST = f'{HOME}/flowledger/out/latest.json'
 MIN_BOTS = 40
+# the fleet's 16 towns (owner shape: 80 bots / 16 towns): a town that drops out of the rows is a MISSING tick, not absent
+EXPECTED_POOLS = tuple(f'{g}-{c}' for g in ('board', 'hive', 'isolated', 'placebo') for c in 'abcd')
 MIN_TOWNS_READ = 12
 
 ORES = re.compile(r'(_ore$|^stone$|^cobblestone$|^deepslate$|^andesite$|^diorite$|^granite$|^tuff$|^obsidian$)')
@@ -72,46 +74,62 @@ def canon(n):
 
 
 # ------------------------------------------------------------------------------------------------ pure helpers
+PROGRESS_RE = re.compile(r'\b(placed|cleared|planted|dug|filled|felled|repaired)=(\d+)')
+DEEP_PROGRESS = {'landing', 'repair', 'deepen', 'ore', 'branch', 'seal', 'surfaced', 'pickaxe', 'turn'}
+DEEP_TRY = {'start'}
+SKIP_RE = re.compile(r'\bop=(skip|refuse\w*|declin\w*|off|error)\b')
+
+
 def role_of(name, args, detail, status, complete_plots=()):
-    """-> (role, project) of one row, or (None, None). PURE. A build visit's role is its project's: the tidy is the
-    groundskeeper's, the yard the clerk's, a COMPLETE tree farm's upkeep the farmer's; every other project is building. A visit that
-    did no work (outcome in NO_WORK) is not role work."""
+    """-> (role, project, progress) of one row, or (None, None, False). PURE. progress True = the row shows the role's work
+    MOVED something (review r1: an attempt that placed nothing must not read as coverage); False with a role = an attempt.
+    A build visit's role is its project's: the tidy is the groundskeeper's, the yard the clerk's, a COMPLETE tree farm's upkeep
+    the farmer's; every other project is building. Its progress is placed + cleared + planted (+ dug/filled/felled/repaired) > 0;
+    a visit that never started (outcome in NO_WORK, or a visit row with no counts at all) is not role work."""
     n = canon(name or '')
+    det = detail or ''
     if n == 'build_visit':
-        m = re.search(r'\bproject=(\S+)', detail or '')
-        o = re.search(r'\boutcome=(\S+)', detail or '')
-        if not m or (o and o.group(1) in NO_WORK):
-            return None, None
+        m = re.search(r'\bproject=(\S+)', det)
+        o = re.search(r'\boutcome=(\S+)', det)
+        counts = PROGRESS_RE.findall(det)
+        if not m or (o and o.group(1) in NO_WORK) or not counts:
+            return None, None, False
         p = m.group(1)
+        prog = sum(int(v) for _, v in counts) > 0
         if p == 'tidy':
-            return 'groundskeeper', p
+            return 'groundskeeper', p, prog
         if p == 'yard':
-            return 'clerk', p
+            return 'clerk', p, prog
         if p == 'treefarm' and p in complete_plots:
-            return 'farmer', p
-        return 'builder', p
+            return 'farmer', p, prog
+        return 'builder', p, prog
     if (name or '').startswith('_'):
-        if n in ('deepmine',) and 'op=' in (detail or ''):
-            return 'deep_miner', None
-        if n in ('expedition',):
-            return 'explorer', None
-        return None, None
+        op = re.search(r'\bop=(\w+)', det)
+        op = op.group(1) if op else None
+        if n == 'deepmine' and op in DEEP_PROGRESS | DEEP_TRY:
+            return 'deep_miner', None, op in DEEP_PROGRESS
+        if n == 'expedition' and op and not SKIP_RE.search(det):
+            return 'explorer', None, True
+        return None, None, False
+    ok = status == 'success'
+    if status in ('no_effect', 'refused'):
+        return None, None, False
     if n == 'deep_mine':
-        return 'deep_miner', None
+        return 'deep_miner', None, ok
     if n == 'mine':
-        return 'miner', None
+        return 'miner', None, ok
     if n == 'gather':
         b = str((args or {}).get('block') or '')
         if ORES.search(b):
-            return 'miner', None
+            return 'miner', None, ok
         if LOGS_RE.search(b):
-            return 'farmer', None
-        return None, None
+            return 'farmer', None, ok
+        return None, None, False
     if n in SMELT:
-        return 'smelter', None
+        return 'smelter', None, ok
     if n in EXPLORE:
-        return 'explorer', None
-    return None, None
+        return 'explorer', None, ok
+    return None, None, False
 
 
 def interval(r):
@@ -173,26 +191,26 @@ def bot_facts(rows, home, now):
 
 
 def work_spans(rows, complete_plots):
-    """-> {bot: [(start, end, role, project)]}. PURE."""
+    """-> {bot: [(start, end, role, project, progress)]}. PURE."""
     out = defaultdict(list)
     for r in rows:
-        role, proj = role_of(r['name'], r['args'], r['detail'], r['status'], complete_plots)
+        role, proj, prog = role_of(r['name'], r['args'], r['detail'], r['status'], complete_plots)
         if role and r['bot']:
             s, e = interval(r)
-            out[r['bot']].append((s, e, role, proj))
+            out[r['bot']].append((s, e, role, proj, prog))
     return out
 
 
-def did(spans, bot, role, a, b):
-    """Did `bot` do `role` work overlapping [a, b]? PURE."""
-    return any(rl == role and s <= b and e >= a for s, e, rl, _ in spans.get(bot, ()))
+def did(spans, bot, role, a, b, progress=True):
+    """Did `bot` do `role` work overlapping [a, b]? progress True: work that MOVED something; False: any attempt. PURE."""
+    return any(rl == role and s <= b and e >= a and (pg or not progress) for s, e, rl, _, pg in spans.get(bot, ()))
 
 
 def role_minutes(spans, a, b):
     """-> {bot: {role: minutes inside [a, b]}}. PURE."""
     out = defaultdict(Counter)
     for bot, xs in spans.items():
-        for s, e, rl, _ in xs:
+        for s, e, rl, _, _pg in xs:
             o = (min(e, b) - max(s, a)).total_seconds() / 60
             if o > 0:
                 out[bot][rl] += o
@@ -244,15 +262,16 @@ def tick_town(pool, facts, rows, spans, now, st, flow, seen):
     opts = JR.options(needs, staffing, facts, bots, nowms)
     rnd = JR.random_staffing(staffing, bots, seed_of(pool, now), nowms)
     a = now - dt.timedelta(minutes=COVER_MIN)
-    cover = {}
+    cover, tried = {}, {}
     for r, n in needs.items():
         if n['on']:
             cover[r] = any(did(spans, b['bot'], r, a, now) for b in bots)
+            tried[r] = any(did(spans, b['bot'], r, a, now, progress=False) for b in bots)
     row = {'kind': 'tick', 'ts': now.isoformat().replace('+00:00', 'Z'), 'pool': pool, 'home': facts.get('hk'), 'v': JR.V,
            'needs': {r: {k: n[k] for k in ('on', 'slots', 'why', 'supported')} for r, n in needs.items()},
            'roles': staffing['roles'], 'events': staffing['events'], 'eligible': staffing['eligible'], 'seats': staffing['seats'],
            'starving': staffing['starving'], 'native': native, 'random': rnd, 'options': opts,
-           'cover': cover, 'actual': role_minutes(spans, a, now),
+           'cover': cover, 'tried': tried, 'actual': role_minutes(spans, a, now),
            'bots': {b['bot']: {k: b[k] for k in ('seen_min', 'at_town', 'flagged', 'free_slots')} for b in bots},
            'active': facts.get('active'), 'active_build': facts.get('active_build'),
            'index': {k: (facts.get('index') or {}).get(k) for k in ('ok', 'known', 'unknown')}, 'flow': flow}
@@ -307,10 +326,12 @@ def summarize(rows, hours=24):
     ticks = [r for r in rows if r.get('kind') == 'tick']
     evals = [r for r in rows if r.get('kind') == 'eval']
     skips = [r for r in rows if r.get('kind') == 'skip']
+    runs = [r for r in rows if r.get('kind') == 'run']
     towns = sorted({r['pool'] for r in ticks})
     cov = defaultdict(lambda: defaultdict(lambda: [0, 0]))      # role -> pool -> [covered, need ticks]
     unsup = Counter()
     churn = Counter()
+    tri = Counter()
     staffed = Counter()
     builders_actual = []
     for r in ticks:
@@ -321,8 +342,11 @@ def summarize(rows, hours=24):
                 c = cov[role][r['pool']]
                 c[1] += 1
                 c[0] += 1 if r['cover'].get(role) else 0
+                tri[role] += 1 if (r.get('tried') or {}).get(role) else 0
         for e in r.get('events') or []:
             churn[e[0]] += 1
+            if e[0] == 'release' and not (str(e[3]) == 'term' or str(e[3]).startswith('native')):
+                churn['unplanned'] += 1
         for role, bs in (r.get('roles') or {}).items():
             staffed[role] += len(bs)
         if r['needs'].get('builder', {}).get('on'):
@@ -333,7 +357,7 @@ def summarize(rows, hours=24):
         need = sum(v[1] for v in per.values())
         got = sum(v[0] for v in per.values())
         gap_towns = sorted(p for p, v in per.items() if v[1] >= 6 and v[0] / v[1] < 0.5)
-        roles[role] = {'need_ticks': need, 'covered_ticks': got, 'coverage': round(got / need, 3) if need else None,
+        roles[role] = {'need_ticks': need, 'covered_ticks': got, 'tried_ticks': tri[role], 'coverage': round(got / need, 3) if need else None,
                        'towns_with_need': len(per), 'gap_towns': gap_towns, 'unsupported_ticks': unsup[role],
                        'staffed_bot_ticks': staffed[role]}
     arm = {a: {'n': sum(e[a]['n'] for e in evals), 'hit': sum(e[a]['hit'] for e in evals)} for a in ('roles', 'random')}
@@ -341,14 +365,19 @@ def summarize(rows, hours=24):
         a['share'] = round(a['hit'] / a['n'], 3) if a['n'] else None
     town_hours = len(ticks) * 10 / 60 if ticks else 0
     gap_roles = [r for r, v in roles.items() if len(v['gap_towns']) >= 4]
-    valid = round(len(ticks) / (len(ticks) + len(skips)), 3) if ticks or skips else None
-    return {'ticks': len(ticks), 'skips': len(skips), 'valid_share': valid, 'towns': len(towns), 'evals': len(evals), 'town_hours': round(town_hours, 1),
+    # VALIDITY against the expected schedule (review r1): every run (ok or ERROR) writes a `run` row naming the towns it should
+    # have ticked; a failed run or a missing town counts as missing town-ticks, never as nothing
+    expected = sum(len(r.get('expected') or []) for r in runs)
+    valid = round(len(ticks) / expected, 3) if expected else None
+    return {'ticks': len(ticks), 'skips': len(skips), 'runs': len(runs), 'error_runs': sum(1 for r in runs if not r.get('ok')),
+            'expected_town_ticks': expected, 'valid_share': valid, 'towns': len(towns), 'evals': len(evals), 'town_hours': round(town_hours, 1),
             'roles': roles, 'concordance': arm,
             'churn_per_town_hour': round((churn['take'] + churn['release']) / town_hours, 2) if town_hours else None,
+            'unplanned_releases_per_town_hour': round(churn['unplanned'] / town_hours, 2) if town_hours else None,
             'events': dict(churn),
             'builders_doing_builder_work_mean': round(sum(builders_actual) / len(builders_actual), 2) if builders_actual else None,
             'builder_need_ticks': len(builders_actual),
-            'go': {'valid_ok': valid is not None and valid >= 0.95, 'real_gap_roles': gap_roles, 'churn_ok': (churn['take'] + churn['release']) / town_hours <= 1.0 if town_hours else None}}
+            'go': {'valid_ok': valid is not None and valid >= 0.95, 'real_gap_roles': gap_roles, 'churn_ok': churn['unplanned'] / town_hours <= 1.0 if town_hours else None}}
 
 
 # ------------------------------------------------------------------------------------------------ the run (impure)
@@ -414,8 +443,9 @@ def cmd_run(a):
         state = {}
     try:
         rows, proof = load_rows(a.window_min)
-        if proof['rows'] <= 0 or proof['bots'] < MIN_BOTS:
-            raise RuntimeError(f"positive control failed: rows {proof['rows']}, bots {proof['bots']} (< {MIN_BOTS})")
+        if proof['rows'] <= 0 or proof['bots'] < MIN_BOTS or proof['build_visit'] <= 0:
+            raise RuntimeError(f"positive control failed: rows {proof['rows']}, bots {proof['bots']} (< {MIN_BOTS}), "
+                               f"_build_visit {proof['build_visit']}")
         pools = sorted({r['pool'] for r in rows if r['pool'] and r['pool'] != 'showcase'})
         facts = read_facts(pools, now, a.bots_src, a.pools_dir)
         if len(facts['towns']) < min(MIN_TOWNS_READ, len(pools)):
@@ -425,6 +455,9 @@ def cmd_run(a):
         line = f'{now.isoformat()[:19]}Z jobshadow ERROR {type(e).__name__}: {str(e)[:200]}'
         with open(os.path.expanduser(a.digest_log), 'a') as f:
             f.write(line + '\n')
+        with open(os.path.join(od, f"ticks-{now.strftime('%Y-%m-%d')}.jsonl"), 'a') as fh:
+            fh.write(json.dumps({'kind': 'run', 'ok': False, 'ts': now.isoformat().replace('+00:00', 'Z'),
+                                 'expected': list(EXPECTED_POOLS), 'error': line[:300]}) + '\n')
         print(line)
         return 1
     flow = read_flow(a.flow, now)
@@ -459,6 +492,8 @@ def cmd_run(a):
         st2['rules'] = add_hours(st2['rules'], row['roles'], dmin, int(now.timestamp() * 1000))
         towns_st[pool] = st2
         out_rows.append(row)
+    out_rows.append({'kind': 'run', 'ok': True, 'ts': now.isoformat().replace('+00:00', 'Z'),
+                     'expected': sorted(set(EXPECTED_POOLS) | set(pools)), 'proof': proof})
     day = now.strftime('%Y-%m-%d')
     with open(os.path.join(od, f'ticks-{day}.jsonl'), 'a') as fh:
         for r in out_rows:
@@ -471,7 +506,7 @@ def cmd_run(a):
     staffed = sum(len(bs) for r in ticks for bs in r['roles'].values())
     needs_on = sum(1 for r in ticks for n in r['needs'].values() if n['on'])
     covered = sum(1 for r in ticks for v in r['cover'].values() if v)
-    line = (f"{now.isoformat()[:19]}Z jobshadow {len(ticks)} towns ({len(out_rows) - len(ticks) - sum(1 for r in out_rows if r['kind'] == 'eval')} skipped)"
+    line = (f"{now.isoformat()[:19]}Z jobshadow {len(ticks)} of {len(set(EXPECTED_POOLS) | set(pools))} towns ({sum(1 for r in out_rows if r['kind'] == 'skip')} skipped)"
             f" | {proof['rows']:,} rows, {proof['bots']} bots, {a.window_min} min (control: _build_visit {proof['build_visit']}, gather {proof['gather']})"
             f" | needs on {needs_on}, covered in 60 min {covered} of {needs_on} | would staff {staffed} bot-roles"
             f" | evals {sum(1 for r in out_rows if r['kind'] == 'eval')} (lost {lost_total}) | shadow only: nothing written to pools")

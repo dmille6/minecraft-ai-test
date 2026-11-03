@@ -188,6 +188,41 @@ class Assign(unittest.TestCase):
         self.assertIn('deep_miner', s['roles'])
         self.assertNotIn('farmer', s['roles'])
 
+    def test_native_takes_over_a_rules_holder(self):
+        # review r1 (both): a live lease holder takes its role from whoever the rules had named
+        n = needs_of(deep_miner=1)
+        s, st = JR.assign(n, bots(5), {}, 0)
+        first = s['roles']['deep_miner'][0]
+        native = [x['bot'] for x in bots(5) if x['bot'] != first][0]
+        s, st = JR.assign(n, bots(5), st, 10 * M, native={'deep_miner': [native]})
+        self.assertEqual(s['roles']['deep_miner'], [native])
+        self.assertIn(('release', 'deep_miner', first, 'native'), s['events'])
+
+    def test_native_leaves_its_other_role(self):
+        n = needs_of(builder=2, groundskeeper=1)
+        s, st = JR.assign(n, bots(5), {}, 0, native={'groundskeeper': ['p-Alpha']})
+        self.assertEqual(s['roles']['groundskeeper'], ['p-Alpha'])
+        self.assertNotIn('p-Alpha', s['roles'].get('builder', []))
+        st['held'] = {'builder': [{'bot': 'p-Comet', 'term0': 0, 'renew': 0}]}
+        s, st = JR.assign(n, bots(5), st, 10 * M, native={'builder': ['p-Comet', 'p-Delta'], 'groundskeeper': ['p-Comet']})
+        self.assertEqual(sum(1 for bs in s['roles'].values() for b in bs if b == 'p-Comet'), 1, 'one role per bot even when native twice')
+
+    def test_starving_primary_never_breaks_the_cap(self):
+        # review r1 (both): builder x2 + miner held, explorer starving -> a primary is displaced, never a 4th primary
+        st = {'held': {'builder': [{'bot': 'p-Bravo', 'term0': 0, 'renew': 0}, {'bot': 'p-Comet', 'term0': 0, 'renew': 0}],
+                       'miner': [{'bot': 'p-Alpha', 'term0': 0, 'renew': 0}]}, 'unfilled': {'explorer': 0}}
+        n = needs_of(builder=2, miner=1, explorer=1)
+        s, st = JR.assign(n, bots(5), st, 130 * M)
+        self.assertLessEqual(sum(len(s['roles'].get(r, [])) for r in JR.PRIMARY), JR.PRIMARY_MAX)
+        self.assertIn('explorer', s['roles'])
+
+    def test_caps_hold_after_bots_drop_out(self):
+        s, st = JR.assign(needs_of(builder=2, smelter=1, farmer=1), bots(5), {}, 0)
+        self.assertEqual(sum(len(v) for v in s['roles'].values()), 4)
+        b = bots(5, **{'p-Echo': {'seen_min': 30}, 'p-Delta': {'seen_min': 30}})
+        s, st = JR.assign(needs_of(builder=2, smelter=1, farmer=1), b, st, 10 * M)
+        self.assertLessEqual(sum(len(v) for v in s['roles'].values()), 2, '3 eligible -> 2 seats')
+
     def test_no_seats_no_roles(self):
         s, _ = JR.assign(needs_of(builder=2), bots(1), {}, 0)
         self.assertEqual(s['roles'], {})
@@ -200,6 +235,19 @@ class Mayor(unittest.TestCase):
         self.n, _ = JR.demand(self.f)
         self.s, _ = JR.assign(self.n, bots(5), {}, 0)
         self.o = JR.options(self.n, self.s, self.f, bots(5), 0)
+
+    def test_every_option_keeps_the_caps(self):
+        for o in self.o['options']:
+            self.assertTrue(JR.caps_ok(o['roles']), o)
+        self.assertFalse(JR.caps_ok({'builder': ['a', 'b'], 'miner': ['c'], 'explorer': ['d']}))
+        # a swap that would make a 4th primary is not offered
+        n = needs_of(builder=2, miner=1, farmer=1, deep_miner=1)
+        staff = {'roles': {'builder': ['p-Alpha', 'p-Bravo'], 'miner': ['p-Comet'], 'farmer': ['p-Delta']}}
+        o = JR.options(n, staff, {'projects': []}, bots(5), 0)
+        self.assertFalse(any(x['change'].startswith('swap:') for x in o['options']), o['options'])
+        for x in o['options']:
+            self.assertTrue(JR.caps_ok(x['roles']), x)
+        self.assertFalse(JR.caps_ok({'builder': ['a'], 'smelter': ['a']}))
 
     def test_opt0_is_the_rules(self):
         self.assertEqual(self.o['options'][0]['roles'], self.s['roles'])
@@ -223,10 +271,19 @@ class Mayor(unittest.TestCase):
 
 class Shadow(unittest.TestCase):
     def test_role_of(self):
-        self.assertEqual(JS.role_of('_build_visit', {}, 'project=tidy outcome=complete ms=9000', 'success')[0], 'groundskeeper')
+        self.assertEqual(JS.role_of('_build_visit', {}, 'project=tidy outcome=deadline placed=0 cleared=4 ms=9000', 'success'), ('groundskeeper', 'tidy', True))
         self.assertEqual(JS.role_of('_build_visit', {}, 'project=monument outcome=no_site ms=300', 'no_effect')[0], None)
-        self.assertEqual(JS.role_of('_build_visit', {}, 'project=treefarm outcome=complete', 'x', {'treefarm'})[0], 'farmer')
-        self.assertEqual(JS.role_of('_build_visit', {}, 'project=treefarm outcome=complete', 'x', set())[0], 'builder')
+        self.assertEqual(JS.role_of('_build_visit', {}, 'project=treefarm outcome=complete placed=3', 'x', {'treefarm'})[0], 'farmer')
+        self.assertEqual(JS.role_of('_build_visit', {}, 'project=treefarm outcome=complete placed=3', 'x', set())[0], 'builder')
+        # review r1: an attempt that moved nothing is an attempt, not coverage; a visit with no counts at all is no work
+        self.assertEqual(JS.role_of('_build_visit', {}, 'project=paths outcome=no_tool stop=no_tool placed=0 cleared=0 ms=40000', 'x'), ('builder', 'paths', False))
+        self.assertEqual(JS.role_of('_build_visit', {}, 'project=monument outcome=complete ms=129 why=stands', 'x')[0], None)
+        self.assertEqual(JS.role_of('_build_visit', {}, 'project=shaft outcome=no_support placed=0 slot=1 ms=24704', 'x')[0], None)
+        self.assertEqual(JS.role_of('_expedition', {}, 'op=skip why=no_kit', 'x')[0], None)
+        self.assertEqual(JS.role_of('_deepmine', {}, 'op=ore kind=diamond', 'x'), ('deep_miner', None, True))
+        self.assertEqual(JS.role_of('_deepmine', {}, 'op=error why=x', 'x')[0], None)
+        self.assertEqual(JS.role_of('mine', {}, '', 'failed'), ('miner', None, False))
+        self.assertEqual(JS.role_of('mine', {}, '', 'no_effect')[0], None)
         self.assertEqual(JS.role_of('gather', {'block': 'iron_ore'}, '', 'success')[0], 'miner')
         self.assertEqual(JS.role_of('gather', {'block': 'oak_log'}, '', 'success')[0], 'farmer')
         self.assertEqual(JS.role_of('gather', {'block': 'dirt'}, '', 'success')[0], None)
@@ -268,17 +325,36 @@ class Shadow(unittest.TestCase):
         self.assertEqual(len(keep), 1)
         self.assertEqual(lost, 1)
         tick = {'kind': 'tick', 'pool': 'p', 'ts': 'x', 'needs': {'miner': {'on': True, 'supported': True}, 'clerk': {'on': False, 'supported': False}},
-                'cover': {'miner': False}, 'events': [['take', 'miner', 'p-Alpha', 'x']], 'roles': {'miner': ['p-Alpha']}, 'actual': {}}
-        s = JS.summarize([tick] * 6 + ev)
+                'cover': {'miner': False}, 'tried': {'miner': True}, 'events': [['take', 'miner', 'p-Alpha', 'x']], 'roles': {'miner': ['p-Alpha']}, 'actual': {}}
+        run = {'kind': 'run', 'ok': True, 'ts': 'x', 'expected': ['p']}
+        s = JS.summarize([tick] * 6 + [run] * 6 + ev)
+        self.assertEqual(s['roles']['miner']['tried_ticks'], 6)
         self.assertEqual(s['roles']['miner']['need_ticks'], 6)
         self.assertEqual(s['roles']['miner']['coverage'], 0.0)
         self.assertEqual(s['roles']['miner']['gap_towns'], ['p'])
         self.assertEqual(s['roles']['clerk']['unsupported_ticks'], 6)
         self.assertEqual(s['concordance']['roles']['share'], 1.0)
         self.assertEqual(s['valid_share'], 1.0)
-        s = JS.summarize([tick] * 6 + [{'kind': 'skip', 'pool': 'q', 'ts': 'x'}] * 2)
-        self.assertEqual(s['valid_share'], 0.75)
+        # review r1: a failed run and a town missing from the rows count against validity (the expected schedule)
+        bad = {'kind': 'run', 'ok': False, 'ts': 'x', 'expected': ['p', 'q']}
+        s = JS.summarize([tick] * 6 + [run] * 6 + [bad] * 2)
+        self.assertEqual(s['expected_town_ticks'], 10)
+        self.assertEqual(s['valid_share'], 0.6)
+        self.assertEqual(s['error_runs'], 2)
         self.assertFalse(s['go']['valid_ok'])
+
+    def test_planned_rotation_is_not_churn(self):
+        # review r1 (Claude B1): one steady need for 24 h passes the churn gate -- term rotations are planned, not churn
+        st, rows, now = {}, [], 0
+        b = bots(5)
+        for k in range(144):
+            sf, st = JR.assign(needs_of(builder=2, miner=1, farmer=1, smelter=1), b, st, now)
+            rows.append({'kind': 'tick', 'pool': 'p', 'ts': 'x', 'needs': {}, 'cover': {}, 'events': [list(e) for e in sf['events']],
+                         'roles': sf['roles'], 'actual': {}})
+            now += 10 * M
+        s = JS.summarize(rows)
+        self.assertGreater(s['churn_per_town_hour'], 1.0, 'positive control: the rotations are there')
+        self.assertTrue(s['go']['churn_ok'], s['unplanned_releases_per_town_hour'])
 
     def test_native_holders(self):
         f = {'active_build': 'shop', 'leases': {'shop.slot1': {'live': True, 'holder': 'a'}, 'house1.slot1': {'live': True, 'holder': 'b'},
@@ -297,15 +373,18 @@ MUTANTS = [   # (file, anchor, replacement): each must make the suite FAIL; the 
     ('lib/jobrules.py', 'FREE_MIN = 1 ', 'FREE_MIN = 0 '),
     ('lib/jobrules.py', 'GRACE = 20 ', 'GRACE = 0 '),
     ('lib/jobrules.py', 'if u > now}', 'if u > -1}'),
-    ('lib/jobrules.py', '            if role in PRIMARY and prim >= PRIMARY_MAX and not starving:', '            if False:'),
+    ('lib/jobrules.py', '            prim_full = role in PRIMARY and prim >= PRIMARY_MAX', '            prim_full = False'),
+    ('lib/jobrules.py', "            if h['bot'] not in nb:\n                release(role, h, 'native', 0)", "            if False:\n                pass"),
+    ('lib/jobrules.py', "        if caps_ok(r2):", "        if True:"),
+    ('host/jobshadow.py', "    valid = round(len(ticks) / expected, 3) if expected else None", "    valid = 1.0"),
+    ('host/jobshadow.py', "        prog = sum(int(v) for _, v in counts) > 0", "        prog = True"),
     ('lib/jobrules.py', "                    if st['displace'][role] >= DISPLACE_TICKS or starving:", '                    if True:'),
     ('lib/jobrules.py', "        return on\n    if on:", "        return False\n    if on:"),
-    ('lib/jobrules.py', "elif now - h['term0'] >= ROLE[role]['term'] * 60_000 and h['bot'] not in native.get(role, ()):",
-     "elif now - h['term0'] >= ROLE[role]['term'] * 60_000:"),
+    ('lib/jobrules.py', "            if h['bot'] in native.get(role, ()):\n                continue", "            if False:\n                continue"),
     ('lib/jobrules.py', "    if pick is None:\n        return opt0, 'unknown_option'", "    if pick is None:\n        pick = opt0"),
     ('host/jobshadow.py', "FLAG_RE = re.compile(r'(^_?death$|drown|trapped|unrecoverable|suffocat)', re.I)",
      "FLAG_RE = re.compile(r'(death|drown|trap|entomb|suffocat)', re.I)"),
-    ('host/jobshadow.py', "        if not m or (o and o.group(1) in NO_WORK):", "        if not m:"),
+    ('host/jobshadow.py', "        if not m or (o and o.group(1) in NO_WORK) or not counts:", "        if not m or not counts:"),
 ]
 
 
