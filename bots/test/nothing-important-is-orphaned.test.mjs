@@ -128,6 +128,12 @@ const REQUIRED = [
   'bots/scripts/landplan-offline.mjs',
   'docs/reports/groundskeeper-2026-11-02.md',
   'bots/scripts/tidy-offline.mjs',
+  // townterrace-01 (owner 11-03, townterrace-1103): the terrace stage, the park, its offline proof and its report
+  'bots/src/terrace.mjs',
+  'bots/src/park.mjs',
+  'bots/test/terrace.test.mjs',
+  'bots/scripts/terrace-offline.mjs',
+  'docs/reports/townterrace-2026-11-03.md',
   'docs/reports/tidy-01-2026-11-01.md',
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first

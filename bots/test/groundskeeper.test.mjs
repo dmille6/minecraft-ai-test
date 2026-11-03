@@ -114,14 +114,14 @@ await t('the ring closes and every spoke reaches workR on open flat ground; corr
 await t('the stages partition the roads: every road column is graded in exactly one stage, ring first', async () => {
   const land = await flatPlan()
   const st = LP.landStages(SMALL)
-  assert.strictEqual(st[0].id, 'town'); assert.strictEqual(st[1].id, 'roads')
+  assert.strictEqual(st[0].id, 'town'); assert.strictEqual(st[1].id, 'terrace'); assert.strictEqual(st[2].id, 'roads')   // townterrace-01: the terrace right after the plaza
   const seen = new Map()
   for (const s of st) for (const [x, z] of LP.stageRoadCols(land, s, { L: SMALL })) { const k = k2(x, z); seen.set(k, (seen.get(k) ?? 0) + 1) }
   const all = new Set(land.roads.flatMap(r => r.cols.map(([x, z]) => k2(x, z))))
   // a junction column is in two roads' lists: counted once per road, never in two stages of one road
   for (const k of all) assert.ok(seen.has(k), `road column ${k} is in no stage`)
   const ringCols = new Set(land.roads[0].cols.map(([x, z]) => k2(x, z)))
-  for (const [x, z] of LP.stageRoadCols(land, st[1], { L: SMALL })) if (!ringCols.has(k2(x, z))) assert.ok(Math.max(Math.abs(x), Math.abs(z)) <= st[1].upto)
+  for (const [x, z] of LP.stageRoadCols(land, st[2], { L: SMALL })) if (!ringCols.has(k2(x, z))) assert.ok(Math.max(Math.abs(x), Math.abs(z)) <= st[2].upto)
 })
 
 console.log('THE ROAD\'S EARTHWORK and the never-worse walk')
@@ -147,7 +147,7 @@ await t('Codex r1 BLOCKER 1: road work honours the guard AS IT IS NOW: a zone si
   const w = T.roadWork(srv.read, cols, { home: HOME, lim: T.gradeLim(srv.read, 6), avoid: () => 'zone' })
   assert.deepStrictEqual([w.cut.length, w.fill.length, w.clear.length, w.trees.length], [0, 0, 0, 0])
   assert.strictEqual(w.skipped.road_guarded, 2)
-  const s = T.siteStage(srv.read, { home: HOME, land: { home: HOME, roads: [{ id: 'ring', kind: 'ring', cols }], corridors: [], zones: {}, ringR: 20, workR: 44, inner: 6 }, stage: LP.stageOf(1, SMALL), avoid: (x, z) => (x === 33 ? 'zone' : null), L: SMALL })
+  const s = T.siteStage(srv.read, { home: HOME, land: { home: HOME, roads: [{ id: 'ring', kind: 'ring', cols }], corridors: [], zones: {}, ringR: 20, workR: 44, inner: 6 }, stage: LP.stageOf(2, SMALL), avoid: (x, z) => (x === 33 ? 'zone' : null), L: SMALL })
   assert.ok(!s.record.clear.some(c => c.at[0] === 33), 'siteStage passes its avoid to the road work')
 })
 await t('Codex r1 BLOCKER 2: a clear still standing is work left (tidyClearsLeft); felled, none', async () => {
@@ -162,7 +162,7 @@ await t('Codex r1 BLOCKER 2: a clear still standing is work left (tidyClearsLeft
 })
 await t('NEVER WORSE: a stage whose road work would wall the town in is dropped (named); control: a road over a dip is kept', async () => {
   const land = await flatPlan()
-  const st = LP.stageOf(1, SMALL)
+  const st = LP.stageOf(2, SMALL)
   // a hand-made road level 3 ABOVE the flat ground all round the plaza: a wall
   const wall = { ...land, roads: [{ id: 'ring', kind: 'ring', cols: [] }] }
   for (let x = -9; x <= 9; x++) for (const z of [-9, 9]) wall.roads[0].cols.push([x, z, G + 3])
@@ -194,7 +194,7 @@ await t('a later stage tidies only its band: a pillar inside the town square is 
   col(srv, 10, 0, G + 1, G + 3, 'dirt')    // inside rimR (20)
   col(srv, 26, 0, G + 1, G + 3, 'dirt')    // in band (20, 32]
   const land = { home: HOME, roads: [], corridors: [], zones: {}, ringR: 15, workR: SMALL.workR, inner: 6 }
-  const s = T.siteStage(srv.read, { home: HOME, land, stage: LP.stageOf(2, SMALL), L: SMALL })
+  const s = T.siteStage(srv.read, { home: HOME, land, stage: LP.stageOf(3, SMALL), L: SMALL })
   assert.deepStrictEqual([...new Set(s.record.cut.map(c => c.at[0]))], [26])
 })
 
@@ -326,7 +326,7 @@ console.log('WIRING (structural)')
 await t('buildTidy passes the keeper knobs to runVisit and sites stages; shopActive orders by the keeper; projectHeads reserves the corridors', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
   assert.ok(/\.\.\.\(GROUNDS\.on \? \{ tidyKeepOrder: true, deferSpent: true \} : \{\}\)/.test(s), 'runVisit knobs')
-  assert.ok(/s = siteStage\(read, \{ \.\.\.I, land, stage: k,/.test(s), 'stage siting')
+  assert.ok(/s = await siteStage\(read, \{ home: I\.home, avoid: I\.avoid, cells: I\.cells, pin: I\.pin, plan: I\.plan, land, stage: k,/.test(s), 'stage siting')
   assert.ok(/const order = b \? keeperOrder\(b, waited, list, now\) : list\n\s*const pick = activeProject\(waited, order\)/.test(s), 'the keeper order')
   assert.ok(/if \(land\) out\.push\(\{ plot: LAND_PLOT, key: projKeyOf\(LAND_PLOT\), head: \{ rec: landReservation\(land\) \} \}\)/.test(s), 'the reservation')
   assert.ok(/const recs = projectHeads\(\)\.filter\(x => x\.plot !== LAND_PLOT\)/.test(s), 'the tidy never refuses its own corridors')

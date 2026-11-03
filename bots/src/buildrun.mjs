@@ -31,6 +31,7 @@ import { walkFrom, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replant
 import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
 import * as V from './voidfill.mjs'
+import { plantedAs } from './park.mjs'   // townterrace-01: a crop block is its seed
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => k3(a[0], a[1], a[2])
@@ -201,7 +202,8 @@ export function trunkAbove (read, at, { max = TRUNK_MAX, keep = () => false, ski
  * weathers (exposed_, weathered_, oxidized_) and may be waxed. Pure.
  */
 export function blockFamily (n) {
-  const s = String(n ?? '')
+  // townterrace-01: a planted crop block reads as the item that plants it (wheat <- wheat_seeds, carrots <- carrot ...)
+  const s = plantedAs(String(n ?? ''))
   if (s === 'wall_torch') return 'torch'
   if (s === 'soul_wall_torch') return 'soul_torch'
   if (/copper/.test(s)) return s.replace(/^waxed_/, '').replace(/^(exposed|weathered|oxidized)_/, '')
@@ -407,6 +409,11 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // `alsoDone(cell, read)` (monument-01: ziggurat.mjs zigHidden, a core cell sealed on all six faces) counts a cell done that its
   // block alone does not; every completeness test of the visit goes through isDone
   const alsoDone = p.alsoDone ?? null
+  // townterrace-01: `useFor(cell)` -> the tool use for THAT cell (the park's hoe and bone meal) or null; else `use` for every cell
+  // (paths-01's shovel). `openRole(role)`: a role a builder walks through once placed (a torch, a flower, a crop) is never an
+  // obstacle to the visit's walk (default: the light only)
+  const useOf = c => (p.useFor ? p.useFor(c) : p.use) ?? null
+  const openRole = p.openRole ?? (r => r === 'light')
   const isDone = (c, r = rd) => cellDone(r(...c.at), palette, c.role) || (!!alsoDone && alsoDone(c, r))
   // A LAYERED BUILD (p.blockLayer, monument-01): a stand is never an open cell of ANY segment at the heights this segment builds --
   // two builders on one layer otherwise stood in each other's open cells (the fake server: both `body` until attempts_spent)
@@ -527,23 +534,28 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // block_place on the top face with a fresh sequence; the server's acknowledgement, then the world read: the record's block is
   // 'placed'. No intent is opened: a use places nothing, and a late acknowledgement leaves the cell to be read again.
   const useClick = async (c, stand, seg, segGen) => {
+    const u = useOf(c)
+    if (!u) return 'no_tool'
     if (stands) stands.pending = { cell: kOf(c.at), stand: kOf(stand), at: now() }
     await e.walkTo(stand)
     if (e.aborted()) return 'aborted'
     if (stands) stands.pending = null
     const feet = e.feet()
     if (!digStand(rd, c.at, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]))) { banStand(stands, kOf(c.at), kOf(stand), now()); return 'stand' }
-    if (!(await p.use.hold())) return 'no_tool'
+    if (!(await u.hold())) return 'no_tool'
     await e.look(c.at, [0, 1, 0])
     if (e.aborted()) return 'aborted'
     const why = PJ.fenceRefusal(dir, key, me, { slot: p.slot, slotGen, seg, segGen, recordGen: p.recordGen, now: now(), beatConn: p.beat ? conn : null })
     if (why) return `fence:${why}`
-    if (!p.use.can(rd(...c.at)) || !AIR(nm(rd(c.at[0], c.at[1] + 1, c.at[2]))) || !p.use.held()) return 'refused'
+    if (!u.can(rd(...c.at)) || !AIR(nm(rd(c.at[0], c.at[1] + 1, c.at[2]))) || !u.held()) return 'refused'
     const seq = e.nextSeq()
     e.send(c.at, [0, 1, 0], seq)
     const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
     if (v !== 'acked') return 'silent'
-    return p.use.want(e.read(...c.at)) ? 'placed' : 'refused'
+    if (!u.want(e.read(...c.at), c.at, e.read)) return 'refused'
+    // a use that spends its item (bone meal) is tallied like a placement: the bag's balance reads it (shopread G8)
+    if (u.consumes) tally(u.consumes)
+    return 'placed'
   }
 
   // ---- VOIDFILL-01: THE ACCESS INTO A SEALED VOID (voidfill.mjs; `p.access` = { mem, mayDig(at) }) -----------------------------
@@ -920,7 +932,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // -- only while the cell still holds THAT block (Codex r1 P2: a listed grass cell now holding a spruce log is ours to dig)
         const listed = new Map((record.clear ?? []).map(c => [kOf(c.at), c.name]))
         const listedNow = at => listed.has(kOf(at)) && listed.get(kOf(at)) === nm(rd(...at))
-        const foreign = open.filter(c => { const k = foreignKind(nm(rd(...c.at)), scaffoldRe); return k && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS }).sort((a, b) => a.at[1] - b.at[1])
+        // townterrace-01: never a cell a tool converts in place (the park's tilled grass, its meadow): its block is the use's, not a foreign
+        // one -- dug, the ground would be a hole
+        const foreign = open.filter(c => { const k = foreignKind(nm(rd(...c.at)), scaffoldRe); return k && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !useOf(c)?.can(rd(...c.at)) }).sort((a, b) => a.at[1] - b.at[1])
         if (foreign.length) {
           const f = foreign[0], name = nm(rd(...f.at)), kind = foreignKind(name, scaffoldRe)
           const sg = segGen
@@ -996,8 +1010,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // lists on it (its clear list: the shopread judges every clear against it) is dug first, under this segment's lease;
         // anything else on it (a listed log or leaves) waits for the clears. Nothing usable now and nothing else open here: the
         // cells no stand reaches are DEFERRED (F4), the ones the clears still cover wait -- the next segment either way
-        if (p.use) {
-          const ucs = open.filter(c => (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && p.use.can(rd(...c.at)))
+        if (p.use || p.useFor) {
+          const ucs = open.filter(c => (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !!useOf(c)?.can(rd(...c.at)))
           if (ucs.length) {
             const unodes = nodesFor()
             const f0 = e.feet()
@@ -1058,13 +1072,13 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
               if (!stand) { noStand.push(c); continue }
               const v = await useClick(c, stand, seg, segGen)
               acted = true
-              if (v === 'placed') { out.used = (out.used ?? 0) + 1; e.log('_build', { op: 'place', seg, cell: c.at, block: p.use.block, kind: 'use' }) } else if (v.startsWith('fence:') || v === 'aborted' || v === 'no_tool') {
+              if (v === 'placed') { out.used = (out.used ?? 0) + 1; e.log('_build', { op: 'place', seg, cell: c.at, block: useOf(c).block, kind: 'use' }) } else if (v.startsWith('fence:') || v === 'aborted' || v === 'no_tool') {
                 out.stop = v; if (v === 'no_tool') out.why = `${seg}: no tool to use on ${ucs.length} open cell(s)`; return out
               } else { bump(c.at); if (v === 'refused') out.refused++; if (v === 'silent') out.silent++ }
               break
             }
             if (acted) continue
-            if (open.every(c => p.use.can(rd(...c.at)) || (tries.get(kOf(c.at)) ?? 0) >= BUILD_ATTEMPTS)) {
+            if (open.every(c => !!useOf(c)?.can(rd(...c.at)) || (tries.get(kOf(c.at)) ?? 0) >= BUILD_ATTEMPTS)) {
               // pathsclose-01: a cell that WAITS (an unread cell above it, a block on it the visit may not dig) is deferred with
               // the ones no stand reaches -- the F4 count bounds it (stuck_on_cell, the order's back-off) instead of a
               // `clears_wait` every visit for good; only an unread cell above with nothing else open is still a wait
@@ -1075,13 +1089,13 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           }
         }
         // a cell a TOOL converts (p.use) is solid ground already: a floor, never an obstacle to the walk
-        const blocking = new Set(open.filter(c => c.role !== 'light' && !(p.use && isSolid(rd(...c.at)))).map(c => kOf(c.at)))
+        const blocking = new Set(open.filter(c => !openRole(c.role) && !(useOf(c) && isSolid(rd(...c.at)))).map(c => kOf(c.at)))
         // A FILL a builder stands IN (p.feetIn(seg), monument-01's foundation; offline on the showcase's region 10-29: a hollow 5
         // deep and wide had no stand -- its rim is out of reach of its floor, and every cell inside was an obstacle): the open
         // cells are never a FLOOR, but feet and head may be in them (the click never places into the builder's own body)
         const feetIn = !!p.feetIn?.(seg)
         const others = new Set()
-        if (byY) for (const y of new Set(open.map(c => c.at[1]))) for (const c of byY.get(y) ?? []) if (c.seg !== seg && c.role !== 'light' && !isDone(c)) others.add(kOf(c.at))
+        if (byY) for (const y of new Set(open.map(c => c.at[1]))) for (const c of byY.get(y) ?? []) if (c.seg !== seg && !openRole(c.role) && !isDone(c)) others.add(kOf(c.at))
         for (const k of others) blocking.add(k)
         const nodes = feetIn ? nodesFor(others, blocking) : nodesFor(blocking)
         const feet = e.feet()

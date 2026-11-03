@@ -25,6 +25,8 @@
 import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND } from './landplan.mjs'   // groundskeeper-01
+import { PARK_PALETTE } from './park.mjs'   // townterrace-01: the park's roles
+import { siteTerrace, terraceOn, TERRACE_STAGE } from './terrace.mjs'   // townterrace-01: the terrace stage
 
 export const TIDY_PLOT = 'tidy'
 export const TIDY_BLUEPRINT = 'tidy@1'
@@ -37,7 +39,9 @@ export const SPOIL = /^(dirt|coarse_dirt|grass_block|cobblestone|mossy_cobblesto
 export const TIDY_PALETTE = Object.freeze({ earth: ['dirt', 'cobblestone', 'coarse_dirt', 'cobbled_deepslate', '*solid'],
   // groundskeeper-01: a BURIED fill cell (under a column's top fill) takes the town's surplus cobblestone first (a sink for the
   // resource model, resource-model-1102); the top stays dirt (it greens); a road's light is a torch
-  core: ['cobblestone', 'cobbled_deepslate', 'dirt', 'coarse_dirt', '*solid'], light: ['torch'] })
+  core: ['cobblestone', 'cobbled_deepslate', 'dirt', 'coarse_dirt', '*solid'], light: ['torch'],
+  // townterrace-01: the park's plantings and tool uses (park.mjs PARK_PALETTE)
+  ...PARK_PALETTE })
 /** A complete tidy is surveyed again after this long (the bots keep digging and climbing). */
 export const TIDY_RESURVEY_MS = 48 * 60 * 60_000
 /** A cut a bot found no stand for (or that did not come down) in this many of its visits is given up by that bot; the record
@@ -613,11 +617,23 @@ export function roadLights (read, cols, { home, avoid = () => null, n = 0, cells
  * tidy-01's survey over its band (rMin, rMax] when it has one, and the earthwork of its road columns (landplan.mjs stageRoadCols)
  * graded with `lim`, their trunks felled with replant cells owed, and `lights` torches beside the roads; the record is tidy-01's
  * (tidyRecord: layered fills, cuts, clears) with `stage`. A column the road touches is the road's alone. `null` record: nothing to
- * do in this stage (the caller moves to the next).
+ * do in this stage (the caller moves to the next). townterrace-01: the terrace stage returns a PROMISE (terrace.mjs siteTerrace);
+ * callers await siteStage.
  */
-export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, L = LAND } = {}) {
+export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, env = process.env, L = LAND } = {}) {
   const st = typeof stage === 'object' ? stage : stageOf(stage, L)
-  if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now }); if (s.record) s.record.stage = 0; return { ...s, road: null } }
+  if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now }); if (s.record) { s.record.stage = 0; s.record.terraceV = 1 } return { ...s, road: null } }
+  // townterrace-01: the terrace stage (terrace.mjs siteTerrace) inside the wall; TERRACE=off (or no terrace inputs) reads as
+  // nothing to do, and the ring order goes on
+  if (st.id === TERRACE_STAGE) {
+    if (!terraceOn(env) || !terrace) return { ok: true, why: 'off', record: null, survey: null, road: null }
+    // ASYNC (the grading's solves are seconds of work on a rough town: `pause` yields the bot's event loop between them); every
+    // caller awaits siteStage
+    return siteTerrace(read, { home, plan, land, avoid, cells, walkFrom, now, ...terrace }).then(t => {
+      if (t.record) { t.record.stage = st.k; t.record.terraceV = 1; t.record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null }
+      return { ...t, survey: null, road: null }
+    })
+  }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
   const survey = st.rMax > 0 ? surveyTidy(read, { home, avoid, cells, r: st.rMax, rMin: st.rMin }) : { ok: true, cut: [], fill: [], pillars: [], pits: [], skipped: {} }
   if (!survey.ok) return { ok: false, why: survey.why, record: null, survey, road: null }
@@ -671,6 +687,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   }
   record.stage = st.k
   record.stageId = st.id
+  record.terraceV = 1   // townterrace-01: sited in the ring order that has the terrace stage (landplan.mjs recStageK)
   record.land = { seed: land.seed, sitedAt: land.sitedAt ?? null }
   record.road = { cols: rcols.length, cut: road.cut.length, fill: road.fill.length, trees: road.trees.length, replant: record.replant.length, lights: lightAt.length, skipped: road.skipped, walk: road.walk ?? null }
   record.r = Math.max(record.r ?? 0, st.upto ?? -1, st.rMax ?? -1)
