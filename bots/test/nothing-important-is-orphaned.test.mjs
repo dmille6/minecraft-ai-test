@@ -272,6 +272,14 @@ const REQUIRED = [
   'docs/reports/job-assigner-2026-11-03.md',
   // comms stage 3 (requests): the design + Codex's independent design and the reconciliation (11-03)
   'docs/reports/requests-design-2026-11-03.md',
+  // villager trading (11-03): the design + Codex's independent design, the Paper sandbox proofs and the read-only census helpers
+  'docs/reports/trading-design-2026-11-03.md',
+  'sandbox/trading/trade-proof.cjs',
+  'sandbox/trading/scout-proof.cjs',
+  'sandbox/trading/census/villagers.py',
+  'sandbox/trading/census/poi.py',
+  'sandbox/trading/census/vdump.py',
+  'sandbox/trading/census/blocks.py',
   'scripts/mac/opsaudit.sh',
   // the learning loop's nightly archive (M1): logs on .31 rotate after 14 days, this is the only long-term copy
   'scripts/learnloop/extract_triples.py',

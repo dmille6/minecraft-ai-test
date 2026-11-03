@@ -4079,6 +4079,37 @@
     ]
    },
    "note": "Capacity read 11-03: showcase host 16 cores, 6/31 GB, load 3-4, MSPT ~7 -- the brain is the limit, not the server."
+  },
+  {
+   "id": "trading-1103",
+   "title": "Villager trading in peaceful (owner 11-03 \"yes design all using both claude and codex, put them in the queue and implement and deploy where you feel is right\")",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "trading-1103.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "T1 trading-scout-01 (read-only _merchant_seen + _xp rows) built on the showcase release, branch trading-scout-01: fold into the next showcase release, read 24 h of sightings, then a tier-1 owner-direct fleet rollout. T2 coalsale-01 (fleet, tier 3) after 24 h of fleet sightings name a coal buyer per town. Design docs/reports/trading-design-2026-11-03.md.",
+   "max_quiet_hours": 48,
+   "depends_on": [],
+   "evidence": {
+    "branches": [
+     "origin/trading-scout-*",
+     "origin/coalsale-*"
+    ],
+    "grep": [
+     "trading-scout-01",
+     "coalsale-01"
+    ],
+    "paths": [
+     "docs/reports/trading-design-2026-11-03.md",
+     "bots/src/merchantscout.mjs"
+    ]
+   },
+   "note": "Measured 11-03: showcase 63 villagers, 0 employed, 0 offers (6_1's 7 stuck in village trapdoor rings); fleet employed novices 554-605 blocks from 11 towns. Sandbox4: job claim 5.5 s (mobGriefing true and false), openVillager + trade sell/buy server-confirmed; anvil/enchanting table unproven.",
+   "owner_pending": "Trade trip range (recommend one surveyed route <= 650 blocks, 10-min budget) and whether village 6_1 stays as is (recommended) or gets a one-off fix."
   }
  ]
 }
