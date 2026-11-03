@@ -62,7 +62,8 @@ await t('the installed tick writes the mode row, one _merchant_seen per due merc
   const bot = { username: 'ScoutBot', entity: { position: HERE }, entities: { 1: V(1, 'villager', 5, 5, vd(9)), 2: V(2, 'villager', 30, 0, vd(0)) },
     experience: { level: 7, points: 3, progress: 0.25 }, inventory: { items: () => [], slots: [] }, once: (ev, f) => { handlers[ev] = f } }
   let clock = 1_000_000
-  const zones = [{ id: 'village-x', x0: 20, x1: 40, y0: 0, y1: 100, z0: -10, z1: 10 }]
+  // the shape features.mjs really passes: townPlanZones(bot).zones = [{ id, box: [x0,y0,z0,x1,y1,z1] }]
+  const zones = [{ id: 'village-x', box: [20, 0, -10, 40, 100, 10] }]
   const h = M.merchantScoutInstall(bot, { env: {}, zonesOf: () => zones, now: () => clock, every: 1e9 })
   const kinds = () => recs.map(r => r.skill?.name)
   assert.deepEqual(kinds(), ['_merchantscout_mode'])
@@ -84,6 +85,13 @@ await t('the installed tick writes the mode row, one _merchant_seen per due merc
   assert.equal(M.merchantScoutInstall(bot, { env: { MERCHANTSCOUT: 'off' }, every: 1e9 }), null)
   assert.deepEqual(kinds(), ['_merchantscout_mode']); assert.match(recs[0].skill.detail, /^on=0 /)
   untap()
+})
+
+await t('zoneIdAt: both zone shapes (townPlanZones {id, box} and parsed x0..z1); outside -> null', () => {
+  assert.equal(M.zoneIdAt([{ id: 'v', box: [49, -64, -59, 157, 90, 45] }], 80.3, 73, -3.7), 'v')
+  assert.equal(M.zoneIdAt([{ id: 'v', box: [49, -64, -59, 157, 90, 45] }], 48.9, 73, 0), null)
+  assert.equal(M.zoneIdAt([{ id: 'p', x0: 0, y0: 0, z0: 0, x1: 5, y1: 5, z1: 5 }], 5.9, 5, 0), 'p')
+  assert.equal(M.zoneIdAt(null, 1, 1, 1), null)
 })
 
 await t('a throwing zone reader or a missing experience never throws out of the tick', () => {

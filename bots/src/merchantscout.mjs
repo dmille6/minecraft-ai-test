@@ -14,7 +14,6 @@
 // points, progress }.
 import { logEvent } from './logger.mjs'
 import { snapshot } from './state.mjs'
-import { zoneAt } from './protectzone.mjs'
 
 // minecraft:villager_profession registry order (1.21): alphabetical with `none` first
 export const PROFESSIONS = ['none', 'armorer', 'butcher', 'cartographer', 'cleric', 'farmer', 'fisherman', 'fletcher',
@@ -59,6 +58,17 @@ export function merchantSightings (entities, here, { radius = RADIUS, self = nul
   return out.sort((a, b) => a.dist - b.dist)
 }
 
+/** The id of the zone holding the point, or null. Pure. Takes both shapes in use: townPlanZones' {id, box: [x0,y0,z0,x1,y1,z1]}
+ *  (what features.mjs passes; Codex review 11-03: protectzone's zoneAt reads x0..z1 and missed every one) and parsed {x0..z1}. */
+export function zoneIdAt (zones, x, y, z) {
+  const fx = Math.floor(x), fy = Math.floor(y), fz = Math.floor(z)
+  for (const q of zones ?? []) {
+    const b = Array.isArray(q?.box) ? q.box : (q && Number.isFinite(q.x0) ? [q.x0, q.y0, q.z0, q.x1, q.y1, q.z1] : null)
+    if (b && fx >= b[0] && fx <= b[3] && fy >= b[1] && fy <= b[4] && fz >= b[2] && fz <= b[5]) return q.id ?? 'unnamed'
+  }
+  return null
+}
+
 /** Employed = trades exist: a villager with a profession other than none/nitwit (a baby has none), or a wandering trader. */
 export const tradesPossible = s => s.kind === 'wandering_trader' || (!s.baby && !['none', 'nitwit', 'unknown'].includes(s.profession))
 
@@ -95,7 +105,7 @@ export function merchantScoutInstall (bot, { env = process.env, zonesOf = () => 
     if (rows.length) { try { zones = zonesOf(bot) ?? [] } catch { zones = [] } }
     for (const s of rows) {
       let zone = null
-      try { zone = zoneAt(zones, s.x, s.y, s.z)?.id ?? null } catch {}
+      try { zone = zoneIdAt(zones, s.x, s.y, s.z) } catch {}
       try { logEvent({ kind: 'merchant_seen', status: 'success', snapshot: snapshot(bot), detail: sightingDetail(s, zone), args: { ...s, zone, trades: tradesPossible(s) } }) } catch {}
     }
     if (t - xpAt >= XP_EVERY_MS && bot.experience) {
