@@ -3516,6 +3516,37 @@
     ]
    },
    "note": "Keep wells, farms (farmland water), trial chamber, expedition markers, finished builds, the copper hall's reserved site untouched; seal any cave opened by a cut; seeded variety per town."
+  },
+  {
+   "id": "survival-supply-1103",
+   "title": "Keep a steady supply of SURVIVAL canaries (drowning first), alternating with progress and never survival-only -- owner 11-03 'sure as long as we dont spend all our time on survival fixes and never move the project forward'",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "owner-gaps-1103.md",
+    "swimcentre-01-1103.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "survival agent / control session",
+   "next_step": "swimcentre-01 (S) queued after bagdiet-01 (P), before stationkeep-01 (P), held until its full suite on .30 passes; read +90/+180 (generic + _swim_centre rows, canary drowning deaths, y .2 share); after promotion read the goal from ES (drowning/day vs 9-10, .2 share). Next S: drop-and-dig-01 (report section 7), queued only behind a P entry; at most one S in every two slots.",
+   "max_quiet_hours": 48,
+   "depends_on": [],
+   "evidence": {
+    "runs": [
+     "swimcentre-01"
+    ],
+    "branches": [
+     "swimcentre01-on-*"
+    ],
+    "grep": [
+     "swimcentre"
+    ],
+    "paths": [
+     "docs/reports/swimcentre-01-2026-11-03.md"
+    ]
+   },
+   "note": "7 d to 11-03 04:27Z: 174 deaths (drowning 63, falls 53 incl. stalagmites, suffocation 31, fire 27). Lifts owner-no-more-stuck-drowning-hunts for PLANNED fixes only (no hunts). Cap: one survival canary in every two slots."
   }
  ]
 }
