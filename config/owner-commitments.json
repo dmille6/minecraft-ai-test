@@ -617,7 +617,7 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "parked",
+   "state": "dropped",
    "owner": "control session",
    "next_step": "On the owner answer: rebuild = merge tf-on-5e66386 (da99ec95) onto the fleet tip, review per protected.py tier, npm test, replace-variant townfloor-01, release; drop = canary-sched.py cancel townfloor-01, row dropped",
    "max_quiet_hours": 48,
@@ -644,7 +644,7 @@
     "until": "2026-11-10",
     "why": "owner-approved 10-14 and NOT superseded: tidy-01 (surface pillars/pits/paths corridors) and the stockpile yard (cobble sink) cover part of it, but no fleet code fills the dug-out band under the towns (10 layers below the platform). Queue entry stays PARKED on its dead variant (3b1ae8bb); revival is a tier-3 rebuild of tf-on-5e66386 (da99ec95) onto the fleet tip"
    },
-   "owner_pending": "townfloor-01 (fill the dug-out ground under the towns with surplus cobble): rebuild it now that tidy-01 + the stock yard ship, or drop it?"
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": DROP for now: townfloor-01 cancelled in the queue; revisit if town hollows cause falls."
   },
   {
    "id": "bamboo-03",
@@ -656,7 +656,7 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "parked",
+   "state": "dropped",
    "owner": "control session",
    "next_step": "On the owner answer: revive = re-stack bb3 onto the fleet tip, drop shaft-01 from after, replace-variant, then foldwatch-01; drop = canary-sched.py cancel bamboo-03 and foldwatch-01, rows dropped",
    "evidence": {
@@ -675,7 +675,7 @@
     "why": "owner 10-23 #7 (parked at the back, exposable on 1 pool) still stands and the code is NOT superseded (no bamboo fold on main or the fleet). Queue entry stays PARKED on dead variants; reviving it is a full re-stack onto the fleet tip. Owner asked 11-03: revive or drop (owner_pending on bamboo-03)"
    },
    "note": "AUDIT 10-31: sat on dead variants + a cancelled dependency with no weekly check ever run. | stall triage 11-03 ~21Z: re-parked to 11-10 with an owner question (park had expired 11-03)",
-   "owner_pending": "bamboo-03 + foldwatch-01 (bamboo folds into sticks, ~1 exposable pool): revive (full re-stack, tier per protected.py) or drop both?"
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": DROP: bamboo-03 + foldwatch-01 cancelled in the queue (code stays on branches; revival = new run id)."
   },
   {
    "id": "foldwatch-01",
@@ -687,7 +687,7 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "parked",
+   "state": "dropped",
    "owner": "control session",
    "depends_on": [
     {
@@ -710,7 +710,8 @@
     "why": "owner 10-23 #7 (parked at the back, exposable on 1 pool) still stands and the code is NOT superseded (no bamboo fold on main or the fleet). Queue entry stays PARKED on dead variants; reviving it is a full re-stack after bamboo-03 is rebuilt, KEPT and promoted. Owner asked 11-03: revive or drop (owner_pending on bamboo-03)"
    },
    "note": "AUDIT 10-31: parked on dead variants. | stall triage 11-03 ~21Z: re-parked to 11-10 with bamboo-03",
-   "next_step": "Follows bamboo-03 (owner_pending there): revive after bamboo-03 is KEPT, or cancel with it"
+   "next_step": "Follows bamboo-03 (owner_pending there): revive after bamboo-03 is KEPT, or cancel with it",
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": DROP with bamboo-03; cancelled in the queue."
   },
   {
    "id": "treefarm-03",
@@ -3721,7 +3722,7 @@
     ]
    },
    "note": "Never sweet berry bushes, cactus or vines; never a reserved column (zones, project records/boxes, the park, the tidy's own cells). | stall triage 11-03 ~21Z: depends_on {run: gkhelpers-01show} removed: gkhelpers-01show is a showcase fold branch, never a canary run, and it was RELEASED 11-03 18:38:32Z in cbd2f51b-6dd0ded8-fdd64ead (row gkhelpers-1103)",
-   "owner_pending": "park flowers: none free within 96 of home outside the protected village zone -- gather farther out (or a flower biome), or plant the park without flowers?"
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": DROP: bamboo-03 + foldwatch-01 cancelled in the queue (code stays on branches; revival = new run id)."
   },
   {
    "id": "survival-supply-1103",
@@ -3893,12 +3894,13 @@
    "memory": [
     "owner-gaps-1103.md"
    ],
-   "next_step": "Fix (a follow-up change with an effect target) or remove (revert behind its switch); or show the read is wrong (name the confound) and park with a date.",
+   "next_step": "2026-11-10: re-run the effect read; if the target still has not moved, propose removal to the owner.",
    "owner": "control session",
    "owner_date": "2026-11-03",
-   "state": "open",
+   "state": "parked",
    "title": "chestreach-01 NO-EFFECT at h24: fix or remove (chestreach-01 h24 NO-EFFECT: skill.share.v1{\"name\": \"deposit\", \"status\": \"success\"} 0.4643 (130/280) -> 0.6355 (204/321) +36.9% (noise x/1.62, 80 bots 1,604 bot-h; skill.share.v1: ) | also chestreach-01 NO-EFFECT at h72",
-   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close."
+   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close.",
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK."
   },
   {
    "covers_alarms": [
@@ -3919,12 +3921,13 @@
    "memory": [
     "owner-gaps-1103.md"
    ],
-   "next_step": "Fix (a follow-up change with an effect target) or remove (revert behind its switch); or show the read is wrong (name the confound) and park with a date.",
+   "next_step": "2026-11-10: re-run the effect read; if the target still has not moved, propose removal to the owner.",
    "owner": "control session",
    "owner_date": "2026-11-03",
-   "state": "open",
+   "state": "parked",
    "title": "tdoffer-01 NO-EFFECT at h24: fix or remove (tdoffer-01 h24 NO-EFFECT: skill.share.v1{\"name\": \"town_deposit\", \"status\": \"no_effect\"} 0.1925 (51/265) -> 0.0828 (13/157) -57.0% (noise x/4.26, 80 bots 1,582 bot-h; skill.share.v1)",
-   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close."
+   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close.",
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK."
   },
   {
    "covers_alarms": [
@@ -3945,12 +3948,13 @@
    "memory": [
     "owner-gaps-1103.md"
    ],
-   "next_step": "Fix (a follow-up change with an effect target) or remove (revert behind its switch); or show the read is wrong (name the confound) and park with a date.",
+   "next_step": "2026-11-10: re-run the effect read; if the target still has not moved, propose removal to the owner.",
    "owner": "control session",
    "owner_date": "2026-11-03",
-   "state": "open",
+   "state": "parked",
    "title": "tdfull-01 NO-EFFECT at h24: fix or remove (tdfull-01 h24 NO-EFFECT: skill.share.v1{\"name\": \"town_deposit\", \"status\": \"success\"} 0.5932 (105/177) -> 0.9691 (314/324) +63.4% (noise x/1.89, 80 bots 1,516 bot-h; skill.share.v1:) | also tdfull-01 NO-EFFECT at h72",
-   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close."
+   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close.",
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK."
   },
   {
    "covers_alarms": [
@@ -3971,12 +3975,13 @@
    "memory": [
     "owner-gaps-1103.md"
    ],
-   "next_step": "Fix (a follow-up change with an effect target) or remove (revert behind its switch); or show the read is wrong (name the confound) and park with a date.",
+   "next_step": "2026-11-10: re-run the effect read; if the target still has not moved, propose removal to the owner.",
    "owner": "control session",
    "owner_date": "2026-11-03",
-   "state": "open",
+   "state": "parked",
    "title": "logsurface-01 NO-EFFECT at h72: fix or remove (logsurface-01 h72 NO-EFFECT: skill.share.v1{\"name\": \"gather_log\", \"status\": \"success\"} 0.2991 (227/759) -> 0.5515 (407/738) +84.4% (noise x/2.43, 80 bots 1,359 bot-h; skill.share.v)",
-   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close."
+   "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close.",
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": KEEP the shipped change (no harm shown); park with a date: re-check 2026-11-10 after traffic changes; remove only if its own target does not move, with owner OK."
   },
   {
    "covers_alarms": [
@@ -4166,7 +4171,8 @@
      "storehub-intake"
     ]
    },
-   "note": "Measured 11-03 (24 h full walks): storage skills 9.1 of 1,923 fleet bot-h (0.47%), 0.7 of 240 showcase bot-h; withdraw_pick 7.9 chests/search (86% of visits miss), kit search 4.1 (78% miss); 67/312 fleet chests full; most item kinds in >1 chest. Not a time lever: the value is the visible building, clerk work for the 10->15 showcase raise, and searches that go to the right chest. Codex: 1 hopper + 1 clerk; Claude: 20 hoppers; chosen 4->20 pairs grown from surplus."
+   "note": "Measured 11-03 (24 h full walks): storage skills 9.1 of 1,923 fleet bot-h (0.47%), 0.7 of 240 showcase bot-h; withdraw_pick 7.9 chests/search (86% of visits miss), kit search 4.1 (78% miss); 67/312 fleet chests full; most item kinds in >1 chest. Not a time lever: the value is the visible building, clerk work for the 10->15 showcase raise, and searches that go to the right chest. Codex: 1 hopper + 1 clerk; Claude: 20 hoppers; chosen 4->20 pairs grown from surplus.",
+   "owner_answers": "OWNER 2026-11-03 ~21:30Z \"yes to all\": O1 junk may sit in intake chests until a clerk throws it; O2 plants group with per-type caps, surplus composted (partial reversal of the 10-04 no-junk rule, park materials only); O3 hoppers 4 -> 20 from iron above a 48-ingot reserve; O4 one clerk first, a second only on measured backlog; O5 fleet-wide vs showcase-only decided after the showcase read; O6 chest deposits only until the S0 Paper proof passes, then tossing."
   },
   {
    "id": "idlegap-1103",
