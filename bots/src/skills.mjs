@@ -53,7 +53,7 @@ import { STORAGE_NEAR, startableJunk } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, stonePickReady, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
   ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete, containerIngredientMiss,
-  townSearchOrder, needCount, INGREDIENT_MISS_KEY, WITHDRAW_PICK_VISITS, WITHDRAW_INGREDIENT_VISITS, WITHDRAW_VISIT_MIN_MS, WITHDRAW_INGREDIENT_RESERVE_MS, SEARCH_FAIL_SKIP_MS, SEARCH_FAIL_SKIP, passClock, searchTally, SEARCH_MISS_TTL_MS } from './withdrawpick.mjs'
+  townSearchOrder, missTtlOf, needCount, INGREDIENT_MISS_KEY, WITHDRAW_PICK_VISITS, WITHDRAW_INGREDIENT_VISITS, WITHDRAW_VISIT_MIN_MS, WITHDRAW_INGREDIENT_RESERVE_MS, SEARCH_FAIL_SKIP_MS, SEARCH_FAIL_SKIP, passClock, searchTally, SEARCH_MISS_TTL_MS } from './withdrawpick.mjs'
 // The toolkit (toolkit-01): the iron axe and shovel from town iron; the spent-stone keep is hygiene.mjs's
 import { TOOLKIT, KIT, KIT_IRON_NEED, TOWN_IRON_KEEP, kitDraw, kitTakes, kitNeeds, kitMeans, creditAfter, toolkitRow, toolkitArgs, toolsTag,
   KIT_SEARCH_VISITS, KIT_CRAFT_RESERVE_MS, kitVisitStep, kitSearchEnd, kitSearchRow, kitIronNeed, kitIronMissNeeds, kitSticksAtRisk,
@@ -11991,7 +11991,7 @@ function townSearchNext (bot, needs, tried, want = {}, { missTtl = SEARCH_MISS_T
   const view = townSearchView(bot, needs, tried)
   // sortstore-01: the needs' category homes first within each tier (null: sorting off, or no homes)
   const sh = sortHomesNow(bot)
-  const index = townSearchIndex(bot, view, needs, tried)
+  const index = townSearchIndex(bot, view, needs, tried, missTtl)
   const order = townSearchOrder(view.containers, needs, { counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl, prefer: sh ? searchPrefer(sh, needs) : null, index })
   // a recheck handed out is spent for this pass (its open re-observes the container), whether or not the caller visits it
   if (index && order[0]?.ixneg) searchRechecks(tried).add(order[0].k)
@@ -12004,12 +12004,14 @@ const searchRechecks = tried => { let s = RECHECKS.get(tried); if (!s) { s = new
 /** THE INDEX'S EVIDENCE FOR THIS SEARCH VIEW -> townSearchOrder's `index`, or null (INDEXSEARCH2=off, the index off or
  *  unreadable, or a need the index cannot judge: today's search). The hub registry's intake chests (storehub piece A/D) are
  *  never negatives; no hub exists yet, so the set is empty. */
-function townSearchIndex (bot, view, needs, tried) {
+function townSearchIndex (bot, view, needs, tried, missTtl = SEARCH_MISS_TTL_MS) {
   if (!INDEXSEARCH2.on || !indexJudges(needs)) return null
   try {
     const entries = townIndexEntries(bot)
     if (!entries) return null
-    const ev = indexEvidence(entries, view.containers, needs, { now: view.now, tookAt: view.tookAt, untrusted: HUB_INTAKE_NONE })
+    // a negative lives as long as the miss it stands for (the shortest of the needs' miss lives: Codex code r1 BLOCK)
+    const ttl = Math.min(...needs.map(n => missTtlOf(missTtl, n)))
+    const ev = indexEvidence(entries, view.containers, needs, { now: view.now, tookAt: view.tookAt, untrusted: HUB_INTAKE_NONE, ttl })
     if (!ev.judged) return null
     const used = searchRechecks(tried)
     // a recheck already handed out to a container still in the list stays this pass's (the caller may re-rank before visiting)

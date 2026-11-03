@@ -23,7 +23,7 @@ freshPool()
 const X = await import('../src/indexsearch2.mjs')
 const W = await import('../src/withdrawpick.mjs')
 const TI = await import('../src/townindex.mjs')
-const { SKILLS } = await import('../src/skills.mjs')
+const { SKILLS, townPickMiss, townIngredientMiss } = await import('../src/skills.mjs')
 const { clearWithdrawHolds } = await import('../src/bankable.mjs')
 const { tapRecords } = await import('../src/logger.mjs')
 const { fakeWorld, stack, tool } = await import('./fakeworld.mjs')
@@ -128,6 +128,10 @@ await t('indexEvidence: a negative only from a KNOWN, fresh, clean observation w
   assert.deepEqual([...ev.neg.keys()].sort(), ['a', 'g'])
   assert.deepEqual([...ev.pos.keys()].sort(), ['b'])
   assert.equal(ev.neg.get('a'), NOW - 60_000, 'the negative carries its observation time (the recheck order)')
+  // THE LIFE: a negative lives as long as the miss it stands for (ttl), never past INDEX_STALE_MS
+  const life = indexEvidence({ a: obs('a', { dirt: [5, 1] }, NOW - 61 * 60_000), b: obs('b', { dirt: [5, 1] }, NOW - 59 * 60_000) }, [{ k: 'a' }, { k: 'b' }], ['stick'], { now: NOW, ttl: 60 * 60_000 })
+  assert.deepEqual([...life.neg.keys()], ['b'], 'older than the miss life: no evidence')
+  assert.deepEqual([...indexEvidence({ a: obs('a', { dirt: [5, 1] }, NOW - TI.INDEX_STALE_MS - 1) }, [{ k: 'a' }], ['stick'], { now: NOW, ttl: 1e12 }).neg.keys()], [], 'never past 6 h')
   // a double chest: the index keys it by its lower half, the scan by the other one
   const dbl = indexEvidence({ '1,64,0': obs('1,64,0', { dirt: [5, 1] }, NOW - 1_000, { h: ['1,64,0', '2,64,0'] }) }, [{ k: '2,64,0', halves: ['2,64,0', '1,64,0'] }], ['pick'], { now: NOW })
   assert.deepEqual([...dbl.neg.keys()], ['2,64,0'])
@@ -174,7 +178,7 @@ await t('LICENCE: installFeatures writes `_indexsearch2_mode` once per spawn wit
 })
 await t('LICENCE: the mode row names the rule and the switch', () => {
   assert.equal(INDEXSEARCH2.on, true, 'on by default')
-  assert.match(X.indexSearch2ModeDetail(), /^phase=mode index_search=on skip=known_lacks_every_need stale_h=6 recheck=1 /)
+  assert.match(X.indexSearch2ModeDetail(), /^phase=mode index_search=on skip=known_lacks_every_need life=miss_ttl max_h=6 recheck=1 /)
 })
 
 // ------------------------------------------------------------------------------------------------- the real order
@@ -200,34 +204,46 @@ await t('CONTROL: the same town with the index gone -- the order walks to the kn
   assert.ok(w.spy.opened.length - n > 6, `the base opens more: ${w.spy.opened.slice(n)}`)
 })
 const wrongIndex = async S => {
+  const { townOrder, townOrderOutcome } = await import('../src/composter.mjs')
   const w = await censusTown()
-  // THE INDEX IS WRONG: a pickaxe appears in the chest the census opened LAST (the freshest negative, the last to be
-  // rechecked), with no dirty mark and no deposit recorded -- a human, or a move the index never saw
-  const opened = [...new Set(w.spy.opened)]
-  const lastSeen = opened.at(-1)
+  const t0 = Date.now() - WITHDRAW_COOLDOWN_MS - WITHDRAW_BACKOFF_MS   // the census's opens (censusTown moved the clock on)
+  // THE INDEX IS WRONG: a pickaxe appears in the chest the census opened LAST (the freshest negative, the last a recheck
+  // reaches), with no dirty mark and no deposit recorded -- a human, or a move the index never saw
+  const lastSeen = [...new Set(w.spy.opened)].at(-1)
   w.stock(...lastSeen.split(',').map(Number), [stack('dirt', 5), tool('stone_pickaxe', 20)])
-  const perOrder = []
+  // the bag now lacks sticks, so each order runs both passes; THE REAL GATES issue it (townOrder: townPickMiss, townIngredientMiss)
+  w.bag.splice(0, w.bag.length, stack('crafting_table', 1), stack('cobblestone', 3))
+  let state = {}
+  const base = () => ({ now: Date.now(), slots: 2, freeSlots: 34, junk: 0, distHome: 5, storageNear: true, composterAtTown: false,
+    pickNeeded: true, pickRoom: true, pickMiss: () => S.townPickMiss(w.bot), ingredientMiss: () => S.townIngredientMiss(w.bot), state })
+  const log = []
   let got = false
-  for (let i = 0; i < CHESTS.length + 2 && !got; i++) {
+  for (let i = 0; i < 150 && !got; i++, later(60_000)) {   // a minute a step, up to 2.5 h
+    const o = townOrder(base()); state = o.state
+    if (o.order?.skill !== 'withdraw_pick') continue
     const n = w.spy.opened.length
     const r = await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
-    perOrder.push(w.spy.opened.slice(n))
-    got = r.status === 'success' && count(w.bag, 'stone_pickaxe') === 1
-    later(WITHDRAW_COOLDOWN_MS + WITHDRAW_BACKOFF_MS)
+    state = townOrderOutcome('withdraw_pick', r.status, Date.now(), state, r.failClass)
+    log.push({ min: Math.round((Date.now() - t0) / 60_000), opened: w.spy.opened.slice(n), status: r.status })
+    got = count(w.bag, 'stone_pickaxe') === 1
   }
-  assert.ok(got, `found by the rechecks: ${JSON.stringify(perOrder)}`)
-  assert.ok(perOrder.every(o => o.length <= INDEX_RECHECK_VISITS), `at most one recheck per order: ${JSON.stringify(perOrder)}`)
-  assert.equal(perOrder.flat().at(-1), lastSeen, 'taken where the index was wrong')
-  assert.equal(new Set(perOrder.flat()).size, perOrder.flat().length, 'each recheck a different chest (oldest first, then its miss)')
+  assert.ok(got, `the pickaxe is found: ${JSON.stringify(log)}`)
+  const inLife = log.filter(e => e.min * 60_000 < W.SEARCH_MISS_TTL_MS)
+  assert.ok(inLife.length >= 1, `positive control: an order ran while the negatives lived: ${JSON.stringify(log)}`)
+  assert.ok(inLife.every(e => e.opened.length <= 2 * INDEX_RECHECK_VISITS), `while the negatives live: one recheck per pass, no walk round the town: ${JSON.stringify(log)}`)
+  // A NEGATIVE IS NO STRONGER THAN A MISS: the order that finds it comes no later than the first order once the miss life ends
+  const found = log.at(-1)
+  assert.ok(found.min * 60_000 < W.SEARCH_MISS_TTL_MS + WITHDRAW_COOLDOWN_MS + WITHDRAW_BACKOFF_MS + 2 * 60_000, `found within a miss life (+ one order gap): ${JSON.stringify(log)}`)
+  assert.ok(found.opened.includes(lastSeen), 'taken where the index was wrong')
 }
-await t('THE REFUSAL CHAIN (a wrong index): a pickaxe where the index said none, no mark -- each order rechecks the oldest negative, and the order that reaches it takes it', () => wrongIndex({ SKILLS }))
+await t('THE REFUSAL CHAIN (a wrong index, the real gates): a pickaxe where the index said none, no mark -- while the negatives live each order rechecks one per pass; the negative ends with the miss life it stands for, and the next order takes the pickaxe', () => wrongIndex({ SKILLS, townPickMiss, townIngredientMiss }))
 
 // ------------------------------------------------------------------------------------------------- mutants
 await t('MUTANTS: each removes one part of the rule and a behaviour test above fails', async () => {
   const pure = async (M, fn) => fn(M)
   const evidenceProbe = Mx => () => {
-    const E = { f: obs('f', { dirt: [5, 1] }, NOW - 60_000), h: obs('h', { dirt: [5, 1] }, NOW - 60_000), a: obs('a', { dirt: [5, 1] }, NOW - 1_000), b: obs('b', { oak_planks: [8, 1] }, NOW - 1_000), s: obs('s', { dirt: [5, 1] }, NOW - TI.INDEX_STALE_MS - 1) }
-    const ev = Mx.indexEvidence(E, ['f', 'h', 'a', 'b', 's'].map(k => ({ k })), ['stick', 'planks'], { now: NOW, tookAt: { f: NOW - 50_000 }, untrusted: new Set(['h']) })
+    const E = { f: obs('f', { dirt: [5, 1] }, NOW - 60_000), h: obs('h', { dirt: [5, 1] }, NOW - 60_000), a: obs('a', { dirt: [5, 1] }, NOW - 1_000), b: obs('b', { oak_planks: [8, 1] }, NOW - 1_000), s: { ...obs('s', { dirt: [5, 1] }, NOW - 60_000), last: { t: 'dirty', at: NOW - 30_000 } }, o: obs('o', { dirt: [5, 1] }, NOW - 61 * 60_000) }
+    const ev = Mx.indexEvidence(E, ['f', 'h', 'a', 'b', 's', 'o'].map(k => ({ k })), ['stick', 'planks'], { now: NOW, tookAt: { f: NOW - 50_000 }, untrusted: new Set(['h']), ttl: 60 * 60_000 })
     assert.deepEqual([...ev.neg.keys()].sort(), ['a'])
     assert.deepEqual([...ev.pos.keys()], ['b'])
   }
@@ -243,7 +259,8 @@ await t('MUTANTS: each removes one part of the rule and a behaviour test above f
     ['a deposit since does not void the negative', '    if (Number.isFinite(took) && took > at + RULE_OUT_TOOK_SLACK_MS) continue\n', ''],
     ['an intake chest gets a negative', "if (!untrusted?.has?.(k)) neg.set(k, at)", 'neg.set(k, at)'],
     ['some need instead of every need', 'if (lacks.every(x => x === true))', 'if (lacks.some(x => x === true))'],
-    ['a stale observation is evidence', "if (!e || indexStateOf(e, now, staleMs) !== 'known') continue", 'if (!e || !e.obs) continue'],
+    ['a dirty observation is evidence', "if (!e || indexStateOf(e, now) !== 'known') continue", 'if (!e || !e.obs) continue'],
+    ['the miss life ignored', '|| now - at >= life) continue', ') continue'],
   ]
   for (const [name, old, neu] of IX) { if (await withMutant(IX_PATH, old, neu, Mx => killedBy(evidenceProbe(Mx)))) killed.push(name); else assert.fail(`mutant survived: ${name}`) }
   const WPM = [
@@ -255,7 +272,7 @@ await t('MUTANTS: each removes one part of the rule and a behaviour test above f
   // the wiring, through the real order (skills.mjs): the index not passed, and no recheck ever
   const SKM = [
     ['the index never reaches the order', "prefer: sh ? searchPrefer(sh, needs) : null, index })", 'prefer: sh ? searchPrefer(sh, needs) : null })', knownEmptyTown],
-    ['no recheck', 'recheck: pending ? INDEX_RECHECK_VISITS : Math.max(0, INDEX_RECHECK_VISITS - used.size) }', 'recheck: 0 }', wrongIndex],
+    ['no recheck', 'recheck: pending ? INDEX_RECHECK_VISITS : Math.max(0, INDEX_RECHECK_VISITS - used.size) }', 'recheck: 0 }', knownEmptyTownRechecks],
     ['the recheck never spent', '  if (index && order[0]?.ixneg) searchRechecks(tried).add(order[0].k)\n', '', knownEmptyTownRechecks],
   ]
   for (const [name, old, neu, scene] of SKM) { if (await withMutant(SKILLS_PATH, old, neu, S => killedBy(() => scene(S)))) killed.push(name); else assert.fail(`mutant survived: ${name}`) }

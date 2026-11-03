@@ -11,8 +11,10 @@
 // withdraw_pick's 22) were in chests the index showed holding the need.
 //
 // THE RULE (pure; skills.mjs townSearchNext feeds it, withdrawpick.mjs townSearchOrder applies it):
-//   NEGATIVE  a container whose index entry is KNOWN (townindex.mjs indexStateOf: an observation younger than INDEX_STALE_MS,
-//             6 h, with no mutation since or open across it), not stamped more than INDEX_FUTURE_SLACK_MS ahead, with no
+//   NEGATIVE  a container whose index entry is KNOWN (townindex.mjs indexStateOf: no mutation since the observation or open
+//             across it) and younger than the NEED'S OWN MISS LIFE (`ttl`: SEARCH_MISS_TTL_MS, 60 min, for the pickaxe, the
+//             ingredients and the kit's iron -- never past INDEX_STALE_MS, the design's 6 h bound), not stamped more than
+//             INDEX_FUTURE_SLACK_MS ahead, with no
 //             deposit recorded into either half after it (town memory o=took, beyond RULE_OUT_TOOK_SLACK_MS: smeltjob's
 //             rule-out rule), and whose observation fails EVERY need by that need's OWN miss rule (needLacks) -- the same
 //             sentence a visit would have written into the miss memory, read off an open some other skill already made.
@@ -22,10 +24,17 @@
 //   UNJUDGED  a need needLacks does not know (null): no index evidence at all for that search -- today's behaviour.
 //   NEVER     an `untrusted` container (an intake chest a hopper feeds: it changes with no dirty mark -- storehub piece D;
 //             none exists yet, the set is empty until piece A registers the hub) is never given a negative.
+// A NEGATIVE IS NO STRONGER THAN A MISS (Codex code r1 BLOCK: with the 6 h life, a search could end -- crafting, or the kit's
+// no_iron and its backoff -- while a WRONG negative had hours left). It is exactly the look a visit would have written as a
+// miss, so it lives as long as that miss: a wrong one ends when the miss it stands for would have, and the container is an
+// ordinary candidate again (the journal's count of none -- withdrawpick.mjs zeroLive -- is the same kind of look, and is OUT
+// for the miss life with no recheck at all).
 // THE SECOND PASS (the design's "an index that is wrong still finds the item"): a negative is demoted, not forgotten -- each
 // pass may still open INDEX_RECHECK_VISITS of them, the OLDEST observation first, after every other candidate. Its open
-// writes a fresh observation (and a miss when it is empty), so a wrong negative is corrected by the search itself, and a
+// writes a fresh observation (and a miss when it is empty), so a wrong negative is also corrected by the search itself, and a
 // town with none of the need costs one visit instead of up to 16.
+// REPLAYED AT THE 60-MIN LIFE: fleet 21.9 h, withdraw_pick 360 of 914 visits, kit 818 of 1,676; showcase 24 h 41 of 70 and
+// 81 of 141 -- 0 hits among them (at 6 h: 575 / 1,239 / 58 / 84, also 0).
 // The order's GATES (townSearchEmpty: townPickMiss, townIngredientMiss, townKitIronMiss) do not read the index: an order is
 // issued exactly when it is today; only where it looks changes.
 //
@@ -83,9 +92,11 @@ export const indexJudges = (needs = []) => Array.isArray(needs) && needs.length 
  *   needs      the search's needs; any need needLacks cannot judge -> no evidence at all (judged false)
  *   tookAt     { k: ms } the town memory's last deposit into the container (townSearchView's, either half)
  *   untrusted  keys never given a negative (hopper-fed intake chests)
+ *   ttl        the evidence's life: the shortest miss life of the search's needs (never past INDEX_STALE_MS)
  * An entry is matched by either half's key (the index keys a double chest by its lower half, the scan by whichever it met).
  */
-export function indexEvidence (entries, containers = [], needs = [], { now = Date.now(), tookAt = {}, untrusted = new Set(), staleMs = INDEX_STALE_MS } = {}) {
+export function indexEvidence (entries, containers = [], needs = [], { now = Date.now(), tookAt = {}, untrusted = new Set(), ttl = INDEX_STALE_MS } = {}) {
+  const life = Math.min(INDEX_STALE_MS, Number.isFinite(Number(ttl)) ? Number(ttl) : INDEX_STALE_MS)
   const neg = new Map(), pos = new Map()
   if (!entries || typeof entries !== 'object' || !indexJudges(needs)) return { neg, pos, judged: false }
   const byHalf = new Map()
@@ -97,9 +108,9 @@ export function indexEvidence (entries, containers = [], needs = [], { now = Dat
     if (k == null) continue
     const halves = Array.isArray(c.halves) && c.halves.length ? c.halves : [k]
     const e = halves.map(h => byHalf.get(h)).find(Boolean)
-    if (!e || indexStateOf(e, now, staleMs) !== 'known') continue
+    if (!e || indexStateOf(e, now) !== 'known') continue
     const at = Number(e.obs?.at)
-    if (!Number.isFinite(at) || at > now + INDEX_FUTURE_SLACK_MS) continue
+    if (!Number.isFinite(at) || at > now + INDEX_FUTURE_SLACK_MS || now - at >= life) continue
     const took = Number(tookAt?.[k])
     if (Number.isFinite(took) && took > at + RULE_OUT_TOOK_SLACK_MS) continue
     const lacks = needs.map(n => needLacks(n, e.obs.names ?? {}))
@@ -110,4 +121,4 @@ export function indexEvidence (entries, containers = [], needs = [], { now = Dat
 
 /** The `_indexsearch2_mode` licence row (once per spawn): a kind the base cannot write. */
 export const indexSearch2ModeDetail = () =>
-  `phase=mode index_search=${INDEXSEARCH2.on ? 'on' : 'off'} skip=known_lacks_every_need stale_h=${INDEX_STALE_MS / 3600000} recheck=${INDEX_RECHECK_VISITS} needs=pick,trippick,cobblestone,stick,planks,kit_iron* gates=unchanged`
+  `phase=mode index_search=${INDEXSEARCH2.on ? 'on' : 'off'} skip=known_lacks_every_need life=miss_ttl max_h=${INDEX_STALE_MS / 3600000} recheck=${INDEX_RECHECK_VISITS} needs=pick,trippick,cobblestone,stick,planks,kit_iron* gates=unchanged`
