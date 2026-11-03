@@ -218,3 +218,66 @@ G1 (place on the record) and G3 (zones, now also judging `op=harvest`) already c
 - **Bags:** seeds are kept to one slot, and wheat is banked each visit.
 - **Rollback:** `CROPFARM=off`. The project is never picked, seeds are junk again, and the record stays as a reservation. A
   code rollback is clean. The farm's blocks stay in the world, which is harmless.
+
+## 9. Built: piece 1 cropfarm-01show (11-03)
+
+**Branch and base:**
+- branch `farms-01show` @ `8b5ed792`, on the live showcase release branch `origin/showcase-gkpick-on-adbf9e41` (cbd2f51b);
+- tier 2 (`protected.py`: not protected);
+- rollback: `CROPFARM=off`, or the base sha.
+
+**Files:**
+- `bots/src/cropkeep.mjs` (leaf): the switch, plus `neverKeepFor`. hygiene's `NEVER_KEEP` and skills' `JUNKSWAP_ITEMS` are
+  built through it.
+- `bots/src/cropfarm.mjs` (pure): the layout, siting, record, crop states, harvest, due test and seed-gather targets.
+- `bots/src/shop.mjs`: the PROJECTS entry after the tree farm, `projectsOn` gating, and the record always guarded.
+- `bots/src/skills.mjs`:
+  - `buildCropFarm`, with `cropHarvest`, `cropSeedGather`, `cropHoe` and `cropInputs`;
+  - the dispatch;
+  - `recordDamaged` treats the farm as due, never damaged;
+  - `blueprintOf` uses `CROP_PALETTE`.
+
+**The visit, in order:**
+1. Harvest (bounded by the town's wheat cap and free bag slots).
+2. Draw seeds from town.
+3. Gather seeds from grass round the farm.
+4. Craft a hoe if needed.
+5. Run `runVisit` (till, then plant; a cell with no seed is passed).
+6. Bank the wheat and the seeds above one planting + 8.
+
+An empty farm with no seed is due again once its 30-min gather back-off ends.
+
+**Tests:** `bots/test/cropfarm.test.mjs`, 21/21.
+- Layout, siting (reservation, level, water, plants, zones, hydration).
+- Crop states, the due test, alsoDone, stands, seed targets.
+- The seed keep composed through hygiene, the composter and `notForChest` in child processes per pool.
+- A runVisit end to end on buildfake.
+- Wiring.
+- 5 mutants, each anchor asserted unique.
+
+**Reviews:**
+- Codex r1 found 2 blockers: banked seeds were never drawn, and the seed search ran round the bot, so an empty farm was never
+  due again.
+- r2: one fix incomplete (`takeAllowed` -> `shopAllow`).
+- r3: APPROVE.
+
+**Tripwire:** G9 farm_dig in `docs/reports/shop-01-2026-10-25/shopread.py.txt` (main, NOT installed). Selftest passes.
+- Claude (independent subagent): APPROVE.
+- Codex r1 found 1 blocker: a seed-grass dig on a tidy cell went uncaught. The fix judges against the tidy generations that
+  could have been the head when the grass was dug (`tidy_heads_at`, across the 60-s skew); the head is what the bot's own
+  guard reads.
+- Codex r2 and r3 each refined the skew handling: no future head on its own, and all heads when none was sited before the
+  dig.
+- Codex r4: APPROVE. 92/92 mutants killed.
+
+**What the release needs:**
+- Install the G9 shopread on the showcase VM with the release.
+- Fold `farms-01show` onto the next showcase restack.
+- After activation, look for these rows:
+  - `_build project=cropfarm op=sited` (the site, `crops28/wet<n>/<orient>/<zone>`);
+  - `_build_visit project=cropfarm` (`harvested`, `seeds +n`);
+  - `_build ... kind=seedgrass`;
+  - `_structure_complete project=cropfarm`.
+- G9 and G1-G3 should read 0.
+- The goal is visible when wheat rows stand south of the town (the land plan's `farms` zone, S on the showcase) and a full
+  harvest cycle has run.

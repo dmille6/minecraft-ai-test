@@ -95,6 +95,21 @@ M = [
  ("                elif plot in SINK_PLOTS and rec is not None:", "                elif False:"),
  # towndress-01 (11-03): the dress sink is a sink plot (its growing chain judged by the generations in force)
  ("SINK_PLOTS = ('road', 'tower', 'shrine', 'dress')", "SINK_PLOTS = ('road', 'tower', 'shrine')"),
+ # cropfarm-01 (11-03): G9 farm_dig -- the harvest and the seed gather
+ ("    if block not in CROP_BLOCKS:\n        return False\n", "    if False:\n        return False\n"),
+ ("    return any(c.get('role') == 'wheat' and ck(c['at']) == k for rec in chain or []", "    return any(ck(c['at']) == k for rec in chain or []"),
+ ("            elif op == 'harvest' and plot == CROPFARM:", "            elif False:"),
+ ("                    lists['clear_outside'].append('%s %s harvest %s' % (bot, k, f.get('block'))); out['clear_outside'] += 1", "                    pass"),
+ ("                    lists['zone'].append('%s harvest %s' % (bot, k)); out['zone'] += 1", "                    pass"),
+ ("    if block not in SEED_GRASS:\n        return False, ' not_grass'", "    if False:\n        return False, ' not_grass'"),
+ ("        return False, ' far'", "        pass"),
+ ("                    elif plot == CROPFARM and f.get('kind') == 'seedgrass':", "                    elif False:"),
+ ("        return (False, ' guarded')", "        pass"),
+ ("        return (False, ' in_park')", "        pass"),
+ ("        return (False, ' tidy_cell')", "        pass"),
+ ("    return inf[idx:] if idx is not None else inf   #", "    return inf[-1:]   #"),
+ ("    return inf[idx:] if idx is not None else inf   #", "    return inf   #"),
+ ("    return inf[idx:] if idx is not None else inf   #", "    return inf[idx:] if idx is not None else inf[-1:]   #"),
 ]
 bad = 0
 for old, new in M:

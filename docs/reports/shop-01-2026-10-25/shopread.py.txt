@@ -36,6 +36,13 @@
 #   G2 (tidy, gkhelpers-01) a `kind=gather` clear (the park gather) is a plant block (GATHER_BLOCKS: park.mjs GATHER_NAMES), never
 #                      another project's record cell or a marker (tidy_guard), never in the park (the land plan's park box + 1), never a
 #                      FILL cell of the tidy chain (gather_ok)
+#   G9 farm_dig (cropfarm-01, 11-03; counted as clear_outside, so the tripwire's G2 line trips on it): project=cropfarm
+#                      op=harvest -- a crop block (wheat, carrots, potatoes, beetroots) dug on a crop cell (role wheat) of any
+#                      generation of the farm's record, never anything else, never in a protected zone (G3 judges harvests too);
+#                      op=clear kind=seedgrass (the seed gather, bots/src/skills.mjs cropSeedGather) -- a grass plant (short/tall grass,
+#                      fern, large fern), never another project's record cell or a marker when it was dug (tidy_guard: the farm's own
+#                      cells too -- its bed's plants are runVisit's listed clears, kind=plant), never in the park's box + 1, and within
+#                      SEEDGRASS_R of the farm's box (crop_harvest_ok, seedgrass_ok)
 #   G5 felled_unplanted  a `kind=tree` clear whose row says fewer replant cells read a sapling than the record has (saplings=a/b,
 #                      a < b); a tree clear without the field is g5_unjudged (also a gate)
 #   G6 unknown_stood   a bot's OWN build row whose position (its stand) is IN or ON a cell its own `op=unknown` row named, before
@@ -101,6 +108,11 @@ GATHER_BLOCKS = frozenset(['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'a
                            'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip', 'rose_bush', 'lilac', 'peony', 'sunflower', 'azalea',
                            'flowering_azalea', 'sugar_cane', 'bamboo', 'oak_leaves', 'birch_leaves', 'spruce_leaves', 'azalea_leaves',
                            'flowering_azalea_leaves', 'cherry_leaves', 'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves', 'mangrove_leaves'])
+# cropfarm-01 (bots/src/cropfarm.mjs CROPFARM_PLOT, CROP_BLOCKS, SEED_GRASS, CROP.gatherR)
+CROPFARM = 'cropfarm'
+CROP_BLOCKS = frozenset(['wheat', 'carrots', 'potatoes', 'beetroots'])
+SEED_GRASS = frozenset(['short_grass', 'tall_grass', 'fern', 'large_fern'])
+SEEDGRASS_R = 24
 MARKERS_RE = re.compile(r'^expedition-.*\.markers\.jsonl$')
 BRIDGES_RE = re.compile(r'^expedition-.*\.bridges\.jsonl$')        # bridgepost-01 (bots/src/bridge.mjs): the town's bridge sites
 # what a build visit may lose to the pathfinder's own towers and bridges (bots/src/scaffold.mjs PATHFINDER_SCAFFOLD's stone and
@@ -155,6 +167,47 @@ def gather_ok(chain, cell, block, t_ms, guard, park_box):
     k = ck(cell)
     if any(k == ck(c['at']) for rec in chain or [] for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at')):
         return False, ' tidy_cell'
+    return True, ''
+
+
+def crop_harvest_ok(chain, cell, block):
+    """cropfarm-01: is a `project=cropfarm op=harvest` a crop block dug on a crop cell (role wheat) of any generation of the farm's
+    record chain? -> bool. Pure."""
+    if block not in CROP_BLOCKS:
+        return False
+    k = ck(cell)
+    return any(c.get('role') == 'wheat' and ck(c['at']) == k for rec in chain or [] for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at'))
+
+
+def tidy_heads_at(chain, t_ms, skew_ms=60_000):
+    """cropfarm-01: the tidy generations that may have been the HEAD when a dig happened at t_ms -> [gen]. Pure. The last one sited
+    at or before t_ms (no `at`: in force) and every one sited within skew_ms after it (a clock skew: the head the bot read may be
+    either -- Codex G9 r2 BLOCKER: the last in-force generation alone could be a FUTURE head). Their cells are judged together."""
+    inf = sink_in_force(chain, t_ms, skew_ms)
+    idx = max((i for i, g in enumerate(inf) if t_ms is None or not isinstance(g.get('at'), (int, float)) or g['at'] <= t_ms), default=None)
+    return inf[idx:] if idx is not None else inf   # none sited before the dig: every one in the skew (Codex G9 r3)
+
+
+def seedgrass_ok(chain, cell, block, t_ms, guard, park_box, tidy_chain=()):
+    """cropfarm-01: is a `project=cropfarm op=clear kind=seedgrass` (the seed gather) a grass plant the gather may take? -> (bool, why).
+    Pure. A SEED_GRASS block; never guarded (any project's record cell -- the farm's own too -- or a marker, when it was dug:
+    tidy_guarded); never inside the park's box + 1; never a cell of the tidy generation in force when it was dug (`tidy_chain`: its
+    fills -- the carried `prev` ones too --, cuts and clears, as the bot's gather guard reads the tidy head; tidy_guard leaves the
+    tidy out -- Codex G9 r1 BLOCKER); within SEEDGRASS_R (Chebyshev) of the
+    box of some generation of the farm's record. The protected zones are G3's."""
+    if block not in SEED_GRASS:
+        return False, ' not_grass'
+    if tidy_guarded(cell, t_ms, guard):   # a record cell (the farm's own too) or a marker when it was dug
+        return (False, ' guarded')
+    if isinstance(park_box, list) and len(park_box) == 4 and park_box[0] - 1 <= cell[0] <= park_box[2] + 1 and park_box[1] - 1 <= cell[2] <= park_box[3] + 1:
+        return (False, ' in_park')
+    k = ck(cell)
+    if any(k == ck(c['at']) for rec in tidy_chain or [] for name in ('cells', 'cut', 'clear') for c in rec.get(name) or [] if isinstance(c, dict) and c.get('at')):
+        return (False, ' tidy_cell')
+    boxes = [rec.get('box') for rec in chain or [] if isinstance(rec.get('box'), list) and len(rec['box']) == 4]
+    x, z = cell[0], cell[2]
+    if not any(max(b[0] - x, x - b[2], 0, b[1] - z, z - b[3]) <= SEEDGRASS_R for b in boxes):
+        return False, ' far'
     return True, ''
 
 
@@ -855,6 +908,12 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 out['mutations'] += 1
                 if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):
                     out['zone'] += 1; lists['zone'].append('%s %s %s' % (bot, op, k))
+            if op == 'harvest' and plot == CROPFARM:
+                # cropfarm-01: a crop farm's harvest is a mutation too, and G3 judges it
+                mutating.add((pool, CROPFARM))
+                out['mutations'] += 1
+                if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):
+                    lists['zone'].append('%s harvest %s' % (bot, k)); out['zone'] += 1
             if op == 'place':
                 out['placements'] += 1
                 if plot == TIDY and rec is not None:
@@ -875,6 +934,11 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 if [t for t in placed[(pool, plot, k)] if (r['t'] - t).total_seconds() < PLACE_TWICE_MIN * 60]:
                     out['placed_twice'] += 1; lists['placed_twice'].append('%s %s' % (pool, k))
                 placed[(pool, plot, k)].append(r['t'])
+            elif op == 'harvest' and plot == CROPFARM:
+                # cropfarm-01 G9: a crop dug on a crop cell of the farm's record, nothing else (counted with G2's clear_outside)
+                out['harvests'] += 1
+                if rec is not None and not crop_harvest_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block')):
+                    lists['clear_outside'].append('%s %s harvest %s' % (bot, k, f.get('block'))); out['clear_outside'] += 1
             elif op == 'replant':
                 out['replants'] += 1
             elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):
@@ -900,6 +964,13 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         else:
                             ok = tidy_clear_ok(chain_t, cell, f.get('kind'), t_ms, guards[pool])
                             why = ' guarded' if tidy_guarded(cell, t_ms, guards[pool]) else ''
+                    elif plot == CROPFARM and f.get('kind') == 'seedgrass':
+                        # cropfarm-01 G9: the seed gather -- a grass plant, off every record and marker, outside the park, near the farm
+                        if pool not in guards:
+                            guards[pool] = tidy_guard(projects.get(pool))
+                        t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
+                        lrec = project_of(projects.get(pool), LAND).get('record') or {}
+                        ok, why = seedgrass_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms, guards[pool], (lrec.get('park') or {}).get('box'), tidy_heads_at(project_of(projects.get(pool), TIDY).get('chain') or [], t_ms))
                     elif plot in SINK_PLOTS:
                         # picker-01: the clear lists (kind=foreign: the cells) of the generations in force when it was dug
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
@@ -1247,6 +1318,42 @@ def selftest():
     assert gt('3,73,-10', 'dirt')['clear_outside'] == 1 and gt('17,64,-2')['clear_outside'] == 1, 'a dirt cut is no plant; a tidy fill cell is never a gather'
     assert gt('31,74,0', 'oak_leaves')['clear_outside'] == 0, 'Claude r1 BLOCKER 3: a head-room leaf on the tidy\'s clear list is a plant the gather may take'
     assert gather_ok([], [1, 2, 3], 'poppy', None, {}, None) == (True, '')
+    # cropfarm-01 G9: THE CROP FARM's harvest (a crop on a crop cell) and its seed gather (a grass plant near the farm, off every
+    # record and the park); anything else trips as clear_outside; a harvest in a protected zone is G3's
+    cf = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'cropfarm', 'at': T0MS - 60_000, 'box': [100, 100, 108, 108], 'clear': [{'at': [101, 71, 101], 'kind': 'plant', 'name': 'short_grass'}],
+          'cells': [{'at': [101, 70, 101], 'role': 'till', 'seg': 'R-1'}, {'at': [101, 71, 101], 'role': 'wheat', 'seg': 'R-1'}]}
+    CF_ = lambda: dict(GP_(), **{'board-a': dict(GP_()['board-a'], projects=dict(GP_()['board-a']['projects'], cropfarm={'record': cf, 'records_files': 1, 'leases': {}, 'chain': [cf]}))})
+    hv = lambda c, block='wheat': J(base + [R('_build', 'project=cropfarm op=harvest cell=%s block=%s kind=crop n=7' % (c, block), s=14)], CF_())
+    assert hv('101,71,101')['clear_outside'] == 0 and hv('101,71,101')['harvests'] == 1, 'a wheat on a crop cell: the harvest'
+    assert hv('101,70,101', 'farmland')['clear_outside'] == 1, 'positive control: the till cell dug trips'
+    assert hv('101,70,101', 'wheat')['clear_outside'] == 1, 'a crop name on the TILL cell is no harvest (the role is judged)'
+    assert hv('101,71,101', 'cobblestone')['clear_outside'] == 1 and hv('102,71,101')['clear_outside'] == 1, 'not a crop; not a crop cell'
+    assert J(base + [R('_build', 'project=cropfarm op=harvest cell=101,71,101 block=wheat kind=crop', s=14)], CF_(), zones={'board-a': [[101, 0, 101, 101, 200, 101]]})['zone'] == 1, 'a harvest in a protected zone is G3'
+    assert J(base + [R('_build', 'project=treefarm op=harvest cell=1,71,1 block=oak_log kind=grown', s=14)], CF_())['clear_outside'] == 0, 'the tree farm\'s harvest is unchanged (unjudged)'
+    sgr = lambda c, block='short_grass': J(base + [R('_build', 'project=cropfarm op=clear cell=%s block=%s kind=seedgrass' % (c, block), s=14)], CF_())
+    assert sgr('110,71,110')['clear_outside'] == 0 and sgr('130,71,104', 'tall_grass')['clear_outside'] == 0, 'grass near the farm: the gather\'s'
+    assert sgr('110,71,110', 'poppy')['clear_outside'] == 1 and sgr('110,71,110', 'dirt')['clear_outside'] == 1, 'positive control: not grass trips'
+    assert sgr('133,71,104')['clear_outside'] == 1, 'past SEEDGRASS_R of the farm'
+    sg2 = sgr('-30,71,-30')
+    assert sg2['clear_outside'] == 1 and sg2['_lists']['clear_outside'] == ['board-a-Alpha -30,71,-30 seedgrass short_grass guarded'], sg2['_lists']['clear_outside']
+    assert sgr('101,71,101')['clear_outside'] == 1, 'the farm\'s own crop cell is never the gather\'s (its bed plant is a listed clear)'
+    assert J(base + [R('_build', 'project=cropfarm op=clear cell=101,71,101 block=short_grass kind=plant', s=14)], CF_())['clear_outside'] == 0, 'the listed bed plant: the record\'s clear list'
+    cfp = dict(cf, box=[60, 72, 68, 80])
+    CFP_ = lambda: dict(GP_(), **{'board-a': dict(GP_()['board-a'], projects=dict(GP_()['board-a']['projects'], cropfarm={'record': cfp, 'records_files': 1, 'leases': {}, 'chain': [cfp]}))})
+    assert J(base + [R('_build', 'project=cropfarm op=clear cell=65,71,71 block=short_grass kind=seedgrass', s=14)], CFP_())['clear_outside'] == 1, 'the park\'s edge, never'
+    assert seedgrass_ok([cf], [109, 71, 109], 'fern', None, {}, None) == (True, '') and seedgrass_ok([], [109, 71, 109], 'fern', None, {}, None) == (False, ' far')
+    # Codex G9 r1 BLOCKER: a tidy fill or cut cell is never the seed gather's (the bot's guard holds the tidy's plan)
+    cft = dict(cf, box=[20, -10, 28, -2])
+    CFT_ = lambda: dict(GP_(), **{'board-a': dict(GP_()['board-a'], projects=dict(GP_()['board-a']['projects'], cropfarm={'record': cft, 'records_files': 1, 'leases': {}, 'chain': [cft]}))})
+    sgt = lambda c: J(base + [R('_build', 'project=cropfarm op=clear cell=%s block=short_grass kind=seedgrass' % c, s=14)], CFT_())
+    assert sgt('30,72,0')['clear_outside'] == 1 and sgt('31,74,0')['clear_outside'] == 1, 'the tidy head\'s cut and clear cells'
+    assert sgt('30,72,1')['clear_outside'] == 0, 'the control: grass beside them'
+    assert sgt('17,64,-2')['clear_outside'] == 0, 'a cell only an OLDER tidy generation listed (not carried): the bot\'s guard reads the head, so does the read'
+    # Codex G9 r2 BLOCKER: a head sited 30 s AFTER the dig never hides the head the bot read
+    hA = {'at': 1000, 'cells': [{'at': [5, 70, 5]}], 'cut': [], 'clear': []}
+    hB = {'at': 31_000, 'cells': [], 'cut': [], 'clear': []}
+    assert tidy_heads_at([hA, hB], 1_000) == [hA, hB] and tidy_heads_at([hA, hB], 100_000) == [hB] and tidy_heads_at([hA], 0) == [hA] and tidy_heads_at([hA, hB], 0) == [hA, hB]
+    assert seedgrass_ok([cf], [101, 71, 120], 'short_grass', 1_000, {}, None, tidy_heads_at([dict(hA, cells=[{'at': [101, 71, 120]}]), hB], 1_000)) == (False, ' tidy_cell')
     # gkhelpers-01: THE GROUNDS CREW -- one bot on two crew leases, a third helper, two bots on neighbouring segments past the yield
     cg = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'tidy', 'at': T0MS - 60_000, 'cut': [], 'clear': [], 'replant': [],
           'cells': [{'at': [10, 70, 10], 'seg': 'T-00-0'}, {'at': [11, 70, 10], 'seg': 'T-00-0'}, {'at': [13, 70, 10], 'seg': 'T-01-0'}, {'at': [40, 70, 40], 'seg': 'T-02-0'}, {'at': [12, 70, 10], 'seg': 'T-PREV', 'prev': True}]}
