@@ -114,11 +114,11 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
  * WALK THE STAIR UP TO THE COLLAR FROM WHERE THE BOT STANDS (shafttrap-01; shaftgeom.mjs's egress block says why) -> { ok, why,
  * from, to, hops, cleared }. Every effect is injected (the tests run it on a fake world; skills.mjs buildStair on mineflayer).
  * `e` = { read (a fresh reader per get), feet() -> [x,y,z], walkTo(cell) -> Promise<bool arrived>, dig(cell) -> Promise<'confirmed'
- * |...>, now(), aborted(), log?(op, d) }. The bot's step (stairStepAt; a landing stub walks back to its step first), then
+ * |...>, occupied?(cell) -> bool (a body stands on the cell: never dug), now(), aborted(), log?(op, d) }. The bot's step (stairStepAt; a landing stub walks back to its step first), then
  * egressNext until step 0: a hop of up to EGRESS_HOP stands (one stand if that walk fails), or a dig of a foreign block in one
  * of the stair's own air cells within a step (two refusals of one cell end it), then the collar exit. ok only on arrival at
  * the exit (or a bot not under the collar: 'surface'). Bounded by the deadline, the clears and a step count.
- *   why  surface | arrived | off_stair | time | hop | via | dig_refused | clears | wet | tread | unknown | exit_walk | no_exit
+ *   why  surface | arrived | off_stair | time | hop | via | dig_refused | clears | occupied | wet | tread | unknown | exit_walk | no_exit
  */
 export async function runStairEgress (plan, e, { exit = null, deadline = Infinity, clearsMax = EGRESS_CLEARS_MAX } = {}) {
   const out = { ok: false, why: null, from: null, to: null, hops: 0, cleared: 0 }
@@ -147,6 +147,9 @@ export async function runStairEgress (plan, e, { exit = null, deadline = Infinit
     if (op.op === 'stop') return end(false, op.why, i)
     if (op.op === 'dig') {
       if (out.cleared >= clearsMax) return end(false, 'clears', i)
+      // NEVER DIG FROM UNDER A BODY (Codex r1 blocker 2): the foreign block may be another bot's pillar top -- or this bot's own
+      // floor; asked of the live entities at the moment of the dig. A bot standing on it is in the way of the hop as well
+      if (e.occupied?.(op.at)) return end(false, 'occupied', i)
       const key = op.at.join(',')
       const r = await e.dig(op.at)
       if (r === 'confirmed') { out.cleared++; e.log?.('egress_dig', { k: op.k, at: op.at }); continue }
