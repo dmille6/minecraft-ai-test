@@ -18,7 +18,10 @@
 #
 # GATES (deterministic; each has a failing fixture and a passing control in --selftest)
 #   G1 off_record      a `_build op=place` cell that is not a cell of the town's record
+#                      project=road|tower|shrine (picker-01, the town sinks): not a cell of a generation of the plot's chain IN FORCE
+#                      when it was placed (sink_place_ok: a growing record; an instance's cells count from its siting on)
 #   G2 clear_outside   a `_build op=clear` cell outside the record's clear list (kind=foreign: outside the record's cells)
+#                      project=road|tower|shrine: outside the clear list (kind=foreign: the cells) of every generation in force (sink_clear_ok)
 #                      project=tidy (tidy-01 + groundskeeper-01, tidyread-01 11-03): outside the cut + clear lists of EVERY
 #                      generation of the tidy record's chain (stage 0 and each land-plan stage), or ON another project's record
 #                      cell or an expedition marker's block that stood when it was dug (tidy_clear_ok)
@@ -235,6 +238,32 @@ def tidy_place_ok(chain, cell, t_ms, skew_ms=60_000):
 # YARDREAD-01 (11-03, the showcase TRIP 07:35Z: H1 off_record 138, every one a cobblestone the yard clerk stocked on a PILE slot
 # of the yard record -- piles are not record cells). The stock yard's geometry, as bots/src/yard.mjs pileSlots builds it from the
 # blueprint's bays (bots/src/blueprints/yard@1.json, yard@2.json) and townplan.mjs rot; YARD_H = yard.mjs YARD_H.
+# PICKER-01 (11-03): THE TOWN SINKS (bots/src/sinks.mjs SINK_PLOTS). Each plot's record GROWS: every sited instance (a road segment,
+# a tower, a shrine) appends its cells, clears and zone to a new generation, and nothing is ever removed. A row is judged against the
+# generations in force when it was written (sited at or before t + skew), so a placement or a dig ahead of its instance's siting is
+# off the record -- Codex design 11-03: "validate H1/H2 against the generation authorizing the event"; never a blanket exemption.
+SINK_PLOTS = ('road', 'tower', 'shrine')
+
+
+def sink_in_force(chain, t_ms, skew_ms=60_000):
+    """picker-01: the generations of a sink chain in force at t_ms (sited at or before t + skew; no `at`: in force). Pure."""
+    return [g for g in chain or [] if not (t_ms is not None and isinstance(g.get('at'), (int, float)) and g['at'] > t_ms + skew_ms)]
+
+
+def sink_place_ok(chain, cell, t_ms):
+    """picker-01: is a sink placement a cell of a generation in force? -> bool. Pure."""
+    k = ck(cell)
+    return any(ck(c.get('at')) == k for g in sink_in_force(chain, t_ms) for c in g.get('cells') or [] if isinstance(c, dict) and c.get('at'))
+
+
+def sink_clear_ok(chain, cell, kind, t_ms):
+    """picker-01: is a sink dig planned by a generation in force? -> bool. Pure. kind=foreign (a block in an open record cell):
+    a cell; any other kind (tree, leaves, plant, cut): an entry of the clear list."""
+    k = ck(cell)
+    name = 'cells' if kind == 'foreign' else 'clear'
+    return any(ck(c.get('at')) == k for g in sink_in_force(chain, t_ms) for c in g.get(name) or [] if isinstance(c, dict) and c.get('at'))
+
+
 YARD = 'yard'
 YARD_H = 4
 YARD_BAYS = {'yard@1': [((2, 3), (2, 12)), ((6, 7), (2, 12)), ((10, 11), (2, 12)), ((14, 15), (2, 12))],
@@ -747,6 +776,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     # tidyread-02: a tidy fill is judged against the generations in force when it was placed (tidy_place_ok)
                     t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                     off = not tidy_place_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)
+                elif plot in SINK_PLOTS and rec is not None:
+                    # picker-01: the generations of the sink's growing chain in force when it was placed (sink_place_ok)
+                    t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
+                    off = not sink_place_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)
                 elif plot == YARD and rec is not None:
                     # any generation of the yard's chain (a re-sited yard's earlier stock stays the yard's -- Claude r1 note)
                     off = not any(yard_place_ok(g, cell, f.get('block')) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
@@ -782,6 +815,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         else:
                             ok = tidy_clear_ok(chain_t, cell, f.get('kind'), t_ms, guards[pool])
                             why = ' guarded' if tidy_guarded(cell, t_ms, guards[pool]) else ''
+                    elif plot in SINK_PLOTS:
+                        # picker-01: the clear lists (kind=foreign: the cells) of the generations in force when it was dug
+                        t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
+                        ok = sink_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'), t_ms)
                     elif f.get('kind') == 'foreign':
                         ok = k in {ck(c['at']) for c in rec.get('cells') or []}
                     elif f.get('kind') == 'tidy' and plot == YARD:
@@ -1038,6 +1075,34 @@ def selftest():
     assert tpl('50,70,50', pp=TP_(chain_=c3))['off_record'] == 1, 'a cell of a stage sited AFTER the placement (beyond the skew) is not in force'
     assert tpl('50,70,50', s_=3_700, pp=TP_(chain_=c3))['off_record'] == 0 and tpl('17,64,-2', s_=3_700, pp=TP_(chain_=c3))['off_record'] == 0, 'after it: both stages in force'
     assert tidy_place_ok(chain, [17, 64, -2], None) and not tidy_place_ok(chain, [5, 70, 5], None) and not tidy_place_ok([], [17, 64, -2], 0)
+    # picker-01 (11-03): a sink plot's growing chain -- T1 sited before the window, completed, T2 sited an hour in; every row judged
+    # against the generations in force when it was written
+    sg1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'tower', 'blueprint': 'tower@1', 'builders_max': 3, 'at': T0MS - 60_000, 'structure_complete': False,
+           'instances': [{'id': 'T1'}], 'cells': [{'at': [40, 70, 40], 'role': 'T1-b0', 'seg': 'T1-L00-N'}, {'at': [40, 71, 40], 'role': 'T1-core', 'seg': 'T1-L01-N'}],
+           'clear': [{'at': [41, 72, 40], 'kind': 'leaves', 'name': 'spruce_leaves'}, {'at': [42, 71, 40], 'kind': 'tree', 'name': 'spruce_log'}], 'replant': []}
+    sg2 = dict(sg1, gen=2, prev=1, at=T0MS - 30_000, structure_complete=True)
+    sg3 = dict(sg2, gen=3, prev=2, at=T0MS + 3_600_000, structure_complete=False, instances=[{'id': 'T1'}, {'id': 'T2'}],
+               cells=sg1['cells'] + [{'at': [60, 70, 60], 'role': 'T2-b0', 'seg': 'T2-L00-N'}], clear=sg1['clear'] + [{'at': [61, 71, 60], 'kind': 'cut', 'name': 'dirt'}])
+    sf = [(1, json.dumps(sg1).encode())]
+    sf.append((2, json.dumps(dict(sg2, prevSha=hashlib.sha256(sf[0][1]).hexdigest())).encode()))
+    sf.append((3, json.dumps(dict(sg3, prevSha=hashlib.sha256(sf[1][1]).hexdigest())).encode()))
+    schain = record_chain(sf)
+    assert [c['_gen'] for c in schain] == [1, 2, 3], 'the sink chain walks every generation'
+    SP_ = lambda chain_=schain: {'board-a': {**PR(), 'projects': {'shop': {'record': rec, 'records_files': 1, 'leases': {}, 'chain': [rec]},
+                                                                 'tower': {'record': chain_[-1] if chain_ else None, 'records_files': len(chain_), 'leases': {}, 'chain': chain_}}}, 'board-b': PR()}
+    spl = lambda c, s_=14, pp=None, block='cobblestone': J(base + [R('_build', 'project=tower op=place seg=T1-L00-N cell=%s block=%s' % (c, block), s=s_)], pp or SP_())['off_record']
+    assert spl('40,70,40') == 0 and spl('40,71,40', block='andesite') == 0, 'an instance\'s cells, read with the head two generations on'
+    assert spl('60,70,60') == 1, 'a cell of an instance sited AFTER the placement (beyond the skew) is off the record'
+    assert spl('60,70,60', s_=3_700) == 0 and spl('40,70,40', s_=3_700) == 0, 'after its siting: both instances in force'
+    assert spl('44,70,40') == 1 and spl('40,72,40') == 1, 'positive control: a block off every generation trips'
+    assert ck([60, 70, 60]) in {ck(c['at']) for c in schain[-1]['cells']}, 'control: the HEAD holds that cell -- the head-only (generic) rule would have passed it'
+    scl = lambda c, kind, s_=14, block='spruce_leaves': J(base + [R('_build', 'project=tower op=clear seg=T1-L00-N cell=%s block=%s kind=%s' % (c, block, kind), s=s_)], SP_())['clear_outside']
+    assert scl('41,72,40', 'leaves') == 0 and scl('42,71,40', 'tree', block='spruce_log') == 0, 'the listed canopy and trunk'
+    assert scl('40,71,40', 'foreign', block='dirt') == 0, 'a foreign block dug out of an open cell'
+    assert scl('61,71,60', 'cut', block='dirt') == 1 and scl('61,71,60', 'cut', s_=3_700, block='dirt') == 0, 'T2\'s cut: only once T2 is sited'
+    assert scl('45,72,40', 'leaves') == 1 and scl('41,72,40', 'foreign', block='dirt') == 1, 'positive control: off the list, or a clear dug as foreign'
+    assert lease_overlaps({'slot3': [], 'slot4': []}, 3) == [('slot4', None, 'slot beyond builders_max')], 'three builder slots, never a fourth'
+    assert sink_place_ok(schain, [40, 70, 40], None) and not sink_place_ok([], [40, 70, 40], 0) and sink_in_force(schain, T0MS) == schain[:2]
     # yardread-01 (11-03 TRIP 07:35Z): the clerk's stock on the yard record's pile slots is the yard's own; a planted block is not
     yrec = {'v': 1, 'gen': 5, 'plot': 'yard', 'blueprint': 'yard@1', 'anchor': [-50, 5], 's': 68, 'orient': 'S', 'box': [-64, 5, -50, 22],
             'cells': [{'at': [-52, 68, 7], 'role': 'base', 'seg': 'floor'}, {'at': [-51, 69, 6], 'role': 'light', 'seg': 'L'}], 'clear': [], 'replant': []}

@@ -78,6 +78,12 @@ M = [
  ("                    lists['lease_overlap'].append('%s %s %s g%s: crew %s' % (pool, plot, name, gen, why)); out['lease_overlap'] += 1", "                    pass"),
  ("            if nxt is not None:\n                end = min(end, nxt)", "            if False:\n                end = min(end, nxt)"),
  ("            out_.append((g, r, int(r.get('at') or 0), min(end, now_ms)))", "            out_.append((g, r, int(r.get('at') or 0), end))"),
+ # picker-01 (11-03): the town sinks' growing chains, judged by the generations in force
+ ("    return [g for g in chain or [] if not (t_ms is not None and isinstance(g.get('at'), (int, float)) and g['at'] > t_ms + skew_ms)]", "    return list(chain or [])"),
+ ("                    off = not sink_place_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)", "                    off = False"),
+ ("                        ok = sink_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'), t_ms)", "                        ok = True"),
+ ("    name = 'cells' if kind == 'foreign' else 'clear'", "    name = 'clear'"),
+ ("                elif plot in SINK_PLOTS and rec is not None:", "                elif False:"),
 ]
 bad = 0
 for old, new in M:

@@ -1590,7 +1590,12 @@
     "until": "2026-11-17",
     "why": "Every stage left is a copper sink, and the showcase cannot yet fund the first one: the hall has waited on copper since 11-02 (138 of 247 ingots, 11-03). Building more sinks before copperrun-01 shows a copper flow would stack waiting projects. Re-check on 11-17, or sooner when the hall completes."
    },
-   "note": "Split out of townprojects-stages-2-8 on 11-03 (audit 11-02 flag 7)."
+   "note": "Split out of townprojects-stages-2-8 on 11-03 (audit 11-02 flag 7).",
+   "depends_on": [
+    {
+     "item": "picker-sinks-1103"
+    }
+   ]
   },
   {
    "id": "junkout-01",
@@ -3205,7 +3210,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "OWNER ANSWERED 11-02 (Q1 well yes, Q2 yard 2x, Q3 all three sinks). BUILT 11-02: flowledger-01 (tooling, LIVE on .31 cron :05, fleetstatus header 'flow ledger:'), stationkeep-01 -> marks-01 -> towngate-01 queued after bagdiet-01. NEXT (not built): stage 5 stockyard on the fleet at 2x (after the 1x showcase observation; clerk on backlog only), stage 6 picker-01 + first sinks (roads, ziggurat growth, wall towers -- towers and ziggurats with seeded variety), mats bill-driven only, stage 7 sinkrate-01 (blocks per visit >= 40), then monuments-1102.",
+   "next_step": "OWNER ANSWERED 11-02 (Q1 well yes, Q2 yard 2x, Q3 all three sinks). BUILT 11-02: flowledger-01 (tooling, LIVE on .31 cron :05, fleetstatus header 'flow ledger:'), stationkeep-01 -> marks-01 -> towngate-01 queued after bagdiet-01. NEXT (not built): stage 5 stockyard on the fleet at 2x (after the 1x showcase observation; clerk on backlog only). Stages 6+7 BUILT 11-03 as picker-sinks-1103 (showcase piece picker-01show, not released; mats bill-driven deferred: tier 3), then monuments-1102.",
    "max_quiet_hours": 72,
    "depends_on": [
     {
@@ -3281,6 +3286,34 @@
    }
   },
   {
+   "id": "picker-sinks-1103",
+   "title": "picker-01 + the first town sinks (owner 11-02 Q3 + 11-03 'do it'): when the finite project list stands, a picker offers repeatable sink instances funded by surplus stone -- road segments, wall towers, ziggurat-growth shrines -- towers and shrines with seeded variety fixed at siting; 3 builder slots, bounded bills (sinkrate-01 folded in)",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "owner-resource-model-1102.md",
+    "owner-ziggurat-variety-1029.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "BUILT 11-03 (not released): branch picker-01show on showcase release adbf9e41 (SINKS on in the showcase pool only; SINKS=off rollback); Codex + Claude designs reconciled in docs/reports/picker-sinks-2026-11-03.md; tripwire rule sink_place_ok/sink_clear_ok on main (Codex + Claude APPROVE) to install as /srv/showcase/trip/shopread.py BEFORE the release. NEXT: fold onto the current showcase release, record the piece, install the tripwire, activate, 2-h read (sited >= 1, blocks per placing sink visit with denominator vs >= 40, H1-H6 0, deaths, keeper_held share from 67/101).",
+   "max_quiet_hours": 72,
+   "depends_on": [],
+   "evidence": {
+    "grep": [
+     "picker-01"
+    ],
+    "branches": [
+     "picker-01show"
+    ],
+    "paths": [
+     "docs/reports/picker-sinks-2026-11-03.md"
+    ]
+   },
+   "note": "Roads: a raised causeway along the land-plan rails from r 80 (the corridors inside are the groundskeeper's); a bridge over water and paving the graded corridors are later road stages. mats left buffer-driven (palettes use stocked stone only; retiring buffers is cognitive.mjs, tier 3)."
+  },
+  {
    "id": "monuments-1102",
    "title": "Unique creative monuments as the stone sink (owner 11-02: 'once these are done, creating some more creative monuments and designs that are unique would be an interesting way to spend the extra stone ... use claude and codex for unique one off designs')",
    "owner_date": "2026-11-02",
@@ -3293,7 +3326,11 @@
    "owner": "control session",
    "next_step": "After resource-model-1102's picker-01 lands: Claude + Codex each design one-off monuments (no two alike) expressed as buildable blueprints the picker can fund by phase; showcase first, camera on each.",
    "max_quiet_hours": 168,
-   "depends_on": [],
+   "depends_on": [
+    {
+     "item": "picker-sinks-1103"
+    }
+   ],
    "evidence": {
     "grep": [
      "monuments-1102"
