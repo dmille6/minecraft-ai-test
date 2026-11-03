@@ -109,10 +109,16 @@ OXID = re.compile(r'(exposed_|weathered_|oxidized_)')
 
 
 CAULDRON = re.compile(r'^minecraft:(water_|lava_|powder_snow_)cauldron$')
+# THE VILLAGE UNLOCK (villageunlock-01, OWNER 11-03 ~21:45Z "we can edit the world when it comes to opening doors etc, that is
+# fine"): a bot closes the OPEN trapdoors / opens the CLOSED fence gates penning a jobless villager. That is a STATE change of
+# the same block, never a new name: INTACT. A cell is compared by its NAME only -- the region reader yields names, and a
+# `name[state]` string (a future reader, a hand-made baseline) is cut to its name here, so the toggle stays legal whatever
+# the reader. Removing one, or turning it into another block, is still a REMOVED / changed cell: a BREACH, as before.
+STATE = re.compile(r'\[.*\]$')
 
 
 def canon(name):
-    n = OXID.sub('', name)
+    n = OXID.sub('', STATE.sub('', name))
     if CAULDRON.match(n):
         return 'minecraft:cauldron'          # what is IN a cauldron is not the structure; the cauldron is
     return 'minecraft:copper_block' if n == 'minecraft:copper' else n
@@ -1066,6 +1072,16 @@ def selftest():
     assert zone_diff({'1,1,1': 'minecraft:copper_block', '2,2,2': 'minecraft:cut_copper'},
                      {'1,1,1': 'minecraft:exposed_copper', '2,2,2': 'minecraft:oxidized_cut_copper'}) == ([], [], []), 'weathering is not a breach'
     assert zone_diff({'1,1,1': 'minecraft:waxed_copper_block'}, {'1,1,1': 'minecraft:copper_block'})[1], 'losing the wax is a change'
+    # villageunlock-01: a trapdoor or fence gate toggled by the unlock is INTACT (the same name; a state suffix ignored);
+    # the same block removed or turned into another one is still a breach
+    td = {'80,73,-5': 'minecraft:spruce_trapdoor[facing=north,half=bottom,open=true]', '79,74,-7': 'minecraft:oak_fence_gate[open=false]'}
+    assert zone_diff(td, {'80,73,-5': 'minecraft:spruce_trapdoor[facing=north,half=bottom,open=false]', '79,74,-7': 'minecraft:oak_fence_gate[open=true]'}) == ([], [], []), \
+        'the village unlock: a toggled trapdoor / fence gate is INTACT'
+    assert zone_diff({'80,73,-5': 'minecraft:spruce_trapdoor'}, {'80,73,-5': 'minecraft:spruce_trapdoor'}) == ([], [], [])
+    assert zone_diff(td, {'79,74,-7': 'minecraft:oak_fence_gate[open=true]'})[0] == ['80,73,-5 minecraft:spruce_trapdoor[facing=north,half=bottom,open=true]'], \
+        'the village unlock: a REMOVED trapdoor is still a breach'
+    assert zone_diff({'80,73,-5': 'minecraft:spruce_trapdoor[open=true]'}, {'80,73,-5': 'minecraft:oak_trapdoor[open=false]'})[1], \
+        'the village unlock: a trapdoor turned into another block is still a change'
     base = {'live_bots': 10, 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
             'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {'D1 chain_invalid': 0}, 'plan_error': None}
     assert verdict(base) == ('OK', [])
