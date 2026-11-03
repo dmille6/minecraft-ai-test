@@ -3845,6 +3845,35 @@
    "state": "open",
    "title": "promptcache-01 NO-EFFECT at h24: fix or remove (promptcache-01 h24 NO-EFFECT: llm.prompt_tokens_mean.v1 2552 (216,660,658/84,907) -> 2443 (247,217,516/101,213) -4.3% (noise x/1.05, 80 bots 1,343 bot-h; llm.prompt_tokens_mean.v1:)",
    "note": "First effectwatch read (backfill, metric chosen retrospectively from the registration notes on 11-03). Several promotions land per day; the verdict file ~/digest/effect/<run>/<h>.json names the overlaps. NO-EFFECT here = not distinguishable from day-to-day noise (placebo anchors) or below half the claim -- it is NOT proof of zero effect; a better-matched metric (or a longer window) is a legitimate close."
+  },
+  {
+   "id": "cooldown15-1103",
+   "title": "Decision gap 30 s -> 15 s (owner 11-03 \"lets move it to 15 seconds and give it a try\"): cooldown15-02, a re-run of cooldown15-01",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "cooldown15-02-1103.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "cooldown15-02 at the queue head (autorebase onto the fleet tip, draw targets 4 pools, +90/+180 read). KEEP -> promoted: re-measure decisions/min/bot and raise DEC_PER_BOT_MIN in ~/servea-rollout/modelrollout.py before the 4B rollout stages. REVERT on deaths -> check linkage before a third try.",
+   "max_quiet_hours": 24,
+   "depends_on": [
+    {
+     "run": "cooldown15-02",
+     "until": "closed"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "cooldown15-02"
+    ],
+    "grep": [
+     "cooldown15-02"
+    ]
+   },
+   "note": "cooldown15-01 reverted 11-02 at +63 min by the rate-only death gate on 2 unlinked lava deaths (both bots idle in failed-walk streaks), no read ran. 10 s waits for 5080 capacity (4B fleet-wide)."
   }
  ]
 }
