@@ -9,7 +9,7 @@ import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { Vec3 } from 'vec3'
 import { swimUnderPlan, swimUnderAdmit, swimUnderStep, swimUnderAbort, swimBackRoute, swimUnder, swimUnderOn, exitKind, swimFits, airEstimate,
-  swimUnderBackoffMs, SU_MAX_WET_RUN, SU_ABORT_OXYGEN } from '../src/swimunder.mjs'
+  swimUnderBackoffMs, swimNoPlanBackoffMs, SU_MAX_WET_RUN, SU_ABORT_OXYGEN } from '../src/swimunder.mjs'
 
 const require = createRequire(import.meta.url)
 const Block = require('prismarine-block')('1.21.8')
@@ -156,6 +156,10 @@ await ta('P6 never beside lava, never through a bubble column, never into an unl
   const base = tunnel(2)
   const unloaded = swimUnderPlan({ at: (x, y, z) => (x === 2 ? null : base.at(x, y, z)), start: [0, 10, 0] })
   assert.equal(unloaded.ok, false, 'routed through an unloaded cell')
+  assert.ok(unloaded.unloaded > 0, 'the refusal says it met unloaded cells')
+  // Paper 11-03: a no-plan answer that met unloaded cells is not a fact of the place: no back-off; the first real one is 1 min
+  assert.equal(swimNoPlanBackoffMs(1, unloaded), 0)
+  assert.deepEqual([1, 2, 6].map(t => swimNoPlanBackoffMs(t, { ok: false, unloaded: 0 })), [60_000, 300_000, 3_600_000])
   assert.equal(swimFits(null), false)
 })
 
