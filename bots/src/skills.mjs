@@ -20203,12 +20203,21 @@ function hallPadZones (plan) {
  *  visit), at most LAND_UNREAD_TRIES times a connection, then it is published as read. */
 const LAND_UNREAD_MAX = 400
 const LAND_UNREAD_TRIES = 3
+/** townterrace-01: the land plan's water guard -> (x, z) -> bool: a column whose water the roads may dam or fill (no refusal, never
+ *  within 4 of farmland: the farm's irrigation). The farmland read once, lazily, over the plan's reach. */
+function landWaterOk (read, I) {
+  let farm = null
+  const R = 82
+  return (x, z) => { if (I.avoid(x, z) || I.reserved(x, z)) return false; farm ??= farmGuardOf(read, [I.home.x - R, I.home.z - R, I.home.x + R, I.home.z + R], I.home); return !farm(x, z) }
+}
 /** Plan and publish the town's land plan -> { ok, why, land }. Awaits between road legs (the event loop). */
 async function landPlanNow (bot, dir, signal) {
   const I = landInputs(bot)
   const read = planReader(bot)
   const pause = () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal))
-  const r = await planLand(read, { home: I.home, plan: I.plan, seed: landSeed(config.memory.pool, I.home), avoid: I.avoid, reserved: I.reserved, limOf: n => gradeLim(read, n), caps: I.caps, composter: I.composter, sited: I.sited, now: Date.now(), pause })
+  // townterrace-01 (the 11-01 water rule, Codex water r1 BLOCKER 2): the roads route beside water only where the earthwork may dam it
+  const lw = landWaterOk(read, I)
+  const r = await planLand(read, { home: I.home, plan: I.plan, seed: landSeed(config.memory.pool, I.home), avoid: I.avoid, reserved: I.reserved, limOf: n => gradeLim(read, n, tidyWater(), { waterOk: lw }), caps: I.caps, composter: I.composter, sited: I.sited, now: Date.now(), pause })
   if (!r.ok) return { ok: false, why: r.why, land: null }
   bot.gkLandTries = (bot.gkLandTries ?? 0) + 1
   if (r.plan.unread > LAND_UNREAD_MAX && bot.gkLandTries < LAND_UNREAD_TRIES) return { ok: false, why: `unread:${r.plan.unread}`, land: null }
@@ -20354,7 +20363,18 @@ async function buildTidy (ctx, args, signal) {
   // those cells are passed (waived), never dug -- the tree stays whole
   const keptTree = new Set((rec.replant ?? []).filter(q => q.state === 'skipped' && q.why === 'guarded').map(q => q.tree).filter(Number.isFinite))
   const keptLogK = new Set((rec.clear ?? []).filter(q => q.kind === 'tree' && keptTree.has(q.tree)).map(q => q.at.join(',')))
-  const waivedK = q => !!q.prev || keptLogK.has(q.at.join(',')) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !!guardNow(q.at[0], q.at[2]))
+  // the 11-01 water rule at WORK time for every groundskeeper stage (Claude water r1 note): a fill or a dam into WATER within 4 of
+  // farmland laid since the siting is passed (the farm's irrigation stays); the farmland read once, lazily, on the first such cell
+  let farmNow = null, fwRead = null
+  const farmWater = q => {
+    if (!GROUNDS.on) return false
+    fwRead ??= planReader(bot)
+    const b = fwRead(...q.at)
+    if (!b || !/^(water|bubble_column)$/.test(String(b.name ?? ''))) return false
+    try { farmNow ??= farmGuardOf(fwRead, [home.x - (Number(rec.r) || 32) - 4, home.z - (Number(rec.r) || 32) - 4, home.x + (Number(rec.r) || 32) + 4, home.z + (Number(rec.r) || 32) + 4], home) } catch { return true }
+    return farmNow(q.at[0], q.at[2])
+  }
+  const waivedK = q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !!guardNow(q.at[0], q.at[2]))
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }

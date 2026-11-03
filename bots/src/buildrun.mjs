@@ -503,7 +503,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // lease are checked AGAIN after the walk, at the dig (Codex r1 P2: a replacement placed during the walk, or a lease lapsed in it,
   // was dug anyway). An unconfirmed dig asks the server (the probe): air confirms, any other name means it stands, nothing leaves
   // the cell unknown.
-  const digNamed = async (at, name, held, nodes = null) => {
+  const digNamed = async (at, name, held, nodes = null, safe = null) => {
     const stand = digStand(rd, at, nodes ?? nodesFor())
     if (!stand) return 'no_stand'
     if (!renewSlot() || !held()) return 'fence'
@@ -514,6 +514,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (!digReachFrom(e.feet?.(), at)) return 'unreached'
     if (nm(rd(...at)) !== name) return 'gone'
     if (!renewSlot() || !held()) return 'fence'
+    // townterrace-01 (Codex water r1 BLOCKER 1): the caller's safety check re-read AFTER the walk, nothing awaited from here to the dig
+    if (safe && !safe()) return 'unsafe'
     let v = await e.dig(at, name)
     for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(at); if (n != null) v = AIR(n) ? 'confirmed' : 'standing' }
     if (v === 'unconfirmed') { unknown.add(kOf(at)); out.unknown++; e.log('_build', { op: 'unknown', cell: at, block: name }) }
@@ -816,7 +818,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (!digStand(rd, c.at, nodes)) continue                    // no stand reaches it now: nothing tried, nothing counted
         const g = guard(); if (g) return g
         tried++
-        const v = await digNamed(c.at, c.name, held, nodes)
+        const v = await digNamed(c.at, c.name, held, nodes, c.kind === 'tidy' && p.tidyOk ? () => p.tidyOk(c, rd) : null)
+        if (v === 'unsafe') { (out.tidyWet ??= []).push(kOf(c.at)); nodes = null; continue }
         if (v !== 'no_stand') nodes = null
         // zigtidy-02: a tidy walk that did not arrive ends the tidy (the lease freed for a builder who can), the visit goes on
         if (v === 'unreached' && c.kind === 'tidy') return null
