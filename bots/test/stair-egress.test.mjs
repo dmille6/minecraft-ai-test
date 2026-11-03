@@ -125,6 +125,22 @@ await t('a liquid in an air cell or a missing tread next to the bot stops it (ne
   w3.set(PLAN.steps[36].air[1], 'water')
   assert.deepStrictEqual(G.egressNext(w3.read, PLAN, 40), { op: 'hop', to: 37 }, 'farther off: walk up to it first')
 })
+await t('Codex r1 blocker 1: dirt holding back lava or water beside it is never dug (the barrier stays; the way out stops)', () => {
+  for (const liquid of ['lava', 'water']) {
+    const w = world()
+    w.set(PLAN.steps[39].air[0], 'dirt'); w.set(PLAN.steps[39].air[1], liquid)
+    const op = G.egressNext(w.read, PLAN, 40)
+    assert.strictEqual(op.op, 'stop', `${liquid}: ${JSON.stringify(op)}`); assert.strictEqual(op.why, 'wet')
+    const w2 = world()
+    w2.set(PLAN.steps[39].air[0], 'dirt')
+    const side = PLAN.steps[39].lining.find(c => c[1] === PLAN.steps[39].air[0][1]) ?? PLAN.steps[39].lining[0]
+    w2.set(side, liquid)
+    assert.strictEqual(G.egressNext(w2.read, PLAN, 40).why, 'wet', `${liquid} in the lining beside the dirt`)
+  }
+  const w3 = world()
+  w3.set(PLAN.steps[39].air[0], 'dirt')
+  assert.strictEqual(G.egressNext(w3.read, PLAN, 40).op, 'dig', 'POSITIVE CONTROL: dry around it, it is dug')
+})
 await t('egressReserveMs: 0 at the top, grows with depth; the bottom step fits in the skill budget with the work tail', () => {
   assert.strictEqual(G.egressReserveMs(0), 0)
   assert.ok(G.egressReserveMs(53) > G.egressReserveMs(10))
@@ -214,6 +230,30 @@ await t('bounded: a refused dig twice ends it; a spent deadline ends it; an abor
   assert.strictEqual(rd.why, 'surface'); assert.strictEqual(rd.ok, true); assert.strictEqual(d.st.walks.length, 0)
 })
 
+await t('Codex r1 blocker 2: a block a body stands on is never dug (another bot on its pillar top)', async () => {
+  const w = world()
+  w.set(PLAN.steps[39].air[0], 'dirt')
+  const b = body(w, G.standOf(PLAN, 40))
+  b.e.occupied = c => c.join(',') === PLAN.steps[39].air[0].join(',')
+  const r = await runStairEgress(PLAN, b.e, { exit: EXIT })
+  assert.strictEqual(r.why, 'occupied'); assert.strictEqual(b.st.digs.length, 0)
+  const b2 = body(w, G.standOf(PLAN, 40))
+  b2.e.occupied = () => false
+  assert.strictEqual((await runStairEgress(PLAN, b2.e, { exit: EXIT })).ok, true, 'POSITIVE CONTROL: nobody on it, it is dug and the bot leaves')
+})
+await t('bodyOnCell (skills.mjs, the live occupancy): a player on the cell or jumping off it yes; beside it, below it, or a non-player no', async () => {
+  const { bodyOnCell } = await import('../src/skills.mjs')
+  const P = (x, y, z, type = 'player') => ({ type, position: { x, y, z } })
+  const me = P(10.5, 40, 10.5)
+  const bot = e => ({ entity: me, entities: { 1: me, ...(e ? { 2: e } : {}) } })
+  const c = [12, 40, 10]
+  assert.strictEqual(bodyOnCell(bot(P(12.5, 41, 10.5)), c), true, 'standing on it')
+  assert.strictEqual(bodyOnCell(bot(P(12.9, 41.8, 10.2)), c), true, 'its box over the edge, mid-jump')
+  assert.strictEqual(bodyOnCell(bot(P(13.5, 41, 10.5)), c), false, 'the next column')
+  assert.strictEqual(bodyOnCell(bot(P(12.5, 39, 10.5)), c), false, 'under it')
+  assert.strictEqual(bodyOnCell(bot(P(12.5, 41, 10.5, 'object')), c), false, 'a dropped item is not a body')
+  assert.strictEqual(bodyOnCell({ entity: P(12.5, 41, 10.5), entities: {} }, c), true, 'the bot itself counts')
+})
 console.log('5. THE COMPOSITION: a repair visit deep in the stair, then the egress (buildStair\'s order)')
 await t('a visit repairs the dirt at step 41 and stops there; the egress takes the bot from that stand to the exit', async () => {
   const w = world()
