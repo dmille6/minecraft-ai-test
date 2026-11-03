@@ -369,6 +369,11 @@ await t('the LIVE meadow-only park gets flowers and a tree in its own box, never
   assert.strictEqual(TR.parkTopUp(srv.read, { park: t1.park, have: { poppy: 10, oak_sapling: 2 }, segN: 1, y0: G - 8, y1: G + 8 }), null, 'placed elements are not added again')
   assert.strictEqual(TR.parkTopUp(srv.read, { park, have: { poppy: 3 }, y0: G - 8, y1: G + 8 }), null, 'below TOPUP_MIN: nothing')
   assert.strictEqual(TR.parkTopUp(srv.read, { park: { box: null }, have: { poppy: 30 } }), null)
+  // sugar cane held but no water in the box: the flowers go in, the cane keeps the layout's reason (no_water: no more gathering it)
+  const t2 = TR.parkTopUp(srv.read, { park, have: { poppy: 10, sugar_cane: 6 }, segN: 0, y0: G - 8, y1: G + 8 })
+  assert.ok(t2.cells.some(c => c.el === 'flowers') && !t2.cells.some(c => c.el === 'cane'))
+  assert.strictEqual(t2.park.skipped.cane, 'no_water')
+  assert.strictEqual(PK.parkWant(t2.park, {}).cane, undefined, 'the crew stops gathering cane the park cannot use')
 })
 
 console.log('WIRING (skills.mjs buildTidy / keeperOrder, shop.mjs; structural)')
