@@ -96,14 +96,20 @@ await t('two segments within GK.segGap columns conflict, farther ones do not; a 
   assert.strictEqual(GK.crewSegOk({ cols, seg: 'C', me: 'H', live: { A: { holder: 'K', at: 1 } } }), true)
   assert.strictEqual(GK.crewSegOk({ cols, seg: 'B', me: 'K', live: { A: { holder: 'K', at: 1 } } }), true, 'my own lease never stops me')
 })
-await t('a raced take: the later taker yields, the earlier keeps; at a tie the name that sorts first keeps it; a torn lease wins', async () => {
+await t('a raced take: any other bot\'s live conflicting segment after my take -> I yield, whatever its stamp (Codex r1 BLOCKER); far apart -> keep', async () => {
   const cols = GK.segColumns(segRec())
-  assert.strictEqual(GK.crewYield({ cols, seg: 'B', me: 'H', myAt: 20, live: { A: { holder: 'K', at: 10 } } }), true)
-  assert.strictEqual(GK.crewYield({ cols, seg: 'A', me: 'K', myAt: 10, live: { B: { holder: 'H', at: 20 } } }), false)
-  assert.strictEqual(GK.crewYield({ cols, seg: 'B', me: 'H', myAt: 10, live: { A: { holder: 'K', at: 10 } } }), false, 'a tie: H sorts before K and keeps B')
-  assert.strictEqual(GK.crewYield({ cols, seg: 'A', me: 'K', myAt: 10, live: { B: { holder: 'H', at: 10 } } }), true, '... and K yields A')
-  assert.strictEqual(GK.crewYield({ cols, seg: 'B', me: 'H', myAt: 10, live: { A: { holder: '?', at: -Infinity } } }), true)
-  assert.strictEqual(GK.crewYield({ cols, seg: 'C', me: 'H', myAt: 20, live: { A: { holder: 'K', at: 10 } } }), false, 'control: far apart')
+  assert.strictEqual(GK.crewYield({ cols, seg: 'B', me: 'H', live: { A: { holder: 'K', at: 10 }, B: { holder: 'H', at: 20 } } }), true)
+  assert.strictEqual(GK.crewYield({ cols, seg: 'A', me: 'K', live: { A: { holder: 'K', at: 10 }, B: { holder: 'H', at: 5 } } }), true, 'an EARLIER stamp still yields: a stamp cannot order two writes')
+  assert.strictEqual(GK.crewYield({ cols, seg: 'B', me: 'H', live: { A: { holder: '?', at: -Infinity } } }), true, 'a torn lease is someone\'s')
+  assert.strictEqual(GK.crewYield({ cols, seg: 'C', me: 'H', live: { A: { holder: 'K', at: 10 } } }), false, 'control: far apart')
+  assert.strictEqual(GK.crewYield({ cols, seg: 'B', me: 'H', live: { B: { holder: 'H', at: 20 } } }), false, 'only my own')
+  // the interleaving Codex named: A checks (nothing), B checks (nothing), B writes, A writes, B re-checks after its write... each
+  // re-check runs after its OWN write, so the second to re-check sees the first: never both keep
+  const after = (me, seg, live) => GK.crewYield({ cols, seg, me, live })
+  const both = { A: { holder: 'K', at: 100 }, B: { holder: 'H', at: 101 } }
+  assert.ok(after('K', 'A', both) || after('H', 'B', both), 'whoever re-checks with both on disk yields')
+  assert.strictEqual(after('H', 'B', { B: both.B }), false, 'the first to re-check (the other not yet written) keeps; the other then sees it')
+  assert.strictEqual(after('K', 'A', both), true)
 })
 await t('liveLeases: the newest generation of each seg- lease, held now, in one listing (released and lapsed ones absent)', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gkh-'))
@@ -141,7 +147,7 @@ function crewHooks (dir, key, me, cols, { okAlways = false } = {}) {
   const live = () => { const L0 = PJ.liveLeases(dir, key, 'seg-', Date.now()); if (!L0) return null; const o = {}; for (const [n, v] of Object.entries(L0)) if (n !== 'seg-clear') o[n.slice(4)] = v; return o }
   return {
     segOk: sg => { if (okAlways) return true; const L0 = live(); return !!L0 && GK.crewSegOk({ cols, seg: sg, me, live: L0 }) },
-    segYield: sg => { const L0 = live(); return !L0 || GK.crewYield({ cols, seg: sg, me, myAt: L0[sg]?.at ?? Date.now(), live: L0 }) },
+    segYield: sg => { const L0 = live(); return !L0 || GK.crewYield({ cols, seg: sg, me, live: L0 }) },
     skipOpenDeps: true,
   }
 }

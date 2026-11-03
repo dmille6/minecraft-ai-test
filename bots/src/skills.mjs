@@ -20374,9 +20374,11 @@ function gkPlanAdditions (bot, dir, key, rec, me) {
 }
 /** THE GATHER'S REFUSALS -> (x, y, z) -> reason | null: the terrace's work-time guard (zones, every other project's record and box,
  *  the roads, the farm, the markers, the hall pad), the park's own box and its edge, and any record cell. Throws when unreadable. */
-function gatherGuard (bot, dir, land, park) {
+function gatherGuard (bot, dir, land, park, tidyRec = null) {
   const g = terraceGuardNow(bot, land)
   const cells = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(','))))
+  // the tidy's own plan (its fills with every carried stage's, its cuts and clears): the keeper's work, never the gather's
+  for (const q of [...(tidyRec?.cells ?? []), ...(tidyRec?.cut ?? []), ...(tidyRec?.clear ?? [])]) if (Array.isArray(q?.at)) cells.add(q.at.join(','))
   const pb = park?.box
   return (x, y, z) => {
     if (pb && x >= pb[0] - 1 && x <= pb[2] + 1 && z >= pb[1] - 1 && z <= pb[3] + 1) return 'park'
@@ -20405,7 +20407,7 @@ async function parkGather (ctx, signal, { deadline, effects: e }) {
   const want = parkWant(park, have)
   if (!Object.keys(want).length) return { n: 0, why: 'nothing_wanted' }
   let reserved
-  try { reserved = gatherGuard(bot, dir, land, park) } catch { return { n: 0, why: 'guard_unread' } }
+  try { reserved = gatherGuard(bot, dir, land, park, rh.ok ? rh.head?.rec ?? null : null) } catch { return { n: 0, why: 'guard_unread' } }
   // THE SHEARS (a leaf block drops itself only to shears; the LIVE showcase's surroundings are spruce: 15,143 unreserved leaf blocks
   // within 64, no free flower): crafted in the 2x2 grid from 2 iron ingots the bag spares, only while the park wants a hedge
   if (want.hedge > 0 && countItem(bot, 'shears') < 1) {
@@ -20647,7 +20649,7 @@ async function buildTidy (ctx, args, signal) {
     const liveNow = (fresh = false) => { const t = Date.now(); if (fresh || !liveMemo || t - liveMemo.at > 3000) liveMemo = { at: t, v: crewLive(dir, key, t) }; return liveMemo.v }
     const crew = {
       segOk: sg => { const L = liveNow(); return !!L && crewSegOk({ cols: crewCols, seg: sg, me, live: L }) },
-      segYield: sg => { const L = liveNow(true); return !L || crewYield({ cols: crewCols, seg: sg, me, myAt: L[sg]?.at ?? Date.now(), live: L }) },
+      segYield: sg => { const L = liveNow(true); return !L || crewYield({ cols: crewCols, seg: sg, me, live: L }) },
     }
     if (floorOnly) f.floor = floorNow.length
     const open = (visitRec.cells ?? []).filter(q => q.role !== 'light' && !PARK_ROLES.has(q.role) && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length

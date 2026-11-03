@@ -100,7 +100,7 @@ export const keeperWanted = (states, { shopPlot = 'shop', tidyPlot = 'tidy' } = 
 // HELPER only fills: it takes one of the town's `helper1`/`helper2` leases (never while no keeper holds the grounds, never two, never
 // the keeper's own bot), an admission slot like any builder, and the record's FILL segments under their own `seg-<id>` leases. A
 // segment is taken only when no other bot's live segment comes within GK.segGap columns of it (crewSegOk), and a bot that finds it
-// raced into one yields it at once (crewYield): no two bots ever work overlapping or adjacent cells. A helper with nothing to fill
+// raced into one after its own take yields it at once (crewYield): no two bots ever work overlapping or adjacent cells. A helper with nothing to fill
 // gathers the park's plants (park.mjs gatherTargets); with nothing to gather either it lets its lease go and rests.
 // ================================================================================================================================
 export const HELPER_LEASES = Object.freeze(['helper1', 'helper2'])
@@ -156,16 +156,14 @@ export function crewSegOk ({ cols, seg, me, live = {}, gap = GK.segGap } = {}) {
   return true
 }
 /**
- * AFTER THE TAKE (two bots checked at once and took neighbours): must this bot give `seg` back? -> bool. Pure. Yes when another
- * bot's live conflicting segment was taken FIRST (its `at` earlier; at a tie, the holder name that sorts first keeps it), so exactly
- * one of two racers yields and the other works on.
+ * AFTER THE TAKE (two bots checked at once and took neighbours): must this bot give `seg` back? -> bool. Pure. Yes when ANY other
+ * bot's live segment conflicts with it now, whoever took first (Codex r1 BLOCKER: a lease's `at` is its taker's clock read BEFORE the
+ * write, so it cannot order two writes; by timestamp, the earlier-stamped but later-written take saw the other's lease, kept its
+ * own, and both bots worked neighbours). Each bot checks only AFTER its own lease is on disk, so of two racers the one that checks
+ * second always sees the other and yields: never both proceed (both may yield: each tries the next segment).
  */
-export function crewYield ({ cols, seg, me, myAt, live = {}, gap = GK.segGap } = {}) {
-  for (const [s, l] of Object.entries(live)) {
-    if (!l || l.holder === me || s === seg || !segsConflict(cols, seg, s, gap)) continue
-    const at = Number(l.at)
-    if (!Number.isFinite(at) || at < myAt || (at === myAt && String(l.holder) < String(me))) return true
-  }
+export function crewYield ({ cols, seg, me, live = {}, gap = GK.segGap } = {}) {
+  for (const [s, l] of Object.entries(live)) if (l && l.holder !== me && s !== seg && segsConflict(cols, seg, s, gap)) return true
   return false
 }
 /** A helper's view of the record: the plan's digs are the keeper's (no clears, no replants; the cuts are not passed), and the
