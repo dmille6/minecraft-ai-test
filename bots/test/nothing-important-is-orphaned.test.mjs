@@ -202,6 +202,7 @@ const REQUIRED = [
   'scripts/host/test_autorebase.py',
   'scripts/host/install-autorebase.sh',
   'scripts/host/install-autorebase-v40.sh',
+  'scripts/host/install-sched-v41.sh',   // v41 bundles + fast read plan (11-03)
   'scripts/host/autorebase-relay.sh',
   'scripts/host/holdtoken.py',
   'scripts/host/qwen35load.mjs',
