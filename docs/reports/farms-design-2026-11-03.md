@@ -222,7 +222,7 @@ G1 (place on the record) and G3 (zones, now also judging `op=harvest`) already c
 ## 9. Built: piece 1 cropfarm-01show (11-03)
 
 **Branch and base:**
-- branch `farms-01show` @ `8b5ed792`, on the live showcase release branch `origin/showcase-gkpick-on-adbf9e41` (cbd2f51b);
+- branch `farms-01show` @ `298ed65d` (r3: the crop farm listed only where the tree farm is on; order tests updated), on the live showcase release branch `origin/showcase-gkpick-on-adbf9e41` (cbd2f51b);
 - tier 2 (`protected.py`: not protected);
 - rollback: `CROPFARM=off`, or the base sha.
 
@@ -260,6 +260,9 @@ An empty farm with no seed is due again once its 30-min gather back-off ends.
   due again.
 - r2: one fix incomplete (`takeAllowed` -> `shopAllow`).
 - r3: APPROVE.
+- Suite on .30 (8b5ed792): 386/400. The 6 known base failures plus flakes lavastep and plinth-skill, and 6 new ones, all from the
+  project list: house, paths-wiring, shop, showcase-on-fleet, wall-wiring, ziggurat-project. All six fixed in 298ed65d and
+  re-run green alone. The full re-run is queued on .30 (`~/farms-1103/suite2.log`).
 
 **Tripwire:** G9 farm_dig in `docs/reports/shop-01-2026-10-25/shopread.py.txt` (main, NOT installed). Selftest passes.
 - Claude (independent subagent): APPROVE.
