@@ -277,6 +277,13 @@ let expeditionAskOf = null
 export const buildIdle = ({ complete = false, record = null, lastStop = null } = {}) =>
   !!complete || lastStop === 'no_material' || (lastStop === 'complete' && record?.structure_complete === true)
 export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'function' ? fn : null }
+/**
+ * COPPERRUN-01: the copper run's ask (skills.mjs copperAsk -> copperhall.mjs copperRunOrder), set at install like the expedition's.
+ * Asked by buildOrder in the same idle branch, BEFORE the expedition: a bot the projects cannot use fetches the waiting hall's
+ * copper first. -> { order } | null. Unset (or COPPERRUN/COPPERHALL off): never asked.
+ */
+let copperAskOf = null
+export function setCopperAsk (fn) { copperAskOf = typeof fn === 'function' ? fn : null }
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
 // the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
@@ -580,6 +587,12 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (!planned) return { order: null, skip: null }
   // EXPEDITION-01 (owner showcase item 5): a bot the town's projects cannot use (all complete, or its last visit found no
   // material) may go on a short expedition -- the same order, the visit's args say which (skills.mjs buildShop)
+  // copperrun-01: the waiting hall's copper first (its own skips say why not); then the expedition exactly as before
+  if (buildIdle({ complete, record, lastStop: state.lastStop }) && copperAskOf) {
+    let cr = null
+    try { cr = copperAskOf({ now, health, freeSlots }) } catch { cr = null }
+    if (cr?.order) return { order: cr.order, skip: null }
+  }
   if (buildIdle({ complete, record, lastStop: state.lastStop }) && expeditionAskOf) {
     let ex = null
     try { ex = expeditionAskOf({ now, health, freeSlots, complete, lastStop: state.lastStop ?? null }) } catch { ex = null }
