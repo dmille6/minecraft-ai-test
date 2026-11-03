@@ -73,6 +73,29 @@ export function riseCentreTarget ({ route, pos, at }) {
 }
 
 /**
+ * THE 500 ms DECISION (pure): what the rescue/hold stroke does this tick, and what happens to the steerer's aim.
+ *   may    () -> bool: nobody else holds the body (centreMay in reflex.mjs)
+ *   guard  (feet {x,y,z}, step [dx,dz]) -> { safe, why, cell }: lava guard 2 (holdForwardSafe over the block map)
+ * -> { act: 'release', why } -- keep the caller's old controls, and the caller MUST release any live aim NOW
+ *      (a stale aim re-pressing forward for the rest of its TTL is the r1 blocker B1);
+ *    { act: 'guarded', why, hv } -- forward off, no look, release the aim;
+ *    { act: 'aim', cx, cz, why, forward, look } -- aim the steerer there and use forward/look this tick.
+ */
+export function riseCentreDecision ({ may = () => true, route, pos, vel, at, guard }) {
+  if (!may()) return { act: 'release', why: 'yielded' }
+  const t = riseCentreTarget({ route, pos, at })
+  if (!t) return { act: 'release', why: 'no_target' }
+  // a stroke INTO another column is swept; centring inside the column the feet occupy enters no new cell (dir 0,0)
+  const feet = { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) }
+  const dir = [Math.sign(t.cx - feet.x), Math.sign(t.cz - feet.z)]
+  const step = dir[0] && dir[1] ? (Math.abs(t.cx + 0.5 - pos.x) >= Math.abs(t.cz + 0.5 - pos.z) ? [dir[0], 0] : [0, dir[1]]) : dir
+  const hv = guard ? guard(feet, step) : { safe: true }
+  if (!hv?.safe) return { act: 'guarded', why: 'lava', hv }
+  const s = centreSteer({ pos, vel, cx: t.cx, cz: t.cz })
+  return { act: 'aim', cx: t.cx, cz: t.cz, why: t.why, forward: s.forward, look: s.look, centred: s.centred }
+}
+
+/**
  * ONE PHYSICS TICK OF CENTRING (pure). Forward only while the remaining distance exceeds what the current speed will
  * coast; look level at the centre. Returns { centred, forward, look: {x, z} | null, off: [dx, dz] }.
  */

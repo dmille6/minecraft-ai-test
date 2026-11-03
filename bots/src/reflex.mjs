@@ -57,7 +57,7 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
 import { MAX_DIG_MS } from './digbudget.mjs'
 // lavastep-01 (F1, docs/reports/mineshaft-safety-2026-10-23.md): the danger arm's verified, bounded move
 import { lavastepOn } from './lavastep.mjs'
-import { swimCentreOn, makeCentreSteer, riseCentreTarget, centreSteer } from './swimcentre.mjs'   // swimcentre-01: a rising body is centred under its hole
+import { swimCentreOn, makeCentreSteer, riseCentreDecision } from './swimcentre.mjs'   // swimcentre-01: a rising body is centred under its hole
 // tombexit-01 (F2 of the mineshaft-safety design + the in-wall dig): the entombed arm fires only with no walk back
 import { tombexitOn, inwallOn, makeFreeRing, declineDecision, inwallDecision, makeHealthTrend, suffocates,
          INWALL_MAX_DIGS, INWALL_UNSEEN_ROW_MS, INWALL_TREND_MS,
@@ -1637,8 +1637,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let swimCentreQuiet = 0
   const swimCentre = swimCentreOn() ? makeCentreSteer(bot, {
     // the steerer writes only while the body is the air rescue's, or unowned and in no other reflex helper's hands
-    may: () => !airPocketing && !pocketing && !poolEscaping && !rampSteering && !dangerMovingNow() &&
-               (rescuing || !(runner?.isBusy?.() && bot.pathfinder?.goal)),
+    may: () => centreMay(),
     emit: ({ phase, how, goal, ms }) => {
       if (phase !== 'end') return
       const p = bot.entity?.position
@@ -1649,22 +1648,28 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                          `head=${bot.blockAt?.(bot.entity.position.offset(0, 1.62, 0))?.name ?? '?'} health=${bot.health}` })
     },
   }) : null
+  // WHO MAY BE STEERED (Codex + Claude code r1 B2): never while another helper holds the body -- the air pocket, the flooded
+  // pocket rung, poolescape, the ramp sidestep, a danger move, an ESCAPE or MAROON climb (pillarOut jumps and places
+  // under its own column: a forward press each tick would carry it off), the in-wall exit or a stranded routine -- and,
+  // outside the rescue, never while a skill runs. The same predicate gates the 500 ms decision and every physics tick.
+  const centreMay = () => !airPocketing && !pocketing && !poolEscaping && !rampSteering && !dangerMovingNow() &&
+    !escaping && !marooned && !inwalling && !strandedRunning && (rescuing || !runner?.isBusy?.())
   // one decision for both callers: null = keep the old controls; else { forward, lookAt } that centres the body
   const riseCentre = (route) => {
     if (!swimCentre || !bot.entity) return null
     const pos = bot.entity.position
-    const t = riseCentreTarget({ route, pos, at: bmap(bot) })
-    if (!t) return null
-    const s = centreSteer({ pos, vel: bot.entity.velocity, cx: t.cx, cz: t.cz })
-    // LAVA GUARD 2, unchanged: a stroke INTO another column is swept for lava/unknown; centring inside the column the
-    // feet already occupy enters no new cell (dir 0,0 is safe by construction in holdForwardSafe)
-    const feet = { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) }
-    const dir = [Math.sign(t.cx - feet.x), Math.sign(t.cz - feet.z)]
-    const step = dir[0] && dir[1] ? (Math.abs(t.cx + 0.5 - pos.x) >= Math.abs(t.cz + 0.5 - pos.z) ? [dir[0], 0] : [0, dir[1]]) : dir
-    const hv = holdForwardSafe(bmap(bot), feet, step)
-    if (!hv.safe) return { forward: false, lookAt: null, guarded: hv }
-    swimCentre.aim(t.cx, t.cz, t.why)
-    return { forward: s.forward, lookAt: s.look ? new Vec3(s.look.x, pos.y + 1.62, s.look.z) : null, centred: s.centred, why: t.why }
+    // A STALE AIM NEVER OUTLIVES THE DECISION THAT MADE IT (Codex + Claude code r1 B1): no target, a guard refusal or
+    // another owner releases it NOW, so no physics tick re-presses forward over the caller's new answer
+    const d = riseCentreDecision({ may: centreMay, route, pos, vel: bot.entity.velocity, at: bmap(bot),
+                                   guard: (feet, step) => holdForwardSafe(bmap(bot), feet, step) })
+    if (d.act === 'release') { swimCentre.release(d.why); return null }
+    if (d.act === 'guarded') {
+      swimCentre.release('lava')
+      if (Date.now() - lastHoldLavaAt > 10_000) { lastHoldLavaAt = Date.now(); logEvent({ kind: 'hold_lava_ahead', status: 'no_effect', detail: `${d.hv.why} at ${d.hv.cell?.join(',')}: the centring stroke is cleared`, snapshot: snapshot(bot) }) }
+      return { forward: false, lookAt: null, guarded: d.hv }
+    }
+    swimCentre.aim(d.cx, d.cz, d.why)
+    return { forward: d.forward, lookAt: d.look ? new Vec3(d.look.x, pos.y + 1.62, d.look.z) : null, centred: d.centred, why: d.why }
   }
   let lastMaroonPrereqAt = 0
   // POOLESCAPE-01: one firing of the pool rung (poolescape.mjs), from either maroon hook. Gated: on, wading, still no
