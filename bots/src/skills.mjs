@@ -167,7 +167,7 @@ import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterR
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { setUnlockAsk } from './shop.mjs'   // villageunlock-01 (T3a): the order's ask
-import { VU, unlockSwitch, unlockModeDetail, penAround, trackStill, stuckCandidates, nextToggle, reachOf, toggleable, unlockDetail, barrierExits, villagerStillPenned, penKey } from './villageunlock.mjs'
+import { VU, unlockSwitch, unlockModeDetail, penAround, trackStill, stuckCandidates, nextToggle, reachOf, toggleable, unlockDetail, barrierExits, villagerStillPenned, penKey, takeLease } from './villageunlock.mjs'
 import { withUnlockScope } from './protectzone.mjs'
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
@@ -17853,16 +17853,10 @@ async function villageUnlock (ctx, args, signal) {
   const ve = Object.values(bot.entities ?? {}).find(e => e?.uuid && e.uuid === args?.uuid)
   const still = villagerStillPenned(ve, pen)
   if (still !== 'ok') return end('no_effect', still)
-  // ONE BOT PER PEN (Codex r1 blocker 1): a pool-wide lease file, O_EXCL; a stale one (> leaseMs) is taken over
-  try {
-    const f = path.join(poolStateDir(config.memory.pool), `villageunlock-${penKey(pen)}.lease`)
-    let held = null
-    try { held = JSON.parse(fs.readFileSync(f, 'utf8')) } catch { held = null }
-    if (held && held.bot !== bot.username && Date.now() - (held.at ?? 0) < VU.leaseMs) return end('no_effect', `leased:${held.bot}`)
-    if (held) { try { fs.unlinkSync(f) } catch { /* raced */ } }
-    fs.writeFileSync(f, JSON.stringify({ bot: bot.username, at: Date.now() }), { flag: 'wx' })
-    leaseFile = f
-  } catch { return end('no_effect', 'lease_busy') }
+  // ONE BOT PER PEN (Codex r1 blocker 1; re-check: a stale-lease takeover raced): villageunlock.mjs takeLease, announce then check
+  const lease = takeLease({ dir: poolStateDir(config.memory.pool), key: penKey(pen), name: bot.username })
+  if (!lease.ok) return end('no_effect', lease.why)
+  leaseFile = lease.file
   const skip = new Set()
   try {
   for (let i = 0; i <= pen.toggles.length; i++) {

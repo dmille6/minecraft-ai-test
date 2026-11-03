@@ -175,5 +175,19 @@ await t('the skill is registered (chatOnly, never the model\'s) with a contract'
   assert.ok(SK.SKILL_CONTRACTS.village_unlock?.maxMs > 0)
 })
 
+await t('takeLease (Codex re-check): one holder per slot; a neighbouring fresh slot of another bot retracts; a stale past slot never blocks; the same bot may retry', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vulease-'))
+  const L = 300_000, T0 = 1000 * L + 10
+  const a = V.takeLease({ dir, key: 'p', name: 'A', now: T0, leaseMs: L })
+  assert.equal(a.ok, true)
+  assert.equal(V.takeLease({ dir, key: 'p', name: 'B', now: T0 + 5, leaseMs: L }).why, 'leased:A', 'same slot: B stops')
+  assert.equal(V.takeLease({ dir, key: 'p', name: 'A', now: T0 + 6, leaseMs: L }).ok, true, 'A retrying in its slot proceeds')
+  const b = V.takeLease({ dir, key: 'p', name: 'B', now: T0 + L - 5, leaseMs: L })   // next slot, A's lease still fresh (< L old)
+  assert.equal(b.ok, false); assert.match(b.why, /leased:A/)
+  assert.equal(fs.readdirSync(dir).length, 1, 'B retracted its own slot file')
+  assert.equal(V.takeLease({ dir, key: 'p', name: 'B', now: T0 + 2 * L, leaseMs: L }).ok, true, 'A is stale now: B proceeds')
+  assert.equal(V.takeLease({ dir, key: 'q', name: 'C', now: T0, leaseMs: L }).ok, true, 'another pen is independent')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
