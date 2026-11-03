@@ -23,6 +23,14 @@
                                                   add ONE variant (validated as `queue add` validates it)
     canary-sched.py autorebase-clear <run> <why>  forget the head's refused/dead autorebase job: the next tick may build again
     canary-sched.py autorebase-build <run> <base> <tip>   (internal: the background build a tick starts)
+    canary-sched.py bundle plan [<run>...]        v41: the bundle checks for these runs (or a suggestion from the head);
+                                                  writes nothing
+    canary-sched.py bundle make <bundle_run> <run> <run> [<run>] --why <text> [--hold <text>]
+                                                  v41: queue ONE bundle entry (at the first member's position) whose
+                                                  members are reserved (`bundled_in`); the autorebase composes it
+    canary-sched.py bundle split <bundle_run> <why> [--hold <run>=<why>]...
+                                                  v41: a bundle that did not KEEP (or never deployed): its members
+                                                  return to the queue as ordinary single runs
 
 DESIGN: docs/reports/canary-throughput-2026-10-08.md (Codex + Claude, four review rounds). The owner asked for more
 canary throughput (10-08 ~02:30Z). Both engines rejected concurrent lanes for now and agreed on this: chain-after.sh
@@ -91,6 +99,43 @@ artifact with extra.linked > 0 or verdict.py's licensed change-row `deaths`); a 
 releases either at once. `approved` names the reviewer (any non-empty name); a canary
 whose diff touches config/protected-paths.txt (decided by the BASE's scripts/lib/protected.py; undecidable = protected)
 must name both engines (Claude and Codex).
+
+BUNDLES AND THE FAST READ PLAN (v41, OWNER 2026-11-03 item 2: "faster path for small changes AND bundling of unrelated
+changes"; designs by Codex and an independent Claude agent, reconciled; blocker review by both). Measured 10-28..11-03:
+a canary takes 3.3-3.85 h (draw <= 0.67 h, +180 read, promotion); 26 canaries in 5.5 days.
+  BUNDLE  ONE canary sha carrying 2..BUNDLE_MAX reviewed changes, so it fits the one slot. Formed by an operator
+          (`bundle make`, never automatically), placed at its first member's queue position. A member must be READY
+          and unheld, class '', fun mode, carry a patch source (set-patch) whose variant names a reviewer, be protected
+          tier `none` on its own reviewed range, NOT STACKED (its patch base is an ancestor of the live fleet base), no
+          bots/package*.json, its registration only BUNDLE_REG_KEYS (no own reads, env, poll, bag-fix ...), and declare
+          change rows (a linked death must be attributable). Pairwise: disjoint FOOTPRINTS -- (file, top-level
+          declaration | table row | import block) from the BASE's protected.py lexer on both sides of the -U0 diff,
+          test files excepted (the per-member diff identity proves they touch different lines, the composed suite runs
+          them); no CROSS-REFERENCE (no changed source line of one names a declaration the other changes or adds);
+          disjoint change rows / linkage rows / licence kinds (verdict.py's '_' normalisation); not in each other's
+          `couples_with`. A later member may jump only entries that are ready, unheld, tier none and class '' (each is
+          delayed one run); never a held, tier-3, model-env or bundle entry, so the P,S order and the servea waiter's
+          head are kept. `after` between members is ordering; outside ones go on the bundle entry (H1).
+          The AUTOREBASE composes it on the live base: each member's range picked in queue order, each incremental
+          normalized diff byte-identical to that member's reviewed one, the footprints re-checked on the incremental
+          diffs, the composed tier `none`, eslint, movement lint, the full suite (v40 adjudication over the union of
+          files), then a bundle registration (`bundle_registration`: union change rows, each member's licence and
+          `effect` kept under bundle.members -- no top-level effect) and `queue add-variant`. A refusal pages and
+          blocks; never retried.
+          Close: KEEP + promoted -> every member DONE (dependents proceed). Anything else (REVERT, death trip,
+          INCONCLUSIVE, a KEEP not promoted) -> the whole bundle was torn down by the loop, R11 applies as for any run,
+          and every member is BUNDLE-FAILED (H8, blocks, pages) until a human `bundle split`, which prints the verdict
+          lines and each member's change rows for the attribution and returns the members as single runs. NO LIVE
+          BISECTION (bors-ng/GitHub merge queues bisect a failed batch because their oracle is cheap, parallel and
+          deterministic; ours is a noisy death gate with one slot, and world edits survive a code rollback): with <= 3
+          members, singles cost at most 3 runs and cannot be misled by a false trip.
+  FAST    `fun_reads` "45 90" (deadline 150) instead of "90 180" (deadline 240); the 5-min death poll is unchanged.
+          Decided MECHANICALLY (`fast_problem`, never a declared label): a single run (not a bundle), class '', not
+          lab, protected tier none, no bots/package*.json, no added/deleted bots/src file, <= FAST_MAX_LINES changed
+          executable lines under bots/src -- fun mode's own tier-1 definition, which the owner lets go owner-direct
+          with a 60-min tripwire, so a 90-min 20-bot canary is the stricter path. The autorebase writes it; `queue add`
+          refuses an unjustified one; H7 re-checks it at launch; ~/digest/FAST-OFF turns it off. canary-loop.sh v39
+          and funread.py accept only the two plans in READ_PLANS.
 """
 import os, sys, json, re, glob, hashlib, subprocess, fcntl, tempfile, shutil, time, datetime as dt
 
@@ -119,6 +164,14 @@ AR_MAX_RERUN = 6         # full-run failures re-run alone (host-load flakes); mo
 AR_RERUN_TRIES = 3       # v40: at most this many alone runs of one file on each side (the new tip, the base)
 AR_RERUN_TIMEOUT_S = 900
 AR_RERUN_BUDGET_S = 80 * 60   # v40: all re-runs of one build; past it no new run starts and an undecided file refuses
+BUNDLE_MAX = 3           # v41: members per bundle (Codex: start with pairs; Claude: up to four) -- three
+STD_READS, FAST_READS = '90 180', '45 90'
+READ_PLANS = {STD_READS: 240, FAST_READS: 150}   # fun_reads -> deadline_min; canary-loop.sh and funread.py hold the same
+FAST_MAX_LINES = 150     # v41: changed executable lines under bots/src for the fast plan (fun mode's tier-1 bound)
+# v41: a bundle member's registration may hold only these keys (anything else -- canary_env, poll_read, draw_k, own
+# reads/lines/exposure, bag_fix, read_minutes ... -- has per-run machinery a bundle does not carry: not bundleable)
+BUNDLE_REG_KEYS = frozenset('run_id sha registered_at promotion notes reads teardown licence change_rows linkage_extra '
+                            'effect class lab known_residuals fun_reads'.split())
 SLOT_PROCS = (  # basename of argv[0] or argv[1]; never a substring of the whole command line (pgrep -f self-matches)
     ('canary-loop.sh', lambda b: b == 'canary-loop.sh'),
     ('chain-*.sh', lambda b: bool(re.match(r'^chain-.*\.sh$', b))),
@@ -150,6 +203,7 @@ def paths():
         'pause': os.path.join(D, 'SCHED-PAUSE'),
         'install_hold': os.path.join(D, 'INSTALL-HOLD'),
         'next_slot': os.path.join(D, 'NEXT-SLOT.json'),
+        'fast_off': os.path.join(D, 'FAST-OFF'),         # v41: present = no fast read plan
         'unread': os.path.join(D, 'CANARY-UNREAD.txt'),
         'regdir': g('SCHED_REGDIR', os.path.join(H, 'mcai-analysis', 'registrations')),
         'readdir': g('SCHED_READ_DIR', '/tmp'),
@@ -323,8 +377,12 @@ def attempt_rows(st, run, att):
 
 
 def entry_state(e, st):
-    """done | cancelled | running | launching | blocked | ready (design r4 section B)."""
+    """done | cancelled | running | launching | blocked | ready (design r4 section B); v41 also bundled (reserved by a
+    pending bundle) | bundle-failed (its bundle closed without KEEP+promotion, or a dangling reservation)."""
     run = e.get('run')
+    mb = member_bundle_state(e, st)
+    if mb is not None:
+        return mb
     js = journal_status(run, st)
     if js == 'closed':
         return 'done'
@@ -363,7 +421,7 @@ def reg_is_lab(st, e):
 
 def head_entry(st):
     for e in (st.get('queue') or {}).get('entries') or []:
-        if entry_state(e, st) not in ('done', 'cancelled'):
+        if entry_state(e, st) not in ('done', 'cancelled', 'bundled'):
             return e
     return None
 
@@ -462,11 +520,26 @@ def head_blockers(e, st):
         dep = entries.get(a)
         hw, _ = last_human(st, a, ('cancel', 'abandon'))
         ds = entry_state(dep, st) if dep else ({'cancel': 'cancelled', 'abandon': 'abandoned'}.get(hw) or journal_status(a, st))
-        if ds in ('cancelled', 'blocked', 'predeploy', 'abandoned'):
+        if ds == 'done':
+            continue                             # v41: a member of a bundle that was KEPT and promoted
+        if ds in ('cancelled', 'blocked', 'predeploy', 'abandoned', 'bundle-failed'):
             out.append(('H1', 'depends on %s, which is %s (not a completion): edit the queue' % (a, ds), False))
         else:
             out.append(('H1', 'waits for %s to close (%s)' % (a, ds), True))
     es = entry_state(e, st)
+    if es == 'bundle-failed':
+        b = e.get('bundled_in')
+        be = bundle_entries(st).get(b)
+        if be is None or run not in ((be.get('bundle') or {}).get('members') or []):
+            why = 'it is reserved by bundle %s, which is not queued or does not list it (a dangling reservation)' % b
+        else:
+            dec = run_decision(st, b)
+            prom = any(r.get('phase') == 'promoted' for r in run_rows(st.get('journal') or [], b))
+            why = 'its bundle %s closed %s (whole-bundle rollback; nothing of it is on the fleet)' % (
+                b, '%s without a promotion' % dec if dec and not prom else dec or 'without a ledger decision')
+        out.append(('H8', '%s: diagnose offline, then `canary-sched.py bundle split %s <why>` to run the members singly'
+                    % (why, b), False))
+        return out
     if es == 'blocked':
         out.append(('H3', 'blocked since its last attempt (%s): fix it, then `rearm %s <why>` or `cancel %s <why>`'
                     % (journal_status(run, st), run, run), False))
@@ -503,17 +576,33 @@ def patch_problem(pt):
     return ''
 
 
+def ar_token(e):
+    """The job key's third part: a single run's patch tip, or (v41) a bundle's plan hash (first 40 hex). None = no source."""
+    if e.get('bundle') is not None:
+        return None if bundle_problem(e) else e['bundle']['plan_sha256'][:40]
+    pt = e.get('patch')
+    return None if (not pt or patch_problem(pt)) else pt['tip']
+
+
 def ar_view(e, st):
     """PURE. The head has no variant for the fleet base: (why, waiting, start_a_build)."""
-    pt = e.get('patch')
+    if e.get('bundle') is not None:
+        bad = bundle_problem(e)
+        if bad:
+            return ('the bundle cannot be composed: %s' % bad, False, False)
+        rng = 'bundle %s' % ' + '.join(e['bundle']['members'])
+        pt = {'base': '', 'tip': ''}
+    else:
+        pt = e.get('patch')
+        rng = None
     if not pt:
         return ('no patch source, so no autorebase: build the variant by hand, or `queue set-patch %s <src_base>`'
                 % e.get('run'), False, False)
-    bad = patch_problem(pt)
+    bad = patch_problem(pt) if rng is None else ''
     if bad:
         return ('autorebase cannot run: %s' % bad, False, False)
     job = st.get('ar_job')
-    rng = '%s..%s' % (pt['base'][:8], pt['tip'][:8])
+    rng = rng or '%s..%s' % (pt['base'][:8], pt['tip'][:8])
     if job is None:
         return ('autorebase will cherry-pick %s onto it (one background build, then a later tick launches)' % rng,
                 True, True)
@@ -590,6 +679,396 @@ def tier_label(rc, out):
         last = (out.strip().splitlines() or [''])[-1].strip()
         return {'tier=3': '3', 'tier=tooling': 'tooling'}.get(last, '3')
     return 'undecidable'
+
+
+# --------------------------------------------------------------------------------- v41 bundles + fast plan (pure) --
+def read_plan(reg):
+    """PURE. A fun-mode registration's read plan -> (reads, deadline_min, '') or (None, None, why). Absent/null/'' = the
+    standard plan; anything outside READ_PLANS is refused (canary-loop.sh and funread.py hold the same two plans)."""
+    v = reg.get('fun_reads') if isinstance(reg, dict) else None
+    if v in (None, ''):
+        v = STD_READS
+    if not isinstance(v, str) or v not in READ_PLANS:
+        return None, None, 'fun_reads %r is not one of %s' % (v, sorted(READ_PLANS))
+    return v, READ_PLANS[v], ''
+
+
+_JS_COMMENT = re.compile(r'^\s*(//|/\*|\*/|\*(\s|$))')
+
+
+def fast_problem(diff_text, tier, reg, is_bundle):
+    """PURE. '' when base..canary (`git diff`, full context or -U0) may run the FAST plan, else why not."""
+    if is_bundle:
+        return 'a bundle runs the standard plan (v41)'
+    if not isinstance(reg, dict) or reg.get('lab') is True:
+        return 'not a fun-mode registration'
+    if (reg.get('class') or '') or reg.get('canary_env') or reg.get('poll_read'):
+        return 'class %r / an env or poll canary' % (reg.get('class') or '')
+    if tier != 'none':
+        return 'protected tier %s' % tier
+    n, cur, hunk, bad = 0, None, False, []
+    for l in diff_text.split('\n'):
+        if l.startswith('diff --git '):
+            m = re.match(r'^diff --git a/(.*) b/(.*)$', l)
+            cur, hunk = (m.group(2) if m else '?'), False
+            if cur.startswith('bots/package') or (m and m.group(1).startswith('bots/package')):
+                bad.append('changes %s' % cur)
+            continue
+        if cur is None:
+            continue
+        if not hunk:
+            if cur.startswith('bots/src/') and (l.startswith(('new file mode', 'deleted file mode', 'rename ', 'Binary files',
+                                                              'GIT binary patch'))):
+                bad.append('adds, deletes, renames or binary-patches %s' % cur)
+            if l.startswith('@@'):
+                hunk = True
+            continue
+        if l.startswith('@@'):
+            continue
+        if cur.startswith('bots/src/') and l[:1] in ('+', '-') and l[1:].strip() and not _JS_COMMENT.match(l[1:]):
+            n += 1
+    if bad:
+        return '; '.join(sorted(set(bad)))
+    if n > FAST_MAX_LINES:
+        return '%d changed executable lines under bots/src (the fast plan allows %d)' % (n, FAST_MAX_LINES)
+    return ''
+
+
+def row_names(reg):
+    """PURE. The rows a registration links deaths by (change_rows, linkage_extra, licence kind), in verdict.py's form
+    (leading '_' stripped, empty names dropped). Non-strings are kept as their repr (never silently dropped)."""
+    out = set()
+    if not isinstance(reg, dict):
+        return out
+    names = list(reg.get('change_rows') or []) + list(reg.get('linkage_extra') or [])
+    lic = reg.get('licence') if isinstance(reg.get('licence'), dict) else {}
+    names += [lic.get('kind')] if lic.get('kind') else []
+    names += list(lic.get('kinds') or [])
+    for n in names:
+        if isinstance(n, str):
+            if n.lstrip('_'):
+                out.add(n.lstrip('_'))
+        else:
+            out.add(repr(n))
+    return out
+
+
+def fp_tokens(changes, read, prot):
+    """PURE given read(side, path) -> text|None and the BASE's protected module. The FOOTPRINT of one -U0 diff (protected.py
+    parse_diff changes): a set of tokens
+        ('FILE', path)                      a non-JS file, an added/deleted/renamed file, an unreadable or unlexable side
+        ('TEST', path)                      bots/test/** (allowed to overlap: see pair_problems)
+        ('IMPORTS', path) / ('IMPORTS+', path)   a removed/changed import line / an added one (or an anchor beside one)
+        ('ROW', path, table, frozenset(row names))   a row of a top-level object-literal table (SKILLS ...)
+        ('DECL', path, name)                the top-level declaration (or table structure) a changed line is in"""
+    toks = set()
+    for c in changes:
+        op, np_ = c.get('old_path'), c.get('new_path')
+        path = np_ or op or '?'
+        if path.startswith('bots/test/') and (op is None or op.startswith('bots/test/')):
+            toks.add(('TEST', path))
+            continue
+        if op is None or np_ is None or op != np_ or not path.endswith(('.mjs', '.js', '.cjs')):
+            toks.add(('FILE', path))
+            continue
+        # a changed line's own declaration; a PURE insertion (or deletion) also claims both neighbours of its gap
+        hk = c.get('hunks') or []
+        ins_old = {x for a, b_, _c, _d in hk if b_ == 0 for x in (a, a + 1) if x >= 1}
+        ins_new = {x for _a, _b, c_, d in hk if d == 0 for x in (c_, c_ + 1) if x >= 1}
+        for side, lines, anchors in (('old', c.get('old_lines') or set(), ins_old),
+                                     ('new', c.get('new_lines') or set(), ins_new)):
+            text = read(side, path)
+            if text is None:
+                toks.add(('FILE', path)); break
+            lex = prot.scan_js(text)
+            if not lex[0]:
+                toks.add(('FILE', path)); break
+            owners = prot.decl_owners(text)
+            rows, tabs = prot.table_rows(text, lex)
+            tlines = text.split('\n')
+
+            def row_key(n):
+                # the row's KEY (its first line's 2-space key), stable across sides; every row shares names like `run`
+                k = n
+                while k > 1 and k - 1 < len(rows) and rows[k - 1] is rows[n]:
+                    k -= 1
+                m = prot._ROW_KEY.match(tlines[k - 1]) if k - 1 < len(tlines) else None
+                return m.group(2) if m else 'odd:' + ','.join(sorted(rows[n]))
+            for n in sorted(set(lines) | set(anchors)):
+                own = owners[min(n, len(owners) - 1)]
+                tab = tabs[n] if n < len(tabs) else None
+                row = rows[n] if n < len(rows) else None
+                if own == prot.IMPORTS:
+                    toks.add(('IMPORTS' if (side == 'old' and n in lines) else 'IMPORTS+', path))
+                elif tab is not None and row:
+                    toks.add(('ROW', path, tab, frozenset([row_key(n)])))
+                elif tab is not None:
+                    toks.add(('DECL', path, tab))
+                else:
+                    toks.add(('DECL', path, own or '(top)'))
+    return toks
+
+
+def fp_overlaps(fa, fb):
+    """PURE. The footprint tokens two members share (descriptions); [] = disjoint."""
+    out = []
+    for ta in sorted(fa, key=repr):
+        for tb in sorted(fb, key=repr):
+            if 'TEST' in (ta[0], tb[0]) or ta[1] != tb[1]:
+                continue
+            k = {ta[0], tb[0]}
+            if 'FILE' in k:
+                out.append('%s (whole file)' % ta[1])
+            elif k == {'IMPORTS+'}:
+                continue                                  # both only ADD imports: ESM refuses a duplicate binding
+            elif k & {'IMPORTS', 'IMPORTS+'}:
+                if k <= {'IMPORTS', 'IMPORTS+'}:
+                    out.append('%s import block (a changed or removed import)' % ta[1])
+            elif k == {'ROW'}:
+                if ta[2] == tb[2] and ta[3] & tb[3]:
+                    out.append('%s %s row %s' % (ta[1], ta[2], ','.join(sorted(ta[3] & tb[3]))))
+            elif k == {'DECL'}:
+                if ta[2] == tb[2]:
+                    out.append('%s::%s' % (ta[1], ta[2]))
+            else:                                         # DECL (a table's structure) vs a ROW of the same table
+                d, r = (ta, tb) if ta[0] == 'DECL' else (tb, ta)
+                if d[2] == r[2]:
+                    out.append('%s %s (table structure vs a row)' % (ta[1], d[2]))
+    return sorted(set(out))
+
+
+_DECL_LINE = re.compile(r'^(?:export\s+(?:default\s+)?)?(?:async\s+)?(?:function\s*\*?|class|const|let|var)\s+([A-Za-z_$][\w$]*)')
+_IDENT_RE = re.compile(r'[A-Za-z_$][\w$]*')
+
+
+def diff_names(diff_text):
+    """PURE. From a -U0 diff: (top-level names its +/- source lines DECLARE, identifiers its +/- source lines USE),
+    bots/src only, `//` comments and string literals stripped."""
+    decl, used, cur, hunk = set(), set(), None, False
+    for l in diff_text.split('\n'):
+        if l.startswith('diff --git '):
+            m = re.match(r'^diff --git a/(.*) b/(.*)$', l)
+            cur, hunk = (m.group(2) if m else '?'), False
+            continue
+        if l.startswith('@@'):
+            hunk = True
+            continue
+        if not hunk or not cur or not cur.startswith('bots/src/') or l[:1] not in ('+', '-'):
+            continue
+        body = l[1:]
+        m = _DECL_LINE.match(body)
+        if m:
+            decl.add(m.group(1))
+        code = re.sub(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`", "''", body)
+        code = code.split('//', 1)[0]
+        if _JS_COMMENT.match(code):
+            continue
+        used.update(_IDENT_RE.findall(code))
+    return decl, used
+
+
+def changed_decls(fp):
+    """PURE. The declaration names a footprint changes (not '(top)', not table structure rows)."""
+    return {t[2] for t in fp if t[0] == 'DECL' and t[2] not in (None, '(top)')}
+
+
+def member_problem(m, now_t=None):
+    """PURE. m = {'entry', 'state', 'reg', 'tier', 'stacked', 'files'}: '' when this queue entry may be a bundle member."""
+    e, reg = m.get('entry') or {}, m.get('reg')
+    if m.get('state') != 'ready':
+        return 'state %s (a member must be ready)' % m.get('state')
+    if e.get('hold'):
+        return 'held: %s' % str(e['hold'])[:120]
+    if e.get('not_before') and now_t is not None and (ts(e['not_before']) or now_t) > now_t:
+        return 'not before %s' % e['not_before']
+    if e.get('bundled_in'):
+        return 'already in bundle %s' % e['bundled_in']
+    if e.get('bundle'):
+        return 'is itself a bundle'
+    if (e.get('class') or ''):
+        return 'class %r (only ordinary changes bundle)' % e['class']
+    pt = e.get('patch')
+    if not pt or patch_problem(pt):
+        return 'no patch source (`queue set-patch`): %s' % (patch_problem(pt) if pt else 'none')
+    src = (e.get('variants') or {}).get(pt['base']) or {}
+    if src.get('canary_sha') != pt['tip'] or approval_problem(src.get('approved'), False):
+        return 'its source variant on %s is not the patch tip, or names no reviewer' % pt['base'][:8]
+    if not isinstance(reg, dict):
+        return 'registration unreadable'
+    if reg.get('lab') is True:
+        return 'a lab registration'
+    extra = sorted(k for k, v in reg.items() if k not in BUNDLE_REG_KEYS and v not in (None, [], {}, ''))
+    if extra:
+        return 'registration keys a bundle does not carry (v41): %s' % ', '.join(extra)
+    if reg.get('reads'):
+        return 'it has its own reads %s (a bundle reads generically only, v41)' % reg['reads']
+    if (reg.get('promotion') or 'fleet-wide') != 'fleet-wide':
+        return 'promotion %r' % reg.get('promotion')
+    lic = reg.get('licence') if isinstance(reg.get('licence'), dict) else {}
+    if lic.get('class') not in (None, 'kind'):
+        return 'licence class %r (a rate licence would make the whole bundle report-only)' % lic.get('class')
+    if not row_names(reg):
+        return 'declares no change_rows / licence kind: a linked death could not be pinned to it'
+    if m.get('tier') != 'none':
+        return 'protected tier %s on its reviewed range (only tier none bundles)' % m.get('tier')
+    if m.get('stacked'):
+        return 'STACKED: its patch base %s is not in the live fleet base (it depends on an unshipped change)' % pt['base'][:8]
+    pk = [f for f in (m.get('files') or pt.get('files') or []) if f.startswith('bots/package')]
+    if pk:
+        return 'changes %s' % ', '.join(pk)
+    return ''
+
+
+def pair_problems(a, b):
+    """PURE. a, b = member facts {'run', 'entry', 'reg', 'fp', 'decl', 'used'} -> list of reasons they are related."""
+    out = []
+    ov = fp_overlaps(a['fp'], b['fp'])
+    if ov:
+        out.append('shared footprint: %s' % '; '.join(ov[:6]))
+    for x, y in ((a, b), (b, a)):
+        hit = sorted((changed_decls(x['fp']) | x.get('decl', set())) & y.get('used', set()))
+        if hit:
+            out.append('%s changes/declares %s, which %s\'s changed lines use' % (x['run'], ', '.join(hit[:6]), y['run']))
+    rows = row_names(a['reg']) & row_names(b['reg'])
+    if rows:
+        out.append('shared change rows / licence kinds: %s' % ', '.join(sorted(rows)))
+    for x, y in ((a, b), (b, a)):
+        if y['run'] in ((x.get('entry') or {}).get('couples_with') or []):
+            out.append('%s declares couples_with %s' % (x['run'], y['run']))
+    return out
+
+
+def jump_problem(e, state):
+    """PURE. '' when a bundle member may be moved ahead of queue entry e (in state `state`)."""
+    if state in ('done', 'cancelled', 'bundled'):
+        return ''
+    if state != 'ready' or e.get('hold') or (e.get('class') or '') or e.get('bundle') or e.get('bundled_in'):
+        return 'it is %s%s%s' % (state, ', held' if e.get('hold') else '', ', class %s' % e['class'] if e.get('class') else '')
+    vs = e.get('variants') or {}
+    if not vs or any(v.get('protected') is not False for v in vs.values()):
+        return 'it is (or may be) protected tier 3'
+    return ''
+
+
+def plan_bundle(runs, facts, entries, states, now_t=None):
+    """PURE. -> (problems, notes, ordered runs, outside `after`). runs: the requested members; facts[run]: member facts
+    (pair_problems + member_problem fields); entries: the queue in order; states: {run: entry_state}."""
+    probs, notes = [], []
+    pos = {e.get('run'): i for i, e in enumerate(entries)}
+    if len(set(runs)) != len(runs):
+        probs.append('a member is named twice')
+    if not 2 <= len(set(runs)) <= BUNDLE_MAX:
+        probs.append('a bundle has 2..%d members, not %d' % (BUNDLE_MAX, len(set(runs))))
+    miss = [r for r in runs if r not in pos or r not in facts]
+    if miss:
+        return probs + ['not queued: %s' % ', '.join(miss)], notes, [], []
+    ordered = sorted(set(runs), key=pos.get)
+    for r in ordered:
+        p = member_problem(facts[r], now_t)
+        if p:
+            probs.append('%s: %s' % (r, p))
+    for i, a in enumerate(ordered):
+        for b in ordered[i + 1:]:
+            for p in pair_problems(facts[a], facts[b]):
+                probs.append('%s + %s: %s' % (a, b, p))
+            sh = sorted(t[1] for t in facts[a]['fp'] & facts[b]['fp'] if t[0] == 'TEST')
+            if sh:
+                notes.append('%s + %s share test file(s) %s: allowed (diff identity + the composed suite)' % (a, b, ', '.join(sh)))
+    for e in entries[pos[ordered[0]]:pos[ordered[-1]] + 1]:
+        if e.get('run') in ordered:
+            continue
+        jp = jump_problem(e, states.get(e.get('run')))
+        if jp:
+            probs.append('a member would jump %s, but %s (members may jump only ready, unheld, tier-none singles)'
+                         % (e.get('run'), jp))
+        elif states.get(e.get('run')) == 'ready':
+            notes.append('%s waits one run behind the bundle' % e.get('run'))
+    after = sorted({a for r in ordered for a in ((facts[r].get('entry') or {}).get('after') or []) if a not in ordered})
+    return probs, notes, ordered, after
+
+
+def plan_hash(members):
+    """PURE. members: [{'run', 'base', 'tip', 'diff_sha256', 'registration_sha256', 'couples_with'}] in order."""
+    keep = [{k: m.get(k) for k in ('run', 'base', 'tip', 'diff_sha256', 'registration_sha256', 'couples_with')} for m in members]
+    return hashlib.sha256(json.dumps(keep, sort_keys=True).encode()).hexdigest()
+
+
+def bundle_problem(e):
+    """'' when a queue entry's `bundle` block has the shape `bundle make` writes, else why not."""
+    b = e.get('bundle')
+    if not isinstance(b, dict):
+        return 'bundle is not an object'
+    ms = b.get('members')
+    if not isinstance(ms, list) or not 2 <= len(ms) <= BUNDLE_MAX or len(set(ms)) != len(ms) or \
+            not all(isinstance(x, str) for x in ms):
+        return 'bundle members %r malformed' % (ms,)
+    if not re.match(r'^[0-9a-f]{64}$', str(b.get('plan_sha256') or '')):
+        return 'bundle has no plan_sha256'
+    return ''
+
+
+def bundle_registration(run, sha, base, plan, members, at):
+    """PURE. The bundle's ONE registration. members (in pick order): [{'run', 'reg', 'diff_sha256', 'tip_in_bundle',
+    'approved', 'registration_sha256', 'files'}]. The union of change rows keeps every member's linked-death test; each
+    member's licence and `effect` stay under bundle.members (no top-level effect: a post-promotion checker iterates them)."""
+    rows, link, kinds = [], [], []
+    for m in members:
+        r = m['reg']
+        rows += [x for x in r.get('change_rows') or [] if x not in rows]
+        link += [x for x in r.get('linkage_extra') or [] if x not in link]
+        k = (r.get('licence') or {}).get('kind') if isinstance(r.get('licence'), dict) else None
+        if k and k not in kinds:
+            kinds.append(k)
+    return {
+        'run_id': run, 'sha': sha, 'registered_at': at, 'promotion': 'fleet-wide', 'class': '', 'reads': [],
+        'fun_reads': STD_READS, 'change_rows': rows, 'linkage_extra': link,
+        'licence': {'class': 'kind', 'kinds': kinds, 'note': 'v41 bundle: each member\'s own licence is under bundle.members'},
+        'bundle': {'schema': 1, 'base': base, 'plan_sha256': plan, 'members': [
+            {'run': m['run'], 'diff_sha256': m['diff_sha256'], 'tip_in_bundle': m['tip_in_bundle'],
+             'registration_sha256': m['registration_sha256'], 'files': m.get('files') or [],
+             'change_rows': m['reg'].get('change_rows') or [], 'linkage_extra': m['reg'].get('linkage_extra') or [],
+             'licence': m['reg'].get('licence'), 'effect': m['reg'].get('effect'), 'approved': m.get('approved') or '',
+             'notes': str(m['reg'].get('notes') or '')[:2000]} for m in members]},
+        'notes': '[BUNDLE v41] %s = %s on fleet base %s; whole-bundle rollback; members return as singles on any '
+                 'outcome but KEEP+promoted (`bundle split`).' % (run, ' + '.join(m['run'] for m in members), base[:8]),
+        'teardown': {'note': 'THREE STEPS (the loop\'s _teardown): drop-ins, clear canary_pool, restart the pool\'s bots '
+                             '12 s apart; then confirm the live versions.'},
+    }
+
+
+def bundle_entries(st):
+    return {e.get('run'): e for e in (st.get('queue') or {}).get('entries') or [] if e.get('bundle')}
+
+
+def run_decision(st, run):
+    """The ledger decision word of a DEPLOYED run's own deployment, or None."""
+    rows = run_rows(st.get('journal') or [], run)
+    dts, pools = deployment(rows)
+    d = ledger_row(st.get('ledger'), (st.get('reg_sha') or {}).get(run), pools, dts)
+    return str(d.get('decision')).upper() if d else None
+
+
+def bundle_outcome(be, st):
+    """'void' (cancelled) | 'keep' (closed, ledger KEEP and promoted) | 'failed' (closed any other way) | 'pending'."""
+    s = entry_state(be, st)
+    if s == 'cancelled':
+        return 'void'
+    if s == 'done':
+        promoted = any(r.get('phase') == 'promoted' for r in run_rows(st.get('journal') or [], be.get('run')))
+        return 'keep' if promoted and run_decision(st, be.get('run')) == 'KEEP' else 'failed'
+    return 'pending'
+
+
+def member_bundle_state(e, st):
+    """None for an entry not (validly) in a bundle; else 'done' | 'bundle-failed' | 'bundled' (v41)."""
+    b = e.get('bundled_in')
+    if not b:
+        return None
+    be = bundle_entries(st).get(b)
+    if be is None or e.get('run') not in ((be.get('bundle') or {}).get('members') or []):
+        return 'bundle-failed'                  # dangling reservation: H8 names it
+    o = bundle_outcome(be, st)
+    return {'keep': 'done', 'failed': 'bundle-failed', 'pending': 'bundled'}.get(o)
 
 
 def decide(st):
@@ -818,6 +1297,20 @@ def variant_checks(P, e, v, base, st):
             out.append(('H3', 'queued class %r != registration class %r' % (e.get('class') or '', r.get('class') or '')))
         if sorted(r.get('reads') or []) != sorted((v.get('reads') or {}).keys()):
             out.append(('H3', 'registered reads %s are not the queued reads %s' % (r.get('reads'), sorted(v.get('reads') or {}))))
+        if e.get('bundle') is not None or r.get('bundle') is not None:
+            rb, qb = r.get('bundle') or {}, e.get('bundle') or {}
+            ents = {x.get('run'): x for x in (st.get('queue') or {}).get('entries') or []}
+            if rb.get('plan_sha256') != qb.get('plan_sha256') or [m.get('run') for m in rb.get('members') or []] != qb.get('members'):
+                out.append(('H3', 'the registration\'s bundle block is not the queued bundle (plan/members differ)'))
+            lost = [m for m in qb.get('members') or [] if (ents.get(m) or {}).get('bundled_in') != run]
+            if lost:
+                out.append(('H3', 'bundle member(s) %s are no longer reserved by %s: `bundle split` and make a new one'
+                            % (', '.join(lost), run)))
+            if v.get('protected') is not False:
+                out.append(('H3', 'a bundle variant must be protected tier none (%s)' % v.get('protected_why')))
+        if r.get('lab') is not True and cs and cs == v.get('canary_sha'):
+            for why in plan_problems(P, base, cs, r, v.get('protected'), e.get('bundle') is not None):
+                out.append(('H7', why))
     except Exception as x:
         out.append(('H3', 'registration unreadable: %s' % x))
     dst = os.path.join(P['regdir'], '%s.json' % run)
@@ -1102,8 +1595,8 @@ def gather(P, full=True, r10=None):
     st['stage'], st['variant_checks'], st['r10'] = [], [], ''
     e = head_entry(st)
     st['ar_job'] = None
-    if e and st['base_full'] and st['base_full'] not in (e.get('variants') or {}) and not patch_problem(e.get('patch')):
-        st['ar_job'] = ar_read_job(ar_job_path(P, e['run'], st['base_full'], e['patch']['tip']))
+    if e and st['base_full'] and st['base_full'] not in (e.get('variants') or {}) and ar_token(e):
+        st['ar_job'] = ar_read_job(ar_job_path(P, e['run'], st['base_full'], ar_token(e)))
     if full and e and st['base_full'] and st['base_full'] in (e.get('variants') or {}):
         v = e['variants'][st['base_full']]
         st['variant_checks'], st['stage'] = variant_checks(P, e, v, st['base_full'], st)
@@ -1415,10 +1908,11 @@ def ar_page(P, level, run, msg):
 def ar_start(P, st, e):
     """Create the job file EXCLUSIVELY (a second tick can never start a second build, and a crash before the helper
     writes its pid leaves `starting`, which goes stale -> blocked, never retried), then start the helper detached."""
-    run, base, tip = e['run'], st['base_full'], e['patch']['tip']
+    run, base, tip = e['run'], st['base_full'], ar_token(e)
     p = ar_job_path(P, run, base, tip)
     os.makedirs(os.path.dirname(p), exist_ok=True)
-    job = {'state': 'starting', 'run': run, 'base': base, 'tip': tip, 'src_base': e['patch']['base'],
+    src_base = (e.get('patch') or {}).get('base') or ''
+    job = {'state': 'starting', 'run': run, 'base': base, 'tip': tip, 'src_base': src_base,
            'at': iso(now()), 'hb': iso(now()), 'step': 'start', 'steps': []}
     for q in glob.glob(os.path.join(P['ar_home'], 'jobs', '*.json')):
         j = ar_read_job(q) or {}
@@ -1432,7 +1926,9 @@ def ar_start(P, st, e):
     with os.fdopen(fd, 'w') as f:
         json.dump(job, f, indent=1)
     append_state(P, {'state': 'autorebase', 'run': run, 'base': base, 'tip': tip, 'step': 'start', 'ok': True,
-                     'detail': 'background build started for %s..%s onto %s' % (e['patch']['base'][:8], tip[:8], base[:8])})
+                     'detail': 'background build started for %s onto %s' % (
+                         'bundle %s' % '+'.join(e['bundle']['members']) if e.get('bundle') else
+                         '%s..%s' % (src_base[:8], tip[:8]), base[:8])})
     log = os.path.join(P['ar_home'], 'logs', '%s--%s.log' % (run, base[:12]))
     os.makedirs(os.path.dirname(log), exist_ok=True)
     with open(log, 'a') as out:
@@ -1834,31 +2330,8 @@ def ar_build(P, run, base, tip):
         return 3
 
 
-def _ar_steps(P, job, run, base, tip):
-    S = job.step
-    # 1. the entry and its declared change
-    q = load_queue(P)
-    hit = [e for e in q.get('entries') or [] if e.get('run') == run]
-    if len(hit) != 1:
-        raise ArRefuse('%s is not queued exactly once' % run)
-    e = hit[0]
-    pt = e.get('patch') or {}
-    if patch_problem(pt) or pt.get('tip') != tip:
-        raise ArRefuse('the queued patch source changed or is malformed (%s)' % (patch_problem(pt) or 'tip %s' % pt.get('tip')))
-    if base in (e.get('variants') or {}):
-        raise ArRefuse('a variant for %s already exists: nothing to build' % base[:8])
-    src = (e.get('variants') or {}).get(pt['base']) or {}
-    if src.get('canary_sha') != tip:
-        raise ArRefuse('the source variant keyed on %s does not have canary_sha %s' % (pt['base'][:8], tip[:8]))
-    reads_src = src.get('reads_src') or os.path.join(P['home'], 'mcai-analysis')
-    for name, want in sorted((src.get('reads') or {}).items()):
-        rp = os.path.join(reads_src, '%s.py' % name)
-        if not os.path.exists(rp) or md5(rp) != want:
-            raise ArRefuse('read %s in %s is not the md5 the source variant pinned (%s): the reviewed reads changed'
-                           % (name, reads_src, want[:8]))
-    S('entry', 'patch %s..%s (%s), template registration %s' % (pt['base'][:8], tip[:8], pt.get('branch') or '-',
-                                                                  src.get('registration')))
-    # 2. the scratch repo: a bare clone of origin, plus the deploy repo for anything origin lacks
+def _ar_repo(P, S, shas):
+    """Step 2: the scratch repo (a bare clone of origin, plus the deploy repo for anything origin lacks) holding shas."""
     R = os.path.join(P['ar_home'], 'repo.git')
     if not os.path.isdir(R):
         rc, _, err = gitx(P['ar_home'], 'clone', '-q', '--bare', P['ar_origin'], R, timeout=1800)
@@ -1868,24 +2341,19 @@ def _ar_steps(P, job, run, base, tip):
     if rc != 0:
         raise ArRefuse('fetch from %s failed: %s' % (P['ar_origin'], err.strip()[-200:]))
     have = lambda x: gitx(R, 'cat-file', '-e', '%s^{commit}' % x)[0] == 0
-    if not all(have(x) for x in (pt['base'], tip, base)):
+    if not all(have(x) for x in shas):
         # the deploy repo is root-owned: a local fetch runs upload-pack with the -c config cleared, so name it there
         gitx(R, 'fetch', '-q', '--upload-pack=git -c safe.directory=* upload-pack', P['git'], '+HEAD:refs/deploy/HEAD',
              '+refs/remotes/origin/*:refs/deploy/origin/*', timeout=1800)
-    miss = [x[:8] for x in (pt['base'], tip, base) if not have(x)]
+    miss = [x[:8] for x in shas if not have(x)]
     if miss:
         raise ArRefuse('commits %s are in neither origin nor the deploy repo' % ', '.join(miss))
     S('repo', R)
-    # 3. the change is linear and is the one reviewed
-    commits, why = linear_range(R, pt['base'], tip)
-    if why:
-        raise ArRefuse(why)
-    h0, files = diff_hash(R, pt['base'], tip)
-    if h0 != pt['diff_sha256']:
-        raise ArRefuse('the source range %s..%s no longer has the queued diff (sha256 %s, queued %s)'
-                       % (pt['base'][:8], tip[:8], h0[:12], pt['diff_sha256'][:12]))
-    S('reviewed-diff', '%d commit(s), %d file(s), normalized diff sha256 %s' % (len(commits), len(files), h0[:16]))
-    # 4. a scratch worktree on the live base; node modules; the movement lint on the base (its own known state)
+    return R
+
+
+def _ar_worktree(P, S, R, run, base):
+    """Step 4: a scratch worktree on the live base; npm ci; the movement lint on the base."""
     gitx(R, 'worktree', 'prune')
     W = os.path.join(P['ar_home'], 'work', '%s--%s' % (run, base[:8]))
     if os.path.exists(W):
@@ -1903,6 +2371,309 @@ def _ar_steps(P, job, run, base, tip):
         raise ArRefuse('npm ci failed on the base (rc %s): %s' % (rc, ' '.join(out.split())[-300:]))
     rc_mb, out_mb = run_cmd(nice + [npm, 'run', 'lint:movement'], B, 600)
     S('worktree', '%s at %s; npm ci ok; movement lint on the base rc %s' % (W, base[:8], rc_mb))
+    return W, B, npm, nice, rc_mb, out_mb
+
+
+def _ar_suite(P, job, run, base, nt, W, B, npm, nice, files, rc_mb, out_mb):
+    """Step 8: eslint, the movement lint no worse than the base, the full suite with v40's adjudication -> summary."""
+    S = job.step
+    rc, out = run_cmd(nice + [npm, 'run', 'lint'], B, 900)
+    if rc != 0:
+        raise ArRefuse('eslint (npm run lint, no-undef) fails on the new tip: %s' % ' '.join(out.split())[-300:])
+    rc_mv, out_mv = run_cmd(nice + [npm, 'run', 'lint:movement'], B, 600)
+    if rc_mv != 0 and (rc_mb == 0 or not movement_fails(out_mv) or not movement_fails(out_mv) <= movement_fails(out_mb)):
+        raise ArRefuse('the movement-writer lint is worse on the new tip (rc %s, FAIL %s) than on the base (rc %s, FAIL %s)'
+                       % (rc_mv, sorted(movement_fails(out_mv)), rc_mb, sorted(movement_fails(out_mb))))
+    S('lint', 'eslint ok; movement lint rc %s (base rc %s)' % (rc_mv, rc_mb))
+    S('full-suite', 'npm test (full, nice 10) starting on %s' % nt[:8])
+    rc_t, out_t = run_cmd(nice + [npm, 'test'], B, AR_TEST_TIMEOUT_S)
+    with open(os.path.join(P['ar_home'], 'logs', '%s--%s.npmtest.out' % (run, base[:12])), 'w') as f:
+        f.write(out_t)
+    full = test_results(out_t)
+    fails = sorted(f for f, r in full.items() if r != 'ok')
+    reruns = {}
+    if fails and len(fails) <= AR_MAX_RERUN:
+        reruns = ar_reruns(P, job, run, base, nt, W, B, npm, fails, files)
+    expected = len(glob.glob(os.path.join(B, 'test', '*.test.mjs')))
+    why, summary = test_verdict(rc_t, full, reruns, expected)
+    if why:
+        raise ArRefuse('npm test: %s (%s)' % (why, summary))
+    S('tests', summary)
+    return summary
+
+
+def _ar_publish(P, S, R, run, base, nt):
+    """Steps 9-10: branch autorebase/<run>-on-<base8>, pushed (relay or direct), on origin, fetched into the deploy repo."""
+    branch = 'autorebase/%s-on-%s' % (run, base[:8])
+    rc, cur, _ = gitx(R, 'rev-parse', '--verify', '--quiet', 'refs/heads/%s' % branch)
+    if rc == 0 and cur.strip() != nt:
+        raise ArRefuse('branch %s already exists here at %s' % (branch, cur.strip()[:8]))
+    if rc != 0:
+        rc, _, err = gitx(R, 'update-ref', 'refs/heads/%s' % branch, nt, '')
+        if rc != 0:
+            raise ArRefuse('update-ref %s failed: %s' % (branch, err.strip()[-200:]))
+    remote = lambda: (gitx(R, 'ls-remote', P['ar_origin'], 'refs/heads/%s' % branch, timeout=120)[1].split() or [''])[0]
+    r0 = remote()
+    if r0 and r0 != nt:
+        raise ArRefuse('origin already has %s at %s (not %s)' % (branch, r0[:8], nt[:8]))
+    if not r0:
+        if P['ar_push'] == 'direct':
+            rc, _, err = gitx(R, 'push', '-q', P['ar_origin'], '%s:refs/heads/%s' % (nt, branch), timeout=600)
+            if rc != 0:
+                raise ArRefuse('git push failed: %s' % err.strip()[-200:])
+        else:
+            d = os.path.join(P['ar_home'], 'push')
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, branch.replace('/', '__') + '.req'), 'w') as f:
+                f.write('%s %s\n' % (branch, nt))
+        S('push-request', '%s %s via %s' % (branch, nt[:8], P['ar_push']))
+        t_end = time.time() + AR_PUSH_WAIT_MIN * 60
+        while True:
+            r0 = remote()
+            if r0:
+                break
+            if time.time() > t_end:
+                raise ArRefuse('origin does not show %s after %d min: is the Mac relay (launchd com.mcai.autorebase-relay) '
+                               'running?' % (branch, AR_PUSH_WAIT_MIN))
+            time.sleep(20)
+        if r0 != nt:
+            raise ArRefuse('origin shows %s at %s, not %s' % (branch, r0[:8], nt[:8]))
+    S('pushed', '%s at %s on origin' % (branch, nt[:8]))
+    # 10. the deploy repo can resolve it (H3, fleet-deploy)
+    cmd = (['sudo', '-n'] if P['ar_sudo'] == '1' else []) + [
+        'git', '-C', P['git'], 'fetch', '-q', 'origin', '+refs/heads/%s:refs/remotes/origin/%s' % (branch, branch)]
+    rc, out = run_cmd(cmd, P['home'], 600)
+    if rc != 0 or full_sha(P, nt) != nt:
+        raise ArRefuse('the deploy repo %s cannot resolve %s after the fetch (rc %s): %s' % (P['git'], nt[:8], rc,
+                                                                                            ' '.join(out.split())[-200:]))
+    S('deploy-repo', '%s resolves %s' % (P['git'], nt[:8]))
+    return branch
+
+
+def _ar_add_variant(P, S, run, base, nt, regp, approved, reads_src):
+    """Step 12: `queue add-variant`, through the same validation as a hand-added variant."""
+    import io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = cmd_queue(P, ['add-variant', '--reads-src', reads_src, run, base, regp, approved])
+    if rc != 0:
+        raise ArRefuse('queue add-variant refused: %s' % ' '.join(buf.getvalue().split())[-400:])
+    S('variant', 'queued %s for %s' % (nt[:8], base[:8]))
+
+
+def ar_read_plan(P, gdir, base, nt, tier, reg):
+    """(plan, why it is not fast | '') for base..nt in repo gdir."""
+    if os.path.exists(P['fast_off']):
+        return STD_READS, '%s present' % P['fast_off']
+    rc, txt, err = gitx(gdir, *DIFF_ARGS, base, nt)
+    if rc != 0:
+        return STD_READS, 'git diff failed: %s' % err.strip()[-120:]
+    why = fast_problem(txt, tier, reg, bool(reg.get('bundle')))
+    return (STD_READS, why) if why else (FAST_READS, '')
+
+
+def load_prot(gdir, rev):
+    """The scripts/lib/protected.py OF `rev` (git show), imported from a temp copy: the base decides, never the change."""
+    rc, txt, err = gitx(gdir, 'show', '%s:scripts/lib/protected.py' % rev)
+    if rc != 0:
+        raise RuntimeError('scripts/lib/protected.py is absent at %s: %s' % (rev[:8], err.strip()[-120:]))
+    d = tempfile.mkdtemp(prefix='sched-protmod-')
+    try:
+        fp = os.path.join(d, 'protected_at_%s.py' % rev[:12])
+        with open(fp, 'w') as f:
+            f.write(txt)
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('protected_at_%s' % rev[:12], fp)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def member_footprint(gdir, prot, a, b):
+    """(footprint, declared names, used names) of the change a..b in repo gdir, read with the base's protected module."""
+    rc, txt, err = gitx(gdir, 'diff', '-U0', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', a, b)
+    if rc != 0:
+        raise RuntimeError('git diff -U0 %s %s failed: %s' % (a[:8], b[:8], err.strip()[-160:]))
+    revs = {'old': a, 'new': b}
+
+    def read(side, path):
+        rc2, out, _ = gitx(gdir, 'show', '%s:%s' % (revs[side], path))
+        return out if rc2 == 0 else None
+    fp = fp_tokens(prot.parse_diff(txt), read, prot)
+    decl, used = diff_names(txt)
+    return fp, decl, used
+
+
+def _ar_bundle_steps(P, job, q, e, base, token):
+    """v41: compose a BUNDLE on the live base (see the module docstring). Every refusal raises ArRefuse."""
+    S = job.step
+    run, b = e['run'], e.get('bundle') or {}
+    bad = bundle_problem(e)
+    if bad or b['plan_sha256'][:40] != token:
+        raise ArRefuse('the bundle entry changed or is malformed (%s)' % (bad or 'plan %s, job %s' % (b.get('plan_sha256'), token)))
+    if base in (e.get('variants') or {}):
+        raise ArRefuse('a variant for %s already exists: nothing to build' % base[:8])
+    ents = q.get('entries') or []
+    ms = []
+    for r in b['members']:
+        hit = [x for x in ents if x.get('run') == r]
+        if len(hit) != 1:
+            raise ArRefuse('member %s is not queued exactly once' % r)
+        m = hit[0]
+        if m.get('bundled_in') != run:
+            raise ArRefuse('member %s is not reserved by %s (bundled_in %r)' % (r, run, m.get('bundled_in')))
+        pt = m.get('patch') or {}
+        if patch_problem(pt):
+            raise ArRefuse('member %s: %s' % (r, patch_problem(pt)))
+        src = (m.get('variants') or {}).get(pt['base']) or {}
+        if src.get('canary_sha') != pt['tip'] or approval_problem(src.get('approved'), False):
+            raise ArRefuse('member %s: its source variant is not the patch tip or names no reviewer' % r)
+        if src.get('reads'):
+            raise ArRefuse('member %s pins reads %s: a bundle reads generically only (v41)' % (r, sorted(src['reads'])))
+        try:
+            if sha256(src['registration']) != src.get('registration_sha256'):
+                raise ArRefuse('member %s: its registration changed since it was queued' % r)
+            with open(src['registration']) as f:
+                reg = json.load(f)
+        except ArRefuse:
+            raise
+        except Exception as x:
+            raise ArRefuse('member %s: registration unreadable: %s' % (r, x))
+        ms.append({'run': r, 'entry': m, 'pt': pt, 'src': src, 'reg': reg})
+    plan = plan_hash([{'run': m['run'], 'base': m['pt']['base'], 'tip': m['pt']['tip'], 'diff_sha256': m['pt']['diff_sha256'],
+                       'registration_sha256': m['src'].get('registration_sha256'),
+                       'couples_with': m['entry'].get('couples_with') or []} for m in ms])
+    if plan != b['plan_sha256']:
+        raise ArRefuse('the members changed since `bundle make` (plan %s, queued %s): make a new bundle' % (plan[:12], b['plan_sha256'][:12]))
+    S('entry', 'bundle %s = %s (plan %s)' % (run, ' + '.join(b['members']), plan[:16]))
+    R = _ar_repo(P, S, [base] + [x for m in ms for x in (m['pt']['base'], m['pt']['tip'])])
+    PR = dict(P, git=R)
+    for m in ms:
+        pt = m['pt']
+        m['commits'], why = linear_range(R, pt['base'], pt['tip'])
+        if why:
+            raise ArRefuse('member %s: %s' % (m['run'], why))
+        h0, m['files'] = diff_hash(R, pt['base'], pt['tip'])
+        if h0 != pt['diff_sha256']:
+            raise ArRefuse('member %s: the source range no longer has the queued diff (%s vs %s)' % (m['run'], h0[:12], pt['diff_sha256'][:12]))
+        m['tier'] = tier_label(*protected_run(PR, pt['base'], pt['tip']))
+        m['stacked'] = gitx(R, 'merge-base', '--is-ancestor', pt['base'], base)[0] != 0
+        mp = member_problem({'entry': {k: v for k, v in m['entry'].items() if k != 'bundled_in'}, 'state': 'ready', 'reg': m['reg'], 'tier': m['tier'],
+                             'stacked': m['stacked'], 'files': m['files']})
+        if mp:
+            raise ArRefuse('member %s is not bundleable: %s' % (m['run'], mp))
+    S('reviewed-diff', '; '.join('%s %d commit(s) tier %s' % (m['run'], len(m['commits']), m['tier']) for m in ms))
+    W, B, npm, nice, rc_mb, out_mb = _ar_worktree(P, S, R, run, base)
+    cur = base
+    for m in ms:
+        _, cd, _ = gitx(R, 'log', '-1', '--format=%ct', m['pt']['tip'])
+        if not re.match(r'^\d+$', cd.strip()):
+            raise ArRefuse('cannot read the committer time of %s' % m['pt']['tip'][:8])
+        env_pin = {'GIT_COMMITTER_NAME': 'canary-sched autorebase', 'GIT_COMMITTER_EMAIL': 'autorebase@mcai.invalid',
+                   'GIT_COMMITTER_DATE': '@' + cd.strip() + ' +0000'}
+        rcp, o1, e1 = gitx(W, '-c', 'user.name=canary-sched autorebase', '-c', 'user.email=autorebase@mcai.invalid',
+                           '-c', 'commit.gpgsign=false', '-c', 'rerere.enabled=false', 'cherry-pick', '-x',
+                           '--allow-empty-message', *m['commits'], timeout=600, env_extra=env_pin)
+        if rcp:
+            _, um, _ = gitx(W, 'diff', '--name-only', '--diff-filter=U')
+            gitx(W, 'cherry-pick', '--abort')
+            raise ArRefuse('member %s does not apply cleanly on top of %s: conflict in %s'
+                           % (m['run'], ' + '.join(x['run'] for x in ms[:ms.index(m)]) or 'the base', ', '.join(um.split()) or '?'))
+        nt = gitx(W, 'rev-parse', 'HEAD')[1].strip()
+        picked, why = linear_range(R, cur, nt)
+        if why or len(picked) != len(m['commits']):
+            raise ArRefuse('member %s: %d commits picked, %d in its source (%s)' % (m['run'], len(picked), len(m['commits']), why or 'an empty pick?'))
+        hi, _ = diff_hash(R, cur, nt)
+        if hi != m['pt']['diff_sha256']:
+            raise ArRefuse('member %s: its diff inside the bundle is NOT its reviewed diff (%s vs %s): an earlier member or the '
+                           'base changed lines in or beside it' % (m['run'], hi[:12], m['pt']['diff_sha256'][:12]))
+        m['prev'], m['tip_in_bundle'] = cur, nt
+        cur = nt
+    S('compose', 'picked in order onto %s -> %s; every member diff identical to its reviewed one' % (base[:8], cur[:8]))
+    tc = tier_label(*protected_run(PR, base, cur))
+    if tc != 'none':
+        raise ArRefuse('the COMPOSED bundle is protected tier %s on %s (each member was none): the members together touch '
+                       'protected scope' % (tc, base[:8]))
+    try:
+        prot = load_prot(R, base)
+        for m in ms:
+            m['fp'], m['decl'], m['used'] = member_footprint(R, prot, m['prev'], m['tip_in_bundle'])
+    except Exception as x:
+        raise ArRefuse('the footprints could not be computed (fail closed): %s: %s' % (type(x).__name__, x))
+    probs = []
+    for i, a in enumerate(ms):
+        for c in ms[i + 1:]:
+            probs += ['%s + %s: %s' % (a['run'], c['run'], p) for p in pair_problems(a, c)]
+    if probs:
+        raise ArRefuse('the members are related in the composed tree: %s' % '; '.join(probs)[:600])
+    S('footprints', 'composed tier none; pairwise disjoint on the incremental diffs (%s)'
+      % '; '.join('%s %d token(s)' % (m['run'], len(m['fp'])) for m in ms))
+    files = diff_hash(R, base, cur)[1]
+    summary = _ar_suite(P, job, run, base, cur, W, B, npm, nice, files, rc_mb, out_mb)
+    branch = _ar_publish(P, S, R, run, base, cur)
+    reg = bundle_registration(run, cur, base, plan, [
+        {'run': m['run'], 'reg': m['reg'], 'diff_sha256': m['pt']['diff_sha256'], 'tip_in_bundle': m['tip_in_bundle'],
+         'approved': m['src'].get('approved'), 'registration_sha256': m['src'].get('registration_sha256'),
+         'files': m['files']} for m in ms], iso(now()))
+    reg['notes'] += (' Composed by canary-sched v41 on branch %s: each member picked in order with its normalized diff '
+                     'identical; composed tier none; footprints disjoint; eslint ok; %s. Why it composes (operator): %s'
+                     % (branch, summary, str(b.get('why') or '')[:600]))
+    regp = os.path.join(os.path.dirname(os.path.abspath(ms[0]['src']['registration'])), '%s.%s.json' % (run, cur[:8]))
+    if os.path.exists(regp):
+        raise ArRefuse('%s already exists: reconcile it by hand' % regp)
+    with open(regp + '.tmp', 'w') as f:
+        json.dump(reg, f, indent=1); f.write('\n')
+    os.replace(regp + '.tmp', regp)
+    S('registration', regp)
+    approved = 'BUNDLE (canary-sched v41) of %s onto %s, each member reviewed alone: %s' % (
+        ' + '.join(m['run'] for m in ms), base[:8], ' || '.join('%s [%s]' % (m['run'], str(m['src'].get('approved'))[:300]) for m in ms))
+    _ar_add_variant(P, S, run, base, cur, regp, approved, os.path.join(P['home'], 'mcai-analysis'))
+    gitx(R, 'worktree', 'remove', '--force', W)
+    shutil.rmtree(W, ignore_errors=True)
+    return {'variant': cur, 'branch': branch, 'registration': regp, 'tests': summary}
+
+
+def _ar_steps(P, job, run, base, tip):
+    S = job.step
+    # 1. the entry and its declared change
+    q = load_queue(P)
+    hit = [e for e in q.get('entries') or [] if e.get('run') == run]
+    if len(hit) != 1:
+        raise ArRefuse('%s is not queued exactly once' % run)
+    e = hit[0]
+    if e.get('bundle') is not None:
+        return _ar_bundle_steps(P, job, q, e, base, tip)
+    pt = e.get('patch') or {}
+    if patch_problem(pt) or pt.get('tip') != tip:
+        raise ArRefuse('the queued patch source changed or is malformed (%s)' % (patch_problem(pt) or 'tip %s' % pt.get('tip')))
+    if base in (e.get('variants') or {}):
+        raise ArRefuse('a variant for %s already exists: nothing to build' % base[:8])
+    src = (e.get('variants') or {}).get(pt['base']) or {}
+    if src.get('canary_sha') != tip:
+        raise ArRefuse('the source variant keyed on %s does not have canary_sha %s' % (pt['base'][:8], tip[:8]))
+    reads_src = src.get('reads_src') or os.path.join(P['home'], 'mcai-analysis')
+    for name, want in sorted((src.get('reads') or {}).items()):
+        rp = os.path.join(reads_src, '%s.py' % name)
+        if not os.path.exists(rp) or md5(rp) != want:
+            raise ArRefuse('read %s in %s is not the md5 the source variant pinned (%s): the reviewed reads changed'
+                           % (name, reads_src, want[:8]))
+    S('entry', 'patch %s..%s (%s), template registration %s' % (pt['base'][:8], tip[:8], pt.get('branch') or '-',
+                                                                  src.get('registration')))
+    # 2. the scratch repo: a bare clone of origin, plus the deploy repo for anything origin lacks
+    R = _ar_repo(P, S, (pt['base'], tip, base))
+    # 3. the change is linear and is the one reviewed
+    commits, why = linear_range(R, pt['base'], tip)
+    if why:
+        raise ArRefuse(why)
+    h0, files = diff_hash(R, pt['base'], tip)
+    if h0 != pt['diff_sha256']:
+        raise ArRefuse('the source range %s..%s no longer has the queued diff (sha256 %s, queued %s)'
+                       % (pt['base'][:8], tip[:8], h0[:12], pt['diff_sha256'][:12]))
+    S('reviewed-diff', '%d commit(s), %d file(s), normalized diff sha256 %s' % (len(commits), len(files), h0[:16]))
+    # 4. a scratch worktree on the live base; node modules; the movement lint on the base (its own known state)
+    W, B, npm, nice, rc_mb, out_mb = _ar_worktree(P, S, R, run, base)
     # 5. (a) cherry-pick, no conflict
     # REPRODUCIBLE: committer pinned (name, email, the source tip's committer time), so a rebuild after
     # `autorebase-clear` makes the SAME sha and finds its own branch (and any push of it) instead of refusing on it
@@ -1947,72 +2718,9 @@ def _ar_steps(P, job, run, base, tip):
         if rc != 0:
             raise ArRefuse('npm ci failed on the new tip (a dependency change, rc %s): %s' % (rc, ' '.join(out.split())[-300:]))
     # 8. (c) lint, movement lint (no worse than the base), the full suite (base-relative for host-load failures)
-    rc, out = run_cmd(nice + [npm, 'run', 'lint'], B, 900)
-    if rc != 0:
-        raise ArRefuse('eslint (npm run lint, no-undef) fails on the new tip: %s' % ' '.join(out.split())[-300:])
-    rc_mv, out_mv = run_cmd(nice + [npm, 'run', 'lint:movement'], B, 600)
-    if rc_mv != 0 and (rc_mb == 0 or not movement_fails(out_mv) or not movement_fails(out_mv) <= movement_fails(out_mb)):
-        raise ArRefuse('the movement-writer lint is worse on the new tip (rc %s, FAIL %s) than on the base (rc %s, FAIL %s)'
-                       % (rc_mv, sorted(movement_fails(out_mv)), rc_mb, sorted(movement_fails(out_mb))))
-    S('lint', 'eslint ok; movement lint rc %s (base rc %s)' % (rc_mv, rc_mb))
-    S('full-suite', 'npm test (full, nice 10) starting on %s' % nt[:8])
-    rc_t, out_t = run_cmd(nice + [npm, 'test'], B, AR_TEST_TIMEOUT_S)
-    with open(os.path.join(P['ar_home'], 'logs', '%s--%s.npmtest.out' % (run, base[:12])), 'w') as f:
-        f.write(out_t)
-    full = test_results(out_t)
-    fails = sorted(f for f, r in full.items() if r != 'ok')
-    reruns = {}
-    if fails and len(fails) <= AR_MAX_RERUN:
-        reruns = ar_reruns(P, job, run, base, nt, W, B, npm, fails, files)
-    expected = len(glob.glob(os.path.join(B, 'test', '*.test.mjs')))
-    why, summary = test_verdict(rc_t, full, reruns, expected)
-    if why:
-        raise ArRefuse('npm test: %s (%s)' % (why, summary))
-    S('tests', summary)
-    # 9. the branch, pushed (relay or direct), confirmed by ls-remote
-    branch = 'autorebase/%s-on-%s' % (run, base[:8])
-    rc, cur, _ = gitx(R, 'rev-parse', '--verify', '--quiet', 'refs/heads/%s' % branch)
-    if rc == 0 and cur.strip() != nt:
-        raise ArRefuse('branch %s already exists here at %s' % (branch, cur.strip()[:8]))
-    if rc != 0:
-        rc, _, err = gitx(R, 'update-ref', 'refs/heads/%s' % branch, nt, '')
-        if rc != 0:
-            raise ArRefuse('update-ref %s failed: %s' % (branch, err.strip()[-200:]))
-    remote = lambda: (gitx(R, 'ls-remote', P['ar_origin'], 'refs/heads/%s' % branch, timeout=120)[1].split() or [''])[0]
-    r0 = remote()
-    if r0 and r0 != nt:
-        raise ArRefuse('origin already has %s at %s (not %s)' % (branch, r0[:8], nt[:8]))
-    if not r0:
-        if P['ar_push'] == 'direct':
-            rc, _, err = gitx(R, 'push', '-q', P['ar_origin'], '%s:refs/heads/%s' % (nt, branch), timeout=600)
-            if rc != 0:
-                raise ArRefuse('git push failed: %s' % err.strip()[-200:])
-        else:
-            d = os.path.join(P['ar_home'], 'push')
-            os.makedirs(d, exist_ok=True)
-            with open(os.path.join(d, branch.replace('/', '__') + '.req'), 'w') as f:
-                f.write('%s %s\n' % (branch, nt))
-        S('push-request', '%s %s via %s' % (branch, nt[:8], P['ar_push']))
-        t_end = time.time() + AR_PUSH_WAIT_MIN * 60
-        while True:
-            r0 = remote()
-            if r0:
-                break
-            if time.time() > t_end:
-                raise ArRefuse('origin does not show %s after %d min: is the Mac relay (launchd com.mcai.autorebase-relay) '
-                               'running?' % (branch, AR_PUSH_WAIT_MIN))
-            time.sleep(20)
-        if r0 != nt:
-            raise ArRefuse('origin shows %s at %s, not %s' % (branch, r0[:8], nt[:8]))
-    S('pushed', '%s at %s on origin' % (branch, nt[:8]))
-    # 10. the deploy repo can resolve it (H3, fleet-deploy)
-    cmd = (['sudo', '-n'] if P['ar_sudo'] == '1' else []) + [
-        'git', '-C', P['git'], 'fetch', '-q', 'origin', '+refs/heads/%s:refs/remotes/origin/%s' % (branch, branch)]
-    rc, out = run_cmd(cmd, P['home'], 600)
-    if rc != 0 or full_sha(P, nt) != nt:
-        raise ArRefuse('the deploy repo %s cannot resolve %s after the fetch (rc %s): %s' % (P['git'], nt[:8], rc,
-                                                                                            ' '.join(out.split())[-200:]))
-    S('deploy-repo', '%s resolves %s' % (P['git'], nt[:8]))
+    summary = _ar_suite(P, job, run, base, nt, W, B, npm, nice, files, rc_mb, out_mb)
+    # 9. the branch, pushed (relay or direct), confirmed by ls-remote; 10. the deploy repo resolves it
+    branch = _ar_publish(P, S, R, run, base, nt)
     # 11. the registration: the source variant's, re-pointed
     with open(src['registration']) as f:
         reg = json.load(f)
@@ -2022,6 +2730,12 @@ def _ar_steps(P, job, run, base, tip):
             'reviewed variant on %s) with no conflicts; normalized diff identical (sha256 %s); protected tier %s '
             'unchanged; eslint ok; %s. ' % (run, nt[:8], base[:8], branch, pt['base'][:8], tip[:8], len(commits),
                                             pt['base'][:8], h1[:16], t1, summary))
+    if reg.get('lab') is not True:
+        # v41: the read plan is decided HERE, mechanically, on the diff that will deploy (H7 re-checks it at launch)
+        plan, pwhy = ar_read_plan(P, R, base, nt, t1, reg)
+        reg['fun_reads'] = plan
+        note += 'Read plan %s (%s). ' % ('FAST +45/+90' if plan == FAST_READS else 'standard +90/+180',
+                                         pwhy or 'fast_problem: eligible')
     reg['notes'] = note + str(reg.get('notes') or '')
     regp = os.path.join(os.path.dirname(os.path.abspath(src['registration'])), '%s.%s.json' % (run, nt[:8]))
     if os.path.exists(regp):
@@ -2032,13 +2746,7 @@ def _ar_steps(P, job, run, base, tip):
     S('registration', regp)
     # 12. the variant, through the same validation as a hand-added one
     approved = '%s || AUTOREBASE (canary-sched v40) onto %s: %s' % (src.get('approved') or '', base[:8], note.strip())
-    import io, contextlib
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        rc = cmd_queue(P, ['add-variant', '--reads-src', reads_src, run, base, regp, approved])
-    if rc != 0:
-        raise ArRefuse('queue add-variant refused: %s' % ' '.join(buf.getvalue().split())[-400:])
-    S('variant', 'queued %s for %s' % (nt[:8], base[:8]))
+    _ar_add_variant(P, S, run, base, nt, regp, approved, reads_src)
     gitx(R, 'worktree', 'remove', '--force', W)
     shutil.rmtree(W, ignore_errors=True)
     return {'variant': nt, 'branch': branch, 'registration': regp, 'tests': summary}
@@ -2112,6 +2820,25 @@ def approval_problem(approved, protected):
     return ''
 
 
+def plan_problems(P, base, cs, reg, protected, is_bundle):
+    """v41: the fun-mode read plan of a registration for base..cs: the value is one of READ_PLANS, a FAST plan is
+    justified by fast_problem on the diff that will deploy, and a bundle runs the standard plan."""
+    plan, _, why = read_plan(reg)
+    if why:
+        return [why]
+    if plan != FAST_READS:
+        return []
+    if is_bundle or reg.get('bundle'):
+        return ['a bundle must run the standard plan %r, not %r' % (STD_READS, plan)]
+    if os.path.exists(P['fast_off']):
+        return ['the FAST plan is off (%s present): re-register with fun_reads %r' % (P['fast_off'], STD_READS)]
+    rc, txt, err = gitx(P['git'], *DIFF_ARGS, base, cs)
+    if rc != 0:
+        return ['git diff %s..%s failed (%s): the fast plan cannot be justified' % (base[:7], cs[:7], err.strip()[-120:])]
+    fp = fast_problem(txt, 'none' if protected is False else '3 or undecidable', reg, False)
+    return ['fun_reads %r is not justified: %s' % (plan, fp)] if fp else []
+
+
 def validate_entry(P, e, journal):
     """`queue add` refusals (empty list = valid). Fills computed hashes in place."""
     bad = []
@@ -2168,6 +2895,7 @@ def validate_entry(P, e, journal):
                 ap = approval_problem(v.get('approved'), prot)
                 if ap:
                     bad.append('variant %s %s (%s)' % (k[:7], ap, pwhy[:160]))
+                bad += ['variant %s: %s' % (k[:7], x) for x in plan_problems(P, k, cs, r, prot, bool(e.get('bundle')))]
         reads = v.get('reads') or {}
         src = v.get('reads_src') or os.path.join(P['home'], 'mcai-analysis')
         v['reads_src'] = src
@@ -2272,9 +3000,24 @@ def _cmd_queue(P, args):
             print('REFUSED: %s is not queued exactly once' % run); return 2
         e2 = {'run': run, 'class': hit[0].get('class', ''),
               'variants': {base: {'registration': os.path.abspath(reg), 'approved': approved}}}
+        if hit[0].get('bundle') is not None:
+            e2['bundle'] = hit[0]['bundle']
+            try:
+                with open(reg) as f:
+                    rb = (json.load(f).get('bundle') or {})
+            except Exception as x:
+                print('REFUSED: registration unreadable: %s' % x); return 2
+            if rb.get('plan_sha256') != hit[0]['bundle'].get('plan_sha256') or \
+                    [m.get('run') for m in rb.get('members') or []] != hit[0]['bundle'].get('members'):
+                print('REFUSED: %s is a bundle: the registration\'s bundle block (plan %s, members %s) is not the queued one '
+                      '(plan %s, members %s)' % (run, str(rb.get('plan_sha256'))[:12], [m.get('run') for m in rb.get('members') or []],
+                                                 str(hit[0]['bundle'].get('plan_sha256'))[:12], hit[0]['bundle'].get('members')))
+                return 2
         if rs:
             e2['variants'][base]['reads_src'] = rs
         bad = validate_entry(P, e2, st['journal'])
+        if e2.get('bundle') is not None and e2['variants'][base].get('protected') is not False:
+            bad.append('a bundle variant must be protected tier none (%s)' % e2['variants'][base].get('protected_why'))
         if bad:
             print('REFUSED:\n  ' + '\n  '.join(bad)); return 2
 
@@ -2482,6 +3225,212 @@ def _cmd_ar_clear(P, args):
     print('autorebase-clear %s: %d job file(s) moved to %s; the next tick may build again' % (run, len(jobs), d)); return 0
 
 
+# ----------------------------------------------------------------------------------------------- v41 bundles --
+def bundle_facts(P, st, runs, prot=None):
+    """Member facts for plan_bundle, from the deploy repo: each run's entry, state, registration, protected tier of its
+    reviewed range (the source base's protected.py), stacked or not, and its footprint read with the LIVE base's lexer."""
+    base = st.get('base_full')
+    ents = {e.get('run'): e for e in (st.get('queue') or {}).get('entries') or []}
+    if prot is None:
+        prot = load_prot(P['git'], base)
+    out = {}
+    for r in runs:
+        e = ents.get(r)
+        if e is None:
+            continue
+        f = {'run': r, 'entry': e, 'state': entry_state(e, st), 'reg': None, 'tier': '?', 'stacked': True,
+             'fp': set(), 'decl': set(), 'used': set(), 'files': []}
+        pt = e.get('patch') or {}
+        if not patch_problem(pt):
+            src = (e.get('variants') or {}).get(pt['base']) or {}
+            try:
+                with open(src.get('registration') or '/nonexistent') as fh:
+                    f['reg'] = json.load(fh)
+            except Exception:
+                f['reg'] = None
+            f['tier'] = tier_label(*protected_run(P, pt['base'], pt['tip']))
+            f['stacked'] = git(P, 'merge-base', '--is-ancestor', pt['base'], base)[0] != 0
+            f['files'] = pt.get('files') or []
+            try:
+                f['fp'], f['decl'], f['used'] = member_footprint(P['git'], prot, pt['base'], pt['tip'])
+            except Exception as x:
+                f['fp'] = {('FILE', 'footprint unreadable: %s' % x)}
+        out[r] = f
+    return out
+
+
+def bundle_suggest(st, facts_for):
+    """A suggestion for status/plan: the first ready entry from the head that is bundleable, then each later ready entry
+    that pairs with all chosen, stopping at the first entry a member may not jump. facts_for(runs) -> facts."""
+    ents = (st.get('queue') or {}).get('entries') or []
+    states = {e.get('run'): entry_state(e, st) for e in ents}
+    cand = [e.get('run') for e in ents if states[e.get('run')] not in ('done', 'cancelled', 'bundled')]
+    facts = facts_for(cand[:8])
+    chosen = []
+    for r in cand[:8]:
+        if r not in facts:
+            break
+        if member_problem(facts[r], st.get('now')):
+            if chosen and not jump_problem(facts[r]['entry'], states[r]):
+                continue
+            break
+        if all(not pair_problems(facts[c], facts[r]) for c in chosen):
+            chosen.append(r)
+        if len(chosen) == BUNDLE_MAX:
+            break
+    return chosen if len(chosen) >= 2 else []
+
+
+def _cmd_bundle(P, args):
+    sub = args[0] if args else ''
+    st = gather(P, full=False)
+    if not st.get('base_full'):
+        print('REFUSED: the fleet base cannot be resolved to a full sha'); return 2
+    ents = (st.get('queue') or {}).get('entries') or []
+    states = {e.get('run'): entry_state(e, st) for e in ents}
+    if sub == 'plan':
+        runs = args[1:]
+        prot = load_prot(P['git'], st['base_full'])
+        if not runs:
+            runs = bundle_suggest(st, lambda rs: bundle_facts(P, st, rs, prot))
+            if not runs:
+                print('no bundle suggested from the head (fleet base %s): no two adjacent ready entries pass the checks; '
+                      '`bundle plan <run> <run>` says why for a given pair' % st['base_full'][:8]); return 0
+            print('SUGGESTED from the head: %s' % ' + '.join(runs))
+        facts = bundle_facts(P, st, runs, prot)
+        probs, notes, ordered, after = plan_bundle(runs, facts, ents, states, st['now'])
+        for r in ordered:
+            f = facts[r]
+            print('  %s: tier %s, %s, %d footprint token(s): %s' % (r, f['tier'], 'STACKED' if f['stacked'] else 'on the fleet base',
+                  len(f['fp']), ', '.join(sorted('%s:%s' % (t[1], t[2] if len(t) > 2 else t[0]) for t in f['fp'] if t[0] != 'TEST'))[:300]))
+        for n in notes:
+            print('  note: %s' % n)
+        if probs:
+            print('NOT BUNDLEABLE:\n  ' + '\n  '.join(probs)); return 1
+        print('BUNDLEABLE: %s (outside after: %s); `bundle make <id> %s --why "<why they compose>"`'
+              % (' + '.join(ordered), after or 'none', ' '.join(ordered))); return 0
+    if sub == 'make' and len(args) >= 4:
+        rest = args[1:]
+        why = hold = None
+        for flag in ('--why', '--hold'):
+            if flag in rest:
+                i = rest.index(flag)
+                nxt = [j for j in range(i + 1, len(rest)) if rest[j].startswith('--')]
+                val = ' '.join(rest[i + 1:nxt[0] if nxt else len(rest)])
+                rest = rest[:i] + rest[nxt[0] if nxt else len(rest):]
+                if flag == '--why':
+                    why = val
+                else:
+                    hold = val or 'held'
+        if not why or not why.strip():
+            print('REFUSED: --why "<why these changes compose>" is required (it goes into the registration)'); return 2
+        brun, runs = rest[0], rest[1:]
+        if not re.match(r'^[a-z0-9][a-z0-9._-]*$', brun) or brun in states or deployment(run_rows(st['journal'], brun))[0]:
+            print('REFUSED: %r is not a new plain run id' % brun); return 2
+        facts = bundle_facts(P, st, runs)
+        probs, notes, ordered, after = plan_bundle(runs, facts, ents, states, st['now'])
+        if probs:
+            print('REFUSED (not bundleable):\n  ' + '\n  '.join(probs)); return 2
+        meta = []
+        for r in ordered:
+            e = facts[r]['entry']
+            pt = e['patch']
+            meta.append({'run': r, 'base': pt['base'], 'tip': pt['tip'], 'diff_sha256': pt['diff_sha256'],
+                         'registration_sha256': ((e.get('variants') or {}).get(pt['base']) or {}).get('registration_sha256'),
+                         'couples_with': e.get('couples_with') or []})
+        plan = plan_hash(meta)
+        snap = {m['run']: json.dumps(facts[m['run']]['entry'], sort_keys=True) for m in meta}
+
+        def mk(q):
+            es = q['entries']
+            if any(x.get('run') == brun for x in es):
+                raise SystemExit('REFUSED: %s is already queued' % brun)
+            for r in ordered:
+                h = [x for x in es if x.get('run') == r]
+                if len(h) != 1 or json.dumps(h[0], sort_keys=True) != snap[r]:
+                    raise SystemExit('REFUSED: %s changed while the bundle was checked; run `bundle make` again' % r)
+            first = min(i for i, x in enumerate(es) if x.get('run') in ordered)
+            for x in es:
+                if x.get('run') in ordered:
+                    x['bundled_in'] = brun
+            es.insert(first, {'run': brun, 'class': '', 'after': after, 'not_before': None, 'hold': hold,
+                              'note': 'v41 BUNDLE of %s, made %s by %s: %s' % (' + '.join(ordered), iso(now()),
+                                                                             os.environ.get('USER', '?'), why),
+                              'variants': {},
+                              'bundle': {'schema': 1, 'members': ordered, 'plan_sha256': plan, 'why': why,
+                                         'made_at': iso(now()), 'base_at_make': st['base_full'], 'notes': notes}})
+            return first
+        try:
+            at = with_queue(P, mk)
+        except SystemExit as x:
+            print(str(x)); return 2
+        append_state(P, {'state': 'human', 'run': brun, 'how': 'bundle-make', 'why': why, 'members': ordered,
+                         'plan': plan, 'by': os.environ.get('USER', '?')})
+        print('queued bundle %s = %s at position %d (plan %s)%s; the autorebase composes it when it is the head'
+              % (brun, ' + '.join(ordered), at + 1, plan[:16], ', HELD: %s' % hold if hold else '')); return 0
+    if sub == 'split' and len(args) >= 3:
+        rest = args[1:]
+        holds = {}
+        while '--hold' in rest:
+            i = rest.index('--hold')
+            if i + 1 >= len(rest) or '=' not in rest[i + 1]:
+                print('usage: --hold <run>=<why>'); return 2
+            r, w = rest[i + 1].split('=', 1)
+            holds[r] = w or 'held'
+            rest = rest[:i] + rest[i + 2:]
+        brun, why = rest[0], ' '.join(rest[1:])
+        be = bundle_entries(st).get(brun)
+        if be is None or not why.strip():
+            print('REFUSED: %s is not a queued bundle (or no <why>)' % brun); return 2
+        o = bundle_outcome(be, st)
+        js = journal_status(brun, st)
+        deployed = deployment(run_rows(st['journal'], brun))[0] is not None
+        if o == 'keep':
+            print('REFUSED: %s was KEPT and promoted: its members are done' % brun); return 2
+        if js == 'live' or entry_state(be, st) in ('running', 'launching') or (deployed and js != 'closed'):
+            print('REFUSED: %s is live or deployed and not closed: close it first (its loop, or `closed`)' % brun); return 2
+        if js == 'open':
+            print('REFUSED: %s drew and is not resolved: `abandon %s <why>` first' % (brun, brun)); return 2
+        members = (be.get('bundle') or {}).get('members') or []
+        bad = [r for r in holds if r not in members]
+        if bad:
+            print('REFUSED: --hold names non-members %s' % bad); return 2
+        for line in [r.get('note') for r in run_rows(st['journal'], brun) if str(r.get('phase', '')).startswith(('read-', 'poll-revert', 'contained', 'recorded'))]:
+            print('  %s verdict: %s' % (brun, str(line)[:400]))
+        for r in members:
+            e = next((x for x in ents if x.get('run') == r), {})
+            reg = None
+            pt = e.get('patch') or {}
+            try:
+                with open(((e.get('variants') or {}).get(pt.get('base')) or {}).get('registration')) as f:
+                    reg = json.load(f)
+            except Exception:
+                pass
+            print('  member %s: change rows %s' % (r, sorted(row_names(reg)) if reg else '?'))
+
+        def sp(q):
+            for x in q['entries']:
+                if x.get('run') in members and x.get('bundled_in') == brun:
+                    x.pop('bundled_in', None)
+                    x.setdefault('bundle_history', []).append({'bundle': brun, 'outcome': o, 'decision': run_decision(st, brun),
+                                                               'split_at': iso(now()), 'why': why})
+                    if x['run'] in holds:
+                        x['hold'] = holds[x['run']]
+        with_queue(P, sp)
+        append_state(P, {'state': 'human', 'run': brun, 'how': 'bundle-split', 'why': why, 'by': os.environ.get('USER', '?'),
+                         'holds': holds})
+        if not deployed and o != 'void':
+            append_state(P, {'state': 'human', 'run': brun, 'how': 'cancel', 'why': 'bundle split (never deployed): ' + why,
+                             'by': os.environ.get('USER', '?')})
+        print('split %s (%s): %s return as single runs%s' % (brun, o if deployed else 'never deployed', ', '.join(members),
+                                                             '; held: %s' % holds if holds else '')); return 0
+    print(__doc__); return 2
+
+
+def cmd_bundle(P, args):
+    return with_tick_lock(P, _cmd_bundle, args)
+
+
 def cmd_status(P):
     st = gather(P, full=True)
     for e in (st.get('queue') or {}).get('entries') or []:
@@ -2489,7 +3438,14 @@ def cmd_status(P):
         print('%-20s %-10s %-18s hold=%s not_before=%s after=%s variants=%s%s' % (
             e.get('run'), entry_state(e, st), e.get('class') or '-', e.get('hold'), e.get('not_before'), e.get('after'),
             ','.join(k[:7] for k in e.get('variants') or {}),
-            ' patch=%s..%s' % (str(pt.get('base'))[:7], str(pt.get('tip'))[:7]) if pt else ''))
+            ' patch=%s..%s' % (str(pt.get('base'))[:7], str(pt.get('tip'))[:7]) if pt else '') +
+            (' bundled_in=%s' % e['bundled_in'] if e.get('bundled_in') else '') +
+            (' bundle=%s' % '+'.join((e.get('bundle') or {}).get('members') or []) if e.get('bundle') is not None else ''))
+    for b, be in sorted(bundle_entries(st).items()):
+        o = bundle_outcome(be, st)
+        if o in ('pending', 'failed'):
+            print('BUNDLE %s: %s, members %s%s' % (b, o, ' + '.join((be.get('bundle') or {}).get('members') or []),
+                                                  ' -- `bundle split %s <why>` returns them as singles' % b if o == 'failed' else ''))
     if st.get('ar_job'):
         j = st['ar_job']
         print('AUTOREBASE %s on %s: %s at step %s%s' % (j.get('run'), str(j.get('base'))[:8], j.get('state'), j.get('step'),
@@ -2517,6 +3473,8 @@ def main(argv):
         return cmd_install_hold(P, argv[1:])
     if cmd == 'install-release':
         return cmd_install_hold(P, ['release'])
+    if cmd == 'bundle':
+        return cmd_bundle(P, argv[1:])
     if cmd == 'autorebase-clear':
         return with_tick_lock(P, _cmd_ar_clear, argv[1:])
     if cmd == 'autorebase-build' and len(argv) == 4:

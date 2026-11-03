@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """funread.py <run_id> <minute> -- the FUN-MODE generic canary read (OWNER 2026-10-28, fun mode W4).
 
-    canary-loop.sh runs this at +90 and +180 for every registration that is not `"lab": true`.
+    canary-loop.sh runs this at +90 and +180 for every registration that is not `"lab": true` (v41: or at the minutes
+    of its `fun_reads` plan, one of READ_PLANS; the last minute is final).
     No per-change read script is required. It asks four questions, the same for every change:
 
       1. DEATHS     the established death gate, asked through `verdict.py <run> 0 --poll` (the owner's
@@ -42,7 +43,18 @@ import sys
 
 CRASH_RESTARTS = 3          # automatic restarts of ONE canary unit since the deploy
 FRESH_MIN = 30              # EVERY canary bot's newest row must be this recent, on the canary build, for a KEEP
-FUN_READS = (90, 180)       # FIXED for every fun-mode run (canary-loop.sh FUN_READS must match): the last one is final
+FUN_READS = (90, 180)       # the STANDARD plan (canary-loop.sh's default): the last minute is final
+# v41 (canary-sched v41, OWNER 11-03 item 2): a registration's `fun_reads` picks ONE of these plans (canary-loop.sh v39 and
+# canary-sched.py READ_PLANS hold the same table; the scheduler decides the fast plan mechanically). Anything else = UNREADABLE.
+READ_PLANS = {'90 180': (90, 180), '45 90': (45, 90)}
+
+
+def plan_of(reg):
+    """PURE. The registration's read minutes (tuple), or None when `fun_reads` is not one of READ_PLANS."""
+    v = reg.get('fun_reads') if isinstance(reg, dict) else None
+    if v in (None, ''):
+        return FUN_READS
+    return READ_PLANS.get(v) if isinstance(v, str) else None
 FREEZE_MAX_AGE_MIN = 60
 
 
@@ -309,7 +321,12 @@ def main(argv):
     R = env('FUNREAD_READS_DIR', os.path.join(os.path.expanduser('~'), 'digest', 'reads'))
     try:
         reg, fx = gather(run, M)
-        word, why, extra = decide(fx, M, FUN_READS[-1])
+        plan = plan_of(reg)
+        if plan is None:
+            raise ValueError('fun_reads %r is not one of %s' % (reg.get('fun_reads'), sorted(READ_PLANS)))
+        word, why, extra = decide(fx, M, plan[-1])
+        if plan != FUN_READS:
+            why.insert(1, 'read plan %s (fun_reads, decided by canary-sched)' % '/'.join('+%d' % x for x in plan))
     except Exception as x:
         word, why, extra = 'UNREADABLE', ['funread could not gather: %s: %s' % (type(x).__name__, x)], {'fun': True}
     o = {'run_id': run, 'window_min': M, 'verdict': word, 'why': why, 'extra': extra, 'guards': True,

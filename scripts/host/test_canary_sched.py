@@ -1186,6 +1186,318 @@ def t_queue_add_undecidable_is_protected(CS, F):
         F2.cleanup()
 
 
+
+# ------------------------------------------------------------------------------------------- v41 bundles + fast --
+PROT_LIB = os.path.join(os.path.normpath(os.path.join(HERE, '..', 'lib')), 'protected.py')
+JS_BASE = """import { x } from './x.mjs'
+
+export function alpha() {
+  return 1
+}
+
+export function beta() {
+  return 2
+}
+
+export const SKILLS = {
+  dig: { run: alpha },
+  walk: { run: beta },
+}
+"""
+
+
+def _js_repo(variants):
+    """A throwaway repo: base commit with bots/src/m.mjs = JS_BASE and bots/test/t.test.mjs; each variant {name:
+    {path: new text}} is a branch off the base. -> (dir, base sha, {name: sha})."""
+    d = tempfile.mkdtemp(prefix='sched-js-')
+    g = lambda *a: sh('git', '-c', 'user.email=t@t', '-c', 'user.name=t', *a, cwd=d)
+    g('init', '-q')
+    os.makedirs(os.path.join(d, 'bots', 'src')); os.makedirs(os.path.join(d, 'bots', 'test'))
+    open(os.path.join(d, 'bots', 'src', 'm.mjs'), 'w').write(JS_BASE)
+    open(os.path.join(d, 'bots', 'test', 't.test.mjs'), 'w').write('// a\n// b\n// c\n// d\n// e\n// f\n')
+    g('add', '-A'); g('commit', '-q', '-m', 'base')
+    base = sh('git', 'rev-parse', 'HEAD', cwd=d)
+    out = {}
+    for name, files in variants.items():
+        g('checkout', '-q', '--detach', base)
+        for rel, body in files.items():
+            os.makedirs(os.path.dirname(os.path.join(d, rel)), exist_ok=True)
+            open(os.path.join(d, rel), 'w').write(body)
+        g('add', '-A'); g('commit', '-q', '-m', name)
+        out[name] = sh('git', 'rev-parse', 'HEAD', cwd=d)
+    return d, base, out
+
+
+def _prot_mod():
+    spec = importlib.util.spec_from_file_location('protected_for_test', PROT_LIB)
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    return m
+
+
+def _fp_facts(CS, d, base, shas):
+    prot = _prot_mod()
+    out = {}
+    for name, sha in shas.items():
+        fp, decl, used = CS.member_footprint(d, prot, base, sha)
+        out[name] = {'run': name, 'entry': {}, 'reg': {'change_rows': ['row_%s' % name]}, 'fp': fp, 'decl': decl, 'used': used}
+    return out
+
+
+def t_v41_read_plan(CS, F):
+    assert CS.read_plan({}) == ('90 180', 240, '')
+    assert CS.read_plan({'fun_reads': None})[:2] == ('90 180', 240)
+    assert CS.read_plan({'fun_reads': '45 90'})[:2] == ('45 90', 150)
+    for bad in ('30 60', '90', ['45', '90'], 45):
+        assert CS.read_plan({'fun_reads': bad})[0] is None, bad
+
+
+def _diff(path, adds, dels=0, header=''):
+    return ('diff --git a/%s b/%s\n%s--- a/%s\n+++ b/%s\n@@ -1,%d +1,%d @@\n' % (path, path, header, path, path, dels, adds)
+            + ''.join('-old%d\n' % i for i in range(dels)) + ''.join('+  x%d = %d\n' % (i, i) for i in range(adds)))
+
+
+def t_v41_fast_problem(CS, F):
+    reg = {'sha': 'x'}
+    assert CS.fast_problem(_diff('bots/src/a.mjs', 100, 50), 'none', reg, False) == ''
+    assert '151 changed' in CS.fast_problem(_diff('bots/src/a.mjs', 151), 'none', reg, False)
+    cm = _diff('bots/src/a.mjs', 100) + ''.join('+  // comment %d\n+\n' % i for i in range(200))
+    assert CS.fast_problem(cm, 'none', reg, False) == '', 'comment and blank lines must not count'
+    assert CS.fast_problem(_diff('bots/test/a.test.mjs', 900), 'none', reg, False) == '', 'tests are free'
+    assert 'adds' in CS.fast_problem(_diff('bots/src/new.mjs', 5, header='new file mode 100644\n'), 'none', reg, False)
+    assert 'package' in CS.fast_problem(_diff('bots/package.json', 1), 'none', reg, False)
+    assert 'tier 3' in CS.fast_problem(_diff('bots/src/a.mjs', 1), '3', reg, False)
+    assert 'bundle' in CS.fast_problem(_diff('bots/src/a.mjs', 1), 'none', reg, True)
+    assert CS.fast_problem(_diff('bots/src/a.mjs', 1), 'none', {'lab': True}, False)
+    assert CS.fast_problem(_diff('bots/src/a.mjs', 1), 'none', {'class': 'model-env'}, False)
+
+
+def t_v41_footprints(CS, F):
+    alpha2 = JS_BASE.replace('  return 1\n', '  return 11\n')
+    beta2 = JS_BASE.replace('  return 2\n', '  return 22\n')
+    alpha3 = JS_BASE.replace('  return 1\n', '  return 111\n')
+    dig2 = JS_BASE.replace('  dig: { run: alpha },', '  dig: { run: alpha, cost: 2 },')
+    walk2 = JS_BASE.replace('  walk: { run: beta },', '  walk: { run: beta, cost: 3 },')
+    imp1 = JS_BASE.replace("import { x } from './x.mjs'\n", "import { x } from './x.mjs'\nimport { y } from './y.mjs'\n")
+    imp2 = JS_BASE.replace("import { x } from './x.mjs'\n", "import { z } from './z.mjs'\nimport { x } from './x.mjs'\n")
+    impchg = JS_BASE.replace("import { x } from './x.mjs'\n", "import { x, w } from './x.mjs'\n")
+    uses = JS_BASE.replace('  return 2\n', '  return alpha() + 2\n')
+    t1 = '// a\n// b CHANGED\n// c\n// d\n// e\n// f\n'
+    t2 = '// a\n// b\n// c\n// d\n// e CHANGED\n// f\n'
+    d, base, sh_ = _js_repo({'A': {'bots/src/m.mjs': alpha2, 'bots/test/t.test.mjs': t1},
+                             'B': {'bots/src/m.mjs': beta2, 'bots/test/t.test.mjs': t2},
+                             'C': {'bots/src/m.mjs': alpha3}, 'DIG': {'bots/src/m.mjs': dig2},
+                             'WALK': {'bots/src/m.mjs': walk2}, 'I1': {'bots/src/m.mjs': imp1},
+                             'I2': {'bots/src/m.mjs': imp2}, 'ICHG': {'bots/src/m.mjs': impchg},
+                             'USES': {'bots/src/m.mjs': uses}, 'OTHER': {'bots/src/o.mjs': 'export const o = 1\n'}})
+    try:
+        f = _fp_facts(CS, d, base, sh_)
+        P = lambda a, b: CS.pair_problems(f[a], f[b])
+        assert P('A', 'B') == [], 'different functions of one file, shared test file: %s' % P('A', 'B')
+        assert any('m.mjs::alpha' in x for x in P('A', 'C')), P('A', 'C')
+        assert P('DIG', 'WALK') == [], 'two rows of one table: %s' % P('DIG', 'WALK')
+        assert any('row' in x for x in CS.fp_overlaps(f['DIG']['fp'], f['DIG']['fp'])), 'the same row overlaps'
+        assert CS.fp_overlaps(f['I1']['fp'], f['I2']['fp']) == [], 'both only add imports'
+        assert any('import block' in x for x in CS.fp_overlaps(f['I1']['fp'], f['ICHG']['fp'])), 'a changed import'
+        assert any('use' in x and 'alpha' in x for x in P('A', 'USES')), 'cross-reference: %s' % P('A', 'USES')
+        assert any('alpha' in x for x in P('A', 'DIG')), 'a row naming the changed function: %s' % P('A', 'DIG')
+        assert any('whole file' in x for x in CS.fp_overlaps(f['OTHER']['fp'], f['OTHER']['fp'])), 'a new file is whole'
+        assert P('A', 'OTHER') == []
+        f['B']['reg'] = {'change_rows': ['_row_A']}
+        assert any('shared change rows' in x for x in P('A', 'B')), 'rows are compared without the underscore'
+        f['B']['reg'] = {'change_rows': ['row_B']}
+        f['B']['entry'] = {'couples_with': ['A']}
+        assert any('couples_with' in x for x in P('A', 'B'))
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def _mfacts(**kw):
+    sb, tip = 'a' * 40, 'b' * 40
+    e = {'run': 'm-01', 'class': '', 'hold': None, 'patch': {'base': sb, 'tip': tip, 'diff_sha256': 'c' * 64, 'files': ['bots/src/x.mjs']},
+         'variants': {sb: {'canary_sha': tip, 'approved': 'Codex r1 APPROVE'}}}
+    e.update(kw.pop('entry', {}))
+    m = {'entry': e, 'state': 'ready', 'reg': {'sha': tip, 'reads': [], 'change_rows': ['x_row'], 'promotion': 'fleet-wide'},
+         'tier': 'none', 'stacked': False, 'files': ['bots/src/x.mjs']}
+    m.update(kw)
+    return m
+
+
+def t_v41_member_problem(CS, F):
+    assert CS.member_problem(_mfacts()) == ''
+    cases = [(dict(state='blocked'), 'state'), (dict(entry={'hold': 'x'}), 'held'), (dict(entry={'class': 'model-env'}), 'class'),
+             (dict(entry={'bundled_in': 'b'}), 'already'), (dict(entry={'patch': None}), 'patch'),
+             (dict(reg={'lab': True, 'change_rows': ['x']}), 'lab'),
+             (dict(reg={'canary_env': ['A=1'], 'change_rows': ['x']}), 'canary_env'),
+             (dict(reg={'reads': ['r'], 'change_rows': ['x']}), 'reads'), (dict(reg={'change_rows': []}), 'change_rows'),
+             (dict(reg={'change_rows': ['x'], 'licence': {'class': 'rate'}}), 'rate'),
+             (dict(tier='3'), 'tier'), (dict(tier='undecidable'), 'tier'), (dict(stacked=True), 'STACKED'),
+             (dict(files=['bots/package.json']), 'package'),
+             (dict(reg={'change_rows': ['x'], 'promotion': 'keep-subset'}), 'promotion')]
+    for kw, word in cases:
+        p = CS.member_problem(_mfacts(**kw))
+        assert word in p, (kw, p)
+    e = _mfacts()['entry']
+    e['variants'][e['patch']['base']]['approved'] = ''
+    assert 'reviewer' in CS.member_problem(_mfacts(entry={'variants': e['variants']}))
+
+
+def t_v41_plan_bundle(CS, F):
+    f = {}
+    for r in ('a-01', 'b-01', 'c-01', 'd-01'):
+        m = _mfacts(entry={'run': r})
+        m.update({'run': r, 'fp': {('DECL', 'bots/src/%s.mjs' % r, 'f')}, 'decl': set(), 'used': set()})
+        m['reg'] = dict(m['reg'], change_rows=['row_' + r])
+        f[r] = m
+    mid = {'run': 'mid-01', 'class': '', 'hold': None, 'variants': {'x': {'protected': False}}}
+    held = {'run': 'held-01', 'class': '', 'hold': 'HELD', 'variants': {'x': {'protected': False}}}
+    t3 = {'run': 't3-01', 'class': '', 'hold': None, 'variants': {'x': {'protected': True}}}
+    ents = [f['a-01']['entry'], mid, f['b-01']['entry'], held, t3, f['c-01']['entry'], f['d-01']['entry']]
+    states = {e['run']: 'ready' for e in ents}
+    probs, notes, ordered, after = CS.plan_bundle(['b-01', 'a-01'], f, ents, states)
+    assert not probs and ordered == ['a-01', 'b-01'] and any('mid-01 waits' in n for n in notes), (probs, notes, ordered)
+    probs, _, _, _ = CS.plan_bundle(['b-01', 'c-01'], f, ents, states)
+    assert any('held-01' in p for p in probs) and any('t3-01' in p for p in probs), probs
+    assert any('2..3' in p for p in CS.plan_bundle(['a-01'], f, ents, states)[0])
+    assert any('2..3' in p for p in CS.plan_bundle(['a-01', 'b-01', 'c-01', 'd-01'], f, ents, states)[0])
+    f['b-01']['entry']['after'] = ['a-01', 'zz-01']
+    assert CS.plan_bundle(['a-01', 'b-01'], f, ents, states)[3] == ['zz-01'], 'an after between members is ordering only'
+
+
+def _bundle_queue(F, CS, hold=None):
+    """foo-01 + bar-01 reserved by bundle b-01 (variant on the fleet base), and dep-01 after bar-01."""
+    regb = os.path.join(F.home, 'mcai-analysis', 'b-01.json')
+    json.dump({'sha': F.canary[:7], 'reads': [], 'bundle': {'plan_sha256': 'e' * 64, 'members': [{'run': 'foo-01'}, {'run': 'bar-01'}]}},
+              open(regb, 'w'))
+    regd = os.path.join(F.home, 'mcai-analysis', 'dep-01.json')
+    json.dump({'sha': F.canary[:7], 'reads': []}, open(regd, 'w'))
+    with Env(F.env()):
+        P = CS.paths()
+        b = {'run': 'b-01', 'class': '', 'after': [], 'hold': hold, 'not_before': None,
+             'bundle': {'schema': 1, 'members': ['foo-01', 'bar-01'], 'plan_sha256': 'e' * 64},
+             'variants': {F.base: {'registration': regb, 'approved': 'bundle fixture: Claude + Codex'}}}
+        assert not CS.validate_entry(P, b, [])
+        b['variants'][F.base]['protected'] = False          # the fixture repo has no protected.py (undecidable)
+        m1 = dict(json.loads(json.dumps(F.entry)), bundled_in='b-01')
+        m2 = dict(json.loads(json.dumps(F.entry)), run='bar-01', bundled_in='b-01')
+        assert not CS.validate_entry(P, m1, []) and not CS.validate_entry(P, m2, [])
+        dep = {'run': 'dep-01', 'class': '', 'after': ['bar-01'], 'hold': None, 'not_before': None,
+               'variants': {F.base: {'registration': regd, 'approved': 'fixture Claude + Codex'}}}
+        assert not CS.validate_entry(P, dep, [])
+        json.dump({'version': 1, 'entries': [b, m1, m2, dep]}, open(F.queue, 'w'))
+
+
+def _close(F, run, decision, promoted):
+    t = NOW - dt.timedelta(hours=1)
+    F.regfile(run, F.other[:7])
+    F.j(run, 'drawn', t - dt.timedelta(hours=3))
+    F.j(run, 'deployed', t - dt.timedelta(hours=3), 'board-a,hive-a %s' % Z(t - dt.timedelta(hours=3)))
+    F.j(run, 'recorded', t - dt.timedelta(minutes=5), decision)
+    F.led(F.other[:7], 'board-a,hive-a', decision, t - dt.timedelta(minutes=5))
+    F.j(run, 'promoted' if promoted else 'torn-down', t, F.other if promoted else 'x')
+
+
+def t_v41_bundle_pending_members_skipped(CS, F):
+    _bundle_queue(F, CS)
+    d, st = expect(CS, F, 'launch')
+    assert d[1]['run'] == 'b-01', d[1]['run']
+    ents = {e['run']: e for e in st['queue']['entries']}
+    assert CS.entry_state(ents['foo-01'], st) == 'bundled' and CS.entry_state(ents['bar-01'], st) == 'bundled'
+
+
+def t_v41_bundle_keep_promoted_members_done(CS, F):
+    _bundle_queue(F, CS)
+    _close(F, 'b-01', 'KEEP', True)
+    d, st = expect(CS, F, 'launch')
+    assert d[1]['run'] == 'dep-01', 'a member of a KEPT+promoted bundle satisfies `after`: %s' % d[1]['run']
+    ents = {e['run']: e for e in st['queue']['entries']}
+    assert CS.entry_state(ents['bar-01'], st) == 'done'
+
+
+def t_v41_bundle_keep_unpromoted_is_failed(CS, F):
+    _bundle_queue(F, CS)
+    _close(F, 'b-01', 'KEEP', False)
+    expect(CS, F, 'block', 'H8', 'closed KEEP without a promotion')
+
+
+def t_v41_bundle_revert_blocks_until_split(CS, F):
+    _bundle_queue(F, CS)
+    _close(F, 'b-01', 'REVERT', False)
+    expect(CS, F, 'block', 'R11')                          # R11 applies to a bundle exactly as to any run
+    rc, out = human(CS, F, 'continue', 'b-01', 'not death-driven (fixture)')
+    assert rc == 0, out
+    expect(CS, F, 'block', 'H8', 'bundle split b-01')
+    rc, out = human(CS, F, 'bundle', 'split', 'b-01', 'diagnosed offline', '--hold', 'bar-01=suspect')
+    assert rc == 0 and 'return as single runs' in out, out
+    d, st = expect(CS, F, 'launch')
+    assert d[1]['run'] == 'foo-01', d[1]['run']
+    ents = {e['run']: e for e in st['queue']['entries']}
+    assert ents['bar-01']['hold'] == 'suspect' and 'bundled_in' not in ents['foo-01'], ents['bar-01']
+    assert ents['foo-01']['bundle_history'][0]['decision'] == 'REVERT'
+
+
+def t_v41_split_refuses_live_and_kept(CS, F):
+    _bundle_queue(F, CS)
+    F.j('b-01', 'drawn', NOW - dt.timedelta(hours=1))
+    F.j('b-01', 'deployed', NOW - dt.timedelta(hours=1), 'board-a,hive-a %s' % Z(NOW - dt.timedelta(hours=1)))
+    rc, out = human(CS, F, 'bundle', 'split', 'b-01', 'x')
+    assert rc == 2 and 'not closed' in out, out
+    F2 = Fix()
+    try:
+        _bundle_queue(F2, CS)
+        _close(F2, 'b-01', 'KEEP', True)
+        rc, out = human(CS, F2, 'bundle', 'split', 'b-01', 'x')
+        assert rc == 2 and 'KEPT' in out, out
+    finally:
+        F2.cleanup()
+
+
+def t_v41_split_never_deployed_cancels_bundle(CS, F):
+    _bundle_queue(F, CS, hold='first bundle: report before release')
+    expect(CS, F, 'block', 'H1', 'held')
+    rc, out = human(CS, F, 'bundle', 'split', 'b-01', 'not now')
+    assert rc == 0, out
+    d, _ = expect(CS, F, 'launch')
+    assert d[1]['run'] == 'foo-01', d[1]['run']
+
+
+def t_v41_dangling_reservation_blocks(CS, F):
+    _bundle_queue(F, CS)
+    q = json.load(open(F.queue))
+    q['entries'][0]['bundle']['members'] = ['foo-01']     # bar-01 still says bundled_in b-01
+    q['entries'] = q['entries'][1:]                        # ...and the bundle entry is gone
+    json.dump(q, open(F.queue, 'w'))
+    expect(CS, F, 'block', 'H8', 'dangling')
+
+
+def t_v41_bundle_h3_members_must_stay_reserved(CS, F):
+    _bundle_queue(F, CS)
+    q = json.load(open(F.queue))
+    q['entries'][2].pop('bundled_in')
+    json.dump(q, open(F.queue, 'w'))
+    expect(CS, F, 'block', 'H3', 'no longer reserved')
+
+
+def t_v41_status_parses_for_the_servea_waiter(CS, F):
+    _bundle_queue(F, CS)
+    rc, out = human(CS, F, 'status')
+    assert rc == 0 and 'bundled_in=b-01' in out and 'BUNDLE b-01: pending' in out, out
+    sq = os.path.join(HERE, 'servea-q.py')
+    spec = importlib.util.spec_from_file_location('servea_q_for_test', sq)
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+    ents, busy, dec = m.parse_status(out)
+    assert [e['run'] for e in ents] == ['b-01', 'foo-01', 'bar-01', 'dep-01'], ents
+    assert [e['state'] for e in ents][1:3] == ['bundled', 'bundled'] and not m.head_ready(ents, 'dep-01'), ents
+
+
+def t_v41_queue_add_refuses_bad_or_unjustified_plan(CS, F):
+    base2, ok, _ = _prot_repo(F, 'bots/src/reflex.mjs\n')
+    bad, _ = _validate(CS, F, base2, ok, 'Claude + Codex APPROVE', {'fun_reads': '30 60'})
+    assert any('not one of' in b for b in bad), bad
+    bad, _ = _validate(CS, F, base2, ok, 'Claude + Codex APPROVE', {'fun_reads': '45 90'})
+    assert any('not justified' in b and 'adds' in b for b in bad), bad
+    bad, _ = _validate(CS, F, base2, ok, 'Claude + Codex APPROVE', {'fun_reads': '90 180'})
+    assert not bad, bad
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith('t_')]
 
 
@@ -1295,6 +1607,32 @@ MUTANTS = [
     ("        h = (st['now'] - ts(draws[0]['ts'])).total_seconds() / 3600",
      "        h = (st['now'] - ts(draws[-1]['ts'])).total_seconds() / 3600"),
     ("            if h > STALL_H:\n                page(P, st, 'flag', '%s|r10wait'", "            if False:\n                page(P, st, 'flag', '%s|r10wait'"),
+    # v41 bundles + the fast plan
+    ("    return {'keep': 'done', 'failed': 'bundle-failed', 'pending': 'bundled'}.get(o)",
+     "    return {'keep': 'done', 'failed': 'bundle-failed'}.get(o)"),
+    ("        if ds == 'done':\n            continue                             # v41", "        if False:\n            continue                             # v41"),
+    ("        return 'keep' if promoted and run_decision(st, be.get('run')) == 'KEEP' else 'failed'",
+     "        return 'keep' if run_decision(st, be.get('run')) == 'KEEP' else 'failed'"),
+    ("        return 'bundle-failed'                  # dangling reservation", "        return None                  # dangling reservation"),
+    ("                if ta[2] == tb[2]:\n                    out.append('%s::%s'", "                if False:\n                    out.append('%s::%s'"),
+    ("            elif k == {'IMPORTS+'}:\n                continue", "            elif False:\n                continue"),
+    ("                if ta[2] == tb[2] and ta[3] & tb[3]:", "                if ta[2] == tb[2]:"),
+    ("        hit = sorted((changed_decls(x['fp']) | x.get('decl', set())) & y.get('used', set()))", "        hit = []"),
+    ("            if n.lstrip('_'):\n                out.add(n.lstrip('_'))", "            if n.lstrip('_'):\n                out.add(n)"),
+    ("    if m.get('stacked'):", "    if False:"),
+    ("    if m.get('tier') != 'none':", "    if False:"),
+    ("    if state != 'ready' or e.get('hold') or", "    if state != 'ready' or"),
+    ("    if n > FAST_MAX_LINES:", "    if False:"),
+    ("        if cur.startswith('bots/src/') and l[:1] in ('+', '-') and l[1:].strip() and not _JS_COMMENT.match(l[1:]):",
+     "        if cur.startswith('bots/src/') and l[:1] in ('+', '-') and l[1:].strip():"),
+    ("    if not isinstance(v, str) or v not in READ_PLANS:", "    if not isinstance(v, str):"),
+    ("    return ['fun_reads %r is not justified: %s' % (plan, fp)] if fp else []", "    return []"),
+    ("    if es == 'bundle-failed':", "    if False:"),
+    ("            if lost:", "            if False:"),
+    ("                    x.pop('bundled_in', None)", "                    pass"),
+    ("        if js == 'live' or entry_state(be, st) in ('running', 'launching') or (deployed and js != 'closed'):",
+     "        if js == 'live':"),
+    ("    if not 2 <= len(set(runs)) <= BUNDLE_MAX:", "    if False:"),
 ]
 
 

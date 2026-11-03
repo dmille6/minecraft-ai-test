@@ -18,6 +18,8 @@ from STUB_POLL_REVERT_AT seconds after the deploy), the unit facts (FUNREAD_UNIT
   modelpoll   a model-env run's poll_read answers MODELPOLL REVERT at +40 -> poll-revert, no read taken (qwen35-01)
   modelok     the poll answers OK every time -> the run reads to +180 KEEP, no modelpoll-failed rows
   modelcrash  the poll prints garbage -> modelpoll-failed rows (paged), never a REVERT by itself; still KEEP
+  fast        v39: fun_reads "45 90" -> reads at +45 (NOT_YET) and +90 (final KEEP); no +180
+  planbad     v39: fun_reads outside the two plans -> the loop refuses (exit 2) before any phase
   pollbad     poll_read is not one of the registration's reads -> the loop refuses (exit 2) before any phase
   envproof    _env_still_canary (the teardown proof) names a key only while its CANARY VALUE is live: a baseline value of
               the same key (OLLAMA_MODEL in every bot's own env file) is not the canary
@@ -80,6 +82,10 @@ def fixture(scenario):
         reg.update(reads=[], own_lines=[{'read': 'ownread', 'field': 'bad', 'op': '<=', 'value': 0, 'on_fail': 'REVERT'}])
     if scenario == 'exposed':
         reg.update(exposure={'read': 'ownread', 'field': 'acted', 'min': 1})
+    if scenario == 'fast':
+        reg.update(fun_reads='45 90')
+    if scenario == 'planbad':
+        reg.update(fun_reads='30 60')
     if scenario in ('modelpoll', 'modelok', 'modelcrash', 'pollbad'):
         reg.update({'class': 'model-env', 'canary_env': ['OLLAMA_MODEL=qwen3.5:9b', 'OLLAMA_BASE_URLS=http://127.0.0.1:9'],
                     'draw_k': 2, 'promotion': 'none', 'reads': ['modelread'], 'poll_read': 'modelread' if scenario != 'pollbad' else 'other'})
@@ -190,6 +196,14 @@ def main():
     r, ph, marks = run('modelcrash', {'STUB_MODELPOLL_GARBAGE': '1'})
     t('modelcrash: modelpoll-failed journalled, no REVERT from it, still KEEP',
       phase(ph, 'modelpoll-failed') and not phase(ph, 'poll-revert') and 'would act: KEEP' in r.stdout, (ph, r.stdout[-400:]))
+    r, ph, _ = run('fast')
+    t('fast (v39): the fast plan reads at +45 (NOT_YET) and +90 (KEEP), never +180', any(
+        n.startswith('VERDICT NOT_YET (+45)') for n in phase(ph, 'read-45')) and any(
+        n.startswith('VERDICT KEEP (+90)') for n in phase(ph, 'read-90')) and not phase(ph, 'read-180') and
+        'would act: KEEP' in r.stdout, (ph, r.stdout[-600:]))
+    r, ph, _ = run('planbad')
+    t('planbad (v39): a plan outside the two refuses, exit 2, no read', r.returncode == 2 and not phase(ph, 'read-90')
+      and "fun_reads is not one of the two read plans" in r.stdout, (r.returncode, r.stdout[-400:], ph))
     r, ph, marks = run('pollbad')
     t('pollbad: refused, exit 2, no read', r.returncode == 2 and not phase(ph, 'read-90') and 'poll_read other' in r.stdout,
       (r.returncode, r.stdout[-400:], ph))

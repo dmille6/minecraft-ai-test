@@ -1,5 +1,5 @@
 #!/bin/bash
-# canary-loop.sh <run_id> [--no-act] -- the canary loop on the bots host (docs/reports/canary-loop-design.md v3).
+# canary-loop.sh <run_id> [--no-act] -- the canary loop (v39, 11-03: fun_reads read plans + bundle ledger note) on the bots host (docs/reports/canary-loop-design.md v3).
 # One run per canary, under an exclusive lock, journaled, idempotent; pages via ~/digest/page.jsonl (the operator's
 # session tails it). The registration ~/mcai-analysis/registrations/<run_id>.json binds sha, reads, rules, promotion.
 # --no-act: everything but deploy/promote/teardown (prints what it would do). Phases resume from the journal.
@@ -30,7 +30,17 @@ SHA=$(jf sha); [ -n "$SHA" ] || { page error "registration $RUN has no sha"; exi
 # read script required, a KEEP (goal-verified or goal-unverified) that PROMOTES fleet-wide unless the registration says
 # otherwise, and a REVERT or INCONCLUSIVE that tears the whole canary sha down. `"lab": true` = every line as before.
 FUN=$(python3 -c "import json; print('' if json.load(open('$REG')).get('lab') is True else '1')")
-FUN_READS="90 180"; FUN_DEADLINE=240; FUN_DRAW_CAP_MIN=30   # FUN_READS must match funread.py FUN_READS
+FUN_READS="90 180"; FUN_DEADLINE=240; FUN_DRAW_CAP_MIN=30   # the standard plan (funread.py FUN_READS)
+# v39 (canary-sched v41, OWNER 11-03 item 2): `fun_reads` in the registration picks ONE of two plans -- "90 180" (deadline
+# 240) or the FAST "45 90" (deadline 150), which the scheduler grants mechanically to small unprotected single changes.
+# The same table is in funread.py READ_PLANS and canary-sched.py READ_PLANS. Anything else refuses before any phase.
+if [ -n "$FUN" ]; then
+  _FP=$(python3 -c "import json; r=json.load(open('$REG')); v=r.get('fun_reads') or '90 180'; T={'90 180': 240, '45 90': 150}; print(v + ':' + str(T[v]) if isinstance(v, str) and v in T else 'BAD:' + repr(v))" 2>&1)
+  case "$_FP" in
+    "90 180:240"|"45 90:150") FUN_READS=${_FP%%:*}; FUN_DEADLINE=${_FP##*:};;
+    *) page error "registration $RUN fun_reads is not one of the two read plans ('90 180', '45 90'): ${_FP#BAD:}"; exit 2;;
+  esac
+fi
 BAGFIX=$(python3 -c "import json; r=json.load(open('$REG')); print('1' if r.get('class') == 'bag-fix' and r.get('lab') is True else '')")
 BAGFIX_POOLS=4
 # brain-01 (staged 2026-10-12): a MODEL/ENV canary carries `canary_env`, a list of KEY=VALUE strings, written into the
@@ -639,6 +649,9 @@ if [ "$NOACT" = "--no-act" ]; then echo "would act: $FINAL"; exit 0; fi
 _FV="${FINALV:-$(python3 $H/verdict.py $RUN $M 2>$H/digest/verdict-err-$RUN-final.log | tail -1)}"
 [ -z "$_FV" ] && _FV="CRASH (no verdict on stdout): $(tail -3 $H/digest/verdict-err-$RUN-final.log 2>/dev/null | tr '\n' ' ' | cut -c1-400)"
 NOTE="$RUN: $_FV (canary loop)"; P=$(mf canary_pool)
+# v39: a BUNDLE's ledger row names its members (canary-sched v41 derives each member's outcome from this one row)
+_BM=$(python3 -c "import json; r=json.load(open('$REG')); print('+'.join(m.get('run','?') for m in (r.get('bundle') or {}).get('members') or []))" 2>/dev/null)
+[ -n "$_BM" ] && NOTE="$RUN [bundle of $_BM]: $_FV (canary loop)"
 # Containment for any verdict with no act branch. KEEP_ON_SAFETY is the live example: it
 # matches *KEEP* in the read case above, so the loop stops reading and exits -- but it matched
 # NEITHER branch below, so the loop recorded no ledger decision, neither promoted nor tore

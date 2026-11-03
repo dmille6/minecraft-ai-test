@@ -509,6 +509,147 @@ TESTS = [t_pure_verdict_and_norm, t_no_patch_blocks_like_before, t_clear_then_re
          t_tier_change_refuses, t_base_flake_accepted_and_named, t_clear_flake_accepted, t_changed_flake_refused,
          t_flaky_both_accepted]
 
+
+# --------------------------------------------------------------------------------------------- v41 bundles --
+class BundleFix(ArFix):
+    """Two reviewed changes on SB: m1-01 = ST (a.mjs line 5) and m2-01 = ST2 (a.mjs line 15, another top-level
+    declaration; line 7 for `ctx`, which sits inside m1's diff context). LB moved b.mjs only."""
+
+    def __init__(self, kind='ok'):
+        super().__init__('clean')
+        g = self.git
+        gc(g, 'checkout', '-q', '--detach', self.sb)
+        line = 6 if kind == 'ctx' else 14
+        self.edit_a({line: 'export const a%d = %d // CHANGED2' % (line + 1, line + 1)})
+        gc(g, 'commit', '-q', '-am', 'ST2: the second change')
+        self.st2 = sh('git', 'rev-parse', 'HEAD', cwd=g)
+        gc(g, 'push', '-q', self.origin, '%s:refs/heads/st2' % self.st2)
+        rows = {'m1-01': ['m1_row'], 'm2-01': ['m1_row' if kind == 'rows' else 'm2_row']}
+        self.regs = {}
+        for run, sha in (('m1-01', self.st), ('m2-01', self.st2)):
+            p = os.path.join(self.home, 'mcai-analysis', '%s.json' % run)
+            json.dump({'sha': sha, 'reads': [], 'change_rows': rows[run], 'notes': 'fixture %s' % run,
+                       'promotion': 'fleet-wide', 'effect': {'kind': 'fixture-%s' % run}}, open(p, 'w'))
+            self.regs[run] = p
+
+    def seed_members(self, CS):
+        ents = []
+        with TC.Env(self.env()):
+            for run in ('m1-01', 'm2-01'):
+                e = {'run': run, 'class': '', 'after': [], 'not_before': None, 'hold': None,
+                     'variants': {self.sb: {'registration': self.regs[run], 'approved': 'fixture: Codex r1 APPROVE'}}}
+                assert not CS.validate_entry(CS.paths(), e, [])
+                ents.append(e)
+        ents[1]['after'] = ['m1-01']
+        json.dump({'version': 1, 'entries': ents}, open(self.queue, 'w'))
+        for run, br in (('m1-01', 'st'), ('m2-01', 'st2')):
+            rc, out = TC.human(CS, self, 'queue', 'set-patch', run, self.sb, br)
+            assert rc == 0, out
+
+
+def bundle_tick(CS, F):
+    rc, out = TC.human(CS, F, 'tick')
+    assert rc == 0 and 'AUTOREBASE b-01' in out, out
+    return F.wait_job()
+
+
+def t_bundle_composes_and_launches(CS):
+    F = BundleFix()
+    try:
+        F.seed_members(CS)
+        rc, out = TC.human(CS, F, 'bundle', 'plan', 'm1-01', 'm2-01')
+        assert rc == 0 and 'BUNDLEABLE' in out, out
+        rc, out = TC.human(CS, F, 'bundle', 'make', 'b-01', 'm2-01', 'm1-01', '--why', 'two different declarations')
+        assert rc == 0 and 'queued bundle b-01 = m1-01 + m2-01 at position 1' in out, out
+        d, st = TC.decision(CS, F)
+        assert d[0] == 'wait' and any(c == 'H2' and 'bundle m1-01 + m2-01' in r for c, r in d[1]), d
+        job = bundle_tick(CS, F)
+        assert job['state'] == 'done', (job, F.logtail())
+        steps = [s['step'] for s in job['steps']]
+        assert {'compose', 'footprints', 'tests', 'pushed', 'variant'} <= set(steps), steps
+        q = json.load(open(F.queue))
+        b = q['entries'][0]
+        v = b['variants'][F.lb]
+        reg = json.load(open(v['registration']))
+        assert reg['sha'] == job['variant'] and reg['fun_reads'] == '90 180', reg
+        assert [m['run'] for m in reg['bundle']['members']] == ['m1-01', 'm2-01']
+        assert reg['change_rows'] == ['m1_row', 'm2_row'] and 'effect' not in reg, reg
+        assert reg['bundle']['members'][1]['effect'] == {'kind': 'fixture-m2-01'}
+        # both changes are in the one canary sha, in queue order, each its own cherry-picked commit
+        log = sh('git', 'log', '--format=%s', '%s..%s' % (F.lb, job['variant']), cwd=F.git)
+        assert log.splitlines() == ['ST2: the second change', 'ST: the change'], log
+        d, st = TC.decision(CS, F)
+        assert d[0] == 'launch' and d[1]['run'] == 'b-01', d
+        ents = {e['run']: e for e in st['queue']['entries']}
+        assert CS.entry_state(ents['m1-01'], st) == 'bundled'
+    finally:
+        F.cleanup()
+
+
+def t_bundle_member_diff_changed_by_an_earlier_member_refuses(CS):
+    F = BundleFix('ctx')
+    try:
+        F.seed_members(CS)
+        rc, out = TC.human(CS, F, 'bundle', 'make', 'b-01', 'm1-01', 'm2-01', '--why', 'x')
+        assert rc == 0, out
+        job = bundle_tick(CS, F)
+        assert job['state'] == 'refused' and 'm2-01' in job['why'] and 'NOT its reviewed diff' in job['why'], job
+        d, _ = TC.decision(CS, F)
+        assert d[0] == 'block' and any(c == 'H2' and 'REFUSED' in r for c, r in d[1]), d
+        rc, out = TC.human(CS, F, 'tick')
+        assert 'AUTOREBASE' not in out, 'never retried: %s' % out
+        rc, out = TC.human(CS, F, 'bundle', 'split', 'b-01', 'compose refused')
+        assert rc == 0, out
+        d, _ = TC.decision(CS, F)
+        assert d[0] == 'wait' and any(c == 'H2' and 'm1-01' in r and 'will cherry-pick' in r for c, r in d[1]), \
+            'after the split the head is m1-01 as a single run: %s' % (d,)
+    finally:
+        F.cleanup()
+
+
+def t_bundle_shared_rows_refused_at_make_and_at_build(CS):
+    F = BundleFix('rows')
+    try:
+        F.seed_members(CS)
+        rc, out = TC.human(CS, F, 'bundle', 'make', 'b-01', 'm1-01', 'm2-01', '--why', 'x')
+        assert rc == 2 and 'shared change rows' in out, out
+        # a bundle written by hand past `bundle make`: the build checks the pairs again, on the composed tree
+        q = json.load(open(F.queue))
+        meta = []
+        for e in q['entries']:
+            pt = e['patch']
+            meta.append({'run': e['run'], 'base': pt['base'], 'tip': pt['tip'], 'diff_sha256': pt['diff_sha256'],
+                         'registration_sha256': e['variants'][pt['base']]['registration_sha256'], 'couples_with': []})
+            e['bundled_in'] = 'b-01'
+        q['entries'].insert(0, {'run': 'b-01', 'class': '', 'after': [], 'not_before': None, 'hold': None, 'variants': {},
+                                'bundle': {'schema': 1, 'members': ['m1-01', 'm2-01'], 'plan_sha256': CS.plan_hash(meta)}})
+        json.dump(q, open(F.queue, 'w'))
+        job = bundle_tick(CS, F)
+        assert job['state'] == 'refused' and 'shared change rows' in job['why'], job
+    finally:
+        F.cleanup()
+
+
+def t_fast_plan_written_and_switchable(CS):
+    """v41: a one-line unprotected single change gets the FAST plan in its autorebased registration; FAST-OFF blocks it
+    at launch (H7) with a remedy."""
+    F = ArFix('clean')
+    try:
+        seed(CS, F)
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'done', (job, F.logtail())
+        reg = json.load(open(job['registration']))
+        assert reg['fun_reads'] == '45 90' and 'Read plan FAST' in reg['notes'], reg
+        TC.expect(CS, F, 'launch')
+        open(os.path.join(F.home, 'digest', 'FAST-OFF'), 'w').close()
+        TC.expect(CS, F, 'block', 'H7', 'FAST plan is off')
+    finally:
+        F.cleanup()
+
+
+TESTS += [t_bundle_composes_and_launches, t_bundle_member_diff_changed_by_an_earlier_member_refuses,
+          t_bundle_shared_rows_refused_at_make_and_at_build, t_fast_plan_written_and_switchable]
+
 MUTANTS = [
     ('never starts a build', "    return ar_view(e, st)[2]\n", "    return False\n"),
     ('a conflicting pick is not refused', "    if rc != 0:\n        _, unmerged, _ = gitx(W, 'diff'",
@@ -542,6 +683,11 @@ MUTANTS = [
     ('a timed-out suite counts', "    if full_rc == 124:\n", "    if False:\n"),
     ('the variant is not added', "        rc = cmd_queue(P, ['add-variant', '--reads-src', reads_src, run, base, regp, approved])\n",
      "        rc = 0\n"),
+    ('v41: a bundle member whose diff an earlier member changed is not refused',
+     "        if hi != m['pt']['diff_sha256']:\n", "        if False:\n"),
+    ('v41: related members are not refused at the build', "    if probs:\n        raise ArRefuse('the members are related",
+     "    if False:\n        raise ArRefuse('the members are related"),
+    ('v41: the fast plan is never written', "        reg['fun_reads'] = plan\n", "        reg['fun_reads'] = STD_READS\n"),
 ]
 
 

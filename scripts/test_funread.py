@@ -125,6 +125,21 @@ def end_to_end():
         json.dump({'run_id': 'r-02', 'canary_pool': 'board-a', 'canary_code_version': sha, 'declared_at': 'x'}, open(man, 'w'))
         line = run(180).stdout.strip().splitlines()[-1]
         t('e2e: a manifest naming another run -> INCONCLUSIVE', line.startswith('VERDICT INCONCLUSIVE (+180)'), line)
+        # v41: the registration's fun_reads plan decides which minute is final
+        rp = os.path.join(reg, 'r-01.json'); r0 = json.load(open(rp))
+        line = run(90).stdout.strip().splitlines()[-1]
+        t('v41 e2e: the standard plan: +90 is not final (NOT_YET)', line.startswith('VERDICT NOT_YET (+90)'), line)
+        json.dump(dict(r0, fun_reads='45 90'), open(rp, 'w'))
+        line = run(45).stdout.strip().splitlines()[-1]
+        t('v41 e2e: the fast plan: +45 is not final', line.startswith('VERDICT NOT_YET (+45)') and 'read plan +45/+90' in line, line)
+        line = run(90).stdout.strip().splitlines()[-1]
+        t('v41 e2e: the fast plan: +90 IS final (here INCONCLUSIVE: the manifest names another run)',
+          line.startswith('VERDICT INCONCLUSIVE (+90)'), line)
+        json.dump(dict(r0, fun_reads='30 60'), open(rp, 'w'))
+        line = run(60).stdout.strip().splitlines()[-1]
+        t('v41 e2e: a plan outside READ_PLANS -> UNREADABLE', line.startswith('VERDICT UNREADABLE (+60)') and 'not one of' in line, line)
+        t('v41: plan_of', FR.plan_of({}) == (90, 180) and FR.plan_of({'fun_reads': '45 90'}) == (45, 90) and
+          FR.plan_of({'fun_reads': ['45']}) is None and FR.plan_of({'fun_reads': ''}) == (90, 180), '')
         os.remove(os.path.join(reg, 'r-01.json'))
         r = run(90)
         t('e2e: no registration -> UNREADABLE, one line, exit 0', r.returncode == 0 and
