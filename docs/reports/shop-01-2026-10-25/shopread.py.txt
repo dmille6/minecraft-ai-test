@@ -134,6 +134,59 @@ def tidy_place_ok(chain, cell, t_ms, skew_ms=60_000):
     return False
 
 
+# YARDREAD-01 (11-03, the showcase TRIP 07:35Z: H1 off_record 138, every one a cobblestone the yard clerk stocked on a PILE slot
+# of the yard record -- piles are not record cells). The stock yard's geometry, as bots/src/yard.mjs pileSlots builds it from the
+# blueprint's bays (bots/src/blueprints/yard@1.json, yard@2.json) and townplan.mjs rot; YARD_H = yard.mjs YARD_H.
+YARD = 'yard'
+YARD_H = 4
+YARD_BAYS = {'yard@1': [((2, 3), (2, 12)), ((6, 7), (2, 12)), ((10, 11), (2, 12)), ((14, 15), (2, 12))],
+             'yard@2': [((2, 3), (2, 23)), ((6, 7), (2, 23)), ((10, 11), (2, 23)), ((14, 15), (2, 23))]}
+YARD_BULK = {'cobblestone', 'cobbled_deepslate', 'bamboo_block'}   # yard.mjs YARD_BULK
+
+
+def yard_rot(orient, u, v):
+    """townplan.mjs rot: (u, v) -> (dx, dz) for an orientation. Pure."""
+    return {'E': (u, v), 'S': (-v, u), 'W': (-u, -v), 'N': (v, -u)}[orient]
+
+
+def yard_slots(rec):
+    """The yard record's pile slots (yard.mjs pileSlots) -> set of cell keys; empty when the record cannot say. Pure."""
+    bays = YARD_BAYS.get(str(rec.get('blueprint') or ''))
+    a, s0, o = rec.get('anchor'), rec.get('s'), rec.get('orient')
+    if not bays or not isinstance(a, list) or len(a) < 2 or not isinstance(s0, int) or o not in ('E', 'S', 'W', 'N'):
+        return set()
+    out = set()
+    for (u0, u1), (v0, v1) in bays:
+        for k in range(1, YARD_H + 1):
+            for v in range(v1, v0 + (k - 1) - 1, -1):
+                for u in range(u0, u1 + 1):
+                    dx, dz = yard_rot(o, u, v)
+                    out.add(ck([a[0] + dx, s0 + k, a[1] + dz]))
+    return out
+
+
+def yard_place_ok(rec, cell, block):
+    """yardread-01: a `project=yard op=place` -> bool. Pure. A record cell (floor, earthwork, torch), or a bulk block on one of
+    the record's pile slots (the clerk's stock). Anything else is off_record."""
+    k = ck(cell)
+    if k in {ck(c['at']) for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at')}:
+        return True
+    return block in YARD_BULK and k in yard_slots(rec)
+
+
+def yard_tidy_ok(rec, cell):
+    """yardread-01: a yard `kind=tidy` dig -> bool. Pure. A pile slot (a refill dug back off the top of a pile), or an AISLE cell
+    one or two above a `base` floor cell (yard.mjs yardClutter). Never a record cell."""
+    k = ck(cell)
+    cells = [c for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at')]
+    if k in {ck(c['at']) for c in cells}:
+        return False
+    if k in yard_slots(rec):
+        return True
+    base = {ck(c['at']) for c in cells if c.get('role') == 'base'}
+    return any(ck([cell[0], cell[1] - dy, cell[2]]) in base for dy in (1, 2))
+
+
 def tidy_guarded(cell, t_ms, guard):
     """Was the cell another project's record cell or a marker block when it was dug? -> bool. Pure. (tidy_clear_ok's refusal; the
     read names such an item `guarded` so the tripwire's tree-debris split -- a log or leaves block cleared off a list is a WATCH --
@@ -596,6 +649,9 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     # tidyread-02: a tidy fill is judged against the generations in force when it was placed (tidy_place_ok)
                     t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                     off = not tidy_place_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)
+                elif plot == YARD and rec is not None:
+                    # any generation of the yard's chain (a re-sited yard's earlier stock stays the yard's -- Claude r1 note)
+                    off = not any(yard_place_ok(g, cell, f.get('block')) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
                 else:
                     off = rec is not None and k not in {ck(c['at']) for c in rec.get('cells') or []} and not (f.get('kind') == 'footing' and plot == 'wall' and footing_ok(rec, cell))
                 if off:
@@ -623,6 +679,9 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         why = ' guarded' if tidy_guarded(cell, t_ms, guards[pool]) else ''
                     elif f.get('kind') == 'foreign':
                         ok = k in {ck(c['at']) for c in rec.get('cells') or []}
+                    elif f.get('kind') == 'tidy' and plot == YARD:
+                        # yardread-01: the clerk's refill digs (pile tops) and its aisle clutter
+                        ok = any(yard_tidy_ok(g, cell) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
                     elif f.get('kind') == 'tidy':
                         # zigtidy-01 (10-30): a climbing pillar dug off a finished ziggurat -- NOT a record cell, inside the
                         # record's box + 1, from its base up to its top + 2 (bots/src/ziggurat.mjs zigTidy)
@@ -869,6 +928,21 @@ def selftest():
     assert tpl('50,70,50', pp=TP_(chain_=c3))['off_record'] == 1, 'a cell of a stage sited AFTER the placement (beyond the skew) is not in force'
     assert tpl('50,70,50', s_=3_700, pp=TP_(chain_=c3))['off_record'] == 0 and tpl('17,64,-2', s_=3_700, pp=TP_(chain_=c3))['off_record'] == 0, 'after it: both stages in force'
     assert tidy_place_ok(chain, [17, 64, -2], None) and not tidy_place_ok(chain, [5, 70, 5], None) and not tidy_place_ok([], [17, 64, -2], 0)
+    # yardread-01 (11-03 TRIP 07:35Z): the clerk's stock on the yard record's pile slots is the yard's own; a planted block is not
+    yrec = {'v': 1, 'gen': 5, 'plot': 'yard', 'blueprint': 'yard@1', 'anchor': [-50, 5], 's': 68, 'orient': 'S', 'box': [-64, 5, -50, 22],
+            'cells': [{'at': [-52, 68, 7], 'role': 'base', 'seg': 'floor'}, {'at': [-51, 69, 6], 'role': 'light', 'seg': 'L'}], 'clear': [], 'replant': []}
+    sl = yard_slots(yrec)
+    assert len(sl) == 304, len(sl)
+    assert ck([-52, 69, 7]) in sl and ck([-62, 72, 16]) in sl, 'the live items 07:14-07:35Z: first and last'
+    YP_ = lambda: {'board-a': {**PR(), 'projects': {'shop': {'record': rec, 'records_files': 1, 'leases': {}, 'chain': [rec]}, 'yard': {'record': yrec, 'records_files': 1, 'leases': {}, 'chain': [yrec]}}}, 'board-b': PR()}
+    yp = lambda c, block='cobblestone': J(base + [R('_build', 'project=yard op=place cell=%s block=%s' % (c, block), s=14)], YP_())['off_record']
+    assert yp('-52,69,7') == 0 and yp('-62,72,16') == 0, 'stock on pile slots'
+    assert yp('-51,69,6', 'torch') == 0 and yp('-52,68,7') == 0, 'record cells as before'
+    assert yp('-40,69,7') == 1 and yp('-52,75,7') == 1, 'positive control: a planted cobblestone off every slot trips'
+    assert yp('-52,69,7', 'dirt') == 1, 'a non-bulk block on a slot trips'
+    yc = lambda c: J(base + [R('_build', 'project=yard op=clear cell=%s block=cobblestone kind=tidy' % c, s=14)], YP_())['clear_outside']
+    assert yc('-62,72,16') == 0 and yc('-52,70,7') == 0, 'a refill dug off a pile; an aisle cell above a base floor cell'
+    assert yc('-52,68,7') == 1 and yc('-30,70,30') == 1, 'positive control: a record cell, and a dig off the yard'
     assert tc('17,64,-2', kind='foreign')['clear_outside'] == 0, 'a foreign block dug out of a fill cell is its own'
     assert tc('-30,71,-30')['clear_outside'] == 0, 'listed, and no project holds it'
     m2 = dict(mrec, cells=mrec['cells'] + [{'at': [-30, 71, -30], 'role': 'core', 'seg': 'L01-N'}], at=T0MS - 120_000)
