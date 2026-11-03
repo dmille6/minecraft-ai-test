@@ -128,20 +128,38 @@ await t('a walk that does not arrive: null, and that landing is not tried again 
   assert.ok(again === null || again.landing !== 16)
   assert.ok(b.walks.length <= 2 && b.walks.every(w => w.join() !== stub(16).join() || b.walks.indexOf(w) === 0), 'the 16 is backed off')
 })
-await t('surface from the 32 stub end (under rock): plans, walks up to the collar exit', async () => {
+await t('surface from the 32 stub end (under rock), SHAFTTRAP=off (the base): plans, walks up to the collar exit', async () => {
+  process.env.SHAFTTRAP = 'off'
+  try {
+    const s = stub(32)
+    const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 } })
+    const r = await K.stairAscend(ctx(b), null)
+    assert.ok(r?.ok, JSON.stringify(r))
+    const rec = K.stairRecordNow()
+    assert.deepStrictEqual(b.walks, [rec.exit])
+  } finally { delete process.env.SHAFTTRAP }
+})
+await t('shafttrap-02: surface from ON the stair walks it up with the egress (stub back to its step, stands, the exit), no plan asked', async () => {
   const s = stub(32)
-  const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 } })
+  const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 }, plan: 'noPath' })
+  let planned = 0
+  const gp = b.pathfinder.getPathFromTo; b.pathfinder.getPathFromTo = function (...a) { planned++; return gp.apply(this, a) }
   const r = await K.stairAscend(ctx(b), null)
   assert.ok(r?.ok, JSON.stringify(r))
   const rec = K.stairRecordNow()
-  assert.deepStrictEqual(b.walks, [rec.exit])
+  assert.deepStrictEqual(b.walks.at(-1), rec.exit, 'ends at the collar exit')
+  assert.ok(b.walks.length > 2, 'hops, not one plan')
+  assert.strictEqual(planned, 0, 'the plan that answers no_plan on one dirt block is not asked')
 })
-await t('surface declined: in the open (not roofed), or the plan finds no path', async () => {
+await t('surface declined: in the open (not roofed), or (SHAFTTRAP=off) the plan finds no path', async () => {
   assert.strictEqual(await K.stairAscend(ctx(fakeBot(worldOf(), { pos: { x: 200.5, y: 50, z: 0.5 } })), null), null, 'far')
   const s = stub(32)
-  const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 }, plan: 'noPath' })
-  assert.strictEqual(await K.stairAscend(ctx(b), null), null)
-  assert.deepStrictEqual(b.walks, [])
+  process.env.SHAFTTRAP = 'off'
+  try {
+    const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 }, plan: 'noPath' })
+    assert.strictEqual(await K.stairAscend(ctx(b), null), null)
+    assert.deepStrictEqual(b.walks, [])
+  } finally { delete process.env.SHAFTTRAP }
   const open = (x, y, z) => 'air'
   const b2 = fakeBot(open, { pos: { x: 20.5, y: 50, z: 0.5 } })
   assert.strictEqual(await K.stairAscend(ctx(b2), null), null, 'nothing over its head')
