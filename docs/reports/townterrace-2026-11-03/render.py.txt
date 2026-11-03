@@ -1,0 +1,40 @@
+# top-down render of a terrace plan grid (terrace-offline.mjs --grid): left = before, right = after (+ park), 6 px a column
+import json, sys, zlib, struct
+g = json.load(open(sys.argv[1])); out = sys.argv[2]
+rows = g['rows']; H = len(rows); W = len(rows[0]); P = 6; GAP = 12
+ys = [c[k] for r in rows for c in r for k in ('y0', 'y1') if c[k] is not None]
+lo, hi = min(ys), max(ys)
+def shade(y, base):
+    t = (y - lo) / max(1, hi - lo); f = 0.45 + 0.55 * t
+    return tuple(min(255, int(v * f)) for v in base)
+PARK = {'flower': (230, 80, 160), 'tall': (200, 40, 200), 'shrub': (120, 170, 60), 'sapling': (20, 110, 20), 'bamboo': (150, 200, 40), 'crop': (220, 200, 60), 'till': (120, 80, 40), 'cane': (100, 220, 150), 'hedge': (30, 80, 30), 'meadow': (160, 230, 120)}
+def pix(c, after):
+    y = c['y1'] if after else c['y0']
+    if y is None:
+        return (60, 90, 200) if (c.get('w0') == 'water') else (40, 40, 40)
+    if c.get('g'): return shade(y, (170, 170, 170))
+    if after and c.get('p'):
+        r = c['p'].rstrip('0123456789'); return PARK.get(r, (255, 255, 255))
+    if after and c.get('cut'): return shade(y, (230, 120, 90))
+    if after and c.get('fill'): return shade(y, (110, 150, 230))
+    if not after and c.get('tree'): return (110, 70, 30)
+    return shade(y, (110, 200, 90))
+img = [[(255, 255, 255)] * (2 * W * P + GAP) for _ in range(H * P)]
+for zi, r in enumerate(rows):
+    for xi, c in enumerate(r):
+        for side in (0, 1):
+            col = pix(c, side == 1)
+            ox = xi * P + side * (W * P + GAP)
+            for dy in range(P):
+                for dx in range(P):
+                    img[zi * P + dy][ox + dx] = col
+# park box outline (after side)
+if g.get('park'):
+    x0, z0, x1, z1 = g['park']
+    for x in range((x0 - g['x0']) * P, (x1 - g['x0'] + 1) * P):
+        for z in ((z0 - g['z0']) * P, (z1 - g['z0'] + 1) * P - 1):
+            img[z][x + W * P + GAP] = (0, 0, 0)
+raw = b''.join(b'\x00' + bytes(v for p in row for v in p) for row in img)
+def chunk(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', len(img[0]), len(img), 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b'')
+open(out, 'wb').write(png); print(out, len(img[0]), len(img))
