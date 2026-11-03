@@ -1,6 +1,6 @@
 // SANDBOX-ONLY (sandbox4) E2E for villageunlock-01 (T3a): the REAL code path -- merchantscout's sightings of a live villager ->
 // skills.mjs unlockSee/unlockAsk -> SKILLS.village_unlock.run (goto + activateBlock) through protectzone's guard with a
-// protected zone around the arena -- against the replica of village-taiga-6_1's trapdoor ring (sandbox/trading/unlock-proof.cjs).
+// protected zone around the arena (MODE=ring | house) -- against the replica of village-taiga-6_1's trapdoor ring (sandbox/trading/unlock-proof.cjs).
 //   node sandbox/trading/unlock-e2e.mjs        (from a worktree root; take the lock first: sandbox/sbxlock.sh take sandbox4 trading)
 // Setup by RCON (sandbox only): the arena, the ring, a smithing table, one unemployed villager, the bot's start.
 import { execFileSync } from 'node:child_process'
@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 const X = 3400, Y = 140, Z = 3400, F = Y + 1
+const MODE = process.env.MODE === 'house' ? 'house' : 'ring'   // ring = 6_1's outdoor ring; house = the leatherworker house's
 const pool = fs.mkdtempSync(path.join(os.tmpdir(), 'vupool-'))
 Object.assign(process.env, {
   OLLAMA_MODEL: 'none', OLLAMA_BASE_URL: 'http://127.0.0.1:1', MEMORY_SCOPE: 'board', MEMORY_POOL: 'sbxunlock',
@@ -51,7 +52,14 @@ async function main () {
     ...S.map(([x, y, z]) => `setblock ${x} ${y} ${z} minecraft:spruce_trapdoor[facing=south,half=bottom,open=true]`),
     `setblock ${X} ${F} ${Z} minecraft:spruce_trapdoor[facing=west,half=bottom,open=true]`,
     `setblock ${X + 5} ${F} ${Z} minecraft:spruce_trapdoor[facing=east,half=bottom,open=true]`,
-    `setblock ${X + 2} ${F} ${Z + 6} minecraft:smithing_table`,
+    ...(MODE === 'house'
+      // the leatherworker-house shape: S/E/W trapdoors back onto a cobble wall with a pane above; only the N side opens, onto the
+      // floor where the job site is
+      ? [`fill ${X + 1} ${F} ${Z + 2} ${X + 4} ${F} ${Z + 2} minecraft:cobblestone`, `fill ${X + 1} ${F + 1} ${Z + 2} ${X + 4} ${F + 1} ${Z + 2} minecraft:glass_pane`,
+        `setblock ${X - 1} ${F} ${Z} minecraft:cobblestone`, `setblock ${X - 1} ${F + 1} ${Z} minecraft:glass_pane`,
+        `setblock ${X + 6} ${F} ${Z} minecraft:cobblestone`, `setblock ${X + 6} ${F + 1} ${Z} minecraft:glass_pane`,
+        `setblock ${X + 2} ${F} ${Z - 4} minecraft:smithing_table`]
+      : [`setblock ${X + 2} ${F} ${Z + 6} minecraft:smithing_table`]),
     `kill @e[type=villager,x=${X - 20},y=${Y - 5},z=${Z - 20},dx=40,dy=20,dz=40]`, 'time set 1000')
   await sleep(1000)
   rcon(`summon villager ${X + 2.5} ${F} ${Z + 0.5} {Tags:["unl2"],VillagerData:{profession:"minecraft:none",level:1,type:"minecraft:taiga"}}`)
@@ -77,13 +85,15 @@ async function main () {
     const s0 = sight()
     R.sighting = s0.map(s => `${s.profession}@${s.x},${s.y},${s.z}`)
     const now = Date.now()
-    SK.unlockSee(s0, now - 21 * 60_000); SK.unlockSee(sight(), now)
+    for (const m of [21, 14, 7]) SK.unlockSee(s0, now - m * 60_000)   // the scout's minute scans, compressed: 7-min gaps, 21 min
+    SK.unlockSee(sight(), now)
     const ask = SK.unlockAsk({ now }, bot)
     R.ask = ask?.order ?? null
     P('ask', R.ask, 'guard', R.guard, 'control', R.control)
     if (!ask?.order) return
     R.run = await SK.SKILLS.village_unlock.run({ bot }, ask.order.args, ac.signal)
     P('run', R.run)
+    R.mode = MODE
     R.ringOpenAfter = RING.filter(isOpen).length
     R.ringPresent = RING.filter(present).length
     const t = Date.now(); R.job = null

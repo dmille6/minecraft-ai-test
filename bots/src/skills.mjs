@@ -167,7 +167,7 @@ import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterR
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { setUnlockAsk } from './shop.mjs'   // villageunlock-01 (T3a): the order's ask
-import { VU, unlockSwitch, unlockModeDetail, penAround, trackStill, stuckCandidates, nextToggle, reachOf, toggleable, unlockDetail } from './villageunlock.mjs'
+import { VU, unlockSwitch, unlockModeDetail, penAround, trackStill, stuckCandidates, nextToggle, reachOf, toggleable, unlockDetail, barrierExits, villagerStillPenned, penKey } from './villageunlock.mjs'
 import { withUnlockScope } from './protectzone.mjs'
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
@@ -17843,21 +17843,41 @@ async function villageUnlock (ctx, args, signal) {
     return { status, detail: `village_unlock: ${stop} (${done.length} toggled)` }
   }
   if (![v.x, v.y, v.z].every(Number.isFinite)) return end('failed', 'bad_args')
-  let gerr = ''
+  let gerr = '', leaseFile = null
+  const release = () => { if (leaseFile) { try { if (JSON.parse(fs.readFileSync(leaseFile, 'utf8')).bot === bot.username) fs.unlinkSync(leaseFile) } catch { /* gone */ } leaseFile = null } }
   try { await goto(ctx, { x: Math.floor(v.x), y: Math.floor(v.y), z: Math.floor(v.z), range: 4 }, signal, { until: Date.now() + 90_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; gerr = String(e?.message ?? e).slice(0, 50) }
   check(signal)
   pen = penAround(vuBlockAt(bot), v)
   if (!pen.pen) return end('no_effect', `no_pen:${pen.why}`)
+  // THE VILLAGER IS STILL THERE, jobless, in this pen (Codex r1 blocker 3): never change an empty enclosure
+  const ve = Object.values(bot.entities ?? {}).find(e => e?.uuid && e.uuid === args?.uuid)
+  const still = villagerStillPenned(ve, pen)
+  if (still !== 'ok') return end('no_effect', still)
+  // ONE BOT PER PEN (Codex r1 blocker 1): a pool-wide lease file, O_EXCL; a stale one (> leaseMs) is taken over
+  try {
+    const f = path.join(poolStateDir(config.memory.pool), `villageunlock-${penKey(pen)}.lease`)
+    let held = null
+    try { held = JSON.parse(fs.readFileSync(f, 'utf8')) } catch { held = null }
+    if (held && held.bot !== bot.username && Date.now() - (held.at ?? 0) < VU.leaseMs) return end('no_effect', `leased:${held.bot}`)
+    if (held) { try { fs.unlinkSync(f) } catch { /* raced */ } }
+    fs.writeFileSync(f, JSON.stringify({ bot: bot.username, at: Date.now() }), { flag: 'wx' })
+    leaseFile = f
+  } catch { return end('no_effect', 'lease_busy') }
+  const skip = new Set()
+  try {
   for (let i = 0; i <= pen.toggles.length; i++) {
     check(signal)
-    const nt = nextToggle(pen.toggles, vuBlockAt(bot), bot.entity.position)
+    const nt = nextToggle(pen.toggles.filter(q => !skip.has(`${q.x},${q.y},${q.z}`)), vuBlockAt(bot), bot.entity.position)
     if (!nt) break
     if (reachOf(nt, bot.entity.position) > VU.reach) {
       try { await goto(ctx, { x: nt.x, y: nt.y, z: nt.z, range: 3 }, signal, { until: Date.now() + 30_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; gerr = String(e?.message ?? e).slice(0, 50) }
       check(signal)
       if (reachOf(nt, bot.entity.position) > VU.reach + 0.5) return end(done.length ? 'success' : 'failed', `unreachable:${nt.x},${nt.y},${nt.z}${gerr ? ` goto:${gerr}` : ''}`)
     }
+    // RE-READ JUST BEFORE THE CLICK (Codex r1 blocker 1): after the walk it must still be an open barrier that leads out
     const b = bot.blockAt(new Vec3(nt.x, nt.y, nt.z))
+    const cell = pen.cells.find(c => Math.abs(c.x - nt.x) + Math.abs(c.z - nt.z) === 1)
+    if (!b || !cell || !toggleable(vuBlockAt(bot)(nt.x, nt.y, nt.z)) || !barrierExits(vuBlockAt(bot), nt.x, nt.y, nt.z, nt.x - cell.x, nt.z - cell.z)) { skip.add(`${nt.x},${nt.y},${nt.z}`); continue }
     try { await withUnlockScope([nt], () => bot.activateBlock(b)) } catch (e) { return end(done.length ? 'success' : 'failed', `refused:${String(e?.message ?? e).slice(0, 60)}`) }
     await sleep(400, signal)
     const after = vuBlockAt(bot)(nt.x, nt.y, nt.z)
@@ -17865,6 +17885,7 @@ async function villageUnlock (ctx, args, signal) {
     done.push(`${nt.x},${nt.y},${nt.z}`)
   }
   return end(done.length ? 'success' : 'no_effect', 'done')
+  } finally { release() }
 }
 /** VILLAGEUNLOCK-01, once per spawn (features.mjs): the ask is wired and the licence row written. Never throws. */
 export function villageUnlockInstall (bot) {
