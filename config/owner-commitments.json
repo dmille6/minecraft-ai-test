@@ -2671,7 +2671,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "11-03: the hall WAITS on copper (gate 138 ingots / 18 cut, need 247), because nothing gathers copper (0 of 3,198 showcase gather/mine rows in 48 h). copperrun-01 is PREPARED for the next showcase release: release branch copperrun-on-d6257276 (0de6f192, on the stockyard+groundskeeper release tip d6257276), main b6ad7488; tier 2, one-engine review, npm test on .30. Once live: read `_copper_run` (issued / no_ore / same_ore) and the `_copperhall_gate` have= over 2 h. If most asks end no_ore (exposed copper is scarce near town), the next step is copper tunnelling (oretunnel COPPER_KINDS + a copper run anywhere), which is tier 3 and goes through a fleet canary. Then the earlier plan: it sites itself at >= need, builds; 2 h watch from the opening; cameras copperhall + patina.",
+   "next_step": "11-03: the hall WAITS on copper (gate 138 ingots / 18 cut, need 247), because nothing gathers copper (0 of 3,198 showcase gather/mine rows in 48 h). copperrun-01 is PREPARED for the next showcase release: release branch copperrun-on-d6257276 (0de6f192, on the stockyard+groundskeeper release tip d6257276), main 64ff41af; tier 2, one-engine review, npm test on .30. Once live: read `_copper_run` (issued / no_ore / same_ore) and the `_copperhall_gate` have= over 2 h. If most asks end no_ore (exposed copper is scarce near town), the next step is copper tunnelling (oretunnel COPPER_KINDS + a copper run anywhere), which is tier 3 and goes through a fleet canary. Then the earlier plan: it sites itself at >= need, builds; 2 h watch from the opening; cameras copperhall + patina.",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
