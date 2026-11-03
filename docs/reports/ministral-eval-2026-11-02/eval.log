@@ -1,0 +1,132 @@
+2026-11-03T00:09:15Z claim: CLAIMED ministral-eval eval
+2026-11-03T00:09:24Z serve: READY rerun-qwen35-4b :18090 191969, 6056 MiB 673642, 6600 MiB
+2026-11-03T00:20:56Z replay rerun-qwen35-4b done: DONE rerun-qwen35-4b closed 2: 600 in 11.52 min, 0 transport errors
+2026-11-03T00:20:59Z release: RELEASED ministral-eval
+2026-11-03T00:24:13Z claim: CLAIMED ministral-eval eval
+2026-11-03T00:24:18Z serve: READY ministral-3-8b :18090 191969, 6056 MiB 675103, 11610 MiB
+2026-11-03T00:38:39Z replay ministral-3-8b done: DONE ministral-3-8b closed 2: 600 in 14.35 min, 0 transport errors
+2026-11-03T00:38:44Z release: RELEASED ministral-eval
+2026-11-03T00:38:45Z claim: CLAIMED ministral-eval eval
+2026-11-03T00:39:00Z serve: READY ministral-3-14b :18090 191969, 6056 MiB 675702, 15608 MiB
+2026-11-03T00:58:19Z replay ministral-3-14b done: DONE ministral-3-14b closed 2: 600 in 19.31 min, 0 transport errors
+2026-11-03T00:58:22Z release: RELEASED ministral-eval
+2026-11-03T00:58:23Z claim: CLAIMED ministral-eval eval
+2026-11-03T00:58:38Z serve: READY ministral-3-8b :18090 191969, 6056 MiB 685567, 11610 MiB
+2026-11-03T01:00:03Z ladder ministral-3-8b @4/min: p50 2116 p95 2461 valid 12/12 done/min 8.6 -> pass
+2026-11-03T01:00:10Z serve: READY ministral-3-8b :18090 191969, 6056 MiB 685753, 11610 MiB
+2026-11-03T01:02:09Z ladder ministral-3-8b @6/min: p50 3397 p95 5857 valid 18/18 done/min 9.1 -> FAIL
+2026-11-03T01:02:13Z release: RELEASED ministral-eval
+2026-11-03T01:02:13Z ladder ministral-3-8b within-gate 4/min
+2026-11-03T01:02:14Z claim: CLAIMED ministral-eval eval
+2026-11-03T01:02:32Z serve: READY ministral-3-14b :18090 191969, 6056 MiB 686105, 15608 MiB
+2026-11-03T01:03:57Z ladder ministral-3-14b @4/min: p50 3192 p95 4826 valid 12/12 done/min 8.5 -> FAIL
+2026-11-03T01:03:59Z release: RELEASED ministral-eval
+2026-11-03T01:03:59Z ladder ministral-3-14b within-gate 0/min
+2026-11-03T01:04:00Z claim: CLAIMED ministral-eval eval
+2026-11-03T01:04:18Z serve: READY 20261101-qwen35-4b :18090 191969, 6056 MiB 686629, 6600 MiB
+2026-11-03T01:05:41Z ladder 20261101-qwen35-4b @4/min: p50 1571 p95 1975 valid 12/12 done/min 8.7 -> pass
+2026-11-03T01:05:48Z serve: READY 20261101-qwen35-4b :18090 191969, 6056 MiB 686824, 6600 MiB
+2026-11-03T01:07:46Z ladder 20261101-qwen35-4b @6/min: p50 1535 p95 2057 valid 18/18 done/min 9.2 -> pass
+2026-11-03T01:07:53Z serve: READY 20261101-qwen35-4b :18090 191969, 6056 MiB 687012, 6600 MiB
+2026-11-03T01:10:19Z ladder 20261101-qwen35-4b @8/min: p50 1244 p95 1893 valid 24/24 done/min 9.9 -> pass
+2026-11-03T01:10:26Z serve: READY 20261101-qwen35-4b :18090 191969, 6056 MiB 687163, 6600 MiB
+2026-11-03T01:12:56Z ladder 20261101-qwen35-4b @10/min: p50 1241 p95 2133 valid 30/30 done/min 12.0 -> pass
+2026-11-03T01:13:02Z serve: READY 20261101-qwen35-4b :18090 191969, 6056 MiB 687314, 6600 MiB
+2026-11-03T01:15:26Z ladder 20261101-qwen35-4b @12/min: p50 1427 p95 2386 valid 36/36 done/min 15.1 -> pass
+2026-11-03T01:15:32Z serve: READY 20261101-qwen35-4b :18090 191969, 6056 MiB 687461, 6600 MiB
+2026-11-03T01:23:55Z claim: CLAIMED ministral-eval eval
+2026-11-03T01:24:13Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 1441, 6600 MiB
+2026-11-03T01:25:36Z ladder 20261101-qwen35-4b @4/min: p50 1327 p95 1492 valid 12/12 done/min 8.7 -> pass
+2026-11-03T01:25:42Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 1627, 6600 MiB
+2026-11-03T01:27:40Z ladder 20261101-qwen35-4b @6/min: p50 1168 p95 1941 valid 18/18 done/min 9.2 -> pass
+2026-11-03T01:27:45Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 1769, 6600 MiB
+2026-11-03T01:30:12Z ladder 20261101-qwen35-4b @8/min: p50 1197 p95 1860 valid 24/24 done/min 9.9 -> pass
+2026-11-03T01:30:17Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 1902, 6600 MiB
+2026-11-03T01:32:48Z ladder 20261101-qwen35-4b @10/min: p50 1195 p95 2179 valid 30/30 done/min 12.0 -> pass
+2026-11-03T01:32:55Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 2045, 6600 MiB
+2026-11-03T01:35:18Z ladder 20261101-qwen35-4b @12/min: p50 1610 p95 2408 valid 36/36 done/min 15.1 -> pass
+2026-11-03T01:35:25Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 2194, 6600 MiB
+2026-11-03T01:37:48Z ladder 20261101-qwen35-4b @14/min: p50 1471 p95 2730 valid 42/42 done/min 17.7 -> pass
+2026-11-03T01:37:54Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 2408, 6600 MiB
+2026-11-03T01:40:16Z ladder 20261101-qwen35-4b @17/min: p50 1480 p95 2505 valid 51/51 done/min 21.6 -> pass
+2026-11-03T01:40:23Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 2631, 6600 MiB
+2026-11-03T01:42:52Z ladder 20261101-qwen35-4b @20/min: p50 1552 p95 3917 valid 60/60 done/min 24.3 -> pass
+2026-11-03T01:42:58Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 2782, 6600 MiB
+2026-11-03T01:45:24Z ladder 20261101-qwen35-4b @25/min: p50 1682 p95 3879 valid 75/75 done/min 30.9 -> pass
+2026-11-03T01:45:31Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 2927, 6600 MiB
+2026-11-03T01:48:13Z ladder 20261101-qwen35-4b @30/min: p50 2525 p95 4748 valid 90/90 done/min 33.3 -> FAIL
+2026-11-03T01:48:15Z release: RELEASED ministral-eval
+2026-11-03T01:48:15Z ladder 20261101-qwen35-4b within-gate 25/min
+2026-11-03T01:48:15Z claim: CLAIMED ministral-eval eval
+2026-11-03T01:48:29Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 3276, 7300 MiB
+2026-11-03T01:49:52Z ladder qwen2.5-7b-instruct @4/min: p50 1398 p95 1735 valid 12/12 done/min 8.7 -> pass
+2026-11-03T01:49:58Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 3448, 7300 MiB
+2026-11-03T01:51:55Z ladder qwen2.5-7b-instruct @6/min: p50 1173 p95 1921 valid 18/18 done/min 9.2 -> pass
+2026-11-03T01:52:01Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 3602, 7300 MiB
+2026-11-03T01:54:27Z ladder qwen2.5-7b-instruct @8/min: p50 1255 p95 1495 valid 24/24 done/min 9.9 -> pass
+2026-11-03T01:54:33Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 3746, 7300 MiB
+2026-11-03T01:57:04Z ladder qwen2.5-7b-instruct @10/min: p50 1196 p95 2471 valid 30/30 done/min 12.0 -> pass
+2026-11-03T01:57:08Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 3895, 7300 MiB
+2026-11-03T01:59:32Z ladder qwen2.5-7b-instruct @12/min: p50 1219 p95 2100 valid 36/36 done/min 15.1 -> pass
+2026-11-03T01:59:38Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 4034, 7300 MiB
+2026-11-03T02:02:00Z ladder qwen2.5-7b-instruct @14/min: p50 1370 p95 2336 valid 42/42 done/min 17.8 -> pass
+2026-11-03T02:02:06Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 4177, 7300 MiB
+2026-11-03T02:04:28Z ladder qwen2.5-7b-instruct @17/min: p50 1392 p95 2550 valid 51/51 done/min 21.5 -> pass
+2026-11-03T02:04:34Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 4321, 7300 MiB
+2026-11-03T02:07:03Z ladder qwen2.5-7b-instruct @20/min: p50 1652 p95 3630 valid 60/60 done/min 24.2 -> pass
+2026-11-03T02:07:09Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 4492, 7300 MiB
+2026-11-03T02:09:35Z ladder qwen2.5-7b-instruct @25/min: p50 2252 p95 4133 valid 75/75 done/min 30.8 -> pass
+2026-11-03T02:09:41Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 4637, 7300 MiB
+2026-11-03T02:12:24Z ladder qwen2.5-7b-instruct @30/min: p50 2617 p95 5818 valid 90/90 done/min 33.3 -> FAIL
+2026-11-03T02:12:26Z release: RELEASED ministral-eval
+2026-11-03T02:12:26Z ladder qwen2.5-7b-instruct within-gate 25/min
+2026-11-03T02:12:26Z claim: CLAIMED ministral-eval eval
+2026-11-03T02:12:43Z serve: READY ministral-3-8b :18090 910, 5968 MiB 4989, 11610 MiB
+2026-11-03T02:15:14Z fixed ministral-3-8b @10/min: p50 2304 p95 3374 valid 30/30 done/min 11.9 -> pass
+2026-11-03T02:15:21Z serve: READY ministral-3-8b :18090 910, 5968 MiB 5186, 11610 MiB
+2026-11-03T02:17:50Z fixed ministral-3-8b @20/min: p50 2932 p95 5859 valid 60/60 done/min 24.2 -> FAIL
+2026-11-03T02:17:52Z release: RELEASED ministral-eval
+2026-11-03T02:17:53Z claim: CLAIMED ministral-eval eval
+2026-11-03T02:18:15Z serve: READY ministral-3-14b :18090 910, 5968 MiB 5539, 15608 MiB
+2026-11-03T02:20:47Z fixed ministral-3-14b @10/min: p50 3426 p95 5421 valid 30/30 done/min 11.9 -> FAIL
+2026-11-03T02:20:56Z serve: READY ministral-3-14b :18090 910, 5968 MiB 5764, 15608 MiB
+2026-11-03T02:23:27Z fixed ministral-3-14b @20/min: p50 4854 p95 9261 valid 60/60 done/min 23.9 -> FAIL
+2026-11-03T02:23:29Z release: RELEASED ministral-eval
+2026-11-03T02:23:29Z claim: CLAIMED ministral-eval eval
+2026-11-03T02:23:36Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 6116, 6600 MiB
+2026-11-03T02:26:06Z fixed 20261101-qwen35-4b @10/min: p50 1179 p95 1752 valid 30/30 done/min 12.0 -> pass
+2026-11-03T02:26:12Z serve: READY 20261101-qwen35-4b :18090 910, 5968 MiB 6318, 6600 MiB
+2026-11-03T02:28:41Z fixed 20261101-qwen35-4b @20/min: p50 1549 p95 2819 valid 60/60 done/min 24.2 -> pass
+2026-11-03T02:28:43Z release: RELEASED ministral-eval
+2026-11-03T02:28:43Z claim: CLAIMED ministral-eval eval
+2026-11-03T02:28:53Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 6663, 7300 MiB
+2026-11-03T02:31:24Z fixed qwen2.5-7b-instruct @10/min: p50 1233 p95 1750 valid 30/30 done/min 12.0 -> pass
+2026-11-03T02:31:30Z serve: READY qwen2.5-7b-instruct :18090 910, 5968 MiB 6834, 7300 MiB
+2026-11-03T02:33:58Z fixed qwen2.5-7b-instruct @20/min: p50 1609 p95 4298 valid 60/60 done/min 24.2 -> pass
+2026-11-03T02:34:00Z release: RELEASED ministral-eval
+2026-11-03T02:34:37Z claim: CLAIMED ministral-eval eval
+2026-11-03T02:34:44Z serve: READY ministral-3-8b :18090 910, 5968 MiB 7402, 11610 MiB
+2026-11-03T02:36:07Z ladder ministral-3-8b @4/min: p50 1614 p95 2018 valid 12/12 done/min 8.7 -> pass
+2026-11-03T02:36:13Z serve: READY ministral-3-8b :18090 910, 5968 MiB 7553, 11610 MiB
+2026-11-03T02:38:12Z ladder ministral-3-8b @6/min: p50 1573 p95 3192 valid 18/18 done/min 9.2 -> pass
+2026-11-03T02:38:17Z serve: READY ministral-3-8b :18090 910, 5968 MiB 7693, 11610 MiB
+2026-11-03T02:40:44Z ladder ministral-3-8b @8/min: p50 1726 p95 3152 valid 24/24 done/min 9.8 -> pass
+2026-11-03T02:40:50Z serve: READY ministral-3-8b :18090 910, 5968 MiB 7839, 11610 MiB
+2026-11-03T02:43:21Z ladder ministral-3-8b @10/min: p50 2105 p95 3997 valid 30/30 done/min 11.9 -> pass
+2026-11-03T02:43:27Z serve: READY ministral-3-8b :18090 910, 5968 MiB 7987, 11610 MiB
+2026-11-03T02:45:51Z ladder ministral-3-8b @12/min: p50 2104 p95 3018 valid 36/36 done/min 14.9 -> pass
+2026-11-03T02:45:57Z serve: READY ministral-3-8b :18090 910, 5968 MiB 8133, 11610 MiB
+2026-11-03T02:48:20Z ladder ministral-3-8b @14/min: p50 2236 p95 3839 valid 42/42 done/min 17.7 -> pass
+2026-11-03T02:48:25Z serve: READY ministral-3-8b :18090 910, 5968 MiB 8278, 11610 MiB
+2026-11-03T02:50:48Z ladder ministral-3-8b @17/min: p50 2263 p95 5289 valid 51/51 done/min 21.5 -> FAIL
+2026-11-03T02:50:50Z release: RELEASED ministral-eval
+2026-11-03T02:50:50Z ladder ministral-3-8b within-gate 14/min
+2026-11-03T02:50:51Z claim: CLAIMED ministral-eval eval
+2026-11-03T02:51:01Z serve: READY ministral-3-14b :18090 910, 5968 MiB 8627, 15608 MiB
+2026-11-03T02:52:25Z ladder ministral-3-14b @4/min: p50 2116 p95 2447 valid 12/12 done/min 8.6 -> pass
+2026-11-03T02:52:32Z serve: READY ministral-3-14b :18090 910, 5968 MiB 8786, 15608 MiB
+2026-11-03T02:54:31Z ladder ministral-3-14b @6/min: p50 2263 p95 3819 valid 18/18 done/min 9.1 -> pass
+2026-11-03T02:54:37Z serve: READY ministral-3-14b :18090 910, 5968 MiB 8932, 15608 MiB
+2026-11-03T02:57:04Z ladder ministral-3-14b @8/min: p50 2847 p95 4653 valid 24/24 done/min 9.8 -> FAIL
+2026-11-03T02:57:06Z release: RELEASED ministral-eval
+2026-11-03T02:57:06Z ladder ministral-3-14b within-gate 6/min

@@ -1,0 +1,32 @@
+{
+ "10": {
+  "rate_per_min": 10,
+  "n": 30,
+  "valid": 30,
+  "timeouts_or_errors": 0,
+  "done_per_min": 11.9,
+  "p50_ms": 3426,
+  "p95_ms": 5421,
+  "p99_ms": 5438,
+  "prompt_tokens_p50": 2505,
+  "completion_p50": 64,
+  "cached_share_mean": 0.411,
+  "complete": true,
+  "gates_p50_2500_p95_5000": false
+ },
+ "20": {
+  "rate_per_min": 20,
+  "n": 60,
+  "valid": 60,
+  "timeouts_or_errors": 0,
+  "done_per_min": 23.9,
+  "p50_ms": 4854,
+  "p95_ms": 9261,
+  "p99_ms": 10174,
+  "prompt_tokens_p50": 2473,
+  "completion_p50": 65,
+  "cached_share_mean": 0.439,
+  "complete": true,
+  "gates_p50_2500_p95_5000": false
+ }
+}

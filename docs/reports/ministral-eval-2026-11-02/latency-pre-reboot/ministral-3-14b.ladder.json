@@ -1,0 +1,17 @@
+{
+ "4": {
+  "rate_per_min": 4,
+  "n": 12,
+  "valid": 12,
+  "timeouts_or_errors": 0,
+  "done_per_min": 8.5,
+  "p50_ms": 3192,
+  "p95_ms": 4826,
+  "p99_ms": 4826,
+  "prompt_tokens_p50": 2441,
+  "completion_p50": 61,
+  "cached_share_mean": 0.375,
+  "complete": true,
+  "gates_p50_2500_p95_5000": false
+ }
+}
