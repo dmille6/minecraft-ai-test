@@ -19,6 +19,9 @@
 # GATES (deterministic; each has a failing fixture and a passing control in --selftest)
 #   G1 off_record      a `_build op=place` cell that is not a cell of the town's record
 #   G2 clear_outside   a `_build op=clear` cell outside the record's clear list (kind=foreign: outside the record's cells)
+#                      project=tidy (tidy-01 + groundskeeper-01, tidyread-01 11-03): outside the cut + clear lists of EVERY
+#                      generation of the tidy record's chain (stage 0 and each land-plan stage), or ON another project's record
+#                      cell or an expedition marker's block that stood when it was dug (tidy_clear_ok)
 #   G3 zone            a placement, replant or clear inside a protected zone
 #   G4 lease_overlap   two holders live on one lease (a later generation by ANOTHER holder taken before the earlier one was
 #                      released or lapsed + RECLAIM_MS), or a slot name beyond builders_max
@@ -76,6 +79,9 @@ ROW_KINDS = BUILD_KINDS + ('craft', 'gather')
 REC_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.([A-Za-z0-9]+))\.g(\d+)\.json$')
 LEASE_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.([A-Za-z0-9]+))\.(slot\d+|seg-[A-Za-z0-9-]+)\.lease\.g(\d+)\.json$')   # wall-F: upper case (Claude read r1 P2-1)
 SHOP = 'shop'
+TIDY = 'tidy'                         # bots/src/tidy.mjs TIDY_PLOT
+LAND = 'land'                         # bots/src/landplan.mjs LAND_PLOT (a reservation: no cells)
+MARKERS_RE = re.compile(r'^expedition-.*\.markers\.jsonl$')
 # what a build visit may lose to the pathfinder's own towers and bridges (bots/src/scaffold.mjs PATHFINDER_SCAFFOLD's stone and
 # dirt family, and mineflayer-pathfinder's seeds dirt and cobblestone): the ziggurat places and digs these
 SCAFFOLD_NAMES = {'cobblestone'} | {'%s_planks' % w for w in ('oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak', 'bamboo', 'crimson', 'warped')} \
@@ -94,6 +100,22 @@ def tidy_ok(rec, cell):
     top = max(c['at'][1] for c in cells)
     x, y, z = cell
     return box[0] - 1 <= x <= box[2] + 1 and box[1] - 1 <= z <= box[3] + 1 and rec['baseY'] <= y <= top + 2
+
+
+def tidy_clear_ok(chain, cell, kind, t_ms, guard):
+    """tidyread-01 (11-03): is a `project=tidy` clear one the tidy record planned? -> bool. Pure.
+    chain: every generation of the tidy record's chain, root first (record_chain). A stage is one generation (tidy.mjs siteStage),
+    so a cut planned in stage 0 stays legitimate after the head moves on to stage 1. Planned = a cell of any generation's `cut`
+    list (kind=tidy: the pillar and grading cuts) or `clear` list (the road's leaves and trunks); kind=foreign: a cell of any
+    generation's `cells` (the fill cells). guard: {cell key: ms it was first reserved} -- every OTHER project's record cell and every
+    expedition marker block. A cell guarded at or before the clear (t_ms) is never the tidy's, planned or not (buildTidy's own dig
+    guard: the projects' cells + the markers); a guard that came later (a house sited on a dug pillar) does not re-judge it."""
+    k = ck(cell)
+    g = guard.get(k)
+    if g is not None and (t_ms is None or g <= t_ms):
+        return False
+    lists = ('cells',) if kind == 'foreign' else ('cut', 'clear')
+    return any(k == ck(c['at']) for rec in chain or [] for name in lists for c in rec.get(name) or [] if isinstance(c, dict) and c.get('at'))
 
 
 def overburden_ok(rec, cell, max_up=3, any_role=False):
@@ -130,7 +152,14 @@ def xyz_of(s):
 def record_head(files):
     """files: [(gen, bytes)] -> the head record (buildproj.mjs recordHead, exactly: the root is the lowest gen with prev null;
     each later gen is the head only when its prev is the head and its prevSha the head's bytes' sha256) | None."""
-    head = None
+    chain = record_chain(files)
+    return chain[-1] if chain else None
+
+
+def record_chain(files):
+    """files: [(gen, bytes)] -> every generation of the valid chain, root first, each dict(rec, _gen, _sha) (record_head's walk:
+    a generation joins only when its prev is the chain's last and its prevSha that one's bytes' sha256). Pure."""
+    head, chain = None, []
     for gen, buf in sorted(files):
         try:
             rec = json.loads(buf.decode('utf-8'))
@@ -142,10 +171,43 @@ def record_head(files):
         if head is None:
             if rec.get('prev') is None:
                 head = (gen, sha, rec)
+                chain.append(dict(rec, _gen=gen, _sha=sha))
             continue
         if rec.get('prev') == head[0] and rec.get('prevSha') == head[1]:
             head = (gen, sha, rec)
-    return dict(head[2], _gen=head[0], _sha=head[1]) if head else None
+            chain.append(dict(rec, _gen=gen, _sha=sha))
+    return chain
+
+
+def read_markers(d):
+    """A town dir -> {cell key: ms placed} for every expedition marker block ever logged there (expedition-*.markers.jsonl: the
+    two cobblestone and the torch, at .. at+2; skills.mjs exMarkers). A `gone` line does not lift it: a marker's blocks are never
+    the tidy's to dig (fail closed). An unparseable line is skipped (the bot's exLines). Never raises."""
+    out = {}
+    try:
+        names = [f for f in os.listdir(d) if MARKERS_RE.match(f)]
+    except OSError:
+        return out
+    for f in names:
+        try:
+            lines = open(os.path.join(d, f)).read().split('\n')
+        except OSError:
+            continue
+        for ln in lines:
+            try:
+                m = json.loads(ln) if ln.strip() else None
+            except ValueError:
+                continue
+            at = m.get('at') if isinstance(m, dict) else None
+            if m.get('gone') if isinstance(m, dict) else True:
+                continue
+            if not (isinstance(at, list) and len(at) == 3 and all(isinstance(v, int) for v in at)):
+                continue
+            t = m.get('t') if isinstance(m.get('t'), (int, float)) else 0
+            for dy in (0, 1, 2):
+                k = ck([at[0], at[1] + dy, at[2]])
+                out[k] = min(out.get(k, t), t)
+    return out
 
 
 def read_projects(root='/var/lib/mcai'):
@@ -193,10 +255,11 @@ def read_projects(root='/var/lib/mcai'):
             except Exception:
                 zok = False
         projects = {plot: {'record': record_head(recs[plot]) if recs.get(plot) else None, 'records_files': len(recs.get(plot) or []),
-                           'leases': dict(leases.get(plot) or {})} for plot in set(recs) | set(leases)}
+                           'leases': dict(leases.get(plot) or {}), 'chain': record_chain(recs[plot]) if recs.get(plot) else []}
+                    for plot in set(recs) | set(leases)}
         shop = projects.get(SHOP) or {'record': None, 'records_files': 0, 'leases': {}}
         out[pool] = {'record': shop['record'], 'records_files': shop['records_files'], 'leases': shop['leases'], 'dir': d, 'zones_ok': zok,
-                     'projects': projects}
+                     'projects': projects, 'markers': read_markers(d)}
     return out
 
 
@@ -210,6 +273,24 @@ def project_of(pr, plot):
     if plot == SHOP:
         return {'record': (pr or {}).get('record'), 'records_files': (pr or {}).get('records_files', 0), 'leases': (pr or {}).get('leases') or {}}
     return {'record': None, 'records_files': 0, 'leases': {}}
+
+
+def tidy_guard(pr):
+    """A town's entry -> {cell key: ms first reserved}: every cell of every OTHER project's record chain (not the tidy's, not the
+    land plan's) at its earliest generation's time, and the expedition markers' blocks (read_projects). A record with no time is
+    reserved from the start (0: fail closed). Pure."""
+    out = dict((pr or {}).get('markers') or {})
+    for plot, pj in ((pr or {}).get('projects') or {}).items():
+        if plot in (TIDY, LAND):
+            continue
+        chain = pj.get('chain') or ([pj['record']] if pj.get('record') else [])
+        for rec in chain:
+            t = rec.get('at') if isinstance(rec.get('at'), (int, float)) else (rec.get('sitedAt') if isinstance(rec.get('sitedAt'), (int, float)) else 0)
+            for c in rec.get('cells') or []:
+                if isinstance(c, dict) and c.get('at'):
+                    k = ck(c['at'])
+                    out[k] = min(out.get(k, t), t)
+    return out
 
 
 def zones_valid(raw):
@@ -402,6 +483,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
     unknown_open = {}                   # (bot, cell) -> t
     complete_at = {}
     stalled_pools = {}                  # pool -> the cells waiting on its stuck cell (F4, a stalled project: reported)
+    guards = {}                         # pool -> tidy_guard (tidyread-01)
     mutating, cans = set(), set()
     for r in rows:
         f = kv(r['detail'])
@@ -500,7 +582,14 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
             elif op == 'clear':
                 out['clears'] += 1
                 if rec is not None:
-                    if f.get('kind') == 'foreign':
+                    if plot == TIDY:
+                        # tidyread-01 (11-03, showcase 62e2aff0 TRIP): the tidy record has no box; its cuts are judged against
+                        # its own planned lists across every stage generation, never the ziggurat's zigtidy box rule
+                        if pool not in guards:
+                            guards[pool] = tidy_guard(projects.get(pool))
+                        t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
+                        ok = tidy_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'), t_ms, guards[pool])
+                    elif f.get('kind') == 'foreign':
                         ok = k in {ck(c['at']) for c in rec.get('cells') or []}
                     elif f.get('kind') == 'tidy':
                         # zigtidy-01 (10-30): a climbing pillar dug off a finished ziggurat -- NOT a record cell, inside the
@@ -714,6 +803,55 @@ def selftest():
     assert tidy('-30,71,-30') == 0 and tidy('-32,70,-28') == 0, 'on the build and in its apron: tidy'
     assert tidy('-30,70,-30') == 1, 'a record cell is never a tidy'
     assert tidy('-34,71,-30') == 1 and tidy('-30,73,-30') == 1 and tidy('-30,69,-30') == 1, 'off the box + 1, above the top + 2, below the base: outside'
+    # tidyread-01 (11-03, the showcase TRIP on 62e2aff0): a project=tidy clear is judged against the TIDY record's own lists across
+    # every stage generation -- the record has no box, so the zigtidy rule read its 4 stage-0 cuts as clear_outside
+    T0MS = int(t0.timestamp() * 1000)
+    tg1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'tidy', 'stage': 0, 'at': T0MS - 60_000, 'cells': [{'at': [17, 64, -2], 'role': 'core', 'seg': 'T-00-0'}],
+           'cut': [{'at': [3, 73, -10], 'kind': 'tidy', 'name': 'dirt'}, {'at': [-8, 72, 16], 'kind': 'tidy', 'name': 'dirt'}, {'at': [-30, 71, -30], 'kind': 'tidy', 'name': 'dirt'}], 'clear': [], 'replant': []}
+    tg2 = {'v': 1, 'gen': 2, 'prev': 1, 'plot': 'tidy', 'stage': 1, 'at': T0MS - 30_000, 'cells': [],
+           'cut': [{'at': [30, 72, 0], 'kind': 'tidy', 'name': 'dirt', 'pillar': 'road'}], 'clear': [{'at': [31, 74, 0], 'kind': 'leaves', 'name': 'oak_leaves'}], 'replant': []}
+    files = [(1, json.dumps(tg1).encode())]
+    files.append((2, json.dumps(dict(tg2, prevSha=hashlib.sha256(files[0][1]).hexdigest())).encode()))
+    chain = record_chain(files)
+    assert [c['_gen'] for c in chain] == [1, 2] and record_head(files)['_gen'] == 2, 'the chain walks both stages; the head is stage 1'
+    assert [c['_gen'] for c in record_chain([files[0], (2, json.dumps(dict(tg2, prevSha='bad')).encode())])] == [1], 'a broken link never joins'
+    mk = {ck([40, 70 + dy, 40]): T0MS - 90_000 for dy in (0, 1, 2)}
+    TP_ = lambda chain_=chain, markers=mk, mon=mrec: {'board-a': {**PR(), 'markers': markers, 'projects': {
+        'shop': {'record': rec, 'records_files': 1, 'leases': {}, 'chain': [rec]},
+        'monument': {'record': mon, 'records_files': 1, 'leases': {}, 'chain': [mon]},
+        'tidy': {'record': chain_[-1] if chain_ else None, 'records_files': len(chain_), 'leases': {}, 'chain': chain_}}}, 'board-b': PR()}
+    tc = lambda c, kind='tidy', pp=None, s_=14, block='dirt': J(base + [R('_build', 'project=tidy op=clear seg=T-00-0 cell=%s block=%s kind=%s' % (c, block, kind), s=s_)], pp or TP_())
+    assert tc('3,73,-10')['clear_outside'] == 0 and tc('-8,72,16')['clear_outside'] == 0, 'stage 0 cuts, read after the head moved to stage 1'
+    assert tc('30,72,0')['clear_outside'] == 0, 'a stage 1 (road) cut'
+    assert tc('31,74,0', kind='leaves', block='oak_leaves')['clear_outside'] == 0, 'a stage 1 road clear'
+    assert tc('3,74,-10')['clear_outside'] == 1 and tc('5,70,5')['clear_outside'] == 1, 'positive control: a tidy cut off every list trips'
+    assert tc('17,64,-2')['clear_outside'] == 1, 'a fill cell cut as a tidy is off the cut lists'
+    assert tc('17,64,-2', kind='foreign')['clear_outside'] == 0, 'a foreign block dug out of a fill cell is its own'
+    assert tc('-30,71,-30')['clear_outside'] == 0, 'listed, and no project holds it'
+    m2 = dict(mrec, cells=mrec['cells'] + [{'at': [-30, 71, -30], 'role': 'core', 'seg': 'L01-N'}], at=T0MS - 120_000)
+    assert tc('-30,71,-30', pp=TP_(mon=m2))['clear_outside'] == 1, 'a listed cut ON another project\'s record cell trips'
+    assert tc('-30,71,-30', pp=TP_(mon=dict(m2, at=T0MS + 3_600_000)))['clear_outside'] == 0, 'a project sited on the dug cell later does not re-judge it'
+    cl1 = dict(tg1, cut=tg1['cut'] + [{'at': [40, 71, 40], 'kind': 'tidy', 'name': 'cobblestone'}])
+    f1_ = [(1, json.dumps(cl1).encode())]
+    assert tc('40,71,40', pp=TP_(chain_=record_chain(f1_)), block='cobblestone')['clear_outside'] == 1, 'a listed cut of a marker block trips'
+    assert tc('40,71,40', pp=TP_(chain_=record_chain(f1_), markers={}), block='cobblestone')['clear_outside'] == 0, 'the control: no marker there'
+    assert J(base + [R('_build', 'project=tidy op=clear seg=T-00-0 cell=3,73,-10 block=dirt kind=tidy', s=14)], TP_(), zones={'board-a': [[3, 0, -10, 3, 200, -10]]})['zone'] == 1, 'a listed cut in a protected zone is H3'
+    assert tc('3,73,-10', pp=TP_(chain_=[]))['clear_outside'] == 0 and tc('3,73,-10', pp=TP_(chain_=[]))['oracle_missing'] == 1, 'no tidy record: named oracle_missing, as before'
+    assert tidy('-30,71,-30') == 0, 'the ziggurat\'s own zigtidy rule is unchanged'
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        with open(os.path.join(td, 'expedition-0_70_0.markers.jsonl'), 'w') as fh:
+            fh.write('{"at":[12,71,52],"t":5}\nnot json\n{"at":[12,71,52],"gone":true}\n{"at":[1,2]}\n')
+        assert read_markers(td) == {'12,71,52': 5, '12,72,52': 5, '12,73,52': 5}, read_markers(td)
+        # read_projects carries the chain and the markers (the wiring the live read uses), and the stage-0 cut reads clean through it
+        pd = os.path.join(td, '_pool-board-a'); os.mkdir(pd)
+        for g, b in files:
+            open(os.path.join(pd, 'project-0_70_0.tidy.g%d.json' % g), 'wb').write(b)
+        os.replace(os.path.join(td, 'expedition-0_70_0.markers.jsonl'), os.path.join(pd, 'expedition-0_70_0.markers.jsonl'))
+        rp_ = read_projects(td)
+        assert [c['_gen'] for c in rp_['board-a']['projects']['tidy']['chain']] == [1, 2] and '12,72,52' in rp_['board-a']['markers'], rp_['board-a'].get('markers')
+        assert tc('3,73,-10', pp=rp_)['clear_outside'] == 0 and tc('3,74,-10', pp=rp_)['clear_outside'] == 1, 'through read_projects'
+        assert tc('12,72,52', pp={'board-a': dict(rp_['board-a'], projects=dict(rp_['board-a']['projects'], tidy=dict(rp_['board-a']['projects']['tidy'], chain=[dict(tg1, cut=[{'at': [12, 72, 52]}])])))})['clear_outside'] == 1, 'a marker read from disk guards'
     # pathsclose-01: a block set on a path cell, dug (kind=overburden) -- the same column, 1..3 above a PATH cell, never a record cell
     prec = {'v': 1, 'gen': 1, 'prev': None, 'cells': [{'at': [5, 69, 5], 'role': 'path', 'seg': 'P-d-0'}, {'at': [6, 68, 5], 'role': 'fill', 'seg': 'P-d-0'},
                                                       {'at': [6, 69, 5], 'role': 'path', 'seg': 'P-d-0'}, {'at': [6, 71, 5], 'role': 'light', 'seg': 'P-d-0'}], 'clear': [], 'replant': []}
