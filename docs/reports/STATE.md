@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-03T20:20:01Z._
+_Generated 2026-11-03T21:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `53fd28ee` = cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z) on stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) on fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) on tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) |
-| **Canary in slot** | EMPTY (last close cooldown15-02 KEEP 11-03 19:14Z) |
-| **Queue (front)** | bagdiet-01 -> swimcentre-01 -> bundle-1103a -> towngate-01 -> groundskeeper-01 -> llmoai-01. Parked: townfloor-01, bamboo-03, foldwatch-01, treefarm-03 |
-| **Scheduler** | block H2 bagdiet-01: no variant for the fleet base 53fd28e (have: c711879, 5d862a8): autorebase REFUSED at step cherry-pick: the rebased diff is NOT the reviewed diff (normalized sha256 53a78265f4ff vs cad659a0c74e; files bots/src/shop.mjs, |
-| **Showcase release** | `cbd2f51b` (13,535 rows), `adbf9e41` (10,399 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 5d862a8a (stuckcells-01); row 11-03 19:25Z) |
+| **Fleet** | `53fd28ee` = cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z) on stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) on fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) on tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z). Live builds: {'53fd28eea23b44b1ade02b8bd9ea380379c15c38+041275': 70, '9fbfdf2225747f6b5f8d2b6c01cb65c6a91e6227+2577a3': 10} |
+| **Canary in slot** | **bagdiet-01** deployed 11-03 20:59Z; reads +90 11-03 22:29Z, +180 11-03 23:59Z; KEEP auto-promotes ~10 min after the +180 KEEP |
+| **Queue (front)** | swimcentre-01 -> bundle-1103a -> towngate-01 -> groundskeeper-01 -> llmoai-01. Parked: townfloor-01, bamboo-03, foldwatch-01 |
+| **Scheduler** | busy S1 canary declared: 9fbfdf2225747f6b5f8d2b6c01cb65c6a91e6227 on board-c,board-d / S6 open loop: canary 9fbfdf2 is deployed on board-c,board-d with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 bagdiet |
+| **Showcase release** | `cbd2f51b` (20,897 rows), `adbf9e41` (2,309 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 53fd28ee (cooldown15-02); row 11-03 20:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | qwen35-roll: rollout-compare 11-02 22:36Z |
-| **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
-| **Open alarms** | STALLCHECK 2026-11-03T19:35:01Z STALLED: 82. OPSAUDIT 2026-11-02 FLAGS: 8 (1 high). 36 active alarm(s): stuck goals 4 (board-d/monument@355_73_147, hive-a/monument@355_73_147, placebo-b/tidy@282_65_-388, placebo-c/monument@355_73_147); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24 |
+| **Pending owner decisions** | **townfloor-01**: townfloor-01 (fill the dug-out ground under the towns with surplus cobble): rebuild it now that tidy-01 + the stock yard ship, or drop it?; **bamboo-03**: bamboo-03 + foldwatch-01 (bamboo folds into sticks, ~1 exposable pool): revive (full re-stack, tier per protected.py) or drop both?; **parkgather-1103**: park flowers: none free within 96 of home outside the protected village zone -- gather farther out (or a flower biome), or plant the park without flowers?; **trading-1103**: Trade trip range (recommend one surveyed route <= 650 blocks, 10-min budget) and whether village 6_1 stays as is (recommended) or gets a one-off fix. |
+| **Open alarms** | STALLCHECK 2026-11-03T21:06:02Z STALLED: 41. OPSAUDIT 2026-11-02 FLAGS: 8 (1 high). 33 active alarm(s): stuck goals 4 (board-d/monument@355_73_147, hive-a/monument@355_73_147, placebo-b/tidy@282_65_-388, placebo-c/monument@355_73_147); effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24, flowledger bags |
 <!-- GENERATED:END -->
 
 ## Notes
