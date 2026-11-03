@@ -168,7 +168,8 @@ import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PL
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
-import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords } from './sinks.mjs'   // picker-01
+import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_TURN_AFTER, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords } from './sinks.mjs'   // picker-01
+import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -17181,7 +17182,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     const order0 = b ? keeperOrder(b, waited, list, now) : list
     // picker-01: the sinks in the picker's order (sinks.mjs sinkOrder); after SINK_STREAK sink visits an upkeep goes first
     const order = sinkListOrder(order0, activeMem.sinkOrder ?? [])
-    const pick = activeProject(waited, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK })
+    const pick = activeProject(waited, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, sinkTurn: (b?.finiteStreak ?? 0) >= SINK_TURN_AFTER })
     if (visit) noteRepair(rmem, pick, states, now)
     return pick
   } catch { return projectsOn()[0] }
@@ -17587,6 +17588,7 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     for (const c of r.cells ?? []) {
       if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) continue   // pathsclose-01: a waived path cell is no damage
+      if (dressSignRole(c.role)) continue   // towndress-01: a sign is the label writer's upkeep (below), never damage
       if (r.blueprint === WALL_BLUEPRINT && wallWaived(r, c)) continue    // wallstuck-01: nor a waived wall cell
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
       if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role) && !(mon && zigHidden(c, read))) return true
@@ -17595,6 +17597,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // refill, aisle clutter) wants a visit -- the order reads `complete` through shopDamaged, so work only in shopActive's states
     // never reached the order. `tidy: false` (the visit's own branch, the repair loop) judges the cells alone
     if (tidy && isYardBlueprint(r.blueprint) && yardWorkNow(bot, r)?.kind) return true
+    // towndress-01: a dress record with a sign to write on a standing post wants a visit (upkeep: `tidy: false` judges the cells alone)
+    if (tidy && r.plot === SINK_PLOTS.dress && dressSignWork(bot, r).length) return true
     // zigtidy-01: a finished ziggurat with climbing pillars on its treads wants a visit too (the tidy), until each pillar block has
     // been offered ZIG_TIDY_VISITS visits of this bot
     if (tidy && mon && zigTidyNow(bot, r, read).length) return true
@@ -18244,11 +18248,12 @@ async function sortGetSigns (ctx, n, signal) {
 /** ONE LABEL -> 'ok' | why not: in reach, the sign placed on the wall face (or a wrong one right-clicked: an unwaxed sign's editor
  *  opens again), the text written, the server's copy read back (Paper 11-01 sandbox/sortstore/sign-proof.cjs: an update with no
  *  editor open is refused, so no editor = no write). */
-async function sortLabelOne (ctx, sp, signal, deadline) {
+async function sortLabelOne (ctx, sp, signal, deadline, { kind = 'store_sign' } = {}) {
   const { bot } = ctx
   const at = new Vec3(...sp.at)
   const need0 = sortSpotNeed(bot, sp)
-  const row = (ok, why) => { try { logEvent({ kind: 'store_sign', status: ok ? 'success' : 'failed', snapshot: snapshot(bot), detail: `op=${need0} at=${sp.at.join(',')} chest=${sp.chest} label=${sp.lines[0]} ok=${ok ? 1 : 0} why=${why}`.slice(0, 300) }) } catch { /* telemetry */ } }
+  // towndress-01: the town's signposts are written by this same writer, their rows `_town_sign`
+  const row = (ok, why) => { try { logEvent({ kind, status: ok ? 'success' : 'failed', snapshot: snapshot(bot), detail: `op=${need0} at=${sp.at.join(',')} chest=${sp.chest} label=${sp.lines[0]} ok=${ok ? 1 : 0} why=${why}`.slice(0, 300) }) } catch { /* telemetry */ } }
   const tries = (bot.sortSignTries ??= new Map())
   tries.set(sp.at.join(','), (tries.get(sp.at.join(',')) ?? 0) + 1)
   try {
@@ -18555,6 +18560,8 @@ async function buildShop (ctx, args, signal) {
   const proj = shopActive(bot, Date.now(), { visit: true })
   // picker-01: the sink visits in a row (after SINK_STREAK an upkeep goes first: shop.mjs activeProject `upkeepTurn`)
   bot.sinkStreak = isSinkPlot(proj.plot) ? (bot.sinkStreak ?? 0) + 1 : 0
+  // towndress-01: the finite visits in a row (after SINK_TURN_AFTER a sink goes first: shop.mjs activeProject `sinkTurn`)
+  bot.finiteStreak = isSinkPlot(proj.plot) ? 0 : (bot.finiteStreak ?? 0) + 1
   // monument-01: the ziggurat's visit is its own (computed cells, its siting, its rows)
   if (proj.plot === MONUMENT_PLOT) return buildMonument(ctx, args, signal)
   // paths-01: the town's paths are their own visit too (paths.mjs siting, a shovel's use)
@@ -20134,6 +20141,8 @@ function sinkReady (kind) {
   try {
     if (kind === 'road') return roadRails(landHead()).length > 0
     if (kind === 'shrine') { const m = recordHead(townDir(), projKeyOf(MONUMENT_PLOT)); return Array.isArray(m.head?.rec?.box) }
+    // towndress-01: a dress batch dresses the laid paths or the wall
+    if (kind === 'dress') return [PATHS_PLOT, WALL_PLOT].some(pl => !!recordHead(townDir(), projKeyOf(pl)).head?.rec?.structure_complete)
     return true
   } catch { return false }
 }
@@ -20156,7 +20165,7 @@ function sinkStatesNow (bot, states, now = Date.now()) {
       const { rec: _rec, ...rest } = s
       const open = sinkOpen(rec)
       let next = false, why = open ? 'open' : 'no_bot'
-      if (!open && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: pr, openCount, noSiteUntil: bot.sinkNoSite?.[kind] ?? 0, now, ready: sinkReady(kind) }); next = g.want; why = g.why }
+      if (!open && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : pr, openCount, noSiteUntil: bot.sinkNoSite?.[kind] ?? 0, now, ready: sinkReady(kind) }); next = g.want; why = g.why }
       st[kind] = { open, want: next, sitedAt: instancesOf(rec).at(-1)?.sitedAt ?? 0, why }
       return { ...rest, sinkOpen: open, sinkNext: next, sinkWhy: why }
     })
@@ -20203,6 +20212,81 @@ function sinkAvailNow (bot) {
   } catch { /* cobblestone alone, no lights */ }
   return out
 }
+// ---- towndress-01: the dress sink's readings and its signs (towndress.mjs) ---------------------------------------------------------
+/** This bot's spare torches for a dress batch (towndress.mjs dressPressure: the town's above its reserve, read, + the bag's). Never
+ *  throws: unread is the bag alone. */
+function dressPressureNow (bot) {
+  try {
+    const t = matsTownStock(bot)
+    return dressPressure({ townTorch: t ? Number(t.stock?.torch) || 0 : null, coverage: t?.coverage ?? 0, reserve: Number(matsReserve().table?.torch) || 32, bagTorch: Number(heldMap(bot).torch) || 0 })
+  } catch { return { p: -1, torches: 0, known: false } }
+}
+/**
+ * WHERE A DRESS POST MAY NOT STAND -> reserved(x, z) -> reason | null. The protected zones, the wells (+3) and the farm (+2), the
+ * town plan's cells and stands and its soft keepouts and path segments, the land plan's road corridors (the groundskeeper grades
+ * them), the expedition markers and an unsited hall's pad. Never another record's ZONE: a post stands beside a path, under a wall,
+ * by a door -- the cell guard (towndress.mjs cellGuard: every record's cell columns, door fronts) keeps it off their cells.
+ * Throws on an unreadable file (the visit stops).
+ */
+function dressReservedFor (c, plan) {
+  const land = projectHeads().filter(x => x.plot === LAND_PLOT).map(x => x.head.rec)
+  const zs = [...c.zones, ...recordZones(land), ...hallPadZones(plan), ...townMarkerZones()]
+  const ko = keepouts(plan)
+  const wells = (c.wells ?? []).map(q => [q[0], q[2]])
+  const farm = new Set((c.farm ?? []).map(([x, z]) => `${x},${z}`))
+  const hy = Number(plan?.home?.y) || 70
+  const never = new Set((ko.neverCells ?? []).map(q => `${q[0]},${q[2]}`).filter(k => k))
+  return (x, z) => {
+    if (never.has(`${x},${z}`)) return 'plan_cell'
+    if (ko.softAt(x, z)) return 'plan_soft'
+    if (wells.some(([wx, wz]) => Math.max(Math.abs(wx - x), Math.abs(wz - z)) <= 3)) return 'well'
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) if (farm.has(`${x + dx},${z + dz}`)) return 'treefarm'
+    const zb = zs.find(q => { const b = q?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && hy + 30 >= b[1] && hy - 14 <= b[4] })
+    return zb ? String(zb.why ?? 'zone') : null
+  }
+}
+/** The sign spots of a dress record that want THIS bot's writer now: the post's upper block standing, the sign missing or wrong
+ *  (sortstore.mjs spotNeed), under SIGN_TRIES a spot. Never throws. */
+function dressSignWork (bot, rec) {
+  try {
+    const tries = bot.sortSignTries ?? new Map()
+    return dressSignSpots(rec).filter(sp => {
+      if ((tries.get(sp.at.join(',')) ?? 0) >= SIGN_TRIES) return false
+      const w = bot.blockAt?.(new Vec3(...sp.wall))
+      if (!w || w.boundingBox !== 'block') return false
+      return ['place', 'edit'].includes(sortSpotNeed(bot, sp))
+    })
+  } catch { return [] }
+}
+/**
+ * THE DRESS SIGNS (the start of every dress visit) -> { written, failed }. The storehouse's label writer (sortGetSigns: the bag's
+ * sign, or three crafted from its planks; sortLabelOne: place on the post's face, the editor's packet, updateSign, the text read
+ * back) over at most DRESS.signsMax spots; each placed sign is a `_build op=place` row of the dress record (the tripwire judges it
+ * against the record's cells). Never throws but an abort.
+ */
+async function dressSignsVisit (ctx, rec, signal, deadline) {
+  const { bot } = ctx
+  const out = { written: 0, failed: 0 }
+  const work = dressSignWork(bot, rec).slice(0, DRESS.signsMax)
+  if (!work.length || deadline - Date.now() < 30_000) return out
+  const item = await sortGetSigns(ctx, work.length, signal)
+  check(signal)
+  if (!item) { try { logEvent({ kind: 'dress', status: 'no_effect', snapshot: snapshot(bot), detail: dressRowDetail({ op: 'signs', want: work.length, why: 'no_sign_item' }) }) } catch { /* telemetry */ } return out }
+  for (const sp of work) {
+    if (deadline - Date.now() < 20_000) break
+    const need0 = sortSpotNeed(bot, sp)
+    const r = await sortLabelOne(ctx, sp, signal, deadline, { kind: 'town_sign' })
+    if (r === 'ok') {
+      out.written++
+      if (need0 === 'place') {
+        const b = bot.blockAt?.(new Vec3(...sp.at))
+        try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SINK_PLOTS.dress, op: 'place', seg: sp.seg, cell: sp.at, block: blockNameOf(bot, b) ?? 'wall_sign', kind: 'sign', gen: recordHead(townDir(), projKeyOf(SINK_PLOTS.dress)).head?.gen ?? '-' }) }) } catch { /* telemetry */ }
+      }
+    } else out.failed++
+  }
+  try { logEvent({ kind: 'dress', status: out.written ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: dressRowDetail({ op: 'signs', want: work.length, written: out.written, failed: out.failed, names: work.map(w => w.for) }) }) } catch { /* telemetry */ }
+  return out
+}
 /** SITE THE NEXT INSTANCE of a sink kind (sinks.mjs siteSink) -> its result. Yields to the event loop first. Never throws. */
 async function sinkSiteFor (bot, kind, rec0, plan, c, stood, signal) {
   try {
@@ -20213,8 +20297,10 @@ async function sinkSiteFor (bot, kind, rec0, plan, c, stood, signal) {
     const walls = projectHeads().find(x => x.plot === WALL_PLOT)?.head?.rec ?? null
     const zig = projectHeads().find(x => x.plot === MONUMENT_PLOT)?.head?.rec ?? null
     const feet = bot.entity?.position ? [Math.floor(bot.entity.position.x), Math.floor(bot.entity.position.y + 1e-6), Math.floor(bot.entity.position.z)] : null
+    // towndress-01: a dress batch reads every other record (its anchors, its cell guard, the lights they plan) and the spare torches
+    const dress = kind === 'dress' ? { records: projectHeads().filter(x => x.plot !== SINK_PLOTS.dress && x.plot !== LAND_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null })), torches: dressPressureNow(bot).torches, reserved: dressReservedFor(c, plan) } : {}
     return siteSink(planReader(bot), { kind, n, id: `${SINK_LETTER[kind]}${n}`, home: planHomeP(), pool: config.memory.pool, avail: av.avail, torch: av.torch, campfire: av.campfire,
-      guard: sinkGuardFor(c, plan, { kind }), guardShrine: sinkGuardFor(c, plan, { noZ0: true, kind }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])] })
+      guard: kind === 'dress' ? () => null : sinkGuardFor(c, plan, { kind }), guardShrine: kind === 'dress' ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress })
   } catch (e) {
     if (e?.aborted || signal?.aborted) throw e
     return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80), tried: [] }
@@ -20242,17 +20328,22 @@ async function buildSink (ctx, args, signal, proj) {
   let rh = recordHead(dir, key)
   if (!rh.ok) return out('no_effect', 'record_unreadable', `the ${plot} record could not be read`)
   const rec0 = rh.head?.rec ?? null
+  // towndress-01: a dress visit writes the signs of its standing posts first (bounded: DRESS.signsMax, the label writer's tries)
+  if (kind === 'dress' && rec0) {
+    try { const sg = await dressSignsVisit(ctx, rec0, signal, t0 + budget - ZIG_VISIT_TAIL_MS); f.signs = sg.written; if (sg.failed) f.signFails = sg.failed } catch (e) { if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e } }
+    check(signal)
+  }
   // THE NEXT INSTANCE (the picker): no record, or a standing one that is not damaged -- the gate asked again with this bot's readings
   if (!rec0 || (rec0.structure_complete && !shopDamaged(bot, rec0))) {
     const recs = Object.fromEntries(SINK_KINDS.map(k => [k, k === kind ? rec0 : (recordHead(dir, projKeyOf(SINK_PLOTS[k])).head?.rec ?? null)]))
-    const pr = sinkPressureNow(bot)
+    const pr = kind === 'dress' ? dressPressureNow(bot) : sinkPressureNow(bot)
     const g = sinkNextGate({ kind, rec: rec0, pressure: pr, openCount: SINK_KINDS.filter(k => sinkOpen(recs[k])).length, noSiteUntil: bot.sinkNoSite?.[kind] ?? 0, now: Date.now(), ready: sinkReady(kind) })
     if (!g.want) return out('no_effect', 'complete', `the ${plot} sink wants no instance now (${g.why}; pressure ${pr.p})`, { stop: 'complete' })
     const r = await sinkSiteFor(bot, kind, rec0, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
     check(signal)
     const tried = (r.tried ?? []).join(' ')
     const t = matsTownStock(bot)
-    if (r.ok && !sinkFundable(r.inst.cells.length, { town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: heldMap(bot) })) { r.ok = false; r.why = 'unfunded' }
+    if (r.ok && kind !== 'dress' && !sinkFundable(r.inst.cells.length, { town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: heldMap(bot) })) { r.ok = false; r.why = 'unfunded' }
     if (!r.ok) {
       bot.sinkNoSite = { ...(bot.sinkNoSite ?? {}), [kind]: Date.now() + SINK.noSiteMs }
       try { logEvent({ kind: 'sink', status: 'no_effect', snapshot: snapshot(bot), detail: sinkRowDetail({ op: 'no_site', kind, n: instancesOf(rec0).length + 1, p: pr.p, tried, why: r.why }) }) } catch { /* telemetry */ }
@@ -20300,7 +20391,8 @@ async function buildSink (ctx, args, signal, proj) {
     // built from the stone a bag already carries -- capped at SHOP_BILL_CAP, from town under the project reserve (OWNER 10-27)
     const read = planReader(bot)
     const town = matsTownStock(bot)?.stock ?? {}
-    const bill = billOf(rec, palette, read, { done: buildCellDone, inTown: zigBillInTown(bot, town) })
+    // towndress-01: a sign cell is the label writer's (no bill: there is no wall-sign item)
+    const bill = billOf(rec, palette, read, { done: (b, pal, role) => dressSignRole(role) || buildCellDone(b, pal, role), inTown: zigBillInTown(bot, town) })
     const need = needFromTown(bill, spare0, SHOP_BILL_CAP)
     let took = {}
     bag0 = held0
@@ -20326,7 +20418,9 @@ async function buildSink (ctx, args, signal, proj) {
     const ins = instancesOf(rec).at(-1) ?? null
     const boxes = instancesOf(rec).map(i => i.box).filter(b => Array.isArray(b) && b.length === 4)
     const onBuild = ft => !!ft && boxes.some(b => ft[0] >= b[0] && ft[0] <= b[2] && ft[2] >= b[1] && ft[2] <= b[3])
-    const leave = Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : {}
+    // towndress-01: a dress batch's box spans the town (its fixtures are posts and torches: nothing to stand on), and its sign cells
+    // are the label writer's -- runVisit reads them done
+    const leave = kind !== 'dress' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) } : {}
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       ...sinkVisitOpts(rec, home), ...leave }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     if (r.stop === 'complete') {

@@ -151,7 +151,7 @@ export const buildersOf = p => p?.builders ?? BUILDERS_MAX
  * whose `after` project is complete -- monument-01: the first such with an admission slot free for this bot (`free`, absent =
  * free), else the first such -- else the LAST project (everything stands: the order reads it complete and stays quiet).
  */
-export function activeProject (states = [], list = projectsOn(), { upkeepTurn = false } = {}) {
+export function activeProject (states = [], list = projectsOn(), { upkeepTurn = false, sinkTurn = false } = {}) {
   const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged) return p }
   const open = []
@@ -171,6 +171,10 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   // keeper's grounds were every other bot's `open[0]` fallback), after the bounded upkeeps that go first, and -- after SINK_STREAK
   // sink visits (`upkeepTurn`) -- after one ordinary upkeep too. With no sink to offer, the order is exactly as before.
   const sink = list.find(p => p.sink && (st(p).sinkOpen || st(p).sinkNext) && st(p).free !== false && !st(p).stuck) ?? null
+  // towndress-01 (LIVE showcase 11-03 18:38-20:49Z: 131 `_sink op=pick` rows wanted a sink, 0 sited -- every visit went to a finite
+  // project that always had a free slot: the stair 57, the tidy 23, the waiting hall 7): after SINK_TURN_AFTER finite visits in a
+  // row a bot's next pick is the sink (`sinkTurn`), after the repairs; then the finite order again
+  if (sink && sinkTurn) return sink
   const freeOpen = open.find(p => st(p).free !== false)
   if (freeOpen) return freeOpen
   if (open.length && !sink) return open[0]
