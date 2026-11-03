@@ -159,6 +159,7 @@ await t('cropDue: a mature crop -> harvest (not at the town\'s wheat cap, nor wi
   assert.strictEqual(C.cropDue(rd, rec, { seeds: 0, freeSlots: 2 }), null)
   ages.set(a.at.join(','), 2)
   assert.strictEqual(C.cropDue(rd, rec, { seeds: 0 }), null, 'growing and no seed: quiet')
+  assert.strictEqual(C.cropDue(rd, rec, { seeds: 0, gatherOk: true }), 'seed', 'Codex r1 BLOCKER 2: an empty seedless farm is due again once the gather\'s back-off ends')
   assert.strictEqual(C.seedNeed(rd, rec, 10), 27 - 10)
   assert.strictEqual(C.seedKeep(rec), 28 + C.CROP.seedSpare)
 })

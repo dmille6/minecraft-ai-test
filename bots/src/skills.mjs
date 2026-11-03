@@ -21362,7 +21362,7 @@ function cropDueFor (bot, rec) {
     let townWheat = 0
     try { townWheat = Number(matsTownStock(bot)?.stock?.wheat) || 0 } catch { townWheat = 0 }
     const free = (() => { try { return bot.inventory.emptySlotCount() } catch { return 0 } })()
-    return cropDue(cropRead(bot), rec, { seeds: s.held + s.town, townWheat, freeSlots: free })
+    return cropDue(cropRead(bot), rec, { seeds: s.held + s.town, townWheat, freeSlots: free, gatherOk: Date.now() >= (bot.cropGatherUntil ?? 0) })
   } catch { return null }
 }
 /** THE SITING INPUTS: the tree farm's reservations (every other project's record and zone, the plan, the wells, the composter, the
@@ -21414,8 +21414,10 @@ async function cropSeedGather (ctx, rec, { deadline, signal, e, want }) {
   let reserved
   try { const land = landHead(dir); const th = recordHead(dir, projKeyOf(TIDY_PLOT)); reserved = gatherGuard(bot, dir, land, townPark(dir, land, th.ok ? th.head?.rec : null), th.ok ? th.head?.rec ?? null : null) } catch { return { n: 0, why: 'guard_unread' } }
   const ids = ['short_grass', 'tall_grass', 'fern', 'large_fern'].map(x => bot.registry?.blocksByName?.[x]?.id).filter(Number.isFinite)
+  // searched round the FARM, not the bot (Codex r1 BLOCKER 2: a bot at home missed the grass beside a distant farm)
+  const b = rec.box, point = new Vec3(Math.floor((b[0] + b[2]) / 2), Number(rec.level ?? planHomeP().y) + 1, Math.floor((b[1] + b[3]) / 2))
   let found = []
-  try { found = ids.length ? bot.findBlocks?.({ matching: ids, maxDistance: CROP.gatherR + 8, count: 128 }) ?? [] : [] } catch { found = [] }
+  try { found = ids.length ? bot.findBlocks?.({ point, matching: ids, maxDistance: CROP.gatherR + 6, count: 128 }) ?? [] : [] } catch { found = [] }
   const read = planReader(bot)
   const targets = seedGrassTargets(found.map(v => ({ at: [v.x, v.y, v.z] })), { read, box: rec.box, reserved, from: e.feet(), max: Math.min(CROP.gatherMax, Math.max(8, want * 8)) })
   if (!targets.length) { bot.cropGatherUntil = Date.now() + CROP.gatherBackoffMs; return { n: 0, why: `no_source:${found.length}` } }
@@ -21487,7 +21489,7 @@ async function buildCropFarm (ctx, args, signal) {
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
   let effects = null
-  let bag0 = null, placedBy = {}, backAll = {}, diedAt = null, completed = false
+  let bag0 = null, placedBy = {}, backAll = {}, tookAll = {}, diedAt = null, completed = false
   const onDeath = () => { diedAt = Date.now() }
   try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
   const rowLog = d => { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail(d) }) } catch { /* telemetry */ } }
@@ -21508,9 +21510,18 @@ async function buildCropFarm (ctx, args, signal) {
     // 1. THE HARVEST (the town's wheat under its cap, room in the bag)
     const hv = await cropHarvest(ctx, rec, { deadline: deadline - 60_000, signal, e: effects, log: rowLog })
     check(signal)
-    // 2. THE SEEDS: the open cells this bag cannot plant, gathered from grass round the farm
+    // 2. THE SEEDS: the open cells this bag cannot plant -- drawn from the town's chests first (Codex r1 BLOCKER 1: banked seeds
+    // must reach the planting; a failed draw backs off), then gathered from grass round the farm
     const s = cropSeedsNow(bot)
-    const want = seedNeed(read, rec, s.held)
+    let want = seedNeed(read, rec, s.held)
+    let took = {}
+    if (want > 0 && s.town > 0 && Date.now() >= (bot.cropDrawUntil ?? 0)) {
+      try { const w = await matsWithdraw(ctx, { wheat_seeds: Math.min(want, s.town) }, signal, 30_000, matsReserve().table); took = w.took ?? {} } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+      for (const [k, v] of Object.entries(took)) tookAll[k] = (tookAll[k] ?? 0) + v
+      if (!(took.wheat_seeds > 0)) bot.cropDrawUntil = Date.now() + 10 * 60_000
+      want = seedNeed(read, rec, countItem(bot, 'wheat_seeds'))
+    }
+    check(signal)
     const sg = want > 0 ? await cropSeedGather(ctx, rec, { deadline: deadline - 45_000, signal, e: effects, want }) : { n: 0, got: 0, why: 'enough' }
     check(signal)
     // 3. THE BUILD: a hoe for an open till cell with a seed to plant on it, then runVisit (till, plant); a cell with no seed passed
@@ -21547,7 +21558,7 @@ async function buildCropFarm (ctx, args, signal) {
     if (names.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, names, { wheat: 0, wheat_seeds: seedKeep(rec) }, signal, {}, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2 } }) } catch (err) { if (err?.aborted || signal?.aborted) throw err } }
     const census = Object.entries(cropCensus(cropRead(bot), rec)).map(([k, v]) => `${k}:${v}`).join(',')
     const status = r.placed > 0 || r.cleared > 0 || hv.n > 0 || sg.n > 0 ? 'success' : 'no_effect'
-    return out(status, r.stop, `${r.why ?? r.stop}; harvested ${hv.n} (${hv.why}); seeds +${sg.got ?? 0} from ${sg.n} grass (${sg.why}); hoe ${hoe ? 1 : 0}; crops ${census}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared + hv.n + sg.n, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    return out(status, r.stop, `${r.why ?? r.stop}; harvested ${hv.n} (${hv.why}); seeds +${sg.got ?? 0} from ${sg.n} grass (${sg.why}); hoe ${hoe ? 1 : 0}; crops ${census}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared + hv.n + sg.n, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
@@ -21556,7 +21567,7 @@ async function buildCropFarm (ctx, args, signal) {
     try { effects?.close() } catch { /* gone */ }
     try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
-    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(CROPFARM_PLOT, bagBalance({ bag0, took: {}, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(CROPFARM_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
   }
 }
 

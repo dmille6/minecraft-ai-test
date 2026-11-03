@@ -257,13 +257,17 @@ export function seedNeed (read, rec, held = 0) {
 /** The seeds a bag keeps after a visit -> n: one full planting + seedSpare (the rest is banked). Pure. */
 export const seedKeep = rec => cropCells(rec).length + CROP.seedSpare
 /**
- * IS THE FARM DUE A VISIT? -> 'harvest' | 'replant' | null. Pure. A mature crop (while the town's wheat is under its cap and the
- * bag has room), or an open / lost cell while there are seeds to plant it (`seeds`: the bag's and the town's). Without seeds an
- * empty farm is quiet (a till with nothing to plant would only dry back to dirt).
+ * IS THE FARM DUE A VISIT? -> 'harvest' | 'replant' | 'seed' | null. Pure. A mature crop (while the town's wheat is under its cap and
+ * the bag has room); an open / lost cell while there are seeds to plant it (`seeds`: the bag's and the town's); an open cell with no
+ * seed anywhere while this bot's seed gather is out of its back-off (`gatherOk`: a bounded retry, at most once per
+ * CROP.gatherBackoffMs a bot -- Codex r1 BLOCKER 2: a farm completed over a gather that found nothing must not stay empty for
+ * good). Otherwise quiet (a till with nothing to plant would only dry back to dirt).
  */
-export function cropDue (read, rec, { seeds = 0, townWheat = 0, freeSlots = 36 } = {}) {
+export function cropDue (read, rec, { seeds = 0, townWheat = 0, freeSlots = 36, gatherOk = false } = {}) {
   if ((Number(townWheat) || 0) < CROP.wheatTownCap && freeSlots >= CROP.minFree && harvestCells(read, rec, { max: 1 }).length) return 'harvest'
-  if ((Number(seeds) || 0) > 0 && seedNeed(read, rec, 0) > 0) return 'replant'
+  const open = seedNeed(read, rec, 0) > 0
+  if ((Number(seeds) || 0) > 0 && open) return 'replant'
+  if (gatherOk && open) return 'seed'
   return null
 }
 /** A crop cell or a till cell the visit passes over now (`noSeed`: no seed to plant it) -> bool. A till cell under a crop is done
