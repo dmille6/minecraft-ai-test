@@ -155,6 +155,18 @@ Codex r2, re-checking only those two fixes: **APPROVE**.
 Tests: `sinks.test.mjs` 35/35. They include the real `runVisit` building a tower with 1 builder and with 3, and a shrine. The
 suite also climb-checks 40 seeds and runs 9 anchored mutants.
 
+**Full suite** (on 10.0.0.30, `flock ~/suite.lock nice -n 19`, 6 jobs), at the tip `f7455f3b`: **394 of 397 files pass**. The
+three that fail also fail without this change:
+
+- `nothing-important-is-orphaned` and `well` fail on the base `adbf9e41` too.
+- `ceilescape` fails because the staging snapshot has no git history (`git show 3cc5f14d`).
+
+The first run, at `97487220`, gave 389 of 397. It found five failures this change caused, all fixed in `f7455f3b`:
+
+- one reserve-reader rule;
+- three anchor-uniqueness or anchor checks;
+- one project list.
+
 ## 8. Rollback and the read
 
 - **Rollback:** `SINKS=off`, or reactivate the previous release. A sited instance's cells stay guarded.

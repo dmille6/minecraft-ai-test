@@ -3297,7 +3297,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "BUILT 11-03 (not released): branch picker-01show on showcase release adbf9e41 (SINKS on in the showcase pool only; SINKS=off rollback); Codex + Claude designs reconciled in docs/reports/picker-sinks-2026-11-03.md; tripwire rule sink_place_ok/sink_clear_ok on main (Codex + Claude APPROVE) to install as /srv/showcase/trip/shopread.py BEFORE the release. NEXT: fold onto the current showcase release, record the piece, install the tripwire, activate, 2-h read (sited >= 1, blocks per placing sink visit with denominator vs >= 40, H1-H6 0, deaths, keeper_held share from 67/101).",
+   "next_step": "BUILT 11-03 (not released): branch picker-01show tip f7455f3b (2cce144e + Codex r1 blockers fixed 97487220, r2 APPROVE + suite fixes f7455f3b; full suite .30 394/397, the 3 fail on the base/staging: orphaned, well, ceilescape) on showcase release adbf9e41 (SINKS on in the showcase pool only; SINKS=off rollback); Codex + Claude designs reconciled in docs/reports/picker-sinks-2026-11-03.md; tripwire rule sink_place_ok/sink_clear_ok on main (Codex + Claude APPROVE) to install as /srv/showcase/trip/shopread.py BEFORE the release. NEXT: fold onto the current showcase release, record the piece, install the tripwire, activate, 2-h read (sited >= 1, blocks per placing sink visit with denominator vs >= 40, H1-H6 0, deaths, keeper_held share from 67/101). Fold note: one textual conflict with gkhelpers-01show (the tidy's PROJECTS line beside the sink entries: keep both); expwater-01 merges clean.",
    "max_quiet_hours": 72,
    "depends_on": [],
    "evidence": {
