@@ -20487,7 +20487,7 @@ async function buildTidy (ctx, args, signal) {
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const skip2 = skipOf(read2)
-    const prog = tidyProgress(rw, read2, { fillDone: q => !!q.prev || keptLogK.has(q.at.join(',')) || guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (isTerrace && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) })
+    const prog = tidyProgress(rw, read2, { fillDone: q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (isTerrace && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) })
     // townterrace-01: what the park passed over this visit, named (one row a visit: the element skipped and why)
     if (isTerrace) {
       const why = {}
