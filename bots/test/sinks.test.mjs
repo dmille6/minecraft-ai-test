@@ -406,7 +406,7 @@ const W = [
   /if \(isSinkPlot\(proj\.plot\)\) return buildSink\(ctx, args, signal, proj\)/,
   /if \(h\.ok && h\.head\?\.rec\?\.structure_complete && isSinkPlot\(h\.head\.rec\.plot\) && sinkNextNow\(h\.head\.rec\.plot\)\) return \{ \.\.\.h, head: null \}/,
   /: isSinkBlueprint\(r\.blueprint\) \? \{ palette: r\.palette \?\? \{\} \} : blueprintOf\(r\.blueprint \?\? SHOP_BLUEPRINT\)/,
-  /const pick = activeProject\(waited, order, \{ upkeepTurn: \(b\?\.sinkStreak \?\? 0\) >= SINK_STREAK \}\)/,
+  /const pick = activeProject\(marked, order, \{ upkeepTurn: \(b\?\.sinkStreak \?\? 0\) >= SINK_STREAK \}\)/,
   /\.\.\.sinkVisitOpts\(rec, home\), \.\.\.leave \}, effects/,
   /const others = guardRecords\(projectHeads\(\)\.map\(x => x\.head\.rec\)\.filter\(Boolean\), kind\)/,
   /guard: sinkGuardFor\(c, plan, \{ kind \}\), guardShrine: sinkGuardFor\(c, plan, \{ noZ0: true, kind \}\)/,

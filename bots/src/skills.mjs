@@ -164,7 +164,7 @@ import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
 import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
-import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
+import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
@@ -17177,11 +17177,13 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // the states before it
     // zigtidy-02: a complete record's stamp whose cells all read done now is stale (projStuckLive)
     const waited = stuckBackoff(states, plot => projStuckLive(projKeyOf(plot), now), now)
+    // sinkfix-01: this bot's own no-effect visits (shop.mjs idleMarks): such a project yields to a wanted sink for IDLE_MS
+    const marked = idleMarks(waited, b?.shopIdle ?? null, now)
     // GROUNDSKEEPER-01: the town's keeper (groundskeeper.mjs) works the grounds FIRST; every other bot never does (the lease)
-    const order0 = b ? keeperOrder(b, waited, list, now) : list
+    const order0 = b ? keeperOrder(b, marked, list, now) : list
     // picker-01: the sinks in the picker's order (sinks.mjs sinkOrder); after SINK_STREAK sink visits an upkeep goes first
     const order = sinkListOrder(order0, activeMem.sinkOrder ?? [])
-    const pick = activeProject(waited, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK })
+    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK })
     if (visit) noteRepair(rmem, pick, states, now)
     return pick
   } catch { return projectsOn()[0] }
@@ -18547,14 +18549,22 @@ async function storeUpkeepVisit (ctx, rec, signal, out) {
 /** The upkeep's steps, for the sandbox drive (sandbox/sortstore/upkeep-e2e.mjs) and the tests: never called by the bot itself. */
 export const _sortUpkeep = Object.freeze({ sortLabelOne, sortGetSigns, sortTidyOne, sortSpotNeed, storeUpkeepDue })
 async function buildShop (ctx, args, signal) {
-  const { bot } = ctx
-  const t0 = Date.now()
   // expedition-01: the expedition's visit (the order's args say which)
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
+  // SINKFIX-01: every visit's outcome marks (or clears) its plot idle for this bot (shop.mjs noteIdle); an abort throws past it
+  const r = await buildShopVisit(ctx, args, signal)
+  // the KEEPER's own grounds are never marked (its lease is its job: groundskeeper.mjs); a helper's or any other bot's visit is
+  try { const pl = ctx.bot.shopVisitPlot ?? null; if (!(pl === TIDY_PLOT && keeperNow(ctx.bot))) noteIdle((ctx.bot.shopIdle ??= new Map()), pl, r, Date.now()) } catch { /* bookkeeping */ }
+  return r
+}
+async function buildShopVisit (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
   // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject)
   const proj = shopActive(bot, Date.now(), { visit: true })
   // picker-01: the sink visits in a row (after SINK_STREAK an upkeep goes first: shop.mjs activeProject `upkeepTurn`)
   bot.sinkStreak = isSinkPlot(proj.plot) ? (bot.sinkStreak ?? 0) + 1 : 0
+  bot.shopVisitPlot = proj.plot   // sinkfix-01: the plot this visit's outcome is noted against (buildShop)
   // monument-01: the ziggurat's visit is its own (computed cells, its siting, its rows)
   if (proj.plot === MONUMENT_PLOT) return buildMonument(ctx, args, signal)
   // paths-01: the town's paths are their own visit too (paths.mjs siting, a shovel's use)
