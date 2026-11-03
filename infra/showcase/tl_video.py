@@ -198,13 +198,26 @@ def src_fps_for(n, target_s=TARGET_S, lo=MIN_SRC_FPS, hi=MAX_SRC_FPS):
     return round(min(hi, max(lo, n / float(target_s))), 3)
 
 
-def encode_cmd(frames_glob, src_fps, out, out_fps=OUT_FPS, blend=BLEND):
+def encode_cmd(frames_glob, src_fps, out, out_fps=OUT_FPS, blend=BLEND, text_glob=None):
     """The ffmpeg command for one clip: stored frames at src_fps, linear dissolve up to out_fps (no scene-cut detection:
-    a project appearing is the point, not a cut). Pure (tested)."""
-    vf = f'framerate=fps={out_fps}:interp_start={blend[0]}:interp_end={blend[1]}:scene=100'
-    return NICE + ['ffmpeg', '-loglevel', 'error', '-y', '-framerate', str(src_fps), '-i', frames_glob, '-vf', vf,
-                   '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-threads', '2', '-pix_fmt', 'yuv420p',
-                   '-movflags', '+faststart', out]
+    a project appearing is the point, not a cut); text_glob, a transparent text layer per step, is laid over the
+    dissolved picture WITHOUT blending (fps duplicates; it switches at the step's midpoint). Pure (tested)."""
+    dis = f'framerate=fps={out_fps}:interp_start={blend[0]}:interp_end={blend[1]}:scene=100'
+    cmd = NICE + ['ffmpeg', '-loglevel', 'error', '-y', '-framerate', str(src_fps), '-i', frames_glob]
+    if text_glob:
+        cmd += ['-framerate', str(src_fps), '-i', text_glob, '-filter_complex',
+                f'[0:v]{dis}[b];[1:v]fps={out_fps}[t];[b][t]overlay=shortest=1:format=auto,format=yuv420p[v]', '-map', '[v]']
+    else:
+        cmd += ['-vf', dis]
+    return cmd + ['-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-threads', '2', '-pix_fmt', 'yuv420p',
+                  '-movflags', '+faststart', out]
+
+
+def png_size(path):
+    """(width, height) from a PNG's IHDR. Pure given the file."""
+    with open(path, 'rb') as f:
+        head = f.read(24)
+    return int.from_bytes(head[16:20], 'big'), int.from_bytes(head[20:24], 'big')
 
 
 def small_gray(path):
@@ -227,16 +240,22 @@ def build(view, stamps, out_mp4, label, max_src_fps=MAX_SRC_FPS):
     lines = load_lines()
     caps = captions(kept, lines)
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, 'video')) as tmp:
+        # the TEXT is drawn on a transparent layer of its own and laid over AFTER the dissolve, so the stamp, captions
+        # and tally switch crisply instead of ghosting through each other (11-03 proof clip)
         for i, s in enumerate(kept, 1):
             text = f"showcase {view}  {s[0:4]}-{s[4:6]}-{s[6:8]} {s[9:11]}\\:{s[11:13]} UTC"
             vf = overlay_filter(text, caps[i - 1], tally(lines, parse_stamp(s)), tmp, i)
-            subprocess.run(NICE + ['ffmpeg', '-loglevel', 'error', '-y', '-i', frame_path(ROOT, view, s),
-                                   '-vf', vf, os.path.join(tmp, '%06d.png' % i)], check=True)
+            w, h = png_size(frame_path(ROOT, view, s))
+            subprocess.run(NICE + ['ffmpeg', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i',
+                                   f'color=c=black@0.0:s={w}x{h},format=rgba', '-vf', vf, '-frames:v', '1',
+                                   os.path.join(tmp, 't%06d.png' % i)], check=True)
         seq = hold_sequence(len(kept), src)
-        for k, i in enumerate(seq, 1):           # the numbered input ffmpeg reads: holds are links to the same frame
-            os.symlink(os.path.join(tmp, '%06d.png' % i), os.path.join(tmp, 's%06d.png' % k))
+        for k, i in enumerate(seq, 1):           # the numbered inputs ffmpeg reads: holds are links to the same frame
+            os.symlink(frame_path(ROOT, view, kept[i - 1]), os.path.join(tmp, 's%06d.png' % k))
+            os.symlink(os.path.join(tmp, 't%06d.png' % i), os.path.join(tmp, 'o%06d.png' % k))
         part = out_mp4 + '.part.mp4'
-        subprocess.run(encode_cmd(os.path.join(tmp, 's%06d.png'), src, part), check=True)
+        subprocess.run(encode_cmd(os.path.join(tmp, 's%06d.png'), src, part, text_glob=os.path.join(tmp, 'o%06d.png')),
+                       check=True)
         os.replace(part, out_mp4)
     side.update(included=len(kept), skipped_nochange=skipped, first=kept[0], last=kept[-1], src_fps=src,
                 duration_s=round(len(seq) / src, 1), activity=activity,
@@ -283,7 +302,7 @@ def build_reel(name, sides, out_mp4, seg_s=REEL_SEG_S):
         title = f'{v}  {name.split("/")[-1]}'
         parts.append(f"[{k}:v]setpts=PTS/{speed:.4f},trim=duration={seg:.2f},setpts=PTS-STARTPTS,fps={OUT_FPS},"
                      f"scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,"
-                     f"drawtext=fontfile={CAPTION_FONT}:text='{title}':x=(w-tw)/2:y=24:fontsize=40:fontcolor=white:"
+                     f"drawtext=fontfile={CAPTION_FONT}:text='{title}':x=w-tw-28:y=28:fontsize=40:fontcolor=white:"
                      f"box=1:boxcolor=black@0.55:boxborderw=12,"
                      f"fade=t=in:st=0:d=0.4,fade=t=out:st={max(0.0, seg - 0.4):.2f}:d=0.4,setsar=1[v{k}]")
     fc = ';'.join(parts) + ';' + ''.join(f'[v{k}]' for k in range(len(plan))) + f'concat=n={len(plan)}:v=1:a=0[out]'

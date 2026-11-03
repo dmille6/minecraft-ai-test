@@ -1829,6 +1829,12 @@ class Timelapse(unittest.TestCase):
         self.assertIn('framerate=fps=30', vf)
         self.assertIn('scene=100', vf, 'no scene-cut detection: a new building is not a cut')
         self.assertNotIn('minterpolate', ' '.join(cmd))
+        cmd = TV.encode_cmd('/t/s%06d.png', 2.0, '/o.mp4', text_glob='/t/o%06d.png')
+        fc = cmd[cmd.index('-filter_complex') + 1]
+        self.assertIn('[0:v]framerate=fps=30', fc, 'the picture dissolves')
+        self.assertIn('[1:v]fps=30[t]', fc, 'the text layer is duplicated, never blended (no ghosted captions)')
+        self.assertIn('[b][t]overlay', fc)
+        self.assertEqual(cmd.count('-framerate'), 2)
 
     def test_activity_and_reel_plan(self):
         frames = {'a': bytes([0]) * 100, 'b': bytes([0]) * 50 + bytes([99]) * 50, 'c': bytes([0]) * 50 + bytes([99]) * 50,
