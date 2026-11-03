@@ -44,6 +44,7 @@ import { deepModeDetail } from './deepmine.mjs'   // deepminer-01's licence row
 import { configuredHome } from './townground.mjs'   // placeaudit-fleet-01
 import { attachPlaceAudit, placeAuditOn } from './placeaudit.mjs'   // placeaudit-fleet-01 (scaftown-01's instrument, from the showcase's placeaudit-01)
 import { merchantScoutInstall } from './merchantscout.mjs'   // trading-scout-01: read-only merchant sightings + XP rows
+import { villageUnlockInstall, unlockSee } from './skills.mjs'   // villageunlock-01 (T3a): the ask + the scout's stuck feed
 
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
 export function installFeatures (bot) {
@@ -62,7 +63,8 @@ export function installFeatures (bot) {
     }
   } catch (e) { log('warn', 'place audit not attached', { error: e?.message }) }
   // trading-scout-01: `_merchantscout_mode` + `_merchant_seen` / `_xp` rows (merchantscout.mjs; read-only, MERCHANTSCOUT=off -> on=0)
-  try { merchantScoutInstall(bot, { zonesOf: b => townPlanZones(b).zones }) } catch (e) { log('warn', 'merchant scout not installed', { error: e.message }) }
+  try { merchantScoutInstall(bot, { zonesOf: b => townPlanZones(b).zones, onSightings: unlockSee }) } catch (e) { log('warn', 'merchant scout not installed', { error: e.message }) }
+  try { villageUnlockInstall(bot) } catch (e) { log('warn', 'village unlock not installed', { error: e.message }) }
   // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view
   try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
   // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
