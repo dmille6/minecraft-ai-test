@@ -374,11 +374,34 @@ await t('the land plan routes round the reserved pad (control: unreserved, the r
 })
 await t('wiring: the land plan and the tidy reserve the pad while the hall is on and unsited; a sited hall\'s record guards it', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/const hz = hallPadZones\(P\.plan\)\n\s*const rz = \[\.\.\.recordZones\(recs\), \.\.\.hz\]/.test(s), 'landInputs reserved')
+  assert.ok(/const hz = \[\.\.\.hallPadZones\(P\.plan\), [^\n]*\]\n\s*const rz = \[\.\.\.recordZones\(recs\), \.\.\.hz\]/.test(s), 'landInputs reserved')
   assert.ok(/avoid: tidyAvoid\(avoid, hz\), reserved,/.test(s), 'landInputs avoid')
-  assert.ok(/records: recs, home \}\), \[\.\.\.recordZones\(recs\), \.\.\.hallPadZones\(P\.plan\)\]\)/.test(s), 'tidyInputs avoid')
+  assert.ok(/records: recs, home \}\), \[\.\.\.recordZones\(recs\), \.\.\.hallPadZones\(P\.plan\)[^\n]*\]\)\n/.test(s), 'tidyInputs avoid')
   assert.ok(/if \(projectHeads\(\)\.some\(x => x\.plot === HALL_PLOT\)\) return \[\]/.test(s), 'a sited hall: its record')
   assert.ok(/if \(!projectsOn\(\)\.some\(p => p\.plot === HALL_PLOT\)\) return \[\]/.test(s), 'the hall off: nothing')
+})
+
+console.log('THE SHOWCASE: the expedition markers are reserved (Codex + Claude r1 BLOCKER: a marker is a pillar to the band survey)')
+const EX = await import('../src/expedition.mjs')
+await t('a marker (2 cobblestone + a torch) in a band is never cut when its zone is in the avoid (control: unguarded, the survey cuts it)', async () => {
+  const srv = server()
+  const m = { at: [HOME.x + 26, G + 1, HOME.z + 4] }
+  col(srv, m.at[0], m.at[2], G + 1, G + 2, 'cobblestone'); srv.set([m.at[0], G + 3, m.at[2]], 'torch')
+  const keys = new Set(EX.markerCellKeys([m]))
+  const open = T.surveyTidy(srv.read, { home: HOME, r: 32, rMin: 20 })
+  assert.ok(open.cut.some(c => keys.has(c.at.join(','))), `the control: unguarded, the marker is a pillar (${JSON.stringify(open.cut.map(c => c.at))})`)
+  const kept = T.surveyTidy(srv.read, { home: HOME, r: 32, rMin: 20, avoid: T.tidyAvoid(() => null, EX.markerZones([m])) })
+  assert.ok(!kept.cut.some(c => keys.has(c.at.join(','))), 'guarded: the marker stands')
+  assert.deepStrictEqual(EX.markerZones([m])[0].box, [m.at[0] - 1, -64, m.at[2] - 1, m.at[0] + 1, 320, m.at[2] + 1])
+  assert.deepStrictEqual([...keys], [0, 1, 2].map(dy => `${m.at[0]},${m.at[1] + dy},${m.at[2]}`))
+  assert.deepStrictEqual(EX.markerZones([{ at: null }, { at: [1, 2] }]), [], 'a malformed marker line is skipped')
+})
+await t('wiring: the tidy, the land plan and the tidy visit\'s dig guard read the town\'s markers', async () => {
+  const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.ok(/\.\.\.hallPadZones\(P\.plan\), \.\.\.townMarkerZones\(\)\]\)/.test(s), 'tidyInputs avoid')
+  assert.ok(/const hz = \[\.\.\.hallPadZones\(P\.plan\), \.\.\.townMarkerZones\(\)\]/.test(s), 'landInputs')
+  assert.ok(/for \(const k of markerCellKeys\(exMarkers\(\)\)\) guard\.add\(k\)/.test(s), 'the dig-time guard')
+  assert.ok(/function townMarkerZones \(\) \{ try \{ return markerZones\(exMarkers\(\)\) \} catch \{ return \[\] \} \}/.test(s), 'never throws')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

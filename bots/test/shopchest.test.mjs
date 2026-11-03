@@ -104,8 +104,8 @@ await t('MUTANT KILLED: the chests\' own visit drawing from (and banking into) t
 await t('the project: after the workshop, before the storehouse, one builder; the bill crafts a chest the town lacks (8 planks)', async () => {
   const i = SHOP.PROJECTS.findIndex(q => q.plot === C.SHOPCHEST_PLOT), j = SHOP.PROJECTS.findIndex(q => q.plot === 'storehouse')
   assert.ok(i > 0 && i < j && SHOP.PROJECTS[i].after === 'shop' && SHOP.buildersOf(SHOP.PROJECTS[i]) === 1)
-  assert.ok(SHOP.projectsOn(true, true, true, true, false, true, true, true).some(q => q.plot === C.SHOPCHEST_PLOT))
-  assert.ok(!SHOP.projectsOn(true, true, true, true, false, true, true, false).some(q => q.plot === C.SHOPCHEST_PLOT))
+  assert.ok(SHOP.projectsOn(true, true, true, true, false, true, false, true, true).some(q => q.plot === C.SHOPCHEST_PLOT))
+  assert.ok(!SHOP.projectsOn(true, true, true, true, false, true, false, true, false).some(q => q.plot === C.SHOPCHEST_PLOT))
   const need = SHOP.visitNeeds({ cells: [] }, { chest: 2 }, { town: {}, spare: {}, planks: 'spruce_planks' })
   assert.strictEqual(need.spruce_planks, 16)
   assert.strictEqual(SHOP.visitNeeds({ cells: [] }, { chest: 2 }, { town: { chest: 2 }, spare: {} }).oak_planks, undefined, 'the town has them: drawn, not crafted')

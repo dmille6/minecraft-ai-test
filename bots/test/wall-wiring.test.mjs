@@ -17,6 +17,9 @@ process.env.TREEFARM = 'off'
 process.env.STOREHOUSE = 'off'; process.env.SHOPCHEST = 'off'   // storehouse-01 / shopchest-01: storehouse.test.mjs, shopchest.test.mjs
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-wall-pool-'))
 process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
+process.env.TIDY = 'off'   // tidy-01 / groundskeeper-01 (on in the showcase pool since its groundskeeper release) have their own order tests
+// a FLEET-pool child keeps the tidy's own default (on, last); a showcase child keeps TIDY=off like this file
+const tidyEnv = env => { const e = { ...process.env, ...env }; if (env.MEMORY_POOL !== 'showcase' && !('TIDY' in env)) delete e.TIDY; return e }
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE; delete process.env.PATHS; delete process.env.PATHS_POOLS
 delete process.env.WALL; delete process.env.WALL_POOLS
 const SK = await import('../src/skills.mjs')
@@ -46,7 +49,7 @@ await t('the showcase pool lists the wall fifth, after the paths; since zigfleet
   const w = S.PROJECTS.find(p => p.plot === 'wall')
   assert.ok(w.after === 'paths' && S.buildersOf(w) === W.WALL_BUILDERS && w.blueprint === W.WALL_BLUEPRINT)
   assert.ok(S.LIGHT_PLOTS.has('wall'), 'an unsited wall needs 2 free bag slots: it builds from the bags\' cobblestone')
-  const run = env => execFileSync(process.execPath, ['--input-type=module', '-e', "const S = await import('./src/shop.mjs'); console.log(S.projectsOn().map(p => p.plot).join(','))"], { cwd: new URL('..', import.meta.url), env: { ...process.env, ...env }, encoding: 'utf8' }).trim()
+  const run = env => execFileSync(process.execPath, ['--input-type=module', '-e', "const S = await import('./src/shop.mjs'); console.log(S.projectsOn().map(p => p.plot).join(','))"], { cwd: new URL('..', import.meta.url), env: tidyEnv(env), encoding: 'utf8' }).trim()
   assert.strictEqual(run({ MEMORY_POOL: 'hive-a' }), 'shop,house1,monument,paths,wall,tidy', 'zigfleet-02: a fleet pool has the paths and the wall (tidy-01: the tidy, last)')
   assert.strictEqual(run({ MEMORY_POOL: 'hive-a', PATHS_POOLS: 'showcase', WALL_POOLS: 'showcase' }), 'shop,house1,monument,tidy', 'the pool-list rollback')
   assert.strictEqual(run({ MEMORY_POOL: 'showcase', WALL: 'off' }), 'shop,house1,monument,paths')

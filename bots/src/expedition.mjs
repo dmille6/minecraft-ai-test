@@ -523,6 +523,21 @@ export function torchSafe (read, at, r = ICE_TORCH_R) {
   return true
 }
 
+/**
+ * THE MARKERS AS A RESERVATION (groundskeeper-01 on the showcase, Codex + Claude r1 BLOCKER 11-03): a marker is two cobblestone
+ * and a torch, 48+ out -- exactly a bot pillar to the tidy's band survey (tidy.mjs surveyTidy), which would cut it. -> shop.mjs
+ * recordZones-shaped zones, one a marker, its column + `m` (the tidy and the land plan's road work keep off them). Pure.
+ */
+export function markerZones (markers = [], m = 1) {
+  return (markers ?? []).filter(q => Array.isArray(q?.at) && q.at.length === 3 && q.at.every(Number.isFinite))
+    .map(q => ({ box: [q.at[0] - m, -64, q.at[2] - m, q.at[0] + m, 320, q.at[2] + m], why: 'expedition:marker' }))
+}
+/** The markers' own blocks ("x,y,z": the two cobblestone and the torch) -- the tidy visit's dig-time guard. Pure. */
+export function markerCellKeys (markers = []) {
+  return (markers ?? []).filter(q => Array.isArray(q?.at) && q.at.length === 3 && q.at.every(Number.isFinite))
+    .flatMap(q => [0, 1, 2].map(dy => `${q.at[0]},${q.at[1] + dy},${q.at[2]}`))
+}
+
 /** A standing marker at `at` (its base): two cobblestone (a torch or nothing on top). Pure. */
 export function pillarIs (read, at) {
   if (!Array.isArray(at)) return false

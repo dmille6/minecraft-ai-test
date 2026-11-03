@@ -131,6 +131,7 @@ import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditio
 import { torchSafe, outShareOf, multiCall, trailAge, PLANNER_V } from './expedition.mjs'   // wholemap-s1a
 import { HALL_PLOT, HALL_BLUEPRINT, hallSite, hallOpening, hallRecordDomain, copperhallModeDetail } from './copperhall.mjs'   // copperhall-01
 import { hallPadZone } from './copperhall.mjs'   // groundskeeper-01 on the showcase: an unsited hall's pad is reserved
+import { markerZones, markerCellKeys } from './expedition.mjs'   // groundskeeper-01 on the showcase: the markers are reserved
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
@@ -19407,7 +19408,7 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   // groundskeeper-01: the land plan's corridors are the tidy's work, never its refusal
   const recs = projectHeads().filter(x => x.plot !== LAND_PLOT).map(x => x.head.rec).filter(Boolean)
   const home = P.plan.home
-  const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home }), [...recordZones(recs), ...hallPadZones(P.plan)])
+  const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home }), [...recordZones(recs), ...hallPadZones(P.plan), ...townMarkerZones()])
   const cells = new Set(recs.flatMap(q => (q.cells ?? []).map(x => x.at.join(','))))
   const ph = recordHead(dir, projKeyOf(PATHS_PLOT))
   if (!ph.ok) throw new Error('paths record unreadable')
@@ -19486,11 +19487,13 @@ function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   const P = pathsInputs(bot, c, h, dir)
   const recs = projectHeads().filter(x => x.plot !== LAND_PLOT && x.plot !== TIDY_PLOT && x.plot !== PATHS_PLOT).map(x => x.head.rec).filter(Boolean)
   const avoid = pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home: P.plan.home })
-  const hz = hallPadZones(P.plan)
+  const hz = [...hallPadZones(P.plan), ...townMarkerZones()]
   const rz = [...recordZones(recs), ...hz]
   const reserved = (x, z) => { for (const zb of rz) { const b = zb.box; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return String(zb.why ?? 'project') } return null }
   return { plan: P.plan, home: P.plan.home, avoid: tidyAvoid(avoid, hz), reserved, caps: P.caps, composter: P.composter }
 }
+/** The town's standing expedition markers as reservations (expedition.mjs markerZones over exMarkers) -> [zone]. Never throws. */
+function townMarkerZones () { try { return markerZones(exMarkers()) } catch { return [] } }
 /** An UNSITED copper hall's fixed pad while the hall is on (copperhall.mjs hallPadZone) -> [zone] | []: the land plan routes round
  *  it and the tidy never works it, so the hall can still site when its copper comes. A sited hall's record guards it. Never throws. */
 function hallPadZones (plan) {
@@ -19607,6 +19610,8 @@ async function buildTidy (ctx, args, signal) {
   // as done)
   let guard
   try { guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) } catch { return out('no_effect', 'record_unreadable', 'the other projects\' records could not be read') }
+  // groundskeeper-01 on the showcase (Codex + Claude r1 BLOCKER): a marker placed after the stage was sited is never dug either
+  try { for (const k of markerCellKeys(exMarkers())) guard.add(k) } catch { /* no markers */ }
   const waivedK = q => guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(',')))
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)

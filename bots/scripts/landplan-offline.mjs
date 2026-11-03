@@ -21,6 +21,7 @@ import * as T from '../src/tidy.mjs'
 import * as LP from '../src/landplan.mjs'
 import { recordZones } from '../src/shop.mjs'
 import { hallPadZone, HALL_BLUEPRINT, HALL_PLOT } from '../src/copperhall.mjs'
+import { markerZones } from '../src/expedition.mjs'
 
 const argv = process.argv.slice(2)
 const opt = (k, d = null) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d }
@@ -58,6 +59,9 @@ const recs = all.filter(p => p.plot !== T.TIDY_PLOT).map(p => p.rec)
 const noPaths = recs.filter(r => r.blueprint !== P.PATHS_BLUEPRINT)
 // an UNSITED copper hall's pad (skills.mjs hallPadZones; the showcase's hall waits for copper with no record) is reserved too
 const hz = all.some(p => p.plot === HALL_PLOT) || argv.includes('--no-hall') ? [] : [hallPadZone(plan, loadBlueprint(HALL_BLUEPRINT))].filter(Boolean)
+// ...and the town's expedition markers (skills.mjs townMarkerZones; --no-markers is the control)
+const mFile = path.join(poolDir, `expedition-${hk}.markers.jsonl`)
+if (!argv.includes('--no-markers') && fs.existsSync(mFile)) hz.push(...markerZones(fs.readFileSync(mFile, 'utf8').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(m => m && !m.gone)))
 const avoidT = T.tidyAvoid(P.pathAvoid({ plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: recs, home }), [...recordZones(recs), ...hz])
 const cells = new Set(recs.flatMap(q => (q.cells ?? []).map(c => c.at.join(','))))
 const projects = all.filter(p => p.plot !== P.PATHS_PLOT && p.plot !== T.TIDY_PLOT)

@@ -16,6 +16,9 @@ process.env.MEMORY_POOL = 'showcase'
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-zigproj-pool-'))
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE
 process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
+process.env.TIDY = 'off'   // tidy-01 / groundskeeper-01 (on in the showcase pool since its groundskeeper release) have their own order tests
+// a FLEET-pool child keeps the tidy's own default (on, last); a showcase child keeps TIDY=off like this file
+const tidyEnv = env => { const e = { ...process.env, ...env }; if (env.MEMORY_POOL !== 'showcase' && !('TIDY' in env)) delete e.TIDY; return e }
 process.env.STOREHOUSE = 'off'; process.env.SHOPCHEST = 'off'   // storehouse-01 / shopchest-01: storehouse.test.mjs, shopchest.test.mjs
 // paths-01: the town's paths (the fourth project, on in the showcase pool) are switched off here -- these are the ziggurat's order
 // tests; the paths' own are paths.test.mjs and paths-wiring.test.mjs
@@ -45,7 +48,7 @@ await t('the showcase pool lists three projects; the ziggurat comes after the wo
   assert.strictEqual(m.after, 'shop'); assert.strictEqual(S.buildersOf(m), 3); assert.strictEqual(S.buildersOf(S.PROJECTS[0]), 2)
 })
 await t('a FLEET pool (zigfleet-01: monument on by default): the workshop, the house and the ziggurat; MONUMENT=off / MONUMENT_POOLS=showcase roll it back', async () => {
-  const run = env => execFileSync(process.execPath, ['--input-type=module', '-e', "const S = await import('./src/shop.mjs'); console.log(S.projectsOn().map(p => p.plot).join(','))"], { cwd: new URL('..', import.meta.url), env: { ...process.env, ...env }, encoding: 'utf8' }).trim()
+  const run = env => execFileSync(process.execPath, ['--input-type=module', '-e', "const S = await import('./src/shop.mjs'); console.log(S.projectsOn().map(p => p.plot).join(','))"], { cwd: new URL('..', import.meta.url), env: tidyEnv(env), encoding: 'utf8' }).trim()
   // tidy-01: the town-ground tidy is on in a fleet pool too, last (its own order test: tidy.test.mjs)
   assert.strictEqual(run({ MEMORY_POOL: 'hive-a' }), 'shop,house1,monument,tidy')
   assert.strictEqual(run({ MEMORY_POOL: 'hive-a', MONUMENT: 'off' }), 'shop,house1,tidy', 'MONUMENT=off is the rollback')
