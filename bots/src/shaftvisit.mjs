@@ -9,7 +9,7 @@
 // slot lease (fence), the pickaxe and the bag; two refusals of one cell end the visit. The visit ends where the work stopped
 // (the stair it just verified is the way out; surface and mine use it).
 import { Vec3 } from 'vec3'
-import { firstUndone, unitCells, standFor, nextOp, planOf, toWorld, supportFor, LANDING_CELL, TORCH_EVERY, PILLAR, LINING_ITEMS, isFull } from './shaftgeom.mjs'
+import { firstUndone, unitCells, standFor, nextOp, planOf, toWorld, supportFor, LANDING_CELL, TORCH_EVERY, PILLAR, LINING_ITEMS, isFull, standOf, stairStepAt, egressNext, EGRESS_CLEARS_MAX } from './shaftgeom.mjs'
 import { withDigScope } from './digtown.mjs'
 
 export const UNITS_MAX = 40
@@ -23,7 +23,7 @@ const kOf = a => a.join(',')
  * Promise<bool>, dig(cell) -> Promise<'confirmed'|...>, place(cell) -> Promise<'confirmed'|'no_material'|'no_support'|'no_reach'|
  * 'refused'>, toolOk() -> bool, fence() -> bool, torch?(cell, support) -> Promise<bool>, log(op, d), now(), aborted() }.
  */
-export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNITS_MAX } = {}) {
+export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNITS_MAX, reserve = null } = {}) {
   const plan = planOf(p.rec)
   const built = p.built ?? new Set(p.rec.landings_built ?? [])
   const out = { stop: null, why: null, k: null, placed: 0, dug: 0, units: 0, landings: [], torches: 0 }
@@ -43,6 +43,9 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
     }
     if (!w) return end('complete')
     if (w.kind === 'unknown') return end('unknown', 'an unloaded or unread cell', w.k)
+    // shafttrap-01: A UNIT IS STARTED ONLY WITH THE WAY OUT STILL IN THE BUDGET (shaftgeom.mjs egressReserveMs: the deeper the work,
+    // the earlier it stops), so the visit's egress up the stair runs inside the skill's own time
+    if (typeof reserve === 'function' && e.now() >= deadline - (Number(reserve(w.k)) || 0)) return end('time', 'the way out is kept', w.k)
     if (out.units >= unitsMax) return end('units', null, w.k)
     // WALK TO THE STAND: step k-1's (every step above is verified, so the walk is on the stair), the collar exit for step 0
     // shaft-03: step 0 from a ground cell beside it (step0Stand), not the exit two cells out (LIVE: `no_reach` on its tread)
@@ -103,6 +106,69 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
       try { if (await e.torch(head, [pil.x, head[1], pil.z])) out.torches++ } catch (err) { if (err?.aborted) throw err }
     }
   }
+}
+
+// ---- the way out (shafttrap-01) -------------------------------------------------------------------------------------------
+
+/**
+ * WALK THE STAIR UP TO THE COLLAR FROM WHERE THE BOT STANDS (shafttrap-01; shaftgeom.mjs's egress block says why) -> { ok, why,
+ * from, to, hops, cleared }. Every effect is injected (the tests run it on a fake world; skills.mjs buildStair on mineflayer).
+ * `e` = { read (a fresh reader per get), feet() -> [x,y,z], walkTo(cell) -> Promise<bool arrived>, dig(cell) -> Promise<'confirmed'
+ * |...>, now(), aborted(), log?(op, d) }. The bot's step (stairStepAt; a landing stub walks back to its step first), then
+ * egressNext until step 0: a hop of up to EGRESS_HOP stands (one stand if that walk fails), or a dig of a foreign block in one
+ * of the stair's own air cells within a step (two refusals of one cell end it), then the collar exit. ok only on arrival at
+ * the exit (or a bot not under the collar: 'surface'). Bounded by the deadline, the clears and a step count.
+ *   why  surface | arrived | off_stair | time | hop | via | dig_refused | clears | wet | tread | unknown | exit_walk | no_exit
+ */
+export async function runStairEgress (plan, e, { exit = null, deadline = Infinity, clearsMax = EGRESS_CLEARS_MAX } = {}) {
+  const out = { ok: false, why: null, from: null, to: null, hops: 0, cleared: 0 }
+  const end = (ok, why, to = null) => { out.ok = ok; out.why = why; out.to = to; e.log?.('egress', out); return out }
+  const abortIf = () => { if (e.aborted()) { const err = new Error('aborted'); err.aborted = true; throw err } }
+  const feet0 = e.feet()
+  if (!plan || !Array.isArray(feet0)) return end(false, 'off_stair')
+  // AT OR ABOVE THE COLLAR (step 0's feet is ground + 1): nothing to climb
+  if (feet0[1] >= plan.g + 1) return end(true, 'surface')
+  const at = stairStepAt(plan, feet0)
+  if (!at) return end(false, 'off_stair')
+  out.from = at.k
+  for (const c of at.via) {
+    abortIf()
+    if (e.now() >= deadline) return end(false, 'time', at.k)
+    if (!(await e.walkTo(c))) return end(false, 'via', at.k)
+  }
+  let i = at.k
+  const fails = new Map()
+  for (let guard = 0; guard < 4 * plan.steps.length + 16; guard++) {
+    abortIf()
+    if (e.now() >= deadline) return end(false, 'time', i)
+    const f = e.feet()
+    const op = egressNext(e.read, plan, i, [f, [f[0], f[1] + 1, f[2]]])
+    if (op.op === 'done') break
+    if (op.op === 'stop') return end(false, op.why, i)
+    if (op.op === 'dig') {
+      if (out.cleared >= clearsMax) return end(false, 'clears', i)
+      const key = op.at.join(',')
+      const r = await e.dig(op.at)
+      if (r === 'confirmed') { out.cleared++; e.log?.('egress_dig', { k: op.k, at: op.at }); continue }
+      const n = (fails.get(key) ?? 0) + 1
+      fails.set(key, n)
+      if (n >= 2) return end(false, 'dig_refused', i)
+      continue
+    }
+    // a hop: up to EGRESS_HOP stands, then one; arrival is the stand reached (re-read from the feet, never assumed)
+    let moved = false
+    for (const to of op.to < i - 1 ? [op.to, i - 1] : [op.to]) {
+      if (await e.walkTo(standOf(plan, to))) {
+        const now = stairStepAt(plan, e.feet())
+        if (now && now.k < i) { i = now.k; out.hops++; moved = true; break }
+      }
+      abortIf()
+    }
+    if (!moved) return end(false, 'hop', i)
+  }
+  if (i !== 0) return end(false, 'hop', i)
+  if (!Array.isArray(exit)) return end(false, 'no_exit', 0)
+  return (await e.walkTo(exit)) ? end(true, 'arrived', 'exit') : end(false, 'exit_walk', 0)
 }
 
 // ---- the stair's body claim -----------------------------------------------------------------------------------------------
