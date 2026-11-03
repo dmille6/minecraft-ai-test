@@ -56,10 +56,13 @@ export const TOWNWALL = Object.freeze({ on: wallOn(process.env, process.env.MEMO
  * rest go on to the next open project. SHAFT=on|off, SHAFT_POOLS (default every pool: the canary's code runs only on the canary
  * pools, so the variant is the rollout). Off stops the building and the use; a sited stair's cells stay protected
  * (projectsGuarded).
- * SHOWCASE-ON-FLEET (control session 10-31): the default leaves the SHOWCASE town out -- the owner's showcase list (10-29) has no
- * town stair; a later option. SHAFT=on, or a SHAFT_POOLS naming `showcase`, turns it on there.
+ * SHOWCASE-ON-FLEET (control session 10-31): the default left the SHOWCASE town out -- the owner's showcase list (10-29) had no
+ * town stair. SHOWSHAFT-01 (OWNER 11-01 showcase item 2: "the showcase town mineshaft + a deep miner"; deepminer-01 KEPT and
+ * promoted fleet-wide 11-03 06:09Z, so the showcase's protected tree carries it): the showcase is no longer left out -- the
+ * stair and its one deep miner run there as in every fleet pool. SHAFT=off (or a SHAFT_POOLS without `showcase`) is the
+ * rollback; DEEPMINE=off stops the miner alone.
  */
-export const SHAFT_DEFAULT_OFF_POOLS = Object.freeze(['showcase'])
+export const SHAFT_DEFAULT_OFF_POOLS = Object.freeze([])
 export function shaftOn (env = process.env, pool = '') {
   const v = String(env?.SHAFT ?? '').toLowerCase()
   if (v === 'on' || v === '1' || v === 'true') return true

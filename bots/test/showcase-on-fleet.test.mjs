@@ -1,7 +1,8 @@
 // SHOWCASE-ON-FLEET (control session 10-31): the showcase runs the FLEET line plus its own pieces. Its policy is the code's own
 // defaults for the `showcase` pool (the env carries no feature keys): the tree farm and the expeditions on there, off in the fleet;
-// the town stair (shaft-02, on in every fleet pool) OFF in the showcase town unless named -- the owner's showcase list has none.
-// The project list the showcase's records are read against: the same six plots it has built, no `shaft`.
+// the town stair (shaft-02, on in every fleet pool) ON in the showcase town too since showshaft-01 (owner 11-01 item 2, deepminer-01
+// promoted fleet-wide 11-03): SHAFT=off / SHAFT_POOLS still turn it off there.
+// The project list the showcase's records are read against: the six plots it has built with the stair right after the workshop.
 import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -18,8 +19,10 @@ const E = await import('../src/expedition.mjs')
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 4).join('\n        ')}`) } }
 
-t('shaftOn: unset leaves the showcase pool out, every fleet pool in; SHAFT and SHAFT_POOLS still decide', () => {
-  assert.strictEqual(S.shaftOn({}, 'showcase'), false)
+t('shaftOn (showshaft-01): unset puts the showcase pool in as every fleet pool; SHAFT and SHAFT_POOLS still decide', () => {
+  assert.strictEqual(S.shaftOn({}, 'showcase'), true)
+  assert.strictEqual(S.shaftOn({ SHAFT: 'off' }, 'showcase'), false, 'the rollback')
+  assert.strictEqual(S.shaftOn({ SHAFT_POOLS: 'hive-a' }, 'showcase'), false, 'a list without the showcase leaves it out')
   assert.strictEqual(S.shaftOn({}, 'hive-a'), true, 'POSITIVE CONTROL: the fleet default is unchanged')
   assert.strictEqual(S.shaftOn({}, ''), true)
   assert.strictEqual(S.shaftOn({ SHAFT: 'on' }, 'showcase'), true)
@@ -33,10 +36,10 @@ t('the tree farm and the expeditions: on in the showcase pool by default, off in
   assert.strictEqual(E.expeditionOn({}, 'showcase'), true)
   assert.strictEqual(E.expeditionOn({}, 'hive-a'), false)
 })
-t('at load in the showcase pool: SHAFT off, and the project list is the six plots the showcase has built, then the materials chests, the storehouse (storehouse-01), the copper hall (copperhall-01), the stockpile yard (stockyard-01) and the tidy (tidy-01 + groundskeeper-01, last), in order', () => {
-  assert.strictEqual(S.SHAFT.on, false)
+t('at load in the showcase pool: SHAFT on (showshaft-01), and the project list is the workshop, the stair, the five plots the showcase has built, then the materials chests, the storehouse (storehouse-01), the copper hall (copperhall-01), the stockpile yard (stockyard-01) and the tidy (tidy-01 + groundskeeper-01, last), in order', () => {
+  assert.strictEqual(S.SHAFT.on, true)
   assert.strictEqual(S.TREEFARM.on, true)
-  assert.deepStrictEqual(S.projectsOn().map(p => p.plot), ['shop', 'house1', 'monument', 'paths', 'wall', 'treefarm', 'shopchest', 'storehouse', 'hall', 'yard', 'tidy'])
+  assert.deepStrictEqual(S.projectsOn().map(p => p.plot), ['shop', 'shaft', 'house1', 'monument', 'paths', 'wall', 'treefarm', 'shopchest', 'storehouse', 'hall', 'yard', 'tidy'])
   // the stair stays GUARDED when off (a sited stair's cells keep their protection); with no record it guards nothing
   assert.ok(S.projectsGuarded().some(p => p.plot === 'shaft'))
 })
