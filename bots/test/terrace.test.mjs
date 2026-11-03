@@ -201,6 +201,8 @@ await t('stageCarry: the stage before\'s cells ride on as done-by-definition PRE
   assert.deepStrictEqual(out.cells, [{ at: [4, 5, 6], role: 'earth', seg: 'r0' }, { at: [1, 2, 3], role: 'earth', seg: T.PREV_SEG, prev: true }])
   assert.ok(!out.segments.some(s => s.seg === T.PREV_SEG), 'no visit works a previous cell')
   assert.strictEqual(T.stageCarry(body, null), body)
+  const cutOn = T.stageCarry({ cells: [], cut: [{ at: [1, 2, 3], kind: 'tidy', name: 'dirt' }], clear: [{ at: [7, 7, 7], kind: 'leaves', name: 'oak_leaves' }] }, { cells: [{ at: [1, 2, 3], role: 'earth' }, { at: [7, 7, 7], role: 'earth' }, { at: [9, 9, 9], role: 'earth' }] })
+  assert.deepStrictEqual(cutOn.cells.map(c => c.at.join(',')), ['9,9,9'], 'a previous fill under a new cut or clear is never carried (the cut would hide)')
   assert.strictEqual(T.stageCarry(body, { cells: Array.from({ length: 10 }, (_, i) => ({ at: [i, 0, 0], role: 'earth' })) }, 3).cells.length, 4)
 })
 await t('legacyStage: the stage number is groundskeeper-01\'s (a rollback reads it), the terrace 0', async () => {

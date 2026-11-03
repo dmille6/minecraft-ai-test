@@ -20316,7 +20316,7 @@ async function buildTidy (ctx, args, signal) {
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the tidy record could not be read back')
   }
-  const rec = rh.head.rec
+  let rec = rh.head.rec
   if (rec.structure_complete) return out('no_effect', 'complete', 'the town ground is tidy')
   const palette = TIDY_PALETTE
   const mem = (bot.tidyGiven ??= new Map())
@@ -20331,6 +20331,25 @@ async function buildTidy (ctx, args, signal) {
   const isTerrace = GROUNDS.on && rec.stageId === TERRACE_STAGE
   let guardNow = () => null
   if (isTerrace) { try { guardNow = terraceGuardNow(bot, landHead(dir), c, h, dir) } catch { return out('no_effect', 'record_unreadable', 'the town\'s refusals could not be read again for the terrace') } }
+  // Claude r2 BLOCKER 2: a replant cell refused now is published SKIPPED on the record (a replant_skipped row), so the tree clear rows'
+  // `saplings` count stays the head record's (shopread G5); the tree it was owed for keeps standing (recV below)
+  if (isTerrace) {
+    const badK = new Set((rec.replant ?? []).filter(q => q.state !== 'skipped' && Array.isArray(q.cell) && guardNow(q.cell[0], q.cell[2])).map(q => q.cell.join(',')))
+    if (badK.size) {
+      const pubR = publishRecord(dir, key, cur => {
+        if (!cur || cur.structure_complete) return null
+        let n = 0
+        const rp = (cur.replant ?? []).map(q => (q.state !== 'skipped' && badK.has(q.cell?.join?.(',')) ? (n++, { ...q, state: 'skipped', skippedAt: Date.now(), why: 'guarded' }) : q))
+        return n ? { ...cur, replant: rp } : null
+      }, { by: me })
+      if (pubR.result === 'accepted') {
+        for (const k of badK) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'replant_skipped', cell: k.split(',').map(Number), why: 'guarded', gen: pubR.gen }) }) } catch { /* telemetry */ } }
+        const h2 = recordHead(dir, key)
+        if (!h2.ok || !h2.head) return out('no_effect', 'record_unreadable', 'the tidy record could not be read back')
+        rh = h2; rec = h2.head.rec
+      }
+    }
+  }
   const waivedK = q => !!q.prev || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !!guardNow(q.at[0], q.at[2]))
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
@@ -20406,8 +20425,10 @@ async function buildTidy (ctx, args, signal) {
     const mealUse = { block: 'bone_meal', consumes: 'bone_meal', can: b => String(b?.name ?? '') === 'grass_block', want: () => true, held: () => bot.heldItem?.name === 'bone_meal', hold: equipUse(null, 'bone_meal') }
     // the work-time guard over the clears and the replants (Codex r1 BLOCKER 2): a replant cell refused now is not planted, and the
     // tree it was owed for stays standing (its logs leave this visit's clears; the stage names it after GK_CLEAR_VISITS)
-    const badTree = new Set((rec.replant ?? []).filter(q => Array.isArray(q.cell) && guardNow(q.cell[0], q.cell[2])).map(q => q.tree).filter(Number.isFinite))
-    const recV = isTerrace ? { ...rec, replant: (rec.replant ?? []).filter(q => !(Array.isArray(q.cell) && guardNow(q.cell[0], q.cell[2]))), clear: (rec.clear ?? []).filter(q => !guardNow(q.at[0], q.at[2]) && !(q.kind === 'tree' && badTree.has(q.tree))) } : rec
+    // (the record's own skip, above: Claude r2 BLOCKER 2) -- and the PREV cells never reach the visit (Codex + Claude r2 BLOCKER 1:
+    // a previous fill under one of this stage's cuts would hide the cut from clears())
+    const badTree = new Set((rec.replant ?? []).filter(q => q.state === 'skipped' && q.why === 'guarded').map(q => q.tree).filter(Number.isFinite))
+    const recV = isTerrace ? { ...rec, cells: (rec.cells ?? []).filter(q => !q.prev), clear: (rec.clear ?? []).filter(q => !guardNow(q.at[0], q.at[2]) && !(q.kind === 'tree' && badTree.has(q.tree))) } : rec
     const r = await runVisit({ dir, key, me, home, stood, record: recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q) || !!skipV(q), stuckStalledOnly: true,
       ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true } : {}),
@@ -20447,7 +20468,7 @@ async function buildTidy (ctx, args, signal) {
       for (const q of rw.cells ?? []) { if (!PARK_ROLES.has(q.role) && !q.opener) continue; if (buildCellDone(read2(...q.at), palette, q.role)) continue; const w = skip2(q); if (w) why[w] = (why[w] ?? 0) + 1 }
       if (Object.keys(why).length) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'park_skip', kind: Object.entries(why).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160), n: Object.values(why).reduce((a, b) => a + b, 0) }) }) } catch { /* telemetry */ } }
     }
-    const unread = [...(rw.cut ?? []), ...(rw.cells ?? [])].some(q => !read2(...q.at))
+    const unread = [...(rw.cut ?? []), ...(rw.cells ?? []).filter(q => !q.prev)].some(q => !read2(...q.at))   // Codex r2: never a PREV cell
     // groundskeeper-01 (Codex r1 BLOCKER 2): the record's clears (a felled road trunk, head-room leaves) are work too -- left
     // standing, the stage stays open until this bot's visits have made no clear progress GK_CLEAR_VISITS times (then named)
     let clearsOk = true
