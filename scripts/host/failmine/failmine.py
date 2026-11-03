@@ -55,6 +55,13 @@ INGEST_SLACK_MS = 10 * 60_000
 class ZeroLooksWrong(LookupError):
     """A zero (or an absence) that is probably the instrument, not the fleet. Same name as lib/telemetry.py's."""
 
+class SceneOutsideCut(ValueError):
+    """ONE pick cannot become a scene because its start, or the goal its script walks to, lies outside the cut (the cut is
+    capped at 49x60x49, so a long walk -- e.g. a `home` skill from y 33 to the town home at y 73 -- cannot fit). It is a fact
+    about that pick, not about the inputs: the weekly run records it as skipped and goes on (11-01: one such pick raised
+    BlindInput and blinded the whole run). Not a BlindInput subclass on purpose, so a blind INPUT still stops the run."""
+
+
 class BlindInput(ValueError):
     """The input cannot support a finding: a field missing, a file missing, a value out of range."""
 
@@ -1001,14 +1008,15 @@ def make_scene(pick, reg, made_at=None, backup_day=None):
     start = pick['start']['pos']
     feet = cell_of(start)
     if feet not in cells:
-        raise BlindInput(f'{pick["id"]}: the start {start} lies outside the cut {box}')
+        raise SceneOutsideCut(f'{pick["id"]}: the start {start} lies outside the cut {box}')
     facts = site_facts(cells, feet)
     # A START IS KEPT only when it, and the goal its script walks to, lie inside the cut (Claude r1 P3: a goal outside walks
     # the bot into the shell); the drops are counted in the scene, never silent
     inside = lambda q: q is None or cell_of(q) in cells
     goal_of = lambda sc: [sc['args'][k] for k in 'xyz'] if sc and sc.get('skill') == 'goto' else None
     if not inside(goal_of(pick.get('script'))):
-        raise BlindInput(f'{pick["id"]}: the scene script walks to {goal_of(pick["script"])}, outside the cut {box}')
+        raise SceneOutsideCut(f'{pick["id"]}: the scene script ({(pick.get("running") or {}).get("skill")} skill) walks to '
+                              f'{goal_of(pick["script"])}, outside the cut {box}')
     kept_alts, dropped_alts = [], []
     for a in pick.get('alternates') or []:
         if inside(a['start']['pos']) and inside(goal_of(a.get('script'))):
@@ -1248,13 +1256,11 @@ def cmd_weekly(a):
     os.makedirs(sdir, exist_ok=True)
     made = iso_ms(int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000))
     lib = a.library if a.library and os.path.isdir(a.library) else None
-    for p in res['picks']:
-        cov = library_covers(lib, p)
-        if cov:
-            p['in_library'] = cov
-            continue
-        sc = make_scene(p, Regions(regions, p['world']), made, meta.get('backup_day'))
-        json.dump(sc, open(os.path.join(sdir, p['id'] + '.json'), 'w'), separators=(',', ':'))
+    tally = weekly_scenes(res['picks'], lambda p: make_scene(p, Regions(regions, p['world']), made, meta.get('backup_day')),
+                          lambda p: library_covers(lib, p),
+                          lambda p, sc: json.dump(sc, open(os.path.join(sdir, p['id'] + '.json'), 'w'), separators=(',', ':')))
+    # the picks now carry in_library / skipped: the record of what was NOT cut, and why, lives with the clusters
+    json.dump(res, open(os.path.join(out, 'clusters.json'), 'w'), indent=1, default=list)
     shutil.rmtree(regions, ignore_errors=True)
     with open(os.path.join(home, 'out', 'LATEST.tmp'), 'w') as f:
         f.write(gen + '\n')
@@ -1265,6 +1271,38 @@ def cmd_weekly(a):
         if g != gen:
             shutil.rmtree(os.path.join(home, 'out', g), ignore_errors=True)
     print(render(res))
+    print(weekly_summary(gen, tally))
+
+
+def weekly_scenes(picks, make, covered, write):
+    """Cut each pick. A pick the library already covers is not cut again; a pick that cannot fit the cut (SceneOutsideCut) is
+    SKIPPED with its reason on the pick, and the run goes on. Any other error (a blind input) still raises."""
+    tally = {'made': [], 'covered': [], 'skipped': []}
+    for p in picks:
+        cov = covered(p)
+        if cov:
+            p['in_library'] = cov
+            tally['covered'].append(p['id'])
+            continue
+        try:
+            sc = make(p)
+        except SceneOutsideCut as e:
+            p['skipped'] = str(e)
+            tally['skipped'].append((p['id'], str(e)))
+            continue
+        write(p, sc)
+        tally['made'].append(p['id'])
+    return tally
+
+
+def weekly_summary(gen, t):
+    """The LAST line of weekly.log, read by the fleetstatus header (alarmhead MONITOR_LOGS): 'failmine weekly OK' only when
+    at least one pick was cut or already covered; every pick skipped is no scene at all, so it does not read OK."""
+    n = len(t['made']) + len(t['covered']) + len(t['skipped'])
+    head = 'OK' if (t['made'] or t['covered']) else 'NO SCENES'
+    sk = ''.join(f'; skipped {i}: {why.split(": ", 1)[-1][:120]}' for i, why in t['skipped'])
+    return (f'failmine weekly {head} {gen}: {len(t["made"])} cut, {len(t["covered"])} already in the library, '
+            f'{len(t["skipped"])} skipped of {n} picks{sk}')
 
 
 def cmd_validate(a):

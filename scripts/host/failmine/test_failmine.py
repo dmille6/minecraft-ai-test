@@ -389,8 +389,32 @@ def t_scene_goal_outside_cut(F):
         s = F.make_scene(pick, F.Regions(d, 'board-a'), 'now', 'day')
         assert len(s['alternates']) == 1 and s['alternates_dropped'] == [{'bot': 'board-a-Bravo', 't': 'y', 'why': 'start or goal outside the cut'}]
         pick['script'] = {'skill': 'goto', 'args': {'x': 900, 'y': 40, 'z': 187}}
-        raises(F.BlindInput, lambda: F.make_scene(pick, F.Regions(d, 'board-a'), 'now', 'day'), 'outside the cut')
+        e = raises(F.SceneOutsideCut, lambda: F.make_scene(pick, F.Regions(d, 'board-a'), 'now', 'day'), 'outside the cut')
+        assert not isinstance(e, F.BlindInput), 'an out-of-cut pick must not read as a blind input (it would stop the weekly run)'
     with_region(go)
+
+
+def t_weekly_skips_a_pick_outside_the_cut(F):
+    # 11-01: fall-1899-isolated-d-384_7_155 replayed a `home` walk to the town home, outside the capped cut, and its
+    # BlindInput stopped the whole weekly run. One such pick is skipped with its reason; the others are still cut.
+    picks = [{'id': 'a'}, {'id': 'far'}, {'id': 'lib'}, {'id': 'b'}]
+    def make(p):
+        if p['id'] == 'far':
+            raise F.SceneOutsideCut('far: the scene script (home skill) walks to [355, 73, 147], outside the cut {}')
+        return {'id': p['id']}
+    wrote = []
+    t = F.weekly_scenes(picks, make, lambda p: 'lib-scene' if p['id'] == 'lib' else None, lambda p, sc: wrote.append(sc['id']))
+    assert wrote == ['a', 'b'] and t['made'] == ['a', 'b'] and t['covered'] == ['lib'], t
+    assert [i for i, _ in t['skipped']] == ['far'] and 'outside the cut' in picks[1]['skipped'], (t, picks[1])
+    line = F.weekly_summary('20261102T0000Z', t)
+    assert line.startswith('failmine weekly OK 20261102T0000Z: 2 cut, 1 already in the library, 1 skipped of 4 picks; skipped far:'), line
+    # a blind INPUT still stops the run
+    def blind(p):
+        raise F.BlindInput('region copy missing')
+    raises(F.BlindInput, lambda: F.weekly_scenes([{'id': 'a'}], blind, lambda p: None, lambda p, sc: None), 'region copy missing')
+    # every pick skipped is no scene at all: not OK
+    t2 = F.weekly_scenes([{'id': 'far'}], make, lambda p: None, lambda p, sc: None)
+    assert F.weekly_summary('g', t2).startswith('failmine weekly NO SCENES g: 0 cut'), F.weekly_summary('g', t2)
 
 
 def t_drowning_measured_not_cut_by_default(F):
@@ -758,6 +782,9 @@ MUTANTS = [
     ('failmine.py', "    return [st for st in rep if not start_rule_of(sc, st).startswith('lava contact') or st in passed]", "    return rep", 't_gating_contact_needs_a_pass'),
     ('failmine.py', "    if newest is not None and ms_of(src.until) - newest > INGEST_SLACK_MS:", "    if False:", 't_es_ingest_lag_raises'),
     ('failmine.py', "    if not inside(goal_of(pick.get('script'))):", "    if False:", 't_scene_goal_outside_cut'),
+    ('failmine.py', "        except SceneOutsideCut as e:\n            p['skipped'] = str(e)\n            tally['skipped'].append((p['id'], str(e)))\n            continue",
+     "        except ZeroDivisionError as e:\n            continue", 't_weekly_skips_a_pick_outside_the_cut'),
+    ('failmine.py', "    head = 'OK' if (t['made'] or t['covered']) else 'NO SCENES'", "    head = 'OK'", 't_weekly_skips_a_pick_outside_the_cut'),
     ('failmine.py', "    if have and have != generation:", "    if False:", 't_fetch_refuses_mixed_generations'),
     ('fmserve.py', "        if state_fn() != st:\n            return 4                      # a backup began", "        if False:\n            return 4                      # a backup began", 't_serve_region_bound_to_its_night'),
     ('failmine.py', "    return (x1 - x0) <= STILL_BOX and (y1 - y0) <= STILL_BOX and (z1 - z0) <= STILL_BOX", "    return (x1 - x0) <= STILL_BOX or (y1 - y0) <= STILL_BOX", 't_spells_basic'),

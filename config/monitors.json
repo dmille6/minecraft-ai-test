@@ -201,7 +201,7 @@
     "~/coopread/out/daily/*.json"
    ],
    "fresh_hours": 26,
-   "consumer": "fleetstatus header (coop line)",
+   "consumer": "fleetstatus header (coop line): the owner-approved daily cooperation numbers (C17, 10-23), kept after B5 closed INCONCLUSIVE 11-01. 11-01/11-02 'controls FAILED xfer_through_chain' was the CONTROL, not lost hand-offs (1,008 of 1,011 / 1,288 of 1,289 verified): a townmate's observation or op inside the <1 s between a transfer's pre and ver; FIXED 11-03 (chain path + bounded 'concurrent', coopread selftest)",
    "kind": "monitor"
   },
   {
@@ -234,7 +234,7 @@
     "~/failmine/weekly.log"
    ],
    "fresh_hours": 192,
-   "consumer": "fleetstatus header (alarmhead MONITOR_LOGS, audit 11-01 flag 9, 11-02): 'failmine weekly:' line; '!!' on a traceback / BlindInput or stale > 8 d (it failed 11-01: BlindInput)",
+   "consumer": "fleetstatus header (alarmhead MONITOR_LOGS, audit 11-01 flag 9, 11-02): 'failmine weekly:' line; plain only on the run's last line 'failmine weekly OK <gen>: n cut, n in the library, n skipped'; '!!' on a traceback / BlindInput / NO SCENES / no summary, or stale > 8 d. 11-01 BlindInput FIXED 11-03: a pick whose start or replayed goal lies outside the capped cut (fall-1899-isolated-d-384_7_155, a `home` walk to the town home) is SKIPPED with its reason on the pick (SceneOutsideCut), the run goes on; a blind input still stops it",
    "kind": "monitor"
   },
   {

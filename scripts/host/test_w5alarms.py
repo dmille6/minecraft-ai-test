@@ -368,6 +368,16 @@ def t_monitor_logs(AH):
         check('monitor logs: 2 pinned bots alarm', any(l.startswith('!! pinned bots: 2026-11-02T14:47:29Z 2 of 80') for l in out), out)
         check('monitor logs: staff census OK plain', any(l.startswith('staff census check: 2026') for l in out), out)
         check('monitor logs: a failmine traceback alarms', any(l.startswith('!! failmine weekly: BlindInput') for l in out), out)
+        w('failmine/weekly.log', 'PICKS\n  fall-1\nfailmine weekly OK 20261102T0640Z: 2 cut, 0 already in the library, 1 skipped of 3 '
+          'picks; skipped fall-1899-isolated-d-384_7_155: the scene script (home skill) walks to [355, 73, 147], outside the cut\n', 30)
+        check('monitor logs: a failmine OK summary with a skipped pick is plain',
+              any(l.startswith('failmine weekly: failmine weekly OK 20261102T0640Z') for l in AH.monitor_lines(now, d)), AH.monitor_lines(now, d))
+        w('failmine/weekly.log', 'failmine weekly NO SCENES 20261102T0640Z: 0 cut, 0 already in the library, 1 skipped of 1 picks\n', 30)
+        check('monitor logs: failmine NO SCENES alarms', any(l.startswith('!! failmine weekly: failmine weekly NO SCENES') for l in AH.monitor_lines(now, d)),
+              AH.monitor_lines(now, d))
+        w('failmine/weekly.log', 'PICKS\n  stuck-1899-board-a-359_40_187  (stuck rank 3)\n', 30)
+        check('monitor logs: a failmine run with no summary alarms', any(l.startswith('!! failmine weekly: stuck-1899') for l in AH.monitor_lines(now, d)),
+              AH.monitor_lines(now, d))
         w('digest/stuckwatch.log', '2026-11-02T15:17:28Z stuckwatch OK (80 bots, 80 moving, none pinned over 240 min)\n')
         w('staffcensus/out/check.log', '2026-11-02T15:03:01Z StaffCensusStale: newest good heartbeat 3 h old\n')
         out = AH.monitor_lines(now, d)

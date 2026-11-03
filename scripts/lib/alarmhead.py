@@ -32,7 +32,9 @@ MONITOR_LOGS = (
     ('digest/stuckwatch.log', 'pinned bots', dt.timedelta(minutes=90),
      r'^\d{4}-\d\d-\d\dT\S+ (\d+ of \d+ bots|stuckwatch OK)|stuckwatch REFUSED', r' [1-9]\d* of \d+ bots|REFUSED', None),
     ('staffcensus/out/check.log', 'staff census check', dt.timedelta(minutes=90), r'^\d{4}-\d\d-\d\dT\S+ ', None, r'staff census OK'),
-    ('failmine/weekly.log', 'failmine weekly', dt.timedelta(days=8), r'\S', r'Error|Traceback|BlindInput', None),
+    # failmine weekly ends every run with 'failmine weekly OK|NO SCENES <gen>: ...' (11-02); a traceback ends on its exception
+    # line, and a run that died without the summary ends on something else: only the OK summary reads plain
+    ('failmine/weekly.log', 'failmine weekly', dt.timedelta(days=8), r'\S', r'Error|Traceback|BlindInput', r'^failmine weekly OK '),
     # flowledger-01 (resource-model-1102 s.9): hourly per-town stock + flow, bags counted; its alarms go here, not to a log
     ('digest/flowledger.log', 'flow ledger', dt.timedelta(minutes=150), r'^\d{4}-\d\d-\d\dT\S+ flowledger ',
      r' flowledger (ALARMS|ERROR)', None),

@@ -13,8 +13,11 @@ a positive control from the same pass):
       past its latest `pre` or `held` mark; an op with no `pre` is open from -infinity. Bounds per withdrawer B, container
       K, item: lower = max over B's withdrawals of (withdrawn so far - stock at first open - unknown additions - B's own
       deposits), floored at 0; upper = min(withdrawn, other bots' deposits + unknown additions before B's last withdrawal).
-      POSITIVE CONTROL: every verified transfer (`xfer ok=1`) must be the chain pair (pre -> ver) attributed to its own
-      bot; a shortfall is a DEFECT of this census (exit 1), not a finding.
+      POSITIVE CONTROL: every verified transfer (`xfer ok=1`) must be attributed to its own bot along the chain from its
+      `pre` to its `ver` observation (one pair, or several when a townmate observed the chest in between, e.g. a read-only
+      `count`), or be CONCURRENT (another bot's op overlaps that path, so the census rightly calls it unknown; allowed up to
+      XFER_CONCURRENT_MAX). Anything else is a DEFECT of this census (exit 1), not a finding. (11-01/11-02: 3 of 1,011 and
+      1 of 1,289 failed the old one-pair rule: a townmate's observation inside the 0.3-0.7 s between pre and ver.)
   [O] CONCURRENT TOWN JOBS (design 1.2): runs starting inside a townmate's run of the same job (the drain per furnace), a
       chance null (independence, approximate), and overlapped BOT-time (per run, the union of its overlaps). POSITIVE
       CONTROL: smelt_town overlaps are found whenever smelt_town ran >= 200 times.
@@ -71,6 +74,7 @@ GROUP = [('metal', r'iron|copper|gold'), ('fuel', r'^coal$|charcoal|coal_block')
          ('stone', r'cobble|stone$|andesite|diorite|granite|tuff|deepslate|sandstone|bricks'),
          ('wood', r'_log$|planks|stick|_slab|_stairs|fence|door|_wood$')]
 SMELT_CONTROL_MIN_RUNS = 200
+XFER_CONCURRENT_MAX = (2, 0.01)         # concurrent verified transfers allowed: max(2, 1% of the verified)
 
 
 def iso(t):
@@ -146,6 +150,7 @@ def provenance(recs, t0_ms, t1_ms):
     P['ops_unfinished'] = sum(1 for v in ops.values() for o in v.values() if o['post'] is None)
     chain_who = {}
     units = collections.Counter()
+    at_of = {o['id']: (k, i) for k, lst in obs.items() for i, o in enumerate(lst)}
     for k, lst in obs.items():
         spans = op_spans(ops[k])
         before = [o for o in lst if o['at'] < t0_ms]
@@ -197,10 +202,35 @@ def provenance(recs, t0_ms, t1_ms):
     for x in recs:
         if x['t'] == 'xfer' and x.get('ok') and x['at'] >= t0_ms:
             P['xfer_verified'] += 1
-            if chain_who.get((x.get('pre'), x.get('ver'))) == x.get('bot'):
+            path = xfer_path(obs, at_of, x.get('pre'), x.get('ver'))
+            whos = [chain_who.get(pair) for pair in path]
+            if path and all(w == x.get('bot') for w in whos):
                 P['xfer_through_chain'] += 1
+                P['xfer_through_multi_pair'] += len(path) > 1
+            elif path:
+                # CONCURRENT = the transfer's own bot AND another bot both have an op on its path: the census rightly calls
+                # those units unknown. Another bot's op alone is a misattribution (the control's mutant), not concurrency.
+                k = at_of[path[0][0]][0]
+                lo, hi = obs_at(obs, at_of, path[0][0]), obs_at(obs, at_of, path[-1][1])
+                bots = {sp[2] for sp in op_spans(ops[k]) if sp[1] >= lo and sp[0] <= hi}
+                if x.get('bot') in bots and len(bots) > 1:
+                    P['xfer_concurrent'] += 1
     P.update({f'units_{g}_{d}': v for (g, d), v in units.items()})
     return P
+
+
+def xfer_path(obs, at_of, pre, ver):
+    """The consecutive observation pairs of one container from `pre` to `ver`, or [] when they are not two observations of
+    the same container in order (a transfer the journal cannot place). Pure."""
+    if pre not in at_of or ver not in at_of or at_of[pre][0] != at_of[ver][0] or at_of[pre][1] >= at_of[ver][1]:
+        return []
+    lst = obs[at_of[pre][0]]
+    return [(lst[i]['id'], lst[i + 1]['id']) for i in range(at_of[pre][1], at_of[ver][1])]
+
+
+def obs_at(obs, at_of, i):
+    k, n = at_of[i]
+    return obs[k][n]['at']
 
 
 # ------------------------------------------------------------------------------------------------- [O] overlaps
@@ -479,9 +509,13 @@ def controls(res):
     F = res['fleet']
     out = {}
     v, c, pop = F.get('prov_xfer_verified', 0), F.get('prov_xfer_through_chain', 0), F.get('pop_town_deposit_success', 0)
-    out['xfer_through_chain'] = {'ok': (v > 0 or pop == 0) and c == v,
-                                 'detail': f'{c} of {v} verified transfers attributed to their own bot; '
-                                           f'{pop} successful town_deposit rows (transfers must exist when they do)'}
+    cc, mp = F.get('prov_xfer_concurrent', 0), F.get('prov_xfer_through_multi_pair', 0)
+    cmax = max(XFER_CONCURRENT_MAX[0], XFER_CONCURRENT_MAX[1] * v)
+    out['xfer_through_chain'] = {'ok': (v > 0 or pop == 0) and c + cc == v and cc <= cmax,
+                                 'detail': f'{c} of {v} verified transfers attributed to their own bot ({mp} across a '
+                                           f'townmate\'s observation), {cc} concurrent (allowed {cmax:.0f}), '
+                                           f'{v - c - cc} unexplained; {pop} successful town_deposit rows (transfers must '
+                                           f'exist when they do)'}
     sm, si, ev = F.get('ov_smelt_town_runs', 0), F.get('ov_smelt_town_start_inside', 0), F.get('pop_smelt_town_events', 0)
     out['overlap_sweep_sees'] = {'ok': (sm > 0 or ev == 0) and (sm < SMELT_CONTROL_MIN_RUNS or si > 0),
                                  'detail': f'{si} smelt_town overlaps in {sm} runs ({ev} _smelt_town events; overlaps '
@@ -599,12 +633,43 @@ def selftest(verbose=True):
     bad = [o('o1', 100, 10), d('op', 'B', 'pre', 101), d('op', 'B', 'post', 102), o('o2', 103, 15),
            {'t': 'xfer', 'id': 'x', 'k': 'K', 'at': 102, 'bot': 'A', 'ok': 1, 'pre': 'o1', 'ver': 'o2'}]
     Pb = provenance(bad, 0, 10_000)
+    # 11-01: a townmate's read-only observation (C `count`) between A's pre and ver splits the chain into two pairs; both
+    # are A's, so the transfer is still A's own (the old one-pair rule failed it)
+    mid = [o('o1', 100, 10), d('op', 'A', 'pre', 101), dict(o('om', 102, 15), bot='C'), d('op', 'A', 'post', 103),
+           o('o2', 104, 15), {'t': 'xfer', 'id': 'x', 'k': 'K', 'at': 104, 'bot': 'A', 'ok': 1, 'pre': 'o1', 'ver': 'o2'}]
+    Pm = provenance(mid, 0, 10_000)
+    check('[P] a townmate observation inside the transfer: still its own bot, across two pairs',
+          (Pm['xfer_verified'], Pm['xfer_through_chain'], Pm['xfer_through_multi_pair'], Pm['xfer_concurrent']), (1, 1, 1, 0))
+    # 11-02: B's withdraw op overlaps A's deposit between pre and ver: unknown attribution, counted CONCURRENT, not lost
+    conc = [o('o1', 100, 10), d('op', 'A', 'pre', 101), o('om', 102, 10), d('w', 'B', 'pre', 103), d('op', 'A', 'post', 104),
+            o('o2', 105, 15), d('w', 'B', 'post', 106),
+            {'t': 'xfer', 'id': 'x', 'k': 'K', 'at': 105, 'bot': 'A', 'ok': 1, 'pre': 'o1', 'ver': 'o2'}]
+    Pc = provenance(conc, 0, 10_000)
+    check('[P] another bot\'s op inside the transfer -> concurrent, not through the chain',
+          (Pc['xfer_verified'], Pc['xfer_through_chain'], Pc['xfer_concurrent']), (1, 0, 1))
+    check('[P] a pre/ver the journal cannot place (unknown ids) is neither chain nor concurrent',
+          (lambda P: (P['xfer_through_chain'], P['xfer_concurrent']))(provenance(
+              [o('o1', 100, 10), {'t': 'xfer', 'id': 'x', 'k': 'K', 'at': 101, 'bot': 'A', 'ok': 1, 'pre': 'o1', 'ver': 'zz'}], 0, 10_000)),
+          (0, 0))
+    check('[P] another bot\'s own transfer in the bad journal is not concurrent either', Pb['xfer_concurrent'], 0)
+    two = [o('o1', 100, 10), d('b', 'B', 'pre', 101), d('c', 'C', 'pre', 101), d('b', 'B', 'post', 102), d('c', 'C', 'post', 102),
+           o('o2', 103, 15), {'t': 'xfer', 'id': 'x', 'k': 'K', 'at': 102, 'bot': 'A', 'ok': 1, 'pre': 'o1', 'ver': 'o2'}]
+    check('[P] two OTHER bots on the path and none of A\'s ops: not concurrent (misattribution)',
+          provenance(two, 0, 10_000)['xfer_concurrent'], 0)
 
     def ctl(**F):
         return controls({'fleet': F, 'towns': {'x': {'provenance': {} if F.get('prov_towns') else None}}})
     check('[P] mutant: a transfer attributed to another bot fails the control',
           ctl(prov_xfer_verified=Pb['xfer_verified'], prov_xfer_through_chain=Pb['xfer_through_chain'],
               pop_town_deposit_success=5)['xfer_through_chain']['ok'], False)
+    check('control: 1,288 own + 1 concurrent of 1,289 passes (11-02)', ctl(
+        prov_xfer_verified=1289, prov_xfer_through_chain=1288, prov_xfer_concurrent=1,
+        pop_town_deposit_success=927)['xfer_through_chain']['ok'], True)
+    check('control mutant: concurrent above max(2, 1%) -> FAILED', ctl(
+        prov_xfer_verified=100, prov_xfer_through_chain=97, prov_xfer_concurrent=3,
+        pop_town_deposit_success=90)['xfer_through_chain']['ok'], False)
+    check('control mutant: one unexplained transfer -> FAILED', ctl(
+        prov_xfer_verified=100, prov_xfer_through_chain=99, pop_town_deposit_success=90)['xfer_through_chain']['ok'], False)
     # BLIND-INPUT MUTANTS (Claude r1 P1-5): each control fails when its population exists and the reader saw nothing
     check('control mutant: no verified transfer while town_deposit succeeded -> FAILED',
           ctl(pop_town_deposit_success=150)['xfer_through_chain']['ok'], False)
