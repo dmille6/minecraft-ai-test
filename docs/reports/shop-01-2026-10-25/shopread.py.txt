@@ -190,7 +190,7 @@ def read_markers(d):
         return out
     for f in names:
         try:
-            lines = open(os.path.join(d, f)).read().split('\n')
+            lines = open(os.path.join(d, f), encoding='utf-8', errors='replace').read().split('\n')
         except OSError:
             continue
         for ln in lines:
