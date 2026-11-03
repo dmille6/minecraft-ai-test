@@ -34,6 +34,9 @@ const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 const kOf = a => `${a[0]},${a[1]},${a[2]}`
 
 export const stuckCellsOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.STUCKCELLS ?? '').trim().toLowerCase())
+/** MONUSTUCK-01 (buildrun.mjs: stalkFell in the sealed column, the waiver beside a sealed cell, the dig walk's stand bans).
+ *  MONUSTUCK=off is the rollback: every visit exactly as before. */
+export const monuStuckOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.MONUSTUCK ?? '').trim().toLowerCase())
 
 /** A block read through a mineflayer bot -> { name, boundingBox, props? } | null: a snow layer carries its properties (its
  *  `layers`: townplan.mjs replaceableCell). Never throws. */
