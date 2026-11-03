@@ -34,6 +34,7 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^
 const col = (srv, x, z, y0, y1, name) => { for (let y = y0; y <= y1; y++) srv.set([x, y, z], name) }
 const k2 = (x, z) => `${x},${z}`
 const BOX = [8, -8, 30, 8]
+const LAND = () => ({ home: HOME, seed: 7, ringR: 20, workR: 44, zones: { E: 'treefarm', SE: 'wild', S: 'wild', SW: 'wild', W: 'wild', NW: 'wild', N: 'wild', NE: 'wild' }, roads: [], corridors: [] })
 /** A plateau of dirt (top `top`, grass on it) over x in [x0, x1], z in [z0, z1]. */
 const plateau = (srv, x0, x1, z0, z1, top) => { for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) { col(srv, x, z, G, top - 1, 'dirt'); srv.set([x, top, z], 'grass_block') } }
 /** Every step from a worked column to a 4-neighbour of the box (and just outside it) on the finished ground. */
@@ -160,7 +161,7 @@ await t('a tree on soil is felled whole; a tall tree, a park tree and a tree wit
 await t('siteTerrace: one replant a felled tree in the land plan\'s tree-farm zone, the logs listed `tree`, never felled before its sapling (the record\'s replant)', async () => {
   const srv = server()
   col(srv, 12, 0, G + 1, G + 4, 'oak_log')
-  const land = { home: HOME, seed: 7, ringR: 20, workR: 44, zones: { E: 'treefarm', SE: 'wild', S: 'wild', SW: 'wild', W: 'wild', NW: 'wild', N: 'wild', NE: 'wild' }, roads: [], corridors: [] }
+  const land = LAND()
   const s = await TR.siteTerrace(srv.read, { home: HOME, land, records: [{ plot: 'house1', floor: G }], now: 0 })
   assert.ok(s.record, s.why)
   assert.deepStrictEqual(s.record.clear.filter(c => c.kind === 'tree').map(c => c.at[1]), [G + 1, G + 2, G + 3, G + 4])
@@ -170,6 +171,42 @@ await t('siteTerrace: one replant a felled tree in the land plan\'s tree-farm zo
   assert.strictEqual(s.record.stageId, 'terrace')
 })
 
+await t('a tree is felled only with its own replant cell: no room in the tree-farm zone (or no land plan) keeps it standing, named', async () => {
+  const srv = server()
+  col(srv, 12, 0, G + 1, G + 4, 'oak_log'); col(srv, 16, 2, G + 1, G + 4, 'birch_log')
+  const none = await TR.siteTerrace(srv.read, { home: HOME, land: LAND(), avoid: (x, z) => (Math.max(Math.abs(x), Math.abs(z)) > 20 ? 'zone' : null), records: [{ plot: 'house1', floor: G }], now: 0 })
+  assert.ok(!none.record || !none.record.clear.some(c => c.kind === 'tree'), 'a felled tree with no sapling cell')
+  assert.strictEqual((none.record?.terrace?.skipped ?? none.skipped).tree_no_replant, 2)
+  const noLand = await TR.siteTerrace(srv.read, { home: HOME, land: null, records: [{ plot: 'house1', floor: G }], now: 0 })
+  assert.ok(!noLand.record || !noLand.record.clear.some(c => c.kind === 'tree'))
+  const ok = await TR.siteTerrace(srv.read, { home: HOME, land: LAND(), records: [{ plot: 'house1', floor: G }], now: 0 })
+  const ids = new Set(ok.record.clear.filter(c => c.kind === 'tree').map(c => c.tree))
+  assert.deepStrictEqual([...ids].sort(), ok.record.replant.map(r => r.tree).sort(), 'every felled tree names its replant')
+})
+await t('the park never puts a planting on one of the stage\'s own cuts (the cut would never be dug under a record cell)', async () => {
+  const srv = server()
+  plateau(srv, -20, 20, -20, 20, G + 2)
+  const s = await TR.siteTerrace(srv.read, { home: HOME, land: LAND(), records: [{ plot: 'a', floor: G }, { plot: 'b', floor: G + 1 }], have: { poppy: 64, oak_leaves: 64, bamboo: 9 }, now: 0 })
+  assert.ok(s.record?.park, s.why)
+  const cutK = new Set(s.record.cut.map(c => c.at.join(',')))
+  const cellK = s.record.cells.map(c => c.at.join(','))
+  assert.ok(cutK.size > 0, 'the plateau is cut')
+  assert.ok(!cellK.some(k => cutK.has(k)), 'a record cell on a cut')
+  assert.strictEqual(new Set(cellK).size, cellK.length, 'two record cells on one block')
+})
+await t('stageCarry: the stage before\'s cells ride on as done-by-definition PREV cells (the tripwire judges a placement against the head)', async () => {
+  const cur = { cells: [{ at: [1, 2, 3], role: 'earth', seg: 'T-00-0' }, { at: [4, 5, 6], role: 'flower0', seg: 'T-PP' }] }
+  const body = { cells: [{ at: [4, 5, 6], role: 'earth', seg: 'r0' }], segments: [{ seg: 'r0', deps: [] }] }
+  const out = T.stageCarry(body, cur)
+  assert.deepStrictEqual(out.cells, [{ at: [4, 5, 6], role: 'earth', seg: 'r0' }, { at: [1, 2, 3], role: 'earth', seg: T.PREV_SEG, prev: true }])
+  assert.ok(!out.segments.some(s => s.seg === T.PREV_SEG), 'no visit works a previous cell')
+  assert.strictEqual(T.stageCarry(body, null), body)
+  assert.strictEqual(T.stageCarry(body, { cells: Array.from({ length: 10 }, (_, i) => ({ at: [i, 0, 0], role: 'earth' })) }, 3).cells.length, 4)
+})
+await t('legacyStage: the stage number is groundskeeper-01\'s (a rollback reads it), the terrace 0', async () => {
+  assert.deepStrictEqual(LP.landStages().slice(0, 5).map(st => T.legacyStage(st)), [0, 0, 1, 2, 3])
+  for (const st of LP.landStages()) { if (st.k) assert.strictEqual(LP.recStageK({ stage: T.legacyStage(st), stageId: st.id, terraceV: 1 }), st.k) }
+})
 console.log('THE WALK: never worse')
 await t('terraceWalk names a stuck-prone pit (reached, no walk back); the plateau\'s grading never adds one', async () => {
   const srv = server()
@@ -366,9 +403,10 @@ await t('the park is a land-plan reservation; siteStage sites the terrace (await
   assert.deepStrictEqual(r.zones, [{ box: [10, -64, -5, 20, 320, 5], why: 'land:park' }])
   const srv = server()
   col(srv, 12, 0, G + 1, G + 4, 'oak_log')
-  const on = await T.siteStage(srv.read, { home: HOME, land: null, stage: 1, terrace: { records: [] }, now: 0 })
-  assert.ok(on.record && on.record.stage === 1 && on.record.terraceV === 1, on.why)
-  const off = await T.siteStage(srv.read, { home: HOME, land: null, stage: 1, terrace: { records: [] }, env: { TERRACE: 'off' }, now: 0 })
+  const on = await T.siteStage(srv.read, { home: HOME, land: LAND(), stage: 1, terrace: { records: [] }, now: 0 })
+  assert.ok(on.record && on.record.stageId === 'terrace' && on.record.stage === 0 && on.record.terraceV === 1, on.why)
+  assert.strictEqual(LP.recStageK(on.record), 1)
+  const off = await T.siteStage(srv.read, { home: HOME, land: LAND(), stage: 1, terrace: { records: [] }, env: { TERRACE: 'off' }, now: 0 })
   assert.strictEqual(off.record, null)
 })
 

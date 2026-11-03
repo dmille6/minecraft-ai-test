@@ -477,6 +477,29 @@ export function siteTidy (read, { home, avoid = () => null, cells = new Set(), p
 // tidies one outward band (its pillars and pits, tidy-01's survey with rMin) and grades the spokes through it. A stage is one
 // generation of the same tidy record (`stage`), so the visit, the leases, the waiver and the completion are tidy-01's.
 
+/**
+ * townterrace-01: a stage record's `stage` NUMBER is groundskeeper-01's ring order (town 0, roads 1, rim48 2 ...), the terrace stage
+ * 0; today's order is read from `stageId` (landplan.mjs recStageK). So a code rollback to groundskeeper-01 reads a terrace record as
+ * the town's stage done and goes on with the roads, and a roads record as its own stage 1 (Claude r1 note: a renumbered ring
+ * skipped the roads after a rollback). Pure.
+ */
+export const legacyStage = st => (st?.id === TERRACE_STAGE ? 0 : st?.k >= 2 ? st.k - 1 : (st?.k ?? 0))
+/**
+ * THE CELLS A STAGE CARRIES ON (townterrace-01, Codex r1 note): when the next stage's generation replaces the record, every cell of
+ * the one before is carried into it as a PREVIOUS cell (seg PREV_SEG, `prev: true`) -- no segment names it, so no visit works it,
+ * and the visit, the bill and the completion read it as done (skills.mjs buildTidy `waivedK`). The showcase tripwire judges a
+ * placement against the HEAD record's cells (shopread.py.txt judge, op=place), so a stage's own placements read in the window after
+ * the next stage is sited stay on the record. At most `max` (the newest kept). Pure.
+ */
+export const PREV_SEG = 'T-PREV'
+export const PREV_MAX = 8000
+export function stageCarry (body, cur, max = PREV_MAX) {
+  if (!body || !cur?.cells?.length) return body
+  const have = new Set((body.cells ?? []).map(c => c.at.join(',')))
+  const prev = []
+  for (const c of cur.cells) { const k = c.at.join(','); if (have.has(k)) continue; have.add(k); prev.push({ at: c.at, role: c.role, seg: PREV_SEG, prev: true }) }
+  return { ...body, cells: [...(body.cells ?? []), ...prev.slice(Math.max(0, prev.length - max))] }
+}
 /** A road light every this many road columns (a torch on the corridor's edge column). */
 export const ROAD_LIGHT_EVERY = 12
 /** A felled road trunk's sapling (oak for dark oak: one sapling never grows a dark oak). */
@@ -622,7 +645,7 @@ export function roadLights (read, cols, { home, avoid = () => null, n = 0, cells
  */
 export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, env = process.env, L = LAND } = {}) {
   const st = typeof stage === 'object' ? stage : stageOf(stage, L)
-  if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now }); if (s.record) { s.record.stage = 0; s.record.terraceV = 1 } return { ...s, road: null } }
+  if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now }); if (s.record) { s.record.stage = 0; s.record.stageId = st.id; s.record.terraceV = 1 } return { ...s, road: null } }
   // townterrace-01: the terrace stage (terrace.mjs siteTerrace) inside the wall; TERRACE=off (or no terrace inputs) reads as
   // nothing to do, and the ring order goes on
   if (st.id === TERRACE_STAGE) {
@@ -630,7 +653,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     // ASYNC (the grading's solves are seconds of work on a rough town: `pause` yields the bot's event loop between them); every
     // caller awaits siteStage
     return siteTerrace(read, { home, plan, land, avoid, cells, walkFrom, now, ...terrace }).then(t => {
-      if (t.record) { t.record.stage = st.k; t.record.terraceV = 1; t.record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null }
+      if (t.record) { t.record.stage = legacyStage(st); t.record.terraceV = 1; t.record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null }
       return { ...t, survey: null, road: null }
     })
   }
@@ -685,7 +708,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     record.segments.push({ seg: 'T-L', deps: [] })
     for (const l of lightAt) record.cells.push({ at: l.at, role: 'light', seg: 'T-L' })
   }
-  record.stage = st.k
+  record.stage = legacyStage(st)
   record.stageId = st.id
   record.terraceV = 1   // townterrace-01: sited in the ring order that has the terrace stage (landplan.mjs recStageK)
   record.land = { seed: land.seed, sitedAt: land.sitedAt ?? null }
