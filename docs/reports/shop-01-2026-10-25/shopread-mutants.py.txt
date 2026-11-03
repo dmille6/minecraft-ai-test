@@ -60,7 +60,16 @@ M = [
  ("            for dy in (0, 1, 2):\n                k = ck([at[0], at[1] + dy, at[2]])", "            for dy in (0,):\n                k = ck([at[0], at[1] + dy, at[2]])"),
  ("        if plot in (TIDY, LAND):", "        if plot in (LAND,):"),
  ("            if m.get('gone') if isinstance(m, dict) else True:", "            if not isinstance(m, dict):"),
- ("                     'projects': projects, 'markers': read_markers(d)}", "                     'projects': projects, 'markers': {}}"),
+ ("                     'projects': projects, 'markers': merge_guards(read_markers(d), read_bridges(d))}", "                     'projects': projects, 'markers': {}}"),
+ # bridgepost-01: the bridge cells guard (the read, the merge's earliest time, the rails, the one torch, the site grouping)
+ ("                     'projects': projects, 'markers': merge_guards(read_markers(d), read_bridges(d))}", "                     'projects': projects, 'markers': read_markers(d)}"),
+ ("        out[k] = min(out.get(k, t), t)\n    return out\n\n\ndef read_projects", "        out[k] = t\n    return out\n\n\ndef read_projects"),
+ ("            if not isinstance(m, dict) or m.get('op') != 'sight':", "            if not isinstance(m, dict) or m.get('op') != 'sighted':"),
+ ("            for k in ('deck', 'rail'):", "            for k in ('deck',):"),
+ ("    for r in rows if isinstance(rows, list) else []:", "    for r in rows or []:"),
+ ("            if sd.get('side') == 1 and _cell(sd.get('rail'))", "            if _cell(sd.get('rail'))"),
+ ("and r['i'] % BRIDGE_TORCH_EVERY == 0:", "and True:"),
+ ("            if same:\n                same[0]['t'] = min(same[0]['t'], t)\n                continue", "            if False:\n                continue"),
  # gkhelpers-01: the grounds crew (G4) and the park gather (G2)
  ("        if h0 == h1 and n0 != n1 and a0 < b1 and a1 < b0:", "        if False:"),
  ("            if h0 == h1 or min(b0, b1) - max(a0, a1) <= yield_ms:", "            if True:"),

@@ -4233,6 +4233,40 @@
     ]
    },
    "note": "The sink turn also lets picker-01's road/tower/shrine sinks run live for the first time (never sited since 18:38Z). The stair's repeated 1-block repair (41 'complete' visits in 2.3 h) is left to the stair's owner. Lanterns deferred (recipe + placement unproven)."
+  },
+  {
+   "id": "expedition-bridgepost",
+   "title": "Cobble bridges at refused expedition crossings (A) and outposts at turn points (B) (owner 11-01 bridges OK; 11-03 'design all ... implement and deploy where you feel is right')",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "bridgepost-1103.md",
+    "owner-water-boats-bridges-1101.md",
+    "owner-expeditions-1027.md",
+    "expwater-01-1103.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "bridgepost-01 BUILT on showcase release cbd2f51b: branch bridgepost-01-show-on-cbd2f51b (r1 b33b28d0; Claude+Codex r2 APPROVE; Paper sandbox2 7 bridges 12-32 wide intact, 96/96 crossings dry, 0 deaths). Offline: 2 bridges (12 and 2 wide) open b3 and b5; all 8 bearings then reach 383-409. NEXT (control session): install the shopread read_bridges rule (main docs/reports/shop-01-2026-10-25/shopread.py.txt), record + stage + activate the piece after copper hall finish+signs, before 10->15 bots; read +2 h / +24 h per the design doc section 8. Then outpost-01 (tier 2), journey-01, bridge-02 (stair abutments).",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "item": "expedition-water"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "bridgepost-01*"
+    ],
+    "grep": [
+     "bridgepost-01"
+    ],
+    "paths": [
+     "docs/reports/bridgepost-design-2026-11-03.md"
+    ]
+   },
+   "note": "Kill switch EXPEDITION_BRIDGE=off. Codex designed independently (outposts first; deck one above the water; 17-32-only sites) -- reconciled in the design doc section 5. Sandbox incident: the first driver run touched sandbox3 while farms held it (design doc section 9)."
   }
  ]
 }

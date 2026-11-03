@@ -102,6 +102,10 @@ const REQUIRED = [
   'bots/scripts/expwater-offline.mjs',
   'sandbox/swim/swim.mjs',
   'sandbox/swim/swimrelay.py',
+  // bridgepost-01 (11-03): the design and the Paper driver (the bot code lands with the showcase fold: add bots/src/bridge.mjs, bridgeio.mjs, test/bridgepost.test.mjs then)
+  'docs/reports/bridgepost-design-2026-11-03.md',
+  'sandbox/bridge/bridge.mjs',
+  'sandbox/bridge/bridgerelay.py',
   'bots/test/showcase-on-fleet.test.mjs',
   // bagdiet-01 (11-02): the light projects' visit hold, their bank-back gate, the craft's table candidates
   'bots/test/bagdiet.test.mjs',
