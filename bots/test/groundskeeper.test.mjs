@@ -303,12 +303,13 @@ await t('termStart: a renewal carries the term on; a new holder starts one now',
   assert.strictEqual(GKM.termStart(L0('A', now - 900), 'A', now), now - 900)
   assert.strictEqual(GKM.termStart(L0('B', now - 900), 'A', now), now)
 })
-await t('the switch: GROUNDSKEEPER=off is off; unset follows the tidy (the showcase off unless named)', async () => {
+await t('the switch: GROUNDSKEEPER=off is off; unset follows the tidy (the showcase on since its groundskeeper release)', async () => {
   assert.strictEqual(GKM.gkOn({ GROUNDSKEEPER: 'off' }, 'board-a'), false)
   assert.strictEqual(GKM.gkOn({}, 'board-a'), true)
   assert.strictEqual(GKM.gkOn({}, ''), false, 'an unnamed pool (a test bot) keeps tidy-01\'s order')
   assert.strictEqual(GKM.gkOn({ GROUNDSKEEPER: 'on' }, ''), true)
-  assert.strictEqual(GKM.gkOn({}, 'showcase'), false)
+  assert.strictEqual(GKM.gkOn({}, 'showcase'), true)
+  assert.strictEqual(GKM.gkOn({ TIDY: 'off' }, 'showcase'), false)
   assert.strictEqual(GKM.gkOn({ TIDY_POOLS: 'showcase' }, 'showcase'), true)
   assert.strictEqual(LP.landOn({ LANDPLAN: 'off' }), false)
 })
