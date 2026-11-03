@@ -247,6 +247,14 @@ const REQUIRED = [
   'scripts/host/test_flowledger.py',
   'scripts/host/install-flowledger.sh',
   'bots/test/flowledger.test.mjs',
+  // jobshadow-01 (job-assigner-2026-11-03 stage 1): the rule-based town job assigner, shadow only (host, log only)
+  'scripts/lib/jobrules.py',
+  'scripts/host/jobshadow.py',
+  'scripts/host/jobfacts.mjs',
+  'scripts/host/test_jobshadow.py',
+  'scripts/host/install-jobshadow.sh',
+  'bots/test/jobshadow.test.mjs',
+  'docs/reports/job-assigner-2026-11-03.md',
   'scripts/mac/opsaudit.sh',
   // the learning loop's nightly archive (M1): logs on .31 rotate after 14 days, this is the only long-term copy
   'scripts/learnloop/extract_triples.py',

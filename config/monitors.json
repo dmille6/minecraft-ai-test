@@ -519,6 +519,20 @@
    "fresh_hours": 2.5,
    "consumer": "fleetstatus header (alarmhead MONITOR_LOGS 'flow ledger:' line, '!!' on ALARMS/ERROR or stale > 150 min); its alarms in ~/digest/ALARMS.log (STATE.md Open alarms + push); resource-model-1102 stage reads (marks-01, towngate-01)",
    "kind": "monitor"
+  },
+  {
+   "id": "jobshadow",
+   "host": "31",
+   "cron": "host/jobshadow.py run",
+   "outputs": [
+    "~/digest/jobshadow.log",
+    "~/jobshadow/out/latest.json",
+    "~/jobshadow/out/state.json"
+   ],
+   "fresh_hours": 0.5,
+   "consumer": "the job assigner's stage-1 read (`jobshadow.py summary` at +24 h: coverage gaps, churn, concordance v random -> the stage-2/3 go/no-go in docs/reports/job-assigner-2026-11-03.md s.6); ledger row jobassign-1103",
+   "kind": "monitor",
+   "note": "SHADOW ONLY: writes nothing into /var/lib/mcai and no bot reads it (scripts/host/install-jobshadow.sh)"
   }
  ]
 }
