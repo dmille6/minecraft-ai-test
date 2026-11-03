@@ -667,11 +667,22 @@ export function spendableFor (item, stock = {}, { reserve = {}, claims = {} } = 
  * milestone holding, after the cooldown; the record complete is no order; S1 (no site) waits a day; a full slot set, low health,
  * or a bag without room is a skip with its reason.
  */
+/** VILLAGEUNLOCK-01 (T3a): the village unlock's ask (skills.mjs unlockAsk). The fleet build has no idle branch (the showcase's
+ *  expedition / copper asks are not on this line), so it is asked once the town plan exists, before the project's own order:
+ *  rate-limited inside (30 min per bot, 6 h per villager, a pool lease per pen) and null almost always. -> { order } | null.
+ *  Unset (or VILLAGEUNLOCK=off): never asked. */
+let unlockAskOf = null
+export function setUnlockAsk (fn) { unlockAskOf = typeof fn === 'function' ? fn : null }
 export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
   complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null, feet = null, groundY = null } = {}) {
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
+  if (unlockAskOf) {
+    let ul = null
+    try { ul = unlockAskOf({ now, health }) } catch { ul = null }
+    if (ul?.order) return { order: ul.order, skip: null }
+  }
   if (complete) return { order: null, skip: 'complete' }
   // shaft-02: the town stair's visit is asked again after SHAFT_COOLDOWN_MS (its record's plot, or the active plot unsited)
   let plot0 = record?.plot ?? null

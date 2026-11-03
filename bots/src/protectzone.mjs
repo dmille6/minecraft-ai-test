@@ -40,6 +40,22 @@ import path from 'node:path'
 import { Vec3 } from 'vec3'
 import { digPurpose, currentDigScope } from './digtown.mjs'
 import { ESCDEAD_ON } from './toolfor.mjs'   // escdead-01 (c): ESCDEAD=0 restores the floor_y rule at the chokepoint
+import { AsyncLocalStorage } from 'node:async_hooks'
+
+// THE VILLAGE UNLOCK (T3a villageunlock-01, trading design 2026-11-03; OWNER 11-03 ~21:45Z: "we can edit the world when it comes
+// to opening doors etc, that is fine"). The ONE use this guard lets through in a zone: bot.activateBlock on a trapdoor or a
+// fence gate, while the village_unlock skill runs with that exact cell in its scope (withUnlockScope). A toggle changes the
+// block's open state, never its name: the showcase tripwire's S4 integrity compares names, so nothing is removed or changed
+// there (showcase_trip.py selftest pins it). Every other op, every other block (doors, chests, beds, job sites) and every
+// other caller stays refused exactly as before.
+export const UNLOCKABLE = /^(minecraft:)?[a-z_]+_(trapdoor|fence_gate)$/
+const unlockStore = new AsyncLocalStorage()
+/** Run fn with these cells ({x,y,z}) open to activateBlock inside a zone. */
+export const withUnlockScope = (cells, fn) => unlockStore.run({ cells: new Set((cells ?? []).map(c => `${c.x},${c.y},${c.z}`)) }, fn)
+/** -> bool. Pure but for the scope store: an unlockable block name, at a cell the running unlock named. */
+export function unlockAllowed (name, cell, scope = unlockStore.getStore()) {
+  return !!scope && !!cell && UNLOCKABLE.test(String(name ?? '')) && !String(name).includes('iron_') && scope.cells.has(`${cell.x},${cell.y},${cell.z}`)
+}
 
 export const ZONES_FILE = 'protected-zones.json'
 export const ZONES_VERSION = 1
@@ -468,13 +484,16 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
     if (r && typeof r.then === 'function') { r.then(done, done); return r }
     done(); return r
   }
-  const wrap = (name, op, cellsFor, { approve = false } = {}) => {
+  const wrap = (name, op, cellsFor, { approve = false, allow = null } = {}) => {
     const orig = bot[name]
     if (typeof orig !== 'function') return
     const w = function (...a) {
       let cells = []
       try { cells = cellsFor(...a).filter(Boolean) } catch { cells = [] }
       if (op === 'use' && cells.length && approved.has(keyOf(cells[0]))) return orig.apply(this, a)
+      let ok = false
+      if (allow && cells.length) { try { ok = !!allow(...a) } catch { ok = false } }
+      if (ok) { noteProtectZone(bot, 'unlock_allowed'); return orig.apply(this, a) }
       for (const c of cells) { const r = gate(op, c); if (r) return r }
       return approve ? hold(cells[0], () => orig.apply(this, a)) : orig.apply(this, a)
     }
@@ -490,7 +509,7 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
     const d = { position: { x: ref.position.x + face.x, y: ref.position.y + face.y, z: ref.position.z + face.z } }
     return [cellOf(ref), cellOf(d), cellOf({ position: { x: d.position.x, y: d.position.y + 1, z: d.position.z } })]
   })
-  wrap('activateBlock', 'use', b => [cellOf(b)])
+  wrap('activateBlock', 'use', b => [cellOf(b)], { allow: b => unlockAllowed(b?.name, cellOf(b)) })
   wrap('openBlock', 'open', b => [cellOf(b)], { approve: true })
   wrap('sleep', 'sleep', b => [cellOf(b)], { approve: true })
   wrap('craft', 'craft', (_r, _n, table) => [cellOf(table)], { approve: true })
