@@ -34,6 +34,10 @@ const REQUIRED = [
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
+  // swimcentre-01 (11-03): a rising body is centred under the column it rises through (the y N.2 drownings)
+  'bots/src/swimcentre.mjs',
+  'bots/test/swimcentre.test.mjs',
+  'docs/reports/swimcentre-01-2026-11-03.md',
   // escapeguard-01 (10-31): a trapped bot's escape never digs a build record or a protected zone's structure
   // serving D (owner 11-01): fewer LLM decisions -- pausewait, vetoskip, continue
   'bots/src/fewerdec.mjs',
