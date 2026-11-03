@@ -3510,22 +3510,26 @@
     "owner-townterrace-1103.md",
     "owner-groundskeeper-1102.md"
    ],
-   "kind": "design",
+   "kind": "showcase",
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Build as a groundskeeper stage after stage 0 on top of the showcase groundskeeper release (tripwire tidy rule first); showcase first with a 2-h read (walk failures, stuck cells, in-town deposit failures down; 0 protected/project/marker blocks; cut/fill balanced), then the fleet groundskeeper canary.",
+   "next_step": "BUILT 11-03 (not activated): branch townterrace-on-c2a0de4f on the showcase release line showcase-yard2-on-e54d1cce c2a0de4f (groundskeeper + copperrun + yardsite) -- terrace stage (land-plan stage 1, after the plaza) + seeded park + the owner's 11-01 water rule (fills beside/into water, cuts behind dams, dig-time check; TIDY_WATER=strict rollback). Reviews Codex + Claude to BLOCKERS none; full suite on .30 = base's own 4 failures. NEXT: the showcase owner releases it AFTER the groundskeeper re-release (needs the tripwire tidy rule, 442d0496/230c204b, installed); 2-h read per docs/reports/townterrace-2026-11-03.md (walk failures, stuck cells, in-town deposit failures down; H1-H6 0 for project=tidy; 0 protected blocks; stage completes), then the fleet groundskeeper canary. Open: park materials (no town chest holds flowers/saplings/seeds/bamboo/leaves: a park gather is needed); lily pads (no on-water actuator).",
    "max_quiet_hours": 72,
    "depends_on": [],
    "evidence": {
     "grep": [
      "townterrace"
     ],
+    "branches": [
+     "townterrace-on-*"
+    ],
     "paths": [
-     "docs/reports/groundskeeper-2026-11-02.md"
+     "docs/reports/groundskeeper-2026-11-02.md",
+     "docs/reports/townterrace-2026-11-03.md"
     ]
    },
-   "note": "Keep wells, farms (farmland water), trial chamber, expedition markers, finished builds, the copper hall's reserved site untouched; seal any cave opened by a cut; seeded variety per town."
+   "note": "Keep wells, farms (farmland water), trial chamber, expedition markers, finished builds, the copper hall's reserved site untouched; seal any cave opened by a cut; seeded variety per town. 11-03: the owner's 11-01 water rule folded in (coordinator relay 'lets go with the 11-1 rule'). Offline (16 fleet copies + showcase): walk-and-back inside the wall 20,942 -> 26,165 columns after stage 0, stuck-prone 8,875 -> 6,886, 0 protected touches, 30 trees felled with 30 replants; the water rule adds 50 cells across 17 towns."
   },
   {
    "id": "survival-supply-1103",
