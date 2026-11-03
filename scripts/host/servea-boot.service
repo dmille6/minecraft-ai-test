@@ -1,0 +1,12 @@
+[Unit]
+Description=servea: clear stale llama-server pid files and restart the fleet llama-server if AUTOSTART is set
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /root/servea/servea-boot.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

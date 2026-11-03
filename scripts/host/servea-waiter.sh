@@ -70,7 +70,9 @@ release_entry () {  # release_entry <run>: queue release, then PROVE the hold is
 }
 qf () { python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(eval(sys.argv[2], {}, {'d': d}))" "$1" "$2" 2>/dev/null; }
 health () { $SSH $C31 "curl -sf -m 5 http://10.0.0.72:18080/health" < /dev/null > /dev/null 2>&1; }
-stop_server () { $SSH $C72 "$SRV stop" < /dev/null >> "$LOG" 2>&1; }
+# AUTOSTART on the 5080 = "the server should be up": servea-boot.service (5080) restarts it after a reboot while
+# the file exists; stop_server removes it, so a stopped server stays stopped across reboots.
+stop_server () { $SSH $C72 "rm -f /root/servea/AUTOSTART; $SRV stop" < /dev/null >> "$LOG" 2>&1; }
 
 if [ "${1:-}" = status ]; then echo "state: $(state)"; tail -15 "$LOG" 2>/dev/null; exit 0; fi
 if [ "${1:-}" = set ]; then echo "${2:?state}" > "$W/state"; log "operator set ${2}"; exit 0; fi
@@ -121,6 +123,7 @@ print(env.get(\"OLLAMA_MODEL\",\"\"), u.split(\"|\")[0], r.get(\"draw_k\"))'" < 
   $SSH $C72 "test -f /root/servea/models/$ALIAS.gguf" < /dev/null || { go halt "no /root/servea/models/$ALIAS.gguf on the 5080 (copy the GGUF there under that name)"; exit 0; }
   health || $SSH $C72 "$SRV start /root/servea/models/$ALIAS.gguf $ALIAS 6 6144" < /dev/null >> "$LOG" 2>&1
   health || { stop_server; go halt "the 5080 llama-server for $ALIAS did not answer /health from the canary host"; exit 0; }
+  $SSH $C72 "echo /root/servea/models/$ALIAS.gguf $ALIAS 6 6144 > /root/servea/AUTOSTART" < /dev/null >> "$LOG" 2>&1
   RATE=$(python3 -c "print(round($K*5*1.33*1.2))"); N=$((RATE * 3)); OFF=$(( $(date +%s) % 600 ))
   full=$($SSH $C31 "bash ~/servea/servea-check.sh $ALIAS $RATE $N $OFF" < /dev/null 2>&1)
   out=$(echo "$full" | tail -1); guard=$(echo "$full" | grep -m1 '^GUARD' || echo 'GUARD ?')

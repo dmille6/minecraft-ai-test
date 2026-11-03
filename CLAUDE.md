@@ -139,7 +139,8 @@ make it deterministic), and **composed**: test the refusal chain, not the single
   a WAN re-provision). 10.0.0.72 (pve4, the 5080) is touched only for model serving: the
   owner's 11-01 exception covers llama-server in `/root/servea` and its model files, with
   Ollama qwen2.5 kept as the tested fallback, backups first, and no OS, driver or network
-  changes. Its host key was verified 11-02 (ED25519 `SHA256:IvXdH5Pv…TZxo`). Never disable
+  changes beyond one unit, `servea-boot.service` (11-03, owner "get everything running": restarts
+  llama-server after a reboot only while `/root/servea/AUTOSTART` exists). Its host key was verified 11-02 (ED25519 `SHA256:IvXdH5Pv…TZxo`). Never disable
   `rpcbind` on a Proxmox node. Never print keys. The Mac mini is a controller only: no models
   and no heavy jobs on it; full test suites run on 10.0.0.30, one at a time, under `nice -n 19`.
 - The Blackwell is for tests only; long-term serving runs on the 5080 and the 3090 (owner 10-31).
