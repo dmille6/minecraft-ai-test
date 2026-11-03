@@ -277,3 +277,69 @@ class Events:
 
     def where(self, name, pred):
         return [r for r in self.of(name) if pred(r)]
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# STREAMING, ONE BOT AT A TIME (effectwatch-01, 2026-11-03). Events.load() holds every row of every bot in RAM and refuses
+# a walk over ~6 GB (WalkTooWide), and it DROPS the decision stream (rows without skill.name). A 24-72 h effect window or
+# a busy-time hour needs both streams for one bot at a time, so this reads the same files a full walk reads -- rotated
+# .gz generations included, nothing seeked -- and yields one bot's rows in its window, then forgets them.
+#
+# Rotation (scoreboard.load_window's lesson): logrotate copytruncates at ~23:59Z, so day D lives in
+# <stream>-<bot>.jsonl-<D+1>.gz and the live file starts at ~23:59Z. A file whose mtime is before `since` cannot hold a row
+# in the window and is skipped (Events.load's rule); a rotated file tagged more than 2 days after `until` cannot either.
+# Every other line is read. The `@timestamp` prefix test is only a fast reject: a line that does not start with the
+# logger's `{"@timestamp":"` shape is parsed in full, never skipped.
+
+TS_PREFIX = '{"@timestamp":"'
+
+
+def bot_files(root, bot, stream='skill'):
+    """Every file of one bot's stream, rotated generations first (oldest tag first), the live file last."""
+    base = os.path.join(root, bot, '%s-%s.jsonl' % (stream, bot))
+    rot = sorted(glob.glob(base + '-*'))
+    return rot + ([base] if os.path.exists(base) else [])
+
+
+def _tag_date(path):
+    tail = path.rsplit('.jsonl-', 1)
+    if len(tail) != 2:
+        return None
+    try:
+        return datetime.datetime.strptime(tail[1][:8], '%Y%m%d').date()
+    except ValueError:
+        return None
+
+
+def stream_rows(root, bot, since, until, stream='skill'):
+    """Yield (t, row) for one bot's `stream` ('skill' or 'llm') with since <= t < until, rotation-aware, in FILE order
+    (callers sort: skill rows are written at their END but stamped with their START). Rows of the skill stream without
+    skill.name are yielded too -- the caller decides; nothing is dropped here."""
+    lo = since.strftime('%Y-%m-%dT%H:%M:%S')
+    hi = until.strftime('%Y-%m-%dT%H:%M:%S')
+    for f in bot_files(root, bot, stream):
+        try:
+            mt = datetime.datetime.fromtimestamp(os.path.getmtime(f), datetime.timezone.utc)
+        except OSError:
+            continue
+        if mt < since:
+            continue
+        td = _tag_date(f)
+        if td is not None and td > until.date() + datetime.timedelta(days=2):
+            continue
+        try:
+            with open_log(f) as fh:
+                for line in fh:
+                    if line.startswith(TS_PREFIX):
+                        ts = line[len(TS_PREFIX):len(TS_PREFIX) + 19]
+                        if ts < lo or ts > hi:
+                            continue
+                    try:
+                        d = json.loads(line)
+                        t = datetime.datetime.fromisoformat(str(d.get('@timestamp', '')).replace('Z', '+00:00'))
+                    except Exception:
+                        continue
+                    if since <= t < until:
+                        yield t, d
+        except (OSError, EOFError):
+            continue

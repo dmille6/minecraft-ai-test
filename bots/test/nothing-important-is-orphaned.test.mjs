@@ -247,6 +247,15 @@ const REQUIRED = [
   'scripts/host/test_flowledger.py',
   'scripts/host/install-flowledger.sh',
   'bots/test/flowledger.test.mjs',
+  // effectwatch-01 (OWNER 11-03 items 1 + 6): post-promotion effect reads and fleet busy time, alarms in the fleetstatus header
+  'scripts/host/effectwatch.py',
+  'scripts/host/effectcache.py',
+  'scripts/host/test_effectwatch.py',
+  'scripts/host/install-effectwatch.sh',
+  'scripts/lib/busytime.py',
+  'scripts/lib/effectmetrics.py',
+  'config/effect-targets.json',
+  'bots/test/effectwatch.test.mjs',
   // jobshadow-01 (job-assigner-2026-11-03 stage 1): the rule-based town job assigner, shadow only (host, log only)
   'scripts/lib/jobrules.py',
   'scripts/host/jobshadow.py',

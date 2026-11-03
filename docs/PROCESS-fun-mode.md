@@ -132,6 +132,12 @@ There is **one canary slot**. The tripper matches `canary_pool` literally and
 - **Whole-bundle rollback.** If the read trips, revert the **entire** bundle to
   the pinned previous sha, then diagnose offline. Do not drop the newest change
   and rerun live.
+- **Every new registration names its effect** (OWNER 11-03): an `effect` field with a metric from
+  `scripts/lib/effectmetrics.py`, its direction and minimum (or a `none_reason`); check it with
+  `effectwatch.py validate <registration.json>`. The scheduler ignores the field. `effectwatch.py` (canary host,
+  hourly) reads that metric fleet-wide at +24 h and +72 h after the promotion against the pre-canary baseline
+  and alarms NO-EFFECT / WORSE into the fleetstatus header until a ledger row `effect-<run>` says fix or remove.
+  A run without the field reads from `config/effect-targets.json`, else it alarms "no effect declared".
 - Control pools are free, so look at them. There is no DiD write-up unless
   something looks wrong. Pre-registration, placebo pools, null bands, exposure
   licences and read scripts belong to **lab mode** only.

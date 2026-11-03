@@ -129,3 +129,32 @@ sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 import valuescore
 print()
 valuescore.report(START.strftime('%Y-%m-%dT%H:%M:%SZ'), END.strftime('%Y-%m-%dT%H:%M:%SZ'))
+
+# BUSY TIME (OWNER 11-03 item 6, effectwatch-01): the share of OBSERVED bot-time in skills / walking / waiting on or between
+# model decisions / idle over this window, from the hourly cache effectcache.py builds on the canary host
+# (~/effectwatch/cache; one cell per bot-hour from BOTH streams, lib/busytime.py's classes). Never a quiet zero: a window
+# with no cache hour prints '!!'.
+import gzip as _gz, importlib.util as _ilu
+_bt_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'lib', 'busytime.py')
+try:
+    _spec = _ilu.spec_from_file_location('busytime_sb', _bt_path)
+    busytime = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(busytime)
+    _tot, _n, _h = {}, 0, START.replace(minute=0, second=0, microsecond=0)
+    while _h + dt.timedelta(hours=1) <= END:
+        try:
+            with _gz.open(_os.path.expanduser('~/effectwatch/cache/' + _h.strftime('%Y%m%dT%H') + '.json.gz'), 'rt') as _f:
+                _d = json.load(_f)
+            _n += 1
+            for _b in _d['bots'].values():
+                for _c in _b.values():
+                    for _k, _v in (_c.get('busy') or {}).items():
+                        _tot[_k] = _tot.get(_k, 0.0) + _v
+        except (OSError, ValueError, EOFError):
+            pass
+        _h += dt.timedelta(hours=1)
+    print()
+    print(busytime.line(_tot, f'busy time ({_n} cache hours of {H:g})') if _n else
+          '!! busy time: no effectcache hour in this window (~/effectwatch/cache; effectcache.py cron on the canary host)')
+except Exception as _e:      # noqa: BLE001
+    print(f'\n!! busy time unavailable ({type(_e).__name__}: {str(_e)[:100]}) -- lib/busytime.py beside this script?')

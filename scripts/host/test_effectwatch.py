@@ -1,0 +1,446 @@
+#!/usr/bin/env python3
+"""Tests for effectwatch-01: lib/busytime.py, lib/effectmetrics.py, lib/telemetry.stream_rows, host/effectcache.py and
+host/effectwatch.py. Behaviour, not text: every second classified once and the classes sum to the window; END-stamped
+sub-steps; a hole is unobserved; ratios are ratios of sums; a canary build is never fleet; the rotated generation is read;
+a synthetic fleet whose metric halves after a promotion reads EFFECT, an unchanged one NO-EFFECT, a holed one UNREADABLE,
+a minority-model A/B is excluded; the wiring (alarmhead FILES, monitors.json, installer) is present; every anchored mutant
+is killed.
+    python3 -B scripts/host/test_effectwatch.py
+"""
+import datetime as dt
+import gzip
+import importlib.util
+import json
+import os
+import random
+import sys
+import tempfile
+import types
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.abspath(os.path.join(HERE, '..', '..'))
+sys.path.insert(0, os.path.join(HERE, '..'))
+sys.path.insert(0, HERE)
+UTC = dt.timezone.utc
+FAILS = []
+
+
+def check(name, ok, info=''):
+    print(('  PASS  ' if ok else '  FAIL  ') + name + ('' if ok else f'\n        {str(info)[:400]}'))
+    if not ok:
+        FAILS.append(name)
+
+
+def load(path, name, replace=None, inject=None):
+    src = open(path).read()
+    if replace:
+        old, new = replace
+        assert src.count(old) == 1, f'ANCHOR MISSING OR NOT UNIQUE in {path}: {old!r}'
+        src = src.replace(old, new)
+    m = types.ModuleType(name)
+    m.__file__ = path
+    if inject:
+        saved = {k: sys.modules.get(k) for k in inject}
+        sys.modules.update(inject)
+    try:
+        exec(compile(src, path, 'exec'), m.__dict__)
+    finally:
+        if inject:
+            for k, v in saved.items():
+                if v is None:
+                    sys.modules.pop(k, None)
+                else:
+                    sys.modules[k] = v
+    return m
+
+
+P_BT = os.path.join(REPO, 'scripts/lib/busytime.py')
+P_EM = os.path.join(REPO, 'scripts/lib/effectmetrics.py')
+P_TM = os.path.join(REPO, 'scripts/lib/telemetry.py')
+P_EC = os.path.join(REPO, 'scripts/host/effectcache.py')
+P_EW = os.path.join(REPO, 'scripts/host/effectwatch.py')
+
+
+def mods(**mut):
+    """Fresh modules; mut = {'bt': (old, new), ...} applies one mutant. effectwatch / effectcache see the mutated libs."""
+    import lib
+    bt = load(P_BT, 'lib.busytime', mut.get('bt'))
+    em = load(P_EM, 'lib.effectmetrics', mut.get('em'))
+    tm = load(P_TM, 'lib.telemetry', mut.get('tm'))
+    inj = {'lib.busytime': bt, 'lib.effectmetrics': em, 'lib.telemetry': tm}
+    setattr(lib, 'busytime', bt), setattr(lib, 'effectmetrics', em), setattr(lib, 'telemetry', tm)
+    ec = load(P_EC, 'effectcache', mut.get('ec'), inject=inj)
+    inj['effectcache'] = ec
+    ew = load(P_EW, 'effectwatch', mut.get('ew'), inject=inj)
+    return types.SimpleNamespace(bt=bt, em=em, tm=tm, ec=ec, ew=ew)
+
+
+# ------------------------------------------------------------------------------------------------------------ busytime --
+def t_busy(M):
+    BT = M.bt
+    ok = True
+    gather = BT.skill_interval(0, 'gather', 100_000)          # [0, 100)
+    sub = BT.skill_interval(50, '_craft_sync', 10_000)        # END-stamped: [40, 50) inside the gather
+    tail = BT.skill_interval(300, '_build_visit', 20_000)     # END-stamped: [280, 300) -- inside the window only if END
+    goto = BT.skill_interval(60, 'goto', 20_000)              # overlaps the gather: productive wins
+    sec = BT.classify(0, 300, [gather, sub, tail, goto], [(130, 2.0)], stamps=list(range(0, 1300, 20)))
+    ok &= abs(sum(sec.values()) - 300) < 1e-6
+    ok &= abs(sec['productive'] - 120) < 1e-6                 # 0-100 + 280-300
+    ok &= abs(sec['walking'] - 0) < 1e-6
+    ok &= abs(sec['llm_wait'] - 2) < 1e-6 and abs(sec['between'] - 30) < 1e-6
+    ok &= abs(sec['idle'] - 148) < 1e-6
+    # a 15-minute hole with no row of either stream is unobserved, and leaves the denominator
+    sec2 = BT.classify(0, 3600, [], [], stamps=[0, 100, 1100, 1500, 2000, 2500, 3000, 3500, 3600])
+    ok &= abs(sec2['unobserved'] - 1000) < 1e-6 and abs(sum(sec2.values()) - 3600) < 1e-6
+    sh = BT.shares(sec2)
+    ok &= abs(sh['observed_h'] - 2600 / 3600) < 1e-9
+    ok &= BT.pause_seconds('rule=pausewait runner paused; wake in 31s') == 31.0 and BT.pause_seconds('rule=vetoskip') is None
+    sec3 = BT.classify(0, 100, [], [(90, 1.0)], pauses=[(0, 30)], deaths=[50], stamps=[0, 60, 100])
+    ok &= abs(sec3['paused'] - 30) < 1e-6 and abs(sec3['dead'] - 10) < 1e-6
+    return bool(ok), sec
+
+
+# ------------------------------------------------------------------------------------------------------- effectmetrics --
+def t_metrics(M):
+    EM = M.em
+    ok = True
+    c = EM.new_cell('board-a')
+    EM.add_skill_row(c, {'skill': {'name': 'gather', 'status': 'success', 'duration_ms': 5000, 'args': {'block': 'oak_log'},
+                                   'inventory_delta': {'oak_log': 3, 'dirt': -1}}})
+    EM.add_skill_row(c, {'skill': {'name': '_lid_clear', 'status': 'no_effect', 'detail': 'outcome=refused by=x lid=oak_planks'}})
+    EM.add_skill_row(c, {'skill': {'name': '_death', 'status': 'failed', 'fail_class': 'drowning'}})
+    EM.add_llm_row(c, {'trigger': 'idle', 'llm': {'latency_ms': 2000, 'prompt_tokens': 1000, 'schema_valid': True,
+                                                  'error': 'repeat_loop', 'model': 'qwen', 'completion_tokens': 50}})
+    ok &= c['k'].get('gather_log|success') == 1 and c['items'] == 3
+    ok &= c['dk'].get('_lid_clear:refused:oak_planks') == 1 and c['fc'].get('_death|drowning') == 1
+    ok &= c['llm']['err'].get('repeat_loop') == 1 and c['llm']['ptok'] == 1000
+    # a work-order row of the llm stream (no completion_tokens, latency 0) is NOT a model call
+    EM.add_llm_row(c, {'trigger': 'idle', 'llm': {'latency_ms': 0, 'prompt_tokens': 900, 'schema_valid': True,
+                                                  'completion_tokens': None, 'model': 'qwen'}})
+    ok &= c['llm']['n'] == 1 and c['llm']['orders'] == 1 and c['llm']['ptok'] == 1000
+    # ratio of SUMS, not a mean of ratios
+    a, b = EM.new_cell('p1'), EM.new_cell('p2')
+    a['k'] = {'deposit|success': 1, 'deposit|failed': 9}
+    b['k'] = {'deposit|success': 1}
+    m = EM.measure([({'bot': 'x', 'pool': 'p1'}, a), ({'bot': 'y', 'pool': 'p2'}, b)], 'skill.share.v1',
+                   {'name': 'deposit', 'status': 'success'})
+    ok &= abs(m['value'] - 2 / 11) < 1e-9 and m['num'] == 2 and m['den'] == 11
+    good = {'version': 1, 'targets': [{'metric': 'kind.rate.v1', 'params': {'name': 'x'}, 'direction': 'decrease',
+                                       'minimum': 0.2, 'scale': 'relative'}]}
+    ok &= EM.validate(good) == []
+    ok &= bool(EM.validate({'version': 1, 'targets': [dict(good['targets'][0], metric='nope.v1')]}))
+    ok &= bool(EM.validate({'version': 1, 'targets': [dict(good['targets'][0], params={})]}))
+    ok &= bool(EM.validate({'version': 1, 'targets': [dict(good['targets'][0], direction='up')]}))
+    ok &= bool(EM.validate({'version': 1, 'targets': []}))                        # neither targets nor none_reason
+    ok &= EM.validate({'version': 1, 'targets': [], 'none_reason': 'a guard'}) == []
+    side = json.load(open(os.path.join(REPO, 'config/effect-targets.json')))['runs']
+    bad = {k: EM.validate(v) for k, v in side.items() if EM.validate(v)}
+    ok &= not bad and len(side) >= 26
+    return bool(ok), (m, bad)
+
+
+# ------------------------------------------------------------------------------------------------------- stream_rows --
+def t_stream(M):
+    TM = M.tm
+    d = tempfile.mkdtemp()
+    os.makedirs(os.path.join(d, 'b1'))
+    row = lambda t, n: json.dumps({'@timestamp': t, 'skill': {'name': n}}) + '\n'
+    with gzip.open(os.path.join(d, 'b1', 'skill-b1.jsonl-20261102.gz'), 'wt') as f:
+        f.write(row('2026-11-01T10:00:00.000Z', 'old') + row('2026-11-01T23:00:00.000Z', 'rotated'))
+    with open(os.path.join(d, 'b1', 'skill-b1.jsonl'), 'w') as f:
+        f.write(row('2026-11-02T00:30:00.000Z', 'live') + 'not json\n' + row('2026-11-02T05:00:00.000Z', 'late')
+                + json.dumps({'skill': {'name': 'reordered-old'}, '@timestamp': '2026-11-01T05:00:00.000Z'}) + '\n')
+    now = dt.datetime.now(UTC)
+    for p in (os.path.join(d, 'b1', 'skill-b1.jsonl-20261102.gz'), os.path.join(d, 'b1', 'skill-b1.jsonl')):
+        os.utime(p, (now.timestamp(), now.timestamp()))
+    got = [r['skill']['name'] for _, r in TM.stream_rows(d, 'b1', dt.datetime(2026, 11, 1, 20, tzinfo=UTC),
+                                                         dt.datetime(2026, 11, 2, 1, tzinfo=UTC))]
+    return got == ['rotated', 'live'], got
+
+
+# --------------------------------------------------------------------------------------------------------- the read ---
+POOLS = [f'{g}-{x}' for g in ('board', 'hive', 'isolated', 'placebo') for x in 'abcd']
+SHA0, SHA1, SHAC, SHAY = 'a' * 40, 'b' * 40, 'c' * 40, 'd' * 40
+P_TIME = dt.datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
+D_TIME = P_TIME - dt.timedelta(hours=3)
+
+
+def fake_fleet(M, cache_dir, post_factor, hole=None, seed=1, ab=False):
+    """16 pools x 5 bots, hourly cells from P-11 d to P+4 d. Metric: furnace_drain rows per bot-hour ~2 (Poisson-ish),
+    times post_factor on the promoted build after P. A canary build (SHAC) in two pools during the baseline with a huge
+    count is the lineage control; with ab=True, three pools run another model with a huge count (the model control)."""
+    EC, EM = M.ec, M.em
+    rnd = random.Random(seed)
+    h = P_TIME - dt.timedelta(days=11)
+    end = P_TIME + dt.timedelta(days=4)
+    while h < end:
+        if hole is not None and h == hole:
+            h += dt.timedelta(hours=1)
+            continue
+        bots = {}
+        for pool in POOLS:
+            for i in range(5):
+                bot = f'{pool}-{i}'
+                after = h >= P_TIME + dt.timedelta(hours=1)
+                sha = SHA1 if after else SHA0
+                canary = (not after) and pool in ('board-a', 'hive-b') and D_TIME - dt.timedelta(hours=30) <= h < D_TIME - dt.timedelta(hours=20)
+                if canary:
+                    sha = SHAC
+                later = pool in ('board-a', 'hive-b') and P_TIME + dt.timedelta(hours=5) <= h < P_TIME + dt.timedelta(hours=9)
+                if later:
+                    sha = SHAY             # a LATER run's canary inside the post window: not fleet until its promotion
+                c = EM.new_cell(pool)
+                lam = 2.0 * (post_factor if after else 1.0) * (1 + 0.03 * rnd.uniform(-1, 1))
+                n = max(0, int(round(lam + rnd.uniform(-0.6, 0.6))))
+                if after and post_factor == 0:
+                    n = 0
+                if canary or later:
+                    n = 500
+                model = 'qwen2.5'
+                if ab and pool in ('isolated-a', 'isolated-c', 'placebo-c'):
+                    model, n = 'qwen3.5', 400
+                c['k'] = {'furnace_drain|no_effect': n}
+                c['rows'] = 900
+                c['llm']['n'] = 100
+                c['llm']['model'] = {model: 100}
+                c['busy'] = {'productive': 1000.0, 'between': 2600.0}
+                bots[bot] = {sha: c}
+        EC.write_hour(cache_dir, h, {'bots': bots, 'controls': {'bot_dirs': 80, 'bots_with_rows': 80,
+                                                              'skill_rows': 72000, 'llm_rows': 8000}}, h)
+        h += dt.timedelta(hours=1)
+
+
+def journal():
+    t = lambda x: x.strftime('%Y-%m-%dT%H:%M:%SZ')
+    return [
+        {'ts': t(P_TIME - dt.timedelta(days=20)), 'run': 'old-01', 'phase': 'promoted', 'note': SHA0 + ' fleet-wide'},
+        {'ts': t(D_TIME - dt.timedelta(minutes=3)), 'run': 'x-01', 'phase': 'drawn', 'note': 'board-c,hive-d :: draw'},
+        {'ts': t(D_TIME), 'run': 'x-01', 'phase': 'deployed', 'note': 'board-c,hive-d'},
+        {'ts': t(P_TIME - dt.timedelta(minutes=10)), 'run': 'x-01', 'phase': 'recorded', 'note': 'KEEP'},
+        {'ts': t(P_TIME), 'run': 'x-01', 'phase': 'promoted', 'note': SHA1 + ' fleet-wide'},
+        {'ts': t(P_TIME + dt.timedelta(days=3)), 'run': 'y-01', 'phase': 'promoted', 'note': SHAY + ' fleet-wide'},
+    ]
+
+
+SIDE = {'x-01': {'version': 1, 'targets': [{'metric': 'kind.rate.v1', 'params': {'name': 'furnace_drain'},
+                                            'direction': 'decrease', 'minimum': 0.3, 'scale': 'relative'}],
+                 'guardrails': [], 'none_reason': None}}
+
+
+def read(M, factor, hole=None, ab=False, horizon='h24'):
+    d = tempfile.mkdtemp()
+    fake_fleet(M, d, factor, hole=hole, ab=ab)
+    EW = M.ew
+    promos = EW.promotions(journal())
+    ti = [p['run'] for p in promos].index('x-01')
+    return EW.read_run(EW.Cache(d), promos, ti, horizon, sidecar=SIDE)
+
+
+def t_read_effect(M):
+    v = read(M, 0.4)
+    t = v['targets'][0] if v.get('targets') else {}
+    ok = v['verdict'] == 'EFFECT' and abs(t.get('baseline', {}).get('value', 0) - 2.0) < 0.15
+    return ok, (v['verdict'], v.get('why'), t.get('baseline', {}).get('value'), t.get('post', {}).get('value'), t.get('tau'))
+
+
+def t_read_null(M):
+    v = read(M, 1.0)
+    return v['verdict'] == 'NO-EFFECT', (v['verdict'], v.get('why'))
+
+
+def t_read_worse(M):
+    v = read(M, 2.0)
+    return v['verdict'] == 'WORSE', (v['verdict'], v.get('why'))
+
+
+def t_read_short(M):
+    v = read(M, 0.8)      # -20 % against a claimed minimum of 30 %: moved, but under half? 20 >= 15 -> EFFECT; use 0.88
+    v2 = read(M, 0.87)
+    return v['verdict'] == 'EFFECT' and v2['verdict'] == 'NO-EFFECT' and 'less than half' in v2.get('why', ''), \
+        (v['verdict'], v.get('why'), v2['verdict'], v2.get('why'))
+
+
+def t_read_hole(M):
+    v = read(M, 0.4, hole=P_TIME + dt.timedelta(hours=5))
+    return v['verdict'] == 'UNREADABLE' and 'hole' in v.get('why', ''), (v['verdict'], v.get('why'))
+
+
+def t_read_ab(M):
+    v = read(M, 1.0, ab=True)
+    t = v['targets'][0] if v.get('targets') else {}
+    return v['verdict'] == 'NO-EFFECT' and abs(t.get('baseline', {}).get('value', 0) - 2.0) < 0.15, \
+        (v['verdict'], v.get('why'), t.get('baseline', {}).get('value'))
+
+
+def t_lineage(M):
+    EW = M.ew
+    promos = EW.promotions(journal())
+    L = EW.Lineage(promos)
+    ok = not L.fleet(SHA1, P_TIME - dt.timedelta(hours=1)) and L.fleet(SHA1, P_TIME + dt.timedelta(hours=1))
+    ok &= not L.fleet(SHAC, P_TIME) and L.before(1)(SHA0, P_TIME) and not L.before(1)(SHA1, P_TIME + dt.timedelta(hours=2))
+    p = [x for x in promos if x['run'] == 'x-01'][0]
+    ok &= p['D'] == D_TIME and p['pools'] == ['board-c', 'hive-d']
+    return bool(ok), p
+
+
+def t_decide(M):
+    EW = M.ew
+    ok = EW.decide(0.5, 0.1, 0.3, 16, 14, 2, 'relative')[0] == 'EFFECT'
+    ok &= EW.decide(0.5, 0.1, 0.3, 16, 9, 7, 'relative')[0] == 'UNREADABLE'          # pools split
+    ok &= EW.decide(0.5, 0.1, 0.3, 6, 6, 0, 'relative')[0] == 'UNREADABLE'           # too few pools
+    ok &= EW.decide(0.12, 0.1, 0.3, 16, 15, 1, 'relative')[0] == 'NO-EFFECT'         # under half the claim
+    ok &= EW.decide(0.05, 0.1, 0.3, 16, 10, 6, 'relative')[0] == 'NO-EFFECT'
+    ok &= EW.decide(-0.4, 0.1, 0.3, 16, 1, 15, 'relative')[0] == 'WORSE'
+    ok &= abs(EW.delta(2.0, 1.0, 'relative') + EW.delta(1.0, 2.0, 'relative')) < 1e-12      # symmetric (log ratio)
+    ok &= EW.delta(0.0, 1.0, 'relative') is None and EW.delta(1.0, 0.0, 'relative') is None
+    ok &= abs(EW.min_log(0.3, 'decrease', 'relative') - 0.35667) < 1e-4 and EW.min_log(0.05, 'x', 'absolute') == 0.05
+    g = lambda v, guard=False: {'verdict': v, 'guardrail': guard, 'metric': 'm', 'why': ''}
+    ok &= EW.overall([g('EFFECT'), g('WORSE', True)])[0] == 'WORSE'
+    ok &= EW.overall([g('EFFECT'), g('NO-EFFECT')])[0] == 'NO-EFFECT'
+    ok &= EW.overall([g('UNREADABLE'), g('EFFECT')])[0] == 'EFFECT'
+    ok &= EW.overall([g('UNREADABLE')])[0] == 'UNREADABLE'
+    return bool(ok), None
+
+
+def t_hole_retry(M):
+    """cmd_run does not commit a read made UNREADABLE only by a cache hole until HOLE_GRACE after it fell due."""
+    EW = M.ew
+    d, sd = tempfile.mkdtemp(), tempfile.mkdtemp()
+    fake_fleet(M, d, 0.4, hole=P_TIME + dt.timedelta(hours=5))
+    jp = os.path.join(sd, 'journal.jsonl')
+    with open(jp, 'w') as f:
+        f.write('\n'.join(json.dumps(r) for r in journal()) + '\n')
+    lp = os.path.join(sd, 'ledger.json')
+    json.dump({'items': []}, open(lp, 'w'))
+    tp = os.path.join(sd, 'targets.json')
+    json.dump({'runs': SIDE}, open(tp, 'w'))
+    EW.TARGETS = tp
+    args = lambda now: ['run', '--no-push', '--since', '2026-11-01T00:00:00Z', '--now', now, '--journal', jp, '--cache', d,
+                        '--state-dir', sd, '--ledger', lp]
+    EW.EC.FINAL_AFTER = dt.timedelta(hours=2)
+    EW.main(args((P_TIME + dt.timedelta(hours=30)).strftime('%Y-%m-%dT%H:%M:%SZ')))
+    f24 = os.path.join(sd, 'effect', 'x-01', 'h24.json')
+    first = os.path.exists(f24)
+    EW.main(args((P_TIME + dt.timedelta(hours=80)).strftime('%Y-%m-%dT%H:%M:%SZ')))
+    later = json.load(open(f24)) if os.path.exists(f24) else {}
+    st = json.load(open(os.path.join(sd, 'effect-fleet.json')))
+    return (not first) and later.get('verdict') == 'UNREADABLE' and 'promotion effects' in st['summary'], (first, later.get('verdict'))
+
+
+def t_vanished(M):
+    v = read(M, 0.0)
+    return v['verdict'] == 'UNREADABLE' and 'vanished' in v.get('why', ''), (v['verdict'], v.get('why'))
+
+
+def t_joint(M):
+    """y-01 declares the SAME metric and is promoted 5 h after x-01: 3 clean post hours < 8 -> UNREADABLE."""
+    d = tempfile.mkdtemp()
+    fake_fleet(M, d, 0.4)
+    EW = M.ew
+    j = journal()
+    j[-1] = dict(j[-1], ts=(P_TIME + dt.timedelta(hours=5)).strftime('%Y-%m-%dT%H:%M:%SZ'))
+    promos = EW.promotions(j)
+    ti = [p['run'] for p in promos].index('x-01')
+    side = dict(SIDE, **{'y-01': SIDE['x-01']})
+    v = EW.read_run(EW.Cache(d), promos, ti, 'h24', sidecar=side)
+    v2 = EW.read_run(EW.Cache(d), promos, ti, 'h24', sidecar=SIDE)        # y-01 another metric: no joint read
+    v3 = EW.read_run(EW.Cache(d), promos, ti, 'h72', sidecar=side)        # y-01 BEFORE the +48..72 window: still joint
+    return v['verdict'] == 'UNREADABLE' and 'joint with y-01' in v.get('why', '') and 'joint' not in v2.get('why', '') \
+        and 'joint with y-01' in v3.get('why', ''), \
+        (v['verdict'], v.get('why'), v2['verdict'], v2.get('why'))
+
+
+def t_write_once(M):
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, 'r', 'h24.json')
+    return M.ew.write_once(p, {'a': 1}) and not M.ew.write_once(p, {'a': 2}) and json.load(open(p)) == {'a': 1}, None
+
+
+def t_wiring(M):
+    ah = open(os.path.join(REPO, 'scripts/lib/alarmhead.py')).read()
+    mon = json.load(open(os.path.join(REPO, 'config/monitors.json')))
+    ids = {m.get('id') for m in mon.get('monitors') or []}
+    inst = open(os.path.join(REPO, 'scripts/host/install-effectwatch.sh')).read()
+    ok = "('effect-fleet.json'," in ah and "('busy-fleet.json'," in ah and 'effectwatch' in ids
+    ok &= 'host/effectcache.py build' in inst and 'host/effectwatch.py run' in inst
+    sb = open(os.path.join(REPO, 'scripts/host/scoreboard.py')).read()
+    ok &= 'busytime' in sb
+    orphan = open(os.path.join(REPO, 'bots/test/nothing-important-is-orphaned.test.mjs')).read()
+    ok &= all(f"'{p}'" in orphan for p in ('scripts/host/effectwatch.py', 'scripts/host/effectcache.py',
+                                           'scripts/lib/busytime.py', 'scripts/lib/effectmetrics.py',
+                                           'config/effect-targets.json', 'scripts/host/test_effectwatch.py'))
+    return bool(ok), sorted(ids)[-5:]
+
+
+TESTS = [('busy-time classes, END stamps, holes', t_busy), ('metrics: keys, ratio of sums, schema, sidecar', t_metrics),
+         ('stream_rows reads the rotated generation', t_stream), ('lineage + journal', t_lineage),
+         ('decide / overall table', t_decide), ('write-once verdicts', t_write_once),
+         ('synthetic fleet: halved metric -> EFFECT', t_read_effect), ('synthetic fleet: unchanged -> NO-EFFECT', t_read_null),
+         ('synthetic fleet: doubled -> WORSE', t_read_worse), ('synthetic fleet: short of claim -> NO-EFFECT', t_read_short),
+         ('synthetic fleet: cache hole -> UNREADABLE', t_read_hole), ('synthetic fleet: model A/B excluded', t_read_ab),
+         ('a hole-only UNREADABLE is retried, not committed', t_hole_retry),
+         ('a vanished target event is UNREADABLE, not EFFECT', t_vanished),
+         ('a same-metric promotion inside the post window: joint -> UNREADABLE', t_joint), ('wiring', t_wiring)]
+
+MUTANTS = [
+    ('bt', "        return (t - d, t, 'productive')            # logEvent: stamped at the END",
+     "        return (t, t + d, 'productive')", t_busy),
+    ('bt', "        if b - a > gap and a < end and b > start:", "        if b - a > gap * 100 and a < end and b > start:", t_busy),
+    ('bt', "CLASSES = ('productive', 'walking', 'llm_wait',", "CLASSES = ('walking', 'productive', 'llm_wait',", t_busy),
+    ('em', "        num += a\n", "        num += (a / b) if b else 0\n", t_metrics),
+    ('em', "    if not tg and not effect.get('none_reason'):", "    if False:", t_metrics),
+    ('em', "    return 'gather_log' if b.endswith('_log') else None", "    return None", t_metrics),
+    ('tm', "    return rot + ([base] if os.path.exists(base) else [])", "    return [base] if os.path.exists(base) else []", t_stream),
+    ('tm', "                    if since <= t < until:\n                        yield t, d",
+     "                    if True:\n                        yield t, d", t_stream),
+    ('ew', "        return P is not None and h >= hceil(P)", "        return P is not None", t_read_effect),
+    ('ew', "        if ag / el < POOL_AGREE:\n            return 'UNREADABLE', f'pools split: {ag}/{el} agree",
+     "        if False:\n            return 'UNREADABLE', f'pools split: {ag}/{el} agree", t_decide),
+    ('ew', "        if half_min and s < half_min:", "        if False:", t_read_short),
+    ('ew', "                elif n >= 3 and maj is not None and c['llm']['model'].get(maj, 0) / n < 0.5:",
+     "                elif False:", t_read_ab),
+    ('ew', "    if any(r['verdict'] == 'WORSE' for r in tg) or any(r['verdict'] == 'WORSE' for r in gd):",
+     "    if any(r['verdict'] == 'WORSE' for r in tg):", t_decide),
+    ('ew', "        if hd is None or hd['controls'].get('bots_with_rows', 0) < hd['controls'].get('bot_dirs', 0) / 2:",
+     "        if hd is None and False:", t_read_hole),
+    ('ew', "    tau = max(2 * statistics.stdev(pl), FLOOR[scale][mb['kind']])", "    tau = 0.0", t_read_null),
+    ('em', "    if not is_model_call(row):\n        c['orders'] += 1", "    if False:\n        c['orders'] += 1", t_metrics),
+    ('ew', "            if is_hole_only(v) and now < end", "            if False and now < end", t_hole_retry),
+    ('ew', "    return None if base <= 0 or post <= 0 else math.log(post / base)", "    return None if base == 0 else (post - base) / base", t_decide),
+    ('ew', "    if mp['num'] == 0 and mb['num'] > 0:          # any kind (Codex review r1 BLOCKER 2)", "    if False:", t_vanished),
+    ('ew', "        if not (q['P'] < ph[-1] + H1):", "        if not (ph[0] <= q['P'] < ph[-1] + H1):", t_joint),
+]
+
+
+def main():
+    M = mods()
+    for name, fn in TESTS:
+        try:
+            ok, info = fn(M)
+        except Exception as e:      # noqa: BLE001
+            ok, info = False, f'{type(e).__name__}: {e}'
+        check(name, ok, info)
+    killed = 0
+    for i, (which, old, new, fn) in enumerate(MUTANTS):
+        try:
+            Mm = mods(**{which: (old, new)})
+        except AssertionError as e:
+            check(f'mutant {i} anchor', False, e)
+            continue
+        try:
+            ok, _ = fn(Mm)
+        except Exception:           # noqa: BLE001
+            ok = False
+        if ok:
+            print(f'  SURVIVED mutant {i} ({which}: {new.strip()[:70]})')
+            FAILS.append(f'mutant {i}')
+        else:
+            killed += 1
+    mods()
+    print(f'mutants killed {killed}/{len(MUTANTS)}')
+    print(f'{len(TESTS) - len([f for f in FAILS if not f.startswith("mutant")])}/{len(TESTS)} passed')
+    sys.exit(1 if FAILS else 0)
+
+
+if __name__ == '__main__':
+    main()

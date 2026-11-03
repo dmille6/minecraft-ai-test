@@ -23,6 +23,11 @@ FILES = (   # (file, label, stale after)
     # promomerge.py (Mac tick every 15 min; a tick that runs the suite holds its lock ~20-40 min): every fleet promotion is
     # merged into main, or '!! promotion ... does NOT merge into main' (audit 11-01 flag 4)
     ('promomerge-fleet.json', 'promotion merge', dt.timedelta(minutes=120)),
+    # effectwatch.py (hourly, OWNER 11-03 item 1): each promotion's targeted metric at +24 h / +72 h vs its baseline;
+    # '!! EFFECT <run> NO-EFFECT|WORSE ... fix or remove' until the ledger has row effect-<run>
+    ('effect-fleet.json', 'promotion effects', dt.timedelta(minutes=150)),
+    # the same run (OWNER 11-03 item 6): fleet busy time over the last 24 final hours (skills / walking / decision / idle)
+    ('busy-fleet.json', 'busy time', dt.timedelta(minutes=150)),
 )
 # MONITOR LOGS (audit 11-01 flag 9: cron outputs nothing read). Each is wired here, so the fleetstatus header IS its consumer:
 # (log under ~, label, stale after, the line to show: regex on the last matching line, alarm when that line matches `bad`

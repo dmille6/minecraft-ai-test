@@ -3651,6 +3651,32 @@
     ]
    },
    "note": "Measured 11-03 04:30Z before: every slot 03:30-04:28Z ran past the 13-min TimeoutStartSec and was killed (no frame, no heartbeat row); 11-02 had 47/96 pair frames and 16-30 per extra camera, so daily clips were ~5 frames at 10 fps. Cause: one new headless-Chrome page (SwiftShader) per camera, ~80 s/frame at CPUQuota 200%, 9-10 cameras per slot."
+  },
+  {
+   "id": "effectwatch-1103",
+   "title": "Post-promotion EFFECT check (+24 h / +72 h, the targeted metric fleet-wide vs baseline; EFFECT / NO-EFFECT / WORSE / UNREADABLE) and fleet BUSY TIME (skills / walking / decision / idle) -- owner 11-03 items 1 + 6",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Installed on the canary host (effectwatch cron :12). Close when the first hourly runs are read (effect-fleet.json + busy-fleet.json fresh in the fleetstatus header) and every NO-EFFECT / WORSE verdict has its effect-<run> row; new registrations carry an `effect` field (scripts/lib/effectmetrics.py) or a config/effect-targets.json entry.",
+   "max_quiet_hours": 48,
+   "depends_on": [],
+   "evidence": {
+    "grep": [
+     "effectwatch"
+    ],
+    "paths": [
+     "scripts/host/effectwatch.py",
+     "scripts/host/effectcache.py",
+     "config/effect-targets.json"
+    ]
+   },
+   "note": "Read-and-alarm only: never touches the queue, the scheduler or promotion. Design: Claude + Codex independent designs reconciled 11-03; Claude review r1 2 blockers fixed."
   }
  ]
 }

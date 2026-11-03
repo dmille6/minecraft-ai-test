@@ -533,6 +533,23 @@
    "consumer": "the job assigner's stage-1 read (`jobshadow.py summary` at +24 h: coverage gaps, churn, concordance v random -> the stage-2/3 go/no-go in docs/reports/job-assigner-2026-11-03.md s.6); ledger row jobassign-1103",
    "kind": "monitor",
    "note": "SHADOW ONLY: writes nothing into /var/lib/mcai and no bot reads it (scripts/host/install-jobshadow.sh)"
+  },
+  {
+   "id": "effectwatch",
+   "host": "31",
+   "cron": "host/effectcache.py build + host/effectwatch.py run",
+   "outputs": [
+    "~/digest/effect-fleet.json",
+    "~/digest/busy-fleet.json",
+    "~/digest/effect-latest.md",
+    "~/digest/effect/<run>/<h24|h72>.json",
+    "~/digest/effect-ledger-pending.json",
+    "~/effectwatch/cache/*.json.gz",
+    "~/effectwatch/cron.log"
+   ],
+   "fresh_hours": 2.5,
+   "consumer": "fleetstatus header (alarmhead FILES 'promotion effects:' and 'busy time:' lines; '!!' on NO-EFFECT/WORSE until ledger row effect-<run>, or stale > 150 min); alarms in ~/digest/ALARMS.log + push; scoreboard.py busy-time line; the ops audit reads effect-latest.md",
+   "kind": "monitor"
   }
  ]
 }

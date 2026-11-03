@@ -1,0 +1,535 @@
+{
+ "version": 1,
+ "rule": "effectwatch-01 (OWNER 11-03 item 1). The EFFECT target of each promotion whose registration has no `effect` field: the backfill since 10-28 (retrospective: written 11-03 from each registration's own notes; claim quotes them) and entries written ahead for queued runs. A registration's own `effect` wins. Schema and metric ids: scripts/lib/effectmetrics.py. A PROXY claim names a metric that is near, not identical to, what the change measured itself.",
+ "runs": {
+  "respawnfall-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "failclass.rate.v1",
+     "params": {
+      "name": "_death",
+      "fail_class": "fall"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "respawn-fall: sky_descend after an elevated respawn (fall deaths)",
+     "window_h": 72
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "lidplace-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "_lid_clear",
+      "status": "success"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "bots stop pillaring onto chest lids (lid clears dug: 37 in 7 d)"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "trunk-01": {
+   "version": 1,
+   "targets": [],
+   "guardrails": [],
+   "none_reason": "brings the building tier to the fleet: no pre-change baseline for any build metric; progress is the structure count (structcount)",
+   "retrospective": true
+  },
+  "smeltgate-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "skill.share.v1",
+     "params": {
+      "name": "smelt_town",
+      "status": "no_effect"
+     },
+     "direction": "decrease",
+     "minimum": 0.6,
+     "scale": "relative",
+     "claim": "777 of 1,068 smelt_town jobs ended town_has_none (no_effect); expect ~-60%"
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "smelt_town",
+      "status": "success"
+     },
+     "direction": "increase"
+    }
+   ],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "kitmulti-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "failclass.share.v1",
+     "params": {
+      "name": "toolkit",
+      "fail_class": "kit_no_iron"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "673 of 1,048 toolkit runs failed kit_no_iron; expect down sharply"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "chestreach-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "skill.share.v1",
+     "params": {
+      "name": "deposit",
+      "status": "success"
+     },
+     "direction": "increase",
+     "minimum": 0.05,
+     "scale": "relative",
+     "claim": "deposit home retry succeeds (goal line _deposit_home_retry retry=success)"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "cornerwalk-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "_reflex_stuck"
+     },
+     "direction": "decrease",
+     "minimum": 0.1,
+     "scale": "relative",
+     "claim": "1,378 in-place wedge episodes / 6 h; PROXY _reflex_stuck (the diagonal share is not measurable)"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "tdoffer-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "skill.share.v1",
+     "params": {
+      "name": "town_deposit",
+      "status": "no_effect"
+     },
+     "direction": "decrease",
+     "minimum": 0.5,
+     "scale": "relative",
+     "claim": "176 of 182 town_deposit no_effect rows were refused recount offers; expect them to stop"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "coalfirst-01": {
+   "version": 1,
+   "targets": [],
+   "guardrails": [],
+   "none_reason": "fleet towns hold 43-274 coal: the coal run is expected to skip stocked; the target population is the showcase",
+   "retrospective": true
+  },
+  "tdfull-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "skill.share.v1",
+     "params": {
+      "name": "town_deposit",
+      "status": "success"
+     },
+     "direction": "increase",
+     "minimum": 0.05,
+     "scale": "relative",
+     "claim": "a town deposit that finds every chest in reach full builds or uses another; town_deposit success"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "logsurface-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "skill.share.v1",
+     "params": {
+      "name": "gather_log",
+      "status": "success"
+     },
+     "direction": "increase",
+     "minimum": 0.1,
+     "scale": "relative",
+     "claim": "log gathers 317/438 succeed at y>=63, 63/409 below sea level; no log gathering underground"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "lidplank-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "detail.rate.v1",
+     "params": {
+      "key": "_lid_clear:refused:oak_planks"
+     },
+     "direction": "decrease",
+     "minimum": 0.5,
+     "scale": "relative",
+     "claim": "1,190 of 1,206 _lid_clear rows refused lid=oak_planks (7 d)"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "zigfleet-01": {
+   "version": 1,
+   "targets": [],
+   "guardrails": [],
+   "none_reason": "brings the ziggurat to fleet towns: no pre-change baseline (monument rows start with it); progress is the structure count",
+   "retrospective": true
+  },
+  "shaft-02": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "_shaft"
+     },
+     "direction": "increase",
+     "minimum": 0.2,
+     "scale": "relative",
+     "claim": "the town stair gets built (PROXY: _shaft work rows per bot-h)"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "shaft-03": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "_shaft"
+     },
+     "direction": "increase",
+     "minimum": 0.2,
+     "scale": "relative",
+     "claim": "11 of 16 town stairs made no progress; 21 of 49 visits aborted (PROXY: _shaft work rows per bot-h)"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "escapeguard-01": {
+   "version": 1,
+   "targets": [],
+   "guardrails": [],
+   "none_reason": "a guard: an escape never digs a build record or protected structure; the fleet target is refusals near records, not a rate to move",
+   "retrospective": true
+  },
+  "zigfleet-02": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "skill.share.v1",
+     "params": {
+      "name": "furnace_drain",
+      "status": "no_effect"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "furnaceseen-01 in the bundle: 1,887 of 3,130 furnace_drain rows no_effect empty; the drain skips a furnace a townmate found empty"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "tombexit-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "failclass.rate.v1",
+     "params": {
+      "name": "_death",
+      "fail_class": "suffocation"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "suffocation deaths (42 in 7 d)",
+     "window_h": 72
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "airpocketwin-01": {
+   "version": 1,
+   "targets": [],
+   "guardrails": [],
+   "none_reason": "closes a proven trap (a window click in an air pocket); not expected to move the drowning count (its own note)",
+   "retrospective": true
+  },
+  "lavatarget-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "failclass.rate.v1",
+     "params": {
+      "name": "_death",
+      "fail_class": "fire"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "fire deaths (42 in 7 d)",
+     "window_h": 72
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "promptcache-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "llm.prompt_tokens_mean.v1",
+     "params": {},
+     "direction": "decrease",
+     "minimum": 0.05,
+     "scale": "relative",
+     "claim": "~170 of ~1,400 USER tokens (12%); prompt_tokens p50 ~150 lower of ~2,550 total (~6%)"
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "llm.schema_valid_share.v1",
+     "params": {},
+     "direction": "increase"
+    },
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    }
+   ],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "apseal-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "failclass.rate.v1",
+     "params": {
+      "name": "_death",
+      "fail_class": "drowning"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "56 drownings in 7 d, 48 after an air-pocket refusal the seal removes (low exposure: ~12 refusals/day)",
+     "window_h": 72
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "fleetbuild-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "detail.rate.v1",
+     "params": {
+      "key": "_build:monument:place"
+     },
+     "direction": "increase",
+     "minimum": 0.2,
+     "scale": "relative",
+     "claim": "ziggurats unblocked (sealed skin column, bamboo in foundation cells): monument blocks placed per bot-h"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "tidy-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "detail.rate.v1",
+     "params": {
+      "key": "_build:paths:place"
+     },
+     "direction": "increase",
+     "minimum": 0.2,
+     "scale": "relative",
+     "claim": "paths route in 7/16 towns after a tidy (1 before): path blocks placed per bot-h"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "fewerdec-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "llm.calls_per_bot_hour.v1",
+     "params": {},
+     "direction": "decrease",
+     "minimum": 0.15,
+     "scale": "relative",
+     "claim": "model calls/min/bot -15..-20% (~96 -> ~79/min fleet)"
+    },
+    {
+     "metric": "busy.share.v1",
+     "params": {
+      "cls": "skills"
+     },
+     "direction": "increase",
+     "minimum": 0.18,
+     "scale": "relative",
+     "claim": "bot-time in skills 27.8% -> ~33-38%"
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    }
+   ],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "drainpick-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "furnace_drain"
+     },
+     "direction": "decrease",
+     "minimum": 0.8,
+     "scale": "relative",
+     "claim": "drain orders ~3,200 -> ~500/day"
+    },
+    {
+     "metric": "skill.share.v1",
+     "params": {
+      "name": "withdraw_pick",
+      "status": "success"
+     },
+     "direction": "increase",
+     "minimum": 1.0,
+     "scale": "relative",
+     "claim": "withdraw_pick success ~19% -> ~70-80%"
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "deepminer-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "deep_mine",
+      "status": "success"
+     },
+     "direction": "increase",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "one deep miner per town walks the stair to y=16 and mines (PROXY: deep_mine successes per bot-h)"
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    }
+   ],
+   "none_reason": null,
+   "retrospective": false
+  },
+  "servea-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "busy.share.v1",
+     "params": {
+      "cls": "decision"
+     },
+     "direction": "decrease",
+     "minimum": 0.03,
+     "scale": "relative",
+     "claim": "the 4B on the 5080 llama-server: less bot time waiting on decisions"
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    },
+    {
+     "metric": "llm.schema_valid_share.v1",
+     "params": {},
+     "direction": "increase"
+    }
+   ],
+   "none_reason": null,
+   "retrospective": false,
+   "exposure": {
+    "model": "r3-qwen35-4b"
+   }
+  }
+ }
+}
