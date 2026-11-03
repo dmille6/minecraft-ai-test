@@ -293,7 +293,7 @@ await t('build_shop dispatches the crop farm\'s plot to buildCropFarm; a standin
 })
 await t('shop.mjs: the crop farm is a project after the tree farm, gated by its switch; its palette is CROP_PALETTE for the damage test', async () => {
   assert.ok(/plot: CROPFARM_PLOT, blueprint: CROPFARM_BLUEPRINT, after: TREEFARM_PLOT, builders: CROPFARM_BUILDERS/.test(sh))
-  assert.ok(/p\.plot === CROPFARM_PLOT \? crop && on/.test(sh))
+  assert.ok(/p\.plot === CROPFARM_PLOT \? crop && farm && paths && on/.test(sh), 'only where the tree farm it follows is on')
   assert.ok(/id === CROPFARM_BLUEPRINT \? \{ id, palette: CROP_PALETTE \}/.test(sk))
 })
 await t('junkswap never drops a kept seed (skills.mjs JUNKSWAP_ITEMS is built through the keep)', async () => {
