@@ -495,7 +495,8 @@ export const PREV_SEG = 'T-PREV'
 export const PREV_MAX = 8000
 export function stageCarry (body, cur, max = PREV_MAX) {
   if (!body || !cur?.cells?.length) return body
-  const have = new Set((body.cells ?? []).map(c => c.at.join(',')))
+  // Codex + Claude r2 BLOCKER: never a previous cell on one of this stage's cuts or clears (clears() never digs under a record cell)
+  const have = new Set([...(body.cells ?? []).map(c => c.at.join(',')), ...(body.cut ?? []).map(c => c.at.join(',')), ...(body.clear ?? []).map(c => c.at.join(','))])
   const prev = []
   for (const c of cur.cells) { const k = c.at.join(','); if (have.has(k)) continue; have.add(k); prev.push({ at: c.at, role: c.role, seg: PREV_SEG, prev: true }) }
   return { ...body, cells: [...(body.cells ?? []), ...prev.slice(Math.max(0, prev.length - max))] }
