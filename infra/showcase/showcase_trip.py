@@ -114,11 +114,11 @@ CAULDRON = re.compile(r'^minecraft:(water_|lava_|powder_snow_)cauldron$')
 # the same block, never a new name: INTACT. A cell is compared by its NAME only -- the region reader yields names, and a
 # `name[state]` string (a future reader, a hand-made baseline) is cut to its name here, so the toggle stays legal whatever
 # the reader. Removing one, or turning it into another block, is still a REMOVED / changed cell: a BREACH, as before.
-STATE = re.compile(r'\[.*\]$')
+STATE = re.compile(r'(_trapdoor|_fence_gate)\[[^\]]*\]$')   # ONLY those two (both reviewers 11-03): any other state stays
 
 
 def canon(name):
-    n = OXID.sub('', STATE.sub('', name))
+    n = OXID.sub('', STATE.sub(r'\1', name))
     if CAULDRON.match(n):
         return 'minecraft:cauldron'          # what is IN a cauldron is not the structure; the cauldron is
     return 'minecraft:copper_block' if n == 'minecraft:copper' else n
@@ -1082,6 +1082,8 @@ def selftest():
         'the village unlock: a REMOVED trapdoor is still a breach'
     assert zone_diff({'80,73,-5': 'minecraft:spruce_trapdoor[open=true]'}, {'80,73,-5': 'minecraft:oak_trapdoor[open=false]'})[1], \
         'the village unlock: a trapdoor turned into another block is still a change'
+    assert zone_diff({'1,1,1': 'minecraft:oak_door[open=false]'}, {'1,1,1': 'minecraft:oak_door[open=true]'})[1], \
+        'the village unlock is trapdoors and fence gates ONLY: another block with a state suffix is compared whole'
     base = {'live_bots': 10, 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
             'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {'D1 chain_invalid': 0}, 'plan_error': None}
     assert verdict(base) == ('OK', [])

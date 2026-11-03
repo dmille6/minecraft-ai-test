@@ -14,9 +14,11 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 MUTANTS = [
     # the state suffix no longer cut: a toggled trapdoor reads as a changed cell
-    ("    n = OXID.sub('', STATE.sub('', name))\n", "    n = OXID.sub('', name)\n", 'a toggled trapdoor / fence gate is INTACT'),
-    # an over-broad rule: every trapdoor name collapses, so a trapdoor turned into another block is not a change
-    ("STATE = re.compile(r'\\[.*\\]$')\n", "STATE = re.compile(r'(^minecraft:[a-z_]+_trapdoor)?(\\[.*\\])?$')\n", 'turned into another block is still a change'),
+    ("    n = OXID.sub('', STATE.sub(r'\\1', name))\n", "    n = OXID.sub('', name)\n", 'a toggled trapdoor / fence gate is INTACT'),
+    # the rule widened to every block's state
+    ("STATE = re.compile(r'(_trapdoor|_fence_gate)\\[[^\\]]*\\]$')", "STATE = re.compile(r'()\\[[^\\]]*\\]$')", 'trapdoors and fence gates ONLY'),
+    # an over-broad rule: every trapdoor collapses to one name, so a trapdoor turned into another one is not a change
+    ("STATE = re.compile(r'(_trapdoor|_fence_gate)\\[[^\\]]*\\]$')", "STATE = re.compile(r'[a-z]+(_trapdoor|_fence_gate)(\\[[^\\]]*\\])?$')", 'turned into another block is still a change'),
     # removals dropped for a cell whose state changed (an allowance that swallowed the removal)
     ("    removed = sorted('%s %s' % (k, v) for k, v in base.items() if k not in now)\n",
      "    removed = sorted('%s %s' % (k, v) for k, v in base.items() if k not in now and '[' not in v)\n", 'REMOVED trapdoor is still a breach'),
