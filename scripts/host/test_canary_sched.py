@@ -1266,7 +1266,7 @@ def t_v41_fast_problem(CS, F):
     bc = _diff('bots/src/a.mjs', 0) + ''.join('+/* annotation */ doWork(%d);\n' % i for i in range(151))
     assert '151 changed' in CS.fast_problem(bc, 'none', reg, False), 'Codex r1: code after a block comment counts'
     for line, want in (('// x', True), ('/* x */', True), ('/* open', True), (' * prose line', True), ('*/', True),
-                       ('/* a */ f()', False), (' * 2;', False), ('x = 1 // y', False), ('*/ f()', False)):
+                       ('/* a */ f()', False), (' * 2;', False), ('x = 1 // y', False), ('*/ f()', False), ('// ${f()}', False)):
         assert CS.comment_only(line) is want, (line, want)
     assert 'adds' in CS.fast_problem(_diff('bots/src/new.mjs', 5, header='new file mode 100644\n'), 'none', reg, False)
     assert 'package' in CS.fast_problem(_diff('bots/package.json', 1), 'none', reg, False)
@@ -1293,7 +1293,8 @@ def t_v41_footprints(CS, F):
                              'C': {'bots/src/m.mjs': alpha3}, 'DIG': {'bots/src/m.mjs': dig2},
                              'WALK': {'bots/src/m.mjs': walk2}, 'I1': {'bots/src/m.mjs': imp1},
                              'I2': {'bots/src/m.mjs': imp2}, 'ICHG': {'bots/src/m.mjs': impchg},
-                             'USES': {'bots/src/m.mjs': uses}, 'TPL': {'bots/src/t.mjs': 'export const t = () => `${alpha()}`\n'},
+                             'USES': {'bots/src/m.mjs': uses},
+                             'TPL2': {'bots/src/t2.mjs': 'export const t2 = () => `\n// ${alpha()}\n`\n'}, 'TPL': {'bots/src/t.mjs': 'export const t = () => `${alpha()}`\n'},
                              'OTHER': {'bots/src/o.mjs': 'export const o = 1\n'}})
     try:
         f = _fp_facts(CS, d, base, sh_)
@@ -1306,6 +1307,7 @@ def t_v41_footprints(CS, F):
         assert any('import block' in x for x in CS.fp_overlaps(f['I1']['fp'], f['ICHG']['fp'])), 'a changed import'
         assert any('use' in x and 'alpha' in x for x in P('A', 'USES')), 'cross-reference: %s' % P('A', 'USES')
         assert any('alpha' in x for x in P('A', 'TPL')), 'Codex r1: a template interpolation is a use: %s' % P('A', 'TPL')
+        assert any('alpha' in x for x in P('A', 'TPL2')), 'Codex r2: a template interior line: %s' % P('A', 'TPL2')
         assert any('alpha' in x for x in P('A', 'DIG')), 'a row naming the changed function: %s' % P('A', 'DIG')
         assert any('whole file' in x for x in CS.fp_overlaps(f['OTHER']['fp'], f['OTHER']['fp'])), 'a new file is whole'
         assert P('A', 'OTHER') == []
@@ -1666,6 +1668,7 @@ MUTANTS = [
      "        if cur.startswith('bots/src/') and l[:1] in ('+', '-') and l[1:].strip():"),
     ("        return end < 0 or comment_only(b[end + 2:])", "        return True"),
     ("        used.update(_IDENT_RE.findall(body))", "        used.update(_IDENT_RE.findall(re.sub(r'`[^`]*`', '', body)))"),
+    ("    if '${' in b:\n        return False", "    if False:\n        return False"),
     ("    if not isinstance(v, str) or v not in READ_PLANS:", "    if not isinstance(v, str):"),
     ("    return ['fun_reads %r is not justified: %s' % (plan, fp)] if fp else []", "    return []"),
     ("    if es == 'bundle-failed':", "    if False:"),

@@ -702,6 +702,8 @@ def comment_only(body):
     (or an unclosed `/* ...`) with only comments after it, or a JSDoc-style `* prose` line holding none of ; = ( ) { }.
     Code after a closing `*/` counts; when unsure, a line is code (the fast plan is then refused, never granted)."""
     b = body.strip()
+    if '${' in b:
+        return False                  # Codex r2: inside a multi-line template a `// ${f()}` line still runs f
     if not b or b.startswith('//'):
         return True
     if b.startswith('/*'):
@@ -877,9 +879,8 @@ def diff_names(diff_text):
         m = _DECL_LINE.match(body)
         if m:
             decl.add(m.group(1))
-        if comment_only(body):
-            continue
-        # CONSERVATIVE (Codex review r1 BLOCKER 2): nothing is stripped from a code line -- not strings (a template's
+        # CONSERVATIVE (Codex review r1 BLOCKER 2, r2): EVERY changed source line counts, comments included (a line that
+        # looks like a comment can sit inside a multi-line template), and nothing is stripped from it -- not strings (a template's
         # ${...}, a SKILLS['name'] lookup), not a trailing comment: a name there counts as used (a false "related" only
         # costs a bundle; a missed one ships two coupled changes as "unrelated")
         used.update(_IDENT_RE.findall(body))
