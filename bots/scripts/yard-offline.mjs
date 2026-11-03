@@ -17,11 +17,15 @@ import { loadBlueprint, siteBlueprint, siteBlueprintAsync, projectSectors } from
 import { recordHead } from '../src/buildproj.mjs'
 import * as P from '../src/paths.mjs'
 import * as T from '../src/tidy.mjs'
-import * as LP from '../src/landplan.mjs'
 import * as Y from '../src/yard.mjs'
 import { recordZones } from '../src/shop.mjs'
-import { hallPadZone, HALL_BLUEPRINT, HALL_PLOT } from '../src/copperhall.mjs'
-import { markerZones } from '../src/expedition.mjs'
+import { HALL_BLUEPRINT, HALL_PLOT } from '../src/copperhall.mjs'
+import * as EX from '../src/expedition.mjs'
+import * as CH from '../src/copperhall.mjs'
+// a tree without groundskeeper-01 (main before it lands) has no land plan module, no hall-pad or marker reservation: run without
+const LP = await import('../src/landplan.mjs').catch(() => null)
+const hallPadZone = CH.hallPadZone ?? (() => null)
+const markerZones = EX.markerZones ?? (() => [])
 
 const argv = process.argv.slice(2)
 const opt = (k, d = null) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d }
@@ -37,7 +41,7 @@ const hk = `${home.x}_${home.y}_${home.z}`
 const files = fs.readdirSync(poolDir)
 const plots = [...new Set(files.map(f => /^project-[-\d_]+\.([A-Za-z0-9]+)\.g\d+\.json$/.exec(f)?.[1]).filter(Boolean))].sort()
 const all = plots.map(plot => { const h = recordHead(poolDir, `project-${hk}.${plot}`); return { plot, rec: h.ok ? h.head?.rec ?? null : null } })
-  .filter(p => p.rec && p.plot !== LP.LAND_PLOT && p.plot !== Y.YARD_PLOT)
+  .filter(p => p.rec && p.plot !== 'land' && p.plot !== Y.YARD_PLOT)
 const recs = all.map(p => p.rec)
 // the reservations the bot adds (skills.mjs hallPadZones, townMarkerZones)
 const hall = all.some(p => p.plot === HALL_PLOT) ? [] : [hallPadZone(plan, loadBlueprint(HALL_BLUEPRINT))].filter(Boolean)
@@ -46,9 +50,10 @@ const markers = fs.existsSync(mFile) ? fs.readFileSync(mFile, 'utf8').split('\n'
 const hz = [...hall, ...markerZones(markers)]
 // THE LAND PLAN: the pool's own record when it has one, else drawn here as the keeper would (landplan-offline.mjs's guards)
 let land = null, landFrom = 'none', planMs = 0
-const lh = recordHead(poolDir, `project-${hk}.${LP.LAND_PLOT}`)
-if (!argv.includes('--no-land') && lh.ok && lh.head?.rec?.blueprint === LP.LAND_BLUEPRINT) { land = lh.head.rec; landFrom = `record g${lh.head.gen}` }
-if (!argv.includes('--no-land') && !land) {
+const lh = recordHead(poolDir, `project-${hk}.land`)
+if (!argv.includes('--no-land') && lh.ok && lh.head?.rec?.blueprint === 'land@1') { land = lh.head.rec; landFrom = `record g${lh.head.gen}` }
+if (!argv.includes('--no-land') && !land && !LP) landFrom = 'no land plan module (this tree has no groundskeeper)'
+if (!argv.includes('--no-land') && !land && LP) {
   const plinthRec = readJson(path.join(poolDir, `junkwell-plinth-${hk}.json`))
   const gen = f => Number(/\.g(\d+)\./.exec(f)?.[1] ?? 0)
   const sites = files.filter(f => f.startsWith(`junkwell-site-${hk}.g`)).sort((a, b) => gen(b) - gen(a))
@@ -70,7 +75,7 @@ if (!argv.includes('--no-land') && !land) {
   landFrom = land ? 'drawn offline' : `not drawn (${L.why ?? '?'})`
 }
 // skills.mjs yardSiteFor's inputs: every other record's reservation (the land plan's corridors among them), the hall pad, the markers
-const others = land ? [...recs, LP.landReservation(land)] : recs
+const others = land && LP ? [...recs, LP.landReservation(land)] : land ? [...recs, { zones: land.corridors ?? [] }] : recs
 const zones = [...R.zones, ...recordZones(others), ...hz]
 const mon = recs.find(r => r.plot === 'monument' && Array.isArray(r.box))
 const z0 = mon ? { box: mon.box } : null
@@ -116,7 +121,7 @@ for (const step of plan0) {
   const inZones = r.cells.filter(c => zones.some(z => c.at[0] >= z.box[0] && c.at[0] <= z.box[3] && c.at[2] >= z.box[2] && c.at[2] <= z.box[5])).length
   const cheb = r.cells.map(c => Math.max(Math.abs(c.at[0] - home.x), Math.abs(c.at[2] - home.z)))
   out.site = {
-    blueprint: r.blueprint, band: step.band, sector: r.sector, source: r.sector_source, zone: land ? LP.zoneAt(land, r.anchor[0], r.anchor[1]) : null,
+    blueprint: r.blueprint, band: step.band, sector: r.sector, source: r.sector_source, zone: land && LP ? LP.zoneAt(land, r.anchor[0], r.anchor[1]) : null,
     anchor: r.anchor, orient: r.orient, box: r.box, floor: r.s, earthwork: r.earthwork, trees: r.trees.length, replant: r.replant.length, clear: r.clear.length,
     cells: r.cells.length, interior: r.interior, walkR: r.walkR ?? null, cellsInReservations: inZones, cheb: [Math.min(...cheb), Math.max(...cheb)],
     slots: Y.pileSlots(r, loadBlueprint(r.blueprint)).reduce((n, b) => n + b.slots.length, 0),
