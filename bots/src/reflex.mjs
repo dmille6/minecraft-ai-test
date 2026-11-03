@@ -1840,7 +1840,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     const key = poolSpotKey(p), st = swimSpots.get(key)
     if (st && Date.now() < st.until) return null
     const plan = swimUnderPlan({ at, start: [o.x, o.y, o.z] })
-    const adm = swimUnderAdmit({ plan, oxygen: bot.oxygenLevel, health: bot.health })
+    const eye = at(Math.floor(p.x), Math.floor(p.y + 1.62), Math.floor(p.z))
+    const adm = swimUnderAdmit({ plan, oxygen: bot.oxygenLevel, health: bot.health, headAir: !!eye && !isWaterCell(eye) && eye.boundingBox !== 'block' })
     if (!adm.ok) {
       // no way out within reach is a fact of this place: back off like a failed firing. Air or health is a wait, not a fact.
       const tries = (st?.failures ?? 0) + (plan.ok ? 0 : 1)
