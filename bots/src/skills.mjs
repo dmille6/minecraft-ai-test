@@ -130,6 +130,7 @@ import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, sh
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
 import { torchSafe, outShareOf, multiCall, trailAge, PLANNER_V } from './expedition.mjs'   // wholemap-s1a
 import { HALL_PLOT, HALL_BLUEPRINT, hallSite, hallOpening, hallRecordDomain, copperhallModeDetail } from './copperhall.mjs'   // copperhall-01
+import { hallPadZone } from './copperhall.mjs'   // groundskeeper-01 on the showcase: an unsited hall's pad is reserved
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
@@ -19406,7 +19407,7 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   // groundskeeper-01: the land plan's corridors are the tidy's work, never its refusal
   const recs = projectHeads().filter(x => x.plot !== LAND_PLOT).map(x => x.head.rec).filter(Boolean)
   const home = P.plan.home
-  const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home }), recordZones(recs))
+  const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home }), [...recordZones(recs), ...hallPadZones(P.plan)])
   const cells = new Set(recs.flatMap(q => (q.cells ?? []).map(x => x.at.join(','))))
   const ph = recordHead(dir, projKeyOf(PATHS_PLOT))
   if (!ph.ok) throw new Error('paths record unreadable')
@@ -19485,9 +19486,20 @@ function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   const P = pathsInputs(bot, c, h, dir)
   const recs = projectHeads().filter(x => x.plot !== LAND_PLOT && x.plot !== TIDY_PLOT && x.plot !== PATHS_PLOT).map(x => x.head.rec).filter(Boolean)
   const avoid = pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home: P.plan.home })
-  const rz = recordZones(recs)
+  const hz = hallPadZones(P.plan)
+  const rz = [...recordZones(recs), ...hz]
   const reserved = (x, z) => { for (const zb of rz) { const b = zb.box; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return String(zb.why ?? 'project') } return null }
-  return { plan: P.plan, home: P.plan.home, avoid, reserved, caps: P.caps, composter: P.composter }
+  return { plan: P.plan, home: P.plan.home, avoid: tidyAvoid(avoid, hz), reserved, caps: P.caps, composter: P.composter }
+}
+/** An UNSITED copper hall's fixed pad while the hall is on (copperhall.mjs hallPadZone) -> [zone] | []: the land plan routes round
+ *  it and the tidy never works it, so the hall can still site when its copper comes. A sited hall's record guards it. Never throws. */
+function hallPadZones (plan) {
+  try {
+    if (!projectsOn().some(p => p.plot === HALL_PLOT)) return []
+    if (projectHeads().some(x => x.plot === HALL_PLOT)) return []
+    const z = hallPadZone(plan, blueprintOf(HALL_BLUEPRINT))
+    return z ? [z] : []
+  } catch { return [] }
 }
 /** The land plan's unread-column tolerance: a plan whose routing met more unread columns than this waits (asked again next
  *  visit), at most LAND_UNREAD_TRIES times a connection, then it is published as read. */

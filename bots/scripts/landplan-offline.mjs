@@ -20,6 +20,7 @@ import * as P from '../src/paths.mjs'
 import * as T from '../src/tidy.mjs'
 import * as LP from '../src/landplan.mjs'
 import { recordZones } from '../src/shop.mjs'
+import { hallPadZone, HALL_BLUEPRINT, HALL_PLOT } from '../src/copperhall.mjs'
 
 const argv = process.argv.slice(2)
 const opt = (k, d = null) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d }
@@ -55,12 +56,14 @@ const composter = cs && [cs.x, cs.y, cs.z].every(Number.isFinite) ? [cs.x, cs.y,
 // cross a laid path (a junction), never another project
 const recs = all.filter(p => p.plot !== T.TIDY_PLOT).map(p => p.rec)
 const noPaths = recs.filter(r => r.blueprint !== P.PATHS_BLUEPRINT)
-const avoidT = T.tidyAvoid(P.pathAvoid({ plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: recs, home }), recordZones(recs))
+// an UNSITED copper hall's pad (skills.mjs hallPadZones; the showcase's hall waits for copper with no record) is reserved too
+const hz = all.some(p => p.plot === HALL_PLOT) || argv.includes('--no-hall') ? [] : [hallPadZone(plan, loadBlueprint(HALL_BLUEPRINT))].filter(Boolean)
+const avoidT = T.tidyAvoid(P.pathAvoid({ plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: recs, home }), [...recordZones(recs), ...hz])
 const cells = new Set(recs.flatMap(q => (q.cells ?? []).map(c => c.at.join(','))))
 const projects = all.filter(p => p.plot !== P.PATHS_PLOT && p.plot !== T.TIDY_PLOT)
 const pin = { plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, projects, place: placeBlueprint }
-const roadAvoid = P.pathAvoid({ plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: noPaths, home })
-const rz = recordZones(noPaths)
+const roadAvoid = T.tidyAvoid(P.pathAvoid({ plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: noPaths, home }), hz)
+const rz = [...recordZones(noPaths), ...hz]
 const reserved = (x, z) => { for (const zb of rz) { const b = zb.box; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return zb.why } return null }
 const seed = LP.landSeed(pool, home)
 let t0 = Date.now()

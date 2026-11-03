@@ -117,6 +117,19 @@ export function hallDomain (box, others = [], { reach = HALL_DOMAIN, gap = 1 } =
 }
 /** The pad box of the hall at `anchor` (15 x 13, orient E) -> [x0, z0, x1, z1]. Pure. */
 export const hallBox = (anchor, bp) => [anchor.x, anchor.z, anchor.x + (bp?.footprint?.u ?? 15) - 1, anchor.z + (bp?.footprint?.v ?? 13) - 1]
+/**
+ * AN UNSITED HALL'S PAD AS A RESERVATION (groundskeeper-01 on the showcase, 11-03) -> shop.mjs recordZones' shape { box: [x0, y0,
+ * z0, x1, y1, z1], why: 'project:hall' } | null (no hall plot in SW). Pure. The hall waits for copper with no record, so nothing
+ * reserved its fixed pad: offline on the showcase (11-03 dump) the land plan's ring road crossed it (8 corridor boxes, 113 road
+ * cells), and a corridor is a zone the hall's own siting refuses -- the hall could never site. The pad + `reach` (the hall's
+ * stand domain, HALL_DOMAIN) is kept clear by the land plan and the tidy until the hall's record guards it.
+ */
+export function hallPadZone (plan, bp, { reach = HALL_DOMAIN } = {}) {
+  const a = hallAnchor(plan)
+  if (!a.anchor) return null
+  const b = hallBox(a.anchor, bp)
+  return { box: [b[0] - reach, -64, b[1] - reach, b[2] + reach, 320, b[3] + reach], why: 'project:hall' }
+}
 
 /**
  * THE SITE AND ITS PROOF -> { ok, why, detail?, record }. Pure over `read`. The fixed pad (hallAnchor), screened by buildsite.mjs

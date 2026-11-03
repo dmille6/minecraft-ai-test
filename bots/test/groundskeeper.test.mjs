@@ -347,5 +347,39 @@ await t('the land plan is no-op for the paths default: routeLeg with no `from` a
   assert.ok(src.includes('routeLeg(grid, src, tg, { maxPops: pops, from, h })'))
 })
 
+console.log('THE SHOWCASE: an unsited copper hall\'s pad is reserved (11-03 offline: the ring road crossed it)')
+const CH = await import('../src/copperhall.mjs')
+const hallPlan = () => ({ ...PLAN(), plots: [...PLAN().plots.filter(p => p.sector !== 'SW'), { id: 'hall', kind: 'hall', sector: 'SW' }] })
+const hallBp = { footprint: { u: 15, v: 13 } }
+await t('hallPadZone: the pad (hallAnchor + hallBox) + HALL_DOMAIN; no hall plot in SW -> null', async () => {
+  const z = CH.hallPadZone(hallPlan(), hallBp)
+  const r = CH.HALL_DOMAIN
+  assert.deepStrictEqual(z.box, [HOME.x - 21 - r, -64, HOME.z + 21 - r, HOME.x - 7 + r, 320, HOME.z + 33 + r])
+  assert.strictEqual(z.why, 'project:hall')
+  assert.strictEqual(CH.hallPadZone(PLAN(), hallBp), null)
+})
+await t('the land plan routes round the reserved pad (control: unreserved, the ring road crosses it)', async () => {
+  const z = CH.hallPadZone(hallPlan(), hallBp), b = z.box
+  const inPad = (x, zz) => x >= b[0] && x <= b[3] && zz >= b[2] && zz <= b[5]
+  const plan = async (guard) => { const srv = server(); return (await LP.planLand(srv.read, { home: HOME, plan: hallPlan(), seed: LP.landSeed('flat', HOME), limOf: n => T.gradeLim(srv.read, n), L: SMALL, ...(guard ? { avoid: (x, zz) => (inPad(x, zz) ? 'project:hall' : null), reserved: (x, zz) => (inPad(x, zz) ? 'project:hall' : null) } : {}) })).plan }
+  const open = await plan(false)
+  const crossed = open.roads.flatMap(r => r.cols).filter(([x, zz]) => inPad(x, zz)).length
+  assert.ok(crossed > 0, `the control: the unguarded plan must cross the pad (it crossed ${crossed} columns)`)
+  const kept = await plan(true)
+  const at = LP.corridorAt(kept)
+  assert.strictEqual(kept.roads.flatMap(r => r.cols).filter(([x, zz]) => inPad(x, zz)).length, 0, 'no road column on the pad')
+  let hit = 0
+  for (let x = b[0] + 1; x <= b[3] - 1; x++) for (let zz = b[2] + 1; zz <= b[5] - 1; zz++) if (at(x, zz)) hit++
+  assert.strictEqual(hit, 0, 'no corridor inside the pad (the hall\'s siting refuses a corridor zone)')
+})
+await t('wiring: the land plan and the tidy reserve the pad while the hall is on and unsited; a sited hall\'s record guards it', async () => {
+  const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.ok(/const hz = hallPadZones\(P\.plan\)\n\s*const rz = \[\.\.\.recordZones\(recs\), \.\.\.hz\]/.test(s), 'landInputs reserved')
+  assert.ok(/avoid: tidyAvoid\(avoid, hz\), reserved,/.test(s), 'landInputs avoid')
+  assert.ok(/records: recs, home \}\), \[\.\.\.recordZones\(recs\), \.\.\.hallPadZones\(P\.plan\)\]\)/.test(s), 'tidyInputs avoid')
+  assert.ok(/if \(projectHeads\(\)\.some\(x => x\.plot === HALL_PLOT\)\) return \[\]/.test(s), 'a sited hall: its record')
+  assert.ok(/if \(!projectsOn\(\)\.some\(p => p\.plot === HALL_PLOT\)\) return \[\]/.test(s), 'the hall off: nothing')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
