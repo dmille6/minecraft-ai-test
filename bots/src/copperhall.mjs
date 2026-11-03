@@ -69,7 +69,7 @@ export function hallOpening ({ ingots = null, cut = null, reserve = 512, needed 
  */
 export function townCopperOf (entries, stateOf = () => 'known') {
   if (!entries || typeof entries !== 'object') return { unknown: true }
-  let ingots = 0, cut = 0, containers = 0, stale = 0
+  let ingots = 0, cut = 0, containers = 0, stale = 0, raw = 0, blocks = 0
   // a container another entry's NEWER observation names among its halves (`obs.h`: a single chest that became the other half of a
   // double chest) is that entry's now, not its own (Codex r3 BLOCK: both counted, 160 read as 320)
   const covered = new Map()
@@ -86,8 +86,12 @@ export function townCopperOf (entries, stateOf = () => 'known') {
     if (st === 'stale') stale++
     ingots += Number(e.obs.names.copper_ingot?.[0]) || 0
     cut += Number(e.obs.names.cut_copper?.[0]) || 0
+    // copperrun-01: raw copper (the town smelt job's input: it becomes ingots there) and copper blocks (counted, never drawn:
+    // mats.mjs cut_copper draws copper_ingot only, so a block in a chest funds no batch and never opens the hall)
+    raw += Number(e.obs.names.raw_copper?.[0]) || 0
+    blocks += Number(e.obs.names.copper_block?.[0]) || 0
   }
-  return containers ? { ingots, cut, containers, stale } : { unknown: true }
+  return containers ? { ingots, cut, containers, stale, raw, blocks } : { unknown: true }
 }
 
 /** `_copperhall_mode` row detail. Pure. */
@@ -199,3 +203,106 @@ export function proveHall (read, home, bp, site, opts = {}) {
 
 /** The stands' domain for a sited hall RECORD (the visit's, runVisit `domain`) among the other records. Pure. */
 export const hallRecordDomain = (rec, others = []) => (Array.isArray(rec?.box) && rec.box.length === 4 ? hallDomain(rec.box, others.filter(r => r !== rec && r?.plot !== HALL_PLOT)) : () => false)
+
+// ---- COPPERRUN-01: THE HALL'S BILL DRIVES A COPPER GATHER ----------------------------------------------------------------------
+// MEASURED on the showcase (48 h to 11-03 02:45Z, 10 bots, 293,405 rows): the hall waited `copper_wait` on every one of its 525
+// gate rows (130-138 ingots, cut 10 -> 18, need 319 -> 247). No gather or mine targeted copper (0 of 3,198 gather/mine rows; the
+// control: iron_ore 201, coal_ore 9, dirt 2,378); the only raw copper was incidental (41: mine 38, surface 3), and it went where
+// it should (smelt_town 33, deposit 8; the well took none). Copper ore is in neither prompt.mjs INTERESTING_BLOCKS nor
+// reflex.mjs SURVEY_BLOCKS, so the model is never shown it, and it does not tunnel (oretunnel.mjs tunnelKindsFor: iron, coal,
+// diamond -- protected scope). Nothing in the bots asked for copper.
+//
+// THE RUN: while the town's hall is unsited and waiting on its copper (copperhall.mjs hallOpening), and the town's ingots plus its
+// raw copper (the smelt job turns raw into ingots) are short of the opening's need, a bot the build order has no use for (shop.mjs
+// buildIdle -- the branch that would otherwise send it on an expedition) gathers EXPOSED copper ore in reach: `gather` of that
+// ore, whose own guards (town ground, keep-out, break veto, lava guard, six faces) decide every block exactly as for the model's
+// gather. Buried ore is not offered (gather cannot tunnel to it and would fail `buried`). Never from a project's site (coalsite-01's
+// rule, fail closed). An ore cell the last run was issued for and that is still there (the run did not take it) backs the bot off
+// COPPER_RUN_BACKOFF_MS: no repeated walk at an ore gather cannot reach. The run never refuses anything: when it does not issue,
+// the build order goes on to the expedition exactly as before.
+//
+// KILL SWITCH: COPPERRUN=off (never asked). It is asked only where the hall is on (COPPERHALL, default the showcase pool).
+
+const cv = String((typeof process !== 'undefined' ? process.env?.COPPERRUN : '') ?? '').trim().toLowerCase()
+export const COPPERRUN = Object.freeze({ on: !['off', '0', 'false', 'no'].includes(cv) })
+/** The blocks that drop raw copper (vanilla 1.21: 2-5 each, more with fortune). */
+export const COPPER_KINDS = Object.freeze(['copper_ore', 'deepslate_copper_ore'])
+/** The run's ask: gather's `count` (a copper vein is up to 10 blocks; ~3.5 raw each). */
+export const COPPER_RUN_COUNT = 16
+/** No run while the bag carries this much copper (raw + ingots): it goes to town first (raw_copper / copper_ingot DEPOSIT_ALWAYS). */
+export const COPPER_RUN_CARRY = 16
+/** Free slots a run needs (the raw copper and what the digging yields). */
+export const COPPER_RUN_MIN_FREE = 3
+/** Charged at ISSUE: at most one run per bot per 10 min. */
+export const COPPER_RUN_COOLDOWN_MS = 10 * 60 * 1000
+/** The same ore cell still there at the next ask: the run did not take it; back off this long. */
+export const COPPER_RUN_BACKOFF_MS = 30 * 60 * 1000
+/** The world scan at most this often per bot. */
+export const COPPER_RUN_SCAN_MS = 60 * 1000
+/** The ore must be this close: gather's own default reach (skills.mjs gatherRun maxDistance 32). */
+export const COPPER_ORE_RADIUS = 32
+
+/**
+ * HOW SHORT IS THE TOWN? -> { short, need, have } | null. Pure over hallOpenNow's answer (`need` hallOpening's, `have` the loose
+ * ingots, `raw` the town's raw copper). Raw copper counts toward the target (the town smelt job makes it ingots); cut copper is
+ * already in `need` (fewer batches). Unknown counts: null (the run does not issue).
+ */
+export function copperShort (gate) {
+  if (!gate || !Number.isFinite(gate.need) || !Number.isFinite(gate.have)) return null
+  const have = gate.have + Math.max(0, Number(gate.raw) || 0)
+  return { short: Math.max(0, gate.need - have), need: gate.need, have }
+}
+
+/**
+ * THE COPPER RUN -> { order, state, skip }. Pure; skills.mjs copperAsk supplies the readings and keeps `state`.
+ *   on         COPPERRUN and the hall's own switch
+ *   waiting    lazy -> bool: the hall is a project here and is unsited
+ *   gate       lazy -> hallOpenNow's answer { open, need, have, raw, ... }
+ *   held       the bag's raw_copper + copper_ingot
+ *   freeSlots  36 - occupied slots
+ *   tripPick   a stone-or-better pickaxe that can pay a trip (oretunnel.mjs hasTripPickaxe)
+ *   site       lazy -> { ok, hit } where the bot stands against the projects' records (skills.mjs projectSiteNow)
+ *   ore        lazy -> { block, dist, at: 'x,y,z' } | null: the nearest EXPOSED copper ore within COPPER_ORE_RADIUS, off home
+ *   state      { lastIssuedAt, backoffUntil, lastScanAt, lastOre }
+ * Cheap tests first; the readings only when everything else would issue. `skip` names why nothing was issued.
+ */
+export function copperRunOrder ({ now = 0, on = COPPERRUN.on, waiting = null, gate = null, held = 0, freeSlots = 0, tripPick = false,
+                                  site = null, ore = null, state = {} } = {}) {
+  const s = { ...state }
+  const skip = why => ({ order: null, state: s, skip: why })
+  if (!on) return skip('off')
+  if (now - (s.lastIssuedAt ?? -Infinity) < COPPER_RUN_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return skip('cooldown')
+  if ((Number(held) || 0) >= COPPER_RUN_CARRY) return skip('carrying')
+  if ((Number(freeSlots) || 0) < COPPER_RUN_MIN_FREE) return skip('room')
+  if (!tripPick) return skip('pickaxe')
+  if (now - (s.lastScanAt ?? -Infinity) < COPPER_RUN_SCAN_MS) return skip('scan')
+  s.lastScanAt = now
+  if (lazy(waiting) !== true) return skip('not_waiting')
+  const g = lazy(gate)
+  if (g?.open) return skip('open')
+  const sh = copperShort(g)
+  if (!sh) return skip('copper_unknown')
+  if (sh.short <= 0) return skip('stocked')
+  const st = lazy(site)
+  if (st?.ok !== true) return skip('site_unknown')
+  if (st.hit) return skip('on_site')
+  const o = lazy(ore)
+  if (!o?.block || !COPPER_KINDS.includes(o.block)) return skip('no_ore')
+  // the cell the last run was issued for is still ore: that run did not take it (unreachable, refused): back off, once per cell
+  if (o.at && o.at === s.lastOre) { s.backoffUntil = now + COPPER_RUN_BACKOFF_MS; s.lastOre = null; return skip('same_ore') }
+  s.lastIssuedAt = now
+  s.lastOre = o.at ?? null
+  return { order: { skill: 'gather', args: { block: o.block, count: COPPER_RUN_COUNT, copperrun: true },
+                    why: `the town's copper hall needs ${sh.need} copper ingots to open and the town holds ${sh.have} (ingots + raw); ` +
+                         `${o.block} ${Math.round(Number(o.dist) || 0)} blocks away -- mining it for the hall` },
+           state: s, skip: null, short: sh }
+}
+
+/** The run's row detail (under 300 chars). */
+export const copperRunDetail = ({ skip = null, issued = null, gate = null, held = 0, free = 0 } = {}) =>
+  `${issued ? `issued block=${issued}` : `skip=${skip ?? '-'}`} ingots=${gate?.have ?? '?'} raw=${gate?.raw ?? '?'} blocks=${gate?.blocks ?? '?'} ` +
+  `cut=${gate?.cut ?? '?'} need=${gate?.need ?? '?'} held=${held} free=${free}`
+/** `_copperrun_mode` row detail. */
+export const copperRunModeDetail = (on, hall) => `on=${on ? 1 : 0} hall=${hall ? 1 : 0} kinds=${COPPER_KINDS.join('+')} radius=${COPPER_ORE_RADIUS} count=${COPPER_RUN_COUNT} carry=${COPPER_RUN_CARRY} cooldown_min=${COPPER_RUN_COOLDOWN_MS / 60000} backoff_min=${COPPER_RUN_BACKOFF_MS / 60000}`
+
+const lazy = x => (typeof x === 'function' ? x() : x)
