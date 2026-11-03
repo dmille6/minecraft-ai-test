@@ -56,6 +56,8 @@ MISSING_GRACE_H = 1         # a promoted sha not yet on origin (the canary branc
 PENDING_ALARM_H = 3         # a promotion off main this long with no failure recorded (CI busy, Mac asleep) is an alarm
 CI_WAIT_S = 3 * 3600        # how long ci waits for another suite on .30 to finish
 TEST_JOBS = 6
+# Every suite on .30 (agents' and this job's) queues on one lock, so two never run at once (11-03: load 31).
+SUITE_LOCK = ['flock', '/home/mike/suite.lock']
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=10']
 JS = re.compile(r'\.(mjs|cjs|js)$')
 FAILED_LINE = re.compile(r'^FAILED \((\d+)\): (.*)$', re.M)
@@ -522,7 +524,7 @@ def _push(repo, run_id, sha, main, merge, state, now, remerge=None, tree_is_main
 def _alone(tree, f, env):
     """One file alone (run-tests.mjs filters by substring, so a longer name containing it runs too: only `f` is judged)."""
     try:
-        p = subprocess.run(['nice', '-n', '19', 'node', 'scripts/run-tests.mjs', f], cwd=os.path.join(tree, 'bots'),
+        p = subprocess.run(SUITE_LOCK + ['nice', '-n', '19', 'node', 'scripts/run-tests.mjs', f], cwd=os.path.join(tree, 'bots'),
                            capture_output=True, text=True, timeout=1800, env=env)
     except subprocess.TimeoutExpired:
         return 'error'
@@ -569,7 +571,7 @@ def cmd_ci(a):
             return 0
         time.sleep(30)
     env = dict(os.environ, TEST_JOBS=str(TEST_JOBS))
-    p = subprocess.run(['nice', '-n', '19', 'node', 'scripts/run-tests.mjs'], cwd=os.path.join(trees['merge'], 'bots'),
+    p = subprocess.run(SUITE_LOCK + ['nice', '-n', '19', 'node', 'scripts/run-tests.mjs'], cwd=os.path.join(trees['merge'], 'bots'),
                        capture_output=True, text=True, timeout=4 * 3600, env=env)
     open(os.path.join(d, 'suite.log'), 'w').write(p.stdout + p.stderr)
     done, failed = parse_suite(p.stdout)
