@@ -495,7 +495,7 @@ const blockFor = (bp, role) => { if (role === 'fill') return 'cobblestone'; cons
  * The world is the read with the clears applied (air). The FILL is proven as its own first segment `earth` (cobblestone, from
  * the bottom up), then the blueprint's segments in order. `stood` = the walk's seeds, cells a bot stood on (D3).
  */
-export function proveSite (read, home, bp, site, { stood = [], domain = null } = {}) {
+export function proveSite (read, home, bp, site, { stood = [], domain = null, walkR = WALK_R } = {}) {
   // storehouse-01: a building inside the town (its plan plot beside the plaza) names its stands' domain (stepFor's), as the visit does
   const over = new Map()
   for (const c of site.clear) over.set(k3(...c.at), AIR)
@@ -516,7 +516,7 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null } =
     // was placed since the last walk (a builder walks onto the pad it has laid); with nothing new, the cell is no_step.
     const mine = cells.filter(c => c.seg === sg.seg)
     const left = mine.slice().sort((a, b) => a.at[1] - b.at[1] || a.u - b.u || a.v - b.v)
-    const walkNow = () => byColumn(walkFrom(R, home, new Set(left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))), WALK_R, { stood }))
+    const walkNow = () => byColumn(walkFrom(R, home, new Set(left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))), walkR, { stood }))
     let nodes = walkNow(), fresh = true, walks = 1
     while (left.length) {
       let pick = -1, step = null
@@ -534,7 +534,7 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null } =
     segOut.push({ seg: sg.seg, layer: sg.layer, deps: sg.deps, cells: mine.length, walks, stands: new Set(out.filter(o => o.seg === sg.seg).map(o => k3(...o.stand))).size })
   }
   // the finished building: EVERY open interior floor cell is walked to from town through the open doorway
-  const final = walkFrom(R, home, new Set(), WALK_R, { stood })
+  const final = walkFrom(R, home, new Set(), walkR, { stood })
   const solidInside = new Set(cells.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at)))
   const interior = bp.interior.filter(([, , y]) => y === 1).map(([u, v]) => { const { dx, dz } = rot(site.orient, u, v); return k3(site.anchor.x + dx, site.s + 1, site.anchor.z + dz) })
   const open = interior.filter(k => !solidInside.has(k))
@@ -549,12 +549,12 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null } =
  * onto the soil below, and every visit stopped no_step before anything was placed): soil ground, REPLANT.clear air above, no
  * reservation or zone, and a STEP the visit accepts -- stepFor with its support the soil block under the cell.
  */
-export function replantCellAt (read, home, x, z, res, nodes) {
+export function replantCellAt (read, home, x, z, res, nodes, domain = null) {
   const g = groundOf(read, x, z, home.y)
   if (g == null || !SOIL.has(nm(read(x, g, z)))) return null
   for (let y = g + 1; y <= g + REPLANT.clear; y++) { const b = read(x, y, z); if (!b || nm(b) !== 'air') return null }
   if (res?.column?.(x, z, g, g + 1) || boxMeetsZones([x, g, z, x, g + 1, z], res?.zones ?? [])) return null
-  const step = stepFor(read, home, [x, g + 1, z], nodes)
+  const step = stepFor(read, home, [x, g + 1, z], nodes, domain)
   return step && step.support[1] === g ? [x, g + 1, z] : null
 }
 /** The replant band around a pad (REPLANT.near .. far, never the footprint) -> [[d, x, z]], nearest first. Pure. */
@@ -570,7 +570,7 @@ function replantBand (padXZ, footprint) {
   return cand.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2])
 }
 /** Replant cells for the felled trunks -> { ok, cells: [{ cell, species, sapling, state }] }. Pure. */
-export function replantFor (read, home, site, res, walk) {
+export function replantFor (read, home, site, res, walk, domain = null) {
   if (!site.trees.length) return { ok: true, cells: [] }
   const footprint = new Set([...site.pad, ...site.ring].map(([x, z]) => k2(x, z)))
   const cand = replantBand(site.pad, footprint)
@@ -580,7 +580,7 @@ export function replantFor (read, home, site, res, walk) {
     let got = null
     for (const [, x, z] of cand) {
       if (used.has(k2(x, z))) continue
-      const cell = replantCellAt(read, home, x, z, res, nodes)
+      const cell = replantCellAt(read, home, x, z, res, nodes, domain)
       if (!cell) continue
       got = { cell, species: t.species, sapling: SAPLING[t.species], state: 'pending' }
       break
@@ -691,40 +691,83 @@ export function planTownCells (plan) {
  *   ctx   { zones, wells, farm, z0, m0 } (reservations); { stood } feet cells bots stood on in town (the walk's seeds, D3); { tries }
  */
 export function siteBlueprint (read, plan, bp, ctx = {}) {
+  const g = siteBlueprintSteps(read, plan, bp, ctx)
+  for (;;) { const r = g.next(); if (r.done) return r.value }
+}
+/**
+ * yardsite-01: siteBlueprint COOPERATIVELY -> a Promise of siteBlueprint's result. The same search (siteBlueprintSteps), handing
+ * the event loop back every `sliceMs` (a wide search -- the yard's, out to 80 -- runs 10-60 s: a bot that never yields misses its
+ * keep-alives); `aborted()` true ends it with { ok: false, why: 'aborted' }. Never changes the result.
+ */
+export async function siteBlueprintAsync (read, plan, bp, ctx = {}, { sliceMs = 40, aborted = () => false } = {}) {
+  const g = siteBlueprintSteps(read, plan, bp, ctx)
+  let t = Date.now()
+  for (;;) {
+    const r = g.next()
+    if (r.done) return r.value
+    if (Date.now() - t >= sliceMs) {
+      await new Promise(resolve => setImmediate(resolve))
+      if (aborted()) return { ok: false, why: 'aborted', record: null, sectors: [] }
+      t = Date.now()
+    }
+  }
+}
+/** THE SEARCH as a generator: yields between anchors and proofs (siteBlueprint runs it straight through). */
+export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
   const home = plan?.home
   if (!home) return { ok: false, why: 'no_plan', sectors: [] }
   // house-01: a caller may name the sectors (a house: the workshop's sector first, then the free ones); else the workshop's
   const secs = Array.isArray(ctx.sectors) ? ctx.sectors : workshopSectors(plan)
   if (!secs.length) return { ok: false, why: 'no_free_sector', sectors: [] }
-  const res = reservations(plan, ctx)
+  // yardsite-01: the reservation test is pure over (x, z, y0, y1): asked once per column and span, not once per candidate
+  const res0 = reservations(plan, ctx), colMemo = new Map()
+  const res = { ...res0, column: (x, z, y0, y1) => { const k = `${x},${z},${y0},${y1}`; let v = colMemo.get(k); if (v === undefined) { v = res0.column(x, z, y0, y1); colMemo.set(k, v) } return v } }
   const stood = [...(ctx.stood ?? []), ...planTownCells(plan)]
   const out = []
+  // yardsite-01: a caller may name the screen's DOMAIN (`ctx.domain(x, z)`: the yard beyond the town ring), how far the anchors
+  // are scanned (`ctx.line`), the stands' domain (`ctx.standDomain`) and the town walk's radius (`ctx.walkR`) for the proof and
+  // the replant; unset, every one is the workshop ring's as before (DOMAIN, WALK_R)
+  const domain = typeof ctx.domain === 'function' ? ctx.domain : null
+  const line = Number.isFinite(ctx.line) ? ctx.line : DOMAIN.line
+  const walkR = Number.isFinite(ctx.walkR) ? ctx.walkR : WALK_R
+  // a caller may judge the sector by the footprint's CENTRE (`ctx.sectorBy: 'centre'`: the yard, a land-plan zone is a 45-degree
+  // wedge and an 18 x 26 floor fits inside one only far out); unset, every footprint cell must lie in the sector, as before
+  const byCentre = ctx.sectorBy === 'centre'
+  const cu = Math.floor(bp.footprint.u / 2), cv = Math.floor(bp.footprint.v / 2)
   for (const { sector, source } of secs) {
     const rejects = {}, ok = []
     for (const orient of ORIENTS) {
-      for (let x = home.x - DOMAIN.line; x <= home.x + DOMAIN.line; x++) {
-        for (let z = home.z - DOMAIN.line; z <= home.z + DOMAIN.line; z++) {
+      for (let x = home.x - line; x <= home.x + line; x++) {
+        if ((x & 7) === 0) yield null
+        for (let z = home.z - line; z <= home.z + line; z++) {
+          // the anchor is a pad cell (rot(orient, 0, 0) is 0, 0): with a named domain, an anchor outside it or its sector is the
+          // screen's own `domain` / `sector` refusal, counted without the footprint walk (the wider scan stays cheap)
+          if (domain && !domain(x, z)) { rejects.domain = (rejects.domain ?? 0) + 1; continue }
+          if (byCentre && sector) { const [qx, qz] = at2({ x, z }, orient, cu, cv); if (sectorOf(home, qx, qz) !== sector) { rejects.sector = (rejects.sector ?? 0) + 1; continue } } else if (domain && sector && sectorOf(home, x, z) !== sector) { rejects.sector = (rejects.sector ?? 0) + 1; continue }
           // stockyard-01: a caller may name its earthwork limits (`ctx.earth`: the yard's 17 x 15 floor); else screenSite's EARTH
-          const r = screenSite(read, home, bp, { x, z }, orient, res, { sector, ...(ctx.earth ? { earth: ctx.earth } : {}) })
+          const r = screenSite(read, home, bp, { x, z }, orient, res, { sector: byCentre ? null : sector, ...(domain ? { domain } : {}), ...(ctx.earth ? { earth: ctx.earth } : {}) })
           if (r.ok) ok.push(r); else rejects[r.why] = (rejects[r.why] ?? 0) + 1
         }
       }
     }
     const dist = r => Math.hypot(r.pad[0][0] - home.x, r.pad[0][1] - home.z)
-    ok.sort((a, b) => (a.fill.length + a.cut.length + a.litter) - (b.fill.length + b.cut.length + b.litter) || a.trees.length - b.trees.length || dist(a) - dist(b))
+    // yardsite-01: a caller may rank first by its own key (`ctx.rankKey(site)`, smaller first: the yard's nearest band); then as before
+    const rk = typeof ctx.rankKey === 'function' ? ctx.rankKey : () => 0
+    ok.sort((a, b) => rk(a) - rk(b) || (a.fill.length + a.cut.length + a.litter) - (b.fill.length + b.cut.length + b.litter) || a.trees.length - b.trees.length || dist(a) - dist(b))
     const proofFails = {}
     const tries = Math.min(ok.length, ctx.tries ?? PROOF_TRIES)
     const row = { sector, source, screened: ok.length, tried: 0, rejects, proofFails }
     out.push(row)
     for (let i = 0; i < tries; i++) {
+      yield null
       const site = ok[i]
       row.tried = i + 1
-      const p = proveSite(read, home, bp, site, { stood })
-      if (!p.ok) { proofFails[p.why] = (proofFails[p.why] ?? 0) + 1; continue }
+      const p = proveSite(read, home, bp, site, { stood, walkR, ...(typeof ctx.standDomain === 'function' ? { domain: ctx.standDomain } : {}) })
+      if (!p.ok) { proofFails[p.why] = (proofFails[p.why] ?? 0) + 1; if ((row.proofEx ??= []).length < 3) row.proofEx.push(`${site.anchor.x},${site.anchor.z}/${site.orient} ${p.why} ${p.detail ?? ''}`.slice(0, 120)); continue }
       const over = new Map()
       for (const c of site.clear) over.set(k3(...c.at), AIR)
       for (const c of site.fill) over.set(k3(...c), SOLID('cobblestone'))
-      const rp = replantFor(read, home, site, res, walkFrom(overlay(read, over), home, new Set(), WALK_R, { stood }))
+      const rp = replantFor(read, home, site, res, walkFrom(overlay(read, over), home, new Set(), walkR, { stood }), typeof ctx.standDomain === 'function' ? ctx.standDomain : null)
       if (!rp.ok) { proofFails.no_replant_cell = (proofFails.no_replant_cell ?? 0) + 1; continue }
       const xs = site.pad.map(c => c[0]), zs = site.pad.map(c => c[1])
       const record = {
@@ -735,6 +778,7 @@ export function siteBlueprint (read, plan, bp, ctx = {}) {
         trees: site.trees.map(t => ({ base: t.base, species: t.species, logs: t.logs })), felled: site.felled, replant: rp.cells,
         cells: p.cells, segments: p.segments, interior: p.interior, bom: billOf(bp, p.cells), builders_max: 2,
         structure_complete: false, plan: { gen: plan.gen }, stood_seeds: stood.length,
+        ...(walkR !== WALK_R ? { walkR } : {}),
       }
       return { ok: true, why: 'ok', record, sectors: out }
     }

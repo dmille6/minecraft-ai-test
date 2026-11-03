@@ -79,7 +79,80 @@ export function yardOn (env = process.env, pool = '') {
   return pools.includes(String(pool))
 }
 /** `_yard_mode` row detail. Pure. */
-export const yardModeDetail = on => `on=${on ? 1 : 0} plot=${YARD_PLOT} blueprint=${YARD_BLUEPRINT} builders=${YARD_BUILDERS} h=${YARD_H} bulk=${YARD_BULK.join(',')} bag_keep=${YARD_BAG_KEEP_COBBLE} chest_keep=${YARD_CHEST_KEEP.cobblestone} refill_below=${YARD_REFILL_BELOW} visit_max=${YARD_VISIT_MAX}`
+export const yardModeDetail = (on, size = yardSize()) => `on=${on ? 1 : 0} plot=${YARD_PLOT} blueprint=${YARD_BLUEPRINT} size=${size} builders=${YARD_BUILDERS} h=${YARD_H} bulk=${YARD_BULK.join(',')} bag_keep=${YARD_BAG_KEEP_COBBLE} chest_keep=${YARD_CHEST_KEEP.cobblestone} refill_below=${YARD_REFILL_BELOW} visit_max=${YARD_VISIT_MAX}`
+
+// ---- YARDSITE-01 (11-03): WHERE THE YARD GOES ON A CROWDED TOWN -------------------------------------------------------------------
+// The showcase offline (11-02, the real siting call): the 18 x 15 yard had no site -- 0 of 31,684 anchor/orient candidates, still 0
+// with the sector and door rules dropped and the ring widened to 64: the wall, the paths, the house, the ziggurat's apron and the
+// workshop take the town ring (22..44). The yard is the land plan's (landplan.mjs): its sector zones name a `yard` zone (beside
+// the store) from the ring road out to workR. So: the yard is sited in the land plan's YARD zone first, then its WILD sectors,
+// then a HOMES sector (never farms, the tree farm, the monument or industry), anywhere from the town ring out to YARD_SITE.rMax -- outside the
+// wall where the ring is full (the wall opens a gateway where a road crosses it; the proof's walk from town must reach every aisle
+// cell, so a site with no road or gate access is refused by the proof itself) -- nearest band first, out to the land plan's workR 80;
+// its fill columns may be 4 deep (YARD_SITE.col: the house's 3 refused every showcase candidate, fill_too_deep). No land plan (LANDPLAN=off,
+// or a town the keeper has not planned yet): the workshop's sectors (buildsite.mjs projectSectors), as before, over the same bands.
+// The caller's zones keep it clear of every reservation: protected zones (the trial chambers), every record + PROJECT_GAP, the
+// land plan's road corridors, an unsited copper hall's pad and the expedition markers.
+/** The siting bands (Chebyshev from home, the town ring's inner edge; Euclidean out to each band's rMax, nearest first), the
+ *  stands' domain margin beyond the band (the visit and the proof stand there), and the town walk's radius margin. */
+export const YARD_SITE = Object.freeze({ rMin: 22, bands: [44, 58, 72, 80], standPad: 8, walkPad: 12, col: 4 })
+/** The land plan's zone kinds a yard may take, in order (landplan.mjs ZONE_KINDS): its own zone, then wild ground, then a homes
+ *  sector (the plan draws two; nothing sites by zone yet). Offline 11-03 on the showcase: the yard zone (E) lies under the taiga
+ *  village's protected box (x 49..157), the wild one (N) has one candidate whose pit no stand reaches; the SW homes sector proves. */
+export const YARD_ZONES = Object.freeze(['yard', 'wild', 'homes'])
+/** THE SIZE (OWNER 11-02, resource-model-1102 Q2: 2x for the fleet) -> 1 | 2 | 'auto'. YARD_SIZE=1|2|auto; unset = auto (2x where it
+ *  fits, else 1x: the showcase's crowded town takes 1x unless 2x fits). Pure. */
+export function yardSize (env = process.env) {
+  const v = String(env?.YARD_SIZE ?? '').trim().toLowerCase()
+  return v === '1' ? 1 : v === '2' ? 2 : 'auto'
+}
+/** The blueprints a size tries, in order. yard@2 is yard@1 with bays twice as long (18 x 26, 656 vs 304 pile slots). Pure. */
+export const yardBlueprintsFor = size => (size === 1 ? ['yard@1'] : size === 2 ? ['yard@2'] : ['yard@2', 'yard@1'])
+/** Is this a yard blueprint (any size)? Pure. */
+export const isYardBlueprint = id => /^yard@\d+$/.test(String(id ?? ''))
+/** The earthwork limits for a yard blueprint's floor (yard@1: YARD_EARTH; larger floors scale with their cell count). Pure. */
+export const yardEarthFor = bp => {
+  const n = Number(bp?.footprint?.u) * Number(bp?.footprint?.v)
+  const k = Number.isFinite(n) && n > 270 ? n / 270 : 1
+  return Object.freeze({ col: YARD_SITE.col, fill: Math.round(YARD_EARTH.fill * k), cut: Math.round(YARD_EARTH.cut * k) })
+}
+/** The screen's domain for one band: from the town ring's inner edge (Chebyshev rMin) out to rMax (Euclidean). Pure. */
+export const yardDomain = (home, rMax, rMin = YARD_SITE.rMin) => (x, z) => Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) >= rMin && Math.hypot(x - home.x, z - home.z) <= rMax
+/** The stands' domain for a yard sited out to rMax (the proof's, the replant's and the visit's: buildsite.mjs stepFor). Pure. */
+export const yardStandDomain = (home, rMax) => yardDomain(home, rMax + YARD_SITE.standPad)
+/** The town walk's radius for a yard sited out to rMax (buildsite.mjs walkFrom: Chebyshev). Pure. */
+export const yardWalkR = rMax => rMax + YARD_SITE.walkPad
+/**
+ * THE SECTORS TO TRY -> [{ sector, source }]. Pure. `land` the town's land record (its `zones`: { sector: kind }) or null; `fallback`
+ * the workshop's sectors (buildsite.mjs projectSectors) used when the land plan names no yard or wild sector.
+ */
+export function yardSectors (land, fallback = []) {
+  const zones = land && typeof land.zones === 'object' && land.zones ? land.zones : null
+  if (!zones) return [...fallback]
+  const out = []
+  for (const kind of YARD_ZONES) for (const [sector, k] of Object.entries(zones)) if (k === kind && !out.some(o => o.sector === sector)) out.push({ sector, source: `land:${kind}` })
+  return out.length ? out : [...fallback]
+}
+/** The nearest band a site's pad lies in (buildsite.mjs screenSite's `pad`: [[x, z]]) -> its index in YARD_SITE.bands (the
+ *  bands' count when beyond them all). The siting's rank: nearer bands first, then the earthwork. Pure. */
+export function yardBandOf (home, pad = []) {
+  const far = pad.reduce((m, [x, z]) => Math.max(m, Math.hypot(x - home.x, z - home.z)), 0)
+  const i = YARD_SITE.bands.findIndex(b => far <= b)
+  return i < 0 ? YARD_SITE.bands.length : i
+}
+/**
+ * THE SITING PLAN -> [{ blueprint, band, domain, standDomain, walkR, line, earth, sectorBy, rankKey }] in the order to try: each
+ * blueprint of the size (2x first under auto), ONE pass over the widest band, its candidates ranked nearest band first
+ * (yardBandOf) -- the same order as a pass per band, without screening the inner ring again for each. Pure; `bpOf(id)` loads a
+ * blueprint (for its earthwork).
+ */
+export function yardSitingPlan (home, { size = yardSize(), bpOf = () => null } = {}) {
+  const band = YARD_SITE.bands.at(-1)
+  return yardBlueprintsFor(size).map(id => ({ blueprint: id, band, domain: yardDomain(home, band), standDomain: yardStandDomain(home, band), walkR: yardWalkR(band), line: band,
+    earth: yardEarthFor(bpOf(id)), sectorBy: 'centre', rankKey: site => yardBandOf(home, site.pad) }))
+}
+/** A sited yard's stands' domain and walk radius for its visits (its record's `band`; an older record without one: the ring's). */
+export const yardVisitOpts = (rec, home) => (Number.isFinite(rec?.band) && home ? { domain: yardStandDomain(home, rec.band), walkR: yardWalkR(rec.band) } : {})
 
 const k3 = a => `${a[0]},${a[1]},${a[2]}`
 const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
