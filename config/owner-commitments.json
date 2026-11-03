@@ -1897,9 +1897,9 @@
    ],
    "kind": "design",
    "lane": "progress",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
-   "next_step": "Build the B5 Paper arms per docs/reports/cooperation-tier-2026-10-23.md (frontier vs greedy vs scripted best case, Haiku arm, spend guard), report go/no-go",
+   "next_step": "none: read INCONCLUSIVE (see done.evidence); B6/B7 stay unlaunched per design.",
    "max_quiet_hours": 48,
    "depends_on": [
     {
@@ -1916,7 +1916,11 @@
      "B5 Paper"
     ]
    },
-   "note": "Never started on origin (a local branch coop-b5-1031 exists at 230cb2ff with no B5 commits). B0b+B4 (shop-01) shipped via trunk-01."
+   "note": "Never started on origin (a local branch coop-b5-1031 exists at 230cb2ff with no B5 commits). B0b+B4 (shop-01) shipped via trunk-01.",
+   "done": {
+    "when": "2026-11-01",
+    "evidence": "B5 Paper arms read 11-01 21:50Z (control session): 45 runs, 6 pairs; cells/h oracle 1527, greedy 1329, random 1300, GPT-6.1 1257, rotation 1123, Sonnet 5.5 1093, Haiku 5.5 1077; oracle-rotation +405 p=0.125; every frontier arm <= greedy/random -> INCONCLUSIVE, frontier stays off. Memory owner-cooperation-answers-1023.md, coop-b5-1031.md. Follow-up is the rule-based job assigner (jobassign-1103, shadow on .31)."
+   }
   },
   {
    "id": "coop-b6-b7-assign",
@@ -1989,9 +1993,9 @@
    ],
    "kind": "showcase",
    "lane": "progress",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
-   "next_step": "Turn on templated TALK on the showcase (bench bots never write in v1) and add captions to tl_video.py",
+   "next_step": "none: live (see done.evidence). Stage 3 = comms-stage3 / requests design 11-03.",
    "max_quiet_hours": 168,
    "evidence": {
     "branches": [
@@ -2003,7 +2007,11 @@
      "talk-01"
     ]
    },
-   "note": "Never started after chatgate-01 KEEP 10-24; patterns are expected names (no match yet)."
+   "note": "Never started after chatgate-01 KEEP 10-24; patterns are expected names (no match yet).",
+   "done": {
+    "when": "2026-11-03",
+    "evidence": "showchat-01show live on the showcase: PIECES.jsonl carries showchat rows and the live release cbd2f51b-6dd0ded8-fdd64ead includes it; 11-03 00:00-20:30Z the showcase logged 161 _say lines (ore 55, expedition 39, tech 16, deposit 15, stuck 13, smelt 12, project 8) and 971 _say_drop (rate caps). Timelapse captions live via tlvideo-01 (showcase-videos-1103). Known defects handed to the requests agent 11-03: plural (\"stone brickses\"), repeated stuck lines."
+   }
   },
   {
    "id": "comms-stage3",
@@ -2713,9 +2721,9 @@
    ],
    "kind": "showcase",
    "lane": "progress",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
-   "next_step": "Stage piece showchat-01show on the live showcase release (dry-run, gate, activate); read the Paper chat log + _say/_say_drop rows for 2 h (lines read well, caps held, no command-shaped line, chatter gone); check the 11-02 daily video's captions (tl_video.py on the showcase VM); then mark done. Later (owner C6): optional LLM choice among fixed phrasings",
+   "next_step": "none: live (see done.evidence). Stage 3 = comms-stage3 / requests design 11-03.",
    "max_quiet_hours": 48,
    "evidence": {
     "branches": [
@@ -2728,7 +2736,11 @@
      "bots/src/showchat.mjs"
     ]
    },
-   "note": "Built 11-01 (control session subagent): bots/src/showchat.mjs + features.mjs installShowchat; tl_video.py captions. Tier 2 (not protected). Reviews: Codex codex-exec blockers-only r1+r2 APPROVE; Claude independent subagent r1+r2 APPROVE. Kill switch: touch /var/lib/mcai/_pool-showcase/showchat.off; rollback SHOWCHAT=off."
+   "note": "Built 11-01 (control session subagent): bots/src/showchat.mjs + features.mjs installShowchat; tl_video.py captions. Tier 2 (not protected). Reviews: Codex codex-exec blockers-only r1+r2 APPROVE; Claude independent subagent r1+r2 APPROVE. Kill switch: touch /var/lib/mcai/_pool-showcase/showchat.off; rollback SHOWCHAT=off.",
+   "done": {
+    "when": "2026-11-03",
+    "evidence": "showchat-01show live on the showcase: PIECES.jsonl carries showchat rows and the live release cbd2f51b-6dd0ded8-fdd64ead includes it; 11-03 00:00-20:30Z the showcase logged 161 _say lines (ore 55, expedition 39, tech 16, deposit 15, stuck 13, smelt 12, project 8) and 971 _say_drop (rate caps). Timelapse captions live via tlvideo-01 (showcase-videos-1103). Known defects handed to the requests agent 11-03: plural (\"stone brickses\"), repeated stuck lines."
+   }
   },
   {
    "id": "copperhall-01",
