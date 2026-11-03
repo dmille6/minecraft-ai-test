@@ -38,6 +38,7 @@ export const SU_ABORT_OXYGEN = 10     // turn back at or below this much air (ha
 export const SU_STEP_MS = 3000        // one cell, at most (a water cell is ~0.5 s at ~2 b/s; corners and the bob cost more)
 export const SU_BUDGET_MS = 25_000    // one firing, out and back
 export const SU_BACKOFF_MS = [5, 10, 20, 40, 60].map(m => m * 60_000)
+export const SU_NOPLAN_BACKOFF_MS = [1, 5, 10, 20, 40, 60].map(m => m * 60_000)   // the first no-plan answer may be a transient
 export const SU_CENTRE_TOL = 0.2      // the 0.6 body is inside a 1.0 column when its centre is within 0.2 of the column centre
 export const SU_BAND = 0.25           // feet height within [cell y, cell y + band] before a sideways stroke (head stays under y+2)
 export const SU_COAST = 4             // water inertia 0.8: a body carries ~4 ticks of its speed after forward is released
@@ -107,7 +108,11 @@ export function swimUnderPlan ({ at = () => null, start, radius = SU_RADIUS, max
   if (!f0 || !h0) return no('terrain not loaded at the start')
   if (!isWaterCell(f0)) return no(`the feet are not in water (${f0.name})`)
   const inBox = ([x, y, z]) => Math.max(Math.abs(x - sx), Math.abs(z - sz)) <= radius && y >= sy - maxDown && y <= sy + maxUp
-  const node = c => inBox(c) && feetWet(at(...c)) && swimFits(at(c[0], c[1] + 1, c[2])) && !lavaBeside(at, c)
+  // AN UNLOADED CELL IS NEVER CLEAR, AND IT IS NOT A FACT OF THE PLACE (Paper 11-03, placebo-d cut: 14 s after arriving the
+  // search saw 1 node and the place backed off for the rest of the run; 30 s later the same start planned 6 cells)
+  let unloaded = 0
+  const seen = (x, y, z) => { const b = at(x, y, z); if (b == null && inBox([x, y, z])) unloaded++; return b }
+  const node = c => inBox(c) && feetWet(seen(...c)) && swimFits(seen(c[0], c[1] + 1, c[2])) && !lavaBeside(at, c)
   // uniform-cost search on (wet, len): a heap is not worth it at <= 9 x 9 x 9 cells
   const start0 = { c: start, wet: 0, run: 0, len: 0, prev: null, headWet: headWet(h0) }
   const best = new Map([[key(start), start0]])
@@ -150,7 +155,7 @@ export function swimUnderPlan ({ at = () => null, start, radius = SU_RADIUS, max
     }
   }
   const pick = found ?? openExit
-  if (!pick) return no(`no way out within ${radius} cells (${best.size} water cells searched)`)
+  if (!pick) return { ...no(`no way out within ${radius} cells (${best.size} water cells searched${unloaded ? `, ${unloaded} cell reads not loaded` : ''})`), unloaded }
   const route = []
   let wetRun = 0
   for (let n = pick; n && n.prev; n = n.prev) { route.unshift(n.c); wetRun = Math.max(wetRun, n.run) }
@@ -254,6 +259,9 @@ export function swimBackRoute ({ taken = [], start, headAirAt = () => false } = 
 
 /** The per-place back-off after a firing that did not get out: 5, 10, 20, 40, 60 min. Pure. */
 export const swimUnderBackoffMs = tries => SU_BACKOFF_MS[Math.min(Math.max(1, tries), SU_BACKOFF_MS.length) - 1]
+/** The back-off after a NO-PLAN answer -> ms, or 0 (retry at the next refusal) when the search met unloaded cells. Pure. */
+export const swimNoPlanBackoffMs = (tries, plan) => (plan?.unloaded > 0 ? 0
+  : SU_NOPLAN_BACKOFF_MS[Math.min(Math.max(1, tries), SU_NOPLAN_BACKOFF_MS.length) - 1])
 
 /** The `_swim_under` row's detail. Pure. */
 export function swimUnderRowDetail (r = {}) {
