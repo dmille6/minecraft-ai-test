@@ -3547,6 +3547,37 @@
     ]
    },
    "note": "7 d to 11-03 04:27Z: 174 deaths (drowning 63, falls 53 incl. stalagmites, suffocation 31, fire 27). Lifts owner-no-more-stuck-drowning-hunts for PLANNED fixes only (no hunts). Cap: one survival canary in every two slots."
+  },
+  {
+   "id": "canarybundle-1103",
+   "title": "Faster canary path for small changes (fast read plan +45/+90) and bundling of UNRELATED low-risk changes into one canary sha (owner 11-03 item 2; supersedes the 10-23 'no bundling' for unrelated tier-none changes)",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "owner-gaps-1103.md",
+    "canarybundle-v41-1103.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "canary-sched v41 + canary-loop v39 + funread built and reviewed (Codex + Claude, 3 rounds, blockers fixed); install with scripts/host/install-sched-v41.sh --wait between canaries; then report the first bundle (stationkeep-01 + marks-01) to the operator before releasing it.",
+   "max_quiet_hours": 24,
+   "depends_on": [],
+   "evidence": {
+    "grep": [
+     "canary-sched v41",
+     "install-sched-v41",
+     "bundle make",
+     "bundle-split"
+    ],
+    "paths": [
+     "scripts/host/install-sched-v41.sh"
+    ],
+    "branches": [
+     "canary-bundle-v41"
+    ]
+   },
+   "note": "Bundles: operator-formed (bundle plan/make/split), tier none only, not stacked, disjoint footprints / change rows, max 3, whole-bundle rollback, members return as singles on any non-KEEP (no live bisection). Fast plan: mechanical (tier none, single, no new src file, <=150 executable src lines). Bundles keep +90/+180."
   }
  ]
 }
