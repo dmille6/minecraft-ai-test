@@ -61,6 +61,72 @@ record's ring, else tidy-01's 32 square). Code: `bots/src/terrace.mjs` (pure), `
   (`stageCarry`: no segment names them, the visit never works them). Without that, a placement read after the head moved on would
   be H1 off_record, because shopread judges placements against the HEAD record.
 
+## The owner's 11-01 water rule (11-03: "lets go with the 11-1 rule")
+
+Water is terrain (owner-water-boats-bridges-1101). The tidy's old refusal, no fill and no cut within one block of any liquid, goes
+for every groundskeeper stage. One shared rule in `bots/src/tidy.mjs` serves stage 0 (`surveyTidy`, `gradeTidy` via `siteTidy`),
+the land plan's roads (`roadWork`) and the terrace (`terrace.mjs gradeTerraces` / `columnWork`). Rollback: `TIDY_WATER=strict`.
+
+**Fills** beside or into water are allowed (`fillIntoOk`: water yes, lava and waterlogged blocks never). Three refusals changed:
+- a pit beside water is filled to the water's surface (it was `pit_water`);
+- a road column of shallow open water becomes an embankment from its bed (it was `road_water`);
+- the terrace grades a pond's edge ring, open-water columns at most 4 deep beside free ground, as an embankment (it was a
+  non-ground column).
+
+**Cuts** beside water are allowed only behind a **dam** (`cutWater`). Every water block 4-beside a cut cell, at that cell's height,
+gets a fill cell placed into it first. Water spreads sideways and down, never up, so nothing else can reach the opened cell. The
+dig is re-checked at the dig itself: `buildrun.mjs p.tidyOk` calls `tidy.mjs cutSafeNow`, which requires no water beside the cell
+NOW, otherwise the cut waits, counted toward its give-up. A cut is never made within one block of lava, nor beside a waterlogged
+block, which cannot be dammed. This changed `grade_wet`, `road_wet` and `cut_wet`.
+
+**Never:** a dam or a fill into water in a column the stage may not touch (`waterOk` / `mayDam`): the refusals (wells, protected
+zones, every project) and the farm's irrigation within 4 of farmland. Both are read at siting and again at work time.
+`buildrun.mjs p.intoWater` (groundskeeper visits only) lets a record cell holding water take a placement. The tidy outside the
+groundskeeper (`GROUNDSKEEPER=off`) stays strict.
+
+**Fixes from the water reviews:**
+- **Never a cut under water:** a pond-edge column is filled, never cut. `cutWater` and `cutSafeNow` refuse water over the cell.
+- **The dig is re-checked after the walk,** with nothing awaited before it (`digNamed`'s `safe` returns `unsafe`).
+- **The router** uses the same dam eligibility as the earthwork (`gradeLim(read, n, water, { waterOk })`; the land plan's
+  `landWaterOk`).
+- **Farm water at work time:** every groundskeeper stage passes a fill or dam into water within 4 of farmland laid since siting
+  (`farmWater`; the park's own plots exempt). The waiver counts at completion too.
+
+**The flood test** (`terrace.test.mjs`, buildfake): water flows into any cell dug beside it, and the fake accepts placements into
+water.
+- With the rule, the dam goes in first and the cut comes out dry.
+- A cut whose water was never dammed (water that came after the siting) is held at the dig: `tidyWet`.
+- Mutant, without the dig-time checks (before and after the walk): the cut comes out first and floods.
+- Water that breaks in during the walk to the dig: held. The mutant without the post-walk check floods.
+- Mutant, without `intoWater`: the dam never goes in, and the cut waits, dry.
+
+**Offline**, same copies, cells planned (cut + fill + seal + dam), strict -> rule:
+
+| town | stage 0 | land stages (roads, rims) | terrace | newly allowed | water refusals strict -> rule |
+|---|---|---|---|---|---|
+| board-a | 407 -> 407 | 1234 -> 1240 | 1257 -> 1257 | 6 | - |
+| board-c | 249 -> 249 | 828 -> 838 | 960 -> 960 | 10 | - |
+| board-d | 24 -> 24 | 867 -> 870 | 615 -> 615 | 3 | - |
+| hive-b | 418 -> 418 | 755 -> 755 | 0 -> 0 | 0 | terrace cut_wet 1 -> (cut_lava 1: lava, still refused) |
+| hive-c | 269 -> 269 | 789 -> 789 | 0 -> 0 | 0 | pit_water 1 -> 0; water edge columns 0 -> 1 (the grading then kept by the walk guard) |
+| hive-d | 369 -> 369 | 554 -> 575 | 964 -> 966 | 23 | pit_water 15 -> 14; water edge 0 -> 2 |
+| isolated-a | 305 -> 305 | 674 -> 676 | 428 -> 428 | 2 | - |
+| placebo-b | 283 -> 283 | 416 -> 440 | 485 -> 470 | 9 | pit_water 12 -> 9; water edge 0 -> 16 |
+| placebo-c | 34 -> 34 | 654 -> 656 | 0 -> 0 | 2 | - |
+| placebo-d | 629 -> 629 | 1304 -> 1304 | 1255 -> 1247 | -8 | pit_water 5 -> 2; water edge 0 -> 3 |
+| showcase | 80 -> 80 | 302 -> 305 | 886 -> 886 | 3 | - |
+| board-b, hive-a, isolated-b, isolated-c, isolated-d, placebo-a | unchanged | unchanged | unchanged | 0 | none (no water refusal under strict either) |
+
+**Total: 50 more cells across 17 towns.**
+- **Why so few:** the towns' insides hold little water. Under strict, the water refusals were 33 pits (`pit_water`) and 1 terrace
+  cut (`cut_wet`), against 108 open-water columns (`col_water`).
+- **Under the rule:** `pit_water` falls by 8, to 25 (those pits then meet the survey's other checks), 22 pond-edge columns join the
+  grading, and the land plan routes a few more road cells.
+- **No dam was needed in any town.** No terrace or road cut stands beside open water on these copies; the flood test is the proof
+  of that path.
+- **Safety:** protected touches stay 0, and worse steps 0. placebo-b's walk-and-back is 1609 under strict and 1583 under the rule:
+  the rule's blend is more balanced in cut against fill, and both are above the 993 before the stage.
+
 ## Offline proof (region copies; read-only)
 
 Fleet towns: the 16 copies of 11-02 ~18:48Z (`~/gk-1102` on the worlds host). Showcase: region + pool copied 11-03 ~00:50Z.
@@ -159,6 +225,8 @@ Codex (`codex exec`, read-only) and a Claude reviewer (tripwire-adjacent), block
 | r2 | Both: `stageCarry` could carry a stage-0 fill onto a terrace cut, so the stage never completed. Codex: PREV cells in the completion's unread check. Claude: the visit-only replant filter broke G5. | r3 |
 | r3 | Codex: a failed skip publish let the visit go on. Claude: a kept tree in fill cells would be felled by the foreign pass. | r4 |
 | r4 | none (both) | |
+| water r1 | Codex: the water check ran before the walk to the dig; water over a cut was not checked; the router accepted cuts whose dams the earthwork refuses; the terrace's pond-edge fills hit `fill_blocked`. Claude: a pond-edge column could be cut under its own water. | r6 (7ccbfddc) |
+| water r2 | Codex: the farm-water waiver was not counted at completion. Claude: none, after a misread was withdrawn; the park exemption was added. | 544fa365, 73cc0331 |
 
 Notes not acted on:
 - a fill cell above a kept trunk's top log is still laid;
