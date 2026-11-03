@@ -43,6 +43,8 @@ import { expeditionInstall } from './skills.mjs'   // expedition-01: the order's
 import { copperRunInstall } from './skills.mjs'   // copperrun-01: the hall's copper ask and its licence row
 import { copperhallModeDetail } from './copperhall.mjs'   // copperhall-01's licence row
 import { COPPERHALL } from './shop.mjs'
+import { YARD } from './shop.mjs'   // stockyard-01's licence row
+import { yardModeDetail } from './yard.mjs'
 import { tapRecords } from './logger.mjs'   // showchat-01: the read-only record tap the announcements are made from
 import { showchatOn, showchatModeDetail, makeSpeaker, quietChatter, KILL_FILE } from './showchat.mjs'   // showchat-01
 import { poolStateDir } from './worldfacts.mjs'
@@ -85,6 +87,8 @@ export function installFeatures (bot) {
   try { copperRunInstall(bot) } catch (e) { log('warn', 'copper run not installed', { error: e.message }) }
   // copperhall-01: the copper hall's licence row (copperhall.mjs; the project itself is shop.mjs PROJECTS, its gate skills.mjs hallOpenNow)
   try { logEvent({ kind: 'copperhall_mode', status: 'success', snapshot: snapshot(bot), detail: copperhallModeDetail(COPPERHALL.on) }) } catch { /* telemetry */ }
+  // stockyard-01: the stockpile yard's licence row (yard.mjs; the project itself is shop.mjs PROJECTS, its visit skills.mjs yardVisit)
+  try { logEvent({ kind: 'yard_mode', status: 'success', snapshot: snapshot(bot), detail: yardModeDetail(YARD.on) }) } catch { /* telemetry */ }
   // showchat-01: the showcase's announcements (`_showchat_mode`; on=0 outside the showcase pool or under SHOWCHAT=off)
   try { installShowchat(bot) } catch (e) { log('warn', 'showchat not installed', { error: e.message }) }
   // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view

@@ -76,6 +76,13 @@ const REQUIRED = [
   'bots/src/expedition.mjs',
   'bots/test/expedition.test.mjs',
   'bots/test/showcase-on-fleet.test.mjs',
+  // bagdiet-01 (11-02): the light projects' visit hold, their bank-back gate, the craft's table candidates
+  'bots/test/bagdiet.test.mjs',
+  // stockyard-01 (11-02): the town stockpile yard, its blueprint, its generator and its test
+  'bots/src/yard.mjs',
+  'bots/src/blueprints/yard@1.json',
+  'docs/reports/stockyard-2026-11-02/make_yard.py',
+  'bots/test/yard.test.mjs',
   // copperhall-01 (11-02): the showcase copper hall, its blueprint and its test over the showcase terrace's own region export
   'bots/src/copperhall.mjs',
   'bots/src/blueprints/hall@1.json',

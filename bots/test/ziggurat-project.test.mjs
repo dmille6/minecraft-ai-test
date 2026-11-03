@@ -19,6 +19,7 @@ process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has it
 process.env.TIDY = 'off'   // tidy-01 / groundskeeper-01 (on in the showcase pool since its groundskeeper release) have their own order tests
 // a FLEET-pool child keeps the tidy's own default (on, last); a showcase child keeps TIDY=off like this file
 const tidyEnv = env => { const e = { ...process.env, ...env }; if (env.MEMORY_POOL !== 'showcase' && !('TIDY' in env)) delete e.TIDY; return e }
+process.env.YARD = 'off'   // stockyard-01's yard (on in the showcase pool) has its own order test: yard.test.mjs
 process.env.STOREHOUSE = 'off'; process.env.SHOPCHEST = 'off'   // storehouse-01 / shopchest-01: storehouse.test.mjs, shopchest.test.mjs
 // paths-01: the town's paths (the fourth project, on in the showcase pool) are switched off here -- these are the ziggurat's order
 // tests; the paths' own are paths.test.mjs and paths-wiring.test.mjs

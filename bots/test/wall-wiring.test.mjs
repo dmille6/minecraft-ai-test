@@ -20,6 +20,7 @@ process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has it
 process.env.TIDY = 'off'   // tidy-01 / groundskeeper-01 (on in the showcase pool since its groundskeeper release) have their own order tests
 // a FLEET-pool child keeps the tidy's own default (on, last); a showcase child keeps TIDY=off like this file
 const tidyEnv = env => { const e = { ...process.env, ...env }; if (env.MEMORY_POOL !== 'showcase' && !('TIDY' in env)) delete e.TIDY; return e }
+process.env.YARD = 'off'   // stockyard-01's yard (on in the showcase pool) has its own order test: yard.test.mjs
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE; delete process.env.PATHS; delete process.env.PATHS_POOLS
 delete process.env.WALL; delete process.env.WALL_POOLS
 const SK = await import('../src/skills.mjs')
@@ -124,7 +125,7 @@ for (const [name, re] of [
   ['build_shop counts its pick as a repair visit (the back-off\'s count)', /const proj = shopActive\(bot, Date\.now\(\), \{ visit: true \}\)/],
   ['shopActive backs off a repair that does not take', /const states = repairBackoff\(activeMem\.states, rmem, now\)\.map/],
   // zigtidy-02: ...except within the tidy's repair window after a repair completion (shop.mjs tidyIsRepair; zigtidy2.test.mjs)
-  ['shopActive reads a tidy as upkeep (due), damage only in the repair window', /const tidyFirst = complete && p\.plot === MONUMENT_PLOT && tidyIsRepair\(zigRepairedAt\(projKeyOf\(p\.plot\), now\), now\)\n {8}const damaged = complete && b \? recordDamaged\(b, rec, \{ tidy: tidyFirst \}\) : false\n {8}const due = complete && b && !damaged \? recordDamaged\(b, rec\) : false\n(?:[ ]*(?:\/\/[^\n]*)?\n| {8}const waiting = [^\n]*\n)* {8}return \{ plot: p\.plot, exists: !!rec, complete, damaged, due, dueFirst: /],   // sortstore-01: due, then dueFirst; copperhall-01: the hall's `waiting` between
+  ['shopActive reads a tidy as upkeep (due), damage only in the repair window', /const tidyFirst = complete && p\.plot === MONUMENT_PLOT && tidyIsRepair\(zigRepairedAt\(projKeyOf\(p\.plot\), now\), now\)\n(?:[ ]*(?:\/\/[^\n]*)?\n)* {8}const yw = complete && b && p\.plot === YARD_PLOT \? yardWorkNow\(b, rec\) : null\n {8}const damaged = complete && b \? \(recordDamaged\(b, rec, \{ tidy: tidyFirst \}\) \|\| !!yw\?\.urgent\) : false\n {8}const due = complete && b && !damaged \? \(recordDamaged\(b, rec\) \|\| !!yw\?\.kind\) : false\n(?:[ ]*(?:\/\/[^\n]*)?\n| {8}const waiting = [^\n]*\n)* {8}return \{ plot: p\.plot, exists: !!rec, complete, damaged, due, dueFirst: /],   // sortstore-01: due, then dueFirst; copperhall-01: the hall's `waiting` between; stockyard-01: the yard's work (yw) folded into damaged/due;
 ]) {
   await t(`${name} (and a mutant of it fails)`, async () => {
     assert.ok(re.test(SRC), 'wired')

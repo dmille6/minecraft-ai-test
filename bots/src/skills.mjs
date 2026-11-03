@@ -137,6 +137,7 @@ import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDe
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
+import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
@@ -17126,8 +17127,11 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // zigtidy-02: ...except for TIDY_AFTER_REPAIR_MS after the record's last repair completion (shop.mjs tidyIsRepair): then the
         // tidy is a repair too -- the pillars a repair's own climbs left are dug before the open projects (bounded per bot)
         const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
-        const damaged = complete && b ? recordDamaged(b, rec, { tidy: tidyFirst }) : false
-        const due = complete && b && !damaged ? recordDamaged(b, rec) : false
+        // stockyard-01: a complete yard's work for THIS bot (yard.mjs yardWork): its bag's surplus under pressure goes first (as a
+        // repair: activeProject's first loop, bounded by repairBackoff), any other work (the clerk, a refill, the aisles) is `due`
+        const yw = complete && b && p.plot === YARD_PLOT ? yardWorkNow(b, rec) : null
+        const damaged = complete && b ? (recordDamaged(b, rec, { tidy: tidyFirst }) || !!yw?.urgent) : false
+        const due = complete && b && !damaged ? (recordDamaged(b, rec) || !!yw?.kind) : false
         // copperhall-01: the unsited hall WAITS on its opening rule (copperhall.mjs hallOpening: the town's copper), so the order
         // never offers it early and works the next project meanwhile
         const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
@@ -17523,6 +17527,10 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
       if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role) && !(mon && zigHidden(c, read))) return true
     }
+    // stockyard-01 (Claude r1 BLOCK 1): a standing yard with WORK for this bot (yard.mjs yardWork: a bag surplus, the clerk, a
+    // refill, aisle clutter) wants a visit -- the order reads `complete` through shopDamaged, so work only in shopActive's states
+    // never reached the order. `tidy: false` (the visit's own branch, the repair loop) judges the cells alone
+    if (tidy && r.blueprint === YARD_BLUEPRINT && yardWorkNow(bot, r)?.kind) return true
     // zigtidy-01: a finished ziggurat with climbing pillars on its treads wants a visit too (the tidy), until each pillar block has
     // been offered ZIG_TIDY_VISITS visits of this bot
     if (tidy && mon && zigTidyNow(bot, r, read).length) return true
@@ -18290,6 +18298,130 @@ async function sortTidyOne (ctx, homes, signal, deadline) {
   row(moved > 0, `took=${Object.entries(took).map(([n, c]) => `${n}x${c}`).join('+')} put=${puts.join(' ') || '-'} moved=${moved} short=${short.join('+') || '-'}`)
   return { moved, why: short.length ? 'short' : 'done' }
 }
+// ================================================================================================================================
+// STOCKYARD-01: THE YARD'S VISIT (yard.mjs; OWNER 11-02). A complete yard's work for this bot, in yard.mjs yardWork's order: the
+// bag's surplus onto the piles (bamboo crafted into blocks first), the clerk (the chests' surplus drawn, then placed), a refill
+// (cobblestone dug back from the piles, then banked), the aisles' clutter. One bot at a time (the record's admission slot, 1).
+// Placement is buildrun.mjs runVisit over the PILE CELLS (never record cells: a pile that shrinks is no damage); digs are its
+// `tidy` entries. One `_yard` row a visit (yard.mjs yardRowDetail).
+// ================================================================================================================================
+/** The yard's work for this bot now -> yard.mjs yardWork's result | null (never throws: no work on an unreadable world). */
+function yardWorkNow (bot, rec, now = Date.now()) {
+  // a visit that did nothing rests the yard's work for this bot (YARD_REST_MS): a visit that cannot act is never re-sent at once
+  if (Number(bot?.yardRestUntil) > now) return null
+  try {
+    const bp = blueprintOf(YARD_BLUEPRINT), read = planReader(bot)
+    const held = heldMap(bot)
+    const nb = bambooBlocks(held)
+    const items = bot.inventory?.items?.() ?? []
+    const states = bayStates(pileSlots(rec, bp), read)
+    return yardWork({ held: nb > 0 ? { ...held, bamboo_block: (held.bamboo_block ?? 0) + nb } : held, slots: items.length, freeSlots: Math.max(0, BAG_SLOTS - items.length),
+      town: (() => { try { return matsTownStock(bot)?.stock ?? null } catch { return null } })(), states, clutter: yardClutter(rec, read), pick: !!refillPick(items, remaining) })
+  } catch { return null }
+}
+async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now()) {
+  const { bot } = ctx
+  const dir = townDir(), key = projKeyOf(YARD_PLOT), me = bot.username ?? 'bot', home = planHomeP(), bp = blueprintOf(YARD_BLUEPRINT)
+  // the runner's clock, as the monument's (its watchdog aborts every skill at SKILL_TIMEOUT_MS): the visit ends ZIG_VISIT_TAIL_MS before it
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
+  const slot = takeSlot(dir, key, me, YARD_BUILDERS)
+  if (!slot.ok) return out('no_effect', 'slots_full', `the yard is another bot's now (${slot.why})`)
+  const slotRef = { gen: slot.gen }
+  const f = { kind: '-', why: '-', placed: {}, dug: {}, drew: {}, banked: {}, crafted: 0, cleared: 0 }
+  const placedBy = {}
+  let effects = null, stop = '-', states = []
+  const bays = pileSlots(rec, bp)
+  try {
+    // 1. BAMBOO INTO BLOCKS (9 : 1; the bag keeps YARD_BAMBOO_KEEP): a bamboo_block pile keeps the planks one craft away
+    const nb = bambooBlocks(heldMap(bot))
+    if (nb > 0) {
+      const before = countItem(bot, 'bamboo_block')
+      try { await craft(ctx, { item: 'bamboo_block', count: nb }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      f.crafted = Math.max(0, countItem(bot, 'bamboo_block') - before)
+    }
+    check(signal)
+    const read = planReader(bot)
+    states = bayStates(bays, read)
+    const items = bot.inventory?.items?.() ?? []
+    const w = yardWork({ held: heldMap(bot), slots: items.length, freeSlots: Math.max(0, BAG_SLOTS - items.length), town: matsTownStock(bot)?.stock ?? null, states, clutter: yardClutter(rec, read), pick: !!refillPick(items, remaining) })
+    f.kind = w.kind ?? 'idle'; f.why = w.why
+    if (!w.kind) { stop = 'idle'; bot.yardRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'complete', 'the yard stands; nothing to stock, move, refill or clear') }
+    let place = w.place
+    // 2. THE CLERK: the chests' surplus into the bag first (the build reserve is the withdraw's own floor: mats.mjs takeAllowed)
+    if (w.kind === 'clerk') {
+      const wd = await matsWithdraw(ctx, w.draw, signal, 30_000, matsReserve().table)
+      f.drew = { ...(wd.took ?? {}) }
+      place = Object.fromEntries(Object.entries(f.drew).filter(([, v]) => v > 0))
+      if (!Object.keys(place).length) { stop = 'nothing_drawn'; bot.yardRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'nothing_drawn', `the clerk drew nothing from the town chests (${w.why})`) }
+      check(signal)
+    }
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    effects = botBuildEffects(bot, {
+      acks, keep: {},
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: YARD_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    const base = { dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), recordGen, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.yardStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy }
+    const bare = { ...rec, cells: [], segments: [], clear: [], replant: [] }
+    let r = null
+    if (w.kind === 'stock' || w.kind === 'clerk') {
+      // 3. THE PILES: the next slots of each name's bay, placed as one segment (bottom layer first; buildrun's per-column order)
+      states = bayStates(bays, planReader(bot))
+      const pc = pileCells(states, place)
+      if (!pc.cells.length) { stop = 'yard_full'; bot.yardRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'yard_full', 'the yard has no room for what was to go on it') }
+      r = await runVisit({ ...base, record: { ...bare, cells: pc.cells, segments: [{ seg: 'pile', layer: 0, deps: [] }] }, palette: { ...bp.palette, ...pc.palette } }, effects, { deadline, maxSteps: 400 })
+      f.placed = { ...placedBy }
+    } else {
+      // 4. A REFILL (the top of the piles, dug back) or THE AISLES (their clutter): runVisit's tidy digs, under the clear lease
+      const tidy = w.kind === 'refill' ? refillDigs(states, w.dig) : yardClutter(rec, planReader(bot))
+      const bag0 = heldMap(bot)
+      // a REFILL digs with a pickaxe in hand, re-equipped before every dig (Codex r1 BLOCK: botBuildEffects.dig digs with whatever is
+      // held, and a cobblestone dug by hand drops nothing); no pickaxe, no dig
+      let fx = effects
+      if (w.kind === 'refill') {
+        fx = { ...effects, dig: async (c, expect) => {
+          const pk = refillPick(bot.inventory?.items?.() ?? [], remaining)
+          if (!pk) return 'refused'
+          try { if (!(/_pickaxe$/.test(bot.heldItem?.name ?? '') && remaining(bot.heldItem) >= 2)) await bot.equip(pk, 'hand') } catch (e) { if (e?.aborted || signal?.aborted) throw e; return 'refused' }
+          if (!/_pickaxe$/.test(bot.heldItem?.name ?? '')) return 'refused'
+          return effects.dig(c, expect)
+        } }
+      }
+      r = await runVisit({ ...base, record: bare, palette: bp.palette, tidy, clearMax: w.kind === 'refill' ? YARD_VISIT_MAX : YARD_CLEAR_MAX }, fx, { deadline, maxSteps: 400 })
+      f.cleared = r.cleared ?? 0
+      if (w.kind === 'refill') {
+        try { await pickupNearbyItems(bot, signal, 8) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        const got = Math.max(0, (heldMap(bot).cobblestone ?? 0) - (bag0.cobblestone ?? 0))
+        f.dug = got ? { cobblestone: got } : {}
+        // always banked (Claude r1 note 1: an unbanked refill is the next stock visit's surplus, put straight back on the pile)
+        if (got > 0) {
+          try { f.banked = await matsBank(ctx, ['cobblestone'], bag0, signal, { cobblestone: got }) ?? {} } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        }
+      }
+    }
+    stop = r?.stop ?? '-'
+    const n = Object.values(f.placed).reduce((t, v) => t + v, 0) + f.cleared
+    if (n === 0) bot.yardRestUntil = Date.now() + YARD_REST_MS
+    return out(n > 0 ? 'success' : 'no_effect', `yard_${f.kind}`, `the yard's ${f.kind}: ${n} block(s) (${r?.why ?? stop})`.slice(0, 160), { stop: r?.stop, placed: r?.placed, cleared: r?.cleared, slot: slot.slot })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { stop = 'aborted'; out('aborted', 'aborted', 'interrupted'); throw e }
+    stop = 'error'
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    bot.shopDamage = null   // the order's 60 s damage cache: the yard's work is read again
+    let held = {}
+    try { held = yardHeld(bayStates(bays, planReader(bot))) } catch { /* the row without it */ }
+    try { logEvent({ kind: 'yard', status: 'success', snapshot: snapshot(bot), detail: yardRowDetail({ ...f, held, stop }) }) } catch { /* telemetry */ }
+  }
+}
+
 /** THE UPKEEP VISIT (a complete storehouse, `due`: after every open project): the labels, then one tidy move-set; one bot at a time
  *  (the record's `sort` lease). `out` is buildShop's row writer. */
 async function storeUpkeepVisit (ctx, rec, signal, out) {
@@ -18390,7 +18522,7 @@ async function buildShop (ctx, args, signal) {
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `hall/${ss.record.cells.length}cells/${ss.record.fill.length}fill/${ss.record.earthwork.cut}cut/${ss.record.earthwork.voids ?? 0}voids`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     } else if (plot !== SHOP_PLOT) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
-      more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot }
+      more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot, ...(plot === YARD_PLOT ? { earth: YARD_EARTH } : {}) }
     }
     if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT) {
     const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
@@ -18404,6 +18536,8 @@ async function buildShop (ctx, args, signal) {
   }
   shopFootprintRefresh(bot)
   const rec = rh.head.rec
+  // stockyard-01: a COMPLETE yard (its floor and lights stand) gets the yard's own visit: the piles, the clerk, a refill, the aisles
+  if (plot === YARD_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false })) return yardVisit(ctx, rec, rh.head.gen, signal, out, t0)
   // sortstore-01: a COMPLETE storehouse whose only want is its upkeep (labels, the tidy) gets the upkeep visit, not a build visit
   if (plot === STORE_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && !storeTidy(rec, planReader(bot), bot.storeTidyTries ?? null).length && storeUpkeepDue(bot, rec)) return storeUpkeepVisit(ctx, rec, signal, out)
   // a COMPLETE workshop is judged against the world (r2): a damaged one is repaired by an ordinary visit
