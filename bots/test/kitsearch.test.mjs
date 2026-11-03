@@ -192,7 +192,7 @@ const farChest = async S => {
   assert.match(lastRow(), / town=10 cand=10 visits=10 vfail=0 maxrep=1 left=0 /, lastRow())
   // THE CHANGE ROW: one `_kit_search` per searched run, spanning the walks (the death linkage's own row)
   const ks = RECS.filter(r => r.skill?.name === '_kit_search').at(-1)?.skill
-  assert.match(ks?.detail ?? '', /^outcome=took need=kit_iron town=10 cand=10 visits=10 vfail=0 maxrep=1 left=0 tried=\[/, ks?.detail)
+  assert.match(ks?.detail ?? '', /^outcome=took need=kit_iron town=10 cand=10 visits=10 vfail=0 maxrep=1 left=0 ix=0\/0 tried=\[/, ks?.detail)
   assert.ok(Number.isFinite(ks.duration_ms) && ks.duration_ms >= 0)
   assert.equal(ksAtCraft, RECS.filter(x => x.skill?.name === '_kit_search').length, 'written when the search ENDED, before the first craft (Codex r1 P3)')
   return w
@@ -217,7 +217,7 @@ await t('THE CHANGE ROW ON AN ABORT: a run aborted mid-search (a reflex, a death
   await assert.rejects(S0.SKILLS.toolkit.run({ bot: w.bot, kitCraft: fakeCraft(w) }, {}, ac.signal), e => e?.aborted)
   const ks = RECS.slice(n0).filter(r => r.skill?.name === '_kit_search')
   assert.equal(ks.length, 1)
-  assert.match(ks[0].skill.detail, /^outcome=aborted need=kit_iron town=10 cand=10 visits=2 vfail=0 maxrep=1 left=-1 tried=\[5,64,3:none;10,64,4:none\]$/, ks[0].skill.detail)
+  assert.match(ks[0].skill.detail, /^outcome=aborted need=kit_iron town=10 cand=10 visits=2 vfail=0 maxrep=1 left=-1 ix=0\/0 tried=\[5,64,3:none;10,64,4:none\]$/, ks[0].skill.detail)
   assert.equal(RECS.slice(n0).filter(r => r.skill?.name === '_kit_search').length, 1, 'once')
   // CONTROL: a run that never searched (the kit held) writes none
   const w2 = farTown({ bag: [T('iron_pickaxe', 200), T('iron_axe', 200), T('iron_shovel', 200)] })   // the whole kit (ironpick-01)
