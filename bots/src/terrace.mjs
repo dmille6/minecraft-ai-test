@@ -130,6 +130,20 @@ export function terraceLevels (floors = [], lo = null, hi = null, T = TERRACE) {
 /** The level nearest y (ties: the lower). Pure. */
 export const nearestLevel = (levels, y) => levels.reduce((b, l) => (Math.abs(l - y) < Math.abs(b - y) || (Math.abs(l - y) === Math.abs(b - y) && l < b) ? l : b), levels[0])
 
+/**
+ * THE FARM'S GUARD -> (x, z) -> bool: within T.farmGuard of a farmland block read in `box` + farmGuard (the farm's water and its
+ * soil stay as they are). The park's own tilled plots (inside `except`, the park's box) are not a farm. Pure over `read`; the siting
+ * and the visit (skills.mjs terraceGuardNow) both read it.
+ */
+export function farmGuardOf (read, box, home, { except = null, T = TERRACE } = {}) {
+  const farmK = new Set()
+  for (let x = box[0] - T.farmGuard; x <= box[2] + T.farmGuard; x++) for (let z = box[1] - T.farmGuard; z <= box[3] + T.farmGuard; z++) {
+    if (inBoxP(except, x, z)) continue
+    for (let y = home.y - T.dy; y <= home.y + T.dy; y++) { const b = read(x, y, z); if (b && nm(b) === 'farmland') { farmK.add(k2(x, z)); break } }
+  }
+  return (x, z) => { if (!farmK.size) return false; for (let dx = -T.farmGuard; dx <= T.farmGuard; dx++) for (let dz = -T.farmGuard; dz <= T.farmGuard; dz++) if (farmK.has(k2(x + dx, z + dz))) return true; return false }
+}
+
 // ---- the in-wall trees --------------------------------------------------------------------------------------------------------
 
 /**
@@ -676,14 +690,14 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
   const s0 = Number.isFinite(seed) ? seed >>> 0 : (Number(land?.seed) >>> 0)
   const parkPrev = land?.park ?? null
   // farmland and its water: no column within farmGuard of a farmland block
-  const farmK = new Set()
-  for (let x = box[0] - T.farmGuard; x <= box[2] + T.farmGuard; x++) for (let z = box[1] - T.farmGuard; z <= box[3] + T.farmGuard; z++) {
-    for (let y = home.y - T.dy; y <= home.y + T.dy; y++) { const b = read(x, y, z); if (b && nm(b) === 'farmland' && !inBoxP(parkPrev?.box, x, z)) { farmK.add(k2(x, z)); break } }
-  }
-  const farm = (x, z) => { for (let dx = -T.farmGuard; dx <= T.farmGuard; dx++) for (let dz = -T.farmGuard; dz <= T.farmGuard; dz++) if (farmK.has(k2(x + dx, z + dz))) return true; return false }
-  // THE TREES (a park tree, planted on purpose, is kept)
+  const farm = farmGuardOf(read, box, home, { except: parkPrev?.box ?? null, T })
+  // THE TREES (a park tree, planted on purpose, is kept). Codex r1 BLOCKER 3: a tree is felled only with its own replant cell -- one
+  // the tree-farm zone has no room for keeps its tree standing (named), and the grading reads it as standing
   const keepCols = new Set((parkPrev?.trees ?? []).map(t => k2(t[0], t[2])))
-  const tr = inWallTrees(read, box, { home, avoid: (x, z) => guard(x, z) ?? (farm(x, z) ? 'farm' : null), keep: (x, z) => keepCols.has(k2(x, z)), T })
+  const tr0 = inWallTrees(read, box, { home, avoid: (x, z) => guard(x, z) ?? (farm(x, z) ? 'farm' : null), keep: (x, z) => keepCols.has(k2(x, z)), T })
+  const replant = land ? replantCells(read, land, tr0.trees.map(t => ({ col: t.col, name: t.name })), { avoid: guard, cells }).map((r, i) => ({ ...r, tree: i })) : []
+  const tr = { trees: tr0.trees.slice(0, replant.length), skipped: { ...tr0.skipped } }
+  if (tr0.trees.length > replant.length) tr.skipped[land ? 'tree_no_replant' : 'tree_no_land'] = tr0.trees.length - replant.length
   const felled = new Set(tr.trees.flatMap(t => t.logs.map(l => l.at.join(','))))
   // THE FLOORS AND THE LEVELS
   const floors = buildingFloors({ records, wall, caps, read, home, T })
@@ -746,9 +760,11 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
   const park = pbox ? parkLayout(after, pbox, { seed: s0, top, orig, soilTop, have, water: (x, y, z) => nm(read(x, y, z)) === 'water', near, T }) : null
   if (!park) skipped.park_no_site = 1
   // a park cell in a column the stage may not touch now (a park from the land plan, a project sited since) is dropped
-  if (park) park.cells = park.cells.filter(c => !guard(c.at[0], c.at[2]) && !cells.has(c.at.join(',')))
-  const replant = land ? replantCells(read, land, tr.trees.map(t => ({ col: t.col, name: t.name })), { avoid: guard, cells }) : []
-  if (tr.trees.length && !land) skipped.replant_no_land = tr.trees.length
+  // Claude r1 BLOCKER: never a park cell on one of the stage's own cuts (a cut column's H+1 is its lowest cut: the cut would never be
+  // dug under a record cell, and the stage would never complete)
+  const cutK = new Set(gr.cut.map(c => c.at.join(',')))
+  if (park) park.cells = park.cells.filter(c => !guard(c.at[0], c.at[2]) && !cells.has(c.at.join(',')) && !cutK.has(c.at.join(',')))
+  if (park) park.trees = park.trees.filter(t => park.cells.some(c => c.at.join(',') === t.join(',')))
   // THE RECORD: tidy-01's (tidyRecord: layered fills, top-first cuts, the leaves' clears), then the trees, the seals, the park
   const fill = [], pits = []
   const cols = [...new Set(gr.fill.map(f => k2(f.at[0], f.at[2])))].sort((a, b) => {
@@ -767,7 +783,7 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
   let record = tidyRecord({ ok: true, cut: gr.cut.map(c => ({ ...c, pillar: 'terrace' })), fill, pits, pillars: [], skipped, clear: gr.clearLeaves }, { home, plan, now, r: r0 })
   record ??= { v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r: r0, cells: [], clear: [], cut: [], replant: [], segments: [], zones: [], pillars: 0, pits: 0, skipped, bom: { earth: 0 }, builders_max: TIDY_BUILDERS, structure_complete: false, plan: plan?.gen != null ? { gen: plan.gen } : null, sitedAt: now }
   const clearK = new Set(record.clear.map(c => c.at.join(',')))
-  for (const t of tr.trees) for (const l of t.logs) if (!clearK.has(l.at.join(','))) { clearK.add(l.at.join(',')); record.clear.push({ at: l.at, kind: 'tree', name: l.name }) }
+  tr.trees.forEach((t, i) => { for (const l of t.logs) if (!clearK.has(l.at.join(','))) { clearK.add(l.at.join(',')); record.clear.push({ at: l.at, kind: 'tree', name: l.name, tree: i }) } })
   record.clear.sort((a, b) => a.at[1] - b.at[1])
   record.replant = replant
   if (gr.seal.length) {
@@ -778,7 +794,8 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
   // visit's skip rule passes a planting whose ground is not laid yet: park.mjs terraceSkip)
   if (park?.cells.length) {
     const cellK = new Set(record.cells.map(c => c.at.join(',')))
-    const by = [['T-PU', c => PARK_USE_ROLES.has(c.role)], ['T-PP', c => PARK_PLACE_ROLES.has(c.role) && c.role !== 'hedge'], ['T-PH', c => c.role === 'hedge']]
+    // Claude r1 note: the tilling before the bone meal (the meadow's grass spreads onto an untilled plot and covers it)
+    const by = [['T-PT', c => c.role === 'till'], ['T-PP', c => PARK_PLACE_ROLES.has(c.role) && c.role !== 'hedge'], ['T-PH', c => c.role === 'hedge'], ['T-PM', c => c.role === 'meadow']]
     for (const [seg, f] of by) {
       const mine = park.cells.filter(c => f(c) && !cellK.has(c.at.join(',')))
       if (!mine.length) continue

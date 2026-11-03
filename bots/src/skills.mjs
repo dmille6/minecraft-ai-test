@@ -144,7 +144,8 @@ import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
-import { TERRACE_STAGE, landPark } from './terrace.mjs'   // townterrace-01: the terrace stage
+import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
+import { legacyStage, stageCarry } from './tidy.mjs'   // townterrace-01
 import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from './park.mjs'   // townterrace-01: the park
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -20100,10 +20101,15 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
  */
 function terraceGuardNow (bot, land, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
   const P = pathsInputs(bot, c, h, dir)
-  const recs = projectHeads().filter(x => x.plot !== LAND_PLOT && x.plot !== TIDY_PLOT).map(x => x.head.rec).filter(Boolean)
+  const heads = projectHeads().filter(x => x.plot !== LAND_PLOT && x.plot !== TIDY_PLOT)
+  const recs = heads.map(x => x.head.rec).filter(Boolean)
   const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home: P.plan.home }), [...recordZones(recs), ...hallPadZones(P.plan), ...townMarkerZones()])
   const road = corridorAt(land)
-  return (x, z) => avoid(x, z) ?? road(x, z)
+  // Codex r1 BLOCKER 4: the farm's guard read again too (farmland laid since the siting keeps its water and soil)
+  const home = P.plan.home
+  const box = wallInterior(heads.find(x => x.plot === WALL_PLOT)?.head?.rec ?? null, home)
+  const farm = box ? farmGuardOf(planReader(bot), box, home, { except: land?.park?.box ?? null }) : () => false
+  return (x, z) => avoid(x, z) ?? road(x, z) ?? (farm(x, z) ? 'farm' : null)
 }
 const tidyRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
 
@@ -20285,12 +20291,17 @@ async function buildTidy (ctx, args, signal) {
           if (!s.ok || s.record) break
         }
       } else s = siteTidy(planReader(bot), { ...I, now: Date.now() })
-    } catch { return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' }) }
+    } catch (e) {
+      // Claude r1 note: an abort during the terrace's siting (its pauses check the signal) is the skill's, never `site_unread`
+      if (e?.aborted || signal?.aborted) throw e
+      return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' })
+    }
     if (!s.ok) return out('no_effect', 'no_site', `no tidy (${s.why})`, { stop: 'no_site' })
     const sk = s.k ?? 0
     const fresh = cur => !cur || tidyDue(cur) || (GROUNDS.on && gkStageDue(cur) && recStageK(cur) < sk)
-    const body = s.record ? { ...(GROUNDS.on ? coreFills(s.record) : s.record), state: 'open', sitedBy: me } : { ...tidyNothing({ home, now: Date.now(), by: me, skipped: { ...(s.survey?.skipped ?? {}), ...(s.road?.skipped ?? {}) } }), ...(GROUNDS.on ? { stage: sk, stageId: landStages().find(q => q.k === sk)?.id ?? null, terraceV: 1 } : {}) }
-    const pub = publishRecord(dir, key, cur => (fresh(cur) ? body : null), { by: me })
+    const body = s.record ? { ...(GROUNDS.on ? coreFills(s.record) : s.record), state: 'open', sitedBy: me } : { ...tidyNothing({ home, now: Date.now(), by: me, skipped: { ...(s.survey?.skipped ?? {}), ...(s.road?.skipped ?? {}) } }), ...(GROUNDS.on ? { stage: legacyStage(landStages().find(q => q.k === sk)), stageId: landStages().find(q => q.k === sk)?.id ?? null, terraceV: 1 } : {}) }
+    // townterrace-01: the stage before's cells carried on (tidy.mjs stageCarry: the tripwire judges a placement against the head)
+    const pub = publishRecord(dir, key, cur => (fresh(cur) ? (GROUNDS.on ? stageCarry(body, cur) : body) : null), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
     if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: s.record ? 'sited' : 'nothing', cell: [home.x, home.y, home.z], ...(GROUNDS.on ? { seg: `stage${sk}`, n: s.record?.replant?.length ?? 0 } : {}), kind: `pillars${s.record?.pillars ?? 0}/cut${s.record?.cut.length ?? 0}/pits${s.record?.pits ?? 0}/fill${s.record?.cells.length ?? 0}/grade${s.record?.grade?.n ?? '-'}:${s.record?.grade?.cut ?? 0}+${s.record?.grade?.fill ?? 0}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     // townterrace-01: the park is a land-plan zone -- published once on the land record (a reservation every later siting keeps
@@ -20320,7 +20331,7 @@ async function buildTidy (ctx, args, signal) {
   const isTerrace = GROUNDS.on && rec.stageId === TERRACE_STAGE
   let guardNow = () => null
   if (isTerrace) { try { guardNow = terraceGuardNow(bot, landHead(dir), c, h, dir) } catch { return out('no_effect', 'record_unreadable', 'the town\'s refusals could not be read again for the terrace') } }
-  const waivedK = q => guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !!guardNow(q.at[0], q.at[2]))
+  const waivedK = q => !!q.prev || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !!guardNow(q.at[0], q.at[2]))
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -20380,7 +20391,8 @@ async function buildTidy (ctx, args, signal) {
     // townterrace-01: the park's cells and the cave seals a visit passes over now (park.mjs terraceSkip: no material, no tool, the
     // ground under a planting not laid yet, a seal's cut still standing) read done -- an element the town cannot make never blocks
     const tools = { get hoe () { return (bot.inventory?.items?.() ?? []).some(i => HOE_RE.test(i.name)) }, get boneMeal () { return countItem(bot, 'bone_meal') > 0 } }
-    const skipOf = rd0 => q => (isTerrace ? terraceSkip(q, rd0, { has: n => countItem(bot, n) > 0, tools }) : null)
+    // Codex r1 BLOCKER 1: the placer's own availability (effects.has: the bag less what the town keeps reserved), never the raw count
+    const skipOf = rd0 => q => (isTerrace ? terraceSkip(q, rd0, { has: n => !!effects?.has?.(n), tools }) : null)
     const skipV = skipOf(read)
     const equipUse = (re, name) => async () => {
       const it = (bot.inventory?.items?.() ?? []).find(i => (re ? re.test(i.name) : i.name === name))
@@ -20392,7 +20404,10 @@ async function buildTidy (ctx, args, signal) {
     // (always spent: tallied like a placement). Held only through equip (never an unequip: the toss bug)
     const hoeUse = { block: 'farmland', can: b => TILL_RE.test(String(b?.name ?? '')), want: b => String(b?.name ?? '') === 'farmland', held: () => HOE_RE.test(bot.heldItem?.name ?? ''), hold: equipUse(HOE_RE, null) }
     const mealUse = { block: 'bone_meal', consumes: 'bone_meal', can: b => String(b?.name ?? '') === 'grass_block', want: () => true, held: () => bot.heldItem?.name === 'bone_meal', hold: equipUse(null, 'bone_meal') }
-    const recV = isTerrace ? { ...rec, clear: (rec.clear ?? []).filter(q => !guardNow(q.at[0], q.at[2])) } : rec
+    // the work-time guard over the clears and the replants (Codex r1 BLOCKER 2): a replant cell refused now is not planted, and the
+    // tree it was owed for stays standing (its logs leave this visit's clears; the stage names it after GK_CLEAR_VISITS)
+    const badTree = new Set((rec.replant ?? []).filter(q => Array.isArray(q.cell) && guardNow(q.cell[0], q.cell[2])).map(q => q.tree).filter(Number.isFinite))
+    const recV = isTerrace ? { ...rec, replant: (rec.replant ?? []).filter(q => !(Array.isArray(q.cell) && guardNow(q.cell[0], q.cell[2]))), clear: (rec.clear ?? []).filter(q => !guardNow(q.at[0], q.at[2]) && !(q.kind === 'tree' && badTree.has(q.tree))) } : rec
     const r = await runVisit({ dir, key, me, home, stood, record: recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q) || !!skipV(q), stuckStalledOnly: true,
       ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true } : {}),
@@ -20425,7 +20440,7 @@ async function buildTidy (ctx, args, signal) {
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const skip2 = skipOf(read2)
-    const prog = tidyProgress(rw, read2, { fillDone: q => guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (isTerrace && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) })
+    const prog = tidyProgress(rw, read2, { fillDone: q => !!q.prev || guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (isTerrace && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) })
     // townterrace-01: what the park passed over this visit, named (one row a visit: the element skipped and why)
     if (isTerrace) {
       const why = {}
