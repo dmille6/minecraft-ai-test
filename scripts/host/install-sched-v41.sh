@@ -37,14 +37,18 @@ between() {   # prints why not, returns 1; silent 0 when between canaries
   return 0
 }
 ar_running() {   # an autorebase build in flight must not have its scheduler file swapped under it
+  # LIVE = starting/running with a heartbeat within 20 min (the scheduler's AR_STALE_MIN): a job that died keeps
+  # state `running` forever (stuckcells-01 on e54d1cce, hb 01:16Z, seen 11-03), and must not stall the install
   python3 - "$H/autorebase/jobs" <<'EOF'
-import glob, json, os, sys
+import datetime as dt, glob, json, os, sys
+now = dt.datetime.now(dt.timezone.utc)
 for p in glob.glob(os.path.join(sys.argv[1], '*.json')):
     try:
         j = json.load(open(p))
+        hb = dt.datetime.fromisoformat(str(j.get('hb') or j.get('at')).replace('Z', '+00:00'))
     except Exception:
-        continue
-    if j.get('state') in ('starting', 'running'):
+        hb = None
+    if j.get('state') in ('starting', 'running') and (hb is None or (now - hb).total_seconds() <= 20 * 60):
         print(os.path.basename(p)); sys.exit(1)
 EOF
 }
