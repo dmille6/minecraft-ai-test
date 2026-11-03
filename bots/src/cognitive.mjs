@@ -422,6 +422,7 @@ export class CognitiveLoop {
     // VETO REMEDY (vetoremedy.mjs; idlegap): a model veto on `return` / `deposit_surplus` queues the rung's own skill for the next tick
     this.vetoRemedy = vetoRemedyConfig(process.env)
     this.pendingRemedy = null  // { order, at, milestoneId }: used once, by the very next tick
+    this.remedyHistory = []    // [{ rule, at }] the last hour's queued remedies: the exposure budget
     this.milestones = new MilestoneController(bot, config.bot.role, this.lessons, worldFacts)
     this.schema = skillSchema(SKILL_NAMES)
     this.system = buildSystemPrompt(SKILL_NAMES)
@@ -1984,8 +1985,12 @@ export class CognitiveLoop {
       if (!((this.lastEscapeAt ?? -Infinity) >= started)) {
         try {
           const vr = vetoRemedy({ cfg: this.vetoRemedy, trigger, milestoneId: milestone?.id ?? null, proposal: res.proposal, rejection,
-                                  fromOrder: !!order, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a) })
-          if (vr) this.pendingRemedy = { order: vr, at: Date.now(), milestoneId: milestone?.id ?? null }
+                                  fromOrder: !!order, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a),
+                                  history: this.remedyHistory, now: Date.now() })
+          if (vr) {
+            this.pendingRemedy = { order: vr, at: Date.now(), milestoneId: milestone?.id ?? null }
+            this.remedyHistory = [...this.remedyHistory.filter(h => Date.now() - h.at < 3_600_000), { rule: vr.rule, at: Date.now() }]
+          }
         } catch { /* a remedy must never cost the bot its decision */ }
       }
     }
