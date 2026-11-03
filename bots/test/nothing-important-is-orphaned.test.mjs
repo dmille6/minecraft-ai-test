@@ -177,6 +177,13 @@ const REQUIRED = [
   // logsurface-01: the real-case columns cut from the region copies of failed log gathers (10-28), and their suite
   'bots/test/fixtures/logsurface-columns.json',
   'bots/test/logsurface.test.mjs',
+  // swimunder-01 (11-03): a bot pinned in a wet-ceiling pocket swims out under the wall; its real-site fixtures and offline coverage
+  'bots/src/swimunder.mjs',
+  'bots/test/swimunder.test.mjs',
+  'bots/test/fixtures/swimunder-isolated-d-358_58_180.json',
+  'bots/test/fixtures/swimunder-isolated-c-355_47_186.json',
+  'bots/test/fixtures/swimunder-hive-d-100_54_149.json',
+  'bots/scripts/swimunder-offline.mjs',
   // tombexit-01 (10-31): the entombed arm's walk-back decline and the in-wall dig
   'bots/src/tombexit.mjs',
   'bots/test/tombexit.test.mjs',
