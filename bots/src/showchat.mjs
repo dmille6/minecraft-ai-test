@@ -146,6 +146,7 @@ export const compass = k => COMPASS[((Number(k) % 8) + 8) % 8] ?? 'somewhere'
 
 const field = (d, k) => { const m = new RegExp(`(?:^|\\s)${k}=(\\S+)`).exec(String(d ?? '')); return m ? m[1] : null }
 const xz = s => { const p = String(s ?? '').split(',').map(Number); return p.length >= 2 && p.every(Number.isFinite) ? (p.length === 3 ? `${p[0]}, ${p[2]}` : `${p[0]}, ${p[1]}`) : null }
+const xyz = c => { const p = String(c ?? '').split(',').map(Number); return p.length === 3 && p.every(Number.isFinite) ? p.join(', ') : null }
 const at = pos => (pos && Number.isFinite(pos.x) ? `${Math.round(pos.x)}, ${Math.round(pos.y)}, ${Math.round(pos.z)}` : null)
 
 const ORE = Object.freeze({
@@ -220,6 +221,49 @@ export function lineFor (rec) {
     if (total < 16) return null
     return { cat: 'deposit', tier: 3, key: `dep:${rec?.bot?.name ?? ''}`, dedupeMs: 15 * 60_000,
       text: `Stored ${haulPhrase(pairs)} in the town chests.` }
+  }
+  if (kind === '_request') {
+    // requests-01 (requests.mjs): the town's requests board, spoken. Every field is an enum, a registry name, a number or a cell
+    const rop = field(d, 'op'), forP = field(d, 'for'), item = field(d, 'item') ?? ''
+    const qty = Number(field(d, 'qty')), have = Number(field(d, 'have'))
+    const proj = forP ? projectName(forP) : null
+    const metal = item.replace(/_ingot$/, '')
+    const bot = rec?.bot?.name ?? ''
+    if (!/^[a-z_]+$/.test(item)) return null
+    if ((rop === 'open' || rop === 'update') && proj && qty > 0) {
+      return { cat: 'request', tier: 2, key: `req:open:${forP}:${item}`, dedupeMs: 30 * 60_000,
+        text: `The ${proj} needs ${qty} more ${itemPhrase(item, qty).replace(/^\d+ /, '')}${Number.isFinite(have) ? ` (the town has ${have})` : ''}.` }
+    }
+    if (rop === 'producing' && proj) {
+      const block = (field(d, 'block') ?? '').replace(/^deepslate_/, '')
+      // tier 3, one an hour town-wide: the copper run issued 95 of these in 39 h of the hall's wait (11-02..03)
+      return { cat: 'request', tier: 3, key: `req:prod:${forP}:${item}`, dedupeMs: 60 * 60_000,
+        text: `Heading out to mine ${/^[a-z_]+$/.test(block) && block ? block.replace(/_/g, ' ') : metal} for the ${proj}${qty > 0 ? ` (it still needs ${qty})` : ''}.` }
+    }
+    if (rop === 'fill' && proj) {
+      const u = Number(field(d, 'units'))
+      if (!(u > 0)) return null
+      return { cat: 'request', tier: 2, key: `req:fill:${bot}`, dedupeMs: 10 * 60_000,
+        text: `Brought ${u} ${metal} for the ${proj}${qty > 0 ? ` (it still needs ${qty})` : ''}.` }
+    }
+    if (rop === 'met' && proj) {
+      const mins = Number(field(d, 'mins')), fills = Number(field(d, 'fills'))
+      return { cat: 'request', tier: 1, key: `req:met:${forP}:${item}`, dedupeMs: 6 * 3600_000,
+        text: `The ${proj} has all the ${metal} it needs${mins >= 60 ? ` after ${Math.round(mins / 60)} h` : ''}` +
+          `${fills > 0 ? `, ${fills === 1 ? 'one delivery' : `${fills} deliveries`} from our bags` : ''}!` }
+    }
+    if (rop === 'filled' && field(d, 'kind') === 'kit' && qty > 0) {
+      const tool = (field(d, 'for') ?? '').replace(/_/g, ' ')
+      const where = xyz(field(d, 'at'))
+      if (!/^[a-z ]+$/.test(tool) || !tool) return null
+      return { cat: 'request', tier: 2, key: field(d, 'for') === 'iron_pickaxe' ? `ironpick:${bot}` : `kit:${bot}`, dedupeMs: 30 * 60_000,
+        text: `I needed ${itemPhrase(item, qty)} for ${/^[aeiou]/.test(tool) ? 'an' : 'a'} ${tool} and found ${qty === 1 ? 'it' : 'them'} in the town chest` +
+          `${where ? ` at ${where}` : 's'}.` }
+    }
+    if (rop === 'unfilled' && field(d, 'kind') === 'kit') {
+      return { cat: 'request', tier: 3, key: `kitnone:${bot}`, dedupeMs: 60 * 60_000, text: 'I needed iron ingots for my tools, but the town chests had none.' }
+    }
+    return null
   }
   if (kind === '_kit_ironpick' && field(d, 'outcome') === 'crafted') {
     return { cat: 'tech', tier: 2, key: `ironpick:${rec?.bot?.name ?? ''}`, dedupeMs: 30 * 60_000, text: 'Made an iron pickaxe from the town\'s iron.' }
