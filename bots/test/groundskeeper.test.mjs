@@ -349,5 +349,80 @@ await t('the land plan is no-op for the paths default: routeLeg with no `from` a
   assert.ok(src.includes('routeLeg(grid, src, tg, { maxPops: pops, from, h })'))
 })
 
+// GKSTALL-01 (LIVE showcase 11-03: stage 0 held 1 h 40 min on one pit cell, waived on the 5th deferring visit, each visit ~30 min
+// apart because a stuck keeper held the lease with its order backed off 6 h)
+const TIDY_PATH = new URL('../src/tidy.mjs', import.meta.url)
+const W = await import('../src/wall.mjs')
+const BR = await import('../src/buildrun.mjs')
+const stallRec = () => ({ cells: [{ at: [21, 65, 0], role: 'core', seg: 'T-00-0' }, { at: [21, 66, 0], role: 'earth', seg: 'T-00-1' }, { at: [21, 67, 0], role: 'earth', seg: 'T-00-2' }] })
+await t('gkstall-01: a fill no stand reaches is waived on its 2nd deferring visit (summed over builders), before the stuck back-off', async () => {
+  const rec = stallRec()
+  // visit 1 (Alpha) and visit 2 (Iris): the F4 map counts them; the waiver sees the summed count
+  const v1 = BR.stuckAfter({}, ['21,66,0'], { by: 'Alpha', now: 1 })
+  assert.deepStrictEqual(W.wallWaiveDue(rec, [{ k: '21,66,0', why: 'no_stand', visits: v1.cells['21,66,0'].visits }], T.gkWaiveOpts(rec, W.WALL_WAIVE_MAX)), [], 'one visit: not yet')
+  const v2 = BR.stuckAfter(v1.cells, ['21,66,0'], { by: 'Iris', now: 2 })
+  assert.strictEqual(v2.stuck.length, 0, 'two visits are below STUCK_VISITS: no stuck_on_cell yet')
+  assert.ok(T.GK_WAIVE_AFTER < BR.STUCK_VISITS, 'the waiver always comes before the 6-h back-off')
+  assert.deepStrictEqual(W.wallWaiveDue(rec, [{ k: '21,66,0', why: 'no_stand', visits: v2.cells['21,66,0'].visits }], T.gkWaiveOpts(rec, W.WALL_WAIVE_MAX)), [{ k: '21,66,0', why: 'no_stand' }])
+  // control: the wall's own default (5) does not waive it at 2
+  assert.deepStrictEqual(W.wallWaiveDue(rec, [{ k: '21,66,0', why: 'no_stand', visits: 2 }]), [], 'the wall default unchanged')
+  // a mutant at the old threshold fails the behaviour
+  await withMutant(TIDY_PATH, 'export const GK_WAIVE_AFTER = 2', 'export const GK_WAIVE_AFTER = 5', async M => {
+    assert.deepStrictEqual(W.wallWaiveDue(rec, [{ k: '21,66,0', why: 'no_stand', visits: 2 }], M.gkWaiveOpts(rec, W.WALL_WAIVE_MAX)), [], 'mutant: not waived at 2')
+  })
+})
+await t('gkstall-01: the waiver room scales with the stage (a tenth of its cells, never below the wall cap); the stop after a waiver', async () => {
+  assert.strictEqual(T.gkWaiveOpts({ cells: new Array(75) }, 12).max, 12)
+  assert.strictEqual(T.gkWaiveOpts({ cells: new Array(900) }, 12).max, 90)
+  const many = { cells: Array.from({ length: 300 }, (_, i) => ({ at: [i, 66, 0], role: 'earth', seg: 'R' })) }
+  const d = many.cells.slice(0, 20).map(c => ({ k: c.at.join(','), why: 'no_stand', visits: 2 }))
+  assert.strictEqual(W.wallWaiveDue(many, d, T.gkWaiveOpts(many, 12)).length, 20, 'a road stage waives 20 of 300 (cap 30)')
+  assert.strictEqual(W.wallWaiveDue(many, d, { after: 2 }).length, 12, 'control: the wall cap alone stops at 12')
+  assert.strictEqual(T.gkStopAfterWaive('stuck_on_cell', 1), 'cell_waived')
+  assert.strictEqual(T.gkStopAfterWaive('cell_deferred', 2), 'cell_waived')
+  assert.strictEqual(T.gkStopAfterWaive('stuck_on_cell', 0), 'stuck_on_cell', 'nothing waived: the back-off stands')
+  assert.strictEqual(T.gkStopAfterWaive('deadline', 1), 'deadline')
+})
+await t('wiring (gkstall-01): the tidy visit waives with gkWaiveOpts, reports the mapped stop, and a stuck keeper lets the lease go', async () => {
+  const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.ok(/const waive = wallWaiveDue\(rec, r\.deferred \?\? \[\], GROUNDS\.on \? gkWaiveOpts\(rec, WALL_WAIVE_MAX\) : \{\}\)/.test(s), 'the tidy waiver options')
+  assert.ok(/const stop1 = GROUNDS\.on \? gkStopAfterWaive\(r\.stop, waivedN\) : r\.stop/.test(s), 'the mapped stop')
+  assert.ok(/return out\(status, completed \? 'complete' : stop1,/.test(s), 'the visit reports it')
+  assert.ok(/if \(GROUNDS\.on && stop1 === 'stuck_on_cell'\) \{ try \{ const k = keeperState\(bot, true\); if \(k\.lease\?\.rec\?\.holder === me\) \{ releaseKeeper\(bot, k\.lease, 'stuck'\)/.test(s), 'the stuck keeper releases')
+})
+
+// YARDZONE-01 (LIVE showcase 11-03: the yard sited before any land plan took W; the plan offline seeded W the tree farm zone)
+await t('yardzone-01: a yard sited first pins its sector to `yard` (control: unsited, the seeded plan makes that sector the tree farm zone)', async () => {
+  const seed = LP.landSeed('board-a', HOME)
+  const s0 = LP.landShape(seed, { plan: PLAN() })
+  const tf = Object.keys(s0.zones).find(k => s0.zones[k] === 'treefarm')
+  assert.ok(tf, 'control: the seeded plan has a tree farm zone')
+  const s1 = LP.landShape(seed, { plan: PLAN(), sited: [{ kind: 'yard', sector: tf }] })
+  assert.strictEqual(s1.zones[tf], 'yard', 'the sited yard keeps its sector')
+  assert.strictEqual(Object.values(s1.zones).filter(z => z === 'yard').length, 1, 'no second yard zone')
+  assert.strictEqual(Object.values(s1.zones).filter(z => z === 'treefarm').length, 1, 'the tree farm zone moves, never dropped')
+  assert.deepStrictEqual(LP.landShape(seed, { plan: PLAN(), sited: [{ kind: 'yard', sector: tf }] }), s1, 'deterministic')
+})
+await t('yardzone-01: a tree farm and a yard sited in ONE sector -- the tree farm keeps it, the yard is `fixed` there, neither seeded again', async () => {
+  const seed = LP.landSeed('showcase', HOME)
+  const s = LP.landShape(seed, { plan: PLAN(), sited: [{ kind: 'treefarm', sector: 'W' }, { kind: 'yard', sector: 'W' }] })
+  assert.strictEqual(s.zones.W, 'treefarm')
+  assert.deepStrictEqual(s.fixed, [{ kind: 'yard', sector: 'W', zone: 'treefarm' }])
+  assert.ok(!Object.values(s.zones).includes('yard'), 'a sited yard is never given a second zone')
+  assert.strictEqual(Object.values(s.zones).filter(z => z === 'treefarm').length, 1)
+})
+await t('yardzone-01: sitedSectors reads a record\'s sector, else its box centre (zoneAt\'s compass), the tree farm first', async () => {
+  const h = { x: 0, y: 70, z: 0 }
+  const recs = [{ plot: 'yard', box: [-64, 5, -50, 22], sector: 'W' }, { plot: 'treefarm', blueprint: 'treefarm@1', box: [-39, 4, -23, 20] }, { plot: 'wall', box: [0, 0, 5, 5] }, { plot: 'yard', state: 'no_site' }]
+  assert.deepStrictEqual(LP.sitedSectors(h, recs), [{ kind: 'treefarm', sector: 'W' }, { kind: 'yard', sector: 'W' }])
+  assert.deepStrictEqual(LP.sitedSectors(h, [{ plot: 'yard', box: [20, -40, 30, -30] }]), [{ kind: 'yard', sector: 'NE' }])
+  assert.strictEqual(LP.zoneAt({ home: h, ringR: 20, workR: 80, zones: { NE: 'yard' } }, 25, -35), 'yard', 'the same compass as zoneAt')
+})
+await t('wiring (yardzone-01): landInputs hands the sited sectors to planLand', async () => {
+  const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.ok(/composter: P\.composter, sited: sitedSectors\(P\.plan\.home, recs\) \}/.test(s), 'landInputs')
+  assert.ok(/composter: I\.composter, sited: I\.sited, now: Date\.now\(\), pause \}\)/.test(s), 'planLand call')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

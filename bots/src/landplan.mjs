@@ -101,7 +101,37 @@ export function innerReach (plan, { caps = [], composter = null } = {}) {
  * deterministic in (seed, plan, bearings): the same town always gets the same shape; two towns differ by their seeds.
  *   bearings   [{ deg, why }] extra spoke bearings the caller knows (an expedition route, an outpost): taken first
  */
-export function landShape (seed, { plan, caps = [], composter = null, bearings = [], L = LAND } = {}) {
+/**
+ * YARDZONE-01 (LIVE showcase 11-03: the yard sited at 06:18Z before any land plan, so it took the workshop's sectors, W; the land
+ * plan offline then seeded W as the TREE FARM zone -- and the showcase's tree farm already stands in W). THE SECTORS OF PROJECTS
+ * ALREADY SITED -> [{ kind, sector }], the tree farm first (it must never be blocked), then the yard. Pure. A record's own
+ * `sector` when it names one, else the sector of its box's centre (or its anchor), measured as zoneAt measures it. landShape pins
+ * them before any seeded pick, so the order of siting never matters: a plan drawn first puts the yard in its yard zone (yard.mjs),
+ * a yard sited first is where the plan's yard zone is.
+ */
+export const SITED_KINDS = Object.freeze(['treefarm', 'yard'])
+export function sitedSectors (home, records = []) {
+  if (!home) return []
+  const out = []
+  for (const kind of SITED_KINDS) {
+    for (const rec of records ?? []) {
+      const plot = rec?.plot ?? String(rec?.blueprint ?? '').split('@')[0]
+      if (plot !== kind) continue
+      let sector = SECTORS.includes(rec?.sector) ? rec.sector : null
+      if (!sector) {
+        const b = Array.isArray(rec?.box) && rec.box.length === 4 && rec.box.every(Number.isFinite) ? rec.box : null
+        const a = Array.isArray(rec?.anchor) && rec.anchor.length >= 2 && rec.anchor.every(Number.isFinite) ? rec.anchor : null
+        const c = b ? [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] : (a ? [a[0], a[a.length - 1]] : null)
+        if (!c || (c[0] === home.x && c[1] === home.z)) continue
+        const ang = Math.atan2(c[1] - home.z, c[0] - home.x)
+        sector = SECTORS[((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8]
+      }
+      if (!out.some(o => o.kind === kind && o.sector === sector)) out.push({ kind, sector })
+    }
+  }
+  return out
+}
+export function landShape (seed, { plan, caps = [], composter = null, bearings = [], sited = [], L = LAND } = {}) {
   const r = rng(seed)
   const inner = innerReach(plan, { caps, composter })
   const seeded = L.ringR[0] + Math.floor(r() * (L.ringR[1] - L.ringR[0] + 1))
@@ -135,14 +165,24 @@ export function landShape (seed, { plan, caps = [], composter = null, bearings =
   pin((plan?.plots ?? []).find(p => p.kind === 'farm')?.sector ?? null, 'farms')
   pin(sec('pavilion'), 'homes')
   pin(sec('hall'), 'homes')
+  // yardzone-01: a project ALREADY SITED pins its sector to its kind (sitedSectors: the tree farm first), and its kind is never
+  // seeded elsewhere; a sited kind whose sector another kind holds already stays where it is, named in `fixed` (its record is a
+  // reservation either way)
+  const have = new Set(), fixed = []
+  for (const st of sited ?? []) {
+    if (!SECTORS.includes(st?.sector) || !ZONE_KINDS.includes(st?.kind)) continue
+    have.add(st.kind)
+    if (!zones[st.sector]) zones[st.sector] = st.kind
+    else if (zones[st.sector] !== st.kind) fixed.push({ kind: st.kind, sector: st.sector, zone: zones[st.sector] })
+  }
   const free = () => SECTORS.filter(s => !zones[s])
   const pick = () => { const f = free(); return f.length ? f[Math.floor(r() * f.length) % f.length] : null }
   const storeSec = (plan?.plots ?? []).find(p => p.id === 'store' && typeof p.sector === 'string')?.sector ?? null
-  pin(storeSec && !zones[storeSec] ? storeSec : pick(), 'yard')
+  if (!have.has('yard')) pin(storeSec && !zones[storeSec] ? storeSec : pick(), 'yard')
   for (let i = SECTORS.filter(s => zones[s] === 'homes').length; i < 2; i++) pin(pick(), 'homes')
-  pin(pick(), 'treefarm')
+  if (!have.has('treefarm')) pin(pick(), 'treefarm')
   for (const s of free()) zones[s] = 'wild'
-  return { seed, ringR, chamfer, inner, spokes, zones }
+  return { seed, ringR, chamfer, inner, spokes, zones, ...(fixed.length ? { fixed } : {}) }
 }
 
 /** The ring's waypoints (an octagon round home, Chebyshev radius R, corners cut by c), every `step` at most, in order. Pure. */
@@ -278,9 +318,9 @@ export function roadLevels (nodes) {
  * The plan: { v, blueprint, plot, home, seed, ringR, chamfer, roads: [{ id, kind, deg?, why, ok, reached, of, grade, cols:
  * [[x, z, L]], rail? }], zones, corridors: [{ box, why }], stages, choices, structure_complete: true, cells: [] }.
  */
-export async function planLand (read, { home, plan, seed = 0, avoid = () => null, reserved = () => null, limOf = null, bearings = [], caps = [], composter = null, now = 0, pause = null, L = LAND } = {}) {
+export async function planLand (read, { home, plan, seed = 0, avoid = () => null, reserved = () => null, limOf = null, bearings = [], caps = [], composter = null, sited = [], now = 0, pause = null, L = LAND } = {}) {
   if (!home || !plan) return { ok: false, why: 'no_plan', plan: null }
-  const shape = landShape(seed, { plan, caps, composter, bearings, L })
+  const shape = landShape(seed, { plan, caps, composter, bearings, sited, L })
   const road = (x, z) => avoid(x, z) ?? reserved(x, z) ?? null
   // each road on its own grid, kept within L.band of its line: the ring between ringR - band and ringR + band, a spoke within band
   // of its bearing's ray (and outside the ring's inner edge)
@@ -348,7 +388,7 @@ export async function planLand (read, { home, plan, seed = 0, avoid = () => null
     why: 'ok',
     plan: {
       v: L.v, blueprint: LAND_BLUEPRINT, plot: LAND_PLOT, home: { x: home.x, y: home.y, z: home.z }, seed, ringR: shape.ringR, chamfer: shape.chamfer, inner: shape.inner,
-      roads, zones: shape.zones, corridors, workR: L.workR, unread,
+      roads, zones: shape.zones, ...(shape.fixed ? { fixed: shape.fixed } : {}), corridors, workR: L.workR, unread,
       // what a mayor may choose later, never geometry (owner 11-02): the spokes' order, the monument's site, names
       choices: { spokeOrder: roads.filter(r => r.kind === 'spoke').map(r => r.id), monument: null, names: {} },
       plan: plan.gen != null ? { gen: plan.gen } : null, sitedAt: now, structure_complete: true, state: 'plan', cells: [],
