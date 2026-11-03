@@ -18796,7 +18796,9 @@ async function buildStair (ctx, args, signal) {
     let res = null
     try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0 }) } catch { return out('no_effect', 'site_unread', 'the town\'s reservations could not be read', { stop: 'site_unread' }) }
     const others = projectHeads().filter(x => x.plot !== SHAFT_PLOT).map(x => x.head.rec)
-    const boxes = [...c.zones, ...recordZones(others)].map(z => z.box).filter(b => Array.isArray(b) && b.length === 6)
+    // showshaft-01 (Codex r1 BLOCKER): an UNSITED copper hall's fixed pad and the town's expedition markers are reserved for the stair
+    // too (the tidy, the land plan and the yard already read them): a fallback site off the shaft sector must never take the hall's pad
+    const boxes = [...c.zones, ...recordZones(others), ...hallPadZones(h.head.plan), ...townMarkerZones()].map(z => z.box).filter(b => Array.isArray(b) && b.length === 6)
     const g2 = STAIR_SITE_GAP
     const forbid = (x, z) => !!res.column(x, z, home.y - 8, home.y + 12) || boxes.some(b => x >= b[0] - g2 && x <= b[3] + g2 && z >= b[2] - g2 && z <= b[5] + g2)
     const sector = (h.head.plan.plots ?? []).find(q => q.kind === 'shaft')?.sector ?? null

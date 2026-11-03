@@ -43,5 +43,9 @@ t('at load in the showcase pool: SHAFT on (showshaft-01), and the project list i
   // the stair stays GUARDED when off (a sited stair's cells keep their protection); with no record it guards nothing
   assert.ok(S.projectsGuarded().some(p => p.plot === 'shaft'))
 })
+t('wiring (showshaft-01, Codex r1 BLOCKER): the stair\'s siting reserves an unsited hall pad and the expedition markers', () => {
+  const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
+  assert.ok(/const boxes = \[\.\.\.c\.zones, \.\.\.recordZones\(others\), \.\.\.hallPadZones\(h\.head\.plan\), \.\.\.townMarkerZones\(\)\]\.map\(z => z\.box\)/.test(src))
+})
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
