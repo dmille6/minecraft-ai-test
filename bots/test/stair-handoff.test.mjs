@@ -11,7 +11,7 @@ import assert from 'node:assert'
 import { createRequire } from 'node:module'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import * as G from '../src/shaftgeom.mjs'
-import { runStairEgress } from '../src/shaftvisit.mjs'
+import { runStairEgress, stairBotEffects } from '../src/shaftvisit.mjs'
 const require_ = createRequire(import.meta.url)
 const { Movements, goals } = require_('mineflayer-pathfinder')
 const AStar = require_('mineflayer-pathfinder/lib/astar')
@@ -26,6 +26,7 @@ const k3 = (x, y, z) => `${x},${y},${z}`
 const GEOM = new URL('../src/shaftgeom.mjs', import.meta.url)
 const REFLEX = new URL('../src/reflex.mjs', import.meta.url)
 const SKILLS = new URL('../src/skills.mjs', import.meta.url)
+const VISIT = new URL('../src/shaftvisit.mjs', import.meta.url)
 
 // ---- a fleet stair (board-a's record 11-03: g 70, K 55, landings 48/32/16) on a fake world -------------------------------
 const SITE = { origin: { x: 367, z: 122 }, away: 'n', g: 70 }
@@ -80,7 +81,7 @@ async function armFiring (G_, w, st, e, memo, now) {
   let r
   try { r = { ran: true, ...(await runStairEgress(PLAN, e, { exit: exitCell })) } } catch (err) { r = err?.aborted ? { ran: true, aborted: true } : { ran: true, ok: false, why: 'threw' } }
   const h = G_.egressHandoff(r)
-  if (h === 'fallthrough') { memo.k = on.k; memo.at = now } else if (h === 'out') memo.k = null
+  if (h === 'fallthrough' || h === 'retry') { memo.k = on.k; memo.at = now } else if (h === 'out') memo.k = null
   return { h, escaped: h === 'fallthrough' || h === 'skip', r }
 }
 
@@ -183,6 +184,25 @@ await t('OFF THE STAIR: a cave beside it is not handed over (skip -> today\'s es
   assert.strictEqual(st.walks.length, 0)
 })
 
+/** stairBotEffects' dig on a fake bot: counts equips and server digs; `during` runs inside the equip (a rescue taking the body). */
+async function digWith (SVmod, signal, during = () => {}) {
+  const n = { equip: 0, dig: 0 }
+  const bot = { blockAt: () => ({ name: 'dirt' }), heldItem: null, inventory: { items: () => [{ name: 'stone_pickaxe', maxDurability: 131, durabilityUsed: 0 }] },
+    equip: async () => { n.equip++; during() } }
+  const e = SVmod.stairBotEffects(bot, { dig: async () => { n.dig++; return 'confirmed' }, feet: () => [0, 0, 0] }, { signal })
+  const r = await e.dig([0, 0, 0])
+  return { r, n }
+}
+await t('Codex r1 blocker 2: no equip and no dig once the signal is aborted; a rescue taking the body during the equip stops the dig', async () => {
+  const a = await digWith({ stairBotEffects }, { aborted: true })
+  assert.strictEqual(a.r, 'aborted'); assert.deepStrictEqual(a.n, { equip: 0, dig: 0 })
+  const sig = { aborted: false }
+  const b = await digWith({ stairBotEffects }, sig, () => { sig.aborted = true })
+  assert.strictEqual(b.r, 'aborted'); assert.deepStrictEqual(b.n, { equip: 1, dig: 0 })
+  const c = await digWith({ stairBotEffects }, { aborted: false })
+  assert.strictEqual(c.r, 'confirmed', 'POSITIVE CONTROL: owned, it digs'); assert.deepStrictEqual(c.n, { equip: 1, dig: 1 })
+})
+
 console.log('3. WIRING (comments stripped; anchored on executable lines)')
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|[^:'"`])\/\/.*$/, '$1')).join('\n')
 const RSRC = strip(readFileSync(REFLEX, 'utf8'))
@@ -254,6 +274,14 @@ await t('MUTANT KILLED: progress read as nothing gained pillars from a step the 
     const { st, e } = body(w, G.standOf(PLAN, 44))
     const f = await armFiring(M, w, st, e, { k: null, at: 0 }, 0)
     assert.strictEqual(f.h, 'fallthrough', 'the mutant falls through after climbing')
+  })
+})
+
+await t('MUTANT KILLED: without the check after the equip, the dig starts after a rescue took the body', async () => {
+  await withMutant(VISIT, "await equipFor(c); if (signal?.aborted) return 'aborted';", 'await equipFor(c);', async M => {
+    const sig = { aborted: false }
+    const b = await digWith(M, sig, () => { sig.aborted = true })
+    assert.strictEqual(b.n.dig, 1, 'the mutant digs')
   })
 })
 

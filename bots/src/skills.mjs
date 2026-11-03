@@ -17848,7 +17848,7 @@ export function bodyOnCell (bot, c) {
   } catch { return false }
 }
 /** -> runStairEgress's result, or null (not under the collar: no row). Throws only an abort. */
-async function visitEgress (bot, rec, signal, deadline, e0 = null) {
+async function visitEgress (bot, rec, signal, deadline, e0 = null, walk = null) {
   const plan = stairPlanOf(rec)
   const p = bot.entity?.position
   if (!p || Math.floor(p.y + 1e-6) >= plan.g + 1) return null
@@ -17865,7 +17865,7 @@ async function visitEgress (bot, rec, signal, deadline, e0 = null) {
     const r = await runStairEgress(plan, {
       get read () { return stairRead(bot) },
       feet: () => { const q = bot.entity.position; return [Math.floor(q.x), Math.floor(q.y + 1e-6), Math.floor(q.z)] },
-      walkTo: c => stairWalk(bot, c, EGRESS_HOP_MS, signal),
+      walkTo: c => (walk ? walk(c) : stairWalk(bot, c, EGRESS_HOP_MS, signal)),
       dig: c => e.dig(c),
       occupied: c => bodyOnCell(bot, c),
       now: () => Date.now(),
@@ -17907,16 +17907,58 @@ export function stairStandingOn (bot) {
 export async function stairEgressReflex (bot, { alive = () => true, ms = EGRESS_REFLEX_MS } = {}) {
   const on = stairStandingOn(bot)
   if (!on) return { ran: false, why: 'off_stair' }
+  // the two walk profiles, read while this arm holds the body (the town-deposit walk: no digs, towers or scaffold)
+  const walkMoves = bot.pathfinder?.movements ?? null
+  let townMoves = null
+  try { if (typeof bot.withTownDepositWalk === 'function') townMoves = await bot.withTownDepositWalk(async () => bot.pathfinder.movements) } catch { townMoves = null }
+  if (!walkMoves || !townMoves || townMoves === walkMoves) return { ran: false, why: 'no_town_walk' }
   const ac = new AbortController()
-  const iv = setInterval(() => { let ok = false; try { ok = !!alive() } catch { ok = false } if (!ok) ac.abort() }, 200)
+  const lost = () => { if (!ac.signal.aborted) { let ok = false; try { ok = !!alive() } catch { ok = false } if (!ok) ac.abort() } return ac.signal.aborted }
+  // THE SIGNAL ASKS alive() WHENEVER IT IS READ (Codex r1 blocker 1, found by its test: between a rescue's seize and the next poll the
+  // egress started its next hop over the rescue's goal), and the poll still aborts a walk that is waiting
+  const sig = { get aborted () { return lost() }, addEventListener: (...a) => ac.signal.addEventListener(...a), removeEventListener: (...a) => ac.signal.removeEventListener(...a) }
+  const iv = setInterval(lost, 200)
   iv?.unref?.()
   try {
-    const r = await visitEgress(bot, on.rec, ac.signal, Date.now() + ms)
+    const r = await visitEgress(bot, on.rec, sig, Date.now() + ms, null, c => stairWalkOwned(bot, c, EGRESS_HOP_MS, sig, { townMoves, walkMoves }))
     return r ? { ran: true, ...r } : { ran: false, why: 'surface' }
   } catch (e) {
-    if (e?.aborted || ac.signal.aborted) { try { haltPath(bot) } catch { /* gone */ } return { ran: true, aborted: true, ok: false, why: 'yield', hops: 0, cleared: 0 } }
+    // Codex r1 blocker 1: nothing is halted here -- stairWalkOwned halts only its own goal; the new owner keeps what it set
+    if (e?.aborted || ac.signal.aborted) return { ran: true, aborted: true, ok: false, why: 'yield', hops: 0, cleared: 0 }
     return { ran: true, ok: false, why: `threw:${String(e?.message ?? e).slice(0, 40)}`, hops: 0, cleared: 0 }
   } finally { clearInterval(iv) }
+}
+
+/**
+ * stairWalk FOR A REFLEX THAT MAY LOSE THE BODY MID-HOP (shafttrap-02, Codex r1 blocker 1) -> arrived (within 1 of the cell). The
+ * reflex's grant has no acknowledged hand-over, so the walk must never undo what the NEXT owner set: the pathfinder goal is halted
+ * only while it is still this walk's own (a rescue that replaced or cleared it is left alone), and once the signal is aborted the
+ * walk profile is restored WITHOUT clearing the control states (setMovements' resetPath clears them: the rescue's jump). Throws
+ * only an abort.
+ */
+async function stairWalkOwned (bot, cell, ms, signal, { townMoves, walkMoves }) {
+  check(signal)
+  const goal = new goals.GoalBlock(cell[0], cell[1], cell[2])
+  const mine = () => bot.pathfinder?.goal === goal
+  const quiet = fn => { const c = bot.clearControlStates; bot.clearControlStates = () => {}; try { fn() } finally { bot.clearControlStates = c } }
+  let timer = null, onAbort = null
+  try { bot.pathfinder.setMovements(townMoves) } catch { /* not connected */ }
+  const walk = Promise.resolve().then(() => bot.pathfinder.goto(goal))
+  try {
+    await Promise.race([
+      walk.catch(() => {}),
+      new Promise(resolve => { timer = setTimeout(() => { if (mine()) haltPath(bot); resolve() }, ms) }),
+      new Promise(resolve => { onAbort = () => { if (mine()) haltPath(bot); resolve() }; signal?.addEventListener?.('abort', onAbort, { once: true }) }),
+    ])
+    await Promise.race([walk.catch(() => {}), new Promise(r => setTimeout(r, 2_000))])
+  } finally {
+    if (timer) clearTimeout(timer)
+    if (onAbort) signal?.removeEventListener?.('abort', onAbort)
+    try { if (signal?.aborted) quiet(() => bot.pathfinder.setMovements(walkMoves)); else bot.pathfinder.setMovements(walkMoves) } catch { /* not connected */ }
+  }
+  check(signal)
+  const p = bot.entity?.position
+  return !!p && Math.abs(Math.floor(p.x) - cell[0]) <= 1 && Math.abs(Math.floor(p.z) - cell[2]) <= 1 && Math.abs(Math.floor(p.y + 1e-6) - cell[1]) <= 1
 }
 
 // ---- the use: mine's descent and surface's ascent through the town stair (design section 6) ----------------------------------

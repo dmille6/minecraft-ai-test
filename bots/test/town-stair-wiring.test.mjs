@@ -165,6 +165,61 @@ await t('surface declined: in the open (not roofed), or (SHAFTTRAP=off) the plan
   assert.strictEqual(await K.stairAscend(ctx(b2), null), null, 'nothing over its head')
 })
 
+/** A pathfinder that behaves like 2.4.5's where it matters here: goal/movements getters; setGoal and setMovements reset the path
+ *  and CLEAR THE CONTROLS; goto stays pending until the goal changes. */
+function livePathfinder (b) {
+  const st = { goal: null, movements: 'walk', controls: {}, cleared: 0, reject: null }
+  b.clearControlStates = () => { st.cleared++; st.controls = {} }
+  b.setControlState = (k, v) => { st.controls[k] = v }
+  const changed = () => { if (st.reject) { const r = st.reject; st.reject = null; r(new Error('goal changed')) } }
+  b.pathfinder = {
+    get goal () { return st.goal }, get movements () { return st.movements },
+    setGoal (g) { st.goal = g; changed(); b.clearControlStates() },
+    setMovements (m) { st.movements = m; b.clearControlStates() },
+    goto (g) { changed(); st.goal = g; return new Promise((resolve, reject) => { st.reject = reject }) },
+    stop () {},
+  }
+  b.withTownDepositWalk = async fn => { const prev = st.movements; b.pathfinder.setMovements('town'); try { return await fn() } finally { b.pathfinder.setMovements(prev) } }
+  return st
+}
+async function rescueMidHop (mod) {
+  const s = G.standOf(plan, 44)
+  const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 } })
+  const st = livePathfinder(b)
+  let owned = true
+  const rescueGoal = { rescue: true }
+  setTimeout(() => { owned = false; b.pathfinder.setGoal(rescueGoal); b.setControlState('jump', true) }, 300)   // the rescue seizes and strokes
+  const r = await mod.stairEgressReflex(b, { alive: () => owned, ms: 20_000 })
+  await new Promise(res => setTimeout(res, 300))
+  return { r, st, rescueGoal }
+}
+await t('shafttrap-02 (Codex r1 blocker 1): a rescue that takes the body mid-hop keeps its goal and its stroke; the walk profile is back', async () => {
+  const { r, st, rescueGoal } = await rescueMidHop(K)
+  assert.strictEqual(r.aborted, true, JSON.stringify(r))
+  assert.strictEqual(st.goal, rescueGoal, 'the rescue\'s goal stands')
+  assert.strictEqual(st.controls.jump, true, 'the rescue\'s jump stands')
+  assert.strictEqual(st.movements, 'walk', 'the walk profile is restored')
+})
+async function withSkillsMutant (old, neu, fn) {
+  const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  assert.strictEqual(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  const out = new URL(`../src/_mutant-skills-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, neu))
+  try { return await fn(await import(out.href)) } finally { try { fs.unlinkSync(out) } catch { /* gone */ } }
+}
+await t('MUTANT KILLED: a signal that only the 200 ms poll aborts lets the next hop take the rescue\'s goal back', async () => {
+  await withSkillsMutant('const sig = { get aborted () { return lost() },', 'const sig = { get aborted () { return ac.signal.aborted },', async M => {
+    const { st, rescueGoal } = await rescueMidHop(M)
+    assert.notStrictEqual(st.goal, rescueGoal, 'the mutant walked over the rescue\'s goal')
+  })
+})
+await t('MUTANT KILLED: restoring the walk profile the plain way clears the rescue\'s stroke', async () => {
+  await withSkillsMutant('if (signal?.aborted) quiet(() => bot.pathfinder.setMovements(walkMoves)); else', 'if (false) quiet(() => bot.pathfinder.setMovements(walkMoves)); else', async M => {
+    const { st } = await rescueMidHop(M)
+    assert.notStrictEqual(st.controls.jump, true, 'the mutant cleared the jump')
+  })
+})
+
 console.log('THE WIRING (structural: the hooks exist, in order)')
 const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|[^:'"`])\/\/.*$/, '$1')).join('\n')
 const SRC = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))

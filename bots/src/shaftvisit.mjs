@@ -288,7 +288,8 @@ export function stairBotEffects (bot, B, { signal = null, fence = () => true, lo
     get read () { return fresh() },
     feet: () => B.feet(),
     walkTo: async c => { await B.walkTo(c); return true },
-    dig: async c => { await equipFor(c); return withDigScope(bot, { purpose: 'target', by: 'build_stair' }, () => B.dig(c)) },
+    // shafttrap-02 (Codex r1 blocker 2): never an equip or a dig once the signal is aborted (a reflex lost the body to a rescue)
+    dig: async c => { if (signal?.aborted) return 'aborted'; await equipFor(c); if (signal?.aborted) return 'aborted'; return withDigScope(bot, { purpose: 'target', by: 'build_stair' }, () => B.dig(c)) },
     place: async c => {
       const item = LINING_ITEMS.find(n => B.has(n))
       if (!item) return 'no_material'

@@ -100,11 +100,11 @@ await t('WIRED: the stair visit and both use walks run inside withStairClaim(ctx
   // shafttrap-02: ...and surface's ascent from ON the stair (claimed), and the reflex arms' egress (the arm's grant holds the body:
   // the runner is idle there, so a claim would be inert)
   for (const a of ['const x = await withStairClaim(ctx.runner, () => visitEgress(bot, rec, signal, t0 + STAIR_UP_MS))',
-    'const r = await visitEgress(bot, on.rec, ac.signal, Date.now() + ms)']) assert.strictEqual(src.split(a).length, 2, `missing or not unique: ${a}`)
+    'const r = await visitEgress(bot, on.rec, sig, Date.now() + ms, null, c => stairWalkOwned(bot, c, EGRESS_HOP_MS, sig, { townMoves, walkMoves }))']) assert.strictEqual(src.split(a).length, 2, `missing or not unique: ${a}`)
   assert.strictEqual(src.split('visitEgress(bot,').length, 5, 'the egress runs at its three claimed call sites and the reflex one only')
   // the egress's walks are the hop walk (stairWalk) behind its injected walkTo, inside visitEgress (called only under the claim)
   const v0 = src.indexOf('async function visitEgress ('), v1 = src.indexOf('async function stairWalk (', v0)
-  assert.ok(v0 > 0 && v1 > v0 && src.slice(v0, v1).includes('walkTo: c => stairWalk(bot, c, EGRESS_HOP_MS, signal)'), 'the egress hops on stairWalk')
+  assert.ok(v0 > 0 && v1 > v0 && src.slice(v0, v1).includes('walkTo: c => (walk ? walk(c) : stairWalk(bot, c, EGRESS_HOP_MS, signal))'), 'the egress hops on stairWalk (the reflex: stairWalkOwned)')
   // deepminer-01: the deep miner's section walks on and off the stair -- its stair hops (deepHops) run only under the claim
   // (all three call sites), its other walks (collar, branch steps, home) are off the stair; the rest of the file keeps the rule
   const d0 = src.indexOf('const DEEP_STEP_MS = 140_000'), d1 = src.indexOf('function zigProgressNow (bot, rec)', d0)
