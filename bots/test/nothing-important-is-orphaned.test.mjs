@@ -31,6 +31,7 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  'scripts/host/indexsearch2read.py',   // storehub piece C's watch read
   // wholemap-s0 (11-01): the whole-map coverage instrument (seen% / stood% / reach / tiles), its BlueMap route layer + installer
   'infra/showcase/wholemap.py',
   'infra/showcase/test_wholemap.py',

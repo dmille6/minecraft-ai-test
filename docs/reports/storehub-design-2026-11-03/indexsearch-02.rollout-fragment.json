@@ -1,0 +1,44 @@
+{
+ "run": "indexsearch-02",
+ "kind": "owner-direct (tier 2: showcase first, then the fleet; NOT a canary, NOT a queue entry)",
+ "sha": "231981c0eb69392994e1f58add5cdc249798fe6d",
+ "branch": "indexsearch2-on-53fd28e",
+ "base": "53fd28eea23b44b1ade02b8bd9ea380379c15c38",
+ "showcase": {
+  "branch": "storehub-c-show",
+  "sha": "1d2df12a32680f8445b231efd9cab1d6fcb24751",
+  "base": "cbd2f51b2f0db038e843196a7bbc9b758507c134",
+  "state": "READY TO STAGE (not staged, not in PIECES.jsonl)",
+  "watch": "2 h after activation: python3 indexsearch2read.py --at <activation ISO> --hours 2 (showcase glob is the default). The 2 h holds ~2 withdraw_pick and ~4 kit searches (24 h before: 27 and 38): it is a NO-HARM read (defects, licence, failed share); the effect is read at +24 h on the showcase and on the fleet."
+ },
+ "when": "After the showcase 2-h watch passes AND bundle-1103a closes (design s7: bagdiet-01 and marks-01 touch deposit/withdraw; waiting for both gives a clean baseline), in a gap between canaries, under the deploy lock. Never while a canary reads. If the fleet tip is no longer 53fd28ee, re-port onto the new tip (the change is self-contained: indexsearch2.mjs + townSearchOrder + townSearchNext + 2 rows).",
+ "who": "the control session (or the owner) on 10.0.0.31. An agent never runs it.",
+ "run_it": [
+  "sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh && sudo /root/d.sh 231981c0eb69392994e1f58add5cdc249798fe6d indexsearch-02 \"indexsearch-02 owner-direct (storehub C)\"",
+  "python3 scripts/host/rollout.py add --env fleet --run indexsearch-02 --sha 231981c0 --prev auto --tier 2 --reviewer codex"
+ ],
+ "tripwire": "rollout.py check (cron, the 60-min check) + python3 scripts/host/indexsearch2read.py --at <rollout ISO> --hours 1 --glob '/var/log/mcai/*/skill-*.jsonl*' at +60 min and --hours 24 at +24 h. DEFECT or FAILED_SHARE_ROSE -> roll back.",
+ "rollback": "INDEXSEARCH2=off in the fleet env files + staggered restart (12 s apart), or: sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh && sudo /root/d.sh 53fd28eea23b44b1ade02b8bd9ea380379c15c38 indexsearch-02-rollback \"indexsearch-02 rollback\"",
+ "queue_entry_draft": {
+  "_use": "ONLY if the control session decides C must take the canary lane after all (the design says it must not: tier 2 = owner-direct). Then it is a P entry after bundle-1103a.",
+  "run": "indexsearch-02",
+  "after": [
+   "bundle-1103a"
+  ],
+  "class": "",
+  "hold": "DRAFT -- owner-direct preferred (tier 2); not queued",
+  "note": "storehub piece C (indexsearch-02): the town search skips chests the town index knows do not hold the need; 1 recheck/pass; INDEXSEARCH2=off rollback.",
+  "variants": {
+   "53fd28eea23b44b1ade02b8bd9ea380379c15c38": {
+    "registration": "/home/mike/mcai-analysis/indexsearch-02.231981c0.json",
+    "approved": "storehub-c agent 11-03: indexsearch-02 on 53fd28ee @ 231981c0 (Codex r1 BLOCK -> r2 APPROVE; tier 2). USE ONLY if the fleet is 53fd28ee.",
+    "canary_sha": "231981c0eb69392994e1f58add5cdc249798fe6d",
+    "branch": "indexsearch2-on-53fd28e",
+    "reads_src": "/home/mike/mcai-analysis",
+    "reads": {
+     "indexsearch2read": "<md5 at install>"
+    }
+   }
+  }
+ }
+}

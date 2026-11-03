@@ -1,0 +1,18 @@
+{
+ "run_id": "indexsearch-02",
+ "sha": "231981c0eb69392994e1f58add5cdc249798fe6d",
+ "base": "53fd28eea23b44b1ade02b8bd9ea380379c15c38",
+ "registered_at": "DRAFT (not registered: the control session registers it)",
+ "promotion": "owner-direct",
+ "notes": "[FUN MODE] indexsearch-02 = storehub piece C (design docs/reports/storehub-design-2026-11-03.md s3.7 + s6 row C; OWNER 11-03 ~21:30Z \"yes to all\"). TIER 2 (protected.py: not protected) -> SHOWCASE FIRST (branch storehub-c-show 1d2df12a on showcase cbd2f51b, 2-h watch), THEN the fleet OWNER-DIRECT with a 60-min tripwire, after bundle-1103a closes, between canaries, under the deploy lock. NOT a canary entry. Fleet variant 231981c0 on fleet 53fd28ee (branch indexsearch2-on-53fd28e; the showcase commits ported by hand: this base has no sortstore `prefer`). CHANGE: withdrawpick.mjs townSearchOrder takes `index` (indexsearch2.mjs indexEvidence via skills.mjs townSearchNext): a town container whose index entry is KNOWN (no mutation since/across), younger than the need's own miss life (60 min; never past 6 h), not future-dated, no deposit recorded after it, and whose observation fails EVERY need by that need's miss rule (pick / trippick / cobblestone / stick / planks / kit_iron[_n] / kit_iron_any) is held back; 1 recheck per pass, oldest observation first, after every other candidate; a fresh positive is tier 0; a newer journal count wins. Gates (townSearchEmpty) unchanged; smelt/mats needs unjudged (no change). ROWS: `_indexsearch2_mode` licence once per spawn; ix=<held back>/<rechecks> on `_withdraw_pick` (pick pass, ingredient pass) and `_kit_search`. ROLLBACK: INDEXSEARCH2=off in the env (no code), or the base sha. MEASURED (24 h to 11-03, design s1.3): withdraw_pick 316 searches 7.9 chests mean, 86% of visits empty; kit 451 searches 4.1, 78% empty. REPLAY of the rule (index files vs every search's tried= list, the index state at the search's start; fleet 21.9 h live files, 80 bots): withdraw_pick 360 of 914 parsed visits and kit 818 of 1,676 were index negatives, 0 of them found the item (positive control: 324 of the kit's 384 hits were index positives). REVIEW: Codex r1 BLOCK (a 6-h negative could outlive a search's end -> the negative now lives the miss life; the wrong-index chain through townOrder's real gates) -> r2 APPROVE. Tests: bots/test/indexsearch2.test.mjs 12 checks, 11 anchored mutants killed; townsearch/kitsearch/kitmulti/toolkit/withdraw-pick/features-wired/smeltsearch/protectzone/keepout-townindex pass; eslint clean. READ (owner-direct, generic 60-min rollout.py check) + OWN LINES at +60 and +24 h, scripts/host/indexsearch2read.py --at <rollout ISO> --hours 1 --glob '/var/log/mcai/*/skill-*.jsonl*': (1) DEFECTS D1 maxrep (wp>2, kit>1), D2 rechecks>1 per pass, D3 visits over caps -> rollback; (2) NO HARM: withdraw_pick+toolkit failed share post <= 24-h pre + 10 pp; took_pick/took no lower, crafted_pick no higher per search; (3) EFFECT (reported): visits per search (target fleet <= 2.5), empty-visit share (target <= 40%), ix exposure.",
+ "reads": [
+  {
+   "name": "indexsearch2read",
+   "path": "scripts/host/indexsearch2read.py",
+   "selftest": "python3 scripts/host/indexsearch2read.py --selftest"
+  }
+ ],
+ "teardown": {
+  "note": "Owner-direct, not a canary: no drop-ins. Rollback = INDEXSEARCH2=off in the fleet env + staggered restart (12 s), or redeploy the base sha."
+ }
+}

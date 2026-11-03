@@ -558,3 +558,51 @@ Notes taken from the reviews:
 - Composting saplings and bamboo is disposal of `NEVER_DISPOSE` kinds, and O2 now says so.
 - The hub clerk gets its own `jobrules.py` `need()` row (§3.3).
 
+
+---
+
+## 11. Piece C as built (indexsearch-02, 2026-11-03 ~23:00Z)
+
+**Branches.** Showcase `storehub-c-show` @ `1d2df12a` on the live release `cbd2f51b` (ready to stage, not staged). Fleet
+variant `indexsearch2-on-53fd28e` @ `231981c0` on fleet `53fd28ee` (a hand port: that base has no sortstore `prefer`).
+Code `bots/src/indexsearch2.mjs`; read `scripts/host/indexsearch2read.py` (`--selftest`); registration and owner-direct
+fragment in [`storehub-design-2026-11-03/`](storehub-design-2026-11-03/) (`indexsearch-02.231981c0.json`,
+`indexsearch-02.rollout-fragment.json`), drafts, not registered. Tier 2 (`protected.py`: not protected). Codex r1 BLOCK, r2
+APPROVE.
+
+**Replayed before building** (the index files on disk against every search's `tried=` list, the index state taken at the
+search's start; a negative = known, clean, no deposit since, fails every need):
+
+| | Fleet, 21.9 h, 80 bots (6 h life / **60 min life**) | Showcase, 24 h, 10 bots (6 h / **60 min**) |
+|---|---|---|
+| withdraw_pick visits to index negatives | 575 / **360** of 914 parsed visits (245 searches) | 58 / **41** of 70 (21 searches) |
+| kit-search visits to index negatives | 1,239 / **818** of 1,676 (424 searches) | 84 / **81** of 141 (39 searches) |
+| of those negatives, visits that found the item | **0** | **0** |
+| positive control: hits in chests the index showed holding the need | kit 324 of 384, withdraw_pick 17 of 23 | kit 43 of 44 |
+
+**Where the build differs from §3.7 / §6 row C, and why:**
+
+1. **A negative lives the need's own miss life (60 min), not 6 h** (Codex code r1 BLOCK). At 6 h, one search could end (a
+   craft, or the kit's `no_iron` and its backoff) while a *wrong* negative had hours left. A negative is the same look a
+   visit would have written as a miss, so it now lives exactly as long. It is never stronger than the base's own evidence:
+   the journal's count of none (`zeroLive`) is OUT for the miss life with no recheck at all. The replay shows the cost: at
+   60 min it catches about 63% (withdraw_pick) and 66% (kit) of what the 6 h rule caught.
+2. **The design's "second pass" is a recheck**: each pass may still open one index negative, the oldest observation first,
+   after every other candidate. Its open writes a fresh observation, so a wrong index is corrected by the search itself.
+   A recheck of *every* negative after a miss would have revisited the empty town and saved nothing for the searches that
+   find nothing (178 of 316 withdraw_pick searches crafted).
+3. **Index positives are tier 0.** §1.3 says the index "only orders" the search. It does not: indexsearch-01 closed
+   INCONCLUSIVE (unexposed) on 10-23 and was never promoted, and nothing in `townSearchView` read the index. Piece C adds the
+   ordering (§3.7 step 1) along with the skip.
+4. **The hub registry has nothing to join yet.** No hub exists, so the never-negative intake set is empty; `townSearchIndex`
+   takes it, and piece A fills it. Hub chests outside the town box are unknown to the index, so they are never negatives.
+5. **The order's gates are unchanged** (`townSearchEmpty` does not read the index). An order is issued exactly when it is
+   today; only where it looks changes.
+6. **Needs the index cannot judge** (the smelt job's inputs, which have their own rule-out; mats' item names) get no index
+   evidence at all.
+
+**The 2-h showcase watch is a no-harm read, not an effect read.** In the 24 h before 11-03 20:00Z the showcase ran 27
+withdraw_pick and 38 kit searches (3.67 and 3.61 chests per search; 96.5% and 67.9% of visits empty; withdraw_pick +
+toolkit failed share 15.4% of 65 skill rows). A 2 h window holds about 2 and 4. The watch checks the licence, the defects
+(D1 a container twice in a pass, D2 more than one recheck per pass, D3 visits over the caps) and the failed share; the
+effect (visits per search, empty share, outcomes, `ix=` exposure) is read at +24 h on the showcase and on the fleet.
