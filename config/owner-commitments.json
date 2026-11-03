@@ -3330,7 +3330,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "BUILT 11-03 (not released): branch picker-01show tip f7455f3b (2cce144e + Codex r1 blockers fixed 97487220, r2 APPROVE + suite fixes f7455f3b; full suite .30 394/397, the 3 fail on the base/staging: orphaned, well, ceilescape) on showcase release adbf9e41 (SINKS on in the showcase pool only; SINKS=off rollback); Codex + Claude designs reconciled in docs/reports/picker-sinks-2026-11-03.md; tripwire rule sink_place_ok/sink_clear_ok on main (Codex + Claude APPROVE) to install as /srv/showcase/trip/shopread.py BEFORE the release. NEXT: fold onto the current showcase release, record the piece, install the tripwire, activate, 2-h read (sited >= 1, blocks per placing sink visit with denominator vs >= 40, H1-H6 0, deaths, keeper_held share from 67/101). Fold note: one textual conflict with gkhelpers-01show (the tidy's PROJECTS line beside the sink entries: keep both); expwater-01 merges clean.",
+   "next_step": "RELEASED 2026-11-03 18:38:32Z on the showcase as cbd2f51b-6dd0ded8-fdd64ead (fold branch showcase-gkpick-on-adbf9e41: gkhelpers a3fed85e + picker 63004aff + expwater cbd2f51b on adbf9e41; suite .30 393/399, the 6 base failures; Codex fold APPROVE at 63004aff and cbd2f51b); shopread main 7ce76849 installed 17:54Z (bak .bak-20261103T1754Z-gkpick); verified 10/10 bots; tripwire WATCH, H1-H8 0. Reads +60 min (~19:38Z, rollout.py auto) and +2 h (~20:38Z). PRIOR: BUILT 11-03 (not released): branch picker-01show tip f7455f3b (2cce144e + Codex r1 blockers fixed 97487220, r2 APPROVE + suite fixes f7455f3b; full suite .30 394/397, the 3 fail on the base/staging: orphaned, well, ceilescape) on showcase release adbf9e41 (SINKS on in the showcase pool only; SINKS=off rollback); Codex + Claude designs reconciled in docs/reports/picker-sinks-2026-11-03.md; tripwire rule sink_place_ok/sink_clear_ok on main (Codex + Claude APPROVE) to install as /srv/showcase/trip/shopread.py BEFORE the release. NEXT: fold onto the current showcase release, record the piece, install the tripwire, activate, 2-h read (sited >= 1, blocks per placing sink visit with denominator vs >= 40, H1-H6 0, deaths, keeper_held share from 67/101). Fold note: one textual conflict with gkhelpers-01show (the tidy's PROJECTS line beside the sink entries: keep both); expwater-01 merges clean.",
    "max_quiet_hours": 72,
    "depends_on": [],
    "evidence": {
@@ -3621,7 +3621,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "BUILT, NOT RELEASED: showcase branch gkhelpers-01show (on the live release adbf9e41) + tripwire rules gkhelpers-read-01 (main-based; shopread crew H4 + gather H2, NOT installed). Release = install the read on the showcase host, then stage gkhelpers-01show as a piece and activate; 2-h read: helper_take rows, >1 bot placing tidy cells, keeper_held turn-aways down from 67/176, floor_planned then the 6 storehouse holes filled, H4/H2 0.",
+   "next_step": "RELEASED 2026-11-03 18:38:32Z on the showcase as cbd2f51b-6dd0ded8-fdd64ead (fold branch showcase-gkpick-on-adbf9e41: gkhelpers a3fed85e + picker 63004aff + expwater cbd2f51b on adbf9e41; suite .30 393/399, the 6 base failures; Codex fold APPROVE at 63004aff and cbd2f51b); shopread main 7ce76849 installed 17:54Z (bak .bak-20261103T1754Z-gkpick); verified 10/10 bots; tripwire WATCH, H1-H8 0. Reads +60 min (~19:38Z, rollout.py auto) and +2 h (~20:38Z). PRIOR: BUILT, NOT RELEASED: showcase branch gkhelpers-01show (on the live release adbf9e41) + tripwire rules gkhelpers-read-01 (main-based; shopread crew H4 + gather H2, NOT installed). Release = install the read on the showcase host, then stage gkhelpers-01show as a piece and activate; 2-h read: helper_take rows, >1 bot placing tidy cells, keeper_held turn-aways down from 67/176, floor_planned then the 6 storehouse holes filled, H4/H2 0.",
    "max_quiet_hours": 72,
    "depends_on": [],
    "evidence": {
@@ -3651,7 +3651,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "BUILT with gkhelpers-01show (not released). Showcase offline: within 96 the only free flowers are none (all 11 are inside the protected village zone), 9 sugar cane (park box has no water -> no_water), 24k spruce leaves -> with shears a 14-cell hedge top-up; helpers' 16 spruce saplings -> a park tree. Flowers need another source (outside 96, or a flower biome) -- open question for the owner.",
+   "next_step": "RELEASED 2026-11-03 18:38:32Z on the showcase as cbd2f51b-6dd0ded8-fdd64ead (fold branch showcase-gkpick-on-adbf9e41: gkhelpers a3fed85e + picker 63004aff + expwater cbd2f51b on adbf9e41; suite .30 393/399, the 6 base failures; Codex fold APPROVE at 63004aff and cbd2f51b); shopread main 7ce76849 installed 17:54Z (bak .bak-20261103T1754Z-gkpick); verified 10/10 bots; tripwire WATCH, H1-H8 0. Reads +60 min (~19:38Z, rollout.py auto) and +2 h (~20:38Z). PRIOR: BUILT with gkhelpers-01show (not released). Showcase offline: within 96 the only free flowers are none (all 11 are inside the protected village zone), 9 sugar cane (park box has no water -> no_water), 24k spruce leaves -> with shears a 14-cell hedge top-up; helpers' 16 spruce saplings -> a park tree. Flowers need another source (outside 96, or a flower biome) -- open question for the owner.",
    "max_quiet_hours": 72,
    "depends_on": [
     {
@@ -4018,7 +4018,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Wait for the work pieces (picker-01 + sinks, groundskeeper helpers + park-gather, water-crossing expeditions) to be released on the showcase and build_shop turn-aways to fall; then add 5 bots on the Studio gemma4 brain (measured 10 bots = 7.9 calls/min, p95 3.7 s; design figure 10-12, 8 concurrent = 9-10 s) and read Studio latency for 2 h. Past 15: a second brain (the 4B on the 5080) for the extra bots.",
+   "next_step": "Work pieces released 11-03 18:38Z (cbd2f51b). Wait for the work pieces (picker-01 + sinks, groundskeeper helpers + park-gather, water-crossing expeditions) to be released on the showcase and build_shop turn-aways to fall; then add 5 bots on the Studio gemma4 brain (measured 10 bots = 7.9 calls/min, p95 3.7 s; design figure 10-12, 8 concurrent = 9-10 s) and read Studio latency for 2 h. Past 15: a second brain (the 4B on the 5080) for the extra bots.",
    "max_quiet_hours": 48,
    "depends_on": [],
    "evidence": {
