@@ -64,7 +64,7 @@ const rz = recordZones(noPaths)
 const reserved = (x, z) => { for (const zb of rz) { const b = zb.box; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return zb.why } return null }
 const seed = LP.landSeed(pool, home)
 let t0 = Date.now()
-const L = await LP.planLand(read0, { home, plan, seed, avoid: roadAvoid, reserved, limOf: n => T.gradeLim(read0, n), caps, composter })
+const L = await LP.planLand(read0, { home, plan, seed, avoid: roadAvoid, reserved, limOf: n => T.gradeLim(read0, n), caps, composter, sited: LP.sitedSectors?.(home, noPaths) ?? [] })
 const planMs = Date.now() - t0
 const land = L.plan
 // THE MEASURE: from the plaza's edge (the core box's outer ring), over home +- 80

@@ -125,11 +125,11 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
-import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
+import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX } from './wall.mjs'   // wall-01
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
-import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
+import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
-import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, landStages } from './landplan.mjs'   // groundskeeper-01
+import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { STATIONKEEP, STRAY_NAMES, SWEEP_MAX, SWEEP_R, SWEEP_CACHE_MS, smeltRetake, strayStations, noteSweep, sweepGivenUp, stationRowDetail, sweepVisitDetail, nearestTakeable, SWEEP_TRIES } from './stationkeep.mjs'   // stationkeep-01 (+ towngate-01 b)
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -147,7 +147,7 @@ import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterR
 import { tableCandidates, TABLE_TRIES } from './workbench.mjs'   // bagdiet-01: the craft's table candidates
 import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs'   // bagdiet-01: the light projects' hold and bank-back gate
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
-import { GROUNDS, setKeeperNow } from './shop.mjs'   // groundskeeper-01
+import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { groupOfItem } from './townindex.mjs'
 import { stuckWindowOf } from './shop.mjs'   // towngate-01: a stalled project's bill cannot be served now
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
@@ -19222,7 +19222,7 @@ function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   const avoid = pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home: P.plan.home })
   const rz = recordZones(recs)
   const reserved = (x, z) => { for (const zb of rz) { const b = zb.box; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return String(zb.why ?? 'project') } return null }
-  return { plan: P.plan, home: P.plan.home, avoid, reserved, caps: P.caps, composter: P.composter }
+  return { plan: P.plan, home: P.plan.home, avoid, reserved, caps: P.caps, composter: P.composter, sited: sitedSectors(P.plan.home, recs) }
 }
 /** The land plan's unread-column tolerance: a plan whose routing met more unread columns than this waits (asked again next
  *  visit), at most LAND_UNREAD_TRIES times a connection, then it is published as read. */
@@ -19233,7 +19233,7 @@ async function landPlanNow (bot, dir, signal) {
   const I = landInputs(bot)
   const read = planReader(bot)
   const pause = () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal))
-  const r = await planLand(read, { home: I.home, plan: I.plan, seed: landSeed(config.memory.pool, I.home), avoid: I.avoid, reserved: I.reserved, limOf: n => gradeLim(read, n), caps: I.caps, composter: I.composter, now: Date.now(), pause })
+  const r = await planLand(read, { home: I.home, plan: I.plan, seed: landSeed(config.memory.pool, I.home), avoid: I.avoid, reserved: I.reserved, limOf: n => gradeLim(read, n), caps: I.caps, composter: I.composter, sited: I.sited, now: Date.now(), pause })
   if (!r.ok) return { ok: false, why: r.why, land: null }
   bot.gkLandTries = (bot.gkLandTries ?? 0) + 1
   if (r.plan.unread > LAND_UNREAD_MAX && bot.gkLandTries < LAND_UNREAD_TRIES) return { ok: false, why: `unread:${r.plan.unread}`, land: null }
@@ -19546,9 +19546,10 @@ async function buildTidy (ctx, args, signal) {
     tidyNoteCuts(mem, r.tidied ?? [], k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
     // THE WAIVER (wall.mjs wallWaiveDue, generic over record cells): a fill this visit deferred, counted WALL_WAIVE_AFTER visits by
     // the stuck map, is named on the record so the tidy closes
-    let rw = rec
+    let rw = rec, waivedN = 0
     try {
-      const waive = wallWaiveDue(rec, r.deferred ?? [])
+      // gkstall-01: the keeper's grounds waive after GK_WAIVE_AFTER visits, with room for a tenth of the stage (tidy.mjs gkWaiveOpts)
+      const waive = wallWaiveDue(rec, r.deferred ?? [], GROUNDS.on ? gkWaiveOpts(rec, WALL_WAIVE_MAX) : {})
       if (waive.length) {
         const pub = publishRecord(dir, key, cur => {
           if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length) return null
@@ -19556,10 +19557,14 @@ async function buildTidy (ctx, args, signal) {
           for (const d of waive) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
           return { ...cur, waived: w }
         }, { by: me })
-        if (pub.result === 'accepted') for (const d of waive) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
+        if (pub.result === 'accepted') { waivedN = waive.length; for (const d of waive) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } } }
         const h2 = recordHead(dir, key); if (h2.ok && h2.head) rw = h2.head.rec
       }
     } catch { /* counted again next visit */ }
+    // gkstall-01: a visit that waived ends cell_waived (asked again at the keeper's cooldown), never the 6-h stuck_on_cell back-off;
+    // a KEEPER still stuck (no waiver room) lets the lease go, so the grounds never sit with a holder whose order is backed off
+    const stop1 = GROUNDS.on ? gkStopAfterWaive(r.stop, waivedN) : r.stop
+    if (GROUNDS.on && stop1 === 'stuck_on_cell') { try { const k = keeperState(bot, true); if (k.lease?.rec?.holder === me) { releaseKeeper(bot, k.lease, 'stuck'); bot.gkRestUntil = Date.now() + SHOP_STUCK_RETRY_MS } } catch { /* the lease lapses */ } }
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const prog = tidyProgress(rw, read2, { fillDone: q => guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || buildCellDone(read2(...q.at), palette, q.role), given: k => guard.has(k) || tidyGivenUp(mem, k) })
@@ -19598,7 +19603,7 @@ async function buildTidy (ctx, args, signal) {
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
-    return out(status, completed ? 'complete' : r.stop, `${r.why ?? r.stop}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}${swept?.s?.sweep?.length ? `; swept ${swept.back} of ${swept.s.sweep.length} stray station(s)` : ''}`, { stop: completed ? 'complete' : r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    return out(status, completed ? 'complete' : stop1, `${stop1 === r.stop ? (r.why ?? r.stop) : `${waivedN} cell(s) waived (${r.stop})`}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}${swept?.s?.sweep?.length ? `; swept ${swept.back} of ${swept.s.sweep.length} stray station(s)` : ''}`, { stop: completed ? 'complete' : stop1, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
