@@ -609,6 +609,10 @@ def ar_view(e, st):
     s = job.get('state')
     clear = '`canary-sched.py autorebase-clear %s <why>` to build again' % e.get('run')
     if s == 'refused':
+        if e.get('bundle') is not None:
+            return ('the bundle autorebase REFUSED at step %s: %s -- the head stays blocked: `canary-sched.py bundle split %s '
+                    '<why>` runs the members singly (or fix the cause and %s)' % (job.get('step'), str(job.get('why'))[:400],
+                                                                                 e.get('run'), clear), False, False)
         return ('autorebase REFUSED at step %s: %s -- the head stays blocked: build the variant by hand (`queue '
                 'add-variant`), or fix the cause and %s' % (job.get('step'), str(job.get('why'))[:400], clear), False, False)
     if s in ('starting', 'running'):
@@ -693,7 +697,21 @@ def read_plan(reg):
     return v, READ_PLANS[v], ''
 
 
-_JS_COMMENT = re.compile(r'^\s*(//|/\*|\*/|\*(\s|$))')
+def comment_only(body):
+    """PURE (Codex review r1 BLOCKER 1). True only for a line that is NOTHING BUT a comment: blank, `// ...`, a `/* ... */`
+    (or an unclosed `/* ...`) with only comments after it, or a JSDoc-style `* prose` line holding none of ; = ( ) { }.
+    Code after a closing `*/` counts; when unsure, a line is code (the fast plan is then refused, never granted)."""
+    b = body.strip()
+    if not b or b.startswith('//'):
+        return True
+    if b.startswith('/*'):
+        end = b.find('*/', 2)
+        return end < 0 or comment_only(b[end + 2:])
+    if b.startswith('*/'):
+        return comment_only(b[2:])
+    if re.match(r'^\*(\s|$)', b) and not re.search(r'[;=(){}]', b) and '*/' not in b:
+        return True
+    return False
 
 
 def fast_problem(diff_text, tier, reg, is_bundle):
@@ -725,7 +743,7 @@ def fast_problem(diff_text, tier, reg, is_bundle):
             continue
         if l.startswith('@@'):
             continue
-        if cur.startswith('bots/src/') and l[:1] in ('+', '-') and l[1:].strip() and not _JS_COMMENT.match(l[1:]):
+        if cur.startswith('bots/src/') and l[:1] in ('+', '-') and not comment_only(l[1:]):
             n += 1
     if bad:
         return '; '.join(sorted(set(bad)))
@@ -859,11 +877,12 @@ def diff_names(diff_text):
         m = _DECL_LINE.match(body)
         if m:
             decl.add(m.group(1))
-        code = re.sub(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`", "''", body)
-        code = code.split('//', 1)[0]
-        if _JS_COMMENT.match(code):
+        if comment_only(body):
             continue
-        used.update(_IDENT_RE.findall(code))
+        # CONSERVATIVE (Codex review r1 BLOCKER 2): nothing is stripped from a code line -- not strings (a template's
+        # ${...}, a SKILLS['name'] lookup), not a trailing comment: a name there counts as used (a false "related" only
+        # costs a bundle; a missed one ships two coupled changes as "unrelated")
+        used.update(_IDENT_RE.findall(body))
     return decl, used
 
 
@@ -877,7 +896,7 @@ def member_problem(m, now_t=None):
     e, reg = m.get('entry') or {}, m.get('reg')
     if m.get('state') != 'ready':
         return 'state %s (a member must be ready)' % m.get('state')
-    if e.get('hold'):
+    if e.get("hold"):
         return 'held: %s' % str(e['hold'])[:120]
     if e.get('not_before') and now_t is not None and (ts(e['not_before']) or now_t) > now_t:
         return 'not before %s' % e['not_before']
@@ -1303,6 +1322,26 @@ def variant_checks(P, e, v, base, st):
             if rb.get('plan_sha256') != qb.get('plan_sha256') or [m.get('run') for m in rb.get('members') or []] != qb.get('members'):
                 out.append(('H3', 'the registration\'s bundle block is not the queued bundle (plan/members differ)'))
             lost = [m for m in qb.get('members') or [] if (ents.get(m) or {}).get('bundled_in') != run]
+            meta, held = [], []
+            for mrun in qb.get('members') or []:
+                me = ents.get(mrun) or {}
+                mpt = me.get('patch') or {}
+                msrc = (me.get('variants') or {}).get(mpt.get('base')) or {}
+                try:
+                    mreg = sha256(msrc.get('registration') or '/nonexistent')
+                except Exception:
+                    mreg = None
+                if mreg != msrc.get('registration_sha256'):
+                    mreg = 'CHANGED'
+                meta.append({'run': mrun, 'base': mpt.get('base'), 'tip': mpt.get('tip'), 'diff_sha256': mpt.get('diff_sha256'),
+                             'registration_sha256': mreg, 'couples_with': me.get('couples_with') or []})
+                if me.get('hold') or last_human(st, mrun, ('cancel',))[0]:
+                    held.append(mrun)
+            if plan_hash(meta) != qb.get('plan_sha256'):
+                out.append(('H3', 'a member\'s patch, registration or couples_with changed since `bundle make` (plan %s): '
+                                  '`bundle split %s <why>`, then make a new bundle' % (plan_hash(meta)[:12], run)))
+            if held:
+                out.append(('H3', 'bundle member(s) %s are held or cancelled: `bundle split %s <why>`' % (', '.join(held), run)))
             if lost:
                 out.append(('H3', 'bundle member(s) %s are no longer reserved by %s: `bundle split` and make a new one'
                             % (', '.join(lost), run)))
@@ -2914,8 +2953,21 @@ def validate_entry(P, e, journal):
     return bad
 
 
+def reserved_problem(P, run):
+    """v41 (Claude review r1 BLOCKER): a member reserved by a bundle (`bundled_in`) is FROZEN -- a hold, not-before,
+    cancel, replace-variant or set-patch on it would not reach the bundle that ships it. '' = not reserved."""
+    q = load_queue(P)
+    hit = [x for x in q.get('entries') or [] if x.get('run') == run and x.get('bundled_in')]
+    if hit:
+        return ('REFUSED: %s is reserved by bundle %s: `canary-sched.py bundle split %s <why>` first (then edit it as a '
+                'single run)' % (run, hit[0]['bundled_in'], hit[0]['bundled_in']))
+    return ''
+
+
 def _cmd_queue(P, args):
     sub = args[0] if args else ''
+    if sub in ('replace-variant', 'set-patch', 'hold', 'not-before') and len(args) >= 2 and reserved_problem(P, args[1]):
+        print(reserved_problem(P, args[1])); return 2
     if sub == 'add' and len(args) == 2:
         with open(args[1]) as f:
             e = json.load(f)
@@ -3092,6 +3144,8 @@ def _cmd_human(P, how, args):
     if len(args) < 2:
         print('usage: %s <run> <why>' % how); return 2
     run, why = args[0], ' '.join(args[1:])
+    if how in ('cancel', 'rearm', 'abandon') and reserved_problem(P, run):
+        print(reserved_problem(P, run)); return 2
     st = gather(P, full=False)
     if sha_arg is not None:
         srcs = (st.get('sha_sources') or {}).get(run) or {}
@@ -3324,6 +3378,8 @@ def _cmd_bundle(P, args):
                     hold = val or 'held'
         if not why or not why.strip():
             print('REFUSED: --why "<why these changes compose>" is required (it goes into the registration)'); return 2
+        if len(rest) < 3:
+            print('usage: bundle make <bundle_run> <run> <run> [<run>] --why <text> [--hold <text>]'); return 2
         brun, runs = rest[0], rest[1:]
         if not re.match(r'^[a-z0-9][a-z0-9._-]*$', brun) or brun in states or deployment(run_rows(st['journal'], brun))[0]:
             print('REFUSED: %r is not a new plain run id' % brun); return 2
@@ -3380,8 +3436,22 @@ def _cmd_bundle(P, args):
             rest = rest[:i] + rest[i + 2:]
         brun, why = rest[0], ' '.join(rest[1:])
         be = bundle_entries(st).get(brun)
-        if be is None or not why.strip():
-            print('REFUSED: %s is not a queued bundle (or no <why>)' % brun); return 2
+        if not why.strip():
+            print('REFUSED: no <why>'); return 2
+        if be is None:
+            dang = [x.get('run') for x in ents if x.get('bundled_in') == brun]
+            if not dang:
+                print('REFUSED: %s is not a queued bundle and reserves nothing' % brun); return 2
+
+            def clr(q):
+                for x in q['entries']:
+                    if x.get('bundled_in') == brun:
+                        x.pop('bundled_in', None)
+                        x.setdefault('bundle_history', []).append({'bundle': brun, 'outcome': 'dangling', 'split_at': iso(now()), 'why': why})
+            with_queue(P, clr)
+            append_state(P, {'state': 'human', 'run': brun, 'how': 'bundle-split', 'why': why, 'by': os.environ.get('USER', '?'),
+                             'dangling': dang})
+            print('split %s (not queued): cleared the dangling reservation of %s' % (brun, ', '.join(dang))); return 0
         o = bundle_outcome(be, st)
         js = journal_status(brun, st)
         deployed = deployment(run_rows(st['journal'], brun))[0] is not None
@@ -3441,9 +3511,10 @@ def cmd_status(P):
             ' patch=%s..%s' % (str(pt.get('base'))[:7], str(pt.get('tip'))[:7]) if pt else '') +
             (' bundled_in=%s' % e['bundled_in'] if e.get('bundled_in') else '') +
             (' bundle=%s' % '+'.join((e.get('bundle') or {}).get('members') or []) if e.get('bundle') is not None else ''))
+    reserving = {e.get('bundled_in') for e in (st.get('queue') or {}).get('entries') or [] if e.get('bundled_in')}
     for b, be in sorted(bundle_entries(st).items()):
         o = bundle_outcome(be, st)
-        if o in ('pending', 'failed'):
+        if o in ('pending', 'failed') and b in reserving:
             print('BUNDLE %s: %s, members %s%s' % (b, o, ' + '.join((be.get('bundle') or {}).get('members') or []),
                                                   ' -- `bundle split %s <why>` returns them as singles' % b if o == 'failed' else ''))
     if st.get('ar_job'):

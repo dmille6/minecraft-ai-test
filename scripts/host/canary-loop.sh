@@ -35,7 +35,7 @@ FUN_READS="90 180"; FUN_DEADLINE=240; FUN_DRAW_CAP_MIN=30   # the standard plan 
 # 240) or the FAST "45 90" (deadline 150), which the scheduler grants mechanically to small unprotected single changes.
 # The same table is in funread.py READ_PLANS and canary-sched.py READ_PLANS. Anything else refuses before any phase.
 if [ -n "$FUN" ]; then
-  _FP=$(python3 -c "import json; r=json.load(open('$REG')); v=r.get('fun_reads') or '90 180'; T={'90 180': 240, '45 90': 150}; print(v + ':' + str(T[v]) if isinstance(v, str) and v in T else 'BAD:' + repr(v))" 2>&1)
+  _FP=$(python3 -c "import json; r=json.load(open('$REG')); v=r.get('fun_reads'); v='90 180' if v in (None, '') else v; T={'90 180': 240, '45 90': 150}; print(v + ':' + str(T[v]) if isinstance(v, str) and v in T else 'BAD:' + repr(v))" 2>&1)
   case "$_FP" in
     "90 180:240"|"45 90:150") FUN_READS=${_FP%%:*}; FUN_DEADLINE=${_FP##*:};;
     *) page error "registration $RUN fun_reads is not one of the two read plans ('90 180', '45 90'): ${_FP#BAD:}"; exit 2;;

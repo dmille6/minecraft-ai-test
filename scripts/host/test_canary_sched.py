@@ -1263,6 +1263,11 @@ def t_v41_fast_problem(CS, F):
     cm = _diff('bots/src/a.mjs', 100) + ''.join('+  // comment %d\n+\n' % i for i in range(200))
     assert CS.fast_problem(cm, 'none', reg, False) == '', 'comment and blank lines must not count'
     assert CS.fast_problem(_diff('bots/test/a.test.mjs', 900), 'none', reg, False) == '', 'tests are free'
+    bc = _diff('bots/src/a.mjs', 0) + ''.join('+/* annotation */ doWork(%d);\n' % i for i in range(151))
+    assert '151 changed' in CS.fast_problem(bc, 'none', reg, False), 'Codex r1: code after a block comment counts'
+    for line, want in (('// x', True), ('/* x */', True), ('/* open', True), (' * prose line', True), ('*/', True),
+                       ('/* a */ f()', False), (' * 2;', False), ('x = 1 // y', False), ('*/ f()', False)):
+        assert CS.comment_only(line) is want, (line, want)
     assert 'adds' in CS.fast_problem(_diff('bots/src/new.mjs', 5, header='new file mode 100644\n'), 'none', reg, False)
     assert 'package' in CS.fast_problem(_diff('bots/package.json', 1), 'none', reg, False)
     assert 'tier 3' in CS.fast_problem(_diff('bots/src/a.mjs', 1), '3', reg, False)
@@ -1288,7 +1293,8 @@ def t_v41_footprints(CS, F):
                              'C': {'bots/src/m.mjs': alpha3}, 'DIG': {'bots/src/m.mjs': dig2},
                              'WALK': {'bots/src/m.mjs': walk2}, 'I1': {'bots/src/m.mjs': imp1},
                              'I2': {'bots/src/m.mjs': imp2}, 'ICHG': {'bots/src/m.mjs': impchg},
-                             'USES': {'bots/src/m.mjs': uses}, 'OTHER': {'bots/src/o.mjs': 'export const o = 1\n'}})
+                             'USES': {'bots/src/m.mjs': uses}, 'TPL': {'bots/src/t.mjs': 'export const t = () => `${alpha()}`\n'},
+                             'OTHER': {'bots/src/o.mjs': 'export const o = 1\n'}})
     try:
         f = _fp_facts(CS, d, base, sh_)
         P = lambda a, b: CS.pair_problems(f[a], f[b])
@@ -1299,6 +1305,7 @@ def t_v41_footprints(CS, F):
         assert CS.fp_overlaps(f['I1']['fp'], f['I2']['fp']) == [], 'both only add imports'
         assert any('import block' in x for x in CS.fp_overlaps(f['I1']['fp'], f['ICHG']['fp'])), 'a changed import'
         assert any('use' in x and 'alpha' in x for x in P('A', 'USES')), 'cross-reference: %s' % P('A', 'USES')
+        assert any('alpha' in x for x in P('A', 'TPL')), 'Codex r1: a template interpolation is a use: %s' % P('A', 'TPL')
         assert any('alpha' in x for x in P('A', 'DIG')), 'a row naming the changed function: %s' % P('A', 'DIG')
         assert any('whole file' in x for x in CS.fp_overlaps(f['OTHER']['fp'], f['OTHER']['fp'])), 'a new file is whole'
         assert P('A', 'OTHER') == []
@@ -1366,14 +1373,17 @@ def t_v41_plan_bundle(CS, F):
 def _bundle_queue(F, CS, hold=None):
     """foo-01 + bar-01 reserved by bundle b-01 (variant on the fleet base), and dep-01 after bar-01."""
     regb = os.path.join(F.home, 'mcai-analysis', 'b-01.json')
-    json.dump({'sha': F.canary[:7], 'reads': [], 'bundle': {'plan_sha256': 'e' * 64, 'members': [{'run': 'foo-01'}, {'run': 'bar-01'}]}},
+    # the plan as the launch check recomputes it from the member entries (the fixture members carry no patch source)
+    plan = CS.plan_hash([{'run': r, 'base': None, 'tip': None, 'diff_sha256': None, 'registration_sha256': None,
+                          'couples_with': []} for r in ('foo-01', 'bar-01')])
+    json.dump({'sha': F.canary[:7], 'reads': [], 'bundle': {'plan_sha256': plan, 'members': [{'run': 'foo-01'}, {'run': 'bar-01'}]}},
               open(regb, 'w'))
     regd = os.path.join(F.home, 'mcai-analysis', 'dep-01.json')
     json.dump({'sha': F.canary[:7], 'reads': []}, open(regd, 'w'))
     with Env(F.env()):
         P = CS.paths()
         b = {'run': 'b-01', 'class': '', 'after': [], 'hold': hold, 'not_before': None,
-             'bundle': {'schema': 1, 'members': ['foo-01', 'bar-01'], 'plan_sha256': 'e' * 64},
+             'bundle': {'schema': 1, 'members': ['foo-01', 'bar-01'], 'plan_sha256': plan},
              'variants': {F.base: {'registration': regb, 'approved': 'bundle fixture: Claude + Codex'}}}
         assert not CS.validate_entry(P, b, [])
         b['variants'][F.base]['protected'] = False          # the fixture repo has no protected.py (undecidable)
@@ -1477,6 +1487,35 @@ def t_v41_bundle_h3_members_must_stay_reserved(CS, F):
     expect(CS, F, 'block', 'H3', 'no longer reserved')
 
 
+def t_v41_reserved_member_is_frozen(CS, F):
+    """Claude review r1 BLOCKER: a member reserved by a bundle cannot be cancelled, held or re-pointed (it would ship
+    anyway); and a member changed by hand behind the commands is caught at launch (H3)."""
+    _bundle_queue(F, CS)
+    for argv in (('cancel', 'foo-01', 'x'), ('queue', 'hold', 'foo-01', 'x'), ('queue', 'not-before', 'foo-01', Z(NOW)),
+                 ('queue', 'set-patch', 'foo-01', F.base)):
+        rc, out = human(CS, F, *argv)
+        assert rc == 2 and 'bundle split b-01' in out, (argv, out)
+    expect(CS, F, 'launch')
+    q = json.load(open(F.queue))
+    q['entries'][2]['hold'] = 'edited by hand'
+    json.dump(q, open(F.queue, 'w'))
+    expect(CS, F, 'block', 'H3', 'held or cancelled')
+    q['entries'][2]['hold'] = None
+    q['entries'][2]['couples_with'] = ['foo-01']
+    json.dump(q, open(F.queue, 'w'))
+    expect(CS, F, 'block', 'H3', 'changed since `bundle make`')
+
+
+def t_v41_split_clears_a_dangling_reservation(CS, F):
+    _bundle_queue(F, CS)
+    q = json.load(open(F.queue)); q['entries'] = q['entries'][1:]; json.dump(q, open(F.queue, 'w'))
+    expect(CS, F, 'block', 'H8', 'dangling')
+    rc, out = human(CS, F, 'bundle', 'split', 'b-01', 'the bundle entry was deleted by hand')
+    assert rc == 0 and 'dangling' in out, out
+    d, _ = expect(CS, F, 'launch')
+    assert d[1]['run'] == 'foo-01'
+
+
 def t_v41_status_parses_for_the_servea_waiter(CS, F):
     _bundle_queue(F, CS)
     rc, out = human(CS, F, 'status')
@@ -1545,7 +1584,7 @@ MUTANTS = [
     ("    if not arts:\n        return (run, 'no REVERT", "    if False:\n        return (run, 'no REVERT"),
     ("    if e.get('hold'):", "    if False:"),
     ("        elif nb > st['now']:", "        elif False:"),
-    ("        if ds in ('cancelled', 'blocked', 'predeploy', 'abandoned'):", "        if ds in ('cancelled',):"),
+    ("        if ds in ('cancelled', 'blocked', 'predeploy', 'abandoned', 'bundle-failed'):", "        if ds in ('cancelled',):"),
     ("    if es == 'blocked':\n        out.append(('H3'", "    if False:\n        out.append(('H3'"),
     ("    elif base not in vs:", "    elif False:"),
     ("        if sha256(reg) != v.get('registration_sha256'):", "        if False:"),
@@ -1623,16 +1662,22 @@ MUTANTS = [
     ("    if m.get('tier') != 'none':", "    if False:"),
     ("    if state != 'ready' or e.get('hold') or", "    if state != 'ready' or"),
     ("    if n > FAST_MAX_LINES:", "    if False:"),
-    ("        if cur.startswith('bots/src/') and l[:1] in ('+', '-') and l[1:].strip() and not _JS_COMMENT.match(l[1:]):",
+    ("        if cur.startswith('bots/src/') and l[:1] in ('+', '-') and not comment_only(l[1:]):",
      "        if cur.startswith('bots/src/') and l[:1] in ('+', '-') and l[1:].strip():"),
+    ("        return end < 0 or comment_only(b[end + 2:])", "        return True"),
+    ("        used.update(_IDENT_RE.findall(body))", "        used.update(_IDENT_RE.findall(re.sub(r'`[^`]*`', '', body)))"),
     ("    if not isinstance(v, str) or v not in READ_PLANS:", "    if not isinstance(v, str):"),
     ("    return ['fun_reads %r is not justified: %s' % (plan, fp)] if fp else []", "    return []"),
     ("    if es == 'bundle-failed':", "    if False:"),
     ("            if lost:", "            if False:"),
-    ("                    x.pop('bundled_in', None)", "                    pass"),
+    ("                if x.get('run') in members and x.get('bundled_in') == brun:\n                    x.pop('bundled_in', None)",
+     "                if x.get('run') in members and x.get('bundled_in') == brun:\n                    pass"),
     ("        if js == 'live' or entry_state(be, st) in ('running', 'launching') or (deployed and js != 'closed'):",
      "        if js == 'live':"),
     ("    if not 2 <= len(set(runs)) <= BUNDLE_MAX:", "    if False:"),
+    ("    if hit:\n        return ('REFUSED: %s is reserved by bundle %s", "    if False:\n        return ('REFUSED: %s is reserved by bundle %s"),
+    ("            if plan_hash(meta) != qb.get('plan_sha256'):", "            if False:"),
+    ("            if held:\n                out.append(('H3', 'bundle member(s) %s are held", "            if False:\n                out.append(('H3', 'bundle member(s) %s are held"),
 ]
 
 
