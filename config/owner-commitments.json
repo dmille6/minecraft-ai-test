@@ -4139,6 +4139,34 @@
     ]
    },
    "note": "Measured 11-03: showcase near-town cow/sheep/pig rows 0 since 10-31 (852/10,438 on 10-28); fleet near-town cows 8.3%, sheep 2.7% of 57,341 rows. Seeds are NEVER_KEEP + composted + never banked today: the keep switch ships with the farm."
+  },
+  {
+   "id": "storehub-1103",
+   "title": "Town storage hub: hopper intake into 20 chests, clerk bots sort into a sorted hall, other bots withdraw, disposal well beside it (owner 11-03 \"could we build a large storage area where stuff went into a hopper ... a few bots pulled stuff from our hopper chests and sorted them\"; \"a disposal well near this storage\"; \"use claude and codex to make the design and determine the best point in our queue\")",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "owner-storehub-1103.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Design landed (docs/reports/storehub-design-2026-11-03.md; Claude + Codex designs reconciled, both engines' review blockers fixed). Owner decisions O1-O6 (s.8: junk temporarily in intake chests; plants group with caps, surplus composted = partial reversal of the 10-04 rule; hoppers grown 4->20 from iron above a 48 reserve; 1 clerk first; fleet-wide after F; bot tossing). Build order: C indexsearch-02 (tier 2) showcase alone now, 2 h watch, then fleet owner-direct after bundle-1103a closes; A storehub-hall + B storehub-clerk on the showcase after the copper hall finish; S0 Paper intake proof any time a sandbox is free; F = fleet canary bundle A+B+D1+D2 (tier 3) at the next valid P turn after an S once S0 + two engines pass; D on the showcase after F is promoted; E plants only on O2 yes.",
+   "max_quiet_hours": 48,
+   "depends_on": [],
+   "evidence": {
+    "grep": [
+     "storehub",
+     "indexsearch-02"
+    ],
+    "runs": [
+     "indexsearch-02",
+     "storehub-hall",
+     "storehub-clerk",
+     "storehub-intake"
+    ]
+   },
+   "note": "Measured 11-03 (24 h full walks): storage skills 9.1 of 1,923 fleet bot-h (0.47%), 0.7 of 240 showcase bot-h; withdraw_pick 7.9 chests/search (86% of visits miss), kit search 4.1 (78% miss); 67/312 fleet chests full; most item kinds in >1 chest. Not a time lever: the value is the visible building, clerk work for the 10->15 showcase raise, and searches that go to the right chest. Codex: 1 hopper + 1 clerk; Claude: 20 hoppers; chosen 4->20 pairs grown from surplus."
   }
  ]
 }
