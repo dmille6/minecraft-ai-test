@@ -17197,7 +17197,14 @@ async function yardSiteFor (bot, plan, c, stood, signal = null) {
         earth: step.earth, domain: step.domain, standDomain: step.standDomain, walkR: step.walkR, line: step.line, sectorBy: step.sectorBy, rankKey: step.rankKey }, { aborted: () => !!signal?.aborted })
       if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
       tried.push(`${step.blueprint}/${step.band}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
-      if (s.ok) return { ok: true, why: 'ok', record: { ...s.record, band: step.band }, tried }
+      if (s.ok) {
+        // the search yields for 10-60 s (Claude r1 note): a record, marker or reservation published meanwhile is read again
+        // before the yard claims its ground; a site that now meets one is dropped (the next visit searches again)
+        const fresh = [...c.zones, ...recordZones(projectHeads().filter(x => x.plot !== YARD_PLOT).map(x => x.head.rec)), ...hallPadZones(plan), ...townMarkerZones()]
+        const hit = s.record.cells.find(q => fresh.some(z => q.at[0] >= z.box[0] && q.at[0] <= z.box[3] && q.at[1] >= z.box[1] && q.at[1] <= z.box[4] && q.at[2] >= z.box[2] && q.at[2] <= z.box[5]))
+        if (hit) return { ok: false, why: 'site_taken', detail: `${hit.at.join(',')} reserved during the search`, tried }
+        return { ok: true, why: 'ok', record: { ...s.record, band: step.band }, tried }
+      }
     }
     return { ok: false, why: 'no_site', tried }
   } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80), tried } }
