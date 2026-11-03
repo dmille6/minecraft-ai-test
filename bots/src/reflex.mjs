@@ -1789,7 +1789,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       keep = setInterval(renew, 5_000)
       for (let w = 0; w < 30 && runner?.current; w++) await sleep(100)
       try { bot.pathfinder?.setGoal?.(null) } catch {}
-      res = await swimUnder(bot, { plan, alive: () => ownsBody(grantOf)() && !runner?.current,
+      res = await swimUnder(bot, { plan, alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
                                    yieldTo: () => drowningOwnsBody() || arbiterYield(grantOf), oxygen: () => bot.oxygenLevel, renew })
     } catch (e) {
       res = { outcome: 'failed', why: `threw: ${e.message}`, len: plan.route.length }
