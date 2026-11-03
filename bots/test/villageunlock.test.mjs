@@ -29,10 +29,10 @@ await t('the outdoor ring (4 villagers at 80..83,73,-4): a pen of 3 walkable cel
   assert.deepEqual(keys(V.penAround(w, { x: 82.7, y: 73, z: -3.7 })), keys(p))
 })
 
-await t('the house ring (3 villagers at 87..88,76,11): a pen of 2 cells, its 6 open trapdoors; the open top shutters at y75/77 are never collected', () => {
+await t('the house ring (3 villagers at 87..88,76,11): a pen of 2 cells; ONLY the 2 trapdoors that open onto the house floor (z 10) are collected -- the 4 against the cobble walls and the top shutters are not', () => {
   const p = V.penAround(worldOf(), { x: 87.3, y: 76, z: 11.7 })
   assert.equal(p.pen, true)
-  assert.deepEqual(keys(p), ['86,76,11', '87,76,10', '87,76,12', '88,76,10', '88,76,12', '89,76,11'])
+  assert.deepEqual(keys(p), ['87,76,10', '88,76,10'])
   assert.equal(p.cells.length, 2)
 })
 
@@ -49,7 +49,7 @@ await t('not a pen: open ground, an unloaded neighbour, a pen walled by solid bl
   assert.equal(V.penAround(() => null, { x: 0, y: 64, z: 0 }).why, 'unloaded')
   const walled = (x, y, z) => ({ name: (y < 64 || Math.abs(x) + Math.abs(z) > 0) ? 'stone' : 'air', props: {} })
   assert.equal(V.penAround(walled, { x: 0, y: 64, z: 0 }).why, 'walled')
-  const fenced = (x, y, z) => ({ name: y < 64 ? 'stone' : (x === 0 && z === 0) ? 'air' : (x === 1 && z === 0) ? 'oak_fence_gate' : 'oak_fence', props: x === 1 ? { open: 'false' } : {} })
+  const fenced = (x, y, z) => ({ name: y < 64 ? 'stone' : ((x === 0 || x === 2) && z === 0) || y > 64 ? 'air' : (x === 1 && z === 0) ? 'oak_fence_gate' : 'oak_fence', props: x === 1 ? { open: 'false' } : {} })
   const g = V.penAround(fenced, { x: 0.5, y: 64, z: 0.5 })
   assert.equal(g.pen, true); assert.deepEqual(g.toggles.map(q => [q.x, q.z, q.want]), [[1, 0, 'open']])
   const iron = (x, y, z) => ({ name: y < 64 ? 'stone' : (x === 0 && z === 0) ? 'air' : 'iron_trapdoor', props: { open: 'true', half: 'bottom' } })
@@ -58,12 +58,53 @@ await t('not a pen: open ground, an unloaded neighbour, a pen walled by solid bl
   assert.equal(V.penAround(step, { x: 0, y: 64, z: 0 }, { maxCells: 100 }).why, 'exit_step')
 })
 
+await t('Codex r1 blocker 2: a top shutter, a trapdoor over a hole, one under a solid block, one opening onto a wall or a 2-block drop: NOT collected (walled)', () => {
+  // a 1-cell pen at 0,64,0 on stone; the only barrier is an open trapdoor at 1,64,0; everything else stone walls
+  const mk = (td, over = {}) => (x, y, z) => {
+    const k = `${x},${y},${z}`
+    if (k in over) return over[k]
+    if (x === 1 && y === 64 && z === 0) return td
+    if (y < 64) return { name: 'stone', props: {} }
+    if (x === 0 && z === 0) return { name: 'air', props: {} }
+    if (x >= 1 && z === 0) return { name: 'air', props: {} }   // a corridor east, beyond the barrier
+    return { name: 'stone', props: {} }
+  }
+  const open = half => ({ name: 'spruce_trapdoor', props: { open: true, half, facing: 'east' } })
+  assert.equal(V.penAround(mk(open('bottom')), { x: 0, y: 64, z: 0 }).pen, true, 'POSITIVE CONTROL: a bottom trapdoor onto a level corridor is collected')
+  assert.equal(V.penAround(mk(open('top')), { x: 0, y: 64, z: 0 }).why, 'walled', 'a top-half shutter')
+  assert.equal(V.penAround(mk(open('bottom'), { '1,63,0': { name: 'air', props: {} }, '1,62,0': { name: 'air', props: {} } }), { x: 0, y: 64, z: 0 }).why, 'walled', 'a hole cover')
+  assert.equal(V.penAround(mk(open('bottom'), { '1,65,0': { name: 'stone', props: {} } }), { x: 0, y: 64, z: 0 }).why, 'walled', 'under a solid block')
+  assert.equal(V.penAround(mk(open('bottom'), { '2,64,0': { name: 'stone', props: {} }, '2,65,0': { name: 'stone', props: {} } }), { x: 0, y: 64, z: 0 }).why, 'walled', 'onto a wall')
+  assert.equal(V.penAround(mk(open('bottom'), { '2,63,0': { name: 'air', props: {} }, '2,62,0': { name: 'air', props: {} } }), { x: 0, y: 64, z: 0 }).why, 'walled', 'onto a 2-block drop')
+  assert.equal(V.penAround(mk(open('bottom'), { '2,63,0': { name: 'air', props: {} } }), { x: 0, y: 64, z: 0 }).pen, true, 'one step down is a way out')
+})
+
+await t('Codex r1 blocker 3: one sighting then absence is no candidate; a gap > 10 min restarts the clock; the villager re-checked in the pen', () => {
+  const still = new Map(), tried = new Map()
+  const s = { kind: 'villager', uuid: 'a', x: 80.3, y: 73, z: -3.7, profession: 'none', baby: false }
+  V.trackStill(still, [s], 0)
+  assert.deepEqual(V.stuckCandidates(still, tried, 21 * 60_000, { x: 0, z: 0 }), [], 'seen once 21 min ago: not fresh')
+  V.trackStill(still, [s], 15 * 60_000)   // a 15 min gap: the clock restarts at 15
+  V.trackStill(still, [s], 21 * 60_000)
+  assert.deepEqual(V.stuckCandidates(still, tried, 21 * 60_000, { x: 0, z: 0 }), [])
+  for (let m = 22; m <= 36; m += 2) V.trackStill(still, [s], m * 60_000)
+  assert.deepEqual(V.stuckCandidates(still, tried, 36 * 60_000, { x: 0, z: 0 }).map(c => c.uuid), ['a'])
+  const pen = { cells: [{ x: 80, y: 73, z: -4 }, { x: 81, y: 73, z: -4 }] }
+  const e = (x, md = { 18: { villagerProfession: 0, level: 1 } }) => ({ name: 'villager', position: { x, y: 73, z: -3.7 }, metadata: Object.assign([], md) })
+  assert.equal(V.villagerStillPenned(e(80.3), pen), 'ok')
+  assert.equal(V.villagerStillPenned(e(85.3), pen), 'left_pen')
+  assert.equal(V.villagerStillPenned(e(80.3, { 18: { villagerProfession: 13, level: 1 } }), pen), 'employed')
+  assert.equal(V.villagerStillPenned(undefined, pen), 'villager_gone')
+  assert.equal(V.penKey(pen), '80_73_-4')
+})
+
 await t('trackStill + stuckCandidates: 20 min in one cell, jobless adults only, per-villager cooldown, radius, nearest first', () => {
   const still = new Map(), tried = new Map()
   const s = (uuid, x, prof = 'none', baby = false) => ({ kind: 'villager', uuid, x, y: 73, z: -3.7, profession: prof, baby, zone: 'village-taiga-6_1' })
   V.trackStill(still, [s('a', 80.3), s('b', 82.7), s('c', 81.5, 'toolsmith'), s('d', 81.1, 'none', true)], 0)
   assert.deepEqual(V.stuckCandidates(still, tried, 19 * 60_000, { x: 0, z: 0 }), [])
   V.trackStill(still, [s('b', 90.1)], 10 * 60_000)   // b moved: its clock restarts
+  for (const m of [8, 16, 21]) V.trackStill(still, [s('a', 80.3), s('c', 81.5, 'toolsmith'), s('d', 81.1, 'none', true)], m * 60_000)
   const c = V.stuckCandidates(still, tried, 21 * 60_000, { x: 0, z: 0 })
   assert.deepEqual(c.map(x => x.uuid), ['a'])
   tried.set('a', 21 * 60_000)
