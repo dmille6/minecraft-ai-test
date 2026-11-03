@@ -17,7 +17,24 @@ export const VU = Object.freeze({
   perBotMs: 30 * 60_000,
   reach: 4,                  // activate from within this many blocks (1.21 block interaction range 4.5 from the eyes)
   scanRadius: 128,
+  gapMs: 10 * 60_000,        // sightings further apart than this restart the stuck clock
+  freshMs: 5 * 60_000,       // a candidate must have been seen within this
+  leaseMs: 5 * 60_000,       // one bot per pen (a pool-wide lease file)
 })
+
+/** THE VILLAGER STILL THERE? (Codex r1 blocker 3) entity -> 'ok' | why. Pure: still tracked, jobless, adult, in the pen. */
+export function villagerStillPenned (e, pen) {
+  if (!e || e.name !== 'villager' || !e.position) return 'villager_gone'
+  const md = e.metadata ?? []
+  const p = md[18]?.villagerProfession
+  if (Number.isInteger(p) && p !== 0) return 'employed'
+  if (md[16] === true) return 'baby'
+  const fx = Math.floor(e.position.x), fz = Math.floor(e.position.z)
+  if (!pen?.cells?.some(c => c.x === fx && c.z === fz)) return 'left_pen'
+  return 'ok'
+}
+/** The pen's lease key: its smallest cell. Pure. */
+export const penKey = pen => { const c = [...(pen?.cells ?? [])].sort((a, b) => a.x - b.x || a.z - b.z)[0]; return c ? `${c.x}_${c.y}_${c.z}` : null }
 export function unlockSwitch (env = process.env) {
   const v = String(env.VILLAGEUNLOCK ?? '').toLowerCase()
   return !(v === '0' || v === 'off' || v === 'false')
@@ -44,6 +61,30 @@ export function passable (b) {
   return false
 }
 const solidBelow = b => { const n = bare(b?.name); return !!n && !AIR.test(n) && !/water|lava|bubble_column/.test(n) && !THIN.test(n) }
+/**
+ * IS THIS BARRIER A REAL WAY OUT? (Codex review r1, blocker 2: a top shutter under stone or a trapdoor over a hole must never be
+ * toggled.) -> bool. A trapdoor: BOTTOM half, a solid block under it (no hole cover), room above it; a gate: room above it. And
+ * the cell beyond it, in the same direction, is somewhere a villager can stand: level, one step down, or one step up.
+ */
+export function barrierExits (at, x, y, z, dx, dz) {
+  const b = at(x, y, z)
+  if (!b || !toggleable(b)) return false
+  const above = at(x, y + 1, z)
+  if (!above || !passable(above)) return false
+  if (isTrapdoor(b)) {
+    if (half(b) !== 'bottom') return false
+    const under = at(x, y - 1, z)
+    if (!under || !solidBelow(under)) return false
+  }
+  const fx = x + dx, fz = z + dz
+  const f0 = at(fx, y, fz), f1 = at(fx, y + 1, fz), fm1 = at(fx, y - 1, fz), fm2 = at(fx, y - 2, fz), f2 = at(fx, y + 2, fz)
+  if (!f0 || !f1 || !fm1) return false
+  if (passable(f0) && passable(f1)) {
+    if (solidBelow(fm1)) return true                                         // level
+    return !!fm2 && passable(fm1) && solidBelow(fm2)                         // one step down
+  }
+  return !!f2 && solidBelow(f0) && passable(f1) && passable(f2) && !/_(fence|wall)$|_pane$|^iron_bars$/.test(bare(f0.name))   // one step up
+}
 
 /**
  * THE PEN around a villager's feet -> { pen: true, cells, toggles: [{x,y,z,name,want}] } | { pen: false, why }. Pure: blockAt(x,y,z)
@@ -67,7 +108,11 @@ export function penAround (blockAt, feet, { maxCells = VU.maxCells } = {}) {
       if (seen.has(k)) continue
       const f = at(nx, y, nz), h = at(nx, y + 1, nz), lo = at(nx, y - 1, nz)
       if (!f || !h || !lo) return { pen: false, why: 'unloaded' }
-      if (toggleable(f)) { toggles.set(k, { x: nx, y, z: nz, name: bare(f.name), want: isGate(f) ? 'open' : 'closed' }); continue }
+      if (toggleable(f)) {
+        // only a barrier that leads somewhere safe is collected; any other is a wall (never touched)
+        if (barrierExits(at, nx, y, nz, dx, dz)) toggles.set(k, { x: nx, y, z: nz, name: bare(f.name), want: isGate(f) ? 'open' : 'closed' })
+        continue
+      }
       if (passable(f) && passable(h)) {
         if (!solidBelow(lo)) return { pen: false, why: 'exit_drop' }
         seen.add(k); q.push([nx, nz]); continue
@@ -85,25 +130,27 @@ export function penAround (blockAt, feet, { maxCells = VU.maxCells } = {}) {
 }
 
 /** Track how long each villager has stood in one cell -> the map, updated. Pure (mutates `still`). */
-export function trackStill (still, sightings, now) {
+export function trackStill (still, sightings, now, { gapMs = VU.gapMs } = {}) {
   for (const s of sightings) {
     if (s.kind !== 'villager') continue
     const cell = `${Math.floor(s.x)},${Math.floor(s.y)},${Math.floor(s.z)}`
     const prev = still.get(s.uuid)
-    if (!prev || prev.cell !== cell) still.set(s.uuid, { cell, since: now, s })
-    else prev.s = s
+    // a new cell, or an observation interrupted for longer than gapMs (Codex r1 blocker 3): the clock restarts
+    if (!prev || prev.cell !== cell || now - prev.seenAt > gapMs) still.set(s.uuid, { cell, since: now, seenAt: now, s })
+    else { prev.s = s; prev.seenAt = now }
   }
   if (still.size > 1000) for (const k of [...still.keys()].slice(0, still.size - 1000)) still.delete(k)
   return still
 }
 
 /** The candidates: jobless adult villagers still in one cell for >= stuckMs, not tried for perVillagerMs. Nearest first. Pure. */
-export function stuckCandidates (still, tried, now, here, { stuckMs = VU.stuckMs, perVillagerMs = VU.perVillagerMs, radius = VU.scanRadius } = {}) {
+export function stuckCandidates (still, tried, now, here, { stuckMs = VU.stuckMs, perVillagerMs = VU.perVillagerMs, radius = VU.scanRadius, freshMs = VU.freshMs } = {}) {
   const out = []
   for (const [uuid, v] of still) {
     const s = v.s
     if (!s || s.baby || s.profession !== 'none') continue
     if (now - v.since < stuckMs) continue
+    if (now - (v.seenAt ?? v.since) > freshMs) continue   // not seen lately: it may have left (Codex r1 blocker 3)
     if (now - (tried.get(uuid) ?? -Infinity) < perVillagerMs) continue
     const d = here ? Math.hypot(s.x - here.x, s.z - here.z) : Infinity
     if (d > radius) continue
