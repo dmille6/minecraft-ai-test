@@ -67,6 +67,22 @@ export function cappedCooldownMs(envMs, capMs) {
   return Number.isFinite(v) ? Math.min(v, cap) : cap
 }
 
+// PAUSE30 (pause30-01, 11-04, owner "shorten runner pause"): the runner's repeated-failure pause (runner.mjs: three
+// failed/unknown skills in a row -> every skill is refused until it auto-resumes) lasts 30 s, not 120 s. Measured
+// 11-03 19:30Z..11-04 04:00Z, 80 bots, 680 bot-h: the pause was 11.7% of all bot time, 76% of it after a failed model
+// decision, set mostly by no_path (goto/explore/gather), gather no_safe_target / unreachable and goto stranded; PAUSEWAIT
+// (fewerdec.mjs) holds the model for the whole pause, so the bot simply stands. No fleet env file sets
+// PAUSE_RECOVERY_MS, so the default here IS the fleet value and the canary is a code version the manifest can see.
+// One-number rollback without a code deploy: PAUSE_RECOVERY_MS=120000. A value that is not a positive finite number
+// (empty, 0, negative, text) falls back to the default: the old Number(req(...)) turned text into NaN, and a NaN pause
+// never ends (waited >= NaN is false), which freezes the bot.
+export const PAUSE_RECOVERY_DEFAULT_MS = 30000
+export function resolvePauseRecoveryMs(envValue) {
+  if (envValue == null || String(envValue).trim() === '') return PAUSE_RECOVERY_DEFAULT_MS
+  const n = Number(envValue)
+  return Number.isFinite(n) && n > 0 ? n : PAUSE_RECOVERY_DEFAULT_MS
+}
+
 export const config = {
   code: { version: codeVersion() },
 
@@ -197,7 +213,8 @@ export const config = {
     maxConsecutiveFailures: Number(req('MAX_CONSECUTIVE_FAILURES', '3')),
     // How long a pause lasts before clearing itself. Without this the agent
     // needs a human to type "resume", which autonomous mode does not have.
-    pauseRecoveryMs: Number(req('PAUSE_RECOVERY_MS', '120000')),
+    // 30 s since pause30-01 (was 120 s); PAUSE_RECOVERY_MS=120000 is the rollback. See resolvePauseRecoveryMs above.
+    pauseRecoveryMs: resolvePauseRecoveryMs(process.env.PAUSE_RECOVERY_MS),
     // Cooldown on a choice that just failed. Must stay well under the decision
     // interval x a few, or the agent spends every decision being told "not yet"
     // for the action that is actually correct.

@@ -151,6 +151,8 @@ const REQUIRED = [
   'scripts/test_fleetstatus.py',
   // cooldown15-01 (11-01): the decision cooldown cap (30 s env -> 15 s) and its one-number rollback
   'bots/test/cooldown-cap.test.mjs',
+  // pause30-01 (11-04): the runner failure pause 120 s -> 30 s default and its one-number rollback
+  'bots/test/pause-recovery.test.mjs',
   // the learning loop's nightly archive (M1): logs on .31 rotate after 14 days, this is the only long-term copy
   'scripts/learnloop/extract_triples.py',
   'scripts/learnloop/nightly.py',
