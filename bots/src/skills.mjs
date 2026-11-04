@@ -21660,8 +21660,11 @@ async function bucketSkill (ctx, args, signal) {
     return { status: 'failed', failClass: 'bad_args',
              detail: `bucket needs action=fill or action=pour, got "${args?.action ?? ''}"` }
   }
-  const p = bot.entity?.position
-  if (!p) return { status: 'failed', failClass: 'not_connected', detail: 'no position' }
+  const p0 = bot.entity?.position
+  if (!p0) return { status: 'failed', failClass: 'not_connected', detail: 'no position' }
+  // bucketfix-01 (Claude r1 BLOCKER): every target is a BLOCK cell (the feet's floored cell + an offset), never the fractional feet
+  // position: bucket.mjs's aims are cell-centred from it, and emptyRefusal's body test compares cells
+  const p = typeof p0.floored === 'function' ? p0.floored() : p0
   const has = n => (bot.inventory?.items?.() ?? []).some(i => i.name === n)
   const at = (dx, dy, dz) => { try { return bot.blockAt(p.offset(dx, dy, dz)) } catch { return null } }
   // Only cells the bot can actually reach. The server ray-traces the use, so a
@@ -21703,8 +21706,8 @@ async function bucketSkill (ctx, args, signal) {
       check(signal)
       const r = await scoopLiquid(bot, p.offset(dx, dy, dz))
       return r.ok
-        ? { status: 'success', detail: `filled the bucket (${r.aims} aim(s))` }
-        : { status: 'failed', failClass: 'bucket_fill', detail: `fill failed: ${r.why}` }
+        ? { status: 'success', detail: 'filled the bucket' }
+        : { status: 'failed', failClass: 'bucket_fill', detail: `fill failed: ${r.reason}` }
     }
     return { status: 'failed', failClass: 'bucket_fill',
              detail: `nothing within reach to fill from [${[...new Set(reasons)].slice(0, 3).join(' | ')}]` }
