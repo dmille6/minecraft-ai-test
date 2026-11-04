@@ -19980,7 +19980,7 @@ async function tradeTrip (ctx, _args, signal) {
     row(status, `end=${stop}`)
     tradeLeaseRelease(bot)
     bot.tradeTrip = null
-    return { status, detail: `trade_trip: ${trip.stop} (sold ${trip.sold} coal, earned ${trip.earned} emerald, ${Object.keys(trip.bought).length} bought)` }
+    return { status, ...(status === 'failed' ? { failClass: stop === 'lost' ? 'timeout' : 'travel_incomplete' } : {}), detail: `trade_trip: ${trip.stop} (sold ${trip.sold} coal, earned ${trip.earned} emerald, ${Object.keys(trip.bought).length} bought)` }
   }
   if (Date.now() - trip.startedAt >= TRADE.lostMs) return finish('lost', 'failed')
   const read = () => ({ now: Date.now(), timeOfDay: bot.time?.timeOfDay ?? 0, health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length,
@@ -20053,7 +20053,7 @@ async function tradeTrip (ctx, _args, signal) {
   } catch (e) {
     if (e?.aborted || signal?.aborted) { row('no_effect', 'aborted'); throw e }
     row('failed', `error=${String(e?.message ?? e).slice(0, 60)}`)
-    return { status: 'failed', detail: `trade_trip: ${String(e?.message ?? e).slice(0, 80)}` }
+    return { status: 'failed', failClass: 'skill_error', detail: `trade_trip: ${String(e?.message ?? e).slice(0, 80)}` }
   }
 }
 /** COALSALE-01, once per spawn (features.mjs): the licence row. Never throws. */
