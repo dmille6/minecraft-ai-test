@@ -59,6 +59,12 @@ await t('OBSERVE ONLY: the same arguments and `this` reach mineflayer, the calle
   const r1 = bot.placeBlock(ref(3, 70, 4), face, { extra: 1 })
   assert.strictEqual(r1, p0, 'the original promise, not a wrapper')
   assert.strictEqual(await r1, 'ok')
+  // the argument COUNT too (Codex r1 BLOCKER): an omitted argument stays omitted
+  const counts = []
+  const botN = { entity: null, placeBlock: function () { counts.push(arguments.length); return Promise.resolve() } }
+  PA.attachPlaceAudit(botN, { home: HOME, emitPlace: () => {}, emitSummary: () => {}, timers: false })
+  await botN.placeBlock(); await botN.placeBlock(ref(1, 70, 1)); await botN.placeBlock(ref(1, 70, 1), { x: 0, y: 1, z: 0 })
+  assert.deepStrictEqual(counts, [0, 1, 2])
   assert.strictEqual(bot.calls[0].self, bot); assert.strictEqual(bot.calls[0].face, face); assert.deepStrictEqual(bot.calls[0].rest, [{ extra: 1 }])
   await new Promise(resolve => setImmediate(resolve))
   assert.strictEqual(rows.length, 1)

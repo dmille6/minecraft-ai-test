@@ -116,10 +116,11 @@ export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, timers = 
       }
     } catch { sum.ierr++ }
   }
-  const wrapped = function (ref, face, ...rest) {
+  const wrapped = function (...args) {
     let rec = null
-    try { rec = closed ? null : capture(ref, face); if (rec) stats.wrapped++ } catch { rec = null; sum.ierr++ }
-    const pr = orig.call(this, ref, face, ...rest)
+    try { rec = closed ? null : capture(args[0], args[1]); if (rec) stats.wrapped++ } catch { rec = null; sum.ierr++ }
+    // the caller's arguments exactly as given (Codex r1 BLOCKER: never an explicit undefined for an omitted one)
+    const pr = orig.apply(this, args)
     // observe only: the caller gets the ORIGINAL promise (its rejection still reaches the caller's catch)
     try { Promise.resolve(pr).then(() => settle(rec, null), e => settle(rec, e ?? new Error('failed'))) } catch { sum.ierr++ }
     return pr
