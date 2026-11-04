@@ -75,6 +75,20 @@ test('VERDICT ON THE DEPOSIT RUNG: the floor is 1 -- the rung is current from 4 
   assert.equal(V({ bankable: 0, planLength: 0, onDepositMilestone: true }).reason, 'deposit_nothing_to_bank', 'nothing is never due')
 })
 
+test('VERDICT = THE OLD GATE OFF THE RUNG, over a grid (the old code: `!plan && !reconcile` -> nothing; `reconcile || depositDue(...)`)', async () => {
+  const { depositDue } = await import('../src/bankable.mjs')
+  let n = 0, oks = 0
+  for (const planLength of [0, 1, 3]) for (const reconcile of [false, true]) for (const bankable of [0, 1, 4, 11, 12, 13, 40])
+    for (const occupiedSlots of [0, 29, 30, 36]) for (const distHome of [0, 96, 97, 500, NaN]) for (const storage of [false, true]) {
+      const v = DO.depositVerdict({ planLength, reconcile, bankable, occupiedSlots, distHome, storageWithin48: storage })
+      const old = (!planLength && !reconcile) ? 'deposit_nothing_to_bank'
+        : (reconcile || depositDue({ bankable, distHome, storageWithin48: storage, onDepositMilestone: false, occupiedSlots })) ? 'ok' : 'deposit_not_worth_it'
+      assert.equal(v.ok ? 'ok' : v.reason, old, JSON.stringify({ planLength, reconcile, bankable, occupiedSlots, distHome, storage }))
+      n++; if (v.ok) oks++
+    }
+  assert.ok(n > 1000 && oks > 100 && oks < n - 100, `${n} cases, ${oks} admitted`)
+})
+
 test('VERDICT: storage is read ONLY when the answer depends on it (the world scan is the cost)', () => {
   let n = 0; const s = () => { n++; return true }
   V({ bankable: 5, storageWithin48: s }); assert.equal(n, 0, 'below the floor: no scan')
@@ -189,7 +203,7 @@ let seq = 0
 const RETURN = { id: 'return#7', wants: null, wantsAny: null, describe: 'Return home with what you gathered.', progress: '566 blocks from home', hint: 'use the home skill.' }
 const SURPLUS = { id: 'deposit_surplus#3', wants: null, wantsAny: null, describe: 'Put your surplus in the town chest before heading out again.', progress: '6 bankable items carried', hint: 'deposit — you are at the chest already' }
 /** One model call on the real loop; returns the enum and the user message the model was handed, and the tally rows. */
-async function driveOnce (mod, { rung = RETURN, extra = [], chest = false, pos, cfg = null, proposal = { skill: 'explore', args: {} }, ms = 600, tallyNow = false, verdict = undefined } = {}) {
+async function driveOnce (mod, { rung = RETURN, extra = [], chest = false, pos, cfg = null, proposal = { skill: 'explore', args: {} }, ms = 900, tallyNow = false, verdict = undefined } = {}) {
   const { config } = await import('../src/config.mjs')
   const was = config.llm.decisionCooldownMs
   config.llm.decisionCooldownMs = 400
@@ -250,8 +264,13 @@ test('PROMPT: buildUserPrompt drops only the CARRYING line when depositOffered i
 })
 test('LOOP TALLY: the depositoffer_tally row carries the counts (a window older than 10 min is flushed on the next count)', async () => {
   const r = await driveOnce(await import('../src/cognitive.mjs'), { tallyNow: true, ms: 900 })
-  assert.ok(r.rows.length >= 1, 'a row was written')
-  assert.match(r.rows[0], /model_calls=\d+ calls_per_min=[\d.]+ model_refused=\d+ refusals_per_call=[\d.]+ deposit_refused=\d+ skills_run=\d+ skills_per_bot_h=[\d.]+ offered=\d+ suppressed=\d+ sup_nothing=\d+/)
+  assert.equal(r.rows.length, 1, 'one row: the stale window flushes on the first decision, the next window is young')
+  // the first counted event is the startup MODEL call (explore, admitted): its keys land together in that one row
+  const f = Object.fromEntries(r.rows[0].split(' ').map(kv => kv.split('=')))
+  assert.equal(f.model_calls, '1'); assert.equal(f.suppressed, '1'); assert.equal(f.offered, '0')
+  assert.equal(f.sup_nothing, '1'); assert.equal(f.model_refused, '0'); assert.equal(f.skills_run, '0', 'the run is counted after the decision row')
+  assert.equal(f.picks, 'explore:1', 'what the suppressed call chose instead')
+  assert.equal(Number(f.model_calls), Number(f.offered) + Number(f.suppressed))
 })
 test('LOOP WIRING MUTANT KILLED: with the per-call schema unwired, deposit is offered where the gate refuses it', async () => {
   await withMutant(COG_PATH, 'schema: depOffer.suppressed ? this.schemaNoDeposit : this.schema })', 'schema: this.schema })', async M => {
