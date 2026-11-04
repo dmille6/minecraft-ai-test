@@ -90,10 +90,17 @@ await t("withStairClaim holds a 'stair' claim while fn runs, renews it, and rele
 })
 await t('WIRED: the stair visit and both use walks run inside withStairClaim(ctx.runner, ...); reflex.mjs stands down on the stair claim', () => {
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  for (const a of ['const r = await withStairClaim(ctx.runner, () => runStairVisit({',
+  // shafttrap-01: the visit's claim now holds the visit AND its egress up the stair (one claim, one body, the collar at the end)
+  for (const a of ['const r = await withStairClaim(ctx.runner, async () => { const v = await runStairVisit({',
+    'egress = await visitEgress(bot, rec, signal, t0 + budget - EGRESS_TAIL_MS, e)',
+    'const x = await withStairClaim(ctx.runner, () => visitEgress(bot, rec, signal, t0 + budget - EGRESS_TAIL_MS))',
     'const arrived = await withStairClaim(ctx.runner, () => stairWalk(bot, use.stand, STAIR_DOWN_MS, signal))',
     'const ok = await withStairClaim(ctx.runner, () => stairWalk(bot, rec.exit, STAIR_UP_MS, signal))']) assert.strictEqual(src.split(a).length, 2, `missing or not unique: ${a}`)
-  assert.strictEqual(src.split('await runStairVisit(').length, 1, 'no unclaimed visit call')
+  assert.strictEqual(src.split('await runStairVisit(').length, 2, 'one visit call, the claimed one above')
+  assert.strictEqual(src.split('visitEgress(bot,').length, 3, 'the egress runs at its two claimed call sites only')
+  // the egress's walks are the hop walk (stairWalk) behind its injected walkTo, inside visitEgress (called only under the claim)
+  const v0 = src.indexOf('async function visitEgress ('), v1 = src.indexOf('async function stairWalk (', v0)
+  assert.ok(v0 > 0 && v1 > v0 && src.slice(v0, v1).includes('walkTo: c => stairWalk(bot, c, EGRESS_HOP_MS, signal)'), 'the egress hops on stairWalk')
   // deepminer-01: the deep miner's section walks on and off the stair -- its stair hops (deepHops) run only under the claim
   // (all three call sites), its other walks (collar, branch steps, home) are off the stair; the rest of the file keeps the rule
   const d0 = src.indexOf('const DEEP_STEP_MS = 140_000'), d1 = src.indexOf('function zigProgressNow (bot, rec)', d0)
