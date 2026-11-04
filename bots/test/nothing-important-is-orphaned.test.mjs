@@ -247,6 +247,8 @@ const REQUIRED = [
   // depositoffer-01 (11-04): deposit leaves the per-call skill enum when the gate would refuse it; the deposit rung's floor
   'bots/src/depositoffer.mjs',
   'bots/test/depositoffer.test.mjs',
+  // bucketfix-01 (11-04): the bucket's aims as Vec3 (every pour and scoop threw point.minus on mineflayer 4.37)
+  'bots/test/bucket-aim.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
