@@ -79,6 +79,8 @@ const REQUIRED = [
   'bots/test/fixtures/requests-showcase-1101-1103.jsonl',
   // sortstore-01 (11-01): the sorted storehouse, its labels' Paper proof and the showcase fixture its tests read
   'bots/src/sortstore.mjs',
+  'bots/src/indexsearch2.mjs',        // indexsearch-02 = storehub piece C
+  'bots/test/indexsearch2.test.mjs',
   'bots/test/sortstore.test.mjs',
   'bots/test/fixtures/sortstore-showcase-1101.json',
   'sandbox/sortstore/sign-proof.cjs',

@@ -24,6 +24,7 @@ import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
+import { indexSearch2ModeDetail } from './indexsearch2.mjs'   // indexsearch-02's licence row (storehub piece C)
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
 import { plinth021ModeDetail, townRecordsShared } from './plinth.mjs'   // plinth-02.1's licence row (its own statement)
 import { plinthFirstModeDetail, plinthFirstPolicy } from './plinth.mjs'   // plinthfirst-01's licence row (its own statement)
@@ -130,6 +131,9 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'lidclear_mode', status: 'success', snapshot: snapshot(bot), detail: lidClearModeDetail() }) } catch {}
   // townsearch-01: the licence row, once per spawn -- `_townsearch_mode`, a kind the base cannot write (withdrawpick.mjs townSearchModeDetail)
   try { logEvent({ kind: 'townsearch_mode', status: 'success', snapshot: snapshot(bot), detail: townSearchModeDetail() }) } catch {}
+  // indexsearch-02 (storehub piece C): the licence row, once per spawn -- `_indexsearch2_mode`, a kind the base cannot write
+  // (indexsearch2.mjs indexSearch2ModeDetail; index_search=off under INDEXSEARCH2=off, so the rollback is visible too)
+  try { logEvent({ kind: 'indexsearch2_mode', status: 'success', snapshot: snapshot(bot), detail: indexSearch2ModeDetail() }) } catch {}
   // toolkit-03: the licence row, once per spawn -- `_toolkit_search_mode`, a kind the base cannot write (toolkit.mjs kitSearchModeDetail)
   try { logEvent({ kind: 'toolkit_search_mode', status: 'success', snapshot: snapshot(bot), detail: kitSearchModeDetail() }) } catch {}
   // ironpick-01: the licence row, once per spawn -- `_toolkit_ironpick_mode`, a kind the base cannot write (toolkit.mjs ironpickModeDetail;
