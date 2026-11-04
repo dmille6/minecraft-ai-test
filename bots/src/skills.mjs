@@ -146,7 +146,7 @@ import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
-import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold } from './wall.mjs'   // wall-01; wallext-01; wallext-02
+import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt } from './wall.mjs'   // wall-01; wallext-01; wallext-02
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS } from './yard.mjs'   // yarduse-01
@@ -17361,6 +17361,9 @@ function projectHeads () {
   try {
     const dir = townDir()
     for (const p of projectsGuarded()) { const key = projKeyOf(p.plot); const h = recordHead(dir, key); if (h.ok && h.head) out.push({ plot: p.plot, key, head: h.head }) }
+    // wallext-02: the demolition's hold on the old line is live only while the demolition is open (wall.mjs wallAsHeld): every
+    // reader of the heads sees the wall without it once the demolition is complete, released or not
+    { const w = out.find(x => x.plot === WALL_PLOT), dm = out.find(x => x.plot === WALLDEMO_PLOT); if (w && dm?.head?.rec?.structure_complete) w.head = { ...w.head, rec: wallAsHeld(w.head.rec, dm.head.rec) } }
     // groundskeeper-01: the town's land plan (landplan.mjs) as a RESERVATION -- its road corridors are every later siting's zones
     // (recordZones: houses, the stair, the wall's gateways, the tree farm), no cells
     const land = landHead(dir)
@@ -21432,7 +21435,10 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   // the showcase gkstage fold (Codex fold BLOCKER): the site-prep reservations on their own (inwall's litter rule must never read them
   // as a build's `project`); the request being graded (`prepExcept`) is its own grading's
   const rz = recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept))
-  const reserved = (x, z) => rz.some(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] })
+  // wallext-02 (Claude hold r1 BLOCKER 1): the demolition's hold is `reserved` too -- read FIRST by every inwall rule and by the
+  // access stairs' `free` (tidyAvoid's first reason could be a kept wall cell's `project:wall`, which reads as a build's box)
+  const held = holdAt(recs.find(r => r?.plot === WALL_PLOT) ?? null)
+  const reserved = (x, z) => held(x, z) || rz.some(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] })
   return { home, avoid, cells, pin, plan: P.plan, caps: P.caps, records: others, wall: others.find(r => r.plot === WALL_PLOT) ?? null, wallext: others.find(r => r.plot === WALLEXT_PLOT) ?? null, reserved }
 }
 /**

@@ -1164,7 +1164,7 @@ export function retireWall (wallRec, demo, { now = Date.now() } = {}) {
   // access stairs before the demolition dug -- which then dug THEIR stone as wall): every retired cell's column, all heights, is a
   // `hold:walldemo` zone of this generation until the demolition completes (releaseHold). Not a build's box (tidy.mjs BUILD_WHY):
   // no fill, cut, litter rule or stair there; every other siting reads it as any reservation
-  const zones = [...zoneBoxes(zset), ...demoHoldZones(retired)]
+  const zones = [...demoHoldZones(retired), ...zoneBoxes(zset)]
   return { ...wallRec, cells: keep, retired, cols, zones, segments: (wallRec.segments ?? []).filter(s => used.has(s.seg)), retiredAt: now, hold: true }
 }
 /** wallext-02: the demolition's reservation over retired cells' columns -> [{ box, why: 'hold:walldemo' }]. Pure. */
@@ -1172,6 +1172,17 @@ export const WALLDEMO_HOLD = 'hold:walldemo'
 export function demoHoldZones (cells = []) {
   const keys = new Set(cells.filter(c => Array.isArray(c?.at)).map(c => k2(c.at[0], c.at[2])))
   return zoneBoxes(keys).map(z => ({ ...z, why: WALLDEMO_HOLD }))
+}
+/**
+ * wallext-02 (Claude hold r1 BLOCKERS): THE HOLD IS LIVE ONLY WHILE THE DEMOLITION IS OPEN -> the wall record as every reader should
+ * see it: its hold zones dropped when the demolition record is complete (releaseHold's body, in memory), else as it is. The published
+ * release is cleanup only: a release that never lands never strands the ground. Pure.
+ */
+export const wallAsHeld = (wallRec, demoRec) => (demoRec?.structure_complete ? (releaseHold(wallRec) ?? wallRec) : wallRec)
+/** wallext-02: is a column HELD by the demolition (a hold zone of the wall record as held) -> (x, z) -> bool. Pure. */
+export function holdAt (wallRec) {
+  const bs = (wallRec?.zones ?? []).filter(z => z?.why === WALLDEMO_HOLD).map(z => z.box)
+  return (x, z) => bs.some(b => x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5])
 }
 /** wallext-02: the wall record without the demolition's hold (its ground is the groundskeeper's again) -> body | null (none held). */
 export function releaseHold (wallRec, { now = Date.now() } = {}) {

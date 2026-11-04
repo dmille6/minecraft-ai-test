@@ -308,7 +308,11 @@ await t('THE RETIREMENT: the cells leave the wall record (named in `retired`), i
   assert.strictEqual(r.retired.length, d.cells.length); assert.ok(r.retired.every(c => c.by === 'walldemo'))
   const inZ = (x, z) => r.zones.some(q => x >= q.box[0] && x <= q.box[3] && z >= q.box[2] && z <= q.box[5])
   const mid = d.cols[Math.floor(d.cols.length / 2)]
-  assert.ok(!inZ(mid[0], mid[1] + 1), 'a retired column\'s ground is no reservation any more')
+  const zAt = (zs, x, z) => zs.filter(q => x >= q.box[0] && x <= q.box[3] && z >= q.box[2] && z <= q.box[5]).map(q => q.why)
+  assert.ok(zAt(r.zones, mid[0], mid[1]).includes('hold:walldemo'), 'a retired column is HELD by the demolition')
+  const rel = W.releaseHold(r, { now: 9 })
+  assert.ok(!zAt(rel.zones, mid[0], mid[1]).includes('hold:walldemo'), 'released: no hold')
+  assert.strictEqual(W.releaseHold(rel), null, 'nothing held: nothing to release')
   assert.ok(inZ(12, 0), 'the rest of the wall still reserved')
   assert.ok(r.cols.filter(c => c.why === 'retired').length === d.cols.length)
   assert.strictEqual(W.retireWall(r, W.demoCells(r, ext)), null, 'again: nothing to retire')
@@ -330,6 +334,46 @@ await t('THE DEMOLITION RECORD lists what stands there now (wall palette or a to
   assert.strictEqual(W.demoRecord(() => null, wall, ext, { home: HOME }).why, 'unknown')
   assert.deepStrictEqual(W.walldemoOpening(wall, { ...ext, structure_complete: false }), { open: false, why: 'ext_open' })
   assert.deepStrictEqual(W.walldemoOpening(wall, ext), { open: true, why: 'ok' })
+})
+await t('THE HOLD (Codex batch-5 fold BLOCKER): an inwall fill on the old line mid-demolition is refused; after the release it is planned', () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const ext = extFor(wall, { join: { axis: 'z', line: -12, from: -8, to: 8 } })
+  const d = W.demoCells(wall, ext)
+  const c0 = d.cells.find(c => c.at[2] === -11)                             // a walk column one in from the line (old town side)
+  srv.set([c0.at[0], G, c0.at[2]], 'air')                                    // its wall blocks dug, and a hole under them: a pit
+  const box = [-11, -12, 11, -9]
+  // as skills.mjs tidyInputs builds them: the zones as `avoid`, the hold as `reserved` (read first by every inwall rule)
+  const fillAt = rec => {
+    const avoid = T.tidyAvoid(() => null, recordZones([rec]))
+    const sv = T.surveyInwall(srv.read, { home: HOME, box, avoid, reserved: W.holdAt(rec), cells: new Set(rec.cells.map(c => c.at.join(','))) })
+    return sv.fill.some(f => f.at[0] === c0.at[0] && f.at[2] === c0.at[2])
+  }
+  const held = W.retireWall(wall, d)
+  assert.strictEqual(T.tidyAvoid(() => null, recordZones([held]))(c0.at[0], c0.at[2]), 'hold:walldemo')
+  assert.strictEqual(fillAt(held), false, 'mid-demolition: no fill on the held ground')
+  assert.strictEqual(fillAt(W.releaseHold(held)), true, 'after the release: the groundskeeper fills the pit (positive control)')
+})
+await t('THE HOLD WINS (Claude hold r1 BLOCKERS): a held column a kept wall cell\'s zone also covers is `reserved` (skipped by inwall); the hold is live only while the demolition is open', () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const ext = extFor(wall, { join: { axis: 'z', line: -12, from: -8, to: 8 } })
+  const held = W.retireWall(wall, W.demoCells(wall, ext))
+  const zonesNoHold = recordZones([held]).filter(z => z.why !== 'hold:walldemo')
+  const avoidBuild = T.tidyAvoid(() => null, zonesNoHold)
+  const hold = W.holdAt(held)
+  // a held column a kept wall cell's `project:wall` zone also covers (a build's box for BUILD_WHY): the leak `reserved` closes
+  const cols = [...new Set(held.retired.map(c => `${c.at[0]},${c.at[2]}`))].map(k => k.split(',').map(Number))
+  const shared = cols.filter(([x, z]) => hold(x, z) && String(avoidBuild(x, z) ?? '').startsWith('project:'))
+  assert.ok(cols.length && shared.length, `held ${cols.length}, under a build's zone too ${shared.length}`)
+  const box = [-11, -12, 11, -9]
+  const inBoxN = cols.filter(([x, z]) => x >= box[0] && x <= box[2] && z >= box[1] && z <= box[3]).length
+  const skips = reserved => T.surveyInwall(srv.read, { home: HOME, box, avoid: T.tidyAvoid(() => null, recordZones([held])), reserved, cells: new Set(held.cells.map(c => c.at.join(','))) }).skipped.reserved ?? 0
+  assert.ok(skips(hold) >= inBoxN && inBoxN > 0, `every held column in the box skipped (${skips(hold)} of ${inBoxN})`)
+  assert.strictEqual(skips(() => false), 0, 'positive control: without the hold as reserved, none is')
+  assert.strictEqual(W.wallAsHeld(held, { structure_complete: false }), held)
+  const seen = W.wallAsHeld(held, { structure_complete: true })
+  assert.ok(!seen.zones.some(z => z.why === 'hold:walldemo') && W.holdAt(seen)(cols[0][0], cols[0][1]) === false, 'complete: no hold, released or not')
 })
 await t('DEMOLISHED END TO END: two fake builders run the bots\' own visit on the demolition record; every listed block dug, nothing else', async () => {
   const srv = server()
@@ -409,6 +453,16 @@ await t('MUTANT KILLED: a demolition reaching past the span\'s ends (>= instead 
     assert.ok(mut.some(c => c.at[0] === j.from || c.at[0] === j.to), 'the mutant takes an end column')
   })
 })
+await t('MUTANT KILLED: a retirement without the hold leaves the line\'s ground open mid-demolition', async () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const ext = extFor(wall, { join: { axis: 'z', line: -12, from: -8, to: 8 } })
+  const d = W.demoCells(wall, ext)
+  await withMutant('const zones = [...demoHoldZones(retired), ...zoneBoxes(zset)]', 'const zones = [...zoneBoxes(zset)]', async M => {
+    const r = M.retireWall(wall, d)
+    assert.ok(!r.zones.some(q => q.why === 'hold:walldemo') && !M.holdAt(r)(d.cells[0].at[0], d.cells[0].at[2]), 'the mutant holds nothing')
+  })
+})
 await t('MUTANT KILLED: a demolition deeper than WALLDEMO_DEPTH, and one taking a foundation', async () => {
   const wall = { cols: [{ x: 0, z: -12, s: 'wall' }], cells: [{ at: [0, G, -12], role: 'base', seg: 'W-00' }, { at: [0, G + 1, -12], role: 'wall', seg: 'W-00' }, { at: [0, G + 1, -8], role: 'step', seg: 'W-00' }] }
   const ext = { side: 'N', join: { axis: 'z', line: -12, from: -5, to: 5 }, structure_complete: true }
@@ -434,6 +488,10 @@ const WIRES = [
   ['wallext-02: the visit dispatches the demolition', "if (proj.plot === WALLDEMO_PLOT) return buildWallDemo(ctx, args, signal)"],
   ['wallext-02: the wall is retired BEFORE the demolition is sited', "const pubW = publishRecord(dir, projKeyOf(WALL_PLOT), cur => (cur && cur.structure_complete ? retireWall(cur, demoCells(cur, ext)) : null), { by: me })"],
   ['wallext-02: the demolition is complete only when done (nothing listed or late stands, the retirement settled)', "if (demoDone(rec, wNow.head.rec, xNow.head.rec, read)) {"],
+  ['wallext-02: every head reader sees the wall without the hold once the demolition is complete', "if (w && dm?.head?.rec?.structure_complete) w.head = { ...w.head, rec: wallAsHeld(w.head.rec, dm.head.rec) }"],
+  ['wallext-02: the hold is the tidy\'s `reserved` (read first)', "const reserved = (x, z) => held(x, z) || rz.some("],
+  ['wallext-02: the hold is released only once the demolition is complete', "if (pub.result === 'accepted' || pub.result === 'nothing') release()"],
+  ['wallext-02: a complete demolition retries the release', "if (rec.structure_complete) { release(); return out('no_effect', 'complete', 'the old line is down') }"],
   ['wallext-02: a late block on a retired cell is appended before the visit', "const late = demoMissing(rec, wNow.head.rec, xNow.head.rec, read)"],
   ['wallext-02: the order waits on the demolition\'s opening rule', "if (p.plot === WALLDEMO_PLOT && !rec && !walldemoOpenNow(dir)) return {"],
 ]
@@ -444,7 +502,7 @@ await t('THE WIRING CHECK FAILS for the intended reason: each line, mutated, is 
   const raw = readFileSync(SK, 'utf8')
   for (const [what, line] of WIRES) {
     assert.strictEqual(raw.split(line).length - 1, 1, `ANCHOR MISSING OR NOT UNIQUE: ${what}`)
-    const mut = strip(raw.replace(line, line.replace(/WALLEXT|wallext|ext\)|siteWallExt|K\.site|WALLDEMO|retireWall|demoLeft|demoDone|demoMissing/, 'XX')))
+    const mut = strip(raw.replace(line, line.replace(/WALLEXT|wallext|ext\)|siteWallExt|K\.site|WALLDEMO|retireWall|demoLeft|demoDone|demoMissing|release\(\)|wallAsHeld|held\(x, z\)/, 'XX')))
     assert.strictEqual(mut.split(line).length - 1, 0, `the mutant of "${what}" still matches`)
   }
 })
