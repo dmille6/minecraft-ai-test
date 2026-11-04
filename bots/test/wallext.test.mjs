@@ -168,6 +168,22 @@ await t('THE OLD WALL\'S ZONES never refuse the extension (its line is the join)
   assert.ok(!s.record.cells.some(c => inBox(zone, c.at[0], c.at[2])), 'never in the ziggurat\'s reservation')
   assert.ok(s.record.cols.some(c => c.s === 'gap' && c.why === 'project:monument'), 'the ring meets it')
 })
+await t('ANOTHER RECORD\'S CELLS (Codex code r1 BLOCKER: a tidy stage record has cells and no zones): never an extension cell in their column; its plots may take them', async () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const base = await siteExt(srv, wall)
+  const c0 = base.record.cells.find(c => c.role === 'wall')
+  const tidy = { plot: 'tidy', blueprint: 'tidy@1', zones: [], cells: [{ at: [c0.at[0], G, c0.at[2]], role: 'fill', seg: 'T-0' }] }
+  assert.ok(base.record.cells.some(c => c.at[0] === c0.at[0] && c.at[2] === c0.at[2]), 'positive control: without the record, a wall column there')
+  const s = await siteExt(srv, wall, { records: [tidy] })
+  assert.ok(s.ok, s.why)
+  assert.ok(!s.record.cells.some(c => c.at[0] === c0.at[0] && c.at[2] === c0.at[2]), 'the tidy\'s column is refused')
+  // a house's cell is refused for the plots too; the tidy's is not
+  const p0 = base.record.plots[0]
+  const fill = { plot: 'tidy', blueprint: 'tidy@1', zones: [], cells: [{ at: [p0.box[0] + 2, G, p0.box[1] + 2], role: 'fill', seg: 'T-0' }] }
+  const s2 = await siteExt(srv, wall, { records: [fill] })
+  assert.deepStrictEqual(s2.record.plots[0].box, p0.box, 'a tidy fill never moves a plot')
+})
 await t('BUILT END TO END: two fake builders run the bots\' own visit to `complete`; every placement a record cell, never an old one', async () => {
   const srv = server()
   const wall = oldWall(srv)
@@ -301,6 +317,16 @@ await t('MUTANT KILLED: the old wall\'s columns not refused -> an extension cell
     const on = r => r.record.cells.some(c => (c.at[0] === -12 || c.at[0] === 12) && c.at[2] === -18)
     assert.ok(real.ok && !on(real), 'the real siting never builds on an old wall column')
     assert.ok(mut.ok && on(mut), 'the mutant does')
+  })
+})
+await t('MUTANT KILLED: other records\' cells not refused (records: []) -> an extension cell on a tidy fill\'s column', async () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const c0 = (await siteExt(srv, wall)).record.cells.find(c => c.role === 'wall')
+  const tidy = { plot: 'tidy', blueprint: 'tidy@1', zones: [], cells: [{ at: [c0.at[0], G, c0.at[2]], role: 'fill', seg: 'T-0' }] }
+  await withMutant('const avoid0 = pathAvoid({ plan, zones, caps, plinth, composter, farm, records: others, home })', 'const avoid0 = pathAvoid({ plan, zones, caps, plinth, composter, farm, records: [], home })', async M => {
+    const m = await M.siteWallExt(srv.read, { wall, hub: HUB, plan: PLAN(), records: [tidy], pzones: recordZones([HUB, wall]), W: WT })
+    assert.ok(m.record.cells.some(c => c.at[0] === c0.at[0] && c.at[2] === c0.at[2]), 'the mutant builds on the fill\'s column')
   })
 })
 await t('MUTANT KILLED: a float read as ground (extColumn returns the first solid) is caught', async () => {

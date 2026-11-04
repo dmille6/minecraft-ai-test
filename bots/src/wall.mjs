@@ -942,13 +942,14 @@ export function wallExtPlots (read, domain, { home, refuse = () => null, near = 
  * offline proof's (scripts/wallext-offline.mjs).
  *   wall       the old wall record (its ring and its cells: the cells' columns are never the extension's)
  *   hub        the hall's record (its box)
- *   plan, zones, caps, plinth, composter, farm, records, pzones, zig, lights   siteWall's inputs (pzones: every other record's
- *              reservation and the land plan's corridors; the old wall's own zones are dropped -- its line is the join)
+ *   plan, zones, caps, plinth, composter, farm, pzones, lights   siteWall's inputs (pzones: every other record's reservation and the
+ *              land plan's corridors; the old wall's own zones are dropped -- its line is the join)
+ *   records    every other project's record: their cell columns are refused (pathAvoid), the tidy's for the ring only
  * The candidates are screened (cheap: their plots, then how LEVEL their line is, then the shortest), the best `tries` proven
  * (wallCandidate + the escape proof) and scored (plots, the share standing as wall, length, cost). ASYNC only to `pause` between
  * candidates (a bot's event loop: one candidate is ~1-3 s of work; the whole siting ~30 s would miss the server's keep-alive).
  */
-export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [], plinth = [], composter = null, farm = [], pzones = [], lights = 0, now = Date.now(), pause = null, W = WALLEXT } = {}) {
+export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [], plinth = [], composter = null, farm = [], records = [], pzones = [], lights = 0, now = Date.now(), pause = null, W = WALLEXT } = {}) {
   const home = plan?.home
   if (!home) return { ok: false, why: 'no_plan', record: null }
   if (!validBox4(wall?.ring)) return { ok: false, why: 'no_wall', record: null }
@@ -957,7 +958,12 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
   const side = extSide(ring, box)
   if (!side) return { ok: false, why: 'hub_not_beyond_a_side', record: null }
   const oldCols = new Set((wall.cells ?? []).map(c => k2(c.at[0], c.at[2])))
-  const avoid0 = pathAvoid({ plan, zones, caps, plinth, composter, farm, records: [], home })
+  // Codex code r1 BLOCKER: every OTHER record's cell columns are refused (a record with no zones -- the tidy's stage record -- has
+  // cells all the same: a wall cell there would dig its fill as `foreign`); the old wall's by `oldCols`. The plots read the same
+  // refusals but the tidy's (its fills and cuts are ground work, never a building's footprint)
+  const others = (records ?? []).filter(r => r && r.plot !== WALL_PLOT && r.plot !== WALLEXT_PLOT && r.blueprint !== WALL_BLUEPRINT && r.blueprint !== WALLEXT_BLUEPRINT)
+  const avoid0 = pathAvoid({ plan, zones, caps, plinth, composter, farm, records: others, home })
+  const avoidP = pathAvoid({ plan, zones, caps, plinth, composter, farm, records: others.filter(r => r.plot !== 'tidy'), home })
   const avoid = (x, z) => (oldCols.has(k2(x, z)) ? 'old_wall' : avoid0(x, z))
   const pz = pzones.filter(z => String(z?.why ?? '') !== `project:${WALL_PLOT}` && String(z?.why ?? '') !== `project:${WALLEXT_PLOT}`)
   const pzAt = (x, z) => { for (const zb of pz) { const b = zb?.box ?? zb; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return String(zb?.why ?? 'project') } return null }
@@ -965,7 +971,7 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
   const join = extJoin(ring, side)
   const memo = new Map()
   const near = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
-  const refuse = (x, z) => avoid(x, z) ?? pzAt(x, z)
+  const refuse = (x, z) => (oldCols.has(k2(x, z)) ? 'old_wall' : avoidP(x, z)) ?? pzAt(x, z)
   const m = W.margin
   const seed = walkFeet(read, home)
   if (!seed) return { ok: false, why: 'no_feet_at_home', record: null }
@@ -1008,8 +1014,8 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
     const plots = wallExtPlots(read, extPlotDomain(c.rect, side, W.lane), { home, refuse: (x, z) => refuse(x, z) ?? nearWall(x, z), near, keep: [box], want: W.plotsWant, memo, sizes: W.plotSizes, gap: W.plotGap, spread: W.plotSpread })
     t.plotsBuilt = plots.length
     // THE SCORE: the plots (to plotsWant), then the share of the ring that stands as wall, then the shortest ring
-    // (a stretch where the ring meets another build -- a ziggurat's reservation, the hall's -- is that build's, as on the old ring)
-    const own = cand.cols.filter(q => q.s !== 'join' && !(q.s === 'gap' && String(q.why ?? '').startsWith('project:'))).length
+    // (a stretch where the ring meets another build -- a ziggurat's reservation or cells, the hall's -- is that build's, as on the old ring)
+    const own = cand.cols.filter(q => q.s !== 'join' && !(q.s === 'gap' && /^project(:|$)/.test(String(q.why ?? '')))).length
     const built = own ? (cand.counts.wall + cand.counts.post) / own : 0
     t.built = Math.round(built * 100) / 100
     if (built < W.builtMin) { t.why = 'too_open'; continue }

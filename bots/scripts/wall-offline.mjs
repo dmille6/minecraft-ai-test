@@ -72,7 +72,7 @@ if (EXT) {
   const BR = await import('../src/bridge.mjs')
   const bFile = path.join(poolDir, `expedition-${hk}.bridges.jsonl`)
   const bLines = fs.existsSync(bFile) ? fs.readFileSync(bFile, 'utf8').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean) : []
-  s = await W.siteWallExt(base, { wall: wallRec, hub, plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, pzones: [...recordZones(others), ...EX.markerZones(markers), ...BR.bridgeZones(BR.bridgeSites(bLines))], lights: Number(opt('torches', 0)), W: { ...W.WALLEXT, ...JSON.parse(opt('extW', '{}')) } })
+  s = await W.siteWallExt(base, { wall: wallRec, hub, plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: records.map(r => ({ ...r.rec, plot: r.rec.plot ?? r.plot })), pzones: [...recordZones(others), ...EX.markerZones(markers), ...BR.bridgeZones(BR.bridgeSites(bLines))], lights: Number(opt('torches', 0)), W: { ...W.WALLEXT, ...JSON.parse(opt('extW', '{}')) } })
 } else s = W.siteWall(base, inputs)
 const ms = Date.now() - t0
 const rec = s.record
