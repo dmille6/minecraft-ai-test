@@ -68,5 +68,7 @@ export function tallyLine ({ secs, c }) {
   return `secs=${Math.round(secs)} model_calls=${calls} calls_per_min=${perMin} model_refused=${g('model_refused')} refusals_per_call=${refusalsPerCall} ` +
     `deposit_refused=${g('deposit_refused')} skills_run=${g('skills_run')} skills_per_bot_h=${skillsPerH} offered=${g('offered')} ` +
     `suppressed=${g('suppressed')} sup_nothing=${g('sup_deposit_nothing_to_bank')} sup_not_worth=${g('sup_deposit_not_worth_it')} ` +
-    `sup_closed=${g('sup_bank_closed')} read_failed=${g('read_failed')}`
+    `sup_closed=${g('sup_bank_closed')} read_failed=${g('read_failed')} ` +
+    // WHAT A SUPPRESSED CALL PICKED INSTEAD (Claude r1): the option's probability goes somewhere -- the read names where
+    `picks=${Object.entries(c).filter(([k]) => k.startsWith('pick_')).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k.slice(5)}:${v}`).join(',') || '-'}`
 }

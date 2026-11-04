@@ -252,8 +252,9 @@ export class AdmissionControl {
   /**
    * WOULD check() REFUSE THIS DEPOSIT ON ITS DEPOSIT RULES? -> depositVerdict's { ok } | { ok: false, reason } (bank_closed /
    * deposit_nothing_to_bank / deposit_not_worth_it). DEPOSITOFFER-01: check() decides with this, and the prompt's offer asks
-   * it with item = null (the widest deposit: a named plan is a subset of the unnamed one). A READ: no rows, no wants written
-   * to the bot. `pre` lets check() pass what it already computed; the offer passes nothing.
+   * it with item = null (the widest deposit: a named plan is a subset of the unnamed one). No rows and no wants written to
+   * the bot; the one write is bankClosed()'s own lapse/reopen of bot.bankClosed (chestfull.mjs), which the deposit_surplus
+   * rung's done() and the prompt already trigger every tick. `pre` lets check() pass what it already computed.
    */
   depositRunnable(bot, item = null, wanted = null, milestoneId = this.activeMilestoneId, pre = null) {
     const closed = bankClosed(bot)
