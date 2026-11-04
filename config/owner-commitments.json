@@ -4470,6 +4470,32 @@
     ]
    },
    "note": "Parked by the control session (autonomy grant 10-31); no owner decision needed unless the re-read says remove."
+  },
+  {
+   "id": "siteprep-1104",
+   "title": "Site prep: a project/sink with no site files a request; the groundskeeper prepares a plot (grade, clear, cobble fill; water fill only as a last resort)",
+   "owner_date": "2026-11-04",
+   "memory": [
+    "owner-siteprep-1104.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Design siteprep-01 (Claude subagent + Codex, reconciled; open-source search) on the terrace/tidy/landplan/buildsite code; showcase piece first; doc docs/reports/siteprep-design-2026-11-04.md",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "grep": [
+     "siteprep"
+    ],
+    "branches": [
+     "siteprep*"
+    ],
+    "paths": [
+     "docs/reports/siteprep-design-2026-11-04.md"
+    ]
+   },
+   "note": "OWNER 11-04 ~05:10Z after the cobble read (fleet builds 10.5% of new cobble; 6 towns placed none; showcase sinks 1 sited of 131 picks): 'can we use the groundskeeper bots to clear land and repurpose land' + 'no problem with bots filling in water if it must, as a last resort'."
   }
  ]
 }
