@@ -129,6 +129,9 @@ const REQUIRED = [
   'docs/reports/towndress-design-2026-11-03.md',
   // storehub (11-03): the storage hub's reconciled design (Claude + Codex) and its appendix; design only, no code yet
   'docs/reports/storehub-design-2026-11-03.md',
+  // storehub pieces A + B (11-04): the build notes and the hall's generator (the code is branch storehub-ab-show's until it lands)
+  'docs/reports/storehub-ab-2026-11-04.md',
+  'docs/reports/storehub-ab-2026-11-04/make_storehub.py',
   'docs/reports/storehub-design-2026-11-03/codex-design.md',
   // yardsite-01 (11-03): the yard beyond the town ring, the 2x yard, its offline proof and its test
   'bots/src/blueprints/yard@2.json',

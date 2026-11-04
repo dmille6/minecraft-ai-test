@@ -66,6 +66,20 @@
 #   NO HARM (WATCH, DiD of success shares; fails only below its tolerance with z < -2; UNEXPOSED under MIN_CELL)
 #     gather_ok, rung_ok (wooden/stone/iron pickaxe crafts); litter cells (structcount, canary vs control towns, reported);
 #     deaths: the default gate (two-death floor); immobile: immobiledid
+#   SH1 kept_thrown (storehub-01 pieces A + B, 11-04; bots/src/storehub.mjs): THE HALL CLERK'S WELL THROWS, judged by the keep lists.
+#                      A `_well_dispose` row tagged `via=clerk` (skills.mjs disposeWell `via: 'clerk'`) whose items= names a kind, or a
+#                      `_storehub_clerk` row whose junked= (every name the well reported lost, the row's second field) names a kind, that
+#                      is OFF HUB_THROWABLE or ON HUB_NEVER_THROW (the module's lists, copied here; --selftest asserts the copy against
+#                      bots/src/storehub.mjs when that file is beside the repo). Counted as kept_thrown AND as a bag_loss item (a lost
+#                      material: the showcase tripwire's H6 TRIPs on it with no change to showcase_trip.py). Every other well row (a
+#                      bot's own junkout, the peaceful sword rule) is not this gate's. A via=clerk well row whose items= the logger cut
+#                      (no lost= and no whole items= field) is kept_unjudged, reported as a bag_unjudged item (the tripwire's report).
+#                      The bot writes `via=clerk lost=<name:n,...>` as the row's first two fields (skills.mjs disposeWell viaOf), so the
+#                      cut cannot reach them.
+#                      THE HALL is an ordinary blueprint record (project=storehub): its `_build` placements and clears are G1/G2's like
+#                      every project's. Its SIGNS (`_hub_sign op=place at=`, sortstore's label writer) are G1 too: the cell above a hall
+#                      chest of a generation of the storehub chain (`chests[].sign`), else off_record. `_hub_sign op=edit` places nothing.
+#                      The hub's rows never feed G6 (a clerk at the well is not a builder's stand).
 # REPORTED, NOT A GATE: G7 placed_twice (a cell placed twice within 10 min: physically a re-placement after the cell was emptied
 #   -- a repair or a survival dig -- never two blocks in one cell; read r1 both engines).
 #   F2/F4 rows (owner 10-26: every replant skip a counted row): replants moved / deferred / skipped, cells deferred, STUCK ON CELL,
@@ -89,8 +103,33 @@ CONFORM_F1 = 0.98
 CONFORM_GAP_MIN = 60
 SAVE_LAG_MIN = 6
 SURVEY_DIR = os.path.expanduser('~/shopconform/surveys')
-BUILD_KINDS = ('_build_mode', '_build', '_build_seg', '_build_visit', '_build_bag', '_structure_complete')
+# storehub-01: the hall clerk's rows and the hall's labels (SH1, G1 for signs); in BUILD_KINDS so the showcase tripwire loads them
+# (showcase_trip.py shop_kinds), judged ahead of every build-row rule (never G6, never the arms line)
+HUB_KINDS = ('_well_dispose', '_storehub_clerk', '_hub_sign')
+BUILD_KINDS = ('_build_mode', '_build', '_build_seg', '_build_visit', '_build_bag', '_structure_complete') + HUB_KINDS
 ROW_KINDS = BUILD_KINDS + ('craft', 'gather')
+# storehub-01 (bots/src/storehub.mjs HUB_THROWABLE, HUB_NEVER_THROW, copied; the selftest asserts the copy)
+HUB_PLOT = 'storehub'
+HUB_THROWABLE = frozenset(['egg', 'brown_egg', 'blue_egg', 'flint', 'clay_ball', 'ink_sac', 'glow_ink_sac', 'armadillo_scute', 'dead_bush',
+                           'pointed_dripstone', 'rail', 'andesite', 'diorite', 'granite', 'mossy_cobblestone'])
+HUB_NEVER_THROW = re.compile(r'(_(pickaxe|axe|shovel|hoe|sword)$|_ore$|^raw_|_ingot$|_nugget$|_log$|_wood$|_planks$|_stem$|^stick$|^(coal|charcoal|coal_block)$|^(cobblestone|cobbled_deepslate|stone|stone_bricks|smooth_stone|deepslate|tuff|blackstone|sandstone|red_sandstone|bricks?)$|glass|copper|_sapling$|_propagule$|^bamboo|^(diamond|emerald|lapis_lazuli|redstone|quartz)$|^(torch|chest|crafting_table|furnace|bucket|water_bucket|shears|flint_and_steel)$)')
+NAMES_RE = re.compile(r'([a-z0-9_]+):(\d+)')
+
+
+def hub_kept(name):
+    """Is `name` a KEPT kind -- one the hall clerk never throws? (storehub.mjs hubKept: off the allowlist, or on the never-list.)"""
+    return name not in HUB_THROWABLE or bool(HUB_NEVER_THROW.search(name))
+
+
+def hub_names(field):
+    """A row's `name:n,name:n` field -> {name: n}; '-' or empty -> {}."""
+    return {m.group(1): int(m.group(2)) for m in NAMES_RE.finditer(field or '') if int(m.group(2)) > 0}
+
+
+def hub_sign_ok(chain, cell):
+    """Is `cell` the label cell (the cell above a chest) of a hall chest in ANY generation of the storehub chain?"""
+    k = ck(cell)
+    return any(isinstance(c, dict) and isinstance(c.get('sign'), list) and ck(c['sign']) == k for rec in chain or [] for c in rec.get('chests') or [])
 # EVERY PROJECT'S RECORD (2026-10-29, house-01 + monument-01: the town builds a workshop, a house and a ziggurat, each its own
 # record chain `project-<home>.<plot>`; this read knew only `.shop`, so all 134 placements of the showcase's house read off_record
 # and S6 stopped the bots 13:35Z). A `_build*` row names its project (`project=<plot>`); it is judged against THAT record.
@@ -830,6 +869,49 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
     for r in rows:
         f = kv(r['detail'])
         arm, per, name, pool, bot = r['arm'], r['per'], r['name'], pool_of(r['bot']), r['bot']
+        if name in HUB_KINDS:
+            # storehub-01 SH1 and the hall's signs, judged on the canary arm after the cut (the showcase: every row), then done
+            if arm != 'canary' or per != 'post':
+                continue
+            if name == '_well_dispose' and f.get('via') == 'clerk':
+                out['hub_well_rows'] += 1
+                # lost= (the row's SECOND field: what went down, as the server confirmed) is judged; a row without it falls back to
+                # items= (the LAST field), and a row the logger may have cut there (>= 299 characters) is unjudged as well as judged:
+                # its last name may be cut short (Claude review of SH1, blocker 1)
+                names = f.get('lost') if 'lost' in f else f.get('items')
+                if 'lost' not in f and ('items' not in f or len(r['detail'] or '') >= 299):
+                    lists['kept_unjudged'].append('%s %s' % (bot, (r['detail'] or '')[-40:])); out['kept_unjudged'] += 1
+                    lists['bag_unjudged'].append('SH1 %s well via=clerk row cut' % bot); out['bag_unjudged'] += 1
+                for n, c in sorted(hub_names(names).items()):
+                    if hub_kept(n):
+                        out['kept_thrown'] += 1; lists['kept_thrown'].append('%s well via=clerk %s:%d' % (bot, n, c))
+                        lists['bag_loss'].append('SH1 kept_thrown %s %s:%d (well via=clerk)' % (bot, n, c)); out['bag_loss'] += 1
+            elif name == '_storehub_clerk':
+                out['hub_clerk_rows'] += 1
+                for n, c in sorted(hub_names(f.get('junked')).items()):
+                    if hub_kept(n):
+                        out['kept_thrown'] += 1; lists['kept_thrown'].append('%s clerk junked %s:%d' % (bot, n, c))
+                        lists['bag_loss'].append('SH1 kept_thrown %s %s:%d (clerk row)' % (bot, n, c)); out['bag_loss'] += 1
+            elif name == '_hub_sign' and f.get('op') == 'place':
+                cell = xyz_of(f.get('at'))
+                if cell is None:
+                    continue
+                # a SIGN STANDS only after the writer's place (skills.mjs sortLabelOne): ok=1 (written), or why=no_editor /
+                # text_not_read_back (placed, text not confirmed). Before it nothing was placed (out_of_reach, no_sign, no_wall,
+                # not_placed): never judged (Codex review of SH1, blocker 1). An error mid-way is reported, not judged
+                why = f.get('why') or ''
+                if why.startswith('error'):
+                    lists['hub_sign_unjudged'].append('%s %s %s' % (bot, ck(cell), why[:30])); out['hub_sign_unjudged'] += 1
+                if not (f.get('ok') == '1' or why in ('no_editor', 'text_not_read_back')):
+                    continue
+                out['hub_sign_places'] += 1
+                if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):
+                    lists['zone'].append('%s sign %s' % (bot, ck(cell))); out['zone'] += 1
+                pj = project_of(projects.get(pool), HUB_PLOT)
+                chain = pj.get('chain') or ([pj['record']] if pj.get('record') else [])
+                if not hub_sign_ok(chain, cell):
+                    lists['off_record'].append('%s %s hub_sign' % (bot, ck(cell))); out['off_record'] += 1
+            continue
         if name in BUILD_KINDS and arm == 'control' and per == 'post':
             out['arms_rows_control_post'] += 1
             if name == '_build_visit':
@@ -1053,7 +1135,7 @@ def combine(out, lists):
     g = lambda k: out.get(k, 0)
     res = {k: v for k, v in out.items()}
     for k in ('off_record', 'clear_outside', 'zone', 'lease_overlap', 'felled_unplanted', 'g5_unjudged', 'unknown_stood', 'bag_loss',
-              'bag_unjudged', 'oracle_missing', 'zone_unknown', 'placed_twice'):
+              'bag_unjudged', 'oracle_missing', 'zone_unknown', 'placed_twice', 'kept_thrown', 'kept_unjudged'):
         res[k] = g(k)
     res['arms_breach'] = g('arms_rows_control_post')
     res['liveness'] = int(g('licence_canary') >= 1 and g('visits_canary') >= 1)
@@ -1548,6 +1630,70 @@ def selftest():
     rr = combine(*judge(rows, {}, {}))
     assert rr['rung_ok'] == 0 and verdict_of(rr, 'rung_ok') == 'DOWN', rr
     assert verdict_of(combine(*judge(rows[:5], {}, {})), 'rung_ok') == 'UNEXPOSED'
+    # storehub-01 SH1 kept_thrown (the hall clerk's well throws judged by the keep lists) and the hall's signs / cells (G1)
+    hrec = {'v': 1, 'gen': 2, 'blueprint': 'storehub@1', 'plot': 'storehub', 'box': [-21, -49, -3, -39],
+            'cells': [{'at': [-10, 65, -40], 'role': 'chest', 'seg': 'fit-out'}, {'at': [-10, 64, -41], 'role': 'base', 'seg': 'pad'}],
+            'chests': [{'at': [-10, 65, -40], 'section': 'stone', 'role': 'home', 'sign': [-10, 66, -40], 'wall': [-10, 66, -39], 'stand': [-10, 65, -41]}],
+            'clear': [], 'replant': []}
+    HP = {'board-a': {'record': rec, 'records_files': 1, 'leases': {}, 'zones_ok': True,
+                      'projects': {'shop': {'record': rec, 'records_files': 1, 'leases': {}},
+                                   'storehub': {'record': hrec, 'chain': [dict(hrec, gen=1, chests=[]), hrec], 'records_files': 2, 'leases': {}}}}}
+    def hub(rows_):
+        o, l = judge(rows_, HP, {'board-a': [[-1, 60, -1, 1, 80, 1]]})
+        return o, l
+    o, l = hub([R('_well_dispose', 'via=clerk slots=30->29 offlist=0 tossed=10 n=10 stop=done items=flint:10'),
+                R('_storehub_clerk', 'phase=visit junked=flint:10 src=-9,71,-2 took=flint:10 stop=done'),
+                R('_well_dispose', 'slots=30->29 offlist=0 swords=1 n=1 stop=done items=iron_sword:1'),
+                R('_storehub_clerk', 'phase=cargo_gone junked=- src=- took=iron_ingot:3 stop=cargo_gone')])
+    assert o['kept_thrown'] == 0 and o['bag_loss'] == 0 and o['hub_well_rows'] == 1 and o['hub_clerk_rows'] == 2, (dict(o), dict(l))
+    o, l = hub([R('_well_dispose', 'via=clerk slots=30->29 n=13 stop=done items=flint:10,iron_ingot:3')])
+    assert o['kept_thrown'] == 1 and o['bag_loss'] == 1 and l['bag_loss'] == ['SH1 kept_thrown board-a-Alpha iron_ingot:3 (well via=clerk)'], (dict(o), dict(l))
+    o, l = hub([R('_storehub_clerk', 'phase=visit junked=white_wool:2,flint:4 src=-9,71,-2 stop=done')])
+    assert o['kept_thrown'] == 1 and l['kept_thrown'] == ['board-a-Alpha clerk junked white_wool:2'], 'a decoration is building material in entrusted cargo'
+    o, l = hub([R('_well_dispose', 'via=clerk slots=30->29 offlist=0 n=1 stop=done')])
+    assert o['kept_unjudged'] == 1 and o['kept_thrown'] == 0 and o['bag_unjudged'] == 1, 'a cut row is reported, never a trip on a guess'
+    o, l = hub([R('_well_dispose', 'via=clerk lost=flint:10,iron_ingot:3 slots=30->29 n=13 stop=aborted ' + 'x' * 260 + ' items=flint:10,iron_in')])
+    assert o['kept_thrown'] == 1 and o['kept_unjudged'] == 0, 'the early lost= is judged whatever the cut left of items='
+    o, l = hub([R('_well_dispose', 'via=clerk slots=30->29 n=10 stop=done ' + 'x' * 260 + ' items=flint:10,iron_in')])
+    assert o['kept_unjudged'] == 1 and o['kept_thrown'] == 0, 'a cut items= with no lost= is unjudged (its last name may be cut)'
+    o, l = hub([R('_storehub_clerk', 'phase=visit junked=diamond_pickaxe:1 stop=done', arm='control')])
+    assert o['kept_thrown'] == 0, 'the canary arm only (the showcase: every bot)'
+    # the hall's signs: the cell above a hall chest of any generation, else off_record; the hall's cells are G1's like any record's
+    o, l = hub([R('_hub_sign', 'op=place at=-10,66,-40 chest=-10,65,-40 label=STONE ok=1'), R('_hub_sign', 'op=edit at=-10,66,-41 chest=-10,65,-40 label=STONE ok=1'),
+                R('_build', 'project=storehub op=place cell=-10,65,-40 block=chest'), R('_build', 'project=storehub op=place cell=-10,64,-41 block=cobblestone')])
+    assert o['off_record'] == 0 and o['hub_sign_places'] == 1 and o['placements'] == 2, (dict(o), dict(l))
+    o, l = hub([R('_hub_sign', 'op=place at=-10,67,-40 chest=-10,65,-40 label=STONE ok=1'), R('_build', 'project=storehub op=place cell=-11,65,-40 block=chest')])
+    assert o['off_record'] == 2 and l['off_record'] == ['board-a-Alpha -10,67,-40 hub_sign', 'board-a-Alpha -11,65,-40 chest'], (dict(o), dict(l))
+    o, l = hub([R('_hub_sign', 'op=place at=0,66,0 chest=0,65,0 label=STONE ok=1')])
+    assert o['zone'] == 1, 'a sign in a protected zone'
+    o, l = hub([R('_hub_sign', 'op=place at=0,66,0 chest=0,65,0 label=STONE ok=0 why=%s' % w) for w in ('no_sign', 'no_wall', 'out_of_reach', 'not_placed')])
+    assert o['off_record'] == 0 and o['zone'] == 0 and o['hub_sign_places'] == 0, 'nothing was placed: never judged'
+    o, l = hub([R('_hub_sign', 'op=place at=-10,67,-40 chest=-10,65,-40 label=STONE ok=0 why=no_editor'), R('_hub_sign', 'op=place at=-10,67,-40 chest=-10,65,-40 label=STONE ok=0 why=error:timeout')])
+    assert o['off_record'] == 1 and o['hub_sign_unjudged'] == 1, 'placed without its text: judged; an error is reported'
+    # never G6: a clerk standing at the well on a cell its own builder row named unknown
+    o, l = hub([R('_build_mode', 'phase=mode v=1 shop=on'), R('_build', 'project=shop op=unknown cell=5,71,14', s=1),
+                R('_well_dispose', 'via=clerk n=1 stop=done items=flint:1', s=2, feet=[5, 71, 14])])
+    assert o['unknown_stood'] == 0, dict(o)
+    assert hub_kept('iron_ingot') and hub_kept('white_wool') and hub_kept('oak_sapling') and not hub_kept('flint') and not hub_kept('andesite')
+    # the never-list is a second guard: an allowlist widened by mistake still never passes a kept kind
+    global HUB_THROWABLE
+    saved = HUB_THROWABLE
+    HUB_THROWABLE = saved | {'iron_ingot', 'oak_log'}
+    try:
+        assert hub_kept('iron_ingot') and hub_kept('oak_log'), 'the never-list holds a widened allowlist'
+    finally:
+        HUB_THROWABLE = saved
+    # THE COPY: the lists are bots/src/storehub.mjs's (checked when the module is beside this file's repo)
+    here = os.path.dirname(os.path.abspath(__file__))
+    mods = [m for m in (os.environ.get('SHOPREAD_STOREHUB') or '', os.path.join(here, '..', '..', '..', 'bots', 'src', 'storehub.mjs'), os.path.join(here, 'storehub.mjs')) if m and os.path.exists(m)]
+    if not mods:
+        print('shopread selftest: SKIPPED the HUB_THROWABLE / HUB_NEVER_THROW copy check (no storehub.mjs: set SHOPREAD_STOREHUB; bots/test/storehub.test.mjs checks it from the bot side)')
+    for mod in mods[:1]:
+        js = open(mod).read()
+        m = re.search(r"export const HUB_THROWABLE = Object\.freeze\(\[(.*?)\]\)", js, re.S)
+        assert m and set(re.findall(r"'([a-z_]+)'", m.group(1))) == set(HUB_THROWABLE), 'HUB_THROWABLE differs from storehub.mjs'
+        m = re.search(r"export const HUB_NEVER_THROW = /(.*)/\n", js)
+        assert m and m.group(1) == HUB_NEVER_THROW.pattern, 'HUB_NEVER_THROW differs from storehub.mjs'
     print('shopread selftest: ok')
 
 

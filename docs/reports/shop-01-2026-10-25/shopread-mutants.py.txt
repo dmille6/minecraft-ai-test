@@ -110,6 +110,22 @@ M = [
  ("    return inf[idx:] if idx is not None else inf   #", "    return inf[-1:]   #"),
  ("    return inf[idx:] if idx is not None else inf   #", "    return inf   #"),
  ("    return inf[idx:] if idx is not None else inf   #", "    return inf[idx:] if idx is not None else inf[-1:]   #"),
+ # storehub-01 (11-04): SH1 kept_thrown (the hall clerk's well throws) and the hall's signs (G1)
+ ("    return name not in HUB_THROWABLE or bool(HUB_NEVER_THROW.search(name))", "    return bool(HUB_NEVER_THROW.search(name))"),
+ ("    return name not in HUB_THROWABLE or bool(HUB_NEVER_THROW.search(name))", "    return name not in HUB_THROWABLE"),
+ ("            if name == '_well_dispose' and f.get('via') == 'clerk':", "            if name == '_well_dispose':"),
+ ("            if name == '_well_dispose' and f.get('via') == 'clerk':", "            if False:"),
+ ("                        lists['bag_loss'].append('SH1 kept_thrown %s %s:%d (well via=clerk)' % (bot, n, c)); out['bag_loss'] += 1", "                        pass"),
+ ("                for n, c in sorted(hub_names(f.get('junked')).items()):", "                for n, c in sorted(hub_names(f.get('took')).items()):"),
+ ("                if 'lost' not in f and ('items' not in f or len(r['detail'] or '') >= 299):", "                if 'lost' not in f and 'items' not in f:"),
+ ("                names = f.get('lost') if 'lost' in f else f.get('items')", "                names = f.get('items')"),
+ ("                if not hub_sign_ok(chain, cell):", "                if False:"),
+ ("                if not (f.get('ok') == '1' or why in ('no_editor', 'text_not_read_back')):\n                    continue", "                pass"),
+ ("                if not (f.get('ok') == '1' or why in ('no_editor', 'text_not_read_back')):\n                    continue", "                if not f.get('ok') == '1':\n                    continue"),
+ ("    return any(isinstance(c, dict) and isinstance(c.get('sign'), list) and ck(c['sign']) == k for rec in chain or [] for c in rec.get('chests') or [])", "    return any(isinstance(c, dict) and isinstance(c.get('at'), list) and ck(c['at']) == k for rec in chain or [] for c in rec.get('chests') or [])"),
+ ("            if arm != 'canary' or per != 'post':\n                continue\n            if name == '_well_dispose'", "            if name == '_well_dispose'"),
+ ("            continue\n        if name in BUILD_KINDS and arm == 'control' and per == 'post':", "        if name in BUILD_KINDS and arm == 'control' and per == 'post':"),
+ ("                if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):\n                    lists['zone'].append('%s sign %s' % (bot, ck(cell))); out['zone'] += 1", "                pass"),
 ]
 bad = 0
 for old, new in M:

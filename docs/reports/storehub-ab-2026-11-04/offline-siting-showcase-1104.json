@@ -1,0 +1,528 @@
+{
+ "home": {
+  "x": 0,
+  "y": 70,
+  "z": 0
+ },
+ "store": [
+  -15,
+  -4,
+  -8,
+  3
+ ],
+ "records": 18,
+ "zones": 269,
+ "steps": [
+  {
+   "source": "store",
+   "ok": false,
+   "why": "no_site",
+   "screened": 0,
+   "tried": 0,
+   "rejects": {
+    "domain": 41444,
+    "door_not_toward_home": 10585,
+    "zone": 1516,
+    "plan_path_or_keepout": 547,
+    "well": 306,
+    "plan_cell": 51,
+    "plan_box": 307
+   },
+   "proofFails": {},
+   "ms": 270
+  },
+  {
+   "source": "ring",
+   "ok": true,
+   "why": "ok",
+   "screened": 5,
+   "tried": 3,
+   "rejects": {
+    "domain": 35844,
+    "door_not_toward_home": 14032,
+    "zone": 4213,
+    "well": 55,
+    "tree_out_of_reach": 5,
+    "plan_path_or_keepout": 600,
+    "built_in_volume": 2
+   },
+   "proofFails": {
+    "no_step": 2
+   },
+   "ms": 2408
+  }
+ ],
+ "site": {
+  "anchor": [
+   -3,
+   -39
+  ],
+  "orient": "W",
+  "box": [
+   -21,
+   -49,
+   -3,
+   -39
+  ],
+  "floor": 64,
+  "earthwork": {
+   "fill": 23,
+   "cut": 46,
+   "litter": 3
+  },
+  "trees": 4,
+  "replant": 4,
+  "clear": 114,
+  "cells": 550,
+  "interior": {
+   "cells": 105,
+   "open": 87,
+   "reachable": 87
+  },
+  "cellsInReservations": 0,
+  "fromStore": 35,
+  "fromHome": 46,
+  "chests": [
+   {
+    "at": [
+     -5,
+     65,
+     -47
+    ],
+    "section": "stone",
+    "role": "home",
+    "stand": [
+     -5,
+     65,
+     -46
+    ],
+    "wall": [
+     -5,
+     66,
+     -48
+    ],
+    "sign": [
+     -5,
+     66,
+     -47
+    ]
+   },
+   {
+    "at": [
+     -7,
+     65,
+     -47
+    ],
+    "section": "stone",
+    "role": "more",
+    "stand": [
+     -7,
+     65,
+     -46
+    ],
+    "wall": [
+     -7,
+     66,
+     -48
+    ],
+    "sign": [
+     -7,
+     66,
+     -47
+    ]
+   },
+   {
+    "at": [
+     -9,
+     65,
+     -47
+    ],
+    "section": "wood",
+    "role": "home",
+    "stand": [
+     -9,
+     65,
+     -46
+    ],
+    "wall": [
+     -9,
+     66,
+     -48
+    ],
+    "sign": [
+     -9,
+     66,
+     -47
+    ]
+   },
+   {
+    "at": [
+     -11,
+     65,
+     -47
+    ],
+    "section": "wood",
+    "role": "more",
+    "stand": [
+     -11,
+     65,
+     -46
+    ],
+    "wall": [
+     -11,
+     66,
+     -48
+    ],
+    "sign": [
+     -11,
+     66,
+     -47
+    ]
+   },
+   {
+    "at": [
+     -13,
+     65,
+     -47
+    ],
+    "section": "metal",
+    "role": "home",
+    "stand": [
+     -13,
+     65,
+     -46
+    ],
+    "wall": [
+     -13,
+     66,
+     -48
+    ],
+    "sign": [
+     -13,
+     66,
+     -47
+    ]
+   },
+   {
+    "at": [
+     -15,
+     65,
+     -47
+    ],
+    "section": "metal",
+    "role": "more",
+    "stand": [
+     -15,
+     65,
+     -46
+    ],
+    "wall": [
+     -15,
+     66,
+     -48
+    ],
+    "sign": [
+     -15,
+     66,
+     -47
+    ]
+   },
+   {
+    "at": [
+     -17,
+     65,
+     -47
+    ],
+    "section": "tools",
+    "role": "home",
+    "stand": [
+     -17,
+     65,
+     -46
+    ],
+    "wall": [
+     -17,
+     66,
+     -48
+    ],
+    "sign": [
+     -17,
+     66,
+     -47
+    ]
+   },
+   {
+    "at": [
+     -19,
+     65,
+     -47
+    ],
+    "section": "tools",
+    "role": "more",
+    "stand": [
+     -19,
+     65,
+     -46
+    ],
+    "wall": [
+     -19,
+     66,
+     -48
+    ],
+    "sign": [
+     -19,
+     66,
+     -47
+    ]
+   },
+   {
+    "at": [
+     -5,
+     65,
+     -41
+    ],
+    "section": "fuel",
+    "role": "home",
+    "stand": [
+     -5,
+     65,
+     -42
+    ],
+    "wall": [
+     -5,
+     66,
+     -40
+    ],
+    "sign": [
+     -5,
+     66,
+     -41
+    ]
+   },
+   {
+    "at": [
+     -7,
+     65,
+     -41
+    ],
+    "section": "valuable",
+    "role": "home",
+    "stand": [
+     -7,
+     65,
+     -42
+    ],
+    "wall": [
+     -7,
+     66,
+     -40
+    ],
+    "sign": [
+     -7,
+     66,
+     -41
+    ]
+   },
+   {
+    "at": [
+     -9,
+     65,
+     -41
+    ],
+    "section": "build",
+    "role": "home",
+    "stand": [
+     -9,
+     65,
+     -42
+    ],
+    "wall": [
+     -9,
+     66,
+     -40
+    ],
+    "sign": [
+     -9,
+     66,
+     -41
+    ]
+   },
+   {
+    "at": [
+     -15,
+     65,
+     -41
+    ],
+    "section": "build",
+    "role": "more",
+    "stand": [
+     -15,
+     65,
+     -42
+    ],
+    "wall": [
+     -15,
+     66,
+     -40
+    ],
+    "sign": [
+     -15,
+     66,
+     -41
+    ]
+   },
+   {
+    "at": [
+     -17,
+     65,
+     -41
+    ],
+    "section": "earth",
+    "role": "home",
+    "stand": [
+     -17,
+     65,
+     -42
+    ],
+    "wall": [
+     -17,
+     66,
+     -40
+    ],
+    "sign": [
+     -17,
+     66,
+     -41
+    ]
+   },
+   {
+    "at": [
+     -19,
+     65,
+     -41
+    ],
+    "section": "unsorted",
+    "role": "home",
+    "stand": [
+     -19,
+     65,
+     -42
+    ],
+    "wall": [
+     -19,
+     66,
+     -40
+    ],
+    "sign": [
+     -19,
+     66,
+     -41
+    ]
+   },
+   {
+    "at": [
+     -5,
+     65,
+     -43
+    ],
+    "section": "food",
+    "role": "home",
+    "stand": [
+     -6,
+     65,
+     -43
+    ],
+    "wall": [
+     -4,
+     66,
+     -43
+    ],
+    "sign": [
+     -5,
+     66,
+     -43
+    ]
+   },
+   {
+    "at": [
+     -5,
+     65,
+     -45
+    ],
+    "section": "farming",
+    "role": "home",
+    "stand": [
+     -6,
+     65,
+     -45
+    ],
+    "wall": [
+     -4,
+     66,
+     -45
+    ],
+    "sign": [
+     -5,
+     66,
+     -45
+    ]
+   },
+   {
+    "at": [
+     -19,
+     65,
+     -43
+    ],
+    "section": "plants",
+    "role": "home",
+    "stand": [
+     -18,
+     65,
+     -43
+    ],
+    "wall": [
+     -20,
+     66,
+     -43
+    ],
+    "sign": [
+     -19,
+     66,
+     -43
+    ]
+   },
+   {
+    "at": [
+     -19,
+     65,
+     -45
+    ],
+    "section": "overflow",
+    "role": "home",
+    "stand": [
+     -18,
+     65,
+     -45
+    ],
+    "wall": [
+     -20,
+     66,
+     -45
+    ],
+    "sign": [
+     -19,
+     66,
+     -45
+    ]
+   }
+  ],
+  "bom": {
+   "cobblestone": 285,
+   "stone_bricks": 97,
+   "$planks": 123,
+   "glass_pane": 23,
+   "chest": 18,
+   "torch": 4
+  }
+ }
+}
