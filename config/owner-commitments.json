@@ -4483,7 +4483,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Design siteprep-01 (Claude subagent + Codex, reconciled; open-source search) on the terrace/tidy/landplan/buildsite code; showcase piece first; doc docs/reports/siteprep-design-2026-11-04.md",
+   "next_step": "RELEASED 2026-11-04 10:43:23Z on the showcase (15 bots) as dcb702bc-6dd0ded8-fdd64ead (siteprep-01 722bd708 / code cc3d148d folded onto sinkfix-03 305057d0: branch showcase-siteprep-on-305057d0, merge ab572fc4 (orphan list union) + fold fix dcb702bc -- Codex fold r1 BLOCK: a prepared plot was claimed only inside buildSink, so a bot that had failed the kind never got there (picker 6 h no-site wait, order 24 h site retry) and the plot could expire unclaimed; now a prepared kind passes both, siteprepfold.test 6/6; Codex r2 APPROVE; ci2 408/411 known 3; not protected; no Paper proof). Tripwire: no new rule -- prep fills/cuts/leaves sit on the tidy record generation and the installed shopread tidy_place_ok / tidy_clear_ok accept them (checked on .40 with withPrep output; off-plan and guarded controls refuse). Verified 15/15; tripwire WATCH as before, H1-H8 0. Reads +60 min (~11:43Z: filed -> chosen -> prepared -> handed -> placements), +2 h. Rollback SITEPREP=off / 305057d0. Before: Design siteprep-01 (Claude subagent + Codex, reconciled; open-source search) on the terrace/tidy/landplan/buildsite code; showcase piece first; doc docs/reports/siteprep-design-2026-11-04.md",
    "max_quiet_hours": 48,
    "evidence": {
     "grep": [
