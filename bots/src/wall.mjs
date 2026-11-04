@@ -1072,6 +1072,17 @@ export function walkFeet (read, home, { r = 6, dy = 6 } = {}) {
   }
   return null
 }
+/**
+ * wallext r3 (Codex r3 BLOCKER): THE ZIGGURAT, WHATEVER ITS SWITCH -> { records, z0 }. Pure. `records` (the guarded heads' records)
+ * with the monument's record added when it is missing (MONUMENT=off drops it from the guarded heads: its reservation and its apron
+ * must still hold the extension off), and the apron's source `z0` from that record's box (else the caller's).
+ */
+export function extWithMonument (records = [], monRec = null, z0 = null) {
+  const has = records.some(r => r?.plot === 'monument')
+  const out = has || !monRec ? records : [...records, { ...monRec, plot: monRec.plot ?? 'monument' }]
+  const m = out.find(r => r?.plot === 'monument')
+  return { records: out, z0: Array.isArray(m?.box) && m.box.length === 4 ? { box: [...m.box] } : z0 }
+}
 /** INSIDE THE WALLS -> [[x0, z0, x1, z1]]: the old wall's interior box (terrace.mjs wallInterior's rule) and the extension's. Pure. */
 export function wallInteriors (wallRec, extRec) {
   const out = []

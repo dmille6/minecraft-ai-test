@@ -164,6 +164,21 @@ await t('THE ZIGGURAT APRON (r3, LIVE 11-04: the hall itself failed on it): no p
   assert.ok(over(p0), 'positive control: the plot sited without the apron lies in it')
   assert.ok(s.ok && !s.record.plots.some(over), JSON.stringify(s.record?.plots))
 })
+await t('THE ZIGGURAT WHATEVER ITS SWITCH (Codex r3 BLOCKER): a monument missing from the guarded heads (MONUMENT=off) is added, its box is the apron source', async () => {
+  const mon = { plot: 'monument', blueprint: 'ziggurat@1', box: [-30, -45, -16, -36], cells: [{ at: [-20, G + 1, -40] }] }
+  const off = W.extWithMonument([{ plot: 'shop', box: [0, 0, 1, 1] }], mon, null)
+  assert.ok(off.records.some(r => r.plot === 'monument')); assert.deepStrictEqual(off.z0, { box: mon.box })
+  const on = W.extWithMonument([mon], mon, { box: [9, 9, 9, 9] })
+  assert.strictEqual(on.records.length, 1, 'never twice'); assert.deepStrictEqual(on.z0, { box: mon.box })
+  assert.deepStrictEqual(W.extWithMonument([], null, null), { records: [], z0: null })
+  // and it holds the ring and the plots off: the reservation (box + 3) and the apron (box + 8)
+  const srv = server()
+  const wall = oldWall(srv)
+  const s = await siteExt(srv, wall, { records: off.records, pzones: recordZones([HUB, wall, ...off.records]), z0: off.z0 })
+  const ap = [mon.box[0] - 8, mon.box[1] - 8, mon.box[2] + 8, mon.box[3] + 8], rz = [mon.box[0] - 3, mon.box[1] - 3, mon.box[2] + 3, mon.box[3] + 3]
+  assert.ok(s.ok && !s.record.cells.some(c => inBox(rz, c.at[0], c.at[2])), 'no wall cell in its reservation')
+  assert.ok(!s.record.plots.some(p => p.box[0] <= ap[2] && p.box[2] >= ap[0] && p.box[1] <= ap[3] && p.box[3] >= ap[1]), 'no plot in its apron')
+})
 await t('THE SITING refuses: a hall inside the wall, no wall, no hall', async () => {
   const srv = server()
   const wall = oldWall(srv)
@@ -498,7 +513,7 @@ const WIRES = [
   ['the stage\'s terrace inputs carry the extension', "const terrace = { records: I.records, wall: I.wall, wallext: I.wallext,"],
   ['the order waits on the opening rule', "if (p.plot === WALLEXT_PLOT && !rec && !wallextOpenNow(dir)) return {"],
   ['the extension\'s sapling keep-out is the wall\'s', "r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT ? wallSaplingCols(r) :"],
-  ['r3: the extension\'s plots read the ziggurat apron', "z0: c.z0 ?? null, lights }"],
+  ['r3: the extension reads the ziggurat whatever MONUMENT says (Codex r3)', "const M = extWithMonument(heads.map("],
   ['the old wall never encloses the extension', "x.plot !== WALL_PLOT && x.plot !== WALLEXT_PLOT).map(x => ({ plot: x.plot, rec: x.head.rec }))"],
   ['wallext-02: the visit dispatches the demolition', "if (proj.plot === WALLDEMO_PLOT) return buildWallDemo(ctx, args, signal)"],
   ['wallext-02: the wall is retired BEFORE the demolition is sited', "const pubW = publishRecord(dir, projKeyOf(WALL_PLOT), cur => (cur && cur.structure_complete ? retireWall(cur, demoCells(cur, ext)) : null), { by: me })"],
@@ -517,7 +532,7 @@ await t('THE WIRING CHECK FAILS for the intended reason: each line, mutated, is 
   const raw = readFileSync(SK, 'utf8')
   for (const [what, line] of WIRES) {
     assert.strictEqual(raw.split(line).length - 1, 1, `ANCHOR MISSING OR NOT UNIQUE: ${what}`)
-    const mut = strip(raw.replace(line, line.replace(/WALLEXT|wallext|ext\)|siteWallExt|K\.site|WALLDEMO|retireWall|demoLeft|demoDone|demoMissing|release\(\)|wallAsHeld|held\(x, z\)|z0: c/, 'XX')))
+    const mut = strip(raw.replace(line, line.replace(/WALLEXT|wallext|ext\)|siteWallExt|K\.site|WALLDEMO|retireWall|demoLeft|demoDone|demoMissing|release\(\)|wallAsHeld|held\(x, z\)|extWithMonument/, 'XX')))
     assert.strictEqual(mut.split(line).length - 1, 0, `the mutant of "${what}" still matches`)
   }
 })
