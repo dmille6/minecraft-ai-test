@@ -1160,7 +1160,23 @@ export function retireWall (wallRec, demo, { now = Date.now() } = {}) {
   for (const c of keep) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) zset.add(k2(c.at[0] + dx, c.at[2] + dz))
   const cols = (wallRec.cols ?? []).map(c => (lineK.has(k2(c.x, c.z)) ? { x: c.x, z: c.z, s: 'open', why: 'retired' } : c))
   const used = new Set(keep.map(c => c.seg))
-  return { ...wallRec, cells: keep, retired, cols, zones: zoneBoxes(zset), segments: (wallRec.segments ?? []).filter(s => used.has(s.seg)), retiredAt: now }
+  // THE HOLD (Codex batch-5 fold BLOCKER: released at the rewrite, the line's ground drew the groundskeeper's inwall fills and the
+  // access stairs before the demolition dug -- which then dug THEIR stone as wall): every retired cell's column, all heights, is a
+  // `hold:walldemo` zone of this generation until the demolition completes (releaseHold). Not a build's box (tidy.mjs BUILD_WHY):
+  // no fill, cut, litter rule or stair there; every other siting reads it as any reservation
+  const zones = [...zoneBoxes(zset), ...demoHoldZones(retired)]
+  return { ...wallRec, cells: keep, retired, cols, zones, segments: (wallRec.segments ?? []).filter(s => used.has(s.seg)), retiredAt: now, hold: true }
+}
+/** wallext-02: the demolition's reservation over retired cells' columns -> [{ box, why: 'hold:walldemo' }]. Pure. */
+export const WALLDEMO_HOLD = 'hold:walldemo'
+export function demoHoldZones (cells = []) {
+  const keys = new Set(cells.filter(c => Array.isArray(c?.at)).map(c => k2(c.at[0], c.at[2])))
+  return zoneBoxes(keys).map(z => ({ ...z, why: WALLDEMO_HOLD }))
+}
+/** wallext-02: the wall record without the demolition's hold (its ground is the groundskeeper's again) -> body | null (none held). */
+export function releaseHold (wallRec, { now = Date.now() } = {}) {
+  if (!wallRec || !(wallRec.zones ?? []).some(z => z?.why === WALLDEMO_HOLD)) return null
+  return { ...wallRec, zones: wallRec.zones.filter(z => z?.why !== WALLDEMO_HOLD), hold: false, releasedAt: now }
 }
 /** A block a retired cell may be dug as: its role's wall palette, a torch for a light (placed on a side: wall_torch). Pure. */
 const demoName = (role, name) => (role === 'light' ? /^(wall_)?torch$/.test(name) : (WALL_PALETTE[role] ?? []).includes(name))
