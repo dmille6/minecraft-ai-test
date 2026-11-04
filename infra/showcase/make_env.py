@@ -8,7 +8,9 @@ keys in SHOWCASE_KEYS are the showcase's, for the reasons in docs/reports/showca
 """
 import argparse, json, os, re, sys
 
-NAMES = ['Alpha', 'Bravo', 'Comet', 'Delta', 'Echo', 'Frost', 'Gale', 'Haven', 'Iris', 'Juno']
+# 10 -> 15 bots 11-04 (ledger showcase-15bots-1103): Kite..Onyx added; test_showcase Roster keeps every copy equal
+NAMES = ['Alpha', 'Bravo', 'Comet', 'Delta', 'Echo', 'Frost', 'Gale', 'Haven', 'Iris', 'Juno',
+         'Kite', 'Lumen', 'Maple', 'Nova', 'Onyx']
 PREFIX = 'showcase-'
 LABEL = 'showcase'
 BRAIN = 'http://127.0.0.1:11612'            # the VM's tunnel to the Studio's showcase proxy

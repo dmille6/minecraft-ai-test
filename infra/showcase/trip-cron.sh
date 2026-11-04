@@ -7,10 +7,10 @@
 set -uo pipefail
 T=/srv/showcase/trip
 LOG=/srv/showcase/ops/trip.log
-# Skip only when NO bot unit is ENABLED (intentional downtime: stop-bots.sh disables them). Ten crash-looping units are enabled
+# Skip only when NO bot unit is ENABLED (intentional downtime: stop-bots.sh disables them). Crash-looping units are enabled
 # but not active, and must still be read (re-review 10-25, Claude P3).
 enabled=0
-for n in Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno; do
+for n in Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno Kite Lumen Maple Nova Onyx; do
   systemctl is-enabled --quiet "mcshow@showcase-$n" 2>/dev/null && enabled=$((enabled + 1))
 done
 if [ "$enabled" -eq 0 ]; then

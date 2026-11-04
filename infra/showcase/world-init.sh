@@ -31,7 +31,8 @@ unset PW
 # bots pre-whitelisted with their OFFLINE uuids (online-mode=false: uuid = v3 md5("OfflinePlayer:" + name))
 python3 - > $S/whitelist.json <<'PY'
 import hashlib, json, uuid
-names = ['showcase-' + n for n in ['Alpha', 'Bravo', 'Comet', 'Delta', 'Echo', 'Frost', 'Gale', 'Haven', 'Iris', 'Juno']]
+names = ['showcase-' + n for n in ['Alpha', 'Bravo', 'Comet', 'Delta', 'Echo', 'Frost', 'Gale', 'Haven', 'Iris', 'Juno',
+                                    'Kite', 'Lumen', 'Maple', 'Nova', 'Onyx']]
 def off(n):
     h = bytearray(hashlib.md5(('OfflinePlayer:' + n).encode()).digest())
     h[6] = (h[6] & 0x0f) | 0x30; h[8] = (h[8] & 0x3f) | 0x80

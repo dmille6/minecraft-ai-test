@@ -16,7 +16,7 @@ foundread.py and structcount.py beside it. Reads only: /var/log/mcai/showcase-*/
 covers the whole world). It never writes a block, a bot file or anything a bench script reads.
 
 LINES (each with its denominator; a zero is printed beside the positive control that could have seen a presence)
-  S0 LIVENESS     showcase bots with a skill row in the last 15 min (of 10), rows walked, the builds seen
+  S0 LIVENESS     showcase bots with a skill row in the last 15 min (of len(NAMES), 15 from 11-04), rows walked, the builds seen
   S1 DEATHS       `_death` rows, each named; bot-hours observed beside them. TRIP >= 4 inside ANY 180-min span (the fleet's
                   7-d 0.0195 / bot-h gives ~0.6 per 180 min on 10 bots; P(>= 4) ~ 0.3 %); WATCH 2-3 in a span
   S2 STUCK        bots with < 3 blocks of 3-D movement for >= 30 min, sampled with no gap > 5 min, to the window's end.
@@ -47,7 +47,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 POOL_DIR = '/var/lib/mcai/_pool-showcase'
 LOGS = '/var/log/mcai/showcase-[A-Z]*/skill-*.jsonl*'
-NAMES = ['showcase-' + n for n in 'Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno'.split()]
+NAMES = ['showcase-' + n for n in 'Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno Kite Lumen Maple Nova Onyx'.split()]
 POOL = 'showcase'
 # THE TWO EPOCHS (re-review 10-25, Codex P1 / Claude P2): the town's founding (plan + found history is read from here, so a
 # placement never ages out of G1-G4) and the newest start of the bots (the 180-min read never reaches back past it, so a
@@ -970,7 +970,7 @@ def shop_selftest(T):
     assert h2_debris_split({'H2 clear_outside': ['H2 clear_outside unlisted #0']})[1] == [], 'an unreadable item stays a defect'
     assert not TREE_DEBRIS.match('stone') and not TREE_DEBRIS.match('oak_planks') and not TREE_DEBRIS.match('chest') and not TREE_DEBRIS.match('white_carpet') and not TREE_DEBRIS.match('melon_stem') and not TREE_DEBRIS.match('sweet_berry_bush') \
         and not TREE_DEBRIS.match('sugar_cane') and TREE_DEBRIS.match('birch_leaves')
-    vbase = {'live_bots': 10, 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
+    vbase = {'live_bots': len(NAMES), 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
              'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {}, 'plan_error': None}
     assert verdict(dict(vbase, shop_defects=d))[0] == 'TRIP', 'an off-record placement TRIPs'
     assert verdict(dict(vbase, shop_defects={'H1 off_record': 0}))[0] == 'OK'
@@ -1084,7 +1084,7 @@ def selftest():
         'the village unlock: a trapdoor turned into another block is still a change'
     assert zone_diff({'1,1,1': 'minecraft:oak_door[open=false]'}, {'1,1,1': 'minecraft:oak_door[open=true]'})[1], \
         'the village unlock is trapdoors and fence gates ONLY: another block with a state suffix is compared whole'
-    base = {'live_bots': 10, 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
+    base = {'live_bots': len(NAMES), 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
             'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {'D1 chain_invalid': 0}, 'plan_error': None}
     assert verdict(base) == ('OK', [])
     assert death_peak([T(0), T(10), T(170), T(179)]) == 4 and death_peak([T(0), T(10), T(200), T(390)]) == 2

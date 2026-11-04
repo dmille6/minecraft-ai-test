@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ON THE SHOWCASE VM, as root: THE command that starts the 10 showcase bots. NOT RUN until the gate passes.
+# ON THE SHOWCASE VM, as root: THE command that starts the 15 showcase bots. NOT RUN until the gate passes.
 # Design: docs/reports/showcase-2026-10-20.md section 9. The owner's rule (10-20 13:05Z): the bots start only when the
 # town plan's first pieces (per-town siting file, sorted deposits, station placement into plots) are KEPT on the bench
 # and inside the followed release.
@@ -18,7 +18,7 @@ if ! python3 $B/showcase_ops.py gate; then
   echo "NOT STARTED: fix the FAIL lines above (each names its remedy) and rerun"; exit 1
 fi
 REL=$(readlink -f /srv/showcase/harness)
-if [ ! -s "$REL/env/showcase-Alpha.env" ]; then
+if [ ! -s "$REL/env/showcase-Alpha.env" ] || [ ! -s "$REL/env/showcase-Onyx.env" ]; then
   echo "== env files (from the release's pinned control env + town-site.json)"
   python3 - "$REL" <<'PY' || { echo "NOT STARTED: env build failed"; exit 1; }
 import json, sys
@@ -33,8 +33,8 @@ EXPECT=$(python3 -c "import json; print(json.load(open('$REL/RELEASE.json'))['ex
 T0=$(date +%s)
 # the tripwire's run epoch: its 180-min read never reaches back past this start (docs/reports/showcase-progress-lane-2026-10-25.md)
 [ -d /srv/showcase/trip ] && date -u -d "@$T0" +%FT%TZ > /srv/showcase/trip/RUN_SINCE
-echo "== starting 10 bots, 12 s apart, release $(basename "$REL") ($EXPECT)"
-for n in Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno; do
+echo "== starting 15 bots, 12 s apart, release $(basename "$REL") ($EXPECT)"
+for n in Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno Kite Lumen Maple Nova Onyx; do
   systemctl enable --now "mcshow@showcase-$n" >/dev/null 2>&1 && echo "   started showcase-$n"
   sleep 12
 done
@@ -44,7 +44,7 @@ for i in $(seq 1 40); do
   if missing=$(python3 - "$EXPECT" "$T0" <<'PY'
 import json, sys, datetime as dt
 exp, t0 = sys.argv[1], float(sys.argv[2])
-names = ['showcase-' + n for n in 'Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno'.split()]
+names = ['showcase-' + n for n in 'Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno Kite Lumen Maple Nova Onyx'.split()]
 def newest(p):
     try:
         with open(p, 'rb') as f:
@@ -96,10 +96,10 @@ then
 fi
 GATED=$(python3 -c "import json; r=json.load(open('$REL/RELEASE.json')); print(1 if r.get('piece') or r.get('mode') == 'main' else 0)")
 if [ -e /srv/showcase/LANE ]; then
-  echo "STARTED: 10 bots on $EXPECT; PROGRESS LANE: AUTO_FOLLOW stays off (the follower observes only)."
+  echo "STARTED: 15 bots on $EXPECT; PROGRESS LANE: AUTO_FOLLOW stays off (the follower observes only)."
 elif [ "$GATED" = 1 ]; then
-  echo "STARTED: 10 bots on $EXPECT; a gated showcase release (--main / --piece): AUTO_FOLLOW stays off (the follower observes only)."
+  echo "STARTED: 15 bots on $EXPECT; a gated showcase release (--main / --piece): AUTO_FOLLOW stays off (the follower observes only)."
 else
   touch /srv/showcase/AUTO_FOLLOW
-  echo "STARTED: 10 bots on $EXPECT; AUTO_FOLLOW on. The bench's fleetstatus SHOWCASE block reports them from ES."
+  echo "STARTED: 15 bots on $EXPECT; AUTO_FOLLOW on. The bench's fleetstatus SHOWCASE block reports them from ES."
 fi

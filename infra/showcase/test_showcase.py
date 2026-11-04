@@ -14,6 +14,7 @@ import http.server
 import importlib.util
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -208,6 +209,33 @@ class MakeEnv(unittest.TestCase):
     def test_names_fit_minecraft(self):
         for i, n in enumerate(ME.NAMES):
             self.assertLessEqual(len(ME.PREFIX + n), 16)
+
+
+class Roster(unittest.TestCase):
+    """10 -> 15 bots (11-04, ledger showcase-15bots-1103): the bot roster is written out in eight places; a copy that
+    lags make_env.NAMES leaves a bot unstarted, unstopped, unread by the tripwire (it skips names outside its list) or
+    unwhitelisted on a fresh world. Every copy must equal make_env.NAMES, in order."""
+    WORDS = re.compile(r'\b(?:showcase-)?([A-Z][a-z]+)\b')
+
+    def roster(self, fn, pat, n=1):
+        src = open(os.path.join(HERE, fn)).read()
+        got = re.findall(pat, src, re.S)
+        self.assertEqual(len(got), n, f'{fn}: expected {n} roster(s) for {pat!r}, found {len(got)} (anchor moved?)')
+        return [[w for w in self.WORDS.findall(g)] for g in got]
+
+    def test_every_copy_equals_make_env(self):
+        want = list(ME.NAMES)
+        self.assertEqual(len(want), 15, 'the showcase runs 15 bots from 11-04')
+        self.assertEqual(len(set(want)), len(want), 'names are unique')
+        loop = r'for n in ((?:[A-Z][a-z]+ )+[A-Z][a-z]+); do'
+        cases = [('start-bots.sh', loop, 1), ('start-bots.sh', r"'showcase-' \+ n for n in '([A-Za-z ]+)'\.split\(\)", 1),
+                 ('stop-bots.sh', loop, 1), ('trip-cron.sh', loop, 1),
+                 ('showcase_trip.py', r"NAMES = \['showcase-' \+ n for n in '([A-Za-z ]+)'\.split\(\)\]", 1),
+                 ('world-init.sh', r"names = \['showcase-' \+ n for n in \[([^\]]+)\]\]", 1),
+                 ('files/filebeat.yml', r'((?:      - mcshow@showcase-[A-Za-z]+\.service\n)+)', 1)]
+        for fn, pat, n in cases:
+            for r in self.roster(fn, pat, n):
+                self.assertEqual(r, want, f'{fn} roster differs from make_env.NAMES')
 
 
 class Proxy(unittest.TestCase):

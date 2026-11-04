@@ -132,7 +132,7 @@ def next_steps(C, L, F, run):
     return (f'review `git diff {L[:8]} {C[:8]}` (Codex + Claude, blockers only: protected scope changes); then '
             f'showcase_ops.py record --run {tag} --sha {C} --base {L} --kind reconcile --tests PASS:{C}:<summary> '
             f'--review codex:APPROVE:{C}:<who> --review claude:APPROVE:{C}:<who>; stage {C[:8]} --piece {tag} --dry-run; '
-            f'stage; activate releases/<dir>; check 10/10 bots + tripwire + records 30 min later')
+            f'stage; activate releases/<dir>; check 15/15 bots + tripwire + records 30 min later')
 
 
 # ------------------------------------------------------------------------------------------------ impure steps

@@ -56,6 +56,11 @@ filebeat.inputs:
       - mcshow@showcase-Haven.service
       - mcshow@showcase-Iris.service
       - mcshow@showcase-Juno.service
+      - mcshow@showcase-Kite.service
+      - mcshow@showcase-Lumen.service
+      - mcshow@showcase-Maple.service
+      - mcshow@showcase-Nova.service
+      - mcshow@showcase-Onyx.service
     processors:
       - drop_event:
           when:
