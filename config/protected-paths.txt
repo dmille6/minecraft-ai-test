@@ -123,6 +123,7 @@ bots/src/reflex.mjs
 bots/src/air.mjs
 bots/src/oxygen.mjs
 bots/src/airpocket.mjs
+bots/src/dropdig.mjs
 bots/src/bucket.mjs
 bots/src/lavaguard.mjs
 
