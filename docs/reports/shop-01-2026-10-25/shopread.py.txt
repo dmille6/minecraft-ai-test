@@ -93,6 +93,14 @@
 #                      demolition record's line columns (`cols`) and it lies 0..3 in from that line (the record's `line`: axis, line,
 #                      inward); and a generation of the WALLEXT chain stood complete (completeAt) at or before the dig (+ 60 s skew).
 #                      Anything else is clear_outside (` demo`). The walldemo record has no cells: any placement of it is off_record.
+#   EF1 enchant_fit (enchantshop-01, 11-04; bots/src/enchantshop.mjs): THE ENCHANTING WORKSHOP is an ordinary record (project=
+#                      enchantshop): its shell's placements and clears are G1/G2's like every project's. Its FIT-OUT (the anvil, the
+#                      enchanting table, 15 bookshelves) is NOT record cells: the record's `fit` list [{slot, item, at}], placed by the
+#                      fitter one cell at a time (buildrun's visit on a one-cell record: `_build op=place project=enchantshop seg=fit
+#                      block=<item>`). A placement at a `fit` cell of any generation of the chain is on the record ONLY with that slot's
+#                      own item (an anvil slot takes an anvil; a shelf slot a bookshelf); any other block there, or a fit item anywhere
+#                      else, is off_record. Its labels (`_enchantshop_sign op=place at=`, sortstore's writer) are G1 too: a `signs[].at`
+#                      cell of a generation of the chain, else off_record, judged only once placed (the hall signs' rule).
 # REPORTED, NOT A GATE: G7 placed_twice (a cell placed twice within 10 min: physically a re-placement after the cell was emptied
 #   -- a repair or a survival dig -- never two blocks in one cell; read r1 both engines).
 #   F2/F4 rows (owner 10-26: every replant skip a counted row): replants moved / deferred / skipped, cells deferred, STUCK ON CELL,
@@ -118,7 +126,7 @@ SAVE_LAG_MIN = 6
 SURVEY_DIR = os.path.expanduser('~/shopconform/surveys')
 # storehub-01: the hall clerk's rows and the hall's labels (SH1, G1 for signs); in BUILD_KINDS so the showcase tripwire loads them
 # (showcase_trip.py shop_kinds), judged ahead of every build-row rule (never G6, never the arms line)
-HUB_KINDS = ('_well_dispose', '_storehub_clerk', '_hub_sign')
+HUB_KINDS = ('_well_dispose', '_storehub_clerk', '_hub_sign', '_enchantshop_sign')   # enchantshop-01 EF1: the workshop's labels too
 BUILD_KINDS = ('_build_mode', '_build', '_build_seg', '_build_visit', '_build_bag', '_structure_complete') + HUB_KINDS
 ROW_KINDS = BUILD_KINDS + ('craft', 'gather')
 # storehub-01 (bots/src/storehub.mjs HUB_THROWABLE, HUB_NEVER_THROW, copied; the selftest asserts the copy)
@@ -137,6 +145,25 @@ def hub_kept(name):
 def hub_names(field):
     """A row's `name:n,name:n` field -> {name: n}; '-' or empty -> {}."""
     return {m.group(1): int(m.group(2)) for m in NAMES_RE.finditer(field or '') if int(m.group(2)) > 0}
+
+
+# enchantshop-01 EF1 (bots/src/enchantshop.mjs ENCHANT_PLOT, the record's `fit` and `signs`)
+ENCHANT = 'enchantshop'
+
+
+def enchant_place_ok(rec, cell, block):
+    """enchantshop-01 EF1: a `project=enchantshop op=place` -> bool. Pure. A record cell (the shell), or a `fit` slot's cell with THAT
+    slot's own item (any other block on a slot, or a fit item off its slot, is off the record)."""
+    k = ck(cell)
+    if k in {ck(c['at']) for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at')}:
+        return True
+    return any(isinstance(s, dict) and isinstance(s.get('at'), list) and ck(s['at']) == k and s.get('item') == block for s in rec.get('fit') or [])
+
+
+def enchant_sign_ok(chain, cell):
+    """enchantshop-01 EF1: is `cell` a label cell (`signs[].at`) of the workshop in ANY generation of its chain? Pure."""
+    k = ck(cell)
+    return any(isinstance(s, dict) and isinstance(s.get('at'), list) and ck(s['at']) == k for rec in chain or [] for s in rec.get('signs') or [])
 
 
 def hub_sign_ok(chain, cell):
@@ -984,6 +1011,23 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 chain = pj.get('chain') or ([pj['record']] if pj.get('record') else [])
                 if not hub_sign_ok(chain, cell):
                     lists['off_record'].append('%s %s hub_sign' % (bot, ck(cell))); out['off_record'] += 1
+            elif name == '_enchantshop_sign' and f.get('op') == 'place':
+                # enchantshop-01 EF1: the workshop's labels, by the hall signs' rule (judged only once a sign stands)
+                cell = xyz_of(f.get('at'))
+                if cell is None:
+                    continue
+                why = f.get('why') or ''
+                if why.startswith('error'):
+                    lists['enchant_sign_unjudged'].append('%s %s %s' % (bot, ck(cell), why[:30])); out['enchant_sign_unjudged'] += 1
+                if not (why in ('no_editor', 'text_not_read_back') or f.get('ok') == '1'):
+                    continue
+                out['enchant_sign_places'] += 1
+                if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):
+                    lists['zone'].append('%s enchant sign %s' % (bot, ck(cell))); out['zone'] += 1
+                pj = project_of(projects.get(pool), ENCHANT)
+                chain = pj.get('chain') or ([pj['record']] if pj.get('record') else [])
+                if not enchant_sign_ok(chain, cell):
+                    lists['off_record'].append('%s %s enchantshop_sign' % (bot, ck(cell))); out['off_record'] += 1
             continue
         if name in BUILD_KINDS and arm == 'control' and per == 'post':
             out['arms_rows_control_post'] += 1
@@ -1092,6 +1136,9 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 elif plot == YARD and rec is not None:
                     # any generation of the yard's chain (a re-sited yard's earlier stock stays the yard's -- Claude r1 note)
                     off = not any(yard_place_ok(g, cell, f.get('block')) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
+                elif plot == ENCHANT and rec is not None:
+                    # enchantshop-01 EF1: a shell cell, or a fit slot with its own item, of any generation of the workshop's chain
+                    off = not any(enchant_place_ok(g, cell, f.get('block')) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
                 else:
                     off = rec is not None and k not in {ck(c['at']) for c in rec.get('cells') or []} and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rec, cell))
                 if off:
@@ -1671,6 +1718,22 @@ def selftest():
     tg = tidy_guard({'projects': {'wall': {'record': dwall, 'chain': [dwall1, dict(dwall, at=T0MS_ - 5000)]}}})
     assert tidy_guarded([5, 70, 6], T0MS_, tg) is False and tidy_guarded([5, 70, 6], T0MS_ - 10_000, tg) is True, 'retired at T0-5 s'
     assert tidy_guarded([5, 71, 6], T0MS_, tg) is True, 'positive control: a cell still on the wall record stays reserved'
+    # enchantshop-01 EF1: the shell's cells, a fit slot with ITS item, the labels on their cells; anything else off the record
+    erec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'enchantshop@1', 'plot': 'enchantshop', 'cells': [{'at': [30, 65, 30], 'role': 'base', 'seg': 'pad'}],
+            'fit': [{'slot': 'anvil', 'item': 'anvil', 'at': [31, 66, 30]}, {'slot': 'shelf-01', 'item': 'bookshelf', 'at': [32, 66, 30]}],
+            'signs': [{'at': [33, 67, 30], 'wall': [34, 67, 30], 'lines': ['ANVIL']}], 'clear': [], 'replant': []}
+    eb = PP(enchantshop={'record': erec, 'records_files': 1, 'leases': {}})
+    ep = lambda c, block, seg='fit': J(base + [R('_build', 'project=enchantshop op=place seg=%s cell=%s block=%s' % (seg, c, block), s=14)], eb)['off_record']
+    assert ep('30,65,30', 'cobblestone', seg='pad') == 0, 'a shell cell'
+    assert ep('31,66,30', 'anvil') == 0 and ep('32,66,30', 'bookshelf') == 0, 'a fit slot with its own item'
+    assert ep('31,66,30', 'bookshelf') == 1 and ep('32,66,30', 'dirt') == 1, 'a slot with another block'
+    assert ep('35,66,30', 'anvil') == 1, 'a fit item off every slot'
+    assert J(base + [R('_build', 'project=shop op=place seg=pad cell=31,66,30 block=anvil', s=14)], eb)['off_record'] == 1, 'positive control: the slot is the workshop\'s only'
+    es = lambda c, ok='1', why='written': J(base + [R('_enchantshop_sign', 'op=place at=%s chest=enchantshop:anvil label=ANVIL ok=%s why=%s' % (c, ok, why), s=14)], eb)
+    assert es('33,67,30')['off_record'] == 0 and es('33,67,30')['enchant_sign_places'] == 1, 'a label on its cell'
+    assert es('36,67,30')['off_record'] == 1, 'a label off every label cell'
+    assert es('36,67,30', ok='0', why='no_wall')['off_record'] == 0, 'nothing placed: never judged'
+    assert es('36,67,30', ok='0', why='no_editor')['off_record'] == 1, 'placed, text unconfirmed: judged'
     # its completion is counted, never the workshop's (the world evidence and H8 stay the workshop's)
     rc = J(base + [R('_structure_complete', 'project=monument op=complete kind=ziggurat@1 gen=9', s=30, bot='board-b-Alpha')], both)
     assert rc['complete_towns'] == 2 and rc['projects_complete'] == 1, rc

@@ -149,6 +149,15 @@ M = [
  ("    if ln is None:\n        return False", "    if ln is None:\n        ln = ('z', 5, -999, 999, 1)"),
  ("    return g is not None and (t_ms is None or g <= t_ms) and not (u is not None and t_ms is not None and t_ms >= u)", "    return g is not None and (t_ms is None or g <= t_ms)"),
  ("                        out[u] = min(out.get(u, ra), ra)", "                        pass"),
+ # enchantshop-01 EF1: the workshop's fit slots (their own item) and its labels
+ ("    return any(isinstance(s, dict) and isinstance(s.get('at'), list) and ck(s['at']) == k and s.get('item') == block for s in rec.get('fit') or [])", "    return any(isinstance(s, dict) and isinstance(s.get('at'), list) and ck(s['at']) == k for s in rec.get('fit') or [])"),
+ ("    return any(isinstance(s, dict) and isinstance(s.get('at'), list) and ck(s['at']) == k and s.get('item') == block for s in rec.get('fit') or [])", "    return False"),
+ ("                elif plot == ENCHANT and rec is not None:", "                elif False:"),
+ ("ENCHANT = 'enchantshop'", "ENCHANT = 'enchant'"),
+ ("                if not enchant_sign_ok(chain, cell):", "                if False:"),
+ ("                if not (why in ('no_editor', 'text_not_read_back') or f.get('ok') == '1'):\n                    continue", "                pass"),
+ ("    return any(isinstance(s, dict) and isinstance(s.get('at'), list) and ck(s['at']) == k for rec in chain or [] for s in rec.get('signs') or [])", "    return any(isinstance(s, dict) and isinstance(s.get('wall'), list) and ck(s['wall']) == k for rec in chain or [] for s in rec.get('signs') or [])"),
+ ("HUB_KINDS = ('_well_dispose', '_storehub_clerk', '_hub_sign', '_enchantshop_sign')", "HUB_KINDS = ('_well_dispose', '_storehub_clerk', '_hub_sign')"),
 ]
 bad = 0
 for old, new in M:
