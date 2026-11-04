@@ -4365,7 +4365,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Step 1 DONE 11-03 (anvilproof, sandbox3, Paper 1.21.8-60, mineflayer 4.37.1): anvil and enchanting table WORK server-verified (Mending book onto an iron pickaxe, cost 2 levels, 10->8; rename cost 1; refused at 0 levels; table 10->7 levels, 3 lapis, Efficiency). Do NOT use anvil.combine/rename (prismarine-item reads no stored_enchantments: 'Not anvil-able'); drive the window by hand; table items must be window-numbered and 'ready' fires early. Step 2 after trading T2 coalsale-01 is KEPT (emeralds + an observed librarian book offer): a fleet progress-lane canary that buys books and applies them with an anvilApply actuator (exported pure anvilPlan), XP from play only, a town anvil (31 iron); tier per protected.py.",
+   "next_step": "Step 1 DONE 11-03 (anvilproof: anvil + table WORK on Paper 1.21.8). OWNER 11-04 build the skills: anvilapply-01 + enchant-01 BUILT 11-04 on the showcase release (branch showcase-anvilapply-on-d3773f8b, sha 336aa45a; Paper e2e on sandbox3 server-verified; Codex r1 1 blocker fixed, r2 resolved): READY TO STAGE, the control session folds it with enchantshop-1104 (the workshop's anvil + table; without them never asked). Tripwire: an anvil chips with use -- enchantshop must keep it out of the record or add a shopread rule. Step 2 (buy books) after trading T2 coalsale-01 KEPT.",
    "max_quiet_hours": 48,
    "depends_on": [
     {
@@ -4374,6 +4374,7 @@
    ],
    "evidence": {
     "paths": [
+     "docs/reports/anvilapply-enchant-2026-11-04.md",
      "docs/reports/anvilproof-2026-11-03.md",
      "docs/reports/trading-design-2026-11-03.md",
      "sandbox/trading/anvil-proof.cjs"

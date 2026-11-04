@@ -324,6 +324,7 @@ const REQUIRED = [
   'sandbox/trading/scout-proof.cjs',
   'sandbox/trading/anvil-proof.cjs',
   'docs/reports/anvilproof-2026-11-03.md',
+  'docs/reports/anvilapply-enchant-2026-11-04.md',
   'sandbox/trading/census/villagers.py',
   'sandbox/trading/census/poi.py',
   'sandbox/trading/census/vdump.py',
