@@ -162,12 +162,14 @@ const WELL_COBBLE = new Set(['cobblestone', 'cobbled_deepslate'])
 export const isWellCobble = name => WELL_COBBLE.has(name)
 /** The cobble stacks the well may take at the cap -> [{ slot, name, count }]: whole stacks, smallest first, while the bag
  *  keeps COBBLE_WELL_RESERVE of the two names. Pure (the same choice as bankable.mjs cobbleBankStacks, with no credit cap). */
-export function cobbleWellStacks (items = []) {
+export function cobbleWellStacks (items = [], { reserve = COBBLE_WELL_RESERVE } = {}) {
+  // yarduse-01: `reserve` (never below COBBLE_WELL_RESERVE) -- the yard's share kept for its stock visit (yard.mjs yardWellKeep)
+  const keep = Math.max(COBBLE_WELL_RESERVE, Number(reserve) || 0)
   const list = (Array.isArray(items) ? items : []).filter(it => it && WELL_COBBLE.has(it.name) && (Number(it.count) || 0) > 0 && Number.isInteger(it.slot))
   let left = list.reduce((t, it) => t + (Number(it.count) || 0), 0)
   const out = []
   for (const it of [...list].sort((a, b) => a.count - b.count || a.slot - b.slot)) {
-    if (left - it.count < COBBLE_WELL_RESERVE) break
+    if (left - it.count < keep) break
     out.push({ slot: it.slot, name: it.name, count: it.count }); left -= it.count
   }
   return out
@@ -249,13 +251,13 @@ export const MAX_STACKS_PER_VISIT = 9
  * a scaffold-capable decoration only while the bag keeps STONE_GUARD RESERVE_STONE after it (`stone`: the reserve held).
  * `junkStacks` counts every listed stack in the bag (what the trigger reads).
  */
-export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false, cobbleAtCap = false, stock = null, keep = null } = {}) {
+export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false, cobbleAtCap = false, stock = null, keep = null, cobbleReserve = COBBLE_WELL_RESERVE } = {}) {
   // `keep` (junkout-01's visit, Claude r1 P3-6): names the active goal wants -- never planned, whatever the list says
   const kept = new Set(Array.isArray(keep) ? keep : [])
   const all = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const list = kept.size ? all.filter(it => !kept.has(it.name)) : all
   // COBBLE AT THE CAP: chosen first and charged to the reserve in full, so a guarded stone judged later never counts on it
-  const cobble = cobbleAtCap ? cobbleWellStacks(list) : []
+  const cobble = cobbleAtCap ? cobbleWellStacks(list, { reserve: cobbleReserve }) : []
   // AT-TARGET SURPLUS of every other targeted group (stocktarget), chosen with it (none of them is reserve stone)
   for (const st of (stock ? stockWellStacks(list, stock) : [])) cobble.push(st)
   const cobbleSlots = new Set(cobble.map(c => c.slot))
@@ -1274,13 +1276,13 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
  */
 export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
                                      source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null,
-                                     stone = null, gclicked = 0, swords = 0, peaceful = null, swordLost = 0, swordsKept = 0, cobble = 0, cobbleLeft = null, cap = null, aimOff = 0, aimRead = 0, stock = 0 } = {}) {
+                                     stone = null, gclicked = 0, swords = 0, peaceful = null, swordLost = 0, swordsKept = 0, cobble = 0, cobbleLeft = null, cap = null, aimOff = 0, aimRead = 0, stock = 0, yardKept = 0 } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   // offlist= FIRST after slots (the read's C3 gate): thrown entities whose item, AS THE SERVER NAMES IT, is off the list
   // gclicked= / stone= right after offlist (the read's C7 gate): scaffold-capable decorations CLICKED (from the clicks, so an
   // unanswered final resync cannot hide them) and the least RESERVE_STONE any of those clicks left (STONE_GUARD+ or a breach)
   // swords= (swords CLICKED) and peaceful= (the switch as read at the last sword click) next: the read's sword gate
-  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} sword_lost=${swordLost} sword_kept=${swordsKept} cobble=${cobble}${cobbleLeft != null ? ` cobble_left=${cobbleLeft}` : ''}${cap ? ` cap=${cap}` : ''}${stock ? ` stock=${stock}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
+  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} sword_lost=${swordLost} sword_kept=${swordsKept} cobble=${cobble}${cobbleLeft != null ? ` cobble_left=${cobbleLeft}` : ''}${cap ? ` cap=${cap}` : ''}${yardKept ? ` yard_kept=${yardKept}` : ''}${stock ? ` stock=${stock}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
           `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} aim_off=${aimOff} aim_read=${aimRead} ` +
           `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
           `${capEnd ? ` cap_end=${capEnd}` : ''}` +

@@ -144,6 +144,7 @@ import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, s
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX } from './wall.mjs'   // wall-01
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
+import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS } from './yard.mjs'   // yarduse-01
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
@@ -1671,7 +1672,8 @@ export function foodSkipNow (bot) {
  */
 export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? [], { floorOnly = false } = {}) {
   try {
-    const stacks = cobbleWellStacks(items)
+    // yarduse-01: the yard's share stays in the bag while the yard can take it (wellCobbleReserveNow): no surplus beyond it, 'none'
+    const stacks = cobbleWellStacks(items, { reserve: wellCobbleReserveNow(bot) })
     if (!stacks.length) return 'none'
     // cobblekeep-01 (cobblecap.mjs wellCobbleSwitch): the AVAILABLE floor as before, OR the bank's own at-cap refusal of
     // this smallest stack on counted stock (no incoming reservation); cobble a withdraw holds is never thrown
@@ -1725,7 +1727,7 @@ export function valveProof (bot, items = bot?.inventory?.items?.() ?? []) {
     if (items.length < TD_TRIGGER_SLOTS) return false
     const peaceful = foodSkipNow(bot).active
     if (startableJunk(items, { apples: peaceful, plants: peaceful, level: 0 }) > 0) return false
-    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items) })
+    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items), cobbleReserve: wellCobbleReserveNow(bot) })
     return plan.junkStacks === 0
   } catch { return false }
 }
@@ -4469,7 +4471,7 @@ export function stockCountKeys (bot, items = bot.inventory?.items?.() ?? [], { f
       const counts = {}
       for (const it of items) if (it?.name) counts[it.name] = (counts[it.name] ?? 0) + (it.count ?? 0)
       const keep = townKeeps(counts, { wanted: bot?.currentWants ?? [] }).keep
-      const surplus = g => (g === 'cobble' ? cobbleWellStacks(items).length > 0
+      const surplus = g => (g === 'cobble' ? cobbleWellStacks(items, { reserve: wellCobbleReserveNow(bot) }).length > 0
         : namesOf(g).some(n => (counts[n] ?? 0) > Math.max(0, Number(keep[n]) || 0)))
       for (const g of Object.keys(stockCounts(items))) {
         if (isToolGroup(g) || !surplus(g)) continue
@@ -6498,7 +6500,7 @@ export function townWellTakes (bot, items, keep = [], { wellSite = recordedWellS
     if (!wellSite(bot)) return null
     const used = new Set((keep ?? []).map(k => k?.name ?? k))
     // cobblekeep-01: the cobble switch FROM AFAR stays stonecap's floor-only rule (no new trip home: Claude r1 P1-1)
-    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items, { floorOnly: true }) === 'at_cap', stock: stockWellOpts(bot, items, { assumeCap: true }) })
+    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items, { floorOnly: true }) === 'at_cap', stock: stockWellOpts(bot, items, { assumeCap: true }), cobbleReserve: wellCobbleReserveNow(bot) })
     return (plan.stacks ?? []).find(st => !used.has(st.name))?.name ?? null
   } catch { return null }
 }
@@ -9672,7 +9674,11 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       out.swordsAllowed = !pit && !listedOnly && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
       out.cap = pit || listedOnly ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
       out.stock = pit || listedOnly ? null : pruneStockOpts(bot, pruned)   // and every other group at its target (stocktarget design 3.4), and what a prune took
-      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: listedOnly ? keep : null })   // the bag AS THE SERVER HOLDS IT
+      // yarduse-01: the yard's share of the cobble stays (wellCobbleReserveNow); a throw that leaves it stamps the deferral
+      const cobbleReserve = wellCobbleReserveNow(bot)
+      const bagNow = bot.inventory?.items?.() ?? []
+      const plan = disposePlan(bagNow, { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: listedOnly ? keep : null, cobbleReserve })   // the bag AS THE SERVER HOLDS IT
+      if (out.cap === 'at_cap' && !yardDeferredNow(bot) && wellKeptForYard(bagNow, cobbleReserve)) { bot.yardDeferAt = Date.now(); out.yardKept = cobbleReserve }
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
       out.acc.cobbleAllowed = out.cap === 'at_cap'
@@ -9764,7 +9770,7 @@ const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd
   source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0,
   gclicked: ph.acc?.gclicked ?? 0, stone: ph.acc?.stoneMin ?? ph.stone ?? null, swords: ph.acc?.swords ?? 0, peaceful: ph.acc?.swords ? ph.acc.peaceful : null,
   swordLost: ph.account?.swordLost ?? 0, swordsKept: ph.acc?.swordsKept ?? 0, aimOff: ph.acc?.aimOff ?? 0, aimRead: ph.acc?.aimRead ?? 0,
-  cobble: ph.acc?.cobble ?? 0, cobbleLeft: ph.acc?.cobble ? ph.acc.cobbleLeft : null, cap: ph.acc?.capLast ?? ph.cap ?? null, stock: ph.acc?.stockThrown ?? 0 })
+  cobble: ph.acc?.cobble ?? 0, cobbleLeft: ph.acc?.cobble ? ph.acc.cobbleLeft : null, cap: ph.acc?.capLast ?? ph.cap ?? null, stock: ph.acc?.stockThrown ?? 0, yardKept: ph.yardKept ?? 0 })
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {
@@ -9803,7 +9809,7 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  const entryPlan = visit ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned) })
+  const entryPlan = visit ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot) })
   if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
@@ -11868,7 +11874,7 @@ export function pruneTarget (bot, items = bot?.inventory?.items?.() ?? []) {
 }
 /** The well's own rule as a function of a bag (well.mjs disposePlan, every stack): what pruneAccepted asks. */
 function pruneWellRule (bot) {
-  return items => disposePlan(items, { maxStacks: Infinity, swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items) }).stacks
+  return items => disposePlan(items, { maxStacks: Infinity, swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items), cobbleReserve: wellCobbleReserveNow(bot) }).stacks
 }
 
 /**
@@ -17204,7 +17210,8 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // never offers it early and works the next project meanwhile
         const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
         // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
-        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && p.plot === STORE_PLOT && storeUpkeepDue(b, rec), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}) }
+        // yarduse-01: a yard bay blocked by clutter (yard.mjs yardWork `first`) is cleared ahead of the sinks (bounded: YARD_CLEAR_MAX a visit)
+        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}) }
       })
       // PICKER-01: each sink's open instance or its next one (sinks.mjs sinkNextGate over this bot's pressure), and the picker's order
       const sk = sinkStatesNow(b, states, now)
@@ -18587,17 +18594,120 @@ function yardWorkNow (bot, rec, now = Date.now()) {
     const held = heldMap(bot)
     const nb = bambooBlocks(held)
     const items = bot.inventory?.items?.() ?? []
-    const states = bayStates(pileSlots(rec, bp), read)
+    const bays = pileSlots(rec, bp)
+    const states = bayStates(bays, read)
     return yardWork({ held: nb > 0 ? { ...held, bamboo_block: (held.bamboo_block ?? 0) + nb } : held, slots: items.length, freeSlots: Math.max(0, BAG_SLOTS - items.length),
-      town: (() => { try { return matsTownStock(bot)?.stock ?? null } catch { return null } })(), states, clutter: yardClutter(rec, read), pick: !!refillPick(items, remaining) })
+      town: (() => { try { return matsTownStock(bot)?.stock ?? null } catch { return null } })(), states, clutter: yardClutter(rec, read), pick: !!refillPick(items, remaining),
+      bayClutter: yardClearHeld(bot, now) ? [] : bayClutter(bays, read), deferred: yardDeferredNow(bot, now) })
   } catch { return null }
 }
-async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now()) {
+/** Two bay clearings in a row that cleared nothing hold the bays' clutter off this bot's yard work for 2 h (a block the visit
+ *  cannot dig is never a first-in-line visit every 20 minutes). Never throws. */
+const yardClearHeld = (bot, now = Date.now()) => { const c = bot?.yardClearFail; return !!c && c.n >= 2 && now - c.at < 2 * 60 * 60_000 }
+// ---- YARDUSE-01 (yard.mjs): the yard before the well; a consumer's bill drawn from the piles ---------------------------------------
+/** This bot's last well deferral is unanswered (yard.mjs yardDeferred). Never throws. */
+const yardDeferredNow = (bot, now = Date.now()) => { try { return yardDeferred({ deferAt: bot?.yardDeferAt ?? null, stockAt: bot?.yardStockAt ?? null, now }) } catch { return false } }
+/** The standing yard's record when the yard is on in this pool -> rec | null. Never throws. */
+function yardRecNow () {
+  try {
+    if (!projectsOn().some(p => p.plot === YARD_PLOT)) return null
+    const h = recordHead(townDir(), projKeyOf(YARD_PLOT))
+    const rec = h.ok ? h.head?.rec ?? null : null
+    return rec?.structure_complete ? { rec, gen: h.head.gen } : null
+  } catch { return null }
+}
+/**
+ * THE WELL'S COBBLE RESERVE FOR THIS BOT NOW -> the cobble family a well visit leaves in the bag (well.mjs cobbleWellStacks'
+ * `reserve`): COBBLE_WELL_RESERVE as before, or the yard's share above it while the standing yard has room for a stock visit, its
+ * work is not resting and no earlier deferral is unanswered (yard.mjs yardWellKeep, yardDeferOk). YARD_BEFORE_WELL=off: as before.
+ * The yard is read at most every 30 s a bot (the well's planners call this on every decision). Never throws.
+ */
+function wellCobbleReserveNow (bot, now = Date.now()) {
+  try {
+    if (!bot || !yardFlag(process.env, 'YARD_BEFORE_WELL')) return COBBLE_WELL_RESERVE
+    const m = bot.yardRoomMemo
+    let room = m && now - m.at < 30_000 ? m.room : null
+    if (room == null) {
+      const y = yardRecNow()
+      room = 0
+      if (y) {
+        const bp = blueprintOf(isYardBlueprint(y.rec.blueprint) ? y.rec.blueprint : YARD_BLUEPRINT)
+        room = yardRoomFor(bayStates(pileSlots(y.rec, bp), planReader(bot)), 'cobblestone')
+      }
+      bot.yardRoomMemo = { at: now, room }
+    }
+    const resting = Number(bot.yardRestUntil) > now
+    const keep = yardWellKeep({ on: !resting, room, deferOk: yardDeferOk({ deferAt: bot.yardDeferAt ?? null, stockAt: bot.yardStockAt ?? null, now }) })
+    return Math.max(COBBLE_WELL_RESERVE, keep)
+  } catch { return COBBLE_WELL_RESERVE }
+}
+/** Did the well keep cobble back for the yard on this bag (its at-cap plan with the yard's reserve throws less than without)? Pure
+ *  over the bag; the caller stamps the deferral (bot.yardDeferAt) when it throws. */
+const wellKeptForYard = (items, reserve) => reserve > COBBLE_WELL_RESERVE && cobbleWellStacks(items).reduce((t, c) => t + c.count, 0) > cobbleWellStacks(items, { reserve }).reduce((t, c) => t + c.count, 0)
+/**
+ * THE DROPS OF A DIG-BACK, COLLECTED (Claude code r1 BLOCKER): a pile block dug from the aisle drops onto the pile, out of the
+ * aisle's pickup reach, and buildbot's dig never collects -- so every cobblestone drop within the piles' box (+2) is walked to
+ * (pickupNearbyItems, its 4 walks a sweep), sweep after sweep while drops remain, the bag gains and the deadline allows (yard.mjs
+ * collectMore). Never throws but an abort.
+ */
+async function yardCollect (bot, signal, deadline, bays) {
+  const pts = (bays ?? []).flatMap(b => b.slots ?? [])
+  if (!pts.length) return
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), zs = pts.map(p => p[2])
+  const box = { x0: Math.min(...xs) - 2, x1: Math.max(...xs) + 3, y0: Math.min(...ys) - 2, y1: Math.max(...ys) + 2, z0: Math.min(...zs) - 2, z1: Math.max(...zs) + 3 }
+  const dropsLeft = () => { let n = 0; try { for (const e of Object.values(bot.entities ?? {})) { const p = e?.position; if (e?.name === 'item' && p && p.x >= box.x0 && p.x <= box.x1 && p.y >= box.y0 && p.y <= box.y1 && p.z >= box.z0 && p.z <= box.z1 && spawnedItem(e).name === 'cobblestone') n++ } } catch { /* none read */ } return n }
+  let iter = 0, idle = 0
+  while (collectMore({ drops: dropsLeft(), iter, idle, left: deadline - Date.now() })) {
+    const before = countItem(bot, 'cobblestone')
+    try { await pickupNearbyItems(bot, signal, 16) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    await sleep(250, signal)
+    iter++
+    idle = countItem(bot, 'cobblestone') > before ? 0 : idle + 1
+  }
+}
+/** What a bill still wants from the chests after a yard draw put `got` cobblestone in the bag (mutates `need`). */
+function yardNeedLeft (need, got) { const left = (Number(need.cobblestone) || 0) - got; if (left > 0) need.cobblestone = left; else delete need.cobblestone; return need }
+/**
+ * A CONSUMER'S BILL FROM THE YARD (YARDUSE-01; OWNER 11-04 "the sinks and groundskeeper fills should draw from the yard") -> the
+ * cobblestone the bag gained from the piles (0: nothing drawn; the chests serve the bill as before). Before a sink's or the tidy's
+ * chest draw: a standing yard holding cobblestone, a usable pickaxe and time left in the visit (yard.mjs yardDrawPlan) -> one
+ * bounded yard visit (yardVisit's `draw`: the yard's slot lease, pile tops dug with the pickaxe, the drops picked up; its own
+ * `_build_visit project=yard` and `_yard kind=draw` rows -- the tripwire judges its digs as the yard's). Never throws but an abort.
+ */
+async function yardDrawFor (ctx, need, signal, visitDeadline) {
+  const { bot } = ctx
+  try {
+    if (!yardFlag(process.env, 'YARD_DRAW') || Number(bot.yardDrawRestUntil) > Date.now()) return 0
+    const y = yardRecNow()
+    if (!y) return 0
+    const bp = blueprintOf(isYardBlueprint(y.rec.blueprint) ? y.rec.blueprint : YARD_BLUEPRINT)
+    const held = yardHeld(bayStates(pileSlots(y.rec, bp), planReader(bot)))
+    const items = bot.inventory?.items?.() ?? []
+    const n = yardDrawPlan({ need, held, freeSlots: Math.max(0, BAG_SLOTS - items.length), pick: !!refillPick(items, remaining), left: visitDeadline - Date.now() })
+    if (!n) return 0
+    const t0 = Date.now()
+    const f = { project: YARD_PLOT }
+    const out = (status, outcome, detail, extra = {}, failClass = null) => {
+      Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+      try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+      return { status, ...(failClass ? { failClass } : {}), detail, stop: extra.stop ?? outcome }
+    }
+    const res = {}
+    await yardVisit(ctx, y.rec, y.gen, signal, out, t0, { draw: n, until: Math.min(t0 + YARD_DRAW_MS, visitDeadline - 30_000), result: res })
+    return Math.max(0, Number(res.got) || 0)
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    return 0
+  }
+}
+async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { draw = 0, until = null, result = null } = {}) {
   const { bot } = ctx
   const dir = townDir(), key = projKeyOf(YARD_PLOT), me = bot.username ?? 'bot', home = planHomeP(), bp = blueprintOf(isYardBlueprint(rec?.blueprint) ? rec.blueprint : YARD_BLUEPRINT)
   // the runner's clock, as the monument's (its watchdog aborts every skill at SKILL_TIMEOUT_MS): the visit ends ZIG_VISIT_TAIL_MS before it
   const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
-  const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
+  // yarduse-01: a consumer's draw (yardDrawFor) runs inside the consumer's own visit, to its `until`
+  const deadline = Number.isFinite(until) ? until : t0 + budget - ZIG_VISIT_TAIL_MS
+  const drawing = Number(draw) > 0
   const slot = takeSlot(dir, key, me, YARD_BUILDERS)
   if (!slot.ok) return out('no_effect', 'slots_full', `the yard is another bot's now (${slot.why})`)
   const slotRef = { gen: slot.gen }
@@ -18607,7 +18717,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now()) {
   const bays = pileSlots(rec, bp)
   try {
     // 1. BAMBOO INTO BLOCKS (9 : 1; the bag keeps YARD_BAMBOO_KEEP): a bamboo_block pile keeps the planks one craft away
-    const nb = bambooBlocks(heldMap(bot))
+    const nb = drawing ? 0 : bambooBlocks(heldMap(bot))
     if (nb > 0) {
       const before = countItem(bot, 'bamboo_block')
       try { await craft(ctx, { item: 'bamboo_block', count: nb }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -18616,9 +18726,11 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now()) {
     check(signal)
     const read = planReader(bot)
     states = bayStates(bays, read)
-    const items = bot.inventory?.items?.() ?? []
-    const w = yardWork({ held: heldMap(bot), slots: items.length, freeSlots: Math.max(0, BAG_SLOTS - items.length), town: matsTownStock(bot)?.stock ?? null, states, clutter: yardClutter(rec, read), pick: !!refillPick(items, remaining) })
+    const planNow = (rd, { bays: withBays = true } = {}) => { const it = bot.inventory?.items?.() ?? []; return yardWork({ held: heldMap(bot), slots: it.length, freeSlots: Math.max(0, BAG_SLOTS - it.length), town: matsTownStock(bot)?.stock ?? null, states, clutter: yardClutter(rec, rd), pick: !!refillPick(it, remaining), bayClutter: withBays && !yardClearHeld(bot) ? bayClutter(bays, rd) : [], deferred: yardDeferredNow(bot) }) }
+    // yarduse-01: a consumer's draw is its own kind -- the pile tops dug back into the bag for the consumer's bill (never banked)
+    const w = drawing ? { kind: 'draw', urgent: false, place: {}, draw: {}, dig: { cobblestone: Math.min(Number(draw), yardHeld(states).cobblestone ?? 0) }, why: `bill:${draw}` } : planNow(read)
     f.kind = w.kind ?? 'idle'; f.why = w.why
+    if (drawing && !(w.dig.cobblestone > 0)) { stop = 'empty'; bot.yardDrawRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'yard_empty', 'the yard holds no cobblestone to draw') }
     if (!w.kind) { stop = 'idle'; bot.yardRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'complete', 'the yard stands; nothing to stock, move, refill or clear') }
     let place = w.place
     // 2. THE CLERK: the chests' surplus into the bag first (the build reserve is the withdraw's own floor: mats.mjs takeAllowed)
@@ -18651,12 +18763,15 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now()) {
       f.placed = { ...placedBy }
     } else {
       // 4. A REFILL (the top of the piles, dug back) or THE AISLES (their clutter): runVisit's tidy digs, under the clear lease
-      const tidy = w.kind === 'refill' ? refillDigs(states, w.dig) : yardClutter(rec, planReader(bot))
+      // yarduse-01: a consumer's DRAW digs the pile tops as a refill does; the upkeep clears the BAYS' clutter first, then the aisles'
+      const digBack = w.kind === 'refill' || w.kind === 'draw'
+      const rd0 = planReader(bot)
+      const tidy = digBack ? refillDigs(states, w.dig) : [...bayClutter(bays, rd0), ...yardClutter(rec, rd0)].slice(0, YARD_CLEAR_MAX)
       const bag0 = heldMap(bot)
       // a REFILL digs with a pickaxe in hand, re-equipped before every dig (Codex r1 BLOCK: botBuildEffects.dig digs with whatever is
       // held, and a cobblestone dug by hand drops nothing); no pickaxe, no dig
       let fx = effects
-      if (w.kind === 'refill') {
+      if (digBack) {
         fx = { ...effects, dig: async (c, expect) => {
           const pk = refillPick(bot.inventory?.items?.() ?? [], remaining)
           if (!pk) return 'refused'
@@ -18665,12 +18780,33 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now()) {
           return effects.dig(c, expect)
         } }
       }
-      r = await runVisit({ ...base, record: bare, palette: bp.palette, tidy, clearMax: w.kind === 'refill' ? YARD_VISIT_MAX : YARD_CLEAR_MAX }, fx, { deadline, maxSteps: 400 })
+      // a dig-back leaves time to COLLECT (yardCollect: the drops land on the pile, out of the aisle's reach)
+      r = await runVisit({ ...base, record: bare, palette: bp.palette, tidy, clearMax: digBack ? YARD_VISIT_MAX : YARD_CLEAR_MAX }, fx, { deadline: digBack ? deadline - 15_000 : deadline, maxSteps: 400 })
       f.cleared = r.cleared ?? 0
-      if (w.kind === 'refill') {
-        try { await pickupNearbyItems(bot, signal, 8) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-        const got = Math.max(0, (heldMap(bot).cobblestone ?? 0) - (bag0.cobblestone ?? 0))
+      let got = 0
+      if (digBack) {
+        await yardCollect(bot, signal, deadline, bays)
+        got = Math.max(0, (heldMap(bot).cobblestone ?? 0) - (bag0.cobblestone ?? 0))
         f.dug = got ? { cobblestone: got } : {}
+        // the consumer's: counted from the BAG (never the digs), kept in it for the consumer's bill
+        if (result) result.got = got
+      }
+      if (w.kind === 'upkeep' && w.first) bot.yardClearFail = f.cleared > 0 ? null : { n: (bot.yardClearFail?.n ?? 0) + 1, at: Date.now() }
+      // yarduse-01: a bay just cleared of its clutter is stocked in the same visit (clear, then deposit -- Codex design)
+      if (w.kind === 'upkeep' && w.first && r.stop !== 'aborted' && Date.now() < deadline - 20_000) {
+        states = bayStates(bays, planReader(bot))
+        const w2 = planNow(planReader(bot), { bays: false })
+        if (w2.kind === 'stock') {
+          const pc = pileCells(states, w2.place)
+          if (pc.cells.length) {
+            f.kind = 'upkeep+stock'
+            const r2 = await runVisit({ ...base, record: { ...bare, cells: pc.cells, segments: [{ seg: 'pile', layer: 0, deps: [] }] }, palette: { ...bp.palette, ...pc.palette } }, effects, { deadline, maxSteps: 400 })
+            f.placed = { ...placedBy }
+            r = { ...r2, cleared: f.cleared }
+          }
+        }
+      }
+      if (w.kind === 'refill') {
         // always banked (Claude r1 note 1: an unbanked refill is the next stock visit's surplus, put straight back on the pile)
         if (got > 0) {
           try { f.banked = await matsBank(ctx, ['cobblestone'], bag0, signal, { cobblestone: got }) ?? {} } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -18678,8 +18814,14 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now()) {
       }
     }
     stop = r?.stop ?? '-'
-    const n = Object.values(f.placed).reduce((t, v) => t + v, 0) + f.cleared
-    if (n === 0) bot.yardRestUntil = Date.now() + YARD_REST_MS
+    const nPlaced = Object.values(f.placed).reduce((t, v) => t + v, 0)
+    const n = nPlaced + f.cleared
+    // yarduse-01: a stock visit that placed answers the well's deferral (yard.mjs yardDeferred); a draw that dug nothing rests the
+    // DRAW only (the stock and the well's deferral are not this bot's draw's to hold)
+    if (nPlaced > 0) bot.yardStockAt = Date.now()
+    // a draw that collected under half of what it dug (drops left on the pile) rests the draw too: the next bill uses the chests
+    if (drawing) { const g = Number(result?.got) || 0; if (!(g > 0) || g * 2 < f.cleared) bot.yardDrawRestUntil = Date.now() + YARD_REST_MS } else if (n === 0) bot.yardRestUntil = Date.now() + YARD_REST_MS
+    bot.yardRoomMemo = null
     return out(n > 0 ? 'success' : 'no_effect', `yard_${f.kind}`, `the yard's ${f.kind}: ${n} block(s) (${r?.why ?? stop})`.slice(0, 160), { stop: r?.stop, placed: r?.placed, cleared: r?.cleared, slot: slot.slot })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { stop = 'aborted'; out('aborted', 'aborted', 'interrupted'); throw e }
@@ -20689,6 +20831,13 @@ async function buildSink (ctx, args, signal, proj) {
     const R0 = matsReserve().table
     const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, n) => { tookAll[k] = (tookAll[k] ?? 0) + n; persist() } })
     const segFree = sg => { const st = projLeaseState(dir, key, `seg-${sg}`); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil }
+    // yarduse-01 (OWNER 11-04): the bill's cobblestone from the YARD's piles first (yardDrawFor), the chests for the rest; what the
+    // draw put in the bag is the project's (tookAll: the drawn record), never the yard's next stock
+    if ((need.cobblestone ?? 0) > 0 && workableSeg(rec, read, palette, segFree)) {
+      const got = await yardDrawFor(ctx, need.cobblestone, signal, t0 + budget - ZIG_VISIT_TAIL_MS)
+      if (got > 0) { tookAll.cobblestone = (tookAll.cobblestone ?? 0) + got; persist(); f.fromYard = got; yardNeedLeft(need, got) }
+      check(signal)
+    }
     if (Object.keys(need).length && workableSeg(rec, read, palette, segFree)) {
       const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
     }
@@ -21523,7 +21672,14 @@ async function buildTidy (ctx, args, signal) {
     const R0 = matsReserve().table
     const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, n) => { tookAll[k] = (tookAll[k] ?? 0) + n; persist() } })
     const segFree = sg => { const st = projLeaseState(dir, key, `seg-${sg}`); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil }
-    if (Object.keys(need).length && workableSeg(visitRec, read, palette, GROUNDS.on ? sg => segFree(sg) && crew.segOk(sg) : segFree, waivedK, { skipOpenDeps: GROUNDS.on })) {
+    // yarduse-01 (OWNER 11-04): the groundskeeper's fills draw the yard's cobblestone first (yardDrawFor), the chests for the rest
+    const tidySegOk = GROUNDS.on ? sg => segFree(sg) && crew.segOk(sg) : segFree
+    if ((need.cobblestone ?? 0) > 0 && workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: GROUNDS.on })) {
+      const got = await yardDrawFor(ctx, need.cobblestone, signal, t0 + budget - ZIG_VISIT_TAIL_MS)
+      if (got > 0) { tookAll.cobblestone = (tookAll.cobblestone ?? 0) + got; persist(); f.fromYard = got; yardNeedLeft(need, got) }
+      check(signal)
+    }
+    if (Object.keys(need).length && workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: GROUNDS.on })) {
       const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
     }
     check(signal)
