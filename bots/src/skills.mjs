@@ -17928,12 +17928,9 @@ export async function stairEgressReflex (bot, { alive = () => true, ms = EGRESS_
   const on = stairStandingOn(bot)
   if (!on) return { ran: false, why: 'off_stair' }
   // the two walk profiles, read while this arm holds the body (the town-deposit walk: no digs, towers or scaffold)
-  // Claude r2 BLOCKER: the default profile is read AFTER the probe (whose finally has just put it back) -- read before, it could be an
-  // interrupted skill's (gather's: digs and towers) not yet restored by its own finally, and every hop would re-install it
-  let townMoves = null
-  try { if (typeof bot.withTownDepositWalk === 'function') townMoves = await bot.withTownDepositWalk(async () => bot.pathfinder.movements) } catch { townMoves = null }
-  const walkMoves = bot.pathfinder?.movements ?? null
-  if (!walkMoves || !townMoves || townMoves === walkMoves) return { ran: false, why: 'no_town_walk' }
+  // the profiles are index.mjs's alone (dep-contract): every hop is bot.withTownDepositWalk, whose finally installs the DEFAULT
+  // profile (Claude r2 BLOCKER: never one read here, which could be an interrupted gather walk's digging profile)
+  if (typeof bot.withTownDepositWalk !== 'function') return { ran: false, why: 'no_town_walk' }
   const ac = new AbortController()
   const lost = () => { if (!ac.signal.aborted) { let ok = false; try { ok = !!alive() } catch { ok = false } if (!ok) ac.abort() } return ac.signal.aborted }
   // THE SIGNAL ASKS alive() WHENEVER IT IS READ (Codex r1 blocker 1, found by its test: between a rescue's seize and the next poll the
@@ -17942,7 +17939,7 @@ export async function stairEgressReflex (bot, { alive = () => true, ms = EGRESS_
   const iv = setInterval(lost, 200)
   iv?.unref?.()
   try {
-    const r = await visitEgress(bot, on.rec, sig, Date.now() + ms, null, c => stairWalkOwned(bot, c, EGRESS_HOP_MS, sig, { townMoves, walkMoves }))
+    const r = await visitEgress(bot, on.rec, sig, Date.now() + ms, null, c => stairWalkOwned(bot, c, EGRESS_HOP_MS, sig))
     return r ? { ran: true, ...r } : { ran: false, why: 'surface' }
   } catch (e) {
     // Codex r1 blocker 1: nothing is halted here -- stairWalkOwned halts only its own goal; the new owner keeps what it set
@@ -17958,14 +17955,12 @@ export async function stairEgressReflex (bot, { alive = () => true, ms = EGRESS_
  * walk profile is restored WITHOUT clearing the control states (setMovements' resetPath clears them: the rescue's jump). Throws
  * only an abort.
  */
-async function stairWalkOwned (bot, cell, ms, signal, { townMoves, walkMoves }) {
+async function stairWalkOwned (bot, cell, ms, signal) {
   check(signal)
   const goal = new goals.GoalBlock(cell[0], cell[1], cell[2])
   const mine = () => bot.pathfinder?.goal === goal
-  const quiet = fn => { const c = bot.clearControlStates; bot.clearControlStates = () => {}; try { fn() } finally { bot.clearControlStates = c } }
   let timer = null, onAbort = null
-  try { bot.pathfinder.setMovements(townMoves) } catch { /* not connected */ }
-  const walk = Promise.resolve().then(() => bot.pathfinder.goto(goal))
+  const walk = bot.withTownDepositWalk(() => bot.pathfinder.goto(goal), { quiet: () => !!signal?.aborted })
   try {
     await Promise.race([
       walk.catch(() => {}),
@@ -17976,8 +17971,6 @@ async function stairWalkOwned (bot, cell, ms, signal, { townMoves, walkMoves }) 
   } finally {
     if (timer) clearTimeout(timer)
     if (onAbort) signal?.removeEventListener?.('abort', onAbort)
-    // ...and only over its own profile: one someone else set while it ran is theirs
-    try { if (bot.pathfinder.movements === townMoves) { if (signal?.aborted) quiet(() => bot.pathfinder.setMovements(walkMoves)); else bot.pathfinder.setMovements(walkMoves) } } catch { /* not connected */ }
   }
   check(signal)
   const p = bot.entity?.position

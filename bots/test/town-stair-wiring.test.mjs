@@ -179,8 +179,19 @@ function livePathfinder (b) {
     goto (g) { changed(); st.goal = g; return new Promise((resolve, reject) => { st.reject = reject }) },
     stop () {},
   }
-  // index.mjs's wrapper: its finally installs the DEFAULT profile ('walk'), whatever was there before
-  b.withTownDepositWalk = async fn => { b.pathfinder.setMovements('town'); try { return await fn() } finally { b.pathfinder.setMovements('walk') } }
+  // index.mjs's wrapper, line for line (its quiet branch is asserted against index.mjs below): the finally installs the DEFAULT
+  // profile; with `quiet`, only over its own profile, and without clearing the controls once quiet() is true
+  b.withTownDepositWalk = async (fn, { quiet = null } = {}) => {
+    b.pathfinder.setMovements('town')
+    try { return await fn() } finally {
+      if (!quiet) b.pathfinder.setMovements('walk')
+      else if (b.pathfinder.movements === 'town') {
+        const keep = !!quiet(), clear = b.clearControlStates
+        if (keep) b.clearControlStates = () => {}
+        try { b.pathfinder.setMovements('walk') } finally { b.clearControlStates = clear }
+      }
+    }
+  }
   return st
 }
 async function rescueMidHop (mod, { startProfile = 'walk' } = {}) {
@@ -219,21 +230,14 @@ await t('MUTANT KILLED: a signal that only the 200 ms poll aborts lets the next 
     assert.notStrictEqual(st.goal, rescueGoal, 'the mutant walked over the rescue\'s goal')
   })
 })
-await t('MUTANT KILLED: the default profile read before the probe re-installs gather\'s digging profile', async () => {
-  await withSkillsMutant(`  let townMoves = null
-  try { if (typeof bot.withTownDepositWalk === 'function') townMoves = await bot.withTownDepositWalk(async () => bot.pathfinder.movements) } catch { townMoves = null }
-  const walkMoves = bot.pathfinder?.movements ?? null`, `  const walkMoves = bot.pathfinder?.movements ?? null
-  let townMoves = null
-  try { if (typeof bot.withTownDepositWalk === 'function') townMoves = await bot.withTownDepositWalk(async () => bot.pathfinder.movements) } catch { townMoves = null }`, async M => {
-    const { st } = await rescueMidHop(M, { startProfile: 'gather' })
-    assert.strictEqual(st.movements, 'gather', 'the mutant leaks gather\'s profile')
-  })
-})
-await t('MUTANT KILLED: restoring the walk profile the plain way clears the rescue\'s stroke', async () => {
-  await withSkillsMutant('if (signal?.aborted) quiet(() => bot.pathfinder.setMovements(walkMoves)); else', 'if (false) quiet(() => bot.pathfinder.setMovements(walkMoves)); else', async M => {
-    const { st } = await rescueMidHop(M)
-    assert.notStrictEqual(st.controls.jump, true, 'the mutant cleared the jump')
-  })
+await t('index.mjs: the town walk\'s quiet restore is wired (only over its own profile; no control clear once the body is lost)', () => {
+  const ix = fs.readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|[^:'"`])\/\/.*$/, '$1')).join('\n')
+  for (const a of ['bot.withTownDepositWalk = async (fn, { quiet = null } = {}) => {',
+    'if (!quiet) { bot.pathfinder.setMovements(moves); bot.movementProfile = \'walk\' }',
+    'else if (bot.pathfinder.movements === townDepositMoves) {',
+    'if (keep) bot.clearControlStates = () => {}']) assert.strictEqual(ix.split(a).length, 2, `missing or not unique: ${a}`)
+  const sk = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  assert.ok(sk.includes("const walk = bot.withTownDepositWalk(() => bot.pathfinder.goto(goal), { quiet: () => !!signal?.aborted })"), 'the reflex hop asks for it')
 })
 
 console.log('THE WIRING (structural: the hooks exist, in order)')

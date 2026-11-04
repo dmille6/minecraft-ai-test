@@ -761,10 +761,21 @@ function connect() {
     // THE TOWN DEPOSIT'S WALK (towndeposit.mjs townWalkMovements): the walk profile with no digging, no towers and no
     // scaffold. A town chest within 16 that needs a block placed or broken to reach is not one this order walks to.
     const townDepositMoves = townWalkMovements(moves)
-    bot.withTownDepositWalk = async (fn) => {
+    // shafttrap-02 (`quiet`, the reflex egress's hop walk: Codex r1 / Claude r2 blockers): the profile is restored only over this
+    // walk's own (one someone else set while it ran is theirs), and once quiet() says the body was lost, WITHOUT clearing the
+    // control states (setMovements' resetPath clears them: the next owner's stroke). Without `quiet`: exactly as before.
+    bot.withTownDepositWalk = async (fn, { quiet = null } = {}) => {
       bot.pathfinder.setMovements(townDepositMoves); bot.movementProfile = 'town_deposit_walk'
       try { return await fn() }
-      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
+      finally {
+        if (!quiet) { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
+        else if (bot.pathfinder.movements === townDepositMoves) {
+          const keep = !!quiet(), clear = bot.clearControlStates
+          if (keep) bot.clearControlStates = () => {}
+          try { bot.pathfinder.setMovements(moves) } finally { bot.clearControlStates = clear }
+          bot.movementProfile = 'walk'
+        }
+      }
     }
     bot.withGatherMovements = async (fn) => {
       bot.pathfinder.setMovements(gatherMoves); bot.movementProfile = 'gather'

@@ -235,7 +235,7 @@ await t('the entombed arm: the hand-over runs after takeBody and BEFORE pillarOu
   assert.ok(arm.includes("if (h === 'yield' || h === 'retry') return"))
 })
 await t('the entombed arm\'s give-up (the pickaxe ask) waits while a hand-over is due; after a fall-through it runs as before', () => {
-  assert.ok(RSRC.includes('if (escapeFailures >= ESCAPE_GIVE_UP_AFTER && !ceilingFloodRisk(bot) && !stairExitCandidate()) {'))
+  assert.ok(RSRC.includes('if (escapeFailures >= ESCAPE_GIVE_UP_AFTER && stairExitCandidate()) {  } else\n        if (escapeFailures >= ESCAPE_GIVE_UP_AFTER && !ceilingFloodRisk(bot)) {'))
   const h = span(RSRC, 'const stairExitFirst = async', 'return h\n')
   assert.ok(h.includes("if (h === 'fallthrough' || (h === 'retry' && (Number(r?.hops) || 0) > 0)) { stairEgressMemo.k = on.k; stairEgressMemo.at = Date.now() }"), 'the memo makes the candidate null for that step')
 })
