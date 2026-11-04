@@ -158,8 +158,14 @@ const SPEC = {
 const CLEAR_ITEMS = 'kill @e[type=item,x=700,y=40,z=700,distance=..24]'
 function arenaCmds (spec) { return [CLEAR_ITEMS, 'fill 692 30 692 708 52 708 minecraft:stone', ...spec.setup] }
 const KIT = process.env.AP_KIT || 'default'
-if (!['default', 'worn1', 'iron1stone', 'iron1', 'smelt', 'craft', 'mine', 'wood'].includes(KIT)) throw new Error(`AP_KIT ${KIT}`)
+if (!['default', 'worn1', 'iron1stone', 'iron1', 'smelt', 'craft', 'mine', 'wood', 'woodbare'].includes(KIT)) throw new Error(`AP_KIT ${KIT}`)
 function kitCmds () {
+  if (KIT === 'woodbare') {   // dropanddig-01: the wooden pickaxe and NO blocks, so no pillar fills the cell under the feet (DD2 stays 2 deep)
+    return [`clear ${NAME}`,
+      `item replace entity ${NAME} container.0 with minecraft:wooden_pickaxe[damage=10] 1`,
+      `item replace entity ${NAME} container.2 with minecraft:bucket 1`,
+      `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 1 20 true`]
+  }
   if (KIT === 'wood') {    // dropanddig-01: a WOODEN pickaxe only (stone floating 28 s: the fleet's time-budget refusals)
     return [`clear ${NAME}`,
       `item replace entity ${NAME} container.0 with minecraft:wooden_pickaxe[damage=10] 1`,
