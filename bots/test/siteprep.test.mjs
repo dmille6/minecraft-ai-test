@@ -362,7 +362,7 @@ const W = [
   /const land = projectHeads\(\)\.filter\(x => x\.plot === LAND_PLOT \|\| x\.plot === SITEPREP_PLOT\)/,
   /\.\.\.recordZones\(others\)\.filter\(z => !\(prepExcept && z\?\.id === prepExcept\)\)/,
   /const claim = sp \? prepClaimFor\(sp, kind\) : null/,
-  /noSiteUntil: claim \? 0 : \(bot\.sinkNoSite\?\.\[kind\] \?\? 0\)/,
+  /noSiteUntil: claim \? 0 : noSiteUntilOf\(bot\.sinkNoSite, townNoSiteRead\(\), kind\)/,   // sinkfix-04: the town's stamps too
   /const fd = prepFileDecision\(\{ on: true, kind, rec: cur, rejects: r\.rejects \?\? \{\}, now \}\)/,
   /if \(r\.meta\.prep\) \{ const hp = prepPublish\(dir, r\.meta\.prep, \{ type: 'handed', inst: r\.meta\.id \}, me\)/,
   /const r3 = await prepTick\(bot, dir, key, rec, me, signal\)/,

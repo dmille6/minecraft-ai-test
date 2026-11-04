@@ -68,6 +68,16 @@ export const SINK = Object.freeze({
 /** The rotation the picker walks (owner 11-02 Q3: roads first -- useful for the way home, flat, a high placement rate). */
 // towndress-01: the dress batch first (OWNER 11-03: lighting + signs the first piece; it spends torches, never the stone the others wait on)
 export const SINK_ROTATION = Object.freeze(['dress', 'road', 'tower', 'shrine'])
+/**
+ * SINKFIX-04: THE TOWN'S NO-SITE STAMPS (LIVE showcase 11-04 10:44-11:47Z, 15 bots restarted 10:43: road 17, shrine 15, dress 12
+ * visits, every one `no_site` -- one a bot a kind, because the no-site wait and the idle marks live in each bot's memory). A kind
+ * that found no site is held for every bot of the town for TOWN_NOSITE_MS (a town file); each bot's own SINK.noSiteMs wait stays.
+ * Pure: the stamps are a { kind: until } map.
+ */
+export const TOWN_NOSITE_MS = 2 * 60 * 60_000
+export const noSiteStamped = (map = {}, kind, now = Date.now()) => ({ ...(map && typeof map === 'object' ? map : {}), [kind]: now + TOWN_NOSITE_MS })
+/** The wait a kind is under for this bot -> ms: the later of its own and the town's. Pure. */
+export const noSiteUntilOf = (own = {}, town = {}, kind) => Math.max(Number(own?.[kind]) || 0, Number(town?.[kind]) || 0)
 
 /**
  * THE SWITCH -> bool. SINKS=on|off; unset = on in the pools SINKS_POOLS names (default 'showcase': a showcase piece first, the

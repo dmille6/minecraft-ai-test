@@ -117,6 +117,8 @@ const REQUIRED = [
   'bots/test/sinkfix2.test.mjs',
   // sinkfix-03 (11-04): one plot's failed siting no longer quiets every build order for a day
   'bots/test/sinkfix3.test.mjs',
+  // sinkfix-04 (11-04): one town-wide no-site stamp a kind; a quiet grounds order after a no-effect grounds visit
+  'bots/test/sinkfix4.test.mjs',
   // siteprep-01 (11-04): the groundskeeper prepares a plot when a sink finds no site
   'bots/test/siteprep.test.mjs',
   'bots/test/siteprepfold.test.mjs',   // the fold's prepared-claim bypass (Codex fold BLOCKER)

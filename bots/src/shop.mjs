@@ -381,6 +381,14 @@ export const siteRetryHolds = (plot, failed) => failed == null || plot == null |
 /** showcase siteprep fold (Codex fold review BLOCKER): a plot the keeper PREPARED for this bot's sink kind (skills.mjs: siteprep's
  *  prepClaimFor) is never held by the bot's own 24-h site retry -- the claim bypasses the no-site waits, else a prepared plot whose
  *  every eligible bot had failed that kind expired unclaimed (PREP.readyMs). Unset or throwing: no claim. */
+/**
+ * SINKFIX-04: IS THIS BOT'S LAST VISIT TO A PLOT IDLE-MARKED (shop.mjs noteIdle, skills.mjs bot.shopIdle)? LIVE 11-04 10:44-11:47Z:
+ * tidy 46 visits, 0 placed -- 32 helpers told `nothing of the grounds is this helper's now`, 11 helper visits `complete` with nothing
+ * done: with no sink to yield to, the order offered the grounds again every cooldown. The TIDY's order stays quiet for this bot
+ * while its mark holds (a sink wanted is offered instead, as before); every other project's order is unchanged.
+ */
+let idleOf = () => false
+export function setIdleNow (fn) { if (typeof fn === 'function') idleOf = fn }
 let prepClaimedOf = () => false
 export function setPrepClaimed (fn) { if (typeof fn === 'function') prepClaimedOf = fn }
 const prepClaimed = plot => { try { return !!prepClaimedOf(plot) } catch { return false } }
@@ -691,6 +699,7 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   let plot0 = record?.plot ?? null
   if (!record) { try { plot0 = activePlotOf() } catch { plot0 = null } }
   if (now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }
+  { let idle = false; try { idle = plot0 === TIDY_PLOT && !!idleOf(plot0) } catch { idle = false } if (idle) return { order: null, skip: 'idle' } }
   let failedSite = null
   try { failedSite = noSitePlotOf() } catch { failedSite = null }
   if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS && !prepClaimed(plot0) && siteRetryHolds(plot0, failedSite)) return { order: null, skip: 'no_site' }

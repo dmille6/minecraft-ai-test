@@ -174,10 +174,10 @@ import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
-import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
+import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
 import { siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
-import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount } from './sinks.mjs'   // picker-01
+import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount, noSiteStamped, noSiteUntilOf } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
@@ -20414,7 +20414,7 @@ function sinkStatesNow (bot, states, now = Date.now()) {
       const { rec: _rec, ...rest } = s
       const open = sinkOpen(rec)
       let next = false, why = open ? 'open' : 'no_bot'
-      if (!open && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : pr, openCount, noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : (bot.sinkNoSite?.[kind] ?? 0), now, ready: sinkReady(kind) }); next = g.want; why = g.why }
+      if (!open && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : pr, openCount, noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now, ready: sinkReady(kind) }); next = g.want; why = g.why }
       st[kind] = { open, want: next, sitedAt: instancesOf(rec).at(-1)?.sitedAt ?? 0, why }
       return { ...rest, sinkOpen: open, sinkNext: next, sinkWhy: why }
     })
@@ -20605,7 +20605,7 @@ async function buildSink (ctx, args, signal, proj) {
     const sp = siteprepHead(dir)
     const claim = sp ? prepClaimFor(sp, kind) : null
     if (claim && prepHandedIn(rec0, claim.id)) { const hp = prepPublish(dir, claim.id, { type: 'handed', inst: prepHandedIn(rec0, claim.id).id }, me); prepRow(bot, 'success', { op: 'handed', id: claim.id, kind, why: 'already', gen: hp.gen }) }
-    const g = sinkNextGate({ kind, rec: rec0, pressure: pr, openCount: stoneOpenCount(recs), noSiteUntil: claim ? 0 : (bot.sinkNoSite?.[kind] ?? 0), now: Date.now(), ready: sinkReady(kind) })
+    const g = sinkNextGate({ kind, rec: rec0, pressure: pr, openCount: stoneOpenCount(recs), noSiteUntil: claim ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now: Date.now(), ready: sinkReady(kind) })
     if (!g.want) return out('no_effect', 'complete', `the ${plot} sink wants no instance now (${g.why}; pressure ${pr.p})`, { stop: 'complete' })
     const r = await sinkSiteFor(bot, kind, rec0, { ...h.head.plan, gen: h.head.gen }, c, stood, signal, claim && !prepHandedIn(rec0, claim.id) ? { prep: prepPin(claim) } : {})
     check(signal)
@@ -20618,6 +20618,7 @@ async function buildSink (ctx, args, signal, proj) {
       if (claim && r.why !== 'unfunded') { const hp = prepPublish(dir, claim.id, { type: 'hand_fail', why: Object.keys(r.rejects ?? {})[0] ?? r.why }, me); prepRow(bot, 'no_effect', { op: 'hand_fail', id: claim.id, kind, state: hp.req?.state, why: `${r.why}:${tried}`, gen: hp.gen }) }
       if (claim) return out('no_effect', 'no_site', `the prepared ${kind} plot ${claim.id} did not site (${r.why}) ${tried}`.slice(0, 160), { stop: 'no_site' })
       bot.sinkNoSite = { ...(bot.sinkNoSite ?? {}), [kind]: Date.now() + SINK.noSiteMs }
+      townNoSiteWrite(kind)   // sinkfix-04: every bot of the town waits on it (sinks.mjs TOWN_NOSITE_MS)
       try { logEvent({ kind: 'sink', status: 'no_effect', snapshot: snapshot(bot), detail: sinkRowDetail({ op: 'no_site', kind, n: instancesOf(rec0).length + 1, p: pr.p, tried, why: r.why }) }) } catch { /* telemetry */ }
       // siteprep-01: a refusal the earth can fix files a SITE REQUEST (one live a kind; the keeper prepares a plot)
       if (SITEPREP.on && r.why !== 'unfunded') {
@@ -20835,6 +20836,16 @@ export function keeperNow (bot, now = Date.now()) {
 }
 setKeeperNow(() => keeperNow(activeMem?.bot ?? null))
 setNoSitePlot(() => activeMem?.bot?.shopNoSitePlot ?? null)   // sinkfix-03
+setIdleNow(plot => (activeMem?.bot?.shopIdle?.get?.(plot) ?? -Infinity) > Date.now())   // sinkfix-04: the tidy's quiet order
+/** sinkfix-04: the town's no-site stamps (sinks.mjs noSiteStamped) -> { kind: until }; a missing or unreadable file is none. */
+const townNoSiteFile = () => path.join(townDir(), `sink-nosite-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}.json`)
+function townNoSiteRead () { try { const j = JSON.parse(fs.readFileSync(townNoSiteFile(), 'utf8')); return j && typeof j === 'object' ? j : {} } catch { return {} } }
+function townNoSiteWrite (kind) {
+  try {
+    const f = townNoSiteFile(), tmp = `${f}.${process.pid}.${Date.now().toString(36)}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(noSiteStamped(townNoSiteRead(), kind, Date.now()))); fs.renameSync(tmp, f)
+  } catch { /* the bot's own wait still holds */ }
+}
 // showcase siteprep fold (Codex fold BLOCKER): a sink plot with a PREPARED request of its kind is never held by the order's site retry
 setPrepClaimed(plot => isSinkPlot(plot) && !!prepClaimFor(siteprepHead(), sinkKindOf(plot)))
 // ---- gkhelpers-01: THE GROUNDS CREW (groundskeeper.mjs helperDecision; owner 11-03 A) -------------------------------------------

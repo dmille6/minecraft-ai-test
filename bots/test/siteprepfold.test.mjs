@@ -50,7 +50,7 @@ const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/g
 await t('WIRED (skills.mjs): the order hook reads the prepared claim; the picker passes a prepared kind past this bot\'s no-site wait', () => {
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(/setPrepClaimed\(plot => isSinkPlot\(plot\) && !!prepClaimFor\(siteprepHead\(\), sinkKindOf\(plot\)\)\)/.test(sk))
-  assert.strictEqual(sk.split('noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : (bot.sinkNoSite?.[kind] ?? 0)').length, 2)
+  assert.strictEqual(sk.split('noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind)').length, 2)   // sinkfix-04: the town's stamps too
 })
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
