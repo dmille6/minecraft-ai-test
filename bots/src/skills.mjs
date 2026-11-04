@@ -146,7 +146,7 @@ import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
-import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening } from './wall.mjs'   // wall-01; wallext-01
+import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone } from './wall.mjs'   // wall-01; wallext-01; wallext-02
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS } from './yard.mjs'   // yarduse-01
@@ -17204,7 +17204,7 @@ const bpCache = new Map()
 // wall-01: the wall has none either (wall.mjs sites it; WALL_PALETTE)
 // shaft-02: the town stair has none either (shaftgeom.mjs plans it; its visit and its damage test are its own)
 // picker-01: a sink's palette is its record's (every instance's roles): its blueprint here names no palette of its own
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT || id === WALLEXT_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT || id === WALLEXT_BLUEPRINT || id === WALLDEMO_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -17230,6 +17230,8 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         const complete = !!rec?.structure_complete
         // wallext-01: the unsited extension WAITS on its opening rule (wall.mjs wallextOpening: a complete wall, the hall beyond one side)
         if (p.plot === WALLEXT_PLOT && !rec && !wallextOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        // wallext-02: the demolition WAITS until the extension stands (wall.mjs walldemoOpening)
+        if (p.plot === WALLDEMO_PLOT && !rec && !walldemoOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
         // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
@@ -19263,6 +19265,7 @@ async function buildShopVisit (ctx, args, signal) {
   // wall-01: the town wall's visit (wall.mjs siting; the monument's draw and bag)
   if (proj.plot === WALL_PLOT) return buildWall(ctx, args, signal)
   if (proj.plot === WALLEXT_PLOT) return buildWall(ctx, args, signal, WALLEXT_KIND)   // wallext-01: the same rampart, its own siting
+  if (proj.plot === WALLDEMO_PLOT) return buildWallDemo(ctx, args, signal)   // wallext-02: the old line comes down
   // shaft-02: the town stair's visit (an excavation, top down: shaftvisit.mjs)
   if (proj.plot === SHAFT_PLOT) return buildStair(ctx, args, signal)
   // treefarm-04: the town tree farm's visit (treefarm.mjs siting; the harvest, then the build)
@@ -20769,6 +20772,107 @@ const WALL_KIND = Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, na
   site: async (bot, c, h, dir) => siteWall(planReader(bot), wallInputs(bot, c, h, dir)) })
 const WALLEXT_KIND = Object.freeze({ plot: WALLEXT_PLOT, blueprint: WALLEXT_BLUEPRINT, name: 'the wall extension', switches: 'WALLEXT, WALL, STOREHUB, PATHS, SHOP or TOWNPLAN',
   site: async (bot, c, h, dir, signal) => siteWallExt(planReader(bot), { ...wallextInputs(bot, c, h, dir), pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }) })
+/** wallext-02: is the demolition's opening rule met (wall.mjs walldemoOpening)? Never throws: unreadable is not open. */
+function walldemoOpenNow (dir = townDir()) {
+  try { const w = recordHead(dir, projKeyOf(WALL_PLOT)), x = recordHead(dir, projKeyOf(WALLEXT_PLOT)); return w.ok && x.ok && walldemoOpening(w.head?.rec ?? null, x.head?.rec ?? null).open } catch { return false }
+}
+/**
+ * WALLEXT-02: THE OLD LINE COMES DOWN (wall.mjs; owner 11-04 O1). build_shop's visit for `walldemo`: unsited, it RETIRES the old wall's
+ * cells on the shared line (a new generation of the wall record without them: no repair rebuilds them, its zones no longer keep the
+ * tidy off their ground) and then sites the demolition record (their blocks as a clear list); sited, the visit runner's clears dig
+ * them (`_build op=clear kind=demolish project=walldemo`), and the record completes when none stands. Nothing is drawn; the dug
+ * blocks ride in the bag like any dig's and are banked by the usual deposits. WALLDEMO=off: nothing retired or dug.
+ */
+async function buildWallDemo (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: WALLDEMO_PLOT }
+  const out = (status, outcome, detail, extra = {}) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, detail, stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === WALLDEMO_PLOT)) return out('no_effect', 'off', 'the old line\'s demolition is switched off (WALLDEMO, WALLEXT, WALL, SHOP or TOWNPLAN)')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(WALLDEMO_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  bot.shopVisitKey = key
+  const read = planReader(bot)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the demolition record could not be read')
+  if (!rh.head) {
+    const wh = recordHead(dir, projKeyOf(WALL_PLOT)), xh = recordHead(dir, projKeyOf(WALLEXT_PLOT))
+    if (!wh.ok || !xh.ok) return out('no_effect', 'record_unreadable', 'the wall or extension record could not be read')
+    const wall = wh.head?.rec ?? null, ext = xh.head?.rec ?? null
+    const o = walldemoOpening(wall, ext)
+    if (!o.open) return out('no_effect', 'waiting', `the demolition waits (${o.why})`, { stop: 'waiting' })
+    // 1. RETIRE first (idempotent: a wall already retired is left as it is), so no repair rebuilds what comes down
+    const d = demoCells(wall, ext)
+    if (!d.cells.length) return out('no_effect', 'no_site', 'nothing of the old wall stands on the shared line', { stop: 'no_site' })
+    const pubW = publishRecord(dir, projKeyOf(WALL_PLOT), cur => (cur && cur.structure_complete ? retireWall(cur, demoCells(cur, ext)) : null), { by: me })
+    if (pubW.result === 'error' || pubW.result === 'lost') return out('no_effect', 'lost_record', `the wall record could not be retired (${pubW.result})`)
+    if (pubW.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'retired', cell: [home.x, home.y, home.z], kind: `cells${d.cells.length}/cols${d.cols.length}`, gen: pubW.gen }) }) } catch { /* telemetry */ } }
+    const w2 = recordHead(dir, projKeyOf(WALL_PLOT))
+    if (!w2.ok || !w2.head) return out('no_effect', 'record_unreadable', 'the wall record could not be read back')
+    // 2. THE DEMOLITION RECORD from the retired cells, read now
+    const s = demoRecord(read, w2.head.rec, ext, { home })
+    if (!s.ok) return out('no_effect', s.why === 'unknown' ? 'site_unread' : 'no_site', `no demolition (${s.why})`, { stop: s.why === 'unknown' ? 'site_unread' : 'no_site' })
+    // never complete at siting (Codex r2 BLOCKER: a repair's late placement): the visit completes it once the retirement settles
+    const rec0 = s.record
+    const pub = publishRecord(dir, key, cur => (cur ? null : { ...rec0, state: 'open' }), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the demolition record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALLDEMO_PLOT, op: 'sited', cell: [home.x, home.y, home.z], kind: `clear${rec0.clear.length}/cols${rec0.cols.length}/skipped${Object.values(rec0.skipped ?? {}).reduce((a, b) => a + b, 0)}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the demolition record could not be read back')
+  }
+  let rec = rh.head.rec
+  if (rec.structure_complete) return out('no_effect', 'complete', 'the old line is down')
+  // the wall and the extension as they stand now: a late block on a retired cell (a repair's placement that landed after the
+  // retirement) is appended to the list before the visit (wall.mjs demoMissing)
+  const wNow = recordHead(dir, projKeyOf(WALL_PLOT)), xNow = recordHead(dir, projKeyOf(WALLEXT_PLOT))
+  if (!wNow.ok || !xNow.ok || !wNow.head || !xNow.head) return out('no_effect', 'record_unreadable', 'the wall or extension record could not be read')
+  const late = demoMissing(rec, wNow.head.rec, xNow.head.rec, read)
+  if (late.length) {
+    const pubL = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, clear: [...(cur.clear ?? []), ...demoMissing(cur, wNow.head.rec, xNow.head.rec, read)] } : null), { by: me })
+    if (pubL.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALLDEMO_PLOT, op: 'late', cell: late[0].at, kind: `late${late.length}`, gen: pubL.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the demolition record could not be read back')
+    rec = rh.head.rec
+  }
+  const slot = takeSlot(dir, key, me, WALLDEMO_BUILDERS)
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  let effects = null
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    const keep = townKeeps(heldMap(bot), { wanted: bot.currentWants ?? [] }).keep
+    effects = botBuildEffects(bot, {
+      acks, keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: WALLDEMO_PLOT, ...d }) : buildRowDetail({ project: WALLDEMO_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    const r = await runVisit({ dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), record: rec, recordGen: rh.head.gen, palette: WALL_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, stands: (bot.walldemoStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true,
+      domain: () => true, walkR: wallWalkR({ cells: rec.clear }, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // COMPLETE when no listed block stands (the runner's own `complete` reads cells only: a record with none is always `complete`)
+    const left = demoLeft(rec, read)
+    if (demoDone(rec, wNow.head.rec, xNow.head.rec, read)) {
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALLDEMO_PLOT, op: 'complete', kind: WALLDEMO_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+    }
+    const stop = left.length ? (r.stop === 'complete' ? 'clears_left' : r.stop) : demoDone(rec, wNow.head.rec, xNow.head.rec, read) ? 'complete' : 'settling'
+    return out(r.cleared > 0 ? 'success' : 'no_effect', stop, `${r.why ?? stop}; down ${rec.clear.length - left.length}/${rec.clear.length}`, { stop, cleared: r.cleared, slot: slot.slot, gen: rh.head.gen })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100))
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slot.gen)
+    try { effects?.close() } catch { /* gone */ }
+  }
+}
 async function buildWall (ctx, args, signal, K = WALL_KIND) {
   const { bot } = ctx
   const t0 = Date.now()

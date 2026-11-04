@@ -17,6 +17,7 @@ const LP = await import('../src/landplan.mjs')
 const T = await import('../src/tidy.mjs')
 const P = await import('../src/paths.mjs')
 const { recordZones } = SHOP
+const WP = new URL('../src/wall.mjs', import.meta.url)
 
 let pass = 0, fail = 0
 const t = async (name, fn) => {
@@ -263,6 +264,159 @@ await t('THE ORDER (shop.mjs): after the hall, waiting until it opens; guarded w
   assert.notStrictEqual(SHOP.activeProject([...base.filter(s => s.plot !== 'storehub'), st('storehub', { complete: false }), { plot: 'wallext', exists: false, complete: false, damaged: false }], on).plot, 'wallext', 'never before the hall stands')
 })
 
+// ---- wallext-01 r2: TWO hall-size plots (owner O2: the enchanting/anvil workshop, then the town hall), then houses ----
+await t('PLOT VALUE (r2): a hall-size plot is worth 2, a house-size 1, each kind to its max (2 halls, 3 houses)', () => {
+  const P = (kind, n) => Array.from({ length: n }, (_, i) => ({ id: `X${i}`, kind, box: [0, 0, 1, 1] }))
+  assert.strictEqual(W.plotValue([...P('hall', 2), ...P('house', 3)]), 7)
+  assert.strictEqual(W.plotValue([...P('hall', 3), ...P('house', 5)]), 7, 'capped per kind')
+  assert.strictEqual(W.plotValue([...P('hall', 1), ...P('house', 3)]), 5, 'one hall short is worth less than two halls and one house (5)')
+  assert.strictEqual(W.plotValue([...P('hall', 2), ...P('house', 1)]), 5)
+  const p = W.wallExtPlots(server().read, [-40, -58, 40, -20], { home: HOME, want: 9 })
+  assert.strictEqual(p.filter(q => q.kind === 'hall').length, 2, 'never more than 2 hall-size plots')
+  assert.strictEqual(p.filter(q => q.kind === 'house').length, 3, 'never more than 3 house-size plots')
+})
+
+// ---- wallext-02: the old line comes down (owner O1 "remove left over blocks") ----
+const extFor = (wall, o = {}) => ({ side: 'N', join: { axis: 'z', line: wall.ring[1], from: wall.ring[0], to: wall.ring[2] }, structure_complete: true, ...o })
+await t('DEMO CELLS: the old wall\'s cells in a built line column strictly inside the span, 0..3 in from the line; never a corner, never deeper, never a base', () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const ext = extFor(wall, { join: { axis: 'z', line: -12, from: -8, to: 8 } })
+  const d = W.demoCells(wall, ext)
+  assert.ok(d.cells.length > 10, `${d.cells.length}`)
+  const built = wall.cols.filter(c => c.z === -12 && c.x > -8 && c.x < 8 && (c.s === 'wall' || c.s === 'post')).map(c => c.x)
+  assert.deepStrictEqual(d.cols.map(c => c[0]), built, 'exactly the built line columns inside the span')
+  for (const c of d.cells) {
+    assert.ok(built.includes(c.at[0]), 'its column is one of them')
+    assert.ok(c.at[2] >= -12 && c.at[2] <= -9, 'at most 3 in (toward the old town: +z for a north extension)')
+    assert.notStrictEqual(c.role, 'base')
+  }
+  assert.ok(!d.cells.some(c => c.at[0] <= -8 || c.at[0] >= 8), 'the span\'s ends stay')
+  // positive control: the same wall has cells outside the span and deeper on the other sides
+  assert.ok(wall.cells.some(c => c.at[2] === -12 && (c.at[0] <= -8 || c.at[0] >= 8)))
+  assert.strictEqual(W.demoCells(wall, { ...ext, side: 'Q' }).cells.length, 0, 'no line: nothing')
+})
+await t('THE RETIREMENT: the cells leave the wall record (named in `retired`), its zones recomputed, the line columns read retired; idempotent', () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const ext = extFor(wall, { join: { axis: 'z', line: -12, from: -8, to: 8 } })
+  const d = W.demoCells(wall, ext)
+  const r = W.retireWall(wall, d, { now: 5 })
+  const gone = new Set(d.cells.map(c => c.at.join(',')))
+  assert.strictEqual(r.cells.length, wall.cells.length - d.cells.length)
+  assert.ok(!r.cells.some(c => gone.has(c.at.join(','))))
+  assert.strictEqual(r.retired.length, d.cells.length); assert.ok(r.retired.every(c => c.by === 'walldemo'))
+  const inZ = (x, z) => r.zones.some(q => x >= q.box[0] && x <= q.box[3] && z >= q.box[2] && z <= q.box[5])
+  const mid = d.cols[Math.floor(d.cols.length / 2)]
+  assert.ok(!inZ(mid[0], mid[1] + 1), 'a retired column\'s ground is no reservation any more')
+  assert.ok(inZ(12, 0), 'the rest of the wall still reserved')
+  assert.ok(r.cols.filter(c => c.why === 'retired').length === d.cols.length)
+  assert.strictEqual(W.retireWall(r, W.demoCells(r, ext)), null, 'again: nothing to retire')
+  assert.deepStrictEqual(W.demoCells(r, ext).cells.map(c => c.at.join(',')).sort(), d.cells.map(c => c.at.join(',')).sort(), 'demoCells reads the retired list')
+})
+await t('THE DEMOLITION RECORD lists what stands there now (wall palette or a torch); air and other blocks are passed; unread refuses', () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const ext = extFor(wall, { join: { axis: 'z', line: -12, from: -8, to: 8 } })
+  const d = W.demoCells(wall, ext)
+  for (const c of wall.cells) srv.set(c.at, c.role === 'light' ? 'wall_torch' : c.role === 'post' ? 'stone_bricks' : 'cobblestone')
+  srv.set(d.cells[0].at, 'air'); srv.set(d.cells[1].at, 'oak_planks')
+  const s = W.demoRecord(srv.read, W.retireWall(wall, d), ext, { home: HOME })
+  assert.ok(s.ok, s.why)
+  assert.strictEqual(s.record.clear.length, d.cells.length - 2)
+  assert.deepStrictEqual(s.skipped, { air: 1, oak_planks: 1 })
+  assert.ok(s.record.clear.every(c => c.kind === 'demolish'))
+  assert.deepStrictEqual(s.record.cells, [])
+  assert.strictEqual(W.demoRecord(() => null, wall, ext, { home: HOME }).why, 'unknown')
+  assert.deepStrictEqual(W.walldemoOpening(wall, { ...ext, structure_complete: false }), { open: false, why: 'ext_open' })
+  assert.deepStrictEqual(W.walldemoOpening(wall, ext), { open: true, why: 'ok' })
+})
+await t('DEMOLISHED END TO END: two fake builders run the bots\' own visit on the demolition record; every listed block dug, nothing else', async () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  for (const c of wall.cells) srv.set(c.at, c.role === 'light' ? 'wall_torch' : c.role === 'post' ? 'stone_bricks' : 'cobblestone')
+  const ext = extFor(wall, { join: { axis: 'z', line: -12, from: -8, to: 8 } })
+  const rec = W.demoRecord(srv.read, W.retireWall(wall, W.demoCells(wall, ext)), ext, { home: HOME }).record
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'walldemo-'))
+  const key = PJ.projKey(HOME, W.WALLDEMO_PLOT)
+  const pub = PJ.publishRecord(dir, key, () => ({ ...rec }))
+  const names = ['A', 'B']
+  const bots = Object.fromEntries(names.map((n, i) => [n, bot(srv, n, { inv: { cobblestone: 0 }, feet: [i, G + 1, 0] })]))
+  const stands = Object.fromEntries(names.map(n => [n, { pending: null, bans: {} }]))
+  for (let round = 0; round < 30 && W.demoLeft(rec, srv.read).length; round++) {
+    for (const n of names) {
+      const slot = PJ.takeSlot(dir, key, n, W.WALLDEMO_BUILDERS)
+      await R.runVisit({ dir, key, me: n, home: HOME, stood: [], record: rec, recordGen: pub.gen, palette: W.WALL_PALETTE, slot: slot.slot, slotGen: slot.gen,
+        domain: () => true, walkR: W.wallWalkR({ cells: rec.clear }, HOME), foreign: W.WALL_FOREIGN, blockLayer: false, clearMax: W.WALL_CLEAR_MAX, stands: stands[n] }, bots[n], { maxSteps: 400 })
+      PJ.releaseLease(dir, key, `slot${slot.slot}`, n, slot.gen)
+    }
+  }
+  assert.strictEqual(W.demoLeft(rec, srv.read).length, 0, `left: ${W.demoLeft(rec, srv.read).slice(0, 4).map(c => c.at).join(' ')}`)
+  const listed = new Set(rec.clear.map(c => c.at.join(',')))
+  const rows = Object.values(bots).flatMap(b => b.logs).filter(([k]) => k === '_build').map(([, d]) => d)
+  assert.ok(rows.filter(d => d.op === 'clear').length >= rec.clear.length)
+  for (const d of rows.filter(d => d.op === 'clear')) assert.ok(listed.has(d.cell.join(',')) && d.kind === 'demolish', `outside the list ${d.cell}`)
+  assert.ok(!rows.some(d => d.op === 'place'), 'nothing placed')
+  const kept = wall.cells.filter(c => !listed.has(c.at.join(',')))
+  assert.ok(kept.every(c => srv.read(...c.at).name !== 'air'), 'the rest of the old wall stands')
+})
+await t('A LATE BLOCK (Codex r2 BLOCKER: a repair placement landing after the retirement) is found, listed and must go; done only after the settle', () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const ext = extFor(wall, { join: { axis: 'z', line: -12, from: -8, to: 8 } })
+  const d = W.demoCells(wall, ext)
+  for (const c of wall.cells) srv.set(c.at, c.role === 'light' ? 'wall_torch' : c.role === 'post' ? 'stone_bricks' : 'cobblestone')
+  const late = d.cells.find(c => c.role === 'wall')
+  srv.set(late.at, 'air')                                                   // the repair's placement is still in flight at the siting
+  const retired = { ...W.retireWall(wall, d, { now: 1_000 }) }
+  const rec = W.demoRecord(srv.read, retired, ext, { home: HOME }).record
+  assert.ok(!rec.clear.some(c => c.at.join(',') === late.at.join(',')), 'not listed: it read air')
+  srv.set(late.at, 'cobblestone')                                           // ... and lands
+  for (const c of rec.clear) srv.set(c.at, 'air')                           // every listed block dug
+  assert.strictEqual(W.demoLeft(rec, srv.read).length, 0, 'positive control: the list alone reads done')
+  const miss = W.demoMissing(rec, retired, ext, srv.read)
+  assert.deepStrictEqual(miss.map(c => c.at.join(',')), [late.at.join(',')], 'the late block is found')
+  assert.strictEqual(W.demoDone(rec, retired, ext, srv.read, 1_000 + W.WALLDEMO_SETTLE_MS), false, 'not done while it stands')
+  const rec2 = { ...rec, clear: [...rec.clear, ...miss] }
+  srv.set(late.at, 'air')
+  assert.strictEqual(W.demoDone(rec2, retired, ext, srv.read, 1_000 + W.WALLDEMO_SETTLE_MS - 1), false, 'not before the settle')
+  assert.strictEqual(W.demoDone(rec2, retired, ext, srv.read, 1_000 + W.WALLDEMO_SETTLE_MS), true)
+  assert.strictEqual(W.demoMissing(rec2, retired, ext, srv.read).length, 0)
+  // Codex r2b BLOCKER: an UNREAD in-scope cell (an unloaded chunk) is never "nothing there"
+  const blind = (x, y, z) => (x === late.at[0] && y === late.at[1] && z === late.at[2] ? null : srv.read(x, y, z))
+  assert.strictEqual(W.demoDone(rec2, retired, ext, blind, 1_000 + W.WALLDEMO_SETTLE_MS), false, 'unread defers completion')
+  assert.strictEqual(W.demoDone({ ...rec2, clear: [] }, retired, ext, () => null, 1_000 + W.WALLDEMO_SETTLE_MS), false, 'nothing read: never done')
+})
+await t('THE ORDER (wallext-02): after the extension, waiting until it stands; WALLDEMO=off drops it; a light plot', () => {
+  const on = SHOP.projectsOn(true, true, true, true, false, true, false, true, true, true, false, false, [], false, true, true, true)
+  const i = on.findIndex(p => p.plot === 'walldemo'), e = on.findIndex(p => p.plot === 'wallext')
+  assert.ok(i === e + 1 && e >= 0); assert.strictEqual(on[i].after, 'wallext')
+  assert.ok(!SHOP.projectsOn(true, true, true, true, false, true, false, true, true, true, false, false, [], false, true, true, false).some(p => p.plot === 'walldemo'))
+  assert.ok(!SHOP.projectsOn(true, true, true, true, false, true, false, true, true, true, false, false, [], false, true, false, true).some(p => p.plot === 'walldemo'), 'never without the extension')
+  assert.ok(SHOP.LIGHT_PLOTS.has('walldemo'))
+})
+await t('MUTANT KILLED: a demolition reaching past the span\'s ends (>= instead of >) takes a corner', async () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const ext = extFor(wall, { join: { axis: 'z', line: -12, from: -8, to: 8 } })
+  // a corner column built on the fake ring's line at x 8 (the span's end) when there is one
+  const endBuilt = wall.cols.some(c => c.z === -12 && (c.x === -8 || c.x === 8) && (c.s === 'wall' || c.s === 'post'))
+  const ext2 = endBuilt ? ext : extFor(wall, { join: { axis: 'z', line: -12, from: wall.cols.find(c => c.z === -12 && c.s === 'wall').x, to: 11 } })
+  await withMutant('a > L.from && a < L.to', 'a >= L.from && a <= L.to', async M => {
+    const j = ext2.join
+    const real = W.demoCells(wall, ext2).cells, mut = M.demoCells(wall, ext2).cells
+    assert.ok(!real.some(c => c.at[0] === j.from || c.at[0] === j.to))
+    assert.ok(mut.some(c => c.at[0] === j.from || c.at[0] === j.to), 'the mutant takes an end column')
+  })
+})
+await t('MUTANT KILLED: a demolition deeper than WALLDEMO_DEPTH, and one taking a foundation', async () => {
+  const wall = { cols: [{ x: 0, z: -12, s: 'wall' }], cells: [{ at: [0, G, -12], role: 'base', seg: 'W-00' }, { at: [0, G + 1, -12], role: 'wall', seg: 'W-00' }, { at: [0, G + 1, -8], role: 'step', seg: 'W-00' }] }
+  const ext = { side: 'N', join: { axis: 'z', line: -12, from: -5, to: 5 }, structure_complete: true }
+  assert.deepStrictEqual(W.demoCells(wall, ext).cells.map(c => c.role), ['wall'])
+  await withMutant("c.role !== 'base' && lineCols.has(along(c.at))", 'lineCols.has(along(c.at))', async M => { assert.ok(M.demoCells(wall, ext).cells.some(c => c.role === 'base')) })
+  await withMutant('return d >= 0 && d <= depth', 'return d >= 0', async M => { assert.ok(M.demoCells(wall, ext).cells.some(c => c.role === 'step')) })
+})
+
 // ---- the wiring (structural: a dispatch, an argument, an input -- what behaviour cannot reach from here), comments stripped ----
 const SK = new URL('../src/skills.mjs', import.meta.url)
 const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|[^:'"`])\/\/.*$/, '$1')).join('\n')
@@ -277,6 +431,11 @@ const WIRES = [
   ['the order waits on the opening rule', "if (p.plot === WALLEXT_PLOT && !rec && !wallextOpenNow(dir)) return {"],
   ['the extension\'s sapling keep-out is the wall\'s', "r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT ? wallSaplingCols(r) :"],
   ['the old wall never encloses the extension', "x.plot !== WALL_PLOT && x.plot !== WALLEXT_PLOT).map(x => ({ plot: x.plot, rec: x.head.rec }))"],
+  ['wallext-02: the visit dispatches the demolition', "if (proj.plot === WALLDEMO_PLOT) return buildWallDemo(ctx, args, signal)"],
+  ['wallext-02: the wall is retired BEFORE the demolition is sited', "const pubW = publishRecord(dir, projKeyOf(WALL_PLOT), cur => (cur && cur.structure_complete ? retireWall(cur, demoCells(cur, ext)) : null), { by: me })"],
+  ['wallext-02: the demolition is complete only when done (nothing listed or late stands, the retirement settled)', "if (demoDone(rec, wNow.head.rec, xNow.head.rec, read)) {"],
+  ['wallext-02: a late block on a retired cell is appended before the visit', "const late = demoMissing(rec, wNow.head.rec, xNow.head.rec, read)"],
+  ['wallext-02: the order waits on the demolition\'s opening rule', "if (p.plot === WALLDEMO_PLOT && !rec && !walldemoOpenNow(dir)) return {"],
 ]
 await t('THE WIRING in skills.mjs: each line present once (executable, comments stripped)', () => {
   for (const [what, line] of WIRES) assert.strictEqual(SRC.split(line).length - 1, 1, `${what}: ${line}`)
@@ -285,13 +444,12 @@ await t('THE WIRING CHECK FAILS for the intended reason: each line, mutated, is 
   const raw = readFileSync(SK, 'utf8')
   for (const [what, line] of WIRES) {
     assert.strictEqual(raw.split(line).length - 1, 1, `ANCHOR MISSING OR NOT UNIQUE: ${what}`)
-    const mut = strip(raw.replace(line, line.replace(/WALLEXT|wallext|ext\)|siteWallExt|K\.site/, 'XX')))
+    const mut = strip(raw.replace(line, line.replace(/WALLEXT|wallext|ext\)|siteWallExt|K\.site|WALLDEMO|retireWall|demoLeft|demoDone|demoMissing/, 'XX')))
     assert.strictEqual(mut.split(line).length - 1, 0, `the mutant of "${what}" still matches`)
   }
 })
 
 // ---- mutants of the module's decisions (anchored: present and unique) ----
-const WP = new URL('../src/wall.mjs', import.meta.url)
 async function withMutant (old, neu, fn) {
   const src = readFileSync(WP, 'utf8')
   assert.ok(src.split(old).length === 2, `ANCHOR MISSING OR NOT UNIQUE: ${JSON.stringify(old.slice(0, 70))}`)

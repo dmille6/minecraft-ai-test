@@ -787,13 +787,14 @@ export const WALLEXT_BLUEPRINT = 'wallext@1'
 /**
  * THE EXTENSION'S BOUNDS. margin: the hall's box to the ring (the old wall's least margin); grow: the steps the rectangle is widened
  * along the shared line on each side; growOut: the steps it is deepened outward; plotsWant: plots beyond which a bigger rectangle
- * buys nothing; plotGap: between two plots and between a plot and the hall's box (PROJECT_GAP); plotSpread: a plot's ground range;
+ * buys nothing (r2, owner O2: TWO hall-size plots -- the enchanting/anvil workshop and the town hall -- then three house-size; a
+ * candidate is ranked by plotValue); plotGap: between two plots and between a plot and the hall's box (PROJECT_GAP); plotSpread: a plot's ground range;
  * lane: a plot's least distance from the ring's line (the walk, the fire-step, the approach and a lane); plotSizes: hall size
  * (storehub@1 19 x 11 and the copper hall 15 x 13 both fit 19 x 13) then house size (house@1 7 x 7 and its step ring); tries: the
  * candidates (best first by their plots, then the shortest ring) proven; builtMin: the least share of the ring's own (non-join)
  * columns that must stand as wall (a side that runs along a road corridor is all gateway: no wall at all).
  */
-export const WALLEXT = Object.freeze({ margin: 6, grow: [0, 4, 8, 12, 16, 20, 24, 28], growOut: [0, 4, 8, 12, 16, 20, 24], plotsWant: 4, plotGap: 3, plotSpread: 4, lane: 5, plotSizes: Object.freeze([Object.freeze({ kind: 'hall', w: 19, d: 13 }), Object.freeze({ kind: 'house', w: 11, d: 11 })]), tries: 10, builtMin: 0.5 })
+export const WALLEXT = Object.freeze({ margin: 6, grow: [0, 4, 8, 12, 16, 20, 24, 28], growOut: [0, 4, 8, 12, 16, 20, 24], plotsWant: 5, plotGap: 3, plotSpread: 4, lane: 5, plotSizes: Object.freeze([Object.freeze({ kind: 'hall', w: 19, d: 13, max: 2, value: 2 }), Object.freeze({ kind: 'house', w: 11, d: 11, max: 3, value: 1 })]), tries: 10, builtMin: 0.5 })
 /** THE SWITCH -> bool. WALLEXT=on|off; unset = on in the pools WALLEXT_POOLS names (default the showcase). Pure. */
 export function wallextOn (env = process.env, pool = '') {
   const v = String(env?.WALLEXT ?? '').trim().toLowerCase()
@@ -910,7 +911,8 @@ export function wallExtPlots (read, domain, { home, refuse = () => null, near = 
   const clash = b => taken.some(t => b[0] <= t[2] + gap && b[2] >= t[0] - gap && b[1] <= t[3] + gap && b[3] >= t[1] - gap)
   const out = []
   for (const s of sizes) {
-    for (;;) {
+    let n = 0
+    for (; n < (s.max ?? Infinity); n++) {
       if (out.length >= want) return out
       let best = null
       for (const [w, d] of s.w === s.d ? [[s.w, s.d]] : [[s.w, s.d], [s.d, s.w]]) {
@@ -936,6 +938,13 @@ export function wallExtPlots (read, domain, { home, refuse = () => null, near = 
     }
   }
   return out
+}
+/** wallext-01 r2 (owner 11-04 O2: an enchanting + anvil workshop on a hall-size plot, then a TOWN HALL on a second one, then houses):
+ *  WHAT A SET OF PLOTS IS WORTH -> each kind's plots up to its `max`, times its `value` (a hall-size plot 2, a house-size 1). Pure. */
+export function plotValue (plots = [], sizes = WALLEXT.plotSizes) {
+  let v = 0
+  for (const s of sizes) v += Math.min(plots.filter(p => p.kind === s.kind).length, s.max ?? Infinity) * (s.value ?? 1)
+  return v
 }
 /**
  * THE EXTENSION'S SITING -> { ok, why, record, tried }. Pure over `read`. The bot's own (skills.mjs buildWall for WALLEXT) and the
@@ -990,7 +999,7 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
       const a = scanG(q.x, q.z), b = scanG(...terraceAt(q, 2))
       if (!a.why && !b.why && a.y != null && b.y != null && Math.abs(a.y - b.y) <= 2) lv++
     }
-    cands.push({ ...c, plots: Math.min(plots.length, W.plotsWant), per, level: nv ? Math.round((lv / nv) * 20) / 20 : 0 })
+    cands.push({ ...c, plots: plotValue(plots, W.plotSizes), per, level: nv ? Math.round((lv / nv) * 20) / 20 : 0 })
     if (pause) await pause()
   }
   cands.sort((p, q) => q.plots - p.plots || q.level - p.level || p.per - q.per)
@@ -1019,7 +1028,7 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
     const built = own ? (cand.counts.wall + cand.counts.post) / own : 0
     t.built = Math.round(built * 100) / 100
     if (built < W.builtMin) { t.why = 'too_open'; continue }
-    const score = Math.min(plots.length, W.plotsWant) * 100 + built * 50 - c.per * 0.1 - cand.cost * 0.05
+    const score = plotValue(plots, W.plotSizes) * 100 + built * 50 - c.per * 0.1 - cand.cost * 0.05
     t.score = Math.round(score * 10) / 10
     if (best && best.score >= score) continue
     const L = extLine(ring, side)
@@ -1079,3 +1088,134 @@ export function wallextOpening (wallRec, hubRec) {
   if (!extSide(wallRec.ring, hubRec.box)) return { open: false, why: 'hub_not_beyond_a_side' }
   return { open: true, why: 'ok' }
 }
+
+// ================================================================================================================================
+// WALLEXT-02: THE OLD LINE COMES DOWN (owner 11-04 O1 "remove left over blocks"). Once the extension stands, the old wall's runs on
+// the SHARED line inside the extension's span -- on the showcase x 3..8 and 17..25 -- are demolished, so the town reads as one walled
+// area; the ground they stood on becomes inside-the-walls ground (the groundskeeper's inwall stage fills and levels it). PURE.
+//   1. RETIRE: the old wall record gets a new generation without those cells (`retired` names them; its zones are recomputed), so
+//      no repair ever rebuilds them and no reservation keeps the tidy off their ground.
+//   2. DEMOLISH: the project `walldemo` (`walldemo@1`): no cells, a CLEAR list -- each retired cell with the block it holds when the
+//      demolition is sited (a wall palette block: cobblestone / mossy / stone bricks, a torch) -- dug by the visit runner's clears.
+//      Complete when no listed block reads its name.
+// What may come down: old wall cells (never a foundation `base`: that is ground) in a column whose line column is strictly inside the
+// extension's join span (the corners, where the extension's sides meet the old line, stay) and at most WALLDEMO_DEPTH in from the line
+// (the body, the walk, the fire-step and the approach). Nothing else of the old wall, nothing of another record.
+// ================================================================================================================================
+export const WALLDEMO_PLOT = 'walldemo'
+export const WALLDEMO_BLUEPRINT = 'walldemo@1'
+export const WALLDEMO_DEPTH = 3
+export const WALLDEMO_BUILDERS = 2
+/** THE SWITCH -> bool. WALLDEMO=on|off; unset = on in the pools WALLDEMO_POOLS names (default the showcase). Pure. */
+export function walldemoOn (env = process.env, pool = '') {
+  const v = String(env?.WALLDEMO ?? '').trim().toLowerCase()
+  if (['on', '1', 'true', 'yes'].includes(v)) return true
+  if (['off', '0', 'false', 'no'].includes(v)) return false
+  const pools = String(env?.WALLDEMO_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
+  return pools.includes('*') || pools.includes(String(pool))
+}
+/** The extension's shared line, read from its record -> { axis, line, from, to, inward } | null (inward: the sign of a step from the
+ *  line into the OLD town: N -> +z, S -> -z, W -> +x, E -> -x). Pure. */
+export function demoLine (extRec) {
+  const j = extRec?.join
+  if (!j || !['x', 'z'].includes(j.axis) || ![j.line, j.from, j.to].every(Number.isFinite)) return null
+  const inward = { N: 1, S: -1, W: 1, E: -1 }[extRec.side]
+  if (!inward) return null
+  return { axis: j.axis, line: j.line, from: j.from, to: j.to, inward }
+}
+/**
+ * WHAT COMES DOWN -> { cols: [[x, z]], cells: [{ at, role, seg }] }. Pure. The old wall's cells (its head's `cells` and its `retired`:
+ * idempotent across the retirement) whose ALONG coordinate is a built line column (wall or post, in any generation's cols as given)
+ * strictly inside the join span, at 0..WALLDEMO_DEPTH in from the line, never a `base`.
+ */
+export function demoCells (wallRec, extRec, depth = WALLDEMO_DEPTH) {
+  const L = demoLine(extRec)
+  if (!L || !wallRec) return { cols: [], cells: [] }
+  const along = q => (L.axis === 'z' ? q[0] : q[2]), across = q => (L.axis === 'z' ? q[2] : q[0])
+  const lineCols = new Set()
+  for (const c of wallRec.cols ?? []) {
+    const a = L.axis === 'z' ? c.x : c.z, b = L.axis === 'z' ? c.z : c.x
+    if (b === L.line && a > L.from && a < L.to && (c.s === 'wall' || c.s === 'post' || (c.s === 'open' && c.why === 'retired'))) lineCols.add(a)
+  }
+  const cells = [...(wallRec.cells ?? []), ...(wallRec.retired ?? [])]
+    .filter(c => Array.isArray(c?.at) && c.role !== 'base' && lineCols.has(along(c.at)))
+    .filter(c => { const d = (across(c.at) - L.line) * L.inward; return d >= 0 && d <= depth })
+  const seen = new Set()
+  const out = cells.filter(c => { const k = c.at.join(','); if (seen.has(k)) return false; seen.add(k); return true }).map(c => ({ at: [...c.at], role: c.role, seg: c.seg }))
+  return { cols: [...lineCols].sort((a, b) => a - b).map(a => (L.axis === 'z' ? [a, L.line] : [L.line, a])), cells: out }
+}
+/**
+ * THE RETIREMENT -> the old wall record's next body (or null when nothing is left to retire). Pure. `cells` (demoCells') leave `cells`
+ * and join `retired` ({ at, role, seg, by }); the zones are every REMAINING record column + 1 again (zoneBoxes); the line columns
+ * they stood on read { s: 'open', why: 'retired' } in `cols`.
+ */
+export function retireWall (wallRec, demo, { now = Date.now() } = {}) {
+  if (!wallRec || !demo?.cells?.length) return null
+  const gone = new Set(demo.cells.map(c => c.at.join(',')))
+  const keep = (wallRec.cells ?? []).filter(c => !gone.has(c.at.join(',')))
+  if (keep.length === (wallRec.cells ?? []).length) return null
+  const retired = [...(wallRec.retired ?? []), ...(wallRec.cells ?? []).filter(c => gone.has(c.at.join(','))).map(c => ({ at: [...c.at], role: c.role, seg: c.seg, by: WALLDEMO_PLOT }))]
+  const lineK = new Set(demo.cols.map(([x, z]) => k2(x, z)))
+  const zset = new Set()
+  for (const c of keep) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) zset.add(k2(c.at[0] + dx, c.at[2] + dz))
+  const cols = (wallRec.cols ?? []).map(c => (lineK.has(k2(c.x, c.z)) ? { x: c.x, z: c.z, s: 'open', why: 'retired' } : c))
+  const used = new Set(keep.map(c => c.seg))
+  return { ...wallRec, cells: keep, retired, cols, zones: zoneBoxes(zset), segments: (wallRec.segments ?? []).filter(s => used.has(s.seg)), retiredAt: now }
+}
+/** A block a retired cell may be dug as: its role's wall palette, a torch for a light (placed on a side: wall_torch). Pure. */
+const demoName = (role, name) => (role === 'light' ? /^(wall_)?torch$/.test(name) : (WALL_PALETTE[role] ?? []).includes(name))
+/**
+ * THE DEMOLITION RECORD -> { ok, why, record, skipped }. Pure over `read`. Every demoCells cell read NOW: a wall palette block is
+ * listed to dig (kind 'demolish', its name); air or anything else is passed (`skipped`, by name: never dug); an UNREAD cell refuses
+ * the siting (`unknown`: asked again when the chunk is loaded).
+ */
+export function demoRecord (read, wallRec, extRec, { home, now = Date.now() } = {}) {
+  const d = demoCells(wallRec, extRec)
+  if (!d.cells.length) return { ok: false, why: 'nothing_to_remove', record: null }
+  const clear = [], skipped = {}
+  for (const c of d.cells) {
+    const b = read(...c.at)
+    if (!b) return { ok: false, why: 'unknown', record: null, at: c.at }
+    const n = nm(b)
+    if (demoName(c.role, n)) clear.push({ at: [...c.at], kind: 'demolish', name: n, role: c.role })
+    else skipped[n] = (skipped[n] ?? 0) + 1
+  }
+  const record = {
+    v: 1, blueprint: WALLDEMO_BLUEPRINT, plot: WALLDEMO_PLOT, home: home ? { x: home.x, y: home.y, z: home.z } : null,
+    cells: [], clear: clear.sort((a, b) => b.at[1] - a.at[1]), replant: [], segments: [{ seg: 'D-00', deps: [] }], zones: [],
+    cols: d.cols, line: demoLine(extRec), skipped, builders_max: WALLDEMO_BUILDERS, structure_complete: false, sitedAt: now,
+  }
+  return { ok: true, why: 'ok', record, skipped }
+}
+/** The listed blocks still standing (each reads its listed name) -> [entry]. Pure over `read` (unread counts as standing). */
+export const demoLeft = (rec, read) => (rec?.clear ?? []).filter(c => { const b = read(...c.at); return !b || nm(b) === c.name })
+/** THE OPENING RULE -> { open, why }. Pure. After the extension stands (and the wall), with a shared line to read. */
+export function walldemoOpening (wallRec, extRec) {
+  if (!wallRec?.structure_complete) return { open: false, why: 'no_wall' }
+  if (!extRec?.structure_complete) return { open: false, why: 'ext_open' }
+  if (!demoLine(extRec)) return { open: false, why: 'no_line' }
+  return { open: true, why: 'ok' }
+}
+/**
+ * A LATE BLOCK ON THE OLD LINE (Codex r2 BLOCKER: a wall repair's placement sent before the retirement can land after the demolition
+ * was sited; nothing would own it) -> [clear entry] the in-scope retired cells holding a wall palette block that the record does not
+ * list with that name. Pure over `read`. The visit appends them (a new generation) and digs them; the record completes only when
+ * none is left AND the retirement is WALLDEMO_SETTLE_MS old (no repair visit outlives it).
+ */
+export const WALLDEMO_SETTLE_MS = 5 * 60_000
+export function demoMissing (demoRec, wallRec, extRec, read) {
+  const listed = new Set((demoRec?.clear ?? []).map(c => `${c.at.join(',')}|${c.name}`))
+  const out = []
+  for (const c of demoCells(wallRec, extRec).cells) {
+    const b = read(...c.at)
+    if (!b) continue
+    const n = nm(b)
+    if (demoName(c.role, n) && !listed.has(`${c.at.join(',')}|${n}`)) out.push({ at: [...c.at], kind: 'demolish', name: n, role: c.role })
+  }
+  return out
+}
+/** Is the demolition done -> bool. Pure over `read`: every in-scope retired cell READ (Codex r2b BLOCKER: an unloaded chunk is never
+ *  "nothing there"), nothing listed stands, nothing late is unlisted, the retirement has settled. */
+export const demoDone = (demoRec, wallRec, extRec, read, now = Date.now()) =>
+  demoCells(wallRec, extRec).cells.every(c => !!read(...c.at)) &&
+  !demoLeft(demoRec, read).length && !demoMissing(demoRec, wallRec, extRec, read).length && Number.isFinite(wallRec?.retiredAt) && now - wallRec.retiredAt >= WALLDEMO_SETTLE_MS
