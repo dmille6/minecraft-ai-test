@@ -166,6 +166,9 @@ export const projectsGuarded = (list = projectsOn()) => {
   for (const p of PROJECTS) if (p.plot === CROPFARM_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   // wallext-01: a sited wall extension stays guarded whatever its switch (its cells, its zones, its plots)
   for (const p of PROJECTS) if (p.plot === WALLEXT_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
+  // wallext-02 (Codex hold r2 BLOCKER): the demolition's head is read whatever its switch -- a completed demolition then always lifts
+  // its hold (skills.mjs projectHeads: wall.mjs wallAsHeld), even after WALLDEMO=off
+  for (const p of PROJECTS) if (p.plot === WALLDEMO_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   return out
 }
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */

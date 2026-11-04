@@ -438,6 +438,8 @@ await t('THE ORDER (wallext-02): after the extension, waiting until it stands; W
   assert.ok(!SHOP.projectsOn(true, true, true, true, false, true, false, true, true, true, false, false, [], false, true, true, false).some(p => p.plot === 'walldemo'))
   assert.ok(!SHOP.projectsOn(true, true, true, true, false, true, false, true, true, true, false, false, [], false, true, false, true).some(p => p.plot === 'walldemo'), 'never without the extension')
   assert.ok(SHOP.LIGHT_PLOTS.has('walldemo'))
+  // Codex hold r2 BLOCKER: read whatever its switch (a complete demolition always lifts its hold)
+  assert.ok(SHOP.projectsGuarded(SHOP.projectsOn(true, true, true, true, false, true, false, true, true, true, false, false, [], false, true, true, false)).some(p => p.plot === 'walldemo'), 'guarded when WALLDEMO=off')
 })
 await t('MUTANT KILLED: a demolition reaching past the span\'s ends (>= instead of >) takes a corner', async () => {
   const srv = server()
@@ -491,7 +493,7 @@ const WIRES = [
   ['wallext-02: every head reader sees the wall without the hold once the demolition is complete', "if (w && dm?.head?.rec?.structure_complete) w.head = { ...w.head, rec: wallAsHeld(w.head.rec, dm.head.rec) }"],
   ['wallext-02: the hold is the tidy\'s `reserved` (read first)', "const reserved = (x, z) => held(x, z) || rz.some("],
   ['wallext-02: the hold is released only once the demolition is complete', "if (pub.result === 'accepted' || pub.result === 'nothing') release()"],
-  ['wallext-02: a complete demolition retries the release', "if (rec.structure_complete) { release(); return out('no_effect', 'complete', 'the old line is down') }"],
+  ['wallext-02: a visit to a complete demolition tidies up the release (cleanup: the hold is already off in projectHeads)', "if (rec.structure_complete) { release(); return out('no_effect', 'complete', 'the old line is down') }"],
   ['wallext-02: a late block on a retired cell is appended before the visit', "const late = demoMissing(rec, wNow.head.rec, xNow.head.rec, read)"],
   ['wallext-02: the order waits on the demolition\'s opening rule', "if (p.plot === WALLDEMO_PLOT && !rec && !walldemoOpenNow(dir)) return {"],
 ]
