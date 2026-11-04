@@ -730,6 +730,18 @@ export function bucketSituation (bot) {
   } catch { return '' }
 }
 
+/**
+ * ATLAS-01: the town's shared map (atlas.mjs mapLine through bot.atlas, installed only where ATLAS is on) -> the MAP line | ''.
+ * The finds that serve the task (the milestone's wants and the items cognitive derived from it) come first. Never throws.
+ */
+export function atlasLine (bot, milestone = null, wanted = null) {
+  try {
+    if (!bot?.atlas?.line) return ''
+    const w = [...[milestone?.wants ?? []].flat(), ...(wanted ? [...wanted] : [])].filter(x => typeof x === 'string')
+    return bot.atlas.line({ wants: w }) || ''
+  } catch { return '' }
+}
+
 export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null }) {
   const p = bot.entity.position
   const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants })
@@ -755,6 +767,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     waterSituation(bot),
     bucketSituation(bot),
     yContext(p.y),
+    atlasLine(bot, milestone, wanted),
     Object.keys(memory.locations).length
       ? `KNOWN PLACES: ${Object.entries(memory.locations).map(([k, v]) => `${k}(${v.x},${v.y},${v.z})`).join(', ')}`
       : '',
