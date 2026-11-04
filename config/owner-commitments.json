@@ -533,7 +533,7 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "swimcentre-01 is the queued SURVIVAL entry (after bagdiet-01). Next survival item after it is NOT built: drop-and-dig (swimcentre-01-1103 memory) or minelava-01 (row mine-safety-minelava) -- start that build now",
+   "next_step": "swimcentre-01 is the queued SURVIVAL entry (after bagdiet-01). Next S after it: swimunder-01 (row dropdig-1103; built, queue entry drafted for the control session), then drop-and-dig-01 (design in docs/reports/dropdig-design-2026-11-03.md section 7).",
    "max_quiet_hours": 24,
    "depends_on": [],
    "evidence": {
@@ -3766,6 +3766,38 @@
     ]
    },
    "note": "7 d to 11-03 04:27Z: 174 deaths (drowning 63, falls 53 incl. stalagmites, suffocation 31, fire 27). Lifts owner-no-more-stuck-drowning-hunts for PLANNED fixes only (no hunts). Cap: one survival canary in every two slots."
+  },
+  {
+   "id": "dropdig-1103",
+   "title": "Next SURVIVAL fixes after swimcentre-01: swimunder-01 (a bot pinned in water under a wet ceiling swims out under the wall) then drop-and-dig-01 (dig the air pocket standing)",
+   "owner_date": "2026-11-03",
+   "memory": [
+    "dropdig-1103.md",
+    "swimcentre-01-1103.md",
+    "owner-gaps-1103.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "survival agent / control session",
+   "next_step": "swimunder-01 BUILT on fleet 53fd28ee: branch swimout01-on-53fd28e tip ec7c7cf6 (pushed); Codex r1-r4 + Claude r1/r4 no blockers; Paper sandbox6 isolated-d cut base stayed 4/4, candidate escaped 6/6 by the swim. Registration ~/mcai-analysis/swimunder-01.ec7c7cf6.json and DRAFT entry ~/mcai-analysis/swimunder-01.queue-entry.json on the canary host: the control session queues it (S, after swimcentre-01 and bundle-1103a) once the full suite on .30 (~/ci/swimunder-01b.log) shows only known base failures. drop-and-dig-01 is design only (report section 7).",
+   "max_quiet_hours": 48,
+   "depends_on": [],
+   "evidence": {
+    "runs": [
+     "swimunder-01"
+    ],
+    "branches": [
+     "swimout01-on-*"
+    ],
+    "grep": [
+     "swimunder"
+    ],
+    "paths": [
+     "docs/reports/dropdig-design-2026-11-03.md"
+    ]
+   },
+   "note": "72 h to 11-03 21Z (5,760 bot-h, 80/80 bots): wet-ceiling still spells 120.2 of 302.7 still bot-h (isolated-d-Delta 41.7 h + Echo 38.0 h in one cell, isolated-c-Bravo 19.2 h); drownings 26 (drop-and-dig population ~5 in 49 h). Ranked by bot-time (pin first) and by deaths (drop-and-dig first); Codex independently the same. swimcentre-01 does not cover the pin."
   },
   {
    "id": "canarybundle-1103",

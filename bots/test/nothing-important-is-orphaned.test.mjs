@@ -345,6 +345,8 @@ const REQUIRED = [
   // lavatarget-01 (10-31): explore never heads for a sighting beside lava the bot has seen
   'bots/src/lavatarget.mjs',
   'bots/test/lavatarget.test.mjs',
+  // dropdig (11-03): the next survival fixes after swimcentre-01 (swimunder-01, drop-and-dig-01), measured and reconciled with Codex
+  'docs/reports/dropdig-design-2026-11-03.md',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
