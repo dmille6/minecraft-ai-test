@@ -413,10 +413,18 @@ export function prepHoldOf (open, given = () => false, { stalls = 0, P = PREP } 
  * this visit moved something, or the open work fell since the last visit (helpers filling while the keeper's own visits place
  * nothing: Claude code r5 BLOCKER) -- resets it; otherwise it counts one more.
  */
+// r7 (Codex r6 BLOCKER: the count was taken from the work open BEFORE the visit, so helpers filling during it went unseen; Claude r6
+// note: a count that rises and falls reset on every fall): `n` is the open work AFTER the visit, and only a new LOW -- below the
+// lowest the attempt has seen -- is progress
 export function prepStallNext (prev, n, moved = 0) {
-  if (moved > 0 || (prev && Number.isFinite(prev.n) && n < prev.n)) return { n, stalls: 0 }
-  return { n, stalls: (Number(prev?.stalls) || 0) + 1 }
+  const lo = Number.isFinite(prev?.min) ? prev.min : Infinity
+  const min = Math.min(lo, n)
+  if (moved > 0 || (Number.isFinite(lo) && n < lo)) return { n, min, stalls: 0 }
+  return { n, min, stalls: (Number(prev?.stalls) || 0) + 1 }
 }
+/** THE STALLS THAT HOLD NOW -> int. Pure. Open work below the attempt's low since the last keeper visit (helpers filling in between)
+ *  is progress: none hold. Read by the tick, the selection and the completion before they judge the hold. */
+export const prepStallsNow = (prev, n) => (prev && Number.isFinite(prev.min) && n < prev.min ? 0 : Number(prev?.stalls) || 0)
 /**
  * THE PREP'S CUTS IN LAYERS (Baritone #404/#728: a cutter that takes a column to the bottom first digs itself a shaft; Codex review r1
  * BLOCKER 5): the highest layer across the plot first, each layer nearest-neighbour from `start` -> the cuts. No cut column is ever

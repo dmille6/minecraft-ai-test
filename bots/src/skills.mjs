@@ -176,7 +176,7 @@ import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PL
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
-import { siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
+import { siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { groupOfItem } from './townindex.mjs'
@@ -21143,7 +21143,7 @@ function prepWorking (dir, rec, read, done, given = () => false, stalls = null) 
     const q = prepActive(siteprepHead(dir))
     if (q?.state !== 'prepping' || rec?.prep?.[q.id]?.att !== prepAttempt(q)) return null
     const open = prepOpen(rec, q.id, read, done)
-    return { id: q.id, n: open.n, hold: prepHoldOf(open, given, { stalls: Number(stalls?.[`${q.id}:${prepAttempt(q)}`]?.stalls) || 0 }) }
+    return { id: q.id, n: open.n, hold: prepHoldOf(open, given, { stalls: prepStallsNow(stalls?.[`${q.id}:${prepAttempt(q)}`] ?? null, open.n) }) }
   } catch { return null }
 }
 /** THE KEEPER'S PREP TICK -> the tidy record's new head | null (unchanged). Never throws but an abort. */
@@ -21223,7 +21223,7 @@ async function prepTick (bot, dir, key, rec, me, signal) {
   // this attempt's work not on the head (a stage advanced over a finished prep, or the work's publish was lost): the requester's
   // own proof on the REAL world decides, as for finished work (Codex r2 BLOCKER 1)
   const open = rec?.prep?.[q.id]?.att === prepAttempt(q) ? prepOpen(rec, q.id, read, done) : null
-  const hold = prepHoldOf(open, k => tidyGivenUp(bot.tidyGiven ?? null, k), { stalls: Number(bot.prepStalls?.[`${q.id}:${prepAttempt(q)}`]?.stalls) || 0 })
+  const hold = prepHoldOf(open, k => tidyGivenUp(bot.tidyGiven ?? null, k), { stalls: prepStallsNow(bot.prepStalls?.[`${q.id}:${prepAttempt(q)}`] ?? null, open?.n ?? 0) })
   // Claude code r2 BLOCKER: only cuts this keeper has given up are left -- the attempt is retired now (its standing cuts leave the
   // record), never held to its expiry
   if (hold === 'stuck') {
@@ -21440,7 +21440,8 @@ async function buildTidy (ctx, args, signal) {
     // Codex r5 BLOCKER: ONE open-work predicate for the selection, the tick and the completion -- the world and the record's
     // persisted waivers; the visit's transient guards (farm water, a cell another project took) only skip a cell inside the visit, so a
     // prep blocked by them is selected, moves nothing, and reaches the stall backstop
-    const prepDone = q => !!q.prev || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || buildCellDone(read(...q.at), palette, q.role)
+    const prepDoneIn = rd => q => !!q.prev || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || buildCellDone(rd(...q.at), palette, q.role)
+    const prepDone = prepDoneIn(read)
     const prepSt = !floorOnly && SITEPREP.on ? prepWorking(dir, rec, read, prepDone, k => tidyGivenUp(mem, k), bot.prepStalls) : null
     const prepNow = prepSt?.hold === 'work' ? prepSt.id : null
     if (prepNow) { f.prep = prepNow; visitRec = { ...rec, cells: (rec.cells ?? []).filter(q => q.prep === prepNow), segments: (rec.segments ?? []).filter(sg => String(sg.seg).startsWith(`${prepNow}-`)), clear: (rec.clear ?? []).filter(q => q.prep === prepNow), replant: [] } }
@@ -21522,7 +21523,8 @@ async function buildTidy (ctx, args, signal) {
       ...(GROUNDS.on ? { segOk: crew.segOk, segYield: crew.segYield, skipOpenDeps: true } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     // siteprep-01 r5: a prep visit that moved nothing counts toward the attempt's stall backstop (siteprep.mjs prepHoldOf); one that
     // placed or cleared resets it
-    if (prepNow) { const sk = `${prepNow}:${rec.prep?.[prepNow]?.att ?? 0}`; bot.prepStalls = { ...(bot.prepStalls ?? {}), [sk]: prepStallNext(bot.prepStalls?.[sk] ?? null, prepSt.n, (r.placed ?? 0) + (r.cleared ?? 0)) } }
+    // (the open work read AFTER the visit, fresh: helpers filling during it are progress -- Codex r6 BLOCKER)
+    if (prepNow) { const sk = `${prepNow}:${rec.prep?.[prepNow]?.att ?? 0}`; const fr = tidyRead(bot); bot.prepStalls = { ...(bot.prepStalls ?? {}), [sk]: prepStallNext(bot.prepStalls?.[sk] ?? null, prepOpen(rec, prepNow, fr, prepDoneIn(fr)).n, (r.placed ?? 0) + (r.cleared ?? 0)) } }
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts)
     const read2 = tidyRead(bot)
     const cutAt = new Map((rec.cut ?? []).map(q => [q.at.join(','), q]))

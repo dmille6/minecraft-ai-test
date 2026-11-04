@@ -288,9 +288,22 @@ await t('the stall count: the keeper placing nothing while the helpers fill (ope
   assert.strictEqual(s.stalls, 3)
   assert.strictEqual(P.prepHoldOf({ n: 20, cells: [{ at: [0, 0, 0] }], cuts: [], clears: [] }, () => false, { stalls: s.stalls }), 'stuck')
   assert.strictEqual(P.prepStallNext(s, 20, 5).stalls, 0)
+  // Codex r6: helpers fill DURING the keeper's third idle visit (20 -> 14, the count read after it): no stall; and fills between
+  // visits void the held stalls before the hold is judged
+  const two = { n: 20, min: 20, stalls: 2 }
+  assert.strictEqual(P.prepStallNext(two, 14, 0).stalls, 0)
+  assert.strictEqual(P.prepStallsNow({ n: 20, min: 20, stalls: 3 }, 14), 0)
+  assert.strictEqual(P.prepStallsNow({ n: 20, min: 20, stalls: 3 }, 20), 3)
+  // Claude r6: open work that rises and falls (an unloaded chunk read as open) resets only below its lowest
+  let w = null
+  for (const n of [20, 26, 22, 26, 22]) w = P.prepStallNext(w, n, 0)
+  assert.strictEqual(w.stalls, 5)
 })
+await t('mutant: the held stalls blind to helpers filling between visits retire a productive prep', () => killed('siteprep.mjs', P,
+  'export const prepStallsNow = (prev, n) => (prev && Number.isFinite(prev.min) && n < prev.min ? 0 : Number(prev?.stalls) || 0)', 'export const prepStallsNow = (prev, n) => (Number(prev?.stalls) || 0)',
+  M => assert.strictEqual(M.prepStallsNow({ n: 20, min: 20, stalls: 3 }, 14), 0)))
 await t('mutant: a stall count blind to the helpers\' progress retires a prep they are filling', () => killed('siteprep.mjs', P,
-  ' || (prev && Number.isFinite(prev.n) && n < prev.n)) return { n, stalls: 0 }', ') return { n, stalls: 0 }',
+  '  if (moved > 0 || (Number.isFinite(lo) && n < lo)) return { n, min, stalls: 0 }', '  if (moved > 0) return { n, min, stalls: 0 }',
   M => { let s = null; for (const n of [40, 34, 28, 20]) s = M.prepStallNext(s, n, 0); assert.strictEqual(s.stalls, 0) }))
 await t('mutant: without the stall backstop a greened opener holds the keeper to the expiry', () => killed('siteprep.mjs', P,
   "  if (stalls >= P.stallVisits) return 'stuck'\n", '',
@@ -359,7 +372,7 @@ const W = [
   /if \(caps\.complete && !crewHeld && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/,
   /if \(hold === 'stuck'\) \{\n\s*if \(!retire\(q\.id\)\) return head\(\)/,
   /const prepNow = prepSt\?\.hold === 'work' \? prepSt\.id : null/,
-  /\[sk\]: prepStallNext\(bot\.prepStalls\?\.\[sk\] \?\? null, prepSt\.n, \(r\.placed \?\? 0\) \+ \(r\.cleared \?\? 0\)\)/,
+  /\[sk\]: prepStallNext\(bot\.prepStalls\?\.\[sk\] \?\? null, prepOpen\(rec, prepNow, fr, prepDoneIn\(fr\)\)\.n, \(r\.placed \?\? 0\) \+ \(r\.cleared \?\? 0\)\)/,
   /const prepSt = !floorOnly && SITEPREP\.on \? prepWorking\(dir, rec, read, prepDone, /,
   /cur\.prep\?\.\[q\.id\]\?\.att !== prepAttempt\(q\) \? withPrep\(/,
   /if \(name === 'snow' \|\| name === 'water'\) \{ try \{ props = b\.getProperties/,
