@@ -1308,7 +1308,11 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       const cellColsA = new Set([...cells].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
       const inBox = (x, z) => boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3])
       const nl = inwallNoLitter(terrace?.records ?? [])
-      const freeA = (x, z) => inBox(x, z) && !usedA.has(k2(x, z)) && !reservedP(x, z) && !nl(x, z) && !noStair(x, z) && (() => { const w = avoid(x, z); return !w || BUILD_WHY.test(String(w)) })()
+      // the showcase plotprep-02 fold (Codex fold BLOCKER): never across a reserved plot -- a flat unsited plot has no worked columns
+      // (pp.cols) and the tidy's `avoid` leaves the land plan's reservations out: every wall-extension plot's box, whole
+      const plotBoxesA = (terrace?.wallext?.plots ?? []).map(q => q?.box).filter(b => Array.isArray(b) && b.length === 4 && b.every(Number.isFinite))
+      const inPlotA = (x, z) => plotBoxesA.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3])
+      const freeA = (x, z) => inBox(x, z) && !inPlotA(x, z) && !usedA.has(k2(x, z)) && !reservedP(x, z) && !nl(x, z) && !noStair(x, z) && (() => { const w = avoid(x, z); return !w || BUILD_WHY.test(String(w)) })()
       let n = 0
       const spotsTried = []
       for (const sp of climbSpots(terrace.climbs, { now })) {
