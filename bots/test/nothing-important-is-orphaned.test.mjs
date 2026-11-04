@@ -153,6 +153,10 @@ const REQUIRED = [
   'docs/reports/enchantshop-2026-11-04/codex-design.md',
   'docs/reports/enchantshop-2026-11-04/make_enchantshop.py',
   'docs/reports/enchantshop-2026-11-04/offline-siting-showcase-1104.json',
+  // obsidian-01 / bucketfix-01 (11-04): the obsidian design, the Paper proof driver, the bucketfix registration
+  'docs/reports/obsidian-design-2026-11-04.md',
+  'sandbox/enchant/obsidian-proof.cjs',
+  'docs/reports/obsidian-2026-11-04/bucketfix-01.88c981a1.json',
   // copperhall-01 (11-02): the showcase copper hall, its blueprint and its test over the showcase terrace's own region export
   'bots/src/copperhall.mjs',
   'bots/src/blueprints/hall@1.json',

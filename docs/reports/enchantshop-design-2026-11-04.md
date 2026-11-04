@@ -172,3 +172,44 @@ for=enchant_table|enchant_shelves`; EF1 off_record 0; `_build_bag`/cargo: no `ca
   park keeps its stock.
 - **E2:** obsidian (P4) is tier 3 (lava + mining + `bucket.mjs`): a fleet canary after a Paper proof, or a showcase-only piece?
 - **E3:** the lectern: a chest holds the books now; a lectern costs one more shelf (3 leather). Later, or never?
+
+## 11. canefarm-01: the sugar cane bed (owner 11-04 E1 "a dedicated cane bed like the tree farm")
+
+**Status: READY TO STAGE (showcase), not staged.** Branch `canefarm-show` @ `74fe6093` (on `enchantshop-show-v2`, below). Tier 2 (not
+protected). Rollback `CANEFARM=off`. Tripwire CF1 in main's `shopread.py.txt` (NOT installed).
+
+- **Why:** the books need 138 cane; the town has none; the 61 cane in bags is the park's planting stock (never the workshop's).
+- **The bed** (`bots/src/canefarm.mjs`, the crop farm's pattern): cane cells on NATURAL water edges (vanilla SugarCaneBlock: soil -- dirt
+  family or sand -- with water in a cardinal cell at its level), 2 air above to grow, a dry stand beside each that is never another cane
+  cell or a reserved column; the best 12 x 12 cluster of up to 16 cells (at least 6), 10..96 from home, off every reservation. No water is
+  ever placed (bucket.mjs is protected).
+- **The visit** (`skills.mjs buildCaneFarm`): site once (no site: a town-wide 30-min wait, the order offers the next project); the
+  HARVEST cuts the **second** block from each ripe cell's stand (re-read first: ripe, the cut and the bottom block still cane, in reach --
+  the bottom one stays and regrows; the owner's "harvested above the bottom block"); a town draw when the bag cannot plant the open cells;
+  runVisit places the cane; the bank takes only what the visit brought (`caneBankable`: the bag's own cane is never banked). Upkeep `due`:
+  ripe under the town's cap of 192, or open with cane to plant; a bed with open cells and no cane anywhere completes (its replant is the
+  upkeep's once cane arrives).
+- **Offline** (11-04 18:45Z copy, the r3 extension record): 54 water-edge cells off every reservation; **8 cells at x -69..-65, z 55..64**
+  (the south-west pond, 90 from home), 0 cells or stands in a reservation. At ~18 min a block per cell, 8 cells give ~25 cane an hour of
+  growth: the 138 for the books in ~6 h of growth.
+- **Tests:** `bots/test/canefarm.test.mjs` (11: the cell rule, the siting with a refusal's positive control, the states, the second-block
+  harvest, due, the bank rule, planted end to end by the real visit runner and passed with no cane, the order, 4 module mutants, 9 wiring
+  checks + 5 broken-line mutants); shop.test's anchor cut, showcase-on-fleet and house project lists. **Suite ci2 at `74fe6093`:
+  421/425** (ceilescape, nothing-important-is-orphaned, protected-paths: the base; lavastep: a known flake).
+- **Reviews:** Codex code r1 **BLOCK 3**, all fixed in `8a41a910`: (1) a no-site bed held the order (the wait is now town-wide and in the
+  picker), (2) no cane anywhere left the bed open for good (it completes; the replant is upkeep), (3) the workshop's no-site wait met the
+  order's 24-h no_site retry (its stop is now `site_wait`, the wait the same town-wide stamp). Note fixed: suspicious_gravel is not cane
+  soil. **r2 fix confirmation: PASS** ([`codex-canefarm-review-r1.md`](enchantshop-2026-11-04/codex-canefarm-review-r1.md)).
+- **CF1 (two engines):** the harvest is on the record only as sugar cane cut at the second block of a cane cell of the bed's chain; a cane
+  harvest is a mutation (G3). Before CF1 a `project=canefarm op=harvest` row was not judged at all. Selftest ok; mutants **151/151** (5 new).
+  **Claude subagent APPROVE, Codex APPROVE** ([`codex-cf1-review-r1.md`](enchantshop-2026-11-04/codex-cf1-review-r1.md)).
+
+## 12. The workshop on the re-sited extension (coordinator 11-04, wallext-v2-show a2e0e91e)
+
+The storage hall moved to x 10..28, z -59..-49 and the extension was re-sited round it: **X1 = x 10..28, z -75..-63** (ground 67-69).
+`enchantshop-show-v2` @ `0ea7aea4` = the workshop (with anvilapply) merged onto `wallext-v2-show` (one conflict: the guarded list, both
+kept). The workshop takes X1 by id from the extension's `plots` (no box hard-coded). **Offline (18:45Z copy, r3 record): X1 holds 8
+spruces; one of 9 logs reaching y 77 at 25,-64 is out of a builder's reach from the pad -> screenSite `tree_out_of_reach`, no site.** With
+the plot's trees felled (what the groundskeeper's in-wall stage does inside the extension): **sited x 11..27, z -74..-64, floor 69**, door
+south toward the hall, fill 75 / cut 21, 0 cells or fit cells in a reservation. Until the trees are down the workshop WAITS (r4/r5: the
+town-wide site wait, stop `site_wait`), then tries again. Tests and targeted suites green on the merged base.

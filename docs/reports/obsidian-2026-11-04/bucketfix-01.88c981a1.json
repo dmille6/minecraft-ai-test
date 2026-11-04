@@ -1,0 +1,15 @@
+{
+ "run_id": "bucketfix-01",
+ "sha": "88c981a12b5bf24619c9f8aa357c2a55f543b96e",
+ "registered_at": "2026-11-04T20:00:00Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] bucketfix-01 @ 88c981a1 on fleet base 3a7badea (patch 3a7badea..88c981a1, branch bucketfix-01). Tier 3 (protected.py: bots/src/bucket.mjs). FOUND by the obsidian Paper proof (sandbox3 11-04, sandbox/enchant/obsidian-proof.cjs on main): bucket.mjs scoopAims/emptyAims return plain {x,y,z} and mineflayer 4.37 lookAt calls point.minus -> EVERY scoopLiquid/pourLiquid threw before a packet (the model's `bucket fill|pour` verb never worked; 0 live rows in 7 d; prompt.mjs offers it). CHANGE: aimPoint (the aim as a Vec3 by pos.offset); bucketSkill builds its cells from the FLOORED feet; emptyRefusal compares cells and refuses the feet AND head cells (r1: both engines' blocker -- with pours live, the old guard compared a fractional target and the head cell was tried first: a self-flood). Fill detail reads r.reason. PROVEN on Paper with the fixed module (NO_WRAP run): a pour into a contained cell over a lava source made obsidian, the scoop refilled the bucket. NOT CHANGED: scoopRefusal still refuses lava; no reflex calls these (scoopWouldHelp only logs). EXPOSURE: the model's bucket verb (admission read 177 bucket calls fleet-wide earlier). READ +90/+180 generic (tripper, death gate two-death floor, crash loops) + OWN LINES: (1) DEFECT: any `bucket` skill row with detail `point.minus` on the canary -> REVERT (the fix not live); (2) DEFECT: a canary death within 120 s after a `bucket` pour success row (drowning/suffocation) -> named, linked; (3) REPORTED: bucket fill/pour success shares (0 before). Reviews: Codex code r1 BLOCK 1 (self-flood) + Claude subagent r1 BLOCK 1 (the same) -> fixed 88c981a1, both re-checked APPROVE. Rollback: the base sha. World: water placed by the model's own verb only.",
+ "effect": {
+  "version": 1,
+  "none_reason": "a defect fix of a dormant verb (every bucket pour/scoop threw); its effect is the bucket skill's success share, not an effectmetrics metric; its consumer is obsidian-01 (showcase-only)"
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

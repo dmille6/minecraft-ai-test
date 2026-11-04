@@ -1,0 +1,19 @@
+{
+ "run": "bucketfix-01",
+ "after": [],
+ "patch": {
+  "base": "3a7badeab3f95b2798e219958b5d16e761175b9f",
+  "tip": "88c981a12b5bf24619c9f8aa357c2a55f543b96e",
+  "note": "set with queue set-patch 3a7badea..88c981a1 (autorebase onto the live tip)"
+ },
+ "variants": {
+  "3a7badeab3f95b2798e219958b5d16e761175b9f": {
+   "registration": "/home/mike/mcai-analysis/bucketfix-01.88c981a1.json",
+   "registration_sha256": "<fill when copied>",
+   "canary_sha": "88c981a12b5bf24619c9f8aa357c2a55f543b96e",
+   "approved": "enchantshop agent 2026-11-04: bucketfix-01 on fleet 3a7badea; tier 3 (bucket.mjs); Codex + Claude subagent r1 BLOCK (self-flood) -> fixed, both APPROVE; Paper sandbox3 pour+scoop with the fixed module; full suite on ci2"
+  }
+ },
+ "note": "S lane? no: a defect fix of the model's verb, survival-adjacent (water) -> S (owner 10-25 P,S). Bundle candidate: small, one file + bucketSkill. Prerequisite of obsidian-01 (showcase-only obsidian for the enchanting table, owner 11-04 E2).",
+ "hold": null
+}
