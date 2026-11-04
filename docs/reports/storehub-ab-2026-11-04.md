@@ -150,3 +150,15 @@ finding (the hall chests in the search: `ix=` and visits per search). Rollbacks:
   [`offline-siting-live-1104-z0.json`](storehub-ab-2026-11-04/offline-siting-live-1104-z0.json). The offline script now passes z0
   and the bridge zones; a regression test sites with the showcase's z0 and asserts no cell on the apron.
 - Suite (w30) at `a9877f4e`: 416/419 (the known ceilescape, nothing-important-is-orphaned, protected-paths). Codex: NO BLOCKERS.
+
+## 11. storehubstand-01 (11-04, live a7efcca2 18:57-21:00Z: sited, then 46 visits, 0 placed)
+
+- **Rows:** 47 `_build_visit outcome=replanned` (each `replant <cell>: no_step -> replant_moved`), 32 aborted (the stuck reflex mid-walk:
+  stuck 21, entombed 5, stagnation 3), 3 slots_full; 0 `op=place`, 0 tree clears; the bags drew 256 cobblestone a visit.
+- **Cause:** the siting proved the felled trees' replant cells with the ring's stand domain (within 76 of home); the visit's domain was
+  the pad + 4 alone, and every replant cell (x -1..19, z -48..-41; 17,69,-67) lies outside it -> no stand, the replant moved, the
+  visit stopped; runVisit plants before it fells, so no tree, fill or wall was ever reached.
+- **Fix** (branch `storehub-stand-fix` @ `0cba1b77` on live `9295590e`): `hubStandDomain` = the pad + 4 OR within ringMax + 4 of home
+  (the siting's own). Test from the live record g32 (`bots/test/fixtures/storehub-record-1104.json`): every pending replant gets a stand;
+  positive control, the pad-only domain finds none beyond a reach. ci2 suite 422/426 (ceilescape, nothing-important-is-orphaned,
+  protected-paths, the lavastep flake). Codex: NO BLOCKERS. The aborts are walks in the forest north of town; watch them after release.
