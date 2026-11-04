@@ -40,7 +40,11 @@ export const HUB_BUILDERS = 2
 export const HUB_EARTH = Object.freeze({ col: 4, fill: 160, cut: 160 })
 /** Siting: beside the storehouse first (every pad and ring cell within storeGap of its walls' box), then the town ring out to
  *  ringMax; the stands' domain is the pad + standPad; the town walk reaches walkR. */
-export const HUB_SITE = Object.freeze({ storeGap: 12, footLen: 21, ringMin: 17, ringMax: 58, standPad: 4, walkR: 72 })
+// storehubsite-01 (LIVE showcase batch 4, 11-04 15:52Z on: 21 of 21 visits `no_site store:0 ring:0`): the ziggurat's apron (buildsite.mjs
+// reservations `z0`: its record box + 8) covers the north field the offline run had found at 46 from home -- that run left z0 out. With
+// it, no 19 x 11 site lies within 58; out to 72 the live state (pool + region copy 11-04 ~18Z) sites one at 57 (x 10..28, z -59..-49,
+// the town's own level, 67 candidates screened). The walk reaches the ring's edge + 12.
+export const HUB_SITE = Object.freeze({ storeGap: 12, footLen: 21, ringMin: 17, ringMax: 72, standPad: 4, walkR: 84 })
 
 const onOff = v => { const s = String(v ?? '').trim().toLowerCase(); return ['on', '1', 'true', 'yes'].includes(s) ? true : ['off', '0', 'false', 'no'].includes(s) ? false : null }
 /** THE SWITCHES -> { on, clerk, well, signs, clerks }. STOREHUB=on|off; unset = on only in STOREHUB_POOLS (default 'showcase'). Pure. */
