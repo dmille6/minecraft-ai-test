@@ -28,9 +28,13 @@
 #                 and the canary lock itself; REFUSED = retry next tick, 20 tries).
 #   rollout       the stages run (ROLL_FLEET_GUARD on: the live-fleet guard during every stage's load test).
 #                 complete -> done-complete (the 4B is the fleet's model; the server stays up).
-#                 stopped / rolled-back with stages still rolled -> `rollback --all` (the 4B is the fleet model only if
-#                 ALL stages pass); the server is stopped ONLY once the rollback is proven (state rolled-back, nothing
-#                 rolled); a failed rollback keeps the server up and retries every tick, 5 tries, then halts (paged).
+#                 partial -> done-partial (OWNER 11-04: a stop after stages 1-3 PASSED keeps those 60 bots on the 4B,
+#                 the rest on qwen2.5; modelrollout did it itself; the server stays up).
+#                 stopped with stages still rolled -> `keep-partial` first (exit 0 = partial 60/80 -> done-partial;
+#                 exit 3 = fewer than 3 stages passed -> `rollback --all` as before: the 4B is the fleet model only if
+#                 ALL stages pass, or stages 1-3 for the partial keep); the server is stopped ONLY once the rollback is
+#                 proven (state rolled-back, nothing rolled); a failed rollback or keep-partial keeps the server up and
+#                 retries every tick, 5 tries, then halts (paged).
 #                 refused -> back to rollout_wait; no state yet -> wait.
 # Odd scheduler states (blocked/refused/...) must hold for 3 ticks (~9 min) before the waiter acts on them: a loop that
 # canarywatch relaunches looks `blocked` for a moment. Warnings are paged at most once per 30 min per kind.
@@ -217,12 +221,22 @@ rollout)
   case "$rs" in
     running) [ "$alive" = True ] || warn dead "modelrollout says running but its process is gone: in ~/servea-rollout (ROLL_HOME=~/servea-rollout/state) \`run --resume\` or \`rollback --all\`" ;;
     complete) go done-complete "ALL STAGES PASSED: the round-3 4B on the 5080 is the fleet's model (80 bots, per-decision fallback qwen2.5); the server stays up" ;;
+    partial) go done-partial "PARTIAL KEEP (OWNER 11-04): stages 1-3 passed, $live stage(s) stay on the round-3 4B (the rest back on qwen2.5); the server stays up" ;;
     refused) go rollout_wait "modelrollout run refused (a lock race): back to waiting" ;;
     None|'') odd nostate && warn nostate "rollout state: no state file for 3+ ticks after the run started (~/servea-rollout/state/state.json); check ~/servea-rollout/run.log" || log "no rollout state yet" ;;
     *) if [ "${live:-1}" = 0 ]; then
          stop_server; rm -f "$W/rb-tries"; go done-stopped "the rollout ended '$rs' with nothing rolled (rollback proven by the rollout): server stopped"
        else
          n=$(( $(cat "$W/rb-tries" 2>/dev/null || echo 0) + 1 )); echo $n > "$W/rb-tries"
+         # OWNER 11-04: >= 3 passed stages are KEPT (keep-partial rolls back only the later ones); exit 3 = not eligible
+         kp=$($SSH $C31 "$RB keep-partial --run servea-01; echo KPRC=\$?" < /dev/null 2>&1 | tail -3 | tr '\n' ' ')
+         case "$kp" in
+           *KPRC=0*) rm -f "$W/rb-tries"; go done-partial "the rollout STOPPED ($rs) after stages 1-3 passed: keep-partial kept them (OWNER 11-04), the server stays up: $kp"; exit 0 ;;
+           *KPRC=3*) ;;
+           *) if [ $n -ge 5 ]; then go halt "the rollout STOPPED ($rs) after 3+ passed stages and keep-partial has not succeeded after 5 tries: the 5080 server STAYS UP; last: $kp"
+              else warn rollback "the rollout STOPPED ($rs): keep-partial try $n did not finish (lock held or a later stage's rollback unproven); the server stays up: $kp"; fi
+              exit 0 ;;
+         esac
          out=$($SSH $C31 "$RB rollback --all --run servea-01" < /dev/null 2>&1 | tail -2 | tr '\n' ' ')
          if [ $n -ge 5 ]; then go halt "the rollout STOPPED ($rs) with $live stage(s) rolled and rollback --all has not been proven after 5 tries: the 5080 server STAYS UP (bots on the 4B need it; qwen2.5 is their fallback); last: $out"
          else warn rollback "the rollout STOPPED ($rs) with $live stage(s) rolled: rollback --all try $n (the 4B is the fleet model only if ALL stages pass); the server stays up until the rollback is proven: $out"; fi

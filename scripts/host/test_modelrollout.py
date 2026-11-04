@@ -9,6 +9,9 @@ goes through a FakeHost over a temp tree (env files, unit dir, journal, manifest
             a read fail at stage 2 (stage 2 rolled back, stage 1 kept, hold KEPT); a stall with the endpoint down
             (every stage back, slot free); an unproven env on apply (the stage back); a refused start (no KEEP); a
             WATCH check (stage kept, hold kept); the CLI rollback --all after a stop releases the hold
+  partial   OWNER 11-04 partial keep (20/40/60/80): a stop at stage 4 (load test, +60 read, WATCH, unproven env)
+            keeps the 60 bots of stages 1-3 (status partial, hold released); endpoint down still rolls back all; a stop
+            at stage 3 is unchanged; an unproven stage-4 rollback stays stopped until `keep-partial`; anchored mutant
 """
 import datetime as dt
 import io
@@ -85,6 +88,7 @@ class FakeHost(R.Host):
     def hold_claim(self, token, minutes): self.holds.append(('claim', token)); self.owner = token; return True, 'ok'
     def hold_release(self, token): self.holds.append(('release', token)); self.owner = ''; return 'released'
     def hold_owner(self): return getattr(self, 'owner', '')
+    def hold_released(self, token): return getattr(self, 'owner_query', None) != 'fail' and getattr(self, 'owner', '') != token
     def take_lock(self): return True
     def stage(self):
         st = json.load(open(os.path.join(R.P['home'], 'state.json')))
@@ -471,6 +475,166 @@ def driver():
     shutil.rmtree(root)
 
 
+def partial():
+    t('partial_keep: 3 passed + pending -> 3; 2 passed -> 0; complete -> 0; a gap -> 0; off -> 0',
+      R.partial_keep([{'status': 'passed'}] * 3 + [{'status': 'pending'}]) == 3
+      and R.partial_keep([{'status': 'passed'}] * 2 + [{'status': 'rolled-back'}, {'status': 'pending'}]) == 0
+      and R.partial_keep([{'status': 'passed'}] * 4) == 0
+      and R.partial_keep([{'status': 'passed'}] * 3 + [{'status': 'pending'}, {'status': 'passed'}]) == 0
+      and R.partial_keep([{'status': 'passed'}] * 3 + [{'status': 'pending'}], 0) == 0)
+    t('partial_keep: an applied/unproven stage 4 is still eligible (it is rolled back, not kept)',
+      R.partial_keep([{'status': 'passed'}] * 3 + [{'status': 'applied'}]) == 3
+      and R.partial_keep([{'status': 'passed'}] * 3 + [{'status': 'rollback-unproven'}]) == 3)
+    CP = ['board-b', 'placebo-b']
+    S4 = R.plan(POOLS, CP, R.POOLS_PER_STAGE, 4)[3]
+
+    class StageHost(FakeHost):
+        """load fail / WATCH at ONE stage only."""
+        def __init__(self, root, load_fail_stage=None, watch_stage=None, **k):
+            FakeHost.__init__(self, root, **k); self.lfs, self.ws = load_fail_stage, watch_stage
+        def loadtest(self, url, model, rate, n, out, seed):
+            if n != R.PROBE_N and self.lfs and self.stage() == self.lfs:
+                self.load_calls.append((rate, n)); return lrows(n, 9000), True
+            return FakeHost.loadtest(self, url, model, rate, n, out, seed)
+        def rollout_check(self, run):
+            self.check = 'WATCH' if self.ws and run.endswith('-s%d' % self.ws) else 'PASS'
+            return FakeHost.rollout_check(self, run)
+
+    def run(h, mod=R):
+        r = mod.Rollout(h, 'qwen35-01', first_pools=4)
+        rc, out = quiet(r.go)
+        return rc, json.load(open(os.path.join(R.P['home'], 'state.json')))
+
+    def on_s4(h):
+        return [b for b in h.env if R.pool_of(b) in S4 and not R.env_present(h.env[b], KV)]
+
+    root = tree(); h = FakeHost(root, read_fail_stage=4)
+    rc, st = run(h)
+    j = [r for r in R.read_jsonl(R.P['journal']) if r.get('phase') == 'rollout-partial']
+    t('partial: +60 read fail at stage 4 -> status partial, 60 drop-ins (stages 1-3), stage 4 rolled back',
+      rc == 1 and st['status'] == 'partial' and len(dropins()) == 60 and st['stages'][3]['status'] == 'rolled-back'
+      and all(R.pool_of(b) not in S4 for b in dropins()), (rc, st['status'], len(dropins()), [s['status'] for s in st['stages']]))
+    t('partial: stage-4 bots proven back on the baseline env; hold claimed then released; journal "partial: 60/80"',
+      len(on_s4(h)) == 20 and [x[0] for x in h.holds] == ['claim', 'release'] and j and 'partial: 60/80' in j[-1]['note']
+      and st['partial']['bots'] == 60 and 'PARTIAL' in open(R.P['page']).read(), (h.holds, j))
+    shutil.rmtree(root)
+
+    root = tree(); h = StageHost(root, load_fail_stage=4)
+    rc, st = run(h)
+    t('partial: stage-4 load test fail -> partial 60/80, stage 4 never applied (60 restarts), hold released',
+      rc == 1 and st['status'] == 'partial' and len(dropins()) == 60 and len(h.restarts) == 60
+      and st['stages'][3]['status'] == 'pending' and [x[0] for x in h.holds] == ['claim', 'release'], (rc, st['status'], len(h.restarts)))
+    shutil.rmtree(root)
+
+    root = tree(); h = StageHost(root, watch_stage=4)
+    rc, st = run(h)
+    t('partial: stage-4 ledger WATCH -> stage 4 rolled back, 60 kept, partial', rc == 1 and st['status'] == 'partial'
+      and len(dropins()) == 60 and st['stages'][3]['status'] == 'rolled-back', (rc, st['status'], len(dropins())))
+    shutil.rmtree(root)
+
+    root = tree(); h = FakeHost(root, bad_env={'%s-Alpha' % S4[0]})
+    # bad_env on a stage-4 bot only: stages 1-3 prove fine, stage 4 apply is unproven -> stage rolled back -> partial
+    rc, st = run(h)
+    t('partial: unproven env at stage-4 apply -> partial 60/80', rc == 1 and st['status'] == 'partial' and len(dropins()) == 60,
+      (rc, st['status'], [s['status'] for s in st['stages']]))
+    shutil.rmtree(root)
+
+    root = tree(); h = FakeHost(root, read_fail_stage=3)
+    rc, st = run(h)
+    t('unchanged: a read fail at stage 3 -> stopped, 40 kept, hold KEPT (the waiter then rolls back all)',
+      rc == 1 and st['status'] == 'stopped' and len(dropins()) == 40 and [x[0] for x in h.holds] == ['claim'], (rc, st['status'], len(dropins())))
+    rc3, out3 = quiet(R.main, ['keep-partial'], host=h)
+    t('unchanged: CLI keep-partial after a stage-3 stop is NOT ELIGIBLE (exit 3), nothing changes',
+      rc3 == 3 and 'NOT ELIGIBLE' in out3 and len(dropins()) == 40 and h.holds[-1][0] == 'claim', (rc3, out3))
+    shutil.rmtree(root)
+
+    root = tree(); h = FakeHost(root, poll='MODELPOLL REVERT :: stall: 3 of 80; endpoint DOES NOT answer', poll_stage=4)
+    rc, st = run(h)
+    t('unchanged: endpoint down at stage 4 -> EVERY stage rolled back, stopped, hold released',
+      rc == 1 and st['status'] == 'stopped' and dropins() == [] and [x[0] for x in h.holds] == ['claim', 'release'], (rc, st['status'], len(dropins())))
+    shutil.rmtree(root)
+
+    root = tree(); h = FakeHost(root, read_fail_stage=4)
+    h.stuck = set(R.Rollout(h, 'qwen35-01').bots(S4[:1]))
+    rc, st = run(h)
+    t('partial: an unproven stage-4 rollback -> stopped (not partial), stage 4 rollback-unproven, hold kept',
+      rc == 1 and st['status'] == 'stopped' and st['stages'][3]['status'] == 'rollback-unproven' and [x[0] for x in h.holds] == ['claim'],
+      (rc, st['status'], [s['status'] for s in st['stages']]))
+    rc2, out2 = quiet(R.main, ['keep-partial'], host=h)
+    t('partial: CLI keep-partial while the bot is still stuck -> exit 1, hold kept', rc2 == 1 and h.holds[-1][0] == 'claim', (rc2, out2))
+    h.stuck = set()
+    rc2, out2 = quiet(R.main, ['keep-partial'], host=h)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    t('partial: CLI keep-partial once the bot restarts -> exit 0, partial 60/80, hold released',
+      rc2 == 0 and st['status'] == 'partial' and len(dropins()) == 60 and h.holds[-1][0] == 'release' and 'partial 60/80' in out2, (rc2, out2))
+    shutil.rmtree(root)
+
+    # Codex r1 B1: an ALL-scope stop whose rollback never ran (state: stopped, stages 1-3 passed) is never kept partially
+    root = tree(); h = FakeHost(root, read_fail_stage=4)
+    orig_rb = R.Rollout.rollback
+    R.Rollout.rollback = lambda self, idxs: (_ for _ in ()).throw(RuntimeError('journal write failed (fake)'))
+    try:
+        r = R.Rollout(h, 'qwen35-01', first_pools=4)
+        h2 = h
+        quiet(r.go)
+    finally:
+        R.Rollout.rollback = orig_rb
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    st['stop_scope'] = 'all'; st['status'] = 'stopped'
+    json.dump(st, open(os.path.join(R.P['home'], 'state.json'), 'w'))
+    rc2, out2 = quiet(R.main, ['keep-partial'], host=h2)
+    t('Codex r1 B1: keep-partial after an ALL-scope stop -> NOT ELIGIBLE (exit 3: the waiter rolls back all)',
+      rc2 == 3 and 'NOT ELIGIBLE' in out2, (rc2, out2))
+    shutil.rmtree(root)
+    root = tree(); h = FakeHost(root, poll='MODELPOLL REVERT :: stall; endpoint DOES NOT answer', poll_stage=4)
+    rc, st = run(h)
+    t('Codex r1 B1: the stop scope is persisted in the state (all)', st.get('stop_scope') == 'all', st.get('stop_scope'))
+    shutil.rmtree(root)
+
+    # Codex r1 B2: a failed hold release leaves `stopped` (not partial); keep-partial finishes it once the release works
+    class StickyHold(FakeHost):
+        def hold_release(self, token):
+            self.holds.append(('release', token))
+            if not getattr(self, 'release_ok', False):
+                return 'canary-sched busy (fake)'
+            self.owner = ''; return 'released'
+    root = tree(); h = StickyHold(root, read_fail_stage=4)
+    rc, st = run(h)
+    t('Codex r1 B2: hold release fails -> status stopped, stage 4 rolled back, 60 kept, paged',
+      st['status'] == 'stopped' and len(dropins()) == 60 and h.owner and 'release failed' in open(R.P['page']).read(), (st['status'], h.owner))
+    h.release_ok = True
+    rc2, out2 = quiet(R.main, ['keep-partial'], host=h)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    t('Codex r1 B2: keep-partial retry -> partial 60/80, hold gone', rc2 == 0 and st['status'] == 'partial' and not h.owner
+      and len(dropins()) == 60, (rc2, out2, st['status']))
+    shutil.rmtree(root)
+
+    t('Codex r2: hold_gone -- only a successful, readable answer other than our token counts as released',
+      R.hold_gone(0, '\n', 'tok') and R.hold_gone(0, 'other-tok\n', 'tok') and not R.hold_gone(0, 'tok\n', 'tok')
+      and not R.hold_gone(0, '?\n', 'tok') and not R.hold_gone(1, '', 'tok') and not R.hold_gone(0, 'Traceback (most recent', 'tok'))
+    root = tree(); h = FakeHost(root, read_fail_stage=4); h.owner_query = 'fail'
+    rc, st = run(h)
+    t('Codex r2: an owner query that fails after the release -> stopped (not partial), keep-partial retries',
+      st['status'] == 'stopped' and len(dropins()) == 60, st['status'])
+    h.owner_query = None
+    rc2, out2 = quiet(R.main, ['keep-partial'], host=h)
+    st = json.load(open(os.path.join(R.P['home'], 'state.json')))
+    t('Codex r2: keep-partial once the query answers -> partial', rc2 == 0 and st['status'] == 'partial', (rc2, out2))
+    shutil.rmtree(root)
+
+    src = open(os.path.join(HERE, 'modelrollout.py')).read()
+    anc = "        if ok and scope != 'all' and not self.exp and not self.ab and partial_keep(self.st['stages']):"
+    assert src.count(anc) == 1, 'ANCHOR MISSING OR NOT UNIQUE'
+    ns = {'__file__': os.path.join(HERE, 'modelrollout.py'), '__name__': 'modelrollout_mutant'}
+    exec(compile(src.replace(anc, '        if False:'), 'mutant', 'exec'), ns)
+    ns['P'] = R.P
+    root = tree(); h = FakeHost(root, read_fail_stage=4)
+    rc, st = run(h, mod=type('M', (), {'Rollout': ns['Rollout']}))
+    t('MUTANT KILLED: without the partial-keep call a stage-4 read fail leaves 60 bots STOPPED with the hold kept',
+      st['status'] == 'stopped' and [x[0] for x in h.holds] == ['claim'], (st['status'], h.holds))
+    shutil.rmtree(root)
+
+
 def experiment():
     t('fleet stall: 1 of 80 no, 19 no, 20 yes; 2 of 4 yes; 0 active no',
       [R.fleet_stall_trip(*x) for x in ((1, 80), (19, 80), (20, 80), (2, 4), (0, 0))] == [False, False, True, True, False])
@@ -813,6 +977,7 @@ def main():
     pure()
     R.Host.take_lock = lambda self: True
     driver()
+    partial()
     experiment()
     ab()
     print('\n%d/%d pass' % (sum(T), len(T)))

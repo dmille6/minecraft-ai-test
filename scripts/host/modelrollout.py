@@ -9,6 +9,9 @@ journalled `recorded KEEP` and `torn-down` for the run (promotion "none": the lo
     modelrollout.py status
     modelrollout.py rollback --all | --stage N          by hand (takes the loop lock); proves the env is gone
     modelrollout.py release                             accept a STOPPED, partly rolled fleet: frees the slot
+    modelrollout.py keep-partial                        a STOPPED rollout with >= KEEP_PARTIAL_MIN_STAGES leading stages
+                                                        passed: roll back the later stages, keep the passed ones, free
+                                                        the slot (status `partial`); exit 3 = not eligible
 
 THE MECHANISM IS THE CANARY'S, MADE PERSISTENT. The canary put its env on a pool with mcai-canary-tree's drop-in
 `10-canary.conf` (EnvironmentFile=canary.env, appended after the unit's own per-bot env file, so its keys win). Every
@@ -47,6 +50,13 @@ EACH STAGE
 ROLLBACK (the three steps, per stage or all): delete the stage's 05-model.conf + daemon-reload; drop its pools from the
 state file (the rollout's config); restart its bots 12 s apart; then prove no live environ still carries a model
 KEY=VALUE (values, not keys: the per-bot env sets the same keys -- loop v38's rule).
+
+PARTIAL KEEP (OWNER 2026-11-04): a stop AFTER the first KEEP_PARTIAL_MIN_STAGES (3) stages passed -- the last stage's
+busy check, load test, apply, stall polls, +60 read or ledger check failed, or the fleet moved under it -- keeps the
+passed stages (60 of 80 bots on the model) and rolls back only the later stage(s): status `partial`, journal
+`rollout-partial`, the install-hold released. A stop whose scope is ALL (the endpoint does not answer) still rolls back
+every stage, and any stop at stages 1..KEEP_PARTIAL_MIN_STAGES is unchanged. Experiment and A/B runs never keep partially.
+If the later stage's rollback is not proven the status stays `stopped` (hold kept); `keep-partial` retries it.
 
 THE SLOT. One canary slot: a canary drawn from a part-rolled fleet would have a mixed-model control. The rollout claims
 the scheduler's install-hold through holdtoken.py (own token, HOLD_MIN) and then holds /tmp/mcai-canary.lock (flock -n)
@@ -118,6 +128,7 @@ GATES = {'lat_p50_ms': 2500, 'lat_p95_ms': 5000, 'completion_p95': 300, 'model_s
          'schema_gap_pp': 1.0, 'stall_bots': 1, 'min_rows': 200, 'load_valid': 0.99}
 EARLY_ABORT_N, EARLY_ABORT_X = 30, 3
 DROPIN = '05-model.conf'
+KEEP_PARTIAL_MIN_STAGES = 3      # OWNER 11-04: a stop after >= 3 PASSED stages keeps them (60/80), rolls back the rest; 0 = off
 KV_RE = re.compile(r'[A-Z_][A-Z0-9_]*=[^\s*?\[\]]+')
 BOT_RE = re.compile(r'([a-z]+-[a-z])-[A-Z][a-z]+')
 ARM_ORDER = ('board', 'hive', 'placebo', 'isolated')
@@ -227,6 +238,29 @@ def plan(all_pools, canary_pools, per_stage=POOLS_PER_STAGE, first=None):
     while rest:
         stages.append(rest[:per_stage]); rest = rest[per_stage:]
     return [s for s in stages if s]
+
+
+def partial_keep(stages, min_passed=KEEP_PARTIAL_MIN_STAGES):
+    """PURE. -> how many leading PASSED stages a stopped rollout keeps (OWNER 11-04), or 0 = roll back as before.
+    Eligible only when stages 1..k all passed, k >= min_passed, at least one stage did not pass (otherwise it is
+    complete) and no later stage passed (a gap is not a prefix)."""
+    if not min_passed:
+        return 0
+    k = 0
+    for s in stages:
+        if s.get('status') != 'passed':
+            break
+        k += 1
+    if k < min_passed or k >= len(stages) or any(s.get('status') == 'passed' for s in stages[k:]):
+        return 0
+    return k
+
+
+def hold_gone(rc, out, token):
+    """PURE. holdtoken.py `owner` (rc, output) -> True only for a SUCCESSFUL, READABLE answer that is not `token`
+    (no hold, or a clean other owner). A failed query, '?' (unreadable hold) or garbage is NOT gone (Codex r2)."""
+    out = (out or '').strip()
+    return rc == 0 and out != token and out != '?' and not any(c.isspace() for c in out)
 
 
 def live_fleet(sub, window_s=60, now=None, logglob=None):
@@ -662,6 +696,10 @@ class Host:
 
     def hold_owner(self):
         return self.sh(['python3', os.path.join(HERE, 'holdtoken.py'), 'owner'])[1].strip()
+
+    def hold_released(self, token):
+        rc, out = self.sh(['python3', os.path.join(HERE, 'holdtoken.py'), 'owner'])
+        return hold_gone(rc, out, token)
 
     def take_lock(self):
         self._lockfd = os.open(P['lock'], os.O_RDWR | os.O_CREAT, 0o666)
@@ -1375,13 +1413,49 @@ class Rollout:
             if not isinstance(x, Exception):
                 raise
 
+    def keep_partial(self, why):
+        """OWNER 11-04: keep the leading passed stages, roll back every later stage that may carry the env, free the
+        slot. -> True (status partial), False (a later stage's rollback was not proven: status stopped, hold kept),
+        None (not eligible)."""
+        k = partial_keep(self.st['stages'])
+        if not k or self.st.get('stop_scope') == 'all':    # an endpoint-down stop rolls back ALL, also on recovery (Codex r1)
+            return None
+        later = [i for i in range(k + 1, len(self.st['stages']) + 1) if self.st['stages'][i - 1]['status'] in LIVE]
+        if not self.rollback(later):
+            self.st['status'] = 'stopped'; self.st['stop'] = why; self.save()
+            return False
+        kept, total = len(self.bots(self.rolled_pools())), len(self.bots(self.all_pools()))
+        self.st['status'] = 'stopped'; self.st['stop'] = why; self.save()
+        # the hold FIRST, verified; `partial` only after it (Codex r1): a death or a failed release in between leaves
+        # `stopped`, and keep-partial (idempotent: nothing later is LIVE any more) finishes it on the next try
+        rel = self.h.hold_release(self.st['token'])
+        if self.st['token'] and not self.h.hold_released(self.st['token']):
+            self.journal('rollout-partial-hold', 'stages 1-%d kept, later stages rolled back, but the install-hold was NOT '
+                         'released (%s): status stays stopped; `keep-partial` retries' % (k, rel))
+            self.page('error', 'ROLLOUT %s: partial keep done but the install-hold release failed (%s); `python3 %s keep-partial`' % (
+                self.run, rel, os.path.abspath(__file__)))
+            return False
+        self.st['status'] = 'partial'
+        self.st['partial'] = {'kept_stages': k, 'bots': kept, 'of': total, 'at': iso(self.h.now())}
+        self.save()
+        self.journal('rollout-partial', 'partial: %d/%d bots on %s (stages 1-%d kept; later stages %s rolled back) after: %s; '
+                     'install-hold released' % (kept, total, self.model, k, later or 'none applied', why))
+        self.page('verdict', 'ROLLOUT %s PARTIAL: %d/%d bots stay on %s (stages 1-%d passed; OWNER 11-04 keep rule); the rest are '
+                  'on the baseline model; the slot is free. Stopped by: %s. Update STATE.md.' % (self.run, kept, total, self.model, k, why))
+        return True
+
     def _finish_stop(self, why, scope, cur):
+        self.st['stop_scope'] = scope; self.save()          # FIRST: keep-partial must know an ALL stop (Codex r1)
         self.journal('rollout-stopping', why)
         ok = True
         if scope == 'stage' and cur:
             ok = self.rollback([cur])
         elif scope == 'all':
             ok = self.rollback(list(range(1, len(self.st['stages']) + 1)))
+        if ok and scope != 'all' and not self.exp and not self.ab and partial_keep(self.st['stages']):
+            if self.keep_partial(why):
+                return
+            ok = False
         rolled = self.bots(self.rolled_pools())
         self.st['status'] = 'stopped'; self.st['stop'] = why; self.save()
         if not rolled and ok:
@@ -1520,7 +1594,7 @@ def cmd_read(ctxdir, M):
 def main(argv=None, host=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[1])
     sub = ap.add_subparsers(dest='cmd', required=True)
-    for c in ('plan', 'run', 'status', 'rollback', 'release', 'watch'):
+    for c in ('plan', 'run', 'status', 'rollback', 'release', 'keep-partial', 'watch'):
         p = sub.add_parser(c)
         p.add_argument('--run', default='qwen35-01')
         if c in ('run', 'plan'):
@@ -1571,6 +1645,15 @@ def main(argv=None, host=None):
         print(h.hold_release(st['token']))
         r.journal('rollout-released', 'operator: the part-rolled fleet is the baseline (%s on %s)' % (r.model, ','.join(r.rolled_pools())))
         return 0
+    if a.cmd == 'keep-partial':
+        if st.get('status') != 'stopped' or st.get('experiment') or st.get('ab'):
+            print('REFUSED: keep-partial is for a STOPPED staged rollout (status %s)' % st.get('status')); return 2
+        res = r.keep_partial(st.get('stop') or 'operator keep-partial')
+        if res is None:
+            print('NOT ELIGIBLE: fewer than %d leading stages passed (%s): `rollback --all`' % (
+                KEEP_PARTIAL_MIN_STAGES, [s['status'] for s in st['stages']])); return 3
+        print('keep-partial: %s' % ('partial %d/%d' % (r.st['partial']['bots'], r.st['partial']['of']) if res else 'INCOMPLETE (see the page)'))
+        return 0 if res else 1
     if a.cmd == 'rollback':
         idx = list(range(1, len(st['stages']) + 1)) if a.all else [a.stage]
         if not all(1 <= i <= len(st['stages']) for i in idx):
