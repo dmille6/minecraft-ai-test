@@ -149,10 +149,11 @@ import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
-import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone } from './wall.mjs'   // wall-01; wallext-01; wallext-02
+import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt } from './wall.mjs'   // wall-01; wallext-01; wallext-02
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS } from './yard.mjs'   // yarduse-01
+import { fillWant } from './tidy.mjs'   // access-01: the stone bill
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
@@ -166,7 +167,7 @@ import { legacyStage, stageCarry, tidyWater, cutSafeNow } from './tidy.mjs'   //
 import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from './park.mjs'   // townterrace-01: the park
 import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantrySum, parkHeldByCrew, spareOf } from './park.mjs'   // gkhelpers-01: the park gather
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
-import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
+import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead } from './buildproj.mjs'   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -17370,6 +17371,9 @@ function projectHeads () {
   try {
     const dir = townDir()
     for (const p of projectsGuarded()) { const key = projKeyOf(p.plot); const h = recordHead(dir, key); if (h.ok && h.head) out.push({ plot: p.plot, key, head: h.head }) }
+    // wallext-02: the demolition's hold on the old line is live only while the demolition is open (wall.mjs wallAsHeld): every
+    // reader of the heads sees the wall without it once the demolition is complete, released or not
+    { const w = out.find(x => x.plot === WALL_PLOT), dm = out.find(x => x.plot === WALLDEMO_PLOT); if (w && dm?.head?.rec?.structure_complete) w.head = { ...w.head, rec: wallAsHeld(w.head.rec, dm.head.rec) } }
     // groundskeeper-01: the town's land plan (landplan.mjs) as a RESERVATION -- its road corridors are every later siting's zones
     // (recordZones: houses, the stair, the wall's gateways, the tree farm), no cells
     const land = landHead(dir)
@@ -21230,9 +21234,12 @@ function wallextInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = town
   if (!wh.ok || !hh.ok) throw new Error('wall or hall record unreadable')
   let lights = 0
   try { lights = Math.floor(Math.max(0, (Number(matsTownStock(bot)?.stock?.torch) || 0) - (Number(matsReserve().table?.torch) || 0)) / 2) } catch { lights = 0 }
+  // Codex r3 BLOCKER: the ziggurat's record read whatever MONUMENT says (its reservation and its apron hold the extension off)
+  const mh = recordHead(dir, projKeyOf(MONUMENT_PLOT))
+  if (!mh.ok) throw new Error('monument record unreadable')
+  const M = extWithMonument(heads.map(x => x.head.rec ? { ...x.head.rec, plot: x.head.rec.plot ?? x.plot } : null).filter(Boolean), mh.head?.rec ?? null, c.z0 ?? null)
   return { wall: wh.head?.rec ?? null, hub: hh.head?.rec ?? null, plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm,
-    records: heads.map(x => x.head.rec ? { ...x.head.rec, plot: x.head.rec.plot ?? x.plot } : null).filter(Boolean),
-    pzones: [...recordZones(heads.map(x => x.head.rec)), ...hallPadZones(P.plan), ...townMarkerZones()], lights }
+    records: M.records, pzones: [...recordZones(M.records), ...hallPadZones(P.plan), ...townMarkerZones()], z0: M.z0, lights }
 }
 /** wallext-01: is the extension's opening rule met (wall.mjs wallextOpening)? Never throws: unreadable is not open. */
 function wallextOpenNow (dir = townDir()) {
@@ -21299,7 +21306,14 @@ async function buildWallDemo (ctx, args, signal) {
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the demolition record could not be read back')
   }
   let rec = rh.head.rec
-  if (rec.structure_complete) return out('no_effect', 'complete', 'the old line is down')
+  // the HOLD comes off the wall record only once the demolition is complete (wall.mjs releaseHold): until then the line's ground is
+  // no one's to fill or stair; a release that failed is retried by every visit to the complete record
+  const release = () => {
+    const pubR = publishRecord(dir, projKeyOf(WALL_PLOT), cur => (cur ? releaseHold(cur) : null), { by: me })
+    if (pubR.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'released', cell: [home.x, home.y, home.z], kind: WALLDEMO_PLOT, gen: pubR.gen }) }) } catch { /* telemetry */ } }
+    return pubR.result
+  }
+  if (rec.structure_complete) { release(); return out('no_effect', 'complete', 'the old line is down') }
   // the wall and the extension as they stand now: a late block on a retired cell (a repair's placement that landed after the
   // retirement) is appended to the list before the visit (wall.mjs demoMissing)
   const wNow = recordHead(dir, projKeyOf(WALL_PLOT)), xNow = recordHead(dir, projKeyOf(WALLEXT_PLOT))
@@ -21334,6 +21348,7 @@ async function buildWallDemo (ctx, args, signal) {
     if (demoDone(rec, wNow.head.rec, xNow.head.rec, read)) {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALLDEMO_PLOT, op: 'complete', kind: WALLDEMO_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+      if (pub.result === 'accepted' || pub.result === 'nothing') release()
     }
     const stop = left.length ? (r.stop === 'complete' ? 'clears_left' : r.stop) : demoDone(rec, wNow.head.rec, xNow.head.rec, read) ? 'complete' : 'settling'
     return out(r.cleared > 0 ? 'success' : 'no_effect', stop, `${r.why ?? stop}; down ${rec.clear.length - left.length}/${rec.clear.length}`, { stop, cleared: r.cleared, slot: slot.slot, gen: rh.head.gen })
@@ -21896,7 +21911,10 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   // the showcase gkstage fold (Codex fold BLOCKER): the site-prep reservations on their own (inwall's litter rule must never read them
   // as a build's `project`); the request being graded (`prepExcept`) is its own grading's
   const rz = recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept))
-  const reserved = (x, z) => rz.some(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] })
+  // wallext-02 (Claude hold r1 BLOCKER 1): the demolition's hold is `reserved` too -- read FIRST by every inwall rule and by the
+  // access stairs' `free` (tidyAvoid's first reason could be a kept wall cell's `project:wall`, which reads as a build's box)
+  const held = holdAt(recs.find(r => r?.plot === WALL_PLOT) ?? null)
+  const reserved = (x, z) => held(x, z) || rz.some(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] })
   return { home, avoid, cells, pin, plan: P.plan, caps: P.caps, records: others, wall: others.find(r => r.plot === WALL_PLOT) ?? null, wallext: others.find(r => r.plot === WALLEXT_PLOT) ?? null, reserved }
 }
 /**
@@ -21937,7 +21955,14 @@ function takeKeeper (bot, lease, now = Date.now()) {
   const me = keeperMe(bot)
   const renewal = lease?.rec?.holder === me && now < (lease.holdsUntil ?? 0)
   // gkhelpers-01: a helper becoming the keeper lets its helper lease go FIRST (never both at once: the read's crew overlap)
-  if (!renewal) { const hl = dropHelperLeases(bot); if (hl) now = Math.max(now, Date.now()) }
+  if (!renewal) {
+    const hl = dropHelperLeases(bot)
+    // gkhandover-01: never the keeper lease while a helper lease of this bot is not let go ON DISK (asked again next tick)
+    if (!hl.ok) { try { logEvent({ kind: 'keeper', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'keeper_take_deferred', why: 'helper_release_unconfirmed', n: hl.n }) }) } catch { /* telemetry */ } return { ok: false, why: 'helper_release_unconfirmed' } }
+    // Codex r1 BLOCKER: the take is stamped after the helpers were READ, always (a helper that lapsed during the reads is n 0, and a
+    // caller's earlier `now` would backdate the keeper over its tail)
+    now = Math.max(now, Date.now())
+  }
   const r = projTakeLease(townDir(), projKeyOf(TIDY_PLOT), GK_LEASE, me, { now, ttl: GK.leaseTtlMs, meta: { term0: termStart(lease, me, now) } })
   if (r.ok && !renewal) { try { logEvent({ kind: 'keeper', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'keeper_take', gen: r.gen }) }) } catch { /* telemetry */ } }
   bot.gkCache = null
@@ -22018,14 +22043,25 @@ function releaseHelper (bot, name, gen, why, now = Date.now()) {
   bot.gkCache = null
   try { logEvent({ kind: 'keeper', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'helper_release', kind: name, why, gen: gen ?? '-' }) }) } catch { /* telemetry */ }
 }
-/** Every helper lease this bot holds, let go (before it takes the keeper lease) -> how many. Never throws. */
+/** Every helper lease this bot holds, let go (before it takes the keeper lease) -> { n, ok }. `ok` only when every release is CONFIRMED
+ *  on disk (groundskeeper.mjs releaseConfirmed over the lease read again; one retry). Never throws (a throw: not ok). */
 function dropHelperLeases (bot) {
-  let n = 0
+  let n = 0, ok = true
   try {
-    const dir = townDir(), key = projKeyOf(TIDY_PLOT), me = keeperMe(bot), t = Date.now()
-    for (const name of HELPER_LEASES) { const l = projLeaseState(dir, key, name, { ttl: GK.helperTtlMs }); if (l && !l.released && l.rec?.holder === me && t < l.holdsUntil) { releaseHelper(bot, name, l.gen, 'keeper'); n++ } }
-  } catch { /* they lapse */ }
-  return n
+    const dir = townDir(), key = projKeyOf(TIDY_PLOT), me = keeperMe(bot)
+    for (const name of HELPER_LEASES) {
+      const l = projLeaseState(dir, key, name, { ttl: GK.helperTtlMs })
+      if (!(l && !l.released && l.rec?.holder === me && Date.now() < l.holdsUntil)) { if (l && l.gen == null && !l.rec) ok = false; continue }
+      n++
+      let done = false
+      for (let i = 0; i < 2 && !done; i++) {
+        releaseHelper(bot, name, l.gen, i ? 'keeper_retry' : 'keeper')
+        done = releaseConfirmed(projLeaseState(dir, key, name, { ttl: GK.helperTtlMs }), me, Date.now())
+      }
+      if (!done) ok = false
+    }
+  } catch { ok = false }
+  return { n, ok }
 }
 /** The record's live segment leases of OTHER bots and this one -> { seg: { holder, at } } (the `seg-clear` lease is the keeper's
  *  digs, no segment). null when the directory cannot be read (the caller fails closed: no segment taken). */
@@ -22637,8 +22673,11 @@ async function buildTidy (ctx, args, signal) {
       segYield: sg => { const L = liveNow(true); return !L || crewYield({ cols: crewCols, seg: sg, me, live: L }) },
     }
     if (floorOnly) f.floor = floorNow.length
-    const open = (visitRec.cells ?? []).filter(q => q.role !== 'light' && !PARK_ROLES.has(q.role) && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
-    const want = Math.max(0, open - spare('dirt') - spare('cobblestone'))
+    const open = (visitRec.cells ?? []).filter(q => q.role !== 'light' && q.role !== 'access' && !PARK_ROLES.has(q.role) && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
+    // access-01 (Codex r1 BLOCKER 1): a staircase's cells take the town's STONE only (TIDY_PALETTE.access) -- billed as cobblestone
+    // on their own, never offset by the bag's spare dirt
+    const openAccess = (visitRec.cells ?? []).filter(q => q.role === 'access' && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
+    const want = fillWant({ open, openAccess, dirt: spare('dirt'), cobble: spare('cobblestone') })
     // groundskeeper-01: a stage's road lights (torches) and its felled trunks' saplings, less what the bag holds
     const extra = GROUNDS.on ? gkExtraBill(rec, read, held0, q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role)) : {}
     // townterrace-01: the park's plants, a hoe for its tilled plots, bone meal for its meadow -- only what the town holds

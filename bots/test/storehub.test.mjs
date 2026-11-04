@@ -69,9 +69,20 @@ await t('the siting plan: beside the storehouse first (its pad within 12 of the 
   assert.strictEqual(REC.chests.length, 18)
   assert.ok(!st[0].beside({ pad: [[60, 60]] }), 'a pad far off is not beside')
 })
-await t('the ring: Chebyshev >= 17 from home, within 58; a site far off is refused by the domain', () => {
+await t('the ring: Chebyshev >= 17 from home, within 72; a site far off is refused by the domain', () => {
   const ring = stepsOf()[1]
-  assert.ok(ring.domain(30, 0) && !ring.domain(10, 10) && !ring.domain(59, 0))
+  assert.ok(ring.domain(30, 0) && ring.domain(65, 0) && !ring.domain(10, 10) && !ring.domain(73, 0))
+  assert.ok(ring.walkR >= H.HUB_SITE.ringMax + 12, 'the walk reaches past the ring\'s edge')
+})
+await t('storehubsite-01 (LIVE 11-04: 21/21 no_site): the ring step honours the ziggurat apron (z0) and still sites the hall', () => {
+  // the showcase's monument record box, near the north field the offline run (without z0) had picked
+  const z0 = { box: [-55, -43, -26, -14] }
+  const ring = stepsOf()[1]
+  const s = B.siteBlueprint(server().read, plan(), BP, { tries: 3, plot: H.HUB_PLOT, zones: SHOPM.recordZones([STORE]), z0, sectors: [{ sector: null, source: 'ring' }], earth: ring.earth, domain: ring.domain, standDomain: ring.standDomain, walkR: ring.walkR, line: ring.line, rankKey: ring.rankKey })
+  assert.ok(s.ok, JSON.stringify(s.sectors?.map(r => [r.screened, r.rejects, r.proofFails])))
+  const ap = [z0.box[0] - 8, z0.box[1] - 8, z0.box[2] + 8, z0.box[3] + 8]
+  assert.ok(s.record.cells.every(c => !(c.at[0] >= ap[0] && c.at[0] <= ap[2] && c.at[2] >= ap[1] && c.at[2] <= ap[3])), 'no hall cell on the apron')
+  assert.ok((s.sectors[0].rejects.z0_apron ?? 0) > 0, 'positive control: the apron refused candidates')
 })
 const KIT = () => ({ cobblestone: 400, stone_bricks: 120, oak_planks: 160, glass_pane: 30, torch: 6, chest: 18 })
 let BUILT = null

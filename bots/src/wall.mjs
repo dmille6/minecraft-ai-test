@@ -794,7 +794,7 @@ export const WALLEXT_BLUEPRINT = 'wallext@1'
  * candidates (best first by their plots, then the shortest ring) proven; builtMin: the least share of the ring's own (non-join)
  * columns that must stand as wall (a side that runs along a road corridor is all gateway: no wall at all).
  */
-export const WALLEXT = Object.freeze({ margin: 6, grow: [0, 4, 8, 12, 16, 20, 24, 28], growOut: [0, 4, 8, 12, 16, 20, 24], plotsWant: 5, plotGap: 3, plotSpread: 4, lane: 5, plotSizes: Object.freeze([Object.freeze({ kind: 'hall', w: 19, d: 13, max: 2, value: 2 }), Object.freeze({ kind: 'house', w: 11, d: 11, max: 3, value: 1 })]), tries: 10, builtMin: 0.5 })
+export const WALLEXT = Object.freeze({ margin: 6, grow: [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44], growOut: [0, 4, 8, 12, 16, 20, 24], plotsWant: 5, plotGap: 3, plotSpread: 4, lane: 5, plotSizes: Object.freeze([Object.freeze({ kind: 'hall', w: 19, d: 13, max: 2, value: 2 }), Object.freeze({ kind: 'house', w: 11, d: 11, max: 3, value: 1 })]), tries: 10, builtMin: 0.5 })
 /** THE SWITCH -> bool. WALLEXT=on|off; unset = on in the pools WALLEXT_POOLS names (default the showcase). Pure. */
 export function wallextOn (env = process.env, pool = '') {
   const v = String(env?.WALLEXT ?? '').trim().toLowerCase()
@@ -958,7 +958,7 @@ export function plotValue (plots = [], sizes = WALLEXT.plotSizes) {
  * (wallCandidate + the escape proof) and scored (plots, the share standing as wall, length, cost). ASYNC only to `pause` between
  * candidates (a bot's event loop: one candidate is ~1-3 s of work; the whole siting ~30 s would miss the server's keep-alive).
  */
-export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [], plinth = [], composter = null, farm = [], records = [], pzones = [], lights = 0, now = Date.now(), pause = null, W = WALLEXT } = {}) {
+export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [], plinth = [], composter = null, farm = [], records = [], pzones = [], z0 = null, lights = 0, now = Date.now(), pause = null, W = WALLEXT } = {}) {
   const home = plan?.home
   if (!home) return { ok: false, why: 'no_plan', record: null }
   if (!validBox4(wall?.ring)) return { ok: false, why: 'no_wall', record: null }
@@ -980,7 +980,11 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
   const join = extJoin(ring, side)
   const memo = new Map()
   const near = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
-  const refuse = (x, z) => (oldCols.has(k2(x, z)) ? 'old_wall' : avoidP(x, z)) ?? pzAt(x, z)
+  // wallext-01 r3 (LIVE showcase 11-04: the hall's own siting failed on the ziggurat's APRON -- a building is never sited within its
+  // record box + 8, buildsite.mjs z0): a plot inside the apron could never take a building, so the plots refuse it too
+  const zb = Array.isArray(z0?.box) && z0.box.length === 4 && z0.box.every(Number.isFinite) ? [z0.box[0] - 8, z0.box[1] - 8, z0.box[2] + 8, z0.box[3] + 8] : null
+  const apron = (x, z) => (zb && x >= zb[0] && x <= zb[2] && z >= zb[1] && z <= zb[3] ? 'z0_apron' : null)
+  const refuse = (x, z) => (oldCols.has(k2(x, z)) ? 'old_wall' : avoidP(x, z)) ?? pzAt(x, z) ?? apron(x, z)
   const m = W.margin
   const seed = walkFeet(read, home)
   if (!seed) return { ok: false, why: 'no_feet_at_home', record: null }
@@ -1067,6 +1071,17 @@ export function walkFeet (read, home, { r = 6, dy = 6 } = {}) {
     }
   }
   return null
+}
+/**
+ * wallext r3 (Codex r3 BLOCKER): THE ZIGGURAT, WHATEVER ITS SWITCH -> { records, z0 }. Pure. `records` (the guarded heads' records)
+ * with the monument's record added when it is missing (MONUMENT=off drops it from the guarded heads: its reservation and its apron
+ * must still hold the extension off), and the apron's source `z0` from that record's box (else the caller's).
+ */
+export function extWithMonument (records = [], monRec = null, z0 = null) {
+  const has = records.some(r => r?.plot === 'monument')
+  const out = has || !monRec ? records : [...records, { ...monRec, plot: monRec.plot ?? 'monument' }]
+  const m = out.find(r => r?.plot === 'monument')
+  return { records: out, z0: Array.isArray(m?.box) && m.box.length === 4 ? { box: [...m.box] } : z0 }
 }
 /** INSIDE THE WALLS -> [[x0, z0, x1, z1]]: the old wall's interior box (terrace.mjs wallInterior's rule) and the extension's. Pure. */
 export function wallInteriors (wallRec, extRec) {
@@ -1160,7 +1175,34 @@ export function retireWall (wallRec, demo, { now = Date.now() } = {}) {
   for (const c of keep) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) zset.add(k2(c.at[0] + dx, c.at[2] + dz))
   const cols = (wallRec.cols ?? []).map(c => (lineK.has(k2(c.x, c.z)) ? { x: c.x, z: c.z, s: 'open', why: 'retired' } : c))
   const used = new Set(keep.map(c => c.seg))
-  return { ...wallRec, cells: keep, retired, cols, zones: zoneBoxes(zset), segments: (wallRec.segments ?? []).filter(s => used.has(s.seg)), retiredAt: now }
+  // THE HOLD (Codex batch-5 fold BLOCKER: released at the rewrite, the line's ground drew the groundskeeper's inwall fills and the
+  // access stairs before the demolition dug -- which then dug THEIR stone as wall): every retired cell's column, all heights, is a
+  // `hold:walldemo` zone of this generation until the demolition completes (releaseHold). Not a build's box (tidy.mjs BUILD_WHY):
+  // no fill, cut, litter rule or stair there; every other siting reads it as any reservation
+  const zones = [...demoHoldZones(retired), ...zoneBoxes(zset)]
+  return { ...wallRec, cells: keep, retired, cols, zones, segments: (wallRec.segments ?? []).filter(s => used.has(s.seg)), retiredAt: now, hold: true }
+}
+/** wallext-02: the demolition's reservation over retired cells' columns -> [{ box, why: 'hold:walldemo' }]. Pure. */
+export const WALLDEMO_HOLD = 'hold:walldemo'
+export function demoHoldZones (cells = []) {
+  const keys = new Set(cells.filter(c => Array.isArray(c?.at)).map(c => k2(c.at[0], c.at[2])))
+  return zoneBoxes(keys).map(z => ({ ...z, why: WALLDEMO_HOLD }))
+}
+/**
+ * wallext-02 (Claude hold r1 BLOCKERS): THE HOLD IS LIVE ONLY WHILE THE DEMOLITION IS OPEN -> the wall record as every reader should
+ * see it: its hold zones dropped when the demolition record is complete (releaseHold's body, in memory), else as it is. The published
+ * release is cleanup only: a release that never lands never strands the ground. Pure.
+ */
+export const wallAsHeld = (wallRec, demoRec) => (demoRec?.structure_complete ? (releaseHold(wallRec) ?? wallRec) : wallRec)
+/** wallext-02: is a column HELD by the demolition (a hold zone of the wall record as held) -> (x, z) -> bool. Pure. */
+export function holdAt (wallRec) {
+  const bs = (wallRec?.zones ?? []).filter(z => z?.why === WALLDEMO_HOLD).map(z => z.box)
+  return (x, z) => bs.some(b => x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5])
+}
+/** wallext-02: the wall record without the demolition's hold (its ground is the groundskeeper's again) -> body | null (none held). */
+export function releaseHold (wallRec, { now = Date.now() } = {}) {
+  if (!wallRec || !(wallRec.zones ?? []).some(z => z?.why === WALLDEMO_HOLD)) return null
+  return { ...wallRec, zones: wallRec.zones.filter(z => z?.why !== WALLDEMO_HOLD), hold: false, releasedAt: now }
 }
 /** A block a retired cell may be dug as: its role's wall palette, a torch for a light (placed on a side: wall_torch). Pure. */
 const demoName = (role, name) => (role === 'light' ? /^(wall_)?torch$/.test(name) : (WALL_PALETTE[role] ?? []).includes(name))
