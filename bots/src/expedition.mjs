@@ -144,6 +144,8 @@ export function bearingVec (k, offsetDeg = 0) {
 export function ringOf (trips = [], now = 0) {
   let r = RING_MIN
   for (const t of trips) {
+    // bridgepost-01: a BRIDGE trip went to work at a site, not to its ring: it says nothing about the ring's reach
+    if (t?.bridge) continue
     // a MULTI-CALL trip (wholemap-s1 item 6) that reached its ring and came home over its own trail in a later call is a success
     const trail = t?.multi === true && /^home_/.test(String(t?.via ?? ''))
     if ((t?.returned || trail) && t?.reason === 'reached') r += RING_STEP
@@ -385,7 +387,7 @@ const TARGET_WINDOW = Object.freeze({ up: 20, down: 20 })
  * then bends of +-25 and +-50 degrees, the first whose line is clear and whose end is a dry standable cell. All refused: the
  * most telling refusal (water before zone before unread).
  */
-export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers = [], zones = [], detour = null, swim = 0 } = {}) {
+export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers = [], zones = [], detour = null, swim = 0, bridges = [] } = {}) {
   const dHome = p => Math.hypot(p.x - home.x, p.z - home.z)
   const here = dHome(pos)
   // A DETOUR IN HAND (wholemap-s1 item 3) is walked first: its waypoints in order, then the spoke again
@@ -424,6 +426,11 @@ export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers 
     const s = surfaceAt(read, x, z, pos.y, TARGET_WINDOW)
     if (!s || s.water || s.none) { whys.push(s?.water ? 'water' : s?.none ? 'steep' : 'unread'); continue }
     return { ok: true, target: { x, y: s.y, z }, via: 'bearing', bend, detour: null }
+  }
+  // BRIDGEPOST-01: NO DRY BEND -- a finished bridge in reach is walked (dry, before any swim)
+  if (whys.includes('water') && bridges?.length) {
+    const bl = bridgeLeg(read, { pos, home, bridges, zones })
+    if (bl) return bl
   }
   // EXPWATER-01: NO DRY BEND -- the same bends again, swimming a narrow crossing (every dry way was tried first)
   if (swim > 0 && whys.includes('water')) {
@@ -756,5 +763,62 @@ export function kitNeed (held = {}, kit = KIT, markers = true) {
 /** `_expedition_trip` row detail (under 300 characters). Pure. */
 export function tripDetail (t = {}) {
   const haul = Object.entries(t.haul ?? {}).map(([k, v]) => `${k}:${v}`).join(',') || '-'
-  return `trip=${t.id ?? '-'} bearing=${t.bearing ?? '-'} ring=${t.ring ?? '-'} dist=${Math.round(t.dist ?? 0)} reason=${t.reason ?? '-'} returned=${t.returned ? 1 : 0} via=${t.via ?? '-'} crumbs=${t.crumbs ?? 0} markers=${t.markers ?? 0} reused=${t.reused ?? 0} cross=${t.crossings ?? 0} deposited=${t.deposited ?? 0} ms=${t.ms ?? 0} haul=${haul}`.slice(0, 295)
+  return `trip=${t.id ?? '-'} bearing=${t.bearing ?? '-'} ring=${t.ring ?? '-'} dist=${Math.round(t.dist ?? 0)} reason=${t.reason ?? '-'} returned=${t.returned ? 1 : 0} via=${t.via ?? '-'} crumbs=${t.crumbs ?? 0} markers=${t.markers ?? 0} reused=${t.reused ?? 0} cross=${t.crossings ?? 0}${t.bridge ? ` br=${t.bridgeStop ?? 'go'}:${t.bridgePlaced ?? 0}` : ''} deposited=${t.deposited ?? 0} ms=${t.ms ?? 0} haul=${haul}`.slice(0, 295)
+}
+
+// ---- BRIDGEPOST-01: bridges (bridge.mjs builds them; these let the planner site and use them) -------------------------------------
+
+/**
+ * HOW FAR THE TRIP'S OWN PLANNER GETS PAST A BRIDGE'S LANDING -> blocks of distance from home gained (0..). Pure. From `span.land`,
+ * up to `legs` legTarget legs on the bearing (swims allowed as the trip would): the distance of the furthest leg end from home less
+ * the landing's. bridge.mjs bridgeSite keeps only spans that open at least BEYOND_MIN.
+ */
+export function beyondGain (read, span, { home, bearing, zones = [], swim = 0, legs = 3 } = {}) {
+  let pos = { x: span.land[0] + 0.5, y: span.land[1], z: span.land[2] + 0.5 }
+  const d0 = Math.hypot(pos.x - home.x, pos.z - home.z)
+  let best = d0, detour = null
+  for (let i = 0; i < legs; i++) {
+    const lt = legTarget(read, { pos, home, bearing, zones, detour, swim })
+    if (!lt.ok) break
+    detour = lt.detour?.waypoints?.length ? lt.detour : null
+    pos = { x: lt.target.x + 0.5, y: lt.target.y, z: lt.target.z + 0.5 }
+    best = Math.max(best, Math.hypot(pos.x - home.x, pos.z - home.z))
+  }
+  return Math.round(best - d0)
+}
+
+/**
+ * A FINISHED BRIDGE AS THE NEXT LEG -> legTarget's answer (via 'bridge_in' | 'bridge') | null. Pure. A bridge whose near end lies
+ * within BRIDGE_USE_R of the bot and whose landing is further from home than the bot: standing at its near end (within 2), the leg is
+ * along the deck to the landing (`shore`: the near end, a crumb; the landing's crumb becomes a gate as a swim's far shore does);
+ * further off, a dry leg to the near end first. The nearest such bridge wins.
+ */
+export const BRIDGE_USE_R = 28
+export const BRIDGE_ON = 3.5                    // the bot is AT a bridge's near end within this (x/z, to its centre)
+export const BRIDGE_BACK = 24                   // a bridge's near end may lie this much nearer home than the bot
+export function bridgeLeg (read, { pos, home, bridges = [], zones = [] } = {}) {
+  const dHome = p => Math.hypot(p[0] - home.x, p[2] - home.z)
+  const here = Math.hypot(pos.x - home.x, pos.z - home.z)
+  // a bridge that goes OUT (its landing further from home than its near end), whose near end is in reach and not a long way back
+  // toward home (a site lies within bridge.mjs SITE_R of the turn, often across it: offline b3, the near end 19 east of the turn)
+  const c = (bridges ?? []).filter(b => Array.isArray(b?.near) && Array.isArray(b?.land) && dHome(b.land) > dHome(b.near) + 2 &&
+    dHome(b.near) >= here - BRIDGE_BACK && Math.hypot(b.near[0] + 0.5 - pos.x, b.near[2] + 0.5 - pos.z) <= BRIDGE_USE_R &&
+    // ...and the bot is on its NEAR side: nearer its near end than its landing (offline: a bot just over a bridge took it back)
+    Math.hypot(b.near[0] + 0.5 - pos.x, b.near[2] + 0.5 - pos.z) < Math.hypot(b.land[0] + 0.5 - pos.x, b.land[2] + 0.5 - pos.z))
+    .sort((a, b) => Math.hypot(a.near[0] - pos.x, a.near[2] - pos.z) - Math.hypot(b.near[0] - pos.x, b.near[2] - pos.z))
+  for (const b of c) {
+    const dn = Math.hypot(b.near[0] + 0.5 - pos.x, b.near[2] + 0.5 - pos.z)
+    // at the near end: within goto's own arrival (range 2 to the block, so up to ~2.4 from its centre; both reviews r1 BLOCKER: a bot
+    // stopped 2.1 out read `bridge_in` again, moved 0, and turned 'blocked' at the bridge)
+    if (dn <= BRIDGE_ON) {
+      // the deck must still be standable at both ends (a bridge the world no longer has is not walked)
+      if (!standableAt(read, b.far) || !standableAt(read, b.land)) continue
+      return { ok: true, target: { x: b.land[0], y: b.land[1], z: b.land[2] }, via: 'bridge', bend: 0, wet: 0, bridge: b.id ?? null, detour: null,
+        shore: [b.near[0], b.near[1], b.near[2]] }
+    }
+    if (!standableAt(read, b.near)) continue
+    if (!lineClear(read, pos, { x: b.near[0], y: b.near[1], z: b.near[2] }, { zones }).ok) continue
+    return { ok: true, target: { x: b.near[0], y: b.near[1], z: b.near[2] }, via: 'bridge_in', bend: 0, wet: 0, bridge: b.id ?? null, detour: null }
+  }
+  return null
 }
