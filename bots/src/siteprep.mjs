@@ -396,7 +396,11 @@ export function prepOpen (rec, id, read, done = () => false) {
  */
 export function prepHoldOf (open, given = () => false) {
   if (!open?.n) return 'none'
-  if (!open.cells.length && !open.clears.length && open.cuts.every(c => given(c.at.join(',')))) return 'stuck'
+  // Claude code r3 BLOCKER: a seal waits on its opener cut (park.mjs terraceSkip `opener_standing`), and the waiver never names a
+  // seal -- a seal under a given-up cut is no more workable than the cut
+  const cutK = new Set(open.cuts.map(c => c.at.join(',')))
+  const blocked = c => Array.isArray(c.opener) && cutK.has(c.opener.join(',')) && given(c.opener.join(','))
+  if (!open.clears.length && open.cuts.every(c => given(c.at.join(','))) && open.cells.every(blocked)) return 'stuck'
   return 'work'
 }
 /**

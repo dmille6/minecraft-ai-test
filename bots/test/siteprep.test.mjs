@@ -270,10 +270,17 @@ await t('the keeper\'s hold: nothing open verifies; a cell, a clear or a cut sti
   assert.strictEqual(P.prepHoldOf({ n: 2, cells: [], cuts: [cut([1, 2, 3]), cut([4, 5, 6])], clears: [] }, k => k === '1,2,3'), 'work')
   assert.strictEqual(P.prepHoldOf({ n: 2, cells: [], cuts: [cut([1, 2, 3]), cut([4, 5, 6])], clears: [] }, () => true), 'stuck')
   assert.strictEqual(P.prepHoldOf({ n: 2, cells: [], cuts: [cut([1, 2, 3])], clears: [{ at: [0, 0, 0] }] }, () => true), 'work')
+  // a seal waiting on a given-up cut is stuck with it; a seal whose cut is still tried, or a plain fill, is work
+  assert.strictEqual(P.prepHoldOf({ n: 2, cells: [{ at: [1, 0, 3], opener: [1, 2, 3] }], cuts: [cut([1, 2, 3])], clears: [] }, () => true), 'stuck')
+  assert.strictEqual(P.prepHoldOf({ n: 2, cells: [{ at: [1, 0, 3], opener: [1, 2, 3] }], cuts: [cut([1, 2, 3])], clears: [] }, () => false), 'work')
+  assert.strictEqual(P.prepHoldOf({ n: 2, cells: [{ at: [1, 0, 3] }], cuts: [cut([1, 2, 3])], clears: [] }, () => true), 'work')
 })
 await t('mutant: without the stuck rule a given-up cut holds the keeper to the expiry', () => killed('siteprep.mjs', P,
-  "open.cuts.every(c => given(c.at.join(',')))) return 'stuck'", "false) return 'stuck'",
+  "&& open.cells.every(blocked)) return 'stuck'", "&& false) return 'stuck'",
   M => assert.strictEqual(M.prepHoldOf({ n: 1, cells: [], cuts: [{ at: [1, 2, 3] }], clears: [] }, () => true), 'stuck')))
+await t('mutant: without the seal rule a seal under a given-up cut holds the keeper to the expiry', () => killed('siteprep.mjs', P,
+  "const blocked = c => Array.isArray(c.opener) && cutK.has(c.opener.join(',')) && given(c.opener.join(','))", 'const blocked = c => false',
+  M => assert.strictEqual(M.prepHoldOf({ n: 2, cells: [{ at: [1, 0, 3], opener: [1, 2, 3] }], cuts: [{ at: [1, 2, 3] }], clears: [] }, () => true), 'stuck')))
 await t('the cuts come in layers, the highest across the plot first (never a shaft mid-way)', () => {
   const cuts = [[0, 73, 0], [0, 72, 0], [0, 71, 0], [5, 72, 0], [5, 71, 0], [9, 71, 9]].map(at => ({ at, name: 'dirt' }))
   const ys = P.prepCutOrder(cuts, [0, 0]).map(c => c.at[1])
