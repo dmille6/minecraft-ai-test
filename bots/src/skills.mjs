@@ -176,7 +176,7 @@ import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PL
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
-import { siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
+import { siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { groupOfItem } from './townindex.mjs'
@@ -21141,7 +21141,7 @@ function prepOverlap (plot) {
 function prepWorking (dir, rec, read, done) {
   try {
     const q = prepActive(siteprepHead(dir))
-    if (q?.state !== 'prepping' || !rec?.prep?.[q.id]) return null
+    if (q?.state !== 'prepping' || rec?.prep?.[q.id]?.att !== prepAttempt(q)) return null
     return prepOpen(rec, q.id, read, done).n ? q.id : null
   } catch { return null }
 }
@@ -21153,11 +21153,13 @@ async function prepTick (bot, dir, key, rec, me, signal) {
   const waived = q => !!rec?.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))
   const done = q => waived(q) || buildCellDone(read(...q.at), TIDY_PALETTE, q.role)
   let changed = false
-  const retire = id => { const pub = publishRecord(dir, key, cur => retirePrep(cur, id, read, done), { by: me }); if (pub.result === 'accepted') changed = true }
+  // -> true when the request's open work is off the tidy record (retired now, or nothing of it open); a failed publish keeps the
+  // request's state and its reservation (Codex r2 BLOCKER 2)
+  const retire = id => { const pub = publishRecord(dir, key, cur => retirePrep(cur, id, read, done), { by: me }); if (pub.result === 'accepted') changed = true; return pub.result === 'accepted' || pub.result === 'nothing' }
   for (const q of requestsOf(sp0)) {
     const ev = prepExpire(q)
     if (!ev) continue
-    if (q.state === 'prepping') retire(q.id)
+    if (q.state === 'prepping' && !retire(q.id)) continue
     const hp = prepPublish(dir, q.id, ev, me)
     prepRow(bot, 'no_effect', { op: 'expired', id: q.id, kind: q.requester?.kind, state: q.state, why: ev.why, gen: hp.gen })
   }
@@ -21204,7 +21206,7 @@ async function prepTick (bot, dir, key, rec, me, signal) {
     // the reservation is published FIRST; a project another bot sited meanwhile on the plot retires the request before any work
     const ov = prepOverlap(plot)
     if (ov) { const rp = prepPublish(dir, q.id, { type: 'retire', why: ov }, me); prepRow(bot, 'no_effect', { op: 'retired', id: q.id, kind, state: rp.req?.state, why: ov, gen: rp.gen }); return head() }
-    const pub = publishRecord(dir, key, cur => (cur && !cur.prep?.[q.id] ? withPrep(cur, q, ch.grade.work, { home }) : null), { by: me })
+    const pub = publishRecord(dir, key, cur => (cur && cur.prep?.[q.id]?.att !== prepAttempt(q) ? withPrep(cur, q, ch.grade.work, { home }) : null), { by: me })
     if (pub.result === 'accepted') changed = true
     return head()
   }
@@ -21212,17 +21214,14 @@ async function prepTick (bot, dir, key, rec, me, signal) {
   // on the REAL world decides (no waiver completes a prep)
   const ov = prepOverlap(q.plot)
   if (ov) {
-    retire(q.id)
+    if (!retire(q.id)) return head()
     const rp = prepPublish(dir, q.id, { type: 'retire', why: ov }, me)
     prepRow(bot, 'no_effect', { op: 'retired', id: q.id, kind, state: rp.req?.state, why: ov, gen: rp.gen })
     return head()
   }
-  if (!rec?.prep?.[q.id]) {
-    const rp = prepPublish(dir, q.id, { type: 'verify_fail', why: 'work_missing' }, me)
-    prepRow(bot, 'no_effect', { op: 'verify_fail', id: q.id, kind, state: rp.req?.state, why: 'work_missing', gen: rp.gen })
-    return head()
-  }
-  const open = prepOpen(rec, q.id, read, done).n
+  // this attempt's work not on the head (a stage advanced over a finished prep, or the work's publish was lost): the requester's
+  // own proof on the REAL world decides, as for finished work (Codex r2 BLOCKER 1)
+  const open = rec?.prep?.[q.id]?.att === prepAttempt(q) ? prepOpen(rec, q.id, read, done).n : 0
   if (open) return head()
   const d = prepVerifyDecision({ open, acc: acceptAt(planReader(bot), prepPin(q)) })
   const vp = prepPublish(dir, q.id, { type: d, why: d === 'verify_fail' ? 'requester_refused' : null }, me)
@@ -21536,7 +21535,7 @@ async function buildTidy (ctx, args, signal) {
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const skip2 = skipOf(read2)
-    const prog = tidyProgress(rw, read2, { fillDone: q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) })
+    const prog = tidyProgress(rw, read2, { fillDone: q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) })
     // townterrace-01: what the park passed over this visit, named (one row a visit: the element skipped and why)
     if (parkish) {
       const why = {}
@@ -21561,7 +21560,11 @@ async function buildTidy (ctx, args, signal) {
     // keeper's next visit (its order comes back at GK.cooldownMs)
     // ... and never over a park planting another crew bot carries the plants for (park.mjs parkHeldByCrew: it plants it next visit)
     const crewHeld = GROUNDS.on && parkish && caps.complete ? parkHeldByCrew(rw, { done: q => buildCellDone(read2(...q.at), palette, q.role), skip: skip2, others: crewPantry(dir, key, me) }).length : 0
-    if (caps.complete && !crewHeld && !prog.cutLeft && !prog.fillLeft && !unread && clearsOk) {
+    // siteprep-01 r2 (Codex + Claude r2 BLOCKER 1): never complete over a prepping request's open work (its cuts may be given up by
+    // this bot): the prep is verified, or retired at its expiry, first
+    const prepHold = SITEPREP.on && !!prepWorking(dir, rw, read2, q => !!q.prev || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || buildCellDone(read2(...q.at), palette, q.role))
+    if (prepHold) f.prepHold = 1
+    if (caps.complete && !crewHeld && !prog.cutLeft && !prog.fillLeft && !unread && clearsOk && !prepHold) {
       const now = Date.now()
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length } : null), { by: me })
       completed = true

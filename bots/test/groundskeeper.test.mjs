@@ -158,7 +158,8 @@ await t('Codex r1 BLOCKER 2: a clear still standing is work left (tidyClearsLeft
   col(srv, 33, 0, G + 1, G + 3, 'air')
   assert.strictEqual(T.tidyClearsLeft(rec, srv.read), 0)
   const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/if \(caps\.complete && !crewHeld && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk\) \{/.test(sk), 'the completion waits on the clears (gkhelpers-01: the keeper\'s, and never over a crew bot\'s plants)')
+  // siteprep-01 r2: and never over a prepping request's open work (`prepHold`)
+  assert.ok(/if \(caps\.complete && !crewHeld && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/.test(sk), 'the completion waits on the clears (gkhelpers-01: the keeper\'s, and never over a crew bot\'s plants; siteprep-01: nor over an open prep)')
 })
 await t('NEVER WORSE: a stage whose road work would wall the town in is dropped (named); control: a road over a dip is kept', async () => {
   const land = await flatPlan()

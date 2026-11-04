@@ -247,8 +247,13 @@ await t('withPrep: dams first, fills in height layers bottom first, buried fills
   const work = { dam: [{ at: [40, G, 40] }], fill: [{ at: [30, G - 1, 30] }, { at: [30, G, 30] }, { at: [31, G, 30] }], seal: [{ at: [32, G - 2, 30], opener: [32, G - 1, 30] }], cut: [{ at: [32, G - 1, 30], name: 'dirt' }], leaves: [] }
   const base = { cells: [{ at: [0, G, 0], role: 'earth', seg: 'T-00-0' }], cut: [], clear: [], segments: [{ seg: 'T-00-0', deps: [] }], r: 32, structure_complete: true }
   const r = P.withPrep(base, { id: 'SP4' }, work, { home: HOME, now: 5 })
-  assert.deepStrictEqual(r.segments.map(s => s.seg), ['SP4-D', 'SP4-L00', 'SP4-L01', 'SP4-S', 'T-00-0'])
-  assert.deepStrictEqual(r.segments[2].deps, ['SP4-L00'])
+  assert.deepStrictEqual(r.segments.map(s => s.seg), ['SP4-0D', 'SP4-0L00', 'SP4-0L01', 'SP4-0S', 'T-00-0'])
+  assert.deepStrictEqual(r.segments[2].deps, ['SP4-0L00'])
+  assert.strictEqual(r.prep.SP4.att, 0)
+  // a RE-PREP (attempt 1) installs its own work beside the first attempt's: its own segments, its own attempt mark
+  const r2 = P.withPrep(r, { id: 'SP4', verifyFails: 1 }, { dam: [], seal: [], cut: [], leaves: [], fill: [{ at: [50, G, 50] }] }, { home: HOME, now: 6 })
+  assert.ok(r2.segments.some(s => s.seg === 'SP4-1L00') && r2.segments.some(s => s.seg === 'SP4-0L00'))
+  assert.strictEqual(r2.prep.SP4.att, 1)
   assert.strictEqual(r.cells.find(c => k3(c.at) === k3([30, G - 1, 30])).role, 'core')
   assert.strictEqual(r.cells.find(c => k3(c.at) === k3([30, G, 30])).role, 'earth')
   assert.ok(r.cells.filter(c => c.seg.startsWith('SP4')).every(c => c.prep === 'SP4'))
@@ -310,14 +315,17 @@ const W = [
   /if \(r\.meta\.prep\) \{ const hp = prepPublish\(dir, r\.meta\.prep, \{ type: 'handed', inst: r\.meta\.id \}, me\)/,
   /const r3 = await prepTick\(bot, dir, key, rec, me, signal\)/,
   /const cuts = !caps\.digs \|\| floorOnly \? \[\] : prepNow \? prepCutOrder\(/,
-  /if \(q\.state === 'prepping'\) retire\(q\.id\)/,
+  /if \(q\.state === 'prepping' && !retire\(q\.id\)\) continue/,
+  /given: k => guard\.has\(k\) \|\| tidyGivenUp\(mem, k\) \|\| \(isTerrace && !cutAt\.get\(k\)\?\.prep && /,
+  /if \(caps\.complete && !crewHeld && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/,
+  /cur\.prep\?\.\[q\.id\]\?\.att !== prepAttempt\(q\) \? withPrep\(/,
   /if \(name === 'snow' \|\| name === 'water'\) \{ try \{ props = b\.getProperties/,
 ]
 await t('the reservation in projectHeads and the dress guard; the one exempt request; the claim first, its wait bypassed; filing; the hand-over; the keeper\'s tick; the layered cuts; retire before expire; the water level read', () => {
   for (const re of W) assert.ok(re.test(SK), String(re))
 })
 await t('mutants: each wiring line, once broken, fails its assertion', () => {
-  const breaks = ['const r3 = await prepTick(bot, dir, key, rec, me, signal)', "if (q.state === 'prepping') retire(q.id)", 'const claim = sp ? prepClaimFor(sp, kind) : null']
+  const breaks = ['const r3 = await prepTick(bot, dir, key, rec, me, signal)', "if (q.state === 'prepping' && !retire(q.id)) continue", 'const claim = sp ? prepClaimFor(sp, kind) : null', '&& clearsOk && !prepHold) {', '(isTerrace && !cutAt.get(k)?.prep && ']
   for (const b of breaks) {
     assert.strictEqual(SK.split(b).length, 2, `anchor unique: ${b}`)
     assert.ok(W.some(re => !re.test(SK.replace(b, 'BROKEN'))), b)

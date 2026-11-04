@@ -340,7 +340,9 @@ export function plotOf (ch) {
 }
 
 // ---- the work on the keeper's tidy record ---------------------------------------------------------------------------------------
-const segL = (id, k) => `${id}-L${String(k).padStart(2, '0')}`
+/** A request's ATTEMPT (each re-prep is a new one: its work is its own on the record -- Codex r2 BLOCKER 3). Pure. */
+export const prepAttempt = req => (Number(req?.verifyFails) || 0) + (Number(req?.retires) || 0)
+const segL = (id, a, k) => `${id}-${a}L${String(k).padStart(2, '0')}`
 /**
  * THE PREP ON THE TIDY RECORD -> the new record. Pure. Appended to the HEAD tidy record as a new generation (the storehouse floor
  * fix's pattern; the stage's own cells stay): dams first (`<id>-D`), the fills in height layers bottom first (`<id>-Lkk`, each
@@ -349,7 +351,7 @@ const segL = (id, k) => `${id}-L${String(k).padStart(2, '0')}`
  * leaves join the record's cut and clear lists. The record reads open; its radius covers the plot. `rec` null: a fresh tidy record.
  */
 export function withPrep (rec, req, work, { home, now = Date.now() } = {}) {
-  const id = req.id
+  const id = req.id, a = prepAttempt(req)
   const base = rec ?? { v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r: TIDY.r, cells: [], clear: [], cut: [], replant: [], segments: [], zones: [], skipped: {}, bom: { earth: 0 }, builders_max: TIDY_BUILDERS, structure_complete: false, sitedAt: now }
   const have = new Set((base.cells ?? []).map(c => c.at.join(',')))
   const top = new Map()
@@ -357,15 +359,15 @@ export function withPrep (rec, req, work, { home, now = Date.now() } = {}) {
   const ys = [...new Set(work.fill.map(f => f.at[1]))].sort((a, b) => a - b)
   const cells = [], segs = []
   const dams = work.dam.filter(d => !have.has(d.at.join(',')))
-  if (dams.length) { segs.push({ seg: `${id}-D`, deps: [] }); for (const d of dams) cells.push({ at: d.at, role: 'core', seg: `${id}-D`, dam: true, prep: id }) }
+  if (dams.length) { segs.push({ seg: `${id}-${a}D`, deps: [] }); for (const d of dams) cells.push({ at: d.at, role: 'core', seg: `${id}-${a}D`, dam: true, prep: id }) }
   ys.forEach((y, k) => {
     const mine = work.fill.filter(f => f.at[1] === y && !have.has(f.at.join(',')))
     if (!mine.length) return
-    segs.push({ seg: segL(id, k), deps: k > 0 && segs.some(s => s.seg === segL(id, k - 1)) ? [segL(id, k - 1)] : [] })
-    for (const f of mine) cells.push({ at: f.at, role: f.at[1] < top.get(k2(f.at[0], f.at[2])) ? 'core' : 'earth', seg: segL(id, k), prep: id })
+    segs.push({ seg: segL(id, a, k), deps: k > 0 && segs.some(s => s.seg === segL(id, a, k - 1)) ? [segL(id, a, k - 1)] : [] })
+    for (const f of mine) cells.push({ at: f.at, role: f.at[1] < top.get(k2(f.at[0], f.at[2])) ? 'core' : 'earth', seg: segL(id, a, k), prep: id })
   })
   const seals = work.seal.filter(s => !have.has(s.at.join(',')) && !cells.some(c => c.at.join(',') === s.at.join(',')))
-  if (seals.length) { segs.push({ seg: `${id}-S`, deps: [] }); for (const s of seals) cells.push({ at: s.at, role: 'core', seg: `${id}-S`, opener: s.opener, prep: id }) }
+  if (seals.length) { segs.push({ seg: `${id}-${a}S`, deps: [] }); for (const s of seals) cells.push({ at: s.at, role: 'core', seg: `${id}-${a}S`, opener: s.opener, prep: id }) }
   const cutK = new Set((base.cut ?? []).map(c => c.at.join(',')))
   const cut = work.cut.filter(c => !cutK.has(c.at.join(','))).map(c => ({ at: c.at, kind: 'tidy', name: c.name, prep: id }))
   const clrK = new Set((base.clear ?? []).map(c => c.at.join(',')))
@@ -374,7 +376,7 @@ export function withPrep (rec, req, work, { home, now = Date.now() } = {}) {
   return {
     ...base, cells: [...cells, ...(base.cells ?? [])], segments: [...segs, ...(base.segments ?? [])], cut: [...(base.cut ?? []), ...cut],
     clear: [...(base.clear ?? []), ...clear].sort((a, b) => a.at[1] - b.at[1]), r: Math.max(Number(base.r) || TIDY.r, ...xs.map(d => d + 2)),
-    structure_complete: false, state: 'open', prepAt: now, prep: { ...(base.prep ?? {}), [id]: { at: now, cells: cells.length, cut: cut.length } },
+    structure_complete: false, state: 'open', prepAt: now, prep: { ...(base.prep ?? {}), [id]: { at: now, att: a, cells: cells.length, cut: cut.length } },
   }
 }
 /** A request's open work on the tidy record -> { cells, cuts, clears } (`done(cell)` the visit's done test; a cut open while it
