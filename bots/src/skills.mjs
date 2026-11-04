@@ -174,7 +174,7 @@ import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
-import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
+import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
@@ -18712,6 +18712,8 @@ async function buildShop (ctx, args, signal) {
   let r
   try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) note({ status: 'aborted', stop: 'aborted' }); throw e }
   note(r)
+  // sinkfix-03: the plot whose siting failed (shop.mjs siteRetryHolds: the order's 24-h site retry holds only that plot)
+  if (r?.stop === 'no_site') ctx.bot.shopNoSitePlot = ctx.bot.shopVisitPlot ?? null
   return r
 }
 async function buildShopVisit (ctx, args, signal) {
@@ -20764,6 +20766,7 @@ export function keeperNow (bot, now = Date.now()) {
   return v
 }
 setKeeperNow(() => keeperNow(activeMem?.bot ?? null))
+setNoSitePlot(() => activeMem?.bot?.shopNoSitePlot ?? null)   // sinkfix-03
 // ---- gkhelpers-01: THE GROUNDS CREW (groundskeeper.mjs helperDecision; owner 11-03 A) -------------------------------------------
 /** The keeper and helper leases now and this bot's helper decision. Never throws: unreadable reads 'full' (never a third). */
 function crewState (bot, work, now = Date.now()) {

@@ -367,6 +367,17 @@ export function setCopperAsk (fn) { copperAskOf = typeof fn === 'function' ? fn 
 /** groundskeeper-01: does THIS bot hold its town's keeper lease now (skills.mjs keeperNow; no cognitive change)? */
 let keeperOf = () => false
 export function setKeeperNow (fn) { if (typeof fn === 'function') keeperOf = fn }
+/**
+ * SINKFIX-03: THE PLOT THIS BOT LAST FAILED TO SITE (skills.mjs buildShop records it; cognitive.mjs's order state knows only the
+ * bot's last STOP). LIVE showcase 11-04 07:09-08:09Z (15 bots): after one `no_site` -- the crop farm's or the road's -- every bot's
+ * build order went quiet for SHOP_SITE_RETRY_MS (24 h): a sink wanting its next instance reads unsited, so the tower the picker
+ * wanted (`tower:ok`) was held by the ROAD's failure; build work fell from 145 to 23 blocks/h. The site retry holds only the plot that
+ * failed; an unknown plot (no hook, a restart) holds as before.
+ */
+let noSitePlotOf = () => null
+export function setNoSitePlot (fn) { if (typeof fn === 'function') noSitePlotOf = fn }
+/** Does the bot's last `no_site` hold the order for this plot? Pure. */
+export const siteRetryHolds = (plot, failed) => failed == null || plot == null || failed === plot
 /** The order's cooldown for a plot -> ms: the stair's SHAFT_COOLDOWN_MS, the KEEPER's tidy GK.cooldownMs (its grounds are its job),
  *  else SHOP_COOLDOWN_MS. Pure but for the keeper hook. */
 export function orderCooldown (plot) {
@@ -674,7 +685,9 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   let plot0 = record?.plot ?? null
   if (!record) { try { plot0 = activePlotOf() } catch { plot0 = null } }
   if (now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }
-  if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
+  let failedSite = null
+  try { failedSite = noSitePlotOf() } catch { failedSite = null }
+  if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS && siteRetryHolds(plot0, failedSite)) return { order: null, skip: 'no_site' }
   // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop.
   // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE
   // (a skewed or bad clock) is ignored rather than holding the project skew + 6 h

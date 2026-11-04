@@ -115,6 +115,8 @@ const REQUIRED = [
   'bots/test/sinkfix.test.mjs',
   // sinkfix-02 (11-04): sinks that placed ~0 live (aborted road, a tower's spent proofs, dress held back) reproduced
   'bots/test/sinkfix2.test.mjs',
+  // sinkfix-03 (11-04): one plot's failed siting no longer quiets every build order for a day
+  'bots/test/sinkfix3.test.mjs',
   // towndress-01 (11-03): the town's lights and signs (the `dress` sink), its offline siting and its test
   'bots/src/towndress.mjs',
   'bots/scripts/dress-offline.mjs',
