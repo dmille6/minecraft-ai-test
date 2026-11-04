@@ -72,6 +72,7 @@ export const DEATH_DELAY_MS = 6_000
 const PROJECT_NAMES = Object.freeze({
   monument: 'ziggurat', shop: 'workshop', paths: 'town paths', wall: 'town wall', treefarm: 'tree farm',
   shopchest: 'materials chests', storehouse: 'storehouse', shaft: 'mineshaft', tidy: 'town tidy-up',
+  hall: 'copper hall', yard: 'stockyard',   // chatfix-01
 })
 /** A project id -> words. `house1` -> "first house"; an unknown id -> itself, de-underscored. Pure. */
 export function projectName (id) {
@@ -111,13 +112,17 @@ export function segName (seg, project = '') {
 
 const UNCOUNTABLE = new Set(['raw_iron', 'raw_gold', 'raw_copper', 'coal', 'redstone', 'lapis_lazuli', 'cobblestone', 'dirt',
   'sand', 'gravel', 'bone_meal', 'cobbled_deepslate', 'glass'])
-/** `spruce_log`, 16 -> "16 spruce logs". Pure. */
+/** `spruce_log`, 16 -> "16 spruce logs". Pure. A registry name that is ALREADY plural (stone_bricks, oak_planks, iron_bars,
+ *  wheat_seeds, spruce_leaves: one trailing `s` after a non-`s`) is kept as it is -- chatfix-01: the showcase said "44 stone
+ *  brickses" (11-03 18:09Z). Only `ss`, `x`, `ch`, `sh` take `es`; a consonant + `y` takes `ies`. */
 export function itemPhrase (item, n) {
   const name = String(item ?? '').replace(/^minecraft:/, '')
   const words = name.replace(/_/g, ' ')
   const k = Math.round(Number(n) || 0)
   if (k === 1 || UNCOUNTABLE.has(name)) return `${k} ${name === 'lapis_lazuli' ? 'lapis' : words}`
-  if (/(s|x|ch|sh)$/.test(words)) return `${k} ${words}es`
+  if (/[^s]s$/.test(words)) return `${k} ${words}`
+  if (/(ss|x|ch|sh)$/.test(words)) return `${k} ${words}es`
+  if (/[^aeiou]y$/.test(words)) return `${k} ${words.slice(0, -1)}ies`
   return `${k} ${words}s`
 }
 
@@ -141,6 +146,7 @@ export const compass = k => COMPASS[((Number(k) % 8) + 8) % 8] ?? 'somewhere'
 
 const field = (d, k) => { const m = new RegExp(`(?:^|\\s)${k}=(\\S+)`).exec(String(d ?? '')); return m ? m[1] : null }
 const xz = s => { const p = String(s ?? '').split(',').map(Number); return p.length >= 2 && p.every(Number.isFinite) ? (p.length === 3 ? `${p[0]}, ${p[2]}` : `${p[0]}, ${p[1]}`) : null }
+const xyz = c => { const p = String(c ?? '').split(',').map(Number); return p.length === 3 && p.every(Number.isFinite) ? p.join(', ') : null }
 const at = pos => (pos && Number.isFinite(pos.x) ? `${Math.round(pos.x)}, ${Math.round(pos.y)}, ${Math.round(pos.z)}` : null)
 
 const ORE = Object.freeze({
@@ -153,6 +159,10 @@ const ORE = Object.freeze({
   redstone: { tier: 3, word: 'redstone', dedupeMs: 60 * 60_000 },
   coal: { tier: 3, word: 'coal', dedupeMs: 60 * 60_000 },
 })
+/** chatfix-01: a stuck line is not said again within this many blocks (x/z) of one the town said within STUCK_NEAR_MS. */
+export const STUCK_NEAR_R = 12
+export const STUCK_NEAR_MS = 3 * 3600_000
+const PROJECT_KEYS = new Set([...Object.keys(PROJECT_NAMES), 'workshop'])
 const DIG_SKILLS = new Set(['mine', 'gather', 'surface', 'explore', 'tunnel_to_ore', 'mine_guarded'])
 const DEATH_WORDS = Object.freeze({ drowning: 'drowned', lava: 'burned in lava', fire: 'burned', fall: 'fell', suffocation: 'suffocated',
   starvation: 'starved', mob: 'was killed by a mob', void: 'fell out of the world' })
@@ -212,13 +222,63 @@ export function lineFor (rec) {
     return { cat: 'deposit', tier: 3, key: `dep:${rec?.bot?.name ?? ''}`, dedupeMs: 15 * 60_000,
       text: `Stored ${haulPhrase(pairs)} in the town chests.` }
   }
+  if (kind === '_request') {
+    // requests-01 (requests.mjs): the town's requests board, spoken. Every field is an enum, a registry name, a number or a cell
+    const rop = field(d, 'op'), forP = field(d, 'for'), item = field(d, 'item') ?? ''
+    const qty = Number(field(d, 'qty')), have = Number(field(d, 'have'))
+    const proj = forP ? projectName(forP) : null
+    const metal = item.replace(/_ingot$/, '')
+    const bot = rec?.bot?.name ?? ''
+    if (!/^[a-z_]+$/.test(item)) return null
+    if ((rop === 'open' || rop === 'update') && proj && qty > 0) {
+      return { cat: 'request', tier: 2, key: `req:open:${forP}:${item}`, dedupeMs: 30 * 60_000,
+        text: `The ${proj} needs ${qty} more ${itemPhrase(item, qty).replace(/^\d+ /, '')}${Number.isFinite(have) ? ` (the town has ${have})` : ''}.` }
+    }
+    if (rop === 'producing' && proj) {
+      const block = (field(d, 'block') ?? '').replace(/^deepslate_/, '')
+      // tier 3, one an hour town-wide: the copper run issued 95 of these in 39 h of the hall's wait (11-02..03)
+      return { cat: 'request', tier: 3, key: `req:prod:${forP}:${item}`, dedupeMs: 60 * 60_000,
+        text: `Heading out to mine ${/^[a-z_]+$/.test(block) && block ? block.replace(/_/g, ' ') : metal} for the ${proj}${qty > 0 ? ` (it still needs ${qty})` : ''}.` }
+    }
+    if (rop === 'fill' && proj) {
+      const u = Number(field(d, 'units'))
+      if (!(u > 0)) return null
+      return { cat: 'request', tier: 2, key: `req:fill:${bot}`, dedupeMs: 10 * 60_000,
+        text: `Brought ${u} ${metal} for the ${proj}${qty > 0 ? ` (it still needs ${qty})` : ''}.` }
+    }
+    if (rop === 'met' && proj) {
+      const mins = Number(field(d, 'mins')), fills = Number(field(d, 'fills'))
+      return { cat: 'request', tier: 1, key: `req:met:${forP}:${item}`, dedupeMs: 6 * 3600_000,
+        text: `The ${proj} has all the ${metal} it needs${mins >= 60 ? ` after ${Math.round(mins / 60)} h` : ''}` +
+          `${fills > 0 ? `, ${fills === 1 ? 'one delivery' : `${fills} deliveries`} from our bags` : ''}!` }
+    }
+    if (rop === 'filled' && field(d, 'kind') === 'kit' && qty > 0) {
+      const tools = String(field(d, 'for') ?? '').split('+').filter(x => /^[a-z_]+$/.test(x)).map(x => x.replace(/_/g, ' '))
+      const where = xyz(field(d, 'at'))
+      if (!tools.length) return null
+      const words = tools.map(x => `${/^[aeiou]/.test(x) ? 'an' : 'a'} ${x}`).join(' and ')
+      return { cat: 'request', tier: 2, key: tools.includes('iron pickaxe') ? `ironpick:${bot}` : `kit:${bot}`, dedupeMs: 30 * 60_000,
+        text: `I needed ${itemPhrase(item, qty)} for ${words} and found ${qty === 1 ? 'it' : 'them'} in the town chest` +
+          `${where ? ` at ${where}` : 's'}.` }
+    }
+    if (rop === 'unfilled' && field(d, 'kind') === 'kit' && field(d, 'outcome') === 'no_iron') {   // the other outcomes are not 'none' (Codex r1)
+      return { cat: 'request', tier: 3, key: `kitnone:${bot}`, dedupeMs: 60 * 60_000, text: 'I needed iron ingots for my tools, but the town chests had none.' }
+    }
+    return null
+  }
   if (kind === '_kit_ironpick' && field(d, 'outcome') === 'crafted') {
     return { cat: 'tech', tier: 2, key: `ironpick:${rec?.bot?.name ?? ''}`, dedupeMs: 30 * 60_000, text: 'Made an iron pickaxe from the town\'s iron.' }
   }
   if (kind === '_needs_rescue') {
+    // chatfix-01: ONE line per stuck PLACE, town-wide (11-03: 11 of 16 stuck rows were bots in the mineshaft's stair column,
+    // x 24..26 z -24..-27, 8 bots, 9 of them spoken). `near`: no stuck line within STUCK_NEAR_R blocks (x/z) of one the town
+    // said in the last STUCK_NEAR_MS; the bot's own key keeps its 30-min window as before
     const where = at(pos)
-    return { cat: 'stuck', tier: 2, key: `stuck:${rec?.bot?.name ?? ''}`, dedupeMs: 30 * 60_000,
-      text: `I'm stuck${where ? ` at ${where}` : ''}. Working my way out.` }
+    const recd = field(d, 'record')
+    const inside = recd && PROJECT_KEYS.has(recd) ? ` in the ${projectName(recd === 'workshop' ? 'shop' : recd)}` : ''
+    const near = pos && Number.isFinite(pos.x) && Number.isFinite(pos.z) ? { x: Math.round(pos.x), z: Math.round(pos.z), r: STUCK_NEAR_R, ms: STUCK_NEAR_MS } : null
+    return { cat: 'stuck', tier: 2, key: `stuck:${rec?.bot?.name ?? ''}`, dedupeMs: 30 * 60_000, near,
+      text: `I'm stuck${inside}${where ? ` at ${where}` : ''}. Working my way out.` }
   }
   if (kind === '_death') {
     const cls = String(s.fail_class ?? '').toLowerCase()
@@ -315,9 +375,13 @@ export function decide (sent = [], cand, bot, now, rate = RATE) {
   const tier = cand.tier
   const hour = now - 3600_000
   let lastTown = -Infinity, lastBot = -Infinity, townHour = 0, botHour = 0
+  const nr = cand.near
   for (const r of sent) {
     if (!r || !Number.isFinite(r.t)) continue
     if (r.key === cand.key && now - r.t < (cand.dedupeMs ?? rate.dedupeMs)) return { ok: false, why: 'dedupe' }
+    // chatfix-01: a line about a PLACE (stuck) the town already spoke of nearby, recently, by any bot
+    if (nr && r.c === cand.cat && Array.isArray(r.p) && now - r.t < nr.ms &&
+        Math.abs(r.p[0] - nr.x) <= nr.r && Math.abs(r.p[1] - nr.z) <= nr.r) return { ok: false, why: 'dedupe_near' }
     if (r.t > lastTown) lastTown = r.t
     if (r.bot === bot && r.t > lastBot) lastBot = r.t
     if (r.t > hour) { townHour++; if (r.bot === bot) botHour++ }
@@ -400,7 +464,7 @@ export function makeSpeaker ({ bot, say, dir, emit = () => {}, now = () => Date.
       if (unsafe) return { state: { ...state, segs }, ok: false, why: `unsafe_${unsafe}` }
       const d = decide(state.sent, cand, me(), t)
       if (!d.ok) return { state: { ...state, segs }, ok: false, why: d.why }
-      return { state: { ...state, segs, sent: [...state.sent, { t, bot: me(), key: cand.key, tier: cand.tier, d: cand.dedupeMs ?? RATE.dedupeMs }] }, ok: true }
+      return { state: { ...state, segs, sent: [...state.sent, { t, bot: me(), key: cand.key, tier: cand.tier, d: Math.max(cand.dedupeMs ?? RATE.dedupeMs, cand.near?.ms ?? 0), ...(cand.near ? { c: cand.cat, p: [cand.near.x, cand.near.z] } : {}) }] }, ok: true }
     }, t)
     if (!res) {
       // another bot held the town file for its millisecond: a tier-1 line tries once more, half a second later

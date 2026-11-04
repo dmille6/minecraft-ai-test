@@ -51,6 +51,7 @@ import { sinkModeDetail } from './sinks.mjs'
 import { tapRecords } from './logger.mjs'   // showchat-01: the read-only record tap the announcements are made from
 import { showchatOn, showchatModeDetail, makeSpeaker, quietChatter, KILL_FILE } from './showchat.mjs'   // showchat-01
 import { poolStateDir } from './worldfacts.mjs'
+import { requestsOn, requestsModeDetail, makeBoard } from './requests.mjs'   // requests-01: the town's requests board
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -83,6 +84,21 @@ export function installShowchat (bot, { env = process.env, pool = config.memory.
   return sp
 }
 
+// requests-01: ONE board per process (a reconnect's installFeatures replaces the old tap, as showchat's)
+let requestsUntap = null
+/** REQUESTS-01 (requests.mjs): the needs the bots already have and fill, as typed `_request` rows + the town journal. Never throws. */
+export function installRequests (bot, { env = process.env, pool = config.memory.pool } = {}) {
+  const on = requestsOn(env, pool)
+  try { logEvent({ kind: 'requests_mode', status: 'success', snapshot: snapshot(bot), detail: requestsModeDetail({ on, pool }) }) } catch {}
+  if (!on) return null
+  if (requestsUntap) { try { requestsUntap() } catch {} requestsUntap = null }
+  const board = makeBoard({ bot, dir: poolStateDir(pool), emit: row => { try { logEvent({ ...row, snapshot: snapshot(bot) }) } catch {} } })
+  const untap = tapRecords(rec => board.onRecord(rec))
+  requestsUntap = untap
+  bot.once?.('end', () => { untap(); if (requestsUntap === untap) requestsUntap = null })
+  return board
+}
+
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
 export function installFeatures (bot) {
   // expedition-01: the ask buildOrder puts to a bot the projects cannot use, and `_expedition_mode` (on=0 under EXPEDITION=off)
@@ -96,6 +112,8 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'sink_mode', status: 'success', snapshot: snapshot(bot), detail: sinkModeDetail(SINKS.on, SINKS.kinds) }) } catch { /* telemetry */ }
   // showchat-01: the showcase's announcements (`_showchat_mode`; on=0 outside the showcase pool or under SHOWCHAT=off)
   try { installShowchat(bot) } catch (e) { log('warn', 'showchat not installed', { error: e.message }) }
+  // requests-01: the town's requests board (`_requests_mode`; on=0 outside REQUESTS_POOLS, default the showcase)
+  try { installRequests(bot) } catch (e) { log('warn', 'requests not installed', { error: e.message }) }
   // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view
   try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
   // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
