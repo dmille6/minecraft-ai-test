@@ -79,7 +79,7 @@ export function yardOn (env = process.env, pool = '') {
   return pools.includes(String(pool))
 }
 /** `_yard_mode` row detail. Pure. */
-export const yardModeDetail = (on, size = yardSize()) => `on=${on ? 1 : 0} plot=${YARD_PLOT} blueprint=${YARD_BLUEPRINT} size=${size} builders=${YARD_BUILDERS} h=${YARD_H} bulk=${YARD_BULK.join(',')} bag_keep=${YARD_BAG_KEEP_COBBLE} chest_keep=${YARD_CHEST_KEEP.cobblestone} refill_below=${YARD_REFILL_BELOW} visit_max=${YARD_VISIT_MAX}`
+export const yardModeDetail = (on, size = yardSize()) => `on=${on ? 1 : 0} plot=${YARD_PLOT} blueprint=${YARD_BLUEPRINT} size=${size} builders=${YARD_BUILDERS} h=${YARD_H} bulk=${YARD_BULK.join(',')} bag_keep=${YARD_BAG_KEEP_COBBLE} chest_keep=${YARD_CHEST_KEEP.cobblestone} refill_below=${YARD_REFILL_BELOW} visit_max=${YARD_VISIT_MAX} before_well=${yardFlag(process.env, 'YARD_BEFORE_WELL') ? 1 : 0} draw=${yardFlag(process.env, 'YARD_DRAW') ? 1 : 0}`
 
 // ---- YARDSITE-01 (11-03): WHERE THE YARD GOES ON A CROWDED TOWN -------------------------------------------------------------------
 // The showcase offline (11-02, the real siting call): the 18 x 15 yard had no site -- 0 of 31,684 anchor/orient candidates, still 0
@@ -256,7 +256,7 @@ export const bambooBlocks = (held = {}) => Math.floor(Math.max(0, (Number(held?.
  *   town      the town index's stock { name: n } (null: unknown -- no clerk and no refill on a guess)
  *   states    bayStates;  clutter  the aisle cells to clear (yardClutter);  pick  the bag holds a usable pickaxe (a refill's tool)
  */
-export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, states = [], clutter = [], pick = true } = {}) {
+export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, states = [], clutter = [], pick = true, bayClutter = [], deferred = false } = {}) {
   const sur = bagSurplus(held)
   const place = {}
   let left = YARD_VISIT_MAX
@@ -265,7 +265,13 @@ export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, s
     if (want > 0) { place[name] = want; left -= want }
   }
   const placed = Object.values(place).reduce((t, v) => t + v, 0)
-  if (placed >= YARD_STOCK_MIN || (placed > 0 && slots >= YARD_URGENT_SLOTS)) return { kind: 'stock', urgent: slots >= YARD_URGENT_SLOTS, place, draw: {}, dig: {}, why: `bag_surplus:${placed}` }
+  // yarduse-01: a bag whose cobble the WELL left for the yard (`deferred`) is under pressure whatever its slots
+  const pressed = slots >= YARD_URGENT_SLOTS || !!deferred
+  // yarduse-01: a BAY BLOCKED by clutter (LIVE showcase 11-04: 5 spruce leaves on bay 3's top layer locked its 76 slots for 26 h)
+  // is cleared FIRST when the room the bag's surplus finds is short of a stack -- the visit then stocks what the clearing opened
+  const surplus = Object.values(sur).reduce((t, v) => t + v, 0)
+  if (bayClutter.length && placed < YARD_STOCK_MIN) return { kind: 'upkeep', urgent: pressed && surplus > 0, first: true, place: {}, draw: {}, dig: {}, why: `bay_clutter:${bayClutter.length}` }
+  if (placed >= YARD_STOCK_MIN || (placed > 0 && pressed)) return { kind: 'stock', urgent: pressed, place, draw: {}, dig: {}, why: `bag_surplus:${placed}` }
   if (town && typeof town === 'object') {
     const draw = {}
     let room = Math.min(left, Math.max(0, Number(freeSlots) || 0) * 64)
@@ -334,6 +340,27 @@ export function refillDigs (states = [], dig = {}) {
   return out
 }
 
+/**
+ * YARDUSE-01: THE BAYS' CLUTTER -> [{ at, kind: 'tidy', name }]. Pure. Every pile slot holding something that is neither air, a
+ * bulk block (stock, whatever bay it is in, is never dug as clutter) nor a kept thing (KEEP_IN_AISLE: lights, containers, beds,
+ * signs, liquids, portals): leaves, a sapling, grass, snow, dirt, a stray stone. An empty bay with any of it is never given to a
+ * name (bayFor / yardRoomFor need foreign === 0), so this is what makes it usable again. Highest first (a leaf on the top layer
+ * before what is under it); an unread slot is skipped; at most `max`.
+ */
+export function bayClutter (bays = [], read = () => null, { max = YARD_CLEAR_MAX } = {}) {
+  const out = []
+  for (const { slots } of bays ?? []) {
+    for (const s of slots ?? []) {
+      const b = read(...s)
+      if (!b) continue
+      const n = nm(b)
+      if (YARD_BULK.includes(n) || KEEP_IN_AISLE.test(n)) continue
+      out.push({ at: s, kind: 'tidy', name: n })
+    }
+  }
+  return out.sort((a, b) => b.at[1] - a.at[1]).slice(0, max)
+}
+
 /** Never cleared from an aisle: air, the lights, containers, beds, signs (anything a player put there to keep). */
 const KEEP_IN_AISLE = /^(air|cave_air|torch|wall_torch|lantern|chest|trapped_chest|barrel|.*shulker_box|.*_bed|.*_sign|.*_wall_sign|water|lava|fire|soul_fire|bubble_column|bedrock|barrier|.*portal.*|light)$/
 /**
@@ -361,4 +388,51 @@ export function yardClutter (rec, read = () => null, { max = YARD_CLEAR_MAX } = 
 export function yardRowDetail ({ kind = '-', why = '-', placed = {}, dug = {}, drew = {}, banked = {}, crafted = 0, held = {}, stop = '-', cleared = 0 } = {}) {
   const f = m => Object.entries(m ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-'
   return `kind=${kind} why=${why} placed=${f(placed)} drew=${f(drew)} dug=${f(dug)} banked=${f(banked)} bamboo_blocks=${crafted} cleared=${cleared} yard=${f(held)} stop=${String(stop).replace(/\s+/g, '_').slice(0, 40)}`.slice(0, 300)
+}
+
+// ---- YARDUSE-01 (11-04): THE YARD BEFORE THE WELL, AND THE CONSUMERS DRAW FROM IT ------------------------------------------------
+// OWNER 11-04 "we built a large area outside the town to put excess materials, it seems to have been built but doesnt seem to be
+// used, why?". MEASURED (showcase, 15 bots, 48 h 11-02 12:56Z..11-04 12:56Z, 374,125 skill rows; the world read by RCON): the yard
+// filled in 2 h 11 min on 11-03 (227 cobblestone, 07:11-09:22Z) and stood full for 26 h -- bay 3's 76 slots locked by 5 spruce
+// leaves on its top layer that the aisle-only upkeep never reached; nothing ever drew from the piles (the refill waits for chests
+// below 256 and they sat at 788-1000); and the junk well took 9,066 cobble in 28 visits (2,893 of it while the yard had room)
+// against the yard's 584. So: the well leaves the yard's share in the bag while the yard can take it (yardWellKeep, bounded by
+// yardDeferOk), the bays' clutter is the upkeep's (bayClutter), and a sink's or the groundskeeper's bill draws cobblestone from the
+// piles before the chests (yardDrawPlan; skills.mjs yardDrawFor). Yard full: the well as before (owner 11-02 Q1).
+/** A deferral the yard did not answer (no stock visit since) holds no second one for this long. */
+export const YARD_DEFER_MS = 30 * 60_000
+/** The yard room worth keeping cobble back from the well for (a smaller room is the well's, as before). */
+export const YARD_WELL_MIN = 16
+/** A draw smaller than this is not worth the walk to the yard (the chests serve it). */
+export const YARD_DRAW_MIN = 16
+/** A consumer's draw is bounded to this long, and only taken when its own visit has YARD_DRAW_LEFT_MS left. */
+export const YARD_DRAW_MS = 60_000
+export const YARD_DRAW_LEFT_MS = 100_000
+/** THE SWITCHES -> bool. YARD_BEFORE_WELL=off keeps the well as before; YARD_DRAW=off keeps the consumers' bills on the chests. Pure. */
+export const yardFlag = (env = process.env, name) => !['off', '0', 'false', 'no'].includes(String(env?.[name] ?? '').trim().toLowerCase())
+/** Is this bot's last deferral still unanswered (inside YARD_DEFER_MS, no stock visit since)? Pure. */
+export const yardDeferred = ({ deferAt = null, stockAt = null, now = Date.now() } = {}) => Number.isFinite(deferAt) && now - deferAt < YARD_DEFER_MS && !(Number(stockAt) > deferAt)
+/** May the well defer to the yard now? Pure: not while an earlier deferral is unanswered (the remedy for a yard visit that never
+ *  comes is the well itself, half an hour later -- a bag is never held full on the yard's promise). */
+export const yardDeferOk = o => !yardDeferred(o)
+/**
+ * WHAT THE WELL LEAVES IN THE BAG FOR THE YARD -> the cobble family the bag keeps at the well (0: the well's own reserve, as
+ * before). Pure. `room` the yard's room for cobblestone now (yardRoomFor over a fresh read; 0 when unread, resting or not built),
+ * `deferOk` yardDeferOk. The yard's stock visit takes the bag's surplus above YARD_BAG_KEEP_COBBLE, at most YARD_VISIT_MAX a visit,
+ * so that much is kept above it.
+ */
+export function yardWellKeep ({ on = true, room = 0, deferOk = true } = {}) {
+  const r = Math.max(0, Number(room) || 0)
+  if (!on || !deferOk || r < YARD_WELL_MIN) return 0
+  return YARD_BAG_KEEP_COBBLE + Math.min(r, YARD_VISIT_MAX)
+}
+/**
+ * A CONSUMER'S DRAW FROM THE PILES -> cobblestone to dig back for a bill. Pure. `need` the bill's cobblestone still wanted from
+ * town (after the bag's spare), `held` the yard's holdings (yardHeld), `freeSlots` the bag's, `pick` a usable pickaxe (a
+ * cobblestone dug by hand drops nothing), `left` the visit's time left (ms). 0: the chests serve the bill, as before.
+ */
+export function yardDrawPlan ({ on = true, need = 0, held = {}, freeSlots = 0, pick = false, left = Infinity } = {}) {
+  if (!on || !pick || !(Number(left) >= YARD_DRAW_LEFT_MS)) return 0
+  const n = Math.min(Math.max(0, Number(need) || 0), Math.max(0, Number(held?.cobblestone) || 0), YARD_VISIT_MAX, Math.max(0, Number(freeSlots) || 0) * 64)
+  return n >= YARD_DRAW_MIN ? n : 0
 }
