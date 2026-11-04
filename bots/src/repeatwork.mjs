@@ -58,5 +58,5 @@ export function tallyLine ({ secs, c }) {
   return `secs=${Math.round(secs)} checks=${checks} checks_per_min=${secs > 0 ? (checks * 60 / secs).toFixed(2) : '0'} ` +
     `refused=${g('refused')} refusals_per_check=${checks > 0 ? (g('refused') / checks).toFixed(3) : '0'} admitted=${g('admitted')} ` +
     `admitted_per_bot_h=${secs > 0 ? (g('admitted') * 3600 / secs).toFixed(1) : '0'} repeat_refused=${g('repeat_refused')} ` +
-    `progress_admits=${g('progress_admits')} gains=${g('gains')} fails=${g('fails')}`
+    `progress_admits=${g('progress_admits')} gather_gains=${g('gather_gains')} gather_fails=${g('gather_fails')}`
 }

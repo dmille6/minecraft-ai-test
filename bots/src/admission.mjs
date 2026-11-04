@@ -21,7 +21,7 @@ import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
-import { repeatWorkConfig, repeatDecision, ledgerSet, tallyLine as repeatWorkTallyLine, TALLY_MS as REPEAT_WORK_TALLY_MS } from './repeatwork.mjs'
+import { repeatWorkConfig, repeatDecision, ledgerSet, PROGRESS_SKILLS, tallyLine as repeatWorkTallyLine, TALLY_MS as REPEAT_WORK_TALLY_MS } from './repeatwork.mjs'
 import { logEvent } from './logger.mjs'
 import { snapshot } from './state.mjs'
 
@@ -196,14 +196,14 @@ export class AdmissionControl {
     this.#noteRun(skill, args, true)
   }
 
-  /** REPEATWORK-01: the outcome of the key's last run. Its rung is the one it was ADMITTED on (the entry the window push made);
-   *  a key with no entry (an admission path that returns before the window) takes the rung active now. */
+  /** REPEATWORK-01: the outcome of the key's last run. Its rung is the one it was ADMITTED on: check() writes the entry for
+   *  every admission (each path, the early ones included); a key with no entry (evicted) earns nothing. */
   #noteRun(skill, args, gain) {
     try {
       const key = AdmissionControl.key(skill, args)
       const prev = this.lastRun.get(key)
-      ledgerSet(this.lastRun, key, { gain, milestoneId: prev ? prev.milestoneId : (this.activeMilestoneId ?? null), targeted: prev?.targeted === true })
-      this.#rwCount(gain ? 'gains' : 'fails')
+      ledgerSet(this.lastRun, key, { gain: gain && !!prev, milestoneId: prev?.milestoneId ?? null, targeted: prev?.targeted === true })
+      if (PROGRESS_SKILLS.has(skill)) this.#rwCount(gain ? 'gather_gains' : 'gather_fails')
     } catch { /* bookkeeping must never break a decision */ }
   }
 
@@ -286,6 +286,15 @@ export class AdmissionControl {
    */
   check(proposal, bot, wanted = null) {
     const out = this.#check(proposal, bot, wanted)
+    // REPEATWORK-01: EVERY admission -- normal, milestone_critical, forced, bootstrap, the safety orders -- starts the key's
+    // run with no gain on this rung (both reviews r1: an early return used to keep an older run's verdict). Only the run's
+    // own valuable outcome (noteSuccess) turns it on.
+    if (out?.ok) {
+      try {
+        ledgerSet(this.lastRun, AdmissionControl.key(out.skill, out.args), { gain: false, milestoneId: this.activeMilestoneId ?? null,
+          targeted: !!(wanted && ((wanted instanceof Set ? wanted.size : wanted.length) > 0)) })
+      } catch { /* bookkeeping must never break a decision */ }
+    }
     // REPEATWORK-01's tally: every proposal judged (model and order alike), refused or admitted
     const why = this.rwWhy; this.rwWhy = null
     try { if (bot) this.rwBot = bot; this.#rwCount('checks', out?.ok ? 'admitted' : 'refused', ...(why ? [why] : [])) } catch { /* telemetry only */ }
@@ -849,9 +858,6 @@ export class AdmissionControl {
 
     this.recent.push(key)
     if (this.recent.length > REPEAT_WINDOW * 2) this.recent.shift()
-    // the run this admits has not reported a gain yet: until it does, the window judges the key as before
-    ledgerSet(this.lastRun, key, { gain: false, milestoneId: this.activeMilestoneId ?? null,
-                                   targeted: !!(wanted && ((wanted instanceof Set ? wanted.size : wanted.length) > 0)) })
     this.vetoStreak = 0
     return { ok: true, skill, args, kind: 'normal' }
   }

@@ -1139,6 +1139,9 @@ export class CognitiveLoop {
     }
 
     const milestone = this.#activeTask()
+    // REPEATWORK-01 (both reviews r1): the gate's rung is THIS tick's before any order asks memoryRefuses (CONTINUE, VETOSKIP,
+    // remedies) -- set again below before check(), unchanged; a stale rung let a continuation pass that check() then refused
+    this.admission.activeMilestoneId = milestone?.id ?? null
     const sentinel = makeSentinel()
     // NO CRAFT ORDER WITHOUT ROOM (orderroom-01; workorder.mjs readyFor, skills.mjs craftRoomCheck): computed BEFORE the
     // prompt, so the prompt stops advertising a craft the bag cannot hold and names the remedy instead.

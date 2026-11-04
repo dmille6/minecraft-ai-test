@@ -82,9 +82,9 @@ test('LEDGER: bounded, newest kept, a re-set key moves to the newest place', () 
 })
 
 test('TALLY: the read line names checks, refusals per check, admissions per bot-h, repeat refusals and progress admits', () => {
-  const l = RW.tallyLine({ secs: 600, c: { checks: 40, refused: 10, admitted: 30, repeat_refused: 4, progress_admits: 3, gains: 12, fails: 5 } })
+  const l = RW.tallyLine({ secs: 600, c: { checks: 40, refused: 10, admitted: 30, repeat_refused: 4, progress_admits: 3, gather_gains: 12, gather_fails: 5 } })
   for (const want of ['secs=600', 'checks=40', 'checks_per_min=4.00', 'refused=10', 'refusals_per_check=0.250', 'admitted=30', 'admitted_per_bot_h=180.0',
-    'repeat_refused=4', 'progress_admits=3', 'gains=12', 'fails=5']) assert.ok(l.includes(want), `${want} in ${l}`)
+    'repeat_refused=4', 'progress_admits=3', 'gather_gains=12', 'gather_fails=5']) assert.ok(l.includes(want), `${want} in ${l}`)
 })
 
 // ---- the real gate --------------------------------------------------------------------------------------------------------
@@ -170,7 +170,7 @@ test('ROWS: a progress admit writes a repeat_progress row; the tally row carries
     assert.equal(t.length, 1)
     const f = Object.fromEntries(t[0][1].split(' ').map(kv => kv.split('=')))
     // 6 proposals, all admitted, 2 of them past the window by progress; 5 gains noted before the 6th check (its own note comes after)
-    assert.equal(f.checks, '6'); assert.equal(f.admitted, '6'); assert.equal(f.refused, '0'); assert.equal(f.progress_admits, '2'); assert.equal(f.gains, '5')
+    assert.equal(f.checks, '6'); assert.equal(f.admitted, '6'); assert.equal(f.refused, '0'); assert.equal(f.progress_admits, '2'); assert.equal(f.gather_gains, '5')
   } finally { untap() }
 })
 
@@ -192,13 +192,45 @@ test('RULE MUTANT KILLED: without the target condition, an idle-rung gather earn
     assert.deepEqual(seq(gate('idle', M.AdmissionControl), 6, { wanted: null }).slice(4), ['ok', 'ok'])
   }, { via: ADM_PATH })
 })
-test('WIRING MUTANT KILLED: without the reset at admission, a neutral run after a gain keeps the key admitted', async () => {
-  await withMutant(ADM_PATH, '    ledgerSet(this.lastRun, key, { gain: false, milestoneId: this.activeMilestoneId ?? null,\n', '    if (false) ledgerSet(this.lastRun, key, { gain: false, milestoneId: this.activeMilestoneId ?? null,\n', async M => {
-    let i = 0
-    const A = gate('gather_dirt_16', M.AdmissionControl)
-    seq(A, 4)   // gains
-    const out = seq(A, 3, { after: (G, q) => { if (++i > 99) G.noteSuccess(q.skill, q.args) } })   // no gains now
-    assert.notDeepEqual(out, ['ok', 'repeat_loop', 'repeat_loop'], `the mutant keeps admitting: ${out}`)
+const RESET = '        ledgerSet(this.lastRun, AdmissionControl.key(out.skill, out.args), { gain: false, milestoneId: this.activeMilestoneId ?? null,\n'
+test('GATE: after four gains, runs that gain nothing -- the 5th is admitted by its predecessor\'s gain, the 6th is refused', () => {
+  const A = gate(); seq(A, 4)
+  assert.deepEqual(seq(A, 3, { after: () => {} }), ['ok', 'repeat_loop', 'repeat_loop'])
+})
+test('WIRING MUTANT KILLED (both reviews r1): with the admission reset keeping the old verdict, a neutral run keeps the key admitted', async () => {
+  await withMutant(ADM_PATH, RESET, RESET.replace('{ gain: false,', '{ gain: this.lastRun.get(AdmissionControl.key(out.skill, out.args))?.gain === true,'), async M => {
+    const A = gate('gather_dirt_16', M.AdmissionControl); seq(A, 4)
+    assert.deepEqual(seq(A, 3, { after: () => {} }), ['ok', 'ok', 'ok'])
+  })
+})
+/** A lessons stub whose failure count the test sets: >= 4 with a wanted output takes the milestone_critical early return. */
+const lessonsStub = () => { const L = { n: 0, failCount: () => L.n, bumpBlocked: () => 1, entryFor: () => null }; return L }
+test('GATE (Codex r1 P1): an EARLY admission (milestone_critical) starts the run with no gain too -- its neutral outcome re-arms the window', () => {
+  const L = lessonsStub(); const A = new AdmissionControl(L); A.activeMilestoneId = 'gather_dirt_16'
+  seq(A, 4)                                                           // four valuable runs: the window holds the key 4x
+  L.n = 4
+  const mc = A.check({ ...DIRT, args: { ...DIRT.args } }, fieldBot(), WANT)
+  assert.equal(mc.kind, 'milestone_critical', JSON.stringify(mc))   // ...a run that never enters the window; it ends neutral
+  L.n = 0
+  assert.equal(A.check({ ...DIRT, args: { ...DIRT.args } }, fieldBot(), WANT).reason, 'repeat_loop', 'the latest run gained nothing')
+})
+test('GATE: an early admission that GAINS on a new rung does not inherit the old rung -- it earns progress there itself', () => {
+  const L = lessonsStub(); const A = new AdmissionControl(L); A.activeMilestoneId = 'gather_dirt_16'
+  seq(A, 4)
+  A.activeMilestoneId = 'gather_dirt_16#2'; L.n = 4
+  const mc = A.check({ ...DIRT, args: { ...DIRT.args } }, fieldBot(), WANT); assert.equal(mc.kind, 'milestone_critical')
+  A.noteSuccess(mc.skill, mc.args)
+  L.n = 0
+  assert.equal(A.check({ ...DIRT, args: { ...DIRT.args } }, fieldBot(), WANT).ok, true, 'its own gain on #2')
+  assert.equal(A.lastRun.get(AdmissionControl.key(DIRT.skill, DIRT.args)).milestoneId, 'gather_dirt_16#2')
+})
+test('WIRING MUTANT KILLED (Codex r1 P1): with the reset for normal admissions only (the r1 code), the milestone_critical run keeps the older gain', async () => {
+  await withMutant(ADM_PATH, '    if (out?.ok) {\n      try {\n', "    if (out?.ok && out.kind === 'normal') {\n      try {\n", async M => {
+    const L = lessonsStub(); const A = new M.AdmissionControl(L); A.activeMilestoneId = 'gather_dirt_16'
+    seq(A, 4); L.n = 4
+    assert.equal(A.check({ ...DIRT, args: { ...DIRT.args } }, fieldBot(), WANT).kind, 'milestone_critical')
+    L.n = 0
+    assert.equal(A.check({ ...DIRT, args: { ...DIRT.args } }, fieldBot(), WANT).ok, true, 'the mutant admits on a stale gain')
   })
 })
 test('WIRING MUTANT KILLED: with noteSuccess not recording the run, nothing is ever admitted past the window', async () => {
@@ -252,4 +284,42 @@ test('LOOP POSITIVE CONTROLS: REPEATWORK=0, or a gather gaining only off-target 
     assert.ok(out.length >= 6, `enough decisions: ${out}`)
     assert.deepEqual(out.slice(0, 5), ['ok', 'ok', 'ok', 'ok', 'repeat_loop'], `${JSON.stringify(o)}: ${out}`)
   }
+})
+
+// ---- the rung the gate's memory judges with (both reviews r1: CONTINUE asked memoryRefuses on the PREVIOUS tick's rung) --------
+const COG_PATH = new URL('../src/cognitive.mjs', import.meta.url)
+async function driveRungSwitch (COG) {
+  const { config } = await import('../src/config.mjs')
+  const was = config.llm.decisionCooldownMs
+  config.llm.decisionCooldownMs = 300
+  try {
+    const seen = []
+    let switched = false
+    const bot = fieldBot()
+    // the bag really gains dirt (CONTINUE measures the gain from the inventory, not the runner's delta)
+    const runner = { isBusy: () => false, run: async () => { bot.inventory.items().find(i => i.name === 'dirt').count += 3
+      return { status: 'success', detail: 'collected 3 dirt', delta: { inventory: { dirt: 3 } }, contractEvidence: ['inventory_gain: dirt +3'] } } }
+    const L = new Lessons(path.join(dir, `l${lseq++}.json`)); L.data.avoid = {}; L.data.worked = {}
+    const loop = new COG.CognitiveLoop(bot, runner, L, null)
+    loop.fewerDec = FD.fewerDecConfig({ FEWERDEC_PAUSEWAIT: '0', FEWERDEC_VETOSKIP: '0' })   // CONTINUE on: it asks memoryRefuses
+    loop.milestones.status = () => (switched ? { ...RUNG, id: 'gather_dirt_16#9' } : { ...RUNG })
+    loop.milestones.refresh = () => false
+    const real = loop.admission.memoryRefuses.bind(loop.admission)
+    loop.admission.memoryRefuses = (s, a, n) => { if (s === 'gather') seen.push({ switched, rung: loop.admission.activeMilestoneId }); return real(s, a, n) }
+    loop.llm = { decide: async ({ user }) => { if (!/TRIGGER: startup/.test(user ?? '')) switched = true; return { schemaValid: true, latencyMs: 1, raw: '{}', proposal: { ...DIRT, args: { ...DIRT.args }, reason: 'p' } } } }
+    loop.start(); await new Promise(r => setTimeout(r, 1600)); loop.stop()
+    return seen
+  } finally { config.llm.decisionCooldownMs = was }
+}
+test('LOOP: a continuation asks the gate\'s memory on THIS tick\'s rung, not the previous decision\'s', async () => {
+  const seen = await driveRungSwitch(await import('../src/cognitive.mjs'))
+  const after = seen.filter(x => x.switched)
+  assert.ok(after.length >= 1, `the continuation asked memoryRefuses: ${JSON.stringify(seen)}`)
+  for (const x of after) assert.equal(x.rung, 'gather_dirt_16#9', JSON.stringify(seen))
+})
+test('LOOP MUTANT KILLED: without the early rung write, a continuation is judged on the stale rung', async () => {
+  await withMutant(COG_PATH, '    this.admission.activeMilestoneId = milestone?.id ?? null\n    const sentinel = makeSentinel()\n', '    const sentinel = makeSentinel()\n', async M => {
+    const seen = await driveRungSwitch(M)
+    assert.ok(seen.some(x => x.switched && x.rung !== 'gather_dirt_16#9'), JSON.stringify(seen))
+  })
 })
