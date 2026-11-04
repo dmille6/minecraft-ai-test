@@ -530,6 +530,36 @@ await t('inside the wall: anchored mutants (the 1-high step, the yard kept, the 
   })
 })
 
+console.log('GKHANDOVER-01: THE HELPER -> KEEPER HAND-OVER WAITS FOR THE RELEASE ON DISK (LIVE H4 11-04 15:12Z, showcase-Frost)')
+await t('a release that did not reach the disk (the marker cannot be written) is NOT confirmed; once written it is', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gkh-hand-'))
+  const key = PJ.projKey(HOME, 'tidy')
+  const tk = PJ.takeLease(dir, key, 'helper2', 'Frost', { now: Date.now(), ttl: 12 * 60_000 })
+  assert.ok(tk.ok)
+  fs.chmodSync(dir, 0o555)                                                   // the `.released` marker cannot be written
+  try {
+    PJ.releaseLease(dir, key, 'helper2', 'Frost', tk.gen)                     // never throws: the release silently did not take
+    assert.strictEqual(GK.releaseConfirmed(PJ.leaseState(dir, key, 'helper2'), 'Frost'), false, 'the LIVE case: logged, not on disk')
+  } finally { fs.chmodSync(dir, 0o755) }
+  PJ.releaseLease(dir, key, 'helper2', 'Frost', tk.gen)
+  assert.strictEqual(GK.releaseConfirmed(PJ.leaseState(dir, key, 'helper2'), 'Frost'), true)
+})
+await t('releaseConfirmed: unreadable -> no; another bot\'s later take or a lapsed lease -> yes; none -> yes', async () => {
+  assert.strictEqual(GK.releaseConfirmed({ gen: null, rec: null, released: false, holdsUntil: 0, blocksUntil: Infinity }, 'F'), false)
+  assert.strictEqual(GK.releaseConfirmed({ gen: 3, rec: { holder: 'G' }, released: false, holdsUntil: 9e15 }, 'F'), true)
+  assert.strictEqual(GK.releaseConfirmed({ gen: 3, rec: { holder: 'F' }, released: false, holdsUntil: 10 }, 'F', 20), true)
+  assert.strictEqual(GK.releaseConfirmed({ gen: 3, rec: { holder: 'F' }, released: false, holdsUntil: 30 }, 'F', 20), false)
+  assert.strictEqual(GK.releaseConfirmed(null, 'F'), true)
+  await withMutant(GK_PATH, "  if (state.released) return true\n  if (!state.rec || state.rec.holder !== me) return !!state.rec\n  return now >= (state.holdsUntil ?? 0)", "  return true", async M => {
+    assert.strictEqual(M.releaseConfirmed({ gen: 3, rec: { holder: 'F' }, released: false, holdsUntil: 30 }, 'F', 20), true, 'the mutant confirms a live lease')
+  })
+})
+await t('WIRED: takeKeeper returns before the keeper take when a helper release is unconfirmed; dropHelperLeases re-reads after each release', async () => {
+  const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.ok(/const hl = dropHelperLeases\(bot\)\n\s*if \(!hl\.ok\) \{[^\n]*return \{ ok: false, why: 'helper_release_unconfirmed' \} \}\n(?:\s*\/\/[^\n]*\n)*\s*now = Math\.max\(now, Date\.now\(\)\)\n\s*\}\n\s*const r = projTakeLease\(townDir\(\), projKeyOf\(TIDY_PLOT\), GK_LEASE/.test(s), 'the deferral precedes the take')
+  assert.ok(/done = releaseConfirmed\(projLeaseState\(dir, key, name, \{ ttl: GK\.helperTtlMs \}\), me, Date\.now\(\)\)/.test(s), 're-read after the release')
+})
+
 console.log('WIRING (skills.mjs buildTidy / keeperOrder, shop.mjs; structural)')
 await t('buildTidy: the crew role, helpers never site, the keeper\'s plan additions, the visit record, the hooks, the gather', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
@@ -548,7 +578,7 @@ await t('buildTidy: the crew role, helpers never site, the keeper\'s plan additi
   assert.ok(/if \(GROUNDS\.on\) \{ try \{ pantryWrite\(dir, key, me, parkItemsOf\(spareOf\(held0, keep\)\)\) \}/.test(s), 'the pantry: what the bag spares (gkstage-01)')
   assert.ok(/const floorDone = q => waivedK\(q\) \|\| buildCellDone\(read\(\.\.\.q\.at\), palette, q\.role\)\n\s*const fv = GROUNDS\.on \? floorView\(rec, floorDone\)/.test(s), 'gkstage-01: the floor view reads the visit\'s own done test')
   assert.ok(/if \(d === 'other'\) \{ const h = crewState\(bot, work, now\); if \(h\.d === 'mine' \|\| h\.d === 'take'\) d = 'helper' \}/.test(s), 'shopActive offers the tidy to a helper')
-  assert.ok(/if \(!renewal\) \{ const hl = dropHelperLeases\(bot\);/.test(s), 'a helper becoming keeper lets its helper lease go first')
+  assert.ok(/if \(!renewal\) \{\n\s*const hl = dropHelperLeases\(bot\)/.test(s), 'a helper becoming keeper lets its helper lease go first')
   const sh = strip(readFileSync(SHOP_PATH, 'utf8'))
   assert.ok(/builders: GROUNDS\.on \? 1 \+ GK\.helpersMax : TIDY_BUILDERS/.test(sh), 'the keeper and its helpers have slots')
   assert.ok(/'crew', 'gathered', 'floor'/.test(sh), 'the visit row names the crew')

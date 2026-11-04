@@ -163,7 +163,7 @@ import { legacyStage, stageCarry, tidyWater, cutSafeNow } from './tidy.mjs'   //
 import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from './park.mjs'   // townterrace-01: the park
 import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantrySum, parkHeldByCrew, spareOf } from './park.mjs'   // gkhelpers-01: the park gather
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
-import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
+import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead } from './buildproj.mjs'   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -21360,7 +21360,14 @@ function takeKeeper (bot, lease, now = Date.now()) {
   const me = keeperMe(bot)
   const renewal = lease?.rec?.holder === me && now < (lease.holdsUntil ?? 0)
   // gkhelpers-01: a helper becoming the keeper lets its helper lease go FIRST (never both at once: the read's crew overlap)
-  if (!renewal) { const hl = dropHelperLeases(bot); if (hl) now = Math.max(now, Date.now()) }
+  if (!renewal) {
+    const hl = dropHelperLeases(bot)
+    // gkhandover-01: never the keeper lease while a helper lease of this bot is not let go ON DISK (asked again next tick)
+    if (!hl.ok) { try { logEvent({ kind: 'keeper', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'keeper_take_deferred', why: 'helper_release_unconfirmed', n: hl.n }) }) } catch { /* telemetry */ } return { ok: false, why: 'helper_release_unconfirmed' } }
+    // Codex r1 BLOCKER: the take is stamped after the helpers were READ, always (a helper that lapsed during the reads is n 0, and a
+    // caller's earlier `now` would backdate the keeper over its tail)
+    now = Math.max(now, Date.now())
+  }
   const r = projTakeLease(townDir(), projKeyOf(TIDY_PLOT), GK_LEASE, me, { now, ttl: GK.leaseTtlMs, meta: { term0: termStart(lease, me, now) } })
   if (r.ok && !renewal) { try { logEvent({ kind: 'keeper', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'keeper_take', gen: r.gen }) }) } catch { /* telemetry */ } }
   bot.gkCache = null
@@ -21441,14 +21448,25 @@ function releaseHelper (bot, name, gen, why, now = Date.now()) {
   bot.gkCache = null
   try { logEvent({ kind: 'keeper', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'helper_release', kind: name, why, gen: gen ?? '-' }) }) } catch { /* telemetry */ }
 }
-/** Every helper lease this bot holds, let go (before it takes the keeper lease) -> how many. Never throws. */
+/** Every helper lease this bot holds, let go (before it takes the keeper lease) -> { n, ok }. `ok` only when every release is CONFIRMED
+ *  on disk (groundskeeper.mjs releaseConfirmed over the lease read again; one retry). Never throws (a throw: not ok). */
 function dropHelperLeases (bot) {
-  let n = 0
+  let n = 0, ok = true
   try {
-    const dir = townDir(), key = projKeyOf(TIDY_PLOT), me = keeperMe(bot), t = Date.now()
-    for (const name of HELPER_LEASES) { const l = projLeaseState(dir, key, name, { ttl: GK.helperTtlMs }); if (l && !l.released && l.rec?.holder === me && t < l.holdsUntil) { releaseHelper(bot, name, l.gen, 'keeper'); n++ } }
-  } catch { /* they lapse */ }
-  return n
+    const dir = townDir(), key = projKeyOf(TIDY_PLOT), me = keeperMe(bot)
+    for (const name of HELPER_LEASES) {
+      const l = projLeaseState(dir, key, name, { ttl: GK.helperTtlMs })
+      if (!(l && !l.released && l.rec?.holder === me && Date.now() < l.holdsUntil)) { if (l && l.gen == null && !l.rec) ok = false; continue }
+      n++
+      let done = false
+      for (let i = 0; i < 2 && !done; i++) {
+        releaseHelper(bot, name, l.gen, i ? 'keeper_retry' : 'keeper')
+        done = releaseConfirmed(projLeaseState(dir, key, name, { ttl: GK.helperTtlMs }), me, Date.now())
+      }
+      if (!done) ok = false
+    }
+  } catch { ok = false }
+  return { n, ok }
 }
 /** The record's live segment leases of OTHER bots and this one -> { seg: { holder, at } } (the `seg-clear` lease is the keeper's
  *  digs, no segment). null when the directory cannot be read (the caller fails closed: no segment taken). */
