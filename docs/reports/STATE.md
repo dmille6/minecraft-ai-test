@@ -4,18 +4,18 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-04T03:20:01Z._
+_Generated 2026-11-04T04:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `9fbfdf22` = bagdiet-01 `9fbfdf22` (KEEP 11-03 23:58Z, promoted 11-04 00:08Z) on cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z) on stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) on fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z). Live builds: {'0542fccbbe71a225c01f2a02377b381469d8ce36+ca8afd': 10, '9fbfdf2225747f6b5f8d2b6c01cb65c6a91e6227+2577a3': 70} |
-| **Canary in slot** | **swimcentre-01** deployed 11-04 00:58Z; reads +90 11-04 02:28Z, +180 11-04 03:58Z; KEEP auto-promotes ~10 min after the +180 KEEP |
+| **Fleet** | `0542fccb` = swimcentre-01 `0542fccb` (KEEP 11-04 03:58Z, promoted 11-04 04:08Z) on bagdiet-01 `9fbfdf22` (KEEP 11-03 23:58Z, promoted 11-04 00:08Z) on cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z) on stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) |
+| **Canary in slot** | EMPTY (last close swimcentre-01 KEEP 11-04 03:58Z) |
 | **Queue (front)** | bundle-1103a -> shafttrap-02 -> monustuck-01 -> swimunder-01 -> vetoremedy-01 -> villageunlock-01 -> towngate-01 -> groundskeeper-01 -> llmoai-01 |
-| **Scheduler** | busy S1 canary declared: 0542fccbbe71a225c01f2a02377b381469d8ce36 on placebo-b,placebo-a / S6 open loop: canary 0542fcc is deployed on placebo-b,placebo-a with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 |
-| **Showcase release** | `add2dcdd` (16,915 rows), `cbd2f51b` (9,778 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 9fbfdf22 (bagdiet-01); row 11-04 02:25Z) |
+| **Scheduler** | block H2 bundle-1103a: no variant for the fleet base 0542fcc (have: none): the bundle autorebase REFUSED at step worktree: member stationkeep-01: its diff inside the bundle is NOT its reviewed diff (49b9069a25c2 vs 141347baf4e6): an earlier |
+| **Showcase release** | `add2dcdd` (17,922 rows), `502a63f9` (6,719 rows), `cbd2f51b` (871 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 9fbfdf22 (bagdiet-01); row 11-04 03:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
-| **Open alarms** | STALLCHECK 2026-11-04T02:35:01Z STALLED: 42. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 30 active alarm(s): stuck goals 8 (hive-a/monument@355_73_147, hive-a/tidy@355_73_147, hive-a/wall@355_73_147, hive-d/monument@68_65_68, hive-d/wall@68_65_68, isolated-a/wall@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-04T03:35:01Z STALLED: 43. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 31 active alarm(s): stuck goals 9 (hive-a/monument@355_73_147, hive-a/tidy@355_73_147, hive-a/wall@355_73_147, hive-d/tidy@68_65_68, hive-d/wall@68_65_68, isolated-a/monument@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
