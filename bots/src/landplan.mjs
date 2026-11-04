@@ -401,17 +401,37 @@ export async function planLand (read, { home, plan, seed = 0, avoid = () => null
  * paths' corridors to the chests and the well graded); stage 1 the ring road and the spokes out to `upto`; then each outward band
  * (rMin, rMax]: its pillars and pits, and the spokes through it out to `upto`. The last band ends at workR.
  */
+/** gkstage-01: the inside-the-wall stage's id (tidy.mjs surveyInwall). */
+export const INWALL_STAGE = 'inwall'
 export function landStages (L = LAND) {
   const out = [{ k: 0, id: 'town', rMin: -1, rMax: L.rimR, roads: null, upto: -1 }]
   // townterrace-01 (owner 11-03): the in-wall trees, the terraces and the park, right after the plaza (terrace.mjs)
   out.push({ k: 1, id: 'terrace', rMin: -1, rMax: -1, roads: null, upto: -1 })
   out.push({ k: 2, id: 'roads', rMin: -1, rMax: -1, roads: 'ring+spokes', upto: L.rimR + L.rimStep })
-  let k = 3
+  // gkstage-01 (owner 11-04: "inside the town walls first ... no holes gaps ... no dirt steps"): INSIDE THE WALL -- every 1-high
+  // stray block and pillar, the litter left ON the builds, every hole -- before the bands outside; and again in every cycle (the
+  // land plan wraps to it after its last band: groundskeeper.mjs gkNextStage)
+  out.push({ k: 3, id: INWALL_STAGE, rMin: -1, rMax: -1, roads: null, upto: -1 })
+  let k = 4
   for (let r = L.rimR; r < L.workR; r += L.rimStep, k++) out.push({ k, id: `rim${Math.min(L.workR, r + L.rimStep)}`, rMin: r, rMax: Math.min(L.workR, r + L.rimStep), roads: 'spokes', upto: Math.min(L.workR, r + 2 * L.rimStep) })
   return out
 }
 /** The stage after `k` -> its entry | null (after the last: the town is surveyed again after its re-survey wait). Pure. */
 export const nextStage = (k, L = LAND) => landStages(L).find(s => s.k === (Number.isFinite(k) ? k : 0) + 1) ?? null
+/**
+ * gkstage-01 (owner 11-04: "i want them to stay busy"): THE NEXT STAGE, WRAPPING -> entry | null. Pure. The ring order's next stage;
+ * after the LAST band, once the record has been complete `cycleMs`, the inside-the-wall stage again (and the bands after it, each
+ * re-surveyed: a band with nothing to do is passed by the siting). The land plan never runs out of work; a cycle that finds nothing
+ * anywhere publishes a complete `nothing` record and waits `cycleMs` again.
+ */
+export const LAND_CYCLE_MS = 30 * 60_000
+export function nextStageCycle (rec, now = Date.now(), { cycleMs = LAND_CYCLE_MS, L = LAND } = {}) {
+  const n = nextStage(recStageK(rec, L), L)
+  if (n) return n
+  const at = Number(rec?.completeAt)
+  if (rec?.structure_complete && Number.isFinite(at) && now - at >= cycleMs) return landStages(L).find(s => s.id === INWALL_STAGE) ?? null
+  return null
+}
 /** A stage by number -> its entry (stage 0 when unknown). Pure. */
 export const stageOf = (k, L = LAND) => landStages(L).find(s => s.k === k) ?? landStages(L)[0]
 /**

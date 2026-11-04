@@ -369,7 +369,7 @@ const W = [
   /const cuts = !caps\.digs \|\| floorOnly \? \[\] : prepNow \? prepCutOrder\(/,
   /if \(q\.state === 'prepping' && !retire\(q\.id\)\) continue/,
   /given: k => guard\.has\(k\) \|\| tidyGivenUp\(mem, k\) \|\| \(isTerrace && !cutAt\.get\(k\)\?\.prep && /,
-  /if \(caps\.complete && !crewHeld && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/,
+  /if \(caps\.complete && !crewHolds && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/,
   /if \(hold === 'stuck'\) \{\n\s*if \(!retire\(q\.id\)\) return head\(\)/,
   /const prepNow = prepSt\?\.hold === 'work' \? prepSt\.id : null/,
   /\[sk\]: prepStallNext\(bot\.prepStalls\?\.\[sk\] \?\? null, prepOpen\(rec, prepNow, fr, prepDoneIn\(fr\)\)\.n, \(r\.placed \?\? 0\) \+ \(r\.cleared \?\? 0\)\)/,

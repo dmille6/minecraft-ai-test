@@ -147,7 +147,7 @@ import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YAR
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
-import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
+import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
 import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft, cutUnsafe } from './cropfarm.mjs'   // cropfarm-01
@@ -20896,9 +20896,9 @@ function crewLive (dir, key, now = Date.now()) {
 }
 /** A complete tidy stage the land plan has a next stage after (the keeper's next band) -- due at once, not after 48 h. Pure but
  *  for the switches. */
-function gkStageDue (r) {
+function gkStageDue (r, now = Date.now()) {
   if (!LANDP.on || !r?.structure_complete || tidyDue(r)) return false
-  return nextStage(recStageK(r)) != null
+  return nextStageCycle(r, now) != null   // gkstage-01: after the last band, the cycle (landplan.mjs nextStageCycle)
 }
 /**
  * THE KEEPER'S PROJECT ORDER (shopActive) -> the PROJECTS list to pick from. `states` (activeProject's) is adjusted in place: for
@@ -21303,7 +21303,7 @@ async function buildTidy (ctx, args, signal) {
   }
   const caps = crewCaps(role)
   // GROUNDSKEEPER-01: a complete stage with a next one (landplan.mjs ring order) is sited at once, the band after it
-  const gkNext = GROUNDS.on && LANDP.on && rh.head && gkStageDue(rh.head.rec) ? nextStage(recStageK(rh.head.rec)) : null
+  const gkNext = GROUNDS.on && LANDP.on && rh.head && gkStageDue(rh.head.rec) ? nextStageCycle(rh.head.rec) : null
   // gkhelpers-01: the siting is the keeper's (its plan): a helper finding a stage to site leaves it for the keeper's next visit
   if ((!rh.head || tidyDue(rh.head.rec) || gkNext) && !caps.site) return out('no_effect', 'keeper_plan', 'the next stage is the keeper\'s to site; asked again at the next order', { stop: 'keeper_held' })
   if (!rh.head || tidyDue(rh.head.rec) || gkNext) {
@@ -21343,7 +21343,8 @@ async function buildTidy (ctx, args, signal) {
     }
     if (!s.ok) return out('no_effect', 'no_site', `no tidy (${s.why})`, { stop: 'no_site' })
     const sk = s.k ?? 0
-    const fresh = cur => !cur || tidyDue(cur) || (GROUNDS.on && gkStageDue(cur) && recStageK(cur) < sk)
+    // gkstage-01: a stage BEFORE the head's is fresh only when the head ends the ring order (the cycle wraps to the wall's inside)
+    const fresh = cur => !cur || tidyDue(cur) || (GROUNDS.on && gkStageDue(cur) && (recStageK(cur) < sk || nextStage(recStageK(cur)) == null))
     const body = s.record ? { ...(GROUNDS.on ? coreFills(s.record) : s.record), state: 'open', sitedBy: me } : { ...tidyNothing({ home, now: Date.now(), by: me, skipped: { ...(s.survey?.skipped ?? {}), ...(s.road?.skipped ?? {}) } }), ...(GROUNDS.on ? { stage: legacyStage(landStages().find(q => q.k === sk)), stageId: landStages().find(q => q.k === sk)?.id ?? null, terraceV: 1 } : {}) }
     // townterrace-01: the stage before's cells carried on (tidy.mjs stageCarry: the tripwire judges a placement against the head)
     const pub = publishRecord(dir, key, cur => (fresh(cur) ? (GROUNDS.on ? stageCarry(body, cur) : body) : null), { by: me })

@@ -419,6 +419,100 @@ await t('spareOf: the pantry names only what the bag spares above its keeps; the
   assert.ok(w.hedge > 0 && w.bamboo > 0, 'the rest still wanted')
 })
 
+console.log('GKSTAGE-01: INSIDE THE WALL (tidy.mjs surveyInwall) AND THE CYCLE (landplan.mjs nextStageCycle)')
+const LPm = await import('../src/landplan.mjs')
+const IW = (srv, { avoid = () => null, cells = new Set(), box = [-10, -10, 10, 10] } = {}) => T.surveyInwall(srv.read, { home: HOME, box, avoid, cells })
+await t('stray blocks: a 1-high dirt step and a 3-high pillar on open ground go, top first; a record cell or a natural block never', async () => {
+  const srv = server()
+  srv.set([2, G + 1, 2], 'dirt')                                            // a 1-high step (tidy-01 leaves it: pillarMin 2)
+  for (const y of [G + 1, G + 2, G + 3]) srv.set([5, y, 5], 'cobblestone')  // a pillar
+  srv.set([-4, G + 1, -4], 'stone')                                         // natural: no SPOIL
+  srv.set([-6, G + 1, 6], 'dirt')                                           // a record cell (another project's)
+  const s = IW(srv, { cells: new Set([`-6,${G + 1},6`]) })
+  const ks = s.cut.map(c => c.at.join(','))
+  assert.ok(ks.includes(`2,${G + 1},2`), 'the 1-high step')
+  assert.deepStrictEqual(ks.filter(k => k.startsWith('5,')), [`5,${G + 3},5`, `5,${G + 2},5`, `5,${G + 1},5`], 'top first')
+  assert.ok(!ks.includes(`-4,${G + 1},-4`) && !ks.includes(`-6,${G + 1},6`), 'never natural, never a record cell')
+  assert.strictEqual(s.skipped.stray_natural, 1); assert.strictEqual(s.skipped.stray_guarded, 1)
+  const rec = T.tidyRecord(s, { home: HOME })
+  assert.ok(rec && rec.cut.length === ks.length, 'tidyRecord takes it')
+})
+await t('holes: a 1-deep hole and a 3-deep one are filled to their lowest neighbour; a terrace step (a neighbour as low) is no hole', async () => {
+  const srv = server()
+  srv.set([3, G, 3], 'air')                                                 // 1 deep
+  for (const y of [G - 2, G - 1, G]) srv.set([-3, y, 3], 'air')             // 3 deep
+  // a terrace: the row z = -5 one lower along x -2..2 (every column has a neighbour as low as itself)
+  for (let x = -2; x <= 2; x++) srv.set([x, G, -5], 'air')
+  const s = IW(srv)
+  const ks = s.fill.map(c => c.at.join(',')).sort()
+  assert.deepStrictEqual(ks, [`-3,${G - 2},3`, `-3,${G - 1},3`, `-3,${G},3`, `3,${G},3`].sort())
+  assert.ok(!ks.some(k => k.endsWith(',-5')), 'the lower terrace row is no hole')
+  const deep = server(); for (let y = G - 6; y <= G; y++) deep.set([0, y, 0], 'air')
+  assert.strictEqual(IW(deep).fill.length, 0); assert.strictEqual(IW(deep).skipped.hole_deep, 1)
+})
+await t('on a build: a dirt step on a roof, path or wall top goes (2 stacked); never on the yard, the tree farm, a zone, a well or a farm; never a record cell', async () => {
+  const srv = server()
+  // a "roof" record cell at G+4 over columns 1..3 (z 0); a dirt step on it; a 2-stack on another
+  for (const x of [1, 2, 3]) srv.set([x, G + 4, 0], 'oak_planks')
+  srv.set([1, G + 5, 0], 'dirt'); srv.set([3, G + 5, 0], 'cobblestone'); srv.set([3, G + 6, 0], 'dirt')
+  const cells = new Set([1, 2, 3].map(x => `${x},${G + 4},0`))
+  const proj = (x, z) => (z === 0 && x >= 1 && x <= 3 ? 'project:house1' : null)
+  const s = IW(srv, { cells, avoid: proj })
+  assert.deepStrictEqual(s.cut.map(c => c.at.join(',')), [`1,${G + 5},0`, `3,${G + 6},0`, `3,${G + 5},0`])
+  assert.strictEqual(s.litter, 2)
+  for (const why of ['project:yard', 'project:treefarm', 'zone', 'well', 'farm', 'treefarm']) assert.strictEqual(IW(srv, { cells, avoid: (x, z) => (z === 0 && x >= 1 && x <= 3 ? why : null) }).cut.length, 0, why)
+  srv.set([2, G + 5, 0], 'dirt')
+  assert.ok(!IW(srv, { cells: new Set([...cells, `2,${G + 5},0`]), avoid: proj }).cut.some(c => c.at[0] === 2), 'a record cell on a record cell is the build')
+})
+await t('beside a build: a 2-high dirt step against a wall goes; a grass bump there, a record column and a 4-high stack stay', async () => {
+  const srv = server()
+  for (let x = -2; x <= 2; x++) for (let y = G + 1; y <= G + 4; y++) srv.set([x, y, 0], 'stone_bricks')   // a wall z=0, 4 high
+  const cells = new Set(); for (let x = -2; x <= 2; x++) for (let y = G + 1; y <= G + 4; y++) cells.add(`${x},${y},0`)
+  srv.set([0, G + 1, 1], 'dirt'); srv.set([0, G + 2, 1], 'dirt')          // the climb against it
+  srv.set([2, G + 1, 1], 'grass_block')                                    // a natural bump beside it
+  for (let y = G + 1; y <= G + 4; y++) srv.set([-2, y, 1], 'dirt')         // 4 high: past INWALL.litterMax
+  const avoid = (x, z) => (z >= -1 && z <= 1 && x >= -3 && x <= 3 ? 'project:wall' : null)
+  const s = T.surveyInwall(srv.read, { home: HOME, box: [-5, -5, 5, 5], avoid, cells })
+  const ks = s.cut.map(c => c.at.join(','))
+  assert.deepStrictEqual(ks.filter(k => k.endsWith(',1')), [`0,${G + 2},1`, `0,${G + 1},1`])
+  assert.ok(!ks.some(k => k.endsWith(',0')), 'never the wall')
+})
+await t('the stage order: inside the wall right after the roads; the cycle wraps to it after the last band, once complete 30 min', async () => {
+  const st = LPm.landStages()
+  assert.deepStrictEqual(st.slice(0, 4).map(s => s.id), ['town', 'terrace', 'roads', 'inwall'])
+  assert.strictEqual(LPm.nextStageCycle({ stageId: 'roads', terraceV: 1, structure_complete: true }).id, 'inwall', 'the LIVE showcase head (roads) goes inside next')
+  const last = st.at(-1)
+  const rec = { stageId: last.id, terraceV: 1, structure_complete: true, completeAt: 1000 }
+  assert.strictEqual(LPm.nextStageCycle(rec, 1000 + 60_000), null, 'not yet')
+  assert.strictEqual(LPm.nextStageCycle(rec, 1000 + LPm.LAND_CYCLE_MS).id, 'inwall', 'the cycle')
+  assert.strictEqual(LPm.nextStageCycle({ ...rec, structure_complete: false }, 1e12), null)
+})
+await t('siteStage inwall on the wall\'s interior: a record with the stage id; nothing to do -> null record', async () => {
+  const srv = server(); srv.set([2, G + 1, 2], 'dirt')
+  const st = LPm.landStages().find(s => s.id === 'inwall')
+  const s = T.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: st, terrace: { wall: { ring: [-12, -12, 12, 12] } } })
+  assert.ok(s.ok && s.record && s.record.stageId === 'inwall' && s.record.cut.length === 1, JSON.stringify(s.record?.inwall))
+  assert.deepStrictEqual(s.record.inwall.box, [-11, -11, 11, 11])
+  const n = T.siteStage(server().read, { home: HOME, land: { seed: 1 }, stage: st, terrace: { wall: { ring: [-12, -12, 12, 12] } } })
+  assert.ok(n.ok && !n.record && n.why === 'nothing')
+})
+
+await t('inside the wall: anchored mutants (the 1-high step, the yard kept, the cycle) are killed', async () => {
+  const TIDY_PATH = new URL('../src/tidy.mjs', import.meta.url), LAND_PATH = new URL('../src/landplan.mjs', import.meta.url)
+  const srv = server(); srv.set([2, G + 1, 2], 'dirt')
+  await withMutant(TIDY_PATH, "    if (c.y > base && !c.tree) {", "    if (c.y > base + 1 && !c.tree) {", async M => {
+    assert.strictEqual(M.surveyInwall(srv.read, { home: HOME, box: [-10, -10, 10, 10] }).cut.length, 0, 'the mutant leaves the 1-high step')
+  })
+  const roof = server(); roof.set([1, G + 4, 0], 'oak_planks'); roof.set([1, G + 5, 0], 'cobblestone')
+  await withMutant(TIDY_PATH, "^project:(?!yard$|treefarm$|land$|tidy$)/", "^project:/", async M => {
+    assert.strictEqual(M.surveyInwall(roof.read, { home: HOME, box: [0, -1, 2, 1], cells: new Set([`1,${G + 4},0`]), avoid: (x, z) => (x === 1 && z === 0 ? 'project:yard' : null) }).cut.length, 1, 'the mutant digs the yard\'s stock')
+  })
+  await withMutant(LAND_PATH, "  if (rec?.structure_complete && Number.isFinite(at) && now - at >= cycleMs) return", "  if (false) return", async M => {
+    const st = M.landStages().at(-1)
+    assert.strictEqual(M.nextStageCycle({ stageId: st.id, terraceV: 1, structure_complete: true, completeAt: 0 }, 1e12), null, 'the mutant never cycles')
+  })
+})
+
 console.log('WIRING (skills.mjs buildTidy / keeperOrder, shop.mjs; structural)')
 await t('buildTidy: the crew role, helpers never site, the keeper\'s plan additions, the visit record, the hooks, the gather', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))

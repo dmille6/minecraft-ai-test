@@ -174,6 +174,7 @@ const REQUIRED = [
   'bots/test/terrace.test.mjs',
   'bots/test/gkhelpers.test.mjs',   // gkhelpers-01: the grounds crew, the storehouse floor, the park gather
   'bots/test/fixtures/gkstage-tidy-g20-20261104.json',   // gkstage-01: the LIVE tidy record the floor-only stall ran on
+  'bots/scripts/inwall-offline.mjs',   // gkstage-01: the inside-the-wall stage on region copies
   'bots/scripts/terrace-offline.mjs',
   'docs/reports/townterrace-2026-11-03.md',
   'docs/reports/tidy-01-2026-11-01.md',

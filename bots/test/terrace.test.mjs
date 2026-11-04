@@ -589,7 +589,7 @@ await t('buildTidy: the terrace inputs, the work-time guard, the skip rule, the 
   assert.ok(/alsoDone: q => waivedK\(q\) \|\| noTorch\(q\) \|\| !!skipV\(q\)/.test(s), 'the skip rule')
   assert.ok(/useFor: q => \(q\.role === 'till' \? hoeUse : q\.role === 'meadow' \? mealUse : null\), openRole: role => OPEN_ROLES\.has\(role\)/.test(s), 'the tool uses')
   assert.ok(/Object\.assign\(extra, parkBill\(rec, read, \{ held: held0, stock: matsTownStock\(bot\)\?\.stock \?\? \{\}/.test(s), 'the park\'s bill')
-  assert.ok(/nextStage\(recStageK\(rh\.head\.rec\)\)/.test(s) && /return nextStage\(recStageK\(r\)\) != null/.test(s), 'the ring order reads recStageK')
+  assert.ok(/nextStageCycle\(rh\.head\.rec\)/.test(s) && /return nextStageCycle\(r, now\) != null/.test(s), 'the ring order reads recStageK (gkstage-01: through landplan.mjs nextStageCycle, which reads it)')
   const lp = strip(readFileSync(LAND_PATH, 'utf8'))
   assert.ok(/zones: \[\.\.\.\(land\.corridors \?\? \[\]\), \.\.\.parkZones\(land\)\]/.test(lp), 'the park reservation')
 })

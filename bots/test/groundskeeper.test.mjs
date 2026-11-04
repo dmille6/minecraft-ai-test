@@ -195,7 +195,7 @@ await t('a later stage tidies only its band: a pillar inside the town square is 
   col(srv, 10, 0, G + 1, G + 3, 'dirt')    // inside rimR (20)
   col(srv, 26, 0, G + 1, G + 3, 'dirt')    // in band (20, 32]
   const land = { home: HOME, roads: [], corridors: [], zones: {}, ringR: 15, workR: SMALL.workR, inner: 6 }
-  const s = T.siteStage(srv.read, { home: HOME, land, stage: LP.stageOf(3, SMALL), L: SMALL })
+  const s = T.siteStage(srv.read, { home: HOME, land, stage: LP.landStages(SMALL).find(q => /^rim/.test(q.id)), L: SMALL })   // gkstage-01: the first band is after `inwall`
   assert.deepStrictEqual([...new Set(s.record.cut.map(c => c.at[0]))], [26])
 })
 

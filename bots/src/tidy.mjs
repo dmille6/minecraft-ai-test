@@ -24,7 +24,7 @@
 
 import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
-import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND } from './landplan.mjs'   // groundskeeper-01
+import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND, INWALL_STAGE } from './landplan.mjs'   // groundskeeper-01; gkstage-01
 import { PARK_PALETTE } from './park.mjs'   // townterrace-01: the park's roles
 import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
 
@@ -741,6 +741,109 @@ export function roadLights (read, cols, { home, avoid = () => null, n = 0, cells
   return out
 }
 
+// ================================================================================================================================
+// GKSTAGE-01: INSIDE THE WALL (owner 11-04: "inside the town walls first ... visually appealing and clean, like a normal town ... no
+// holes gaps ... i dont want dirt steps on things where bots needed to get up"). LIVE showcase 11-04 (a 13:00Z copy, the 80x58
+// interior): 93 stray SPOIL blocks standing above every neighbour (16 one high), 4 on a build (paths, the wall), 201 columns lower
+// than every neighbour (153 one deep) -- tidy-01's survey takes pillars from 2 high and pits from 2 deep, and never in a build's box.
+// ================================================================================================================================
+export const INWALL = Object.freeze({ pillarMax: 6, holeMax: 4, litterMax: 3 })
+/** The wall's interior box [x0, z0, x1, z1] (terrace.mjs wallInterior), else the town square. Pure. */
+export const inwallBox = (wall, home, r = TIDY.r) => {
+  const g = wall?.ring
+  if (Array.isArray(g) && g.length === 4 && g.every(Number.isFinite) && g[2] - g[0] >= 4 && g[3] - g[1] >= 4) return [g[0] + 1, g[1] + 1, g[2] - 1, g[3] - 1]
+  return [home.x - r, home.z - r, home.x + r, home.z + r]
+}
+/** The avoid reasons that are a BUILD's box (litter on it may go), never a zone, a well, a farm, the tree farm or the stock yard. */
+const BUILD_WHY = /^(project|plan_cell|plan_box|plan_plot)$|^project:(?!yard$|treefarm$|land$|tidy$)/
+/**
+ * THE INSIDE-THE-WALL SURVEY -> { ok, why, cut, fill, pillars, pits, litter, skipped } (tidyRecord's input). Pure over `read`.
+ *   STRAY BLOCKS  a column whose top stands above ALL 8 neighbours' (each read ground): its SPOIL blocks above the highest neighbour,
+ *                 from 1 high (tidy-01: 2), at most INWALL.pillarMax -- never a record cell, never a natural block under them, never a
+ *                 column `avoid` names
+ *   ON A BUILD    the column's topmost block is SPOIL, NOT a record cell, and sits on one (a dirt step on a roof, a path, a wall top),
+ *                 at most INWALL.litterMax stacked -- in a build's box only (BUILD_WHY), never a zone/well/farm/tree farm/yard
+ *   HOLES         a column lower than ALL 8 neighbours (a true hole: a terrace's lower step has a neighbour as low): filled up to the
+ *                 lowest neighbour, at most INWALL.holeMax deep; never water, never a column `avoid` names or a record cell's column
+ *   cells  Set "x,y,z" of every project's record cells (the tidy's guard); box [x0, z0, x1, z1]
+ */
+export function surveyInwall (read, { home, box, avoid = () => null, cells = new Set(), water = 'strict', waterOk = () => false, T = INWALL } = {}) {
+  const skipped = {}
+  const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
+  if (!home || !Array.isArray(box)) return { ok: false, why: 'no_box', cut: [], fill: [], pillars: [], pits: [], litter: 0, skipped }
+  const yHi = home.y + TIDY.dy, yLo = home.y - TIDY.dy
+  const memo = new Map()
+  const col = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, tidyColumn(read, x, z, { yHi, yLo })); return memo.get(k) }
+  const ground = c => !!c && !c.why && c.y != null
+  const cellCols = new Set([...cells].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
+  const cut = [], fill = [], pillars = [], pits = []
+  let litter = 0
+  for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
+    const why = avoid(x, z)
+    // ---- ON A BUILD: the topmost block of the column, read whatever tidyColumn calls it (a roof's slab reads `built`) ----
+    if (why && BUILD_WHY.test(String(why))) {
+      let y = yHi
+      while (y >= yLo && (() => { const b = read(x, y, z); return !!b && (AIRN(nm(b)) || replaceableCell(b) || b.boundingBox === 'empty') })()) y--
+      const stack = []
+      while (y >= yLo && stack.length <= T.litterMax) {
+        const b = read(x, y, z), k = `${x},${y},${z}`
+        if (!b || cells.has(k) || !SPOIL.test(nm(b))) break
+        stack.push({ at: [x, y, z], name: nm(b) }); y--
+      }
+      if (stack.length && stack.length <= T.litterMax && cells.has(`${x},${y},${z}`)) { for (const s of stack) cut.push({ ...s, pillar: `b${litter}` }); pillars.push({ id: `b${litter}`, col: [x, z], top: stack[0].at[1], base: y, h: stack.length, onBuild: true }); litter++; continue }
+      // BESIDE A BUILD (a dirt step against a wall or a house, in the build's box margin, on the ground): a column with no record cell
+      // whose top stands above every neighbour that is not the build's own column -- its SPOIL blocks above them go
+      if (cellCols.has(k2(x, z))) continue
+      const c0 = col(x, z)
+      if (!ground(c0) || c0.tree) continue
+      const nb = N8.filter(([dx, dz]) => !cellCols.has(k2(x + dx, z + dz))).map(([dx, dz]) => col(x + dx, z + dz))
+      if (nb.length < 3 || !nb.every(ground)) continue
+      const base0 = Math.max(...nb.map(n => n.y))
+      if (c0.y <= base0 || c0.y - base0 > T.litterMax) continue
+      const bl = []
+      let ok0 = true
+      for (let yy = c0.y; yy > base0; yy--) { const n = nm(read(x, yy, z)); if (cells.has(`${x},${yy},${z}`) || !SPOIL.test(n) || n === 'grass_block') { ok0 = false; break } bl.push({ at: [x, yy, z], name: n }) }
+      if (!ok0) { skip('beside_natural'); continue }
+      for (const s of bl) cut.push({ ...s, pillar: `b${litter}` })
+      pillars.push({ id: `b${litter}`, col: [x, z], top: c0.y, base: base0, h: bl.length, onBuild: true, beside: true }); litter++
+      continue
+    }
+    const c = col(x, z)
+    if (!ground(c)) continue
+    if (why) continue
+    const ns = N8.map(([dx, dz]) => col(x + dx, z + dz))
+    if (!ns.every(ground)) continue
+    // ---- STRAY BLOCKS ----
+    const base = Math.max(...ns.map(n => n.y))
+    if (c.y > base && !c.tree) {
+      if (c.y - base > T.pillarMax) { skip('stray_tall'); continue }
+      const blocks = []
+      let bad = null
+      for (let y = c.y; y > base; y--) {
+        const n = nm(read(x, y, z))
+        if (cells.has(`${x},${y},${z}`)) { bad = 'stray_guarded'; break }
+        if (!SPOIL.test(n)) { bad = 'stray_natural'; break }
+        blocks.push({ at: [x, y, z], name: n })
+      }
+      if (bad) { skip(bad); continue }
+      const id = `s${pillars.length}`
+      pillars.push({ id, col: [x, z], top: c.y, base, h: blocks.length })
+      for (const b of blocks) cut.push({ ...b, pillar: id })
+      continue
+    }
+    // ---- HOLES ----
+    const lo = Math.min(...ns.map(n => n.y))
+    if (c.y < lo) {
+      if (cellCols.has(k2(x, z))) { skip('hole_guarded'); continue }
+      if (lo - c.y > T.holeMax) { skip('hole_deep'); continue }
+      const id = `h${pits.length}`
+      pits.push({ id, cols: [[x, z]], n: lo - c.y })
+      for (let y = c.y + 1; y <= lo; y++) fill.push({ at: [x, y, z], pit: id })
+    }
+  }
+  return { ok: true, why: 'ok', cut, fill, pillars, pits, litter, skipped }
+}
+
 /**
  * A STAGE'S SITING -> { ok, why, record, survey, road }. Pure over `read`. Stage 0 is siteTidy itself (tidy-01). A later stage:
  * tidy-01's survey over its band (rMin, rMax] when it has one, and the earthwork of its road columns (landplan.mjs stageRoadCols)
@@ -768,6 +871,18 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       if (t.record) { t.record.stage = legacyStage(st); t.record.terraceV = 1; t.record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null }
       return { ...t, survey: null, road: null }
     })
+  }
+  // gkstage-01: inside the wall (surveyInwall), the box the wall encloses (the terrace's inputs carry the wall record)
+  if (st.id === INWALL_STAGE) {
+    const box = inwallBox(terrace?.wall ?? null, home)
+    const sv = surveyInwall(read, { home, box, avoid, cells, water, waterOk })
+    if (!sv.ok) return { ok: false, why: sv.why, record: null, survey: sv, road: null }
+    const record = tidyRecord(sv, { home, plan, now, r: Math.max(TIDY.r, Math.abs(box[0] - home.x), Math.abs(box[2] - home.x), Math.abs(box[1] - home.z), Math.abs(box[3] - home.z)) })
+    if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null }
+    record.stage = legacyStage(st); record.stageId = st.id; record.terraceV = 1
+    record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null
+    record.inwall = { box, pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped }
+    return { ok: true, why: 'ok', record, survey: sv, road: null }
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
   const survey = st.rMax > 0 ? surveyTidy(read, { home, avoid, cells, r: st.rMax, rMin: st.rMin, water, waterOk }) : { ok: true, cut: [], fill: [], pillars: [], pits: [], skipped: {} }
