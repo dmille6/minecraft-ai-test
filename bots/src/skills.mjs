@@ -169,7 +169,7 @@ import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from '
 import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantrySum, parkHeldByCrew, spareOf } from './park.mjs'   // gkhelpers-01: the park gather
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
-import { liveLeases, recordChain, pantryWrite, pantryRead } from './buildproj.mjs'   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
+import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -22591,7 +22591,10 @@ async function buildTidy (ctx, args, signal) {
         // for the park (the town's stock and this bag)
         let have = {}
         try { have = { ...(matsTownStock(bot)?.stock ?? {}) }; for (const [n, v] of Object.entries(heldMap(bot))) have[n] = (Number(have[n]) || 0) + v } catch { have = heldMap(bot) }
-        const terrace = { records: I.records, wall: I.wall, wallext: I.wallext, caps: I.caps, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
+        // access-02: the bots' own climbs (placeaudit.mjs's ledger, every bot's, 48 h) for the inwall stage's staircases
+        let climbs = []
+        try { climbs = climbRead(dir, { since: Date.now() - 48 * 60 * 60_000 }) } catch { climbs = [] }
+        const terrace = { records: I.records, wall: I.wall, wallext: I.wallext, caps: I.caps, climbs, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
         for (let k = k0; k <= Math.max(k0, last); k++) {
           s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land, stage: k, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace, reserved: I.reserved })
           s.k = k

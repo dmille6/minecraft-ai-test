@@ -411,6 +411,80 @@ export function pantryRead (dir, key) {
   return out
 }
 
+// ---- access-02: the climbs ledger ----------------------------------------------------------------------------------------------
+const climbFile = (dir, holder) => path.join(dir, `climbs-${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.jsonl`)
+const CLIMB_RE = /^climbs-[A-Za-z0-9_-]+\.jsonl$/
+/** Append one climb ({ x, y, z, shape, reason, t }) to this bot's ledger; past `maxLines` the file is rewritten with its newest
+ *  `keepLines`. -> true | false. Never throws. */
+export function climbAppend (dir, holder, c, { maxLines = 2000, keepLines = 1000 } = {}) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    const f = climbFile(dir, holder)
+    fs.appendFileSync(f, JSON.stringify({ x: c.x, y: c.y, z: c.z, shape: c.shape, reason: c.reason, t: c.t, by: holder }) + '\n')
+    let n = 0
+    try { n = fs.statSync(f).size } catch { n = 0 }
+    if (n > maxLines * 50) {   // a line is >= 60 bytes: past this the lines are counted, and trimmed past maxLines
+      const lines = fs.readFileSync(f, 'utf8').split('\n').filter(Boolean)
+      if (lines.length > maxLines) { const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, lines.slice(-keepLines).join('\n') + '\n'); fs.renameSync(tmp, f) }
+    }
+    return true
+  } catch { return false }
+}
+/**
+ * Codex r1 BLOCKER (access-02): the placement observer never waits on the disk -- climbEnqueue only queues (bounded: QMAX, a full queue
+ * drops the climb, counted) and an unref'd timer writes the batch with fs.promises off the placement's continuation. Never throws.
+ */
+const climbQ = []
+let climbTimer = null, climbBusy = false
+export const climbStats = { queued: 0, dropped: 0, written: 0, failed: 0 }
+const CLIMB_QMAX = 64
+export function climbEnqueue (dir, holder, c, opts = {}) {
+  try {
+    if (climbQ.length >= CLIMB_QMAX) { climbStats.dropped++; return false }
+    climbQ.push({ dir, holder, c, opts }); climbStats.queued++
+    if (!climbTimer) { climbTimer = setTimeout(() => { climbTimer = null; void climbFlush() }, 250); climbTimer.unref?.() }
+    return true
+  } catch { return false }
+}
+/** Write the queued climbs (async; one batch at a time). -> the count written. Never throws. */
+export async function climbFlush () {
+  if (climbBusy || !climbQ.length) return 0
+  climbBusy = true
+  let n = 0
+  try {
+    const batch = climbQ.splice(0, climbQ.length)
+    const byFile = new Map()
+    for (const q of batch) { const f = climbFile(q.dir, q.holder); const e = byFile.get(f) ?? { q, lines: [] }; e.lines.push(JSON.stringify({ x: q.c.x, y: q.c.y, z: q.c.z, shape: q.c.shape, reason: q.c.reason, t: q.c.t, by: q.holder })); byFile.set(f, e) }
+    for (const [f, e] of byFile) {
+      try {
+        await fs.promises.mkdir(e.q.dir, { recursive: true })
+        await fs.promises.appendFile(f, e.lines.join('\n') + '\n')
+        n += e.lines.length; climbStats.written += e.lines.length
+        const { maxLines = 2000, keepLines = 1000 } = e.q.opts ?? {}
+        const st = await fs.promises.stat(f)
+        if (st.size > maxLines * 50) {
+          const lines = (await fs.promises.readFile(f, 'utf8')).split('\n').filter(Boolean)
+          if (lines.length > maxLines) { const tmp = `${f}.${process.pid}.tmp`; await fs.promises.writeFile(tmp, lines.slice(-keepLines).join('\n') + '\n'); await fs.promises.rename(tmp, f) }
+        }
+      } catch { climbStats.failed += e.lines.length }
+    }
+  } finally { climbBusy = false }
+  if (climbQ.length && !climbTimer) { climbTimer = setTimeout(() => { climbTimer = null; void climbFlush() }, 250); climbTimer.unref?.() }
+  return n
+}
+/** Every bot's climbs since `since` -> [{ x, y, z, shape, reason, t, by }]. [] when none or unreadable (an unread ledger is no climb). */
+export function climbRead (dir, { since = -Infinity } = {}) {
+  const out = []
+  let names = []
+  try { names = fs.readdirSync(dir).filter(n => CLIMB_RE.test(n)) } catch { return out }
+  for (const n of names) {
+    let txt = ''
+    try { txt = fs.readFileSync(path.join(dir, n), 'utf8') } catch { continue }
+    for (const l of txt.split('\n')) { if (!l) continue; let r; try { r = JSON.parse(l) } catch { continue } if ([r?.x, r?.y, r?.z, r?.t].every(Number.isFinite) && r.t >= since) out.push(r) }
+  }
+  return out
+}
+
 // ---- intents ------------------------------------------------------------------------------------------------------------------
 
 const intentFile = (dir, key, holder) => path.join(dir, `${key}.intents.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.jsonl`)

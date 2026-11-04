@@ -104,6 +104,93 @@ await t('Codex r1 BLOCKERS: the stone bill ignores spare dirt; a plank or nether
   const land = { corridors: [{ box: [-1, -64, 2, 1, 320, 2] }] }
   assert.strictEqual(survey(scene(2), { noStair: T.accessNoStair([], { land }) }).access.length, 0, 'never on a road corridor')
 })
+console.log('ACCESS-02: THE BOTS\' OWN CLIMBS (placeaudit -> the climbs ledger -> inwall staircases)')
+const PA = await import('../src/placeaudit.mjs')
+const climbSpots = (...a) => T.climbSpots(...a)
+await t('climbOf: placed, in town, pathfinder or reflex, a pillar or a step, at the surface band; never a mine below town, a failed one, a skill\'s', async () => {
+  const ok = { outcome: 'placed', zone: 'town', reason: 'pathfinder', shape: 'pillar', y: 70 }
+  assert.strictEqual(PA.climbOf(ok, HOME), true)
+  assert.strictEqual(PA.climbOf({ ...ok, y: HOME.y - 5 }, HOME), false, 'in a mine under town (the LIVE rows: most at y 58-65)')
+  for (const bad of [{ outcome: 'failed' }, { zone: 'margin' }, { reason: 'skill' }, { shape: 'bridge' }]) assert.strictEqual(PA.climbOf({ ...ok, ...bad }, HOME), false, JSON.stringify(bad))
+})
+await t('the ledger: appended per bot, read across bots by time, trimmed to its newest lines past the bound', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'climbs-'))
+  PJ.climbAppend(dir, 'showcase-Echo', { x: 1, y: 70, z: 2, shape: 'pillar', reason: 'pathfinder', t: 100 })
+  PJ.climbAppend(dir, 'showcase-Haven', { x: 3, y: 70, z: 4, shape: 'step', reason: 'reflex', t: 200 })
+  assert.strictEqual(PJ.climbRead(dir).length, 2); assert.strictEqual(PJ.climbRead(dir, { since: 150 }).length, 1)
+  for (let i = 0; i < 30; i++) PJ.climbAppend(dir, 'showcase-Kite', { x: i, y: 70, z: 0, shape: 'pillar', reason: 'pathfinder', t: 300 + i }, { maxLines: 10, keepLines: 5 })
+  const k = PJ.climbRead(dir).filter(c => c.by === 'showcase-Kite')
+  assert.ok(k.length <= 10 && k.length >= 5 && k.at(-1).t === 329, `trimmed (${k.length})`)
+})
+await t('climbSpots: two or more climbs within one column make a spot, busiest first, spots apart; old ones age out', async () => {
+  const cl = [...Array(17)].map((_, i) => ({ x: 16, y: 70, z: 22, t: 1000 + i })).concat([{ x: 1, y: 70, z: 7, t: 1000 }, { x: 2, y: 70, z: 8, t: 1000 }, { x: -30, y: 70, z: 0, t: 1000 }])
+  const sp = climbSpots(cl, { now: 2000 })
+  assert.deepStrictEqual(sp[0].col, [16, 22]); assert.strictEqual(sp[0].n, 17)
+  assert.ok(sp.some(q => Math.abs(q.col[0] - 1.5) <= 1.5 && Math.abs(q.col[1] - 7.5) <= 1.5), 'the pair')
+  assert.ok(!sp.some(q => q.col[0] === -30), 'a lone climb is no spot')
+  assert.strictEqual(climbSpots(cl, { now: 2000 + 49 * 3600_000 }).length, 0, 'aged out')
+})
+// a raised terrace: x >= 6 three higher (ground G+3), the low ground G west of it; the bots pillared up at x 5
+const ledge = () => { const srv = server(); for (let x = 6; x <= 12; x++) for (let z = -6; z <= 6; z++) for (let y = G + 1; y <= G + 3; y++) srv.set([x, y, z], 'stone'); return srv }
+await t('spotStair: a stair of the town\'s stone up a 3-high ledge where the bots climbed -- its top step one below the ledge, run away from it', async () => {
+  const srv = ledge()
+  const yHi = HOME.y + 14, yLo = HOME.y - 14, memo = new Map()
+  const col = (x, z) => { const k = `${x},${z}`; if (!memo.has(k)) memo.set(k, T.tidyColumn(srv.read, x, z, { yHi, yLo })); return memo.get(k) }
+  const st = T.spotStair(srv.read, [5, 0], { col })
+  assert.ok(st, 'a stair')
+  assert.deepStrictEqual(st.dir, [-1, 0], 'away from the ledge')
+  const top = st.cells.filter(c => c[0] === 5).map(c => c[1]).sort()
+  assert.deepStrictEqual(top, [G + 1, G + 2], 'the top step at G+2: the step onto the ledge (G+3) is one block')
+  assert.ok(st.cells.some(c => c[0] === 4 && c[1] === G + 1), 'the lower step')
+  const flat = server(); const memo2 = new Map()
+  assert.strictEqual(T.spotStair(flat.read, [5, 0], { col: (x, z) => { const k = `${x},${z}`; if (!memo2.has(k)) memo2.set(k, T.tidyColumn(flat.read, x, z, { yHi, yLo })); return memo2.get(k) } }), null, 'no edge: no stair')
+})
+await t('siteStage inwall with the ledger: a busy spot at the ledge gets its staircase (role access, ledger-marked); no climbs -> none', async () => {
+  const srv = ledge()
+  const st = LP.landStages().find(q => q.id === 'inwall')
+  const climbs = [...Array(5)].map((_, i) => ({ x: 5, y: G + 1, z: 0, t: Date.now() - i }))
+  const r = T.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: st, terrace: { wall: { ring: [-15, -15, 15, 15] }, records: [], climbs } })
+  assert.ok(r.record, r.why)
+  assert.ok(r.record.cells.filter(c => c.role === 'access').length >= 3)
+  assert.ok(r.record.inwall.access.some(a => a.ledger), JSON.stringify(r.record.inwall.access))
+  const r0 = T.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: st, terrace: { wall: { ring: [-15, -15, 15, 15] }, records: [] } })
+  assert.ok(!(r0.record?.cells ?? []).some(c => c.role === 'access'), 'control: without the ledger no stair')
+})
+await t('Codex r1 BLOCKERS: the ledger is QUEUED (the placement never waits on the disk, the queue bounded); a stair never leads up to a wall top or a ridge', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'climbq-'))
+  const t0 = Date.now()
+  for (let i = 0; i < 10; i++) assert.strictEqual(PJ.climbEnqueue(dir, 'showcase-Echo', { x: i, y: 70, z: 0, shape: 'pillar', reason: 'pathfinder', t: t0 + i }), true)
+  assert.strictEqual(PJ.climbRead(dir).length, 0, 'nothing written synchronously')
+  assert.strictEqual(await PJ.climbFlush(), 10)
+  assert.strictEqual(PJ.climbRead(dir).length, 10)
+  const d0 = PJ.climbStats.dropped
+  for (let i = 0; i < 80; i++) PJ.climbEnqueue(dir, 'showcase-Echo', { x: i, y: 70, z: 1, shape: 'pillar', reason: 'pathfinder', t: t0 })
+  assert.ok(PJ.climbStats.dropped - d0 >= 16, 'a full queue drops, counted'); await PJ.climbFlush()
+  const srv = server(); const cells = new Set()
+  for (let z = -6; z <= 6; z++) for (let y = G + 1; y <= G + 4; y++) { srv.set([6, y, z], 'stone_bricks'); cells.add(`6,${y},${z}`) }
+  const climbs = [...Array(5)].map((_, i) => ({ x: 5, y: G + 1, z: 0, t: Date.now() - i }))
+  const st = LP.landStages().find(q => q.id === 'inwall')
+  const r = T.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: st, avoid: (x, z) => (x >= 5 && x <= 7 ? 'project:wall' : null), cells, terrace: { wall: { ring: [-15, -15, 15, 15] }, records: [], climbs } })
+  assert.ok(!(r.record?.inwall?.access ?? []).some(a => a.ledger), 'never onto the wall top')
+  const ridge = server(); for (let z = -6; z <= 6; z++) for (let y = G + 1; y <= G + 3; y++) ridge.set([6, y, z], 'stone')
+  const r2 = T.siteStage(ridge.read, { home: HOME, land: { seed: 1 }, stage: st, terrace: { wall: { ring: [-15, -15, 15, 15] }, records: [], climbs } })
+  assert.ok(!(r2.record?.inwall?.access ?? []).some(a => a.ledger), 'never onto a ridge')
+  await withMutant(TIDY_PATH, '      if (!ground(on) || Math.abs(on.y - hc.y) > 1 || cellCols.has(k2(hx - dx, hz - dz))) continue\n', '', async M => {
+    const m = M.siteStage(ridge.read, { home: HOME, land: { seed: 1 }, stage: st, terrace: { wall: { ring: [-15, -15, 15, 15] }, records: [], climbs } })
+    assert.ok((m.record?.inwall?.access ?? []).some(a => a.ledger), 'mutant (no straight-on check) stairs onto the ridge')
+  })
+})
+await t('mutant: the ledger taking a mine\'s pillars (no surface band) is caught; the wiring feeds the ledger and reads it', async () => {
+  await withMutant(new URL('../src/placeaudit.mjs', import.meta.url), "Number.isFinite(args.y) && !!home && args.y >= Math.floor(home.y) - T.band", "Number.isFinite(args.y)", async M => {
+    assert.strictEqual(M.climbOf({ outcome: 'placed', zone: 'town', reason: 'pathfinder', shape: 'pillar', y: HOME.y - 10 }, HOME), true)
+  })
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
+  const f = strip(readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8'))
+  assert.ok(/if \(climbOf\(args, configuredHome\(config\.world\)\)\) climbEnqueue\(poolStateDir\(config\.memory\.pool\)/.test(f), 'the feed (queued: Codex r1)')
+  const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.ok(/climbs = climbRead\(dir, \{ since: Date\.now\(\) - 48 \* 60 \* 60_000 \}\)/.test(sk) && /caps: I\.caps, climbs, have,/.test(sk), 'the read')
+})
+
 await t('mutant: the stair planner never reached (the climb always cut) is caught', async () => {
   await withMutant(TIDY_PATH, '      if (stair) {\n', '      if (false) {\n', async M => {
     const s = scene(2)
