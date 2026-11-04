@@ -530,6 +530,13 @@
    "exposure": {
     "model": "r3-qwen35-4b"
    }
+  },
+  "stuckcells-01": {
+   "version": 1,
+   "targets": [],
+   "guardrails": [],
+   "none_reason": "Stuck fleet projects (snow read, sealed pocket, waiver, blocked deferral, stair chain) are counted by goalwatch-fleet as STUCK goal alarms, not by an effectwatch metric; its effect is read from goalwatch (stuck goals cleared after promotion: isolated-d/isolated-a/workshops cleared 11-03/11-04; the remaining 355_73_147 monument stalls are monustuck-01's bamboo cause). Control session 11-04.",
+   "retrospective": true
   }
  }
 }
