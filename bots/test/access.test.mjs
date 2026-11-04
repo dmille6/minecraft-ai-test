@@ -85,12 +85,31 @@ await t('BUILT by runVisit on the fake server: the climb\'s dirt dug out and the
   for (const k of [[0, G + 1, 1], [0, G + 2, 1], [0, G + 1, 2]]) assert.strictEqual(s.srv.read(...k).name, 'cobblestone', `${k} (${out.stop}: ${out.why})`)
   assert.ok(e.logs.some(([k, d]) => k === '_build' && d.op === 'clear' && d.kind === 'foreign' && d.block === 'dirt'), 'the dirt was dug as a foreign block in a record cell (the read\'s rule: a cell of the chain)')
 })
+await t('Codex r1 BLOCKERS: the stone bill ignores spare dirt; a plank or netherrack climb is cut, never a stair; never into a footprint, a stand or a road', async () => {
+  assert.strictEqual(T.fillWant({ open: 0, openAccess: 3, dirt: 3, cobble: 0 }), 3, 'three steps, three spare dirt: still 3 cobblestone')
+  assert.strictEqual(T.fillWant({ open: 2, openAccess: 3, dirt: 2, cobble: 1 }), 2, 'the earth takes the dirt; one spare cobble covers one step')
+  assert.strictEqual(T.fillWant({ open: 4, openAccess: 0, dirt: 1, cobble: 1 }), 2, 'the earth bill as before')
+  for (const n of ['oak_planks', 'netherrack']) {
+    const s = scene(2); s.srv.set([0, G + 1, 1], n); s.srv.set([0, G + 2, 1], n)
+    const sv = survey(s)
+    assert.strictEqual(sv.access.length, 0, n); assert.ok(sv.cut.some(c => c.at[0] === 0 && c.at[2] === 1), `${n}: cut instead`)
+  }
+  const fp = scene(2)
+  const house = { plot: 'house1', cells: [{ at: [-1, G + 1, 2] }, { at: [1, G + 1, 2] }] }    // a footprint over the stair's lower step
+  assert.strictEqual(survey(fp, { noStair: T.accessNoStair([house]) }).access.length, 0, 'never into a build\'s footprint')
+  assert.strictEqual(survey(scene(2), { noStair: T.accessNoStair([{ plot: 'house1', cells: [{ at: [-1, G + 1, 3] }, { at: [1, G + 1, 4] }] }]) }).access.length, 0, 'never a landing inside one')
+  assert.strictEqual(survey(scene(2), { noStair: T.accessNoStair([{ plot: 'wall', cells: [{ at: [-30, G, -30] }, { at: [30, G, 30] }] }]) }).access.length, 1, 'the ring wall\'s box is no footprint')
+  const plan = { plots: [{ cells: [{ at: [5, G + 1, 9], stand: [0, G + 1, 2] }] }] }
+  assert.strictEqual(survey(scene(2), { noStair: T.accessNoStair([], { plan }) }).access.length, 0, 'never on a chest\'s stand')
+  const land = { corridors: [{ box: [-1, -64, 2, 1, 320, 2] }] }
+  assert.strictEqual(survey(scene(2), { noStair: T.accessNoStair([], { land }) }).access.length, 0, 'never on a road corridor')
+})
 await t('mutant: the stair planner never reached (the climb always cut) is caught', async () => {
   await withMutant(TIDY_PATH, '      if (stair) {\n', '      if (false) {\n', async M => {
     const s = scene(2)
     assert.strictEqual(M.surveyInwall(s.srv.read, { home: HOME, box: [-8, -8, 8, 8], avoid: s.avoid, cells: s.cells }).access.length, 0)
   })
-  await withMutant(TIDY_PATH, "    if (!ground(lc) || cellCols.has(k2(lx, lz)) || last - lc.y > 1 || lc.y > last) continue\n", '', async M => {
+  await withMutant(TIDY_PATH, "    if (!ground(lc) || cellCols.has(k2(lx, lz)) || !free(lx, lz) || last - lc.y > 1 || lc.y > last) continue\n", '', async M => {
     const s = scene(2); for (let y = G - 2; y <= G; y++) s.srv.set([0, y, 3], 'air')      // the landing is a 3-deep hole
     assert.strictEqual(M.surveyInwall(s.srv.read, { home: HOME, box: [-8, -8, 8, 8], avoid: s.avoid, cells: s.cells }).access.length, 1, 'the mutant builds a stair onto a drop')
     assert.strictEqual(T.surveyInwall(s.srv.read, { home: HOME, box: [-8, -8, 8, 8], avoid: s.avoid, cells: s.cells }).access.length, 0, 'the real one refuses it')

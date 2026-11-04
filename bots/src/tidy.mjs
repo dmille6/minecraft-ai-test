@@ -782,15 +782,36 @@ const BUILD_WHY = /^(project|plan_cell|plan_box|plan_plot)$|^project:(?!yard$|tr
 // LIVE showcase 11-04 copy: 13 climbs on or beside builds inside the wall, up to 3 high.
 // ================================================================================================================================
 export const ACCESS = Object.freeze({ supportMax: 4, headRoom: 2 })
-/** Columns a staircase never uses -> (x, z) -> bool: within 1 of a record's door or its front approach (storehouse.mjs `door`,
- *  `frontOpen`; a house's `door`) -- a step there would block the way in. Pure. */
-export function accessNoStair (records = []) {
-  const cols = []
+/**
+ * Columns a staircase never uses -> (x, z) -> bool. Pure.
+ *   - within 1 of a record's door or its front approach (storehouse.mjs `door`, `frontOpen`; a house's `door`): the way in
+ *   - inside a build's own footprint (its cells' x/z box; never the ring wall's or the paths' -- their boxes are the town): a stair
+ *     never runs into a house or the storehouse, onto the chests' stands (Codex r1 BLOCKER 3)
+ *   - a town-plan container's STAND (the plan's plots' cells' and stations' `stand`: paths.mjs pathAvoid's `flat`; Codex r1 BLOCKER 3)
+ *   - a land-plan road corridor (corridorAt; the tidy's own guard leaves them out: Codex r1 BLOCKER 3)
+ */
+const FOOTPRINT_SKIP = new Set(['wall', 'paths', 'tidy', 'land'])
+export function accessNoStair (records = [], { plan = null, land = null } = {}) {
+  const cols = [], boxes = [], stands = new Set()
   for (const r of records ?? []) {
     if (Array.isArray(r?.door) && r.door.length === 3) cols.push([r.door[0], r.door[2]])
     for (const f of r?.frontOpen ?? []) if (Array.isArray(f) && f.length >= 2) cols.push([f[0], f[f.length - 1]])
+    if (FOOTPRINT_SKIP.has(String(r?.plot ?? ''))) continue
+    const cs = (r?.cells ?? []).filter(c => Array.isArray(c?.at) && !c.prev)
+    if (cs.length) { const xs = cs.map(c => c.at[0]), zs = cs.map(c => c.at[2]); boxes.push([Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)]) }
   }
-  return (x, z) => cols.some(([cx, cz]) => Math.max(Math.abs(cx - x), Math.abs(cz - z)) <= 1)
+  for (const p of plan?.plots ?? []) for (const c of [...(p.cells ?? []), ...(p.stations ?? [])]) if (Array.isArray(c?.stand)) stands.add(k2(c.stand[0], c.stand[2]))
+  const road = corridorAt(land)
+  return (x, z) => cols.some(([cx, cz]) => Math.max(Math.abs(cx - x), Math.abs(cz - z)) <= 1) || boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) || stands.has(k2(x, z)) || !!road(x, z)
+}
+/** The climb blocks a staircase may stand in: the runner digs them out of an access cell (buildrun.mjs FOREIGN_CLEAR) or they are its
+ *  stone already (TIDY_PALETTE.access) -- never planks or netherrack (Codex r1 BLOCKER 2: they would be left, or dug, in a stair). */
+export const STAIR_FROM = /^(dirt|coarse_dirt|cobblestone|cobbled_deepslate)$/
+/** THE FILL BILL -> cobblestone to draw. Pure. Earth fills take the bag's spare dirt, then its cobblestone; a staircase's cells take
+ *  STONE only (Codex r1 BLOCKER 1: spare dirt never offsets them) from the cobblestone the earth fills leave. */
+export function fillWant ({ open = 0, openAccess = 0, dirt = 0, cobble = 0 } = {}) {
+  const earthCobble = Math.max(0, open - dirt)
+  return Math.max(0, earthCobble - cobble) + Math.max(0, openAccess - Math.max(0, cobble - earthCobble))
 }
 /**
  * A STAIRCASE FOR A CLIMB -> { cells: [[x, y, z]], dir: [dx, dz], cols: ["x,z"] } | null. Pure over `read`.
@@ -823,7 +844,7 @@ export function planAccessStair (read, { x, z, top, base, col, cellCols = new Se
     }
     if (!ok) continue
     const lx = x + dx * h, lz = z + dz * h, lc = col(lx, lz), last = top - h + 1
-    if (!ground(lc) || cellCols.has(k2(lx, lz)) || last - lc.y > 1 || lc.y > last) continue
+    if (!ground(lc) || cellCols.has(k2(lx, lz)) || !free(lx, lz) || last - lc.y > 1 || lc.y > last) continue
     let room = true
     for (let d = 1; d <= T.headRoom; d++) if (!open(lx, lc.y + d, lz)) room = false
     if (!room) continue
@@ -890,7 +911,7 @@ export function surveyInwall (read, { home, box, avoid = () => null, cells = new
       for (let yy = c0.y; yy > base0; yy--) { const n = nm(read(x, yy, z)); if (cells.has(`${x},${yy},${z}`) || !SPOIL.test(n) || n === 'grass_block') { ok0 = false; break } bl.push({ at: [x, yy, z], name: n }) }
       if (!ok0) { skip('beside_natural'); continue }
       // access-01: a proper staircase where the climb stood (planAccessStair), the climb's own dirt read open in its cells -- else cut
-      const stair = T.access === false || noStair(x, z) ? null : planAccessStair(read, { x, z, top: c0.y, base: base0, col, cellCols, free: (sx, sz) => !planned.has(k2(sx, sz)) && !noLitter(sx, sz) && !reserved(sx, sz) && !noStair(sx, sz) && (() => { const w = avoid(sx, sz); return !w || BUILD_WHY.test(String(w)) })() })
+      const stair = T.access === false || noStair(x, z) || !bl.every(b => STAIR_FROM.test(b.name)) ? null : planAccessStair(read, { x, z, top: c0.y, base: base0, col, cellCols, free: (sx, sz) => !planned.has(k2(sx, sz)) && !noLitter(sx, sz) && !reserved(sx, sz) && !noStair(sx, sz) && (() => { const w = avoid(sx, sz); return !w || BUILD_WHY.test(String(w)) })() })
       if (stair) {
         const id = `a${access.length}`
         access.push({ id, col: [x, z], top: c0.y, base: base0, h: c0.y - base0, dir: stair.dir, cells: stair.cells })
@@ -978,7 +999,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   // gkstage-01: inside the wall (surveyInwall), the box the wall encloses (the terrace's inputs carry the wall record)
   if (st.id === INWALL_STAGE) {
     const box = inwallBox(terrace?.wall ?? null, home)
-    const sv = surveyInwall(read, { home, box, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved, noStair: accessNoStair(terrace?.records ?? []), water, waterOk })
+    const sv = surveyInwall(read, { home, box, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved, noStair: accessNoStair(terrace?.records ?? [], { plan, land }), water, waterOk })
     if (!sv.ok) return { ok: false, why: sv.why, record: null, survey: sv, road: null }
     const record = tidyRecord(sv, { home, plan, now, r: Math.max(TIDY.r, Math.abs(box[0] - home.x), Math.abs(box[2] - home.x), Math.abs(box[1] - home.z), Math.abs(box[3] - home.z)) })
     if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null }
