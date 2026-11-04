@@ -150,7 +150,7 @@ import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted 
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
-import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft } from './cropfarm.mjs'   // cropfarm-01
+import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft, cutUnsafe } from './cropfarm.mjs'   // cropfarm-01
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
 import { legacyStage, stageCarry, tidyWater, cutSafeNow } from './tidy.mjs'   // townterrace-01
@@ -21852,7 +21852,10 @@ async function buildCropFarm (ctx, args, signal) {
     }
     const hoeUse = { block: 'farmland', can: b => TILLABLE.test(String(b?.name ?? '')), want: b => String(b?.name ?? '') === 'farmland', held: () => HOE_RE.test(bot.heldItem?.name ?? ''), hold: equipHoe }
     bot.shopUnknown ??= new Set()
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: CROP_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.cropStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    // a cut that became unsafe since the siting (water beside it, no support under it: Codex fix r1) is never dug this visit
+    const unsafe = (rec.clear ?? []).filter(q => q.kind === 'cut' && cutUnsafe(read, q.at))
+    const vrec = unsafe.length ? { ...rec, clear: rec.clear.filter(q => !unsafe.includes(q)) } : rec
+    const r = await runVisit({ dir, key, me, home, stood, record: vrec, recordGen: rh.head.gen, palette: CROP_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.cropStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, foreign: CROP_FOREIGN, blockLayer: false, clearMax: 40,
       useFor: q => (q.role === 'till' && hoe ? hoeUse : null), openRole: role => role === 'wheat' || role === 'till',
       // no hoe: a crop cell over ground not tilled yet is passed too (seeds never take on grass)

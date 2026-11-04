@@ -134,6 +134,32 @@ await t('one off the level: a bump is a listed cut (the soil under a crop checke
   const s3 = server(); s3.set([crop[0], G, crop[2]], 'air')
   assert.strictEqual(fitAt0(s3, r0).why, 'dip')
 })
+await t('Codex fix r1: a cut beside water (the bank) or over nothing (a hole no cell fills) refuses the site; cutUnsafe judges it again at the visit', async () => {
+  const r0 = C.siteCropFarm(server().read, { home: HOME }).record
+  const walk = r0.walk.find(w => w[0] === r0.box[0])           // a walkway on the box's edge
+  const out = [walk[0] - 1, G + 1, walk[2]]
+  const sw = server(); sw.set([walk[0], G + 1, walk[2]], 'grass_block'); sw.set(out, 'water')
+  assert.strictEqual(fitAt0(sw, r0).why, 'cut_liquid')
+  const sh = server(); sh.set([walk[0], G + 1, walk[2]], 'grass_block'); sh.set([walk[0], G, walk[2]], 'air')
+  assert.strictEqual(C.cutUnsafe(sh.read, [walk[0], G + 1, walk[2]]), 'no_support')
+  const ok = server(); ok.set([walk[0], G + 1, walk[2]], 'grass_block')
+  assert.strictEqual(C.cutUnsafe(ok.read, [walk[0], G + 1, walk[2]]), null)
+  assert.ok(fitAt0(ok, r0).ok)
+})
+await t('MUTANT KILLED: without the cut check a bank cut beside water is sited', async () => {
+  await withMutant(CROP_PATH, "      if (u) return { ok: false, why: `cut_${u}` }\n", '\n', async M => {
+    const r0 = C.siteCropFarm(server().read, { home: HOME }).record
+    const walk = r0.walk.find(w => w[0] === r0.box[0])
+    const sw = server(); sw.set([walk[0], G + 1, walk[2]], 'grass_block'); sw.set([walk[0] - 1, G + 1, walk[2]], 'water')
+    const col = (x, z) => P0.pathColumn(sw.read, x, z, { yHi: HOME.y + 16, yLo: HOME.y - 16 })
+    assert.ok(M.fitBed(sw.read, { x0: r0.anchor[0], z0: r0.anchor[1], orient: r0.orient, home: HOME, col }).ok)
+  })
+})
+await t('wiring: the visit drops a cut that became unsafe since the siting (never dug)', async () => {
+  const sk0 = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.ok(/const unsafe = \(rec\.clear \?\? \[\]\)\.filter\(q => q\.kind === 'cut' && cutUnsafe\(read, q\.at\)\)/.test(sk0))
+  assert.ok(/record: vrec, recordGen: rh\.head\.gen, palette: CROP_PALETTE/.test(sk0))
+})
 await t('the canopy: leaves 6 above are shade (priced), leaves 2 above are cover (refused)', async () => {
   const r0 = C.siteCropFarm(server().read, { home: HOME }).record
   const crop = C.cropCells(r0)[0].at

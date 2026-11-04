@@ -124,6 +124,8 @@ export function fitBed (read, { x0, z0, orient = 'x', home, col, blocked = () =>
     if (c.above.some(a => a.kind !== 'plant')) canopy++
     if (c.y === L + 1) {
       if (!CUTTABLE.test(c.name ?? '')) return { ok: false, why: 'cut' }
+      const u = cutUnsafe(read, [x, L + 1, z])
+      if (u) return { ok: false, why: `cut_${u}` }
       clear.push({ at: [x, L + 1, z], kind: 'cut', name: c.name })
       if (crop && !TILLABLE.test(nm(read(x, L, z)))) return { ok: false, why: 'soil' }
     } else if (c.y === L - 1) {
@@ -228,6 +230,23 @@ export function cropRecord ({ f, x0, z0 }, { home }) {
     bom: { wheat_seeds: f.crops.length, ...(f.floor?.length ? { dirt: f.floor.length } : {}) },
     builders_max: CROPFARM_BUILDERS,
   }
+}
+/**
+ * IS A CUT UNSAFE NOW? -> 'liquid' | 'no_support' | 'unknown' | null. Pure. Codex fix r1: a cut with water or lava beside it or
+ * above it breaches the bank and floods the bed; a cut with nothing solid under it opens a hole no record cell fills. Judged at the
+ * siting and again before every visit (buildCropFarm drops a cut that has become unsafe: never dug, and the farm stays open).
+ */
+export function cutUnsafe (read, at) {
+  const [x, y, z] = at
+  const under = read(x, y - 1, z)
+  if (!under) return 'unknown'
+  for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
+    const b = read(x + dx, y + dy, z + dz)
+    if (!b) return 'unknown'
+    if (/^(water|lava|bubble_column)$/.test(nm(b)) || /waterlogged/.test(String(b.name ?? ''))) return 'liquid'
+  }
+  if (under.boundingBox !== 'block' || /^(water|lava)$/.test(nm(under))) return 'no_support'
+  return null
 }
 /** The bed's CUTS still standing (a listed cut whose cell still holds the block it was listed with): the farm is not complete
  *  until they are dug (the tree farm's rule: runVisit may end `complete` past an unreachable clear). Pure. */
