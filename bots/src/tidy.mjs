@@ -754,6 +754,17 @@ export function roadLights (read, cols, { home, avoid = () => null, n = 0, cells
 // than every neighbour (153 one deep) -- tidy-01's survey takes pillars from 2 high and pits from 2 deep, and never in a build's box.
 // ================================================================================================================================
 export const INWALL = Object.freeze({ pillarMax: 6, holeMax: 4, litterMax: 3 })
+/**
+ * wallext-01: INSIDE THE WALLS -> [[x0, z0, x1, z1]]: the wall's interior box (inwallBox) and, when the town has one, the wall
+ * EXTENSION's interior (its record's `interior`: the rectangle less its own line, up to the shared line) -- the owner's "inside the
+ * town walls first" is both. Disjoint by construction (the extension's interior ends on the old ring's line, outside its box). Pure.
+ */
+export function inwallBoxes (wall, home, ext = null, r = TIDY.r) {
+  const out = [inwallBox(wall, home, r)]
+  const b = ext?.interior
+  if (Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) && b[2] >= b[0] && b[3] >= b[1]) out.push([...b])
+  return out
+}
 /** The wall's interior box [x0, z0, x1, z1] (terrace.mjs wallInterior), else the town square. Pure. */
 export const inwallBox = (wall, home, r = TIDY.r) => {
   const g = wall?.ring
@@ -791,7 +802,8 @@ export const ACCESS = Object.freeze({ supportMax: 4, headRoom: 2 })
  *   - a town-plan container's STAND (the plan's plots' cells' and stations' `stand`: paths.mjs pathAvoid's `flat`; Codex r1 BLOCKER 3)
  *   - a land-plan road corridor (corridorAt; the tidy's own guard leaves them out: Codex r1 BLOCKER 3)
  */
-const FOOTPRINT_SKIP = new Set(['wall', 'paths', 'tidy', 'land'])
+// the wallext + access fold (Codex fold BLOCKER): the wall extension is a ring wall too -- its box is the extension's interior
+const FOOTPRINT_SKIP = new Set(['wall', 'wallext', 'paths', 'tidy', 'land'])
 export function accessNoStair (records = [], { plan = null, land = null } = {}) {
   const cols = [], boxes = [], stands = new Set()
   for (const r of records ?? []) {
@@ -867,6 +879,30 @@ export function planAccessStair (read, { x, z, top, base, col, cellCols = new Se
  *                 lowest neighbour, at most INWALL.holeMax deep; never water, never a column `avoid` names or a record cell's column
  *   cells  Set "x,y,z" of every project's record cells (the tidy's guard); box [x0, z0, x1, z1]
  */
+/** wallext-01: several inside-the-wall surveys (disjoint boxes) as one: their lists joined (a cell listed twice kept once), the
+ *  litter and the skipped counts summed. Pure. */
+export function mergeSurveys (parts = []) {
+  const out = { ok: true, why: 'ok', cut: [], fill: [], pillars: [], pits: [], litter: 0, skipped: {} }
+  const seen = { cut: new Set(), fill: new Set(), pillars: new Set(), pits: new Set() }
+  parts.forEach((p0, i) => {
+    // the wallext + access fold (Codex fold BLOCKER): each survey numbers its pits and pillars from 0 (`h0`, `a0`, `b0`), and tidyRecord
+    // groups fills by `pit` and cuts by `pillar` -- the same id from two boxes made one group of both (cells twice, segments shared).
+    // Every part's ids are namespaced `p<i>:` (the pit/pillar lists and the fills'/cuts' references alike) before the join
+    const ns = v => (v == null ? v : `p${i}:${v}`)
+    const p = parts.length > 1 ? { ...p0,
+      cut: (p0.cut ?? []).map(c => (c?.pillar != null ? { ...c, pillar: ns(c.pillar) } : c)),
+      fill: (p0.fill ?? []).map(f => (f?.pit != null ? { ...f, pit: ns(f.pit) } : f)),
+      pillars: (p0.pillars ?? []).map(q => ({ ...q, id: ns(q.id) })),
+      pits: (p0.pits ?? []).map(q => ({ ...q, id: ns(q.id) })) } : p0
+    for (const f of ['cut', 'fill', 'pillars', 'pits']) for (const e of p[f] ?? []) { const k = f === 'pillars' || f === 'pits' ? `id:${e?.id}` : JSON.stringify(e?.at ?? e); if (seen[f].has(k)) continue; seen[f].add(k); out[f].push(e) }
+    out.litter += Number(p.litter) || 0
+    // the wallext + access fold: the staircases of every part (access-01's `access` list)
+    if (Array.isArray(p.access)) (out.access ??= []).push(...p.access)
+    for (const [k, v] of Object.entries(p.skipped ?? {})) out.skipped[k] = (out.skipped[k] ?? 0) + v
+  })
+  for (const [k, v] of Object.entries(parts[0] ?? {})) if (!(k in out)) out[k] = v
+  return out
+}
 export function surveyInwall (read, { home, box, avoid = () => null, cells = new Set(), noLitter = () => false, reserved = () => false, noStair = () => false, water = 'strict', waterOk = () => false, T = INWALL } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
@@ -984,7 +1020,9 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   // the owner's 11-01 water rule for every stage (tidyWater: TIDY_WATER=strict is the old refusal): the stage may touch the water of
   // a column it may touch at all, never within farmGuard of farmland (the farm's irrigation)
   const water = tidyWater(env)
-  const reach = Math.max(TIDY.r, st.rMax ?? -1, st.upto ?? -1)
+  // wallext-01: the inside-the-wall stage reaches as far as its boxes (the farm guard's box below)
+  const inR = st.id === INWALL_STAGE ? Math.max(-1, ...inwallBoxes(terrace?.wall ?? null, home, terrace?.wallext ?? null).map(b => Math.max(Math.abs(b[0] - home.x), Math.abs(b[2] - home.x), Math.abs(b[1] - home.z), Math.abs(b[3] - home.z)))) : -1
+  const reach = Math.max(TIDY.r, st.rMax ?? -1, st.upto ?? -1, inR)
   let farmAt = null
   const waterOk = (x, z) => { if (avoid(x, z)) return false; farmAt ??= farmGuardOf(read, [home.x - reach, home.z - reach, home.x + reach, home.z + reach], home); return !farmAt(x, z) }
   if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now, water, waterOk }); if (s.record) { s.record.stage = 0; s.record.stageId = st.id; s.record.terraceV = 1 } return { ...s, road: null } }
@@ -1001,17 +1039,23 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   }
   // gkstage-01: inside the wall (surveyInwall), the box the wall encloses (the terrace's inputs carry the wall record)
   if (st.id === INWALL_STAGE) {
-    const box = inwallBox(terrace?.wall ?? null, home)
-    const sv = surveyInwall(read, { home, box, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved, noStair: accessNoStair(terrace?.records ?? [], { plan, land }), water, waterOk })
-    if (!sv.ok) return { ok: false, why: sv.why, record: null, survey: sv, road: null }
-    const record = tidyRecord(sv, { home, plan, now, r: Math.max(TIDY.r, Math.abs(box[0] - home.x), Math.abs(box[2] - home.x), Math.abs(box[1] - home.z), Math.abs(box[3] - home.z)) })
+    // wallext-01: every box inside the walls (the wall's, the extension's), one survey each, merged
+    const boxes = inwallBoxes(terrace?.wall ?? null, home, terrace?.wallext ?? null)
+    const box = boxes[0]
+    // access-01: the staircases' refusals (accessNoStair), in every box
+    const noStair = accessNoStair(terrace?.records ?? [], { plan, land })
+    const parts = boxes.map(b => surveyInwall(read, { home, box: b, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved, noStair, water, waterOk }))
+    const bad = parts.find(q => !q.ok)
+    if (bad) return { ok: false, why: bad.why, record: null, survey: bad, road: null }
+    const sv = parts.length === 1 ? parts[0] : mergeSurveys(parts)
+    const record = tidyRecord(sv, { home, plan, now, r: Math.max(TIDY.r, ...boxes.map(b => Math.max(Math.abs(b[0] - home.x), Math.abs(b[2] - home.x), Math.abs(b[1] - home.z), Math.abs(b[3] - home.z)))) })
     if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null }
     record.stage = legacyStage(st); record.stageId = st.id; record.terraceV = 1
     record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null
     // access-01: the staircase cells are role `access` (TIDY_PALETTE.access: stone, never dirt)
     const acc = new Set((sv.fill ?? []).filter(f => f.access).map(f => f.at.join(',')))
     if (acc.size) record.cells = record.cells.map(c => (acc.has(c.at.join(',')) ? { ...c, role: 'access' } : c))
-    record.inwall = { box, pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.filter(q => !q.access).length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped,
+    record.inwall = { box, ...(boxes.length > 1 ? { boxes } : {}), pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.filter(q => !q.access).length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped,
       access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length })) }
     return { ok: true, why: 'ok', record, survey: sv, road: null }
   }

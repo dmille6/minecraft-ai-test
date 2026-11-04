@@ -146,7 +146,7 @@ import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
-import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX } from './wall.mjs'   // wall-01
+import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt } from './wall.mjs'   // wall-01; wallext-01; wallext-02
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS } from './yard.mjs'   // yarduse-01
@@ -17204,7 +17204,7 @@ const bpCache = new Map()
 // wall-01: the wall has none either (wall.mjs sites it; WALL_PALETTE)
 // shaft-02: the town stair has none either (shaftgeom.mjs plans it; its visit and its damage test are its own)
 // picker-01: a sink's palette is its record's (every instance's roles): its blueprint here names no palette of its own
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT || id === WALLEXT_BLUEPRINT || id === WALLDEMO_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -17228,6 +17228,10 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // fleetpaths-01: FLEETPATHS=off reads a no-site paths record as no record (the projects after the paths wait, as before)
         const rec = !fleetPathsOn() && pathsNoSiteRec(rec0) ? null : rec0
         const complete = !!rec?.structure_complete
+        // wallext-01: the unsited extension WAITS on its opening rule (wall.mjs wallextOpening: a complete wall, the hall beyond one side)
+        if (p.plot === WALLEXT_PLOT && !rec && !wallextOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        // wallext-02: the demolition WAITS until the extension stands (wall.mjs walldemoOpening)
+        if (p.plot === WALLDEMO_PLOT && !rec && !walldemoOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
         // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
@@ -17357,10 +17361,16 @@ function projectHeads () {
   try {
     const dir = townDir()
     for (const p of projectsGuarded()) { const key = projKeyOf(p.plot); const h = recordHead(dir, key); if (h.ok && h.head) out.push({ plot: p.plot, key, head: h.head }) }
+    // wallext-02: the demolition's hold on the old line is live only while the demolition is open (wall.mjs wallAsHeld): every
+    // reader of the heads sees the wall without it once the demolition is complete, released or not
+    { const w = out.find(x => x.plot === WALL_PLOT), dm = out.find(x => x.plot === WALLDEMO_PLOT); if (w && dm?.head?.rec?.structure_complete) w.head = { ...w.head, rec: wallAsHeld(w.head.rec, dm.head.rec) } }
     // groundskeeper-01: the town's land plan (landplan.mjs) as a RESERVATION -- its road corridors are every later siting's zones
     // (recordZones: houses, the stair, the wall's gateways, the tree farm), no cells
     const land = landHead(dir)
-    if (land) out.push({ plot: LAND_PLOT, key: projKeyOf(LAND_PLOT), head: { rec: landReservation(land) } })
+    // wallext-01: the wall extension's reserved plots are the land plan's too (landplan.mjs landPlotZones)
+    let ext = null
+    if (land) { try { ext = out.find(x => x.plot === WALLEXT_PLOT)?.head?.rec ?? null } catch { ext = null } }
+    if (land) out.push({ plot: LAND_PLOT, key: projKeyOf(LAND_PLOT), head: { rec: landReservation(land, ext) } })
     // siteprep-01: every prepping or prepared plot as a RESERVATION (zones, no cells): every siting, the dress, the terrace and the
     // rims keep off it; only the one claim of that request, and the keeper's own work on it, ignore its zone (prepZones `except`)
     const sp = siteprepHead(dir)
@@ -17423,7 +17433,7 @@ function projStuckLive (key, now = Date.now()) {
       if (rec?.blueprint === TREEFARM_BLUEPRINT) return stuckStale(keys, rec, c => farmAlsoDone(c, farmRead(b)) || recordCellDone(b, rec, c)) || farmStampHeld(keys, treeHeldCols(siteTreesLeft(farmRead(b), rec)))
       // tidy-01: an open tidy's stamp holds only its stuck segment too (the wall's rule): the other pits and corridors go on
       if (rec?.blueprint === TIDY_BLUEPRINT) return stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c))
-      return rec?.blueprint === WALL_BLUEPRINT && wallStuckOn() && (stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c)))
+      return (rec?.blueprint === WALL_BLUEPRINT || rec?.blueprint === WALLEXT_BLUEPRINT) && wallStuckOn() && (stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c)))
     } : null
     return projStuckAt(dir, key, { before: now + 60_000, stale })
   } catch { return null }
@@ -17461,7 +17471,7 @@ function recordCellDone (bot, r, c) {
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     // pathsclose-01: a WAIVED path cell (the record's own list) is done
     if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) return true
-    if (r.blueprint === WALL_BLUEPRINT && wallWaived(r, c)) return true   // wallstuck-01: a waived wall cell is done
+    if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) return true   // wallstuck-01: a waived wall cell is done (wallext-01: the extension's too)
     const b = read(...c.at)
     if (!b) return false
     return buildCellDone(b, bp.palette, c.role) || (mon && zigHidden(c, read))
@@ -17706,7 +17716,7 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     for (const c of r.cells ?? []) {
       if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) continue   // pathsclose-01: a waived path cell is no damage
       if (dressSignRole(c.role)) continue   // towndress-01: a sign is the label writer's upkeep (below), never damage
-      if (r.blueprint === WALL_BLUEPRINT && wallWaived(r, c)) continue    // wallstuck-01: nor a waived wall cell
+      if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) continue    // wallstuck-01: nor a waived wall cell (wallext-01: the extension's too)
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
       if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role) && !(mon && zigHidden(c, read))) return true
     }
@@ -17757,11 +17767,11 @@ export function shopFootprintRefresh (bot) {
       // wall-01: the wall's cells, no halo (a +1 halo round a rampart would price the ground on both sides of the town's whole
       // perimeter): a built cell is never broken by a walk, an open one never takes a walk's scaffold
       // shaft-02: the town stair's cells, no halo (its air cells: never a walk's scaffold; its tread and lining: never a walk's dig)
-      if (r.blueprint === SHAFT_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k) } else if (isZigBlueprint(r.blueprint)) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k); if (r.structure_complete) for (const [k, v] of zigTreadTops(r)) fp.soft.set(k, v) } else if (r.blueprint === PATHS_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k); for (const k of above(r)) { fp.add(k); cells.add(k) } } else if (r.blueprint === WALL_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k) } else if (isSinkBlueprint(r.blueprint)) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k) } else if (r.blueprint === TREEFARM_BLUEPRINT) { for (const k of farmFootprint(r)) fp.add(k) } else for (const k of footprintCells(r)) fp.add(k)
+      if (r.blueprint === SHAFT_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k) } else if (isZigBlueprint(r.blueprint)) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k); if (r.structure_complete) for (const [k, v] of zigTreadTops(r)) fp.soft.set(k, v) } else if (r.blueprint === PATHS_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k); for (const k of above(r)) { fp.add(k); cells.add(k) } } else if (r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) { for (const k of recordCellKeys(r)) fp.add(k) } else if (isSinkBlueprint(r.blueprint)) { for (const k of recordCellKeys(r)) fp.solidOnly.add(k) } else if (r.blueprint === TREEFARM_BLUEPRINT) { for (const k of farmFootprint(r)) fp.add(k) } else for (const k of footprintCells(r)) fp.add(k)
       for (const k of recordCellKeys(r)) cells.add(k)
     }
     bot.shopFootprint = fp
-    bot.shopSaplingBox = recs.length ? recs.map(r => (r.blueprint === PATHS_BLUEPRINT ? pathSaplingCols(r) : r.blueprint === WALL_BLUEPRINT ? wallSaplingCols(r) : isSinkBlueprint(r.blueprint) ? sinkSaplingCols(r) : saplingBox(r))).filter(Boolean) : null
+    bot.shopSaplingBox = recs.length ? recs.map(r => (r.blueprint === PATHS_BLUEPRINT ? pathSaplingCols(r) : r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT ? wallSaplingCols(r) : isSinkBlueprint(r.blueprint) ? sinkSaplingCols(r) : saplingBox(r))).filter(Boolean) : null
     // groundskeeper-01: no sapling in a road corridor (owner 10-27: no planting in footprints)
     try { const lc = landSaplingCols(landHead(dir)); if (lc) bot.shopSaplingBox = [...(bot.shopSaplingBox ?? []), lc] } catch { /* the plan's keep-out waits */ }
     bot.shopCells = cells
@@ -19257,6 +19267,8 @@ async function buildShopVisit (ctx, args, signal) {
   if (proj.plot === PATHS_PLOT) return buildPaths(ctx, args, signal)
   // wall-01: the town wall's visit (wall.mjs siting; the monument's draw and bag)
   if (proj.plot === WALL_PLOT) return buildWall(ctx, args, signal)
+  if (proj.plot === WALLEXT_PLOT) return buildWall(ctx, args, signal, WALLEXT_KIND)   // wallext-01: the same rampart, its own siting
+  if (proj.plot === WALLDEMO_PLOT) return buildWallDemo(ctx, args, signal)   // wallext-02: the old line comes down
   // shaft-02: the town stair's visit (an excavation, top down: shaftvisit.mjs)
   if (proj.plot === SHAFT_PLOT) return buildStair(ctx, args, signal)
   // treefarm-04: the town tree farm's visit (treefarm.mjs siting; the harvest, then the build)
@@ -20710,7 +20722,8 @@ async function buildPaths (ctx, args, signal) {
  *  unreadable file. */
 function wallInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
   const P = pathsInputs(bot, c, h, dir)
-  const records = projectHeads().filter(x => x.plot !== WALL_PLOT).map(x => ({ plot: x.plot, rec: x.head.rec }))
+  // wallext-01: never the extension (wallInside would enclose its ring): the town wall is sited round the town, as before
+  const records = projectHeads().filter(x => x.plot !== WALL_PLOT && x.plot !== WALLEXT_PLOT).map(x => ({ plot: x.plot, rec: x.head.rec }))
   let lights = 0
   try {
     const stock = matsTownStock(bot)?.stock ?? {}
@@ -20728,31 +20741,169 @@ function wallInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
  * record cell. WALLSTUCK=off is the rollback: the wall visit exactly as before.
  */
 const wallStuckOn = () => !['off', '0', 'false', 'no'].includes(String(process.env.WALLSTUCK ?? '').trim().toLowerCase())
-function wallStuckOf (c) {
+function wallStuckOf (c, plot = WALL_PLOT) {
   if (!wallStuckOn()) return {}
   let others = null
-  const otherCells = () => (others ??= new Set(projectHeads().filter(x => x.plot !== WALL_PLOT).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))))
+  const otherCells = () => (others ??= new Set(projectHeads().filter(x => x.plot !== plot).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))))
   const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
   const may = at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } }
   return { sealed: { mayDig: may }, footing: { mayPlace: may, role: 'base' }, stuckStalledOnly: true }
 }
-async function buildWall (ctx, args, signal) {
+/**
+ * WALLEXT-01: THE EXTENSION'S SITING INPUTS (wall.mjs siteWallExt): the wall's inputs (every other project's record and reservation:
+ * the land plan's corridors, site prep, the hall's), plus the old wall record, the hall's record, the copper hall's pad and the
+ * expedition markers; the old wall's own zones are dropped by siteWallExt (its line is the join). Throws on an unreadable file.
+ */
+function wallextInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
+  const P = pathsInputs(bot, c, h, dir)
+  const heads = projectHeads().filter(x => x.plot !== WALLEXT_PLOT)
+  const wh = recordHead(dir, projKeyOf(WALL_PLOT)), hh = recordHead(dir, projKeyOf(HUB_PLOT))
+  if (!wh.ok || !hh.ok) throw new Error('wall or hall record unreadable')
+  let lights = 0
+  try { lights = Math.floor(Math.max(0, (Number(matsTownStock(bot)?.stock?.torch) || 0) - (Number(matsReserve().table?.torch) || 0)) / 2) } catch { lights = 0 }
+  // Codex r3 BLOCKER: the ziggurat's record read whatever MONUMENT says (its reservation and its apron hold the extension off)
+  const mh = recordHead(dir, projKeyOf(MONUMENT_PLOT))
+  if (!mh.ok) throw new Error('monument record unreadable')
+  const M = extWithMonument(heads.map(x => x.head.rec ? { ...x.head.rec, plot: x.head.rec.plot ?? x.plot } : null).filter(Boolean), mh.head?.rec ?? null, c.z0 ?? null)
+  return { wall: wh.head?.rec ?? null, hub: hh.head?.rec ?? null, plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm,
+    records: M.records, pzones: [...recordZones(M.records), ...hallPadZones(P.plan), ...townMarkerZones()], z0: M.z0, lights }
+}
+/** wallext-01: is the extension's opening rule met (wall.mjs wallextOpening)? Never throws: unreadable is not open. */
+function wallextOpenNow (dir = townDir()) {
+  try { const w = recordHead(dir, projKeyOf(WALL_PLOT)), hb = recordHead(dir, projKeyOf(HUB_PLOT)); return w.ok && hb.ok && wallextOpening(w.head?.rec ?? null, hb.head?.rec ?? null).open } catch { return false }
+}
+/** The two walls build_shop's wall visit serves: the town wall (wall-01) and its extension (wallext-01, sited ASYNC: its candidates
+ *  yield the event loop between them). */
+const WALL_KIND = Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, name: 'the wall', switches: 'WALL, PATHS, SHOP or TOWNPLAN',
+  site: async (bot, c, h, dir) => siteWall(planReader(bot), wallInputs(bot, c, h, dir)) })
+const WALLEXT_KIND = Object.freeze({ plot: WALLEXT_PLOT, blueprint: WALLEXT_BLUEPRINT, name: 'the wall extension', switches: 'WALLEXT, WALL, STOREHUB, PATHS, SHOP or TOWNPLAN',
+  site: async (bot, c, h, dir, signal) => siteWallExt(planReader(bot), { ...wallextInputs(bot, c, h, dir), pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }) })
+/** wallext-02: is the demolition's opening rule met (wall.mjs walldemoOpening)? Never throws: unreadable is not open. */
+function walldemoOpenNow (dir = townDir()) {
+  try { const w = recordHead(dir, projKeyOf(WALL_PLOT)), x = recordHead(dir, projKeyOf(WALLEXT_PLOT)); return w.ok && x.ok && walldemoOpening(w.head?.rec ?? null, x.head?.rec ?? null).open } catch { return false }
+}
+/**
+ * WALLEXT-02: THE OLD LINE COMES DOWN (wall.mjs; owner 11-04 O1). build_shop's visit for `walldemo`: unsited, it RETIRES the old wall's
+ * cells on the shared line (a new generation of the wall record without them: no repair rebuilds them, its zones no longer keep the
+ * tidy off their ground) and then sites the demolition record (their blocks as a clear list); sited, the visit runner's clears dig
+ * them (`_build op=clear kind=demolish project=walldemo`), and the record completes when none stands. Nothing is drawn; the dug
+ * blocks ride in the bag like any dig's and are banked by the usual deposits. WALLDEMO=off: nothing retired or dug.
+ */
+async function buildWallDemo (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: WALLDEMO_PLOT }
+  const out = (status, outcome, detail, extra = {}) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, detail, stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === WALLDEMO_PLOT)) return out('no_effect', 'off', 'the old line\'s demolition is switched off (WALLDEMO, WALLEXT, WALL, SHOP or TOWNPLAN)')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(WALLDEMO_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  bot.shopVisitKey = key
+  const read = planReader(bot)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the demolition record could not be read')
+  if (!rh.head) {
+    const wh = recordHead(dir, projKeyOf(WALL_PLOT)), xh = recordHead(dir, projKeyOf(WALLEXT_PLOT))
+    if (!wh.ok || !xh.ok) return out('no_effect', 'record_unreadable', 'the wall or extension record could not be read')
+    const wall = wh.head?.rec ?? null, ext = xh.head?.rec ?? null
+    const o = walldemoOpening(wall, ext)
+    if (!o.open) return out('no_effect', 'waiting', `the demolition waits (${o.why})`, { stop: 'waiting' })
+    // 1. RETIRE first (idempotent: a wall already retired is left as it is), so no repair rebuilds what comes down
+    const d = demoCells(wall, ext)
+    if (!d.cells.length) return out('no_effect', 'no_site', 'nothing of the old wall stands on the shared line', { stop: 'no_site' })
+    const pubW = publishRecord(dir, projKeyOf(WALL_PLOT), cur => (cur && cur.structure_complete ? retireWall(cur, demoCells(cur, ext)) : null), { by: me })
+    if (pubW.result === 'error' || pubW.result === 'lost') return out('no_effect', 'lost_record', `the wall record could not be retired (${pubW.result})`)
+    if (pubW.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'retired', cell: [home.x, home.y, home.z], kind: `cells${d.cells.length}/cols${d.cols.length}`, gen: pubW.gen }) }) } catch { /* telemetry */ } }
+    const w2 = recordHead(dir, projKeyOf(WALL_PLOT))
+    if (!w2.ok || !w2.head) return out('no_effect', 'record_unreadable', 'the wall record could not be read back')
+    // 2. THE DEMOLITION RECORD from the retired cells, read now
+    const s = demoRecord(read, w2.head.rec, ext, { home })
+    if (!s.ok) return out('no_effect', s.why === 'unknown' ? 'site_unread' : 'no_site', `no demolition (${s.why})`, { stop: s.why === 'unknown' ? 'site_unread' : 'no_site' })
+    // never complete at siting (Codex r2 BLOCKER: a repair's late placement): the visit completes it once the retirement settles
+    const rec0 = s.record
+    const pub = publishRecord(dir, key, cur => (cur ? null : { ...rec0, state: 'open' }), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the demolition record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALLDEMO_PLOT, op: 'sited', cell: [home.x, home.y, home.z], kind: `clear${rec0.clear.length}/cols${rec0.cols.length}/skipped${Object.values(rec0.skipped ?? {}).reduce((a, b) => a + b, 0)}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the demolition record could not be read back')
+  }
+  let rec = rh.head.rec
+  // the HOLD comes off the wall record only once the demolition is complete (wall.mjs releaseHold): until then the line's ground is
+  // no one's to fill or stair; a release that failed is retried by every visit to the complete record
+  const release = () => {
+    const pubR = publishRecord(dir, projKeyOf(WALL_PLOT), cur => (cur ? releaseHold(cur) : null), { by: me })
+    if (pubR.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'released', cell: [home.x, home.y, home.z], kind: WALLDEMO_PLOT, gen: pubR.gen }) }) } catch { /* telemetry */ } }
+    return pubR.result
+  }
+  if (rec.structure_complete) { release(); return out('no_effect', 'complete', 'the old line is down') }
+  // the wall and the extension as they stand now: a late block on a retired cell (a repair's placement that landed after the
+  // retirement) is appended to the list before the visit (wall.mjs demoMissing)
+  const wNow = recordHead(dir, projKeyOf(WALL_PLOT)), xNow = recordHead(dir, projKeyOf(WALLEXT_PLOT))
+  if (!wNow.ok || !xNow.ok || !wNow.head || !xNow.head) return out('no_effect', 'record_unreadable', 'the wall or extension record could not be read')
+  const late = demoMissing(rec, wNow.head.rec, xNow.head.rec, read)
+  if (late.length) {
+    const pubL = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, clear: [...(cur.clear ?? []), ...demoMissing(cur, wNow.head.rec, xNow.head.rec, read)] } : null), { by: me })
+    if (pubL.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALLDEMO_PLOT, op: 'late', cell: late[0].at, kind: `late${late.length}`, gen: pubL.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the demolition record could not be read back')
+    rec = rh.head.rec
+  }
+  const slot = takeSlot(dir, key, me, WALLDEMO_BUILDERS)
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  let effects = null
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    const keep = townKeeps(heldMap(bot), { wanted: bot.currentWants ?? [] }).keep
+    effects = botBuildEffects(bot, {
+      acks, keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: WALLDEMO_PLOT, ...d }) : buildRowDetail({ project: WALLDEMO_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    const r = await runVisit({ dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), record: rec, recordGen: rh.head.gen, palette: WALL_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, stands: (bot.walldemoStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true,
+      domain: () => true, walkR: wallWalkR({ cells: rec.clear }, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // COMPLETE when no listed block stands (the runner's own `complete` reads cells only: a record with none is always `complete`)
+    const left = demoLeft(rec, read)
+    if (demoDone(rec, wNow.head.rec, xNow.head.rec, read)) {
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALLDEMO_PLOT, op: 'complete', kind: WALLDEMO_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+      if (pub.result === 'accepted' || pub.result === 'nothing') release()
+    }
+    const stop = left.length ? (r.stop === 'complete' ? 'clears_left' : r.stop) : demoDone(rec, wNow.head.rec, xNow.head.rec, read) ? 'complete' : 'settling'
+    return out(r.cleared > 0 ? 'success' : 'no_effect', stop, `${r.why ?? stop}; down ${rec.clear.length - left.length}/${rec.clear.length}`, { stop, cleared: r.cleared, slot: slot.slot, gen: rh.head.gen })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100))
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slot.gen)
+    try { effects?.close() } catch { /* gone */ }
+  }
+}
+async function buildWall (ctx, args, signal, K = WALL_KIND) {
   const { bot } = ctx
   const t0 = Date.now()
   // the runner's clock (as buildMonument: the visit ends itself ZIG_VISIT_TAIL_MS before the watchdog's abort)
   const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
-  const f = { project: WALL_PLOT }
+  const f = { project: K.plot }
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
     Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
     try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
     return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
   }
-  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === WALL_PLOT)) return out('no_effect', 'off', 'the wall is switched off (WALL, PATHS, SHOP or TOWNPLAN)')
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === K.plot)) return out('no_effect', 'off', `${K.name} is switched off (${K.switches})`)
   const c = shopCtx(bot)
   if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
   const h = townPlanHead(bot)
   if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
-  const dir = townDir(), key = projKeyOf(WALL_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  const dir = townDir(), key = projKeyOf(K.plot), me = bot.username ?? 'bot', home = planHomeP()
   bot.shopVisitKey = key
   const stood = stoodRead(dir, stoodKey(), home)
   let rh = recordHead(dir, key)
@@ -20761,7 +20912,7 @@ async function buildWall (ctx, args, signal) {
     // SITING (wall.mjs siteWall): a ring round the plan area and every project but a ziggurat, gateways where paths cross, Q7's
     // sally ports, the terrace, and the escape proof (nothing reachable from home today is cut off by the built wall)
     let s
-    try { s = siteWall(planReader(bot), wallInputs(bot, c, h, dir)) } catch { return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' }) }
+    try { s = await K.site(bot, c, h, dir, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' }) }
     if (!s.ok) {
       const stop = s.why === 'unknown' ? 'site_unread' : 'no_site'
       return out('no_effect', stop, `no wall ring (${s.why})`.slice(0, 160), { stop })
@@ -20769,7 +20920,7 @@ async function buildWall (ctx, args, signal) {
     const record = s.record
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...record, state: 'open' }), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
-    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'sited', cell: [home.x, home.y, home.z], kind: `m${record.margin}/cols${record.counts.wall + record.counts.post}/gates${record.gates.length}/ports${record.ports}/cells${record.cells.length}/clear${record.clear.length}/pits${record.escape?.pits ?? '-'}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: K.plot, op: 'sited', cell: [home.x, home.y, home.z], kind: `m${record.margin}/cols${record.counts.wall + record.counts.post}/gates${record.gates.length}/ports${record.ports}/cells${record.cells.length}/clear${record.clear.length}/pits${record.escape?.pits ?? '-'}${record.plots ? `/side${record.side}/plots${record.plots.length}` : ''}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the wall record could not be read back')
   }
@@ -20781,7 +20932,7 @@ async function buildWall (ctx, args, signal) {
     if (Object.keys(drawnRead(dir, key, me).drawn).length) drawnWrite(dir, key, me, {})
     return out('no_effect', 'complete', 'the wall stands')
   }
-  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === WALL_PLOT)))
+  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === K.plot)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
   let effects = null
@@ -20829,15 +20980,15 @@ async function buildWall (ctx, args, signal) {
       keep,
       withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
       aborted: () => !!signal?.aborted,
-      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: WALL_PLOT, ...d }) : buildRowDetail({ project: WALL_PLOT, ...d }) }) } catch { /* telemetry */ } if (kind === '_build' && d?.op === 'place') persist() },
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: K.plot, ...d }) : buildRowDetail({ project: K.plot, ...d }) }) } catch { /* telemetry */ } if (kind === '_build' && d?.op === 'place') persist() },
       spawnedAt: () => bot.shopSpawnAt ?? 0,
     })
     bot.shopUnknown ??= new Set()
     // a segment this bot found BLOCKED lately waits; the visit works the others (wall.mjs wallVisitRecord)
-    const blocked = (bot.wallBlocked ??= new Map())
-    const r = await runVisit({ dir, key, me, home, stood, record: wallVisitRecord(rec, blocked), recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.wallStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    const blocked = K.plot === WALL_PLOT ? (bot.wallBlocked ??= new Map()) : (bot.wallextBlocked ??= new Map())
+    const r = await runVisit({ dir, key, me, home, stood, record: wallVisitRecord(rec, blocked), recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: K.plot === WALL_PLOT ? (bot.wallStands ??= { pending: null, bans: {} }) : (bot.wallextStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: wallWalkR(rec, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,
-      ...wallStuckOf(c), ...(wallStuckOn() ? { alsoDone: q => wallWaived(rec, q) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+      ...wallStuckOf(c, K.plot), ...(wallStuckOn() ? { alsoDone: q => wallWaived(rec, q) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     { const bs = blockedSeg(r.stop, r.why); if (bs) blocked.set(bs, Date.now()) }
     // wallstuck-01: THE WAIVER (wall.mjs wallWaiveDue) -- a cell this visit deferred after the remedies, counted WALL_WAIVE_AFTER
     // visits by the stuck map, is named on the record (a logged row with its reason) so the wall closes; the next visit reads it done
@@ -20851,7 +21002,7 @@ async function buildWall (ctx, args, signal) {
             for (const d of due) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
             return { ...cur, waived: w }
           }, { by: me })
-          if (pub.result === 'accepted') for (const d of due) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
+          if (pub.result === 'accepted') for (const d of due) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: K.plot, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
           bot.shopDamage = null
         }
       } catch { /* counted again next visit */ }
@@ -20861,7 +21012,7 @@ async function buildWall (ctx, args, signal) {
       completed = true
       bot.shopDamage = null
       if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
-      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'complete', kind: WALL_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: K.plot, op: 'complete', kind: K.blueprint, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
     }
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
@@ -20878,7 +21029,7 @@ async function buildWall (ctx, args, signal) {
     try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
     if (drawn0) { try { if (completed) { if (!drawnWrite(dir, key, me, {})) drawnFails++ } else persist() } catch { drawnFails++ } }
-    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(WALL_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(K.plot, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
   }
 }
 
@@ -21287,8 +21438,11 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   // the showcase gkstage fold (Codex fold BLOCKER): the site-prep reservations on their own (inwall's litter rule must never read them
   // as a build's `project`); the request being graded (`prepExcept`) is its own grading's
   const rz = recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept))
-  const reserved = (x, z) => rz.some(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] })
-  return { home, avoid, cells, pin, plan: P.plan, caps: P.caps, records: others, wall: others.find(r => r.plot === WALL_PLOT) ?? null, reserved }
+  // wallext-02 (Claude hold r1 BLOCKER 1): the demolition's hold is `reserved` too -- read FIRST by every inwall rule and by the
+  // access stairs' `free` (tidyAvoid's first reason could be a kept wall cell's `project:wall`, which reads as a build's box)
+  const held = holdAt(recs.find(r => r?.plot === WALL_PLOT) ?? null)
+  const reserved = (x, z) => held(x, z) || rz.some(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] })
+  return { home, avoid, cells, pin, plan: P.plan, caps: P.caps, records: others, wall: others.find(r => r.plot === WALL_PLOT) ?? null, wallext: others.find(r => r.plot === WALLEXT_PLOT) ?? null, reserved }
 }
 /**
  * TOWNTERRACE-01: THE TERRACE'S GUARD AT WORK TIME -> (x, z) -> reason | null. Every refusal the siting read (zones, the plan, wells,
@@ -21893,7 +22047,7 @@ async function buildTidy (ctx, args, signal) {
         // for the park (the town's stock and this bag)
         let have = {}
         try { have = { ...(matsTownStock(bot)?.stock ?? {}) }; for (const [n, v] of Object.entries(heldMap(bot))) have[n] = (Number(have[n]) || 0) + v } catch { have = heldMap(bot) }
-        const terrace = { records: I.records, wall: I.wall, caps: I.caps, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
+        const terrace = { records: I.records, wall: I.wall, wallext: I.wallext, caps: I.caps, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
         for (let k = k0; k <= Math.max(k0, last); k++) {
           s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land, stage: k, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace, reserved: I.reserved })
           s.k = k

@@ -7,7 +7,7 @@ import path from 'node:path'
 import { reserveKeyOf, reserveCount, takeAllowed, LOG_NAMES, PLANKS_OF } from './mats.mjs'
 import { monumentOn, MONUMENT_PLOT, MONUMENT_BLUEPRINT, MONUMENT_BUILDERS } from './ziggurat.mjs'
 import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mjs'
-import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
+import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS, wallextOn, WALLEXT_PLOT, WALLEXT_BLUEPRINT, walldemoOn, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS } from './wall.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
 import { cropfarmOn, CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROPFARM_BUILDERS } from './cropfarm.mjs'   // cropfarm-01
@@ -52,6 +52,13 @@ export const PATHS = Object.freeze({ on: pathsOn(process.env, process.env.MEMORY
  * until its rollout (wall.mjs wallOn; WALL=off is the rollback). It needs the paths (and the house) on.
  */
 export const TOWNWALL = Object.freeze({ on: wallOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** WALLEXT-01: THE WALL EXTENSION (wall.mjs siteWallExt; owner 11-04 "extend the wall around the new building leaving room for
+ *  additional buildings"), after the storage hall: the same rampart round the hall and the plots beside it, sharing the old wall's
+ *  line. WALLEXT=off is the rollback (a sited extension stays guarded); on in the showcase pool only. Needs the wall and the hall on. */
+export const TOWNWALLEXT = Object.freeze({ on: wallextOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** WALLEXT-02 (owner 11-04 O1 "remove left over blocks"): the old wall's runs on the shared line come down once the extension stands
+ *  (wall.mjs demoCells / retireWall / demoRecord). WALLDEMO=off is the rollback (nothing retired or dug); on in the showcase pool only. */
+export const WALLDEMO = Object.freeze({ on: walldemoOn(process.env, process.env.MEMORY_POOL ?? '') })
 /**
  * SHAFT-02: THE TOWN STAIR (shaftgeom.mjs; docs/reports/mineshaft-2026-10-30/design.md; OWNER 10-30 "a common mineshaft"): a
  * lined 3x3 spiral stair to feet y=16 with landings at 48/32/16, ONE builder, its own excavation visit (skills.mjs buildStair).
@@ -139,11 +146,13 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
   Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),
   Object.freeze({ plot: HUB_PLOT, blueprint: HUB_BLUEPRINT, after: STORE_PLOT, builders: HUB_BUILDERS }),   // storehub-01
+  Object.freeze({ plot: WALLEXT_PLOT, blueprint: WALLEXT_BLUEPRINT, after: HUB_PLOT, builders: WALL_BUILDERS }),   // wallext-01: round the standing hall
+  Object.freeze({ plot: WALLDEMO_PLOT, blueprint: WALLDEMO_BLUEPRINT, after: WALLEXT_PLOT, builders: WALLDEMO_BUILDERS }),   // wallext-02: the old line comes down
   Object.freeze({ plot: YARD_PLOT, blueprint: YARD_BLUEPRINT, builders: YARD_BUILDERS }),
   ...SINK_KINDS.map(k => Object.freeze({ plot: SINK_PLOTS[k], blueprint: SINK_BLUEPRINTS[k], builders: SINK_BUILDERS, sink: true })),   // picker-01
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 + GK.helpersMax : TIDY_BUILDERS }),   // gkhelpers-01: the keeper and its helpers
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) : p.plot === HUB_PLOT ? hub && store && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
@@ -155,6 +164,11 @@ export const projectsGuarded = (list = projectsOn()) => {
   for (const p of PROJECTS) if (p.sink && !out.some(q => q.plot === p.plot)) out.push(p)
   // cropfarm-01 (Codex design: keep the reservation when farming is off): a sited crop farm stays guarded whatever its switch
   for (const p of PROJECTS) if (p.plot === CROPFARM_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
+  // wallext-01: a sited wall extension stays guarded whatever its switch (its cells, its zones, its plots)
+  for (const p of PROJECTS) if (p.plot === WALLEXT_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
+  // wallext-02 (Codex hold r2 BLOCKER): the demolition's head is read whatever its switch -- a completed demolition then always lifts
+  // its hold (skills.mjs projectHeads: wall.mjs wallAsHeld), even after WALLDEMO=off
+  for (const p of PROJECTS) if (p.plot === WALLDEMO_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   return out
 }
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
@@ -340,7 +354,7 @@ export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the zig
 /** treefarm-04: the farm plants from the bag's saplings and takes its harvest into it. */
 /** tidy-01: the tidy fills from the dirt and cobblestone a bag already holds. */
 /** picker-01: a sink is built from the cobblestone and stone a bag already holds, as the ziggurat is. */
-export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, SHAFT_PLOT, TREEFARM_PLOT, TIDY_PLOT, ...Object.values(SINK_PLOTS)]))
+export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, WALLEXT_PLOT, WALLDEMO_PLOT, SHAFT_PLOT, TREEFARM_PLOT, TIDY_PLOT, ...Object.values(SINK_PLOTS)]))
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }

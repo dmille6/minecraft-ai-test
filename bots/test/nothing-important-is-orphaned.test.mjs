@@ -113,6 +113,8 @@ const REQUIRED = [
   'docs/reports/storehub-ab-2026-11-04/make_storehub.py',
   'bots/scripts/storehub-offline.mjs',
   'bots/test/storehub.test.mjs',
+  // wallext-01 (11-04): the wall extension round the storage hall and its test (the design is main's: docs/reports/wallext-design-2026-11-04.md)
+  'bots/test/wallext.test.mjs',
   // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
   'bots/src/sinks.mjs',
   'bots/scripts/sinks-offline.mjs',
@@ -138,6 +140,7 @@ const REQUIRED = [
   'bots/test/fixtures/siteprep-sp1-overlap-1104.json',
   'bots/test/siteprepcursor.test.mjs',   // the siteprep-02 fold: a cursor of an older screen restarts
   'bots/test/gkaccessfold.test.mjs',   // the gkaccess fold: no stair across the storage hall's way in
+  'bots/test/wallaccessfold.test.mjs',   // the wallext + access fold: ids namespaced, the extension no footprint
   'bots/test/gkstagefold.test.mjs',   // the gkstage fold: inwall never cuts a site-prep reservation
   'bots/test/siteprepfold.test.mjs',   // the fold's prepared-claim bypass (Codex fold BLOCKER)
   'bots/src/siteprep.mjs',
