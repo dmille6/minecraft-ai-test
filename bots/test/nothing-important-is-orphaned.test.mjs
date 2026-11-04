@@ -145,6 +145,12 @@ const REQUIRED = [
   'docs/reports/wallext-2026-11-04/codex-design.md',
   'docs/reports/wallext-2026-11-04/offline-record-showcase-1104.json',
   'docs/reports/wallext-2026-11-04/offline-demolition-showcase-1104.json',
+  // enchantshop-01 (11-04): the enchanting + anvil workshop -- design, Codex design + reviews, the generator, the offline siting
+  // (the code is branch enchantshop-show-wx's until it lands)
+  'docs/reports/enchantshop-design-2026-11-04.md',
+  'docs/reports/enchantshop-2026-11-04/codex-design.md',
+  'docs/reports/enchantshop-2026-11-04/make_enchantshop.py',
+  'docs/reports/enchantshop-2026-11-04/offline-siting-showcase-1104.json',
   // copperhall-01 (11-02): the showcase copper hall, its blueprint and its test over the showcase terrace's own region export
   'bots/src/copperhall.mjs',
   'bots/src/blueprints/hall@1.json',

@@ -4561,6 +4561,41 @@
    },
    "note": "Measured 11-04 15:00Z: the old wall 941 cells, its north line z -20 13/59 built in the extension's span; the basin north of town y 62-63 full of the pathfinder's floating bridge blocks (extColumn) and a dirt pillar on home's column (walkFeet). Codex designed a polygon enclosing the ziggurat with the old line demolished (1,400-1,900 cobble); chosen: a rectangle sharing the old line, the ziggurat closing its west side as on the old ring, nothing removed. Codex code r1: 1 BLOCKER (other records' cell columns), fixed.",
    "owner_answers": "OWNER 2026-11-04: O1 \"remove left over blocks\" (wallext-02 demolition, judged by WD1); O2 order: 1) enchanting + anvil workshop on a hall-size plot, 2) a town/meeting hall on a second hall-size plot, 3) houses. Another agent builds the workshop."
+  },
+  {
+   "id": "enchantshop-1104",
+   "title": "Enchanting + anvil workshop on the wall extension's hall-size plot X1, first of the plots (owner 11-04: workshop -> town hall -> houses; \"materials chain matters more than the shell\")",
+   "owner_date": "2026-11-04",
+   "memory": [
+    "enchantshop-1104.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "P1 BUILT 2026-11-04: showcase branch enchantshop-show-wx @ c6823ae0 on wallext-show 029fea43 + anvilapply 336aa45a merged (the skills that use the anvil/table ship in the same fold; stations found at the workshop's fit cells; a worn-out anvil re-requested), READY TO STAGE, not staged; fold with wallext (+ gkhandover/access) after the storage hall read; it waits on its own opening rule (the extension sited with X1). Shell 459 cells on a 17x11 pad (its ring = X1 19x13), offline x -21..-5 z -64..-54 floor 64, 0 cells in a reservation; anvil next (31 iron, town keep 64); table + 15 shelves wait: requests leather 46, sugar cane 138, obsidian 4. Tripwire EF1 in main's shopread.py.txt (144/144 mutants; Claude + Codex APPROVE), NOT installed: install with the release. Then P2 caneharvest (tier 2), P3 farms leather (farms-1103), P4 obsidian (tier 3 + Paper proof). Design docs/reports/enchantshop-design-2026-11-04.md. Suite ci2 at c6823ae0: 419/422 (base 3). Reviews: Codex code r1 BLOCK (stranded draws) fixed + r2 APPROVE; Codex r2 on the anvil-skills delta BLOCK (unreachable station retried) fixed + r3 resolved.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "item": "wallext-1104"
+    },
+    {
+     "item": "farms-1103"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "enchantshop"
+    ],
+    "branches": [
+     "origin/enchantshop-show-wx"
+    ],
+    "paths": [
+     "docs/reports/enchantshop-design-2026-11-04.md"
+    ]
+   },
+   "note": "Measured 11-04 16:20Z: town iron 197, diamond 18, obsidian/book/paper/cane/leather 0; bags cane 61 (the park's), 0 leather ever; toolkit drew 379 town iron / 7 d with 268 no_iron searches. Codex designed child records per furnishing; chosen one fit list on the shell record. Codex code r1: 1 BLOCKER (stranded drawn materials), fixed 7763c704.",
+   "owner_pending": "E1 park cane for books or a cane bed (P2)? E2 obsidian tier 3: fleet canary or showcase-only? E3 lectern later or never?"
   }
  ]
 }
