@@ -409,7 +409,8 @@ const W = [
   /const pick = activeProject\(marked, order, \{ upkeepTurn: \(b\?\.sinkStreak \?\? 0\) >= SINK_STREAK \}\)/,
   /\.\.\.sinkVisitOpts\(rec, home\), \.\.\.leave \}, effects/,
   /const others = guardRecords\(projectHeads\(\)\.map\(x => x\.head\.rec\)\.filter\(Boolean\), kind\)/,
-  /guard: kind === 'dress' \? \(\) => null : sinkGuardFor\(c, plan, \{ kind \}\), guardShrine: kind === 'dress' \? \(\) => null : sinkGuardFor\(c, plan, \{ noZ0: true, kind \}\)/,
+  // siteprep-01: a pinned claim's own request id is the one zone its guard ignores (`prepExcept`)
+  /guard: kind === 'dress' \? \(\) => null : sinkGuardFor\(c, plan, \{ kind, prepExcept: pe \}\), guardShrine: kind === 'dress' \? \(\) => null : sinkGuardFor\(c, plan, \{ noZ0: true, kind, prepExcept: pe \}\)/,
 ]
 await t('build_shop dispatches a sink plot to buildSink; a sink wanting its next instance reads unsited; its palette judges damage; the picker\'s order and upkeep turn reach activeProject; the visit takes the sink options', () => {
   for (const re of W) assert.ok(re.test(SK), String(re))

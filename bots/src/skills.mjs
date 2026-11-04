@@ -176,6 +176,7 @@ import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PL
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
+import { siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { groupOfItem } from './townindex.mjs'
@@ -16697,7 +16698,8 @@ function planReader (bot) {
       if (b) {
         const name = blockNameOf(bot, b)
         let props = null
-        if (name === 'snow') { try { props = b.getProperties?.() ?? null } catch { props = null } }
+        // siteprep-01: a water cell's level too (a source reads 0: the last resort fills still water only)
+        if (name === 'snow' || name === 'water') { try { props = b.getProperties?.() ?? null } catch { props = null } }
         v = { name, boundingBox: b.boundingBox, shapes: b.shapes, props }
       }
     } catch { v = null }
@@ -17315,8 +17317,34 @@ function projectHeads () {
     // (recordZones: houses, the stair, the wall's gateways, the tree farm), no cells
     const land = landHead(dir)
     if (land) out.push({ plot: LAND_PLOT, key: projKeyOf(LAND_PLOT), head: { rec: landReservation(land) } })
+    // siteprep-01: every prepping or prepared plot as a RESERVATION (zones, no cells): every siting, the dress, the terrace and the
+    // rims keep off it; only the one claim of that request, and the keeper's own work on it, ignore its zone (prepZones `except`)
+    const sp = siteprepHead(dir)
+    if (sp) out.push({ plot: SITEPREP_PLOT, key: projKeyOf(SITEPREP_PLOT), head: { rec: prepReservation(sp) } })
   } catch { /* none */ }
   return out
+}
+/** SITEPREP-01: the switch (the showcase's: the keeper's grounds and the sinks on, SITEPREP / SITEPREP_POOLS). */
+const SITEPREP = Object.freeze({ on: GROUNDS.on && SINKS.on && siteprepOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** The town's site-request record (`project-<home>.siteprep`) -> its body | null (none, off, unreadable). Never throws. */
+function siteprepHead (dir = townDir()) {
+  if (!SITEPREP.on) return null
+  try { const h = recordHead(dir, projKeyOf(SITEPREP_PLOT)); return h.ok && h.head?.rec?.blueprint === SITEPREP_BLUEPRINT ? h.head.rec : null } catch { return null }
+}
+/** One `_siteprep` row. Never throws. */
+function prepRow (bot, status, f) { try { logEvent({ kind: 'siteprep', status, snapshot: snapshot(bot), detail: prepRowDetail(f) }) } catch { /* telemetry */ } }
+/** Publish one request's step -> the publish result (the record's CAS: a request moved meanwhile is left as it is). Never throws. */
+function prepPublish (dir, id, ev, me, now = Date.now()) {
+  try {
+    let next = null
+    const pub = publishRecord(dir, projKeyOf(SITEPREP_PLOT), cur => {
+      const q = requestsOf(cur).find(r => r.id === id)
+      if (!q) return null
+      next = prepStep(q, ev, now)
+      return next === q ? null : withStep(cur, next)
+    }, { by: me })
+    return { ...pub, req: next }
+  } catch { return { result: 'error', req: null } }
 }
 /** GROUNDSKEEPER-01: the switch for the land plan (LANDPLAN=off: no plan sited or read). */
 const LANDP = Object.freeze({ on: GROUNDS.on && landOn() })
@@ -20412,9 +20440,10 @@ function sinkNextNow (plot) { try { return !!activeMem?.states?.find(s => s.plot
  * road corridors), an unsited copper hall's pad and the expedition markers; the ziggurat's +8 apron (`z0`) unless `noZ0` (a shrine
  * belongs to the ziggurat: its record zone, box + 3, still holds). Throws on an unreadable record (the visit stops).
  */
-function sinkGuardFor (c, plan, { noZ0 = false, kind = null } = {}) {
+function sinkGuardFor (c, plan, { noZ0 = false, kind = null, prepExcept = null } = {}) {
   const others = guardRecords(projectHeads().map(x => x.head.rec).filter(Boolean), kind)
-  const zs = [...c.zones, ...recordZones(others), ...hallPadZones(plan), ...townMarkerZones()]
+  // siteprep-01: only the ONE request being claimed (or graded and verified by the keeper) ignores its own zone -- never a kind
+  const zs = [...c.zones, ...recordZones(others).filter(z => !(prepExcept && z?.id === prepExcept)), ...hallPadZones(plan), ...townMarkerZones()]
   const res = reservations(plan, { zones: zs, wells: c.wells, farm: c.farm, z0: noZ0 ? null : c.z0 })
   return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zs.find(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
 }
@@ -20447,7 +20476,8 @@ function dressPressureNow (bot) {
  * Throws on an unreadable file (the visit stops).
  */
 function dressReservedFor (c, plan) {
-  const land = projectHeads().filter(x => x.plot === LAND_PLOT).map(x => x.head.rec)
+  // siteprep-01 (Codex review r1 BLOCKER 2): a prepping or prepared plot is the dress's reservation too
+  const land = projectHeads().filter(x => x.plot === LAND_PLOT || x.plot === SITEPREP_PLOT).map(x => x.head.rec)
   const zs = [...c.zones, ...recordZones(land), ...hallPadZones(plan), ...townMarkerZones()]
   const ko = keepouts(plan)
   const wells = (c.wells ?? []).map(q => [q[0], q[2]])
@@ -20509,22 +20539,31 @@ async function dressSignsVisit (ctx, rec, signal, deadline) {
   return out
 }
 /** SITE THE NEXT INSTANCE of a sink kind (sinks.mjs siteSink) -> its result. Yields to the event loop first. Never throws. */
-async function sinkSiteFor (bot, kind, rec0, plan, c, stood, signal) {
+async function sinkSiteFor (bot, kind, rec0, plan, c, stood, signal, opts = {}) {
   try {
     await new Promise(resolve => setImmediate(resolve))
     check(signal)
-    const n = instancesOf(rec0).length + 1
+    return sinkSiteNow(bot, kind, rec0, plan, c, stood, opts)
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80), tried: [] }
+  }
+}
+/** The sink's siting with this bot's readings, synchronously (siteprep-01: the keeper's acceptance runs it on an after-world) ->
+ *  siteSink's answer. Throws on an unreadable file. */
+function sinkSiteNow (bot, kind, rec0, plan, c, stood, { prep = null, read = null } = {}) {
+  const n = instancesOf(rec0).length + 1
+  {
     const av = sinkAvailNow(bot)
     const walls = projectHeads().find(x => x.plot === WALL_PLOT)?.head?.rec ?? null
     const zig = projectHeads().find(x => x.plot === MONUMENT_PLOT)?.head?.rec ?? null
     const feet = bot.entity?.position ? [Math.floor(bot.entity.position.x), Math.floor(bot.entity.position.y + 1e-6), Math.floor(bot.entity.position.z)] : null
     // towndress-01: a dress batch reads every other record (its anchors, its cell guard, the lights they plan) and the spare torches
     const dress = kind === 'dress' ? { records: projectHeads().filter(x => x.plot !== SINK_PLOTS.dress && x.plot !== LAND_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null })), torches: dressPressureNow(bot).torches, reserved: dressReservedFor(c, plan) } : {}
-    return siteSink(planReader(bot), { kind, n, id: `${SINK_LETTER[kind]}${n}`, home: planHomeP(), pool: config.memory.pool, avail: av.avail, torch: av.torch, campfire: av.campfire,
-      guard: kind === 'dress' ? () => null : sinkGuardFor(c, plan, { kind }), guardShrine: kind === 'dress' ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress })
-  } catch (e) {
-    if (e?.aborted || signal?.aborted) throw e
-    return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80), tried: [] }
+    // siteprep-01: `prep` pins the claim of a prepared plot (one spot, its base), `read` an after-world (the keeper's choosing)
+    const pe = prep?.id ?? null
+    return siteSink(read ?? planReader(bot), { kind, n, id: `${SINK_LETTER[kind]}${n}`, home: planHomeP(), pool: config.memory.pool, avail: av.avail, torch: av.torch, campfire: av.campfire,
+      guard: kind === 'dress' ? () => null : sinkGuardFor(c, plan, { kind, prepExcept: pe }), guardShrine: kind === 'dress' ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind, prepExcept: pe }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress, ...(prep ? { prep } : {}) })
   }
 }
 async function buildSink (ctx, args, signal, proj) {
@@ -20558,16 +20597,39 @@ async function buildSink (ctx, args, signal, proj) {
   if (!rec0 || (rec0.structure_complete && !shopDamaged(bot, rec0))) {
     const recs = Object.fromEntries(SINK_KINDS.map(k => [k, k === kind ? rec0 : (recordHead(dir, projKeyOf(SINK_PLOTS[k])).head?.rec ?? null)]))
     const pr = kind === 'dress' ? dressPressureNow(bot) : sinkPressureNow(bot)
-    const g = sinkNextGate({ kind, rec: rec0, pressure: pr, openCount: stoneOpenCount(recs), noSiteUntil: bot.sinkNoSite?.[kind] ?? 0, now: Date.now(), ready: sinkReady(kind) })
+    // SITEPREP-01: a plot the keeper PREPARED for this kind is claimed first -- one pinned spot, this bot's no-site wait bypassed; an
+    // instance already tagged with the request (the claim's second write lost) only marks it handed
+    const sp = siteprepHead(dir)
+    const claim = sp ? prepClaimFor(sp, kind) : null
+    if (claim && prepHandedIn(rec0, claim.id)) { const hp = prepPublish(dir, claim.id, { type: 'handed', inst: prepHandedIn(rec0, claim.id).id }, me); prepRow(bot, 'success', { op: 'handed', id: claim.id, kind, why: 'already', gen: hp.gen }) }
+    const g = sinkNextGate({ kind, rec: rec0, pressure: pr, openCount: stoneOpenCount(recs), noSiteUntil: claim ? 0 : (bot.sinkNoSite?.[kind] ?? 0), now: Date.now(), ready: sinkReady(kind) })
     if (!g.want) return out('no_effect', 'complete', `the ${plot} sink wants no instance now (${g.why}; pressure ${pr.p})`, { stop: 'complete' })
-    const r = await sinkSiteFor(bot, kind, rec0, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
+    const r = await sinkSiteFor(bot, kind, rec0, { ...h.head.plan, gen: h.head.gen }, c, stood, signal, claim && !prepHandedIn(rec0, claim.id) ? { prep: prepPin(claim) } : {})
     check(signal)
     const tried = (r.tried ?? []).join(' ')
     const t = matsTownStock(bot)
     if (r.ok && kind !== 'dress' && !sinkFundable(r.inst.cells.length, { town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: heldMap(bot) })) { r.ok = false; r.why = 'unfunded' }
     if (!r.ok) {
+      // siteprep-01: a claim that failed for the PLOT counts toward a re-prep (an unfunded bill is the town's, never the plot's: it
+      // waits out the claim deadline)
+      if (claim && r.why !== 'unfunded') { const hp = prepPublish(dir, claim.id, { type: 'hand_fail', why: Object.keys(r.rejects ?? {})[0] ?? r.why }, me); prepRow(bot, 'no_effect', { op: 'hand_fail', id: claim.id, kind, state: hp.req?.state, why: `${r.why}:${tried}`, gen: hp.gen }) }
+      if (claim) return out('no_effect', 'no_site', `the prepared ${kind} plot ${claim.id} did not site (${r.why}) ${tried}`.slice(0, 160), { stop: 'no_site' })
       bot.sinkNoSite = { ...(bot.sinkNoSite ?? {}), [kind]: Date.now() + SINK.noSiteMs }
       try { logEvent({ kind: 'sink', status: 'no_effect', snapshot: snapshot(bot), detail: sinkRowDetail({ op: 'no_site', kind, n: instancesOf(rec0).length + 1, p: pr.p, tried, why: r.why }) }) } catch { /* telemetry */ }
+      // siteprep-01: a refusal the earth can fix files a SITE REQUEST (one live a kind; the keeper prepares a plot)
+      if (SITEPREP.on && r.why !== 'unfunded') {
+        try {
+          const now = Date.now()
+          let req = null
+          const pub = publishRecord(dir, projKeyOf(SITEPREP_PLOT), cur => {
+            const fd = prepFileDecision({ on: true, kind, rec: cur, rejects: r.rejects ?? {}, now })
+            if (!fd.file) return null
+            req = siteRequest({ kind, n: instancesOf(rec0).length + 1, by: me, rejects: r.rejects ?? {}, seq: nextSeq(cur), now })
+            return withRequest(cur, req, home)
+          }, { by: me })
+          if (pub.result === 'accepted' && req) prepRow(bot, 'success', { op: 'filed', id: req.id, kind, n: req.requester.n, why: Object.entries(req.rejects).map(([a, b]) => `${a}:${b}`).join(','), gen: pub.gen })
+        } catch { /* filed again at the next no_site */ }
+      }
       return out('no_effect', 'no_site', `no ${kind} site (${r.why}${r.detail ? ` ${r.detail}` : ''}) ${tried}`.slice(0, 160), { stop: 'no_site' })
     }
     const n0 = instancesOf(rec0).length
@@ -20575,7 +20637,9 @@ async function buildSink (ctx, args, signal, proj) {
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
     if (pub.result === 'accepted') {
       try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: r.meta.centre ?? r.meta.box?.slice(0, 2), kind: `${r.meta.id}/${r.meta.summary}`.slice(0, 48), n: r.inst.cells.length, gen: pub.gen }) }) } catch { /* telemetry */ }
-      try { logEvent({ kind: 'sink', status: 'success', snapshot: snapshot(bot), detail: sinkRowDetail({ op: 'sited', kind, id: r.meta.id, n: r.meta.n, p: pr.p, design: r.meta.summary, cells: r.inst.cells.length, tried }) }) } catch { /* telemetry */ }
+      try { logEvent({ kind: 'sink', status: 'success', snapshot: snapshot(bot), detail: sinkRowDetail({ op: 'sited', kind, id: r.meta.id, n: r.meta.n, p: pr.p, design: r.meta.summary, cells: r.inst.cells.length, tried: r.meta.prep ? `prep=${r.meta.prep} ${tried}` : tried }) }) } catch { /* telemetry */ }
+      // siteprep-01: the instance stands on the prepared plot -> the request is HANDED (its zone drops; the instance's own holds)
+      if (r.meta.prep) { const hp = prepPublish(dir, r.meta.prep, { type: 'handed', inst: r.meta.id }, me); prepRow(bot, 'success', { op: 'handed', id: r.meta.prep, kind, n: r.inst.cells.length, why: r.meta.id, gen: hp.gen }) }
     }
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', `the ${plot} record could not be read back`)
@@ -20684,12 +20748,13 @@ export const _sinkSteps = Object.freeze({ sinkStatesNow, sinkGuardFor, sinkAvail
 /** The tidy's siting inputs: its guard (zones, the plan, wells, the farm, every other project's record and reservation), the
  *  record cells never touched, and the paths' siting inputs when the paths are unsited or stand as a no-site record (the grading).
  *  Throws on an unreadable file. */
-function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
+function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir(), { prepExcept = null } = {}) {
   const P = pathsInputs(bot, c, h, dir)
   // groundskeeper-01: the land plan's corridors are the tidy's work, never its refusal
   const recs = projectHeads().filter(x => x.plot !== LAND_PLOT).map(x => x.head.rec).filter(Boolean)
   const home = P.plan.home
-  const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home }), [...recordZones(recs), ...hallPadZones(P.plan), ...townMarkerZones()])
+  // siteprep-01: a prepping plot is every stage's refusal -- but its own grading's (`prepExcept`: that request's zone ignored)
+  const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home }), [...recordZones(recs).filter(z => !(prepExcept && z?.id === prepExcept)), ...hallPadZones(P.plan), ...townMarkerZones()])
   const cells = new Set(recs.flatMap(q => (q.cells ?? []).map(x => x.at.join(','))))
   const ph = recordHead(dir, projKeyOf(PATHS_PLOT))
   if (!ph.ok) throw new Error('paths record unreadable')
@@ -21060,6 +21125,123 @@ async function parkGather (ctx, signal, { deadline, effects: e }) {
   try { logEvent({ kind: 'build', status: n ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'park_gather', kind: Object.entries(got).map(([a, b]) => `${a}:${b}`).join(',') || Object.keys(want).join('+'), n, why: `targets:${targets.length}` }) }) } catch { /* telemetry */ }
   return { n, why: n ? 'gathered' : 'unreached' }
 }
+// ================================================================================================================================
+// SITEPREP-01: THE KEEPER PREPARES A REQUESTED PLOT (siteprep.mjs; docs/reports/siteprep-design-2026-11-04.md). A sink whose siting
+// found no site for a refusal the earth can fix filed a request (buildSink); the keeper, at its visit, expires what is past its time
+// (its open work retired BEFORE its reservation goes), chooses a plot for the active request (the requester's own candidates, the
+// terrace's pinned grading, the never-worse walk, the requester's own acceptance on the after-world), publishes the reservation and
+// then the work onto the tidy record, works only that while it is open (`prepNow`), and verifies it with the requester's acceptance
+// on the real world. The requester claims a prepared plot at its next order (buildSink).
+// ================================================================================================================================
+/** Other records' zones meeting a plot's graded box (a project sited on it meanwhile: Codex review r1 BLOCKER 1) -> a reason | null. */
+function prepOverlap (plot) {
+  if (!Array.isArray(plot?.graded)) return null
+  const others = projectHeads().filter(x => ![SITEPREP_PLOT, TIDY_PLOT, LAND_PLOT].includes(x.plot)).map(x => x.head.rec).filter(Boolean)
+  const z = recordZones(others).find(q => boxMeetsAny(plot.graded, [q]))
+  return z ? String(z.why ?? 'project') : null
+}
+/** The prepping request on this record and the keeper's hold on it (siteprep.mjs prepHoldOf) -> { id, hold } | null. Never throws. */
+function prepWorking (dir, rec, read, done, given = () => false, stalls = null) {
+  try {
+    const q = prepActive(siteprepHead(dir))
+    if (q?.state !== 'prepping' || rec?.prep?.[q.id]?.att !== prepAttempt(q)) return null
+    const open = prepOpen(rec, q.id, read, done)
+    return { id: q.id, n: open.n, hold: prepHoldOf(open, given, { stalls: prepStallsNow(stalls?.[`${q.id}:${prepAttempt(q)}`] ?? null, open.n) }) }
+  } catch { return null }
+}
+/** THE KEEPER'S PREP TICK -> the tidy record's new head | null (unchanged). Never throws but an abort. */
+async function prepTick (bot, dir, key, rec, me, signal) {
+  const sp0 = siteprepHead(dir)
+  if (!sp0) return null
+  const read = planReader(bot)
+  const waived = q => !!rec?.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))
+  const done = q => waived(q) || buildCellDone(read(...q.at), TIDY_PALETTE, q.role)
+  let changed = false
+  // -> true when the request's open work is off the tidy record (retired now, or nothing of it open); a failed publish keeps the
+  // request's state and its reservation (Codex r2 BLOCKER 2)
+  const retire = id => { const pub = publishRecord(dir, key, cur => retirePrep(cur, id, read, done), { by: me }); if (pub.result === 'accepted') changed = true; return pub.result === 'accepted' || pub.result === 'nothing' }
+  for (const q of requestsOf(sp0)) {
+    const ev = prepExpire(q)
+    if (!ev) continue
+    if (q.state === 'prepping' && !retire(q.id)) continue
+    const hp = prepPublish(dir, q.id, ev, me)
+    prepRow(bot, 'no_effect', { op: 'expired', id: q.id, kind: q.requester?.kind, state: q.state, why: ev.why, gen: hp.gen })
+  }
+  const q = prepActive(siteprepHead(dir))
+  const head = () => (changed ? recordHead(dir, key) : null)
+  if (!q || q.state === 'prepared') return head()
+  const kind = q.requester?.kind
+  const c = shopCtx(bot), h = townPlanHead(bot)
+  if (!c.zonesKnown || !h.ok || !h.head) return head()
+  const plan = { ...h.head.plan, gen: h.head.gen }, home = planHomeP()
+  const sinkRec = recordHead(dir, projKeyOf(SINK_PLOTS[kind])).head?.rec ?? null
+  const stood = stoodRead(dir, stoodKey(), home)
+  const acceptAt = (rd, pin) => { try { const r = sinkSiteNow(bot, kind, sinkRec, plan, c, stood, { read: rd, prep: pin }); return { ok: !!r.ok, why: r.ok ? 'ok' : Object.keys(r.rejects ?? {})[0] ?? r.why } } catch { return { ok: false, why: 'error' } } }
+  if (q.state === 'filed') {
+    let I
+    try { I = tidyInputs(bot, c, h, dir, { prepExcept: q.id }) } catch { return head() }
+    // never on another stage's open work (Claude: stage_busy), never on a land-plan corridor (the roads stage grades those)
+    const openK = new Set([...(rec?.cells ?? []).filter(x => !x.prev && !done(x)), ...(rec?.cut ?? []).filter(x => cutStanding(read, x))].map(x => `${x.at[0]},${x.at[2]}`))
+    const road = corridorAt(landHead(dir))
+    const avoid = (x, z) => I.avoid(x, z) ?? road(x, z) ?? (openK.has(`${x},${z}`) ? 'tidy_open' : null)
+    const guard = sinkGuardFor(c, plan, { kind, noZ0: kind === 'shrine', prepExcept: q.id })
+    const av = sinkAvailNow(bot)
+    const walls = projectHeads().find(x => x.plot === WALL_PLOT)?.head?.rec ?? null
+    const zig = projectHeads().find(x => x.plot === MONUMENT_PLOT)?.head?.rec ?? null
+    const cands = prepCandidates({ kind, home, pool: config.memory.pool, n: instancesOf(sinkRec).length + 1, wall: walls, zig, rec: sinkRec, avail: av.avail, torch: av.torch, campfire: av.campfire })
+    const gm = groundMemo(read, home.y), wm = wetMemo(read, home.y)
+    const ranked = prepRank(cands, cd => prepEstimate(cd, { ground: gm, wetCol: wm, still: (x, y, z) => stillWater(read(x, y, z)), guard, hy: home.y }))
+    await new Promise(resolve => setImmediate(resolve))
+    check(signal)
+    let farmAt = null
+    const farm = (x, z) => { farmAt ??= farmGuardOf(read, [home.x - 128, home.z - 128, home.x + 128, home.z + 128], home); return farmAt(x, z) }
+    const ch = prepChoose(read, ranked, { cursor: Number(q.cursor) || 0, home, from: townEdge(I.plan, I.home), avoid, cells: I.cells, farm, water: tidyWater(),
+      accept: (rd, cd) => acceptAt(rd, { id: q.id, cx: cd.cx, cz: cd.cz, B: cd.B, seed: cd.seed, ...(cd.slot ? { slot: cd.slot, pair: cd.pair } : {}) }) })
+    if (!ch.ok) {
+      const ev = ch.why === 'pending' ? { type: 'pending', cursor: ch.cursor, why: Object.keys(ch.tried)[0] ?? 'pending' } : { type: 'refused', why: ch.top }
+      const hp = prepPublish(dir, q.id, ev, me)
+      prepRow(bot, 'no_effect', { op: ev.type, id: q.id, kind, cursor: ch.cursor, n: ranked.length, why: Object.entries(ch.tried).map(([a, b]) => `${a}:${b}`).join(',') || ch.top, gen: hp.gen })
+      return head()
+    }
+    const plot = plotOf(ch)
+    const hp = prepPublish(dir, q.id, { type: 'chosen', plot, zone: prepZoneOf(plot.box, { id: q.id, kind }) }, me)
+    if (hp.result !== 'accepted') return head()
+    prepRow(bot, 'success', { op: 'chosen', id: q.id, kind, tier: plot.tier, B: plot.B, cut: plot.earth.cut, fill: plot.earth.fill, seal: plot.earth.seal, dam: plot.earth.dam, water: plot.earth.water, cell: [plot.cx, plot.L, plot.cz], gen: hp.gen })
+    // the reservation is published FIRST; a project another bot sited meanwhile on the plot retires the request before any work
+    const ov = prepOverlap(plot)
+    if (ov) { const rp = prepPublish(dir, q.id, { type: 'retire', why: ov }, me); prepRow(bot, 'no_effect', { op: 'retired', id: q.id, kind, state: rp.req?.state, why: ov, gen: rp.gen }); return head() }
+    const pub = publishRecord(dir, key, cur => (cur && cur.prep?.[q.id]?.att !== prepAttempt(q) ? withPrep(cur, q, ch.grade.work, { home }) : null), { by: me })
+    if (pub.result === 'accepted') changed = true
+    return head()
+  }
+  // PREPPING: a project sited on the plot since retires it (its open work first); else, the work done, the requester's own acceptance
+  // on the REAL world decides (no waiver completes a prep)
+  const ov = prepOverlap(q.plot)
+  if (ov) {
+    if (!retire(q.id)) return head()
+    const rp = prepPublish(dir, q.id, { type: 'retire', why: ov }, me)
+    prepRow(bot, 'no_effect', { op: 'retired', id: q.id, kind, state: rp.req?.state, why: ov, gen: rp.gen })
+    return head()
+  }
+  // this attempt's work not on the head (a stage advanced over a finished prep, or the work's publish was lost): the requester's
+  // own proof on the REAL world decides, as for finished work (Codex r2 BLOCKER 1)
+  const open = rec?.prep?.[q.id]?.att === prepAttempt(q) ? prepOpen(rec, q.id, read, done) : null
+  const hold = prepHoldOf(open, k => tidyGivenUp(bot.tidyGiven ?? null, k), { stalls: prepStallsNow(bot.prepStalls?.[`${q.id}:${prepAttempt(q)}`] ?? null, open?.n ?? 0) })
+  // Claude code r2 BLOCKER: only cuts this keeper has given up are left -- the attempt is retired now (its standing cuts leave the
+  // record), never held to its expiry
+  if (hold === 'stuck') {
+    if (!retire(q.id)) return head()
+    const rp = prepPublish(dir, q.id, { type: 'retire', why: 'given_up' }, me)
+    prepRow(bot, 'no_effect', { op: 'retired', id: q.id, kind, state: rp.req?.state, why: 'given_up', n: open.cuts.length, gen: rp.gen })
+    return head()
+  }
+  if (hold === 'work') return head()
+  const d = prepVerifyDecision({ open: 0, acc: acceptAt(planReader(bot), prepPin(q)) })
+  const vp = prepPublish(dir, q.id, { type: d, why: d === 'verify_fail' ? 'requester_refused' : null }, me)
+  prepRow(bot, d === 'verified' ? 'success' : 'no_effect', { op: d === 'verified' ? 'prepared' : 'verify_fail', id: q.id, kind, state: vp.req?.state, B: q.plot?.B, gen: vp.gen })
+  // a failed verify leaves nothing open (the work was done): the next choose grades the world as it is now
+  return head()
+}
 async function buildTidy (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -21168,6 +21350,11 @@ async function buildTidy (ctx, args, signal) {
     const r2 = gkPlanAdditions(bot, dir, key, rec, me)
     if (r2) { rh = r2; rec = rh.head.rec }
   }
+  // siteprep-01: the keeper's prep tick (choose, publish, verify, expire) -- the keeper's plan, like the stages
+  if (SITEPREP.on && caps.site) {
+    const r3 = await prepTick(bot, dir, key, rec, me, signal)
+    if (r3?.ok && r3.head) { rh = r3; rec = rh.head.rec }
+  }
   if (rec.structure_complete) return out('no_effect', 'complete', 'the town ground is tidy')
   const palette = TIDY_PALETTE
   const mem = (bot.tidyGiven ??= new Map())
@@ -21221,7 +21408,7 @@ async function buildTidy (ctx, args, signal) {
   }
   // gkhelpers-01: a storehouse floor repair (floorFix) lies inside the storehouse's box, which the terrace's work-time guard refuses;
   // it is the one cell kind that guard passes (every other guard -- another project's CELL, a marker, a waiver -- still holds)
-  const waivedK = q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !!guardNow(q.at[0], q.at[2]))
+  const waivedK = q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -21252,6 +21439,15 @@ async function buildTidy (ctx, args, signal) {
     const floorNow = GROUNDS.on ? floorOpen(rec, q => buildCellDone(read(...q.at), palette, q.role)) : []
     const floorOnly = floorNow.length > 0
     let visitRec = floorOnly ? { ...rec, cells: (rec.cells ?? []).filter(q => q.floorFix && !q.prev), segments: (rec.segments ?? []).filter(sg => /^T-F\d+$/.test(sg.seg)), clear: [], replant: [] } : rec
+    // siteprep-01: while a requested plot's prep is open the visit works ONLY it (the floor's pattern): a plot in a few visits
+    // Codex r5 BLOCKER: ONE open-work predicate for the selection, the tick and the completion -- the world and the record's
+    // persisted waivers; the visit's transient guards (farm water, a cell another project took) only skip a cell inside the visit, so a
+    // prep blocked by them is selected, moves nothing, and reaches the stall backstop
+    const prepDoneIn = rd => q => !!q.prev || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || buildCellDone(rd(...q.at), palette, q.role)
+    const prepDone = prepDoneIn(read)
+    const prepSt = !floorOnly && SITEPREP.on ? prepWorking(dir, rec, read, prepDone, k => tidyGivenUp(mem, k), bot.prepStalls) : null
+    const prepNow = prepSt?.hold === 'work' ? prepSt.id : null
+    if (prepNow) { f.prep = prepNow; visitRec = { ...rec, cells: (rec.cells ?? []).filter(q => q.prep === prepNow), segments: (rec.segments ?? []).filter(sg => String(sg.seg).startsWith(`${prepNow}-`)), clear: (rec.clear ?? []).filter(q => q.prep === prepNow), replant: [] } }
     if (!caps.digs) visitRec = helperRecord(visitRec)
     // the crew's segment rule over the WHOLE record's columns (another bot's segment is judged even when this visit's view lacks it)
     const crewCols = GROUNDS.on ? segColumns(rec) : new Map()
@@ -21290,11 +21486,12 @@ async function buildTidy (ctx, args, signal) {
     bot.shopUnknown ??= new Set()
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')) && !(isTerrace && guardNow(q.at[0], q.at[2])))
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])))
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
     // gkhelpers-01: the cuts are the keeper's (crewCaps.digs), and none while the storehouse floor is open
-    const cuts = !caps.digs || floorOnly ? [] : GROUNDS.on ? chainCuts(cuts0, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cuts0
+    // siteprep-01: a prep's cuts in LAYERS, the highest across the plot first (Codex review r1 BLOCKER 5: never a shaft mid-way)
+    const cuts = !caps.digs || floorOnly ? [] : prepNow ? prepCutOrder(cuts0.filter(q => q.prep === prepNow), fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : GROUNDS.on ? chainCuts(cuts0, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cuts0
     const noTorch = q => GROUNDS.on && q.role === 'light' && countItem(bot, 'torch') < 1
     // townterrace-01: the park's cells and the cave seals a visit passes over now (park.mjs terraceSkip: no material, no tool, the
     // ground under a planting not laid yet, a seal's cut still standing) read done -- an element the town cannot make never blocks
@@ -21316,7 +21513,7 @@ async function buildTidy (ctx, args, signal) {
     // tree it was owed for stays standing (its logs leave this visit's clears; the stage names it after GK_CLEAR_VISITS)
     // (the record's own skip, above: Claude r2 BLOCKER 2) -- and the PREV cells never reach the visit (Codex + Claude r2 BLOCKER 1:
     // a previous fill under one of this stage's cuts would hide the cut from clears())
-    const recV = isTerrace ? { ...visitRec, cells: (visitRec.cells ?? []).filter(q => !q.prev), clear: (visitRec.clear ?? []).filter(q => !guardNow(q.at[0], q.at[2]) && !keptLogK.has(q.at.join(','))) } : visitRec
+    const recV = isTerrace ? { ...visitRec, cells: (visitRec.cells ?? []).filter(q => !q.prev), clear: (visitRec.clear ?? []).filter(q => (q.prep || !guardNow(q.at[0], q.at[2])) && !keptLogK.has(q.at.join(','))) } : visitRec
     const r = await runVisit({ dir, key, me, home, stood, record: recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q) || !!skipV(q), stuckStalledOnly: true,
       ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true } : {}),
@@ -21327,6 +21524,10 @@ async function buildTidy (ctx, args, signal) {
       // gkhelpers-01: the crew's segments -- never one within GK.segGap columns of another bot's live one, a raced take yielded, and a
       // segment whose layer below is open passed (the next independent one worked)
       ...(GROUNDS.on ? { segOk: crew.segOk, segYield: crew.segYield, skipOpenDeps: true } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // siteprep-01 r5: a prep visit that moved nothing counts toward the attempt's stall backstop (siteprep.mjs prepHoldOf); one that
+    // placed or cleared resets it
+    // (the open work read AFTER the visit, fresh: helpers filling during it are progress -- Codex r6 BLOCKER)
+    if (prepNow) { const sk = `${prepNow}:${rec.prep?.[prepNow]?.att ?? 0}`; const fr = tidyRead(bot); bot.prepStalls = { ...(bot.prepStalls ?? {}), [sk]: prepStallNext(bot.prepStalls?.[sk] ?? null, prepOpen(rec, prepNow, fr, prepDoneIn(fr)).n, (r.placed ?? 0) + (r.cleared ?? 0)) } }
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts)
     const read2 = tidyRead(bot)
     const cutAt = new Map((rec.cut ?? []).map(q => [q.at.join(','), q]))
@@ -21357,7 +21558,7 @@ async function buildTidy (ctx, args, signal) {
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const skip2 = skipOf(read2)
-    const prog = tidyProgress(rw, read2, { fillDone: q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (isTerrace && !q.floorFix && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) })
+    const prog = tidyProgress(rw, read2, { fillDone: q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) })
     // townterrace-01: what the park passed over this visit, named (one row a visit: the element skipped and why)
     if (parkish) {
       const why = {}
@@ -21382,7 +21583,11 @@ async function buildTidy (ctx, args, signal) {
     // keeper's next visit (its order comes back at GK.cooldownMs)
     // ... and never over a park planting another crew bot carries the plants for (park.mjs parkHeldByCrew: it plants it next visit)
     const crewHeld = GROUNDS.on && parkish && caps.complete ? parkHeldByCrew(rw, { done: q => buildCellDone(read2(...q.at), palette, q.role), skip: skip2, others: crewPantry(dir, key, me) }).length : 0
-    if (caps.complete && !crewHeld && !prog.cutLeft && !prog.fillLeft && !unread && clearsOk) {
+    // siteprep-01 r2 (Codex + Claude r2 BLOCKER 1): never complete over a prepping request's open work (its cuts may be given up by
+    // this bot): the prep is verified, or retired at its expiry, first
+    const prepHold = SITEPREP.on && (prepWorking(dir, rw, read2, q => !!q.prev || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || buildCellDone(read2(...q.at), palette, q.role), k => tidyGivenUp(mem, k), bot.prepStalls)?.hold ?? 'none') !== 'none'
+    if (prepHold) f.prepHold = 1
+    if (caps.complete && !crewHeld && !prog.cutLeft && !prog.fillLeft && !unread && clearsOk && !prepHold) {
       const now = Date.now()
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length } : null), { by: me })
       completed = true

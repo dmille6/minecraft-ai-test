@@ -233,7 +233,11 @@ export function lip (keys, v, nb, dir) {
  *   levels       terraceLevels;  felled Set "x,y,z" of the logs this stage fells (read as air)
  *   farm(x, z)   within T.farmGuard of farmland (never touched)
  */
-export function gradeTerraces (read, box, { home, avoid = () => null, cells = new Set(), levels = [], felled = new Set(), farm = () => false, alpha = 0.5, keep = null, water = 'strict', T = TERRACE } = {}) {
+// siteprep-01: `pin` (Map "x,z" -> L | [lo, hi]) holds a column's finished ground at L exactly (or within [lo, hi]: a plot's apron,
+// which its requester takes within a step) -- its target and both its bounds are the pin's, a pinned
+// open-water column is free (its bed its ground) whether or not it is a pond's edge -- and the result names every pin the solve could
+// not hold (`pins.bad`: refused, kept, or off its level). Without `pin` nothing changes.
+export function gradeTerraces (read, box, { home, avoid = () => null, cells = new Set(), levels = [], felled = new Set(), farm = () => false, alpha = 0.5, keep = null, water = 'strict', pin = null, T = TERRACE } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   const yHi = home.y + T.dy, yLo = home.y - T.dy
@@ -262,7 +266,7 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
     for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
       const c = col(x, z)
       if (c?.why !== 'water' || avoid(x, z) || farm(x, z)) continue
-      if (!N4.some(([dx, dz]) => free.has(k2(x + dx, z + dz)))) continue
+      if (!N4.some(([dx, dz]) => free.has(k2(x + dx, z + dz))) && !pin?.has(k2(x, z))) continue
       const wc = waterColumn(rd, x, z, { yHi, yLo, depth: T.maxFill })
       if (wc) edge.push([x, z, wc.bed])
     }
@@ -293,6 +297,9 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
       for (const k of comp) T0.set(k, to)
     }
   }
+  // siteprep-01: a pinned column's target is its pin (after the patch merge: a pin never joins a neighbour's terrace)
+  const pinLo = v => (Array.isArray(v) ? v[0] : v), pinHi = v => (Array.isArray(v) ? v[1] : v)
+  if (pin) for (const [k, v] of pin) if (free.has(k)) T0.set(k, Math.max(pinLo(v), Math.min(pinHi(v), T0.get(k))))
   // `keep`: columns the caller keeps (the walk guard's: a column a grading turned stuck-prone)
   const kept = new Set([...(keep ?? [])].filter(k => free.has(k)))
   if (kept.size) skipped.walk_kept = kept.size
@@ -315,6 +322,7 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
         const sl = Math.max(1, Math.abs(g.get(k) - c.y))
         lo = Math.max(lo, c.y - sl); hi = Math.min(hi, c.y + sl)
       }
+      if (pin?.has(k)) { lo = Math.max(lo, pinLo(pin.get(k))); hi = Math.min(hi, pinHi(pin.get(k))) }
       loI.set(k, lo); hiI.set(k, hi)
     }
     const lo = lip(keys, loI, nb, +1), hi = lip(keys, hiI, nb, -1)
@@ -412,7 +420,10 @@ export function gradeTerraces (read, box, { home, avoid = () => null, cells = ne
   const dam = dams.filter(d => N4.some(([dx, dz]) => cutCols.has(k2(d.at[0] + dx, d.at[2] + dz))) && !fillK.has(d.at.join(',')))
   const finalH = new Map()
   for (const k of free) finalH.set(k, work.has(k) ? H.get(k) : g.get(k))
-  return { H: finalH, g, kept, worked: new Set(work.keys()), cut, fill, seal, dam, clearLeaves, levels, alpha, skipped, free }
+  const pins = { ok: true, bad: [] }
+  if (pin) for (const [k, v] of pin) { const h = finalH.get(k); const why = !free.has(k) ? 'not_free' : kept.has(k) ? 'kept' : !(h >= pinLo(v) && h <= pinHi(v)) ? 'off_level' : null; if (why) pins.bad.push(`${k}:${why}`) }
+  pins.ok = !pins.bad.length
+  return { H: finalH, g, kept, worked: new Set(work.keys()), cut, fill, seal, dam, clearLeaves, levels, alpha, skipped, free, pins }
 }
 
 /** ONE COLUMN'S EARTHWORK from its ground g0 to h -> { cut, fill, floor, leaves, why }. Pure. `rd` reads the felled logs as air. */
@@ -523,9 +534,9 @@ export function terraceWalk (read, box, home, from, { dy = 16, solid = null } = 
     for (const [dx, dz] of [[1, 0], [0, 1]]) { if (!inBox(x + dx, z + dz)) continue; const n = col(x + dx, z + dz); if (!ok(n)) continue; pairs++; if (Math.abs(n.y - c.y) >= 2) rough++; if (Math.abs(n.y - c.y) >= 4) steep++ }
   }
   let back = 0
-  const trapSet = new Set()
-  for (const k of R) { if (C.has(k)) back++; else trapSet.add(k) }
-  return { cols, reach: R.size, back, traps: R.size - back, rough, pairs, steep, trapSet }
+  const trapSet = new Set(), backSet = new Set()
+  for (const k of R) { if (C.has(k)) { back++; backSet.add(k) } else trapSet.add(k) }
+  return { cols, reach: R.size, back, traps: R.size - back, rough, pairs, steep, trapSet, backSet }
 }
 
 // ---- the park ------------------------------------------------------------------------------------------------------------------

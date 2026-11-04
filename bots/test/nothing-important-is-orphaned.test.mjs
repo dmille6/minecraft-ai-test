@@ -117,6 +117,10 @@ const REQUIRED = [
   'bots/test/sinkfix2.test.mjs',
   // sinkfix-03 (11-04): one plot's failed siting no longer quiets every build order for a day
   'bots/test/sinkfix3.test.mjs',
+  // siteprep-01 (11-04): the groundskeeper prepares a plot when a sink finds no site
+  'bots/test/siteprep.test.mjs',
+  'bots/src/siteprep.mjs',
+  'docs/reports/siteprep-design-2026-11-04.md',
   // towndress-01 (11-03): the town's lights and signs (the `dress` sink), its offline siting and its test
   'bots/src/towndress.mjs',
   'bots/scripts/dress-offline.mjs',
