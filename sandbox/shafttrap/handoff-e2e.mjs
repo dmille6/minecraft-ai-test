@@ -111,6 +111,7 @@ function writeRecord (poolDir) {
 
 // ---------------------------------------------------------------- the whole bot
 const procs = []
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { for (const c of procs) { try { c.kill('SIGKILL') } catch {} } try { rcon(`kick ${NAME} stopped`) } catch {} process.exit(1) })   // a stopped driver leaves no bot behind
 const BRAIN_PORT = 11560 + Object.keys(sbx.PORTS).indexOf(SERVER)
 function launchBrain (line, dir) {
   const child = spawn(process.execPath, [path.join(BOT_ROOT, 'sandbox/sandbox-brain.mjs'), String(BRAIN_PORT)], {
