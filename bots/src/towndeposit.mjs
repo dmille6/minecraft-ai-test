@@ -53,6 +53,8 @@ import { smeltRecipeFor, smeltInputsFor } from './smelting.mjs'
 import { WOOD_KEEP, LOGBANK } from './woodkeep.mjs'
 // coalfirst-01 (OWNER 10-29): the bag's coal keep and the coal split (coalrun.mjs is a leaf module)
 import { COALFIRST, COAL_KEEP, coalKeepOf } from './coalrun.mjs'
+// cobblebank-01: every whole cobble stack above the reserve per visit, and the not-full visit's tail banks cobble too
+import { COBBLEBANK, cobbleVisitCap, isBankCobble } from './cobblebank.mjs'
 export { WOOD_KEEP }
 
 /** The bag the order acts on: the bot's own slot count (bot.inventory.items().length), never an estimate. */
@@ -238,7 +240,7 @@ export function toolSlotsToBank (copies = [], allowance = Infinity) {
  *              slot emptied, so freed = steps.length.
  */
 export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false,
-                                               tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, halves = LOGBANK.on, coalSplit = COALFIRST.on } = {}) {
+                                               tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, halves = LOGBANK.on, coalSplit = COALFIRST.on, cobbleBank = COBBLEBANK.on } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const counts = countsOf(list)
   const { keep, why } = townKeeps(counts, { wanted })
@@ -251,8 +253,11 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
   // STANDING_TARGETS name oak, birch and jungle logs only, so the showcase's spruce (all ten bots: 64-73 spruce_log, no other
   // log) read `not_wanted` -- no step, no count, no order, for an hour. Wood is wood (milestones.mjs LOGS).
   // ...as bankable, NOT as wanted: a want is kept up to a stack (Paper r3, a well town: only the 9 left, 64 kept)
-  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [], bankableToo: halves ? [...LOGS] : [], noSwords })
-    .map(({ name, count }) => [name, Math.min(count, Math.max(0, CREDIT_CAP - (Math.max(0, Number(already?.[name]) || 0))))]))
+  // cobblebank-01: a cobble name is NOT held to CREDIT_CAP a visit (one stack): depositPlan already judges the reduced bag, the
+  // reserve and the town cap stack by stack (cobbleVisitCap: every whole stack above the reserve), so its count is the allowance
+  const cobbleCap = cobbleVisitCap(cobbleBank)
+  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [], bankableToo: halves ? [...LOGS] : [], noSwords, cobbleCap })
+    .map(({ name, count }) => [name, cobbleBank && isBankCobble(name) ? count : Math.min(count, Math.max(0, CREDIT_CAP - (Math.max(0, Number(already?.[name]) || 0))))]))
   const steps = [], banked = {}
   const holds = withdrawHolds()
   // THE ROWS' MODE (junkout-01): 'only' -- the not-full visit's tail order (tailOrder): the rows' steps and nothing else (no
@@ -266,8 +271,10 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
   // coalfirst-01 (OWNER 10-29 "coal ... deposited"): the not-full visit's tail banks the COAL above the keep too (whole stacks,
   // then halves), as logbank-01 r2 does the logs -- coal reached town only in a full bag, and a smelting bot's never
   const coalTail = tail === 'only' && coalSplit && (counts.coal ?? 0) > COAL_KEEP   // no churn: a handful stays for the full bag
-  const tailName = n => (logsTail && LOGS.includes(n)) || (coalTail && n === 'coal')
-  const baseNames = baseOn ? Object.keys(allowance).sort() : (logsTail || coalTail) ? Object.keys(allowance).filter(tailName).sort() : []
+  // cobblebank-01: the not-full visit's tail banks the whole cobble stacks above the reserve too (the town cap still admits each)
+  const cobbleTail = tail === 'only' && cobbleBank && !!bagAllowance   // (the tail is junkout's: BAG_ALLOWANCE=off has none)
+  const tailName = n => (logsTail && LOGS.includes(n)) || (coalTail && n === 'coal') || (cobbleTail && isBankCobble(n))
+  const baseNames = baseOn ? Object.keys(allowance).sort() : (logsTail || coalTail || cobbleTail) ? Object.keys(allowance).filter(tailName).sort() : []
   for (const name of baseNames) {
     const copies = list.filter(it => it.name === name)
     if (TOOL_RE.test(name)) {
@@ -339,7 +346,9 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
   // step order, so a short chest takes the coal, iron and cobble before a torch; within each part, by bag slot as before
   // logbank-01: a log half after every whole stack, the rows' included (it frees no slot, so a short chest takes the
   // slot-freeing stacks first); the halves of one slot keep their order (a stable sort), the second reading the slot the first left
-  const rank = st => (st.half ? 2 : st.allowance ? 1 : 0)   // halves LAST: every slot-freeing stack takes chest room first (Codex r1 P2)
+  // cobblebank-01: with every cobble stack planned, cobble goes after the rest of the base plan (a short chest takes the iron,
+  // coal and logs first) and before the rows; off: the old order exactly
+  const rank = st => (st.half ? 2 : st.allowance ? 1 : cobbleBank && isBankCobble(st.name) ? 0.5 : 0)   // halves LAST: every slot-freeing stack takes chest room first (Codex r1 P2)
   steps.sort((a, b) => rank(a) - rank(b) || a.slot - b.slot)
   return { steps, freed: steps.filter(st => !st.half).length, slots: list.length, keep, why, banked, keepPicks }
 }
@@ -554,17 +563,22 @@ export function tailOrder ({ now = 0, slots = 0, pos = null, home = null, plan =
   const logs = LOGBANK.on && !!p && Array.isArray(p.steps) && p.steps.some(x => LOGS.includes(x.name) && !x.allowance)
   // coalfirst-01: coal above the keep is a reason on its own (a half frees no slot; the town index needs no count for coal)
   const coal = COALFIRST.on && !!p && Array.isArray(p.steps) && p.steps.some(x => x.name === 'coal' && !x.allowance)
+  // cobblebank-01: whole cobble stacks above the reserve RIDE ALONG on a tail that fires for its own reasons (named on the order
+  // for the read) -- never the reason for a tail on their own: the tail goes ahead of a ready rung, and a bag that holds
+  // surplus cobble (79 of 80 bots) would displace every ready rung once a stay (toolkit / mats-chain READY RUNG WINS)
+  const cobble = COBBLEBANK.on && !!p && Array.isArray(p.steps) && p.steps.some(x => isBankCobble(x.name) && !x.allowance)
+  const freedOwn = !p || !Array.isArray(p.steps) ? 0 : cobble ? p.steps.filter(x => !x.half && !(isBankCobble(x.name) && !x.allowance)).length : p.freed
   // logbank-01 r2: logs above the keep that the town cannot judge yet (a well town, never counted: town_stock_unknown) --
   // count first, in the same run (`logCount`: cognitive.mjs's stockCountKeys over the bag's LOGS only), as the full-bag
   // order's count step does. Without it a well town's tail never banked a log.
   // independent of the rows (r2 reviews, both P2): a torch to bank must not spend the stay's latch while the logs wait uncounted
   const count = LOGBANK.on && !logs && !!lazy(logCount)
-  if (!p || !(p.freed >= 1 || logs || coal || count)) return none()
+  if (!p || !(freedOwn >= 1 || logs || coal || count)) return none()
   if (!lazy(container)) return none()
   const dh = Math.round(Math.hypot(pos.x - home.x, pos.z - home.z)), dy = Math.round(pos.y - (home.y ?? pos.y))
   s.lastIssuedAt = now
-  return { order: { skill: 'town_deposit', args: { tail: true, armed: visitArmed(s), dh, dy, vid: visitId(myName, now), ...(count || logs ? { logs: true } : {}), ...(coal ? { coal: true } : {}), ...(count ? { recount: true, count: 'allowance_only' } : {}) },
-                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) over the bag allowance (stations, torches, bone meal, spare stone pickaxes) to bank${logs ? '; logs above the personal keep' : count ? '; the town\'s logs to count, then logs above the personal keep' : ''}${coal ? '; coal above the bag\'s keep' : ''}` },
+  return { order: { skill: 'town_deposit', args: { tail: true, armed: visitArmed(s), dh, dy, vid: visitId(myName, now), ...(count || logs ? { logs: true } : {}), ...(coal ? { coal: true } : {}), ...(cobble ? { cobble: true } : {}), ...(count ? { recount: true, count: 'allowance_only' } : {}) },
+                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) over the bag allowance (stations, torches, bone meal, spare stone pickaxes) to bank${logs ? '; logs above the personal keep' : count ? '; the town\'s logs to count, then logs above the personal keep' : ''}${coal ? '; coal above the bag\'s keep' : ''}${cobble ? '; cobble stacks above the bag\'s 64' : ''}` },
            state: visitLatchIssue(s, now) }
 }
 

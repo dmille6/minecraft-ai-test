@@ -62,6 +62,9 @@ const REQUIRED = [
   'bots/src/paths.mjs',
   'bots/scripts/pathsite-offline.mjs',
   'bots/scripts/pathsbuild-offline.mjs',
+  // cobblebank-01 (11-04): every whole cobble stack above the bag's 64 banked a visit; the full-bag well below the cap on no room
+  'bots/src/cobblebank.mjs',
+  'bots/test/cobblebank.test.mjs',
   // pathsclose-01 (10-30): the overburden on a path cell dug; a cell the visit may never lay deferred, then waived
   'bots/test/pathsclose.test.mjs',
   // wall-01 (10-30): the town wall sited, built and walk-proven offline on a copy of the world, by the bots' own functions

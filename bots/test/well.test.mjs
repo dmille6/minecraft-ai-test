@@ -3375,5 +3375,150 @@ await t('THE REFUSAL CHAIN (plinth-first): build_well declines the natural site 
   })
 }
 
+// ===================================================================================================================
+// COBBLEBANK-01 (b) (OWNER 11-04; cobbleoverflow-01 10-16 "yes, junk can take the extra"): BELOW the cap, a full-bag visit
+// whose own town deposit PROVED the town's containers without room (bot.cobbleNoRoom: towndeposit.test.mjs drives the real
+// town deposit that leaves it) sends the surplus whole stacks down the well -- the same stacks as at the cap, the bag keeps
+// 64 -- re-judged at every click; never without live evidence, never under the town's 256 reserve, never after a container
+// took items since, never with COBBLEBANK=off; one `_cobblebank phase=well` row. The chain runs through the REAL loop too.
+{
+  const CFM = await import('../src/chestfull.mjs')
+  const SKM = await import('../src/skills.mjs')
+  const cbBag = () => [S('cobblestone', 64), S('cobblestone', 30), S('cobblestone', 64), S('egg', 16), ...Array.from({ length: 32 }, () => S('oak_log', 64))]
+  // a COMPLETE count in town (cobblekeep's scene: a barrel beside home, the only container); each capture later than the last
+  const CBK = `${HOME.x + 6},${HOME.y},${HOME.z - 6}`
+  let cbCapAt = Date.now()
+  const countAt = (town, n) => { town.world.set(CBK, { name: 'barrel' }); CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { t: 'obs', k: CBK, n, cap: ++cbCapAt }) }
+  const noRoomTown = (n, flag = { at: Date.now() - 1000, left: 2, town: n }, items = cbBag()) => {
+    const town = fakeTown({ wellAt: CAP, items })
+    if (n != null) countAt(town, n)
+    if (flag) town.bot.cobbleNoRoom = flag
+    return town
+  }
+  const cbOffW = async fn => { const was = process.env.COBBLEBANK; process.env.COBBLEBANK = 'off'; try { return await fn() } finally { if (was === undefined) delete process.env.COBBLEBANK; else process.env.COBBLEBANK = was } }
+  await t('COBBLEBANK (b) the well: 400 counted (below the cap, >= 256) with live no-room evidence -> the surplus whole stacks go, the bag keeps 64; one _cobblebank phase=well row; the well row says cap=no_room', async () => {
+    const town = noRoomTown(400)
+    assert.equal(SKM.cobbleWellCap(town.bot), 'below', 'positive control: the cap says below')
+    assert.equal(SKM.cobbleWellModeFor(town.bot), 'no_room')
+    const r = await run('dispose_well', town.bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(town.count('cobblestone'), 64, 'the bot keeps exactly its reserve'); assert.equal(town.count('egg'), 0)
+    const row = (await rows('_cobblebank')).pop()
+    assert.match(row?.skill?.detail ?? '', /^phase=well why=no_room stacks=2 items=94 left=64 town=400 reserve=256 age_s=\d+ slots=\d+->\d+ freed=2 names=cobblestone$/, row?.skill?.detail)
+    assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'cap'), 'no_room')
+  })
+  await t('COBBLEBANK (b) the well CONTROLS: no evidence, stale evidence, a town under 256, a took since, a withdraw hold, the cap unknown, or off -> no cobble (the egg still goes)', async () => {
+    const BKM = await import('../src/bankable.mjs')
+    const cases = [
+      ['no evidence', () => noRoomTown(400, null)],
+      ['stale', () => noRoomTown(400, { at: Date.now() - 11 * 60_000 })],
+      ['under the reserve', () => noRoomTown(200)],
+      ['uncounted', () => noRoomTown(null)],
+      ['a took since', () => { const tw = noRoomTown(400); CFM.updateTownMemory(process.env.POOL_STATE_DIR, CF_townKey(HOME), tw.bot.worldId ?? null, e => { e[CBK] = CFM.recordOutcome(null, 'took') }); return tw }],
+      // Codex r1 BLOCKER: a took overwritten later by another outcome never revives the evidence
+      ['a took since, then unavailable', () => { const tw = noRoomTown(400); CFM.updateTownMemory(process.env.POOL_STATE_DIR, CF_townKey(HOME), tw.bot.worldId ?? null, e => { e[CBK] = CFM.recordOutcome(CFM.recordOutcome(null, 'took'), 'unavailable') }); return tw }],
+      ['another town\'s evidence', () => noRoomTown(400, { at: Date.now() - 1000, home: 'elsewhere' })],
+    ]
+    for (const [why, mk] of cases) {
+      const town = mk()
+      const r = await run('dispose_well', town.bot)
+      assert.equal(r.status, 'success', `${why}: ${r.detail}`)
+      assert.equal(town.count('cobblestone'), 158, `${why}: all cobble stays`); assert.equal(town.count('egg'), 0, `${why}: positive control`)
+      CFM.updateTownMemory(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, e => { delete e[CBK] })
+    }
+    try {
+      BKM.setWithdrawHold('cobblestone', 30, Date.now() + 60_000)
+      const town = noRoomTown(400)
+      assert.equal(SKM.cobbleWellModeFor(town.bot), 'held')
+      await run('dispose_well', town.bot)
+      assert.equal(town.count('cobblestone'), 158, 'held: a project\'s draw is never thrown')
+    } finally { BKM.clearWithdrawHolds() }
+    const town = noRoomTown(400)
+    await cbOffW(() => run('dispose_well', town.bot))
+    assert.equal(town.count('cobblestone'), 158, 'off: all cobble stays')
+    // Codex r1 BLOCKER: a PRUNE visit (chest stock just taken out: room) never takes the no-room lane
+    const pr = noRoomTown(400)
+    const rp = await within(SKILLS.dispose_well.run({ bot: pr.bot }, { pruned: { egg: 0 } }, { aborted: false }), 15000, 'prune')
+    assert.equal(pr.count('cobblestone'), 158, `prune visit: all cobble stays (${rp.status}: ${rp.detail})`)
+  })
+  await t('COBBLEBANK (b) the well, AT THE CLICK: the town falls under its reserve after the first stack -> the second stays', async () => {
+    const town = noRoomTown(400)
+    let looks = 0
+    town.state.onLook = () => { if (++looks === 2) countAt(town, 100) }
+    await run('dispose_well', town.bot)
+    assert.ok(looks >= 2, `positive control: two throws looked at (${looks})`)
+    assert.equal(town.count('cobblestone'), 94, 'the first planned stack (the 64 in slot 9) went; the 30 stayed once the town read 100')
+    await withMutant(SP, "        const noRoomClick = !!acc.noRoom && acc.capLast === 'below' && cobbleWellModeFor(bot, bot.inventory?.items?.() ?? [], { cap: acc.capLast }) === 'no_room'\n",
+      "        const noRoomClick = !!acc.noRoom && acc.capLast === 'below'\n", async m => {
+        const tw = noRoomTown(400)
+        let lk = 0
+        tw.state.onLook = () => { if (++lk === 2) countAt(tw, 100) }
+        await within(m.SKILLS.dispose_well.run({ bot: tw.bot }, {}, { aborted: false }), 15000, 'scene')
+        assert.equal(tw.count('cobblestone'), 64, 'mutant inert')
+      })
+  })
+  await t('COBBLEBANK (b) MUTANTS (skills.mjs): the phase never switched to no_room, or the click gate not opened -> nothing thrown (killed)', async () => {
+    for (const [old, neu] of [
+      ["      if (!pit && !listedOnly && !pruned && out.cap === 'below') { out.cap = cobbleWellModeFor(bot, bot.inventory?.items?.() ?? [], { cap: out.cap }); out.acc.noRoom = out.cap === 'no_room' }\n", ''],
+      ["        if (noRoomClick) acc.capLast = 'at_cap'\n", ''],
+    ]) {
+      await withMutant(SP, old, neu, async m => {
+        const tw = noRoomTown(400)
+        await within(m.SKILLS.dispose_well.run({ bot: tw.bot }, {}, { aborted: false }), 15000, 'scene')
+        assert.equal(tw.count('cobblestone'), 158, `mutant inert: ${old.slice(0, 60)}`)
+      })
+    }
+  })
+  await t('COBBLEBANK (b) the well: a bag whose ONLY well-able stacks are the no-room cobble still reaches the throw (the entry gate)', async () => {
+    const town = noRoomTown(400, { at: Date.now() - 1000 }, [S('cobblestone', 64), S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 33 }, () => S('oak_log', 64))])
+    const r = await run('dispose_well', town.bot)
+    assert.equal(r.status, 'success', r.detail); assert.equal(town.count('cobblestone'), 64)
+    await withMutant(SP, "  if (!entryPlan.stacks.length && !noRoomEntry && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)\n",
+      "  if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)\n", async m => {
+        const tw = noRoomTown(400, { at: Date.now() - 1000 }, [S('cobblestone', 64), S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 33 }, () => S('oak_log', 64))])
+        await within(m.SKILLS.dispose_well.run({ bot: tw.bot }, {}, { aborted: false }), 15000, 'scene')
+        assert.equal(tw.count('cobblestone'), 158, 'mutant inert')
+      })
+  })
+  // THE CHAIN THROUGH THE REAL LOOP: a full bag at town whose only well-able surplus is the no-room cobble gets dispose_well
+  // (cognitive.mjs's well order reads cobbleWellModeFor); without the evidence it gets none
+  const { Lessons } = await import('../src/lessons.mjs')
+  const { CognitiveLoop } = await import('../src/cognitive.mjs')
+  const ldir = mkdtempSync(path.join(tmpdir(), 'mcai-cobblebank-'))
+  let lseq = 0
+  async function firstOrders (town, n = 2, Loop = CognitiveLoop) {
+    Object.assign(town.bot, { oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' }, experience: { level: 0 }, isInWater: false })
+    const fb = town.bot.findBlocks
+    town.bot.findBlocks = o => (typeof o?.matching === 'function' ? fb(o) : [])
+    const ran = []
+    const runner = { isBusy: () => false, run: async (skill) => { ran.push(skill); return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] } } }
+    const L = new Lessons(path.join(ldir, `l${lseq++}.json`)); L.data.avoid = {}; L.data.worked = {}
+    const loop = new Loop(town.bot, runner, L, null)
+    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+    loop.milestones.cycle = 540
+    const pace = config.llm.decisionCooldownMs
+    config.llm.decisionCooldownMs = 50
+    try {
+      loop.start()
+      for (const t0 = Date.now(); Date.now() - t0 < 9000 && ran.length < n; ) await new Promise(r => setTimeout(r, 30))
+      loop.stop()
+    } finally { config.llm.decisionCooldownMs = pace }
+    return ran
+  }
+  const STAND = new Vec3(HOME.x + 0.5, CAP.y + 1, HOME.z + 0.5)
+  const cobbleOnly = () => [S('cobblestone', 30), ...Array.from({ length: 35 }, () => S('cobblestone', 64))]
+  await t('COBBLEBANK (b) CHAIN (real loop): a full bag at town, live no-room evidence, 400 counted -> dispose_well; CONTROL: no evidence -> no well order', async () => {
+    const town = fakeTown({ wellAt: CAP, items: cobbleOnly(), botAt: STAND })
+    countAt(town, 400); town.bot.cobbleNoRoom = { at: Date.now() - 1000 }
+    // (the town deposit and the withdraw order come first in a fake town whose runner says success to everything)
+    const ran = await firstOrders(town, 4)
+    assert.ok(ran.includes('dispose_well'), JSON.stringify(ran))
+    const t2 = fakeTown({ wellAt: CAP, items: cobbleOnly(), botAt: STAND })
+    countAt(t2, 400)
+    const ran2 = await firstOrders(t2, 4)
+    assert.ok(ran2.length >= 1 && !ran2.includes('dispose_well'), `positive control (the loop decided): ${JSON.stringify(ran2)}`)
+  })
+}
+
 console.log(`\n${pass} passed, ${fail} failed${failed.length ? `\n  ${failed.join('\n  ')}` : ''}`)
 process.exit(fail ? 1 : 0)

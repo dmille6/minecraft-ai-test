@@ -241,7 +241,9 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
   assert.equal(picks.length, 1, 'one spare usable pickaxe banks')
   const moved = items.find(i => i.slot === picks[0].slot)
   assert.equal(131 - moved.durabilityUsed, 60, 'the 60-use copy moves; the 120-use one and the spent one stay')
-  assert.deepEqual(p.steps.filter(s => s.name === 'cobblestone').map(s => s.count), [20], 'creditCap 64: the 20 stack, never a partial')
+  // cobblebank-01: every whole stack above the bag's 64 (148 held: the 20 and one 64; the other 64 stays); off: the old one a name
+  assert.deepEqual(p.steps.filter(s => s.name === 'cobblestone').map(s => s.count).sort((a, b) => a - b), [20, 64], 'every whole stack above the 64 reserve, never a partial')
+  assert.deepEqual(townDepositPlan(items, { tail: false, cobbleBank: false }).steps.filter(s => s.name === 'cobblestone').map(s => s.count), [20], 'COBBLEBANK off: creditCap 64, the 20 stack')
   assert.deepEqual(p.steps.filter(s => s.name === 'oak_log').map(s => s.count), [10, 32, 16], '138 logs, keep 16 units, creditCap 64: the 10 stack whole, then one 64 halved twice (logbank-01) -- 58 under the cap')
   assert.ok(p.steps.filter(s => !s.half).every(s => items.find(i => i.slot === s.slot).count === s.count), 'every non-half step is a whole stack')
   assert.ok(p.steps.filter(s => s.half).every(s => LOGS.includes(s.name) || s.name === 'coal'), 'only logs and coal halve (coalfirst-01)')
@@ -250,7 +252,8 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
   assert.deepEqual(p.steps.filter(s => s.name === 'raw_iron'), [], 'two iron crafts to go: none of the raw iron banks')
   // coalfirst-01 (OWNER 10-29): the coal smelts them, but only 8 of it stays -- the 20 stack is halved once (10 banked, 10 kept)
   assert.deepEqual(p.steps.filter(s => s.name === 'coal').map(s => [s.count, s.from, !!s.half]), [[10, 20, true]], 'coal above the keep of 8 is split off')
-  assert.equal(p.freed, 3, 'pickaxe + cobble 20 + logs 10')
+  assert.equal(p.freed, 4, 'pickaxe + cobble 20 + cobble 64 + logs 10 (cobblebank-01; 3 with it off)')
+  assert.equal(townDepositPlan(items, { tail: false, cobbleBank: false }).freed, 3)
 })
 
 test('a bag holding only what the keeps protect plans nothing', () => {
@@ -554,8 +557,8 @@ test('SKILL: a full bag at town banks its surplus whole, keeps the stockpile, th
   const { out: r, rows } = await rowsOf(() => run(bot))
   assert.equal(r.status, 'success', r.detail)
   for (const now of [bot.inventory.items(), serverBag(w)]) {
-    assert.equal(now.length, 32)
-    assert.equal(sumOf(now, 'cobblestone'), 128); assert.equal(sumOf(now, 'oak_log'), 16)
+    assert.equal(now.length, 31)   // cobblebank-01: the 20 and a 64 of cobble both go (was 32: the 20 only)
+    assert.equal(sumOf(now, 'cobblestone'), 64); assert.equal(sumOf(now, 'oak_log'), 16)
     assert.equal(sumOf(now, 'raw_iron'), 5); assert.equal(sumOf(now, 'apple'), 45); assert.equal(sumOf(now, 'dirt'), 30)
     const picks = now.filter(i => i.name === 'stone_pickaxe').map(i => 131 - i.durabilityUsed).sort((a, b) => a - b)
     assert.deepEqual(picks, [1, 120], 'the spent copy and the best copy stay; the 60-use copy is banked')
@@ -563,10 +566,10 @@ test('SKILL: a full bag at town banks its surplus whole, keeps the stockpile, th
   assert.equal(sumOf(c.items, 'stone_pickaxe'), 1); assert.equal(sumOf(c.items, 'raw_copper'), 7)
   assert.equal(total(serverBag(w)) + total(c.items), total(items), 'nothing lost')
   assert.equal(st.dropped, 0); assert.equal(st.loadedCloses, 0)
-  assert.equal(st.clicks, 8, 'two left clicks per stack')
+  assert.equal(st.clicks, 10, 'two left clicks per stack')
   assert.deepEqual(st.opened, ['2,70,0', '2,70,0'], 'opened, then opened again to read the server\'s copy')
   assert.equal(rows.length, 1)
-  assert.match(rows[0].skill.detail, /^slots 36->32 stacks 4\/4 clicked 4 bagdelta 38 tools stone_pickaxe@60 logs banked 10 kept 16 keep 16 banked .*stone_pickaxe:1/)
+  assert.match(rows[0].skill.detail, /^slots 36->31 stacks 5\/5 clicked 5 bagdelta 102 tools stone_pickaxe@60 logs banked 10 kept 16 keep 16 banked .*stone_pickaxe:1/)
 })
 
 // ---- TOOLKIT-03 x COBBLEKEEP-01: what the town deposit banks, the smelt job's coal search finds ----------------------------
@@ -809,7 +812,7 @@ test('SKILL: a move the SERVER refuses is not credited: the re-open decides, nev
   assert.equal(sumOf(serverBag(w), 'raw_copper'), 7, 'refused: still in the server\'s bag')
   assert.equal(sumOf(c.items, 'raw_copper'), 0)
   assert.ok(!/raw_copper/.test(rows[0].skill.detail.split(' stop ')[0]), 'and not credited')
-  assert.match(rows[0].skill.detail, /stacks 3\/4 clicked 4 /, 'the client clicked 4; the server shows 3')
+  assert.match(rows[0].skill.detail, /stacks 4\/5 clicked 5 /, 'the client clicked 5; the server shows 4 (cobblebank-01: two cobble stacks)')
   const all = world({ items: bag([['raw_copper', 7], ...filler(35)]), containers: [chestAt(2)], refuse: () => true })
   const r2 = await run(all.bot)
   assert.equal(r2.status, 'failed', 'every move refused: no success')
@@ -1079,7 +1082,7 @@ test('COBBLE RULE: the town deposit banks only whole cobble stacks above the 64 
   const cobbleSteps = bag => TD.townDepositPlan([...bag, ...fill]).steps.filter(s => /^cobble/.test(s.name)).map(s => `${s.name}:${s.count}`)
   assert.deepEqual(cobbleSteps([it('cobblestone', 64, 9), it('cobblestone', 30, 10)]), ['cobblestone:30'])
   assert.deepEqual(cobbleSteps([it('cobblestone', 64, 9)]), [], 'exactly the reserve: nothing')
-  assert.deepEqual(cobbleSteps([it('cobblestone', 64, 9), it('cobblestone', 64, 10), it('cobblestone', 20, 11)]), ['cobblestone:20'])
+  assert.deepEqual(cobbleSteps([it('cobblestone', 64, 9), it('cobblestone', 64, 10), it('cobblestone', 20, 11)]).sort(), ['cobblestone:20', 'cobblestone:64'], 'cobblebank-01: every whole stack above the 64')
   assert.deepEqual(cobbleSteps([it('cobblestone', 30, 9), it('cobblestone', 40, 11)]), [], '70 held: no whole stack leaves 64')
   for (const bag of [[it('cobblestone', 64, 9), it('cobblestone', 30, 10)], [it('cobblestone', 64, 9), it('cobbled_deepslate', 64, 10), it('cobblestone', 5, 11)]]) {
     const all = [...bag, ...fill]
@@ -1107,7 +1110,8 @@ test('COBBLE CAP: at 250 the town deposit banks no cobble (the rest of the plan 
     const w2 = world({ items: fullBag(), containers: [c2] })
     const r2 = await run(w2.bot)
     assert.equal(r2.status, 'success', r2.detail)
-    assert.equal(sumOf(c2.items, 'cobblestone'), 120 + O, 'counted and complete: (100 + O) + 20 <= CAP')
+    assert.equal(sumOf(c2.items, 'cobblestone'), 184 + O, 'counted and complete: (100 + O) + 20 + 64 <= CAP (cobblebank-01: every whole stack above the bag\'s 64)')
+    assert.equal(sumOf(serverBag(w2), 'cobblestone'), 64, 'the bag keeps its 64')
   } finally { process.env.POOL_STATE_DIR = saved }
 })
 
@@ -1294,7 +1298,10 @@ test('COBBLEKEEP CHAIN CONTROL: town counted complete at CAP-64 -> the real town
     assert.equal(SK.cobbleWellCap(bot), 'below', 'room for the 30: the bank, not the well')
     const r = await run(bot)
     assert.equal(r.status, 'success', r.detail)
-    assert.equal(bot.inventory.items().length, 35, 'one slot freed by banking')
+    // the scene's chest is really EMPTY (the seed count is 2 h old): the open counts it 0, so the run banks up to the cap --
+    // cobblebank-01: every whole stack it admits (30 + 15 x 64 = 990 <= CAP), not one a name
+    assert.equal(bot.inventory.items().length, 20, 'sixteen slots freed by banking')
+    assert.ok(SK.cobbleTownViewFor(bot).lb <= CAP, 'never past the cap')
   } finally { done() }
 })
 test('COBBLEKEEP CHAIN, MUTANT KILLED: stonecap\'s floor-only well switch leaves the dead end (the bank refuses, the well says below)', async () => {
@@ -1512,8 +1519,8 @@ test('PLINTH x COBBLECAP-1000 CHAIN (623e92b9): a funded no-site town counted at
   const dep = ran.find(r => r.skill === 'town_deposit')
   assert.ok(dep, `the deposit is not starved: ${JSON.stringify(ran)}`)
   assert.equal(dep.status, 'success', dep.detail)
-  assert.equal(chestCobble, 830, 'the town banks the smallest whole stack under its 1000 cap')
-  assert.equal(bagCobble, 128, 'the bag keeps 128 (>= its 64 reserve)')
+  assert.equal(chestCobble, 894, 'the town banks every whole stack above the bag\'s 64 under its 1000 cap (cobblebank-01: 30 + 64)')
+  assert.equal(bagCobble, 64, 'the bag keeps its 64 reserve')
   assert.equal(ran.filter(r => r.skill === 'build_plinth').length, 1, `the plinth waits out its cooldown: ${JSON.stringify(ran)}`)
 })
 test('PLINTH x COBBLECAP-1000 CHAIN, CONTROL: the same town at exactly 1000 -> build_plinth first; nothing banked (the scene sees the cap)', async () => {
@@ -1585,14 +1592,16 @@ test('junkout-01 TAIL CHAIN (real loop): a not-full bag at town -> town_deposit 
   // the bank row the read's J1/J2 parse: complete, mode=tail, the start count : the server-verified banked, the order's dh/dy
   const bank = jrows.filter(d => /^phase=bank /.test(d))
   assert.equal(bank.length, 1, jrows.join(' | '))
-  assert.match(bank[0], /^phase=bank v=TownBot\.\w+ mode=tail armed=first dh=3 dy=0 peaceful=\d stacks=2 banked=41 slots=17->15 keep_picks=0 rows=bone_meal:1,torch:1 part=1\/1 allow=bone_meal=30:30 allow=torch=11:11$/)
+  // cobblebank-01: the tail banks the cobble above the bag's 64 too (the bag held 84: the 20 goes), named `other=` on the row
+  assert.match(bank[0], /^phase=bank v=TownBot\.\w+ mode=tail armed=first dh=3 dy=0 peaceful=\d stacks=2 banked=41 slots=17->14 keep_picks=0 rows=bone_meal:1,torch:1 part=1\/1 allow=bone_meal=30:30 allow=torch=11:11 other=cobblestone:20$/)
   const td = ran.filter(x => x.skill === 'town_deposit')
   assert.equal(td.length, 1, `one tail run in the stay: ${JSON.stringify(ran.map(x => x.skill))}`)
   assert.equal(ran[0].skill, 'town_deposit', 'ahead of the craft-ready rung (bounded: once per stay)')
   assert.ok(td[0].slots < 34 && td[0].slots === slots0, `a not-full bag: ${td[0].slots}`)
   assert.equal(td[0].status, 'success', td[0].detail)
   assert.equal(sumOf(chest.items, 'torch'), 11); assert.equal(sumOf(chest.items, 'bone_meal'), 30)
-  for (const n of ['egg', 'flint', 'oak_sapling', 'cobblestone', 'chest', 'crafting_table', 'wooden_pickaxe', 'stick', 'dirt', 'oak_log', 'raw_copper', 'furnace']) assert.equal(sumOf(chest.items, n), 0, `${n} never banked by the tail`)
+  for (const n of ['egg', 'flint', 'oak_sapling', 'chest', 'crafting_table', 'wooden_pickaxe', 'stick', 'dirt', 'oak_log', 'raw_copper', 'furnace']) assert.equal(sumOf(chest.items, n), 0, `${n} never banked by the tail`)
+  assert.equal(sumOf(chest.items, 'cobblestone'), 20, 'cobblebank-01: the whole cobble stack above the bag\'s 64'); assert.equal(sumOf(bot.inventory.items(), 'cobblestone'), 64)
   assert.equal(sumOf(bot.inventory.items(), 'chest'), 8, 'one stack of chests is one station slot: it stays')
   assert.ok(ran.slice(1).some(x => x.skill === 'craft'), `the rung gets its turns after: ${JSON.stringify(ran.map(x => x.skill))}`)
   assert.equal(loop.tailState.latched, true); assert.equal(loop.townDepositState?.lastIssuedAt, undefined, 'the full-bag deposit was never issued')
@@ -1924,8 +1933,9 @@ test('LOGBANK SKILL: a right click that lifts the wrong count stops the run and 
 test('LOGBANK r2: the NOT-FULL visit (tail) banks logs above the keep at any bag size -- 64+9 in a half-empty bag -> 16; nothing else of the base plan joins', () => {
   const items = bag([['oak_log', 64], ['oak_log', 9], ['cobblestone', 64], ['cobblestone', 20], ['stone_pickaxe', 1, 100], ['stone_pickaxe', 1, 60], ...filler(10)])
   assert.ok(items.length < TD_TRIGGER_SLOTS)
-  const p = townDepositPlan(items, { tail: 'only' })
+  const p = townDepositPlan(items, { tail: 'only', cobbleBank: false })   // (cobblebank-01's tail cobble: cobblebank.test.mjs)
   assert.ok(p.steps.every(s => s.name === 'oak_log'), `only logs from the base side: ${JSON.stringify(p.steps)}`)
+  assert.deepEqual(townDepositPlan(items, { tail: 'only' }).steps.filter(s => s.name !== 'oak_log').map(s => `${s.name}:${s.count}`), ['cobblestone:20'], 'cobblebank-01: and the cobble above the bag\'s 64, nothing else')
   assert.equal(logsIn(after(items, p)), 16)
   // the order fires on the logs alone (freed 1 from the 9; a halves-only plan too)
   const P = { x: 3, y: 70, z: 0 }, HOME = { x: 0, y: 70, z: 0 }
@@ -1992,4 +2002,121 @@ test('LOGBANK r3 (Paper r3): in a WELL town (the stock cap binds) spruce banks d
     const wanted = B.depositPlan(items, null, { wants: ['spruce_log'] }).find(e => e.name === 'spruce_log')?.count
     assert.equal(wanted, 9, 'the mutant shape: a want is kept to 64')
   } finally { B.setStockReaders({}) }
+})
+
+// ---- COBBLEBANK-01 (OWNER 11-04): the visit banks every whole cobble stack above the bag's 64; a town proven without room
+// leaves the evidence the full-bag well reads (bot.cobbleNoRoom; well.test.mjs drives the real well on that evidence) -------
+const cbRows = async fn => {
+  const rows = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_cobblebank') rows.push(r.skill) })
+  try { return { out: await fn(), rows } } finally { untap() }
+}
+const cobbleChestOf = (x, cobble, z = 0) => chestAt(x, 70, z, { items: Array.from({ length: 27 }, (_, i) => (i * 64 < cobble ? item('cobblestone', Math.min(64, cobble - i * 64)) : item('dirt', 64))) })
+const cbOff = async fn => { const was = process.env.COBBLEBANK; process.env.COBBLEBANK = 'off'; try { return await fn() } finally { if (was === undefined) delete process.env.COBBLEBANK; else process.env.COBBLEBANK = was } }
+test('COBBLEBANK SKILL: a full bag below the cap banks EVERY whole cobble stack above its 64 in one visit; one _cobblebank row (planned_old=1, freed); off: one stack', async () => {
+  for (const on of [true, false]) {
+    const restore = freshTown()
+    try {
+      const c = chestAt(2)
+      const w = world({ items: fullBag(), containers: [c] })
+      const { out, rows } = on ? await cbRows(() => run(w.bot)) : await cbOff(() => cbRows(() => run(w.bot)))
+      assert.equal(out.status, 'success', out.detail)
+      assert.equal(sumOf(serverBag(w), 'cobblestone'), on ? 64 : 128, `on=${on}: the bag keeps its 64 (off: one stack a name)`)
+      assert.equal(sumOf(c.items, 'cobblestone'), on ? 84 : 20)
+      if (on) {
+        assert.equal(rows.length, 1, JSON.stringify(rows))
+        assert.match(rows[0].detail, /^phase=bank mode=full cobble_before=148 cobble_after=64 planned=2 planned_old=1 banked_stacks=2 banked=84 slots=36->31 freed=5 noroom=0 why=nothing_left /)
+        assert.equal(w.bot.cobbleNoRoom, null, 'everything banked: there was room, no evidence')
+      } else assert.equal(rows.length, 0, 'off: no row')
+    } finally { restore() }
+  }
+})
+test('COBBLEBANK SKILL (b): the ONLY town container is full, counted 320 (>= the 256 reserve, < the cap) -> town_storage_full AND the no-room evidence; the row says noroom=1', async () => {
+  const restore = freshTown()
+  try {
+    const w = world({ items: fullBag(), containers: [cobbleChestOf(2, 320)] })
+    const { out, rows } = await cbRows(() => run(w.bot))
+    assert.equal(out.status, 'failed'); assert.equal(out.failClass, 'town_storage_full', out.detail)
+    assert.equal(sumOf(serverBag(w), 'cobblestone'), 148, 'nothing moved')
+    assert.ok(w.bot.cobbleNoRoom && Number.isFinite(w.bot.cobbleNoRoom.at), `the evidence: ${JSON.stringify(w.bot.cobbleNoRoom)}`)
+    assert.equal(w.bot.cobbleNoRoom.left, 2); assert.equal(w.bot.cobbleNoRoom.town, 320)
+    assert.equal(rows.length, 1)
+    assert.match(rows[0].detail, /banked_stacks=0 banked=0 .* noroom=1 why=no_room unseen=0$/)
+    assert.equal(rows[0].status, 'no_room')
+  } finally { restore() }
+})
+test('COBBLEBANK SKILL (b) CONTROLS: a town container out of reach WITH room, a town under its 256 reserve, or COBBLEBANK=off -> no evidence', async () => {
+  {   // a second town container the run cannot reach (17 from the bot, 14 from home: in town, outside STORAGE_REACH), with room
+    const restore = freshTown()
+    try {
+      const w = world({ items: fullBag(), containers: [cobbleChestOf(2, 320), chestAt(-14)] })
+      const { out, rows } = await cbRows(() => run(w.bot))
+      assert.equal(out.failClass, 'town_storage_full', 'positive control: the reachable chest is full')
+      assert.equal(w.bot.cobbleNoRoom, null)
+      assert.match(rows[0]?.detail ?? '', /noroom=0 why=town_has_room unseen=1$/)
+    } finally { restore() }
+  }
+  {
+    const restore = freshTown()
+    try {
+      const w = world({ items: fullBag(), containers: [cobbleChestOf(2, 192)] })
+      const { rows } = await cbRows(() => run(w.bot))
+      assert.equal(w.bot.cobbleNoRoom, null, 'the town\'s working stock waits for room')
+      assert.match(rows[0]?.detail ?? '', /why=below_reserve/)
+    } finally { restore() }
+  }
+  {
+    const restore = freshTown()
+    try {
+      const w = world({ items: fullBag(), containers: [cobbleChestOf(2, 320)] })
+      const { out, rows } = await cbOff(() => cbRows(() => run(w.bot)))
+      assert.equal(out.failClass, 'town_storage_full')
+      assert.equal(w.bot.cobbleNoRoom, undefined, 'off: nothing written'); assert.equal(rows.length, 0)
+    } finally { restore() }
+  }
+})
+test('COBBLEBANK SKILL (b): a later run that banks cobble CLEARS the evidence (room again)', async () => {
+  const restore = freshTown()
+  try {
+    const c = cobbleChestOf(2, 320)
+    const w = world({ items: fullBag(), containers: [c] })
+    await run(w.bot)
+    assert.ok(w.bot.cobbleNoRoom, 'positive control: the evidence')
+    for (let i = 5; i < 10; i++) c.items[i] = null   // another bot took dirt out: room again -- and another bot's deposit there since
+    const CF = await import('../src/chestfull.mjs')   // (the town remembers it `took`: the remembered `full` no longer skips it)
+    CF.updateTownMemory(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), w.bot.worldId ?? null, e => { e['2,70,0'] = CF.recordOutcome(e['2,70,0'], 'took') })
+    const r = await run(w.bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(w.bot.cobbleNoRoom, null)
+  } finally { restore() }
+})
+test('COBBLEBANK (skills.mjs cobbleNoRoomVerdict): a run\'s container is without room only full/took_some with NO empty slot left; MUTANT: took_some not counted -> town_has_room (killed)', async () => {
+  const SP = new URL('../src/skills.mjs', import.meta.url)
+  const src = fs.readFileSync(SP, 'utf8')
+  const old = "    const full = new Set((Array.isArray(tried) ? tried : []).filter(t => (t?.result === 'full' || t?.result === 'took_some') && t?.emptyLeft === 0).map(t => keyOf(t.at)))\n"
+  assert.equal(src.split(old).length, 2, 'ANCHOR MISSING or not unique')
+  const out = new URL(`./_mutant-cb-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, "    const full = new Set((Array.isArray(tried) ? tried : []).filter(t => t?.result === 'full' && t?.emptyLeft === 0).map(t => keyOf(t.at)))\n").replace(/from '\.\//g, "from '../src/"))
+  const restore = freshTown()
+  try {
+    const CC = await import('../src/cobblecap.mjs')
+    const SK = await import('../src/skills.mjs')
+    const CF = await import('../src/chestfull.mjs')
+    const w = world({ items: fullBag(), containers: [cobbleChestOf(2, 320)] })
+    // the town counted 320 (complete: its one container), and NO memory of it -- only this run's own `took_some` says it is full
+    CC.appendJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), w.bot.worldId ?? null, { t: 'obs', k: '2,70,0', n: 320, cap: Date.now() })
+    const tried = [{ at: '2,70,0', result: 'took_some', emptyLeft: 0 }]
+    const real = SK.cobbleNoRoomVerdict(w.bot, { left: 1, capRefused: { at_cap: 0, unknown: 0, outside: 0 }, tried })
+    assert.equal(real.ok, true, `positive control: ${JSON.stringify(real)}`)
+    // Claude r1 BLOCKER: a `full` / `took_some` container with an EMPTY SLOT LEFT (a cut deadline, a skipped step) is no proof
+    for (const result of ['full', 'took_some']) {
+      for (const emptyLeft of [3, null, undefined]) {
+        const v0 = SK.cobbleNoRoomVerdict(w.bot, { left: 1, capRefused: { at_cap: 0, unknown: 0, outside: 0 }, tried: [{ at: '2,70,0', result, emptyLeft }] })
+        assert.equal(v0.why, 'town_has_room', `${result} with emptyLeft=${emptyLeft}: ${JSON.stringify(v0)}`)
+      }
+    }
+    const M = await import(out.href)
+    const v = M.cobbleNoRoomVerdict(w.bot, { left: 1, capRefused: { at_cap: 0, unknown: 0, outside: 0 }, tried })
+    assert.equal(v.why, 'town_has_room', `mutant inert: ${JSON.stringify(v)}`)
+  } finally { restore(); try { fs.unlinkSync(out) } catch {} }
 })

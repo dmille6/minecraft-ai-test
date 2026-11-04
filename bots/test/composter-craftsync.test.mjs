@@ -168,7 +168,7 @@ await t('COMPOSED CHAIN (the skill called directly -- production reaches this re
     await server.sync()
     assert.equal(server.count('oak_log'), 3, 'the advised deposit took the wood the build needs')
   }
-  assert.equal(rounds, 2, 'one stack per deposit visit: 0 free -> 2 free')
+  assert.equal(rounds, 1, 'cobblebank-01: every whole cobble stack above the 64 in one deposit visit: 0 free -> 2 free at once (was 2 rounds)')
   const out = await build(bot, server)
   assert.equal(out.status, 'success', out.detail); assert.ok(composterAt(placed, site)); assert.deepEqual(server.dropped, [])
 })

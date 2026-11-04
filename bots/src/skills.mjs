@@ -145,6 +145,8 @@ import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PL
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
+// cobblebank-01: every whole cobble stack above the reserve per visit; the full-bag well below the cap when the town has no room
+import { COBBLEBANK, cobbleVisitCap, isBankCobble, noRoomVerdict, noRoomLive, wellCobbleMode, wellTakesCobble, bankRowDetail, wellRowDetail, memoryChangeAt } from './cobblebank.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
 import { scaffoldCount } from './exit-contract.mjs'
@@ -1639,6 +1641,27 @@ export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? [], { f
     // this smallest stack on counted stock (no incoming reservation); cobble a withdraw holds is never thrown
     const h = withdrawHolds()
     return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })
+  } catch { return 'unknown' }
+}
+
+/**
+ * COBBLEBANK-01 (b): THE FULL-BAG WELL'S COBBLE MODE -> 'at_cap' | 'no_room' | cobbleWellCap's own answer (cobblebank.mjs
+ * wellCobbleMode). 'no_room' only below the cap (a complete count, no withdraw hold) with this bot's no-room evidence from its
+ * own town deposit still live (noRoomLive: younger than NOROOM_TTL_MS and no town container has taken items since) and the
+ * town still at or above its working-stock reserve now. `cap` may be passed when the caller has just read it. Never throws.
+ */
+export function cobbleWellModeFor (bot, items = bot?.inventory?.items?.() ?? [], { cap = undefined } = {}) {
+  try {
+    const c = cap === undefined ? cobbleWellCap(bot, items) : cap
+    if (c !== 'below' || !COBBLEBANK.on || !bot?.cobbleNoRoom) return c
+    if (bot.cobbleNoRoom.home != null && bot.cobbleNoRoom.home !== homeTownKey()) return c   // another town's evidence
+    // ANY newer outcome but `full` in the town's memory ends the evidence (Codex r1 BLOCKER: a `took` overwritten later by
+    // another outcome must not revive it -- cobblebank.mjs memoryChangeAt); unreadable memory: not trusted
+    let roomAt = Infinity
+    try { roomAt = memoryChangeAt(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null)) } catch { roomAt = Infinity }
+    const live = noRoomLive(bot.cobbleNoRoom, Date.now(), roomAt)
+    const v = live ? cobbleTownViewFor(bot) : null
+    return wellCobbleMode({ cap: c, live, town: v?.complete ? v.lb : null })
   } catch { return 'unknown' }
 }
 
@@ -3618,7 +3641,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
       // click path). A stack the container cannot take WHOLE is not started (a partial would free no slot): it is eligible
       // -- a full container -- and stays. The rows are written after the close, from the server's bag (cobbleRows).
       if (isCobble(name)) {
-        const chosen = cobbleBankStacks(chest.items?.() ?? []).filter(s => s.name === name)
+        const chosen = cobbleBankStacks(chest.items?.() ?? [], { creditCap: cobbleVisitCap() }).filter(s => s.name === name)   // cobblebank-01: the plan's own cap
         const row = { name, planned: count, tried: [], went: 0, noRoom: 0, atCap: 0, unknown: 0, outside: 0, unknownKey: null, townBefore: null, townAfter: null, complete: null }
         cobbleRows.push(row)
         let budget = count
@@ -8406,7 +8429,11 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   }
   // the claims are released by the CALLER, after the cursor is settled (Codex code r1 P1: a pending click or the cursor's
   // rescue may still move items) -- with the window's count, or a dirty mark when the window is held
-  return { done, full, noRoom, err, capRefused, stock, reserved }
+  // cobblebank-01 (Claude r1 BLOCKER): the container slots still EMPTY when the clicks ended (a cut deadline or a skipped step
+  // leaves room `full` alone does not rule out); only 0 is a no-room proof
+  let emptyLeft = null
+  try { emptyLeft = win.slots.slice(0, win.inventoryStart).filter(x => !x).length } catch { emptyLeft = null }
+  return { done, full, noRoom, err, capRefused, stock, reserved, emptyLeft }
 }
 
 /**
@@ -8427,6 +8454,28 @@ async function verifyTown (bot, block, done, ms) {
     for (const it of windowBag(bot, win)) bag[it.name] = (bag[it.name] ?? 0) + (it.count ?? 0)
     return { ok: true, bag, ix, verified: done.filter(({ step, dest }) => { const d = win.slots[dest]; return !!d && d.name === step.name && d.count === step.count }) }
   } finally { try { win.close() } catch { /* already closed */ } }
+}
+
+/**
+ * COBBLEBANK-01 (b): THE TOWN-WIDE NO-ROOM VERDICT AT THE END OF A TOWN DEPOSIT RUN (cobblebank.mjs noRoomVerdict) ->
+ * { ok, why, unseen, town }. The keys are the cap's own FRESH scan of the town's containers; a key is without room when this
+ * run's container there ended `full` or `took_some`, or the town's memory says `full` for it or its other half. Never throws.
+ */
+export function cobbleNoRoomVerdict (bot, { left = 0, capRefused = null, tried = [] } = {}) {
+  try {
+    const sc = townCobbleScan(bot, Date.now(), { fresh: true })
+    const keyOf = at => { const [x, y, z] = String(at).split(',').map(Number); return containerKey(bot, new Vec3(x, y, z)) }
+    // this run's container is without room only when it ended full/took_some AND no empty slot was left (Claude r1 BLOCKER)
+    const full = new Set((Array.isArray(tried) ? tried : []).filter(t => (t?.result === 'full' || t?.result === 'took_some') && t?.emptyLeft === 0).map(t => keyOf(t.at)))
+    let mem = {}
+    try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {} } catch { mem = {} }
+    for (const k of sc.keys) {
+      const q = chestPartner(bot, keyVec(k))
+      if (containerStatus(mem[k]) === 'full' || (q && containerStatus(mem[posKey(q)]) === 'full')) full.add(k)
+    }
+    const v = cobbleTownViewFor(bot)
+    return { ...noRoomVerdict({ left, capRefused, keys: sc.keys, coverage: sc.coverage, fullKeys: [...full], town: v?.lb ?? null, complete: !!v?.complete }), town: v?.lb ?? null }
+  } catch { return { ok: false, why: 'unread', unseen: null, town: null } }
 }
 
 async function townDeposit (ctx, _args, signal) {
@@ -8464,6 +8513,28 @@ async function townDeposit (ctx, _args, signal) {
   const valve = !tail && !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.some(st => !st.half) && valveProof(bot, before)
   const startPlan = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, valve, tail })
   const planned = startPlan.steps.length
+  // COBBLEBANK-01: the visit's cobble -- what the bag held, the stacks this plan holds and the old one-stack-a-name plan's --
+  // for its `_cobblebank phase=bank` row and the town-wide no-room verdict (cobbleBankEnd, once per run, every ending)
+  const cobOf = list => list.reduce((t, x) => t + (isBankCobble(x?.name) ? (x.count ?? 0) : 0), 0)
+  const cobBefore = cobOf(before)
+  const cobPlanned = startPlan.steps.filter(st => isBankCobble(st.name)).length
+  let cobPlannedOld = cobPlanned, cobStacks = 0, cobEnded = false
+  if (COBBLEBANK.on && cobBefore > COBBLE_RESERVE) { try { cobPlannedOld = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, valve, tail, cobbleBank: false }).steps.filter(st => isBankCobble(st.name)).length } catch { cobPlannedOld = null } }
+  const cobbleBankEnd = () => {
+    if (cobEnded || !COBBLEBANK.on || !(cobBefore > COBBLE_RESERVE)) return
+    cobEnded = true
+    try {
+      const left = townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active, tail }).steps.filter(st => isBankCobble(st.name)).length
+      // (nothing left: the verdict needs no scan -- the town's room was enough, or the plan held no cobble)
+      const verdict = left > 0 ? cobbleNoRoomVerdict(bot, { left, capRefused, tried }) : noRoomVerdict({ left })
+      // the evidence the full-bag well reads (cobbleWellModeFor): set on a proven no-room run, cleared by any other run with surplus
+      bot.cobbleNoRoom = verdict.ok ? { at: Date.now(), left, town: verdict.town ?? null, home: homeTownKey() } : null
+      const after = serverBag ?? held(items())
+      logEvent({ kind: 'cobblebank', status: cobStacks > 0 ? 'success' : verdict.ok ? 'no_room' : 'no_effect', snapshot: snapshot(bot),
+                 detail: bankRowDetail({ mode: tail ? 'tail' : 'full', before: cobBefore, after: (after.cobblestone ?? 0) + (after.cobbled_deepslate ?? 0), planned: cobPlanned, plannedOld: cobPlannedOld ?? '-',
+                                         banked: cobStacks, items: (banked.cobblestone ?? 0) + (banked.cobbled_deepslate ?? 0), slotsBefore, slotsAfter: items().length, verdict }) })
+    } catch { /* telemetry and evidence only: never the run's result */ }
+  }
   // the allowance rows' own stacks at the start (junkout-01's bank row: what they planned, and what the server showed banked)
   const allowPlanned = startPlan.steps.filter(st => st.allowance).map(st => ({ name: st.name, row: st.allowance }))
   // THE BANK ROWS, written for EVERY run that planned a row or banked anything (the read's J1 sees every name a town deposit
@@ -8503,6 +8574,7 @@ async function townDeposit (ctx, _args, signal) {
   if (bot.controlState?.sneak) { stop = 'sneaking'; row('no_effect'); bankRows(0, slotsBefore); return { status: 'no_effect', detail: 'sneaking (held by another subsystem); the town deposit waits for another visit' } }
   // towndeposit-02: a FULL container does not use up a try (tdMoreContainers), so the run may look past it
   const containers = townContainers(bot, TD_MAX_CONTAINERS + TD_FULL_EXTRA)
+  if (!containers.length) cobbleBankEnd()   // cobblebank-01: every container in reach may be one the town remembers full
   if (!containers.length) { stop = 'no town container'; row('no_effect'); bankRows(0, slotsBefore); return { status: 'no_effect', detail: 'no town chest within reach now; the town deposit waits for another visit' } }
   const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
   const left = () => deadline - TD_SETTLE_MS - Date.now()
@@ -8570,10 +8642,11 @@ async function townDeposit (ctx, _args, signal) {
       // that clears withdraw's pickaxe/ingredient misses for this container and is the bank's "room again" signal.
       if (v.verified.length) { rememberTown(bot, c.position, 'took'); const q = chestPartner(bot, c.position); if (q) rememberTown(bot, q, 'took') }
       for (const { step, it } of v.verified) {
+        if (isBankCobble(step.name)) cobStacks++   // cobblebank-01: the server-verified cobble stacks
         banked[step.name] = (banked[step.name] ?? 0) + step.count; stacks++
         if (it.maxDurability) tools.push(`${step.name}@${it.maxDurability - (it.durabilityUsed ?? 0)}`)
       }
-      tried.push({ at, result: !v.ok ? 'unverified' : v.verified.length ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })
+      tried.push({ at, result: !v.ok ? 'unverified' : v.verified.length ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none', emptyLeft: r.emptyLeft ?? null })
       // towndeposit-02: NO EMPTY SLOT AT ALL is remembered `full` for the town (both halves), as the deposit's recovery does --
       // the next visit's townContainers and the recovery's sweep skip it until FULL_TTL_MS or a `took`
       if (v.ok && !r.done.length && r.noRoom) { rememberTown(bot, c.position, 'full'); const q = chestPartner(bot, c.position); if (q) rememberTown(bot, q, 'full') }
@@ -8583,6 +8656,7 @@ async function townDeposit (ctx, _args, signal) {
   } finally {
     if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
     bankRows(Object.values(banked).reduce((a, b) => a + b, 0), items().length)   // an abort too (the verified so far)
+    cobbleBankEnd()
   }
   const n = Object.values(banked).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
@@ -8606,7 +8680,7 @@ async function townDeposit (ctx, _args, signal) {
   }
   // A ROWS-ONLY PLAN HAS NO DEPOSIT-VERB REMEDY (bagbudget-01, Claude design r1 P2-5): the verb never banks the rows
   // (depositPlan never sees them), so its advice would send the bot to a chest for nothing
-  const allowOnly = startPlan.steps.length > 0 && startPlan.steps.every(st => st.allowance)
+  const allowOnly = startPlan.steps.length > 0 && startPlan.steps.every(st => st.allowance || (tail && isBankCobble(st.name)))   // cobblebank-01: a not-full visit's cobble waits too (no deposit verb sent for it)
   if (tried.length && tried.every(t => t.result === 'full')) {
     stop = stop ?? 'full'
     row('failed')
@@ -9443,7 +9517,12 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
         // THE CAP RE-READ AT EVERY COBBLE CLICK (Codex r1 P1: another bot may take cobble out between two stacks); the last
         // reading is what the row reports
         acc.capLast = cobbleWellCap(bot)
+        // COBBLEBANK-01 (b): a no-room visit's stack passes the cap's gate below only while its evidence still holds NOW (the cap
+        // reading 'below', the evidence live, the town at its reserve); the row then names the lane no_room
+        const noRoomClick = !!acc.noRoom && acc.capLast === 'below' && cobbleWellModeFor(bot, bot.inventory?.items?.() ?? [], { cap: acc.capLast }) === 'no_room'
+        if (noRoomClick) acc.capLast = 'at_cap'
         if (acc.capLast !== 'at_cap') continue
+        if (noRoomClick) { acc.capLast = 'no_room'; acc.noRoomStacks = (acc.noRoomStacks ?? 0) + 1; acc.noRoomItems = (acc.noRoomItems ?? 0) + it.count; acc.noRoomLeft = leftC }
         acc.cobble += it.count; acc.cobbleLeft = Math.min(acc.cobbleLeft ?? Infinity, leftC)
         // A PRUNED COBBLE STACK writes its _stock_prune row like every other group (Claude code r2 P3: prune clicks were
         // under-counted), with stonecap's own numbers: the available floor, the cap, the bot's 64
@@ -9594,10 +9673,13 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       out.swordsAllowed = !pit && !listedOnly && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
       out.cap = pit || listedOnly ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
       out.stock = pit || listedOnly ? null : pruneStockOpts(bot, pruned)   // and every other group at its target (stocktarget design 3.4), and what a prune took
-      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: listedOnly ? keep : null })   // the bag AS THE SERVER HOLDS IT
+      // COBBLEBANK-01 (b): BELOW the cap, a full-bag visit whose town deposit proved the town's containers without room takes the
+      // same surplus stacks (cobbleWellModeFor: 'no_room'); re-judged at every click. Never the not-full visit, never the pit build
+      if (!pit && !listedOnly && !pruned && out.cap === 'below') { out.cap = cobbleWellModeFor(bot, bot.inventory?.items?.() ?? [], { cap: out.cap }); out.acc.noRoom = out.cap === 'no_room' }
+      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: wellTakesCobble(out.cap), stock: out.stock, keep: listedOnly ? keep : null })   // the bag AS THE SERVER HOLDS IT
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
-      out.acc.cobbleAllowed = out.cap === 'at_cap'
+      out.acc.cobbleAllowed = wellTakesCobble(out.cap)
       out.acc.stockAllowed = !!out.stock
       if (!plan.stacks.length) { out.refused = 'nothing_listed'; return out }
       // THE SHAFT IS READ SEALED AGAIN IMMEDIATELY BEFORE THE FIRST THROW (wellsite-01, Codex r1 P1): the well was judged
@@ -9726,7 +9808,9 @@ async function disposeWell (ctx, _args, signal) {
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
   const entryPlan = visit ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned) })
-  if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
+  // COBBLEBANK-01 (b): ...or, at a full bag below the cap, the surplus cobble stacks a proven no-room town deposit left (the phase re-judges)
+  const noRoomEntry = !visit && !pruned && entryPlan.stacks.length === 0 && cobbleWellModeFor(bot, items()) === 'no_room' && cobbleWellStacks(items()).length > 0
+  if (!entryPlan.stacks.length && !noRoomEntry && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const tick = () => g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
@@ -9773,6 +9857,16 @@ async function disposeWell (ctx, _args, signal) {
   // what this visit's throws were, as the server named them (junkout-01's J4) -- on every row after a throw phase
   const phF = { listed: entryPlan.junkStacks, n: ph.account?.n ?? 0, offlist: ph.thrown?.offlist ?? 0, swords: ph.acc?.swords ?? 0,
                 cobble: ph.acc?.cobble ?? 0, stock: ph.acc?.stockThrown ?? 0, slotsBefore: ph.slotsBefore ?? slotsBefore, stop }
+  // COBBLEBANK-01 (b): ONE `_cobblebank phase=well` row per visit that threw cobble below the cap (the no-room lane): the stacks
+  // clicked, the cobble the SERVER's account shows gone, the bag's slots before and after, the evidence's age
+  if (ph.acc?.noRoomStacks > 0) {
+    try {
+      const lost = ph.account?.lost ?? {}
+      logEvent({ kind: 'cobblebank', status: 'success', snapshot: snapshot(bot), detail: wellRowDetail({ stacks: ph.acc.noRoomStacks, items: (Number(lost.cobblestone) || 0) + (Number(lost.cobbled_deepslate) || 0), left: ph.acc.noRoomLeft ?? null,
+        town: (() => { try { return cobbleTownViewFor(bot).lb } catch { return null } })(), age: Number.isFinite(bot.cobbleNoRoom?.at) ? Date.now() - bot.cobbleNoRoom.at : null,
+        slotsBefore: ph.slotsBefore, slotsAfter: ph.slotsAfter, names: Object.keys(lost).filter(isBankCobble).join(',') }) })
+    } catch { /* telemetry */ }
+  }
   if (ph.aborted) { logEvent({ kind: 'well_dispose', status: 'aborted', snapshot: snapshot(bot), detail }); visitRow('aborted', phF); throw ph.aborted }
   const n = ph.account.n
   if (n > 0 && !/^error: /.test(stop)) {

@@ -53,6 +53,8 @@ import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign, foundRetry } f
 import { townPlanNow, townPlanHead, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
 import { LOGBANK } from './woodkeep.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan, tailOrder, LOGS as TD_LOGS, townKeeps, inTownZone, TD_STAY_REARM_MS } from './towndeposit.mjs'
+import { cobbleWellModeFor } from './skills.mjs'   // cobblebank-01 (b)
+import { wellTakesCobble } from './cobblebank.mjs'   // cobblebank-01 (b)
 // junkout-01 (its own statement): the visit latch, ticked on every decision (bagallowance.mjs, a leaf)
 import { visitLatchTick, visitLatchDeclined, VISIT_STAY_MS } from './bagallowance.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
@@ -1312,7 +1314,8 @@ export class CognitiveLoop {
         // read on every decision anywhere in the world was a hot-path cost)
         const atTown = distHome <= TOWN_RADIUS
         // ...and at town every targeted group at its target (stocktarget design 3.4: the available floor, the keeps)
-        const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: atTown && cobbleWellCap(bot, items) === 'at_cap', stock: atTown ? stockWellOpts(bot, items) : null })   // a peaceful world's swords count (well.mjs swordGoes)
+        // cobblebank-01 (b): ...and below the cap the surplus a proven no-room town deposit left (cobbleWellModeFor: at_cap or no_room)
+        const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: atTown && wellTakesCobble(cobbleWellModeFor(bot, items)), stock: atTown ? stockWellOpts(bot, items) : null })   // a peaceful world's swords count (well.mjs swordGoes)
         const buildPlanJunk = disposePlan(items)   // the pit-first build tosses neither cobble nor swords (Claude coupling review P3)
         const r = wellOrder({
           now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks, buildJunkStacks: buildPlanJunk.junkStacks,

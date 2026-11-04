@@ -4,6 +4,8 @@ import { remaining, FLOOR } from './toolfor.mjs'
 import { unwantedSword } from './peacefulkit.mjs'
 import { peacefulFoodActive } from './foodskip.mjs'
 import { admitStacks } from './cobblecap.mjs'
+// cobblebank-01: the visit's cobble cap (every whole stack above the reserve; COBBLEBANK=off -> the old 64)
+import { cobbleVisitCap } from './cobblebank.mjs'
 // STOCK TARGETS (stocktarget-01; design docs/reports/stocktargets-design-2026-10-08.md): every other bulk group and the
 // capped tools, judged against the town's count of the group through the same journal as the cobble cap.
 import { groupOf, targetOf, isToolGroup, roomUnder, PROJECT_PARTS } from './stocktarget.mjs'
@@ -251,7 +253,7 @@ export const KEEP_ONE = new Set(['crafting_table', 'furnace', 'blast_furnace', '
  */
 export function bankableInventory (items = [], { wants = [], creditCap = 64,
                                                  reserveScaffold = 8, noSwords = peacefulFoodActive(), noToolCap = false,
-                                                 stockRoomFor = null, bankableToo = [] } = {}) {
+                                                 stockRoomFor = null, bankableToo = [], cobbleCap = creditCap } = {}) {
   // bankableToo (logbank-01 r3): names that are bankable like a standing target WITHOUT being a goal's want -- a want is also
   // KEPT up to a stack (towndeposit.mjs townKeeps 'wanted'), which held every spruce log back in a well town (Paper r3)
   const want = new Set([...wants, ...STANDING_TARGETS, ...[bankableToo ?? []].flat()].filter(Boolean))
@@ -276,7 +278,9 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
   const hold = withdrawHolds()
   // THE COBBLE RULE: the whole stacks above the reserve, per name (cobbleBankStacks).
   const cobbleWhole = {}, cobbleCapped = {}
-  const cobbleStacks = cobbleBankStacks(items, { creditCap })
+  // cobblebank-01: `cobbleCap` is the cobble names' own cap (default creditCap: every count caller unchanged); the PLAN
+  // (depositView: the deposit verb, the town deposit, the refusal rows) passes cobbleVisitCap() -- every whole stack
+  const cobbleStacks = cobbleBankStacks(items, { creditCap: cobbleCap })
   // THE TOWN CAP on top (cobblecap.mjs admitStacks: each admitted stack charged before the next is judged)
   const town = cobbleTownView()
   const admitted = town ? admitStacks(town, cobbleStacks.map(s => s.count)) : null
@@ -455,7 +459,7 @@ export const DEPOSIT_ALWAYS = ['iron_ore', 'deepslate_iron_ore', 'raw_copper', '
  * is not a standing target -- hence DEPOSIT_ALWAYS.)
  */
 function depositView (items, { wants = [], ...opts } = {}) {
-  return bankableInventory(items, { ...opts, wants: [...wants, ...DEPOSIT_ALWAYS] })
+  return bankableInventory(items, { cobbleCap: cobbleVisitCap(), ...opts, wants: [...wants, ...DEPOSIT_ALWAYS] })
 }
 
 /**

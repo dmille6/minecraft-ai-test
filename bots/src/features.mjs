@@ -39,6 +39,7 @@ import { readMatsNote, matsHoldNote } from './skills.mjs'   // mats-01 x junkout
 import { SHAFT, SHAFT_COOLDOWN_MS } from './shop.mjs'   // shaft-02's licence row
 import { SHAFT_BLUEPRINT, LANDING_FEET } from './shaftgeom.mjs'
 import { deepModeDetail } from './deepmine.mjs'   // deepminer-01's licence row
+import { cobbleBankModeDetail } from './cobblebank.mjs'   // cobblebank-01's licence row
 
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
 export function installFeatures (bot) {
@@ -95,6 +96,8 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'shaft_mode', status: 'success', snapshot: snapshot(bot), detail: `on=${SHAFT.on ? 1 : 0} blueprint=${SHAFT_BLUEPRINT} landings=${LANDING_FEET.join('+')} cooldown_s=${SHAFT_COOLDOWN_MS / 1000}` }) } catch {}
   // deepminer-01: the licence row, once per spawn -- `_deepmine_mode`, a kind the base cannot write (on=0 under DEEPMINE=off)
   try { logEvent({ kind: 'deepmine_mode', status: 'success', snapshot: snapshot(bot), detail: deepModeDetail() }) } catch {}
+  // cobblebank-01: the licence row, once per spawn -- `_cobblebank_mode`, a kind the base cannot write (on=0 under COBBLEBANK=off)
+  try { logEvent({ kind: 'cobblebank_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleBankModeDetail() }) } catch {}
   // shop-01: the licence row, once per spawn -- `_build_mode`, a kind the base cannot write (cooperation A7), naming the reserve in
   // force by a short hash; the spawn time (no dig in the first 3 s: the ghost-block rule); the walks' seeds and the footprint
   if (SHOP.on) {

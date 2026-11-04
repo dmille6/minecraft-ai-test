@@ -250,8 +250,9 @@ const tailBag = () => bagOf([it('chest', 8), it('crafting_table', 3), it('furnac
   it('egg', 16), it('flint', 20), it('oak_sapling', 20), it('leaf_litter', 30), it('cobblestone', 64), it('cobblestone', 20), it('oak_log', 6), it('oak_log', 10), it('water_bucket', 1), it('water_bucket', 1)], 0)
 await t('the tail plan (`tail: only`): the rows ONLY -- torch, bone meal, the 2nd filled bucket, the usable spare beyond best + 2; no base step, no junk, no sapling', () => {
   const items = tailBag()
-  const p = TD.townDepositPlan(items, { tail: 'only' })
+  const p = TD.townDepositPlan(items, { tail: 'only', cobbleBank: false })   // cobblebank-01's tail cobble: below
   const names = p.steps.map(s => `${s.name}:${s.allowance}`)
+  assert.deepEqual(TD.townDepositPlan(items, { tail: 'only' }).steps.filter(s => !s.allowance).map(s => s.name), ['cobblestone'], 'cobblebank-01: the cobble 20 above the bag\'s 64 rides along, nothing else of the base plan')
   assert.deepEqual(names.filter(n => !n.startsWith('stone_pickaxe')).sort(), ['bone_meal:bone_meal', 'torch:torch', 'water_bucket:station'].sort(), JSON.stringify(names))
   assert.equal(p.steps.filter(s => s.name === 'stone_pickaxe').length, 1, 'four usable stone copies: the 90 goes (best 120 + 110, 100)')
   assert.ok(p.steps.every(s => s.allowance), 'no base step (the cobble 20, the 10 logs stay)')
