@@ -252,3 +252,17 @@ export function crewCaps (role) {
   const k = role === 'keeper'
   return Object.freeze({ site: k, complete: k, waive: k, digs: k, topup: k, donate: !k, gather: true })
 }
+/**
+ * GKHANDOVER-01: IS MY LEASE LET GO, AS THE DISK SAYS -> bool. Pure over buildproj leaseState's answer READ AGAIN after the release.
+ * LIVE showcase 11-04 15:12Z (batch 3, the tripwire's H4): showcase-Frost logged its helper2 release (why=keeper) at :40.806 but no
+ * `.released` file was written; it took the keeper lease at :40.874 and held both 3.5 s. A release is confirmed only when the newest
+ * generation is released, lapsed, or not mine (another's later take); an unreadable state (leaseState's catch: gen null, blocks for
+ * ever) is NOT confirmed. Unconfirmed -> the keeper lease is not taken this tick.
+ */
+export function releaseConfirmed (state, me, now = Date.now()) {
+  if (!state) return true
+  if (state.gen == null && !state.rec) return false
+  if (state.released) return true
+  if (!state.rec || state.rec.holder !== me) return !!state.rec
+  return now >= (state.holdsUntil ?? 0)
+}
