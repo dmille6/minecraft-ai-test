@@ -241,6 +241,30 @@ const SAME_KEYS = ['enchantments', 'stored_enchantments', 'repair_cost', 'damage
 const compKey = it => JSON.stringify(SAME_KEYS.map(k => it?.componentMap?.get?.(k)?.data ?? null))
 export const sameItem = a => b => !!b && b.name === a?.name && compKey(b) === compKey(a)
 
+/**
+ * THE WINDOW'S IO (Codex r1 BLOCKER: unguarded clicks and an unconditional close). The skills pass skills.mjs's own:
+ *   own(win)            inventory ownership from the open to the close (equip / toss / moveSlotItem / closeWindow refused)
+ *   click(win, s, b, m) one click inside craftsync's lockstep, tracked until it settles
+ *   finish(win, own)    settle the cursor with the server's word, then close (or hold an unsettled cursor), release ownership
+ *   cancelled()         the skill's abort
+ * Every click is refused unless this window is still the open one. Without io (the unit test's fake): plain clicks, a plain
+ * close while the window is still open.
+ */
+function windowIo (bot, win, io = {}) {
+  const own = typeof io.own === 'function' ? io.own(win) : null
+  const click = async (slot, button, mode) => {
+    if (io.cancelled?.()) throw new Error('cancelled')
+    if (bot.currentWindow !== win) throw new Error('window_changed')
+    return typeof io.click === 'function' ? io.click(win, slot, button, mode) : bot.clickWindow(slot, button, mode)
+  }
+  const finish = async () => {
+    if (typeof io.finish === 'function') return io.finish(win, own)
+    if (bot.currentWindow === win) { try { bot.closeWindow(win) } catch { /* closed */ } }
+    return { state: win.selectedItem ? 'unresolved' : 'empty' }
+  }
+  return { click, finish }
+}
+
 async function openWithProps (bot, block) {
   const props = {}
   const onProp = p => { if (bot.currentWindow && p.windowId === bot.currentWindow.id) props[p.property] = p.value }
@@ -257,17 +281,18 @@ async function openWithProps (bot, block) {
  * by sameItem). stop: 'applied' (the server took the levels and the result is in the bag) | 'no_result' | 'refused_cost'
  * (this side would not pay: cost >= 40 or > level; nothing taken) | 'not_taken' | 'no_items' | 'open_failed:<why>'.
  */
-export async function anvilCombine (bot, anvilBlock, tool, book) {
+export async function anvilCombine (bot, anvilBlock, tool, book, io = {}) {
   let o
   try { o = await openWithProps(bot, anvilBlock) } catch (e) { return { stop: `open_failed:${String(e?.message ?? e).slice(0, 40)}` } }
   const { win, props } = o
+  const w = windowIo(bot, win, io)
   const out = { stop: 'no_result', cost: null, levelBefore: bot.experience?.level ?? null, levelAfter: null, result: null }
   try {
     if (!/anvil/.test(String(win.type ?? ''))) { out.stop = `open_failed:type_${win.type}`; return out }
     const t = winItem(win, sameItem(tool)), b = winItem(win, sameItem(book))
     if (!t || !b) { out.stop = 'no_items'; return out }
-    await bot.clickWindow(t.slot, 0, 0); await bot.clickWindow(0, 0, 0)
-    await bot.clickWindow(b.slot, 0, 0); await bot.clickWindow(1, 0, 0)
+    await w.click(t.slot, 0, 0); await w.click(0, 0, 0)
+    await w.click(b.slot, 0, 0); await w.click(1, 0, 0)
     const res = await until(() => win.slots[2], RESULT_WAIT_MS)
     if (!res) return out
     await until(() => props[0] != null, 1_000)
@@ -275,7 +300,7 @@ export async function anvilCombine (bot, anvilBlock, tool, book) {
     out.result = res
     if (!anvilTakeOk(out.cost, bot.experience?.level ?? 0)) { out.stop = 'refused_cost'; return out }
     const lv0 = bot.experience?.level ?? 0
-    await bot.clickWindow(2, 0, 1)   // shift-click the result into the bag
+    await w.click(2, 0, 1)   // shift-click the result into the bag
     const paid = await until(() => (bot.experience?.level ?? lv0) <= lv0 - out.cost && !win.slots[2], 3_000)
     out.stop = paid ? 'applied' : 'not_taken'
     return out
@@ -283,7 +308,8 @@ export async function anvilCombine (bot, anvilBlock, tool, book) {
     out.stop = `error:${String(e?.message ?? e).slice(0, 40)}`
     return out
   } finally {
-    try { bot.closeWindow(win) } catch { /* closed */ }
+    // the cursor settled with the server's word, then the close (or a hold of an unsettled cursor), then the ownership
+    try { const v = await w.finish(); out.cursor = v?.state ?? null } catch (e) { out.cursor = `error:${String(e?.message ?? e).slice(0, 30)}` }
     await wait(600)
     out.levelAfter = bot.experience?.level ?? null
   }
@@ -293,10 +319,11 @@ export async function anvilCombine (bot, anvilBlock, tool, book) {
  * THE TABLE -> { stop, offers, choice, levelBefore, levelAfter, got }. `tool` is a bag item (matched in the window). stop:
  * 'enchanted' | 'no_offer' (none the bot can pay) | 'no_lapis' | 'no_items' | 'no_result' | 'open_failed:<why>'.
  */
-export async function enchantAtTable (bot, tableBlock, tool, registry = bot?.registry) {
+export async function enchantAtTable (bot, tableBlock, tool, registry = bot?.registry, io = {}) {
   let o
   try { o = await openWithProps(bot, tableBlock) } catch (e) { return { stop: `open_failed:${String(e?.message ?? e).slice(0, 40)}` } }
   const { win, props } = o
+  const w = windowIo(bot, win, io)
   const out = { stop: 'no_offer', offers: null, choice: null, levelBefore: bot.experience?.level ?? null, levelAfter: null, got: null }
   try {
     if (!/enchant/.test(String(win.type ?? ''))) { out.stop = `open_failed:type_${win.type}`; return out }
@@ -304,9 +331,8 @@ export async function enchantAtTable (bot, tableBlock, tool, registry = bot?.reg
     const lap = winItem(win, i => i.name === 'lapis_lazuli')
     if (!t) { out.stop = 'no_items'; return out }
     if (!lap) { out.stop = 'no_lapis'; return out }
-    await bot.clickWindow(t.slot, 0, 0); await bot.clickWindow(0, 0, 0)
-    await bot.clickWindow(lap.slot, 0, 0); await bot.clickWindow(1, 0, 0)
-    if (win.selectedItem) { try { await bot.clickWindow(lap.slot, 0, 0) } catch { /* cursor */ } }   // a cursor left over goes back
+    await w.click(t.slot, 0, 0); await w.click(0, 0, 0)
+    await w.click(lap.slot, 0, 0); await w.click(1, 0, 0)
     const priced = await until(() => [0, 1, 2].some(i => (props[i] ?? 0) > 0), OFFER_WAIT_MS)
     await wait(OFFER_SETTLE_MS)
     out.offers = [0, 1, 2].map(i => ({ level: props[i] ?? 0, enchant: props[4 + i] ?? -1, enchLevel: props[7 + i] ?? -1 }))
@@ -315,19 +341,21 @@ export async function enchantAtTable (bot, tableBlock, tool, registry = bot?.reg
     out.choice = offerChoice(out.offers, bot.experience?.level ?? 0, lapisNow)
     if (out.choice == null) return out
     const lv0 = bot.experience?.level ?? 0
+    if (bot.currentWindow !== win || io.cancelled?.()) { out.stop = 'window_changed'; return out }
     bot._client.write('enchant_item', { windowId: win.id, enchantment: out.choice })
     const done = await until(() => enchantsOf(win.slots[0], registry, { stored: win.slots[0]?.name === 'enchanted_book' }).length > 0 && (bot.experience?.level ?? lv0) < lv0, 4_000)
     if (!done) { out.stop = 'no_result'; return out }
     out.got = enchantsOf(win.slots[0], registry, { stored: false }).map(e => ({ name: e.name, from: 0, to: e.level }))
     out.stop = 'enchanted'
-    await bot.clickWindow(0, 0, 1)   // shift-click the tool back
-    if (win.slots[1]) await bot.clickWindow(1, 0, 1)   // and what lapis is left
+    await w.click(0, 0, 1)   // shift-click the tool back
+    if (win.slots[1]) await w.click(1, 0, 1)   // and what lapis is left
     return out
   } catch (e) {
     out.stop = `error:${String(e?.message ?? e).slice(0, 40)}`
     return out
   } finally {
-    try { bot.closeWindow(win) } catch { /* closed */ }
+    // the cursor settled with the server's word, then the close (or a hold of an unsettled cursor), then the ownership
+    try { const v = await w.finish(); out.cursor = v?.state ?? null } catch (e) { out.cursor = `error:${String(e?.message ?? e).slice(0, 30)}` }
     await wait(600)
     out.levelAfter = bot.experience?.level ?? null
   }

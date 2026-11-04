@@ -225,6 +225,24 @@ await t('enchantAtTable at 6 levels takes offer 2 (5 levels), never offer 3 (8)'
   assert.equal(r.choice, 1)
 })
 
+await t('io (Codex r1): ownership taken at the open, every click through io.click, finish (settle + close) once; a changed window stops the clicks', async () => {
+  const pick = tool('iron_pickaxe'), bk = book([['mending', 1]])
+  const { bot } = fakeBot({ kind: 'anvil', bag: [pick, bk], level: 10 })
+  const seen = { own: 0, clicks: 0, finish: 0 }
+  const io = { own: () => { seen.own++; return { close () {}, restore () {} } }, click: (w, s, b, m) => { seen.clicks++; return bot.clickWindow(s, b, m) },
+    finish: async (w) => { seen.finish++; bot.closeWindow(w); return { state: 'empty' } } }
+  const r = await E.anvilCombine(bot, {}, pick, bk, io)
+  assert.equal(r.stop, 'applied'); assert.equal(r.cursor, 'empty')
+  assert.deepEqual(seen, { own: 1, clicks: 5, finish: 1 })
+  // the window changes after the first click (the server closed it; another window opened): no click lands elsewhere
+  const f = fakeBot({ kind: 'anvil', bag: [pick, bk], level: 10 })
+  const real = f.bot.clickWindow
+  f.bot.clickWindow = async (...a) => { await real(...a); f.bot.currentWindow = { id: 99 } }
+  const r2 = await E.anvilCombine(f.bot, {}, pick, bk)
+  assert.equal(r2.stop, 'error:window_changed')
+  assert.equal(f.bot.clicks.length, 1, 'one click, then refused')
+})
+
 // ---- buildOrder asks it first ----------------------------------------------------------------------------------------
 const S = await import('../src/shop.mjs')
 await t('buildOrder: the enchant ask is asked first at town; unset or no order -> the build order as before', () => {

@@ -17988,6 +17988,26 @@ export function enchantAsk ({ now = Date.now(), health = 20, freeSlots = 36 } = 
     return null
   } catch { return null }
 }
+/** The window io for enchant.mjs's drivers (Codex r1 BLOCKER): withdraw's ownership, lockstep + tracked clicks refused once the
+ *  window changed or the skill aborted, the cursor settled with the server's word before the close (an unsettled one held). */
+function enchantIo (bot, signal) {
+  return {
+    cancelled: () => !!signal?.aborted,
+    own: win => ownInventory(bot, win),
+    click: (win, slot, button, mode) => lockstepClicks(bot, async raw => {
+      if (signal?.aborted || bot.currentWindow !== win) throw new Error('cancelled or the window changed')
+      const p = trackedClick(bot, raw, slot, button, mode)
+      p.catch(() => {})
+      if (await within(p, 3_000) === TIMED_OUT) throw new Error('click unanswered')
+    }, { deadline: Date.now() + 4_000 }),
+    finish: async (win, own) => {
+      const v = bot.currentWindow === win ? await settleCursor(bot, win, { cancelled: () => false }) : { state: 'gone' }
+      if (v.state === 'unresolved') holdUnsettled(bot, win, v, own)
+      else { if (bot.currentWindow === win) own.close(); invalidateClicks(bot, 'enchant end'); own.restore() }
+      return v
+    },
+  }
+}
 /** Walk to a station block (range STATION_REACH) -> the block, re-read at its cell | null. */
 async function enWalkTo (ctx, blk, signal) {
   const { bot } = ctx
@@ -18028,7 +18048,7 @@ async function anvilApply (ctx, args, signal) {
   at = `${blk.position.x},${blk.position.y},${blk.position.z}`
   const near = await enWalkTo(ctx, blk, signal)
   if (!near || !ANVIL_BLOCKS.includes(near.name)) return end('failed', 'unreachable')
-  r = await anvilCombine(bot, near, plan.tool, plan.book)
+  r = await anvilCombine(bot, near, plan.tool, plan.book, enchantIo(bot, signal))
   check(signal)
   return end(r.stop === 'applied' ? 'success' : (r.stop === 'refused_cost' || r.stop === 'no_result') ? 'no_effect' : 'failed', r.stop)
 }
@@ -18062,7 +18082,7 @@ async function enchantTool (ctx, args, signal) {
   at = `${blk.position.x},${blk.position.y},${blk.position.z}`
   const near = await enWalkTo(ctx, blk, signal)
   if (!near || near.name !== EN_TABLE_BLOCK) return end('failed', 'unreachable')
-  r = await enchantAtTable(bot, near, tool, bot.registry)
+  r = await enchantAtTable(bot, near, tool, bot.registry, enchantIo(bot, signal))
   check(signal)
   return end(r.stop === 'enchanted' ? 'success' : r.stop === 'no_offer' ? 'no_effect' : 'failed', r.stop)
 }
