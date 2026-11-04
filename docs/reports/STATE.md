@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-04T22:20:01Z._
+_Generated 2026-11-04T23:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,10 +12,10 @@ _Generated 2026-11-04T22:20:01Z._
 | **Canary in slot** | **llmoai-01** deployed 11-04 22:09Z; reads +90 11-04 23:39Z, +180 11-05 01:09Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> bucketfix-01 -> kittrim-01 -> depositoffer-01 -> vetoremedy-01 -> +4 more. Held: dropdig-01 (HELD: control session 11-04: HOLD until the 4B staged rollout (servea waiter -> modelrollout.py,...) |
 | **Scheduler** | busy S1 canary declared: aea837080512b4a470a4bc121c33bf15c12a17e7 on board-b,placebo-d / S6 open loop: canary aea8370 is deployed on board-b,placebo-d with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 llm |
-| **Showcase release** | `a7efcca2` (28,123 rows), `9295590e` (22,441 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 9295590e sits on 9fbfdf22 (bagdiet-01); behind by 4: swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bots/scripts/stuckcells-of; row 11-04 21:25Z) |
+| **Showcase release** | `9295590e` (46,527 rows), `a7efcca2` (12,619 rows), `8b4ea9cc` (11,268 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 9295590e sits on 9fbfdf22 (bagdiet-01); behind by 5: dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bots/scripts/; row 11-04 22:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase? |
-| **Open alarms** | STALLCHECK 2026-11-04T21:35:01Z STALLED: 46. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 30 active alarm(s): stuck goals 6 (hive-a/tidy@355_73_147, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, isolated-c/monument@355_73_147, isolated-d/monument@355_73_147, placebo-b/tidy@282_65_-388); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:stuckcells-01:undeclared |
+| **Open alarms** | STALLCHECK 2026-11-04T22:35:01Z STALLED: 46. OPSAUDIT 2026-11-04 FLAGS: 10 (1 high). 31 active alarm(s): stuck goals 7 (hive-a/tidy@355_73_147, hive-d/tidy@68_65_68, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, isolated-c/monument@355_73_147, isolated-d/monument@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:stuckcells-01:undeclared |
 <!-- GENERATED:END -->
 
 ## Notes
