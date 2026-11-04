@@ -174,7 +174,7 @@ import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
-import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
+import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
 import { siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount } from './sinks.mjs'   // picker-01
@@ -20403,6 +20403,9 @@ function sinkStatesNow (bot, states, now = Date.now()) {
     if (!states.some(s => s?.sink)) return { states, order: [] }
     const recs = Object.fromEntries(SINK_KINDS.map(k => [k, states.find(s => s.plot === SINK_PLOTS[k])?.rec ?? null]))
     const openCount = stoneOpenCount(recs)
+    // showcase siteprep fold (Codex fold BLOCKER): a kind with a PREPARED plot is offered past this bot's no-site wait (buildSink claims it)
+    let sp = null
+    try { sp = siteprepHead() } catch { sp = null }
     let pr = null
     const st = {}
     const out = states.map(s => {
@@ -20411,7 +20414,7 @@ function sinkStatesNow (bot, states, now = Date.now()) {
       const { rec: _rec, ...rest } = s
       const open = sinkOpen(rec)
       let next = false, why = open ? 'open' : 'no_bot'
-      if (!open && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : pr, openCount, noSiteUntil: bot.sinkNoSite?.[kind] ?? 0, now, ready: sinkReady(kind) }); next = g.want; why = g.why }
+      if (!open && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : pr, openCount, noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : (bot.sinkNoSite?.[kind] ?? 0), now, ready: sinkReady(kind) }); next = g.want; why = g.why }
       st[kind] = { open, want: next, sitedAt: instancesOf(rec).at(-1)?.sitedAt ?? 0, why }
       return { ...rest, sinkOpen: open, sinkNext: next, sinkWhy: why }
     })
@@ -20832,6 +20835,8 @@ export function keeperNow (bot, now = Date.now()) {
 }
 setKeeperNow(() => keeperNow(activeMem?.bot ?? null))
 setNoSitePlot(() => activeMem?.bot?.shopNoSitePlot ?? null)   // sinkfix-03
+// showcase siteprep fold (Codex fold BLOCKER): a sink plot with a PREPARED request of its kind is never held by the order's site retry
+setPrepClaimed(plot => isSinkPlot(plot) && !!prepClaimFor(siteprepHead(), sinkKindOf(plot)))
 // ---- gkhelpers-01: THE GROUNDS CREW (groundskeeper.mjs helperDecision; owner 11-03 A) -------------------------------------------
 /** The keeper and helper leases now and this bot's helper decision. Never throws: unreadable reads 'full' (never a third). */
 function crewState (bot, work, now = Date.now()) {

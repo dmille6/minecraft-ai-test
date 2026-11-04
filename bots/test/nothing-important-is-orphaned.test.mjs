@@ -119,6 +119,7 @@ const REQUIRED = [
   'bots/test/sinkfix3.test.mjs',
   // siteprep-01 (11-04): the groundskeeper prepares a plot when a sink finds no site
   'bots/test/siteprep.test.mjs',
+  'bots/test/siteprepfold.test.mjs',   // the fold's prepared-claim bypass (Codex fold BLOCKER)
   'bots/src/siteprep.mjs',
   'docs/reports/siteprep-design-2026-11-04.md',
   // towndress-01 (11-03): the town's lights and signs (the `dress` sink), its offline siting and its test
