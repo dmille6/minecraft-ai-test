@@ -114,6 +114,19 @@ await t('a stump with leaves within 2 is a tree; a 5-log dead trunk is not a stu
   assert.strictEqual(r.record, null, JSON.stringify(r.record?.clear))
   assert.strictEqual(r.band.skipped.stump_tall, 1); assert.strictEqual(r.band.skipped.tree_guarded, 1)
 })
+await t('Codex r1 BLOCKER: a BENT living tree (an acacia whose trunk leaves its column, the canopy beyond 2) is no stump (its base stays)', async () => {
+  const srv = server()
+  for (const [x, y0, y1] of [[26, 1, 3], [27, 3, 4], [28, 4, 5], [29, 5, 6], [30, 6, 6]]) for (let y = G + y0; y <= G + y1; y++) srv.set([x, y, 5], 'acacia_log')
+  for (let x = 29; x <= 32; x++) for (let z = 3; z <= 7; z++) srv.set([x, G + 7, z], 'acacia_leaves')
+  const r = site(srv)
+  assert.ok(!(r.record?.clear ?? []).some(c => c.at[0] === 26), JSON.stringify(r.record?.clear))
+  assert.strictEqual(r.band.stumps, 0); assert.ok(r.band.skipped.stump_joined >= 1)
+  // the mutant: no join walk -> the acacia's base is cleared as a stump
+  await withMutant(TIDY_PATH, "      if (joined) { skip('stump_joined'); continue }\n", '', async M => {
+    const m = M.siteStage(srv.read, { home: HOME, land: LAND(), stage: BAND1, env: ON, L: SMALL, terrace: { wall: WALL, records: [] } })
+    assert.ok((m.record?.clear ?? []).some(c => c.at[0] === 26), 'mutant: the acacia felled as a stump')
+  })
+})
 await t('a living tree in a road corridor is felled whole (one tree, one replant); the replant goes beside a standing grove, never in the corridor', async () => {
   const srv = server()
   tree(srv, 24, 0)                                                   // in the corridor x 22..42, z -1..1

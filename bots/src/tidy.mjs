@@ -1280,14 +1280,15 @@ export function surveyInwall (read, { home, box, avoid = () => null, cells = new
 //             material 1+ high above all 8 neighbours, every HOLE lower than all 8 (up to INWALL.holeMax: levelled), the litter ON a
 //             build and the dirt climbs BESIDE one (cut: outside the wall a climb is never made a staircase -- a stair to the wall's
 //             top from outside is a way over it). Never inside a wall's box (inwall's), never a column this stage already works.
-//   STUMPS    a log column standing on its ground, at most OUTBANDS.stumpMax logs, with no leaves within OUTBANDS.stumpLeafR (a
-//             trunk the bots left when they felled the tree): its logs cleared (kind `tree`, no replant owed: the tree is gone).
+//   STUMPS    a log column standing on its ground, at most OUTBANDS.stumpMax logs, with no leaves within OUTBANDS.stumpLeafR and no
+//             other log touching it (a bent acacia's trunk leaves its column: Codex r1) -- a trunk the bots left when they felled the
+//             tree: its logs cleared (kind `tree`, no replant owed: the tree is gone).
 //   ROAD TREES a living trunk standing in a land-plan road CORRIDOR in the band (the road's own head room is roadWork's): felled whole
 //             (its 4-connected trunk columns one tree, at most OUTBANDS.fellMax a band), one replant owed each -- in the tree farm
 //             first, then beside a standing GROVE in the wild (replantCells `groves`), never in a corridor, never on this stage's work.
 //   Every other tree stays. OUTBANDS=off is the rollback (the band is what it was).
 // ================================================================================================================================
-export const OUTBANDS = Object.freeze({ stumpMax: 4, stumpLeafR: 2, fellMax: 8, stumpCap: 24, groveR: 5, groveMin: 2 })
+export const OUTBANDS = Object.freeze({ stumpMax: 4, stumpLeafR: 2, stumpReach: 32, fellMax: 8, stumpCap: 24, groveR: 5, groveMin: 2 })
 /** THE SWITCH -> bool. OUTBANDS=off|0|false|no -> the bands as before; on by default. Pure. */
 export const outbandsOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.OUTBANDS ?? '').trim())
 /**
@@ -1333,6 +1334,24 @@ export function bandTrees (read, { home, box, inBand = () => true, corridor = ()
     const cols = grp.map(g => [g.x, g.z])
     if (!leaves) {
       if (unread) { skip('stump_unread'); continue }
+      // Codex r1 BLOCKER: a BENT trunk (acacia, a leaning branch) leaves its column sideways: every log touching the group's logs
+      // (26 neighbours, followed out to OUTBANDS.stumpReach logs) must be the group's own, else it is part of a living tree
+      const own = new Set(logs.map(l => l.at.join(',')))
+      const seenL = new Set(own), qL = logs.map(l => l.at)
+      let joined = false
+      for (let i = 0; i < qL.length && !joined && seenL.size <= T.stumpReach; i++) {
+        const [lx, ly, lz] = qL[i]
+        for (let dx = -1; dx <= 1 && !joined; dx++) for (let dy = -1; dy <= 1 && !joined; dy++) for (let dz = -1; dz <= 1; dz++) {
+          const k = `${lx + dx},${ly + dy},${lz + dz}`
+          if (seenL.has(k)) continue
+          const b = read(lx + dx, ly + dy, lz + dz)
+          if (!b) { unread = true; continue }
+          if (!LOG_RE.test(nm(b))) continue
+          seenL.add(k); joined = true; break
+        }
+      }
+      if (unread) { skip('stump_unread'); continue }
+      if (joined) { skip('stump_joined'); continue }
       if (grp.some(g => g.logs.length > T.stumpMax)) { skip('stump_tall'); continue }
       if (stumps.length >= T.stumpCap) { skip('stump_cap'); continue }
       stumps.push({ cols, logs })
