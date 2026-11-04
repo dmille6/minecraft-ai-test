@@ -17368,6 +17368,20 @@ const shopKey = () => projKeyOf(shopActive().plot)
 // paths-01: an unsited project's bag rule reads the active plot (shop.mjs buildOrder; no cognitive change)
 setActivePlot(() => shopActive().plot)
 const shopBlueprint = () => blueprintOf(shopActive().blueprint)
+/** plotprep-02 (Codex r1): every project's record for the plot guard -> [rec] | null when ANY record cannot be read (an unreadable
+ *  chain, or its newest generation rejected): the caller then passes every plot (fail closed). projectHeads skips them silently. */
+function plotRecordsNow () {
+  try {
+    const dir = townDir(), out = []
+    for (const p of projectsGuarded()) {
+      const h = recordHead(dir, projKeyOf(p.plot))
+      if (!h.ok) return null
+      if ((h.rejected ?? []).some(r => r.gen === (h.gens ?? []).at(-1))) return null
+      if (h.head?.rec) out.push({ ...h.head.rec, plot: h.head.rec.plot ?? p.plot })
+    }
+    return out
+  } catch { return null }
+}
 /** Every project's record head that exists -> [{ plot, key, head }]. Never throws. */
 function projectHeads () {
   const out = []
@@ -22225,9 +22239,11 @@ function gkPlanAdditions (bot, dir, key, rec, me) {
   // plotprep-02 (Codex fold r4 BLOCKER): a plot a project has sited on since its prep was planned is retired FIRST -- its cells, cuts
   // and clears leave the record, its replants are skipped (tidy.mjs plotRetire)
   try {
-    const sited = plotsSitedNow(rec, projectHeads().map(x => x.head?.rec).filter(Boolean))
+    // (a records read that fails retires nothing: the visit's own guard passes every plot meanwhile)
+    const pr = plotRecordsNow()
+    const sited = pr ? plotsSitedNow(rec, pr) : new Set()
     if (sited.size) {
-      const pub = publishRecord(dir, key, cur => (cur ? plotRetire(cur, plotsSitedNow(cur, projectHeads().map(x => x.head?.rec).filter(Boolean))) : null), { by: me })
+      const pub = publishRecord(dir, key, cur => (cur ? plotRetire(cur, plotsSitedNow(cur, pr)) : null), { by: me })
       if (pub.result === 'accepted') { changed = true; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'plot_retired', kind: [...sited].join('+'), gen: pub.gen }) }) } catch { /* telemetry */ } }
     }
   } catch { /* asked again next visit */ }
@@ -22677,7 +22693,7 @@ async function buildTidy (ctx, args, signal) {
   // is passed -- never a cut under its pad, a fill in its footprint, a stand on its site -- whoever's visit, whether the keeper's
   // retirement was written yet or not
   let plotsSited = new Set()
-  if (GROUNDS.on && rec.plotprep) { try { plotsSited = plotsSitedNow(rec, projectHeads().map(x => x.head?.rec).filter(Boolean)) } catch { plotsSited = new Set((rec.plotprep.plots ?? []).map(p => String(p.id))) } }
+  if (GROUNDS.on && rec.plotprep) { const pr = plotRecordsNow(); plotsSited = pr ? plotsSitedNow(rec, pr) : new Set((rec.plotprep.plots ?? []).map(p => String(p.id))) }
   const waivedK = q => plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)

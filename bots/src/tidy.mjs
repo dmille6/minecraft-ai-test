@@ -913,7 +913,7 @@ export function platformTeardown (rec, read, now = Date.now(), T = PLOTPREP) {
   const cut = [...(rec.cut ?? [])]
   for (const c of down.flatMap(p => p.cells).sort((a, b) => b[1] - a[1])) {
     const n = nm(read(...c))
-    if (read(...c)?.boundingBox === 'block' && !cut.some(q => q.at.join(',') === c.join(','))) cut.push({ at: c, kind: 'tidy', name: n, teardown: true })
+    if (read(...c)?.boundingBox === 'block' && !cut.some(q => q.at.join(',') === c.join(','))) cut.push({ at: c, kind: 'tidy', name: n, teardown: true, ...(down.find(p => p.cells.some(q => q.join(',') === c.join(',')))?.plot != null ? { plot: down.find(p => p.cells.some(q => q.join(',') === c.join(','))).plot } : {}) })   // Codex r1 (plotprep-02): the teardown's cuts keep the plot
   }
   return { ...rec, cells: (rec.cells ?? []).filter(c => !kill.has(c.at.join(','))), segments: (rec.segments ?? []).filter(sg => (rec.cells ?? []).some(c => c.seg === sg.seg && !kill.has(c.at.join(',')))), cut,
     plotprep: { ...rec.plotprep, platforms: ps.map(p => (down.includes(p) ? { ...p, phase: 'down', downAt: now } : p)) } }
@@ -933,17 +933,20 @@ export function plotsSitedNow (rec, records = []) {
 export const plotEntryRetired = (q, sited) => q?.plot != null && !!sited?.has?.(String(q.plot))
 /**
  * THE PLOTS' PREP RETIRED -> the record's next generation | null. Pure. Every cell, cut and clear tagged with a sited plot leaves the
- * record (the project's own builders work that ground now; its records judge it); the plot's replant cells are marked SKIPPED (the
- * read's G5 counts only the others), its stands go with their cells (phase `retired`), the plot `retired`.
+ * record (the project's own builders work that ground now; its records judge it); its replants stay (G5), its stands go with their
+ * cells (phase `retired`), the plot `retired`.
  */
 export function plotRetire (rec, sited) {
   if (!rec || !sited?.size) return null
   const gone = q => plotEntryRetired(q, sited)
-  if (![...(rec.cells ?? []), ...(rec.cut ?? []), ...(rec.clear ?? [])].some(gone) && !(rec.replant ?? []).some(q => gone(q) && q.state !== 'skipped')) return null
+  if (![...(rec.cells ?? []), ...(rec.cut ?? []), ...(rec.clear ?? [])].some(gone)) return null
   const cells = (rec.cells ?? []).filter(q => !gone(q))
   const keepSeg = new Set(cells.map(q => q.seg))
   return { ...rec, cells, segments: (rec.segments ?? []).filter(sg => keepSeg.has(sg.seg)), cut: (rec.cut ?? []).filter(q => !gone(q)), clear: (rec.clear ?? []).filter(q => !gone(q)),
-    replant: (rec.replant ?? []).map(q => (gone(q) && q.state !== 'skipped' ? { ...q, state: 'skipped', why: 'plot_sited' } : q)),
+    // Codex r1 (plotprep-02): the replants are LEFT as they are -- skipping them would shrink the head's count under tree-clear rows
+    // already logged (the read's G5: saplings=a/b against the head); a replant cell is never in a plot, so the sapling for a tree no
+    // longer felled is only one more sapling in the tree farm
+    replant: rec.replant ?? [],
     plotprep: { ...rec.plotprep, plots: (rec.plotprep.plots ?? []).map(p => (sited.has(String(p.id)) ? { ...p, retired: true } : p)), platforms: (rec.plotprep.platforms ?? []).map(p => (sited.has(String(p.plot)) ? { ...p, phase: 'retired' } : p)) } }
 }
 /** Does a stand still stand on the record (its stage never completes over it)? Pure. */
