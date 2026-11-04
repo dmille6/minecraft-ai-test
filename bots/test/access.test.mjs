@@ -156,13 +156,37 @@ await t('siteStage inwall with the ledger: a busy spot at the ledge gets its sta
   const r0 = T.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: st, terrace: { wall: { ring: [-15, -15, 15, 15] }, records: [] } })
   assert.ok(!(r0.record?.cells ?? []).some(c => c.role === 'access'), 'control: without the ledger no stair')
 })
+await t('Codex r1 BLOCKERS: the ledger is QUEUED (the placement never waits on the disk, the queue bounded); a stair never leads up to a wall top or a ridge', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'climbq-'))
+  const t0 = Date.now()
+  for (let i = 0; i < 10; i++) assert.strictEqual(PJ.climbEnqueue(dir, 'showcase-Echo', { x: i, y: 70, z: 0, shape: 'pillar', reason: 'pathfinder', t: t0 + i }), true)
+  assert.strictEqual(PJ.climbRead(dir).length, 0, 'nothing written synchronously')
+  assert.strictEqual(await PJ.climbFlush(), 10)
+  assert.strictEqual(PJ.climbRead(dir).length, 10)
+  const d0 = PJ.climbStats.dropped
+  for (let i = 0; i < 80; i++) PJ.climbEnqueue(dir, 'showcase-Echo', { x: i, y: 70, z: 1, shape: 'pillar', reason: 'pathfinder', t: t0 })
+  assert.ok(PJ.climbStats.dropped - d0 >= 16, 'a full queue drops, counted'); await PJ.climbFlush()
+  const srv = server(); const cells = new Set()
+  for (let z = -6; z <= 6; z++) for (let y = G + 1; y <= G + 4; y++) { srv.set([6, y, z], 'stone_bricks'); cells.add(`6,${y},${z}`) }
+  const climbs = [...Array(5)].map((_, i) => ({ x: 5, y: G + 1, z: 0, t: Date.now() - i }))
+  const st = LP.landStages().find(q => q.id === 'inwall')
+  const r = T.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: st, avoid: (x, z) => (x >= 5 && x <= 7 ? 'project:wall' : null), cells, terrace: { wall: { ring: [-15, -15, 15, 15] }, records: [], climbs } })
+  assert.ok(!(r.record?.inwall?.access ?? []).some(a => a.ledger), 'never onto the wall top')
+  const ridge = server(); for (let z = -6; z <= 6; z++) for (let y = G + 1; y <= G + 3; y++) ridge.set([6, y, z], 'stone')
+  const r2 = T.siteStage(ridge.read, { home: HOME, land: { seed: 1 }, stage: st, terrace: { wall: { ring: [-15, -15, 15, 15] }, records: [], climbs } })
+  assert.ok(!(r2.record?.inwall?.access ?? []).some(a => a.ledger), 'never onto a ridge')
+  await withMutant(TIDY_PATH, '      if (!ground(on) || Math.abs(on.y - hc.y) > 1 || cellCols.has(k2(hx - dx, hz - dz))) continue\n', '', async M => {
+    const m = M.siteStage(ridge.read, { home: HOME, land: { seed: 1 }, stage: st, terrace: { wall: { ring: [-15, -15, 15, 15] }, records: [], climbs } })
+    assert.ok((m.record?.inwall?.access ?? []).some(a => a.ledger), 'mutant (no straight-on check) stairs onto the ridge')
+  })
+})
 await t('mutant: the ledger taking a mine\'s pillars (no surface band) is caught; the wiring feeds the ledger and reads it', async () => {
   await withMutant(new URL('../src/placeaudit.mjs', import.meta.url), "Number.isFinite(args.y) && !!home && args.y >= Math.floor(home.y) - T.band", "Number.isFinite(args.y)", async M => {
     assert.strictEqual(M.climbOf({ outcome: 'placed', zone: 'town', reason: 'pathfinder', shape: 'pillar', y: HOME.y - 10 }, HOME), true)
   })
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
   const f = strip(readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8'))
-  assert.ok(/if \(climbOf\(args, configuredHome\(config\.world\)\)\) climbAppend\(poolStateDir\(config\.memory\.pool\)/.test(f), 'the feed')
+  assert.ok(/if \(climbOf\(args, configuredHome\(config\.world\)\)\) climbEnqueue\(poolStateDir\(config\.memory\.pool\)/.test(f), 'the feed (queued: Codex r1)')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(/climbs = climbRead\(dir, \{ since: Date\.now\(\) - 48 \* 60 \* 60_000 \}\)/.test(sk) && /caps: I\.caps, climbs, have,/.test(sk), 'the read')
 })

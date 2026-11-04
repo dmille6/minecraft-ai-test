@@ -1089,10 +1089,18 @@ export function spotStair (read, spot, { col, cellCols = new Set(), free = () =>
     const lc = col(x, z)
     if (!ground(lc) || cellCols.has(k2(x, z)) || !free(x, z)) continue
     for (const [dx, dz] of N4) {
-      const hc = col(x - dx, z - dz)
+      const hx = x - dx, hz = z - dz, hc = col(hx, hz)
       if (!ground(hc)) continue
       const d = hc.y - lc.y
       if (d < 2 || d > 4) continue
+      // Codex r1 BLOCKER (access-02): the destination is GROUND, never a build (a wall top, a roof: a record cell's column, or a column
+      // `free` refuses) and never a 1-wide ridge -- the column straight on past H and at least one more of H's other 4-neighbours stand
+      // within 1 of it (a ledge one walks on, not a wall top with a drop beyond)
+      if (cellCols.has(k2(hx, hz)) || !free(hx, hz)) continue
+      const on = col(hx - dx, hz - dz)
+      if (!ground(on) || Math.abs(on.y - hc.y) > 1 || cellCols.has(k2(hx - dx, hz - dz))) continue
+      const level = N4.filter(([ex, ez]) => !(hx + ex === x && hz + ez === z)).map(([ex, ez]) => col(hx + ex, hz + ez)).filter(c => ground(c) && Math.abs(c.y - hc.y) <= 1).length
+      if (level < 2) continue
       edges.push({ x, z, hx: x - dx, hz: z - dz, gL: lc.y, gH: hc.y, d, dist: Math.max(Math.abs(x - spot[0]), Math.abs(z - spot[1])) })
     }
   }
