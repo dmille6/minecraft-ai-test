@@ -113,6 +113,9 @@ const REQUIRED = [
   'docs/reports/storehub-ab-2026-11-04/make_storehub.py',
   'bots/scripts/storehub-offline.mjs',
   'bots/test/storehub.test.mjs',
+  // wallext-01 (11-04): the wall extension round the storage hall, its test and its design
+  'bots/test/wallext.test.mjs',
+  'docs/reports/wallext-design-2026-11-04.md',
   // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
   'bots/src/sinks.mjs',
   'bots/scripts/sinks-offline.mjs',

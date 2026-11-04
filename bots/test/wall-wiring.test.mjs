@@ -118,11 +118,11 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/
 const SRC = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 for (const [name, re] of [
   ['build_shop dispatches the wall to its own visit', /if \(proj\.plot === WALL_PLOT\) return buildWall\(ctx, args, signal\)/],
-  ['the wall\'s visit runs with its own palette, foreign set, walk radius and clear bound', /walkR: wallWalkR\(rec, home\), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,\n\s*\.\.\.wallStuckOf\(c\), [^\n]*\}, effects/],
+  ['the wall\'s visit runs with its own palette, foreign set, walk radius and clear bound', /walkR: wallWalkR\(rec, home\), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,\n\s*\.\.\.wallStuckOf\(c, K\.plot\), [^\n]*\}, effects/],
   ['the wall bills its open cells from town above the floor a project draw meets (the bag\'s spare first)', /const bill = billOf\(rec, palette, read, \{ done: buildCellDone, inTown: zigBillInTown\(bot, town\) \}\)\n\s*const need = wallNeed\(bill, spare0, needFromTown, SHOP_BILL_CAP\)/],
   ['the visit works the record with its lights last (in memory)', /const rec = wallLightsLast\(rh\.head\.rec\)/],
-  ['the wall is sited ONCE (published only when there is no record)', /const pub = publishRecord\(dir, key, cur => \(cur \? null : \{ \.\.\.record, state: 'open' \}\), \{ by: me \}\)\n[^\n]*\n {4}if \(pub\.result === 'accepted'\) \{ try \{ logEvent\(\{ kind: 'build', status: 'success', snapshot: snapshot\(bot\), detail: buildRowDetail\(\{ project: WALL_PLOT, op: 'sited'/],
-  ['the wall\'s sapling keep-out is its columns', /r\.blueprint === WALL_BLUEPRINT \? wallSaplingCols\(r\)/],
+  ['the wall is sited ONCE (published only when there is no record)', /const pub = publishRecord\(dir, key, cur => \(cur \? null : \{ \.\.\.record, state: 'open' \}\), \{ by: me \}\)\n[^\n]*\n {4}if \(pub\.result === 'accepted'\) \{ try \{ logEvent\(\{ kind: 'build', status: 'success', snapshot: snapshot\(bot\), detail: buildRowDetail\(\{ project: K\.plot, op: 'sited'/],   // wallext-01: the wall visit serves both walls (K: WALL_KIND | WALLEXT_KIND)
+  ['the wall\'s sapling keep-out is its columns', /r\.blueprint === WALL_BLUEPRINT \|\| r\.blueprint === WALLEXT_BLUEPRINT \? wallSaplingCols\(r\)/],
   ['build_shop counts its pick as a repair visit (the back-off\'s count)', /const proj = shopActive\(bot, Date\.now\(\), \{ visit: true \}\)/],
   ['shopActive backs off a repair that does not take', /const states = repairBackoff\(activeMem\.states, rmem, now\)\.map/],
   // zigtidy-02: ...except within the tidy's repair window after a repair completion (shop.mjs tidyIsRepair; zigtidy2.test.mjs)

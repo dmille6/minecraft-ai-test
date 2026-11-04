@@ -213,9 +213,9 @@ console.log('THE WIRING (skills.mjs, structural)')
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const WIRES = [
   /const stacks = cobbleWellStacks\(items, \{ reserve: wellCobbleReserveNow\(bot\) \}\)\n\s*if \(!stacks\.length\) return 'none'/,
-  /const plan = disposePlan\(bagNow, \{ maxStacks, swords: out\.swordsAllowed, cobbleAtCap: out\.cap === 'at_cap', stock: out\.stock, keep: listedOnly \? keep : null, cobbleReserve \}\)/,
+  /const plan = disposePlan\(bagNow, \{ maxStacks, swords: out\.swordsAllowed, cobbleAtCap: out\.cap === 'at_cap', stock: out\.stock, keep: keepOf \? keepOf\(bot\.inventory\?\.items\?\.\(\) \?\? \[\]\) : keep, cobbleReserve \}\)/,   // the showcase fold with storehub-01 (its clerk keep)
   /if \(out\.cap === 'at_cap' && !yardDeferredNow\(bot\) && wellKeptForYard\(bagNow, cobbleReserve\)\) \{ bot\.yardDeferAt = Date\.now\(\); out\.yardKept = cobbleReserve \}/,
-  /cobbleAtCap: cobbleWellCap\(bot\) === 'at_cap', stock: pruneStockOpts\(bot, pruned\), cobbleReserve: wellCobbleReserveNow\(bot\) \}\)/,
+  /cobbleAtCap: cobbleWellCap\(bot\) === 'at_cap', stock: pruneStockOpts\(bot, pruned\), cobbleReserve: wellCobbleReserveNow\(bot\), keep \}\)/,   // + storehub-01's keep
   /if \(\(need\.cobblestone \?\? 0\) > 0 && workableSeg\(rec, read, palette, segFree\)\) \{\n\s*const got = await yardDrawFor\(ctx, need\.cobblestone, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS\)/,
   /if \(\(need\.cobblestone \?\? 0\) > 0 && workableSeg\(visitRec, read, palette, tidySegOk, waivedK, \{ skipOpenDeps: GROUNDS\.on \}\)\) \{\n\s*const got = await yardDrawFor\(ctx, need\.cobblestone, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS\)/,
   /if \(nPlaced > 0\) bot\.yardStockAt = Date\.now\(\)/,
