@@ -394,9 +394,12 @@ def judge(history, now):
 
 
 # ------------------------------------------------------------------------------------------------ the run (impure)
-# The fleet line's telemetry.py (predates_window: the size cap counts only files in the window) is the one that can walk 6 h
-# on this host; main's copy refuses (WalkTooWide on ~22 GB of rotated history, 11-02). Loaded by path from the live tree.
-TELEMETRY = '/opt/minecraft-ai/scripts/lib/telemetry.py'
+# OUR OWN COPY of main's telemetry.py, installed next to this file by install-flowledger.sh -- not the live fleet tree
+# (/opt/minecraft-ai), which deploy-fleet.sh resets to whatever sha is deployed, so this read's behaviour changed with
+# every deploy. The size cap must price only the files the walk reads (predates_window, main 11-04): the whole-glob
+# estimate hit WalkTooWide at 2026-11-04T00:05Z (22.5 GB priced for a 6 h window holding 2.0 GB of in-scope files).
+# An earlier comment here said the fleet line already had that fix; it did not (only recovery-ladder-03 c79d57b4).
+TELEMETRY = os.path.join(HERE, '..', 'lib', 'telemetry.py')
 
 
 def load_rows(window_min, paths=LOGS, telemetry=TELEMETRY):

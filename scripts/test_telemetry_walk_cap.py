@@ -7,6 +7,12 @@ at 11.4 GB while 1.9 GB was on disk, so every Events.load() raised WalkTooWide
 the two halves of the fix: a window excludes files that predate it, and the cap
 still refuses a walk that is genuinely too big.
 
+2026-11-04: main never carried that fix (it lived on recovery-ladder-03,
+c79d57b4); this file did, and failed at import. The estimate half is now on
+main (predates_window + one frozen list). c79d57b4's other changes -- naive-bound
+refusal, the runtime decompressed budget, bad-line-costs-a-line -- are NOT on
+main and their cases were removed here rather than left failing.
+
 Behavioural, not source-matching: each case builds real files with real mtimes
 and calls the real loader.
 """
@@ -138,65 +144,61 @@ def main():
                 check('under the same small cap the short window still loads', False, str(e)[:60])
                 check('...and still returns the in-window row, not an empty walk', False, 'never loaded')
 
-        # 5. A naive bound is refused at the door, not swallowed into an
-        #    empty result (Codex pass 1, finding 6).
-        try:
-            Events.load(paths=glob, since=datetime.datetime(2026, 9, 18, 0, 0))
-            check('a naive since= is refused, not silently empty', False, 'no raise')
-        except ValueError:
-            check('a naive since= is refused, not silently empty', True)
-        except TypeError as e:
-            check('a naive since= is refused, not silently empty', False, 'TypeError: %s' % str(e)[:40])
-
-        # 6. The runtime budget stops a walk whose real bytes beat the ESTIMATE.
-        #    The 25x multiplier prices a .gz before opening it; telemetry that
-        #    compresses better than 25x therefore slips under the cap and then
-        #    blows it while decompressing (Codex pass 1, finding 3). A first
-        #    draft padded a plain file instead -- the estimate caught that one
-        #    first, so the test passed with the budget deleted, and the mutant
-        #    said so.
-        squishy = os.path.join(d, 'w2', 'skill-beta.jsonl-20260917.gz')
-        write(squishy, [row((now - datetime.timedelta(minutes=5)).isoformat().replace('+00:00', 'Z'))],
-              age_days=0, pad=4 * 1024 * 1024)      # one repeated byte: ~1000:1
-        onfile = os.path.getsize(squishy)
-        check('the squishy fixture is priced UNDER the cap it will then blow',
-              onfile * 25 < 256 * 1024 < 4 * 1024 * 1024,
-              'on disk %d, estimate %d' % (onfile, onfile * 25))
-        with cap(256 * 1024):
-            try:
-                Events.load(paths=os.path.join(d, 'w2', 'skill-*.jsonl*'), since_minutes=60)
-                check('the runtime byte budget stops a walk the estimate let through', False, 'no raise')
-            except WalkTooWide:
-                check('the runtime byte budget stops a walk the estimate let through', True)
-
-        # 7. A BAD LINE COSTS A LINE, NOT THE REST OF THE FILE.
-        #    Codex pass 2 reproduced: valid row / [] / valid row returned ONE
-        #    row, because a mid-file exception hit the per-FILE handler and
-        #    skipped to the next file. This is the quiet-short-walk failure the
-        #    whole module is written against, so it gets a first-class test.
-        mixed = os.path.join(d, 'w3', 'skill-gamma.jsonl')
-        os.makedirs(os.path.dirname(mixed), exist_ok=True)
+        # 5. THE 11-04 SHAPE: many bots, many rotated generations each, a short
+        #    window. 00:05Z: 1,200 files priced whole at 22.5 GB against a 6 h
+        #    window whose 160 in-scope files were 2.0 GB, so the hourly
+        #    flowledger raised. Here: 6 bots x 15 old .gz each plus one live file
+        #    per bot, under a cap the old pricing breaches and the in-window
+        #    pricing does not.
+        many = os.path.join(d, 'many')
         stamp = (now - datetime.timedelta(minutes=5)).isoformat().replace('+00:00', 'Z')
-        with open(mixed, 'w') as fh:
-            fh.write(row(stamp, bot='g1') + '\n')
-            fh.write('[]\n')                                    # valid JSON, wrong shape
-            fh.write('{"@timestamp": "not-a-time", "skill": {"name": "mine"}}\n')
-            fh.write('{ broken json\n')
-            fh.write(row(stamp, bot='g2') + '\n')
-        os.utime(mixed, None)
-        ev = Events.load(paths=os.path.join(d, 'w3', 'skill-*.jsonl*'), since_minutes=60)
-        check('a bad line does not discard the rest of the file',
-              len(ev.rows) == 2, 'rows=%d (expected the 2 good ones)' % len(ev.rows))
-        check('...and both surviving bots are present (positive control)',
-              {(r['bot'] or {}).get('name') for r in ev.rows} == {'g1', 'g2'},
-              str({(r['bot'] or {}).get('name') for r in ev.rows}))
+        for b in range(6):
+            write(os.path.join(many, 'w%d' % b, 'skill-b%d.jsonl' % b),
+                  [row(stamp, bot='b%d' % b)], age_days=0)
+            for g in range(1, 16):
+                write(os.path.join(many, 'w%d' % b, 'skill-b%d.jsonl-202610%02d.gz' % (b, g)),
+                      [row('2026-10-%02dT00:00:00Z' % g, bot='b%d' % b)],
+                      age_days=g + 1, pad=2048, compressible=False)
+        mglob = os.path.join(many, '*', 'skill-*.jsonl*')
+        mfiles = _g.glob(mglob)
+        mwhole = sum(os.path.getsize(f) * (25 if f.endswith('.gz') else 1) for f in mfiles)
+        mlive = sum(os.path.getsize(f) for f in mfiles if not f.endswith('.gz'))
+        MCAP = 64 * 1024
+        check('many-gens fixture: 96 files, whole pricing breaches the cap, live does not',
+              len(mfiles) == 96 and mwhole > MCAP > mlive,
+              'files=%d whole=%d live=%d cap=%d' % (len(mfiles), mwhole, mlive, MCAP))
+        with cap(MCAP):
+            try:
+                ev = Events.load(paths=mglob, since_minutes=360)
+                check('many old rotated generations + a 6 h window: no raise', True)
+                check('...and every bot\'s live row comes back (6 of 6)',
+                      sorted((r['bot'] or {}).get('name') for r in ev.rows)
+                      == ['b%d' % i for i in range(6)], 'rows=%d' % len(ev.rows))
+            except WalkTooWide as e:
+                check('many old rotated generations + a 6 h window: no raise', False, str(e)[:70])
+                check('...and every bot\'s live row comes back (6 of 6)', False, 'never loaded')
+            try:
+                Events.load(paths=mglob, since_minutes=60 * 24 * 60)
+                check('a 60-day window over the same files still raises', False, 'no raise')
+            except WalkTooWide:
+                check('a 60-day window over the same files still raises', True)
 
-        # 8. A naive `until` is refused too, not only `since`.
+        # 6. MUTANT: price the whole glob again (the pre-fix estimate). Case 5
+        #    must then raise, or case 5 is not testing the fix.
+        tsrc = open(telemetry.__file__).read()
+        old = '        est = 0\n        for f in files:\n'
+        assert tsrc.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE'
+        msrc = tsrc.replace(old, '        est = 0\n        for f in glob.glob(paths):\n')
+        import types
+        mut = types.ModuleType('telemetry_mutant')
+        mut.__file__ = telemetry.__file__
+        exec(compile(msrc, telemetry.__file__, 'exec'), mut.__dict__)
+        mut.MAX_WALK_BYTES = MCAP
         try:
-            Events.load(paths=glob, since_minutes=60, until=datetime.datetime(2026, 9, 18, 5, 0))
-            check('a naive until= is refused as well', False, 'no raise')
-        except ValueError:
-            check('a naive until= is refused as well', True)
+            mut.Events.load(paths=mglob, since_minutes=360)
+            check('mutant (estimate over the whole glob) is killed by case 5', False, 'mutant survived')
+        except mut.WalkTooWide:
+            check('mutant (estimate over the whole glob) is killed by case 5', True)
 
         # 9. The shared decision itself.
         since = now - datetime.timedelta(hours=1)

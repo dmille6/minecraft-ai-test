@@ -83,6 +83,31 @@ def open_log(path):
     return open(path, errors='replace')
 
 
+def predates_window(path, since):
+    """True when `path` provably holds no row at or after `since`.
+
+    A rotated file cannot contain rows newer than its own mtime. This is the ONE
+    place that decides whether a file is in scope: the size estimate and the walk
+    in `Events.load()` both read the same list built with it. When they kept
+    separate copies of the rule, the estimate priced every rotated generation the
+    walk would never open (11-04 00:05Z: 1,200 files priced at 22.5 GB for a 6 h
+    window whose 160 in-scope files came to 2.0 GB; flowledger died).
+
+    mtime, not the `-YYYYMMDD` in the name: exact rather than a day-granularity
+    guess, and right for the live file too (still being appended, so never
+    skipped). No window, or an unreadable mtime, is never a skip -- the walk would
+    rather pay for a file than silently drop one.
+    """
+    if since is None:
+        return False
+    try:
+        mt = datetime.datetime.fromtimestamp(os.path.getmtime(path),
+                                             datetime.timezone.utc)
+    except OSError:
+        return False
+    return mt < since
+
+
 MAX_WALK_BYTES = 6 * 2**30   # ~6 GB of raw telemetry; see the guard in load()
 
 
@@ -121,8 +146,16 @@ class Events:
         # for this data (16 GB -> 634 MB measured, ~26x). Raising the cap is not
         # the fix -- Elasticsearch holds the full archive and is where a wide
         # window belongs.
+        #
+        # THE ESTIMATE PRICES THE FILES THE WALK WILL READ, NOT THE WHOLE GLOB.
+        # One frozen list, filtered once by predates_window(), feeds both the
+        # estimate and the walk, so they cannot disagree about scope. Pricing the
+        # whole glob grew with every nightly rotation until a 6 h window raised
+        # (see predates_window). An unbounded walk (no since) still prices every
+        # file, and a genuinely wide window still raises.
+        files = [f for f in sorted(glob.glob(paths)) if not predates_window(f, since)]
         est = 0
-        for f in glob.glob(paths):
+        for f in files:
             try:
                 sz = os.path.getsize(f)
                 est += sz * 25 if f.endswith('.gz') else sz
@@ -137,7 +170,7 @@ class Events:
                 % (est / 2**30, MAX_WALK_BYTES / 2**30))
 
         rows, newest = [], None
-        for f in sorted(glob.glob(paths)):
+        for f in files:
             # A ROTATED FILE CANNOT CONTAIN ROWS NEWER THAN ITS OWN MTIME.
             #
             # Without this the walk decompresses all 14 rotated generations to
@@ -150,14 +183,7 @@ class Events:
             # being appended, so never skipped). Skipping only ever removes files
             # that provably predate the window, so the walk stays FULL for the
             # window asked for -- which is the property that matters.
-            if since is not None:
-                try:
-                    import os as _os, datetime as _dt
-                    mt = _dt.datetime.fromtimestamp(_os.path.getmtime(f), _dt.timezone.utc)
-                    if mt < since:
-                        continue
-                except OSError:
-                    pass
+            # (Applied above, in `files`, by predates_window().)
             try:
                 with open_log(f) as fh:
                     for line in fh:
