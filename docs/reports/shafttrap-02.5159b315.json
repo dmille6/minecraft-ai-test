@@ -1,0 +1,21 @@
+{
+ "run_id": "shafttrap-02",
+ "sha": "5159b3159a4648e2fbf33e4ca333777833536337",
+ "registered_at": "2026-11-04T00:00:00Z",
+ "promotion": "fleet-wide",
+ "change_rows": [
+  "_stair_handoff",
+  "_stair_walk_through"
+ ],
+ "licence": {
+  "class": "kind",
+  "kind": "_stair_handoff",
+  "min_rows": 1,
+  "note": "Written only by this build (reflex.mjs stairExitFirst: one row per hand-over). The base has no writer. _stair_walk_through (reflex.mjs, once a minute while a walk moves through the stair) likewise."
+ },
+ "notes": "[VARIANT] shafttrap-02 @ 5159b315 branch canary-shafttrap-02-on-53fd28ee, on fleet 53fd28ee (cooldown15-02). [FUN MODE; SURVIVAL lane, owner 11-03] SHAFTTRAP-02: the reflexes hand a bot on the town stair to the egress (shafttrap-01's runStairEgress, folded in: a stair visit ends at the collar). Measured 11-02 00Z..11-03 22Z (46 h, 80/80 bots, 3,647,488 rows; 14/16 towns with a complete stair): 1,429 trap episodes began ON a stair (68 bots, 3,305 bot-min; first arm entombed 995, marooned 431); 553 pillared into the stair, 749 met the escape guard, 163 ended in _needs_rescue record=shaft (173 shaft rescues on a stair of 176 fleet-wide); 1,279 repair digs why=air; surface's in-stair ascent 304 no_plan, 0 arrived. 3,643 of 3,810 in-stair _entombed rows were bodies in transit between treads, the skill ABORTED (gather 855, goto 782, explore 466, surface 331, home 250). WHAT: (1) the entombed arm waits while a running skill's pathfinder moves the bot on the stair (_stair_walk_through); (2) marooned (climb/need_scaffold) and entombed (before pillarOut; give-up waits) take the body and run the egress first; egressHandoff: out/yield/retry end the firing, fallthrough runs today's chain at once, the step waits 5 min; never a deep trip or a 'stair' claim; complete stairs only; (3) stairAscend on the stair = the egress; (4) ownership: the hop walk halts only its own goal, restores only its own profile, quiet once the body is lost, sync abort; no equip/dig once aborted; an unconfirmed dig asks the server (probe). Reviews (tier 3, two engines): Codex r1 2 BLOCKERS (aborted egress clears the rescue's goal/stroke; dig after loss) fixed, r2 none, r3 none, r4 none (profiles moved into index.mjs for dep-contract); Claude subagent r1 none, r2 1 BLOCKER (leaked gather digging profile) fixed, r3 none. Paper sandbox3 whole bot (node src/index.mjs, model off / scripted brain; sandbox/shafttrap/handoff-e2e.mjs): blocked cand 4 of 4 clean runs out on 1436fd27/053f4c66/68ab4c75 (one more run had a driver spawn artifact, fixed); first 5159b315: _stair_handoff marooned k=44 then=out, 16 hops, 3 dirt dug, 39 s, every planned cell as planned; blocked base (SHAFTTRAP=0): the maroon ramp pillared dirt into the step-44 stand cell and stopped at y=32 in the stair; a pre-fix run of the cand (24e009c5) showed the fallthrough composition (handoff entombed then=fallthrough -> escape_guard ramp in the same firing) and the ghost-dig that the probe now fixes; descend cand: a goto down the stair hit the entombed test mid-walk (_stair_walk_through), was not interrupted, arrived at the 16 stub. OWN LINES: in-stair trap episodes per stair-exposure bot-h (base 1,429/46 h fleet); in-stair _entombed with an aborted skill -> ~0; shaft _needs_rescue (173/46 h); in-stair _inventory_mutation (1,132); _shaft_use dir=up arrivals on the stair (0); _stair_handoff then= shares (out should dominate); repeat then=out > 6 per bot-hour = an up/down loop, NAMED. Rollback: the base sha, or SHAFTTRAP=0. World: digs only foreign blocks in the stair's planned air cells (the visit's witnessed dig). Report docs/reports/shafttrap-02-design-2026-11-03.md. Full suite (w30, 5f8b42f8): 383/388, failing ceilescape, nothing-important-is-orphaned, protected-paths, well (known base) + fallpath-wired (count pinned; fixed in 5159b315, targeted pass).",
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

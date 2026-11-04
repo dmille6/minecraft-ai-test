@@ -4387,21 +4387,23 @@
    "memory": [
     "shafttrap-1103.md"
    ],
-   "kind": "showcase",
+   "kind": "canary",
    "lane": "survival",
    "state": "open",
    "owner": "control session",
-   "next_step": "shafttrap-01 (branch showcase-shafttrap-on-cbd2f51b, tier 2 by protected.py: not protected) is READY TO STAGE: the control session folds it into the next showcase release (before the 10 -> 15 bot step) and reads the 2 h generic read + _shaft op=egress rows, in-box _marooned/_entombed after a visit (144/14 h), shaft _needs_rescue (11/14 h), pillar placements (124), repair digs (296). Then shafttrap-02 (fleet S canary, tier 3: the marooned/entombed arms and stairAscend hand a bot on the stair to runStairEgress first; with shafttrap-01 folded in) -- NOT built: build on the fleet sha, two engines, a whole-bot Paper proof of the reflex composition first.",
+   "next_step": "shafttrap-01 (branch showcase-shafttrap-on-cbd2f51b, tier 2) READY TO STAGE in the showcase lane (control session folds it). shafttrap-02 BUILT (branch canary-shafttrap-02-on-53fd28ee @ 5159b315 on fleet 53fd28ee, shafttrap-01 folded in; tier 3): draft entry docs/reports/shafttrap-02.queue-entry.json + registration docs/reports/shafttrap-02.5159b315.json -- the control session queues it as the next S after bundle-1103a (before dropdig's swimunder-01), then reads _stair_handoff / in-stair trap episodes / shaft rescues.",
    "max_quiet_hours": 48,
    "evidence": {
     "paths": [
+     "docs/reports/shafttrap-02-design-2026-11-03.md",
      "docs/reports/shafttrap-design-2026-11-03.md"
     ],
     "branches": [
+     "canary-shafttrap-02-on-53fd28ee",
      "showcase-shafttrap-on-cbd2f51b"
     ]
    },
-   "note": "Codex designed independently (agreed: visit egress + a fleet stair dispatcher; its pathfinder-start-node cause refuted by the real A* and Paper scene edge). Codex review r1: 2 blockers (liquid barrier, body on the block) fixed; r2: 1 (body cells skipped in the liquid check) fixed. Paper sandbox3 11-03 at ad9a819f: before, before_clean, clean, pillared, lava, edge, stub all pass."
+   "note": "Codex designed independently (agreed: visit egress + a fleet stair dispatcher; its pathfinder-start-node cause refuted by the real A* and Paper scene edge). Codex review r1: 2 blockers (liquid barrier, body on the block) fixed; r2: 1 (body cells skipped in the liquid check) fixed. Paper sandbox3 11-03 at ad9a819f: before, before_clean, clean, pillared, lava, edge, stub all pass. shafttrap-02 11-03: fleet 46 h 1,429 in-stair trap episodes (68 bots, 3,305 bot-min; entombed 995 / marooned 431), 3,643 of 3,810 in-stair _entombed = bodies in transit with the walk aborted; built: walk-through wait + hand-over to the egress + surface egress; Codex r1 2 blockers fixed, r2/r3 none; Claude r1 none, r2 1 blocker fixed; Paper sandbox3 whole bot: blocked cand out (16 hops, 3 cleared, stair as planned) vs base pillared into the stair."
   },
   {
    "id": "ci2-1103",

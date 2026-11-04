@@ -171,6 +171,10 @@ const REQUIRED = [
   // monustuck-01 (11-03): the stuck fleet ziggurats (bamboo stalk felled at its foot, waiver beside a sealed cell, dig-walk bans)
   'docs/reports/monustuck-design-2026-11-03.md',
   'docs/reports/shafttrap-design-2026-11-03.md',   // shafttrap-1103: the town stair trap (design + Codex reconciliation)
+  'docs/reports/shafttrap-02-design-2026-11-03.md',   // shafttrap-02: the fleet hand-over (design, reviews, Paper)
+  'docs/reports/shafttrap-02.queue-entry.json',   // shafttrap-02: the draft queue entry
+  'docs/reports/shafttrap-02.5159b315.json',   // shafttrap-02: the registration
+
   // promomerge (11-02, audit 11-01 flag 4): every fleet promotion merged into main mechanically, or it pages
   'scripts/host/promomerge.py',
   'scripts/host/test_promomerge.py',

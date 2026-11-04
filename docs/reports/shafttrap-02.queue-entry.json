@@ -1,0 +1,20 @@
+{
+ "run": "shafttrap-02",
+ "class": "",
+ "after": [
+  "bundle-1103a"
+ ],
+ "not_before": null,
+ "hold": null,
+ "note": "DRAFT (shafttrap-02 agent 11-03; the control session queues it). SURVIVAL entry: the next S slot after bundle-1103a (P), i.e. S,P,S: swimcentre-01 (S) -> bundle-1103a (P) -> shafttrap-02 (S); swimunder-01 (dropdig, S) after the next P. Tier 3 (reflex.mjs, skills.mjs::stair*). Draw: any pools whose town has a COMPLETE stair (14 of 16: not board-c, not hive-c); prefer the most-trapped (isolated-c 163, isolated-a 153, placebo-c 152, board-b 138 episodes / 46 h). Install the registration as ~/mcai-analysis/shafttrap-02.<sha8>.json.",
+ "variants": {
+  "53fd28eea23b44b1ade02b8bd9ea380379c15c38": {
+   "registration": "/home/mike/mcai-analysis/shafttrap-02.5159b315.json",
+   "approved": "Codex blockers-only r1 2 BLOCKERS fixed, r2/r3/r4 none; Claude subagent r1 none, r2 1 BLOCKER fixed, r3 none; analyses: Codex independent design reconciled (docs/reports/shafttrap-02-design-2026-11-03.md section 3); tier 3 by protected.py; stair-handoff.test 26, town-stair-wiring 17, town-stair-stuck, tombexit, stair-egress pass; eslint clean (lint:movement fails on the base: buildbot.mjs etc., pre-existing); Paper sandbox3 whole bot: blocked cand out (16 hops, 3 cleared, stair as planned) vs base pillared into the stair; descend cand walk-through not interrupted; full suite w30 5f8b42f8 383/388 (4 known base + fallpath-wired count, fixed in 5159b315; targeted stair/tomb/escape/maroon/fallpath/dep-contract/body-claim/climb-flood/sandbox-registry pass)",
+   "canary_sha": "5159b3159a4648e2fbf33e4ca333777833536337",
+   "branch": "canary-shafttrap-02-on-53fd28ee",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {}
+  }
+ }
+}
