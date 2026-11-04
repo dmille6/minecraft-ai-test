@@ -165,6 +165,10 @@ async function scene (name) {
   let joined = false
   for (let k = 0; k < 60; k++) { await sleep(2000); if (r1('list').includes(NAME)) { joined = true; break } }
   if (!joined) throw new Error('the bot did not join: ' + r1('list'))
+  // the bot spawns where the last scene left it (maybe IN the stair, where its reflexes fire before the scene is set): park it
+  // on the surface at home first and let it settle, then set the scene
+  rcon(`tp ${NAME} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`)
+  await sleep(8000)
   const s44 = G.standOf(PLAN, 44)
   batch([`gamemode survival ${NAME}`, `clear ${NAME}`, `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 900 1 true`,
     `item replace entity ${NAME} container.0 with minecraft:stone_pickaxe[damage=31] 1`,
@@ -185,6 +189,8 @@ async function scene (name) {
     if (atExit(last)) { outAt ??= Date.now(); if (Date.now() - outAt > 20_000) break } else outAt = null
   }
   const rows = rowsOf(b).filter(r => !(Date.parse(r['@timestamp']) < placedAt))
+  try { rcon(`tp ${NAME} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`) } catch {}   // the next scene's spawn is on the surface
+  await sleep(1500)
   await stopBot(b)
   const tr = truth()
   const pick = re => rows.filter(r => re.test(kind(r))).map(r => ({ t: r['@timestamp'].slice(11, 23), k: kind(r), s: r.skill?.status, d: String(r.skill?.detail ?? '').slice(0, 170), y: r.bot?.pos?.y }))
