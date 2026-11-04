@@ -101,13 +101,65 @@ await t('the siting keeps off a reservation, a step in the ground and a water co
   // ...but the site with nothing to clear is preferred (the cost counts the clears)
   assert.notDeepStrictEqual(C.siteCropFarm(srvP.read, { home: HOME }).record.box, b0)
 })
-await t('MUTANT KILLED: without the level rule a box with a step in it is sited (a fall onto farmland tramples it)', async () => {
+await t('MUTANT KILLED: without the level rule a box with a 2-block step in it is sited (a fall onto farmland tramples it)', async () => {
   const srv = server()
   const b0 = C.siteCropFarm(srv.read, { home: HOME }).record.box
-  srv.set([b0[0] + 3, G + 1, b0[1] + 3], 'grass_block'); srv.set([b0[0] + 3, G, b0[1] + 3], 'dirt')
-  await withMutant(CROP_PATH, "    if (c.y !== L) return { ok: false, why: 'level' }\n", '\n', async M => {
-    assert.deepStrictEqual(M.siteCropFarm(srv.read, { home: HOME }).record.box, b0)
+  srv.set([b0[0] + 3, G + 1, b0[1] + 3], 'dirt'); srv.set([b0[0] + 3, G + 2, b0[1] + 3], 'grass_block')
+  assert.notDeepStrictEqual(C.siteCropFarm(srv.read, { home: HOME }).record.box, b0)
+  await withMutant(CROP_PATH, "    if (Math.abs(c.y - L) > 1) return { ok: false, why: 'level' }\n", '\n', async M => {
+    const P = (await import('../src/paths.mjs'))
+    const col = (x, z) => P.pathColumn(srv.read, x, z, { yHi: HOME.y + 16, yLo: HOME.y - 16 })
+    const r0 = C.siteCropFarm(server().read, { home: HOME }).record
+    assert.ok(M.fitBed(srv.read, { x0: r0.anchor[0], z0: r0.anchor[1], orient: r0.orient, home: HOME, col }).ok)
   })
+})
+console.log('THE BED LEVEL, THE CANOPY, THE SMALLER BEDS (cropfarm-02fix: LIVE showcase 11-04, 30/30 visits no_site)')
+const fitAt0 = (srv, r0) => { const col = (x, z) => P0.pathColumn(srv.read, x, z, { yHi: HOME.y + 16, yLo: HOME.y - 16 }); return C.fitBed(srv.read, { x0: r0.anchor[0], z0: r0.anchor[1], orient: r0.orient, home: HOME, col }) }
+const P0 = await import('../src/paths.mjs')
+await t('one off the level: a bump is a listed cut (the soil under a crop checked), a walkway dip a floor fill, a crop dip refused; two off refuses', async () => {
+  const r0 = C.siteCropFarm(server().read, { home: HOME }).record
+  const crop = C.cropCells(r0)[0].at, walk = r0.walk[0]
+  const s1 = server(); s1.set([crop[0], G + 1, crop[2]], 'grass_block'); s1.set([crop[0], G, crop[2]], 'dirt')
+  const f1 = fitAt0(s1, r0)
+  assert.ok(f1.ok, f1.why)
+  assert.deepStrictEqual(f1.clear, [{ at: [crop[0], G + 1, crop[2]], kind: 'cut', name: 'grass_block' }])
+  const s1s = server(); s1s.set([crop[0], G + 1, crop[2]], 'grass_block'); s1s.set([crop[0], G, crop[2]], 'stone')
+  assert.strictEqual(fitAt0(s1s, r0).why, 'soil', 'under the cut a crop needs soil')
+  const s2 = server(); s2.set([walk[0], G, walk[2]], 'air')
+  const f2 = fitAt0(s2, r0)
+  assert.ok(f2.ok, f2.why)
+  assert.deepStrictEqual(f2.floor, [[walk[0], G, walk[2]]])
+  const rec2 = C.cropRecord({ f: f2, x0: r0.anchor[0], z0: r0.anchor[1] }, { home: HOME })
+  assert.deepStrictEqual(rec2.cells.filter(c => c.role === 'floor').map(c => [c.at, c.seg]), [[[walk[0], G, walk[2]], 'F']])
+  const s3 = server(); s3.set([crop[0], G, crop[2]], 'air')
+  assert.strictEqual(fitAt0(s3, r0).why, 'dip')
+})
+await t('the canopy: leaves 6 above are shade (priced), leaves 2 above are cover (refused)', async () => {
+  const r0 = C.siteCropFarm(server().read, { home: HOME }).record
+  const crop = C.cropCells(r0)[0].at
+  const hi = server(); hi.set([crop[0], G + 6, crop[2]], 'spruce_leaves')
+  const fh = fitAt0(hi, r0)
+  assert.ok(fh.ok && fh.canopy === 1, JSON.stringify([fh.why, fh.canopy]))
+  const lo = server(); lo.set([crop[0], G + 2, crop[2]], 'spruce_leaves')
+  assert.strictEqual(fitAt0(lo, r0).why, 'cover')
+})
+await t('MUTANT KILLED: with the head room check back to "anything above" a canopy refuses the site', async () => {
+  await withMutant(CROP_PATH, "if (c.above.some(a => a.kind !== 'plant' && a.y <= L + CROP.headroom)) return { ok: false, why: 'cover' }", "if (c.above.some(a => a.kind !== 'plant')) return { ok: false, why: 'cover' }", async M => {
+    const r0 = C.siteCropFarm(server().read, { home: HOME }).record
+    const crop = C.cropCells(r0)[0].at
+    const hi = server(); hi.set([crop[0], G + 6, crop[2]], 'spruce_leaves')
+    const col = (x, z) => P0.pathColumn(hi.read, x, z, { yHi: HOME.y + 16, yLo: HOME.y - 16 })
+    assert.strictEqual(M.fitBed(hi.read, { x0: r0.anchor[0], z0: r0.anchor[1], orient: r0.orient, home: HOME, col }).why, 'cover')
+  })
+})
+await t('the smaller beds: where no 4 x 7 fits, the biggest that does (2 x 5 in a 7 x 5 clearing); none at all -> no fit', async () => {
+  const srv = server()
+  const open = (x, z) => x >= 20 && x <= 26 && z >= 10 && z <= 14
+  const s = C.siteCropFarm(srv.read, { home: HOME, blocked: (x, z) => (open(x, z) ? null : 'project') })
+  assert.ok(s.ok, s.why)
+  assert.deepStrictEqual(s.record.grid, [2, 5])
+  assert.strictEqual(C.cropCells(s.record).length, 10)
+  assert.ok(!C.siteCropFarm(srv.read, { home: HOME, blocked: () => 'project' }).ok)
 })
 await t('the land plan: the farms zone before the town ring; neither fits -> a named no fit', async () => {
   const srv = server()
@@ -234,9 +286,10 @@ await t('MUTANT KILLED: with the keep\'s delete gone the showcase\'s seeds are s
 })
 
 console.log('THE VISIT: the hoe tills, the seeds go in, a seedless cell is passed and never tilled')
-const farmVisit = async ({ inv, rec, seeds = () => (inv.wheat_seeds ?? 0) > 0 }) => {
+const farmVisit = async ({ inv, rec, seeds = () => (inv.wheat_seeds ?? 0) > 0, setup = null }) => {
   const srv = server()
-  for (const c of rec.clear ?? []) srv.set(c.at, c.name)
+  if (setup) setup(srv)
+  else for (const c of rec.clear ?? []) srv.set(c.at, c.name)
   const dir = mkdtempSync(path.join(os.tmpdir(), 'cf-'))
   const key = PJ.projKey(HOME, C.CROPFARM_PLOT)
   const pub = PJ.publishRecord(dir, key, () => ({ ...rec }))
@@ -268,6 +321,22 @@ await t('a sited farm built end to end: every till cell farmland, every crop cel
   assert.ok(C.cropCells(rec).every(c => srv.read(...c.at).name === 'wheat'))
   assert.strictEqual(inv.wheat_seeds, 40 - 28)
   assert.strictEqual(srv.read(...g0).name, 'wheat', 'the listed grass was dug and the cell planted')
+})
+await t('a bed one off the level built end to end: the cut dug, the floor filled, then tilled and planted; cropCutsLeft empty', async () => {
+  const s0 = server()
+  const r0 = C.siteCropFarm(s0.read, { home: HOME }).record
+  const crop = C.cropCells(r0)[0].at, walk = r0.walk[0]
+  const sx = server(); sx.set([crop[0], G + 1, crop[2]], 'grass_block'); sx.set([crop[0], G, crop[2]], 'dirt'); sx.set([walk[0], G, walk[2]], 'air')
+  const f = fitAt0(sx, r0)
+  const rec = C.cropRecord({ f, x0: r0.anchor[0], z0: r0.anchor[1] }, { home: HOME })
+  const inv = { stone_hoe: 1, wheat_seeds: 40, cobblestone: 8 }
+  const { r, srv } = await farmVisit({ inv, rec, setup: v => { v.set([crop[0], G + 1, crop[2]], 'grass_block'); v.set([crop[0], G, crop[2]], 'dirt'); v.set([walk[0], G, walk[2]], 'air') } })
+  assert.strictEqual(r.stop, 'complete', `${r.stop}: ${r.why}`)
+  assert.strictEqual(srv.read(crop[0], G, crop[2]).name, 'farmland')
+  assert.strictEqual(srv.read(...crop).name, 'wheat')
+  assert.notStrictEqual(srv.read(walk[0], G, walk[2]).name, 'air', 'the walkway dip filled')
+  assert.strictEqual(C.cropCutsLeft(srv.read, rec).length, 0)
+  assert.ok(C.cropCells(rec).every(c => srv.read(...c.at).name === 'wheat'))
 })
 await t('no seed: nothing is tilled (a farmland with nothing on it only dries back), the visit completes over the passed cells', async () => {
   const rec = REC()

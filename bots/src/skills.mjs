@@ -150,7 +150,7 @@ import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted 
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
-import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow } from './cropfarm.mjs'   // cropfarm-01
+import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft } from './cropfarm.mjs'   // cropfarm-01
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
 import { legacyStage, stageCarry, tidyWater, cutSafeNow } from './tidy.mjs'   // townterrace-01
@@ -21791,7 +21791,7 @@ async function buildCropFarm (ctx, args, signal) {
     const record = s.record
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...record, state: 'open', zone: s.zone ?? null }), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
-    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: CROPFARM_PLOT, op: 'sited', cell: [record.anchor[0], record.level, record.anchor[1]], kind: `crops${record.counts.crops}/wet${record.counts.hydrated}/${record.orient}/${s.zone ?? '-'}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: CROPFARM_PLOT, op: 'sited', cell: [record.anchor[0], record.level, record.anchor[1]], kind: `crops${record.counts.crops}/${(record.grid ?? []).join('x')}/wet${record.counts.hydrated}/cut${record.counts.cut ?? 0}/floor${record.counts.floor ?? 0}/${record.orient}/${s.zone ?? '-'}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the crop farm record could not be read back')
   }
@@ -21860,7 +21860,8 @@ async function buildCropFarm (ctx, args, signal) {
     // COMPLETE: every till cell farmland or under a crop, every crop cell planted -- or passed for want of seed after a gather that
     // found no source (the farm is quiet until seeds arrive: cropDue)
     const allPlanted = cropCells(rec).every(q => CROP_BLOCKS.has(String(read(...q.at)?.name ?? '')))
-    if (r.stop === 'complete' && !rec.structure_complete && (allPlanted || (!seeds() && /^no_source|^backoff/.test(sg.why)))) {
+    // cropfarm-02fix: and every listed cut dug (the bed level; runVisit may end complete past an unreachable clear)
+    if (r.stop === 'complete' && !rec.structure_complete && !cropCutsLeft(read, rec).length && (allPlanted || (!seeds() && /^no_source|^backoff/.test(sg.why)))) {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       completed = true
       bot.shopDamage = null

@@ -39,10 +39,16 @@ export const CROP = Object.freeze({
   wheatTownCap: 128,        // the town's wheat (chests): at or above, the harvest waits (two stacks)
   minFree: 4,               // free bag slots a harvest needs
   gatherBackoffMs: 30 * 60_000,
+  headroom: 3,              // cells above the ground that must hold nothing but plants (a canopy above is shade, priced)
+  earthMax: 24,             // the most cuts + floor fills a site may need (each column at most one off the bed's level)
+  // the bed sizes, biggest first (rows x len): LIVE 11-04 offline, no 4 x 7 fits the showcase's crowded, wooded ground; 3 x 5 does
+  grids: Object.freeze([[4, 7], [3, 7], [3, 5], [2, 7], [2, 5]]),
 })
+/** Natural ground a cut may dig (the bed's bumps). */
+export const CUTTABLE = /^(grass_block|dirt|coarse_dirt|podzol|rooted_dirt|mycelium|moss_block|dirt_path|stone|andesite|diorite|granite|tuff|gravel|sand|cobblestone|mossy_cobblestone)$/
 /** The record's palette (buildrun.mjs cellDone / blockFor): a till cell is done as farmland; a crop cell takes wheat seeds (a wheat
  *  block of any age reads as its seed: buildrun.mjs blockFamily). */
-export const CROP_PALETTE = Object.freeze({ till: Object.freeze(['farmland']), wheat: Object.freeze(['wheat_seeds']) })
+export const CROP_PALETTE = Object.freeze({ till: Object.freeze(['farmland']), wheat: Object.freeze(['wheat_seeds']), floor: Object.freeze(['dirt', 'cobblestone', '*solid']) })
 /** What a visit may dig out of an OPEN crop cell before planting (buildrun.mjs foreignKind's scaffold class): a plant only. */
 export const CROP_FOREIGN = /^(short_grass|tall_grass|fern|large_fern|dandelion|poppy|[a-z_]+_tulip|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|allium|blue_orchid|leaf_litter|wildflowers|pink_petals|short_dry_grass|tall_dry_grass|bush|dead_bush|snow)$/
 /** The crop blocks a farm harvests and their mature age (vanilla CropBlock.MAX_AGE 7; beetroots 3). */
@@ -89,7 +95,7 @@ export function bedLayout (x0, z0, orient = 'x', { rows = CROP.rows, len = CROP.
 export function fitBed (read, { x0, z0, orient = 'x', home, col, blocked = () => null, zoneOk = () => true, water = () => false, rows = CROP.rows, len = CROP.len } = {}) {
   const lay = bedLayout(x0, z0, orient, { rows, len })
   const [bx0, bz0, bx1, bz1] = lay.box
-  let L = null
+  const ys = []
   for (let x = bx0; x <= bx1; x++) for (let z = bz0; z <= bz1; z++) {
     if (!zoneOk(x, z)) return { ok: false, why: 'zone' }
     const r = blocked(x, z)
@@ -97,23 +103,37 @@ export function fitBed (read, { x0, z0, orient = 'x', home, col, blocked = () =>
     const c = col(x, z)
     if (c.why === 'unknown') return { ok: false, why: 'unknown' }
     if (c.why) return { ok: false, why: `box:${c.why}` }
-    if (L == null) L = c.y
-    if (c.y !== L) return { ok: false, why: 'level' }
-    // nothing but plants above the ground: no tree, no leaves, no litter to cut (head room for the walkway and the crop)
-    if (c.above.some(a => a.kind !== 'plant')) return { ok: false, why: 'cover' }
+    ys.push(c.y)
   }
-  const clear = []
-  for (const p of lay.crops) {
-    const c = col(p.x, p.z)
-    if (!TILLABLE.test(c.name ?? '')) return { ok: false, why: 'soil' }
-    // a plant on the crop cell is the till's overburden (runVisit digs a listed plant first); a two-high plant's upper half too
-    for (const a of c.above) if (a.y === L + 1 || a.y === L + 2) clear.push({ at: [p.x, a.y, p.z], kind: 'plant', name: a.name })
-  }
-  for (const [x, z] of lay.walk) {
+  // THE BED'S LEVEL (cropfarm-02fix, LIVE showcase 11-04: 30/30 visits no_site -- offline on the region copy, no 9 x 9 of the
+  // town's graded ground is flat to the block): L is the median ground; a column one ABOVE is CUT to L (its ground block dug, a
+  // listed `cut` clear: what is under it must be the soil a crop needs), a WALKWAY column one BELOW gets a FLOOR fill at L (dirt;
+  // a crop column below L is refused: a fill cannot be tilled in the same cell). Anything further off refuses the site.
+  ys.sort((a, b) => a - b)
+  const L = ys[ys.length >> 1]
+  const isCrop = new Set(lay.crops.map(p => k2(p.x, p.z)))
+  const clear = [], floor = []
+  let canopy = 0
+  for (let x = bx0; x <= bx1; x++) for (let z = bz0; z <= bz1; z++) {
     const c = col(x, z)
-    // a walkway is a stand: two cells of head room (a plant is no obstacle)
-    if (c.above.some(a => a.y <= L + 2 && a.kind !== 'plant')) return { ok: false, why: 'walk' }
+    if (Math.abs(c.y - L) > 1) return { ok: false, why: 'level' }
+    const crop = isCrop.has(k2(x, z))
+    // HEAD ROOM (LIVE 11-04: 860 of 3,292 candidates `cover`, the farms zone under a spruce canopy): nothing but plants up to
+    // L + CROP.headroom (the crop, a builder's body on the walkway); a canopy higher up is shade, priced, never a refusal
+    if (c.above.some(a => a.kind !== 'plant' && a.y <= L + CROP.headroom)) return { ok: false, why: 'cover' }
+    if (c.above.some(a => a.kind !== 'plant')) canopy++
+    if (c.y === L + 1) {
+      if (!CUTTABLE.test(c.name ?? '')) return { ok: false, why: 'cut' }
+      clear.push({ at: [x, L + 1, z], kind: 'cut', name: c.name })
+      if (crop && !TILLABLE.test(nm(read(x, L, z)))) return { ok: false, why: 'soil' }
+    } else if (c.y === L - 1) {
+      if (crop) return { ok: false, why: 'dip' }
+      floor.push([x, L, z])
+    } else if (crop && !TILLABLE.test(c.name ?? '')) return { ok: false, why: 'soil' }
+    // a plant on a crop cell (or on a cut's top) is overburden runVisit digs first (listed); a two-high plant's upper half too
+    if (crop || c.y === L + 1) for (const a of c.above) if (a.kind === 'plant' && a.y >= L + 1 && a.y <= L + 3) clear.push({ at: [x, a.y, z], kind: 'plant', name: a.name })
   }
+  if (clear.filter(q => q.kind === 'cut').length + floor.length > CROP.earthMax) return { ok: false, why: 'earth' }
   // HYDRATION: crop cells with still water within hydrateR at L or L + 1 (outside the box: the box holds no water)
   const R = CROP.hydrateR
   let hydrated = 0
@@ -127,8 +147,9 @@ export function fitBed (read, { x0, z0, orient = 'x', home, col, blocked = () =>
   const cx = (bx0 + bx1) / 2, cz = (bz0 + bz1) / 2
   const d = Math.hypot(cx - home.x, cz - home.z)
   if (d > CROP.rMax) return { ok: false, why: 'far' }
-  const cost = d * 0.5 - hydrated * 2 + clear.length * 0.05
-  return { ok: true, why: null, L, crops: lay.crops, walk: lay.walk, clear, hydrated, box: lay.box, orient, cost }
+  const earth = clear.filter(q => q.kind === 'cut').length + floor.length
+  const cost = d * 0.5 - hydrated * 2 + clear.length * 0.05 + canopy * 0.5 + earth * 0.3
+  return { ok: true, why: null, L, crops: lay.crops, walk: lay.walk, clear, floor, hydrated, canopy, box: lay.box, orient, rows, len, cost }
 }
 
 /**
@@ -142,7 +163,7 @@ export function fitBed (read, { x0, z0, orient = 'x', home, col, blocked = () =>
  * one pass over any column. Within a pass every first-crop column and both orientations whose box lies at least rMin from home
  * at its nearest; the cheapest fit wins (distance, then hydration), ties by the scan order (deterministic).
  */
-export function siteCropFarm (read, { home, blocked = () => null, zone = null, water = () => false, yHi = null, yLo = null, rows = CROP.rows, len = CROP.len } = {}) {
+export function siteCropFarm (read, { home, blocked = () => null, zone = null, water = () => false, yHi = null, yLo = null, grids = CROP.grids } = {}) {
   if (!home || typeof read !== 'function') return { ok: false, why: 'no_home', record: null, tried: 0 }
   const hi = yHi ?? Math.floor(home.y) + 16, lo = yLo ?? Math.floor(home.y) - 16
   const cache = new Map()
@@ -155,7 +176,9 @@ export function siteCropFarm (read, { home, blocked = () => null, zone = null, w
   const R = CROP.rMax
   const why = {}
   let tried = 0
-  for (const kinds of passes) {
+  // the biggest bed first; for each size the farms zone, then the town ring (a smaller bed in the farms zone never loses to a bigger
+  // one in the town: sizes outer, passes inner)
+  for (const [rows, len] of grids) for (const kinds of passes) {
     let best = null
     const zoneOk = kinds ? (x, z) => kinds.includes(zk(x, z)) : () => true
     for (const orient of ['x', 'z']) {
@@ -186,7 +209,9 @@ const frontOf = (walk, home) => walk.slice().sort((a, b) => Math.hypot(a[0] - ho
 /** THE RECORD from a fit. Pure. One segment per row: its till cells (L) and its crop cells (L + 1, built after the till below). */
 export function cropRecord ({ f, x0, z0 }, { home }) {
   const cells = [], segments = []
-  for (let r = 0; r < CROP.rows; r++) {
+  // THE FLOOR (cropfarm-02fix): the walkway fills, their own segment first (a stand needs its floor)
+  if (f.floor?.length) { segments.push({ seg: 'F', deps: [] }); for (const a of f.floor) cells.push({ at: a, role: 'floor', seg: 'F' }) }
+  for (let r = 0; r < (f.rows ?? CROP.rows); r++) {
     const seg = `R-${r + 1}`
     const row = f.crops.filter(p => p.row === r)
     if (!row.length) continue
@@ -196,14 +221,17 @@ export function cropRecord ({ f, x0, z0 }, { home }) {
   }
   return {
     v: 1, blueprint: CROPFARM_BLUEPRINT, plot: CROPFARM_PLOT, home: { x: home.x, y: home.y, z: home.z },
-    anchor: [x0, z0], orient: f.orient, box: f.box, level: f.L, cells, segments, clear: f.clear, replant: [],
+    anchor: [x0, z0], orient: f.orient, grid: [f.rows ?? CROP.rows, f.len ?? CROP.len], box: f.box, level: f.L, cells, segments, clear: f.clear, replant: [],
     walk: f.walk.map(([x, z]) => [x, f.L + 1, z]),
     front: frontOf(f.walk, home),
-    counts: { crops: f.crops.length, hydrated: f.hydrated, clear: f.clear.length },
-    bom: { wheat_seeds: f.crops.length },
+    counts: { crops: f.crops.length, hydrated: f.hydrated, clear: f.clear.length, cut: f.clear.filter(q => q.kind === 'cut').length, floor: f.floor?.length ?? 0 },
+    bom: { wheat_seeds: f.crops.length, ...(f.floor?.length ? { dirt: f.floor.length } : {}) },
     builders_max: CROPFARM_BUILDERS,
   }
 }
+/** The bed's CUTS still standing (a listed cut whose cell still holds the block it was listed with): the farm is not complete
+ *  until they are dug (the tree farm's rule: runVisit may end `complete` past an unreachable clear). Pure. */
+export const cropCutsLeft = (read, rec) => (rec?.clear ?? []).filter(c => c.kind === 'cut' && nm(read(...c.at)) === c.name)
 
 // ---- the farm, read ---------------------------------------------------------------------------------------------------------
 
