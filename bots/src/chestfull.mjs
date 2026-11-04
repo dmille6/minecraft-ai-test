@@ -63,7 +63,31 @@ const homeLevel = home => Math.floor(Number(home?.y))
  */
 export function inTown (home, q) {
   if (!home || !q || ![q.x, q.y, q.z].every(Number.isFinite)) return false
+  return inTownBox(home, q) || inTownExtra(home, q)
+}
+/** THE TOWN BOX alone (inTown before storehub-01): within STORAGE_NEAR of home horizontally and TOWN_DY of its level. Pure. */
+export function inTownBox (home, q) {
+  if (!home || !q || ![q.x, q.y, q.z].every(Number.isFinite)) return false
   return Math.hypot(q.x - home.x, q.z - home.z) <= STORAGE_NEAR && Math.abs(Math.floor(q.y) - homeLevel(home)) <= TOWN_DY
+}
+// STOREHUB-01 (storehub.mjs; design 3.1, Claude review blocker 3): THE TOWN'S REGISTERED CONTAINERS beyond the box -- the sorted
+// hall's chests, sited in the town ring. A registered cell is in town exactly as a box cell is: the stock view, the cobble cap, the
+// withdraw and kit searches and the town index count it, or moving stock into the hall would empty the town's view of it. Only an
+// INTEGER cell matches (a container's block position; a bot's feet never sit inside a chest's cell). Set by skills.mjs from the hall's
+// record (hubChestKeys); empty when STOREHUB is off, so every reader is then exactly as before.
+const TOWN_EXTRA = new Map()
+const homeKeyOf = home => `${home.x},${home.y},${home.z}`
+/** Replace the registered containers of the town at `home` (keys "x,y,z"). Never throws. */
+export function setTownExtra (home, keys = []) {
+  try { if (home) TOWN_EXTRA.set(homeKeyOf(home), new Set([...keys].map(String))) } catch { /* unchanged */ }
+}
+/** The registered containers of the town at `home` -> Set("x,y,z") (a copy). */
+export const townExtraKeys = home => new Set(home ? (TOWN_EXTRA.get(homeKeyOf(home)) ?? []) : [])
+/** Is `q` (an integer cell) one of the town's registered containers? Pure over the registry. */
+export function inTownExtra (home, q) {
+  if (!home || !q || ![q.x, q.y, q.z].every(Number.isInteger)) return false
+  const s = TOWN_EXTRA.get(homeKeyOf(home))
+  return !!s && s.size > 0 && s.has(`${q.x},${q.y},${q.z}`)
 }
 /**
  * MAY A DEPOSIT USE THE CONTAINER AT `q`? -> false only for a DEEP one (|dy| > TOWN_DY from home). Pure. A null
