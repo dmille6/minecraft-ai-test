@@ -154,18 +154,15 @@ await t('unlockAllowed: names (wooden trapdoor / fence gate, with or without min
   assert.equal(PZ.unlockAllowed('spruce_trapdoor', { x: 1, y: 2, z: 3 }, undefined), false)
 })
 
-await t('buildOrder: an idle bot is asked the unlock FIRST (before the copper run and the expedition); no ask -> unchanged', async () => {
+await t('buildOrder (fleet line: no idle branch): the unlock is asked once the plan exists, before the project order; no ask -> unchanged', async () => {
   const SH = await import('../src/shop.mjs')
-  const asked = []
-  SH.setUnlockAsk(() => { asked.push('unlock'); return { order: { skill: 'village_unlock', args: { x: 1, y: 2, z: 3 } } } })
-  SH.setCopperAsk(() => { asked.push('copper'); return { order: { skill: 'gather', args: {} } } })
-  const r = SH.buildOrder({ on: true, shared: true, atTown: true, now: 1e12, complete: true, planned: true })
-  assert.deepEqual(r.order, { skill: 'village_unlock', args: { x: 1, y: 2, z: 3 } })
-  assert.deepEqual(asked, ['unlock'])
+  SH.setUnlockAsk(() => ({ order: { skill: 'village_unlock', args: { x: 1, y: 2, z: 3 } } }))
+  assert.deepEqual(SH.buildOrder({ on: true, shared: true, atTown: true, now: 1e12, complete: true, planned: true }).order, { skill: 'village_unlock', args: { x: 1, y: 2, z: 3 } })
+  assert.deepEqual(SH.buildOrder({ on: true, shared: true, atTown: true, now: 1e12, planned: false }), { order: null, skip: null }, 'no plan: never asked')
+  assert.deepEqual(SH.buildOrder({ on: true, shared: false, atTown: true, now: 1e12, planned: true }), { order: null, skip: null }, 'isolated: never asked')
   SH.setUnlockAsk(() => null)
-  const r2 = SH.buildOrder({ on: true, shared: true, atTown: true, now: 1e12, complete: true, planned: true })
-  assert.equal(r2.order?.skill, 'gather', 'POSITIVE CONTROL: without an unlock the copper run still comes next')
-  SH.setUnlockAsk(null); SH.setCopperAsk(null)
+  assert.deepEqual(SH.buildOrder({ on: true, shared: true, atTown: true, now: 1e12, complete: true, planned: true }), { order: null, skip: 'complete' }, 'POSITIVE CONTROL: without an unlock the order is as before')
+  SH.setUnlockAsk(null)
 })
 
 await t('the skill is registered (chatOnly, never the model\'s) with a contract', async () => {
