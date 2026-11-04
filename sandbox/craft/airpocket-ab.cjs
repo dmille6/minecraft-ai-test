@@ -145,13 +145,28 @@ const SPEC = {
   OB: { setup: ['fill 700 40 700 700 41 701 minecraft:water', 'fill 700 42 701 700 44 701 minecraft:air'],
         expect: [[700, 39, 700, 'stone'], [700, 41, 700, 'water'], [700, 41, 701, 'water'], [700, 42, 700, 'stone'], [700, 42, 701, 'air'], [700, 43, 700, 'stone'], [700, 41, 702, 'stone']],
         secs: 150, stand: { x: 700.5, y: 40, z: 700.35 } },
+  // dropanddig-01 (11-04): the TIME-budget drownings -- the floating dig is refused on health (wooden pickaxe on stone:
+  // 28 s floating -> needs 45.2 s, budget 32 s at 20 HP; isolated-d-Alpha 11-02 needed exactly 45225 ms). Run with AP_KIT=wood.
+  //   DD1  floor 1 down: AF's 1x1x2 pocket (stone 39, water 40..41, stone roof 42)   -- hive-b-Bravo / placebo-d-Delta
+  //   DD2  floor 2 down: water 39..41, stone 38                                      -- isolated-d-Alpha / placebo-d-Bravo
+  //   DD3  floor 3 down: water 38..41, stone 37 (no drop: the candidate must refuse exactly as the base)
+  DD1: { setup: ['fill 700 40 700 700 41 700 minecraft:water'], expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone'], [701, 42, 700, 'stone']], secs: 150 },
+  DD2: { setup: ['fill 700 39 700 700 41 700 minecraft:water'], expect: [[700, 38, 700, 'stone'], [700, 39, 700, 'water'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [701, 42, 700, 'stone']], secs: 150 },
+  DD3: { setup: ['fill 700 38 700 700 41 700 minecraft:water'], expect: [[700, 37, 700, 'stone'], [700, 38, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [701, 42, 700, 'stone']], secs: 150 },
   CR: { setup: ['fill 700 40 700 700 41 700 minecraft:water'], expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone']], secs: 150 },
 }
 const CLEAR_ITEMS = 'kill @e[type=item,x=700,y=40,z=700,distance=..24]'
 function arenaCmds (spec) { return [CLEAR_ITEMS, 'fill 692 30 692 708 52 708 minecraft:stone', ...spec.setup] }
 const KIT = process.env.AP_KIT || 'default'
-if (!['default', 'worn1', 'iron1stone', 'iron1', 'smelt', 'craft', 'mine'].includes(KIT)) throw new Error(`AP_KIT ${KIT}`)
+if (!['default', 'worn1', 'iron1stone', 'iron1', 'smelt', 'craft', 'mine', 'wood'].includes(KIT)) throw new Error(`AP_KIT ${KIT}`)
 function kitCmds () {
+  if (KIT === 'wood') {    // dropanddig-01: a WOODEN pickaxe only (stone floating 28 s: the fleet's time-budget refusals)
+    return [`clear ${NAME}`,
+      `item replace entity ${NAME} container.0 with minecraft:wooden_pickaxe[damage=10] 1`,
+      `item replace entity ${NAME} container.1 with minecraft:cobblestone 64`,
+      `item replace entity ${NAME} container.2 with minecraft:bucket 1`,
+      `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 1 20 true`]
+  }
   if (KIT === 'mine') {    // held: cobblestone (hotbar 0); the only pickaxe in the MAIN inventory (the step's equip clicks)
     return [`clear ${NAME}`,
       `item replace entity ${NAME} container.0 with minecraft:cobblestone 64`,
