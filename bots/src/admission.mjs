@@ -21,6 +21,9 @@ import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
+import { repeatWorkConfig, repeatDecision, ledgerSet, tallyLine as repeatWorkTallyLine, TALLY_MS as REPEAT_WORK_TALLY_MS } from './repeatwork.mjs'
+import { logEvent } from './logger.mjs'
+import { snapshot } from './state.mjs'
 
 
 const REPEAT_WINDOW = 4
@@ -170,6 +173,12 @@ export class AdmissionControl {
     this.blockedCount = {}             // per-key block tally, for probation
     this.vetoStreak = 0                // consecutive learned_avoid rejections
     this.activeMilestoneId = null      // set by the cognitive layer each decision
+    // REPEATWORK-01 (repeatwork.mjs): the window does not refuse a gather whose last run of that key, on this rung, gained
+    this.repeatWork = repeatWorkConfig(process.env)
+    this.lastRun = new Map()           // key -> { gain, milestoneId, targeted }: the key's LAST run (bounded, LEDGER_MAX)
+    this.rwTally = null                // one repeatwork_tally row per 10 min
+    this.rwBot = null                  // the bot the last check() judged: the tally row's snapshot
+    this.rwWhy = null                  // this proposal's repeat outcome, handed from #check to check()
   }
 
   static key(skill, args) { return actionKey(skill, args) }
@@ -178,10 +187,35 @@ export class AdmissionControl {
   noteFailure(skill, args) {
     this.failedCooldowns.set(AdmissionControl.key(skill, args),
                              Date.now() + config.skills.failedCooldownMs)
+    this.#noteRun(skill, args, false)
   }
 
+  /** Called by the cognitive layer only for a VALUABLE success: the contract was met and the gain is one the rung wants. */
   noteSuccess(skill, args) {
     this.failedCooldowns.delete(AdmissionControl.key(skill, args))
+    this.#noteRun(skill, args, true)
+  }
+
+  /** REPEATWORK-01: the outcome of the key's last run. Its rung is the one it was ADMITTED on (the entry the window push made);
+   *  a key with no entry (an admission path that returns before the window) takes the rung active now. */
+  #noteRun(skill, args, gain) {
+    try {
+      const key = AdmissionControl.key(skill, args)
+      const prev = this.lastRun.get(key)
+      ledgerSet(this.lastRun, key, { gain, milestoneId: prev ? prev.milestoneId : (this.activeMilestoneId ?? null), targeted: prev?.targeted === true })
+      this.#rwCount(gain ? 'gains' : 'fails')
+    } catch { /* bookkeeping must never break a decision */ }
+  }
+
+  /** REPEATWORK-01: one repeatwork_tally row per bot per 10 min (repeatwork.mjs tallyLine). */
+  #rwCount(...whats) {
+    const now = Date.now()
+    this.rwTally ??= { t0: now, c: {} }
+    for (const w of whats) this.rwTally.c[w] = (this.rwTally.c[w] ?? 0) + 1
+    if (now - this.rwTally.t0 >= REPEAT_WORK_TALLY_MS) {
+      try { logEvent({ kind: 'repeatwork_tally', status: 'success', detail: repeatWorkTallyLine({ secs: (now - this.rwTally.t0) / 1000, c: this.rwTally.c }), snapshot: this.rwBot ? snapshot(this.rwBot) : undefined }) } catch { /* telemetry only */ }
+      this.rwTally = { t0: now, c: {} }
+    }
   }
 
   /** Called after an escape action, so the model gets a clean slate to choose from. */
@@ -203,8 +237,15 @@ export class AdmissionControl {
     const until = this.failedCooldowns.get(key)
     if (until && now < until) return 'cooldown'
     if ((this.lessons?.failCount?.(skill, args) ?? 0) >= 4) return 'learned_avoid'
-    if (this.recent.filter(k => k === key).length >= REPEAT_WINDOW) return 'repeat_loop'
+    // REPEATWORK-01: the same decision check() makes (repeatwork.mjs repeatDecision)
+    if (this.#repeat(skill, key).refuse) return 'repeat_loop'
     return null
+  }
+
+  /** REPEATWORK-01: the window's decision for this key, through the one pure rule (memoryRefuses and check both ask here). */
+  #repeat(skill, key) {
+    return repeatDecision({ cfg: this.repeatWork, skill, repeats: this.recent.filter(k => k === key).length, window: REPEAT_WINDOW,
+                            last: this.lastRun.get(key), milestoneId: this.activeMilestoneId ?? null })
   }
 
   /**
@@ -244,6 +285,14 @@ export class AdmissionControl {
    * @returns {{ok: true, skill, args} | {ok: false, reason: string, detail: string}}
    */
   check(proposal, bot, wanted = null) {
+    const out = this.#check(proposal, bot, wanted)
+    // REPEATWORK-01's tally: every proposal judged (model and order alike), refused or admitted
+    const why = this.rwWhy; this.rwWhy = null
+    try { if (bot) this.rwBot = bot; this.#rwCount('checks', out?.ok ? 'admitted' : 'refused', ...(why ? [why] : [])) } catch { /* telemetry only */ }
+    return out
+  }
+
+  #check(proposal, bot, wanted = null) {
     if (!proposal || typeof proposal !== 'object') {
       return { ok: false, reason: 'no_proposal', detail: 'model produced nothing usable' }
     }
@@ -786,13 +835,23 @@ export class AdmissionControl {
     }
 
     // --- oscillation guard --------------------------------------------------
+    // REPEATWORK-01: ...unless this gather's last run, on this rung, gained what the rung wants (repeatwork.mjs)
     const repeats = this.recent.filter(k => k === key).length
-    if (repeats >= REPEAT_WINDOW) {
+    const rd = this.#repeat(skill, key)
+    if (rd.refuse) {
+      this.rwWhy = 'repeat_refused'   // counted by check() with the rest of this proposal's keys (one write)
       return { ok: false, reason: 'repeat_loop', detail: `chose the identical action ${repeats}x in a row` }
+    }
+    if (rd.why === 'progress') {
+      this.rwWhy = 'progress_admits'
+      try { logEvent({ kind: 'repeat_progress', status: 'success', detail: `${key} repeats=${repeats} rung=${this.activeMilestoneId ?? '-'} -- its last run on this rung gained a wanted item`.slice(0, 300), snapshot: snapshot(bot) }) } catch { /* telemetry only */ }
     }
 
     this.recent.push(key)
     if (this.recent.length > REPEAT_WINDOW * 2) this.recent.shift()
+    // the run this admits has not reported a gain yet: until it does, the window judges the key as before
+    ledgerSet(this.lastRun, key, { gain: false, milestoneId: this.activeMilestoneId ?? null,
+                                   targeted: !!(wanted && ((wanted instanceof Set ? wanted.size : wanted.length) > 0)) })
     this.vetoStreak = 0
     return { ok: true, skill, args, kind: 'normal' }
   }
