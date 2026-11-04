@@ -41,6 +41,7 @@ import { hasTripPickaxe, nearHome } from './oretunnel.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
+import { depositOfferConfig, offeredSkills, tallyLine as depositOfferTallyLine, TALLY_MS as DEPOSIT_OFFER_TALLY_MS } from './depositoffer.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, roomOrder, roomOutcome, roomBackedOff, roomExclusions, lostLine, ROOM_WEAR_TRUST_MS } from './workorder.mjs'
@@ -425,6 +426,11 @@ export class CognitiveLoop {
     this.stopped = false
     this.lastOutcome = null
     this.decisions = 0
+    // DEPOSITOFFER-01 (depositoffer.mjs): a model call whose UNNAMED deposit the gate would refuse is not offered `deposit`
+    // at all -- the per-call skill enum drops it (the grammar enforces it); the system prompt stays as it is (cached).
+    this.depositOffer = depositOfferConfig(process.env)
+    this.schemaNoDeposit = skillSchema(SKILL_NAMES.filter(n => n !== 'deposit'))
+    this.doTally = null        // one depositoffer_tally row per 10 min (depositoffer.mjs tallyLine)
   }
 
   start() {
@@ -1144,8 +1150,14 @@ export class CognitiveLoop {
     // prompt, so the prompt stops advertising a craft the bag cannot hold and names the remedy instead.
     const ready = readyFor(this.bot, milestone, { wearFailedRecently: Date.now() - (this.roomWearFailAt?.[milestone?.wants] ?? -Infinity) < ROOM_WEAR_TRUST_MS })
     const room = ready.noRoom ? this.#roomRemedy(ready.noRoom) : null
+    // DEPOSITOFFER-01: the gate's own deposit reader, item = null, BEFORE the prompt (the CARRYING line goes with the option)
+    let depOffer = { skills: SKILL_NAMES, suppressed: null, why: null }
+    try {
+      depOffer = offeredSkills({ cfg: this.depositOffer, names: SKILL_NAMES,
+                                 verdict: this.admission.depositRunnable(this.bot, null, this.#wantedItems(milestone), milestone?.id ?? null) })
+    } catch { this.#doCount('read_failed') }
     const { user, tokens, dropped, affordance } = buildUserPrompt({
-      bot: this.bot, milestone, memory: this.memory, wanted: this.#wantedItems(milestone),
+      bot: this.bot, milestone, memory: this.memory, wanted: this.#wantedItems(milestone), depositOffered: !depOffer.suppressed,
       lastOutcome: this.lastOutcome, trigger, sentinel,
       noRoom: ready.noRoom ? { item: ready.noRoom.item, short: ready.noRoom.short, text: room?.text ?? null } : null,
       // Own experience first, then what peers reported. Peer lines carry the
@@ -1661,7 +1673,8 @@ export class CognitiveLoop {
     const res = order
       ? { schemaValid: true, latencyMs: 0, raw: null,
           proposal: { skill: order.skill, args: order.args, reason: order.why } }
-      : await this.llm.decide({ system: this.system, user, sentinel, schema: this.schema })
+      : await this.llm.decide({ system: this.system, user, sentinel, schema: depOffer.suppressed ? this.schemaNoDeposit : this.schema })
+    if (!order) { this.#doCount('model_calls'); this.#doCount(depOffer.suppressed ? 'suppressed' : 'offered'); if (depOffer.suppressed) this.#doCount(`sup_${depOffer.why}`) }
     this.decisions++
     this.lastDecisionAt = Date.now()
 
@@ -1680,6 +1693,7 @@ export class CognitiveLoop {
       const check = this.admission.check(res.proposal, this.bot, wantedNow)
       if (check.ok) admitted = check
       else rejection = check
+      if (!order && !check.ok) { this.#doCount('model_refused'); if (res.proposal?.skill === 'deposit') this.#doCount('deposit_refused') }
       // coalfirst-01: a coal run the gate refused never ran -- its pending mark goes (the cooldown charged at issue stands)
       if (!check.ok && order?.args?.coalrun === true) this.coalRunState = { ...(this.coalRunState ?? {}), pending: false }
       // TOOL HYGIENE, PART 1: one row per refusal -- the canary's liveness, and the read's G2/G4 evidence (the
@@ -1710,6 +1724,7 @@ export class CognitiveLoop {
       // CONTINUE (Claude review note 1): a continuation does not take a place in the gate's repeat window, so the model's
       // own repeat of a good gather is judged as before; the continuation is bounded by FEWERDEC_CONTINUE_MAX instead.
       if (order?.continuation && admitted.kind === 'normal') this.admission.forgetLastAdmitted(AdmissionControl.key(admitted.skill, admitted.args))
+      this.#doCount('skills_run')
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
       runFailClass = r.failClass ?? null
@@ -2100,6 +2115,18 @@ export class CognitiveLoop {
       const c = this.fdTally.c
       try { logEvent({ kind: 'fewerdec_tally', status: 'success', detail: `secs=${Math.round((now - this.fdTally.t0) / 1000)} ` + Object.entries(c).sort().map(([k, v]) => `${k}=${v}`).join(' '), snapshot: snapshot(this.bot) }) } catch { /* telemetry only */ }
       this.fdTally = { t0: now, c: {} }
+    }
+  }
+
+  /** DEPOSITOFFER-01: one depositoffer_tally row per bot per 10 min -- offers suppressed and why, refusals per model call,
+   *  model calls per minute, skills run per bot-hour (depositoffer.mjs tallyLine), for the canary read. */
+  #doCount (what) {
+    const now = Date.now()
+    this.doTally ??= { t0: now, c: {} }
+    this.doTally.c[what] = (this.doTally.c[what] ?? 0) + 1
+    if (now - this.doTally.t0 >= DEPOSIT_OFFER_TALLY_MS) {
+      try { logEvent({ kind: 'depositoffer_tally', status: 'success', detail: depositOfferTallyLine({ secs: (now - this.doTally.t0) / 1000, c: this.doTally.c }), snapshot: snapshot(this.bot) }) } catch { /* telemetry only */ }
+      this.doTally = { t0: now, c: {} }
     }
   }
 }

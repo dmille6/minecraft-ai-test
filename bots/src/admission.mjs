@@ -16,7 +16,8 @@ import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
-import { bankableInventory, depositDue, depositPlan, depositNoopReason, bankableExclusion, cobbleReconcileProbe, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { bankableInventory, depositPlan, depositNoopReason, bankableExclusion, cobbleReconcileProbe, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { depositVerdict, isDepositMilestone } from './depositoffer.mjs'
 import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
@@ -205,6 +206,37 @@ export class AdmissionControl {
     if ((this.lessons?.failCount?.(skill, args) ?? 0) >= 4) return 'learned_avoid'
     if (this.recent.filter(k => k === key).length >= REPEAT_WINDOW) return 'repeat_loop'
     return null
+  }
+
+  /**
+   * WOULD check() REFUSE THIS DEPOSIT ON ITS DEPOSIT RULES? -> depositVerdict's { ok } | { ok: false, reason } (bank_closed /
+   * deposit_nothing_to_bank / deposit_not_worth_it). DEPOSITOFFER-01: check() decides with this, and the prompt's offer asks
+   * it with item = null (the widest deposit: a named plan is a subset of the unnamed one). A READ: no rows, no wants written
+   * to the bot. `pre` lets check() pass what it already computed; the offer passes nothing.
+   */
+  depositRunnable(bot, item = null, wanted = null, milestoneId = this.activeMilestoneId, pre = null) {
+    const closed = bankClosed(bot)
+    if (closed) return { ok: false, reason: 'bank_closed' }
+    const items = pre?.items ?? bot.inventory?.items?.() ?? []
+    const wants = pre?.wants ?? [...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]
+    const noSwords = pre?.noSwords ?? foodSkipNow(bot).active
+    const bank = pre?.bank ?? bankableInventory(items, { wants, noSwords })
+    const capNames = item == null ? ['cobblestone', 'cobbled_deepslate'] : /^(cobblestone|cobbled_deepslate)$/.test(item) ? [item] : []
+    const reconcile = capNames.some(n => bankableExclusion(items, n, { wants, noSwords }) === 'town_cobble_unknown') && cobbleReconcileProbe().can
+    return depositVerdict({
+      planLength: depositPlan(items, item, { wants, noSwords }).length,
+      reconcile,
+      bankable: bank.count,
+      occupiedSlots: items.length,
+      distHome: horizontalDistanceFromSpawn(bot.entity.position),
+      // A DEEP container is not storage (chestfull-02, depositTargetOk): the deposit will not use it. Read only when needed.
+      storageWithin48: () => !!bot.findBlock?.({
+        matching: b => ['chest','barrel','trapped_chest']
+          .includes(bot.registry?.blocks?.[b.type]?.name) &&
+          depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position), maxDistance: 48 }),
+      // THE `#N` FIX: sustaining ids are `deposit_surplus#3207`; `=== 'deposit_surplus'` was never true on the fleet
+      onDepositMilestone: isDepositMilestone(milestoneId),
+    })
   }
 
   /**
@@ -421,27 +453,15 @@ export class AdmissionControl {
       // container never counted) is the one empty plan a deposit can change -- it counts the uncounted ones. Only where the
       // deposit WILL count (both reviews r2): in town by the deposit's own boundary (inTown, not distance from the origin),
       // with an uncounted container outside its backoff (the probe), and for the requested name only.
-      const capNames = args?.item == null ? ['cobblestone', 'cobbled_deepslate'] : /^(cobblestone|cobbled_deepslate)$/.test(args.item) ? [args.item] : []
-      const reconcile = capNames.some(n => bankableExclusion(items, n, { wants, noSwords }) === 'town_cobble_unknown') && cobbleReconcileProbe().can
-      if (!depositPlan(items, args?.item ?? null, { wants, noSwords }).length && !reconcile) {
+      // DEPOSITOFFER-01: the decision is depositRunnable (below) -- the same reader the prompt's offer asks with item = null
+      const dv = this.depositRunnable(bot, args?.item ?? null, wanted, this.activeMilestoneId, { items, wants, noSwords, bank })
+      if (dv.reason === 'deposit_nothing_to_bank') {
         // THE CAP'S REFUSAL IS A ROW HERE TOO (Codex fold-r1 P2: a bag holding only capped surplus is refused here, before
         // any skill runs, so the skill's rows never see it); throttled -- admission is asked on every proposal
         stockRefusedRow(bot, 'admission', items, { wants, noSwords }, { throttleMs: 60_000 })
         return { ok: false, reason: 'deposit_nothing_to_bank', detail: depositNoopReason(items, args?.item ?? null, { wants, noSwords }) }
       }
-      const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
-      const due = reconcile || depositDue({
-        bankable: bank.count,
-        distHome: horizontalDistanceFromSpawn(bot.entity.position),
-        // A DEEP container is not storage (chestfull-02, depositTargetOk): the deposit will not use it.
-        storageWithin48: !!bot.findBlock?.({
-          matching: b => ['chest','barrel','trapped_chest']
-            .includes(bot.registry?.blocks?.[b.type]?.name) &&
-            depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position), maxDistance: 48 }),
-        onDepositMilestone,
-        occupiedSlots: items.length,
-      })
-      if (!due) {
+      if (dv.reason === 'deposit_not_worth_it') {
         return { ok: false, reason: 'deposit_not_worth_it',
                  detail: `${bank.count} bankable items and no storage in reach — ` +
                          `bank it when you are next near the chest, not from out here` }

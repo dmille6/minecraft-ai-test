@@ -179,6 +179,9 @@ const REQUIRED = [
   // lavatarget-01 (10-31): explore never heads for a sighting beside lava the bot has seen
   'bots/src/lavatarget.mjs',
   'bots/test/lavatarget.test.mjs',
+  // depositoffer-01 (11-04): deposit leaves the per-call skill enum when the gate would refuse it; the deposit rung's floor
+  'bots/src/depositoffer.mjs',
+  'bots/test/depositoffer.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
