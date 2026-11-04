@@ -249,7 +249,7 @@ async function withMutant (file, old, neu, fn) {
   assert.equal(src.split(old).length - 1, 1, `ANCHOR MISSING OR NOT UNIQUE in ${file}: ${old.slice(0, 70)}`)
   const tmp = path.join(SRC, `_mut_${process.pid}_${file}`)
   writeFileSync(tmp, src.replace(old, neu))
-  try { return await fn(await import(`${tmp}?${Date.now()}`)) } finally { (await import('node:fs')).unlinkSync(tmp) }
+  try { return await fn(await import(`${tmp}?${Date.now()}_${Math.random()}`)) } finally { (await import('node:fs')).unlinkSync(tmp) }
 }
 const killed = []
 const mut = async (old, neu, probe) => {
