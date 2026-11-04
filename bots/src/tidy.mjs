@@ -1327,9 +1327,10 @@ export function bandTrees (read, { home, box, inBand = () => true, corridor = ()
     seen.add(k0)
     for (let i = 0; i < q.length; i++) { grp.push(q[i]); for (const [dx, dz] of N8) { const k = k2(q[i].x + dx, q[i].z + dz); if (trunk.has(k) && !seen.has(k) && touch(q[i], trunk.get(k))) { seen.add(k); q.push(trunk.get(k)) } } }
     const logs = grp.flatMap(g => g.logs)
-    const top = Math.max(...logs.map(l => l.at[1]))
+    const top = Math.max(...logs.map(l => l.at[1])), low = Math.min(...logs.map(l => l.at[1]))
     let leaves = false, unread = false
-    for (const g of grp) for (let dx = -T.stumpLeafR; dx <= T.stumpLeafR && !leaves; dx++) for (let dz = -T.stumpLeafR; dz <= T.stumpLeafR && !leaves; dz++) for (let y = top - 1; y <= top + 3; y++) {
+    // Codex r4: from the ground beside the lowest log (a jungle bush's leaves sit at its base) to 3 over the top
+    for (const g of grp) for (let dx = -T.stumpLeafR; dx <= T.stumpLeafR && !leaves; dx++) for (let dz = -T.stumpLeafR; dz <= T.stumpLeafR && !leaves; dz++) for (let y = low - 1; y <= top + 3; y++) {
       const b = read(g.x + dx, y, g.z + dz)
       if (!b) { unread = true; continue }
       if (LEAVES.test(nm(b))) { leaves = true; break }

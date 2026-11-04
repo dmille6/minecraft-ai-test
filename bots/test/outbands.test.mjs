@@ -140,6 +140,12 @@ await t('Codex r1 BLOCKER: a BENT living tree (an acacia whose trunk leaves its 
     const m = M.siteStage(s3.read, { home: HOME, land: LAND(), stage: BAND1, env: ON, L: SMALL, terrace: { wall: WALL, records: [] } })
     assert.ok(!(m.record?.clear ?? []).some(c => c.at[0] === 32 && c.at[2] === 5), 'the join walk alone keeps the acacia')
   })
+  // Codex r4: leaves at the trunk's BASE (a jungle bush) make it a living tree
+  const s4 = server()
+  for (let y = G + 1; y <= G + 4; y++) s4.set([26, y, 5], 'oak_log')
+  s4.set([27, G + 1, 5], 'oak_leaves')
+  const r4 = T.bandTrees(s4.read, { home: HOME, box: [24, 3, 28, 7] })
+  assert.strictEqual(r4.stumps.length, 0, JSON.stringify(r4))
   // the mutant: no join walk -> the acacia's base is cleared as a stump
   await withMutant(TIDY_PATH, "      if (joined) { skip('stump_joined'); continue }\n", '', async M => {
     const m = M.siteStage(srv.read, { home: HOME, land: LAND(), stage: BAND1, env: ON, L: SMALL, terrace: { wall: WALL, records: [] } })
