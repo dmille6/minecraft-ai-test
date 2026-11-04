@@ -19428,8 +19428,14 @@ export const _hubUpkeep = Object.freeze({ hubClerkOne, hubClerkPlan, hubSignWork
 const ENCH = ENCHANTSHOP
 /** The wall extension's record now -> rec | null. Never throws. */
 function enchantExtNow (dir = townDir()) { try { const h = recordHead(dir, projKeyOf(WALLEXT_PLOT)); return h.ok ? (h.head?.rec ?? null) : null } catch { return null } }
-/** Is the unsited workshop open (the extension sited with its hall-size plot)? Never throws. */
-function enchantOpenNow (dir = townDir()) { try { return ENCH.on && enchantOpening(enchantExtNow(dir)).open } catch { return false } }
+/** r4 (offline 11-04 18:45Z on the re-sited X1: a 9-log spruce on the plot is out of a builder's reach, the screen says
+ *  tree_out_of_reach): a siting that found NO site WAITS for ENCHANT_NOSITE_MS (process-wide) -- else the order would offer the
+ *  unsited workshop to every bot, each visit ending no_site (the copper hall's dead end). The groundskeeper's in-wall stage fells the
+ *  extension's trees meanwhile; the next try after the wait sites the workshop. */
+const ENCHANT_NOSITE_MS = 30 * 60_000
+let enchNoSiteUntil = 0
+/** Is the unsited workshop open (the extension sited with its hall-size plot, no failed siting waiting)? Never throws. */
+function enchantOpenNow (dir = townDir()) { try { return ENCH.on && Date.now() >= enchNoSiteUntil && enchantOpening(enchantExtNow(dir)).open } catch { return false } }
 /** The bot's world read for the fit-out (null: unloaded). */
 const enchantRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
 /** THE FITTER'S CARGO (r1, Codex code r1 BLOCKER): what this bot drew or made for a furnishing and has not placed or banked, in the
@@ -19807,6 +19813,7 @@ async function buildShopVisit (ctx, args, signal) {
       // enchantshop-01: the workshop sites on the wall extension's hall-size plot only (enchantSiteFor; it WAITS until the plot exists)
       const ss = await enchantSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
       check(signal)
+      if (!ss.ok && ss.why !== 'aborted') enchNoSiteUntil = Date.now() + ENCHANT_NOSITE_MS
       if (!ss.ok) return out('no_effect', ss.why === 'no_extension' || ss.why === 'no_hall_plot' ? 'plot_wait' : 'no_site', `no enchanting-workshop site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''}) ${(ss.tried ?? []).join(' ')}`.slice(0, 160), { stop: 'no_site' })
       const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)

@@ -5,7 +5,7 @@
 // an unsited copper hall's pad and the expedition markers -- on COPIES of a town's region files and pool state. Nothing is written
 // but --out.
 //
-//   node scripts/enchantshop-offline.mjs <dump.json> <pool-state-dir> --ext <wallext record.json> [--hub x0,z0,x1,z1] [--out rec.json]
+//   node scripts/enchantshop-offline.mjs <dump.json> <pool-state-dir> --ext <wallext record.json> [--hub x0,z0,x1,z1] [--fell x0,z0,x1,z1] [--out rec.json]
 //
 // --ext: the wall extension's record (a pool that has one sited reads it from the pool when --ext is absent). --hub: an UNSITED
 // storage hall's box (the offline hall site) taken as its record's reservation.
@@ -24,7 +24,10 @@ const argv = process.argv.slice(2)
 const opt = k => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : null }
 const [dumpPath, poolDir] = argv
 if (!dumpPath || !poolDir) { console.error('usage: enchantshop-offline.mjs <dump.json> <pool-state-dir> --ext <rec.json> [--hub x0,z0,x1,z1] [--out f]'); process.exit(2) }
-const read = dumpReader(JSON.parse(fs.readFileSync(dumpPath, 'utf8')))
+const read0 = dumpReader(JSON.parse(fs.readFileSync(dumpPath, 'utf8')))
+// --fell x0,z0,x1,z1: read every log and leaves block in that box as air (what the groundskeeper's in-wall felling leaves)
+const fell = opt('--fell') ? opt('--fell').split(',').map(Number) : null
+const read = fell ? (x, y, z) => { const b = read0(x, y, z); return b && x >= fell[0] && x <= fell[2] && z >= fell[1] && z <= fell[3] && /_(log|leaves)$/.test(b.name) ? { name: 'air', boundingBox: 'empty' } : b } : read0
 const R = poolRecords(poolDir)
 if (!R.head) { console.error('the pool records cannot be read:', R.why); process.exit(1) }
 const plan = { ...R.head.plan, gen: R.head.gen }
