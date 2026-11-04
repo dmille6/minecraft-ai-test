@@ -42,7 +42,7 @@ await t('MUTANT KILLED: without the reservation check the prepared plot is cut a
 const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/[ \t]\/\/ .*$/gm, '')
 await t('WIRED: siteStage passes `reserved` to surveyInwall; skills.mjs builds it from the siteprep reservation and hands it to siteStage', () => {
   const td = strip(readFileSync(SRC, 'utf8'))
-  assert.ok(td.includes('noLitter: inwallNoLitter(terrace?.records ?? []), reserved, noStair: accessNoStair(terrace?.records ?? []), water, waterOk })'), 'access-01: + noStair')
+  assert.ok(td.includes('noLitter: inwallNoLitter(terrace?.records ?? []), reserved, noStair: accessNoStair(terrace?.records ?? [], { plan, land }), water, waterOk })'), 'access-01: + noStair')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(sk.includes('const rz = recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept))'))
   assert.ok(sk.includes('terrace, reserved: I.reserved })'))
