@@ -177,6 +177,9 @@ const REQUIRED = [
   'bots/src/park.mjs',
   'bots/test/terrace.test.mjs',
   'bots/test/gkhelpers.test.mjs',   // gkhelpers-01: the grounds crew, the storehouse floor, the park gather
+  // placeaudit-01 (owner 11-04 groundskeeper piece 2): who places blocks in town, why, where
+  'bots/src/placeaudit.mjs',
+  'bots/test/placeaudit.test.mjs',
   'bots/scripts/terrace-offline.mjs',
   'docs/reports/townterrace-2026-11-03.md',
   'docs/reports/tidy-01-2026-11-01.md',
