@@ -65,7 +65,8 @@ casts. The trip banks the obsidian with its diamonds; the workshop's fitter craf
   the bucket module's header already noted that filling is unvalidated across the mineflayer ecosystem.
 - Paper: the fixed module poured and scooped on sandbox3 (section 2).
 - Registration [`bucketfix-01.88c981a1.json`](obsidian-2026-11-04/bucketfix-01.88c981a1.json) (effect: none_reason, validated) and draft
-  entry [`bucketfix-01.entry.draft.json`](obsidian-2026-11-04/bucketfix-01.entry.draft.json). Suite: see the ledger row.
+  entry [`bucketfix-01.entry.draft.json`](obsidian-2026-11-04/bucketfix-01.entry.draft.json). **Suite w30 at `88c981a1`: 388/393**
+  (ceilescape, nothing-important-is-orphaned, protected-paths, well: the base; plinth-skill: a known flake).
 
 ## 6. Pieces and owner decision
 
