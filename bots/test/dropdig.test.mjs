@@ -18,7 +18,7 @@
 import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dropFloor, standingPlan, dropEligible, landed, dropSink, dropTag, dropDigOn, footprint, fullCube, stillWater,
+import { dropFloor, standingPlan, dropEligible, dropAdmission, landed, dropSink, dropTag, dropDigOn, footprint, fullCube, stillWater,
          DD_SINK_BASE_MS, DD_SINK_PER_BLOCK_MS, DD_RISE_PER_BLOCK_MS, DD_FAIL_MEMORY_MS } from '../src/dropdig.mjs'
 import { airPocketPlan, airPocketAdmit, airPocketStep, airPocketRow, airPocketAfter, AP_REFUSE_COOLDOWN_MS } from '../src/airpocket.mjs'
 
@@ -96,16 +96,24 @@ function physicsBot ({ world, pos, health = 20, digOf = null, onTick = null }) {
   bot.stopDigging = () => { bot.stopped++; if (bot.digging) { const d = bot.digging; bot.digging = null; d.rej(new Error('Digging aborted')) } }
   // the dig: priced at its start from the body's state then (mineflayer); the SERVER breaks it only if the body was on the
   // ground at the finish when it was priced on the ground (PR #3930: the time is fixed at the start)
+  // the dig, modelled on mineflayer 4.37 + a vanilla server: the CLIENT prices it once at the start (PR #3930) and, when its
+  // timer ends, writes AIR locally and resolves (optimistic); the SERVER accumulates its own progress every tick from the
+  // body's state then (x1 standing, x1/5 off the ground) and, below vanilla's 0.7 tolerance, sends the block back 100 ms later
   bot.dig = (b, _force) => new Promise((res, rej) => {
     const env = { inWater: /water/.test(bot._getBlockAtEyeLevel()?.name ?? ''), notOnGround: !entity.onGround }
     const ms = b.digTime(bot.heldItem?.type ?? null, false, env.inWater, env.notOnGround, [], {})
+    const standMs = b.digTime(bot.heldItem?.type ?? null, false, env.inWater, false, [], {})
     bot.digSends.push({ ms, onGround: entity.onGround })
-    bot.digging = { rej }
+    let progress = 0
+    const iv = setInterval(() => { progress += (entity.onGround ? 1 : 0.2) * 50 / standMs }, 50)
+    bot.digging = { rej: e => { clearInterval(iv); rej(e) } }
     setTimeout(() => {
+      clearInterval(iv)
       if (!bot.digging) return
       bot.digging = null
-      if (!env.notOnGround && !entity.onGround) return rej(new Error('server refused: off the ground at the finish'))
-      world.set(b.position.x, b.position.y, b.position.z, 'air')
+      const prev = world.at(b.position.x, b.position.y, b.position.z)?.name
+      world.set(b.position.x, b.position.y, b.position.z, 'air')                    // optimistic local air
+      if (progress < 0.7) { bot.serverRefused = (bot.serverRefused ?? 0) + 1; setTimeout(() => world.set(b.position.x, b.position.y, b.position.z, prev), 100) }
       res()
     }, ms)
   })
@@ -312,7 +320,7 @@ for (const k of [1, 2]) {
     assert.match(r.drop, new RegExp(`^${k}:landed:`))
     assert.equal(bot.digSends.length, 1); assert.equal(bot.digSends[0].onGround, true)
     assert.ok(bot.digSends[0].ms < d.floatMs / 4, `dug at ${bot.digSends[0].ms} ms (floating ${d.floatMs})`)
-    assert.equal(w.at(0, 42, 0).name, 'air')
+    assert.equal(w.at(0, 42, 0).name, 'air'); assert.equal(bot.serverRefused ?? 0, 0, 'the server accepted the standing dig')
     assert.match(airPocketRow({ id: 'x', r, requiredMs: d.sp.requiredMs, budgetMs: d.admit.budgetMs, difficulty: 'peaceful' }), new RegExp(`standing=1 drop=${k}:landed:`))
     assert.ok(bot.health > 10, `health ${bot.health}`)
   })
@@ -329,6 +337,7 @@ await t('B3 the floor is gone when the step sinks (dug out under it): no landing
   assert.match(r.why, /^drop: (no landing|drifted)/); assert.match(r.drop, /^1:fail:/)
   assert.equal(bot.digSends.length, 0)
   assert.equal(w.at(0, 42, 0).name, 'stone')
+  assert.equal(bot.controlState.jump, true, 'jump must stay held for the rescue after a failed sink (both reviews r1)')
   const st = airPocketAfter(false, { cooldownUntil: 0 }, 1000, { handoffHeld: r.handoffHeld === true })
   assert.equal(st.cooldownUntil, 1000 + AP_REFUSE_COOLDOWN_MS)
 })
@@ -337,11 +346,37 @@ await t('B4 a body that leaves the floor during the standing-priced dig is stopp
   const bot = await pinned(w)
   const d = dropFor(w, bot.entity.position, bot.health)
   const realDig = bot.dig
-  bot.dig = (b, f) => { setTimeout(() => bot.setControlState('jump', true), 400); const iv = setInterval(() => bot.setControlState('jump', true), 50); return realDig(b, f).finally(() => clearInterval(iv)) }
+  bot.dig = (b, f) => { const iv = setInterval(() => bot.setControlState('jump', true), 50); return realDig(b, f).finally(() => clearInterval(iv)) }
   const r = await airPocketStep(bot, { ...d.plan, drop: d.drop }, stepDeps(bot))
   bot.stop()
   assert.equal(r.ok, false); assert.match(r.why, /lifted off the floor/)
   assert.ok(bot.stopped >= 1)
+  assert.notEqual(r.outcome, 'opened')
+  assert.equal(w.at(0, 42, 0).name, 'stone')
+})
+await t('B5 the server refuses the standing dig (whatever the client saw) -> the step waits for its answer and reports FAILED, never opened (Codex r1: mineflayer writes optimistic air)', async () => {
+  const w = columnWorld(1)
+  const bot = await pinned(w)
+  const d = dropFor(w, bot.entity.position, bot.health)
+  const realDig = bot.dig
+  bot.dig = (b, f) => realDig(b, f).then(() => { bot.serverRefused = 1; setTimeout(() => w.set(0, 42, 0, 'stone'), 60) })
+  const r = await airPocketStep(bot, { ...d.plan, drop: d.drop }, stepDeps(bot))
+  bot.stop()
+  assert.equal(r.ok, false); assert.notEqual(r.outcome, 'opened'); assert.match(r.why, /server kept the roof|server put the roof/)
+  assert.equal(r.handoffHeld, true); assert.equal(bot.controlState.jump, true)
+})
+await t('B6 the base path\'s MOMENTARY standing (the Paper 11-04 ghost-air death): a body that touches the floor while the rescue presses jump is not dug from -- it must settle first', async () => {
+  const w = columnWorld(1)
+  const bot = physicsBot({ world: w, pos: { x: 0.5, y: 40, z: 0.5 } })
+  await new Promise(r => setTimeout(r, 300))     // on the floor
+  assert.equal(bot.entity.onGround, true)
+  const plan = airPocketPlan(relAt(w, [0, 40, 0]))
+  const iv = setInterval(() => bot.setControlState('jump', true), 20)   // the rescue's re-assert races the step's release
+  const r = await airPocketStep(bot, plan, stepDeps(bot))
+  clearInterval(iv); bot.stop()
+  assert.equal(r.ok, false); assert.match(r.why, /not settled on the floor|off the floor at the dig|lifted off/)
+  assert.notEqual(r.outcome, 'opened'); assert.equal(w.at(0, 42, 0).name, 'stone')
+  assert.equal(bot.serverRefused ?? 0, 0, 'no refused dig reached the server')
 })
 
 // ---------------------------------------------------------------- C. the refusal chain
@@ -354,6 +389,26 @@ await t('C1 chain: drop fails -> short cooldown -> the cell is remembered -> the
   assert.equal(dropEligible({ on: true, onGround: false, budgetRefused: admit.budgetMs != null, failedUntil, now: now + AP_REFUSE_COOLDOWN_MS }), false)
   assert.equal(dropEligible({ on: true, onGround: false, budgetRefused: true, failedUntil, now: failedUntil + 1 }), true)
 })
+await t('E4 dropAdmission (prepareAirPocket\'s whole drop branch): null when not asked, on the worst case, when the floating price fits, when switched off, from a failed cell; ok with the drop on a real site; a reason when the floor or price fails', () => {
+  const s = CUTS.sites.find(x => x.id === 'isolated-d-Alpha@335,54,172')
+  const { plan, admit } = siteDecision(s)
+  const w = worldOf(s.cells, s.at)
+  const pos = posIn(s)
+  const args = { on: true, asked: true, worstCase: false, onGround: false, failedUntil: 0, now: 1000, admit, plan, pos, fx: s.at[0], fy: s.at[1], fz: s.at[2],
+                 at: (x, y, z) => w.at(x, y, z), standMs: () => floatingDigOf(s, 0) / 5 }
+  const ok = dropAdmission(args)
+  assert.equal(ok.ok, true, ok.why); assert.equal(ok.drop.depth, 2); assert.equal(ok.admit.ok, true); assert.ok(ok.admit.requiredMs < admit.budgetMs)
+  for (const k of [{ asked: false }, { worstCase: true }, { on: false }, { onGround: true }, { failedUntil: 2000 }, { admit: { ...admit, ok: true } }, { admit: { ...admit, budgetMs: null } }]) {
+    assert.equal(dropAdmission({ ...args, ...k }), null, JSON.stringify(Object.keys(k)))
+  }
+  const poor = dropAdmission({ ...args, standMs: () => 60_000 }); assert.equal(poor.ok, false); assert.match(poor.why, /standing needs/)
+  const s2 = CUTS.sites.find(x => x.id === 'hive-b-Delta@907,52,447'); const d2 = siteDecision(s2); const w2 = worldOf(s2.cells, s2.at)
+  const deep = dropAdmission({ ...args, admit: d2.admit, plan: d2.plan, pos: posIn(s2), fx: s2.at[0], fy: s2.at[1], fz: s2.at[2], at: (x, y, z) => w2.at(x, y, z) })
+  assert.equal(deep.ok, false); assert.match(deep.why, /no floor within 2/)
+  let priced = 0
+  dropAdmission({ ...args, admit: d2.admit, plan: d2.plan, pos: posIn(s2), fx: s2.at[0], fy: s2.at[1], fz: s2.at[2], at: (x, y, z) => w2.at(x, y, z), standMs: () => { priced++; return 100 } })
+  assert.equal(priced, 0, 'no floor -> the standing price is never asked')
+})
 await t('C2 chain: the pre-empt of an in-flight escape (entombed / maroon climb) prices the floating worst case and never drops -- an escape is never stopped for a sink', () => {
   assert.equal(dropEligible({ on: true, worstCase: true, onGround: false, budgetRefused: true }), false)
 })
@@ -364,13 +419,14 @@ function wiring (code) {
   const prep = code.indexOf('const prepareAirPocket = ('), run = code.indexOf('const runAirPocket = async'), end = code.indexOf('const rescueExpired')
   const p = code.slice(prep, run), r = code.slice(run, end)
   return {
-    prepDropGated: /if \(!\(drop && dropEligible\(\{ on: dropDig, worstCase, onGround: bot\.entity\?\.onGround === true, budgetRefused: admit\.budgetMs != null,/.test(p),
-    standPrice: /const standEnv = \{ \.\.\.digEnv\(bot\), inWater: true, notOnGround: false \}/.test(p) && /predictedDigMs\(block, item, standEnv\)/.test(p),
-    planCarries: /plan: \{ \.\.\.plan, drop \}/.test(p),
+    prepDropGated: /const dd = dropAdmission\(\{ on: dropDig, asked: allowDrop, worstCase, onGround: bot\.entity\?\.onGround === true,/.test(p) &&
+                   p.indexOf('const dd = dropAdmission(') > p.indexOf('if (!admit.ok) {'),
+    standPrice: /standMs: \(\) => fastestOf\(items, it => predictedDigMs\(block, it, \{ \.\.\.digEnv\(bot\), inWater: true, notOnGround: false \}\)\)/.test(p),
+    planCarries: /return \{ ok: true, plan: \{ \.\.\.plan, drop: dd\.drop \}, admit: dd\.admit,/.test(p) && /if \(!dd\?\.ok\) return \{ ok: false, why: admit\.why,/.test(p),
     memory: /if \(r\?\.dropFailed\) dropFailUntil\.set\(`\$\{fx\},\$\{fy\},\$\{fz\}`, Date\.now\(\) \+ DD_FAIL_MEMORY_MS\)/.test(r),
     memoryRead: /failedUntil: dropFailUntil\.get\(`\$\{fx\},\$\{fy\},\$\{fz\}`\) \?\? 0/.test(p),
     preemptWorst: /stepWouldRun: \(\) => prepareAirPocket\(\{ worstCase: true \}\)\.ok \}\)/.test(code),
-    heldOffNoDrop: /const p = prepareAirPocket\(\{ drop: false \}\)\s*if \(!p\.ok && p\.inputs\)/.test(code),
+    heldOffNoDrop: /const p = prepareAirPocket\(\{ allowDrop: false \}\)\s*if \(!p\.ok && p\.inputs\)/.test(code),
     killSwitch: /const dropDig = dropDigOn\(\)/.test(code),
   }
 }
@@ -381,12 +437,12 @@ await t('W1 wiring: the drop is gated (switch, worst case, budget refusal, memor
 await t('W2 MUTANTS KILLED (text): each wiring assertion fails when its line is changed', () => {
   const src = strip(readFileSync(REFLEX_PATH, 'utf8'))
   const muts = [
-    ['prepDropGated', 'if (!(drop && dropEligible({ on: dropDig, worstCase,', 'if (!(drop && dropEligible({ on: dropDig, worstCase: false,'],
-    ['standPrice', 'const standEnv = { ...digEnv(bot), inWater: true, notOnGround: false }', 'const standEnv = { ...digEnv(bot), inWater: true, notOnGround: true }'],
-    ['planCarries', 'plan: { ...plan, drop }', 'plan'],
+    ['prepDropGated', 'const dd = dropAdmission({ on: dropDig, asked: allowDrop, worstCase,', 'const dd = dropAdmission({ on: dropDig, asked: allowDrop, worstCase: false,'],
+    ['standPrice', 'inWater: true, notOnGround: false })) })', 'inWater: true, notOnGround: true })) })'],
+    ['planCarries', 'plan: { ...plan, drop: dd.drop }, admit: dd.admit,', 'plan, admit: dd.admit,'],
     ['memory', 'if (r?.dropFailed) dropFailUntil.set(', 'if (false) dropFailUntil.set('],
     ['preemptWorst', 'stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })', 'stepWouldRun: () => prepareAirPocket({ worstCase: false }).ok })'],
-    ['heldOffNoDrop', 'const p = prepareAirPocket({ drop: false })', 'const p = prepareAirPocket()'],
+    ['heldOffNoDrop', 'const p = prepareAirPocket({ allowDrop: false })', 'const p = prepareAirPocket()'],
   ]
   for (const [k, old, neu] of muts) {
     assert.ok(src.includes(old), `ANCHOR MISSING ${k}`); assert.equal(src.split(old).length, 2, `ANCHOR NOT UNIQUE ${k}`)
@@ -424,7 +480,7 @@ await t('M4 MUTANT KILLED: without the sink the step digs floating, over the bud
   })
 })
 await t('M5 MUTANT KILLED: without the lift-off watch the early finish goes to the server and is refused there (B4 catches it)', async () => {
-  await withMutant(AP_PATH, [["if (offGround >= 2) aborted = aborted ?? 'drop: lifted off the floor while digging'", 'if (false) aborted = null']], async m => {
+  await withMutant(AP_PATH, [["if (offGround >= 2 && !aborted) { aborted = 'lifted off the floor while digging (standing-priced)'", "if (false) { aborted = 'lifted off the floor while digging (standing-priced)'"]], async m => {
     const w = columnWorld(1)
     const bot = await pinned(w)
     const d = dropFor(w, bot.entity.position, bot.health)
@@ -433,6 +489,31 @@ await t('M5 MUTANT KILLED: without the lift-off watch the early finish goes to t
     const r = await m.airPocketStep(bot, { ...d.plan, drop: d.drop }, stepDeps(bot))
     bot.stop()
     assert.equal(r.ok, false); assert.doesNotMatch(String(r.why), /lifted off the floor/)
+    assert.ok((bot.serverRefused ?? 0) >= 1, 'the early finish reached the server')
+  })
+})
+await t('M7 MUTANT KILLED: without the server-answer wait, a refused standing dig reads as OPENED (B5 catches it)', async () => {
+  await withMutant(AP_PATH, [['    if (guarded) {\n      for (let i = 0; i < 4; i++) {', '    if (false) {\n      for (let i = 0; i < 4; i++) {'],
+                             ['      if (guarded && bot.blockAt(cellPos)?.name === plan.name) {', '      if (false) {']], async m => {
+    const w = columnWorld(1)
+    const bot = await pinned(w)
+    const d = dropFor(w, bot.entity.position, bot.health)
+    const realDig = bot.dig
+    bot.dig = (b, f) => realDig(b, f).then(() => { setTimeout(() => w.set(0, 42, 0, 'stone'), 60) })
+    const r = await m.airPocketStep(bot, { ...d.plan, drop: d.drop }, stepDeps(bot))
+    bot.stop()
+    assert.equal(r.outcome, 'opened', `${r.outcome}: ${r.why}`)
+  })
+})
+await t('M8 MUTANT KILLED: a failed sink that lets the cleanup release jump (B3 catches it)', async () => {
+  await withMutant(AP_PATH, [["if (!res.ok && res.outcome !== 'opened' && !res.keepJump) {", "if (!res.ok && res.outcome !== 'opened') {"]], async m => {
+    const w = columnWorld(1)
+    const bot = await pinned(w)
+    const d = dropFor(w, bot.entity.position, bot.health)
+    for (let y = 30; y <= 39; y++) w.set(0, y, 0, 'water[level=0]')
+    const r = await m.airPocketStep(bot, { ...d.plan, drop: d.drop }, stepDeps(bot))
+    bot.stop()
+    assert.equal(r.dropFailed, true); assert.equal(bot.controlState.jump, false)
   })
 })
 await t('M6 MUTANT KILLED: a sink without the landing wait (lands "at once") digs before the body is down, priced wrong (S1/B1 catch it)', async () => {

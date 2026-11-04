@@ -418,7 +418,7 @@ await t('F10 a STANDING bot digs with jump released (on-ground time, no ghost ai
     const bot = fakeBot({}); bot.entity.onGround = onGround
     let atDig = null, dug = false; const dig0 = bot.dig; bot.dig = blk => { atDig = bot.controls.jump; dug = true; return dig0(blk) }
     let afterDig = null; const realSleep = ms => new Promise(r => setTimeout(r, ms / 10))
-    const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ sleep: async ms => { if (afterDig == null && dug) afterDig = bot.controls.jump; return realSleep(ms) } }))
+    const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ sleep: async ms => { if (dug) afterDig = bot.controls.jump; return realSleep(ms) } }))   // dropanddig-01: the LAST sleep of the rise (a standing dig first waits 400 ms, still standing, for the server)
     clearInterval(bot._healthTimer)
     assert.equal(atDig, jumpAtDig, `onGround=${onGround}`); assert.equal(afterDig, true, `rise onGround=${onGround}`); assert.equal(r.standing, onGround)
   }
