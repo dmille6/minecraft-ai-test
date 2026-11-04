@@ -94,7 +94,7 @@ export function dropFloor (at, { pos, fx, fy, fz }) {
       if (BAD_FLOOR.test(b.name || '') || !fullCube(b)) return no(`${b.name} under the body is not a floor`)
       found = k; break
     }
-    if (own && found == null) return no(`no floor within ${DD_MAX_DEPTH}`)
+    if (found == null) return no(own ? `no floor within ${DD_MAX_DEPTH}` : `no floor within ${DD_MAX_DEPTH} under the overlapped column ${cx},${cz}`)
     if (found != null && (minDepth == null || found < minDepth)) minDepth = found
     if (own) ownDepth = found
   }
@@ -146,6 +146,23 @@ export function dropEligible ({ on = dropDigOn(), worstCase = false, onGround = 
                                 failedUntil = 0, now = Date.now() } = {}) {
   if (!on || worstCase || onGround || !budgetRefused) return false
   return !(now < failedUntil)
+}
+
+/**
+ * THE DROP'S ADMISSION, ONE CALL (prepareAirPocket's whole drop branch, so it can be driven by a test: r1 found a TDZ in
+ * the inline version that no test ran). Asked only after the floating price was refused. `at(x, y, z)` reads blocks;
+ * `standMs()` prices the fastest candidate standing (eye in water, on the ground), called only when eligible.
+ * -> null (not asked: the base refusal stands as it is) | { ok: false, why } | { ok: true, admit, drop }
+ */
+export function dropAdmission ({ on = dropDigOn(), asked = true, worstCase = false, onGround = false, failedUntil = 0, now = Date.now(),
+                                 admit, plan, pos, fx, fy, fz, at, standMs }) {
+  if (!asked || !admit || admit.ok) return null
+  if (!dropEligible({ on, worstCase, onGround, budgetRefused: admit.budgetMs != null, failedUntil, now })) return null
+  const floor = dropFloor(at, { pos, fx, fy, fz })
+  const sp = standingPlan({ floor, plan, fx, fy, fz, x: pos?.x, z: pos?.z, digStandingMs: floor.ok ? standMs() : null, budgetMs: admit.budgetMs })
+  if (!sp.ok) return { ok: false, why: sp.why }
+  const drop = { fx, fy, fz, landY: floor.landY, depth: floor.depth, descent: floor.descent, sinkMs: sp.sinkMs, riseExtraMs: sp.riseExtraMs }
+  return { ok: true, admit: { ...admit, ok: true, why: null, requiredMs: sp.requiredMs }, drop }
 }
 
 /** Landed? Pure. The last DD_LAND_TICKS polls: on the ground, still, in the planned column, at or above the floor. */
