@@ -281,6 +281,17 @@ await t('the keeper\'s hold: nothing open verifies; a cell, a clear or a cut sti
   assert.strictEqual(P.prepHoldOf(greened, () => false, { stalls: 3 }), 'stuck')
   assert.strictEqual(P.prepHoldOf({ n: 0, cells: [], cuts: [], clears: [] }, () => false, { stalls: 9 }), 'none')
 })
+await t('the stall count: the keeper placing nothing while the helpers fill (open work falling) is progress; three visits with nothing moved and nothing fallen stall', () => {
+  let s = null
+  for (const n of [40, 34, 28, 20]) { s = P.prepStallNext(s, n, 0); assert.strictEqual(s.stalls, s.n === 40 ? 1 : 0, `n ${n}`) }
+  s = P.prepStallNext(s, 20, 0); s = P.prepStallNext(s, 20, 0); s = P.prepStallNext(s, 20, 0)
+  assert.strictEqual(s.stalls, 3)
+  assert.strictEqual(P.prepHoldOf({ n: 20, cells: [{ at: [0, 0, 0] }], cuts: [], clears: [] }, () => false, { stalls: s.stalls }), 'stuck')
+  assert.strictEqual(P.prepStallNext(s, 20, 5).stalls, 0)
+})
+await t('mutant: a stall count blind to the helpers\' progress retires a prep they are filling', () => killed('siteprep.mjs', P,
+  ' || (prev && Number.isFinite(prev.n) && n < prev.n)) return { n, stalls: 0 }', ') return { n, stalls: 0 }',
+  M => { let s = null; for (const n of [40, 34, 28, 20]) s = M.prepStallNext(s, n, 0); assert.strictEqual(s.stalls, 0) }))
 await t('mutant: without the stall backstop a greened opener holds the keeper to the expiry', () => killed('siteprep.mjs', P,
   "  if (stalls >= P.stallVisits) return 'stuck'\n", '',
   M => assert.strictEqual(M.prepHoldOf({ n: 1, cells: [{ at: [1, 0, 3], opener: [1, 2, 3] }], cuts: [], clears: [] }, () => false, { stalls: 3 }), 'stuck')))
@@ -348,7 +359,8 @@ const W = [
   /if \(caps\.complete && !crewHeld && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/,
   /if \(hold === 'stuck'\) \{\n\s*if \(!retire\(q\.id\)\) return head\(\)/,
   /const prepNow = prepSt\?\.hold === 'work' \? prepSt\.id : null/,
-  /\[sk\]: \(r\.placed \?\? 0\) \+ \(r\.cleared \?\? 0\) > 0 \? 0 : \(Number\(bot\.prepStalls\?\.\[sk\]\) \|\| 0\) \+ 1/,
+  /\[sk\]: prepStallNext\(bot\.prepStalls\?\.\[sk\] \?\? null, prepSt\.n, \(r\.placed \?\? 0\) \+ \(r\.cleared \?\? 0\)\)/,
+  /const prepSt = !floorOnly && SITEPREP\.on \? prepWorking\(dir, rec, read, prepDone, /,
   /cur\.prep\?\.\[q\.id\]\?\.att !== prepAttempt\(q\) \? withPrep\(/,
   /if \(name === 'snow' \|\| name === 'water'\) \{ try \{ props = b\.getProperties/,
 ]

@@ -408,6 +408,16 @@ export function prepHoldOf (open, given = () => false, { stalls = 0, P = PREP } 
   return 'work'
 }
 /**
+ * THE STALL COUNT after one keeper prep visit -> { n, stalls }. Pure. `prev` the attempt's last count ({ n, stalls } | null); `n` the
+ * prep's open work NOW (prepOpen's n, every crew bot's work counted); `moved` what this visit placed + cleared. Progress by ANYONE --
+ * this visit moved something, or the open work fell since the last visit (helpers filling while the keeper's own visits place
+ * nothing: Claude code r5 BLOCKER) -- resets it; otherwise it counts one more.
+ */
+export function prepStallNext (prev, n, moved = 0) {
+  if (moved > 0 || (prev && Number.isFinite(prev.n) && n < prev.n)) return { n, stalls: 0 }
+  return { n, stalls: (Number(prev?.stalls) || 0) + 1 }
+}
+/**
  * THE PREP'S CUTS IN LAYERS (Baritone #404/#728: a cutter that takes a column to the bottom first digs itself a shaft; Codex review r1
  * BLOCKER 5): the highest layer across the plot first, each layer nearest-neighbour from `start` -> the cuts. No cut column is ever
  * more than one layer below its cut neighbours mid-way. Pure.
