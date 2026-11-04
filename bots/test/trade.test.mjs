@@ -129,6 +129,33 @@ await t('STRUCTURAL: cognitive.mjs issues the open trip (after the deep trip, ne
   }
 })
 
+await t('Claude review BLOCKER: the gate admits every call of an open trip (same args each time) -- no repeat window, cooldown or learned rule strands it; housekeeping', async () => {
+  const { AdmissionControl } = await import('../src/admission.mjs')
+  const { HOUSEKEEPING } = await import('../src/hygiene.mjs')
+  const gate = new AdmissionControl({ failCount: () => 9, bumpBlocked: () => 1, entryFor: () => null })
+  const bot = { registry: { blocksByName: {}, itemsByName: {} }, entity: { position: { y: 64 } }, players: {}, inventory: { items: () => [] } }
+  for (let i = 0; i < 12; i++) assert.equal(gate.check({ skill: 'trade_trip', args: {} }, bot).ok, true, `call ${i}`)
+  assert.equal(gate.check({ skill: 'trade_trip', args: {} }, { ...bot, inventoryUnsettled: { why: 'x' } }).reason, 'inventory_unsettled')
+  assert.equal(HOUSEKEEPING.has('trade_trip'), true)
+})
+
+await t('MUTANT: without the admission branch, the trip\'s 5th identical call is refused (repeat_loop) -- the branch is what keeps it going', async () => {
+  const src = fs.readFileSync(new URL('../src/admission.mjs', import.meta.url), 'utf8')
+  const old = "    if (skill === 'trade_trip' && !bot?.inventoryUnsettled) return { ok: true, skill, args: {}, kind: 'trade_trip' }\n" +
+    "    if (skill === 'trade_trip') return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }\n"
+  assert.equal(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  const out = new URL(`./_mutant-trade-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, '').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const { AdmissionControl: A } = await import(out.href)
+    const gate = new A(null)
+    const bot = { registry: { blocksByName: {}, itemsByName: {} }, entity: { position: { y: 64 } }, players: {}, inventory: { items: () => [] } }
+    const res = []
+    for (let i = 0; i < 6; i++) res.push(gate.check({ skill: 'trade_trip', args: {} }, bot).reason ?? 'ok')
+    assert.ok(res.includes('repeat_loop'), `mutant refused nothing: ${res}`)
+  } finally { try { fs.unlinkSync(out) } catch {} }
+})
+
 await t('the skill is registered (chatOnly, never the model\'s) inside the runner timeout', async () => {
   const SK = await import('../src/skills.mjs')
   assert.equal(typeof SK.SKILLS.trade_trip?.run, 'function')

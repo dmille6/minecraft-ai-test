@@ -279,6 +279,11 @@ export class AdmissionControl {
     // deepmine.mjs CALLS_MAX, TRIP_MAX_MS, RETURN_TRIES)
     if (skill === 'deep_mine' && !bot?.inventoryUnsettled) return { ok: true, skill, args: args ?? {}, kind: 'deep_mine' }
     if (skill === 'deep_mine') return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
+    // COALSALE-01: a trade trip is the same kind of deterministic job (cognitive.mjs issues it, one call per phase step, the same
+    // args every call; Claude review 11-04 BLOCKER: the repeat window refused the 5th call and stranded the bot 600 b out). It
+    // bounds itself: trade.mjs turnHome reasons, the 45 min stranded cap, 60 min drops the trip.
+    if (skill === 'trade_trip' && !bot?.inventoryUnsettled) return { ok: true, skill, args: {}, kind: 'trade_trip' }
+    if (skill === 'trade_trip') return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
     if (skill === 'sky_descend') return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
     if (skill === 'keepout_exit') return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
 

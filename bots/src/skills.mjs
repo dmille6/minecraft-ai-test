@@ -19915,6 +19915,13 @@ async function tradeWalk (ctx, trip, target, signal, until, range) {
 // WHILE THE WINDOW IS OPEN the bag is the window's player section (sandbox4 11-04: bot.inventory stays stale until the close,
 // so a bag count read inside the window saw 0 sold for 60 coal that the server had taken): count there
 const winCount = (v, name) => { try { return (v.items?.() ?? []).filter(x => x?.name === name).reduce((n, x) => n + (x.count ?? 0), 0) } catch { return 0 } }
+/** A TRADE THAT TIMED OUT OR THREW (Codex review 11-04 blocker 3): no further click on this window; the cursor settled with
+ *  withdraw's server-confirmed settleCursor (bounded), every in-flight click invalidated, then the caller closes the window and
+ *  the trip turns home. Never throws. */
+async function tradeSettle (bot, v) {
+  try { await settleCursor(bot, v, { budgetMs: 5_000 }) } catch { /* bounded; the close below still happens */ }
+  try { invalidateClicks(bot, 'trade_trip timeout') } catch { /* none in flight */ }
+}
 async function tradeWith (ctx, trip, m, signal) {
   const { bot } = ctx
   const res = { sold: 0, earned: 0, spent: 0, bought: {}, books: 0, offers: '' }
@@ -19931,23 +19938,29 @@ async function tradeWith (ctx, trip, m, signal) {
   try {
     res.offers = offersDetail(v.trades)
     try { logEvent({ kind: 'trade_seen', status: 'success', snapshot: snapshot(bot), detail: `${m.profession} L${m.level ?? '?'} at ${Math.floor(m.x)},${Math.floor(m.y)},${Math.floor(m.z)}: ${res.offers}`, args: { profession: m.profession, level: m.level, uuid: m.uuid, x: Math.floor(m.x), y: Math.floor(m.y), z: Math.floor(m.z) } }) } catch { /* telemetry */ }
-    for (const s of sellPlan(v.trades, { coal: winCount(v, 'coal') })) {
+    // the owner's 60: never sell more than the trip's coal budget, whatever else the bag holds
+    for (const s of sellPlan(v.trades, { coal: Math.min(winCount(v, 'coal'), Math.max(0, (trip.coalBudget ?? TRADE.carryMax) - trip.sold)) })) {
       check(signal)
       const c0 = winCount(v, 'coal'), e0 = winCount(v, 'emerald')
-      try { await tradeTimeout(v.trade(s.i, s.times), 15_000, 'trade') } catch { /* counted below */ }
+      let bad = null
+      try { await tradeTimeout(v.trade(s.i, s.times), 15_000, 'trade') } catch (e) { bad = e }
       await sleep(300, signal)
       res.sold += Math.max(0, c0 - winCount(v, 'coal')); res.earned += Math.max(0, winCount(v, 'emerald') - e0)
+      if (bad) { res.why = `trade:${String(bad?.message ?? bad).slice(0, 40)}`; res.halt = true; break }
     }
+    if (res.halt) { await tradeSettle(bot, v); return res }
     const booksLeft = trip.books >= 1 ? 0 : 1
     for (const b of buyPlan(v.trades, { emeralds: winCount(v, 'emerald'), booksLeft, enchName: it => storedEnchants(it, bot.registry) })) {
       check(signal)
       if (b.needsBook && winCount(v, 'book') < 1) continue
       const e0 = winCount(v, 'emerald'), name = b.what.startsWith('enchanted_book') ? 'enchanted_book' : b.what, n0 = winCount(v, name)
-      try { await tradeTimeout(v.trade(b.i, b.times), 15_000, 'trade') } catch { /* counted below */ }
+      let bad = null
+      try { await tradeTimeout(v.trade(b.i, b.times), 15_000, 'trade') } catch (e) { bad = e }
       await sleep(300, signal)
       const got = Math.max(0, winCount(v, name) - n0)
       res.spent += Math.max(0, e0 - winCount(v, 'emerald'))
       if (got) { res.bought[b.what] = (res.bought[b.what] ?? 0) + got; if (name === 'enchanted_book') res.books += got }
+      if (bad) { res.why = `trade:${String(bad?.message ?? bad).slice(0, 40)}`; res.halt = true; await tradeSettle(bot, v); break }
     }
   } finally { try { v.close() } catch { /* closed */ } }
   return res
@@ -19974,7 +19987,15 @@ async function tradeTrip (ctx, _args, signal) {
   if (!['home', 'stock'].includes(trip.phase)) { const why = turnHome(trip, read()); if (why) { trip.stop = why; trip.phase = 'home' } }
   try {
     if (trip.phase === 'stock') {
-      if (trip.take > 0) { try { await withdraw(ctx, { item: 'coal', count: trip.take }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+      // ONE DRAW per trip (Codex review 11-04 blocker 2): the flag is set BEFORE the withdraw, so an interrupted call never draws
+      // again; the amount is recomputed against the bag and the town as they are now (keep 64, at most 60 carried)
+      if (!trip.stockTried) {
+        trip.stockTried = true
+        const town = townCoalStock(bot)
+        const take = town.ok ? coalForTrip({ townCoal: town.total, held: bagCount(bot, 'coal') }) : 0
+        if (take > 0) { try { await withdraw(ctx, { item: 'coal', count: take }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+      }
+      trip.coalBudget = Math.min(TRADE.carryMax, bagCount(bot, 'coal'))
       trip.phase = bagCount(bot, 'coal') >= TRADE.minSell ? 'out' : 'home'
       if (trip.phase === 'home') trip.stop = 'no_coal'
       row('success', `coal=${bagCount(bot, 'coal')}`)
@@ -20003,6 +20024,7 @@ async function tradeTrip (ctx, _args, signal) {
         trip.sold += r.sold; trip.earned += r.earned; trip.books += r.books
         for (const [k, n] of Object.entries(r.bought)) trip.bought[k] = (trip.bought[k] ?? 0) + n
         row('success', `with=${m.profession} sold=${r.sold} earned=${r.earned} spent=${r.spent}${r.why ? ` why=${r.why}` : ''}`)
+        if (r.halt) { trip.stop = 'trade_timeout'; trip.phase = 'home'; return { status: 'success', detail: 'trade_trip: a trade timed out; heading home' } }
       }
       if (!tradeCandidates(bot.entities, bot.entity.position, trip.tried).length) {
         const why = turnHome(trip, { ...read(), buyLeft: false })
@@ -20035,6 +20057,8 @@ async function tradeTrip (ctx, _args, signal) {
 }
 /** COALSALE-01, once per spawn (features.mjs): the licence row. Never throws. */
 export function tradeInstall (bot) {
+  // a death ends the trip (Claude review 11-04 note 2): the bag is gone and the crumbs lead from where it died, not from spawn
+  try { bot.on?.('death', () => { if (bot.tradeTrip) { try { logEvent({ kind: 'trade_trip', status: 'failed', snapshot: snapshot(bot), detail: tripDetail(bot.tradeTrip, 'end=death') }) } catch { /* telemetry */ } bot.tradeTrip = null; tradeLeaseRelease(bot) } }) } catch { /* no events */ }
   try { logEvent({ kind: 'coalsale_mode', status: 'success', snapshot: snapshot(bot), detail: tradeModeDetail(TRADE_ON.on, censusOf(config.memory.pool).length) }) } catch { /* telemetry */ }
 }
 export const SKILL_CONTRACTS = {

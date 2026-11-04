@@ -95,7 +95,7 @@ export function tripAdmit ({ on = true, census = 0, dest = null, now = 0, state 
 /** A NEW TRIP's state. */
 export const newTrip = ({ now, home, dest, take }) => ({ v: 1, phase: take > 0 ? 'stock' : 'out', startedAt: now, home, dest, take,
   crumbs: [{ x: Math.floor(home.x), y: Math.floor(home.y), z: Math.floor(home.z) }], roam: 0, roamCenter: { x: dest.x, y: dest.y, z: dest.z },
-  sold: 0, earned: 0, bought: {}, books: 0, seen: [], tried: [], calls: 0, stop: null })
+  sold: 0, earned: 0, bought: {}, books: 0, seen: [], tried: [], calls: 0, stop: null, coalBudget: null, stockTried: false })
 
 /** WHY TURN HOME NOW -> reason | null. Pure. Never a timer except the stranded cap. */
 export function turnHome (trip, { now, timeOfDay = 0, health = 20, freeSlots = 36, coal = 0, emeralds = 0, buyLeft = false } = {}) {
