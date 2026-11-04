@@ -262,7 +262,8 @@ An empty farm with no seed is due again once its 30-min gather back-off ends.
 - r3: APPROVE.
 - Suite on .30 (8b5ed792): 386/400. The 6 known base failures plus flakes lavastep and plinth-skill, and 6 new ones, all from the
   project list: house, paths-wiring, shop, showcase-on-fleet, wall-wiring, ziggurat-project. All six fixed in 298ed65d and
-  re-run green alone. The full re-run is queued on .30 (`~/farms-1103/suite2.log`).
+  re-run green alone. Full suite on ci2 (298ed65d): 396/400. Every failure is a known base failure or flake: ceilescape,
+  nothing-important-is-orphaned, protected-paths, craftsync.
 
 **Tripwire:** G9 farm_dig in `docs/reports/shop-01-2026-10-25/shopread.py.txt` (main, NOT installed). Selftest passes.
 - Claude (independent subagent): APPROVE.
