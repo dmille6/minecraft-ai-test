@@ -11632,8 +11632,9 @@ function withdrawSweep (bot, { pick = false, town = false, missKey = null, missT
   const search = (radius, ok) => bot.findBlock({ ...(town ? { point: home, maxDistance: TOWN_SCAN_RADIUS } : { maxDistance: radius }),
     matching: b => isContainer(b) && (!b.position || (!tried.has(posKey(b.position)) && where(b.position) && ok(b.position))) })
   // sortstore-01: the item's category homes first (`prefer`: keys), each under the same rules as the search, in reach
+  const preferList = [...(prefer ?? [])]
   const preferred = radius => {
-    for (const k of prefer ?? []) {
+    for (const k of preferList) {
       try {
         const q = keyVec(k)
         if (tried.has(posKey(q)) || !where(q) || skip(q)) continue
@@ -11647,6 +11648,7 @@ function withdrawSweep (bot, { pick = false, town = false, missKey = null, missT
   }
   return {
     next (radius) { return preferred(radius) ?? search(radius, q => !skip(q)) },
+    preferFirst (keys = []) { preferList.unshift(...(keys ?? []).filter(k => !preferList.includes(k))) },   // storehub-01
     any (radius) { return search(radius, q => !shut(q)) },   // misses included (the ingredients pass needs one)
     mark (q, double) {
       tried.add(posKey(q))
@@ -11754,8 +11756,9 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
     if (!have) return null
     return decideTakes([{ name: item, count: Math.min(have, Math.max(1, Math.min(64, Math.floor(Number(count) || 16)))) }], inChest, bag, chestEmpty, keep)
   }
+  const sweep = withdrawSweep(bot, { prefer: (() => { const sh = sortHomesNow(bot); return sh ? withdrawPrefer(sh, item) : [] })() })
   // storehub-01: the sorted hall's chests for the item's section first (where the clerk puts it), then the storehouse's homes
-  const sweep = withdrawSweep(bot, { prefer: (() => { const sh = sortHomesNow(bot); return [...hubWithdrawPrefer(item), ...(sh ? withdrawPrefer(sh, item) : [])] })() })
+  sweep.preferFirst(hubWithdrawPrefer(item))
   let chestBlock = sweep.next(48)
   if (!chestBlock) {
     // deposit's shape: walk home through the rescue path, then RESCAN before judging the walk.
@@ -17224,14 +17227,15 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // tidy that is only due waits behind every open project (shop.mjs activeProject `due`)
         // zigtidy-02: ...except for TIDY_AFTER_REPAIR_MS after the record's last repair completion (shop.mjs tidyIsRepair): then the
         // tidy is a repair too -- the pillars a repair's own climbs left are dug before the open projects (bounded per bot)
+        // storehub-01: a standing hall's upkeep for THIS bot (its labels, owed cargo, a clerk move-set) is `due` (recordDamaged's upkeep
+        // read) and FIRST among the upkeeps (`dueFirst`)
+        const hubDue = complete && b && p.plot === HUB_PLOT ? hubUpkeepDue(b, rec, now) : false
         const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
         // stockyard-01: a complete yard's work for THIS bot (yard.mjs yardWork): its bag's surplus under pressure goes first (as a
         // repair: activeProject's first loop, bounded by repairBackoff), any other work (the clerk, a refill, the aisles) is `due`
         const yw = complete && b && p.plot === YARD_PLOT ? yardWorkNow(b, rec) : null
         const damaged = complete && b ? (recordDamaged(b, rec, { tidy: tidyFirst }) || !!yw?.urgent) : false
-        // storehub-01: a standing hall's upkeep for THIS bot (its labels, owed cargo, a clerk move-set) is `due`, first among the upkeeps
-        const hubDue = complete && b && p.plot === HUB_PLOT ? hubUpkeepDue(b, rec, now) : false
-        const due = complete && b && !damaged ? (recordDamaged(b, rec) || !!yw?.kind || hubDue) : false
+        const due = complete && b && !damaged ? (recordDamaged(b, rec) || !!yw?.kind) : false
         // copperhall-01: the unsited hall WAITS on its opening rule (copperhall.mjs hallOpening: the town's copper), so the order
         // never offers it early and works the next project meanwhile
         const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
