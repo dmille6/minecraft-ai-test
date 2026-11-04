@@ -5,7 +5,7 @@ it?" and "i have no problem with bots filling in water if it must, as a last res
 grant.
 
 **Status:** designed (Claude subagent and Codex, each from the same brief without seeing the other's, reconciled here), then built
-as a SHOWCASE piece on branch `siteprep-01` on the live showcase release `4e559e0b` (cropfarm-02fix on sinkfix-02 `c39a1128`). The
+as a SHOWCASE piece on branch `siteprep-01` (code final cc3d148d, both engines APPROVE) on the live showcase release `4e559e0b` (cropfarm-02fix on sinkfix-02 `c39a1128`). The
 branch was cut after `4e559e0b` was activated 11-04 08:13Z, so it stages onto the live release. Not released, not queued, nothing
 deployed. Tier 2 (`protected.py`: no protected file touched).
 
@@ -263,7 +263,53 @@ Both engines, blockers only, on the reconciled design: **both BLOCK** (Claude 3,
 | the walk box could exclude the town: zero before and after "passed" | Codex 4 | the walk box spans the town edge and the graded box; an empty baseline is refused (`walk_unproven`); the after-walk must keep every column of the before-walk's walked-and-back SET, and stuck-prone must not rise |
 | cuts column-first can dig a shaft mid-way | Codex 5 | `prepCutOrder`: the highest layer across the plot first (Baritone #404/#728); per-operation escape proofs are not built (the terrace stage has the same exposure, live since 11-03) |
 
-## 14. Slices
+## 14. The build, its code reviews, tests and the offline proof
+
+**Branch `siteprep-01`** on the live showcase release `4e559e0b`: f45ba8e9 (the build), then six blocker rounds, code final at
+**cc3d148d** (both engines APPROVE). Code: `bots/src/siteprep.mjs` (new, pure), `terrace.mjs` (`pin`, `backSet`), `sinks.mjs`
+(`ctx.prep`, `rejects`, `pinB`), `skills.mjs` (wiring), `bots/scripts/siteprep-offline.mjs`, `bots/test/siteprep.test.mjs`.
+
+| round | Claude | Codex | fixed in |
+|---|---|---|---|
+| code r1 (f45ba8e9) | BLOCK: on a terrace-stage record the completion's `given` counted standing prep cuts as done (the prep's own zone) | BLOCK: the same; a failed retirement still released the zone; a re-prep could not install its work | 3cb7d815 (`!cutAt.get(k)?.prep`, `prepHold`, `retire()` result, `prepAttempt`) |
+| r2 | BLOCK: `prepHold` pinned the keeper on cuts it had given up, to the 48-h expiry | APPROVE | 884e5a1a (`prepHoldOf`: 'stuck' -> retire) |
+| r3 | BLOCK: a seal under a given-up cut kept it at 'work' | APPROVE | 59c5c6d9 |
+| r4 | BLOCK: a seal whose opener greened (dirt -> grass) did too | APPROVE | 152cf986 (the stall backstop: 3 prep visits that moved nothing -> stuck) |
+| r5 | BLOCK: the stall counted only the keeper's placements (helpers filling looked idle) | BLOCK: the selection used transient guards the tick did not | c9efb2d2 (`prepStallNext`; one open-work predicate) |
+| r6 | APPROVE (note: a rising-and-falling count) | BLOCK: the count read the open work before the visit | cc3d148d (a fresh read after the visit, `prepStallsNow`, only a new low resets) |
+| r7 | **APPROVE** | **APPROVE** | |
+
+Residual, named (non-blocking, Claude r7): a visit's `moved` (placements + clears) still resets the stall count, and runVisit's
+moves include access pillars and foreign clears; a visit that re-clears something that keeps returning (snow) would hold a stuck
+prep to its 48-h expiry. Bounded by the expiry; the fix is to count only the prep's own open work falling.
+
+**Tests** (`bots/test/siteprep.test.mjs`, 33/33): the switch, the classes, filing, the state table (every live state reaches a
+terminal), expiry, the reservation (margin, the one exempt id), the pinned grading (exact at L, 1-Lipschitz, a pin in a refusal
+fails), the walk guard (an empty baseline refused, a lost column refused), the tiers (water last, flowing and deep water never),
+THE CHAIN on the fake world (the requester refuses; the keeper chooses tier `same`; the keeper's own `runVisit` lays the plot on the
+fake server; the requester's pinned siting accepts the real world; the same pinned siting on the untouched world refuses: the
+positive control), the tidy-record work and its retirement, the hold and the stall count, the hand-over helpers, `successorDue`,
+the wiring (structural, comments stripped). 12 anchored mutants (each anchor asserted present and unique, imported with a
+`?${Date.now()}_${Math.random()}` URL), all killed. Structural anchors in sinks / terrace / groundskeeper follow the changed lines
+(35 / 47 / 40 pass). eslint clean.
+
+**Offline on the showcase** (region copy + pool records, 11-04 08:58Z; `node bots/scripts/siteprep-offline.mjs <dump> <pool> --pool
+showcase --kinds shrine,tower --count 2 --avail '{"stone_bricks":200}' --torch`):
+
+| round | requester | prep | result |
+|---|---|---|---|
+| shrine n=2 | no_site (`apron_low` 376, `reserved:*`) | 297 candidates, 76 ranked, 10 calls of <= 4 gradings; tier `other_dry`, B7 at -69,68,-28: cut 50, fill 122, seal 18; **control: the pinned siting on the untouched ground refuses** | handed: **Z2 sited, 63 cells** |
+| tower n=3, 4 | sited without prep (T3 281 cells, T4 84) | - | - |
+| shrine n=3 | no_site | refused (`pin_kept` 48, `pin_not_free` 9, `cut_over` 1) | none: the remaining slots' ground steps more than a 6-column grading can ramp |
+
+So on the showcase today prep unlocks one shrine (Z2) that nothing else would site; the towers do not need it (their live failure
+since 07:20Z is `unfunded`). A choose costs 0.1-0.2 s a call on the Mac (1.7 s for 10 calls).
+
+**No Paper sandbox run.** The sandboxes exist (`sandbox/sandboxes.json`, sbxlock), but a Paper driver for the chain (the keeper's
+runVisit grading a carved plot with a real mineflayer bot, then the requester siting) is not written; the proof here is the fake
+server + the region copy. The water tier is proven only on the pure estimate (no live still-water fill).
+
+## 15. Slices
 
 1. **This branch (showcase):** towers and shrines, tiers same/smaller/other_dry/water, the keeper's prep, the hand-over, rows.
 2. Ziggurat (with Codex's construction-proof adapter, inside `monumentBox`), the buildsite requesters (workshop, house, yard, crop
