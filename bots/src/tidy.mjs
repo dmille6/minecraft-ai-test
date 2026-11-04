@@ -801,7 +801,8 @@ export const ACCESS = Object.freeze({ supportMax: 4, headRoom: 2 })
  *   - a town-plan container's STAND (the plan's plots' cells' and stations' `stand`: paths.mjs pathAvoid's `flat`; Codex r1 BLOCKER 3)
  *   - a land-plan road corridor (corridorAt; the tidy's own guard leaves them out: Codex r1 BLOCKER 3)
  */
-const FOOTPRINT_SKIP = new Set(['wall', 'paths', 'tidy', 'land'])
+// the wallext + access fold (Codex fold BLOCKER): the wall extension is a ring wall too -- its box is the extension's interior
+const FOOTPRINT_SKIP = new Set(['wall', 'wallext', 'paths', 'tidy', 'land'])
 export function accessNoStair (records = [], { plan = null, land = null } = {}) {
   const cols = [], boxes = [], stands = new Set()
   for (const r of records ?? []) {
@@ -880,13 +881,22 @@ export function planAccessStair (read, { x, z, top, base, col, cellCols = new Se
 export function mergeSurveys (parts = []) {
   const out = { ok: true, why: 'ok', cut: [], fill: [], pillars: [], pits: [], litter: 0, skipped: {} }
   const seen = { cut: new Set(), fill: new Set(), pillars: new Set(), pits: new Set() }
-  for (const p of parts) {
-    for (const f of ['cut', 'fill', 'pillars', 'pits']) for (const e of p[f] ?? []) { const k = JSON.stringify(e?.at ?? e); if (seen[f].has(k)) continue; seen[f].add(k); out[f].push(e) }
+  parts.forEach((p0, i) => {
+    // the wallext + access fold (Codex fold BLOCKER): each survey numbers its pits and pillars from 0 (`h0`, `a0`, `b0`), and tidyRecord
+    // groups fills by `pit` and cuts by `pillar` -- the same id from two boxes made one group of both (cells twice, segments shared).
+    // Every part's ids are namespaced `p<i>:` (the pit/pillar lists and the fills'/cuts' references alike) before the join
+    const ns = v => (v == null ? v : `p${i}:${v}`)
+    const p = parts.length > 1 ? { ...p0,
+      cut: (p0.cut ?? []).map(c => (c?.pillar != null ? { ...c, pillar: ns(c.pillar) } : c)),
+      fill: (p0.fill ?? []).map(f => (f?.pit != null ? { ...f, pit: ns(f.pit) } : f)),
+      pillars: (p0.pillars ?? []).map(q => ({ ...q, id: ns(q.id) })),
+      pits: (p0.pits ?? []).map(q => ({ ...q, id: ns(q.id) })) } : p0
+    for (const f of ['cut', 'fill', 'pillars', 'pits']) for (const e of p[f] ?? []) { const k = f === 'pillars' || f === 'pits' ? `id:${e?.id}` : JSON.stringify(e?.at ?? e); if (seen[f].has(k)) continue; seen[f].add(k); out[f].push(e) }
     out.litter += Number(p.litter) || 0
     // the wallext + access fold: the staircases of every part (access-01's `access` list)
     if (Array.isArray(p.access)) (out.access ??= []).push(...p.access)
     for (const [k, v] of Object.entries(p.skipped ?? {})) out.skipped[k] = (out.skipped[k] ?? 0) + v
-  }
+  })
   for (const [k, v] of Object.entries(parts[0] ?? {})) if (!(k in out)) out[k] = v
   return out
 }
