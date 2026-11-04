@@ -35,9 +35,15 @@ const hall = all.some(p => p.plot === CH.HALL_PLOT) ? [] : [CH.hallPadZone(plan,
 const mFile = path.join(poolDir, `expedition-${hk}.markers.jsonl`)
 const markers = fs.existsSync(mFile) ? fs.readFileSync(mFile, 'utf8').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(m => m && !m.gone) : []
 const others = land && LP ? [...recs, LP.landReservation(land)] : recs
-const zones = [...R.zones, ...recordZones(others), ...hall, ...(EX.markerZones ?? (() => []))(markers)]
+// the bridge sites' footprints (skills.mjs townMarkerZones: markers + bridges)
+const BR = await import('../src/bridge.mjs').catch(() => null)
+const bFile = path.join(poolDir, `expedition-${hk}.bridges.jsonl`)
+const bridges = BR && fs.existsSync(bFile) ? BR.bridgeZones(BR.bridgeSites(fs.readFileSync(bFile, 'utf8').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean))) : []
+const zones = [...R.zones, ...recordZones(others), ...hall, ...(EX.markerZones ?? (() => []))(markers), ...bridges]
 const store = recs.find(r => r.plot === 'storehouse') ?? null
-const ctx = { zones, wells: R.wells, farm: R.farm, z0: null, stood: [], plot: SH.HUB_PLOT }
+// the bot's ctx (skills.mjs shopCtx): the ziggurat's record box is Z0 (buildsite.mjs reservations: its footprint + 8)
+const mon = recs.find(r => r.plot === 'monument' && Array.isArray(r.box))
+const ctx = { zones, wells: R.wells, farm: R.farm, z0: argv.includes('--no-z0') ? null : (mon ? { box: mon.box } : null), stood: [], plot: SH.HUB_PLOT }
 const bp = loadBlueprint(SH.HUB_BLUEPRINT)
 const out = { home, store: store?.box ?? null, records: recs.length, zones: zones.length, steps: [], site: null }
 for (const step of SH.hubSitingPlan(home, store)) {
