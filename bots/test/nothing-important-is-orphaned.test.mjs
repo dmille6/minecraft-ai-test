@@ -204,6 +204,7 @@ const REQUIRED = [
   'bots/src/park.mjs',
   'bots/test/terrace.test.mjs',
   'bots/test/gkhelpers.test.mjs',   // gkhelpers-01: the grounds crew, the storehouse floor, the park gather
+  'bots/test/plotprep.test.mjs',   // plotprep-01: the extension's plots readied (trees felled from a stand, replanted, levelled)
   'bots/test/access.test.mjs',   // access-01: proper stairs where bots climbed (groundskeeper piece 3)
   'bots/test/fixtures/gkstage-tidy-g20-20261104.json',   // gkstage-01: the LIVE tidy record the floor-only stall ran on
   'bots/scripts/inwall-offline.mjs',   // gkstage-01: the inside-the-wall stage on region copies

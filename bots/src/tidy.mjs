@@ -28,7 +28,7 @@ import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND, INWALL_STAGE } from './landplan.mjs'   // groundskeeper-01; gkstage-01
 import { PARK_PALETTE } from './park.mjs'   // townterrace-01: the park's roles
-import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
+import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf, inWallTrees, TERRACE } from './terrace.mjs'   // townterrace-01: the terrace stage; plotprep-01: the plots' trees
 
 export const TIDY_PLOT = 'tidy'
 export const TIDY_BLUEPRINT = 'tidy@1'
@@ -766,6 +766,161 @@ export function inwallBoxes (wall, home, ext = null, r = TIDY.r) {
   if (Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) && b[2] >= b[0] && b[3] >= b[1]) out.push([...b])
   return out
 }
+// ================================================================================================================================
+// PLOTPREP-01 (coordinator 11-04, the owner's "they can leave trees, or cut down trees and replant in better spots"): the wall
+// extension's RESERVED PLOTS (wall.mjs wallExtPlots: the record's `plots` [{ id, kind, box, y }]) are made ready for their buildings
+// while no project has sited on them: every tree standing on the plot felled (replanted in the tree farm or the wild zone:
+// replantCells, the read's G5), a tree too tall for a ground stand felled from a temporary stone STAND beside its trunk (piece 3's
+// staircase, torn down once the tree is down: platformTeardown), and the plot levelled to its prevailing floor (the median ground).
+// LIVE (11-04): the workshop could not site on X1 (x 10..28, z -75..-63): a 9-log spruce at 25,-64, logs 69..77 on soil at 68 -- a
+// ground stand's eye (69 + 1.62) reaches the log at 74/75, never 76..77.
+// ================================================================================================================================
+export const PLOTPREP = Object.freeze({ cutMax: 4, fillMax: 4, reachUp: 5, platMax: 3, teardownMs: 45 * 60_000 })
+/** Ground a levelling cut may take (never an ore, sand or gravel, a path, farmland, a log). */
+export const LEVEL_CUT = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|moss_block|stone|cobblestone|mossy_cobblestone|andesite|diorite|granite|tuff|deepslate|cobbled_deepslate)$/
+const PLOT_NOT_SITED = new Set(['tidy', 'land', 'wall', 'wallext', 'paths'])
+/** Has a project sited on the plot (any record cell of another project inside its box)? Pure. */
+export function plotSited (plot, records = []) {
+  const b = plot?.box
+  if (!Array.isArray(b) || b.length !== 4) return true
+  return (records ?? []).some(r => !PLOT_NOT_SITED.has(String(r?.plot ?? '')) && (r.cells ?? []).some(c => Array.isArray(c?.at) && !c.prev && c.at[0] >= b[0] && c.at[0] <= b[2] && c.at[2] >= b[1] && c.at[2] <= b[3]))
+}
+/**
+ * THE PLOTS PREPARED -> { cut, fill, clear, trees, platforms, cols: Set "x,z", plots: [summary], skipped }. Pure over `read`.
+ *   plots    the extension's plots;  records  every project record (a sited plot is left alone: plotSited)
+ *   avoid    the tidy's refusals (a zone, a well, a farm: a column it names is never touched; a tree with a refused log is kept)
+ *   cells    every record cell ("x,y,z")
+ * Per plot: its FLOOR is the median ground of its columns (tidyColumn). Each TREE whose base stands in the plot (inWallTrees, any
+ * height up to the stand's reach + PLOTPREP.platMax): its logs are clears (kind tree, `tree` its index); a tree whose top log is more
+ * than PLOTPREP.reachUp above a ground stand's feet gets a STAND -- a staircase of p = top - (base + reachUp) steps against its trunk
+ * on one side (each step one block, its top step beside the trunk, the landing at its foot one below the last step, two cells of
+ * room above every step: a leaf there is cleared), else the tree is kept (named). Every other column is LEVELLED to the floor: its
+ * ground above it cut (LEVEL_CUT only, <= cutMax), below it filled (<= fillMax); never water, a record cell's column, a refused one.
+ */
+export function plotPrep (read, { plots = [], home, records = [], avoid = () => null, cells = new Set(), noStair = () => false, T = PLOTPREP } = {}) {
+  const out = { cut: [], fill: [], clear: [], trees: [], platforms: [], cols: new Set(), plots: [], skipped: {} }
+  const skip = why => { out.skipped[why] = (out.skipped[why] ?? 0) + 1 }
+  if (!home) return out
+  const yHi = home.y + TIDY.dy, yLo = home.y - TIDY.dy
+  const memo = new Map()
+  const col = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, tidyColumn(read, x, z, { yHi, yLo })); return memo.get(k) }
+  const ground = c => !!c && !c.why && c.y != null
+  const cellCols = new Set([...cells].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
+  const hard = (x, z) => { const w = avoid(x, z); return !!w && !/^(project|plan_cell|plan_box|plan_plot)$|^project:|^land:plot$/.test(String(w)) }
+  const open = (x, y, z) => { const b = read(x, y, z); return !!b && (AIRN(nm(b)) || replaceableCell(b) || b.boundingBox === 'empty') && !isLiquid(b) }
+  for (const plot of plots ?? []) {
+    const b = plot?.box
+    if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite)) continue
+    if (plotSited(plot, records)) { out.plots.push({ id: plot.id, sited: true }); skip('plot_sited'); continue }
+    const ys = []
+    for (let x = b[0]; x <= b[2]; x++) for (let z = b[1]; z <= b[3]; z++) { const c = col(x, z); if (ground(c)) ys.push(c.y) }
+    if (!ys.length) { skip('plot_unread'); continue }
+    ys.sort((p, q) => p - q)
+    const floor = ys[Math.floor(ys.length / 2)]
+    const summary = { id: plot.id, floor, trees: 0, stands: 0, cut: 0, fill: 0, kept: 0 }
+    const used = new Set()   // columns a tree, a stand or a landing takes (no levelling there)
+    // ---- THE TREES ----
+    const tr = inWallTrees(read, b, { home, avoid: (x, z) => (hard(x, z) || cellCols.has(k2(x, z)) ? 'guarded' : null), T: { ...TERRACE, treeReach: T.reachUp + T.platMax + 1 } })
+    for (const [k, v] of Object.entries(tr.skipped ?? {})) out.skipped[k] = (out.skipped[k] ?? 0) + v
+    for (const t of tr.trees) {
+      const base = t.base[1]                  // the log on the soil: a ground stand's feet are at `base`
+      const need = t.top - (base + T.reachUp)
+      let plat = null
+      if (need > 0) {
+        for (const [dx, dz] of N4) {
+          const cs = [], clears = [], cols = []
+          let ok = true
+          for (let i = 1; i <= need && ok; i++) {
+            const cx = t.base[0] + dx * i, cz = t.base[2] + dz * i, h = need - i + 1    // step i: h blocks (base .. base+h-1)
+            const c = col(cx, cz)
+            if (!ground(c) && !(c?.tree && c.y != null)) { ok = false; break }
+            // Codex r1 BLOCKER 2: inside its own plot, never on a door's approach, a road corridor, a stand of the plan (accessNoStair)
+            if (c.y !== base - 1 || hard(cx, cz) || cellCols.has(k2(cx, cz)) || used.has(k2(cx, cz)) || noStair(cx, cz) || cx < b[0] || cx > b[2] || cz < b[1] || cz > b[3]) { ok = false; break }
+            for (let y = base; y <= base + h - 1; y++) { const q = read(cx, y, cz); if (!open(cx, y, cz) && !/leaves$/.test(nm(q))) { ok = false; break } if (/leaves$/.test(nm(q))) clears.push({ at: [cx, y, cz], kind: 'leaves', name: nm(q) }); cs.push([cx, y, cz]) }
+            for (let d = 0; d < 2 && ok; d++) { const y = base + h + d, q = read(cx, y, cz); if (/leaves$/.test(nm(q))) clears.push({ at: [cx, y, cz], kind: 'leaves', name: nm(q) }); else if (!open(cx, y, cz)) ok = false }
+            // the top step's column above the head room up to the tree's top: its leaves block the stand's sight of the top logs
+            // (the fake server, 11-04: logs G+8..G+9 unseen behind the leaves over the stand) -- the tree's own leaves, cleared
+            if (i === 1) for (let y = base + h + 2; y <= t.top + 1; y++) { const q = read(cx, y, cz); if (/leaves$/.test(nm(q))) clears.push({ at: [cx, y, cz], kind: 'leaves', name: nm(q) }); else if (!open(cx, y, cz) && !LOG_RE.test(nm(q))) { ok = false; break } }
+            cols.push(k2(cx, cz))
+          }
+          if (!ok) continue
+          const lx = t.base[0] + dx * (need + 1), lz = t.base[2] + dz * (need + 1), lc = col(lx, lz)
+          if (!ground(lc) || lc.y !== base - 1 || hard(lx, lz) || cellCols.has(k2(lx, lz)) || noStair(lx, lz) || !open(lx, base, lz) || !open(lx, base + 1, lz)) continue
+          plat = { cells: cs, clears, cols: [...cols, k2(lx, lz)] }
+          break
+        }
+        if (!plat || need > T.platMax) { summary.kept++; skip(need > T.platMax ? 'tree_tall' : 'tree_no_stand'); continue }
+      }
+      const idx = out.trees.length
+      out.trees.push({ col: t.col, name: t.name, base: t.base, top: t.top })
+      for (const l of t.logs) out.clear.push({ at: l.at, kind: 'tree', name: l.name, tree: idx })
+      used.add(k2(t.base[0], t.base[2]))
+      if (plat) {
+        out.platforms.push({ tree: idx, cells: plat.cells, phase: 'up' })
+        for (const c of plat.clears) if (!out.clear.some(q => q.at.join(',') === c.at.join(','))) out.clear.push(c)
+        for (const k of plat.cols) used.add(k)
+        summary.stands++
+      }
+      summary.trees++
+    }
+    // ---- THE LEVEL ----
+    for (let x = b[0]; x <= b[2]; x++) for (let z = b[1]; z <= b[3]; z++) {
+      const k = k2(x, z)
+      if (used.has(k) || cellCols.has(k) || hard(x, z)) continue
+      const c = col(x, z)
+      if (!ground(c) || c.tree) continue
+      if (c.y > floor) {
+        if (c.y - floor > T.cutMax) { skip('level_tall'); continue }
+        const bl = []
+        let ok = true
+        for (let y = c.y; y > floor; y--) { const n = nm(read(x, y, z)); if (!LEVEL_CUT.test(n) || cells.has(`${x},${y},${z}`)) { ok = false; break } bl.push({ at: [x, y, z], name: n }) }
+        if (!ok) { skip('level_natural'); continue }
+        const id = `lc${out.cut.length}`
+        for (const q of bl) out.cut.push({ ...q, pillar: id })
+        summary.cut += bl.length; out.cols.add(k)
+      } else if (c.y < floor) {
+        if (floor - c.y > T.fillMax) { skip('level_deep'); continue }
+        const id = `lf${plot.id}-${x}-${z}`
+        for (let y = c.y + 1; y <= floor; y++) out.fill.push({ at: [x, y, z], pit: id, plotFill: true })
+        summary.fill += floor - c.y; out.cols.add(k)
+      }
+    }
+    for (const k of used) out.cols.add(k)
+    out.plots.push(summary)
+  }
+  return out
+}
+/**
+ * THE STANDS TORN DOWN -> the record's next generation | null (nothing to do). Pure over `read`. A stand whose tree reads felled (no
+ * listed log of it stands), or that has stood `teardownMs` since the record was sited (a tree no stand can finish never keeps it), is
+ * taken back down: its cells leave the record's `cells` and become CUTS (top first, the block read there), its phase 'down'.
+ */
+export function platformTeardown (rec, read, now = Date.now(), T = PLOTPREP) {
+  const ps = rec?.plotprep?.platforms ?? []
+  if (!ps.some(p => p.phase === 'up')) return null
+  const down = []
+  for (const p of ps) {
+    if (p.phase !== 'up') continue
+    const logs = (rec.clear ?? []).filter(c => c.kind === 'tree' && c.tree === p.tree)
+    // Codex r1 BLOCKER 1: an UNREAD cell (an unloaded chunk) is never a felled log, and a stand with an unread cell waits (its cuts
+    // would be lost): retired only on what the world says
+    if (p.cells.some(c => !read(...c)) || logs.some(c => !read(...c.at))) continue
+    const felled = logs.every(c => !LOG_RE.test(nm(read(...c.at))))
+    if (felled || now - (Number(rec.sitedAt) || 0) >= T.teardownMs) down.push(p)
+  }
+  if (!down.length) return null
+  const kill = new Set(down.flatMap(p => p.cells.map(c => c.join(','))))
+  const cut = [...(rec.cut ?? [])]
+  for (const c of down.flatMap(p => p.cells).sort((a, b) => b[1] - a[1])) {
+    const n = nm(read(...c))
+    if (read(...c)?.boundingBox === 'block' && !cut.some(q => q.at.join(',') === c.join(','))) cut.push({ at: c, kind: 'tidy', name: n, teardown: true })
+  }
+  return { ...rec, cells: (rec.cells ?? []).filter(c => !kill.has(c.at.join(','))), segments: (rec.segments ?? []).filter(sg => (rec.cells ?? []).some(c => c.seg === sg.seg && !kill.has(c.at.join(',')))), cut,
+    plotprep: { ...rec.plotprep, platforms: ps.map(p => (down.includes(p) ? { ...p, phase: 'down', downAt: now } : p)) } }
+}
+/** Does a stand still stand on the record (its stage never completes over it)? Pure. */
+export const platformUp = rec => (rec?.plotprep?.platforms ?? []).some(p => p.phase === 'up')
+
 /** The wall's interior box [x0, z0, x1, z1] (terrace.mjs wallInterior), else the town square. Pure. */
 export const inwallBox = (wall, home, r = TIDY.r) => {
   const g = wall?.ring
@@ -1047,11 +1202,33 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     const box = boxes[0]
     // access-01: the staircases' refusals (accessNoStair), in every box
     const noStair = accessNoStair(terrace?.records ?? [], { plan, land })
-    const parts = boxes.map(b => surveyInwall(read, { home, box: b, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved, noStair, water, waterOk }))
+    // plotprep-01: the extension's reserved plots first (their trees, their stands, their level); the other inwall rules keep off them
+    const pp = plotPrep(read, { plots: terrace?.wallext?.plots ?? [], home, records: terrace?.records ?? [], avoid, cells, noStair })
+    const reservedP = (x, z) => pp.cols.has(k2(x, z)) || reserved(x, z)
+    const parts = boxes.map(b => surveyInwall(read, { home, box: b, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, noStair, water, waterOk }))
     const bad = parts.find(q => !q.ok)
     if (bad) return { ok: false, why: bad.why, record: null, survey: bad, road: null }
-    const sv = parts.length === 1 ? parts[0] : mergeSurveys(parts)
-    const record = tidyRecord(sv, { home, plan, now, r: Math.max(TIDY.r, ...boxes.map(b => Math.max(Math.abs(b[0] - home.x), Math.abs(b[2] - home.x), Math.abs(b[1] - home.z), Math.abs(b[3] - home.z)))) })
+    const sv0 = parts.length === 1 ? parts[0] : mergeSurveys(parts)
+    // plotprep-01: the plots' levelling cuts and fills, the trees' logs (clears), the stands' cells (access fills, layered)
+    const plat = pp.platforms.map((q, i) => ({ id: `pp${i}`, cells: q.cells }))
+    const sv = { ...sv0, cut: [...sv0.cut, ...pp.cut], fill: [...sv0.fill, ...pp.fill, ...plat.flatMap(q => q.cells.map(at => ({ at, pit: q.id, access: true, stand: true })))],
+      pits: [...sv0.pits, ...[...new Set(pp.fill.map(f => f.pit))].map(id => ({ id, cols: [pp.fill.find(f => f.pit === id).at].map(a => [a[0], a[2]]) })), ...plat.map(q => ({ id: q.id, cols: [...new Set(q.cells.map(c => k2(c[0], c[2])))].map(k => k.split(',').map(Number)), access: true }))],
+      pillars: [...sv0.pillars, ...[...new Set(pp.cut.map(c => c.pillar))].map(id => ({ id }))], clear: [...(sv0.clear ?? []), ...pp.clear] }
+    const rr = Math.max(TIDY.r, ...boxes.map(b => Math.max(Math.abs(b[0] - home.x), Math.abs(b[2] - home.x), Math.abs(b[1] - home.z), Math.abs(b[3] - home.z))))
+    // plotprep-01: a felled tree is owed its sapling (replantCells: the tree farm, else the wild zone; the read's G5) -- a tree the
+    // zones have no room for keeps standing, its logs and its stand dropped (named)
+    const plotBoxes = (terrace?.wallext?.plots ?? []).map(q => q?.box).filter(q => Array.isArray(q) && q.length === 4)
+    const avoidRp = (x, z) => avoid(x, z) ?? (plotBoxes.some(q => x >= q[0] && x <= q[2] && z >= q[1] && z <= q[3]) ? 'land:plot' : null)
+    const rp = pp.trees.length ? (land ? replantCells(read, land, pp.trees.map(t => ({ col: t.col, name: t.name })), { avoid: avoidRp, cells }) : []) : []
+    const keptT = new Set(pp.trees.map((t, i) => i).filter(i => i >= rp.length))
+    if (keptT.size) { sv.skipped = { ...sv.skipped, [land ? 'tree_no_replant' : 'tree_no_land']: keptT.size }; sv.clear = sv.clear.filter(c => !(c.kind === 'tree' && keptT.has(c.tree))) }
+    const platsKept = pp.platforms.filter(q => !keptT.has(q.tree))
+    const standK = new Set(pp.platforms.filter(q => keptT.has(q.tree)).flatMap(q => q.cells.map(c => c.join(','))))
+    if (standK.size) sv.fill = sv.fill.filter(f => !standK.has(f.at.join(',')))
+    let record = tidyRecord(sv, { home, plan, now, r: rr })
+    if (!record && sv.clear.length) record = { v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r: rr, cells: [], clear: [...sv.clear].sort((p, q) => p.at[1] - q.at[1]), cut: [], replant: [], segments: [], zones: [], pillars: 0, pits: 0, skipped: {}, bom: { earth: 0 }, builders_max: TIDY_BUILDERS, structure_complete: false, plan: plan?.gen != null ? { gen: plan.gen } : null, sitedAt: now }
+    if (record && rp.length) record.replant = rp.map((r, i) => ({ ...r, tree: i }))
+    if (record && (pp.plots.length || platsKept.length)) record.plotprep = { plots: pp.plots, platforms: platsKept, skipped: pp.skipped }
     if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null }
     record.stage = legacyStage(st); record.stageId = st.id; record.terraceV = 1
     record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null
