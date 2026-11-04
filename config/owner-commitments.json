@@ -4152,18 +4152,19 @@
    "memory": [
     "trading-1103.md"
    ],
-   "kind": "showcase",
+   "kind": "canary",
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "RELEASED 2026-11-04 01:23:59Z on the showcase as add2dcdd-6dd0ded8-fdd64ead (SHOWCASE BATCH 1, fold branch showcase-batch1-on-cbd2f51b on cbd2f51b: sinkfix bf3a1952 + towndress 7315f8f5 (its sink turn dropped) + shafttrap c1f8ded9 + chatfix 91298adb/requests 8c69ac38 + trading-scout a2ae30c5; villageunlock HELD; suite w30 400/404, the known set; Codex fold APPROVE at 3f613339 + add2dcdd, Claude protected-scope APPROVE); shopread main + trip unlock rule installed 00:48Z; verified 10/10 bots; tripwire WATCH (as before), H1-H8 0. Reads +60 min (rollout.py, ~02:24Z), +2 h (~03:24Z). T1 trading-scout-01 live (read-only _merchant_seen / _xp). T3a villageunlock-01 (982db9e6, fold branch showcase-batch1vu-on-cbd2f51b 3f613339) HELD: the showcase gate refuses a piece whose protected code (bots/src/protectzone.mjs) matches no fleet-kept build -- it needs a fleet KEEP (tier 3 canary) or a gate change first; the tripwire unlock rule is installed (permit-only). Before: Showcase: fold T1 trading-scout-01 + T3a villageunlock-01 (branch villageunlock-01, on trading-scout-01, on the live showcase release) into the next release, with main's tripwire canon() unlock rule installed first; read 24 h: the 6_1 villagers' `_merchant_seen ... changed` rows and `_village_unlock` rows. Then T2 coalsale-01 (fleet, tier 3, no fixed budget: expedition guardrails, 45-min stranded cap) once fleet sightings name a buyer per town. Design docs/reports/trading-design-2026-11-03.md section 9.",
+   "next_step": "T1 trading-scout-01 LIVE on the showcase (batch 1 add2dcdd.., 11-04 01:23Z). T3a villageunlock-01 refused by the showcase gate (protectzone not in a fleet KEEP) -> FLEET tier-3 canary villageunlock-01 @ d3d3ad17 (on fleet 9fbfdf22, scout + unlock; registration ~/mcai-analysis/villageunlock-01.d3d3ad17.json, draft entry .entry.draft.json; P lane after vetoremedy-01; control session queues). Expected close KEEP goal-unverified; after promotion the showcase can carry the unlock. Then T2 coalsale-01.",
    "max_quiet_hours": 48,
    "depends_on": [],
    "evidence": {
     "branches": [
      "origin/trading-scout-*",
      "origin/coalsale-*",
-     "origin/villageunlock-*"
+     "origin/villageunlock-*",
+     "origin/villageunlock-01-fleet"
     ],
     "grep": [
      "trading-scout-01",
@@ -4174,6 +4175,9 @@
      "docs/reports/trading-design-2026-11-03.md",
      "bots/src/merchantscout.mjs",
      "infra/showcase/test_trip_unlock_mutants.py"
+    ],
+    "runs": [
+     "villageunlock-01"
     ]
    },
    "note": "Measured 11-03: showcase 63 villagers, 0 employed, 0 offers (6_1's 7 stuck in village trapdoor rings); fleet employed novices 554-605 blocks from 11 towns. Sandbox4: job claim 5.5 s (mobGriefing true and false), openVillager + trade sell/buy server-confirmed; anvil/enchanting table unproven. T3a sandbox4 E2E: ring 10 toggled / house 4 toggled, all present, villager employed; owner answers 11-03 21:45Z recorded (no owner_pending left)."
