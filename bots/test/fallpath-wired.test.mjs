@@ -24,7 +24,10 @@ t('every movement profile names itself and every helper restores the walk profil
   // five since 2026-09-29: the ore tunnel's profile (oretunnel.mjs) restores walk like the others; six since 2026-10-03:
   // the composter visit's own walk profile (composter.mjs composterSafeMovements)
   // eight since 2026-10-24: respawnfall-01's deck walk (index.mjs withDeckMovements)
-  assert.equal(idx.split("finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }").length - 1, 8, 'eight helpers restore walk (respawnfall added withDeckMovements)')
+  // shafttrap-02: the town walk's finally gained a `quiet` branch (the reflex egress): its plain case restores walk the same way
+  assert.equal(idx.split("finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }").length - 1, 7, 'seven helpers restore walk in one line')
+  once(idx, "if (!quiet) { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }", 'index')
+  once(idx, "try { bot.pathfinder.setMovements(moves) } finally { bot.clearControlStates = clear }", 'index')
 })
 t('mutant: dropping the death-time record is detected', () => {
   const m = idx.replace("if (fell != null && fell > 3) fallRecord(bot, runner, fell, 'death', { cause: deathClass(cause) })\n", '')
