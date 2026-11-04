@@ -150,7 +150,7 @@ import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, 
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS } from './yard.mjs'   // yarduse-01
-import { fillWant } from './tidy.mjs'   // access-01: the stone bill
+import { fillWant, platformTeardown, platformUp } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
@@ -21722,6 +21722,13 @@ function townPark (dir, land, rec) {
 function gkPlanAdditions (bot, dir, key, rec, me) {
   let changed = false
   const read = planReader(bot)
+  // plotprep-01: a felling stand whose tree is down (or that has stood its time) is taken back down -- its cells become cuts
+  try {
+    if (platformUp(rec)) {
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? platformTeardown(cur, read) : null), { by: me })
+      if (pub.result === 'accepted') { changed = true; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'stand_teardown', n: (rec.plotprep?.platforms ?? []).filter(p => p.phase === 'up').length, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    }
+  } catch { /* asked again next visit */ }
   try {
     const store = projectHeads().find(x => x.plot === STORE_PLOT)?.head?.rec ?? null
     if (store?.structure_complete) {
@@ -22345,7 +22352,8 @@ async function buildTidy (ctx, args, signal) {
     // this bot): the prep is verified, or retired at its expiry, first
     const prepHold = SITEPREP.on && (prepWorking(dir, rw, read2, q => !!q.prev || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || buildCellDone(read2(...q.at), palette, q.role), k => tidyGivenUp(mem, k), bot.prepStalls)?.hold ?? 'none') !== 'none'
     if (prepHold) f.prepHold = 1
-    if (caps.complete && !crewHolds && !prog.cutLeft && !prog.fillLeft && !unread && clearsOk && !prepHold) {
+    // plotprep-01: never complete over a felling stand still standing (the keeper tears it down first: gkPlanAdditions)
+    if (caps.complete && !crewHolds && !platformUp(rw) && !prog.cutLeft && !prog.fillLeft && !unread && clearsOk && !prepHold) {
       const now = Date.now()
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length } : null), { by: me })
       completed = true

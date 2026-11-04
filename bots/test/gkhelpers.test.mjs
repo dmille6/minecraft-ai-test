@@ -572,7 +572,7 @@ await t('buildTidy: the crew role, helpers never site, the keeper\'s plan additi
   assert.ok(/\.\.\.\(GROUNDS\.on \? \{ segOk: crew\.segOk, segYield: crew\.segYield, skipOpenDeps: true \} : \{\}\) \}, effects,/.test(s), 'the crew hooks reach runVisit')
   assert.ok(/const cuts = !caps\.digs \|\| floorOnly \? \[\] :/.test(s), 'the cuts are the keeper\'s')
   assert.ok(/const waive = !caps\.waive \? \[\] :/.test(s), 'the waiver is the keeper\'s')
-  assert.ok(/if \(caps\.complete && !crewHolds && !prog\.cutLeft/.test(s), 'the completion is the keeper\'s (gkstage-01: a bounded wait for crew plants)')
+  assert.ok(/if \(caps\.complete && !crewHolds && !platformUp\(rw\) && !prog\.cutLeft/.test(s), 'the completion is the keeper\'s (gkstage-01: a bounded wait for crew plants)')
   assert.ok(/const crewHolds = crewHeld > 0 && parkWaits <= GK_PARK_WAITS/.test(s), 'gkstage-01: the wait is bounded')
   assert.ok(/gathered = await parkGather\(ctx, signal, \{ deadline: t0 \+ budget - ZIG_VISIT_TAIL_MS, effects \}\)/.test(s), 'the gather')
   assert.ok(/if \(helper && r\.placed === 0 && !\(gathered\?\.n > 0\)\) \{ releaseHelper\(bot, helper\.name, helper\.gen, 'idle'\)/.test(s), 'an idle helper lets go')
