@@ -19915,7 +19915,8 @@ async function tradeWalk (ctx, trip, target, signal, until, range) {
 // WHILE THE WINDOW IS OPEN the bag is the window's player section (sandbox4 11-04: bot.inventory stays stale until the close,
 // so a bag count read inside the window saw 0 sold for 60 coal that the server had taken): count there
 const winCount = (v, name) => { try { return (v.items?.() ?? []).filter(x => x?.name === name).reduce((n, x) => n + (x.count ?? 0), 0) } catch { return 0 } }
-/** A TRADE THAT TIMED OUT OR THREW (Codex review 11-04 blocker 3): no further click on this window; the cursor settled with
+/** A TRADE THAT THREW (Codex review 11-04 blocker 3; the trade itself is awaited whole, so nothing of it is still clicking): no
+ *  further click on this window; the cursor settled with
  *  withdraw's server-confirmed settleCursor (bounded), every in-flight click invalidated, then the caller closes the window and
  *  the trip turns home. Never throws. */
 async function tradeSettle (bot, v) {
@@ -19943,7 +19944,7 @@ async function tradeWith (ctx, trip, m, signal) {
       check(signal)
       const c0 = winCount(v, 'coal'), e0 = winCount(v, 'emerald')
       let bad = null
-      try { await tradeTimeout(v.trade(s.i, s.times), 15_000, 'trade') } catch (e) { bad = e }
+      try { await v.trade(s.i, s.times) } catch (e) { bad = e }   // AWAITED WHOLE, never raced (Codex re-check: a raced trade kept clicking after the close); a server that never answers is the runner's hard stop, as for every window skill
       await sleep(300, signal)
       res.sold += Math.max(0, c0 - winCount(v, 'coal')); res.earned += Math.max(0, winCount(v, 'emerald') - e0)
       if (bad) { res.why = `trade:${String(bad?.message ?? bad).slice(0, 40)}`; res.halt = true; break }
@@ -19955,7 +19956,7 @@ async function tradeWith (ctx, trip, m, signal) {
       if (b.needsBook && winCount(v, 'book') < 1) continue
       const e0 = winCount(v, 'emerald'), name = b.what.startsWith('enchanted_book') ? 'enchanted_book' : b.what, n0 = winCount(v, name)
       let bad = null
-      try { await tradeTimeout(v.trade(b.i, b.times), 15_000, 'trade') } catch (e) { bad = e }
+      try { await v.trade(b.i, b.times) } catch (e) { bad = e }   // awaited whole (see the sale above)
       await sleep(300, signal)
       const got = Math.max(0, winCount(v, name) - n0)
       res.spent += Math.max(0, e0 - winCount(v, 'emerald'))
