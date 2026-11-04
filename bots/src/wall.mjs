@@ -1196,3 +1196,24 @@ export function walldemoOpening (wallRec, extRec) {
   if (!demoLine(extRec)) return { open: false, why: 'no_line' }
   return { open: true, why: 'ok' }
 }
+/**
+ * A LATE BLOCK ON THE OLD LINE (Codex r2 BLOCKER: a wall repair's placement sent before the retirement can land after the demolition
+ * was sited; nothing would own it) -> [clear entry] the in-scope retired cells holding a wall palette block that the record does not
+ * list with that name. Pure over `read`. The visit appends them (a new generation) and digs them; the record completes only when
+ * none is left AND the retirement is WALLDEMO_SETTLE_MS old (no repair visit outlives it).
+ */
+export const WALLDEMO_SETTLE_MS = 5 * 60_000
+export function demoMissing (demoRec, wallRec, extRec, read) {
+  const listed = new Set((demoRec?.clear ?? []).map(c => `${c.at.join(',')}|${c.name}`))
+  const out = []
+  for (const c of demoCells(wallRec, extRec).cells) {
+    const b = read(...c.at)
+    if (!b) continue
+    const n = nm(b)
+    if (demoName(c.role, n) && !listed.has(`${c.at.join(',')}|${n}`)) out.push({ at: [...c.at], kind: 'demolish', name: n, role: c.role })
+  }
+  return out
+}
+/** Is the demolition done -> bool. Pure over `read`: nothing listed stands, nothing late is unlisted, the retirement has settled. */
+export const demoDone = (demoRec, wallRec, extRec, read, now = Date.now()) =>
+  !demoLeft(demoRec, read).length && !demoMissing(demoRec, wallRec, extRec, read).length && Number.isFinite(wallRec?.retiredAt) && now - wallRec.retiredAt >= WALLDEMO_SETTLE_MS

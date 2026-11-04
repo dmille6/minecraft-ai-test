@@ -146,7 +146,7 @@ import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
-import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening } from './wall.mjs'   // wall-01; wallext-01; wallext-02
+import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone } from './wall.mjs'   // wall-01; wallext-01; wallext-02
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS } from './yard.mjs'   // yarduse-01
@@ -20817,15 +20817,28 @@ async function buildWallDemo (ctx, args, signal) {
     // 2. THE DEMOLITION RECORD from the retired cells, read now
     const s = demoRecord(read, w2.head.rec, ext, { home })
     if (!s.ok) return out('no_effect', s.why === 'unknown' ? 'site_unread' : 'no_site', `no demolition (${s.why})`, { stop: s.why === 'unknown' ? 'site_unread' : 'no_site' })
-    const rec0 = s.record.clear.length ? s.record : { ...s.record, structure_complete: true, state: 'complete', completeAt: Date.now() }
-    const pub = publishRecord(dir, key, cur => (cur ? null : { ...rec0, state: rec0.state ?? 'open' }), { by: me })
+    // never complete at siting (Codex r2 BLOCKER: a repair's late placement): the visit completes it once the retirement settles
+    const rec0 = s.record
+    const pub = publishRecord(dir, key, cur => (cur ? null : { ...rec0, state: 'open' }), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the demolition record could not be published (${pub.result})`)
     if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALLDEMO_PLOT, op: 'sited', cell: [home.x, home.y, home.z], kind: `clear${rec0.clear.length}/cols${rec0.cols.length}/skipped${Object.values(rec0.skipped ?? {}).reduce((a, b) => a + b, 0)}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the demolition record could not be read back')
   }
-  const rec = rh.head.rec
+  let rec = rh.head.rec
   if (rec.structure_complete) return out('no_effect', 'complete', 'the old line is down')
+  // the wall and the extension as they stand now: a late block on a retired cell (a repair's placement that landed after the
+  // retirement) is appended to the list before the visit (wall.mjs demoMissing)
+  const wNow = recordHead(dir, projKeyOf(WALL_PLOT)), xNow = recordHead(dir, projKeyOf(WALLEXT_PLOT))
+  if (!wNow.ok || !xNow.ok || !wNow.head || !xNow.head) return out('no_effect', 'record_unreadable', 'the wall or extension record could not be read')
+  const late = demoMissing(rec, wNow.head.rec, xNow.head.rec, read)
+  if (late.length) {
+    const pubL = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, clear: [...(cur.clear ?? []), ...demoMissing(cur, wNow.head.rec, xNow.head.rec, read)] } : null), { by: me })
+    if (pubL.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALLDEMO_PLOT, op: 'late', cell: late[0].at, kind: `late${late.length}`, gen: pubL.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the demolition record could not be read back')
+    rec = rh.head.rec
+  }
   const slot = takeSlot(dir, key, me, WALLDEMO_BUILDERS)
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   let effects = null
@@ -20845,11 +20858,11 @@ async function buildWallDemo (ctx, args, signal) {
       domain: () => true, walkR: wallWalkR({ cells: rec.clear }, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     // COMPLETE when no listed block stands (the runner's own `complete` reads cells only: a record with none is always `complete`)
     const left = demoLeft(rec, read)
-    if (!left.length) {
+    if (demoDone(rec, wNow.head.rec, xNow.head.rec, read)) {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALLDEMO_PLOT, op: 'complete', kind: WALLDEMO_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
     }
-    const stop = left.length ? (r.stop === 'complete' ? 'clears_left' : r.stop) : 'complete'
+    const stop = left.length ? (r.stop === 'complete' ? 'clears_left' : r.stop) : demoDone(rec, wNow.head.rec, xNow.head.rec, read) ? 'complete' : 'settling'
     return out(r.cleared > 0 ? 'success' : 'no_effect', stop, `${r.why ?? stop}; down ${rec.clear.length - left.length}/${rec.clear.length}`, { stop, cleared: r.cleared, slot: slot.slot, gen: rh.head.gen })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }

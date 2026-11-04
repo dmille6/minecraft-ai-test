@@ -360,6 +360,29 @@ await t('DEMOLISHED END TO END: two fake builders run the bots\' own visit on th
   const kept = wall.cells.filter(c => !listed.has(c.at.join(',')))
   assert.ok(kept.every(c => srv.read(...c.at).name !== 'air'), 'the rest of the old wall stands')
 })
+await t('A LATE BLOCK (Codex r2 BLOCKER: a repair placement landing after the retirement) is found, listed and must go; done only after the settle', () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const ext = extFor(wall, { join: { axis: 'z', line: -12, from: -8, to: 8 } })
+  const d = W.demoCells(wall, ext)
+  for (const c of wall.cells) srv.set(c.at, c.role === 'light' ? 'wall_torch' : c.role === 'post' ? 'stone_bricks' : 'cobblestone')
+  const late = d.cells.find(c => c.role === 'wall')
+  srv.set(late.at, 'air')                                                   // the repair's placement is still in flight at the siting
+  const retired = { ...W.retireWall(wall, d, { now: 1_000 }) }
+  const rec = W.demoRecord(srv.read, retired, ext, { home: HOME }).record
+  assert.ok(!rec.clear.some(c => c.at.join(',') === late.at.join(',')), 'not listed: it read air')
+  srv.set(late.at, 'cobblestone')                                           // ... and lands
+  for (const c of rec.clear) srv.set(c.at, 'air')                           // every listed block dug
+  assert.strictEqual(W.demoLeft(rec, srv.read).length, 0, 'positive control: the list alone reads done')
+  const miss = W.demoMissing(rec, retired, ext, srv.read)
+  assert.deepStrictEqual(miss.map(c => c.at.join(',')), [late.at.join(',')], 'the late block is found')
+  assert.strictEqual(W.demoDone(rec, retired, ext, srv.read, 1_000 + W.WALLDEMO_SETTLE_MS), false, 'not done while it stands')
+  const rec2 = { ...rec, clear: [...rec.clear, ...miss] }
+  srv.set(late.at, 'air')
+  assert.strictEqual(W.demoDone(rec2, retired, ext, srv.read, 1_000 + W.WALLDEMO_SETTLE_MS - 1), false, 'not before the settle')
+  assert.strictEqual(W.demoDone(rec2, retired, ext, srv.read, 1_000 + W.WALLDEMO_SETTLE_MS), true)
+  assert.strictEqual(W.demoMissing(rec2, retired, ext, srv.read).length, 0)
+})
 await t('THE ORDER (wallext-02): after the extension, waiting until it stands; WALLDEMO=off drops it; a light plot', () => {
   const on = SHOP.projectsOn(true, true, true, true, false, true, false, true, true, true, false, false, [], false, true, true, true)
   const i = on.findIndex(p => p.plot === 'walldemo'), e = on.findIndex(p => p.plot === 'wallext')
@@ -406,7 +429,8 @@ const WIRES = [
   ['the old wall never encloses the extension', "x.plot !== WALL_PLOT && x.plot !== WALLEXT_PLOT).map(x => ({ plot: x.plot, rec: x.head.rec }))"],
   ['wallext-02: the visit dispatches the demolition', "if (proj.plot === WALLDEMO_PLOT) return buildWallDemo(ctx, args, signal)"],
   ['wallext-02: the wall is retired BEFORE the demolition is sited', "const pubW = publishRecord(dir, projKeyOf(WALL_PLOT), cur => (cur && cur.structure_complete ? retireWall(cur, demoCells(cur, ext)) : null), { by: me })"],
-  ['wallext-02: the demolition is complete only when no listed block stands', "const left = demoLeft(rec, read)"],
+  ['wallext-02: the demolition is complete only when done (nothing listed or late stands, the retirement settled)', "if (demoDone(rec, wNow.head.rec, xNow.head.rec, read)) {"],
+  ['wallext-02: a late block on a retired cell is appended before the visit', "const late = demoMissing(rec, wNow.head.rec, xNow.head.rec, read)"],
   ['wallext-02: the order waits on the demolition\'s opening rule', "if (p.plot === WALLDEMO_PLOT && !rec && !walldemoOpenNow(dir)) return {"],
 ]
 await t('THE WIRING in skills.mjs: each line present once (executable, comments stripped)', () => {
@@ -416,7 +440,7 @@ await t('THE WIRING CHECK FAILS for the intended reason: each line, mutated, is 
   const raw = readFileSync(SK, 'utf8')
   for (const [what, line] of WIRES) {
     assert.strictEqual(raw.split(line).length - 1, 1, `ANCHOR MISSING OR NOT UNIQUE: ${what}`)
-    const mut = strip(raw.replace(line, line.replace(/WALLEXT|wallext|ext\)|siteWallExt|K\.site|WALLDEMO|retireWall|demoLeft/, 'XX')))
+    const mut = strip(raw.replace(line, line.replace(/WALLEXT|wallext|ext\)|siteWallExt|K\.site|WALLDEMO|retireWall|demoLeft|demoDone|demoMissing/, 'XX')))
     assert.strictEqual(mut.split(line).length - 1, 0, `the mutant of "${what}" still matches`)
   }
 })
