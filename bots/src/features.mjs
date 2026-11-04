@@ -22,6 +22,7 @@ import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licenc
 import { ironsmeltModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
 import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
+import { kittrimModeDetail } from './kittrim.mjs'          // kittrim-01's licence row (`on=0|1`, the KITTRIM kill switch)
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
@@ -82,6 +83,8 @@ export function installFeatures (bot) {
   if (FOUND.on) try { logEvent({ kind: 'found_mode', status: 'success', snapshot: snapshot(bot), detail: foundModeDetail() }) } catch {}   // dormant: no row (the read's arms line)
   // junkout-01: the licence row, once per spawn -- `_junkout_mode`, a kind the base cannot write (bagallowance.mjs junkoutModeDetail)
   try { logEvent({ kind: 'junkout_mode', status: 'success', snapshot: snapshot(bot), detail: junkoutModeDetail() }) } catch {}
+  // kittrim-01: the licence row, once per spawn -- `_kittrim_mode`, a kind the base cannot write (kittrim.mjs kittrimModeDetail)
+  try { logEvent({ kind: 'kittrim_mode', status: 'success', snapshot: snapshot(bot), detail: kittrimModeDetail() }) } catch {}
   // ONE TRUNK (W3, 10-28): the showcase lineage's building rows, moved here from index.mjs's spawn handler like the rows above
   // ledger-01: the licence row (once per spawn; `on=on|off`, the cooperation design's A7 contract)
   try { logEvent({ kind: 'ledger_mode', status: 'success', snapshot: snapshot(bot), detail: ledgerModeDetail() }) } catch {}

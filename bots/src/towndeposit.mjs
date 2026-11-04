@@ -53,6 +53,9 @@ import { smeltRecipeFor, smeltInputsFor } from './smelting.mjs'
 import { WOOD_KEEP, LOGBANK } from './woodkeep.mjs'
 // coalfirst-01 (OWNER 10-29): the bag's coal keep and the coal split (coalrun.mjs is a leaf module)
 import { COALFIRST, COAL_KEEP, coalKeepOf } from './coalrun.mjs'
+// kittrim-01: the trimmed tool kit's bank half (kittrimbank.mjs; kittrim.mjs is the switch and the why)
+import { KITTRIM } from './kittrim.mjs'
+import { kitTrimBank, kitHeldField } from './kittrimbank.mjs'
 export { WOOD_KEEP }
 
 /** The bag the order acts on: the bot's own slot count (bot.inventory.items().length), never an estimate. */
@@ -238,7 +241,8 @@ export function toolSlotsToBank (copies = [], allowance = Infinity) {
  *              slot emptied, so freed = steps.length.
  */
 export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false,
-                                               tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, halves = LOGBANK.on, coalSplit = COALFIRST.on } = {}) {
+                                               tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, halves = LOGBANK.on, coalSplit = COALFIRST.on,
+                                               kittrim = KITTRIM.on, kitRoom = undefined } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const counts = countsOf(list)
   const { keep, why } = townKeeps(counts, { wanted })
@@ -335,13 +339,31 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
       }
     }
   }
+  // THE TRIMMED KIT (kittrim-01, kittrimbank.mjs): the USABLE tool copies beyond the best pickaxe + one spare and the best axe,
+  // shovel and hoe -- judged on the bag LESS every slot this plan already moves (the base tool rule and row P keep their own
+  // choices; the trim only adds copies, never takes one back), under the same withdraw holds and the town's stock target per
+  // name less the copies of it already planned. Both modes: the full bag's run and the not-full visit's tail ('only') -- the
+  // tail only while the bag allowance's switch is on (its order exists only then; off = the tail plans nothing, as before).
+  let kitHeld = ''
+  if (kittrim && tail !== false && (tail !== 'only' || rowsMode === 'only')) {
+    const moving = new Set(steps.map(st => st.slot))
+    const plannedN = {}
+    for (const st of steps) if (TOOL_RE.test(st.name)) plannedN[st.name] = (plannedN[st.name] ?? 0) + 1
+    const kt = kitTrimBank(list.filter(it => !moving.has(it.slot)), { on: true, holds, planned: plannedN, ...(kitRoom ? { room: kitRoom } : {}) })
+    kitHeld = kitHeldField(kt.held)
+    for (const st of kt.steps) {
+      steps.push({ slot: st.slot, name: st.name, count: st.count, kittrim: true, tag: st.tag })
+      banked[st.name] = (banked[st.name] ?? 0) + st.count
+      why[st.name] = 'kittrim'
+    }
+  }
   // THE BASE PLAN'S STACKS FIRST (bagbudget-01, Claude design r1 P2-3): fitToContainer takes the first free container slots in
   // step order, so a short chest takes the coal, iron and cobble before a torch; within each part, by bag slot as before
   // logbank-01: a log half after every whole stack, the rows' included (it frees no slot, so a short chest takes the
   // slot-freeing stacks first); the halves of one slot keep their order (a stable sort), the second reading the slot the first left
-  const rank = st => (st.half ? 2 : st.allowance ? 1 : 0)   // halves LAST: every slot-freeing stack takes chest room first (Codex r1 P2)
+  const rank = st => (st.half ? 2 : st.allowance || st.kittrim ? 1 : 0)   // halves LAST: every slot-freeing stack takes chest room first (Codex r1 P2)
   steps.sort((a, b) => rank(a) - rank(b) || a.slot - b.slot)
-  return { steps, freed: steps.filter(st => !st.half).length, slots: list.length, keep, why, banked, keepPicks }
+  return { steps, freed: steps.filter(st => !st.half).length, slots: list.length, keep, why, banked, keepPicks, kitHeld }
 }
 
 /**

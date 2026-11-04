@@ -71,6 +71,8 @@ import { LOGBANK } from './woodkeep.mjs'
 import { IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS, countSkipWhy, TD_FULL_EXTRA, tdMoreContainers } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
+// kittrim-01: the trimmed kit's own rows (bank: the town deposit; wear: wear_out's early run outside town)
+import { kittrimBankDetail, kittrimWearDetail, kitWearEarly, kitTag } from './kittrim.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
@@ -7788,15 +7790,18 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
 // from the inventory -- the row is an outcome, not the intention.
 async function wearOut(ctx, _args, signal) {
   const { bot } = ctx
-  const plan = wearOutPlan(bot.inventory?.items?.() ?? [])
+  // kittrim-01: the EARLY run (below TRIGGER_SLOTS) only when the order asked for it AND it still holds here -- outside the town's
+  // ground box, a known home, enough slots (kittrim.mjs kitWearEarly), re-read at the run, never the order's word alone
+  const early = _args?.kittrim === true && kitWearEarly({ pos: bot.entity?.position, home: townHome(), slots: bot.inventory?.items?.()?.length ?? 0 })
+  const plan = wearOutPlan(bot.inventory?.items?.() ?? [], { early })
   if (!plan.tools.length) return { status: 'no_effect', detail: `no spent tool to wear out at ${plan.slots} of 36 slots` }
   const tkBefore = toolsTag(bot.inventory?.items?.() ?? []), wearT0 = Date.now()
-  const destroyed = []
+  const destroyed = [], wornItems = []
   let stopped = null
   for (const tool of plan.tools) {
     const r = await wearOutOne(ctx, tool, signal)
     if (!r.ok) { stopped = r.said; break }
-    destroyed.push(`${tool.name} on ${r.on}`)
+    destroyed.push(`${tool.name} on ${r.on}`); wornItems.push(tool)
   }
   await bot.waitForTicks?.(12)   // a block drop is collectable after 10 ticks: count the slots after it could land
   const after = bot.inventory?.items?.().length ?? plan.slots
@@ -7807,6 +7812,11 @@ async function wearOut(ctx, _args, signal) {
                      stop: stopped ?? '-', before: tkBefore, after: toolsTag(bot.inventory?.items?.() ?? []) }
     logEvent({ kind: 'toolkit', status: destroyed.length ? 'success' : 'failed', snapshot: snapshot(bot), durationMs: Date.now() - wearT0,
                detail: toolkitRow(fields), args: toolkitArgs(fields) })
+  }
+  // kittrim-01: the spent copies listed only because the trimmed kit's two working pickaxes (or a working copy of the kind) cover them
+  if (plan.kittrim > 0) {
+    try { logEvent({ kind: 'kittrim', status: wornItems.some(t => plan.kitTools.includes(t)) ? 'success' : 'failed', snapshot: snapshot(bot),
+                     detail: kittrimWearDetail({ early, listed: plan.kittrim, worn: wornItems.filter(t => plan.kitTools.includes(t)).length, of: plan.tools.length, slotsBefore: plan.slots, slotsAfter: after, tools: plan.kitTools.map(kitTag) }) }) } catch { /* telemetry */ }
   }
   // junkout-01 (design 3 D): the spent pickaxes listed only because the owner's two spares already cover last-swing's keeps
   if (plan.junkout > 0) {
@@ -8466,6 +8476,9 @@ async function townDeposit (ctx, _args, signal) {
   const planned = startPlan.steps.length
   // the allowance rows' own stacks at the start (junkout-01's bank row: what they planned, and what the server showed banked)
   const allowPlanned = startPlan.steps.filter(st => st.allowance).map(st => ({ name: st.name, row: st.allowance }))
+  // kittrim-01: the kit steps of the first plan, and the ones the SERVER showed in a chest on a re-open (kitBanked, below)
+  const kitPlanned = startPlan.steps.filter(st => st.kittrim)
+  const kitBanked = []
   // THE BANK ROWS, written for EVERY run that planned a row or banked anything (the read's J1 sees every name a town deposit
   // put into a chest, whatever the mode), complete in parts
   // ONCE per run, whatever the ending -- an early refusal, an abort or interrupt thrown out of the container loop (written
@@ -8475,6 +8488,11 @@ async function townDeposit (ctx, _args, signal) {
   const bankRows = (n, slotsAfter) => {
     if (bankRowsDone) return
     bankRowsDone = true
+    // kittrim-01: ONE `_kittrim` bank row per run that planned a kit step, whatever the ending (this closure's own contract)
+    if (kitPlanned.length) {
+      try { logEvent({ kind: 'kittrim', status: kitBanked.length ? 'success' : 'failed', snapshot: snapshot(bot),
+                       detail: kittrimBankDetail({ mode: tail ? 'tail' : 'full', planned: kitPlanned, banked: kitBanked, slotsBefore, slotsAfter, held: startPlan.kitHeld || null }) }) } catch { /* telemetry */ }
+    }
     if (!allowPlanned.length && !(n > 0)) return
     try {
       const visit = _args?.vid ?? visitId(bot.username, Date.now())
@@ -8571,6 +8589,7 @@ async function townDeposit (ctx, _args, signal) {
       if (v.verified.length) { rememberTown(bot, c.position, 'took'); const q = chestPartner(bot, c.position); if (q) rememberTown(bot, q, 'took') }
       for (const { step, it } of v.verified) {
         banked[step.name] = (banked[step.name] ?? 0) + step.count; stacks++
+        if (step.kittrim) kitBanked.push(step)
         if (it.maxDurability) tools.push(`${step.name}@${it.maxDurability - (it.durabilityUsed ?? 0)}`)
       }
       tried.push({ at, result: !v.ok ? 'unverified' : v.verified.length ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })

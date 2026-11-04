@@ -250,7 +250,10 @@ const tailBag = () => bagOf([it('chest', 8), it('crafting_table', 3), it('furnac
   it('egg', 16), it('flint', 20), it('oak_sapling', 20), it('leaf_litter', 30), it('cobblestone', 64), it('cobblestone', 20), it('oak_log', 6), it('oak_log', 10), it('water_bucket', 1), it('water_bucket', 1)], 0)
 await t('the tail plan (`tail: only`): the rows ONLY -- torch, bone meal, the 2nd filled bucket, the usable spare beyond best + 2; no base step, no junk, no sapling', () => {
   const items = tailBag()
-  const p = TD.townDepositPlan(items, { tail: 'only' })
+  // kittrim-01 off: this is row P's own rule (best + 2 spares); kittrim's best + 1 spare is asserted just below and in kittrim.test.mjs
+  const p = TD.townDepositPlan(items, { tail: 'only', kittrim: false })
+  const kt = TD.townDepositPlan(items, { tail: 'only' })
+  assert.deepEqual(kt.steps.filter(s => s.kittrim).map(s => `${s.name}@${131 - items.find(x => x.slot === s.slot).durabilityUsed}`), ['stone_pickaxe@100'], 'kittrim on: the 100 joins row P\'s 90 (best 120 + one spare 110)')
   const names = p.steps.map(s => `${s.name}:${s.allowance}`)
   assert.deepEqual(names.filter(n => !n.startsWith('stone_pickaxe')).sort(), ['bone_meal:bone_meal', 'torch:torch', 'water_bucket:station'].sort(), JSON.stringify(names))
   assert.equal(p.steps.filter(s => s.name === 'stone_pickaxe').length, 1, 'four usable stone copies: the 90 goes (best 120 + 110, 100)')

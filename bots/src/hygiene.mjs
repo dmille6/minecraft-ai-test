@@ -21,6 +21,8 @@ import { spentStoneKept, TOOLKIT } from './toolkit.mjs'
 // junkout-01 (its own statement): the owner's "at most 2 spare stone pickaxes beyond the best working pickaxe" at the wear-out
 import { ALLOWANCE, BAG_ALLOWANCE } from './bagallowance.mjs'
 import { FLOOR, tier } from './toolfor.mjs'
+// kittrim-01 (kittrim.mjs, a leaf): the spent copies the trimmed kit junks by use, and the early run's own switch
+import { KITTRIM, kitWearList, KT_WEAR_SLOTS } from './kittrim.mjs'
 
 /** Worth nothing to this fleet in any quantity: never walked to by pickupNearbyItems. */
 export const NEVER_KEEP = new Set([
@@ -49,10 +51,21 @@ const usesLeft = it => (it?.maxDurability ? it.maxDurability - (it.durabilityUse
  *   tools  the spent copies (<= 1 use) to destroy: every spent axe/shovel/hoe, and every spent pickaxe beyond
  *          the SPENT_PICKAXES_KEPT most-worn-last. Empty below TRIGGER_SLOTS. A tool with 2+ uses is never listed.
  */
-export function wearOutPlan (items = [], { toolkit = TOOLKIT.on, allowance = BAG_ALLOWANCE.on } = {}) {
+export function wearOutPlan (items = [], { toolkit = TOOLKIT.on, allowance = BAG_ALLOWANCE.on, kittrim = KITTRIM.on, early = false } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const slots = list.length
-  if (slots < TRIGGER_SLOTS) return { slots, tools: [], toolkit: 0, junkout: 0 }
+  // THE TRIMMED KIT (kittrim-01, kittrim.mjs kitWearList): every 1-use pickaxe while two WORKING pickaxes are held, and a 1-use
+  // axe/shovel/hoe beside a working copy of its kind. `kittrim` = how many were listed only because of it; `kitTools` = them.
+  // ONLY where the caller proved `early` (kitWearEarly: outside the town's ground box, a known home) -- at any bag size, so a
+  // full bag in town wears out exactly what it did before (the wear-out has no town-ground guard of its own).
+  const kit = kittrim && early ? kitWearList(list) : []
+  if (slots < TRIGGER_SLOTS) {
+    // THE EARLY RUN (`early`: the caller proved kittrim.mjs kitWearEarly -- outside the town's ground, a known home): the kit's
+    // spent copies only, from KT_WEAR_SLOTS up. Otherwise the deployed rule: nothing below TRIGGER_SLOTS.
+    if (!(slots >= KT_WEAR_SLOTS) || !kit.length) return { slots, tools: [], toolkit: 0, junkout: 0, kittrim: 0, kitTools: [] }
+    const tools = kit.slice(0, MAX_PER_ORDER)
+    return { slots, tools, toolkit: 0, junkout: 0, kittrim: tools.length, kitTools: tools }
+  }
   // EXACTLY 1 use. A copy the client still shows at 0 has already broken on the server (durability lags); it is
   // not real, so it is neither worn out nor counted toward the three last-swing keeps (both reviews: the old
   // ascending sort KEPT the phantom 0-use copies and wore out working 1-use ones).
@@ -70,9 +83,13 @@ export function wearOutPlan (items = [], { toolkit = TOOLKIT.on, allowance = BAG
   // stay (last-swing's own job: three spent swings mine the three cobblestone of the next stone pickaxe).
   const keepSpent = allowance ? spentKeptUnderSpares(list) : SPENT_PICKAXES_KEPT
   const restOut = rest.slice(keepSpent), restBase = rest.slice(SPENT_PICKAXES_KEPT)
-  const tools = [...spent.filter(it => !it.name.endsWith('_pickaxe')), ...stoneOut, ...restOut].slice(0, MAX_PER_ORDER)
+  const listed = [...spent.filter(it => !it.name.endsWith('_pickaxe')), ...stoneOut, ...restOut]
+  // the deployed list first; the kit's extra copies after it (the order's MAX_PER_ORDER cut takes them last)
+  const extra = kit.filter(it => !listed.includes(it))
+  const tools = [...listed, ...extra].slice(0, MAX_PER_ORDER)
+  const kitTools = tools.filter(it => extra.includes(it))
   return { slots, tools, toolkit: tools.filter(it => stoneOut.includes(it) && !base.includes(it)).length,
-           junkout: tools.filter(it => restOut.includes(it) && !restBase.includes(it)).length }
+           junkout: tools.filter(it => restOut.includes(it) && !restBase.includes(it)).length, kittrim: kitTools.length, kitTools }
 }
 
 /**

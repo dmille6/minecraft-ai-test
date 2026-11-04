@@ -45,6 +45,7 @@ import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, roomOrder, roomOutcome, roomBackedOff, roomExclusions, lostLine, ROOM_WEAR_TRUST_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
+import { kitWearEarly } from './kittrim.mjs'   // kittrim-01: the early wear-out's place test (outside the town's ground)
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk, compostVisitOrder, compostVisitStacks, RUNNER_DECLINED } from './composter.mjs'
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from './toolkit.mjs'
@@ -1250,11 +1251,14 @@ export class CognitiveLoop {
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
     if (!order && Date.now() - (this.lastWearOutAt ?? 0) >= WEAR_OUT_COOLDOWN_MS && Date.now() >= (this.wearOutBackoffUntil ?? 0)) {
       try {
-        const plan = wearOutPlan(this.bot.inventory?.items?.() ?? [])
+        const wearItems = this.bot.inventory?.items?.() ?? []
+        // kittrim-01: below TRIGGER_SLOTS only outside the town's ground with a known home (kittrim.mjs kitWearEarly); the run re-reads it
+        const early = kitWearEarly({ pos: this.bot.entity?.position, home: configuredHome(config.world), slots: wearItems.length })
+        const plan = wearOutPlan(wearItems, { early })
         if (plan.tools.length) {
           this.lastWearOutAt = Date.now()
-          order = { skill: 'wear_out', args: {},
-                    why: `inventory at ${plan.slots} of 36 slots; ${plan.tools.length} spent tool(s) to wear out` }
+          order = { skill: 'wear_out', args: early && plan.kittrim > 0 ? { kittrim: true } : {},
+                    why: `inventory at ${plan.slots} of 36 slots; ${plan.tools.length} spent tool(s) to wear out${plan.kittrim > 0 ? ` (${plan.kittrim} beside two working pickaxes or a working copy of the kind)` : ''}` }
         }
       } catch { /* an inventory read must never break the decision loop */ }
     }

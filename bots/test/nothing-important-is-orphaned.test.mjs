@@ -38,6 +38,10 @@ const REQUIRED = [
   'bots/src/swimcentre.mjs',
   'bots/test/swimcentre.test.mjs',
   'docs/reports/swimcentre-01-2026-11-03.md',
+  // kittrim-01 (11-04): the carried tool kit trimmed to best pickaxe + one spare, best axe/shovel/hoe (bank + wear-out halves)
+  'bots/src/kittrim.mjs',
+  'bots/src/kittrimbank.mjs',
+  'bots/test/kittrim.test.mjs',
   // escapeguard-01 (10-31): a trapped bot's escape never digs a build record or a protected zone's structure
   // serving D (owner 11-01): fewer LLM decisions -- pausewait, vetoskip, continue
   'bots/src/fewerdec.mjs',
