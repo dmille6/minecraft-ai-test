@@ -4168,7 +4168,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "T1 trading-scout-01 LIVE on the showcase (batch 1 add2dcdd.., 11-04 01:23Z). T3a villageunlock-01 refused by the showcase gate (protectzone not in a fleet KEEP) -> FLEET tier-3 canary villageunlock-01 @ d3d3ad17 (on fleet 9fbfdf22, scout + unlock; registration ~/mcai-analysis/villageunlock-01.d3d3ad17.json, draft entry .entry.draft.json; P lane after vetoremedy-01; control session queues). Expected close KEEP goal-unverified; after promotion the showcase can carry the unlock. Then T2 coalsale-01.",
+   "next_step": "T1 scout LIVE on the showcase; T3a villageunlock-01 queued as a fleet canary (d3d3ad17). OWNER 11-04 'do 1 and 2': T2 coalsale-01 + T4 built (branch coalsale-01 on fleet 704acf91, tier 3; registration + draft entry on the canary host; P lane after cobblebank-01 recommended); control session queues. Showcase trade variant after 6_1's villagers have jobs.",
    "max_quiet_hours": 48,
    "depends_on": [],
    "evidence": {
@@ -4176,7 +4176,8 @@
      "origin/trading-scout-*",
      "origin/coalsale-*",
      "origin/villageunlock-*",
-     "origin/villageunlock-01-fleet"
+     "origin/villageunlock-01-fleet",
+     "origin/coalsale-01"
     ],
     "grep": [
      "trading-scout-01",
@@ -4189,7 +4190,8 @@
      "infra/showcase/test_trip_unlock_mutants.py"
     ],
     "runs": [
-     "villageunlock-01"
+     "villageunlock-01",
+     "coalsale-01"
     ]
    },
    "note": "Measured 11-03: showcase 63 villagers, 0 employed, 0 offers (6_1's 7 stuck in village trapdoor rings); fleet employed novices 554-605 blocks from 11 towns. Sandbox4: job claim 5.5 s (mobGriefing true and false), openVillager + trade sell/buy server-confirmed; anvil/enchanting table unproven. T3a sandbox4 E2E: ring 10 toggled / house 4 toggled, all present, villager employed; owner answers 11-03 21:45Z recorded (no owner_pending left)."

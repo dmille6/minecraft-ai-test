@@ -265,3 +265,38 @@ server-confirmed) is proven in sandbox4. It is not built yet.
 - T2 in the fleet lane after T1's fleet sightings, as a P item behind bagdiet-01 / swimcentre-01 / bundle-1103a.
 - The showcase trade visit (selling to the freed 6_1 villagers, about 85 blocks from home) becomes the simplest T2 test
   ground once one is employed.
+
+## 10. T2 coalsale-01 + T4 built (11-04, OWNER "do 1 and 2")
+
+**Branch and base.** Branch `coalsale-01` on fleet `704acf91`. Tier 3: `cognitive.mjs` and `admission.mjs` change.
+Registration `~/mcai-analysis/coalsale-01.<sha8>.json` (effectwatch: valid) and a draft entry, `.entry.draft.json`, both on the
+canary host. Not queued.
+
+**Buyer list.** The census (`bots/src/merchantcensus.json`): employed villagers per pool, read-only, 11-04. Every window's
+offers are logged as `_trade_seen`, and every villager met on a trip as `_merchant_seen via=trade_trip`. That is what the merchant
+scout would confirm.
+
+**Trip, in phases.** One `trade_trip` call per phase step, each inside the runner's 180 s:
+1. **stock:** one draw per trip, recomputed at the draw; only coal above a town keep of 64, at most 60 carried.
+2. **out:** walk to the destination, a breadcrumb every 24 b.
+3. **trade:** coal buyers first. Coal is sold only on offers seen in the window. Then mason building blocks, and one wanted
+   book once one is offered.
+4. **roam:** 3 legs of 64 b round the village when nobody buys.
+5. **home:** the breadcrumbs back, nearest first.
+
+**Turning home.** For a reason: sold, goal, night, health, bag full, no coal, a trade error. There is no work timer: 45 min is
+the stranded-only cap, and at 60 min the trip is dropped. A death ends the trip.
+
+**Admission.** The gate admits each call like `deep_mine`. Without that, the 5th identical call was refused and the bot was
+stranded (both engines found it).
+
+**Proven, sandbox4 E2E** (`sandbox/trading/coalsale-e2e.mjs`):
+- 60 coal -> 4 emeralds -> 40 bricks, then home over the crumbs; server-confirmed.
+- BOOK=1: 60 coal -> 4 emeralds -> a Mending book, decoded as `minecraft:mending`.
+
+**Not proven:** a 600 b walk, roaming, the night turn-home, and the draw from a town chest.
+
+**Showcase variant.** Later, once village-taiga-6_1's villagers have jobs (villageunlock-01 kept and promoted). On the showcase
+the trade must stand inside the village box with no dig and no place. That needs a walk-only approach into a protected zone,
+which is another protected-scope review.
+
