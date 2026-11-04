@@ -153,7 +153,7 @@ import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, 
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS } from './yard.mjs'   // yarduse-01
-import { fillWant, platformTeardown, platformUp } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
+import { fillWant, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
@@ -17436,6 +17436,10 @@ function projStuckLive (key, now = Date.now()) {
     let rec
     const stale = b ? keys => {
       if (rec === undefined) { const h = recordHead(dir, key); rec = h.ok ? h.head?.rec ?? null : null }
+      // plotprep-02 (the LIVE quiet hours 16:05-22:05Z 11-04): a COMPLETE tidy whose next stage is due holds no back-off -- its stamp is
+      // the finished stage's (the road light 14,76,-26 waived at its completion, never laid: the stamp read live for 6 h, the tidy waited
+      // behind every project, the keeper took its lease each half hour and never visited); a waived cell is no stuck cell either
+      if (rec?.structure_complete && rec?.blueprint === TIDY_BLUEPRINT && (gkStageDue(rec) || stuckStale(keys, rec, c => !!rec.waived?.[c.at.join(',')] || recordCellDone(b, rec, c)))) return true
       if (rec?.structure_complete) return stuckStale(keys, rec, c => recordCellDone(b, rec, c))
       // wallstuck-01: an OPEN wall's stamp holds only its stuck segment -- another segment's open cell (read) is other work; and,
       // as a complete record's, a stamp whose cells all read done (or were waived since: the visit that waived the last one
@@ -22218,6 +22222,15 @@ function townPark (dir, land, rec) {
 function gkPlanAdditions (bot, dir, key, rec, me) {
   let changed = false
   const read = planReader(bot)
+  // plotprep-02 (Codex fold r4 BLOCKER): a plot a project has sited on since its prep was planned is retired FIRST -- its cells, cuts
+  // and clears leave the record, its replants are skipped (tidy.mjs plotRetire)
+  try {
+    const sited = plotsSitedNow(rec, projectHeads().map(x => x.head?.rec).filter(Boolean))
+    if (sited.size) {
+      const pub = publishRecord(dir, key, cur => (cur ? plotRetire(cur, plotsSitedNow(cur, projectHeads().map(x => x.head?.rec).filter(Boolean))) : null), { by: me })
+      if (pub.result === 'accepted') { changed = true; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'plot_retired', kind: [...sited].join('+'), gen: pub.gen }) }) } catch { /* telemetry */ } }
+    }
+  } catch { /* asked again next visit */ }
   // plotprep-01: a felling stand whose tree is down (or that has stood its time) is taken back down -- its cells become cuts
   try {
     if (platformUp(rec)) {
@@ -22660,7 +22673,12 @@ async function buildTidy (ctx, args, signal) {
   }
   // gkhelpers-01: a storehouse floor repair (floorFix) lies inside the storehouse's box, which the terrace's work-time guard refuses;
   // it is the one cell kind that guard passes (every other guard -- another project's CELL, a marker, a waiver -- still holds)
-  const waivedK = q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
+  // plotprep-02 (Codex fold r4 BLOCKER): at EXECUTION time, every entry of a plot a project has sited on since (the records read now)
+  // is passed -- never a cut under its pad, a fill in its footprint, a stand on its site -- whoever's visit, whether the keeper's
+  // retirement was written yet or not
+  let plotsSited = new Set()
+  if (GROUNDS.on && rec.plotprep) { try { plotsSited = plotsSitedNow(rec, projectHeads().map(x => x.head?.rec).filter(Boolean)) } catch { plotsSited = new Set((rec.plotprep.plots ?? []).map(p => String(p.id))) } }
+  const waivedK = q => plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -22696,6 +22714,8 @@ async function buildTidy (ctx, args, signal) {
     const fv = GROUNDS.on ? floorView(rec, floorDone) : { visitRec: rec, floorNow: [], floorOnly: false }
     const floorNow = fv.floorNow, floorOnly = fv.floorOnly
     let visitRec = fv.visitRec
+    // plotprep-02: a sited plot's trees are never felled by this visit (its replants stay as the head has them: the read's G5 counts)
+    if (plotsSited.size) visitRec = { ...visitRec, clear: (visitRec.clear ?? []).filter(q => !plotEntryRetired(q, plotsSited)) }
     // siteprep-01: while a requested plot's prep is open the visit works ONLY it (the floor's pattern): a plot in a few visits
     // Codex r5 BLOCKER: ONE open-work predicate for the selection, the tick and the completion -- the world and the record's
     // persisted waivers; the visit's transient guards (farm water, a cell another project took) only skip a cell inside the visit, so a
@@ -22753,7 +22773,7 @@ async function buildTidy (ctx, args, signal) {
     bot.shopUnknown ??= new Set()
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])))
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])))
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
     // gkhelpers-01: the cuts are the keeper's (crewCaps.digs), and none while the storehouse floor is open
@@ -22891,7 +22911,9 @@ async function buildTidy (ctx, args, signal) {
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
-    const status = r.placed > 0 || r.cleared > 0 || gathered?.n > 0 ? 'success' : 'no_effect'
+    // plotprep-02 (the quiet hours): a visit that COMPLETED the stage moved the land plan on -- never a no-effect visit, so the keeper's
+    // own grounds order is never quieted an hour (shop.mjs noteIdle) just as its next stage falls due
+    const status = r.placed > 0 || r.cleared > 0 || gathered?.n > 0 || completed ? 'success' : 'no_effect'
     // an idle helper's stop is `keeper_held` (shop.mjs IDLE_STOPS: the grounds have no use for this bot now), its outcome named
     if (idleHelper) return out(status, 'helper_idle', `nothing of the grounds is this helper's now (${r.why ?? r.stop}); the helper lease is let go`, { stop: 'keeper_held', placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
     return out(status, completed ? 'complete' : stop1, `${stop1 === r.stop ? (r.why ?? r.stop) : `${waivedN} cell(s) waived (${r.stop})`}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}`, { stop: completed ? 'complete' : stop1, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })

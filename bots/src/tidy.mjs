@@ -817,7 +817,7 @@ export function plotPrep (read, { plots = [], home, records = [], avoid = () => 
     if (!ys.length) { skip('plot_unread'); continue }
     ys.sort((p, q) => p - q)
     const floor = ys[Math.floor(ys.length / 2)]
-    const summary = { id: plot.id, floor, trees: 0, stands: 0, cut: 0, fill: 0, kept: 0 }
+    const summary = { id: plot.id, box: [...b], floor, trees: 0, stands: 0, cut: 0, fill: 0, kept: 0 }
     const used = new Set()   // columns a tree, a stand or a landing takes (no levelling there)
     // ---- THE TREES ----
     const tr = inWallTrees(read, b, { home, avoid: (x, z) => (hard(x, z) || cellCols.has(k2(x, z)) ? 'guarded' : null), T: { ...TERRACE, treeReach: T.reachUp + T.platMax + 1 } })
@@ -852,12 +852,12 @@ export function plotPrep (read, { plots = [], home, records = [], avoid = () => 
         if (!plat || need > T.platMax) { summary.kept++; skip(need > T.platMax ? 'tree_tall' : 'tree_no_stand'); continue }
       }
       const idx = out.trees.length
-      out.trees.push({ col: t.col, name: t.name, base: t.base, top: t.top })
-      for (const l of t.logs) out.clear.push({ at: l.at, kind: 'tree', name: l.name, tree: idx })
+      out.trees.push({ col: t.col, name: t.name, base: t.base, top: t.top, plot: plot.id })
+      for (const l of t.logs) out.clear.push({ at: l.at, kind: 'tree', name: l.name, tree: idx, plot: plot.id })
       used.add(k2(t.base[0], t.base[2]))
       if (plat) {
-        out.platforms.push({ tree: idx, cells: plat.cells, phase: 'up' })
-        for (const c of plat.clears) if (!out.clear.some(q => q.at.join(',') === c.at.join(','))) out.clear.push(c)
+        out.platforms.push({ tree: idx, cells: plat.cells, phase: 'up', plot: plot.id })
+        for (const c of plat.clears) if (!out.clear.some(q => q.at.join(',') === c.at.join(','))) out.clear.push({ ...c, plot: plot.id })
         for (const k of plat.cols) used.add(k)
         summary.stands++
       }
@@ -876,12 +876,12 @@ export function plotPrep (read, { plots = [], home, records = [], avoid = () => 
         for (let y = c.y; y > floor; y--) { const n = nm(read(x, y, z)); if (!LEVEL_CUT.test(n) || cells.has(`${x},${y},${z}`)) { ok = false; break } bl.push({ at: [x, y, z], name: n }) }
         if (!ok) { skip('level_natural'); continue }
         const id = `lc${out.cut.length}`
-        for (const q of bl) out.cut.push({ ...q, pillar: id })
+        for (const q of bl) out.cut.push({ ...q, pillar: id, plot: plot.id })
         summary.cut += bl.length; out.cols.add(k)
       } else if (c.y < floor) {
         if (floor - c.y > T.fillMax) { skip('level_deep'); continue }
         const id = `lf${plot.id}-${x}-${z}`
-        for (let y = c.y + 1; y <= floor; y++) out.fill.push({ at: [x, y, z], pit: id, plotFill: true })
+        for (let y = c.y + 1; y <= floor; y++) out.fill.push({ at: [x, y, z], pit: id, plotFill: true, plot: plot.id })
         summary.fill += floor - c.y; out.cols.add(k)
       }
     }
@@ -917,6 +917,34 @@ export function platformTeardown (rec, read, now = Date.now(), T = PLOTPREP) {
   }
   return { ...rec, cells: (rec.cells ?? []).filter(c => !kill.has(c.at.join(','))), segments: (rec.segments ?? []).filter(sg => (rec.cells ?? []).some(c => c.seg === sg.seg && !kill.has(c.at.join(',')))), cut,
     plotprep: { ...rec.plotprep, platforms: ps.map(p => (down.includes(p) ? { ...p, phase: 'down', downAt: now } : p)) } }
+}
+/**
+ * PLOTPREP-02 (Codex fold r4 BLOCKER, the coordinator 11-04): a plot a project has SITED on since its prep was planned is no longer the
+ * groundskeeper's. -> Set of plot ids (rec.plotprep.plots, each with its box) on which another project's record now has a cell
+ * (plotSited over the CURRENT records). Pure. The visit passes every entry of such a plot (plotEntryRetired), and the keeper retires
+ * them (plotRetire) -- Codex's repro: the X1 workshop sited while 120 levelling cuts under its pad were still pending.
+ */
+export function plotsSitedNow (rec, records = []) {
+  const out = new Set()
+  for (const p of rec?.plotprep?.plots ?? []) if (p?.id != null && !p.sited && !p.retired && Array.isArray(p.box) && plotSited(p, records)) out.add(String(p.id))
+  return out
+}
+/** Is a record entry (a cell, a cut, a clear, a replant) a plot's whose project has sited? Pure. */
+export const plotEntryRetired = (q, sited) => q?.plot != null && !!sited?.has?.(String(q.plot))
+/**
+ * THE PLOTS' PREP RETIRED -> the record's next generation | null. Pure. Every cell, cut and clear tagged with a sited plot leaves the
+ * record (the project's own builders work that ground now; its records judge it); the plot's replant cells are marked SKIPPED (the
+ * read's G5 counts only the others), its stands go with their cells (phase `retired`), the plot `retired`.
+ */
+export function plotRetire (rec, sited) {
+  if (!rec || !sited?.size) return null
+  const gone = q => plotEntryRetired(q, sited)
+  if (![...(rec.cells ?? []), ...(rec.cut ?? []), ...(rec.clear ?? [])].some(gone) && !(rec.replant ?? []).some(q => gone(q) && q.state !== 'skipped')) return null
+  const cells = (rec.cells ?? []).filter(q => !gone(q))
+  const keepSeg = new Set(cells.map(q => q.seg))
+  return { ...rec, cells, segments: (rec.segments ?? []).filter(sg => keepSeg.has(sg.seg)), cut: (rec.cut ?? []).filter(q => !gone(q)), clear: (rec.clear ?? []).filter(q => !gone(q)),
+    replant: (rec.replant ?? []).map(q => (gone(q) && q.state !== 'skipped' ? { ...q, state: 'skipped', why: 'plot_sited' } : q)),
+    plotprep: { ...rec.plotprep, plots: (rec.plotprep.plots ?? []).map(p => (sited.has(String(p.id)) ? { ...p, retired: true } : p)), platforms: (rec.plotprep.platforms ?? []).map(p => (sited.has(String(p.plot)) ? { ...p, phase: 'retired' } : p)) } }
 }
 /** Does a stand still stand on the record (its stage never completes over it)? Pure. */
 export const platformUp = rec => (rec?.plotprep?.platforms ?? []).some(p => p.phase === 'up')
@@ -1227,7 +1255,14 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     if (standK.size) sv.fill = sv.fill.filter(f => !standK.has(f.at.join(',')))
     let record = tidyRecord(sv, { home, plan, now, r: rr })
     if (!record && sv.clear.length) record = { v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r: rr, cells: [], clear: [...sv.clear].sort((p, q) => p.at[1] - q.at[1]), cut: [], replant: [], segments: [], zones: [], pillars: 0, pits: 0, skipped: {}, bom: { earth: 0 }, builders_max: TIDY_BUILDERS, structure_complete: false, plan: plan?.gen != null ? { gen: plan.gen } : null, sitedAt: now }
-    if (record && rp.length) record.replant = rp.map((r, i) => ({ ...r, tree: i }))
+    if (record && rp.length) record.replant = rp.map((r, i) => ({ ...r, tree: i, ...(pp.trees[i]?.plot != null ? { plot: pp.trees[i].plot } : {}) }))
+    // plotprep-02: every plot entry keeps its plot's id on the record (tidyRecord rebuilds cuts and cells without it)
+    if (record) {
+      const tag = new Map([...pp.cut, ...pp.fill].map(q => [q.at.join(','), q.plot]))
+      for (const q of pp.platforms) for (const c of q.cells) tag.set(c.join(','), q.plot)
+      record.cells = record.cells.map(c => (tag.has(c.at.join(',')) ? { ...c, plot: tag.get(c.at.join(',')) } : c))
+      record.cut = record.cut.map(c => (tag.has(c.at.join(',')) ? { ...c, plot: tag.get(c.at.join(',')) } : c))
+    }
     if (record && (pp.plots.length || platsKept.length)) record.plotprep = { plots: pp.plots, platforms: platsKept, skipped: pp.skipped }
     if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null }
     record.stage = legacyStage(st); record.stageId = st.id; record.terraceV = 1

@@ -152,6 +152,51 @@ await t('Codex r1 BLOCKERS: an unread stand or log never retires the stand; a st
   const s = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(/tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) && !otherBodyOnCell\(bot, q\.at\)/.test(s), 'a tidy cut waits while another body stands on it')
 })
+console.log('PLOTPREP-02: A PROJECT SITED ON A PLOT WHILE ITS PREP RUNS (Codex fold r4 BLOCKER: 120 cuts pending under the workshop pad)')
+await t('every plot entry carries its plot; a workshop sited on X1 later retires ALL its pending prep at execution time and on the record', async () => {
+  const srv = scene()
+  srv.set([15, G + 1, -60], 'dirt'); srv.set([16, G, -58], 'air')
+  const r = siteInwall(srv).record
+  const mine = q => q.plot === 'X1'
+  assert.ok(r.cut.some(mine) && r.cells.some(mine) && r.clear.some(mine) && r.replant.some(mine), 'cuts, fills/stand, clears and replants tagged')
+  assert.ok(r.cut.filter(c => c.at[0] >= 10 && c.at[0] <= 28 && c.at[2] >= -65 && c.at[2] <= -53).every(mine))
+  assert.deepStrictEqual(r.plotprep.plots[0].box, X1.box)
+  // the race: the workshop sites on X1 AFTER the stage was sited (its pad cells over the levelling)
+  const shop = { plot: 'shop', cells: [{ at: [15, G + 1, -60], role: 'pad', seg: 'pad' }] }
+  const sited = T.plotsSitedNow(r, [shop])
+  assert.deepStrictEqual([...sited], ['X1'])
+  for (const q of [...r.cut, ...r.cells, ...r.clear].filter(mine)) assert.ok(T.plotEntryRetired(q, sited), 'passed at execution')
+  assert.strictEqual(T.plotsSitedNow(r, [{ plot: 'tidy', cells: shop.cells }, { plot: 'wallext', cells: shop.cells }]).size, 0, 'the groundskeeper\'s and the wall\'s own cells are no siting')
+  // the record retired
+  const r2 = T.plotRetire(r, sited)
+  assert.ok(r2)
+  assert.ok(![...r2.cut, ...r2.cells, ...r2.clear].some(mine), 'no plot cell, cut or clear left')
+  assert.ok(r2.replant.filter(mine).every(q => q.state === 'skipped' && q.why === 'plot_sited'), 'replants skipped (the read\'s G5 counts only the rest)')
+  assert.ok(r2.plotprep.platforms.every(p => p.phase === 'retired') && r2.plotprep.plots[0].retired)
+  assert.ok(r2.segments.every(sg => r2.cells.some(c => c.seg === sg.seg)), 'no empty segment left')
+  assert.strictEqual(T.plotsSitedNow(r2, [shop]).size, 0, 'once')
+  assert.strictEqual(T.plotRetire(r2, new Set(['X1'])), null)
+  assert.strictEqual(T.platformUp(r2), false, 'a retired stand holds no completion')
+})
+await t('mutant: the execution-time test blind to a later siting is caught (the cuts under the pad would run)', async () => {
+  await withMutant(TIDY_PATH, "  for (const p of rec?.plotprep?.plots ?? []) if (p?.id != null && !p.sited && !p.retired && Array.isArray(p.box) && plotSited(p, records)) out.add(String(p.id))\n", '', async M => {
+    const srv = scene(); srv.set([15, G + 1, -60], 'dirt')
+    const r = siteInwall(srv).record
+    const cutsUnderPad = r.cut.filter(c => c.plot === 'X1')
+    assert.ok(cutsUnderPad.length > 0)
+    const sited = M.plotsSitedNow(r, [{ plot: 'shop', cells: [{ at: [15, G + 1, -60] }] }])
+    assert.ok(cutsUnderPad.every(c => !M.plotEntryRetired(c, sited)), 'the mutant would dig them')
+  })
+})
+await t('WIRED: the visit passes sited plots\' entries (cells, cuts, clears) whoever visits; the keeper retires them first; a complete stage with a next one holds no stuck back-off; a completing visit is no idle mark', async () => {
+  const s = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.ok(/const waivedK = q => plotEntryRetired\(q, plotsSited\) \|\|/.test(s), 'cells (fills, stands) passed')
+  assert.ok(/const cuts0 = tidyCuts\(rec, read, mem\)\.filter\(q => !plotEntryRetired\(q, plotsSited\) &&/.test(s), 'cuts never dug')
+  assert.ok(/if \(plotsSited\.size\) visitRec = \{ \.\.\.visitRec, clear: \(visitRec\.clear \?\? \[\]\)\.filter\(q => !plotEntryRetired\(q, plotsSited\)\) \}/.test(s), 'trees never felled')
+  assert.ok(/plotRetire\(cur, plotsSitedNow\(cur, projectHeads\(\)/.test(s), 'the keeper retires them')
+  assert.ok(/rec\?\.blueprint === TIDY_BLUEPRINT && \(gkStageDue\(rec\) \|\| stuckStale\(keys, rec, c => !!rec\.waived\?\.\[c\.at\.join\(','\)\] \|\| recordCellDone\(b, rec, c\)\)\)\) return true/.test(s), 'the quiet hours: no back-off over a due next stage')
+  assert.ok(/gathered\?\.n > 0 \|\| completed \? 'success' : 'no_effect'/.test(s), 'a completing visit')
+})
 await t('mutant: no stand (a tall tree felled from the ground only) is caught', async () => {
   await withMutant(TIDY_PATH, '      if (need > 0) {\n', '      if (false) {\n', async M => {
     assert.strictEqual(M.plotPrep(scene().read, { plots: [X1], home: HOME, records: [] }).platforms.length, 0)
