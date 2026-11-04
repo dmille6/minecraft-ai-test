@@ -720,6 +720,8 @@ export const EGRESS_REFLEX_MS = 90_000
 export function egressHandoff (r) {
   if (!r || !r.ran) return 'skip'
   if (r.aborted) return 'yield'
+  // the body was moved by something else (a respawn, a server teleport; Paper 11-03): the arm's readings are stale -- no escape now
+  if (!r.ok && r.jumped) return 'yield'
   if (r.ok) return 'out'
   if ((Number(r.hops) || 0) > 0 || (Number(r.cleared) || 0) > 0) return 'retry'
   return 'fallthrough'

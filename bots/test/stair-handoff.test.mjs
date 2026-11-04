@@ -90,6 +90,7 @@ await t('egressHandoff: not run -> skip; pre-empted -> yield; out -> out; progre
   assert.strictEqual(G.egressHandoff(null), 'skip')
   assert.strictEqual(G.egressHandoff({ ran: false, why: 'off_stair' }), 'skip')
   assert.strictEqual(G.egressHandoff({ ran: true, aborted: true }), 'yield')
+  assert.strictEqual(G.egressHandoff({ ran: true, ok: false, why: 'via', hops: 0, cleared: 0, jumped: true }), 'yield', 'moved by a respawn/teleport: stale, no escape now')
   assert.strictEqual(G.egressHandoff({ ran: true, ok: true, why: 'arrived', hops: 15 }), 'out')
   assert.strictEqual(G.egressHandoff({ ran: true, ok: false, why: 'wet', hops: 3, cleared: 0 }), 'retry')
   assert.strictEqual(G.egressHandoff({ ran: true, ok: false, why: 'time', hops: 0, cleared: 1 }), 'retry')
