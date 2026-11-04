@@ -251,10 +251,13 @@ export function emptyRefusal ({ hasWaterBucket = false, target = null,
   // owner's standing rule is that water is terrain and swimming is travel, but
   // that is about ENTERING water that exists, not about manufacturing it around
   // your own head.
-  if (standingIn && (standingIn.x === target.position?.x &&
-                     standingIn.y === target.position?.y &&
-                     standingIn.z === target.position?.z)) {
-    return 'that is the cell I am standing in'
+  // bucketfix-01 (Claude r1 BLOCKER): the target is compared as a BLOCK cell (a caller's position may be fractional: the dead guard
+  // let every pour aim into the bot), and the HEAD cell above the feet is the body too -- a source there is the drowning
+  const tp = target.position
+  const t = tp && [tp.x, tp.y, tp.z].every(Number.isFinite) ? { x: Math.floor(tp.x), y: Math.floor(tp.y), z: Math.floor(tp.z) } : null
+  if (standingIn && t && standingIn.x === t.x && standingIn.z === t.z) {
+    if (standingIn.y === t.y) return 'that is the cell I am standing in'
+    if (standingIn.y + 1 === t.y) return 'that is my head cell'
   }
   return null
 }
