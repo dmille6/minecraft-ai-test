@@ -168,11 +168,18 @@ export function hubSitingPlan (home, store = null) {
   return steps
 }
 /** The stands' domain for a sited hall's visits: its box + HUB_SITE.standPad (the step ring, the doorway's approach). Pure. */
+// storehubstand-01 (LIVE showcase a7efcca2, 11-04 18:57-21:00Z: 46 hall visits, 0 placed -- 47 `replanned`, 32 aborted): the siting
+// proved the felled trees' REPLANT cells with the ring's stand domain (hubSitingPlan: within ringMax + standPad of home), and they lie
+// outside the pad (x -1..19, z -48..-41 and 17,69,-67 for a pad at x 10..28, z -59..-49). The visit's domain was the pad + 4 alone, so
+// stepFor found no stand for any replant, each visit moved one (`replant_moved ... why=no_step`) and stopped, and the trees were
+// never felled: the earthwork and every wall wait behind them. The visit now stands where the siting stood.
 export function hubStandDomain (rec) {
   const b = rec?.box
   if (!Array.isArray(b) || b.length !== 4) return () => false
   const p = HUB_SITE.standPad
-  return (x, z) => x >= b[0] - p && x <= b[2] + p && z >= b[1] - p && z <= b[3] + p
+  const home = rec.home, far = HUB_SITE.ringMax + p
+  const ring = home && Number.isFinite(home.x) && Number.isFinite(home.z) ? (x, z) => Math.hypot(x - home.x, z - home.z) <= far : () => false
+  return (x, z) => (x >= b[0] - p && x <= b[2] + p && z >= b[1] - p && z <= b[3] + p) || ring(x, z)
 }
 /** The build visit's options for a hall record (buildrun.mjs runVisit: the stands' domain and the walk's radius). Pure. */
 export const hubVisitOpts = rec => (rec?.blueprint === HUB_BLUEPRINT ? { domain: hubStandDomain(rec), walkR: Number.isFinite(rec.walkR) ? rec.walkR : HUB_SITE.walkR } : {})

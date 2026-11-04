@@ -115,6 +115,30 @@ await t('the labels: one spot per chest on its wall face, the section named, "(m
   assert.strictEqual(more.length, 5)
 })
 
+await t('storehubstand-01 (LIVE 11-04 a7efcca2: 46 visits, 0 placed, every replant no_step): the visit stands where the siting stood', () => {
+  // the live record's (g32) felled trees' replant cells lie outside the pad + 4; on the flat fake world each column is planted at
+  // ground + 1 (soil under it) and asked for a step: the old pad-only domain finds none, the visit's domain now finds one
+  const live = JSON.parse(readFileSync(new URL('./fixtures/storehub-record-1104.json', import.meta.url), 'utf8'))
+  const dom = H.hubStandDomain(live)
+  const b = live.box, p = H.HUB_SITE.standPad
+  const old = (x, z) => x >= b[0] - p && x <= b[2] + p && z >= b[1] - p && z <= b[3] + p
+  const srv = server()
+  const nodes = new Map()
+  for (const k of B.walkFrom(srv.read, HOME, new Set(), 60, { stood: [] })) { const [x, y, z] = k.split(',').map(Number); const c = `${x},${z}`; if (!nodes.has(c)) nodes.set(c, []); nodes.get(c).push(y) }
+  const cells = live.replant.filter(r => r.state === 'pending').map(r => r.cell ?? r.at).filter(c => Math.abs(c[0]) <= 56 && Math.abs(c[2]) <= 56)
+  assert.ok(cells.length >= 5, `the fixture's pending replants in the fake world: ${cells.length}`)
+  let outside = 0, far = 0
+  for (const c of cells) {
+    const cell = [c[0], G + 1, c[2]]
+    if (!old(c[0], c[2])) outside++
+    assert.ok(B.stepFor(srv.read, HOME, cell, nodes, dom), `a stand for the replant at ${k3(cell)}`)
+    // farther than a reach (5 columns) from the pad + 4: the old domain had no stand at all (the live no_step on every one)
+    if (H.boxGap([c[0], c[2], c[0], c[2]], [b[0] - p, b[1] - p, b[2] + p, b[3] + p]) > 5) { far++; assert.strictEqual(B.stepFor(srv.read, HOME, cell, nodes, old), null, `positive control: the pad-only domain finds none for ${k3(cell)}`) }
+  }
+  assert.ok(outside >= 4 && far >= 2, `the live replants outside the pad + 4: ${outside}, beyond a reach of it: ${far}`)
+  assert.ok(!dom(200, 0) && dom(b[0], b[1]), 'never beyond the ring, always the pad')
+})
+
 console.log('THE REGISTRY (chestfull.mjs inTown)')
 await t('the hall\'s chests are town containers once registered; the box is unchanged; a bot\'s feet never match', () => {
   const keys = H.hubChestKeys(REC)
