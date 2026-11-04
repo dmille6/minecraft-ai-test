@@ -109,7 +109,7 @@ await t('THE WALK THAT DID NOT ARRIVE: no tidy dig from out of reach, no `unknow
   assert.strictEqual(r.unknown, 0)
   for (const c of ps) assert.strictEqual(srv.read(...c).name, 'dirt', 'the pillars wait for a builder who reaches them')
   assert.strictEqual(r.stop, 'complete', 'the visit went on')
-  await withMutant('buildrun.mjs', "if (!digReachFrom(e.feet?.(), at)) return 'unreached'", '', async M => {
+  await withMutant('buildrun.mjs', 'if (!digReachFrom(e.feet?.(), at)) {', 'if (false) {', async M => {   // monustuck-01 re-anchored (the check now also bans the stand)
     const m = await scenario(M)
     assert.ok(m.sent.length > 0, 'the mutant digs blind')
   })

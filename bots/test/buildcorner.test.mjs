@@ -97,7 +97,7 @@ await t('WIRED: runVisit settles a pending walk at its start, marks it at the cl
   const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1')
   const src = strip(fs.readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8'))
   const visit = src.slice(src.indexOf('export async function runVisit'))
-  assert.ok(/const stands = p\.stands \?\? null\s*settlePendingStand\(stands, now\(\)\)/.test(visit))
+  assert.ok(/const stands = p\.stands \?\? null\s*(?:const lastWalk = )?settlePendingStand\(stands, now\(\)\)/.test(visit))   // monustuck-01: the settled walk is logged
   assert.ok(/if \(stands\) stands\.pending = \{ cell: kOf\(cell\), stand: kOf\(step\.stand\), at: now\(\) \}\s*await e\.walkTo\(step\.stand, avoid \? \{ avoid \} : undefined\)\s*if \(e\.aborted\(\)\) return 'aborted'\s*if \(stands\) stands\.pending = null/.test(visit))
   assert.ok(/if \(!here\) \{ banStand\(stands, kOf\(cell\), kOf\(step\.stand\), now\(\)\); return 'stand' \}/.test(visit))
   assert.ok(/const bans = standBans\(stands, kOf\(c\.at\), now\(\)\); const kept = bans\.size \? stepFor\(rd, home, c\.at, nodesWithout\(nodes, bans\), domain\) : null; step = kept \?\? stepFor\(rd, home, c\.at, nodes, domain\)/.test(visit), 'banned first, the unbanned pick as the fallback')
