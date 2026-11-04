@@ -6310,6 +6310,26 @@ export async function guardBranch (bot, { handler = '?', refusals = 0, yieldTo =
   return { progressed: false, preempted: false, refusals: refusals + 1, backoffMs, stair }
 }
 
+/**
+ * SWIMUNDER-01 (Paper 11-03, the placebo-d cut): A WET ROOF READ FROM WHERE A FLOATING BODY RESTS -> reason | null.
+ * A bot bobbing in water can dip below its cell, read its HEAD cell (air) as feet+2, pass pillarOut's early flood check and
+ * place a pillar block under itself before the loop's own check refuses the wet roof one jump later; that block seals the
+ * water route a swim out takes. So the roof is also read at floor(y + 0.5) + 2, submerged as the RESTING body is (the dip
+ * reads feet and head both wet, which is the check's own exemption): the same refusal, one placement earlier. Writes the
+ * guard row on a refusal. Only for feet in water; a dry or unloaded roof is no answer (null).
+ */
+export function restRoofFloodRisk (bot) {
+  const fp = bot.entity.position
+  if (!isWaterCell(bot.blockAt(new Vec3(Math.floor(fp.x), Math.floor(fp.y), Math.floor(fp.z))))) return null
+  const rest = new Vec3(Math.floor(fp.x), Math.floor(fp.y + 0.5), Math.floor(fp.z))
+  const roofAt = rest.offset(0, 2, 0), roof = bot.blockAt(roofAt)
+  if (!roof || roof.boundingBox !== 'block') return null
+  const sub = isWaterCell(bot.blockAt(rest)) && isWaterCell(bot.blockAt(rest.offset(0, 1, 0)))
+  const reason = overheadBreakRisk({ at: (x, y, z) => bot.blockAt(roofAt.offset(x, y, z)), submerged: sub })
+  if (reason) logFloodGuard(bot, { caller: 'pillar_out', reason, cell: roofAt, submerged: sub })
+  return reason
+}
+
 export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => true } = {}) {
   // THE GATE (arbiter, Codex final pass): every actuator step asks whether this
   // climb still owns the body. A refused or revoked grant ends the climb at the
@@ -6324,23 +6344,8 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
     const head0 = bot.blockAt(bot.entity.position.offset(0, 2, 0))
     if (head0 && head0.name !== 'air' && head0.name !== 'water' &&
         upwardDigFloodRisk(bot, 'pillar_out')) return FLOOD_RISK
-    // SWIMUNDER-01 (Paper 11-03, the placebo-d cut): a bot bobbing in water can dip below its cell, read its HEAD cell (air)
-    // as feet+2, pass the check above and place a pillar block under itself before the loop's own check refuses the wet
-    // roof one jump later. That block seals the water route the swim out takes. So the roof is also read from where the
-    // body floats (floor(y + 0.5) + 2): the same refusal, one placement earlier. SWIMUNDER=0 restores the base exactly.
-    if (swimUnderOn()) {
-      const fp = bot.entity.position
-      if (isWaterCell(bot.blockAt(new Vec3(Math.floor(fp.x), Math.floor(fp.y), Math.floor(fp.z))))) {
-        const rest = new Vec3(Math.floor(fp.x), Math.floor(fp.y + 0.5), Math.floor(fp.z))
-        const roofAt = rest.offset(0, 2, 0), roof = bot.blockAt(roofAt)
-        if (roof && roof.boundingBox === 'block') {
-          // submerged as the RESTING body is (the dip reads feet and head both wet, which is the check's own exemption)
-          const sub = isWaterCell(bot.blockAt(rest)) && isWaterCell(bot.blockAt(rest.offset(0, 1, 0)))
-          const reason = overheadBreakRisk({ at: (x, y, z) => bot.blockAt(roofAt.offset(x, y, z)), submerged: sub })
-          if (reason) { logFloodGuard(bot, { caller: 'pillar_out', reason, cell: roofAt, submerged: sub }); return FLOOD_RISK }
-        }
-      }
-    }
+    // SWIMUNDER-01: the wet roof is also read from where a floating body rests (restRoofFloodRisk, below)
+    if (swimUnderOn() && restRoofFloodRisk(bot)) return FLOOD_RISK
     // escapeguard-01: A GUARDED CEILING IS NOT A SHORTAGE EITHER. Asked before the block count, for the flood check's reason:
     // the climb's first dig would be refused, so the bot goes to the ramp (another bearing), not for 26 dirt
     if (head0 && head0.boundingBox === 'block' && !guardMay(bot, head0)) return ESCAPE_GUARDED

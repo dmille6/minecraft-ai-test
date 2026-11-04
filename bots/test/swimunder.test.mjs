@@ -333,7 +333,7 @@ await ta('D1 THE DIP: a floating body that dipped below its cell (y 33.9) under 
 })
 
 await ta('D2 MUTANT KILLED: without the rest-height read the pillar does not refuse at the dip (D1 catches it)', async () => {
-  await withMutant(REFLEX, '    if (swimUnderOn()) {\n      const fp = bot.entity.position\n', '    if (false) {\n      const fp = bot.entity.position\n', async m => {
+  await withMutant(REFLEX, '    if (swimUnderOn() && restRoofFloodRisk(bot)) return FLOOD_RISK\n', '', async m => {
     const bot = pillarBot(dipWorld, 33.9)
     const out = await Promise.race([m.pillarOut(bot, 3), new Promise(r => setTimeout(() => r('timeout'), 3000))])
     assert.ok(!(out === 'flood_risk' && bot.placed.length === 0), `the mutant still refused before placing (${out}): D1 would not catch it`)
