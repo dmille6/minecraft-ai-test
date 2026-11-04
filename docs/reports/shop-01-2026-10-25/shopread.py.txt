@@ -93,6 +93,11 @@
 #                      demolition record's line columns (`cols`) and it lies 0..3 in from that line (the record's `line`: axis, line,
 #                      inward); and a generation of the WALLEXT chain stood complete (completeAt) at or before the dig (+ 60 s skew).
 #                      Anything else is clear_outside (` demo`). The walldemo record has no cells: any placement of it is off_record.
+#   CF1 cane_cut (canefarm-01, 11-04; bots/src/canefarm.mjs; counted as clear_outside, so G2's line trips on it): THE CANE BED's
+#                      placements are G1's (a record cell, role cane). Its HARVEST (`_build op=harvest project=canefarm cell= block=
+#                      sugar_cane kind=cane`) is on the record ONLY as sugar cane cut at the SECOND block: the cell directly above a
+#                      cane cell of any generation of the bed's chain. The bottom block itself, any other cell, any other block is
+#                      clear_outside (` harvest`). A harvest row is a mutation (G3), as the crop farm's.
 #   EF1 enchant_fit (enchantshop-01, 11-04; bots/src/enchantshop.mjs): THE ENCHANTING WORKSHOP is an ordinary record (project=
 #                      enchantshop): its shell's placements and clears are G1/G2's like every project's. Its FIT-OUT (the anvil, the
 #                      enchanting table, 15 bookshelves) is NOT record cells: the record's `fit` list [{slot, item, at}], placed by the
@@ -189,6 +194,7 @@ GATHER_BLOCKS = frozenset(['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'a
                            'flowering_azalea_leaves', 'cherry_leaves', 'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves', 'mangrove_leaves'])
 # cropfarm-01 (bots/src/cropfarm.mjs CROPFARM_PLOT, CROP_BLOCKS, SEED_GRASS, CROP.gatherR)
 CROPFARM = 'cropfarm'
+CANEFARM = 'canefarm'                 # canefarm-01 CF1 (bots/src/canefarm.mjs CANEFARM_PLOT)
 CROP_BLOCKS = frozenset(['wheat', 'carrots', 'potatoes', 'beetroots'])
 SEED_GRASS = frozenset(['short_grass', 'tall_grass', 'fern', 'large_fern'])
 SEEDGRASS_R = 24
@@ -256,6 +262,15 @@ def crop_harvest_ok(chain, cell, block):
         return False
     k = ck(cell)
     return any(c.get('role') == 'wheat' and ck(c['at']) == k for rec in chain or [] for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at'))
+
+
+def cane_harvest_ok(chain, cell, block):
+    """canefarm-01 CF1: is a `project=canefarm op=harvest` sugar cane cut at the SECOND block -- the cell directly above a cane cell
+    (role cane) of any generation of the bed's chain? -> bool. Pure. The bottom block (the cane cell itself) is never the harvest's."""
+    if block != 'sugar_cane' or not isinstance(cell, (list, tuple)) or len(cell) != 3:
+        return False
+    k = ck([cell[0], cell[1] - 1, cell[2]])
+    return any(c.get('role') == 'cane' and ck(c['at']) == k for rec in chain or [] for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at'))
 
 
 def tidy_heads_at(chain, t_ms, skew_ms=60_000):
@@ -1113,9 +1128,9 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 out['mutations'] += 1
                 if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):
                     out['zone'] += 1; lists['zone'].append('%s %s %s' % (bot, op, k))
-            if op == 'harvest' and plot == CROPFARM:
-                # cropfarm-01: a crop farm's harvest is a mutation too, and G3 judges it
-                mutating.add((pool, CROPFARM))
+            if op == 'harvest' and plot in (CROPFARM, CANEFARM):
+                # cropfarm-01: a crop farm's harvest is a mutation too, and G3 judges it (canefarm-01: the cane bed's too)
+                mutating.add((pool, CANEFARM if plot == CANEFARM else CROPFARM))
                 out['mutations'] += 1
                 if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):
                     lists['zone'].append('%s harvest %s' % (bot, k)); out['zone'] += 1
@@ -1157,6 +1172,11 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 out['harvests'] += 1
                 if rec is not None and not crop_harvest_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block')):
                     lists['clear_outside'].append('%s %s harvest %s' % (bot, k, f.get('block'))); out['clear_outside'] += 1
+            elif op == 'harvest' and plot == CANEFARM:
+                # canefarm-01 CF1: sugar cane cut at the second block of a cane cell of the bed's record, nothing else
+                out['harvests'] += 1
+                if rec is not None and not cane_harvest_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block')):
+                    lists['clear_outside'].append('%s %s cane harvest %s' % (bot, k, f.get('block'))); out['clear_outside'] += 1
             elif op == 'replant':
                 out['replants'] += 1
             elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):
@@ -1733,6 +1753,19 @@ def selftest():
     assert tidy_guarded([5, 70, 6], T0MS_ + 3_600_000, tg3) is True, 'no demolition record: held'
     tg4 = tidy_guard({'projects': {'wall': wch, 'walldemo': {'record': dict(drec, completeAt=T0MS_ - 2000), 'chain': [dict(drec, completeAt=T0MS_ - 2000)]}}})
     assert tidy_guarded([5, 70, 6], T0MS_, tg4) is True, 'a completeAt on a demolition that is not complete: held'
+    # canefarm-01 CF1: the cane bed's harvest is the second block of a cane cell, sugar cane only; its planting a record cell
+    crec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'canefarm@1', 'plot': 'canefarm', 'cells': [{'at': [40, 66, 40], 'role': 'cane', 'seg': 'C'}, {'at': [42, 66, 40], 'role': 'floor', 'seg': 'C'}], 'clear': [], 'replant': []}
+    cb = PP(canefarm={'record': crec, 'records_files': 1, 'leases': {}})
+    ch = lambda c, block='sugar_cane', proj='canefarm': J(base + [R('_build', 'project=%s op=harvest cell=%s block=%s kind=cane' % (proj, c, block), s=14)], cb)['clear_outside']
+    assert ch('40,67,40') == 0, 'the second block of a cane cell'
+    assert ch('40,66,40') == 1, 'the bottom block is never the harvest\'s'
+    assert ch('40,68,40') == 1 and ch('41,67,40') == 1, 'the third block, another column'
+    assert ch('40,67,40', block='dirt') == 1, 'not sugar cane'
+    assert ch('42,67,40') == 1, 'above a record cell that is not a cane cell'
+    m0 = J(base, cb)['mutations']
+    assert J(base + [R('_build', 'project=canefarm op=harvest cell=40,67,40 block=sugar_cane kind=cane', s=14)], cb)['mutations'] == m0 + 1, 'a cane harvest is a mutation (G3)'
+    assert J(base + [R('_build', 'project=canefarm op=place seg=C cell=40,66,40 block=sugar_cane', s=14)], cb)['off_record'] == 0, 'the planting is a record cell'
+    assert J(base + [R('_build', 'project=canefarm op=place seg=C cell=40,67,40 block=sugar_cane', s=14)], cb)['off_record'] == 1, 'a planting off the record'
     # enchantshop-01 EF1: the shell's cells, a fit slot with ITS item, the labels on their cells; anything else off the record
     erec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'enchantshop@1', 'plot': 'enchantshop', 'cells': [{'at': [30, 65, 30], 'role': 'base', 'seg': 'pad'}],
             'fit': [{'slot': 'anvil', 'item': 'anvil', 'at': [31, 66, 30]}, {'slot': 'shelf-01', 'item': 'bookshelf', 'at': [32, 66, 30]}],

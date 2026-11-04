@@ -151,6 +151,12 @@ M = [
  ("                        out[u] = min(out.get(u, ra), ra)", "                        pass"),
  ("            ra = done_at if isinstance(rec.get('retiredAt'), (int, float)) else None", "            ra = rec.get('retiredAt')"),
  ("    done_at = min([g['completeAt'] for g in dchain if g.get('structure_complete') and isinstance(g.get('completeAt'), (int, float))] or [None]", "    done_at = min([g['completeAt'] for g in dchain if isinstance(g.get('completeAt'), (int, float))] or [None]"),
+ # canefarm-01 CF1: the cane bed's harvest at the second block
+ ("    k = ck([cell[0], cell[1] - 1, cell[2]])", "    k = ck(cell)"),
+ ("    if block != 'sugar_cane' or not isinstance(cell, (list, tuple)) or len(cell) != 3:", "    if not isinstance(cell, (list, tuple)) or len(cell) != 3:"),
+ ("    return any(c.get('role') == 'cane' and ck(c['at']) == k for rec", "    return any(ck(c['at']) == k for rec"),
+ ("            elif op == 'harvest' and plot == CANEFARM:", "            elif False:"),
+ ("            if op == 'harvest' and plot in (CROPFARM, CANEFARM):", "            if op == 'harvest' and plot == CROPFARM:"),
  # enchantshop-01 EF1: the workshop's fit slots (their own item) and its labels
  ("    return any(isinstance(s, dict) and isinstance(s.get('at'), list) and ck(s['at']) == k and s.get('item') == block for s in rec.get('fit') or [])", "    return any(isinstance(s, dict) and isinstance(s.get('at'), list) and ck(s['at']) == k for s in rec.get('fit') or [])"),
  ("    return any(isinstance(s, dict) and isinstance(s.get('at'), list) and ck(s['at']) == k and s.get('item') == block for s in rec.get('fit') or [])", "    return False"),
