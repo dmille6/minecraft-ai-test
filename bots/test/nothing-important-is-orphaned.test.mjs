@@ -115,6 +115,12 @@ const REQUIRED = [
   'bots/test/storehub.test.mjs',
   // wallext-01 (11-04): the wall extension round the storage hall and its test (the design is main's: docs/reports/wallext-design-2026-11-04.md)
   'bots/test/wallext.test.mjs',
+  // enchantshop-01 (11-04): the enchanting + anvil workshop, its blueprint and generator, its offline siting, its test (the design is main's)
+  'bots/src/enchantshop.mjs',
+  'bots/src/blueprints/enchantshop@1.json',
+  'docs/reports/enchantshop-2026-11-04/make_enchantshop.py',
+  'bots/scripts/enchantshop-offline.mjs',
+  'bots/test/enchantshop.test.mjs',
   // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
   'bots/src/sinks.mjs',
   'bots/scripts/sinks-offline.mjs',

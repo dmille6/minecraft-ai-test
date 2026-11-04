@@ -40,7 +40,7 @@ function plan ({ pavilion = 'E', taken = SECTORS } = {}) {
 
 // the workshop and the house (monument-01's ziggurat, the third project, has its own order test: ziggurat-project.test.mjs; the
 // paths, the fourth: paths.test.mjs)
-const P = S.PROJECTS.filter(p => p.plot !== 'monument' && p.plot !== 'paths' && p.plot !== 'wall' && p.plot !== 'shaft' && p.plot !== 'treefarm' && p.plot !== 'cropfarm' && p.plot !== 'tidy' && p.plot !== 'storehouse' && p.plot !== 'shopchest' && p.plot !== 'hall' && p.plot !== 'storehub' && p.plot !== 'wallext' && p.plot !== 'walldemo' && p.plot !== 'yard')   // storehub-01: storehub.test.mjs; wallext-01: wallext.test.mjs; stockyard-01: yard.test.mjs; shaft-02: town-stair.test.mjs; treefarm-04: treefarm.test.mjs; tidy-01: tidy.test.mjs; storehouse-01 / shopchest-01 / copperhall-01: their own tests
+const P = S.PROJECTS.filter(p => p.plot !== 'monument' && p.plot !== 'paths' && p.plot !== 'wall' && p.plot !== 'shaft' && p.plot !== 'treefarm' && p.plot !== 'cropfarm' && p.plot !== 'tidy' && p.plot !== 'storehouse' && p.plot !== 'shopchest' && p.plot !== 'hall' && p.plot !== 'storehub' && p.plot !== 'wallext' && p.plot !== 'walldemo' && p.plot !== 'enchantshop' && p.plot !== 'yard')   // enchantshop-01: enchantshop.test.mjs; storehub-01: storehub.test.mjs; wallext-01: wallext.test.mjs; stockyard-01: yard.test.mjs; shaft-02: town-stair.test.mjs; treefarm-04: treefarm.test.mjs; tidy-01: tidy.test.mjs; storehouse-01 / shopchest-01 / copperhall-01: their own tests
 const st = (plot, exists, complete = false, damaged = false) => ({ plot, exists, complete, damaged })
 
 await t('the project order: the workshop until it stands, then the house; repairs first; HOUSE=off is the workshop alone', () => {
