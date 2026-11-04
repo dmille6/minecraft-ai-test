@@ -83,9 +83,15 @@ export function prepFileDecision ({ on = true, kind, rec = null, rejects = {}, n
   if (!prepWorthy(rejects)) return { file: false, why: 'not_worthy' }
   const mine = requestsOf(rec).filter(r => r.requester?.kind === kind)
   if (mine.some(r => LIVE.includes(r.state))) return { file: false, why: 'live' }
-  if (mine.some(r => r.state !== 'handed' && TERMINAL.includes(r.state) && now - (Number(r.at) || 0) < P.refileMs)) return { file: false, why: 'recent' }
+  // siteprep-03: ONE abandon by the overlap re-check (`retire:<zone>`, never `retire:given_up`) within the wait does not hold the kind
+  // back -- the plot was lost to another record, not to the ground; a second within the wait does (no refile loop)
+  const recent = mine.filter(r => r.state !== 'handed' && TERMINAL.includes(r.state) && now - (Number(r.at) || 0) < P.refileMs)
+  const overlapAbandons = recent.filter(prepOverlapAbandon).length
+  if (recent.length - Math.min(1, overlapAbandons) > 0) return { file: false, why: 'recent' }
   return { file: true, why: 'ok' }
 }
+/** A request abandoned by the overlap re-check (another record's zone met its plot), not by its ground -> bool. Pure. */
+export const prepOverlapAbandon = r => r?.state === 'abandoned' && /^retire:/.test(String(r.why ?? '')) && !/^retire:given_up/.test(String(r.why ?? ''))
 /** A new request -> the request. Pure. */
 export function siteRequest ({ kind, n = 1, by = '?', rejects = {}, seq = 1, now = Date.now(), P = PREP } = {}) {
   const top = Object.fromEntries(Object.entries(rejects ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 6))
@@ -168,6 +174,37 @@ export function prepZoneOf (plotBox, { id, kind, P = PREP } = {}) {
 export const prepZones = (rec, except = null) => requestsOf(rec).filter(r => (r.state === 'prepping' || r.state === 'prepared') && r.zone?.box && r.id !== except).map(r => r.zone)
 /** The record as a RESERVATION (projectHeads: the land plan's pattern -- zones, no cells) -> a record. Pure. */
 export const prepReservation = (rec, except = null) => ({ plot: SITEPREP_PLOT, blueprint: SITEPREP_BLUEPRINT, zones: prepZones(rec, except), cells: [], structure_complete: true })
+/**
+ * THE PLOT'S FOOTPRINT -> { pin: [x0, z0, x1, z1], cols: ["x,z"] }: the pinned square and every column the grading works (its cuts,
+ * fills, seals, dams and leaves). Pure. The grading's `avoid` already keeps every worked column off every record's zone, so this is
+ * what the prep can touch -- not the graded BOX, whose ramp ring is bounded by those zones, never in them.
+ */
+export function prepFootprint (pin, work = null) {
+  const cols = new Set()
+  for (const c of [...(work?.cut ?? []), ...(work?.fill ?? []), ...(work?.seal ?? []), ...(work?.dam ?? []), ...(work?.leaves ?? [])]) cols.add(`${c.at[0]},${c.at[2]}`)
+  return { pin, cols: [...cols] }
+}
+/**
+ * THE OVERLAP TEST (siteprep-03, LIVE showcase 11-04 13:24-13:27Z: SP1 chose B7 at -69,68,-28; the keeper's re-check tested its
+ * GRADED box, ramp ring included, which met the monument's record zone (box + 3) although no worked column did -- retired at once,
+ * twice, abandoned) -> the reason of the first zone the footprint meets | null. Pure. ONE function for the screen (prepEstimate: the
+ * pinned square, before any grading), the choice (prepChoose: the pinned square and the worked columns, before acceptance) and the
+ * keeper's re-check (skills.mjs prepOverlap: the plot's stored footprint), so they can never disagree. A plot chosen before
+ * siteprep-03 has no stored footprint: its graded box is tested, as then.
+ */
+export function prepOverlapOf (fp, zones = []) {
+  const box = Array.isArray(fp) ? fp : fp?.pin
+  if (!Array.isArray(box) || box.length !== 4) return null
+  for (const z of zones ?? []) {
+    if (boxMeetsAny(box, [z])) return String(z.why ?? 'project')
+    const q = z?.box
+    if (!Array.isArray(q)) continue
+    for (const k of fp?.cols ?? []) { const [x, c] = k.split(',').map(Number); if (x >= q[0] && x <= q[3] && c >= q[2] && c <= q[5]) return String(z.why ?? 'project') }
+  }
+  return null
+}
+/** A plot's footprint for the re-check: the stored one, else (a plot chosen before siteprep-03) its graded box. Pure. */
+export const plotFootprint = plot => plot?.footprint ?? (Array.isArray(plot?.graded) ? plot.graded : null)
 /** Does a box [x0, z0, x1, z1] meet any zone's x/z box? Pure. */
 export const boxMeetsAny = (b, zones = []) => zones.some(z => { const q = z?.box; return Array.isArray(q) && b[0] <= q[3] && b[2] >= q[0] && b[1] <= q[5] && b[3] >= q[2] })
 
@@ -241,8 +278,10 @@ export function earthBlocked (read, x, z, g, lo, hi = lo) {
 // ... and a pinned column the GRADING will not take as free ground (its own column reader, tidy.mjs tidyColumn, reads it built or
 // furniture; or the grading's refusals, `avoid`, hold it): its pin fails `not_free` in every solve (LIVE + offline: 9 of the 14 tries
 // before the plot after the trunk rule). Also necessary conditions only.
-export function prepEstimate (cand, { ground, wetCol = () => null, still = () => false, guard = () => null, hy = 70, read = null, avoid = null, P = PREP } = {}) {
+export function prepEstimate (cand, { ground, wetCol = () => null, still = () => false, guard = () => null, hy = 70, read = null, avoid = null, zones = null, P = PREP } = {}) {
   const { pin } = prepBoxes(cand, P)
+  // siteprep-03: the overlap test on the pinned square before any grading (the choice tests the worked columns too)
+  if (zones) { const ov = prepOverlapOf({ pin, cols: [] }, zones); if (ov) return { ok: false, why: `overlap:${ov.slice(0, 40)}`, cls: 'hard' } }
   for (let x = pin[0] - 1; x <= pin[2] + 1; x++) for (let z = pin[1] - 1; z <= pin[3] + 1; z++) {
     const why = guard(x, z, hy - SITE_LIM.scanDown, hy + SITE_LIM.scanUp)
     if (why) return { ok: false, why: `reserved:${String(why).slice(0, 40)}`, cls: 'hard' }
@@ -353,7 +392,7 @@ export function prepWalkOk (read, after, box, { home, from = [], dy = 16, P = PR
  * acceptance on the after-world (`accept(afterRead, cand) -> { ok, why }`: siteSink pinned to the candidate). At most P.proofs a
  * call; the rest is `pending` (the search goes on next visit: a spent allowance is never "no dry land").
  */
-export function prepChoose (read, ranked = [], { cursor = 0, home, from = [], avoid, cells, farm, water, accept = () => ({ ok: false, why: 'no_accept' }), P = PREP } = {}) {
+export function prepChoose (read, ranked = [], { cursor = 0, home, from = [], avoid, cells, farm, water, zones = null, accept = () => ({ ok: false, why: 'no_accept' }), P = PREP } = {}) {
   const tried = {}, skips = {}
   let proofs = 0, i = cursor
   for (; i < ranked.length; i++) {
@@ -362,6 +401,8 @@ export function prepChoose (read, ranked = [], { cursor = 0, home, from = [], av
     proofs++
     const gr = prepGrade(read, c, { home, avoid, cells, farm, water, P })
     if (!gr.ok) { tried[gr.why] = (tried[gr.why] ?? 0) + 1; for (const [k, v] of Object.entries(gr.skipped ?? {})) if (!/^col_|walk_kept|water_edge/.test(k)) skips[k] = (skips[k] ?? 0) + v; continue }
+    // siteprep-03: the keeper's re-check, run here on the worked footprint -- a plot it would retire is never chosen
+    if (zones) { const ov = prepOverlapOf(prepFootprint(gr.pin, gr.work), zones); if (ov) { tried.overlap = (tried.overlap ?? 0) + 1; continue } }
     const after = prepAfter(read, gr.work)
     const wk = prepWalkOk(read, after, gr.box, { home, from, P })
     if (!wk.ok) { tried[wk.why] = (tried[wk.why] ?? 0) + 1; continue }
@@ -375,7 +416,7 @@ export function prepChoose (read, ranked = [], { cursor = 0, home, from = [], av
 /** The plot a chosen candidate makes (the request's `plot`). Pure. */
 export function plotOf (ch) {
   const c = ch.cand
-  return { cx: c.cx, cz: c.cz, B: c.B, seed: c.seed, ...(c.slot ? { slot: c.slot, pair: c.pair } : {}), corner: [c.corner.x, c.corner.z], L: ch.grade.L, box: ch.grade.pin, graded: ch.grade.box, tier: c.tier,
+  return { cx: c.cx, cz: c.cz, B: c.B, seed: c.seed, ...(c.slot ? { slot: c.slot, pair: c.pair } : {}), corner: [c.corner.x, c.corner.z], L: ch.grade.L, box: ch.grade.pin, graded: ch.grade.box, footprint: prepFootprint(ch.grade.pin, ch.grade.work), tier: c.tier,
     earth: { ...ch.grade.counts, water: c.est.wet } }
 }
 

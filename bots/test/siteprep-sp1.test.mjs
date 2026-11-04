@@ -128,7 +128,7 @@ const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/g
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 await t('the tick grades in chunks until PREP.tickMs, handing the event loop back between them; the screen gets the reader and the grading\'s refusals', () => {
   assert.ok(/if \(ch\.why !== 'pending' \|\| Date\.now\(\) - tick0 >= PREP\.tickMs\) break\n\s*await new Promise\(resolve => setImmediate\(resolve\)\)\n\s*check\(signal\)/.test(SK))
-  assert.ok(/still: \(x, y, z\) => stillWater\(read\(x, y, z\)\), guard, hy: home\.y, read, avoid \}\)\)/.test(SK))
+  assert.ok(/still: \(x, y, z\) => stillWater\(read\(x, y, z\)\), guard, hy: home\.y, read, avoid(, zones: ovZones)? \}\)\)/.test(SK))   // (siteprep-03 adds the overlap zones)
   const b = "if (ch.why !== 'pending' || Date.now() - tick0 >= PREP.tickMs) break"
   assert.strictEqual(SK.split(b).length, 2)
   assert.ok(!/if \(ch\.why !== 'pending' \|\| Date\.now\(\) - tick0 >= PREP\.tickMs\) break\n\s*await new Promise/.test(SK.replace(b, 'BROKEN')))

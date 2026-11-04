@@ -350,7 +350,29 @@ unreachable from the town walk, the next one starting in the river, the north on
 or access-ramp request and water fill at its first column, slice 3, beside bridgepost-01; dress is `s0/l202/w79_lit138_proofs0` (no
 fixture candidate left to place, nothing about the ground) -- not a prep problem.
 
-## 16. Slices
+## 16. siteprep-03: the live SP1 overlap (11-04, on the live release 3a332742)
+
+**Live:** SP1 chose B7 at -69,68,-28 in the first tick (13:24:12Z, cut 58 / fill 124 / seal 16); the keeper's re-check retired it at
+once (`project:monument`), re-chose it, retired it again and abandoned it (retireMax 1) at 13:27:03Z. No world change.
+
+**Cause** (region copy + the real pool records ~13:35Z): the re-check tested the plot's GRADED box, ramp ring included, which meets
+the monument's record zone (box + 3); the choice never tested it. The grading's `avoid` already holds every record zone's columns, so
+no worked column was ever in the zone.
+
+**Fix:** one pure test, `prepOverlapOf`, over the plot's FOOTPRINT (`prepFootprint`: the pinned square + every worked column),
+used by the screen (pinned square, before any grading), the choice (pinned square + worked columns, before the requester's
+acceptance) and the keeper's re-check (the plot's stored `footprint`; a plot chosen before siteprep-03 keeps its graded box) --
+they can never disagree. The coordinator's literal rule (refuse a graded box meeting any zone) was measured first and not taken: on
+the same copy it chooses NO shrine plot (214 screen refusals, the rest pin_kept / unreachable). **Refile:** one overlap abandon
+(`retire:<zone>`, never `retire:given_up`) within the 24-h wait does not hold the kind; a second does.
+
+**Tests:** `bots/test/siteprep-overlap.test.mjs` 13/13 on the showcase's blocks and records (`fixtures/siteprep-sp1-overlap-1104.json`):
+the live retire reproduced, the plot chosen with an overlap-free footprint, a worked-column overlap refused at the choice (control:
+chosen without the test), the screen, the refile rule and its bound; 4 anchored mutants. **Reviews:** Codex APPROVE, Claude APPROVE
+(r1). **Suite:** ci2 at cc906fc7 412/415 (the known no-`.git` three). Named, not blocking (Claude): the prep's reservation (pinned square + 8) can now reach up to 4 columns into the monument's box
+while the prep lives -- nothing works there, but sitings keep off it; clip it against other records' boxes if wanted.
+
+## 17. Slices
 
 1. **This branch (showcase):** towers and shrines, tiers same/smaller/other_dry/water, the keeper's prep, the hand-over, rows.
 2. Ziggurat (with Codex's construction-proof adapter, inside `monumentBox`), the buildsite requesters (workshop, house, yard, crop

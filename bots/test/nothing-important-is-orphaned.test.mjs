@@ -127,6 +127,9 @@ const REQUIRED = [
   // siteprep-02 (11-04): the live SP1 stall reproduced on the showcase's own blocks
   'bots/test/siteprep-sp1.test.mjs',
   'bots/test/fixtures/siteprep-sp1-1104.json',
+  // siteprep-03 (11-04): the live SP1 overlap reproduced on the showcase's own blocks and records
+  'bots/test/siteprep-overlap.test.mjs',
+  'bots/test/fixtures/siteprep-sp1-overlap-1104.json',
   'bots/test/siteprepcursor.test.mjs',   // the siteprep-02 fold: a cursor of an older screen restarts
   'bots/test/gkstagefold.test.mjs',   // the gkstage fold: inwall never cuts a site-prep reservation
   'bots/test/siteprepfold.test.mjs',   // the fold's prepared-claim bypass (Codex fold BLOCKER)
