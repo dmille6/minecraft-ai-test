@@ -4497,6 +4497,32 @@
     ]
    },
    "note": "OWNER 11-04 ~05:10Z after the cobble read (fleet builds 10.5% of new cobble; 6 towns placed none; showcase sinks 1 sited of 131 picks): 'can we use the groundskeeper bots to clear land and repurpose land' + 'no problem with bots filling in water if it must, as a last resort'."
+  },
+  {
+   "id": "yarduse-1104",
+   "title": "Stock yard used: bulk surplus to the yard before the well; bay clutter cleared; sinks and groundskeeper fills draw from the yard",
+   "owner_date": "2026-11-04",
+   "memory": [
+    "yarduse-1104.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "READY TO STAGE: yarduse-01 branch yarduse-01-on-7bc965ca (code 71b7efe9, doc fdcd24d3) on sinkfix-04 7bc965ca; needs a fold onto the live 3a332742 (siteprep-02). Codex r1 NO BLOCKERS; Claude r1 BLOCKER (draw drops left on the pile) fixed r1, r2 CLOSED. No new place/dig kinds (pile-slot tidy digs + bulk pile places already accepted by shopread yardread-01). Switches YARD_BEFORE_WELL=off, YARD_DRAW=off. Read +2 h/+24 h per docs/reports/yarduse-design-2026-11-04.md section 6.",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "grep": [
+     "yarduse"
+    ],
+    "branches": [
+     "yarduse*"
+    ],
+    "paths": [
+     "docs/reports/yarduse-design-2026-11-04.md"
+    ]
+   },
+   "note": "OWNER 11-04: 'we built a large area outside the town to put excess materials, it seems to have been built but doesnt seem to be used, why?' Measured 48 h: yard full 26 h (227/304; bay 3 locked by 5 spruce leaves), 0 withdrawals by design, the well took 9,066 cobble (2,893 while the yard had room) vs the yard's 584."
   }
  ]
 }

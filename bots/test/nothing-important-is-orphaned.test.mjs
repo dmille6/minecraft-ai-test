@@ -134,6 +134,8 @@ const REQUIRED = [
   'bots/src/blueprints/yard@2.json',
   'bots/scripts/yard-offline.mjs',
   'bots/test/yardsite.test.mjs',
+  // yarduse-01 (11-04): why the stock yard stood unused, and the fix (showcase piece)
+  'docs/reports/yarduse-design-2026-11-04.md',
   // copperhall-01 (11-02): the showcase copper hall, its blueprint and its test over the showcase terrace's own region export
   'bots/src/copperhall.mjs',
   'bots/src/blueprints/hall@1.json',
