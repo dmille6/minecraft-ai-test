@@ -121,6 +121,10 @@ const REQUIRED = [
   'docs/reports/enchantshop-2026-11-04/make_enchantshop.py',
   'bots/scripts/enchantshop-offline.mjs',
   'bots/test/enchantshop.test.mjs',
+  // canefarm-01 (11-04, owner E1): the sugar cane bed for the workshop's books
+  'bots/src/canefarm.mjs',
+  'bots/scripts/canefarm-offline.mjs',
+  'bots/test/canefarm.test.mjs',
   // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
   'bots/src/sinks.mjs',
   'bots/scripts/sinks-offline.mjs',

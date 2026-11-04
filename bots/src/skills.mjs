@@ -162,6 +162,7 @@ import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
 import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft, cutUnsafe } from './cropfarm.mjs'   // cropfarm-01
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
+import { CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANE, CANE_PALETTE, CANE_FOREIGN, siteCaneFarm, caneCells, caneState, caneCensus, caneHarvest, caneStand, caneNeed, caneDue, caneAlsoDone, cutCell, caneHarvestRow, caneBankable } from './canefarm.mjs'   // canefarm-01
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
 import { legacyStage, stageCarry, tidyWater, cutSafeNow } from './tidy.mjs'   // townterrace-01
 import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from './park.mjs'   // townterrace-01: the park
@@ -17209,7 +17210,7 @@ const bpCache = new Map()
 // wall-01: the wall has none either (wall.mjs sites it; WALL_PALETTE)
 // shaft-02: the town stair has none either (shaftgeom.mjs plans it; its visit and its damage test are its own)
 // picker-01: a sink's palette is its record's (every instance's roles): its blueprint here names no palette of its own
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT || id === WALLEXT_BLUEPRINT || id === WALLDEMO_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT || id === WALLEXT_BLUEPRINT || id === WALLDEMO_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === CANEFARM_BLUEPRINT ? { id, palette: CANE_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -17710,6 +17711,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     if (r.blueprint === TREEFARM_BLUEPRINT) return tidy && !!farmDueFor(bot, r)
     // cropfarm-01: a standing crop farm is never DAMAGED either: its harvest and replant are upkeep (cropfarm.mjs cropDue)
     if (r.blueprint === CROPFARM_BLUEPRINT) return tidy && !!cropDueFor(bot, r)
+    // canefarm-01: a standing cane bed is never DAMAGED either: its harvest and replant are upkeep (canefarm.mjs caneDue)
+    if (r.blueprint === CANEFARM_BLUEPRINT) return tidy && !!caneDueFor(bot, r)
     // tidy-01: a finished tidy is never DAMAGED (the bots' next pillars are the next survey's): only DUE its re-survey (tidy.mjs
     // tidyDue), after every open project
     // groundskeeper-01: a complete stage with a next band (landplan.mjs ring order) is due at once
@@ -19743,6 +19746,8 @@ async function buildShopVisit (ctx, args, signal) {
   if (proj.plot === TREEFARM_PLOT) return buildTreeFarm(ctx, args, signal)
   // cropfarm-01: the town wheat farm's visit (cropfarm.mjs siting; the harvest, the seed gather, then the build)
   if (proj.plot === CROPFARM_PLOT) return buildCropFarm(ctx, args, signal)
+  // canefarm-01: the sugar cane bed's visit (canefarm.mjs siting; the harvest, the replant, the bank)
+  if (proj.plot === CANEFARM_PLOT) return buildCaneFarm(ctx, args, signal)
   // tidy-01: the town-ground tidy's visit (tidy.mjs survey and grading; cuts, then layered fills)
   if (proj.plot === TIDY_PLOT) return buildTidy(ctx, args, signal)
   // picker-01: a town sink's visit (sinks.mjs: site the next instance when the picker wants one, else build the open one)
@@ -23333,6 +23338,174 @@ async function buildCropFarm (ctx, args, signal) {
     try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
     if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(CROPFARM_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
+  }
+}
+
+// ================================================================================================================================
+// CANEFARM-01: THE SUGAR CANE BED'S VISIT (canefarm.mjs; owner 11-04 enchantshop E1). The crop farm's pattern: site once (canefarm.mjs
+// siteCaneFarm: a cluster of natural water-edge cells off every reservation), then each visit (1) HARVESTS the ripe cells -- the SECOND
+// block cut from the cell's stand (the bottom one stays and regrows), (2) draws cane from the town when the bag cannot plant the open
+// cells, (3) BUILDS with runVisit (the cane placed on its cell; a dry or planted cell passed), (4) BANKS only the cane the harvest
+// brought (never the bag's own: the park's planting stock), for the workshop's paper.
+// ================================================================================================================================
+const caneRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+/** IS THE STANDING CANE BED DUE A VISIT for this bot (canefarm.mjs caneDue)? -> reason | null. Never throws. */
+function caneDueFor (bot, rec) {
+  try {
+    let townCane = 0
+    try { townCane = Number(matsTownStock(bot)?.stock?.sugar_cane) || 0 } catch { townCane = 0 }
+    const free = (() => { try { return bot.inventory.emptySlotCount() } catch { return 0 } })()
+    return caneDue(caneRead(bot), rec, { cane: countItem(bot, 'sugar_cane') + townCane, townCane, freeSlots: free })
+  } catch { return null }
+}
+/** THE SITING'S RESERVATIONS: the crop farm's (cropInputs: every other project's record and zone, the plan, the wells, the composter,
+ *  the land plan's corridors, its park + 2). Never throws past the caller. */
+function caneInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
+  const P = pathsInputs(bot, c, h, dir)
+  const records = projectHeads().filter(x => x.plot !== CANEFARM_PLOT).map(x => x.head.rec).filter(Boolean)
+  const land = landHead(dir)
+  const park = land?.park?.box ?? null
+  const base = farmBlocked({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records, pzones: recordZones(records) })
+  return { blocked: (x, z) => base(x, z) ?? (park && x >= park[0] - 2 && x <= park[2] + 2 && z >= park[1] - 2 && z <= park[3] + 2 ? 'park' : null) }
+}
+/** THE HARVEST -> { n, got, why }: up to CANE.harvestMax ripe cells, each cut at its second block from its stand, re-read first. */
+async function caneHarvestRun (ctx, rec, { deadline, signal, e, log }) {
+  const { bot } = ctx
+  const read = caneRead(bot)
+  let townCane = 0
+  try { townCane = Number(matsTownStock(bot)?.stock?.sugar_cane) || 0 } catch { townCane = 0 }
+  if (townCane >= CANE.townCap) return { n: 0, got: 0, why: 'town_cap' }
+  const c0 = countItem(bot, 'sugar_cane')
+  let n = 0, why = 'none'
+  for (const c of caneHarvest(read, rec, { from: e.feet() })) {
+    if (signal?.aborted || Date.now() > deadline) { why = 'deadline'; break }
+    const free = (() => { try { return bot.inventory.emptySlotCount() } catch { return 0 } })()
+    if (free < CANE.minFree) { why = 'bag_full'; break }
+    const stand = caneStand(rec, c)
+    if (!stand) continue
+    await e.walkTo(stand)
+    check(signal)
+    const cut = cutCell(c)
+    // re-read: still ripe, the cut cell still cane, the BOTTOM block still cane (never the bottom one), and in reach
+    if (caneState(read, c) !== 'ripe' || String(read(...cut)?.name ?? '') !== 'sugar_cane' || String(read(...c.at)?.name ?? '') !== 'sugar_cane' || !digReachFrom(e.feet(), cut)) continue
+    const v = await e.dig(cut, 'sugar_cane')
+    if (v !== 'confirmed') continue
+    n++
+    why = 'harvested'
+    log(caneHarvestRow({ cell: cut }))
+    await sleep(700, signal)   // the drops fall by the stand (within the pickup reach)
+  }
+  return { n, got: Math.max(0, countItem(bot, 'sugar_cane') - c0), why }
+}
+async function buildCaneFarm (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: CANEFARM_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === CANEFARM_PLOT)) return out('no_effect', 'off', 'the cane bed is switched off (CANEFARM, TREEFARM, PATHS, SHOP or TOWNPLAN)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(CANEFARM_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  bot.shopVisitKey = key
+  const stood = stoodRead(dir, stoodKey(), home)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the cane bed record could not be read')
+  if (!rh.head) {
+    if (Date.now() < (bot.caneNoSiteUntil ?? 0)) return out('no_effect', 'no_site', 'no cane bed site (backing off)', { stop: 'no_site' })
+    let s
+    try { s = siteCaneFarm(planReader(bot), { home, ...caneInputs(bot, c, h, dir) }) } catch { return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' }) }
+    if (!s.ok) { bot.caneNoSiteUntil = Date.now() + 30 * 60_000; return out('no_effect', 'no_site', `no cane bed site (${s.why})`.slice(0, 160), { stop: 'no_site' }) }
+    const record = s.record
+    const pub = publishRecord(dir, key, cur => (cur ? null : { ...record, state: 'open' }), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: CANEFARM_PLOT, op: 'sited', cell: record.cells[0]?.at, kind: `cane${record.counts.cells}/edge${s.tried}/box${record.box.join('_')}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the cane bed record could not be read back')
+  }
+  shopFootprintRefresh(bot)
+  const rec = rh.head.rec
+  const read = caneRead(bot)
+  if (rec.structure_complete && !caneDueFor(bot, rec)) return out('no_effect', 'complete', `the cane bed stands (${Object.entries(caneCensus(read, rec)).map(([k, v]) => `${k}:${v}`).join(',')})`)
+  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === CANEFARM_PLOT)))
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }
+  let effects = null
+  let bag0 = null, placedBy = {}, backAll = {}, tookAll = {}, diedAt = null
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  const rowLog = d => { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail(d) }) } catch { /* telemetry */ } }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    bag0 = heldMap(bot)
+    const keep = townKeeps(bag0, { wanted: bot.currentWants ?? [] }).keep
+    effects = botBuildEffects(bot, {
+      acks, keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: CANEFARM_PLOT, ...d }) : buildRowDetail({ project: CANEFARM_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
+    // THE BAG'S OWN CANE at the start (the park's planting stock): never banked by this visit
+    const own0 = countItem(bot, 'sugar_cane')
+    // 1. THE HARVEST
+    const hv = await caneHarvestRun(ctx, rec, { deadline: deadline - 60_000, signal, e: effects, log: rowLog })
+    check(signal)
+    // 2. THE PLANTING STOCK: the open cells the bag cannot plant, drawn from the town (the harvest's banked cane, when the bed's own
+    // first planting took the bag's)
+    let want = caneNeed(read, rec, countItem(bot, 'sugar_cane'))
+    let townCane = 0
+    try { townCane = Number(matsTownStock(bot)?.stock?.sugar_cane) || 0 } catch { townCane = 0 }
+    if (want > 0 && townCane > 0 && Date.now() >= (bot.caneDrawUntil ?? 0)) {
+      let took = {}
+      try { const w = await matsWithdraw(ctx, { sugar_cane: Math.min(want, townCane) }, signal, 30_000, matsReserve().table, shopAllow); took = w.took ?? {} } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+      for (const [k, v] of Object.entries(took)) tookAll[k] = (tookAll[k] ?? 0) + v
+      if (!(took.sugar_cane > 0)) bot.caneDrawUntil = Date.now() + 10 * 60_000
+      want = caneNeed(read, rec, countItem(bot, 'sugar_cane'))
+    }
+    check(signal)
+    // 3. THE BUILD: the cane placed on each open cell (a planted or dry cell passed; no cane in the bag: every open cell passed)
+    const hasCane = () => countItem(bot, 'sugar_cane') > 0
+    bot.shopUnknown ??= new Set()
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: CANE_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.caneStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      domain: () => true, foreign: CANE_FOREIGN, blockLayer: false, clearMax: 20, walkR: Math.max(96, CANE.rMax + 8),
+      openRole: role => role === 'cane',
+      alsoDone: (q, rd) => caneAlsoDone(q, rd ?? read, { noCane: !hasCane() }) }, effects, { deadline, maxSteps: 200 })
+    // COMPLETE: every cell planted (or dry: named in the census) -- the first planting done; later visits are upkeep
+    const st = caneCells(rec).map(q => caneState(read, q))
+    if (r.stop === 'complete' && !rec.structure_complete && st.every(x => x === 'ripe' || x === 'growing' || x === 'dry')) {
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      bot.shopDamage = null
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: CANEFARM_PLOT, op: 'complete', kind: CANEFARM_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+    }
+    if (rec.structure_complete) bot.shopDamage = null
+    // 4. THE BANK: the cane this visit brought (the harvest's, the town draw left over), never the bag's own start count less what it
+    // planted -- matsBank banks the bag's count above `bag0` (the floor), at most the harvest's
+    let back = {}
+    const bk = caneBankable({ own0, now: countItem(bot, 'sugar_cane'), drawn: tookAll.sugar_cane ?? 0, placed: placedBy.sugar_cane ?? 0 })
+    if (bk.bank > 0 && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) {
+      try { back = await matsBank(ctx, ['sugar_cane'], { sugar_cane: bk.ownLeft }, signal, { sugar_cane: bk.bank }, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2 } }) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+    }
+    const census = Object.entries(caneCensus(caneRead(bot), rec)).map(([k, v]) => `${k}:${v}`).join(',')
+    const status = r.placed > 0 || r.cleared > 0 || hv.n > 0 ? 'success' : 'no_effect'
+    return out(status, r.stop, `${r.why ?? r.stop}; cut ${hv.n} (+${hv.got} cane, ${hv.why}); cane ${census}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared + hv.n, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(CANEFARM_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
   }
 }
 

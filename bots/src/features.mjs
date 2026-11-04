@@ -31,6 +31,8 @@ import { hubModeDetail } from './storehub.mjs'   // storehub-01's licence row (p
 import { STOREHUB } from './shop.mjs'
 import { enchantModeDetail } from './enchantshop.mjs'   // enchantshop-01's licence row
 import { ENCHANTSHOP } from './shop.mjs'
+import { caneModeDetail } from './canefarm.mjs'   // canefarm-01's licence row
+import { CANEFARM } from './shop.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
 import { plinth021ModeDetail, townRecordsShared } from './plinth.mjs'   // plinth-02.1's licence row (its own statement)
 import { plinthFirstModeDetail, plinthFirstPolicy } from './plinth.mjs'   // plinthfirst-01's licence row (its own statement)
@@ -134,6 +136,8 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'storehub_mode', status: 'success', snapshot: snapshot(bot), detail: hubModeDetail(STOREHUB) }) } catch { /* telemetry */ }
   // enchantshop-01: the workshop's licence row (on=0 outside ENCHANTSHOP_POOLS or under ENCHANTSHOP=off: the rollback is visible too)
   try { logEvent({ kind: 'enchantshop_mode', status: 'success', snapshot: snapshot(bot), detail: enchantModeDetail(ENCHANTSHOP) }) } catch { /* telemetry */ }
+  // canefarm-01: the cane bed's licence row (on=0 outside CANEFARM_POOLS or under CANEFARM=off)
+  try { logEvent({ kind: 'canefarm_mode', status: 'success', snapshot: snapshot(bot), detail: caneModeDetail(CANEFARM.on) }) } catch { /* telemetry */ }
   // stockyard-01: the stockpile yard's licence row (yard.mjs; the project itself is shop.mjs PROJECTS, its visit skills.mjs yardVisit)
   try { logEvent({ kind: 'yard_mode', status: 'success', snapshot: snapshot(bot), detail: yardModeDetail(YARD.on) }) } catch { /* telemetry */ }
   // picker-01: the town sinks' licence row (sinks.mjs; the plots are shop.mjs PROJECTS' sink entries, the visit skills.mjs buildSink)
