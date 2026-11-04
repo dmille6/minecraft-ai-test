@@ -79,8 +79,9 @@ for (let round = 1; round <= count; round++) {
       const t1 = Date.now()
       const g = guardFor(kind !== 'shrine', kind)
       const cands = P.prepCandidates({ kind, home, pool, n, wall, zig, rec: recs[kind], avail, torch })
-      const ranked = P.prepRank(cands, c => P.prepEstimate(c, { ground: P.groundMemo(read, home.y), wetCol: P.wetMemo(read, home.y), guard: g, hy: home.y }))
       const avoid = (x, z) => g(x, z, home.y - 14, home.y + 30)
+      const gmR = P.groundMemo(read, home.y), wmR = P.wetMemo(read, home.y)
+      const ranked = P.prepRank(cands, c => P.prepEstimate(c, { ground: gmR, wetCol: wmR, guard: g, hy: home.y, read, avoid }))
       const pinOf = c => ({ id, cx: c.cx, cz: c.cz, B: c.B, seed: c.seed, ...(c.slot ? { slot: c.slot, pair: c.pair } : {}) })
       const accept = (rd, c) => { const a = S.siteSink(rd, { ...ctxOf(kind, n, id), prep: pinOf(c) }); return { ok: a.ok, why: a.ok ? 'ok' : Object.keys(a.rejects ?? {})[0] ?? a.why } }
       let ch = { why: 'pending', cursor: 0 }, calls = 0
@@ -91,7 +92,7 @@ for (let round = 1; round <= count; round++) {
         for (const [k, v] of Object.entries(ch.skips ?? {})) skipsAll[k] = (skipsAll[k] ?? 0) + v
       }
       const estFail = {}
-      for (const c of cands) { const e = P.prepEstimate(c, { ground: P.groundMemo(read, home.y), wetCol: P.wetMemo(read, home.y), guard: g, hy: home.y }); if (!e.ok) { const k = e.why.replace(/:.*/, ''); estFail[k] = (estFail[k] ?? 0) + 1 } }
+      for (const c of cands) { const e = P.prepEstimate(c, { ground: P.groundMemo(read, home.y), wetCol: P.wetMemo(read, home.y), guard: g, hy: home.y, read, avoid }); if (!e.ok) { const k = e.why.replace(/:.*/, ''); estFail[k] = (estFail[k] ?? 0) + 1 } }
       row.prep = { id, cands: cands.length, ranked: ranked.length, estFail, calls, ok: !!ch.ok, why: ch.why, top: ch.top, tried: triedAll, skips: skipsAll, ms: Date.now() - t1 }
       if (!ch.ok) continue
       const plot = P.plotOf(ch)

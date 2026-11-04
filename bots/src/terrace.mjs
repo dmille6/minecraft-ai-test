@@ -455,6 +455,9 @@ function columnWork (rd, x, z, g0, h, { cells, lim, wet, water = 'strict', mayDa
     if (!b) { out.why = 'cut_unread'; return out }
     if (cells.has(k3(x, y, z))) { out.why = 'cut_guarded'; return out }
     if (AIRN(n) || replaceableCell(b)) continue                  // an air pocket inside the cut: nothing to dig there
+    // siteprep-02 (LIVE showcase 11-04 SP1: buried spruce leaves under dirt in a cut span read `cut_blocked`): with T.cutLeaves (the
+    // plot prep's grading only) leaves in the span are cut like the ground round them; the terrace stage's rule is unchanged
+    if (T.cutLeaves && LEAVES_RE.test(n)) { out.cut.push({ at: [x, y, z], name: n }); continue }
     if (!lim.cut.test(n)) { out.why = 'cut_blocked'; return out }
     if (water === 'strict') { if (wet(x, y, z)) { out.why = 'cut_wet'; return out } } else {
       // the 11-01 rule: the water beside the cell is dammed first (the visit digs the cut only once no water is beside it)

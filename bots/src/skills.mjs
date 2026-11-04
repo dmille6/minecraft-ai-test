@@ -176,7 +176,7 @@ import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PL
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
-import { siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
+import { PREP, siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { groupOfItem } from './townindex.mjs'
@@ -21195,13 +21195,24 @@ async function prepTick (bot, dir, key, rec, me, signal) {
     const zig = projectHeads().find(x => x.plot === MONUMENT_PLOT)?.head?.rec ?? null
     const cands = prepCandidates({ kind, home, pool: config.memory.pool, n: instancesOf(sinkRec).length + 1, wall: walls, zig, rec: sinkRec, avail: av.avail, torch: av.torch, campfire: av.campfire })
     const gm = groundMemo(read, home.y), wm = wetMemo(read, home.y)
-    const ranked = prepRank(cands, cd => prepEstimate(cd, { ground: gm, wetCol: wm, still: (x, y, z) => stillWater(read(x, y, z)), guard, hy: home.y }))
+    const ranked = prepRank(cands, cd => prepEstimate(cd, { ground: gm, wetCol: wm, still: (x, y, z) => stillWater(read(x, y, z)), guard, hy: home.y, read, avoid }))
     await new Promise(resolve => setImmediate(resolve))
     check(signal)
     let farmAt = null
     const farm = (x, z) => { farmAt ??= farmGuardOf(read, [home.x - 128, home.z - 128, home.x + 128, home.z + 128], home); return farmAt(x, z) }
-    const ch = prepChoose(read, ranked, { cursor: Number(q.cursor) || 0, home, from: townEdge(I.plan, I.home), avoid, cells: I.cells, farm, water: tidyWater(),
-      accept: (rd, cd) => acceptAt(rd, { id: q.id, cx: cd.cx, cz: cd.cz, B: cd.B, seed: cd.seed, ...(cd.slot ? { slot: cd.slot, pair: cd.pair } : {}) }) })
+    // siteprep-02 (LIVE showcase 11-04: 4 gradings a keeper visit, ~5 min apart, 76 candidates): chunks of PREP.proofs gradings, the
+    // event loop handed back between them, until PREP.tickMs is spent -- a refused candidate costs ~50 ms, not a keeper visit
+    const tick0 = Date.now(), triedAll = {}
+    let ch = { ok: false, why: 'pending', cursor: Number(q.cursor) || 0, tried: {} }
+    while (ch.why === 'pending') {
+      ch = prepChoose(read, ranked, { cursor: ch.cursor, home, from: townEdge(I.plan, I.home), avoid, cells: I.cells, farm, water: tidyWater(),
+        accept: (rd, cd) => acceptAt(rd, { id: q.id, cx: cd.cx, cz: cd.cz, B: cd.B, seed: cd.seed, ...(cd.slot ? { slot: cd.slot, pair: cd.pair } : {}) }) })
+      for (const [k, v] of Object.entries(ch.tried ?? {})) triedAll[k] = (triedAll[k] ?? 0) + v
+      if (ch.why !== 'pending' || Date.now() - tick0 >= PREP.tickMs) break
+      await new Promise(resolve => setImmediate(resolve))
+      check(signal)
+    }
+    ch.tried = triedAll
     if (!ch.ok) {
       const ev = ch.why === 'pending' ? { type: 'pending', cursor: ch.cursor, why: Object.keys(ch.tried)[0] ?? 'pending' } : { type: 'refused', why: ch.top }
       const hp = prepPublish(dir, q.id, ev, me)

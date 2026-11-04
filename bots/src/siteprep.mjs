@@ -12,7 +12,7 @@
 // on the real world at verifying). A graded pad is only an intermediate result.
 
 import { gradeTerraces, terraceWalk, TERRACE } from './terrace.mjs'
-import { tidyOverlay, cutStanding, waterColumn, TIDY_BLUEPRINT, TIDY_PLOT, TIDY_BUILDERS, TIDY } from './tidy.mjs'
+import { tidyOverlay, cutStanding, waterColumn, tidyColumn, TIDY_BLUEPRINT, TIDY_PLOT, TIDY_BUILDERS, TIDY } from './tidy.mjs'
 import { towerCandidates, shrineSlots, towerDesign, shrineDesign, groundAt, sinkSeed, faceToward, groundStairCols, SITE_LIM, instancesOf } from './sinks.mjs'
 
 export const SITEPREP_PLOT = 'siteprep'
@@ -31,7 +31,7 @@ export const PREP_KINDS = Object.freeze(['tower', 'shrine'])
  * guard's margin round the town edge and the graded box.
  */
 export const PREP = Object.freeze({ blend: 5, colMax: 6, cutMax: 200, fillMax: 400, waterDepth: 2, waterCols: 24, proofs: 4, offsets: 1, smaller: 2,
-  stallVisits: 3, estimateMax: 800, refileMs: 24 * 3600_000, expireMs: 48 * 3600_000, readyMs: 6 * 3600_000, verifyMax: 1, retireMax: 1, handFailsMax: 2, gap: 3, walkPad: 8, pad: 1 })
+  stallVisits: 3, tickMs: 2500, estimateMax: 800, refileMs: 24 * 3600_000, expireMs: 48 * 3600_000, readyMs: 6 * 3600_000, verifyMax: 1, retireMax: 1, handFailsMax: 2, gap: 3, walkPad: 8, pad: 1 })
 export const LIVE = Object.freeze(['filed', 'prepping', 'prepared'])
 export const TERMINAL = Object.freeze(['handed', 'refused', 'expired', 'abandoned'])
 export const TIERS = Object.freeze(['same', 'smaller', 'other_dry', 'water'])
@@ -212,16 +212,44 @@ export function prepBoxes (cand, P = PREP) {
  * (still, at most P.waterDepth over a bed); a tree, a built block, an unread cell are hard. The level L: the least fill + 2 x cut with
  * every column within P.colMax; the plot within P.cutMax / P.fillMax.
  */
-export function prepEstimate (cand, { ground, wetCol = () => null, still = () => false, guard = () => null, hy = 70, P = PREP } = {}) {
+// siteprep-02 (LIVE showcase 11-04 11:31-11:47Z: SP1's keeper spent five visits on candidates 0-19, every grading `pin_kept`; on the
+// 11:50Z region copy the kept pins were a trunk standing in a base column's fill -- `fill_blocked`, a spruce growing on the ground the
+// pad must cover -- and spruce leaves buried under dirt in a cut, `cut_blocked`): the cheap screen refuses a candidate whose PINNED
+// earth meets a trunk (a NECESSARY condition: the grading can neither fill into a log nor cut one, so a column that must be worked
+// through one is kept and its pin fails) -- base columns to L exactly, apron columns to the nearest of L-1 .. L+1, as prepGrade pins
+// them; the pad ring is not pinned. Buried leaves are the grading's to cut (gradeTerraces T.cutLeaves).
+const EARTH_BLOCK = /_(log|wood|stem|hyphae)$|^mangrove_roots$|^bamboo$/
+/** Does a column's earth from its ground g to its pin [lo, hi] (the fill up, or the cut down) hold a trunk? Pure. */
+export function earthBlocked (read, x, z, g, lo, hi = lo) {
+  if (!read || !Number.isFinite(g) || !Number.isFinite(lo)) return false
+  const t = Math.max(lo, Math.min(hi, g))
+  if (t === g) return false
+  const [a, b] = g < t ? [g + 1, t] : [t + 1, g]
+  for (let y = a; y <= b; y++) if (EARTH_BLOCK.test(String(read(x, y, z)?.name ?? '').replace(/\[.*\]$/, ''))) return true
+  return false
+}
+// ... and a pinned column the GRADING will not take as free ground (its own column reader, tidy.mjs tidyColumn, reads it built or
+// furniture; or the grading's refusals, `avoid`, hold it): its pin fails `not_free` in every solve (LIVE + offline: 9 of the 14 tries
+// before the plot after the trunk rule). Also necessary conditions only.
+export function prepEstimate (cand, { ground, wetCol = () => null, still = () => false, guard = () => null, hy = 70, read = null, avoid = null, P = PREP } = {}) {
   const { pin } = prepBoxes(cand, P)
   for (let x = pin[0] - 1; x <= pin[2] + 1; x++) for (let z = pin[1] - 1; z <= pin[3] + 1; z++) {
     const why = guard(x, z, hy - SITE_LIM.scanDown, hy + SITE_LIM.scanUp)
     if (why) return { ok: false, why: `reserved:${String(why).slice(0, 40)}`, cls: 'hard' }
   }
-  const ys = []
+  const ys = [], cols = []
   let wet = 0, deep = 0
+  const A = SITE_LIM.apron
+  const inBase = (x, z) => x >= cand.corner.x && x < cand.corner.x + cand.B && z >= cand.corner.z && z < cand.corner.z + cand.B
+  const inApron = (x, z) => x >= cand.corner.x - A && x < cand.corner.x + cand.B + A && z >= cand.corner.z - A && z < cand.corner.z + cand.B + A
   for (let x = pin[0]; x <= pin[2]; x++) for (let z = pin[1]; z <= pin[3]; z++) {
     const g = ground(x, z)
+    if (Number.isFinite(g?.y) && inApron(x, z)) cols.push([x, z, g.y, inBase(x, z) ? 0 : 1])
+    if (inApron(x, z)) {
+      const a = avoid?.(x, z)
+      if (a) return { ok: false, why: `pin_avoid:${String(a).slice(0, 30)}`, cls: 'hard' }
+      if (read) { const tc = tidyColumn(read, x, z, { yHi: hy + TERRACE.dy, yLo: hy - TERRACE.dy }); if (tc.why && !(tc.why === 'water' && g?.why === 'liquid')) return { ok: false, why: `pin_col_${tc.name === 'ice' ? 'ice' : tc.why}`, cls: 'hard' } }   // (ice: a floor to the sinks, a frozen pond to the grading)
+    }
     if (g?.why === 'liquid') {
       const w = wetCol(x, z)
       if (!w || w.depth > P.waterDepth) return { ok: false, why: 'water_deep', cls: 'hard' }
@@ -236,14 +264,16 @@ export function prepEstimate (cand, { ground, wetCol = () => null, still = () =>
   if (wet > P.waterCols) return { ok: false, why: 'water_wide', cls: 'hard' }
   const lo = Math.min(...ys), hi = Math.max(...ys)
   let best = null
+  const why = {}
   for (let L = hi; L >= lo; L--) {
     let fill = 0, cut = 0, bad = false
     for (const y of ys) { const d = L - y; if (Math.abs(d) > P.colMax) { bad = true; break } if (d > 0) fill += d; else cut -= d }
-    if (bad || cut > P.cutMax || fill > P.fillMax) continue
+    if (bad || cut > P.cutMax || fill > P.fillMax) { why.earth_over = 1; continue }
+    if (cols.some(([x, z, g, ap]) => earthBlocked(read, x, z, g, L - ap, L + ap))) { why.tree_in_earth = 1; continue }
     const cost = fill + 2 * cut
     if (!best || cost < best.cost) best = { L, fill, cut, cost }
   }
-  if (!best) return { ok: false, why: 'earth_over', cls: 'earth' }
+  if (!best) return { ok: false, why: why.tree_in_earth ? 'tree_in_earth' : 'earth_over', cls: why.tree_in_earth ? 'hard' : 'earth' }
   return { ok: true, why: 'ok', ...best, wet, deep }
 }
 /** A candidate's tier -> one of TIERS. Pure. `same` is the requester's first spot with a feasible dry estimate. */
@@ -279,7 +309,7 @@ export function prepGrade (read, cand, { home, avoid = () => null, cells = new S
     const inBase = x >= cand.corner.x && x < cand.corner.x + cand.B && z >= cand.corner.z && z < cand.corner.z + cand.B
     pins.set(k2(x, z), inBase || stair.has(k2(x, z)) ? L : [L - 1, L + 1])
   }
-  const T = { ...TERRACE, maxCut: P.colMax, maxFill: P.colMax }
+  const T = { ...TERRACE, maxCut: P.colMax, maxFill: P.colMax, cutLeaves: true }
   const gr = gradeTerraces(read, box, { home, avoid, cells, levels: [], farm, water, pin: pins, T })
   if (!gr.pins?.ok) return { ok: false, why: `pin_${String(gr.pins?.bad?.[0] ?? '?').split(':').pop()}`, skipped: gr.skipped }
   const work = { cut: gr.cut, fill: gr.fill, seal: gr.seal, dam: gr.dam, leaves: gr.clearLeaves }
