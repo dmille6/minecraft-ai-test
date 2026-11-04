@@ -423,6 +423,14 @@ await t('F10 a STANDING bot digs with jump released (on-ground time, no ghost ai
     assert.equal(atDig, jumpAtDig, `onGround=${onGround}`); assert.equal(afterDig, true, `rise onGround=${onGround}`); assert.equal(r.standing, onGround)
   }
 })
+await t('F10b DROPANDDIG off (groundGuard false): the found-standing path is the base exactly -- jump released at the dig, pressed at once after it', async () => {
+  const bot = fakeBot({}); bot.entity.onGround = true
+  let atDig = null, dug = false, firstAfter = null; const dig0 = bot.dig; bot.dig = blk => { atDig = bot.controls.jump; dug = true; return dig0(blk) }
+  const realSleep = ms => new Promise(r => setTimeout(r, ms / 10))
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ groundGuard: false, sleep: async ms => { if (firstAfter == null && dug) firstAfter = bot.controls.jump; return realSleep(ms) } }))
+  clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(atDig, false); assert.equal(firstAfter, true); assert.equal(r.standing, true)
+})
 await t('F11 a skill the guard reports, or a dig on ANOTHER block, aborts the step (and stops the dig)', async () => {
   const a = fakeBot({ digMs: 3000 }); let calls = 0
   const r1 = await airPocketStep(a, airPocketPlan(world(HIVE_C)), deps({ now: () => Date.now(), guard: () => (++calls > 2 ? 'a skill took the body' : null) }))
