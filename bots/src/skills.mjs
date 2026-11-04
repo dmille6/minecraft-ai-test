@@ -17939,8 +17939,12 @@ export async function stairEgressReflex (bot, { alive = () => true, ms = EGRESS_
   const iv = setInterval(lost, 200)
   iv?.unref?.()
   try {
+    const p0 = bot.entity?.position?.clone?.() ?? null
     const r = await visitEgress(bot, on.rec, sig, Date.now() + ms, null, c => stairWalkOwned(bot, c, EGRESS_HOP_MS, sig))
-    return r ? { ran: true, ...r } : { ran: false, why: 'surface' }
+    // MOVED BY SOMETHING ELSE (a respawn, a teleport): more than 4 blocks off with no hop of its own -> the caller's state is stale
+    const p1 = bot.entity?.position
+    const jumped = !!(r && !r.ok && !(r.hops > 0) && p0 && p1 && p0.distanceTo?.(p1) > 4)
+    return r ? { ran: true, ...r, jumped } : { ran: false, why: 'surface' }
   } catch (e) {
     // Codex r1 blocker 1: nothing is halted here -- stairWalkOwned halts only its own goal; the new owner keeps what it set
     if (e?.aborted || ac.signal.aborted) return { ran: true, aborted: true, ok: false, why: 'yield', hops: 0, cleared: 0 }
