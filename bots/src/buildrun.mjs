@@ -205,6 +205,8 @@ export function blockFamily (n) {
   // townterrace-01: a planted crop block reads as the item that plants it (wheat <- wheat_seeds, carrots <- carrot ...)
   const s = plantedAs(String(n ?? ''))
   if (s === 'wall_torch') return 'torch'
+  // decorator-01: a filled flower pot is still the pot its cell placed (the plant is the decor visit's fill: decorator.mjs)
+  if (/^potted_/.test(s)) return 'flower_pot'
   if (s === 'soul_wall_torch') return 'soul_torch'
   if (/copper/.test(s)) return s.replace(/^waxed_/, '').replace(/^(exposed|weathered|oxidized)_/, '')
   return s

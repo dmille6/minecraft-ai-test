@@ -31,6 +31,7 @@ import { isLiquid, isPassable, isTreeish, replaceableCell, isFurniture } from '.
 import { TOWN_COBBLE_CAP } from './stocktarget.mjs'
 import { matsReserve } from './mats.mjs'   // the owner's reserve table, read through its one reader (matset.test)
 import { siteDress, DRESS } from './towndress.mjs'   // towndress-01: the fourth sink, lights and signs
+import { siteDecor, DECOR, decorFlowerRole } from './decorator.mjs'   // decorator-01: the fifth sink, the decorator's flowers and pots
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => `${a[0]},${a[1]},${a[2]}`
@@ -39,16 +40,17 @@ const wet = b => !!b && (isLiquid(b) || /waterlogged/.test(String(b.name ?? ''))
 
 // ---- the plots, the switch, the constants -------------------------------------------------------------------------------------
 // towndress-01: `dress` -- batches of lamps, wall-top torches and named signposts (towndress.mjs)
-export const SINK_KINDS = Object.freeze(['road', 'tower', 'shrine', 'dress'])
-export const SINK_PLOTS = Object.freeze({ road: 'road', tower: 'tower', shrine: 'shrine', dress: 'dress' })
-export const SINK_BLUEPRINTS = Object.freeze({ road: 'road@1', tower: 'tower@1', shrine: 'shrine@1', dress: 'dress@1' })
+// decorator-01: `decor` -- the decorator's flower borders and door pots (decorator.mjs; one bot a town on the `decorator` lease)
+export const SINK_KINDS = Object.freeze(['road', 'tower', 'shrine', 'dress', 'decor'])
+export const SINK_PLOTS = Object.freeze({ road: 'road', tower: 'tower', shrine: 'shrine', dress: 'dress', decor: 'decor' })
+export const SINK_BLUEPRINTS = Object.freeze({ road: 'road@1', tower: 'tower@1', shrine: 'shrine@1', dress: 'dress@1', decor: 'decor@1' })
 const KIND_OF_PLOT = Object.freeze(Object.fromEntries(SINK_KINDS.map(k => [SINK_PLOTS[k], k])))
 const KIND_OF_BP = Object.freeze(Object.fromEntries(SINK_KINDS.map(k => [SINK_BLUEPRINTS[k], k])))
 export const isSinkPlot = plot => Object.prototype.hasOwnProperty.call(KIND_OF_PLOT, plot)
 export const isSinkBlueprint = id => Object.prototype.hasOwnProperty.call(KIND_OF_BP, id)
 export const sinkKindOf = plotOrBp => KIND_OF_PLOT[plotOrBp] ?? KIND_OF_BP[plotOrBp] ?? null
 /** The instance id's letter per kind (a segment name `T2-L03-N`; buildproj's lease names take [A-Za-z0-9-] only). */
-export const SINK_LETTER = Object.freeze({ road: 'R', tower: 'T', shrine: 'Z', dress: 'L' })
+export const SINK_LETTER = Object.freeze({ road: 'R', tower: 'T', shrine: 'Z', dress: 'L', decor: 'D' })
 export const SINK_BUILDERS = 3
 /** After this many sink visits in a row a bot's next pick lets an upkeep (`due`) go first (Codex design: neither starves). */
 export const SINK_STREAK = 3
@@ -59,7 +61,7 @@ export const SINK = Object.freeze({
   target: TOWN_COBBLE_CAP,    // TARGET: the town's chests at their cap
   low: Number(matsReserve().table?.cobblestone) || 256,   // LOW: the owner's reserve (10-23, MATS_RESERVE) -- funding never counts below it
   highSpan: 512,              // HIGH - TARGET without a yard read (the 1x yard holds 304, the 2x 656)
-  instancesMax: Object.freeze({ road: 6, tower: 8, shrine: 6, dress: DRESS.instancesMax }),
+  instancesMax: Object.freeze({ road: 6, tower: 8, shrine: 6, dress: DRESS.instancesMax, decor: DECOR.instancesMax }),
   noSiteMs: 6 * 60 * 60_000,  // a kind that found no site waits this long (per bot) before it is searched again
   cooldownMs: 3 * 60_000,     // the order's cooldown on a sink visit (the stair's is 2 min; every other project's 10)
   proofTries: 12,             // proofs per siting (each a construction simulation)
@@ -67,7 +69,8 @@ export const SINK = Object.freeze({
 })
 /** The rotation the picker walks (owner 11-02 Q3: roads first -- useful for the way home, flat, a high placement rate). */
 // towndress-01: the dress batch first (OWNER 11-03: lighting + signs the first piece; it spends torches, never the stone the others wait on)
-export const SINK_ROTATION = Object.freeze(['dress', 'road', 'tower', 'shrine'])
+// decorator-01: the decor last (only its decorator is ever offered it: skills.mjs decorOrder)
+export const SINK_ROTATION = Object.freeze(['dress', 'road', 'tower', 'shrine', 'decor'])
 /**
  * SINKFIX-04: THE TOWN'S NO-SITE STAMPS (LIVE showcase 11-04 10:44-11:47Z, 15 bots restarted 10:43: road 17, shrine 15, dress 12
  * visits, every one `no_site` -- one a bot a kind, because the no-site wait and the idle marks live in each bot's memory). A kind
@@ -145,7 +148,8 @@ export function sinkNextGate ({ kind, rec = null, pressure = null, openCount = 0
   if (!SINK_KINDS.includes(kind)) return { want: false, why: 'kind' }
   if (!ready) return { want: false, why: 'not_ready' }
   if (sinkOpen(rec)) return { want: false, why: 'open' }
-  if (kind !== 'dress' && openCount >= SINK.maxOpen) return { want: false, why: 'max_open' }
+  // decorator-01: a decor batch spends flowers and pots, never stone: no stone sink holds it back
+  if (kind !== 'dress' && kind !== 'decor' && openCount >= SINK.maxOpen) return { want: false, why: 'max_open' }
   if (instancesOf(rec).length >= (SINK.instancesMax[kind] ?? 0)) return { want: false, why: 'max_instances' }
   if (now < (Number(noSiteUntil) || 0)) return { want: false, why: 'no_site_wait' }
   if (!(Number(pressure?.p) > 0)) return { want: false, why: 'no_pressure' }
@@ -153,7 +157,7 @@ export function sinkNextGate ({ kind, rec = null, pressure = null, openCount = 0
 }
 /** THE OPEN STONE SINKS counted against SINK.maxOpen -> n. Pure. A dress batch (towndress.mjs) spends torches, never the stone the
  *  others wait on, so it never holds a stone sink back -- nor is it held back by them (sinkfix-02, LIVE 11-04: dress never ran). */
-export const stoneOpenCount = (recs = {}) => SINK_KINDS.filter(k => k !== 'dress' && sinkOpen(recs[k])).length
+export const stoneOpenCount = (recs = {}) => SINK_KINDS.filter(k => k !== 'dress' && k !== 'decor' && sinkOpen(recs[k])).length
 /** The kind sited most recently in this town (the rotation's position) -> kind | null. `recs` { kind: record }. Pure. */
 export function lastSitedKind (recs = {}) {
   let best = null, at = -Infinity
@@ -423,7 +427,8 @@ const cellHash = (seed, i, l, j) => fnv1a(`${seed}|${i},${l},${j}`)
 /** A design's ROLE NAME for a category: the instance id and a short tag (`T2-b0`, `T2-q`). Pure. */
 export const roleOf = (id, tag) => `${id}-${tag}`
 /** Is a role a walk-through one (a light or a fire: never an obstacle in the visit's walk)? Pure. */
-export const sinkOpenRole = role => /-(light|fire)$/.test(String(role ?? ''))
+// decorator-01: a decor border flower (`D3-f2`) is walked through like a light
+export const sinkOpenRole = role => /-(light|fire)$/.test(String(role ?? '')) || decorFlowerRole(role)
 /**
  * A STEPPED INSTANCE ON ITS SITE -> { cells, segments, palette, counts }. Pure. corner { x, z } the base's NW corner; baseY the y of
  * layer 0; fill [[x, y, z]] the foundation's cells (segment F). Segments: `<id>-F` first; one per layer and quadrant
@@ -878,6 +883,8 @@ export function siteSink (read, ctx = {}) {
   const prep = ctx.prep && Number.isFinite(ctx.prep.cx) && Number.isFinite(ctx.prep.cz) && Number.isFinite(ctx.prep.seed) ? ctx.prep : null
   // towndress-01: a dress batch is sited over the town's own records (towndress.mjs siteDress: its own candidates, spacing and proof)
   if (kind === 'dress') return siteDress(read, { ...ctx, walkR: ctx.walkR ?? 0 })
+  // decorator-01: a decor batch is sited over the town's own records (decorator.mjs siteDecor: its own candidates, pattern and proof)
+  if (kind === 'decor') return siteDecor(read, { ...ctx, walkR: ctx.walkR ?? 0 })
   if (kind === 'tower' || kind === 'shrine') {
     const seed0 = sinkSeed(kind, pool, home, n)
     let cands, seedOf
@@ -968,7 +975,8 @@ export function appendInstance (cur, { kind, home, inst, meta, plan = null, now 
   const margin = kind === 'road' ? 1 : PROJECT_GAP
   const b = meta.box
   // towndress-01: a dress batch names its own zones (each fixture's column + 1: a town-wide box would fence the town off)
-  const zs = kind === 'dress' && Array.isArray(meta.zones) ? meta.zones : [{ box: [b[0] - margin, -64, b[1] - margin, b[2] + margin, 320, b[3] + margin], why: `project:${SINK_PLOTS[kind]}:${meta.id}` }]
+  // decorator-01: a decor batch too (each ornament's own column)
+  const zs = (kind === 'dress' || kind === 'decor') && Array.isArray(meta.zones) ? meta.zones : [{ box: [b[0] - margin, -64, b[1] - margin, b[2] + margin, 320, b[3] + margin], why: `project:${SINK_PLOTS[kind]}:${meta.id}` }]
   const walkR = Math.max(Number(base.walkR) || 0, sinkWalkR(inst.cells, home))
   return {
     ...base, instances: [...instancesOf(base), { ...meta, cells: inst.cells.length, sitedAt: meta.sitedAt ?? now }],

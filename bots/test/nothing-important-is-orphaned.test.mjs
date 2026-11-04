@@ -160,6 +160,10 @@ const REQUIRED = [
   'bots/src/towndress.mjs',
   'bots/scripts/dress-offline.mjs',
   'bots/test/towndress.test.mjs',
+  // decorator-01 (11-04): the decorator (the `decor` sink: flower borders, door pots, the bone-meal nursery), its offline siting and its test
+  'bots/src/decorator.mjs',
+  'bots/scripts/decor-offline.mjs',
+  'bots/test/decorator.test.mjs',
   // yardsite-01 (11-03): the yard beyond the town ring, the 2x yard, its offline proof and its test
   'bots/src/blueprints/yard@2.json',
   'bots/scripts/yard-offline.mjs',
