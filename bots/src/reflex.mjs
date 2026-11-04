@@ -57,7 +57,7 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
 import { MAX_DIG_MS } from './digbudget.mjs'
 // lavastep-01 (F1, docs/reports/mineshaft-safety-2026-10-23.md): the danger arm's verified, bounded move
 import { lavastepOn } from './lavastep.mjs'
-import { dropDigOn, dropEligible, dropFloor, standingPlan, DD_FAIL_MEMORY_MS } from './dropdig.mjs'   // dropanddig-01: dig the pocket standing
+import { dropDigOn, dropAdmission, DD_FAIL_MEMORY_MS } from './dropdig.mjs'   // dropanddig-01: dig the pocket standing
 import { swimCentreOn, makeCentreSteer, riseCentreDecision } from './swimcentre.mjs'   // swimcentre-01: a rising body is centred under its hole
 // tombexit-01 (F2 of the mineshaft-safety design + the in-wall dig): the entombed arm fires only with no walk back
 import { tombexitOn, inwallOn, makeFreeRing, declineDecision, inwallDecision, makeHealthTrend, suffocates,
@@ -1431,7 +1431,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // DROPANDDIG-01: feet cells whose sink never landed -> not dropped from again until this time (dropEligible)
   const dropFailUntil = new Map()
   const dropDig = dropDigOn()
-  const prepareAirPocket = ({ worstCase = false, drop = true } = {}) => {
+  const fastestOf = (items, price) => {   // dropanddig-01: the fastest finite price over [hand, ...items]
+    let best = null
+    for (const item of [null, ...items]) { const ms = price(item); if (Number.isFinite(ms) && ms > 0 && (best == null || ms < best)) best = ms }
+    return best
+  }
+  const prepareAirPocket = ({ worstCase = false, allowDrop = true } = {}) => {
     const at = bot.entity?.position
     if (!at) return { ok: false, why: 'no position' }
     const fx = Math.floor(at.x), fy = Math.floor(at.y), fz = Math.floor(at.z)
@@ -1463,23 +1468,15 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     const admit = airPocketAdmit({ health: bot.health, difficulty: inputs.difficulty, hungerActive: inputs.hungerActive, digMs: fastest, seals: sealN })
     if (!admit.ok) {
       // DROPANDDIG-01: the FLOATING price was refused on the health budget. Over a verified floor within 2 the same roof
-      // cell is priced standing (sink + extra rise + seals + dig); the pre-empt (worstCase) and a failed cell never drop.
-      if (!(drop && dropEligible({ on: dropDig, worstCase, onGround: bot.entity?.onGround === true, budgetRefused: admit.budgetMs != null,
-                                    failedUntil: dropFailUntil.get(`${fx},${fy},${fz}`) ?? 0, now: Date.now() }))) {
-        return { ok: false, why: admit.why, fx, fy, fz, inputs }
-      }
-      const floor = dropFloor((x, y, z) => bot.blockAt(new Vec3(x, y, z)), { pos: at, fx, fy, fz })
-      const standEnv = { ...digEnv(bot), inWater: true, notOnGround: false }
-      let standMs = null
-      for (const item of [null, ...items]) {
-        const ms = predictedDigMs(block, item, standEnv)
-        if (Number.isFinite(ms) && ms > 0 && (standMs == null || ms < standMs)) standMs = ms
-      }
-      const sp = standingPlan({ floor, plan, fx, fy, fz, x: at.x, z: at.z, digStandingMs: standMs, budgetMs: admit.budgetMs })
-      if (!sp.ok) return { ok: false, why: admit.why, dropWhy: sp.why, fx, fy, fz, inputs }
-      const drop = { fx, fy, fz, landY: floor.landY, depth: floor.depth, descent: floor.descent, sinkMs: sp.sinkMs, riseExtraMs: sp.riseExtraMs }
+      // cell is priced standing (sink + extra rise + seals + dig); the pre-empt (worstCase), the held-off row and a cell
+      // whose sink failed never drop (dropAdmission -> null: the base refusal exactly).
+      const dd = dropAdmission({ on: dropDig, asked: allowDrop, worstCase, onGround: bot.entity?.onGround === true,
+                                 failedUntil: dropFailUntil.get(`${fx},${fy},${fz}`) ?? 0, now: Date.now(), admit, plan, pos: at, fx, fy, fz,
+                                 at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)),
+                                 standMs: () => fastestOf(items, it => predictedDigMs(block, it, { ...digEnv(bot), inWater: true, notOnGround: false })) })
+      if (!dd?.ok) return { ok: false, why: admit.why, dropWhy: dd?.why ?? null, fx, fy, fz, inputs }
       // the step reads the drop off its plan (plan.drop), so the step's call is the base's byte for byte
-      return { ok: true, plan: { ...plan, drop }, inputs, fx, fy, fz, admit: { ...admit, ok: true, why: null, requiredMs: sp.requiredMs }, drop }
+      return { ok: true, plan: { ...plan, drop: dd.drop }, admit: dd.admit, inputs, fx, fy, fz, drop: dd.drop }
     }
     return { ok: true, plan, admit, inputs, fx, fy, fz }
   }
@@ -2694,7 +2691,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                      throttled('air_pocket_held_off', 30_000)) {
             // OBSERVABLE, NOT SILENT (Paper sandbox, bf99227 H): an escape is in flight and the step would refuse here, so
             // nothing is pre-empted and the trigger cannot run -- say so once per 30 s, or the fleet read sees nothing.
-            const p = prepareAirPocket({ drop: false })
+            const p = prepareAirPocket({ allowDrop: false })
             if (!p.ok && p.inputs) {
               logEvent({ kind: 'air_pocket_refused', status: 'no_effect',
                          detail: `reason=${p.why} (an escape is in flight; not pre-empted) at=${p.fx},${p.fy},${p.fz} health=${bot.health} ` +
