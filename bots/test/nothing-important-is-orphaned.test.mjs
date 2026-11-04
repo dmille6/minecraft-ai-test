@@ -200,6 +200,13 @@ const REQUIRED = [
   'bots/test/gkhelpers.test.mjs',   // gkhelpers-01: the grounds crew, the storehouse floor, the park gather
   'bots/test/fixtures/gkstage-tidy-g20-20261104.json',   // gkstage-01: the LIVE tidy record the floor-only stall ran on
   'bots/scripts/inwall-offline.mjs',   // gkstage-01: the inside-the-wall stage on region copies
+  // placeaudit-01 (owner 11-04 groundskeeper piece 2): who places blocks in town, why, where
+  'bots/src/placeaudit.mjs',
+  'bots/test/placeaudit.test.mjs',
+  // anvilapply-01 + enchant-01 (owner 11-04): the anvil / enchanting-table skills, their test, the Paper e2e
+  'bots/src/enchant.mjs',
+  'bots/test/enchant.test.mjs',
+  'sandbox/trading/enchant-e2e.mjs',
   'bots/scripts/terrace-offline.mjs',
   'docs/reports/townterrace-2026-11-03.md',
   'docs/reports/tidy-01-2026-11-01.md',

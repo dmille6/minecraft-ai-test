@@ -155,7 +155,16 @@ await t('the 15 shelves: 45 books = 45 leather + 135 cane short; 90 planks from 
   // TOWN cane counts (positive control for the bag's cane above)
   assert.deepStrictEqual(E.fitPlan('book', 1, E.fitAvail({}, { sugar_cane: 3, leather: 1 })).short, {})
 })
-await t('the states: placed / open / blocked / unknown; a chipped anvil is placed; a stamped slot that reads open is LOST', () => {
+await t('THE ANVIL WEARS OUT (coordinator 11-04): chipped and damaged read placed; gone (air) after its stamp it is OPEN again -- a new anvil is requested (31 iron) and placed; a table never', () => {
+  const rec = { fit: [{ slot: 'anvil', item: 'anvil', at: [0, 0, 0] }], placed: ['anvil'] }
+  for (const n of ['anvil', 'chipped_anvil', 'damaged_anvil']) assert.strictEqual(E.fitStates(rec, () => ({ name: n }))[0].state, 'placed', n)
+  const st = E.fitStates(rec, () => ({ name: 'air' }))
+  assert.strictEqual(st[0].state, 'open')
+  const g = E.fitGates(st, E.fitAvail({}, { iron_ingot: 80 }))[0]
+  assert.deepStrictEqual([g.why, g.short], ['wait', { iron_ingot: 15 }], 'the request for the new anvil: 31 above the keep')
+  assert.ok(E.fitNext(st, E.fitAvail({}, { iron_ingot: 95 })).slot, 'iron there: the fitter places a new one')
+})
+await t('the states: placed / open / blocked / unknown; a chipped anvil is placed; a stamped TABLE that reads open is LOST', () => {
   const rec = { fit: [{ slot: 'anvil', item: 'anvil', at: [0, 0, 0] }, { slot: 'table', item: 'enchanting_table', at: [1, 0, 0] }, { slot: 's1', item: 'bookshelf', at: [2, 0, 0] }, { slot: 's2', item: 'bookshelf', at: [3, 0, 0] }], placed: ['table'] }
   const world = { '0,0,0': 'chipped_anvil', '1,0,0': 'air', '2,0,0': 'dirt' }
   const st = E.fitStates(rec, (x, y, z) => (world[`${x},${y},${z}`] ? { name: world[`${x},${y},${z}`] } : null))
@@ -291,8 +300,11 @@ await t('the iron keep, the bag allowlist, the gap rule, the lost stamp, the plo
   await withMutant(EN_PATH, 'if (BAG_SPENDABLE.has(k) && (Number(v) || 0) > 0) b[k] = Number(v)', 'if ((Number(v) || 0) > 0) b[k] = Number(v)', async M => {
     assert.ok('sugar_cane' in M.fitAvail(BAG, TOWN).bag)
   })
-  await withMutant(EN_PATH, "if (st === 'open' && stamped.has(s.slot)) st = 'lost'", '', async M => {
-    assert.strictEqual(M.fitStates({ fit: [{ slot: 'a', item: 'anvil', at: [0, 0, 0] }], placed: ['a'] }, () => ({ name: 'air' }))[0].state, 'open')
+  await withMutant(EN_PATH, "if (st === 'open' && stamped.has(s.slot) && s.item !== 'anvil') st = 'lost'", '', async M => {
+    assert.strictEqual(M.fitStates({ fit: [{ slot: 't', item: 'enchanting_table', at: [0, 0, 0] }], placed: ['t'] }, () => ({ name: 'air' }))[0].state, 'open')
+  })
+  await withMutant(EN_PATH, "if (st === 'open' && stamped.has(s.slot) && s.item !== 'anvil') st = 'lost'", "if (st === 'open' && stamped.has(s.slot)) st = 'lost'", async M => {
+    assert.strictEqual(M.fitStates({ fit: [{ slot: 'a', item: 'anvil', at: [0, 0, 0] }], placed: ['a'] }, () => ({ name: 'air' }))[0].state, 'lost', 'the mutant never re-files a worn-out anvil')
   })
   await withMutant(EN_PATH, "const mine = z => String(z?.why ?? '') === 'land:plot' && String(z?.id ?? '') === String(plot.id ?? '')", "const mine = z => String(z?.why ?? '') === 'land:plot'", async M => {
     assert.strictEqual(M.enchantSitingPlan(HOME, PLOT, ZONES).zones.length, 0, 'the mutant drops the OTHER plot too')
@@ -318,6 +330,7 @@ const WIRES = {
   'the shell\'s stands': [SK, /const storeOpts = rec\.blueprint === ENCHANT_BLUEPRINT \? enchantVisitOpts\(rec\) :/],
   'the stamp only when the slot reads placed': [SK, /const ok = slotState\(slot, enchantRead\(bot\)\(\.\.\.slot\.at\)\) === 'placed'/],
   'the board reads the gate': [RQS, /if \(kind === '_enchantshop_gate'\) \{/],
+  'the anvil + table skills find the workshop\'s stations': [SK, /return b \?\? enchantStationAt\(bot, names\)/],
 }
 await t('wiring: the project, its switch, the wait, the gate rows, the siting, the upkeep, the stands, the stamp, the board', () => {
   for (const [what, [src, re]] of Object.entries(WIRES)) assert.strictEqual((src.match(new RegExp(re.source, 'g')) ?? []).length, 1, `${what}`)
@@ -329,6 +342,7 @@ await t('MUTANTS KILLED: each wiring check fails on its line broken (anchor pres
     'the stamp only when the slot reads placed': [SK, "const ok = slotState(slot, enchantRead(bot)(...slot.at)) === 'placed'", 'const ok = true'],
     'not the generic siting': [SK, 'plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {', 'plot !== HUB_PLOT) {'],
     'the board reads the gate': [RQS, "if (kind === '_enchantshop_gate') {", "if (kind === '_never') {"],
+    'the anvil + table skills find the workshop\'s stations': [SK, 'return b ?? enchantStationAt(bot, names)', 'return b'],
   }
   for (const [what, [src, old, neu]] of Object.entries(lines)) {
     assert.strictEqual(src.split(old).length, 2, `ANCHOR MISSING OR NOT UNIQUE: ${what}`)

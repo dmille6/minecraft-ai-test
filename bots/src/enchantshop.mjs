@@ -42,6 +42,8 @@ export const ENCHANT_SITE = Object.freeze({ standPad: 3, walkR: 90 })
 /** THE KEEPS: town iron_ingot the fitter never takes below; diamonds likewise. */
 export const IRON_KEEP = 64
 export const DIAMOND_KEEP = 3
+/** How far a bot finds the workshop's anvil / table from (enchant.mjs's skills scan 32 round the bot; the workshop is ~60 from home). */
+export const ENCHANT_STATION_FIND = 96
 /** The fitter's lease, its gap between visits per bot, its back-off after a visit that placed nothing, the gate row cadence. */
 export const FIT_LEASE_MS = 8 * 60_000
 export const FIT_GAP_MS = 3 * 60_000
@@ -235,7 +237,10 @@ export function fitStates (rec, read) {
   return (rec?.fit ?? []).map(s => {
     let st = 'unknown'
     try { st = slotState(s, read(...s.at)) } catch { st = 'unknown' }
-    if (st === 'open' && stamped.has(s.slot)) st = 'lost'
+    // the ANVIL wears out (12% a use: anvil -> chipped -> damaged -> gone; anvilapply-01 uses it): a stamped anvil slot read open is
+    // OPEN again -- a new anvil (31 iron above the keep) is filed and placed like the first (coordinator 11-04). Shelves and the table
+    // never wear: one read open after its stamp is LOST (named, never rebuilt by itself)
+    if (st === 'open' && stamped.has(s.slot) && s.item !== 'anvil') st = 'lost'
     return { ...s, state: st }
   })
 }

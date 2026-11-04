@@ -11,6 +11,8 @@
 import { log, logEvent } from './logger.mjs'
 import { lavatargetModeDetail } from './lavatarget.mjs'   // lavatarget-01's licence row
 import { snapshot } from './state.mjs'
+import { attachPlaceAudit, placeAuditOn } from './placeaudit.mjs'   // placeaudit-01
+import { configuredHome } from './townground.mjs'   // placeaudit-01
 import { config } from './config.mjs'
 import { kitSearchModeDetail, ironpickModeDetail } from './toolkit.mjs'
 import { townPlanModeDetail } from './townplan.mjs'   // townplan-01's licence row
@@ -58,6 +60,7 @@ import { showchatOn, showchatModeDetail, makeSpeaker, quietChatter, KILL_FILE } 
 import { poolStateDir } from './worldfacts.mjs'
 import { requestsOn, requestsModeDetail, makeBoard } from './requests.mjs'   // requests-01: the town's requests board
 import { merchantScoutInstall } from './merchantscout.mjs'   // trading-scout-01: read-only merchant sightings + XP rows
+import { enchantInstall } from './skills.mjs'   // anvilapply-01 + enchant-01: the anvil / table ask + licence rows
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -107,6 +110,20 @@ export function installRequests (bot, { env = process.env, pool = config.memory.
 
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
 export function installFeatures (bot) {
+  // placeaudit-01: the `_place_town` instrument (placeaudit.mjs; TELEMETRY ONLY) and its licence row `_placeaudit_mode`
+  // (PLACEAUDIT=off -> on=0, not wrapped)
+  try {
+    const on = placeAuditOn(process.env)
+    logEvent({ kind: 'placeaudit_mode', status: 'success', snapshot: snapshot(bot), detail: `phase=mode v=1 on=${on ? 1 : 0}` })
+    if (on) {
+      const pa = attachPlaceAudit(bot, {
+        home: configuredHome(config.world),
+        emitPlace: ({ detail, args }) => { try { logEvent({ kind: 'place_town', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+        emitSummary: ({ detail, args }) => { try { logEvent({ kind: 'place_town_sum', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+      })
+      if (pa) bot.once?.('end', () => { try { pa.final() } catch { /* telemetry */ } })
+    }
+  } catch (e) { log('warn', 'place audit not attached', { error: e?.message }) }
   // expedition-01: the ask buildOrder puts to a bot the projects cannot use, and `_expedition_mode` (on=0 under EXPEDITION=off)
   try { expeditionInstall(bot) } catch (e) { log('warn', 'expedition not installed', { error: e.message }) }
   try { copperRunInstall(bot) } catch (e) { log('warn', 'copper run not installed', { error: e.message }) }
@@ -123,6 +140,8 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'sink_mode', status: 'success', snapshot: snapshot(bot), detail: sinkModeDetail(SINKS.on, SINKS.kinds) }) } catch { /* telemetry */ }
   // trading-scout-01: `_merchantscout_mode` + `_merchant_seen` / `_xp` rows (merchantscout.mjs; read-only, MERCHANTSCOUT=off -> on=0)
   try { merchantScoutInstall(bot, { zonesOf: b => townPlanZones(b).zones }) } catch (e) { log('warn', 'merchant scout not installed', { error: e.message }) }
+  // anvilapply-01 + enchant-01: `_anvilapply_mode` / `_enchanttool_mode` and the ask (enchant.mjs; ANVILAPPLY=off / ENCHANTTOOL=off)
+  try { enchantInstall(bot) } catch (e) { log('warn', 'enchant not installed', { error: e.message }) }
   // showchat-01: the showcase's announcements (`_showchat_mode`; on=0 outside the showcase pool or under SHOWCHAT=off)
   try { installShowchat(bot) } catch (e) { log('warn', 'showchat not installed', { error: e.message }) }
   // requests-01: the town's requests board (`_requests_mode`; on=0 outside REQUESTS_POOLS, default the showcase)

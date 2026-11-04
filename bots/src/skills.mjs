@@ -131,7 +131,7 @@ import { HUB_PLOT, HUB_BLUEPRINT, hubSitingPlan, hubRecordOf, hubChestKeys, hubH
 import { STOREHUB } from './shop.mjs'   // storehub-01's switches
 import { ENCHANTSHOP } from './shop.mjs'   // enchantshop-01's switches
 import { ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS, FIT_VISIT_MS, GATE_ROW_MS, enchantOpening, enchantSitingPlan, enchantRecordOf, enchantVisitOpts,
-         fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
+         ENCHANT_STATION_FIND, fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
@@ -183,6 +183,8 @@ import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
+import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
+import { ANVILAPPLY, ENCHANTTOOL, ANVIL_BLOCKS, TABLE_BLOCK as EN_TABLE_BLOCK, STATION_FIND as EN_STATION_FIND, STATION_REACH as EN_STATION_REACH, ASK_EVERY_MS as EN_ASK_EVERY_MS, TABLE_MIN_LEVEL as EN_TABLE_MIN_LEVEL, LAPIS_TAKE as EN_LAPIS_TAKE, anvilAskPlan, tableAskPlan, anvilPlan, enchantTarget, enchantsOf, anvilCombine, enchantAtTable, anvilDetail, tableDetail, anvilModeDetail, tableModeDetail } from './enchant.mjs'
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow, tidyQuiet } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
 import { PREP, prepOverlapOf, plotFootprint, prepCursor, prepKeeperWork, siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
@@ -9695,7 +9697,7 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       // storehub-01: a clerk's throw keeps every name of THIS bag but its cargo's junk (`keepOf`: read here, after the walk)
       const cobbleReserve = wellCobbleReserveNow(bot)
       const bagNow = bot.inventory?.items?.() ?? []
-      const plan = disposePlan(bagNow, { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: keepOf ? keepOf(bot.inventory?.items?.() ?? []) : keep, cobbleReserve })   // the bag AS THE SERVER HOLDS IT
+      const plan = disposePlan(bagNow, { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: keepOf ? keepOf(bagNow) : keep, cobbleReserve })   // the bag AS THE SERVER HOLDS IT
       if (out.cap === 'at_cap' && !yardDeferredNow(bot) && wellKeptForYard(bagNow, cobbleReserve)) { bot.yardDeferAt = Date.now(); out.yardKept = cobbleReserve }
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
@@ -17948,6 +17950,170 @@ export function copperRunInstall (bot) {
   if (COPPERRUN.on && COPPERHALL_ON.on) setCopperAsk(copperAsk)
   try { logEvent({ kind: 'copperrun_mode', status: 'success', snapshot: snapshot(bot), detail: copperRunModeDetail(COPPERRUN.on, COPPERHALL_ON.on) }) } catch { /* telemetry */ }
 }
+// ANVILAPPLY-01 + ENCHANT-01 (OWNER 11-04; enchant.mjs decides, docs/reports/anvilproof-2026-11-03.md is the method): at town,
+// shop.mjs buildOrder asks enchantAsk FIRST (one ask per kind per bot per ASK_EVERY_MS, and only when there is work): a book
+// in the bag (or in a town chest) that some tool in the bag gains from, with an anvil within STATION_FIND -> anvil_apply; else
+// a tool with no enchantment, TABLE_MIN_LEVEL levels and lapis, with an enchanting table near -> enchant_tool. The levels
+// come from play only. Each skill walks to the block, drives the window by hand (enchant.mjs anvilCombine / enchantAtTable),
+// and writes one `_anvil_apply` / `_enchant_tool` row with what the SERVER answered (its result slot, its experience packet).
+// ANVILAPPLY=off / ENCHANTTOOL=off -> never asked.
+let enBot = null
+const enState = { anvilAt: -Infinity, tableAt: -Infinity, bookMissAt: -Infinity, skipAt: {} }
+/** The town index's count of `name` (containers not mid-change) -> n | null (no index). Never throws. */
+function townHeldCount (bot, name) {
+  try {
+    const entries = townIndexEntries(bot)
+    if (!entries) return null
+    let n = 0
+    for (const e of Object.values(entries)) if (indexStateOf(e) !== 'dirty') n += Math.max(0, Number(e?.obs?.names?.[name]?.[0]) || 0)
+    return n
+  } catch { return null }
+}
+const stationNear = (bot, names, dist = EN_STATION_FIND) => {
+  const ids = names.map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id != null)
+  if (!ids.length) return null
+  let b = null
+  try { b = bot.findBlock?.({ matching: ids, maxDistance: dist }) ?? null } catch { b = null }
+  // enchantshop-01: the workshop's own anvil and table (its fit slots), read at their cells -- it stands ~60 blocks from home, beyond
+  // the 32 a town bot scans (coordinator 11-04: the skills that use the workshop must find it)
+  return b ?? enchantStationAt(bot, names)
+}
+const enSkipRow = (bot, kind, why, now) => {
+  if (!why || ['off', 'cooldown', 'no_book', 'no_anvil', 'no_table'].includes(why)) return
+  const k = `${kind}:${why}`
+  if (now - (enState.skipAt[k] ?? -Infinity) < 60 * 60_000) return
+  enState.skipAt[k] = now
+  try { logEvent({ kind, status: 'no_effect', snapshot: snapshot(bot), detail: `stop=skip:${why}` }) } catch { /* telemetry */ }
+}
+/** shop.mjs buildOrder's anvil + table ask (set at install). -> { order } | null. Never throws. */
+export function enchantAsk ({ now = Date.now(), health = 20, freeSlots = 36 } = {}, bot = enBot) {
+  try {
+    if (!bot || (!ANVILAPPLY.on && !ENCHANTTOOL.on)) return null
+    const items = bot.inventory?.items?.() ?? []
+    const level = bot.experience?.level ?? 0
+    const reg = bot.registry
+    let anvilWork = false
+    if (ANVILAPPLY.on && now - enState.anvilAt >= EN_ASK_EVERY_MS) {
+      const a = anvilAskPlan({ on: true, items, level, registry: reg, anvilNear: !!stationNear(bot, ANVIL_BLOCKS), now, health,
+        townBooks: freeSlots >= 1 ? (townHeldCount(bot, 'enchanted_book') ?? 0) : 0, bookMissAt: enState.bookMissAt })
+      if (a.order) { enState.anvilAt = now; return { order: a.order } }
+      anvilWork = a.skip === 'xp'
+      enSkipRow(bot, 'anvil_apply', a.skip, now)
+    }
+    if (ENCHANTTOOL.on && now - enState.tableAt >= EN_ASK_EVERY_MS) {
+      const t = tableAskPlan({ on: true, items, level, registry: reg, tableNear: !!stationNear(bot, [EN_TABLE_BLOCK]), now, health, anvilWork,
+        townLapis: freeSlots >= 1 ? (townHeldCount(bot, 'lapis_lazuli') ?? 0) : 0 })
+      if (t.order) { enState.tableAt = now; return { order: t.order } }
+      enSkipRow(bot, 'enchant_tool', t.skip, now)
+    }
+    return null
+  } catch { return null }
+}
+/** The window io for enchant.mjs's drivers (Codex r1 BLOCKER): withdraw's ownership, lockstep + tracked clicks refused once the
+ *  window changed or the skill aborted, the cursor settled with the server's word before the close (an unsettled one held). */
+function enchantIo (bot, signal) {
+  return {
+    cancelled: () => !!signal?.aborted,
+    own: win => ownInventory(bot, win),
+    click: (win, slot, button, mode) => lockstepClicks(bot, async raw => {
+      if (signal?.aborted || bot.currentWindow !== win) throw new Error('cancelled or the window changed')
+      const p = trackedClick(bot, raw, slot, button, mode)
+      p.catch(() => {})
+      if (await within(p, 3_000) === TIMED_OUT) throw new Error('click unanswered')
+    }, { deadline: Date.now() + 4_000 }),
+    finish: async (win, own) => {
+      const v = bot.currentWindow === win ? await settleCursor(bot, win, { cancelled: () => false }) : { state: 'gone' }
+      if (v.state === 'unresolved') holdUnsettled(bot, win, v, own)
+      else { if (bot.currentWindow === win) own.close(); invalidateClicks(bot, 'enchant end'); own.restore() }
+      return v
+    },
+  }
+}
+/** Walk to a station block (range STATION_REACH) -> the block, re-read at its cell | null. */
+async function enWalkTo (ctx, blk, signal) {
+  const { bot } = ctx
+  const p = blk.position
+  if (bot.entity.position.distanceTo(p.offset(0.5, 0.5, 0.5)) > EN_STATION_REACH + 1) {
+    try { await goto(ctx, { x: p.x, y: p.y, z: p.z, range: EN_STATION_REACH }, signal, { until: Date.now() + 60_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+  }
+  if (bot.entity.position.distanceTo(p.offset(0.5, 0.5, 0.5)) > EN_STATION_REACH + 1.5) return null
+  return bot.blockAt(p)
+}
+/** anvil_apply: (a town book first when the bag has none), plan, walk to the anvil, combine by hand; one `_anvil_apply` row. */
+async function anvilApply (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const lv0 = bot.experience?.level ?? 0
+  let plan = null, r = null, at = null, took = null
+  const end = (status, stop) => {
+    try {
+      logEvent({ kind: 'anvil_apply', status, snapshot: snapshot(bot), durationMs: Date.now() - t0,
+        detail: anvilDetail({ stop, tool: plan?.tool?.name, book: plan?.book ? enchantsOf(plan.book, bot.registry).map(e => `${e.name}${e.level}`).join('+') : null, cost: r?.cost, levels: `${lv0}->${bot.experience?.level ?? '?'}`, gain: stop === 'applied' ? plan?.gain : null, at }),
+        args: { stop, cost: r?.cost ?? null, levelBefore: lv0, levelAfter: bot.experience?.level ?? null, took, gain: plan?.gain ?? null } })
+    } catch { /* telemetry */ }
+    return { status, stop, detail: `anvil_apply: ${stop}` }
+  }
+  plan = anvilPlan({ items: bot.inventory.items(), level: bot.experience?.level ?? 0, registry: bot.registry })
+  if (!plan.tool && plan.skip === 'no_book' && args?.town) {
+    const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }
+    const w = await withdrawVerb(ctx, { item: 'enchanted_book', count: 1 }, signal, rs)
+    check(signal)
+    took = w?.status === 'success' ? 'enchanted_book' : `none:${w?.failClass ?? w?.status ?? '?'}`
+    plan = anvilPlan({ items: bot.inventory.items(), level: bot.experience?.level ?? 0, registry: bot.registry })
+    if (!plan.tool && w?.status === 'success') enState.bookMissAt = Date.now()   // the town's book is no use to this bag: wait BOOK_MISS_MS
+  }
+  if (!plan.tool) return end('no_effect', `plan:${plan.skip}${plan.need ? `_${plan.need}` : ''}`)
+  const blk = stationNear(bot, ANVIL_BLOCKS)
+  if (!blk) return end('no_effect', 'no_anvil')
+  at = `${blk.position.x},${blk.position.y},${blk.position.z}`
+  const near = await enWalkTo(ctx, blk, signal)
+  if (!near || !ANVIL_BLOCKS.includes(near.name)) return end('failed', 'unreachable')
+  r = await anvilCombine(bot, near, plan.tool, plan.book, enchantIo(bot, signal))
+  check(signal)
+  return end(r.stop === 'applied' ? 'success' : (r.stop === 'refused_cost' || r.stop === 'no_result') ? 'no_effect' : 'failed', r.stop)
+}
+/** enchant_tool: (lapis from town when short), the best unenchanted tool, walk to the table, the best offer paid; one row. */
+async function enchantTool (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const lv0 = bot.experience?.level ?? 0
+  const lapisNow = () => bot.inventory.items().filter(i => i.name === 'lapis_lazuli').reduce((n, i) => n + i.count, 0)
+  const lap0 = lapisNow()
+  let tool = null, r = null, at = null
+  const end = (status, stop) => {
+    try {
+      logEvent({ kind: 'enchant_tool', status, snapshot: snapshot(bot), durationMs: Date.now() - t0,
+        detail: tableDetail({ stop, tool: tool?.name, offers: r?.offers, choice: r?.choice, levels: `${lv0}->${bot.experience?.level ?? '?'}`, lapis: `${lap0}->${lapisNow()}`, got: r?.got, at }),
+        args: { stop, offers: r?.offers ?? null, choice: r?.choice ?? null, levelBefore: lv0, levelAfter: bot.experience?.level ?? null, got: r?.got ?? null } })
+    } catch { /* telemetry */ }
+    return { status, stop, detail: `enchant_tool: ${stop}` }
+  }
+  if (args?.town && lapisNow() < 3) {
+    const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }
+    await withdrawVerb(ctx, { item: 'lapis_lazuli', count: EN_LAPIS_TAKE }, signal, rs)
+    check(signal)
+  }
+  if (lapisNow() < 1) return end('no_effect', 'no_lapis')
+  if ((bot.experience?.level ?? 0) < EN_TABLE_MIN_LEVEL) return end('no_effect', 'xp')
+  tool = enchantTarget(bot.inventory.items(), bot.registry)
+  if (!tool) return end('no_effect', 'no_tool')
+  const blk = stationNear(bot, [EN_TABLE_BLOCK])
+  if (!blk) return end('no_effect', 'no_table')
+  at = `${blk.position.x},${blk.position.y},${blk.position.z}`
+  const near = await enWalkTo(ctx, blk, signal)
+  if (!near || near.name !== EN_TABLE_BLOCK) return end('failed', 'unreachable')
+  r = await enchantAtTable(bot, near, tool, bot.registry, enchantIo(bot, signal))
+  check(signal)
+  return end(r.stop === 'enchanted' ? 'success' : r.stop === 'no_offer' ? 'no_effect' : 'failed', r.stop)
+}
+/** ANVILAPPLY-01 + ENCHANT-01, once per spawn (features.mjs): the ask is wired and both licence rows written. Never throws. */
+export function enchantInstall (bot) {
+  enBot = bot
+  if (ANVILAPPLY.on || ENCHANTTOOL.on) setEnchantAsk(enchantAsk)
+  try { logEvent({ kind: 'anvilapply_mode', status: 'success', snapshot: snapshot(bot), detail: anvilModeDetail(ANVILAPPLY.on) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'enchanttool_mode', status: 'success', snapshot: snapshot(bot), detail: tableModeDetail(ENCHANTTOOL.on) }) } catch { /* telemetry */ }
+}
 export function expeditionInstall (bot) {
   exBot = bot
   if (EXPEDITION.on) setExpeditionAsk(expeditionAsk)
@@ -19498,6 +19664,29 @@ async function enchantUpkeepVisit (ctx, rec, recordGen, signal, out) {
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), f, 'other')
   }
   return out(f.signs + f.fitted > 0 ? 'success' : 'no_effect', 'upkeep', `the enchanting workshop's upkeep: ${f.signs} label(s) written${f.signFails ? `, ${f.signFails} not` : ''}; ${f.fitted} furnishing(s) placed (${f.fitWhy})`, f)
+}
+/** The workshop's record now (30 s memo) -> rec | null. Never throws. */
+let enchRecMemo = { at: -Infinity, rec: null, dir: null }
+function enchantRecNow (now = Date.now()) {
+  try {
+    if (now - enchRecMemo.at < 30_000 && enchRecMemo.dir === townDir()) return enchRecMemo.rec
+    const h = recordHead(townDir(), projKeyOf(ENCHANT_PLOT))
+    enchRecMemo = { at: now, rec: h.ok && h.head?.rec?.blueprint === ENCHANT_BLUEPRINT ? h.head.rec : null, dir: townDir() }
+    return enchRecMemo.rec
+  } catch { return null }
+}
+/** A workshop station (anvil family / enchanting table) at its fit slot, loaded and within ENCHANT_STATION_FIND of the bot -> block
+ *  | null. Never throws. */
+function enchantStationAt (bot, names) {
+  try {
+    if (!ENCH.on) return null
+    for (const s of enchantRecNow()?.fit ?? []) {
+      if (s.item !== 'anvil' && s.item !== 'enchanting_table') continue
+      const b = bot.blockAt?.(new Vec3(s.at[0], s.at[1], s.at[2]))
+      if (b && names.includes(b.name) && bot.entity?.position?.distanceTo?.(b.position) <= ENCHANT_STATION_FIND) return b
+    }
+  } catch { /* none */ }
+  return null
 }
 /** The workshop's steps, for the tests and a sandbox drive: never called by the bot itself. */
 export const _enchantshop = Object.freeze({ enchantSiteFor, enchantGateRows, enchantSignWork, enchantUpkeepDue, enchantFitOne, enchantUpkeepVisit, enchantOpenNow })
@@ -23419,6 +23608,8 @@ export const SKILL_CONTRACTS = {
   // own verified count of parts made (mats_effect); the recovery's is that count or the bag's loss of what it banked
   make_material: { expects: ['mats_effect', 'count_effect'], maxMs: 180_000 },
   build_shop: { expects: ['world_change'], maxMs: 600_000 },
+  anvil_apply: { expects: ['inventory_loss'], maxMs: 120_000 },   // anvilapply-01: the book goes; its evidence is the `_anvil_apply` row
+  enchant_tool: { expects: ['inventory_loss'], maxMs: 120_000 },   // enchant-01: the lapis goes; its evidence is the `_enchant_tool` row
   deep_mine: { expects: ['position', 'inventory_gain'], maxMs: 180_000 },   // deepminer-01: one phase step of the trip
   mats_return: { expects: ['mats_effect', 'inventory_loss'], maxMs: 120_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
@@ -24614,6 +24805,8 @@ export const SKILLS = {
   furnace_drain: { run: furnaceDrain, usage: 'furnace_drain', args: [], chatOnly: true },
   make_material: { run: makeMaterial, usage: 'make_material item=<bricks|panes|cut_copper|copper_door|torch|count>', args: ['item'], chatOnly: true },
   build_shop: { run: buildShop, usage: 'build_shop', args: [], chatOnly: true },
+  anvil_apply: { run: anvilApply, usage: 'anvil_apply', args: [], chatOnly: true },   // anvilapply-01 (buildOrder issues it; never the model's)
+  enchant_tool: { run: enchantTool, usage: 'enchant_tool', args: [], chatOnly: true },   // enchant-01 (buildOrder issues it; never the model's)
   deep_mine: { run: deepMine, usage: 'deep_mine', args: [], chatOnly: true },   // deepminer-01 (cognitive.mjs issues it; never the model's)
   mats_return: { run: matsReturn, usage: 'mats_return', args: [], chatOnly: true },
   toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },

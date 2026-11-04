@@ -295,7 +295,8 @@ const WIRES = {
   'the cargo intent before the take': /if \(!hubCargoWrite\(bot, Object\.fromEntries\(want\.map\(w => \[w\.name, w\.count\]\)\)\)\) \{/,
   'the clerk\'s throw is listed-only': /const clerk = _args\?\.via === 'clerk' && !pruned\n(?:.*\n){0,6}?\s*const visit = \(_args\?\.visit === true \|\| clerk\) && !pruned/,
   'every dispose keeps the cargo': /const cargoKeep = hubCargoKeeps\(bot, \{ forWell: clerk \}\)/,
-  'the throw plan reads the keep': /stock: out\.stock, keep: keepOf \? keepOf\(bot\.inventory\?\.items\?\.\(\) \?\? \[\]\) : keep, cobbleReserve \}\)/,   // the showcase fold with yarduse-01 (its cobbleReserve)
+  // the showcase batch4 fold: the yard's reserve on the same line (yarduse-01), the bag read once (bagNow)
+  'the throw plan reads the keep': /stock: out\.stock, keep: keepOf \? keepOf\(bagNow\) : keep, cobbleReserve \}\)/,
   'the clerk throws ONLY its junk names, judged on the bag at the throw': /const r = await disposeWell\(ctx, \{ via: 'clerk', only: junk \}, signal\)/,
   'an unverified take keeps its intent': /hubCargoWrite\(bot, took \?\? hubOwed\(bot\)\)/,
   'the pit throw keeps the cargo': /signal, keep: hubCargoKeeps\(bot\) \}\)/,
@@ -312,7 +313,7 @@ await t('MUTANTS KILLED: each wiring check fails on its line broken (anchor pres
   const lines = {
     'the cargo intent before the take': ['if (!hubCargoWrite(bot, Object.fromEntries(want.map(w => [w.name, w.count])))) {', 'if (false) {'],
     'every dispose keeps the cargo': ['const cargoKeep = hubCargoKeeps(bot, { forWell: clerk })', 'const cargoKeep = []'],
-    'the throw plan reads the keep': ['stock: out.stock, keep: keepOf ? keepOf(bot.inventory?.items?.() ?? []) : keep, cobbleReserve })', 'stock: out.stock, keep, cobbleReserve })'],
+    'the throw plan reads the keep': ['stock: out.stock, keep: keepOf ? keepOf(bagNow) : keep, cobbleReserve })', 'stock: out.stock, keep, cobbleReserve })'],
     'an unverified take keeps its intent': ['hubCargoWrite(bot, took ?? hubOwed(bot))', 'hubCargoWrite(bot, took ?? {})'],
     'the clerk throws only its junk': ["const junk = Object.keys(owed).filter(n => wellOn && hubThrowable(n, isWellJunk) && (!routes.size || routes.get(n)?.to === 'well'))", 'const junk = Object.keys(owed)'],
   }
