@@ -129,6 +129,9 @@ import { clerkKeepOf } from './storehub.mjs'   // storehub-01: the clerk throw's
 import { HUB_PLOT, HUB_BLUEPRINT, hubSitingPlan, hubRecordOf, hubChestKeys, hubHomes, hubSignSpots, hubVisitOpts, clerkMoves, clerkRoute, clerkTargets, cargoOwed, cargoKeeps, clerkWork, clerkRowDetail, hubThrowable,
          CLERK_STACKS, CLERK_BAG_SPARE, CLERK_GAP_MS, CLERK_IDLE_MS, CLERK_BACKOFF_MS, CLERK_LEASE_MS, CLERK_TERM_MS, CLERK_REST_MS } from './storehub.mjs'   // storehub-01
 import { STOREHUB } from './shop.mjs'   // storehub-01's switches
+import { ENCHANTSHOP } from './shop.mjs'   // enchantshop-01's switches
+import { ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS, FIT_VISIT_MS, GATE_ROW_MS, enchantOpening, enchantSitingPlan, enchantRecordOf, enchantVisitOpts,
+         ENCHANT_STATION_FIND, ENCHANT_STATION_BAN_MS, fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
@@ -159,6 +162,7 @@ import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
 import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft, cutUnsafe } from './cropfarm.mjs'   // cropfarm-01
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
+import { CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANE, CANE_PALETTE, CANE_FOREIGN, siteCaneFarm, caneCells, caneState, caneCensus, caneHarvest, caneStand, caneNeed, caneDue, caneAlsoDone, cutCell, caneHarvestRow, caneBankable } from './canefarm.mjs'   // canefarm-01
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
 import { legacyStage, stageCarry, tidyWater, cutSafeNow } from './tidy.mjs'   // townterrace-01
 import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from './park.mjs'   // townterrace-01: the park
@@ -181,6 +185,8 @@ import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
+import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
+import { ANVILAPPLY, ENCHANTTOOL, ANVIL_BLOCKS, TABLE_BLOCK as EN_TABLE_BLOCK, STATION_FIND as EN_STATION_FIND, STATION_REACH as EN_STATION_REACH, ASK_EVERY_MS as EN_ASK_EVERY_MS, TABLE_MIN_LEVEL as EN_TABLE_MIN_LEVEL, LAPIS_TAKE as EN_LAPIS_TAKE, anvilAskPlan, tableAskPlan, anvilPlan, enchantTarget, enchantsOf, anvilCombine, enchantAtTable, anvilDetail, tableDetail, anvilModeDetail, tableModeDetail } from './enchant.mjs'
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow, tidyQuiet } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
 import { PREP, prepOverlapOf, plotFootprint, prepCursor, prepKeeperWork, siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
@@ -17204,7 +17210,7 @@ const bpCache = new Map()
 // wall-01: the wall has none either (wall.mjs sites it; WALL_PALETTE)
 // shaft-02: the town stair has none either (shaftgeom.mjs plans it; its visit and its damage test are its own)
 // picker-01: a sink's palette is its record's (every instance's roles): its blueprint here names no palette of its own
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT || id === WALLEXT_BLUEPRINT || id === WALLDEMO_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT || id === WALLEXT_BLUEPRINT || id === WALLDEMO_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === CANEFARM_BLUEPRINT ? { id, palette: CANE_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -17232,6 +17238,12 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         if (p.plot === WALLEXT_PLOT && !rec && !wallextOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // wallext-02: the demolition WAITS until the extension stands (wall.mjs walldemoOpening)
         if (p.plot === WALLDEMO_PLOT && !rec && !walldemoOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        // enchantshop-01: the unsited workshop WAITS until the extension's hall-size plot exists (enchantshop.mjs enchantOpening); a
+        // sited one says its furnishings' needs (`_enchantshop_gate`, town-wide cadence: the requests board's input)
+        if (p.plot === ENCHANT_PLOT && !rec && !enchantOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        if (p.plot === ENCHANT_PLOT && rec && b) enchantGateRows(b, rec, now)
+        // canefarm-01 r1 (Codex BLOCKER 1): an unsited cane bed whose siting found no site WAITS town-wide (siteWaitUntil)
+        if (p.plot === CANEFARM_PLOT && !rec && Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
         // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
@@ -17241,6 +17253,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // storehub-01: a standing hall's upkeep for THIS bot (its labels, owed cargo, a clerk move-set) is `due` (recordDamaged's upkeep
         // read) and FIRST among the upkeeps (`dueFirst`)
         const hubDue = complete && b && p.plot === HUB_PLOT ? hubUpkeepDue(b, rec, now) : false
+        const enchDue = complete && b && p.plot === ENCHANT_PLOT ? enchantUpkeepDue(b, rec, now) : false
         const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
         // stockyard-01: a complete yard's work for THIS bot (yard.mjs yardWork): its bag's surplus under pressure goes first (as a
         // repair: activeProject's first loop, bounded by repairBackoff), any other work (the clerk, a refill, the aisles) is `due`
@@ -17252,7 +17265,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
         // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
         // yarduse-01: a yard bay blocked by clutter (yard.mjs yardWork `first`) is cleared ahead of the sinks (bounded: YARD_CLEAR_MAX a visit)
-        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}) }
+        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === ENCHANT_PLOT && enchDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}) }
       })
       // PICKER-01: each sink's open instance or its next one (sinks.mjs sinkNextGate over this bot's pressure), and the picker's order
       const sk = sinkStatesNow(b, states, now)
@@ -17700,6 +17713,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     if (r.blueprint === TREEFARM_BLUEPRINT) return tidy && !!farmDueFor(bot, r)
     // cropfarm-01: a standing crop farm is never DAMAGED either: its harvest and replant are upkeep (cropfarm.mjs cropDue)
     if (r.blueprint === CROPFARM_BLUEPRINT) return tidy && !!cropDueFor(bot, r)
+    // canefarm-01: a standing cane bed is never DAMAGED either: its harvest and replant are upkeep (canefarm.mjs caneDue)
+    if (r.blueprint === CANEFARM_BLUEPRINT) return tidy && !!caneDueFor(bot, r)
     // tidy-01: a finished tidy is never DAMAGED (the bots' next pillars are the next survey's): only DUE its re-survey (tidy.mjs
     // tidyDue), after every open project
     // groundskeeper-01: a complete stage with a next band (landplan.mjs ring order) is due at once
@@ -17737,6 +17752,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // storehub-01: a standing hall with upkeep for this bot (labels, owed cargo, a clerk move-set) wants a visit (the yard's reason:
     // the order reads `complete` through shopDamaged)
     if (tidy && r.blueprint === HUB_BLUEPRINT && hubUpkeepDue(bot, r)) return true
+    // enchantshop-01: a standing workshop with a label to write or a furnishing the fitter can place now wants a visit (the hall's reason)
+    if (tidy && r.blueprint === ENCHANT_BLUEPRINT && enchantUpkeepDue(bot, r)) return true
     // paths-01 r2: a laid network with a destination it does not serve yet (a container's stand, a project completed since) wants
     // a visit: its extension (buildPaths), at most once per PATHS_EXTEND_MS per bot
     if (r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true
@@ -17941,6 +17958,174 @@ export function copperRunInstall (bot) {
   crBot = bot
   if (COPPERRUN.on && COPPERHALL_ON.on) setCopperAsk(copperAsk)
   try { logEvent({ kind: 'copperrun_mode', status: 'success', snapshot: snapshot(bot), detail: copperRunModeDetail(COPPERRUN.on, COPPERHALL_ON.on) }) } catch { /* telemetry */ }
+}
+// ANVILAPPLY-01 + ENCHANT-01 (OWNER 11-04; enchant.mjs decides, docs/reports/anvilproof-2026-11-03.md is the method): at town,
+// shop.mjs buildOrder asks enchantAsk FIRST (one ask per kind per bot per ASK_EVERY_MS, and only when there is work): a book
+// in the bag (or in a town chest) that some tool in the bag gains from, with an anvil within STATION_FIND -> anvil_apply; else
+// a tool with no enchantment, TABLE_MIN_LEVEL levels and lapis, with an enchanting table near -> enchant_tool. The levels
+// come from play only. Each skill walks to the block, drives the window by hand (enchant.mjs anvilCombine / enchantAtTable),
+// and writes one `_anvil_apply` / `_enchant_tool` row with what the SERVER answered (its result slot, its experience packet).
+// ANVILAPPLY=off / ENCHANTTOOL=off -> never asked.
+let enBot = null
+const enState = { anvilAt: -Infinity, tableAt: -Infinity, bookMissAt: -Infinity, skipAt: {} }
+/** The town index's count of `name` (containers not mid-change) -> n | null (no index). Never throws. */
+function townHeldCount (bot, name) {
+  try {
+    const entries = townIndexEntries(bot)
+    if (!entries) return null
+    let n = 0
+    for (const e of Object.values(entries)) if (indexStateOf(e) !== 'dirty') n += Math.max(0, Number(e?.obs?.names?.[name]?.[0]) || 0)
+    return n
+  } catch { return null }
+}
+const stationNear = (bot, names, dist = EN_STATION_FIND) => {
+  const ids = names.map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id != null)
+  if (!ids.length) return null
+  let b = null
+  try { b = bot.findBlock?.({ matching: ids, maxDistance: dist }) ?? null } catch { b = null }
+  // enchantshop-01: the workshop's own anvil and table (its fit slots), read at their cells -- it stands ~60 blocks from home, beyond
+  // the 32 a town bot scans (coordinator 11-04: the skills that use the workshop must find it)
+  return b ?? enchantStationAt(bot, names)
+}
+const enSkipRow = (bot, kind, why, now) => {
+  if (!why || ['off', 'cooldown', 'no_book', 'no_anvil', 'no_table'].includes(why)) return
+  const k = `${kind}:${why}`
+  if (now - (enState.skipAt[k] ?? -Infinity) < 60 * 60_000) return
+  enState.skipAt[k] = now
+  try { logEvent({ kind, status: 'no_effect', snapshot: snapshot(bot), detail: `stop=skip:${why}` }) } catch { /* telemetry */ }
+}
+/** shop.mjs buildOrder's anvil + table ask (set at install). -> { order } | null. Never throws. */
+export function enchantAsk ({ now = Date.now(), health = 20, freeSlots = 36 } = {}, bot = enBot) {
+  try {
+    if (!bot || (!ANVILAPPLY.on && !ENCHANTTOOL.on)) return null
+    const items = bot.inventory?.items?.() ?? []
+    const level = bot.experience?.level ?? 0
+    const reg = bot.registry
+    let anvilWork = false
+    if (ANVILAPPLY.on && now - enState.anvilAt >= EN_ASK_EVERY_MS) {
+      const a = anvilAskPlan({ on: true, items, level, registry: reg, anvilNear: !!stationNear(bot, ANVIL_BLOCKS), now, health,
+        townBooks: freeSlots >= 1 ? (townHeldCount(bot, 'enchanted_book') ?? 0) : 0, bookMissAt: enState.bookMissAt })
+      if (a.order) { enState.anvilAt = now; return { order: a.order } }
+      anvilWork = a.skip === 'xp'
+      enSkipRow(bot, 'anvil_apply', a.skip, now)
+    }
+    if (ENCHANTTOOL.on && now - enState.tableAt >= EN_ASK_EVERY_MS) {
+      const t = tableAskPlan({ on: true, items, level, registry: reg, tableNear: !!stationNear(bot, [EN_TABLE_BLOCK]), now, health, anvilWork,
+        townLapis: freeSlots >= 1 ? (townHeldCount(bot, 'lapis_lazuli') ?? 0) : 0 })
+      if (t.order) { enState.tableAt = now; return { order: t.order } }
+      enSkipRow(bot, 'enchant_tool', t.skip, now)
+    }
+    return null
+  } catch { return null }
+}
+/** The window io for enchant.mjs's drivers (Codex r1 BLOCKER): withdraw's ownership, lockstep + tracked clicks refused once the
+ *  window changed or the skill aborted, the cursor settled with the server's word before the close (an unsettled one held). */
+function enchantIo (bot, signal) {
+  return {
+    cancelled: () => !!signal?.aborted,
+    own: win => ownInventory(bot, win),
+    click: (win, slot, button, mode) => lockstepClicks(bot, async raw => {
+      if (signal?.aborted || bot.currentWindow !== win) throw new Error('cancelled or the window changed')
+      const p = trackedClick(bot, raw, slot, button, mode)
+      p.catch(() => {})
+      if (await within(p, 3_000) === TIMED_OUT) throw new Error('click unanswered')
+    }, { deadline: Date.now() + 4_000 }),
+    finish: async (win, own) => {
+      const v = bot.currentWindow === win ? await settleCursor(bot, win, { cancelled: () => false }) : { state: 'gone' }
+      if (v.state === 'unresolved') holdUnsettled(bot, win, v, own)
+      else { if (bot.currentWindow === win) own.close(); invalidateClicks(bot, 'enchant end'); own.restore() }
+      return v
+    },
+  }
+}
+/** Walk to a station block (range STATION_REACH) -> the block, re-read at its cell | null. */
+async function enWalkTo (ctx, blk, signal) {
+  const { bot } = ctx
+  const p = blk.position
+  if (bot.entity.position.distanceTo(p.offset(0.5, 0.5, 0.5)) > EN_STATION_REACH + 1) {
+    try { await goto(ctx, { x: p.x, y: p.y, z: p.z, range: EN_STATION_REACH }, signal, { until: Date.now() + 60_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+  }
+  if (bot.entity.position.distanceTo(p.offset(0.5, 0.5, 0.5)) > EN_STATION_REACH + 1.5) {
+    // enchantshop-01 r2 (Codex BLOCKER): a station the walk did not reach is not offered again from afar for a while (enchantStationAt)
+    try { (bot.enStationFail ??= new Map()).set(`${p.x},${p.y},${p.z}`, Date.now()) } catch { /* memory only */ }
+    return null
+  }
+  return bot.blockAt(p)
+}
+/** anvil_apply: (a town book first when the bag has none), plan, walk to the anvil, combine by hand; one `_anvil_apply` row. */
+async function anvilApply (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const lv0 = bot.experience?.level ?? 0
+  let plan = null, r = null, at = null, took = null
+  const end = (status, stop) => {
+    try {
+      logEvent({ kind: 'anvil_apply', status, snapshot: snapshot(bot), durationMs: Date.now() - t0,
+        detail: anvilDetail({ stop, tool: plan?.tool?.name, book: plan?.book ? enchantsOf(plan.book, bot.registry).map(e => `${e.name}${e.level}`).join('+') : null, cost: r?.cost, levels: `${lv0}->${bot.experience?.level ?? '?'}`, gain: stop === 'applied' ? plan?.gain : null, at }),
+        args: { stop, cost: r?.cost ?? null, levelBefore: lv0, levelAfter: bot.experience?.level ?? null, took, gain: plan?.gain ?? null } })
+    } catch { /* telemetry */ }
+    return { status, stop, detail: `anvil_apply: ${stop}` }
+  }
+  plan = anvilPlan({ items: bot.inventory.items(), level: bot.experience?.level ?? 0, registry: bot.registry })
+  if (!plan.tool && plan.skip === 'no_book' && args?.town) {
+    const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }
+    const w = await withdrawVerb(ctx, { item: 'enchanted_book', count: 1 }, signal, rs)
+    check(signal)
+    took = w?.status === 'success' ? 'enchanted_book' : `none:${w?.failClass ?? w?.status ?? '?'}`
+    plan = anvilPlan({ items: bot.inventory.items(), level: bot.experience?.level ?? 0, registry: bot.registry })
+    if (!plan.tool && w?.status === 'success') enState.bookMissAt = Date.now()   // the town's book is no use to this bag: wait BOOK_MISS_MS
+  }
+  if (!plan.tool) return end('no_effect', `plan:${plan.skip}${plan.need ? `_${plan.need}` : ''}`)
+  const blk = stationNear(bot, ANVIL_BLOCKS)
+  if (!blk) return end('no_effect', 'no_anvil')
+  at = `${blk.position.x},${blk.position.y},${blk.position.z}`
+  const near = await enWalkTo(ctx, blk, signal)
+  if (!near || !ANVIL_BLOCKS.includes(near.name)) return end('failed', 'unreachable')
+  r = await anvilCombine(bot, near, plan.tool, plan.book, enchantIo(bot, signal))
+  check(signal)
+  return end(r.stop === 'applied' ? 'success' : (r.stop === 'refused_cost' || r.stop === 'no_result') ? 'no_effect' : 'failed', r.stop)
+}
+/** enchant_tool: (lapis from town when short), the best unenchanted tool, walk to the table, the best offer paid; one row. */
+async function enchantTool (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const lv0 = bot.experience?.level ?? 0
+  const lapisNow = () => bot.inventory.items().filter(i => i.name === 'lapis_lazuli').reduce((n, i) => n + i.count, 0)
+  const lap0 = lapisNow()
+  let tool = null, r = null, at = null
+  const end = (status, stop) => {
+    try {
+      logEvent({ kind: 'enchant_tool', status, snapshot: snapshot(bot), durationMs: Date.now() - t0,
+        detail: tableDetail({ stop, tool: tool?.name, offers: r?.offers, choice: r?.choice, levels: `${lv0}->${bot.experience?.level ?? '?'}`, lapis: `${lap0}->${lapisNow()}`, got: r?.got, at }),
+        args: { stop, offers: r?.offers ?? null, choice: r?.choice ?? null, levelBefore: lv0, levelAfter: bot.experience?.level ?? null, got: r?.got ?? null } })
+    } catch { /* telemetry */ }
+    return { status, stop, detail: `enchant_tool: ${stop}` }
+  }
+  if (args?.town && lapisNow() < 3) {
+    const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }
+    await withdrawVerb(ctx, { item: 'lapis_lazuli', count: EN_LAPIS_TAKE }, signal, rs)
+    check(signal)
+  }
+  if (lapisNow() < 1) return end('no_effect', 'no_lapis')
+  if ((bot.experience?.level ?? 0) < EN_TABLE_MIN_LEVEL) return end('no_effect', 'xp')
+  tool = enchantTarget(bot.inventory.items(), bot.registry)
+  if (!tool) return end('no_effect', 'no_tool')
+  const blk = stationNear(bot, [EN_TABLE_BLOCK])
+  if (!blk) return end('no_effect', 'no_table')
+  at = `${blk.position.x},${blk.position.y},${blk.position.z}`
+  const near = await enWalkTo(ctx, blk, signal)
+  if (!near || near.name !== EN_TABLE_BLOCK) return end('failed', 'unreachable')
+  r = await enchantAtTable(bot, near, tool, bot.registry, enchantIo(bot, signal))
+  check(signal)
+  return end(r.stop === 'enchanted' ? 'success' : r.stop === 'no_offer' ? 'no_effect' : 'failed', r.stop)
+}
+/** ANVILAPPLY-01 + ENCHANT-01, once per spawn (features.mjs): the ask is wired and both licence rows written. Never throws. */
+export function enchantInstall (bot) {
+  enBot = bot
+  if (ANVILAPPLY.on || ENCHANTTOOL.on) setEnchantAsk(enchantAsk)
+  try { logEvent({ kind: 'anvilapply_mode', status: 'success', snapshot: snapshot(bot), detail: anvilModeDetail(ANVILAPPLY.on) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'enchanttool_mode', status: 'success', snapshot: snapshot(bot), detail: tableModeDetail(ENCHANTTOOL.on) }) } catch { /* telemetry */ }
 }
 export function expeditionInstall (bot) {
   exBot = bot
@@ -19238,6 +19423,301 @@ async function hubUpkeepVisit (ctx, rec, signal, out) {
 }
 /** The hall's steps, for the tests and a sandbox drive: never called by the bot itself. */
 export const _hubUpkeep = Object.freeze({ hubClerkOne, hubClerkPlan, hubSignWork, hubUpkeepDue, hubCargoKeeps, hubSiteFor, hubRegistryRefresh })
+
+/** A TOWN-WIDE SITING WAIT (enchantshop-01 r5, canefarm-01 r1; Codex BLOCKERS): a project whose siting found no site is WAITING for
+ *  every bot of the town until the stamp (a file beside its record) -- the order offers the next project meanwhile, never a loop of
+ *  no_site visits, never the order's own 24-h no_site retry. Never throws (unreadable: no wait). */
+const siteWaitFile = (plot, dir = townDir()) => path.join(dir, `${projKeyOf(plot)}.sitewait.json`)
+function siteWaitUntil (plot, dir = townDir()) { try { return Number(JSON.parse(fs.readFileSync(siteWaitFile(plot, dir), 'utf8'))?.until) || 0 } catch { return 0 } }
+function siteWaitSet (plot, ms, why = null) {
+  try { const f = siteWaitFile(plot); const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ until: Date.now() + ms, why: String(why ?? '').slice(0, 80), at: Date.now() })); fs.renameSync(tmp, f) } catch { /* no wait: the next visit tries again */ }
+}
+// ================================================================================================================================
+// ENCHANTSHOP-01: THE ENCHANTING + ANVIL WORKSHOP (enchantshop.mjs has every rule; design docs/reports/enchantshop-design-2026-11-04.md
+// on main). The shell is an ordinary blueprint project (build_shop's visit); this is its siting on the wall extension's hall-size plot,
+// its furnishings' gate rows (the requests board's input), its labels (sortstore's writer) and its FITTER: one leased bot that draws a
+// furnishing's inputs (above the keeps), crafts it at the workshop's table and places it on its slot (buildrun's visit, one cell).
+// ================================================================================================================================
+const ENCH = ENCHANTSHOP
+/** The wall extension's record now -> rec | null. Never throws. */
+function enchantExtNow (dir = townDir()) { try { const h = recordHead(dir, projKeyOf(WALLEXT_PLOT)); return h.ok ? (h.head?.rec ?? null) : null } catch { return null } }
+/** r4 (offline 11-04 18:45Z on the re-sited X1: a 9-log spruce on the plot is out of a builder's reach, the screen says
+ *  tree_out_of_reach): a siting that found NO site WAITS for ENCHANT_NOSITE_MS (town-wide: siteWaitSet) -- else the order would offer the
+ *  unsited workshop to every bot, each visit ending no_site (the copper hall's dead end). The groundskeeper's in-wall stage fells the
+ *  extension's trees meanwhile; the next try after the wait sites the workshop. */
+const ENCHANT_NOSITE_MS = 30 * 60_000
+/** Is the unsited workshop open (the extension sited with its hall-size plot, no failed siting waiting town-wide)? Never throws. */
+function enchantOpenNow (dir = townDir()) { try { return ENCH.on && Date.now() >= siteWaitUntil(ENCHANT_PLOT, dir) && enchantOpening(enchantExtNow(dir)).open } catch { return false } }
+/** The bot's world read for the fit-out (null: unloaded). */
+const enchantRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+/** THE FITTER'S CARGO (r1, Codex code r1 BLOCKER): what this bot drew or made for a furnishing and has not placed or banked, in the
+ *  pool's pantry file (one entry per bot) so an abort, a death-free restart or a short visit never strands it: it is the next plan's
+ *  to spend (fitAvail `owed`) or the next visit's to bank. */
+const enchCargoKey = () => `${projKeyOf(ENCHANT_PLOT)}.cargo`
+function enchCargoNow (bot) {
+  if (bot.enchCargo === undefined) { try { bot.enchCargo = { ...(pantryRead(townDir(), enchCargoKey())?.[bot.username ?? 'bot']?.items ?? {}) } } catch { bot.enchCargo = {} } }
+  return bot.enchCargo ?? {}
+}
+function enchCargoWrite (bot, items) {
+  bot.enchCargo = Object.fromEntries(Object.entries(items ?? {}).filter(([, v]) => Number(v) > 0))
+  try { return pantryWrite(townDir(), enchCargoKey(), bot.username ?? 'bot', bot.enchCargo) } catch { return false }
+}
+const enchOwed = bot => fitCargoOwed(enchCargoNow(bot), heldMap(bot))
+/** What the fitter may use now (enchantshop.mjs fitAvail: the bag's fit items and its own owed cargo, the town's index above the keeps)
+ *  | null (no index). */
+function enchantAvailNow (bot) { try { const t = matsTownStock(bot); return t ? fitAvail(heldMap(bot), t.stock, { owed: enchOwed(bot) }) : null } catch { return null } }
+/** ENCHANTSHOP-01: THE WORKSHOP'S SITE -> { ok, record, tried } | { ok: false, why, detail?, tried }. Never throws. The extension's
+ *  hall-size plot (enchantSitingPlan: the plot + its stand ring, the plot's own land zone the one zone dropped), searched by
+ *  buildsite.mjs siteBlueprint clear of every other reservation, as the storage hall's. */
+async function enchantSiteFor (bot, plan, c, stood, signal = null) {
+  const tried = []
+  try {
+    const o = enchantOpening(enchantExtNow())
+    if (!o.open) return { ok: false, why: o.why, tried }
+    const zonesNow = () => [...c.zones, ...recordZones(projectHeads().filter(x => x.plot !== ENCHANT_PLOT).map(x => x.head.rec)), ...hallPadZones(plan), ...townMarkerZones()]
+    const sp = enchantSitingPlan(plan.home, o.plot, zonesNow())
+    if (!sp) return { ok: false, why: 'no_plan', tried }
+    const bp = blueprintOf(ENCHANT_BLUEPRINT)
+    const s = await siteBlueprintAsync(planReader(bot), plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: ENCHANT_PLOT,
+      earth: sp.earth, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
+    if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
+    tried.push(`${sp.sectors[0].source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
+    if (!s.ok) return { ok: false, why: s.why, detail: JSON.stringify((s.sectors ?? []).map(r => r.rejects)).slice(0, 80), tried }
+    const fresh = enchantSitingPlan(plan.home, o.plot, zonesNow()).zones
+    const hit = s.record.cells.find(q => fresh.some(z => q.at[0] >= z.box[0] && q.at[0] <= z.box[3] && q.at[1] >= z.box[1] && q.at[1] <= z.box[4] && q.at[2] >= z.box[2] && q.at[2] <= z.box[5]))
+    if (hit) return { ok: false, why: 'site_taken', detail: `${hit.at.join(',')} reserved during the search`, tried }
+    return { ok: true, why: 'ok', record: enchantRecordOf(s.record, bp, { plotId: o.plot.id ?? null, walkR: sp.walkR }), tried }
+  } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60), tried } }
+}
+/** THE GATE ROWS (`_enchantshop_gate`, one per furnishing): written when the town's view of them changed, else every GATE_ROW_MS --
+ *  town-wide (the stamp file: one bot's rows stand for the town's). Never throws. */
+function enchantGateRows (bot, rec, now = Date.now()) {
+  try {
+    if (!ENCH.on || rec?.blueprint !== ENCHANT_BLUEPRINT) return
+    if (now - (bot.enchGateAt ?? -Infinity) < 60_000) return
+    bot.enchGateAt = now
+    const avail = enchantAvailNow(bot)
+    if (!avail) return
+    const gates = fitGates(fitStates(rec, enchantRead(bot)), avail)
+    if (!gates.length) return
+    const sig = gates.map(g => `${g.fit}:${g.why}:${g.placed}:${g.lost}:${Object.entries(g.short).map(([k, v]) => `${k}${v}`).join('.')}`).join('|')
+    const file = path.join(townDir(), `${projKeyOf(ENCHANT_PLOT)}.gate.json`)
+    let last = null
+    try { last = JSON.parse(fs.readFileSync(file, 'utf8')) } catch { last = null }
+    if (last && last.sig === sig && now - (Number(last.at) || 0) < GATE_ROW_MS) return
+    try { const tmp = `${file}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ sig, at: now, by: bot.username ?? 'bot' })); fs.renameSync(tmp, file) } catch { return }
+    for (const g of gates) { try { logEvent({ kind: 'enchantshop_gate', status: g.why === 'wait' ? 'no_effect' : 'success', snapshot: snapshot(bot), detail: gateDetail(g) }) } catch { /* telemetry */ } }
+  } catch { /* the rows are telemetry */ }
+}
+/** The workshop's labels still to write for THIS bot (sortstore's writer; at most SIGN_TRIES a spot). */
+function enchantSignWork (bot, rec) {
+  const tries = bot.sortSignTries ?? new Map()
+  return (rec?.signs ?? []).filter(sp => Array.isArray(sp?.at) && Array.isArray(sp?.wall) && (tries.get(sp.at.join(',')) ?? 0) < SIGN_TRIES && ['place', 'edit'].includes(sortSpotNeed(bot, sp)))
+}
+/** Is the fitter's lease free for this bot? */
+function enchantFitterFree (bot, now = Date.now()) {
+  try { const st = projLeaseState(townDir(), projKeyOf(ENCHANT_PLOT), 'fitter'); return !st || st.rec?.holder === (bot.username ?? 'bot') || now >= st.blocksUntil } catch { return false }
+}
+/** IS THE WORKSHOP'S UPKEEP DUE for this bot? A complete record with a label to write, or a furnishing the fitter can place now
+ *  (enchantshop.mjs fitDue: the lease free, its gap and idle back-off over, room in the bag, one slot whose inputs are all held). */
+export function enchantUpkeepDue (bot, rec, now = Date.now()) {
+  try {
+    if (!ENCH.on || !bot || rec?.blueprint !== ENCHANT_BLUEPRINT || !rec.structure_complete) return false
+    if (now - (bot.enchVisitAt ?? -Infinity) < FIT_GAP_MS) return false
+    if (enchantSignWork(bot, rec).length) return true
+    // r1: owed cargo is always this bot's work (to place, or to bank back), whoever holds the lease
+    if (Object.keys(enchOwed(bot)).length) return true
+    if (!ENCH.fit || !enchantFitterFree(bot, now)) return false
+    const items = bot.inventory?.items?.() ?? []
+    return fitDue({ on: true, complete: true, states: fitStates(rec, enchantRead(bot)), avail: enchantAvailNow(bot), now, lastAt: bot.enchFitAt ?? -Infinity, idleUntil: bot.enchFitIdleUntil ?? 0, freeSlots: BAG_SLOTS - items.length })
+  } catch { return false }
+}
+/** The fitter's row (`_enchantshop_fit`). */
+function enchantFitRow (bot, status, f) { try { logEvent({ kind: 'enchantshop_fit', status, snapshot: snapshot(bot), detail: fitRowDetail(f) }) } catch { /* telemetry */ } }
+/** The most-stocked town species of a wood family ('log' | 'planks') -> name | null. */
+const woodSpecies = (stock, fam) => Object.entries(stock ?? {}).filter(([n, c]) => (fam === 'log' ? /_log$/ : /_planks$/).test(n) && !/stripped_/.test(n) && (Number(c) || 0) > 0).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+/**
+ * ONE FURNISHING -> { placed, why }. The fitter's step (enchantshop.mjs fitNext chose the slot and its plan): the plan's town take drawn
+ * (matsWithdraw, every name exactly), the chain crafted deepest first at the workshop's table, the item placed on its slot by buildrun's
+ * visit over a one-cell record, the slot stamped `placed` on the record when its block reads back, the leftovers banked back.
+ */
+async function enchantFitOne (ctx, rec, recordGen, signal, deadline) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const dir = townDir(), key = projKeyOf(ENCHANT_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  const f = { op: 'wait' }
+  const done = (status, extra) => { Object.assign(f, extra, { ms: Date.now() - t0 }); enchantFitRow(bot, status, f); return { placed: f.op === 'placed' ? 1 : 0, why: f.why ?? f.op } }
+  const avail = enchantAvailNow(bot)
+  if (!avail) return done('no_effect', { why: 'index_unknown' })
+  const nx = fitNext(fitStates(rec, enchantRead(bot)), avail)
+  if (!nx.slot) {
+    bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS
+    // r1: owed cargo no slot can use now goes back to the town (its names above the bag's own, at most the owed count)
+    const owed = enchOwed(bot)
+    if (Object.keys(owed).length && deadline - Date.now() > 20_000) {
+      const h = heldMap(bot)
+      let back = {}
+      try { back = await matsBank(ctx, Object.keys(owed), Object.fromEntries(Object.entries(h).map(([k, v]) => [k, Math.max(0, v - (owed[k] ?? 0))])), signal, owed) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      enchCargoWrite(bot, fitCargoOwed(enchCargoNow(bot), Object.fromEntries(Object.entries(heldMap(bot)).map(([k, v]) => [k, v - Math.max(0, (h[k] ?? 0) - (owed[k] ?? 0))]))))
+      return done(Object.values(back ?? {}).some(v => v > 0) ? 'success' : 'no_effect', { op: 'cargo_back', why: nx.why, back })
+    }
+    return done('no_effect', { why: nx.why })
+  }
+  const { slot, plan } = nx
+  Object.assign(f, { slot: slot.slot, item: slot.item, at: slot.at })
+  const held0 = heldMap(bot)
+  let took = {}, back = {}
+  const crafted = {}
+  const placedBy = {}
+  let effects = null, sl = null
+  const slotRef = { gen: null }
+  try {
+    // 1. THE DRAW (the plan's town take; a wood family as the town's most-stocked species)
+    const stock = matsTownStock(bot)?.stock ?? {}
+    const need = {}
+    let logName = null
+    for (const [k, n] of Object.entries(plan.take)) {
+      if (k === 'log' || k === 'planks') {
+        const sp = woodSpecies(stock, k)
+        if (!sp) return done('no_effect', { op: 'short', why: `no_${k}_species` })
+        if (k === 'log') logName = sp
+        need[sp] = (need[sp] ?? 0) + n
+      } else need[k] = n
+    }
+    if (Object.keys(need).length) {
+      // the cargo is booked as each take lands (matsWithdraw onTook: verified; onUncertain: an abort's or an unsettled visit's MAY-have-
+      // moved), so an abort later in the run strands nothing: the file is clamped to the bag whenever it is read
+      const book = (k, c) => { const m = { ...enchCargoNow(bot) }; m[k] = (m[k] ?? 0) + (Number(c) || 0); enchCargoWrite(bot, m) }
+      const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow, book, book)
+      took = { ...(w.took ?? {}) }
+      enchCargoWrite(bot, fitCargoOwed(enchCargoNow(bot), heldMap(bot)))
+      check(signal)
+      const short = Object.entries(need).filter(([k, n]) => (Number(took[k]) || 0) < n)
+      if (short.length) { bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS; f.op = 'short'; f.why = `withdraw_short:${short.map(([k, n]) => `${k}:${(Number(took[k]) || 0)}/${n}`).join(',')}`.slice(0, 80) }
+    }
+    if (f.op === 'short') { /* nothing crafted or placed: the bank-back below returns the partial draw */ } else {
+    // 2. THE CHAIN, deepest first, at the workshop's own table (craft finds the table within reach, else its own)
+    const pre = heldMap(bot)
+    try {
+      for (const c of plan.crafts) {
+        check(signal)
+        let item = c.item
+        if (item === 'planks') { const lg = logName ?? Object.keys(heldMap(bot)).find(n => /_log$/.test(n) && !/stripped_/.test(n)); if (!lg) break; item = lg.replace(/_log$/, '_planks') }
+        try { await craft(ctx, { item, count: c.count }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      }
+    } finally {
+      const post = heldMap(bot)
+      for (const k of new Set([...Object.keys(pre), ...Object.keys(post)])) { const d = (post[k] ?? 0) - (pre[k] ?? 0); if (d) crafted[k] = d }
+      // r1: what the chain made is cargo too (an iron block, a book), what it used is gone from the bag (the clamp)
+      enchCargoWrite(bot, fitCargoAfter(enchCargoNow(bot), crafted, post))
+    }
+    if (countItem(bot, slot.item) < 1) { bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS; f.op = 'craft_failed'; f.why = 'no_item' }
+    else {
+      // 3. THE PLACEMENT: buildrun's visit over the one cell (its stands within the workshop's domain, its acknowledgement, its read-back)
+      sl = takeSlot(dir, key, me, 1)
+      if (!sl.ok) { f.op = 'not_placed'; f.why = 'slot_busy' } else {
+        slotRef.gen = sl.gen
+        const acks = (bot.shopAcks ??= shopAckInstall(bot))
+        presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+        effects = botBuildEffects(bot, {
+          acks, keep: {},
+          withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+          aborted: () => !!signal?.aborted,
+          log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: ENCHANT_PLOT, ...d }) }) } catch { /* telemetry */ } },
+          spawnedAt: () => bot.shopSpawnAt ?? 0,
+        })
+        bot.shopUnknown ??= new Set()
+        const fv = fitVisitRecord(rec, slot)
+        // the placement ends 45 s before the visit's: the bank-back below keeps its time (Codex code r1 BLOCKER)
+        const r = await runVisit({ dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), record: fv.record, recordGen, palette: fv.palette, res: null, resFailed: false, slot: sl.slot, slotGen: sl.gen, slotRef, stands: (bot.enchStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...enchantVisitOpts(rec) }, effects, { deadline: deadline - 45_000, maxSteps: 120 })
+        enchCargoWrite(bot, fitCargoOwed(enchCargoNow(bot), heldMap(bot)))
+        const ok = slotState(slot, enchantRead(bot)(...slot.at)) === 'placed'
+        f.op = ok ? 'placed' : 'not_placed'; f.why = r.stop
+        // 4. THE STAMP: a placed slot is the record's (a later open read of it is LOST, never rebuilt by itself)
+        if (ok) { try { publishRecord(dir, key, cur => (cur?.blueprint === ENCHANT_BLUEPRINT && !(cur.placed ?? []).includes(slot.slot) ? { ...cur, placed: [...(cur.placed ?? []), slot.slot] } : null), { by: me }) } catch { /* the next read stamps nothing: the slot reads placed */ } }
+        else bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS
+      }
+    }
+    }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { f.op = 'aborted'; enchantFitRow(bot, 'aborted', { ...f, took, crafted, ms: Date.now() - t0 }); throw e }
+    f.op = 'error'; f.why = String(e?.message ?? e).slice(0, 60)
+  } finally {
+    if (sl?.ok) releaseLease(dir, key, `slot${sl.slot}`, me, slotRef.gen ?? sl.gen)
+    try { effects?.close() } catch { /* gone */ }
+  }
+  // 5. THE LEFTOVERS GO BACK: what this visit drew (and what it made of it) that the bag still holds above its start -- on EVERY exit
+  // that reaches here (a short draw, a craft failure, a refused placement: Codex code r1 BLOCKER); what is not banked stays CARGO
+  // (the file), the next visit's to place or bank
+  try {
+    const caps = { ...took }
+    for (const [k, v] of Object.entries(crafted)) if (v > 0) caps[k] = (caps[k] ?? 0) + v
+    const left = leftoverNames(caps, held0, heldMap(bot))
+    if (left.length && deadline - Date.now() > 15_000) back = await matsBank(ctx, left, held0, signal, caps)
+  } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { enchCargoWrite(bot, fitCargoOwed(enchCargoNow(bot), heldMap(bot))) }
+  return done(f.op === 'placed' ? 'success' : 'no_effect', { took, crafted: Object.fromEntries(Object.entries(crafted).filter(([, v]) => v > 0)), placed: Object.values(placedBy).reduce((a, b) => a + b, 0), back })
+}
+/** THE WORKSHOP'S UPKEEP VISIT: its labels, then one furnishing (the fitter's lease). */
+async function enchantUpkeepVisit (ctx, rec, recordGen, signal, out) {
+  const { bot } = ctx
+  const dir = townDir(), key = projKeyOf(ENCHANT_PLOT), me = bot.username ?? 'bot'
+  const now = Date.now()
+  bot.enchVisitAt = now
+  const deadline = now + FIT_VISIT_MS
+  const f = { signs: 0, signFails: 0, fitted: 0, fitWhy: '-' }
+  try {
+    const work = enchantSignWork(bot, rec)
+    if (work.length) {
+      const places = work.filter(sp => sortSpotNeed(bot, sp) === 'place').length
+      if (places) await sortGetSigns(ctx, places, signal)
+      for (const sp of work) {
+        check(signal)
+        if (deadline - Date.now() < 60_000) break
+        if (sortSpotNeed(bot, sp) === 'place' && !sortSignItem(bot)) { f.signFails++; const tr = (bot.sortSignTries ??= new Map()); tr.set(sp.at.join(','), (tr.get(sp.at.join(',')) ?? 0) + 1); continue }
+        if ((await sortLabelOne(ctx, sp, signal, deadline, { kind: 'enchantshop_sign' })) === 'ok') f.signs++; else f.signFails++
+      }
+    }
+    if (ENCH.fit && deadline - Date.now() > 60_000) {
+      const lease = projTakeLease(dir, key, 'fitter', me, { ttl: FIT_LEASE_MS })
+      if (!lease.ok) f.fitWhy = 'lease_held'
+      else {
+        bot.enchFitAt = Date.now()
+        try { const r = await enchantFitOne(ctx, rec, recordGen, signal, deadline); f.fitted = r.placed; f.fitWhy = r.why } finally { releaseLease(dir, key, 'fitter', me, lease.gen) }
+      }
+    }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted', f); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), f, 'other')
+  }
+  return out(f.signs + f.fitted > 0 ? 'success' : 'no_effect', 'upkeep', `the enchanting workshop's upkeep: ${f.signs} label(s) written${f.signFails ? `, ${f.signFails} not` : ''}; ${f.fitted} furnishing(s) placed (${f.fitWhy})`, f)
+}
+/** The workshop's record now (30 s memo) -> rec | null. Never throws. */
+let enchRecMemo = { at: -Infinity, rec: null, dir: null }
+function enchantRecNow (now = Date.now()) {
+  try {
+    if (now - enchRecMemo.at < 30_000 && enchRecMemo.dir === townDir()) return enchRecMemo.rec
+    const h = recordHead(townDir(), projKeyOf(ENCHANT_PLOT))
+    enchRecMemo = { at: now, rec: h.ok && h.head?.rec?.blueprint === ENCHANT_BLUEPRINT ? h.head.rec : null, dir: townDir() }
+    return enchRecMemo.rec
+  } catch { return null }
+}
+/** A workshop station (anvil family / enchanting table) at its fit slot, loaded and within ENCHANT_STATION_FIND of the bot -> block
+ *  | null. Never throws. */
+function enchantStationAt (bot, names) {
+  try {
+    if (!ENCH.on) return null
+    for (const s of enchantRecNow()?.fit ?? []) {
+      if (s.item !== 'anvil' && s.item !== 'enchanting_table') continue
+      // a slot this bot's walk failed to reach within ENCHANT_STATION_BAN_MS is not offered (Codex r2 BLOCKER: no repeated failed trips)
+      if (Date.now() - (bot.enStationFail?.get?.(s.at.join(',')) ?? -Infinity) < ENCHANT_STATION_BAN_MS) continue
+      const b = bot.blockAt?.(new Vec3(s.at[0], s.at[1], s.at[2]))
+      if (b && names.includes(b.name) && bot.entity?.position?.distanceTo?.(b.position) <= ENCHANT_STATION_FIND) return b
+    }
+  } catch { /* none */ }
+  return null
+}
+/** The workshop's steps, for the tests and a sandbox drive: never called by the bot itself. */
+export const _enchantshop = Object.freeze({ enchantSiteFor, enchantGateRows, enchantSignWork, enchantUpkeepDue, enchantFitOne, enchantUpkeepVisit, enchantOpenNow })
 async function buildShop (ctx, args, signal) {
   // expedition-01: the expedition's visit (the order's args say which)
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
@@ -19275,6 +19755,8 @@ async function buildShopVisit (ctx, args, signal) {
   if (proj.plot === TREEFARM_PLOT) return buildTreeFarm(ctx, args, signal)
   // cropfarm-01: the town wheat farm's visit (cropfarm.mjs siting; the harvest, the seed gather, then the build)
   if (proj.plot === CROPFARM_PLOT) return buildCropFarm(ctx, args, signal)
+  // canefarm-01: the sugar cane bed's visit (canefarm.mjs siting; the harvest, the replant, the bank)
+  if (proj.plot === CANEFARM_PLOT) return buildCaneFarm(ctx, args, signal)
   // tidy-01: the town-ground tidy's visit (tidy.mjs survey and grading; cuts, then layered fills)
   if (proj.plot === TIDY_PLOT) return buildTidy(ctx, args, signal)
   // picker-01: a town sink's visit (sinks.mjs: site the next instance when the picker wants one, else build the open one)
@@ -19341,11 +19823,22 @@ async function buildShopVisit (ctx, args, signal) {
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.band}/${ss.record.chests.length}chests`, gen: pub.gen }) }) } catch { /* telemetry */ } }
       hubRegistryRefresh(Date.now(), { force: true })
+    } else if (plot === ENCHANT_PLOT) {
+      // enchantshop-01: the workshop sites on the wall extension's hall-size plot only (enchantSiteFor; it WAITS until the plot exists)
+      const ss = await enchantSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
+      check(signal)
+      // r5 (Codex r1 on r4, BLOCKER 3): the wait is TOWN-WIDE (a file) and the stop is `site_wait`, never `no_site` -- the order's own
+      // 24-h no_site retry (shop.mjs buildOrder) would otherwise hold this bot a day after the wait ends
+      if (!ss.ok && ss.why !== 'aborted') siteWaitSet(ENCHANT_PLOT, ENCHANT_NOSITE_MS, ss.why)
+      if (!ss.ok) return out('no_effect', ss.why === 'no_extension' || ss.why === 'no_hall_plot' ? 'plot_wait' : 'no_site', `no enchanting-workshop site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''}) ${(ss.tried ?? []).join(' ')}`.slice(0, 160), { stop: 'site_wait' })
+      const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
+      if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.plotId}/${ss.record.cells.length}cells/${ss.record.fit.length}fit/${ss.record.earthwork.fill}fill/${ss.record.earthwork.cut}cut`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     } else if (plot !== SHOP_PLOT) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
       more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot, ...(plot === YARD_PLOT ? { earth: YARD_EARTH } : {}) }
     }
-    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT) {
+    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {
     const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
     if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
@@ -19363,6 +19856,8 @@ async function buildShopVisit (ctx, args, signal) {
   if (plot === STORE_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && !storeTidy(rec, planReader(bot), bot.storeTidyTries ?? null).length && storeUpkeepDue(bot, rec)) return storeUpkeepVisit(ctx, rec, signal, out)
   // storehub-01: a COMPLETE hall whose want is its upkeep (labels, the clerk) gets the upkeep visit, not a build visit
   if (plot === HUB_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && hubUpkeepDue(bot, rec)) return hubUpkeepVisit(ctx, rec, signal, out)
+  // enchantshop-01: a COMPLETE workshop whose want is its upkeep (its labels, the fitter) gets the upkeep visit, not a build visit
+  if (plot === ENCHANT_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && enchantUpkeepDue(bot, rec)) return enchantUpkeepVisit(ctx, rec, rh.head.gen, signal, out)
   // a COMPLETE workshop is judged against the world (r2): a damaged one is repaired by an ordinary visit
   if (rec.structure_complete && !shopDamaged(bot, rec)) {
     // this holder's share left by a visit killed after the completion is cleared here (each holder clears its own): the leftovers are the bag's own
@@ -19476,7 +19971,8 @@ async function buildShopVisit (ctx, args, signal) {
     // storehouse-01: the storehouse's stands are in town (storehouse.mjs storeDomain), and its interior's litter is the visit's tidy
     // copperhall-01: the hall's stands are its own domain too (copperhall.mjs hallRecordDomain: the pad + 3, off every other record)
     // storehub-01: the storage hall's stands are its own pad + 4, its walk the record's radius (storehub.mjs hubVisitOpts)
-    const storeOpts = rec.blueprint === HUB_BLUEPRINT ? hubVisitOpts(rec) : rec.blueprint === STORE_BLUEPRINT ? { domain: storeDomain(rec), tidy: storeTidy(rec, read, (bot.storeTidyTries ??= new Map())) }
+    // enchantshop-01: the workshop's stands are its own pad + 3, its walk the record's radius (enchantshop.mjs enchantVisitOpts)
+    const storeOpts = rec.blueprint === ENCHANT_BLUEPRINT ? enchantVisitOpts(rec) : rec.blueprint === HUB_BLUEPRINT ? hubVisitOpts(rec) : rec.blueprint === STORE_BLUEPRINT ? { domain: storeDomain(rec), tidy: storeTidy(rec, read, (bot.storeTidyTries ??= new Map())) }
       : rec.blueprint === HALL_BLUEPRINT ? { domain: hallRecordDomain(rec, projectHeads().map(x => x.head.rec)) }
       // yardsite-01: a yard sited beyond the town ring stands and walks out to its band (yard.mjs yardVisitOpts; an older record: {})
         : isYardBlueprint(rec.blueprint) ? yardVisitOpts(rec, home) : {}
@@ -22856,6 +23352,178 @@ async function buildCropFarm (ctx, args, signal) {
   }
 }
 
+// ================================================================================================================================
+// CANEFARM-01: THE SUGAR CANE BED'S VISIT (canefarm.mjs; owner 11-04 enchantshop E1). The crop farm's pattern: site once (canefarm.mjs
+// siteCaneFarm: a cluster of natural water-edge cells off every reservation), then each visit (1) HARVESTS the ripe cells -- the SECOND
+// block cut from the cell's stand (the bottom one stays and regrows), (2) draws cane from the town when the bag cannot plant the open
+// cells, (3) BUILDS with runVisit (the cane placed on its cell; a dry or planted cell passed), (4) BANKS only the cane the harvest
+// brought (never the bag's own: the park's planting stock), for the workshop's paper.
+// ================================================================================================================================
+const caneRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+/** IS THE STANDING CANE BED DUE A VISIT for this bot (canefarm.mjs caneDue)? -> reason | null. Never throws. */
+function caneDueFor (bot, rec) {
+  try {
+    let townCane = 0
+    try { townCane = Number(matsTownStock(bot)?.stock?.sugar_cane) || 0 } catch { townCane = 0 }
+    const free = (() => { try { return bot.inventory.emptySlotCount() } catch { return 0 } })()
+    return caneDue(caneRead(bot), rec, { cane: countItem(bot, 'sugar_cane') + townCane, townCane, freeSlots: free })
+  } catch { return null }
+}
+/** THE SITING'S RESERVATIONS: the crop farm's (cropInputs: every other project's record and zone, the plan, the wells, the composter,
+ *  the land plan's corridors, its park + 2). Never throws past the caller. */
+function caneInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
+  const P = pathsInputs(bot, c, h, dir)
+  const records = projectHeads().filter(x => x.plot !== CANEFARM_PLOT).map(x => x.head.rec).filter(Boolean)
+  const land = landHead(dir)
+  const park = land?.park?.box ?? null
+  const base = farmBlocked({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records, pzones: recordZones(records) })
+  return { blocked: (x, z) => base(x, z) ?? (park && x >= park[0] - 2 && x <= park[2] + 2 && z >= park[1] - 2 && z <= park[3] + 2 ? 'park' : null) }
+}
+/** THE HARVEST -> { n, got, why }: up to CANE.harvestMax ripe cells, each cut at its second block from its stand, re-read first. */
+async function caneHarvestRun (ctx, rec, { deadline, signal, e, log }) {
+  const { bot } = ctx
+  const read = caneRead(bot)
+  let townCane = 0
+  try { townCane = Number(matsTownStock(bot)?.stock?.sugar_cane) || 0 } catch { townCane = 0 }
+  if (townCane >= CANE.townCap) return { n: 0, got: 0, why: 'town_cap' }
+  const c0 = countItem(bot, 'sugar_cane')
+  let n = 0, why = 'none'
+  for (const c of caneHarvest(read, rec, { from: e.feet() })) {
+    if (signal?.aborted || Date.now() > deadline) { why = 'deadline'; break }
+    const free = (() => { try { return bot.inventory.emptySlotCount() } catch { return 0 } })()
+    if (free < CANE.minFree) { why = 'bag_full'; break }
+    const stand = caneStand(rec, c)
+    if (!stand) continue
+    await e.walkTo(stand)
+    check(signal)
+    const cut = cutCell(c)
+    // re-read: still ripe, the cut cell still cane, the BOTTOM block still cane (never the bottom one), and in reach
+    if (caneState(read, c) !== 'ripe' || String(read(...cut)?.name ?? '') !== 'sugar_cane' || String(read(...c.at)?.name ?? '') !== 'sugar_cane' || !digReachFrom(e.feet(), cut)) continue
+    const v = await e.dig(cut, 'sugar_cane')
+    if (v !== 'confirmed') continue
+    n++
+    why = 'harvested'
+    log(caneHarvestRow({ cell: cut }))
+    await sleep(700, signal)   // the drops fall by the stand (within the pickup reach)
+  }
+  return { n, got: Math.max(0, countItem(bot, 'sugar_cane') - c0), why }
+}
+async function buildCaneFarm (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: CANEFARM_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === CANEFARM_PLOT)) return out('no_effect', 'off', 'the cane bed is switched off (CANEFARM, TREEFARM, PATHS, SHOP or TOWNPLAN)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(CANEFARM_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  bot.shopVisitKey = key
+  const stood = stoodRead(dir, stoodKey(), home)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the cane bed record could not be read')
+  if (!rh.head) {
+    if (Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return out('no_effect', 'no_site', 'no cane bed site (waiting)', { stop: 'site_wait' })
+    let s
+    try { s = siteCaneFarm(planReader(bot), { home, ...caneInputs(bot, c, h, dir) }) } catch { return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' }) }
+    if (!s.ok) { siteWaitSet(CANEFARM_PLOT, 30 * 60_000, s.why); return out('no_effect', 'no_site', `no cane bed site (${s.why})`.slice(0, 160), { stop: 'site_wait' }) }
+    const record = s.record
+    const pub = publishRecord(dir, key, cur => (cur ? null : { ...record, state: 'open' }), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: CANEFARM_PLOT, op: 'sited', cell: record.cells[0]?.at, kind: `cane${record.counts.cells}/edge${s.tried}/box${record.box.join('_')}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the cane bed record could not be read back')
+  }
+  shopFootprintRefresh(bot)
+  const rec = rh.head.rec
+  const read = caneRead(bot)
+  if (rec.structure_complete && !caneDueFor(bot, rec)) return out('no_effect', 'complete', `the cane bed stands (${Object.entries(caneCensus(read, rec)).map(([k, v]) => `${k}:${v}`).join(',')})`)
+  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === CANEFARM_PLOT)))
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }
+  let effects = null
+  let bag0 = null, placedBy = {}, backAll = {}, tookAll = {}, diedAt = null
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  const rowLog = d => { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail(d) }) } catch { /* telemetry */ } }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    bag0 = heldMap(bot)
+    const keep = townKeeps(bag0, { wanted: bot.currentWants ?? [] }).keep
+    effects = botBuildEffects(bot, {
+      acks, keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: CANEFARM_PLOT, ...d }) : buildRowDetail({ project: CANEFARM_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
+    // THE BAG'S OWN CANE at the start (the park's planting stock): never banked by this visit
+    const own0 = countItem(bot, 'sugar_cane')
+    // 1. THE HARVEST
+    const hv = await caneHarvestRun(ctx, rec, { deadline: deadline - 60_000, signal, e: effects, log: rowLog })
+    check(signal)
+    // 2. THE PLANTING STOCK: the open cells the bag cannot plant, drawn from the town (the harvest's banked cane, when the bed's own
+    // first planting took the bag's)
+    let want = caneNeed(read, rec, countItem(bot, 'sugar_cane'))
+    let townCane = 0
+    try { townCane = Number(matsTownStock(bot)?.stock?.sugar_cane) || 0 } catch { townCane = 0 }
+    if (want > 0 && townCane > 0 && Date.now() >= (bot.caneDrawUntil ?? 0)) {
+      let took = {}
+      try { const w = await matsWithdraw(ctx, { sugar_cane: Math.min(want, townCane) }, signal, 30_000, matsReserve().table, shopAllow); took = w.took ?? {} } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+      for (const [k, v] of Object.entries(took)) tookAll[k] = (tookAll[k] ?? 0) + v
+      if (!(took.sugar_cane > 0)) bot.caneDrawUntil = Date.now() + 10 * 60_000
+      want = caneNeed(read, rec, countItem(bot, 'sugar_cane'))
+    }
+    check(signal)
+    // 3. THE BUILD: the cane placed on each open cell (a planted or dry cell passed; no cane in the bag: every open cell passed)
+    const hasCane = () => countItem(bot, 'sugar_cane') > 0
+    bot.shopUnknown ??= new Set()
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: CANE_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.caneStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      domain: () => true, foreign: CANE_FOREIGN, blockLayer: false, clearMax: 20, walkR: Math.max(96, CANE.rMax + 8),
+      openRole: role => role === 'cane',
+      alsoDone: (q, rd) => caneAlsoDone(q, rd ?? read, { noCane: !hasCane() }) }, effects, { deadline, maxSteps: 200 })
+    // COMPLETE: every cell planted (or dry: named in the census) -- the first planting done; later visits are upkeep
+    const st = caneCells(rec).map(q => caneState(read, q))
+    // r1 (Codex BLOCKER 2): an open cell with NO cane anywhere (the bag and the town) is no reason to hold the order -- the record
+    // completes and the open cells are the upkeep's replant (caneDue) once cane arrives, as the crop farm's with no seed
+    let caneAnywhere = hasCane()
+    try { caneAnywhere = caneAnywhere || (Number(matsTownStock(bot)?.stock?.sugar_cane) || 0) > 0 } catch { /* the bag's word */ }
+    if (r.stop === 'complete' && !rec.structure_complete && st.every(x => x === 'ripe' || x === 'growing' || x === 'dry' || (x === 'open' && !caneAnywhere))) {
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      bot.shopDamage = null
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: CANEFARM_PLOT, op: 'complete', kind: CANEFARM_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+    }
+    if (rec.structure_complete) bot.shopDamage = null
+    // 4. THE BANK: the cane this visit brought (the harvest's, the town draw left over), never the bag's own start count less what it
+    // planted -- matsBank banks the bag's count above `bag0` (the floor), at most the harvest's
+    let back = {}
+    const bk = caneBankable({ own0, now: countItem(bot, 'sugar_cane'), drawn: tookAll.sugar_cane ?? 0, placed: placedBy.sugar_cane ?? 0 })
+    if (bk.bank > 0 && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) {
+      try { back = await matsBank(ctx, ['sugar_cane'], { sugar_cane: bk.ownLeft }, signal, { sugar_cane: bk.bank }, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2 } }) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+    }
+    const census = Object.entries(caneCensus(caneRead(bot), rec)).map(([k, v]) => `${k}:${v}`).join(',')
+    const status = r.placed > 0 || r.cleared > 0 || hv.n > 0 ? 'success' : 'no_effect'
+    return out(status, r.stop, `${r.why ?? r.stop}; cut ${hv.n} (+${hv.got} cane, ${hv.why}); cane ${census}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared + hv.n, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(CANEFARM_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
+  }
+}
+
 /** found_store / found_work -- the town orders (found.mjs foundOrder; chatOnly, housekeeping). One `_found` row per run, ALWAYS. */
 async function foundStore (ctx, args, signal) { return foundRun(ctx, { ...args, kind: 'chest' }, signal, 'store') }
 async function foundWork (ctx, args, signal) { return foundRun(ctx, args, signal, 'work') }
@@ -23180,6 +23848,8 @@ export const SKILL_CONTRACTS = {
   // own verified count of parts made (mats_effect); the recovery's is that count or the bag's loss of what it banked
   make_material: { expects: ['mats_effect', 'count_effect'], maxMs: 180_000 },
   build_shop: { expects: ['world_change'], maxMs: 600_000 },
+  anvil_apply: { expects: ['inventory_loss'], maxMs: 120_000 },   // anvilapply-01: the book goes; its evidence is the `_anvil_apply` row
+  enchant_tool: { expects: ['inventory_loss'], maxMs: 120_000 },   // enchant-01: the lapis goes; its evidence is the `_enchant_tool` row
   deep_mine: { expects: ['position', 'inventory_gain'], maxMs: 180_000 },   // deepminer-01: one phase step of the trip
   mats_return: { expects: ['mats_effect', 'inventory_loss'], maxMs: 120_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
@@ -24375,6 +25045,8 @@ export const SKILLS = {
   furnace_drain: { run: furnaceDrain, usage: 'furnace_drain', args: [], chatOnly: true },
   make_material: { run: makeMaterial, usage: 'make_material item=<bricks|panes|cut_copper|copper_door|torch|count>', args: ['item'], chatOnly: true },
   build_shop: { run: buildShop, usage: 'build_shop', args: [], chatOnly: true },
+  anvil_apply: { run: anvilApply, usage: 'anvil_apply', args: [], chatOnly: true },   // anvilapply-01 (buildOrder issues it; never the model's)
+  enchant_tool: { run: enchantTool, usage: 'enchant_tool', args: [], chatOnly: true },   // enchant-01 (buildOrder issues it; never the model's)
   deep_mine: { run: deepMine, usage: 'deep_mine', args: [], chatOnly: true },   // deepminer-01 (cognitive.mjs issues it; never the model's)
   mats_return: { run: matsReturn, usage: 'mats_return', args: [], chatOnly: true },
   toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },

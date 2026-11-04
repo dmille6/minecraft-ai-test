@@ -11,11 +11,13 @@ import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS, wallextOn, WALLEXT_PL
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
 import { cropfarmOn, CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROPFARM_BUILDERS } from './cropfarm.mjs'   // cropfarm-01
+import { canefarmOn, CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANEFARM_BUILDERS } from './canefarm.mjs'   // canefarm-01
 import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
 import { storehouseOn, STORE_PLOT, STORE_BLUEPRINT, STORE_BUILDERS } from './storehouse.mjs'
 import { copperhallOn, HALL_PLOT, HALL_BLUEPRINT, HALL_BUILDERS } from './copperhall.mjs'   // copperhall-01
 import { yardOn, YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS } from './yard.mjs'   // stockyard-01
 import { hubSwitches, HUB_PLOT, HUB_BLUEPRINT, HUB_BUILDERS } from './storehub.mjs'   // storehub-01
+import { enchantSwitches, ENCHANT_PLOT, ENCHANT_BLUEPRINT, ENCHANT_BUILDERS } from './enchantshop.mjs'   // enchantshop-01
 import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } from './shopchest.mjs'
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
 import { sinksOn, sinkKindsOn, SINK_KINDS, SINK_PLOTS, SINK_BLUEPRINTS, SINK_BUILDERS, SINK, SINK_STREAK, isSinkPlot, sinkKindOf } from './sinks.mjs'   // picker-01
@@ -93,6 +95,9 @@ export const TREEFARM = Object.freeze({ on: treefarmOn(process.env, process.env.
 /** CROPFARM-01: THE TOWN WHEAT FARM (cropfarm.mjs; owner 11-03, ledger farms-1103), after the tree farm; its harvest and replant are
  *  upkeep (`due`). CROPFARM=off is the rollback; on in the showcase pool only (cropkeep.mjs cropfarmOn) until a fleet rollout. */
 export const CROPFARM = Object.freeze({ on: cropfarmOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** CANEFARM-01: THE SUGAR CANE BED (canefarm.mjs; owner 11-04 enchantshop E1 "a dedicated cane bed like the tree farm"): the books' cane,
+ *  on a natural water edge; its harvest (the second block up) and replant are upkeep. CANEFARM=off is the rollback; showcase only. */
+export const CANEFARM = Object.freeze({ on: canefarmOn(process.env, process.env.MEMORY_POOL ?? '') })
 /**
  * STOREHOUSE-01: THE TOWN STOREHOUSE is the seventh project (storehouse.mjs; town plan 10-20 + owner 10-23 Q1 "after shop-01"):
  * walls, roof, a doorway and lights round the plan's store plot and the containers already in it. On in the showcase pool, off in
@@ -111,6 +116,10 @@ export const COPPERHALL = Object.freeze({ on: copperhallOn(process.env, process.
  *  upkeep (`due`, first among the upkeeps: the labels and one clerk move-set) is the hub's clerk. STOREHUB=off is the rollback; on in
  *  the showcase pool only. Needs the house and storehouse switches on. */
 export const STOREHUB = Object.freeze(hubSwitches(process.env, process.env.MEMORY_POOL ?? ''))
+/** ENCHANTSHOP-01 (enchantshop.mjs; owner 11-04: the wall extension's plots in order, the enchanting + anvil workshop first): the
+ *  shell on the extension's hall-size plot, then its fit-out as the inputs arrive. ENCHANTSHOP=off is the rollback (a sited record
+ *  stays guarded); on in the showcase pool only. Needs the extension on (its plot). */
+export const ENCHANTSHOP = Object.freeze(enchantSwitches(process.env, process.env.MEMORY_POOL ?? ''))
 /**
  * TIDY-01: THE TOWN-GROUND TIDY is the LAST project, with no `after` (tidy.mjs): only a bot no other project admits works it -- every
  * other open project full, stuck or waiting -- so it never displaces building. It cuts the bots' pillars, fills their pits and
@@ -142,17 +151,19 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
   Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
   Object.freeze({ plot: CROPFARM_PLOT, blueprint: CROPFARM_BLUEPRINT, after: TREEFARM_PLOT, builders: CROPFARM_BUILDERS }),   // cropfarm-01
+  Object.freeze({ plot: CANEFARM_PLOT, blueprint: CANEFARM_BLUEPRINT, after: TREEFARM_PLOT, builders: CANEFARM_BUILDERS }),   // canefarm-01: the books' cane
   Object.freeze({ plot: SHOPCHEST_PLOT, blueprint: SHOPCHEST_BLUEPRINT, after: SHOP_PLOT, builders: SHOPCHEST_BUILDERS }),
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
   Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),
   Object.freeze({ plot: HUB_PLOT, blueprint: HUB_BLUEPRINT, after: STORE_PLOT, builders: HUB_BUILDERS }),   // storehub-01
   Object.freeze({ plot: WALLEXT_PLOT, blueprint: WALLEXT_BLUEPRINT, after: HUB_PLOT, builders: WALL_BUILDERS }),   // wallext-01: round the standing hall
   Object.freeze({ plot: WALLDEMO_PLOT, blueprint: WALLDEMO_BLUEPRINT, after: WALLEXT_PLOT, builders: WALLDEMO_BUILDERS }),   // wallext-02: the old line comes down
+  Object.freeze({ plot: ENCHANT_PLOT, blueprint: ENCHANT_BLUEPRINT, after: HUB_PLOT, builders: ENCHANT_BUILDERS }),   // enchantshop-01: on the extension's hall-size plot (WAITS until it is sited)
   Object.freeze({ plot: YARD_PLOT, blueprint: YARD_BLUEPRINT, builders: YARD_BUILDERS }),
   ...SINK_KINDS.map(k => Object.freeze({ plot: SINK_PLOTS[k], blueprint: SINK_BLUEPRINTS[k], builders: SINK_BUILDERS, sink: true })),   // picker-01
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 + GK.helpersMax : TIDY_BUILDERS }),   // gkhelpers-01: the keeper and its helpers
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on, ench = ENCHANTSHOP.on, cane = CANEFARM.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === ENCHANT_PLOT ? ench && ext && wall && hub && store && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === CANEFARM_PLOT ? cane && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
@@ -164,11 +175,15 @@ export const projectsGuarded = (list = projectsOn()) => {
   for (const p of PROJECTS) if (p.sink && !out.some(q => q.plot === p.plot)) out.push(p)
   // cropfarm-01 (Codex design: keep the reservation when farming is off): a sited crop farm stays guarded whatever its switch
   for (const p of PROJECTS) if (p.plot === CROPFARM_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
+  // canefarm-01: a sited cane bed stays guarded whatever its switch
+  for (const p of PROJECTS) if (p.plot === CANEFARM_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   // wallext-01: a sited wall extension stays guarded whatever its switch (its cells, its zones, its plots)
   for (const p of PROJECTS) if (p.plot === WALLEXT_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   // wallext-02 (Codex hold r2 BLOCKER): the demolition's head is read whatever its switch -- a completed demolition then always lifts
   // its hold (skills.mjs projectHeads: wall.mjs wallAsHeld), even after WALLDEMO=off
   for (const p of PROJECTS) if (p.plot === WALLDEMO_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
+  // enchantshop-01: a sited workshop stays guarded whatever its switch (its cells, its fit-out cells inside its box)
+  for (const p of PROJECTS) if (p.plot === ENCHANT_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   return out
 }
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
@@ -385,6 +400,13 @@ export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'functio
  */
 let copperAskOf = null
 export function setCopperAsk (fn) { copperAskOf = typeof fn === 'function' ? fn : null }
+/**
+ * ANVILAPPLY-01 + ENCHANT-01: the anvil / enchanting-table ask (skills.mjs enchantAsk -> enchant.mjs anvilAskPlan / tableAskPlan),
+ * set at install. Asked FIRST at town (a short, bounded visit, only when there is work: its own cooldown per bot per kind).
+ * -> { order } | null. Unset (or ANVILAPPLY + ENCHANTTOOL off): never asked.
+ */
+let enchantAskOf = null
+export function setEnchantAsk (fn) { enchantAskOf = typeof fn === 'function' ? fn : null }
 /** groundskeeper-01: does THIS bot hold its town's keeper lease now (skills.mjs keeperNow; no cognitive change)? */
 let keeperOf = () => false
 export function setKeeperNow (fn) { if (typeof fn === 'function') keeperOf = fn }
@@ -703,6 +725,12 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
+  // anvilapply-01 + enchant-01: a book a tool gains from, or a tool the table can enchant, with the block in reach -- first
+  if (enchantAskOf) {
+    let ea = null
+    try { ea = enchantAskOf({ now, health, freeSlots }) } catch { ea = null }
+    if (ea?.order) return { order: ea.order, skip: null }
+  }
   // picker-01: a SINK as the active project is no finite work -- the copper run (a waiting finite project's need) and the expedition
   // (one slot) are asked first, as for a bot the projects cannot use; the expedition's ask is told the projects are done
   let sinkNow = false

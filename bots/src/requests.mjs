@@ -78,6 +78,22 @@ export function eventFor (rec) {
     if (why === 'ok') return { t: 'met', for: 'hall', item: 'copper_ingot' }
     return null
   }
+  // enchantshop-01: a furnishing's gate (`_enchantshop_gate fit=<anvil|table|shelves> why=wait|ok|placed short=<item:n,...> need=<item:n,...>`)
+  // opens ONE request per (furnishing, root input) the town lacks -- need = the root bill of its open slots, have = need - short -- and
+  // closes the furnishing's requests whose input is no longer short (all of them when it is placed or its inputs are all held)
+  if (kind === '_enchantshop_gate') {
+    const fit = field(d, 'fit'), why = field(d, 'why')
+    if (!fit || !/^[a-z_]+$/.test(fit) || !['wait', 'ok', 'placed'].includes(why)) return null
+    const pairs = v => (v && v !== '-' ? v.split(',').map(x => x.split(':')).filter(([i, n]) => /^[a-z_]+$/.test(i ?? '') && Number.isFinite(Number(n))).map(([i, n]) => [i, Number(n)]) : [])
+    const short = why === 'wait' ? pairs(field(d, 'short')) : []
+    // r1 (Codex code r1 note): a wait row whose short= reads as nothing (malformed, cut) is no event -- never a close of every request
+    if (why === 'wait' && !short.length) return null
+    const need = Object.fromEntries(pairs(field(d, 'need')))
+    const forP = `enchant_${fit}`
+    const evs = short.map(([item, n]) => ({ t: 'gate', for: forP, item, need: Math.max(n, need[item] ?? n), have: Math.max(0, (need[item] ?? n) - n) }))
+    evs.push({ t: 'met_for', for: forP, keep: short.map(([i]) => i) })
+    return { t: 'multi', evs }
+  }
   if (kind === '_copper_run' && st === 'success') {
     const block = /^issued block=([a-z_]+)/.exec(d)?.[1] ?? null
     return block ? { t: 'producing', for: 'hall', item: 'copper_ingot', block } : null
@@ -157,6 +173,14 @@ export function stepProject (state, ev, bot, now) {
       rows.push({ op: 'met', for: r.for, item: r.item, need: r.need, mins: Math.round((now - r.openedAt) / 60_000), fills: r.fills ?? 0, filled: r.filled ?? 0 })
       delete open[k]
     }
+  } else if (ev?.t === 'met_for') {
+    // enchantshop-01: every open request of the furnishing whose input is no longer short is met
+    const keep = new Set(ev.keep ?? [])
+    for (const [k, r] of Object.entries(open)) {
+      if (r.for !== ev.for || keep.has(r.item)) continue
+      rows.push({ op: 'met', for: r.for, item: r.item, need: r.need, mins: Math.round((now - r.openedAt) / 60_000), fills: r.fills ?? 0, filled: r.filled ?? 0 })
+      delete open[k]
+    }
   } else if (ev?.t === 'producing') {
     const r = open[reqKey(ev.for, ev.item)]
     if (r) rows.push({ op: 'producing', for: r.for, item: r.item, qty: r.qty, block: ev.block })
@@ -195,7 +219,7 @@ export function requestDetail (row) {
 
 /** The `_requests_mode` licence row. Pure. */
 export const requestsModeDetail = ({ on, pool }) =>
-  `on=${on ? 1 : 0} v=${REQUESTS_V} pool=${pool} kinds=project:hall:copper_ingot,kit:iron_ingot stale_h=${STALE_MS / 3600_000} refresh_min=${REFRESH_MS / 60_000} llm=0 changes_behaviour=0`
+  `on=${on ? 1 : 0} v=${REQUESTS_V} pool=${pool} kinds=project:hall:copper_ingot,project:enchant_*,kit:iron_ingot stale_h=${STALE_MS / 3600_000} refresh_min=${REFRESH_MS / 60_000} llm=0 changes_behaviour=0`
 
 // ---- the town file -----------------------------------------------------------------------------------------------------
 
@@ -260,7 +284,9 @@ export function makeBoard ({ bot, dir, emit = () => {}, now = () => Date.now() }
       write(r.rows)
       return
     }
-    const res = withState(dir, state => stepProject(state, ev, me(), t))
+    // enchantshop-01: one record may carry several events (a furnishing's gate: one per input, then its closes), folded under one lock
+    const evs = ev.t === 'multi' ? ev.evs : [ev]
+    const res = withState(dir, state => evs.reduce((acc, e) => { const r = stepProject(acc.state, e, me(), t); return { state: r.state, rows: [...acc.rows, ...r.rows] } }, { state, rows: [] }))
     if (!res) { stats.lock++; return }
     write(res.rows)
   }

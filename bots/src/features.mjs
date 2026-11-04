@@ -29,6 +29,10 @@ import { townSearchModeDetail } from './withdrawpick.mjs'
 import { indexSearch2ModeDetail } from './indexsearch2.mjs'   // indexsearch-02's licence row (storehub piece C)
 import { hubModeDetail } from './storehub.mjs'   // storehub-01's licence row (pieces A + B)
 import { STOREHUB } from './shop.mjs'
+import { enchantModeDetail } from './enchantshop.mjs'   // enchantshop-01's licence row
+import { ENCHANTSHOP } from './shop.mjs'
+import { caneModeDetail } from './canefarm.mjs'   // canefarm-01's licence row
+import { CANEFARM } from './shop.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
 import { plinth021ModeDetail, townRecordsShared } from './plinth.mjs'   // plinth-02.1's licence row (its own statement)
 import { plinthFirstModeDetail, plinthFirstPolicy } from './plinth.mjs'   // plinthfirst-01's licence row (its own statement)
@@ -58,6 +62,7 @@ import { showchatOn, showchatModeDetail, makeSpeaker, quietChatter, KILL_FILE } 
 import { poolStateDir } from './worldfacts.mjs'
 import { requestsOn, requestsModeDetail, makeBoard } from './requests.mjs'   // requests-01: the town's requests board
 import { merchantScoutInstall } from './merchantscout.mjs'   // trading-scout-01: read-only merchant sightings + XP rows
+import { enchantInstall } from './skills.mjs'   // anvilapply-01 + enchant-01: the anvil / table ask + licence rows
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -129,12 +134,18 @@ export function installFeatures (bot) {
   // storehub-01: the sorted hall's and its clerk's licence row (storehub.mjs; the hall is shop.mjs PROJECTS, its upkeep skills.mjs
   // hubUpkeepVisit; on=0 under STOREHUB=off, so the rollback is visible too)
   try { logEvent({ kind: 'storehub_mode', status: 'success', snapshot: snapshot(bot), detail: hubModeDetail(STOREHUB) }) } catch { /* telemetry */ }
+  // enchantshop-01: the workshop's licence row (on=0 outside ENCHANTSHOP_POOLS or under ENCHANTSHOP=off: the rollback is visible too)
+  try { logEvent({ kind: 'enchantshop_mode', status: 'success', snapshot: snapshot(bot), detail: enchantModeDetail(ENCHANTSHOP) }) } catch { /* telemetry */ }
+  // canefarm-01: the cane bed's licence row (on=0 outside CANEFARM_POOLS or under CANEFARM=off)
+  try { logEvent({ kind: 'canefarm_mode', status: 'success', snapshot: snapshot(bot), detail: caneModeDetail(CANEFARM.on) }) } catch { /* telemetry */ }
   // stockyard-01: the stockpile yard's licence row (yard.mjs; the project itself is shop.mjs PROJECTS, its visit skills.mjs yardVisit)
   try { logEvent({ kind: 'yard_mode', status: 'success', snapshot: snapshot(bot), detail: yardModeDetail(YARD.on) }) } catch { /* telemetry */ }
   // picker-01: the town sinks' licence row (sinks.mjs; the plots are shop.mjs PROJECTS' sink entries, the visit skills.mjs buildSink)
   try { logEvent({ kind: 'sink_mode', status: 'success', snapshot: snapshot(bot), detail: sinkModeDetail(SINKS.on, SINKS.kinds) }) } catch { /* telemetry */ }
   // trading-scout-01: `_merchantscout_mode` + `_merchant_seen` / `_xp` rows (merchantscout.mjs; read-only, MERCHANTSCOUT=off -> on=0)
   try { merchantScoutInstall(bot, { zonesOf: b => townPlanZones(b).zones }) } catch (e) { log('warn', 'merchant scout not installed', { error: e.message }) }
+  // anvilapply-01 + enchant-01: `_anvilapply_mode` / `_enchanttool_mode` and the ask (enchant.mjs; ANVILAPPLY=off / ENCHANTTOOL=off)
+  try { enchantInstall(bot) } catch (e) { log('warn', 'enchant not installed', { error: e.message }) }
   // showchat-01: the showcase's announcements (`_showchat_mode`; on=0 outside the showcase pool or under SHOWCHAT=off)
   try { installShowchat(bot) } catch (e) { log('warn', 'showchat not installed', { error: e.message }) }
   // requests-01: the town's requests board (`_requests_mode`; on=0 outside REQUESTS_POOLS, default the showcase)
