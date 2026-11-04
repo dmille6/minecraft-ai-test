@@ -274,7 +274,16 @@ await t('the keeper\'s hold: nothing open verifies; a cell, a clear or a cut sti
   assert.strictEqual(P.prepHoldOf({ n: 2, cells: [{ at: [1, 0, 3], opener: [1, 2, 3] }], cuts: [cut([1, 2, 3])], clears: [] }, () => true), 'stuck')
   assert.strictEqual(P.prepHoldOf({ n: 2, cells: [{ at: [1, 0, 3], opener: [1, 2, 3] }], cuts: [cut([1, 2, 3])], clears: [] }, () => false), 'work')
   assert.strictEqual(P.prepHoldOf({ n: 2, cells: [{ at: [1, 0, 3] }], cuts: [cut([1, 2, 3])], clears: [] }, () => true), 'work')
+  // THE BACKSTOP: a seal whose opener greened (dirt -> grass: no cut names it, the visit skips the seal as standing) -- three visits
+  // that moved nothing and the attempt is stuck; two, still work; nothing open, none whatever the count
+  const greened = { n: 1, cells: [{ at: [1, 0, 3], opener: [1, 2, 3] }], cuts: [], clears: [] }
+  assert.strictEqual(P.prepHoldOf(greened, () => false, { stalls: 2 }), 'work')
+  assert.strictEqual(P.prepHoldOf(greened, () => false, { stalls: 3 }), 'stuck')
+  assert.strictEqual(P.prepHoldOf({ n: 0, cells: [], cuts: [], clears: [] }, () => false, { stalls: 9 }), 'none')
 })
+await t('mutant: without the stall backstop a greened opener holds the keeper to the expiry', () => killed('siteprep.mjs', P,
+  "  if (stalls >= P.stallVisits) return 'stuck'\n", '',
+  M => assert.strictEqual(M.prepHoldOf({ n: 1, cells: [{ at: [1, 0, 3], opener: [1, 2, 3] }], cuts: [], clears: [] }, () => false, { stalls: 3 }), 'stuck')))
 await t('mutant: without the stuck rule a given-up cut holds the keeper to the expiry', () => killed('siteprep.mjs', P,
   "&& open.cells.every(blocked)) return 'stuck'", "&& false) return 'stuck'",
   M => assert.strictEqual(M.prepHoldOf({ n: 1, cells: [], cuts: [{ at: [1, 2, 3] }], clears: [] }, () => true), 'stuck')))
@@ -339,6 +348,7 @@ const W = [
   /if \(caps\.complete && !crewHeld && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/,
   /if \(hold === 'stuck'\) \{\n\s*if \(!retire\(q\.id\)\) return head\(\)/,
   /const prepNow = prepSt\?\.hold === 'work' \? prepSt\.id : null/,
+  /\[sk\]: \(r\.placed \?\? 0\) \+ \(r\.cleared \?\? 0\) > 0 \? 0 : \(Number\(bot\.prepStalls\?\.\[sk\]\) \|\| 0\) \+ 1/,
   /cur\.prep\?\.\[q\.id\]\?\.att !== prepAttempt\(q\) \? withPrep\(/,
   /if \(name === 'snow' \|\| name === 'water'\) \{ try \{ props = b\.getProperties/,
 ]

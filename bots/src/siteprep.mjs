@@ -31,7 +31,7 @@ export const PREP_KINDS = Object.freeze(['tower', 'shrine'])
  * guard's margin round the town edge and the graded box.
  */
 export const PREP = Object.freeze({ blend: 5, colMax: 6, cutMax: 200, fillMax: 400, waterDepth: 2, waterCols: 24, proofs: 4, offsets: 1, smaller: 2,
-  estimateMax: 800, refileMs: 24 * 3600_000, expireMs: 48 * 3600_000, readyMs: 6 * 3600_000, verifyMax: 1, retireMax: 1, handFailsMax: 2, gap: 3, walkPad: 8, pad: 1 })
+  stallVisits: 3, estimateMax: 800, refileMs: 24 * 3600_000, expireMs: 48 * 3600_000, readyMs: 6 * 3600_000, verifyMax: 1, retireMax: 1, handFailsMax: 2, gap: 3, walkPad: 8, pad: 1 })
 export const LIVE = Object.freeze(['filed', 'prepping', 'prepared'])
 export const TERMINAL = Object.freeze(['handed', 'refused', 'expired', 'abandoned'])
 export const TIERS = Object.freeze(['same', 'smaller', 'other_dry', 'water'])
@@ -394,8 +394,12 @@ export function prepOpen (rec, id, read, done = () => false) {
  * the record never completes over it) | 'stuck' (only cuts this bot has given up: retire the attempt now). Pure; `given(key)` this
  * bot's give-up test.
  */
-export function prepHoldOf (open, given = () => false) {
+export function prepHoldOf (open, given = () => false, { stalls = 0, P = PREP } = {}) {
   if (!open?.n) return 'none'
+  // THE BACKSTOP (Claude code r4 BLOCKER: a seal whose opener changed block -- dirt greened to grass -- is skipped as standing for good,
+  // yet no cut names it): P.stallVisits prep visits in a row that moved nothing -- no placement, no clear -- and the attempt is stuck,
+  // whatever kept it (every dead end of this family, named or not)
+  if (stalls >= P.stallVisits) return 'stuck'
   // Claude code r3 BLOCKER: a seal waits on its opener cut (park.mjs terraceSkip `opener_standing`), and the waiver never names a
   // seal -- a seal under a given-up cut is no more workable than the cut
   const cutK = new Set(open.cuts.map(c => c.at.join(',')))

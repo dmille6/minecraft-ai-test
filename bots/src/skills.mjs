@@ -21138,11 +21138,11 @@ function prepOverlap (plot) {
   return z ? String(z.why ?? 'project') : null
 }
 /** The prepping request on this record and the keeper's hold on it (siteprep.mjs prepHoldOf) -> { id, hold } | null. Never throws. */
-function prepWorking (dir, rec, read, done, given = () => false) {
+function prepWorking (dir, rec, read, done, given = () => false, stalls = null) {
   try {
     const q = prepActive(siteprepHead(dir))
     if (q?.state !== 'prepping' || rec?.prep?.[q.id]?.att !== prepAttempt(q)) return null
-    return { id: q.id, hold: prepHoldOf(prepOpen(rec, q.id, read, done), given) }
+    return { id: q.id, hold: prepHoldOf(prepOpen(rec, q.id, read, done), given, { stalls: Number(stalls?.[`${q.id}:${prepAttempt(q)}`]) || 0 }) }
   } catch { return null }
 }
 /** THE KEEPER'S PREP TICK -> the tidy record's new head | null (unchanged). Never throws but an abort. */
@@ -21222,7 +21222,7 @@ async function prepTick (bot, dir, key, rec, me, signal) {
   // this attempt's work not on the head (a stage advanced over a finished prep, or the work's publish was lost): the requester's
   // own proof on the REAL world decides, as for finished work (Codex r2 BLOCKER 1)
   const open = rec?.prep?.[q.id]?.att === prepAttempt(q) ? prepOpen(rec, q.id, read, done) : null
-  const hold = prepHoldOf(open, k => tidyGivenUp(bot.tidyGiven ?? null, k))
+  const hold = prepHoldOf(open, k => tidyGivenUp(bot.tidyGiven ?? null, k), { stalls: Number(bot.prepStalls?.[`${q.id}:${prepAttempt(q)}`]) || 0 })
   // Claude code r2 BLOCKER: only cuts this keeper has given up are left -- the attempt is retired now (its standing cuts leave the
   // record), never held to its expiry
   if (hold === 'stuck') {
@@ -21436,7 +21436,7 @@ async function buildTidy (ctx, args, signal) {
     const floorOnly = floorNow.length > 0
     let visitRec = floorOnly ? { ...rec, cells: (rec.cells ?? []).filter(q => q.floorFix && !q.prev), segments: (rec.segments ?? []).filter(sg => /^T-F\d+$/.test(sg.seg)), clear: [], replant: [] } : rec
     // siteprep-01: while a requested plot's prep is open the visit works ONLY it (the floor's pattern): a plot in a few visits
-    const prepSt = !floorOnly && SITEPREP.on ? prepWorking(dir, rec, read, q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role), k => tidyGivenUp(mem, k)) : null
+    const prepSt = !floorOnly && SITEPREP.on ? prepWorking(dir, rec, read, q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role), k => tidyGivenUp(mem, k), bot.prepStalls) : null
     const prepNow = prepSt?.hold === 'work' ? prepSt.id : null
     if (prepNow) { f.prep = prepNow; visitRec = { ...rec, cells: (rec.cells ?? []).filter(q => q.prep === prepNow), segments: (rec.segments ?? []).filter(sg => String(sg.seg).startsWith(`${prepNow}-`)), clear: (rec.clear ?? []).filter(q => q.prep === prepNow), replant: [] } }
     if (!caps.digs) visitRec = helperRecord(visitRec)
@@ -21515,6 +21515,9 @@ async function buildTidy (ctx, args, signal) {
       // gkhelpers-01: the crew's segments -- never one within GK.segGap columns of another bot's live one, a raced take yielded, and a
       // segment whose layer below is open passed (the next independent one worked)
       ...(GROUNDS.on ? { segOk: crew.segOk, segYield: crew.segYield, skipOpenDeps: true } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // siteprep-01 r5: a prep visit that moved nothing counts toward the attempt's stall backstop (siteprep.mjs prepHoldOf); one that
+    // placed or cleared resets it
+    if (prepNow) { const sk = `${prepNow}:${rec.prep?.[prepNow]?.att ?? 0}`; bot.prepStalls = { ...(bot.prepStalls ?? {}), [sk]: (r.placed ?? 0) + (r.cleared ?? 0) > 0 ? 0 : (Number(bot.prepStalls?.[sk]) || 0) + 1 } }
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts)
     const read2 = tidyRead(bot)
     const cutAt = new Map((rec.cut ?? []).map(q => [q.at.join(','), q]))
@@ -21572,7 +21575,7 @@ async function buildTidy (ctx, args, signal) {
     const crewHeld = GROUNDS.on && parkish && caps.complete ? parkHeldByCrew(rw, { done: q => buildCellDone(read2(...q.at), palette, q.role), skip: skip2, others: crewPantry(dir, key, me) }).length : 0
     // siteprep-01 r2 (Codex + Claude r2 BLOCKER 1): never complete over a prepping request's open work (its cuts may be given up by
     // this bot): the prep is verified, or retired at its expiry, first
-    const prepHold = SITEPREP.on && (prepWorking(dir, rw, read2, q => !!q.prev || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || buildCellDone(read2(...q.at), palette, q.role), k => tidyGivenUp(mem, k))?.hold ?? 'none') !== 'none'
+    const prepHold = SITEPREP.on && (prepWorking(dir, rw, read2, q => !!q.prev || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || buildCellDone(read2(...q.at), palette, q.role), k => tidyGivenUp(mem, k), bot.prepStalls)?.hold ?? 'none') !== 'none'
     if (prepHold) f.prepHold = 1
     if (caps.complete && !crewHeld && !prog.cutLeft && !prog.fillLeft && !unread && clearsOk && !prepHold) {
       const now = Date.now()
