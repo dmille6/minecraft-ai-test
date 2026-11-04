@@ -730,7 +730,7 @@ export function bucketSituation (bot) {
   } catch { return '' }
 }
 
-export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null }) {
+export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null, depositOffered = true }) {
   const p = bot.entity.position
   const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants })
   const inv = inventorySummary(bot)
@@ -749,7 +749,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     `INVENTORY: ${invStr}`,
     craftableNow(bot, milestone, wanted, noRoom?.item ?? null),
     smeltableNow(bot),
-    depositSituation(bot, memory),
+    depositOffered ? depositSituation(bot, memory) : '',   // DEPOSITOFFER-01: no CARRYING line when deposit is not offered
     `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants }).join(', ') || 'nothing notable'}`,
     actionable.line,
     waterSituation(bot),

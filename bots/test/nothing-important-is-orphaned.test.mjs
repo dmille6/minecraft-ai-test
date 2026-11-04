@@ -209,6 +209,9 @@ const REQUIRED = [
   'bots/test/lavatarget.test.mjs',
   // leasegen-01 (11-05): the 35k-file town directory's lookup budget, the lease sweep, the per-connection timers
   'bots/test/leasegen.test.mjs',
+  // depositoffer-01 (11-04): deposit leaves the per-call skill enum when the gate would refuse it; the deposit rung's floor
+  'bots/src/depositoffer.mjs',
+  'bots/test/depositoffer.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
