@@ -121,6 +121,12 @@ await t('Codex r1 BLOCKER: a BENT living tree (an acacia whose trunk leaves its 
   const r = site(srv)
   assert.ok(!(r.record?.clear ?? []).some(c => c.at[0] === 26), JSON.stringify(r.record?.clear))
   assert.strictEqual(r.band.stumps, 0); assert.ok(r.band.skipped.stump_joined >= 1)
+  // Codex r2: two leafless stumps standing corner to corner are ONE stump group (each touches the other), cleared together
+  const s2 = server()
+  s2.set([26, G + 1, 5], 'oak_log'); s2.set([27, G + 1, 6], 'oak_log')
+  const r2 = site(s2)
+  assert.strictEqual(r2.record?.band?.stumps, 1, JSON.stringify(r2.band))
+  assert.deepStrictEqual(r2.record.clear.map(c => c.at.join(',')).sort(), [`26,${G + 1},5`, `27,${G + 1},6`])
   // the mutant: no join walk -> the acacia's base is cleared as a stump
   await withMutant(TIDY_PATH, "      if (joined) { skip('stump_joined'); continue }\n", '', async M => {
     const m = M.siteStage(srv.read, { home: HOME, land: LAND(), stage: BAND1, env: ON, L: SMALL, terrace: { wall: WALL, records: [] } })

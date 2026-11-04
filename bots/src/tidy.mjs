@@ -1316,13 +1316,16 @@ export function bandTrees (read, { home, box, inBand = () => true, corridor = ()
     if (avoid(x, z) || noLitter(x, z) || logs.some(l => cells.has(l.at.join(',')))) { skip('tree_guarded'); continue }
     trunk.set(k2(x, z), { x, z, logs })
   }
-  // 4-connected trunk columns are one tree (a 2x2 spruce or dark oak)
+  // trunk columns whose logs TOUCH (8 neighbours, heights within 1: a 2x2 spruce or dark oak, two stumps standing corner to corner --
+  // Codex r2) are one tree
+  const span = t => [t.logs[0].at[1], t.logs[t.logs.length - 1].at[1]]
+  const touch = (a, b) => { const [a0, a1] = span(a), [b0, b1] = span(b); return a0 <= b1 + 1 && b0 <= a1 + 1 }
   const seen = new Set(), stumps = [], fells = []
   for (const [k0, t0] of trunk) {
     if (seen.has(k0)) continue
     const grp = [], q = [t0]
     seen.add(k0)
-    for (let i = 0; i < q.length; i++) { grp.push(q[i]); for (const [dx, dz] of N4) { const k = k2(q[i].x + dx, q[i].z + dz); if (trunk.has(k) && !seen.has(k)) { seen.add(k); q.push(trunk.get(k)) } } }
+    for (let i = 0; i < q.length; i++) { grp.push(q[i]); for (const [dx, dz] of N8) { const k = k2(q[i].x + dx, q[i].z + dz); if (trunk.has(k) && !seen.has(k) && touch(q[i], trunk.get(k))) { seen.add(k); q.push(trunk.get(k)) } } }
     const logs = grp.flatMap(g => g.logs)
     const top = Math.max(...logs.map(l => l.at[1]))
     let leaves = false, unread = false
