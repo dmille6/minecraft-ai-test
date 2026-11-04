@@ -60,10 +60,15 @@ export function enchantSwitches (env = process.env, pool = '') {
 }
 
 // ---- the opening and the siting --------------------------------------------------------------------------------------------
-/** The wall extension's hall-size plot -> { id, box: [x0, z0, x1, z1], y } | null. Pure. */
+/** The plot id the workshop takes (coordinator 11-04: X1; X2, the second hall-size plot, is the town hall's). */
+export const ENCHANT_PLOT_ID = 'X1'
+/** The wall extension's plot for the workshop -> { id, box: [x0, z0, x1, z1], y } | null. Pure. The hall-size plot X1 (wallext-01 r2
+ *  reserves two hall-size plots: X1 19 x 13 for the workshop, X2 13 x 19 for the town hall); a record without an X1 (an older
+ *  generation) gives its first hall-size plot that is 19 along x (the workshop's pad runs along x). */
 export function enchantPlotOf (ext) {
   const ok = b => Array.isArray(b) && b.length === 4 && b.every(Number.isFinite)
-  return (ext?.plots ?? []).find(p => p?.kind === ENCHANT_PLOT_KIND && ok(p.box)) ?? null
+  const plots = (ext?.plots ?? []).filter(p => p?.kind === ENCHANT_PLOT_KIND && ok(p.box))
+  return plots.find(p => p.id === ENCHANT_PLOT_ID) ?? plots.find(p => p.box[2] - p.box[0] + 1 >= 19 && p.box[3] - p.box[1] + 1 >= 13) ?? null
 }
 /**
  * THE OPENING RULE -> { open, why, plot }. Pure. The workshop is offered (and sited) only once the wall extension is SITED with a
@@ -160,9 +165,12 @@ export function familyCounts (m = {}) {
  * WHAT THE FITTER MAY USE -> { bag: {name: n}, town: {name: n} } (families folded). Pure. The bag: BAG_SPENDABLE names only. The
  * town: everything it holds, less the keeps (IRON_KEEP iron ingots, DIAMOND_KEEP diamonds). An unknown town (null): only the bag.
  */
-export function fitAvail (bag = {}, town = null, { ironKeep = IRON_KEEP, diamondKeep = DIAMOND_KEEP } = {}) {
+export function fitAvail (bag = {}, town = null, { ironKeep = IRON_KEEP, diamondKeep = DIAMOND_KEEP, owed = {} } = {}) {
   const b = {}
   for (const [k, v] of Object.entries(bag ?? {})) if (BAG_SPENDABLE.has(k) && (Number(v) || 0) > 0) b[k] = Number(v)
+  // r1 (Codex code r1 BLOCKER): the fitter's OWN cargo (what an earlier visit drew and did not place or bank: an abort, a short draw,
+  // a refused placement) is the bag's to spend too, up to what the bag still holds -- else 31 drawn iron read as 31 short for ever
+  for (const [k, v] of Object.entries(cargoOwed(owed, bag))) if (!BAG_SPENDABLE.has(k)) b[k] = v
   const t = town ? familyCounts(town) : {}
   if (t.iron_ingot != null) t.iron_ingot = Math.max(0, t.iron_ingot - ironKeep)
   if (t.diamond != null) t.diamond = Math.max(0, t.diamond - diamondKeep)
@@ -194,6 +202,21 @@ export function fitPlan (item, n = 1, avail = { bag: {}, town: {} }) {
   }
   need(item, Math.max(0, Math.floor(Number(n) || 0)), 0)
   return { ok: Object.keys(short).length === 0, fromBag, take, crafts, short }
+}
+/** THE CARGO THE FITTER STILL OWES -> { name: n }: its cargo file clamped to the bag (a pickup never adds; what left the bag is gone
+ *  from it). Pure. */
+export function cargoOwed (cargo = {}, bag = {}) {
+  const out = {}
+  for (const [k, v] of Object.entries(cargo ?? {})) { const n = Math.min(Number(v) || 0, Number(bag?.[k]) || 0); if (n > 0) out[k] = n }
+  return out
+}
+/** The cargo after a craft step -> { name: n }: the bag's change across the chain (`delta`: what it made up, what it used down -- the
+ *  chain's inputs are the cargo's own) applied to the cargo, clamped to the bag (never the bag's own kit: 31 drawn iron crafted into an
+ *  anvil leaves 0 owed, not the 3 kit ingots). Pure. */
+export const cargoAfter = (cargo = {}, delta = {}, bag = {}) => {
+  const m = { ...(cargo ?? {}) }
+  for (const [k, v] of Object.entries(delta ?? {})) { const d = Number(v) || 0; if (d) m[k] = Math.max(0, (m[k] ?? 0) + d) }
+  return cargoOwed(m, bag)
 }
 /** One slot's state from its cell's block -> 'placed' | 'open' | 'blocked' | 'unknown'. Pure. `b` { name } | null. */
 export function slotState (slot, b) {
@@ -243,7 +266,9 @@ export function fitGates (states = [], avail = { bag: {}, town: {} }) {
     const lost = of.filter(s => s.state === 'lost').length
     const plan = open ? fitPlan(item, open, avail) : { ok: true, short: {} }
     const bill = open ? fitPlan(item, open, { bag: {}, town: {} }).short : {}
-    out.push({ fit, item, placed, of: of.length, open, lost, why: open ? (plan.ok ? 'ok' : 'wait') : 'placed', short: plan.short, need: bill })
+    // r1 (Codex code r1 note): 'placed' only when EVERY slot stands; nothing open but some blocked, unknown or lost is 'held' (the board
+    // keeps its requests as they are)
+    out.push({ fit, item, placed, of: of.length, open, lost, why: open ? (plan.ok ? 'ok' : 'wait') : placed === of.length ? 'placed' : 'held', short: plan.short, need: bill })
   }
   return out
 }

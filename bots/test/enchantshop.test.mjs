@@ -81,6 +81,10 @@ await t('the opening: no extension -> no_extension; no hall-size plot -> no_hall
   assert.strictEqual(E.enchantOpening({ plots: [EXT.plots[1]] }).why, 'no_hall_plot')
   assert.strictEqual(E.enchantOpening({ plots: [{ ...PLOT, box: [0, 0, 10, 10] }] }).why, 'plot_11x11')
   assert.deepStrictEqual(E.enchantOpening(EXT), { open: true, why: 'ok', plot: PLOT })
+  // wallext-01 r2: TWO hall-size plots -- X2 (13 x 19) is the town hall's, the workshop takes X1 whatever the order
+  const X2 = { id: 'X2', kind: 'hall', box: [6, -56, 18, -38], y: [G, G] }
+  assert.strictEqual(E.enchantPlotOf({ plots: [X2, PLOT] }).id, 'X1')
+  assert.strictEqual(E.enchantPlotOf({ plots: [X2] }), null, 'the town hall\'s 13 x 19 alone is not the workshop\'s')
 })
 const ZONES = [{ box: [PLOT.box[0], -64, PLOT.box[1], PLOT.box[2], 320, PLOT.box[3]], why: 'land:plot', id: 'X1' },
   { box: [20, -64, -30, 30, 320, -20], why: 'land:plot', id: 'X2' }]
@@ -178,6 +182,11 @@ await t('the gates: one per furnishing, the ROOT shortfall of every open slot (t
   assert.deepStrictEqual(by.shelves.need, { log: 23, leather: 45, sugar_cane: 135 })
   assert.match(E.gateDetail(by.shelves), /^fit=shelves item=bookshelf why=wait placed=0\/15 open=15 lost=0 short=sugar_cane:135,leather:45 need=sugar_cane:135,leather:45,log:23$/)
 })
+await t('the gate is `placed` only when every slot stands; nothing open but a lost/blocked slot is `held` (Codex r1 note)', () => {
+  const st = [{ item: 'anvil', state: 'lost' }]
+  assert.strictEqual(E.fitGates(st, E.fitAvail({}, {}))[0].why, 'held')
+  assert.strictEqual(E.fitGates([{ item: 'anvil', state: 'placed' }], E.fitAvail({}, {}))[0].why, 'placed')
+})
 await t('fitDue: off, incomplete, no index, the gap, the idle back-off, a full bag or nothing whole -> false; else true', () => {
   const states = stOf(REC, (x, y, z) => BUILT.read(x, y, z))
   const a = E.fitAvail(BAG, TOWN)
@@ -186,6 +195,22 @@ await t('fitDue: off, incomplete, no index, the gap, the idle back-off, a full b
   for (const over of [{ on: false }, { complete: false }, { avail: null }, { lastAt: 1e9 - 1000 }, { idleUntil: 1e9 + 1 }, { freeSlots: 2 }, { avail: E.fitAvail({}, { iron_ingot: 10 }) }]) assert.strictEqual(E.fitDue({ ...base, ...over }), false, JSON.stringify(Object.keys(over)))
 })
 
+await t('THE CARGO (Codex code r1 BLOCKER): drawn iron left in a bag is the next plan\'s (31 owed + 64 town = whole); crafting it away owes nothing; never the kit', () => {
+  const bag = { iron_ingot: 34 }
+  assert.deepStrictEqual(E.fitPlan('anvil', 1, E.fitAvail(bag, { iron_ingot: 64 })).short, { iron_ingot: 31 }, 'the repro: without the cargo, 31 short')
+  const owed = E.cargoOwed({ iron_ingot: 31 }, bag)
+  assert.deepStrictEqual(owed, { iron_ingot: 31 })
+  const p = E.fitPlan('anvil', 1, E.fitAvail(bag, { iron_ingot: 64 }, { owed }))
+  assert.ok(p.ok, JSON.stringify(p.short))
+  assert.deepStrictEqual(p.fromBag, { iron_ingot: 31 }, 'from the bag, the town untouched')
+  // the chain: 27 ingots -> 3 blocks, then 3 blocks + 4 ingots -> the anvil: the cargo goes to the anvil, the kit's 3 stay the kit's
+  const c1 = E.cargoAfter({ iron_ingot: 31 }, { iron_ingot: -27, iron_block: 3 }, { iron_ingot: 7, iron_block: 3 })
+  assert.deepStrictEqual(c1, { iron_ingot: 4, iron_block: 3 })
+  const c2 = E.cargoAfter(c1, { iron_ingot: -4, iron_block: -3, anvil: 1 }, { iron_ingot: 3, anvil: 1 })
+  assert.deepStrictEqual(c2, { anvil: 1 })
+  assert.deepStrictEqual(E.cargoOwed(c2, { iron_ingot: 3 }), {}, 'placed: nothing owed, the kit iron never cargo')
+  assert.deepStrictEqual(E.cargoOwed({ iron_ingot: 31 }, { iron_ingot: 10 }), { iron_ingot: 10 }, 'what left the bag is gone from the cargo')
+})
 console.log('THE REQUESTS (the real board: one request per furnishing and input, closed when no longer short)')
 await t('gate rows -> open table:obsidian, table:leather, shelves:leather ...; the anvil (ok) opens none; obsidian arriving closes it; placed closes all', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'enchreq-'))
@@ -216,6 +241,8 @@ await t('gate rows -> open table:obsidian, table:leather, shelves:leather ...; t
   // a malformed row is no event (positive control above)
   assert.strictEqual(RQ.eventFor(rec('fit=bad!x why=wait short=obsidian:4')), null)
   assert.strictEqual(RQ.eventFor(rec('fit=table why=maybe short=obsidian:4')), null)
+  assert.strictEqual(RQ.eventFor(rec('fit=table why=wait short=broken need=-')), null, 'a wait that names nothing short closes nothing (Codex r1 note)')
+  assert.strictEqual(RQ.eventFor(rec('fit=shelves why=held placed=14/15 open=0 lost=1 short=- need=-')), null, 'held: the board keeps its requests')
 })
 
 console.log('ONE FURNISHING PLACED (the real visit runner on the one-cell record)')

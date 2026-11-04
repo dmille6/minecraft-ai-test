@@ -86,6 +86,8 @@ export function eventFor (rec) {
     if (!fit || !/^[a-z_]+$/.test(fit) || !['wait', 'ok', 'placed'].includes(why)) return null
     const pairs = v => (v && v !== '-' ? v.split(',').map(x => x.split(':')).filter(([i, n]) => /^[a-z_]+$/.test(i ?? '') && Number.isFinite(Number(n))).map(([i, n]) => [i, Number(n)]) : [])
     const short = why === 'wait' ? pairs(field(d, 'short')) : []
+    // r1 (Codex code r1 note): a wait row whose short= reads as nothing (malformed, cut) is no event -- never a close of every request
+    if (why === 'wait' && !short.length) return null
     const need = Object.fromEntries(pairs(field(d, 'need')))
     const forP = `enchant_${fit}`
     const evs = short.map(([item, n]) => ({ t: 'gate', for: forP, item, need: Math.max(n, need[item] ?? n), have: Math.max(0, (need[item] ?? n) - n) }))

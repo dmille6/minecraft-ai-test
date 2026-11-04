@@ -131,7 +131,7 @@ import { HUB_PLOT, HUB_BLUEPRINT, hubSitingPlan, hubRecordOf, hubChestKeys, hubH
 import { STOREHUB } from './shop.mjs'   // storehub-01's switches
 import { ENCHANTSHOP } from './shop.mjs'   // enchantshop-01's switches
 import { ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS, FIT_VISIT_MS, GATE_ROW_MS, enchantOpening, enchantSitingPlan, enchantRecordOf, enchantVisitOpts,
-         fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail } from './enchantshop.mjs'   // enchantshop-01
+         fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
@@ -19258,8 +19258,22 @@ function enchantExtNow (dir = townDir()) { try { const h = recordHead(dir, projK
 function enchantOpenNow (dir = townDir()) { try { return ENCH.on && enchantOpening(enchantExtNow(dir)).open } catch { return false } }
 /** The bot's world read for the fit-out (null: unloaded). */
 const enchantRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
-/** What the fitter may use now (enchantshop.mjs fitAvail: the bag's fit items, the town's index above the keeps) | null (no index). */
-function enchantAvailNow (bot) { try { const t = matsTownStock(bot); return t ? fitAvail(heldMap(bot), t.stock) : null } catch { return null } }
+/** THE FITTER'S CARGO (r1, Codex code r1 BLOCKER): what this bot drew or made for a furnishing and has not placed or banked, in the
+ *  pool's pantry file (one entry per bot) so an abort, a death-free restart or a short visit never strands it: it is the next plan's
+ *  to spend (fitAvail `owed`) or the next visit's to bank. */
+const enchCargoKey = () => `${projKeyOf(ENCHANT_PLOT)}.cargo`
+function enchCargoNow (bot) {
+  if (bot.enchCargo === undefined) { try { bot.enchCargo = { ...(pantryRead(townDir(), enchCargoKey())?.[bot.username ?? 'bot']?.items ?? {}) } } catch { bot.enchCargo = {} } }
+  return bot.enchCargo ?? {}
+}
+function enchCargoWrite (bot, items) {
+  bot.enchCargo = Object.fromEntries(Object.entries(items ?? {}).filter(([, v]) => Number(v) > 0))
+  try { return pantryWrite(townDir(), enchCargoKey(), bot.username ?? 'bot', bot.enchCargo) } catch { return false }
+}
+const enchOwed = bot => fitCargoOwed(enchCargoNow(bot), heldMap(bot))
+/** What the fitter may use now (enchantshop.mjs fitAvail: the bag's fit items and its own owed cargo, the town's index above the keeps)
+ *  | null (no index). */
+function enchantAvailNow (bot) { try { const t = matsTownStock(bot); return t ? fitAvail(heldMap(bot), t.stock, { owed: enchOwed(bot) }) : null } catch { return null } }
 /** ENCHANTSHOP-01: THE WORKSHOP'S SITE -> { ok, record, tried } | { ok: false, why, detail?, tried }. Never throws. The extension's
  *  hall-size plot (enchantSitingPlan: the plot + its stand ring, the plot's own land zone the one zone dropped), searched by
  *  buildsite.mjs siteBlueprint clear of every other reservation, as the storage hall's. */
@@ -19319,6 +19333,8 @@ export function enchantUpkeepDue (bot, rec, now = Date.now()) {
     if (!ENCH.on || !bot || rec?.blueprint !== ENCHANT_BLUEPRINT || !rec.structure_complete) return false
     if (now - (bot.enchVisitAt ?? -Infinity) < FIT_GAP_MS) return false
     if (enchantSignWork(bot, rec).length) return true
+    // r1: owed cargo is always this bot's work (to place, or to bank back), whoever holds the lease
+    if (Object.keys(enchOwed(bot)).length) return true
     if (!ENCH.fit || !enchantFitterFree(bot, now)) return false
     const items = bot.inventory?.items?.() ?? []
     return fitDue({ on: true, complete: true, states: fitStates(rec, enchantRead(bot)), avail: enchantAvailNow(bot), now, lastAt: bot.enchFitAt ?? -Infinity, idleUntil: bot.enchFitIdleUntil ?? 0, freeSlots: BAG_SLOTS - items.length })
@@ -19342,7 +19358,19 @@ async function enchantFitOne (ctx, rec, recordGen, signal, deadline) {
   const avail = enchantAvailNow(bot)
   if (!avail) return done('no_effect', { why: 'index_unknown' })
   const nx = fitNext(fitStates(rec, enchantRead(bot)), avail)
-  if (!nx.slot) { bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS; return done('no_effect', { why: nx.why }) }
+  if (!nx.slot) {
+    bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS
+    // r1: owed cargo no slot can use now goes back to the town (its names above the bag's own, at most the owed count)
+    const owed = enchOwed(bot)
+    if (Object.keys(owed).length && deadline - Date.now() > 20_000) {
+      const h = heldMap(bot)
+      let back = {}
+      try { back = await matsBank(ctx, Object.keys(owed), Object.fromEntries(Object.entries(h).map(([k, v]) => [k, Math.max(0, v - (owed[k] ?? 0))])), signal, owed) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      enchCargoWrite(bot, fitCargoOwed(enchCargoNow(bot), Object.fromEntries(Object.entries(heldMap(bot)).map(([k, v]) => [k, v - Math.max(0, (h[k] ?? 0) - (owed[k] ?? 0))]))))
+      return done(Object.values(back ?? {}).some(v => v > 0) ? 'success' : 'no_effect', { op: 'cargo_back', why: nx.why, back })
+    }
+    return done('no_effect', { why: nx.why })
+  }
   const { slot, plan } = nx
   Object.assign(f, { slot: slot.slot, item: slot.item, at: slot.at })
   const held0 = heldMap(bot)
@@ -19365,12 +19393,17 @@ async function enchantFitOne (ctx, rec, recordGen, signal, deadline) {
       } else need[k] = n
     }
     if (Object.keys(need).length) {
-      const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow)
+      // the cargo is booked as each take lands (matsWithdraw onTook: verified; onUncertain: an abort's or an unsettled visit's MAY-have-
+      // moved), so an abort later in the run strands nothing: the file is clamped to the bag whenever it is read
+      const book = (k, c) => { const m = { ...enchCargoNow(bot) }; m[k] = (m[k] ?? 0) + (Number(c) || 0); enchCargoWrite(bot, m) }
+      const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow, book, book)
       took = { ...(w.took ?? {}) }
+      enchCargoWrite(bot, fitCargoOwed(enchCargoNow(bot), heldMap(bot)))
       check(signal)
       const short = Object.entries(need).filter(([k, n]) => (Number(took[k]) || 0) < n)
-      if (short.length) { bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS; f.op = 'short'; f.why = `withdraw_short:${short.map(([k, n]) => `${k}:${(Number(took[k]) || 0)}/${n}`).join(',')}`.slice(0, 80); return done('no_effect', {}) }
+      if (short.length) { bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS; f.op = 'short'; f.why = `withdraw_short:${short.map(([k, n]) => `${k}:${(Number(took[k]) || 0)}/${n}`).join(',')}`.slice(0, 80) }
     }
+    if (f.op === 'short') { /* nothing crafted or placed: the bank-back below returns the partial draw */ } else {
     // 2. THE CHAIN, deepest first, at the workshop's own table (craft finds the table within reach, else its own)
     const pre = heldMap(bot)
     try {
@@ -19383,6 +19416,8 @@ async function enchantFitOne (ctx, rec, recordGen, signal, deadline) {
     } finally {
       const post = heldMap(bot)
       for (const k of new Set([...Object.keys(pre), ...Object.keys(post)])) { const d = (post[k] ?? 0) - (pre[k] ?? 0); if (d) crafted[k] = d }
+      // r1: what the chain made is cargo too (an iron block, a book), what it used is gone from the bag (the clamp)
+      enchCargoWrite(bot, fitCargoAfter(enchCargoNow(bot), crafted, post))
     }
     if (countItem(bot, slot.item) < 1) { bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS; f.op = 'craft_failed'; f.why = 'no_item' }
     else {
@@ -19401,13 +19436,16 @@ async function enchantFitOne (ctx, rec, recordGen, signal, deadline) {
         })
         bot.shopUnknown ??= new Set()
         const fv = fitVisitRecord(rec, slot)
-        const r = await runVisit({ dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), record: fv.record, recordGen, palette: fv.palette, res: null, resFailed: false, slot: sl.slot, slotGen: sl.gen, slotRef, stands: (bot.enchStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...enchantVisitOpts(rec) }, effects, { deadline: deadline - 20_000, maxSteps: 120 })
+        // the placement ends 45 s before the visit's: the bank-back below keeps its time (Codex code r1 BLOCKER)
+        const r = await runVisit({ dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), record: fv.record, recordGen, palette: fv.palette, res: null, resFailed: false, slot: sl.slot, slotGen: sl.gen, slotRef, stands: (bot.enchStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...enchantVisitOpts(rec) }, effects, { deadline: deadline - 45_000, maxSteps: 120 })
+        enchCargoWrite(bot, fitCargoOwed(enchCargoNow(bot), heldMap(bot)))
         const ok = slotState(slot, enchantRead(bot)(...slot.at)) === 'placed'
         f.op = ok ? 'placed' : 'not_placed'; f.why = r.stop
         // 4. THE STAMP: a placed slot is the record's (a later open read of it is LOST, never rebuilt by itself)
         if (ok) { try { publishRecord(dir, key, cur => (cur?.blueprint === ENCHANT_BLUEPRINT && !(cur.placed ?? []).includes(slot.slot) ? { ...cur, placed: [...(cur.placed ?? []), slot.slot] } : null), { by: me }) } catch { /* the next read stamps nothing: the slot reads placed */ } }
         else bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS
       }
+    }
     }
   } catch (e) {
     if (e?.aborted || signal?.aborted) { f.op = 'aborted'; enchantFitRow(bot, 'aborted', { ...f, took, crafted, ms: Date.now() - t0 }); throw e }
@@ -19416,11 +19454,15 @@ async function enchantFitOne (ctx, rec, recordGen, signal, deadline) {
     if (sl?.ok) releaseLease(dir, key, `slot${sl.slot}`, me, slotRef.gen ?? sl.gen)
     try { effects?.close() } catch { /* gone */ }
   }
-  // 5. THE LEFTOVERS GO BACK: what this visit drew (and what it made of it) that the bag still holds above its start
+  // 5. THE LEFTOVERS GO BACK: what this visit drew (and what it made of it) that the bag still holds above its start -- on EVERY exit
+  // that reaches here (a short draw, a craft failure, a refused placement: Codex code r1 BLOCKER); what is not banked stays CARGO
+  // (the file), the next visit's to place or bank
   try {
-    const left = leftoverNames({ ...took, ...Object.fromEntries(Object.entries(crafted).filter(([, v]) => v > 0)) }, held0, heldMap(bot))
-    if (left.length && deadline - Date.now() > 30_000) back = await matsBank(ctx, left, held0, signal, { ...took, ...Object.fromEntries(Object.entries(crafted).filter(([, v]) => v > 0)) })
-  } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    const caps = { ...took }
+    for (const [k, v] of Object.entries(crafted)) if (v > 0) caps[k] = (caps[k] ?? 0) + v
+    const left = leftoverNames(caps, held0, heldMap(bot))
+    if (left.length && deadline - Date.now() > 15_000) back = await matsBank(ctx, left, held0, signal, caps)
+  } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { enchCargoWrite(bot, fitCargoOwed(enchCargoNow(bot), heldMap(bot))) }
   return done(f.op === 'placed' ? 'success' : 'no_effect', { took, crafted: Object.fromEntries(Object.entries(crafted).filter(([, v]) => v > 0)), placed: Object.values(placedBy).reduce((a, b) => a + b, 0), back })
 }
 /** THE WORKSHOP'S UPKEEP VISIT: its labels, then one furnishing (the fitter's lease). */
