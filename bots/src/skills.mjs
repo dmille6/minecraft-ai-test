@@ -20963,7 +20963,9 @@ function takeKeeper (bot, lease, now = Date.now()) {
     const hl = dropHelperLeases(bot)
     // gkhandover-01: never the keeper lease while a helper lease of this bot is not let go ON DISK (asked again next tick)
     if (!hl.ok) { try { logEvent({ kind: 'keeper', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'keeper_take_deferred', why: 'helper_release_unconfirmed', n: hl.n }) }) } catch { /* telemetry */ } return { ok: false, why: 'helper_release_unconfirmed' } }
-    if (hl.n) now = Math.max(now, Date.now())
+    // Codex r1 BLOCKER: the take is stamped after the helpers were READ, always (a helper that lapsed during the reads is n 0, and a
+    // caller's earlier `now` would backdate the keeper over its tail)
+    now = Math.max(now, Date.now())
   }
   const r = projTakeLease(townDir(), projKeyOf(TIDY_PLOT), GK_LEASE, me, { now, ttl: GK.leaseTtlMs, meta: { term0: termStart(lease, me, now) } })
   if (r.ok && !renewal) { try { logEvent({ kind: 'keeper', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'keeper_take', gen: r.gen }) }) } catch { /* telemetry */ } }

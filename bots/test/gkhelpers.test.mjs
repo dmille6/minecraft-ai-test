@@ -556,7 +556,7 @@ await t('releaseConfirmed: unreadable -> no; another bot\'s later take or a laps
 })
 await t('WIRED: takeKeeper returns before the keeper take when a helper release is unconfirmed; dropHelperLeases re-reads after each release', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/const hl = dropHelperLeases\(bot\)\n\s*if \(!hl\.ok\) \{[^\n]*return \{ ok: false, why: 'helper_release_unconfirmed' \} \}\n\s*if \(hl\.n\) now = Math\.max\(now, Date\.now\(\)\)\n\s*\}\n\s*const r = projTakeLease\(townDir\(\), projKeyOf\(TIDY_PLOT\), GK_LEASE/.test(s), 'the deferral precedes the take')
+  assert.ok(/const hl = dropHelperLeases\(bot\)\n\s*if \(!hl\.ok\) \{[^\n]*return \{ ok: false, why: 'helper_release_unconfirmed' \} \}\n(?:\s*\/\/[^\n]*\n)*\s*now = Math\.max\(now, Date\.now\(\)\)\n\s*\}\n\s*const r = projTakeLease\(townDir\(\), projKeyOf\(TIDY_PLOT\), GK_LEASE/.test(s), 'the deferral precedes the take')
   assert.ok(/done = releaseConfirmed\(projLeaseState\(dir, key, name, \{ ttl: GK\.helperTtlMs \}\), me, Date\.now\(\)\)/.test(s), 're-read after the release')
 })
 
