@@ -61,3 +61,45 @@ test('MUTANT (anchor present and unique): without aimPoint the pour throws point
     assert.match(String(r.why), /minus/)
   } finally { unlinkSync(out) }
 })
+
+test('THE BODY (Claude r1 BLOCKER): a pour into the feet cell or the HEAD cell is refused, whatever the fractional position', () => {
+  const air = { name: 'air', boundingBox: 'empty' }
+  const standingIn = { x: 10, y: 64, z: 5 }
+  const at = (x, y, z) => ({ ...air, position: new Vec3(x, y, z) })
+  assert.match(B.emptyRefusal({ hasWaterBucket: true, target: at(10.3, 64, 5.7), distance: 1, standingIn }), /standing in/)
+  assert.match(B.emptyRefusal({ hasWaterBucket: true, target: at(10.3, 65, 5.7), distance: 1, standingIn }), /head cell/)
+  assert.equal(B.emptyRefusal({ hasWaterBucket: true, target: at(11, 64, 5), distance: 1, standingIn }), null, 'positive control: the cell beside is a pour')
+  assert.equal(B.emptyRefusal({ hasWaterBucket: true, target: at(10, 63, 5), distance: 1, standingIn }), null, 'the cell under the feet (a hole) is a pour')
+})
+
+test('bucketSkill builds its cells from the FLOORED feet (structural: the fractional position was the dead guard)', () => {
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/^\s*\/\/.*$/gm, '')
+  const fn = /\nasync function bucketSkill \([\s\S]*?\n\}\n/.exec(src)?.[0] ?? ''
+  const line = "const p = typeof p0.floored === 'function' ? p0.floored() : p0"
+  assert.equal(fn.split(line).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.ok(!/bot\.entity\?\.position\b[^\n]*\n[^\n]*p\.offset/.test(fn.replace(line, '')))
+  // mutant: without the floor the pour target is fractional -> the body guard (compared as cells) still refuses: the guard itself
+  // now floors (both halves fixed); the floor keeps bucket.mjs's cell-centred aims inside the cell
+  const a = B.emptyAims(new Vec3(10, 64, 5))
+  assert.ok(a.every(q => q.x > 10 && q.x < 11 && q.z > 5 && q.z < 6))
+})
+
+test('MUTANTS (anchors present and unique): no head-cell rule -> a head pour passes; no floor in the body test -> a fractional feet pour passes', async () => {
+  const path = new URL('../src/bucket.mjs', import.meta.url)
+  const src = readFileSync(path, 'utf8')
+  const air = { name: 'air', boundingBox: 'empty' }
+  const standingIn = { x: 10, y: 64, z: 5 }
+  const cases = [
+    ["    if (standingIn.y + 1 === t.y) return 'that is my head cell'\n", '', new Vec3(10.3, 65, 5.7)],
+    ['{ x: Math.floor(tp.x), y: Math.floor(tp.y), z: Math.floor(tp.z) }', '{ x: tp.x, y: tp.y, z: tp.z }', new Vec3(10.3, 64, 5.7)],
+  ]
+  for (const [old, neu, pos] of cases) {
+    assert.equal(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+    const out = new URL(`./_mutant-bucket2-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+    writeFileSync(out, src.replace(old, neu))
+    try {
+      const M = await import(out.href)
+      assert.equal(M.emptyRefusal({ hasWaterBucket: true, target: { ...air, position: pos }, distance: 1, standingIn }), null, 'the mutant lets the body pour through')
+    } finally { unlinkSync(out) }
+  }
+})
