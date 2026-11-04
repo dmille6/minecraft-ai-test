@@ -336,9 +336,11 @@ export function stepCrown (g, crown, { fire = false, lights = false } = {}) {
  * beacon. PALETTE (from what the town can pay for): a pattern (solid | alternate | gradient | base), quoins and a trim course in a
  * second stone, moss. The bill is capped at SINK.billMax (a too-large draw steps the base down). `face0` toward home.
  */
-export function towerDesign (seed, { avail = {}, face0 = 's', torch = false, campfire = false } = {}) {
+export function towerDesign (seed, { avail = {}, face0 = 's', torch = false, campfire = false, pinB = null } = {}) {
   const r = rng(seed)
   let B = pickOf(r, [5, 7, 7, 9])
+  // siteprep-01: a prepared plot's base (the draw is still made: every other knob stays the seed's)
+  if ([5, 7, 9].includes(pinB)) B = pinB
   const H = pickOf(r, [2, 3, 3])
   const spin = r() < 0.5 ? 1 : -1
   const crown = pickOf(r, ['merlons', 'brazier', 'spire', 'beacon'])
@@ -358,9 +360,10 @@ export function towerDesign (seed, { avail = {}, face0 = 's', torch = false, cam
  * 1 or 3 wide, optionally truncated to a broad dais. SUMMIT: temple | brazier | spire | beacon. PALETTE: a pattern over the town's
  * stones, as a tower's. Twins: the caller seeds a mirrored PAIR with one seed.
  */
-export function shrineDesign (seed, { avail = {}, face0 = 's', torch = false, campfire = false } = {}) {
+export function shrineDesign (seed, { avail = {}, face0 = 's', torch = false, campfire = false, pinB = null } = {}) {
   const r = rng(seed)
   let B = pickOf(r, [7, 9, 9, 11, 11, 13])
+  if ([7, 9, 11, 13].includes(pinB)) B = pinB   // siteprep-01 (as towerDesign)
   const [S, H] = pickOf(r, [[1, 1], [2, 1], [2, 2], [1, 2], [2, 2]])
   const all4 = r() < 0.5
   const wide = r() < 0.5
@@ -858,12 +861,18 @@ export function siteSink (read, ctx = {}) {
   }
   const prior = instancesOf(ctx.rec)
   let firstFail = null   // the first proof failure's detail (the `_sink op=no_site` row names it)
+  // siteprep-01: every candidate refusal, tallied (the site request's `rejects`: siteprep.mjs prepWorthy reads it)
+  const rejects = {}
+  // siteprep-01: a PREPARED plot (`ctx.prep`: { id, cx, cz, B, seed, slot?, pair? }) is the one candidate, its spot exact and its base
+  // pinned -- never a search (the keeper's grading made exactly this spot buildable)
+  const prep = ctx.prep && Number.isFinite(ctx.prep.cx) && Number.isFinite(ctx.prep.cz) && Number.isFinite(ctx.prep.seed) ? ctx.prep : null
   // towndress-01: a dress batch is sited over the town's own records (towndress.mjs siteDress: its own candidates, spacing and proof)
   if (kind === 'dress') return siteDress(read, { ...ctx, walkR: ctx.walkR ?? 0 })
   if (kind === 'tower' || kind === 'shrine') {
     const seed0 = sinkSeed(kind, pool, home, n)
     let cands, seedOf
-    if (kind === 'tower') {
+    if (prep) cands = [{ cx: prep.cx, cz: prep.cz, why: 'prep', seed: prep.seed, ...(prep.slot ? { slot: prep.slot, pair: prep.pair } : {}) }]
+    else if (kind === 'tower') {
       const d0 = towerDesign(seed0, { avail, torch, campfire })
       cands = towerCandidates(ctx.wall, home, d0.g.B, seed0).map(c => ({ ...c, seed: seed0 }))
     } else {
@@ -876,30 +885,31 @@ export function siteSink (read, ctx = {}) {
     seedOf = c => c.seed
     for (const c of cands) {
       const face0 = faceToward(c.cx, c.cz, home)
-      const d = kind === 'tower' ? towerDesign(seedOf(c), { avail, face0, torch, campfire }) : shrineDesign(seedOf(c), { avail, face0, torch, campfire })
+      const pinB = prep ? prep.B : null
+      const d = kind === 'tower' ? towerDesign(seedOf(c), { avail, face0, torch, campfire, pinB }) : shrineDesign(seedOf(c), { avail, face0, torch, campfire, pinB })
       const g = d.g, B = g.B
       const why = {}
       let candProofs = 0
-      for (const [dx, dz] of spiral(kind === 'tower' ? 5 : 4)) {
+      for (const [dx, dz] of spiral(prep ? 0 : kind === 'tower' ? 5 : 4)) {
         if (candProofs >= SINK.proofsPerCandidate) break
         const corner = { x: c.cx + dx - (B - 1) / 2, z: c.cz + dz - (B - 1) / 2 }
         const sc = screenStepped(read, { x0: corner.x, z0: corner.z, g, guard: kind === 'shrine' ? guardShrine : guard, hy: home.y, stairCols: groundStairCols(g, corner) })
-        if (!sc.ok) { why[sc.why] = (why[sc.why] ?? 0) + 1; continue }
+        if (!sc.ok) { why[sc.why] = (why[sc.why] ?? 0) + 1; rejects[sc.why] = (rejects[sc.why] ?? 0) + 1; continue }
         const inst = stepInstance(id, d, { corner, baseY: sc.L + 1, fill: sc.fill, seed: seedOf(c), clear: sc.clear })
-        if (inst.cells.length > SINK.billMax) { why.bill = (why.bill ?? 0) + 1; continue }
+        if (inst.cells.length > SINK.billMax) { why.bill = (why.bill ?? 0) + 1; rejects.bill = (rejects.bill ?? 0) + 1; continue }
         const approach = approachOf(g, corner, sc.L)
         const pr = prove(inst, approach, sc.box)
         candProofs++
-        if (!pr.ok) { why[`proof_${pr.why}`] = (why[`proof_${pr.why}`] ?? 0) + 1; firstFail ??= `${pr.why}:${String(pr.detail ?? '').replace(/\s+/g, '_').slice(0, 60)}`; if (proofs >= tries) break; continue }
+        if (!pr.ok) { why[`proof_${pr.why}`] = (why[`proof_${pr.why}`] ?? 0) + 1; rejects[`proof_${pr.why}`] = (rejects[`proof_${pr.why}`] ?? 0) + 1; firstFail ??= `${pr.why}:${String(pr.detail ?? '').replace(/\s+/g, '_').slice(0, 60)}`; if (proofs >= tries) break; continue }
         tried.push(`${c.why}:ok`)
         const meta = { id, n, kind, seed: seedOf(c), design: { ...d, kind }, summary: designSummary(d), box: sc.box, centre: [corner.x + (B - 1) / 2, corner.z + (B - 1) / 2], baseY: sc.L + 1,
-          approach, fill: sc.fill.length, logs: sc.logs, ...(c.slot ? { slot: c.slot, pair: c.pair } : {}), where: c.why }
-        return { ok: true, inst, meta, tried, proofs }
+          approach, fill: sc.fill.length, logs: sc.logs, ...(c.slot ? { slot: c.slot, pair: c.pair } : {}), where: c.why, ...(prep?.id ? { prep: prep.id } : {}) }
+        return { ok: true, inst, meta, tried, proofs, rejects }
       }
       tried.push(`${c.why}:${Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${k}${v}`).join('+') || 'none'}`)
       if (proofs >= tries) break
     }
-    return { ok: false, why: proofs >= tries ? 'no_proven_site' : 'no_site', tried: firstFail ? [...tried, `first:${firstFail}`] : tried, proofs }
+    return { ok: false, why: proofs >= tries ? 'no_proven_site' : 'no_site', tried: firstFail ? [...tried, `first:${firstFail}`] : tried, proofs, rejects }
   }
   if (kind === 'road') {
     const rails = roadRails(ctx.land)
