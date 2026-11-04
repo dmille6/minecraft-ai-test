@@ -125,6 +125,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 import { loadBlueprint, siteBlueprint, siteBlueprintAsync, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
 import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
+import { clerkKeepOf } from './storehub.mjs'   // storehub-01: the clerk throw's keep
 import { HUB_PLOT, HUB_BLUEPRINT, hubSitingPlan, hubRecordOf, hubChestKeys, hubHomes, hubSignSpots, hubVisitOpts, clerkMoves, clerkRoute, clerkTargets, cargoOwed, cargoKeeps, clerkWork, clerkRowDetail, hubThrowable,
          CLERK_STACKS, CLERK_BAG_SPARE, CLERK_GAP_MS, CLERK_IDLE_MS, CLERK_BACKOFF_MS, CLERK_LEASE_MS, CLERK_TERM_MS, CLERK_REST_MS } from './storehub.mjs'   // storehub-01
 import { STOREHUB } from './shop.mjs'   // storehub-01's switches
@@ -9660,7 +9661,7 @@ const wellRefused = (bot, order, reason, said) => {
  * releases the bag, then judges where the throws went, retakes misses and asks the server again.
  * -> { refused, acc, account, misses, retaken, recollected, source, closedOpen, stop, aborted, slotsBefore, slotsAfter }
  */
-async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal, pruned = null, listedOnly = false, keep = null }) {
+async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal, pruned = null, listedOnly = false, keep = null, keepOf = null }) {
   const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null, gclicked: 0, stoneMin: null, swords: 0, peaceful: null, swordsKept: 0, swordsAllowed: false, cobble: 0, cobbleLeft: null, cobbleAllowed: false, pruned: pruned ? { ...pruned } : null }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
                 misses: 0, retaken: 0, recollected: 0, source: 'local', closedOpen: false, stop: null, aborted: null, slotsBefore: null, slotsAfter: null }
   const read = readWellCell(bot)
@@ -9685,7 +9686,8 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       out.cap = pit || listedOnly ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
       out.stock = pit || listedOnly ? null : pruneStockOpts(bot, pruned)   // and every other group at its target (stocktarget design 3.4), and what a prune took
       // storehub-01: `keep` holds a hall clerk's owed cargo on every path (disposeWell's), not only the listed-only one
-      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep })   // the bag AS THE SERVER HOLDS IT
+      // storehub-01: a clerk's throw keeps every name of THIS bag but its cargo's junk (`keepOf`: read here, after the walk)
+      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: keepOf ? keepOf(bot.inventory?.items?.() ?? []) : keep })   // the bag AS THE SERVER HOLDS IT
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
       out.acc.cobbleAllowed = out.cap === 'at_cap'
@@ -9788,7 +9790,10 @@ async function disposeWell (ctx, _args, signal) {
   // storehub-01: the hall CLERK's throw (`via: 'clerk'`) is a listed-only dispose too -- its own keep (every bag name but the cargo's
   // junk), no swords, no cobble at the cap, no stock surplus -- with no junkout row; its well rows say `via=clerk`
   const clerk = _args?.via === 'clerk' && !pruned
-  const viaTag = clerk ? 'via=clerk ' : ''   // the well's rows say whose throw it was (the tripwire's SH1 judges via=clerk rows)
+  // the well's rows say whose throw it was: a clerk's row starts `via=clerk lost=<what went down>` (the tripwire's SH1 judges it; the
+  // detail's own items= is its LAST field, which the logger's 300-character cut can lose -- Claude review of SH1, blocker 1)
+  const viaTag = clerk ? 'via=clerk ' : ''
+  const viaOf = (lost = null) => (clerk ? `via=clerk lost=${Object.entries(lost ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-'} ` : '')
   const visit = (_args?.visit === true || clerk) && !pruned
   const { bot } = ctx
   // storehub-01: a hall clerk's owed cargo is KEPT by every dispose (entrusted stock: the sword, cobble-cap and stock rules never
@@ -9796,6 +9801,9 @@ async function disposeWell (ctx, _args, signal) {
   const cargoKeep = hubCargoKeeps(bot, { forWell: clerk })
   const keep0 = visit && Array.isArray(_args?.keep) ? _args.keep.filter(n => typeof n === 'string') : null   // the goal's wanted names
   const keep = keep0 || cargoKeep.length ? [...(keep0 ?? []), ...cargoKeep] : null
+  // the clerk's ONLY names (its cargo's junk): every other name of the bag the plan reads is kept, at the entry and at the throw
+  const only = clerk && Array.isArray(_args?.only) ? _args.only.filter(n => typeof n === 'string') : null
+  const keepOf = bag => (only ? clerkKeepOf(bag, only, isWellJunk) : keep)
   wellClickedLast = new Set()   // THIS visit's clicks only (Codex r2: a visit that aborts before its throw is graded on none)
   const items = () => bot.inventory?.items?.() ?? []
   const slotsBefore = items().length
@@ -9824,7 +9832,7 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  const entryPlan = visit ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), keep })
+  const entryPlan = visit ? disposePlan(items(), { keep: keepOf(items()) }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), keep })
   if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
@@ -9847,7 +9855,7 @@ async function disposeWell (ctx, _args, signal) {
     bot.stationaryUntil = stationary
     const aim = wellAim({ from: q(), cap, facing, rise: q().y - (cap.y + 1) })
     if (!aim.ok) return fail('well_off_stand', 'off_stand', `the throw was refused from here: ${aim.why}; the next visit stands again`)
-    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit, keep })
+    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit, keep, keepOf: only ? keepOf : null })
     // THE VISITOR'S DUTY without junk to throw: a well found open is closed.
     if (ph.refused === 'nothing_listed' && wellIdentity(read, cap).open) closedOnly = await setWellOpen(bot, cap, false, g.restoreBound, tickNA)
     if (ph.refused === 'nothing_listed' && ph.closedOpen) closedOnly = true
@@ -9868,7 +9876,7 @@ async function disposeWell (ctx, _args, signal) {
     return skip('nothing_listed', 'the server\'s bag holds nothing on the junk list')
   }
   const stop = ph.stop ?? 'done'
-  const detail = viaTag + phaseDetail(ph, cap, stop, capEndOf(bot, cap))
+  const detail = (viaOf(ph.account?.lost) + phaseDetail(ph, cap, stop, capEndOf(bot, cap))).slice(0, 300)
   // what this visit's throws were, as the server named them (junkout-01's J4) -- on every row after a throw phase
   const phF = { listed: entryPlan.junkStacks, n: ph.account?.n ?? 0, offlist: ph.thrown?.offlist ?? 0, swords: ph.acc?.swords ?? 0,
                 cobble: ph.acc?.cobble ?? 0, stock: ph.acc?.stockThrown ?? 0, slotsBefore: ph.slotsBefore ?? slotsBefore, stop }
@@ -18871,7 +18879,7 @@ function hubClerkFree (bot, now = Date.now()) {
 export function hubUpkeepDue (bot, rec, now = Date.now()) {
   try {
     if (!HUB.on || !bot || rec?.blueprint !== HUB_BLUEPRINT || !rec.structure_complete) return false
-    if (Object.keys(hubOwed(bot)).length) return true
+    if (Object.keys(hubOwed(bot)).length) return !(Number(bot.hubCargoRestUntil) > now)
     if (now - (bot.hubVisitAt ?? -Infinity) < CLERK_GAP_MS) return false
     if (hubSignWork(bot, rec).length) return true
     if (!HUB.clerk || !hubClerkFree(bot, now)) return false
@@ -18914,10 +18922,12 @@ async function hubClerkOne (ctx, rec, signal, deadline) {
   const filed = hubCargoNow(bot), gone = {}
   for (const [n, c] of Object.entries(filed)) { const d = (Number(c) || 0) - (owed[n] ?? 0); if (d > 0) gone[n] = d }
   if (Object.keys(gone).length) { hubClerkRow(bot, 'failed', { ...f, phase: 'cargo_gone', took: gone, stop: 'cargo_gone' }); hubCargoWrite(bot, owed) }
-  let src = null, routes = new Map()
+  let src = null, routes = new Map(), holds = {}
   const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))
   if (Object.keys(owed).length) {
     f.phase = 'cargo'
+    // the source this connection took it from (Codex code r1 BLOCKER 3: a recovery with a full hall returns it there)
+    try { const b = bot.hubCargoSrc ? bot.blockAt?.(keyVec(bot.hubCargoSrc)) : null; if (b && isTownContainer(bot, b)) { src = b; f.src = bot.hubCargoSrc } } catch { src = null }
   } else {
     const plan = hubClerkPlan(bot, rec)
     f.skipped = plan?.skipped ?? {}
@@ -18940,14 +18950,21 @@ async function hubClerkOne (ctx, rec, signal, deadline) {
       if (d?.deposit?.length || d?.swap) return { skip: 'bag_room' }
       return d
     }
+    bot.hubCargoSrc = plan.from
     let v
     try { v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000) } catch (e) { hubCargoWrite(bot, hubOwed(bot)); throw e }
-    const took = v.verified ? { ...(v.moved?.took ?? {}) } : {}
-    for (const [n, c] of Object.entries(took)) releaseWithdrawHold(n, c)
-    hubCargoWrite(bot, took)
-    f.took = took
-    if (!Object.keys(took).length) { backoff(plan.from, plan.moves.map(m => m.name)); f.stop = `take:${v.result?.failClass ?? v.skip ?? 'none'}`; hubClerkRow(bot, 'failed', { ...f, ms: Date.now() - t0 }); return { ...f, moved: 0 } }
+    // VERIFIED: the file is what the server confirms was taken. UNVERIFIED (a recount that did not answer, a later transfer that
+    // failed, a cursor to recover: Codex code r1 BLOCKER 1): the intent stays, clamped to the bag -- the bag held none of these kinds
+    // before the take (no merge), so what it holds of them now IS the cargo, protected and delivered like any
+    const took = v.verified ? { ...(v.moved?.took ?? {}) } : null
+    holds = { ...(v.moved?.took ?? {}) }
+    hubCargoWrite(bot, took ?? hubOwed(bot))
     owed = hubOwed(bot)
+    f.took = took ?? { ...owed }
+    if (!Object.keys(owed).length) {
+      for (const [n, c] of Object.entries(holds)) releaseWithdrawHold(n, c)
+      backoff(plan.from, plan.moves.map(m => m.name)); f.stop = `take:${v.result?.failClass ?? v.skip ?? 'none'}`; hubClerkRow(bot, 'failed', { ...f, ms: Date.now() - t0 }); return { ...f, moved: 0 }
+    }
   }
   let moved = 0
   try {
@@ -18957,8 +18974,9 @@ async function hubClerkOne (ctx, rec, signal, deadline) {
     const junk = Object.keys(owed).filter(n => wellOn && hubThrowable(n, isWellJunk) && (!routes.size || routes.get(n)?.to === 'well'))
     if (junk.length && deadline - Date.now() > 25_000) {
       check(signal)
-      const keepAll = Object.keys(heldMap(bot)).filter(n => !junk.includes(n))
-      const r = await disposeWell(ctx, { via: 'clerk', keep: keepAll }, signal)
+      // `only` (Codex code r1 BLOCKER 2): the throw plan keeps EVERY name of the bag it reads at the throw but these -- a decoration
+      // picked up on the walk is never thrown
+      const r = await disposeWell(ctx, { via: 'clerk', only: junk }, signal)
       // EVERY name the well reports lost goes on the row (junked=: the tripwire's SH1 judges each against the keep lists), not only
       // the junk the plan meant
       for (const [n, c] of Object.entries(r?.lost ?? {})) if (Number(c) > 0) f.junked[n] = Number(c)
@@ -18990,6 +19008,15 @@ async function hubClerkOne (ctx, rec, signal, deadline) {
     // WHAT FOUND NO ROOM goes back to its source (a full hall is a backlog, never a reason to keep or throw: Codex)
     owed = hubOwed(bot)
     const rest = Object.keys(owed)
+    // no source known (a restart since the take): the town chest the index shows with the most room (scattered, never held for ever)
+    if (rest.length && !src) {
+      try {
+        const keys = hubChestKeys(rec), home = homeVec()
+        const cand = Object.entries(sortKnownEntries(bot)).filter(([k, e]) => !keys.has(k) && inTownStoreBox(home, keyVec(k)) && e.size - e.used >= 1).sort((a, b) => (b[1].size - b[1].used) - (a[1].size - a[1].used))[0]
+        const b = cand ? bot.blockAt?.(keyVec(cand[0])) : null
+        if (b && isTownContainer(bot, b)) src = b
+      } catch { src = null }
+    }
     if (rest.length && src && deadline - Date.now() > 12_000) {
       for (const name of rest) {
         const p = await hubPutOne(bot, posKey(src.position), name, owed[name], deadline, signal)
@@ -18999,11 +19026,15 @@ async function hubClerkOne (ctx, rec, signal, deadline) {
     }
   } catch (e) {
     hubCargoWrite(bot, hubOwed(bot))
-    if (e?.aborted || signal?.aborted) { f.stop = 'aborted'; f.cargoLeft = hubOwed(bot); hubClerkRow(bot, 'aborted', { ...f, ms: Date.now() - t0 }); throw e }
+    if (e?.aborted || signal?.aborted) { for (const [n, c] of Object.entries(holds)) releaseWithdrawHold(n, c); f.stop = 'aborted'; f.cargoLeft = hubOwed(bot); hubClerkRow(bot, 'aborted', { ...f, ms: Date.now() - t0 }); throw e }
     f.stop = `error:${String(e?.message ?? e).slice(0, 30)}`
   }
   hubCargoWrite(bot, hubOwed(bot))
+  for (const [n, c] of Object.entries(holds)) releaseWithdrawHold(n, c)
   f.cargoLeft = hubOwed(bot)
+  if (!Object.keys(f.cargoLeft).length) bot.hubCargoSrc = null
+  // a recovery that delivered nothing rests (Codex code r1 BLOCKER 3): owed cargo is `due` again only after CLERK_IDLE_MS
+  if (Object.keys(f.cargoLeft).length && !(moved > 0)) bot.hubCargoRestUntil = Date.now() + CLERK_IDLE_MS
   if (f.stop === '-') f.stop = Object.keys(f.cargoLeft).length ? 'cargo_left' : 'done'
   hubClerkRow(bot, moved > 0 ? 'success' : 'no_effect', { ...f, ms: Date.now() - t0 })
   if (!(moved > 0)) bot.hubClerkIdleUntil = Date.now() + CLERK_IDLE_MS

@@ -358,6 +358,12 @@ export function cargoOwed (cargo = {}, held = {}) {
 /** The names a holder's cargo makes KEEPS for every other bag rule (the well's dispose, the town deposit) -> [name]: every owed name,
  *  except (for the clerk's own well throw: `forWell`) the names it is throwing. Pure. */
 export const cargoKeeps = (owed = {}, { forWell = false, isJunk = () => true } = {}) => Object.keys(owed).filter(n => !(forWell && hubThrowable(n, isJunk)))
+/** THE CLERK THROW'S KEEP for a bag -> [name]: every name the bag holds but `only` (its cargo's junk, each HUB_THROWABLE), so a
+ *  decoration picked up on the walk to the well is never thrown (well.mjs disposePlan's `keep`; Codex code r1 BLOCKER 2). Pure. */
+export const clerkKeepOf = (bag = [], only = [], isJunk = () => true) => {
+  const ok = new Set((only ?? []).filter(n => hubThrowable(n, isJunk)))
+  return [...new Set((bag ?? []).map(it => it?.name).filter(n => n && !ok.has(n)))]
+}
 /** THE CLERK'S WORK FOR A BOT NOW -> 'cargo' | 'move' | null. Pure. */
 export function clerkWork ({ on = true, owed = {}, plan = null, restUntil = 0, lastAt = -Infinity, now = Date.now() } = {}) {
   if (!on) return null

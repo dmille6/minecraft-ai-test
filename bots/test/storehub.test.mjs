@@ -220,6 +220,17 @@ await t('the cargo: owed is the file clamped to the bag; its keeps leave out onl
   assert.strictEqual(H.clerkWork({ plan: {}, lastAt: 0 }), 'move')
   assert.strictEqual(H.clerkWork({ on: false, owed: { coal: 1 } }), null)
 })
+await t('the clerk\'s throw (well.mjs disposePlan with clerkKeepOf): only its cargo\'s junk, never a decoration picked up on the walk', () => {
+  const bag = [{ slot: 9, name: 'flint', count: 10 }, { slot: 10, name: 'white_stained_glass', count: 5 }, { slot: 11, name: 'iron_ingot', count: 3 }, { slot: 12, name: 'granite', count: 20 }, { slot: 13, name: 'cobblestone', count: 64 }, { slot: 14, name: 'cobblestone', count: 64 }]
+  const p = W.disposePlan(bag, { keep: H.clerkKeepOf(bag, ['flint'], W.isWellJunk) })
+  assert.deepStrictEqual(p.stacks.map(x => x.name), ['flint'])
+  const p0 = W.disposePlan(bag, {})
+  assert.ok(p0.stacks.some(x => x.name === 'white_stained_glass'), 'the positive control: the plain plan WOULD throw the decoration')
+  const p2 = W.disposePlan(bag, { keep: H.clerkKeepOf(bag, ['flint', 'iron_ingot', 'white_stained_glass'], W.isWellJunk) })
+  assert.deepStrictEqual(p2.stacks.map(x => x.name), ['flint'], 'a kept kind passed as `only` is still kept (the allowlist is re-checked)')
+  const p3 = W.disposePlan(bag, { keep: H.clerkKeepOf(bag, ['granite'], W.isWellJunk) })
+  assert.deepStrictEqual(p3.stacks.map(x => x.name), ['granite'], 'a scaffold decoration goes, above the well\'s 64 stone guard')
+})
 await t('the switches: on in the showcase pool; STOREHUB=off, STOREHUB_CLERKS=0, STOREHUB_WELL=off each stop their part', () => {
   assert.strictEqual(H.hubSwitches({}, 'showcase').on, true)
   assert.strictEqual(H.hubSwitches({}, 'hive-a').on, false)
@@ -276,16 +287,19 @@ const SH = strip(readFileSync(new URL('../src/shop.mjs', import.meta.url), 'utf8
 const WIRES = {
   'the project, after the storehouse': /Object\.freeze\(\{ plot: HUB_PLOT, blueprint: HUB_BLUEPRINT, after: STORE_PLOT, builders: HUB_BUILDERS \}\)/,
   'its switch': /p\.plot === HUB_PLOT \? hub && store && on/,
-  'the registry in the town scan': /for \(const k0 of townExtraKeys\(home\)\) \{\n\s*const c = keyVec\(k0\)\n\s*const b = bot\.blockAt\?\.\(c\)\n\s*if \(b && CONTAINER_RE\.test\(blockNameOf\(bot, b\) \?\? ''\) && depositTargetOk\(home, c\)\) keys\.add\(containerKey\(bot, c\)\)/,
+  'the registry in the town scan': /for \(const k0 of townExtraKeys\(home\)\) \{\n\s*const c = keyVec\(k0\)\n\s*const b = bot\.blockAt\?\.\(c\)\n\s*if \(!b\) \{ coverage = false; continue \}\s*\n\s*if \(CONTAINER_RE\.test\(blockNameOf\(bot, b\) \?\? ''\) && depositTargetOk\(home, c\)\) keys\.add\(containerKey\(bot, c\)\)/,
   'the siting': /const ss = await hubSiteFor\(bot, \{ \.\.\.h\.head\.plan, gen: h\.head\.gen \}, c, stood, signal\)/,
   'the upkeep visit': /if \(plot === HUB_PLOT && rec\.structure_complete && !recordDamaged\(bot, rec, \{ tidy: false \}\) && hubUpkeepDue\(bot, rec\)\) return hubUpkeepVisit\(ctx, rec, signal, out\)/,
   'the stands': /const storeOpts = rec\.blueprint === HUB_BLUEPRINT \? hubVisitOpts\(rec\) :/,
   'the order sees the upkeep': /if \(tidy && r\.blueprint === HUB_BLUEPRINT && hubUpkeepDue\(bot, r\)\) return true/,
   'the cargo intent before the take': /if \(!hubCargoWrite\(bot, Object\.fromEntries\(want\.map\(w => \[w\.name, w\.count\]\)\)\)\) \{/,
-  'the clerk\'s throw is listed-only': /const clerk = _args\?\.via === 'clerk' && !pruned\n\s*const visit = \(_args\?\.visit === true \|\| clerk\) && !pruned/,
+  'the clerk\'s throw is listed-only': /const clerk = _args\?\.via === 'clerk' && !pruned\n(?:.*\n){0,6}?\s*const visit = \(_args\?\.visit === true \|\| clerk\) && !pruned/,
   'every dispose keeps the cargo': /const cargoKeep = hubCargoKeeps\(bot, \{ forWell: clerk \}\)/,
-  'the throw plan reads the keep': /stock: out\.stock, keep \}\)/,
+  'the throw plan reads the keep': /stock: out\.stock, keep: keepOf \? keepOf\(bot\.inventory\?\.items\?\.\(\) \?\? \[\]\) : keep \}\)/,
+  'the clerk throws ONLY its junk names, judged on the bag at the throw': /const r = await disposeWell\(ctx, \{ via: 'clerk', only: junk \}, signal\)/,
+  'an unverified take keeps its intent': /hubCargoWrite\(bot, took \?\? hubOwed\(bot\)\)/,
   'the pit throw keeps the cargo': /signal, keep: hubCargoKeeps\(bot\) \}\)/,
+  'the clerk\'s well row names what went down FIRST (the logger\'s cut never reaches it)': /const detail = \(viaOf\(ph\.account\?\.lost\) \+ phaseDetail\(ph, cap, stop, capEndOf\(bot, cap\)\)\)\.slice\(0, 300\)/,
   'the clerk throws only its junk': /const junk = Object\.keys\(owed\)\.filter\(n => wellOn && hubThrowable\(n, isWellJunk\) && \(!routes\.size \|\| routes\.get\(n\)\?\.to === 'well'\)\)/,
 }
 await t('wiring: the project, its switch, the registry, the siting, the upkeep, the stands, the cargo, the clerk\'s throw', () => {
@@ -298,7 +312,8 @@ await t('MUTANTS KILLED: each wiring check fails on its line broken (anchor pres
   const lines = {
     'the cargo intent before the take': ['if (!hubCargoWrite(bot, Object.fromEntries(want.map(w => [w.name, w.count])))) {', 'if (false) {'],
     'every dispose keeps the cargo': ['const cargoKeep = hubCargoKeeps(bot, { forWell: clerk })', 'const cargoKeep = []'],
-    'the throw plan reads the keep': ['stock: out.stock, keep })', 'stock: out.stock, keep: null })'],
+    'the throw plan reads the keep': ['stock: out.stock, keep: keepOf ? keepOf(bot.inventory?.items?.() ?? []) : keep })', 'stock: out.stock, keep })'],
+    'an unverified take keeps its intent': ['hubCargoWrite(bot, took ?? hubOwed(bot))', 'hubCargoWrite(bot, took ?? {})'],
     'the clerk throws only its junk': ["const junk = Object.keys(owed).filter(n => wellOn && hubThrowable(n, isWellJunk) && (!routes.size || routes.get(n)?.to === 'well'))", 'const junk = Object.keys(owed)'],
   }
   for (const [what, [old, neu]] of Object.entries(lines)) {
@@ -306,6 +321,16 @@ await t('MUTANTS KILLED: each wiring check fails on its line broken (anchor pres
     const mut = SK.replace(old, neu)
     assert.notStrictEqual((mut.match(new RegExp(WIRES[what].source, 'g')) ?? []).length, 1, `the check survives the mutant: ${what}`)
   }
+})
+
+await t('the tripwire\'s copy of the lists (shopread.py.txt SH1) is this module\'s, when the read is on this branch', () => {
+  let src = null
+  try { src = readFileSync(new URL('../../docs/reports/shop-01-2026-10-25/shopread.py.txt', import.meta.url), 'utf8') } catch { src = null }
+  if (!src || !/HUB_THROWABLE = frozenset\(/.test(src)) { console.log('        (shopread.py.txt on this branch has no SH1 yet: the read\'s own selftest checks the copy)'); return }
+  const m = /HUB_THROWABLE = frozenset\(\[([\s\S]*?)\]\)/.exec(src)
+  assert.deepStrictEqual([...m[1].matchAll(/'([a-z_]+)'/g)].map(x => x[1]).sort(), [...H.HUB_THROWABLE].sort())
+  const n = /HUB_NEVER_THROW = re\.compile\(r'(.*)'\)\n/.exec(src)
+  assert.strictEqual(n?.[1], H.HUB_NEVER_THROW.source)
 })
 
 console.log(`\nstorehub: ${pass} passed, ${fail} failed`)
