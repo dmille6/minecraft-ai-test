@@ -11,6 +11,8 @@
 import { log, logEvent } from './logger.mjs'
 import { lavatargetModeDetail } from './lavatarget.mjs'   // lavatarget-01's licence row
 import { snapshot } from './state.mjs'
+import { attachPlaceAudit, placeAuditOn } from './placeaudit.mjs'   // placeaudit-01
+import { configuredHome } from './townground.mjs'   // placeaudit-01
 import { config } from './config.mjs'
 import { kitSearchModeDetail, ironpickModeDetail } from './toolkit.mjs'
 import { townPlanModeDetail } from './townplan.mjs'   // townplan-01's licence row
@@ -103,6 +105,20 @@ export function installRequests (bot, { env = process.env, pool = config.memory.
 
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
 export function installFeatures (bot) {
+  // placeaudit-01: the `_place_town` instrument (placeaudit.mjs; TELEMETRY ONLY) and its licence row `_placeaudit_mode`
+  // (PLACEAUDIT=off -> on=0, not wrapped)
+  try {
+    const on = placeAuditOn(process.env)
+    logEvent({ kind: 'placeaudit_mode', status: 'success', snapshot: snapshot(bot), detail: `phase=mode v=1 on=${on ? 1 : 0}` })
+    if (on) {
+      const pa = attachPlaceAudit(bot, {
+        home: configuredHome(config.world),
+        emitPlace: ({ detail, args }) => { try { logEvent({ kind: 'place_town', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+        emitSummary: ({ detail, args }) => { try { logEvent({ kind: 'place_town_sum', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+      })
+      if (pa) bot.once?.('end', () => { try { pa.final() } catch { /* telemetry */ } })
+    }
+  } catch (e) { log('warn', 'place audit not attached', { error: e?.message }) }
   // expedition-01: the ask buildOrder puts to a bot the projects cannot use, and `_expedition_mode` (on=0 under EXPEDITION=off)
   try { expeditionInstall(bot) } catch (e) { log('warn', 'expedition not installed', { error: e.message }) }
   try { copperRunInstall(bot) } catch (e) { log('warn', 'copper run not installed', { error: e.message }) }
