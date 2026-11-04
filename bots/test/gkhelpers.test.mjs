@@ -472,7 +472,8 @@ await t('beside a build: a 2-high dirt step against a wall goes; a grass bump th
   srv.set([2, G + 1, 1], 'grass_block')                                    // a natural bump beside it
   for (let y = G + 1; y <= G + 4; y++) srv.set([-2, y, 1], 'dirt')         // 4 high: past INWALL.litterMax
   const avoid = (x, z) => (z >= -1 && z <= 1 && x >= -3 && x <= 3 ? 'project:wall' : null)
-  const s = T.surveyInwall(srv.read, { home: HOME, box: [-5, -5, 5, 5], avoid, cells })
+  // access-01: with the staircase off (its own test file builds the stair instead); the cut rule is the fallback
+  const s = T.surveyInwall(srv.read, { home: HOME, box: [-5, -5, 5, 5], avoid, cells, T: { ...T.INWALL, access: false } })
   const ks = s.cut.map(c => c.at.join(','))
   assert.deepStrictEqual(ks.filter(k => k.endsWith(',1')), [`0,${G + 2},1`, `0,${G + 1},1`])
   assert.ok(!ks.some(k => k.endsWith(',0')), 'never the wall')

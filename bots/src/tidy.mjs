@@ -40,6 +40,9 @@ export const TIDY_PALETTE = Object.freeze({ earth: ['dirt', 'cobblestone', 'coar
   // groundskeeper-01: a BURIED fill cell (under a column's top fill) takes the town's surplus cobblestone first (a sink for the
   // resource model, resource-model-1102); the top stays dirt (it greens); a road's light is a torch
   core: ['cobblestone', 'cobbled_deepslate', 'dirt', 'coarse_dirt', '*solid'], light: ['torch'],
+  // access-01 (owner 11-04 "no dirt steps"): a proper step where bots climbed -- the town's stone, never dirt, never `*solid` (a dirt
+  // block left in an access cell reads open: the runner digs it out and lays stone)
+  access: ['cobblestone', 'stone_bricks', 'cobbled_deepslate', 'mossy_cobblestone', 'stone', 'andesite'],
   // townterrace-01: the park's plantings and tool uses (park.mjs PARK_PALETTE)
   ...PARK_PALETTE })
 /** A complete tidy is surveyed again after this long (the bots keep digging and climbing). */
@@ -772,6 +775,63 @@ export function inwallNoLitter (records = []) {
 }
 /** The avoid reasons that are a BUILD's box (litter on it may go), never a zone, a well, a farm, the tree farm or the stock yard. */
 const BUILD_WHY = /^(project|plan_cell|plan_box|plan_plot)$|^project:(?!yard$|treefarm$|land$|tidy$)/
+// ================================================================================================================================
+// ACCESS-01 (owner 11-04: "if a bot needs to place a dirt block to get somewhere that means there isnt access"; groundskeeper piece 3):
+// where bots built a dirt climb against a build, the groundskeeper builds a PROPER staircase of the town's stone in its place -- each
+// step one block (a walk, never a jump of 2), head room above every step, a landing at the foot -- instead of cutting the climb away.
+// LIVE showcase 11-04 copy: 13 climbs on or beside builds inside the wall, up to 3 high.
+// ================================================================================================================================
+export const ACCESS = Object.freeze({ supportMax: 4, headRoom: 2 })
+/** Columns a staircase never uses -> (x, z) -> bool: within 1 of a record's door or its front approach (storehouse.mjs `door`,
+ *  `frontOpen`; a house's `door`) -- a step there would block the way in. Pure. */
+export function accessNoStair (records = []) {
+  const cols = []
+  for (const r of records ?? []) {
+    if (Array.isArray(r?.door) && r.door.length === 3) cols.push([r.door[0], r.door[2]])
+    for (const f of r?.frontOpen ?? []) if (Array.isArray(f) && f.length >= 2) cols.push([f[0], f[f.length - 1]])
+  }
+  return (x, z) => cols.some(([cx, cz]) => Math.max(Math.abs(cx - x), Math.abs(cz - z)) <= 1)
+}
+/**
+ * A STAIRCASE FOR A CLIMB -> { cells: [[x, y, z]], dir: [dx, dz], cols: ["x,z"] } | null. Pure over `read`.
+ *   x, z, top, base  the climb's column, its top block's y and the ground beside it (the climb is h = top - base blocks)
+ *   col(x, z)        tidyColumn (memoised);  cellCols  Set "x,z" of the record cells' columns (the build)
+ *   free(x, z)       may the stair use this column (no zone, no other project's cells, not reserved, not yet planned)
+ * The stair runs AWAY from the build: the build's column is the climb's 4-neighbour in -dir; step i (0 at the climb) stands in column
+ * climb + dir * i with its top at top - i, every cell from its ground up to that top laid (at most supportMax deep). Every step has
+ * `headRoom` cells of air above it; the landing (climb + dir * h) is ground at most one below the last step, with head room. The
+ * first direction (N, S, W, E order of the build's side) that fits wins; none -> null (the climb is cut, as inwall does).
+ */
+export function planAccessStair (read, { x, z, top, base, col, cellCols = new Set(), free = () => true, T = ACCESS } = {}) {
+  const h = top - base
+  if (!(h >= 1)) return null
+  const ground = c => !!c && !c.why && c.y != null && !c.tree
+  const open = (ax, ay, az) => { const b = read(ax, ay, az); return !!b && (AIRN(nm(b)) || replaceableCell(b) || b.boundingBox === 'empty') && !isLiquid(b) }
+  for (const [dx, dz] of N4) {
+    if (!cellCols.has(k2(x - dx, z - dz))) continue                 // the build is behind the climb on this side
+    const cells = [], cols = []
+    let ok = true
+    for (let i = 0; i < h && ok; i++) {
+      const cx = x + dx * i, cz = z + dz * i, yi = top - i
+      if (cellCols.has(k2(cx, cz)) || (i > 0 && !free(cx, cz))) { ok = false; break }
+      const c = col(cx, cz)
+      if (!ground(c) || c.y > yi || yi - c.y > T.supportMax + (i === 0 ? h : 0)) { ok = false; break }
+      for (let d = 1; d <= T.headRoom; d++) if (!open(cx, yi + d, cz)) { ok = false; break }
+      if (!ok) break
+      for (let y = (i === 0 ? base : c.y) + 1; y <= yi; y++) cells.push([cx, y, cz])
+      cols.push(k2(cx, cz))
+    }
+    if (!ok) continue
+    const lx = x + dx * h, lz = z + dz * h, lc = col(lx, lz), last = top - h + 1
+    if (!ground(lc) || cellCols.has(k2(lx, lz)) || last - lc.y > 1 || lc.y > last) continue
+    let room = true
+    for (let d = 1; d <= T.headRoom; d++) if (!open(lx, lc.y + d, lz)) room = false
+    if (!room) continue
+    return { cells, dir: [dx, dz], cols }
+  }
+  return null
+}
+
 /**
  * THE INSIDE-THE-WALL SURVEY -> { ok, why, cut, fill, pillars, pits, litter, skipped } (tidyRecord's input). Pure over `read`.
  *   STRAY BLOCKS  a column whose top stands above ALL 8 neighbours' (each read ground): its SPOIL blocks above the highest neighbour,
@@ -783,7 +843,7 @@ const BUILD_WHY = /^(project|plan_cell|plan_box|plan_plot)$|^project:(?!yard$|tr
  *                 lowest neighbour, at most INWALL.holeMax deep; never water, never a column `avoid` names or a record cell's column
  *   cells  Set "x,y,z" of every project's record cells (the tidy's guard); box [x0, z0, x1, z1]
  */
-export function surveyInwall (read, { home, box, avoid = () => null, cells = new Set(), noLitter = () => false, reserved = () => false, water = 'strict', waterOk = () => false, T = INWALL } = {}) {
+export function surveyInwall (read, { home, box, avoid = () => null, cells = new Set(), noLitter = () => false, reserved = () => false, noStair = () => false, water = 'strict', waterOk = () => false, T = INWALL } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   if (!home || !Array.isArray(box)) return { ok: false, why: 'no_box', cut: [], fill: [], pillars: [], pits: [], litter: 0, skipped }
@@ -792,10 +852,13 @@ export function surveyInwall (read, { home, box, avoid = () => null, cells = new
   const col = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, tidyColumn(read, x, z, { yHi, yLo })); return memo.get(k) }
   const ground = c => !!c && !c.why && c.y != null
   const cellCols = new Set([...cells].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
-  const cut = [], fill = [], pillars = [], pits = []
+  const cut = [], fill = [], pillars = [], pits = [], access = []
+  // access-01: the columns a plan of this survey already uses (a staircase never runs over a cut, a fill or another staircase)
+  const planned = new Set()
   let litter = 0
   for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
     const why = avoid(x, z)
+    if (planned.has(k2(x, z))) { skip('planned'); continue }
     // ---- ON A BUILD: the topmost block of the column, read whatever tidyColumn calls it (a roof's slab reads `built`) ----
     // Codex r1 BLOCKER 1: the stock yard's piles and the tree farm (`noLitter`: their record boxes, from the records themselves --
     // pathAvoid names a yard floor column only `project`) are never litter
@@ -826,8 +889,17 @@ export function surveyInwall (read, { home, box, avoid = () => null, cells = new
       let ok0 = true
       for (let yy = c0.y; yy > base0; yy--) { const n = nm(read(x, yy, z)); if (cells.has(`${x},${yy},${z}`) || !SPOIL.test(n) || n === 'grass_block') { ok0 = false; break } bl.push({ at: [x, yy, z], name: n }) }
       if (!ok0) { skip('beside_natural'); continue }
+      // access-01: a proper staircase where the climb stood (planAccessStair), the climb's own dirt read open in its cells -- else cut
+      const stair = T.access === false || noStair(x, z) ? null : planAccessStair(read, { x, z, top: c0.y, base: base0, col, cellCols, free: (sx, sz) => !planned.has(k2(sx, sz)) && !noLitter(sx, sz) && !reserved(sx, sz) && !noStair(sx, sz) && (() => { const w = avoid(sx, sz); return !w || BUILD_WHY.test(String(w)) })() })
+      if (stair) {
+        const id = `a${access.length}`
+        access.push({ id, col: [x, z], top: c0.y, base: base0, h: c0.y - base0, dir: stair.dir, cells: stair.cells })
+        for (const k of stair.cols) planned.add(k)
+        continue
+      }
       for (const s of bl) cut.push({ ...s, pillar: `b${litter}` })
       pillars.push({ id: `b${litter}`, col: [x, z], top: c0.y, base: base0, h: bl.length, onBuild: true, beside: true }); litter++
+      planned.add(k2(x, z))
       continue
     }
     const c = col(x, z)
@@ -851,6 +923,7 @@ export function surveyInwall (read, { home, box, avoid = () => null, cells = new
       const id = `s${pillars.length}`
       pillars.push({ id, col: [x, z], top: c.y, base, h: blocks.length })
       for (const b of blocks) cut.push({ ...b, pillar: id })
+      planned.add(k2(x, z))
       continue
     }
     // ---- HOLES ----
@@ -861,9 +934,17 @@ export function surveyInwall (read, { home, box, avoid = () => null, cells = new
       const id = `h${pits.length}`
       pits.push({ id, cols: [[x, z]], n: lo - c.y })
       for (let y = c.y + 1; y <= lo; y++) fill.push({ at: [x, y, z], pit: id })
+      planned.add(k2(x, z))
     }
   }
-  return { ok: true, why: 'ok', cut, fill, pillars, pits, litter, skipped }
+  // access-01: the staircases' cells as layered fills (tidyRecord: each layer waits on the one below), named role `access` by the
+  // stage (accessCells)
+  for (const a of access) {
+    const cs = [...new Set(a.cells.map(c => k2(c[0], c[2])))].map(k => k.split(',').map(Number))
+    pits.push({ id: a.id, cols: cs, n: a.cells.length, access: true })
+    for (const at of a.cells) fill.push({ at, pit: a.id, access: true })
+  }
+  return { ok: true, why: 'ok', cut, fill, pillars, pits, litter, access, skipped }
 }
 
 /**
@@ -897,13 +978,17 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   // gkstage-01: inside the wall (surveyInwall), the box the wall encloses (the terrace's inputs carry the wall record)
   if (st.id === INWALL_STAGE) {
     const box = inwallBox(terrace?.wall ?? null, home)
-    const sv = surveyInwall(read, { home, box, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved, water, waterOk })
+    const sv = surveyInwall(read, { home, box, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved, noStair: accessNoStair(terrace?.records ?? []), water, waterOk })
     if (!sv.ok) return { ok: false, why: sv.why, record: null, survey: sv, road: null }
     const record = tidyRecord(sv, { home, plan, now, r: Math.max(TIDY.r, Math.abs(box[0] - home.x), Math.abs(box[2] - home.x), Math.abs(box[1] - home.z), Math.abs(box[3] - home.z)) })
     if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null }
     record.stage = legacyStage(st); record.stageId = st.id; record.terraceV = 1
     record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null
-    record.inwall = { box, pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped }
+    // access-01: the staircase cells are role `access` (TIDY_PALETTE.access: stone, never dirt)
+    const acc = new Set((sv.fill ?? []).filter(f => f.access).map(f => f.at.join(',')))
+    if (acc.size) record.cells = record.cells.map(c => (acc.has(c.at.join(',')) ? { ...c, role: 'access' } : c))
+    record.inwall = { box, pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.filter(q => !q.access).length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped,
+      access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length })) }
     return { ok: true, why: 'ok', record, survey: sv, road: null }
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
