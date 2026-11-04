@@ -290,7 +290,7 @@ const WIRES = {
   'the registry in the town scan': /for \(const k0 of townExtraKeys\(home\)\) \{\n\s*const c = keyVec\(k0\)\n\s*const b = bot\.blockAt\?\.\(c\)\n\s*if \(!b\) \{ coverage = false; continue \}\s*\n\s*if \(CONTAINER_RE\.test\(blockNameOf\(bot, b\) \?\? ''\) && depositTargetOk\(home, c\)\) keys\.add\(containerKey\(bot, c\)\)/,
   'the siting': /const ss = await hubSiteFor\(bot, \{ \.\.\.h\.head\.plan, gen: h\.head\.gen \}, c, stood, signal\)/,
   'the upkeep visit': /if \(plot === HUB_PLOT && rec\.structure_complete && !recordDamaged\(bot, rec, \{ tidy: false \}\) && hubUpkeepDue\(bot, rec\)\) return hubUpkeepVisit\(ctx, rec, signal, out\)/,
-  'the stands': /const storeOpts = rec\.blueprint === HUB_BLUEPRINT \? hubVisitOpts\(rec\) :/,
+  'the stands': /const storeOpts = rec\.blueprint === ENCHANT_BLUEPRINT \? enchantVisitOpts\(rec\) : rec\.blueprint === HUB_BLUEPRINT \? hubVisitOpts\(rec\) :/,   // enchantshop-01: the workshop's opts first on the same line
   'the order sees the upkeep': /if \(tidy && r\.blueprint === HUB_BLUEPRINT && hubUpkeepDue\(bot, r\)\) return true/,
   'the cargo intent before the take': /if \(!hubCargoWrite\(bot, Object\.fromEntries\(want\.map\(w => \[w\.name, w\.count\]\)\)\)\) \{/,
   'the clerk\'s throw is listed-only': /const clerk = _args\?\.via === 'clerk' && !pruned\n(?:.*\n){0,6}?\s*const visit = \(_args\?\.visit === true \|\| clerk\) && !pruned/,

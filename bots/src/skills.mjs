@@ -129,6 +129,9 @@ import { clerkKeepOf } from './storehub.mjs'   // storehub-01: the clerk throw's
 import { HUB_PLOT, HUB_BLUEPRINT, hubSitingPlan, hubRecordOf, hubChestKeys, hubHomes, hubSignSpots, hubVisitOpts, clerkMoves, clerkRoute, clerkTargets, cargoOwed, cargoKeeps, clerkWork, clerkRowDetail, hubThrowable,
          CLERK_STACKS, CLERK_BAG_SPARE, CLERK_GAP_MS, CLERK_IDLE_MS, CLERK_BACKOFF_MS, CLERK_LEASE_MS, CLERK_TERM_MS, CLERK_REST_MS } from './storehub.mjs'   // storehub-01
 import { STOREHUB } from './shop.mjs'   // storehub-01's switches
+import { ENCHANTSHOP } from './shop.mjs'   // enchantshop-01's switches
+import { ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS, FIT_VISIT_MS, GATE_ROW_MS, enchantOpening, enchantSitingPlan, enchantRecordOf, enchantVisitOpts,
+         fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail } from './enchantshop.mjs'   // enchantshop-01
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
@@ -17229,6 +17232,10 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         const complete = !!rec?.structure_complete
         // wallext-01: the unsited extension WAITS on its opening rule (wall.mjs wallextOpening: a complete wall, the hall beyond one side)
         if (p.plot === WALLEXT_PLOT && !rec && !wallextOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        // enchantshop-01: the unsited workshop WAITS until the extension's hall-size plot exists (enchantshop.mjs enchantOpening); a
+        // sited one says its furnishings' needs (`_enchantshop_gate`, town-wide cadence: the requests board's input)
+        if (p.plot === ENCHANT_PLOT && !rec && !enchantOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        if (p.plot === ENCHANT_PLOT && rec && b) enchantGateRows(b, rec, now)
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
         // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
@@ -17238,6 +17245,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // storehub-01: a standing hall's upkeep for THIS bot (its labels, owed cargo, a clerk move-set) is `due` (recordDamaged's upkeep
         // read) and FIRST among the upkeeps (`dueFirst`)
         const hubDue = complete && b && p.plot === HUB_PLOT ? hubUpkeepDue(b, rec, now) : false
+        const enchDue = complete && b && p.plot === ENCHANT_PLOT ? enchantUpkeepDue(b, rec, now) : false
         const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
         // stockyard-01: a complete yard's work for THIS bot (yard.mjs yardWork): its bag's surplus under pressure goes first (as a
         // repair: activeProject's first loop, bounded by repairBackoff), any other work (the clerk, a refill, the aisles) is `due`
@@ -17249,7 +17257,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
         // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
         // yarduse-01: a yard bay blocked by clutter (yard.mjs yardWork `first`) is cleared ahead of the sinks (bounded: YARD_CLEAR_MAX a visit)
-        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}) }
+        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === ENCHANT_PLOT && enchDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}) }
       })
       // PICKER-01: each sink's open instance or its next one (sinks.mjs sinkNextGate over this bot's pressure), and the picker's order
       const sk = sinkStatesNow(b, states, now)
@@ -17731,6 +17739,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // storehub-01: a standing hall with upkeep for this bot (labels, owed cargo, a clerk move-set) wants a visit (the yard's reason:
     // the order reads `complete` through shopDamaged)
     if (tidy && r.blueprint === HUB_BLUEPRINT && hubUpkeepDue(bot, r)) return true
+    // enchantshop-01: a standing workshop with a label to write or a furnishing the fitter can place now wants a visit (the hall's reason)
+    if (tidy && r.blueprint === ENCHANT_BLUEPRINT && enchantUpkeepDue(bot, r)) return true
     // paths-01 r2: a laid network with a destination it does not serve yet (a container's stand, a project completed since) wants
     // a visit: its extension (buildPaths), at most once per PATHS_EXTEND_MS per bot
     if (r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true
@@ -19232,6 +19242,221 @@ async function hubUpkeepVisit (ctx, rec, signal, out) {
 }
 /** The hall's steps, for the tests and a sandbox drive: never called by the bot itself. */
 export const _hubUpkeep = Object.freeze({ hubClerkOne, hubClerkPlan, hubSignWork, hubUpkeepDue, hubCargoKeeps, hubSiteFor, hubRegistryRefresh })
+
+// ================================================================================================================================
+// ENCHANTSHOP-01: THE ENCHANTING + ANVIL WORKSHOP (enchantshop.mjs has every rule; design docs/reports/enchantshop-design-2026-11-04.md
+// on main). The shell is an ordinary blueprint project (build_shop's visit); this is its siting on the wall extension's hall-size plot,
+// its furnishings' gate rows (the requests board's input), its labels (sortstore's writer) and its FITTER: one leased bot that draws a
+// furnishing's inputs (above the keeps), crafts it at the workshop's table and places it on its slot (buildrun's visit, one cell).
+// ================================================================================================================================
+const ENCH = ENCHANTSHOP
+/** The wall extension's record now -> rec | null. Never throws. */
+function enchantExtNow (dir = townDir()) { try { const h = recordHead(dir, projKeyOf(WALLEXT_PLOT)); return h.ok ? (h.head?.rec ?? null) : null } catch { return null } }
+/** Is the unsited workshop open (the extension sited with its hall-size plot)? Never throws. */
+function enchantOpenNow (dir = townDir()) { try { return ENCH.on && enchantOpening(enchantExtNow(dir)).open } catch { return false } }
+/** The bot's world read for the fit-out (null: unloaded). */
+const enchantRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+/** What the fitter may use now (enchantshop.mjs fitAvail: the bag's fit items, the town's index above the keeps) | null (no index). */
+function enchantAvailNow (bot) { try { const t = matsTownStock(bot); return t ? fitAvail(heldMap(bot), t.stock) : null } catch { return null } }
+/** ENCHANTSHOP-01: THE WORKSHOP'S SITE -> { ok, record, tried } | { ok: false, why, detail?, tried }. Never throws. The extension's
+ *  hall-size plot (enchantSitingPlan: the plot + its stand ring, the plot's own land zone the one zone dropped), searched by
+ *  buildsite.mjs siteBlueprint clear of every other reservation, as the storage hall's. */
+async function enchantSiteFor (bot, plan, c, stood, signal = null) {
+  const tried = []
+  try {
+    const o = enchantOpening(enchantExtNow())
+    if (!o.open) return { ok: false, why: o.why, tried }
+    const zonesNow = () => [...c.zones, ...recordZones(projectHeads().filter(x => x.plot !== ENCHANT_PLOT).map(x => x.head.rec)), ...hallPadZones(plan), ...townMarkerZones()]
+    const sp = enchantSitingPlan(plan.home, o.plot, zonesNow())
+    if (!sp) return { ok: false, why: 'no_plan', tried }
+    const bp = blueprintOf(ENCHANT_BLUEPRINT)
+    const s = await siteBlueprintAsync(planReader(bot), plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: ENCHANT_PLOT,
+      earth: sp.earth, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
+    if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
+    tried.push(`${sp.sectors[0].source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
+    if (!s.ok) return { ok: false, why: s.why, detail: JSON.stringify((s.sectors ?? []).map(r => r.rejects)).slice(0, 80), tried }
+    const fresh = enchantSitingPlan(plan.home, o.plot, zonesNow()).zones
+    const hit = s.record.cells.find(q => fresh.some(z => q.at[0] >= z.box[0] && q.at[0] <= z.box[3] && q.at[1] >= z.box[1] && q.at[1] <= z.box[4] && q.at[2] >= z.box[2] && q.at[2] <= z.box[5]))
+    if (hit) return { ok: false, why: 'site_taken', detail: `${hit.at.join(',')} reserved during the search`, tried }
+    return { ok: true, why: 'ok', record: enchantRecordOf(s.record, bp, { plotId: o.plot.id ?? null, walkR: sp.walkR }), tried }
+  } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60), tried } }
+}
+/** THE GATE ROWS (`_enchantshop_gate`, one per furnishing): written when the town's view of them changed, else every GATE_ROW_MS --
+ *  town-wide (the stamp file: one bot's rows stand for the town's). Never throws. */
+function enchantGateRows (bot, rec, now = Date.now()) {
+  try {
+    if (!ENCH.on || rec?.blueprint !== ENCHANT_BLUEPRINT) return
+    if (now - (bot.enchGateAt ?? -Infinity) < 60_000) return
+    bot.enchGateAt = now
+    const avail = enchantAvailNow(bot)
+    if (!avail) return
+    const gates = fitGates(fitStates(rec, enchantRead(bot)), avail)
+    if (!gates.length) return
+    const sig = gates.map(g => `${g.fit}:${g.why}:${g.placed}:${g.lost}:${Object.entries(g.short).map(([k, v]) => `${k}${v}`).join('.')}`).join('|')
+    const file = path.join(townDir(), `${projKeyOf(ENCHANT_PLOT)}.gate.json`)
+    let last = null
+    try { last = JSON.parse(fs.readFileSync(file, 'utf8')) } catch { last = null }
+    if (last && last.sig === sig && now - (Number(last.at) || 0) < GATE_ROW_MS) return
+    try { const tmp = `${file}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ sig, at: now, by: bot.username ?? 'bot' })); fs.renameSync(tmp, file) } catch { return }
+    for (const g of gates) { try { logEvent({ kind: 'enchantshop_gate', status: g.why === 'wait' ? 'no_effect' : 'success', snapshot: snapshot(bot), detail: gateDetail(g) }) } catch { /* telemetry */ } }
+  } catch { /* the rows are telemetry */ }
+}
+/** The workshop's labels still to write for THIS bot (sortstore's writer; at most SIGN_TRIES a spot). */
+function enchantSignWork (bot, rec) {
+  const tries = bot.sortSignTries ?? new Map()
+  return (rec?.signs ?? []).filter(sp => Array.isArray(sp?.at) && Array.isArray(sp?.wall) && (tries.get(sp.at.join(',')) ?? 0) < SIGN_TRIES && ['place', 'edit'].includes(sortSpotNeed(bot, sp)))
+}
+/** Is the fitter's lease free for this bot? */
+function enchantFitterFree (bot, now = Date.now()) {
+  try { const st = projLeaseState(townDir(), projKeyOf(ENCHANT_PLOT), 'fitter'); return !st || st.rec?.holder === (bot.username ?? 'bot') || now >= st.blocksUntil } catch { return false }
+}
+/** IS THE WORKSHOP'S UPKEEP DUE for this bot? A complete record with a label to write, or a furnishing the fitter can place now
+ *  (enchantshop.mjs fitDue: the lease free, its gap and idle back-off over, room in the bag, one slot whose inputs are all held). */
+export function enchantUpkeepDue (bot, rec, now = Date.now()) {
+  try {
+    if (!ENCH.on || !bot || rec?.blueprint !== ENCHANT_BLUEPRINT || !rec.structure_complete) return false
+    if (now - (bot.enchVisitAt ?? -Infinity) < FIT_GAP_MS) return false
+    if (enchantSignWork(bot, rec).length) return true
+    if (!ENCH.fit || !enchantFitterFree(bot, now)) return false
+    const items = bot.inventory?.items?.() ?? []
+    return fitDue({ on: true, complete: true, states: fitStates(rec, enchantRead(bot)), avail: enchantAvailNow(bot), now, lastAt: bot.enchFitAt ?? -Infinity, idleUntil: bot.enchFitIdleUntil ?? 0, freeSlots: BAG_SLOTS - items.length })
+  } catch { return false }
+}
+/** The fitter's row (`_enchantshop_fit`). */
+function enchantFitRow (bot, status, f) { try { logEvent({ kind: 'enchantshop_fit', status, snapshot: snapshot(bot), detail: fitRowDetail(f) }) } catch { /* telemetry */ } }
+/** The most-stocked town species of a wood family ('log' | 'planks') -> name | null. */
+const woodSpecies = (stock, fam) => Object.entries(stock ?? {}).filter(([n, c]) => (fam === 'log' ? /_log$/ : /_planks$/).test(n) && !/stripped_/.test(n) && (Number(c) || 0) > 0).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+/**
+ * ONE FURNISHING -> { placed, why }. The fitter's step (enchantshop.mjs fitNext chose the slot and its plan): the plan's town take drawn
+ * (matsWithdraw, every name exactly), the chain crafted deepest first at the workshop's table, the item placed on its slot by buildrun's
+ * visit over a one-cell record, the slot stamped `placed` on the record when its block reads back, the leftovers banked back.
+ */
+async function enchantFitOne (ctx, rec, recordGen, signal, deadline) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const dir = townDir(), key = projKeyOf(ENCHANT_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  const f = { op: 'wait' }
+  const done = (status, extra) => { Object.assign(f, extra, { ms: Date.now() - t0 }); enchantFitRow(bot, status, f); return { placed: f.op === 'placed' ? 1 : 0, why: f.why ?? f.op } }
+  const avail = enchantAvailNow(bot)
+  if (!avail) return done('no_effect', { why: 'index_unknown' })
+  const nx = fitNext(fitStates(rec, enchantRead(bot)), avail)
+  if (!nx.slot) { bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS; return done('no_effect', { why: nx.why }) }
+  const { slot, plan } = nx
+  Object.assign(f, { slot: slot.slot, item: slot.item, at: slot.at })
+  const held0 = heldMap(bot)
+  let took = {}, back = {}
+  const crafted = {}
+  const placedBy = {}
+  let effects = null, sl = null
+  const slotRef = { gen: null }
+  try {
+    // 1. THE DRAW (the plan's town take; a wood family as the town's most-stocked species)
+    const stock = matsTownStock(bot)?.stock ?? {}
+    const need = {}
+    let logName = null
+    for (const [k, n] of Object.entries(plan.take)) {
+      if (k === 'log' || k === 'planks') {
+        const sp = woodSpecies(stock, k)
+        if (!sp) return done('no_effect', { op: 'short', why: `no_${k}_species` })
+        if (k === 'log') logName = sp
+        need[sp] = (need[sp] ?? 0) + n
+      } else need[k] = n
+    }
+    if (Object.keys(need).length) {
+      const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow)
+      took = { ...(w.took ?? {}) }
+      check(signal)
+      const short = Object.entries(need).filter(([k, n]) => (Number(took[k]) || 0) < n)
+      if (short.length) { bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS; f.op = 'short'; f.why = `withdraw_short:${short.map(([k, n]) => `${k}:${(Number(took[k]) || 0)}/${n}`).join(',')}`.slice(0, 80); return done('no_effect', {}) }
+    }
+    // 2. THE CHAIN, deepest first, at the workshop's own table (craft finds the table within reach, else its own)
+    const pre = heldMap(bot)
+    try {
+      for (const c of plan.crafts) {
+        check(signal)
+        let item = c.item
+        if (item === 'planks') { const lg = logName ?? Object.keys(heldMap(bot)).find(n => /_log$/.test(n) && !/stripped_/.test(n)); if (!lg) break; item = lg.replace(/_log$/, '_planks') }
+        try { await craft(ctx, { item, count: c.count }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      }
+    } finally {
+      const post = heldMap(bot)
+      for (const k of new Set([...Object.keys(pre), ...Object.keys(post)])) { const d = (post[k] ?? 0) - (pre[k] ?? 0); if (d) crafted[k] = d }
+    }
+    if (countItem(bot, slot.item) < 1) { bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS; f.op = 'craft_failed'; f.why = 'no_item' }
+    else {
+      // 3. THE PLACEMENT: buildrun's visit over the one cell (its stands within the workshop's domain, its acknowledgement, its read-back)
+      sl = takeSlot(dir, key, me, 1)
+      if (!sl.ok) { f.op = 'not_placed'; f.why = 'slot_busy' } else {
+        slotRef.gen = sl.gen
+        const acks = (bot.shopAcks ??= shopAckInstall(bot))
+        presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+        effects = botBuildEffects(bot, {
+          acks, keep: {},
+          withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+          aborted: () => !!signal?.aborted,
+          log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: ENCHANT_PLOT, ...d }) }) } catch { /* telemetry */ } },
+          spawnedAt: () => bot.shopSpawnAt ?? 0,
+        })
+        bot.shopUnknown ??= new Set()
+        const fv = fitVisitRecord(rec, slot)
+        const r = await runVisit({ dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), record: fv.record, recordGen, palette: fv.palette, res: null, resFailed: false, slot: sl.slot, slotGen: sl.gen, slotRef, stands: (bot.enchStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...enchantVisitOpts(rec) }, effects, { deadline: deadline - 20_000, maxSteps: 120 })
+        const ok = slotState(slot, enchantRead(bot)(...slot.at)) === 'placed'
+        f.op = ok ? 'placed' : 'not_placed'; f.why = r.stop
+        // 4. THE STAMP: a placed slot is the record's (a later open read of it is LOST, never rebuilt by itself)
+        if (ok) { try { publishRecord(dir, key, cur => (cur?.blueprint === ENCHANT_BLUEPRINT && !(cur.placed ?? []).includes(slot.slot) ? { ...cur, placed: [...(cur.placed ?? []), slot.slot] } : null), { by: me }) } catch { /* the next read stamps nothing: the slot reads placed */ } }
+        else bot.enchFitIdleUntil = Date.now() + FIT_IDLE_MS
+      }
+    }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { f.op = 'aborted'; enchantFitRow(bot, 'aborted', { ...f, took, crafted, ms: Date.now() - t0 }); throw e }
+    f.op = 'error'; f.why = String(e?.message ?? e).slice(0, 60)
+  } finally {
+    if (sl?.ok) releaseLease(dir, key, `slot${sl.slot}`, me, slotRef.gen ?? sl.gen)
+    try { effects?.close() } catch { /* gone */ }
+  }
+  // 5. THE LEFTOVERS GO BACK: what this visit drew (and what it made of it) that the bag still holds above its start
+  try {
+    const left = leftoverNames({ ...took, ...Object.fromEntries(Object.entries(crafted).filter(([, v]) => v > 0)) }, held0, heldMap(bot))
+    if (left.length && deadline - Date.now() > 30_000) back = await matsBank(ctx, left, held0, signal, { ...took, ...Object.fromEntries(Object.entries(crafted).filter(([, v]) => v > 0)) })
+  } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  return done(f.op === 'placed' ? 'success' : 'no_effect', { took, crafted: Object.fromEntries(Object.entries(crafted).filter(([, v]) => v > 0)), placed: Object.values(placedBy).reduce((a, b) => a + b, 0), back })
+}
+/** THE WORKSHOP'S UPKEEP VISIT: its labels, then one furnishing (the fitter's lease). */
+async function enchantUpkeepVisit (ctx, rec, recordGen, signal, out) {
+  const { bot } = ctx
+  const dir = townDir(), key = projKeyOf(ENCHANT_PLOT), me = bot.username ?? 'bot'
+  const now = Date.now()
+  bot.enchVisitAt = now
+  const deadline = now + FIT_VISIT_MS
+  const f = { signs: 0, signFails: 0, fitted: 0, fitWhy: '-' }
+  try {
+    const work = enchantSignWork(bot, rec)
+    if (work.length) {
+      const places = work.filter(sp => sortSpotNeed(bot, sp) === 'place').length
+      if (places) await sortGetSigns(ctx, places, signal)
+      for (const sp of work) {
+        check(signal)
+        if (deadline - Date.now() < 60_000) break
+        if (sortSpotNeed(bot, sp) === 'place' && !sortSignItem(bot)) { f.signFails++; const tr = (bot.sortSignTries ??= new Map()); tr.set(sp.at.join(','), (tr.get(sp.at.join(',')) ?? 0) + 1); continue }
+        if ((await sortLabelOne(ctx, sp, signal, deadline, { kind: 'enchantshop_sign' })) === 'ok') f.signs++; else f.signFails++
+      }
+    }
+    if (ENCH.fit && deadline - Date.now() > 60_000) {
+      const lease = projTakeLease(dir, key, 'fitter', me, { ttl: FIT_LEASE_MS })
+      if (!lease.ok) f.fitWhy = 'lease_held'
+      else {
+        bot.enchFitAt = Date.now()
+        try { const r = await enchantFitOne(ctx, rec, recordGen, signal, deadline); f.fitted = r.placed; f.fitWhy = r.why } finally { releaseLease(dir, key, 'fitter', me, lease.gen) }
+      }
+    }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted', f); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), f, 'other')
+  }
+  return out(f.signs + f.fitted > 0 ? 'success' : 'no_effect', 'upkeep', `the enchanting workshop's upkeep: ${f.signs} label(s) written${f.signFails ? `, ${f.signFails} not` : ''}; ${f.fitted} furnishing(s) placed (${f.fitWhy})`, f)
+}
+/** The workshop's steps, for the tests and a sandbox drive: never called by the bot itself. */
+export const _enchantshop = Object.freeze({ enchantSiteFor, enchantGateRows, enchantSignWork, enchantUpkeepDue, enchantFitOne, enchantUpkeepVisit, enchantOpenNow })
 async function buildShop (ctx, args, signal) {
   // expedition-01: the expedition's visit (the order's args say which)
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
@@ -19334,11 +19559,19 @@ async function buildShopVisit (ctx, args, signal) {
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.band}/${ss.record.chests.length}chests`, gen: pub.gen }) }) } catch { /* telemetry */ } }
       hubRegistryRefresh(Date.now(), { force: true })
+    } else if (plot === ENCHANT_PLOT) {
+      // enchantshop-01: the workshop sites on the wall extension's hall-size plot only (enchantSiteFor; it WAITS until the plot exists)
+      const ss = await enchantSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
+      check(signal)
+      if (!ss.ok) return out('no_effect', ss.why === 'no_extension' || ss.why === 'no_hall_plot' ? 'plot_wait' : 'no_site', `no enchanting-workshop site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''}) ${(ss.tried ?? []).join(' ')}`.slice(0, 160), { stop: 'no_site' })
+      const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
+      if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.plotId}/${ss.record.cells.length}cells/${ss.record.fit.length}fit/${ss.record.earthwork.fill}fill/${ss.record.earthwork.cut}cut`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     } else if (plot !== SHOP_PLOT) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
       more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot, ...(plot === YARD_PLOT ? { earth: YARD_EARTH } : {}) }
     }
-    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT) {
+    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {
     const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
     if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
@@ -19356,6 +19589,8 @@ async function buildShopVisit (ctx, args, signal) {
   if (plot === STORE_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && !storeTidy(rec, planReader(bot), bot.storeTidyTries ?? null).length && storeUpkeepDue(bot, rec)) return storeUpkeepVisit(ctx, rec, signal, out)
   // storehub-01: a COMPLETE hall whose want is its upkeep (labels, the clerk) gets the upkeep visit, not a build visit
   if (plot === HUB_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && hubUpkeepDue(bot, rec)) return hubUpkeepVisit(ctx, rec, signal, out)
+  // enchantshop-01: a COMPLETE workshop whose want is its upkeep (its labels, the fitter) gets the upkeep visit, not a build visit
+  if (plot === ENCHANT_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && enchantUpkeepDue(bot, rec)) return enchantUpkeepVisit(ctx, rec, rh.head.gen, signal, out)
   // a COMPLETE workshop is judged against the world (r2): a damaged one is repaired by an ordinary visit
   if (rec.structure_complete && !shopDamaged(bot, rec)) {
     // this holder's share left by a visit killed after the completion is cleared here (each holder clears its own): the leftovers are the bag's own
@@ -19469,7 +19704,8 @@ async function buildShopVisit (ctx, args, signal) {
     // storehouse-01: the storehouse's stands are in town (storehouse.mjs storeDomain), and its interior's litter is the visit's tidy
     // copperhall-01: the hall's stands are its own domain too (copperhall.mjs hallRecordDomain: the pad + 3, off every other record)
     // storehub-01: the storage hall's stands are its own pad + 4, its walk the record's radius (storehub.mjs hubVisitOpts)
-    const storeOpts = rec.blueprint === HUB_BLUEPRINT ? hubVisitOpts(rec) : rec.blueprint === STORE_BLUEPRINT ? { domain: storeDomain(rec), tidy: storeTidy(rec, read, (bot.storeTidyTries ??= new Map())) }
+    // enchantshop-01: the workshop's stands are its own pad + 3, its walk the record's radius (enchantshop.mjs enchantVisitOpts)
+    const storeOpts = rec.blueprint === ENCHANT_BLUEPRINT ? enchantVisitOpts(rec) : rec.blueprint === HUB_BLUEPRINT ? hubVisitOpts(rec) : rec.blueprint === STORE_BLUEPRINT ? { domain: storeDomain(rec), tidy: storeTidy(rec, read, (bot.storeTidyTries ??= new Map())) }
       : rec.blueprint === HALL_BLUEPRINT ? { domain: hallRecordDomain(rec, projectHeads().map(x => x.head.rec)) }
       // yardsite-01: a yard sited beyond the town ring stands and walks out to its band (yard.mjs yardVisitOpts; an older record: {})
         : isYardBlueprint(rec.blueprint) ? yardVisitOpts(rec, home) : {}
