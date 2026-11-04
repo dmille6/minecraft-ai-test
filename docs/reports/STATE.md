@@ -4,17 +4,18 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-03T23:20:01Z._
+_Generated 2026-11-04T00:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `53fd28ee` = cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z) on stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) on fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) on tidy-01 `f1f5c16c` (KEEP 11-02 15:37Z, promoted 11-02 15:47Z) |
-| **Canary in slot** | **bagdiet-01** deployed 11-03 20:59Z; reads +90 11-03 22:29Z, +180 11-03 23:59Z; KEEP auto-promotes ~10 min after the +180 KEEP |
-| **Queue (front)** | swimcentre-01 -> bundle-1103a |
-| **Showcase release** | `cbd2f51b` (22,313 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 53fd28ee (cooldown15-02); row 11-03 22:25Z) |
+| **Fleet** | `9fbfdf22` = bagdiet-01 `9fbfdf22` (KEEP 11-03 23:58Z, promoted 11-04 00:08Z) on cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z) on stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) on fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z) |
+| **Canary in slot** | EMPTY (last close bagdiet-01 KEEP 11-03 23:58Z) |
+| **Queue (front)** | swimcentre-01 -> bundle-1103a -> monustuck-01 -> vetoremedy-01 -> towngate-01 -> groundskeeper-01 -> llmoai-01 |
+| **Scheduler** | wait H2 swimcentre-01: no variant for the fleet base 9fbfdf2 (have: e54d1cc, 53fd28e): autorebase of e54d1cce..a13fb4a8 is building (step full-suite, pid 413023, heartbeat 2026-11-04T00:19:32Z) |
+| **Showcase release** | `cbd2f51b` (21,569 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 53fd28ee (cooldown15-02); row 11-03 23:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
-| **Open alarms** | STALLCHECK 2026-11-03T22:35:02Z STALLED: 47. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 37 active alarm(s): stuck goals 8 (board-d/monument@355_73_147, hive-a/monument@355_73_147, hive-a/wall@355_73_147, isolated-a/monument@355_73_147, isolated-c/monument@355_73_147, isolated-d/monument@355_73_147 ...); effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24, flowledger bags |
+| **Open alarms** | STALLCHECK 2026-11-03T23:35:01Z STALLED: 38. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 34 active alarm(s): stuck goals 5 (hive-a/monument@355_73_147, hive-a/wall@355_73_147, isolated-a/monument@355_73_147, isolated-c/monument@355_73_147, placebo-c/monument@355_73_147); effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24, flowledger bags |
 <!-- GENERATED:END -->
 
 ## Notes
