@@ -19,11 +19,49 @@ import { equivalentTools } from './skills.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
 import { bankableInventory } from './bankable.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
-import { countItem } from './state.mjs'
+import { countItem, snapshot } from './state.mjs'
 import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
 import { config } from './config.mjs'
 import { log, logEvent } from './logger.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
+
+/**
+ * THE DIRT RUNG IS SATISFIED BY BUILDING MATERIAL, NOT BY THE NAME `dirt` (dirtrung-01, 11-04).
+ *
+ * `gather_dirt_16` is the gatherer chain's first rung ("Hand-mineable building material") and the chain re-enters at
+ * index 0 every lap. Measured 11-03 19:30Z..11-04 09:30Z on 80 bots (lib.telemetry full walk, ~/mcai-analysis/dirtrung):
+ *   - 22.8% of all decisions (28,978 of 127,101) were on this rung, in 1,675 episodes holding 306 bot-h of 1,120;
+ *   - 1,611 of 1,675 entries were RE-ENTRIES by a bot that had held 16+ dirt earlier in the window (1,648 completions):
+ *     the pathfinder spends the dirt as scaffold on the next trip (dirt and cobblestone are its two default blocks), and
+ *     the town keeps none (stocktarget.mjs dirt target 0), so every lap re-opens the rung;
+ *   - at entry the bag held a median 357 other building blocks (cobblestone, deepslate, andesite ...); 1,671 of 1,675
+ *     entries held 64 or more. Dirt-equivalents (grass_block, coarse/rooted dirt) were held at 2 of 1,675 entries;
+ *   - 5,651 of 16,628 dirt gathers failed ("found but unreachable" 2,789+..., 51% of sampled failures below y=50).
+ * The same defect as WOOD IS WOOD and SATISFIED BY CAPABILITY above: a specific name standing in for a function.
+ *
+ * So the rung is met by 16 dirt (as before) OR by a full stack (DIRT_RUNG_EARTH, 64) of dirt plus the stone family
+ * (COBBLE: blocks the pathfinder bridges and pillars with, and the family the town deposit keeps to 64 --
+ * towndeposit.mjs STOCKPILE_KEEP; a test asserts the two are equal). Counting exactly what the deposit keeps is what
+ * makes the rule deposit-stable: a town deposit can never re-open the rung (towndeposit.test.mjs PROPERTY), which is
+ * the fight the HELD_TARGETS note describes. A bot below a stack is still sent for dirt -- the one remedy executable
+ * by hand. Pure. `counts` is { name: n }. Kill switch: DIRTRUNG_EARTH=0 restores the dirt-only rule.
+ */
+export const DIRT_RUNG_N = 16
+export const DIRT_RUNG_EARTH = 64
+export const dirtRungEarthOn = (env = process.env) => String(env?.DIRTRUNG_EARTH ?? '1').trim() !== '0'
+export function dirtRungVerdict (counts = {}, { n = DIRT_RUNG_N, stack = DIRT_RUNG_EARTH, earth = true } = {}) {
+  const num = k => Math.max(0, Number(counts?.[k]) || 0)
+  const dirt = num('dirt')
+  const stone = COBBLE.reduce((t, k) => t + num(k), 0)   // read at call time: COBBLE is declared below the role ladders
+  if (dirt >= n) return { met: true, by: 'dirt', dirt, stone }
+  if (earth && dirt + stone >= stack) return { met: true, by: 'earth', dirt, stone }
+  return { met: false, by: null, dirt, stone }
+}
+const bagCounts = b => {
+  const c = {}
+  for (const it of b?.inventory?.items?.() ?? []) if (it?.name) c[it.name] = (c[it.name] ?? 0) + (Number(it.count) || 0)
+  return c
+}
 
 /**
  * THE IDLE GAP (tech-tree review 2026-09-28, item 4; both engines measured it on 162k decisions, 24 h to 09-29 05:35Z).
@@ -375,7 +413,11 @@ export const MILESTONES_BY_ROLE = {
   // Bulk hand-mineable material. Deliberately simple, so it is the control
   // case: if THIS bot struggles, the problem is the skill layer, not the goal.
   gatherer: [
-    M.gather('dirt', 16, 'Hand-mineable building material.'),
+    // dirtrung-01: met by 16 dirt, or by a stack of dirt + stone family (dirtRungVerdict). The id,
+    // wants, describe, progress and hint are M.gather's, unchanged: a bot that is still short is asked for dirt.
+    { ...M.gather('dirt', DIRT_RUNG_N, 'Hand-mineable building material.'),
+      done: b => dirtRungVerdict(bagCounts(b), { earth: dirtRungEarthOn() }).met,
+      track: { kind: 'dirtrung', read: b => dirtRungVerdict(bagCounts(b), { earth: dirtRungEarthOn() }) } },
     // THE ONLY RUNG CHANGED, and it is the only one that runs: measured
     // 2026-09-21, ALL 80 bots carry role `gatherer`, so the scout and miner
     // ladders above reach nobody and were left exactly as they were.
@@ -893,6 +935,8 @@ export class MilestoneController {
     // harder each time it is met needs to count its own completions, not wait
     // for every other goal in the chain to finish first.
     this.completions = p.completions ?? {}
+    // The tracked rung that is current now (dirtrung-01 telemetry): { id, at, n: { ok, failed, unserved, not_run } }.
+    this.trackOpen = null
   }
 
   #persist() {
@@ -944,6 +988,10 @@ export class MilestoneController {
     const mine = taskId == null || base(taskId) === base(m.id)
     const now = Date.now()
     const e = (this.progressAt[m.id] ??= { t: now, since: now })
+    if (mine && this.trackOpen?.id === m.id) {
+      const cls = !executed ? 'not_run' : !serving ? 'unserved' : failed ? 'failed' : 'ok'
+      this.trackOpen.n[cls] = (this.trackOpen.n[cls] ?? 0) + 1
+    }
     // Serving progress, including a detour's own success (the prereq is the rung's), moves the deadline.
     if (mine && executed && serving && !failed) { e.t = now; this.attempts[m.id] = 0 }
     // Only an executed, serving failure on the rung itself counts toward the skip. A detour is bounded by its own
@@ -965,6 +1013,7 @@ export class MilestoneController {
   }
 
   #skip(m, reason, budget) {
+    this.#trackEvent(m, 'skip', { reason })
     if (!this.skipped.includes(m.id)) this.skipped.push(m.id)
     this.skippedAt[m.id] = Date.now()
     this.skipCount[m.id] = (this.skipCount[m.id] ?? 0) + 1
@@ -1020,7 +1069,8 @@ export class MilestoneController {
       try { done = m.done(this.bot, this.cycle ?? 0, this.worldFacts, this.completions[m.id] ?? 0) } catch { done = false }
       // Step over goals already proven unreachable in an earlier run, or the
       // restored give-up is worthless -- the chain would stall on them again.
-      if (!done && !this.skipped.includes(m.id)) break
+      if (!done && !this.skipped.includes(m.id)) { this.#trackBegin(m); break }
+      if (done) this.#trackEvent(m, 'pass')
       // Only genuine completion gets a timestamp. A skipped goal is stepped
       // over, never recorded as done -- counting a give-up as a success would
       // corrupt every progress number drawn from this.
@@ -1043,6 +1093,35 @@ export class MilestoneController {
       advanced = true
     }
     return advanced
+  }
+
+  /**
+   * OWN-LINE TELEMETRY FOR A TRACKED RUNG (dirtrung-01): `_<kind>_open` when it becomes current, `_<kind>_pass` when it
+   * is met (open=false: met on arrival, the lap never stopped), `_<kind>_skip` when it is given up. args carry the
+   * rung's own read (dirt, stone family, by), how long it was current and the decisions it saw by class.
+   */
+  #trackBegin (m) {
+    if (!m?.track || this.trackOpen?.id === m.id) return
+    this.trackOpen = { id: m.id, at: Date.now(), n: {} }
+    this.#trackEvent(m, 'open')
+  }
+  #trackEvent (m, phase, extra = {}) {
+    if (!m?.track) return
+    const open = this.trackOpen?.id === m.id ? this.trackOpen : null
+    let read = {}
+    try { read = m.track.read(this.bot) ?? {} } catch { read = {} }
+    const args = { phase, rung: m.id, by: read.by ?? null, dirt: read.dirt ?? null, stone: read.stone ?? null,
+      earth_rule: dirtRungEarthOn() ? 1 : 0, open: open ? 1 : 0,
+      held_ms: open && phase !== 'open' ? Date.now() - open.at : 0, ...extra }
+    // decisions seen while current, by class (flat keys: `args` is a flattened mapping)
+    if (open && phase !== 'open') for (const k of ['ok', 'failed', 'unserved', 'not_run']) args[`n_${k}`] = open.n[k] ?? 0
+    try {
+      logEvent({ kind: `${m.track.kind}_${phase}`, status: phase === 'skip' ? 'failed' : 'success', args,
+        detail: `${m.id} ${phase}${read.by ? ' by ' + read.by : ''}: dirt ${read.dirt ?? '?'}, stone family ${read.stone ?? '?'}` +
+          (args.held_ms ? `, current ${Math.round(args.held_ms / 1000)} s` : '') + (extra.reason ? `, ${extra.reason}` : ''),
+        snapshot: phase === 'open' ? snapshot(this.bot) : undefined })
+    } catch { /* telemetry never breaks the ladder */ }
+    if (phase !== 'open' && open) this.trackOpen = null
   }
 
   status() {
