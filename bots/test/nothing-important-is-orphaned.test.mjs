@@ -107,6 +107,12 @@ const REQUIRED = [
   'bots/src/blueprints/yard@1.json',
   'docs/reports/stockyard-2026-11-02/make_yard.py',
   'bots/test/yard.test.mjs',
+  // storehub-01 pieces A + B (11-04): the sorted hall, its blueprint, its generator, its offline siting, its test, the build notes
+  'bots/src/storehub.mjs',
+  'bots/src/blueprints/storehub@1.json',
+  'docs/reports/storehub-ab-2026-11-04/make_storehub.py',
+  'bots/scripts/storehub-offline.mjs',
+  'bots/test/storehub.test.mjs',
   // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
   'bots/src/sinks.mjs',
   'bots/scripts/sinks-offline.mjs',
