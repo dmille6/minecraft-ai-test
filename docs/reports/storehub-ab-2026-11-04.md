@@ -138,3 +138,15 @@ finding (the hall chests in the search: `ix=` and visits per search). Rollbacks:
   bots (the 15-bot hour ran short of work) and `PROJECTS` keeps the copper hall ahead of it whenever the hall opens. Codex (design
   11-03): after the copper hall finish. Reconciled: next fold, since the copper hall's priority is kept in the project order and it is
   copper-gated with no date. Fleet: only inside F (the A + B + D1 + D2 canary), after S0 and the showcase read.
+
+## 10. storehubsite-01 (11-04, after batch 4 went live 15:52Z): 21/21 visits `no_site store:0 ring:0`
+
+- **Cause:** the offline run in section 1 passed `z0: null`; the bot passes the ziggurat's record box as `z0` (buildsite.mjs
+  reservations: box + 8, `z0_apron`), which covers the north field. Reproduced on a copy of the live pool state + region files (~18Z):
+  with z0, store 0 and ring (to 58) 0 screened; without z0 (the control) the old north site.
+- **Fix** (branch `storehub-site-fix` @ `a9877f4e` on the live release `d3773f8b`): `HUB_SITE.ringMax` 58 -> 72, `walkR` 72 -> 84.
+  The live state then sites **x 10..28, z -59..-49** (NE, 57 from home, 45 from the storehouse, floor 70 = the town's level, fill 77 /
+  cut 57, 9 trees, 0 cells in a reservation, 67 candidates screened):
+  [`offline-siting-live-1104-z0.json`](storehub-ab-2026-11-04/offline-siting-live-1104-z0.json). The offline script now passes z0
+  and the bridge zones; a regression test sites with the showcase's z0 and asserts no cell on the apron.
+- Suite (w30) at `a9877f4e`: 416/419 (the known ceilescape, nothing-important-is-orphaned, protected-paths). Codex: NO BLOCKERS.
