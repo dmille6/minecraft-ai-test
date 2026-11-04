@@ -3780,7 +3780,7 @@
    "lane": "survival",
    "state": "open",
    "owner": "survival agent / control session",
-   "next_step": "swimunder-01 BUILT on fleet 53fd28ee: branch swimout01-on-53fd28e tip ec7c7cf6 (pushed); Codex r1-r4 + Claude r1/r4 no blockers; Paper sandbox6 isolated-d cut base stayed 4/4, candidate escaped 6/6 by the swim. Registration ~/mcai-analysis/swimunder-01.ec7c7cf6.json and DRAFT entry ~/mcai-analysis/swimunder-01.queue-entry.json on the canary host: the control session queues it (S, after swimcentre-01 and bundle-1103a) once the full suite on .30 (~/ci/swimunder-01b.log) shows only known base failures. drop-and-dig-01 is design only (report section 7).",
+   "next_step": "swimunder-01 BUILT on fleet 53fd28ee: branch swimout01-on-53fd28e tip 7f988fb9 (pushed); Codex r1-r4 + Claude r1/r4 no blockers; Paper sandbox6 isolated-d cut base stayed 4/4, candidate escaped 6/6 by the swim. Registration ~/mcai-analysis/swimunder-01.7f988fb9.json and DRAFT entry ~/mcai-analysis/swimunder-01.queue-entry.json on the canary host: the control session queues it (S, after swimcentre-01 and bundle-1103a) once the full suite on .30 (~/ci/swimunder-01c.log) shows only known base failures. drop-and-dig-01 is design only (report section 7).",
    "max_quiet_hours": 48,
    "depends_on": [],
    "evidence": {

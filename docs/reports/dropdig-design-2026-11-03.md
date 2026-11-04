@@ -103,7 +103,7 @@ andesite at 356,60,178. Seven moves, four of them with the head under water.
 
 ## 4. swimunder-01 (built; tier 3: `bots/src/reflex.mjs`, and `bots/src/swimunder.mjs` added to protected scope)
 
-Branch `swimout01-on-53fd28e` (pushed; tip **ec7c7cf6**) on the live fleet sha 53fd28ee. `SWIMUNDER=0` restores the base exactly.
+Branch `swimout01-on-53fd28e` (pushed; tip **7f988fb9**) on the live fleet sha 53fd28ee. `SWIMUNDER=0` restores the base exactly.
 
 - **Plan** (`swimUnderPlan`, pure): uniform-cost search over feet cells where the 0.6 x 1.8 body fits (feet and head cells
   without a collision box, no lava within a face, no bubble column, no powder snow or anything that hurts, an unloaded cell is
