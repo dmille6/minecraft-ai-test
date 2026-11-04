@@ -147,7 +147,7 @@ await t('MUTANT KILLED: a cobbleWellStacks that ignores the reserve throws the y
 console.log('THE CONSUMERS DRAW FROM THE YARD (yard.mjs yardDrawPlan)')
 await t('a bill the bag cannot cover draws the yard\'s cobblestone first, bounded by the yard, the bag, the visit and a pickaxe', () => {
   const base = { need: 90, held: { cobblestone: 227 }, freeSlots: 6, pick: true, left: 150_000 }
-  assert.strictEqual(Y.yardDrawPlan(base), Y.YARD_VISIT_MAX)
+  assert.strictEqual(Y.yardDrawPlan(base), Y.YARD_DRAW_MAX, 'a draw is sized to what its collection covers')
   assert.strictEqual(Y.yardDrawPlan({ ...base, need: 30 }), 30)
   assert.strictEqual(Y.yardDrawPlan({ ...base, held: { cobblestone: 20 } }), 20)
   assert.strictEqual(Y.yardDrawPlan({ ...base, freeSlots: 0 }), 0, 'no room in the bag')
@@ -157,15 +157,22 @@ await t('a bill the bag cannot cover draws the yard\'s cobblestone first, bounde
   assert.strictEqual(Y.yardDrawPlan({ ...base, on: false }), 0, 'YARD_DRAW=off')
   assert.strictEqual(Y.yardDrawPlan({ ...base, held: {} }), 0, 'an empty yard')
 })
-await t('A DRAW digs the pile tops back with the real runner (the refill\'s path): 40 dug, highest first', async () => {
+await t('A DRAW digs the pile tops back with the real runner (the refill\'s path): 32 of a 40 bill dug, highest first', async () => {
   const { srv, p } = await liveYard()
   const st = Y.bayStates(SLOTS, srv.read)
   const n = Y.yardDrawPlan({ need: 40, held: Y.yardHeld(st), freeSlots: 10, pick: true, left: 150_000 })
   const digs = Y.refillDigs(st, { cobblestone: n })
-  assert.strictEqual(digs.length, 40)
+  assert.strictEqual(digs.length, Y.YARD_DRAW_MAX)
   const r = await R.runVisit({ ...p('A'), record: { ...SITE.record, cells: [], segments: [], clear: [], replant: [] }, palette: BP.palette, tidy: digs, clearMax: 64 }, bot(srv, 'A', { inv: {} }), { maxSteps: 400 })
-  assert.strictEqual(r.cleared, 40, JSON.stringify({ stop: r.stop, why: r.why }))
-  assert.strictEqual(Y.yardHeld(Y.bayStates(SLOTS, srv.read)).cobblestone, 227 - 40)
+  assert.strictEqual(r.cleared, Y.YARD_DRAW_MAX, JSON.stringify({ stop: r.stop, why: r.why }))
+  assert.strictEqual(Y.yardHeld(Y.bayStates(SLOTS, srv.read)).cobblestone, 227 - Y.YARD_DRAW_MAX)
+})
+await t('THE COLLECTION (Claude code r1 BLOCKER: the drops land on the pile, out of reach): swept while drops remain and sweeps gain, bounded', () => {
+  assert.strictEqual(Y.collectMore({ drops: 5, iter: 0, idle: 0, left: 20_000 }), true)
+  assert.strictEqual(Y.collectMore({ drops: 0, iter: 0, idle: 0, left: 20_000 }), false, 'nothing left on the ground')
+  assert.strictEqual(Y.collectMore({ drops: 5, iter: 0, idle: 2, left: 20_000 }), false, 'two sweeps that gained nothing')
+  assert.strictEqual(Y.collectMore({ drops: 5, iter: Y.YARD_COLLECT_SWEEPS, idle: 0, left: 20_000 }), false, 'the sweep budget')
+  assert.strictEqual(Y.collectMore({ drops: 5, iter: 0, idle: 0, left: 2_000 }), false, 'the visit\'s deadline')
 })
 await t('the switches: YARD_BEFORE_WELL / YARD_DRAW on unless set off', () => {
   assert.strictEqual(Y.yardFlag({}, 'YARD_DRAW'), true); assert.strictEqual(Y.yardFlag({ YARD_DRAW: 'off' }, 'YARD_DRAW'), false)
@@ -212,6 +219,7 @@ const WIRES = [
   /if \(\(need\.cobblestone \?\? 0\) > 0 && workableSeg\(rec, read, palette, segFree\)\) \{\n\s*const got = await yardDrawFor\(ctx, need\.cobblestone, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS\)/,
   /if \(\(need\.cobblestone \?\? 0\) > 0 && workableSeg\(visitRec, read, palette, tidySegOk, waivedK, \{ skipOpenDeps: GROUNDS\.on \}\)\) \{\n\s*const got = await yardDrawFor\(ctx, need\.cobblestone, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS\)/,
   /if \(nPlaced > 0\) bot\.yardStockAt = Date\.now\(\)/,
+  /if \(digBack\) \{\n\s*await yardCollect\(bot, signal, deadline, bays\)/,
   /\(p\.plot === YARD_PLOT && !!yw\?\.first\)/,
 ]
 await t('the well reads the yard\'s reserve where it plans and where it throws; the deferral is stamped; a stock answers it; sinks and the tidy draw from the yard; a blocked bay goes first', () => {

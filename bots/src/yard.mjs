@@ -407,6 +407,13 @@ export const YARD_WELL_MIN = 16
 export const YARD_DRAW_MIN = 16
 /** A consumer's draw is bounded to this long, and only taken when its own visit has YARD_DRAW_LEFT_MS left. */
 export const YARD_DRAW_MS = 60_000
+/** A draw digs at most this many (Claude code r1 BLOCKER: a dug pile block drops ON the pile, out of the aisle's pickup reach --
+ *  every drop is walked to after the digs, so a draw is sized to what that collection can cover). */
+export const YARD_DRAW_MAX = 32
+/** THE COLLECTION AFTER A DIG-BACK -> go on? Pure. `drops` the yard's cobblestone drops still on the ground near the piles, `iter`
+ *  sweeps done, `gained` what the last sweep put in the bag, `idle` sweeps in a row that gained nothing, `left` ms to the deadline. */
+export const YARD_COLLECT_SWEEPS = 8
+export const collectMore = ({ drops = 0, iter = 0, idle = 0, left = 0 } = {}) => drops > 0 && iter < YARD_COLLECT_SWEEPS && idle < 2 && left > 3_000
 export const YARD_DRAW_LEFT_MS = 100_000
 /** THE SWITCHES -> bool. YARD_BEFORE_WELL=off keeps the well as before; YARD_DRAW=off keeps the consumers' bills on the chests. Pure. */
 export const yardFlag = (env = process.env, name) => !['off', '0', 'false', 'no'].includes(String(env?.[name] ?? '').trim().toLowerCase())
@@ -433,6 +440,6 @@ export function yardWellKeep ({ on = true, room = 0, deferOk = true } = {}) {
  */
 export function yardDrawPlan ({ on = true, need = 0, held = {}, freeSlots = 0, pick = false, left = Infinity } = {}) {
   if (!on || !pick || !(Number(left) >= YARD_DRAW_LEFT_MS)) return 0
-  const n = Math.min(Math.max(0, Number(need) || 0), Math.max(0, Number(held?.cobblestone) || 0), YARD_VISIT_MAX, Math.max(0, Number(freeSlots) || 0) * 64)
+  const n = Math.min(Math.max(0, Number(need) || 0), Math.max(0, Number(held?.cobblestone) || 0), YARD_DRAW_MAX, Math.max(0, Number(freeSlots) || 0) * 64)
   return n >= YARD_DRAW_MIN ? n : 0
 }

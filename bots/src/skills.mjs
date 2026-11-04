@@ -144,7 +144,7 @@ import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, s
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX } from './wall.mjs'   // wall-01
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
-import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, YARD_DRAW_MS } from './yard.mjs'   // yarduse-01
+import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS } from './yard.mjs'   // yarduse-01
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
@@ -18644,6 +18644,27 @@ function wellCobbleReserveNow (bot, now = Date.now()) {
 /** Did the well keep cobble back for the yard on this bag (its at-cap plan with the yard's reserve throws less than without)? Pure
  *  over the bag; the caller stamps the deferral (bot.yardDeferAt) when it throws. */
 const wellKeptForYard = (items, reserve) => reserve > COBBLE_WELL_RESERVE && cobbleWellStacks(items).reduce((t, c) => t + c.count, 0) > cobbleWellStacks(items, { reserve }).reduce((t, c) => t + c.count, 0)
+/**
+ * THE DROPS OF A DIG-BACK, COLLECTED (Claude code r1 BLOCKER): a pile block dug from the aisle drops onto the pile, out of the
+ * aisle's pickup reach, and buildbot's dig never collects -- so every cobblestone drop within the piles' box (+2) is walked to
+ * (pickupNearbyItems, its 4 walks a sweep), sweep after sweep while drops remain, the bag gains and the deadline allows (yard.mjs
+ * collectMore). Never throws but an abort.
+ */
+async function yardCollect (bot, signal, deadline, bays) {
+  const pts = (bays ?? []).flatMap(b => b.slots ?? [])
+  if (!pts.length) return
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), zs = pts.map(p => p[2])
+  const box = { x0: Math.min(...xs) - 2, x1: Math.max(...xs) + 3, y0: Math.min(...ys) - 2, y1: Math.max(...ys) + 2, z0: Math.min(...zs) - 2, z1: Math.max(...zs) + 3 }
+  const dropsLeft = () => { let n = 0; try { for (const e of Object.values(bot.entities ?? {})) { const p = e?.position; if (e?.name === 'item' && p && p.x >= box.x0 && p.x <= box.x1 && p.y >= box.y0 && p.y <= box.y1 && p.z >= box.z0 && p.z <= box.z1 && spawnedItem(e).name === 'cobblestone') n++ } } catch { /* none read */ } return n }
+  let iter = 0, idle = 0
+  while (collectMore({ drops: dropsLeft(), iter, idle, left: deadline - Date.now() })) {
+    const before = countItem(bot, 'cobblestone')
+    try { await pickupNearbyItems(bot, signal, 16) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    await sleep(250, signal)
+    iter++
+    idle = countItem(bot, 'cobblestone') > before ? 0 : idle + 1
+  }
+}
 /** What a bill still wants from the chests after a yard draw put `got` cobblestone in the bag (mutates `need`). */
 function yardNeedLeft (need, got) { const left = (Number(need.cobblestone) || 0) - got; if (left > 0) need.cobblestone = left; else delete need.cobblestone; return need }
 /**
@@ -18759,11 +18780,12 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
           return effects.dig(c, expect)
         } }
       }
-      r = await runVisit({ ...base, record: bare, palette: bp.palette, tidy, clearMax: digBack ? YARD_VISIT_MAX : YARD_CLEAR_MAX }, fx, { deadline, maxSteps: 400 })
+      // a dig-back leaves time to COLLECT (yardCollect: the drops land on the pile, out of the aisle's reach)
+      r = await runVisit({ ...base, record: bare, palette: bp.palette, tidy, clearMax: digBack ? YARD_VISIT_MAX : YARD_CLEAR_MAX }, fx, { deadline: digBack ? deadline - 15_000 : deadline, maxSteps: 400 })
       f.cleared = r.cleared ?? 0
       let got = 0
       if (digBack) {
-        try { await pickupNearbyItems(bot, signal, 8) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        await yardCollect(bot, signal, deadline, bays)
         got = Math.max(0, (heldMap(bot).cobblestone ?? 0) - (bag0.cobblestone ?? 0))
         f.dug = got ? { cobblestone: got } : {}
         // the consumer's: counted from the BAG (never the digs), kept in it for the consumer's bill
@@ -18797,7 +18819,8 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     // yarduse-01: a stock visit that placed answers the well's deferral (yard.mjs yardDeferred); a draw that dug nothing rests the
     // DRAW only (the stock and the well's deferral are not this bot's draw's to hold)
     if (nPlaced > 0) bot.yardStockAt = Date.now()
-    if (drawing) { if (!(Number(result?.got) > 0)) bot.yardDrawRestUntil = Date.now() + YARD_REST_MS } else if (n === 0) bot.yardRestUntil = Date.now() + YARD_REST_MS
+    // a draw that collected under half of what it dug (drops left on the pile) rests the draw too: the next bill uses the chests
+    if (drawing) { const g = Number(result?.got) || 0; if (!(g > 0) || g * 2 < f.cleared) bot.yardDrawRestUntil = Date.now() + YARD_REST_MS } else if (n === 0) bot.yardRestUntil = Date.now() + YARD_REST_MS
     bot.yardRoomMemo = null
     return out(n > 0 ? 'success' : 'no_effect', `yard_${f.kind}`, `the yard's ${f.kind}: ${n} block(s) (${r?.why ?? stop})`.slice(0, 160), { stop: r?.stop, placed: r?.placed, cleared: r?.cleared, slot: slot.slot })
   } catch (e) {
