@@ -4,18 +4,18 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-04T05:20:01Z._
+_Generated 2026-11-04T06:20:01Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `0542fccb` = swimcentre-01 `0542fccb` (KEEP 11-04 03:58Z, promoted 11-04 04:08Z) on bagdiet-01 `9fbfdf22` (KEEP 11-03 23:58Z, promoted 11-04 00:08Z) on cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z) on stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) |
 | **Canary in slot** | EMPTY (last close swimcentre-01 KEEP 11-04 03:58Z) |
 | **Queue (front)** | monustuck-01 -> shafttrap-02 -> stationkeep-01 -> marks-01 -> swimunder-01 -> vetoremedy-01 -> villageunlock-01 -> towngate-01 -> groundskeeper-01 -> llmoai-01 |
-| **Scheduler** | wait H2 monustuck-01: no variant for the fleet base 0542fcc (have: 53fd28e): autorebase of 53fd28ee..177a0585 is building (step start, pid None, heartbeat 2026-11-04T05:20:02Z) |
-| **Showcase release** | `add2dcdd` (9,733 rows), `502a63f9` (8,528 rows), `c39a1128` (5,627 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 9fbfdf22 (bagdiet-01); row 11-04 04:25Z) |
+| **Scheduler** | wait H2 monustuck-01: no variant for the fleet base 0542fcc (have: 53fd28e): autorebase of 53fd28ee..177a0585 is building (step rerun, pid 506039, heartbeat 2026-11-04T06:19:33Z) |
+| **Showcase release** | `c39a1128` (13,744 rows), `502a63f9` (8,528 rows), `add2dcdd` (984 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live c39a1128 sits on 53fd28ee (cooldown15-02); behind by 2: swimcentre-01, bagdiet-01; merge conflicts in bots/src/skills.mjs; row 11-04 05:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
-| **Open alarms** | STALLCHECK 2026-11-04T04:35:02Z STALLED: 44. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 32 active alarm(s): stuck goals 9 (hive-a/monument@355_73_147, hive-a/tidy@355_73_147, hive-a/wall@355_73_147, hive-d/tidy@68_65_68, hive-d/wall@68_65_68, isolated-a/monument@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-04T05:35:01Z STALLED: 37. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 30 active alarm(s): stuck goals 7 (hive-a/monument@355_73_147, hive-a/wall@355_73_147, hive-d/tidy@68_65_68, isolated-a/monument@355_73_147, isolated-c/monument@355_73_147, isolated-d/monument@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
