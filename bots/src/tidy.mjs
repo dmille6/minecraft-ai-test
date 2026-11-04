@@ -691,10 +691,20 @@ export function roadWork (read, cols, { home, cells = new Set(), lim, avoid = ()
  * `avoid` or a record cell's column; nearest home first. Fewer cells than trees: the rest are owed none (the visit fells a trunk
  * only once every listed replant stands: buildrun.mjs B4).
  */
-export function replantCells (read, land, trees, { avoid = () => null, cells = new Set(), r = LAND.workR, T = TIDY } = {}) {
+export function replantCells (read, land, trees, { avoid = () => null, cells = new Set(), r = LAND.workR, groves = false, busy = new Set(), T = TIDY } = {}) {
   const home = land?.home
   if (!home || !trees.length) return []
   const road = corridorAt(land)
+  // outbands-01 (owner 11-04 "cut down trees and replant in better spots"): with `groves`, the wild cells beside a standing GROVE
+  // (OUTBANDS.groveMin trunks within OUTBANDS.groveR) come before the rest of the wild, nearest home first; `busy` columns (this
+  // stage's own cuts, fills and fells) are never a replant cell
+  const trunks = new Map()
+  const trunkAt = (x, z) => {
+    const k = k2(x, z)
+    if (!trunks.has(k)) { const c = tidyColumn(read, x, z, { yHi: home.y + T.dy, yLo: home.y - T.dy }); const b = c.y != null && c.tree ? read(x, c.y + 1, z) : null; trunks.set(k, !!b && LOG_RE.test(nm(b))) }
+    return trunks.get(k)
+  }
+  const grove = (x, z) => { let n = 0; for (let dx = -OUTBANDS.groveR; dx <= OUTBANDS.groveR; dx++) for (let dz = -OUTBANDS.groveR; dz <= OUTBANDS.groveR; dz++) if ((dx || dz) && trunkAt(x + dx, z + dz) && ++n >= OUTBANDS.groveMin) return true; return false }
   const cellCols = new Set([...cells].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
   const want = [...new Set(['treefarm', 'wild'])]
   const out = [], used = []
@@ -705,15 +715,19 @@ export function replantCells (read, land, trees, { avoid = () => null, cells = n
       cand.push([Math.max(Math.abs(x - home.x), Math.abs(z - home.z)), x, z])
     }
     cand.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2])
-    for (const [, x, z] of cand) {
+    // the grove pass first (lazily: a candidate's grove is read only when it is otherwise plantable), then every candidate
+    for (const pass of groves && kind === 'wild' ? ['grove', 'any'] : ['any']) for (const [, x, z] of cand) {
       if (out.length >= trees.length) return out
       if (used.some(([ux, uz]) => Math.max(Math.abs(ux - x), Math.abs(uz - z)) < 4)) continue
-      if (road(x, z) || avoid(x, z) || cellCols.has(`${x},${z}`)) continue
+      if (road(x, z) || avoid(x, z) || cellCols.has(`${x},${z}`) || busy.has(`${x},${z}`)) continue
+      // never against a trunk (a grove's own trees keep their room: no standing trunk among its 8 neighbours)
+      if (groves && N8.some(([dx, dz]) => trunkAt(x + dx, z + dz))) continue
       const c = tidyColumn(read, x, z, { yHi: home.y + T.dy, yLo: home.y - T.dy })
       if (c.why || c.y == null || c.tree || !SOIL_RE.test(c.name)) continue
       let open = true
       for (let y = c.y + 1; y <= c.y + REPLANT_AIR; y++) { const b = read(x, y, z); if (!b || !AIRN(nm(b))) { open = false; break } }
       if (!open) continue
+      if (pass === 'grove' && !grove(x, z)) continue
       const t = trees[out.length]
       out.push({ cell: [x, c.y + 1, z], species: t.name.replace(/_(log|wood)$/, ''), sapling: SAPLING_OF[t.name] ?? 'oak_sapling', state: 'pending' })
       used.push([x, z])
@@ -1151,7 +1165,7 @@ export function mergeSurveys (parts = []) {
   for (const [k, v] of Object.entries(parts[0] ?? {})) if (!(k in out)) out[k] = v
   return out
 }
-export function surveyInwall (read, { home, box, avoid = () => null, cells = new Set(), noLitter = () => false, reserved = () => false, noStair = () => false, water = 'strict', waterOk = () => false, T = INWALL } = {}) {
+export function surveyInwall (read, { home, box, avoid = () => null, cells = new Set(), noLitter = () => false, reserved = () => false, noStair = () => false, within = () => true, water = 'strict', waterOk = () => false, T = INWALL } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   if (!home || !Array.isArray(box)) return { ok: false, why: 'no_box', cut: [], fill: [], pillars: [], pits: [], litter: 0, skipped }
@@ -1165,6 +1179,8 @@ export function surveyInwall (read, { home, box, avoid = () => null, cells = new
   const planned = new Set()
   let litter = 0
   for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
+    // outbands-01: a band's survey takes only its own columns (`within`: the band less the walls' insides and the stage's other work)
+    if (!within(x, z)) continue
     const why = avoid(x, z)
     if (planned.has(k2(x, z))) { skip('planned'); continue }
     // ---- ON A BUILD: the topmost block of the column, read whatever tidyColumn calls it (a roof's slab reads `built`) ----
@@ -1253,6 +1269,80 @@ export function surveyInwall (read, { home, box, avoid = () => null, cells = new
     for (const at of a.cells) fill.push({ at, pit: a.id, access: true })
   }
   return { ok: true, why: 'ok', cut, fill, pillars, pits, litter, access, skipped }
+}
+
+// ================================================================================================================================
+// OUTBANDS-01 (owner 11-04, groundskeeper piece 5: "once that is done, the grounds keeper(s) can move outside the walls and clean
+// these areas up, they can leave trees, or cut down trees and replant in better spots. again cleaning up the land, terracing, and
+// making it easier for other bots to work, mine, travel, explore"). Each outward band (rim48, rim64, rim80: landplan.mjs landStages)
+// already cut tidy-01's pillars (2+ high), filled its pits (2+ deep, up to 3x3) and graded the spokes through it. Now it also
+//   CLEANS    the inside-the-wall survey's rules over the band's own columns (surveyInwall with `within`): every STRAY of the bots'
+//             material 1+ high above all 8 neighbours, every HOLE lower than all 8 (up to INWALL.holeMax: levelled), the litter ON a
+//             build and the dirt climbs BESIDE one (cut: outside the wall a climb is never made a staircase -- a stair to the wall's
+//             top from outside is a way over it). Never inside a wall's box (inwall's), never a column this stage already works.
+//   STUMPS    a log column standing on its ground, at most OUTBANDS.stumpMax logs, with no leaves within OUTBANDS.stumpLeafR (a
+//             trunk the bots left when they felled the tree): its logs cleared (kind `tree`, no replant owed: the tree is gone).
+//   ROAD TREES a living trunk standing in a land-plan road CORRIDOR in the band (the road's own head room is roadWork's): felled whole
+//             (its 4-connected trunk columns one tree, at most OUTBANDS.fellMax a band), one replant owed each -- in the tree farm
+//             first, then beside a standing GROVE in the wild (replantCells `groves`), never in a corridor, never on this stage's work.
+//   Every other tree stays. OUTBANDS=off is the rollback (the band is what it was).
+// ================================================================================================================================
+export const OUTBANDS = Object.freeze({ stumpMax: 4, stumpLeafR: 2, fellMax: 8, stumpCap: 24, groveR: 5, groveMin: 2 })
+/** THE SWITCH -> bool. OUTBANDS=off|0|false|no -> the bands as before; on by default. Pure. */
+export const outbandsOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.OUTBANDS ?? '').trim())
+/**
+ * THE BAND'S TREES -> { stumps: [{ cols, logs }], fells: [{ cols, name, logs }], skipped }. Pure over `read`. `inBand(x, z)`: the
+ * band's own columns (the caller's: the band less the walls' insides and the stage's other work); `corridor(x, z)`: the land
+ * plan's road corridors. A trunk column is one whose block over its ground is a log; its logs are the run of logs from there up.
+ * Never a column `avoid` names, `noLitter` names (the tree farm, the yard) or with a record cell among its logs; an unread cell
+ * anywhere in the reading leaves the column alone.
+ */
+export function bandTrees (read, { home, box, inBand = () => true, corridor = () => null, avoid = () => null, noLitter = () => false, cells = new Set(), T = OUTBANDS } = {}) {
+  const skipped = {}
+  const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
+  const yHi = home.y + TIDY.dy, yLo = home.y - TIDY.dy
+  const trunk = new Map()
+  for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
+    if (!inBand(x, z)) continue
+    const c = tidyColumn(read, x, z, { yHi, yLo })
+    if (c.why || c.y == null || !c.tree) continue
+    const b0 = read(x, c.y + 1, z)
+    if (!b0 || !LOG_RE.test(nm(b0))) continue
+    const logs = []
+    let unread = false
+    for (let y = c.y + 1; y <= yHi; y++) { const b = read(x, y, z); if (!b) { unread = true; break } const n = nm(b); if (!LOG_RE.test(n)) break; logs.push({ at: [x, y, z], kind: 'tree', name: n }) }
+    if (unread) { skip('tree_unread'); continue }
+    if (avoid(x, z) || noLitter(x, z) || logs.some(l => cells.has(l.at.join(',')))) { skip('tree_guarded'); continue }
+    trunk.set(k2(x, z), { x, z, logs })
+  }
+  // 4-connected trunk columns are one tree (a 2x2 spruce or dark oak)
+  const seen = new Set(), stumps = [], fells = []
+  for (const [k0, t0] of trunk) {
+    if (seen.has(k0)) continue
+    const grp = [], q = [t0]
+    seen.add(k0)
+    for (let i = 0; i < q.length; i++) { grp.push(q[i]); for (const [dx, dz] of N4) { const k = k2(q[i].x + dx, q[i].z + dz); if (trunk.has(k) && !seen.has(k)) { seen.add(k); q.push(trunk.get(k)) } } }
+    const logs = grp.flatMap(g => g.logs)
+    const top = Math.max(...logs.map(l => l.at[1]))
+    let leaves = false, unread = false
+    for (const g of grp) for (let dx = -T.stumpLeafR; dx <= T.stumpLeafR && !leaves; dx++) for (let dz = -T.stumpLeafR; dz <= T.stumpLeafR && !leaves; dz++) for (let y = top - 1; y <= top + 3; y++) {
+      const b = read(g.x + dx, y, g.z + dz)
+      if (!b) { unread = true; continue }
+      if (LEAVES.test(nm(b))) { leaves = true; break }
+    }
+    const cols = grp.map(g => [g.x, g.z])
+    if (!leaves) {
+      if (unread) { skip('stump_unread'); continue }
+      if (grp.some(g => g.logs.length > T.stumpMax)) { skip('stump_tall'); continue }
+      if (stumps.length >= T.stumpCap) { skip('stump_cap'); continue }
+      stumps.push({ cols, logs })
+      continue
+    }
+    if (!grp.some(g => corridor(g.x, g.z))) continue
+    if (fells.length >= T.fellMax) { skip('fell_cap'); continue }
+    fells.push({ cols, name: grp[0].logs[0].name, logs })
+  }
+  return { stumps, fells, skipped }
 }
 
 /**
@@ -1407,14 +1497,44 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     s.pits.push({ id, cols: [...mine].map(q => q.split(',').map(Number)), road: true, n: fs.length })
     for (const f of fs) s.fill.push({ ...f, pit: id })
   }
-  const lightAt = roadLights(read, rcols, { home, avoid: (x, z) => avoid(x, z) ?? (rk.has(k2(x, z)) ? 'road' : null), n: lights, cells })
+  // outbands-01: the band's own clean-up (strays, holes, litter, climbs), its stumps and its road trees (bandTrees), over the band's
+  // columns less the walls' insides and every column this stage already works
+  let band = null
+  const bandClear = [], bandTrunks = [], busy = new Set()
+  if (outbandsOn(env) && st.rMax > 0) {
+    const boxes = inwallBoxes(terrace?.wall ?? null, home, terrace?.wallext ?? null)
+    const inWall = (x, z) => boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3])
+    for (const c of [...s.cut, ...s.fill, ...(s.clear ?? [])]) busy.add(k2(c.at[0], c.at[2]))
+    for (const p of s.pits) for (const c of p.cols ?? []) busy.add(k2(c[0], c[1]))
+    const work = new Set(busy)
+    const dh = (x, z) => Math.max(Math.abs(x - home.x), Math.abs(z - home.z))
+    const inBand = (x, z) => dh(x, z) > st.rMin && dh(x, z) <= st.rMax && !inWall(x, z) && !work.has(k2(x, z))
+    const bx = [home.x - st.rMax, home.z - st.rMax, home.x + st.rMax, home.z + st.rMax]
+    const noLitter = inwallNoLitter(terrace?.records ?? [])
+    const tr = bandTrees(read, { home, box: bx, inBand, corridor: corridorAt(land), avoid, noLitter, cells })
+    const treeK = new Set([...tr.stumps, ...tr.fells].flatMap(t => t.cols.map(([x, z]) => k2(x, z))))
+    const sv = surveyInwall(read, { home, box: bx, within: (x, z) => inBand(x, z) && !treeK.has(k2(x, z)), avoid, cells, noLitter, reserved, water, waterOk, T: { ...INWALL, access: false } })
+    if (sv.ok) {
+      const ns = v => `o${v}`
+      for (const c of sv.cut) { s.cut.push({ ...c, pillar: ns(c.pillar) }); busy.add(k2(c.at[0], c.at[2])) }
+      for (const f of sv.fill) { s.fill.push({ ...f, pit: ns(f.pit) }); busy.add(k2(f.at[0], f.at[2])) }
+      for (const q of sv.pillars) s.pillars.push({ ...q, id: ns(q.id) })
+      for (const q of sv.pits) s.pits.push({ ...q, id: ns(q.id) })
+    }
+    for (const t of [...tr.stumps, ...tr.fells]) { bandClear.push(...t.logs); for (const [x, z] of t.cols) busy.add(k2(x, z)) }
+    for (const f of tr.fells) bandTrunks.push({ col: f.cols[0], name: f.name })
+    band = { strays: sv.ok ? sv.pillars.filter(q => !q.onBuild).length : 0, holes: sv.ok ? sv.pits.length : 0, litter: sv.ok ? sv.litter : 0,
+      stumps: tr.stumps.length, fells: tr.fells.length, ...(sv.ok ? {} : { why: sv.why }), skipped: { ...(sv.skipped ?? {}), ...tr.skipped } }
+  }
+  const lightAt = roadLights(read, rcols, { home, avoid: (x, z) => avoid(x, z) ?? (rk.has(k2(x, z)) || busy.has(k2(x, z)) ? 'road' : null), n: lights, cells })
   let record = tidyRecord(s, { home, plan, now, r: Math.max(st.rMax, st.upto ?? -1, TIDY.r) })
-  if (!record && !road.clear.length && !lightAt.length) return { ok: true, why: 'nothing', record: null, survey, road }
+  if (!record && !road.clear.length && !lightAt.length && !bandClear.length) return { ok: true, why: 'nothing', record: null, survey, road, band }
   record ??= { v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r: Math.max(st.upto ?? -1, TIDY.r), cells: [], clear: [], cut: [], replant: [], segments: [], zones: [], pillars: 0, pits: 0, skipped: {}, bom: { earth: 0 }, builders_max: TIDY_BUILDERS, structure_complete: false, plan: plan?.gen != null ? { gen: plan.gen } : null, sitedAt: now }
   record.clear = [...(record.clear ?? [])]
-  for (const c of road.clear) if (!record.clear.some(q => q.at.join(',') === c.at.join(','))) record.clear.push(c)
+  for (const c of [...road.clear, ...bandClear]) if (!record.clear.some(q => q.at.join(',') === c.at.join(','))) record.clear.push(c)
   record.clear.sort((a, b) => a.at[1] - b.at[1])
-  record.replant = replantCells(read, land, road.trees, { avoid, cells })
+  // outbands-01: the band's felled road trees owe their replants too; with the switch on every replant goes to a grove first
+  record.replant = replantCells(read, land, [...road.trees, ...bandTrunks], { avoid, cells, groves: !!band, busy })
   if (lightAt.length) {
     record.segments.push({ seg: 'T-L', deps: [] })
     for (const l of lightAt) record.cells.push({ at: l.at, role: 'light', seg: 'T-L' })
@@ -1424,8 +1544,9 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   record.terraceV = 1   // townterrace-01: sited in the ring order that has the terrace stage (landplan.mjs recStageK)
   record.land = { seed: land.seed, sitedAt: land.sitedAt ?? null }
   record.road = { cols: rcols.length, cut: road.cut.length, fill: road.fill.length, trees: road.trees.length, replant: record.replant.length, lights: lightAt.length, skipped: road.skipped, walk: road.walk ?? null }
+  if (band) record.band = band
   record.r = Math.max(record.r ?? 0, st.upto ?? -1, st.rMax ?? -1)
-  return { ok: true, why: 'ok', record, survey, road }
+  return { ok: true, why: 'ok', record, survey, road, band }
 }
 
 /**

@@ -102,10 +102,13 @@ const stages = []
 const lastK = LP.landStages().at(-1).k
 for (let k = 0; k <= Math.min(lastK, Number(opt('stages', lastK))); k++) {
   t0 = Date.now()
-  const s = T.siteStage(cur, { home, land, stage: k, avoid: avoidT, cells, plan, pin: k === 0 ? pin : null, lim: T.gradeLim(cur, 6), lights: 8, now: 0, walkFrom: argv.includes('--no-guard') ? null : T.townEdge(plan, home) })
+  // outbands-01: the stages after the terrace read the wall, the extension and the records (skills.mjs tidyInputs: the walls'
+  // insides, the yard's and the tree farm's no-litter boxes); the terrace stage itself is async and off here, as before
+  const terrace = LP.stageOf(k).id === TR.TERRACE_STAGE ? null : { records: recs, wall: recs.find(r => r.plot === 'wall') ?? null, wallext: recs.find(r => r.plot === 'wallext') ?? null }
+  const s = await T.siteStage(cur, { home, land, stage: k, avoid: avoidT, cells, plan, pin: k === 0 ? pin : null, lim: T.gradeLim(cur, 6), lights: 8, now: 0, walkFrom: argv.includes('--no-guard') ? null : T.townEdge(plan, home), terrace })
   const ms = Date.now() - t0
   const rec = s.record
-  stages.push({ k, id: LP.stageOf(k).id, ms, why: s.why, cut: rec?.cut.length ?? 0, fill: rec ? rec.cells.filter(c => c.role !== 'light').length : 0, clear: rec?.clear.length ?? 0, replant: rec?.replant?.length ?? 0, lights: rec ? rec.cells.filter(c => c.role === 'light').length : 0, road: rec?.road ?? null, pillars: rec?.pillars ?? 0, pits: rec?.pits ?? 0 })
+  stages.push({ k, id: LP.stageOf(k).id, ms, why: s.why, cut: rec?.cut.length ?? 0, fill: rec ? rec.cells.filter(c => c.role !== 'light').length : 0, clear: rec?.clear.length ?? 0, replant: rec?.replant?.length ?? 0, lights: rec ? rec.cells.filter(c => c.role === 'light').length : 0, road: rec?.road ?? null, pillars: rec?.pillars ?? 0, pits: rec?.pits ?? 0, band: rec?.band ?? null })
   if (rec) cur = T.tidyOverlay(cur, { ...rec, cells: rec.cells.filter(c => c.role !== 'light') })
   if (argv.includes('--per-stage')) stages.at(-1).after = (await measure(cur)).roadReached
 }
