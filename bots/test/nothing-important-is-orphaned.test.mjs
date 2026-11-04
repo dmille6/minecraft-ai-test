@@ -121,6 +121,9 @@ const REQUIRED = [
   'bots/test/sinkfix4.test.mjs',
   // siteprep-01 (11-04): the groundskeeper prepares a plot when a sink finds no site
   'bots/test/siteprep.test.mjs',
+  // siteprep-02 (11-04): the live SP1 stall reproduced on the showcase's own blocks
+  'bots/test/siteprep-sp1.test.mjs',
+  'bots/test/fixtures/siteprep-sp1-1104.json',
   'bots/test/siteprepfold.test.mjs',   // the fold's prepared-claim bypass (Codex fold BLOCKER)
   'bots/src/siteprep.mjs',
   'docs/reports/siteprep-design-2026-11-04.md',
