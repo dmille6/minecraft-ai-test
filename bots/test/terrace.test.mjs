@@ -206,7 +206,7 @@ await t('stageCarry: the stage before\'s cells ride on as done-by-definition PRE
   assert.strictEqual(T.stageCarry(body, { cells: Array.from({ length: 10 }, (_, i) => ({ at: [i, 0, 0], role: 'earth' })) }, 3).cells.length, 4)
 })
 await t('legacyStage: the stage number is groundskeeper-01\'s (a rollback reads it), the terrace 0', async () => {
-  assert.deepStrictEqual(LP.landStages().slice(0, 5).map(st => T.legacyStage(st)), [0, 0, 1, 2, 3])
+  assert.deepStrictEqual(LP.landStages().slice(0, 6).map(st => T.legacyStage(st)), [0, 0, 1, 1, 2, 3], 'gkstage-01: inwall reads as the roads\' 1; the bands keep 2, 3, ...')
   for (const st of LP.landStages()) { if (st.k) assert.strictEqual(LP.recStageK({ stage: T.legacyStage(st), stageId: st.id, terraceV: 1 }), st.k) }
 })
 console.log('THE WALK: never worse')
@@ -589,7 +589,7 @@ await t('buildTidy: the terrace inputs, the work-time guard, the skip rule, the 
   assert.ok(/alsoDone: q => waivedK\(q\) \|\| noTorch\(q\) \|\| !!skipV\(q\)/.test(s), 'the skip rule')
   assert.ok(/useFor: q => \(q\.role === 'till' \? hoeUse : q\.role === 'meadow' \? mealUse : null\), openRole: role => OPEN_ROLES\.has\(role\)/.test(s), 'the tool uses')
   assert.ok(/Object\.assign\(extra, parkBill\(rec, read, \{ held: held0, stock: matsTownStock\(bot\)\?\.stock \?\? \{\}/.test(s), 'the park\'s bill')
-  assert.ok(/nextStage\(recStageK\(rh\.head\.rec\)\)/.test(s) && /return nextStage\(recStageK\(r\)\) != null/.test(s), 'the ring order reads recStageK')
+  assert.ok(/nextStageCycle\(rh\.head\.rec\)/.test(s) && /return nextStageCycle\(r, now\) != null/.test(s), 'the ring order reads recStageK (gkstage-01: through landplan.mjs nextStageCycle, which reads it)')
   const lp = strip(readFileSync(LAND_PATH, 'utf8'))
   assert.ok(/zones: \[\.\.\.\(land\.corridors \?\? \[\]\), \.\.\.parkZones\(land\)\]/.test(lp), 'the park reservation')
 })

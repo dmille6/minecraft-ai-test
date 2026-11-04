@@ -143,6 +143,10 @@ export function parkBill (rec, read, { held = {}, stock = {}, done = () => false
 // Never sweet berry bushes, cactus or vines (no list names them); never a crop, a sapling or anything in a reserved column.
 // ================================================================================================================================
 export const GATHER_CAP = Object.freeze({ flowers: 24, tall_flowers: 8, azalea: 8, bamboo: 9, cane: 6, hedge: 24, trees: 4 })
+/** gkstage-01 (owner 11-04, the coordinator's relay: "park with no flowers"): the crew never GATHERS these (the showcase's only free
+ *  flowers are inside the protected village: 222 gather visits since 11-03 18:38Z sought them and found none); a bag's own flowers
+ *  are still planted by a top-up. */
+export const GATHER_SKIP = new Set(['flowers', 'tall_flowers'])
 const SMALL_SET = new Set(SMALL_FLOWERS), TALL_SET = new Set(TALL_FLOWERS)
 /** A world block the gather may take -> { el, item, keepBase?, lower?, shears? } | null. Pure. */
 export function gatherKind (name) {
@@ -166,6 +170,7 @@ export function parkWant (park, have = {}) {
   const out = {}
   const placed = park.placed ?? {}
   for (const [el, cap] of Object.entries(GATHER_CAP)) {
+    if (GATHER_SKIP.has(el)) continue
     const why = String(park.skipped?.[el] ?? '')
     const wanted = (placed[el] ?? 0) === 0 && (/^no_/.test(why) && !/^no_(room|quadrant|water|actuator|natural_grass)$/.test(why))
     if (!wanted) continue
@@ -235,6 +240,8 @@ export function gatherTargets (cands, { read, reserved = () => null, home, r = 6
 }
 /** Every item a park element plants (and the hoe's family) -> Set. */
 export const PARK_ITEMS = new Set(Object.values(ELEMENT_ITEMS).flat())
+/** A bag less its keeps -> { name: n } (what the placer can spend: buildbot.mjs effects.has counts above the keeps). Pure. */
+export const spareOf = (held, keep = {}) => Object.fromEntries(Object.entries(held ?? {}).map(([n, v]) => [n, (Number(v) || 0) - (Number(keep?.[n]) || 0)]).filter(([, v]) => v > 0))
 /** A bag's park plants -> { name: n } (the crew's pantry). Pure. */
 export const parkItemsOf = held => Object.fromEntries(Object.entries(held ?? {}).filter(([n, v]) => PARK_ITEMS.has(n) && Number(v) > 0))
 /** The crew's pantries summed -> { name: n }: only a FRESH pantry (written within `fresh` ms) of a bot `live(holder)` (it holds a

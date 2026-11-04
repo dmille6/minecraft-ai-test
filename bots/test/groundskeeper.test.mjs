@@ -159,7 +159,7 @@ await t('Codex r1 BLOCKER 2: a clear still standing is work left (tidyClearsLeft
   assert.strictEqual(T.tidyClearsLeft(rec, srv.read), 0)
   const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
   // siteprep-01 r2: and never over a prepping request's open work (`prepHold`)
-  assert.ok(/if \(caps\.complete && !crewHeld && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/.test(sk), 'the completion waits on the clears (gkhelpers-01: the keeper\'s, and never over a crew bot\'s plants; siteprep-01: nor over an open prep)')
+  assert.ok(/if \(caps\.complete && !crewHolds && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/.test(sk), 'the completion waits on the clears (gkhelpers-01: the keeper\'s, and never over a crew bot\'s plants; siteprep-01: nor over an open prep)')
 })
 await t('NEVER WORSE: a stage whose road work would wall the town in is dropped (named); control: a road over a dip is kept', async () => {
   const land = await flatPlan()
@@ -195,7 +195,7 @@ await t('a later stage tidies only its band: a pillar inside the town square is 
   col(srv, 10, 0, G + 1, G + 3, 'dirt')    // inside rimR (20)
   col(srv, 26, 0, G + 1, G + 3, 'dirt')    // in band (20, 32]
   const land = { home: HOME, roads: [], corridors: [], zones: {}, ringR: 15, workR: SMALL.workR, inner: 6 }
-  const s = T.siteStage(srv.read, { home: HOME, land, stage: LP.stageOf(3, SMALL), L: SMALL })
+  const s = T.siteStage(srv.read, { home: HOME, land, stage: LP.landStages(SMALL).find(q => /^rim/.test(q.id)), L: SMALL })   // gkstage-01: the first band is after `inwall`
   assert.deepStrictEqual([...new Set(s.record.cut.map(c => c.at[0]))], [26])
 })
 
