@@ -126,6 +126,8 @@ M = [
  ("            if arm != 'canary' or per != 'post':\n                continue\n            if name == '_well_dispose'", "            if name == '_well_dispose'"),
  ("            continue\n        if name in BUILD_KINDS and arm == 'control' and per == 'post':", "        if name in BUILD_KINDS and arm == 'control' and per == 'post':"),
  ("                if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):\n                    lists['zone'].append('%s sign %s' % (bot, ck(cell))); out['zone'] += 1", "                pass"),
+ # tidyplaceguard-01: a tidy placement onto another project's cell
+ ("                        if tidy_guarded(cell, t_ms, guards[pool]):\n                            off = True", "                        if False:\n                            off = True"),
 ]
 bad = 0
 for old, new in M:

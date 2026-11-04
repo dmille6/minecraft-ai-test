@@ -998,10 +998,20 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     lists['zone'].append('%s harvest %s' % (bot, k)); out['zone'] += 1
             if op == 'place':
                 out['placements'] += 1
+                pwhy = ''
                 if plot == TIDY and rec is not None:
                     # tidyread-02: a tidy fill is judged against the generations in force when it was placed (tidy_place_ok)
                     t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                     off = not tidy_place_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)
+                    # tidyplaceguard-01 (access-01 review, Claude: the groundskeeper's stairs put tidy blocks ABOVE ground beside builds): a
+                    # tidy placement onto another project's record cell or a marker that stood then is never the tidy's, listed or not
+                    # (the clear side's tidy_guarded, now on the place side too); its item ends `guarded`
+                    if not off:
+                        if pool not in guards:
+                            guards[pool] = tidy_guard(projects.get(pool))
+                        if tidy_guarded(cell, t_ms, guards[pool]):
+                            off = True
+                            pwhy = ' guarded'
                 elif plot in SINK_PLOTS and rec is not None:
                     # picker-01: the generations of the sink's growing chain in force when it was placed (sink_place_ok)
                     t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
@@ -1012,7 +1022,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 else:
                     off = rec is not None and k not in {ck(c['at']) for c in rec.get('cells') or []} and not (f.get('kind') == 'footing' and plot == 'wall' and footing_ok(rec, cell))
                 if off:
-                    out['off_record'] += 1; lists['off_record'].append('%s %s %s' % (bot, k, f.get('block')))
+                    out['off_record'] += 1; lists['off_record'].append('%s %s %s%s' % (bot, k, f.get('block'), pwhy))
                 if [t for t in placed[(pool, plot, k)] if (r['t'] - t).total_seconds() < PLACE_TWICE_MIN * 60]:
                     out['placed_twice'] += 1; lists['placed_twice'].append('%s %s' % (pool, k))
                 placed[(pool, plot, k)].append(r['t'])
@@ -1308,6 +1318,12 @@ def selftest():
     assert tpl('17,64,-2')['off_record'] == 0, 'a stage-0 fill read after the head moved to stage 1'
     assert tpl('5,70,5')['off_record'] == 1 and tpl('30,72,0')['off_record'] == 1, 'positive control: a planted off-record fill (and a stage-1 CUT cell) trips'
     assert tpl('17,64,-2', pp=TP_(chain_=chain[-1:]))['off_record'] == 1, 'control: judged against the head alone (the old rule), it trips'
+    # tidyplaceguard-01: a listed tidy fill on ANOTHER project's record cell (the monument's, sited before) trips, named `guarded`
+    mg = dict(mrec, cells=mrec['cells'] + [{'at': [17, 64, -2], 'role': 'core', 'seg': 'L01-N'}], at=T0MS - 120_000)
+    gp = tpl('17,64,-2', pp=TP_(mon=mg))
+    assert gp['off_record'] == 1 and gp['_lists']['off_record'] == ['board-a-Alpha 17,64,-2 cobblestone guarded'], gp['_lists']['off_record']
+    assert tpl('17,64,-2', pp=TP_(mon=dict(mg, at=T0MS + 3_600_000)))['off_record'] == 0, 'a project sited on the cell later does not re-judge it'
+    assert tpl('5,70,5')['_lists']['off_record'] == ['board-a-Alpha 5,70,5 cobblestone'], 'an off-record item keeps its old words'
     c3 = record_chain(files + [(3, json.dumps(dict(tg2, gen=3, prev=2, stage=2, at=T0MS + 3_600_000, cells=[{'at': [50, 70, 50], 'role': 'core', 'seg': 'T-02-0'}], prevSha=hashlib.sha256(files[1][1]).hexdigest())).encode())])
     assert [c['_gen'] for c in c3] == [1, 2, 3]
     assert tpl('50,70,50', pp=TP_(chain_=c3))['off_record'] == 1, 'a cell of a stage sited AFTER the placement (beyond the skew) is not in force'
