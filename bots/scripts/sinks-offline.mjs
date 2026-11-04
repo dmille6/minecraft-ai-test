@@ -25,7 +25,9 @@ const argv = process.argv.slice(2)
 const opt = (k, d = null) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d }
 const [dumpPath, poolDir] = argv
 if (!dumpPath || !poolDir) { console.error('usage: sinks-offline.mjs <dump.json> <pool-state-dir> [--pool NAME] [--kinds ...] [--count N] [--avail JSON] [--torch] [--json] [--out FILE]'); process.exit(2) }
+// sinkfix-02: the pool name is in every design's seed -- a copied dir's basename ('pool') gave other designs than the bots'
 const pool = opt('pool', path.basename(poolDir).replace(/^_pool-/, ''))
+if (!argv.includes('--pool')) console.error(`(designs seeded with pool '${pool}': pass --pool <name> for the bots' own)`)
 const read = dumpReader(JSON.parse(fs.readFileSync(dumpPath, 'utf8')))
 const R = poolRecords(poolDir)
 if (!R.head) { console.error('the pool records cannot be read:', R.why); process.exit(1) }

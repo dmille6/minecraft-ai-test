@@ -176,7 +176,7 @@ import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PL
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
-import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords } from './sinks.mjs'   // picker-01
+import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
@@ -18705,9 +18705,13 @@ async function buildShop (ctx, args, signal) {
   // expedition-01: the expedition's visit (the order's args say which)
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
   // SINKFIX-01: every visit's outcome marks (or clears) its plot idle for this bot (shop.mjs noteIdle); an abort throws past it
-  const r = await buildShopVisit(ctx, args, signal)
-  // the KEEPER's own grounds are never marked (its lease is its job: groundskeeper.mjs); a helper's or any other bot's visit is
-  try { const pl = ctx.bot.shopVisitPlot ?? null; if (!(pl === TIDY_PLOT && keeperNow(ctx.bot))) noteIdle((ctx.bot.shopIdle ??= new Map()), pl, r, Date.now()) } catch { /* bookkeeping */ }
+  // sinkfix-02: an ABORT is noted too (a sink's marks it: shop.mjs noteIdle), then rethrown; and the KEEPER's own no-effect grounds
+  // visits are marked like any other (LIVE 11-04: 39 keeper visits `complete`, 0 placed, `cuts_left 1/12, fills_left 98/846`) -- they
+  // yield only to a wanted sink, for IDLE_MS
+  const note = res => { try { noteIdle((ctx.bot.shopIdle ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } }
+  let r
+  try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) note({ status: 'aborted', stop: 'aborted' }); throw e }
+  note(r)
   return r
 }
 async function buildShopVisit (ctx, args, signal) {
@@ -20368,7 +20372,7 @@ function sinkStatesNow (bot, states, now = Date.now()) {
   try {
     if (!states.some(s => s?.sink)) return { states, order: [] }
     const recs = Object.fromEntries(SINK_KINDS.map(k => [k, states.find(s => s.plot === SINK_PLOTS[k])?.rec ?? null]))
-    const openCount = SINK_KINDS.filter(k => sinkOpen(recs[k])).length
+    const openCount = stoneOpenCount(recs)
     let pr = null
     const st = {}
     const out = states.map(s => {
@@ -20552,7 +20556,7 @@ async function buildSink (ctx, args, signal, proj) {
   if (!rec0 || (rec0.structure_complete && !shopDamaged(bot, rec0))) {
     const recs = Object.fromEntries(SINK_KINDS.map(k => [k, k === kind ? rec0 : (recordHead(dir, projKeyOf(SINK_PLOTS[k])).head?.rec ?? null)]))
     const pr = kind === 'dress' ? dressPressureNow(bot) : sinkPressureNow(bot)
-    const g = sinkNextGate({ kind, rec: rec0, pressure: pr, openCount: SINK_KINDS.filter(k => sinkOpen(recs[k])).length, noSiteUntil: bot.sinkNoSite?.[kind] ?? 0, now: Date.now(), ready: sinkReady(kind) })
+    const g = sinkNextGate({ kind, rec: rec0, pressure: pr, openCount: stoneOpenCount(recs), noSiteUntil: bot.sinkNoSite?.[kind] ?? 0, now: Date.now(), ready: sinkReady(kind) })
     if (!g.want) return out('no_effect', 'complete', `the ${plot} sink wants no instance now (${g.why}; pressure ${pr.p})`, { stop: 'complete' })
     const r = await sinkSiteFor(bot, kind, rec0, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
     check(signal)
@@ -20648,7 +20652,8 @@ async function buildSink (ctx, args, signal, proj) {
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
-    const done = (() => { try { const p = sinkProgress(rec, q => buildCellDone(read(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
+    // sinkfix-02: a FRESH read (planReader memoises: the bill's read was taken before the visit, so a finished road said 17/23)
+    const done = (() => { try { const rd = planReader(bot); const p = sinkProgress(rec, q => buildCellDone(rd(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, `${r.why ?? r.stop}; built ${done} (${ins?.id ?? '-'})`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {

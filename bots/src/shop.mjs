@@ -164,7 +164,7 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   // nothing to do at (`idle`, idleMarks) yields to it, as a repair and as an open project
   // towndress-01 r1 (Codex r1 BLOCKER): a standing sink with upkeep DUE (a dress batch's unwritten signs) is offered too -- else, its next
   // batch unfunded, the signs waited behind every free finite project for good
-  const sink = list.find(p => p.sink && (st(p).sinkOpen || st(p).sinkNext || (st(p).exists && st(p).complete && st(p).due)) && st(p).free !== false && !st(p).stuck) ?? null
+  const sink = list.find(p => p.sink && (st(p).sinkOpen || st(p).sinkNext || (st(p).exists && st(p).complete && st(p).due)) && st(p).free !== false && !st(p).stuck && st(p).idle !== true) ?? null
   const yields = s => !!sink && s.idle === true
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged && !yields(s)) return p }
   const open = []
@@ -249,11 +249,17 @@ export const REPAIR_WINDOW_MS = 60 * 60_000
  * abort: no visit happened) neither mark nor clear. A sink is never marked (its own no-site wait is sinks.mjs's). Pure over `mem`
  * (mutated: Map plot -> until ms).
  */
+/** sinkfix-02: how far under the town's ground a bot may be when a sink visit is ordered (deeper: it is in a mine). */
+export const SINK_SURFACE_DY = 8
 export const IDLE_MS = 60 * 60_000   // = REPAIR_WINDOW_MS: a no-effect project is asked again once an hour by each bot
 export const IDLE_NOT_A_VISIT = Object.freeze(new Set(['slots_full', 'off', 'zones_unknown', 'no_plan', 'aborted', 'record_unreadable', 'lost_record', 'state_unwritable', 'room', 'underground']))
 export function noteIdle (mem, plot, result, now = Date.now()) {
-  if (!mem || !plot || isSinkPlot(plot) || !result) return
+  if (!mem || !plot || !result) return
   if (result.status === 'success') { mem.delete(plot); return }
+  // SINKFIX-02 (LIVE showcase 11-04 01:25-03:17Z: the one open road instance headed the sink order for 2 h while 16 of its 21 visits
+  // ABORTED -- 13 the stuck reflex at the same approach under the canopy, 3 started in a mine and entombed): a SINK's aborted or
+  // no-effect visit marks it too, so this bot works the next sink kind for IDLE_MS; a finite project's abort still marks nothing
+  if (result.status === 'aborted') { if (isSinkPlot(plot)) mem.set(plot, now + IDLE_MS); return }
   if (result.status !== 'no_effect' || IDLE_NOT_A_VISIT.has(String(result.stop ?? ''))) return
   mem.set(plot, now + IDLE_MS)
 }
@@ -677,6 +683,8 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   // shaft-03: the stair's visit starts at the surface or on the stair (shaftgeom.mjs stairStartRefusal): a bot in a mine under
   // the town is asked again when it is up (its own surface or the stair's ascent; the order's cooldown is not charged)
   if (plot0 === SHAFT_PLOT && stairStartRefusal(record, feet, groundY)) return { order: null, skip: 'underground' }
+  // sinkfix-02: a sink visit starts at the surface (LIVE 11-04: three road visits ordered at y 23-26 in a mine, aborted entombed)
+  if (isSinkPlot(plot0) && Array.isArray(feet) && Number.isFinite(groundY) && feet[1] < groundY - SINK_SURFACE_DY) return { order: null, skip: 'underground' }
   if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }

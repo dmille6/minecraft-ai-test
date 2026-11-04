@@ -62,7 +62,8 @@ export const SINK = Object.freeze({
   instancesMax: Object.freeze({ road: 6, tower: 8, shrine: 6, dress: DRESS.instancesMax }),
   noSiteMs: 6 * 60 * 60_000,  // a kind that found no site waits this long (per bot) before it is searched again
   cooldownMs: 3 * 60_000,     // the order's cooldown on a sink visit (the stair's is 2 min; every other project's 10)
-  proofTries: 6,              // proofs per siting (each a construction simulation)
+  proofTries: 12,             // proofs per siting (each a construction simulation)
+  proofsPerCandidate: 2,      // sinkfix-02: one bad spot never spends every proof (LIVE 11-04: `corner:proof_no_step6`, 6 of 6 on one corner)
 })
 /** The rotation the picker walks (owner 11-02 Q3: roads first -- useful for the way home, flat, a high placement rate). */
 // towndress-01: the dress batch first (OWNER 11-03: lighting + signs the first piece; it spends torches, never the stone the others wait on)
@@ -134,12 +135,15 @@ export function sinkNextGate ({ kind, rec = null, pressure = null, openCount = 0
   if (!SINK_KINDS.includes(kind)) return { want: false, why: 'kind' }
   if (!ready) return { want: false, why: 'not_ready' }
   if (sinkOpen(rec)) return { want: false, why: 'open' }
-  if (openCount >= SINK.maxOpen) return { want: false, why: 'max_open' }
+  if (kind !== 'dress' && openCount >= SINK.maxOpen) return { want: false, why: 'max_open' }
   if (instancesOf(rec).length >= (SINK.instancesMax[kind] ?? 0)) return { want: false, why: 'max_instances' }
   if (now < (Number(noSiteUntil) || 0)) return { want: false, why: 'no_site_wait' }
   if (!(Number(pressure?.p) > 0)) return { want: false, why: 'no_pressure' }
   return { want: true, why: 'ok' }
 }
+/** THE OPEN STONE SINKS counted against SINK.maxOpen -> n. Pure. A dress batch (towndress.mjs) spends torches, never the stone the
+ *  others wait on, so it never holds a stone sink back -- nor is it held back by them (sinkfix-02, LIVE 11-04: dress never ran). */
+export const stoneOpenCount = (recs = {}) => SINK_KINDS.filter(k => k !== 'dress' && sinkOpen(recs[k])).length
 /** The kind sited most recently in this town (the rotation's position) -> kind | null. `recs` { kind: record }. Pure. */
 export function lastSitedKind (recs = {}) {
   let best = null, at = -Infinity
@@ -501,7 +505,7 @@ export function clearsOf (cols) {
   }
   return out.sort((a, b) => a.at[1] - b.at[1])
 }
-export const SITE_LIM = Object.freeze({ fillCol: 3, cutCol: 3, fillShare: 0.4, cutMax: 120, apron: 2, scanUp: 30, scanDown: 14, liquidPad: 1, logsMax: 60 })
+export const SITE_LIM = Object.freeze({ fillCol: 3, baseFillCol: 2, cutCol: 3, fillShare: 0.4, cutMax: 120, apron: 2, scanUp: 30, scanDown: 14, liquidPad: 1, logsMax: 60 })
 const GRAVITY = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|[a-z_]+_concrete_powder)$/
 /** Natural ground a cut may dig (never a placed material, a gravity block, ore, or anything that is not terrain). Pure. */
 export const CUTTABLE = /^(dirt|coarse_dirt|grass_block|podzol|rooted_dirt|mycelium|moss_block|stone|andesite|diorite|granite|tuff|deepslate|calcite|dripstone_block|clay|mud|snow_block|packed_ice|terracotta|[a-z_]+_terracotta|sandstone|red_sandstone|smooth_basalt|dirt_path)$/
@@ -547,7 +551,9 @@ export function screenStepped (read, { x0, z0, g, guard = () => null, hy = 70, s
     for (const [x, z, gr] of cols) {
       const y = gr.y
       if (inBase(x, z) || stairSet.has(`${x},${z}`)) {
-        if (y < L) { if (L - y > SITE_LIM.fillCol || !inBase(x, z)) { bad = 'fill_deep'; break } fillN += L - y; filledCols++ }
+        // sinkfix-02: a base hole at most baseFillCol deep -- the bottom cell of a 3-deep 1-wide hole has no stand in reach (LIVE 11-04:
+        // the tower's only proof failure, `no_step: T1-F ... T1-core@47,67,-28`); the ziggurat's FOUND_DEPTH is 2 for the same reason
+        if (y < L) { if (L - y > SITE_LIM.baseFillCol || !inBase(x, z)) { bad = 'fill_deep'; break } fillN += L - y; filledCols++ }
         if (y > L) { if (y - L > SITE_LIM.cutCol || !cutOk(x, z, y, L)) { bad = 'cut_deep'; break } cutN += y - L }
       } else if (y < L - 1) { if (L - 1 - y > SITE_LIM.fillCol - 1) { bad = 'apron_low'; break } fillN += L - 1 - y } else if (y > L + 1) { if (y - L > SITE_LIM.cutCol || !cutOk(x, z, y, L)) { bad = 'apron_high'; break } cutN += y - L }
     }
@@ -851,6 +857,7 @@ export function siteSink (read, ctx = {}) {
     return proveBuild(read, home, inst, { stood, walkR, approach, domain: (x, z) => x >= box[0] - 6 && x <= box[2] + 6 && z >= box[1] - 6 && z <= box[3] + 6, localR: kind === 'road' ? 24 : 14 })
   }
   const prior = instancesOf(ctx.rec)
+  let firstFail = null   // the first proof failure's detail (the `_sink op=no_site` row names it)
   // towndress-01: a dress batch is sited over the town's own records (towndress.mjs siteDress: its own candidates, spacing and proof)
   if (kind === 'dress') return siteDress(read, { ...ctx, walkR: ctx.walkR ?? 0 })
   if (kind === 'tower' || kind === 'shrine') {
@@ -872,7 +879,9 @@ export function siteSink (read, ctx = {}) {
       const d = kind === 'tower' ? towerDesign(seedOf(c), { avail, face0, torch, campfire }) : shrineDesign(seedOf(c), { avail, face0, torch, campfire })
       const g = d.g, B = g.B
       const why = {}
+      let candProofs = 0
       for (const [dx, dz] of spiral(kind === 'tower' ? 5 : 4)) {
+        if (candProofs >= SINK.proofsPerCandidate) break
         const corner = { x: c.cx + dx - (B - 1) / 2, z: c.cz + dz - (B - 1) / 2 }
         const sc = screenStepped(read, { x0: corner.x, z0: corner.z, g, guard: kind === 'shrine' ? guardShrine : guard, hy: home.y, stairCols: groundStairCols(g, corner) })
         if (!sc.ok) { why[sc.why] = (why[sc.why] ?? 0) + 1; continue }
@@ -880,7 +889,8 @@ export function siteSink (read, ctx = {}) {
         if (inst.cells.length > SINK.billMax) { why.bill = (why.bill ?? 0) + 1; continue }
         const approach = approachOf(g, corner, sc.L)
         const pr = prove(inst, approach, sc.box)
-        if (!pr.ok) { why[`proof_${pr.why}`] = (why[`proof_${pr.why}`] ?? 0) + 1; if (proofs >= tries) break; continue }
+        candProofs++
+        if (!pr.ok) { why[`proof_${pr.why}`] = (why[`proof_${pr.why}`] ?? 0) + 1; firstFail ??= `${pr.why}:${String(pr.detail ?? '').replace(/\s+/g, '_').slice(0, 60)}`; if (proofs >= tries) break; continue }
         tried.push(`${c.why}:ok`)
         const meta = { id, n, kind, seed: seedOf(c), design: { ...d, kind }, summary: designSummary(d), box: sc.box, centre: [corner.x + (B - 1) / 2, corner.z + (B - 1) / 2], baseY: sc.L + 1,
           approach, fill: sc.fill.length, logs: sc.logs, ...(c.slot ? { slot: c.slot, pair: c.pair } : {}), where: c.why }
@@ -889,7 +899,7 @@ export function siteSink (read, ctx = {}) {
       tried.push(`${c.why}:${Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${k}${v}`).join('+') || 'none'}`)
       if (proofs >= tries) break
     }
-    return { ok: false, why: proofs >= tries ? 'no_proven_site' : 'no_site', tried, proofs }
+    return { ok: false, why: proofs >= tries ? 'no_proven_site' : 'no_site', tried: firstFail ? [...tried, `first:${firstFail}`] : tried, proofs }
   }
   if (kind === 'road') {
     const rails = roadRails(ctx.land)

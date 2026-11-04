@@ -113,6 +113,8 @@ const REQUIRED = [
   'bots/test/sinks.test.mjs',
   // sinkfix-01 (11-03): a project that changed nothing yields to a wanted sink (the live 0-sited reproduction)
   'bots/test/sinkfix.test.mjs',
+  // sinkfix-02 (11-04): sinks that placed ~0 live (aborted road, a tower's spent proofs, dress held back) reproduced
+  'bots/test/sinkfix2.test.mjs',
   // towndress-01 (11-03): the town's lights and signs (the `dress` sink), its offline siting and its test
   'bots/src/towndress.mjs',
   'bots/scripts/dress-offline.mjs',

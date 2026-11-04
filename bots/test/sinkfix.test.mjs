@@ -58,13 +58,15 @@ await t('with sinkfix-01: the sink by the third order; the stair and the hall ea
 await t('POSITIVE CONTROL: with no sink wanted the marks change nothing (the order exactly as before)', () => {
   assert.deepStrictEqual(run(SH, { want: false }), run(SH, { want: false, idle: false }))
 })
-await t('noteIdle: a no-effect visit marks, a working one clears, bookkeeping stops and sinks never mark; idleMarks reads the mark', () => {
+await t('noteIdle: a no-effect visit marks, a working one clears, bookkeeping stops never mark; idleMarks reads the mark', () => {
   const m = new Map(), T = 1000
   SH.noteIdle(m, 'hall', { status: 'no_effect', stop: 'replanned' }, T); assert.strictEqual(m.get('hall'), T + SH.IDLE_MS)
   SH.noteIdle(m, 'hall', { status: 'success', placed: 3 }, T); assert.ok(!m.has('hall'))
   for (const stop of ['slots_full', 'room', 'off', 'aborted']) { SH.noteIdle(m, 'hall', { status: 'no_effect', stop }, T); assert.ok(!m.has('hall'), stop) }
   SH.noteIdle(m, 'hall', { status: 'failed', stop: 'error' }, T); assert.ok(!m.has('hall'))
-  SH.noteIdle(m, 'tower', { status: 'no_effect', stop: 'no_site' }, T); assert.ok(!m.has('tower'))
+  // sinkfix-02: a sink's no-effect (and aborted) visit marks it too, so the bot works the next sink kind (sinkfix2.test.mjs)
+  SH.noteIdle(m, 'tower', { status: 'no_effect', stop: 'no_site' }, T); assert.ok(m.has('tower'))
+  SH.noteIdle(m, 'house1', { status: 'aborted', stop: 'aborted' }, T); assert.ok(!m.has('house1'), 'a finite project\'s abort marks nothing')
   SH.noteIdle(m, 'shaft', { status: 'no_effect', stop: 'complete' }, T)
   assert.strictEqual(SH.idleMarks([{ plot: 'shaft' }], m, T + 1)[0].idle, true)
   assert.strictEqual(SH.idleMarks([{ plot: 'shaft' }], m, T + SH.IDLE_MS + 1)[0].idle, undefined, 'the mark lapses')
