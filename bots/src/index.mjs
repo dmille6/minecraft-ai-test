@@ -65,6 +65,7 @@ import { attachEscapeGuard, escapeGuardModeDetail } from './escapeguard.mjs'   /
 import { escapeRecordAt } from './skills.mjs'   // escapeguard-01: the build records' answer for a cell
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
+import { bambooWalkPlugin, bambooWalkModeDetail } from './bamboowalk.mjs'   // bamboowalk-01
 import { tombexitModeDetail } from './tombexit.mjs'   // tombexit-01
 import { attachLavastepGuard } from './lavastepmove.mjs'   // lavastep-01
 import { cavefallModeDetail } from './cavefall.mjs'   // cavefall-01
@@ -195,6 +196,9 @@ function connect() {
   // shop-01 r2: the click acknowledgements are tracked for the CONNECTION's whole life, installed before login so no sequence is
   // written unseen (Codex r1 P2: a tracker per visit started blind); late acknowledgements settle this bot's own intents
   if (SHOP.on) { try { bot.shopAcks = shopAckInstall(bot) } catch {} }
+  // BAMBOOWALK-01: the client's bamboo collision post moved to the server's per-block offset (bamboowalk.mjs). A plugin, so it
+  // wraps bot.blockAt after mineflayer's own blocks plugin defines it (plugins inject in load order); BAMBOOWALK=0 installs nothing.
+  bot.loadPlugin(bambooWalkPlugin)
 
   // Two counters that answer a question every other field we log is blind to:
   // is the world model wrong, or is the server holding the bot still? See
@@ -309,6 +313,8 @@ function connect() {
     try { logEvent({ kind: 'poolescape_mode', status: 'success', snapshot: snapshot(bot), detail: poolEscapeModeDetail() }) } catch {}
     // lavastep-01: the licence row, once per spawn -- `_lavastep_mode`, a kind the base cannot write (lavastep.mjs)
     try { logEvent({ kind: 'lavastep_mode', status: 'success', snapshot: snapshot(bot), detail: lavastepModeDetail() }) } catch {}
+    // bamboowalk-01: the licence row, once per spawn -- `_bamboowalk_mode` (wrapped=1 is the plugin's own witness)
+    try { logEvent({ kind: 'bamboowalk_mode', status: 'success', snapshot: snapshot(bot), detail: bambooWalkModeDetail(bot) }) } catch {}
     // tombexit-01: the licence row, once per spawn (tombexit.mjs; TOMBEXIT=0 is the rollback)
     try { logEvent({ kind: 'tombexit_mode', status: 'success', snapshot: snapshot(bot), detail: tombexitModeDetail() }) } catch {}
     // cavefall-01: the licence row, once per spawn -- `_cavefall_mode`, a kind the base cannot write (cavefall.mjs)

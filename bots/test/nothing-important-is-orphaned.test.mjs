@@ -34,6 +34,10 @@ const REQUIRED = [
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
+  // bamboowalk-01 (11-04): the client's bamboo collision post is where the server's is (the board-d wedge)
+  'bots/src/bamboowalk.mjs',
+  'bots/test/bamboowalk.test.mjs',
+  'bots/test/fixtures/bamboowalk-boardd-1103.json',
   // swimcentre-01 (11-03): a rising body is centred under the column it rises through (the y N.2 drownings)
   'bots/src/swimcentre.mjs',
   'bots/test/swimcentre.test.mjs',
