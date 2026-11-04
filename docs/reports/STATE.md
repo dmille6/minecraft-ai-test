@@ -4,18 +4,18 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-04T20:20:01Z._
+_Generated 2026-11-04T21:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `3a7badea` = swimunder-01 `3a7badea` (KEEP 11-04 17:34Z, promoted 11-04 17:43Z) on monustuck-01 `704acf91` (KEEP 11-04 14:02Z, promoted 11-04 14:12Z) on shafttrap-02 `beb79ed2` (KEEP 11-04 09:36Z, promoted 11-04 09:46Z) on swimcentre-01 `0542fccb` (KEEP 11-04 03:58Z, promoted 11-04 04:08Z) on bagdiet-01 `9fbfdf22` (KEEP 11-03 23:58Z, promoted 11-04 00:08Z) on cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z). Live builds: {'3a7badeab3f95b2798e219958b5d16e761175b9f+0bebc2': 70, '493c198ae7019a2fbe062654ed2fc1fa9ba0dfbb+9017fc': 10} |
+| **Fleet** | `3a7badea` = swimunder-01 `3a7badea` (KEEP 11-04 17:34Z, promoted 11-04 17:43Z) on monustuck-01 `704acf91` (KEEP 11-04 14:02Z, promoted 11-04 14:12Z) on shafttrap-02 `beb79ed2` (KEEP 11-04 09:36Z, promoted 11-04 09:46Z) on swimcentre-01 `0542fccb` (KEEP 11-04 03:58Z, promoted 11-04 04:08Z) on bagdiet-01 `9fbfdf22` (KEEP 11-03 23:58Z, promoted 11-04 00:08Z) on cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z). Live builds: {'3a7badeab3f95b2798e219958b5d16e761175b9f+0bebc2': 8, '493c198ae7019a2fbe062654ed2fc1fa9ba0dfbb+9017fc': 72} |
 | **Canary in slot** | **dirtrung-01** deployed 11-04 18:13Z; reads +90 11-04 19:43Z, +180 11-04 21:13Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | llmoai-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> bucketfix-01 -> kittrim-01 -> depositoffer-01 -> +5 more. Held: dropdig-01 (HELD: control session 11-04: HOLD until the 4B staged rollout (servea waiter -> modelrollout.py,...) |
-| **Scheduler** | busy S1 canary declared: 493c198ae7019a2fbe062654ed2fc1fa9ba0dfbb on hive-d,board-d / S6 open loop: canary 493c198 is deployed on hive-d,board-d with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 dirtrung- |
-| **Showcase release** | `a7efcca2` (21,189 rows), `d3773f8b` (19,603 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live a7efcca2 sits on 9fbfdf22 (bagdiet-01); behind by 4: swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bots/scripts/stuckcells-of; row 11-04 19:25Z) |
+| **Scheduler** | busy S2 running: canary-loop.sh (pid 717254: bash /home/mike/canary-loop.sh dirtrung-01); fleet-deploy (pid 764472: /bin/bash /home/mike/bin/fleet-deploy 493c198ae7019a2fbe062654ed2fc1fa9ba0dfbb dirtrung-01); /root/d.sh (pid 764513: sudo CA |
+| **Showcase release** | `a7efcca2` (33,821 rows), `d3773f8b` (8,214 rows), `9295590e` (4,382 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live a7efcca2 sits on 9fbfdf22 (bagdiet-01); behind by 4: swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bots/scripts/stuckcells-of; row 11-04 20:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase? |
-| **Open alarms** | STALLCHECK 2026-11-04T19:35:01Z STALLED: 45. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 32 active alarm(s): stuck goals 8 (hive-a/monument@355_73_147, hive-a/tidy@355_73_147, hive-d/monument@68_65_68, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, isolated-c/monument@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:stuckcells-01:undeclared |
+| **Open alarms** | STALLCHECK 2026-11-04T20:35:02Z STALLED: 45. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 33 active alarm(s): stuck goals 8 (hive-a/monument@355_73_147, hive-a/tidy@355_73_147, hive-d/monument@68_65_68, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, isolated-c/monument@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:stuckcells-01:undeclared |
 <!-- GENERATED:END -->
 
 ## Notes
