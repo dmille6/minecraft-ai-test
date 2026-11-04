@@ -18,7 +18,8 @@ covers the whole world). It never writes a block, a bot file or anything a bench
 LINES (each with its denominator; a zero is printed beside the positive control that could have seen a presence)
   S0 LIVENESS     showcase bots with a skill row in the last 15 min (of len(NAMES), 15 from 11-04), rows walked, the builds seen
   S1 DEATHS       `_death` rows, each named; bot-hours observed beside them. TRIP >= 4 inside ANY 180-min span (the fleet's
-                  7-d 0.0195 / bot-h gives ~0.6 per 180 min on 10 bots; P(>= 4) ~ 0.3 %); WATCH 2-3 in a span
+                  7-d 0.0195 / bot-h gives ~0.6 per 180 min on 10 bots, P(>= 4) ~ 0.3 %; ~0.9 on 15 bots, P ~ 1.2 %,
+                  kept at 4 on 11-04 by both reviews); WATCH 2-3 in a span
   S2 STUCK        bots with < 3 blocks of 3-D movement for >= 30 min, sampled with no gap > 5 min, to the window's end.
                   WATCH only, never a stop (Codex 10-25 P1: waiting at home is legal and is not evidence of a trap)
   S3 UNDER        a bot BELOW a floorless underground zone inside its footprint: WATCH only. Since OWNER 10-25 the trial
