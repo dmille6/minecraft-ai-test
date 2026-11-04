@@ -20766,7 +20766,11 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   const pin = (!pathsRec || pathsNoSiteRec(pathsRec)) && projectsOn().some(p => p.plot === PATHS_PLOT) ? P : null
   // townterrace-01: the terrace stage's floors (every other project's record, the wall's gates, the wells' caps)
   const others = projectHeads().filter(x => x.plot !== LAND_PLOT && x.plot !== TIDY_PLOT).map(x => (x.head.rec ? { ...x.head.rec, plot: x.head.rec.plot ?? x.plot } : null)).filter(Boolean)
-  return { home, avoid, cells, pin, plan: P.plan, caps: P.caps, records: others, wall: others.find(r => r.plot === WALL_PLOT) ?? null }
+  // the showcase gkstage fold (Codex fold BLOCKER): the site-prep reservations on their own (inwall's litter rule must never read them
+  // as a build's `project`); the request being graded (`prepExcept`) is its own grading's
+  const rz = recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept))
+  const reserved = (x, z) => rz.some(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] })
+  return { home, avoid, cells, pin, plan: P.plan, caps: P.caps, records: others, wall: others.find(r => r.plot === WALL_PLOT) ?? null, reserved }
 }
 /**
  * TOWNTERRACE-01: THE TERRACE'S GUARD AT WORK TIME -> (x, z) -> reason | null. Every refusal the siting read (zones, the plan, wells,
@@ -21355,7 +21359,7 @@ async function buildTidy (ctx, args, signal) {
         try { have = { ...(matsTownStock(bot)?.stock ?? {}) }; for (const [n, v] of Object.entries(heldMap(bot))) have[n] = (Number(have[n]) || 0) + v } catch { have = heldMap(bot) }
         const terrace = { records: I.records, wall: I.wall, caps: I.caps, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
         for (let k = k0; k <= Math.max(k0, last); k++) {
-          s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land, stage: k, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace })
+          s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land, stage: k, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace, reserved: I.reserved })
           s.k = k
           if (!s.ok || s.record) break
         }

@@ -783,7 +783,7 @@ const BUILD_WHY = /^(project|plan_cell|plan_box|plan_plot)$|^project:(?!yard$|tr
  *                 lowest neighbour, at most INWALL.holeMax deep; never water, never a column `avoid` names or a record cell's column
  *   cells  Set "x,y,z" of every project's record cells (the tidy's guard); box [x0, z0, x1, z1]
  */
-export function surveyInwall (read, { home, box, avoid = () => null, cells = new Set(), noLitter = () => false, water = 'strict', waterOk = () => false, T = INWALL } = {}) {
+export function surveyInwall (read, { home, box, avoid = () => null, cells = new Set(), noLitter = () => false, reserved = () => false, water = 'strict', waterOk = () => false, T = INWALL } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   if (!home || !Array.isArray(box)) return { ok: false, why: 'no_box', cut: [], fill: [], pillars: [], pits: [], litter: 0, skipped }
@@ -800,6 +800,9 @@ export function surveyInwall (read, { home, box, avoid = () => null, cells = new
     // Codex r1 BLOCKER 1: the stock yard's piles and the tree farm (`noLitter`: their record boxes, from the records themselves --
     // pathAvoid names a yard floor column only `project`) are never litter
     if (noLitter(x, z)) { skip('no_litter'); continue }
+    // the showcase gkstage fold (Codex fold review BLOCKER): a site-prep reservation (a prepping or prepared plot) is never inwall's,
+    // checked on its own -- `avoid` names a project cell first (`project`), which BUILD_WHY reads as litter on a build
+    if (reserved(x, z)) { skip('reserved'); continue }
     if (why && BUILD_WHY.test(String(why))) {
       let y = yHi
       while (y >= yLo && (() => { const b = read(x, y, z); return !!b && (AIRN(nm(b)) || replaceableCell(b) || b.boundingBox === 'empty') })()) y--
@@ -871,7 +874,7 @@ export function surveyInwall (read, { home, box, avoid = () => null, cells = new
  * do in this stage (the caller moves to the next). townterrace-01: the terrace stage returns a PROMISE (terrace.mjs siteTerrace);
  * callers await siteStage.
  */
-export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, env = process.env, L = LAND } = {}) {
+export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, reserved = () => false, env = process.env, L = LAND } = {}) {
   const st = typeof stage === 'object' ? stage : stageOf(stage, L)
   // the owner's 11-01 water rule for every stage (tidyWater: TIDY_WATER=strict is the old refusal): the stage may touch the water of
   // a column it may touch at all, never within farmGuard of farmland (the farm's irrigation)
@@ -894,7 +897,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   // gkstage-01: inside the wall (surveyInwall), the box the wall encloses (the terrace's inputs carry the wall record)
   if (st.id === INWALL_STAGE) {
     const box = inwallBox(terrace?.wall ?? null, home)
-    const sv = surveyInwall(read, { home, box, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), water, waterOk })
+    const sv = surveyInwall(read, { home, box, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved, water, waterOk })
     if (!sv.ok) return { ok: false, why: sv.why, record: null, survey: sv, road: null }
     const record = tidyRecord(sv, { home, plan, now, r: Math.max(TIDY.r, Math.abs(box[0] - home.x), Math.abs(box[2] - home.x), Math.abs(box[1] - home.z), Math.abs(box[3] - home.z)) })
     if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null }

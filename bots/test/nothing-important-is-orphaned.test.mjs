@@ -125,6 +125,7 @@ const REQUIRED = [
   'bots/test/siteprep-sp1.test.mjs',
   'bots/test/fixtures/siteprep-sp1-1104.json',
   'bots/test/siteprepcursor.test.mjs',   // the siteprep-02 fold: a cursor of an older screen restarts
+  'bots/test/gkstagefold.test.mjs',   // the gkstage fold: inwall never cuts a site-prep reservation
   'bots/test/siteprepfold.test.mjs',   // the fold's prepared-claim bypass (Codex fold BLOCKER)
   'bots/src/siteprep.mjs',
   'docs/reports/siteprep-design-2026-11-04.md',
