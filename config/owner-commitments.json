@@ -4146,15 +4146,16 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Work pieces released 11-03 18:38Z (cbd2f51b). Wait for the work pieces (picker-01 + sinks, groundskeeper helpers + park-gather, water-crossing expeditions) to be released on the showcase and build_shop turn-aways to fall; then add 5 bots on the Studio gemma4 brain (measured 10 bots = 7.9 calls/min, p95 3.7 s; design figure 10-12, 8 concurrent = 9-10 s) and read Studio latency for 2 h. Past 15: a second brain (the 4B on the 5080) for the extra bots.",
+   "next_step": "DONE 11-04 07:09Z: 15 bots (Kite, Lumen, Maple, Nova, Onyx added; main 34dedb1a+9ec77713; installed .bak-20261104T0707Z-show15). 60-min read 07:09-08:09Z: 804 brain calls = 13.4/min (10 bots before: 8.41/min over 130 min, 1,093 calls), p95 5.05 s (before 4.20 s; one 15-min bucket 6.02 s), 0 fails of 804 (3-day control: 35 of 43,709); Studio proxy 803x200, max inflight 6 of 10, p95 4.10 s; tripwire WATCH (15 of 15 live), 0 deaths in 14.9 bot-h. BUT build work fell in that hour: _build place 23 vs 145/h, build_shop success 3 vs 9.5/h, keeper_held 11 vs 5.5/h; sinks read no_pressure. Next: read 2 h / 24 h (latency + place/h); more work before more bots; past 15 a second brain (the 4B on the 5080).",
    "max_quiet_hours": 48,
    "depends_on": [],
    "evidence": {
     "grep": [
-     "showcase-15bots"
+     "showcase-15bots",
+     "showcase 10 -> 15 bots"
     ]
    },
-   "note": "Capacity read 11-03: showcase host 16 cores, 6/31 GB, load 3-4, MSPT ~7 -- the brain is the limit, not the server."
+   "note": "Capacity read 11-03: showcase host 16 cores, 6/31 GB, load 3-4, MSPT ~7 -- the brain is the limit, not the server. | 11-04: viewer ports 3210-3214 are not in the VM's ufw allow (3200:3209, provision-vm.sh:111): loopback only, left as is (security setting)."
   },
   {
    "id": "trading-1103",
