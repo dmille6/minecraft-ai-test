@@ -38,6 +38,7 @@ export const AP_SEAL_MS = 1500                // admission's price of ONE seal (
 
 import { difficultyOf } from './foodskip.mjs'
 import { TOOL_HYGIENE, remaining, HARD_STOP } from './toolfor.mjs'
+import { swimCentreOn, centreSteer } from './swimcentre.mjs'   // swimcentre-01: the rise is centred under the dug cell
 
 const WATERLIKE = /^(water|flowing_water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/
 const LAVALIKE = /lava|^magma_block$|^fire$|^soul_fire$/
@@ -383,7 +384,8 @@ export function airPocketAfter (ok, state, now = Date.now(), { handoffHeld = fal
  */
 export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => new Promise(r => setTimeout(r, ms)),
                                                  now = () => Date.now(), maxHealth = 20, envelope, guard = () => null,
-                                                 standItem = () => null, skillBusy = () => false, sealItem = () => null } = {}) {
+                                                 standItem = () => null, skillBusy = () => false, sealItem = () => null,
+                                                 centre = swimCentreOn() } = {}) {
   const t0 = now()
   const p0 = bot.entity.position
   const fx = Math.floor(p0.x), fy = Math.floor(p0.y), fz = Math.floor(p0.z)
@@ -397,6 +399,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
   let aborted = null
   let watch = null
   let digging = false
+  let riseSteered = false   // swimcentre-01: the rise loop pressed forward (cleared on every exit, the throw included)
   try {
     const block = bot.blockAt(cellPos)
     if (!block || block.name !== plan.name) { res.why = `roof cell changed to ${block?.name ?? 'unknown'}`; return res }
@@ -536,14 +539,25 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     // RISE AND CONFIRM: the eye must reach air and stay there while health rises (or is at its maximum)
     let eyeInAirSince = null, healthAtEyeIn = null
     const until = now() + AP_RISE_MS + AP_CONFIRM_MS + 1000
+    const centreOff = () => { if (riseSteered) { riseSteered = false; try { bot.setControlState('forward', false) } catch { /* not connected */ } } }
     while (now() < until) {
-      if (aborted) { res.why = aborted; res.outcome = 'aborted'; return res }
+      if (aborted) { centreOff(); res.why = aborted; res.outcome = 'aborted'; return res }
       const pos = bot.entity.position
+      // SWIMCENTRE-01: RISE THROUGH THE MIDDLE OF THE HOLE. The dug cell is one column wide; a body straddling its edge is
+      // capped by the undug roof beside it (the fleet's post-pocket drownings died at y N.2 under a pocket they had opened).
+      // Steered every 100 ms (coast-aware, swimcentre.mjs) with jump still held; forward is cleared once centred.
+      if (centre) {
+        const cs = centreSteer({ pos, vel: bot.entity.velocity, cx: fx, cz: fz })
+        try { bot.setControlState('forward', cs.forward) } catch { /* not connected */ }
+        riseSteered = riseSteered || cs.forward
+        if (cs.look) { try { bot.lookAt(pos.offset(cs.look.x - pos.x, 1.62, cs.look.z - pos.z), true) } catch { /* not connected */ } }
+      }
       const eye = bot.blockAt(new Vec3(Math.floor(pos.x), Math.floor(pos.y + 1.62), Math.floor(pos.z)))
       res.eye = eye?.name ?? 'unknown'
       if (isAir(eye)) {
         if (eyeInAirSince == null) { eyeInAirSince = now(); healthAtEyeIn = bot.health }
         if (airPocketConfirmed({ eyeInAirSince, now: now(), health: bot.health, healthAtEyeIn, maxHealth })) {
+          centreOff()
           res.ok = true; res.outcome = 'success'; res.why = `breathing in ${plan.kind === 'ice' ? 'the opened column' : 'the dug pocket'}`
           res.stand = await standInPocket(bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem, isAborted: () => aborted, handoff })
           return res
@@ -551,6 +565,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       } else { eyeInAirSince = null; healthAtEyeIn = null }
       await sleep(100)
     }
+    centreOff()
     // THE POCKET EXISTS but breathing was not confirmed in the window (sandbox 5b6c530: the eye reached air briefly while
     // the bot sank). OPENED, not failed: the place now has air, so the rescue's fail memory must be cleared (its own
     // `up` route lifts the bot into the pocket) and no fail cooldown is set.
@@ -562,6 +577,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     return res
   } finally {
     if (watch) clearInterval(watch)
+    if (riseSteered) { riseSteered = false; try { bot.setControlState('forward', false) } catch { /* not connected */ } }
     // A failed or aborted step stops its own dig of the roof cell (Codex r1).
     const ours = () => !!bot.targetDigBlock?.position && (bot.targetDigBlock.position.equals?.(cellPos) ??
       (bot.targetDigBlock.position.x === cellPos.x && bot.targetDigBlock.position.y === cellPos.y && bot.targetDigBlock.position.z === cellPos.z))

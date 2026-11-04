@@ -133,6 +133,18 @@ const SPEC = {
         expect: [[700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'water'], [700, 44, 700, 'stone'], [701, 42, 700, 'stone']], secs: 150 },
   C4: { setup: [COL, 'fill 699 42 699 701 42 701 minecraft:water', 'setblock 700 42 700 minecraft:stone'],
         expect: [[700, 41, 700, 'water'], [700, 42, 700, 'stone'], [699, 42, 700, 'water'], [701, 42, 700, 'water'], [700, 42, 699, 'water'], [700, 42, 701, 'water'], [699, 42, 699, 'water'], [700, 43, 700, 'stone']], secs: 150 },
+  // swimcentre-01 (11-03): the fleet's 56/63 drownings at y N.2 -- a body pinned under a cap two cells over its feet.
+  //   EP  EDGE PIN: a 2-wide water layer (700/701 40..41 700) on the floor; over column 700 the roof cell is WATER with air
+  //       above (the route reads `up dist=2`), over 701 it is stone. The bot stands at x 700.85, so its 0.6 hitbox overlaps
+  //       701 and the stone caps it at y 40.2 (board-a-Comet 11-02, placebo-a-Comet 11-03). Base: jump only, never moves.
+  //   OB  OUT BOUNDARY: column 700 capped (700 42 700 stone), column z 701 open (water 40..41, an air chimney 42..44);
+  //       the bot starts at z 700.35 in the capped column (route `out` AIRUP@1, hive-b-Bravo 11-01).
+  EP: { setup: ['fill 700 40 700 701 41 700 minecraft:water', 'setblock 700 42 700 minecraft:water', 'fill 699 43 699 701 45 701 minecraft:air'],
+        expect: [[700, 39, 700, 'stone'], [700, 41, 700, 'water'], [701, 41, 700, 'water'], [700, 42, 700, 'water'], [701, 42, 700, 'stone'], [700, 43, 700, 'air'], [699, 41, 700, 'stone']],
+        secs: 150, stand: { x: 700.85, y: 40, z: 700.5 } },
+  OB: { setup: ['fill 700 40 700 700 41 701 minecraft:water', 'fill 700 42 701 700 44 701 minecraft:air'],
+        expect: [[700, 39, 700, 'stone'], [700, 41, 700, 'water'], [700, 41, 701, 'water'], [700, 42, 700, 'stone'], [700, 42, 701, 'air'], [700, 43, 700, 'stone'], [700, 41, 702, 'stone']],
+        secs: 150, stand: { x: 700.5, y: 40, z: 700.35 } },
   CR: { setup: ['fill 700 40 700 700 41 700 minecraft:water'], expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone']], secs: 150 },
 }
 const CLEAR_ITEMS = 'kill @e[type=item,x=700,y=40,z=700,distance=..24]'
@@ -317,6 +329,7 @@ async function runTrial (arm, scene, k) {
   let difficultyBefore = null, difficultyDuring = null
   const polls = []; let t0 = null; let deathT = null; let airAt0 = null; let floodT = null, floodBy = null, floodReply = null, smeltSeenAt = null
   try {
+    const ST = spec.stand || STAND   // swimcentre-01: a scene may start the bot off the column centre
     rcon(`gamemode spectator ${NAME}`, `tp ${NAME} ${STAND.x} 60 ${STAND.z}`)
     await sleep(3000)
     const built = rcon(...arenaCmds(spec))
@@ -327,7 +340,7 @@ async function runTrial (arm, scene, k) {
     if (spec.difficulty) rcon(`difficulty ${spec.difficulty}`)
     difficultyDuring = (rcon('difficulty')[0].reply.match(/is (\w+)/) || [])[1]?.toLowerCase() ?? null
     rcon(`scoreboard players set ${NAME} ${OBJ} 0`, ...kitCmds())
-    rcon(`tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`, `gamemode survival ${NAME}`, `effect give ${NAME} minecraft:instant_health 1 5 true`)
+    rcon(`tp ${NAME} ${ST.x} ${ST.y} ${ST.z}`, `gamemode survival ${NAME}`, `effect give ${NAME} minecraft:instant_health 1 5 true`)
     t0 = Date.now()
     brainActive = true
     while (Date.now() - t0 < spec.secs * 1000) {
@@ -405,7 +418,7 @@ async function runTrial (arm, scene, k) {
   const died = serverDeaths > 0 || good.some(p => p.health === 0) || rows.some(r => r.name === '_death')
   const final = good[good.length - 1] || {}
   const res = {
-    id: `${arm}:${scene}:${k}`, arm, scene, k, tag, server: SERVER, bot: NAME, root, sha: SHAS[root] ?? ((root.match(/cand-([0-9a-f]{7,})$/) || [])[1] ?? '?'), identity, secs: spec.secs,
+    id: `${arm}:${scene}:${k}`, arm, scene, k, tag, server: SERVER, bot: NAME, root, sha: SHAS[root] ?? ((root.match(/(?:cand|ctrl)-([0-9a-f]{7,})$/) || [])[1] ?? '?'), identity, secs: spec.secs,
     kit: KIT, toolHygiene: process.env.AP_TOOL_HYGIENE || 'unset', invEnd, difficultyBefore, difficultyDuring, difficultyAfter, t0: new Date(t0).toISOString(), airAt0, healthAt0: good[0]?.health ?? null,
     died, serverDeaths, deathT, alive: !died && (final.health ?? 0) > 0, healthEnd: final.health ?? null, airEnd: final.air ?? null,
     roof0, roofEnd: final.roof ?? null, roofOpened, roofOpenT: firstOpen?.t ?? null,

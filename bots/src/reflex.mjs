@@ -57,6 +57,7 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
 import { MAX_DIG_MS } from './digbudget.mjs'
 // lavastep-01 (F1, docs/reports/mineshaft-safety-2026-10-23.md): the danger arm's verified, bounded move
 import { lavastepOn } from './lavastep.mjs'
+import { swimCentreOn, makeCentreSteer, riseCentreDecision } from './swimcentre.mjs'   // swimcentre-01: a rising body is centred under its hole
 // tombexit-01 (F2 of the mineshaft-safety design + the in-wall dig): the entombed arm fires only with no walk back
 import { tombexitOn, inwallOn, makeFreeRing, declineDecision, inwallDecision, makeHealthTrend, suffocates,
          INWALL_MAX_DIGS, INWALL_UNSEEN_ROW_MS, INWALL_TREND_MS,
@@ -1631,6 +1632,47 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       },
     })
   }
+  // SWIMCENTRE-01 (swimcentre.mjs): the per-physics-tick centring of a RISING body under the column it rises through. The
+  // drowning rescue and the unowned float hold aim it each 500 ms tick; it writes forward + a level look until the aim
+  // lapses. SWIMCENTRE=0 leaves it null and both callers keep today's controls exactly.
+  let swimCentreQuiet = 0
+  const swimCentre = swimCentreOn() ? makeCentreSteer(bot, {
+    // the steerer writes only while the body is the air rescue's, or unowned and in no other reflex helper's hands
+    may: () => centreMay(),
+    emit: ({ phase, how, goal, ms }) => {
+      if (phase !== 'end') return
+      const p = bot.entity?.position
+      const centred = goal.centredAt != null   // reached the centre at some tick of this aim, however it then ended
+      if (Date.now() < swimCentreQuiet && !centred) return
+      swimCentreQuiet = Date.now() + 3_000
+      logEvent({ kind: 'swim_centre', status: centred ? 'success' : 'no_effect', snapshot: snapshot(bot),
+                 detail: `why=${goal.why} col=${goal.cx},${goal.cz} how=${how} centred=${centred ? 1 : 0} ms=${ms} at=${p ? `${p.x.toFixed(2)},${p.y.toFixed(2)},${p.z.toFixed(2)}` : '?'} ` +
+                         `head=${bot.blockAt?.(bot.entity.position.offset(0, 1.62, 0))?.name ?? '?'} health=${bot.health}` })
+    },
+  }) : null
+  // WHO MAY BE STEERED (Codex + Claude code r1 B2): never while another helper holds the body -- the air pocket, the flooded
+  // pocket rung, poolescape, the ramp sidestep, a danger move, an ESCAPE or MAROON climb (pillarOut jumps and places
+  // under its own column: a forward press each tick would carry it off), the in-wall exit or a stranded routine -- and,
+  // outside the rescue, never while a skill runs. The same predicate gates the 500 ms decision and every physics tick.
+  const centreMay = () => !airPocketing && !pocketing && !poolEscaping && !rampSteering && !dangerMovingNow() &&
+    !escaping && !marooned && !inwalling && !strandedRunning && (rescuing || !runner?.isBusy?.())
+  // one decision for both callers: null = keep the old controls; else { forward, lookAt } that centres the body
+  const riseCentre = (route) => {
+    if (!swimCentre || !bot.entity) return null
+    const pos = bot.entity.position
+    // A STALE AIM NEVER OUTLIVES THE DECISION THAT MADE IT (Codex + Claude code r1 B1): no target, a guard refusal or
+    // another owner releases it NOW, so no physics tick re-presses forward over the caller's new answer
+    const d = riseCentreDecision({ may: centreMay, route, pos, vel: bot.entity.velocity, at: bmap(bot),
+                                   guard: (feet, step) => holdForwardSafe(bmap(bot), feet, step) })
+    if (d.act === 'release') { swimCentre.release(d.why); return null }
+    if (d.act === 'guarded') {
+      swimCentre.release('lava')
+      if (Date.now() - lastHoldLavaAt > 10_000) { lastHoldLavaAt = Date.now(); logEvent({ kind: 'hold_lava_ahead', status: 'no_effect', detail: `${d.hv.why} at ${d.hv.cell?.join(',')}: the centring stroke is cleared`, snapshot: snapshot(bot) }) }
+      return { forward: false, lookAt: null, guarded: d.hv }
+    }
+    swimCentre.aim(d.cx, d.cz, d.why)
+    return { forward: d.forward, lookAt: d.look ? new Vec3(d.look.x, pos.y + 1.62, d.look.z) : null, centred: d.centred, why: d.why }
+  }
   let lastMaroonPrereqAt = 0
   // POOLESCAPE-01: one firing of the pool rung (poolescape.mjs), from either maroon hook. Gated: on, wading, still no
   // route, the spot's back-off spent. `_poolescape_start` is written BEFORE anything moves (the read's death window opens
@@ -2191,7 +2233,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // because the head is already out and the bot is simply staying there.
         if (!pocketing && !poolEscaping && !dangerMovingNow()) {   // lavastep-01: a danger move steers its own body; the flooded-pocket rung is sinking or pillaring: the hold must not jump against it (pocket corpus run 4); poolescape-01 steers its own body
           bot.setControlState('jump', true)
-          if (holdState === 'surface_out' && airRoute?.target) {
+          // SWIMCENTRE-01: a rising body is first centred under the column it rises through (the `out` target's centre, or
+          // its own column when an overlapped neighbour is capped); null keeps the stroke below exactly as it was
+          const rc = holdState !== 'float' ? riseCentre(airRoute) : null
+          if (rc) {
+            bot.setControlState('forward', rc.forward)
+            if (rc.lookAt) { try { bot.lookAt(rc.lookAt, true) } catch { /* not connected */ } }
+          } else if (holdState === 'surface_out' && airRoute?.target) {
             // LAVA GUARD 2: the push toward the air target must not sweep the body into lava (3-wide, +3 cells, feet
             // and below, unknown counts as lava). On refusal forward is cleared EXPLICITLY and the hold only floats.
             const at = bot.entity.position; const T = airRoute.target
@@ -2648,16 +2696,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // radius-10 block sweep, too costly to run while the urgent swim is
           // the right answer anyway.
           const ctl = drowningControls({ losing: true, ashore: false, route, shore: null })
+          // SWIMCENTRE-01: the stroke lands in the CENTRE of the column it rises through (riseCentre runs lava guard 2 on a
+          // stroke into another column itself); null keeps drowningControls' answer exactly
+          const rc = riseCentre(route)
+          const stroke = rc ? { forward: rc.forward, lookAt: rc.lookAt } : { forward: ctl.forward, lookAt: ctl.lookAt }
           // LAVA GUARD 2 covers the rescue's stroke too (the water fixture showed the rescue, not the hold, steering a
           // submerged bot toward its air route): a stroke whose swept footprint holds lava or unknown is cleared.
-          let fwd = ctl.forward
-          if (fwd && ctl.lookAt) {
-            const at = bot.entity.position; const ddx = ctl.lookAt.x - at.x, ddz = ctl.lookAt.z - at.z
+          let fwd = stroke.forward
+          if (fwd && stroke.lookAt && !rc) {
+            const at = bot.entity.position; const ddx = stroke.lookAt.x - at.x, ddz = stroke.lookAt.z - at.z
             const dir = Math.abs(ddx) >= Math.abs(ddz) ? [Math.sign(Math.round(ddx)), 0] : [0, Math.sign(Math.round(ddz))]
             const hv = holdForwardSafe(bmap(bot), { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }, dir)
             if (!hv.safe) { fwd = false; if (Date.now() - lastHoldLavaAt > 10_000) { lastHoldLavaAt = Date.now(); logEvent({ kind: 'hold_lava_ahead', status: 'no_effect', detail: `${hv.why} at ${hv.cell?.join(',')}: the rescue stroke is cleared`, snapshot: snapshot(bot) }) } }
           }
-          if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
+          if (stroke.lookAt) { try { bot.lookAt(stroke.lookAt, true) } catch { /* not connected */ } }
           bot.setControlState('forward', fwd)
           bot.setControlState('jump', ctl.jump)
           if (ctl.phase !== lastDrownPhase) {
@@ -3588,7 +3640,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     reflexErrors = 0
   }), config.reflex.tickMs)
 
-  const stop = () => clearInterval(timer)
+  const stop = () => { clearInterval(timer); try { swimCentre?.detach() } catch { /* telemetry */ } }
   // TELEMETRY ONLY (pickuplog.mjs): which reflex arm is driving the body right now, for attributing an item
   // pickup. Read by nothing that decides; the flags it reads are the arms' own and are not changed here.
   stop.activeReflex = () => activeReflexOf({ rescuing, escaping, pocketing, marooned, eating })
