@@ -293,6 +293,10 @@ the wiring (structural, comments stripped). 12 anchored mutants (each anchor ass
 `?${Date.now()}_${Math.random()}` URL), all killed. Structural anchors in sinks / terrace / groundskeeper follow the changed lines
 (35 / 47 / 40 pass). eslint clean.
 
+**Full suite** (`scripts/host/suite-run.py` from origin/main, ci2, `--ref cc3d148d`): **406/409**, wall 719 s. The three failures are
+the known no-`.git` set of every copied tree (`ceilescape`, `nothing-important-is-orphaned`, `protected-paths`), the same three the
+base's own PIECES line (4e559e0b, 405/408) records.
+
 **Offline on the showcase** (region copy + pool records, 11-04 08:58Z; `node bots/scripts/siteprep-offline.mjs <dump> <pool> --pool
 showcase --kinds shrine,tower --count 2 --avail '{"stone_bricks":200}' --torch`):
 

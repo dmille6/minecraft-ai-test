@@ -20,7 +20,7 @@ For the control session, which owns showcase releases. Nothing here is staged, a
 ```json
 {"run": "siteprep-01", "sha": "<the branch tip: cc3d148d or its docs-only descendant>", "base": "4e559e0b6ddcb1940d5cb201cb9fe010b6ca7796",
  "kind": "building",
- "tests": {"result": "<PASS|FAIL>", "sha": "<sha>", "runner": "npm test", "summary": "npm test via suite-run on ci2 at cc3d148d <n/m>: <failures>"},
+ "tests": {"result": "PASS", "sha": "<sha>", "runner": "npm test", "summary": "npm test via suite-run on ci2 at cc3d148d 406/409: FAIL ceilescape nothing-important-is-orphaned protected-paths (no .git) -- the known set"},
  "reviews": [{"engine": "codex", "verdict": "APPROVE", "sha": "cc3d148d...", "reviewer": "codex-exec siteprep-01 r7 APPROVE (code r1-r6 blockers fixed)"},
              {"engine": "claude", "verdict": "APPROVE", "sha": "cc3d148d...", "reviewer": "claude subagent siteprep-01 r7 APPROVE"}],
  "paper": null, "tripwire_extra": null, "owner": "11-04 siteprep-1104",
