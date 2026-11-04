@@ -309,6 +309,8 @@ const REQUIRED = [
   'sandbox/trading/unlock-e2e.mjs',
   'infra/showcase/test_trip_unlock_mutants.py',
   'scripts/mac/opsaudit.sh',
+  // cooldown15-01 (11-01): the decision cooldown cap (30 s env -> 15 s) and its one-number rollback
+  'bots/test/cooldown-cap.test.mjs',
   // the learning loop's nightly archive (M1): logs on .31 rotate after 14 days, this is the only long-term copy
   'scripts/learnloop/extract_triples.py',
   'scripts/learnloop/nightly.py',
