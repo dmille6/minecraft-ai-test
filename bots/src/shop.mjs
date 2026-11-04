@@ -153,7 +153,11 @@ export const buildersOf = p => p?.builders ?? BUILDERS_MAX
  */
 export function activeProject (states = [], list = projectsOn(), { upkeepTurn = false } = {}) {
   const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
-  for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged) return p }
+  // sinkfix-01: the sink this bot may work now (see the sink tier below), read first -- a project this bot's own last visit found
+  // nothing to do at (`idle`, idleMarks) yields to it, as a repair and as an open project
+  const sink = list.find(p => p.sink && (st(p).sinkOpen || st(p).sinkNext) && st(p).free !== false && !st(p).stuck) ?? null
+  const yields = s => !!sink && s.idle === true
+  for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged && !yields(s)) return p }
   const open = []
   for (const p of list) {
     // picker-01: a sink is never in the finite order (its tier is below)
@@ -170,8 +174,11 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   // when no finite project has a slot for this bot (LIVE showcase 11-03 09:40-15:38Z: 67 of 101 tidy visits `keeper_held` -- the
   // keeper's grounds were every other bot's `open[0]` fallback), after the bounded upkeeps that go first, and -- after SINK_STREAK
   // sink visits (`upkeepTurn`) -- after one ordinary upkeep too. With no sink to offer, the order is exactly as before.
-  const sink = list.find(p => p.sink && (st(p).sinkOpen || st(p).sinkNext) && st(p).free !== false && !st(p).stuck) ?? null
-  const freeOpen = open.find(p => st(p).free !== false)
+  // SINKFIX-01 (LIVE showcase 11-03 18:40-21:25Z, fold cbd2f51b: 158 sink picks, 0 sited, 0 sink visits -- every build order went
+  // to the finished town stair as a REPAIR (80 visits, `complete`, nothing dug or placed: its damage read is transient) and, between
+  // its three repair tries an hour, to the sited copper hall waiting on copper (11 visits, 0 placed) or the tidy): a finite project
+  // this bot visited without effect in the last IDLE_MS yields to a wanted sink; with no sink, exactly as before
+  const freeOpen = open.find(p => st(p).free !== false && !yields(st(p)))
   if (freeOpen) return freeOpen
   if (open.length && !sink) return open[0]
   if (sink) {
@@ -227,6 +234,22 @@ export function stuckOtherWork (keys = [], record = null, cellOpen = () => false
   return (record?.cells ?? []).some(c => c.role !== 'light' && !segs.has(c.seg) && cellOpen(c) === true)
 }
 export const REPAIR_WINDOW_MS = 60 * 60_000
+/**
+ * SINKFIX-01: A VISIT THAT CHANGED NOTHING (no block placed, cleared or planted -- `no_effect`) marks its plot IDLE for this bot for
+ * IDLE_MS; a visit that did something clears the mark. The bookkeeping stops (a full slot set, the switch, an unread file, an
+ * abort: no visit happened) neither mark nor clear. A sink is never marked (its own no-site wait is sinks.mjs's). Pure over `mem`
+ * (mutated: Map plot -> until ms).
+ */
+export const IDLE_MS = 60 * 60_000   // = REPAIR_WINDOW_MS: a no-effect project is asked again once an hour by each bot
+export const IDLE_NOT_A_VISIT = Object.freeze(new Set(['slots_full', 'off', 'zones_unknown', 'no_plan', 'aborted', 'record_unreadable', 'lost_record', 'state_unwritable', 'room', 'underground']))
+export function noteIdle (mem, plot, result, now = Date.now()) {
+  if (!mem || !plot || isSinkPlot(plot) || !result) return
+  if (result.status === 'success') { mem.delete(plot); return }
+  if (result.status !== 'no_effect' || IDLE_NOT_A_VISIT.has(String(result.stop ?? ''))) return
+  mem.set(plot, now + IDLE_MS)
+}
+/** The states with this bot's idle marks (`idle: true` while a mark holds). Pure. */
+export const idleMarks = (states = [], mem = null, now = Date.now()) => (mem?.size ? states.map(s => (s && (mem.get(s.plot) ?? -Infinity) > now ? { ...s, idle: true } : s)) : states)
 export function repairBackoff (states = [], mem = null, now = Date.now()) {
   if (!mem) return states
   return states.map(st => {

@@ -96,6 +96,8 @@ const REQUIRED = [
   'bots/src/sinks.mjs',
   'bots/scripts/sinks-offline.mjs',
   'bots/test/sinks.test.mjs',
+  // sinkfix-01 (11-03): a project that changed nothing yields to a wanted sink (the live 0-sited reproduction)
+  'bots/test/sinkfix.test.mjs',
   // yardsite-01 (11-03): the yard beyond the town ring, the 2x yard, its offline proof and its test
   'bots/src/blueprints/yard@2.json',
   'bots/scripts/yard-offline.mjs',
