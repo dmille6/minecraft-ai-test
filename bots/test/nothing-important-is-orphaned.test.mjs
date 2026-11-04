@@ -124,6 +124,7 @@ const REQUIRED = [
   // siteprep-02 (11-04): the live SP1 stall reproduced on the showcase's own blocks
   'bots/test/siteprep-sp1.test.mjs',
   'bots/test/fixtures/siteprep-sp1-1104.json',
+  'bots/test/siteprepcursor.test.mjs',   // the siteprep-02 fold: a cursor of an older screen restarts
   'bots/test/siteprepfold.test.mjs',   // the fold's prepared-claim bypass (Codex fold BLOCKER)
   'bots/src/siteprep.mjs',
   'docs/reports/siteprep-design-2026-11-04.md',

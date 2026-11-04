@@ -174,9 +174,9 @@ import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
-import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
+import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow, tidyQuiet } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
-import { PREP, siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
+import { PREP, prepCursor, prepKeeperWork, siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount, noSiteStamped, noSiteUntilOf } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { groupOfItem } from './townindex.mjs'
@@ -20836,7 +20836,18 @@ export function keeperNow (bot, now = Date.now()) {
 }
 setKeeperNow(() => keeperNow(activeMem?.bot ?? null))
 setNoSitePlot(() => activeMem?.bot?.shopNoSitePlot ?? null)   // sinkfix-03
-setIdleNow(plot => (activeMem?.bot?.shopIdle?.get?.(plot) ?? -Infinity) > Date.now())   // sinkfix-04: the tidy's quiet order
+// sinkfix-04: the tidy's quiet order; the siteprep-02 fold (Codex fold BLOCKER): never for the keeper with site-request work (shop.mjs tidyQuiet)
+setIdleNow(plot => {
+  const b = activeMem?.bot ?? null
+  const idle = (b?.shopIdle?.get?.(plot) ?? -Infinity) > Date.now()
+  if (!idle || plot !== TIDY_PLOT) return idle
+  return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()) })
+})
+/** Does THIS bot hold the town's KEEPER lease itself (never a helper lease) now? Never throws. */
+function keeperLeaseNow (bot, now = Date.now()) {
+  if (!GROUNDS.on || !bot) return false
+  try { const l = projLeaseState(townDir(), projKeyOf(TIDY_PLOT), GK_LEASE, { ttl: GK.leaseTtlMs }); return !!l && l.rec?.holder === keeperMe(bot) && now < l.holdsUntil } catch { return false }
+}
 /** sinkfix-04: the town's no-site stamps (sinks.mjs noSiteStamped) -> { kind: until }; a missing or unreadable file is none. */
 const townNoSiteFile = () => path.join(townDir(), `sink-nosite-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}.json`)
 function townNoSiteRead () { try { const j = JSON.parse(fs.readFileSync(townNoSiteFile(), 'utf8')); return j && typeof j === 'object' ? j : {} } catch { return {} } }
@@ -21214,7 +21225,8 @@ async function prepTick (bot, dir, key, rec, me, signal) {
     // siteprep-02 (LIVE showcase 11-04: 4 gradings a keeper visit, ~5 min apart, 76 candidates): chunks of PREP.proofs gradings, the
     // event loop handed back between them, until PREP.tickMs is spent -- a refused candidate costs ~50 ms, not a keeper visit
     const tick0 = Date.now(), triedAll = {}
-    let ch = { ok: false, why: 'pending', cursor: Number(q.cursor) || 0, tried: {} }
+    // the showcase siteprep-02 fold: a cursor written under an older screen restarts at 0 (siteprep.mjs prepCursor)
+    let ch = { ok: false, why: 'pending', cursor: prepCursor(q), tried: {} }
     while (ch.why === 'pending') {
       ch = prepChoose(read, ranked, { cursor: ch.cursor, home, from: townEdge(I.plan, I.home), avoid, cells: I.cells, farm, water: tidyWater(),
         accept: (rd, cd) => acceptAt(rd, { id: q.id, cx: cd.cx, cz: cd.cz, B: cd.B, seed: cd.seed, ...(cd.slot ? { slot: cd.slot, pair: cd.pair } : {}) }) })
@@ -21226,7 +21238,7 @@ async function prepTick (bot, dir, key, rec, me, signal) {
     ch.tried = triedAll
     if (ch.why === 'refused') ch.top = Object.entries(triedAll).sort((a, b) => b[1] - a[1])[0]?.[0] ?? ch.top   // the whole tick's, not the last chunk's
     if (!ch.ok) {
-      const ev = ch.why === 'pending' ? { type: 'pending', cursor: ch.cursor, why: Object.keys(ch.tried)[0] ?? 'pending' } : { type: 'refused', why: ch.top }
+      const ev = ch.why === 'pending' ? { type: 'pending', cursor: ch.cursor, screen: PREP.screen, why: Object.keys(ch.tried)[0] ?? 'pending' } : { type: 'refused', why: ch.top }
       const hp = prepPublish(dir, q.id, ev, me)
       prepRow(bot, 'no_effect', { op: ev.type, id: q.id, kind, cursor: ch.cursor, n: ranked.length, why: Object.entries(ch.tried).map(([a, b]) => `${a}:${b}`).join(',') || ch.top, gen: hp.gen })
       return head()

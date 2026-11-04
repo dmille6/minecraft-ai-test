@@ -389,6 +389,11 @@ export const siteRetryHolds = (plot, failed) => failed == null || plot == null |
  */
 let idleOf = () => false
 export function setIdleNow (fn) { if (typeof fn === 'function') idleOf = fn }
+/** THE SITEPREP-02 FOLD (Codex fold review BLOCKER): is the grounds order quiet for this bot? -> bool. Pure. sinkfix-04 quiets it while the
+ *  bot's own idle mark holds -- but the KEEPER's prep ticks run as grounds visits, and a tick that grades and chooses nothing yet is a
+ *  no-effect visit that marks it: the next tick waited an hour (LIVE 11-04 12:10-12:41Z: one SP1 tick in 30 min, three an hour
+ *  before). The keeper (the GK lease itself, never a helper) with a site request to search or prepare is never quiet. */
+export const tidyQuiet = ({ idle = false, keeper = false, prepWork = false } = {}) => !!idle && !(keeper && prepWork)
 let prepClaimedOf = () => false
 export function setPrepClaimed (fn) { if (typeof fn === 'function') prepClaimedOf = fn }
 const prepClaimed = plot => { try { return !!prepClaimedOf(plot) } catch { return false } }

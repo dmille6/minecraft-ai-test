@@ -52,5 +52,36 @@ await t('WIRED (skills.mjs): the order hook reads the prepared claim; the picker
   assert.ok(/setPrepClaimed\(plot => isSinkPlot\(plot\) && !!prepClaimFor\(siteprepHead\(\), sinkKindOf\(plot\)\)\)/.test(sk))
   assert.strictEqual(sk.split('noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind)').length, 2)   // sinkfix-04: the town's stamps too
 })
+// THE SITEPREP-02 FOLD on sinkfix-04 (Codex fold review BLOCKER): sinkfix-04 quiets the grounds order while the bot's idle mark holds;
+// the keeper's prep tick that chooses nothing yet is a no-effect grounds visit, so its next tick waited an hour (LIVE 12:10-12:41Z: one
+// SP1 tick in 30 min). The keeper with site-request work is never quiet; a helper, or the keeper with none, still is.
+await t('tidyQuiet: the keeper with a request to search or prepare is never quiet; a helper is; no mark, never quiet', () => {
+  assert.strictEqual(SH.tidyQuiet({ idle: true, keeper: true, prepWork: true }), false)
+  assert.strictEqual(SH.tidyQuiet({ idle: true, keeper: false, prepWork: true }), true, 'a helper (no GK lease) stays quiet')
+  assert.strictEqual(SH.tidyQuiet({ idle: true, keeper: true, prepWork: false }), true, 'the keeper with nothing to prep stays quiet (sinkfix-04)')
+  assert.strictEqual(SH.tidyQuiet({ idle: false, keeper: true, prepWork: true }), false)
+})
+await t('prepKeeperWork: filed or prepping is keeper work; prepared waits on the requester; none, nothing', () => {
+  assert.strictEqual(SP.prepKeeperWork({ requests: [{ state: 'filed' }] }), true)
+  assert.strictEqual(SP.prepKeeperWork({ requests: [{ state: 'prepping' }] }), true)
+  assert.strictEqual(SP.prepKeeperWork({ requests: [{ state: 'prepared' }, { state: 'handed' }] }), false)
+  assert.strictEqual(SP.prepKeeperWork(null), false)
+})
+await t('the composition: the keeper\'s quiet order through buildOrder -- ordered with a request, skipped idle without', () => {
+  const B = { ...BOT, state: { lastStop: 'complete', lastAt: T('09:00:00') } }
+  const run = quiet => { SH.setActivePlot(() => 'tidy'); SH.setIdleNow(() => quiet); try { return SH.buildOrder({ ...B, now: T('10:00:00') }) } finally { SH.setActivePlot(() => null); SH.setIdleNow(() => false) } }
+  assert.strictEqual(run(SH.tidyQuiet({ idle: true, keeper: true, prepWork: false })).skip, 'idle')
+  assert.notStrictEqual(run(SH.tidyQuiet({ idle: true, keeper: true, prepWork: true })).skip, 'idle')
+})
+await t('MUTANT KILLED: a quiet order blind to the keeper\'s prep work holds its next tick', async () => {
+  await withMutant('!!idle && !(keeper && prepWork)', '!!idle', async M => {
+    assert.strictEqual(M.tidyQuiet({ idle: true, keeper: true, prepWork: true }), true)
+  })
+})
+await t('WIRED (skills.mjs): the idle hook asks tidyQuiet with the GK lease alone and the request record', () => {
+  const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.ok(sk.includes('return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()) })'))
+  assert.ok(/function keeperLeaseNow[\s\S]{0,200}GK_LEASE/.test(sk), 'the keeper lease itself, never a helper lease')
+})
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

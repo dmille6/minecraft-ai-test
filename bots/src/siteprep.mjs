@@ -31,7 +31,7 @@ export const PREP_KINDS = Object.freeze(['tower', 'shrine'])
  * guard's margin round the town edge and the graded box.
  */
 export const PREP = Object.freeze({ blend: 5, colMax: 6, cutMax: 200, fillMax: 400, waterDepth: 2, waterCols: 24, proofs: 4, offsets: 1, smaller: 2,
-  stallVisits: 3, tickMs: 2500, estimateMax: 800, refileMs: 24 * 3600_000, expireMs: 48 * 3600_000, readyMs: 6 * 3600_000, verifyMax: 1, retireMax: 1, handFailsMax: 2, gap: 3, walkPad: 8, pad: 1 })
+  stallVisits: 3, tickMs: 2500, screen: 2, estimateMax: 800, refileMs: 24 * 3600_000, expireMs: 48 * 3600_000, readyMs: 6 * 3600_000, verifyMax: 1, retireMax: 1, handFailsMax: 2, gap: 3, walkPad: 8, pad: 1 })
 export const LIVE = Object.freeze(['filed', 'prepping', 'prepared'])
 export const TERMINAL = Object.freeze(['handed', 'refused', 'expired', 'abandoned'])
 export const TIERS = Object.freeze(['same', 'smaller', 'other_dry', 'water'])
@@ -66,6 +66,9 @@ export const prepWorthy = (rejects = {}) => Object.entries(rejects ?? {}).some((
 // ---- the request and its state table ---------------------------------------------------------------------------------------------
 export const requestsOf = rec => (Array.isArray(rec?.requests) ? rec.requests : [])
 /** The request a town works now: the one prepping or prepared, else the oldest filed. Pure. */
+/** Has the KEEPER work on a site request (one filed to search, or one prepping to grade and verify)? -> bool. Pure. A prepared request
+ *  waits on its requester, not the keeper. */
+export const prepKeeperWork = rec => requestsOf(rec).some(r => r.state === 'filed' || r.state === 'prepping')
 export function prepActive (rec) {
   const rs = requestsOf(rec)
   return rs.find(r => r.state === 'prepping' || r.state === 'prepared') ?? rs.filter(r => r.state === 'filed').sort((a, b) => a.filedAt - b.filedAt)[0] ?? null
@@ -110,6 +113,13 @@ export const nextSeq = rec => (Number(rec?.seq) || requestsOf(rec).length) + 1
  *   hand_fail   prepared -> prepared (handFails + 1) | filed (handFailsMax: one re-prep, counted as a failed verify) | abandoned
  *   expire      filed | prepping | prepared -> expired
  */
+/**
+ * THE CURSOR A SEARCH RESUMES FROM -> index. Pure. The cursor indexes the RANKED list, and the ranking is the screen's
+ * (prepEstimate): a cursor written under another screen (PREP.screen; none = siteprep-01's) indexes a different list -- LIVE SP1
+ * (11-04, cursor 28 of 76 under the old screen; 42 rank under siteprep-02's, the plot it can grade among them) would skip the
+ * plots the new screen ranks first and be refused for a day. Such a search starts again at 0; a cursor of this screen is kept.
+ */
+export const prepCursor = (req, P = PREP) => (req?.screen === P.screen ? (Number(req?.cursor) || 0) : 0)
 export function prepStep (req, ev = {}, now = Date.now(), P = PREP) {
   if (!req || TERMINAL.includes(req.state)) return req
   const at = { at: now }
@@ -119,7 +129,7 @@ export function prepStep (req, ev = {}, now = Date.now(), P = PREP) {
   switch (ev.type) {
     case 'expire': return { ...req, ...at, state: 'expired', why: ev.why ?? 'expired' }
     case 'chosen': return req.state === 'filed' ? { ...req, ...at, state: 'prepping', plot: ev.plot, zone: ev.zone, why: null } : req
-    case 'pending': return req.state === 'filed' ? { ...req, ...at, cursor: Number(ev.cursor) || 0, why: ev.why ?? 'pending' } : req
+    case 'pending': return req.state === 'filed' ? { ...req, ...at, cursor: Number(ev.cursor) || 0, ...(ev.screen != null ? { screen: ev.screen } : {}), why: ev.why ?? 'pending' } : req
     case 'refused': return req.state === 'filed' ? { ...req, ...at, state: 'refused', why: ev.why ?? 'refused' } : req
     case 'verified': return req.state === 'prepping' ? { ...req, ...at, state: 'prepared', readyAt: now, why: null } : req
     case 'verify_fail': return req.state === 'prepping' ? back('verifyFails', P.verifyMax, `verify:${ev.why ?? '?'}`) : req
