@@ -88,7 +88,7 @@ async function withMutant (old, neu, probe) {
   assert.equal(src.split(old).length - 1, 1, `ANCHOR MISSING OR NOT UNIQUE: ${old.slice(0, 70)}`)
   const tmp = path.join(SRC, `_mut_${process.pid}_stocktarget.mjs`)
   writeFileSync(tmp, src.replace(old, neu))
-  try { const M = await import(`${tmp}?${Date.now()}`); try { probe(M); return false } catch { return true } } finally { unlinkSync(tmp) }
+  try { const M = await import(`${tmp}?${Date.now()}_${Math.random()}`); try { probe(M); return false } catch { return true } } finally { unlinkSync(tmp) }
 }
 await t('mutants killed (anchors present and unique)', async () => {
   const R = [
