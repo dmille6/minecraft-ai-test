@@ -297,8 +297,11 @@ const YARD_FN = /\nasync function yardVisit \([\s\S]*?\n\}\n/
 // picker-01: the town sinks' visit follows buildWall's, line for line
 const SINK_FN = /\nasync function buildSink \([\s\S]*?\n\}\n/
 assert.ok(YARD_FN.test(SK), 'yardVisit is found (the cut is not a no-op)')
+// cropfarm-01: buildCropFarm (the crop farm's visit) releases its slot and writes its bag row the tree farm's way (its wiring: cropfarm.test.mjs)
+const CROP_FN = /\nasync function buildCropFarm \([\s\S]*?\n\}\n/
+assert.ok(CROP_FN.test(SK), 'buildCropFarm is found (the cut is not a no-op)')
 for (const [name, src0, re] of W) {
-  const src = src0 === SK ? SK.replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n').replace(FARM_FN, '\n').replace(TIDY_FN, '\n').replace(YARD_FN, '\n').replace(SINK_FN, '\n') : src0
+  const src = src0 === SK ? SK.replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n').replace(FARM_FN, '\n').replace(TIDY_FN, '\n').replace(YARD_FN, '\n').replace(SINK_FN, '\n').replace(CROP_FN, '\n') : src0
   await t(`${name} (and a mutant of it fails)`, () => {
     assert.ok(re.test(src), 'wired')
     const m = src.match(re)[0]
