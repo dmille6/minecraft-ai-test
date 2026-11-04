@@ -88,6 +88,13 @@ const REQUIRED = [
   'bots/test/shopchest.test.mjs',
   'bots/src/expedition.mjs',
   'bots/test/expedition.test.mjs',
+  // showcase batch 2 (11-04): the crop farm (cropfarm-01show) and the expedition bridges (bridgepost-01)
+  'bots/src/cropfarm.mjs',
+  'bots/src/cropkeep.mjs',
+  'bots/test/cropfarm.test.mjs',
+  'bots/src/bridge.mjs',
+  'bots/src/bridgeio.mjs',
+  'bots/test/bridgepost.test.mjs',
   'bots/test/expwater.test.mjs',
   'bots/scripts/expwater-offline.mjs',
   'sandbox/swim/swim.mjs',

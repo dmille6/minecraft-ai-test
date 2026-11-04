@@ -79,5 +79,22 @@ await t('MUTANT KILLED: an open project that ignores the mark keeps the sink beh
     assert.ok(!run(M).some(p => ['road', 'tower', 'shrine'].includes(p)))
   })
 })
+await t('showcase batch 2: a crop farm visit that changed nothing is idle-marked like any finite project, and yields to a wanted sink', () => {
+  const CL = SH.PROJECTS.filter(p => [...PLOTS, 'cropfarm'].includes(p.plot))
+  assert.ok(CL.some(p => p.plot === 'cropfarm'), 'the crop farm is in PROJECTS')
+  // the sited farm, open (unplanted for want of seed), everything else standing; a road sink wanted
+  const states = CL.map(p => p.sink ? { plot: p.plot, exists: false, complete: false, damaged: false, sinkNext: true }
+    : p.plot === 'cropfarm' ? { plot: 'cropfarm', exists: true, complete: false, damaged: false }
+      : { plot: p.plot, exists: true, complete: true, damaged: false })
+  const m = new Map(), T = Date.parse('2026-11-04T02:00:00Z')
+  assert.strictEqual(SH.activeProject(SH.idleMarks(states, m, T), CL).plot, 'cropfarm', 'the open farm first')
+  // buildCropFarm's no-effect returns: { status: 'no_effect', stop: <the build's stop | 'complete' | 'no_site'> }
+  SH.noteIdle(m, 'cropfarm', { status: 'no_effect', stop: 'no_material' }, T)
+  assert.strictEqual(m.get('cropfarm'), T + SH.IDLE_MS)
+  assert.strictEqual(SH.activeProject(SH.idleMarks(states, m, T + 1), CL).plot, 'road', 'the idle farm yields to the sink')
+  // a harvest or a gather (cleared > 0) is a success: the mark clears and the farm is first again
+  SH.noteIdle(m, 'cropfarm', { status: 'success', stop: 'complete' }, T + 2)
+  assert.strictEqual(SH.activeProject(SH.idleMarks(states, m, T + 3), CL).plot, 'cropfarm')
+})
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
