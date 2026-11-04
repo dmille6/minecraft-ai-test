@@ -65,3 +65,7 @@ export function sweepAfter (role, res) {
   if (!res || res.status === 'failed') return false
   return !['keeper_held', 'keeper_term', 'keeper_rest', 'off', 'zones_unknown', 'no_plan', 'record_unreadable', 'lost_record'].includes(String(res.stop ?? ''))
 }
+/** Codex r1 BLOCKER: the visit may have let its lease go (a stuck crew bot releases it) -- the sweep runs only while this bot HOLDS
+ *  the grounds NOW, read from the lease files (skills.mjs crewState: 'keeper' -- the keeper lease is this bot's; 'mine' -- one of
+ *  the helper leases is). Pure. */
+export const holdsGrounds = d => d === 'keeper' || d === 'mine'

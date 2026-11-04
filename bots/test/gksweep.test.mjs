@@ -68,6 +68,9 @@ await t('sweepAfter: a keeper or a helper, after a visit that did not fail and s
   assert.strictEqual(S.sweepAfter('keeper', { status: 'failed', stop: 'error' }), false)
   for (const stop of ['keeper_held', 'keeper_term', 'keeper_rest', 'record_unreadable']) assert.strictEqual(S.sweepAfter('keeper', { status: 'no_effect', stop }), false, stop)
   assert.strictEqual(S.gkSweepOn({}), true); assert.strictEqual(S.gkSweepOn({ GKSWEEP: 'off' }), false)
+  // Codex r1 BLOCKER: the leases as they are NOW (helperDecision's words): the keeper's, or one of the helper leases -- else no sweep
+  assert.strictEqual(S.holdsGrounds('keeper'), true); assert.strictEqual(S.holdsGrounds('mine'), true)
+  for (const d of ['take', 'full', 'none', 'no_keeper', undefined]) assert.strictEqual(S.holdsGrounds(d), false, String(d))
 })
 
 console.log('THE WALK (skills.mjs gkSweep on a fake bot)')
@@ -126,6 +129,7 @@ await t('buildTidy runs the visit, then the sweep for its crew role; the visit l
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
   assert.ok(/const res = await buildTidyVisit\(ctx, args, signal\)\n\s*if \(!GROUNDS\.on \|\| !gkSweepOn\(\) \|\| !sweepAfter\(ctx\.bot\.gkSweepRole, res\)\) return res/.test(s), 'the wrapper')
   assert.ok(/sw = await gkSweep\(ctx\.bot, signal, \{ until: t0 \+ budget - 5_000 \}\)/.test(s), 'the sweep call within the budget')
+  assert.ok(/!sweepAfter\(ctx\.bot\.gkSweepRole, res\)\) return res\n\s*if \(!holdsGrounds\(crewState\(ctx\.bot, true\)\.d\)\) return res\n[\s\S]{0,200}sw = await gkSweep/.test(s), 'the lease read again before the sweep (Codex r1)')
   assert.ok(/const caps = crewCaps\(role\)\n\s*bot\.gkSweepRole = GROUNDS\.on \? role : null/.test(s), 'the role left by the visit')
   assert.ok(/if \(proj\.plot === TIDY_PLOT\) return buildTidy\(ctx, args, signal\)/.test(s), 'the tidy project runs the wrapper')
   assert.strictEqual(s.split('async function buildTidyVisit (ctx, args, signal) {').length, 2)

@@ -31,7 +31,7 @@ import { lavaRingOf, lavaBlocksTarget, noteLavaFinding } from './lavatarget.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, toolFor, remaining, spentEquipOutcome, handHarvests, emptyHand, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp, NEVER_KEEP } from './hygiene.mjs'
-import { GKSWEEP, gkSweepOn, sweepPick, sweepAfter } from './gksweep.mjs'
+import { GKSWEEP, gkSweepOn, sweepPick, sweepAfter, holdsGrounds } from './gksweep.mjs'
 import { STATIONS as BAG_STATIONS, ALLOWANCE as BAG_ALLOW } from './bagallowance.mjs'   // gksweep-01: a station over its allowance is never picked up   // gksweep-01: the groundskeeper picks up what lies inside the walls
 import { inwallBoxes } from './tidy.mjs'   // gksweep-01: inside the walls
 import { noteSought } from './pickuplog.mjs'
@@ -23342,6 +23342,8 @@ async function buildTidy (ctx, args, signal) {
   ctx.bot.gkSweepRole = null
   const res = await buildTidyVisit(ctx, args, signal)
   if (!GROUNDS.on || !gkSweepOn() || !sweepAfter(ctx.bot.gkSweepRole, res)) return res
+  // Codex r1 BLOCKER: still the town's crew NOW (a stuck visit lets its lease go: the role it left is stale)
+  if (!holdsGrounds(crewState(ctx.bot, true).d)) return res
   const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
   let sw = null
   try { sw = await gkSweep(ctx.bot, signal, { until: t0 + budget - 5_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; sw = null }
