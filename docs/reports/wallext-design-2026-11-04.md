@@ -4,10 +4,14 @@
 storage hall (storehub piece A, [`storehub-ab-2026-11-04.md`](storehub-ab-2026-11-04.md)), which the bots' own siting puts in the town
 ring north of the showcase town, OUTSIDE the wall: box x -21..-3, z -49..-39. Ledger `wallext-1104`, memory `wallext-1104.md`.
 
-**Status (r2 + wallext-02, after the owner's answers 11-04 -- section 12 supersedes sections 2, 5 and 11): READY TO STAGE (showcase),
-not staged.** Branch `wallext-show` @ `029fea43`: the extension now reserves TWO hall-size plots (ring x -43..27, z -75..-20, 680 cells
-= 670 cobblestone + 8 stone bricks + 2 torches) and, once it stands, wallext-02 demolishes the old line's runs (15 columns, 114 blocks).
-Tripwire WX1 + WD1 in this commit's `shopread.py.txt` (NOT installed). Rollbacks `WALLEXT=off`, `WALLDEMO=off`.
+**Status (r3, 11-04 evening -- section 13 supersedes sections 2, 12's ring and plots): READY TO STAGE (showcase), not staged.**
+Branch `wallext-v2-show` @ `a2e0e91e` = the batch-5 fold `fdbd19e6` (showcase-wallext-on-d3773f8b) + the demolition HOLD (Codex fold
+blocker) + the hall's new site (storehub-site-fix `a9877f4e` merged) + the re-sited extension. The storage hall now sites NE (x 10..28,
+z -59..-49, floor 70); the extension: ring x -36..34, z -89..-20, **639 cobblestone**, X1 workshop / X2 town hall (hall size) + 3
+houses; the old line's demolition 15 columns / 114 blocks, held until done. Tripwire WX1 + WD1 + the hold in this commit's
+`shopread.py.txt` (NOT installed). ci2 suite at `a2e0e91e`: 419/422 (the known base three).
+
+**r2 status (superseded):** Branch `wallext-show` @ `029fea43`; ring x -43..27, z -75..-20, 670 cobblestone (hall at the old north-field site).
 
 **r1 status (kept for the record):** Branch `wallext-show` @ `b1da40da` (code `d0f6ccf5`; the two commits after it touch tests only: the orphan manifest, house.test's order filter).. Base: the live showcase release `f76158f2`
 (batch 3) with `storehub-ab-show` `e23c5cef` merged on top as a TRIAL FOLD (`b4c89685`: the fold containing storehub was not live
@@ -245,3 +249,62 @@ wall standing); the late block (positive control: the list alone reads done) and
 ### Owner decisions now
 None open from this piece. (O1 answered: removed; O2 answered: X1 workshop, X2 town hall, X3-X5 houses -- nothing sites into the
 plots yet; the workshop's own piece will name X1 as its exception to the `land:plot` reservation.)
+
+## 13. r3: the hall moved; the demolition hold (11-04 evening)
+
+### The hall moved (storehub-site-fix `a9877f4e`)
+LIVE batch 4: 21/21 hall sitings `no_site` -- the ziggurat's APRON (its record box + 8, `buildsite.mjs z0`: no building within it)
+covers the north field the offline run (without z0) had picked. The fix sites the hall at **x 10..28, z -59..-49, floor 70** (NE, 57
+from home). That overlapped r2's X2 town-hall plot, so the extension was re-sited round the new position, and its PLOTS now refuse
+the apron too (a plot a building can never take is no plot); the ring keeps the ziggurat's box + 3 reservation as the old wall does.
+Codex r3 BLOCKER (fixed, `a2e0e91e`): the apron came from `shopCtx().z0` and the reservation from the guarded heads, both empty with
+MONUMENT=off -> the extension's inputs read the monument record directly (`wall.mjs extWithMonument`); Codex confirmation APPROVE.
+
+**On an 18:15Z region copy + the live pool (the bots' own code; the hall at the fix's site, confirmed by the fix's own offline script):**
+- **Ring x -36..34, z -89..-20** (71 x 70), south side on the old north line: 278 columns -- 96 wall, 18 gateway (the land plan's ring
+  road runs along the east side's line, z -38..-21), 23 openings (sally ports, short runs), 70 gaps (15 water on the north shore at z
+  -89, the road sink R1's reservation where the north spoke leaves, pits, markers, the shaft), 71 join. No post, so no torch.
+- **Cost: 639 cobblestone** (400 wall, 239 walk / fire-step cells); 631 clears (12 trunks, 75 logs felled; 516 leaves).
+- **Plots:** **X1 (hall size 19 x 13) x 10..28, z -75..-63, y 67-69 -- the enchanting + anvil workshop** (north of the hall, the
+  same level as its floor); **X2 (hall size 13 x 19) x -16..-4, z -63..-45, y 63-64 -- the town hall**; X3 x -12..-2 z -41..-31, X4
+  x -13..-3 z -81..-71, X5 x -30..-20 z -63..-53 (house size 11 x 11). All outside the apron.
+- **Proofs:** escape 0 cut / 0 trapped (4 pits); independent check 0 hits; **built offline 638 / 639** by 4 fake builders (one wall cell
+  at -36,66,-67 no stand reached: the live visit's waiver -- WALL_WAIVE_AFTER visits, at most 12 a record -- closes such a cell; the
+  offline harness has no waiver); the walk on the finished world: of 34,452 outside feet cells reached before, 61 are not after
+  (pathfinder model: pockets of <= 4 and canopy the siting's proof excludes), detour p95 0.
+- **The demolition** is unchanged by the new ring: 15 columns (x 3..8, 17..25), 114 blocks (113 cobblestone, 1 torch), dug 114 / 114
+  offline, 0 off the list. Map / records: [`map-showcase-1104-r3.txt`](wallext-2026-11-04/map-showcase-1104-r3.txt),
+  [`offline-record-showcase-1104-r3.json`](wallext-2026-11-04/offline-record-showcase-1104-r3.json),
+  [`offline-demolition-showcase-1104-r3.json`](wallext-2026-11-04/offline-demolition-showcase-1104-r3.json).
+
+### The demolition HOLD (Codex batch-5 fold BLOCKER)
+Releasing the old line's cells and zones at the rewrite let the groundskeeper's inwall fills and the access stairs place stone there
+before the demolition dug -- which then dug THEIR stone as wall. Now: `retireWall` writes `hold:walldemo` zones over every retired
+cell's column (all heights) in the SAME generation that drops the cells; the hold is the tidy's `reserved` (read before every inwall
+rule and by the stairs' `free`: Claude hold r1 BLOCKER 1 -- a kept wall cell's `project:wall` zone, a "build's box", masked it); it is
+live only while the walldemo head is open (`projectHeads` presents the wall record without it once the demolition is complete:
+`wallAsHeld` -- Claude hold r1 BLOCKER 2, a lost release would have stranded it), the walldemo head is read whatever WALLDEMO says
+(Codex hold r2 BLOCKER); the published release is cleanup. Tests: THE HOLD (an inwall fill on a held pit refused mid-demolition,
+planned after the release), THE HOLD WINS (a held column under a kept cell's zone skipped as reserved; positive control), the no-hold
+mutant, wiring lines. Reviews: Claude r1 2 BLOCKERS -> r2 APPROVE; Codex r1 2 BLOCKERS (the same two) -> confirmation 1 BLOCKER (the
+switch) -> fixed. Files: [`claude-hold-review.md`](wallext-2026-11-04/claude-hold-review.md), [`codex-hold-review.md`](wallext-2026-11-04/codex-hold-review.md),
+[`codex-hold-confirmation.md`](wallext-2026-11-04/codex-hold-confirmation.md), [`codex-r3-review.md`](wallext-2026-11-04/codex-r3-review.md),
+[`codex-r3-fix-confirmation.md`](wallext-2026-11-04/codex-r3-fix-confirmation.md).
+
+**The tripwire (two engines):** `tidy_guard` now keeps a retired cell reserved until the walldemo chain's first COMPLETE generation's
+completeAt (was: the retirement), so a groundskeeper placement or dig on a retired cell mid-demolition reads `guarded`; no demolition
+record, or none complete: held. WD1 unchanged. Selftest rows (complete at T0-2 s: free after, held between retirement and completion;
+not complete / no record / a completeAt on an incomplete generation: held); **shopread-mutants 146/146 killed** (main's 144 incl.
+enchantshop's EF1, + 2). Claude: correct (the hold review); Codex: no reader blocker (selftest + mutants pass).
+
+### The fold's tidy.mjs resolution (fold commit `76f21002`), kept
+Every inside-the-wall box applies access's no-stair check and the site-prep reservations; the extension is exempt from the
+build-footprint rule so stairs may be built inside it. The hold sits on top of that: `reserved` is checked first.
+
+### Suite
+ci2 at `a2e0e91e`: **419/422** (ceilescape, nothing-important-is-orphaned, protected-paths: the known base three on a copied tree).
+
+### For the enchantshop builder
+**X1 = x 10..28, z -75..-63 (19 x 13), ground y 67-69**, a `land:plot` reservation with id `X1` once the extension is sited (the
+workshop's siting names `X1` as its exception). Note: the plots are FOUND by the extension's siting at the moment it sites (after the
+hall stands), so the live box can differ from this offline one if the town changes; read it from `project-<home>.wallext` `plots`.

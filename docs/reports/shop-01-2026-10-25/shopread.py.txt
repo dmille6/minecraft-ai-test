@@ -753,6 +753,11 @@ def tidy_guard(pr):
     land plan's) at its earliest generation's time, and the expedition markers' blocks (read_projects). A record with no time is
     reserved from the start (0: fail closed). Pure."""
     out = dict((pr or {}).get('markers') or {})
+    # wallext-02 hold (Codex batch-5 fold BLOCKER): a retired old wall cell stays reserved until the DEMOLITION is complete (its
+    # earliest complete generation's completeAt), never from the retirement itself; with no complete demolition it stays reserved
+    dj = (((pr or {}).get('projects') or {}).get(WALLDEMO) or {})
+    dchain = dj.get('chain') or ([dj['record']] if dj.get('record') else [])
+    done_at = min([g['completeAt'] for g in dchain if g.get('structure_complete') and isinstance(g.get('completeAt'), (int, float))] or [None], key=lambda v: float('inf') if v is None else v)
     for plot, pj in ((pr or {}).get('projects') or {}).items():
         if plot in (TIDY, LAND):
             continue
@@ -763,9 +768,10 @@ def tidy_guard(pr):
                 if isinstance(c, dict) and c.get('at'):
                     k = ck(c['at'])
                     out[k] = min(out.get(k, t), t)
-            # wallext-02 (Claude WD1 r1 BLOCKER 3): a cell a later generation RETIRES (the old wall's line, demolished) is no longer
-            # reserved from that generation's retiredAt: its ground is the groundskeeper's (key 'u|<cell>': reserved until)
-            ra = rec.get('retiredAt')
+            # wallext-02 (Claude WD1 r1 BLOCKER 3; the hold, Codex batch-5 fold): a cell a later generation RETIRES (the old wall's
+            # line, demolished) is no longer reserved once the demolition is complete: its ground is the groundskeeper's then (key
+            # 'u|<cell>': reserved until)
+            ra = done_at if isinstance(rec.get('retiredAt'), (int, float)) else None
             if isinstance(ra, (int, float)):
                 for c in rec.get('retired') or []:
                     if isinstance(c, dict) and c.get('at'):
@@ -1712,12 +1718,21 @@ def selftest():
     assert J(base + [R('_build', 'project=walldemo op=place seg=D-00 cell=5,69,5 block=cobblestone', s=14)], db())['off_record'] == 1, 'the demolition places nothing'
     rr = J(base + [R('_build', 'project=wall op=retired cell=0,70,0 kind=cells114/cols15 gen=5', s=14), R('_build', 'project=walldemo op=sited cell=0,70,0 kind=clear114/cols15/skipped0 gen=1', s=15)], db())
     assert rr['off_record'] == 0 and rr['clear_outside'] == 0 and rr['zone'] == 0, ('the retirement and the siting rows judge nothing', rr)
-    # the tidy guard: a retired cell is reserved until its retirement, then it is the groundskeeper's ground (Claude WD1 r1 BLOCKER 3)
+    # the tidy guard: a retired cell is reserved until the DEMOLITION completes, then it is the groundskeeper's ground (Claude WD1 r1
+    # BLOCKER 3; the hold: Codex batch-5 fold BLOCKER -- never from the retirement itself)
     dwall1 = dict(dwall, gen=1, prev=None, cells=dwall['cells'] + dwall['retired'], retired=[], at=T0MS_ - 60_000)
     dwall1.pop('retiredAt')
-    tg = tidy_guard({'projects': {'wall': {'record': dwall, 'chain': [dwall1, dict(dwall, at=T0MS_ - 5000)]}}})
-    assert tidy_guarded([5, 70, 6], T0MS_, tg) is False and tidy_guarded([5, 70, 6], T0MS_ - 10_000, tg) is True, 'retired at T0-5 s'
+    wch = {'record': dwall, 'chain': [dwall1, dict(dwall, at=T0MS_ - 5000)]}
+    ddone = dict(drec, gen=2, structure_complete=True, completeAt=T0MS_ - 2000)
+    tg = tidy_guard({'projects': {'wall': wch, 'walldemo': {'record': ddone, 'chain': [drec, ddone]}}})
+    assert tidy_guarded([5, 70, 6], T0MS_, tg) is False and tidy_guarded([5, 70, 6], T0MS_ - 3000, tg) is True, 'demolished at T0-2 s (retired at T0-5 s: still held between)'
     assert tidy_guarded([5, 71, 6], T0MS_, tg) is True, 'positive control: a cell still on the wall record stays reserved'
+    tg2 = tidy_guard({'projects': {'wall': wch, 'walldemo': {'record': drec, 'chain': [drec]}}})
+    assert tidy_guarded([5, 70, 6], T0MS_ + 3_600_000, tg2) is True, 'the demolition not complete: held, whatever the time'
+    tg3 = tidy_guard({'projects': {'wall': wch}})
+    assert tidy_guarded([5, 70, 6], T0MS_ + 3_600_000, tg3) is True, 'no demolition record: held'
+    tg4 = tidy_guard({'projects': {'wall': wch, 'walldemo': {'record': dict(drec, completeAt=T0MS_ - 2000), 'chain': [dict(drec, completeAt=T0MS_ - 2000)]}}})
+    assert tidy_guarded([5, 70, 6], T0MS_, tg4) is True, 'a completeAt on a demolition that is not complete: held'
     # enchantshop-01 EF1: the shell's cells, a fit slot with ITS item, the labels on their cells; anything else off the record
     erec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'enchantshop@1', 'plot': 'enchantshop', 'cells': [{'at': [30, 65, 30], 'role': 'base', 'seg': 'pad'}],
             'fit': [{'slot': 'anvil', 'item': 'anvil', 'at': [31, 66, 30]}, {'slot': 'shelf-01', 'item': 'bookshelf', 'at': [32, 66, 30]}],
