@@ -4,18 +4,18 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-04T01:20:01Z._
+_Generated 2026-11-04T02:20:01Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `9fbfdf22` = bagdiet-01 `9fbfdf22` (KEEP 11-03 23:58Z, promoted 11-04 00:08Z) on cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z) on stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) on deepminer-01 `259a36f3` (KEEP 11-03 06:00Z, promoted 11-03 06:09Z) on drainpick-01 `e54d1cce` (KEEP 11-03 00:35Z, promoted 11-03 00:45Z) on fewerdec-01 `10aa0e1d` (KEEP 11-02 19:47Z, promoted 11-02 19:57Z). Live builds: {'0542fccbbe71a225c01f2a02377b381469d8ce36+ca8afd': 10, '9fbfdf2225747f6b5f8d2b6c01cb65c6a91e6227+2577a3': 70} |
 | **Canary in slot** | **swimcentre-01** deployed 11-04 00:58Z; reads +90 11-04 02:28Z, +180 11-04 03:58Z; KEEP auto-promotes ~10 min after the +180 KEEP |
-| **Queue (front)** | bundle-1103a -> monustuck-01 -> vetoremedy-01 -> towngate-01 -> groundskeeper-01 -> llmoai-01 |
+| **Queue (front)** | bundle-1103a -> shafttrap-02 -> monustuck-01 -> swimunder-01 -> vetoremedy-01 -> villageunlock-01 -> towngate-01 -> groundskeeper-01 -> llmoai-01 |
 | **Scheduler** | busy S1 canary declared: 0542fccbbe71a225c01f2a02377b381469d8ce36 on placebo-b,placebo-a / S6 open loop: canary 0542fcc is deployed on placebo-b,placebo-a with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 |
-| **Showcase release** | `cbd2f51b` (22,532 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 53fd28ee (cooldown15-02); row 11-04 00:25Z) |
+| **Showcase release** | `cbd2f51b` (16,396 rows), `add2dcdd` (8,182 rows); 10 bots in 3 h. Protected tree vs fleet KEEP: **in_sync** (protected tree == fleet 9fbfdf22 (bagdiet-01); row 11-04 01:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
-| **Open alarms** | STALLCHECK 2026-11-04T00:35:01Z STALLED: 37. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 31 active alarm(s): stuck goals 5 (hive-a/monument@355_73_147, hive-a/wall@355_73_147, hive-d/monument@68_65_68, isolated-c/monument@355_73_147, placebo-c/monument@355_73_147); driftwatch drift:value_per_bot_h, effectwatch effect:fewerdec-01:h24, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-04T01:35:01Z STALLED: 39. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 28 active alarm(s): stuck goals 6 (hive-a/monument@355_73_147, hive-a/wall@355_73_147, hive-d/monument@68_65_68, isolated-a/wall@355_73_147, isolated-c/monument@355_73_147, placebo-c/monument@355_73_147); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
