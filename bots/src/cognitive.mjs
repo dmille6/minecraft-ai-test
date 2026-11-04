@@ -1152,10 +1152,12 @@ export class CognitiveLoop {
     const room = ready.noRoom ? this.#roomRemedy(ready.noRoom) : null
     // DEPOSITOFFER-01: the gate's own deposit reader, item = null, BEFORE the prompt (the CARRYING line goes with the option)
     let depOffer = { skills: SKILL_NAMES, suppressed: null, why: null }
-    try {
-      depOffer = offeredSkills({ cfg: this.depositOffer, names: SKILL_NAMES,
-                                 verdict: this.admission.depositRunnable(this.bot, null, this.#wantedItems(milestone), milestone?.id ?? null) })
-    } catch { this.#doCount('read_failed') }
+    if (this.depositOffer.on) {
+      try {
+        depOffer = offeredSkills({ cfg: this.depositOffer, names: SKILL_NAMES,
+                                   verdict: this.admission.depositRunnable(this.bot, null, this.#wantedItems(milestone), milestone?.id ?? null) })
+      } catch { depOffer = { skills: SKILL_NAMES, suppressed: null, why: null, readFailed: true } }
+    }
     const { user, tokens, dropped, affordance } = buildUserPrompt({
       bot: this.bot, milestone, memory: this.memory, wanted: this.#wantedItems(milestone), depositOffered: !depOffer.suppressed,
       lastOutcome: this.lastOutcome, trigger, sentinel,
@@ -1674,7 +1676,9 @@ export class CognitiveLoop {
       ? { schemaValid: true, latencyMs: 0, raw: null,
           proposal: { skill: order.skill, args: order.args, reason: order.why } }
       : await this.llm.decide({ system: this.system, user, sentinel, schema: depOffer.suppressed ? this.schemaNoDeposit : this.schema })
-    if (!order) { this.#doCount('model_calls'); this.#doCount(depOffer.suppressed ? 'suppressed' : 'offered'); if (depOffer.suppressed) this.#doCount(`sup_${depOffer.why}`) }
+    // DEPOSITOFFER-01's tally: one MODEL call's counts, written together (below) so a row never splits a decision
+    const doKeys = order ? null : ['model_calls', depOffer.suppressed ? 'suppressed' : 'offered', ...(depOffer.readFailed ? ['read_failed'] : []),
+      ...(depOffer.suppressed ? [`sup_${depOffer.why}`, `pick_${String(res.proposal?.skill ?? 'none').replace(/[^a-z_]/g, '').slice(0, 24) || 'none'}`] : [])]
     this.decisions++
     this.lastDecisionAt = Date.now()
 
@@ -1693,7 +1697,7 @@ export class CognitiveLoop {
       const check = this.admission.check(res.proposal, this.bot, wantedNow)
       if (check.ok) admitted = check
       else rejection = check
-      if (!order && !check.ok) { this.#doCount('model_refused'); if (res.proposal?.skill === 'deposit') this.#doCount('deposit_refused') }
+      if (doKeys && !check.ok) doKeys.push('model_refused', ...(res.proposal?.skill === 'deposit' ? ['deposit_refused'] : []))
       // coalfirst-01: a coal run the gate refused never ran -- its pending mark goes (the cooldown charged at issue stands)
       if (!check.ok && order?.args?.coalrun === true) this.coalRunState = { ...(this.coalRunState ?? {}), pending: false }
       // TOOL HYGIENE, PART 1: one row per refusal -- the canary's liveness, and the read's G2/G4 evidence (the
@@ -1714,6 +1718,7 @@ export class CognitiveLoop {
       }
     }
 
+    if (doKeys) this.#doCount(...doKeys)
     // Execute (or not), then record ONE row describing the whole decision.
     let outcome = { status: 'aborted', detail: rejection?.detail ?? res.error ?? 'no action' }
     let runFailClass = null
@@ -2120,10 +2125,10 @@ export class CognitiveLoop {
 
   /** DEPOSITOFFER-01: one depositoffer_tally row per bot per 10 min -- offers suppressed and why, refusals per model call,
    *  model calls per minute, skills run per bot-hour (depositoffer.mjs tallyLine), for the canary read. */
-  #doCount (what) {
+  #doCount (...whats) {
     const now = Date.now()
     this.doTally ??= { t0: now, c: {} }
-    this.doTally.c[what] = (this.doTally.c[what] ?? 0) + 1
+    for (const what of whats) this.doTally.c[what] = (this.doTally.c[what] ?? 0) + 1
     if (now - this.doTally.t0 >= DEPOSIT_OFFER_TALLY_MS) {
       try { logEvent({ kind: 'depositoffer_tally', status: 'success', detail: depositOfferTallyLine({ secs: (now - this.doTally.t0) / 1000, c: this.doTally.c }), snapshot: snapshot(this.bot) }) } catch { /* telemetry only */ }
       this.doTally = { t0: now, c: {} }
