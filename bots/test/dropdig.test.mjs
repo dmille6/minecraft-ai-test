@@ -353,6 +353,19 @@ await t('B4 a body that leaves the floor during the standing-priced dig is stopp
   assert.ok(bot.stopped >= 1)
   assert.notEqual(r.outcome, 'opened')
   assert.equal(w.at(0, 42, 0).name, 'stone')
+  assert.equal(r.handoffHeld, true, 'a lift-off stop is retried on the SHORT cooldown (Codex r2)')
+  assert.equal(bot.controlState.jump, true, 'and leaves the rescue\'s jump held')
+})
+await t('B7 a LATE server correction (after the 400-ms wait, during the rise) is still caught: failed with the short cooldown, never opened (Codex r2)', async () => {
+  const w = columnWorld(1)
+  const bot = await pinned(w)
+  const d = dropFor(w, bot.entity.position, bot.health)
+  const realDig = bot.dig
+  bot.dig = (b, f) => realDig(b, f).then(() => { setTimeout(() => w.set(0, 42, 0, 'stone'), 700) })
+  const r = await airPocketStep(bot, { ...d.plan, drop: d.drop }, stepDeps(bot))
+  bot.stop()
+  assert.equal(r.ok, false); assert.notEqual(r.outcome, 'opened'); assert.match(r.why, /server put the roof cell back/)
+  assert.equal(r.handoffHeld, true); assert.equal(bot.controlState.jump, true)
 })
 await t('B5 the server refuses the standing dig (whatever the client saw) -> the step waits for its answer and reports FAILED, never opened (Codex r1: mineflayer writes optimistic air)', async () => {
   const w = columnWorld(1)
@@ -364,6 +377,7 @@ await t('B5 the server refuses the standing dig (whatever the client saw) -> the
   bot.stop()
   assert.equal(r.ok, false); assert.notEqual(r.outcome, 'opened'); assert.match(r.why, /server kept the roof|server put the roof/)
   assert.equal(r.handoffHeld, true); assert.equal(bot.controlState.jump, true)
+  assert.equal(r.dropFailed, true, 'a drop the server refused is not repeated from that cell (Claude r2)')
 })
 await t('B6 the base path\'s MOMENTARY standing (the Paper 11-04 ghost-air death): a body that touches the floor while the rescue presses jump is not dug from -- it must settle first', async () => {
   const w = columnWorld(1)
@@ -493,8 +507,9 @@ await t('M5 MUTANT KILLED: without the lift-off watch the early finish goes to t
   })
 })
 await t('M7 MUTANT KILLED: without the server-answer wait, a refused standing dig reads as OPENED (B5 catches it)', async () => {
-  await withMutant(AP_PATH, [['    if (guarded) {\n      for (let i = 0; i < 4; i++) {', '    if (false) {\n      for (let i = 0; i < 4; i++) {'],
-                             ['      if (guarded && bot.blockAt(cellPos)?.name === plan.name) {', '      if (false) {']], async m => {
+  await withMutant(AP_PATH, [['    if (guarded) {\n      for (let i = 0; i < 4 && !aborted', '    if (false) {\n      for (let i = 0; i < 4 && !aborted'],
+                             ['      if (guarded && bot.blockAt(cellPos)?.name === plan.name) {', '      if (false) {'],
+                             ['    if (guarded && bot.blockAt(cellPos)?.name === plan.name) {   // dropanddig-01 (Codex r2)', '    if (false) {   //']], async m => {
     const w = columnWorld(1)
     const bot = await pinned(w)
     const d = dropFor(w, bot.entity.position, bot.health)
