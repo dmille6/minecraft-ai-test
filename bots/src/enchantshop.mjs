@@ -44,6 +44,8 @@ export const IRON_KEEP = 64
 export const DIAMOND_KEEP = 3
 /** How far a bot finds the workshop's anvil / table from (enchant.mjs's skills scan 32 round the bot; the workshop is ~60 from home). */
 export const ENCHANT_STATION_FIND = 96
+/** A workshop station this bot's walk failed to reach is not offered from afar again for this long. */
+export const ENCHANT_STATION_BAN_MS = 2 * 3600_000
 /** The fitter's lease, its gap between visits per bot, its back-off after a visit that placed nothing, the gate row cadence. */
 export const FIT_LEASE_MS = 8 * 60_000
 export const FIT_GAP_MS = 3 * 60_000

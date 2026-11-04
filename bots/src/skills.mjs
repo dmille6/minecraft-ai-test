@@ -131,7 +131,7 @@ import { HUB_PLOT, HUB_BLUEPRINT, hubSitingPlan, hubRecordOf, hubChestKeys, hubH
 import { STOREHUB } from './shop.mjs'   // storehub-01's switches
 import { ENCHANTSHOP } from './shop.mjs'   // enchantshop-01's switches
 import { ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS, FIT_VISIT_MS, GATE_ROW_MS, enchantOpening, enchantSitingPlan, enchantRecordOf, enchantVisitOpts,
-         ENCHANT_STATION_FIND, fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
+         ENCHANT_STATION_FIND, ENCHANT_STATION_BAN_MS, fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
@@ -18037,7 +18037,11 @@ async function enWalkTo (ctx, blk, signal) {
     try { await goto(ctx, { x: p.x, y: p.y, z: p.z, range: EN_STATION_REACH }, signal, { until: Date.now() + 60_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     check(signal)
   }
-  if (bot.entity.position.distanceTo(p.offset(0.5, 0.5, 0.5)) > EN_STATION_REACH + 1.5) return null
+  if (bot.entity.position.distanceTo(p.offset(0.5, 0.5, 0.5)) > EN_STATION_REACH + 1.5) {
+    // enchantshop-01 r2 (Codex BLOCKER): a station the walk did not reach is not offered again from afar for a while (enchantStationAt)
+    try { (bot.enStationFail ??= new Map()).set(`${p.x},${p.y},${p.z}`, Date.now()) } catch { /* memory only */ }
+    return null
+  }
   return bot.blockAt(p)
 }
 /** anvil_apply: (a town book first when the bag has none), plan, walk to the anvil, combine by hand; one `_anvil_apply` row. */
@@ -19682,6 +19686,8 @@ function enchantStationAt (bot, names) {
     if (!ENCH.on) return null
     for (const s of enchantRecNow()?.fit ?? []) {
       if (s.item !== 'anvil' && s.item !== 'enchanting_table') continue
+      // a slot this bot's walk failed to reach within ENCHANT_STATION_BAN_MS is not offered (Codex r2 BLOCKER: no repeated failed trips)
+      if (Date.now() - (bot.enStationFail?.get?.(s.at.join(',')) ?? -Infinity) < ENCHANT_STATION_BAN_MS) continue
       const b = bot.blockAt?.(new Vec3(s.at[0], s.at[1], s.at[2]))
       if (b && names.includes(b.name) && bot.entity?.position?.distanceTo?.(b.position) <= ENCHANT_STATION_FIND) return b
     }

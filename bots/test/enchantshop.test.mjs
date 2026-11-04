@@ -331,6 +331,8 @@ const WIRES = {
   'the stamp only when the slot reads placed': [SK, /const ok = slotState\(slot, enchantRead\(bot\)\(\.\.\.slot\.at\)\) === 'placed'/],
   'the board reads the gate': [RQS, /if \(kind === '_enchantshop_gate'\) \{/],
   'the anvil + table skills find the workshop\'s stations': [SK, /return b \?\? enchantStationAt\(bot, names\)/],
+  'an unreached station is not offered again (Codex r2)': [SK, /if \(Date\.now\(\) - \(bot\.enStationFail\?\.get\?\.\(s\.at\.join\(','\)\) \?\? -Infinity\) < ENCHANT_STATION_BAN_MS\) continue/],
+  'the walk records the failure': [SK, /try \{ \(bot\.enStationFail \?\?= new Map\(\)\)\.set\(`\$\{p\.x\},\$\{p\.y\},\$\{p\.z\}`, Date\.now\(\)\) \}/],
 }
 await t('wiring: the project, its switch, the wait, the gate rows, the siting, the upkeep, the stands, the stamp, the board', () => {
   for (const [what, [src, re]] of Object.entries(WIRES)) assert.strictEqual((src.match(new RegExp(re.source, 'g')) ?? []).length, 1, `${what}`)
@@ -343,6 +345,7 @@ await t('MUTANTS KILLED: each wiring check fails on its line broken (anchor pres
     'not the generic siting': [SK, 'plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {', 'plot !== HUB_PLOT) {'],
     'the board reads the gate': [RQS, "if (kind === '_enchantshop_gate') {", "if (kind === '_never') {"],
     'the anvil + table skills find the workshop\'s stations': [SK, 'return b ?? enchantStationAt(bot, names)', 'return b'],
+    'an unreached station is not offered again (Codex r2)': [SK, "< ENCHANT_STATION_BAN_MS) continue", ') continue'],
   }
   for (const [what, [src, old, neu]] of Object.entries(lines)) {
     assert.strictEqual(src.split(old).length, 2, `ANCHOR MISSING OR NOT UNIQUE: ${what}`)
