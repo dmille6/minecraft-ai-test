@@ -248,7 +248,7 @@ export function prepEstimate (cand, { ground, wetCol = () => null, still = () =>
     if (inApron(x, z)) {
       const a = avoid?.(x, z)
       if (a) return { ok: false, why: `pin_avoid:${String(a).slice(0, 30)}`, cls: 'hard' }
-      if (read) { const tc = tidyColumn(read, x, z, { yHi: hy + TERRACE.dy, yLo: hy - TERRACE.dy }); if (tc.why && !(tc.why === 'water' && g?.why === 'liquid')) return { ok: false, why: `pin_col_${tc.name === 'ice' ? 'ice' : tc.why}`, cls: 'hard' } }   // (ice: a floor to the sinks, a frozen pond to the grading)
+      if (read) { const tc = tidyColumn(read, x, z, { yHi: hy + TERRACE.dy, yLo: hy - TERRACE.dy }); if (tc.why && (tc.why !== 'water' || tc.name === 'ice')) return { ok: false, why: `pin_col_${tc.name === 'ice' ? 'ice' : tc.why}`, cls: 'hard' } }   // (ice: a floor to the sinks, a frozen pond to the grading, which no water rule frees; open water is the grading's to judge -- Codex r1)
     }
     if (g?.why === 'liquid') {
       const w = wetCol(x, z)

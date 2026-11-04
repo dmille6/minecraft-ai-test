@@ -62,7 +62,7 @@ await t('a frozen pond (ice: a floor to the sinks, water to the grading) was `pi
   assert.strictEqual(e.ok, false); assert.strictEqual(e.why, 'pin_col_ice')
 })
 await t('mutant: without the grading\'s own column rule the ice candidate passes the screen', () => killed('siteprep.mjs', P,
-  "if (tc.why && !(tc.why === 'water' && g?.why === 'liquid')) return", 'if (false) return',
+  "if (tc.why && (tc.why !== 'water' || tc.name === 'ice')) return", 'if (false) return',
   M => assert.strictEqual(est(M, box('pin_col_ice'), true).ok, false)))
 await t('buried leaves under dirt no longer block a cut: the candidate graded only with T.cutLeaves', () => {
   const b = box('leaves_only')
@@ -90,13 +90,28 @@ await t('the screen is a NECESSARY condition: the plot the live ranking reached 
   assert.ok(gr.ok, gr.why)
   assert.ok(gr.counts.fill > 0 && gr.counts.fill + gr.counts.seal + gr.counts.dam <= P.PREP.fillMax)
 })
-await t('a rough candidate the screen cannot judge (sw2) still fails only in the grading -- that cost is now ~50 ms in a budgeted tick, not a visit', () => {
+await t('a live cursor-4 candidate (sw2): `pin_kept` at the old level; the trunk rule moves its level to one the grading holds (Claude r1)', () => {
   const b = box('pin_kept')
-  assert.ok(est(P, b, true).ok)
+  assert.strictEqual(grade(P, b).why, 'pin_kept')               // at the old screen's L (a trunk stands in its earth there)
+  const e = est(P, b, true)
+  assert.ok(e.ok && e.L !== b.cand.est.L, JSON.stringify(e))
   const t0 = Date.now()
-  assert.strictEqual(grade(P, b).why, 'pin_kept')
+  assert.ok(grade(P, b, e).ok)
   assert.ok(Date.now() - t0 < 2000)
   assert.ok(P.PREP.tickMs >= 1000 && P.PREP.tickMs <= 5000)
+})
+await t('a leaves cut beside water is dammed like a dirt cut (Claude + Codex r1); control: strict water refuses it', () => {
+  const cells = new Map([['0,66,0', 'dirt'], ['0,65,0', 'spruce_leaves'], ['1,65,0', 'water'], ['1,64,0', 'stone'], ['1,66,0', 'air']])
+  const rd = (x, y, z) => { const n = cells.get(`${x},${y},${z}`) ?? (y <= 64 ? 'dirt' : 'air'); return { name: n, boundingBox: /air|water/.test(n) ? 'empty' : 'block' } }
+  const pin = new Map([['0,0', 64]])
+  const T = { ...TR.TERRACE, maxCut: 6, maxFill: 6, cutLeaves: true }
+  const g = TR.gradeTerraces(rd, [-3, -3, 3, 3], { home: { x: 0, y: 64, z: 0 }, levels: [], pin, water: 'owner-1101', T })
+  assert.ok(g.pins.ok, g.pins.bad.join(' '))
+  assert.ok(g.cut.some(c => c.at.join(',') === '0,65,0'), 'the leaves are cut')
+  assert.ok(g.dam.some(d => d.at.join(',') === '1,65,0'), 'its water is dammed first')
+  const st = TR.gradeTerraces(rd, [-3, -3, 3, 3], { home: { x: 0, y: 64, z: 0 }, levels: [], pin, water: 'strict', T })
+  assert.strictEqual(st.pins.ok, false)
+  assert.ok((st.skipped.cut_wet ?? 0) > 0, JSON.stringify(st.skipped))
 })
 await t('earthBlocked: a base column to L exactly, an apron column to the nearest of its range; no read, no claim', () => {
   const col = { 64: 'dirt', 65: 'spruce_log', 66: 'spruce_log' }

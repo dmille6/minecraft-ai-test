@@ -21213,6 +21213,7 @@ async function prepTick (bot, dir, key, rec, me, signal) {
       check(signal)
     }
     ch.tried = triedAll
+    if (ch.why === 'refused') ch.top = Object.entries(triedAll).sort((a, b) => b[1] - a[1])[0]?.[0] ?? ch.top   // the whole tick's, not the last chunk's
     if (!ch.ok) {
       const ev = ch.why === 'pending' ? { type: 'pending', cursor: ch.cursor, why: Object.keys(ch.tried)[0] ?? 'pending' } : { type: 'refused', why: ch.top }
       const hp = prepPublish(dir, q.id, ev, me)
