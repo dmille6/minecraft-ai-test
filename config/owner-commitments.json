@@ -4526,6 +4526,38 @@
     ]
    },
    "note": "OWNER 11-04: 'we built a large area outside the town to put excess materials, it seems to have been built but doesnt seem to be used, why?' Measured 48 h: yard full 26 h (227/304; bay 3 locked by 5 spruce leaves), 0 withdrawals by design, the well took 9,066 cobble (2,893 while the yard had room) vs the yard's 584."
+  },
+  {
+   "id": "wallext-1104",
+   "title": "Extend the town wall round the storage hall, leaving room for more buildings (owner 11-04 \"lets do A then extend the wall around the new building leaving room for additional buildings\")",
+   "owner_date": "2026-11-04",
+   "memory": [
+    "wallext-1104.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "BUILT 2026-11-04 (wallext-01): showcase branch wallext-show @ b1da40da (code d0f6ccf5) on a TRIAL FOLD of storehub-ab-show e23c5cef onto the live release f76158f2 (b4c89685; one skills.mjs conflict, both sides kept), READY TO STAGE (not staged). Fold it with or after storehub-ab: it waits (wallextOpening) until the hall is complete. Offline on the 15:00Z copy: ring x -35..23 z -79..-20 sharing the old north line (46 of its 59 columns already open: the old section is LEFT), 101 built columns, gateways north (spoke road, 8) and east (ring road, path to the shaft), 695 cells = 690 cobblestone + 4 stone bricks + 1 torch, 16 trunks felled, 4 reserved plots (X1 19x13, X2-X4 11x11) as land:plot zones; escape cut 0; built 695/695 by the bots' own visit offline; independent check 0 hits. Tripwire WX1 (wallext judged as the wall) in main's shopread.py.txt (selftest ok, 121/121 mutants), NOT installed: install with the release. Rollback WALLEXT=off. Suite w30 at d0f6ccf5 413/419 (known 4 + plinth-skill flake + house.test order filter, fixed in b1da40da). Codex code r1 1 BLOCKER fixed; WX1 Claude + Codex APPROVE. Design docs/reports/wallext-design-2026-11-04.md.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "item": "storehub-1103"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "wallext"
+    ],
+    "branches": [
+     "origin/wallext-show"
+    ],
+    "paths": [
+     "docs/reports/wallext-design-2026-11-04.md"
+    ]
+   },
+   "note": "Measured 11-04 15:00Z: the old wall 941 cells, its north line z -20 13/59 built in the extension's span; the basin north of town y 62-63 full of the pathfinder's floating bridge blocks (extColumn) and a dirt pillar on home's column (walkFeet). Codex designed a polygon enclosing the ziggurat with the old line demolished (1,400-1,900 cobble); chosen: a rectangle sharing the old line, the ziggurat closing its west side as on the old ring, nothing removed. Codex code r1: 1 BLOCKER (other records' cell columns), fixed.",
+   "owner_pending": "O1: the two old stubs on the shared line (x 3..8, 17..22) stay or a later piece removes them? O2: what goes on the four plots first?"
   }
  ]
 }

@@ -128,6 +128,11 @@ M = [
  ("                if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):\n                    lists['zone'].append('%s sign %s' % (bot, ck(cell))); out['zone'] += 1", "                pass"),
  # tidyplaceguard-01: a tidy placement onto another project's cell
  ("                        if tidy_guarded(cell, t_ms, guards[pool]):\n                            off = True", "                        if False:\n                            off = True"),
+ # wallext-01 WX1: the extension judged by the wall's rules
+ ("WALL_PLOTS = ('wall', 'wallext')", "WALL_PLOTS = ('wall',)"),
+ ("and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rec, cell))", "and not (f.get('kind') == 'footing' and plot == 'wall' and footing_ok(rec, cell))"),
+ ("ok = overburden_ok(rec, cell, any_role=(plot in WALL_PLOTS))", "ok = overburden_ok(rec, cell, any_role=(plot == 'wall'))"),
+ ("and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rec, cell))", "and not (f.get('kind') == 'footing' and footing_ok(rec, cell))"),
 ]
 bad = 0
 for old, new in M:
