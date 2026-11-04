@@ -393,6 +393,8 @@ const REQUIRED = [
   // lavatarget-01 (10-31): explore never heads for a sighting beside lava the bot has seen
   'bots/src/lavatarget.mjs',
   'bots/test/lavatarget.test.mjs',
+  // bucketfix-01 (11-04): the bucket's aims as Vec3 (every pour and scoop threw point.minus on mineflayer 4.37)
+  'bots/test/bucket-aim.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

@@ -150,6 +150,14 @@ export const CONFIRM_MS = 300
  * On anything older this function cannot work, which would present as a
  * confident zero.
  */
+/**
+ * AN AIM AS A POINT bot.lookAt TAKES (bucketfix-01, Paper sandbox3 11-04, sandbox/enchant/obsidian-proof.cjs): mineflayer 4.37's
+ * lookAt calls point.minus(), and scoopAims / emptyAims return plain { x, y, z } objects -- so EVERY scoop and pour threw `point.minus
+ * is not a function` before a packet went out. The aim is rebuilt from `pos` (a Vec3 at every caller: blockAt positions and their
+ * offsets) by offset, which returns the caller's own Vec3 class. A `pos` with no offset (a test double) passes the plain aim through.
+ */
+export const aimPoint = (pos, a) => (typeof pos?.offset === 'function' ? pos.offset(a.x - pos.x, a.y - pos.y, a.z - pos.z) : a)
+
 export async function scoopLiquid (bot, pos, { sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
   const empty = bot.inventory?.items?.().find(i => i.name === 'bucket')
   const target = bot.blockAt?.(pos)
@@ -172,7 +180,7 @@ export async function scoopLiquid (bot, pos, { sleep = ms => new Promise(r => se
 
   for (const aim of scoopAims(pos)) {
     try {
-      await bot.lookAt(aim, true)
+      await bot.lookAt(aimPoint(pos, aim), true)
       await sleep(AIM_SETTLE_MS)
       bot.activateItem()
       await sleep(CONFIRM_MS)
@@ -301,7 +309,7 @@ export async function pourLiquid (bot, pos, { sleep = ms => new Promise(r => set
       await bot.equip(item, 'hand')
       // force=true: the server ray-traces from the rotation we SEND, so a
       // smoothed or skipped look is the whole failure.
-      await bot.lookAt(aim, true)
+      await bot.lookAt(aimPoint(pos, aim), true)
       await sleep(AIM_SETTLE_MS)
       bot.activateItem()
       await sleep(CONFIRM_MS)
