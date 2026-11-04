@@ -226,11 +226,13 @@ await t('kitWearList: 1-use pickaxes only beside TWO working pickaxes; never a 0
   assert.deepEqual(K.kitWearList([tool('iron_axe', 100), ax1]), [ax1])
   assert.deepEqual(K.kitWearList([tool('stone_axe', 1)]), [], 'the only copy of its kind: toolFor uses it up on a harvest dig')
 })
-await t('kitWearEarly: outside the town ground box only, a known home, KT_WEAR_SLOTS slots, the switch', async () => {
+await t('kitWearEarly: outside the town ground square at any depth, a known home, KT_WEAR_SLOTS slots, the switch', async () => {
   const home = { x: 0, y: 70, z: 0 }
   assert.equal(K.kitWearEarly({ on: true, pos: { x: 200, y: 64, z: 5 }, home, slots: 24 }), true)
   assert.equal(K.kitWearEarly({ on: true, pos: { x: 10, y: 70, z: -12 }, home, slots: 30 }), false, 'in town')
   assert.equal(K.kitWearEarly({ on: true, pos: { x: 19, y: 70, z: 0 }, home, slots: 30 }), false, 'inside the instrument margin')
+  assert.equal(K.kitWearEarly({ on: true, pos: { x: 2, y: 20, z: 3 }, home, slots: 30 }), false, 'the town stair, 50 blocks under the square')
+  assert.equal(K.kitWearEarly({ on: true, pos: { x: 21, y: 70, z: -21 }, home, slots: 30 }), true, 'just past the square + margin')
   assert.equal(K.kitWearEarly({ on: true, pos: { x: 200, y: 64, z: 5 }, home: null, slots: 30 }), false, 'unknown home fails closed')
   assert.equal(K.kitWearEarly({ on: true, pos: { x: 200, y: 64, z: 5 }, home, slots: 23 }), false)
   assert.equal(K.kitWearEarly({ on: false, pos: { x: 200, y: 64, z: 5 }, home, slots: 30 }), false)
@@ -267,9 +269,9 @@ await t('MUTANT KILLED: two working pickaxes -> one lets the wear-out take a bag
   }, 'one working pickaxe would lose its 1-use copies')
 })
 await t('MUTANT KILLED: without the town box test the early wear-out digs the town\'s ground', async () => {
-  await killed(KP, 'if (inTownBox(pos, home, { margin: TOWN_MARGIN })) return false', '', m => {
-    assert.equal(m.kitWearEarly({ on: true, pos: { x: 3, y: 70, z: 3 }, home: { x: 0, y: 70, z: 0 }, slots: 30 }), false)
-  }, 'an in-town bot ran the early wear-out')
+  await killed(KP, 'if (Math.abs(Math.floor(pos.x) - Math.floor(home.x)) <= KT_TOWN_HALF && Math.abs(Math.floor(pos.z) - Math.floor(home.z)) <= KT_TOWN_HALF) return false', '', m => {
+    assert.equal(m.kitWearEarly({ on: true, pos: { x: 3, y: 20, z: 3 }, home: { x: 0, y: 70, z: 0 }, slots: 30 }), false)
+  }, 'a bot in the town stair ran the early wear-out')
 })
 await t('MUTANT KILLED: without the stone preference the iron best\'s spare is a second iron (toolkit-01 broken)', async () => {
   await killed(KP, "const stone = tier(best.name) >= IRON ? rest.filter(it => it.name === 'stone_pickaxe').sort(byUses)[0] : null", 'const stone = null', m => {

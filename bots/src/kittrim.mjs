@@ -37,7 +37,7 @@
 // Pure except the switch. KITTRIM=on|off, default on; anything else reads as on and the mode row says so.
 
 import { remaining, FLOOR, HARD_STOP, tier, isPickaxe } from './toolfor.mjs'
-import { inTownBox, TOWN_MARGIN } from './townground.mjs'
+import { TOWN_GROUND_HALF, TOWN_MARGIN } from './townground.mjs'
 
 /** KITTRIM=on|off (the canary's kill switch), default on; anything else reads as on and the `_kittrim_mode` row says so. */
 export function kittrimMode (env = {}) {
@@ -107,13 +107,15 @@ export function kitWearList (items = []) {
 
 /**
  * MAY THE EARLY WEAR-OUT RUN HERE? -> bool. Pure. The switch; a KNOWN home (unknown home = unknown town: fail closed); the bot
- * OUTSIDE the town's ground box with the instrument's margin (townground.mjs: the wear-out has no town-ground guard of its own,
- * so it never digs the town's ground early); and at least KT_WEAR_SLOTS occupied slots.
+ * OUTSIDE the town's ground square (townground.mjs TOWN_GROUND_HALF + the instrument's TOWN_MARGIN, Chebyshev) AT ANY DEPTH --
+ * the wear-out has no town-ground guard of its own, and the town stair runs straight down under the square, so a bot in the
+ * stair (below the ground box's 12 blocks) is still "in town" here; and at least KT_WEAR_SLOTS occupied slots.
  */
+export const KT_TOWN_HALF = TOWN_GROUND_HALF + TOWN_MARGIN
 export function kitWearEarly ({ on = KITTRIM.on, pos = null, home = null, slots = 0 } = {}) {
   if (!on || !home || !pos) return false
-  if (![home.x, home.y, home.z].every(Number.isFinite)) return false
-  if (inTownBox(pos, home, { margin: TOWN_MARGIN })) return false
+  if (![home.x, home.y, home.z, pos.x, pos.z].every(Number.isFinite)) return false
+  if (Math.abs(Math.floor(pos.x) - Math.floor(home.x)) <= KT_TOWN_HALF && Math.abs(Math.floor(pos.z) - Math.floor(home.z)) <= KT_TOWN_HALF) return false
   return (Number(slots) || 0) >= KT_WEAR_SLOTS
 }
 
