@@ -443,6 +443,8 @@ export const stageOf = (k, L = LAND) => landStages(L).find(s => s.k === k) ?? la
 export function recStageK (rec, L = LAND) {
   const id = rec?.stageId
   const st = id ? landStages(L).find(s => s.id === id) : null
+  // (gkstage-01, Codex r1: a record with terraceV and a number but no id is never written -- siteStage and tidyNothing set stageId
+  // with terraceV -- so the numeric fallback only serves the pre-terrace records, which read 0 below)
   const k = st ? st.k : (Number.isFinite(Number(rec?.stage)) ? Number(rec.stage) : 0)
   if (k >= 1 && id !== 'terrace' && !(Number(rec?.terraceV) >= 1)) return 0
   return k

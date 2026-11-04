@@ -206,7 +206,7 @@ await t('stageCarry: the stage before\'s cells ride on as done-by-definition PRE
   assert.strictEqual(T.stageCarry(body, { cells: Array.from({ length: 10 }, (_, i) => ({ at: [i, 0, 0], role: 'earth' })) }, 3).cells.length, 4)
 })
 await t('legacyStage: the stage number is groundskeeper-01\'s (a rollback reads it), the terrace 0', async () => {
-  assert.deepStrictEqual(LP.landStages().slice(0, 5).map(st => T.legacyStage(st)), [0, 0, 1, 2, 3])
+  assert.deepStrictEqual(LP.landStages().slice(0, 6).map(st => T.legacyStage(st)), [0, 0, 1, 1, 2, 3], 'gkstage-01: inwall reads as the roads\' 1; the bands keep 2, 3, ...')
   for (const st of LP.landStages()) { if (st.k) assert.strictEqual(LP.recStageK({ stage: T.legacyStage(st), stageId: st.id, terraceV: 1 }), st.k) }
 })
 console.log('THE WALK: never worse')

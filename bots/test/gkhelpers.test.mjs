@@ -477,6 +477,23 @@ await t('beside a build: a 2-high dirt step against a wall goes; a grass bump th
   assert.deepStrictEqual(ks.filter(k => k.endsWith(',1')), [`0,${G + 2},1`, `0,${G + 1},1`])
   assert.ok(!ks.some(k => k.endsWith(',0')), 'never the wall')
 })
+await t('Codex r1 BLOCKERS: the yard\'s piles are never litter even when the guard says only `project`; the bands keep their legacy numbers', async () => {
+  const srv = server()
+  for (const x of [1, 2, 3]) srv.set([x, G + 1, 0], 'cobblestone')            // the yard's floor (record cells)
+  srv.set([2, G + 2, 0], 'cobblestone')                                       // a pile block on a floor slot (no record cell)
+  const cells = new Set([1, 2, 3].map(x => `${x},${G + 1},0`))
+  const yard = { plot: 'yard', cells: [1, 2, 3].map(x => ({ at: [x, G + 1, 0] })) }
+  const avoid = (x, z) => (z === 0 && x >= 1 && x <= 3 ? 'project' : null)   // pathAvoid's word for a yard column
+  assert.strictEqual(T.surveyInwall(srv.read, { home: HOME, box: [-5, -5, 5, 5], avoid, cells }).cut.length, 1, 'control: by the guard alone the pile reads as litter')
+  assert.strictEqual(T.surveyInwall(srv.read, { home: HOME, box: [-5, -5, 5, 5], avoid, cells, noLitter: T.inwallNoLitter([yard]) }).cut.length, 0, 'the yard\'s box refuses it')
+  // the land plan's siteStage hands the records' yard over
+  const st = LPm.landStages().find(s => s.id === 'inwall')
+  const s = T.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: st, avoid, cells, terrace: { wall: { ring: [-6, -6, 6, 6] }, records: [yard] } })
+  assert.ok(!s.record || !s.record.cut.some(c => c.at[0] === 2 && c.at[1] === G + 2), 'siteStage keeps the pile')
+  const L = LPm.landStages(); const legacy = T.legacyStage
+  assert.deepStrictEqual(L.map(q => [q.id, legacy(q)]).slice(0, 6).map(([i, n]) => `${i}:${n}`), ['town:0', 'terrace:0', 'roads:1', 'inwall:1', `${L[4].id}:2`, `${L[5].id}:3`], 'rim bands 2, 3, ... as before the insertion')
+  for (const q of L) if (q.k) assert.strictEqual(LPm.recStageK({ stage: legacy(q), stageId: q.id, terraceV: 1 }), q.k, `${q.id} by its id`)
+})
 await t('the stage order: inside the wall right after the roads; the cycle wraps to it after the last band, once complete 30 min', async () => {
   const st = LPm.landStages()
   assert.deepStrictEqual(st.slice(0, 4).map(s => s.id), ['town', 'terrace', 'roads', 'inwall'])

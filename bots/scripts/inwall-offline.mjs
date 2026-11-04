@@ -77,7 +77,7 @@ const rz = [...recordZones(noPaths), ...hz]
 const reserved = (x, z) => { for (const zb of rz) { const b = zb.box; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return zb.why } return null }
 const wallRec = recs.find(r => r.plot === 'wall') ?? null
 const stage = LP.landStages().find(s => s.id === 'inwall')
-const s = T.siteStage(read0, { home, land: { seed: 1 }, stage, avoid: avoidT, cells, plan, terrace: { wall: wallRec } })
+const s = T.siteStage(read0, { home, land: { seed: 1 }, stage, avoid: avoidT, cells, plan, terrace: { wall: wallRec, records: recs } })
 const rec = s.record
 const zoneHit = c => (R.zones ?? []).some(z => { const b = z.box; return c[0] >= b[0] && c[0] <= b[3] && c[2] >= b[2] && c[2] <= b[5] })
 const touched = rec ? [...rec.cut.map(c => c.at), ...rec.cells.map(c => c.at)] : []
