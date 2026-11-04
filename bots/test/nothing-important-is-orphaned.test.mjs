@@ -36,6 +36,11 @@ const REQUIRED = [
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
+  // dropanddig-01 (11-04): the air pocket is dug STANDING over a floor within 2 (the time-budget drownings)
+  'bots/src/dropdig.mjs',
+  'bots/test/dropdig.test.mjs',
+  'bots/test/fixtures/dropdig-cuts.json',
+  'docs/reports/dropdig-01-2026-11-04.md',
   // swimcentre-01 (11-03): a rising body is centred under the column it rises through (the y N.2 drownings)
   'bots/src/swimcentre.mjs',
   'bots/test/swimcentre.test.mjs',
