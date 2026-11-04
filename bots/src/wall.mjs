@@ -146,12 +146,13 @@ export const terraceAt = (c, k) => {
  *                  GATEWAY (the wall opens where a path crosses), any other a plain gap (the wall meets that project)
  *   spokes         the plan's planned path segments [[x0, z0, x1, z1]]: + 1, a gateway too
  */
-export function wallCandidate (read, inside, m, { home, avoid = () => null, pzones = [], spokes = [], lights = 0 } = {}) {
+export function wallCandidate (read, inside, m, { home, avoid = () => null, pzones = [], spokes = [], lights = 0, join = null, scanMemo = null, seed = null, column = pathColumn } = {}) {
   const loop = ringLoop(inside, m)
-  const col = new Map()
+  // wallext-01: a memo shared between candidates over the same ground (wallExtSite tries several rectangles)
+  const col = scanMemo ?? new Map()
   const scan = (x, z) => {
     const k = k2(x, z)
-    if (!col.has(k)) col.set(k, pathColumn(read, x, z, { yHi: home.y + WALL.dy, yLo: home.y - WALL.dy }))
+    if (!col.has(k)) col.set(k, column(read, x, z, { yHi: home.y + WALL.dy, yLo: home.y - WALL.dy }))
     return col.get(k)
   }
   const reason = (x, z) => {
@@ -170,6 +171,10 @@ export function wallCandidate (read, inside, m, { home, avoid = () => null, pzon
   for (const c of loop) {
     const three = [[c.x, c.z], terraceAt(c, 1), terraceAt(c, 2)]
     let st = null
+    // wallext-01: a JOIN column (the side an extension shares with the wall it extends: that wall's own line) is never built here
+    // -- the old wall stands on it where it stands, and where it is open the two interiors are one
+    const jw = join ? join(c.x, c.z) : null
+    if (jw) { c.s = 'join'; c.why = String(jw); continue }
     for (const [x, z] of three) {
       const r = reason(x, z)
       if (r && (!st || (r.s === 'gate' && st.s !== 'gate'))) st = r
@@ -297,6 +302,7 @@ export function wallCandidate (read, inside, m, { home, avoid = () => null, pzon
         if (a.y < c.y + 1 || a.y > hi) continue
         if (a.kind === 'tree') { tree = true; continue }
         if (lane && a.kind === 'plant') continue
+        if (a.kind === 'float') continue                          // wallext-01: a floating spoil block is no clear (extColumn)
         const k = `${x},${a.y},${z}`
         if (seen.has(k)) continue
         seen.add(k); clear.push({ at: [x, a.y, z], kind: a.kind, name: a.name })
@@ -405,7 +411,7 @@ export function wallCandidate (read, inside, m, { home, avoid = () => null, pzon
   let B = null
   for (let pass = 0; ; pass++) {
     B = build()
-    const bad = pass < WALL_REACH_PASSES ? wallReach(read, home, B, loop) : []
+    const bad = pass < WALL_REACH_PASSES ? wallReach(read, home, B, loop, seed) : []
     if (!bad.length) break
     for (const i of bad) { loop[i].s = 'gap'; loop[i].why = 'reach' }
   }
@@ -431,7 +437,7 @@ export function wallCandidate (read, inside, m, { home, avoid = () => null, pzon
   return {
     ok: true, why: 'ok', m, cols: loop, cells, clear: clear.sort((a, b) => a.at[1] - b.at[1]), segments, zones: zoneBoxes(zset),
     bom, gates, ports, posts, lights: lightN, trunks, logs: logN, cost: Math.round(cost * 10) / 10,
-    counts: { wall: count('wall'), post: count('post'), gate: count('gate'), open: count('open'), gap: count('gap'), ring: n },
+    counts: { wall: count('wall'), post: count('post'), gate: count('gate'), open: count('open'), gap: count('gap'), ...(count('join') ? { join: count('join') } : {}), ring: n },
   }
 }
 /** Passes of the reach proof before a ring is taken as it stands (each pass makes the failing columns gaps). */
@@ -443,14 +449,14 @@ export const WALL_REACH_PASSES = 4
  * A light (a torch on a post's side) is placed from a side face and is not judged. A failing O column is returned; a failing
  * terrace cell returns the O columns of its run within Chebyshev 3 of it.
  */
-export function wallReach (read, home, B, loop) {
+export function wallReach (read, home, B, loop, seed = null) {
   const solid = new Set(B.cells.filter(c => c.role !== 'light').map(c => c.at.join(',')))
   const air = new Set(B.clear.map(c => c.at.join(',')))
   const SOLID = { name: 'cobblestone', boundingBox: 'block' }, AIRB = { name: 'air', boundingBox: 'empty' }
   const fin = (x, y, z) => { const k = `${x},${y},${z}`; return solid.has(k) ? SOLID : air.has(k) ? AIRB : read(x, y, z) }
   const r = Math.max(...loop.map(c => Math.max(Math.abs(c.x - home.x), Math.abs(c.z - home.z)))) + 8
   const nodes = new Map()
-  for (const k of walkSet(fin, home, r)) { const [x, y, z] = k.split(',').map(Number); const kk = k2(x, z); if (!nodes.has(kk)) nodes.set(kk, []); nodes.get(kk).push(y) }
+  for (const k of walkSet(fin, home, r, { seed })) { const [x, y, z] = k.split(',').map(Number); const kk = k2(x, z); if (!nodes.has(kk)) nodes.set(kk, []); nodes.get(kk).push(y) }
   const ok = c => {
     const [x, y, z] = c.at
     for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) {
@@ -550,11 +556,11 @@ export function siteWall (read, { plan, zones = [], caps = [], plinth = [], comp
  */
 export const PIT_MAX = 4
 export const WALK_DROP = 3
-export function wallEscape (read, home, cells, { r = 64, near = r - 6 } = {}) {
+export function wallEscape (read, home, cells, { r = 64, near = r - 6, seed = null } = {}) {
   const solid = new Set(cells.map(c => c.at.join(',')))
   const SOLID = { name: 'cobblestone', boundingBox: 'block' }
   const r1 = (x, y, z) => (solid.has(`${x},${y},${z}`) ? SOLID : read(x, y, z))
-  const a = walkSet(read, home, r, { drops: WALK_DROP }), b = walkSet(r1, home, r, { drops: WALK_DROP })
+  const a = walkSet(read, home, r, { drops: WALK_DROP, seed }), b = walkSet(r1, home, r, { drops: WALK_DROP, seed })
   const inner = k => { const [x, , z] = k.split(',').map(Number); return Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) <= near }
   let under = 0, canopy = 0
   const judge = (set, rd) => {
@@ -572,9 +578,9 @@ export function wallEscape (read, home, cells, { r = 64, near = r - 6 } = {}) {
   }
   const lost = judge([...a].filter(k => !b.has(k)), read)
   // the reverse walks: who can get home, before and after
-  const back0 = walkSet(read, home, r, { drops: WALK_DROP, reverse: true }), back1 = walkSet(r1, home, r, { drops: WALK_DROP, reverse: true })
+  const back0 = walkSet(read, home, r, { drops: WALK_DROP, reverse: true, seed }), back1 = walkSet(r1, home, r, { drops: WALK_DROP, reverse: true, seed })
   const pen = judge([...b].filter(k => !back1.has(k) && !(a.has(k) && !back0.has(k))), r1)
-  const sa = walkSet(read, home, r), sb = walkSet(r1, home, r)
+  const sa = walkSet(read, home, r, { seed }), sb = walkSet(r1, home, r, { seed })
   let lostStrict = 0
   for (const k of sa) if (!sb.has(k) && inner(k) && !solid.has(k)) lostStrict++
   const big = g => g.filter(q => q.length > PIT_MAX)
@@ -749,4 +755,327 @@ export function wallNeed (bill = {}, spare = {}, need, cap) {
   const first = need(parts, spare, cap)
   const left = cap - Object.values(first).reduce((t, v) => t + v, 0)
   return { ...first, ...(bill.cobblestone && left > 0 ? need({ cobblestone: bill.cobblestone }, spare, left) : {}) }
+}
+
+// ================================================================================================================================
+// WALLEXT-01: THE WALL EXTENSION (owner 11-04: "lets do A then extend the wall around the new building leaving room for additional
+// buildings"; A = the storage hall, storehub.mjs, which the bots' own siting puts in the town ring OUTSIDE the wall). PURE.
+//
+// WHAT IT IS: a second ring of the SAME rampart (wallCandidate: the cross-section, the terrain-following base, the gateways where a
+// path / spoke / land road crosses, Q7's sally ports, the reach proof, the escape proof) on a RECTANGLE that SHARES one side with
+// the old wall's ring: the side facing the hall. That shared side is the old wall's own line; it is never built (JOIN columns:
+// where the old wall stands on it, it stays; where it is open -- on the showcase 25 of the 31 columns between the ziggurat and the
+// extension's far side are already gateway, sally port or gap -- the two interiors are one). So the old section is LEFT, not torn
+// down: nothing is removed (no new dig rule), and the opening between old town and extension is the old line's own openings.
+// The extension's other three sides meet whatever the old wall meets (a ziggurat's reservation closes a stretch, as on the old ring).
+//
+// WHAT IT ENCLOSES: the hall's box (its reservation stays outside every wall cell: PROJECT_GAP) and ROOM -- the rectangle is grown
+// outward and along the line in WALLEXT steps, and each candidate is scored by the PLOTS its interior holds (wallExtPlots: free,
+// dry, known, level-ish rectangles of hall size and house size, PLOT_GAP apart, clear of every reservation, road corridor, the hall
+// and the wall's own lane). The smallest rectangle with the most plots (up to `plotsWant`) that the wall can stand on and that
+// passes the escape proof is the record. The plots are written on the record (`plots`); the land plan reads them as reservations
+// (landplan.mjs landReservation: `land:plot`), so the sinks, site prep, the dress and every other siting leave them free for the
+// buildings to come, while the groundskeeper (whose own refusals never read the land plan's reservations) still tidies them.
+// (landplan.mjs landPlotZones; the extension's record keeps them so the plots move with the record, never with the land plan.)
+//
+// THE RECORD (project-<home>.wallext): the wall record's shape (cells, clear, segments W-<nn> + W-L, zones, cols, gates, bom, escape)
+// plus side, join { line, from, to, old }, ring (the rectangle), interior (inside the walls: the rectangle less its own line on
+// three sides, up to AND INCLUDING the shared line), plots [{ id, kind, box, y }], hub { box }.
+// ================================================================================================================================
+export const WALLEXT_PLOT = 'wallext'
+export const WALLEXT_BLUEPRINT = 'wallext@1'
+/**
+ * THE EXTENSION'S BOUNDS. margin: the hall's box to the ring (the old wall's least margin); grow: the steps the rectangle is widened
+ * along the shared line on each side; growOut: the steps it is deepened outward; plotsWant: plots beyond which a bigger rectangle
+ * buys nothing; plotGap: between two plots and between a plot and the hall's box (PROJECT_GAP); plotSpread: a plot's ground range;
+ * lane: a plot's least distance from the ring's line (the walk, the fire-step, the approach and a lane); plotSizes: hall size
+ * (storehub@1 19 x 11 and the copper hall 15 x 13 both fit 19 x 13) then house size (house@1 7 x 7 and its step ring); tries: the
+ * candidates (best first by their plots, then the shortest ring) proven; builtMin: the least share of the ring's own (non-join)
+ * columns that must stand as wall (a side that runs along a road corridor is all gateway: no wall at all).
+ */
+export const WALLEXT = Object.freeze({ margin: 6, grow: [0, 4, 8, 12, 16, 20, 24, 28], growOut: [0, 4, 8, 12, 16, 20, 24], plotsWant: 4, plotGap: 3, plotSpread: 4, lane: 5, plotSizes: Object.freeze([Object.freeze({ kind: 'hall', w: 19, d: 13 }), Object.freeze({ kind: 'house', w: 11, d: 11 })]), tries: 10, builtMin: 0.5 })
+/** THE SWITCH -> bool. WALLEXT=on|off; unset = on in the pools WALLEXT_POOLS names (default the showcase). Pure. */
+export function wallextOn (env = process.env, pool = '') {
+  const v = String(env?.WALLEXT ?? '').trim().toLowerCase()
+  if (['on', '1', 'true', 'yes'].includes(v)) return true
+  if (['off', '0', 'false', 'no'].includes(v)) return false
+  const pools = String(env?.WALLEXT_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
+  return pools.includes('*') || pools.includes(String(pool))
+}
+const validBox4 = b => Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) && b[2] >= b[0] && b[3] >= b[1]
+/**
+ * WHICH SIDE OF THE OLD RING THE HALL IS BEYOND -> 'N' | 'S' | 'W' | 'E' | null. Pure. North is -z. Null when the box touches or
+ * lies inside the ring (nothing to extend), lies beyond a corner (two sides), or reaches past the ring's span along that side (an
+ * extension's sides must meet the old line).
+ */
+export function extSide (ring, box) {
+  if (!validBox4(ring) || !validBox4(box)) return null
+  const n = box[3] < ring[1], s = box[1] > ring[3], w = box[2] < ring[0], e = box[0] > ring[2]
+  if (n + s + w + e !== 1) return null
+  if ((n || s) && (box[0] <= ring[0] || box[2] >= ring[2])) return null
+  if ((w || e) && (box[1] <= ring[1] || box[3] >= ring[3])) return null
+  return n ? 'N' : s ? 'S' : w ? 'W' : 'E'
+}
+/**
+ * A COLUMN'S GROUND, FLOATING SPOIL PASSED -> pathColumn's answer. Pure over `read`. LIVE showcase 11-04 (the basin north of the
+ * town, y 62-63): the pathfinder's bridge blocks float at the town's level (y 70: dirt and cobblestone over 6 cells of air), and
+ * pathColumn reads the first solid from the top as the ground -- so the ring's base rose to 70 over a 63 basin (every such column
+ * `tall`) and no plot was level. A SPOIL block (FLOAT_SPOIL) with two or more cells of air under it is not ground: it is listed
+ * in `above` as kind 'float' (never a clear: a placement into it is the visit's `foreign` dig, one above the wall is left) and the
+ * scan goes on below it. At most FLOAT_MAX are passed in a column.
+ */
+export const FLOAT_SPOIL = /^(dirt|coarse_dirt|grass_block|cobblestone|mossy_cobblestone|cobbled_deepslate|netherrack|stone|andesite|diorite|granite|tuff|gravel|sand|dirt_path|rooted_dirt|podzol)$/
+export const FLOAT_MAX = 4
+export function extColumn (read, x, z, { yHi, yLo }) {
+  let hi = yHi
+  const extra = []
+  for (let n = 0; n <= FLOAT_MAX; n++) {
+    const c = pathColumn(read, x, z, { yHi: hi, yLo })
+    if (c.why || c.y == null || n === FLOAT_MAX) return extra.length ? { ...c, above: [...extra, ...c.above] } : c
+    const b1 = read(x, c.y - 1, z), b2 = read(x, c.y - 2, z)
+    const air = b => !!b && b.boundingBox === 'empty' && !/water|lava/.test(nm(b))
+    if (!FLOAT_SPOIL.test(c.name) || !air(b1) || !air(b2)) return extra.length ? { ...c, above: [...extra, ...c.above] } : c
+    extra.push(...c.above, { y: c.y, name: c.name, kind: 'float' })
+    hi = c.y - 1
+  }
+  return pathColumn(read, x, z, { yHi: yLo, yLo })
+}
+/** The old ring's line on that side -> { axis: 'z'|'x', at }. Pure. */
+export const extLine = (ring, side) => (side === 'N' ? { axis: 'z', at: ring[1] } : side === 'S' ? { axis: 'z', at: ring[3] } : side === 'W' ? { axis: 'x', at: ring[0] } : { axis: 'x', at: ring[2] })
+/** A JOIN test for wallCandidate -> (x, z) -> 'join' | null: the column lies on the shared line. Pure. */
+export const extJoin = (ring, side) => { const L = extLine(ring, side); return (x, z) => ((L.axis === 'z' ? z : x) === L.at ? 'join' : null) }
+/**
+ * THE CANDIDATE RECTANGLES -> [{ rect: [x0, z0, x1, z1], a, b, out }]. Pure. The hall's box + `margin`, the shared side ON the old
+ * line, widened along it by a (one end) and b (the other) from `grow` (never past the old ring's span) and deepened by out from
+ * `growOut`. A rectangle too small to hold a ring at `margin` is left out.
+ */
+export function extRects (ring, box, side, W = WALLEXT) {
+  const m = W.margin, out = []
+  const seen = new Set()
+  for (const a of W.grow) for (const b of W.grow) for (const o of W.growOut) {
+    let r
+    if (side === 'N') r = [Math.max(ring[0], box[0] - m - a), box[1] - m - o, Math.min(ring[2], box[2] + m + b), ring[1]]
+    else if (side === 'S') r = [Math.max(ring[0], box[0] - m - a), ring[3], Math.min(ring[2], box[2] + m + b), box[3] + m + o]
+    else if (side === 'W') r = [box[0] - m - o, Math.max(ring[1], box[1] - m - a), ring[0], Math.min(ring[3], box[3] + m + b)]
+    else if (side === 'E') r = [ring[2], Math.max(ring[1], box[1] - m - a), box[2] + m + o, Math.min(ring[3], box[3] + m + b)]
+    else continue
+    if (r[2] - r[0] < 2 * m + 1 || r[3] - r[1] < 2 * m + 1) continue
+    const k = r.join(',')
+    if (seen.has(k)) continue
+    seen.add(k); out.push({ rect: r, a, b, out: o })
+  }
+  return out
+}
+/** INSIDE THE EXTENSION -> [x0, z0, x1, z1]: the rectangle less its own line on three sides, up to and including the shared line. */
+export function extInterior (rect, side) {
+  const [x0, z0, x1, z1] = rect
+  if (side === 'N') return [x0 + 1, z0 + 1, x1 - 1, z1]
+  if (side === 'S') return [x0 + 1, z0, x1 - 1, z1 - 1]
+  if (side === 'W') return [x0 + 1, z0 + 1, x1, z1 - 1]
+  return [x0, z0 + 1, x1 - 1, z1 - 1]
+}
+/** The plots' domain: the rectangle `lane` in from its own line on three sides, and 2 off the shared line. Pure. */
+export function extPlotDomain (rect, side, lane = WALLEXT.lane) {
+  const [x0, z0, x1, z1] = rect
+  if (side === 'N') return [x0 + lane, z0 + lane, x1 - lane, z1 - 2]
+  if (side === 'S') return [x0 + lane, z0 + 2, x1 - lane, z1 - lane]
+  if (side === 'W') return [x0 + lane, z0 + lane, x1 - 2, z1 - lane]
+  return [x0 + 2, z0 + lane, x1 - lane, z1 - lane]
+}
+/**
+ * THE PLOTS a domain holds -> [{ id, kind, box: [x0, z0, x1, z1], y: [lo, hi] }]. Pure over `read`. Hall-size plots first, then
+ * house-size, each the free rectangle nearest `near` (the hall's centre) in either orientation: every column not refused
+ * (`refuse(x, z)`: a zone, the plan, a well, the farm, a record or its reservation, a road corridor, the old wall), its ground read,
+ * dry and known, the ground's range (10th to 90th percentile) within `spread`; two plots (and a plot and `keep` boxes: the hall's) at least `gap` apart. At most
+ * `want` plots. `memo` (Map "x,z" -> column) is shared with the ring's own scan.
+ */
+export function wallExtPlots (read, domain, { home, refuse = () => null, near = null, keep = [], want = WALLEXT.plotsWant, sizes = WALLEXT.plotSizes, gap = WALLEXT.plotGap, spread = WALLEXT.plotSpread, memo = null, column = extColumn } = {}) {
+  if (!validBox4(domain) || !home) return []
+  const [dx0, dz0, dx1, dz1] = domain
+  const W = dx1 - dx0 + 1, D = dz1 - dz0 + 1
+  const m = memo ?? new Map()
+  const scan = (x, z) => { const k = k2(x, z); if (!m.has(k)) m.set(k, column(read, x, z, { yHi: home.y + WALL.dy, yLo: home.y - WALL.dy })); return m.get(k) }
+  // the good columns and their ground, then a prefix sum of the bad ones (a candidate is O(1) to screen)
+  const ys = new Array(W * D).fill(null)
+  const bad = new Int32Array((W + 1) * (D + 1))
+  for (let i = 0; i < W; i++) for (let j = 0; j < D; j++) {
+    const x = dx0 + i, z = dz0 + j
+    let ok = !refuse(x, z)
+    if (ok) { const c = scan(x, z); ok = !c.why && c.y != null; if (ok) ys[j * W + i] = c.y }
+    bad[(j + 1) * (W + 1) + (i + 1)] = (ok ? 0 : 1) + bad[j * (W + 1) + (i + 1)] + bad[(j + 1) * (W + 1) + i] - bad[j * (W + 1) + i]
+  }
+  const badIn = (i0, j0, i1, j1) => bad[(j1 + 1) * (W + 1) + (i1 + 1)] - bad[j0 * (W + 1) + (i1 + 1)] - bad[(j1 + 1) * (W + 1) + i0] + bad[j0 * (W + 1) + i0]
+  const [cx, cz] = near ?? [(dx0 + dx1) / 2, (dz0 + dz1) / 2]
+  const taken = keep.filter(validBox4).map(b => [...b])
+  const clash = b => taken.some(t => b[0] <= t[2] + gap && b[2] >= t[0] - gap && b[1] <= t[3] + gap && b[3] >= t[1] - gap)
+  const out = []
+  for (const s of sizes) {
+    for (;;) {
+      if (out.length >= want) return out
+      let best = null
+      for (const [w, d] of s.w === s.d ? [[s.w, s.d]] : [[s.w, s.d], [s.d, s.w]]) {
+        for (let i = 0; i + w <= W; i++) for (let j = 0; j + d <= D; j++) {
+          if (badIn(i, j, i + w - 1, j + d - 1)) continue
+          const b = [dx0 + i, dz0 + j, dx0 + i + w - 1, dz0 + j + d - 1]
+          if (clash(b)) continue
+          const dist = Math.hypot((b[0] + b[2]) / 2 - cx, (b[1] + b[3]) / 2 - cz)
+          if (best && dist >= best.dist) continue
+          // the ground's range between its 10th and 90th percentile: the bots' own pillars and pits (the groundskeeper's work) are
+          // not the ground a building is sited on (the basin north of the showcase: 1-2 high stray blocks and 1-3 deep holes)
+          const g = []
+          for (let ii = i; ii < i + w; ii++) for (let jj = j; jj < j + d; jj++) g.push(ys[jj * W + ii])
+          g.sort((p, q) => p - q)
+          const lo = g[Math.floor(g.length * 0.1)], hi = g[Math.min(g.length - 1, Math.floor(g.length * 0.9))]
+          if (hi - lo > spread) continue
+          best = { b, dist, y: [lo, hi] }
+        }
+      }
+      if (!best) break
+      taken.push(best.b)
+      out.push({ id: `X${out.length + 1}`, kind: s.kind, box: best.b, y: best.y })
+    }
+  }
+  return out
+}
+/**
+ * THE EXTENSION'S SITING -> { ok, why, record, tried }. Pure over `read`. The bot's own (skills.mjs buildWall for WALLEXT) and the
+ * offline proof's (scripts/wallext-offline.mjs).
+ *   wall       the old wall record (its ring and its cells: the cells' columns are never the extension's)
+ *   hub        the hall's record (its box)
+ *   plan, zones, caps, plinth, composter, farm, pzones, lights   siteWall's inputs (pzones: every other record's reservation and the
+ *              land plan's corridors; the old wall's own zones are dropped -- its line is the join)
+ *   records    every other project's record: their cell columns are refused (pathAvoid), the tidy's for the ring only
+ * The candidates are screened (cheap: their plots, then how LEVEL their line is, then the shortest), the best `tries` proven
+ * (wallCandidate + the escape proof) and scored (plots, the share standing as wall, length, cost). ASYNC only to `pause` between
+ * candidates (a bot's event loop: one candidate is ~1-3 s of work; the whole siting ~30 s would miss the server's keep-alive).
+ */
+export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [], plinth = [], composter = null, farm = [], records = [], pzones = [], lights = 0, now = Date.now(), pause = null, W = WALLEXT } = {}) {
+  const home = plan?.home
+  if (!home) return { ok: false, why: 'no_plan', record: null }
+  if (!validBox4(wall?.ring)) return { ok: false, why: 'no_wall', record: null }
+  if (!validBox4(hub?.box)) return { ok: false, why: 'no_hub', record: null }
+  const ring = wall.ring, box = hub.box
+  const side = extSide(ring, box)
+  if (!side) return { ok: false, why: 'hub_not_beyond_a_side', record: null }
+  const oldCols = new Set((wall.cells ?? []).map(c => k2(c.at[0], c.at[2])))
+  // Codex code r1 BLOCKER: every OTHER record's cell columns are refused (a record with no zones -- the tidy's stage record -- has
+  // cells all the same: a wall cell there would dig its fill as `foreign`); the old wall's by `oldCols`. The plots read the same
+  // refusals but the tidy's (its fills and cuts are ground work, never a building's footprint)
+  const others = (records ?? []).filter(r => r && r.plot !== WALL_PLOT && r.plot !== WALLEXT_PLOT && r.blueprint !== WALL_BLUEPRINT && r.blueprint !== WALLEXT_BLUEPRINT)
+  const avoid0 = pathAvoid({ plan, zones, caps, plinth, composter, farm, records: others, home })
+  const avoidP = pathAvoid({ plan, zones, caps, plinth, composter, farm, records: others.filter(r => r.plot !== 'tidy'), home })
+  const avoid = (x, z) => (oldCols.has(k2(x, z)) ? 'old_wall' : avoid0(x, z))
+  const pz = pzones.filter(z => String(z?.why ?? '') !== `project:${WALL_PLOT}` && String(z?.why ?? '') !== `project:${WALLEXT_PLOT}`)
+  const pzAt = (x, z) => { for (const zb of pz) { const b = zb?.box ?? zb; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return String(zb?.why ?? 'project') } return null }
+  const spokes = (plan.paths ?? []).map(p => p.seg).filter(Array.isArray)
+  const join = extJoin(ring, side)
+  const memo = new Map()
+  const near = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
+  const refuse = (x, z) => (oldCols.has(k2(x, z)) ? 'old_wall' : avoidP(x, z)) ?? pzAt(x, z)
+  const m = W.margin
+  const seed = walkFeet(read, home)
+  if (!seed) return { ok: false, why: 'no_feet_at_home', record: null }
+  // 1. SCREEN: each rectangle's plots (the hall's reservation is in pzones; its box kept `plotGap` off)
+  const scanG = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, extColumn(read, x, z, { yHi: home.y + WALL.dy, yLo: home.y - WALL.dy })); return memo.get(k) }
+  const cands = []
+  for (const c of extRects(ring, box, side, W)) {
+    const plots = wallExtPlots(read, extPlotDomain(c.rect, side, W.lane), { home, refuse, near, keep: [box], want: W.plotsWant, memo, sizes: W.plotSizes, gap: W.plotGap, spread: W.plotSpread })
+    const per = 2 * (c.rect[2] - c.rect[0] + c.rect[3] - c.rect[1])
+    // LEVEL: the share of the ring's own free columns whose cross-section (the line and the fire-step two in) is within 2 -- a
+    // line along a ridge's edge or a slope stands `tall` and opens (the basin north of the showcase: its rim)
+    let lv = 0, nv = 0
+    for (const q of ringLoop([c.rect[0] + W.margin, c.rect[1] + W.margin, c.rect[2] - W.margin, c.rect[3] - W.margin], W.margin)) {
+      if (join(q.x, q.z) || refuse(q.x, q.z)) continue
+      nv++
+      const a = scanG(q.x, q.z), b = scanG(...terraceAt(q, 2))
+      if (!a.why && !b.why && a.y != null && b.y != null && Math.abs(a.y - b.y) <= 2) lv++
+    }
+    cands.push({ ...c, plots: Math.min(plots.length, W.plotsWant), per, level: nv ? Math.round((lv / nv) * 20) / 20 : 0 })
+    if (pause) await pause()
+  }
+  cands.sort((p, q) => q.plots - p.plots || q.level - p.level || p.per - q.per)
+  const tried = []
+  let best = null
+  for (const c of cands.slice(0, W.tries)) {
+    const inside = [c.rect[0] + m, c.rect[1] + m, c.rect[2] - m, c.rect[3] - m]
+    const cand = wallCandidate(read, inside, m, { home, avoid, pzones: pz, spokes, lights, join, scanMemo: memo, seed, column: extColumn })
+    if (pause) await pause()
+    const t = { rect: c.rect, plots: c.plots, level: c.level, ok: cand.ok, why: cand.why }
+    tried.push(t)
+    if (!cand.ok) { if (cand.why === 'unknown') return { ok: false, why: 'unknown', record: null, tried, unknown: cand.unknown }; continue }
+    const R0 = Math.max(...cand.cols.map(q => Math.max(Math.abs(q.x - home.x), Math.abs(q.z - home.z))))
+    const esc = wallEscape(read, home, cand.cells, { r: R0 + 14, near: R0 + 6, seed })
+    if (pause) await pause()
+    Object.assign(t, { cut: esc.cut, trapped: esc.trapped, pits: esc.pits })
+    if (esc.cut > 0 || esc.trapped > 0) continue
+    // 2. THE PLOTS AGAIN on the built ring: clear of its own record columns + 1 (its zones) and one lane more
+    const used = new Set(cand.cells.map(q => k2(q.at[0], q.at[2])))
+    const nearWall = (x, z) => { for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) if (used.has(k2(x + dx, z + dz))) return 'wallext' ; return null }
+    const plots = wallExtPlots(read, extPlotDomain(c.rect, side, W.lane), { home, refuse: (x, z) => refuse(x, z) ?? nearWall(x, z), near, keep: [box], want: W.plotsWant, memo, sizes: W.plotSizes, gap: W.plotGap, spread: W.plotSpread })
+    t.plotsBuilt = plots.length
+    // THE SCORE: the plots (to plotsWant), then the share of the ring that stands as wall, then the shortest ring
+    // (a stretch where the ring meets another build -- a ziggurat's reservation or cells, the hall's -- is that build's, as on the old ring)
+    const own = cand.cols.filter(q => q.s !== 'join' && !(q.s === 'gap' && /^project(:|$)/.test(String(q.why ?? '')))).length
+    const built = own ? (cand.counts.wall + cand.counts.post) / own : 0
+    t.built = Math.round(built * 100) / 100
+    if (built < W.builtMin) { t.why = 'too_open'; continue }
+    const score = Math.min(plots.length, W.plotsWant) * 100 + built * 50 - c.per * 0.1 - cand.cost * 0.05
+    t.score = Math.round(score * 10) / 10
+    if (best && best.score >= score) continue
+    const L = extLine(ring, side)
+    const along = L.axis === 'z' ? [c.rect[0], c.rect[2]] : [c.rect[1], c.rect[3]]
+    const oldOn = (wall.cols ?? []).filter(q => (L.axis === 'z' ? q.z : q.x) === L.at && (L.axis === 'z' ? q.x : q.z) >= along[0] && (L.axis === 'z' ? q.x : q.z) <= along[1])
+    const record = {
+      v: 1, blueprint: WALLEXT_BLUEPRINT, plot: WALLEXT_PLOT, home: { x: home.x, y: home.y, z: home.z }, side,
+      join: { axis: L.axis, line: L.at, from: along[0], to: along[1], cols: along[1] - along[0] + 1, oldBuilt: oldOn.filter(q => q.s === 'wall' || q.s === 'post').length, ring: [...ring] },
+      ring: c.rect, inside, interior: extInterior(c.rect, side), margin: m,
+      cols: cand.cols.map(q => ({ x: q.x, z: q.z, s: q.s, ...(q.why ? { why: q.why } : {}), ...(Number.isFinite(q.b) && (q.s === 'wall' || q.s === 'post') ? { b: q.b } : {}) })),
+      gates: cand.gates, counts: cand.counts, ports: cand.ports, posts: cand.posts, lights: cand.lights,
+      cells: cand.cells, clear: cand.clear, replant: [], segments: cand.segments, zones: cand.zones.map(z => ({ ...z, why: `project:${WALLEXT_PLOT}` })),
+      bom: cand.bom, felled: { trunks: cand.trunks, logs: cand.logs }, escape: esc, plots, hub: { box: [...box] }, builders_max: WALL_BUILDERS,
+      structure_complete: false, plan: plan.gen != null ? { gen: plan.gen } : null, sitedAt: now,
+    }
+    best = { score, record }
+  }
+  if (best) return { ok: true, why: 'ok', record: best.record, tried }
+  return { ok: false, why: `no_ring:${tried.map(t => `${t.rect.join('_')}:${t.ok ? `cut${t.cut}/trap${t.trapped}` : t.why}`).join(',')}`.slice(0, 400), record: null, tried }
+}
+/**
+ * THE WALKS' START -> [x, y, z] | null: home's own feet cell (walkSet's: within 4 of home.y), else the NEAREST feet cell within
+ * Chebyshev `r` and `dy` of home (LIVE showcase 11-04: a dirt pillar stood on home's column to y 75 -- every walk from home was
+ * empty, so the reach proof made every column a gap). Pure over `read`.
+ */
+export function walkFeet (read, home, { r = 6, dy = 6 } = {}) {
+  const node = (x, y, z) => floorOk(read(x, y - 1, z)) && passable(read(x, y, z)) && passable(read(x, y + 1, z))
+  for (let d = 0; d <= r; d++) {
+    for (let ddy = 0; ddy <= (d === 0 ? 4 : dy); ddy++) {
+      for (const y of ddy ? [home.y + ddy, home.y - ddy] : [home.y]) {
+        for (let dx = -d; dx <= d; dx++) for (let dz = -d; dz <= d; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== d) continue
+          if (node(home.x + dx, y, home.z + dz)) return [home.x + dx, y, home.z + dz]
+        }
+      }
+    }
+  }
+  return null
+}
+/** INSIDE THE WALLS -> [[x0, z0, x1, z1]]: the old wall's interior box (terrace.mjs wallInterior's rule) and the extension's. Pure. */
+export function wallInteriors (wallRec, extRec) {
+  const out = []
+  const g = wallRec?.ring
+  if (validBox4(g) && g[2] - g[0] >= 4 && g[3] - g[1] >= 4) out.push([g[0] + 1, g[1] + 1, g[2] - 1, g[3] - 1])
+  if (validBox4(extRec?.interior)) out.push([...extRec.interior])
+  return out
+}
+/**
+ * THE OPENING RULE -> { open, why }. Pure. The extension is sited only round a hall that stands (shop.mjs PROJECTS `after`) BEYOND one
+ * side of a complete wall (extSide): a hall sited inside the wall, beyond a corner, or with no wall record never opens it (the order
+ * then never offers the extension: `waiting`).
+ */
+export function wallextOpening (wallRec, hubRec) {
+  if (!wallRec || !validBox4(wallRec.ring)) return { open: false, why: 'no_wall' }
+  if (!wallRec.structure_complete) return { open: false, why: 'wall_open' }
+  if (!hubRec || !validBox4(hubRec.box)) return { open: false, why: 'no_hub' }
+  if (!extSide(wallRec.ring, hubRec.box)) return { open: false, why: 'hub_not_beyond_a_side' }
+  return { open: true, why: 'ok' }
 }

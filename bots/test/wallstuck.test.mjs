@@ -237,11 +237,11 @@ console.log('WIRING (source, comments stripped: the wall visit takes the remedie
 await t('buildWall passes wallStuckOf + the waived cells; projStuckLive reads stuckOtherWork for an open wall; a waived wall cell is no damage', () => {
   const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   const one = re => { const m = src.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) }
-  one("\\.\\.\\.wallStuckOf\\(c\\), \\.\\.\\.\\(wallStuckOn\\(\\) \\? \\{ alsoDone: q => wallWaived\\(rec, q\\) \\} : \\{\\}\\) \\}, effects")
+  one("\\.\\.\\.wallStuckOf\\(c, K\\.plot\\), \\.\\.\\.\\(wallStuckOn\\(\\) \\? \\{ alsoDone: q => wallWaived\\(rec, q\\) \\} : \\{\\}\\) \\}, effects")
   one("const due = wallWaiveDue\\(rec, r\\.deferred \\?\\? \\[\\]\\)")
-  one("return rec\\?\\.blueprint === WALL_BLUEPRINT && wallStuckOn\\(\\) && \\(stuckStale\\(keys, rec, c => recordCellDone\\(b, rec, c\\)\\) \\|\\| stuckOtherWork\\(keys, rec, c => recordCellOpen\\(b, rec, c\\)\\)\\)")
-  one("if \\(r\\.blueprint === WALL_BLUEPRINT && wallWaived\\(r, c\\)\\) continue")
-  one("if \\(r\\.blueprint === WALL_BLUEPRINT && wallWaived\\(r, c\\)\\) return true")
+  one("return \\(rec\\?\\.blueprint === WALL_BLUEPRINT \\|\\| rec\\?\\.blueprint === WALLEXT_BLUEPRINT\\) && wallStuckOn\\(\\) && \\(stuckStale\\(keys, rec, c => recordCellDone\\(b, rec, c\\)\\) \\|\\| stuckOtherWork\\(keys, rec, c => recordCellOpen\\(b, rec, c\\)\\)\\)")
+  one("if \\(\\(r\\.blueprint === WALL_BLUEPRINT \\|\\| r\\.blueprint === WALLEXT_BLUEPRINT\\) && wallWaived\\(r, c\\)\\) continue")
+  one("if \\(\\(r\\.blueprint === WALL_BLUEPRINT \\|\\| r\\.blueprint === WALLEXT_BLUEPRINT\\) && wallWaived\\(r, c\\)\\) return true")
   one("return \\{ sealed: \\{ mayDig: may \\}, footing: \\{ mayPlace: may, role: 'base' \\}, stuckStalledOnly: true \\}")
 })
 

@@ -491,7 +491,17 @@ export function zoneAt (land, x, z) {
   return land.zones?.[SECTORS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]] ?? 'wild'
 }
 /** THE LAND RECORD AS A RESERVATION (the pseudo-record skills.mjs projectHeads appends): its corridors as zones, no cells. Pure. */
-export const landReservation = land => (land ? { plot: LAND_PLOT, blueprint: LAND_BLUEPRINT, zones: [...(land.corridors ?? []), ...parkZones(land)], cells: [], structure_complete: true, state: 'plan' } : null)
+export const landReservation = (land, ext = null) => (land ? { plot: LAND_PLOT, blueprint: LAND_BLUEPRINT, zones: [...(land.corridors ?? []), ...parkZones(land), ...landPlotZones(ext)], cells: [], structure_complete: true, state: 'plan' } : null)
+/**
+ * wallext-01 (owner 11-04: "extend the wall around the new building leaving room for additional buildings"): THE RESERVED PLOTS inside
+ * a wall extension (wall.mjs siteWallExt's record `plots`) as the land plan's zones [{ box, why: 'land:plot', id }]: every siting
+ * (the sinks, site prep, the dress, a house) keeps off them; the groundskeeper's own refusals never read the land plan's reservation
+ * (skills.mjs tidyInputs), so it still tidies them. A building that takes a plot later passes its id as its own exception. Pure.
+ */
+export function landPlotZones (ext) {
+  const ok = b => Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) && b[2] >= b[0] && b[3] >= b[1]
+  return (ext?.plots ?? []).filter(p => ok(p?.box)).map(p => ({ box: [p.box[0], -64, p.box[1], p.box[2], 320, p.box[3]], why: 'land:plot', id: String(p.id ?? '') }))
+}
 /** townterrace-01: the land plan's PARK as a reservation zone (other builds keep off it; the groundskeeper plants it). Pure. */
 export function parkZones (land) {
   const b = land?.park?.box

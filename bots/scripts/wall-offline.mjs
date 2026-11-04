@@ -41,7 +41,11 @@ const hk = `${home.x}_${home.y}_${home.z}`
 const files = fs.readdirSync(poolDir)
 const readJ = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return null } }
 const gen = f => Number(/\.g(\d+)\./.exec(f)?.[1] ?? 0)
-const plots = [...new Set(files.map(f => /^project-[-\d_]+\.([A-Za-z0-9]+)\.g\d+\.json$/.exec(f)?.[1]).filter(Boolean))].filter(p => p !== W.WALL_PLOT).sort()
+// wallext-01 (--ext): THE EXTENSION (wall.mjs siteWallExt) round the hall (the pool's storehub record, else --hub x0,z0,x1,z1), the old
+// wall record and the land plan's corridors and plots read as the bot reads them (projectHeads: the land plan as a reservation)
+const EXT = flag('ext')
+const PLOT = EXT ? W.WALLEXT_PLOT : W.WALL_PLOT
+const plots = [...new Set(files.map(f => /^project-[-\d_]+\.([A-Za-z0-9]+)\.g\d+\.json$/.exec(f)?.[1]).filter(Boolean))].filter(p => p !== W.WALL_PLOT && p !== W.WALLEXT_PLOT).sort()
 const records = plots.map(plot => ({ plot, rec: recordHead(poolDir, `project-${hk}.${plot}`).head?.rec ?? null })).filter(r => r.rec)
 const plinthRec = readJ(path.join(poolDir, `junkwell-plinth-${hk}.json`))
 const caps = []
@@ -51,12 +55,30 @@ const cs = comps.length ? readJ(path.join(poolDir, comps[0])) : null
 const composter = cs && [cs.x, cs.y, cs.z].every(Number.isFinite) ? [cs.x, cs.y, cs.z] : ((plan.plots ?? []).find(p => p.kind === 'farm')?.composter ?? null)
 const t0 = Date.now()
 const inputs = { plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records, pzones: recordZones(records.map(r => r.rec)), zig: r => isZigBlueprint(r?.blueprint), lights: Number(opt('torches', 0)) }
-const s = W.siteWall(base, inputs)
+let s
+if (EXT) {
+  const LP = await import('../src/landplan.mjs')
+  const wallRec = recordHead(poolDir, `project-${hk}.${W.WALL_PLOT}`).head?.rec ?? null
+  const hubBox = opt('hub') ? opt('hub').split(',').map(Number) : (records.find(r => r.plot === 'storehub')?.rec?.box ?? null)
+  const hub = hubBox ? { box: hubBox } : null
+  // the hall as a record (its reservation: box + PROJECT_GAP) when it is only --hub; the land plan as the bot's reservation
+  const land = records.find(r => r.plot === 'land')?.rec ?? null
+  const others = [...records.filter(r => r.plot !== 'land' && r.plot !== 'tidy').map(r => r.rec), ...(land ? [LP.landReservation(land)] : []), ...(records.some(r => r.plot === 'storehub') || !hub ? [] : [{ plot: 'storehub', box: hub.box }])]
+  // the expedition markers (skills.mjs townMarkerZones: expedition.mjs markerZones, +1)
+  const EX = await import('../src/expedition.mjs')
+  const mFile = path.join(poolDir, `expedition-${hk}.markers.jsonl`)
+  const markers = fs.existsSync(mFile) ? fs.readFileSync(mFile, 'utf8').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(m => m && !m.gone) : []
+  // and the bridge sites' footprints (townMarkerZones: bridge.mjs bridgeZones)
+  const BR = await import('../src/bridge.mjs')
+  const bFile = path.join(poolDir, `expedition-${hk}.bridges.jsonl`)
+  const bLines = fs.existsSync(bFile) ? fs.readFileSync(bFile, 'utf8').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean) : []
+  s = await W.siteWallExt(base, { wall: wallRec, hub, plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: records.map(r => ({ ...r.rec, plot: r.rec.plot ?? r.plot })), pzones: [...recordZones(others), ...EX.markerZones(markers), ...BR.bridgeZones(BR.bridgeSites(bLines))], lights: Number(opt('torches', 0)), W: { ...W.WALLEXT, ...JSON.parse(opt('extW', '{}')) } })
+} else s = W.siteWall(base, inputs)
 const ms = Date.now() - t0
 const rec = s.record
 const roles = rec ? rec.cells.reduce((m, c) => (m[c.role] = (m[c.role] ?? 0) + 1, m), {}) : {}
 console.log(JSON.stringify({
-  ok: s.ok, why: s.why, ms, inside: s.inside, tried: s.tried, projects: records.map(r => `${r.plot}:${r.rec.blueprint}:${r.rec.structure_complete ? 'complete' : 'open'}`),
+  ok: s.ok, why: s.why, ms, inside: s.inside, tried: s.tried, ...(rec?.plots ? { side: rec.side, join: rec.join, interior: rec.interior, plots: rec.plots } : {}), projects: records.map(r => `${r.plot}:${r.rec.blueprint}:${r.rec.structure_complete ? 'complete' : 'open'}`),
   ...(rec ? { ring: rec.ring, margin: rec.margin, counts: rec.counts, ports: rec.ports, posts: rec.posts, lights: rec.lights, gates: rec.gates.map(g => `${g.why}:${g.cols[0].join(',')}..${g.cols.at(-1).join(',')}(${g.cols.length})`),
     gaps: Object.entries(rec.cols.filter(c => c.s === 'gap' || c.s === 'open').reduce((m, c) => (m[c.why] = (m[c.why] ?? 0) + 1, m), {})),
     cells: rec.cells.length, roles, segments: rec.segments.length, clear: rec.clear.length, clearKinds: rec.clear.reduce((m, c) => (m[c.kind] = (m[c.kind] ?? 0) + 1, m), {}), felled: rec.felled, bom: rec.bom, escape: rec.escape,
@@ -99,7 +121,7 @@ const SOLIDB = n => ({ name: n, boundingBox: n === 'torch' || n === 'wall_torch'
 const read = (x, y, z) => over.get(`${x},${y},${z}`) ?? base(x, y, z)
 const set = (a, n) => over.set(a.join(','), n === 'air' ? AIRB : SOLIDB(n))
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wallbuild-'))
-const key = PJ.projKey(home, W.WALL_PLOT)
+const key = PJ.projKey(home, PLOT)
 const pub = PJ.publishRecord(dir, key, () => ({ ...rec }))
 const rows = []
 let t = Date.parse('2026-10-30T06:00:00Z')
@@ -127,7 +149,7 @@ function builder (name, feet) {
     conn: () => `${name}-c1`, acked: () => acks.tracker.acked, seen: () => ({ online: true, offlineSince: null, leftAt: null }),
     dig: async (c, expect) => { const b = read(...c); if (expect && b?.name !== expect) return 'refused'; set(c, 'air'); return 'confirmed' },
     probe: async () => null, aborted: () => false,
-    log: (k, d) => rows.push({ t: new Date(t).toISOString(), bot: name, name: k, feet: at.slice(), detail: k === '_build_seg' ? buildSegDetail({ project: W.WALL_PLOT, ...d }) : buildRowDetail({ project: W.WALL_PLOT, ...d }) }),
+    log: (k, d) => rows.push({ t: new Date(t).toISOString(), bot: name, name: k, feet: at.slice(), detail: k === '_build_seg' ? buildSegDetail({ project: PLOT, ...d }) : buildRowDetail({ project: PLOT, ...d }) }),
     now: () => t, sleep: async ms => { t += ms }, spawnedAt: () => 0,
   }
   return { name, e, inv, stands: { pending: null, bans: {} }, unknown: new Set(), blocked: new Map() }
@@ -147,7 +169,7 @@ for (; r < rounds && doneN() < rec.cells.length; r++) {
     PJ.releaseLease(dir, key, `slot${slot.slot}`, b.name, slot.gen)
     stops[v.stop] = (stops[v.stop] ?? 0) + 1
     { const bs = W.blockedSeg(v.stop, v.why); if (bs) b.blocked.set(bs, t) }
-    rows.push({ t: new Date(t).toISOString(), bot: b.name, name: '_build_visit', feet: b.e.feet(), detail: `project=wall outcome=${v.stop} stop=${v.stop} placed=${v.placed} cleared=${v.cleared}` })
+    rows.push({ t: new Date(t).toISOString(), bot: b.name, name: '_build_visit', feet: b.e.feet(), detail: `project=${PLOT} outcome=${v.stop} stop=${v.stop} placed=${v.placed} cleared=${v.cleared}` })
     if (v.stop !== 'complete' && process.env.VERBOSE) console.error(b.name, r, v.stop, v.why)
     t += 60_000
   }
@@ -165,8 +187,8 @@ const outside = (x, z) => x < rx0 || x > rx1 || z < rz0 || z > rz1
 function dist (rd, drops) {
   const passable = b => !!b && b.boundingBox === 'empty' && !/water|lava/.test(b.name)
   const node = (x, y, z) => { const f = rd(x, y - 1, z); return !!f && f.boundingBox === 'block' && !/water|lava/.test(f.name) && passable(rd(x, y, z)) && passable(rd(x, y + 1, z)) }
-  let st = null
-  for (let dy = 0; !st && dy <= 4; dy++) for (const y of [home.y + dy, home.y - dy]) if (!st && node(home.x, y, home.z)) st = [home.x, y, home.z]
+  // wallext-01: the nearest feet cell to home (wall.mjs walkFeet: a pillar on home's column, LIVE showcase 11-04)
+  const st = W.walkFeet(rd, home)
   const d = new Map([[st.join(','), 0]]), q = [st]
   for (let h = 0; h < q.length; h++) {
     const [x, y, z] = q[h], dv = d.get(q[h].join(','))

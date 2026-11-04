@@ -750,6 +750,17 @@ export function roadLights (read, cols, { home, avoid = () => null, n = 0, cells
 // than every neighbour (153 one deep) -- tidy-01's survey takes pillars from 2 high and pits from 2 deep, and never in a build's box.
 // ================================================================================================================================
 export const INWALL = Object.freeze({ pillarMax: 6, holeMax: 4, litterMax: 3 })
+/**
+ * wallext-01: INSIDE THE WALLS -> [[x0, z0, x1, z1]]: the wall's interior box (inwallBox) and, when the town has one, the wall
+ * EXTENSION's interior (its record's `interior`: the rectangle less its own line, up to the shared line) -- the owner's "inside the
+ * town walls first" is both. Disjoint by construction (the extension's interior ends on the old ring's line, outside its box). Pure.
+ */
+export function inwallBoxes (wall, home, ext = null, r = TIDY.r) {
+  const out = [inwallBox(wall, home, r)]
+  const b = ext?.interior
+  if (Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) && b[2] >= b[0] && b[3] >= b[1]) out.push([...b])
+  return out
+}
 /** The wall's interior box [x0, z0, x1, z1] (terrace.mjs wallInterior), else the town square. Pure. */
 export const inwallBox = (wall, home, r = TIDY.r) => {
   const g = wall?.ring
@@ -783,6 +794,19 @@ const BUILD_WHY = /^(project|plan_cell|plan_box|plan_plot)$|^project:(?!yard$|tr
  *                 lowest neighbour, at most INWALL.holeMax deep; never water, never a column `avoid` names or a record cell's column
  *   cells  Set "x,y,z" of every project's record cells (the tidy's guard); box [x0, z0, x1, z1]
  */
+/** wallext-01: several inside-the-wall surveys (disjoint boxes) as one: their lists joined (a cell listed twice kept once), the
+ *  litter and the skipped counts summed. Pure. */
+export function mergeSurveys (parts = []) {
+  const out = { ok: true, why: 'ok', cut: [], fill: [], pillars: [], pits: [], litter: 0, skipped: {} }
+  const seen = { cut: new Set(), fill: new Set(), pillars: new Set(), pits: new Set() }
+  for (const p of parts) {
+    for (const f of ['cut', 'fill', 'pillars', 'pits']) for (const e of p[f] ?? []) { const k = JSON.stringify(e?.at ?? e); if (seen[f].has(k)) continue; seen[f].add(k); out[f].push(e) }
+    out.litter += Number(p.litter) || 0
+    for (const [k, v] of Object.entries(p.skipped ?? {})) out.skipped[k] = (out.skipped[k] ?? 0) + v
+  }
+  for (const [k, v] of Object.entries(parts[0] ?? {})) if (!(k in out)) out[k] = v
+  return out
+}
 export function surveyInwall (read, { home, box, avoid = () => null, cells = new Set(), noLitter = () => false, reserved = () => false, water = 'strict', waterOk = () => false, T = INWALL } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
@@ -879,7 +903,9 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   // the owner's 11-01 water rule for every stage (tidyWater: TIDY_WATER=strict is the old refusal): the stage may touch the water of
   // a column it may touch at all, never within farmGuard of farmland (the farm's irrigation)
   const water = tidyWater(env)
-  const reach = Math.max(TIDY.r, st.rMax ?? -1, st.upto ?? -1)
+  // wallext-01: the inside-the-wall stage reaches as far as its boxes (the farm guard's box below)
+  const inR = st.id === INWALL_STAGE ? Math.max(-1, ...inwallBoxes(terrace?.wall ?? null, home, terrace?.wallext ?? null).map(b => Math.max(Math.abs(b[0] - home.x), Math.abs(b[2] - home.x), Math.abs(b[1] - home.z), Math.abs(b[3] - home.z)))) : -1
+  const reach = Math.max(TIDY.r, st.rMax ?? -1, st.upto ?? -1, inR)
   let farmAt = null
   const waterOk = (x, z) => { if (avoid(x, z)) return false; farmAt ??= farmGuardOf(read, [home.x - reach, home.z - reach, home.x + reach, home.z + reach], home); return !farmAt(x, z) }
   if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now, water, waterOk }); if (s.record) { s.record.stage = 0; s.record.stageId = st.id; s.record.terraceV = 1 } return { ...s, road: null } }
@@ -896,14 +922,18 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   }
   // gkstage-01: inside the wall (surveyInwall), the box the wall encloses (the terrace's inputs carry the wall record)
   if (st.id === INWALL_STAGE) {
-    const box = inwallBox(terrace?.wall ?? null, home)
-    const sv = surveyInwall(read, { home, box, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved, water, waterOk })
-    if (!sv.ok) return { ok: false, why: sv.why, record: null, survey: sv, road: null }
-    const record = tidyRecord(sv, { home, plan, now, r: Math.max(TIDY.r, Math.abs(box[0] - home.x), Math.abs(box[2] - home.x), Math.abs(box[1] - home.z), Math.abs(box[3] - home.z)) })
+    // wallext-01: every box inside the walls (the wall's, the extension's), one survey each, merged
+    const boxes = inwallBoxes(terrace?.wall ?? null, home, terrace?.wallext ?? null)
+    const box = boxes[0]
+    const parts = boxes.map(b => surveyInwall(read, { home, box: b, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved, water, waterOk }))
+    const bad = parts.find(q => !q.ok)
+    if (bad) return { ok: false, why: bad.why, record: null, survey: bad, road: null }
+    const sv = parts.length === 1 ? parts[0] : mergeSurveys(parts)
+    const record = tidyRecord(sv, { home, plan, now, r: Math.max(TIDY.r, ...boxes.map(b => Math.max(Math.abs(b[0] - home.x), Math.abs(b[2] - home.x), Math.abs(b[1] - home.z), Math.abs(b[3] - home.z)))) })
     if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null }
     record.stage = legacyStage(st); record.stageId = st.id; record.terraceV = 1
     record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null
-    record.inwall = { box, pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped }
+    record.inwall = { box, ...(boxes.length > 1 ? { boxes } : {}), pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped }
     return { ok: true, why: 'ok', record, survey: sv, road: null }
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
