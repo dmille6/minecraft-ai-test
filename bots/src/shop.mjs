@@ -15,6 +15,7 @@ import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
 import { storehouseOn, STORE_PLOT, STORE_BLUEPRINT, STORE_BUILDERS } from './storehouse.mjs'
 import { copperhallOn, HALL_PLOT, HALL_BLUEPRINT, HALL_BUILDERS } from './copperhall.mjs'   // copperhall-01
 import { yardOn, YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS } from './yard.mjs'   // stockyard-01
+import { hubSwitches, HUB_PLOT, HUB_BLUEPRINT, HUB_BUILDERS } from './storehub.mjs'   // storehub-01
 import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } from './shopchest.mjs'
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
 import { sinksOn, sinkKindsOn, SINK_KINDS, SINK_PLOTS, SINK_BLUEPRINTS, SINK_BUILDERS, SINK, SINK_STREAK, isSinkPlot, sinkKindOf } from './sinks.mjs'   // picker-01
@@ -98,6 +99,11 @@ export const SHOPCHEST = Object.freeze({ on: shopchestOn(process.env, process.en
  *  only once the town holds its copper (activeProject skips a `waiting` project). COPPERHALL=off is the rollback; on in the
  *  showcase pool only. Needs the house and storehouse switches on. */
 export const COPPERHALL = Object.freeze({ on: copperhallOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** STOREHUB-01: THE SORTED HALL (storehub.mjs; owner 11-03 storage hub, "yes to all"), after the copper hall (the owner's showcase
+ *  order: the copper hall's finish first), before the yard. Sited beside the storehouse, else in the town ring; when it stands, its
+ *  upkeep (`due`, first among the upkeeps: the labels and one clerk move-set) is the hub's clerk. STOREHUB=off is the rollback; on in
+ *  the showcase pool only. Needs the house and storehouse switches on. */
+export const STOREHUB = Object.freeze(hubSwitches(process.env, process.env.MEMORY_POOL ?? ''))
 /**
  * TIDY-01: THE TOWN-GROUND TIDY is the LAST project, with no `after` (tidy.mjs): only a bot no other project admits works it -- every
  * other open project full, stuck or waiting -- so it never displaces building. It cuts the bots' pillars, fills their pits and
@@ -132,11 +138,12 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOPCHEST_PLOT, blueprint: SHOPCHEST_BLUEPRINT, after: SHOP_PLOT, builders: SHOPCHEST_BUILDERS }),
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
   Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),
+  Object.freeze({ plot: HUB_PLOT, blueprint: HUB_BLUEPRINT, after: STORE_PLOT, builders: HUB_BUILDERS }),   // storehub-01
   Object.freeze({ plot: YARD_PLOT, blueprint: YARD_BLUEPRINT, builders: YARD_BUILDERS }),
   ...SINK_KINDS.map(k => Object.freeze({ plot: SINK_PLOTS[k], blueprint: SINK_BLUEPRINTS[k], builders: SINK_BUILDERS, sink: true })),   // picker-01
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 + GK.helpersMax : TIDY_BUILDERS }),   // gkhelpers-01: the keeper and its helpers
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) : p.plot === HUB_PLOT ? hub && store && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */

@@ -231,7 +231,7 @@ await t('wiring (structural): the order reads the gate, the visit sites the hall
   one(/const c = bot \? townCopperOf\(townIndexEntries\(bot\), e => indexStateOf\(e\)\) : \{ unknown: true \}/g, 'the gate counts the index')
   one(/if \(!o\.open\) return out\('no_effect', 'copper_wait'/g, 'the visit gate')
   one(/: rec\.blueprint === HALL_BLUEPRINT \? \{ domain: hallRecordDomain\(rec, projectHeads\(\)\.map\(x => x\.head\.rec\)\) \}/g, 'the stand domain')
-  one(/if \(plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT( && plot !== YARD_PLOT)?\) \{/g, 'the generic siting skips the hall (and yardsite-01: the yard, sited by yardSiteFor)')
+  one(/if \(plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT( && plot !== YARD_PLOT)?( && plot !== HUB_PLOT)?\) \{/g, 'the generic siting skips the hall (and yardsite-01: the yard, sited by yardSiteFor; storehub-01: the storage hall, by hubSiteFor)')
   for (const line of src.split('\n')) assert.ok(!(/_axe\b/.test(line) && /copper/.test(line)), `an axe near copper: ${line.trim().slice(0, 100)}`)
 })
 
