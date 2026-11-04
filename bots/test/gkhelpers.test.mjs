@@ -306,7 +306,7 @@ await t('what may be gathered: flowers, tall flowers, azalea, cane and bamboo ab
 const LIVE_PARK = { box: [-41, 24, -34, 32], kinds: { q0: 'meadow' }, placed: { meadow: 4 }, skipped: { flowers: 'no_flowers', tall_flowers: 'no_tall_flowers', azalea: 'no_azalea', trees: 'no_sapling', bamboo: 'no_bamboo', crops: 'no_seeds', cane: 'no_sugar_cane', lily_pads: 'no_actuator', hedge: 'no_leaves' } }
 await t('parkWant on the LIVE showcase park: every material-skipped element up to its cap, less what the town and the crew hold', async () => {
   const w = PK.parkWant(LIVE_PARK, { spruce_sapling: 16, azalea: 1 })
-  assert.deepStrictEqual(w, { flowers: 24, tall_flowers: 8, azalea: 7, bamboo: 9, cane: 6, hedge: 24 }, 'trees: 16 saplings already beat the cap of 4')
+  assert.deepStrictEqual(w, { azalea: 7, bamboo: 9, cane: 6, hedge: 24 }, 'trees: 16 saplings already beat the cap of 4; flowers never gathered (owner 11-04)')
   assert.deepStrictEqual(PK.parkWant({ ...LIVE_PARK, skipped: { flowers: 'no_room', cane: 'no_water' } }, {}), {}, 'a skip for room or water is no want')
   assert.strictEqual(PK.parkWant({ ...LIVE_PARK, placed: { flowers: 3 } }, {}).flowers, undefined, 'a placed element is no want')
 })
@@ -382,6 +382,43 @@ await t('the LIVE meadow-only park gets flowers and a tree in its own box, never
   assert.strictEqual(PK.parkWant(t2.park, {}).cane, undefined, 'the crew stops gathering cane the park cannot use')
 })
 
+console.log('GKSTAGE-01: THE LOGGED RECORD (LIVE showcase tidy gen 20, 11-04: 326 visits, 0 placed)')
+const G20 = JSON.parse(readFileSync(new URL('./fixtures/gkstage-tidy-g20-20261104.json', import.meta.url), 'utf8'))
+// the world as the rows say: the floor's five upper holes filled, the waived bottom one (-10,68,3, under the filled -10,69,3) air;
+// the roads stage's open fills air
+const g20read = () => {
+  const done = new Set(G20.cells.filter(c => c.floorFix && c.at.join(',') !== '-10,68,3').map(c => c.at.join(',')))
+  return (x, y, z) => ({ name: done.has(`${x},${y},${z}`) ? 'cobblestone' : 'air', boundingBox: done.has(`${x},${y},${z}`) ? 'block' : 'empty' })
+}
+const g20waived = q => !!q.prev || Object.prototype.hasOwnProperty.call(G20.waived ?? {}, q.at.join(','))
+await t('the logged record: a WAIVED floor hole is no open hole -- the visit works the roads stage, not the floor (control: the old test)', async () => {
+  assert.strictEqual(G20.stageId, 'roads'); assert.deepStrictEqual(Object.keys(G20.waived), ['-10,68,3'])
+  const rd = g20read()
+  const doneNow = q => g20waived(q) || R.cellDone(rd(...q.at), PAL, q.role)
+  const v = GK.floorView(G20, doneNow)
+  assert.strictEqual(v.floorOnly, false, 'no open hole')
+  assert.strictEqual(v.visitRec, G20, 'the whole record is the visit\'s')
+  const seg = R.workableSeg(v.visitRec, rd, PAL, () => true, doneNow, { skipOpenDeps: true })
+  assert.ok(seg && !/^T-F/.test(seg), `a roads segment is workable (${seg})`)
+  // the bug as it ran: the block-only test kept the waived hole open and the visit floor-only, where runVisit read it done
+  const old = GK.floorView(G20, q => R.cellDone(rd(...q.at), PAL, q.role))
+  assert.strictEqual(old.floorOnly, true)
+  assert.ok(old.visitRec.cells.every(c => c.floorFix) && old.visitRec.cells.every(doneNow), 'control: every cell of the old floor-only view reads done to the visit -> `complete`, nothing placed')
+  assert.strictEqual(R.workableSeg(old.visitRec, rd, PAL, () => true, doneNow, { skipOpenDeps: true }), null, 'control: nothing to work in it')
+})
+await t('the logged record: an open, unwaived floor hole still makes the visit floor-first', async () => {
+  const rd0 = g20read()
+  const rd = (x, y, z) => (x === -10 && y === 70 && z === 3 ? { name: 'air', boundingBox: 'empty' } : rd0(x, y, z))
+  const v = GK.floorView(G20, q => g20waived(q) || R.cellDone(rd(...q.at), PAL, q.role))
+  assert.strictEqual(v.floorOnly, true); assert.deepStrictEqual(v.floorNow.map(c => c.at.join(',')), ['-10,70,3'])
+})
+await t('spareOf: the pantry names only what the bag spares above its keeps; the gather never seeks flowers (owner: a park without flowers)', async () => {
+  assert.deepStrictEqual(PK.spareOf({ azalea: 2, bamboo: 10, poppy: 1 }, { azalea: 2, bamboo: 4 }), { bamboo: 6, poppy: 1 })
+  const w = PK.parkWant(LIVE_PARK, {})
+  assert.strictEqual(w.flowers, undefined); assert.strictEqual(w.tall_flowers, undefined)
+  assert.ok(w.hedge > 0 && w.bamboo > 0, 'the rest still wanted')
+})
+
 console.log('WIRING (skills.mjs buildTidy / keeperOrder, shop.mjs; structural)')
 await t('buildTidy: the crew role, helpers never site, the keeper\'s plan additions, the visit record, the hooks, the gather', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
@@ -393,10 +430,12 @@ await t('buildTidy: the crew role, helpers never site, the keeper\'s plan additi
   assert.ok(/\.\.\.\(GROUNDS\.on \? \{ segOk: crew\.segOk, segYield: crew\.segYield, skipOpenDeps: true \} : \{\}\) \}, effects,/.test(s), 'the crew hooks reach runVisit')
   assert.ok(/const cuts = !caps\.digs \|\| floorOnly \? \[\] :/.test(s), 'the cuts are the keeper\'s')
   assert.ok(/const waive = !caps\.waive \? \[\] :/.test(s), 'the waiver is the keeper\'s')
-  assert.ok(/if \(caps\.complete && !crewHeld && !prog\.cutLeft/.test(s), 'the completion is the keeper\'s')
+  assert.ok(/if \(caps\.complete && !crewHolds && !prog\.cutLeft/.test(s), 'the completion is the keeper\'s (gkstage-01: a bounded wait for crew plants)')
+  assert.ok(/const crewHolds = crewHeld > 0 && parkWaits <= GK_PARK_WAITS/.test(s), 'gkstage-01: the wait is bounded')
   assert.ok(/gathered = await parkGather\(ctx, signal, \{ deadline: t0 \+ budget - ZIG_VISIT_TAIL_MS, effects \}\)/.test(s), 'the gather')
   assert.ok(/if \(helper && r\.placed === 0 && !\(gathered\?\.n > 0\)\) \{ releaseHelper\(bot, helper\.name, helper\.gen, 'idle'\)/.test(s), 'an idle helper lets go')
-  assert.ok(/if \(GROUNDS\.on\) \{ try \{ pantryWrite\(dir, key, me, parkItemsOf\(held0\)\) \}/.test(s), 'the pantry')
+  assert.ok(/if \(GROUNDS\.on\) \{ try \{ pantryWrite\(dir, key, me, parkItemsOf\(spareOf\(held0, keep\)\)\) \}/.test(s), 'the pantry: what the bag spares (gkstage-01)')
+  assert.ok(/const floorDone = q => waivedK\(q\) \|\| buildCellDone\(read\(\.\.\.q\.at\), palette, q\.role\)\n\s*const fv = GROUNDS\.on \? floorView\(rec, floorDone\)/.test(s), 'gkstage-01: the floor view reads the visit\'s own done test')
   assert.ok(/if \(d === 'other'\) \{ const h = crewState\(bot, work, now\); if \(h\.d === 'mine' \|\| h\.d === 'take'\) d = 'helper' \}/.test(s), 'shopActive offers the tidy to a helper')
   assert.ok(/if \(!renewal\) \{ const hl = dropHelperLeases\(bot\);/.test(s), 'a helper becoming keeper lets its helper lease go first')
   const sh = strip(readFileSync(SHOP_PATH, 'utf8'))

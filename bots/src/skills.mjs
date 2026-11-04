@@ -155,9 +155,9 @@ import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never d
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
 import { legacyStage, stageCarry, tidyWater, cutSafeNow } from './tidy.mjs'   // townterrace-01
 import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from './park.mjs'   // townterrace-01: the park
-import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantrySum, parkHeldByCrew } from './park.mjs'   // gkhelpers-01: the park gather
+import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantrySum, parkHeldByCrew, spareOf } from './park.mjs'   // gkhelpers-01: the park gather
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
-import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorOpen } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
+import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead } from './buildproj.mjs'   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -21137,7 +21137,7 @@ async function parkGather (ctx, signal, { deadline, effects: e }) {
     try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'clear', cell: t.at, block: t.name, kind: 'gather', n: t.n }) }) } catch { /* telemetry */ }
     await sleep(400, signal)   // the drop is picked up where the bot stands
   }
-  try { pantryWrite(dir, key, me, parkItemsOf(heldMap(bot))) } catch { /* the next visit writes it */ }
+  try { const h1 = heldMap(bot); pantryWrite(dir, key, me, parkItemsOf(spareOf(h1, townKeeps(h1, { wanted: bot.currentWants ?? [] }).keep))) } catch { /* the next visit writes it */ }
   try { logEvent({ kind: 'build', status: n ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'park_gather', kind: Object.entries(got).map(([a, b]) => `${a}:${b}`).join(',') || Object.keys(want).join('+'), n, why: `targets:${targets.length}` }) }) } catch { /* telemetry */ }
   return { n, why: n ? 'gathered' : 'unreached' }
 }
@@ -21258,6 +21258,8 @@ async function prepTick (bot, dir, key, rec, me, signal) {
   // a failed verify leaves nothing open (the work was done): the next choose grades the world as it is now
   return head()
 }
+/** gkstage-01: keeper visits a stage may wait for a crew bot's plants (parkHeldByCrew) before it closes over them. */
+const GK_PARK_WAITS = 6
 async function buildTidy (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -21441,20 +21443,25 @@ async function buildTidy (ctx, args, signal) {
     const acks = (bot.shopAcks ??= shopAckInstall(bot))
     presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
     const held0 = heldMap(bot)
-    // gkhelpers-01: the crew's pantry (what this bag carries for the park: the keeper's top-up counts it)
-    if (GROUNDS.on) { try { pantryWrite(dir, key, me, parkItemsOf(held0)) } catch { /* the next visit writes it */ } }
     const dr = drawnRead(dir, key, me)
     drawn0 = drawnHeld(dr.drawn, held0, dr.bag)
     const keep = townKeeps(ownCounts(held0, drawn0), { wanted: bot.currentWants ?? [] }).keep
+    // gkhelpers-01: the crew's pantry (what this bag carries for the park: the keeper's top-up counts it) -- gkstage-01: only what
+    // the bag SPARES above its keeps, as the placer's effects.has reads it (LIVE 11-04: 2 azalea cells skipped no_azalea on every
+    // visit while the pantry said the crew held them, so the completion waited on plants nobody could place)
+    if (GROUNDS.on) { try { pantryWrite(dir, key, me, parkItemsOf(spareOf(held0, keep))) } catch { /* the next visit writes it */ } }
     const spare = n => Math.max(0, (held0[n] ?? 0) - (keep[n] ?? 0))
     const read = planReader(bot)
     // THE BILL: the open fills (any earth: the bag's spare dirt first, then cobblestone), less the bag's spare dirt and cobblestone,
     // drawn as cobblestone (the town's stone reserve: the project allowance), SHOP_BILL_CAP a visit
     // gkhelpers-01: THE VISIT'S RECORD -- the storehouse floor ALONE while a hole of it is open (the chests' standing cells first, for
     // every crew member: groundskeeper.mjs floorOpen); a helper's never names the plan's digs (helperRecord: no clears, no replants)
-    const floorNow = GROUNDS.on ? floorOpen(rec, q => buildCellDone(read(...q.at), palette, q.role)) : []
-    const floorOnly = floorNow.length > 0
-    let visitRec = floorOnly ? { ...rec, cells: (rec.cells ?? []).filter(q => q.floorFix && !q.prev), segments: (rec.segments ?? []).filter(sg => /^T-F\d+$/.test(sg.seg)), clear: [], replant: [] } : rec
+    // gkstage-01: the floor's open test is the VISIT's own (waivedK: waived, guarded, prev -- runVisit's alsoDone), so a hole the visit
+    // reads done is never "open" (groundskeeper.mjs floorView; LIVE 11-03/04: a waived buried hole kept every visit floor-only for 15 h)
+    const floorDone = q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role)
+    const fv = GROUNDS.on ? floorView(rec, floorDone) : { visitRec: rec, floorNow: [], floorOnly: false }
+    const floorNow = fv.floorNow, floorOnly = fv.floorOnly
+    let visitRec = fv.visitRec
     // siteprep-01: while a requested plot's prep is open the visit works ONLY it (the floor's pattern): a plot in a few visits
     // Codex r5 BLOCKER: ONE open-work predicate for the selection, the tick and the completion -- the world and the record's
     // persisted waivers; the visit's transient guards (farm water, a cell another project took) only skip a cell inside the visit, so a
@@ -21599,11 +21606,17 @@ async function buildTidy (ctx, args, signal) {
     // keeper's next visit (its order comes back at GK.cooldownMs)
     // ... and never over a park planting another crew bot carries the plants for (park.mjs parkHeldByCrew: it plants it next visit)
     const crewHeld = GROUNDS.on && parkish && caps.complete ? parkHeldByCrew(rw, { done: q => buildCellDone(read2(...q.at), palette, q.role), skip: skip2, others: crewPantry(dir, key, me) }).length : 0
+    // gkstage-01: the wait is bounded -- GK_PARK_WAITS keeper visits that placed nothing while it held the stage, then the stage closes
+    // over those cells (a carrier that never comes, or never can place, never holds the land plan back)
+    const pw = (bot.gkParkWait ??= new Map()), pwk = String(rw.sitedAt ?? rh.head.gen)
+    const parkWaits = crewHeld && !(r.placed > 0) ? (pw.get(pwk) ?? 0) + 1 : 0
+    pw.set(pwk, parkWaits)
+    const crewHolds = crewHeld > 0 && parkWaits <= GK_PARK_WAITS
     // siteprep-01 r2 (Codex + Claude r2 BLOCKER 1): never complete over a prepping request's open work (its cuts may be given up by
     // this bot): the prep is verified, or retired at its expiry, first
     const prepHold = SITEPREP.on && (prepWorking(dir, rw, read2, q => !!q.prev || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || buildCellDone(read2(...q.at), palette, q.role), k => tidyGivenUp(mem, k), bot.prepStalls)?.hold ?? 'none') !== 'none'
     if (prepHold) f.prepHold = 1
-    if (caps.complete && !crewHeld && !prog.cutLeft && !prog.fillLeft && !unread && clearsOk && !prepHold) {
+    if (caps.complete && !crewHolds && !prog.cutLeft && !prog.fillLeft && !unread && clearsOk && !prepHold) {
       const now = Date.now()
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length } : null), { by: me })
       completed = true

@@ -224,8 +224,24 @@ export function withFloorFix (rec, holes, now = Date.now()) {
   const segs = holes.segments.filter(s => used.has(ren.get(s.seg))).map(s => ({ seg: ren.get(s.seg), deps: s.deps.map(d => ren.get(d)).filter(d => used.has(d)) }))
   return { ...rec, cells: [...cells, ...(rec.cells ?? [])], segments: [...segs, ...(rec.segments ?? [])], structure_complete: false, state: 'open', floorFixAt: now }
 }
-/** The record's open floor repairs -> the cells (floorFix, not done by `done(cell)`). Pure. */
+/** The record's open floor repairs -> the cells (floorFix, not done by `done(cell)`). Pure. `done` must count a WAIVED cell done
+ *  (crewVisitRecord): a waived hole is no open hole. */
 export const floorOpen = (rec, done = () => false) => (rec?.cells ?? []).filter(c => c.floorFix && !c.prev && !done(c))
+/**
+ * GKSTAGE-01: THE FLOOR VIEW -> { visitRec, floorNow, floorOnly }. Pure. While a storehouse floor hole is OPEN the visit works the floor
+ * alone (the chests' standing cells first). `done(cell)`: the block laid OR WAIVED on the record (siteprep's one open-work predicate:
+ * the world and the persisted waivers).
+ * WHY (LIVE showcase 11-03 21:25Z -> 11-04 12:40Z, tidy gen 20): the floor's lowest hole -10,68,3 (buried under the filled -10,69,3)
+ * was waived after two deferring visits; the open test read only the block, so the hole stayed "open" and every visit of the keeper
+ * and both helpers was a floor-only visit whose one cell read waived to runVisit -- 326 visits, 0 placed, `complete` with 104 of the
+ * roads stage's fills left, and the stage never completed, so the land plan never moved on.
+ */
+export function floorView (rec, done = () => false) {
+  const floorNow = floorOpen(rec, done)
+  const floorOnly = floorNow.length > 0
+  const visitRec = floorOnly ? { ...rec, cells: (rec.cells ?? []).filter(q => q.floorFix && !q.prev), segments: (rec.segments ?? []).filter(sg => /^T-F\d+$/.test(sg.seg)), clear: [], replant: [] } : rec
+  return { visitRec, floorNow, floorOnly }
+}
 /**
  * WHAT A CREW ROLE MAY DO IN A VISIT -> caps. Pure. The keeper owns the plan; a helper fills (and gathers).
  *   site     site a stage, the land plan, the park's first publish          complete  publish the record's completion
