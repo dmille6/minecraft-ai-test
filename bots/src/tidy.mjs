@@ -1338,11 +1338,13 @@ export function bandTrees (read, { home, box, inBand = () => true, corridor = ()
     if (!leaves) {
       if (unread) { skip('stump_unread'); continue }
       // Codex r1 BLOCKER: a BENT trunk (acacia, a leaning branch) leaves its column sideways: every log touching the group's logs
-      // (26 neighbours, followed out to OUTBANDS.stumpReach logs) must be the group's own, else it is part of a living tree
+      // (26 neighbours) must be the group's own, else it is part of a living tree. Codex r3: a group of more than
+      // OUTBANDS.stumpReach logs is never a stump (fail closed: no bound may skip the check)
+      if (logs.length > T.stumpReach) { skip('stump_big'); continue }
       const own = new Set(logs.map(l => l.at.join(',')))
       const seenL = new Set(own), qL = logs.map(l => l.at)
       let joined = false
-      for (let i = 0; i < qL.length && !joined && seenL.size <= T.stumpReach; i++) {
+      for (let i = 0; i < qL.length && !joined; i++) {
         const [lx, ly, lz] = qL[i]
         for (let dx = -1; dx <= 1 && !joined; dx++) for (let dy = -1; dy <= 1 && !joined; dy++) for (let dz = -1; dz <= 1; dz++) {
           const k = `${lx + dx},${ly + dy},${lz + dz}`

@@ -127,6 +127,19 @@ await t('Codex r1 BLOCKER: a BENT living tree (an acacia whose trunk leaves its 
   const r2 = site(s2)
   assert.strictEqual(r2.record?.band?.stumps, 1, JSON.stringify(r2.band))
   assert.deepStrictEqual(r2.record.clear.map(c => c.at.join(',')).sort(), [`26,${G + 1},5`, `27,${G + 1},6`])
+  // Codex r3: the acacia with a chain of eight 4-log stumps corner to corner (35 logs in one group) is still never cleared
+  const s3 = server()
+  for (const [x, y0, y1] of [[32, 1, 3], [33, 3, 4], [34, 4, 5], [35, 5, 6], [36, 6, 6]]) for (let y = G + y0; y <= G + y1; y++) s3.set([x, y, 5], 'acacia_log')
+  for (let x = 35; x <= 38; x++) for (let z = 3; z <= 7; z++) s3.set([x, G + 7, z], 'acacia_leaves')
+  for (let i = 1; i <= 8; i++) for (let y = G + 1; y <= G + 4; y++) s3.set([32 - i, y, 5 - i], 'oak_log')
+  const r3 = site(s3)
+  assert.ok(!(r3.record?.clear ?? []).some(c => c.at[0] === 32 && c.at[2] === 5), 'the acacia base stands')
+  assert.ok(r3.band.skipped.stump_big >= 1, JSON.stringify(r3.band))
+  await withMutant(TIDY_PATH, "      if (logs.length > T.stumpReach) { skip('stump_big'); continue }\n", "      if (false) { skip('stump_big'); continue }\n", async M => {
+    // without the bound the walk still scans every own log: the acacia's sideways log is found (the bound never skips the check)
+    const m = M.siteStage(s3.read, { home: HOME, land: LAND(), stage: BAND1, env: ON, L: SMALL, terrace: { wall: WALL, records: [] } })
+    assert.ok(!(m.record?.clear ?? []).some(c => c.at[0] === 32 && c.at[2] === 5), 'the join walk alone keeps the acacia')
+  })
   // the mutant: no join walk -> the acacia's base is cleared as a stump
   await withMutant(TIDY_PATH, "      if (joined) { skip('stump_joined'); continue }\n", '', async M => {
     const m = M.siteStage(srv.read, { home: HOME, land: LAND(), stage: BAND1, env: ON, L: SMALL, terrace: { wall: WALL, records: [] } })
