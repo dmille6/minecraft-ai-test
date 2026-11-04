@@ -195,6 +195,10 @@ const REQUIRED = [
   // placeaudit-01 (owner 11-04 groundskeeper piece 2): who places blocks in town, why, where
   'bots/src/placeaudit.mjs',
   'bots/test/placeaudit.test.mjs',
+  // anvilapply-01 + enchant-01 (owner 11-04): the anvil / enchanting-table skills, their test, the Paper e2e
+  'bots/src/enchant.mjs',
+  'bots/test/enchant.test.mjs',
+  'sandbox/trading/enchant-e2e.mjs',
   'bots/scripts/terrace-offline.mjs',
   'docs/reports/townterrace-2026-11-03.md',
   'docs/reports/tidy-01-2026-11-01.md',

@@ -371,6 +371,13 @@ export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'functio
  */
 let copperAskOf = null
 export function setCopperAsk (fn) { copperAskOf = typeof fn === 'function' ? fn : null }
+/**
+ * ANVILAPPLY-01 + ENCHANT-01: the anvil / enchanting-table ask (skills.mjs enchantAsk -> enchant.mjs anvilAskPlan / tableAskPlan),
+ * set at install. Asked FIRST at town (a short, bounded visit, only when there is work: its own cooldown per bot per kind).
+ * -> { order } | null. Unset (or ANVILAPPLY + ENCHANTTOOL off): never asked.
+ */
+let enchantAskOf = null
+export function setEnchantAsk (fn) { enchantAskOf = typeof fn === 'function' ? fn : null }
 /** groundskeeper-01: does THIS bot hold its town's keeper lease now (skills.mjs keeperNow; no cognitive change)? */
 let keeperOf = () => false
 export function setKeeperNow (fn) { if (typeof fn === 'function') keeperOf = fn }
@@ -689,6 +696,12 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
+  // anvilapply-01 + enchant-01: a book a tool gains from, or a tool the table can enchant, with the block in reach -- first
+  if (enchantAskOf) {
+    let ea = null
+    try { ea = enchantAskOf({ now, health, freeSlots }) } catch { ea = null }
+    if (ea?.order) return { order: ea.order, skip: null }
+  }
   // picker-01: a SINK as the active project is no finite work -- the copper run (a waiting finite project's need) and the expedition
   // (one slot) are asked first, as for a bot the projects cannot use; the expedition's ask is told the projects are done
   let sinkNow = false
