@@ -794,7 +794,7 @@ export const WALLEXT_BLUEPRINT = 'wallext@1'
  * candidates (best first by their plots, then the shortest ring) proven; builtMin: the least share of the ring's own (non-join)
  * columns that must stand as wall (a side that runs along a road corridor is all gateway: no wall at all).
  */
-export const WALLEXT = Object.freeze({ margin: 6, grow: [0, 4, 8, 12, 16, 20, 24, 28], growOut: [0, 4, 8, 12, 16, 20, 24], plotsWant: 5, plotGap: 3, plotSpread: 4, lane: 5, plotSizes: Object.freeze([Object.freeze({ kind: 'hall', w: 19, d: 13, max: 2, value: 2 }), Object.freeze({ kind: 'house', w: 11, d: 11, max: 3, value: 1 })]), tries: 10, builtMin: 0.5 })
+export const WALLEXT = Object.freeze({ margin: 6, grow: [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44], growOut: [0, 4, 8, 12, 16, 20, 24], plotsWant: 5, plotGap: 3, plotSpread: 4, lane: 5, plotSizes: Object.freeze([Object.freeze({ kind: 'hall', w: 19, d: 13, max: 2, value: 2 }), Object.freeze({ kind: 'house', w: 11, d: 11, max: 3, value: 1 })]), tries: 10, builtMin: 0.5 })
 /** THE SWITCH -> bool. WALLEXT=on|off; unset = on in the pools WALLEXT_POOLS names (default the showcase). Pure. */
 export function wallextOn (env = process.env, pool = '') {
   const v = String(env?.WALLEXT ?? '').trim().toLowerCase()
@@ -958,7 +958,7 @@ export function plotValue (plots = [], sizes = WALLEXT.plotSizes) {
  * (wallCandidate + the escape proof) and scored (plots, the share standing as wall, length, cost). ASYNC only to `pause` between
  * candidates (a bot's event loop: one candidate is ~1-3 s of work; the whole siting ~30 s would miss the server's keep-alive).
  */
-export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [], plinth = [], composter = null, farm = [], records = [], pzones = [], lights = 0, now = Date.now(), pause = null, W = WALLEXT } = {}) {
+export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [], plinth = [], composter = null, farm = [], records = [], pzones = [], z0 = null, lights = 0, now = Date.now(), pause = null, W = WALLEXT } = {}) {
   const home = plan?.home
   if (!home) return { ok: false, why: 'no_plan', record: null }
   if (!validBox4(wall?.ring)) return { ok: false, why: 'no_wall', record: null }
@@ -980,7 +980,11 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
   const join = extJoin(ring, side)
   const memo = new Map()
   const near = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]
-  const refuse = (x, z) => (oldCols.has(k2(x, z)) ? 'old_wall' : avoidP(x, z)) ?? pzAt(x, z)
+  // wallext-01 r3 (LIVE showcase 11-04: the hall's own siting failed on the ziggurat's APRON -- a building is never sited within its
+  // record box + 8, buildsite.mjs z0): a plot inside the apron could never take a building, so the plots refuse it too
+  const zb = Array.isArray(z0?.box) && z0.box.length === 4 && z0.box.every(Number.isFinite) ? [z0.box[0] - 8, z0.box[1] - 8, z0.box[2] + 8, z0.box[3] + 8] : null
+  const apron = (x, z) => (zb && x >= zb[0] && x <= zb[2] && z >= zb[1] && z <= zb[3] ? 'z0_apron' : null)
+  const refuse = (x, z) => (oldCols.has(k2(x, z)) ? 'old_wall' : avoidP(x, z)) ?? pzAt(x, z) ?? apron(x, z)
   const m = W.margin
   const seed = walkFeet(read, home)
   if (!seed) return { ok: false, why: 'no_feet_at_home', record: null }

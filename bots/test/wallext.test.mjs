@@ -152,6 +152,18 @@ await t('THE SITING on the fake server: N; no cell on the old line, on an old wa
   assert.deepStrictEqual(Object.keys(r.bom).sort(), ['cobblestone'])
   assert.deepStrictEqual(r.join.ring, wall.ring)
 })
+await t('THE ZIGGURAT APRON (r3, LIVE 11-04: the hall itself failed on it): no plot within a ziggurat\'s box + 8; positive control without it', async () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const base = await siteExt(srv, wall)
+  const p0 = base.record.plots[0]
+  const z0 = { box: [p0.box[0] - 8, p0.box[1] - 8, p0.box[0] - 8, p0.box[1] - 8] }   // a 1x1 'ziggurat' 8 off the plot's corner: its apron covers it
+  const s = await siteExt(srv, wall, { z0 })
+  const ap = [z0.box[0] - 8, z0.box[1] - 8, z0.box[2] + 8, z0.box[3] + 8]
+  const over = p => p.box[0] <= ap[2] && p.box[2] >= ap[0] && p.box[1] <= ap[3] && p.box[3] >= ap[1]
+  assert.ok(over(p0), 'positive control: the plot sited without the apron lies in it')
+  assert.ok(s.ok && !s.record.plots.some(over), JSON.stringify(s.record?.plots))
+})
 await t('THE SITING refuses: a hall inside the wall, no wall, no hall', async () => {
   const srv = server()
   const wall = oldWall(srv)
@@ -486,6 +498,7 @@ const WIRES = [
   ['the stage\'s terrace inputs carry the extension', "const terrace = { records: I.records, wall: I.wall, wallext: I.wallext,"],
   ['the order waits on the opening rule', "if (p.plot === WALLEXT_PLOT && !rec && !wallextOpenNow(dir)) return {"],
   ['the extension\'s sapling keep-out is the wall\'s', "r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT ? wallSaplingCols(r) :"],
+  ['r3: the extension\'s plots read the ziggurat apron', "z0: c.z0 ?? null, lights }"],
   ['the old wall never encloses the extension', "x.plot !== WALL_PLOT && x.plot !== WALLEXT_PLOT).map(x => ({ plot: x.plot, rec: x.head.rec }))"],
   ['wallext-02: the visit dispatches the demolition', "if (proj.plot === WALLDEMO_PLOT) return buildWallDemo(ctx, args, signal)"],
   ['wallext-02: the wall is retired BEFORE the demolition is sited', "const pubW = publishRecord(dir, projKeyOf(WALL_PLOT), cur => (cur && cur.structure_complete ? retireWall(cur, demoCells(cur, ext)) : null), { by: me })"],
@@ -504,7 +517,7 @@ await t('THE WIRING CHECK FAILS for the intended reason: each line, mutated, is 
   const raw = readFileSync(SK, 'utf8')
   for (const [what, line] of WIRES) {
     assert.strictEqual(raw.split(line).length - 1, 1, `ANCHOR MISSING OR NOT UNIQUE: ${what}`)
-    const mut = strip(raw.replace(line, line.replace(/WALLEXT|wallext|ext\)|siteWallExt|K\.site|WALLDEMO|retireWall|demoLeft|demoDone|demoMissing|release\(\)|wallAsHeld|held\(x, z\)/, 'XX')))
+    const mut = strip(raw.replace(line, line.replace(/WALLEXT|wallext|ext\)|siteWallExt|K\.site|WALLDEMO|retireWall|demoLeft|demoDone|demoMissing|release\(\)|wallAsHeld|held\(x, z\)|z0: c/, 'XX')))
     assert.strictEqual(mut.split(line).length - 1, 0, `the mutant of "${what}" still matches`)
   }
 })

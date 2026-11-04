@@ -20763,7 +20763,7 @@ function wallextInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = town
   try { lights = Math.floor(Math.max(0, (Number(matsTownStock(bot)?.stock?.torch) || 0) - (Number(matsReserve().table?.torch) || 0)) / 2) } catch { lights = 0 }
   return { wall: wh.head?.rec ?? null, hub: hh.head?.rec ?? null, plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm,
     records: heads.map(x => x.head.rec ? { ...x.head.rec, plot: x.head.rec.plot ?? x.plot } : null).filter(Boolean),
-    pzones: [...recordZones(heads.map(x => x.head.rec)), ...hallPadZones(P.plan), ...townMarkerZones()], lights }
+    pzones: [...recordZones(heads.map(x => x.head.rec)), ...hallPadZones(P.plan), ...townMarkerZones()], z0: c.z0 ?? null, lights }
 }
 /** wallext-01: is the extension's opening rule met (wall.mjs wallextOpening)? Never throws: unreadable is not open. */
 function wallextOpenNow (dir = townDir()) {
