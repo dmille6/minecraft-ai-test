@@ -45,7 +45,7 @@ await t('SINKS: on in the showcase pool only by default; on/off override; SINK_K
   assert.strictEqual(S.sinksOn({ SINKS: 'off' }, 'showcase'), false)
   assert.strictEqual(S.sinksOn({ SINKS: 'on' }, 'hive-a'), true)
   assert.strictEqual(S.sinksOn({ SINKS_POOLS: '*' }, 'hive-a'), true)
-  assert.deepStrictEqual(S.sinkKindsOn({}), ['road', 'tower', 'shrine'])
+  assert.deepStrictEqual(S.sinkKindsOn({}), ['road', 'tower', 'shrine', 'dress'])   // towndress-01: the fourth sink
   assert.deepStrictEqual(S.sinkKindsOn({ SINK_KINDS: 'tower, shrine' }), ['tower', 'shrine'])
 })
 await t('projectsOn: the sinks before the tidy only when on (each kind its own); projectsGuarded keeps every sink plot when off', () => {
@@ -54,7 +54,7 @@ await t('projectsOn: the sinks before the tidy only when on (each kind its own);
   const off = SH.projectsOn(true, true, true, true, true, true, true, true, true, true, true, false)
   assert.ok(!off.some(p => p.sink), 'SINKS=off: no sink in the order')
   assert.deepStrictEqual(SH.projectsOn(true, true, true, true, true, true, true, true, true, true, true, true, ['tower']).filter(p => p.sink).map(p => p.plot), ['tower'])
-  for (const plot of ['road', 'tower', 'shrine']) assert.ok(SH.projectsGuarded(off).some(p => p.plot === plot), `${plot} guarded with SINKS off`)
+  for (const plot of ['road', 'tower', 'shrine', 'dress']) assert.ok(SH.projectsGuarded(off).some(p => p.plot === plot), `${plot} guarded with SINKS off`)
   assert.ok(SH.PROJECTS.filter(p => p.sink).every(p => p.builders === 3), 'three builder slots each')
 })
 await t('MUTANT KILLED: a projectsGuarded that drops the sinks when off loses a sited tower\'s protection', async () => {
@@ -409,7 +409,7 @@ const W = [
   /const pick = activeProject\(marked, order, \{ upkeepTurn: \(b\?\.sinkStreak \?\? 0\) >= SINK_STREAK \}\)/,
   /\.\.\.sinkVisitOpts\(rec, home\), \.\.\.leave \}, effects/,
   /const others = guardRecords\(projectHeads\(\)\.map\(x => x\.head\.rec\)\.filter\(Boolean\), kind\)/,
-  /guard: sinkGuardFor\(c, plan, \{ kind \}\), guardShrine: sinkGuardFor\(c, plan, \{ noZ0: true, kind \}\)/,
+  /guard: kind === 'dress' \? \(\) => null : sinkGuardFor\(c, plan, \{ kind \}\), guardShrine: kind === 'dress' \? \(\) => null : sinkGuardFor\(c, plan, \{ noZ0: true, kind \}\)/,
 ]
 await t('build_shop dispatches a sink plot to buildSink; a sink wanting its next instance reads unsited; its palette judges damage; the picker\'s order and upkeep turn reach activeProject; the visit takes the sink options', () => {
   for (const re of W) assert.ok(re.test(SK), String(re))

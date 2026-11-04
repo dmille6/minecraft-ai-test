@@ -155,7 +155,9 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
   // sinkfix-01: the sink this bot may work now (see the sink tier below), read first -- a project this bot's own last visit found
   // nothing to do at (`idle`, idleMarks) yields to it, as a repair and as an open project
-  const sink = list.find(p => p.sink && (st(p).sinkOpen || st(p).sinkNext) && st(p).free !== false && !st(p).stuck) ?? null
+  // towndress-01 r1 (Codex r1 BLOCKER): a standing sink with upkeep DUE (a dress batch's unwritten signs) is offered too -- else, its next
+  // batch unfunded, the signs waited behind every free finite project for good
+  const sink = list.find(p => p.sink && (st(p).sinkOpen || st(p).sinkNext || (st(p).exists && st(p).complete && st(p).due)) && st(p).free !== false && !st(p).stuck) ?? null
   const yields = s => !!sink && s.idle === true
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged && !yields(s)) return p }
   const open = []
