@@ -195,6 +195,19 @@ export function hubChestsOf (rec) {
   })
 }
 const kOf = a => `${a[0]},${a[1]},${a[2]}`
+/**
+ * THE HALL'S WAY IN -> [[x, z]] (the showcase gkaccess fold, Codex fold BLOCKER: access-01's staircases read a build's `door` /
+ * `frontOpen`, and a hall record names neither -- a climb before the doorway could become a stone stair across it). The doorway's
+ * columns (blueprint u 8..10, v 1) and the approach before it (v 0 down to -HUB_APPROACH), one column wider each side. Pure; a record
+ * that is not a placed hall gives none.
+ */
+export const HUB_APPROACH = 3
+export function hubEntranceCols (rec, { depth = HUB_APPROACH } = {}) {
+  if (rec?.blueprint !== HUB_BLUEPRINT || !Array.isArray(rec.anchor) || !rec.orient) return []
+  const out = []
+  for (let u = 7; u <= 11; u++) for (let v = -depth; v <= 1; v++) { const { dx, dz } = rot(rec.orient, u, v); out.push([rec.anchor[0] + dx, rec.anchor[1] + dz]) }
+  return out
+}
 /** THE REGISTRY: the hall's chest keys -> Set("x,y,z") (the record's own `chests`, else computed). STOREHUB=off: empty. Pure. */
 export function hubChestKeys (rec, { on = true } = {}) {
   if (!on || rec?.blueprint !== HUB_BLUEPRINT) return new Set()

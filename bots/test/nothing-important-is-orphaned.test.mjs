@@ -137,6 +137,7 @@ const REQUIRED = [
   'bots/test/siteprep-overlap.test.mjs',
   'bots/test/fixtures/siteprep-sp1-overlap-1104.json',
   'bots/test/siteprepcursor.test.mjs',   // the siteprep-02 fold: a cursor of an older screen restarts
+  'bots/test/gkaccessfold.test.mjs',   // the gkaccess fold: no stair across the storage hall's way in
   'bots/test/gkstagefold.test.mjs',   // the gkstage fold: inwall never cuts a site-prep reservation
   'bots/test/siteprepfold.test.mjs',   // the fold's prepared-claim bypass (Codex fold BLOCKER)
   'bots/src/siteprep.mjs',
