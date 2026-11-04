@@ -4,18 +4,18 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-04T14:20:01Z._
+_Generated 2026-11-04T15:20:02Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `704acf91` = monustuck-01 `704acf91` (KEEP 11-04 14:02Z, promoted 11-04 14:12Z) on shafttrap-02 `beb79ed2` (KEEP 11-04 09:36Z, promoted 11-04 09:46Z) on swimcentre-01 `0542fccb` (KEEP 11-04 03:58Z, promoted 11-04 04:08Z) on bagdiet-01 `9fbfdf22` (KEEP 11-03 23:58Z, promoted 11-04 00:08Z) on cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z) on stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z) |
-| **Canary in slot** | **swimunder-01** running (no `deployed` row yet: drawing or preflight) |
+| **Fleet** | `704acf91` = monustuck-01 `704acf91` (KEEP 11-04 14:02Z, promoted 11-04 14:12Z) on shafttrap-02 `beb79ed2` (KEEP 11-04 09:36Z, promoted 11-04 09:46Z) on swimcentre-01 `0542fccb` (KEEP 11-04 03:58Z, promoted 11-04 04:08Z) on bagdiet-01 `9fbfdf22` (KEEP 11-03 23:58Z, promoted 11-04 00:08Z) on cooldown15-02 `53fd28ee` (KEEP 11-03 19:14Z, promoted 11-03 19:24Z) on stuckcells-01 `5d862a8a` (KEEP 11-03 09:53Z, promoted 11-03 10:03Z). Live builds: {'3a7badeab3f95b2798e219958b5d16e761175b9f+0bebc2': 10, '704acf91878b4b83935f98caace77517908e78bb+f42804': 70} |
+| **Canary in slot** | **swimunder-01** deployed 11-04 14:31Z; reads +90 11-04 16:01Z, +180 11-04 17:31Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | dirtrung-01 -> dropdig-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> kittrim-01 -> depositoffer-01 -> +5 more |
-| **Scheduler** | busy S2 running: canary-loop.sh (pid 667480: bash /home/mike/canary-loop.sh swimunder-01) / S7 swimunder-01 is live |
-| **Showcase release** | `7bc965ca` (14,488 rows), `3a332742` (13,806 rows), `dcb702bc` (10,482 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 3a332742 sits on 53fd28ee (cooldown15-02); behind by 3: shafttrap-02, swimcentre-01, bagdiet-01; merge conflicts in bots/src/shaftgeom.mjs, bots/src/shaftv; row 11-04 13:25Z) |
+| **Scheduler** | busy S1 canary declared: 3a7badeab3f95b2798e219958b5d16e761175b9f on board-a,board-c / S6 open loop: canary 3a7bade is deployed on board-a,board-c with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 swimund |
+| **Showcase release** | `3a332742` (18,808 rows), `7bc965ca` (11,981 rows), `f76158f2` (7,484 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 3a332742 sits on 53fd28ee (cooldown15-02); behind by 3: shafttrap-02, swimcentre-01, bagdiet-01; merge conflicts in bots/src/shaftgeom.mjs, bots/src/shaftv; row 11-04 14:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
-| **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
-| **Open alarms** | STALLCHECK 2026-11-04T13:35:01Z STALLED: 39. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 33 active alarm(s): stuck goals 10 (hive-a/monument@355_73_147, hive-d/monument@68_65_68, hive-d/tidy@68_65_68, hive-d/wall@68_65_68, isolated-a/monument@355_73_147, isolated-a/wall@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24 |
+| **Pending owner decisions** | **storehub-1103**: O7: the sorted hall in the town ring (built, 46 from home) or an 8-chest annex beside the storehouse (Codex; not built)? |
+| **Open alarms** | STALLCHECK 2026-11-04T14:35:01Z STALLED: 40. OPSAUDIT 2026-11-03 FLAGS: 5 (1 high). 34 active alarm(s): stuck goals 11 (hive-a/monument@355_73_147, hive-a/tidy@355_73_147, hive-d/monument@68_65_68, hive-d/tidy@68_65_68, hive-d/wall@68_65_68, isolated-a/monument@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:x-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
