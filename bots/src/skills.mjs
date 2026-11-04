@@ -125,6 +125,10 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 import { loadBlueprint, siteBlueprint, siteBlueprintAsync, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
 import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
+import { HUB_PLOT, HUB_BLUEPRINT, hubSitingPlan, hubRecordOf, hubChestKeys, hubHomes, hubSignSpots, hubVisitOpts, clerkMoves, clerkRoute, clerkTargets, cargoOwed, cargoKeeps, clerkWork, clerkRowDetail, hubThrowable,
+         CLERK_STACKS, CLERK_BAG_SPARE, CLERK_GAP_MS, CLERK_IDLE_MS, CLERK_BACKOFF_MS, CLERK_LEASE_MS, CLERK_TERM_MS, CLERK_REST_MS } from './storehub.mjs'   // storehub-01
+import { STOREHUB } from './shop.mjs'   // storehub-01's switches
+import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
 import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, shopchestSite, shopchestRecord, materialsChests, materialsWorthTry } from './shopchest.mjs'   // shopchest-01
@@ -3985,6 +3989,14 @@ export function townCobbleScan (bot, now = Date.now(), { fresh = false, state = 
       matching: b => CONTAINER_RE.test(blockNameOf(bot, b) ?? '') && (!b.position || (inTown(home, b.position) && depositTargetOk(home, b.position))) }) ?? []
     if (ps.length >= COBBLE_SCAN_CAP) coverage = false
     for (const p of ps) if (inTown(home, p) && depositTargetOk(home, p)) keys.add(containerKey(bot, p))
+    // storehub-01: the sorted hall's chests (beyond the scan's radius, in the town ring) are town containers too, when loaded
+    hubRegistryRefresh(now)
+    for (const k0 of townExtraKeys(home)) {
+      const c = keyVec(k0)
+      const b = bot.blockAt?.(c)
+      if (!b) { coverage = false; continue }   // an unloaded hall chest: the town is not seen whole (no "the town has none")
+      if (CONTAINER_RE.test(blockNameOf(bot, b) ?? '') && depositTargetOk(home, c)) keys.add(containerKey(bot, c))
+    }
     for (const k0 of Object.keys((state ?? capTown(bot))?.obs ?? {})) {
       const c = keyVec(k0)
       const b = bot.blockAt?.(c)
@@ -9672,7 +9684,8 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       out.swordsAllowed = !pit && !listedOnly && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
       out.cap = pit || listedOnly ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
       out.stock = pit || listedOnly ? null : pruneStockOpts(bot, pruned)   // and every other group at its target (stocktarget design 3.4), and what a prune took
-      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: listedOnly ? keep : null })   // the bag AS THE SERVER HOLDS IT
+      // storehub-01: `keep` holds a hall clerk's owed cargo on every path (disposeWell's), not only the listed-only one
+      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep })   // the bag AS THE SERVER HOLDS IT
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
       out.acc.cobbleAllowed = out.cap === 'at_cap'
@@ -9772,16 +9785,24 @@ async function disposeWell (ctx, _args, signal) {
   // never the model's (chatOnly), and never more than the server-verified take
   const pruned = _args?.pruned && typeof _args.pruned === 'object' ? _args.pruned : null
   // junkout-01: the TOWN-VISIT order (well.mjs wellVisitOrder): listed junk only, and its own row (`_junkout phase=well`)
-  const visit = _args?.visit === true && !pruned
-  const keep = visit && Array.isArray(_args?.keep) ? _args.keep.filter(n => typeof n === 'string') : null   // the goal's wanted names
+  // storehub-01: the hall CLERK's throw (`via: 'clerk'`) is a listed-only dispose too -- its own keep (every bag name but the cargo's
+  // junk), no swords, no cobble at the cap, no stock surplus -- with no junkout row; its well rows say `via=clerk`
+  const clerk = _args?.via === 'clerk' && !pruned
+  const viaTag = clerk ? 'via=clerk ' : ''   // the well's rows say whose throw it was (the tripwire's SH1 judges via=clerk rows)
+  const visit = (_args?.visit === true || clerk) && !pruned
   const { bot } = ctx
+  // storehub-01: a hall clerk's owed cargo is KEPT by every dispose (entrusted stock: the sword, cobble-cap and stock rules never
+  // judge it); the clerk's own throw keeps all of it but its junk (hubCargoKeeps forWell)
+  const cargoKeep = hubCargoKeeps(bot, { forWell: clerk })
+  const keep0 = visit && Array.isArray(_args?.keep) ? _args.keep.filter(n => typeof n === 'string') : null   // the goal's wanted names
+  const keep = keep0 || cargoKeep.length ? [...(keep0 ?? []), ...cargoKeep] : null
   wellClickedLast = new Set()   // THIS visit's clicks only (Codex r2: a visit that aborts before its throw is graded on none)
   const items = () => bot.inventory?.items?.() ?? []
   const slotsBefore = items().length
   // THE VISIT'S ROW, written once for every way the skill ends (junkout-01's read: J3 dh, J4 what the throws were)
   let visitRowDone = false
   const visitRow = (status, f = {}) => {
-    if (!visit || visitRowDone) return
+    if (!visit || clerk || visitRowDone) return
     visitRowDone = true
     try { logEvent({ kind: 'junkout', status, snapshot: snapshot(bot), detail: junkoutVisitDetail({ phase: 'well', vid: _args?.vid ?? null, armed: _args?.armed ?? null, dh: _args?.dh ?? null, dy: _args?.dy ?? null, dw: _args?.dw ?? null, slotsBefore, slotsAfter: items().length, status, ...f }) }) } catch { /* telemetry */ }
   }
@@ -9803,7 +9824,7 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  const entryPlan = visit ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned) })
+  const entryPlan = visit ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), keep })
   if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
@@ -9840,14 +9861,14 @@ async function disposeWell (ctx, _args, signal) {
   if (ph.refused === 'grid_loaded') return skip('grid_loaded', `the next craft returns what an aborted craft left in the 2x2 grid (${ph.stop}); nothing is thrown until then, because closing the inventory now would drop what does not fit beside the well`)
   if (ph.refused === 'nothing_listed') {
     if (closedOnly) {
-      logEvent({ kind: 'well_dispose', status: 'success', snapshot: snapshot(bot), detail: wellDisposeDetail({ slotsBefore, slotsAfter: items().length, closedOpen: true, stop: 'closed_only', at: cap, capEnd: capEndOf(bot, cap) }) })
+      logEvent({ kind: 'well_dispose', status: 'success', snapshot: snapshot(bot), detail: viaTag + wellDisposeDetail({ slotsBefore, slotsAfter: items().length, closedOpen: true, stop: 'closed_only', at: cap, capEnd: capEndOf(bot, cap) }) })
       visitRow('success', { listed: entryPlan.junkStacks, stop: 'closed_only' })
       return { status: 'success', placed: 1, detail: 'found the town junk well open and closed it' }
     }
     return skip('nothing_listed', 'the server\'s bag holds nothing on the junk list')
   }
   const stop = ph.stop ?? 'done'
-  const detail = phaseDetail(ph, cap, stop, capEndOf(bot, cap))
+  const detail = viaTag + phaseDetail(ph, cap, stop, capEndOf(bot, cap))
   // what this visit's throws were, as the server named them (junkout-01's J4) -- on every row after a throw phase
   const phF = { listed: entryPlan.junkStacks, n: ph.account?.n ?? 0, offlist: ph.thrown?.offlist ?? 0, swords: ph.acc?.swords ?? 0,
                 cobble: ph.acc?.cobble ?? 0, stock: ph.acc?.stockThrown ?? 0, slotsBefore: ph.slotsBefore ?? slotsBefore, stop }
@@ -9862,7 +9883,7 @@ async function disposeWell (ctx, _args, signal) {
   visitRow(ph.acc.tossed || /^error: /.test(stop) ? 'failed' : 'no_effect', phF)
   if (!ph.acc.tossed && /came within/.test(stop)) return { status: 'no_effect', detail: `nothing thrown: ${stop}` }
   if (!ph.acc.tossed && /^breached: /.test(stop)) return { status: 'no_effect', detail: `nothing thrown: the town junk well read unsealed at the click (${stop.slice(10)}); the next town visit with wood builds a new one` }
-  return { status: 'failed', failClass: 'well_toss_failed', detail: `${n ? `threw ${n} item(s), then` : 'nothing went down the town well:'} ${stop}` }
+  return { status: 'failed', failClass: 'well_toss_failed', lost: { ...(ph.account?.lost ?? {}) }, detail: `${n ? `threw ${n} item(s), then` : 'nothing went down the town well:'} ${stop}` }
 }
 
 /**
@@ -10144,7 +10165,7 @@ async function buildWell (ctx, _args, signal) {
       const nearP = wellAdmission({ players: playersSeen(bot), cap: site, me: bot.username })
       if (nearP) throw hkStop('well_attended', `${nearP.who} came within ${nearP.dist.toFixed(1)} of the open junk well pit; the next visit finishes it`)
       await digShaft()
-      pit = await throwPhase(bot, { cap: site, facing: null, pit: true, maxStacks: room.toss, g, tick, tickNA, signal })
+      pit = await throwPhase(bot, { cap: site, facing: null, pit: true, maxStacks: room.toss, g, tick, tickNA, signal, keep: hubCargoKeeps(bot) })   // storehub-01: never a clerk's cargo
       if (pit.aborted) { logEvent({ kind: 'well_dispose', status: 'aborted', snapshot: snapshot(bot), detail: phaseDetail(pit, site, 'pit_first_aborted') }); throw pit.aborted }
       if (pit.refused) throw hkStop(pit.refused === 'server_unanswered' ? 'well_unverified' : pit.refused === 'player_near' ? 'well_attended' : pit.refused === 'breached' ? 'well_site' : 'well_no_room', `the pit-first throw was refused (${pit.refused}${pit.stop ? `: ${pit.stop}` : ''}); the open shaft is finished by the next visit`)
       pitItems += pit.account.n; pitTossed += pit.acc.tossed
@@ -11725,7 +11746,8 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
     if (!have) return null
     return decideTakes([{ name: item, count: Math.min(have, Math.max(1, Math.min(64, Math.floor(Number(count) || 16)))) }], inChest, bag, chestEmpty, keep)
   }
-  const sweep = withdrawSweep(bot, { prefer: (() => { const sh = sortHomesNow(bot); return sh ? withdrawPrefer(sh, item) : [] })() })
+  // storehub-01: the sorted hall's chests for the item's section first (where the clerk puts it), then the storehouse's homes
+  const sweep = withdrawSweep(bot, { prefer: (() => { const sh = sortHomesNow(bot); return [...hubWithdrawPrefer(item), ...(sh ? withdrawPrefer(sh, item) : [])] })() })
   let chestBlock = sweep.next(48)
   if (!chestBlock) {
     // deposit's shape: walk home through the rescue path, then RESCAN before judging the walk.
@@ -17199,12 +17221,14 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // repair: activeProject's first loop, bounded by repairBackoff), any other work (the clerk, a refill, the aisles) is `due`
         const yw = complete && b && p.plot === YARD_PLOT ? yardWorkNow(b, rec) : null
         const damaged = complete && b ? (recordDamaged(b, rec, { tidy: tidyFirst }) || !!yw?.urgent) : false
-        const due = complete && b && !damaged ? (recordDamaged(b, rec) || !!yw?.kind) : false
+        // storehub-01: a standing hall's upkeep for THIS bot (its labels, owed cargo, a clerk move-set) is `due`, first among the upkeeps
+        const hubDue = complete && b && p.plot === HUB_PLOT ? hubUpkeepDue(b, rec, now) : false
+        const due = complete && b && !damaged ? (recordDamaged(b, rec) || !!yw?.kind || hubDue) : false
         // copperhall-01: the unsited hall WAITS on its opening rule (copperhall.mjs hallOpening: the town's copper), so the order
         // never offers it early and works the next project meanwhile
         const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
         // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
-        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && p.plot === STORE_PLOT && storeUpkeepDue(b, rec), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}) }
+        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}) }
       })
       // PICKER-01: each sink's open instance or its next one (sinks.mjs sinkNextGate over this bot's pressure), and the picker's order
       const sk = sinkStatesNow(b, states, now)
@@ -17680,6 +17704,9 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     if (tidy && r.blueprint === STORE_BLUEPRINT && storeTidy(r, read, bot.storeTidyTries ?? null).length) return true
     // sortstore-01: ...and its upkeep (a label to write, a misplaced stack to move): `due` only, after every open project
     if (tidy && r.blueprint === STORE_BLUEPRINT && storeUpkeepDue(bot, r)) return true
+    // storehub-01: a standing hall with upkeep for this bot (labels, owed cargo, a clerk move-set) wants a visit (the yard's reason:
+    // the order reads `complete` through shopDamaged)
+    if (tidy && r.blueprint === HUB_BLUEPRINT && hubUpkeepDue(bot, r)) return true
     // paths-01 r2: a laid network with a destination it does not serve yet (a container's stand, a project completed since) wants
     // a visit: its extension (buildPaths), at most once per PATHS_EXTEND_MS per bot
     if (r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true
@@ -18729,6 +18756,300 @@ async function storeUpkeepVisit (ctx, rec, signal, out) {
 }
 /** The upkeep's steps, for the sandbox drive (sandbox/sortstore/upkeep-e2e.mjs) and the tests: never called by the bot itself. */
 export const _sortUpkeep = Object.freeze({ sortLabelOne, sortGetSigns, sortTidyOne, sortSpotNeed, storeUpkeepDue })
+// ================================================================================================================================
+// STOREHUB-01: THE SORTED HALL'S REGISTRY, ITS SITING, ITS LABELS AND ITS CLERK (storehub.mjs has every rule; design
+// docs/reports/storehub-design-2026-11-03.md 3.1, 3.3, 3.5). The hall is an ordinary blueprint project (build_shop's visit); this
+// is what a STANDING hall adds: its chests named to the town's storage readers (chestfull.mjs setTownExtra), its signs (sortstore's
+// label writer), and one clerk at a time moving the town's other chests' stacks into it (the storehouse tidy's verified take and
+// put), the owner's listed junk down the town well (disposeWell `via: 'clerk'`, the cargo's junk only).
+// ================================================================================================================================
+const HUB = STOREHUB
+let hubRegAt = -Infinity, hubRecMemo = null
+/** The hall's record now -> rec | null (STOREHUB off, none, unreadable). Never throws. */
+function hubRecNow () {
+  if (!HUB.on) return null
+  try { const h = recordHead(townDir(), projKeyOf(HUB_PLOT)); return h.ok && h.head?.rec?.blueprint === HUB_BLUEPRINT ? h.head.rec : null } catch { return null }
+}
+/** THE REGISTRY, refreshed at most every 30 s: the hall's chest keys become town containers (inTown). Never throws. */
+export function hubRegistryRefresh (now = Date.now(), { force = false } = {}) {
+  if (!HUB.on) return
+  if (!force && now - hubRegAt < 30_000) return
+  hubRegAt = now
+  try { hubRecMemo = hubRecNow(); setTownExtra(homeVec(), hubChestKeys(hubRecMemo, { on: HUB.on })) } catch { /* unchanged */ }
+}
+/** STOREHUB-01: THE HALL'S SITE -> { ok, record, tried } | { ok: false, why, detail?, tried }. Never throws. storehub.mjs hubSitingPlan's
+ *  order (beside the storehouse, then the town ring), each a buildsite.mjs siteBlueprint clear of every reservation (the zones, every
+ *  record + PROJECT_GAP, an unsited copper hall's pad, the expedition markers), as the yard's. */
+async function hubSiteFor (bot, plan, c, stood, signal = null) {
+  const tried = []
+  try {
+    const others = projectHeads().filter(x => x.plot !== HUB_PLOT).map(x => x.head.rec)
+    const zonesNow = () => [...c.zones, ...recordZones(projectHeads().filter(x => x.plot !== HUB_PLOT).map(x => x.head.rec)), ...hallPadZones(plan), ...townMarkerZones()]
+    const zones = zonesNow()
+    const store = others.find(r => r?.plot === STORE_PLOT) ?? null
+    const read = planReader(bot)
+    const bp = blueprintOf(HUB_BLUEPRINT)
+    for (const step of hubSitingPlan(plan.home, store)) {
+      const s = await siteBlueprintAsync(read, plan, bp, { zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: [{ sector: null, source: step.source }], plot: HUB_PLOT,
+        earth: step.earth, domain: step.domain, standDomain: step.standDomain, walkR: step.walkR, line: step.line, rankKey: step.rankKey }, { aborted: () => !!signal?.aborted })
+      if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
+      tried.push(`${step.source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
+      if (!s.ok) continue
+      // 'store': only a site whose pad lies within HUB_SITE.storeGap of the storehouse is "beside" it (the domain reaches farther so a
+      // footprint may run away from it); farther, the ring's nearest-home order decides instead
+      if (step.beside && !step.beside({ pad: s.record.cells.filter(q => q.role === 'base').map(q => [q.at[0], q.at[2]]) })) { tried.push('store:far'); continue }
+      const fresh = zonesNow()
+      const hit = s.record.cells.find(q => fresh.some(z => q.at[0] >= z.box[0] && q.at[0] <= z.box[3] && q.at[1] >= z.box[1] && q.at[1] <= z.box[4] && q.at[2] >= z.box[2] && q.at[2] <= z.box[5]))
+      if (hit) return { ok: false, why: 'site_taken', detail: `${hit.at.join(',')} reserved during the search`, tried }
+      return { ok: true, why: 'ok', record: hubRecordOf(s.record, bp, { band: step.source }), tried }
+    }
+    return { ok: false, why: 'no_site', tried }
+  } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80), tried } }
+}
+// ---- the cargo (design 3.3 step 5): the holder's own file, read once a connection, kept in memory ----------------------------------
+const hubCargoKey = () => `${projKeyOf(HUB_PLOT)}.cargo`
+/** This bot's cargo file -> { name: n } (what it took from a town chest for the hall and has not delivered). Never throws. */
+function hubCargoNow (bot) {
+  if (bot.hubCargo === undefined) {
+    try { bot.hubCargo = { ...(pantryRead(townDir(), hubCargoKey())?.[bot.username ?? 'bot']?.items ?? {}) } } catch { bot.hubCargo = {} }
+  }
+  return bot.hubCargo ?? {}
+}
+/** Replace this bot's cargo (memory and file) -> true | false. */
+function hubCargoWrite (bot, items) {
+  bot.hubCargo = Object.fromEntries(Object.entries(items ?? {}).filter(([, v]) => Number(v) > 0))
+  return pantryWrite(townDir(), hubCargoKey(), bot.username ?? 'bot', bot.hubCargo)
+}
+/** The cargo this bot owes now (the file, clamped to the bag). */
+const hubOwed = bot => cargoOwed(hubCargoNow(bot), heldMap(bot))
+/** THE CARGO'S KEEPS for every other bag rule (the well's dispose): the owed names; the clerk's own throw leaves out its junk. */
+export function hubCargoKeeps (bot, { forWell = false } = {}) {
+  if (!HUB.on || !bot) return []
+  try { return cargoKeeps(hubOwed(bot), { forWell, isJunk: isWellJunk }) } catch { return [] }
+}
+/** The clerk's sources: the town box's containers the index knows (never a hall chest). */
+function hubSources (bot, entries, hubKeys) {
+  const home = homeVec(), out = new Set()
+  for (const k of Object.keys(entries)) { if (hubKeys.has(k)) continue; const p = keyVec(k); if (p.x === p.x && inTownStoreBox(home, p)) out.add(k) }
+  return out
+}
+/** The clerk's move-set for this bot now -> storehub.mjs clerkMoves(...) | null. Never throws. */
+function hubClerkPlan (bot, rec) {
+  try {
+    const homes = hubHomes(rec)
+    const entries = sortKnownEntries(bot)
+    const keys = hubChestKeys(rec)
+    const back = (bot.hubMoveBackoff ??= new Map())
+    const now = Date.now()
+    return clerkMoves(homes, entries, { hubKeys: keys, sources: hubSources(bot, entries, keys), held: heldMap(bot), maxSlots: Math.min(CLERK_STACKS, sortBagFree(bot) - CLERK_BAG_SPARE),
+      skip: (from, name) => (back.get(`${from}|${name}`) ?? 0) > now, well: HUB.well && wellUsable(bot), isJunk: isWellJunk })
+  } catch { return null }
+}
+/** THE WITHDRAW VERB'S FIRST CHESTS for an item -> [k]: a standing hall's chests of the item's section, then its OVERFLOW (UNSORTED
+ *  for an unknown item). [] without a complete hall. Never throws. */
+function hubWithdrawPrefer (item) {
+  try {
+    hubRegistryRefresh()
+    const rec = hubRecMemo
+    if (!rec?.structure_complete) return []
+    return clerkTargets(hubHomes(rec), clerkRoute(item, { well: false }).section)
+  } catch { return [] }
+}
+/** The hall's label spots that want work from THIS bot (sortstore's tries per spot). */
+function hubSignWork (bot, rec) {
+  if (!HUB.signs) return []
+  const tries = bot.sortSignTries ?? new Map()
+  return hubSignSpots(rec).filter(sp => (tries.get(sp.at.join(',')) ?? 0) < SIGN_TRIES && ['place', 'edit'].includes(sortSpotNeed(bot, sp)))
+}
+/** May this bot be the clerk now? The term (CLERK_TERM_MS of visits, then CLERK_REST_MS off) and the lease (free, ours or lapsed). */
+function hubClerkFree (bot, now = Date.now()) {
+  if (Number(bot.hubClerkRestUntil) > now) return false
+  try { const st = projLeaseState(townDir(), projKeyOf(HUB_PLOT), 'clerk'); return !st || st.rec?.holder === (bot.username ?? 'bot') || now >= st.blocksUntil } catch { return false }
+}
+/** IS THE HALL'S UPKEEP DUE for this bot? A complete hall with a label to write, cargo to deliver, or (the clerk free for it, its gap
+ *  passed) a move-set to carry. Never throws. */
+export function hubUpkeepDue (bot, rec, now = Date.now()) {
+  try {
+    if (!HUB.on || !bot || rec?.blueprint !== HUB_BLUEPRINT || !rec.structure_complete) return false
+    if (Object.keys(hubOwed(bot)).length) return true
+    if (now - (bot.hubVisitAt ?? -Infinity) < CLERK_GAP_MS) return false
+    if (hubSignWork(bot, rec).length) return true
+    if (!HUB.clerk || !hubClerkFree(bot, now)) return false
+    return !!clerkWork({ on: true, owed: {}, plan: hubClerkPlan(bot, rec), restUntil: bot.hubClerkIdleUntil ?? 0, lastAt: bot.hubVisitAt ?? -Infinity, now })
+  } catch { return false }
+}
+/** THE CLERK'S ROW (`_storehub_clerk`, storehub.mjs clerkRowDetail: junked= names every throw, for the tripwire's SH1). */
+function hubClerkRow (bot, status, f) { try { logEvent({ kind: 'storehub_clerk', status, snapshot: snapshot(bot), detail: clerkRowDetail(f) }) } catch { /* telemetry */ } }
+/** PUT the cargo `name` into the hall chest `k` -> the count put (verified). The storehouse tidy's sortPut over EVERY bag stack of the
+ *  name, no floor: the clerk took the kind only while its bag held none (no merge), so what the bag holds of it is cargo, or a
+ *  pickup that merged into a cargo stack since (Codex design 11-04 item 4: a floor would strand a merged stack as cargo for ever). */
+async function hubPutOne (bot, k, name, n, deadline, signal) {
+  const tb = bot.blockAt?.(keyVec(k))
+  if (!tb || !isTownContainer(bot, tb)) return { put: 0, why: 'gone' }
+  try { await chestWalk(bot, new goals.GoalNear(tb.position.x, tb.position.y, tb.position.z, 2), Math.max(1000, Math.min(TD_WALK_MS * 2, deadline - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  check(signal)
+  if (!(eyeToBlock(bot.entity.position, tb.position) <= OPEN_REACH)) return { put: 0, why: 'unreachable' }
+  const held = Number(heldMap(bot)[name]) || 0
+  if (!(held > 0) || !(n > 0)) return { put: 0, why: 'none' }
+  const p = await sortPut(bot, tb, { [name]: held }, deadline, signal, {})
+  return { put: Number(p.put?.[name]) || 0, why: p.why }
+}
+/**
+ * ONE CLERK VISIT'S CARRY -> the row's fields. Owed cargo first (an earlier visit cut short: delivered, never re-taken); else the
+ * move-set (storehub.mjs clerkMoves: one source, at most CLERK_STACKS stacks, no merge), its intent written to the cargo file before
+ * the take, the take verified against the server (withdrawVisit), then: the junk down the town well (disposeWell `via: 'clerk'`,
+ * every other name of the bag kept), each other stack into its section's home, its overflow, the general OVERFLOW (an unknown item:
+ * UNSORTED), and what found no room back into its source. What is still held after all that stays cargo (the next visit's first).
+ */
+async function hubClerkOne (ctx, rec, signal, deadline) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const homes = hubHomes(rec)
+  const f = { phase: 'visit', src: '-', took: {}, sorted: {}, homes: 0, more: 0, overflow: 0, unsorted: 0, junked: {}, back: {}, cargoLeft: {}, stop: '-', skipped: {} }
+  const back = (bot.hubMoveBackoff ??= new Map())
+  const backoff = (from, names) => { for (const n of names) back.set(`${from}|${n}`, Date.now() + CLERK_BACKOFF_MS) }
+  let owed = hubOwed(bot)
+  // CARGO THAT LEFT THE BAG some other way (a death, a deposit, a pickup race): named once, never counted delivered (Codex design
+  // 11-04 item 4); the file then follows the bag
+  const filed = hubCargoNow(bot), gone = {}
+  for (const [n, c] of Object.entries(filed)) { const d = (Number(c) || 0) - (owed[n] ?? 0); if (d > 0) gone[n] = d }
+  if (Object.keys(gone).length) { hubClerkRow(bot, 'failed', { ...f, phase: 'cargo_gone', took: gone, stop: 'cargo_gone' }); hubCargoWrite(bot, owed) }
+  let src = null, routes = new Map()
+  const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))
+  if (Object.keys(owed).length) {
+    f.phase = 'cargo'
+  } else {
+    const plan = hubClerkPlan(bot, rec)
+    f.skipped = plan?.skipped ?? {}
+    if (!plan) { f.stop = 'nothing'; bot.hubClerkIdleUntil = Date.now() + CLERK_IDLE_MS; hubClerkRow(bot, 'no_effect', { ...f, ms: Date.now() - t0 }); return { ...f, moved: 0 } }
+    f.src = plan.from
+    for (const m of plan.moves) routes.set(m.name, m)
+    src = bot.blockAt?.(keyVec(plan.from))
+    if (!src || !isTownContainer(bot, src)) { backoff(plan.from, plan.moves.map(m => m.name)); f.stop = 'source_gone'; hubClerkRow(bot, 'failed', { ...f, ms: Date.now() - t0 }); return { ...f, moved: 0 } }
+    const want = plan.moves.map(m => ({ name: m.name, count: m.count }))
+    // THE INTENT BEFORE THE TAKE (design 3.3 step 3): a kill between the take and the write still leaves the holder owing it
+    if (!hubCargoWrite(bot, Object.fromEntries(want.map(w => [w.name, w.count])))) { f.stop = 'cargo_unwritable'; hubClerkRow(bot, 'no_effect', { ...f, ms: Date.now() - t0 }); return { ...f, moved: 0 } }
+    const keep = roomKeep(bot.currentWants ?? [])
+    const decide = (inChest, bag, { chestEmpty }) => {
+      const hb = {}
+      for (const b of bag) if (b?.name) hb[b.name] = (hb[b.name] ?? 0) + (b.count ?? 0)
+      // the bag as the server holds it NOW: a name it holds is not taken (no merge), whatever the plan saw
+      const takes = want.map(t => ({ name: t.name, count: Math.min(t.count, haveIn(inChest, t.name)) })).filter(t => t.count > 0 && !(hb[t.name] > 0))
+      if (!takes.length) return null
+      const d = decideTakes(takes, inChest, bag, chestEmpty, keep)
+      if (d?.deposit?.length || d?.swap) return { skip: 'bag_room' }
+      return d
+    }
+    let v
+    try { v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000) } catch (e) { hubCargoWrite(bot, hubOwed(bot)); throw e }
+    const took = v.verified ? { ...(v.moved?.took ?? {}) } : {}
+    for (const [n, c] of Object.entries(took)) releaseWithdrawHold(n, c)
+    hubCargoWrite(bot, took)
+    f.took = took
+    if (!Object.keys(took).length) { backoff(plan.from, plan.moves.map(m => m.name)); f.stop = `take:${v.result?.failClass ?? v.skip ?? 'none'}`; hubClerkRow(bot, 'failed', { ...f, ms: Date.now() - t0 }); return { ...f, moved: 0 } }
+    owed = hubOwed(bot)
+  }
+  let moved = 0
+  try {
+    // THE JUNK (HUB_THROWABLE only) down the town well: the cargo's junk names, every other name in the bag a keep. What the well
+    // does not take (refused, missed) goes to UNSORTED below with the rest: never held, never thrown by another rule
+    const wellOn = HUB.well && wellUsable(bot)
+    const junk = Object.keys(owed).filter(n => wellOn && hubThrowable(n, isWellJunk) && (!routes.size || routes.get(n)?.to === 'well'))
+    if (junk.length && deadline - Date.now() > 25_000) {
+      check(signal)
+      const keepAll = Object.keys(heldMap(bot)).filter(n => !junk.includes(n))
+      const r = await disposeWell(ctx, { via: 'clerk', keep: keepAll }, signal)
+      // EVERY name the well reports lost goes on the row (junked=: the tripwire's SH1 judges each against the keep lists), not only
+      // the junk the plan meant
+      for (const [n, c] of Object.entries(r?.lost ?? {})) if (Number(c) > 0) f.junked[n] = Number(c)
+      for (const n of junk) { const c = Math.min(Number(r?.lost?.[n]) || 0, owed[n] ?? 0); if (c > 0) moved += c }
+      hubCargoWrite(bot, hubOwed(bot))
+      owed = hubOwed(bot)
+    }
+    // THE SORTED PUTS: each name to its section's chests in order (the plan's first target leads), nearest-planned first
+    for (const name of Object.keys(owed)) {
+      const r0 = routes.get(name)
+      const r = r0?.to === 'well' ? null : r0
+      const section = r?.section ?? clerkRoute(name, { well: false }).section ?? 'unsorted'
+      const ts = clerkTargets(homes, section)
+      const order = r && r.to !== 'well' ? [r.to, ...ts.filter(k => k !== r.to)] : ts
+      for (const k of order) {
+        check(signal)
+        if (deadline - Date.now() < 10_000) break
+        const left = hubOwed(bot)[name] ?? 0
+        if (!(left > 0)) break
+        const p = await hubPutOne(bot, k, name, left, deadline, signal)
+        if (p.put > 0) {
+          const e = homes.byKey.get(k)
+          f.sorted[name] = (f.sorted[name] ?? 0) + p.put; moved += p.put
+          if (e?.section === 'overflow') f.overflow += p.put; else if (e?.section === 'unsorted') f.unsorted += p.put; else if (e?.role === 'more') f.more += p.put; else f.homes += p.put
+          hubCargoWrite(bot, { ...hubCargoNow(bot), [name]: Math.max(0, (hubCargoNow(bot)[name] ?? 0) - p.put) })
+        }
+      }
+    }
+    // WHAT FOUND NO ROOM goes back to its source (a full hall is a backlog, never a reason to keep or throw: Codex)
+    owed = hubOwed(bot)
+    const rest = Object.keys(owed)
+    if (rest.length && src && deadline - Date.now() > 12_000) {
+      for (const name of rest) {
+        const p = await hubPutOne(bot, posKey(src.position), name, owed[name], deadline, signal)
+        if (p.put > 0) { f.back[name] = p.put; hubCargoWrite(bot, { ...hubCargoNow(bot), [name]: Math.max(0, (hubCargoNow(bot)[name] ?? 0) - p.put) }) }
+      }
+      backoff(f.src, rest)
+    }
+  } catch (e) {
+    hubCargoWrite(bot, hubOwed(bot))
+    if (e?.aborted || signal?.aborted) { f.stop = 'aborted'; f.cargoLeft = hubOwed(bot); hubClerkRow(bot, 'aborted', { ...f, ms: Date.now() - t0 }); throw e }
+    f.stop = `error:${String(e?.message ?? e).slice(0, 30)}`
+  }
+  hubCargoWrite(bot, hubOwed(bot))
+  f.cargoLeft = hubOwed(bot)
+  if (f.stop === '-') f.stop = Object.keys(f.cargoLeft).length ? 'cargo_left' : 'done'
+  hubClerkRow(bot, moved > 0 ? 'success' : 'no_effect', { ...f, ms: Date.now() - t0 })
+  if (!(moved > 0)) bot.hubClerkIdleUntil = Date.now() + CLERK_IDLE_MS
+  return { ...f, moved }
+}
+/** THE HALL'S UPKEEP VISIT (a complete hall, `due`): the labels, then one clerk carry; one bot at a time (the record's `clerk` lease,
+ *  CLERK_LEASE_MS). `out` is buildShop's row writer. */
+async function hubUpkeepVisit (ctx, rec, signal, out) {
+  const { bot } = ctx
+  const dir = townDir(), key = projKeyOf(HUB_PLOT), me = bot.username ?? 'bot'
+  hubRegistryRefresh(Date.now(), { force: true })
+  const owes = Object.keys(hubOwed(bot)).length > 0
+  // a holder that owes cargo delivers it whoever holds the lease (only it can: the cargo is in its bag); else one bot at a time
+  const lease = owes ? { ok: true, gen: null } : projTakeLease(dir, key, 'clerk', me, { ttl: CLERK_LEASE_MS })
+  if (!lease.ok) return out('no_effect', 'slots_full', `the hall's clerk is another bot now (${lease.why})`)
+  const now = Date.now()
+  bot.hubVisitAt = now
+  // the term: CLERK_TERM_MS of clerk visits in a row, then CLERK_REST_MS off (another bot takes the lease)
+  if (!(Number(bot.hubClerkSince) > 0) || now - (bot.hubClerkLastAt ?? 0) > CLERK_REST_MS) bot.hubClerkSince = now
+  bot.hubClerkLastAt = now
+  const deadline = now + 150_000
+  const f = { signs: 0, signFails: 0, moved: 0 }
+  try {
+    const work = hubSignWork(bot, rec)
+    if (work.length && !owes) {
+      const places = work.filter(sp => sortSpotNeed(bot, sp) === 'place').length
+      if (places) await sortGetSigns(ctx, places, signal)
+      for (const sp of work) {
+        check(signal)
+        if (deadline - Date.now() < 60_000) break
+        if (sortSpotNeed(bot, sp) === 'place' && !sortSignItem(bot)) { f.signFails++; const tr = (bot.sortSignTries ??= new Map()); tr.set(sp.at.join(','), (tr.get(sp.at.join(',')) ?? 0) + 1); continue }
+        if ((await sortLabelOne(ctx, sp, signal, deadline, { kind: 'hub_sign' })) === 'ok') f.signs++; else f.signFails++
+      }
+    }
+    if ((HUB.clerk || owes) && deadline - Date.now() > 40_000) f.moved = (await hubClerkOne(ctx, rec, signal, deadline)).moved
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted', f); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), f, 'other')
+  } finally {
+    if (lease.gen != null) releaseLease(dir, key, 'clerk', me, lease.gen)
+    if (now - bot.hubClerkSince >= CLERK_TERM_MS) { bot.hubClerkRestUntil = Date.now() + CLERK_REST_MS; bot.hubClerkSince = 0 }
+  }
+  return out(f.signs + f.moved > 0 ? 'success' : 'no_effect', 'upkeep', `the storage hall's upkeep: ${f.signs} label(s) written${f.signFails ? `, ${f.signFails} not` : ''}; ${f.moved} item(s) sorted or thrown`, f)
+}
+/** The hall's steps, for the tests and a sandbox drive: never called by the bot itself. */
+export const _hubUpkeep = Object.freeze({ hubClerkOne, hubClerkPlan, hubSignWork, hubUpkeepDue, hubCargoKeeps, hubSiteFor, hubRegistryRefresh })
 async function buildShop (ctx, args, signal) {
   // expedition-01: the expedition's visit (the order's args say which)
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
@@ -18821,11 +19142,20 @@ async function buildShopVisit (ctx, args, signal) {
       const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.sector}/${ss.record.orient}/${ss.record.sector_source}/band${ss.record.band}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    } else if (plot === HUB_PLOT) {
+      // storehub-01: the sorted hall sites beside the storehouse, else in the town ring (hubSiteFor)
+      const ss = await hubSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
+      check(signal)
+      if (!ss.ok) return out('no_effect', 'no_site', `no storage-hall site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''}) ${(ss.tried ?? []).join(' ')}`.slice(0, 160), { stop: 'no_site' })
+      const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
+      if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.band}/${ss.record.chests.length}chests`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+      hubRegistryRefresh(Date.now(), { force: true })
     } else if (plot !== SHOP_PLOT) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
       more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot, ...(plot === YARD_PLOT ? { earth: YARD_EARTH } : {}) }
     }
-    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT) {
+    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT) {
     const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
     if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
@@ -18841,6 +19171,8 @@ async function buildShopVisit (ctx, args, signal) {
   if (plot === YARD_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false })) return yardVisit(ctx, rec, rh.head.gen, signal, out, t0)
   // sortstore-01: a COMPLETE storehouse whose only want is its upkeep (labels, the tidy) gets the upkeep visit, not a build visit
   if (plot === STORE_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && !storeTidy(rec, planReader(bot), bot.storeTidyTries ?? null).length && storeUpkeepDue(bot, rec)) return storeUpkeepVisit(ctx, rec, signal, out)
+  // storehub-01: a COMPLETE hall whose want is its upkeep (labels, the clerk) gets the upkeep visit, not a build visit
+  if (plot === HUB_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && hubUpkeepDue(bot, rec)) return hubUpkeepVisit(ctx, rec, signal, out)
   // a COMPLETE workshop is judged against the world (r2): a damaged one is repaired by an ordinary visit
   if (rec.structure_complete && !shopDamaged(bot, rec)) {
     // this holder's share left by a visit killed after the completion is cleared here (each holder clears its own): the leftovers are the bag's own
@@ -18953,7 +19285,8 @@ async function buildShopVisit (ctx, args, signal) {
     try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0 }) } catch { resFailed = true }
     // storehouse-01: the storehouse's stands are in town (storehouse.mjs storeDomain), and its interior's litter is the visit's tidy
     // copperhall-01: the hall's stands are its own domain too (copperhall.mjs hallRecordDomain: the pad + 3, off every other record)
-    const storeOpts = rec.blueprint === STORE_BLUEPRINT ? { domain: storeDomain(rec), tidy: storeTidy(rec, read, (bot.storeTidyTries ??= new Map())) }
+    // storehub-01: the storage hall's stands are its own pad + 4, its walk the record's radius (storehub.mjs hubVisitOpts)
+    const storeOpts = rec.blueprint === HUB_BLUEPRINT ? hubVisitOpts(rec) : rec.blueprint === STORE_BLUEPRINT ? { domain: storeDomain(rec), tidy: storeTidy(rec, read, (bot.storeTidyTries ??= new Map())) }
       : rec.blueprint === HALL_BLUEPRINT ? { domain: hallRecordDomain(rec, projectHeads().map(x => x.head.rec)) }
       // yardsite-01: a yard sited beyond the town ring stands and walks out to its band (yard.mjs yardVisitOpts; an older record: {})
         : isYardBlueprint(rec.blueprint) ? yardVisitOpts(rec, home) : {}
