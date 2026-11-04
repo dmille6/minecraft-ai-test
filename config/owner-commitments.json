@@ -4428,6 +4428,33 @@
     "when": "2026-11-04",
     "evidence": "Same sha 812f054e, full suite on both hosts via suite-run.py. ci2: 403/407, wall 686.5 s (load ~2). .30 (nice 19 under ~/suite.lock, load 22-27): 400/407, wall 1036.7 s, after ~100 min lock wait. Common failures: ceilescape, nothing-important-is-orphaned, protected-paths (no .git). ci2 only: craftsync (flake; 3/3 reruns pass). .30 only: plinth-skill (known flake), well (known .30 base failure), ziggurat-tidy + ziggurat-v2-build (SIGKILL at the 300 s file timeout under load; 142/146 s on ci2)."
    }
+  },
+  {
+   "covers_alarms": [
+    "effect:chestreach-01"
+   ],
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "owner": "control session",
+   "owner_date": "2026-11-03",
+   "state": "parked",
+   "id": "effect-fewerdec-01",
+   "title": "effectwatch 11-04 01:12Z: fewerdec-01 h24 NO-EFFECT (llm calls/bot-h 75.38 -> 68.7, -8.9%, inside noise x/1.11; busy share +8.4% inside noise)",
+   "memory": [
+    "cooldown15-02-1103.md"
+   ],
+   "parked": {
+    "until": "2026-11-10",
+    "why": "CONFOUNDED (control session): the h24 window contains cooldown15-02 promoted fleet-wide 11-03 19:24Z (15 s cap, +42% calls/bot on its canary), which moves the same instrument the other way; fewerdec-01 cannot be read in this window. Re-read on a clean 24 h window after 11-04 with both live."
+   },
+   "next_step": "2026-11-10: re-run the fewerdec effect read on a window after both changes are fleet-wide; fix or remove only if still no effect.",
+   "evidence": {
+    "paths": [
+     "config/owner-commitments.json"
+    ]
+   },
+   "note": "Parked by the control session (autonomy grant 10-31); no owner decision needed unless the re-read says remove."
   }
  ]
 }
