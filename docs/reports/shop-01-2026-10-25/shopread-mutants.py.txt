@@ -133,6 +133,22 @@ M = [
  ("and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rec, cell))", "and not (f.get('kind') == 'footing' and plot == 'wall' and footing_ok(rec, cell))"),
  ("ok = overburden_ok(rec, cell, any_role=(plot in WALL_PLOTS))", "ok = overburden_ok(rec, cell, any_role=(plot == 'wall'))"),
  ("and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rec, cell))", "and not (f.get('kind') == 'footing' and footing_ok(rec, cell))"),
+ # wallext-02 WD1: the demolition's dig rule
+ ("    if kind != 'demolish' or not isinstance(cell, (list, tuple)) or len(cell) != 3 or t_ms is None:", "    if not isinstance(cell, (list, tuple)) or len(cell) != 3 or t_ms is None:"),
+ ("    if not (frm < along < to) or not (0 <= (across - line) * inward <= WALLDEMO_DEPTH):", "    if not (frm <= along <= to) or not (0 <= (across - line) * inward <= WALLDEMO_DEPTH):"),
+ ("    if not (frm < along < to) or not (0 <= (across - line) * inward <= WALLDEMO_DEPTH):", "    if not (frm < along < to) or not (0 <= abs(across - line) <= WALLDEMO_DEPTH):"),
+ ("    if not (frm < along < to) or not (0 <= (across - line) * inward <= WALLDEMO_DEPTH):", "    if not (frm < along < to) or not ((across - line) * inward <= WALLDEMO_DEPTH):"),
+ ("    if not (frm < along < to) or not (0 <= (across - line) * inward <= WALLDEMO_DEPTH):", "    if not (frm < along < to) or not (0 <= (across - line) * inward):"),
+ ("    if along not in built:\n        return False", "    pass"),
+ ("if isinstance(c, dict) and c.get('at')):\n        return False\n    return any(g.get('structure_complete')", "if isinstance(c, dict) and c.get('at')) and False:\n        return False\n    return any(g.get('structure_complete')"),
+ ("    if not any(ck(c.get('at')) == k and c.get('role') != 'base' for g", "    if not any(ck(c.get('at')) == k for g"),
+ ("g['completeAt'] <= t_ms + skew_ms for g in ext_chain or [])", "True for g in ext_chain or [])"),
+ ("    return any(g.get('structure_complete') and isinstance(g.get('completeAt'), (int, float))", "    return any(isinstance(g.get('completeAt'), (int, float))"),
+ ("                    elif plot == WALLDEMO:", "                    elif False:"),
+ ("    if not any(ck(c.get('at')) == k for g in demo_chain or [] for c in g.get('clear') or [] if isinstance(c, dict) and c.get('at')):\n        return False", "    pass"),
+ ("    if ln is None:\n        return False", "    if ln is None:\n        ln = ('z', 5, -999, 999, 1)"),
+ ("    return g is not None and (t_ms is None or g <= t_ms) and not (u is not None and t_ms is not None and t_ms >= u)", "    return g is not None and (t_ms is None or g <= t_ms)"),
+ ("                        out[u] = min(out.get(u, ra), ra)", "                        pass"),
 ]
 bad = 0
 for old, new in M:

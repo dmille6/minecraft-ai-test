@@ -4540,7 +4540,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "BUILT 2026-11-04 (wallext-01): showcase branch wallext-show @ b1da40da (code d0f6ccf5) on a TRIAL FOLD of storehub-ab-show e23c5cef onto the live release f76158f2 (b4c89685; one skills.mjs conflict, both sides kept), READY TO STAGE (not staged). Fold it with or after storehub-ab: it waits (wallextOpening) until the hall is complete. Offline on the 15:00Z copy: ring x -35..23 z -79..-20 sharing the old north line (46 of its 59 columns already open: the old section is LEFT), 101 built columns, gateways north (spoke road, 8) and east (ring road, path to the shaft), 695 cells = 690 cobblestone + 4 stone bricks + 1 torch, 16 trunks felled, 4 reserved plots (X1 19x13, X2-X4 11x11) as land:plot zones; escape cut 0; built 695/695 by the bots' own visit offline; independent check 0 hits. Tripwire WX1 (wallext judged as the wall) in main's shopread.py.txt (selftest ok, 121/121 mutants), NOT installed: install with the release. Rollback WALLEXT=off. Suite w30 at d0f6ccf5 413/419 (known 4 + plinth-skill flake + house.test order filter, fixed in b1da40da). Codex code r1 1 BLOCKER fixed; WX1 Claude + Codex APPROVE. Design docs/reports/wallext-design-2026-11-04.md.",
+   "next_step": "r2 + wallext-02 BUILT 2026-11-04 after the owner's answers (O1 remove the old stubs; O2 workshop -> town hall -> houses): showcase branch wallext-show @ 029fea43 (trial fold of storehub-ab e23c5cef onto f76158f2), READY TO STAGE, not staged; fold with or after storehub-ab (both wait on their opening rules). Extension: ring x -43..27 z -75..-20, 680 cells = 670 cobblestone + 8 stone bricks + 2 torches, 2 hall-size plots (X1 workshop x -22..-4 z -65..-53; X2 town hall x 6..18 z -56..-38) + 3 house-size, built 680/680 offline, escape cut 0, independent check 0 hits. Demolition (walldemo, after wallext complete): old wall retired then dug, 15 columns (x 3..8, 17..25), 114 blocks (113 cobble + 1 torch) dug 114/114 offline, 0 off list; completes after a 5-min settle with every cell read. Tripwire WX1 + WD1 in main's shopread.py.txt (136/136 mutants; Claude + Codex reviewed, blockers fixed), NOT installed: install with the release. Suite w30 at 5d26e5b6 414/419 (base 4 + craftsync flake). Rollbacks WALLEXT=off, WALLDEMO=off. Design docs/reports/wallext-design-2026-11-04.md section 12.",
    "max_quiet_hours": 48,
    "depends_on": [
     {
@@ -4559,7 +4559,7 @@
     ]
    },
    "note": "Measured 11-04 15:00Z: the old wall 941 cells, its north line z -20 13/59 built in the extension's span; the basin north of town y 62-63 full of the pathfinder's floating bridge blocks (extColumn) and a dirt pillar on home's column (walkFeet). Codex designed a polygon enclosing the ziggurat with the old line demolished (1,400-1,900 cobble); chosen: a rectangle sharing the old line, the ziggurat closing its west side as on the old ring, nothing removed. Codex code r1: 1 BLOCKER (other records' cell columns), fixed.",
-   "owner_pending": "O1: the two old stubs on the shared line (x 3..8, 17..22) stay or a later piece removes them? O2: what goes on the four plots first?"
+   "owner_answers": "OWNER 2026-11-04: O1 \"remove left over blocks\" (wallext-02 demolition, judged by WD1); O2 order: 1) enchanting + anvil workshop on a hall-size plot, 2) a town/meeting hall on a second hall-size plot, 3) houses. Another agent builds the workshop."
   }
  ]
 }

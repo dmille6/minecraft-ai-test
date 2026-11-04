@@ -4,7 +4,12 @@
 storage hall (storehub piece A, [`storehub-ab-2026-11-04.md`](storehub-ab-2026-11-04.md)), which the bots' own siting puts in the town
 ring north of the showcase town, OUTSIDE the wall: box x -21..-3, z -49..-39. Ledger `wallext-1104`, memory `wallext-1104.md`.
 
-**Status: READY TO STAGE (showcase), not staged.** Branch `wallext-show` @ `b1da40da` (code `d0f6ccf5`; the two commits after it touch tests only: the orphan manifest, house.test's order filter). Base: the live showcase release `f76158f2`
+**Status (r2 + wallext-02, after the owner's answers 11-04 -- section 12 supersedes sections 2, 5 and 11): READY TO STAGE (showcase),
+not staged.** Branch `wallext-show` @ `029fea43`: the extension now reserves TWO hall-size plots (ring x -43..27, z -75..-20, 680 cells
+= 670 cobblestone + 8 stone bricks + 2 torches) and, once it stands, wallext-02 demolishes the old line's runs (15 columns, 114 blocks).
+Tripwire WX1 + WD1 in this commit's `shopread.py.txt` (NOT installed). Rollbacks `WALLEXT=off`, `WALLDEMO=off`.
+
+**r1 status (kept for the record):** Branch `wallext-show` @ `b1da40da` (code `d0f6ccf5`; the two commits after it touch tests only: the orphan manifest, house.test's order filter).. Base: the live showcase release `f76158f2`
 (batch 3) with `storehub-ab-show` `e23c5cef` merged on top as a TRIAL FOLD (`b4c89685`: the fold containing storehub was not live
 yet; one skills.mjs conflict, both sides kept -- yarduse's `cobbleReserve` and storehub's `keepOf`; the two structural anchors on that
 line updated to the merged text). Tier 2 (not protected). Rollback `WALLEXT=off` (a sited extension stays guarded). Tripwire rule WX1
@@ -167,3 +172,76 @@ cannot start before the hall stands either way. Fleet: not before a showcase rea
   removal record + a bot that digs them + a tripwire rule)?
 - **O2: what goes on the plots first** (X1 hall size; X2-X4 house size): houses 2-4, a second hall, the copper hall's successor?
   Nothing sites into them yet; they are reserved.
+
+## 12. Owner answers 11-04 -> r2 (two hall-size plots) and wallext-02 (the old line comes down)
+
+**O1 "remove left over blocks"; O2: 1) an enchanting + anvil workshop on the hall-size plot, 2) a new town / meeting hall, 3) houses.**
+The town hall needs a second hall-size plot, so r2 changes the extension's siting before release (one branch line), and wallext-02
+(the demolition) rides on the same branch, opening only when the extension stands. Another agent builds the workshop itself.
+
+### r2: two hall-size plots (wall.mjs `plotValue`)
+Each plot kind has a cap and a value (hall size 19 x 13: at most 2, worth 2; house size 11 x 11: at most 3, worth 1); the screen and
+the score rank by that value. On the 15:00Z copy the siting now takes **ring x -43..27, z -75..-20** (71 x 56; was 59 x 60):
+
+| | r1 (sections 2-11) | **r2 (built)** |
+|---|---|---|
+| ring columns / built / gateway / opening / gap / join | 234 / 101 / 14 / 14 / 46 / 59 | **250 / 103 / 12 / 14 / 50 / 71** |
+| cells | 695 | **680** (376 wall, 294 walk/fire-step, 8 post, 2 lights) |
+| **cost** | 690 cobble, 4 stone bricks, 1 torch | **670 cobblestone, 8 stone bricks, 2 torches** |
+| clears | 580 (16 trunks, 114 logs) | 660 (18 trunks, 105 logs, 516 leaves, 38 plants) |
+| plots | 1 hall + 3 house | **2 hall + 3 house** |
+
+The cost does not rise: the north side moves onto the ridge top (z -75, level) and the east side to x 27, where the ring road and the
+shaft's reservation make more of it gateway / gap. **Plots (O2 order):** **X1 (hall size, 19 x 13)** x -22..-4, z -65..-53, y 62-63, the
+flat basin north of the storage hall -- **the enchanting + anvil workshop** (flat, next to the hall's iron/ingots); **X2 (hall size,
+13 x 19)** x 6..18, z -56..-38, y 66-70 east of the spoke road -- **the town / meeting hall** (on the road north, seen from both town
+quarters; the ground rises 4: a builder's earthwork); **X3-X5 (house size, 11 x 11)** x -15..-5 z -35..-25, x -36..-26 z -63..-53,
+x 8..18 z -70..-60 -- houses. Gateways: the spoke road north (x 1..7 at z -75), the ring road east (z -38..-35), the path to the shaft
+(z -21). Proofs: escape 0 cut / 0 trapped (1 pit); **built end to end offline 680 / 680** (4 fake builders, 5 rounds, 1 log left);
+the walk on the finished world: of 25,572 outside feet cells reached before, 21 are not after (pathfinder model; pockets), detour p95 0;
+the independent check (protected zones, every record's cells / columns / zones / box + 3, corridors, site prep, the hall's reservation,
+markers, wells): **0 hits**. Map and record: [`map-showcase-1104.txt`](wallext-2026-11-04/map-showcase-1104.txt),
+[`offline-record-showcase-1104.json`](wallext-2026-11-04/offline-record-showcase-1104.json) (both r2 now).
+
+### wallext-02: the old line comes down (wall.mjs `demoCells`, `retireWall`, `demoRecord`, `demoMissing`, `demoDone`; skills.mjs `buildWallDemo`)
+- **What:** the old wall's cells in a BUILT line column strictly inside the extension's join span (its ends, where the extension's
+  sides meet the old line, stay), 0..3 in from the line toward the old town (body, walk, fire-step, approach), never a foundation. On the
+  copy with the r2 ring: **15 columns (x 3..8 and 17..25), 114 blocks: 113 cobblestone + 1 torch** (58 wall, 51 step, 4 post, 1 light).
+  (The owner's "13 columns" was r1's span; r2's east side at x 27 takes the whole 17..25 run.) The blocks go back to the bots' bags.
+- **How:** a project `walldemo` after `wallext` (WAITS until the extension is complete). Its first visit (1) publishes a new generation
+  of the OLD WALL record without those cells (`retired` names them, zones recomputed -- 62 -> 55 boxes -- the line columns read
+  `retired`, 941 -> 827 cells), so no repair rebuilds them and the groundskeeper may level their ground; (2) sites the demolition record:
+  no cells, a clear list of the blocks there now (kind `demolish`). The visit runner's clears dig them (2 builders). **Codex r2 BLOCKER
+  (fixed):** a wall repair's placement sent before the retirement could land after the siting and be owned by nobody -> each visit
+  appends any in-scope retired cell holding a wall block (`demoMissing`, a `late` row), and the record completes only when nothing
+  listed or late stands AND the retirement is 5 min old (`demoDone`); it is never complete at siting.
+- **Then:** the old interior (z >= -19) and the extension's interior (up to and including z -20) are both the inwall stage's boxes; the
+  dug ground (the pre-wall terrain, uneven where terraces stood on low ground) is filled and levelled by its rules.
+- **Offline on the copy** (`bots/scripts/walldemo-offline.mjs`): 114 / 114 dug by fake builders in one round, **0 digs off the list**,
+  only kind `demolish`; the walk from home reaches all 15 line columns after. Record:
+  [`offline-demolition-showcase-1104.json`](wallext-2026-11-04/offline-demolition-showcase-1104.json).
+
+### WD1: the demolition's tripwire rule (two engines)
+`shopread.py.txt`: a `_build op=clear project=walldemo` dig is on the record ONLY when kind=demolish, it is on a generation of the
+walldemo chain's clear list, the line / span / inward come from the **extension's** record (join + side: never the demolition's own),
+the cell's column is a built line column in the **old wall's own cols** (any generation) strictly inside the span, it lies 0..3 in, it
+is an old wall cell (cells or retired, any generation) that is **not a foundation**, and a generation of the extension stood complete
+(completeAt) at or before the dig (+60 s); else clear_outside (` demo`). The walldemo record has no cells: any placement is off_record.
+The groundskeeper's guard (tidy_guard) reserves a retired cell only until its generation's retiredAt (`u|<cell>`), so levelling that
+ground afterwards is not `guarded`. Selftest rows for each refusal (corner, flipped inward, base, outward, unlisted, before the
+extension, no join, the guard before/after, the retirement/siting rows judge nothing); **shopread-mutants 136/136 killed** (15 new).
+Reviews: **Claude r1 3 BLOCKERS** (the reader trusted the demolition's own line/cols; foundations; retired cells reserved from the
+tidy forever) -- all fixed; Claude r2: **APPROVE, no blockers** ([`claude-wd1-review.md`](wallext-2026-11-04/claude-wd1-review.md)). **Codex** r1 (WD1 as first written): no WD1 blocker, mutants fail as intended;
+Codex r2 (the whole r2 + wallext-02 diff, [`codex-r2-review.md`](wallext-2026-11-04/codex-r2-review.md)): 1 BLOCKER, the late repair placement (fixed, above); Codex fix confirmation ([`codex-r2-fix-confirmation.md`](wallext-2026-11-04/codex-r2-fix-confirmation.md)): 1 BLOCKER -- an unread (unloaded) in-scope cell let the demolition complete with a late block unseen -- fixed in `029fea43` (`demoDone` requires every in-scope cell read; regression).
+
+### Tests, suite
+`bots/test/wallext.test.mjs` +11 checks: plot value (and the caps, on the fake server); demo cells (only built line columns strictly
+inside the span, 0..3 in, never a base; positive control: cells outside the span exist); the retirement (cells out, `retired`,
+zones recomputed, idempotent; demoCells reads the retired list); the demolition record (air and other blocks passed, unread refuses;
+the opening rule); **demolished end to end by runVisit** (every listed block dug, nothing else, nothing placed, the rest of the old
+wall standing); the late block (positive control: the list alone reads done) and the settle; the order (after wallext, WALLDEMO=off);
+4 anchored mutants (span ends, depth, base, records) and 6 more wiring lines. Full suite (w30) at `5d26e5b6`: **414/419** (ceilescape, nothing-important-is-orphaned, protected-paths, well: the known base four; craftsync: a known flake). `029fea43` adds only the unread rule + its regression (wallext targeted 1/1).
+
+### Owner decisions now
+None open from this piece. (O1 answered: removed; O2 answered: X1 workshop, X2 town hall, X3-X5 houses -- nothing sites into the
+plots yet; the workshop's own piece will name X1 as its exception to the `land:plot` reservation.)

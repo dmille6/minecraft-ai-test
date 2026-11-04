@@ -86,6 +86,13 @@
 #                      sealed column: overburden_ok any role). Nothing of the OLD wall is the extension's: the old wall's cells are not on
 #                      the extension's record, so an extension placement onto, or a dig of, an old wall cell is off_record / clear_outside
 #                      (the old section is LEFT standing by design: no removal rule exists, and none is granted).
+#   WD1 wall_demo (wallext-02, 11-04, owner O1 "remove left over blocks"; bots/src/wall.mjs demoCells / demoRecord): THE OLD LINE'S
+#                      DEMOLITION (project=walldemo) is the only project that digs old wall cells. A `_build op=clear project=walldemo`
+#                      dig is on the record ONLY when all of: kind=demolish; the cell is on a generation of the walldemo chain's clear
+#                      list; it is a cell (or a `retired` cell) of a generation of the OLD WALL's chain; its column is one of the
+#                      demolition record's line columns (`cols`) and it lies 0..3 in from that line (the record's `line`: axis, line,
+#                      inward); and a generation of the WALLEXT chain stood complete (completeAt) at or before the dig (+ 60 s skew).
+#                      Anything else is clear_outside (` demo`). The walldemo record has no cells: any placement of it is off_record.
 # REPORTED, NOT A GATE: G7 placed_twice (a cell placed twice within 10 min: physically a re-placement after the cell was emptied
 #   -- a repair or a survival dig -- never two blocks in one cell; read r1 both engines).
 #   F2/F4 rows (owner 10-26: every replant skip a counted row): replants moved / deferred / skipped, cells deferred, STUCK ON CELL,
@@ -360,6 +367,55 @@ def sink_place_ok(chain, cell, t_ms):
     return any(ck(c.get('at')) == k for g in sink_in_force(chain, t_ms) for c in g.get('cells') or [] if isinstance(c, dict) and c.get('at'))
 
 
+WALLDEMO = 'walldemo'
+WALLDEMO_DEPTH = 3
+
+
+DEMO_INWARD = {'N': 1, 'S': -1, 'W': 1, 'E': -1}
+
+
+def demo_line_of(ext_chain):
+    """wallext-02 WD1: the shared line, from the EXTENSION's record (never the demolition's own): its newest generation with a join
+    and a side -> (axis, line, frm, to, inward) | None. Pure."""
+    for g in reversed(ext_chain or []):
+        j = g.get('join') or {}
+        inward = DEMO_INWARD.get(g.get('side'))
+        if j.get('axis') in ('x', 'z') and inward and all(isinstance(j.get(f), int) for f in ('line', 'from', 'to')):
+            return j['axis'], j['line'], j['from'], j['to'], inward
+    return None
+
+
+def demo_clear_ok(demo_chain, wall_chain, ext_chain, cell, kind, t_ms, skew_ms=60_000):
+    """wallext-02 WD1: is a walldemo dig a listed OLD WALL cell (never a foundation) of a built line column strictly inside the
+    extension's join span, 0..WALLDEMO_DEPTH in from the line, dug after a generation of the extension stood complete? -> bool. Pure.
+    The line, the span and the inward sign are the extension record's; the built line columns the old wall's own `cols`."""
+    if kind != 'demolish' or not isinstance(cell, (list, tuple)) or len(cell) != 3 or t_ms is None:
+        return False
+    k = ck(cell)
+    if not any(ck(c.get('at')) == k for g in demo_chain or [] for c in g.get('clear') or [] if isinstance(c, dict) and c.get('at')):
+        return False
+    ln = demo_line_of(ext_chain)
+    if ln is None:
+        return False
+    axis, line, frm, to, inward = ln
+    along, across = (cell[0], cell[2]) if axis == 'z' else (cell[2], cell[0])
+    if not (frm < along < to) or not (0 <= (across - line) * inward <= WALLDEMO_DEPTH):
+        return False
+    built = set()
+    for g in wall_chain or []:
+        for c in g.get('cols') or []:
+            if not isinstance(c, dict):
+                continue
+            a, b = (c.get('x'), c.get('z')) if axis == 'z' else (c.get('z'), c.get('x'))
+            if b == line and (c.get('s') in ('wall', 'post') or (c.get('s') == 'open' and c.get('why') == 'retired')):
+                built.add(a)
+    if along not in built:
+        return False
+    if not any(ck(c.get('at')) == k and c.get('role') != 'base' for g in wall_chain or [] for c in (g.get('cells') or []) + (g.get('retired') or []) if isinstance(c, dict) and c.get('at')):
+        return False
+    return any(g.get('structure_complete') and isinstance(g.get('completeAt'), (int, float)) and g['completeAt'] <= t_ms + skew_ms for g in ext_chain or [])
+
+
 def sink_clear_ok(chain, cell, kind, t_ms):
     """picker-01: is a sink dig planned by a generation in force? -> bool. Pure. kind=foreign (a block in an open record cell):
     a cell; any other kind (tree, leaves, plant, cut): an entry of the clear list."""
@@ -423,7 +479,8 @@ def tidy_guarded(cell, t_ms, guard):
     read names such an item `guarded` so the tripwire's tree-debris split -- a log or leaves block cleared off a list is a WATCH --
     never softens it: Codex r1 BLOCKER, a log on another project's cell read as debris.)"""
     g = guard.get(ck(cell))
-    return g is not None and (t_ms is None or g <= t_ms)
+    u = guard.get('u|' + ck(cell))   # wallext-02: reserved only until its retirement
+    return g is not None and (t_ms is None or g <= t_ms) and not (u is not None and t_ms is not None and t_ms >= u)
 
 
 def overburden_ok(rec, cell, max_up=3, any_role=False):
@@ -679,6 +736,14 @@ def tidy_guard(pr):
                 if isinstance(c, dict) and c.get('at'):
                     k = ck(c['at'])
                     out[k] = min(out.get(k, t), t)
+            # wallext-02 (Claude WD1 r1 BLOCKER 3): a cell a later generation RETIRES (the old wall's line, demolished) is no longer
+            # reserved from that generation's retiredAt: its ground is the groundskeeper's (key 'u|<cell>': reserved until)
+            ra = rec.get('retiredAt')
+            if isinstance(ra, (int, float)):
+                for c in rec.get('retired') or []:
+                    if isinstance(c, dict) and c.get('at'):
+                        u = 'u|' + ck(c['at'])
+                        out[u] = min(out.get(u, ra), ra)
     return out
 
 
@@ -1071,6 +1136,13 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                         lrec = project_of(projects.get(pool), LAND).get('record') or {}
                         ok, why = seedgrass_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms, guards[pool], (lrec.get('park') or {}).get('box'), tidy_heads_at(project_of(projects.get(pool), TIDY).get('chain') or [], t_ms))
+                    elif plot == WALLDEMO:
+                        # wallext-02 WD1: an old wall cell of the shared line, listed, after the extension stood (demo_clear_ok)
+                        t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
+                        pr = projects.get(pool)
+                        chain_of = lambda pl: project_of(pr, pl).get('chain') or ([project_of(pr, pl)['record']] if project_of(pr, pl).get('record') else [])
+                        ok = demo_clear_ok(chain_of(plot) or [rec], chain_of('wall'), chain_of('wallext'), cell, f.get('kind'), t_ms)
+                        why = '' if ok else ' demo'
                     elif plot in SINK_PLOTS:
                         # picker-01: the clear lists (kind=foreign: the cells) of the generations in force when it was dug
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
@@ -1563,6 +1635,42 @@ def selftest():
     assert xc('5,72,-25', 'leaves') == 0 and xc('5,69,-25', 'foreign') == 0 and xc('6,70,-25', 'overburden') == 0, 'its clear list, its own cell, the cap over a step'
     assert xc('5,69,5', 'foreign') == 1 and xc('5,68,5', 'leaves') == 1 and xc('6,70,5', 'overburden') == 1, 'a dig of the OLD wall (any kind) is outside its record'
     assert J(base + [R('_build', 'project=wall op=clear seg=W-03 cell=5,69,5 block=cobblestone kind=foreign', s=14)], xb)['clear_outside'] == 0, 'positive control: the old wall\'s own foreign dig'
+    # wallext-02 WD1: the old line's demolition digs only listed old wall cells of a built line column strictly inside the extension's
+    # span, 0..3 in (the extension's own line and side), never a foundation, after the extension stood
+    T0MS_ = int(t0.timestamp() * 1000)
+    W_ = lambda x, y, z, role='wall': {'at': [x, y, z], 'role': role, 'seg': 'W-03'}
+    dwall = {'v': 1, 'gen': 2, 'prev': 1, 'cols': [{'x': 5, 'z': 5, 's': 'open', 'why': 'retired'}, {'x': 6, 'z': 5, 's': 'open'}, {'x': 0, 'z': 5, 's': 'wall'}, {'x': 7, 'z': 5, 's': 'wall'}],
+             'cells': [W_(5, 68, 5), W_(6, 69, 5), W_(5, 69, 9, 'step'), W_(5, 71, 6, 'step'), W_(5, 67, 5, 'base'), W_(0, 69, 5), W_(7, 69, 4)],
+             'retired': [W_(5, 69, 5), W_(5, 70, 6, 'step')], 'retiredAt': T0MS_ - 5000, 'clear': [], 'replant': []}
+    L_ = lambda *xyz: {'at': list(xyz), 'kind': 'demolish', 'name': 'cobblestone'}
+    drec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'walldemo@1', 'plot': 'walldemo', 'cells': [], 'replant': [], 'cols': [[5, 5]],
+            'clear': [L_(5, 69, 5), L_(5, 68, 5), L_(6, 69, 5), L_(5, 69, 9), L_(5, 70, 5), L_(5, 70, 6), L_(5, 67, 5), L_(0, 69, 5), L_(7, 69, 4)]}
+    xdone = dict(xrec, side='N', join={'axis': 'z', 'line': 5, 'from': 0, 'to': 10}, structure_complete=True, completeAt=T0MS_ - 1000)
+    db = lambda ext=xdone: PP(wall={'record': dwall, 'records_files': 1, 'leases': {}}, wallext={'record': ext, 'records_files': 1, 'leases': {}}, walldemo={'record': drec, 'records_files': 1, 'leases': {}})
+    dc = lambda c, kind='demolish', pp=None: J(base + [R('_build', 'project=walldemo op=clear seg=D-00 cell=%s block=cobblestone kind=%s' % (c, kind), s=14)], pp or db())['clear_outside']
+    assert dc('5,69,5') == 0 and dc('5,68,5') == 0 and dc('5,70,6') == 0, 'a retired / still-listed old wall cell of a built line column, 0..1 in, after the extension stood'
+    assert dc('5,69,5', kind='leaves') == 1, 'only kind=demolish'
+    assert dc('6,69,5') == 1, 'an old wall cell of a line column that never stood as wall'
+    assert dc('5,69,9') == 1, 'four in from the line'
+    assert dc('5,70,5') == 1, 'listed, but no old wall cell'
+    assert dc('5,71,6') == 1, 'an old wall cell of its line column 1 in, but not listed'
+    assert dc('5,67,5') == 1, 'a foundation (base) is ground, never demolished'
+    assert dc('0,69,5') == 1, 'the span\'s end (a corner where the extension meets the old line)'
+    assert dc('7,69,4') == 1, 'the wrong side of the line (outward)'
+    assert dc('5,70,6', pp=db(dict(xdone, side='S'))) == 1, 'positive control: the same cell with the line\'s inward flipped'
+    assert dc('5,69,5', pp=db(dict(xrec, structure_complete=True, completeAt=T0MS_ + 600_000, side='N', join=xdone['join']))) == 1, 'before the extension stood'
+    assert dc('5,69,5', pp=db(dict(xrec, side='N', join=xdone['join']))) == 1, 'the extension never complete'
+    assert dc('5,69,5', pp=db(dict(xdone, structure_complete=False))) == 1, 'a completeAt on a generation that is not complete'
+    assert dc('5,69,5', pp=db(dict(xdone, join=None))) == 1, 'an extension with no join'
+    assert J(base + [R('_build', 'project=walldemo op=place seg=D-00 cell=5,69,5 block=cobblestone', s=14)], db())['off_record'] == 1, 'the demolition places nothing'
+    rr = J(base + [R('_build', 'project=wall op=retired cell=0,70,0 kind=cells114/cols15 gen=5', s=14), R('_build', 'project=walldemo op=sited cell=0,70,0 kind=clear114/cols15/skipped0 gen=1', s=15)], db())
+    assert rr['off_record'] == 0 and rr['clear_outside'] == 0 and rr['zone'] == 0, ('the retirement and the siting rows judge nothing', rr)
+    # the tidy guard: a retired cell is reserved until its retirement, then it is the groundskeeper's ground (Claude WD1 r1 BLOCKER 3)
+    dwall1 = dict(dwall, gen=1, prev=None, cells=dwall['cells'] + dwall['retired'], retired=[], at=T0MS_ - 60_000)
+    dwall1.pop('retiredAt')
+    tg = tidy_guard({'projects': {'wall': {'record': dwall, 'chain': [dwall1, dict(dwall, at=T0MS_ - 5000)]}}})
+    assert tidy_guarded([5, 70, 6], T0MS_, tg) is False and tidy_guarded([5, 70, 6], T0MS_ - 10_000, tg) is True, 'retired at T0-5 s'
+    assert tidy_guarded([5, 71, 6], T0MS_, tg) is True, 'positive control: a cell still on the wall record stays reserved'
     # its completion is counted, never the workshop's (the world evidence and H8 stay the workshop's)
     rc = J(base + [R('_structure_complete', 'project=monument op=complete kind=ziggurat@1 gen=9', s=30, bot='board-b-Alpha')], both)
     assert rc['complete_towns'] == 2 and rc['projects_complete'] == 1, rc

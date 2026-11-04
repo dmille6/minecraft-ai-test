@@ -144,6 +144,7 @@ const REQUIRED = [
   'docs/reports/wallext-design-2026-11-04.md',
   'docs/reports/wallext-2026-11-04/codex-design.md',
   'docs/reports/wallext-2026-11-04/offline-record-showcase-1104.json',
+  'docs/reports/wallext-2026-11-04/offline-demolition-showcase-1104.json',
   // copperhall-01 (11-02): the showcase copper hall, its blueprint and its test over the showcase terrace's own region export
   'bots/src/copperhall.mjs',
   'bots/src/blueprints/hall@1.json',
