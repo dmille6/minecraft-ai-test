@@ -192,8 +192,9 @@ t('NO WATER PATH READS IT — checked globally, not in a window', () => {
   // water path reading the claim is worse than no guard.
   const reflex = strip('../src/reflex.mjs')
   const calls = [...reflex.matchAll(/bodyClaimFor\??\.?\(\s*'([a-z_]+)'\s*\)/g)].map(m => m[1])
-  assert.deepEqual(calls.sort(), ['climb', 'stair'],
-    `expected exactly the two typed reads 'climb' and 'stair' in reflex.mjs, found ${calls.length}: ${calls}`)
+  // shafttrap-02 reads 'stair' a second time (the hand-over never walks up a bot whose skill holds the stair): no water path
+  assert.deepEqual(calls.sort(), ['climb', 'stair', 'stair'],
+    `expected exactly the typed reads 'climb' and 'stair' (x2) in reflex.mjs, found ${calls.length}: ${calls}`)
   // both reads sit on ONE line, the entombment branch's guard -- nowhere else
   const line = reflex.split('\n').find(l => /bodyClaimFor\?\.\('climb'\)/.test(l))
   assert.ok(line && /bodyClaimFor\?\.\('stair'\)/.test(line), "the 'stair' read must share the entombment guard line with 'climb'")

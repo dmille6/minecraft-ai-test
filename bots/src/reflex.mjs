@@ -2926,9 +2926,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const stairOn = (mstate === 'climb' || mstate === 'need_scaffold') && !pocketing && !pocketPending && !inDanger ? stairExitCandidate() : null
         if (stairOn) {
           marooned = true
-          let h = 'skip'
-          try { maroonGrant = await takeBody(bot, runner, 'marooned', PRIORITY.escape); h = await stairExitFirst('marooned', () => maroonGrant, stairOn) }
-          finally { marooned = false; giveBody(runner, maroonGrant, 'stair egress ended'); maroonGrant = null }
+          let h = 'skip', sg = null
+          try { sg = await takeBody(bot, runner, 'marooned', PRIORITY.escape); h = await stairExitFirst('marooned', () => sg, stairOn) }
+          finally { marooned = false; giveBody(runner, sg, 'stair egress ended') }
           if (h === 'out' || h === 'yield' || h === 'retry') mstate = 'none'
         }
         if (!pocketing && !pocketPending && mstate === 'need_scaffold' && !inDanger &&
@@ -3341,7 +3341,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // climb could classify the ceiling. Skipped while the ceiling is a flood
         // risk, so the firing reaches the flood branch instead.
         // SHAFTTRAP-02: not while a hand-over to the stair's egress is due (a failed one waits EGRESS_RETRY_MS: then this runs)
-        if (escapeFailures >= ESCAPE_GIVE_UP_AFTER && !ceilingFloodRisk(bot) && !stairExitCandidate()) {
+        if (escapeFailures >= ESCAPE_GIVE_UP_AFTER && stairExitCandidate()) { /* the hand-over below runs first */ } else
+        if (escapeFailures >= ESCAPE_GIVE_UP_AFTER && !ceilingFloodRisk(bot)) {
           // Hand it to the watchdog, which can relocate, go home, or reconnect.
           // Repeating an escape that has failed four times is not a strategy.
           escapeGiveUps++
