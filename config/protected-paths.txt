@@ -102,6 +102,7 @@ bots/src/exit-contract.mjs
 bots/src/recovery.mjs
 bots/src/relocate.mjs
 bots/src/poolescape.mjs
+bots/src/swimunder.mjs
 bots/src/climbflood.mjs
 bots/src/floodpocket.mjs
 bots/src/watchdog.mjs
