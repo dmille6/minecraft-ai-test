@@ -150,14 +150,15 @@
    "title": "F4 minelava-01: mining probes lava ahead, seals, places blocks (slower but safer, owner M7)",
    "owner_date": "2026-10-23",
    "memory": [
+    "owner-design-answers-1023.md",
     "owner-mineshaft-answers-1023.md",
-    "owner-design-answers-1023.md"
+    "owner-water-boats-bridges-1101.md"
    ],
    "kind": "canary",
    "lane": "survival",
    "state": "open",
    "owner": "control session",
-   "next_step": "Build minelava-01 (F4, tier 3; natural obsidian only, no water on lava per O5) after lavatarget-01",
+   "next_step": "Build minelava-01 (F4, tier 3): probe lava ahead, seal, place blocks. CORRECTION: owner 11-01 (owner-water-boats-bridges-1101) SUPERSEDES the old no-water-on-lava rule -- water buckets on lava are allowed as a tool (deep miner first). Design with Claude + Codex, Paper sandbox, queue S lane",
    "max_quiet_hours": 48,
    "depends_on": [
     {
@@ -172,7 +173,7 @@
      "minelava"
     ]
    },
-   "note": "AUDIT 10-31: never started. grep matches only design merge d38d7726."
+   "note": "AUDIT 10-31: never started. grep matches only design merge d38d7726. | stall triage 11-04 ~05Z (status session): prerequisite lavatarget done 11-01; superseded O5/M9 water prohibition removed from next_step"
   },
   {
    "id": "mine-safety-lavasight",
@@ -1299,7 +1300,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Read the hive-b monument and board-a house1 records; check whether zigfleet-02's voidfill/zigtidy/stale-stamp fixes cover them; else build a fix",
+   "next_step": "monustuck-01 (branch on 53fd28ee, row monustuck-1103) is queued P after shafttrap-02: it targets the stuck ziggurats on seed 355,73,147 (bamboo under F-E, board-d wedged dig walk) = the hive-a/isolated-a/isolated-c/placebo-c monument STUCK alarms. Read its +90/+180; then re-check board-a house1 and the 355,73,147 walls (hive-a wall stuck_on_cell 307,69,151) and fix what monustuck leaves",
    "max_quiet_hours": 24,
    "depends_on": [
     {
@@ -1309,14 +1310,19 @@
    "evidence": {
     "grep": [
      "monument stuck",
-     "housestuck"
+     "housestuck",
+     "monustuck"
+    ],
+    "runs": [
+     "monustuck-01"
     ]
    },
    "covers_alarms": [
+    "goal:*/house*@*",
     "goal:*/monument@*",
-    "goal:*/house*@*"
+    "goal:*/wall@*"
    ],
-   "note": "AUDIT 10-31: STUCK alarms with no owner. No work yet: patterns are expected names (no match)."
+   "note": "AUDIT 10-31: STUCK alarms with no owner. No work yet: patterns are expected names (no match). | stall triage 11-04 ~05Z (status session): monustuck-01 is the fix in the queue; walls on the same seed given to this row (they had no owner)"
   },
   {
    "id": "building-tier-trunk",
@@ -1948,11 +1954,11 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "After B5 says frontier >= greedy: shadow 3 towns, then queue assign-01 (live only if frontier >= greedy; else greedy live, frontier in shadow)",
+   "next_step": "B5 read INCONCLUSIVE (coop-b5-paper-arms done): per design B6/B7 stay unlaunched and greedy stays live. The follow-up is the rule-based assigner (row jobassign-1103, jobshadow-01 shadow on the canary host): apply its +24 h go/no-go, then decide here whether assign-01 is still wanted or this row is dropped (owner)",
    "max_quiet_hours": 168,
    "depends_on": [
     {
-     "item": "coop-b5-paper-arms"
+     "item": "jobassign-1103"
     }
    ],
    "evidence": {
@@ -1960,10 +1966,11 @@
      "assign-01*"
     ],
     "grep": [
-     "assign-01"
+     "assign-01",
+     "jobshadow"
     ]
    },
-   "note": "Never started: no commit matches 'assign-01'."
+   "note": "Never started: no commit matches 'assign-01'. | stall triage 11-04 ~05Z (status session): re-pointed at jobassign-1103 (B5 INCONCLUSIVE means the frontier>=greedy precondition never held)"
   },
   {
    "id": "comms-stage1-rest",
@@ -2609,7 +2616,7 @@
    ],
    "kind": "canary",
    "lane": "progress",
-   "state": "open",
+   "state": "done",
    "owner": "control session",
    "next_step": "cooldown15-01 (45ed1239 on dfb3ff13, patch set) queued after fleetbuild-01, ahead of fewerdec-01; read +90/+180: generic gate + own lines (calls/min/bot DiD >= +15%; control 5080 p95 <= 1.2x own pre and <= 5 s; repeat_loop share +<=5 pp control-adjusted; items/value per bot-h and in-skill share reported); after promotion a 60-min 5080 p95 tripwire (rollback LLM_DECISION_COOLDOWN_CAP_MS=30000)",
    "max_quiet_hours": 48,
@@ -2636,7 +2643,11 @@
      "until": "closed"
     }
    ],
-   "note": "Not an owner decision: the control session's call (owner away) under serving D and the owner setting fast path 10-16. Env-only (CANARY_ENV) was not possible at 4 pools: model-env is capped at draw_k 1..2, so the cap is in config.mjs like the 09-11 20 s clamp."
+   "note": "Not an owner decision: the control session's call (owner away) under serving D and the owner setting fast path 10-16. Env-only (CANARY_ENV) was not possible at 4 pools: model-env is capped at draw_k 1..2, so the cap is in config.mjs like the 09-11 20 s clamp. | stall triage 11-04 ~05Z (status session): closed on the cooldown15-02 promotion",
+   "done": {
+    "when": "2026-11-03",
+    "evidence": "journal cooldown15-02 (re-run of cooldown15-01) KEEP 2026-11-03T19:14Z, promoted 19:24Z 53fd28ee; fleet 0542fccb carries bots/test/cooldown-cap.test.mjs"
+   }
   },
   {
    "id": "serving-d-fewer-decisions",
