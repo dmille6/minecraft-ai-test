@@ -161,6 +161,9 @@ const WIRES = {
   'the order sees the upkeep': [SK, /if \(r\.blueprint === CANEFARM_BLUEPRINT\) return tidy && !!caneDueFor\(bot, r\)/],
   'the cut re-reads the bottom block': [SK, /String\(read\(\.\.\.c\.at\)\?\.name \?\? ''\) !== 'sugar_cane' \|\| !digReachFrom\(e\.feet\(\), cut\)\) continue/],
   'the bank never takes the bag\'s own': [SK, /back = await matsBank\(ctx, \['sugar_cane'\], \{ sugar_cane: bk\.ownLeft \}, signal, \{ sugar_cane: bk\.bank \}/],
+  'an unsited bed with no site WAITS town-wide (Codex r1 BLOCKER 1)': [SK, /if \(p\.plot === CANEFARM_PLOT && !rec && Date\.now\(\) < siteWaitUntil\(CANEFARM_PLOT, dir\)\) return \{ plot: p\.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true \}/],
+  'no site sets the wait, stop site_wait': [SK, /if \(!s\.ok\) \{ siteWaitSet\(CANEFARM_PLOT, 30 \* 60_000, s\.why\); return out\('no_effect', 'no_site', `no cane bed site \(\$\{s\.why\}\)`\.slice\(0, 160\), \{ stop: 'site_wait' \}\) \}/],
+  'no cane anywhere completes the bed (Codex r1 BLOCKER 2)': [SK, /\(x === 'open' && !caneAnywhere\)\)\) \{/],
 }
 await t('wiring: the project, its switch, the visit, the upkeep, the cut\'s re-read, the bank floor', () => {
   for (const [what, [src, re]] of Object.entries(WIRES)) assert.strictEqual((src.match(new RegExp(re.source, 'g')) ?? []).length, 1, what)
@@ -170,6 +173,8 @@ await t('MUTANTS KILLED: each wiring check fails on its line broken (anchor pres
     'the cut re-reads the bottom block': [SK, "String(read(...c.at)?.name ?? '') !== 'sugar_cane' || !digReachFrom(e.feet(), cut)) continue", '!digReachFrom(e.feet(), cut)) continue'],
     'the bank never takes the bag\'s own': [SK, "{ sugar_cane: bk.ownLeft }, signal, { sugar_cane: bk.bank }", '{ sugar_cane: 0 }, signal, {}'],
     'the visit': [SK, 'if (proj.plot === CANEFARM_PLOT) return buildCaneFarm(ctx, args, signal)', 'if (false) return null'],
+    'an unsited bed with no site WAITS town-wide (Codex r1 BLOCKER 1)': [SK, 'if (p.plot === CANEFARM_PLOT && !rec && Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return', 'if (false) return'],
+    'no cane anywhere completes the bed (Codex r1 BLOCKER 2)': [SK, " || (x === 'open' && !caneAnywhere)))", '))'],
   }
   for (const [what, [src, old, neu]] of Object.entries(lines)) {
     assert.strictEqual(src.split(old).length, 2, `ANCHOR MISSING OR NOT UNIQUE: ${what}`)

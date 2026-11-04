@@ -37,7 +37,7 @@ export const CANE = Object.freeze({
   minFree: 3,               // free bag slots a harvest needs
 })
 /** The ground a cane block stands on (vanilla #dirt + #sand, as they occur at a water edge). */
-export const CANE_SOIL = /^(grass_block|dirt|coarse_dirt|podzol|rooted_dirt|mycelium|moss_block|mud|muddy_mangrove_roots|sand|red_sand|suspicious_sand|suspicious_gravel)$/
+export const CANE_SOIL = /^(grass_block|dirt|coarse_dirt|podzol|rooted_dirt|mycelium|moss_block|mud|muddy_mangrove_roots|sand|red_sand|suspicious_sand)$/
 /** A plant a visit digs from an OPEN cane cell before planting (buildrun.mjs foreignKind's scaffold class): a small plant only. */
 export const CANE_FOREIGN = /^(short_grass|tall_grass|fern|large_fern|dandelion|poppy|[a-z_]+_tulip|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|allium|blue_orchid|leaf_litter|wildflowers|pink_petals|short_dry_grass|tall_dry_grass|bush|dead_bush|snow)$/
 /** The record's palette: a cane cell takes sugar_cane (its block reads as the item). */

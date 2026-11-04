@@ -17242,6 +17242,8 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // sited one says its furnishings' needs (`_enchantshop_gate`, town-wide cadence: the requests board's input)
         if (p.plot === ENCHANT_PLOT && !rec && !enchantOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         if (p.plot === ENCHANT_PLOT && rec && b) enchantGateRows(b, rec, now)
+        // canefarm-01 r1 (Codex BLOCKER 1): an unsited cane bed whose siting found no site WAITS town-wide (siteWaitUntil)
+        if (p.plot === CANEFARM_PLOT && !rec && Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
         // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
@@ -19422,6 +19424,14 @@ async function hubUpkeepVisit (ctx, rec, signal, out) {
 /** The hall's steps, for the tests and a sandbox drive: never called by the bot itself. */
 export const _hubUpkeep = Object.freeze({ hubClerkOne, hubClerkPlan, hubSignWork, hubUpkeepDue, hubCargoKeeps, hubSiteFor, hubRegistryRefresh })
 
+/** A TOWN-WIDE SITING WAIT (enchantshop-01 r5, canefarm-01 r1; Codex BLOCKERS): a project whose siting found no site is WAITING for
+ *  every bot of the town until the stamp (a file beside its record) -- the order offers the next project meanwhile, never a loop of
+ *  no_site visits, never the order's own 24-h no_site retry. Never throws (unreadable: no wait). */
+const siteWaitFile = (plot, dir = townDir()) => path.join(dir, `${projKeyOf(plot)}.sitewait.json`)
+function siteWaitUntil (plot, dir = townDir()) { try { return Number(JSON.parse(fs.readFileSync(siteWaitFile(plot, dir), 'utf8'))?.until) || 0 } catch { return 0 } }
+function siteWaitSet (plot, ms, why = null) {
+  try { const f = siteWaitFile(plot); const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ until: Date.now() + ms, why: String(why ?? '').slice(0, 80), at: Date.now() })); fs.renameSync(tmp, f) } catch { /* no wait: the next visit tries again */ }
+}
 // ================================================================================================================================
 // ENCHANTSHOP-01: THE ENCHANTING + ANVIL WORKSHOP (enchantshop.mjs has every rule; design docs/reports/enchantshop-design-2026-11-04.md
 // on main). The shell is an ordinary blueprint project (build_shop's visit); this is its siting on the wall extension's hall-size plot,
@@ -19432,13 +19442,12 @@ const ENCH = ENCHANTSHOP
 /** The wall extension's record now -> rec | null. Never throws. */
 function enchantExtNow (dir = townDir()) { try { const h = recordHead(dir, projKeyOf(WALLEXT_PLOT)); return h.ok ? (h.head?.rec ?? null) : null } catch { return null } }
 /** r4 (offline 11-04 18:45Z on the re-sited X1: a 9-log spruce on the plot is out of a builder's reach, the screen says
- *  tree_out_of_reach): a siting that found NO site WAITS for ENCHANT_NOSITE_MS (process-wide) -- else the order would offer the
+ *  tree_out_of_reach): a siting that found NO site WAITS for ENCHANT_NOSITE_MS (town-wide: siteWaitSet) -- else the order would offer the
  *  unsited workshop to every bot, each visit ending no_site (the copper hall's dead end). The groundskeeper's in-wall stage fells the
  *  extension's trees meanwhile; the next try after the wait sites the workshop. */
 const ENCHANT_NOSITE_MS = 30 * 60_000
-let enchNoSiteUntil = 0
-/** Is the unsited workshop open (the extension sited with its hall-size plot, no failed siting waiting)? Never throws. */
-function enchantOpenNow (dir = townDir()) { try { return ENCH.on && Date.now() >= enchNoSiteUntil && enchantOpening(enchantExtNow(dir)).open } catch { return false } }
+/** Is the unsited workshop open (the extension sited with its hall-size plot, no failed siting waiting town-wide)? Never throws. */
+function enchantOpenNow (dir = townDir()) { try { return ENCH.on && Date.now() >= siteWaitUntil(ENCHANT_PLOT, dir) && enchantOpening(enchantExtNow(dir)).open } catch { return false } }
 /** The bot's world read for the fit-out (null: unloaded). */
 const enchantRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
 /** THE FITTER'S CARGO (r1, Codex code r1 BLOCKER): what this bot drew or made for a furnishing and has not placed or banked, in the
@@ -19818,8 +19827,10 @@ async function buildShopVisit (ctx, args, signal) {
       // enchantshop-01: the workshop sites on the wall extension's hall-size plot only (enchantSiteFor; it WAITS until the plot exists)
       const ss = await enchantSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
       check(signal)
-      if (!ss.ok && ss.why !== 'aborted') enchNoSiteUntil = Date.now() + ENCHANT_NOSITE_MS
-      if (!ss.ok) return out('no_effect', ss.why === 'no_extension' || ss.why === 'no_hall_plot' ? 'plot_wait' : 'no_site', `no enchanting-workshop site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''}) ${(ss.tried ?? []).join(' ')}`.slice(0, 160), { stop: 'no_site' })
+      // r5 (Codex r1 on r4, BLOCKER 3): the wait is TOWN-WIDE (a file) and the stop is `site_wait`, never `no_site` -- the order's own
+      // 24-h no_site retry (shop.mjs buildOrder) would otherwise hold this bot a day after the wait ends
+      if (!ss.ok && ss.why !== 'aborted') siteWaitSet(ENCHANT_PLOT, ENCHANT_NOSITE_MS, ss.why)
+      if (!ss.ok) return out('no_effect', ss.why === 'no_extension' || ss.why === 'no_hall_plot' ? 'plot_wait' : 'no_site', `no enchanting-workshop site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''}) ${(ss.tried ?? []).join(' ')}`.slice(0, 160), { stop: 'site_wait' })
       const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.plotId}/${ss.record.cells.length}cells/${ss.record.fit.length}fit/${ss.record.earthwork.fill}fill/${ss.record.earthwork.cut}cut`, gen: pub.gen }) }) } catch { /* telemetry */ } }
@@ -23418,10 +23429,10 @@ async function buildCaneFarm (ctx, args, signal) {
   let rh = recordHead(dir, key)
   if (!rh.ok) return out('no_effect', 'record_unreadable', 'the cane bed record could not be read')
   if (!rh.head) {
-    if (Date.now() < (bot.caneNoSiteUntil ?? 0)) return out('no_effect', 'no_site', 'no cane bed site (backing off)', { stop: 'no_site' })
+    if (Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return out('no_effect', 'no_site', 'no cane bed site (waiting)', { stop: 'site_wait' })
     let s
     try { s = siteCaneFarm(planReader(bot), { home, ...caneInputs(bot, c, h, dir) }) } catch { return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' }) }
-    if (!s.ok) { bot.caneNoSiteUntil = Date.now() + 30 * 60_000; return out('no_effect', 'no_site', `no cane bed site (${s.why})`.slice(0, 160), { stop: 'no_site' }) }
+    if (!s.ok) { siteWaitSet(CANEFARM_PLOT, 30 * 60_000, s.why); return out('no_effect', 'no_site', `no cane bed site (${s.why})`.slice(0, 160), { stop: 'site_wait' }) }
     const record = s.record
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...record, state: 'open' }), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
@@ -23481,7 +23492,11 @@ async function buildCaneFarm (ctx, args, signal) {
       alsoDone: (q, rd) => caneAlsoDone(q, rd ?? read, { noCane: !hasCane() }) }, effects, { deadline, maxSteps: 200 })
     // COMPLETE: every cell planted (or dry: named in the census) -- the first planting done; later visits are upkeep
     const st = caneCells(rec).map(q => caneState(read, q))
-    if (r.stop === 'complete' && !rec.structure_complete && st.every(x => x === 'ripe' || x === 'growing' || x === 'dry')) {
+    // r1 (Codex BLOCKER 2): an open cell with NO cane anywhere (the bag and the town) is no reason to hold the order -- the record
+    // completes and the open cells are the upkeep's replant (caneDue) once cane arrives, as the crop farm's with no seed
+    let caneAnywhere = hasCane()
+    try { caneAnywhere = caneAnywhere || (Number(matsTownStock(bot)?.stock?.sugar_cane) || 0) > 0 } catch { /* the bag's word */ }
+    if (r.stop === 'complete' && !rec.structure_complete && st.every(x => x === 'ripe' || x === 'growing' || x === 'dry' || (x === 'open' && !caneAnywhere))) {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null
       if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: CANEFARM_PLOT, op: 'complete', kind: CANEFARM_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
