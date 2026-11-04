@@ -11,7 +11,8 @@
 import { log, logEvent } from './logger.mjs'
 import { lavatargetModeDetail } from './lavatarget.mjs'   // lavatarget-01's licence row
 import { snapshot } from './state.mjs'
-import { attachPlaceAudit, placeAuditOn } from './placeaudit.mjs'   // placeaudit-01
+import { attachPlaceAudit, placeAuditOn, climbOf, CLIMB } from './placeaudit.mjs'   // placeaudit-01; access-02: the climbs ledger
+import { climbAppend } from './buildproj.mjs'   // access-02
 import { configuredHome } from './townground.mjs'   // placeaudit-01
 import { config } from './config.mjs'
 import { kitSearchModeDetail, ironpickModeDetail } from './toolkit.mjs'
@@ -120,7 +121,11 @@ export function installFeatures (bot) {
     if (on) {
       const pa = attachPlaceAudit(bot, {
         home: configuredHome(config.world),
-        emitPlace: ({ detail, args }) => { try { logEvent({ kind: 'place_town', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+        emitPlace: ({ detail, args }) => {
+          try { logEvent({ kind: 'place_town', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ }
+          // access-02: a surface climb in town goes to this bot's climbs ledger (the groundskeeper's staircase input)
+          try { if (climbOf(args, configuredHome(config.world))) climbAppend(poolStateDir(config.memory.pool), bot.username ?? 'bot', { ...args, t: Date.now() }, { maxLines: CLIMB.maxLines, keepLines: CLIMB.keepLines }) } catch { /* the ledger is best effort */ }
+        },
         emitSummary: ({ detail, args }) => { try { logEvent({ kind: 'place_town_sum', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
       })
       if (pa) bot.once?.('end', () => { try { pa.final() } catch { /* telemetry */ } })

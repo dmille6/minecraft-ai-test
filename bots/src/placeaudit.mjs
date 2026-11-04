@@ -137,3 +137,17 @@ export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, timers = 
   const final = () => { if (closed) return; flush(); closed = true; if (timer) clearInterval(timer) }
   return { final, flush, stats }
 }
+
+// ================================================================================================================================
+// ACCESS-02: THE CLIMBS LEDGER (the groundskeeper's second input for its staircases). LIVE showcase 11-04 15:52-21:40Z: 1,389
+// `_place_town` rows; 173 pathfinder/reflex pillars and steps PLACED at the surface band (y >= home.y - 4) in 136 cells, 33 3x3
+// spots with two or more (the busiest 17). The instrument stays an observer: it only APPENDS what it saw to a per-bot town file
+// (`climbs-<bot>.jsonl`, bounded); the groundskeeper's inwall survey reads every bot's file (tidy.mjs climbSpots) and decides there.
+// ================================================================================================================================
+export const CLIMB = Object.freeze({ band: 4, keepMs: 48 * 60 * 60_000, maxLines: 2000, keepLines: 1000 })
+/** Is a `_place_town` placement a CLIMB the ledger keeps? -> bool. Pure. Placed, in the town, by the pathfinder or a reflex, a pillar or
+ *  a step, at the surface band (no deeper than home.y - CLIMB.band: a mine under the town is no climb). */
+export function climbOf (args, home, T = CLIMB) {
+  return !!args && args.outcome === 'placed' && args.zone === 'town' && (args.reason === 'pathfinder' || args.reason === 'reflex') &&
+    (args.shape === 'pillar' || args.shape === 'step') && Number.isFinite(args.y) && !!home && args.y >= Math.floor(home.y) - T.band
+}

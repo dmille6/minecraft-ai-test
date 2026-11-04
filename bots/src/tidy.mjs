@@ -1058,6 +1058,54 @@ export function planAccessStair (read, { x, z, top, base, col, cellCols = new Se
 }
 
 /**
+ * ACCESS-02: THE CLIMB SPOTS from the bots' own placements (placeaudit.mjs climbOf -> buildproj.mjs climbRead) -> [{ col: [x, z], n }]
+ * busiest first. Pure. A spot is a column with at least `min` logged climbs within Chebyshev 1 of it (within `keepMs`); a chosen spot
+ * takes every column within `gap` of it. LIVE showcase 11-04: 33 such 3x3 spots in 6 h, the busiest 17 placements.
+ */
+export function climbSpots (climbs = [], { now = Date.now(), keepMs = 48 * 60 * 60_000, min = 2, gap = 2 } = {}) {
+  const cnt = new Map(), own = new Map()
+  for (const c of climbs ?? []) {
+    if (!(now - c.t <= keepMs)) continue
+    own.set(k2(c.x, c.z), (own.get(k2(c.x, c.z)) ?? 0) + 1)
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) { const k = k2(c.x + dx, c.z + dz); cnt.set(k, (cnt.get(k) ?? 0) + 1) }
+  }
+  // the window's count first, then the climbs AT the column (the spot is where the bots stood, not a corner of their 3x3)
+  const cand = [...cnt].filter(([, n]) => n >= min).map(([k, n]) => ({ col: k.split(',').map(Number), n, at: own.get(k) ?? 0 })).sort((a, b) => b.n - a.n || b.at - a.at || a.col[0] - b.col[0] || a.col[1] - b.col[1]).map(({ col, n }) => ({ col, n }))
+  const out = []
+  for (const c of cand) if (out.every(o => Math.max(Math.abs(o.col[0] - c.col[0]), Math.abs(o.col[1] - c.col[1])) > gap)) out.push(c)
+  return out
+}
+/**
+ * A STAIRCASE AT A CLIMB SPOT -> { cells, dir, cols, edge } | null. Pure over `read`. Within `r` of the spot, the climb is an EDGE: a
+ * column L and its 4-neighbour H whose ground stands 2..4 higher (the bots pillared up to it). The stair is piece 3's (planAccessStair)
+ * against H: its top step one below H's ground (the step onto H is one block), run away from H, every column `free`. The steepest
+ * edge nearest the spot that fits wins.
+ *   col(x, z)  tidyColumn (memoised);  cellCols  the record cells' columns;  free(x, z)  may a stair use this column
+ */
+export function spotStair (read, spot, { col, cellCols = new Set(), free = () => true, r = 2, T = ACCESS } = {}) {
+  const ground = c => !!c && !c.why && c.y != null && !c.tree
+  const edges = []
+  for (let x = spot[0] - r; x <= spot[0] + r; x++) for (let z = spot[1] - r; z <= spot[1] + r; z++) {
+    const lc = col(x, z)
+    if (!ground(lc) || cellCols.has(k2(x, z)) || !free(x, z)) continue
+    for (const [dx, dz] of N4) {
+      const hc = col(x - dx, z - dz)
+      if (!ground(hc)) continue
+      const d = hc.y - lc.y
+      if (d < 2 || d > 4) continue
+      edges.push({ x, z, hx: x - dx, hz: z - dz, gL: lc.y, gH: hc.y, d, dist: Math.max(Math.abs(x - spot[0]), Math.abs(z - spot[1])) })
+    }
+  }
+  edges.sort((a, b) => b.d - a.d || a.dist - b.dist || a.x - b.x || a.z - b.z)
+  for (const e of edges) {
+    const behind = new Set([...cellCols, k2(e.hx, e.hz)])
+    const st = planAccessStair(read, { x: e.x, z: e.z, top: e.gH - 1, base: e.gL, col, cellCols: behind, free, T })
+    if (st && st.dir[0] === e.x - e.hx && st.dir[1] === e.z - e.hz) return { ...st, edge: [e.x, e.z, e.hx, e.hz] }
+  }
+  return null
+}
+
+/**
  * THE INSIDE-THE-WALL SURVEY -> { ok, why, cut, fill, pillars, pits, litter, skipped } (tidyRecord's input). Pure over `read`.
  *   STRAY BLOCKS  a column whose top stands above ALL 8 neighbours' (each read ground): its SPOIL blocks above the highest neighbour,
  *                 from 1 high (tidy-01: 2), at most INWALL.pillarMax -- never a record cell, never a natural block under them, never a
@@ -1239,7 +1287,35 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     const parts = boxes.map(b => surveyInwall(read, { home, box: b, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, noStair, water, waterOk }))
     const bad = parts.find(q => !q.ok)
     if (bad) return { ok: false, why: bad.why, record: null, survey: bad, road: null }
-    const sv0 = parts.length === 1 ? parts[0] : mergeSurveys(parts)
+    const sv00 = parts.length === 1 ? parts[0] : mergeSurveys(parts)
+    // access-02: a staircase at every busy climb spot of the bots' own ledger (climbSpots / spotStair), off every column a plan of this
+    // stage already uses, off the plots, the stands' refusals, the yard and the tree farm
+    const sv0 = { ...sv00, access: [...(sv00.access ?? [])], fill: [...sv00.fill], pits: [...sv00.pits] }
+    if (terrace?.climbs?.length) {
+      const yHi = home.y + TIDY.dy, yLo = home.y - TIDY.dy
+      const memo = new Map()
+      const colA = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, tidyColumn(read, x, z, { yHi, yLo })); return memo.get(k) }
+      const usedA = new Set([...sv0.cut, ...sv0.fill].map(q => k2(q.at[0], q.at[2])))
+      for (const a of sv0.access) for (const c of a.cells) usedA.add(k2(c[0], c[2]))
+      const cellColsA = new Set([...cells].map(k => { const [x, , z] = k.split(','); return `${x},${z}` }))
+      const inBox = (x, z) => boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3])
+      const nl = inwallNoLitter(terrace?.records ?? [])
+      const freeA = (x, z) => inBox(x, z) && !usedA.has(k2(x, z)) && !reservedP(x, z) && !nl(x, z) && !noStair(x, z) && (() => { const w = avoid(x, z); return !w || BUILD_WHY.test(String(w)) })()
+      let n = 0
+      const spotsTried = []
+      for (const sp of climbSpots(terrace.climbs, { now })) {
+        if (!inBox(...sp.col)) continue
+        const st = spotStair(read, sp.col, { col: colA, cellCols: cellColsA, free: freeA })
+        spotsTried.push(`${sp.col.join(',')}:${sp.n}:${st ? 'stair' : 'none'}`)
+        if (!st) continue
+        const id = `al${n++}`
+        sv0.access.push({ id, col: [st.edge[0], st.edge[1]], top: null, base: null, h: st.cols.length, dir: st.dir, cells: st.cells, ledger: true })
+        sv0.pits.push({ id, cols: [...new Set(st.cells.map(c => k2(c[0], c[2])))].map(k => k.split(',').map(Number)), n: st.cells.length, access: true })
+        for (const at of st.cells) sv0.fill.push({ at, pit: id, access: true })
+        for (const k of st.cols) usedA.add(k)
+      }
+      sv0.ledger = spotsTried
+    }
     // plotprep-01: the plots' levelling cuts and fills, the trees' logs (clears), the stands' cells (access fills, layered)
     const plat = pp.platforms.map((q, i) => ({ id: `pp${i}`, cells: q.cells }))
     const sv = { ...sv0, cut: [...sv0.cut, ...pp.cut], fill: [...sv0.fill, ...pp.fill, ...plat.flatMap(q => q.cells.map(at => ({ at, pit: q.id, access: true, stand: true })))],
@@ -1274,7 +1350,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     const acc = new Set((sv.fill ?? []).filter(f => f.access).map(f => f.at.join(',')))
     if (acc.size) record.cells = record.cells.map(c => (acc.has(c.at.join(',')) ? { ...c, role: 'access' } : c))
     record.inwall = { box, ...(boxes.length > 1 ? { boxes } : {}), pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.filter(q => !q.access).length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped,
-      access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length })) }
+      access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length, ...(a.ledger ? { ledger: true } : {}) })), ...(sv.ledger ? { ledger: sv.ledger.slice(0, 40) } : {}) }
     return { ok: true, why: 'ok', record, survey: sv, road: null }
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }

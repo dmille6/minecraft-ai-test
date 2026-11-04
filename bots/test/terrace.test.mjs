@@ -582,7 +582,7 @@ await t('the park is a land-plan reservation; siteStage sites the terrace (await
 console.log('WIRING (structural)')
 await t('buildTidy: the terrace inputs, the work-time guard, the skip rule, the tool uses and the park\'s bill are wired', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/const terrace = \{ records: I\.records, wall: I\.wall, wallext: I\.wallext, caps: I\.caps, have, pause:/.test(s), 'the terrace inputs')
+  assert.ok(/const terrace = \{ records: I\.records, wall: I\.wall, wallext: I\.wallext, caps: I\.caps, climbs, have, pause:/.test(s), 'the terrace inputs')
   assert.ok(/s = await siteStage\(read, \{ home: I\.home, avoid: I\.avoid, cells: I\.cells, pin: I\.pin, plan: I\.plan, land, stage: k, lim: gradeLim\(read, 6\), lights, now: Date\.now\(\), walkFrom: townEdge\(I\.plan, I\.home\), terrace, reserved: I\.reserved \}\)/.test(s), 'siteStage gets them (the gkstage fold: the site-prep reservations too)')
   // siteprep-01: nor a requested plot's prep cell (the keeper's own work in its own reservation)
   assert.ok(/\|\| \(isTerrace && !q\.floorFix && !q\.prep && !!guardNow\(q\.at\[0\], q\.at\[2\]\)\)\n/.test(s), 'the work-time guard waives (gkhelpers-01: never a storehouse floor repair; siteprep-01: never a prep cell)')

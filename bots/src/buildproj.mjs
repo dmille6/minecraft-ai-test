@@ -411,6 +411,38 @@ export function pantryRead (dir, key) {
   return out
 }
 
+// ---- access-02: the climbs ledger ----------------------------------------------------------------------------------------------
+const climbFile = (dir, holder) => path.join(dir, `climbs-${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.jsonl`)
+const CLIMB_RE = /^climbs-[A-Za-z0-9_-]+\.jsonl$/
+/** Append one climb ({ x, y, z, shape, reason, t }) to this bot's ledger; past `maxLines` the file is rewritten with its newest
+ *  `keepLines`. -> true | false. Never throws. */
+export function climbAppend (dir, holder, c, { maxLines = 2000, keepLines = 1000 } = {}) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    const f = climbFile(dir, holder)
+    fs.appendFileSync(f, JSON.stringify({ x: c.x, y: c.y, z: c.z, shape: c.shape, reason: c.reason, t: c.t, by: holder }) + '\n')
+    let n = 0
+    try { n = fs.statSync(f).size } catch { n = 0 }
+    if (n > maxLines * 50) {   // a line is >= 60 bytes: past this the lines are counted, and trimmed past maxLines
+      const lines = fs.readFileSync(f, 'utf8').split('\n').filter(Boolean)
+      if (lines.length > maxLines) { const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, lines.slice(-keepLines).join('\n') + '\n'); fs.renameSync(tmp, f) }
+    }
+    return true
+  } catch { return false }
+}
+/** Every bot's climbs since `since` -> [{ x, y, z, shape, reason, t, by }]. [] when none or unreadable (an unread ledger is no climb). */
+export function climbRead (dir, { since = -Infinity } = {}) {
+  const out = []
+  let names = []
+  try { names = fs.readdirSync(dir).filter(n => CLIMB_RE.test(n)) } catch { return out }
+  for (const n of names) {
+    let txt = ''
+    try { txt = fs.readFileSync(path.join(dir, n), 'utf8') } catch { continue }
+    for (const l of txt.split('\n')) { if (!l) continue; let r; try { r = JSON.parse(l) } catch { continue } if ([r?.x, r?.y, r?.z, r?.t].every(Number.isFinite) && r.t >= since) out.push(r) }
+  }
+  return out
+}
+
 // ---- intents ------------------------------------------------------------------------------------------------------------------
 
 const intentFile = (dir, key, holder) => path.join(dir, `${key}.intents.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.jsonl`)
