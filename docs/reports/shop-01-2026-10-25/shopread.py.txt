@@ -183,6 +183,7 @@ LEASE_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.([A-Za-z0-9]+))\.(kee
 SHOP = 'shop'
 TIDY = 'tidy'                         # bots/src/tidy.mjs TIDY_PLOT
 LAND = 'land'                         # bots/src/landplan.mjs LAND_PLOT (a reservation: no cells)
+PATHS = 'paths'                       # bots/src/paths.mjs PATHS_PLOT (outbands-01: a replant never on a path)
 # gkhelpers-01 (bots/src/groundskeeper.mjs GK.helpersMax / GK.segGap; park.mjs GATHER_NAMES)
 CREW_HELPERS_MAX = 2
 CREW_SEG_GAP = 2
@@ -751,6 +752,22 @@ def read_projects(root='/var/lib/mcai'):
     return out
 
 
+def replant_road_why(pr, cell):
+    """outbands-01: is a tidy replant cell on a road? -> 'on_road' (in a land-plan corridor box [x0, y0, z0, x1, y1, z1], the land
+    record's `corridors`: bots/src/landplan.mjs corridorAt -- columns only) | 'on_path' (a column of any generation of the paths
+    record's cells) | ''. Pure."""
+    lrec = project_of(pr, LAND).get('record') or {}
+    for zb in lrec.get('corridors') or []:
+        b = zb.get('box') if isinstance(zb, dict) else None
+        if isinstance(b, list) and len(b) == 6 and b[0] <= cell[0] <= b[3] and b[2] <= cell[2] <= b[5]:
+            return 'on_road'
+    pj = project_of(pr, PATHS)
+    for rec in pj.get('chain') or ([pj['record']] if pj.get('record') else []):
+        if any(isinstance(c, dict) and isinstance(c.get('at'), list) and c['at'][0] == cell[0] and c['at'][2] == cell[2] for c in rec.get('cells') or []):
+            return 'on_path'
+    return ''
+
+
 def project_of(pr, plot):
     """A town's entry for one project -> { record, records_files, leases }. A town read without `projects` (an older caller, the
     fixtures) holds the workshop's only: another project there has no record (oracle_missing, never judged against the
@@ -1179,6 +1196,13 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     lists['clear_outside'].append('%s %s cane harvest %s' % (bot, k, f.get('block'))); out['clear_outside'] += 1
             elif op == 'replant':
                 out['replants'] += 1
+                # outbands-01 (owner 11-04, groundskeeper piece 5: "cut down trees and replant in better spots" -- never on a road or a
+                # path): a tidy replant on a land-plan road corridor or a laid path's cell is off the record (`on_road` / `on_path`)
+                if plot == TIDY:
+                    rwhy = replant_road_why(projects.get(pool), cell)
+                    if rwhy:
+                        lists['off_record'].append('%s %s %s %s' % (bot, k, f.get('block'), rwhy))
+                        out['off_record'] += 1
             elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):
                 out[op] = out.get(op, 0) + 1; lists.setdefault(op, []).append('%s %s %s' % (bot, k, f.get('to') or ''))
                 if op == 'stuck_on_cell' and f.get('stalled') == 'true':
@@ -1477,6 +1501,18 @@ def selftest():
     assert gp['off_record'] == 1 and gp['_lists']['off_record'] == ['board-a-Alpha 17,64,-2 cobblestone guarded'], gp['_lists']['off_record']
     assert tpl('17,64,-2', pp=TP_(mon=dict(mg, at=T0MS + 3_600_000)))['off_record'] == 0, 'a project sited on the cell later does not re-judge it'
     assert tpl('5,70,5')['_lists']['off_record'] == ['board-a-Alpha 5,70,5 cobblestone'], 'an off-record item keeps its old words'
+    # outbands-01: a tidy replant on a land corridor or a path's column trips (off_record, `on_road` / `on_path`); a wild cell does not
+    lrec_ = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'land', 'cells': [], 'corridors': [{'box': [20, 50, -1, 40, 90, 1], 'why': 'land:road'}]}
+    prec_ = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'paths', 'cells': [{'at': [6, 69, 5], 'role': 'path', 'seg': 'P-d-0'}]}
+    def RP_(c):
+        pp = TP_()
+        pp['board-a']['projects'] = dict(pp['board-a']['projects'], land={'record': lrec_, 'records_files': 1, 'leases': {}, 'chain': [lrec_]},
+                                         paths={'record': prec_, 'records_files': 1, 'leases': {}, 'chain': [prec_]})
+        return J(base + [R('_build', 'project=tidy op=replant cell=%s block=oak_sapling' % c, s=14)], pp)
+    assert RP_('30,70,0')['off_record'] == 1 and RP_('30,70,0')['_lists']['off_record'] == ['board-a-Alpha 30,70,0 oak_sapling on_road'], RP_('30,70,0')['_lists']['off_record']
+    assert RP_('6,70,5')['_lists']['off_record'] == ['board-a-Alpha 6,70,5 oak_sapling on_path']
+    assert RP_('30,70,5')['off_record'] == 0 and RP_('-30,70,-30')['off_record'] == 0, 'a wild cell beside the corridor is clean'
+    assert replant_road_why({}, [30, 70, 0]) == '' and replant_road_why({'projects': {'land': {'record': {'corridors': [{'box': [1, 2]}]}}}}, [1, 70, 2]) == '', 'no land record or a bad box: nothing'
     c3 = record_chain(files + [(3, json.dumps(dict(tg2, gen=3, prev=2, stage=2, at=T0MS + 3_600_000, cells=[{'at': [50, 70, 50], 'role': 'core', 'seg': 'T-02-0'}], prevSha=hashlib.sha256(files[1][1]).hexdigest())).encode())])
     assert [c['_gen'] for c in c3] == [1, 2, 3]
     assert tpl('50,70,50', pp=TP_(chain_=c3))['off_record'] == 1, 'a cell of a stage sited AFTER the placement (beyond the skew) is not in force'

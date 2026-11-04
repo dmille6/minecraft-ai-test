@@ -166,6 +166,10 @@ M = [
  ("                if not (why in ('no_editor', 'text_not_read_back') or f.get('ok') == '1'):\n                    continue", "                pass"),
  ("    return any(isinstance(s, dict) and isinstance(s.get('at'), list) and ck(s['at']) == k for rec in chain or [] for s in rec.get('signs') or [])", "    return any(isinstance(s, dict) and isinstance(s.get('wall'), list) and ck(s['wall']) == k for rec in chain or [] for s in rec.get('signs') or [])"),
  ("HUB_KINDS = ('_well_dispose', '_storehub_clerk', '_hub_sign', '_enchantshop_sign')", "HUB_KINDS = ('_well_dispose', '_storehub_clerk', '_hub_sign')"),
+ # outbands-01: a tidy replant on a road or a path
+ ("                if plot == TIDY:\n                    rwhy = replant_road_why(projects.get(pool), cell)", "                if False:\n                    rwhy = replant_road_why(projects.get(pool), cell)"),
+ ("        if isinstance(b, list) and len(b) == 6 and b[0] <= cell[0] <= b[3] and b[2] <= cell[2] <= b[5]:", "        if isinstance(b, list) and len(b) == 6 and b[0] <= cell[0] <= b[3] and b[1] <= cell[2] <= b[4]:"),
+ ("            return 'on_path'", "            return ''"),
 ]
 bad = 0
 for old, new in M:
