@@ -313,7 +313,44 @@ since 07:20Z is `unfunded`). A choose costs 0.1-0.2 s a call on the Mac (1.7 s f
 runVisit grading a carved plot with a real mineflayer bot, then the requester siting) is not written; the proof here is the fake
 server + the region copy. The water tier is proven only on the pure estimate (no live still-water fill).
 
-## 15. Slices
+## 15. siteprep-02: the live SP1 stall (11-04, on the live release dcb702bc)
+
+**Live** (release dcb702bc, 10:43Z on): SP1 (shrine n=2) filed 11:09:42Z; the keeper's visits 11:31-11:47Z graded ranked candidates
+0-19, four a visit, every pass `pending why=pin_kept:4`; 76 ranked. Towers were the only sink placing (36 placements 10:43-11:52Z);
+shrine, road and dress all `no_site`.
+
+**Cause** (region copy ~11:50Z, the bots' own ranking, index = the live cursor): of the 20 tried, 10 had a **trunk in a pinned
+column's earth** (a spruce standing on ground the base must be filled over: `fill_blocked`, the column kept, the pin lost; the
+screen read the ground under the trunk only); later ones had **ice** in the pinned square (a floor to the sinks' `groundAt`, a frozen
+pond to the grading's `tidyColumn`: `not_free`); **buried spruce leaves** under dirt in cut spans read `cut_blocked`; the rest are
+rough ground only the grading can judge. The first plot that grades is the old ranking's index 31 (about 8 keeper visits away).
+
+**Fix** (branch `siteprep-02`): `prepEstimate` refuses, before any grading, a candidate whose pinned earth meets a trunk (base to L,
+apron to the nearest of L-1..L+1: `earthBlocked`), whose pinned column the grading's own reader refuses (built, furniture, ice), or
+which the grading's `avoid` holds -- each a necessary condition of a held pin; `columnWork` cuts leaves with `T.cutLeaves` (the
+prep only; through the same water rule and dams); the keeper's tick grades in chunks until `PREP.tickMs` (2.5 s), the event loop
+handed back between them. On the copy: 76 ranked -> 42, and the plot (B7 at -69,68,-28: cut 58, fill 124, seal 16) is chosen in
+the first tick, Z2 sited on it (63 cells); the pinned siting on the untouched ground refuses.
+
+**Tests:** `bots/test/siteprep-sp1.test.mjs` 13/13 on the showcase's own blocks (`bots/test/fixtures/siteprep-sp1-1104.json`):
+cursor 0 reproduced (old screen passes, grading `pin_kept`) and refused now; cursor 4 (sw2) `pin_kept` at the old level and graded
+at the level the trunk rule moves it to; the ice candidate; the leaves candidate (and a leaves cut beside water is dammed; strict
+water refuses it); the index-31 plot passes the screen and grades. 3 anchored mutants. siteprep 33, terrace 47, groundskeeper 40,
+sinks 35; eslint clean.
+
+**Reviews:** r1 (ca567650) both BLOCK -- a leaves cut skipped the water rule (both), the screen refused open-water reads the grading
+fills (Codex), the sw2 test graded at a stale level (Claude); r2 (1f255593) **both APPROVE**. Named, not blocking: a waterlogged
+leaves block in a cut span is not refused (rare: mangrove/swamp), and the open-water relaxation has no test of its own.
+
+**Full suite** (`suite-run.py` from origin/main, ci2, `--ref 1f255593`): **409/412**, wall 712 s; the three failures are the known
+no-`.git` set (`ceilescape`, `nothing-important-is-orphaned`, `protected-paths`).
+
+**What prep cannot do for the other sinks today:** roads are `s1:proof_unreachable s2:start_liquid s0:ended` (the rail's start
+unreachable from the town walk, the next one starting in the river, the north one ended at it) -- a linear road needs a start-pad
+or access-ramp request and water fill at its first column, slice 3, beside bridgepost-01; dress is `s0/l202/w79_lit138_proofs0` (no
+fixture candidate left to place, nothing about the ground) -- not a prep problem.
+
+## 16. Slices
 
 1. **This branch (showcase):** towers and shrines, tiers same/smaller/other_dry/water, the keeper's prep, the hand-over, rows.
 2. Ziggurat (with Codex's construction-proof adapter, inside `monumentBox`), the buildsite requesters (workshop, house, yard, crop
