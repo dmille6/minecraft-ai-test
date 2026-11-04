@@ -262,6 +262,18 @@ await t('withPrep: dams first, fills in height layers bottom first, buried fills
   assert.ok(r.r >= 42)
   assert.ok(r.prep.SP4)
 })
+await t('the keeper\'s hold: nothing open verifies; a cell, a clear or a cut still tried is work; only given-up cuts are stuck (retired, never held to expiry)', () => {
+  const cut = at => ({ at, name: 'dirt' })
+  assert.strictEqual(P.prepHoldOf({ n: 0, cells: [], cuts: [], clears: [] }), 'none')
+  assert.strictEqual(P.prepHoldOf(null), 'none')
+  assert.strictEqual(P.prepHoldOf({ n: 1, cells: [{ at: [1, 2, 3] }], cuts: [], clears: [] }, () => true), 'work')
+  assert.strictEqual(P.prepHoldOf({ n: 2, cells: [], cuts: [cut([1, 2, 3]), cut([4, 5, 6])], clears: [] }, k => k === '1,2,3'), 'work')
+  assert.strictEqual(P.prepHoldOf({ n: 2, cells: [], cuts: [cut([1, 2, 3]), cut([4, 5, 6])], clears: [] }, () => true), 'stuck')
+  assert.strictEqual(P.prepHoldOf({ n: 2, cells: [], cuts: [cut([1, 2, 3])], clears: [{ at: [0, 0, 0] }] }, () => true), 'work')
+})
+await t('mutant: without the stuck rule a given-up cut holds the keeper to the expiry', () => killed('siteprep.mjs', P,
+  "open.cuts.every(c => given(c.at.join(',')))) return 'stuck'", "false) return 'stuck'",
+  M => assert.strictEqual(M.prepHoldOf({ n: 1, cells: [], cuts: [{ at: [1, 2, 3] }], clears: [] }, () => true), 'stuck')))
 await t('the cuts come in layers, the highest across the plot first (never a shaft mid-way)', () => {
   const cuts = [[0, 73, 0], [0, 72, 0], [0, 71, 0], [5, 72, 0], [5, 71, 0], [9, 71, 9]].map(at => ({ at, name: 'dirt' }))
   const ys = P.prepCutOrder(cuts, [0, 0]).map(c => c.at[1])
@@ -318,6 +330,8 @@ const W = [
   /if \(q\.state === 'prepping' && !retire\(q\.id\)\) continue/,
   /given: k => guard\.has\(k\) \|\| tidyGivenUp\(mem, k\) \|\| \(isTerrace && !cutAt\.get\(k\)\?\.prep && /,
   /if \(caps\.complete && !crewHeld && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/,
+  /if \(hold === 'stuck'\) \{\n\s*if \(!retire\(q\.id\)\) return head\(\)/,
+  /const prepNow = prepSt\?\.hold === 'work' \? prepSt\.id : null/,
   /cur\.prep\?\.\[q\.id\]\?\.att !== prepAttempt\(q\) \? withPrep\(/,
   /if \(name === 'snow' \|\| name === 'water'\) \{ try \{ props = b\.getProperties/,
 ]

@@ -388,6 +388,18 @@ export function prepOpen (rec, id, read, done = () => false) {
   return { cells, cuts, clears, n: cells.length + cuts.length + clears.length }
 }
 /**
+ * THE KEEPER'S HOLD ON A PREPPING REQUEST (Claude code r2 BLOCKER: a cut this bot gave up -- TIDY_CUT_TRIES visits, no stand, or held
+ * by its water check -- stands for good, and a hold on it pinned every visit and the record's completion until the 48-h expiry)
+ * -> 'none' (nothing of it open: verify) | 'work' (a cell, a clear or a cut this bot still tries: the visit works only the prep and
+ * the record never completes over it) | 'stuck' (only cuts this bot has given up: retire the attempt now). Pure; `given(key)` this
+ * bot's give-up test.
+ */
+export function prepHoldOf (open, given = () => false) {
+  if (!open?.n) return 'none'
+  if (!open.cells.length && !open.clears.length && open.cuts.every(c => given(c.at.join(',')))) return 'stuck'
+  return 'work'
+}
+/**
  * THE PREP'S CUTS IN LAYERS (Baritone #404/#728: a cutter that takes a column to the bottom first digs itself a shaft; Codex review r1
  * BLOCKER 5): the highest layer across the plot first, each layer nearest-neighbour from `start` -> the cuts. No cut column is ever
  * more than one layer below its cut neighbours mid-way. Pure.
