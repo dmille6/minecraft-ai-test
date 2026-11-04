@@ -1214,6 +1214,8 @@ export function demoMissing (demoRec, wallRec, extRec, read) {
   }
   return out
 }
-/** Is the demolition done -> bool. Pure over `read`: nothing listed stands, nothing late is unlisted, the retirement has settled. */
+/** Is the demolition done -> bool. Pure over `read`: every in-scope retired cell READ (Codex r2b BLOCKER: an unloaded chunk is never
+ *  "nothing there"), nothing listed stands, nothing late is unlisted, the retirement has settled. */
 export const demoDone = (demoRec, wallRec, extRec, read, now = Date.now()) =>
+  demoCells(wallRec, extRec).cells.every(c => !!read(...c.at)) &&
   !demoLeft(demoRec, read).length && !demoMissing(demoRec, wallRec, extRec, read).length && Number.isFinite(wallRec?.retiredAt) && now - wallRec.retiredAt >= WALLDEMO_SETTLE_MS

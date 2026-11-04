@@ -382,6 +382,10 @@ await t('A LATE BLOCK (Codex r2 BLOCKER: a repair placement landing after the re
   assert.strictEqual(W.demoDone(rec2, retired, ext, srv.read, 1_000 + W.WALLDEMO_SETTLE_MS - 1), false, 'not before the settle')
   assert.strictEqual(W.demoDone(rec2, retired, ext, srv.read, 1_000 + W.WALLDEMO_SETTLE_MS), true)
   assert.strictEqual(W.demoMissing(rec2, retired, ext, srv.read).length, 0)
+  // Codex r2b BLOCKER: an UNREAD in-scope cell (an unloaded chunk) is never "nothing there"
+  const blind = (x, y, z) => (x === late.at[0] && y === late.at[1] && z === late.at[2] ? null : srv.read(x, y, z))
+  assert.strictEqual(W.demoDone(rec2, retired, ext, blind, 1_000 + W.WALLDEMO_SETTLE_MS), false, 'unread defers completion')
+  assert.strictEqual(W.demoDone({ ...rec2, clear: [] }, retired, ext, () => null, 1_000 + W.WALLDEMO_SETTLE_MS), false, 'nothing read: never done')
 })
 await t('THE ORDER (wallext-02): after the extension, waiting until it stands; WALLDEMO=off drops it; a light plot', () => {
   const on = SHOP.projectsOn(true, true, true, true, false, true, false, true, true, true, false, false, [], false, true, true, true)
