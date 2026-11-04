@@ -176,7 +176,7 @@ import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PL
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow, tidyQuiet } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
-import { PREP, prepCursor, prepKeeperWork, siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
+import { PREP, prepOverlapOf, plotFootprint, prepCursor, prepKeeperWork, siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount, noSiteStamped, noSiteUntilOf } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { groupOfItem } from './townindex.mjs'
@@ -21161,12 +21161,11 @@ async function parkGather (ctx, signal, { deadline, effects: e }) {
 // on the real world. The requester claims a prepared plot at its next order (buildSink).
 // ================================================================================================================================
 /** Other records' zones meeting a plot's graded box (a project sited on it meanwhile: Codex review r1 BLOCKER 1) -> a reason | null. */
-function prepOverlap (plot) {
-  if (!Array.isArray(plot?.graded)) return null
-  const others = projectHeads().filter(x => ![SITEPREP_PLOT, TIDY_PLOT, LAND_PLOT].includes(x.plot)).map(x => x.head.rec).filter(Boolean)
-  const z = recordZones(others).find(q => boxMeetsAny(plot.graded, [q]))
-  return z ? String(z.why ?? 'project') : null
+/** The zones the overlap test reads: every other record's (never the siteprep reservation, the tidy, the land plan). Never throws. */
+function prepOverlapZones () {
+  try { return recordZones(projectHeads().filter(x => ![SITEPREP_PLOT, TIDY_PLOT, LAND_PLOT].includes(x.plot)).map(x => x.head.rec).filter(Boolean)) } catch { return [] }
 }
+function prepOverlap (plot) { return prepOverlapOf(plotFootprint(plot), prepOverlapZones()) }
 /** The prepping request on this record and the keeper's hold on it (siteprep.mjs prepHoldOf) -> { id, hold } | null. Never throws. */
 function prepWorking (dir, rec, read, done, given = () => false, stalls = null) {
   try {
@@ -21217,7 +21216,8 @@ async function prepTick (bot, dir, key, rec, me, signal) {
     const zig = projectHeads().find(x => x.plot === MONUMENT_PLOT)?.head?.rec ?? null
     const cands = prepCandidates({ kind, home, pool: config.memory.pool, n: instancesOf(sinkRec).length + 1, wall: walls, zig, rec: sinkRec, avail: av.avail, torch: av.torch, campfire: av.campfire })
     const gm = groundMemo(read, home.y), wm = wetMemo(read, home.y)
-    const ranked = prepRank(cands, cd => prepEstimate(cd, { ground: gm, wetCol: wm, still: (x, y, z) => stillWater(read(x, y, z)), guard, hy: home.y, read, avoid }))
+    const ovZones = prepOverlapZones()   // siteprep-03: the re-check's own zones, before the choice
+    const ranked = prepRank(cands, cd => prepEstimate(cd, { ground: gm, wetCol: wm, still: (x, y, z) => stillWater(read(x, y, z)), guard, hy: home.y, read, avoid, zones: ovZones }))
     await new Promise(resolve => setImmediate(resolve))
     check(signal)
     let farmAt = null
@@ -21228,7 +21228,7 @@ async function prepTick (bot, dir, key, rec, me, signal) {
     // the showcase siteprep-02 fold: a cursor written under an older screen restarts at 0 (siteprep.mjs prepCursor)
     let ch = { ok: false, why: 'pending', cursor: prepCursor(q), tried: {} }
     while (ch.why === 'pending') {
-      ch = prepChoose(read, ranked, { cursor: ch.cursor, home, from: townEdge(I.plan, I.home), avoid, cells: I.cells, farm, water: tidyWater(),
+      ch = prepChoose(read, ranked, { cursor: ch.cursor, home, from: townEdge(I.plan, I.home), avoid, cells: I.cells, farm, water: tidyWater(), zones: ovZones,
         accept: (rd, cd) => acceptAt(rd, { id: q.id, cx: cd.cx, cz: cd.cz, B: cd.B, seed: cd.seed, ...(cd.slot ? { slot: cd.slot, pair: cd.pair } : {}) }) })
       for (const [k, v] of Object.entries(ch.tried ?? {})) triedAll[k] = (triedAll[k] ?? 0) + v
       if (ch.why !== 'pending' || Date.now() - tick0 >= PREP.tickMs) break
