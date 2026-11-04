@@ -112,6 +112,19 @@ export const enchantStandDomain = rec => (Array.isArray(rec?.box) && rec.box.len
 /** buildrun runVisit's options for the shell visit (the stands' domain, the record's walk radius). Pure. */
 export const enchantVisitOpts = rec => (rec?.blueprint === ENCHANT_BLUEPRINT ? { domain: enchantStandDomain(rec), walkR: Number.isFinite(rec.walkR) ? rec.walkR : ENCHANT_SITE.walkR } : {})
 
+/**
+ * THE WORKSHOP'S WAY IN -> [[x, z]] (the showcase wallext2 fold, Codex fold BLOCKER: access-01's staircases read a build's `door` /
+ * `frontOpen`, and a workshop record names neither -- a climb before the doorway could become a stone stair across it). The doorway's
+ * columns (blueprint u 7..9, v 1) and the approach before it (v 0 down to -ENCHANT_APPROACH), one column wider each side (u 6..10).
+ * Pure; a record that is not a placed workshop gives none. (storehub.mjs hubEntranceCols, the hall's.)
+ */
+export const ENCHANT_APPROACH = 3
+export function enchantEntranceCols (rec, { depth = ENCHANT_APPROACH } = {}) {
+  if (rec?.blueprint !== ENCHANT_BLUEPRINT || !Array.isArray(rec.anchor) || !rec.orient) return []
+  const out = []
+  for (let u = 6; u <= 10; u++) for (let v = -depth; v <= 1; v++) { const { dx, dz } = rot(rec.orient, u, v); out.push([rec.anchor[0] + dx, rec.anchor[1] + dz]) }
+  return out
+}
 /** A blueprint cell (u, v, y) of a sited record -> world [x, y, z]. Pure. */
 const cellAt = (rec, u, v, y) => { const { dx, dz } = rot(rec.orient, u, v); return [rec.anchor[0] + dx, rec.s + y, rec.anchor[1] + dz] }
 /**

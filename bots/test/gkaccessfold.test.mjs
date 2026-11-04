@@ -37,5 +37,23 @@ await t('MUTANT KILLED: without the hall\'s way in, the approach outside the pad
     assert.ok(out.some(([x, z]) => M.accessNoStair([r])(x, z) === false))
   })
 })
+// THE WALLEXT2 FOLD (enchantshop onto the live gkaccess fold; Codex fold BLOCKER): the enchanting workshop names no door either
+const EN = await import('../src/enchantshop.mjs')
+const shop = orient => ({ plot: 'enchantshop', blueprint: EN.ENCHANT_BLUEPRINT, anchor: [28, -75], orient, s: 70, cells: [{ at: [10, 70, -75] }, { at: [28, 70, -63] }] })
+await t('the workshop\'s doorway and approach refuse a staircase, every orientation; Codex\'s X1 columns (19,-63..-61) among them', () => {
+  for (const o of ['N', 'E', 'S', 'W']) {
+    const r = shop(o), ns = TD.accessNoStair([r]), cols = EN.enchantEntranceCols(r)
+    assert.strictEqual(cols.length, 5 * 5)
+    for (const [x, z] of cols) assert.strictEqual(ns(x, z), true, `${o} ${x},${z}`)
+  }
+  assert.deepStrictEqual(EN.enchantEntranceCols({ blueprint: 'house@1', anchor: [0, 0], orient: 'N' }), [], 'only a workshop')
+})
+await t('MUTANT KILLED: without the workshop\'s way in, its approach outside the pad takes a stair', async () => {
+  await withMutant('    for (const c of enchantEntranceCols(r)) cols.push(c)\n', '', async M => {
+    const r = shop('N'), out = EN.enchantEntranceCols(r).filter(([x, z]) => !(x >= 10 && x <= 28 && z >= -75 && z <= -63))
+    assert.ok(out.length > 0)
+    assert.ok(out.some(([x, z]) => M.accessNoStair([r])(x, z) === false))
+  })
+})
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
