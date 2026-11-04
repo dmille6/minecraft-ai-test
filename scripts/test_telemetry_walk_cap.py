@@ -7,11 +7,13 @@ at 11.4 GB while 1.9 GB was on disk, so every Events.load() raised WalkTooWide
 the two halves of the fix: a window excludes files that predate it, and the cap
 still refuses a walk that is genuinely too big.
 
-2026-11-04: main never carried that fix (it lived on recovery-ladder-03,
-c79d57b4); this file did, and failed at import. The estimate half is now on
-main (predates_window + one frozen list). c79d57b4's other changes -- naive-bound
-refusal, the runtime decompressed budget, bad-line-costs-a-line -- are NOT on
-main and their cases were removed here rather than left failing.
+2026-11-04: main never carried that fix -- it lived on recovery-ladder-03
+(c79d57b4) and in the analysis overlay (~/mcai-analysis/lib on .31) that is
+copied over the fleet tree after each deploy -- so this file failed at import on
+main, and a deploy's git reset left the hourly flowledger on the bare main-line
+estimate (WalkTooWide, 22.5 GB priced for a 6 h window, 00:05Z). main now
+carries the overlay's telemetry.py; cases 10-11 add the many-generations shape
+and a mutant of the shared file list.
 
 Behavioural, not source-matching: each case builds real files with real mtimes
 and calls the real loader.
@@ -144,7 +146,67 @@ def main():
                 check('under the same small cap the short window still loads', False, str(e)[:60])
                 check('...and still returns the in-window row, not an empty walk', False, 'never loaded')
 
-        # 5. THE 11-04 SHAPE: many bots, many rotated generations each, a short
+        # 5. A naive bound is refused at the door, not swallowed into an
+        #    empty result (Codex pass 1, finding 6).
+        try:
+            Events.load(paths=glob, since=datetime.datetime(2026, 9, 18, 0, 0))
+            check('a naive since= is refused, not silently empty', False, 'no raise')
+        except ValueError:
+            check('a naive since= is refused, not silently empty', True)
+        except TypeError as e:
+            check('a naive since= is refused, not silently empty', False, 'TypeError: %s' % str(e)[:40])
+
+        # 6. The runtime budget stops a walk whose real bytes beat the ESTIMATE.
+        #    The 25x multiplier prices a .gz before opening it; telemetry that
+        #    compresses better than 25x therefore slips under the cap and then
+        #    blows it while decompressing (Codex pass 1, finding 3). A first
+        #    draft padded a plain file instead -- the estimate caught that one
+        #    first, so the test passed with the budget deleted, and the mutant
+        #    said so.
+        squishy = os.path.join(d, 'w2', 'skill-beta.jsonl-20260917.gz')
+        write(squishy, [row((now - datetime.timedelta(minutes=5)).isoformat().replace('+00:00', 'Z'))],
+              age_days=0, pad=4 * 1024 * 1024)      # one repeated byte: ~1000:1
+        onfile = os.path.getsize(squishy)
+        check('the squishy fixture is priced UNDER the cap it will then blow',
+              onfile * 25 < 256 * 1024 < 4 * 1024 * 1024,
+              'on disk %d, estimate %d' % (onfile, onfile * 25))
+        with cap(256 * 1024):
+            try:
+                Events.load(paths=os.path.join(d, 'w2', 'skill-*.jsonl*'), since_minutes=60)
+                check('the runtime byte budget stops a walk the estimate let through', False, 'no raise')
+            except WalkTooWide:
+                check('the runtime byte budget stops a walk the estimate let through', True)
+
+        # 7. A BAD LINE COSTS A LINE, NOT THE REST OF THE FILE.
+        #    Codex pass 2 reproduced: valid row / [] / valid row returned ONE
+        #    row, because a mid-file exception hit the per-FILE handler and
+        #    skipped to the next file. This is the quiet-short-walk failure the
+        #    whole module is written against, so it gets a first-class test.
+        mixed = os.path.join(d, 'w3', 'skill-gamma.jsonl')
+        os.makedirs(os.path.dirname(mixed), exist_ok=True)
+        stamp = (now - datetime.timedelta(minutes=5)).isoformat().replace('+00:00', 'Z')
+        with open(mixed, 'w') as fh:
+            fh.write(row(stamp, bot='g1') + '\n')
+            fh.write('[]\n')                                    # valid JSON, wrong shape
+            fh.write('{"@timestamp": "not-a-time", "skill": {"name": "mine"}}\n')
+            fh.write('{ broken json\n')
+            fh.write(row(stamp, bot='g2') + '\n')
+        os.utime(mixed, None)
+        ev = Events.load(paths=os.path.join(d, 'w3', 'skill-*.jsonl*'), since_minutes=60)
+        check('a bad line does not discard the rest of the file',
+              len(ev.rows) == 2, 'rows=%d (expected the 2 good ones)' % len(ev.rows))
+        check('...and both surviving bots are present (positive control)',
+              {(r['bot'] or {}).get('name') for r in ev.rows} == {'g1', 'g2'},
+              str({(r['bot'] or {}).get('name') for r in ev.rows}))
+
+        # 8. A naive `until` is refused too, not only `since`.
+        try:
+            Events.load(paths=glob, since_minutes=60, until=datetime.datetime(2026, 9, 18, 5, 0))
+            check('a naive until= is refused as well', False, 'no raise')
+        except ValueError:
+            check('a naive until= is refused as well', True)
+
+        # 10. THE 11-04 SHAPE: many bots, many rotated generations each, a short
         #    window. 00:05Z: 1,200 files priced whole at 22.5 GB against a 6 h
         #    window whose 160 in-scope files were 2.0 GB, so the hourly
         #    flowledger raised. Here: 6 bots x 15 old .gz each plus one live file
@@ -183,7 +245,7 @@ def main():
             except WalkTooWide:
                 check('a 60-day window over the same files still raises', True)
 
-        # 6. MUTANT: price the whole glob again (the pre-fix estimate). Case 5
+        # 11. MUTANT: price the whole glob again (the pre-fix estimate). Case 10
         #    must then raise, or case 5 is not testing the fix.
         tsrc = open(telemetry.__file__).read()
         old = '        est = 0\n        for f in files:\n'
@@ -196,9 +258,9 @@ def main():
         mut.MAX_WALK_BYTES = MCAP
         try:
             mut.Events.load(paths=mglob, since_minutes=360)
-            check('mutant (estimate over the whole glob) is killed by case 5', False, 'mutant survived')
+            check('mutant (estimate over the whole glob) is killed by case 10', False, 'mutant survived')
         except mut.WalkTooWide:
-            check('mutant (estimate over the whole glob) is killed by case 5', True)
+            check('mutant (estimate over the whole glob) is killed by case 10', True)
 
         # 9. The shared decision itself.
         since = now - datetime.timedelta(hours=1)

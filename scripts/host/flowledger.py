@@ -395,10 +395,11 @@ def judge(history, now):
 
 # ------------------------------------------------------------------------------------------------ the run (impure)
 # OUR OWN COPY of main's telemetry.py, installed next to this file by install-flowledger.sh -- not the live fleet tree
-# (/opt/minecraft-ai), which deploy-fleet.sh resets to whatever sha is deployed, so this read's behaviour changed with
-# every deploy. The size cap must price only the files the walk reads (predates_window, main 11-04): the whole-glob
-# estimate hit WalkTooWide at 2026-11-04T00:05Z (22.5 GB priced for a 6 h window holding 2.0 GB of in-scope files).
-# An earlier comment here said the fleet line already had that fix; it did not (only recovery-ladder-03 c79d57b4).
+# (/opt/minecraft-ai). That tree's scripts/lib carries the analysis overlay (~/mcai-analysis/lib, with predates_window:
+# the size cap prices only the files the walk reads), copied in AFTER each deploy's git reset. A run between the reset
+# and the copy saw the bare main-line estimate, which priced every rotated generation: WalkTooWide at 2026-11-04T00:05Z
+# (22.5 GB priced for a 6 h window holding 2.0 GB in scope; the overlay returned at 00:08:20Z). main now carries the
+# overlay's telemetry.py, so the pinned copy and the overlay agree.
 TELEMETRY = os.path.join(HERE, '..', 'lib', 'telemetry.py')
 
 

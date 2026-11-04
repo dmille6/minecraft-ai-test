@@ -49,8 +49,9 @@ FLAG_MIN = 5
 SEEN_KEEP_H = 24
 POOLS_DIR = '/var/lib/mcai'
 BOTS_SRC = '/opt/minecraft-ai/bots/src'
-# Our own copy of main's telemetry.py (install-jobshadow.sh), not the live fleet tree, which every deploy resets: the
-# whole-glob size estimate there raised WalkTooWide (22.5 GB priced for 70 min) at 2026-11-04T00:02Z.
+# Our own copy of main's telemetry.py (install-jobshadow.sh), not the live fleet tree, whose analysis overlay is absent
+# between a deploy's git reset and its re-copy: the bare estimate raised WalkTooWide (22.5 GB priced for 70 min) at
+# 2026-11-04T00:02Z, and at 06:52Z, 10:02Z, 19:22Z on 11-03.
 TELEMETRY = os.path.join(HERE, '..', 'lib', 'telemetry.py')
 LOGS = '/var/log/mcai/*/skill-*.jsonl*'
 OUT_DIR = f'{HOME}/jobshadow/out'
