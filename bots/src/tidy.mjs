@@ -795,7 +795,7 @@ export function plotSited (plot, records = []) {
  * room above every step: a leaf there is cleared), else the tree is kept (named). Every other column is LEVELLED to the floor: its
  * ground above it cut (LEVEL_CUT only, <= cutMax), below it filled (<= fillMax); never water, a record cell's column, a refused one.
  */
-export function plotPrep (read, { plots = [], home, records = [], avoid = () => null, cells = new Set(), T = PLOTPREP } = {}) {
+export function plotPrep (read, { plots = [], home, records = [], avoid = () => null, cells = new Set(), noStair = () => false, T = PLOTPREP } = {}) {
   const out = { cut: [], fill: [], clear: [], trees: [], platforms: [], cols: new Set(), plots: [], skipped: {} }
   const skip = why => { out.skipped[why] = (out.skipped[why] ?? 0) + 1 }
   if (!home) return out
@@ -832,7 +832,8 @@ export function plotPrep (read, { plots = [], home, records = [], avoid = () => 
             const cx = t.base[0] + dx * i, cz = t.base[2] + dz * i, h = need - i + 1    // step i: h blocks (base .. base+h-1)
             const c = col(cx, cz)
             if (!ground(c) && !(c?.tree && c.y != null)) { ok = false; break }
-            if (c.y !== base - 1 || hard(cx, cz) || cellCols.has(k2(cx, cz)) || used.has(k2(cx, cz))) { ok = false; break }
+            // Codex r1 BLOCKER 2: inside its own plot, never on a door's approach, a road corridor, a stand of the plan (accessNoStair)
+            if (c.y !== base - 1 || hard(cx, cz) || cellCols.has(k2(cx, cz)) || used.has(k2(cx, cz)) || noStair(cx, cz) || cx < b[0] || cx > b[2] || cz < b[1] || cz > b[3]) { ok = false; break }
             for (let y = base; y <= base + h - 1; y++) { const q = read(cx, y, cz); if (!open(cx, y, cz) && !/leaves$/.test(nm(q))) { ok = false; break } if (/leaves$/.test(nm(q))) clears.push({ at: [cx, y, cz], kind: 'leaves', name: nm(q) }); cs.push([cx, y, cz]) }
             for (let d = 0; d < 2 && ok; d++) { const y = base + h + d, q = read(cx, y, cz); if (/leaves$/.test(nm(q))) clears.push({ at: [cx, y, cz], kind: 'leaves', name: nm(q) }); else if (!open(cx, y, cz)) ok = false }
             // the top step's column above the head room up to the tree's top: its leaves block the stand's sight of the top logs
@@ -842,7 +843,7 @@ export function plotPrep (read, { plots = [], home, records = [], avoid = () => 
           }
           if (!ok) continue
           const lx = t.base[0] + dx * (need + 1), lz = t.base[2] + dz * (need + 1), lc = col(lx, lz)
-          if (!ground(lc) || lc.y !== base - 1 || hard(lx, lz) || cellCols.has(k2(lx, lz)) || !open(lx, base, lz) || !open(lx, base + 1, lz)) continue
+          if (!ground(lc) || lc.y !== base - 1 || hard(lx, lz) || cellCols.has(k2(lx, lz)) || noStair(lx, lz) || !open(lx, base, lz) || !open(lx, base + 1, lz)) continue
           plat = { cells: cs, clears, cols: [...cols, k2(lx, lz)] }
           break
         }
@@ -899,6 +900,9 @@ export function platformTeardown (rec, read, now = Date.now(), T = PLOTPREP) {
   for (const p of ps) {
     if (p.phase !== 'up') continue
     const logs = (rec.clear ?? []).filter(c => c.kind === 'tree' && c.tree === p.tree)
+    // Codex r1 BLOCKER 1: an UNREAD cell (an unloaded chunk) is never a felled log, and a stand with an unread cell waits (its cuts
+    // would be lost): retired only on what the world says
+    if (p.cells.some(c => !read(...c)) || logs.some(c => !read(...c.at))) continue
     const felled = logs.every(c => !LOG_RE.test(nm(read(...c.at))))
     if (felled || now - (Number(rec.sitedAt) || 0) >= T.teardownMs) down.push(p)
   }
@@ -1193,7 +1197,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     // access-01: the staircases' refusals (accessNoStair), in every box
     const noStair = accessNoStair(terrace?.records ?? [], { plan, land })
     // plotprep-01: the extension's reserved plots first (their trees, their stands, their level); the other inwall rules keep off them
-    const pp = plotPrep(read, { plots: terrace?.wallext?.plots ?? [], home, records: terrace?.records ?? [], avoid, cells })
+    const pp = plotPrep(read, { plots: terrace?.wallext?.plots ?? [], home, records: terrace?.records ?? [], avoid, cells, noStair })
     const reservedP = (x, z) => pp.cols.has(k2(x, z)) || reserved(x, z)
     const parts = boxes.map(b => surveyInwall(read, { home, box: b, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, noStair, water, waterOk }))
     const bad = parts.find(q => !q.ok)

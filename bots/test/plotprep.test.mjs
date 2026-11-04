@@ -14,6 +14,7 @@ const t = async (name, fn) => {
   try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 5).join('\n        ')}`) }
 }
 const TIDY_PATH = new URL('../src/tidy.mjs', import.meta.url)
+const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
 async function withMutant (p, old, neu, fn) {
   const src = readFileSync(p, 'utf8')
   assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))}`)
@@ -129,6 +130,27 @@ await t('BUILT by runVisit: the stand laid, the tree felled from it -- the top l
   const e2 = bot(srv2, 'K', { inv: { cobblestone: 32, spruce_sapling: 2 }, feet: [20, G + 1, -50] })
   for (let i = 0; i < 4; i++) await R.runVisit({ dir: dir2, key, me: 'K', home: HOME, stood: [], record: r0, recordGen: pub2.gen, palette: T.TIDY_PALETTE, slot: slot2.slot, slotGen: slot2.gen, domain: () => true, walkR: 64, skipOpenDeps: true, clearMax: 40 }, e2, { maxSteps: 300 })
   assert.ok(/_log$/.test(srv2.read(TREE[0], G + 9, TREE[1]).name), 'control: without the stand the top log stands')
+})
+await t('Codex r1 BLOCKERS: an unread stand or log never retires the stand; a stand never on a door\'s approach or outside its plot; a cut never under another body', async () => {
+  const srv = scene()
+  const r = siteInwall(srv).record
+  for (const c of r.plotprep.platforms[0].cells) srv.set(c, 'cobblestone')
+  for (let y = G + 1; y <= G + 9; y++) srv.set([TREE[0], y, TREE[1]], 'air')
+  const unread = (x, y, z) => (x === r.plotprep.platforms[0].cells[0][0] && z === r.plotprep.platforms[0].cells[0][2] ? null : srv.read(x, y, z))
+  assert.strictEqual(T.platformTeardown(r, unread, r.sitedAt + 60_000), null, 'a stand cell unread: wait')
+  const logUnread = (x, y, z) => (x === TREE[0] && z === TREE[1] ? null : srv.read(x, y, z))
+  assert.strictEqual(T.platformTeardown(r, logUnread, r.sitedAt + 60_000), null, 'a log unread is never felled')
+  // the stand runs along +x (26..28, z -54) and lands at 29: a door's front approach there refuses every side that way
+  const p0 = T.plotPrep(scene().read, { plots: [X1], home: HOME, records: [] })
+  const st = p0.platforms[0].cells
+  const noStair = T.accessNoStair([{ plot: 'storehouse', frontOpen: [[st[0][0], st[0][2]]] }])
+  const p1 = T.plotPrep(scene().read, { plots: [X1], home: HOME, records: [], noStair })
+  assert.ok(!p1.platforms.some(q => q.cells.some(c => noStair(c[0], c[2]))), 'never on the approach')
+  // a plot too narrow for the stand on any side: the tree is kept (no stand outside the plot)
+  const narrow = { ...X1, box: [24, -55, 26, -53] }
+  assert.strictEqual(T.plotPrep(scene().read, { plots: [narrow], home: HOME, records: [] }).platforms.length, 0)
+  const s = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.ok(/tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) && !otherBodyOnCell\(bot, q\.at\)/.test(s), 'a tidy cut waits while another body stands on it')
 })
 await t('mutant: no stand (a tall tree felled from the ground only) is caught', async () => {
   await withMutant(TIDY_PATH, '      if (need > 0) {\n', '      if (false) {\n', async M => {

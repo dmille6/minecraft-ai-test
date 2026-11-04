@@ -544,7 +544,7 @@ await t('roadWork under the rule: a cut beside water carries its dam; a road col
 })
 await t('WIRING: buildTidy passes intoWater and the dig-time check; siteStage reads the rule (TIDY_WATER=strict: the old refusal)', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/\.\.\.\(GROUNDS\.on \? \{ intoWater: tidyWater\(\) !== 'strict', tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) \} : \{\}\)/.test(s))
+  assert.ok(/\.\.\.\(GROUNDS\.on \? \{ intoWater: tidyWater\(\) !== 'strict', tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) && !otherBodyOnCell\(bot, q\.at\) \} : \{\}\)/.test(s), 'plotprep-01: + never under another body')
   const srv = server()
   col(srv, 10, 0, G - 2, G, 'air'); col(srv, 11, 0, G - 1, G, 'water'); col(srv, 11, 1, G - 1, G, 'water'); col(srv, 11, -1, G - 1, G, 'water')
   const on = await T.siteStage(srv.read, { home: HOME, land: null, stage: 0, now: 0, env: {} })

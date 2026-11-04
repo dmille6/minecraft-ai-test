@@ -21983,6 +21983,18 @@ async function prepTick (bot, dir, key, rec, me, signal) {
   // a failed verify leaves nothing open (the work was done): the next choose grades the world as it is now
   return head()
 }
+/** plotprep-01 (Codex r1 BLOCKER 3): does another body (a player, a mob) stand ON or IN the cell -> bool. A tidy cut (a felling stand's
+ *  teardown above all) never digs out from under a bot: it waits. Never throws (no entities: false). */
+function otherBodyOnCell (bot, at) {
+  try {
+    for (const e of Object.values(bot?.entities ?? {})) {
+      if (!e || e === bot.entity || !e.position || ['item', 'experience_orb', 'arrow'].includes(e.name)) continue
+      const p = e.position, w = (e.width ?? 0.6) / 2
+      if (p.x + w > at[0] && p.x - w < at[0] + 1 && p.z + w > at[2] && p.z - w < at[2] + 1 && p.y >= at[1] && p.y < at[1] + 2.01) return true
+    }
+  } catch { /* none */ }
+  return false
+}
 /** gkstage-01: keeper visits a stage may wait for a crew bot's plants (parkHeldByCrew) before it closes over them. */
 const GK_PARK_WAITS = 6
 async function buildTidy (ctx, args, signal) {
@@ -22278,7 +22290,7 @@ async function buildTidy (ctx, args, signal) {
       ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true } : {}),
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
       // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)
-      ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) } : {}),
+      ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) && !otherBodyOnCell(bot, q.at) } : {}),
       ...(parkish ? { useFor: q => (q.role === 'till' ? hoeUse : q.role === 'meadow' ? mealUse : null), openRole: role => OPEN_ROLES.has(role) } : {}),
       // gkhelpers-01: the crew's segments -- never one within GK.segGap columns of another bot's live one, a raced take yielded, and a
       // segment whose layer below is open passed (the next independent one worked)
