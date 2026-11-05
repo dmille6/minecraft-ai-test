@@ -31,7 +31,7 @@ import { walkFrom, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replant
 import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
 import * as V from './voidfill.mjs'
-import { waivePick, monuStuckOn } from './stuckcells.mjs'
+import { waivePick, monuStuckOn, hardDeferrals } from './stuckcells.mjs'
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => k3(a[0], a[1], a[2])
@@ -409,7 +409,8 @@ const byColumn = keys => {
  *       `alsoDone(cell, read)`, `leaveIf(feet)` + `leaveTo` (walk off the build at the visit's end), `tidy` ([{ at, kind: 'tidy',
  *       name }]: blocks that are NOT record cells, dug like the record's clears -- zigtidy-01); paths-01: `use` = { can(b),
  *       want(b), block, hold(), held() } -- an open cell whose block a held TOOL turns into the record's block in place (a shovel:
- *       grass or dirt -> dirt_path) is used from a dig stand, never placed
+ *       grass or dirt -> dirt_path) is used from a dig stand, never placed; tidydead-01: `hardDefers` (the tidy) -- a segment whose
+       every open cell is HARD this visit (stuckcells.mjs hardDeferrals) is deferred, never stopped `blocked` / `attempts_spent`
  *   e   effects: read, feet, bodies, walkTo, hold, has, look, nextSeq, send, waitAck, track, untrack, conn, acked, seen, dig,
  *       probe, aborted, log, now, sleep, spawnedAt
  * Stops: complete | no_sapling | no_material | no_step | deps_open | fence:<why> | aborted | max_steps | deadline | blocked |
@@ -895,6 +896,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // wallstuck-01: the foreign cells whose column could not be opened (`p.sealed`), and why each deferred cell was deferred (the
   // visit's `deferred`: the caller's waiver names it)
   const sealed = new Set(), deferWhy = new Map()
+  // tidydead-01 (`p.hardDefers`): the cells whose clear THIS visit could not reach, and each cell's last click result
+  const unreachedClears = new Set(), lastTry = new Map()
   // THE STUCK MAP, settled on EVERY exit (Codex r21 P2 / Claude P3-1: written only at the loop's end, a visit that deferred a cell
   // and then stopped early -- blocked, no_material, deps_open, a fence, the deadline -- never counted). Counts are per holder
   // file (buildproj stuckRead/stuckWrite: no lost update between two builders), summed for the threshold. An early exit keeps its
@@ -1061,7 +1064,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'foreign', result: 'sealed', why: String(sa.why ?? sv ?? 'no_stand').slice(0, 80) }); continue
           }
           // A FOREIGN DIG THAT DID NOT LAND IS NAMED (r3: live, `no_stand` spent the cell's attempts with no row at all)
-          if (v !== 'confirmed') { bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign', result: v }); continue }
+          if (v !== 'confirmed') {
+            if (v === 'no_stand' || v === 'unreached') unreachedClears.add(kOf(f.at))
+            bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign', result: v }); continue
+          }
           out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign' })
           continue
         }
@@ -1265,6 +1271,20 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             out.blockedCells = (out.blockedCells ?? 0) + hard.length
             break
           }
+          // tidydead-01 (`p.hardDefers`, the tidy): every open cell is HARD this visit -- a block whose clear could not reach it, or a
+          // clear cell whose attempts are spent -- or waits on one below it: those cells are DEFERRED (F4: counted in the stuck map,
+          // waived by the caller after WALL_WAIVE_AFTER visits) and the visit goes on with the segments that do not wait on this one.
+          // A cell with any chance left (a dig refused or unconfirmed, attempts unspent) keeps the old stop and is retried at once
+          if (p.hardDefers && !needSapling) {
+            const hard = hardDeferrals(open, { clear: isClear, tries: k => tries.get(k) ?? 0, max: BUILD_ATTEMPTS, waits: below, unreached: unreachedClears, lastTry, name: at => nm(rd(...at)) })
+            if (hard) {
+              for (const d of hard) { deferredCells.push(d.k); deferWhy.set(d.k, d.why) }
+              deferredSegs.add(seg)
+              e.log('_build', { op: 'deferred', seg, cell: hard[0].k.split(',').map(Number), n: hard.length, why: 'hard' })
+              out.hardCells = (out.hardCells ?? 0) + hard.length
+              break
+            }
+          }
           out.stop = open.some(c => !isClear(c.at)) ? (needSapling ? 'no_sapling' : 'blocked') : 'attempts_spent'
           out.why = `${seg}: ${open.length} open, ${cand.length} placeable now`
           return out
@@ -1276,6 +1296,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (v.startsWith('fence:') || v === 'aborted' || v === 'no_material') { out.stop = v; return out }
         if (v === 'busy') { await e.sleep(100); continue }            // a free skip: the mutex or the barrier is another's
         bump(picked.at)                                               // body, stand, barrier_wait, refused, silent: an attempt
+        lastTry.set(kOf(picked.at), v)
         if (v === 'refused') out.refused++
         if (v === 'silent') out.silent++
       }
