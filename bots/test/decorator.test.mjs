@@ -309,6 +309,43 @@ await t('MUTANT KILLED: a step ledge that takes any block seats a pot on what so
     assert.deepStrictEqual(M.potSpots(srv.read, 'house1', houseRec(), HOUSE_DOOR, { pathCols: TD.pathColumns(pathsRec()), guard: TD.cellGuard(RECS().map(r => r.rec)) }).map(q => q.at), [[3, G + 1, 3]])
   })
 })
+await t('Codex r1 BLOCKER 1: grass UNDER an overhang is a landing cell too -- a protected column with one refuses the nursery; unread is a refusal', () => {
+  const srv = server()
+  // a protected column beside the centre whose grass has air above and STONE 3 above it (the old top-only scan read it 'none')
+  srv.set([24, G + 3, 20], 'stone')
+  const reserved = (x, z) => (x === 24 && z === 20 ? 'protected' : null)
+  assert.strictEqual(D.nurseryColumn(srv.read, 24, 20, G, { guard: TD.cellGuard([]), reserved }), 'reserved:protected')
+  assert.strictEqual(D.nurseryOk(srv.read, [20, G, 20], { guard: TD.cellGuard([]), reserved }).ok, false)
+  srv.set([24, G + 1, 20], 'stone')
+  assert.strictEqual(D.nurseryColumn(srv.read, 24, 20, G, { guard: TD.cellGuard([]), reserved }), 'none', 'POSITIVE CONTROL: covered grass seeds nothing')
+  // grass 6 below the centre's height (a meal's walk can drop one a step) is in reach
+  const s2 = server()
+  s2.set([30, G, 30], 'air'); for (let y = G - 6; y < G; y++) s2.set([30, y, 30], 'air'); s2.set([30, G - 6, 30], 'grass_block')
+  assert.strictEqual(D.nurseryColumn(s2.read, 30, 30, G, { guard: TD.cellGuard([]), reserved: () => 'zone' }), 'reserved:zone')
+  assert.strictEqual(D.nurseryColumn(srv.read, 59, 59, G, { guard: TD.cellGuard([]) }), 'land', 'POSITIVE CONTROL: read')
+  assert.strictEqual(D.nurseryColumn(srv.read, 70, 70, G, { guard: TD.cellGuard([]) }), 'unread', 'an unread column is never nothing')
+})
+await t('MUTANT KILLED: a top-only scan misses the grass under an overhang (Codex r1 BLOCKER 1)', async () => {
+  await killed(DEC_PATH, '  for (let g = y - NURSERY.spread; g <= y + NURSERY.spread; g++) {', '  for (let g = y + 1; g <= y + 1; g++) {', M => {
+    const srv = server()
+    srv.set([24, G + 3, 20], 'stone')
+    assert.strictEqual(M.nurseryColumn(srv.read, 24, 20, G, { guard: TD.cellGuard([]), reserved: (x, z) => (x === 24 && z === 20 ? 'protected' : null) }), 'reserved:protected')
+  })
+})
+await t('Codex r1 BLOCKER 2: the flowers an open border owes are never a pot\'s; a visit that changed nothing is a stall', () => {
+  assert.strictEqual(D.potPlantFor({ poppy: 3, spruce_sapling: 20 }, 0, 3), 'spruce_sapling', 'the three poppies are the border\'s')
+  assert.strictEqual(D.potPlantFor({ poppy: 3 }, 0, 3), null)
+  assert.strictEqual(D.potPlantFor({ poppy: 4 }, 0, 3), 'poppy', 'one spare')
+  const rec = { cells: [{ at: [1, 1, 1], role: 'D1-f0' }, { at: [2, 1, 1], role: 'D1-f1' }, { at: [3, 1, 3], role: 'D1-pot' }] }
+  assert.strictEqual(D.flowersOwed(rec, c => c.at[0] === 1), 1)
+  assert.strictEqual(D.decorStalled({}), true)
+  for (const k of ['placed', 'pots', 'meals', 'blooms', 'cleared']) assert.strictEqual(D.decorStalled({ [k]: 1 }), false, k)
+})
+await t('MUTANT KILLED: a pot that takes the border\'s flowers starves the open batch', async () => {
+  await killed(DEC_PATH, '  const fl = flowers > flowerKeep ? SMALL_FLOWERS.filter(have) : []', '  const fl = SMALL_FLOWERS.filter(have)', M => {
+    assert.strictEqual(M.potPlantFor({ poppy: 3, spruce_sapling: 20 }, 0, 3), 'spruce_sapling')
+  })
+})
 await t('nurseryDigs: every flower in reach on grass (nearest first), the grass only round the centre, never a record cell', () => {
   const srv = server()
   const nursery = { at: [20, G, 20] }
@@ -471,8 +508,11 @@ const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'ut
 const W = [
   /const order0 = b \? decorOrder\(b, marked, order00, now\) : order00/,
   /if \(!decorLeaseNow\(bot\)\) return out\('no_effect', 'not_decorator',/,
-  /const pf = await decorPotFill\(ctx, rec0, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS\)/,
-  /if \(g0\?\.want\) \{ const nu = await decorNursery\(ctx, rec0, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS\)/,
+  /const pf = await decorPotFill\(ctx, rec0, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, owed\)/,
+  /const owed = rec0 \? flowersOwed\(rec0, q => buildCellDone\(rd0\(\.\.\.q\.at\), rec0\.palette \?\? \{\}, q\.role\)\) : 0/,
+  /if \(kind === 'decor' && decorStalled\(\{ \.\.\.f, placed: r\.placed, cleared: r\.cleared \}\)\) decorStall\(bot, `visit:\$\{r\.stop\}`\)/,
+  /const work = decorWanted\(states\[i\]\) && !stalled/,
+  /if \(g0\?\.want \|\| owed > borderPlantsOf\(heldMap\(bot\)\)\) \{ const nu = await decorNursery\(ctx, rec0, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, g0\?\.want \? DECOR\.batchMax : owed\)/,
   /if \(tidy && r\.plot === SINK_PLOTS\.decor && decorPotWork\(bot, r\)\) return true/,
   /pressure: kind === 'dress' \? dressPressureNow\(bot\) : kind === 'decor' \? decorPressureNow\(bot\) : pr, openCount/,
   /if \(r\.ok && kind !== 'dress' && kind !== 'decor' && !sinkFundable\(/,
@@ -490,7 +530,7 @@ await t('the decor is wired: the holder\'s order, the visit\'s lease check, the 
   for (const re of W) assert.ok(re.test(SK), String(re))
 })
 await t('mutants: each wiring line, once broken, fails its assertion', () => {
-  const breaks = ["if (!decorLeaseNow(bot)) return out('no_effect', 'not_decorator',", 'const order0 = b ? decorOrder(b, marked, order00, now) : order00', "if (tidy && r.plot === SINK_PLOTS.decor && decorPotWork(bot, r)) return true"]
+  const breaks = ['const work = decorWanted(states[i]) && !stalled', "if (!decorLeaseNow(bot)) return out('no_effect', 'not_decorator',", 'const order0 = b ? decorOrder(b, marked, order00, now) : order00', "if (tidy && r.plot === SINK_PLOTS.decor && decorPotWork(bot, r)) return true"]
   for (const b of breaks) {
     assert.strictEqual(SK.split(b).length, 2, `anchor unique: ${b}`)
     const m = SK.replace(b, 'BROKEN')

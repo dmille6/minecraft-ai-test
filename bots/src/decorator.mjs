@@ -100,12 +100,15 @@ const rotList = (list, i) => list.slice(i % list.length).concat(list.slice(0, i 
 /** The bag's border plants -> n (every BORDER_PLANTS name held). Pure. */
 export const borderPlantsOf = (held = {}) => BORDER_PLANTS.reduce((s, n) => s + Math.max(0, Number(held?.[n]) || 0), 0)
 /**
- * THE PLANT A POT TAKES FROM THIS BAG -> item | null. Pure. A flower first (the seed picks which, so neighbouring pots differ), then a
+ * THE PLANT A POT TAKES FROM THIS BAG -> item | null. Pure. A flower first (the seed picks which, so neighbouring pots differ) -- only
+ * from the flowers above `flowerKeep` (what the record's open border cells still need) -- then a
  * fern or an azalea, then a sapling only above DECOR.saplingKeep of its species (the tree planters' reserve stays whole).
  */
-export function potPlantFor (held = {}, seed = 0) {
+export function potPlantFor (held = {}, seed = 0, flowerKeep = 0) {
   const have = n => (Number(held?.[n]) || 0) > 0
-  const fl = SMALL_FLOWERS.filter(have)
+  // Codex r1 BLOCKER 2: the flowers an open border still needs (`flowerKeep`) are the border's, never a pot's
+  const flowers = SMALL_FLOWERS.reduce((t, n) => t + Math.max(0, Number(held?.[n]) || 0), 0)
+  const fl = flowers > flowerKeep ? SMALL_FLOWERS.filter(have) : []
   if (fl.length) return fl[Math.abs(seed) % fl.length]
   for (const n of ['fern', 'flowering_azalea', 'azalea']) if (have(n)) return n
   const sp = SAPLINGS.filter(n => (Number(held?.[n]) || 0) > DECOR.saplingKeep)
@@ -385,17 +388,28 @@ export function grassTop (read, x, z, y, dy = NURSERY.dy) {
   return null
 }
 /**
- * ONE COLUMN AS THE NURSERY'S GROUND -> 'none' (nothing a meal could seed: no grass top with an open cell above) | 'land' (a landing
- * cell a meal may seed, and nothing guards it) | a refusal ('reserved:<why>' | 'record'). Pure. A landing column is refused when it is
+ * ONE COLUMN AS THE NURSERY'S GROUND -> 'none' (nothing a meal could seed: no grass block with an open cell above) | 'land' (a landing
+ * cell a meal may seed, and nothing guards it) | a refusal ('reserved:<why>' | 'record' | 'unread'). Pure. A landing column is refused when it is
  * reserved (`reserved(x, z)`: a zone, a corridor, the park, a farm ...), is another record's column (a building's, a lamp's), or its
  * landing cell (or the one above) is a record cell. A column with no grass is never a refusal: a meal's walk steps only onto grass.
  */
 export function nurseryColumn (read, x, z, y, { guard, reserved = () => null } = {}) {
-  const g = grassTop(read, x, z, y)
-  if (g == null) return 'none'
+  // Codex r1 BLOCKER 1: EVERY grass block with an open cell above within NURSERY.spread of the centre's height (the walk climbs or drops
+  // one a step, at most 7 steps) -- never only the column's top: grass under an overhang is a landing cell too. An unread cell there
+  // is a refusal (never "nothing to seed").
+  const lands = []
+  for (let g = y - NURSERY.spread; g <= y + NURSERY.spread; g++) {
+    const b = read(x, g, z)
+    if (!b) return 'unread'
+    if (!GRASS(b)) continue
+    const a = read(x, g + 1, z)
+    if (!a) return 'unread'
+    if (!isLiquid(a) && (AIRN(nm(a)) || BLOOM_SET.has(nm(a)))) lands.push(g)
+  }
+  if (!lands.length) return 'none'
   const why = reserved(x, z)
   if (why) return `reserved:${String(why).slice(0, 24)}`
-  if (guard.cols.has(k2(x, z)) || guard.cells.has(kOf([x, g + 1, z])) || guard.cells.has(kOf([x, g + 2, z]))) return 'record'
+  if (guard.cols.has(k2(x, z)) || lands.some(g => guard.cells.has(kOf([x, g + 1, z])) || guard.cells.has(kOf([x, g + 2, z])))) return 'record'
   return 'land'
 }
 /**
@@ -534,6 +548,11 @@ export function decorOrderPure (states, list, { d, plot = 'decor' } = {}) {
   out[i] = { ...out[i], free: false, damaged: false, due: false, dueFirst: false, sinkOpen: false, sinkNext: false }
   return { order: list, states: out }
 }
+/** The border flowers a decor record still owes -> n: its flower cells (decorFlowerRole) that `done(cell)` does not read done. Pure. */
+export const flowersOwed = (rec, done = () => false) => (rec?.cells ?? []).filter(c => decorFlowerRole(c.role) && !done(c)).length
+/** A decor visit's NO-PROGRESS stamp (Codex r1 BLOCKER 2: an open batch the decorator cannot finish -- no flower, no meal -- must not
+ *  hold the decorator and every other project for good): nothing placed, filled, used or harvested -> true. Pure. */
+export const decorStalled = (f = {}) => !(Number(f.placed) > 0 || Number(f.pots) > 0 || Number(f.meals) > 0 || Number(f.blooms) > 0 || Number(f.cleared) > 0)
 /** The pot cells of a decor record standing EMPTY now (a flower_pot, not yet potted) -> [cell]. Pure. */
 export const emptyPots = (rec, read) => (rec?.cells ?? []).filter(c => decorPotRole(c.role) && nm(read(...c.at)) === 'flower_pot')
 /**
