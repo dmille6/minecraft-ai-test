@@ -24680,7 +24680,9 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
       const stood = stoodRead(dir, stoodKey(), home)
       const walkR = Math.max(96, Math.ceil(Math.hypot(rec.site.centre[0] - home.x, rec.site.centre[1] - home.z)) + SWELL.W + 8)
       const r = await runVisit({ dir, key, me, home, stood, record: fellView(rec), recordGen: rh.head.gen, palette: FELL_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.stepwellStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-        domain: () => true, blockLayer: false, clearMax: 60, walkR }, effects, { deadline, maxSteps: 240 })
+        // stepwell-04 (LIVE 11-05 20:58-22:02Z: sited, then 11 felling visits each ended `replanned` at one replant remedy, 0 of 50 logs
+        // down): the groundskeeper's knobs -- a remedy does not end the visit, B4 per tree (buildrun.mjs plotprep-03)
+        domain: () => true, blockLayer: false, clearMax: 60, walkR, replantGoOn: true, replantPerTree: true }, effects, { deadline, maxSteps: 240 })
       const left = fellPending(stairRead(bot), rec)
       stepwellRow(bot, 'fell', { why: r.stop, n: `${r.cleared}c/${r.placed}p/${r.planted ?? 0}s/left${left ?? '?'}`, ms: Date.now() - t0 })
       const status = r.placed > 0 || r.cleared > 0 || (r.planted ?? 0) > 0 ? 'success' : 'no_effect'

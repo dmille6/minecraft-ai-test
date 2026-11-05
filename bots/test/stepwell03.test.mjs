@@ -157,5 +157,10 @@ await t('skills.mjs stepwellSite surveys over the memoised read and columns; a b
   assert.ok(/const STEPWELL_TIMEOUT_WAIT_MS = 30 \* 60_000/.test(src))
 })
 
+await t('stepwell-04: the felling visit passes the groundskeeper\'s replant knobs (structural; behaviour in plotprep03.test.mjs)', () => {
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.ok(/record: fellView\(rec\)[^\n]*\n\s*domain: \(\) => true, blockLayer: false, clearMax: 60, walkR, replantGoOn: true, replantPerTree: true \}/.test(src))
+})
+
 console.log(`\nstepwell03: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
