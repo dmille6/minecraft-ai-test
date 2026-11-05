@@ -189,7 +189,7 @@ import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS, SMELT_MS
 import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 // mats-01 (building tier section 3): the materials job's decisions
 import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
-  STONEWORKS, LADDER_KINDS, fuelPlan, fuelToLoad, withFuelReserve, effectiveBuffer, oreWaiting,   // stoneworks-01
+  STONEWORKS, LADDER_KINDS, fuelPlan, fuelToLoad, withFuelReserve, effectiveBuffer, oreWaiting, stoneScaffoldHeld,   // stoneworks-01
   furnaceQualifies, batchFor, planksToLoad, newNote, returnPlan, noteSettled, obligations, recoveryContentsOk, takeAllowed, recipeUsing, isPlanks, toolCounts,
   recoveryBalance, reserveKeyOf, matsRecountable, MATS_RETURN_WAIT_MS, matsReturnWaitMs, recoveryVerdict, BUFFERED_PARTS, backSeenTouched,
   MATS_RETURN_MAX, MATS_RETURN_MAX_AGE_MS, matsBalance, forbiddenCounts, matsDetail,
@@ -14393,6 +14393,8 @@ async function makeMaterial (ctx, args, signal) {
     const inp = orderInputs(kind, { bagSpare: spare, stock: town.stock, reserve: E.table, fuel: fuelP })
     if (!inp) { f.stop = 'inputs'; return (result = { status: 'no_effect', detail: `the town has no ${kind} inputs above its reserve now` }) }
     const LF = inp.fuel && inp.fuel.rung !== 'planks' ? inp.fuel : null     // a ladder fuel other than planks
+    // stoneworks-01 (Codex code r1 BLOCKER): the stone the deposit would keep as the bag's scaffold could never be banked
+    if (kind === 'stone' && stoneScaffoldHeld(heldMap(bot), { fromBag: inp.fromBag, made: LF ? LF.batch : K.smelt.n }) > 0) { f.stop = 'scaffold'; return (result = { status: 'no_effect', detail: 'the bag holds no 8 cheaper scaffold (cobblestone, cobbled_deepslate) beside the stone: the deposit would keep the stone made' }) }
     if (inp.fuel) f.fuel = `${inp.fuel.rung}:${inp.fuel.name}`
     if (LF) { LFacct = { name: LF.name, ticks: LF.ticks }; if (Object.keys(LF.take ?? {}).length) LFbank = LF.name }
     f.log = inp.log ?? '-'
