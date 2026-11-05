@@ -510,7 +510,10 @@ export function siteDecor (read, ctx = {}) {
   // decorator-03: the hedge behind the flower runs (the design's `hedge`, the bag's leaves), kept only where the town walk loses nothing
   const flowersRun = border2.filter((c, i) => kinds2[i] === 'f')
   const hedge0 = design.hedge && leaves > 0 ? hedgeCells(read, border2, { pathCols, guard, reserved, max: Math.min(DECOR.hedgeMax, leaves) }).filter(h => flowersRun.some(c => cheb(c.at, h.at) <= 1)) : []
-  const hedges = proveHedges(read, home, hedge0, { stood, walkR })
+  // Codex r1 BLOCKER 1: proven over the batch's pots and posts already standing (fence + lantern solid): the walk with them is the
+  // baseline, and a hedge that loses any node of it -- a doorway front among them -- is dropped
+  const solids = new Map([...pr.pots.map(q => [kOf(q.at), SOLID('flower_pot')]), ...pr.posts.flatMap(q => [[kOf(q.at), SOLID('spruce_fence')], [kOf([q.at[0], q.at[1] + 1, q.at[2]]), SOLID('lantern')]])])
+  const hedges = proveHedges(solids.size ? overlay(read, solids) : read, home, hedge0, { stood, walkR })
   const inst = decorInstance(id, { border: border2, pots: pr.pots, design, kinds: kinds2, hedges, posts: pr.posts })
   const meta = { id, n, kind: DECOR_KIND, seed, design: { kind: DECOR_KIND, ...design }, summary: decorSummary(border2, pr.pots, design, ak.ferns, hedges.length, pr.posts.length), box: inst.box, zones: inst.zones,
     cols: inst.cols, pots: inst.pots, posts: inst.posts, hedges: hedges.length, approach: [inst.cells[0].at], centre: [inst.cells[0].at[0], inst.cells[0].at[2]], plants: border2.length, flowers: ak.flowers, ferns: ak.ferns, inside: border2.filter(c => c.inside).length }

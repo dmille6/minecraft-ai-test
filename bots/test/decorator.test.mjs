@@ -658,6 +658,21 @@ await t('siteSink(decor) with leaves and lantern kits: hedges behind the flowers
   const r2 = S.siteSink(srv.read, { kind: 'decor', n: 1, id: 'D1', home: HOME, seed, records: recs, flowers: 8, leaves: 0, posts: 0, doorOf })
   assert.ok(!r2.inst.cells.some(c => /-(h|post|lamp)$/.test(c.role)), 'no leaves, no kit: neither')
 })
+await t('Codex r1 BLOCKER 1: the hedges are proven over the batch\'s posts -- a hedge that, with a post, shuts a doorway front is dropped', () => {
+  // the house's doorway front (5, G+1, 3): its posts stand at x 3 and 7; a hedge at (4, G+1, 2) and (6, G+1, 2) with walls round the
+  // front's other side (z 2 row) would leave the front reachable alone, but not with the posts' fences
+  const recs = RECS()
+  const srv = town(recs.map(r => r.rec))
+  for (let x = 2; x <= 8; x++) if (x !== 4 && x !== 5 && x !== 6) for (let y = G + 1; y <= G + 3; y++) srv.set([x, y, 2], 'stone')
+  for (let y = G + 1; y <= G + 3; y++) { srv.set([2, y, 3], 'stone'); srv.set([8, y, 3], 'stone') }
+  for (let x = 4; x <= 6; x++) srv.set([x, G + 3, 2], 'stone')   // a 2-high gap in the z 2 row (a hedge stepped onto is shut)
+  const posts = [{ at: [3, G + 1, 3] }, { at: [7, G + 1, 3] }]
+  const solids = new Map(posts.flatMap(q => [[q.at.join(','), { name: 'spruce_fence', boundingBox: 'block' }], [[q.at[0], q.at[1] + 1, q.at[2]].join(','), { name: 'lantern', boundingBox: 'block' }]]))
+  const B = (x, y, z) => solids.get(`${x},${y},${z}`) ?? srv.read(x, y, z)
+  const hs = [{ at: [4, G + 1, 2] }, { at: [5, G + 1, 2] }, { at: [6, G + 1, 2] }]
+  const kept = D.proveHedges(B, HOME, hs, { walkR: 20 })
+  assert.ok(kept.length < hs.length, `with the posts standing a full hedge row shuts the front: ${JSON.stringify(kept)}`)
+})
 await t('the REAL visit runner builds a hedge and a lantern post (fence, then the lantern on its top)', async () => {
   const recs = RECS()
   const srv = town(recs.map(r => r.rec))
@@ -692,7 +707,8 @@ const W = [
   /await matsWithdraw\(ctx, \{ bone_meal: want - bagMeal \}, signal, 30_000, matsReserve\(\)\.table, decorAllow\(\{ bone_meal: want - bagMeal \}\)\)/,
   /if \(rec0 && DECOR_POTS_ON\) \{ const pf = await decorPotFill\(/,
   /if \(leafNeed > 0 && based\) \{ const lg = await decorLeaves\(ctx, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, leafNeed\)/,
-  /if \(postNeed > 0\) \{ const pk = await decorPostKit\(ctx, signal, postNeed, rec0\)/,
+  /if \(postNeed > 0\) \{ const pk = await decorPostKit\(ctx, signal, postNeed, rec0, postOwed\)/,
+  /const want = Math\.max\(owed, Math\.min\(need, owed \+ Math\.max\(0, DECOR_POSTS_TOWN - posts\)\)\)/,
   /done: \(b, pal, role\) => dressSignRole\(role\) \|\| decorBagRole\(role\) \|\| buildCellDone\(b, pal, role\)/,
   /buildRowDetail\(\{ project: SINK_PLOTS\.decor, op: 'clear', cell: t\.at, block: t\.name, kind: 'leaves', gen: decorGen\(\) \}\)/,
   /if \(fernNeed > 0 && based\) \{ const fg = await decorFerns\(ctx, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, fernNeed\)/,

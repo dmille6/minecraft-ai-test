@@ -22102,10 +22102,11 @@ const DECOR_POSTS_TOWN = 12
  * nuggets and a torch each: drawn from town under the decorator's own cap -- decorAllow -- the torch only above the town's reserve) up
  * to `need`, never past DECOR_POSTS_TOWN posts in the record. Never throws but an abort.
  */
-async function decorPostKit (ctx, signal, need, rec) {
+async function decorPostKit (ctx, signal, need, rec, owed = 0) {
   const { bot } = ctx
   const posts = (rec?.instances ?? []).reduce((t, i) => t + (i.posts?.length ?? 0), 0)
-  const want = Math.min(need, DECOR_POSTS_TOWN - posts)
+  // Codex r1 BLOCKER 2: the town cap holds NEW posts only -- a sited post's owed fence or lantern is always made
+  const want = Math.max(owed, Math.min(need, owed + Math.max(0, DECOR_POSTS_TOWN - posts)))
   if (want <= 0) return 0
   let made = 0
   try {
@@ -22220,7 +22221,7 @@ async function buildSink (ctx, args, signal, proj) {
       if (leafNeed > 0 && based) { const lg = await decorLeaves(ctx, signal, t0 + budget - ZIG_VISIT_TAIL_MS, leafNeed); if (lg.n) f.blooms = (f.blooms ?? 0) + lg.n }
       const postOwed = Math.ceil(owedOf(decorPostRole) / 2)
       const postNeed = DECOR_POSTS_ON ? Math.max(postOwed, g0?.want ? DECOR.postsMax : 0) : 0
-      if (postNeed > 0) { const pk = await decorPostKit(ctx, signal, postNeed, rec0); if (pk) f.pots = (f.pots ?? 0) + pk }
+      if (postNeed > 0) { const pk = await decorPostKit(ctx, signal, postNeed, rec0, postOwed); if (pk) f.pots = (f.pots ?? 0) + pk }
       if (g0?.want || owed > borderPlantsOf(heldMap(bot))) { const nu = await decorNursery(ctx, rec0, signal, t0 + budget - ZIG_VISIT_TAIL_MS, g0?.want ? DECOR.batchMax : owed); f.meals = nu.meals; f.blooms = (f.blooms ?? 0) + nu.blooms }
       // decorator-02: THE COMPOST DRIVE -- the nursery's grass (cut with shears: items) and any other composter junk in the bag goes
       // into the town composter now, whatever the bag's fullness (the composter's own skill, its own rows)
