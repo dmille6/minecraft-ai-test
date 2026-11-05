@@ -33,6 +33,7 @@
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { isSolid, isPassable, isLiquid, isTreeish, isFurniture, replaceableCell, sectorOf, keepouts, boxMeetsZones, cellInZones, rot } from './townplan.mjs'
+import { worldState, orientAim } from './townstyle.mjs'
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const k2 = (x, z) => `${x},${z}`
@@ -105,7 +106,8 @@ export function loadBlueprint (id) { return JSON.parse(fs.readFileSync(`${here}b
 const dirOf = (orient, du, dv) => { const { dx, dz } = rot(orient, du, dv); return [Math.sign(dx), Math.sign(dz)] }
 /** The world cells of a blueprint at (anchor x, z, pad level s, orientation). Pure. */
 export function placeBlueprint (bp, anchor, s, orient) {
-  return bp.cells.map(c => { const { dx, dz } = rot(orient, c.u, c.v); return { ...c, at: [anchor.x + dx, s + c.y, anchor.z + dz] } })
+  // townstyle-01: a cell with a LOCAL state (`st`) carries its WORLD state (`ws`) for this orientation (townstyle.mjs worldState)
+  return bp.cells.map(c => { const { dx, dz } = rot(orient, c.u, c.v); const ws = worldState(c.st, orient); return { ...c, at: [anchor.x + dx, s + c.y, anchor.z + dz], ...(ws ? { ws } : {}) } })
 }
 /** Local (u, v) -> world (x, z). */
 const at2 = (anchor, orient, u, v) => { const { dx, dz } = rot(orient, u, v); return [anchor.x + dx, anchor.z + dz] }
@@ -456,13 +458,20 @@ const SUPPORTS = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
  * cell (feet or head) and is in the build domain -- `domain(x, z)` when given (monument-01: ziggurat.mjs zigDomain, its record's
  * box + 6), else the workshop's ring (inDomain). Nearest wins.
  */
-export function stepFor (read, home, cell, nodes, domain = null) {
+export function stepFor (read, home, cell, nodes, domain = null, want = null) {
   const [cx, cy, cz] = cell
   let best = null, bd = Infinity
   for (const [fx, fy, fz] of SUPPORTS) {
     const sup = [cx + fx, cy + fy, cz + fz]
     if (!refUsable(read(...sup))) continue
     const normal = [0 - fx, 0 - fy, 0 - fz]   // never -0 (a record compares and serialises cleanly)
+    // townstyle-01: A STATE-BEARING CELL (`want` = { name, ws }) takes only a face whose click makes that state (townstyle.mjs
+    // orientAim: a top face never makes a top half, a log's axis is its face's); the step carries the click's `aim` (yaw, cursor)
+    const aim = want?.ws ? orientAim(want.name, want.ws, normal) : null
+    if (want?.ws && !aim) continue
+    // townstyle-01: A REACH-ONLY CELL (`want.blind`, a pitched roof's upper courses: Paper places on reach alone -- the blind scene of
+    // sandbox/townstyle/orient-proof.mjs): the face need not be on the eye's side nor in its sight; the reach rule stands
+    const blind = !!want?.blind
     const fc = [sup[0] + 0.5 + normal[0] * 0.5, sup[1] + 0.5 + normal[1] * 0.5, sup[2] + 0.5 + normal[2] * 0.5]
     for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
       const sx = cx + dx, sz = cz + dz
@@ -474,9 +483,9 @@ export function stepFor (read, home, cell, nodes, domain = null) {
         const v = [eye[0] - fc[0], eye[1] - fc[1], eye[2] - fc[2]]
         const d = Math.hypot(...v)
         if (d > REACH || d >= bd) continue
-        if (v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2] <= 0) continue
-        if (!sightClear(read, eye, fc, new Set([k3(cx, cy, cz)]))) continue
-        best = { stand: [sx, sy, sz], support: sup, face: normal }; bd = d
+        if (!blind && v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2] <= 0) continue
+        if (!blind && !sightClear(read, eye, fc, new Set([k3(cx, cy, cz)]))) continue
+        best = { stand: [sx, sy, sz], support: sup, face: normal, ...(aim ? { aim } : {}) }; bd = d
       }
     }
   }
@@ -521,7 +530,7 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
     while (left.length) {
       let pick = -1, step = null
       for (let i = 0; i < left.length; i++) {
-        step = stepFor(R, home, left[i].at, nodes, domain)
+        step = stepFor(R, home, left[i].at, nodes, domain, left[i].ws || left[i].blind ? { name: blockFor(bp, left[i].role), ws: left[i].ws ?? null, blind: !!left[i].blind } : null)
         if (step) { pick = i; break }
       }
       if (pick < 0 && !fresh) { nodes = walkNow(); fresh = true; walks++; continue }
@@ -529,7 +538,7 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
       fresh = false
       const c = left.splice(pick, 1)[0]
       over.set(k3(...c.at), Object.freeze({ name: blockFor(bp, c.role), boundingBox: ROLE_BOX[c.role] ?? 'block' }))
-      out.push({ at: c.at, role: c.role, seg: c.seg, stand: step.stand, support: step.support, face: step.face, order: order++ })
+      out.push({ at: c.at, role: c.role, seg: c.seg, stand: step.stand, support: step.support, face: step.face, order: order++, ...(c.ws ? { ws: c.ws } : {}), ...(c.blind ? { blind: true } : {}) })
     }
     segOut.push({ seg: sg.seg, layer: sg.layer, deps: sg.deps, cells: mine.length, walks, stands: new Set(out.filter(o => o.seg === sg.seg).map(o => k3(...o.stand))).size })
   }

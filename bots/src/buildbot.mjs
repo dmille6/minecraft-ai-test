@@ -36,6 +36,10 @@ export const LAND_MS = 1_500
 // (r2, Claude r1 P3-7: crafter, chiseled bookshelf, flower pots and candles act on an empty-hand click)
 export const INTERACTABLE = /_trapdoor$|_door$|chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$|_bed$|_button$|^lever$|_fence_gate$|^anvil$|_anvil$|^bell$|^brewing_stand$|^composter$|^cartography_table$|^loom$|^stonecutter$|^grindstone$|^smithing_table$|^enchanting_table$|^beacon$|^dispenser$|^dropper$|^note_block$|^jukebox$|^repeater$|^comparator$|^daylight_detector$|_sign$|^cake$|^respawn_anchor$|^lodestone$|^campfire$|^soul_campfire$|^crafter$|^chiseled_bookshelf$|^flower_pot$|^potted_|candle$|candle_cake$/
 const FACE_DIR = f => (f[1] < 0 ? 0 : f[1] > 0 ? 1 : f[2] < 0 ? 2 : f[2] > 0 ? 3 : f[0] < 0 ? 4 : 5)
+/** townstyle-01: a notchian yaw (degrees; south 0, west 90) -> mineflayer's radians (conversions.js toNotchianYaw = deg(PI - yaw)). */
+export const yawRad = deg => Math.PI - (deg * Math.PI) / 180
+/** The pitch a look packet carries: the bot's own, notchian (conversions.js toNotchianPitch = deg(-pitch)). */
+const aimPitch = bot => Math.fround((-(Number(bot.entity?.pitch) || 0) * 180) / Math.PI)
 
 /**
  * THE CORNER CUT (shopwalls-02; LIVE showcase 10-28 14:44Z on: with the walls up, 8 of 10 builders stood wedged at
@@ -198,11 +202,25 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
   const spare = n => count(n) - (Number(keep?.[n]) || 0)
   const has = n => spare(n) > 0
   has.planks = () => [...new Set(items().map(i => i.name).filter(n => /_planks$/.test(n)))].find(n => spare(n) > 0) ?? null
-  const read = (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox } : null }
-  const write = (support, face, seq) => {
+  // townstyle-01: the block's PROPERTIES ride along, read only when asked (`props`: a stair's facing and half, a log's axis), so the
+  // thousands of reads a walk makes cost nothing more
+  const read = (x, y, z) => {
+    const b = bot.blockAt(new Vec3(x, y, z))
+    if (!b) return null
+    return { name: b.name, boundingBox: b.boundingBox, get props () { try { return b.getProperties?.() ?? null } catch { return null } } }
+  }
+  // townstyle-01: an AIMED click (townstyle.mjs orientAim): the yaw a stair's facing needs goes to the server as its OWN look packet
+  // immediately before the block_place, in the same synchronous write (mineflayer's lookAt(force) only queues its look for the next
+  // physics tick: a click in the same tick is judged with the old yaw), and the cursor sits where the state's half needs it
+  const write = (support, face, seq, aim = null) => {
+    const cur = Array.isArray(aim?.cursor) ? aim.cursor : [0.5 + face[0] * 0.5, 0.5 + face[1] * 0.5, 0.5 + face[2] * 0.5]
+    if (Number.isFinite(aim?.yaw)) {
+      const onGround = !!bot.entity?.onGround
+      bot._client.write('look', { yaw: aim.yaw, pitch: aimPitch(bot), onGround, flags: { onGround, hasHorizontalCollision: false } })
+    }
     bot._client.write('block_place', {
       location: new Vec3(support[0], support[1], support[2]), direction: FACE_DIR(face), hand: 0,
-      cursorX: 0.5 + face[0] * 0.5, cursorY: 0.5 + face[1] * 0.5, cursorZ: 0.5 + face[2] * 0.5,
+      cursorX: cur[0], cursorY: cur[1], cursorZ: cur[2],
       insideBlock: false, worldBorderHit: false, sequence: seq,
     })
     try { bot.swingArm?.('right') } catch { /* cosmetic */ }
@@ -251,9 +269,16 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       return bot.heldItem?.name === n
     },
     has,
-    look: async (support, face) => { try { await bot.lookAt(new Vec3(support[0] + 0.5 + face[0] * 0.5, support[1] + 0.5 + face[1] * 0.5, support[2] + 0.5 + face[2] * 0.5), true) } catch { /* not fatal */ } },
+    look: async (support, face, aim = null) => {
+      try {
+        await bot.lookAt(new Vec3(support[0] + 0.5 + face[0] * 0.5, support[1] + 0.5 + face[1] * 0.5, support[2] + 0.5 + face[2] * 0.5), true)
+        // townstyle-01: an aimed click keeps the face's pitch and turns to the state's yaw, so mineflayer's own next look agrees with
+        // the look packet the send writes
+        if (Number.isFinite(aim?.yaw)) await bot.look(yawRad(aim.yaw), bot.entity.pitch, true)
+      } catch { /* not fatal */ }
+    },
     nextSeq: () => A.tracker.next(),
-    send: write,
+    send: write,   // (support, face, seq, aim?) -- townstyle-01's aimed click when `aim` is given
     waitAck: (seq, ms) => A.tracker.wait(seq, ms),
     track: (id, seq) => A.track(id, seq),
     untrack: id => A.untrack(id),
