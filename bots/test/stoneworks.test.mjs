@@ -316,7 +316,7 @@ test('MUTANTS (stoneworks-02): the bill, the yard order, the deepslate balance, 
   const fb = M.fuelPlan({ bagSpare: { bamboo: 48 }, stock: {} })
   const dn = { ...M.newNote({ kind: 'deepslate_bricks', took: { cobbled_deepslate: 6 }, fromBag: { cobbled_deepslate: 10 }, bag0: { cobbled_deepslate: 30 } }), crafting: true }
   const cases = [
-    ['the bill ignored', "  if (bill && typeof bill === 'object' && BILL_PARTS.includes(part)) return", "  if (false) return",
+    ['the bill ignored', "  if (bill && typeof bill === 'object' && BILL_PARTS.includes(part)) {", "  if (false) {",
       X => assert.equal(X.effectiveBuffer('stone_bricks', X.buffersDefault(true), { bill: { stone_bricks: 395 } }), 459)],
     ['the yard skipped', "if (fy > 0) { fromYard[name] = fy; rest -= fy }", "",
       X => assert.deepEqual(X.orderInputs('stone', { bagSpare: { bamboo: 48 }, stock: { cobblestone: R.cobblestone + 100 }, yard: 7, fuel: fb }).take, { cobblestone: 5 })],
@@ -343,7 +343,7 @@ test('STRUCTURAL (stoneworks-02): the bill and yard readings are lazy and non-en
   const bill = src.slice(src.indexOf('export function stoneBillNow ('), src.indexOf('export function yardCobbleNow ('))
   assert.match(bill, /for \(const h of projectHeads\(\)\)/); assert.match(bill, /rec\.structure_complete\) continue/); assert.match(bill, /billOf\(rec, palette, read, \{ done: buildCellDone/)
   const body = src.slice(src.indexOf('async function makeMaterial ('), src.indexOf('async function matsReturnDrain ('))
-  const yi = body.indexOf('await yardDrawFor(ctx, inp.fromYard.cobblestone'), wi = body.indexOf('await matsWithdraw(ctx, take,')
+  const yi = body.indexOf('await yardDrawFor(ctx, '), wi = body.indexOf('await matsWithdraw(ctx, take,')
   assert.ok(yi > 0 && wi > yi, 'the yard draw precedes the chest withdraw')
   assert.match(body, /if \(yardGot > 0\) w\.took = \{ \.\.\.w\.took, cobblestone: \(w\.took\?\.cobblestone \?\? 0\) \+ yardGot \}/, 'the yard\'s cobble is booked as taken')
   assert.match(body, /bill: STONEWORKS\.on \? town\.bill \?\? null : null/, 'the skill re-checks the buffer on the bill')
@@ -361,6 +361,11 @@ test('THE CUT KINDS: 8 bricks a cut -- stairs and walls 1:1, slabs 1:2; a standi
   assert.equal(B.stone_brick_stairs, 32); assert.equal(B.deepslate_brick_stairs, 0, 'deepslate trims only by a bill')
   assert.equal(M.effectiveBuffer('deepslate_brick_stairs', B, { bill: { deepslate_brick_stairs: 40 } }), 40, 'a cut part\'s bill is exact')
   assert.equal(M.effectiveBuffer('stone_brick_stairs', B, { bill: { stone_brick_stairs: 10 } }), 32, 'never below the stock')
+  // Codex r1 BLOCKER 3: a bill smaller than one cut rounds UP to whole cuts (4 stairs -> one cut of 8), so a small bill finishes
+  assert.equal(M.effectiveBuffer('deepslate_brick_stairs', B, { bill: { deepslate_brick_stairs: 4 } }), 8)
+  assert.equal(M.effectiveBuffer('deepslate_brick_slab', B, { bill: { deepslate_brick_slab: 17 } }), 32)
+  const sm = { stock: { ...FULL, deepslate_bricks: 300 }, coverage: 1 }; Object.defineProperty(sm, 'bill', { value: { deepslate_brick_stairs: 4 } }); Object.defineProperty(sm, 'cutter', { value: true })
+  assert.equal(M.materialOrder(base({ town: sm, furnace: () => false })).order?.args.item, 'deepslate_brick_stairs', 'a 4-stair bill is cut')
   // the cut takes town bricks only above their keep
   const i = M.orderInputs('stone_brick_stairs', { stock: { stone_bricks: M.CUT_BRICK_KEEP + 8 }, reserve: M.withFuelReserve(R) })
   assert.deepEqual(i.take, { stone_bricks: 8 })
@@ -439,6 +444,8 @@ test('MUTANTS (stoneworks-03): the cutter gate, the brick keep, the cut balance 
       X => assert.equal(X.swTakeAllowed('stone_bricks', 8, { others: {}, here: { stone_bricks: 30 }, reserve: X.withFuelReserve(R) }), 0)],
     ['slabs counted as bricks', "  const out = Math.min(n, Math.floor(parts / per))", "  const out = Math.min(n, parts)",
       X => assert.equal(X.recoveryBalance(n, { bag: { stone_brick_slab: 8 } }).verdict, 'loss')],
+    ['a cut bill not rounded to whole cuts', "    return Math.max(b, Math.min(BILL_CAP, unit ? Math.ceil(want / unit) * unit : want + (want > 0 ? BILL_MARGIN : 0)))", "    return Math.max(b, Math.min(BILL_CAP, unit ? want : want + (want > 0 ? BILL_MARGIN : 0)))",
+      X => assert.equal(X.effectiveBuffer('deepslate_brick_stairs', X.buffersDefault(true), { bill: { deepslate_brick_stairs: 4 } }), 8)],
     ['the probe takes the first button', "for (const x of seen ?? []) if (x?.name === want) return x.b; return -1", "return seen?.[0]?.b ?? -1",
       X => assert.equal(X.cutterButton([{ b: 0, name: 'chiseled_stone_bricks' }, { b: 2, name: 'stone_brick_stairs' }], 'stone_brick_stairs'), 2)],
   ]
@@ -457,4 +464,11 @@ test('STRUCTURAL (stoneworks-03): the station is made only when no cutter is in 
   assert.match(body, /if \(K\.station && cw\.stationPlaced\) f\.deposited\.stonecutter = 1/)
   const cut = src.slice(src.indexOf('export async function matsCut ('), src.indexOf('/** What the bag holds ABOVE its keeps'))
   assert.match(cut, /if \(!block && \(heldMap\(bot\)\.stonecutter \?\? 0\) > 0\) \{ const put = await place\(ctx, \{ item: 'stonecutter' \}, signal\)/)
+  // Codex r1 BLOCKER 1: the crafts count the inputs the order planned from the bag's own spare, not only what it took
+  assert.match(body, /f\.made = await matsCrafts\(cw, kind, bag0, signal, \{ planksName, fromBag: inp\.fromBag \}\)/)
+  const crafts = src.slice(src.indexOf('async function matsCrafts ('), src.indexOf('async function makeMaterial ('))
+  assert.match(crafts, /const mine = n => Math\.min\(heldMap\(bot\)\[n\] \?\? 0, above\(n\) \+ Math\.max\(0, Number\(fromBag\?\.\[n\]\) \|\| 0\)\)/)
+  assert.match(crafts, /const cd = mine\('cobbled_deepslate'\)/); assert.match(crafts, /await matsCut\(ctx, kind, mine\(KINDS\[kind\]\.cut\.from\), signal\)/)
+  // Codex r1 BLOCKER 2 (the showcase only: the fleet has no yard): the yard is asked for at least its own minimum draw
+  if (src.includes('function yardDrawPlan') || src.includes('yardDrawPlan(')) assert.match(body, /await yardDrawFor\(ctx, Math\.max\(YARD_DRAW_MIN, inp\.fromYard\.cobblestone\), signal/)
 })

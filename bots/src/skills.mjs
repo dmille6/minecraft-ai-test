@@ -14221,9 +14221,11 @@ async function matsBank (ctx, names, bag0, signal, caps = {}, { avoid = {}, full
 
 /** The order's crafts after its session (or a recovery's): stone in fours into bricks, glass in sixes into panes, the
  *  torch kind's charcoal into torches with its own sticks (crafted from its own planks when short). -> parts made */
-async function matsCrafts (ctx, kind, bag0, signal, { planksName = null } = {}) {
+async function matsCrafts (ctx, kind, bag0, signal, { planksName = null, fromBag = {} } = {}) {
   const { bot } = ctx
   const above = n => Math.max(0, (heldMap(bot)[n] ?? 0) - (Number(bag0?.[n]) || 0))
+  // stoneworks-02 r1 (Codex BLOCKER 1): the order's inputs = what it took (above bag0) + what it planned from the bag's own spare
+  const mine = n => Math.min(heldMap(bot)[n] ?? 0, above(n) + Math.max(0, Number(fromBag?.[n]) || 0))
   check(signal)
   if (kind === 'bricks') { const st = above('stone'); if (st >= 4) await craft(ctx, { item: 'stone_bricks', count: st - (st % 4) }, signal) }
   if (kind === 'panes') { const g = above('glass'); if (g >= 6) await craft(ctx, { item: 'glass_pane', count: Math.floor(g / 6) * 16 }, signal) }
@@ -14238,7 +14240,7 @@ async function matsCrafts (ctx, kind, bag0, signal, { planksName = null } = {}) 
   if (kind === 'cut_copper') { if (above('copper_ingot') >= 36) await craft(ctx, { item: 'copper_block', count: 4 }, signal); if (above('copper_block') >= 4) await craft(ctx, { item: 'cut_copper', count: 4 }, signal) }
   if (kind === 'copper_door') { if (above('copper_ingot') >= 6) await craft(ctx, { item: 'copper_door', count: 3 }, signal) }
   // stoneworks-03: a cut (the order's bricks in the stonecutter) and the station (crafted at a table, then placed)
-  if (KINDS[kind]?.cut) { const r = await matsCut(ctx, kind, above(KINDS[kind].cut.from), signal); ctx.cutStop = r.stop }
+  if (KINDS[kind]?.cut) { const r = await matsCut(ctx, kind, mine(KINDS[kind].cut.from), signal); ctx.cutStop = r.stop }
   if (KINDS[kind]?.station) {
     if (above('stonecutter') < 1) await craft(ctx, { item: 'stonecutter', count: 1 }, signal)
     check(signal)
@@ -14247,7 +14249,7 @@ async function matsCrafts (ctx, kind, bag0, signal, { planksName = null } = {}) 
   }
   // stoneworks-02: the order's cobbled deepslate in fours -> polished deepslate, then polished in fours -> deepslate bricks (2x2 each)
   if (kind === 'deepslate_bricks') {
-    const cd = above('cobbled_deepslate'); if (cd >= 4) await craft(ctx, { item: 'polished_deepslate', count: cd - (cd % 4) }, signal)
+    const cd = mine('cobbled_deepslate'); if (cd >= 4) await craft(ctx, { item: 'polished_deepslate', count: cd - (cd % 4) }, signal)
     check(signal)
     const pd = above('polished_deepslate'); if (pd >= 4) await craft(ctx, { item: 'deepslate_bricks', count: pd - (pd % 4) }, signal)
   }
@@ -14407,7 +14409,7 @@ async function makeMaterial (ctx, args, signal) {
     const cw = { ...ctx, preferWorkshop: true, stations: {} }
     // 6. THE CRAFTS -- the copper kinds' write-ahead first (Codex r5 P2-1): a note that says `crafting` is judged as crafted
     if (!K.smelt) { note.crafting = true; writeMatsNote(bot, note) }
-    f.made = await matsCrafts(cw, kind, bag0, signal, { planksName })
+    f.made = await matsCrafts(cw, kind, bag0, signal, { planksName, fromBag: inp.fromBag })
     f.wsT = cw.stations.table ?? '-'
     if (cw.cutStop) f.stop = `cut:${cw.cutStop}`
     // stoneworks-03: the placed station is the order's delivery (the balance books it as out)
