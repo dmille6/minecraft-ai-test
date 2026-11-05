@@ -56,7 +56,7 @@ await t('THE RECTANGLES: the shared side ON the old line, the hall + margin insi
   assert.ok(rs.length > 20)
   for (const { rect } of rs) {
     assert.strictEqual(rect[3], -20, 'the south side is the old north line')
-    assert.ok(rect[0] >= -46 && rect[2] <= 35, 'within the old span')
+    assert.ok(rect[0] >= -46 - W.WALLEXT.over && rect[2] <= 35 + W.WALLEXT.over, 'within the old span + over (r4)')
     assert.ok(rect[0] <= box[0] - 6 && rect[2] >= box[2] + 6 && rect[1] <= box[1] - 6, 'the hall + margin inside')
   }
   assert.strictEqual(new Set(rs.map(r => r.rect.join(','))).size, rs.length, 'each once')
@@ -64,6 +64,15 @@ await t('THE RECTANGLES: the shared side ON the old line, the hall + margin insi
   assert.deepStrictEqual(W.extInterior([10, 0, 30, 20], 'E'), [10, 1, 29, 19])
   assert.strictEqual(W.extJoin(ring, 'N')(5, -20), 'join'); assert.strictEqual(W.extJoin(ring, 'N')(5, -21), null)
   assert.strictEqual(W.extJoin(ring, 'W')(-46, 3), 'join')
+})
+await t('PAST THE OLD SPAN (r4, LIVE 11-05: the hall 6 from the old ring\'s east end -- every ring that end allowed trapped or cut the strip between the hall and the terrace): the join is the old line\'s own span only; a rectangle may pass it by `over`', () => {
+  const ring = [-46, -20, 35, 39]
+  const j = W.extJoin(ring, 'N')
+  assert.strictEqual(j(35, -20), 'join'); assert.strictEqual(j(-46, -20), 'join')
+  assert.strictEqual(j(36, -20), null, 'beyond the span: built as wall'); assert.strictEqual(j(-47, -20), null)
+  const rs = W.extRects(ring, [10, -59, 28, -49], 'N')
+  assert.ok(rs.some(q => q.rect[2] > 35) && rs.every(q => q.rect[2] <= 35 + W.WALLEXT.over), 'past the east end, by at most `over`')
+  assert.ok(W.extRects(ring, [10, -59, 28, -49], 'N', { ...W.WALLEXT, over: 0 }).every(q => q.rect[2] <= 35), 'positive control: over 0 is the old rule')
 })
 await t('THE JOIN in wallCandidate: a join column is never built; without `join` the record is the same as before (positive control)', () => {
   const srv = server()
@@ -134,13 +143,14 @@ await t('THE SITING on the fake server: N; no cell on the old line, on an old wa
   const oldCols = new Set(wall.cells.map(c => `${c.at[0]},${c.at[2]}`))
   const hubZone = [HUB.box[0] - 3, HUB.box[1] - 3, HUB.box[2] + 3, HUB.box[3] + 3]
   for (const c of r.cells) {
-    assert.ok(c.at[2] < wall.ring[1], `a cell on or behind the old line ${c.at}`)
+    const inSpan = c.at[0] >= wall.ring[0] && c.at[0] <= wall.ring[2]
+    assert.ok(c.at[2] < wall.ring[1] || (c.at[2] === wall.ring[1] && !inSpan), `a cell on the old line's own span or behind it ${c.at}`)
     assert.ok(!oldCols.has(`${c.at[0]},${c.at[2]}`), 'never an old wall column')
     assert.ok(!inBox(hubZone, c.at[0], c.at[2]), `a cell in the hall's reservation ${c.at}`)
     assert.ok(inBox(r.ring, c.at[0], c.at[2]), 'inside its own rectangle')
   }
   assert.ok(r.cells.filter(c => c.role === 'wall').length > 40, 'a real wall stands')
-  assert.ok(r.cols.filter(c => c.z === wall.ring[1]).every(c => c.s === 'join'), 'the shared line is all join')
+  assert.ok(r.cols.filter(c => c.z === wall.ring[1] && c.x >= wall.ring[0] && c.x <= wall.ring[2]).every(c => c.s === 'join'), 'the old line\'s own span is all join')
   assert.strictEqual(r.escape.cut, 0); assert.strictEqual(r.escape.trapped, 0)
   assert.ok(r.zones.length && r.zones.every(z => z.why === 'project:wallext'))
   assert.deepStrictEqual(r.interior, W.extInterior(r.ring, 'N'))
