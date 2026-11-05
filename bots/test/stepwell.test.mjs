@@ -448,6 +448,18 @@ await t('the tank and its descent built END TO END on a fake world (rim 40: one 
   assert.deepStrictEqual(V.descentHops(P, [11, 41, -2]), [], 'no hops outside the descent')
 })
 
+await t('Paper 11-05: torches that never take (each refused) never hold the work -- the tank and its descent still complete', async () => {
+  const P = S.planTank(DSITE(40))
+  const w = world({}, 40)
+  const e = fakeBot(w, P, { start: [11, 41, -2] })
+  const place0 = e.place
+  e.place = async (c, role) => (role === 'light' || role === 'dlight' ? 'refused' : place0(c, role))
+  let r = null
+  for (let i = 0; i < 60; i++) { r = await V.runStepwellVisit({ plan: P, exit: P.exit, onStop: async () => {} }, e, { opsMax: 3000, lights: () => true }); if (r.stop === 'complete') break }
+  assert.strictEqual(r.stop, 'complete', JSON.stringify(r))
+  assert.ok(S.descentDone(w.read, P))
+})
+
 console.log('THE SWITCH AND THE WIRING (structural: comments stripped, executable lines, each with a one-character mutant)')
 await t('the switch: on only in STEPWELL_POOLS (default showcase), STEPWELL=on|off overrides; the licence row names it', () => {
   assert.strictEqual(S.stepwellOn({}, 'showcase'), true)
