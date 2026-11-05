@@ -17,6 +17,7 @@
 // EVERY DECISION IS HERE AND PURE (CLAUDE.md "extract the decision"); skills.mjs only walks, opens, clicks, waits, measures.
 
 import { BUILD_RESERVE, PROJECT_PARTS } from './stocktarget.mjs'
+import { scaffoldKeep } from './bankable.mjs'   // stoneworks-01: the deposit's own scaffold rule (stoneScaffoldHeld)
 
 export const MATS_V = 1
 const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak']
@@ -285,6 +286,20 @@ export function fuelPlan ({ n = 12, unit = 4, bagSpare = {}, stock = {}, reserve
     if (best) return { rung: r.rung, name: best.name, count, batch, ticks: r.ticks, fromBag: r.from === 'bag' ? { [best.name]: count } : {}, take: r.from === 'town' ? { [best.name]: count } : {}, log: null }
   }
   return null
+}
+
+/**
+ * STONE THE DEPOSIT WOULD KEEP AS SCAFFOLD (stoneworks-01, Codex code r1 BLOCKER) -> n. Pure. Stone is pathfinder scaffold, and
+ * every deposit holds back the bag's cheapest 8 scaffold (bankable.mjs scaffoldKeep, through depositPlan). A bot whose bag after
+ * the order holds no 8 cheaper scaffold (cobblestone, cobbled_deepslate, andesite, ...) would bank only part of the stone it made and
+ * leave the rest owed (the note open until it is given up). `held` the bag now; `fromBag` what the order spends of it; `made` the
+ * stone the order adds. The stone kind runs only when this is 0.
+ */
+export function stoneScaffoldHeld (held = {}, { fromBag = {}, made = 12 } = {}) {
+  const after = { ...(held ?? {}) }
+  for (const [n, c] of Object.entries(fromBag ?? {})) after[n] = Math.max(0, (Number(after[n]) || 0) - (Number(c) || 0))
+  after.stone = (Number(after.stone) || 0) + made
+  return Number(scaffoldKeep(after).stone) || 0
 }
 
 /** ORE FIRST (stoneworks-01) -> true when a cobble kind must wait: the town stock shows raw iron or raw copper. Pure. */
