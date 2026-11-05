@@ -126,6 +126,11 @@ const REQUIRED = [
   'sandbox/townstyle/orient-proof.mjs',
   'docs/reports/townstyle-2026-11-04/paper-orient.jsonl',
   'bots/test/townstyle.test.mjs',
+  'bots/test/townstyle-build.test.mjs',
+  'bots/test/helpers/townstylefake.mjs',
+  'sandbox/townstyle/cottage-e2e.mjs',
+  'docs/reports/townstyle-2026-11-04/paper-blind.jsonl',
+  'docs/reports/townstyle-2026-11-04/paper-cottage.jsonl',
   // enchantshop-01 (11-04): the enchanting + anvil workshop, its blueprint and generator, its offline siting, its test (the design is main's)
   'bots/src/enchantshop.mjs',
   'bots/src/blueprints/enchantshop@1.json',

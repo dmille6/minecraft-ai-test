@@ -16748,7 +16748,8 @@ function planReader (bot) {
         let props = null
         // siteprep-01: a water cell's level too (a source reads 0: the last resort fills still water only)
         // townstyle-01: and a block whose placement decides its state (stairs, slabs, logs, trapdoors, lanterns): the state cells' done rule
-        if (name === 'snow' || name === 'water' || orientedBlock(name)) { try { props = b.getProperties?.() ?? null } catch { props = null } }
+        if (name === 'snow' || name === 'water') { try { props = b.getProperties?.() ?? null } catch { props = null } }
+        else if (orientedBlock(name)) { try { props = b.getProperties?.() ?? null } catch { props = null } }
         v = { name, boundingBox: b.boundingBox, shapes: b.shapes, props }
       }
     } catch { v = null }

@@ -12,26 +12,11 @@ const C = await import('../src/cottage.mjs')
 const BB = await import('../src/buildbot.mjs')
 const F = await import('./helpers/buildfake.mjs')
 const { B, R, PJ, G, HOME, k3, withMutant } = F
+const { STYLE, sited, vanillaBot, COTTAGE_KIT, buildCottage, buildWithOneBadClick, withSrcMutant, siteWith, vanilla } = await import('./helpers/townstylefake.mjs')
 
 let pass = 0, fail = 0
 const t = async (name, fn) => {
   try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 6).join('\n        ')}`) }
-}
-
-// ---- A SMALL VANILLA: what the server makes of one click (Minecraft 1.21 BlockItem placement, as measured on Paper 1.21.8) ----------
-const FACING = { '1,0': 'east', '-1,0': 'west', '0,1': 'south', '0,-1': 'north' }
-const yawFacing = yaw => { const d = ((Math.round(yaw / 90) % 4) + 4) % 4; return ['south', 'west', 'north', 'east'][d] }
-const OPP = { north: 'south', south: 'north', east: 'west', west: 'east' }
-/** -> the placed block's properties. `face` the clicked face's normal, `cursorY` on the support (0..1), `yaw` the server's yaw. */
-export function vanilla (name, face, cursorY, yaw) {
-  const side = face[1] === 0
-  const top = face[1] < 0 || (side && cursorY > 0.5)
-  if (/_stairs$/.test(name)) return { facing: yawFacing(yaw), half: top ? 'top' : 'bottom', shape: 'straight', waterlogged: false }
-  if (/_slab$/.test(name)) return { type: top ? 'top' : 'bottom', waterlogged: false }
-  if (/_log$/.test(name)) return { axis: face[1] !== 0 ? 'y' : face[0] !== 0 ? 'x' : 'z' }
-  if (/_trapdoor$/.test(name)) return side ? { facing: FACING[`${face[0]},${face[2]}`], half: top ? 'top' : 'bottom', open: false, powered: false, waterlogged: false } : { facing: OPP[yawFacing(yaw)], half: face[1] > 0 ? 'bottom' : 'top', open: false, powered: false, waterlogged: false }
-  if (/^lantern$/.test(name)) return { hanging: face[1] < 0, waterlogged: false }
-  return {}
 }
 
 console.log('ORIENTATION: WHAT ONE CLICK MAKES')
@@ -148,12 +133,6 @@ await t('woodPartsPlan: whole recipes of each part beyond what is had, and the p
 })
 
 // ---- the cottage sited and built on the fake server ---------------------------------------------------------------------------
-const STYLE = { wood: 'spruce', roof: 'dark_oak', stone: 'cobblestone' }
-const sited = v => {
-  const bp = C.styledBlueprint(B.loadBlueprint(`cottage@1${v}`), STYLE)
-  const s = B.siteBlueprint(F.server().read, F.plan(), bp, { tries: 3, plot: 'cottage1' })
-  return { bp, s }
-}
 await t('the cottage SITES on flat ground in both variants: every roof cell has a stand and a face that makes its state (the proof)', () => {
   for (const v of ['s', 'f']) {
     const { bp, s } = sited(v)
@@ -170,51 +149,6 @@ await t('the cottage SITES on flat ground in both variants: every roof cell has 
   }
 })
 
-/** A bot on the fake server whose clicks the SMALL VANILLA judges: the yaw is the aim's, else the bot's look toward the face. */
-function vanillaBot (srv, name, { inv, feet = [2, G + 1, 0], aimless = false } = {}) {
-  const e = F.bot(srv, name, { inv, feet })
-  const props = srv.props ??= new Map()
-  const read0 = srv.read
-  srv.read = (x, y, z) => { const b = read0(x, y, z); return b ? { ...b, props: props.get(k3([x, y, z])) ?? null } : b }
-  e.read = srv.read
-  let held = null
-  const hold = e.hold
-  e.hold = async n => { const ok = await hold(n); if (ok) held = n; return ok }
-  const send = e.send
-  e.send = (support, face, seq, aim = null) => {
-    const target = support.map((q, i) => q + face[i])
-    const before = srv.read(...target)?.name
-    const at = e.feet()
-    // the look toward the face (what the current actuator sends): its horizontal direction is the yaw
-    const dx = support[0] + 0.5 + face[0] * 0.5 - (at[0] + 0.5), dz = support[2] + 0.5 + face[2] * 0.5 - (at[2] + 0.5)
-    const lookYaw = Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? -90 : 90) : (dz > 0 ? 0 : 180)
-    const yaw = !aimless && Number.isFinite(aim?.yaw) ? aim.yaw : lookYaw
-    const cursorY = !aimless && Array.isArray(aim?.cursor) ? aim.cursor[1] : 0.5 + face[1] * 0.5
-    send(support, face, seq)
-    if (before === 'air' && held) props.set(k3(target), vanilla(held, face, cursorY, yaw))
-  }
-  const dig = e.dig
-  e.dig = async (c, expect) => { const r = await dig(c, expect); if (r === 'confirmed') props.delete(k3(c)); return r }
-  return e
-}
-const COTTAGE_KIT = () => ({ cobblestone: 128, spruce_planks: 64, spruce_log: 16, glass_pane: 8, dark_oak_stairs: 48, dark_oak_slab: 12, spruce_trapdoor: 8, torch: 4 })
-async function buildCottage (v, { aimless = false, Mod = R, pre = null, hook = null } = {}) {
-  const { bp, s } = sited(v)
-  const srv = F.server()
-  const pr = F.project(s.record)
-  if (pre) pre(srv, s.record)
-  const e = vanillaBot(srv, 'A', { inv: COTTAGE_KIT(), aimless })
-  if (hook) hook(e)
-  let r = null
-  const placedBy = {}
-  for (let i = 0; i < 6; i++) {
-    const h = PJ.recordHead(pr.dir, pr.key)
-    r = await Mod.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen, palette: bp.palette, placedBy, ...C.cottageVisitOpts(h.head.rec) }, e, { maxSteps: 6000 })
-    if (r.stop === 'complete') break
-  }
-  const done = s.record.cells.filter(c => R.cellDone(srv.read(...c.at), bp.palette, c.role, c.ws)).length
-  return { r, done, total: s.record.cells.length, e, srv, rec: s.record, bp }
-}
 await t('a WHOLE COTTAGE is built on the fake server (vanilla placement rules): complete, every stair facing its ridge', async () => {
   for (const v of ['s', 'f']) {
     const { r, done, total, e, srv, rec } = await buildCottage(v)
@@ -227,110 +161,6 @@ await t('a WHOLE COTTAGE is built on the fake server (vanilla placement rules): 
     assert.strictEqual(rows.length, rec.cells.filter(c => c.ws).length)
   }
 })
-await t('POSITIVE CONTROL: the same build with the CURRENT actuator (no aim: the look toward the face) never completes the roof', async () => {
-  const { r, done, total } = await buildCottage('s', { aimless: true })
-  assert.notStrictEqual(r.stop, 'complete', 'the instrument can see a wrong state')
-  assert.ok(done < total)
-})
-await t('a MISORIENTED stair in a roof cell is dug (`reorient`) and placed again, aimed', async () => {
-  const { r, e, srv } = await buildCottage('s', {
-    pre: (sv, rec) => {
-      const c = rec.cells.find(q => q.role === 'roof' && q.seg === 'roof-edge')
-      sv.set(c.at, 'dark_oak_stairs')
-      ;(sv.props ??= new Map()).set(k3(c.at), { facing: { north: 'south', south: 'north', east: 'west', west: 'east' }[c.ws.facing], half: 'bottom' })
-    },
-  })
-  assert.strictEqual(r.stop, 'complete', `${r.stop} ${r.why ?? ''}`)
-  const re = e.logs.filter(([k, d]) => k === '_build' && d.op === 'clear' && d.kind === 'reorient')
-  assert.strictEqual(re.length, 1, 'one reorient dig')
-  assert.ok(srv.placedAt.get(k3(re[0][1].cell)) >= 1, 'placed again')
-})
-/** The fake vanilla, its FIRST click on one roof cell judged with a wrong yaw (a bad click): -> the build and the bag's balance. */
-async function buildWithOneBadClick (Mod = R) {
-  let bad = null
-  const res = await buildCottage('s', {
-    Mod,
-    pre: (sv, rec) => { bad = rec.cells.find(q => q.role === 'roof' && q.seg === 'roof-edge') },
-    hook: e => {
-      const send = e.send
-      let done = false
-      e.send = (support, face, seq, aim = null) => {
-        const target = support.map((q, i) => q + face[i])
-        if (!done && bad && k3(target) === k3(bad.at) && aim) { done = true; return send(support, face, seq, { ...aim, yaw: aim.yaw + 180 }) }
-        return send(support, face, seq, aim)
-      }
-    },
-  })
-  return { ...res, bad }
-}
-await t('a click that LANDS IN THE WRONG STATE is booked as placed (the bag balance holds), then dug and placed again', async () => {
-  const kit = COTTAGE_KIT()
-  const { r, e, bad } = await buildWithOneBadClick()
-  assert.strictEqual(r.stop, 'complete', `${r.stop} ${r.why ?? ''}`)
-  const rows = e.logs.filter(([k, d]) => k === '_build' && d.op === 'place' && k3(d.cell) === k3(bad.at))
-  assert.deepStrictEqual(rows.map(([, d]) => d.result ?? 'ok'), ['misplaced', 'ok'], 'one misplaced row, then the good one')
-  assert.ok(e.logs.some(([k, d]) => k === '_build' && d.op === 'clear' && d.kind === 'reorient' && k3(d.cell) === k3(bad.at)), 'the reorient dig between')
-  // the bag's balance: every block that left the bag is booked as placed (shopread G8: no negative unexplained)
-  for (const n of Object.keys(kit)) assert.strictEqual(kit[n] - e.inv[n], r.placedBy[n] ?? 0, `${n}: left the bag ${kit[n] - e.inv[n]}, booked ${r.placedBy[n] ?? 0}`)
-})
-await t('MUTANT the misplaced booking dropped: the wrong-state block leaves the bag unbooked (a G8 bag_loss)', () => withMutant(
-  "        if (ws && state === block) return 'misplaced'\n", "", async M => {
-    const kit = COTTAGE_KIT()
-    const { r, e } = await buildWithOneBadClick(M)
-    const n = 'dark_oak_stairs'
-    assert.notStrictEqual(kit[n] - e.inv[n], r.placedBy[n] ?? 0, 'the mutant leaves one stair unbooked')
-  }))
-await t('MUTANT the aim dropped from the send: the roof never completes', () => withMutant(
-  "        e.send(here.support, here.face, seq, here.aim ?? null)",
-  "        e.send(here.support, here.face, seq)", async M => {
-    const { r } = await buildCottage('s', { Mod: M })
-    assert.notStrictEqual(r.stop, 'complete')
-  }))
-await t('MUTANT the state dropped from cellDone: a misoriented stair reads done (the roof completes wrong)', () => withMutant(
-  "  if (ws) return stateOk(propsOf(b), ws)\n",
-  "", async M => {
-    const pal = { roof: ['spruce_stairs'] }
-    assert.strictEqual(M.cellDone({ name: 'spruce_stairs', props: { facing: 'south', half: 'bottom' } }, pal, 'roof', { facing: 'north', half: 'bottom' }), true, 'the mutant cannot see it')
-    const { r, e } = await buildCottage('s', { Mod: M, aimless: true })
-    assert.strictEqual(r.stop, 'complete', 'the mutant calls a wrong roof complete')
-    assert.ok(!e.logs.some(([k, d]) => d?.kind === 'reorient'))
-  }))
-await t('MUTANT the reorient dig dropped: a misoriented stair blocks its cell for good', () => withMutant(
-  "  const misorientedAt = c => { if (!c.ws) return false;",
-  "  const misorientedAt = c => { if (c.ws) return false;", async M => {
-    const { r } = await buildCottage('s', {
-      Mod: M,
-      pre: (sv, rec) => { const c = rec.cells.find(q => q.role === 'roof' && q.seg === 'roof-edge'); sv.set(c.at, 'dark_oak_stairs'); (sv.props ??= new Map()).set(k3(c.at), { facing: 'up', half: 'top' }) },
-    })
-    assert.notStrictEqual(r.stop, 'complete')
-  }))
-
-/** A mutant of a src module (anchor present and unique), imported from the test directory. */
-async function withSrcMutant (file, old, neu, fn) {
-  const url = new URL(`../src/${file}`, import.meta.url)
-  const src = fs.readFileSync(url, 'utf8')
-  assert.strictEqual(src.split(old).length, 2, `ANCHOR MISSING OR NOT UNIQUE in ${file}: ${JSON.stringify(old.slice(0, 70))}`)
-  const out = new URL(`./_mutant-ts-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
-  fs.writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
-  try { return await fn(await import(out.href)) } finally { try { fs.unlinkSync(out) } catch {} }
-}
-const siteWith = (Bm, v = 's') => Bm.siteBlueprint(F.server().read, F.plan(), C.styledBlueprint(B.loadBlueprint(`cottage@1${v}`), STYLE), { tries: 3, plot: 'cottage1' })
-await t('MUTANT the reach-only rule dropped (buildsite stepFor): the cottage has no proven site -- its upper courses are above every eye', () => withSrcMutant('buildsite.mjs',
-  "    const blind = !!want?.blind", "    const blind = false", async Bm => {
-    assert.ok(siteWith(B).ok, 'control: the real module sites it')
-    const s = siteWith(Bm)
-    assert.strictEqual(s.ok, false)
-    assert.ok(JSON.stringify(s.sectors).includes('no_step'), JSON.stringify(s.sectors).slice(0, 200))
-  }))
-await t('MUTANT the state filter dropped (buildsite stepFor): the proof picks a face that cannot make a sill\'s state', () => withSrcMutant('buildsite.mjs',
-  "    if (want?.ws && !aim) continue\n", "", async Bm => {
-    const s = siteWith(Bm, 's')
-    assert.ok(s.ok)
-    const pal = C.styledBlueprint(B.loadBlueprint('cottage@1s'), STYLE).palette
-    const wrong = s.record.cells.filter(c => c.ws && !T.orientAim(R.roleFirst(pal, c.role), c.ws, c.face))
-    assert.ok(wrong.length > 0, 'a state cell whose recorded face cannot make its state')
-  }))
-
 console.log('THE AIMED CLICK ON THE WIRE (buildbot.mjs)')
 await t('an aimed send writes the LOOK (the yaw) and then the block_place, in one synchronous write, the cursor at the half', () => {
   const writes = []
