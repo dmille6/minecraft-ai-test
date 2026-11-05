@@ -306,9 +306,10 @@ export function cottageBlueprint (variant = 's') {
       course: ['%stone', 'cobblestone', 'stone_bricks'],
       post: ['%wood_log'],
       wall: ['%wood_planks', '$planks'],
-      window: ['glass_pane'],
+      // glass when the town has it, else the wall's planks (house@1's rule: a window never stalls the house)
+      window: ['glass_pane', '$wall'],
       gable: ['%wood_planks', '$planks'],
-      gablewin: ['glass_pane'],
+      gablewin: ['glass_pane', '$gable'],
       roof: ['%roof_stairs'],
       ridge: ['%roof_slab'],
       sill: ['%wood_trapdoor'],

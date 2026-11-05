@@ -147,14 +147,16 @@
    "$planks"
   ],
   "window": [
-   "glass_pane"
+   "glass_pane",
+   "$wall"
   ],
   "gable": [
    "%wood_planks",
    "$planks"
   ],
   "gablewin": [
-   "glass_pane"
+   "glass_pane",
+   "$gable"
   ],
   "roof": [
    "%roof_stairs"
