@@ -109,6 +109,22 @@ await t('a TRANSIENT obstruction still keeps `blocked` with hardDefers on (Codex
   assert.strictEqual(PJ.stuckAt(pr.dir, pr.key), null)
 })
 
+await t('r2 (Codex r1 BLOCK): an `unreached` clear followed IN THE SAME VISIT by a dig that reaches and is refused keeps `blocked`', async () => {
+  const scenario = async M => {
+    const srv = server()
+    srv.set(A, 'oak_leaves')
+    const r = rec([{ at: A, role: 'earth', seg: 'T-0' }], ['T-0'])
+    // the first dig of each visit fails `unreached`, the second reaches the cell and is refused: the LATEST result is a transient
+    let n = 0
+    const pr = projectOf(r), e = bot(srv, 'A', { inv: { cobblestone: 8 }, dig: async () => (n++ % 2 === 0 ? 'unreached' : 'refused') })
+    const rs = await visits(pr, e, 3, { M, p: { hardDefers: true } })
+    assert.ok(n >= 4, `both attempts made each visit (digs ${n})`)
+    assert.deepStrictEqual(rs.map(x => x.stop), ['blocked', 'blocked', 'blocked'], 'never deferred: a reachable cell is never waived')
+    assert.strictEqual(PJ.stuckAt(pr.dir, pr.key), null)
+  }
+  await killedBy('          unreachedClears.delete(kOf(f.at))\n', '', scenario)
+})
+
 // ---- 3. hive-d: a clear fill no click lands on, with the town's other segments behind it ------------------------------------------
 console.log('HIVE-D: THE FILL NO CLICK LANDS ON')
 const hivedScene = () => {

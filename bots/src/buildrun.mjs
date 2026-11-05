@@ -1000,6 +1000,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (foreign.length) {
           const f = foreign[0], name = nm(rd(...f.at)), kind = foreignKind(name, scaffoldRe)
           const sg = segGen
+          // tidydead-01 r2 (Codex r1 BLOCK): a cell is unreached only by its LATEST clear -- an earlier `unreached` and then a dig
+          // that reached it and was refused is a transient, kept `blocked`; every outcome of this attempt but the two below forgets it
+          unreachedClears.delete(kOf(f.at))
           const held = () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now())
           // THE TRUNK ABOVE FIRST, lowest first (fell-01 r3, LIVE 10-28 showcase 25,72,28: the pad was built round the log, so its
           // four sides were stone bricks and its top was the trunk -- no face, no sight line, digStand null, `no_stand` silently,
