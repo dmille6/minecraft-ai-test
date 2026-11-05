@@ -21,6 +21,7 @@ process.env.TIDY = 'off'   // tidy-01 / groundskeeper-01 (on in the showcase poo
 // a FLEET-pool child keeps the tidy's own default (on, last); a showcase child keeps TIDY=off like this file
 const tidyEnv = env => { const e = { ...process.env, ...env }; if (env.MEMORY_POOL !== 'showcase' && !('TIDY' in env)) delete e.TIDY; return e }
 process.env.SINKS = 'off'   // picker-01's town sinks (on in the showcase pool) have their own order test: sinks.test.mjs
+process.env.STEPWELL = 'off'   // stepwell-01's stepwell (on in the showcase pool) has its own tests: stepwell.test.mjs
 process.env.YARD = 'off'   // stockyard-01's yard (on in the showcase pool) has its own order test: yard.test.mjs
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE; delete process.env.PATHS; delete process.env.PATHS_POOLS
 delete process.env.WALL; delete process.env.WALL_POOLS

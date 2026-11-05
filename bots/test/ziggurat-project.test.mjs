@@ -14,6 +14,7 @@ process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'showcase'
 process.env.SINKS = 'off'   // picker-01's town sinks (on in the showcase pool) have their own order test: sinks.test.mjs
+process.env.STEPWELL = 'off'   // stepwell-01's stepwell (on in the showcase pool) has its own tests: stepwell.test.mjs
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-zigproj-pool-'))
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE
 process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs

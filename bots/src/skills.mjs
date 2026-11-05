@@ -165,6 +165,9 @@ import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
 import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft, cutUnsafe } from './cropfarm.mjs'   // cropfarm-01
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
+import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
+import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
+import { plotPrep, replantCells, PLOTPREP } from './tidy.mjs'   // stepwell-01: the site's felling (the groundskeeper's stands and replants)
 import { CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANE, CANE_PALETTE, CANE_FOREIGN, siteCaneFarm, caneCells, caneState, caneCensus, caneHarvest, caneStand, caneNeed, caneDue, caneAlsoDone, cutCell, caneHarvestRow, caneBankable } from './canefarm.mjs'   // canefarm-01
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
 import { legacyStage, stageCarry, tidyWater, cutSafeNow } from './tidy.mjs'   // townterrace-01
@@ -17415,7 +17418,7 @@ const bpCache = new Map()
 // wall-01: the wall has none either (wall.mjs sites it; WALL_PALETTE)
 // shaft-02: the town stair has none either (shaftgeom.mjs plans it; its visit and its damage test are its own)
 // picker-01: a sink's palette is its record's (every instance's roles): its blueprint here names no palette of its own
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT || id === WALLEXT_BLUEPRINT || id === WALLDEMO_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === CANEFARM_BLUEPRINT ? { id, palette: CANE_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) || id === STEPWELL_BLUEPRINT ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT || id === WALLEXT_BLUEPRINT || id === WALLDEMO_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === CANEFARM_BLUEPRINT ? { id, palette: CANE_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -17451,6 +17454,8 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         if (p.plot === COTTAGE_PLOT && !rec && !cottageOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // canefarm-01 r1 (Codex BLOCKER 1): an unsited cane bed whose siting found no site WAITS town-wide (siteWaitUntil)
         if (p.plot === CANEFARM_PLOT && !rec && Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        // stepwell-01: an unsited stepwell whose siting found no site WAITS town-wide too (the canefarm rule: never a loop of no_site visits)
+        if (p.plot === STEPWELL_PLOT && !rec && Date.now() < siteWaitUntil(STEPWELL_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
         // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
@@ -17944,6 +17949,9 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     if (r.blueprint === CROPFARM_BLUEPRINT) return tidy && !!cropDueFor(bot, r)
     // canefarm-01: a standing cane bed is never DAMAGED either: its harvest and replant are upkeep (canefarm.mjs caneDue)
     if (r.blueprint === CANEFARM_BLUEPRINT) return tidy && !!caneDueFor(bot, r)
+    // stepwell-01: the stepwell judges its own cells (stepwell.mjs stepwellDamaged: the first layer not done, lights aside; a stopped
+    // tank is never damaged -- it stands as built)
+    if (r.blueprint === STEPWELL_BLUEPRINT) return stepwellDamaged(stairRead(bot), r) != null
     // tidy-01: a finished tidy is never DAMAGED (the bots' next pillars are the next survey's): only DUE its re-survey (tidy.mjs
     // tidyDue), after every open project
     // groundskeeper-01: a complete stage with a next band (landplan.mjs ring order) is due at once
@@ -20034,6 +20042,8 @@ async function buildShopVisit (ctx, args, signal) {
   if (proj.plot === CROPFARM_PLOT) return buildCropFarm(ctx, args, signal)
   // canefarm-01: the sugar cane bed's visit (canefarm.mjs siting; the harvest, the replant, the bank)
   if (proj.plot === CANEFARM_PLOT) return buildCaneFarm(ctx, args, signal)
+  // stepwell-01: the town stepwell's visit (stepwell.mjs siting; the felling, then the tank by layers)
+  if (proj.plot === STEPWELL_PLOT) return buildStepwell(ctx, args, signal)
   // tidy-01: the town-ground tidy's visit (tidy.mjs survey and grading; cuts, then layered fills)
   if (proj.plot === TIDY_PLOT) return buildTidy(ctx, args, signal)
   // picker-01: a town sink's visit (sinks.mjs: site the next instance when the picker wants one, else build the open one)
@@ -24388,6 +24398,221 @@ async function buildCaneFarm (ctx, args, signal) {
     try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
     if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(CANEFARM_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
+  }
+}
+
+// ================================================================================================================================
+// STEPWELL-01: THE TOWN STEPWELL'S VISIT (stepwell.mjs has every rule; stepwellvisit.mjs the tank's loop; design
+// docs/reports/stepwell-design-2026-11-05.md on main). Site once (the nearest dry, unreserved site in the industry / monument / wild
+// zones whose felling leaves no tree: plotPrep's stands, replantCells' saplings), then each visit either FELLS (runVisit on the
+// felling's view: saplings planted first, the trunks from the ground or a stand -- the groundskeeper's own code and rows) or works the
+// TANK by layers (runStepwellVisit: survey, seal, cut, lay, post, light), and ends at the exit. One builder (one frontier).
+// ================================================================================================================================
+const STEPWELL_SITE_MS = 25_000
+const STEPWELL_NOSITE_MS = 6 * 60 * 60_000
+const STEPWELL_WALK_MS = 20_000
+const STEPWELL_POSTS_CRAFT = 48
+/** `_stepwell` rows. Never throws. */
+function stepwellRow (bot, op, d = {}) {
+  try { logEvent({ kind: 'stepwell', status: 'success', snapshot: snapshot(bot), detail: `op=${op} ` + ['y', 'at', 'why', 'n', 'ms', 'gen'].map(k => `${k}=${d[k] == null ? '-' : Array.isArray(d[k]) ? d[k].join(',') : String(d[k]).replace(/\s+/g, '_').slice(0, 120)}`).join(' ') }) } catch { /* telemetry */ }
+}
+/** THE SITING'S RESERVATIONS (caneInputs' rule for this plot: every other record and its zones, the plan, the wells, the composter,
+ *  the land plan's corridors and park + 2) and the land plan's zone per column. Never throws past the caller. */
+function stepwellInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
+  const P = pathsInputs(bot, c, h, dir)
+  const records = projectHeads().filter(x => x.plot !== STEPWELL_PLOT).map(x => x.head.rec).filter(Boolean)
+  const land = landHead(dir)
+  const park = land?.park?.box ?? null
+  const base = farmBlocked({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records, pzones: recordZones(records) })
+  const blocked = (x, z) => base(x, z) ?? (park && x >= park[0] - 2 && x <= park[2] + 2 && z >= park[1] - 2 && z <= park[3] + 2 ? 'park' : null)
+  return { blocked, land, records, zoneOf: land ? (x, z) => zoneAt(land, x, z) : null }
+}
+/**
+ * THE SITE -> { ok, why, record?, tried }: the candidates nearest first (stepwell.mjs surveyStepwell, trees counted), the surveyed sites
+ * cheapest first, the first whose FELLING keeps no tree (plotPrep on the footprint, its stands up to SWELL.standMax; its levelling is
+ * not used) and owes no sapling it cannot place (replantCells, outside the footprint + 2). Bounded by STEPWELL_SITE_MS.
+ */
+function stepwellSite (bot, home, inp, t0, me) {
+  const read = stairRead(bot)
+  const ok = [], why = {}
+  let tried = 0
+  for (const cand of stepwellCandidates(home)) {
+    if (Date.now() - t0 > STEPWELL_SITE_MS) { why.time = (why.time ?? 0) + 1; break }
+    tried++
+    const sv = surveyStepwell(read, home, cand, { blocked: inp.blocked, zoneOf: inp.zoneOf, treesOk: true })
+    if (!sv.ok) { const k = String(sv.why).replace(/:.*$/, ''); why[k] = (why[k] ?? 0) + 1; continue }
+    ok.push(sv)
+  }
+  const cost = s => s.counts.soft + s.counts.cave + s.counts.fill + 4 * s.counts.water + 20 * (s.counts.trunks ?? 0) + 40 * (s.turn ?? 0)
+  ok.sort((a, b) => cost(a) - cost(b) || a.d - b.d)
+  const cells = new Set(inp.records.flatMap(r => (r.cells ?? []).map(q => q.at.join(','))))
+  for (const sv of ok) {
+    const [bx0, bz0, bx1, bz1] = stepwellPlanTank(sv.site).box
+    const pp = plotPrep(read, { plots: [{ id: 'SW', kind: 'stepwell', box: [bx0, bz0, bx1, bz1] }], home, records: inp.records, avoid: inp.blocked, cells, T: { ...PLOTPREP, platMax: SWELL.standMax } })
+    if (Object.entries(pp.skipped ?? {}).some(([k, v]) => /^tree/.test(k) && v > 0)) { why.trees_kept = (why.trees_kept ?? 0) + 1; continue }
+    const sf = standsFit(sv.site, pp.platforms)
+    if (sf) { why[sf] = (why[sf] ?? 0) + 1; continue }
+    const rp = pp.trees.length ? (inp.land ? replantCells(read, inp.land, pp.trees.map(t => ({ col: t.col, name: t.name })), { avoid: (x, z) => inp.blocked(x, z) ?? (x >= bx0 - 2 && x <= bx1 + 2 && z >= bz0 - 2 && z <= bz1 + 2 ? 'stepwell' : null), cells }) : []) : []
+    if (rp.length < pp.trees.length) { why.no_replant = (why.no_replant ?? 0) + 1; continue }
+    const record = stepwellRecord(sv, { home, seed: stepwellSeed(config.memory?.pool ?? process.env.MEMORY_POOL ?? '', home), now: Date.now(), by: me, fell: { trees: pp.trees, platforms: pp.platforms, clear: pp.clear, replant: rp }, read })
+    return { ok: true, record, tried, sites: ok.length }
+  }
+  return { ok: false, why: `tried ${tried}, sites ${ok.length}: ${JSON.stringify(why)}`.slice(0, 160), tried, unread: !ok.length && Object.keys(why).every(k => k === 'unknown') }
+}
+async function buildStepwell (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: STEPWELL_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === STEPWELL_PLOT)) return out('no_effect', 'off', 'the stepwell is switched off (STEPWELL, SHOP or TOWNPLAN)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(STEPWELL_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  bot.shopVisitKey = key
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the stepwell record could not be read')
+  if (!rh.head) {
+    if (Date.now() < siteWaitUntil(STEPWELL_PLOT, dir)) return out('no_effect', 'no_site', 'no stepwell site (waiting)', { stop: 'site_wait' })
+    let s
+    try { s = stepwellSite(bot, home, stepwellInputs(bot, c, h, dir), t0, me) } catch (e) { return out('no_effect', 'site_unread', `the town's records could not be read (${String(e?.message ?? e).slice(0, 60)})`, { stop: 'site_unread' }) }
+    if (!s.ok) {
+      if (!s.unread) siteWaitSet(STEPWELL_PLOT, STEPWELL_NOSITE_MS, s.why)
+      stepwellRow(bot, 'no_site', { why: s.why })
+      return out('no_effect', 'no_site', `no stepwell site (${s.why}); the town asks again in ${s.unread ? 'the next visit' : '6 h'}`, { stop: s.unread ? 'site_unread' : 'site_wait' })
+    }
+    const record = s.record
+    const pub = publishRecord(dir, key, cur => (cur ? null : record), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') {
+      try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: STEPWELL_PLOT, op: 'sited', cell: [record.site.centre[0], record.site.g, record.site.centre[1]], kind: `W${record.site.W}/T${record.site.T}/dry${record.site.tiersDry}/trees${record.trees.length}/stands${record.site.stands.length}/tried${s.tried}`, gen: pub.gen }) }) } catch { /* telemetry */ }
+    }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the stepwell record could not be read back')
+  }
+  shopFootprintRefresh(bot)
+  const rec = rh.head.rec
+  if (rec.state === 'stopped') return out('no_effect', 'stopped', `the stepwell stands as built (stopped at y ${rec.stopY ?? '-'}: ${rec.stopWhy ?? '-'})`)
+  const read0 = stairRead(bot)
+  const pending = fellPending(read0, rec)
+  if (rec.structure_complete && pending === 0 && stepwellDamaged(read0, rec, { lights: countItem(bot, 'torch') > 0 }) == null) return out('no_effect', 'complete', 'the stepwell stands')
+  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === STEPWELL_PLOT)))
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }
+  let effects = null
+  let bag0 = null
+  const placedBy = {}, tookAll = {}, crafted = {}
+  let diedAt = null
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  const fence = () => { try { return projHoldsLease(dir, key, `slot${slot.slot}`, me, slotRef.gen) } catch { return false } }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    bag0 = heldMap(bot)
+    const keep = townKeeps(bag0, { wanted: bot.currentWants ?? [] }).keep
+    const draw = async want => {
+      const need = Object.fromEntries(Object.entries(want).filter(([, n]) => n > 0))
+      if (!Object.keys(need).length) return
+      try { const w = await matsWithdraw(ctx, need, signal, 30_000, matsReserve().table, shopAllow); for (const [k, v] of Object.entries(w.took ?? {})) tookAll[k] = (tookAll[k] ?? 0) + v } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+    }
+    effects = botBuildEffects(bot, {
+      acks, keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: STEPWELL_PLOT, ...d }) : buildRowDetail({ project: STEPWELL_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
+    // 1. THE FELLING (while a listed log stands): runVisit on the felling's view -- every sapling planted first (B4), the stands, the
+    // trunks (kind tree, saplings=a/b: the tripwire's G5 over the HEAD record's replants), the leaves over the stands
+    if (pending == null || pending > 0) {
+      const owed = (rec.replant ?? []).filter(q => q.state !== 'skipped' && !/_sapling$|^mangrove_propagule$/.test(read0(...q.cell)?.name ?? ''))
+      const sap = {}
+      for (const q of owed) sap[q.sapling] = (sap[q.sapling] ?? 0) + 1
+      await draw(Object.fromEntries(Object.entries(sap).map(([k, n]) => [k, Math.max(0, n - countItem(bot, k))])))
+      if (stairLiningCount(bot) < 16) await draw({ cobblestone: 32 })
+      check(signal)
+      bot.shopUnknown ??= new Set()
+      const stood = stoodRead(dir, stoodKey(), home)
+      const walkR = Math.max(96, Math.ceil(Math.hypot(rec.site.centre[0] - home.x, rec.site.centre[1] - home.z)) + SWELL.W + 8)
+      const r = await runVisit({ dir, key, me, home, stood, record: fellView(rec), recordGen: rh.head.gen, palette: FELL_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.stepwellStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+        domain: () => true, blockLayer: false, clearMax: 60, walkR }, effects, { deadline, maxSteps: 240 })
+      const left = fellPending(stairRead(bot), rec)
+      stepwellRow(bot, 'fell', { why: r.stop, n: `${r.cleared}c/${r.placed}p/${r.planted ?? 0}s/left${left ?? '?'}`, ms: Date.now() - t0 })
+      const status = r.placed > 0 || r.cleared > 0 || (r.planted ?? 0) > 0 ? 'success' : 'no_effect'
+      return out(status, r.stop, `felling: ${r.why ?? r.stop}; ${left ?? '?'} log(s) left`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    }
+    // 2. THE TANK: stone in the bag (the cobble the bags carry; the town's above its reserve), its posts crafted from cobble (6 -> 6)
+    const plan = planOfRecord(rec)
+    if (stairLiningCount(bot) < 48) await draw({ cobblestone: 64 })
+    const postsLeft = plan.cells.filter(q => q.role === 'post' && !/_wall$/.test(read0(...q.at)?.name ?? '')).length
+    const walls = () => (bot.inventory?.items?.() ?? []).filter(i => /_wall$/.test(i.name)).reduce((n, i) => n + i.count, 0)
+    // the walls a visit may place (it lays at most a layer's posts): up to STEPWELL_POSTS_CRAFT, never more than are left
+    const wallsWant = Math.min(postsLeft, STEPWELL_POSTS_CRAFT)
+    if (postsLeft > 0 && walls() < Math.min(postsLeft, 6) && countItem(bot, 'cobblestone') >= wallsWant + 16) {
+      const pre = heldMap(bot)
+      try { await craft(ctx, { item: 'cobblestone_wall', count: Math.ceil(wallsWant / 6) * 6 }, signal) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+      const post = heldMap(bot)
+      for (const k of new Set([...Object.keys(pre), ...Object.keys(post)])) { const d = (post[k] ?? 0) - (pre[k] ?? 0); if (d) crafted[k] = (crafted[k] ?? 0) + d }
+    }
+    if (countItem(bot, 'torch') < 4 && plan.cells.some(q => q.role === 'light' && !/torch|lantern/.test(read0(...q.at)?.name ?? ''))) await draw({ torch: 8 })
+    check(signal)
+    const e = stepwellBotEffects(bot, effects, {
+      palette: rec.palette ?? {}, signal, fence,
+      walk: cell => stairWalk(bot, cell, STEPWELL_WALK_MS, signal),
+      occupied: cell => otherBodyOnCell(bot, cell),
+      log: (op, d) => {
+        const cell = d.at
+        if (op === 'dig') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: STEPWELL_PLOT, op: 'clear', cell, kind: d.kind, block: d.block ?? '-', gen: rh.head.gen }) }) } catch { /* telemetry */ } return }
+        if (op === 'placed_item') { placedBy[d.item] = (placedBy[d.item] ?? 0) + 1; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: STEPWELL_PLOT, op: 'place', cell, block: d.item, kind: d.role === 'seal' ? 'seal' : d.role, gen: rh.head.gen }) }) } catch { /* telemetry */ } return }
+        if (op === 'place') return
+        stepwellRow(bot, op, { y: d.y, at: cell, why: d.why })
+      },
+    })
+    // the dig's block name, read before the dig (the row names what was cut)
+    const dig0 = e.dig
+    e.dig = async at => { const n = stairRead(bot)(...at)?.name ?? '-'; const r = await dig0(at); if (r === 'confirmed') e.lastDug = n; return r }
+    const log0 = e.log
+    e.log = (op, d) => log0(op, op === 'dig' ? { ...d, block: e.lastDug ?? '-' } : d)
+    const now = () => Date.now()
+    const r = await runStepwellVisit({
+      plan, exit: rec.exit,
+      onStop: async (y, why) => { publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && cur.state !== 'stopped' ? stepwellStopped(cur, { y, why, now: now() }) : null), { by: me }) },
+      onTiers: async tiers => {
+        const done = tiers.length >= plan.T
+        publishRecord(dir, key, cur => {
+          if (!cur || cur.blueprint !== STEPWELL_BLUEPRINT || cur.state === 'stopped') return null
+          const had = cur.tiers_built ?? []
+          if (had.length === tiers.length && (!done || cur.structure_complete)) return null
+          return { ...cur, tiers_built: tiers, ...(done && !cur.structure_complete ? { structure_complete: true, state: 'complete', completeAt: now() } : {}) }
+        }, { by: me })
+        if (done && !rec.structure_complete) { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: STEPWELL_PLOT, op: 'complete', kind: STEPWELL_BLUEPRINT, gen: '-' }) }) } catch { /* telemetry */ } }
+      },
+    }, e, { deadline, lights: () => countItem(bot, 'torch') > 0 || countItem(bot, 'lantern') > 0 })
+    bot.shopDamage = null
+    if (r.placed > 0 || r.dug > 0) { try { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key) } catch { /* the clock */ } }
+    stepwellRow(bot, 'visit', { y: r.y, why: r.stop, n: `${r.dug}d/${r.placed}p/${r.ops}o/${r.skipped}s/tiers${r.tiers.join('+') || '-'}`, ms: Date.now() - t0, gen: rh.head.gen })
+    const status = r.placed > 0 || r.dug > 0 ? 'success' : 'no_effect'
+    // A VISIT THAT DID NOTHING AND STOPPED ON A FAILURE waits the project behind the others (the stair's rule: else it takes a free bot
+    // every 2 min and starves the next projects)
+    if (status === 'no_effect' && ['no_material', 'no_pickaxe', 'passed', 'unknown', 'unsealed'].includes(r.stop)) { try { projStuckWrite(dir, key, me, {}, { stuckAt: Date.now() }) } catch { /* the order asks again */ } }
+    const remedy = { no_pickaxe: ' -- craft or withdraw a pickaxe (toolkit)', no_material: ' -- carry cobblestone (withdraw it at town; walls are crafted from it)', passed: ' -- the cells passed are tried again from other stands next visit', unsealed: ' -- the water is sealed from another stand next visit (nothing is cut beside it until then)' }[r.stop] ?? ''
+    return out(status, r.stop, `${r.why ?? r.stop} at y ${r.y ?? '-'}: dug ${r.dug}, placed ${r.placed}${remedy}`, { stop: r.stop, placed: r.placed, cleared: r.dug, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+  } catch (err) {
+    if (err?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw err }
+    return out('failed', 'error', String(err?.message ?? err).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(STEPWELL_PLOT, bagBalance({ bag0, took: tookAll, crafted, placed: placedBy, back: {}, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
   }
 }
 
