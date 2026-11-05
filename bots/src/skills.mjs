@@ -24532,7 +24532,8 @@ function stepwellInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = tow
   const records = projectHeads().filter(x => x.plot !== STEPWELL_PLOT).map(x => x.head.rec).filter(Boolean)
   const land = landHead(dir)
   const park = land?.park?.box ?? null
-  const base = farmBlocked({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records, pzones: recordZones(records) })
+  // stepwell-03 (batch-11 fold, Codex BLOCKER 1): the reservations NAMED (whys), so the gap rule can tell a wall's margin zone
+  const base = farmBlocked({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records, pzones: recordZones(records), whys: true })
   const blocked = (x, z) => base(x, z) ?? (park && x >= park[0] - 2 && x <= park[2] + 2 && z >= park[1] - 2 && z <= park[3] + 2 ? 'park' : null)
   return { blocked, land, records, zoneOf: land ? (x, z) => zoneAt(land, x, z) : null }
 }

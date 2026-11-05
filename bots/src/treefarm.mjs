@@ -87,10 +87,12 @@ const AIRN = n => n === 'air' || n === 'cave_air' || n === 'void_air'
  * cells and boxes, the core, wells, the composter, the old farm's columns + 2, every other project's record columns) and every
  * other project's siting zone (shop.mjs recordZones: a record's box + PROJECT_GAP, the paths' and the wall's columns + 1).
  */
-export function farmBlocked ({ plan = null, zones = [], caps = [], plinth = [], composter = null, farm = [], records = [], pzones = [] } = {}) {
+export function farmBlocked ({ plan = null, zones = [], caps = [], plinth = [], composter = null, farm = [], records = [], pzones = [], whys = false } = {}) {
   const avoid = pathAvoid({ plan, zones, caps, plinth, composter, farm, records, home: plan?.home ?? { y: 70 } })
-  const boxes = (pzones ?? []).map(z => z?.box ?? z).filter(b => Array.isArray(b) && b.length === 6)
-  return (x, z) => avoid(x, z) ?? (boxes.some(b => x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) ? 'project' : null)
+  const boxes = (pzones ?? []).map(z => ({ box: z?.box ?? z, why: z?.why ?? null })).filter(q => Array.isArray(q.box) && q.box.length === 6)
+  // stepwell-03 (batch-11 fold, Codex BLOCKER 1): `whys` names the reservation (`project:wallext`, `land:road`, ...) instead of the
+  // plain 'project' -- the stepwell's gap rule reads it (stepwell.mjs GAP_OK); every other caller keeps 'project'
+  return (x, z) => avoid(x, z) ?? (() => { const q = boxes.find(q => x >= q.box[0] && x <= q.box[3] && z >= q.box[2] && z <= q.box[5]); return q ? (whys && q.why ? String(q.why) : 'project') : null })()
 }
 /** THE BOUNDS: a town wall's ring less its own line ([x0, z0, x1, z1]: the farm stands inside the wall), or null. Pure. */
 export function farmBounds (records = []) {

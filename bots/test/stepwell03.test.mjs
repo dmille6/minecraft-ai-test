@@ -100,6 +100,25 @@ await t('MUTANT: with the prepass cut, a reserved candidate is no longer refused
   })
 })
 
+console.log('THE NAMED RESERVATIONS (batch-11 fold, Codex BLOCKER 1)')
+await t('treefarm.mjs farmBlocked({ whys: true }) names a reservation box by its why; the default keeps the plain `project` (every other caller)', async () => {
+  const { farmBlocked } = await import('../src/treefarm.mjs')
+  const pz = [{ box: [10, -64, 10, 12, 320, 12], why: 'project:wallext' }, { box: [20, -64, 20, 21, 320, 21] }]
+  const named = farmBlocked({ pzones: pz, whys: true }), plain = farmBlocked({ pzones: pz })
+  assert.strictEqual(named(11, 11), 'project:wallext'); assert.strictEqual(plain(11, 11), 'project')
+  assert.strictEqual(named(20, 20), 'project', 'a box with no why stays project'); assert.strictEqual(named(0, 0), null)
+  // the chain: the live siting's blocked over the wall's margin box -> the gap rule passes it; the plain one refuses it
+  const r1 = S.surveyStepwell(world().read, HOME, cand, { ...OPT, blocked: (x, z) => (x === gapCol[0] && z === gapCol[1] ? named(11, 11) : null) })
+  const r0 = S.surveyStepwell(world().read, HOME, cand, { ...OPT, blocked: (x, z) => (x === gapCol[0] && z === gapCol[1] ? plain(11, 11) : null) })
+  assert.ok(r1.ok, r1.why); assert.ok(!r0.ok && r0.why === 'reserved:project')
+})
+await t('skills.mjs stepwellInputs asks farmBlocked for the NAMED reservations (structural)', () => {
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  const body = src.slice(src.indexOf('function stepwellInputs ('), src.indexOf('function stepwellSite ('))
+  assert.ok(body.length > 100 && body.length < 4000, `stepwellInputs not found (${body.length})`)
+  assert.ok(/farmBlocked\(\{ plan: P\.plan, zones: P\.zones, caps: P\.caps, plinth: P\.plinth, composter: P\.composter, farm: P\.farm, records, pzones: recordZones\(records\), whys: true \}\)/.test(body))
+})
+
 console.log('THE MEMOS')
 await t('columnMemo asks each column once; sitingRead each cell once, bounded (cleared at max)', () => {
   let n = 0

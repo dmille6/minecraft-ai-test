@@ -86,6 +86,27 @@ await t('coverAbove refuses: clear above (open), unread, a non-scaffold block, a
   assert.deepStrictEqual(R.coverAbove(col(['dirt', 'grass_block', 'air']), at, { isOpenAbove: openAbove }).digs.map(d => k(d.at)), ['0,2,0', '0,1,0'])
 })
 
+await t('batch-11 fold (Codex BLOCKER 2): a cover that holds liquid back is never dug -- water or lava beside it or over it, or an unread neighbour (POSITIVE CONTROL: the same cover with stone around digs)', () => {
+  const at = [0, 0, 0], openAbove = q => q[1] <= 4
+  const world = side => (x, y, z) => {
+    if (x === 0 && z === 0) return y === 1 ? { name: 'grass_block', boundingBox: 'block' } : y === 2 ? (side.above ? { name: side.above, boundingBox: 'empty' } : { name: 'air', boundingBox: 'empty' }) : y === 0 ? { name: 'air', boundingBox: 'empty' } : { name: 'stone', boundingBox: 'block' }
+    if (y === 1 && x === 1 && z === 0 && side.east !== undefined) return side.east === null ? null : { name: side.east, boundingBox: /water|lava/.test(side.east) ? 'empty' : 'block' }
+    return { name: 'stone', boundingBox: 'block' }
+  }
+  const ok = R.coverAbove(world({}), at, { isOpenAbove: openAbove })
+  assert.ok(ok.ok && ok.digs.length === 1, JSON.stringify(ok))
+  for (const [side, why] of [[{ east: 'water' }, /^liquid water beside 0,1,0$/], [{ east: 'lava' }, /^liquid lava beside 0,1,0$/], [{ above: 'water' }, /^liquid water beside 0,1,0$/], [{ east: null }, /^unknown 1,1,0$/]]) {
+    const r = R.coverAbove(world(side), at, { isOpenAbove: openAbove })
+    assert.ok(!r.ok && why.test(r.why), `${JSON.stringify(side)}: ${JSON.stringify(r)}`)
+  }
+})
+await t('MUTANT: the liquid check cut -- the cover beside water is dug (the test fails for that reason)', async () => {
+  await withMutant("if (isLiquid(nb) || /waterlogged/.test(String(nb.name ?? '')) || nb.props?.waterlogged === true || nb.props?.waterlogged === 'true') return { ok: false, digs: [], why: `liquid ${nm(nb)} beside ${kOf(q)}` }", '', async M => {
+    const read = (x, y, z) => (x === 0 && z === 0 ? (y === 1 ? { name: 'grass_block', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' }) : x === 1 && y === 1 && z === 0 ? { name: 'water', boundingBox: 'empty' } : { name: 'stone', boundingBox: 'block' })
+    assert.ok(M.coverAbove(read, [0, 0, 0], { isOpenAbove: q => q[1] <= 4 }).ok)
+  })
+})
+
 // ---- the chain on the fake server --------------------------------------------------------------------------------------------
 // The live shape: a pad cell P (11,G+1,10, air) walled on four sides by cobblestone that is no record cell's, the ground under it,
 // and a RING cell over it (11,G+2,10, segment `ring` waiting on `pad`) holding grass_block; a second ring cell beside the wall

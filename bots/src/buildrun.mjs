@@ -202,6 +202,13 @@ export function coverAbove (read, at, { isOpenAbove = () => false, mayDig = () =
     if (AIR(n) || (replaceableCell(b) && !isSolid(b))) return digs.length ? { ok: true, digs: digs.reverse(), why: null } : { ok: false, digs: [], why: 'open' }
     if (!isOpenAbove(q) || foreignKind(n, scaffold) !== 'scaffold') return { ok: false, digs: [], why: `kept ${n} ${kOf(q)}` }
     if (!mayDig(q)) return { ok: false, digs: [], why: `vetoed ${kOf(q)}` }
+    // batch-11 fold (Codex BLOCKER 2): a cover that holds liquid back is never dug -- no water or lava beside it or over it (an
+    // unread neighbour refuses too: the liquid it may hide is the same risk)
+    for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
+      const nb = read(q[0] + dx, q[1] + dy, q[2] + dz)
+      if (!nb) return { ok: false, digs: [], why: `unknown ${kOf([q[0] + dx, q[1] + dy, q[2] + dz])}` }
+      if (isLiquid(nb) || /waterlogged/.test(String(nb.name ?? '')) || nb.props?.waterlogged === true || nb.props?.waterlogged === 'true') return { ok: false, digs: [], why: `liquid ${nm(nb)} beside ${kOf(q)}` }
+    }
     if (digs.length >= max) return { ok: false, digs: [], why: `deep ${max}+ above` }
     digs.push({ at: q, name: n })
   }
