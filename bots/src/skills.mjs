@@ -19874,9 +19874,10 @@ export function tradeStartOrder (bot, { now = Date.now(), atTown = false } = {})
       held = bagCount(bot, 'coal')
       const town = townCoalStock(bot)
       take = town.ok ? coalForTrip({ townCoal: town.total, held }) : 0
+      // the bag's own stone counts for the carry limit on EVERY trip (Codex re-check), the draw only with a mason known
+      stoneHeld = bagCount(bot, 'stone')
       // COALSALE-02: stone above the town's stone keep, when the census knows a mason
       if (masonKnown) {
-        stoneHeld = bagCount(bot, 'stone')
         const ent = townIndexEntries(bot)
         stoneTake = ent ? stoneForTrip({ townStone: townItemTotal(ent, 'stone'), held: stoneHeld }) : 0
       }
