@@ -148,8 +148,13 @@ export function effectiveBuffer (part, buffers = MATS_BUFFERS_DEFAULT, { project
   const b = Number(buffers?.[part]) || 0
   if (!on) return b
   // stoneworks-02: a READ bill decides (an empty bill is a read: nothing open names the part); unreadable (null) -> the project rule
-  // (a cut part's bill is exact: no margin -- the bricks' margin already covers its input)
-  if (bill && typeof bill === 'object' && BILL_PARTS.includes(part)) return Math.max(b, Math.min(BILL_CAP, (Number(bill[part]) || 0) + ((Number(bill[part]) || 0) > 0 && !CUT_KINDS.includes(part) ? BILL_MARGIN : 0)))
+  // (a cut part's bill has no margin -- the bricks' margin covers its input -- but is rounded UP to whole cuts: stoneworks-03 r1, Codex
+  // BLOCKER 3, a bill of 4 stairs under an 8-stair cut was 'stocked' forever)
+  if (bill && typeof bill === 'object' && BILL_PARTS.includes(part)) {
+    const want = Number(bill[part]) || 0
+    const unit = CUT_KINDS.includes(part) ? KINDS[part].makes : 0
+    return Math.max(b, Math.min(BILL_CAP, unit ? Math.ceil(want / unit) * unit : want + (want > 0 ? BILL_MARGIN : 0)))
+  }
   return project && part === 'stone_bricks' ? Math.max(b, BRICKS_PROJECT_BUFFER) : b
 }
 /**
