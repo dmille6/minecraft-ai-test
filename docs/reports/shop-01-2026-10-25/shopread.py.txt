@@ -1306,6 +1306,14 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
             op, cell = f.get('op'), xyz_of(f.get('cell'))
             plot = f.get('project') or SHOP
             rec = project_of(projects.get(pool), plot).get('record')
+            # wallretired-01 (11-05 showcase TRIP: 113 off_record + 3 clear_outside, every one the old wall's own row of 10-30/31 on a
+            # cell wallext-02's demolition RETIRED): a later generation moves those cells from `cells` to `retired`. A wall row made
+            # BEFORE retiredAt is ALSO judged with them still its cells (rec_pre), and the more lenient verdict stands, so this only
+            # removes defects (Claude r1 BLOCKER: overburden_ok / footing_ok refuse a record cell). At or after retiredAt: the head alone
+            rec_pre = None
+            if rec is not None and plot in WALL_PLOTS and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \
+                    and hasattr(r['t'], 'timestamp') and int(r['t'].timestamp() * 1000) < rec['retiredAt']:
+                rec_pre = dict(rec, cells=list(rec.get('cells') or []) + [c for c in rec['retired'] if isinstance(c, dict) and c.get('at')])
             if op == 'sited':
                 out['sited'] += 1
                 continue
@@ -1359,7 +1367,8 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     # enchantshop-01 EF1: a shell cell, or a fit slot with its own item, of any generation of the workshop's chain
                     off = not any(enchant_place_ok(g, cell, f.get('block')) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
                 else:
-                    off = rec is not None and k not in {ck(c['at']) for c in rec.get('cells') or []} and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rec, cell))
+                    off_of = lambda rr: k not in {ck(c['at']) for c in rr.get('cells') or []} and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rr, cell))
+                    off = rec is not None and off_of(rec) and (rec_pre is None or off_of(rec_pre))
                 if off:
                     out['off_record'] += 1; lists['off_record'].append('%s %s %s%s' % (bot, k, f.get('block'), pwhy))
                 if [t for t in placed[(pool, plot, k)] if (r['t'] - t).total_seconds() < PLACE_TWICE_MIN * 60]:
@@ -1458,7 +1467,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         ok = reorient_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'))
                         why = '' if ok else ' reorient'
                     elif f.get('kind') == 'foreign':
-                        ok = k in {ck(c['at']) for c in rec.get('cells') or []}
+                        ok = any(k in {ck(c['at']) for c in rr.get('cells') or []} for rr in (rec, rec_pre) if rr is not None)
                     elif f.get('kind') == 'tidy' and plot == YARD:
                         # yardread-01: the clerk's refill digs (pile tops) and its aisle clutter
                         ok = any(yard_tidy_ok(g, cell) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
@@ -1468,7 +1477,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         ok = tidy_ok(rec, cell)
                     elif f.get('kind') == 'overburden':
                         # pathsclose-01 (10-30): dirt or grass SET ON a path cell after siting, dug so the shovel can lay it
-                        ok = overburden_ok(rec, cell, any_role=(plot in WALL_PLOTS))
+                        ok = any(overburden_ok(rr, cell, any_role=(plot in WALL_PLOTS)) for rr in (rec, rec_pre) if rr is not None)
                     else:
                         ok = k in {ck(c['at']) for c in rec.get('clear') or []}
                     if not ok:
@@ -2062,6 +2071,20 @@ def selftest():
     assert dc('5,69,5', pp=db(dict(xdone, structure_complete=False))) == 1, 'a completeAt on a generation that is not complete'
     assert dc('5,69,5', pp=db(dict(xdone, join=None))) == 1, 'an extension with no join'
     assert J(base + [R('_build', 'project=walldemo op=place seg=D-00 cell=5,69,5 block=cobblestone', s=14)], db())['off_record'] == 1, 'the demolition places nothing'
+    # wallretired-01: the old wall's own rows on a cell a later generation retired (retiredAt T0-5 s) -- on the record before the
+    # retirement, off it after; a cell neither listed nor retired stays off either way; never a NEW defect (the lenient verdict)
+    wj = lambda d, s_: J(base + [R('_build', 'project=wall %s' % d, s=s_)], db())
+    wp = lambda c, s_: wj('op=place seg=W-03 cell=%s block=cobblestone' % c, s_)['off_record']
+    wf = lambda c, s_, kind='foreign': wj('op=clear seg=W-03 cell=%s block=granite kind=%s' % (c, kind), s_)['clear_outside']
+    assert wp('5,69,5', -10) == 0 and wp('5,70,6', -10) == 0, 'a retired cell placed before the retirement is the old wall\'s'
+    assert wf('5,69,5', -10) == 0, 'a foreign block dug from a retired cell before the retirement'
+    assert wp('5,69,5', 14) == 1 and wf('5,69,5', 14) == 1, 'positive control: the same retired cell after the retirement'
+    assert wp('9,69,9', -10) == 1 and wf('9,69,9', -10) == 1, 'positive control: a cell neither listed nor retired'
+    assert wp('5,68,5', -10) == 0 and wp('5,68,5', 14) == 0, 'a listed cell (control), either side'
+    assert wf('5,69,5', -10, 'overburden') == wf('5,69,5', 14, 'overburden') == 0, 'the overburden over a listed cell stays clean before the retirement too (Claude r1 BLOCKER)'
+    fwall = dict(dwall, cells=[W_(8, 73, 8)], retired=[W_(8, 69, 8)])
+    fp = J(base + [R('_build', 'project=wall op=place seg=W-03 cell=8,71,8 block=cobblestone kind=footing', s=-10)], PP(wall={'record': fwall, 'records_files': 1, 'leases': {}}))['off_record']
+    assert fp == 0, 'a footing 2 under the head\'s lowest cell stays clean though a retired cell lies below it (the lenient verdict)'
     rr = J(base + [R('_build', 'project=wall op=retired cell=0,70,0 kind=cells114/cols15 gen=5', s=14), R('_build', 'project=walldemo op=sited cell=0,70,0 kind=clear114/cols15/skipped0 gen=1', s=15)], db())
     assert rr['off_record'] == 0 and rr['clear_outside'] == 0 and rr['zone'] == 0, ('the retirement and the siting rows judge nothing', rr)
     # the tidy guard: a retired cell is reserved until the DEMOLITION completes, then it is the groundskeeper's ground (Claude WD1 r1

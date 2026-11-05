@@ -2,6 +2,11 @@ import subprocess, sys, os
 D = os.path.dirname(os.path.abspath(__file__))
 src = open(os.path.join(D, 'shopread.py')).read()
 M = [
+ # wallretired-01: a wall row before the retirement keeps its retired cells; after it, not; the lenient verdict of the two
+ ("                    and hasattr(r['t'], 'timestamp') and int(r['t'].timestamp() * 1000) < rec['retiredAt']:\n", "                    and hasattr(r['t'], 'timestamp'):\n"),
+ ("            if rec is not None and plot in WALL_PLOTS and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \\\n", "            if False and rec is not None and plot in WALL_PLOTS and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \\\n"),
+ ('                    off = rec is not None and off_of(rec) and (rec_pre is None or off_of(rec_pre))\n', '                    off = rec is not None and (rec_pre or rec) is not None and off_of(rec_pre or rec)\n'),
+ ('                        ok = any(overburden_ok(rr, cell, any_role=(plot in WALL_PLOTS)) for rr in (rec, rec_pre) if rr is not None)\n', '                        ok = any(overburden_ok(rr, cell, any_role=(plot in WALL_PLOTS)) for rr in ((rec_pre or rec),) if rr is not None)\n'),
  # every project's record (house-01 + monument-01, 10-29)
  ("            rec = project_of(projects.get(pool), plot).get('record')", "            rec = (projects.get(pool) or {}).get('record')"),
  ("        return pr['projects'].get(plot) or {'record': None, 'records_files': 0, 'leases': {}}", "        return pr['projects'].get(SHOP) or {'record': None, 'records_files': 0, 'leases': {}}"),
@@ -130,9 +135,9 @@ M = [
  ("                        if tidy_guarded(cell, t_ms, guards[pool]):\n                            off = True", "                        if False:\n                            off = True"),
  # wallext-01 WX1: the extension judged by the wall's rules
  ("WALL_PLOTS = ('wall', 'wallext')", "WALL_PLOTS = ('wall',)"),
- ("and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rec, cell))", "and not (f.get('kind') == 'footing' and plot == 'wall' and footing_ok(rec, cell))"),
- ("ok = overburden_ok(rec, cell, any_role=(plot in WALL_PLOTS))", "ok = overburden_ok(rec, cell, any_role=(plot == 'wall'))"),
- ("and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rec, cell))", "and not (f.get('kind') == 'footing' and footing_ok(rec, cell))"),
+ ("and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rr, cell))", "and not (f.get('kind') == 'footing' and plot == 'wall' and footing_ok(rr, cell))"),
+ ("ok = any(overburden_ok(rr, cell, any_role=(plot in WALL_PLOTS)) for rr in (rec, rec_pre) if rr is not None)", "ok = any(overburden_ok(rr, cell, any_role=(plot == 'wall')) for rr in (rec, rec_pre) if rr is not None)"),
+ ("and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rr, cell))", "and not (f.get('kind') == 'footing' and footing_ok(rr, cell))"),
  # wallext-02 WD1: the demolition's dig rule
  ("    if kind != 'demolish' or not isinstance(cell, (list, tuple)) or len(cell) != 3 or t_ms is None:", "    if not isinstance(cell, (list, tuple)) or len(cell) != 3 or t_ms is None:"),
  ("    if not (frm < along < to) or not (0 <= (across - line) * inward <= WALLDEMO_DEPTH):", "    if not (frm <= along <= to) or not (0 <= (across - line) * inward <= WALLDEMO_DEPTH):"),
