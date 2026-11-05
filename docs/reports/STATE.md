@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-05T21:20:01Z._
+_Generated 2026-11-05T22:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `4a440a53` = leasegen-01 `4a440a53` (KEEP 11-05 20:56Z, promoted 11-05 21:06Z) on llmoai-01 `aea83708` (KEEP 11-04 23:41Z, promoted 11-04 23:51Z) on dirtrung-01 `493c198a` (KEEP 11-04 21:12Z, promoted 11-04 21:22Z) on swimunder-01 `3a7badea` (KEEP 11-04 17:34Z, promoted 11-04 17:43Z) on monustuck-01 `704acf91` (KEEP 11-04 14:02Z, promoted 11-04 14:12Z) on shafttrap-02 `beb79ed2` (KEEP 11-04 09:36Z, promoted 11-04 09:46Z) |
-| **Canary in slot** | EMPTY (last close leasegen-01 KEEP 11-05 20:56Z) |
-| **Queue (front)** | dropdig-01 -> stuckproj-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> bucketfix-01 -> kittrim-01 -> +9 more |
-| **Scheduler** | wait H2 dropdig-01: no variant for the fleet base 4a440a5 (have: 0542fcc, aea8370): autorebase of aea83708..7ba580de is building (step full-suite, pid 1079156, heartbeat 2026-11-05T21:20:01Z) |
-| **Showcase release** | `7b5524df` (24,166 rows), `fd1a5e96` (9,983 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 7b5524df sits on 9fbfdf22 (bagdiet-01); behind by 6: llmoai-01, dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bo; row 11-05 20:25Z) |
+| **Fleet** | `4a440a53` = leasegen-01 `4a440a53` (KEEP 11-05 20:56Z, promoted 11-05 21:06Z) on llmoai-01 `aea83708` (KEEP 11-04 23:41Z, promoted 11-04 23:51Z) on dirtrung-01 `493c198a` (KEEP 11-04 21:12Z, promoted 11-04 21:22Z) on swimunder-01 `3a7badea` (KEEP 11-04 17:34Z, promoted 11-04 17:43Z) on monustuck-01 `704acf91` (KEEP 11-04 14:02Z, promoted 11-04 14:12Z) on shafttrap-02 `beb79ed2` (KEEP 11-04 09:36Z, promoted 11-04 09:46Z). Live builds: {'4a440a533935db81813fa2201259c090d196001a+18f9df': 70, '4f3b0f5cfdbb36a16929be70b960e719e4164d6c+a18af9': 10} |
+| **Canary in slot** | **dropdig-01** deployed 11-05 21:53Z; reads +90 11-05 23:23Z, +180 11-06 00:53Z; KEEP auto-promotes ~10 min after the +180 KEEP |
+| **Queue (front)** | stuckproj-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> bucketfix-01 -> kittrim-01 -> depositoffer-01 -> +8 more |
+| **Scheduler** | busy S1 canary declared: 4f3b0f5cfdbb36a16929be70b960e719e4164d6c on placebo-a,board-d / S6 open loop: canary 4f3b0f5 is deployed on placebo-a,board-d with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 dro |
+| **Showcase release** | `7b5524df` (34,658 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 7b5524df sits on 9fbfdf22 (bagdiet-01); behind by 6: llmoai-01, dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bo; row 11-05 21:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | servea-roll-s1: owner-direct-check 11-05 01:10Z; servea-roll-s2: owner-direct-check 11-05 02:30Z; servea-roll-s3: owner-direct-check 11-05 03:50Z; servea-roll: rollout-released 11-05 13:55Z |
 | **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?; **visuals-1105**: visuals-1105 skins: OK to publish the 15 custom skin PNGs through MineSkin (public gallery unless a MineSkin key is given), or upload them yourself at skinsrestorer.net/upload? |
-| **Open alarms** | STALLCHECK 2026-11-05T20:35:01Z STALLED: 55. OPSAUDIT 2026-11-04 FLAGS: 10 (1 high). 22 active alarm(s): stuck goals 7 (hive-a/monument@355_73_147, hive-d/monument@68_65_68, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, isolated-c/monument@355_73_147, placebo-b/tidy@282_65_-388 ...); effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, flowledger stations:board-b, flowledger stations:board-c |
+| **Open alarms** | STALLCHECK 2026-11-05T21:35:01Z STALLED: 56. OPSAUDIT 2026-11-04 FLAGS: 10 (1 high). 23 active alarm(s): stuck goals 7 (hive-d/monument@68_65_68, isolated-a/monument@355_73_147, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, isolated-c/monument@355_73_147, placebo-b/tidy@282_65_-388 ...); effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, flowledger stations:board-b, flowledger stations:board-c |
 <!-- GENERATED:END -->
 
 ## Notes
