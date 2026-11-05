@@ -333,7 +333,8 @@ const WIRES = {
   'a failed siting waits town-wide (no no_site loop)': [SK, /if \(!ss\.ok && ss\.why !== 'aborted'\) siteWaitSet\(ENCHANT_PLOT, ENCHANT_NOSITE_MS, ss\.why\)/],
   'the wait is read by the order': [SK, /return ENCH\.on && Date\.now\(\) >= siteWaitUntil\(ENCHANT_PLOT, dir\) && enchantOpening\(enchantExtNow\(dir\)\)\.open/],
   'the stop is site_wait, never the order\'s 24-h no_site': [SK, /\$\{\(ss\.tried \?\? \[\]\)\.join\(' '\)\}`\.slice\(0, 160\), \{ stop: 'site_wait' \}\)/],
-  'the anvil + table skills find the workshop\'s stations': [SK, /return b \?\? enchantStationAt\(bot, names\)/],
+  // stationzone-01: the workshop's own FIRST (stationNear asks it before any scan)
+  'the anvil + table skills find the workshop\'s stations': [SK, /const own = enchantStationAt\(bot, names\)\n\s*if \(own\) return own/],
   'an unreached station is not offered again (Codex r2)': [SK, /if \(Date\.now\(\) - \(bot\.enStationFail\?\.get\?\.\(s\.at\.join\(','\)\) \?\? -Infinity\) < ENCHANT_STATION_BAN_MS\) continue/],
   'the walk records the failure': [SK, /try \{ \(bot\.enStationFail \?\?= new Map\(\)\)\.set\(`\$\{p\.x\},\$\{p\.y\},\$\{p\.z\}`, Date\.now\(\)\) \}/],
 }
@@ -348,7 +349,7 @@ await t('MUTANTS KILLED: each wiring check fails on its line broken (anchor pres
     'not the generic siting': [SK, 'plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {', 'plot !== HUB_PLOT) {'],
     'the board reads the gate': [RQS, "if (kind === '_enchantshop_gate') {", "if (kind === '_never') {"],
     'the wait is read by the order': [SK, 'return ENCH.on && Date.now() >= siteWaitUntil(ENCHANT_PLOT, dir) && enchantOpening', 'return ENCH.on && enchantOpening'],
-    'the anvil + table skills find the workshop\'s stations': [SK, 'return b ?? enchantStationAt(bot, names)', 'return b'],
+    'the anvil + table skills find the workshop\'s stations': [SK, '  const own = enchantStationAt(bot, names)\n  if (own) return own\n', ''],
     'an unreached station is not offered again (Codex r2)': [SK, "< ENCHANT_STATION_BAN_MS) continue", ') continue'],
   }
   for (const [what, [src, old, neu]] of Object.entries(lines)) {

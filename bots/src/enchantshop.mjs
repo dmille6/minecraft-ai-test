@@ -38,7 +38,8 @@ export const ENCHANT_PLOT_KIND = 'hall'
 /** The earthwork on its plot (the plot's ground is within WALLEXT.plotSpread 4; the storage hall's limits). */
 export const ENCHANT_EARTH = Object.freeze({ col: 4, fill: 160, cut: 160 })
 /** The stands' domain: the pad + this; the town walk's radius (the plot lies ~70 from home). */
-export const ENCHANT_SITE = Object.freeze({ standPad: 3, walkR: 90 })
+// levelfall-01: levelAlts -- a failed proof is retried at the anchor's next feasible floor levels (buildsite.mjs siteBlueprint)
+export const ENCHANT_SITE = Object.freeze({ standPad: 3, walkR: 90, levelAlts: 3 })
 /** THE KEEPS: town iron_ingot the fitter never takes below; diamonds likewise. */
 export const IRON_KEEP = 64
 export const DIAMOND_KEEP = 3
@@ -103,7 +104,7 @@ export function enchantSitingPlan (home, plot, zones = []) {
   return {
     domain: (x, z) => inBox(b, x, z, 0),
     standDomain: (x, z) => inBox(b, x, z, ENCHANT_SITE.standPad),
-    walkR: Math.max(ENCHANT_SITE.walkR, line + 8), line, sectors: [{ sector: null, source: `plot:${plot.id ?? '?'}` }], plot: ENCHANT_PLOT, earth: ENCHANT_EARTH,
+    walkR: Math.max(ENCHANT_SITE.walkR, line + 8), line, sectors: [{ sector: null, source: `plot:${plot.id ?? '?'}` }], plot: ENCHANT_PLOT, earth: ENCHANT_EARTH, levelAlts: ENCHANT_SITE.levelAlts,
     zones: (zones ?? []).filter(z => !mine(z)),
   }
 }

@@ -197,6 +197,7 @@ import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterR
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
+import { pickStation } from './enchant.mjs'   // stationzone-01: never a station inside a protected zone; the workshop's own first
 import { ANVILAPPLY, ENCHANTTOOL, ANVIL_BLOCKS, TABLE_BLOCK as EN_TABLE_BLOCK, STATION_FIND as EN_STATION_FIND, STATION_REACH as EN_STATION_REACH, ASK_EVERY_MS as EN_ASK_EVERY_MS, TABLE_MIN_LEVEL as EN_TABLE_MIN_LEVEL, LAPIS_TAKE as EN_LAPIS_TAKE, anvilAskPlan, tableAskPlan, anvilPlan, enchantTarget, enchantsOf, anvilCombine, enchantAtTable, anvilDetail, tableDetail, anvilModeDetail, tableModeDetail } from './enchant.mjs'
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow, tidyQuiet } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { SINKS } from './shop.mjs'   // picker-01
@@ -18230,11 +18231,17 @@ function townHeldCount (bot, name) {
 const stationNear = (bot, names, dist = EN_STATION_FIND) => {
   const ids = names.map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id != null)
   if (!ids.length) return null
-  let b = null
-  try { b = bot.findBlock?.({ matching: ids, maxDistance: dist }) ?? null } catch { b = null }
   // enchantshop-01: the workshop's own anvil and table (its fit slots), read at their cells -- it stands ~60 blocks from home, beyond
   // the 32 a town bot scans (coordinator 11-04: the skills that use the workshop must find it)
-  return b ?? enchantStationAt(bot, names)
+  // stationzone-01 (owner 11-05): the workshop's own FIRST; a scanned station only outside every protected zone (a village's anvil
+  // would chip), and none while the zones are unknown (enchant.mjs pickStation)
+  const own = enchantStationAt(bot, names)
+  if (own) return own
+  let found = []
+  try { found = (bot.findBlocks?.({ matching: ids, maxDistance: dist, count: 16 }) ?? []).map(p => bot.blockAt?.(p)).filter(Boolean) } catch { found = [] }
+  let zv = null
+  try { zv = townPlanZones(bot) } catch { zv = null }
+  return pickStation({ own: null, found, zones: zv?.zones ?? [], zonesKnown: !!zv?.known })
 }
 const enSkipRow = (bot, kind, why, now) => {
   if (!why || ['off', 'cooldown', 'no_book', 'no_anvil', 'no_table'].includes(why)) return
@@ -19859,7 +19866,7 @@ async function enchantSiteFor (bot, plan, c, stood, signal = null) {
     if (!sp) return { ok: false, why: 'no_plan', tried }
     const bp = blueprintOf(ENCHANT_BLUEPRINT)
     const s = await siteBlueprintAsync(planReader(bot), plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: ENCHANT_PLOT,
-      earth: sp.earth, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
+      earth: sp.earth, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line, levelAlts: sp.levelAlts }, { aborted: () => !!signal?.aborted })
     if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
     tried.push(`${sp.sectors[0].source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
     if (!s.ok) return { ok: false, why: s.why, detail: JSON.stringify((s.sectors ?? []).map(r => r.rejects)).slice(0, 80), tried }

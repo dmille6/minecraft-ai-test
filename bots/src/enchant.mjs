@@ -360,3 +360,18 @@ export async function enchantAtTable (bot, tableBlock, tool, registry = bot?.reg
     out.levelAfter = bot.experience?.level ?? null
   }
 }
+
+/**
+ * STATIONZONE-01 (owner via coordinator 11-05: never use or chip a station inside a protected zone or village; the workshop's own
+ * first). THE STATION A SKILL USES -> the block | null. Pure. `own` the workshop's own anvil / table (its fit slot, read at its cell)
+ * wins whenever there is one; else the first of `found` (the scan's blocks, nearest first) whose cell lies in NO protected zone
+ * (`zones` [{ box: [x0, y0, z0, x1, y1, z1] }]). Zones UNKNOWN (`zonesKnown` false): only the workshop's own -- a scan never
+ * guesses. An anvil chips with use (12%), so a village's would be changed by the town's bots.
+ */
+export function pickStation ({ own = null, found = [], zones = [], zonesKnown = true } = {}) {
+  if (own) return own
+  if (!zonesKnown) return null
+  const inZone = p => (zones ?? []).some(z => { const b = z?.box ?? z; return Array.isArray(b) && b.length === 6 && p.x >= b[0] && p.x <= b[3] && p.y >= b[1] && p.y <= b[4] && p.z >= b[2] && p.z <= b[5] })
+  for (const b of found ?? []) { const p = b?.position ?? b; if (p && Number.isFinite(p.x) && !inZone(p)) return b }
+  return null
+}

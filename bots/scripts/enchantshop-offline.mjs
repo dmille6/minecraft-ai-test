@@ -58,7 +58,7 @@ out.droppedZones = zones0.length - sp.zones.length
 const bp = loadBlueprint(EN.ENCHANT_BLUEPRINT)
 const t0 = Date.now()
 const s = await siteBlueprintAsync(read, plan, bp, { zones: sp.zones, wells: R.wells, farm: R.farm, z0: null, stood: [], sectors: sp.sectors, plot: EN.ENCHANT_PLOT,
-  earth: sp.earth, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line })
+  earth: sp.earth, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line, levelAlts: sp.levelAlts })
 const tally = f => { const m = {}; for (const r of s.sectors ?? []) for (const [k, v] of Object.entries(r[f] ?? {})) m[k] = (m[k] ?? 0) + v; return m }
 out.search = { ok: s.ok, why: s.why, screened: (s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0), tried: (s.sectors ?? []).reduce((n, r) => n + (r.tried ?? 0), 0), rejects: tally('rejects'), proofFails: tally('proofFails'), proofEx: (s.sectors ?? []).flatMap(r => r.proofEx ?? []), ms: Date.now() - t0 }
 if (s.ok) {

@@ -229,10 +229,14 @@ export function columnAt (read, x, z, L, earth = EARTH) {
  * GROUND'S OWN LEVEL (the most common top floor of the pad's columns, ties lower); with no top floor at all, the level that got
  * furthest through the pad.
  */
-export function levelFor (read, home, pad, earth = EARTH) {
+/** levelfall-01: a screened site's other feasible floor levels (least earthwork first) -> [L]. Pure. */
+export const levelAltsOf = site => (Array.isArray(site?.alts) ? site.alts : [])
+export function levelFor (read, home, pad, earth = EARTH, only = null) {
   let best = null, why = null, mostCols = -1
   const at = new Map()
+  const feasible = []   // levelfall-01: every feasible level with its cost (the caller's fallback when a proof fails)
   for (let L = home.y - 12; L <= home.y + 12; L++) {
+    if (only != null && L !== only) continue
     const cols = []
     let bad = null
     for (const [x, z] of pad) { const c = columnAt(read, x, z, L, earth); if (!c.ok) { bad = c; break } cols.push(c) }
@@ -245,9 +249,11 @@ export function levelFor (read, home, pad, earth = EARTH) {
       continue
     }
     const cost = fill + cut + litter
+    feasible.push({ L, cost })
     if (!best || cost < best.cost || (cost === best.cost && Math.abs(L - home.y) < Math.abs(best.L - home.y))) best = { ok: true, L, cols, cost }
   }
-  if (best) return best
+  // levelfall-01: the OTHER feasible levels, least earthwork first (then nearest home's level, then the lower)
+  if (best) return { ...best, alts: feasible.filter(f => f.L !== best.L).sort((a, b) => a.cost - b.cost || Math.abs(a.L - home.y) - Math.abs(b.L - home.y) || a.L - b.L).map(f => f.L) }
   const g = topFloorLevel(read, home, pad)
   const w = (g != null && at.get(g)) || why
   return { ok: false, why: w?.why ?? 'no_level', detail: w?.detail }
@@ -270,7 +276,7 @@ export function topFloorLevel (read, home, pad) {
 /**
  * THE SCREEN of one candidate (sections 1-4 above) -> { ok, why, ...site }. Pure. `res` = reservations(plan, ctx).
  */
-export function screenSite (read, home, bp, anchor, orient, res, { sector = null, domain = null, earth = EARTH } = {}) {
+export function screenSite (read, home, bp, anchor, orient, res, { sector = null, domain = null, earth = EARTH, level = null } = {}) {
   const { pad, ring } = footprint(bp, anchor, orient)
   const all = [...pad, ...ring]
   // copperhall-01: a building on its own plan plot inside the town (the hall) names its domain; every other caller: the ring
@@ -283,7 +289,8 @@ export function screenSite (read, home, bp, anchor, orient, res, { sector = null
   if (boxMeetsZones([Math.min(...xs), home.y - 16, Math.min(...zs), Math.max(...xs), home.y + 20, Math.max(...zs)], res.zones)) return { ok: false, why: 'zone' }
   // ---- the floor level (B4, D2) ----
   // copperhall-01: a larger building on a sloping plan plot names its own earthwork limits (`earth`); every other caller: EARTH
-  const lv = levelFor(read, home, pad, earth)
+  // levelfall-01: `level` forces one floor level (the search's fallback after a failed proof); unset, the least earthwork's
+  const lv = levelFor(read, home, pad, earth, level)
   if (!lv.ok) return { ok: false, why: lv.why, detail: lv.detail }
   const { L, cols } = lv
   const s = L + 1, g0 = L
@@ -342,7 +349,7 @@ export function screenSite (read, home, bp, anchor, orient, res, { sector = null
     }
   }
   if (litter > LITTER_MAX) return { ok: false, why: 'litter_over_40' }
-  return { ok: true, why: 'ok', anchor, orient, s, g0, pad, ring, fill, cut, clear, litter, trees, felled: felled.size, sector }
+  return { ok: true, why: 'ok', anchor, orient, s, g0, pad, ring, fill, cut, clear, litter, trees, felled: felled.size, sector, alts: lv.alts ?? [] }
 }
 
 // ---- the walk and the proof ----------------------------------------------------------------------------------------------
@@ -771,9 +778,21 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
     out.push(row)
     for (let i = 0; i < tries; i++) {
       yield null
-      const site = ok[i]
+      let site = ok[i]
       row.tried = i + 1
-      const p = proveSite(read, home, bp, site, { stood, walkR, ...(typeof ctx.standDomain === 'function' ? { domain: ctx.standDomain } : {}) })
+      const proveOpts = { stood, walkR, ...(typeof ctx.standDomain === 'function' ? { domain: ctx.standDomain } : {}) }
+      let p = proveSite(read, home, bp, site, proveOpts)
+      // levelfall-01 (LIVE showcase 11-05, the workshop on X1: its one anchor's proof failed `no_step earth` -- a cave pocket y 65..68
+      // under the plot's grass at 69, the fill at 65 out of every stand's reach): a caller naming `ctx.levelAlts` has the SAME anchor
+      // and orientation screened and proven at its next feasible floor levels (a level whose floor is the pocket's lid fills none)
+      if (!p.ok && Number(ctx.levelAlts) > 0) {
+        for (const L2 of (levelAltsOf(site) ?? []).slice(0, Number(ctx.levelAlts))) {
+          const s2 = screenSite(read, home, bp, site.anchor, site.orient, res, { sector: byCentre ? null : sector, ...(domain ? { domain } : {}), ...(ctx.earth ? { earth: ctx.earth } : {}), level: L2 })
+          if (!s2.ok) continue
+          const p2 = proveSite(read, home, bp, s2, proveOpts)
+          if (p2.ok) { site = s2; p = p2; row.levelFallback = `${site.anchor.x},${site.anchor.z}/${site.orient} L${L2}`; break }
+        }
+      }
       if (!p.ok) { proofFails[p.why] = (proofFails[p.why] ?? 0) + 1; if ((row.proofEx ??= []).length < 3) row.proofEx.push(`${site.anchor.x},${site.anchor.z}/${site.orient} ${p.why} ${p.detail ?? ''}`.slice(0, 120)); continue }
       const over = new Map()
       for (const c of site.clear) over.set(k3(...c.at), AIR)
