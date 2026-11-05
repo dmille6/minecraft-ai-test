@@ -193,6 +193,13 @@ import { SINKS } from './shop.mjs'   // picker-01
 import { PREP, prepOverlapOf, plotFootprint, prepCursor, prepKeeperWork, siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount, noSiteStamped, noSiteUntilOf } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
+import { cellGuard } from './towndress.mjs'   // decorator-01: the nursery's guard
+import { DECOR, DECOR_LEASE, NURSERY, decorPressure, decorWanted, decorOrderPure, decorRowDetail, decorSeed, doorwayOf, emptyPots, potPlantFor, borderPlantsOf, localStands, harvestWants, siteNursery, nurseryStill, nurseryDigs, withNursery, decorFlowerRole, flowersOwed, decorStalled } from './decorator.mjs'   // decorator-01
+import { DECORATE } from './shop.mjs'   // decorator-01: its switch
+import { SINK_BLUEPRINTS } from './sinks.mjs'   // decorator-01: the nursery-only record's blueprint
+import { wallInteriors } from './wall.mjs'   // decorator-01: the town's walls first
+import { digStand } from './buildrun.mjs'   // decorator-01: the pot fill's stand
+import { fnv1a as decorHash } from './zigdesign.mjs'   // decorator-01: a pot's plant by its cell
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -17286,7 +17293,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // sinkfix-01: this bot's own no-effect visits (shop.mjs idleMarks): such a project yields to a wanted sink for IDLE_MS
     const marked = idleMarks(waited, b?.shopIdle ?? null, now)
     // GROUNDSKEEPER-01: the town's keeper (groundskeeper.mjs) works the grounds FIRST; every other bot never does (the lease)
-    const order0 = b ? keeperOrder(b, marked, list, now) : list
+    const order00 = b ? keeperOrder(b, marked, list, now) : list
+    // DECORATOR-01: the town's decorator works the decor FIRST (behind repairs); every other bot never sees it (the lease)
+    const order0 = b ? decorOrder(b, marked, order00, now) : order00
     // picker-01: the sinks in the picker's order (sinks.mjs sinkOrder); after SINK_STREAK sink visits an upkeep goes first
     const order = sinkListOrder(order0, activeMem.sinkOrder ?? [])
     const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK })
@@ -17760,6 +17769,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     if (tidy && isYardBlueprint(r.blueprint) && yardWorkNow(bot, r)?.kind) return true
     // towndress-01: a dress record with a sign to write on a standing post wants a visit (upkeep: `tidy: false` judges the cells alone)
     if (tidy && r.plot === SINK_PLOTS.dress && dressSignWork(bot, r).length) return true
+    // decorator-01: a decor record with an empty pot the decorator can fill wants its visit (upkeep: `tidy: false` judges the cells alone)
+    if (tidy && r.plot === SINK_PLOTS.decor && decorPotWork(bot, r)) return true
     // zigtidy-01: a finished ziggurat with climbing pillars on its treads wants a visit too (the tidy), until each pillar block has
     // been offered ZIG_TIDY_VISITS visits of this bot
     if (tidy && mon && zigTidyNow(bot, r, read).length) return true
@@ -21578,6 +21589,8 @@ function sinkReady (kind) {
     if (kind === 'shrine') { const m = recordHead(townDir(), projKeyOf(MONUMENT_PLOT)); return Array.isArray(m.head?.rec?.box) }
     // towndress-01: a dress batch dresses the laid paths or the wall
     if (kind === 'dress') return [PATHS_PLOT, WALL_PLOT].some(pl => !!recordHead(townDir(), projKeyOf(pl)).head?.rec?.structure_complete)
+    // decorator-01: a decor batch borders the laid paths and pots the finished buildings' doors (its switch on)
+    if (kind === 'decor') return DECORATE.on && !!recordHead(townDir(), projKeyOf(PATHS_PLOT)).head?.rec?.structure_complete
     return true
   } catch { return false }
 }
@@ -21603,7 +21616,7 @@ function sinkStatesNow (bot, states, now = Date.now()) {
       const { rec: _rec, ...rest } = s
       const open = sinkOpen(rec)
       let next = false, why = open ? 'open' : 'no_bot'
-      if (!open && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : pr, openCount, noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now, ready: sinkReady(kind) }); next = g.want; why = g.why }
+      if (!open && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : kind === 'decor' ? decorPressureNow(bot) : pr, openCount, noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now, ready: sinkReady(kind) }); next = g.want; why = g.why }
       st[kind] = { open, want: next, sitedAt: instancesOf(rec).at(-1)?.sitedAt ?? 0, why }
       return { ...rest, sinkOpen: open, sinkNext: next, sinkWhy: why }
     })
@@ -21730,6 +21743,236 @@ async function dressSignsVisit (ctx, rec, signal, deadline) {
   try { logEvent({ kind: 'dress', status: out.written ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: dressRowDetail({ op: 'signs', want: work.length, written: out.written, failed: out.failed, names: work.map(w => w.for) }) }) } catch { /* telemetry */ }
   return out
 }
+// ================================================================================================================================
+// DECORATOR-01: THE DECORATOR (decorator.mjs; OWNER 11-04 "one bot ... sole purpose is to make things more beautiful"; design
+// docs/reports/decorator-design-2026-11-04.md). One bot a town holds the `decorator` lease on the decor record's key (groundskeeper.mjs
+// keeperDecision with DECOR's term and rest); while the decor wants it, the holder's order is the decor (decorator.mjs decorOrderPure:
+// behind repairs only) and no other bot ever sees the decor plot. A decor visit (buildSink) renews the lease, fills the empty pots of
+// its standing batches (decorPotFill), works the NURSERY when the bag is short of flowers (decorNursery: bone meal on the nursery's
+// grass, the flowers harvested), then sites the next batch or builds the open one with the ordinary sink visit. DECORATOR=off: none.
+// ================================================================================================================================
+const decorKey = () => projKeyOf(SINK_PLOTS.decor)
+/** The decorator lease now and this bot's decision (groundskeeper.mjs keeperDecision, DECOR's term). Never throws: unreadable reads 'other'. */
+function decorState (bot, work, now = Date.now()) {
+  try {
+    const lease = projLeaseState(townDir(), decorKey(), DECOR_LEASE, { ttl: DECOR.leaseTtlMs })
+    return { d: keeperDecision({ lease, me: keeperMe(bot), now, work, restUntil: bot?.decorRestUntil ?? 0, G: DECOR }), lease }
+  } catch { return { d: 'other', lease: null } }
+}
+/** Take or renew the decorator lease (its term carried on) -> { ok, gen }. One `_decor` row op=take on a new term. */
+function takeDecor (bot, lease, now = Date.now()) {
+  const me = keeperMe(bot)
+  const renewal = lease?.rec?.holder === me && now < (lease.holdsUntil ?? 0)
+  const r = projTakeLease(townDir(), decorKey(), DECOR_LEASE, me, { now, ttl: DECOR.leaseTtlMs, meta: { term0: termStart(lease, me, now) } })
+  if (r.ok && !renewal) { try { logEvent({ kind: 'decor', status: 'success', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'take', gen: r.gen }) }) } catch { /* telemetry */ } }
+  bot.decorCache = null
+  return r
+}
+/** Let the decorator lease go (no work, or the term is over: then this bot rests DECOR.restMs). One `_decor` row op=release. */
+function releaseDecor (bot, lease, why, now = Date.now()) {
+  try { releaseLease(townDir(), decorKey(), DECOR_LEASE, keeperMe(bot), lease?.gen) } catch { /* lapses */ }
+  if (why === 'term') bot.decorRestUntil = now + DECOR.restMs
+  bot.decorCache = null
+  try { logEvent({ kind: 'decor', status: 'success', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'release', why, gen: lease?.gen ?? '-' }) }) } catch { /* telemetry */ }
+}
+/** Does THIS bot hold its town's decorator lease now? Cached 30 s; never throws (false). */
+export function decorLeaseNow (bot, now = Date.now()) {
+  if (!DECORATE.on || !bot) return false
+  if (bot.decorCache && now - bot.decorCache.at < 30_000) return bot.decorCache.v
+  let v = false
+  try { const l = projLeaseState(townDir(), decorKey(), DECOR_LEASE, { ttl: DECOR.leaseTtlMs }); v = !!l && l.rec?.holder === keeperMe(bot) && now < l.holdsUntil } catch { v = false }
+  bot.decorCache = { at: now, v }
+  return v
+}
+/**
+ * THE DECORATOR'S ORDER (shopActive, after the keeper's) -> the list to pick from; `states` adjusted in place (decorator.mjs
+ * decorOrderPure). A bot finding no decorator while the decor wants work takes the lease (at most every DECOR.takeEveryMs; never the
+ * grounds crew's bot: one role a bot); a holder whose decor wants nothing, or whose term is over, lets it go.
+ */
+/** Codex r1 BLOCKER 2: THE DECOR STALLED -- a decor visit that changed nothing (decorator.mjs decorStalled): this bot's wait
+ *  (SINK.noSiteMs) and the town's (sinks.mjs TOWN_NOSITE_MS), the no-site stamps every sink reads; while it holds the decor wants no
+ *  decorator (decorOrder: the lease is let go, no other bot takes it). One `_decor op=stall` row. */
+function decorStall (bot, why) {
+  bot.sinkNoSite = { ...(bot.sinkNoSite ?? {}), [SINK_PLOTS.decor]: Date.now() + SINK.noSiteMs }
+  townNoSiteWrite(SINK_PLOTS.decor)
+  try { logEvent({ kind: 'decor', status: 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'stall', why }) }) } catch { /* telemetry */ }
+}
+function decorOrder (bot, states, list, now = Date.now()) {
+  if (!DECORATE.on || !list.some(p => p.plot === SINK_PLOTS.decor)) return list
+  const i = states.findIndex(s => s?.plot === SINK_PLOTS.decor)
+  if (i < 0) return list
+  // a stalled decor (decorStall: this bot's or the town's stamp) wants no decorator until it lapses
+  const stalled = now < noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), SINK_PLOTS.decor)
+  const work = decorWanted(states[i]) && !stalled
+  const k = decorState(bot, work, now)
+  let d = k.d
+  if (d === 'release') { releaseDecor(bot, k.lease, work ? 'term' : 'no_work', now); d = 'none' }
+  if (d === 'take' && now - (bot.decorTakeAt ?? -Infinity) >= DECOR.takeEveryMs && !keeperNow(bot, now)) { bot.decorTakeAt = now; if (takeDecor(bot, k.lease, now).ok) d = 'mine' }
+  const r = decorOrderPure(states, list, { d, plot: SINK_PLOTS.decor })
+  for (let q = 0; q < states.length; q++) states[q] = r.states[q]
+  return r.order
+}
+/** This bot's decor pressure (decorator.mjs decorPressure: its bag's plants and bone meal, the town's above the park's reserve, the
+ *  pots). Never throws: unread is the bag alone. */
+function decorPressureNow (bot) {
+  try {
+    const t = matsTownStock(bot)
+    return decorPressure({ held: heldMap(bot), townMeal: t ? Number(t.stock?.bone_meal) || 0 : null, townPots: t ? Number(t.stock?.flower_pot) || 0 : 0, coverage: t?.coverage ?? 0 })
+  } catch { return { p: -1, plants: 0, meal: 0, pots: 0, grow: 0 } }
+}
+/** WHERE AN ORNAMENT (or the nursery's reach) MAY NOT BE -> reserved(x, z) -> reason | null: the dress's reservations (towndress-01
+ *  dressReservedFor: zones, wells, the farm, the plan's cells and keepouts, the land plan's corridors, the markers, a hall pad, a prep
+ *  plot) and the land plan's PARK (+1: the groundskeeper's garden). Throws on an unreadable file (the visit stops). */
+function decorReservedFor (c, plan) {
+  const base = dressReservedFor(c, plan)
+  let park = null
+  try { park = landHead()?.park?.box ?? null } catch { park = null }
+  return (x, z) => base(x, z) ?? (Array.isArray(park) && x >= park[0] - 1 && x <= park[2] + 1 && z >= park[1] - 1 && z <= park[3] + 1 ? 'park' : null)
+}
+/** The town's walls (wall.mjs wallInteriors: the ring's inside and the extension's) -> (x, z) -> bool. Never throws (none: false). */
+function decorInside () {
+  try {
+    const w = projectHeads().find(x => x.plot === WALL_PLOT)?.head?.rec ?? null, e = projectHeads().find(x => x.plot === WALLEXT_PLOT)?.head?.rec ?? null
+    const boxes = wallInteriors(w, e)
+    return (x, z) => boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3])
+  } catch { return () => false }
+}
+/** A building record's doorway (decorator.mjs doorwayOf over its blueprint). Never throws (null). */
+const decorDoorOf = r => { try { return doorwayOf(r?.rec, r?.rec?.blueprint && !isSinkBlueprint(r.rec.blueprint) ? blueprintOf(r.rec.blueprint) : null) } catch { return null } }
+/** The decor visit's own effects (the build's walk, hold, click and dig: buildbot.mjs), closed by the caller. */
+function decorEffects (bot, signal) {
+  const acks = (bot.shopAcks ??= shopAckInstall(bot))
+  return botBuildEffects(bot, { acks, keep: {}, withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()), aborted: () => !!signal?.aborted, log: () => {}, spawnedAt: () => bot.shopSpawnAt ?? 0 })
+}
+/** USE THE HELD ITEM ON A BLOCK'S TOP FACE from where the bot stands (runVisit's use click: hold, look, one `block_place`, the
+ *  server's acknowledgement) -> 'acked' | 'silent' | 'no_item'. */
+async function decorClick (e, at, item) {
+  if (!(await e.hold(item))) return 'no_item'
+  await e.look(at, [0, 1, 0])
+  const seq = e.nextSeq()
+  e.send(at, [0, 1, 0], seq)
+  return (await e.waitAck(seq, 2_000)) === 'acked' ? 'acked' : 'silent'
+}
+const decorGen = () => { try { return recordHead(townDir(), decorKey()).head?.gen ?? '-' } catch { return '-' } }
+/**
+ * THE POT FILL (every decor visit, first) -> { filled, failed }. Each empty pot of the record (decorator.mjs emptyPots: a flower_pot
+ * standing, not potted), at most DECOR.potFillMax a visit and 3 tries a pot for this bot: the bag's plant (potPlantFor: a flower, a
+ * fern or an azalea, a sapling only above its reserve), walked to a stand in reach (buildrun.mjs digStand over decorator.mjs
+ * localStands), used on the pot. A potted block read back is one `_build op=place kind=pot_fill` row ON the pot's record cell (the
+ * tripwire's G1/DC3). Never throws but an abort.
+ */
+async function decorPotFill (ctx, rec, signal, deadline, flowerKeep = 0) {
+  const { bot } = ctx
+  const out = { filled: 0, failed: 0 }
+  const read = tidyRead(bot)
+  const tries = (bot.decorPotTries ??= new Map())
+  const work = emptyPots(rec, read).filter(c => (tries.get(c.at.join(',')) ?? 0) < 3).slice(0, DECOR.potFillMax)
+  if (!work.length || deadline - Date.now() < 20_000) return out
+  const e = decorEffects(bot, signal)
+  try {
+    for (const c of work) {
+      if (deadline - Date.now() < 15_000) break
+      const plant = potPlantFor(heldMap(bot), decorHash(c.at.join(',')), flowerKeep)
+      if (!plant) { try { logEvent({ kind: 'decor', status: 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'pots', want: work.length, why: 'no_plant' }) }) } catch { /* telemetry */ } break }
+      tries.set(c.at.join(','), (tries.get(c.at.join(',')) ?? 0) + 1)
+      const stand = digStand(read, c.at, localStands(read, c.at))
+      if (!stand) { out.failed++; continue }
+      await e.walkTo(stand)
+      check(signal)
+      if (!digReachFrom(e.feet(), c.at) || String(read(...c.at)?.name ?? '') !== 'flower_pot') { out.failed++; continue }
+      const v = await decorClick(e, c.at, plant)
+      await sleep(300, signal)
+      const now = String(bot.blockAt?.(new Vec3(...c.at))?.name ?? '')
+      if (/^potted_/.test(now)) {
+        out.filled++
+        try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SINK_PLOTS.decor, op: 'place', seg: c.seg, cell: c.at, block: now, kind: 'pot_fill', gen: decorGen() }) }) } catch { /* telemetry */ }
+      } else { out.failed++; try { logEvent({ kind: 'decor', status: 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'pot_fill', cell: c.at, block: now || '-', why: v, item: plant }) }) } catch { /* telemetry */ } }
+    }
+  } finally { try { e.close() } catch { /* gone */ } }
+  try { logEvent({ kind: 'decor', status: out.filled ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'pots', want: work.length, filled: out.filled, failed: out.failed }) }) } catch { /* telemetry */ }
+  return out
+}
+/**
+ * THE NURSERY (a decor visit whose next batch is due, while the bag holds fewer than DECOR.batchMax border plants) -> { meals, blooms,
+ * grass, sited, why }. The record's nursery read again (decorator.mjs nurseryStill), else a new one sited (siteNursery over every record's
+ * cells and decorReservedFor) and PUBLISHED on the decor record first (withNursery: the read judges every meal and dig against it). Bone
+ * meal from the bag, else drawn from town above NURSERY.mealKeep (the park's meadow keeps its four), at most NURSERY.mealMax a visit.
+ * The flowers that stand there are harvested (`_build op=clear kind=bloom`, under the plant cap), the short grass round the centre dug
+ * so a meal has room, the meal used on the centre's grass (`_build op=meal`), and what grew harvested. Never throws but an abort.
+ */
+async function decorNursery (ctx, rec0, signal, deadline, need = DECOR.batchMax) {
+  const { bot } = ctx
+  const out = { meals: 0, blooms: 0, grass: 0, sited: 0, why: null }
+  const held0 = heldMap(bot)
+  if (borderPlantsOf(held0) >= need) return { ...out, why: 'enough' }
+  const dir = townDir(), key = decorKey(), home = planHomeP(), me = keeperMe(bot)
+  const c = shopCtx(bot), h = townPlanHead(bot)
+  if (!c.zonesKnown || !h.ok || !h.head) return { ...out, why: 'no_plan' }
+  const read = tidyRead(bot)
+  let guard, reserved
+  try { guard = cellGuard(projectHeads().filter(x => x.plot !== LAND_PLOT).map(x => x.head?.rec).filter(Boolean)); reserved = decorReservedFor(c, { ...h.head.plan, gen: h.head.gen }) } catch { return { ...out, why: 'guard_unread' } }
+  const t = matsTownStock(bot)
+  const townMeal = t && (t.coverage ?? 0) >= 0.8 ? Number(t.stock?.bone_meal) || 0 : 0
+  const bagMeal = Number(held0.bone_meal) || 0
+  const want = Math.min(NURSERY.mealMax, bagMeal + Math.max(0, townMeal - NURSERY.mealKeep))
+  let nursery = rec0?.nursery ?? null
+  const standing = nursery?.at ? nurseryDigs(read, nursery, { guard }).blooms.length : 0
+  if (!want && !standing) return { ...out, why: 'no_meal' }
+  if (!nursery?.at || !nurseryStill(read, nursery, { guard, reserved })) {
+    const s = siteNursery(read, home, { guard, reserved })
+    if (!s.ok) { try { logEvent({ kind: 'decor', status: 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'nursery', why: s.why, tried: Object.entries(s.tried ?? {}).map(([a, b]) => `${a}:${b}`).join(',') }) }) } catch { /* telemetry */ } return { ...out, why: 'no_nursery' } }
+    const pub = publishRecord(dir, key, cur => withNursery(cur, s.nursery, { home, blueprint: SINK_BLUEPRINTS.decor, plot: SINK_PLOTS.decor }), { by: me })
+    if (pub.result !== 'accepted') return { ...out, why: `publish_${pub.result}` }
+    nursery = s.nursery
+    out.sited = 1
+    try { logEvent({ kind: 'decor', status: 'success', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'nursery', cell: nursery.at, n: nursery.landing, gen: pub.gen }) }) } catch { /* telemetry */ }
+  }
+  if (want > bagMeal) { try { await matsWithdraw(ctx, { bone_meal: want - bagMeal }, signal, 30_000, matsReserve().table) } catch (err) { if (err?.aborted || signal?.aborted) throw err } check(signal) }
+  const e = decorEffects(bot, signal)
+  try {
+    const dig = async (q, kind) => {
+      if (out.blooms + out.grass >= NURSERY.harvestMax || deadline - Date.now() < 20_000) return false
+      if (kind === 'bloom' && !harvestWants(heldMap(bot), q.name)) return true
+      await e.walkTo(q.at)
+      check(signal)
+      if (!digReachFrom(e.feet(), q.at)) return true
+      const v = await e.dig(q.at, q.name)
+      if (v !== 'confirmed') return true
+      if (kind === 'bloom') out.blooms++; else out.grass++
+      try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SINK_PLOTS.decor, op: 'clear', cell: q.at, block: q.name, kind: 'bloom', gen: decorGen() }) }) } catch { /* telemetry */ }
+      await sleep(450, signal)   // the drop is picked up where the bot stands
+      return true
+    }
+    const harvest = async () => { for (const q of nurseryDigs(tidyRead(bot), nursery, { guard }).blooms) if (!(await dig(q, 'bloom'))) return false; return true }
+    if (!(await harvest())) return out
+    const meals = Math.min(want, countItem(bot, 'bone_meal'))
+    for (let i = 0; i < meals; i++) {
+      if (deadline - Date.now() < 30_000) break
+      for (const q of nurseryDigs(tidyRead(bot), nursery, { guard }).grass) if (!(await dig(q, 'grass'))) break
+      const ctr = nursery.at
+      if (String(tidyRead(bot)(...ctr)?.name ?? '') !== 'grass_block') { out.why = 'centre_gone'; break }
+      await e.walkTo([ctr[0], ctr[1] + 1, ctr[2]])
+      check(signal)
+      if (!digReachFrom(e.feet(), ctr)) { out.why = 'unreached'; break }
+      const v = await decorClick(e, ctr, 'bone_meal')
+      if (v !== 'acked') { out.why = `meal_${v}`; break }
+      out.meals++
+      try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SINK_PLOTS.decor, op: 'meal', cell: ctr, block: 'bone_meal', kind: 'use', gen: decorGen() }) }) } catch { /* telemetry */ }
+      await sleep(600, signal)
+      if (!(await harvest())) break
+    }
+  } finally { try { e.close() } catch { /* gone */ } }
+  try { logEvent({ kind: 'decor', status: out.meals || out.blooms ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'nursery_visit', meals: out.meals, blooms: out.blooms, grass: out.grass, plants: borderPlantsOf(heldMap(bot)), why: out.why ?? '-' }) }) } catch { /* telemetry */ }
+  return out
+}
+/** The decor upkeep for THIS bot (recordDamaged's `due`): an empty pot and a plant to fill it, under its tries. Never throws. */
+function decorPotWork (bot, rec) {
+  try {
+    if (!decorLeaseNow(bot) || !potPlantFor(heldMap(bot))) return false
+    const tries = bot.decorPotTries ?? new Map()
+    return emptyPots(rec, tidyRead(bot)).some(c => (tries.get(c.at.join(',')) ?? 0) < 3)
+  } catch { return false }
+}
 /** SITE THE NEXT INSTANCE of a sink kind (sinks.mjs siteSink) -> its result. Yields to the event loop first. Never throws. */
 async function sinkSiteFor (bot, kind, rec0, plan, c, stood, signal, opts = {}) {
   try {
@@ -21752,10 +21995,14 @@ function sinkSiteNow (bot, kind, rec0, plan, c, stood, { prep = null, read = nul
     const feet = bot.entity?.position ? [Math.floor(bot.entity.position.x), Math.floor(bot.entity.position.y + 1e-6), Math.floor(bot.entity.position.z)] : null
     // towndress-01: a dress batch reads every other record (its anchors, its cell guard, the lights they plan) and the spare torches
     const dress = kind === 'dress' ? { records: projectHeads().filter(x => x.plot !== SINK_PLOTS.dress && x.plot !== LAND_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null })), torches: dressPressureNow(bot).torches, reserved: dressReservedFor(c, plan) } : {}
+    // decorator-01: a decor batch reads every other record (the paths, the buildings' doorways, the cell guard), the bag's plants and
+    // the pots, the town's walls (inside first) and its own seed
+    const decor = kind === 'decor' ? { records: projectHeads().filter(x => x.plot !== SINK_PLOTS.decor && x.plot !== LAND_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null })), plants: borderPlantsOf(heldMap(bot)), pots: decorPressureNow(bot).pots,
+      reserved: decorReservedFor(c, plan), inside: decorInside(), doorOf: decorDoorOf, seed: decorSeed(config.memory.pool, planHomeP(), n) } : {}
     // siteprep-01: `prep` pins the claim of a prepared plot (one spot, its base), `read` an after-world (the keeper's choosing)
     const pe = prep?.id ?? null
     return siteSink(read ?? planReader(bot), { kind, n, id: `${SINK_LETTER[kind]}${n}`, home: planHomeP(), pool: config.memory.pool, avail: av.avail, torch: av.torch, campfire: av.campfire,
-      guard: kind === 'dress' ? () => null : sinkGuardFor(c, plan, { kind, prepExcept: pe }), guardShrine: kind === 'dress' ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind, prepExcept: pe }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress, ...(prep ? { prep } : {}) })
+      guard: kind === 'dress' || kind === 'decor' ? () => null : sinkGuardFor(c, plan, { kind, prepExcept: pe }), guardShrine: kind === 'dress' || kind === 'decor' ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind, prepExcept: pe }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress, ...decor, ...(prep ? { prep } : {}) })
   }
 }
 async function buildSink (ctx, args, signal, proj) {
@@ -21779,7 +22026,27 @@ async function buildSink (ctx, args, signal, proj) {
   const stood = stoodRead(dir, stoodKey(), home)
   let rh = recordHead(dir, key)
   if (!rh.ok) return out('no_effect', 'record_unreadable', `the ${plot} record could not be read`)
-  const rec0 = rh.head?.rec ?? null
+  let rec0 = rh.head?.rec ?? null
+  // DECORATOR-01: the decor is the DECORATOR's alone (decorator.mjs): its lease renewed, the empty pots of its standing batches filled,
+  // and -- its next batch due -- the nursery worked for flowers before the gate is asked (the bag's plants size the batch)
+  if (kind === 'decor') {
+    if (!decorLeaseNow(bot)) return out('no_effect', 'not_decorator', 'the decor is the decorator\'s: this bot holds no decorator lease')
+    try { takeDecor(bot, projLeaseState(dir, key, DECOR_LEASE, { ttl: DECOR.leaseTtlMs })) } catch { /* it lapses at its TTL */ }
+    try {
+      // Codex r1 BLOCKER 2: the flowers the record's open (or damaged) border cells still owe are theirs -- never a pot's
+      const rd0 = tidyRead(bot)
+      const owed = rec0 ? flowersOwed(rec0, q => buildCellDone(rd0(...q.at), rec0.palette ?? {}, q.role)) : 0
+      if (rec0) { const pf = await decorPotFill(ctx, rec0, signal, t0 + budget - ZIG_VISIT_TAIL_MS, owed); if (pf.filled) f.pots = pf.filled }
+      // the nursery: when the gate would take a next batch but for its plants (never past instancesMax, a no-site wait, the paths), or
+      // when the open batch owes more flowers than the bag holds
+      const g0 = !rec0 || (rec0.structure_complete && !shopDamaged(bot, rec0)) ? sinkNextGate({ kind, rec: rec0, pressure: { p: 1 }, openCount: 0, noSiteUntil: noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now: Date.now(), ready: sinkReady(kind) }) : null
+      if (g0?.want || owed > borderPlantsOf(heldMap(bot))) { const nu = await decorNursery(ctx, rec0, signal, t0 + budget - ZIG_VISIT_TAIL_MS, g0?.want ? DECOR.batchMax : owed); f.meals = nu.meals; f.blooms = nu.blooms }
+    } catch (e) { if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e } }
+    check(signal)
+    rh = recordHead(dir, key)
+    if (!rh.ok) return out('no_effect', 'record_unreadable', `the ${plot} record could not be read back`)
+    rec0 = rh.head?.rec ?? null
+  }
   // towndress-01: a dress visit writes the signs of its standing posts first (bounded: DRESS.signsMax, the label writer's tries)
   if (kind === 'dress' && rec0) {
     try { const sg = await dressSignsVisit(ctx, rec0, signal, t0 + budget - ZIG_VISIT_TAIL_MS); f.signs = sg.written; if (sg.failed) f.signFails = sg.failed } catch (e) { if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e } }
@@ -21788,19 +22055,19 @@ async function buildSink (ctx, args, signal, proj) {
   // THE NEXT INSTANCE (the picker): no record, or a standing one that is not damaged -- the gate asked again with this bot's readings
   if (!rec0 || (rec0.structure_complete && !shopDamaged(bot, rec0))) {
     const recs = Object.fromEntries(SINK_KINDS.map(k => [k, k === kind ? rec0 : (recordHead(dir, projKeyOf(SINK_PLOTS[k])).head?.rec ?? null)]))
-    const pr = kind === 'dress' ? dressPressureNow(bot) : sinkPressureNow(bot)
+    const pr = kind === 'dress' ? dressPressureNow(bot) : kind === 'decor' ? decorPressureNow(bot) : sinkPressureNow(bot)
     // SITEPREP-01: a plot the keeper PREPARED for this kind is claimed first -- one pinned spot, this bot's no-site wait bypassed; an
     // instance already tagged with the request (the claim's second write lost) only marks it handed
     const sp = siteprepHead(dir)
     const claim = sp ? prepClaimFor(sp, kind) : null
     if (claim && prepHandedIn(rec0, claim.id)) { const hp = prepPublish(dir, claim.id, { type: 'handed', inst: prepHandedIn(rec0, claim.id).id }, me); prepRow(bot, 'success', { op: 'handed', id: claim.id, kind, why: 'already', gen: hp.gen }) }
     const g = sinkNextGate({ kind, rec: rec0, pressure: pr, openCount: stoneOpenCount(recs), noSiteUntil: claim ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now: Date.now(), ready: sinkReady(kind) })
-    if (!g.want) return out('no_effect', 'complete', `the ${plot} sink wants no instance now (${g.why}; pressure ${pr.p})`, { stop: 'complete' })
+    if (!g.want) { if (kind === 'decor' && decorStalled(f)) decorStall(bot, `gate:${g.why}`); return out('no_effect', 'complete', `the ${plot} sink wants no instance now (${g.why}; pressure ${pr.p})`, { stop: 'complete' }) }
     const r = await sinkSiteFor(bot, kind, rec0, { ...h.head.plan, gen: h.head.gen }, c, stood, signal, claim && !prepHandedIn(rec0, claim.id) ? { prep: prepPin(claim) } : {})
     check(signal)
     const tried = (r.tried ?? []).join(' ')
     const t = matsTownStock(bot)
-    if (r.ok && kind !== 'dress' && !sinkFundable(r.inst.cells.length, { town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: heldMap(bot) })) { r.ok = false; r.why = 'unfunded' }
+    if (r.ok && kind !== 'dress' && kind !== 'decor' && !sinkFundable(r.inst.cells.length, { town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: heldMap(bot) })) { r.ok = false; r.why = 'unfunded' }
     if (!r.ok) {
       // siteprep-01: a claim that failed for the PLOT counts toward a re-prep (an unfunded bill is the town's, never the plot's: it
       // waits out the claim deadline)
@@ -21810,7 +22077,8 @@ async function buildSink (ctx, args, signal, proj) {
       townNoSiteWrite(kind)   // sinkfix-04: every bot of the town waits on it (sinks.mjs TOWN_NOSITE_MS)
       try { logEvent({ kind: 'sink', status: 'no_effect', snapshot: snapshot(bot), detail: sinkRowDetail({ op: 'no_site', kind, n: instancesOf(rec0).length + 1, p: pr.p, tried, why: r.why }) }) } catch { /* telemetry */ }
       // siteprep-01: a refusal the earth can fix files a SITE REQUEST (one live a kind; the keeper prepares a plot)
-      if (SITEPREP.on && r.why !== 'unfunded') {
+      // decorator-01: a decor batch never files a site request (its refusal is flowers and pots, never earth)
+      if (SITEPREP.on && r.why !== 'unfunded' && kind !== 'decor') {
         try {
           const now = Date.now()
           let req = null
@@ -21870,7 +22138,8 @@ async function buildSink (ctx, args, signal, proj) {
     const read = planReader(bot)
     const town = matsTownStock(bot)?.stock ?? {}
     // towndress-01: a sign cell is the label writer's (no bill: there is no wall-sign item)
-    const bill = billOf(rec, palette, read, { done: (b, pal, role) => dressSignRole(role) || buildCellDone(b, pal, role), inTown: zigBillInTown(bot, town) })
+    // decorator-01: a decor flower is the bag's (the nursery's harvest: never a chest's) -- billed nothing
+    const bill = billOf(rec, palette, read, { done: (b, pal, role) => dressSignRole(role) || decorFlowerRole(role) || buildCellDone(b, pal, role), inTown: zigBillInTown(bot, town) })
     const need = needFromTown(bill, spare0, SHOP_BILL_CAP)
     let took = {}
     bag0 = held0
@@ -21905,7 +22174,8 @@ async function buildSink (ctx, args, signal, proj) {
     const onBuild = ft => !!ft && boxes.some(b => ft[0] >= b[0] && ft[0] <= b[2] && ft[2] >= b[1] && ft[2] <= b[3])
     // towndress-01: a dress batch's box spans the town (its fixtures are posts and torches: nothing to stand on), and its sign cells
     // are the label writer's -- runVisit reads them done
-    const leave = kind !== 'dress' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) } : {}
+    // decorator-01: a decor batch's box spans the town too (flowers and pots: nothing to stand on)
+    const leave = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) } : {}
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       ...sinkVisitOpts(rec, home), ...leave }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     if (r.stop === 'complete') {
@@ -21921,6 +22191,8 @@ async function buildSink (ctx, args, signal, proj) {
     // sinkfix-02: a FRESH read (planReader memoises: the bill's read was taken before the visit, so a finished road said 17/23)
     const done = (() => { try { const rd = planReader(bot); const p = sinkProgress(rec, q => buildCellDone(rd(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
+    // decorator-01 (Codex r1 BLOCKER 2): a decor visit that changed nothing stamps the decor stalled (the decorator lets it go)
+    if (kind === 'decor' && decorStalled({ ...f, placed: r.placed, cleared: r.cleared })) decorStall(bot, `visit:${r.stop}`)
     return out(status, r.stop, `${r.why ?? r.stop}; built ${done} (${ins?.id ?? '-'})`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
@@ -22145,9 +22417,11 @@ function keeperOrder (bot, states, list, now = Date.now()) {
   const k = keeperState(bot, work, now)
   let d = k.d
   if (d === 'release') { releaseKeeper(bot, k.lease, work ? 'term' : 'no_work', now); d = 'none' }
-  if (d === 'take' && now - (bot.gkTakeAt ?? -Infinity) >= GK.takeEveryMs) { bot.gkTakeAt = now; if (takeKeeper(bot, k.lease, now).ok) d = 'mine' }
+  // decorator-01: the decorator never takes a grounds lease (one role a bot)
+  const decorHeld = decorLeaseNow(bot, now)
+  if (d === 'take' && !decorHeld && now - (bot.gkTakeAt ?? -Infinity) >= GK.takeEveryMs) { bot.gkTakeAt = now; if (takeKeeper(bot, k.lease, now).ok) d = 'mine' }
   // gkhelpers-01: another bot keeps the grounds -- this one helps when a helper lease is its own or free (build_shop takes it)
-  if (d === 'other') { const h = crewState(bot, work, now); if (h.d === 'mine' || h.d === 'take') d = 'helper' }
+  if (d === 'other') { const h = crewState(bot, work, now); if (h.d === 'mine' || (h.d === 'take' && !decorHeld)) d = 'helper' }
   const r = keeperOrderPure(states, list, { d, shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT })
   for (let i = 0; i < states.length; i++) states[i] = r.states[i]
   return r.order

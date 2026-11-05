@@ -30,6 +30,9 @@ import { WITHDRAW_COOLDOWN_MS, WITHDRAW_BACKOFF_MS, WITHDRAW_NO_BACKOFF } from '
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): under the food policy's switch the composter also takes the plants a
 // peaceful world has no use for. Passed as `plants`, beside `apples`, from the same decision.
 import { isPeacefulCompost, peacefulRank, peacefulSaplingReserve } from './peacefulkit.mjs'
+// decorator-01: the decorator's flowers are never composted while it is on in this pool (cropkeep.mjs decorKeeps)
+import { decorKeeps } from './cropkeep.mjs'
+const DECOR_KEEPS = decorKeeps(process.env, process.env.MEMORY_POOL ?? '')
 
 /**
  * VERIFIED COMPOSTING CHANCES, Java 1.21.x -- the probability that ONE inserted item raises the level by one.
@@ -106,9 +109,10 @@ export const isCompostInput = name => isCompostJunk(name) || isSapling(name)
  * peaceful kit, the same switch) -- every one of the kit's plants (peacefulkit.mjs PEACEFUL_COMPOST: no reserve, a
  * peaceful world has no use for them). NEVER_COMPOST still wins over every list.
  */
-export function compostAllowance (items = [], { apples = false, plants = false, saplings = true, farmKeeps = FARM_KEEPS } = {}) {
+export function compostAllowance (items = [], { apples = false, plants = false, saplings = true, farmKeeps = FARM_KEEPS, decorKeeps = DECOR_KEEPS } = {}) {
   const totals = {}
   for (const it of (Array.isArray(items) ? items : [])) {
+    if (decorKeeps?.has?.(it?.name)) continue   // decorator-01: the decorator's flowers
     // `saplings: false` (junkout-01's VISIT fill, Claude r1 P2-5): no sapling goes in -- planting needs > 8 of a species
     if (!it?.name || !(isCompostJunk(it.name) || (saplings && isSapling(it.name)) || (apples && it.name === 'apple') ||
                        (plants && isPeacefulCompost(it.name) && !NEVER_COMPOST.test(it.name)))) continue
