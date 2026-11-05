@@ -124,6 +124,9 @@ export function tripAdmit ({ on = true, census = 0, dest = null, now = 0, state 
   if (!isDay(timeOfDay)) return { ok: false, why: 'not_morning' }
   if (health <= 14) return { ok: false, why: 'health' }
   if (freeSlots < 4) return { ok: false, why: 'bag' }
+  // the carry limits hold for what the bag ALREADY holds too (Codex review 11-05): an over-full bag banks first (the ordinary
+  // town deposit), then a later morning goes
+  if (stoneHeld > TRADE.stoneCarryMax || held > TRADE.carryMax) return { ok: false, why: 'heavy_bag' }
   const coalGoods = held + take >= TRADE.minSell
   const stoneGoods = masonKnown && stoneHeld + stoneTake >= TRADE.stonePer
   if (!coalGoods && !stoneGoods) return { ok: false, why: 'no_goods' }

@@ -19888,7 +19888,7 @@ export function tradeStartOrder (bot, { now = Date.now(), atTown = false } = {})
       health: bot.health ?? 20, freeSlots: 36 - items.length, take, held, stoneTake, stoneHeld, masonKnown, leased: !!(dest && atTown && tradeLease(bot, now)) })
     if (!a.ok) {
       st.skipAt ??= {}
-      if (['no_census', 'no_destination', 'no_goods', 'leased', 'backoff'].includes(a.why) && now - (st.skipAt[a.why] ?? -Infinity) >= 30 * 60_000) {
+      if (['no_census', 'no_destination', 'no_goods', 'leased', 'backoff', 'heavy_bag'].includes(a.why) && now - (st.skipAt[a.why] ?? -Infinity) >= 30 * 60_000) {
         st.skipAt[a.why] = now
         try { logEvent({ kind: 'trade_trip', status: 'no_effect', snapshot: snapshot(bot), detail: `skip=${a.why} census=${census.length}${dest ? ` dest=${dest.x},${dest.z} ${dest.p} ${dest.dist}b` : ''} take=${take} held=${held} stone_take=${stoneTake} stone_held=${stoneHeld}` }) } catch { /* telemetry */ }
       }
@@ -20019,7 +20019,14 @@ async function tradeTrip (ctx, _args, signal) {
         if (trip.stoneTake > 0) {
           const ent = townIndexEntries(bot)
           const st = ent ? stoneForTrip({ townStone: townItemTotal(ent, 'stone'), held: bagCount(bot, 'stone') }) : 0
-          if (st > 0) { try { await withdraw(ctx, { item: 'stone', count: st }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+          // withdraw moves at most a stack per call (Codex note): the two stacks are two calls, each recounted
+          for (let k = 0, left = st; k < 2 && left > 0; k++) {
+            const before = bagCount(bot, 'stone')
+            try { await withdraw(ctx, { item: 'stone', count: Math.min(64, left) }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+            const got = bagCount(bot, 'stone') - before
+            if (got <= 0) break
+            left -= got
+          }
         }
       }
       trip.coalBudget = Math.min(TRADE.carryMax, bagCount(bot, 'coal'))

@@ -168,6 +168,10 @@ await t('COALSALE-02 trip rules: masons first when carrying stone; coal stops co
   assert.equal(T.tripAdmit({ on: true, census: 5, dest: { x: 1, z: 1 }, now: 1e9, atTown: true, timeOfDay: 1000, freeSlots: 10, stoneTake: 120, masonKnown: true }).ok, true)
   assert.equal(T.tripAdmit({ on: true, census: 5, dest: { x: 1, z: 1 }, now: 1e9, atTown: true, timeOfDay: 1000, freeSlots: 10, stoneTake: 120, masonKnown: false }).why, 'no_goods', 'no mason in the census: stone is no reason')
   assert.equal(T.pickDestination([{ p: 'toolsmith', x: 400, y: 70, z: 147 }, { p: 'mason', x: 500, y: 70, z: 147 }], HOME, { want: 'stone' }).p, 'mason')
+  const adm = o => T.tripAdmit({ on: true, census: 5, dest: { x: 1, z: 1 }, now: 1e9, atTown: true, timeOfDay: 1000, freeSlots: 10, masonKnown: true, ...o }).why
+  assert.equal(adm({ stoneHeld: 192 }), 'heavy_bag', 'Codex review: a bag already over two stacks of stone does not leave')
+  assert.equal(adm({ held: 61, take: 0 }), 'heavy_bag', 'nor over 60 coal')
+  assert.equal(adm({ stoneHeld: 128 }), 'go', 'POSITIVE: exactly the limit goes')
 })
 
 await t('COALSALE-02 live sightings: employed adults merged by uuid into the pool list, joined to the census (no duplicate of a census villager)', () => {
