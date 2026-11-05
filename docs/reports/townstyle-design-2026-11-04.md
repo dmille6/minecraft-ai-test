@@ -302,3 +302,152 @@ TRIPs H2.
   crafting table at the plot.
 - The cottage always tries the FIRST free house plot. A plot that can never be sited retries every 30 minutes (Claude r1
   note 3; the enchanting workshop's pattern).
+
+## 9. 2026-11-05: the control session's answers and the gap closed
+
+**The answers.** The owner left these three to the control session, which settled them on 11-05:
+
+- **O1 yes.** Cottages go up once the enchanting workshop stands. Houses do not wait for the town hall.
+- **O2 yes.** Roofs may use clicks the server accepts on reach alone. No scaffolding.
+- **O3 yes.** One roofed building at a time.
+
+The batch takes townstyle-01 with RO1.
+
+**The skill wrapper, run on Paper** (`sandbox/townstyle/cottage-skill-e2e.mjs`,
+[`paper-cottage-skill.jsonl`](townstyle-2026-11-04/paper-cottage-skill.jsonl)). This is the real `SKILLS.build_shop`, with no
+kit given by RCON:
+
+- the town's chests held logs, cobblestone and torches only;
+- the earlier projects were published as complete records;
+- the wall extension had one house plot.
+
+It **passed**:
+
+- The order reached `cottage1` and sited cottage@1f in spruce, read from the town index.
+- It drew 41 logs under the project reserve.
+- It crafted planks, then 44 stairs, 12 slabs and 4 trapdoors at the table: 44 server-verified crafts.
+- It built the cottage in 4 visits. 158/158 cells and every state were server-verified, and every `_build_bag` row balanced.
+
+The run found three defects, each of which would have left a cottage stuck. All are fixed in 937226c4 (Codex r3: no
+blockers).
+
+| # | What happened | Fix |
+|---|---|---|
+| 1 | An index that knew no logs yet sited an oak cottage in a spruce town. Its posts waited for oak for good. | Siting refuses `stock_unknown` until the index knows logs. |
+| 2 | The first visit crafted the whole roof, so the walls' planks became stairs. The walls stopped `no_material` with 44 stairs in the bag. | Only the parts of segments workable now are planned. |
+| 3 | The project reserve let 5 logs through, and a 44-stair craft then failed whole. | Each part craft is cut to whole recipes of the planks in the bag. |
+
+**Measured, and worth the owner's eye:** the project reserve keeps 20% of `BUILD_RESERVE.logs` (512), which is 103 logs. With
+the showcase index at 116 logs (9 chests), a cottage can draw only about 13 logs until the tree farm or the yard raises
+stock. The cottage waits; it does not fail.
+
+## 10. townstyle-02: the re-roofed blueprints and the town hall (branch townstyle-01show, after 937226c4)
+
+**New blueprints.** `townstyle.mjs restyleRoof` re-roofs a standing blueprint. Everything below the old roof stays exactly as
+it is in the @1 file (test).
+
+| Blueprint | Roof |
+|---|---|
+| `workshop@2` | 45° gable |
+| `hall@2`, `storehub@2`, `enchantshop@2` | 1:2 slab roof; ridge at y 6, in reach from the floor |
+
+`townhall@1` (`townhallBlueprint`) is for plot X2 (13 x 19):
+
+- an 11 x 17 pad;
+- a 9 x 14 timber-framed hall, with log posts every few blocks and plank walls 3 high;
+- windows with trapdoor sills;
+- a 3-wide doorway in the front gable, under a round attic window;
+- a porch with two log posts and a slab canopy;
+- 12 stair pews either side of an aisle;
+- a slab roof.
+
+The `townhall` project (`townhall.mjs`) waits for X2 and comes after the enchanting workshop. `TOWNHALL=off` turns it off.
+
+**Pictures:** [`townstyle-sheet.png`](townstyle-2026-11-04/townstyle-sheet.png), with each before and after, plus
+`townstyle-<id>.png` per blueprint.
+
+**Paper build test for each** (`cottage-e2e.mjs BLUEPRINT=<id>`, [`paper-townstyle02.jsonl`](townstyle-2026-11-04/paper-townstyle02.jsonl)):
+
+| Blueprint | Cells server-verified with state | Notes |
+|---|---|---|
+| workshop@2 | 223/223 | a misoriented stair was reoriented |
+| townhall@1 | 538/538 | |
+| hall@2 | 593/593 | |
+| storehub@2 | 643/643 | |
+| enchantshop@2 | 567/567 | |
+
+None of these runs refused a click.
+
+**The defect these runs found: slabs merge.** A slab held against a half-full slab of the same kind, clicked on its open half,
+replaces the SUPPORT. Vanilla's `SlabBlock.canBeReplaced` turns the support into a double slab, and the target cell stays air.
+
+- The first hall@2 run made 52 reorient digs and never finished the roof edge.
+- **Fix:** `buildsite.mjs stepFor` never picks such a support (`townstyle.mjs slabMerges`). The proof's overlay now carries the
+  states of placed cells.
+- **Tests:** the fake vanilla now merges the way the server does. hall@2 builds whole on it, and the guard's mutant shows the
+  proof planning merging clicks.
+- The jsonl keeps the failed run and two runs whose verifier rejected valid `$planks` fallbacks (walls and the ridge beam in
+  another wood species), above the passing reruns.
+- **The cottage is not affected:** its slab ridge is a row of bottom slabs clicked below their middle. Its 5/5 runs stand.
+
+**Reviews:**
+
+- Codex r4: one blocker (the retrofit, section 11). Codex r5: no blockers.
+- Claude r1 (second engine): two blockers (section 11) plus notes. It confirmed the slab guard matches vanilla, and RT1 and H8.
+
+## 11. townstyle-03: the retrofit, one building at a time
+
+**The retrofit digs nothing.** A standing flat-roofed record gets a new generation of its own record:
+
+- every old cell stays, where it is and as it is;
+- the old flat roof becomes the ceiling under the new one;
+- the pitched roof is added above it (`reroof.mjs`; `restyleRoof keepFlat`; new roles `roofstair`, `ridge`, `roofslab`,
+  `ridgebeam` and `gable`, which never collide with an @1 role).
+
+What the record keeps and gains:
+
+- It keeps its blueprint id, so the storage hall's clerk, the copper hall's domain and the enchanting workshop's fit-out are
+  unchanged.
+- It gains `style`, its own `palette`, and `restyle`.
+- It stays complete. The added roof reads as damage, and the building's own visit repairs it first. An open record would switch
+  off the workshop's stations, the hall's clerk and the fitter (Claude r1 note).
+
+**The planner.** A project, `reroof`, publishes the next building in this order:
+
+1. house1
+2. shop
+3. storehub
+4. hall
+5. enchantshop
+
+It publishes only when four things hold:
+
+- no styled build is open (a cottage, the town hall, or an earlier retrofit roof still reading damaged);
+- the town's logs are known;
+- the town has the logs the roof needs;
+- the building's added roof is proven on the standing world.
+
+The proof is `proveSite` over the added cells, with the interior minus every cell the building fills and every fit slot. That
+last part was the blocker both engines found: without it the workshop, both halls and the enchanting workshop failed
+`interior_unreachable`. The planner waits through its 30-minute town-wide wait (Claude r1 blocker), and passes over a building
+whose proof fails 3 times. `REROOF=off` turns it off.
+
+**Paper** ([`paper-reroof.jsonl`](townstyle-2026-11-04/paper-reroof.jsonl)): each building was built flat, then given its
+retrofit generation, then built again.
+
+| Building | Cells server-verified, old and new | Added roof cells | Dug |
+|---|---|---|---|
+| house@1 | 185/185 | 57, in one visit | nothing |
+| workshop@1 | 238/238 | 71, in one visit | nothing |
+| storehub@1 | 748/748 | 221, in one visit | nothing |
+| hall@1 | 692/692 | 215, in one visit | nothing |
+
+**Tripwire** (main, NOT installed):
+
+- **RT1.** The retrofit needs no new rule. Its placements are G1's against the head generation, and a misoriented new stair is
+  RO1's. The selftest pins it, and the mutants stay at 162/162.
+- **H8** (`scripts/host/shopconform.py`). The conformance survey now reads block states. A state cell is done only in its state,
+  read from the region palette entry's `Properties`, and a styled record is judged by its own palette. 4/4 anchored mutants
+  (`scripts/host/test_shopconform_states.py`).
+- **Expect a dip during the retrofit.** While the workshop's roof is open, its surveys score below 0.98, and `exposure_ready`
+  drops until two good surveys of the new generation. That is fail-closed, never a trip (Claude r1 note).

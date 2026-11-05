@@ -4658,7 +4658,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "townstyle-01 (the style library + the cottage) READY TO STAGE: branch townstyle-01show sha 55a3471e on the live 8b4ea9cc. Suite (suite-run, w30) at 55a3471e 421/430: FAIL ceilescape nothing-important-is-orphaned protected-paths well (known), craftsync lavastep plinth-skill (known flakes), storehub + ziggurat-v2-build SIGKILL at 300 s (load: both ~276-287 s on w30 in other suites; storehub alone on w30 PASS; ziggurat-v2-build 111 s here vs 114 s at base 8b4ea9cc). Paper-proven: orientation 312/312 aimed (controls 90/312, 150/312), blind clicks 147/147, a real bot built both cottage variants end to end 5/5 PASS. Reviews: Codex r1 1 BLOCKER (RO1) fixed, Codex r2 NO BLOCKERS, Claude r1 NO BLOCKERS (note 1 fixed). NEEDS before staging: install RO1 (shopread.py.txt on main, 162/162 mutants) on the showcase tripwire. Then townstyle-02 (workshop/halls roofs, slabRoof), townstyle-03 (retrofit, RR1, H8 states). Owner O1-O3 in the design section 7.",
+   "next_step": "townstyle-01 (cottage) for the next showcase batch = 937226c4 (adds the skill-wrapper fixes over 55a3471e; Paper: the real build_shop built a cottage from a town of logs, 158/158, every bag row balanced; Codex r3 NO BLOCKERS) + install RO1. townstyle-02/03 READY TO STAGE at cf9ffbbe (same branch townstyle-01show): workshop@2/hall@2/storehub@2/enchantshop@2 re-roofed blueprints, townhall@1 + project on X2 (TOWNHALL), the slab-merge guard (Paper found slabs merging into their supports), the retrofit planner `reroof` (REROOF: keeps every old cell, adds the roof, one building at a time, house1 -> shop -> storehub -> hall -> enchantshop). Paper: workshop@2 223/223, townhall@1 538/538, hall@2 593/593, storehub@2 643/643, enchantshop@2 567/567; retrofits house@1 185/185, workshop@1 238/238, storehub@1 748/748, hall@1 692/692, nothing dug. Reviews: Codex r4 1 BLOCKER + Claude r1 2 BLOCKERS (retrofit proof interior; planner wait) fixed aa6e85ac, Codex r5 NO BLOCKERS. Suite ci2 at cf9ffbbe 428/432: FAIL ceilescape nothing-important-is-orphaned protected-paths (known) + towndeposit (flaky at base 8b4ea9cc too: 1 of 3 here and there). Tripwire on main (NOT installed): RO1 + RT1 selftests (162/162 mutants); H8 shopconform.py reads block states (4/4 mutants) -- install with the release.",
    "max_quiet_hours": 48,
    "depends_on": [
     {
@@ -4681,7 +4681,7 @@
     ]
    },
    "note": "Measured 11-04: every blueprint is a 2-high box with a flat roof at y 3 because the siting proof clicks only faces in view from feet+1.62 -- nothing above y 3 is placeable; the cottage's upper roof uses reach-only clicks (Paper accepts them). Cottage bill ~40 logs; showcase index (9 chests) 116 logs, 0 glass panes (windows fall back to planks).",
-   "owner_pending": "townstyle O1/O2: cottages on the house plots before a town-hall design exists? reach-only roof clicks (a client could not make them; Paper accepts) vs temporary staging?"
+   "owner_answers": "Control session 11-05 for the owner: O1 yes (cottages once the enchanting workshop stands; houses do not wait for the town hall), O2 yes (server-valid reach clicks for roofs, no scaffolding), O3 yes (one roofed building at a time)."
   },
   {
    "id": "stoneworks-1105",

@@ -179,6 +179,10 @@ const REQUIRED = [
   'docs/reports/townstyle-2026-11-04/paper-cottage.jsonl',
   'docs/reports/townstyle-2026-11-04/townstyle-sheet.png',
   'docs/reports/townstyle-2026-11-04/cottage-elevations.txt',
+  'docs/reports/townstyle-2026-11-04/paper-cottage-skill.jsonl',
+  'docs/reports/townstyle-2026-11-04/paper-townstyle02.jsonl',
+  'docs/reports/townstyle-2026-11-04/paper-reroof.jsonl',
+  'scripts/host/test_shopconform_states.py',
   'sandbox/enchant/obsidian-proof.cjs',
   'docs/reports/obsidian-2026-11-04/bucketfix-01.88c981a1.json',
   // copperhall-01 (11-02): the showcase copper hall, its blueprint and its test over the showcase terrace's own region export
