@@ -1,0 +1,3 @@
+BLOCKERS
+
+- **bots/src/wall.mjs:1052** — `join.from/to` still use the extension’s full span. With overhang, an old corner becomes strictly inside that span, so `demoCells` selects it **and adjoining perpendicular-wall cells** within demolition depth, opening the old town outside the extension. Read-only reproduction on the fake server’s ring `[-12,-12,12,12]`, join `[-15,15]`, removes east-wall blocks at `(12,70..73,-11)`. The siting escape proof precedes demolition and cannot catch this. **Fix:** clamp the recorded join span to its intersection with the old ring’s span, preserving old corners; add an overhanging-extension demolition regression asserting perpendicular-wall cells survive.

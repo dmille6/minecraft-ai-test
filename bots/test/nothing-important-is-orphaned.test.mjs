@@ -161,6 +161,7 @@ const REQUIRED = [
   'docs/reports/wallext-2026-11-04/offline-demolition-showcase-1104.json',
   'docs/reports/wallext-2026-11-04/offline-record-showcase-1104-r3.json',
   'docs/reports/wallext-2026-11-04/offline-demolition-showcase-1104-r3.json',
+  'docs/reports/wallext-2026-11-04/offline-record-showcase-1105-r4.json',
   // enchantshop-01 (11-04): the enchanting + anvil workshop -- design, Codex design + reviews, the generator, the offline siting
   // (the code is branch enchantshop-show-wx's until it lands)
   'docs/reports/enchantshop-design-2026-11-04.md',

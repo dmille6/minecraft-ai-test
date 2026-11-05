@@ -308,3 +308,36 @@ ci2 at `a2e0e91e`: **419/422** (ceilescape, nothing-important-is-orphaned, prote
 **X1 = x 10..28, z -75..-63 (19 x 13), ground y 67-69**, a `land:plot` reservation with id `X1` once the extension is sited (the
 workshop's siting names `X1` as its exception). Note: the plots are FOUND by the extension's siting at the moment it sites (after the
 hall stands), so the live box can differ from this offline one if the town changes; read it from `project-<home>.wallext` `plots`.
+
+## 14. r4 (11-05): why the live extension never sited, and the fix
+
+**LIVE** (wallext-v2 since release `9295590e` 11-04 21:07Z; the hall complete 11-05 09:05Z): the first siting, 11-05 12:33Z (Comet,
+110 s), was `no_site no_wall_ring` -- every rectangle failed the escape proof (`cut7/trap0` or `cut0/trap16`). Reproduced exactly on
+a 12:39Z region copy + the live pool with the bots' own code.
+
+**CAUSE.** The hall stands at x 10..28, **6 columns from the old ring's east end (x 35)**, and an extension's rectangle was not allowed
+to pass that end. Every candidate's east side was at x 34 or 35:
+- **x 34:** the wall's terrace (fire-step x 32, walk x 33) left a 3-wide strip x 29..31, z -57..-52 between the hall's east face
+  and the terrace: a bot drops into it and cannot climb out (**16 cells trapped**);
+- **x 35:** the strip x 32..34, z -51..-49 is closed off (**7 cells cut**).
+The offline runs of r3 had the hall's offline site, not the live town (and only checked x <= 35 the same way).
+
+**FIX** (branch `wallext-escape-show` @ `1c93d54f` on the live tip `0e8a1cfa`):
+1. a rectangle may pass the old ring's span by `WALLEXT.over` (12) at each end; the JOIN is the old line's OWN span only (beyond it
+   the shared side is ordinary wall -- here it meets the tower sink T3's reservation at x 36..38, z -20);
+2. **Codex r4 BLOCKER (fixed):** the recorded `join.from/to` is clamped to the old span, else the old corner would read "strictly
+   inside" and the demolition (and WD1, which reads the same span) would take the corner and the perpendicular side beside it;
+   regression + Codex APPROVE;
+3. the extension's height rule `tallMax` 5 (the old wall's 7): the offline BUILD on the live copy left a 1-wide 4-deep shaft through
+   the east line as a 7-cell wall column + a 6-cell step column no stand could place -- 13 cells, past the waiver's 12, so the
+   extension could never have completed; Codex APPROVE;
+4. the escape proof's tries name their cut / trapped cells (in the `no_ring` why).
+
+**Offline now (12:39Z copy + live pool):** ring **x -36..38, z -89..-20**; **621 cobblestone** (no post, no torch); escape 0 cut / 0
+trapped; **built 621 / 621** by 4 fake builders; the independent check 0 hits; plots unchanged in place -- **X1 x 10..28, z -75..-63
+(the workshop)**, X2 x -16..-4, z -63..-45 (the town hall), X3-X5 houses; the demolition 15 columns (x 3..8, 17..25), 114 blocks, dug
+114 / 114 (held until done). The walk on the finished world: of 34,327 outside feet cells reached before, 464 are not after -- 435
+on the east forest's CANOPY (tree tops the pathfinder walked on), 21 on a strip across the north water (z -91..-97; bots swim:
+water is terrain, the walk model does not swim), 8 in pockets of <= 4. Map / record:
+[`map-showcase-1105-r4.txt`](wallext-2026-11-04/map-showcase-1105-r4.txt), [`offline-record-showcase-1105-r4.json`](wallext-2026-11-04/offline-record-showcase-1105-r4.json).
+Tripwire unchanged (WX1 / WD1 read the record's join, now clamped). ci2 at `1c93d54f`: **433/436** (the known base three on a copied tree).
