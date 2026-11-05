@@ -300,3 +300,38 @@ stranded (both engines found it).
 the trade must stand inside the village box with no dig and no place. That needs a walk-only approach into a protected zone,
 which is another protected-scope review.
 
+## 11. coalsale-02: stone for apprentice masons (11-05, OWNER via the control session)
+
+**The ask.** Owner: "smelt cobblestone into stone for trading -- apprentice mason villagers normally buy 20 stone for 1 emerald
+(stock limits apply)". Another agent's `stoneworks` stocks the town's stone.
+
+**Branch.** `coalsale-02` = coalsale-01 (`454af13b`) plus the stone sale. On its own diff it is not protected; it stacks on the
+tier-3 coalsale-01.
+
+**What a trip does with stone.**
+- **Draw:** stone above a town keep of 192, at most two stacks (128), in whole trades of 20, taken in two withdraw calls.
+- **Sell:** stone FIRST, to any mason whose window shows a stone->emerald offer, within that offer's uses left (its stock).
+- **Coal:** kept once a stone buyer is found on the trip. Coal is worth about 6x more as fuel: 2.5 coal smelt the 20 stone that
+  earn 1 emerald, against 15 coal per emerald.
+- **Carry limit:** a bag already over 128 stone or 60 coal does not leave (`heavy_bag`).
+- **Emerald goal:** raised from 4 to 8.
+
+**MEASURED 11-05: no fleet census holds a mason (0 in 16 pools).**
+- Every employed villager a trip sees now joins a pool file, `trade-merchants.json`, that the census reader joins in. A mason met on
+  a coal trip becomes a later stone trip's destination.
+- `_trade_seen` logs each mason's level and offers, so we learn when masons reach apprentice.
+- Expected close of the first canary: "KEEP, goal unverified".
+
+**Proven, sandbox4.** `STONE=1` run: an apprentice mason with 2 stone uses left.
+- 40 stone sold (its stock), 20 bricks bought, coal kept, then home.
+- The server confirmed the bag: stone 88, coal 60, bricks 20.
+
+**Review.** Codex raised one blocker: the carry limit did not apply to a bag already holding stone. Fixed in r1-r2; re-check: FIXED.
+
+**Recommended next piece (not built): "make jobs".** The fleet worlds have many unemployed villagers (board-a 18 of 38). A bot
+could place a stonecutter, from 1 iron and 3 stone, beside them in a fleet village. The fleet has no village zones, and sandbox4
+showed a bot-placed job site is taken in 5.5 s. That would create masons where none exist.
+
+**Showcase variant.** It waits for villageunlock (6_1's villagers employed) and for a walk-only approach inside the protected
+village box.
+
