@@ -150,6 +150,9 @@ const REQUIRED = [
   'bots/test/fixtures/siteprep-sp1-overlap-1104.json',
   'bots/test/siteprepcursor.test.mjs',   // the siteprep-02 fold: a cursor of an older screen restarts
   'bots/test/plotledgerfold.test.mjs',   // the plotprep + access-02 fold: no ledger stair across a reserved plot
+  // atlas-01 (11-04): the bots' shared exploration map
+  'bots/src/atlas.mjs',
+  'bots/test/atlas.test.mjs',
   'bots/test/gkaccessfold.test.mjs',   // the gkaccess fold: no stair across the storage hall's way in
   'bots/test/wallaccessfold.test.mjs',   // the wallext + access fold: ids namespaced, the extension no footprint
   'bots/test/gkstagefold.test.mjs',   // the gkstage fold: inwall never cuts a site-prep reservation
