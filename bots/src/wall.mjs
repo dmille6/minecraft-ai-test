@@ -146,7 +146,7 @@ export const terraceAt = (c, k) => {
  *                  GATEWAY (the wall opens where a path crosses), any other a plain gap (the wall meets that project)
  *   spokes         the plan's planned path segments [[x0, z0, x1, z1]]: + 1, a gateway too
  */
-export function wallCandidate (read, inside, m, { home, avoid = () => null, pzones = [], spokes = [], lights = 0, join = null, scanMemo = null, seed = null, column = pathColumn } = {}) {
+export function wallCandidate (read, inside, m, { home, avoid = () => null, pzones = [], spokes = [], lights = 0, join = null, scanMemo = null, seed = null, column = pathColumn, tallMax = WALL.tallMax } = {}) {
   const loop = ringLoop(inside, m)
   // wallext-01: a memo shared between candidates over the same ground (wallExtSite tries several rectangles)
   const col = scanMemo ?? new Map()
@@ -220,7 +220,7 @@ export function wallCandidate (read, inside, m, { home, avoid = () => null, pzon
       }
       for (const i of run) {
         const c = loop[i]
-        if (c.b + WALL.body - c.g[0] > WALL.tallMax || c.b + 2 - c.g[1] > WALL.tallMax - 2 || c.b + 1 - c.g[2] > WALL.tallMax - 3) { c.s = 'gap'; c.why = 'tall'; changed = true }
+        if (c.b + WALL.body - c.g[0] > tallMax || c.b + 2 - c.g[1] > tallMax - 2 || c.b + 1 - c.g[2] > tallMax - 3) { c.s = 'gap'; c.why = 'tall'; changed = true }
       }
     }
     if (!changed) break
@@ -794,7 +794,7 @@ export const WALLEXT_BLUEPRINT = 'wallext@1'
  * candidates (best first by their plots, then the shortest ring) proven; builtMin: the least share of the ring's own (non-join)
  * columns that must stand as wall (a side that runs along a road corridor is all gateway: no wall at all).
  */
-export const WALLEXT = Object.freeze({ margin: 6, grow: [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44], growOut: [0, 4, 8, 12, 16, 20, 24], over: 12, plotsWant: 5, plotGap: 3, plotSpread: 4, lane: 5, plotSizes: Object.freeze([Object.freeze({ kind: 'hall', w: 19, d: 13, max: 2, value: 2 }), Object.freeze({ kind: 'house', w: 11, d: 11, max: 3, value: 1 })]), tries: 10, builtMin: 0.5 })
+export const WALLEXT = Object.freeze({ margin: 6, grow: [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44], growOut: [0, 4, 8, 12, 16, 20, 24], over: 12, tallMax: 5, plotsWant: 5, plotGap: 3, plotSpread: 4, lane: 5, plotSizes: Object.freeze([Object.freeze({ kind: 'hall', w: 19, d: 13, max: 2, value: 2 }), Object.freeze({ kind: 'house', w: 11, d: 11, max: 3, value: 1 })]), tries: 10, builtMin: 0.5 })
 /** THE SWITCH -> bool. WALLEXT=on|off; unset = on in the pools WALLEXT_POOLS names (default the showcase). Pure. */
 export function wallextOn (env = process.env, pool = '') {
   const v = String(env?.WALLEXT ?? '').trim().toLowerCase()
@@ -1020,7 +1020,7 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
   let best = null
   for (const c of cands.slice(0, W.tries)) {
     const inside = [c.rect[0] + m, c.rect[1] + m, c.rect[2] - m, c.rect[3] - m]
-    const cand = wallCandidate(read, inside, m, { home, avoid, pzones: pz, spokes, lights, join, scanMemo: memo, seed, column: extColumn })
+    const cand = wallCandidate(read, inside, m, { home, avoid, pzones: pz, spokes, lights, join, scanMemo: memo, seed, column: extColumn, tallMax: W.tallMax ?? WALL.tallMax })
     if (pause) await pause()
     const t = { rect: c.rect, plots: c.plots, level: c.level, ok: cand.ok, why: cand.why }
     tried.push(t)

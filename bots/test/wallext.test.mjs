@@ -89,6 +89,21 @@ await t('PAST THE SPAN, THE DEMOLITION KEEPS THE OLD CORNERS (Codex r4 BLOCKER):
   const sideBuilt = wall.cols.some(c => c.z === wall.ring[1] && (c.x === wall.ring[0] || c.x === wall.ring[2]) && (c.s === 'wall' || c.s === 'post'))
   if (sideBuilt) assert.ok(bad.cells.some(c => c.at[0] === wall.ring[0] || c.at[0] === wall.ring[2]), 'the unclamped span takes a corner')
 })
+await t('THE TRENCH (r4, offline 11-05: a 4-deep 1-wide shaft through the line made a 7-cell column no stand could build -- 13 cells past the waiver\'s 12): the extension\'s tallMax 5 makes it a `tall` gap; the old 7 does not (positive control)', () => {
+  const cells = {}
+  const TX = 2
+  for (let y = G - 3; y <= G; y++) for (const z of [-12, -11, -10]) cells[`${TX},${y},${z}`] = 'air'   // a trench at x 0 across the north line, its walk and fire-step (no pit: all three as deep)
+  const srv = server(cells)
+  const at = (c, x, z) => c.cols.find(q => q.x === x && q.z === z)
+  const seven = W.wallCandidate(srv.read, [-6, -6, 6, 6], 6, { home: HOME })
+  const five = W.wallCandidate(srv.read, [-6, -6, 6, 6], 6, { home: HOME, tallMax: W.WALLEXT.tallMax })
+  assert.strictEqual(W.WALLEXT.tallMax, 5)
+  // positive control: the old height rule passes the column (here the fake builders' reach proof drops it; LIVE the reach proof
+  // passed and no builder could place it -- the height rule is what must refuse it)
+  assert.notStrictEqual(at(seven, TX, -12).why, 'tall', 'the old 7 does not call it tall')
+  assert.deepStrictEqual([at(five, TX, -12).s, at(five, TX, -12).why], ['gap', 'tall'], 'the extension\'s 5 does')
+  assert.ok(!five.cells.some(c => c.at[0] === TX && c.at[2] === -12 && c.at[1] <= G - 2), 'no cell down the trench')
+})
 await t('THE JOIN in wallCandidate: a join column is never built; without `join` the record is the same as before (positive control)', () => {
   const srv = server()
   const plain = W.wallCandidate(srv.read, [-6, -6, 6, 6], 6, { home: HOME })
