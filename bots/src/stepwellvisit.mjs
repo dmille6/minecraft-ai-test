@@ -15,6 +15,22 @@ import { stairRead, stairItems } from './shaftvisit.mjs'
 import { withDigScope } from './digtown.mjs'
 
 export const CELL_TRIES = 2
+export const EGRESS_HOP = 6
+/**
+ * THE DESCENT'S WAY UP from `feet` -> [stand] (stepwell-02): when the bot stands in the descent (within 1 of a path stand, below the
+ * court), every EGRESS_HOP-th stand of the path back to the portal's, then the portal. [] outside the descent. Pure.
+ */
+export function descentHops (plan, feet) {
+  const path = plan?.descent?.path
+  if (!path?.length || !feet) return []
+  let best = -1, bd = Infinity
+  path.forEach((q, i) => { const d = Math.abs(q[0] - feet[0]) + Math.abs(q[2] - feet[2]) + 2 * Math.abs(q[1] - feet[1]); if (d < bd) { bd = d; best = i } })
+  if (best < 0 || bd > 3) return []
+  const out = []
+  for (let i = best - EGRESS_HOP; i > 0; i -= EGRESS_HOP) out.push(path[i])
+  out.push(path[0])
+  return out
+}
 const kOf = a => a.join(',')
 const same = (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
 
@@ -85,11 +101,18 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
     }
   }
   try { await body() } finally {
-    // THE WAY OUT: a builder below the rim walks to the exit (the flights are every stage's way in and out); never after an abort
+    // THE WAY OUT: a builder below the rim walks to the exit (the flights are every stage's way in and out); never after an abort.
+    // stepwell-02: a builder in the DESCENT walks it up first, a few stands at a time (descentHops: the stair's hop walk), to the portal
     try {
       const f = e.feet()
       if (!e.aborted() && p.exit && f && f[1] <= plan.g && e.now() < deadline + 15_000) {
-        const okOut = await e.walkTo(p.exit)
+        let okUp = true
+        for (const hop of descentHops(plan, f)) {
+          if (e.aborted() || e.now() >= deadline + 60_000) break
+          okUp = await e.walkTo(hop)
+          if (!okUp) break
+        }
+        const okOut = okUp && await e.walkTo(p.exit)
         e.log('egress', { at: p.exit, why: okOut ? 'out' : 'walk_failed' })
       }
     } catch (err) { if (err?.aborted || e.aborted()) throw err }
@@ -114,7 +137,7 @@ export function itemsFor (role, palette = {}) {
     case 'trim': return [...new Set([...P('trim'), 'stone_bricks', 'cobblestone'])]
     case 'wall': return [...new Set([...P('wall'), ...STONE, 'stone_bricks'])]
     case 'post': return [...new Set([...P('post'), 'cobblestone_wall', 'mossy_cobblestone_wall', 'stone_brick_wall'])]
-    case 'light': return [...new Set([...P('light'), 'torch', 'lantern'])]
+    case 'light': case 'dlight': return [...new Set([...P('light'), 'torch', 'lantern'])]
     default: return [...STONE, 'dirt']   // body, under, seal
   }
 }

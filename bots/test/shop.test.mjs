@@ -306,8 +306,11 @@ assert.ok(CANE_FN.test(SK), 'buildCaneFarm is found (the cut is not a no-op)')
 // stepwell-01: buildStepwell (the stepwell's visit) follows buildCaneFarm's slot release and bag row (its wiring: stepwell.test.mjs)
 const SWELL_FN = /\nasync function buildStepwell \([\s\S]*?\n\}\n/
 assert.ok(SWELL_FN.test(SK), 'buildStepwell is found (the cut is not a no-op)')
+// stepwell-02: buildStepwellRun (the visit's second half: the felling, the tank, the descent) too
+const SWELL_RUN_FN = /\nasync function buildStepwellRun \([\s\S]*?\n\}\n/
+assert.ok(SWELL_RUN_FN.test(SK), 'buildStepwellRun is found (the cut is not a no-op)')
 for (const [name, src0, re] of W) {
-  const src = src0 === SK ? SK.replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n').replace(FARM_FN, '\n').replace(TIDY_FN, '\n').replace(YARD_FN, '\n').replace(SINK_FN, '\n').replace(CROP_FN, '\n').replace(CANE_FN, '\n').replace(SWELL_FN, '\n') : src0
+  const src = src0 === SK ? SK.replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n').replace(FARM_FN, '\n').replace(TIDY_FN, '\n').replace(YARD_FN, '\n').replace(SINK_FN, '\n').replace(CROP_FN, '\n').replace(CANE_FN, '\n').replace(SWELL_FN, '\n').replace(SWELL_RUN_FN, '\n') : src0
   await t(`${name} (and a mutant of it fails)`, () => {
     assert.ok(re.test(src), 'wired')
     const m = src.match(re)[0]

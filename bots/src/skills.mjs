@@ -167,6 +167,7 @@ import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CR
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
+import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone } from './stepwell.mjs'   // stepwell-02: the descent
 import { plotPrep, replantCells, PLOTPREP } from './tidy.mjs'   // stepwell-01: the site's felling (the groundskeeper's stands and replants)
 import { CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANE, CANE_PALETTE, CANE_FOREIGN, siteCaneFarm, caneCells, caneState, caneCensus, caneHarvest, caneStand, caneNeed, caneDue, caneAlsoDone, cutCell, caneHarvestRow, caneBankable } from './canefarm.mjs'   // canefarm-01
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
@@ -24450,6 +24451,8 @@ function stepwellSite (bot, home, inp, t0, me) {
     const [bx0, bz0, bx1, bz1] = stepwellPlanTank(sv.site).box
     const pp = plotPrep(read, { plots: [{ id: 'SW', kind: 'stepwell', box: [bx0, bz0, bx1, bz1] }], home, records: inp.records, avoid: inp.blocked, cells, T: { ...PLOTPREP, platMax: SWELL.standMax } })
     if (Object.entries(pp.skipped ?? {}).some(([k, v]) => /^tree/.test(k) && v > 0)) { why.trees_kept = (why.trees_kept ?? 0) + 1; continue }
+    // stepwell-02: THE DESCENT, surveyed with the site (its bottom rises above any lava or flooded air; none when no flight fits)
+    if (descentOn()) { try { const sd = surveyDescent(read, sv.site); if (sd.ok) sv.site.descent = { bottom: sd.bottom } } catch { /* the tank alone; a later visit adds it */ } }
     const sf = standsFit(sv.site, pp.platforms)
     if (sf) { why[sf] = (why[sf] ?? 0) + 1; continue }
     const rp = pp.trees.length ? (inp.land ? replantCells(read, inp.land, pp.trees.map(t => ({ col: t.col, name: t.name })), { avoid: (x, z) => inp.blocked(x, z) ?? (x >= bx0 - 2 && x <= bx1 + 2 && z >= bz0 - 2 && z <= bz1 + 2 ? 'stepwell' : null), cells }) : []) : []
@@ -24499,6 +24502,27 @@ async function buildStepwell (ctx, args, signal) {
   shopFootprintRefresh(bot)
   const rec = rh.head.rec
   if (rec.state === 'stopped') return out('no_effect', 'stopped', `the stepwell stands as built (stopped at y ${rec.stopY ?? '-'}: ${rec.stopWhy ?? '-'})`)
+  // stepwell-02: A RECORD WITHOUT ITS DESCENT (sited by stepwell-01) gains it: surveyed from the loaded world, published as the next
+  // generation (open again until the descent stands); a survey with no room or only hazards is noted for 24 h, an unread one waits
+  if (descentOn() && !rec.site?.descent && !(rec.descentNone && Date.now() - (rec.descentNone.at ?? 0) < 24 * 3600_000)) {
+    let sd = null
+    try { sd = surveyDescent(stairRead(bot), rec.site) } catch { sd = null }
+    if (sd?.ok) {
+      const pub = publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT ? stepwellWithDescent(cur, sd) : null), { by: me })
+      stepwellRow(bot, 'descent', { why: pub.result, n: `bottom${sd.bottom}/feet${sd.bottomFeet}/cells${sd.counts.cells}/cave${sd.counts.cave}/water${sd.counts.water}`, gen: pub.gen ?? '-' })
+      rh = recordHead(dir, key)
+      if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the stepwell record could not be read back')
+    } else if (sd && sd.why !== 'unknown') {
+      publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && !cur.site?.descent ? { ...cur, descentNone: { why: sd.why, bottom: sd.bottom, at: Date.now() } } : null), { by: me })
+      stepwellRow(bot, 'descent', { why: `none:${sd.why}`, n: `bottom${sd.bottom}` })
+      rh = recordHead(dir, key)
+    }
+  }
+  return buildStepwellRun(ctx, { t0, budget, f, out, dir, key, me, home, rh, rec: rh.head?.rec ?? rec }, signal)
+}
+/** THE STEPWELL VISIT'S WORK on its record (the felling, then the tank and its descent): buildStepwell's second half. */
+async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, rh, rec }, signal) {
+  const { bot } = ctx
   const read0 = stairRead(bot)
   const pending = fellPending(read0, rec)
   if (rec.structure_complete && pending === 0 && stepwellDamaged(read0, rec, { lights: countItem(bot, 'torch') > 0 }) == null) return out('no_effect', 'complete', 'the stepwell stands')
@@ -24582,20 +24606,23 @@ async function buildStepwell (ctx, args, signal) {
     const log0 = e.log
     e.log = (op, d) => log0(op, op === 'dig' ? { ...d, block: e.lastDug ?? '-' } : d)
     const now = () => Date.now()
-    const r = await runStepwellVisit({
+    const runIt = fn => (plan.descent ? withStairClaim(ctx.runner, fn) : fn())   // stepwell-02: the stair's body claim in the descent (the entombment reflex stands down)
+    const r = await runIt(() => runStepwellVisit({
       plan, exit: rec.exit,
       onStop: async (y, why) => { publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && cur.state !== 'stopped' ? stepwellStopped(cur, { y, why, now: now() }) : null), { by: me }) },
       onTiers: async tiers => {
-        const done = tiers.length >= plan.T
+        // stepwell-02: complete only when the descent (if the record has one) stands too
+        const dDone = plan.descent ? stepwellDescentDone(stairRead(bot), plan) : true
+        const done = tiers.length >= plan.T && dDone
         publishRecord(dir, key, cur => {
           if (!cur || cur.blueprint !== STEPWELL_BLUEPRINT || cur.state === 'stopped') return null
           const had = cur.tiers_built ?? []
-          if (had.length === tiers.length && (!done || cur.structure_complete)) return null
-          return { ...cur, tiers_built: tiers, ...(done && !cur.structure_complete ? { structure_complete: true, state: 'complete', completeAt: now() } : {}) }
+          if (had.length === tiers.length && !!cur.descent_built === dDone && (!done || cur.structure_complete)) return null
+          return { ...cur, tiers_built: tiers, ...(plan.descent ? { descent_built: dDone } : {}), ...(done && !cur.structure_complete ? { structure_complete: true, state: 'complete', completeAt: now() } : {}) }
         }, { by: me })
         if (done && !rec.structure_complete) { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: STEPWELL_PLOT, op: 'complete', kind: STEPWELL_BLUEPRINT, gen: '-' }) }) } catch { /* telemetry */ } }
       },
-    }, e, { deadline, lights: () => countItem(bot, 'torch') > 0 || countItem(bot, 'lantern') > 0 })
+    }, e, { deadline, lights: () => countItem(bot, 'torch') > 0 || countItem(bot, 'lantern') > 0 }))
     bot.shopDamage = null
     if (r.placed > 0 || r.dug > 0) { try { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key) } catch { /* the clock */ } }
     stepwellRow(bot, 'visit', { y: r.y, why: r.stop, n: `${r.dug}d/${r.placed}p/${r.ops}o/${r.skipped}s/tiers${r.tiers.join('+') || '-'}`, ms: Date.now() - t0, gen: rh.head.gen })

@@ -85,6 +85,10 @@ out.top = pick.map(s => ({ centre: s.site.centre, away: s.site.away, g: s.g, tie
 if (best) {
   const fell = bestFell
   out.fell = { trees: fell.trees.length, stands: fell.platforms.length, standCells: fell.platforms.reduce((n, q) => n + q.cells.length, 0), logs: fell.clear.filter(c => c.kind === 'tree').length, leaves: fell.clear.filter(c => c.kind === 'leaves').length, replant: fell.replant.length, skipped: fell.skipped }
+  // stepwell-02: the descent surveyed for the chosen site (its bottom rises above lava or flooded air)
+  const sd = SWm.surveyDescent(read, best.site)
+  out.descent = sd
+  if (sd.ok) best.site.descent = { bottom: sd.bottom }
   const rec = SWm.stepwellRecord(best, { home, seed: SWm.stepwellSeed('showcase', home), fell, read })
   const P = SWm.planTank(rec.site)
   out.best = { centre: rec.site.centre, away: rec.site.away, g: rec.site.g, T: rec.site.T, box: rec.box, zone: rec.zones[0].box, exit: rec.exit, cells: rec.cells.length, clear: rec.clear.length,

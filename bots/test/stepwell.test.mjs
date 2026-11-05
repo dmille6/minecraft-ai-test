@@ -31,9 +31,9 @@ const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/g
 const G = 64
 const EMPTY = /^(air|cave_air|torch|short_grass)$/
 const mk = n => (n == null ? null : { name: n, boundingBox: EMPTY.test(n) || /_sapling$/.test(n) ? 'empty' : (/water|lava/.test(n) ? 'empty' : 'block') })
-function world (over = {}) {
+function world (over = {}, gr = G) {
   const m = new Map(Object.entries(over))
-  const base = (x, y, z) => (y > G ? 'air' : y === G ? 'grass_block' : y >= G - 3 ? 'dirt' : y >= G - 40 ? 'stone' : 'bedrock')
+  const base = (x, y, z) => (y > gr ? 'air' : y === gr ? 'grass_block' : y >= gr - 3 ? 'dirt' : y >= Math.min(gr, G) - 40 ? 'stone' : 'bedrock')
   const get = (x, y, z) => { const k = `${x},${y},${z}`; return m.has(k) ? m.get(k) : base(x, y, z) }
   return { read: (x, y, z) => mk(get(x, y, z)), set: (c, n) => m.set(c.join(','), n), get: c => get(...c), m }
 }
@@ -263,7 +263,7 @@ console.log('THE TANK BUILT END TO END (the real visit loop on a fake world)')
 function fakeBot (w, plan, { start, log = [] } = {}) {
   let feet = [...start]
   let t = 0
-  const placed = role => ({ floor: 'stone_bricks', trim: 'stone_bricks', wall: 'cobblestone', body: 'cobblestone', under: 'cobblestone', post: 'cobblestone_wall', light: 'torch', seal: 'cobblestone' }[role])
+  const placed = role => ({ floor: 'stone_bricks', trim: 'stone_bricks', wall: 'cobblestone', body: 'cobblestone', under: 'cobblestone', post: 'cobblestone_wall', light: 'torch', dlight: 'torch', tread: 'cobblestone', seal: 'cobblestone' }[role])
   return {
     get read () { return w.read },
     feet: () => feet,
@@ -332,13 +332,108 @@ await t('a lava cell met during the build stops the tank (onStop with the layer)
   assert.strictEqual(w.get(lava), 'lava')
 })
 await t('MUTANT KILLED: the visit without its egress leaves the builder in the pit', async () => {
-  await withMutant(SV_PATH, '        const okOut = await e.walkTo(p.exit)', '        const okOut = false', async M => {
+  await withMutant(SV_PATH, '        const okOut = okUp && await e.walkTo(p.exit)', '        const okOut = false', async M => {
     const P = S.planTank(SITE)
     const w = world()
     const e = fakeBot(w, P, { start: [10, G + 1, -2] })
     for (let i = 0; i < 20; i++) { const r = await M.runStepwellVisit({ plan: P, exit: P.exit, onStop: async () => {} }, e, { opsMax: 2000 }); if (r.stop === 'complete') break }
     assert.notDeepStrictEqual(e.feet(), P.exit, 'the mutant still walked out: the egress test proves nothing')
   })
+})
+
+console.log('THE DESCENT (stepwell-02: the court portal and the enclosed 2-wide switchback to y 16)')
+const DSITE = g => ({ origin: { x: 0, z: 0 }, away: 's', g, W: 23, T: 2, descent: { bottom: 16 } })
+await t('the descent walks: every stand on a tread with two air over it, steps of 1, a third air over every step up; it reaches feet 16 from any rim height', () => {
+  for (const g of [30, 40, 55, 62, 70, 80]) {
+    const P = S.planTank(DSITE(g))
+    const dc = S.descentCheck(P)
+    assert.ok(dc.ok, `g ${g}: ${dc.problems.slice(0, 3).join('; ')}`)
+    assert.strictEqual(P.descent.bottomFeet, 16, `g ${g}`)
+    assert.ok(S.walkCheck(P.cols, P.W).ok)
+    assert.deepStrictEqual(P.descent.path[0].slice(1, 2), [g - 7], 'the path starts at the court\'s feet (the portal)')
+  }
+})
+await t('MUTANT KILLED: flights with two air cells (no jump room) fail the descent proof', async () => {
+  await withMutant(SW_PATH, '      for (const z of [0, 1]) room(x, z, feet, 3)', '      for (const z of [0, 1]) room(x, z, feet, 2)', async M => {
+    assert.ok(!M.descentCheck(M.planTank(DSITE(62))).ok, 'the mutant passed the proof: the proof checks nothing')
+  })
+})
+await t('the descent in the record: the portal opens the court wall (those cells are cuts now), no descent air is a tank cell, all of it inside the footprint and under the court', () => {
+  const P0 = S.planTank({ ...DSITE(62), descent: undefined })
+  const P = S.planTank(DSITE(62))
+  for (const a of P.descent.portal) {
+    assert.strictEqual(P0.byKey.get(a.join(','))?.role, 'wall', 'the portal was the court wall')
+    assert.ok(!P.byKey.has(a.join(',')) && P.cutKeys.has(a.join(',')), 'the portal is a cut')
+  }
+  const [x0, z0, x1, z1] = P.box
+  for (const a of P.descent.air) {
+    assert.ok(!P.byKey.has(a.join(',')) && P.cutKeys.has(a.join(',')))
+    assert.ok(a[0] >= x0 + 1 && a[0] <= x1 - 1 && a[2] >= z0 + 1 && a[2] <= z1 - 1, 'inside the footprint, off its outer ring')
+    assert.ok(a[1] <= 62 - 6, 'below the court\'s head')
+  }
+  assert.ok(P.cells.filter(e => e.t === 3 && e.role === 'tread').length > 50)
+  assert.ok(P.units.at(-1).y <= 16)
+})
+await t('every cell and cut of the tank and its descent belongs to exactly one unit (nothing is planned that no visit works)', () => {
+  for (const g of [40, 62]) {
+    const P = S.planTank(DSITE(g))
+    const seen = new Map()
+    for (const u of P.units) for (const k of ['cut', 'faces', 'tops', 'under', 'posts', 'lights']) for (const c of u[k]) seen.set(c.join(','), (seen.get(c.join(',')) ?? 0) + 1)
+    const want = [...P.cells.filter(e => e.role !== 'stand').map(e => e.at), ...P.cut.map(c => c.at)].filter(a => a[1] >= P.minY - 1)
+    const missing = want.filter(a => !seen.has(a.join(',')))
+    assert.deepStrictEqual(missing.slice(0, 5), [], `g ${g}: ${missing.length} cells in no unit`)
+    assert.ok([...seen.values()].every(n => n === 1), `g ${g}: a cell in two units`)
+  }
+})
+await t('the descent survey: lava in its air raises its bottom above it, water in its air too, water beside it is sealed (counted), an unread cell waits (POSITIVE CONTROL: dry stone reaches 16)', () => {
+  const g = 62
+  const w = world()
+  const dry = S.surveyDescent(w.read, DSITE(g))
+  assert.ok(dry.ok && dry.bottom === 16, JSON.stringify(dry))
+  const P = S.planTank(DSITE(g))
+  const deep = P.descent.air.find(a => a[1] === 30)
+  w.set(deep, 'lava')
+  const lv = S.surveyDescent(w.read, DSITE(g))
+  assert.ok(lv.ok && lv.bottom === 33, JSON.stringify(lv))
+  w.set(deep, 'water')
+  assert.strictEqual(S.surveyDescent(w.read, DSITE(g)).bottom, 33)
+  w.set(deep, 'stone')
+  const lin = P.cells.find(e => e.t === 3 && e.role === 'wall' && e.y === 40)
+  w.set(lin.at, 'water')
+  const wt = S.surveyDescent(w.read, DSITE(g))
+  assert.ok(wt.ok && wt.bottom === 16 && wt.counts.water >= 1)
+  const rd = (x, y, z) => (x === deep[0] && y === deep[1] && z === deep[2] ? null : w.read(x, y, z))
+  assert.strictEqual(S.surveyDescent(rd, DSITE(g)).why, 'unknown')
+})
+await t('a stepwell-01 record gains its descent: tank cells and the felling kept, the descent cut and lined, open again; a record with one is left alone', () => {
+  const w = world()
+  const sv = { site: { ...SITE, W: 23, T: 2, centre: [11, 11], tiersDry: 2 }, counts: {}, byTier: {}, d: 40 }
+  const fell = { trees: [{ base: [11, G + 1, 11], name: 'spruce_log', top: G + 6 }], platforms: [], clear: [{ at: [11, G + 1, 11], kind: 'tree', name: 'spruce_log', tree: 0 }], replant: [{ cell: [60, G + 1, 60], species: 'spruce', sapling: 'spruce_sapling', state: 'pending' }] }
+  const rec1 = { ...S.stepwellRecord(sv, { home: { x: 0, y: G, z: -40 }, fell, read: w.read }), structure_complete: true, state: 'complete' }
+  const sd = S.surveyDescent(w.read, rec1.site)
+  const rec2 = S.stepwellWithDescent(rec1, sd)
+  assert.ok(rec2 && rec2.site.descent && rec2.structure_complete === false && rec2.state === 'open')
+  assert.ok(rec2.clear.some(c => c.kind === 'tree'), 'the felling clear kept')
+  assert.strictEqual(rec2.replant.length, 1)
+  const P2 = S.planOfRecord(rec2)
+  for (const a of P2.descent.air) assert.ok(rec2.clear.some(c => c.kind === 'cut' && c.at.join(',') === a.join(',')), 'a descent cell not on the clear list')
+  const keep1 = new Set(rec1.cells.map(c => c.at.join(',')))
+  const portal = new Set(P2.descent.portal.map(a => a.join(',')))
+  assert.ok(rec2.cells.filter(c => keep1.has(c.at.join(','))).length === rec1.cells.length - [...portal].filter(k => keep1.has(k)).length, 'a tank cell lost besides the portal')
+  assert.strictEqual(S.stepwellWithDescent(rec2, sd), null)
+})
+await t('the tank and its descent built END TO END on a fake world (rim 40: one module and a flight), every cell done, the builder walked out of the descent by hops', async () => {
+  const P = S.planTank(DSITE(40))
+  const w = world({}, 40)
+  const e = fakeBot(w, P, { start: [11, 41, -2] })
+  let r = null
+  for (let i = 0; i < 60; i++) { r = await V.runStepwellVisit({ plan: P, exit: P.exit, onStop: async () => { throw new Error('stopped') } }, e, { opsMax: 3000 }); if (r.stop === 'complete') break }
+  assert.strictEqual(r.stop, 'complete', JSON.stringify(r))
+  assert.ok(S.descentDone(w.read, P))
+  assert.deepStrictEqual(e.feet(), P.exit)
+  const hops = V.descentHops(P, P.descent.path.at(-1))
+  assert.ok(hops.length >= 2 && hops.at(-1).join(',') === P.descent.path[0].join(','), 'the hops climb to the portal')
+  assert.deepStrictEqual(V.descentHops(P, [11, 41, -2]), [], 'no hops outside the descent')
 })
 
 console.log('THE SWITCH AND THE WIRING (structural: comments stripped, executable lines, each with a one-character mutant)')
@@ -365,7 +460,7 @@ const WIRES = [
   ['skills: a standing stepwell judges its own cells (its damage is a repair)', SKS, /if \(r\.blueprint === STEPWELL_BLUEPRINT\) return stepwellDamaged\(stairRead\(bot\), r\) != null/],
   ['skills: an unsited stepwell whose siting found no site waits town-wide', SKS, /if \(p\.plot === STEPWELL_PLOT && !rec && Date\.now\(\) < siteWaitUntil\(STEPWELL_PLOT, dir\)\) return/],
   ['skills: the felling runs on the felling view (runVisit: replants first, G5 rows)', SKS, /const r = await runVisit\(\{ dir, key, me, home, stood, record: fellView\(rec\), recordGen: rh\.head\.gen, palette: FELL_PALETTE/],
-  ['skills: the tank runs the tested loop', SKS, /const r = await runStepwellVisit\(\{/],
+  ['skills: the tank runs the tested loop (under the stair claim when it has a descent)', SKS, /const r = await runIt\(\(\) => runStepwellVisit\(\{/],
   ['skills: a stop publishes the stopped record (never a deeper cut)', SKS, /onStop: async \(y, why\) => \{ publishRecord\(dir, key, cur => \(cur && cur\.blueprint === STEPWELL_BLUEPRINT && cur\.state !== 'stopped' \? stepwellStopped\(cur/],
   ['shop: the stepwell in the project list, one builder', SHS, /Object\.freeze\(\{ plot: STEPWELL_PLOT, blueprint: STEPWELL_BLUEPRINT, builders: STEPWELL_BUILDERS \}\)/],
   ['shop: a sited stepwell stays guarded whatever its switch', SHS, /for \(const p of PROJECTS\) if \(p\.plot === STEPWELL_PLOT && !out\.some\(q => q\.plot === p\.plot\)\) out\.push\(p\)/],
