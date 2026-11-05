@@ -707,6 +707,166 @@ def build_marker_sets(markers, trips, trail_lines, zones, plan):
     }
 
 
+# ------------------------------------------------------------------------------------------------- atlas-01: the bots' map
+# The bots write their own map (bots/src/atlas.mjs): one `atlas-<bot>.json` per bot in the pool dir -- cells they noticed,
+# finds, finds read gone, and each expedition's aim. The SAME files are what the bots plan with (expedition.mjs planTrip,
+# the prompt's MAP line), so this layer draws exactly what they act on. fold_atlas mirrors atlas.mjs foldAtlas (the test
+# feeds both the same fixture shape); the constants below must match atlas.mjs.
+ATLAS_V = 1
+ATLAS_CELL = 32
+ATLAS_FRESH_MS = 3 * 24 * 3_600_000
+ATLAS_TILE = 2                # explored cells are drawn in 2 x 2 tiles (64 blocks): a few thousand shapes, not ten
+ATLAS_MAX_TILES = 4000
+ATLAS_MAX_FINDS = 1500
+FIND_MERGE = {'wood': 24, 'ore': 12, 'plant': 16, 'material': 16, 'landmark': 24, 'hazard': 12}
+FIND_COLOR = {'ore': (90, 200, 255), 'plant': (120, 220, 90), 'material': (200, 160, 255), 'landmark': (255, 210, 60),
+              'hazard': (255, 70, 40), 'wood': (150, 100, 50)}
+AIM_COLOR = {'frontier': (0, 230, 230), 'harvest': (150, 100, 50), 'reuse': (180, 180, 180), 'least': (180, 180, 180),
+             'bridge': (40, 120, 255)}
+
+
+def read_atlas(pool):
+    """Every bot's atlas file -> (docs, stats). Unreadable files are COUNTED, never silently skipped."""
+    docs, bad = [], 0
+    names = sorted(glob.glob(os.path.join(pool, 'atlas-*.json')))
+    for p in names:
+        try:
+            d = json.load(open(p))
+        except (OSError, ValueError):
+            bad += 1
+            continue
+        if isinstance(d, dict) and d.get('v') == ATLAS_V:
+            docs.append(d)
+        else:
+            bad += 1
+    return docs, {'files': len(names), 'unreadable': bad}
+
+
+def fold_atlas(docs, now):
+    """The town's map from every bot's document (atlas.mjs foldAtlas). Pure."""
+    cells, finds, gone, aims = {}, [], [], []
+    for d in docs:
+        for k, v in (d.get('cells') or {}).items():
+            if not isinstance(v, list) or len(v) < 2:
+                continue
+            c = cells.setdefault(k, [0, 0])
+            c[0] = max(c[0], v[0] or 0)
+            c[1] = max(c[1], v[1] or 0)
+        gone += [g for g in d.get('gone') or [] if isinstance(g, dict) and g.get('kind')]
+        aims += [dict(a, by=a.get('by') or d.get('by')) for a in d.get('aims') or [] if isinstance(a, dict) and a.get('t')]
+        for f in d.get('finds') or []:
+            cat = f.get('cat')
+            if cat not in FIND_MERGE or not all(isinstance(f.get(a), (int, float)) for a in ('x', 'y', 'z')):
+                continue
+            near = next((q for q in finds if q['kind'] == f['kind'] and math.hypot(q['x'] - f['x'], q['z'] - f['z'])
+                         < FIND_MERGE[cat]), None)
+            by = f.get('by') or d.get('by')
+            if near:
+                if (f.get('last') or 0) > near['last']:
+                    near.update(x=f['x'], y=f['y'], z=f['z'], last=f.get('last') or 0)
+                near['n'] += f.get('n') or 1
+                if by not in near['by']:
+                    near['by'].append(by)
+            else:
+                finds.append({'kind': f['kind'], 'cat': cat, 'x': f['x'], 'y': f['y'], 'z': f['z'],
+                              'last': f.get('last') or 0, 'n': f.get('n') or 1, 'by': [by]})
+    live = [f for f in finds if not any(g['kind'] == f['kind'] and abs(g.get('x', 1e9) - f['x']) <= 2
+                                        and abs(g.get('z', 1e9) - f['z']) <= 2 and (g.get('t') or 0) >= f['last']
+                                        for g in gone)]
+    aims.sort(key=lambda a: a['t'])
+    fresh = sum(1 for c in cells.values() if c[0] > 0 and now - c[0] <= ATLAS_FRESH_MS)
+    return {'cells': cells, 'finds': live, 'aims': aims[-60:], 'bots': len(docs), 'cells_fresh': fresh,
+            'cells_ever': sum(1 for c in cells.values() if c[0] > 0), 'gone': len(gone)}
+
+
+def _age(ms):
+    return f'{max(1, round(ms / 60_000))} min ago' if ms < 3_600_000 else f'{round(ms / 3_600_000)} h ago'
+
+
+def _short(b):
+    return str(b).replace('showcase-', '')
+
+
+def atlas_marker_sets(view, now, home=HOME):
+    """BlueMap sets for the bots' map: explored tiles by age, finds by category, hazards, and every trip's aim. Pure."""
+    tiles = {}
+    for k, (seen, stood) in view['cells'].items():
+        if not seen:
+            continue
+        cx, cz = (int(v) for v in k.split(','))
+        t = (cx // ATLAS_TILE, cz // ATLAS_TILE)
+        tiles[t] = max(tiles.get(t, 0), seen)
+    explored = {}
+    for (tx, tz), seen in sorted(tiles.items(), key=lambda kv: -kv[1])[:ATLAS_MAX_TILES]:
+        age = now - seen
+        rgb, a = ((60, 220, 90), 0.35) if age < 6 * 3_600_000 else ((60, 170, 90), 0.25) if age < 86_400_000 else \
+            ((140, 150, 90), 0.18) if age <= ATLAS_FRESH_MS else ((120, 120, 120), 0.12)
+        x0, z0 = tx * ATLAS_TILE * ATLAS_CELL, tz * ATLAS_TILE * ATLAS_CELL
+        x1, z1 = x0 + ATLAS_TILE * ATLAS_CELL - 1, z0 + ATLAS_TILE * ATLAS_CELL - 1
+        explored[f'c{tx}_{tz}'.replace('-', 'm')] = {
+            'type': 'shape', 'position': {'x': x0 + ATLAS_CELL, 'y': 70, 'z': z0 + ATLAS_CELL},
+            'shape': box_shape(x0, z0, x1, z1), 'shape-y': 66,
+            'label': f'explored {_age(age)}' + (' (frontier again)' if age > ATLAS_FRESH_MS else ''),
+            'detail': f'bots noticed this ground {_age(age)}; cells {ATLAS_CELL} blocks, tile x {x0}..{x1} z {z0}..{z1}',
+            'line-width': 0, 'line-color': color(rgb, 0.0), 'fill-color': color(rgb, a), 'depth-test': False,
+            'max-distance': 8000}
+    finds, wood, hazards = {}, {}, {}
+    for k, f in enumerate(sorted(view['finds'], key=lambda f: -f['last'])[:ATLAS_MAX_FINDS]):
+        dest = hazards if f['cat'] == 'hazard' else wood if f['cat'] == 'wood' else finds
+        who = '+'.join(_short(b) for b in f['by'][:3])
+        dest[f'f{k}'] = {'type': 'poi', 'position': {'x': f['x'] + 0.5, 'y': f['y'] + 1, 'z': f['z'] + 0.5},
+                         'label': ('AVOID ' if f['cat'] == 'hazard' else '') + f['kind'] + (f' x{f["n"]}' if f['n'] > 1 else ''),
+                         'detail': f'{f["kind"]} ({f["cat"]}) at {f["x"]},{f["y"]},{f["z"]}: seen {f["n"]} times by {who}, '
+                                   f'last {_age(now - f["last"])}',
+                         'max-distance': 1500 if f['cat'] == 'wood' else 3000}
+    aims = {}
+    for a in view['aims'][-30:]:
+        tgt = a.get('target')
+        if not (isinstance(tgt, list) and len(tgt) == 2 and all(isinstance(v, (int, float)) for v in tgt)):
+            continue
+        mode = str(a.get('mode') or '?')
+        why = (f'{a.get("unseen")} unseen cells on its swath' if mode == 'frontier' and a.get('unseen') is not None else
+               f'{(a.get("find") or {}).get("kind")} x{(a.get("find") or {}).get("n")} the map knows' if mode == 'harvest' else
+               'the old spoke pick')
+        aims['a-' + re.sub(r'[^A-Za-z0-9_-]', '_', str(a.get('trip') or a['t']))] = {
+            'type': 'line', 'position': {'x': home[0], 'y': 72, 'z': home[1]},
+            'line': [{'x': home[0], 'y': 72, 'z': home[1]}, {'x': tgt[0], 'y': 72, 'z': tgt[1]}],
+            'label': f'{mode} pick by {_short(a.get("by"))}: {why}',
+            'detail': f'trip {a.get("trip")} by {a.get("by")} {_age(now - a["t"])}: {mode}, bearing {a.get("k")} aim '
+                      f'{a.get("aim")}, ring {a.get("ring")}; {why}',
+            'line-width': 2, 'line-color': color(AIM_COLOR.get(mode, (255, 255, 255)), 0.8), 'depth-test': False,
+            'max-distance': 6000}
+    return {
+        'wm-atlas-explored': {'label': "Bots' map: explored ground (by age)", 'toggleable': True, 'default-hidden': True,
+                              'sorting': 20, 'markers': explored},
+        'wm-atlas-finds': {'label': "Bots' map: finds (ore, plants, materials, landmarks)", 'toggleable': True,
+                           'default-hidden': True, 'sorting': 21, 'markers': finds},
+        'wm-atlas-wood': {'label': "Bots' map: wood", 'toggleable': True, 'default-hidden': True, 'sorting': 22,
+                          'markers': wood},
+        'wm-atlas-hazards': {'label': "Bots' map: hazards", 'toggleable': True, 'default-hidden': True, 'sorting': 23,
+                             'markers': hazards},
+        'wm-atlas-aims': {'label': "Bots' map: where each trip aimed, and why", 'toggleable': True, 'default-hidden': True,
+                          'sorting': 24, 'markers': aims},
+    }
+
+
+def atlas_summary(view, stats, now):
+    """The printed atlas line: every number with its denominator. Pure."""
+    if not stats['files']:
+        return '!! atlas: no atlas-*.json in the pool dir (UNKNOWN: the bots are not on an atlas build, or ATLAS is off)'
+    cats = {}
+    for f in view['finds']:
+        cats[f['cat']] = cats.get(f['cat'], 0) + 1
+    modes = {}
+    for a in view['aims']:
+        if now - a['t'] <= 86_400_000:
+            modes[a.get('mode')] = modes.get(a.get('mode'), 0) + 1
+    return (f'atlas: {view["bots"]} bots of {stats["files"]} files ({stats["unreadable"]} unreadable); cells seen within '
+            f'{ATLAS_FRESH_MS // 3_600_000} h {view["cells_fresh"]:,} of {view["cells_ever"]:,} ever ({len(view["cells"]):,} '
+            f'recorded); finds {len(view["finds"])} ' + json.dumps(cats, sort_keys=True) + f', gone reads {view["gone"]}; '
+            f'aims 24 h ' + json.dumps(modes, sort_keys=True))
+
+
 def validate_marker_sets(ms):
     """Raise ValueError if the layer could break BlueMap's config load: a set without markers dict, a line with < 2
     points, a shape with < 3, a non-finite number, a key that is not a plain identifier. Pure."""
@@ -990,11 +1150,20 @@ def main(argv=None):
         plan = load_state(plans[-1], None) if plans else None
         keep = {r.get('id') for r in trips[-300:]}
         ms = build_marker_sets(markers, trips, {k: v for k, v in cache['trails'].items() if k in keep}, zones, plan)
+        adocs, astats = read_atlas(a.pool)
+        aview = fold_atlas(adocs, now_ms())
+        ms.update(atlas_marker_sets(aview, now_ms()))
         counts = {k: len(v['markers']) for k, v in ms.items()}
         layer_info = {'layer_markers': counts.get('wm-expeditions', 0), 'layer_trails': counts.get('wm-trails', 0),
-                      'layer_zones': counts.get('wm-zones', 0)}
+                      'layer_zones': counts.get('wm-zones', 0),
+                      # atlas-01: None (not 0) when no bot has written an atlas file -- unknown is never zero
+                      'atlas_bots': aview['bots'] if astats['files'] else None,
+                      'atlas_cells_fresh': aview['cells_fresh'] if astats['files'] else None,
+                      'atlas_finds': len(aview['finds']) if astats['files'] else None,
+                      'atlas_aims': counts.get('wm-atlas-aims', 0) if astats['files'] else None}
         for line in summary_lines(cov, ts):
             print(line)
+        print(atlas_summary(aview, astats, now_ms()))
         print(f'layer: {counts} ({new_lines} new trails) -> {a.layer}{" (dry run: not written)" if a.dry_run else ""}')
         if not zones:
             print('!! layer: NO protected zones read (UNKNOWN, not "no zones") -- check <pool>/protected-zones.json')

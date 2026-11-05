@@ -327,6 +327,74 @@ def t_marker_sets(W):
     assert ln['type'] == 'line' and len(ln['line']) == 2 and ln['position'] == {'x': 0, 'y': 70, 'z': 0}
 
 
+def _atlas_docs(now):
+    """Two bots' atlas files, the shape bots/src/atlas.mjs writes (bots/test/atlas.test.mjs folds the same shape)."""
+    a = {'v': 1, 'by': 'showcase-Iris', 'cells': {'0,0': [now - 1000, 0], '5,5': [now - 4 * 86_400_000, 0]},
+         'finds': [{'kind': 'iron_ore', 'cat': 'ore', 'x': 100, 'y': 40, 'z': 0, 'last': now - 10, 'n': 2, 'by': 'showcase-Iris'},
+                   {'kind': 'sugar_cane', 'cat': 'plant', 'x': 50, 'y': 63, 'z': 50, 'last': now - 10, 'n': 1, 'by': 'showcase-Iris'},
+                   {'kind': 'spruce_log', 'cat': 'wood', 'x': 0, 'y': 70, 'z': 150, 'last': now - 10, 'n': 4, 'by': 'showcase-Iris'},
+                   {'kind': 'lava', 'cat': 'hazard', 'x': 30, 'y': 69, 'z': 0, 'last': now - 10, 'n': 1, 'by': 'showcase-Iris'}],
+         'gone': [], 'aims': [{'t': now - 5, 'trip': 'showcase-Iris-x1', 'mode': 'frontier', 'k': 2, 'aim': 2.2, 'ring': 200,
+                                'target': [-31, 198], 'unseen': 41}]}
+    b = {'v': 1, 'by': 'showcase-Haven', 'cells': {'0,0': [now - 500, now - 500]},
+         'finds': [{'kind': 'iron_ore', 'cat': 'ore', 'x': 104, 'y': 41, 'z': 2, 'last': now - 1, 'n': 1, 'by': 'showcase-Haven'}],
+         'gone': [{'kind': 'sugar_cane', 'x': 50, 'y': 63, 'z': 50, 't': now - 2}],
+         'aims': [{'t': now - 3, 'trip': 'showcase-Haven-y', 'mode': 'harvest', 'k': 2, 'aim': 2.0, 'ring': 158,
+                   'target': [0, 158], 'find': {'kind': 'spruce_log', 'n': 4}}]}
+    return [a, b]
+
+
+def t_atlas_fold(W):
+    now = 1_800_000_000_000
+    v = W.fold_atlas(_atlas_docs(now), now)
+    assert v['bots'] == 2 and v['cells']['0,0'] == [now - 500, now - 500], v['cells']
+    assert v['cells_fresh'] == 1 and v['cells_ever'] == 2, v           # 5,5 was seen 4 days ago: frontier again
+    iron = [f for f in v['finds'] if f['kind'] == 'iron_ore']
+    assert len(iron) == 1 and iron[0]['n'] == 3 and sorted(iron[0]['by']) == ['showcase-Haven', 'showcase-Iris'], iron
+    assert not any(f['kind'] == 'sugar_cane' for f in v['finds']), 'read gone after its last sighting'
+    assert [a['mode'] for a in v['aims']] == ['frontier', 'harvest']
+
+
+def t_atlas_marker_sets(W):
+    now = 1_800_000_000_000
+    v = W.fold_atlas(_atlas_docs(now), now)
+    ms = W.atlas_marker_sets(v, now)
+    assert W.validate_marker_sets(ms)
+    assert all(s['default-hidden'] is True for s in ms.values())
+    assert len(ms['wm-atlas-explored']['markers']) == 2
+    labels = sorted(m['label'] for m in ms['wm-atlas-explored']['markers'].values())
+    assert any('frontier again' in l for l in labels), labels
+    assert [m['label'] for m in ms['wm-atlas-finds']['markers'].values()] == ['iron_ore x3']
+    assert [m['label'] for m in ms['wm-atlas-hazards']['markers'].values()] == ['AVOID lava']
+    assert len(ms['wm-atlas-wood']['markers']) == 1
+    aims = sorted(m['label'] for m in ms['wm-atlas-aims']['markers'].values())
+    assert aims == ['frontier pick by Iris: 41 unseen cells on its swath', 'harvest pick by Haven: spruce_log x4 the map knows'], aims
+    line = W.atlas_summary(v, {'files': 2, 'unreadable': 0}, now)
+    assert 'cells seen within 72 h 1 of 2 ever' in line and '"ore": 1' in line, line
+    assert W.atlas_summary(v, {'files': 0, 'unreadable': 0}, now).startswith('!! atlas: no atlas-*.json'), 'no file is UNKNOWN'
+
+
+def t_atlas_end_to_end(W):
+    root, args, ship = _fixture(W)
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        assert W.main(['full'] + args) == 0
+    row = json.loads(open(ship).read().splitlines()[-1])
+    assert row['atlas_bots'] is None and row['atlas_finds'] is None, 'no atlas file: None, never 0'
+    assert '!! atlas: no atlas-*.json' in out.getvalue()
+    pool = args[args.index('--pool') + 1]
+    now = int(time.time() * 1000)
+    for d in _atlas_docs(now):
+        json.dump(d, open(os.path.join(pool, f'atlas-{d["by"]}.json'), 'w'))
+    open(os.path.join(pool, 'atlas-showcase-Broken.json'), 'w').write('{not json')
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        assert W.main(['trips'] + args) == 0
+    row = json.loads(open(ship).read().splitlines()[-1])
+    assert row['atlas_bots'] == 2 and row['atlas_finds'] == 3 and row['atlas_aims'] == 2, row
+    assert 'atlas: 2 bots of 3 files (1 unreadable)' in out.getvalue(), out.getvalue()
+    ms = json.load(open(os.path.join(root, 'bm', 'markers.json')))
+    assert len(ms['wm-atlas-aims']['markers']) == 2 and len(ms['wm-trails']['markers']) == 1
+
+
 def t_validate_rejects(W):
     for mut in (lambda m: m['wm-trails']['markers']['t-showcase-Gale-abc'].update(line=[{'x': 0, 'y': 0, 'z': 0}]),
                 lambda m: m['wm-zones']['markers']['village-taiga-6_1'].update(shape=[{'x': 0, 'z': 0}] * 2),
@@ -530,6 +598,12 @@ MUTANTS = [
      't_tiles'),
     ('no home seed floods nothing, reported as measured', "        if start is None:\n            # home's",
      "        if False:\n            # home's", 't_unreadable_home_is_unknown'),
+    ('a gone read never drops a find', "                                        and abs(g.get('z', 1e9) - f['z']) <= 2 and (g.get('t') or 0) >= f['last']",
+     "                                        and abs(g.get('z', 1e9) - f['z']) <= 2 and False", 't_atlas_fold'),
+    ('a missing atlas ships a zero', "'atlas_finds': len(aview['finds']) if astats['files'] else None,",
+     "'atlas_finds': len(aview['finds']),", 't_atlas_end_to_end'),
+    ('stale cells count as fresh', "fresh = sum(1 for c in cells.values() if c[0] > 0 and now - c[0] <= ATLAS_FRESH_MS)",
+     "fresh = sum(1 for c in cells.values() if c[0] > 0)", 't_atlas_fold'),
     ('FIXTURE bot counted as stood', "BOT_NAME = re.compile(r'^showcase-[A-Z][a-z]+$')",
      "BOT_NAME = re.compile(r'^showcase-')", 't_stood'),
 ]
