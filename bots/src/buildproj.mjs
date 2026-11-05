@@ -286,6 +286,8 @@ export function leaseSweep (dir, now = Date.now(), { force = false } = {}) {
   return removed
 }
 /** Do we hold the lease's NEWEST generation, unexpired and unreleased? (`gen` null: any generation of ours.) */
+// leasegen-01: the generation list may be up to LIST_TTL_MS old here (only takes list fresh): safe, because another holder's newer
+// generation can only follow our lapse by RECLAIM_MS or our own release (the .released marker is read from disk, not the memo).
 export function holdsLease (dir, key, name, holder, gen = null, now = Date.now()) {
   const cur = leaseState(dir, key, name)
   return !!cur && cur.rec?.holder === holder && (gen == null || cur.gen === gen) && now < cur.holdsUntil
@@ -537,6 +539,7 @@ export async function climbFlush () {
       try {
         await fs.promises.mkdir(e.q.dir, { recursive: true })
         await fs.promises.appendFile(f, e.lines.join('\n') + '\n')
+        touched(e.q.dir)   // leasegen-01: a new ledger file must show in climbRead's listing at once
         n += e.lines.length; climbStats.written += e.lines.length
         const { maxLines = 2000, keepLines = 1000 } = e.q.opts ?? {}
         const st = await fs.promises.stat(f)
