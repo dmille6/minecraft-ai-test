@@ -61,6 +61,7 @@ const inside = (x, z) => boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && 
 let plants = Number(opt('plants') ?? 11)
 let pots = Number(opt('pots') ?? 0)
 let ferns = Number(opt('ferns') ?? 0)   // decorator-02: the bag's ferns (the fern clusters)
+let leaves = Number(opt('leaves') ?? 0), posts = Number(opt('posts') ?? 0)   // decorator-03: hedges, lantern posts
 const count = Number(opt('count') ?? 1)
 const out = { home, records: records.map(r => r.plot), wallBoxes: boxes, nursery: null, sited: [], failed: [] }
 // THE NURSERY (the reservations and every record's cells; the decor's own batches are sited after it, so their cells are in its guard later)
@@ -75,12 +76,14 @@ for (let n = 1; n <= count; n++) {
   const t0 = Date.now()
   const seed = D.decorSeed('showcase', home, n)
   const doorOf = r => { let bp = null; try { bp = r.rec.blueprint ? loadBlueprint(r.rec.blueprint) : null } catch { bp = null } return D.doorwayOf(r.rec, bp) }
-  const r = S.siteSink(read, { kind: 'decor', n, id: `D${n}`, home, seed, records, rec, flowers: plants, ferns, pots, reserved, inside, doorOf, stood: [] })
+  const r = S.siteSink(read, { kind: 'decor', n, id: `D${n}`, home, seed, records, rec, flowers: plants, ferns, pots, leaves, posts, reserved, inside, doorOf, stood: [] })
   const ms = Date.now() - t0
   if (!r.ok) { out.failed.push({ n, why: r.why, tried: r.tried, ms }); break }
   rec = S.appendInstance(rec, { kind: 'decor', home, inst: r.inst, meta: { ...r.meta, sitedAt: Date.now() } })
   plants -= r.meta.flowers ?? r.meta.plants
   ferns -= r.meta.ferns ?? 0
+  leaves -= r.meta.hedges ?? 0
+  posts -= r.meta.posts?.length ?? 0
   pots -= r.meta.pots.length
   out.sited.push({ id: r.meta.id, summary: r.meta.summary, inside: r.meta.inside, cells: r.inst.cells.map(c => ({ at: c.at, role: c.role })), pots: r.meta.pots, tried: r.tried, ms })
 }
@@ -109,6 +112,8 @@ if (MR > 0 || PNG) {
     for (const c of s.cells) {
       if (/-pot$/.test(c.role)) { mark(c.at, 'o', 8); continue }
       if (/-g$/.test(c.role)) { mark(c.at, 'g', 8); continue }
+      if (/-h$/.test(c.role)) { mark(c.at, 'h', 8); continue }
+      if (/-(post|lamp)$/.test(c.role)) { mark(c.at, 'P', 9); continue }
       const pal = rec.palette[c.role] ?? []
       const f = pal.find(n => held.includes(n)) ?? 'poppy'
       mark(c.at, FL[f] ?? '*', 8); i++
@@ -135,7 +140,7 @@ if (MR > 0 || PNG) {
     }
     grid.push(line)
   }
-  out.map = { box: [home.x - rad, home.z - rad, home.x + rad, home.z + rad], north: 'up (-z)', legend: "+ home  # building  = path  W wall  L dress light  Y yard  T tree farm  F farm  r/y flowers (poppy/dandelion)  g fern cluster  o pot  N nursery centre  : nursery reach  . grass  , short grass/fern  ^ trees  ~ water/ice", rows: grid }
+  out.map = { box: [home.x - rad, home.z - rad, home.x + rad, home.z + rad], north: 'up (-z)', legend: "+ home  # building  = path  W wall  L dress light  Y yard  T tree farm  F farm  r/y flowers (poppy/dandelion)  g fern cluster  h hedge  P lantern post  o pot  N nursery centre  : nursery reach  . grass  , short grass/fern  ^ trees  ~ water/ice", rows: grid }
   if (PNG) writePng(PNG, grid)
 }
 console.log(argv.includes('--json') ? JSON.stringify(out) : JSON.stringify({ ...out, map: undefined }, null, 1))
@@ -144,7 +149,7 @@ if (out.map && !argv.includes('--json')) { console.log(out.map.legend); console.
 /** A tiny PNG of the ASCII grid (4 px a column, one colour a character): stdlib zlib only. */
 function writePng (file, grid) {
   const C = { '+': [255, 255, 255], '#': [120, 72, 40], '=': [196, 170, 110], W: [90, 90, 96], L: [255, 220, 90], Y: [150, 150, 150], T: [40, 110, 40], F: [170, 140, 60],
-    r: [220, 30, 40], y: [250, 220, 30], g: [20, 200, 120], b: [60, 90, 220], w: [240, 240, 240], p: [200, 90, 200], o: [200, 100, 50], '*': [230, 60, 160], N: [255, 0, 255], ':': [200, 120, 230],
+    r: [220, 30, 40], y: [250, 220, 30], g: [20, 200, 120], h: [10, 90, 30], P: [255, 160, 0], b: [60, 90, 220], w: [240, 240, 240], p: [200, 90, 200], o: [200, 100, 50], '*': [230, 60, 160], N: [255, 0, 255], ':': [200, 120, 230],
     '.': [96, 160, 72], ',': [80, 140, 60], '^': [30, 80, 40], '~': [120, 170, 220], ' ': [60, 60, 60] }
   const S = 6, H = grid.length * S, W = grid[0].length * S
   const raw = Buffer.alloc((W * 3 + 1) * H)

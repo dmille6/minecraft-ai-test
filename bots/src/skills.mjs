@@ -193,9 +193,9 @@ import { PREP, prepOverlapOf, plotFootprint, prepCursor, prepKeeperWork, sitepre
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount, noSiteStamped, noSiteUntilOf } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { cellGuard } from './towndress.mjs'   // decorator-01: the nursery's guard
-import { DECOR, DECOR_LEASE, NURSERY, decorPressure, decorWanted, decorOrderPure, decorRowDetail, decorSeed, doorwayOf, emptyPots, potPlantFor, borderPlantsOf, localStands, harvestWants, siteNursery, nurseryStill, nurseryDigs, withNursery, decorBase, decorFlowerRole, flowersOwed, decorStalled, decorFernRole, fernTargets, FERN_BLOCKS, decorPotsOn, driveWants, DRIVE } from './decorator.mjs'   // decorator-01; decorator-02: ferns, the compost drive, pots off
+import { DECOR, DECOR_LEASE, NURSERY, decorPressure, decorWanted, decorOrderPure, decorRowDetail, decorSeed, doorwayOf, emptyPots, potPlantFor, borderPlantsOf, localStands, harvestWants, siteNursery, nurseryStill, nurseryDigs, withNursery, decorBase, decorFlowerRole, flowersOwed, decorStalled, decorFernRole, fernTargets, FERN_BLOCKS, decorPotsOn, driveWants, DRIVE, decorBagRole, decorHedgeRole, decorPostRole, leavesOf, fencesOf, HEDGE_LEAVES, decorPostsOn, decorHedgesOn } from './decorator.mjs'   // decorator-01; decorator-02: ferns, the compost drive, pots off
 import { setCompostDrive } from './composter.mjs'   // decorator-02: the compost drive's hook (townOrder)
-import { SMALL_FLOWERS as DECOR_FLOWERS } from './park.mjs'   // decorator-02: the bag's flowers apart from its ferns
+import { SMALL_FLOWERS as DECOR_FLOWERS, gatherTargets as decorGatherTargets } from './park.mjs'   // decorator-02: the bag's flowers apart from its ferns
 import { DECORATE } from './shop.mjs'   // decorator-01: its switch
 import { SINK_BLUEPRINTS } from './sinks.mjs'   // decorator-01: the nursery-only record's blueprint
 import { wallInteriors } from './wall.mjs'   // decorator-01: the town's walls first
@@ -21811,6 +21811,8 @@ function decorPressureNow (bot) {
 }
 /** decorator-02 (OWNER 11-05): pots are skipped -- DECOR_POTS=on brings them back (decorator.mjs decorPotsOn). */
 const DECOR_POTS_ON = decorPotsOn(process.env)
+/** decorator-03: hedges and lantern posts (DECOR_HEDGES / DECOR_POSTS, default on). */
+const DECOR_HEDGES_ON = decorHedgesOn(process.env), DECOR_POSTS_ON = decorPostsOn(process.env)
 /** decorator-02: the wild ferns the gather could reach -> n (fern / large_fern blocks within DECOR.fernR of home, at most 64), the
  *  bot's own count cached 10 min. Never throws (0). */
 function decorWildFerns (bot, now = Date.now()) {
@@ -22048,6 +22050,84 @@ async function decorFerns (ctx, signal, deadline, need) {
   try { logEvent({ kind: 'decor', status: n ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'ferns', want: need, n, targets: targets.length, why: `cands:${cands.length}`, ferns: countItem(bot, 'fern') }) }) } catch { /* telemetry */ }
   return { n, why: n ? 'gathered' : 'unreached' }
 }
+/**
+ * decorator-03: THE HEDGE'S LEAVES -> { n }. Shears (decorShears); natural (persistent=false) leaf blocks the ground reaches, within
+ * DECOR.fernR of home (park.mjs gatherTargets' hedge rule), never a reserved column, a record's column or cell; at most DECOR.leafMax
+ * digs, cut with the shears in hand -> `_build op=clear project=decor kind=leaves` (the read's DC5). Never throws but an abort.
+ */
+async function decorLeaves (ctx, signal, deadline, need) {
+  const { bot } = ctx
+  if (need <= 0 || deadline - Date.now() < 40_000) return { n: 0 }
+  if (!(await decorShears(ctx, signal))) return { n: 0 }
+  const c = shopCtx(bot), h = townPlanHead(bot)
+  if (!c.zonesKnown || !h.ok || !h.head) return { n: 0 }
+  let guard, res
+  try { guard = cellGuard(projectHeads().filter(x => x.plot !== LAND_PLOT).map(x => x.head?.rec).filter(Boolean)); res = decorReservedFor(c, { ...h.head.plan, gen: h.head.gen }) } catch { return { n: 0 } }
+  const reserved = (x, y, z) => res(x, z) ?? (guard.cols.has(`${x},${z}`) || guard.cells.has(`${x},${y},${z}`) ? 'record' : null)
+  const home = planHomeP()
+  const ids = HEDGE_LEAVES.map(x => bot.registry?.blocksByName?.[x]?.id).filter(Number.isFinite)
+  let found = []
+  try { found = ids.length ? bot.findBlocks?.({ matching: ids, maxDistance: DECOR.fernR, count: 128, point: new Vec3(home.x, home.y, home.z) }) ?? [] : [] } catch { found = [] }
+  const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox, getProperties: () => q.getProperties?.() ?? {} } : null }
+  const cands = found.map(v => ({ at: [v.x, v.y, v.z], name: bot.blockAt?.(v)?.name })).filter(q => q.name)
+  const e = decorEffects(bot, signal)
+  const targets = decorGatherTargets(cands, { read, reserved, home, r: DECOR.fernR, from: e.feet(), want: { hedge: need }, max: DECOR.leafMax, shears: true })
+  let n = 0
+  try {
+    for (const t of targets) {
+      if (deadline - Date.now() < 25_000) break
+      const stand = gatherStand(read, t)
+      if (!stand) continue
+      await e.walkTo(stand)
+      check(signal)
+      if (reserved(...t.at) || String(read(...t.at)?.name ?? '') !== t.name || !digReachFrom(e.feet(), t.at)) continue
+      const sh = (bot.inventory?.items?.() ?? []).find(i => i.name === 'shears')
+      if (!sh) break
+      if (bot.heldItem?.name !== 'shears') { try { await bot.equip(sh, 'hand') } catch (err) { if (err?.aborted) throw err } }
+      if (bot.heldItem?.name !== 'shears') break
+      const v = await e.dig(t.at, t.name)
+      if (v !== 'confirmed') continue
+      n++
+      try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SINK_PLOTS.decor, op: 'clear', cell: t.at, block: t.name, kind: 'leaves', gen: decorGen() }) }) } catch { /* telemetry */ }
+      await sleep(450, signal)
+    }
+  } finally { try { e.close() } catch { /* gone */ } }
+  try { logEvent({ kind: 'decor', status: n ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'leaves', want: need, n, targets: targets.length, why: `cands:${cands.length}` }) }) } catch { /* telemetry */ }
+  return { n }
+}
+/** The town's lantern posts at most (the iron they cost: a lantern is one ingot's nuggets). */
+const DECOR_POSTS_TOWN = 12
+/**
+ * decorator-03: THE LANTERN POSTS' KIT -> lanterns crafted. Fences (the bag's planks: the craft skill), lanterns (one iron ingot's
+ * nuggets and a torch each: drawn from town under the decorator's own cap -- decorAllow -- the torch only above the town's reserve) up
+ * to `need`, never past DECOR_POSTS_TOWN posts in the record. Never throws but an abort.
+ */
+async function decorPostKit (ctx, signal, need, rec) {
+  const { bot } = ctx
+  const posts = (rec?.instances ?? []).reduce((t, i) => t + (i.posts?.length ?? 0), 0)
+  const want = Math.min(need, DECOR_POSTS_TOWN - posts)
+  if (want <= 0) return 0
+  let made = 0
+  try {
+    if (fencesOf(heldMap(bot)) < want) await craft(ctx, { item: 'spruce_fence', count: Math.ceil((want - fencesOf(heldMap(bot))) / 3) * 3 }, signal)
+    check(signal)
+    const lacking = want - (Number(heldMap(bot).lantern) || 0)
+    if (lacking > 0) {
+      const iron = Math.max(0, lacking - countItem(bot, 'iron_ingot') - Math.floor(countItem(bot, 'iron_nugget') / 9))
+      const torch = Math.max(0, lacking - countItem(bot, 'torch'))
+      const t = matsTownStock(bot)?.stock ?? {}
+      const torchCap = Math.max(0, Math.min(torch, (Number(t.torch) || 0) - (Number(matsReserve().table?.torch) || 32)))
+      if (iron || torchCap) await matsWithdraw(ctx, { ...(iron ? { iron_ingot: iron } : {}), ...(torchCap ? { torch: torchCap } : {}) }, signal, 20_000, matsReserve().table, decorAllow({ iron_ingot: iron, torch: torchCap }))
+      check(signal)
+      const k = Math.min(lacking, countItem(bot, 'torch'))
+      const before = Number(heldMap(bot).lantern) || 0
+      if (k > 0) await craft(ctx, { item: 'lantern', count: k }, signal)
+      made = Math.max(0, (Number(heldMap(bot).lantern) || 0) - before)
+    }
+  } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+  try { logEvent({ kind: 'decor', status: made ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'post_kit', want, lanterns: Number(heldMap(bot).lantern) || 0, fences: fencesOf(heldMap(bot)), n: made }) }) } catch { /* telemetry */ }
+  return made
+}
 /** The decor upkeep for THIS bot (recordDamaged's `due`): an empty pot and a plant to fill it, under its tries. Never throws. */
 function decorPotWork (bot, rec) {
   try {
@@ -22081,6 +22161,7 @@ function sinkSiteNow (bot, kind, rec0, plan, c, stood, { prep = null, read = nul
     // decorator-01: a decor batch reads every other record (the paths, the buildings' doorways, the cell guard), the bag's plants and
     // the pots, the town's walls (inside first) and its own seed
     const decor = kind === 'decor' ? { records: projectHeads().filter(x => x.plot !== SINK_PLOTS.decor && x.plot !== LAND_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null })), flowers: decorFlowersOf(heldMap(bot)), ferns: Number(heldMap(bot).fern) || 0, pots: decorPressureNow(bot).pots,
+      leaves: DECOR_HEDGES_ON ? leavesOf(heldMap(bot)) : 0, posts: DECOR_POSTS_ON ? Math.min(fencesOf(heldMap(bot)), Number(heldMap(bot).lantern) || 0) : 0,
       reserved: decorReservedFor(c, plan), inside: decorInside(), doorOf: decorDoorOf, seed: decorSeed(config.memory.pool, planHomeP(), n) } : {}
     // siteprep-01: `prep` pins the claim of a prepared plot (one spot, its base), `read` an after-world (the keeper's choosing)
     const pe = prep?.id ?? null
@@ -22132,6 +22213,14 @@ async function buildSink (ctx, args, signal, proj) {
       let based = !!rec0
       if (fernNeed > 0 && !based) { const pb = publishRecord(dir, key, cur => (cur ? null : decorBase(null, { home, blueprint: SINK_BLUEPRINTS.decor, plot: SINK_PLOTS.decor })), { by: me }); based = pb.result === 'accepted' || pb.result === 'nothing' }
       if (fernNeed > 0 && based) { const fg = await decorFerns(ctx, signal, t0 + budget - ZIG_VISIT_TAIL_MS, fernNeed); if (fg.n) f.blooms = (f.blooms ?? 0) + fg.n }
+      // decorator-03: THE HEDGE'S LEAVES (shears) and THE LANTERN POSTS' KIT (fences, lanterns crafted) -- what the open batch owes,
+      // or a next batch's stock
+      const owedOf = test => rec0 ? (rec0.cells ?? []).filter(q => test(q.role) && !buildCellDone(rd0(...q.at), rec0.palette ?? {}, q.role)).length : 0
+      const leafNeed = DECOR_HEDGES_ON ? Math.max(owedOf(decorHedgeRole) - leavesOf(heldMap(bot)), g0?.want ? DECOR.leafWant - leavesOf(heldMap(bot)) : 0) : 0
+      if (leafNeed > 0 && based) { const lg = await decorLeaves(ctx, signal, t0 + budget - ZIG_VISIT_TAIL_MS, leafNeed); if (lg.n) f.blooms = (f.blooms ?? 0) + lg.n }
+      const postOwed = Math.ceil(owedOf(decorPostRole) / 2)
+      const postNeed = DECOR_POSTS_ON ? Math.max(postOwed, g0?.want ? DECOR.postsMax : 0) : 0
+      if (postNeed > 0) { const pk = await decorPostKit(ctx, signal, postNeed, rec0); if (pk) f.pots = (f.pots ?? 0) + pk }
       if (g0?.want || owed > borderPlantsOf(heldMap(bot))) { const nu = await decorNursery(ctx, rec0, signal, t0 + budget - ZIG_VISIT_TAIL_MS, g0?.want ? DECOR.batchMax : owed); f.meals = nu.meals; f.blooms = (f.blooms ?? 0) + nu.blooms }
       // decorator-02: THE COMPOST DRIVE -- the nursery's grass (cut with shears: items) and any other composter junk in the bag goes
       // into the town composter now, whatever the bag's fullness (the composter's own skill, its own rows)
@@ -22236,7 +22325,8 @@ async function buildSink (ctx, args, signal, proj) {
     const town = matsTownStock(bot)?.stock ?? {}
     // towndress-01: a sign cell is the label writer's (no bill: there is no wall-sign item)
     // decorator-01: a decor flower is the bag's (the nursery's harvest: never a chest's) -- billed nothing
-    const bill = billOf(rec, palette, read, { done: (b, pal, role) => dressSignRole(role) || decorFlowerRole(role) || buildCellDone(b, pal, role), inTown: zigBillInTown(bot, town) })
+    // decorator-03: every decor role the bag supplies (plants, leaves, fences, lanterns) -- billed nothing
+    const bill = billOf(rec, palette, read, { done: (b, pal, role) => dressSignRole(role) || decorBagRole(role) || buildCellDone(b, pal, role), inTown: zigBillInTown(bot, town) })
     const need = needFromTown(bill, spare0, SHOP_BILL_CAP)
     let took = {}
     bag0 = held0

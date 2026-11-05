@@ -294,7 +294,7 @@ const W = [
   /const pr = kind === 'dress' \? dressPressureNow\(bot\) : (kind === 'decor' \? decorPressureNow\(bot\) : )?sinkPressureNow\(bot\)/,
   /if \(kind === 'dress' && rec0\) \{/,
   /const sg = await dressSignsVisit\(ctx, rec0, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS\)/,
-  /done: \(b, pal, role\) => dressSignRole\(role\) \|\| (decorFlowerRole\(role\) \|\| )?buildCellDone\(b, pal, role\)/,
+  /done: \(b, pal, role\) => dressSignRole\(role\) \|\| ((decorFlowerRole|decorBagRole)\(role\) \|\| )?buildCellDone\(b, pal, role\)/,
   /kind === 'dress' \? \{ alsoDone: q => dressSignRole\(q\.role\) \} : \{\}/,
   /const r = await sortLabelOne\(ctx, sp, signal, deadline, \{ kind: 'town_sign' \}\)/,
   /if \(!item\) \{ const tr = \(bot\.sortSignTries \?\?= new Map\(\)\); for \(const sp of work\) tr\.set\(sp\.at\.join\(','\), \(tr\.get\(sp\.at\.join\(','\)\) \?\? 0\) \+ 1\) \}/,

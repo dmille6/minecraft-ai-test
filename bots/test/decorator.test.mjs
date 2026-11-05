@@ -614,6 +614,71 @@ await t('the drive never takes decor stock: a fern and a flower stay with the de
   assert.ok(!CK.neverKeepFor(new Set(['fern', 'short_grass']), { CROPFARM: 'off' }, 'showcase').has('fern'))
 })
 
+console.log('DECORATOR-03: LEAF HEDGES AND LANTERN POSTS')
+await t('hedgeCells: one column further out behind a flower run, under the border rules; proveHedges keeps only hedges the town walk loses nothing to', () => {
+  const recs = RECS().map(r => r.rec)
+  const srv = town(recs)
+  const guard = TD.cellGuard(recs)
+  const pathCols = TD.pathColumns(pathsRec())
+  const chosen = D.borderCandidates(srv.read, pathsRec(), HOME, { guard }).filter(c => c.at[2] === -1 && c.at[0] >= 10 && c.at[0] <= 13)
+  const hs = D.hedgeCells(srv.read, chosen, { pathCols, guard })
+  assert.deepStrictEqual(hs.map(h => h.at), chosen.map(c => [c.at[0], G + 1, -2]))
+  assert.deepStrictEqual(D.proveHedges(srv.read, HOME, hs).length, hs.length, 'an open field: every hedge kept')
+  // a one-wide gap two high between two walls: a hedge there would shut it (stepped onto, its head is the lintel)
+  const s2 = server()
+  for (let x = -10; x <= 10; x++) for (let y = G + 1; y <= G + 3; y++) { if (x !== 0) s2.set([x, y, 5], 'stone') }
+  for (let z = -10; z <= 10; z++) for (let y = G + 1; y <= G + 3; y++) { s2.set([-10, y, z], 'stone'); s2.set([10, y, z], 'stone') }
+  for (let x = -10; x <= 10; x++) for (let y = G + 1; y <= G + 3; y++) s2.set([x, y, 10], 'stone'); s2.set([0, G + 3, 5], 'stone')
+  const kept = D.proveHedges(s2.read, HOME, [{ at: [0, G + 1, 5] }, { at: [3, G + 1, -3] }], { walkR: 20 })
+  assert.deepStrictEqual(kept.map(h => h.at), [[3, G + 1, -3]], 'the gap\'s hedge dropped, the open one kept')
+})
+await t('MUTANT KILLED: a hedge proof that never checks the walk shuts a way off', async () => {
+  await killed(DEC_PATH, '  if (!lost(hedges)) return hedges\n', '  return hedges\n', M => {
+    const s2 = server()
+    for (let x = -10; x <= 10; x++) for (let y = G + 1; y <= G + 3; y++) { if (x !== 0) s2.set([x, y, 5], 'stone') }
+    for (let z = -10; z <= 10; z++) for (let y = G + 1; y <= G + 3; y++) { s2.set([-10, y, z], 'stone'); s2.set([10, y, z], 'stone') }
+    for (let x = -10; x <= 10; x++) for (let y = G + 1; y <= G + 3; y++) s2.set([x, y, 10], 'stone'); s2.set([0, G + 3, 5], 'stone')
+    assert.strictEqual(M.proveHedges(s2.read, HOME, [{ at: [0, G + 1, 5] }], { walkR: 20 }).length, 0)
+  })
+})
+await t('siteSink(decor) with leaves and lantern kits: hedges behind the flowers (a hedge design), posts on the doorway spots (pots off), a lantern on each fence', () => {
+  const recs = RECS()
+  const srv = town(recs.map(r => r.rec))
+  let seed = 1
+  while (!D.decorDesign(seed).hedge || D.decorDesign(seed).pattern !== 'solid' || D.decorDesign(seed).fern) seed++
+  const r = S.siteSink(srv.read, { kind: 'decor', n: 1, id: 'D1', home: HOME, seed, records: recs, flowers: 8, ferns: 0, leaves: 8, posts: 2, pots: 0, doorOf, stood: [] })
+  assert.ok(r.ok, JSON.stringify(r))
+  const hedge = r.inst.cells.filter(c => c.role === 'D1-h'), post = r.inst.cells.filter(c => c.role === 'D1-post'), lamp = r.inst.cells.filter(c => c.role === 'D1-lamp')
+  assert.ok(hedge.length > 0, r.meta.summary)
+  assert.strictEqual(post.length, 2); assert.strictEqual(lamp.length, 2)
+  for (const p of post) assert.ok(lamp.some(l => l.at[0] === p.at[0] && l.at[2] === p.at[2] && l.at[1] === p.at[1] + 1))
+  assert.deepStrictEqual(post.map(q => q.at).sort(), [[3, G + 1, 3], [7, G + 1, 3]], 'the doorway\'s spots')
+  assert.ok(r.inst.segments.find(q => q.seg === 'D1-H').deps.length > 0, 'the hedge after the flowers')
+  assert.ok(D.decorBagRole('D1-h') && D.decorBagRole('D1-post') && D.decorBagRole('D1-lamp') && !D.decorBagRole('D1-pot'))
+  const r2 = S.siteSink(srv.read, { kind: 'decor', n: 1, id: 'D1', home: HOME, seed, records: recs, flowers: 8, leaves: 0, posts: 0, doorOf })
+  assert.ok(!r2.inst.cells.some(c => /-(h|post|lamp)$/.test(c.role)), 'no leaves, no kit: neither')
+})
+await t('the REAL visit runner builds a hedge and a lantern post (fence, then the lantern on its top)', async () => {
+  const recs = RECS()
+  const srv = town(recs.map(r => r.rec))
+  let seed = 1
+  while (!D.decorDesign(seed).hedge || D.decorDesign(seed).pattern !== 'solid' || D.decorDesign(seed).fern) seed++
+  const r = S.siteSink(srv.read, { kind: 'decor', n: 1, id: 'D1', home: HOME, seed, records: recs, flowers: 6, leaves: 6, posts: 2, doorOf, stood: [] })
+  const rec = S.appendInstance(null, { kind: 'decor', home: HOME, inst: r.inst, meta: { ...r.meta, sitedAt: 1 } })
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decor3-'))
+  const key = PJ.projKey(HOME, rec.plot)
+  const pub = PJ.publishRecord(dir, key, () => ({ ...rec }))
+  const inv = { poppy: 6, spruce_leaves: 6, spruce_fence: 2, lantern: 2 }
+  let last = null
+  for (let round = 0; round < 6 && last?.stop !== 'complete'; round++) {
+    const sl = PJ.takeSlot(dir, key, 'A', 3)
+    last = await R.runVisit({ dir, key, me: 'A', home: HOME, stood: [], record: rec, recordGen: pub.gen, palette: rec.palette, slot: sl.slot, slotGen: sl.gen, ...S.sinkVisitOpts(rec, HOME) }, bot(srv, 'A', { inv, feet: [2, HOME.y, 0] }), { maxSteps: 4000 })
+    PJ.releaseLease(dir, key, `slot${sl.slot}`, 'A', sl.gen)
+  }
+  assert.strictEqual(last.stop, 'complete', JSON.stringify(last))
+  for (const c of rec.cells) assert.ok(R.cellDone(srv.read(...c.at), rec.palette, c.role), `${c.role} ${c.at} ${srv.read(...c.at).name}`)
+})
+
 console.log('THE WIRING (skills.mjs, structural)')
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const W = [
@@ -626,6 +691,10 @@ const W = [
   /await matsWithdraw\(ctx, \{ iron_ingot: k \}, signal, 20_000, matsReserve\(\)\.table, decorAllow\(\{ iron_ingot: k \}\)\)/,
   /await matsWithdraw\(ctx, \{ bone_meal: want - bagMeal \}, signal, 30_000, matsReserve\(\)\.table, decorAllow\(\{ bone_meal: want - bagMeal \}\)\)/,
   /if \(rec0 && DECOR_POTS_ON\) \{ const pf = await decorPotFill\(/,
+  /if \(leafNeed > 0 && based\) \{ const lg = await decorLeaves\(ctx, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, leafNeed\)/,
+  /if \(postNeed > 0\) \{ const pk = await decorPostKit\(ctx, signal, postNeed, rec0\)/,
+  /done: \(b, pal, role\) => dressSignRole\(role\) \|\| decorBagRole\(role\) \|\| buildCellDone\(b, pal, role\)/,
+  /buildRowDetail\(\{ project: SINK_PLOTS\.decor, op: 'clear', cell: t\.at, block: t\.name, kind: 'leaves', gen: decorGen\(\) \}\)/,
   /if \(fernNeed > 0 && based\) \{ const fg = await decorFerns\(ctx, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, fernNeed\)/,
   /if \(fernNeed > 0 && !based\) \{ const pb = publishRecord\(dir, key, cur => \(cur \? null : decorBase\(null,/,
   /const cr = await compost\(ctx, \{ drive: true \}, signal\)/,
@@ -637,7 +706,6 @@ const W = [
   /pressure: kind === 'dress' \? dressPressureNow\(bot\) : kind === 'decor' \? decorPressureNow\(bot\) : pr, openCount/,
   /if \(r\.ok && kind !== 'dress' && kind !== 'decor' && !sinkFundable\(/,
   /if \(SITEPREP\.on && r\.why !== 'unfunded' && kind !== 'decor'\) \{/,
-  /done: \(b, pal, role\) => dressSignRole\(role\) \|\| decorFlowerRole\(role\) \|\| buildCellDone\(b, pal, role\)/,
   /if \(d === 'take' && !decorHeld && now - \(bot\.gkTakeAt \?\? -Infinity\) >= GK\.takeEveryMs\)/,
   /if \(d === 'take' && now - \(bot\.decorTakeAt \?\? -Infinity\) >= DECOR\.takeEveryMs && !keeperNow\(bot, now\)\)/,
   /buildRowDetail\(\{ project: SINK_PLOTS\.decor, op: 'meal', cell: ctr, block: 'bone_meal', kind: 'use', gen: decorGen\(\) \}\)/,
