@@ -170,6 +170,32 @@ export function footingBelow (read, at, { max = FOOTING_MAX, isCell = () => fals
   if (!cells.length) return { ok: false, cells: [], why: 'floored', hard: false }
   return { ok: true, cells: cells.reverse(), why: null, hard: false }
 }
+/**
+ * THE COVER OVER AN UNREACHED CELL (coverdig-01, LIVE showcase 11-05 05:03Z on: the copper hall's pad base -7,66,33 -- an AIR cell
+ * whose five other faces are stone bricks, grass and coal ore -- had a grass_block set in the ring cell above it, -7,67,33, after
+ * siting; the base's only sight line ran through that cell, so no stand reached it: `deferred` 22 visits, stuck_on_cell, 283 cells
+ * waiting. The ring waits on the pad, so the ring's own foreign pass could never dig it) -> { ok, digs: [{ at, name }] highest first,
+ * why }. Pure. The column directly above `at`: OPEN record cells of this segment or of one that waits on it (`isOpenAbove`) holding
+ * a scaffold-class block (`scaffold`), contiguous, up to the first clear cell, at most `max`. Anything else over the cell -- a done
+ * record cell, another record's or nobody's block, a veto (`mayDig`), an unread cell -- refuses (`why`); a clear cell directly above
+ * is 'open' (nothing to dig: the cover is not what blocks).
+ */
+export const COVER_MAX = 3
+export function coverAbove (read, at, { isOpenAbove = () => false, mayDig = () => true, scaffold = FOREIGN_CLEAR, max = COVER_MAX } = {}) {
+  const digs = []
+  for (let i = 1; i <= max + 1; i++) {
+    const q = [at[0], at[1] + i, at[2]]
+    const b = read(...q)
+    if (!b) return { ok: false, digs: [], why: `unknown ${kOf(q)}` }
+    const n = nm(b)
+    if (AIR(n) || (replaceableCell(b) && !isSolid(b))) return digs.length ? { ok: true, digs: digs.reverse(), why: null } : { ok: false, digs: [], why: 'open' }
+    if (!isOpenAbove(q) || foreignKind(n, scaffold) !== 'scaffold') return { ok: false, digs: [], why: `kept ${n} ${kOf(q)}` }
+    if (!mayDig(q)) return { ok: false, digs: [], why: `vetoed ${kOf(q)}` }
+    if (digs.length >= max) return { ok: false, digs: [], why: `deep ${max}+ above` }
+    digs.push({ at: q, name: n })
+  }
+  return { ok: false, digs: [], why: `deep ${max}+ above` }
+}
 /** Does segment `a` wait on segment `b` (directly or through its dependencies)? Such a segment cannot be leased while `b` is
  *  open, so `b` may clear a cell of it without meeting its builder (fell-01 r4). Pure. */
 export function dependsOn (record, a, b) {
@@ -1203,6 +1229,33 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             }
             if (stop) { out.stop = stop; return out }
             if (laid) continue
+          }
+          // coverdig-01 (`p.cover !== false`): a placeable cell no stand reaches whose cover is a scaffold-class block in an OPEN record
+          // cell above it -- this segment's or one that waits on it (those cannot be leased while this one is open: fell-01 r4) -- has
+          // that cover dug (coverAbove), highest first, under this segment's lease; one dig landed -> this segment is read again.
+          // Bounded: BUILD_ATTEMPTS covers a cell per visit; a cover that cannot be dug is named on the deferral (deferWhy)
+          if (p.cover !== false && cand.length && !open.some(c => !isClear(c.at))) {
+            let dugC = 0
+            for (const c of cand) {
+              const kc = `cover:${kOf(c.at)}`
+              if ((tries.get(kc) ?? 0) >= BUILD_ATTEMPTS) continue
+              const aboveC = new Set(record.cells.filter(q => q.at[0] === c.at[0] && q.at[2] === c.at[2] && q.at[1] > c.at[1] && (dependsOn(record, q.seg, seg) || q.seg === seg) && !isDone(q)).map(q => kOf(q.at)))
+              const cv = coverAbove(rd, c.at, { isOpenAbove: q => aboveC.has(kOf(q)), mayDig: p.sealed?.mayDig ?? (() => true), scaffold: scaffoldRe })
+              if (!cv.ok) { if (cv.why !== 'open') deferWhy.set(kOf(c.at), `cover ${cv.why}`); continue }
+              tries.set(kc, (tries.get(kc) ?? 0) + 1)
+              const sgC = segGen
+              const heldC = () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sgC, now())
+              for (const d of cv.digs) {
+                const g = guard(); if (g) { out.stop = g; return out }
+                const v = await digNamed(d.at, d.name, heldC)
+                if (v === 'fence') { out.stop = 'fence:segment'; return out }
+                if (v === 'aborted') { out.stop = 'aborted'; return out }
+                if (v !== 'confirmed') { deferWhy.set(kOf(c.at), `cover ${v} ${kOf(d.at)}`); e.log('_build', { op: 'clear_failed', seg, cell: d.at, block: d.name, kind: 'cover', result: v }); break }
+                dugC++; out.cleared++; e.log('_build', { op: 'clear', seg, cell: d.at, block: d.name, kind: 'cover' })
+              }
+              if (dugC) break
+            }
+            if (dugC) continue
           }
           if (cand.length && !open.some(c => !isClear(c.at))) {
             // no stand reaches any placeable cell of this segment: DEFER them and go on (F4)

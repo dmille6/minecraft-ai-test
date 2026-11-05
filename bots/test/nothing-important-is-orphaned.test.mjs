@@ -233,6 +233,9 @@ const REQUIRED = [
   // zigsealed-01 (11-01): the ziggurat's sealed skin column -- open cells of the waiting segments dug with the column
   'bots/test/zigsealed.test.mjs',
   'bots/test/fixtures/zigsealed-showcase-1101.json',
+  // coverdig-01 (11-05): the copper hall's pad base sealed by a waiting segment's grass -- the cover dug, the segment read again
+  'bots/test/coverdig.test.mjs',
+  'bots/test/fixtures/coverdig-hall-1105.json',
   // fleetpaths-01 (11-01): a destination inside the plaza is served by it; a fleet town's unroutable paths write a no-site record
   'bots/test/fleetpaths.test.mjs',
   // zigbamboo (fleetbuild-01, 11-01): bamboo grown into open ziggurat foundation cells is dug
