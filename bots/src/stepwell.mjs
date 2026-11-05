@@ -249,6 +249,8 @@ export function descentCells (site, at) {
   const portal = []
   for (const x of [-2, -1]) for (const y of [H0, H0 + 1]) { const [u, v] = sideUV(W, side, xa0 + x, rTop + 1); portal.push(at(u, y, v)) }
   for (const x of [-2, -1]) { const [u, v] = sideUV(W, side, xa0 + x, rTop + 1); treads.push(at(u, H0 - 1, v)); path.push(at(u, H0, v)) }
+  // the court's stands in front of the portal (the way in: they must stay the tank's open cuts -- both engines' r1 BLOCKER)
+  const court = [-2, -1].map(x => { const [u, v] = sideUV(W, side, xa0 + x, rTop + 2); return at(u, H0, v) })
   let H = H0, bottomFeet = H0
   landing([-3, -2, -1], H)
   path.push(P(-1, H, 0))
@@ -280,7 +282,7 @@ export function descentCells (site, at) {
   }
   // a landing's torch cell (its far end, off the path) is the torch's, never a cut: left standing when the bag has no torch
   const lk = new Set(lights.map(kOf))
-  return { air: air.filter(a => !lk.has(kOf(a))), treads, lights, portal, path, bottomFeet }
+  return { air: air.filter(a => !lk.has(kOf(a))), treads, lights, portal, path, bottomFeet, court }
 }
 
 /**
@@ -391,10 +393,16 @@ export function planTank (site, { cutKeep = null } = {}) {
     for (const k of dAir) { if (byKey.has(k)) { const e = byKey.get(k); byKey.delete(k); cells.splice(cells.indexOf(e), 1) } }
     for (const tc of D.treads) if (!dAir.has(kOf(tc))) add(tc, byKey.get(kOf(tc))?.role ?? 'tread', td, true)
     for (const l of D.lights) add(l, 'dlight', td, true)   // before the lining: a torch cell is never lined
+    // the tank's columns by world (x, z): a neighbour above its column's top is one of the tank's own CUTS (the court in front of the
+    // portal above all) -- never lined (Codex + Claude r1 BLOCKER: the lining walled the portal shut from the court)
+    const colAt = new Map()
+    for (const col of cols.values()) { const w = at(col.u, 0, col.v); colAt.set(`${w[0]},${w[2]}`, col) }
     for (const a of open) {
       for (const [dx, dy, dz] of N6) {
         const n = [a[0] + dx, a[1] + dy, a[2] + dz]
         if (dAir.has(kOf(n)) || n[1] > g) continue
+        const col = colAt.get(`${n[0]},${n[2]}`)
+        if (col && n[1] > col.s) continue
         add(n, 'wall', td, true)
       }
     }
@@ -901,6 +909,12 @@ export function descentCheck (plan) {
   const air = new Set([...D.air, ...D.portal].map(kOf))
   const solid = new Set(D.treads.map(kOf))
   const problems = []
+  // THE WAY IN: the court's feet and head in front of the portal are the tank's open cuts, never a record cell
+  for (const c of D.court ?? []) for (const y of [c[1], c[1] + 1]) {
+    const k = k3(c[0], y, c[2])
+    if (plan.byKey.has(k) || !plan.cutKeys.has(k)) problems.push(`the way in is shut at ${k}`)
+  }
+  if (!(D.court ?? []).length) problems.push('no way in')
   D.path.forEach((p, i) => {
     if (!solid.has(k3(p[0], p[1] - 1, p[2]))) problems.push(`no tread under ${kOf(p)}`)
     if (!air.has(kOf(p)) || !air.has(k3(p[0], p[1] + 1, p[2]))) problems.push(`no room at ${kOf(p)}`)

@@ -353,6 +353,18 @@ await t('the descent walks: every stand on a tread with two air over it, steps o
     assert.deepStrictEqual(P.descent.path[0].slice(1, 2), [g - 7], 'the path starts at the court\'s feet (the portal)')
   }
 })
+await t('both engines\' r1 BLOCKER: the portal is open from the court (its court-side feet and head stay the tank\'s cuts, never lining); the proof checks the way in', () => {
+  for (const g of [40, 62]) {
+    const P = S.planTank(DSITE(g))
+    for (const c of P.descent.court) for (const y of [c[1], c[1] + 1]) { const k = [c[0], y, c[2]].join(','); assert.ok(!P.byKey.has(k) && P.cutKeys.has(k), `shut at ${k}`) }
+  }
+})
+await t('MUTANT KILLED: without the tank-cut exclusion the lining shuts the portal and the proof says so', async () => {
+  await withMutant(SW_PATH, '        if (col && n[1] > col.s) continue', '        void col', async M => {
+    const dc = M.descentCheck(M.planTank(DSITE(62)))
+    assert.ok(!dc.ok && dc.problems.some(p => /way in is shut/.test(p)), 'the mutant shut the portal and the proof did not see it')
+  })
+})
 await t('MUTANT KILLED: flights with two air cells (no jump room) fail the descent proof', async () => {
   await withMutant(SW_PATH, '      for (const z of [0, 1]) room(x, z, feet, 3)', '      for (const z of [0, 1]) room(x, z, feet, 2)', async M => {
     assert.ok(!M.descentCheck(M.planTank(DSITE(62))).ok, 'the mutant passed the proof: the proof checks nothing')
