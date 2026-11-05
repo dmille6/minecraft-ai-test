@@ -162,3 +162,19 @@ finding (the hall chests in the search: `ix=` and visits per search). Rollbacks:
   (the siting's own). Test from the live record g32 (`bots/test/fixtures/storehub-record-1104.json`): every pending replant gets a stand;
   positive control, the pad-only domain finds none beyond a reach. ci2 suite 422/426 (ceilescape, nothing-important-is-orphaned,
   protected-paths, the lavastep flake). Codex: NO BLOCKERS. The aborts are walks in the forest north of town; watch them after release.
+
+## 12. storehubwalk-01 (11-04, live 8b4ea9cc 22:54-23:54Z: 9 tree clears, 0 placements)
+
+- **Rows:** 70 hall visits -- 33 aborted (build_shop: `timeout` 23 = the runner watchdog at SKILL_TIMEOUT_MS 180 s, `stuck` 11,
+  entombed 3), 11 deps_open (`the clear lease is held`: the other builder clearing, expected with two builders), 11 replanned; a
+  builder logged `_pathfinder_wedged` (an empty path held 211 s) on a stand walk from the storehouse.
+- **Cause:** buildShopVisit gave runVisit a deadline of t0 + SHOP_VISIT_MS (8 min) - 15 s, past the 180 s watchdog, so every far
+  visit (draws in town, then 57 blocks through forest by one pathfinder goal a stand, PATH_MS 25 s) was cut mid-walk.
+- **Fix** (branch `storehub-walk-fix` @ `769cb54b` on live `8b4ea9cc`), the hall only: its visit deadline is t0 + min(runner, visit) - 40 s
+  (`hubVisitBudget`: 140 s on the showcase); a builder > 20 blocks from the doorway first commutes with the town's own `goto`
+  (leg by leg, <= 75 s, `_storehub_commute` rows); a visit that felled, replanted or cleared counts as progress (no idle mark); the
+  bank-back starts only on the runner's clock (else the leftovers stay the drawn share). Codex r1: 2 blockers (the idle mark, the
+  bank-back clock), fixed. ci2 suite 425/428 (the known three).
+- **A cleared approach path:** if the commute rows show `left>20` (the goto fails through the forest), the hall needs a road leg:
+  the land plan's roads / the groundskeeper own corridors (landplan.mjs), and a road leg from the NE gate to the hall's doorway would
+  make the walk reliable. Not built here; watch `_storehub_commute` first.
