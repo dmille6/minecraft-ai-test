@@ -60,6 +60,14 @@ export const KINDS = Object.freeze({
   // bricks, both 2x2 (no table, no furnace, no fuel). The towns hold ~14,445 cobbled deepslate (fleet bags 6,316 + chests 8,129).
   deepslate_bricks: Object.freeze({ part: 'deepslate_bricks', makes: 16, slots: 3, table: false,
     inputs: { cobbled_deepslate: 16 }, smelt: null, crafts: [{ out: 'polished_deepslate', n: 16 }, { out: 'deepslate_bricks', n: 16 }] }),
+  // stoneworks-03 (control session 11-05: "stonecutter: stairs, slabs, walls"): THE STONECUTTER CUTS -- 8 bricks in one window,
+  // stairs and walls 1:1, slabs 1:2 (the table's recipes give 6 -> 4 stairs; Paper sandbox3 proved both). Kind = the part.
+  ...Object.fromEntries(['stone_brick', 'deepslate_brick'].flatMap(f => [['stairs', 1], ['slab', 2], ['wall', 1]].map(([sh, per]) =>
+    [`${f}_${sh}`, Object.freeze({ part: `${f}_${sh}`, makes: 8 * per, slots: 3, table: false, inputs: { [`${f}s`]: 8 }, smelt: null, crafts: [],
+      cut: Object.freeze({ from: `${f}s`, per }) })]))),
+  // ...and the station itself, once per town: 1 iron ingot (the town's, above STATION_IRON_KEEP) + 3 stone at a table, then placed
+  stonecutter: Object.freeze({ part: 'stonecutter', makes: 1, slots: 3, table: true, inputs: { iron_ingot: 1, stone: 3 }, smelt: null,
+    crafts: [{ out: 'stonecutter', n: 1 }], station: true }),
   torch: Object.freeze({ part: 'torch', makes: 24, slots: 4, table: false,
     inputs: { log: 8 }, smelt: { input: 'log', n: 6, out: 'charcoal', planks: 4 },
     crafts: [{ out: 'planks', n: 8 }, { out: 'stick', n: 8 }, { out: 'torch', n: 24 }] }),
@@ -69,7 +77,10 @@ export const KINDS = Object.freeze({
 // `stone` kind (12 cobble -> 12 stone, banked: the trading stock the coal-sale trips will sell to apprentice masons) -- listed
 // always, ORDERED only with the switch on (kindOrder), so STONEWORKS=off is the base's order exactly.
 export const KIND_ORDER_BASE = Object.freeze(['bricks', 'cut_copper', 'copper_door', 'panes', 'torch'])
-export const KIND_ORDER_STONEWORKS = Object.freeze(['bricks', 'deepslate_bricks', 'stone', 'cut_copper', 'copper_door', 'panes', 'torch'])
+/** stoneworks-03: the cut kinds (the stonecutter's parts) and the station kind. */
+export const CUT_KINDS = Object.freeze(['stone_brick_stairs', 'stone_brick_slab', 'stone_brick_wall', 'deepslate_brick_stairs', 'deepslate_brick_slab', 'deepslate_brick_wall'])
+export const STATION_KIND = 'stonecutter'
+export const KIND_ORDER_STONEWORKS = Object.freeze(['bricks', 'deepslate_bricks', 'stone', ...CUT_KINDS, 'cut_copper', 'copper_door', 'panes', 'torch'])
 /** STONEWORKS=off|0|false|no -> off (the one-setting rollback: no stone kind, bricks buffer 128, planks the only fuel). Pure. */
 export const stoneworksMode = (env = {}) => ({ on: !['off', '0', 'false', 'no'].includes(String(env?.STONEWORKS ?? '').trim().toLowerCase()) })
 export const STONEWORKS = Object.freeze(stoneworksMode(typeof process !== 'undefined' ? process.env : {}))
@@ -113,11 +124,14 @@ export const BRICKS_BUFFER_STONEWORKS = 256
 export const BRICKS_PROJECT_BUFFER = 512
 export const STONE_BUFFER = 320
 export const DEEPSLATE_BRICKS_BUFFER = 256
-export const buffersDefault = (on = STONEWORKS.on) => Object.freeze({ stone_bricks: on ? BRICKS_BUFFER_STONEWORKS : 128, glass_pane: 32, cut_copper: 24, copper_door: 3, torch: 64, stone: STONE_BUFFER, deepslate_bricks: DEEPSLATE_BRICKS_BUFFER })
+/** stoneworks-03: the cut parts' standing stock -- a small one of the stone-brick trims (a style can site with them), none of the
+ *  deepslate ones; the bills raise either (BILL_PARTS). */
+export const CUT_BUFFERS = Object.freeze({ stone_brick_stairs: 32, stone_brick_slab: 48, stone_brick_wall: 16, deepslate_brick_stairs: 0, deepslate_brick_slab: 0, deepslate_brick_wall: 0 })
+export const buffersDefault = (on = STONEWORKS.on) => Object.freeze({ stone_bricks: on ? BRICKS_BUFFER_STONEWORKS : 128, glass_pane: 32, cut_copper: 24, copper_door: 3, torch: 64, stone: STONE_BUFFER, deepslate_bricks: DEEPSLATE_BRICKS_BUFFER, ...CUT_BUFFERS })
 /** stoneworks-02: THE OPEN BUILD BILLS drive the brick buffers. A buffer rises to what the sited, unfinished projects' remaining
  *  cells still name (skills.mjs stoneBillNow: shop.mjs billOf over every open record) plus BILL_MARGIN, capped at BILL_CAP; never
  *  below the table. The bill parts it reads: */
-export const BILL_PARTS = Object.freeze(['stone_bricks', 'deepslate_bricks'])
+export const BILL_PARTS = Object.freeze(['stone_bricks', 'deepslate_bricks', ...CUT_KINDS])
 export const BILL_MARGIN = 64
 export const BILL_CAP = 1024
 /** The open records' bills -> { part: n } over BILL_PARTS. Pure. `bills` [{ name: n }] (one per open record). */
@@ -134,7 +148,8 @@ export function effectiveBuffer (part, buffers = MATS_BUFFERS_DEFAULT, { project
   const b = Number(buffers?.[part]) || 0
   if (!on) return b
   // stoneworks-02: a READ bill decides (an empty bill is a read: nothing open names the part); unreadable (null) -> the project rule
-  if (bill && typeof bill === 'object' && BILL_PARTS.includes(part)) return Math.max(b, Math.min(BILL_CAP, (Number(bill[part]) || 0) + ((Number(bill[part]) || 0) > 0 ? BILL_MARGIN : 0)))
+  // (a cut part's bill is exact: no margin -- the bricks' margin already covers its input)
+  if (bill && typeof bill === 'object' && BILL_PARTS.includes(part)) return Math.max(b, Math.min(BILL_CAP, (Number(bill[part]) || 0) + ((Number(bill[part]) || 0) > 0 && !CUT_KINDS.includes(part) ? BILL_MARGIN : 0)))
   return project && part === 'stone_bricks' ? Math.max(b, BRICKS_PROJECT_BUFFER) : b
 }
 /**
@@ -247,7 +262,9 @@ export function orderInputs (kind, { bagSpare = {}, stock = {}, reserve = BUILD_
     const fy = name === 'cobblestone' && STONEWORKS.on ? Math.min(rest, Math.max(0, Number(yard) || 0)) : 0
     if (fy > 0) { fromYard[name] = fy; rest -= fy }
     if (rest <= 0) continue
-    const rk = reserveKeyOf(name)
+    // stoneworks-03: the cut's bricks and the station's iron and stone are judged on withFuelReserve's keeps (swKeepKey), never
+    // reserve families: every other reader of reserveKeyOf (the builders' draws, spendableFor) is unchanged
+    const rk = reserveKeyOf(name) ?? swKeepKey(name)
     if (!rk || spendable(rk, stock, reserve) < rest) return null
     take[name] = rest
   }
@@ -296,7 +313,21 @@ export const fuelToLoad = (n, ticks) => Math.ceil((Math.max(0, n) * SMELT_TICKS_
 export const LADDER_KINDS = Object.freeze(new Set(['stone', 'bricks']))
 /** The reserve a fuel take is judged on: the table plus the coal keep (never lowered: effectiveReserve skips it). Pure. */
 export const DEEPSLATE_RESERVE = 64
-export const withFuelReserve = (reserve = BUILD_RESERVE) => ({ ...reserve, coal: COAL_FUEL_KEEP, cobbled_deepslate: DEEPSLATE_RESERVE })
+export const CUT_BRICK_KEEP = 64
+export const STATION_IRON_KEEP = 32
+export const withFuelReserve = (reserve = BUILD_RESERVE) => ({ ...reserve, coal: COAL_FUEL_KEEP, cobbled_deepslate: DEEPSLATE_RESERVE,
+  stone_bricks: CUT_BRICK_KEEP, deepslate_bricks: CUT_BRICK_KEEP, iron_ingot: STATION_IRON_KEEP, stone: 0 })
+/** stoneworks-03: the names a stoneworks take keeps a floor of WITHOUT being a reserve family (the cut's bricks, the station's iron
+ *  and stone) -> the name, or null. Pure. */
+export const swKeepKey = name => (STONEWORKS.on && ['stone_bricks', 'deepslate_bricks', 'stone', 'iron_ingot'].includes(name) ? name : null)
+/** stoneworks-03: a take of a swKeepKey name -> how many this visit may take: the container's, above the keep judged on every
+ *  known container + this one (takeAllowed's rule, without a stock journal). Pure. */
+export function swTakeAllowed (name, want, { others = {}, here = {}, reserve = withFuelReserve() } = {}) {
+  const sum = (Number(others?.[name]) || 0) + (Number(here?.[name]) || 0)
+  return Math.max(0, Math.min(Number(want) || 0, Number(here?.[name]) || 0, sum - (Number(reserve?.[name]) || 0)))
+}
+/** The kinds whose town takes are judged on withFuelReserve. */
+export const stoneworksKind = kind => LADDER_KINDS.has(kind) || kind === 'deepslate_bricks' || CUT_KINDS.includes(kind) || kind === STATION_KIND
 
 /**
  * THE BATCH'S FUEL -> { rung, name, count, batch, ticks, fromBag: {name: n}, take: {name: n}, log } | null. Pure.
@@ -413,10 +444,21 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
     const fuel = stoneworks && LADDER_KINDS.has(kind) ? fuelPlan({ n: k.smelt.n, bagSpare, stock: t.stock, reserve: R, on: true }) : null
     if (stoneworks && LADDER_KINDS.has(kind) && !fuel) { why('no_fuel'); continue }
     // stoneworks-02: the stoneworks kinds' town takes keep the coal and deepslate reserves (withFuelReserve; never lowered for coal)
-    const RS = stoneworks && (LADDER_KINDS.has(kind) || kind === 'deepslate_bricks') ? withFuelReserve(R) : R
+    const RS = stoneworks && stoneworksKind(kind) ? withFuelReserve(R) : R
     const inp = orderInputs(kind, { bagSpare, stock: t.stock, reserve: RS, fuel, yard: stoneworks ? Number(t.yard) || 0 : 0 })
     if (!inp) { why('inputs'); continue }
     if (k.smelt && !lazy(furnace)) { why('no_furnace'); continue }
+    // stoneworks-03: a cut needs a stonecutter in reach (the town's, or one the bag carries); with none, the order makes the station
+    // first -- the same order, kind `stonecutter`, from one town iron ingot and three stone at a table
+    if (k.cut && !t.cutter) {
+      const st = orderInputs(STATION_KIND, { bagSpare, stock: t.stock, reserve: RS })
+      if (!st) { why('no_cutter'); continue }
+      if (!lazy(table)) { why('no_table'); continue }
+      if (!lazy(lease)) return no('lease_busy', { coverage: t.coverage, kinds: reasons.join(',') })
+      return { order: { skill: 'make_material', args: { item: STATION_KIND },
+                        why: `the town wants ${k.part} and has no stonecutter: make one from an iron ingot and three stone and place it (town materials job)` },
+               kind: STATION_KIND, state: s, skip: null, inputs: st }
+    }
     if (k.table && !lazy(table)) { why('no_table'); continue }
     if (!lazy(lease)) return no('lease_busy', { coverage: t.coverage, kinds: reasons.join(',') })
     return {
@@ -432,7 +474,7 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
   const more = { coverage: t.coverage, kinds: reasons.join(',') }
   // stoneworks-01: no_fuel and ore_first are the inputs' reason in the one-word skip (the row's list of logged reasons is
   // cognitive.mjs's); each kind's own word travels in `kinds`
-  for (const r of ['inputs', 'no_fuel', 'ore_first', 'no_furnace', 'no_table', 'room']) if (reasons.some(x => x.endsWith(`:${r}`))) return no(r === 'no_fuel' || r === 'ore_first' ? 'inputs' : r, more)
+  for (const r of ['inputs', 'no_fuel', 'ore_first', 'no_cutter', 'no_furnace', 'no_table', 'room']) if (reasons.some(x => x.endsWith(`:${r}`))) return no(r === 'no_fuel' || r === 'ore_first' || r === 'no_cutter' ? 'inputs' : r, more)
   return no('stocked', more)
 }
 
@@ -523,6 +565,7 @@ export function touchedNames (kind, log = null, fuelName = null) {
 export function obligations (kind) {
   const k = KINDS[kind]
   if (!k) return []
+  if (k.station) return []          // stoneworks-03: the stonecutter is placed, never banked (a carried one is placed by the next cut)
   // cut_copper's copper_block is its intermediate (Codex r3 P2-6: a cut between the two crafts left four blocks unowed)
   return [...new Set([k.part, ...(k.smelt ? [k.smelt.out] : []), ...(kind === 'panes' ? ['glass'] : []), ...(kind === 'cut_copper' ? ['copper_block'] : []), ...(kind === 'deepslate_bricks' ? ['polished_deepslate'] : [])])]
 }
@@ -604,7 +647,8 @@ export function noteSettled (note, bag = {}, { furnaceDone = true } = {}) {
  */
 export function recoveryBalance (note, { bag = {}, banked = {}, placed = {} } = {}) {
   const k = KINDS[note?.kind]
-  if (k && !k.smelt) return note.kind === 'deepslate_bricks' ? deepslateBalance(note, { bag, banked }) : copperBalance(note, { bag, banked })
+  if (k && !k.smelt) return note.kind === 'deepslate_bricks' ? deepslateBalance(note, { bag, banked }) : k.cut ? cutBalance(note, { bag, banked })
+    : k.station ? { verdict: 'ok', batch: 0, out: 0, back: 0, short: 0 } : copperBalance(note, { bag, banked })
   const n = Math.max(0, Number(note?.loaded?.input?.n) || 0)
   if (!k?.smelt || !n) return { verdict: 'ok', batch: 0, out: 0, back: 0, short: 0 }
   const above = x => Math.max(0, (Number(bag?.[x]) || 0) - (Number(note.bag0?.[x]) || 0))
@@ -676,6 +720,28 @@ export function deepslateBalance (note, { bag = {}, banked = {} } = {}) {
   const short = Math.max(0, n - out - back)
   return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back, short }
 }
+
+/** THE CUT KINDS' RECOVERY BALANCE (stoneworks-03) -> as copperBalance, in input units: the bricks the order took are parts (a slab
+ *  half a brick) in the bag, banked or deposited, or came back as bricks. Before the write-ahead (note.crafting) all input. Pure. */
+export function cutBalance (note, { bag = {}, banked = {} } = {}) {
+  const k = KINDS[note?.kind]
+  if (!k?.cut) return { verdict: 'ok', batch: 0, out: 0, back: 0, short: 0 }
+  const { from, per } = k.cut
+  const n = (Number(note?.took?.[from]) || 0) + (Number(note?.fromBag?.[from]) || 0)
+  if (!n) return { verdict: 'ok', batch: 0, out: 0, back: 0, short: 0 }
+  const above = x => Math.max(0, (Number(bag?.[x]) || 0) - (Number(note.bag0?.[x]) || 0))
+  const parts = above(k.part) + (Number(banked?.[k.part]) || 0) + (Number(note.deposited?.[k.part]) || 0)
+  const out = Math.min(n, Math.floor(parts / per))
+  if (!note.crafting) return { verdict: 'ok', batch: n, out, back: Math.min(n - out, above(from)), short: 0 }
+  const back = Math.min(n - out, Math.max(above(from), Number(note.backSeen) || 0))
+  const short = Math.max(0, n - out - back)
+  return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back, short }
+}
+/** THE STONECUTTER WINDOW'S RECIPE BUTTON -> the index whose result is `want`, from what each probed button showed. Pure. `seen`
+ *  [{ b, name }] in probe order. -1: none (the input cannot make it). Paper 1.21.8 (sandbox3): the server orders the list by the
+ *  result's name for each input; the bot PROBES (button -> the result slot) instead of assuming any order. */
+export const cutterButton = (seen = [], want) => { for (const x of seen ?? []) if (x?.name === want) return x.b; return -1 }
+export const CUTTER_BUTTONS = 24
 
 /**
  * THE COPPER KINDS' RECOVERY BALANCE (Codex r3 P2-6) -> as recoveryBalance. The ingots the order took (town and bag) are in
@@ -770,6 +836,9 @@ export function familyUnits (kind, counts = {}, fuelName = null) {
   if (kind === 'bricks') return { stone: c('cobblestone') + c('stone') + c('stone_bricks'), wood: logs * 4 + planks, ...fuel }
   if (kind === 'stone') return { stone: c('cobblestone') + c('stone'), wood: logs * 4 + planks, ...fuel }
   if (kind === 'deepslate_bricks') return { deepslate: c('cobbled_deepslate') + c('polished_deepslate') + c('deepslate_bricks') }
+  // stoneworks-03: a cut, in input units (a slab is half a brick); the station: its iron and its stone
+  if (KINDS[kind]?.cut) { const { from, per } = KINDS[kind].cut; return { [from]: c(from) + c(kind) / per } }
+  if (kind === STATION_KIND) return { iron: c('iron_ingot') + c('stonecutter'), stone: c('stone') + 3 * c('stonecutter') }
   if (kind === 'panes') return { glass: (c('sand') + c('red_sand') + c('glass')) * 16 + c('glass_pane') * 6, wood: logs * 4 + planks }
   if (kind === 'cut_copper') return { copper: c('copper_ingot') + c('copper_block') * 9 + c('cut_copper') * 9 }
   if (kind === 'copper_door') return { copper: c('copper_ingot') + c('copper_door') * 2 }
@@ -882,7 +951,7 @@ export const projectFloor = n => Math.ceil((Math.max(0, Number(n) || 0)) * PROJE
 export function effectiveReserve (reserve = BUILD_RESERVE, { active = false, forProject = false } = {}) {
   if (!active || !forProject) return { table: { ...reserve }, lowered: false }
   // stoneworks-01: the coal keep (withFuelReserve) is the coal-sale's and the smelt job's, never a project's to lower
-  return { table: Object.fromEntries(Object.entries(reserve).map(([k, v]) => [k, k === 'coal' ? v : projectFloor(v)])), lowered: true }
+  return { table: Object.fromEntries(Object.entries(reserve).map(([k, v]) => [k, k === 'coal' || k === 'iron_ingot' ? v : projectFloor(v)])), lowered: true }
 }
 /**
  * Is a mats kind project work? Its part is a PROJECT_PARTS part (bricks, panes, cut copper, doors) -- or the TORCH kind

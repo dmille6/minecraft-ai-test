@@ -213,6 +213,7 @@ import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
   STONEWORKS, LADDER_KINDS, fuelPlan, fuelToLoad, withFuelReserve, effectiveBuffer, oreWaiting, stoneScaffoldHeld,   // stoneworks-01
   stoneBillDemand,   // stoneworks-02
+  stoneworksKind, swKeepKey, swTakeAllowed, cutterButton, CUTTER_BUTTONS,   // stoneworks-03
   furnaceQualifies, batchFor, planksToLoad, newNote, returnPlan, noteSettled, obligations, recoveryContentsOk, takeAllowed, recipeUsing, isPlanks, toolCounts,
   recoveryBalance, reserveKeyOf, matsRecountable, MATS_RETURN_WAIT_MS, matsReturnWaitMs, recoveryVerdict, BUFFERED_PARTS, backSeenTouched,
   MATS_RETURN_MAX, MATS_RETURN_MAX_AGE_MS, matsBalance, forbiddenCounts, matsDetail,
@@ -13844,6 +13845,8 @@ export function matsTownStock (bot, { exclude = null } = {}) {
   if (STONEWORKS.on) {
     Object.defineProperty(out, 'bill', { get: () => stoneBillNow(bot), enumerable: false })
     Object.defineProperty(out, 'yard', { get: () => yardCobbleNow(bot), enumerable: false })
+    // stoneworks-03: a stonecutter in reach, or one the bag carries (the next cut places it)
+    Object.defineProperty(out, 'cutter', { get: () => !!findCutter(bot) || (heldMap(bot).stonecutter ?? 0) > 0, enumerable: false })
   }
   return out
 }
@@ -13885,6 +13888,52 @@ export function yardCobbleNow (bot, now = Date.now()) {
   } catch { val = 0 }
   yardCobbleMemo = { at: now, val }
   return val
+}
+
+// ---- stoneworks-03: the stonecutter (Paper sandbox3 11-05, sandbox/stoneworks/parts-proof.cjs: the window's input in slot 0, the
+// recipe by the enchant_item button whose index the bot PROBES by reading the result slot, the result shift-clicked: 8 bricks -> 8
+// stairs / 16 slabs / 8 walls) ------------------------------------------------------------------------------------------------
+export const CUTTER_REACH = 32
+export function findCutter (bot) {
+  try { return bot.findBlock?.({ matching: b => bot.registry?.blocks?.[b.type]?.name === 'stonecutter', maxDistance: CUTTER_REACH }) ?? null } catch { return null }
+}
+/** ONE CUT: `n` of the kind's input bricks into its part -> { stop, button, seen }. The town's stonecutter, or the carried one placed
+ *  first (the SAME `place` the furnace and table use). The window closes on every exit (vanilla returns an uncut input on close; the
+ *  order's balance books whatever stays). Never throws but an abort. */
+export async function matsCut (ctx, kind, n, signal) {
+  const { bot } = ctx
+  const K = KINDS[kind]
+  if (!K?.cut || !(n > 0)) return { stop: 'nothing_to_cut' }
+  let block = findCutter(bot)
+  if (!block && (heldMap(bot).stonecutter ?? 0) > 0) { const put = await place(ctx, { item: 'stonecutter' }, signal); if (put?.status === 'success') block = findCutter(bot) }
+  if (!block) return { stop: 'no_cutter' }
+  for (const range of [1, 3]) {
+    check(signal)
+    try { await withTimeout(bot.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, range)), 20000, bot); break } catch (e) { if (e.aborted) throw e }
+  }
+  if (bot.entity.position.distanceTo(block.position.offset(0.5, 0.5, 0.5)) > STATION_REACH) return { stop: 'unreachable' }
+  let win = null
+  const seen = []
+  try {
+    try { win = await withTimeout(bot.openBlock(block), 10_000, bot, { what: 'stonecutter', needsDrop: false, onTimeout: () => {} }) } catch (e) { if (e.aborted) throw e; return { stop: 'window' } }
+    const def = bot.registry.itemsByName[K.cut.from]
+    if (!def) return { stop: 'no_item' }
+    await bot.transfer({ window: win, itemType: def.id, metadata: null, count: n, sourceStart: win.inventoryStart, sourceEnd: win.inventoryEnd, destStart: 0, destEnd: 1 })
+    let b = -1
+    for (let i = 0; i < CUTTER_BUTTONS && b < 0; i++) {
+      check(signal)
+      bot._client.write('enchant_item', { windowId: win.id, enchantment: i })
+      await sleep(350, signal)
+      seen.push({ b: i, name: win.slots?.[1]?.name ?? null })
+      b = cutterButton(seen, kind)
+    }
+    if (b < 0) return { stop: 'no_recipe', seen }
+    await bot.clickWindow(1, 0, 1)                // shift-click: every cut the input allows
+    await sleep(600, signal)
+    return { stop: 'done', button: b, seen }
+  } finally {
+    if (win) { try { bot.closeWindow(win) } catch { /* closed */ } }
+  }
 }
 
 /** What the bag holds ABOVE its keeps (towndeposit townKeeps: the stockpile, the ladder's means, the gather rungs). */
@@ -14376,6 +14425,14 @@ async function matsCrafts (ctx, kind, bag0, signal, { planksName = null } = {}) 
   }
   if (kind === 'cut_copper') { if (above('copper_ingot') >= 36) await craft(ctx, { item: 'copper_block', count: 4 }, signal); if (above('copper_block') >= 4) await craft(ctx, { item: 'cut_copper', count: 4 }, signal) }
   if (kind === 'copper_door') { if (above('copper_ingot') >= 6) await craft(ctx, { item: 'copper_door', count: 3 }, signal) }
+  // stoneworks-03: a cut (the order's bricks in the stonecutter) and the station (crafted at a table, then placed)
+  if (KINDS[kind]?.cut) { const r = await matsCut(ctx, kind, above(KINDS[kind].cut.from), signal); ctx.cutStop = r.stop }
+  if (KINDS[kind]?.station) {
+    if (above('stonecutter') < 1) await craft(ctx, { item: 'stonecutter', count: 1 }, signal)
+    check(signal)
+    if (above('stonecutter') >= 1 && !findCutter(bot)) { const put = await place(ctx, { item: 'stonecutter' }, signal); ctx.stationPlaced = put?.status === 'success' && !!findCutter(bot) }
+    return ctx.stationPlaced ? 1 : 0
+  }
   // stoneworks-02: the order's cobbled deepslate in fours -> polished deepslate, then polished in fours -> deepslate bricks (2x2 each)
   if (kind === 'deepslate_bricks') {
     const cd = above('cobbled_deepslate'); if (cd >= 4) await craft(ctx, { item: 'polished_deepslate', count: cd - (cd % 4) }, signal)
@@ -14416,12 +14473,13 @@ async function makeMaterial (ctx, args, signal) {
     // the project reserve (OWNER 10-27): a project part's order draws on the lowered table while the workshop is active
     const PR = matsKindForProject(kind) ? projectReserveNow(bot, Date.now(), { fresh: true }) : { active: false, gen: '-' }
     // stoneworks-01: the buffer NOW (bricks rise while a project is active: mats.mjs effectiveBuffer, the order's own rule)
-    if (effectiveBuffer(K.part, B.table, { project: !!PR.active, bill: STONEWORKS.on ? town.bill ?? null : null }) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
+    // stoneworks-03: the station is "stocked" when a stonecutter stands in reach (or the bag carries one), never by a buffer
+    if (K.station ? (!!findCutter(bot) || (heldMap(bot).stonecutter ?? 0) > 0) : effectiveBuffer(K.part, B.table, { project: !!PR.active, bill: STONEWORKS.on ? town.bill ?? null : null }) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
     const prev = readMatsNote(bot)
     if (prev) { f.stop = 'note_open'; return (result = { status: 'no_effect', detail: 'an earlier materials order is not reconciled; mats_return runs first' }) }
     // stoneworks-01: the cobble kinds burn the fuel ladder (mats.mjs fuelPlan); the coal rung's town take is judged on the coal keep
     const ladder = STONEWORKS.on && LADDER_KINDS.has(kind)
-    const RT = ladder || (STONEWORKS.on && kind === 'deepslate_bricks') ? withFuelReserve(R.table) : R.table
+    const RT = ladder || (STONEWORKS.on && stoneworksKind(kind)) ? withFuelReserve(R.table) : R.table
     if (ladder && oreWaiting(kind, town.stock)) { f.stop = 'ore_first'; return (result = { status: 'no_effect', detail: 'the town holds raw ore the smelt job turns into ingots first; the trading stone waits' }) }
     const E = effectiveReserve(RT, { active: PR.active, forProject: matsKindForProject(kind) })
     const PD = projectDraw(bot, RT, { forProject: matsKindForProject(kind) })
@@ -14465,7 +14523,9 @@ async function makeMaterial (ctx, args, signal) {
       check(signal)
     }
     try {
-      w = Object.keys(take).length ? await matsWithdraw(ctx, take, signal, reserveMs, RT, PD.allow, PD.onTook, PD.onUncertain) : { took: {}, unsettled: false, short: false, capped: 0 }
+      // stoneworks-03: the cut's bricks and the station's iron and stone keep their floors (swTakeAllowed); every other name as before
+      const allow = STONEWORKS.on ? (n2, w2, o2) => (swKeepKey(n2) ? swTakeAllowed(n2, w2, { ...o2, reserve: RT }) : PD.allow(n2, w2, o2)) : PD.allow
+      w = Object.keys(take).length ? await matsWithdraw(ctx, take, signal, reserveMs, RT, allow, PD.onTook, PD.onUncertain) : { took: {}, unsettled: false, short: false, capped: 0 }
       // the yard's cobble is the order's take: the balance's IN and the note's took book it
       if (yardGot > 0) w.took = { ...w.took, cobblestone: (w.took?.cobblestone ?? 0) + yardGot }
     } finally {
@@ -14537,6 +14597,9 @@ async function makeMaterial (ctx, args, signal) {
     if (!K.smelt) { note.crafting = true; writeMatsNote(bot, note) }
     f.made = await matsCrafts(cw, kind, bag0, signal, { planksName })
     f.wsT = cw.stations.table ?? '-'
+    if (cw.cutStop) f.stop = `cut:${cw.cutStop}`
+    // stoneworks-03: the placed station is the order's delivery (the balance books it as out)
+    if (K.station && cw.stationPlaced) f.deposited.stonecutter = 1
     f.stop = f.stop ?? (f.made > 0 ? 'done' : 'nothing_made')
     return (result = f.made > 0
       ? { status: 'success', detail: `made ${f.made} ${K.part} from town stock above the reserve${K.smelt ? ` (${f.smelted} smelted on ${f.burned} planks)` : ''}; banked in town` }
@@ -14557,6 +14620,8 @@ async function makeMaterial (ctx, args, signal) {
         // the bag holds above its opening count, so the bot's own coal never leaves
         const bankNames = obligations(kind).filter(n => (kind === 'stone' || n !== 'stone') && n !== 'charcoal')
         if (LFbank && !bankNames.includes(LFbank)) bankNames.push(LFbank)
+        // stoneworks-03: a station that was not made gives the town's iron and stone back (above the bag's opening count only)
+        if (K?.station) for (const n2 of ['iron_ingot', 'stone']) if (!bankNames.includes(n2)) bankNames.push(n2)
         await matsBank(ctx, bankNames, bag0, signal, {}, {
           onBanked: (n2, c2) => { f.deposited[n2] = (f.deposited[n2] ?? 0) + c2; note.deposited = { ...f.deposited }; try { writeMatsNote(bot, note) } catch { /* the next write */ } } })
         const bagNow = heldMap(bot)
