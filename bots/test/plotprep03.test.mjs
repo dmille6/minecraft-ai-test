@@ -58,6 +58,9 @@ await t('with the groundskeeper\'s options: the failed replant is remedied, the 
   const { r, srv, f, pr } = await firstVisit(R, { replantGoOn: true, replantPerTree: true })
   assert.notStrictEqual(r.stop, 'replanned', `the visit went on (${r.stop})`)
   assert.strictEqual(r.remedied, 1)
+  // LIVE 11-05 19:04Z (batch 11): the remedy's own publish fenced the rest of the visit -- the visit adopts its own generation
+  assert.notStrictEqual(r.stop, 'fence:record', 'the visit was fenced by its own remedy')
+  assert.ok(r.placed > 0, `the segments were built after the remedy (placed ${r.placed}, stop ${r.stop})`)
   assert.notStrictEqual(srv.read(...f.a).name, 'oak_log', 'X1#0 felled (its replant is skipped)')
   assert.strictEqual(srv.read(...f.b).name, 'oak_log', 'X1#1 stands (its replant is still owed: B4)')
   assert.strictEqual(PJ.recordHead(pr.dir, pr.key).head.rec.replant[0].deferred, 1, 'the remedy was written')
@@ -82,6 +85,20 @@ await t('MUTANT: B4 global again (treeReady = replanted) -- the settled tree no 
     const { srv, f } = await firstVisit(M, { replantGoOn: true, replantPerTree: true })
     assert.strictEqual(srv.read(...f.a).name, 'oak_log')
   })
+})
+await t('MUTANT: the generation not adopted (the live bug) -- the visit is fenced `fence:record` after its own remedy', async () => {
+  await withMutant('    p.recordGen = lp.gen\n', '', async M => {
+    const { r } = await firstVisit(M, { replantGoOn: true, replantPerTree: true })
+    assert.strictEqual(r.stop, 'fence:record')
+  })
+})
+await t('another bot\'s generation in between: the visit ends as before (`replanned`), never adopting a head it has not read', async () => {
+  const f = twoTrees(), srv = server({ [k3(f.a)]: 'oak_log', [k3(f.b)]: 'oak_log' }), pr = project(f.record)
+  const h = PJ.recordHead(pr.dir, pr.key)
+  PJ.publishRecord(pr.dir, pr.key, cur => ({ ...cur, note: 'another bot' }), { by: 'B' })   // the head moves past the visit's gen
+  const r = await R.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen, res: RES, replantGoOn: true, replantPerTree: true }, bot(srv, 'A'), { maxSteps: 2000 })
+  assert.ok(r.stop === 'replanned' || /^fence/.test(r.stop), r.stop)
+  assert.ok(!r.remedied, 'never adopted')
 })
 await t('MUTANT: a remedy ends the visit again -- `replanned`, nothing felled', async () => {
   await withMutant("    if (!p.replantGoOn || o.stop !== 'replanned') return o\n", '    return o\n', async M => {

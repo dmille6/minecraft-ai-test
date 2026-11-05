@@ -814,6 +814,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       else { cur.replant[i] = { ...x, tried, deferred: (x.deferred ?? 0) + 1, deferredAt: now() }; kind = 'replant_deferred' }
       return cur
     }, { by: me })
+    lastRemedyPub = pub                             // plotprep-03: the go-on adopts its own generation (remedy)
     if (pub.result !== 'accepted') kind = null       // logged only for a transition that was written
     e.log('_build', { op: kind ?? 'replant_unchanged', cell: r.cell, why, ...(alt && kind === 'replant_moved' ? { to: alt.join(',') } : {}), result: pub.result })
     out.stop = 'replanned'; out.why = `replant ${at}: ${why} -> ${kind ?? 'unchanged (another builder moved it first)'}${alt && kind === 'replant_moved' ? ` ${alt.join(',')}` : ''}`
@@ -822,9 +823,18 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // plotprep-03 (`p.replantGoOn`, the groundskeeper's visit): a replant's remedy (moved / deferred / skipped: the record changed)
   // does not end the visit -- the next replant, then the clears and the segments go on. LIVE showcase 11-05 15:34-17:48Z: the in-wall
   // stage's 10 pending replants (x -62..-72) ended every keeper visit at the first one, so none of its 66 tree logs was felled
+  // LIVE showcase 11-05 19:04Z (batch 11): the remedy's own publish moved the record a generation and the visit's record fence
+  // then ended it (`fence:record`) -- so the visit adopts the generation IT wrote, only when that generation's prev is the one the
+  // visit holds (no other bot's change in between: else it ends as before, the next visit reads the new head)
+  let lastRemedyPub = null
   const remedy = (r, nodes, why) => {
+    const g0 = p.recordGen
+    lastRemedyPub = null
     const o = replantRemedy(r, nodes, why)
     if (!p.replantGoOn || o.stop !== 'replanned') return o
+    const lp = lastRemedyPub
+    if (!(lp?.result === 'accepted' && Number.isFinite(lp.gen) && lp.head?.rec?.prev === g0)) return o
+    p.recordGen = lp.gen
     out.remedied = (out.remedied ?? 0) + 1; out.stop = null; out.why = null
     return null
   }
