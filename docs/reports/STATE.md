@@ -4,18 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-04T23:20:01Z._
+_Generated 2026-11-05T00:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `493c198a` = dirtrung-01 `493c198a` (KEEP 11-04 21:12Z, promoted 11-04 21:22Z) on swimunder-01 `3a7badea` (KEEP 11-04 17:34Z, promoted 11-04 17:43Z) on monustuck-01 `704acf91` (KEEP 11-04 14:02Z, promoted 11-04 14:12Z) on shafttrap-02 `beb79ed2` (KEEP 11-04 09:36Z, promoted 11-04 09:46Z) on swimcentre-01 `0542fccb` (KEEP 11-04 03:58Z, promoted 11-04 04:08Z) on bagdiet-01 `9fbfdf22` (KEEP 11-03 23:58Z, promoted 11-04 00:08Z). Live builds: {'493c198ae7019a2fbe062654ed2fc1fa9ba0dfbb+9017fc': 70, 'aea837080512b4a470a4bc121c33bf15c12a17e7+b0bd39': 10} |
-| **Canary in slot** | **llmoai-01** deployed 11-04 22:09Z; reads +90 11-04 23:39Z, +180 11-05 01:09Z; KEEP auto-promotes ~10 min after the +180 KEEP |
+| **Fleet** | `aea83708` = llmoai-01 `aea83708` (KEEP 11-04 23:41Z, promoted 11-04 23:51Z) on dirtrung-01 `493c198a` (KEEP 11-04 21:12Z, promoted 11-04 21:22Z) on swimunder-01 `3a7badea` (KEEP 11-04 17:34Z, promoted 11-04 17:43Z) on monustuck-01 `704acf91` (KEEP 11-04 14:02Z, promoted 11-04 14:12Z) on shafttrap-02 `beb79ed2` (KEEP 11-04 09:36Z, promoted 11-04 09:46Z) on swimcentre-01 `0542fccb` (KEEP 11-04 03:58Z, promoted 11-04 04:08Z) |
+| **Canary in slot** | EMPTY (last close llmoai-01 KEEP 11-04 23:41Z) |
 | **Queue (front)** | pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> bucketfix-01 -> kittrim-01 -> depositoffer-01 -> vetoremedy-01 -> +4 more. Held: dropdig-01 (HELD: control session 11-04: HOLD until the 4B staged rollout (servea waiter -> modelrollout.py,...) |
-| **Scheduler** | busy S1 canary declared: aea837080512b4a470a4bc121c33bf15c12a17e7 on board-b,placebo-d / S6 open loop: canary aea8370 is deployed on board-b,placebo-d with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 llm |
-| **Showcase release** | `9295590e` (46,527 rows), `a7efcca2` (12,619 rows), `8b4ea9cc` (11,268 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 9295590e sits on 9fbfdf22 (bagdiet-01); behind by 5: dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bots/scripts/; row 11-04 22:25Z) |
+| **Scheduler** | busy S3 the loop lock is held (pid 822756) / S8 INSTALL-HOLD by servea-roll-822756-1793836505919500633 until 2026-11-05T09:55:05Z |
+| **Showcase release** | `8b4ea9cc` (48,547 rows), `9295590e` (42,103 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 8b4ea9cc sits on 9fbfdf22 (bagdiet-01); behind by 5: dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bots/scripts/; row 11-04 23:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
-| **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase? |
-| **Open alarms** | STALLCHECK 2026-11-04T22:35:01Z STALLED: 46. OPSAUDIT 2026-11-04 FLAGS: 10 (1 high). 31 active alarm(s): stuck goals 7 (hive-a/tidy@355_73_147, hive-d/tidy@68_65_68, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, isolated-c/monument@355_73_147, isolated-d/monument@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:stuckcells-01:undeclared |
+| **Owner-direct / rollouts (24 h)** | servea-roll-s1: owner-direct 11-05 00:06Z; servea-roll: rollout-poll 11-05 00:16Z |
+| **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?; **decorator-1104**: decorator-1104: ferns cut from the wild with shears (piece 2)? the park's 4 bone meal kept? pots need under-water clay (tier 3) or skip? |
+| **Open alarms** | STALLCHECK 2026-11-04T23:35:01Z STALLED: 44. OPSAUDIT 2026-11-04 FLAGS: 10 (1 high). 30 active alarm(s): stuck goals 5 (hive-a/tidy@355_73_147, hive-d/tidy@68_65_68, isolated-a/wall@355_73_147, isolated-c/monument@355_73_147, placebo-b/tidy@282_65_-388); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:stuckcells-01:undeclared |
 <!-- GENERATED:END -->
 
 ## Notes
