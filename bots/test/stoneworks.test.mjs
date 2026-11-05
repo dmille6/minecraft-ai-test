@@ -30,7 +30,7 @@ const killed = async fn => { try { await fn(); return false } catch (e) { if (e 
 
 const R = ST.BUILD_RESERVE
 // a town whose bricks sit at the new buffer, every other part stocked, cobble and logs above the reserve: the stone kind's town
-const FULL = { cobblestone: 900, oak_log: 1400, copper_ingot: 0, sand: 0, stone_bricks: 256, glass_pane: 32, cut_copper: 24, copper_door: 3, torch: 64, stone: 0 }
+const FULL = { cobblestone: 900, oak_log: 1400, copper_ingot: 0, sand: 0, stone_bricks: 256, glass_pane: 32, cut_copper: 24, copper_door: 3, torch: 64, stone: 0, deepslate_bricks: 256 }
 const T0 = 50_000_000
 const base = (over = {}) => ({ now: T0, on: true, shared: true, atTown: true, holds: false, noteOpen: false, freeSlots: 10, bagSpare: {},
   town: { stock: FULL, coverage: 1 }, furnace: () => true, table: () => true, lease: () => true, bodyMs: 0, state: {}, stoneworks: true, ...over })
@@ -40,7 +40,7 @@ test('the switch: on by default; off|0|false|no -> off; the kind order and the b
   for (const v of ['off', '0', 'false', 'no', ' OFF ']) assert.equal(M.stoneworksMode({ STONEWORKS: v }).on, false, v)
   for (const v of [undefined, '', 'on', '1', 'yes']) assert.equal(M.stoneworksMode({ STONEWORKS: v }).on, true, String(v))
   assert.deepEqual([...M.kindOrder(false)], ['bricks', 'cut_copper', 'copper_door', 'panes', 'torch'])
-  assert.deepEqual([...M.kindOrder(true)], ['bricks', 'stone', 'cut_copper', 'copper_door', 'panes', 'torch'])
+  assert.deepEqual([...M.kindOrder(true)], ['bricks', 'deepslate_bricks', 'stone', 'cut_copper', 'copper_door', 'panes', 'torch'])
   assert.equal(M.buffersDefault(false).stone_bricks, 128); assert.equal(M.buffersDefault(true).stone_bricks, 256)
   assert.equal(M.buffersDefault(true).stone, 320, 'one apprentice mason restock: 16 uses x 20 stone')
   // the bricks' buffer rises while a project is active, never below the table; nothing else moves; off: the table
@@ -217,7 +217,7 @@ test('MUTANTS: the ladder order, the coal keep, the sapling keep, ore first, the
       X => assert.equal(X.stoneScaffoldHeld({ stone: 64 }, {}), 8)],
     ['the bag\'s spent cobble still counted', "for (const [n, c] of Object.entries(fromBag ?? {})) after[n] = Math.max(0, (Number(after[n]) || 0) - (Number(c) || 0))", "",
       X => assert.equal(X.stoneScaffoldHeld({ cobblestone: 12 }, { fromBag: { cobblestone: 12 } }), 8)],
-    ['the project bricks buffer ignored', "return on && project && part === 'stone_bricks' ? Math.max(b, BRICKS_PROJECT_BUFFER) : b", 'return b',
+    ['the project bricks buffer ignored', "  return project && part === 'stone_bricks' ? Math.max(b, BRICKS_PROJECT_BUFFER) : b", '  return b',
       X => assert.equal(X.effectiveBuffer('stone_bricks', X.buffersDefault(true), { project: true, on: true }), 512)],
   ]
   for (const [name, old, neu, check] of cases) {
@@ -234,10 +234,117 @@ test('STRUCTURAL: make_material wires the ladder (the skill revalidates the orde
   assert.ok(body.length > 1000, 'makeMaterial found')
   assert.match(body, /const fuelP = ladder \? fuelPlan\(\{ n: K\.smelt\.n, bagSpare: spare, stock: town\.stock, reserve: E\.table, on: true \}\) : null/, 'the skill plans the fuel on the effective reserve')
   assert.match(body, /if \(ladder && oreWaiting\(kind, town\.stock\)\)/, 'the skill re-checks ore first')
-  assert.match(body, /effectiveBuffer\(K\.part, B\.table, \{ project: !!PR\.active \}\)/, 'the skill re-checks the buffer the order used')
-  assert.match(body, /const RT = ladder \? withFuelReserve\(R\.table\) : R\.table/, 'the coal keep reaches the take')
-  assert.match(body, /matsWithdraw\(ctx, inp\.take, signal, reserveMs, RT,/, 'the withdraw is judged on it')
+  assert.match(body, /effectiveBuffer\(K\.part, B\.table, \{ project: !!PR\.active, bill: /, 'the skill re-checks the buffer the order used')
+  assert.match(body, /const RT = ladder \|\| \(STONEWORKS\.on && kind === 'deepslate_bricks'\) \? withFuelReserve\(R\.table\) : R\.table/, 'the coal and deepslate keeps reach the take')
+  assert.match(body, /matsWithdraw\(ctx, take, signal, reserveMs, RT,/, 'the withdraw is judged on it')
   assert.match(body, /obligations\(kind\)\.filter\(n => \(kind === 'stone' \|\| n !== 'stone'\) && n !== 'charcoal'\)/, 'the stone kind banks its stone')
   assert.match(body, /fuel: LFacct,/, 'the balance books the ladder fuel')
   assert.match(body, /if \(kind === 'stone' && stoneScaffoldHeld\(heldMap\(bot\), \{ fromBag: inp\.fromBag, made: LF \? LF\.batch : K\.smelt\.n \}\) > 0\)/, 'the skill refuses a stone order the deposit could not bank')
+})
+
+// ---- stoneworks-02 ----------------------------------------------------------------------------------------------------------
+test('THE DEEPSLATE KIND: 16 cobbled deepslate -> 16 polished -> 16 deepslate bricks, crafting only; the bag first, then the town above 64', () => {
+  const k = M.KINDS.deepslate_bricks
+  assert.equal(k.smelt, null); assert.equal(k.table, false); assert.equal(k.makes, 16)
+  for (const n of ['cobbled_deepslate', 'polished_deepslate', 'deepslate_bricks', 'deepslate_brick_stairs', 'deepslate_brick_slab', 'deepslate_brick_wall']) assert.ok(mcData.itemsByName[n], n)
+  const i = M.orderInputs('deepslate_bricks', { bagSpare: { cobbled_deepslate: 10 }, stock: { cobbled_deepslate: M.DEEPSLATE_RESERVE + 6 }, reserve: M.withFuelReserve(R) })
+  assert.deepEqual(i.fromBag, { cobbled_deepslate: 10 }); assert.deepEqual(i.take, { cobbled_deepslate: 6 })
+  assert.equal(M.orderInputs('deepslate_bricks', { bagSpare: { cobbled_deepslate: 10 }, stock: { cobbled_deepslate: M.DEEPSLATE_RESERVE + 5 }, reserve: M.withFuelReserve(R) }), null, 'one short above the reserve')
+  assert.deepEqual(M.orderInputs('deepslate_bricks', { bagSpare: { cobbled_deepslate: 40 }, stock: {}, reserve: M.withFuelReserve(R) }).fromBag, { cobbled_deepslate: 16 }, 'the bag alone')
+  assert.deepEqual(M.obligations('deepslate_bricks').sort(), ['deepslate_bricks', 'polished_deepslate'])
+  // always banked and never disposed: they are building parts now
+  for (const n of ['deepslate_bricks', 'polished_deepslate', 'deepslate_brick_stairs']) { assert.ok(ST.PROJECT_PARTS.includes(n), n); assert.ok(ST.isProtected(n), n) }
+  assert.ok(!ST.PROJECT_PARTS.includes('cobbled_deepslate'), 'the input is not a part (positive control)')
+  // the order: bricks and deepslate below their buffers -> bricks first; bricks stocked -> deepslate (no fuel, no furnace needed)
+  const o = M.materialOrder(base({ town: { stock: { ...FULL, deepslate_bricks: 0 }, coverage: 1 }, bagSpare: { cobbled_deepslate: 20 }, furnace: () => false }))
+  assert.equal(o.order?.args.item, 'deepslate_bricks')
+  // the order keeps the town's DEEPSLATE_RESERVE: 70 in town and none in the bag is not a batch; 80 is
+  const dt = d => base({ town: { stock: { ...FULL, deepslate_bricks: 0, cobbled_deepslate: d }, coverage: 1 }, furnace: () => false })
+  assert.match(M.materialOrder(dt(70)).kinds ?? '', /deepslate_bricks:inputs/)
+  assert.equal(M.materialOrder(dt(80)).order?.args.item, 'deepslate_bricks')
+  assert.equal(M.materialOrder(base({ stoneworks: false, buffers: M.buffersDefault(false), town: { stock: { ...FULL, stone_bricks: 128, deepslate_bricks: 0 }, coverage: 1 }, bagSpare: { cobbled_deepslate: 20 } })).skip, 'stocked', 'off: never ordered')
+})
+
+test('THE DEEPSLATE BALANCE AND RECOVERY: 1:1 units; before the craft write-ahead it is all input; polished deepslate is banked', () => {
+  const n = { ...M.newNote({ kind: 'deepslate_bricks', took: { cobbled_deepslate: 6 }, fromBag: { cobbled_deepslate: 10 }, bag0: { cobbled_deepslate: 30, polished_deepslate: 0, deepslate_bricks: 0 } }), crafting: true }
+  assert.equal(M.recoveryBalance(n, { bag: { cobbled_deepslate: 14, deepslate_bricks: 12, polished_deepslate: 4 } }).verdict, 'ok')
+  const l = M.recoveryBalance(n, { bag: { cobbled_deepslate: 14, deepslate_bricks: 8 } })
+  assert.equal(l.verdict, 'loss'); assert.equal(l.short, 8)
+  assert.equal(M.recoveryBalance({ ...n, crafting: false }, { bag: { cobbled_deepslate: 14 } }).verdict, 'ok', 'never crafted: input only')
+  assert.deepEqual(M.returnPlan(n, { cobbled_deepslate: 14, deepslate_bricks: 12, polished_deepslate: 4 }).bank, { deepslate_bricks: 12, polished_deepslate: 4 })
+  const ok = M.matsBalance({ kind: 'deepslate_bricks', bag0: { cobbled_deepslate: 30 }, withdrawn: { cobbled_deepslate: 6 }, bag1: { cobbled_deepslate: 20 }, deposited: { deepslate_bricks: 16 } })
+  assert.equal(ok.verdict, 'ok', JSON.stringify(ok))
+  assert.equal(M.matsBalance({ kind: 'deepslate_bricks', bag0: { cobbled_deepslate: 30 }, withdrawn: { cobbled_deepslate: 6 }, bag1: { cobbled_deepslate: 20 }, deposited: { deepslate_bricks: 12 } }).verdict, 'loss')
+})
+
+test('THE BILLS DRIVE THE BRICKS: the open records\' remaining stone parts + 64, capped at 1024, never below the table', () => {
+  assert.deepEqual(M.stoneBillDemand([{ stone_bricks: 306, planks: 117 }, { stone_bricks: 89, deepslate_bricks: 20 }, null]), { stone_bricks: 395, deepslate_bricks: 20 })
+  const B = M.buffersDefault(true)
+  assert.equal(M.effectiveBuffer('stone_bricks', B, { bill: { stone_bricks: 395 } }), 395 + M.BILL_MARGIN)
+  assert.equal(M.effectiveBuffer('stone_bricks', B, { bill: { stone_bricks: 5000 } }), M.BILL_CAP)
+  assert.equal(M.effectiveBuffer('stone_bricks', B, { bill: { stone_bricks: 50 } }), 256, 'never below the table')
+  assert.equal(M.effectiveBuffer('stone_bricks', B, { bill: {}, project: true }), 256, 'a READ bill naming no bricks wins over the project rule')
+  assert.equal(M.effectiveBuffer('stone_bricks', B, { bill: null, project: true }), 512, 'unreadable: the project rule')
+  assert.equal(M.effectiveBuffer('deepslate_bricks', B, { bill: { deepslate_bricks: 400 } }), 464)
+  assert.equal(M.effectiveBuffer('stone', B, { bill: { stone_bricks: 999 } }), 320, 'the trading stock is no bill part')
+  assert.equal(M.effectiveBuffer('stone_bricks', M.buffersDefault(false), { bill: { stone_bricks: 999 }, on: false }), 128, 'off: the table')
+  // through the order: a town at its 256 bricks with 400 still on the open bills makes bricks
+  const bill = { stock: { ...FULL }, coverage: 1 }; Object.defineProperty(bill, 'bill', { value: { stone_bricks: 400 } })
+  assert.equal(M.materialOrder(base({ town: bill, bagSpare: { bamboo: 64 } })).order?.args.item, 'bricks')
+})
+
+test('THE YARD: cobble from the bag, then the stock yard\'s piles, then the chests above their reserve', () => {
+  const fb = M.fuelPlan({ bagSpare: { bamboo: 48 }, stock: {} })
+  const i = M.orderInputs('stone', { bagSpare: { bamboo: 48, cobblestone: 2 }, stock: { cobblestone: R.cobblestone + 100 }, yard: 7, fuel: fb })
+  assert.deepEqual(i.fromBag, { bamboo: 48, cobblestone: 2 }); assert.deepEqual(i.fromYard, { cobblestone: 7 }); assert.deepEqual(i.take, { cobblestone: 3 })
+  assert.deepEqual(M.orderInputs('stone', { bagSpare: { bamboo: 48 }, stock: {}, yard: 200, fuel: fb }).fromYard, { cobblestone: 12 }, 'the yard alone')
+  assert.equal(M.orderInputs('stone', { bagSpare: { bamboo: 48 }, stock: {}, yard: 11, fuel: fb }), null, 'the yard one short, the chests at their reserve')
+  // through the order: a town whose chests hold no spare cobble, a yard with piles -> the order runs
+  const t = { stock: { ...FULL, cobblestone: R.cobblestone }, coverage: 1 }; Object.defineProperty(t, 'yard', { value: 300 })
+  assert.equal(M.materialOrder(base({ town: t, bagSpare: { bamboo: 64 } })).order?.args.item, 'stone')
+  assert.equal(M.materialOrder(base({ town: { stock: { ...FULL, cobblestone: R.cobblestone }, coverage: 1 }, bagSpare: { bamboo: 64 } })).order, null, 'no yard: no order')
+})
+
+test('THE PALETTE HOOK: the trim stone the town stocks -- deepslate bricks, then stone bricks, then cobblestone', () => {
+  assert.equal(M.trimStone({ deepslate_bricks: 80, stone_bricks: 500 }, 64), 'deepslate_bricks')
+  assert.equal(M.trimStone({ deepslate_bricks: 60, stone_bricks: 500 }, 64), 'stone_bricks')
+  assert.equal(M.trimStone({}, 64), 'cobblestone', 'nothing stocked: the last choice')
+  assert.deepEqual([...M.TRIM_STONES], ['deepslate_bricks', 'stone_bricks', 'cobblestone'])
+})
+
+test('MUTANTS (stoneworks-02): the bill, the yard order, the deepslate balance, the deepslate reserve and the trim order are load-bearing', async () => {
+  const fb = M.fuelPlan({ bagSpare: { bamboo: 48 }, stock: {} })
+  const dn = { ...M.newNote({ kind: 'deepslate_bricks', took: { cobbled_deepslate: 6 }, fromBag: { cobbled_deepslate: 10 }, bag0: { cobbled_deepslate: 30 } }), crafting: true }
+  const cases = [
+    ['the bill ignored', "  if (bill && typeof bill === 'object' && BILL_PARTS.includes(part)) return", "  if (false) return",
+      X => assert.equal(X.effectiveBuffer('stone_bricks', X.buffersDefault(true), { bill: { stone_bricks: 395 } }), 459)],
+    ['the yard skipped', "if (fy > 0) { fromYard[name] = fy; rest -= fy }", "",
+      X => assert.deepEqual(X.orderInputs('stone', { bagSpare: { bamboo: 48 }, stock: { cobblestone: R.cobblestone + 100 }, yard: 7, fuel: fb }).take, { cobblestone: 5 })],
+    ['the deepslate balance blind', "  return { verdict: short > 0 ? 'loss' : 'ok', batch: n, out, back, short }\n}\n\n/**\n * THE COPPER", "  return { verdict: 'ok', batch: n, out, back, short }\n}\n\n/**\n * THE COPPER",
+      X => assert.equal(X.recoveryBalance(dn, { bag: { cobbled_deepslate: 14, deepslate_bricks: 8 } }).verdict, 'loss')],
+    ['the deepslate reserve dropped', ", cobbled_deepslate: DEEPSLATE_RESERVE })", " })",
+      X => assert.equal(X.orderInputs('deepslate_bricks', { stock: { cobbled_deepslate: 70 }, reserve: X.withFuelReserve(R) }), null)],
+    ['no town deepslate at all', "  if (name === 'cobbled_deepslate' && STONEWORKS.on) return 'cobbled_deepslate'\n", "",
+      X => assert.equal(X.orderInputs('deepslate_bricks', { stock: { cobbled_deepslate: 1000 }, reserve: X.withFuelReserve(R) })?.take?.cobbled_deepslate, 16)],
+    ['the trim order ignored', "  for (const n of choices) if ((Number(stock?.[n]) || 0) >= Math.max(1, Number(need) || 0)) return n", "",
+      X => assert.equal(X.trimStone({ deepslate_bricks: 80 }, 64), 'deepslate_bricks')],
+  ]
+  for (const [name, old, neu, check] of cases) {
+    await check(M)
+    assert.ok(await withMutant(old, neu, X => killed(() => check(X))), `mutant survived: ${name}`)
+  }
+})
+
+test('STRUCTURAL (stoneworks-02): the bill and yard readings are lazy and non-enumerable; the yard draw comes before the chests and is booked', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.match(src, /Object\.defineProperty\(out, 'bill', \{ get: \(\) => stoneBillNow\(bot\), enumerable: false \}\)/)
+  assert.match(src, /Object\.defineProperty\(out, 'yard', \{ get: \(\) => yardCobbleNow\(bot\), enumerable: false \}\)/)
+  const bill = src.slice(src.indexOf('export function stoneBillNow ('), src.indexOf('export function yardCobbleNow ('))
+  assert.match(bill, /for \(const h of projectHeads\(\)\)/); assert.match(bill, /rec\.structure_complete\) continue/); assert.match(bill, /billOf\(rec, palette, read, \{ done: buildCellDone/)
+  const body = src.slice(src.indexOf('async function makeMaterial ('), src.indexOf('async function matsReturnDrain ('))
+  const yi = body.indexOf('await yardDrawFor(ctx, inp.fromYard.cobblestone'), wi = body.indexOf('await matsWithdraw(ctx, take,')
+  assert.ok(yi > 0 && wi > yi, 'the yard draw precedes the chest withdraw')
+  assert.match(body, /if \(yardGot > 0\) w\.took = \{ \.\.\.w\.took, cobblestone: \(w\.took\?\.cobblestone \?\? 0\) \+ yardGot \}/, 'the yard\'s cobble is booked as taken')
+  assert.match(body, /bill: STONEWORKS\.on \? town\.bill \?\? null : null/, 'the skill re-checks the buffer on the bill')
 })

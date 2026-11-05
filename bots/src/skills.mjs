@@ -163,6 +163,7 @@ import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 // mats-01 (building tier section 3): the materials job's decisions
 import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
   STONEWORKS, LADDER_KINDS, fuelPlan, fuelToLoad, withFuelReserve, effectiveBuffer, oreWaiting, stoneScaffoldHeld,   // stoneworks-01
+  stoneBillDemand,   // stoneworks-02
   furnaceQualifies, batchFor, planksToLoad, newNote, returnPlan, noteSettled, obligations, recoveryContentsOk, takeAllowed, recipeUsing, isPlanks, toolCounts,
   recoveryBalance, reserveKeyOf, matsRecountable, MATS_RETURN_WAIT_MS, matsReturnWaitMs, recoveryVerdict, BUFFERED_PARTS, backSeenTouched,
   MATS_RETURN_MAX, MATS_RETURN_MAX_AGE_MS, matsBalance, forbiddenCounts, matsDetail,
@@ -13668,8 +13669,55 @@ export function matsTownStock (bot, { exclude = null } = {}) {
     if (k === exclude) continue
     for (const [name, val] of Object.entries(e.obs?.names ?? {})) stock[name] = (stock[name] ?? 0) + (Number(val?.[0]) || 0)
   }
-  return { stock, coverage: sc?.coverage && keys.length ? known / keys.length : 0, keys: keys.length, known, scanComplete: !!sc?.coverage }
+  const out = { stock, coverage: sc?.coverage && keys.length ? known / keys.length : 0, keys: keys.length, known, scanComplete: !!sc?.coverage }
+  // stoneworks-02: the open bills' stone parts and the yard's cobblestone, read only by the materials order (NOT enumerable: a
+  // spread or a row of this reading never pays for them); each cached STONE_READ_MS per process
+  if (STONEWORKS.on) {
+    Object.defineProperty(out, 'bill', { get: () => stoneBillNow(bot), enumerable: false })
+    Object.defineProperty(out, 'yard', { get: () => yardCobbleNow(bot), enumerable: false })
+  }
+  return out
 }
+// ---- stoneworks-02: the open build bills' stone parts, the yard's cobblestone ---------------------------------------------------
+const STONE_READ_MS = 10 * 60_000
+let stoneBillMemo = { at: -Infinity, val: null }, yardCobbleMemo = { at: -Infinity, val: 0 }
+/** THE OPEN BILLS -> { stone_bricks: n, deepslate_bricks: n } (mats.mjs stoneBillDemand) | null when unreadable. Every sited, unfinished
+ *  project record's remaining cells (shop.mjs billOf: each role's first name the town stocks, the world read through planReader),
+ *  summed. Cached STONE_READ_MS (the order's own cooldown is 10 min). Never throws. */
+export function stoneBillNow (bot, now = Date.now()) {
+  if (now - stoneBillMemo.at < STONE_READ_MS) return stoneBillMemo.val
+  let val = null
+  try {
+    const read = planReader(bot)
+    const town = matsTownStock(bot)?.stock ?? {}
+    const bills = []
+    for (const h of projectHeads()) {
+      const rec = h.head?.rec
+      if (!Array.isArray(rec?.cells) || !rec.cells.length || rec.structure_complete) continue
+      let palette = rec.palette ?? null
+      if (!palette && rec.blueprint) { try { palette = blueprintOf(rec.blueprint)?.palette ?? null } catch { palette = null } }
+      if (!palette) continue
+      bills.push(billOf(rec, palette, read, { done: buildCellDone, inTown: billInTown(town) }))
+    }
+    val = stoneBillDemand(bills)
+  } catch { val = null }
+  stoneBillMemo = { at: now, val }
+  return val
+}
+/** THE YARD'S COBBLESTONE (yarduse-01's piles) -> n, 0 with no yard or unreadable. Cached STONE_READ_MS. Never throws. */
+export function yardCobbleNow (bot, now = Date.now()) {
+  if (now - yardCobbleMemo.at < STONE_READ_MS) return yardCobbleMemo.val
+  let val = 0
+  try {
+    if (yardFlag(process.env, 'YARD_DRAW')) {
+      const y = yardRecNow()
+      if (y) { const bp = blueprintOf(isYardBlueprint(y.rec.blueprint) ? y.rec.blueprint : YARD_BLUEPRINT); val = Number(yardHeld(bayStates(pileSlots(y.rec, bp), planReader(bot))).cobblestone) || 0 }
+    }
+  } catch { val = 0 }
+  yardCobbleMemo = { at: now, val }
+  return val
+}
+
 /** What the bag holds ABOVE its keeps (towndeposit townKeeps: the stockpile, the ladder's means, the gather rungs). */
 export function matsBagSpare (bot) {
   const held = heldMap(bot)
@@ -14148,6 +14196,12 @@ async function matsCrafts (ctx, kind, bag0, signal, { planksName = null } = {}) 
   }
   if (kind === 'cut_copper') { if (above('copper_ingot') >= 36) await craft(ctx, { item: 'copper_block', count: 4 }, signal); if (above('copper_block') >= 4) await craft(ctx, { item: 'cut_copper', count: 4 }, signal) }
   if (kind === 'copper_door') { if (above('copper_ingot') >= 6) await craft(ctx, { item: 'copper_door', count: 3 }, signal) }
+  // stoneworks-02: the order's cobbled deepslate in fours -> polished deepslate, then polished in fours -> deepslate bricks (2x2 each)
+  if (kind === 'deepslate_bricks') {
+    const cd = above('cobbled_deepslate'); if (cd >= 4) await craft(ctx, { item: 'polished_deepslate', count: cd - (cd % 4) }, signal)
+    check(signal)
+    const pd = above('polished_deepslate'); if (pd >= 4) await craft(ctx, { item: 'deepslate_bricks', count: pd - (pd % 4) }, signal)
+  }
   return above(KINDS[kind].part)
 }
 
@@ -14182,19 +14236,19 @@ async function makeMaterial (ctx, args, signal) {
     // the project reserve (OWNER 10-27): a project part's order draws on the lowered table while the workshop is active
     const PR = matsKindForProject(kind) ? projectReserveNow(bot, Date.now(), { fresh: true }) : { active: false, gen: '-' }
     // stoneworks-01: the buffer NOW (bricks rise while a project is active: mats.mjs effectiveBuffer, the order's own rule)
-    if (effectiveBuffer(K.part, B.table, { project: !!PR.active }) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
+    if (effectiveBuffer(K.part, B.table, { project: !!PR.active, bill: STONEWORKS.on ? town.bill ?? null : null }) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
     const prev = readMatsNote(bot)
     if (prev) { f.stop = 'note_open'; return (result = { status: 'no_effect', detail: 'an earlier materials order is not reconciled; mats_return runs first' }) }
     // stoneworks-01: the cobble kinds burn the fuel ladder (mats.mjs fuelPlan); the coal rung's town take is judged on the coal keep
     const ladder = STONEWORKS.on && LADDER_KINDS.has(kind)
-    const RT = ladder ? withFuelReserve(R.table) : R.table
+    const RT = ladder || (STONEWORKS.on && kind === 'deepslate_bricks') ? withFuelReserve(R.table) : R.table
     if (ladder && oreWaiting(kind, town.stock)) { f.stop = 'ore_first'; return (result = { status: 'no_effect', detail: 'the town holds raw ore the smelt job turns into ingots first; the trading stone waits' }) }
     const E = effectiveReserve(RT, { active: PR.active, forProject: matsKindForProject(kind) })
     const PD = projectDraw(bot, RT, { forProject: matsKindForProject(kind) })
     const spare = matsBagSpare(bot)
     const fuelP = ladder ? fuelPlan({ n: K.smelt.n, bagSpare: spare, stock: town.stock, reserve: E.table, on: true }) : null
     if (ladder && !fuelP) { f.stop = 'no_fuel'; return (result = { status: 'no_effect', detail: `no fuel on the ladder (bamboo, spare saplings, logs above the reserve, coal above ${RT.coal}) for a ${kind} batch now` }) }
-    const inp = orderInputs(kind, { bagSpare: spare, stock: town.stock, reserve: E.table, fuel: fuelP })
+    const inp = orderInputs(kind, { bagSpare: spare, stock: town.stock, reserve: E.table, fuel: fuelP, yard: STONEWORKS.on ? Number(town.yard) || 0 : 0 })
     if (!inp) { f.stop = 'inputs'; return (result = { status: 'no_effect', detail: `the town has no ${kind} inputs above its reserve now` }) }
     const LF = inp.fuel && inp.fuel.rung !== 'planks' ? inp.fuel : null     // a ladder fuel other than planks
     // stoneworks-01 (Codex code r1 BLOCKER): the stone the deposit would keep as the bag's scaffold could never be banked
@@ -14219,15 +14273,28 @@ async function makeMaterial (ctx, args, signal) {
     const unit = K.smelt ? ({ stone: 4, glass: 6, charcoal: 1 }[K.smelt.out] ?? 1) : 0
     const reserveMs = K.smelt ? (unit * SMELT_MS_PER_ITEM + SMELT_RECOVERY_MS + 40_000) : 45_000
     let w
+    // stoneworks-02: THE YARD FIRST (yarduse-01: its piles before the chests) -- the cobble the order planned from it, dug back by the
+    // yard's own bounded draw (its slot lease, pile tops, the drops picked up); what it could not give is asked of the chests
+    let yardGot = 0
+    const take = { ...inp.take }
+    if ((Number(inp.fromYard?.cobblestone) || 0) > 0) {
+      yardGot = Math.max(0, Number(await yardDrawFor(ctx, inp.fromYard.cobblestone, signal, withdrawClock(ctx).deadline)) || 0)
+      f.fromYard = yardGot
+      const short = inp.fromYard.cobblestone - yardGot
+      if (short > 0) take.cobblestone = (take.cobblestone ?? 0) + short
+      check(signal)
+    }
     try {
-      w = Object.keys(inp.take).length ? await matsWithdraw(ctx, inp.take, signal, reserveMs, RT, PD.allow, PD.onTook, PD.onUncertain) : { took: {}, unsettled: false, short: false, capped: 0 }
+      w = Object.keys(take).length ? await matsWithdraw(ctx, take, signal, reserveMs, RT, PD.allow, PD.onTook, PD.onUncertain) : { took: {}, unsettled: false, short: false, capped: 0 }
+      // the yard's cobble is the order's take: the balance's IN and the note's took book it
+      if (yardGot > 0) w.took = { ...w.took, cobblestone: (w.took?.cobblestone ?? 0) + yardGot }
     } finally {
       if (PD.used.lowered) f.reserveSrc = 'project'   // the read judges this row on the lowered floor (matsread.py), an abort too
     }
     f.took = w.took
     note.took = w.took; writeMatsNote(bot, note)
     if (w.unsettled) { uncertain = true; f.stop = 'withdraw_unsettled'; return (result = { status: 'failed', failClass: 'transfer_unsettled', detail: 'a take from a town chest could not be confirmed; the note stays open for mats_return' }) }
-    if (w.short) { f.stop = w.capped ? 'withdraw_reserve' : 'withdraw_short'; return (result = { status: 'no_effect', detail: `the town containers looked in did not hold the order's inputs above the reserve (${Object.entries(inp.take).map(([n, c]) => `${c} ${n}`).join(', ')}); what was taken stays in the bag for the town deposit` }) }
+    if (w.short) { f.stop = w.capped ? 'withdraw_reserve' : 'withdraw_short'; return (result = { status: 'no_effect', detail: `the town containers looked in did not hold the order's inputs above the reserve (${Object.entries(take).map(([n, c]) => `${c} ${n}`).join(', ')}); what was taken stays in the bag for the town deposit` }) }
     const deadline = withdrawClock(ctx).deadline - 25_000      // the crafts and the bank keep 25 s
     let planksName = null
     // 3-5. THE PLANKS AND THE SESSION (smelt kinds); stoneworks-01: a ladder fuel's session first, the base's planks path below
