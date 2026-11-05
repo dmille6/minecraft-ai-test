@@ -126,13 +126,13 @@ await t('the cottage blueprints on disk are the generator\'s (make-cottage.mjs) 
   }
 })
 await t('styleOf / stylePalette: the town\'s most-stocked log builds the walls, a contrasting stocked wood the roof; one wood per roof', () => {
-  const town = { spruce_log: 400, dark_oak_log: 30, oak_log: 12, stone_bricks: 340, cobblestone: 930 }
+  const town = { spruce_log: 400, dark_oak_log: 40, oak_log: 12, stone_bricks: 340, cobblestone: 930 }
   const st = T.styleOf(town, { key: 'showcase/cottage1/X3', need: C.COTTAGE_NEED, variants: ['s', 'f'] })
   assert.strictEqual(st.wood, 'spruce'); assert.strictEqual(st.roof, 'dark_oak')
-  assert.strictEqual(T.styleOf({ spruce_log: 400, dark_oak_log: 5 }, { need: C.COTTAGE_NEED }).roof, 'spruce', 'too few of the contrast: the wall wood')
+  assert.strictEqual(T.styleOf({ spruce_log: 400, dark_oak_log: 30 }, { need: C.COTTAGE_NEED }).roof, 'spruce', 'too few of the contrast (below the roof\'s need + margin): the wall wood')
   assert.strictEqual(T.styleOf({}, {}).wood, 'oak', 'no logs at all: oak (the bill then waits for wood)')
   assert.strictEqual(T.styleOf({ spruce_log: 93, oak_log: 23 }, { need: C.COTTAGE_NEED }).roof, 'spruce', 'THE SHOWCASE 11-04 (93 spruce, 23 oak): oak is lighter than spruce -- the roof is the walls\' spruce')
-  assert.strictEqual(T.styleOf({ oak_log: 93, spruce_log: 23 }, { need: C.COTTAGE_NEED }).roof, 'spruce', 'oak walls take a darker spruce roof')
+  assert.strictEqual(T.styleOf({ oak_log: 93, spruce_log: 40 }, { need: C.COTTAGE_NEED }).roof, 'spruce', 'oak walls take a darker spruce roof')
   assert.strictEqual(T.styleOf(town, { key: 'k', variants: ['s', 'f'] }).variant, T.styleOf(town, { key: 'k', variants: ['s', 'f'] }).variant, 'the seed is stable')
   const variants = new Set(['X3', 'X4', 'X5', 'X6', 'X7', 'X8'].map(id => T.styleOf(town, { key: `showcase/cottage1/${id}`, variants: ['s', 'f'] }).variant))
   assert.strictEqual(variants.size, 2, 'plots differ: both variants occur')
@@ -198,16 +198,18 @@ function vanillaBot (srv, name, { inv, feet = [2, G + 1, 0], aimless = false } =
   return e
 }
 const COTTAGE_KIT = () => ({ cobblestone: 128, spruce_planks: 64, spruce_log: 16, glass_pane: 8, dark_oak_stairs: 48, dark_oak_slab: 12, spruce_trapdoor: 8, torch: 4 })
-async function buildCottage (v, { aimless = false, Mod = R, pre = null } = {}) {
+async function buildCottage (v, { aimless = false, Mod = R, pre = null, hook = null } = {}) {
   const { bp, s } = sited(v)
   const srv = F.server()
   const pr = F.project(s.record)
   if (pre) pre(srv, s.record)
   const e = vanillaBot(srv, 'A', { inv: COTTAGE_KIT(), aimless })
+  if (hook) hook(e)
   let r = null
+  const placedBy = {}
   for (let i = 0; i < 6; i++) {
     const h = PJ.recordHead(pr.dir, pr.key)
-    r = await Mod.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen, palette: bp.palette, ...C.cottageVisitOpts(h.head.rec) }, e, { maxSteps: 6000 })
+    r = await Mod.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen, palette: bp.palette, placedBy, ...C.cottageVisitOpts(h.head.rec) }, e, { maxSteps: 6000 })
     if (r.stop === 'complete') break
   }
   const done = s.record.cells.filter(c => R.cellDone(srv.read(...c.at), bp.palette, c.role, c.ws)).length
@@ -243,6 +245,41 @@ await t('a MISORIENTED stair in a roof cell is dug (`reorient`) and placed again
   assert.strictEqual(re.length, 1, 'one reorient dig')
   assert.ok(srv.placedAt.get(k3(re[0][1].cell)) >= 1, 'placed again')
 })
+/** The fake vanilla, its FIRST click on one roof cell judged with a wrong yaw (a bad click): -> the build and the bag's balance. */
+async function buildWithOneBadClick (Mod = R) {
+  let bad = null
+  const res = await buildCottage('s', {
+    Mod,
+    pre: (sv, rec) => { bad = rec.cells.find(q => q.role === 'roof' && q.seg === 'roof-edge') },
+    hook: e => {
+      const send = e.send
+      let done = false
+      e.send = (support, face, seq, aim = null) => {
+        const target = support.map((q, i) => q + face[i])
+        if (!done && bad && k3(target) === k3(bad.at) && aim) { done = true; return send(support, face, seq, { ...aim, yaw: aim.yaw + 180 }) }
+        return send(support, face, seq, aim)
+      }
+    },
+  })
+  return { ...res, bad }
+}
+await t('a click that LANDS IN THE WRONG STATE is booked as placed (the bag balance holds), then dug and placed again', async () => {
+  const kit = COTTAGE_KIT()
+  const { r, e, bad } = await buildWithOneBadClick()
+  assert.strictEqual(r.stop, 'complete', `${r.stop} ${r.why ?? ''}`)
+  const rows = e.logs.filter(([k, d]) => k === '_build' && d.op === 'place' && k3(d.cell) === k3(bad.at))
+  assert.deepStrictEqual(rows.map(([, d]) => d.result ?? 'ok'), ['misplaced', 'ok'], 'one misplaced row, then the good one')
+  assert.ok(e.logs.some(([k, d]) => k === '_build' && d.op === 'clear' && d.kind === 'reorient' && k3(d.cell) === k3(bad.at)), 'the reorient dig between')
+  // the bag's balance: every block that left the bag is booked as placed (shopread G8: no negative unexplained)
+  for (const n of Object.keys(kit)) assert.strictEqual(kit[n] - e.inv[n], r.placedBy[n] ?? 0, `${n}: left the bag ${kit[n] - e.inv[n]}, booked ${r.placedBy[n] ?? 0}`)
+})
+await t('MUTANT the misplaced booking dropped: the wrong-state block leaves the bag unbooked (a G8 bag_loss)', () => withMutant(
+  "        if (ws && state === block) return 'misplaced'\n", "", async M => {
+    const kit = COTTAGE_KIT()
+    const { r, e } = await buildWithOneBadClick(M)
+    const n = 'dark_oak_stairs'
+    assert.notStrictEqual(kit[n] - e.inv[n], r.placedBy[n] ?? 0, 'the mutant leaves one stair unbooked')
+  }))
 await t('MUTANT the aim dropped from the send: the roof never completes', () => withMutant(
   "        e.send(here.support, here.face, seq, here.aim ?? null)",
   "        e.send(here.support, here.face, seq)", async M => {

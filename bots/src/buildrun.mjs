@@ -514,7 +514,11 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (v !== 'acked') { e.track?.(id, seq); return 'silent' }
         const state = nm(e.read(...cell))
         PJ.intentClose(dir, key, me, id, 'settled', { state, now: now() })
-        return (want ? want(e.read(...cell)) : state === block) ? 'placed' : 'refused'
+        if (want ? want(e.read(...cell)) : state === block) return 'placed'
+        // townstyle-01 (Claude r1 note): the block LANDED in the WRONG STATE -- it left the bag, so it is booked as placed (the bag
+        // balance, shopread G8, holds) and the cell is misoriented: the next pass digs it (`reorient`) and places it again
+        if (ws && state === block) return 'misplaced'
+        return 'refused'
       } finally { release() }
     } finally { if (barGen != null) PJ.barrierRelease(dir, key, me, barGen) }
   }
@@ -1231,6 +1235,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (!block) { out.stop = 'no_material'; out.why = `${picked.role} for ${seg}`; return out }
         const v = await click(picked.at, block, step, seg, segGen, { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, picked.role, picked.ws), avoid: fellBack || feetIn ? null : blocking, ws: picked.ws ?? null, blind: !!picked.blind })
         if (v === 'placed') { out.placed++; tally(block); e.log('_build', { op: 'place', seg, cell: picked.at, block, ...(picked.ws ? { st: stateTag(picked.ws) } : {}) }); continue }
+        if (v === 'misplaced') { out.placed++; out.misplaced = (out.misplaced ?? 0) + 1; tally(block); bump(picked.at); e.log('_build', { op: 'place', seg, cell: picked.at, block, st: stateTag(Object.fromEntries(Object.keys(picked.ws).map(k => [k, propsOf(rd(...picked.at))?.[k] ?? '?']))), result: 'misplaced' }); continue }
         if (v.startsWith('fence:') || v === 'aborted' || v === 'no_material') { out.stop = v; return out }
         if (v === 'busy') { await e.sleep(100); continue }            // a free skip: the mutex or the barrier is another's
         bump(picked.at)                                               // body, stand, barrier_wait, refused, silent: an attempt

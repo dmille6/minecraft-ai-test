@@ -35,7 +35,7 @@ export const COTTAGE_EARTH = Object.freeze({ col: 4, fill: 80, cut: 80 })
 /** The stands' domain: the pad + this; the walk's radius (the plots lie ~70 from home). */
 export const COTTAGE_SITE = Object.freeze({ standPad: 3, walkR: 90 })
 /** What the style's choices are sized on (townstyle.mjs styleOf `need`): the roof's logs, the wall wood's logs, the stone. */
-export const COTTAGE_NEED = Object.freeze({ roof: 20, wall: 16, stone: 64 })
+export const COTTAGE_NEED = Object.freeze({ roof: 32, wall: 16, stone: 64 })   // the roof takes ~18 logs: a contrast wood only with a margin (Claude r1 note)
 
 const onOff = v => { const s = String(v ?? '').trim().toLowerCase(); return ['on', '1', 'true', 'yes'].includes(s) ? true : ['off', '0', 'false', 'no'].includes(s) ? false : null }
 /** THE SWITCH -> { on }. COTTAGE=on|off; unset = on only in COTTAGE_POOLS (default 'showcase'). Pure. */
