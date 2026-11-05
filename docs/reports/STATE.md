@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-05T00:20:01Z._
+_Generated 2026-11-05T01:20:01Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `aea83708` = llmoai-01 `aea83708` (KEEP 11-04 23:41Z, promoted 11-04 23:51Z) on dirtrung-01 `493c198a` (KEEP 11-04 21:12Z, promoted 11-04 21:22Z) on swimunder-01 `3a7badea` (KEEP 11-04 17:34Z, promoted 11-04 17:43Z) on monustuck-01 `704acf91` (KEEP 11-04 14:02Z, promoted 11-04 14:12Z) on shafttrap-02 `beb79ed2` (KEEP 11-04 09:36Z, promoted 11-04 09:46Z) on swimcentre-01 `0542fccb` (KEEP 11-04 03:58Z, promoted 11-04 04:08Z) |
 | **Canary in slot** | EMPTY (last close llmoai-01 KEEP 11-04 23:41Z) |
-| **Queue (front)** | pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> bucketfix-01 -> kittrim-01 -> depositoffer-01 -> vetoremedy-01 -> +4 more. Held: dropdig-01 (HELD: control session 11-04: HOLD until the 4B staged rollout (servea waiter -> modelrollout.py,...) |
+| **Queue (front)** | dropdig-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> bucketfix-01 -> kittrim-01 -> depositoffer-01 -> +5 more |
 | **Scheduler** | busy S3 the loop lock is held (pid 822756) / S8 INSTALL-HOLD by servea-roll-822756-1793836505919500633 until 2026-11-05T09:55:05Z |
-| **Showcase release** | `8b4ea9cc` (48,547 rows), `9295590e` (42,103 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 8b4ea9cc sits on 9fbfdf22 (bagdiet-01); behind by 5: dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bots/scripts/; row 11-04 23:25Z) |
+| **Showcase release** | `8b4ea9cc` (92,543 rows), `9295590e` (23,743 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 8b4ea9cc sits on 9fbfdf22 (bagdiet-01); behind by 6: llmoai-01, dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bo; row 11-05 00:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
-| **Owner-direct / rollouts (24 h)** | servea-roll-s1: owner-direct 11-05 00:06Z; servea-roll: rollout-poll 11-05 00:16Z |
-| **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?; **decorator-1104**: decorator-1104: ferns cut from the wild with shears (piece 2)? the park's 4 bone meal kept? pots need under-water clay (tier 3) or skip? |
-| **Open alarms** | STALLCHECK 2026-11-04T23:35:01Z STALLED: 44. OPSAUDIT 2026-11-04 FLAGS: 10 (1 high). 30 active alarm(s): stuck goals 5 (hive-a/tidy@355_73_147, hive-d/tidy@68_65_68, isolated-a/wall@355_73_147, isolated-c/monument@355_73_147, placebo-b/tidy@282_65_-388); driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:stuckcells-01:undeclared |
+| **Owner-direct / rollouts (24 h)** | servea-roll-s1: owner-direct-check 11-05 01:10Z; servea-roll: rollout-applying 11-05 01:16Z |
+| **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?; **townstyle-1104**: townstyle O1/O2: cottages on the house plots before a town-hall design exists? reach-only roof clicks (a client could not make them; Paper accepts) vs temporary staging? |
+| **Open alarms** | STALLCHECK 2026-11-05T00:35:01Z STALLED: 44. OPSAUDIT 2026-11-04 FLAGS: 10 (1 high). 31 active alarm(s): stuck goals 6 (hive-a/tidy@355_73_147, hive-d/monument@68_65_68, hive-d/tidy@68_65_68, isolated-a/wall@355_73_147, isolated-c/monument@355_73_147, placebo-b/tidy@282_65_-388); effectwatch effect:cooldown15-02:undeclared, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:stuckcells-01:undeclared |
 <!-- GENERATED:END -->
 
 ## Notes
