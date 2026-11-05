@@ -5,6 +5,8 @@ process.env.LOG_DIR = process.env.LOG_DIR || '/tmp/mcbot-test-logs-mats'
 process.env.BOT_NAME = process.env.BOT_NAME || 'MatsBot'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 delete process.env.MATS; delete process.env.MATS_RESERVE; delete process.env.MATS_BUFFERS
+// stoneworks-01: this file pins the BASE decisions, i.e. the STONEWORKS=off rollback exactly (stoneworks.test.mjs drives the switch on)
+process.env.STONEWORKS = 'off'
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -53,6 +55,7 @@ test('every smelt kind burns EXACTLY its planks (1.5 smelts per plank, nothing p
 test('the buffered parts are building parts (always banked, protected) -- torch apart, already protected', () => {
   for (const p of M.BUFFERED_PARTS) {
     if (p === 'torch') { assert.ok(isProtected('torch')); continue }
+    if (p === 'stone') { assert.ok(!M.KIND_ORDER.includes('stone'), 'off: the stone kind is never ordered'); continue }   // on: stoneworks.test.mjs (the town target banks it)
     assert.ok(PROJECT_PARTS.includes(p), `${p} is a PROJECT_PART`)
   }
 })
@@ -455,7 +458,7 @@ test('MUTANTS: the reserve, the coverage rule, the forbidden gate, the qualify r
       X => assert.equal(X.returnPlan({ ...X.newNote({ kind: 'torch', bag0: { charcoal: 0, stick: 0 } }), loaded: { input: { name: 'oak_log', n: 6 }, out: 'charcoal' }, sticks: 2 }, { charcoal: 6, stick: 6 }).torches, 2)],
     ['charcoal is not owed', "&& p.charcoalLeft === 0 ", "",
       X => assert.equal(X.noteSettled({ ...X.newNote({ kind: 'torch', bag0: { charcoal: 0, stick: 0 } }), loaded: { input: { name: 'oak_log', n: 6 }, out: 'charcoal' }, sticks: 0 }, { charcoal: 4 }), false)],
-    ['a clock cut reads overburn', "planksToLoad(smelted) + (cut ? 1 : 0)", "planksToLoad(smelted)",
+    ['a clock cut reads overburn', "(lf ? fuelToLoad(smelted, lf.ticks) : planksToLoad(smelted)) + (cut ? 1 : 0)", "(lf ? fuelToLoad(smelted, lf.ticks) : planksToLoad(smelted))",
       X => assert.equal(X.matsBalance({ kind: 'bricks', bag0: { cobblestone: 100 }, withdrawn: { oak_log: 2 }, bag1: { cobblestone: 91, stone: 1, oak_planks: 1 }, deposited: { stone_bricks: 8 }, burnedPlanks: 7, smelted: 9, cut: true }).verdict, 'ok')],
     ['the placements are not booked', "const lost = Object.entries(families).some(([f, d]) => d + (pu[f] ?? 0) < -1e-9)", "const lost = lostRaw",
       X => assert.equal(X.matsBalance({ kind: 'bricks', bag0: { cobblestone: 100, oak_log: 0 }, withdrawn: { oak_log: 2 }, bag1: { cobblestone: 86 }, deposited: { stone_bricks: 12 }, burnedPlanks: 8, smelted: 12, placed: { cobblestone: 2 } }).verdict, 'scaffold')],
@@ -520,13 +523,14 @@ test('STRUCTURAL: both skills are registered HOUSEKEEPING (chatOnly) with their 
   assert.equal(visitYieldsTo({ skill: 'mats_return' }), true, 'the visit yields to mats_return')
   assert.equal(visitYieldsTo({ skill: 'found_work' }), true); assert.equal(visitYieldsTo({ skill: 'make_material' }), false, 'a new order is not first')
   // WIRING (Codex r5 P2-4): make_material's own bank books each deposit as it lands (onBanked), as mats_return's does
-  assert.match(skills, /await matsBank\(ctx, obligations\(kind\)[^\n]*\{\s*\n?\s*onBanked:/, 'make_material passes onBanked')
+  assert.match(skills, /await matsBank\(ctx, bankNames, bag0[^\n]*\{\s*\n?\s*onBanked:/, 'make_material passes onBanked')   // stoneworks-01: the names are bankNames
   // WIRING (Codex r5 P2-1): the copper kinds' write-ahead is written BEFORE the crafts (copperBalance judges a note that says it)
   assert.match(skills, /if \(!K\.smelt\) \{ note\.crafting = true; writeMatsNote\(bot, note\) \}\s*\n\s*f\.made = await matsCrafts\(/, 'the crafting write-ahead precedes the crafts')
   // WIRING (Codex r6 P2): every attempt keeps the high-water mark of input seen back in the note (recoveryBalance reads it)
   // the gate's DECISION is backSeenTouched (tested on its own); this pins only that the recovery uses it before recording backSeen
   assert.match(skills, /if \(backSeenTouched\(note, drained\) && balNow\.back > \(Number\(note\.backSeen\) \|\| 0\)\) note\.backSeen = balNow\.back/, 'the recovery records backSeen through backSeenTouched')
   const calls = skills.match(/await matsSession\(ctx, \{[^}]*\}/g) ?? []
-  assert.equal(calls.length, 1, 'one session call in make_material')
-  assert.match(calls[0], /\bown: null\b/, 'own: null')
+  // stoneworks-01: two calls -- the ladder fuel's session and the base's planks session; each takes no output of another's
+  assert.equal(calls.length, 2, 'the ladder session and the planks session in make_material')
+  for (const c of calls) assert.match(c, /\bown: null\b/, 'own: null')
 })
