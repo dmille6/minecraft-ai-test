@@ -351,6 +351,9 @@ export function stepwellNext (read, plan, u, { feet = null, skip = new Set(), li
     if (!sealable(k)) return { op: 'stop', why: 'water_outside', at: n }
     // a seal refused twice this visit (skipped) still BLOCKS every dig beside it: the visit ends unsealed (Codex r1 BLOCKER 1)
     if (skip.has(k)) return { op: 'stop', why: 'unsealed', at: n }
+    // a WATERLOGGED block already good for its role (a wall post): a placement there would read confirmed and loop -- unsealed (Claude r2)
+    const e0 = plan.byKey.get(k)
+    if (e0 && cellGood(e0.role, read(...n), read(n[0], n[1] - 1, n[2])) === true) return { op: 'stop', why: 'unsealed', at: n }
     const op = { op: 'place', at: n, role: plan.byKey.get(k)?.role ?? 'seal', why: 'seal' }
     // the bot's own cell: placed from another stand (the visit moves), never skipped past (Codex r1 BLOCKER 1)
     return body.has(k) ? { ...op, own: true } : op
