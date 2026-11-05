@@ -79,8 +79,9 @@ export function cellGood (role, b, below = null) {
     case 'floor': case 'trim': return BUILT_STONE.test(n)
     case 'wall': return BUILT_STONE.test(n) || NATURAL_STONE.test(n)
     case 'body': case 'under': return goodSolid(b, below, false)
+    case 'tread': return goodSolid(b, below, false) && !isFalling(b)
     case 'post': return POST_BLOCK.test(n)
-    case 'light': return LIGHT_OK.test(n)
+    case 'light': case 'dlight': return LIGHT_OK.test(n)
     case 'cut': case 'stand': return isOpen(b) || (replaceable(b) && !isWet(b))
   }
   return false
@@ -210,6 +211,133 @@ export function walkCheck (m, W) {
 
 // ---- the plan (world cells and units) -------------------------------------------------------------------------------------------
 
+// ---- the descent (stepwell-02: the court's portal and the enclosed 2-wide switchback to y 16; Codex's module) ------------------------
+
+/**
+ * THE DESCENT'S BOUNDS. side: the tank side it runs under (2: the side away from the gate; the flights of a two-tier tank are on sides
+ * 0 and 1); bottom: the lowest feet (the iron band); module: the drop of one switchback (two flights of 8 and two landings); landing:
+ * a landing's length along the side. The module (Codex's design, local x along the side from the portal's landing, z across it from
+ * the court side): flight A x 0..7 z 0..1 feet H-1-x; far landing x 8..10 z 0..4 feet H-8; flight B x 7..0 z 3..4 feet H-9..H-16; the
+ * near landing x -3..-1 z 0..4 at the module's top H (the next module's top is H-16); z 2 a solid partition; three air cells over every
+ * tread, two over a landing; every other face of an air cell lined. The PORTAL: the court wall (band T-1's rail ring) opened 2 wide
+ * and 2 high beside the top landing, at the court's feet height. A last flight cut short at `bottom` ends on a 3-long landing.
+ */
+export const DESCENT = Object.freeze({ side: 2, bottom: 16, module: 16, flight: 8, landing: 3 })
+/** THE DESCENT SWITCH -> bool. STEPWELL_DESCENT=on|off; unset = on wherever the stepwell is. Pure. */
+export function descentOn (env = process.env) {
+  const v = String(env?.STEPWELL_DESCENT ?? '').trim().toLowerCase()
+  return !(v === 'off' || v === '0' || v === 'false' || v === 'no')
+}
+/**
+ * THE DESCENT'S CELLS for a tank -> { air, treads, lights, portal, path, bottomFeet } in LOCAL (a, y, r) terms mapped by `at(u, y, v)`.
+ * Pure. `site` = the tank's site (W, T, g) + `descent` = { bottom } (a survey's truncation: the lowest feet it reaches). `path`: the stands
+ * in walking order from the portal down (one lane), for the egress and the walk proof.
+ */
+export function descentCells (site, at) {
+  const W = site.W ?? SW.W, T = site.T ?? SW.tiers, g = site.g
+  const bottom = Math.max(site.descent?.bottom ?? DESCENT.bottom, -60)
+  const side = DESCENT.side
+  const c = (W - 1) / 2
+  const xa0 = c - 1                        // the first step's along coordinate (the top landing at xa0-3 .. xa0-1)
+  const rTop = bandR(T) - 2                // z 0 (the court side) -> r = rTop - z; the court wall (the portal) at r = rTop + 1
+  const H0 = g - SW.tierD * T + 1          // the court's feet
+  const P = (x, y, z) => { const [u, v] = sideUV(W, side, xa0 + x, rTop - z); return at(u, y, v) }
+  const air = [], treads = [], lights = [], path = []
+  const room = (x, z, feet, n) => { for (let i = 0; i < n; i++) air.push(P(x, feet + i, z)); treads.push(P(x, feet - 1, z)) }
+  const landing = (xs, feet, zs = [0, 1, 2, 3, 4]) => { for (const x of xs) for (const z of zs) room(x, z, feet, 2) }
+  // the portal: the court wall opened beside the top landing (x -2, -1), feet and head, on the court's floor level
+  const portal = []
+  for (const x of [-2, -1]) for (const y of [H0, H0 + 1]) { const [u, v] = sideUV(W, side, xa0 + x, rTop + 1); portal.push(at(u, y, v)) }
+  for (const x of [-2, -1]) { const [u, v] = sideUV(W, side, xa0 + x, rTop + 1); treads.push(at(u, H0 - 1, v)); path.push(at(u, H0, v)) }
+  // the court's stands in front of the portal (the way in: they must stay the tank's open cuts -- both engines' r1 BLOCKER)
+  const court = [-2, -1].map(x => { const [u, v] = sideUV(W, side, xa0 + x, rTop + 2); return at(u, H0, v) })
+  let H = H0, bottomFeet = H0
+  landing([-3, -2, -1], H)
+  path.push(P(-1, H, 0))
+  for (;;) {
+    // flight A (x 0..7) down from H
+    let done = false
+    for (let x = 0; x < DESCENT.flight; x++) {
+      const feet = H - 1 - x
+      for (const z of [0, 1]) room(x, z, feet, 3)
+      path.push(P(x, feet, 0))
+      bottomFeet = feet
+      // the terminal landing stays in the flight's own lane (z 0-1): across it, the module above's flight B runs low here
+      if (feet <= bottom) { landing([x + 1, x + 2, x + 3], feet, [0, 1]); path.push(P(x + 3, feet, 0)); lights.push(P(x + 3, feet, 1)); done = true; break }
+    }
+    if (done) break
+    landing([8, 9, 10], H - 8)
+    path.push(P(9, H - 8, 2)); lights.push(P(10, H - 8, 2))
+    for (let i = 0; i < DESCENT.flight; i++) {
+      const x = 7 - i, feet = H - 9 - i
+      for (const z of [3, 4]) room(x, z, feet, 3)
+      path.push(P(x, feet, 4))
+      bottomFeet = feet
+      if (feet <= bottom) { landing([x - 1, x - 2, x - 3], feet, [3, 4]); path.push(P(x - 3, feet, 4)); lights.push(P(x - 3, feet, 3)); done = true; break }
+    }
+    if (done) break
+    H -= DESCENT.module
+    landing([-3, -2, -1], H)
+    path.push(P(-2, H, 2)); lights.push(P(-3, H, 2))
+  }
+  // a landing's torch cell (its far end, off the path) is the torch's, never a cut: left standing when the bag has no torch
+  const lk = new Set(lights.map(kOf))
+  return { air: air.filter(a => !lk.has(kOf(a))), treads, lights, portal, path, bottomFeet, court }
+}
+
+/**
+ * THE DESCENT'S SURVEY -> { ok, bottom, why, hazard, counts }. Pure over read. The descent for `site` down to DESCENT.bottom; a lava cell
+ * in or beside its air, or water IN its air, ends it above: the bottom rises to 3 above the highest such cell and the descent is
+ * planned again (water beside the air is sealed by the build: a record cell). `ok` false when no flight is left above the hazard or a
+ * cell is unread (`unknown`: ask again later). counts: cave (air in its lining), water (beside), ore (in its air: the builder's loot).
+ */
+export function surveyDescent (read, site) {
+  const H0 = site.g - SW.tierD * (site.T ?? SW.tiers) + 1
+  let bottom = DESCENT.bottom
+  for (let round = 0; round < 8; round++) {
+    if (bottom > H0 - 2) return { ok: false, why: 'no_room', bottom }
+    const P = planTank({ ...site, descent: { bottom } })
+    const D = P.descent
+    const airK = new Set([...D.air, ...D.portal].map(kOf))
+    const counts = { cave: 0, water: 0, ore: 0, cells: airK.size }
+    let hazard = null
+    for (const a of [...D.air, ...D.portal]) {
+      const b = read(...a)
+      if (!b) return { ok: false, why: 'unknown', bottom }
+      if (isLava(b) || isWet(b)) { hazard = Math.max(hazard ?? -999, a[1]); continue }
+      if (ORE.test(nm(b))) counts.ore++
+      for (const [dx, dy, dz] of N6) {
+        const n = [a[0] + dx, a[1] + dy, a[2] + dz]
+        if (airK.has(kOf(n))) continue
+        const nb = read(...n)
+        if (!nb) return { ok: false, why: 'unknown', bottom }
+        if (isLava(nb)) { hazard = Math.max(hazard ?? -999, a[1]); continue }
+        if (isWet(nb)) counts.water++
+        else if (isOpen(nb) && n[1] < site.g - SW.tierD * (site.T ?? SW.tiers)) counts.cave++
+      }
+    }
+    if (hazard == null) return { ok: true, bottom, why: null, counts, bottomFeet: D.bottomFeet }
+    bottom = hazard + 3
+  }
+  return { ok: false, why: 'hazards', bottom }
+}
+/**
+ * THE RECORD UPGRADED WITH ITS DESCENT (stepwell-02: a record sited by stepwell-01 had none) -> the next generation | null (nothing to
+ * do). Pure. The tank's cells and cuts kept as they are (the same cut-top rule), the felling's clears, trees and replants carried; the
+ * descent's cells and cuts added; the portal's wall cells become cuts; the record open again until the descent stands.
+ */
+export function stepwellWithDescent (rec, sd, { now = Date.now() } = {}) {
+  if (!rec || rec.site?.descent || !sd?.ok || rec.state === 'stopped') return null
+  const site = { ...rec.site, descent: { bottom: sd.bottom } }
+  const listed = new Set((rec.clear ?? []).filter(c => c.kind === 'cut').map(c => kOf(c.at)))
+  const dk = new Set((() => { const P0 = planTank(site); return [...P0.descent.air, ...P0.descent.portal].map(kOf) })())
+  const P = planTank(site, { cutKeep: c => listed.has(kOf(c)) || dk.has(kOf(c)) })
+  const fell = (rec.clear ?? []).filter(c => c.kind === 'tree' || c.kind === 'leaves')
+  const clear = [...fell.filter(c => !P.byKey.has(kOf(c.at))), ...P.cut.map(c => ({ at: c.at, kind: 'cut', t: c.t, ...(c.d ? { d: 1 } : {}) }))]
+  return { ...rec, site, cells: P.cells.map(e => ({ at: e.at, role: e.role, t: e.t, ...(e.d ? { d: 1 } : {}), ...(e.role === 'stand' ? { seg: FELL_SEG } : {}) })), clear,
+    descent: { bottom: sd.bottom, bottomFeet: sd.bottomFeet, at: now, cells: dk.size, survey: sd.counts }, structure_complete: false, state: 'open', descent_built: false }
+}
+
 /** The origin (local 0,0) of a W-wide tank centred on world (cx, cz) facing `away`. Pure. */
 export function originFor (cx, cz, away, W = SW.W) {
   const c = (W - 1) / 2
@@ -231,7 +359,7 @@ export function planTank (site, { cutKeep = null } = {}) {
   const top = g + SW.groundUp
   const cells = [], cut = []
   const byKey = new Map()
-  const add = (c, role, t) => { const k = kOf(c); if (byKey.has(k)) return; const e = { at: c, role, t, y: c[1] }; byKey.set(k, e); cells.push(e) }
+  const add = (c, role, t, d = false) => { const k = kOf(c); if (byKey.has(k)) return; const e = { at: c, role, t, y: c[1], ...(d ? { d: true } : {}) }; byKey.set(k, e); cells.push(e) }
   const get = (u, v) => cols.get(`${u},${v}`)
   for (const col of cols.values()) {
     // the top: built stone (floor on a walkway, trim under a post); its post and light
@@ -252,14 +380,42 @@ export function planTank (site, { cutKeep = null } = {}) {
     // UNDER: the cell under a top (a cave there would leave a floor over a void): any good solid
     add(at(col.u, col.s - 1, col.v), 'under', col.t)
   }
+  // THE DESCENT (stepwell-02, site.descent): its portal opens the court wall (those wall cells become cuts), its air cells are cuts of
+  // the tier after the tank's (T + 1), its treads `tread`, every other face of its air lined (`wall`: natural stone kept), its torches
+  // `dlight` on the landings (a torch on the floor: optional, as the tank's)
+  let D = null
+  const dAir = new Set()
+  if (site.descent) {
+    D = descentCells({ ...site, W, T }, at)
+    const td = T + 1
+    const open = [...D.air, ...D.portal]
+    for (const a of open) dAir.add(kOf(a))
+    for (const k of dAir) { if (byKey.has(k)) { const e = byKey.get(k); byKey.delete(k); cells.splice(cells.indexOf(e), 1) } }
+    for (const tc of D.treads) if (!dAir.has(kOf(tc))) add(tc, byKey.get(kOf(tc))?.role ?? 'tread', td, true)
+    for (const l of D.lights) add(l, 'dlight', td, true)   // before the lining: a torch cell is never lined
+    // the tank's columns by world (x, z): a neighbour above its column's top is one of the tank's own CUTS (the court in front of the
+    // portal above all) -- never lined (Codex + Claude r1 BLOCKER: the lining walled the portal shut from the court)
+    const colAt = new Map()
+    for (const col of cols.values()) { const w = at(col.u, 0, col.v); colAt.set(`${w[0]},${w[2]}`, col) }
+    for (const a of open) {
+      for (const [dx, dy, dz] of N6) {
+        const n = [a[0] + dx, a[1] + dy, a[2] + dz]
+        if (dAir.has(kOf(n)) || n[1] > g) continue
+        const col = colAt.get(`${n[0]},${n[2]}`)
+        if (col && n[1] > col.s) continue
+        add(n, 'wall', td, true)
+      }
+    }
+  }
   for (const col of cols.values()) {
     for (let y = col.s + 1; y <= top; y++) {
       const c = at(col.u, y, col.v)
-      if (byKey.has(kOf(c))) continue
+      if (byKey.has(kOf(c)) || dAir.has(kOf(c))) continue
       if (cutKeep && !cutKeep(c)) continue
       cut.push({ at: c, t: y > g ? 1 : tierOfY(g, y) })
     }
   }
+  if (D) for (const a of [...D.air, ...D.portal]) { if (byKey.has(kOf(a)) || (cutKeep && !cutKeep(a))) continue; cut.push({ at: a, t: T + 1, d: true }) }
   // THE FELLING STANDS (site.stands, the siting's plotPrep staircases beside tall trunks): record cells while the trees stand, taken
   // back down by the tank's own cut of their layer (`stand` cells dig as `foreign`: they are record cells, never clears)
   for (const at of site.stands ?? []) {
@@ -272,28 +428,75 @@ export function planTank (site, { cutKeep = null } = {}) {
   }
   const cutKeys = new Set(cut.map(c => kOf(c.at)))
   // UNITS, top down: each layer's cuts, then the faces at that height, the tops there (and the cell under each), posts, lights
-  const minY = Math.min(...[...cols.values()].map(c => c.s))
+  const minY = Math.min(...[...cols.values()].map(c => c.s), ...(D ? D.treads.map(q => q[1]) : []))
   const units = []
-  for (let y = top; y >= minY; y--) {
+  const tankMin = Math.min(...[...cols.values()].map(c => c.s))
+  for (let y = top; y >= tankMin; y--) {
     const u = { y, t: y > g ? 1 : tierOfY(g, y), cut: [], faces: [], tops: [], under: [], posts: [], lights: [] }
-    for (const c of cut) if (c.at[1] === y) u.cut.push(c.at)
+    for (const c of cut) if (c.at[1] === y && !c.d) u.cut.push(c.at)
     for (const e of cells) {
+      if (e.d) continue   // the descent's cells are its own units (below)
       if (e.y === y && e.role === 'stand') u.cut.push(e.at)
       else if (e.y === y && (e.role === 'wall' || e.role === 'body')) u.faces.push(e.at)
-      else if (e.y === y && (e.role === 'floor' || e.role === 'trim')) u.tops.push(e.at)
+      else if (e.y === y && (e.role === 'floor' || e.role === 'trim' || e.role === 'tread')) u.tops.push(e.at)
+      else if (e.y === y + 1 && e.role === 'dlight') u.lights.push(e.at)
       else if (e.y === y - 1 && e.role === 'under') u.under.push(e.at)
       else if (e.y === y + 1 && e.role === 'post') u.posts.push(e.at)
       else if (e.y === y + 2 && e.role === 'light') u.lights.push(e.at)
     }
     if (u.cut.length || u.faces.length || u.tops.length || u.under.length || u.posts.length || u.lights.length) units.push(u)
   }
+  // THE DESCENT'S UNITS (stepwell-02), after the tank's: one STATION per tread -- its air cells (top down), the lining beside them not
+  // claimed by an earlier station, its tread, a torch on it -- in the order a bot reaches them from the court (breadth first over
+  // stations side by side within one step up or down, from the portal's): each station is cut from the one before it, as the town
+  // stair's steps are (a layer order cannot be: a tunnel's far end has no stand until its near end is open)
+  if (D) {
+    const airK = new Set([...D.air, ...D.portal].map(kOf))
+    const lightAt = new Map(D.lights.map(l => [k3(l[0], l[1] - 1, l[2]), l]))
+    const lightK = new Set(D.lights.map(kOf))
+    const stations = D.treads.map(tc => {
+      const a = []
+      // the column's air over the tread (a landing's torch cell is passed over: the head cell above it is this station's)
+      for (let y = tc[1] + 1; airK.has(k3(tc[0], y, tc[2])) || lightK.has(k3(tc[0], y, tc[2])); y++) if (airK.has(k3(tc[0], y, tc[2]))) a.push([tc[0], y, tc[2]])
+      return { tread: tc, air: a, feet: tc[1] + 1, k: kOf(tc) }
+    }).filter(q => q.air.length || lightAt.has(q.k))
+    const portalK = new Set(D.portal.map(p => k3(p[0], p[1] - 1, p[2])))
+    const seen = new Set(), order = []
+    const q = stations.filter(st => portalK.has(st.k))
+    for (const st of q) seen.add(st.k)
+    while (q.length) {
+      const st = q.shift(); order.push(st)
+      for (const o of stations) {
+        if (seen.has(o.k) || Math.abs(o.tread[0] - st.tread[0]) + Math.abs(o.tread[2] - st.tread[2]) !== 1 || Math.abs(o.feet - st.feet) > 1) continue
+        seen.add(o.k); q.push(o)
+      }
+    }
+    for (const st of stations) if (!seen.has(st.k)) order.push(st)   // unreachable (the proof refuses such a plan): last
+    const claimed = new Set()
+    for (const st of order) {
+      const u = { y: st.feet, t: T + 1, station: st.k, cut: [...st.air].sort((a, b) => b[1] - a[1]), faces: [], tops: [], under: [], posts: [], lights: [] }
+      for (const a of st.air) for (const [dx, dy, dz] of N6) {
+        const n = [a[0] + dx, a[1] + dy, a[2] + dz], nk = kOf(n)
+        if (claimed.has(nk) || airK.has(nk)) continue
+        const e = byKey.get(nk)
+        if (e && e.d && e.role === 'wall') { claimed.add(nk); u.faces.push(n) }
+      }
+      const te = byKey.get(st.k)
+      if (te && te.d) { claimed.add(st.k); u.tops.push(st.tread) }
+      if (lightAt.has(st.k)) u.lights.push(lightAt.get(st.k))
+      units.push(u)
+    }
+    // any lining no station claimed (a corner reached only diagonally) goes with the last station
+    const rest = cells.filter(e => e.d && e.role === 'wall' && !claimed.has(kOf(e.at)))
+    if (rest.length && units.length) units.at(-1).faces.push(...rest.map(e => e.at))
+  }
   // a stable sweep order inside a unit (nearest the flight first, then by row): never the order of a Map
-  for (const u of units) for (const k of ['cut', 'faces', 'tops', 'under', 'posts', 'lights']) u[k].sort((a, b) => a[0] - b[0] || a[2] - b[2] || b[1] - a[1])
+  for (const u of units) for (const k of ['cut', 'faces', 'tops', 'under', 'posts', 'lights']) if (!u.station) u[k].sort((a, b) => a[0] - b[0] || a[2] - b[2] || b[1] - a[1])
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
   for (const col of cols.values()) { const c = at(col.u, 0, col.v); x0 = Math.min(x0, c[0]); x1 = Math.max(x1, c[0]); z0 = Math.min(z0, c[2]); z1 = Math.max(z1, c[2]) }
   const cc = (W - 1) / 2
   const exit = at(cc, Number.isInteger(site.exitY) ? site.exitY : g + 1, -1)   // Codex r2: the exit's feet on the surveyed gate-front floor
-  return { site: { ...site, W, T }, W, T, g, cols, cells, byKey, cut, cutKeys, sealKeys: cutKeys, units, minY, top, box: [x0, z0, x1, z1], exit }
+  return { site: { ...site, W, T }, W, T, g, cols, cells, byKey, cut, cutKeys, sealKeys: cutKeys, units, minY, top, box: [x0, z0, x1, z1], exit, descent: D }
 }
 /** The tier a cut at height y (at or below g) belongs to. Pure. */
 export function tierOfY (g, y) { return Math.max(1, Math.ceil((g - y + 1) / SW.tierD)) }
@@ -301,7 +504,7 @@ export function tierOfY (g, y) { return Math.max(1, Math.ceil((g - y + 1) / SW.t
 // ---- what a unit needs next --------------------------------------------------------------------------------------------------
 
 /** The roles a placement may fill in a cell: a sealed liquid in a CUT cell is placed too (its dig follows: the cut's own row). */
-const PLACE_ROLE = { floor: 'floor', trim: 'trim', wall: 'wall', body: 'body', under: 'under', post: 'post', light: 'light' }
+const PLACE_ROLE = { floor: 'floor', trim: 'trim', wall: 'wall', body: 'body', under: 'under', post: 'post', light: 'light', tread: 'tread', dlight: 'dlight' }
 /** Is cell `c` done for its role? -> true | false | null. Pure over read. */
 export function cellDone (read, plan, c) {
   const k = kOf(c)
@@ -397,6 +600,7 @@ export function stepwellNext (read, plan, u, { feet = null, skip = new Set(), li
       // a post or a light goes on what is under it: wait for that first (its own unit's top, or the post)
       if (e.role === 'post' && !cellGood('trim', below)) continue
       if (e.role === 'light' && !cellGood('post', below)) continue
+      if (e.role === 'dlight' && !cellGood('tread', below)) continue
       if (isOpen(b) || replaceable(b) || isWet(b)) return { op: 'place', at: c, role: PLACE_ROLE[e.role], why }
       if (isLava(b)) return { op: 'stop', why: 'lava', at: c }
       // a solid that is not good: dug first (its drop is the bot's), then placed on the next pass -- surveyed like a cut
@@ -613,9 +817,9 @@ export function stepwellRecord (sv, { home, seed = 0, now = Date.now(), by = nul
   const deep = g - SW.tierD * (sv.site.tiersDry ?? plan.T) - 2
   return {
     v: SW.v, blueprint: STEPWELL_BLUEPRINT, plot: STEPWELL_PLOT, home,
-    site: { origin: sv.site.origin, away: sv.site.away, g, W: plan.W, T: plan.T, centre: sv.site.centre, tiersDry: sv.site.tiersDry ?? plan.T, stands, cutTop: g + CUT_OPEN, ...(Number.isInteger(sv.site.exitY) ? { exitY: sv.site.exitY } : {}) },
+    site: { origin: sv.site.origin, away: sv.site.away, g, W: plan.W, T: plan.T, centre: sv.site.centre, tiersDry: sv.site.tiersDry ?? plan.T, stands, cutTop: g + CUT_OPEN, ...(Number.isInteger(sv.site.exitY) ? { exitY: sv.site.exitY } : {}), ...(sv.site.descent ? { descent: sv.site.descent } : {}) },
     seed, palette,
-    cells: plan.cells.map(e => ({ at: e.at, role: e.role, t: e.t, ...(e.role === 'stand' ? { seg: FELL_SEG } : {}) })),
+    cells: plan.cells.map(e => ({ at: e.at, role: e.role, t: e.t, ...(e.d ? { d: 1 } : {}), ...(e.role === 'stand' ? { seg: FELL_SEG } : {}) })),
     clear: fellClear(plan, fell),
     trees: (fell?.trees ?? []).map(t => ({ base: t.base, name: t.name, top: t.top })),
     replant: (fell?.replant ?? []).map((r, i) => ({ ...r, tree: i })),
@@ -645,7 +849,7 @@ export function fellClear (plan, fell) {
     seen.add(k)
     out.push({ at: c.at, kind: c.kind, name: c.name, ...(c.tree != null ? { tree: c.tree } : {}), t: 0 })
   }
-  for (const c of plan.cut) if (!seen.has(kOf(c.at))) out.push({ at: c.at, kind: 'cut', t: c.t })
+  for (const c of plan.cut) if (!seen.has(kOf(c.at))) out.push({ at: c.at, kind: 'cut', t: c.t, ...(c.d ? { d: 1 } : {}) })
   return out
 }
 /**
@@ -689,11 +893,44 @@ export function stepwellDamaged (read, rec, { lights = false } = {}) {
   const w = firstUndoneUnit(read, planOfRecord(rec), { lights })
   return w && !w.unknown ? w.unit.y : null
 }
+/** IS THE DESCENT BUILT? -> true when the plan has one and every cut and cell of it (tier T + 1, torches aside) reads done. Pure. */
+export function descentDone (read, plan) {
+  if (!plan.descent) return false
+  return plan.cells.every(e => !e.d || e.role === 'dlight' || cellDone(read, plan, e.at) === true) && plan.cut.every(c => !c.d || cellDone(read, plan, c.at) === true)
+}
+/**
+ * THE DESCENT'S WALK PROOF -> { ok, problems }. Pure over the plan alone (the world as built): every stand of the path has a tread under
+ * it and two air cells over it; consecutive stands are within 1 up or down and at most 3 apart along the lane; a stand a step BELOW
+ * the next one (an ascent's jump) has a third air cell. The path starts at the portal and ends on the bottom landing.
+ */
+export function descentCheck (plan) {
+  const D = plan.descent
+  if (!D) return { ok: false, problems: ['no descent'] }
+  const air = new Set([...D.air, ...D.portal].map(kOf))
+  const solid = new Set(D.treads.map(kOf))
+  const problems = []
+  // THE WAY IN: the court's feet and head in front of the portal are the tank's open cuts, never a record cell
+  for (const c of D.court ?? []) for (const y of [c[1], c[1] + 1]) {
+    const k = k3(c[0], y, c[2])
+    if (plan.byKey.has(k) || !plan.cutKeys.has(k)) problems.push(`the way in is shut at ${k}`)
+  }
+  if (!(D.court ?? []).length) problems.push('no way in')
+  D.path.forEach((p, i) => {
+    if (!solid.has(k3(p[0], p[1] - 1, p[2]))) problems.push(`no tread under ${kOf(p)}`)
+    if (!air.has(kOf(p)) || !air.has(k3(p[0], p[1] + 1, p[2]))) problems.push(`no room at ${kOf(p)}`)
+    const q = D.path[i + 1]
+    if (!q) return
+    if (Math.abs(q[1] - p[1]) > 1) problems.push(`step ${q[1] - p[1]} at ${kOf(p)}`)
+    if (Math.abs(q[0] - p[0]) + Math.abs(q[2] - p[2]) > 4) problems.push(`gap at ${kOf(p)}`)
+    if (q[1] < p[1] && !air.has(k3(q[0], q[1] + 2, q[2]))) problems.push(`no jump room at ${kOf(q)}`)
+  })
+  return { ok: !problems.length, problems }
+}
 /** The tiers built -> [t]: tier t stands when every record cell of bands 0..t and every cut of tiers 1..t reads done. Pure. */
 export function tiersDone (read, plan) {
   const out = []
   for (let t = 1; t <= plan.T; t++) {
-    const ok = plan.cells.every(e => e.t > t || e.role === 'light' || cellDone(read, plan, e.at) === true) && plan.cut.every(c => c.t > t || cellDone(read, plan, c.at) === true)
+    const ok = plan.cells.every(e => e.d || e.t > t || e.role === 'light' || cellDone(read, plan, e.at) === true) && plan.cut.every(c => c.d || c.t > t || cellDone(read, plan, c.at) === true)
     if (!ok) break
     out.push(t)
   }
