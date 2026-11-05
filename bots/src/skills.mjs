@@ -133,7 +133,7 @@ import { ENCHANTSHOP, COTTAGE as COTTAGE_SW } from './shop.mjs'   // enchantshop
 import { ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS, FIT_VISIT_MS, GATE_ROW_MS, enchantOpening, enchantSitingPlan, enchantRecordOf, enchantVisitOpts,
          ENCHANT_STATION_FIND, ENCHANT_STATION_BAN_MS, fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
 import { COTTAGE_PLOT, COTTAGE_EARTH, cottageOpening, cottageSitingPlan, cottageStyle, styledBlueprint, cottageRecordOf, cottageVisitOpts, isCottageBlueprint, recordPalette } from './cottage.mjs'   // townstyle-01
-import { woodPartsPlan, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
+import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
@@ -177,7 +177,7 @@ import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './b
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
-import { runVisit, cellDone as buildCellDone, workableSeg, STUCK_FORGET_MS as BUILD_STUCK_FORGET_MS, digReachFrom } from './buildrun.mjs'
+import { runVisit, cellDone as buildCellDone, workableSeg, segComplete as buildSegComplete, STUCK_FORGET_MS as BUILD_STUCK_FORGET_MS, digReachFrom } from './buildrun.mjs'
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
@@ -19708,7 +19708,11 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null) {
     const zonesNow = () => [...c.zones, ...recordZones(projectHeads().filter(x => x.plot !== COTTAGE_PLOT).map(x => x.head.rec)), ...hallPadZones(plan), ...townMarkerZones()]
     const sp = cottageSitingPlan(plan.home, o.plot, zonesNow())
     if (!sp) return { ok: false, why: 'no_plan', tried }
-    const cs = cottageStyle(matsTownStock(bot)?.stock ?? {}, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })
+    // the style is chosen from the town's KNOWN stock, once: an index that knows no logs yet would pick oak blind and the walls would wait
+    // for oak forever (Paper skill e2e 11-05: a town of spruce, an empty index, an oak cottage stuck `no_material post`)
+    const stock = matsTownStock(bot)?.stock ?? null
+    if (!stock || !Object.entries(stock).some(([n, v]) => /_log$/.test(n) && Number(v) > 0)) return { ok: false, why: 'stock_unknown', tried }
+    const cs = cottageStyle(stock, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })
     const bp = styledBlueprint(blueprintOf(cs.id), cs.style)
     const s = await siteBlueprintAsync(planReader(bot), plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: COTTAGE_PLOT,
       earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
@@ -20228,7 +20232,11 @@ async function buildShopVisit (ctx, args, signal) {
         if (got > 0) plankCraft = { item: pf.planks, count: got * 4 }
       }
       const h2 = heldMap(bot)
-      const wp = woodPartsPlan(want, { have: n => (h2[n] ?? 0) - (keep[n] ?? 0) })
+      // ONLY THE PARTS OF THE SEGMENTS WORKABLE NOW (every dependency complete: Paper skill e2e 11-05 -- crafting the whole roof at the
+      // first visit turned the walls' planks into stairs, and the walls stopped `no_material` with 44 stairs in the bag)
+      const open = new Set((rec.segments ?? []).filter(sg => (sg.deps ?? []).every(d => buildSegComplete(read, rec, pal, d)) && !buildSegComplete(read, rec, pal, sg.seg)).map(sg => sg.seg))
+      const partBill = billOf({ cells: (rec.cells ?? []).filter(c => open.has(c.seg)) }, pal, read, { done: buildCellDone, inTown: billInTown(town), planks })
+      const wp = woodPartsPlan(partBill, { have: n => (h2[n] ?? 0) - (keep[n] ?? 0) })
       if (wp) {
         for (const [pl, n] of Object.entries(wp.planks)) {
           // the bag's spare planks of the species beyond what the cells themselves want (the walls' planks are the bill's)
@@ -20253,7 +20261,13 @@ async function buildShopVisit (ctx, args, signal) {
         if (lack > 0) { try { await craft(ctx, { item, count: lack }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
       }
       // townstyle-01: the parts' species planks, then the parts (a part the planks did not cover is named by the visit's no_material)
-      for (const pc of partCrafts) { try { await craft(ctx, pc, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+      // each part crafted only as far as its species' planks in the bag go (Paper skill e2e 11-05: the reserve let 5 logs through, a
+      // 44-stair craft then failed whole and the roof waited with 20 planks in the bag): whole recipes, the rest the next visit's
+      for (const pc0 of partCrafts) {
+        const pc = woodPartCraftable(pc0, n => countItem(bot, n))
+        if (!pc) continue
+        try { await craft(ctx, pc, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      }
     } finally {
       // booked on every exit, an abort mid-craft included
       const postCraft = heldMap(bot)
