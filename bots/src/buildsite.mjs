@@ -33,7 +33,7 @@
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { isSolid, isPassable, isLiquid, isTreeish, isFurniture, replaceableCell, sectorOf, keepouts, boxMeetsZones, cellInZones, rot } from './townplan.mjs'
-import { worldState, orientAim } from './townstyle.mjs'
+import { worldState, orientAim, slabMerges } from './townstyle.mjs'
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const k2 = (x, z) => `${x},${z}`
@@ -469,6 +469,8 @@ export function stepFor (read, home, cell, nodes, domain = null, want = null) {
     // orientAim: a top face never makes a top half, a log's axis is its face's); the step carries the click's `aim` (yaw, cursor)
     const aim = want?.ws ? orientAim(want.name, want.ws, normal) : null
     if (want?.ws && !aim) continue
+    // townstyle-02: never a click that would turn its SUPPORT into a double slab (townstyle.mjs slabMerges)
+    if (aim && slabMerges(want.name, read(...sup), normal, aim.cursor[1])) continue
     // townstyle-01: A REACH-ONLY CELL (`want.blind`, a pitched roof's upper courses: Paper places on reach alone -- the blind scene of
     // sandbox/townstyle/orient-proof.mjs): the face need not be on the eye's side nor in its sight; the reach rule stands
     const blind = !!want?.blind
@@ -537,7 +539,7 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
       if (pick < 0) return { ok: false, why: 'no_step', detail: `${sg.seg} ${left.length} left, first ${left[0].role}@${left[0].at.join(',')}`, segments: segOut }
       fresh = false
       const c = left.splice(pick, 1)[0]
-      over.set(k3(...c.at), Object.freeze({ name: blockFor(bp, c.role), boundingBox: ROLE_BOX[c.role] ?? 'block' }))
+      over.set(k3(...c.at), Object.freeze({ name: blockFor(bp, c.role), boundingBox: ROLE_BOX[c.role] ?? 'block', ...(c.ws ? { props: c.ws } : {}) }))   // townstyle-02: a placed state cell's state (a slab's half)
       out.push({ at: c.at, role: c.role, seg: c.seg, stand: step.stand, support: step.support, face: step.face, order: order++, ...(c.ws ? { ws: c.ws } : {}), ...(c.blind ? { blind: true } : {}) })
     }
     segOut.push({ seg: sg.seg, layer: sg.layer, deps: sg.deps, cells: mine.length, walks, stands: new Set(out.filter(o => o.seg === sg.seg).map(o => k3(...o.stand))).size })

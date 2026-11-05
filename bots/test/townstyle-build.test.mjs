@@ -9,7 +9,7 @@ const C = await import('../src/cottage.mjs')
 const BB = await import('../src/buildbot.mjs')
 const F = await import('./helpers/buildfake.mjs')
 const { B, R, PJ, G, HOME, k3, withMutant } = F
-const { STYLE, sited, vanillaBot, COTTAGE_KIT, buildCottage, buildWithOneBadClick, withSrcMutant, siteWith, vanilla } = await import('./helpers/townstylefake.mjs')
+const { STYLE, sited, vanillaBot, COTTAGE_KIT, buildCottage, buildWithOneBadClick, withSrcMutant, siteWith, vanilla, kitFor } = await import('./helpers/townstylefake.mjs')
 
 let pass = 0, fail = 0
 const t = async (name, fn) => {

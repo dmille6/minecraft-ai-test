@@ -131,6 +131,21 @@ export function orientAim (name, ws, face) {
   return plain
 }
 /**
+ * WOULD THIS CLICK MERGE INTO ITS SUPPORT? -> bool. Pure. A slab held against a SUPPORT that is the same slab, half full, replaces the
+ * SUPPORT (vanilla SlabBlock.canBeReplaced: a bottom slab clicked on its top face or on a side above its middle, a top slab on its
+ * underside or a side below its middle) -- the support becomes a double slab and the target cell stays air (LIVE Paper 11-05, hall@2's
+ * 1:2 roof: 52 reorient digs, the roof edge never finished). Unknown support properties: true (refused: never guessed).
+ */
+export function slabMerges (held, support, face, cursorY) {
+  if (!SLAB.test(String(held ?? '')) || nm(support) !== String(held)) return false
+  const t = propsOf(support)?.type
+  if (t === 'double') return false
+  if (t !== 'bottom' && t !== 'top') return true
+  const side = face[1] === 0
+  if (t === 'bottom') return face[1] > 0 || (side && cursorY > 0.5)
+  return face[1] < 0 || (side && cursorY <= 0.5)
+}
+/**
  * IS THE CELL'S STATE RIGHT? -> bool. Pure. `props` the block's properties as the world reports them (prismarine-block getProperties:
  * booleans as booleans, the rest strings); `ws` the world state the cell names. Every named property must read the same; the ones it
  * does not name (a stair's shape, waterlogged) are the server's. No state named: true.
@@ -402,4 +417,129 @@ export function woodPartCraftable (pc, held = () => 0) {
   const part = WOOD_PART[m[2]]
   const times = Math.min(Math.ceil((Number(pc.count) || 0) / part.makes), Math.floor((Number(held(`${m[1]}_planks`)) || 0) / part.planks))
   return times > 0 ? { item: pc.item, count: times * part.makes } : null
+}
+
+// ---- 4. RESTYLED GENERATIONS OF THE STANDING BLUEPRINTS (townstyle-02) ---------------------------------------------------------
+/**
+ * A FLAT-ROOFED BLUEPRINT RE-ROOFED -> a new blueprint object (`id`). Pure. Everything at y <= yTop - 1 stays exactly as it was (pad,
+ * ring, walls, windows, chests, stations, lights, the doorway); at yTop the WALL LINE's course stays (the eaves become the walls' top
+ * course) and the old flat roof's inner cells go; above it a pitched roof over the wall box:
+ *   form 'gable'  gableRoof: 45-degree stairs, a slab ridge (spans up to 7 inside the walls: the workshop, the cottage)
+ *   form 'slab'   slabRoof: the 1:2 slab roof (the halls: their 11-13 spans stay in reach from the floor)
+ * the ridge along the LONGER side; one block of overhang; the gable ends filled; every cell from yTop up `blind` (reach-only: the
+ * cottage's rule, Paper 147/147). Segments: the old ones up to the walls, then gable -> roof-edge -> roof-inner, then the old fit-out
+ * and any old segment that depended on the roof (copper-lintel) after roof-inner. The wall box is read from the cells (`wallRoles`).
+ */
+export const WALL_ROLES = Object.freeze(['wall', 'window', 'course', 'corner', 'copper', 'post'])
+export const ROOF_ROLES_OLD = Object.freeze(['roof', 'trim', 'eave'])
+export function restyleRoof (bp, { id, form = 'slab', yTop = 3, over = 1, ridge = null, wallRoles = WALL_ROLES, keepFlat = false } = {}) {
+  const walls = bp.cells.filter(c => c.y === yTop - 1 && wallRoles.includes(c.role))
+  const box = { u0: Math.min(...walls.map(c => c.u)), u1: Math.max(...walls.map(c => c.u)), v0: Math.min(...walls.map(c => c.v)), v1: Math.max(...walls.map(c => c.v)) }
+  const onLine = c => c.u === box.u0 || c.u === box.u1 || c.v === box.v0 || c.v === box.v1
+  // townstyle-03 (`keepFlat`, THE RETROFIT): every old cell stays where and what it is -- the flat roof becomes the CEILING under the new
+  // roof (nothing dug, nothing the contents or the doors depend on changes); its segments are renamed `ceiling` (complete in the world)
+  const keep = keepFlat ? bp.cells : bp.cells.filter(c => c.y < yTop || (c.y === yTop && onLine(c) && c.u >= box.u0 && c.u <= box.u1 && c.v >= box.v0 && c.v <= box.v1))
+  // the wall line's top course keeps its role (eave / copper / trim) but joins its wall's segment (the old roof-edge goes away)
+  const sideSeg = c => (c.v === box.v0 ? 'wall-F' : c.v === box.v1 ? 'wall-B' : c.u === box.u0 ? 'wall-L' : 'wall-R')
+  const kept = keep.map(c => (['roof-edge', 'roof-inner'].includes(c.seg) && (keepFlat || c.y === yTop) ? { ...c, seg: keepFlat ? 'ceiling' : sideSeg(c) } : { ...c }))
+  const r = ridge ?? ((box.u1 - box.u0) >= (box.v1 - box.v0) ? 'u' : 'v')
+  // the new roof's roles never reuse an old one (`roof` is the flat roof's planks in every @1 blueprint: a retrofit keeps those cells)
+  const roof = (form === 'gable' ? gableRoof(box, yTop, { ridge: r, over, stairRole: 'roofstair' }) : slabRoof(box, yTop, { ridge: r, over }))
+    .filter(c => !kept.some(k => k.u === c.u && k.v === c.v && k.y === c.y))
+  const cells = [...kept, ...roof]
+  for (const c of keepFlat ? roof : cells) if (c.y >= yTop) c.blind = true
+  const segNames = new Set(cells.map(c => c.seg))
+  const oldSegs = bp.segments.filter(s => segNames.has(s.seg) && !['roof-edge', 'roof-inner'].includes(s.seg))
+  const wallSegs = oldSegs.filter(s => /^wall-|^ring$|^pad$|^copper-trim$/.test(s.seg)).map(s => s.seg)
+  const after = oldSegs.filter(s => !wallSegs.includes(s.seg))
+  const ceiling = keepFlat ? [{ seg: 'ceiling', layer: 4, deps: wallSegs.filter(s => s !== 'pad') }] : []
+  const segments = [
+    ...oldSegs.filter(s => wallSegs.includes(s.seg)),
+    ...ceiling,
+    { seg: 'gable', layer: 5, deps: keepFlat ? ['ceiling'] : wallSegs.filter(s => s !== 'pad') },
+    { seg: 'roof-edge', layer: 6, deps: ['gable'] },
+    { seg: 'roof-inner', layer: 7, deps: ['roof-edge'] },
+    ...after.map(s => ({ ...s, deps: [...new Set([...(s.deps ?? []).filter(d => !['roof-edge'].includes(d)), 'roof-inner'])] })),
+  ].filter(s => s.seg !== 'gable' || cells.some(c => c.seg === 'gable'))
+  const palette = {
+    ...bp.palette,
+    roofstair: ['%roof_stairs'], ridge: ['%roof_slab'], roofslab: ['%roof_slab'], ridgebeam: ['%roof_planks', '$planks'], gable: ['%wood_planks', '$planks'],
+  }
+  return { ...bp, id, cells, segments, palette, structural: [...new Set([...(bp.structural ?? []), 'roofstair', 'ridge', 'roofslab', 'ridgebeam', 'gable'])],
+    note: `townstyle-02: ${bp.id} re-roofed (${form}, ridge along ${r}) by bots/scripts/make-townstyle.mjs (townstyle.mjs restyleRoof); do not edit by hand` }
+}
+
+/**
+ * THE TOWN HALL (townstyle-02; owner 11-04 order: the workshop, a new town/meeting hall, then houses; on the wall extension's second
+ * hall-size plot X2, 13 x 19) -> the blueprint object. Pure. An 11 x 17 pad (with its stand ring, the plot), the hall 9 x 14 inside:
+ * a stone-brick course, log posts at the corners and every few blocks along the long walls (timber framing), plank walls 3 high,
+ * glass windows with trapdoor sills, a 3-wide open doorway in the FRONT GABLE END under a round attic window, a PORCH (two log posts,
+ * a slab canopy) and torches either side of the door, rows of stair PEWS facing the back wall either side of a central aisle, torches
+ * inside; a 1:2 slab roof along the long axis (the 11-wide span peaks at y 6: in reach from the floor), one block of eaves all round.
+ */
+export const TOWNHALL = Object.freeze({ W: 11, D: 17, wall: { u0: 1, u1: 9, v0: 2, v1: 15 }, yTop: 3, door: [4, 5, 6] })
+export function townhallBlueprint () {
+  const { W, D, wall: B, yTop, door } = TOWNHALL
+  const cells = []
+  const add = (u, v, y, role, seg, st) => cells.push({ u, v, y, role, seg, ...(st ? { st } : {}) })
+  for (let u = 0; u < W; u++) for (let v = 0; v < D; v++) add(u, v, 0, 'base', 'pad')
+  const side = (u, v) => (v === B.v0 ? 'F' : v === B.v1 ? 'B' : u === B.u0 ? 'L' : 'R')
+  const postAt = (u, v) => ((u === B.u0 || u === B.u1) && [B.v0, 6, 11, B.v1].includes(v)) || ((v === B.v0 || v === B.v1) && [B.u0, B.u1, 3, 7].includes(u))
+  const winAt = (u, v) => ((u === B.u0 || u === B.u1) && [4, 8, 9, 13].includes(v)) || (v === B.v1 && [5].includes(u)) || (v === B.v0 && [2, 8].includes(u))
+  const isDoor = (u, v, y) => v === B.v0 && door.includes(u) && y <= 2
+  const perim = []
+  for (let u = B.u0; u <= B.u1; u++) for (let v = B.v0; v <= B.v1; v++) if (u === B.u0 || u === B.u1 || v === B.v0 || v === B.v1) perim.push([u, v])
+  const sills = []
+  for (const [u, v] of perim) {
+    const seg = `wall-${side(u, v)}`
+    for (let y = 1; y <= yTop; y++) {
+      if (isDoor(u, v, y)) continue
+      if (postAt(u, v)) { add(u, v, y, 'post', seg, { axis: 'y' }); continue }
+      if (y === 1) { add(u, v, y, 'course', seg); continue }
+      if (y === 2 && winAt(u, v)) { add(u, v, y, 'window', seg); sills.push([u, v]); continue }
+      add(u, v, y, 'wall', seg)
+    }
+  }
+  const roof = slabRoof(B, yTop, { ridge: 'v', over: 1 })
+  // the round attic window in the front gable: its middle gable cells
+  for (const c of roof) if (c.role === 'gable' && c.v === B.v0 && Math.abs(c.u - 5) <= 0 && c.y <= yTop + 2) c.role = 'gablewin'
+  cells.push(...roof.filter(c => !cells.some(k => k.u === c.u && k.v === c.v && k.y === c.y)))
+  // THE PORCH: two log posts on the front terrace, a canopy of top slabs at y 3 over the door's approach
+  for (const u of [3, 7]) for (let y = 1; y <= yTop; y++) add(u, 0, y, 'post', 'porch', { axis: 'y' })
+  for (let u = 3; u <= 7; u++) for (const v of [0, 1]) if (!(v === 0 && (u === 3 || u === 7))) add(u, v, yTop, 'canopy', 'porch', { type: 'top' })
+  // FIT-OUT: pews either side of the aisle (stairs facing the front: the seat toward the back wall's lectern side), torches, sills
+  for (const v of [7, 9, 11]) for (const u of [2, 3, 7, 8]) add(u, v, 1, 'pew', 'fit-out', { facing: '-v', half: 'bottom' })
+  for (const [u, v] of [[2, 3], [8, 3], [2, 14], [8, 14]]) add(u, v, 1, 'light', 'fit-out')
+  add(3, 1, 2, 'light', 'fit-out'); add(7, 1, 2, 'light', 'fit-out')
+  for (const [u, v] of sills) {
+    const out = u === B.u0 ? [-1, 0, '-u'] : u === B.u1 ? [1, 0, '+u'] : v === B.v1 ? [0, 1, '+v'] : [0, -1, '-v']
+    add(u + out[0], v + out[1], 1, 'sill', 'fit-out', { facing: out[2], half: 'top', open: false })
+  }
+  for (const c of cells) if (c.y >= yTop) c.blind = true
+  const interior = []
+  for (let u = B.u0 + 1; u <= B.u1 - 1; u++) for (let v = B.v0 + 1; v <= B.v1 - 1; v++) for (const y of [1, 2]) if (!cells.some(c => c.u === u && c.v === v && c.y === y)) interior.push([u, v, y])
+  for (const u of door) interior.push([u, B.v0, 1], [u, B.v0, 2])
+  return {
+    id: 'townhall@1', kind: 'townhall', footprint: { u: W, v: D }, pad: { w: W, d: D },
+    front: { u: 5, v: 0, note: 'townstyle-02: the 3-wide open doorway (u 4-6, v 2, y 1-2) under the porch opens toward v < 0' },
+    doorway: door.flatMap(u => [[u, B.v0, 1], [u, B.v0, 2]]),
+    interior,
+    palette: {
+      base: ['%stone', 'cobblestone', 'stone_bricks'], course: ['stone_bricks', 'cobblestone'], post: ['%wood_log'],
+      wall: ['%wood_planks', '$planks'], window: ['glass_pane', '$wall'], gable: ['%wood_planks', '$planks'], gablewin: ['glass_pane', '$gable'],
+      roofslab: ['%roof_slab'], ridgebeam: ['%roof_planks', '$planks'], canopy: ['%roof_slab'], pew: ['%wood_stairs'], sill: ['%wood_trapdoor'], light: ['torch'],
+    },
+    segments: [
+      { seg: 'pad', layer: 0, deps: [] },
+      { seg: 'wall-F', layer: 1, deps: ['pad'] }, { seg: 'wall-B', layer: 1, deps: ['pad'] }, { seg: 'wall-L', layer: 1, deps: ['pad'] }, { seg: 'wall-R', layer: 1, deps: ['pad'] },
+      { seg: 'gable', layer: 2, deps: ['wall-F', 'wall-B', 'wall-L', 'wall-R'] },
+      { seg: 'roof-edge', layer: 3, deps: ['gable'] },
+      { seg: 'roof-inner', layer: 4, deps: ['roof-edge'] },
+      { seg: 'porch', layer: 5, deps: ['roof-inner'] },
+      { seg: 'fit-out', layer: 6, deps: ['porch'] },
+    ],
+    structural: ['base', 'course', 'post', 'wall', 'gable', 'roofslab', 'ridgebeam'],
+    cells,
+    note: 'townstyle-02: generated by bots/scripts/make-townstyle.mjs from bots/src/townstyle.mjs townhallBlueprint(); do not edit by hand',
+  }
 }
