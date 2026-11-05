@@ -7189,7 +7189,7 @@ function placeSites(bot, item = null) {
   return candidates
 }
 
-async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null, planTemp = false, refuse = null } = {}) {
+async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null, planTemp = false, refuse = null, refuseNow = null } = {}) {
   const { bot } = ctx
   // wellcare-01 fix 3: the `_station_well` guard row (a cell refused for the well) -- the read's liveness for this fix
   const wellRow = (action, kind, n = 1, at = null) => { try { logEvent({ kind: 'station_well', status: 'refused', snapshot: snapshot(bot), detail: stationWellDetail({ action, item, kind, at, n, by: by ?? '-' }) }) } catch { /* a row never breaks a place */ } }
@@ -7448,6 +7448,14 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
         const tgt = ref.position.offset(face.x, face.y, face.z)
         const pc = planCls(tgt)
         if (pc === 'never' || (pc === 'plan' && item !== 'crafting_table')) { failures.push(`${tgt} became a town plan cell: place again`); continue }
+      }
+      // the showcase batch fold (Codex fold r10 BLOCKER): the caller's refusal read FRESH (`refuseNow()`: a reservation published during the
+      // digs, the equip, the look or an earlier attempt) on the exact cell the block will occupy, the last check before the click
+      if (typeof refuseNow === 'function') {
+        const tgt = ref.position.offset(face.x, face.y, face.z)
+        let w = null
+        try { w = refuseNow()(tgt.x, tgt.z) } catch { w = 'refuse_error' }
+        if (w) { failures.push(`${tgt} is refused now (${String(w).slice(0, 40)})`); continue }
       }
       // BOUNDED, because bot.placeBlock waits on a server `blockUpdate` that may
       // never arrive. Unbounded, one silent spot consumed the whole skill budget
@@ -13922,7 +13930,7 @@ export async function matsCut (ctx, kind, n, signal) {
   const K = KINDS[kind]
   if (!K?.cut || !(n > 0)) return { stop: 'nothing_to_cut' }
   let block = findCutter(bot)
-  if (!block && (heldMap(bot).stonecutter ?? 0) > 0) { const put = await place(ctx, { item: 'stonecutter' }, signal, { refuse: cutterRefusal() }); if (put?.status === 'success') block = findCutter(bot) }
+  if (!block && (heldMap(bot).stonecutter ?? 0) > 0) { const put = await place(ctx, { item: 'stonecutter' }, signal, { refuse: cutterRefusal(), refuseNow: cutterRefusal }); if (put?.status === 'success') block = findCutter(bot) }
   if (!block) return { stop: 'no_cutter' }
   for (const range of [1, 3]) {
     check(signal)
@@ -14449,7 +14457,7 @@ async function matsCrafts (ctx, kind, bag0, signal, { planksName = null, fromBag
   if (KINDS[kind]?.station) {
     if (above('stonecutter') < 1) await craft(ctx, { item: 'stonecutter', count: 1 }, signal)
     check(signal)
-    if (above('stonecutter') >= 1 && !findCutter(bot)) { const put = await place(ctx, { item: 'stonecutter' }, signal, { refuse: cutterRefusal() }); ctx.stationPlaced = put?.status === 'success' && !!findCutter(bot) }
+    if (above('stonecutter') >= 1 && !findCutter(bot)) { const put = await place(ctx, { item: 'stonecutter' }, signal, { refuse: cutterRefusal(), refuseNow: cutterRefusal }); ctx.stationPlaced = put?.status === 'success' && !!findCutter(bot) }
     return ctx.stationPlaced ? 1 : 0
   }
   // stoneworks-02: the order's cobbled deepslate in fours -> polished deepslate, then polished in fours -> deepslate bricks (2x2 each)

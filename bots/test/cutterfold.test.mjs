@@ -12,12 +12,12 @@ const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/g
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const once = (s, what) => assert.strictEqual(SK.split(s).length, 2, `ANCHOR MISSING OR NOT UNIQUE: ${what}`)
 t('place() applies a caller\'s refusal to the candidates and the make-room dig', () => {
-  once("{ wellOwn = null, by = null, planTemp = false, refuse = null } = {}) {", 'the option')
+  once("{ wellOwn = null, by = null, planTemp = false, refuse = null, refuseNow = null } = {}) {", 'the option')
   once("if (typeof refuse === 'function') candidates = Object.assign(candidates.filter(", 'the candidates')
   once("if (typeof refuse === 'function') { let w = null; try { w = refuse(cellPos.x, cellPos.z) } catch { w = 'refuse_error' } if (w) continue }", 'the dig')
 })
 t('both stonecutter placements pass cutterRefusal()', () => {
-  assert.strictEqual(SK.split("place(ctx, { item: 'stonecutter' }, signal, { refuse: cutterRefusal() })").length, 3)
+  assert.strictEqual(SK.split("place(ctx, { item: 'stonecutter' }, signal, { refuse: cutterRefusal(), refuseNow: cutterRefusal })").length, 3)
   assert.ok(!SK.includes("place(ctx, { item: 'stonecutter' }, signal)"), 'no unguarded stonecutter placement')
 })
 t('cutterRefusal reads the hold, the plots, the ways in and the record/marker zones; an error refuses everything', () => {
@@ -25,8 +25,13 @@ t('cutterRefusal reads the hold, the plots, the ways in and the record/marker zo
   for (const s of ['holdAt(', 'WALLEXT_PLOT', 'accessNoStair(recs, {})', 'recordZones(recs)', 'townMarkerZones()', "catch { return () => 'unreadable' }"]) assert.ok(body.includes(s), s)
 })
 t('MUTANT KILLED: an unguarded stonecutter placement fails the check', () => {
-  const m = SK.replace("place(ctx, { item: 'stonecutter' }, signal, { refuse: cutterRefusal() })", "place(ctx, { item: 'stonecutter' }, signal)")
+  const m = SK.replace("place(ctx, { item: 'stonecutter' }, signal, { refuse: cutterRefusal(), refuseNow: cutterRefusal })", "place(ctx, { item: 'stonecutter' }, signal)")
   assert.ok(m.includes("place(ctx, { item: 'stonecutter' }, signal)"))
+})
+t('r10: the refusal is read fresh on the exact target cell right before the click', () => {
+  once("try { w = refuseNow()(tgt.x, tgt.z) } catch { w = 'refuse_error' }", 'the final check')
+  const i = SK.indexOf("try { w = refuseNow()(tgt.x, tgt.z) }"), j = SK.indexOf('await withTimeout(bot.placeBlock(ref, face)', i)
+  assert.ok(i > 0 && j > i && j - i < 3000, 'just before the placeBlock')
 })
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
