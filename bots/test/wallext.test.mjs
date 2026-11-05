@@ -74,6 +74,21 @@ await t('PAST THE OLD SPAN (r4, LIVE 11-05: the hall 6 from the old ring\'s east
   assert.ok(rs.some(q => q.rect[2] > 35) && rs.every(q => q.rect[2] <= 35 + W.WALLEXT.over), 'past the east end, by at most `over`')
   assert.ok(W.extRects(ring, [10, -59, 28, -49], 'N', { ...W.WALLEXT, over: 0 }).every(q => q.rect[2] <= 35), 'positive control: over 0 is the old rule')
 })
+await t('PAST THE SPAN, THE DEMOLITION KEEPS THE OLD CORNERS (Codex r4 BLOCKER): the recorded join is clamped to the old span; the perpendicular side survives', async () => {
+  const srv = server()
+  const wall = oldWall(srv)
+  const s = await siteExt(srv, wall, { hub: { ...HUB, box: [4, -30, 10, -22] }, W: { ...WT, grow: [0, 8], over: 6 } })
+  assert.ok(s.ok, s.why)
+  const r = s.record
+  assert.ok(r.ring[2] > wall.ring[2] || r.ring[0] < wall.ring[0], `positive control: the ring passes the old span (${r.ring})`)
+  assert.ok(r.join.from >= wall.ring[0] && r.join.to <= wall.ring[2], `the join clamped (${r.join.from}..${r.join.to})`)
+  const d = W.demoCells(wall, { ...r, structure_complete: true })
+  assert.ok(!d.cells.some(c => c.at[0] <= wall.ring[0] || c.at[0] >= wall.ring[2]), 'no cell of an old corner or a perpendicular side')
+  // the unclamped join (the bug) reaches the side: the test would catch it
+  const bad = W.demoCells(wall, { ...r, join: { ...r.join, from: r.ring[0], to: r.ring[2] }, structure_complete: true })
+  const sideBuilt = wall.cols.some(c => c.z === wall.ring[1] && (c.x === wall.ring[0] || c.x === wall.ring[2]) && (c.s === 'wall' || c.s === 'post'))
+  if (sideBuilt) assert.ok(bad.cells.some(c => c.at[0] === wall.ring[0] || c.at[0] === wall.ring[2]), 'the unclamped span takes a corner')
+})
 await t('THE JOIN in wallCandidate: a join column is never built; without `join` the record is the same as before (positive control)', () => {
   const srv = server()
   const plain = W.wallCandidate(srv.read, [-6, -6, 6, 6], 6, { home: HOME })

@@ -1045,7 +1045,10 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
     t.score = Math.round(score * 10) / 10
     if (best && best.score >= score) continue
     const L = extLine(ring, side)
-    const along = L.axis === 'z' ? [c.rect[0], c.rect[2]] : [c.rect[1], c.rect[3]]
+    // the join is the old line's OWN span (Codex r4 BLOCKER: a rectangle past the old ring's end made the old corner "strictly
+    // inside" the recorded span, and the demolition would have taken the corner and the perpendicular side beside it)
+    const [lo, hi] = L.axis === 'z' ? [ring[0], ring[2]] : [ring[1], ring[3]]
+    const along = L.axis === 'z' ? [Math.max(c.rect[0], lo), Math.min(c.rect[2], hi)] : [Math.max(c.rect[1], lo), Math.min(c.rect[3], hi)]
     const oldOn = (wall.cols ?? []).filter(q => (L.axis === 'z' ? q.z : q.x) === L.at && (L.axis === 'z' ? q.x : q.z) >= along[0] && (L.axis === 'z' ? q.x : q.z) <= along[1])
     const record = {
       v: 1, blueprint: WALLEXT_BLUEPRINT, plot: WALLEXT_PLOT, home: { x: home.x, y: home.y, z: home.z }, side,
