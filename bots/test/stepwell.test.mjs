@@ -341,6 +341,17 @@ await t('MUTANT KILLED: the visit without its egress leaves the builder in the p
   })
 })
 
+await t('Paper 11-05: torches that never take (each refused) never hold the work -- the tank still completes', async () => {
+  const P = S.planTank(SITE)
+  const w = world()
+  const e = fakeBot(w, P, { start: [10, G + 1, -2] })
+  const place0 = e.place
+  e.place = async (c, role) => (role === 'light' ? 'refused' : place0(c, role))
+  let r = null
+  for (let i = 0; i < 40; i++) { r = await V.runStepwellVisit({ plan: P, exit: P.exit, onStop: async () => {} }, e, { opsMax: 3000, lights: () => true }); if (r.stop === 'complete') break }
+  assert.strictEqual(r.stop, 'complete', JSON.stringify(r))
+})
+
 console.log('THE SWITCH AND THE WIRING (structural: comments stripped, executable lines, each with a one-character mutant)')
 await t('the switch: on only in STEPWELL_POOLS (default showcase), STEPWELL=on|off overrides; the licence row names it', () => {
   assert.strictEqual(S.stepwellOn({}, 'showcase'), true)

@@ -9,7 +9,7 @@
 // pickaxe and the bag; a cell refused twice, or with no stand, is passed for this visit. THE VISIT ENDS AT THE EXIT: a builder below
 // the rim walks out by the flights (the plan's walk proof: every walkable column reaches the rim in steps of 1).
 import { Vec3 } from 'vec3'
-import { firstUndoneUnit, stepwellNext, standsFor, inReach, SW, tiersDone, cellGood, POST_BLOCK } from './stepwell.mjs'
+import { firstUndoneUnit, stepwellNext, standsFor, inReach, SW, tiersDone, cellGood, POST_BLOCK, unitDone } from './stepwell.mjs'
 import { isFull, isWet } from './shaftgeom.mjs'
 import { stairRead, stairItems } from './shaftvisit.mjs'
 import { withDigScope } from './digtown.mjs'
@@ -30,6 +30,7 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
   const skip = new Set()
   const fails = new Map()
   const banned = new Set()
+  let litOff = false
   const end = (stop, why = null, y = null) => { out.stop = stop; out.why = why; out.y = y; return out }
   const fail = (c, why) => {
     const k = kOf(c)
@@ -45,12 +46,17 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
       if (!e.fence()) return end('lease')
       if (out.ops >= opsMax) return end('ops')
       const read = e.read
-      const lit = !!lights()
+      const lit = !!lights() && !litOff
       const w = firstUndoneUnit(read, plan, { lights: lit })
       if (!w) return end('complete')
       if (w.unknown) return end('unknown', 'an unloaded or unread cell', w.unit.y)
       const op = stepwellNext(read, plan, w.unit, { feet: e.feet(), skip, lights: lit })
-      if (op.op === 'done') return end('passed', `${out.skipped} cell(s) passed this visit`, w.unit.y)
+      if (op.op === 'done') {
+        // only torches left that would not take (Paper 11-05: a torch refused twice held the descent's first station for 40 visits):
+        // the torches never hold the work -- this visit goes on without them; a later visit or the repair lays them
+        if (lit && unitDone(read, plan, w.unit, { lights: false }) === true) { litOff = true; e.log('lights_passed', { at: w.unit.cut[0] ?? w.unit.tops[0] ?? null, y: w.unit.y }); continue }
+        return end('passed', `${out.skipped} cell(s) passed this visit`, w.unit.y)
+      }
       if (op.op === 'wait') return end('unknown', `unread ${kOf(op.at)}`, w.unit.y)
       if (op.op === 'stop') {
         // a seal this visit could not make: no dig beside that water this visit; the next visit tries the seal again
@@ -139,7 +145,9 @@ export function stepwellBotEffects (bot, B, { palette = {}, signal = null, fence
   }
   const click = async (c, item, accept, role) => {
     const read = fresh()
-    const refOk = (b, r) => !!b && !INTERACTABLE.test(b.name) && (isFull(b) || (role === 'light' && r[1] === c[1] - 1 && POST_BLOCK.test(b.name)))
+    // a torch is clicked onto the TOP of what is under it only (Paper 11-05: a side face makes a wall_torch, which the light reads refused)
+    const isLight = role === 'light' || role === 'dlight'
+    const refOk = (b, r) => !!b && !INTERACTABLE.test(b.name) && (!isLight || r[1] === c[1] - 1) && (isFull(b) || (isLight && POST_BLOCK.test(b.name)))
     const refs = N6.map(([dx, dy, dz]) => [c[0] + dx, c[1] + dy, c[2] + dz]).filter(r => refOk(read(...r), r))
     if (!refs.length) return 'no_support'
     const p = bot.entity.position, eye = { x: p.x, y: p.y + 1.62, z: p.z }
