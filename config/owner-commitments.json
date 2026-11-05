@@ -4548,7 +4548,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "r4 2026-11-05 (LIVE wallext-v2 never sited: `no_site no_wall_ring`, every ring failed the escape proof -- the hall 6 from the old ring's east end; a trapped/cut strip between hall and terrace). Fixed on showcase branch wallext-escape-show @ 1c93d54f off the live tip 0e8a1cfa: rings may pass the old span (over 12; join = the old line's own span, recorded join clamped), extension tallMax 5. Offline on the 12:39Z copy + live pool: ring x -36..38 z -89..-20, 621 cobblestone, escape 0/0, built 621/621, check 0 hits; X1 x 10..28 z -75..-63 (workshop), X2 x -16..-4 z -63..-45 (town hall), X3-X5; demolition 15 cols/114 blocks held until done. Codex r4 1 BLOCKER fixed + 2 confirmations APPROVE; tripwire unchanged; ci2 433/436 (base 3). READY TO STAGE, not staged. Design section 14.",
+   "next_step": "r5 2026-11-05: wallext-escape-show 1c93d54f RELEASED on the showcase 15:40:44Z as fd1a5e96-6dd0ded8-fdd64ead (batch10, with stepwell-02show; ci2 436/439 known, Codex fold NO BLOCKERS, tripwire WATCH no TRIP, 15/15). Next: the 2 h read (~17:41Z) -- the ring sited (expected x -36..38 z -89..-20, 621 cobble), escape proof passing, X1/X2 plot activity. r4 2026-11-05 (LIVE wallext-v2 never sited: `no_site no_wall_ring`, every ring failed the escape proof -- the hall 6 from the old ring's east end; a trapped/cut strip between hall and terrace). Fixed on showcase branch wallext-escape-show @ 1c93d54f off the live tip 0e8a1cfa: rings may pass the old span (over 12; join = the old line's own span, recorded join clamped), extension tallMax 5. Offline on the 12:39Z copy + live pool: ring x -36..38 z -89..-20, 621 cobblestone, escape 0/0, built 621/621, check 0 hits; X1 x 10..28 z -75..-63 (workshop), X2 x -16..-4 z -63..-45 (town hall), X3-X5; demolition 15 cols/114 blocks held until done. Codex r4 1 BLOCKER fixed + 2 confirmations APPROVE; tripwire unchanged; ci2 433/436 (base 3). READY TO STAGE, not staged. Design section 14.",
    "max_quiet_hours": 48,
    "depends_on": [
     {
@@ -4753,7 +4753,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "stepwell-01show d83fd8b1 (supersedes 85d50721: the torch fix) joins the showcase release after townstyle-02/03 with SW1 (main shopread.py.txt, now incl. the chain clear rule) installed. stepwell-02show 499278e0 (on live 0e8a1cfa, includes stepwell-01) BUILT: the walled descent court -> feet 16; Codex + Claude r1 the same blocker fixed, r2 NO BLOCKERS, Codex r3 NO BLOCKERS; Paper sandbox3 3/3 (descent, water, lava). READY TO STAGE after 01show. Then the pool after bucketfix-01; stepuse-01 (tier 3, fleet canary, job off outside the showcase) after the bucket fix.",
+   "next_step": "2026-11-05: stepwell-01show (85d50721) released 13:13:27Z in 9950c3ff (2 h read: no_site -- tried 10891, sites 0: reserved 9925, zone 887, gate_step 61, too_low 18). stepwell-02show 499278e0 RELEASED 15:40:44Z as fd1a5e96-6dd0ded8-fdd64ead (batch10, with wallext-escape-show) with main shopread 2b2e77a2 (SW1 171 mutants, RO1, H8) installed 15:39Z. Next: the 2 h read (~17:41Z) -- siting (reserved dominated under 01), descent. Then the pool after bucketfix-01; stepuse-01 (tier 3, fleet canary) after the bucket fix.",
    "max_quiet_hours": 72,
    "depends_on": [],
    "evidence": {
