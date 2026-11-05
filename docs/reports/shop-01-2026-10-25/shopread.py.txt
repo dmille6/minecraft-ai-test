@@ -128,6 +128,11 @@
 #                      no palette authorizes nothing: Codex r1 BLOCKER -- a post cell never authorizes digging a trapdoor or another wood).
 #                      Anything else is clear_outside (` reorient`): a reorient of a stateless cell, of another block, or off the record.
 #                      Its placements are G1's like every record's (the cell); the place row's `st=` (the state made) is reported only.
+#   RT1 retrofit (townstyle-03, 11-05; bots/src/reroof.mjs): A RE-ROOFED BUILDING is a new generation of ITS OWN record that keeps every
+#                      old cell (the flat roof stays, as the ceiling) and adds the pitched roof above it -- nothing is dug, so no new
+#                      rule: its placements are G1's against the head record (the new roof's cells and the old cells both on it), a
+#                      misoriented new stair's dig is RO1's (the generation carries its own `palette`). The selftest pins it: a
+#                      placement one above the new roof is off_record; a reroof dig of an OLD flat-roof cell is clear_outside.
 # REPORTED, NOT A GATE: G7 placed_twice (a cell placed twice within 10 min: physically a re-placement after the cell was emptied
 #   -- a repair or a survival dig -- never two blocks in one cell; read r1 both engines).
 #   F2/F4 rows (owner 10-26: every replant skip a counted row): replants moved / deferred / skipped, cells deferred, STUCK ON CELL,
@@ -2074,6 +2079,21 @@ def selftest():
     assert ro('50,71,50', 'dark_oak_stairs')['_lists'].get('clear_outside', []) == [] and ro('51,71,50', 'spruce_stairs')['_lists']['clear_outside'] == ['board-a-Alpha 51,71,50 reorient spruce_stairs reorient'], ro('51,71,50', 'spruce_stairs')['_lists']['clear_outside']
     assert J(base + [R('_build', 'project=cottage1 op=place seg=roof-edge cell=50,71,50 block=dark_oak_stairs st=north/bottom', s=14)], cbk)['off_record'] == 1, 'positive control: a place is judged on the HEAD record (G1 as before): gen 1\'s cell is off it'
     assert J(base + [R('_build', 'project=cottage1 op=place seg=wall-F cell=52,71,50 block=spruce_log st=y', s=14)], cbk)['off_record'] == 0
+    # townstyle-03 RT1: a retrofit generation (old cells kept + the new roof) judged by the existing rules
+    hold = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'house@1', 'plot': 'house1', 'clear': [], 'replant': [], 'structure_complete': True,
+            'cells': [{'at': [60, 73, 60], 'role': 'roof', 'seg': 'roof-inner'}, {'at': [60, 72, 60], 'role': 'wall', 'seg': 'wall-F'}]}
+    hnew = dict(hold, gen=2, prev=1, structure_complete=False, style={'wood': 'spruce', 'roof': 'spruce'}, restyle={'id': 'house@1r'},
+                palette={'roof': ['$planks'], 'wall': ['$planks'], 'roofstair': ['spruce_stairs'], 'ridge': ['spruce_slab']},
+                cells=hold['cells'] + [{'at': [60, 74, 60], 'role': 'roofstair', 'seg': 'reroof-roof-edge', 'ws': {'facing': 'south', 'half': 'bottom'}},
+                                       {'at': [60, 75, 61], 'role': 'ridge', 'seg': 'reroof-roof-inner', 'ws': {'type': 'bottom'}}])
+    rbk = PP(house1={'record': hnew, 'records_files': 2, 'leases': {}, 'chain': [hold, hnew]})
+    rp = lambda c, block, op='place', kind=None: J(base + [R('_build', 'project=house1 op=%s seg=reroof-roof-edge cell=%s block=%s%s' % (op, c, block, (' kind=%s' % kind) if kind else ''), s=14)], rbk)
+    assert rp('60,74,60', 'spruce_stairs')['off_record'] == 0 and rp('60,75,61', 'spruce_slab')['off_record'] == 0, 'the new roof: cells of the head generation'
+    assert rp('60,73,60', 'oak_planks')['off_record'] == 0, 'an old flat-roof cell repaired: still a cell'
+    assert rp('60,75,60', 'spruce_stairs')['off_record'] == 1, 'positive control: one above the new roof is off the record'
+    assert rp('60,74,60', 'spruce_stairs', op='clear', kind='reorient')['clear_outside'] == 0, 'a misoriented new stair: RO1 with the generation\'s own palette'
+    assert rp('60,73,60', 'oak_planks', op='clear', kind='reorient')['clear_outside'] == 1, 'the old flat roof is never dug as a reorient'
+    assert rp('60,73,60', 'oak_planks', op='clear', kind='reroof')['clear_outside'] == 1, 'nor by any reroof dig: the retrofit digs nothing'
     # enchantshop-01 EF1: the shell's cells, a fit slot with ITS item, the labels on their cells; anything else off the record
     erec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'enchantshop@1', 'plot': 'enchantshop', 'cells': [{'at': [30, 65, 30], 'role': 'base', 'seg': 'pad'}],
             'fit': [{'slot': 'anvil', 'item': 'anvil', 'at': [31, 66, 30]}, {'slot': 'shelf-01', 'item': 'bookshelf', 'at': [32, 66, 30]}],

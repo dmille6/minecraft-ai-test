@@ -136,8 +136,22 @@ def cell_done(name, palette, role):
     return family(n) in ok or (planks and n.endswith('_planks'))
 
 
-def judge(rec, palette, read):
-    """The record against a reader read(x, y, z) -> name | '?' -> the score (pure)."""
+def state_ok(props, ws):
+    """townstyle-01 (H8 reads block states): every property a state-bearing cell names (`ws`) must read so in the region's palette entry
+    (`Properties`, strings); the rest (a stair's shape, waterlogged) is the server's. No state named: True; unread properties: False."""
+    if not isinstance(ws, dict) or not ws:
+        return True
+    if not isinstance(props, dict):
+        return False
+    return all(str(props.get(k)).lower() == str(v).lower() for k, v in ws.items())
+
+
+def judge(rec, palette, read, read_props=None):
+    """The record against a reader read(x, y, z) -> name | '?' -> the score (pure). townstyle-01: a cell that names a world state (`ws`)
+    is done only in that state (`read_props(x, y, z)` -> the palette entry's Properties); a STYLED record (one with a `style`) is judged
+    by its own resolved `palette`, as the builder judges it."""
+    if isinstance(rec.get('style'), dict) and isinstance(rec.get('palette'), dict):
+        palette = rec['palette']
     tp = fp = fn = unknown = 0
     bad = []
     for c in rec.get('cells') or []:
@@ -145,7 +159,7 @@ def judge(rec, palette, read):
         n = read(x, y, z)
         if n is None or n == '?':
             unknown += 1; bad.append('%d,%d,%d:%s:unknown' % (x, y, z, c.get('role'))); continue
-        if cell_done(n, palette, c.get('role')):
+        if cell_done(n, palette, c.get('role')) and (not c.get('ws') or state_ok(read_props(x, y, z) if read_props else None, c.get('ws'))):
             tp += 1
             continue
         fn += 1
@@ -177,6 +191,7 @@ def reader_from_regions(rdir, ext):
     """A reader over the region files in rdir for the extent (townplan_blockdump's decoding) -> read(x, y, z) -> name | '?'."""
     x0, y0, z0, x1, y1, z1 = ext
     grid = {}
+    props = {}
     for cx in range(x0 >> 4, (x1 >> 4) + 1):
         for cz in range(z0 >> 4, (z1 >> 4) + 1):
             ch = TB.chunk(rdir, cx, cz)
@@ -188,6 +203,7 @@ def reader_from_regions(rdir, ext):
                 if bs is None:
                     continue
                 pal = [TB.name_of(p) for p in (bs.get('palette') or [])]
+                pprops = [dict(p.get('Properties') or {}) for p in (bs.get('palette') or [])]   # townstyle-01: the states
                 vals = TB.section_values(bs)
                 # a palette of several names with no readable packed data is UNKNOWN, never its first name (r2, Codex P2)
                 undecodable = not section_ok(pal, vals)
@@ -203,8 +219,13 @@ def reader_from_regions(rdir, ext):
                             x = cx * 16 + lx
                             if x < x0 or x > x1:
                                 continue
-                            grid[(x, y, z)] = '?' if undecodable else (pal[vals[(ly * 16 + lz) * 16 + lx]] if vals is not None else pal[0])
-    return lambda x, y, z: grid.get((x, y, z), '?')
+                            i = None if undecodable else (vals[(ly * 16 + lz) * 16 + lx] if vals is not None else 0)
+                            grid[(x, y, z)] = '?' if i is None else pal[i]
+                            if i is not None:
+                                props[(x, y, z)] = pprops[i]
+    rd = lambda x, y, z: grid.get((x, y, z), '?')
+    rd.props = lambda x, y, z: props.get((x, y, z))
+    return rd
 
 
 def survey(world_dir, records_dir, pool, blueprint, world=None):
@@ -232,7 +253,8 @@ def survey(world_dir, records_dir, pool, blueprint, world=None):
                 if os.path.exists(p):
                     mt.append(os.stat(p).st_mtime)
                     shutil.copyfile(p, os.path.join(tmp, os.path.basename(p)))
-        score = judge(rec, palette, reader_from_regions(tmp, ext))
+        rd = reader_from_regions(tmp, ext)
+        score = judge(rec, palette, rd, rd.props)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     iso = lambda t: dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -291,6 +313,18 @@ def selftest():
     b2 = json.dumps({'gen': 2, 'prev': 1, 'prevSha': h.sha256(b1).hexdigest()}).encode()
     b3 = json.dumps({'gen': 3, 'prev': 2, 'prevSha': 'f' * 64}).encode()
     assert record_head([(1, b1), (2, b2), (3, b3)])[0] == 2
+    # townstyle-01: a state-bearing cell is done only in its state (H8 reads block states); a styled record by its own palette
+    srec = {'style': {'wood': 'spruce'}, 'palette': {'roof': ['spruce_stairs'], 'base': ['cobblestone']},
+            'cells': [{'at': [0, 1, 0], 'role': 'roof', 'ws': {'facing': 'north', 'half': 'bottom'}}, {'at': [1, 1, 0], 'role': 'base'}]}
+    sw = {(0, 1, 0): 'spruce_stairs', (1, 1, 0): 'cobblestone'}
+    pr = lambda f: (lambda x, y, z: {'facing': f, 'half': 'bottom', 'shape': 'outer_left', 'waterlogged': 'false'} if (x, y, z) == (0, 1, 0) else {})
+    ok_ = judge(srec, pal, rd(sw), pr('north'))
+    assert ok_['tp'] == 2 and ok_['f1'] == 1.0, ('the right state, the record palette (the blueprint palette has no roof stairs)', ok_)
+    wrong = judge(srec, pal, rd(sw), pr('south'))
+    assert wrong['tp'] == 1 and wrong['fn'] == 1 and wrong['fp'] == 1, ('a stair facing away is a wrong block', wrong)
+    assert judge(srec, pal, rd(sw))['fn'] == 1, 'no properties read: never done'
+    assert judge({'cells': srec['cells']}, {'roof': ['spruce_stairs'], 'base': ['cobblestone']}, rd(sw), pr('south'))['fn'] == 1, 'an unstyled record with a state cell too'
+    assert state_ok({'open': 'false'}, {'open': False}) and not state_ok({'open': 'true'}, {'open': False}) and state_ok(None, None)
     print('shopconform selftest: ok')
 
 
