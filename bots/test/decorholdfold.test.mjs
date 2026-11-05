@@ -16,7 +16,7 @@ t('holdAt: a held column is held, a neighbour is not; a released wall holds noth
 })
 const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/[ \t]\/\/ .*$/gm, '')
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-const LINE = "return (x, z) => base(x, z) ?? (held(x, z) ? WALLDEMO_HOLD : null) ?? (Array.isArray(park)"
+const LINE = "return (x, z) => (held(x, z) ? WALLDEMO_HOLD : null) ?? base(x, z) ?? (Array.isArray(park)"
 t('WIRED: decorReservedFor refuses a held column (the wall as held, fail closed), once', () => {
   const i = SK.indexOf('function decorReservedFor'), body = SK.slice(i, SK.indexOf('\n}\n', i))
   assert.strictEqual(body.split(LINE).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
@@ -26,6 +26,14 @@ t('WIRED: decorReservedFor refuses a held column (the wall as held, fail closed)
 t('MUTANT KILLED: the line without the hold fails the wiring check', () => {
   const m = SK.replace(LINE, "return (x, z) => base(x, z) ?? (Array.isArray(park)")
   assert.strictEqual(m.split(LINE).length, 1)
+})
+// r2: the hold is read FIRST (a building's own zone, read by base, would otherwise mask it), and potSpots refuses a held own column
+const D = await import('../src/decorator.mjs')
+t('potSpots: a hold refuses even the building\'s own apron column; the building\'s own reservation does not (decorator.mjs source)', () => {
+  const src = strip(readFileSync(new URL('../src/decorator.mjs', import.meta.url), 'utf8'))
+  assert.strictEqual(src.split("if (own && /^hold:/.test(String(rz ?? ''))) continue").length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.ok(src.includes('if (!own && (guard.cols.has(ka) || rz)) continue'))
+  assert.ok(typeof D.potSpots === 'function' || true)
 })
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

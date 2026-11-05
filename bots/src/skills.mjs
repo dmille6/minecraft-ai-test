@@ -21831,7 +21831,7 @@ function decorReservedFor (c, plan) {
   // projectHeads applies wallAsHeld) -- the retired line's columns stay the demolition's until it completes, never a border or the nursery
   let held = () => false
   try { held = holdAt(projectHeads().find(x => x.plot === WALL_PLOT)?.head?.rec ?? null) } catch { held = () => true }
-  return (x, z) => base(x, z) ?? (held(x, z) ? WALLDEMO_HOLD : null) ?? (Array.isArray(park) && x >= park[0] - 1 && x <= park[2] + 1 && z >= park[1] - 1 && z <= park[3] + 1 ? 'park' : null)
+  return (x, z) => (held(x, z) ? WALLDEMO_HOLD : null) ?? base(x, z) ?? (Array.isArray(park) && x >= park[0] - 1 && x <= park[2] + 1 && z >= park[1] - 1 && z <= park[3] + 1 ? 'park' : null)
 }
 /** The town's walls (wall.mjs wallInteriors: the ring's inside and the extension's) -> (x, z) -> bool. Never throws (none: false). */
 function decorInside () {

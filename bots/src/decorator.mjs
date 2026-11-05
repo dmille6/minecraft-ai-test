@@ -254,7 +254,11 @@ export function potSpots (read, plot, rec, dw, { pathCols, guard, reserved = () 
     const ka = k2(e[0] + nx + s * tx, e[2] + nz + s * tz)
     const own = ownCols.has(ka)
     if (pathCols.has(ka)) continue
-    if (!own && (guard.cols.has(ka) || reserved(e[0] + nx + s * tx, e[2] + nz + s * tz))) continue
+    const rz = reserved(e[0] + nx + s * tx, e[2] + nz + s * tz)
+    if (!own && (guard.cols.has(ka) || rz)) continue
+    // the showcase atlas+decorator fold (Codex fold r2 BLOCKER): a HOLD (the wall demolition's `hold:walldemo`) refuses even the
+    // building's own apron column -- its own reservation does not
+    if (own && /^hold:/.test(String(rz ?? ''))) continue
     // the doorway's feet height, or one up: a blueprint's front row is a raised STEP beside the way in (the pot stands on its ledge)
     for (const dy of [0, 1]) {
       const at = [e[0] + nx + s * tx, e[1] + dy, e[2] + nz + s * tz]
