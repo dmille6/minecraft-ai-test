@@ -620,6 +620,10 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  * has a candidate (`pickMiss`: skills.mjs townSearchEmpty, misses live 60 min since townsearch-01), and room for one can be made here without banking
  * anything deposit would not (`pickRoom`, roomPlan). After compost -- which frees slots -- and before a build.
  */
+// decorator-02: THE COMPOST DRIVE's hook (skills.mjs sets it: decorator.mjs driveWants over the town's bone meal, the decorator on in
+// this pool) -> (junk) -> bool. Unset (the fleet, the tests): never -- townOrder exactly as before.
+let compostDriveNow = () => false
+export const setCompostDrive = fn => { compostDriveNow = typeof fn === 'function' ? fn : () => false }
 export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHome = Infinity, storageNear = false,
                              composterAtTown = false, buildPlan = null, myName = '', peers = [], state = {},
                              room = false, composterRipe = false, pickNeeded = false, pickMiss = false, pickRoom = false,
@@ -628,7 +632,10 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
   const cooled = now - (s.lastCompostAt ?? -Infinity) >= COMPOST_COOLDOWN_MS && now >= (s.compostBackoffUntil ?? 0)
-  const compostReady = cooled && slots >= TRIGGER_SLOTS && junk > 0
+  // decorator-02: the compost drive composts a bag's junk at ANY fullness while its hook asks (the town's bone meal short)
+  let drive = false
+  try { drive = junk > 0 && slots < TRIGGER_SLOTS && !!compostDriveNow(junk) } catch { drive = false }
+  const compostReady = cooled && (slots >= TRIGGER_SLOTS || drive) && junk > 0
   // ANY bot at town with room may empty a ripe composter -- a full one cannot, and it would wait for a 34-slot bot.
   const harvestReady = cooled && !!room
   const buildReady = now - (s.lastBuildAt ?? -Infinity) >= BUILD_COOLDOWN_MS && now >= (s.buildBackoffUntil ?? 0)
@@ -641,7 +648,7 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
   if (composterHere) {
     if (compostReady) {
       s.lastCompostAt = now
-      return { order: { skill: 'compost', args: {}, why: `at town with ${slots} of 36 slots used; ${junk} compostable item(s)` }, state: s }
+      return { order: { skill: 'compost', args: drive ? { drive: true } : {}, why: drive ? `the compost drive: at town with ${junk} compostable item(s) and the town short of bone meal` : `at town with ${slots} of 36 slots used; ${junk} compostable item(s)` }, state: s }
     }
     if (harvestReady && lazy(composterRipe)) {
       s.lastCompostAt = now

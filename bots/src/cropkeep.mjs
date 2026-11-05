@@ -36,8 +36,9 @@ export function neverKeepFor (base, env = process.env, pool = env?.MEMORY_POOL ?
 // trap again. While the decorator is on in a pool, every small flower leaves NEVER_KEEP there and the composter never takes one
 // (composter.mjs compostAllowance `decorKeeps`). The switch is decorator.mjs decorOn's, restated (this module imports nothing:
 // decorator.test.mjs asserts the two agree).
-/** The small flowers the decorator plants (park.mjs SMALL_FLOWERS, restated). */
-export const DECOR_KEPT = Object.freeze(['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'azure_bluet', 'allium', 'blue_orchid', 'lily_of_the_valley', 'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip'])
+/** The small flowers the decorator plants (park.mjs SMALL_FLOWERS, restated) and its fern. */
+// decorator-02: and the fern (the fern clusters' stock: OWNER 11-05 "never park/decor stock" into the compost drive)
+export const DECOR_KEPT = Object.freeze(['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'azure_bluet', 'allium', 'blue_orchid', 'lily_of_the_valley', 'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip', 'fern'])
 /** THE DECORATOR'S SWITCH (decorator.mjs decorOn) -> bool. Pure. */
 export function decorKeepOn (env = process.env, pool = '') {
   const v = String(env?.DECORATOR ?? '').trim().toLowerCase()
