@@ -51,7 +51,29 @@ export const DECOR = Object.freeze({
   instancesMax: 40,
   saplingKeep: 16,           // a pot takes a sapling only above this many of its species (composter.mjs SAPLING_RESERVE)
   potFillMax: 4,             // pot fills a visit
+  // decorator-02 (OWNER 11-05 "yes": wild ferns cut with shears near home and replanted along paths)
+  fernR: 48,                 // the fern gather's reach from home (Chebyshev)
+  fernMax: 12,               // fern digs a visit
+  fernWant: 24,              // the bag's ferns the gather fills to
+  fernRunMin: 3,             // a fern cluster is at least this many cells
 })
+/** decorator-02: THE COMPOST DRIVE (OWNER 11-05: "the park keeps its 4 bone meal, add a compost drive ... only true surplus, never
+ *  park/decor stock"). Measured 11-05 00:30Z: the 15 showcase bags hold ONE item the composter's allowance would take (a brown
+ *  mushroom): the saplings are all inside the tree farm's reserve, the seeds the crop farm's, no rotten food in a peaceful world. The
+ *  real surplus is what a MEAL leaves: ~17 short grass a meal (Paper, decorator-01's proof), which shears turn into items (a 30%
+ *  input: ~21 a bone meal) -- so the nursery funds ~80% of its own next meal. Any bot at town whose bag holds DRIVE.feedMin
+ *  composter junk composts it (whatever its fullness) while the town's bone meal is under DRIVE.target. */
+export const DRIVE = Object.freeze({ feedMin: 8, target: 16 })
+/** decorator-02: is the compost drive's case met? -> bool. Pure. The bag's composter junk (composter.mjs compostAllowance: the junk,
+ *  saplings above their reserve, the peaceful kit's plants -- never the decorator's flowers or ferns, never the crop farm's seeds) at
+ *  least DRIVE.feedMin and the town's bone meal (read) under DRIVE.target; an unread town never drives. */
+export const driveWants = ({ junk = 0, townMeal = null, coverage = 0 } = {}) => Number(junk) >= DRIVE.feedMin && Number.isFinite(townMeal) && Number(coverage) >= 0.8 && townMeal < DRIVE.target
+/** decorator-02 (OWNER 11-05: "SKIP pots for now ... revisit after bucketfix-01"): DECOR_POTS=on|off, default OFF -- no pot is sited
+ *  or filled; a sited pot stays guarded. Pure. */
+export function decorPotsOn (env = process.env) {
+  const v = String(env?.DECOR_POTS ?? '').trim().toLowerCase()
+  return v === 'on' || v === '1' || v === 'true'
+}
 export const NURSERY = Object.freeze({
   spread: 7,                 // bone meal's walk never goes further (Java GrassBlock: 128 tries, at most i/16 = 7 steps of one column)
   core: 4,                   // the landing cells counted for the quality (~all the flowers fall within 4: simulated)
@@ -128,7 +150,10 @@ export function decorDesign (seed) {
   const n = pattern === 'solid' ? 1 : pattern === 'alt' ? 2 : 3
   const scheme = Object.keys(SCHEMES)[Math.floor(r() * 4) % 4]
   const run = 4 + Math.floor(r() * (DECOR.runMax - 3))
-  return { pattern, n, phase: Math.floor(r() * n) % n, scheme, run }
+  const phase = Math.floor(r() * n) % n
+  // decorator-02: FERN CLUSTERS -- a seeded share of the batches alternate flower runs with fern runs (the taiga's own green)
+  const fern = r() < 0.7
+  return { pattern, n, phase, scheme, run, fern }
 }
 /** Does a column keep its flower under the design's pattern? Pure. */
 export const patternKeeps = (design, x, z) => (((x + z) % design.n) + design.n) % design.n === design.phase
@@ -311,16 +336,18 @@ export function proveDecor (read, home, { border = [], pots = [], stood = [], wa
  * one segment (`D3-B0` ...; three runs, three builders), their roles `D3-f0`..`D3-f3` the scheme's rotation (neighbours differ); the
  * pots one segment `D3-P` (role `D3-pot`: a flower_pot; its fill is the visit's upkeep). Zones: each ornament's own column.
  */
-export function decorInstance (id, { border = [], pots = [], design }) {
+export function decorInstance (id, { border = [], pots = [], design, kinds = null }) {
   const list = SCHEMES[design?.scheme] ?? SCHEMES.mixed
   const roles = {}
   for (let k = 0; k < 4; k++) roles[`${id}-f${k}`] = [...rotList(list, k * 3), 'fern']
+  // decorator-02: a fern cluster's role (`kinds[i] === 'g'`)
+  if (kinds?.includes('g')) roles[`${id}-g`] = ['fern']
   roles[`${id}-pot`] = ['flower_pot']
   const cells = [], segments = [], zones = [], cols = []
   let run = -1, prev = null
   border.forEach((c, i) => {
     if (!prev || cheb(prev.at, c.at) > Math.max(2, design?.n ?? 1)) { run++; segments.push({ seg: `${id}-B${run}`, deps: [] }) }
-    cells.push({ at: c.at.slice(), role: `${id}-f${i % 4}`, seg: `${id}-B${run}` })
+    cells.push({ at: c.at.slice(), role: kinds?.[i] === 'g' ? `${id}-g` : `${id}-f${i % 4}`, seg: `${id}-B${run}` })
     prev = c
   })
   if (pots.length) segments.push({ seg: `${id}-P`, deps: [] })
@@ -331,11 +358,36 @@ export function decorInstance (id, { border = [], pots = [], design }) {
   return { cells, segments, palette: roles, counts, clear: [], zones, cols, pots: pots.map(p => ({ at: p.at, door: p.door, plot: p.plot })),
     box: cells.length ? [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)] : null }
 }
-/** Is a role a decor pot (`D3-pot`)? a decor border flower (`D3-f2`)? Pure. */
+/** The border's RUNS (decorInstance's segments: a run breaks where two cells stand more than max(2, design.n) apart) -> [[index]]. Pure. */
+export function borderRuns (border, design) {
+  const out = []
+  let prev = null
+  border.forEach((c, i) => { if (!prev || cheb(prev.at, c.at) > Math.max(2, design?.n ?? 1)) out.push([]); out[out.length - 1].push(i); prev = c })
+  return out
+}
+/**
+ * decorator-02: WHICH RUN IS A FERN CLUSTER -> { kinds: ['f' | 'g' | null], flowers, ferns } (null: dropped, no plant for it). Pure.
+ * With the design's `fern`, every other run (the second, the fourth ...) is ferns when the bag's ferns cover it (DECOR.fernRunMin at
+ * least); every run otherwise takes flowers while they last, then ferns; a run neither covers is dropped from its end.
+ */
+export function assignKinds (border, design, { flowers = 0, ferns = 0 } = {}) {
+  const kinds = border.map(() => null)
+  let fl = Math.max(0, flowers), fe = Math.max(0, ferns)
+  borderRuns(border, design).forEach((run, k) => {
+    const wantFern = !!design?.fern && k % 2 === 1 && run.length >= DECOR.fernRunMin && fe >= run.length
+    for (const i of run) {
+      if (wantFern && fe > 0) { kinds[i] = 'g'; fe-- } else if (!wantFern && fl > 0) { kinds[i] = 'f'; fl-- } else if (fe > 0) { kinds[i] = 'g'; fe-- } else if (fl > 0) { kinds[i] = 'f'; fl-- }
+    }
+  })
+  return { kinds, flowers: flowers - fl, ferns: ferns - fe }
+}
+/** Is a role a decor pot (`D3-pot`)? a decor border plant (`D3-f2`, a fern cluster's `D3-g`)? Pure. */
 export const decorPotRole = role => /^D\d+-pot$/.test(String(role ?? ''))
-export const decorFlowerRole = role => /^D\d+-f\d$/.test(String(role ?? ''))
+// decorator-02: a fern cluster's cell (`D3-g`) is a border plant too (the bill, the owed count, the walk-through role read it)
+export const decorFlowerRole = role => /^D\d+-(f\d|g)$/.test(String(role ?? ''))
+export const decorFernRole = role => /^D\d+-g$/.test(String(role ?? ''))
 /** The summary for the sited row: `b12/p2/alt:warm`. Pure. */
-export const decorSummary = (border, pots, design) => `b${border.length}/p${pots.length}/${design.pattern}:${design.scheme}`
+export const decorSummary = (border, pots, design, ferns = 0) => `b${border.length}/p${pots.length}/${design.pattern}:${design.scheme}${ferns ? `/g${ferns}` : ''}`
 
 /**
  * SITE THE NEXT DECOR BATCH -> { ok, inst, meta, tried } | { ok: false, why, tried }. Pure over `read`. ctx:
@@ -345,7 +397,10 @@ export const decorSummary = (border, pots, design) => `b${border.length}/p${pots
  *   reserved(x, z), inside(x, z) (the town's walls), stood, walkR.
  */
 export function siteDecor (read, ctx = {}) {
-  const { id, n = 1, home, seed = 0, records = [], rec = null, plants = 0, pots: potN = 0, reserved = () => null, inside = () => false, stood = [] } = ctx
+  const { id, n = 1, home, seed = 0, records = [], rec = null, pots: potN = 0, reserved = () => null, inside = () => false, stood = [] } = ctx
+  // decorator-02: the bag's flowers and ferns (an older caller's `plants` reads as flowers)
+  const flowers = Math.max(0, Number(ctx.flowers ?? ctx.plants) || 0), ferns = Math.max(0, Number(ctx.ferns) || 0)
+  const plants = flowers + ferns
   const tried = []
   const byPlot = new Map(records.filter(r => r?.rec).map(r => [r.plot, r.rec]))
   const paths = byPlot.get('paths') ?? null
@@ -370,9 +425,14 @@ export function siteDecor (read, ctx = {}) {
   tried.push(`proved b${pr.border.length}/p${pr.pots.length}`)
   if (!pr.ok) return { ok: false, why: 'no_site', tried }
   if (pr.border.length && pr.border.length < Math.min(DECOR.plantsMin, wantB) && !pr.pots.length) return { ok: false, why: 'no_site', tried }
-  const inst = decorInstance(id, { border: pr.border, pots: pr.pots, design })
-  const meta = { id, n, kind: DECOR_KIND, seed, design: { kind: DECOR_KIND, ...design }, summary: decorSummary(pr.border, pr.pots, design), box: inst.box, zones: inst.zones,
-    cols: inst.cols, pots: inst.pots, approach: [inst.cells[0].at], centre: [inst.cells[0].at[0], inst.cells[0].at[2]], plants: pr.border.length, inside: pr.border.filter(c => c.inside).length }
+  // decorator-02: the fern clusters, as far as the bag's ferns cover them; a cell no plant covers is dropped
+  const ak = assignKinds(pr.border, design, { flowers, ferns })
+  const keep = pr.border.map((c, i) => ak.kinds[i] ? i : -1).filter(i => i >= 0)
+  const border2 = keep.map(i => pr.border[i]), kinds2 = keep.map(i => ak.kinds[i])
+  if (!border2.length && !pr.pots.length) return { ok: false, why: 'no_site', tried }
+  const inst = decorInstance(id, { border: border2, pots: pr.pots, design, kinds: kinds2 })
+  const meta = { id, n, kind: DECOR_KIND, seed, design: { kind: DECOR_KIND, ...design }, summary: decorSummary(border2, pr.pots, design, ak.ferns), box: inst.box, zones: inst.zones,
+    cols: inst.cols, pots: inst.pots, approach: [inst.cells[0].at], centre: [inst.cells[0].at[0], inst.cells[0].at[2]], plants: border2.length, flowers: ak.flowers, ferns: ak.ferns, inside: border2.filter(c => c.inside).length }
   return { ok: true, inst, meta, tried }
 }
 
@@ -507,18 +567,54 @@ export function withNursery (cur, nursery, { home, now = Date.now(), blueprint =
   return { ...base, nursery: { ...nursery, sitedAt: now }, nurseries: old }
 }
 
+// ---- decorator-02: the fern gather ----------------------------------------------------------------------------------------------------
+/** The blocks the fern gather cuts (with shears: a fern drops itself, a large fern two). */
+export const FERN_BLOCKS = Object.freeze(['fern', 'large_fern'])
+/**
+ * THE FERN GATHER'S TARGETS -> [{ at, name, n }] nearest `from` first, at most `max` digs and `want` ferns. Pure.
+ *   cands     [{ at, name }] the world's fern / large_fern blocks (the bot's findBlocks)
+ *   read      the world read; reserved(x, z) a reservation; guard (towndress.mjs cellGuard) every record's cells and columns
+ * A fern stands on soil (park.mjs SOIL_RE's blocks) and is cut in its own cell (no collision: the gatherer stands in it); a large
+ * fern at its LOWER half (its upper half above it), counted 2. Never a reserved column, a record's column or cell, never beyond
+ * DECOR.fernR of home.
+ */
+export function fernTargets (cands, { read, reserved = () => null, guard = { cols: new Set(), cells: new Set() }, home, from = null, max = DECOR.fernMax, want = DECOR.fernWant, r = DECOR.fernR } = {}) {
+  const f = from ?? [home.x, home.y, home.z]
+  const order = (cands ?? []).filter(c => Array.isArray(c?.at)).slice().sort((a, b) => (Math.abs(a.at[0] - f[0]) + Math.abs(a.at[1] - f[1]) + Math.abs(a.at[2] - f[2])) - (Math.abs(b.at[0] - f[0]) + Math.abs(b.at[1] - f[1]) + Math.abs(b.at[2] - f[2])) || a.at[0] - b.at[0] || a.at[2] - b.at[2] || a.at[1] - b.at[1])
+  const out = [], seen = new Set()
+  let got = 0
+  for (const c of order) {
+    if (out.length >= max || got >= want) break
+    let [x, y, z] = c.at
+    if (Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) > r) continue
+    const here = nm(read(x, y, z))
+    if (!FERN_BLOCKS.includes(here)) continue
+    if (here === 'large_fern' && nm(read(x, y - 1, z)) === 'large_fern') y--
+    if (!/^(grass_block|dirt|podzol|coarse_dirt|rooted_dirt|moss_block|mycelium|mud)$/.test(nm(read(x, y - 1, z)))) continue
+    const k = kOf([x, y, z])
+    if (seen.has(k)) continue
+    if (reserved(x, z) || guard.cols.has(k2(x, z)) || guard.cells.has(k) || guard.cells.has(kOf([x, y + 1, z]))) continue
+    seen.add(k)
+    const n = here === 'large_fern' ? 2 : 1
+    got += n
+    out.push({ at: [x, y, z], name: here, n })
+  }
+  return out
+}
+
 // ---- the gate, the lease's order --------------------------------------------------------------------------------------------------------
 /**
  * THE DECOR "PRESSURE" for sinks.mjs sinkNextGate -> { p, plants, meal, pots }. Pure. A batch wants DECOR.plantsMin border plants: the
  * bag's own, plus what the bone meal the decorator can use would grow (the bag's, and the town's above NURSERY.mealKeep, read, at
  * NURSERY.flowersPerMeal) -- or a pot (the bag's or the town's) with a plant to fill it.
  */
-export function decorPressure ({ held = {}, townMeal = null, townPots = 0, coverage = 0 } = {}) {
+export function decorPressure ({ held = {}, townMeal = null, townPots = 0, coverage = 0, potsOn = false, wildFerns = 0 } = {}) {
   const known = Number.isFinite(townMeal) && Number(coverage) >= 0.8
   const meal = Math.max(0, Number(held.bone_meal) || 0) + (known ? Math.max(0, townMeal - NURSERY.mealKeep) : 0)
   const plants = borderPlantsOf(held)
-  const pots = Math.max(0, Number(held.flower_pot) || 0) + (known ? Math.max(0, Number(townPots) || 0) : 0)
-  const grow = Math.floor(Math.min(meal, NURSERY.mealMax) * NURSERY.flowersPerMeal)
+  // decorator-02: pots only with DECOR_POTS on (owner 11-05: skipped); the wild ferns a gather can reach (the caller's count)
+  const pots = potsOn ? Math.max(0, Number(held.flower_pot) || 0) + (known ? Math.max(0, Number(townPots) || 0) : 0) : 0
+  const grow = Math.floor(Math.min(meal, NURSERY.mealMax) * NURSERY.flowersPerMeal) + Math.min(DECOR.fernMax, Math.max(0, Number(wildFerns) || 0))
   const p = plants + grow >= DECOR.plantsMin || (pots > 0 && !!potPlantFor(held)) ? 1 : -1
   return { p, plants, meal, pots, grow }
 }
@@ -553,7 +649,7 @@ export function decorOrderPure (states, list, { d, plot = 'decor' } = {}) {
 export const flowersOwed = (rec, done = () => false) => (rec?.cells ?? []).filter(c => decorFlowerRole(c.role) && !done(c)).length
 /** A decor visit's NO-PROGRESS stamp (Codex r1 BLOCKER 2: an open batch the decorator cannot finish -- no flower, no meal -- must not
  *  hold the decorator and every other project for good): nothing placed, filled, used or harvested -> true. Pure. */
-export const decorStalled = (f = {}) => !(Number(f.placed) > 0 || Number(f.pots) > 0 || Number(f.meals) > 0 || Number(f.blooms) > 0 || Number(f.cleared) > 0)
+export const decorStalled = (f = {}) => !(Number(f.placed) > 0 || Number(f.pots) > 0 || Number(f.meals) > 0 || Number(f.blooms) > 0 || Number(f.cleared) > 0 || Number(f.composted) > 0)
 /** The pot cells of a decor record standing EMPTY now (a flower_pot, not yet potted) -> [cell]. Pure. */
 export const emptyPots = (rec, read) => (rec?.cells ?? []).filter(c => decorPotRole(c.role) && nm(read(...c.at)) === 'flower_pot')
 /**
