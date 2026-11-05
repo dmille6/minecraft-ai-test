@@ -50,12 +50,17 @@ export const TOWN_COBBLE_CAP = 1000
 const WOOD_ENV = String(process.env.STOCK_WOOD_TARGET ?? '').trim()
 // >= 1: a 0 (or a blank that Number() reads as 0) would prune every log
 export const TOWN_WOOD_TARGET = /^[0-9]+$/.test(WOOD_ENV) && Number(WOOD_ENV) >= 1 ? Number(WOOD_ENV) : 4000
+/** THE TOWN STONE TARGET (stoneworks-01, OWNER 11-05 "smelt cobblestone into stone for trading"): was 64. The make_material
+ *  `stone` kind banks up to its buffer (mats.mjs STONE_BUFFER 320), so the town target is the buffer and one stack over it --
+ *  below it stone is banked, above it pruned as before. NOT under STONEWORKS (Codex design 11-05): switching the producer off
+ *  must not prune the trading stock it made; holding up to 384 stone in town costs nothing. Revert = 64. */
+export const TOWN_STONE_TARGET = 384
 export const STOCK_GROUPS = Object.freeze({
   cobble: bulk(['cobblestone', 'cobbled_deepslate'], TOWN_COBBLE_CAP),
   ...Object.fromEntries(WOODS.map(w => [`${w}_log`, bulk([`${w}_log`], TOWN_WOOD_TARGET)])),
   ...Object.fromEntries([...WOODS, 'bamboo'].map(w => [`${w}_planks`, bulk([`${w}_planks`], TOWN_WOOD_TARGET)])),
   stick: bulk(['stick'], TOWN_WOOD_TARGET),
-  stone: bulk(['stone'], 64),
+  stone: bulk(['stone'], TOWN_STONE_TARGET),
   dirt: bulk(['dirt'], 0),
   // matset-01 (building tier §3.4, OWNER 10-23): 0 -> 64, so the sand a town gathers stops going down the well before it can
   // become glass. Banked below 64 (sand is DEPOSIT_ALWAYS, bankable.mjs); the surplus above it goes as before. Revert = 0.

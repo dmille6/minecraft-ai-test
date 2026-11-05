@@ -190,6 +190,7 @@ import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS, SMELT_MS
 import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 // mats-01 (building tier section 3): the materials job's decisions
 import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
+  STONEWORKS, LADDER_KINDS, fuelPlan, fuelToLoad, withFuelReserve, effectiveBuffer, oreWaiting,   // stoneworks-01
   furnaceQualifies, batchFor, planksToLoad, newNote, returnPlan, noteSettled, obligations, recoveryContentsOk, takeAllowed, recipeUsing, isPlanks, toolCounts,
   recoveryBalance, reserveKeyOf, matsRecountable, MATS_RETURN_WAIT_MS, matsReturnWaitMs, recoveryVerdict, BUFFERED_PARTS, backSeenTouched,
   MATS_RETURN_MAX, MATS_RETURN_MAX_AGE_MS, matsBalance, forbiddenCounts, matsDetail,
@@ -14052,7 +14053,9 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
  * WINDOW's bag before the drain, the bag after the close (mineflayer copies the window's bag back only then).
  * -> { made, prior, burned, furnaceLeft, furnace, lease, uncertain, stop, tried }
  */
-export async function matsSession (ctx, { input, n, planksName, out: outName, own, onLoad = null }, signal, deadline) {
+export async function matsSession (ctx, { input, n, planksName, fuelN = null, out: outName, own, onLoad = null }, signal, deadline) {
+  // stoneworks-01: `planksName` is the session's FUEL name (planks, or a ladder fuel: bamboo, a sapling, coal) and `fuelN` its
+  // exact count (mats.mjs fuelToLoad); unset, the base's planksToLoad(n)
   const { bot } = ctx
   const res = { made: 0, prior: {}, burned: 0, furnaceLeft: {}, furnace: '-', lease: '-', uncertain: false, stop: null, tried: [] }
   // EVERY QUALIFYING CHANCE THE CLOCK AFFORDS (Paper r3 furn: three foreign furnaces nearer than the one clean one left it
@@ -14099,7 +14102,7 @@ export async function matsSession (ctx, { input, n, planksName, out: outName, ow
         continue
       }
       res.furnace = cand.k; res.lease = lease.n
-      const want = planksToLoad(n)
+      const want = fuelN ?? planksToLoad(n)
       const priorOut = rd('outputItem')
       // THE LOAD RECORD, BEFORE ANYTHING GOES IN: a kill from here on leaves a note mats_return can drain against
       const inputBefore = (() => { try { return (furnace.items?.() ?? []).reduce((t, it) => t + (it?.name === input ? (it.count ?? 0) : 0), 0) } catch { return undefined } })()
@@ -14358,6 +14361,7 @@ async function makeMaterial (ctx, args, signal) {
               deposited: {}, furnaceLeft: {}, prior: {}, families: {}, forbidden: {}, verdict: null, furnace: '-', lease: '-',
               reserveSrc: null, stock: {}, t0: Date.now(), ml: null, inputsLeft: {}, stoneLeft: null }
   let result = null, uncertain = false, note = null, lease = null, bag0 = {}, forbidden0 = {}, names = [], leaseT0 = null, furnaceDone = true, held0All = null
+  let LFbank = null, LFacct = null    // stoneworks-01: the town ladder fuel to give back unburned; the ladder fuel for the balance
   const pl = countPlacements(bot)
   try {
     // THE COUNT REMEDY (mats.mjs materialOrder: the index below its coverage, containers it does not know in reach)
@@ -14372,21 +14376,32 @@ async function makeMaterial (ctx, args, signal) {
     const town = matsTownStock(bot)
     if (!town || !(town.coverage >= MATS_MIN_COVERAGE)) { f.stop = 'index_coverage'; return (result = { status: 'no_effect', detail: `the town index knows ${town ? Math.round(town.coverage * 100) : 0}% of the town's containers; the materials job waits for the recount` }) }
     f.stock = { [K.part]: partCount(K.part, town.stock), cobblestone: reserveCount('cobblestone', town.stock), logs: reserveCount('logs', town.stock), copper_ingot: reserveCount('copper_ingot', town.stock), sand: reserveCount('sand', town.stock) }
-    if ((B.table[K.part] ?? 0) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
-    const prev = readMatsNote(bot)
-    if (prev) { f.stop = 'note_open'; return (result = { status: 'no_effect', detail: 'an earlier materials order is not reconciled; mats_return runs first' }) }
     // the project reserve (OWNER 10-27): a project part's order draws on the lowered table while the workshop is active
     const PR = matsKindForProject(kind) ? projectReserveNow(bot, Date.now(), { fresh: true }) : { active: false, gen: '-' }
-    const E = effectiveReserve(R.table, { active: PR.active, forProject: matsKindForProject(kind) })
-    const PD = projectDraw(bot, R.table, { forProject: matsKindForProject(kind) })
-    const inp = orderInputs(kind, { bagSpare: matsBagSpare(bot), stock: town.stock, reserve: E.table })
+    // stoneworks-01: the buffer NOW (bricks rise while a project is active: mats.mjs effectiveBuffer, the order's own rule)
+    if (effectiveBuffer(K.part, B.table, { project: !!PR.active }) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
+    const prev = readMatsNote(bot)
+    if (prev) { f.stop = 'note_open'; return (result = { status: 'no_effect', detail: 'an earlier materials order is not reconciled; mats_return runs first' }) }
+    // stoneworks-01: the cobble kinds burn the fuel ladder (mats.mjs fuelPlan); the coal rung's town take is judged on the coal keep
+    const ladder = STONEWORKS.on && LADDER_KINDS.has(kind)
+    const RT = ladder ? withFuelReserve(R.table) : R.table
+    if (ladder && oreWaiting(kind, town.stock)) { f.stop = 'ore_first'; return (result = { status: 'no_effect', detail: 'the town holds raw ore the smelt job turns into ingots first; the trading stone waits' }) }
+    const E = effectiveReserve(RT, { active: PR.active, forProject: matsKindForProject(kind) })
+    const PD = projectDraw(bot, RT, { forProject: matsKindForProject(kind) })
+    const spare = matsBagSpare(bot)
+    const fuelP = ladder ? fuelPlan({ n: K.smelt.n, bagSpare: spare, stock: town.stock, reserve: E.table, on: true }) : null
+    if (ladder && !fuelP) { f.stop = 'no_fuel'; return (result = { status: 'no_effect', detail: `no fuel on the ladder (bamboo, spare saplings, logs above the reserve, coal above ${RT.coal}) for a ${kind} batch now` }) }
+    const inp = orderInputs(kind, { bagSpare: spare, stock: town.stock, reserve: E.table, fuel: fuelP })
     if (!inp) { f.stop = 'inputs'; return (result = { status: 'no_effect', detail: `the town has no ${kind} inputs above its reserve now` }) }
+    const LF = inp.fuel && inp.fuel.rung !== 'planks' ? inp.fuel : null     // a ladder fuel other than planks
+    if (inp.fuel) f.fuel = `${inp.fuel.rung}:${inp.fuel.name}`
+    if (LF) { LFacct = { name: LF.name, ticks: LF.ticks }; if (Object.keys(LF.take ?? {}).length) LFbank = LF.name }
     f.log = inp.log ?? '-'
     lease = matsLease(bot)
     if (lease.unleased) { f.stop = 'lease_unavailable'; lease = null; return (result = { status: 'no_effect', detail: 'the town materials lease cannot be recorded here; the job waits' }) }
     if (!lease.ok) { f.stop = 'lease_busy'; lease = null; return (result = { status: 'no_effect', detail: 'another bot is making materials in this town now' }) }
     leaseT0 = Date.now()
-    names = touchedNames(kind, inp.log)
+    names = touchedNames(kind, inp.log, LF?.name ?? null)
     const held0 = heldMap(bot)
     held0All = held0
     bag0 = Object.fromEntries(names.map(n => [n, held0[n] ?? 0]))
@@ -14400,7 +14415,7 @@ async function makeMaterial (ctx, args, signal) {
     const reserveMs = K.smelt ? (unit * SMELT_MS_PER_ITEM + SMELT_RECOVERY_MS + 40_000) : 45_000
     let w
     try {
-      w = Object.keys(inp.take).length ? await matsWithdraw(ctx, inp.take, signal, reserveMs, R.table, PD.allow, PD.onTook, PD.onUncertain) : { took: {}, unsettled: false, short: false, capped: 0 }
+      w = Object.keys(inp.take).length ? await matsWithdraw(ctx, inp.take, signal, reserveMs, RT, PD.allow, PD.onTook, PD.onUncertain) : { took: {}, unsettled: false, short: false, capped: 0 }
     } finally {
       if (PD.used.lowered) f.reserveSrc = 'project'   // the read judges this row on the lowered floor (matsread.py), an abort too
     }
@@ -14410,8 +14425,29 @@ async function makeMaterial (ctx, args, signal) {
     if (w.short) { f.stop = w.capped ? 'withdraw_reserve' : 'withdraw_short'; return (result = { status: 'no_effect', detail: `the town containers looked in did not hold the order's inputs above the reserve (${Object.entries(inp.take).map(([n, c]) => `${c} ${n}`).join(', ')}); what was taken stays in the bag for the town deposit` }) }
     const deadline = withdrawClock(ctx).deadline - 25_000      // the crafts and the bank keep 25 s
     let planksName = null
-    // 3-5. THE PLANKS AND THE SESSION (smelt kinds)
-    if (K.smelt) {
+    // 3-5. THE PLANKS AND THE SESSION (smelt kinds); stoneworks-01: a ladder fuel's session first, the base's planks path below
+    if (K.smelt && LF) {
+      const input = K.smelt.input
+      const n = Math.min(batchFor(kind, deadline - Date.now() - SMELT_RECOVERY_MS - 15_000), LF.batch)
+      if (!(n > 0)) { f.stop = 'late'; return (result = { status: 'no_effect', detail: 'the withdraw used the job\'s clock; nothing was smelted (the inputs stay in the bag for the town deposit)' }) }
+      if (LF) {
+        // stoneworks-01: A LADDER FUEL -- no planks crafted; exactly fuelToLoad(n) of it, from the bag (bamboo, saplings) or the
+        // town take (coal)
+        planksName = LF.name
+        const fuelN = fuelToLoad(n, LF.ticks)
+        if ((heldMap(bot)[LF.name] ?? 0) < fuelN) { f.stop = 'fuel_short'; return (result = { status: 'no_effect', detail: `the bag holds fewer than ${fuelN} ${LF.name} for the batch` }) }
+        f.expected = fuelN
+        const r = await matsSession(ctx, { input, n, planksName, fuelN, out: K.smelt.out, own: null,
+          onLoad: ld => { note.furnace = ld.furnace; note.loaded = ld; writeMatsNote(bot, note) } }, signal, deadline)
+        f.smelted = r.made; f.burned = r.burned; f.furnaceLeft = r.furnaceLeft; f.furnace = r.furnace; f.lease = r.lease; f.cut = !!r.cut
+        f.wsF = stationKind(r.furnace, bot.shopStations?.furnaces)
+        for (const [k2, c] of Object.entries(r.prior ?? {})) f.prior[k2] = (f.prior[k2] ?? 0) + c
+        if (r.uncertain) uncertain = true
+        furnaceDone = !r.uncertain && !Object.keys(r.furnaceLeft ?? {}).length
+        if (r.stop !== 'done' && r.stop !== 'short') { f.stop = `session:${r.stop}`; if (r.tried.length) f.stop += `(${r.tried.slice(0, 3).join(';')})` }
+      }
+    }
+    if (K.smelt && !LF) {
       const log = inp.log
       const input = K.smelt.input === 'log' ? log : K.smelt.input
       const n = batchFor(kind, deadline - Date.now() - SMELT_RECOVERY_MS - 15_000)
@@ -14465,7 +14501,11 @@ async function makeMaterial (ctx, args, signal) {
       if (note && !aborted) {
         for (const [n, c] of Object.entries(f.took)) releaseWithdrawHold(n, c)
         // each deposit booked AND in the note as it lands (Codex r5 P2-4): an abort on the walk to the next chest keeps it
-        await matsBank(ctx, obligations(kind).filter(n => n !== 'stone' && n !== 'charcoal'), bag0, signal, {}, {
+        // stoneworks-01: the stone kind's part IS stone (banked); a town fuel the session did not burn (coal) goes back -- only what
+        // the bag holds above its opening count, so the bot's own coal never leaves
+        const bankNames = obligations(kind).filter(n => (kind === 'stone' || n !== 'stone') && n !== 'charcoal')
+        if (LFbank && !bankNames.includes(LFbank)) bankNames.push(LFbank)
+        await matsBank(ctx, bankNames, bag0, signal, {}, {
           onBanked: (n2, c2) => { f.deposited[n2] = (f.deposited[n2] ?? 0) + c2; note.deposited = { ...f.deposited }; try { writeMatsNote(bot, note) } catch { /* the next write */ } } })
         const bagNow = heldMap(bot)
         const plan = returnPlan(note, bagNow)
@@ -14486,7 +14526,7 @@ async function makeMaterial (ctx, args, signal) {
     const held1 = heldMap(bot)
     const bag1 = Object.fromEntries(names.map(n => [n, held1[n] ?? 0]))
     const b = matsBalance({ kind, bag0, bag1, withdrawn: f.took, deposited: f.deposited, prior: f.prior, furnaceLeft: f.furnaceLeft,
-                            burnedPlanks: f.burned, smelted: f.smelted, forbidden0, forbidden1: forbiddenCounts(held1), uncertain: uncertain || aborted,
+                            burnedPlanks: f.burned, smelted: f.smelted, forbidden0, forbidden1: forbiddenCounts(held1), uncertain: uncertain || aborted, fuel: LFacct,
                             cut: f.cut, placed: f.placed })
     f.families = b.families; f.forbidden = b.forbidden; f.verdict = b.verdict
     const t0b = toolCounts(held0All ?? {}), t1b = toolCounts(held1)
