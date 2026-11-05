@@ -91,8 +91,13 @@ export function farmBlocked ({ plan = null, zones = [], caps = [], plinth = [], 
   const avoid = pathAvoid({ plan, zones, caps, plinth, composter, farm, records, home: plan?.home ?? { y: 70 } })
   const boxes = (pzones ?? []).map(z => ({ box: z?.box ?? z, why: z?.why ?? null })).filter(q => Array.isArray(q.box) && q.box.length === 6)
   // stepwell-03 (batch-11 fold, Codex BLOCKER 1): `whys` names the reservation (`project:wallext`, `land:road`, ...) instead of the
-  // plain 'project' -- the stepwell's gap rule reads it (stepwell.mjs GAP_OK); every other caller keeps 'project'
-  return (x, z) => avoid(x, z) ?? (() => { const q = boxes.find(q => x >= q.box[0] && x <= q.box[3] && z >= q.box[2] && z <= q.box[5]); return q ? (whys && q.why ? String(q.why) : 'project') : null })()
+  // plain 'project' -- the stepwell's gap rule reads it (stepwell.mjs GAP_OK); every other caller keeps 'project'. EVERY box over the
+  // column is named, '|'-joined (Codex fold r2 BLOCKER: the first alone let a wall's margin hide a land road over the same column)
+  return (x, z) => avoid(x, z) ?? (() => {
+    const qs = boxes.filter(q => x >= q.box[0] && x <= q.box[3] && z >= q.box[2] && z <= q.box[5])
+    if (!qs.length) return null
+    return whys ? [...new Set(qs.map(q => (q.why ? String(q.why) : 'project')))].join('|') : 'project'
+  })()
 }
 /** THE BOUNDS: a town wall's ring less its own line ([x0, z0, x1, z1]: the farm stands inside the wall), or null. Pure. */
 export function farmBounds (records = []) {

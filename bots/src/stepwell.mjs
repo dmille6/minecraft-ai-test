@@ -682,7 +682,8 @@ export function reservedFor (origin, away, W, gp, { blocked = () => null, zoneOf
     const w = toWorld(origin, away, u, v)
     const inside = u >= 0 && v >= 0 && u < W && v < W
     const why = blocked(w.x, w.z)
-    if (why && (inside || !(gapOk && gapOk.test(String(why))))) return `reserved:${why}`
+    // a column's reasons may be several ('|'-joined: treefarm.mjs farmBlocked whys): the gap passes only when EVERY one is a wall's
+    if (why && (inside || !(gapOk && String(why).split('|').every(w => gapOk.test(w))))) return `reserved:${why}`
     if (zoneOf && inside && !STEPWELL_ZONES.includes(zoneOf(w.x, w.z))) return `zone:${zoneOf(w.x, w.z)}`
   }
   return null

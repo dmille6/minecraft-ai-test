@@ -87,7 +87,7 @@ await t('reservedFor is the survey\'s own order: the first refusal by u then v; 
   assert.strictEqual(seen.length, (W + 2 * S.SW.gap) ** 2)
 })
 await t('MUTANT: without the gap rule (every reason refuses everywhere) the wall-margin site is refused -- the test fails for that reason', async () => {
-  await withMutant(SW_PATH, 'if (why && (inside || !(gapOk && gapOk.test(String(why))))) return `reserved:${why}`', 'if (why) return `reserved:${why}`', async M => {
+  await withMutant(SW_PATH, "if (why && (inside || !(gapOk && String(why).split('|').every(w => gapOk.test(w))))) return `reserved:${why}`", 'if (why) return `reserved:${why}`', async M => {
     const r = M.surveyStepwell(world().read, HOME, cand, { ...OPT, blocked: at(gapCol, 'project:wallext') })
     assert.ok(!r.ok && r.why === 'reserved:project:wallext', JSON.stringify(r))
   })
@@ -107,6 +107,15 @@ await t('treefarm.mjs farmBlocked({ whys: true }) names a reservation box by its
   const named = farmBlocked({ pzones: pz, whys: true }), plain = farmBlocked({ pzones: pz })
   assert.strictEqual(named(11, 11), 'project:wallext'); assert.strictEqual(plain(11, 11), 'project')
   assert.strictEqual(named(20, 20), 'project', 'a box with no why stays project'); assert.strictEqual(named(0, 0), null)
+  // Codex fold r2 BLOCKER: a wall margin and a land road over ONE column -- both named, in either order; the gap refuses it
+  const wallB = { box: [30, -64, 30, 31, 320, 31], why: 'project:wall' }, roadB = { box: [31, -64, 31, 32, 320, 32], why: 'land:road' }
+  for (const order of [[wallB, roadB], [roadB, wallB]]) {
+    const f = farmBlocked({ pzones: order, whys: true })
+    assert.deepStrictEqual(f(31, 31).split('|').sort(), ['land:road', 'project:wall'])
+    const r = S.surveyStepwell(world().read, HOME, cand, { ...OPT, blocked: (x, z) => (x === gapCol[0] && z === gapCol[1] ? f(31, 31) : null) })
+    assert.ok(!r.ok && /^reserved:/.test(r.why) && /land:road/.test(r.why), JSON.stringify(r))
+  }
+  assert.ok(S.surveyStepwell(world().read, HOME, cand, { ...OPT, blocked: (x, z) => (x === gapCol[0] && z === gapCol[1] ? 'project:wall|project:wallext' : null) }).ok, 'two wall reasons pass')
   // the chain: the live siting's blocked over the wall's margin box -> the gap rule passes it; the plain one refuses it
   const r1 = S.surveyStepwell(world().read, HOME, cand, { ...OPT, blocked: (x, z) => (x === gapCol[0] && z === gapCol[1] ? named(11, 11) : null) })
   const r0 = S.surveyStepwell(world().read, HOME, cand, { ...OPT, blocked: (x, z) => (x === gapCol[0] && z === gapCol[1] ? plain(11, 11) : null) })
