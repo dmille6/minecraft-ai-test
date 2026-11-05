@@ -52,6 +52,17 @@ await t('pickJobCell: open grass beside the villagers; never on the villager, a 
   assert.equal(J.pickJobCell(world({ [`${first.x},64,${first.z}`]: 'oak_planks' }), cl).cell?.x === first.x && J.pickJobCell(world({ [`${first.x},64,${first.z}`]: 'oak_planks' }), cl).cell?.z === first.z, false, 'an occupied cell is never chosen (no block is broken)')
   assert.equal(J.pickJobCell(world(), cl, { existing: [{ x: 10, z: 0 }] }).why, 'jobsite_near', 'a stonecutter already within 32 b: none')
   assert.equal(J.pickJobCell(() => null, cl).why, 'unloaded')
+  // Codex blocker 1: a one-wide, two-high cobblestone passage -- no cell inside it (it would wall the villager in)
+  const corridor = {}
+  for (let x = -8; x <= 8; x++) for (const y of [64, 65]) { corridor[`${x},${y},1`] = 'cobblestone'; corridor[`${x},${y},-1`] = 'cobblestone' }
+  for (const y of [64, 65]) { corridor[`-8,${y},0`] = 'cobblestone' }
+  const inCorr = J.pickJobCell(world(corridor), J.unemployedClusters([V('a', 0, 0)])[0])
+  assert.ok(!inCorr.cell || Math.abs(inCorr.cell.z) >= 2, `never inside the passage: ${JSON.stringify(inCorr)}`)
+  // Codex blocker 2: spacing per cell -- with a stonecutter at the first choice, no candidate within 32 b of it
+  const long = J.unemployedClusters([V('a', 0, 0), V('b', 14, 0), V('c', 28, 0), V('d', 42, 0)])[0]
+  const e1 = J.pickJobCell(world(), long).cell
+  const e2 = J.pickJobCell(world(), long, { existing: [{ x: e1.x, z: e1.z }] }).cell
+  assert.ok(!e2 || Math.hypot(e2.x - e1.x, e2.z - e1.z) >= 32, `second cell ${JSON.stringify(e2)} vs ${JSON.stringify(e1)}`)
 })
 
 await t('claimOf: a cluster member with a profession now', () => {

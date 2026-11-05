@@ -19849,11 +19849,15 @@ async function placeJobsite (ctx, near, signal) {
   if (!clusters.length) return jobRow(bot, 'no_effect', { op: 'skip', why: 'no_unemployed' })
   const blockAt = (x, y, z) => { const b = bot.blockAt?.(new Vec3(x, y, z)); return b ? { name: b.name } : null }
   const id = bot.registry?.blocksByName?.[JOB.block]?.id
-  const existing = id == null ? [] : (bot.findBlocks?.({ matching: id, maxDistance: JOB.spacing + 16, count: 16 }) ?? []).map(p => ({ x: p.x, z: p.z }))
   const ledger = jobLedger()
+  // every stonecutter there AND every one this town placed (by cell): the spacing is checked per candidate cell
+  const existing = [...(id == null ? [] : (bot.findBlocks?.({ matching: id, maxDistance: JOB.spacing + 16, count: 16 }) ?? []).map(p => ({ x: p.x, z: p.z }))), ...ledger.map(e => ({ x: e.x, z: e.z }))]
+  const placedFor = new Set(ledger.flatMap(e => e.uuids ?? []))
   for (const cl of clusters) {
     check(signal)
-    const adm = jobsiteAdmit({ ledger, now, at: cl, haveBlock: true })
+    // one per cluster: a member a job site was already placed for marks the cluster done (Codex review 11-05 blocker 2)
+    if (cl.uuids.some(u => placedFor.has(u))) { jobRow(bot, 'no_effect', { op: 'skip', why: 'cluster_done', cluster: cl }); continue }
+    const adm = jobsiteAdmit({ ledger, now, at: null, haveBlock: true })
     if (!adm.ok) { jobRow(bot, 'no_effect', { op: 'skip', why: adm.why, cluster: cl }); if (adm.why === 'day_cap') return; continue }
     const pick = pickJobCell(blockAt, cl, { existing })
     if (!pick.cell) { jobRow(bot, 'no_effect', { op: 'skip', why: pick.why, cluster: cl }); continue }
@@ -19870,7 +19874,7 @@ async function placeJobsite (ctx, near, signal) {
     } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     await sleep(500, signal)
     if (bot.blockAt(new Vec3(c.x, c.y, c.z))?.name !== JOB.block) { jobRow(bot, 'failed', { op: 'place_failed', cell: c, cluster: cl }); return }
-    jobLedgerAdd({ x: c.x, y: c.y, z: c.z, at: Date.now(), bot: bot.username, cluster: cl.n })
+    jobLedgerAdd({ x: c.x, y: c.y, z: c.z, at: Date.now(), bot: bot.username, cluster: cl.n, uuids: cl.uuids })
     jobRow(bot, 'success', { op: 'placed', cell: c, cluster: cl, d: pick.d })
     await sleep(JOB.claimWaitMs, signal)
     const nowSeen = Object.values(bot.entities ?? {}).map(merchantOf).filter(Boolean)

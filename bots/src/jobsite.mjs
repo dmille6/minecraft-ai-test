@@ -66,7 +66,9 @@ export function jobsiteAdmit ({ ledger = [], now = 0, at = null, townIron = 0, h
 export function pickJobCell (blockAt, cluster, { near = JOB.near, spacing = JOB.spacing, existing = [] } = {}) {
   const at = (x, y, z) => { try { return blockAt(x, y, z) } catch { return null } }
   if (!cluster?.members?.length) return { cell: null, why: 'no_cluster' }
-  if ((existing ?? []).some(p => Math.hypot(p.x - cluster.x, p.z - cluster.z) < spacing)) return { cell: null, why: 'jobsite_near' }
+  // SPACING PER CELL (Codex review 11-05 blocker 2: a centroid check let two cells of one long cluster pass 2.8 b apart)
+  const tooNear = c => (existing ?? []).some(p => Math.hypot(p.x - c.x, p.z - c.z) < spacing)
+  if ((existing ?? []).length && cluster.members.every(m => (existing ?? []).some(p => Math.hypot(p.x - m.x, p.z - m.z) < spacing))) return { cell: null, why: 'jobsite_near' }
   const cands = []
   const seen = new Set()
   for (const m of cluster.members) {
@@ -82,6 +84,7 @@ export function pickJobCell (blockAt, cluster, { near = JOB.near, spacing = JOB.
   let why = 'no_cell'
   for (const c of cands) {
     if (c.d < 1.5) continue                                    // never on a villager's own cell or touching it
+    if (tooNear(c)) continue
     const here = at(c.x, c.y, c.z), up = at(c.x, c.y + 1, c.z), below = at(c.x, c.y - 1, c.z)
     if (!here || !up || !below) { why = 'unloaded'; continue }
     if (!(AIR.test(bare(here.name)) || PLANT.test(bare(here.name)))) continue
@@ -92,7 +95,11 @@ export function pickJobCell (blockAt, cluster, { near = JOB.near, spacing = JOB.
       const n0 = at(c.x + dx, c.y, c.z + dz), nb = at(c.x + dx, c.y - 1, c.z + dz), n1 = at(c.x + dx, c.y + 1, c.z + dz)
       if (!n0 || !nb || !n1) { bad = true; break }
       for (const b of [n0, nb, n1]) if (NO_TOUCH.test(bare(b.name)) || JOB_BLOCKS.test(bare(b.name))) bad = true
-      if (Math.abs(dx) + Math.abs(dz) === 1 && (AIR.test(bare(n0.name)) || PLANT.test(bare(n0.name))) && AIR.test(bare(n1.name)) && FLOOR_OK.test(bare(nb.name))) reach = true
+      // OPEN GROUND ONLY (Codex review 11-05 blocker 1: a cell in a one-wide passage walled a villager's only way out): every one
+      // of the 8 neighbours is open at feet and head height, so one block in the middle of open ground cannot cut a way
+      const open0 = AIR.test(bare(n0.name)) || PLANT.test(bare(n0.name)), open1 = AIR.test(bare(n1.name)) || PLANT.test(bare(n1.name))
+      if (!open0 || !open1) bad = true
+      if (Math.abs(dx) + Math.abs(dz) === 1 && open0 && open1 && FLOOR_OK.test(bare(nb.name))) reach = true
     }
     if (bad || !reach) continue
     return { cell: { x: c.x, y: c.y, z: c.z }, below: { x: c.x, y: c.y - 1, z: c.z }, d: +c.d.toFixed(1), replaces: bare(here.name) }
