@@ -17080,7 +17080,10 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // is this bot's for STARVE_MS (`tried`) and stays its pick until the visit ends (`starvePick`: its own slot lease refreshes the
     // stamp, and the reserve and bag reads mid-visit must name the project the visit is on)
     const starve = starveOn() && b
-    const marked = starve ? starveMark(waited, { lastTakeOf: plot => projLastTake(dir, list.find(p => p.plot === plot), now), now, tried: (b.starveTried ??= new Map()) }) : waited
+    // the stamps are read at most every STARVE_READ_MS (a lease listing of a large town directory per open project per call)
+    const sc = starve ? (b.starveReads ??= new Map()) : null
+    const lastTake = plot => { const c0 = sc.get(plot); if (c0 && now - c0.at < STARVE_READ_MS && now >= c0.at) return c0.v; const v = projLastTake(dir, list.find(p => p.plot === plot), now); sc.set(plot, { at: now, v }); return v }
+    const marked = starve ? starveMark(waited, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waited
     let pick = activeProject(marked, list)
     if (starve && visit) {
       const st = marked.find(x => x?.plot === pick.plot)
@@ -17095,6 +17098,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
 }
 /** starve-01: the longest a visit's starved pick is held for the bot's other reads (a visit's own clock is shorter). */
 const STARVE_PICK_MS = 20 * 60_000
+const STARVE_READ_MS = 30_000
 /** starve-01: project `p`'s newest admission -> ms | null: the latest `at` (or release) of any of its slot leases, else its
  *  record's last publish. Never throws (null: never starved on no evidence). */
 function projLastTake (dir, p, now = Date.now()) {

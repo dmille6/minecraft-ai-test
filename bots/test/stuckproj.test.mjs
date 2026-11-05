@@ -152,6 +152,20 @@ await t('never PLACED leaves (natural false) and never a vetoed cell (mayDig fal
     assert.strictEqual(got.length, 1, 'the mutant digs placed leaves')
   })
 })
+await t('r1 (Codex r1 BLOCK): never an INDEPENDENT segment\'s record cell (another builder may hold it); a WAITING segment\'s cell is cut', async () => {
+  const X = [CELL[0] + 1, CELL[1], CELL[2]], Y = [CELL[0], CELL[1] + 1, CELL[2]]
+  const r = { v: 1, plot: 'wall', cells: [{ at: CELL, role: 'wall', seg: 'W-0' }, { at: X, role: 'wall', seg: 'W-1' }, { at: Y, role: 'wall', seg: 'W-2' }], clear: [], replant: [],
+    segments: [{ seg: 'W-0', deps: [] }, { seg: 'W-1', deps: [] }, { seg: 'W-2', deps: ['W-0'] }] }
+  const scenario = async M => {
+    const srv = treeScene(), pr = projectOf(r)
+    assert.ok(PJ.takeLease(pr.dir, pr.key, 'seg-W-1', 'B').ok, 'builder B holds W-1')
+    const e = bot(srv, 'A', { inv: { cobblestone: 8 } })
+    await M.runVisit(pr.p('A', CAN()), e, { maxSteps: 400 })
+    assert.strictEqual(srv.read(...X).name, 'oak_leaves', 'B\'s cell is never dug by A')
+    assert.ok(e.logs.some(([kk, d]) => kk === '_build' && d.op === 'clear' && d.kind === 'canopy' && k(d.cell) === k(Y)), 'the waiting segment\'s leaves are cut')
+  }
+  await killedBy('if (q && q.seg !== seg && !dependsOn(record, q.seg, seg)) return false; ', '', scenario)
+})
 await t('bounded: at most `max` cuts a visit, and each cell\'s canopy once a visit (a second visit goes on where the first stopped)', async () => {
   const srv = treeScene(), pr = projectOf(rec()), e = bot(srv, 'A', { inv: { cobblestone: 8 } })
   const r1 = await R.runVisit(pr.p('A', CAN({ max: 5 })), e, { maxSteps: 400 })
@@ -248,7 +262,8 @@ await t('the switch: STARVE=off|0|false|no is the rollback; unset is on; STARVE_
 await t('THE WIRING: shopActive marks with the shared lease stamp and the bot\'s `tried`; a starved pick is held for its visit and cleared after', () => {
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   const one = a => assert.strictEqual(src.split(a).length - 1, 1, `wired once: ${a}`)
-  one("const marked = starve ? starveMark(waited, { lastTakeOf: plot => projLastTake(dir, list.find(p => p.plot === plot), now), now, tried: (b.starveTried ??= new Map()) }) : waited")
+  one("const marked = starve ? starveMark(waited, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waited")
+  one("const v = projLastTake(dir, list.find(p => p.plot === plot), now); sc.set(plot, { at: now, v }); return v }")
   one('let pick = activeProject(marked, list)')
   one('if (st?.starved) { b.starveTried.set(pick.plot, now); b.starvePick = { plot: pick.plot, at: now } } else b.starvePick = null')
   one('try { return await buildShopVisit(ctx, args, signal) } finally { try { if (ctx?.bot) ctx.bot.starvePick = null }')

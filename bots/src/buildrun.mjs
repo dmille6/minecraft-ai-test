@@ -905,19 +905,23 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // open the stands for the inner ones). -> { dug, stop? }
   const canopied = new Set()
   let canopyDug = 0, canopyCells = null
-  const cutCanopy = async (cells, held) => {
+  const cutCanopy = async (cells, held, seg) => {
     if (!p.canopy) return { dug: 0 }
     const fresh = cells.filter(c => !canopied.has(kOf(c)))
     if (!fresh.length) return { dug: 0 }
     for (const c of fresh) canopied.add(kOf(c))
     const max = p.canopy.max ?? CANOPY_MAX
     canopyCells ??= new Map(record.cells.map(q => [kOf(q.at), q]))
+    // r1 (Codex r1 BLOCK): a RECORD cell is cut only when it is this segment's or a segment's that waits on this one (it cannot be
+    // leased while this one is open: the trunk felling's rule) -- never an independent segment's, which another builder may hold
+    const veto = p.canopy.mayDig ?? (() => true)
+    const mayDig = at => { const q = canopyCells.get(kOf(at)); if (q && q.seg !== seg && !dependsOn(record, q.seg, seg)) return false; return veto(at) }
     const tried = new Set()
     let dug = 0, seen = 0, last = null
     for (let pass = 0; pass < 3 && canopyDug < max; pass++) {
       const list = new Map()
       for (const c of fresh) {
-        for (const q of canopyCuts(c, { read: rd, natural: p.canopy.natural ?? (() => false), mayDig: p.canopy.mayDig ?? (() => true), recordCell: k => canopyCells.get(k) ?? null, isDone: q => isDone(q), skip: k => tried.has(k) })) if (!list.has(kOf(q.at))) list.set(kOf(q.at), q)
+        for (const q of canopyCuts(c, { read: rd, natural: p.canopy.natural ?? (() => false), mayDig, recordCell: k => canopyCells.get(k) ?? null, isDone: q => isDone(q), skip: k => tried.has(k) })) if (!list.has(kOf(q.at))) list.set(kOf(q.at), q)
       }
       if (!pass) seen = list.size
       let progress = false
@@ -1083,7 +1087,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           if (v === 'aborted') { out.stop = 'aborted'; return out }
           // canopy-01: no stand for the foreign block (leaves in a cell, a canopy round them): the tree is cut back, the cell tried again
           if ((v === 'no_stand' || v === 'unreached') && p.canopy && !canopied.has(kOf(f.at))) {
-            const cc = await cutCanopy([f.at], held)
+            const cc = await cutCanopy([f.at], held, seg)
             if (cc.stop) { out.stop = cc.stop; return out }
             if (cc.dug) continue
           }
@@ -1236,7 +1240,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           // canopy-01: no stand for any placeable cell -- the natural leaves round the lowest few are cut back, the segment read again
           if (p.canopy && cand.length && cand.some(c => !canopied.has(kOf(c.at)))) {
             const sg = segGen
-            const cc = await cutCanopy(cand.slice(0, 8).map(c => c.at), () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now()))
+            const cc = await cutCanopy(cand.slice(0, 8).map(c => c.at), () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now()), seg)
             if (cc.stop) { out.stop = cc.stop; return out }
             if (cc.dug) continue
           }
