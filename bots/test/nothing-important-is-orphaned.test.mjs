@@ -33,6 +33,9 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 const REQUIRED = [
   // tidydead-01 (11-05): the tidy's hard cells (a block no stand reaches, a fill no click lands on) are deferred so its waiver names them
   'bots/test/tidydead.test.mjs',
+  // stuckproj-01 (11-05): canopy-01 (a tree grown on a build is cut back so a stand sees the cell) + starve-01 (a starved open project gets a builder)
+  'bots/src/canopy.mjs',
+  'bots/test/stuckproj.test.mjs',
   // dirtrung-01 (11-04): the dirt rung is met by a stack of dirt + stone family (gather_dirt_16 held 22.8% of decisions)
   'bots/test/dirtrung.test.mjs',
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
