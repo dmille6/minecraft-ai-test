@@ -73,6 +73,10 @@ REGDIR = '~/mcai-analysis/registrations'
 TARGETS = os.path.join(HERE, '..', '..', 'config', 'effect-targets.json')
 STATE = '~/digest'
 REPO = '~/stallcheck/repo'
+# effect targets are read from origin/main of this clone (fetched each run), the installed copy only as a fallback: the
+# copy install-effectwatch.sh made on 11-03 never saw a later entry, so stuckcells-01's none_reason (40d825ad) and every
+# entry after it alarmed "no effect declared" on 11-04/05. None = the installed copy only (tests).
+TARGETS_REPO = REPO
 SINCE = '2026-10-28T00:00:00Z'
 DUE_AFTER = dt.timedelta(minutes=20)        # after the cache's FINAL_AFTER
 HOLE_GRACE = dt.timedelta(hours=48)
@@ -165,7 +169,19 @@ def promotions(journal):
 
 
 # ------------------------------------------------------------------------------------------------------------ targets --
-def load_targets(path=None):
+def load_targets(path=None, repo=None):
+    """-> the `runs` map. An explicit path is read as a file. Else origin/main of `repo` (default TARGETS_REPO, fetched
+    first), and the installed copy TARGETS only when the clone cannot be read."""
+    repo = TARGETS_REPO if repo is None else repo
+    if path is None and repo:
+        r = os.path.expanduser(repo)
+        try:
+            subprocess.run(['git', '-C', r, 'fetch', '-q', 'origin'], timeout=60, check=False, capture_output=True)
+            out = subprocess.run(['git', '-C', r, 'show', 'origin/main:config/effect-targets.json'],
+                                 capture_output=True, text=True, timeout=30, check=True).stdout
+            return json.loads(out).get('runs') or {}
+        except Exception:       # noqa: BLE001
+            pass
     try:
         with open(path or TARGETS) as f:
             return json.load(f).get('runs') or {}
@@ -616,20 +632,31 @@ def cmd_run(a):
     promos = promotions(read_journal(a.journal))
     final = hfloor(now - EC.FINAL_AFTER)
     since = ts(a.since)
+    side = load_targets()
     verdicts, new = [], []
     for ti, p in enumerate(promos):
         if p['P'] < since:
             continue
         for hz, end in (('h24', hceil(p['P']) + dt.timedelta(hours=26)), ('h72', hceil(p['P']) + dt.timedelta(hours=74))):
             path = os.path.join(sd, 'effect', p['run'], f'{hz}.json')
+            stale = False
             try:
-                verdicts.append(json.load(open(path)))
-                continue
+                old = json.load(open(path))
+                # an UNDECLARED verdict is not final: the entry may land on main later; re-read it every run
+                if not old.get('undeclared'):
+                    verdicts.append(old)
+                    continue
+                stale = True
             except (OSError, ValueError):
                 pass
             if end > final or now < end + EC.FINAL_AFTER + DUE_AFTER:
                 continue
-            v = read_run(cache, promos, ti, hz)
+            v = read_run(cache, promos, ti, hz, sidecar=side)
+            if v.get('undeclared'):
+                verdicts.append(v)
+                continue
+            if stale:
+                os.remove(path)
             # a read made UNREADABLE only by missing cache hours (a backfill not done, a cron gap) is NOT committed: it is
             # retried every run, and committed as it stands only HOLE_GRACE after it fell due (Claude review r1)
             if is_hole_only(v) and now < end + EC.FINAL_AFTER + DUE_AFTER + HOLE_GRACE:

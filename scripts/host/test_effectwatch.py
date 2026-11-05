@@ -14,6 +14,7 @@ import json
 import os
 import random
 import sys
+import subprocess
 import tempfile
 import types
 
@@ -314,7 +315,7 @@ def t_hole_retry(M):
     json.dump({'items': []}, open(lp, 'w'))
     tp = os.path.join(sd, 'targets.json')
     json.dump({'runs': SIDE}, open(tp, 'w'))
-    EW.TARGETS = tp
+    EW.TARGETS, EW.TARGETS_REPO = tp, None
     args = lambda now: ['run', '--no-push', '--since', '2026-11-01T00:00:00Z', '--now', now, '--journal', jp, '--cache', d,
                         '--state-dir', sd, '--ledger', lp]
     EW.EC.FINAL_AFTER = dt.timedelta(hours=2)
@@ -325,6 +326,60 @@ def t_hole_retry(M):
     later = json.load(open(f24)) if os.path.exists(f24) else {}
     st = json.load(open(os.path.join(sd, 'effect-fleet.json')))
     return (not first) and later.get('verdict') == 'UNREADABLE' and 'promotion effects' in st['summary'], (first, later.get('verdict'))
+
+
+def t_undeclared_reread(M):
+    """An UNDECLARED read is never final: a stale undeclared h24.json (the pre-11-05 write-once) and a fresh undeclared
+    read alarm; once the entry exists the next run reads the target, replaces the file and the alarm clears."""
+    EW = M.ew
+    d, sd = tempfile.mkdtemp(), tempfile.mkdtemp()
+    fake_fleet(M, d, 0.4)
+    jp = os.path.join(sd, 'journal.jsonl')
+    with open(jp, 'w') as f:
+        f.write('\n'.join(json.dumps(r) for r in journal()) + '\n')
+    lp = os.path.join(sd, 'ledger.json')
+    json.dump({'items': []}, open(lp, 'w'))
+    tp = os.path.join(sd, 'targets.json')
+    json.dump({'runs': {}}, open(tp, 'w'))
+    EW.TARGETS, EW.TARGETS_REPO = tp, None
+    EW.EC.FINAL_AFTER = dt.timedelta(hours=2)
+    now = (P_TIME + dt.timedelta(hours=30)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    args = ['run', '--no-push', '--since', '2026-11-01T00:00:00Z', '--now', now, '--journal', jp, '--cache', d,
+            '--state-dir', sd, '--ledger', lp]
+    f24 = os.path.join(sd, 'effect', 'x-01', 'h24.json')
+    os.makedirs(os.path.dirname(f24))
+    json.dump({'run': 'x-01', 'horizon': 'h24', 'verdict': 'UNREADABLE', 'undeclared': True, 'targets': []}, open(f24, 'w'))
+    EW.main(args)
+    a1 = json.load(open(os.path.join(sd, 'effect-fleet.json')))['alarms']
+    json.dump({'runs': SIDE}, open(tp, 'w'))
+    EW.main(args)
+    a2 = json.load(open(os.path.join(sd, 'effect-fleet.json')))['alarms']
+    v = json.load(open(f24))
+    ok = 'effect:x-01:undeclared' in a1 and 'effect:x-01:undeclared' not in a2 and not v.get('undeclared') \
+        and v.get('verdict') == 'EFFECT'
+    return ok, (sorted(a1), sorted(a2), v.get('verdict'))
+
+
+def t_targets_main(M):
+    """load_targets reads origin/main of the clone (fetched), not the installed copy; the copy only when no clone."""
+    EW = M.ew
+    root = tempfile.mkdtemp()
+    g = lambda *a: subprocess.run(['git', *a], cwd=root, check=True, capture_output=True)
+    g('init', '-q', '--bare', '-b', 'main', 'origin.git')
+    g('clone', '-q', 'origin.git', 'w')
+    g('clone', '-q', 'origin.git', 'reader')
+    w = os.path.join(root, 'w')
+    os.makedirs(os.path.join(w, 'config'))
+    json.dump({'runs': {'new-01': {'none_reason': 'x'}}}, open(os.path.join(w, 'config', 'effect-targets.json'), 'w'))
+    gw = lambda *a: subprocess.run(['git', '-C', w, '-c', 'user.name=t', '-c', 'user.email=t@t', *a], check=True,
+                                   capture_output=True)
+    gw('add', '-A'), gw('commit', '-qm', 'x'), gw('push', '-q', 'origin', 'HEAD:main')
+    inst = os.path.join(root, 'installed.json')
+    json.dump({'runs': {'old-01': {}}}, open(inst, 'w'))
+    EW.TARGETS = inst
+    main_ = EW.load_targets(repo=os.path.join(root, 'reader'))        # the reader clone predates the commit: fetch
+    copy = EW.load_targets(repo=os.path.join(root, 'missing'))
+    return 'new-01' in main_ and 'old-01' not in main_ and 'old-01' in copy, (sorted(main_), sorted(copy))
 
 
 def t_vanished(M):
@@ -379,6 +434,8 @@ TESTS = [('busy-time classes, END stamps, holes', t_busy), ('metrics: keys, rati
          ('synthetic fleet: doubled -> WORSE', t_read_worse), ('synthetic fleet: short of claim -> NO-EFFECT', t_read_short),
          ('synthetic fleet: cache hole -> UNREADABLE', t_read_hole), ('synthetic fleet: model A/B excluded', t_read_ab),
          ('a hole-only UNREADABLE is retried, not committed', t_hole_retry),
+         ('an UNDECLARED read is re-read until declared, then committed', t_undeclared_reread),
+         ('effect targets come from origin/main of the clone', t_targets_main),
          ('a vanished target event is UNREADABLE, not EFFECT', t_vanished),
          ('a same-metric promotion inside the post window: joint -> UNREADABLE', t_joint), ('wiring', t_wiring)]
 
@@ -409,6 +466,8 @@ MUTANTS = [
     ('ew', "    return None if base <= 0 or post <= 0 else math.log(post / base)", "    return None if base == 0 else (post - base) / base", t_decide),
     ('ew', "    if mp['num'] == 0 and mb['num'] > 0:          # any kind (Codex review r1 BLOCKER 2)", "    if False:", t_vanished),
     ('ew', "        if not (q['P'] < ph[-1] + H1):", "        if not (ph[0] <= q['P'] < ph[-1] + H1):", t_joint),
+    ('ew', "                if not old.get('undeclared'):", "                if True:", t_undeclared_reread),
+    ('ew', "    if path is None and repo:", "    if False:", t_targets_main),
 ]
 
 

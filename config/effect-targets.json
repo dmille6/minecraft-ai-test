@@ -537,6 +537,74 @@
    "guardrails": [],
    "none_reason": "Stuck fleet projects (snow read, sealed pocket, waiver, blocked deferral, stair chain) are counted by goalwatch-fleet as STUCK goal alarms, not by an effectwatch metric; its effect is read from goalwatch (stuck goals cleared after promotion: isolated-d/isolated-a/workshops cleared 11-03/11-04; the remaining 355_73_147 monument stalls are monustuck-01's bamboo cause). Control session 11-04.",
    "retrospective": true
+  },
+  "bagdiet-01": {
+   "version": 1,
+   "targets": [],
+   "guardrails": [],
+   "none_reason": "Its claim is per-visit draw size (_build_bag project=monument took cobblestone per visit -> p90 <= 64; monument cobble draws ~1,250/h -> ~330/h fleet; bag cobble stops rising), which no cache metric holds (_build_bag 'took' is not a DETAIL_KEY). The registration (9fbfdf22) names no effect field. Read from the bag-cobble stock instead; a DETAIL_KEY for _build_bag took= would make it readable after a cache rebuild. Control session 11-05.",
+   "retrospective": true
+  },
+  "cooldown15-02": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "llm.calls_per_bot_hour.v1",
+     "params": {},
+     "direction": "increase",
+     "minimum": 0.15,
+     "scale": "relative",
+     "claim": "the 30 -> 15 s decision-cooldown cap: model calls/min/bot +15% at least (registration line 1; projected x1.28, expected +30..60%)"
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    }
+   ],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "shafttrap-02": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "_needs_rescue"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "stair traps hand over to the egress: shaft _needs_rescue 173 in 46 h, 173 of 176 shaft rescues on a stair (PROXY: all _needs_rescue rows per bot-h)",
+     "window_h": 72
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "swimcentre-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "failclass.rate.v1",
+     "params": {
+      "name": "_death",
+      "fail_class": "drowning"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "drowning 63 of 174 deaths in 7 d (top cause), 56/63 pinned at y N.2: the rising body is centred under its column",
+     "window_h": 72
+    }
+   ],
+   "guardrails": [],
+   "none_reason": null,
+   "retrospective": true
   }
  }
 }
