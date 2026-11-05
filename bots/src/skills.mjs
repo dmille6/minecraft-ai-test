@@ -21857,6 +21857,15 @@ async function decorClick (e, at, item) {
   e.send(at, [0, 1, 0], seq)
   return (await e.waitAck(seq, 2_000)) === 'acked' ? 'acked' : 'silent'
 }
+/** The wall demolition's hold NOW (wall.mjs holdAt over the wall record as held) -> (x, z) -> bool; an error holds everything. The
+ *  showcase atlas+decorator fold (Codex fold r3 BLOCKER): a decor cell sited before a hold began is never placed, dug or filled on it. */
+function decorHeldNow () { try { return holdAt(projectHeads().find(x => x.plot === WALL_PLOT)?.head?.rec ?? null) } catch { return () => true } }
+/** A decor record with its cells (and clears) on held columns left out, for one visit (read as not this visit's work). Pure but for the hold. */
+function decorUnheld (rec, held = decorHeldNow()) {
+  if (!rec) return rec
+  const ok = q => !(Array.isArray(q?.at) && held(q.at[0], q.at[2]))
+  return { ...rec, cells: (rec.cells ?? []).filter(ok), clear: (rec.clear ?? []).filter(ok) }
+}
 const decorGen = () => { try { return recordHead(townDir(), decorKey()).head?.gen ?? '-' } catch { return '-' } }
 /**
  * THE POT FILL (every decor visit, first) -> { filled, failed }. Each empty pot of the record (decorator.mjs emptyPots: a flower_pot
@@ -21870,7 +21879,9 @@ async function decorPotFill (ctx, rec, signal, deadline, flowerKeep = 0) {
   const out = { filled: 0, failed: 0 }
   const read = tidyRead(bot)
   const tries = (bot.decorPotTries ??= new Map())
-  const work = emptyPots(rec, read).filter(c => (tries.get(c.at.join(',')) ?? 0) < 3).slice(0, DECOR.potFillMax)
+  // the showcase atlas+decorator fold (Codex fold r3 BLOCKER): a pot on a column the wall demolition now HOLDS is never filled
+  const held = decorHeldNow()
+  const work = emptyPots(rec, read).filter(c => (tries.get(c.at.join(',')) ?? 0) < 3 && !held(c.at[0], c.at[2])).slice(0, DECOR.potFillMax)
   if (!work.length || deadline - Date.now() < 20_000) return out
   const e = decorEffects(bot, signal)
   try {
@@ -22180,7 +22191,7 @@ async function buildSink (ctx, args, signal, proj) {
     // are the label writer's -- runVisit reads them done
     // decorator-01: a decor batch's box spans the town too (flowers and pots: nothing to stand on)
     const leave = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) } : {}
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    const r = await runVisit({ dir, key, me, home, stood, record: kind === 'decor' ? decorUnheld(rec) : rec, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       ...sinkVisitOpts(rec, home), ...leave }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && instancesOf(cur).length === instancesOf(rec).length ? completeInstance(cur) : null), { by: me })
