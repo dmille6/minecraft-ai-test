@@ -358,6 +358,11 @@ await t('nurseryDigs: every flower in reach on grass (nearest first), the grass 
   assert.deepStrictEqual(d.blooms.map(q => q.at), [[21, G + 1, 20]], 'within spread 7; the record\'s flower stays; the one at 8 is out of reach')
   assert.deepStrictEqual(d.grass.map(q => q.at), [[21, G + 1, 21]], 'grass within clearR only')
 })
+await t('decorBase: a nothing-to-build base naming home (published before the first fern: the read\'s DC4 needs a generation in force)', () => {
+  const b = D.decorBase(null, { home: HOME })
+  assert.deepStrictEqual(b.home, HOME); assert.strictEqual(b.structure_complete, true); assert.strictEqual(S.sinkOpen(b), false); assert.strictEqual(b.blueprint, 'decor@1')
+  const r = { x: 1 }; assert.strictEqual(D.decorBase(r, { home: HOME }), r, 'an existing record unchanged')
+})
 await t('withNursery: a nursery-only record (no instance, nothing to build); a new nursery moves the old to `nurseries`; appendInstance keeps them', () => {
   const r1 = D.withNursery(null, { at: [1, G, 1], box: [-6, -6, 8, 8] }, { home: HOME, now: 5 })
   assert.strictEqual(r1.structure_complete, true); assert.strictEqual(S.sinkOpen(r1), false); assert.strictEqual(r1.nursery.sitedAt, 5)
@@ -621,7 +626,8 @@ const W = [
   /await matsWithdraw\(ctx, \{ iron_ingot: k \}, signal, 20_000, matsReserve\(\)\.table, decorAllow\(\{ iron_ingot: k \}\)\)/,
   /await matsWithdraw\(ctx, \{ bone_meal: want - bagMeal \}, signal, 30_000, matsReserve\(\)\.table, decorAllow\(\{ bone_meal: want - bagMeal \}\)\)/,
   /if \(rec0 && DECOR_POTS_ON\) \{ const pf = await decorPotFill\(/,
-  /if \(fernNeed > 0\) \{ const fg = await decorFerns\(ctx, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, fernNeed\)/,
+  /if \(fernNeed > 0 && based\) \{ const fg = await decorFerns\(ctx, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, fernNeed\)/,
+  /if \(fernNeed > 0 && !based\) \{ const pb = publishRecord\(dir, key, cur => \(cur \? null : decorBase\(null,/,
   /const cr = await compost\(ctx, \{ drive: true \}, signal\)/,
   /buildRowDetail\(\{ project: SINK_PLOTS\.decor, op: 'clear', cell: t\.at, block: t\.name, kind: 'fern', n: t\.n, gen: decorGen\(\) \}\)/,
   /setCompostDrive\(junk => \{\n\s*if \(!DECORATE\.on\) return false/,

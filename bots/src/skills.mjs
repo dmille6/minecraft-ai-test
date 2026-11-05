@@ -193,7 +193,7 @@ import { PREP, prepOverlapOf, plotFootprint, prepCursor, prepKeeperWork, sitepre
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount, noSiteStamped, noSiteUntilOf } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { cellGuard } from './towndress.mjs'   // decorator-01: the nursery's guard
-import { DECOR, DECOR_LEASE, NURSERY, decorPressure, decorWanted, decorOrderPure, decorRowDetail, decorSeed, doorwayOf, emptyPots, potPlantFor, borderPlantsOf, localStands, harvestWants, siteNursery, nurseryStill, nurseryDigs, withNursery, decorFlowerRole, flowersOwed, decorStalled, decorFernRole, fernTargets, FERN_BLOCKS, decorPotsOn, driveWants, DRIVE } from './decorator.mjs'   // decorator-01; decorator-02: ferns, the compost drive, pots off
+import { DECOR, DECOR_LEASE, NURSERY, decorPressure, decorWanted, decorOrderPure, decorRowDetail, decorSeed, doorwayOf, emptyPots, potPlantFor, borderPlantsOf, localStands, harvestWants, siteNursery, nurseryStill, nurseryDigs, withNursery, decorBase, decorFlowerRole, flowersOwed, decorStalled, decorFernRole, fernTargets, FERN_BLOCKS, decorPotsOn, driveWants, DRIVE } from './decorator.mjs'   // decorator-01; decorator-02: ferns, the compost drive, pots off
 import { setCompostDrive } from './composter.mjs'   // decorator-02: the compost drive's hook (townOrder)
 import { SMALL_FLOWERS as DECOR_FLOWERS } from './park.mjs'   // decorator-02: the bag's flowers apart from its ferns
 import { DECORATE } from './shop.mjs'   // decorator-01: its switch
@@ -22127,7 +22127,11 @@ async function buildSink (ctx, args, signal, proj) {
       // DECOR.fernWant before a next batch -- with shears (crafted from 2 of the town's iron)
       const owedFerns = rec0 ? (rec0.cells ?? []).filter(q => decorFernRole(q.role) && !buildCellDone(rd0(...q.at), rec0.palette ?? {}, q.role)).length : 0
       const fernNeed = Math.max(owedFerns - (Number(heldMap(bot).fern) || 0), g0?.want ? DECOR.fernWant - (Number(heldMap(bot).fern) || 0) : 0)
-      if (fernNeed > 0) { const fg = await decorFerns(ctx, signal, t0 + budget - ZIG_VISIT_TAIL_MS, fernNeed); if (fg.n) f.blooms = (f.blooms ?? 0) + fg.n }
+      // Claude tripwire r1 BLOCKER: the record (and its home) is published BEFORE the first fern is cut (decorator.mjs decorBase), so the
+      // read's DC4 finds a generation in force at every fern row; an unpublishable record cuts nothing
+      let based = !!rec0
+      if (fernNeed > 0 && !based) { const pb = publishRecord(dir, key, cur => (cur ? null : decorBase(null, { home, blueprint: SINK_BLUEPRINTS.decor, plot: SINK_PLOTS.decor })), { by: me }); based = pb.result === 'accepted' || pb.result === 'nothing' }
+      if (fernNeed > 0 && based) { const fg = await decorFerns(ctx, signal, t0 + budget - ZIG_VISIT_TAIL_MS, fernNeed); if (fg.n) f.blooms = (f.blooms ?? 0) + fg.n }
       if (g0?.want || owed > borderPlantsOf(heldMap(bot))) { const nu = await decorNursery(ctx, rec0, signal, t0 + budget - ZIG_VISIT_TAIL_MS, g0?.want ? DECOR.batchMax : owed); f.meals = nu.meals; f.blooms = (f.blooms ?? 0) + nu.blooms }
       // decorator-02: THE COMPOST DRIVE -- the nursery's grass (cut with shears: items) and any other composter junk in the bag goes
       // into the town composter now, whatever the bag's fullness (the composter's own skill, its own rows)

@@ -561,8 +561,11 @@ export const nurseryStill = (read, nursery, opts) => !!nursery?.at && nurseryOk(
  * THE NURSERY ON THE RECORD -> the new record (a nursery-only base when there is none: no instance, nothing to build). Pure. The old
  * nursery, if any, goes to `nurseries` (the read judges a harvest against every nursery a generation in force names).
  */
+/** decorator-02 (Claude tripwire r1 BLOCKER): THE DECOR RECORD'S BASE -> the record (unchanged) | a nothing-to-build base naming the town's
+ *  home -- published before the first fern is cut, so the read's DC4 has a generation (and a home) in force at every fern row. Pure. */
+export const decorBase = (cur, { home, blueprint = 'decor@1', plot = 'decor' } = {}) => cur ?? { v: 1, blueprint, plot, kind: DECOR_KIND, home, instances: [], cells: [], segments: [], palette: {}, clear: [], replant: [], zones: [], builders_max: 1, structure_complete: true, state: 'complete' }
 export function withNursery (cur, nursery, { home, now = Date.now(), blueprint = 'decor@1', plot = 'decor' } = {}) {
-  const base = cur ?? { v: 1, blueprint, plot, kind: DECOR_KIND, home, instances: [], cells: [], segments: [], palette: {}, clear: [], replant: [], zones: [], builders_max: 1, structure_complete: true, state: 'complete' }
+  const base = decorBase(cur, { home, blueprint, plot })
   const old = base.nursery ? [...(base.nurseries ?? []), base.nursery] : (base.nurseries ?? [])
   return { ...base, nursery: { ...nursery, sitedAt: now }, nurseries: old }
 }
