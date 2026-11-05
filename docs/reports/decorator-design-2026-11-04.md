@@ -234,3 +234,29 @@ Codex found this through the same trap in decorator-02's shears.
   allowance (fixed) and the same first-visit case.
 - **Next:** decorator-03, leaf hedges and lantern posts. Both need a Paper proof: placed leaves stay persistent, and a lantern
   stands on a fence.
+
+## 10. decorator-03: leaf hedges and lantern posts
+
+**decorator-03show** (`645f5856`, stacked on decorator-02show `e0533abd`; tier 2):
+
+- **Hedges.** About half of seeds back their flower runs with a hedge one block high, one column further out, so a bed reads path,
+  flowers, hedge. A hedge follows the border's own rules: never on a path, record column, door front or reservation; the 1-block
+  step rule; open and dry ground. At most 8 a batch, limited to the leaves in the bag. A hedge is kept only where the town walk,
+  with the batch's pots and posts already standing, loses no node — so a hedge never shuts a way, and never shuts a doorway front.
+  Placed leaves are persistent. The leaves come from natural leaf blocks cut with shears within 48 of home (DC5).
+- **Lantern posts.** A spruce fence with a lantern standing on top. They go on the pot spots beside finished doorways, which are
+  free while pots are off: at most 2 a batch and 12 a town (the cap holds new posts only). Fences are crafted from planks. Each
+  lantern takes one iron ingot's nuggets and a torch, drawn from town under the decorator's own cap, the torch only above the
+  town's reserve. The dress counts the lanterns as lights.
+- **Paper proof** (sandbox6, 11-05 01:19Z, `sandbox/decor/decor-proof3.cjs`): placed leaves are persistent and survive 15 s at
+  randomTickSpeed 300, while a wild leaf block beside them decays (the control); a fence placed on grass; a lantern on the fence's
+  top face stands with `hanging=false`; a lantern crafted. **4/4 PASS.** The first run's craft failed with "missing ingredient"
+  because the bag had not yet updated after the nugget craft; a 2.5 s wait fixed it.
+- **Offline** (11 flowers + 24 ferns + 16 leaves + 4 kits): D1 `b16/alt:cool/g5/h8/l2`, D2 `b16/sparse:cool/g16/l1`. Picture:
+  `decorator-design-2026-11-04/decorated-town-03.png`, where `h` is a hedge and `P` a lantern post.
+- **Tripwire DC5 leaves.** The fern rule applied to the hedge leaves. Refusal tags are now ` fern_rule` and ` leaves_rule`. Claude
+  r1 BLOCKER: the old ` fern` tag let the showcase tripwire's tree-debris split read a stone cleared under the fern rule as a
+  WATCH. The selftest now checks every decor tag against `showcase_trip.py`'s TREE_DEBRIS, plus a DECOR_LEAVES copy check. Claude
+  r2: FIXED.
+- **Reviews.** Codex r1 found 2 blockers: hedges were proven without the batch's posts, and the town cap zeroed posts that still
+  owed a fence or lantern. Both are fixed, and r2 says FIXED with no new blocker.
