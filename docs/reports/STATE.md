@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-05T18:20:01Z._
+_Generated 2026-11-05T19:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-05T18:20:01Z._
 | **Canary in slot** | **leasegen-01** deployed 11-05 17:57Z; reads +90 11-05 19:27Z, +180 11-05 20:57Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | dropdig-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> bucketfix-01 -> kittrim-01 -> depositoffer-01 -> +8 more |
 | **Scheduler** | busy S1 canary declared: 4a440a533935db81813fa2201259c090d196001a on placebo-d,board-a,hive-c,board-c / S6 open loop: canary 4a440a5 is deployed on placebo-d,board-a,hive-c,board-c with no KEEP/REVERT/INCONCLUSIVE recorded — read it before  |
-| **Showcase release** | `fd1a5e96` (37,463 rows), `9950c3ff` (4,588 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live fd1a5e96 sits on 9fbfdf22 (bagdiet-01); behind by 6: llmoai-01, dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bo; row 11-05 17:25Z) |
+| **Showcase release** | `fd1a5e96` (38,165 rows), `7b5524df` (4,350 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live fd1a5e96 sits on 9fbfdf22 (bagdiet-01); behind by 6: llmoai-01, dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bo; row 11-05 18:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | servea-roll-s1: owner-direct-check 11-05 01:10Z; servea-roll-s2: owner-direct-check 11-05 02:30Z; servea-roll-s3: owner-direct-check 11-05 03:50Z; servea-roll: rollout-released 11-05 13:55Z |
 | **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?; **visuals-1105**: visuals-1105 skins: OK to publish the 15 custom skin PNGs through MineSkin (public gallery unless a MineSkin key is given), or upload them yourself at skinsrestorer.net/upload? |
-| **Open alarms** | STALLCHECK 2026-11-05T17:35:01Z STALLED: 59. OPSAUDIT 2026-11-04 FLAGS: 10 (1 high). 36 active alarm(s): stuck goals 7 (board-d/wall@355_73_147, hive-d/monument@68_65_68, isolated-a/monument@355_73_147, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, placebo-b/tidy@282_65_-388 ...); effectwatch effect:bagdiet-01:undeclared, effectwatch effect:cooldown15-02:undeclared, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:shafttrap-02:undeclared |
+| **Open alarms** | STALLCHECK 2026-11-05T18:35:01Z STALLED: 58. OPSAUDIT 2026-11-04 FLAGS: 10 (1 high). 36 active alarm(s): stuck goals 9 (board-d/wall@355_73_147, hive-d/monument@68_65_68, hive-d/tidy@68_65_68, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, isolated-c/monument@355_73_147 ...); effectwatch effect:bagdiet-01:undeclared, effectwatch effect:cooldown15-02:undeclared, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:shafttrap-02:undeclared |
 <!-- GENERATED:END -->
 
 ## Notes
