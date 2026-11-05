@@ -27,6 +27,13 @@ await t('reroofNext: one at a time, in order, complete and unstyled only, logs k
   assert.strictEqual(RR.reroofNext({ hall: recs.hall }, { logs: 500 }).why, 'none', 'an open hall is not re-roofed (its build goes on)')
   assert.strictEqual(RR.reroofNext({ house1: done('house@2') }, { logs: 500 }).why, 'none', 'another blueprint: never')
   assert.strictEqual(RR.reroofSwitches({}, 'showcase').on, true); assert.strictEqual(RR.reroofSwitches({ REROOF: 'off' }, 'showcase').on, false)
+  // a retrofit generation stays COMPLETE: while its added roof reads open (damaged) it is the open one (Claude r1 note 1)
+  const rf = done('house@1', { style: {}, restyle: { id: 'house@1r' } })
+  assert.match(RR.reroofNext({ ...recs, house1: rf }, { logs: 200, damaged: r => r === rf }).why, /^styled_open:house1/)
+  assert.strictEqual(RR.reroofNext({ ...recs, house1: rf }, { logs: 200, damaged: () => false }).target.plot, 'shop', 'its roof done: the next')
+  // a building whose added roof failed its proof 3 times is passed over (Claude r1 note 3)
+  assert.strictEqual(RR.reroofNext(recs, { logs: 200, failed: { house1: 3 } }).target.plot, 'shop')
+  assert.strictEqual(RR.reroofNext(recs, { logs: 200, failed: { house1: 2 } }).target.plot, 'house1')
 })
 await t('the retrofit blueprint keeps EVERY old cell (the flat roof the ceiling) and only adds above it', () => {
   for (const tg of RR.REROOF_TARGETS) {
@@ -62,7 +69,7 @@ async function reroofHouse (Mod = R, Bm = B) {
   // THE PLANNER'S STEP (skills.mjs buildReroof): the added cells proven on the standing world, the new generation
   const bpNew = RR.reroofBlueprint(bp, 'gable')
   const added = RR.reroofAdded(bp, bpNew)
-  const bpAdd = { ...bpNew, cells: added, segments: bpNew.segments.filter(s => ['gable', 'roof-edge', 'roof-inner'].includes(s.seg)), palette: styled, interior: bp.interior }
+  const bpAdd = RR.reroofProofBlueprint(bp, bpNew, STYLE)
   h = PJ.recordHead(pr.dir, pr.key)
   const rec = h.head.rec
   const p = Bm.proveSite(srv.read, HOME, bpAdd, { anchor: { x: rec.anchor[0], z: rec.anchor[1] }, s: rec.s, orient: rec.orient, clear: [], fill: [] }, { walkR: 30 })
@@ -80,8 +87,40 @@ await t('house@1 built FLAT, then re-roofed: complete, every old cell exactly as
   for (const [k, n] of before) assert.strictEqual(srv.read(...k.split(',').map(Number)).name, n, `old cell ${k} unchanged`)
   for (const c of rec2.cells.filter(q => q.ws)) assert.ok(T.stateOk(srv.read(...c.at).props, c.ws), `${c.role}@${c.at}`)
   assert.ok(!e.logs.some(([k, d]) => k === '_build' && d.op === 'clear'), 'nothing dug')
-  assert.ok(rec2.restyle?.id === 'house@1r' && rec2.blueprint === 'house@1', 'the record keeps its blueprint id; the generation is tagged')
+  assert.ok(rec2.restyle?.id === 'house@1r' && rec2.blueprint === 'house@1' && rec2.structure_complete === true, 'the record keeps its blueprint id and stays complete (its open roof is damage); the generation is tagged')
   assert.ok(Math.max(...rec2.cells.map(c => c.at[1])) - rec2.s === 6, 'the ridge 6 above the pad')
+})
+await t('EVERY TARGET: its added roof is PROVEN on the standing building (chests, furnaces, tables inside: Claude r1 BLOCKER 1)', () => {
+  for (const tg of RR.REROOF_TARGETS) {
+    const bp = B.loadBlueprint(tg.blueprint)
+    const srv = F.server()
+    const site = B.siteBlueprint(srv.read, F.plan(), bp, { tries: 3, plot: tg.plot })
+    assert.ok(site.ok, `${tg.blueprint}: ${site.why}`)
+    // the building STANDS: every cell set in the world
+    for (const c of site.record.cells) { let n = R.roleFirst(bp.palette, c.role) ?? 'stone'; if (n === 'oak_planks') n = 'spruce_planks'; if (c.role === 'fill') n = 'cobblestone'; srv.set(c.at, n) }
+    for (const c of site.record.clear ?? []) if (!site.record.cells.some(q => k3(q.at) === k3(c.at))) srv.set(c.at, 'air')
+    // the enchanting workshop's fit-out stands too (anvil, table, shelves: not record cells)
+    for (const f of bp.fit ?? []) { const { dx, dz } = { E: { dx: f.u, dz: f.v }, S: { dx: -f.v, dz: f.u }, W: { dx: -f.u, dz: -f.v }, N: { dx: f.v, dz: -f.u } }[site.record.orient]; srv.set([site.record.anchor[0] + dx, site.record.s + f.y, site.record.anchor[1] + dz], f.item) }
+    const rec = site.record
+    const p = B.proveSite(srv.read, HOME, RR.reroofProofBlueprint(bp, RR.reroofBlueprint(bp, tg.form), STYLE), { anchor: { x: rec.anchor[0], z: rec.anchor[1] }, s: rec.s, orient: rec.orient, clear: [], fill: [] }, { walkR: 48 })
+    assert.ok(p.ok, `${tg.blueprint}: ${p.why} ${p.detail ?? ''}`)
+  }
+})
+await t('MUTANT the interior not filtered (reroof.mjs): the workshop\'s proof fails interior_unreachable', () => withSrcMutant('reroof.mjs',
+  "    interior: (bpOld.interior ?? []).filter(([u, v, y]) => !filled.has(`${u},${v},${y}`)),", "    interior: bpOld.interior ?? [],", async Rm => {
+    const bp = B.loadBlueprint('workshop@1')
+    const srv = F.server()
+    const site = B.siteBlueprint(srv.read, F.plan(), bp, { tries: 3, plot: 'shop' })
+    for (const c of site.record.cells) { let n = R.roleFirst(bp.palette, c.role) ?? 'stone'; if (n === 'oak_planks') n = 'spruce_planks'; srv.set(c.at, n) }
+    const rec = site.record
+    const p = B.proveSite(srv.read, HOME, Rm.reroofProofBlueprint(bp, Rm.reroofBlueprint(bp, 'gable'), STYLE), { anchor: { x: rec.anchor[0], z: rec.anchor[1] }, s: rec.s, orient: rec.orient, clear: [], fill: [] }, { walkR: 48 })
+    assert.strictEqual(p.why, 'interior_unreachable')
+  }))
+await t('WIRED: the planner waits during its town-wide wait (Claude r1 BLOCKER 2) and repairs-first builds the open roof', async () => {
+  const fsm = await import('node:fs')
+  const SK = fsm.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  assert.ok(/if \(p\.plot === REROOF_PLOT\) return \{[^\n]*waiting: Date\.now\(\) < siteWaitUntil\(REROOF_PLOT, dir\) \|\| !reroofDueNow\(b, dir\)\.target \}/.test(SK))
+  assert.ok(/reroofNext\(records, \{ logs, damaged: r => !!bot && recordDamaged\(bot, r, \{ tidy: false \}\), failed: reroofFails\(dir\) \}\)/.test(SK))
 })
 await t('MUTANT the retrofit without the old cells kept (restyleRoof keepFlat ignored): the old flat roof is dropped from the record', () => withSrcMutant('townstyle.mjs',
   "  const keep = keepFlat ? bp.cells : bp.cells.filter(", "  const keep = false ? bp.cells : bp.cells.filter(", async Tm => {

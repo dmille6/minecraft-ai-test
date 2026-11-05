@@ -133,10 +133,9 @@ import { ENCHANTSHOP, COTTAGE as COTTAGE_SW, TOWNHALL as TOWNHALL_SW, REROOF as 
 import { ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS, FIT_VISIT_MS, GATE_ROW_MS, enchantOpening, enchantSitingPlan, enchantRecordOf, enchantVisitOpts,
          ENCHANT_STATION_FIND, ENCHANT_STATION_BAN_MS, fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
 import { COTTAGE_PLOT, COTTAGE_EARTH, cottageOpening, cottageSitingPlan, cottageStyle, styledBlueprint, cottageRecordOf, cottageVisitOpts, isCottageBlueprint, recordPalette } from './cottage.mjs'   // townstyle-01
-import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'
+import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
-import { REROOF_PLOT, REROOF_TARGETS, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord } from './reroof.mjs'   // townstyle-03
-import { stylePalette } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
+import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
@@ -17253,7 +17252,8 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         if (p.plot === COTTAGE_PLOT && !rec && !cottageOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // townstyle-02: the unsited town hall WAITS until the extension's X2 exists (townhall.mjs townhallOpening)
         // townstyle-03: the retrofit's planner WAITS until a standing building is due (reroof.mjs reroofNext: one at a time, logs known)
-        if (p.plot === REROOF_PLOT) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: !reroofDueNow(b, dir).target }
+        // (Claude r1 BLOCKER 2: its town-wide wait after a failed proof is a WAIT here too, never an always-free open project)
+        if (p.plot === REROOF_PLOT) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: Date.now() < siteWaitUntil(REROOF_PLOT, dir) || !reroofDueNow(b, dir).target }
         if (p.plot === TOWNHALL_PLOT && !rec && !townhallOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // canefarm-01 r1 (Codex BLOCKER 1): an unsited cane bed whose siting found no site WAITS town-wide (siteWaitUntil)
         if (p.plot === CANEFARM_PLOT && !rec && Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
@@ -19489,7 +19489,7 @@ function reroofDueNow (bot, dir = townDir()) {
     const records = Object.fromEntries(projectHeads().map(x => [x.plot, x.head?.rec ?? null]))
     const stock = bot ? matsTownStock(bot)?.stock ?? null : null
     const logs = stock ? Object.entries(stock).filter(([n]) => /_log$/.test(n)).reduce((t, [, v]) => t + (Number(v) || 0), 0) : null
-    return reroofNext(records, { logs })
+    return reroofNext(records, { logs, damaged: r => !!bot && recordDamaged(bot, r, { tidy: false }), failed: reroofFails(dir) })
   } catch { return { target: null, why: 'error' } }
 }
 /**
@@ -19521,19 +19521,23 @@ async function buildReroof (ctx, args, signal) {
   const stock = matsTownStock(bot)?.stock ?? {}
   const style = reroofStyle(stock, { pool: process.env.MEMORY_POOL ?? '', plot: t.plot, form: t.form })
   const added = reroofAdded(bpOld, bpNew)
-  const newSegs = bpNew.segments.filter(sg => ['gable', 'roof-edge', 'roof-inner'].includes(sg.seg))
-  const bpAdd = { ...bpNew, cells: added, segments: newSegs, palette: stylePalette(bpNew.palette, style), interior: bpOld.interior ?? [] }
+  const bpAdd = reroofProofBlueprint(bpOld, bpNew, style)
   const box = rec.box
   const domain = Array.isArray(box) ? (x, z) => x >= box[0] - 4 && x <= box[2] + 4 && z >= box[1] - 4 && z <= box[3] + 4 : null
   const p = proveSite(planReader(bot), home, bpAdd, { anchor: { x: rec.anchor[0], z: rec.anchor[1] }, s: rec.s, orient: rec.orient, clear: [], fill: [] },
     { stood: stoodRead(dir, stoodKey(), home), ...(domain ? { domain } : {}), walkR: Number.isFinite(rec.walkR) ? rec.walkR : 90 })
-  if (!p.ok) { siteWaitSet(REROOF_PLOT, COTTAGE_NOSITE_MS, p.why); return out('no_effect', 'no_site', `${t.plot}: the added roof is not proven (${p.why} ${p.detail ?? ''})`.slice(0, 160), { stop: 'site_wait' }) }
+  if (!p.ok) { siteWaitSet(REROOF_PLOT, COTTAGE_NOSITE_MS, p.why); reroofFailNote(dir, t.plot); return out('no_effect', 'no_site', `${t.plot}: the added roof is not proven (${p.why} ${p.detail ?? ''})`.slice(0, 160), { stop: 'site_wait' }) }
   const me = bot.username ?? 'bot'
   const pub = publishRecord(dir, key, cur => (cur && cur.structure_complete && !cur.style && cur.cells?.length === rec.cells.length ? reroofRecord(cur, p.cells, bpNew, style) : null), { by: me })
+  if (pub.result === 'accepted') bot.shopDamage = null   // the building's damage read is fresh: its open roof is its repair now
   if (pub.result !== 'accepted') return out('no_effect', 'lost_record', `${t.plot}: the new generation was not published (${pub.result})`)
   try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: t.plot, op: 'reroof', kind: `${bpNew.id}/${t.form}/${style.roof}/${added.length}cells`, gen: pub.gen }) }) } catch { /* telemetry */ }
   return out('success', 'published', `${t.plot}: ${bpNew.id} (${t.form}, ${style.roof}) gen ${pub.gen}, ${added.length} cells to build`)
 }
+/** TOWNSTYLE-03: the retrofit's failed proofs per building (town-wide file; reroof.mjs REROOF_FAILS_MAX passes a building over). */
+const reroofFailFile = (dir = townDir()) => path.join(dir, `${projKeyOf(REROOF_PLOT)}.failed.json`)
+function reroofFails (dir = townDir()) { try { return JSON.parse(fs.readFileSync(reroofFailFile(dir), 'utf8')) ?? {} } catch { return {} } }
+function reroofFailNote (dir, plot) { try { const f = reroofFails(dir); f[plot] = (Number(f[plot]) || 0) + 1; fs.writeFileSync(reroofFailFile(dir), JSON.stringify(f)) } catch { /* the wait still holds */ } }
 /** TOWNSTYLE-01/02: the projects sited by their own siting (never the generic one): the cottage, the town hall. */
 const SITED_APART = new Set([COTTAGE_PLOT, TOWNHALL_PLOT])
 /** Is the unsited town hall open (the extension's X2 free, no failed siting waiting)? Never throws. */

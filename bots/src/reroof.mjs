@@ -37,13 +37,18 @@ export const isStyled = rec => !!(rec?.style && typeof rec.style === 'object')
  * styled record is still open (a cottage, the town hall, an earlier retrofit). Then the first target, in order, whose record is COMPLETE,
  * still on its target blueprint and not yet styled; `logs` the town's known log count (null: unknown -> wait).
  */
-export function reroofNext (records = {}, { logs = null, targets = REROOF_TARGETS } = {}) {
-  const open = Object.entries(records).find(([, r]) => isStyled(r) && !r.structure_complete)
+export const REROOF_FAILS_MAX = 3
+export function reroofNext (records = {}, { logs = null, targets = REROOF_TARGETS, damaged = () => false, failed = {} } = {}) {
+  // OPEN: a styled build not complete (a cottage, the town hall), or a retrofit generation whose added roof is not all done yet (it stays
+  // `structure_complete` -- the building keeps its stations, its clerk, its fit-out -- so its open roof is read as DAMAGE: Claude r1 note 1)
+  const open = Object.entries(records).find(([, r]) => isStyled(r) && (!r.structure_complete || (!!r.restyle && damaged(r))))
   if (open) return { target: null, why: `styled_open:${open[0]}` }
   if (logs == null) return { target: null, why: 'stock_unknown' }
   for (const t of targets) {
     const r = records[t.plot]
     if (!r || !r.structure_complete || isStyled(r) || r.blueprint !== t.blueprint) continue
+    // a building whose added roof failed its proof REROOF_FAILS_MAX times is passed over (named), never the queue's end (Claude r1 note 3)
+    if ((Number(failed?.[t.plot]) || 0) >= REROOF_FAILS_MAX) continue
     if (logs < REROOF_NEED[t.form].roof) return { target: null, why: `logs_${logs}<${REROOF_NEED[t.form].roof}:${t.plot}` }
     return { target: t, why: 'ok' }
   }
@@ -58,6 +63,22 @@ export const reroofBlueprint = (bp, form) => restyleRoof(bp, { id: `${bp.id}r`, 
 export function reroofAdded (bpOld, bpNew) {
   const old = new Set(bpOld.cells.map(c => `${c.u},${c.v},${c.y}`))
   return bpNew.cells.filter(c => !old.has(`${c.u},${c.v},${c.y}`))
+}
+/**
+ * THE PROOF'S BLUEPRINT for the added roof -> { ...bpNew, cells: added, segments: the new roof's, palette (styled), interior }. Pure. The
+ * interior is the standing blueprint's LESS every cell that blueprint fills (its chests, furnaces, tables: proveSite counts only the
+ * proof's own cells as solid inside -- Claude r1 BLOCKER 1: the shop, both halls and the enchanting workshop failed interior_unreachable).
+ */
+export function reroofProofBlueprint (bpOld, bpNew, style) {
+  // ...and the enchanting workshop's FIT-OUT slots (its anvil, table and shelves stand there: never record cells -- Codex r4 BLOCKER 1)
+  const filled = new Set([...bpOld.cells, ...(bpOld.fit ?? [])].map(c => `${c.u},${c.v},${c.y}`))
+  return {
+    ...bpNew,
+    cells: reroofAdded(bpOld, bpNew),
+    segments: (bpNew.segments ?? []).filter(s => ['gable', 'roof-edge', 'roof-inner'].includes(s.seg)),
+    palette: stylePalette(bpNew.palette, style),
+    interior: (bpOld.interior ?? []).filter(([u, v, y]) => !filled.has(`${u},${v},${y}`)),
+  }
 }
 /** The style a retrofit takes (the walls stand: only the roof's wood is chosen; the stone is kept as built). Pure. */
 export const reroofStyle = (town = {}, { pool = '', plot = '', form = 'gable' } = {}) => styleOf(town, { key: `${pool}/reroof/${plot}`, need: REROOF_NEED[form], variants: ['r'] })
@@ -80,7 +101,9 @@ export function reroofRecord (rec, added, bpNew, style, { now = Date.now() } = {
     ...rec,
     cells: [...rec.cells, ...added.map(c => ({ ...c, seg: ren(c.seg) }))],
     segments: [...segs, ...newSegs],
+    // still COMPLETE (Claude r1 note 1: an open record turns off the workshop's stations, the hall's clerk, the enchanting fitter and
+    // every project `after` it): the added cells read open, so the record reads DAMAGED and the building's own visit repairs it -- the
+    // order's repairs-first
     palette, style: { ...style }, restyle: { id: bpNew.id, at: now, added: added.length },
-    structure_complete: false, state: 'open',
   }
 }

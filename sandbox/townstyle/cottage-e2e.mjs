@@ -112,7 +112,7 @@ async function main () {
   if (RETRO && r?.stop === 'complete') {
     PJ.publishRecord(dir, key, cur => ({ ...cur, structure_complete: true, state: 'complete' }))
     const bpOld = B.loadBlueprint(BLUEPRINT), bpNew = RR.reroofBlueprint(bpOld, RETRO), added = RR.reroofAdded(bpOld, bpNew)
-    const bpAdd = { ...bpNew, cells: added, segments: bpNew.segments.filter(sg => ['gable', 'roof-edge', 'roof-inner'].includes(sg.seg)), palette: T.stylePalette(bpNew.palette, STYLE), interior: bpOld.interior ?? [] }
+    const bpAdd = RR.reroofProofBlueprint(bpOld, bpNew, STYLE)
     const hh = PJ.recordHead(dir, key).head
     const pv = B.proveSite(read, home, bpAdd, { anchor: { x: hh.rec.anchor[0], z: hh.rec.anchor[1] }, s: hh.rec.s, orient: hh.rec.orient, clear: [], fill: [] }, { stood, domain: visitOpts.domain, walkR: sp.walkR })
     P('retrofit proof', pv.ok, pv.why, pv.detail ?? '', 'added', added.length)
@@ -135,6 +135,8 @@ async function main () {
     if (c.role === 'light') return [n, 'wall_torch']
     if (c.role === 'fill') return ['cobblestone']
     if (n === 'oak_planks') return ['spruce_planks', 'dark_oak_planks']   // '$planks': any species the bag held (the kit: spruce and the ridge's dark oak)
+    // a role whose palette falls back to '$planks' (the ridge beam): its first name or any planks the bag held
+    if ((palCheck[c.role] ?? []).includes('$planks')) return [...new Set([c.ws ? T.stateKey(n, c.ws) : n, 'spruce_planks', 'dark_oak_planks'])]
     if (n === 'cut_copper') return ['cut_copper', 'exposed_cut_copper']
     return [c.ws ? T.stateKey(n, c.ws) : n]
   }
