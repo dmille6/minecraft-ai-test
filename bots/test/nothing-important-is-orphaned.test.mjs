@@ -230,6 +230,7 @@ const REQUIRED = [
   'docs/reports/stuckcells-01-2026-11-01.md',
   // monustuck-01 (11-03): the stuck fleet ziggurats (bamboo stalk felled at its foot, waiver beside a sealed cell, dig-walk bans)
   'docs/reports/monustuck-design-2026-11-03.md',
+  'docs/reports/stuckproj-design-2026-11-05.md',   // stuckproj-01 (11-05): starved walls, tree-occluded cells, tidy dead cells
   'docs/reports/shafttrap-design-2026-11-03.md',   // shafttrap-1103: the town stair trap (design + Codex reconciliation)
   'docs/reports/shafttrap-02-design-2026-11-03.md',   // shafttrap-02: the fleet hand-over (design, reviews, Paper)
   'docs/reports/shafttrap-02.queue-entry.json',   // shafttrap-02: the draft queue entry

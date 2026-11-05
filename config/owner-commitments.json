@@ -4777,6 +4777,29 @@
     ]
    },
    "note": "Measured 3 d to 11-05: fleet deep-miner trips 618, stranded on return 81 (13%), personal deepen rows 855 of which 705 'could not stand'; 2 of 55 deaths in trips. Showcase 77 trips, 14 stranded (18%), 0 deaths. Every dry showcase site is forest; only W 23 has a site whose felling keeps no tree. ~3,800 digs + ~900 places, ~27-33 builder-hours. OWNER 11-05 (via coordinator): agrees with all recommendations -- (1) the NW site centre -52,-74 (90 from home) OK; (2) felling the 9 spruces (replanted in the tree farm) OK; (3) the walled descent stepwell-02show (court to y16) before any decoration."
+  },
+  {
+   "id": "stuckproj-1105",
+   "title": "Eight stuck fleet town projects 11-05 (control session): starved walls (board-d, isolated-b), tree-occluded cells (hive-d/placebo-c/isolated-a/isolated-c monuments, isolated-a wall), tidy dead cells (placebo-b, hive-d)",
+   "owner_date": "2026-11-05",
+   "memory": [
+    "stuckproj-1105.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "stuckproj-01 (branch stuckproj-01 on fleet aea83708 = tidydead-01 + canopy-01 + starve-01; tier 2; Codex r1 1 BLOCK fixed): control session queues it P after dropdig-01; read +90/+180 generic + own lines (_build op=clear kind=canopy, op=canopy, later-project _build_visit per 60 min, tidy op=deferred why=hard / op=waived).",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "paths": [
+     "docs/reports/stuckproj-design-2026-11-05.md"
+    ],
+    "runs": [
+     "stuckproj-01"
+    ]
+   },
+   "note": "Codex independent diagnosis agreed on the three causes; reconciliation in the design doc s.3."
   }
  ]
 }
