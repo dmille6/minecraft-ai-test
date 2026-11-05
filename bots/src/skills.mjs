@@ -168,6 +168,7 @@ import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never d
 import { CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANE, CANE_PALETTE, CANE_FOREIGN, siteCaneFarm, caneCells, caneState, caneCensus, caneHarvest, caneStand, caneNeed, caneDue, caneAlsoDone, cutCell, caneHarvestRow, caneBankable } from './canefarm.mjs'   // canefarm-01
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
 import { legacyStage, stageCarry, tidyWater, cutSafeNow } from './tidy.mjs'   // townterrace-01
+import { accessNoStair } from './tidy.mjs'   // the showcase batch fold: the stonecutter's ways-in refusal (cutterRefusal)
 import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from './park.mjs'   // townterrace-01: the park
 import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantrySum, parkHeldByCrew, spareOf } from './park.mjs'   // gkhelpers-01: the park gather
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
@@ -7188,7 +7189,7 @@ function placeSites(bot, item = null) {
   return candidates
 }
 
-async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null, planTemp = false } = {}) {
+async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null, planTemp = false, refuse = null } = {}) {
   const { bot } = ctx
   // wellcare-01 fix 3: the `_station_well` guard row (a cell refused for the well) -- the read's liveness for this fix
   const wellRow = (action, kind, n = 1, at = null) => { try { logEvent({ kind: 'station_well', status: 'refused', snapshot: snapshot(bot), detail: stationWellDetail({ action, item, kind, at, n, by: by ?? '-' }) }) } catch { /* a row never breaks a place */ } }
@@ -7271,6 +7272,9 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
     const kept = candidates.filter(c => !recordCellHit(bot.shopCells, c))
     if (kept.length < nCand) { shopSkipped = nCand - kept.length; for (const k of ['wellSkip', 'planSkip', 'zoneSkip']) if (candidates[k]) kept[k] = candidates[k]; candidates = kept }
   }
+  // the showcase batch fold (Codex fold r9 BLOCKER): a caller's own column refusal (`refuse(x, z)` -> reason | null: the stonecutter's
+  // town reservations -- reserved plots, the demolition hold, doorways, markers) on every candidate, and below on the make-room dig
+  if (typeof refuse === 'function') candidates = Object.assign(candidates.filter(c => { const p = c?.ref?.position; if (!p) return false; let w = null; try { w = refuse(p.x + (c.face?.x ?? 0), p.z + (c.face?.z ?? 0)) } catch { w = 'refuse_error' } return !w }), { wellSkip: candidates.wellSkip, planSkip: candidates.planSkip, zoneSkip: candidates.zoneSkip })
   // A SAPLING CANNOT GO ON STONE. The scan above accepts any SOLID top face, which
   // is right for a crafting table and wrong for anything that needs soil: the
   // server rejects it and six candidates are spent on placements that could never
@@ -7313,6 +7317,7 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       // never a workshop record cell (shopwalls-05 r2, Codex r1 BLOCK: with no candidate at all, this dig took a built pad block
       // and put the table in its place)
       if (bot.shopCells?.has?.(`${cellPos.x},${cellPos.y},${cellPos.z}`)) { shopSkipped++; continue }
+      if (typeof refuse === 'function') { let w = null; try { w = refuse(cellPos.x, cellPos.z) } catch { w = 'refuse_error' } if (w) continue }   // the batch fold: the caller's refusal
       // never a junk well's wall, floor or plinth (wellcare-01: a bot on the stand would otherwise dig the shell for its table)
       { const wk = stationRefusalAt(bot, cellPos); if (wk) { wellRow('room', wk, 1, cellPos); continue } }
       { let zz = null; try { zz = blocked(bot.protectZones?.() ?? [], cellPos.x, cellPos.y, cellPos.z, bot.entity?.position ?? null) } catch { zz = null } if (zz) continue }   // protectzone-01
@@ -13917,7 +13922,7 @@ export async function matsCut (ctx, kind, n, signal) {
   const K = KINDS[kind]
   if (!K?.cut || !(n > 0)) return { stop: 'nothing_to_cut' }
   let block = findCutter(bot)
-  if (!block && (heldMap(bot).stonecutter ?? 0) > 0) { const put = await place(ctx, { item: 'stonecutter' }, signal); if (put?.status === 'success') block = findCutter(bot) }
+  if (!block && (heldMap(bot).stonecutter ?? 0) > 0) { const put = await place(ctx, { item: 'stonecutter' }, signal, { refuse: cutterRefusal() }); if (put?.status === 'success') block = findCutter(bot) }
   if (!block) return { stop: 'no_cutter' }
   for (const range of [1, 3]) {
     check(signal)
@@ -14444,7 +14449,7 @@ async function matsCrafts (ctx, kind, bag0, signal, { planksName = null, fromBag
   if (KINDS[kind]?.station) {
     if (above('stonecutter') < 1) await craft(ctx, { item: 'stonecutter', count: 1 }, signal)
     check(signal)
-    if (above('stonecutter') >= 1 && !findCutter(bot)) { const put = await place(ctx, { item: 'stonecutter' }, signal); ctx.stationPlaced = put?.status === 'success' && !!findCutter(bot) }
+    if (above('stonecutter') >= 1 && !findCutter(bot)) { const put = await place(ctx, { item: 'stonecutter' }, signal, { refuse: cutterRefusal() }); ctx.stationPlaced = put?.status === 'success' && !!findCutter(bot) }
     return ctx.stationPlaced ? 1 : 0
   }
   // stoneworks-02: the order's cobbled deepslate in fours -> polished deepslate, then polished in fours -> deepslate bricks (2x2 each)
@@ -22112,6 +22117,27 @@ function decorReservedFor (c, plan) {
   let held = () => false
   try { held = holdAt(projectHeads().find(x => x.plot === WALL_PLOT)?.head?.rec ?? null) } catch { held = () => true }
   return (x, z) => (held(x, z) ? WALLDEMO_HOLD : null) ?? base(x, z) ?? (Array.isArray(park) && x >= park[0] - 1 && x <= park[2] + 1 && z >= park[1] - 1 && z <= park[3] + 1 ? 'park' : null)
+}
+/**
+ * THE STONECUTTER'S REFUSAL (the showcase batch fold, Codex fold r9 BLOCKER: the generic place skill guards record cells, the plan's
+ * cells, wells and protected zones, not the town's reservations) -> (x, z) -> reason | null. A permanent station never stands on a
+ * reserved plot (the wall extension's, a site-prep request's), the demolition's hold, a build's doorway or approach (tidy.mjs
+ * accessNoStair: the hall's, the workshop's, the cottage's, a door/frontOpen), an expedition marker or a record zone. An error refuses
+ * every column (the cut waits for the town's own cutter).
+ */
+function cutterRefusal () {
+  try {
+    const heads = projectHeads()
+    const recs = heads.map(x => x.head?.rec).filter(Boolean)
+    const zs = [...recordZones(recs), ...townMarkerZones()]
+    const plots = (heads.find(x => x.plot === WALLEXT_PLOT)?.head?.rec?.plots ?? []).map(q => q?.box).filter(b => Array.isArray(b) && b.length === 4)
+    const held = holdAt(heads.find(x => x.plot === WALL_PLOT)?.head?.rec ?? null)
+    const ns = accessNoStair(recs, {})
+    return (x, z) => (held(x, z) ? WALLDEMO_HOLD : null)
+      ?? (plots.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) ? 'plot' : null)
+      ?? (ns(x, z) ? 'way_in' : null)
+      ?? (zs.find(zb => { const b = zb?.box; return Array.isArray(b) && b.length === 6 && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] })?.why ?? null)
+  } catch { return () => 'unreadable' }
 }
 /** The town's walls (wall.mjs wallInteriors: the ring's inside and the extension's) -> (x, z) -> bool. Never throws (none: false). */
 function decorInside () {

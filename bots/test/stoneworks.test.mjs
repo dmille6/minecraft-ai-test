@@ -470,7 +470,7 @@ test('STRUCTURAL (stoneworks-03): the station is made only when no cutter is in 
   assert.match(body, /swKeepKey\(n2\) \? swTakeAllowed\(n2, w2, \{ \.\.\.o2, reserve: RT \}\) : PD\.allow\(n2, w2, o2\)/, 'the keeps reach the take')
   assert.match(body, /if \(K\.station && cw\.stationPlaced\) f\.deposited\.stonecutter = 1/)
   const cut = src.slice(src.indexOf('export async function matsCut ('), src.indexOf('/** What the bag holds ABOVE its keeps'))
-  assert.match(cut, /if \(!block && \(heldMap\(bot\)\.stonecutter \?\? 0\) > 0\) \{ const put = await place\(ctx, \{ item: 'stonecutter' \}, signal\)/)
+  assert.match(cut, /if \(!block && \(heldMap\(bot\)\.stonecutter \?\? 0\) > 0\) \{ const put = await place\(ctx, \{ item: 'stonecutter' \}, signal, \{ refuse: cutterRefusal\(\) \}\)/)   // the batch fold: the town's reservations
   // Codex r1 BLOCKER 1: the crafts count the inputs the order planned from the bag's own spare, not only what it took
   assert.match(body, /f\.made = await matsCrafts\(cw, kind, bag0, signal, \{ planksName, fromBag: inp\.fromBag \}\)/)
   const crafts = src.slice(src.indexOf('async function matsCrafts ('), src.indexOf('async function makeMaterial ('))
