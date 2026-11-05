@@ -114,20 +114,12 @@ const load = id => JSON.parse(fs.readFileSync(new URL(`../src/blueprints/${id}.j
 designs.push({ file: 'before-house@1', title: 'BEFORE: HOUSE@1 (FLAT)', bp: load('house@1'), palette: { ...load('house@1').palette, wall: ['spruce_planks'], roof: ['spruce_planks'], trim: ['spruce_planks'] } })
 for (const v of ['s', 'f']) { const bp = cottageBlueprint(v); designs.push({ file: `cottage@1${v}`, title: `COTTAGE@1${v.toUpperCase()} (${v === 's' ? 'EAVES FRONT' : 'GABLE FRONT'})`, bp, palette: stylePalette(bp.palette, STYLE) }) }
 designs.push({ file: 'cottage@1s-oak', title: 'COTTAGE@1S OAK/STONE BRICK', bp: cottageBlueprint('s'), palette: stylePalette(cottageBlueprint('s').palette, { wood: 'oak', roof: 'spruce', stone: 'stone_bricks' }) })
-// THE NEXT PIECES' SHAPES (not built yet): the workshop's 9 x 7 with a 45-degree gable; the storage hall's 19 x 11 with a 1:2 slab roof
-{
-  const ws = load('workshop@1')
-  // the walls one course higher (the cottage's 3; the eaves then clear a bot's head on the pad's edge)
-  const raise = cs => [...cs.filter(c => c.y <= 2), ...cs.filter(c => c.y === 2 && ['wall', 'window', 'course', 'corner'].includes(c.role)).map(c => ({ ...c, y: 3, role: 'wall' }))]
-  const keep = raise(ws.cells)
-  const roof = gableRoof({ u0: 1, u1: 7, v0: 1, v1: 5 }, 3, { ridge: 'u', over: 1 }).map(c => (c.role === 'gable' ? { ...c, role: 'wall' } : c))
-  designs.push({ file: 'next-workshop', title: 'NEXT: WORKSHOP, 45 DEG GABLE', bp: { cells: [...keep, ...roof] }, palette: { ...ws.palette, wall: ['spruce_planks'], trim: ['spruce_planks'], ...stylePalette({ roof: ['%roof_stairs'], ridge: ['%roof_slab'] }, STYLE) } })
-  const hub = load('storehub@1')
-  const ys = raise(hub.cells)
-  const us = hub.cells.filter(c => c.role === 'wall' || c.role === 'course' || c.role === 'window').map(c => c.u), vs = hub.cells.filter(c => c.role === 'wall' || c.role === 'course' || c.role === 'window').map(c => c.v)
-  const box = { u0: Math.min(...us), u1: Math.max(...us), v0: Math.min(...vs), v1: Math.max(...vs) }
-  const sr = slabRoof(box, 3, { ridge: 'u', over: 1 })
-  designs.push({ file: 'next-storehub', title: 'NEXT: STORAGE HALL, 1:2 SLAB ROOF', bp: { cells: [...ys, ...sr] }, palette: { ...hub.palette, roofslab: ['dark_oak_slab'], ridgebeam: ['dark_oak_planks'], gable: ['spruce_planks'], wall: ['spruce_planks'] } })
+// townstyle-02: the re-roofed generations and the town hall (bots/scripts/make-townstyle.mjs)
+for (const [id, title] of [['workshop@1', 'BEFORE: WORKSHOP@1'], ['workshop@2', 'WORKSHOP@2, 45 DEG GABLE'], ['hall@1', 'BEFORE: COPPER HALL'], ['hall@2', 'COPPER HALL@2, 1:2 SLAB ROOF'],
+  ['storehub@1', 'BEFORE: STORAGE HALL'], ['storehub@2', 'STORAGE HALL@2, SLAB ROOF'], ['enchantshop@2', 'ENCHANTING WORKSHOP@2'], ['townhall@1', 'TOWN HALL@1 (PLOT X2)']]) {
+  const bp = load(id)
+  const pal = stylePalette(bp.palette, { wood: 'spruce', roof: 'dark_oak', stone: 'stone_bricks' })
+  designs.push({ file: id, title, bp, palette: { ...pal, wall: pal.wall?.map(n => (n === '$planks' ? 'spruce_planks' : n)) ?? ['spruce_planks'], trim: ['cut_copper'] } })
 }
 fs.mkdirSync(OUT, { recursive: true })
 const pics = []
@@ -138,7 +130,7 @@ for (const d of designs) {
   console.log(`wrote ${path.join(OUT, `townstyle-${d.file}.png`)} ${cv.w}x${cv.h}`)
 }
 // the sheet: two rows
-const rows = [pics.slice(0, 4), pics.slice(4)]
+const rows = [pics.slice(0, 4), pics.slice(4, 8), pics.slice(8, 10), pics.slice(10)]
 const W = Math.max(...rows.map(r => r.reduce((s, p) => s + p.w + 10, 10)))
 const H = rows.reduce((s, r) => s + Math.max(...r.map(p => p.h)) + 10, 40)
 const sheet = new Canvas(W, H, [255, 255, 255])

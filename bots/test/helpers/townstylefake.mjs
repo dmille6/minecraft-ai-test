@@ -25,10 +25,13 @@ export function vanilla (name, face, cursorY, yaw) {
 
 export const STYLE = { wood: 'spruce', roof: 'dark_oak', stone: 'cobblestone' }
 export const sited = v => {
-  const bp = C.styledBlueprint(B.loadBlueprint(`cottage@1${v}`), STYLE)
+  // townstyle-02: a full blueprint id too ('hall@2'), else a cottage variant
+  const bp = C.styledBlueprint(B.loadBlueprint(v.includes('@') ? v : `cottage@1${v}`), STYLE)
   const s = B.siteBlueprint(F.server().read, F.plan(), bp, { tries: 3, plot: 'cottage1' })
   return { bp, s }
 }
+/** A kit for any styled blueprint: every cell's first concrete name, plus 8 (planks as spruce). */
+export const kitFor = bp => { const k = {}; for (const c of bp.cells) { let n = R.roleFirst(bp.palette, c.role); if (n === 'oak_planks') n = 'spruce_planks'; if (n) k[n] = (k[n] ?? 0) + 1 } for (const n of Object.keys(k)) k[n] += 8; return k }
 /** A bot on the fake server whose clicks the SMALL VANILLA judges: the yaw is the aim's, else the bot's look toward the face. */
 export function vanillaBot (srv, name, { inv, feet = [2, G + 1, 0], aimless = false } = {}) {
   const e = F.bot(srv, name, { inv, feet })
@@ -49,6 +52,14 @@ export function vanillaBot (srv, name, { inv, feet = [2, G + 1, 0], aimless = fa
     const lookYaw = Math.abs(dx) >= Math.abs(dz) ? (dx > 0 ? -90 : 90) : (dz > 0 ? 0 : 180)
     const yaw = !aimless && Number.isFinite(aim?.yaw) ? aim.yaw : lookYaw
     const cursorY = !aimless && Array.isArray(aim?.cursor) ? aim.cursor[1] : 0.5 + face[1] * 0.5
+    // VANILLA SlabBlock.canBeReplaced: the same slab, half full, clicked on its open half -> the SUPPORT becomes double, the target stays air
+    const sb = srv.read(...support), st = props.get(k3(support))
+    if (held && /_slab$/.test(held) && sb?.name === held && st && st.type !== 'double' &&
+        (st.type === 'bottom' ? (face[1] > 0 || (face[1] === 0 && cursorY > 0.5)) : (face[1] < 0 || (face[1] === 0 && cursorY <= 0.5)))) {
+      props.set(k3(support), { ...st, type: 'double' })
+      e.inv[held]--
+      return send(support, [0, 0, 0], seq)   // the ack; the "target" is the support itself, occupied: nothing placed there
+    }
     send(support, face, seq)
     if (before === 'air' && held) props.set(k3(target), vanilla(held, face, cursorY, yaw))
   }
@@ -62,14 +73,14 @@ export async function buildCottage (v, { aimless = false, Mod = R, pre = null, h
   const srv = F.server()
   const pr = F.project(s.record)
   if (pre) pre(srv, s.record)
-  const e = vanillaBot(srv, 'A', { inv: COTTAGE_KIT(), aimless })
+  const e = vanillaBot(srv, 'A', { inv: v.includes('@') ? kitFor(bp) : COTTAGE_KIT(), aimless })
   if (hook) hook(e)
   let r = null
   const placedBy = {}
   // bounded on a loaded host too (the w30 suite: a control that never completes must end by its clock, not the runner's 300 s)
-  for (let i = 0; i < (aimless ? 1 : 6); i++) {
+  for (let i = 0; i < (aimless ? 1 : v.includes('@') ? 3 : 6); i++) {
     const h = PJ.recordHead(pr.dir, pr.key)
-    r = await Mod.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen, palette: bp.palette, placedBy, ...C.cottageVisitOpts(h.head.rec), walkR: 30 }, e, { maxSteps: 3000, barrierWaitMs: 50, deadline: Date.now() + 30_000 })
+    r = await Mod.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen, palette: bp.palette, placedBy, ...C.cottageVisitOpts(h.head.rec), walkR: v.includes('@') ? 48 : 30 }, e, { maxSteps: 3000, barrierWaitMs: 50, deadline: Date.now() + (v.includes('@') ? 60_000 : 30_000) })
     if (r.stop === 'complete') break
   }
   const done = s.record.cells.filter(c => R.cellDone(srv.read(...c.at), bp.palette, c.role, c.ws)).length

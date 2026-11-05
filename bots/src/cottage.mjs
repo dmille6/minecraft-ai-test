@@ -107,4 +107,5 @@ export function cottageEntranceCols (rec, { depth = COTTAGE_APPROACH } = {}) {
   return out
 }
 /** THE PALETTE A RECORD IS BUILT AND JUDGED BY: its own (a styled record), else its blueprint's. Pure. */
-export const recordPalette = (rec, bp) => (rec?.palette && typeof rec.palette === 'object' && isCottageBlueprint(rec.blueprint) ? rec.palette : bp?.palette ?? {})
+export const recordPalette = (rec, bp) => (rec?.palette && typeof rec.palette === 'object' && (isCottageBlueprint(rec.blueprint) || (rec.style && typeof rec.style === 'object')) ? rec.palette : bp?.palette ?? {})
+// townstyle-02: ANY STYLED record (a `style` chosen at siting: the town hall, a re-roofed generation) is judged by its own palette too

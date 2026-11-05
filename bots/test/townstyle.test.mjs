@@ -211,5 +211,46 @@ await t('the cottage comes after the enchanting workshop in the order, and only 
   assert.ok(!noEnch.includes('cottage1'), 'the enchanting workshop off: no cottage')
 })
 
+console.log('TOWNSTYLE-02: THE RE-ROOFED GENERATIONS AND THE TOWN HALL')
+const MT = await import('../scripts/make-townstyle.mjs')
+const TH = await import('../src/townhall.mjs')
+await t('the generated blueprints on disk are make-townstyle.mjs\'s; below the old roof every cell is the @1 blueprint\'s, unchanged', () => {
+  for (const [id, gen] of Object.entries(MT.TOWNSTYLE_BLUEPRINTS)) {
+    const disk = JSON.parse(fs.readFileSync(new URL(`../src/blueprints/${id}.json`, import.meta.url), 'utf8'))
+    assert.deepStrictEqual(disk, JSON.parse(JSON.stringify(gen())), `${id}.json is stale: node bots/scripts/make-townstyle.mjs`)
+    assert.ok(disk.cells.every(c => disk.palette[c.role]), `${id}: every role has a palette`)
+    const k = c => `${c.u},${c.v},${c.y}`
+    assert.strictEqual(new Set(disk.cells.map(k)).size, disk.cells.length, `${id}: no two cells in one place`)
+    for (const [u, v, y] of disk.doorway) assert.ok(!disk.cells.some(c => c.u === u && c.v === v && c.y === y), `${id}: the doorway stays open`)
+    const old = id.replace('@2', '@1')
+    if (old !== id) {
+      const o = JSON.parse(fs.readFileSync(new URL(`../src/blueprints/${old}.json`, import.meta.url), 'utf8'))
+      const lowOld = o.cells.filter(c => c.y < 3).map(c => `${k(c)}:${c.role}`).sort(), lowNew = disk.cells.filter(c => c.y < 3).map(c => `${k(c)}:${c.role}`).sort()
+      assert.deepStrictEqual(lowNew, lowOld, `${id}: the walls, the floor and the contents are ${old}'s (the retrofit keeps them)`)
+      assert.ok(!disk.cells.some(c => c.y === 3 && c.role === 'roof' && c.seg === 'roof-inner' && !c.st), `${id}: no flat roof cell left`)
+      assert.ok(Math.max(...disk.cells.map(c => c.y)) >= 6, `${id}: a pitched roof`)
+    }
+  }
+})
+await t('every re-roofed building and the town hall SITE on flat ground: every state cell has a face that makes its state', () => {
+  for (const id of Object.keys(MT.TOWNSTYLE_BLUEPRINTS)) {
+    const bp = C.styledBlueprint(B.loadBlueprint(id), STYLE)
+    const s = B.siteBlueprint(F.server().read, F.plan(), bp, { tries: 3, plot: id })
+    assert.ok(s.ok, `${id}: ${s.why} ${JSON.stringify(s.sectors?.map(r => r.proofEx)).slice(0, 300)}`)
+    for (const c of s.record.cells.filter(q => q.ws)) assert.ok(T.orientAim(R.roleFirst(bp.palette, c.role), c.ws, c.face), `${id} ${c.role}@${c.at}`)
+  }
+})
+await t('the town hall waits for the extension\'s X2; never another plot; TOWNHALL=off; after the enchanting workshop', async () => {
+  const ext = { plots: [{ id: 'X1', kind: 'hall', box: [0, 0, 18, 12] }, { id: 'X2', kind: 'hall', box: [30, 0, 42, 18] }, { id: 'X3', kind: 'house', box: [50, 0, 60, 10] }] }
+  assert.strictEqual(TH.townhallOpening(null).why, 'no_extension')
+  assert.strictEqual(TH.townhallOpening(ext).plot.id, 'X2')
+  assert.strictEqual(TH.townhallOpening(ext, ['X2']).why, 'no_x2_plot', 'X2 taken: never X1 (the workshop\'s)')
+  assert.strictEqual(TH.townhallOpening({ plots: [{ id: 'X2', kind: 'hall', box: [0, 0, 12, 12] }] }).why, 'plot_13x13')
+  assert.strictEqual(TH.townhallSwitches({}, 'showcase').on, true); assert.strictEqual(TH.townhallSwitches({ TOWNHALL: 'off' }, 'showcase').on, false)
+  const S = await import('../src/shop.mjs')
+  assert.strictEqual(S.PROJECTS.find(q => q.plot === 'townhall')?.after, 'enchantshop')
+  assert.deepStrictEqual(C.recordPalette({ blueprint: 'townhall@1', style: { wood: 'oak' }, palette: { a: ['x'] } }, { palette: { a: ['%wood'] } }), { a: ['x'] }, 'a styled record: its own palette')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
