@@ -76,5 +76,23 @@ await t('MUTANT KILLED: without the cottage\'s way in, its approach outside the 
     assert.ok(out.some(([x, z]) => M.accessNoStair([r])(x, z) === false))
   })
 })
+// THE BATCH9 FOLD (townstyle-02's town hall; Codex fold BLOCKER): the town hall names no door either
+const TH = await import('../src/townhall.mjs')
+const thall = o => ({ plot: 'townhall', blueprint: TH.TOWNHALL_BLUEPRINT, anchor: [10, -30], orient: o, s: 70, cells: [{ at: [10, 70, -30] }, { at: [20, 70, -14] }] })
+await t('the town hall\'s doorway, porch and approach refuse a staircase, every orientation', () => {
+  for (const o of ['N', 'E', 'S', 'W']) {
+    const r = thall(o), ns = TD.accessNoStair([r]), cols = TH.townhallEntranceCols(r)
+    assert.strictEqual(cols.length, 5 * 6)
+    for (const [x, z] of cols) assert.strictEqual(ns(x, z), true, `${o} ${x},${z}`)
+  }
+  assert.deepStrictEqual(TH.townhallEntranceCols({ blueprint: 'house@1', anchor: [0, 0], orient: 'N' }), [], 'only a town hall')
+})
+await t('MUTANT KILLED: without the town hall\'s way in, its approach outside the footprint takes a stair', async () => {
+  await withMutant('    for (const c of townhallEntranceCols(r)) cols.push(c)\n', '', async M => {
+    const r = thall('E'), out = TH.townhallEntranceCols(r).filter(([x, z]) => !(x >= 10 && x <= 20 && z >= -30 && z <= -14))
+    assert.ok(out.length > 0)
+    assert.ok(out.some(([x, z]) => M.accessNoStair([r])(x, z) === false))
+  })
+})
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

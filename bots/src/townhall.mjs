@@ -7,6 +7,7 @@
 
 import { cottageSitingPlan, cottageStandDomain, styledBlueprint } from './cottage.mjs'
 import { styleOf } from './townstyle.mjs'
+import { rot } from './townplan.mjs'   // the batch9 fold: townhallEntranceCols
 
 export const TOWNHALL_PLOT = 'townhall'
 export const TOWNHALL_BLUEPRINT = 'townhall@1'
@@ -51,6 +52,19 @@ export function townhallSitingPlan (home, plot, zones = []) {
 export const townhallStyle = (town = {}, { pool = '', plotId = '' } = {}) => ({ style: styleOf(town, { key: `${pool}/${TOWNHALL_PLOT}/${plotId}`, need: TOWNHALL_NEED, variants: ['a'] }) })
 export { styledBlueprint }
 /** The record a siting result becomes (its style and resolved palette kept: the record's own). Pure. */
+/**
+ * THE TOWN HALL'S WAY IN -> [[x, z]] (the showcase batch9 fold, Codex fold BLOCKER: access-01's staircases read a build's `door` /
+ * `frontOpen`, and a town-hall record names neither -- a climb before the porch could become a stone stair across the entrance). The
+ * doorway's columns (blueprint u 4..6, v 2), the porch before it and the approach beyond (v 1 down to -TOWNHALL_APPROACH), one column
+ * wider each side (u 3..7). Pure; a record that is not a placed town hall gives none.
+ */
+export const TOWNHALL_APPROACH = 3
+export function townhallEntranceCols (rec, { depth = TOWNHALL_APPROACH } = {}) {
+  if (rec?.blueprint !== TOWNHALL_BLUEPRINT || !Array.isArray(rec.anchor) || !rec.orient) return []
+  const out = []
+  for (let u = 3; u <= 7; u++) for (let v = -depth; v <= 2; v++) { const { dx, dz } = rot(rec.orient, u, v); out.push([rec.anchor[0] + dx, rec.anchor[1] + dz]) }
+  return out
+}
 export function townhallRecordOf (siteRec, styledBp, style, { plotId = null, walkR = TOWNHALL_SITE.walkR } = {}) {
   return { ...siteRec, style: { ...style }, palette: styledBp.palette, plotId, walkR }
 }

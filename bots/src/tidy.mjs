@@ -22,6 +22,7 @@
 // liquid anywhere in a pit or its rim (owner 10-27: no water bridging; water is terrain), an unread cell. A natural hill is never
 // flattened: only single columns and small holes, measured against their own neighbours.
 
+import { townhallEntranceCols } from './townhall.mjs'   // the batch9 fold: the town hall's way in is no stair
 import { cottageEntranceCols } from './cottage.mjs'   // the batch fold: the cottage's way in is no stair
 import { enchantEntranceCols } from './enchantshop.mjs'   // the showcase wallext2 fold: the workshop's way in is no stair
 import { hubEntranceCols } from './storehub.mjs'   // the showcase gkaccess fold: the hall's way in is no stair
@@ -1003,6 +1004,8 @@ export function accessNoStair (records = [], { plan = null, land = null } = {}) 
     for (const c of enchantEntranceCols(r)) cols.push(c)
     // the showcase batch fold (Codex fold r7 BLOCKER): the cottage's doorway and approach (cottage.mjs cottageEntranceCols)
     for (const c of cottageEntranceCols(r)) cols.push(c)
+    // the showcase batch9 fold (Codex fold BLOCKER): the town hall's doorway, porch and approach (townhall.mjs townhallEntranceCols)
+    for (const c of townhallEntranceCols(r)) cols.push(c)
     if (FOOTPRINT_SKIP.has(String(r?.plot ?? ''))) continue
     const cs = (r?.cells ?? []).filter(c => Array.isArray(c?.at) && !c.prev)
     if (cs.length) { const xs = cs.map(c => c.at[0]), zs = cs.map(c => c.at[2]); boxes.push([Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)]) }
