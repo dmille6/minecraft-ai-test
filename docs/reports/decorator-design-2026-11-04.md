@@ -5,7 +5,7 @@ things more beautiful. add flowers along paths, add decorations to buildings, un
 expand out".
 
 **Status:** the design is reconciled (Claude and Codex). The first piece, **decorator-01show**, is built on the live showcase
-release `8b4ea9cc` as branch `decorator-01show`, tip `b73667ea`. It is ready to stage. Nothing is recorded, staged or installed.
+release `8b4ea9cc` as branch `decorator-01show`, tip `46f42e3b`. It is ready to stage. Nothing is recorded, staged or installed.
 The tripwire rules DC1–DC3 are on main in `docs/reports/shop-01-2026-10-25/shopread.py.txt`, reviewed by two engines. They are
 not installed yet.
 
