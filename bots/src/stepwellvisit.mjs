@@ -22,7 +22,7 @@ const same = (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1] && a[2] === 
  * -> { stop, why, y, placed, dug, ops, skipped, tiers }. `p` = { rec, plan, onStop(y, why) -> Promise, onTiers?(tiers) -> Promise,
  * exit }. `e` = { read (a fresh reader per get), feet() -> [x,y,z], walkTo(cell) -> Promise<bool>, dig(cell) -> Promise<'confirmed'|...>,
  * place(cell, role) -> Promise<'confirmed'|'no_material'|'no_support'|'no_reach'|'refused'>, toolOk() -> bool, fence() -> bool,
- * log(op, d), now(), aborted() }.
+ * occupied?(cell) -> bool (a player's body stands on the cell: never dug), log(op, d), now(), aborted() }.
  */
 export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW.unitOps, lights = () => true } = {}) {
   const plan = p.plan
@@ -53,7 +53,8 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
       if (op.op === 'done') return end('passed', `${out.skipped} cell(s) passed this visit`, w.unit.y)
       if (op.op === 'wait') return end('unknown', `unread ${kOf(op.at)}`, w.unit.y)
       if (op.op === 'stop') {
-        if (op.why === 'own_cell') { skip.add(kOf(op.at)); continue }
+        // a seal this visit could not make: no dig beside that water this visit; the next visit tries the seal again
+        if (op.why === 'unsealed') return end('unsealed', `water at ${kOf(op.at)} not sealed`, w.unit.y)
         await p.onStop(w.unit.y, `${op.why} at ${kOf(op.at)}`)
         e.log('stop', { at: op.at, why: op.why, y: w.unit.y })
         return end('stopped', op.why, w.unit.y)
@@ -72,6 +73,8 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
       out.ops++
       if (op.op === 'dig') {
         if (!e.toolOk()) return end('no_pickaxe', 'no pickaxe with uses left', w.unit.y)
+        // ANOTHER BODY ON THE CELL (a player standing on it): never dug from under it (Codex r1 BLOCKER 2); passed after two tries
+        if (e.occupied?.(op.at)) { fail(op.at, 'occupied'); continue }
         const r = await e.dig(op.at)
         if (r === 'confirmed') { out.dug++; e.log('dig', { at: op.at, kind: op.kind, why: op.why, y: w.unit.y }) } else fail(op.at, `dig:${r}`)
       } else {
@@ -125,7 +128,7 @@ export const TOOL_MIN = 8
  * cell reads its role's block after the acknowledgement (a seal: no longer a liquid). `walk(cell, ms)` -> arrived (skills.mjs
  * stairWalk: the town-deposit profile, no digs, no scaffold).
  */
-export function stepwellBotEffects (bot, B, { palette = {}, signal = null, fence = () => true, log = () => {}, walk } = {}) {
+export function stepwellBotEffects (bot, B, { palette = {}, signal = null, fence = () => true, log = () => {}, walk, occupied = () => false } = {}) {
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   const fresh = () => stairRead(bot)
   const equipFor = async c => {
@@ -170,6 +173,7 @@ export function stepwellBotEffects (bot, B, { palette = {}, signal = null, fence
       return r
     },
     toolOk: () => usesLeft(bestPick(bot)) >= TOOL_MIN,
+    occupied,
     fence,
     log,
     now: () => Date.now(),

@@ -162,7 +162,7 @@ import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
 import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft, cutUnsafe } from './cropfarm.mjs'   // cropfarm-01
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
-import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank } from './stepwell.mjs'   // stepwell-01
+import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
 import { plotPrep, replantCells, PLOTPREP } from './tidy.mjs'   // stepwell-01: the site's felling (the groundskeeper's stands and replants)
 import { CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANE, CANE_PALETTE, CANE_FOREIGN, siteCaneFarm, caneCells, caneState, caneCensus, caneHarvest, caneStand, caneNeed, caneDue, caneAlsoDone, cutCell, caneHarvestRow, caneBankable } from './canefarm.mjs'   // canefarm-01
@@ -23644,6 +23644,8 @@ function stepwellSite (bot, home, inp, t0, me) {
     const [bx0, bz0, bx1, bz1] = stepwellPlanTank(sv.site).box
     const pp = plotPrep(read, { plots: [{ id: 'SW', kind: 'stepwell', box: [bx0, bz0, bx1, bz1] }], home, records: inp.records, avoid: inp.blocked, cells, T: { ...PLOTPREP, platMax: SWELL.standMax } })
     if (Object.entries(pp.skipped ?? {}).some(([k, v]) => /^tree/.test(k) && v > 0)) { why.trees_kept = (why.trees_kept ?? 0) + 1; continue }
+    const sf = standsFit(sv.site, pp.platforms)
+    if (sf) { why[sf] = (why[sf] ?? 0) + 1; continue }
     const rp = pp.trees.length ? (inp.land ? replantCells(read, inp.land, pp.trees.map(t => ({ col: t.col, name: t.name })), { avoid: (x, z) => inp.blocked(x, z) ?? (x >= bx0 - 2 && x <= bx1 + 2 && z >= bz0 - 2 && z <= bz1 + 2 ? 'stepwell' : null), cells }) : []) : []
     if (rp.length < pp.trees.length) { why.no_replant = (why.no_replant ?? 0) + 1; continue }
     const record = stepwellRecord(sv, { home, seed: stepwellSeed(config.memory?.pool ?? process.env.MEMORY_POOL ?? '', home), now: Date.now(), by: me, fell: { trees: pp.trees, platforms: pp.platforms, clear: pp.clear, replant: rp }, read })
@@ -23757,6 +23759,7 @@ async function buildStepwell (ctx, args, signal) {
     const e = stepwellBotEffects(bot, effects, {
       palette: rec.palette ?? {}, signal, fence,
       walk: cell => stairWalk(bot, cell, STEPWELL_WALK_MS, signal),
+      occupied: cell => otherBodyOnCell(bot, cell),
       log: (op, d) => {
         const cell = d.at
         if (op === 'dig') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: STEPWELL_PLOT, op: 'clear', cell, kind: d.kind, block: d.block ?? '-', gen: rh.head.gen }) }) } catch { /* telemetry */ } return }

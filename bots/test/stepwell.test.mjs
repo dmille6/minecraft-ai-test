@@ -148,7 +148,7 @@ await t('a cut never digs the bot\'s own body or floor; the cuts go before the f
   assert.ok(op2.why !== 'post', 'a post was placed before its trim')
 })
 await t('MUTANT KILLED: without the seal-first survey, water beside a cut is cut into', async () => {
-  await withMutant(SW_PATH, "        return { op: 'place', at: n, role: plan.byKey.get(kOf(n))?.role ?? 'seal', why: 'seal' }\n      }\n    }\n    if (isWet(b)", "        void 0\n      }\n    }\n    if (isWet(b)", async M => {
+  await withMutant(SW_PATH, "      if (isWet(nb)) return sealOp(n)", "      if (false) return sealOp(n)", async M => {
     const P = M.planTank(SITE)
     const u = P.units.find(q => q.y === G - 1)
     const w2 = world()
@@ -157,6 +157,41 @@ await t('MUTANT KILLED: without the seal-first survey, water beside a cut is cut
     const op = M.stepwellNext(w2.read, P, u)
     assert.ok(!(op.op === 'place' && op.why === 'seal'), 'the mutant still seals: the test above proves nothing')
   })
+})
+
+await t('Codex r1 BLOCKER 1: a seal refused twice (skipped) still blocks every cut beside it; water in the bot\'s own cell moves the bot, never skipped', () => {
+  const u = unitAt(G - 1)
+  const w = world()
+  const face = P1.cells.find(e => e.role === 'wall' && e.y === G - 1)
+  w.set(face.at, 'water')
+  const op = S.stepwellNext(w.read, P1, u, { skip: new Set([face.at.join(',')]) })
+  assert.strictEqual(op.op, 'stop'); assert.strictEqual(op.why, 'unsealed')
+  const feet = [face.at[0], face.at[1], face.at[2]]
+  const op2 = S.stepwellNext(w.read, P1, u, { feet })
+  assert.strictEqual(op2.op, 'place'); assert.strictEqual(op2.own, true)
+})
+await t('Claude r1 BLOCKER 3: a record\'s felled cell is never sealed (SW1 seals only cut cells of kind cut): water there stops the tank', () => {
+  const w = world()
+  const sv = { site: { ...SITE, centre: [7, 7], tiersDry: 1 }, counts: {}, byTier: {}, d: 40 }
+  const P0 = S.planTank(SITE)
+  const logAt = P0.cut.find(c => c.at[1] === G - 1).at
+  const fell = { trees: [{ base: logAt, name: 'spruce_log', top: G + 3 }], platforms: [], clear: [{ at: logAt, kind: 'tree', name: 'spruce_log', tree: 0 }], replant: [{ cell: [40, G + 1, 40], species: 'spruce', sapling: 'spruce_sapling', state: 'pending' }] }
+  const rec = S.stepwellRecord(sv, { home: { x: 0, y: G, z: -40 }, fell, read: w.read })
+  const P = S.planOfRecord(rec)
+  assert.ok(P.cutKeys.has(logAt.join(',')) && !P.sealKeys.has(logAt.join(',')))
+  w.set(logAt, 'water')
+  const u = P.units.find(q => q.y === G - 1)
+  const op = S.stepwellNext(w.read, P, u)
+  assert.strictEqual(op.op, 'stop'); assert.strictEqual(op.why, 'water_outside')
+})
+await t('Codex r1 BLOCKER 2: a cut another body stands on is never dug (passed after two tries)', async () => {
+  const P = S.planTank(SITE)
+  const w = world()
+  const target = P.units.find(u => u.y === G).cut[0]
+  const e = fakeBot(w, P, { start: [7, G + 1, -2] })
+  e.occupied = c => c.join(',') === target.join(',')
+  await V.runStepwellVisit({ plan: P, exit: P.exit, onStop: async () => {} }, e, { opsMax: 60 })
+  assert.strictEqual(w.get(target), 'grass_block', 'dug from under another body')
 })
 
 console.log('THE SITING SURVEY')
@@ -178,6 +213,24 @@ await t('a dry, flat, treeless site surveys ok with counts; lava in a cut refuse
   assert.ok(!wet.ok && /^wet:tier1/.test(wet.why), JSON.stringify(wet.why))
   w.set(face.at, 'stone')
   assert.ok(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 }).ok)
+})
+await t('Codex r1 BLOCKER 3: ground 2 below the rim just outside it refuses the site (the rim walkway is unposted outside)', () => {
+  const w = world()
+  const cand = { x: 40, z: 0, away: 'e', d: 40 }
+  const P = S.planTank(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 }).site)
+  // a column of the outer ring: two below the rim (grass and the dirt under it gone)
+  const ox = P.box[0] - 1, oz = P.box[1] + 5
+  w.set([ox, G, oz], 'air'); w.set([ox, G - 1, oz], 'air')
+  assert.strictEqual(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 }).why, 'rim_edge_drop')
+  w.set([ox, G - 1, oz], 'dirt')
+  assert.ok(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 }).ok, 'one below is a step: ok (positive control)')
+})
+await t('Claude r1 BLOCKERS 1-2: a felling stand on a tank cell or above the cut top refuses the site', () => {
+  const P = S.planTank(SITE)
+  const post = P.cells.find(e => e.role === 'post').at
+  assert.strictEqual(S.standsFit(SITE, [{ cells: [post] }]), 'stand_on_cell')
+  assert.strictEqual(S.standsFit(SITE, [{ cells: [[7, P.top + 1, 7]] }]), 'stand_above_cut')
+  assert.strictEqual(S.standsFit(SITE, [{ cells: [[7, G + 2, 7]] }]), null)
 })
 await t('a reserved column, a disallowed zone and a tree refuse a site (trees counted when allowed)', () => {
   const w = world()

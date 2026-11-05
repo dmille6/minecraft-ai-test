@@ -285,7 +285,7 @@ export function planTank (site, { cutKeep = null } = {}) {
   for (const col of cols.values()) { const c = at(col.u, 0, col.v); x0 = Math.min(x0, c[0]); x1 = Math.max(x1, c[0]); z0 = Math.min(z0, c[2]); z1 = Math.max(z1, c[2]) }
   const cc = (W - 1) / 2
   const exit = at(cc, g + 1, -1)
-  return { site: { ...site, W, T }, W, T, g, cols, cells, byKey, cut, cutKeys, units, minY, top, box: [x0, z0, x1, z1], exit }
+  return { site: { ...site, W, T }, W, T, g, cols, cells, byKey, cut, cutKeys, sealKeys: cutKeys, units, minY, top, box: [x0, z0, x1, z1], exit }
 }
 /** The tier a cut at height y (at or below g) belongs to. Pure. */
 export function tierOfY (g, y) { return Math.max(1, Math.ceil((g - y + 1) / SW.tierD)) }
@@ -335,24 +335,32 @@ const bodyOf = feet => feet ? [kOf(feet), k3(feet[0], feet[1] + 1, feet[2]), k3(
  */
 export function stepwellNext (read, plan, u, { feet = null, skip = new Set(), lights = true } = {}) {
   const body = new Set(bodyOf(feet))
-  const known = new Set([...plan.byKey.keys(), ...plan.cutKeys])
+  // A SEAL goes into a record cell or a CUT cell of kind cut (plan.sealKeys: the tripwire's SW1 -- never a felling clear, never off the
+  // record); water anywhere else beside a cut stops the tank above it
+  const sealable = k => plan.byKey.has(k) || (plan.sealKeys ?? plan.cutKeys).has(k)
+  const sealOp = n => {
+    const k = kOf(n)
+    if (!sealable(k)) return { op: 'stop', why: 'water_outside', at: n }
+    // a seal refused twice this visit (skipped) still BLOCKS every dig beside it: the visit ends unsealed (Codex r1 BLOCKER 1)
+    if (skip.has(k)) return { op: 'stop', why: 'unsealed', at: n }
+    const op = { op: 'place', at: n, role: plan.byKey.get(k)?.role ?? 'seal', why: 'seal' }
+    // the bot's own cell: placed from another stand (the visit moves), never skipped past (Codex r1 BLOCKER 1)
+    return body.has(k) ? { ...op, own: true } : op
+  }
   // 1. SURVEY
   for (const c of u.cut) {
     const b = read(...c)
     if (!b) return { op: 'wait', at: c }
     if (isLava(b)) return { op: 'stop', why: 'lava', at: c }
+    if (cellGood('cut', b)) continue   // open already: a liquid beside an open cell would have flowed into it (then it reads wet)
     for (const [dx, dy, dz] of N6) {
       const n = [c[0] + dx, c[1] + dy, c[2] + dz]
       const nb = read(...n)
       if (!nb) return { op: 'wait', at: n }
       if (isLava(nb)) return { op: 'stop', why: 'lava', at: n }
-      if (isWet(nb) && !skip.has(kOf(n))) {
-        if (!known.has(kOf(n))) return { op: 'stop', why: 'water_outside', at: n }
-        if (body.has(kOf(n))) return { op: 'stop', why: 'own_cell', at: n }
-        return { op: 'place', at: n, role: plan.byKey.get(kOf(n))?.role ?? 'seal', why: 'seal' }
-      }
+      if (isWet(nb)) return sealOp(n)
     }
-    if (isWet(b) && !skip.has(kOf(c))) return { op: 'place', at: c, role: 'seal', why: 'seal' }
+    if (isWet(b)) return sealOp(c)
   }
   // 2. THE CUTS (top down within the layer is one height; a falling block over a cut falls into it and is cut again)
   let own = null   // the first op on the bot's own body or floor: returned last, marked `own` (the visit moves to another stand for it)
@@ -387,8 +395,9 @@ export function stepwellNext (read, plan, u, { feet = null, skip = new Set(), li
         if (!nb) return { op: 'wait', at: n }
         if (isLava(nb)) return { op: 'stop', why: 'lava', at: n }
         if (isWet(nb)) {
-          if (!known.has(kOf(n)) || body.has(kOf(n))) { skip.add(k); break }   // never open a cell to a liquid it cannot seal
-          return { op: 'place', at: n, role: plan.byKey.get(kOf(n))?.role ?? 'seal', why: 'seal' }
+          const so = sealOp(n)
+          if (so.op === 'stop') { skip.add(k); break }   // never open a cell to a liquid it cannot seal: the face stays as it stands
+          return so
         }
       }
       if (skip.has(k)) continue
@@ -460,13 +469,22 @@ export function surveyStepwell (read, home, cand, { blocked = () => null, zoneOf
   const gp = SW.gap
   const grounds = []
   const logs = new Set(), trunks = new Set()
+  const outer = []
   for (let u = -gp; u < W + gp; u++) for (let v = -gp; v < W + gp; v++) {
     const w = toWorld(origin, away, u, v)
     const why = blocked(w.x, w.z)
     if (why) return { ok: false, why: `reserved:${why}` }
     const inside = u >= 0 && v >= 0 && u < W && v < W
     if (zoneOf && inside && !STEPWELL_ZONES.includes(zoneOf(w.x, w.z))) return { ok: false, why: `zone:${zoneOf(w.x, w.z)}` }
-    if (!inside) continue
+    if (!inside) {
+      // the ring just outside the rim (u or v = -1 or W): its ground is read for the rim's outer edge (below)
+      if (u >= -1 && v >= -1 && u <= W && v <= W) {
+        const gx = groundTop(read, w.x, w.z, home.y + 24, home.y - 24)
+        if (!gx) return { ok: false, why: 'unknown' }
+        outer.push(gx.y)
+      }
+      continue
+    }
     const gt = groundTop(read, w.x, w.z, home.y + 24, home.y - 24)
     if (!gt) return { ok: false, why: 'unknown' }
     if (gt.wet && (!pondMax || u < SW.band || v < SW.band || u >= W - SW.band || v >= W - SW.band)) return { ok: false, why: 'wet_ground' }
@@ -477,6 +495,8 @@ export function surveyStepwell (read, home, cand, { blocked = () => null, zoneOf
   const hist = new Map()
   for (const q of grounds) if (q.rim) hist.set(q.y, (hist.get(q.y) ?? 0) + 1)
   const g = [...hist.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0]
+  // THE RIM'S OUTER EDGE: the walkway at g is unposted on its outside, so the ground there may be at most 1 below it (Codex r1 BLOCKER 3)
+  if (outer.some(y => y < g - 1)) return { ok: false, why: 'rim_edge_drop' }
   // the rim within groundDown (its `under` cell fills one) .. groundUp (cut); inside the rim the tank is cut below g anyway
   for (const q of grounds) if (q.y > g + SW.groundUp || q.y < g - (q.rim ? SW.groundDown : SW.innerDown)) return { ok: false, why: q.y > g ? 'too_high' : 'too_low' }
   const T = Math.min(tiersMax, tiersFit(W))
@@ -530,6 +550,21 @@ export function surveyStepwell (read, home, cand, { blocked = () => null, zoneOf
   counts.trunks = trunks.size
   return { ok: true, why: null, site: { origin, away, g, W, T: Math.min(tiers, dryTiers), centre: [cand.x, cand.z], tiersDry: dryTiers }, g, counts, byTier, d: cand.d }
 }
+/**
+ * DO THE FELLING'S STANDS FIT THE TANK? -> null | why. Pure. A stand step on one of the tank's own cells (a rim post, a light, a head)
+ * would be dropped from the record and its tree never felled; one above the cut top would never be cut back down and the tank never
+ * complete (Claude r1 BLOCKERS 1-2): either refuses the site.
+ */
+export function standsFit (site, platforms = []) {
+  const P = planTank(site)
+  for (const q of platforms ?? []) {
+    for (const c of q.cells ?? []) {
+      if (P.byKey.has(kOf(c))) return 'stand_on_cell'
+      if (c[1] > P.top) return 'stand_above_cut'
+    }
+  }
+  return null
+}
 /** THE BETTER OF TWO SURVEYS: the fewest soft faces + caves to lay (the stone the tank needs), then the nearest home. Pure. */
 export function stepwellBetter (a, b) {
   if (!a) return b
@@ -581,7 +616,7 @@ export function fellClear (plan, fell) {
   const seen = new Set()
   for (const c of fell?.clear ?? []) {
     const k = kOf(c.at)
-    if (seen.has(k) || plan.byKey.has(k)) continue
+    if (seen.has(k) || (plan.byKey.has(k) && plan.byKey.get(k).role !== 'stand')) continue
     seen.add(k)
     out.push({ at: c.at, kind: c.kind, name: c.name, ...(c.tree != null ? { tree: c.tree } : {}), t: 0 })
   }
@@ -616,7 +651,10 @@ export function planOfRecord (rec) {
     // the record's own clear list is the plan's cuts (never a cell the record does not list: the tripwire's G2)
     const top = rec.site?.cutTop ?? Infinity
     const listed = new Set((rec.clear ?? []).filter(c => c.kind === 'cut' || c.at[1] <= top).map(c => kOf(c.at)))
-    planMemo.set(rec, planTank(rec.site, { cutKeep: c => listed.has(kOf(c)) }))
+    const p = planTank(rec.site, { cutKeep: c => listed.has(kOf(c)) })
+    // a seal only in a cut cell of kind cut (the tripwire's SW1): a felled log's or leaf's cell is cut, never sealed (Claude r1 BLOCKER 3)
+    p.sealKeys = new Set((rec.clear ?? []).filter(c => c.kind === 'cut').map(c => kOf(c.at)))
+    planMemo.set(rec, p)
   }
   return planMemo.get(rec)
 }

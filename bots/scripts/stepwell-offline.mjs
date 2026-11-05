@@ -68,6 +68,8 @@ for (const s of ok) {
   const f = fellFor(s)
   if (f.kept > 0) { fellWhy.trees_kept = (fellWhy.trees_kept ?? 0) + 1; continue }
   if (f.replant.length < f.trees.length) { fellWhy.no_replant = (fellWhy.no_replant ?? 0) + 1; continue }
+  const sf = SWm.standsFit(s.site, f.platforms)
+  if (sf) { fellWhy[sf] = (fellWhy[sf] ?? 0) + 1; continue }
   s.fell = f
   if (SWm.stepwellBetter(best, s) === s) { best = s; bestFell = f }
 }
