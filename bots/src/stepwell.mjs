@@ -292,7 +292,7 @@ export function planTank (site, { cutKeep = null } = {}) {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
   for (const col of cols.values()) { const c = at(col.u, 0, col.v); x0 = Math.min(x0, c[0]); x1 = Math.max(x1, c[0]); z0 = Math.min(z0, c[2]); z1 = Math.max(z1, c[2]) }
   const cc = (W - 1) / 2
-  const exit = at(cc, g + 1, -1)
+  const exit = at(cc, Number.isInteger(site.exitY) ? site.exitY : g + 1, -1)   // Codex r2: the exit's feet on the surveyed gate-front floor
   return { site: { ...site, W, T }, W, T, g, cols, cells, byKey, cut, cutKeys, sealKeys: cutKeys, units, minY, top, box: [x0, z0, x1, z1], exit }
 }
 /** The tier a cut at height y (at or below g) belongs to. Pure. */
@@ -496,7 +496,7 @@ export function surveyStepwell (read, home, cand, { blocked = () => null, zoneOf
       if (u >= -1 && v >= -1 && u <= W && v <= W) {
         const gx = groundTop(read, w.x, w.z, home.y + 24, home.y - 24)
         if (!gx) return { ok: false, why: 'unknown' }
-        outer.push({ u, v, y: gx.y })
+        outer.push({ u, v, y: gx.y, wet: !!gx.wet, x: w.x, z: w.z })
       }
       continue
     }
@@ -512,8 +512,16 @@ export function surveyStepwell (read, home, cand, { blocked = () => null, zoneOf
   const g = [...hist.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0]
   // THE GATE'S FRONT: the parapet walls the rim's outside everywhere but the 2-wide gate, whose outside ground (the exit's floor) may
   // be at most 1 below the rim (Codex r1 BLOCKER 3) -- and not above it by more than 1 (the way in)
+  // (Codex r2: and DRY and SOLID, with open feet and head over it -- water's surface is no floor; the exit's feet are that floor + 1)
   const cg = (W - 1) / 2
-  if (outer.some(q => q.v === -1 && (q.u === cg - 1 || q.u === cg) && (q.y < g - 1 || q.y > g + 1))) return { ok: false, why: 'gate_step' }
+  const fronts = outer.filter(q => q.v === -1 && (q.u === cg - 1 || q.u === cg))
+  for (const q of fronts) {
+    if (q.wet || q.y < g - 1 || q.y > g + 1) return { ok: false, why: 'gate_step' }
+    const fl = read(q.x, q.y, q.z), f = read(q.x, q.y + 1, q.z), h = read(q.x, q.y + 2, q.z)
+    if (!fl || !f || !h) return { ok: false, why: 'unknown' }
+    if (!isFull(fl) || isFalling(fl) || !isOpen(f) || !isOpen(h)) return { ok: false, why: 'gate_step' }
+  }
+  const exitY = (fronts.find(q => q.u === cg)?.y ?? g) + 1
   // the rim within groundDown (its `under` cell fills one) .. groundUp (cut); inside the rim the tank is cut below g anyway
   for (const q of grounds) if (q.y > g + SW.groundUp || q.y < g - (q.rim ? SW.groundDown : SW.innerDown)) return { ok: false, why: q.y > g ? 'too_high' : 'too_low' }
   const T = Math.min(tiersMax, tiersFit(W))
@@ -565,7 +573,7 @@ export function surveyStepwell (read, home, cand, { blocked = () => null, zoneOf
   if (dryTiers < tiers) return { ok: false, why: `wet:tier${dryTiers + 1}`, counts, byTier }
   counts.treeCols = logs.size
   counts.trunks = trunks.size
-  return { ok: true, why: null, site: { origin, away, g, W, T: Math.min(tiers, dryTiers), centre: [cand.x, cand.z], tiersDry: dryTiers }, g, counts, byTier, d: cand.d, turn: cand.turn ?? 0 }
+  return { ok: true, why: null, site: { origin, away, g, W, T: Math.min(tiers, dryTiers), centre: [cand.x, cand.z], tiersDry: dryTiers, exitY }, g, counts, byTier, d: cand.d, turn: cand.turn ?? 0 }
 }
 /**
  * DO THE FELLING'S STANDS FIT THE TANK? -> null | why. Pure. A stand step on one of the tank's own cells (a rim post, a light, a head)
@@ -605,7 +613,7 @@ export function stepwellRecord (sv, { home, seed = 0, now = Date.now(), by = nul
   const deep = g - SW.tierD * (sv.site.tiersDry ?? plan.T) - 2
   return {
     v: SW.v, blueprint: STEPWELL_BLUEPRINT, plot: STEPWELL_PLOT, home,
-    site: { origin: sv.site.origin, away: sv.site.away, g, W: plan.W, T: plan.T, centre: sv.site.centre, tiersDry: sv.site.tiersDry ?? plan.T, stands, cutTop: g + CUT_OPEN },
+    site: { origin: sv.site.origin, away: sv.site.away, g, W: plan.W, T: plan.T, centre: sv.site.centre, tiersDry: sv.site.tiersDry ?? plan.T, stands, cutTop: g + CUT_OPEN, ...(Number.isInteger(sv.site.exitY) ? { exitY: sv.site.exitY } : {}) },
     seed, palette,
     cells: plan.cells.map(e => ({ at: e.at, role: e.role, t: e.t, ...(e.role === 'stand' ? { seg: FELL_SEG } : {}) })),
     clear: fellClear(plan, fell),

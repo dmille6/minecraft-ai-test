@@ -232,7 +232,12 @@ await t('Codex r1 BLOCKER 3: the rim is walled outside (a parapet post on every 
   w.set([ex[0], G, ex[2]], 'air'); w.set([ex[0], G - 1, ex[2]], 'air')
   assert.strictEqual(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 }).why, 'gate_step')
   w.set([ex[0], G - 1, ex[2]], 'dirt')
-  assert.ok(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 }).ok, 'one below is a step: ok')
+  const one = S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 })
+  assert.ok(one.ok, 'one below is a step: ok')
+  // Codex r2: the exit's feet are on that floor (not g + 1 in the air); water at the gate's front is no floor
+  assert.deepStrictEqual(S.planTank(one.site).exit, [ex[0], G, ex[2]])
+  w.set([ex[0], G - 1, ex[2]], 'water')
+  assert.strictEqual(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 }).why, 'gate_step')
 })
 await t('Claude r1 BLOCKERS 1-2: a felling stand on a tank cell or above the cut top refuses the site', () => {
   const P = S.planTank(SITE)
