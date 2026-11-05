@@ -4694,7 +4694,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "stoneworks-01 BUILT: showcase piece branch stoneworks-01show (on the live 8b4ea9cc) and fleet variant branch stoneworks-01 (on fleet aea83708), tier 2 (not protected); Paper sandbox3 fuel proof 5/5 PASS; Codex r1 1 BLOCKER (scaffold keeps stone) fixed r1. READY TO STAGE: the control session folds the showcase piece into the next release (no tripwire rule: places/digs nothing); fleet variant registration + draft queue entry on the canary host (~/mcai-analysis/stoneworks-01.*), not queued. Then stoneworks-02 (bill-driven bricks + the yard draw), stoneworks-03 (stonecutter trim).",
+   "next_step": "stoneworks-01 BUILT: showcase piece branch stoneworks-01show (on the live 8b4ea9cc) and fleet variant branch stoneworks-01 (on fleet aea83708), tier 2 (not protected); Paper sandbox3 fuel proof 5/5 PASS; Codex r1 1 BLOCKER (scaffold keeps stone) fixed r1, Codex r2 FIXED. Suites: fleet 470c3825 ci2 393/396 (known 3: ceilescape, orphaned, protected-paths); showcase 9462ae1d w30 423/430 (known 5 + logcap/stocktarget-journal stone pins, fixed in b2206eb7; showcase tip cbf9c92e). READY TO STAGE: the control session folds the showcase piece into the next release (no tripwire rule: places/digs nothing); fleet variant registration + draft queue entry on the canary host (~/mcai-analysis/stoneworks-01.*), not queued. Then stoneworks-02 (bill-driven bricks + the yard draw), stoneworks-03 (stonecutter trim).",
    "max_quiet_hours": 72,
    "depends_on": [],
    "evidence": {
