@@ -31,11 +31,11 @@ const it = (name, count, slot) => ({ name, count, slot })
 const BAG_PARTS = ['stone_bricks', 'stone_brick_slab', 'stone_brick_stairs', 'stone_brick_wall', 'glass', 'glass_pane',
   'cut_copper', 'waxed_oxidized_cut_copper_stairs', 'copper_door', 'copper_block', 'weathered_copper']
 
-await t('the parts list is EXACTLY the regex\'s match set in minecraft-data 1.21.8 (both directions), 46 names, each a real item', () => {
+await t('the parts list is EXACTLY the regex\'s match set in minecraft-data 1.21.8 (both directions), 51 names (stoneworks-02: +5 deepslate), each a real item', () => {
   const byRe = Object.keys(REG.itemsByName).filter(n => ST.PROJECT_PART_RE.test(n)).sort()
   assert.ok(byRe.length > 40, 'positive control: the regex finds the copper family in the registry')
   assert.deepEqual([...ST.PROJECT_PARTS].sort(), byRe)
-  assert.equal(new Set(ST.PROJECT_PARTS).size, 46)
+  assert.equal(new Set(ST.PROJECT_PARTS).size, 51)
   for (const n of ST.PROJECT_PARTS) assert.ok(REG.itemsByName[n], `${n} is a real item`)
 })
 
