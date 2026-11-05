@@ -150,7 +150,7 @@ import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
-import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt } from './wall.mjs'   // wall-01; wallext-01; wallext-02
+import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt, WALLDEMO_HOLD } from './wall.mjs'   // wall-01; wallext-01; wallext-02; WALLDEMO_HOLD: the atlas+decorator fold
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS } from './yard.mjs'   // yarduse-01
@@ -21827,7 +21827,11 @@ function decorReservedFor (c, plan) {
   const base = dressReservedFor(c, plan)
   let park = null
   try { park = landHead()?.park?.box ?? null } catch { park = null }
-  return (x, z) => base(x, z) ?? (Array.isArray(park) && x >= park[0] - 1 && x <= park[2] + 1 && z >= park[1] - 1 && z <= park[3] + 1 ? 'park' : null)
+  // the showcase atlas+decorator fold (Codex fold BLOCKER): the wall demolition's hold (wall.mjs holdAt over the wall record AS HELD:
+  // projectHeads applies wallAsHeld) -- the retired line's columns stay the demolition's until it completes, never a border or the nursery
+  let held = () => false
+  try { held = holdAt(projectHeads().find(x => x.plot === WALL_PLOT)?.head?.rec ?? null) } catch { held = () => true }
+  return (x, z) => base(x, z) ?? (held(x, z) ? WALLDEMO_HOLD : null) ?? (Array.isArray(park) && x >= park[0] - 1 && x <= park[2] + 1 && z >= park[1] - 1 && z <= park[3] + 1 ? 'park' : null)
 }
 /** The town's walls (wall.mjs wallInteriors: the ring's inside and the extension's) -> (x, z) -> bool. Never throws (none: false). */
 function decorInside () {

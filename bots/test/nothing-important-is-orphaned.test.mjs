@@ -153,6 +153,7 @@ const REQUIRED = [
   // atlas-01 (11-04): the bots' shared exploration map
   'bots/src/atlas.mjs',
   'bots/test/atlas.test.mjs',
+  'bots/test/decorholdfold.test.mjs',   // the atlas+decorator fold: the decorator keeps off the demolition's hold
   'bots/test/gkaccessfold.test.mjs',   // the gkaccess fold: no stair across the storage hall's way in
   'bots/test/wallaccessfold.test.mjs',   // the wallext + access fold: ids namespaced, the extension no footprint
   'bots/test/gkstagefold.test.mjs',   // the gkstage fold: inwall never cuts a site-prep reservation
