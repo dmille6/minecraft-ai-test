@@ -131,6 +131,7 @@ const REQUIRED = [
   'bots/scripts/stepwell-offline.mjs',
   'bots/scripts/stepwell-landmap.mjs',
   'bots/test/stepwell.test.mjs',
+  'sandbox/stepwell/stepwell-e2e.mjs',  // stepwell-01: its Paper driver
   // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
   'bots/src/sinks.mjs',
   'bots/scripts/sinks-offline.mjs',

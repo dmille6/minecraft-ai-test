@@ -23794,8 +23794,8 @@ async function buildStepwell (ctx, args, signal) {
     const status = r.placed > 0 || r.dug > 0 ? 'success' : 'no_effect'
     // A VISIT THAT DID NOTHING AND STOPPED ON A FAILURE waits the project behind the others (the stair's rule: else it takes a free bot
     // every 2 min and starves the next projects)
-    if (status === 'no_effect' && ['no_material', 'no_pickaxe', 'passed', 'unknown'].includes(r.stop)) { try { projStuckWrite(dir, key, me, {}, { stuckAt: Date.now() }) } catch { /* the order asks again */ } }
-    const remedy = { no_pickaxe: ' -- craft or withdraw a pickaxe (toolkit)', no_material: ' -- carry cobblestone (withdraw it at town; walls are crafted from it)', passed: ' -- the cells passed are tried again from other stands next visit' }[r.stop] ?? ''
+    if (status === 'no_effect' && ['no_material', 'no_pickaxe', 'passed', 'unknown', 'unsealed'].includes(r.stop)) { try { projStuckWrite(dir, key, me, {}, { stuckAt: Date.now() }) } catch { /* the order asks again */ } }
+    const remedy = { no_pickaxe: ' -- craft or withdraw a pickaxe (toolkit)', no_material: ' -- carry cobblestone (withdraw it at town; walls are crafted from it)', passed: ' -- the cells passed are tried again from other stands next visit', unsealed: ' -- the water is sealed from another stand next visit (nothing is cut beside it until then)' }[r.stop] ?? ''
     return out(status, r.stop, `${r.why ?? r.stop} at y ${r.y ?? '-'}: dug ${r.dug}, placed ${r.placed}${remedy}`, { stop: r.stop, placed: r.placed, cleared: r.dug, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (err) {
     if (err?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw err }
