@@ -296,6 +296,8 @@ const REQUIRED = [
   // lavatarget-01 (10-31): explore never heads for a sighting beside lava the bot has seen
   'bots/src/lavatarget.mjs',
   'bots/test/lavatarget.test.mjs',
+  // leasegen-01 (11-05): the 35k-file town directory's lookup budget, the lease sweep, the per-connection timers
+  'bots/test/leasegen.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

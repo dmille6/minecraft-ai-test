@@ -61,6 +61,45 @@ function gensOf (dir, re) {
   try { names = fs.readdirSync(dir) } catch (e) { if (e?.code === 'ENOENT') return []; throw e }
   return names.map(n => re.exec(n)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => a - b)
 }
+// LEASEGEN-01 (LIVE showcase 11-04 22:06Z on: 287-516 keepalive timeouts/h, was 13-18): every lease, mutex, barrier and record
+// lookup listed the WHOLE town directory -- 35,384 entries, 34,034 of them lease generations nobody pruned -- at 56-74 ms a
+// listing, several listings a placement fence, so a groundskeeper visit held the event loop past the server's 30 s keepalive.
+// A family's generations are CONTIGUOUS at the top (a new one is always the newest seen + 1, created exclusively, and pruning only
+// removes generations below the newest kept ones), so the newest is found by probing upward from a per-process hint: one
+// existsSync per known generation and one per newer one. The answer is the filesystem's own (never a stale cache): a hint whose
+// file is gone (pruned, a reseed) falls back to the listing. Pruning deletes ASCENDING (leaseSweep, mutexTake), so a probe that
+// found h+1 absent and then finds h STILL present proves h+1 was never deleted in between: h was the newest (the re-check below).
+const GEN_PROBE_MAX = 4096
+const genHints = new Map()
+function newestGen (dir, re, fileOf) {
+  const k = `${dir}\0${re.source}`
+  let h = genHints.get(k)
+  if (h != null && fs.existsSync(fileOf(h))) {
+    let p = 0
+    while (p < GEN_PROBE_MAX && fs.existsSync(fileOf(h + 1))) { h++; p++ }
+    if (p < GEN_PROBE_MAX && fs.existsSync(fileOf(h))) { genHints.set(k, h); return h }
+  }
+  const g = gensOf(dir, re).at(-1) ?? null
+  if (g == null) genHints.delete(k); else genHints.set(k, g)
+  return g
+}
+// every generation (the record chain's walk): the cached list extended upward, re-listed when its first or last file is gone
+const genLists = new Map()
+function gensNow (dir, re, fileOf) {
+  const k = `${dir}\0${re.source}`
+  const c = genLists.get(k)
+  if (c?.length && fs.existsSync(fileOf(c[0])) && fs.existsSync(fileOf(c.at(-1)))) {
+    const out = c.slice()
+    let h = out.at(-1), p = 0
+    while (p < GEN_PROBE_MAX && fs.existsSync(fileOf(h + 1))) { out.push(++h); p++ }
+    if (p < GEN_PROBE_MAX && fs.existsSync(fileOf(h))) { genLists.set(k, out); return out.slice() }
+  }
+  const g = gensOf(dir, re)
+  if (g.length) genLists.set(k, g); else genLists.delete(k)
+  return g.slice()
+}
+/** Test hook: forget every hint (a fresh process). */
+export function _resetGenHints () { genHints.clear(); genLists.clear(); leaseSweptAt.clear() }
 function writeSynced (f, data, flag = 'wx') {
   const fd = fs.openSync(f, flag)
   try { fs.writeSync(fd, data); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
@@ -79,7 +118,7 @@ const REC_RE = key => new RegExp(`^${esc(key)}\\.g(\\d+)\\.json$`)
  */
 export function recordHead (dir, key) {
   let gens
-  try { gens = gensOf(dir, REC_RE(key)) } catch { return { ok: false, head: null, gens: [], rejected: [] } }
+  try { gens = gensNow(dir, REC_RE(key), n => recFile(dir, key, n)) } catch { return { ok: false, head: null, gens: [], rejected: [] } }
   let head = null
   const rejected = []
   for (const g of gens) {
@@ -98,7 +137,7 @@ export function recordHead (dir, key) {
  *  directory cannot be read. Never throws. */
 export function recordChain (dir, key) {
   let gens
-  try { gens = gensOf(dir, REC_RE(key)) } catch { return [] }
+  try { gens = gensNow(dir, REC_RE(key), n => recFile(dir, key, n)) } catch { return [] }
   const out = []
   let head = null
   for (const g of gens) {
@@ -113,7 +152,7 @@ export function recordChain (dir, key) {
   return out
 }
 /** The record's newest generation NUMBER (a directory listing only; the caller's cache key) -> n | null. Never throws. */
-export function recordGenNow (dir, key) { try { return gensOf(dir, REC_RE(key)).at(-1) ?? null } catch { return null } }
+export function recordGenNow (dir, key) { try { return newestGen(dir, REC_RE(key), n => recFile(dir, key, n)) } catch { return null } }
 /**
  * PUBLISH A TRANSITION -> { result: 'accepted' | 'nothing' | 'lost' | 'error', gen, head }. `mutate(recOrNull)` returns the next
  * body or null; it is re-applied to the new head on a lost race (a rebase). Accepted = in the chain after the link.
@@ -151,7 +190,7 @@ const LEASE_RE = (key, name) => new RegExp(`^${esc(key)}\\.${esc(name)}\\.lease\
  */
 export function leaseState (dir, key, name, { ttl = LEASE_TTL_MS } = {}) {
   try {
-    const g = gensOf(dir, LEASE_RE(key, name)).at(-1)
+    const g = newestGen(dir, LEASE_RE(key, name), n => leaseFile(dir, key, name, n))
     if (g == null) return null
     const f = leaseFile(dir, key, name, g)
     let mtimeMs = Date.now()
@@ -204,8 +243,42 @@ export function takeLease (dir, key, name, holder, { now = Date.now(), ttl = LEA
     fs.mkdirSync(dir, { recursive: true })
     writeSynced(leaseFile(dir, key, name, n), JSON.stringify({ holder, at, until: at + ttl, ...(meta ? { meta } : {}) }))
   } catch { return { ok: false, why: 'lost the race for the lease' } }
-  if (gensOf(dir, LEASE_RE(key, name)).at(-1) !== n) return { ok: false, why: 'a later lease generation exists' }
+  if (newestGen(dir, LEASE_RE(key, name), g => leaseFile(dir, key, name, g)) !== n) return { ok: false, why: 'a later lease generation exists' }
+  leaseSweep(dir, now)
   return { ok: true, gen: n }
+}
+// LEASEGEN-01: SUPERSEDED LEASE GENERATIONS ARE PRUNED (they were never deleted: 34,034 files in the showcase town directory).
+// At most once per LEASE_SWEEP_MS per process and directory, at a take: one listing; every lease's newest LEASE_KEEP generations
+// and any generation younger than LEASE_PRUNE_AGE_MS (the tripwire reads 3 h of lease history) are kept, the rest unlinked with
+// their `.released` markers, at most LEASE_SWEEP_MAX files a sweep. Only generations below a lease's newest ones go, so the
+// contiguity newestGen relies on holds and no taker's newest is ever touched. Never throws.
+export const LEASE_KEEP = 3
+export const LEASE_PRUNE_AGE_MS = 4 * 3600_000
+export const LEASE_SWEEP_MS = 3600_000
+export const LEASE_SWEEP_MAX = 2000
+const leaseSweptAt = new Map()
+const LEASE_ANY_RE = /^(.+\.lease)\.g(\d+)\.json(\.released)?$/
+export function leaseSweep (dir, now = Date.now(), { force = false } = {}) {
+  const last = leaseSweptAt.get(dir)
+  if (!force && last != null && now - last < LEASE_SWEEP_MS) return 0
+  leaseSweptAt.set(dir, now)
+  let names
+  try { names = fs.readdirSync(dir) } catch { return 0 }
+  const by = new Map()
+  for (const n of names) { const m = LEASE_ANY_RE.exec(n); if (!m) continue; let s = by.get(m[1]); if (!s) by.set(m[1], s = new Set()); s.add(Number(m[2])) }
+  let removed = 0
+  for (const [base, set] of by) {
+    const gens = [...set].sort((a, b) => a - b)
+    for (const g of gens.slice(0, Math.max(0, gens.length - LEASE_KEEP))) {
+      const f = path.join(dir, `${base}.g${g}.json`)
+      let m
+      try { m = fs.statSync(f).mtimeMs } catch { try { m = fs.statSync(`${f}.released`).mtimeMs } catch { continue } }
+      if (now - m < LEASE_PRUNE_AGE_MS) break   // generations only get younger upward
+      for (const x of [f, `${f}.released`]) { try { fs.unlinkSync(x); removed++ } catch { /* gone */ } }
+      if (removed >= LEASE_SWEEP_MAX) return removed
+    }
+  }
+  return removed
 }
 /** Do we hold the lease's NEWEST generation, unexpired and unreleased? (`gen` null: any generation of ours.) */
 export function holdsLease (dir, key, name, holder, gen = null, now = Date.now()) {
@@ -246,7 +319,7 @@ export const pidAlive = pid => { try { process.kill(pid, 0); return true } catch
  * still send).
  */
 export function mutexState (dir, key, { now = Date.now(), alive = pidAlive, gone = () => false } = {}) {
-  const g = gensOf(dir, MUTEX_RE(key)).at(-1)
+  const g = newestGen(dir, MUTEX_RE(key), n => mutexFile(dir, key, n))
   if (g == null) return { gen: 0, rec: null, held: false, why: 'none' }
   const f = mutexFile(dir, key, g)
   const rec = readJ(f)
@@ -271,16 +344,17 @@ export function mutexTake (dir, key, holder, { now = Date.now(), pid = process.p
   if (st.held) return { ok: false, why: `busy (${st.rec?.holder ?? 'torn'})` }
   const n = st.gen + 1, f = mutexFile(dir, key, n)
   try { fs.mkdirSync(dir, { recursive: true }); writeSynced(f, JSON.stringify({ holder, pid, conn, at: now })) } catch { return { ok: false, why: 'busy (lost the race)' } }
-  let gens = []
-  try { gens = gensOf(dir, MUTEX_RE(key)) } catch { /* judged below */ }
-  if (gens.at(-1) !== n) { try { fs.writeFileSync(`${f}.released`, String(now)) } catch { /* not the newest: never decides */ } return { ok: false, why: 'busy (a newer generation)' } }
-  for (const g of gens) if (g <= n - MUTEX_KEEP) { for (const x of [mutexFile(dir, key, g), `${mutexFile(dir, key, g)}.released`]) { try { fs.unlinkSync(x) } catch { /* gone */ } } }
+  let top = null
+  try { top = newestGen(dir, MUTEX_RE(key), g => mutexFile(dir, key, g)) } catch { /* judged below */ }
+  if (top !== n) { try { fs.writeFileSync(`${f}.released`, String(now)) } catch { /* not the newest: never decides */ } return { ok: false, why: 'busy (a newer generation)' } }
+  // every take prunes the generation that falls out of the kept window, ASCENDING (leasegen-01: no listing; newestGen's re-check)
+  for (const g of [n - MUTEX_KEEP - 1, n - MUTEX_KEEP]) { if (g < 1) continue; for (const x of [mutexFile(dir, key, g), `${mutexFile(dir, key, g)}.released`]) { try { fs.unlinkSync(x) } catch { /* gone */ } } }
   return { ok: true, gen: n, ...(['dead', 'superseded', 'torn', 'retired'].includes(st.why) ? { reclaimed: st.rec?.holder ?? 'torn' } : {}) }
 }
 /** Release the mutex: our own generation only (holder and pid; `gen` omitted: the newest). A marker, never a delete. Never throws. */
 export function mutexRelease (dir, key, holder, { pid = process.pid, gen = null } = {}) {
   try {
-    const g = gen ?? gensOf(dir, MUTEX_RE(key)).at(-1)
+    const g = gen ?? newestGen(dir, MUTEX_RE(key), n => mutexFile(dir, key, n))
     if (g == null) return
     const f = mutexFile(dir, key, g)
     const rec = readJ(f)
@@ -566,7 +640,7 @@ const BAR_RE = key => new RegExp(`^${esc(key)}\\.barrier\\.g(\\d+)\\.json$`)
 /** THE BARRIER NOW -> { gen, rec, active } | null. Active: not released and younger than BARRIER_MAX_MS (a dead holder's lapses). */
 export function barrierState (dir, key, now = Date.now()) {
   try {
-    const g = gensOf(dir, BAR_RE(key)).at(-1)
+    const g = newestGen(dir, BAR_RE(key), n => barFile(dir, key, n))
     if (g == null) return null
     const rec = readJ(barFile(dir, key, g))
     const released = fs.existsSync(`${barFile(dir, key, g)}.released`)
@@ -580,7 +654,7 @@ export function barrierTake (dir, key, holder, { why = 'closer', cell = null, no
   if (cur?.active && cur.rec?.holder === holder) return { ok: true, gen: cur.gen }
   const n = (cur?.gen ?? 0) + 1
   try { fs.mkdirSync(dir, { recursive: true }); writeSynced(barFile(dir, key, n), JSON.stringify({ holder, why, cell, at: now })) } catch { return { ok: false, why: 'lost the race for the barrier' } }
-  return gensOf(dir, BAR_RE(key)).at(-1) === n ? { ok: true, gen: n } : { ok: false, why: 'a later barrier exists' }
+  return newestGen(dir, BAR_RE(key), g => barFile(dir, key, g)) === n ? { ok: true, gen: n } : { ok: false, why: 'a later barrier exists' }
 }
 /** Release our barrier. Never throws. */
 export function barrierRelease (dir, key, holder, gen) {
