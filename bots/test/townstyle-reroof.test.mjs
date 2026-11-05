@@ -48,6 +48,16 @@ await t('the retrofit blueprint keeps EVERY old cell (the flat roof the ceiling)
   }
 })
 
+await t('the order offers the planner ONLY when its state says it is due (waiting: false); never an always-free open project', async () => {
+  const S = await import('../src/shop.mjs')
+  const list = [S.PROJECTS.find(p => p.plot === 'shop'), S.PROJECTS.find(p => p.plot === 'reroof'), S.PROJECTS.find(p => p.plot === 'tidy')]
+  const st = (plot, o) => ({ plot, exists: true, complete: true, damaged: false, ...o })
+  const base = [st('shop'), { plot: 'tidy', exists: true, complete: false, damaged: false, free: true }]
+  assert.strictEqual(S.activeProject(base, list).plot, 'tidy', 'no state for the planner: never offered')
+  assert.strictEqual(S.activeProject([...base, { plot: 'reroof', exists: false, complete: false, waiting: true }], list).plot, 'tidy', 'waiting: not offered')
+  assert.strictEqual(S.activeProject([...base, { plot: 'reroof', exists: false, complete: false, waiting: false }], list).plot, 'reroof', 'due: offered in its place')
+})
+
 console.log('THE RETROFIT, BUILT (fake vanilla)')
 async function reroofHouse (Mod = R, Bm = B) {
   const bp = B.loadBlueprint('house@1')
