@@ -156,6 +156,13 @@ const REQUIRED = [
   'bots/src/canefarm.mjs',
   'bots/scripts/canefarm-offline.mjs',
   'bots/test/canefarm.test.mjs',
+  // stepwell-01 (11-05, owner "Yes"): the town stepwell -- the landmark tank and the miners' shared descent (design on main)
+  'bots/src/stepwell.mjs',
+  'bots/src/stepwellvisit.mjs',
+  'bots/scripts/stepwell-offline.mjs',
+  'bots/scripts/stepwell-landmap.mjs',
+  'bots/test/stepwell.test.mjs',
+  'sandbox/stepwell/stepwell-e2e.mjs',  // stepwell-01: its Paper driver
   // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
   'bots/src/sinks.mjs',
   'bots/scripts/sinks-offline.mjs',
