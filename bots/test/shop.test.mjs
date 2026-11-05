@@ -353,7 +353,7 @@ await t('planksFromLogs: spare planks of any species count; none short, no logs 
 })
 await t('WIRED: build_shop draws the logs under the project reserve and crafts the planks before the stations', () => {
   const body = SK.slice(SK.indexOf('async function buildShop'), SK.indexOf('async function foundStore'))
-  assert.ok(/billOf\(rec, bp\.palette, read, \{ done: buildCellDone, inTown: billInTown\(town\), planks \}\)/.test(body), 'the bill reads planks as makeable')
+  assert.ok(/billOf\(rec, pal, read, \{ done: buildCellDone, inTown: billInTown\(town\), planks \}\)/.test(body), 'the bill reads planks as makeable')
   assert.ok(/const pf = planksFromLogs\(want, \{ spare: n => \(hn\[n\] \?\? 0\) - \(keep\[n\] \?\? 0\), town \}\)/.test(body), 'the shortfall is computed')
   assert.ok(/matsWithdraw\(ctx, \{ \[pf\.log\]: pf\.logs \}, signal, 30_000, R0, PD\.allow, PD\.onTook, PD\.onUncertain\)/.test(body), 'drawn under PD')
   assert.ok(/if \(plankCraft\) \{ try \{ await craft\(ctx, plankCraft, signal\) \}[\s\S]{0,120}for \(const item of \['furnace', 'crafting_table', 'chest'\]\)/.test(body), 'crafted, before the stations, inside the booked craft block')
@@ -379,7 +379,7 @@ await t('workableSeg: the visit\'s order -- deps open -> null; a held segment is
 })
 await t('WIRED: the logs are drawn only when workableSeg names a segment (its lease read from the project files)', () => {
   const body = SK.slice(SK.indexOf('async function buildShop'), SK.indexOf('async function foundStore'))
-  assert.ok(/if \(Object\.keys\(need\)\.length && workableSeg\(rec, read, bp\.palette, segFree\)\) \{\s*const hn = heldMap\(bot\)\s*const pf = planksFromLogs/.test(body), 'the gate sits on the logs draw')
+  assert.ok(/if \(Object\.keys\(need\)\.length && workableSeg\(rec, read, pal, segFree\)\) \{\s*const hn = heldMap\(bot\)\s*const pf = planksFromLogs/.test(body), 'the gate sits on the logs draw')
   assert.ok(/const segFree = sg => \{ const st = projLeaseState\(dir, key, `seg-\$\{sg\}`\); return !st \|\| st\.rec\?\.holder === me \|\| Date\.now\(\) >= st\.blocksUntil \}/.test(body), 'the lease reading')
 })
 

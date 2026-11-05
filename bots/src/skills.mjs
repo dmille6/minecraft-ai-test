@@ -129,9 +129,11 @@ import { clerkKeepOf } from './storehub.mjs'   // storehub-01: the clerk throw's
 import { HUB_PLOT, HUB_BLUEPRINT, hubSitingPlan, hubRecordOf, hubChestKeys, hubHomes, hubSignSpots, hubVisitOpts, clerkMoves, clerkRoute, clerkTargets, cargoOwed, cargoKeeps, clerkWork, clerkRowDetail, hubThrowable,
          CLERK_STACKS, CLERK_BAG_SPARE, CLERK_GAP_MS, CLERK_IDLE_MS, CLERK_BACKOFF_MS, CLERK_LEASE_MS, CLERK_TERM_MS, CLERK_REST_MS } from './storehub.mjs'   // storehub-01
 import { STOREHUB } from './shop.mjs'   // storehub-01's switches
-import { ENCHANTSHOP } from './shop.mjs'   // enchantshop-01's switches
+import { ENCHANTSHOP, COTTAGE as COTTAGE_SW } from './shop.mjs'   // enchantshop-01's switches; townstyle-01's
 import { ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS, FIT_VISIT_MS, GATE_ROW_MS, enchantOpening, enchantSitingPlan, enchantRecordOf, enchantVisitOpts,
          ENCHANT_STATION_FIND, ENCHANT_STATION_BAN_MS, fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
+import { COTTAGE_PLOT, COTTAGE_EARTH, cottageOpening, cottageSitingPlan, cottageStyle, styledBlueprint, cottageRecordOf, cottageVisitOpts, isCottageBlueprint, recordPalette } from './cottage.mjs'   // townstyle-01
+import { woodPartsPlan, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
@@ -16745,7 +16747,8 @@ function planReader (bot) {
         const name = blockNameOf(bot, b)
         let props = null
         // siteprep-01: a water cell's level too (a source reads 0: the last resort fills still water only)
-        if (name === 'snow' || name === 'water') { try { props = b.getProperties?.() ?? null } catch { props = null } }
+        // townstyle-01: and a block whose placement decides its state (stairs, slabs, logs, trapdoors, lanterns): the state cells' done rule
+        if (name === 'snow' || name === 'water' || orientedBlock(name)) { try { props = b.getProperties?.() ?? null } catch { props = null } }
         v = { name, boundingBox: b.boundingBox, shapes: b.shapes, props }
       }
     } catch { v = null }
@@ -17242,6 +17245,8 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // sited one says its furnishings' needs (`_enchantshop_gate`, town-wide cadence: the requests board's input)
         if (p.plot === ENCHANT_PLOT && !rec && !enchantOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         if (p.plot === ENCHANT_PLOT && rec && b) enchantGateRows(b, rec, now)
+        // townstyle-01: the unsited cottage WAITS until the extension has a free house-size plot (cottage.mjs cottageOpening)
+        if (p.plot === COTTAGE_PLOT && !rec && !cottageOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // canefarm-01 r1 (Codex BLOCKER 1): an unsited cane bed whose siting found no site WAITS town-wide (siteWaitUntil)
         if (p.plot === CANEFARM_PLOT && !rec && Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
@@ -17498,14 +17503,16 @@ function recordCellOpen (bot, r, c) {
 function recordCellDone (bot, r, c) {
   try {
     const mon = isZigBlueprint(r.blueprint)
-    const bp = mon ? { palette: zigPaletteOf(r) } : isSinkBlueprint(r.blueprint) ? { palette: r.palette ?? {} } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
-    const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+    const bp0 = mon ? { palette: zigPaletteOf(r) } : isSinkBlueprint(r.blueprint) ? { palette: r.palette ?? {} } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
+    const bp = { palette: recordPalette(r, bp0) }   // townstyle-01: a styled record is judged by its own palette
+    // townstyle-01: a state-bearing cell's read carries the block's properties (its facing, half, axis)
+    const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox, props: c.ws ? q.getProperties?.() ?? null : null } : null }
     // pathsclose-01: a WAIVED path cell (the record's own list) is done
     if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) return true
     if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) return true   // wallstuck-01: a waived wall cell is done (wallext-01: the extension's too)
     const b = read(...c.at)
     if (!b) return false
-    return buildCellDone(b, bp.palette, c.role) || (mon && zigHidden(c, read))
+    return buildCellDone(b, bp.palette, c.role, c.ws) || (mon && zigHidden(c, read))
   } catch { return false }
 }
 export function shopRecordHead () {
@@ -17744,14 +17751,15 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // own palette (ziggurat.mjs zigPaletteOf -- a v1 record keeps ZIG_PALETTE)
     const mon = isZigBlueprint(r.blueprint)
     // picker-01: a sink judges every instance's cells by the record's own palette (a finished tower is repaired like any project)
-    const bp = mon ? { palette: zigPaletteOf(r) } : isSinkBlueprint(r.blueprint) ? { palette: r.palette ?? {} } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
+    const bp0 = mon ? { palette: zigPaletteOf(r) } : isSinkBlueprint(r.blueprint) ? { palette: r.palette ?? {} } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
+    const bp = { palette: recordPalette(r, bp0) }   // townstyle-01: a styled record is judged by its own palette
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     for (const c of r.cells ?? []) {
       if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) continue   // pathsclose-01: a waived path cell is no damage
       if (dressSignRole(c.role)) continue   // towndress-01: a sign is the label writer's upkeep (below), never damage
       if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) continue    // wallstuck-01: nor a waived wall cell (wallext-01: the extension's too)
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
-      if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, bp.palette, c.role) && !(mon && zigHidden(c, read))) return true
+      if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox, props: c.ws ? b.getProperties?.() ?? null : null }, bp.palette, c.role, c.ws) && !(mon && zigHidden(c, read))) return true
     }
     // stockyard-01 (Claude r1 BLOCK 1): a standing yard with WORK for this bot (yard.mjs yardWork: a bag surplus, the clerk, a
     // refill, aisle clutter) wants a visit -- the order reads `complete` through shopDamaged, so work only in shopActive's states
@@ -19466,6 +19474,35 @@ function enchantExtNow (dir = townDir()) { try { const h = recordHead(dir, projK
 const ENCHANT_NOSITE_MS = 30 * 60_000
 /** Is the unsited workshop open (the extension sited with its hall-size plot, no failed siting waiting town-wide)? Never throws. */
 function enchantOpenNow (dir = townDir()) { try { return ENCH.on && Date.now() >= siteWaitUntil(ENCHANT_PLOT, dir) && enchantOpening(enchantExtNow(dir)).open } catch { return false } }
+/** TOWNSTYLE-01: a cottage siting that found no site WAITS this long town-wide (the enchanting workshop's rule). */
+const COTTAGE_NOSITE_MS = 30 * 60_000
+/** The plot ids other records hold (a cottage never takes one). Never throws. */
+const plotsTaken = (dir = townDir()) => { try { return projectHeads().filter(x => x.plot !== COTTAGE_PLOT).map(x => x.head?.rec?.plotId).filter(Boolean) } catch { return [] } }
+/** Is the unsited cottage open (the extension sited with a free house-size plot, no failed siting waiting)? Never throws. */
+function cottageOpenNow (dir = townDir()) { try { return COTTAGE_SW.on && Date.now() >= siteWaitUntil(COTTAGE_PLOT, dir) && cottageOpening(enchantExtNow(dir), plotsTaken(dir)).open } catch { return false } }
+/** TOWNSTYLE-01: THE COTTAGE'S SITE -> { ok, record, tried } | { ok: false, why, detail?, tried }. Never throws. The style first (the
+ *  town's stock, the plot's seed: cottage.mjs cottageStyle), then the styled blueprint sited on the plot like the enchanting workshop. */
+async function cottageSiteFor (bot, plan, c, stood, signal = null) {
+  const tried = []
+  try {
+    const o = cottageOpening(enchantExtNow(), plotsTaken())
+    if (!o.open) return { ok: false, why: o.why, tried }
+    const zonesNow = () => [...c.zones, ...recordZones(projectHeads().filter(x => x.plot !== COTTAGE_PLOT).map(x => x.head.rec)), ...hallPadZones(plan), ...townMarkerZones()]
+    const sp = cottageSitingPlan(plan.home, o.plot, zonesNow())
+    if (!sp) return { ok: false, why: 'no_plan', tried }
+    const cs = cottageStyle(matsTownStock(bot)?.stock ?? {}, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })
+    const bp = styledBlueprint(blueprintOf(cs.id), cs.style)
+    const s = await siteBlueprintAsync(planReader(bot), plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: COTTAGE_PLOT,
+      earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
+    if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
+    tried.push(`${sp.sectors[0].source}:${cs.id}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
+    if (!s.ok) return { ok: false, why: s.why, detail: JSON.stringify((s.sectors ?? []).map(r => r.rejects)).slice(0, 80), tried }
+    const fresh = cottageSitingPlan(plan.home, o.plot, zonesNow()).zones
+    const hit = s.record.cells.find(q => fresh.some(z => q.at[0] >= z.box[0] && q.at[0] <= z.box[3] && q.at[1] >= z.box[1] && q.at[1] <= z.box[4] && q.at[2] >= z.box[2] && q.at[2] <= z.box[5]))
+    if (hit) return { ok: false, why: 'site_taken', detail: `${hit.at.join(',')} reserved during the search`, tried }
+    return { ok: true, why: 'ok', record: cottageRecordOf(s.record, bp, cs.style, { plotId: o.plot.id ?? null, walkR: sp.walkR }), tried }
+  } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60), tried } }
+}
 /** The bot's world read for the fit-out (null: unloaded). */
 const enchantRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
 /** THE FITTER'S CARGO (r1, Codex code r1 BLOCKER): what this bot drew or made for a furnishing and has not placed or banked, in the
@@ -19852,11 +19889,22 @@ async function buildShopVisit (ctx, args, signal) {
       const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.plotId}/${ss.record.cells.length}cells/${ss.record.fit.length}fit/${ss.record.earthwork.fill}fill/${ss.record.earthwork.cut}cut`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    } else if (plot === COTTAGE_PLOT) {
+      // townstyle-01: the cottage sites on the extension's first free house-size plot only, its style chosen once from the town's stock
+      const ss = await cottageSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
+      check(signal)
+      if (!ss.ok && ss.why !== 'aborted') siteWaitSet(COTTAGE_PLOT, COTTAGE_NOSITE_MS, ss.why)
+      const noSite = `no cottage site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''}) ${(ss.tried ?? []).join(' ')}`.slice(0, 160)
+      // the stop is `site_wait` (the town-wide wait above), never the order's 24-h `no_site` retry (the enchanting workshop's r5 rule)
+      if (!ss.ok) return out('no_effect', ss.why === 'no_extension' || ss.why === 'no_house_plot' ? 'plot_wait' : 'no_site', noSite, { stop: 'site_wait' })
+      const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
+      if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.plotId}/${ss.record.style.wood}/${ss.record.style.roof}/${ss.record.style.stone}/${ss.record.cells.length}cells`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     } else if (plot !== SHOP_PLOT) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
       more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot, ...(plot === YARD_PLOT ? { earth: YARD_EARTH } : {}) }
     }
-    if (plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {
+    if (plot !== COTTAGE_PLOT && plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {
     const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
     if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
@@ -19868,6 +19916,8 @@ async function buildShopVisit (ctx, args, signal) {
   }
   shopFootprintRefresh(bot)
   const rec = rh.head.rec
+  // townstyle-01: a styled record (the cottage) is built, billed and judged by ITS OWN palette (cottage.mjs recordPalette)
+  const pal = recordPalette(rec, bp)
   // stockyard-01: a COMPLETE yard (its floor and lights stand) gets the yard's own visit: the piles, the clerk, a refill, the aisles
   if (plot === YARD_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false })) return yardVisit(ctx, rec, rh.head.gen, signal, out, t0)
   // sortstore-01: a COMPLETE storehouse whose only want is its upkeep (labels, the tidy) gets the upkeep visit, not a build visit
@@ -19922,7 +19972,7 @@ async function buildShopVisit (ctx, args, signal) {
     const read = planReader(bot)
     const town = matsTownStock(bot)?.stock ?? {}
     const planks = Object.entries(town).filter(([n]) => /_planks$/.test(n)).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'oak_planks'
-    const bill = billOf(rec, bp.palette, read, { done: buildCellDone, inTown: billInTown(town), planks })
+    const bill = billOf(rec, pal, read, { done: buildCellDone, inTown: billInTown(town), planks })
     const want = visitNeeds(rec, bill, { saplingAt: c => /_sapling$|^mangrove_propagule$/.test(read(...c)?.name ?? ''), town, spare: spare0, planks })
     const need = needFromTown(want, spare0)
     let took = {}
@@ -19947,7 +19997,10 @@ async function buildShopVisit (ctx, args, signal) {
     // deps_open, or find every open segment held, draws no logs (LIVE 10-28: 9 logs each into the waiting builders' bags)
     let plankCraft = null
     const segFree = sg => { const st = projLeaseState(dir, key, `seg-${sg}`); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil }
-    if (Object.keys(need).length && workableSeg(rec, read, bp.palette, segFree)) {
+    // townstyle-01: THE WOOD PARTS (stairs, slabs, trapdoors) a styled build names are never in town: crafted here from the planks of
+    // THEIR species (townstyle.mjs woodPartsPlan), those planks drawn as that species' logs under the same reserve
+    let partCrafts = []
+    if (Object.keys(need).length && workableSeg(rec, read, pal, segFree)) {
       const hn = heldMap(bot)
       const pf = planksFromLogs(want, { spare: n => (hn[n] ?? 0) - (keep[n] ?? 0), town })
       if (pf) {
@@ -19955,6 +20008,21 @@ async function buildShopVisit (ctx, args, signal) {
         for (const [k, v] of Object.entries(w2.took ?? {})) took[k] = (took[k] ?? 0) + v
         const got = Number(w2.took?.[pf.log]) || 0
         if (got > 0) plankCraft = { item: pf.planks, count: got * 4 }
+      }
+      const h2 = heldMap(bot)
+      const wp = woodPartsPlan(want, { have: n => (h2[n] ?? 0) - (keep[n] ?? 0) })
+      if (wp) {
+        for (const [pl, n] of Object.entries(wp.planks)) {
+          // the bag's spare planks of the species beyond what the cells themselves want (the walls' planks are the bill's)
+          const short = n - Math.max(0, (heldMap(bot)[pl] ?? 0) - (keep[pl] ?? 0) - (Number(want[pl]) || 0))
+          if (short <= 0) continue
+          const log = pl.replace(/_planks$/, '_log')
+          const w3 = await matsWithdraw(ctx, { [log]: Math.ceil(short / 4) }, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain)
+          for (const [k, v] of Object.entries(w3.took ?? {})) took[k] = (took[k] ?? 0) + v
+          const got = Number(w3.took?.[log]) || 0
+          if (got > 0) partCrafts.push({ item: pl, count: got * 4 })
+        }
+        partCrafts.push(...wp.crafts)
       }
     }
     // the stations the town did not supply are crafted (found-01's means: 8 cobble a furnace, 4 planks a table); the bag's change
@@ -19966,6 +20034,8 @@ async function buildShopVisit (ctx, args, signal) {
         const lack = (bill[item] ?? 0) - countItem(bot, item)
         if (lack > 0) { try { await craft(ctx, { item, count: lack }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
       }
+      // townstyle-01: the parts' species planks, then the parts (a part the planks did not cover is named by the visit's no_material)
+      for (const pc of partCrafts) { try { await craft(ctx, pc, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     } finally {
       // booked on every exit, an abort mid-craft included
       const postCraft = heldMap(bot)
@@ -19994,7 +20064,9 @@ async function buildShopVisit (ctx, args, signal) {
       : rec.blueprint === HALL_BLUEPRINT ? { domain: hallRecordDomain(rec, projectHeads().map(x => x.head.rec)) }
       // yardsite-01: a yard sited beyond the town ring stands and walks out to its band (yard.mjs yardVisitOpts; an older record: {})
         : isYardBlueprint(rec.blueprint) ? yardVisitOpts(rec, home) : {}
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    // townstyle-01: the cottage's stands are its own pad + 3, its walk the record's radius (cottage.mjs cottageVisitOpts)
+    if (isCottageBlueprint(rec.blueprint)) Object.assign(storeOpts, cottageVisitOpts(rec))
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: pal, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     // each tidy cell the visit offered counts once against this bot (storehouse.mjs STORE_TIDY_TRIES: an undiggable one stops asking)
     if (storeOpts.tidy) for (const k of r.tidied ?? []) bot.storeTidyTries.set(k, (bot.storeTidyTries.get(k) ?? 0) + 1)
     if (r.stop === 'complete') {

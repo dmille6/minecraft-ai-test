@@ -32,6 +32,7 @@ import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
 import * as V from './voidfill.mjs'
 import { plantedAs } from './park.mjs'   // townterrace-01: a crop block is its seed
+import { stateOk, propsOf, stateTag } from './townstyle.mjs'   // townstyle-01: a cell's block STATE
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => k3(a[0], a[1], a[2])
@@ -209,6 +210,16 @@ export function blockFamily (n) {
   if (/copper/.test(s)) return s.replace(/^waxed_/, '').replace(/^(exposed|weathered|oxidized)_/, '')
   return s
 }
+/** A role's first concrete name (no bag needed): the KIND a state-bearing cell's step plans for. Pure. */
+export function roleFirst (palette, role, seen = new Set()) {
+  for (const c of palette?.[role] ?? []) {
+    if (c === SOLID_ANY) continue
+    if (c === '$planks') return 'oak_planks'
+    if (c.startsWith('$')) { const r = c.slice(1); if (seen.has(r)) continue; seen.add(r); const got = roleFirst(palette, r, seen); if (got) return got; continue }
+    return c
+  }
+  return null
+}
 /** The block a cell's role wants, from what the bag holds -> a name | null. '$planks' is any planks species carried; '*solid' (a
  *  done-rule, not a block) is skipped. */
 export function blockFor (palette, role, has) {
@@ -231,8 +242,11 @@ export function blockFor (palette, role, has) {
  * builder places, in order.
  */
 export const SOLID_ANY = '*solid'
-/** Does the world show this cell done? The role's palette names BY FAMILY, any planks for '$planks'. Pure. */
-export function cellDone (b, palette, role) {
+/** Does the world show this cell done? The role's palette names BY FAMILY, any planks for '$planks'; townstyle-01: and, for a cell
+ *  that names a world STATE (`ws`: a stair's facing and half, a log's axis), every property it names (townstyle.mjs stateOk). Pure. */
+export function cellDone (b, palette, role, ws = null) {
+  if (ws && !cellDone(b, palette, role)) return false
+  if (ws) return stateOk(propsOf(b), ws)
   const n = nm(b)
   if (!n || n === 'air') return false
   if (role === 'fill') return isSolid(b)
@@ -257,7 +271,7 @@ export function segmentsOf (record) {
 }
 /** Is a segment COMPLETE in the world? Every one of its cells done. Pure. */
 export function segComplete (read, record, palette, seg, alsoDone = null) {
-  return record.cells.filter(c => c.seg === seg).every(c => cellDone(read(...c.at), palette, c.role) || (!!alsoDone && alsoDone(c, read)))
+  return record.cells.filter(c => c.seg === seg).every(c => cellDone(read(...c.at), palette, c.role, c.ws) || (!!alsoDone && alsoDone(c, read)))
 }
 /**
  * THE STANDS THAT FAILED (shopwalls-04; LIVE showcase 10-28 16:00Z: roof-edge 19 of 20, the last cell 24,75,31 -- its stand
@@ -418,7 +432,11 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // townterrace-01 (`p.intoWater`, the owner's 11-01 water rule): a record cell holding WATER is open to a placement too (an
   // embankment, a dam: the block replaces the water); never lava, never a waterlogged block
   const isClear = at => { const b = rd(...at); return !!b && (nm(b) === 'air' || replaceableCell(b) || (!!p.intoWater && /^(water|bubble_column)$/.test(nm(b)))) }
-  const isDone = (c, r = rd) => cellDone(r(...c.at), palette, c.role) || (!!alsoDone && alsoDone(c, r))
+  const isDone = (c, r = rd) => cellDone(r(...c.at), palette, c.role, c.ws) || (!!alsoDone && alsoDone(c, r))
+  // townstyle-01: what a state-bearing cell's step must make ({ name, ws }; the name only says WHICH KIND of block: stairs, slab, log),
+  // and whether its cell holds its own block in the wrong state
+  const wantOf = c => (c.ws || c.blind ? { name: blockFor(palette, c.role, e.has) ?? roleFirst(palette, c.role), ws: c.ws ?? null, blind: !!c.blind } : null)
+  const misorientedAt = c => { if (!c.ws) return false; const b = rd(...c.at); return !!b && cellDone(b, palette, c.role) && !cellDone(b, palette, c.role, c.ws) }
   // A LAYERED BUILD (p.blockLayer, monument-01): a stand is never an open cell of ANY segment at the heights this segment builds --
   // two builders on one layer otherwise stood in each other's open cells (the fake server: both `body` until attempts_spent)
   const byY = p.blockLayer ? record.cells.reduce((m, c) => (m.has(c.at[1]) ? m.get(c.at[1]).push(c) : m.set(c.at[1], [c]), m), new Map()) : null
@@ -437,21 +455,23 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
 
   // ---- the click (placements and saplings) -----------------------------------------------------------------------------------
   // -> 'placed' | 'refused' | 'silent' | 'busy' | 'fence:<why>' | 'barrier_wait' | 'body' | 'no_material' | 'stand'
-  const click = async (cell, block, step, seg, segGen, { closer = false, want = null, avoid = null } = {}) => {
+  // townstyle-01: `ws` -- the cell's world state: the re-proof takes only a face that makes it, and the look and the send are AIMED
+  // (here.aim: the yaw packet written with the click, the cursor at the state's half)
+  const click = async (cell, block, step, seg, segGen, { closer = false, want = null, avoid = null, ws = null, blind = false } = {}) => {
     if (stands) stands.pending = { cell: kOf(cell), stand: kOf(step.stand), at: now() }
     await e.walkTo(step.stand, avoid ? { avoid } : undefined)
     if (e.aborted()) return 'aborted'          // the pending walk stays: the next visit bans its stand (settlePendingStand)
     if (stands) stands.pending = null
     // RE-PROVED WHERE THE BOT IS: the same stand rules from the feet it actually has
     const feet = e.feet()
-    const here = stepFor(rd, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]), domain)
+    const here = stepFor(rd, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]), domain, ws || blind ? { name: block, ws, blind } : null)
     if (!here) { banStand(stands, kOf(cell), kOf(step.stand), now()); return 'stand' }
     if ((e.bodies() ?? []).some(b => inCell(b, cell) || inCell(b, [cell[0], cell[1] + 1, cell[2]]))) return 'body'
     // ...AND ITS OWN: a jump or a step-up puts the builder's head into the cell above it for a moment -- wait for it to land
     for (let i = 0; i < 5 && e.self && inCell(e.self(), cell); i++) await e.sleep(100)
     if (e.self && inCell(e.self(), cell)) return 'body'
     if (!(await e.hold(block))) return 'no_material'
-    await e.look(here.support, here.face)
+    await e.look(here.support, here.face, here.aim ?? null)
     if (e.aborted()) return 'aborted'
     let barGen = null
     if (closer) {
@@ -470,7 +490,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       // the wait moved time (Claude r1 P3-1: a reflex or a meal may have changed the hand): hold the block again, look again;
       // nothing awaited after this
       if (!(await e.hold(block))) { PJ.barrierRelease(dir, key, me, barGen); return 'no_material' }
-      await e.look(here.support, here.face)
+      await e.look(here.support, here.face, here.aim ?? null)
       // an abort while the re-hold or the re-look was awaited (lavastep's danger move reserves the body and aborts the skill:
       // Claude re-stack P3) sends nothing
       if (e.aborted()) { PJ.barrierRelease(dir, key, me, barGen); return 'aborted' }
@@ -487,7 +507,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         const why = PJ.fenceRefusal(dir, key, me, { slot: p.slot, slotGen, seg, segGen, recordGen: p.recordGen, beatConn: p.beat ? conn : null, now: now() })
         if (why) { cancel(); return `fence:${why}` }
         if (!isClear(cell)) { cancel(); return 'refused' }   // (isClear: air, a replaceable plant, or -- p.intoWater -- water)
-        e.send(here.support, here.face, seq)   // SYNCHRONOUS after the fence: no await between them
+        e.send(here.support, here.face, seq, here.aim ?? null)   // SYNCHRONOUS after the fence: no await between them (an aim's yaw packet is in the same write)
         const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
         release()
         // the intent stays OPEN and is TRACKED by the connection: its acknowledgement, however late, settles it (buildack.mjs)
@@ -952,9 +972,12 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         const listedNow = at => listed.has(kOf(at)) && listed.get(kOf(at)) === nm(rd(...at))
         // townterrace-01: never a cell a tool converts in place (the park's tilled grass, its meadow): its block is the use's, not a foreign
         // one -- dug, the ground would be a hole
-        const foreign = open.filter(c => { const k = foreignKind(nm(rd(...c.at)), scaffoldRe); return k && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !useOf(c)?.can(rd(...c.at)) }).sort((a, b) => a.at[1] - b.at[1])
+        // townstyle-01: A MISORIENTED CELL (the role's block in the WRONG state: a stair facing away, a log on its side) is dug like a
+        // foreign block (`reorient`) and placed again aimed -- never left, never clicked into (a slab clicked into a slab doubles)
+        const kindAt = c => (misorientedAt(c) ? 'reorient' : foreignKind(nm(rd(...c.at)), scaffoldRe))
+        const foreign = open.filter(c => { const k = kindAt(c); return k && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !useOf(c)?.can(rd(...c.at)) }).sort((a, b) => a.at[1] - b.at[1])
         if (foreign.length) {
-          const f = foreign[0], name = nm(rd(...f.at)), kind = foreignKind(name, scaffoldRe)
+          const f = foreign[0], name = nm(rd(...f.at)), kind = kindAt(f)
           const sg = segGen
           const held = () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now())
           // THE TRUNK ABOVE FIRST, lowest first (fell-01 r3, LIVE 10-28 showcase 25,72,28: the pad was built round the log, so its
@@ -1020,8 +1043,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'foreign', result: 'sealed', why: String(sa.why ?? sv ?? 'no_stand').slice(0, 80) }); continue
           }
           // A FOREIGN DIG THAT DID NOT LAND IS NAMED (r3: live, `no_stand` spent the cell's attempts with no row at all)
-          if (v !== 'confirmed') { bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign', result: v }); continue }
-          out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: kind === 'tree' ? 'tree' : 'foreign' })
+          const kindRow = kind === 'tree' ? 'tree' : kind === 'reorient' ? 'reorient' : 'foreign'
+          if (v !== 'confirmed') { bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: kindRow, result: v }); continue }
+          out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: kindRow })
           continue
         }
         // A TOOL'S USE (paths-01, `p.use`): the nearest open cell the tool converts in place, one action a pass. A plant the RECORD
@@ -1133,7 +1157,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // a cell whose every stand is banned falls back to them (r1 Codex note: never a deferral -- and F4's 6 h stuck back-off -- the
         // unbanned visit would not have had), and that fallback walk is NOT refused for crossing the segment's open cells
         // (shopwalls-06 r2, Codex r1 BLOCK: with every stand's route crossing, the refusal alone would stall the cell for good)
-        for (const c of cand) { const bans = standBans(stands, kOf(c.at), now()); const kept = bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans), domain) : null; step = kept ?? stepFor(rd, home, c.at, nodes, domain); if (step) { picked = c; fellBack = bans.size > 0 && !kept; break } }
+        // townstyle-01: a state-bearing cell's step takes only a face that makes its state (wantOf: the role's block, its state)
+        for (const c of cand) { const w = wantOf(c); const bans = standBans(stands, kOf(c.at), now()); const kept = bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans), domain, w) : null; step = kept ?? stepFor(rd, home, c.at, nodes, domain, w); if (step) { picked = c; fellBack = bans.size > 0 && !kept; break } }
         if (!picked) {
           // VOIDFILL-01: the cells no stand reaches, deferred in earlier visits too (the stuck map), may be a SEALED VOID: one access
           // per visit (voidfill.mjs), done -> this segment is read again; anything else -> deferred as before
@@ -1204,8 +1229,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         }
         const block = blockFor(palette, picked.role, e.has)
         if (!block) { out.stop = 'no_material'; out.why = `${picked.role} for ${seg}`; return out }
-        const v = await click(picked.at, block, step, seg, segGen, { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, picked.role), avoid: fellBack || feetIn ? null : blocking })
-        if (v === 'placed') { out.placed++; tally(block); e.log('_build', { op: 'place', seg, cell: picked.at, block }); continue }
+        const v = await click(picked.at, block, step, seg, segGen, { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, picked.role, picked.ws), avoid: fellBack || feetIn ? null : blocking, ws: picked.ws ?? null, blind: !!picked.blind })
+        if (v === 'placed') { out.placed++; tally(block); e.log('_build', { op: 'place', seg, cell: picked.at, block, ...(picked.ws ? { st: stateTag(picked.ws) } : {}) }); continue }
         if (v.startsWith('fence:') || v === 'aborted' || v === 'no_material') { out.stop = v; return out }
         if (v === 'busy') { await e.sleep(100); continue }            // a free skip: the mutex or the barrier is another's
         bump(picked.at)                                               // body, stand, barrier_wait, refused, silent: an attempt

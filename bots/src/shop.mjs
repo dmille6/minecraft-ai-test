@@ -18,6 +18,7 @@ import { copperhallOn, HALL_PLOT, HALL_BLUEPRINT, HALL_BUILDERS } from './copper
 import { yardOn, YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS } from './yard.mjs'   // stockyard-01
 import { hubSwitches, HUB_PLOT, HUB_BLUEPRINT, HUB_BUILDERS } from './storehub.mjs'   // storehub-01
 import { enchantSwitches, ENCHANT_PLOT, ENCHANT_BLUEPRINT, ENCHANT_BUILDERS } from './enchantshop.mjs'   // enchantshop-01
+import { cottageSwitches, COTTAGE_PLOT, COTTAGE_BUILDERS, COTTAGE_AFTER, cottageBlueprintId } from './cottage.mjs'   // townstyle-01
 import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } from './shopchest.mjs'
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
 import { sinksOn, sinkKindsOn, SINK_KINDS, SINK_PLOTS, SINK_BLUEPRINTS, SINK_BUILDERS, SINK, SINK_STREAK, isSinkPlot, sinkKindOf } from './sinks.mjs'   // picker-01
@@ -120,6 +121,10 @@ export const STOREHUB = Object.freeze(hubSwitches(process.env, process.env.MEMOR
  *  shell on the extension's hall-size plot, then its fit-out as the inputs arrive. ENCHANTSHOP=off is the rollback (a sited record
  *  stays guarded); on in the showcase pool only. Needs the extension on (its plot). */
 export const ENCHANTSHOP = Object.freeze(enchantSwitches(process.env, process.env.MEMORY_POOL ?? ''))
+/** TOWNSTYLE-01 (cottage.mjs; owner 11-04 "angled roofs"): the first pitched-roof building, a cottage on the wall extension's first
+ *  house-size plot, after the enchanting workshop. COTTAGE=off is the rollback (a sited record stays guarded); on in the showcase pool
+ *  only. Needs the extension and the enchanting workshop on. */
+export const COTTAGE = Object.freeze(cottageSwitches(process.env, process.env.MEMORY_POOL ?? ''))
 /**
  * TIDY-01: THE TOWN-GROUND TIDY is the LAST project, with no `after` (tidy.mjs): only a bot no other project admits works it -- every
  * other open project full, stuck or waiting -- so it never displaces building. It cuts the bots' pillars, fills their pits and
@@ -159,11 +164,12 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: WALLEXT_PLOT, blueprint: WALLEXT_BLUEPRINT, after: HUB_PLOT, builders: WALL_BUILDERS }),   // wallext-01: round the standing hall
   Object.freeze({ plot: WALLDEMO_PLOT, blueprint: WALLDEMO_BLUEPRINT, after: WALLEXT_PLOT, builders: WALLDEMO_BUILDERS }),   // wallext-02: the old line comes down
   Object.freeze({ plot: ENCHANT_PLOT, blueprint: ENCHANT_BLUEPRINT, after: HUB_PLOT, builders: ENCHANT_BUILDERS }),   // enchantshop-01: on the extension's hall-size plot (WAITS until it is sited)
+  Object.freeze({ plot: COTTAGE_PLOT, blueprint: cottageBlueprintId('s'), after: COTTAGE_AFTER, builders: COTTAGE_BUILDERS }),   // townstyle-01: the variant is the record's (`s` names the family; WAITS for a house plot)
   Object.freeze({ plot: YARD_PLOT, blueprint: YARD_BLUEPRINT, builders: YARD_BUILDERS }),
   ...SINK_KINDS.map(k => Object.freeze({ plot: SINK_PLOTS[k], blueprint: SINK_BLUEPRINTS[k], builders: SINK_BUILDERS, sink: true })),   // picker-01
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 + GK.helpersMax : TIDY_BUILDERS }),   // gkhelpers-01: the keeper and its helpers
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on, ench = ENCHANTSHOP.on, cane = CANEFARM.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === ENCHANT_PLOT ? ench && ext && wall && hub && store && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === CANEFARM_PLOT ? cane && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on, ench = ENCHANTSHOP.on, cane = CANEFARM.on, cot = COTTAGE.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === ENCHANT_PLOT ? ench && ext && wall && hub && store && paths && on : p.plot === COTTAGE_PLOT ? cot && ench && ext && wall && hub && store && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === CANEFARM_PLOT ? cane && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
@@ -184,6 +190,8 @@ export const projectsGuarded = (list = projectsOn()) => {
   for (const p of PROJECTS) if (p.plot === WALLDEMO_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   // enchantshop-01: a sited workshop stays guarded whatever its switch (its cells, its fit-out cells inside its box)
   for (const p of PROJECTS) if (p.plot === ENCHANT_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
+  // townstyle-01: a sited cottage stays guarded whatever its switch
+  for (const p of PROJECTS) if (p.plot === COTTAGE_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   return out
 }
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
@@ -528,7 +536,7 @@ export function withoutFootprint (m) {
 export function billOf (record, palette, read, { done, inTown = () => true, planks = 'oak_planks' } = {}) {
   const out = {}
   for (const c of record?.cells ?? []) {
-    if (done(read(...c.at), palette, c.role)) continue
+    if (done(read(...c.at), palette, c.role, c.ws)) continue   // townstyle-01: a state-bearing cell is done in its state only
     const name = c.role === 'fill' ? 'cobblestone' : resolve(palette, c.role, inTown, planks)
     if (name) out[name] = (out[name] ?? 0) + 1
   }
@@ -823,6 +831,6 @@ export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP
 // EVERY FIELD A ROW CARRIES THAT THE READ READS (Paper 10-26 SHOP-TERRAIN seeded r24: the whitelist dropped the F2/F4 fields --
 // `to`, `result`, `visits`, `n`, `segs`, `waiting`, `stalled`, `early`, `why` -- so the stuck row reached the logs as
 // `op=stuck_on_cell cell=...` and the read's STALLED POOLS could never see a stall; the fake runner's e.log kept the objects)
-export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'kind', 'saplings', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)
+export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'st', 'kind', 'saplings', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)
 export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
 export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'crew', 'gathered', 'floor', 'fromMats', 'fromYard', 'ms', 'why'], f)   // gkhelpers-01: crew gathered floor; yarduse-01: fromYard

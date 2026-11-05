@@ -115,6 +115,17 @@ const REQUIRED = [
   'bots/test/storehub.test.mjs',
   // wallext-01 (11-04): the wall extension round the storage hall and its test (the design is main's: docs/reports/wallext-design-2026-11-04.md)
   'bots/test/wallext.test.mjs',
+  // townstyle-01 (11-04): the style library, the cottage and its blueprints + generator, the renderer, the Paper orientation proof and its
+  // record, the test (the design and the tripwire rule are main's)
+  'bots/src/townstyle.mjs',
+  'bots/src/cottage.mjs',
+  'bots/src/blueprints/cottage@1s.json',
+  'bots/src/blueprints/cottage@1f.json',
+  'bots/scripts/make-cottage.mjs',
+  'bots/scripts/render-townstyle.mjs',
+  'sandbox/townstyle/orient-proof.mjs',
+  'docs/reports/townstyle-2026-11-04/paper-orient.jsonl',
+  'bots/test/townstyle.test.mjs',
   // enchantshop-01 (11-04): the enchanting + anvil workshop, its blueprint and generator, its offline siting, its test (the design is main's)
   'bots/src/enchantshop.mjs',
   'bots/src/blueprints/enchantshop@1.json',
