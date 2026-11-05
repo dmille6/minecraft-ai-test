@@ -69,7 +69,8 @@ await t('the helpers\' and the keeper\'s no-effect grounds visits are the marks 
 const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/[ \t]\/\/ .*$/gm, '')
 await t('skills.mjs: both gates read the town stamps; a no_site writes one; the idle hook reads the bot\'s marks', () => {
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.strictEqual(sk.split('noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind)').length - 1, 2)
+  // decorator-01: the decor visit's nursery pre-gate reads them too (a third gate)
+  assert.strictEqual(sk.split('noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind)').length - 1, 3)
   assert.ok(/bot\.sinkNoSite = \{ \.\.\.\(bot\.sinkNoSite \?\? \{\}\), \[kind\]: Date\.now\(\) \+ SINK\.noSiteMs \}\n\s*townNoSiteWrite\(kind\)/.test(sk))
   // the siteprep-02 fold: the hook reads the bot's marks, then exempts the keeper with prep work (siteprepfold.test)
   assert.ok(/setIdleNow\(plot => \{[\s\S]{0,120}const idle = \(b\?\.shopIdle\?\.get\?\.\(plot\) \?\? -Infinity\) > Date\.now\(\)/.test(sk))
