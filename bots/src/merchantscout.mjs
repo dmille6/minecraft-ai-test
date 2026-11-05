@@ -45,12 +45,13 @@ export function merchantSightings (entities, here, { radius = RADIUS, self = nul
     if (!(d <= radius)) continue
     const md = e.metadata ?? []
     const vd = kind === 'villager' ? md[VILLAGER_DATA] : null
-    const pid = vd?.villagerProfession
+    // NO villager_data = the DEFAULT (plains, none, level 1): the server sends only non-default values (sandbox4 11-05)
+    const pid = kind === 'villager' && !vd ? 0 : vd?.villagerProfession
     const profession = kind === 'wandering_trader' ? 'wandering_trader'
       : (Number.isInteger(pid) ? (PROFESSIONS[pid] ?? `id${pid}`) : 'unknown')
     out.push({
       uuid: e.uuid ?? String(e.id), kind, profession,
-      level: kind === 'villager' && Number.isInteger(vd?.level) ? vd.level : null,
+      level: kind === 'villager' ? (vd ? (Number.isInteger(vd.level) ? vd.level : null) : 1) : null,
       baby: md[BABY] === true,
       x: r1(e.position.x), y: r1(e.position.y), z: r1(e.position.z), dist: r1(d),
     })
