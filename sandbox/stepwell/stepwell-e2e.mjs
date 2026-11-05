@@ -109,7 +109,7 @@ function truth () {
     const b = (out[q.role] ??= { ok: 0, bad: [] })
     if (ok) b.ok++; else b.bad.push(q.at.join(','))
   }
-  for (const v of Object.values(out)) v.bad = v.bad.slice(0, 8).concat(v.bad.length > 8 ? [`+${v.bad.length - 8}`] : [])
+  for (const v of Object.values(out)) { v.n = v.bad.length; v.bad = v.bad.slice(0, 8) }
   return out
 }
 const water = () => {
@@ -137,7 +137,7 @@ async function connect () {
 async function kit () {
   rcon(`gamemode survival ${NAME}`, `clear ${NAME}`, `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 3600 1 true`,
     `give ${NAME} minecraft:iron_pickaxe 2`, `give ${NAME} minecraft:iron_shovel 1`, `give ${NAME} minecraft:cobblestone 320`, `give ${NAME} minecraft:stone_bricks 192`,
-    `give ${NAME} minecraft:cobblestone_wall 128`, `give ${NAME} minecraft:torch 32`)
+    `give ${NAME} minecraft:cobblestone_wall 64`, `give ${NAME} minecraft:cobblestone_wall 64`, `give ${NAME} minecraft:cobblestone_wall 64`, `give ${NAME} minecraft:torch 64`)
   await sleep(1500)
 }
 async function place (feet) {
@@ -169,7 +169,8 @@ async function visits (label, { maxVisits = 30, extra = {} } = {}) {
     last = await V.runStepwellVisit({ plan: PLAN, exit: PLAN.exit, onStop: async (y, why) => { stopped = { y, why } } }, e, { deadline: Date.now() + 150_000, lights: () => true })
     try { B.close() } catch {}
     dug += last.dug; placed += last.placed
-    P_('visit', label, n, { stop: last.stop, why: last.why, y: last.y, dug: last.dug, placed: last.placed, skipped: last.skipped, tiers: last.tiers })
+    P_('visit', label, n, { stop: last.stop, why: last.why, y: last.y, dug: last.dug, placed: last.placed, skipped: last.skipped, tiers: last.tiers, walls: bot.inventory.items().filter(i => /_wall$/.test(i.name)).reduce((a, i) => a + i.count, 0), free: bot.inventory.emptySlotCount() })
+    if (last.stop === 'no_material') break
     if (last.stop === 'complete' || last.stop === 'stopped') break
     if (last.stop === 'unknown') await sleep(3000)   // the bot's chunks: the next visit reads again
   }
@@ -205,9 +206,10 @@ try {
     const tr = truth()
     if (scene === 'cave') r.waterLeft = water()
     if (scene === 'lava') r.lavaStill = /Test passed/.test(r1(`execute if block ${extra.lava.split(',').join(' ')} minecraft:lava`))
-    const allOk = Object.values(tr).every(v => v.bad.length === 0)
+    const allOk = Object.values(tr).every(v => v.n === 0)
     const ok = scene === 'lava' ? r.stop === 'stopped' && r.lavaStill : r.stop === 'complete' && allOk && r.atExit && (scene !== 'cave' || r.waterLeft === 0)
-    result({ ...r, ok, truth: Object.fromEntries(Object.entries(tr).map(([k, v]) => [k, `${v.ok}/${v.ok + (v.bad.length ? v.bad.length : 0)}${v.bad.length ? ' bad ' + v.bad.join(' ') : ''}`])) })
+    const inv = {}; for (const i of bot.inventory.items()) inv[i.name] = (inv[i.name] ?? 0) + i.count
+    result({ ...r, ok, inv, truth: Object.fromEntries(Object.entries(tr).map(([k, v]) => [k, `${v.ok}/${v.ok + v.n}${v.n ? ' bad ' + v.bad.join(' ') : ''}`])) })
   }
 } catch (e) {
   P_('ERROR', String(e?.stack ?? e))

@@ -23605,7 +23605,7 @@ async function buildCaneFarm (ctx, args, signal) {
 const STEPWELL_SITE_MS = 25_000
 const STEPWELL_NOSITE_MS = 6 * 60 * 60_000
 const STEPWELL_WALK_MS = 20_000
-const STEPWELL_POSTS_CRAFT = 12
+const STEPWELL_POSTS_CRAFT = 48
 /** `_stepwell` rows. Never throws. */
 function stepwellRow (bot, op, d = {}) {
   try { logEvent({ kind: 'stepwell', status: 'success', snapshot: snapshot(bot), detail: `op=${op} ` + ['y', 'at', 'why', 'n', 'ms', 'gen'].map(k => `${k}=${d[k] == null ? '-' : Array.isArray(d[k]) ? d[k].join(',') : String(d[k]).replace(/\s+/g, '_').slice(0, 120)}`).join(' ') }) } catch { /* telemetry */ }
@@ -23748,9 +23748,11 @@ async function buildStepwell (ctx, args, signal) {
     if (stairLiningCount(bot) < 48) await draw({ cobblestone: 64 })
     const postsLeft = plan.cells.filter(q => q.role === 'post' && !/_wall$/.test(read0(...q.at)?.name ?? '')).length
     const walls = () => (bot.inventory?.items?.() ?? []).filter(i => /_wall$/.test(i.name)).reduce((n, i) => n + i.count, 0)
-    if (postsLeft > 0 && walls() < Math.min(postsLeft, 6) && countItem(bot, 'cobblestone') >= STEPWELL_POSTS_CRAFT + 16) {
+    // the walls a visit may place (it lays at most a layer's posts): up to STEPWELL_POSTS_CRAFT, never more than are left
+    const wallsWant = Math.min(postsLeft, STEPWELL_POSTS_CRAFT)
+    if (postsLeft > 0 && walls() < Math.min(postsLeft, 6) && countItem(bot, 'cobblestone') >= wallsWant + 16) {
       const pre = heldMap(bot)
-      try { await craft(ctx, { item: 'cobblestone_wall', count: STEPWELL_POSTS_CRAFT }, signal) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+      try { await craft(ctx, { item: 'cobblestone_wall', count: Math.ceil(wallsWant / 6) * 6 }, signal) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
       const post = heldMap(bot)
       for (const k of new Set([...Object.keys(pre), ...Object.keys(post)])) { const d = (post[k] ?? 0) - (pre[k] ?? 0); if (d) crafted[k] = (crafted[k] ?? 0) + d }
     }
