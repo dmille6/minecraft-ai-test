@@ -65,7 +65,7 @@ test('FORBIDDEN covers the whole iron ladder, every kit input and tool, and no i
   for (const n of IRON_LADDER) assert.ok(M.isForbidden(n), `iron ladder ${n}`)
   for (const tool of Object.keys(KIT)) assert.ok(M.isForbidden(tool), `kit tool ${tool}`)
   for (const n of ['iron_ingot', 'stone_pickaxe', 'wooden_axe', 'shears', 'bucket', 'water_bucket', 'iron_chestplate']) assert.ok(M.isForbidden(n), n)
-  for (const [kind, k] of Object.entries(M.KINDS)) for (const n of Object.keys(k.inputs)) assert.ok(!M.isForbidden(n === 'log' ? 'oak_log' : n), `${kind} input ${n}`)
+  for (const [kind, k] of Object.entries(M.KINDS)) if (!k.station) for (const n of Object.keys(k.inputs)) assert.ok(!M.isForbidden(n === 'log' ? 'oak_log' : n), `${kind} input ${n}`)   // stoneworks-03: the station's one TOWN iron ingot (owner 11-05 "1 iron + 3 stone"; the bag's gate still books it)
   // positive control: the predicate is not "everything"
   for (const n of ['cobblestone', 'oak_log', 'oak_planks', 'sand', 'copper_ingot', 'stick']) assert.equal(M.isForbidden(n), false, n)
   // sticks are never an input (the kit's sticks): only logs make the torch kind's
