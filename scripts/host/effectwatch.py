@@ -703,7 +703,10 @@ def cmd_run(a):
                          {'generated_at': iso(now), 'summary': bl, 'alarms': {} if n else {'busy:nocache': bl},
                           'seconds': tot, 'hours': n})
     write_md(os.path.join(sd, 'effect-latest.md'), verdicts, now, bl)
-    AL.raise_alarms('effectwatch', alarms, now, os.path.join(sd, 'effect.pushstate.json'), push=not a.no_push)
+    # ALARMS.log lives in the state dir (~/digest/ALARMS.log in production): a test's temp state dir never writes the live
+    # log (11-03 install self-test left 6 fixture x-01 rows in .31's ~/digest/ALARMS.log)
+    AL.raise_alarms('effectwatch', alarms, now, os.path.join(sd, 'effect.pushstate.json'),
+                    log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
     if a.print:
         print(summary)
         print(bl)

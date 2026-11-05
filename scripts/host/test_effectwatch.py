@@ -325,7 +325,9 @@ def t_hole_retry(M):
     EW.main(args((P_TIME + dt.timedelta(hours=80)).strftime('%Y-%m-%dT%H:%M:%SZ')))
     later = json.load(open(f24)) if os.path.exists(f24) else {}
     st = json.load(open(os.path.join(sd, 'effect-fleet.json')))
-    return (not first) and later.get('verdict') == 'UNREADABLE' and 'promotion effects' in st['summary'], (first, later.get('verdict'))
+    own = os.path.exists(os.path.join(sd, 'ALARMS.log'))          # the fixture's alarms land in its temp state dir
+    return (not first) and later.get('verdict') == 'UNREADABLE' and 'promotion effects' in st['summary'] and own, \
+        (first, later.get('verdict'), own)
 
 
 def t_undeclared_reread(M):
@@ -472,6 +474,8 @@ MUTANTS = [
 
 
 def main():
+    live = os.path.expanduser('~/digest/ALARMS.log')
+    live0 = os.path.getsize(live) if os.path.exists(live) else None
     M = mods()
     for name, fn in TESTS:
         try:
@@ -497,6 +501,8 @@ def main():
             killed += 1
     mods()
     print(f'mutants killed {killed}/{len(MUTANTS)}')
+    live1 = os.path.getsize(live) if os.path.exists(live) else None
+    check('the live ~/digest/ALARMS.log is untouched by the fixtures', live0 == live1, (live0, live1))
     print(f'{len(TESTS) - len([f for f in FAILS if not f.startswith("mutant")])}/{len(TESTS)} passed')
     sys.exit(1 if FAILS else 0)
 
