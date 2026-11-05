@@ -32,6 +32,7 @@ import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
 import * as V from './voidfill.mjs'
 import { waivePick, monuStuckOn, hardDeferrals } from './stuckcells.mjs'
+import { canopyCuts, CANOPY_MAX } from './canopy.mjs'
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => k3(a[0], a[1], a[2])
@@ -898,6 +899,47 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   const sealed = new Set(), deferWhy = new Map()
   // tidydead-01 (`p.hardDefers`): the cells whose clear THIS visit could not reach, and each cell's last click result
   const unreachedClears = new Set(), lastTry = new Map()
+  // canopy-01 (`p.canopy` = { natural(at), mayDig(at), max? }: canopy.mjs): A TREE GROWN ON OR AGAINST THE BUILD is cut back when a
+  // cell has no stand -- the natural leaves round it, highest first, each from a dig stand -- and the cell is tried again. Each
+  // cell's canopy once a visit (`canopied`), at most `max` digs a visit; passes repeat while a pass dug something (the outer leaves
+  // open the stands for the inner ones). -> { dug, stop? }
+  const canopied = new Set()
+  let canopyDug = 0, canopyCells = null
+  const cutCanopy = async (cells, held) => {
+    if (!p.canopy) return { dug: 0 }
+    const fresh = cells.filter(c => !canopied.has(kOf(c)))
+    if (!fresh.length) return { dug: 0 }
+    for (const c of fresh) canopied.add(kOf(c))
+    const max = p.canopy.max ?? CANOPY_MAX
+    canopyCells ??= new Map(record.cells.map(q => [kOf(q.at), q]))
+    const tried = new Set()
+    let dug = 0, seen = 0, last = null
+    for (let pass = 0; pass < 3 && canopyDug < max; pass++) {
+      const list = new Map()
+      for (const c of fresh) {
+        for (const q of canopyCuts(c, { read: rd, natural: p.canopy.natural ?? (() => false), mayDig: p.canopy.mayDig ?? (() => true), recordCell: k => canopyCells.get(k) ?? null, isDone: q => isDone(q), skip: k => tried.has(k) })) if (!list.has(kOf(q.at))) list.set(kOf(q.at), q)
+      }
+      if (!pass) seen = list.size
+      let progress = false
+      for (const q of [...list.values()].sort((a, b) => b.at[1] - a.at[1])) {
+        if (canopyDug >= max) break
+        const g = guard(); if (g) return { dug, stop: g }
+        const nodes = nodesFor()
+        if (!digStand(rd, q.at, nodes)) continue                 // not from here yet: a later pass, once the outer leaves are gone
+        tried.add(kOf(q.at))
+        const v = await digNamed(q.at, q.name, held, nodes)
+        if (v === 'fence') return { dug, stop: 'fence:segment' }
+        if (v === 'aborted') return { dug, stop: 'aborted' }
+        last = v
+        if (v === 'confirmed') { dug++; canopyDug++; out.cleared++; progress = true; e.log('_build', { op: 'clear', cell: q.at, block: q.name, kind: 'canopy' }) }
+        if (v === 'unreached') break                              // the walk did not arrive: this pass ends
+      }
+      if (!progress) break
+    }
+    if (seen) e.log('_build', { op: 'canopy', cell: fresh[0], n: dug, why: `canopy ${seen}${last && last !== 'confirmed' ? ` last ${last}` : ''}` })
+    out.canopy = (out.canopy ?? 0) + dug
+    return { dug }
+  }
   // THE STUCK MAP, settled on EVERY exit (Codex r21 P2 / Claude P3-1: written only at the loop's end, a visit that deferred a cell
   // and then stopped early -- blocked, no_material, deps_open, a fence, the deadline -- never counted). Counts are per holder
   // file (buildproj stuckRead/stuckWrite: no lost update between two builders), summed for the threshold. An early exit keeps its
@@ -1039,6 +1081,12 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           const v = await digNamed(f.at, name, held)
           if (v === 'fence') { out.stop = 'fence:segment'; return out }
           if (v === 'aborted') { out.stop = 'aborted'; return out }
+          // canopy-01: no stand for the foreign block (leaves in a cell, a canopy round them): the tree is cut back, the cell tried again
+          if ((v === 'no_stand' || v === 'unreached') && p.canopy && !canopied.has(kOf(f.at))) {
+            const cc = await cutCanopy([f.at], held)
+            if (cc.stop) { out.stop = cc.stop; return out }
+            if (cc.dug) continue
+          }
           // wallstuck-01 (`p.sealed` = { mayDig(at) }): a foreign block NO STAND SEES is dug from the top of its column -- the
           // overburden above it, then this segment's open foreign cells highest first (sealedAbove); a column that cannot be opened
           // is SEALED: named, and deferred with the cells no stand reaches (F4: counted, stuck_on_cell, the waiver), never `blocked`
@@ -1185,6 +1233,13 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // (shopwalls-06 r2, Codex r1 BLOCK: with every stand's route crossing, the refusal alone would stall the cell for good)
         for (const c of cand) { const bans = standBans(stands, kOf(c.at), now()); const kept = bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans), domain) : null; step = kept ?? stepFor(rd, home, c.at, nodes, domain); if (step) { picked = c; fellBack = bans.size > 0 && !kept; break } }
         if (!picked) {
+          // canopy-01: no stand for any placeable cell -- the natural leaves round the lowest few are cut back, the segment read again
+          if (p.canopy && cand.length && cand.some(c => !canopied.has(kOf(c.at)))) {
+            const sg = segGen
+            const cc = await cutCanopy(cand.slice(0, 8).map(c => c.at), () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now()))
+            if (cc.stop) { out.stop = cc.stop; return out }
+            if (cc.dug) continue
+          }
           // VOIDFILL-01: the cells no stand reaches, deferred in earlier visits too (the stuck map), may be a SEALED VOID: one access
           // per visit (voidfill.mjs), done -> this segment is read again; anything else -> deferred as before
           if (access && !accessTried && cand.length && !open.some(c => !isClear(c.at))) {

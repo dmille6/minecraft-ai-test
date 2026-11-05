@@ -113,7 +113,11 @@ export function activeProject (states = [], list = projectsOn()) {
     if (p.after && !st(list.find(q => q.plot === p.after) ?? { plot: p.after }).complete) continue
     open.push(p)
   }
-  if (open.length) return open.find(p => st(p).free !== false) ?? open[0]
+  if (open.length) {
+    // starve-01: an open project no builder has taken in STARVE_MS (starveMark) first, the longest-starved first
+    const starved = open.filter(p => st(p).starved && st(p).free !== false).sort((a, b) => (st(b).starvedFor ?? 0) - (st(a).starvedFor ?? 0))
+    return starved[0] ?? open.find(p => st(p).free !== false) ?? open[0]
+  }
   // wall-01: a complete project that only wants a visit for its upkeep (`due`: the ziggurat's tidy) after every open one
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due) return p }
   return list[list.length - 1]
@@ -186,6 +190,34 @@ export function stuckBackoff (states = [], stuckOf = null, now = Date.now()) {
     try { sa = stuckOf(st.plot) } catch { sa = null }
     if (!(Number.isFinite(sa) && sa <= now + 60_000 && now - sa < stuckWindowOf(st.plot))) return st
     return st.complete ? { ...st, damaged: false, due: true, stuck: true } : { ...st, free: false, stuck: true }
+  })
+}
+/**
+ * STARVE-01: AN OPEN PROJECT NOBODY VISITS GETS A BUILDER (fleet 11-05, 24 h: board-d's wall published 13:27Z had ONE visit while
+ * its monument took 475; isolated-b's wall none in 18 h against 425 monument visits; the monument's 3 admission slots were all
+ * held only 521 s of 36 h, so `free` never sent a bot past it). activeProject takes the FIRST open project with a free slot, so a
+ * later open project waits until every earlier one is complete -- for an 8,000-cell ziggurat, days. A project whose newest
+ * admission (any builder's slot lease, else its record's last publish) is STARVE_MS old is `starved`: activeProject offers it
+ * before the order, the longest-starved first. One builder taking it refreshes the stamp, so the others go on with the order:
+ * the starved project gets about one visit every STARVE_MS, the rest keep theirs. Never the tidy (last by design: it never
+ * displaces building), never an unsited project (no record: the order sites it), never a complete one, never a stuck one (its
+ * stuck back-off leaves it not `free`), never one this bot was sent to as starved in the last STARVE_MS (`tried`: a project whose
+ * visit fails before it takes a slot is not every bot's every order). Pure.
+ *   lastTakeOf  plot -> ms | null (the newest slot lease's `at`, else the record's publish time); a throw reads as fresh
+ *   tried       Map plot -> ms (the bot's own)
+ */
+export const STARVE_MS = Number(process.env.STARVE_MS) > 0 ? Number(process.env.STARVE_MS) : 30 * 60_000   // a setting
+export const starveOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.STARVE ?? '').trim().toLowerCase())
+export function starveMark (states = [], { lastTakeOf = null, now = Date.now(), ms = STARVE_MS, tried = null, skip = new Set([TIDY_PLOT]) } = {}) {
+  if (typeof lastTakeOf !== 'function') return states
+  return states.map(s => {
+    if (!s?.exists || s.complete || skip.has(s.plot)) return s
+    const t0 = tried?.get?.(s.plot)
+    if (Number.isFinite(t0) && now - t0 < ms) return s
+    let at = null
+    try { at = lastTakeOf(s.plot) } catch { return s }
+    if (!Number.isFinite(at) || at > now + 60_000 || now - at < ms) return s
+    return { ...s, starved: true, starvedFor: now - at }
   })
 }
 /** THE OTHER PROJECTS' RECORDS AS SITING ZONES -> [{ box: [x0,y0,z0,x1,y1,z1] }]: each record's x/z box widened by `margin`

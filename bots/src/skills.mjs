@@ -135,6 +135,8 @@ import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } fr
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
 import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE_MAX_SHOP, WAIVE_MAX_ZIG, stampLiftable, visitOpts as stuckVisitOpts, withWaived, completeWithWaived, readBlock, tidyDeadOn } from './stuckcells.mjs'   // stuckcells-01, tidydead-01
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
+import { canopyOn, naturalProps } from './canopy.mjs'   // canopy-01
+import { starveMark, starveOn } from './shop.mjs'   // starve-01
 import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
 import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
@@ -17074,10 +17076,40 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // stuckwait-01: a project inside its stuck back-off waits behind the others (shop.mjs stuckBackoff); the repair count reads
     // the states before it
     const waited = stuckBackoff(states, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)
-    const pick = activeProject(waited, list)
+    // starve-01: an open project no builder has taken in STARVE_MS is offered first (shop.mjs starveMark); a VISIT's starved pick
+    // is this bot's for STARVE_MS (`tried`) and stays its pick until the visit ends (`starvePick`: its own slot lease refreshes the
+    // stamp, and the reserve and bag reads mid-visit must name the project the visit is on)
+    const starve = starveOn() && b
+    const marked = starve ? starveMark(waited, { lastTakeOf: plot => projLastTake(dir, list.find(p => p.plot === plot), now), now, tried: (b.starveTried ??= new Map()) }) : waited
+    let pick = activeProject(marked, list)
+    if (starve && visit) {
+      const st = marked.find(x => x?.plot === pick.plot)
+      if (st?.starved) { b.starveTried.set(pick.plot, now); b.starvePick = { plot: pick.plot, at: now } } else b.starvePick = null
+    } else if (starve && b.starvePick && now - b.starvePick.at < STARVE_PICK_MS) {
+      const sp = list.find(p => p.plot === b.starvePick.plot), st = marked.find(x => x?.plot === b.starvePick.plot)
+      if (sp && st && !st.complete) pick = sp
+    }
     if (visit) noteRepair(rmem, pick, states, now)
     return pick
   } catch { return projectsOn()[0] }
+}
+/** starve-01: the longest a visit's starved pick is held for the bot's other reads (a visit's own clock is shorter). */
+const STARVE_PICK_MS = 20 * 60_000
+/** starve-01: project `p`'s newest admission -> ms | null: the latest `at` (or release) of any of its slot leases, else its
+ *  record's last publish. Never throws (null: never starved on no evidence). */
+function projLastTake (dir, p, now = Date.now()) {
+  try {
+    if (!p) return null
+    let t = null
+    for (let k = 1; k <= buildersOf(p); k++) {
+      const st = projLeaseState(dir, projKeyOf(p.plot), `slot${k}`)
+      for (const v of [Number(st?.rec?.at), Number(st?.releasedAt)]) if (Number.isFinite(v) && v > 0 && v <= now + 60_000 && (t == null || v > t)) t = v
+    }
+    if (t != null) return t
+    const h = recordHead(dir, projKeyOf(p.plot))
+    const at = Number(h.ok ? h.head?.rec?.at : NaN)
+    return Number.isFinite(at) && at > 0 ? at : null
+  } catch { return null }
 }
 /** Has project `p` an admission slot this holder may take (none held, its own, or lapsed)? Unreadable: free (the order's own
  *  slot check then decides, as before). */
@@ -17496,6 +17528,10 @@ function stuckCellsPublish (bot, dir, key, rec, r, me, plot) {
   } catch { /* waived again next visit */ }
 }
 async function buildShop (ctx, args, signal) {
+  // starve-01: a starved pick is held for this visit only (shopActive `starvePick`)
+  try { return await buildShopVisit(ctx, args, signal) } finally { try { if (ctx?.bot) ctx.bot.starvePick = null } catch { /* the window ends it */ } }
+}
+async function buildShopVisit (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
   // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject)
@@ -17652,7 +17688,7 @@ async function buildShop (ctx, args, signal) {
     // unreadable: the visit neither moves nor skips a replant (r19, Claude r18 P2-2: an exception must never fell an unreplaced tree)
     let res = null, resFailed = false
     try { res = reservations(h.head.plan, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0 }) } catch { resFailed = true }
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    const r = await runVisit({ ...canopyOf(bot, c, plot), dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       ...stuckVisitOpts(rec, 'shop') }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     stuckCellsPublish(bot, dir, key, rec, r, me, plot)
     if (r.stop === 'complete') {
@@ -18570,6 +18606,23 @@ function zigAccessOf (bot, c) {
   const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
   return { mem: (bot.zigAccess ??= {}), mayDig: at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } } }
 }
+/**
+ * CANOPY-01 (buildrun.mjs runVisit `p.canopy`, canopy.mjs): a tree grown on or against the build is cut back when a cell has no
+ * stand. `natural(at)`: natural leaves (persistent=false) or a vine, read through the bot; `mayDig(at)`: never a protected zone,
+ * never another project's record cell (zigSealedOf's rule). {} when CANOPY=off: the visit exactly as before.
+ */
+export function canopyOf (bot, c, plot, env = process.env) {
+  if (!canopyOn(env)) return {}
+  let others = null
+  const otherCells = () => (others ??= new Set(projectHeads().filter(x => x.plot !== plot).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))))
+  const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
+  return {
+    canopy: {
+      natural: at => { try { const b = bot.blockAt?.(new Vec3(at[0], at[1], at[2])); return !!b && naturalProps(b.name, b.getProperties?.()) } catch { return false } },
+      mayDig: at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } },
+    },
+  }
+}
 async function runVisitCounted (bot, p, e, opts) {
   const r = await runVisit(p, e, opts)
   try { const seen = bot.zigTidySeen ?? null; if (seen) for (const k of new Set(r.tidied ?? [])) seen.set(k, (seen.get(k) ?? 0) + 1) } catch { /* the bound waits */ }
@@ -18745,7 +18798,7 @@ async function buildMonument (ctx, args, signal) {
       const isDone = c => { const b = read(...c.at); return !!b && (buildCellDone(b, palette, c.role) || zigHidden(c, read) || (stuckCellsOn() && recWaived(rec, c))) }
       if (rec.structure_complete || zigProgress(rec, isDone).open <= 3) tidy = zigTidyNow(bot, rec, read)
     } catch { tidy = [] }
-    const r = await runVisitCounted(bot, { dir, key, me, home, stood, record: rec, tidy, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    const r = await runVisitCounted(bot, { ...canopyOf(bot, c, MONUMENT_PLOT), dir, key, me, home, stood, record: rec, tidy, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: zigBambooOn() ? ZIG_FOREIGN_GROWN : ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zigHidden, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z],
       access: zigAccessOf(bot, c), sealed: zigSealedOf(c, zigOtherCells()), ...stuckVisitOpts(rec, 'zig', zigHidden, stuckCellsOn(), zigPlaceOk(c)) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     stuckCellsPublish(bot, dir, key, rec, r, me, MONUMENT_PLOT)
@@ -19116,7 +19169,7 @@ async function buildWall (ctx, args, signal) {
     bot.shopUnknown ??= new Set()
     // a segment this bot found BLOCKED lately waits; the visit works the others (wall.mjs wallVisitRecord)
     const blocked = (bot.wallBlocked ??= new Map())
-    const r = await runVisit({ dir, key, me, home, stood, record: wallVisitRecord(rec, blocked), recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.wallStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    const r = await runVisit({ ...canopyOf(bot, c, WALL_PLOT), dir, key, me, home, stood, record: wallVisitRecord(rec, blocked), recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.wallStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: wallWalkR(rec, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,
       ...wallStuckOf(c), ...(wallStuckOn() ? { alsoDone: q => wallWaived(rec, q) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     { const bs = blockedSeg(r.stop, r.why); if (bs) blocked.set(bs, Date.now()) }
@@ -19278,7 +19331,7 @@ async function buildTidy (ctx, args, signal) {
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
     const cuts = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')))
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    const r = await runVisit({ ...canopyOf(bot, c, TIDY_PLOT), dir, key, me, home, stood, record: rec, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: TIDY_CLEAR_MAX, alsoDone: q => waivedK(q), stuckStalledOnly: true,
       // tidydead-01: a hard cell (a block no dig stand reaches, a fill no click lands on) is deferred, so the waiver below can name it
       ...(tidyDeadOn() ? { hardDefers: true } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
