@@ -98,6 +98,15 @@
 #                      sugar_cane kind=cane`) is on the record ONLY as sugar cane cut at the SECOND block: the cell directly above a
 #                      cane cell of any generation of the bed's chain. The bottom block itself, any other cell, any other block is
 #                      clear_outside (` harvest`). A harvest row is a mutation (G3), as the crop farm's.
+#   DC1-3 decor (decorator-01, 11-04; bots/src/decorator.mjs): THE DECORATOR's sink (project=decor: flower borders and door pots) is a
+#                      growing sink record (SINK_PLOTS): its placements are G1's and its clears G2's against the generations in force,
+#                      plus: DC1 meal -- a `_build op=meal` (bone meal used on the nursery) only on a NURSERY centre (`nursery.at` or a
+#                      `nurseries[].at`) of a generation in force, else off_record (` meal`), a mutation G3 judges; DC2 bloom -- a
+#                      `_build op=clear kind=bloom` (the nursery's harvest) only a flower or the grass a meal leaves (DECOR_BLOOMS) within
+#                      DECOR_SPREAD columns of a nursery centre in force, never a record cell or a marker that stood then (tidy_guard: the
+#                      decor's own border flowers too: ` guarded`), never in the park's box + 1 (` in_park`) or on a cell of the tidy head
+#                      in force (` tidy_cell`), else clear_outside (` bloom`); DC3 pot -- a `_build op=place kind=pot_fill` only
+#                      on a POT cell (role D<n>-pot) of a generation in force with a potted block (potted_*), else off_record (` pot`).
 #   EF1 enchant_fit (enchantshop-01, 11-04; bots/src/enchantshop.mjs): THE ENCHANTING WORKSHOP is an ordinary record (project=
 #                      enchantshop): its shell's placements and clears are G1/G2's like every project's. Its FIT-OUT (the anvil, the
 #                      enchanting table, 15 bookshelves) is NOT record cells: the record's `fit` list [{slot, item, at}], placed by the
@@ -394,7 +403,15 @@ def tidy_place_ok(chain, cell, t_ms, skew_ms=60_000):
 # off the record -- Codex design 11-03: "validate H1/H2 against the generation authorizing the event"; never a blanket exemption.
 # TOWNDRESS-01 (11-03): the fourth sink, `dress` (bots/src/towndress.mjs): batches of lamp posts, wall-top torches and signposts; each
 # placed SIGN is logged `_build op=place project=dress kind=sign` on its record cell (the label writer, skills.mjs dressSignsVisit).
-SINK_PLOTS = ('road', 'tower', 'shrine', 'dress')
+# DECORATOR-01 (11-04): the fifth sink, `decor` (bots/src/decorator.mjs), and its own rules DC1 (the nursery's meal), DC2 (its harvest),
+# DC3 (a pot's fill). DECOR_SPREAD is decorator.mjs NURSERY.spread (bone meal's walk: at most 7 steps of one column); DECOR_BLOOMS its
+# BLOOM_BLOCKS (the small flowers and the grass a meal leaves). --selftest asserts both against bots/src/decorator.mjs when it is beside.
+SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor')
+DECOR = 'decor'
+DECOR_SPREAD = 7
+DECOR_BLOOMS = frozenset(['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'azure_bluet', 'allium', 'blue_orchid', 'lily_of_the_valley',
+                          'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip', 'short_grass', 'tall_grass'])
+DECOR_POT_ROLE = re.compile(r'^D\d+-pot$')
 # wallext-01 (WX1): the town wall and its extension are judged by the same wall rules (the footing, the cap over a sealed column)
 WALL_PLOTS = ('wall', 'wallext')
 
@@ -457,6 +474,48 @@ def demo_clear_ok(demo_chain, wall_chain, ext_chain, cell, kind, t_ms, skew_ms=6
     if not any(ck(c.get('at')) == k and c.get('role') != 'base' for g in wall_chain or [] for c in (g.get('cells') or []) + (g.get('retired') or []) if isinstance(c, dict) and c.get('at')):
         return False
     return any(g.get('structure_complete') and isinstance(g.get('completeAt'), (int, float)) and g['completeAt'] <= t_ms + skew_ms for g in ext_chain or [])
+
+
+def decor_nurseries(chain, t_ms):
+    """decorator-01: every nursery centre a generation in force names (its `nursery`, and the `nurseries` it replaced) -> [[x, y, z]].
+    Pure."""
+    out = []
+    for g in sink_in_force(chain, t_ms):
+        for n in [g.get('nursery')] + list(g.get('nurseries') or []):
+            if isinstance(n, dict) and isinstance(n.get('at'), list) and len(n['at']) == 3:
+                out.append(n['at'])
+    return out
+
+
+def decor_meal_ok(chain, cell, t_ms):
+    """decorator-01 DC1: is a meal ON a nursery centre in force? -> bool. Pure."""
+    return any(ck(a) == ck(cell) for a in decor_nurseries(chain, t_ms))
+
+
+def decor_bloom_ok(chain, cell, block, t_ms, guard, park_box=None, tidy_chain=()):
+    """decorator-01 DC2: is a harvest a bloom (DECOR_BLOOMS) within DECOR_SPREAD columns (and DECOR_SPREAD + 1 blocks up or down: the
+    walk climbs one a step, the plant stands one above its grass) of a nursery centre in force -- never a record cell or a marker that
+    stood then (tidy_guarded), never in the park's box + 1, never a cell of the tidy generation in force (`tidy_chain`: tidy_heads_at;
+    tidy_guard leaves the tidy out -- the seedgrass rule's lesson, Claude r1 BLOCKER)? -> (bool, why). Pure."""
+    if block not in DECOR_BLOOMS or not isinstance(cell, (list, tuple)) or len(cell) != 3:
+        return False, ' bloom'
+    if tidy_guarded(cell, t_ms, guard):
+        return False, ' guarded'
+    if isinstance(park_box, list) and len(park_box) == 4 and park_box[0] - 1 <= cell[0] <= park_box[2] + 1 and park_box[1] - 1 <= cell[2] <= park_box[3] + 1:
+        return False, ' in_park'
+    k = ck(cell)
+    if any(k == ck(c['at']) for rec in tidy_chain or [] for name in ('cells', 'cut', 'clear') for c in rec.get(name) or [] if isinstance(c, dict) and c.get('at')):
+        return False, ' tidy_cell'
+    ok = any(max(abs(cell[0] - a[0]), abs(cell[2] - a[2])) <= DECOR_SPREAD and abs(cell[1] - a[1]) <= DECOR_SPREAD + 1 for a in decor_nurseries(chain, t_ms))
+    return (True, '') if ok else (False, ' bloom')
+
+
+def decor_pot_ok(chain, cell, block, t_ms):
+    """decorator-01 DC3: is a pot fill a potted block on a pot cell (role D<n>-pot) of a generation in force? -> bool. Pure."""
+    if not str(block or '').startswith('potted_'):
+        return False
+    k = ck(cell)
+    return any(ck(c.get('at')) == k and DECOR_POT_ROLE.match(str(c.get('role') or '')) for g in sink_in_force(chain, t_ms) for c in g.get('cells') or [] if isinstance(c, dict) and c.get('at'))
 
 
 def sink_clear_ok(chain, cell, kind, t_ms):
@@ -1140,7 +1199,8 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
             if cell is None:
                 continue
             k = ck(cell)
-            if op in ('place', 'clear', 'replant'):
+            # decorator-01 DC1: the nursery's meal is a mutation too (G3 judges it)
+            if op in ('place', 'clear', 'replant', 'meal'):
                 mutating.add((pool, plot))
                 out['mutations'] += 1
                 if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):
@@ -1171,6 +1231,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     # picker-01: the generations of the sink's growing chain in force when it was placed (sink_place_ok)
                     t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                     off = not sink_place_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)
+                    # decorator-01 DC3: a pot's fill is a potted block on a pot cell in force
+                    if not off and plot == DECOR and f.get('kind') == 'pot_fill' and not decor_pot_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms):
+                        off = True
+                        pwhy = ' pot'
                 elif plot == YARD and rec is not None:
                     # any generation of the yard's chain (a re-sited yard's earlier stock stays the yard's -- Claude r1 note)
                     off = not any(yard_place_ok(g, cell, f.get('block')) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
@@ -1184,6 +1248,12 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 if [t for t in placed[(pool, plot, k)] if (r['t'] - t).total_seconds() < PLACE_TWICE_MIN * 60]:
                     out['placed_twice'] += 1; lists['placed_twice'].append('%s %s' % (pool, k))
                 placed[(pool, plot, k)].append(r['t'])
+            elif op == 'meal':
+                # decorator-01 DC1: bone meal used ON a nursery centre of a generation in force, nothing else (any other project: off)
+                out['decor_meals'] += 1
+                t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
+                if rec is not None and not (plot == DECOR and decor_meal_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)):
+                    out['off_record'] += 1; lists['off_record'].append('%s %s %s meal' % (bot, k, f.get('block')))
             elif op == 'harvest' and plot == CROPFARM:
                 # cropfarm-01 G9: a crop dug on a crop cell of the farm's record, nothing else (counted with G2's clear_outside)
                 out['harvests'] += 1
@@ -1240,6 +1310,14 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         chain_of = lambda pl: project_of(pr, pl).get('chain') or ([project_of(pr, pl)['record']] if project_of(pr, pl).get('record') else [])
                         ok = demo_clear_ok(chain_of(plot) or [rec], chain_of('wall'), chain_of('wallext'), cell, f.get('kind'), t_ms)
                         why = '' if ok else ' demo'
+                    elif plot == DECOR and f.get('kind') == 'bloom':
+                        # decorator-01 DC2: the nursery's harvest -- a bloom near a nursery centre in force, off every record cell and marker
+                        if pool not in guards:
+                            guards[pool] = tidy_guard(projects.get(pool))
+                        t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
+                        lrec = project_of(projects.get(pool), LAND).get('record') or {}
+                        ok, why = decor_bloom_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms, guards[pool],
+                                                 (lrec.get('park') or {}).get('box'), tidy_heads_at(project_of(projects.get(pool), TIDY).get('chain') or [], t_ms))
                     elif plot in SINK_PLOTS:
                         # picker-01: the clear lists (kind=foreign: the cells) of the generations in force when it was dug
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
@@ -1562,6 +1640,67 @@ def selftest():
     assert dpl('5,71,0', block='spruce_wall_sign', kind='sign') == 0, 'a sign the label writer placed on its record cell'
     assert dpl('6,71,0', block='spruce_wall_sign', kind='sign') == 1 and dpl('5,73,1') == 1, 'positive control: a sign or a torch off the record trips'
     assert dpl('17,73,-20') == 1 and dpl('17,73,-20', s_=3_700) == 0, 'L2\'s wall-top torch: off the record before L2 is sited, on it after'
+    # decorator-01 (11-04): the decor sink -- a nursery-only generation (centre 30,70,30) before the window, D1 (two border flowers and a
+    # pot) and a moved nursery (centre 60,70,60; the first kept in `nurseries`) an hour in. DC1 meal, DC2 bloom, DC3 pot fill.
+    cg1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'decor', 'blueprint': 'decor@1', 'builders_max': 3, 'at': T0MS - 60_000, 'structure_complete': True,
+           'instances': [], 'cells': [], 'clear': [], 'replant': [], 'nursery': {'at': [30, 70, 30], 'box': [23, 23, 37, 37]}}
+    cg2 = dict(cg1, gen=2, prev=1, at=T0MS + 3_600_000, structure_complete=False, instances=[{'id': 'D1'}],
+               cells=[{'at': [5, 71, 1], 'role': 'D1-f0', 'seg': 'D1-B0'}, {'at': [6, 71, 1], 'role': 'D1-f1', 'seg': 'D1-B0'}, {'at': [3, 71, 3], 'role': 'D1-pot', 'seg': 'D1-P'},
+                      {'at': [31, 71, 31], 'role': 'D1-f2', 'seg': 'D1-B1'}],
+               nursery={'at': [60, 70, 60], 'box': [53, 53, 67, 67]}, nurseries=[{'at': [30, 70, 30], 'box': [23, 23, 37, 37]}])
+    cf = [(1, json.dumps(cg1).encode())]
+    cf.append((2, json.dumps(dict(cg2, prevSha=hashlib.sha256(cf[0][1]).hexdigest())).encode()))
+    cchain = record_chain(cf)
+    assert [c['_gen'] for c in cchain] == [1, 2], 'the decor chain walks every generation'
+    CP_ = {'board-a': {**PR(), 'projects': {'shop': {'record': rec, 'records_files': 1, 'leases': {}, 'chain': [rec]},
+                                            'decor': {'record': cchain[-1], 'records_files': 2, 'leases': {}, 'chain': cchain}}}, 'board-b': PR()}
+    CJ = lambda d, s_=14, zones=None: J(base + [R('_build', 'project=decor ' + d, s=s_)], CP_, zones=zones)
+    # G1: the border flowers and the pot are record cells once D1 is sited
+    assert CJ('op=place seg=D1-B0 cell=5,71,1 block=poppy', s_=3_700)['off_record'] == 0 and CJ('op=place seg=D1-P cell=3,71,3 block=flower_pot', s_=3_700)['off_record'] == 0, 'the batch\'s cells'
+    assert CJ('op=place seg=D1-B0 cell=5,71,1 block=poppy')['off_record'] == 1, 'positive control: before D1 is sited a flower is off the record'
+    # DC3 the pot's fill: a potted block on the pot cell, nothing else
+    assert CJ('op=place seg=D1-P cell=3,71,3 block=potted_spruce_sapling kind=pot_fill', s_=3_700)['off_record'] == 0, 'a sapling potted'
+    pf = CJ('op=place seg=D1-B0 cell=5,71,1 block=potted_poppy kind=pot_fill', s_=3_700)
+    assert pf['off_record'] == 1 and pf['_lists'].get('off_record') == ['board-a-Alpha 5,71,1 potted_poppy pot'], ('a fill on a flower cell', pf['_lists'].get('off_record'))
+    assert CJ('op=place seg=D1-P cell=3,71,3 block=poppy kind=pot_fill', s_=3_700)['off_record'] == 1, 'a fill that is no potted block'
+    # DC1 the meal: on a nursery centre in force, nothing else
+    assert CJ('op=meal cell=30,70,30 block=bone_meal kind=use')['off_record'] == 0, 'the first nursery'
+    assert CJ('op=meal cell=60,70,60 block=bone_meal kind=use', s_=3_700)['off_record'] == 0 and CJ('op=meal cell=30,70,30 block=bone_meal kind=use', s_=3_700)['off_record'] == 0, 'the moved nursery, and the old one it keeps'
+    mo = CJ('op=meal cell=60,70,60 block=bone_meal kind=use')
+    assert mo['off_record'] == 1 and mo['_lists'].get('off_record') == ['board-a-Alpha 60,70,60 bone_meal meal'], ('positive control: the second nursery before it was sited', mo['_lists'].get('off_record'))
+    assert CJ('op=meal cell=31,70,30 block=bone_meal kind=use')['off_record'] == 1, 'beside the centre'
+    assert J(base + [R('_build', 'project=shop op=meal cell=30,70,30 block=bone_meal', s=14)], CP_)['off_record'] == 1, 'another project\'s meal'
+    assert CJ('op=meal cell=30,70,30 block=bone_meal kind=use', zones={'board-a': [[30, 0, 30, 30, 200, 30]]})['zone'] == 1, 'G3 judges a meal'
+    # DC2 the harvest: a bloom within 7 of a nursery centre in force, never a record cell
+    assert CJ('op=clear cell=33,71,28 block=poppy kind=bloom')['clear_outside'] == 0 and CJ('op=clear cell=37,71,30 block=short_grass kind=bloom')['clear_outside'] == 0, 'a flower and the grass at 7'
+    bo = CJ('op=clear cell=38,71,30 block=poppy kind=bloom')
+    assert bo['clear_outside'] == 1 and bo['_lists'].get('clear_outside') == ['board-a-Alpha 38,71,30 bloom poppy bloom'], ('8 from the centre', bo['_lists'].get('clear_outside'))
+    assert CJ('op=clear cell=33,71,28 block=stone kind=bloom')['clear_outside'] == 1, 'positive control: no bloom'
+    assert CJ('op=clear cell=31,71,31 block=poppy kind=bloom', s_=3_700)['clear_outside'] == 1 and CJ('op=clear cell=31,71,31 block=poppy kind=bloom')['clear_outside'] == 0, 'the decor\'s own border flower once sited: never the harvest\'s'
+    assert CJ('op=clear cell=62,71,60 block=dandelion kind=bloom')['clear_outside'] == 1 and CJ('op=clear cell=62,71,60 block=dandelion kind=bloom', s_=3_700)['clear_outside'] == 0, 'the moved nursery from its siting on'
+    # the selftest's own mutants (anchors present and unique in this file)
+    global decor_bloom_ok, decor_meal_ok, decor_pot_ok
+    # Claude r1 BLOCKER: the park (+1) and the tidy head's cells are refused too (tidy_guard leaves the tidy out)
+    ltrec = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'land', 'at': T0MS - 120_000, 'park': {'box': [32, 28, 34, 29]}}
+    ttrec = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'tidy', 'blueprint': 'tidy@1', 'at': T0MS - 120_000, 'cells': [{'at': [28, 71, 33], 'role': 'flower0', 'seg': 'T-P'}], 'cut': [], 'clear': []}
+    CPT_ = {'board-a': {**CP_['board-a'], 'projects': {**CP_['board-a']['projects'], 'land': {'record': ltrec, 'records_files': 1, 'leases': {}, 'chain': [ltrec]},
+                                                       'tidy': {'record': ttrec, 'records_files': 1, 'leases': {}, 'chain': [ttrec]}}}, 'board-b': PR()}
+    CT = lambda d: J(base + [R('_build', 'project=decor ' + d, s=14)], CPT_)
+    ip = CT('op=clear cell=35,71,30 block=poppy kind=bloom')
+    assert ip['clear_outside'] == 1 and ip['_lists'].get('clear_outside') == ['board-a-Alpha 35,71,30 bloom poppy in_park'], ip['_lists'].get('clear_outside')
+    tcl = CT('op=clear cell=28,71,33 block=poppy kind=bloom')
+    assert tcl['clear_outside'] == 1 and tcl['_lists'].get('clear_outside') == ['board-a-Alpha 28,71,33 bloom poppy tidy_cell'], tcl['_lists'].get('clear_outside')
+    assert CT('op=clear cell=27,71,33 block=poppy kind=bloom')['clear_outside'] == 0 and CT('op=clear cell=36,71,30 block=poppy kind=bloom')['clear_outside'] == 0, 'positive control: beside the tidy cell, 2 past the park'
+    for name, mut, scen in (('decor_bloom_ok', lambda chain, cell, block, t_ms, guard, park_box=None, tidy_chain=(): (block in DECOR_BLOOMS, ''), lambda: CJ('op=clear cell=38,71,30 block=poppy kind=bloom')['clear_outside'] == 1),
+                            ('decor_meal_ok', lambda chain, cell, t_ms: True, lambda: CJ('op=meal cell=31,70,30 block=bone_meal kind=use')['off_record'] == 1),
+                            ('decor_pot_ok', lambda chain, cell, block, t_ms: True, lambda: CJ('op=place seg=D1-P cell=3,71,3 block=poppy kind=pot_fill', s_=3_700)['off_record'] == 1)):
+        saved_fn = globals()[name]
+        assert scen(), name
+        globals()[name] = mut
+        try:
+            assert not scen(), 'MUTANT SURVIVED: %s' % name
+        finally:
+            globals()[name] = saved_fn
     # yardread-01 (11-03 TRIP 07:35Z): the clerk's stock on the yard record's pile slots is the yard's own; a planted block is not
     yrec = {'v': 1, 'gen': 5, 'plot': 'yard', 'blueprint': 'yard@1', 'anchor': [-50, 5], 's': 68, 'orient': 'S', 'box': [-64, 5, -50, 22],
             'cells': [{'at': [-52, 68, 7], 'role': 'base', 'seg': 'floor'}, {'at': [-51, 69, 6], 'role': 'light', 'seg': 'L'}], 'clear': [], 'replant': []}
@@ -1985,6 +2124,16 @@ def selftest():
         assert m and set(re.findall(r"'([a-z_]+)'", m.group(1))) == set(HUB_THROWABLE), 'HUB_THROWABLE differs from storehub.mjs'
         m = re.search(r"export const HUB_NEVER_THROW = /(.*)/\n", js)
         assert m and m.group(1) == HUB_NEVER_THROW.pattern, 'HUB_NEVER_THROW differs from storehub.mjs'
+    # decorator-01 THE COPY: DECOR_SPREAD and DECOR_BLOOMS are bots/src/decorator.mjs's (checked when the module is beside this file's repo)
+    dmods = [m for m in (os.environ.get('SHOPREAD_DECORATOR') or '', os.path.join(here, '..', '..', '..', 'bots', 'src', 'decorator.mjs'), os.path.join(here, 'decorator.mjs')) if m and os.path.exists(m)]
+    if not dmods:
+        print('shopread selftest: SKIPPED the DECOR_SPREAD / DECOR_BLOOMS copy check (no decorator.mjs: set SHOPREAD_DECORATOR)')
+    for mod in dmods[:1]:
+        js = open(mod).read()
+        m = re.search(r"  spread: (\d+),", js)
+        assert m and int(m.group(1)) == DECOR_SPREAD, 'DECOR_SPREAD differs from decorator.mjs NURSERY.spread'
+        m = re.search(r"export const SMALL_FLOWERS = Object\.freeze\(\[(.*?)\]\)", open(os.path.join(os.path.dirname(mod), 'park.mjs')).read(), re.S)
+        assert m and set(re.findall(r"'([a-z_]+)'", m.group(1))) | {'short_grass', 'tall_grass'} == set(DECOR_BLOOMS), 'DECOR_BLOOMS differs from decorator.mjs BLOOM_BLOCKS'
     print('shopread selftest: ok')
 
 

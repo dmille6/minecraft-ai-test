@@ -142,6 +142,10 @@ const REQUIRED = [
   // wallext-01 (11-04): the wall extension round the storage hall -- design, Codex design + review, the offline record and map (the
   // code is branch wallext-show's until it lands)
   'docs/reports/wallext-design-2026-11-04.md',
+  // decorator-01 (11-04): the decorator -- the reconciled design (Claude + Codex) and its picture; the code is on branch decorator-01show
+  'docs/reports/decorator-design-2026-11-04.md',
+  'docs/reports/decorator-design-2026-11-04/decorated-town.png',
+  'docs/reports/decorator-design-2026-11-04/decorated-town.txt',
   'docs/reports/wallext-2026-11-04/codex-design.md',
   'docs/reports/wallext-2026-11-04/offline-record-showcase-1104.json',
   'docs/reports/wallext-2026-11-04/offline-demolition-showcase-1104.json',

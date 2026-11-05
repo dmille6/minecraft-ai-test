@@ -4601,6 +4601,42 @@
    "note": "Measured 11-04 16:20Z: town iron 197, diamond 18, obsidian/book/paper/cane/leather 0; bags cane 61 (the park's), 0 leather ever; toolkit drew 379 town iron / 7 d with 268 no_iron searches. Codex designed child records per furnishing; chosen one fit list on the shell record. Codex code r1: 1 BLOCKER (stranded drawn materials), fixed 7763c704.",
    "owner_answers": "OWNER 2026-11-04: E1 \"a dedicated cane bed like the tree farm\" -> canefarm piece modelled on the tree farm (own sited plot by water, planted from bag cane, harvested above the bottom block, cane to town for paper; never the park's cane); E2 \"obsidian on showcase only for now\" -> obsidian piece showcase-only, tier 3, Paper sandbox proof first, two engines; E3 \"lecturn later\" -> lectern deferred.",
    "owner_pending": "O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?"
+  },
+  {
+   "id": "decorator-1104",
+   "title": "Decorator (owner 11-04: 'one bot to maybe just be a decorator sole purpose is to make things more beautiful. add flowers along paths, add decorations to buildings, unique and pretty things around our town first, then expand out'): one leased bot per town, the `decor` sink -- flower borders, door pots, a bone-meal nursery; then ferns, hedges/lantern posts, a compost drive, oriented ornaments, unique pieces",
+   "owner_date": "2026-11-04",
+   "memory": [
+    "decorator-1104.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "max_quiet_hours": 72,
+   "depends_on": [
+    {
+     "item": "groundskeeper-1102"
+    },
+    {
+     "item": "towndress-1103"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "decorator-01",
+     "decorator-1104"
+    ],
+    "branches": [
+     "decorator-01show"
+    ],
+    "paths": [
+     "docs/reports/decorator-design-2026-11-04.md"
+    ]
+   },
+   "owner_pending": "decorator-1104: ferns cut from the wild with shears (piece 2)? the park's 4 bone meal kept? pots need under-water clay (tier 3) or skip?",
+   "next_step": "READY TO STAGE (not recorded, not staged): decorator-01show b73667ea on the live showcase release 8b4ea9cc (branch decorator-01show): the decorator lease + the decor sink (flower borders inside the walls first, door pots, the bone-meal nursery, kept flowers); Paper sandbox6 proof 6/6 PASS; Codex r1 2 blockers fixed, r2 FIXED; tests decorator 39/39. Tripwire DC1-DC3 (meal, bloom, pot_fill) on main shopread.py.txt (two engines: Codex + Claude, Claude r1 blocker fixed) -- install WITH the piece's activation, else H2 trips on the first harvest. Then pieces 2 (ferns), 3 (hedges + lantern posts), 4 (compost drive).",
+   "note": "Supply measured 11-04: 0 flowers in 15 bags + 9 chests, bone meal 8 in town and 9 made in 7 d (~3.6 nursery flowers/day); Paper: 2.7 flowers a meal, spread <= 5 (bound 7). Pots wait on clay (0 in town)."
   }
  ]
 }
