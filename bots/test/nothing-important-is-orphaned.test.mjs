@@ -56,6 +56,8 @@ const REQUIRED = [
   'sandbox/coop/arms-batch.cjs',
   'sandbox/coop/arms-read.py',
   'docs/reports/coop-b5-2026-10-31.md',
+  // dirtrung-01 (11-04): the dirt rung is met by a stack of dirt + stone family (gather_dirt_16 held 22.8% of decisions)
+  'bots/test/dirtrung.test.mjs',
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
