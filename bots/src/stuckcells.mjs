@@ -37,6 +37,36 @@ export const stuckCellsOn = (env = process.env) => !['off', '0', 'false', 'no'].
 /** MONUSTUCK-01 (buildrun.mjs: stalkFell in the sealed column, the waiver beside a sealed cell, the dig walk's stand bans).
  *  MONUSTUCK=off is the rollback: every visit exactly as before. */
 export const monuStuckOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.MONUSTUCK ?? '').trim().toLowerCase())
+/** TIDYDEAD-01 (buildrun.mjs `p.hardDefers`, the tidy's visit only). TIDYDEAD=off is the rollback: every visit exactly as before. */
+export const tidyDeadOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.TIDYDEAD ?? '').trim().toLowerCase())
+
+/**
+ * TIDYDEAD-01: THE HARD CELLS A VISIT DEFERS instead of stopping `blocked` / `attempts_spent` (fleet 11-04: placebo-b's tidy, 455 of
+ * 512 visits `blocked` on ONE oak_leaves cell no dig stand reaches, 1 of 245 fills left; hive-d's, 252 visits `attempts_spent` on ONE
+ * clear fill no click lands on, 205 fills in 78 other segments waiting). The tidy's waiver (wall.mjs wallWaiveDue) names only cells a
+ * visit DEFERRED, and neither stop defers, so neither cell was ever waived. Pure.
+ *   open      the segment's open cells [{ at }]
+ *   clear     at -> the cell takes a placement now (buildrun.mjs isClear)
+ *   tries     key -> the placement attempts this visit spent on it
+ *   max       the attempts a cell gets a visit (BUILD_ATTEMPTS)
+ *   waits     c -> the cell waits on another open cell below it in its column (buildrun.mjs `below`): neither hard nor a chance
+ *   unreached keys whose clear THIS visit failed no_stand / unreached (a dig that was refused, unconfirmed or gone is a chance)
+ *   lastTry   key -> the last click result this visit (named in the deferral's why)
+ *   name      at -> the block in the cell (named in the why)
+ * -> [{ k, why }] the hard cells, when every open cell is hard or waits on one | null (some cell still has a chance: the stop stands)
+ */
+export function hardDeferrals (open = [], { clear, tries = () => 0, max = 2, waits = () => false, unreached = new Set(), lastTry = new Map(), name = () => '' } = {}) {
+  const out = []
+  for (const c of open) {
+    const k = kOf(c.at)
+    if (!clear(c.at)) {
+      if (!unreached.has(k)) return null                     // a block this visit could still dig: retried at once, as before
+      out.push({ k, why: `blocked ${name(c.at) || 'unread'} unreached` })
+    } else if ((tries(k) ?? 0) >= max) out.push({ k, why: `attempts ${lastTry.get(k) ?? 'spent'}` })
+    else if (!waits(c)) return null                          // a clear cell with attempts left: never deferred
+  }
+  return out.length ? out : null
+}
 
 /** A block read through a mineflayer bot -> { name, boundingBox, props? } | null: a snow layer carries its properties (its
  *  `layers`: townplan.mjs replaceableCell). Never throws. */
