@@ -105,7 +105,9 @@ function truth () {
   const out = {}
   let k = 0
   for (const q of tests) {
-    const ok = q.ids.some(() => /Test passed/.test(res[k++]?.reply ?? ''))
+    // every id's reply is consumed (a short-circuit here misaligned every later cell: the first run's truth was wrong)
+    const hits = q.ids.map(() => /Test passed/.test(res[k++]?.reply ?? ''))
+    const ok = hits.some(Boolean)
     const b = (out[q.role] ??= { ok: 0, bad: [] })
     if (ok) b.ok++; else b.bad.push(q.at.join(','))
   }
@@ -136,7 +138,8 @@ async function connect () {
 }
 async function kit () {
   rcon(`gamemode survival ${NAME}`, `clear ${NAME}`, `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 3600 1 true`,
-    `give ${NAME} minecraft:iron_pickaxe 2`, `give ${NAME} minecraft:iron_shovel 1`, `give ${NAME} minecraft:cobblestone 320`, `give ${NAME} minecraft:stone_bricks 192`,
+    `give ${NAME} minecraft:iron_pickaxe 1`, `give ${NAME} minecraft:iron_pickaxe 1`, `give ${NAME} minecraft:iron_pickaxe 1`, `give ${NAME} minecraft:iron_pickaxe 1`,
+    `give ${NAME} minecraft:iron_shovel 1`, `give ${NAME} minecraft:iron_shovel 1`, `give ${NAME} minecraft:iron_shovel 1`, `give ${NAME} minecraft:cobblestone 320`, `give ${NAME} minecraft:stone_bricks 192`,
     `give ${NAME} minecraft:cobblestone_wall 64`, `give ${NAME} minecraft:cobblestone_wall 64`, `give ${NAME} minecraft:cobblestone_wall 64`, `give ${NAME} minecraft:torch 64`)
   await sleep(1500)
 }
