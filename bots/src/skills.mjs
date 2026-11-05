@@ -13704,19 +13704,11 @@ export function stoneBillNow (bot, now = Date.now()) {
   stoneBillMemo = { at: now, val }
   return val
 }
-/** THE YARD'S COBBLESTONE (yarduse-01's piles) -> n, 0 with no yard or unreadable. Cached STONE_READ_MS. Never throws. */
-export function yardCobbleNow (bot, now = Date.now()) {
-  if (now - yardCobbleMemo.at < STONE_READ_MS) return yardCobbleMemo.val
-  let val = 0
-  try {
-    if (yardFlag(process.env, 'YARD_DRAW')) {
-      const y = yardRecNow()
-      if (y) { const bp = blueprintOf(isYardBlueprint(y.rec.blueprint) ? y.rec.blueprint : YARD_BLUEPRINT); val = Number(yardHeld(bayStates(pileSlots(y.rec, bp), planReader(bot))).cobblestone) || 0 }
-    }
-  } catch { val = 0 }
-  yardCobbleMemo = { at: now, val }
-  return val
-}
+/** THE YARD'S COBBLESTONE -> 0: the FLEET has no stock yard (yarduse-01 is the showcase's; this variant of stoneworks-02 keeps the
+ *  showcase's call sites, so the order never plans a yard draw here). */
+export function yardCobbleNow () { return 0 }
+/** The fleet has no yard draw (see yardCobbleNow): never called with a planned draw; 0 if it were. */
+async function yardDrawFor () { return 0 }
 
 /** What the bag holds ABOVE its keeps (towndeposit townKeeps: the stockpile, the ladder's means, the gather rungs). */
 export function matsBagSpare (bot) {
