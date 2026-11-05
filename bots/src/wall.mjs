@@ -146,7 +146,7 @@ export const terraceAt = (c, k) => {
  *                  GATEWAY (the wall opens where a path crosses), any other a plain gap (the wall meets that project)
  *   spokes         the plan's planned path segments [[x0, z0, x1, z1]]: + 1, a gateway too
  */
-export function wallCandidate (read, inside, m, { home, avoid = () => null, pzones = [], spokes = [], lights = 0, join = null, scanMemo = null, seed = null, column = pathColumn } = {}) {
+export function wallCandidate (read, inside, m, { home, avoid = () => null, pzones = [], spokes = [], lights = 0, join = null, scanMemo = null, seed = null, column = pathColumn, tallMax = WALL.tallMax } = {}) {
   const loop = ringLoop(inside, m)
   // wallext-01: a memo shared between candidates over the same ground (wallExtSite tries several rectangles)
   const col = scanMemo ?? new Map()
@@ -220,7 +220,7 @@ export function wallCandidate (read, inside, m, { home, avoid = () => null, pzon
       }
       for (const i of run) {
         const c = loop[i]
-        if (c.b + WALL.body - c.g[0] > WALL.tallMax || c.b + 2 - c.g[1] > WALL.tallMax - 2 || c.b + 1 - c.g[2] > WALL.tallMax - 3) { c.s = 'gap'; c.why = 'tall'; changed = true }
+        if (c.b + WALL.body - c.g[0] > tallMax || c.b + 2 - c.g[1] > tallMax - 2 || c.b + 1 - c.g[2] > tallMax - 3) { c.s = 'gap'; c.why = 'tall'; changed = true }
       }
     }
     if (!changed) break
@@ -794,7 +794,7 @@ export const WALLEXT_BLUEPRINT = 'wallext@1'
  * candidates (best first by their plots, then the shortest ring) proven; builtMin: the least share of the ring's own (non-join)
  * columns that must stand as wall (a side that runs along a road corridor is all gateway: no wall at all).
  */
-export const WALLEXT = Object.freeze({ margin: 6, grow: [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44], growOut: [0, 4, 8, 12, 16, 20, 24], plotsWant: 5, plotGap: 3, plotSpread: 4, lane: 5, plotSizes: Object.freeze([Object.freeze({ kind: 'hall', w: 19, d: 13, max: 2, value: 2 }), Object.freeze({ kind: 'house', w: 11, d: 11, max: 3, value: 1 })]), tries: 10, builtMin: 0.5 })
+export const WALLEXT = Object.freeze({ margin: 6, grow: [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44], growOut: [0, 4, 8, 12, 16, 20, 24], over: 12, tallMax: 5, plotsWant: 5, plotGap: 3, plotSpread: 4, lane: 5, plotSizes: Object.freeze([Object.freeze({ kind: 'hall', w: 19, d: 13, max: 2, value: 2 }), Object.freeze({ kind: 'house', w: 11, d: 11, max: 3, value: 1 })]), tries: 10, builtMin: 0.5 })
 /** THE SWITCH -> bool. WALLEXT=on|off; unset = on in the pools WALLEXT_POOLS names (default the showcase). Pure. */
 export function wallextOn (env = process.env, pool = '') {
   const v = String(env?.WALLEXT ?? '').trim().toLowerCase()
@@ -844,7 +844,13 @@ export function extColumn (read, x, z, { yHi, yLo }) {
 /** The old ring's line on that side -> { axis: 'z'|'x', at }. Pure. */
 export const extLine = (ring, side) => (side === 'N' ? { axis: 'z', at: ring[1] } : side === 'S' ? { axis: 'z', at: ring[3] } : side === 'W' ? { axis: 'x', at: ring[0] } : { axis: 'x', at: ring[2] })
 /** A JOIN test for wallCandidate -> (x, z) -> 'join' | null: the column lies on the shared line. Pure. */
-export const extJoin = (ring, side) => { const L = extLine(ring, side); return (x, z) => ((L.axis === 'z' ? z : x) === L.at ? 'join' : null) }
+export const extJoin = (ring, side) => {
+  const L = extLine(ring, side)
+  // wallext r4: only the old line's OWN columns (within the old ring's span) are the join; a rectangle that passes the span's end
+  // builds its shared side there as ordinary wall (it closes round the old ring's corner)
+  const [lo, hi] = L.axis === 'z' ? [ring[0], ring[2]] : [ring[1], ring[3]]
+  return (x, z) => ((L.axis === 'z' ? z : x) === L.at && (L.axis === 'z' ? x : z) >= lo && (L.axis === 'z' ? x : z) <= hi ? 'join' : null)
+}
 /**
  * THE CANDIDATE RECTANGLES -> [{ rect: [x0, z0, x1, z1], a, b, out }]. Pure. The hall's box + `margin`, the shared side ON the old
  * line, widened along it by a (one end) and b (the other) from `grow` (never past the old ring's span) and deepened by out from
@@ -855,10 +861,13 @@ export function extRects (ring, box, side, W = WALLEXT) {
   const seen = new Set()
   for (const a of W.grow) for (const b of W.grow) for (const o of W.growOut) {
     let r
-    if (side === 'N') r = [Math.max(ring[0], box[0] - m - a), box[1] - m - o, Math.min(ring[2], box[2] + m + b), ring[1]]
-    else if (side === 'S') r = [Math.max(ring[0], box[0] - m - a), ring[3], Math.min(ring[2], box[2] + m + b), box[3] + m + o]
-    else if (side === 'W') r = [box[0] - m - o, Math.max(ring[1], box[1] - m - a), ring[0], Math.min(ring[3], box[3] + m + b)]
-    else if (side === 'E') r = [ring[2], Math.max(ring[1], box[1] - m - a), box[2] + m + o, Math.min(ring[3], box[3] + m + b)]
+    // wallext r4 (LIVE 11-05: the hall 6 from the old ring's east end; every ring that end allowed trapped or cut a strip between the
+    // hall and the wall's terrace): a rectangle may pass the old span by `over` at each end
+    const v = W.over ?? 0
+    if (side === 'N') r = [Math.max(ring[0] - v, box[0] - m - a), box[1] - m - o, Math.min(ring[2] + v, box[2] + m + b), ring[1]]
+    else if (side === 'S') r = [Math.max(ring[0] - v, box[0] - m - a), ring[3], Math.min(ring[2] + v, box[2] + m + b), box[3] + m + o]
+    else if (side === 'W') r = [box[0] - m - o, Math.max(ring[1] - v, box[1] - m - a), ring[0], Math.min(ring[3] + v, box[3] + m + b)]
+    else if (side === 'E') r = [ring[2], Math.max(ring[1] - v, box[1] - m - a), box[2] + m + o, Math.min(ring[3] + v, box[3] + m + b)]
     else continue
     if (r[2] - r[0] < 2 * m + 1 || r[3] - r[1] < 2 * m + 1) continue
     const k = r.join(',')
@@ -1011,7 +1020,7 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
   let best = null
   for (const c of cands.slice(0, W.tries)) {
     const inside = [c.rect[0] + m, c.rect[1] + m, c.rect[2] - m, c.rect[3] - m]
-    const cand = wallCandidate(read, inside, m, { home, avoid, pzones: pz, spokes, lights, join, scanMemo: memo, seed, column: extColumn })
+    const cand = wallCandidate(read, inside, m, { home, avoid, pzones: pz, spokes, lights, join, scanMemo: memo, seed, column: extColumn, tallMax: W.tallMax ?? WALL.tallMax })
     if (pause) await pause()
     const t = { rect: c.rect, plots: c.plots, level: c.level, ok: cand.ok, why: cand.why }
     tried.push(t)
@@ -1019,7 +1028,7 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
     const R0 = Math.max(...cand.cols.map(q => Math.max(Math.abs(q.x - home.x), Math.abs(q.z - home.z))))
     const esc = wallEscape(read, home, cand.cells, { r: R0 + 14, near: R0 + 6, seed })
     if (pause) await pause()
-    Object.assign(t, { cut: esc.cut, trapped: esc.trapped, pits: esc.pits })
+    Object.assign(t, { cut: esc.cut, trapped: esc.trapped, pits: esc.pits, ...(esc.cut || esc.trapped ? { cutAt: esc.cutAt.slice(0, 8), trapAt: esc.trapAt.slice(0, 8) } : {}) })
     if (esc.cut > 0 || esc.trapped > 0) continue
     // 2. THE PLOTS AGAIN on the built ring: clear of its own record columns + 1 (its zones) and one lane more
     const used = new Set(cand.cells.map(q => k2(q.at[0], q.at[2])))
@@ -1036,7 +1045,10 @@ export async function siteWallExt (read, { wall, hub, plan, zones = [], caps = [
     t.score = Math.round(score * 10) / 10
     if (best && best.score >= score) continue
     const L = extLine(ring, side)
-    const along = L.axis === 'z' ? [c.rect[0], c.rect[2]] : [c.rect[1], c.rect[3]]
+    // the join is the old line's OWN span (Codex r4 BLOCKER: a rectangle past the old ring's end made the old corner "strictly
+    // inside" the recorded span, and the demolition would have taken the corner and the perpendicular side beside it)
+    const [lo, hi] = L.axis === 'z' ? [ring[0], ring[2]] : [ring[1], ring[3]]
+    const along = L.axis === 'z' ? [Math.max(c.rect[0], lo), Math.min(c.rect[2], hi)] : [Math.max(c.rect[1], lo), Math.min(c.rect[3], hi)]
     const oldOn = (wall.cols ?? []).filter(q => (L.axis === 'z' ? q.z : q.x) === L.at && (L.axis === 'z' ? q.x : q.z) >= along[0] && (L.axis === 'z' ? q.x : q.z) <= along[1])
     const record = {
       v: 1, blueprint: WALLEXT_BLUEPRINT, plot: WALLEXT_PLOT, home: { x: home.x, y: home.y, z: home.z }, side,
