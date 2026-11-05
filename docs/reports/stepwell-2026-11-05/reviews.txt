@@ -1,0 +1,20 @@
+== Codex r1 (blockers only) on 89ed1c4f
+1. `bots/src/stepwell.mjs:349` — A seal refused twice enters `skip`, causing the survey to ignore the remaining water and return adjacent cuts for digging; `own_cell` handling creates the same bypass. **Fix:** keep unsealed water blocking dependent digs regardless of the skip set, ending the visit when sealing cannot succeed.
+
+2. `bots/src/stepwellvisit.mjs:163` — Tank digs check only the builder’s floored position; they never consult `B.bodies()`, and `B.dig()` performs no occupancy check. Another bot standing on a cut cell can have its floor excavated despite the single-builder lease. **Fix:** check current entity bounding boxes immediately before digging and refuse cells intersecting any bot’s body or supporting its feet.
+
+3. `bots/src/stepwell.mjs:182` — `walkCheck` ignores exterior neighbours, while siting permits adjacent exterior ground at `g - 2`. Building the unposted outer walkway at `g` therefore creates a two-block drop along an accepted site’s perimeter. **Fix:** validate exterior heights and reject such sites, or include perimeter grading/railings in the record and build them before exposing the edge.
+
+== Claude r1 (independent subagent, two engines on the tripwire) on 89ed1c4f
+3 BLOCKERS: (1) a felling stand on a tank cell is dropped and its tree never felled (planTank stands loop) -> standsFit refuses; (2) a stand above the cut top is never cut, the tank never completes -> standsFit refuses; (3) a seal in a felled log's cell (clear kind tree) trips SW1 -> sealKeys = clear entries of kind cut. Checked OK: tank digs on the head's clear list, foreign digs on cells, generations only add fields, fellView narrows the head, G5 counts the head's replants, SW1 not over-permissive.
+
+== Codex r2 on 4d73dfb8
+1. **Gate accepts deep water as safe ground** — `bots/src/stepwell.mjs:496`: `groundTop()` returns water surfaces, but `outer` discards `wet`. Reproduced an accepted site with nine blocks of water directly outside both gate columns; `gate_step` passes despite no solid landing. **Fix:** require dry, solid gate-front floors and clear feet/head cells.
+
+2. **Exit targets an impossible feet height on accepted slopes** — `bots/src/stepwell.mjs:295`: exit remains `g + 1`, although `gate_step` accepts ground at `g ± 1`. Reproduced accepted exits inside stone or above an air floor; `stairWalk` targets an exact `GoalBlock`, so the promised egress can fail. **Fix:** derive and persist the exit’s feet height from the validated gate-front floor.
+
+== Claude r2 on 4d73dfb8
+NO BLOCKERS. Notes: (a) 'unsealed' missing from the stuck back-off list -> added; (b) a waterlogged post is good but wet, sealOp loops -> a good block is never sealed into (d6ed5142).
+
+== Codex r3 on 9c370c65
+NO BLOCKERS

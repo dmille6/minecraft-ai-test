@@ -120,6 +120,13 @@
 #                      own item (an anvil slot takes an anvil; a shelf slot a bookshelf); any other block there, or a fit item anywhere
 #                      else, is off_record. Its labels (`_enchantshop_sign op=place at=`, sortstore's writer) are G1 too: a `signs[].at`
 #                      cell of a generation of the chain, else off_record, judged only once placed (the hall signs' rule).
+#   SW1 stepwell_seal (stepwell-01, 11-05; bots/src/stepwell.mjs, bots/src/stepwellvisit.mjs): THE STEPWELL is an ordinary record
+#                      (project=stepwell): its cut is its `clear` list (kind=cut digs), its stone its `cells` (floor, trim, wall, body,
+#                      under, post, light, stand: placements, and kind=foreign digs of a bad block in one), its felling the clear list's
+#                      kind=tree/leaves entries with the record's `replant` (runVisit's rows: G2 and G5 as for every record). ONE
+#                      addition: a SEAL -- `_build op=place project=stepwell kind=seal` -- is on the record in a CUT cell (kind cut) of any
+#                      generation of the stepwell chain too (a liquid met in the volume is sealed by a block, which the cut then digs);
+#                      any other placement in a cut cell, or a seal anywhere else off the record, is off_record (` seal`).
 #   RO1 reorient (townstyle-01, 11-04; bots/src/buildrun.mjs misorientedAt, bots/src/townstyle.mjs): A STATE-BEARING CELL'S OWN
 #                      BLOCK IN THE WRONG STATE (a stair facing away, a log on its side) is dug and placed again aimed: `_build op=clear
 #                      kind=reorient`. On the record ONLY when the cell is a record cell that names a world state (`ws`) in a generation of
@@ -262,6 +269,7 @@ GATHER_BLOCKS = frozenset(['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'a
 # cropfarm-01 (bots/src/cropfarm.mjs CROPFARM_PLOT, CROP_BLOCKS, SEED_GRASS, CROP.gatherR)
 CROPFARM = 'cropfarm'
 CANEFARM = 'canefarm'                 # canefarm-01 CF1 (bots/src/canefarm.mjs CANEFARM_PLOT)
+STEPWELL = 'stepwell'                 # stepwell-01 SW1 (bots/src/stepwell.mjs STEPWELL_PLOT)
 CROP_BLOCKS = frozenset(['wheat', 'carrots', 'potatoes', 'beetroots'])
 SEED_GRASS = frozenset(['short_grass', 'tall_grass', 'fern', 'large_fern'])
 SEEDGRASS_R = 24
@@ -338,6 +346,17 @@ def cane_harvest_ok(chain, cell, block):
         return False
     k = ck([cell[0], cell[1] - 1, cell[2]])
     return any(c.get('role') == 'cane' and ck(c['at']) == k for rec in chain or [] for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at'))
+
+
+def stepwell_place_ok(chain, cell, kind):
+    """stepwell-01 SW1: is a `project=stepwell op=place` on the record -- a cell of any generation of the stepwell chain, or, for a
+    kind=seal only, a CUT cell (its `clear` list, kind cut) of any generation? -> bool. Pure."""
+    if not isinstance(cell, (list, tuple)) or len(cell) != 3:
+        return False
+    k = ck(cell)
+    if any(ck(c['at']) == k for rec in chain or [] for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at')):
+        return True
+    return kind == 'seal' and any(c.get('kind') == 'cut' and ck(c['at']) == k for rec in chain or [] for c in rec.get('clear') or [] if isinstance(c, dict) and c.get('at'))
 
 
 def tidy_heads_at(chain, t_ms, skew_ms=60_000):
@@ -1319,6 +1338,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 elif plot == YARD and rec is not None:
                     # any generation of the yard's chain (a re-sited yard's earlier stock stays the yard's -- Claude r1 note)
                     off = not any(yard_place_ok(g, cell, f.get('block')) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
+                elif plot == STEPWELL and rec is not None:
+                    # stepwell-01 SW1: a cell of any generation of the stepwell's chain; a seal also in a cut cell of one
+                    off = not stepwell_place_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'))
+                    pwhy = ' seal' if off and f.get('kind') == 'seal' else ''
                 elif plot == ENCHANT and rec is not None:
                     # enchantshop-01 EF1: a shell cell, or a fit slot with its own item, of any generation of the workshop's chain
                     off = not any(enchant_place_ok(g, cell, f.get('block')) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
@@ -2039,6 +2062,23 @@ def selftest():
     assert tidy_guarded([5, 70, 6], T0MS_ + 3_600_000, tg3) is True, 'no demolition record: held'
     tg4 = tidy_guard({'projects': {'wall': wch, 'walldemo': {'record': dict(drec, completeAt=T0MS_ - 2000), 'chain': [dict(drec, completeAt=T0MS_ - 2000)]}}})
     assert tidy_guarded([5, 70, 6], T0MS_, tg4) is True, 'a completeAt on a demolition that is not complete: held'
+    # stepwell-01 SW1: the stepwell's stone on its cells, its cut on its clear list, a seal also in a cut cell -- nothing else
+    srec1 = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'stepwell@1', 'plot': 'stepwell', 'cells': [{'at': [60, 66, 60], 'role': 'floor', 't': 1}, {'at': [61, 67, 60], 'role': 'post', 't': 0}],
+             'clear': [{'at': [60, 67, 60], 'kind': 'cut', 't': 1}, {'at': [62, 75, 60], 'kind': 'tree', 'name': 'spruce_log', 'tree': 0}], 'replant': []}
+    srec2 = dict(srec1, gen=2, prev=1, tiers_built=[1])
+    sb = PP(stepwell={'record': srec2, 'records_files': 2, 'leases': {}, 'chain': [srec1, srec2]})
+    sp = lambda c, kind, block='cobblestone': J(base + [R('_build', 'project=stepwell op=place cell=%s block=%s kind=%s' % (c, block, kind), s=14)], sb)['off_record']
+    sc = lambda c, kind, block='dirt': J(base + [R('_build', 'project=stepwell op=clear cell=%s block=%s kind=%s' % (c, block, kind), s=14)], sb)['clear_outside']
+    assert sp('60,66,60', 'floor', 'stone_bricks') == 0 and sp('61,67,60', 'post', 'cobblestone_wall') == 0, 'stone on its record cells'
+    assert sp('60,67,60', 'seal') == 0, 'a seal in a cut cell (the liquid met in the volume)'
+    assert sp('60,67,60', 'floor') == 1, 'no other placement in a cut cell'
+    assert sp('70,67,60', 'seal') == 1 and sp('70,67,60', 'floor') == 1, 'off the record either way'
+    assert sp('60,66,60', 'seal') == 0, 'a seal in a record cell (a wet face)'
+    assert sp('62,75,60', 'seal') == 1, 'a felling clear is no cut cell: no seal there'
+    assert sc('60,67,60', 'cut') == 0 and sc('62,75,60', 'tree', 'spruce_log') == 0, 'its cut and its felling on the clear list'
+    assert sc('60,66,60', 'foreign') == 0, 'a bad block dug from its own record cell'
+    assert sc('70,67,60', 'cut') == 1 and sc('70,66,60', 'foreign') == 1, 'a dig off the record either way'
+    assert sc('60,66,60', 'cut') == 1, 'a record cell is never cut'
     # canefarm-01 CF1: the cane bed's harvest is the second block of a cane cell, sugar cane only; its planting a record cell
     crec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'canefarm@1', 'plot': 'canefarm', 'cells': [{'at': [40, 66, 40], 'role': 'cane', 'seg': 'C'}, {'at': [42, 66, 40], 'role': 'floor', 'seg': 'C'}], 'clear': [], 'replant': []}
     cb = PP(canefarm={'record': crec, 'records_files': 1, 'leases': {}})

@@ -1,0 +1,105 @@
+{
+ "root": "/var/log/mcai",
+ "days": 3.0,
+ "since": "2026-11-02T02:17",
+ "bots": 15,
+ "rows": 716321,
+ "deaths": 0,
+ "death_by_y": {},
+ "trips_started": 77,
+ "trip_ends": {
+  "('home', 'bank', 'iron')": 41,
+  "('stranded', 'return', 'iron')": 10,
+  "('home', 'bank', 'diamond')": 9,
+  "('stranded', 'return', 'diamond')": 4,
+  "('collar', 'descend', 'diamond')": 1,
+  "('stair', 'descend', 'iron')": 1
+ },
+ "end_whys": [
+  [
+   "no_ore",
+   18
+  ],
+  [
+   "bag_full",
+   18
+  ],
+  [
+   "branches",
+   12
+  ],
+  [
+   "stone_pickaxes",
+   8
+  ],
+  [
+   "pickaxe",
+   4
+  ],
+  [
+   "goal",
+   3
+  ],
+  [
+   "walk",
+   1
+  ],
+  [
+   "stair_step#:blocked",
+   1
+  ],
+  [
+   "step#:blocked",
+   1
+  ]
+ ],
+ "deaths_in_trip": [],
+ "stuck_in_trip": {
+  "('_entombed', 'work')": 499,
+  "('_entombed', 'return')": 43,
+  "('_entombed', 'descend')": 54,
+  "('_entombed', 'deepen')": 151,
+  "('_marooned', 'deepen')": 45,
+  "('_needs_rescue', 'return')": 1,
+  "('_needs_rescue', 'deepen')": 3,
+  "('_needs_rescue', 'descend')": 1,
+  "('_marooned', 'descend')": 16,
+  "('_marooned', 'work')": 101,
+  "('_needs_rescue', 'work')": 2,
+  "('_marooned', 'return')": 9
+ },
+ "stuck_below16_not_trip": {
+  "_entombed": 131,
+  "_marooned": 29,
+  "_needs_rescue": 1
+ },
+ "deepen_rows_by_phase": {
+  "deepen": 67,
+  "work": 9
+ },
+ "deepen_whys": [
+  [
+   "unknown:stopped_at_y=#:_cut_a_step_but_could_not_stand_in_it_(moved",
+   28
+  ],
+  [
+   "unknown:stopped_at_y=#:_cut_a_step_but_could_not_stand_in_it_(moved_",
+   19
+  ],
+  [
+   "cut:this_call's_time",
+   14
+  ],
+  [
+   "unknown:stopped_at_y=#:_cut_a_step_but_could_not_stand_in_it_(move",
+   10
+  ],
+  [
+   "success:reached_y=#",
+   5
+  ]
+ ],
+ "mine_to_negative_y_not_trip": {
+  "success": 1
+ }
+}

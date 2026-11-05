@@ -4741,6 +4741,40 @@
     ]
    },
    "note": "Installed 11-05 (control session subagent). (1) BlueMap 5.16 CLI: Faithful 32x 1.21.8-june-2026 (Modrinth sha512 verified; Faithful License, private-server use exempt from credit -- credit 'Faithful 32x, faithfulpack.net' if a video goes public) in /srv/showcase/bluemap/config/packs/; maps/showcase.conf ambient-light 0.1->0.3, edge-light-strength 8->6, sky-color #7dabff->#9cc4f2 (.bak-20261105T0100Z-visuals); full re-render 00:57Z 128 s; before/after pairs (iso, ziggurat, storehouse, wall, town) in /srv/showcase/timelapse/video/stills/visuals-1105/pairs/. Slot render_s ~30 s -> 57-78 s after (budget 690); one slot (01:00Z) skipped for the after-shoot. (2) SkinsRestorer 15.12.6 (GPL-3.0; sha256 a85b4a37 = GitHub release digest, sha1 = Modrinth) installed at a planned restart 01:05-01:15Z holding ops.lock + renderer.lock (stop-bots, restart showcase-paper 22 s, start-bots gate 17/17, 15/15 bots verified, deploy.jsonl rows server-restart-begin/done, start-bots-after-restart rc 0); tripwire WATCH at 01:35Z. 15 role skins drawn from scratch (make_skins.py). BlueMap CLI shows no live player markers (that needs the BlueMap server plugin), so skins are visible in-game only. (3) Chunky 2.5.0-DEV.489.g891d6ad built from chunky-dev/chunky master 891d6ad4 (2.4.6 release predates 1.21 blocks) on ci2 ~/chunky (JDK 21 runtime, JDK 17 for the gradle build; launcher jar ~/chunky/ChunkyLauncher-2.5.0-DEV.489.g891d6ad.jar); first run 02:17-02:48Z 1920x1080 512 spp: town 602 s, hallwall 672 s, ziggurat 575 s (~1.7 M SPS, 14 threads nice 19) -> showcase video/stills/chunky/2026-11-05/. MSPT (5 s/1 m avg): before 10.5/12.2 ms; during the re-render 6-13; first 10 min after the restart 15-21 (bots rejoining); 02:50Z 7-12; TPS 20 throughout. Rollback: (1) rm the pack zip + restore the .bak conf + tl_showcase.py render-full; (2) rm server/plugins/SkinsRestorer.jar at a planned restart (stop-bots, restart showcase-paper, start-bots); (3) ci2 crontab: delete the visuals-1105 line."
+  },
+  {
+   "id": "stepwell-1105",
+   "title": "Town stepwell (owner 11-05 'Yes'): a showcase landmark that becomes the miners' safe shared descent -- phase 1 a terraced stone tank (walled rim, 2 terraces, flights, wall railings, torches, a basin for the pool) then an enclosed descent to y16; phase 2 to -53 with a sealed lava/obsidian station (after bucketfix-01 + the obsidian design)",
+   "owner_date": "2026-11-05",
+   "memory": [
+    "stepwell-1105.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "stepwell-01 BUILT: showcase branch stepwell-01show (on the live 8b4ea9cc), tier 2: record + siting (W 23 at -52,-74, rim 62, monument zone) + the felling (plotPrep stands, replantCells, runVisit on fellView) + tiers 1-2 by layers + parapet/rails + torches. Codex r1 3 + Claude r1 3 blockers fixed, Codex r2 2 fixed, Codex r3 + Claude r2 NO BLOCKERS; ci2 426/429 (the known trio); Paper sandbox3 driver sandbox/stepwell/stepwell-e2e.mjs. READY TO STAGE with tripwire SW1 (main shopread.py.txt) installed. Then stepwell-02show (court portal + enclosed descent to y16), the pool after bucketfix-01, stepuse-01 (tier 3, deepmine.mjs) after the descent is walked on Paper.",
+   "max_quiet_hours": 72,
+   "depends_on": [],
+   "evidence": {
+    "grep": [
+     "stepwell-01",
+     "stepwell-1105"
+    ],
+    "branches": [
+     "origin/stepwell-01show"
+    ],
+    "paths": [
+     "docs/reports/stepwell-design-2026-11-05.md",
+     "docs/reports/stepwell-2026-11-05/top.png",
+     "docs/reports/stepwell-2026-11-05/section.png",
+     "docs/reports/stepwell-2026-11-05/iso.png"
+    ],
+    "runs": [
+     "stepwell-01show"
+    ]
+   },
+   "note": "Measured 3 d to 11-05: fleet deep-miner trips 618, stranded on return 81 (13%), personal deepen rows 855 of which 705 'could not stand'; 2 of 55 deaths in trips. Showcase 77 trips, 14 stranded (18%), 0 deaths. Every dry showcase site is forest; only W 23 has a site whose felling keeps no tree. ~3,800 digs + ~900 places, ~27-33 builder-hours."
   }
  ]
 }

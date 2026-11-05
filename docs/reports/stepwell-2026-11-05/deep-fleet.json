@@ -1,0 +1,141 @@
+{
+ "root": "/var/log/mcai",
+ "days": 3.0,
+ "since": "2026-11-02T02:18",
+ "bots": 80,
+ "rows": 6027242,
+ "deaths": 55,
+ "death_by_y": {
+  "-54..-1": 15,
+  "16..49": 16,
+  ">=50": 12,
+  "0..15": 10,
+  "<-54": 2
+ },
+ "trips_started": 618,
+ "trip_ends": {
+  "('home', 'bank', 'iron')": 269,
+  "('home', 'bank', 'diamond')": 242,
+  "('stranded', 'return', 'iron')": 44,
+  "('stranded', 'return', 'diamond')": 37,
+  "('collar', 'descend', 'iron')": 13,
+  "('collar', 'descend', 'diamond')": 10
+ },
+ "end_whys": [
+  [
+   "no_ore",
+   136
+  ],
+  [
+   "bag_full",
+   134
+  ],
+  [
+   "stone_pickaxes",
+   116
+  ],
+  [
+   "branches",
+   98
+  ],
+  [
+   "goal",
+   52
+  ],
+  [
+   "pickaxe",
+   46
+  ],
+  [
+   "walk",
+   23
+  ],
+  [
+   "calls",
+   5
+  ],
+  [
+   "stair_step#:blocked",
+   3
+  ],
+  [
+   "not_underground",
+   2
+  ]
+ ],
+ "deaths_in_trip": [
+  [
+   "board-d-Echo",
+   "2026-11-04 00:21",
+   "work",
+   -29.2,
+   "tried to swim in lava; idle at the moment of death | leading up: deep_mine->no_effect, deep_mine->no_effect, deep_mine->"
+  ],
+  [
+   "hive-d-Alpha",
+   "2026-11-03 17:58",
+   "return",
+   51.2,
+   "drowned; idle at the moment of death | leading up: gather->failed, explore->failed, gather->failed, goto->failed, goto->"
+  ]
+ ],
+ "stuck_in_trip": {
+  "('_entombed', 'work')": 1418,
+  "('_entombed', 'return')": 434,
+  "('_marooned', 'return')": 137,
+  "('_entombed', 'deepen')": 5,
+  "('_marooned', 'work')": 142,
+  "('_stranded', 'work')": 1,
+  "('_needs_rescue', 'return')": 5,
+  "('_marooned', 'descend')": 11,
+  "('_entombed', 'descend')": 18,
+  "('_entombed', 'bank')": 4,
+  "('_needs_rescue', 'work')": 1
+ },
+ "stuck_below16_not_trip": {
+  "_entombed": 5793,
+  "_marooned": 2929,
+  "_stranded": 5,
+  "_needs_rescue": 2
+ },
+ "deepen_rows_by_phase": {
+  "deepen": 680,
+  "work": 175
+ },
+ "deepen_whys": [
+  [
+   "unknown:stopped_at_y=#:_cut_a_step_but_could_not_stand_in_it_(move",
+   430
+  ],
+  [
+   "unknown:stopped_at_y=#:_cut_a_step_but_could_not_stand_in_it_(moved",
+   186
+  ],
+  [
+   "success:reached_y=#",
+   91
+  ],
+  [
+   "unknown:stopped_at_y=#:_cut_a_step_but_could_not_stand_in_it_(moved_",
+   89
+  ],
+  [
+   "cut:this_call's_time",
+   53
+  ],
+  [
+   "failed:will_not_dig_down_within_#_blocks_of_home_\u2014_the_base_floor_i",
+   3
+  ],
+  [
+   "failed:will_not_dig_down_within_#_blocks_of_home_\u2014_the_base_floor_",
+   3
+  ]
+ ],
+ "mine_to_negative_y_not_trip": {
+  "success": 1608,
+  "unknown": 430,
+  "failed": 835,
+  "aborted": 7
+ }
+}

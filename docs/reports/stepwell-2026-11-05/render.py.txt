@@ -1,0 +1,215 @@
+# stepwell-01's pictures (stdlib only): render.py <grid.json> <out-dir>
+# grid.json is bots/scripts/stepwell-offline.mjs --grid over a read-only copy of the showcase's region files. Draws:
+#   top.png      the site from above: the natural ground round it, the tank's columns by depth, posts, lights, flights, the basin
+#   section.png  a side cross-section through the centre, y -64 .. g + 12: the real blocks, the tank cut into them (tiers 1-2 built
+#                by piece 1, tier 3 dashed), the phase-1b/2 descent below the court (schematic) and the sealed lava station
+#   iso.png      an isometric view of the finished tank (tiers 1-2) and the ground round it
+import json, sys, zlib, struct, math, os
+
+g = json.load(open(sys.argv[1])); out = sys.argv[2]
+os.makedirs(out, exist_ok=True)
+site = g['site']; G = site['g']; W = site['W']
+
+
+def png(path, img):
+    h = len(img); w = len(img[0])
+    raw = b''.join(b'\x00' + bytes(v for p in row for v in p) for row in img)
+    def chunk(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    open(path, 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b''))
+    print(path, w, h)
+
+
+def canvas(w, h, c=(250, 250, 248)): return [[c] * w for _ in range(h)]
+
+
+def rect(img, x0, y0, x1, y1, c):
+    for y in range(max(0, y0), min(len(img), y1)):
+        row = img[y]
+        for x in range(max(0, x0), min(len(row), x1)): row[x] = c
+
+
+def shade(c, f): return tuple(max(0, min(255, int(v * f))) for v in c)
+
+
+# a 3x5 pixel font for labels (digits, minus, a few letters)
+FONT = {
+    '0': '111101101101111', '1': '010110010010111', '2': '111001111100111', '3': '111001111001111', '4': '101101111001001',
+    '5': '111100111001111', '6': '111100111101111', '7': '111001001001001', '8': '111101111101111', '9': '111101111001111',
+    '-': '000000111000000', 'Y': '101101010010010', ' ': '000000000000000', 'N': '101111111111101', '=': '000111000111000',
+    'T': '111010010010010', 'L': '100100100100111', 'S': '111100111001111', 'W': '101101111111101', 'E': '111100111100111',
+    'P': '111101111100100', 'A': '111101111101101', 'V': '101101101101010', 'O': '111101101101111', 'R': '111101110101101',
+    'C': '111100100100111', 'I': '111010010010111', 'D': '110101101101110', 'H': '101101111101101', 'B': '110101110101110',
+    'U': '101101101101111', 'K': '101110100110101', 'M': '101111111101101', 'G': '111100101101111', 'F': '111100110100100',
+    ':': '000010000010000', '.': '000000000000010', '/': '001001010100100', '+': '000010111010000', 'X': '101101010101101',
+}
+
+
+def text(img, x, y, s, c=(20, 20, 20), k=2):
+    for ch in s.upper():
+        bits = FONT.get(ch, FONT[' '])
+        for i, bit in enumerate(bits):
+            if bit == '1': rect(img, x + (i % 3) * k, y + (i // 3) * k, x + (i % 3) * k + k, y + (i // 3) * k + k, c)
+        x += 4 * k
+
+
+KIND = {'walk': (196, 196, 190), 'rail': (110, 110, 110), 'court': (205, 200, 190), 'basin': (90, 140, 210), 'gap': (196, 196, 190),
+        'head': (150, 120, 90), 'tread': (176, 140, 100), 'frail': (130, 105, 80), 'parapet': (110, 110, 110), 'gate': (196, 196, 190)}
+
+
+def natcol(n, y):
+    if n == '?' or y is None: return (40, 40, 40)
+    if 'water' in n: return (70, 110, 200)
+    if n.endswith('leaves'): return (40, 110, 50)
+    if n.endswith('log'): return (110, 80, 40)
+    if 'grass' in n or n in ('podzol', 'moss_block'): base = (110, 160, 80)
+    elif 'dirt' in n: base = (140, 110, 70)
+    elif 'snow' in n: base = (235, 240, 245)
+    else: base = (150, 150, 150)
+    return shade(base, 0.75 + 0.03 * (y - G))
+
+
+# ---------------------------------------------------------------- top view
+P = 10
+x0 = min(q['x'] for q in g['nat']); z0 = min(q['z'] for q in g['nat'])
+x1 = max(q['x'] for q in g['nat']); z1 = max(q['z'] for q in g['nat'])
+img = canvas((x1 - x0 + 1) * P, (z1 - z0 + 1) * P + 40)
+for q in g['nat']:
+    rect(img, (q['x'] - x0) * P, (q['z'] - z0) * P, (q['x'] - x0 + 1) * P, (q['z'] - z0 + 1) * P, natcol(q['n'], q['y']))
+cmap = {(c['x'], c['z']): c for c in g['cols']}
+for c in g['cols']:
+    depth = G - c['s']
+    col = shade(KIND.get(c['kind'], (200, 0, 200)), 1.0 - 0.035 * depth)
+    X, Z = (c['x'] - x0) * P, (c['z'] - z0) * P
+    rect(img, X, Z, X + P, Z + P, col)
+    if c['post']: rect(img, X + 2, Z + 2, X + P - 2, Z + P - 2, (70, 70, 72))
+    if c['light']: rect(img, X + 3, Z + 3, X + P - 3, Z + P - 3, (250, 210, 60))
+    # tier edges: a dark line where the walking surface drops
+    for dx, dz, ex in ((1, 0, (X + P - 1, Z, X + P, Z + P)), (0, 1, (X, Z + P - 1, X + P, Z + P))):
+        n = cmap.get((c['x'] + dx, c['z'] + dz))
+        if n and abs(n['s'] - c['s']) >= 2: rect(img, *ex, (30, 30, 30))
+for st in site.get('stands', []):
+    rect(img, (st[0] - x0) * P + 3, (st[2] - z0) * P + 3, (st[0] - x0) * P + P - 3, (st[2] - z0) * P + P - 3, (200, 60, 60))
+ex = g['exit']
+rect(img, (ex[0] - x0) * P, (ex[2] - z0) * P, (ex[0] - x0 + 1) * P, (ex[2] - z0 + 1) * P, (220, 40, 160))
+H0 = (z1 - z0 + 1) * P
+text(img, 6, H0 + 6, 'STEPWELL TOP  N UP  CENTRE %d %d  RIM Y%d  W%d' % (site['centre'][0], site['centre'][1], G, W))
+text(img, 6, H0 + 22, 'POSTS DARK  TORCHES YELLOW  FLIGHTS BROWN  BASIN BLUE  ENTRY+EXIT PINK  STANDS RED')
+png(os.path.join(out, 'top.png'), img)
+
+# ---------------------------------------------------------------- section
+S = 6
+rows = g['sectionU']
+ylo = rows[0]['y']; yhi = rows[-1]['y']
+nW = len(rows[0]['row']); span = g['span']
+img = canvas(nW * S + 200, (yhi - ylo + 1) * S + 60)
+
+
+def blockcol(n):
+    if n == '?': return (40, 40, 40)
+    if n in ('air', 'cave_air', 'void_air'): return None
+    if 'lava' in n: return (240, 110, 20)
+    if 'water' in n or 'kelp' in n or 'seagrass' in n: return (70, 110, 200)
+    if 'diamond' in n: return (80, 230, 230)
+    if 'iron_ore' in n: return (210, 160, 120)
+    if 'coal' in n: return (30, 30, 30)
+    if 'copper' in n: return (200, 120, 70)
+    if n.endswith('_ore'): return (230, 200, 60)
+    if n == 'obsidian': return (50, 20, 70)
+    if n.endswith('leaves'): return (40, 110, 50)
+    if n.endswith('log'): return (110, 80, 40)
+    if 'deepslate' in n or n == 'tuff': return (80, 82, 90)
+    if 'dirt' in n or 'grass' in n or n in ('podzol', 'gravel', 'sand', 'clay'): return (140, 110, 70)
+    if n == 'bedrock': return (20, 20, 20)
+    return (140, 140, 140)
+
+
+for ri, rr in enumerate(rows):
+    y = rr['y']; Y = (yhi - y) * S
+    for i, n in enumerate(rr['row']):
+        c = blockcol(n)
+        if c is None: c = (205, 225, 245) if y > G - 2 else (25, 25, 30)
+        rect(img, i * S, Y, i * S + S, Y + S, c)
+# the tank's profile along the section (local v = centre): from the plan's columns
+cc = (W - 1) // 2
+prof = {}
+for c in g['cols']:
+    if c['v'] == cc: prof[c['u']] = c
+for u, c in prof.items():
+    X = (u + span) * S
+    for y in range(c['s'] + 1, G + 4):
+        rect(img, X, (yhi - y) * S, X + S, (yhi - y) * S + S, (215, 230, 245))
+    rect(img, X, (yhi - c['s']) * S, X + S, (yhi - c['s']) * S + S, (175, 175, 170) if not c['post'] else (120, 120, 115))
+    if c['post']: rect(img, X + 1, (yhi - c['s'] - 1) * S, X + S - 1, (yhi - c['s'] - 1) * S + S, (60, 60, 60))
+    if c['light']: rect(img, X + 2, (yhi - c['s'] - 2) * S + 1, X + S - 2, (yhi - c['s'] - 2) * S + S, (250, 210, 60))
+# the descent below the court (schematic, phase 1b to y16 and phase 2 to -53): a 7x7 shaft, 2-wide spiral round a 3x3 core
+cx0 = (cc - 3 + span) * S; cx1 = (cc + 4 + span) * S
+top = G - 8; ystep = 16
+y = top
+while y > -53:
+    yn = max(-53, y - 4)
+    rect(img, cx0, (yhi - y) * S, cx1, (yhi - yn) * S, (225, 215, 190))
+    rect(img, (cc - 1 + span) * S, (yhi - y) * S, (cc + 2 + span) * S, (yhi - yn) * S, (150, 140, 120))
+    y = yn
+for yl in (16, -53):
+    rect(img, cx0 - 2 * S, (yhi - yl) * S, cx1 + 2 * S, (yhi - yl) * S + 2, (200, 30, 30))
+# the sealed station at the foot (feet -53, floor -54; the cast cells at -55 behind a partition)
+rect(img, cx1, (yhi + 52) * S, cx1 + 8 * S, (yhi + 55) * S, (90, 60, 120))
+lx = nW * S + 8
+for yy, lab in ((G, 'RIM Y%d' % G), (G - 4, 'TIER 1'), (G - 8, 'TIER 2 COURT + BASIN'), (16, 'Y16 IRON'), (0, 'Y0'), (-53, 'Y-53 STATION'), (-60, 'LAVA -55..-64')):
+    text(img, lx, (yhi - yy) * S - 4, lab)
+text(img, 6, (yhi - ylo + 1) * S + 10, 'SECTION W-E THROUGH THE CENTRE  1 PX ROW = %d PX' % S)
+text(img, 6, (yhi - ylo + 1) * S + 28, 'REAL BLOCKS FROM THE REGION COPY  TANK LIGHT  ENCLOSED DESCENT TAN (LATER)  STATION PURPLE')
+png(os.path.join(out, 'section.png'), img)
+
+# ---------------------------------------------------------------- isometric
+# voxels: the tank as built (tiers 1-2): floors / trims (stone), posts (wall), lights (torch), the ground round it (natural top)
+vox = {}
+for c in g['cols']:
+    u, v, s = c['u'], c['v'], c['s']
+    base = G - 10
+    for y in range(base, s + 1):
+        vox[(u, y, v)] = (182, 182, 176) if y == s else (150, 146, 140)
+    if c['post']: vox[(u, s + 1, v)] = (96, 96, 96)
+    if c['light']: vox[(u, s + 2, v)] = 'torch'
+for q in g['nat']:
+    # the ring of ground outside the footprint (local coordinates from the site's frame: away = n -> u = x - ox reversed)
+    pass
+A = 12  # voxel width
+B = A // 2
+Hh = A * 3 // 4
+def iso(u, y, v): return ((u - v) * A, (u + v) * B - y * Hh)
+pts = [iso(u, y, v) for (u, y, v) in vox]
+mx = min(p[0] for p in pts) - A; my = min(p[1] for p in pts) - 2 * A
+Wd = max(p[0] for p in pts) - mx + 2 * A; Ht = max(p[1] for p in pts) - my + 3 * A
+img = canvas(Wd, Ht + 30, (235, 240, 246))
+
+
+def poly(img, ps, c):
+    ys = [p[1] for p in ps]
+    for yy in range(int(min(ys)), int(max(ys)) + 1):
+        xs = []
+        for i in range(len(ps)):
+            (xa, ya), (xb, yb) = ps[i], ps[(i + 1) % len(ps)]
+            if ya == yb: continue
+            if min(ya, yb) <= yy < max(ya, yb): xs.append(xa + (yy - ya) * (xb - xa) / (yb - ya))
+        xs.sort()
+        for j in range(0, len(xs) - 1, 2):
+            if 0 <= yy < len(img):
+                for xx in range(int(xs[j]), int(xs[j + 1]) + 1):
+                    if 0 <= xx < len(img[0]): img[yy][xx] = c
+
+
+for (u, y, v) in sorted(vox, key=lambda k: (k[0] + k[2], k[1], k[0])):
+    c = vox[(u, y, v)]
+    X, Y = iso(u, y, v); X -= mx; Y -= my
+    if c == 'torch':
+        # a torch: a thin stick and a flame, not a block
+        rect(img, X - 1, Y + B - 2, X + 2, Y + 2 * B + Hh - 2, (120, 90, 50))
+        rect(img, X - 2, Y + B - 6, X + 3, Y + B - 1, (255, 200, 40))
+        continue
+    topf = [(X, Y), (X + A, Y + B), (X, Y + 2 * B), (X - A, Y + B)]
+    if vox.get((u, y + 1, v), 'torch') == 'torch': poly(img, topf, c)
+    if vox.get((u, y, v + 1), 'torch') == 'torch': poly(img, [(X - A, Y + B), (X, Y + 2 * B), (X, Y + 2 * B + Hh), (X - A, Y + B + Hh)], shade(c, 0.78))
+    if vox.get((u + 1, y, v), 'torch') == 'torch': poly(img, [(X, Y + 2 * B), (X + A, Y + B), (X + A, Y + B + Hh), (X, Y + 2 * B + Hh)], shade(c, 0.62))
+text(img, 6, Ht + 6, 'STEPWELL TIERS 1-2 ISOMETRIC  POSTS = COBBLESTONE WALLS  YELLOW = TORCHES')
+png(os.path.join(out, 'iso.png'), img)

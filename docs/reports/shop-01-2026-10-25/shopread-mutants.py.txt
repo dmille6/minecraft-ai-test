@@ -151,6 +151,12 @@ M = [
  ("                        out[u] = min(out.get(u, ra), ra)", "                        pass"),
  ("            ra = done_at if isinstance(rec.get('retiredAt'), (int, float)) else None", "            ra = rec.get('retiredAt')"),
  ("    done_at = min([g['completeAt'] for g in dchain if g.get('structure_complete') and isinstance(g.get('completeAt'), (int, float))] or [None]", "    done_at = min([g['completeAt'] for g in dchain if isinstance(g.get('completeAt'), (int, float))] or [None]"),
+ # stepwell-01 SW1: a seal in a cut cell of the stepwell chain, nothing else
+ ("    return kind == 'seal' and any(c.get('kind') == 'cut' and ck(c['at']) == k for rec", "    return any(c.get('kind') == 'cut' and ck(c['at']) == k for rec"),
+ ("    return kind == 'seal' and any(c.get('kind') == 'cut' and ck(c['at']) == k for rec", "    return kind == 'seal' and any(ck(c['at']) == k for rec"),
+ ("    return kind == 'seal' and any(c.get('kind') == 'cut' and ck(c['at']) == k for rec", "    return False and any(c.get('kind') == 'cut' and ck(c['at']) == k for rec"),
+ ("                elif plot == STEPWELL and rec is not None:", "                elif False:"),
+ ("STEPWELL = 'stepwell'", "STEPWELL = 'stepwells'"),
  # canefarm-01 CF1: the cane bed's harvest at the second block
  ("    k = ck([cell[0], cell[1] - 1, cell[2]])", "    k = ck(cell)"),
  ("    if block != 'sugar_cane' or not isinstance(cell, (list, tuple)) or len(cell) != 3:", "    if not isinstance(cell, (list, tuple)) or len(cell) != 3:"),

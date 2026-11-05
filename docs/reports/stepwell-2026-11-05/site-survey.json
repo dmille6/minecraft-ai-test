@@ -1,0 +1,491 @@
+{
+ "home": {
+  "x": 0,
+  "y": 70,
+  "z": 0
+ },
+ "W": 23,
+ "tiers": 2,
+ "records": 20,
+ "zones": 274,
+ "tried": 32736,
+ "sites": 34,
+ "refused": {
+  "reserved:project:paths": 514,
+  "reserved:record": 1186,
+  "reserved:project:monument": 1975,
+  "reserved:project:wall": 944,
+  "reserved:land:road": 1416,
+  "reserved:project:hall": 232,
+  "reserved:project:tower": 1150,
+  "reserved:project:dress": 111,
+  "reserved:project:cropfarm": 23,
+  "reserved:project:treefarm": 302,
+  "zone:town": 25,
+  "reserved:project:storehouse": 16,
+  "reserved:land:park": 61,
+  "reserved:project:house": 69,
+  "zone:homes": 3198,
+  "reserved:project:storehub": 747,
+  "reserved:project:shop": 145,
+  "reserved:zone": 10277,
+  "reserved:project:yard": 796,
+  "zone:farms": 248,
+  "reserved:project:shaft": 79,
+  "reserved:expedition:marker": 2063,
+  "zone:treefarm": 832,
+  "too_low": 574,
+  "gate_step": 803,
+  "reserved:project:road": 136,
+  "reserved:project:canefarm": 418,
+  "reserved:project:shrine": 611,
+  "wet_ground": 3538,
+  "wet:tier1": 213
+ },
+ "fellRefused": {
+  "trees_kept": 26,
+  "stand_on_cell": 4
+ },
+ "best": {
+  "centre": [
+   -52,
+   -74
+  ],
+  "away": "n",
+  "g": 62,
+  "T": 2,
+  "box": [
+   -63,
+   -85,
+   -41,
+   -63
+  ],
+  "zone": "monument",
+  "exit": [
+   -52,
+   63,
+   -62
+  ],
+  "cells": 1514,
+  "clear": 3429,
+  "bill": {
+   "trim": 195,
+   "post": 195,
+   "light": 46,
+   "floor": 334,
+   "under": 419,
+   "wall": 300,
+   "body": 20,
+   "stand": 5
+  },
+  "palette": {
+   "floor": [
+    "cobblestone",
+    "stone_bricks"
+   ],
+   "trim": [
+    "stone_bricks",
+    "cobblestone"
+   ],
+   "wall": [
+    "cobblestone",
+    "stone_bricks"
+   ],
+   "post": [
+    "cobblestone_wall"
+   ],
+   "light": [
+    "torch"
+   ]
+  },
+  "solidCuts": 3158,
+  "cellsInReservations": 0,
+  "walk": true,
+  "d": 90,
+  "counts": {
+   "cut": 5675,
+   "dug": 3131,
+   "faces": 829,
+   "soft": 208,
+   "ore": 8,
+   "cave": 14,
+   "water": 0,
+   "pond": 0,
+   "lava": 0,
+   "falling": 179,
+   "fill": 6,
+   "treeCols": 168,
+   "trunks": 10
+  },
+  "byTier": {
+   "1": {
+    "dug": 2852,
+    "soft": 208,
+    "ore": 8,
+    "cave": 3,
+    "water": 0,
+    "lava": 0,
+    "falling": 179,
+    "faces": 731
+   },
+   "2": {
+    "dug": 270,
+    "soft": 0,
+    "ore": 0,
+    "cave": 11,
+    "water": 0,
+    "lava": 0,
+    "falling": 0,
+    "faces": 98
+   },
+   "3": {
+    "dug": 9,
+    "soft": 0,
+    "ore": 0,
+    "cave": 0,
+    "water": 0,
+    "lava": 0,
+    "falling": 0,
+    "faces": 0
+   }
+  },
+  "foreign": 601,
+  "open": 60
+ },
+ "fell": {
+  "trees": 9,
+  "stands": 3,
+  "standCells": 5,
+  "logs": 56,
+  "leaves": 15,
+  "replant": 9,
+  "skipped": {
+   "level_natural": 12,
+   "level_tall": 2
+  }
+ },
+ "phase2": {
+  "0": {
+   "solid": 634,
+   "iron": 14
+  },
+  "8": {
+   "solid": 638,
+   "iron": 10
+  },
+  "16": {
+   "solid": 646,
+   "iron": 2
+  },
+  "24": {
+   "solid": 635,
+   "ore": 5,
+   "coal": 6,
+   "iron": 2
+  },
+  "32": {
+   "solid": 640,
+   "ore": 3,
+   "iron": 5
+  },
+  "40": {
+   "solid": 646,
+   "iron": 2
+  },
+  "48": {
+   "solid": 399,
+   "ore": 6
+  },
+  "-8": {
+   "solid": 634,
+   "iron": 14
+  },
+  "-16": {
+   "solid": 642,
+   "ore": 6
+  },
+  "-24": {
+   "solid": 646,
+   "ore": 2
+  },
+  "-32": {
+   "solid": 610,
+   "cave": 38
+  },
+  "-40": {
+   "solid": 580,
+   "ore": 6,
+   "cave": 57,
+   "diamond": 5
+  },
+  "-48": {
+   "solid": 453,
+   "cave": 195
+  },
+  "-56": {
+   "solid": 536,
+   "cave": 105,
+   "lava": 1,
+   "ore": 6
+  },
+  "-64": {
+   "solid": 324
+  }
+ },
+ "top": [
+  {
+   "centre": [
+    -52,
+    -74
+   ],
+   "away": "n",
+   "g": 62,
+   "tiersDry": 2,
+   "d": 90,
+   "zone": "monument",
+   "counts": {
+    "cut": 5675,
+    "dug": 3131,
+    "faces": 829,
+    "soft": 208,
+    "ore": 8,
+    "cave": 14,
+    "water": 0,
+    "pond": 0,
+    "lava": 0,
+    "falling": 179,
+    "fill": 6,
+    "treeCols": 168,
+    "trunks": 10
+   },
+   "byTier": {
+    "1": {
+     "dug": 2852,
+     "soft": 208,
+     "ore": 8,
+     "cave": 3,
+     "water": 0,
+     "lava": 0,
+     "falling": 179,
+     "faces": 731
+    },
+    "2": {
+     "dug": 270,
+     "soft": 0,
+     "ore": 0,
+     "cave": 11,
+     "water": 0,
+     "lava": 0,
+     "falling": 0,
+     "faces": 98
+    },
+    "3": {
+     "dug": 9,
+     "soft": 0,
+     "ore": 0,
+     "cave": 0,
+     "water": 0,
+     "lava": 0,
+     "falling": 0,
+     "faces": 0
+    }
+   }
+  },
+  {
+   "centre": [
+    -18,
+    -76
+   ],
+   "away": "n",
+   "g": 62,
+   "tiersDry": 2,
+   "d": 78,
+   "zone": "wild",
+   "counts": {
+    "cut": 5675,
+    "dug": 3554,
+    "faces": 829,
+    "soft": 182,
+    "ore": 118,
+    "cave": 21,
+    "water": 0,
+    "pond": 0,
+    "lava": 0,
+    "falling": 0,
+    "fill": 26,
+    "treeCols": 321,
+    "trunks": 14
+   },
+   "byTier": {
+    "1": {
+     "dug": 3264,
+     "soft": 155,
+     "ore": 72,
+     "cave": 21,
+     "water": 0,
+     "lava": 0,
+     "falling": 0,
+     "faces": 731
+    },
+    "2": {
+     "dug": 281,
+     "soft": 27,
+     "ore": 43,
+     "cave": 0,
+     "water": 0,
+     "lava": 0,
+     "falling": 0,
+     "faces": 98
+    },
+    "3": {
+     "dug": 9,
+     "soft": 0,
+     "ore": 3,
+     "cave": 0,
+     "water": 0,
+     "lava": 0,
+     "falling": 0,
+     "faces": 0
+    }
+   }
+  },
+  {
+   "centre": [
+    -92,
+    32
+   ],
+   "away": "w",
+   "g": 64,
+   "tiersDry": 2,
+   "d": 97,
+   "zone": "wild",
+   "counts": {
+    "cut": 5675,
+    "dug": 2303,
+    "faces": 829,
+    "soft": 317,
+    "ore": 31,
+    "cave": 2,
+    "water": 0,
+    "pond": 0,
+    "lava": 0,
+    "falling": 0,
+    "fill": 29,
+    "treeCols": 325,
+    "trunks": 18
+   },
+   "byTier": {
+    "1": {
+     "dug": 2013,
+     "soft": 317,
+     "ore": 28,
+     "cave": 2,
+     "water": 0,
+     "lava": 0,
+     "falling": 0,
+     "faces": 731
+    },
+    "2": {
+     "dug": 281,
+     "soft": 0,
+     "ore": 3,
+     "cave": 0,
+     "water": 0,
+     "lava": 0,
+     "falling": 0,
+     "faces": 98
+    },
+    "3": {
+     "dug": 9,
+     "soft": 0,
+     "ore": 0,
+     "cave": 0,
+     "water": 0,
+     "lava": 0,
+     "falling": 0,
+     "faces": 0
+    }
+   }
+  }
+ ],
+ "nearest": [
+  {
+   "centre": [
+    -16,
+    -72
+   ],
+   "away": "n",
+   "g": 62,
+   "tiersDry": 2,
+   "d": 74,
+   "zone": "wild",
+   "counts": {
+    "cut": 5675,
+    "dug": 3125,
+    "faces": 829,
+    "soft": 238,
+    "ore": 117,
+    "cave": 43,
+    "water": 0,
+    "pond": 0,
+    "lava": 0,
+    "falling": 0,
+    "fill": 38,
+    "treeCols": 293,
+    "trunks": 13
+   }
+  },
+  {
+   "centre": [
+    -40,
+    -70
+   ],
+   "away": "n",
+   "g": 62,
+   "tiersDry": 2,
+   "d": 81,
+   "zone": "monument",
+   "counts": {
+    "cut": 5675,
+    "dug": 3094,
+    "faces": 829,
+    "soft": 254,
+    "ore": 25,
+    "cave": 18,
+    "water": 0,
+    "pond": 0,
+    "lava": 0,
+    "falling": 2,
+    "fill": 38,
+    "treeCols": 270,
+    "trunks": 18
+   }
+  },
+  {
+   "centre": [
+    -92,
+    32
+   ],
+   "away": "w",
+   "g": 64,
+   "tiersDry": 2,
+   "d": 97,
+   "zone": "wild",
+   "counts": {
+    "cut": 5675,
+    "dug": 2303,
+    "faces": 829,
+    "soft": 317,
+    "ore": 31,
+    "cave": 2,
+    "water": 0,
+    "pond": 0,
+    "lava": 0,
+    "falling": 0,
+    "fill": 29,
+    "treeCols": 325,
+    "trunks": 18
+   }
+  }
+ ]
+}

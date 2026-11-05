@@ -1,0 +1,284 @@
+1. Recommendation
+
+Yes—as a modest landmark attached to verified shared transport. No—as a monumental open excavation all the way to y16.
+
+The existing town stair already supplies the iron descent. Replacing that upper journey has limited immediate transport value. The stronger case is replacing repeated personal cuts below y16: 82% of fleet deepen rows report “could not stand,” and 13–18% of trips end stranded.
+
+Those are failure-row and trip rates, not proof that a new staircase eliminates those failures. Branch mining and return navigation still need attention. Only 2 of 55 fleet deaths occurred during these trips; do not sell the stepwell as a demonstrated fleet mortality fix.
+
+I recommend a 12-block-deep terraced court, then enclosed shared switchbacks to y16 and eventually feet y−53. The lava station works on cells near y−55 from a dry platform. A water pool is scenery, not the descent mechanism.
+
+Disagreement with the proposed sequence: the dry shared descent below iron should not depend on bucketfix. Only pool filling and lava operations need that dependency. Their releases can remain separate.
+
+2. Shape and cell rules
+
+Use full-block treads, cobblestone retaining work, cobblestone-wall railings, restrained brick accents, and repeated symmetrical flights. The stepped court supplies the Indian stepwell character without a 54-block-deep open pit.
+
+All following heights describe feet unless explicitly called a block coordinate.
+Let surface entrance feet be F, measured on site; F=70 is an illustration.
+Local coordinates are x,z around the court center.
+
+Court:
+- Footprint: 33×33, x,z=−16…16, including its outer railing.
+- Three terraces, each four blocks lower: F−4, F−8, F−12.
+- Four cardinal flights, each three clear blocks wide.
+- Terrace bands are four blocks wide before railings; retain three clear blocks.
+- Bottom court: 7×7, x,z=−3…3, at F−12.
+- Pool: 3×3 centered in that court, one block of water deep, open sky.
+
+Generate the main floor:
+- r=max(abs(x),abs(z)).
+- d=min(12,4×ceil((16−r)/4)).
+- Floor block coordinate is y=F−d−1.
+- Clear overburden above that floor to the surveyed surface, preserving planned fixtures.
+- The outer ring r=16 is at F.
+
+Generate the flights and their shoulders:
+- For 4≤r≤16 and min(abs(x),abs(z))≤2, override d=16−r.
+- The three columns with perpendicular coordinate −1…1 are walking treads.
+- Perpendicular coordinates −2 and +2 are solid shoulder columns, carrying railings.
+- Flights therefore descend twelve one-block steps, crossing terrace levels at r=12,8,4.
+- Fill beneath raised flight treads where necessary; do not leave unsupported overhangs.
+
+Railings:
+- On each flight shoulder, place a wall at its local feet height.
+- On high terrace edges adjoining a drop greater than one, place walls on the high-side floor.
+- Omit terrace rail cells only across the three-wide flight opening.
+- Join flight and terrace rails without diagonal corner escape gaps.
+- Outer ring has walls except at the four three-wide entrances.
+- Validate the resulting collision geometry; reject any plan that narrows a designated route below its clear width.
+
+Pool:
+- Water cells x,z=−1…1 at y=F−13; basin floor y=F−14.
+- Solid perimeter and bottom; no drain or connection to the mine.
+- The surrounding two-block-wide bottom court remains dry.
+- Keep the basin dry until bucketfix has fleet KEEP and is released on showcase.
+- The pool is shallow enough to step out; do not fence it into a trap.
+
+Lights:
+- Torch posts outside clear walking cells at every flight/terrace intersection.
+- Additional perimeter lights at intervals no greater than eight walking blocks.
+- Lights on each underground landing and at flight midpoints.
+- Record every post and torch cell; no opportunistic decoration outside the record.
+
+Underground descent:
+- Enter through a bottom-court side portal into a separate switchback stack.
+- Choose its rotation and exact portal connector from the survey; do not intersect the pool.
+- Two-wide flights, three air cells above every tread, solid partition between flights.
+- Landing depth three blocks; landings span both lanes and the partition.
+
+A repeatable 16-block descent module, starting at feet H:
+- Flight A: x=i, z=0,1, feet H−1−i, i=0…7.
+- Far landing: x=8…10, z=0…4, feet H−8.
+- Flight B: x=7−i, z=3,4, feet H−9−i, i=0…7.
+- Near landing: x=−3…−1, z=0…4, feet H−16.
+- Next module starts at H−16.
+- Floor at feet−1; air at feet…feet+2.
+- Add solid face-neighbor lining wherever it is not another planned air cell.
+- z=2 between flights remains a solid partition.
+- Approximate lined envelope: 16×7 horizontally.
+
+For an endpoint not divisible by sixteen, truncate the last flight at the target feet height and add a three-deep terminal landing beyond its end. Generate and validate the connector explicitly.
+
+At F=70, the court ends at 58; enclosed descent continues 42 blocks to 16.
+Later, a separate verified continuation descends 69 blocks from 16 to −53.
+Do not change mining depth to −55 merely because lava and obsidian occur there.
+
+3. Siting
+
+Outside the wall. Do not wrap this around the existing stair: the village, towers, storehub, and town boundary make that northeastern area a poor fit for a broad court.
+
+A concrete survey candidate is center x=−49,z=−63:
+- Court box x=−65…−33,z=−79…−47.
+- Entire court lies within workR=80.
+- Three untouched rows separate its south edge from the monument’s northern edge.
+- It avoids the listed storehub, canefarm, R1, village, and trial-chamber boxes.
+
+This is a candidate, not a certified site. Reserve lining, underground stack, connectors, and work stands too. No unrecorded apron outside the footprint.
+
+The NW monument sector needs an explicit additional landmark reservation. Do not silently treat “wild” as general permission to excavate. Route the surface approach around the existing monument using surveyed path corridors.
+
+On a region copy measure:
+- Ground heights, trees, water bodies, overhangs, caves, falling blocks, and actual F.
+- Every proposed air, floor, lining, support, rail, light, and emergency-cap cell.
+- Full underground geometry through −53, plus station and guard clearance envelopes.
+- Protected zones at every depth, existing records and leases, roads, and planned corridors.
+- A dry path from town to the entrance and placement reach from successive work stands.
+- Lava-source locations, fluid states, natural obsidian, and safe station service positions.
+- Exact excavation/material bill and round-trip walking time.
+
+Reject the candidate if substantial grading or a long unsafe approach defeats its value. Do not authorize a long y16 cross-town connector merely to join the old stair; survey and cost that separately.
+
+4. Construction safety
+
+“Never opens a pocket under a walking bot” must be an operational invariant, not an optimistic digging order.
+
+Use one exclusive construction frontier. Visitors may enter only completed sections separated from work by recorded barriers.
+
+For each small work unit:
+- Revalidate the completed return route and reserve enough time to leave.
+- Acquire the project/segment lease and check its generation before each mutation.
+- Read the target, its six neighbors, floor, roof, and relevant falling-block column.
+- Unknown reads stop work.
+- Confirm no entity occupies the target, its supported standing cell, or affected falling column.
+- Establish lining and floor from the previous verified stand.
+- Clear headroom top-down, then feet space.
+- Read back server-confirmed results before publishing the new stand.
+- Never dig the builder’s floor, another bot’s floor, or a support carrying an occupied route.
+
+For the court, excavate in shallow horizontal lifts with a maintained access ramp. Complete retaining faces and guards before exposing the next public edge. Do not dig the whole central volume first.
+
+Cave-breach protocol:
+- Detect empty neighboring cells before removing the separating block.
+- Seal the exposed boundary using reserved cells and reachable support faces.
+- If sealing requires removing unsafe material, an unreachable placement, or unreserved expansion: stop above it.
+- Water/lava in a proposed walking cell stops that segment; it is not a request to keep digging.
+- Unexpected flowing liquid: retreat along verified dry stands, close a preplanned bulkhead if reachable, quarantine the segment.
+- No improvised rescue excavations or arbitrary plugs under the building project’s authority.
+
+Reuse shaftgeom.nextOp’s line-before-dig approach, but not blindly: its temporary seals/supports must also be represented in the new project record.
+
+Avoid stair-trap failures through ordered waypoint traversal and explicit egress, not merely wider stairs.
+Maintain a renewed stair body claim through transit and bounded interruptions; release it on every exit.
+Do not suppress drowning, lava, or other emergency handling globally.
+Extending reflex/trip recognition to the new route is protected work.
+
+Paper sandbox must prove:
+- Ascending and descending full-block flights, turns, rail joins, and head clearance.
+- Every real placement from its planned stand, including lining behind rock.
+- Dry-cave, wet-roof, lava-neighbor, gravel-roof, and unsupported-floor fixtures.
+- Unknown chunks, refused clicks, stale leases, restart, timeout, inventory exhaustion.
+- Occupancy races and orderly egress after every interrupted construction prefix.
+- No dirt-pillaring reflex inside completed transport sections.
+- Pool escape after bucketfix, and station access with existing lava guards enabled.
+
+5. Miner integration
+
+Initially miners keep using the existing town stair and current routing. A constructed landmark must not become a route merely because its blocks exist.
+
+Publish separate states: construction complete, traversal verified, and transport enabled.
+Persist route ID, generation, endpoint, and ordered stands with each trip.
+
+Protected changes include:
+- deepmine.mjs: route selection, route persistence, eligibility and return budgeting.
+- skills.mjs deep*: descend by verified route; replace personal “deepen” cuts only when the shared lower route is enabled.
+- Route-specific repair/egress and keep-out integration.
+- Any required admission, escape, or reflex changes.
+
+Iron trips leave at feet16. Diamond trips continue to −53, branch from recorded portals, and return through the same shared route.
+Branch trails remain necessary beyond those portals.
+Exclude all structural and reserved air cells from mining and sealing candidates.
+
+Initially allow one underground user, with return priority. Wider stairs do not establish multi-bot traffic safety.
+
+If the shared route fails verification, stop new admissions. Existing occupants retain its record and egress handling.
+Do not silently fall back to personal digging midway through a failed shared descent.
+
+Tier 3 integration requires both review engines, fleet canary, and fleet KEEP before showcase.
+Measure completed round trips, stranded returns, depth reached, reflex events, and travel time against matched controls.
+A reasonable acceptance target is zero stranded returns in 100 completed test trips, with failure-injection tests; that is evidence, not a guarantee.
+
+6. Pieces, release order, and first shipment
+
+A. Survey and pure geometry/record generator: no world mutations.
+B. Dry entrance and first four-step flight: tier 2 building feature.
+C. Remaining court and enclosed route to16: tier 2 construction, segmented and closed until verified.
+D. Miner route adoption: tier 3.
+E. Dry shared continuation to−53: tier 2 construction; miner adoption tier 3.
+F. Pool fill after bucketfix KEEP.
+G. Sealed lava/obsidian station after bucketfix and reconciliation with the obsidian design.
+
+The dry lower route has higher transport priority than finishing ornamental masonry.
+
+FIRST shippable piece: a permanent four-step entrance module, usable independently as a small terraced overlook.
+At the surveyed south entrance, use local lateral u and inward distance t:
+- t=0…4, u=−1…1: walking floors at y=F−t−1.
+- t=5…7, u=−1…1: three-by-three landing floor y=F−5.
+- Shoulders u=±2, t=0…7: floor at corresponding tread/landing level, wall above.
+- Far barrier t=8,u=−2…2: supported wall closing the unfinished continuation.
+- Two torch posts outside the clear route, with exact cells in the record.
+- Solid side retention and underside filling wherever survey shows voids.
+- Three cells of walking headroom; overburden clears explicitly enumerated.
+- No pool, deep excavation, miner routing, or connection to an unfinished lower terrace.
+
+Tests:
+- Pure geometry: continuous two-way route, headroom, rail closure, disjoint final air/solid cells.
+- Every possible interruption prefix preserves a verified way out.
+- Recorded mutation coverage includes temporary supports, caps, and their later removal.
+- Paper walk/place/dig proof on both dry terrain and the hazard fixtures above.
+- Tripwire replay plus off-record, wrong-project, protected-zone, and overlapping-lease mutants.
+
+Tripwire rule:
+- Register a versioned stepwell project and exact cells/clear sets before any mutation.
+- Emit ordinary project-attributed _build place/clear evidence.
+- Include permanent work, temporary supports, emergency caps, and authorized repair clears.
+- Define stepwell excavation roles in shopread and exercise them through showcase_trip S6.
+- Never exempt the project by bounding box or weaken H1/H2/G3/G4.
+- Unexpected required cells halt work pending a new validated record generation.
+- Tripwire/tooling changes receive their required review separately from bot construction.
+
+Kill switch:
+- Proposed STEPWELL_BUILD=off prevents new work and further excavation.
+- Finish only a bounded safety closure, then deterministic egress.
+- Proposed STEPWELL_USE=off stops new admissions while preserving occupants’ return route.
+- Retain records, reservations, barriers, and egress support after disabling.
+- Never “rollback” by deleting the route beneath its users.
+
+7. Cost and schedule
+
+Planning ranges, not surveyed bills. Assumptions: F≈70, mostly solid terrain, natural sound rock retained, full-block treads, no major aquifer, one builder frontier.
+
+First piece:
+- Approximately 80–160 cobble, 21 wall blocks, 2–4 torches, zero required bricks.
+- Approximately 80–160 digs, depending on entrance grading.
+- Roughly 1–2 active builder-hours including walking, checking, and replenishment.
+
+Full dry court plus enclosed route to16:
+- Approximately 6,000–9,000 digs including court, stair, portal, and finishing.
+- Approximately 1,500–3,000 cobble placed; 400–550 wall blocks; 50–80 torches.
+- Cap decorative bricks at 48 initially.
+- Wall crafting consumes additional cobble roughly one-for-one; do not count walls as free.
+- This is substantial excavation even though only twelve blocks are open to sky.
+
+Dry continuation 16→−53:
+- Approximately 600–900 digs including landings and small terminal chamber.
+- Approximately 300–800 lining/tread blocks, 20–40 torches.
+- Enclosed flights need little decorative railing.
+- Cave crossings can dominate this allowance; stop and re-estimate instead of absorbing unlimited work.
+
+Station:
+- Reserve approximately 150–300 enclosure blocks and 8–16 lights for budgeting only.
+- Exact digs, casting cells, bucket access, and operating cycle depend on the missing obsidian design and surveyed sources.
+- Keep walking feet at−53; isolate service cells near−55 behind a solid partition.
+- Casting and bucket access must never make lava a walkable floor or expose it beside a public walkway.
+- Prove actual service reach and lava-guard compatibility; do not bypass guards to make the station operate.
+
+Time model:
+- Dig time = digs/3.6 per minute.
+- Placement time ≈ placements/5 per minute as a conservative serial allowance.
+- The tower’s simultaneous “5 placed + 5 cleared” rate is not evidence of 10 interchangeable excavation actions/minute.
+- Add 30–60% for hauling, verification, egress, and interruptions.
+
+That gives approximately 45–90 active builder-hours for court plus y16 route, and 5–13 for the dry lower continuation.
+At 15 bots spending 2–3% of time building, aggregate capacity is only 7.2–10.8 builder-hours/day, before competing projects.
+Expect roughly one to two weeks or more for the upper work, not an overnight landmark.
+
+Cobble supply is adequate; labor and placement are the constraint.
+Only about 71 existing bricks are uncommitted. A brick-faced megapit would compete with other bills and the 130/day production rate for little descent benefit.
+
+Repository evidence and limits
+
+Confirmed checkout HEAD 8b4ea9cc. No files edited; no Paper tests run.
+Read relevant implementation sections and declarations in:
+- bots/src/shaftgeom.mjs: planStair, nextOp, standFor, stairKeepOut, egress helpers.
+- bots/src/shaftvisit.mjs: runStairVisit, runStairEgress, withStairClaim, stairBotEffects.
+- bots/src/deepmine.mjs: deepMineOrder, stairRoute, tripHoldsBody, branchNext, legSealTargets.
+- bots/src/skills.mjs: deepMine descend/deepen flow and deep/stair integration references.
+- bots/src/buildproj.mjs: publishRecord and lease interfaces.
+- bots/src/buildrun.mjs: generic visit machinery.
+- bots/src/sinks.mjs: appendInstance; terrace.mjs: grading/sealing design.
+- bots/src/landplan.mjs, paths.mjs, towndress.mjs: reservations, destination paths, light placement interfaces.
+- bots/src/lavaguard.mjs: cellLavaSafe and corridor checks.
+- config/protected-paths.txt; infra/showcase/showcase_trip.py; docs/reports/shop-01-2026-10-25/shopread.py.txt.
+
+The named obsidian-design-2026-11-04.md and shafttrap-design-2026-11-03.md reports were not present in this checkout. The station remains a design interface pending that reconciliation; the shaft-trap recommendations above use the implemented code.

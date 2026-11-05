@@ -1,0 +1,49 @@
+# stepwell-1105: deep-miner trips, personal descents, deaths and stuck episodes by phase (read-only; full walk via stream_rows)
+import sys, os, re, json, glob, datetime, collections
+sys.path.insert(0, os.path.expanduser('~/stepwell/lib'))
+from telemetry import stream_rows
+root, days = sys.argv[1], float(sys.argv[2])
+until = datetime.datetime.now(datetime.timezone.utc); since = until - datetime.timedelta(days=days)
+bots = sorted(os.path.basename(p) for p in glob.glob(os.path.join(root, '*')) if os.path.isdir(p) and 'FIXTURE' not in p)
+tot = collections.Counter(); ends = collections.Counter(); whys = collections.Counter()
+deaths_all = collections.Counter(); deaths_trip = []; stuck_trip = collections.Counter(); stuck_deep_notrip = collections.Counter()
+deepen = collections.Counter(); deepen_why = collections.Counter(); trips = 0; botsseen = set(); death_y = collections.Counter()
+STUCK = ('_needs_rescue', '_entombed', '_marooned', '_stranded')
+deep_desc_nontrip = collections.Counter()
+for b in bots:
+    rows = sorted(((t, d) for t, d in stream_rows(root, b, since, until)), key=lambda x: x[0])
+    trip = None
+    for t, d in rows:
+        tot['rows'] += 1; botsseen.add(b)
+        s = d.get('skill') or {}; n = s.get('name') or ''; det = s.get('detail') or ''
+        pos = (d.get('bot') or {}).get('pos') or {}; y = pos.get('y')
+        if n == '_deepmine':
+            m = dict(re.findall(r'(\w+)=(\S+)', det))
+            op = m.get('op')
+            if op == 'start': trips += 1; trip = {'phase': 'descend', 'target': m.get('target'), 'id': m.get('trip')}
+            if trip and m.get('phase'): trip['phase'] = m.get('phase')
+            if op == 'deepen':
+                deepen[m.get('phase')] += 1
+                w = re.sub(r'[-0-9]+', '#', m.get('why', ''))[:70]; deepen_why[w] += 1
+            if op == 'end':
+                ends[(m.get('end'), m.get('phase'), m.get('target'))] += 1
+                whys[re.sub(r'\d+', '#', m.get('why', ''))[:50]] += 1
+                trip = None
+        if n == '_death':
+            tot['deaths'] += 1
+            band = 'na' if y is None else ('>=50' if y >= 50 else '16..49' if y >= 16 else '0..15' if y >= 0 else '-54..-1' if y >= -54 else '<-54')
+            death_y[band] += 1
+            if trip: deaths_trip.append((b, str(t)[:16], trip['phase'], y, det[:120]))
+        if n in STUCK:
+            if trip: stuck_trip[(n, trip['phase'])] += 1
+            elif y is not None and y < 16: stuck_deep_notrip[n] += 1
+        if n == 'mine' and not trip:
+            a = s.get('args') or {}
+            ty = a.get('y') if isinstance(a, dict) else None
+            try:
+                if ty is not None and float(ty) < 0: deep_desc_nontrip[s.get('status')] += 1
+            except Exception: pass
+print(json.dumps({'root': root, 'days': days, 'since': since.isoformat()[:16], 'bots': len(botsseen), 'rows': tot['rows'], 'deaths': tot['deaths'],
+  'death_by_y': death_y, 'trips_started': trips, 'trip_ends': {str(k): v for k, v in ends.most_common()}, 'end_whys': whys.most_common(15),
+  'deaths_in_trip': deaths_trip, 'stuck_in_trip': {str(k): v for k, v in stuck_trip.items()}, 'stuck_below16_not_trip': stuck_deep_notrip,
+  'deepen_rows_by_phase': deepen, 'deepen_whys': deepen_why.most_common(12), 'mine_to_negative_y_not_trip': deep_desc_nontrip}, indent=1, default=str))
