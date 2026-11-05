@@ -299,7 +299,7 @@ export function bridgeSites (lines = []) {
     if (l?.op === 'sight' && l.span?.near && l.span?.axis) {
       const s = sites.find(q => q.span.axis.join(',') === l.span.axis.join(',') && Math.hypot(q.span.near[0] - l.span.near[0], q.span.near[2] - l.span.near[2]) <= SITE_MERGE_R)
       if (s) { if (l.trip) s.seen.add(l.trip); s.t = Math.max(s.t, Number(l.t) || 0); continue }
-      sites.push({ key: siteKey(l.span), id: l.id ?? siteKey(l.span), span: l.span, bearing: l.bearing ?? null, seen: new Set(l.trip ? [l.trip] : []), complete: false, failed: [], t: Number(l.t) || 0 })
+      sites.push({ key: siteKey(l.span), id: l.id ?? siteKey(l.span), span: l.span, bearing: l.bearing ?? null, aim: Number.isFinite(l.aim) ? l.aim : null, seen: new Set(l.trip ? [l.trip] : []), complete: false, failed: [], t: Number(l.t) || 0 })
     } else if (l?.op === 'state' && l.id) {
       const s = sites.find(q => q.id === l.id)
       if (!s) continue

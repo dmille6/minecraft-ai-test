@@ -61,6 +61,9 @@ import { sinkModeDetail } from './sinks.mjs'
 import { tapRecords } from './logger.mjs'   // showchat-01: the read-only record tap the announcements are made from
 import { showchatOn, showchatModeDetail, makeSpeaker, quietChatter, KILL_FILE } from './showchat.mjs'   // showchat-01
 import { poolStateDir } from './worldfacts.mjs'
+import { atlasOn, atlasModeDetail, installAtlas } from './atlas.mjs'   // atlas-01: the bots' shared map
+import { zoneHit as atlasZoneHit } from './expedition.mjs'
+import { Vec3 } from 'vec3'
 import { requestsOn, requestsModeDetail, makeBoard } from './requests.mjs'   // requests-01: the town's requests board
 import { merchantScoutInstall } from './merchantscout.mjs'   // trading-scout-01: read-only merchant sightings + XP rows
 import { enchantInstall } from './skills.mjs'   // anvilapply-01 + enchant-01: the anvil / table ask + licence rows
@@ -111,8 +114,29 @@ export function installRequests (bot, { env = process.env, pool = config.memory.
   return board
 }
 
+/**
+ * ATLAS-01 (atlas.mjs): the recorder of the town's shared map, in the pool's state dir (one file per bot), and `bot.atlas` for its
+ * readers (the expedition's planTrip, the prompt's MAP line). The protected zones (villages) are read through townPlanZones, cached
+ * a minute, so a find inside one is never offered. Never throws.
+ */
+export function installAtlasFeature (bot, { env = process.env, pool = config.memory.pool } = {}) {
+  const on = atlasOn(env, pool)
+  try { logEvent({ kind: 'atlas_mode', status: 'success', snapshot: snapshot(bot), detail: atlasModeDetail(on, pool) }) } catch {}
+  let zc = { at: 0, zones: [] }
+  const zonesFn = (x, z, y) => {
+    if (Date.now() - zc.at > 60_000) { let v = null; try { v = townPlanZones(bot) } catch { v = null } zc = { at: Date.now(), zones: v?.known ? v.zones : [] } }
+    return atlasZoneHit(zc.zones, x, z, undefined, { surfaceY: y })
+  }
+  return installAtlas(bot, {
+    on, dir: poolStateDir(pool), by: bot.username ?? 'bot', Vec3, zonesFn,
+    home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ },
+    emit: row => { try { logEvent({ ...row, snapshot: snapshot(bot) }) } catch {} },
+  })
+}
+
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
 export function installFeatures (bot) {
+  try { installAtlasFeature(bot) } catch (e) { log('warn', 'atlas not installed', { error: e.message }) }
   // placeaudit-01: the `_place_town` instrument (placeaudit.mjs; TELEMETRY ONLY) and its licence row `_placeaudit_mode`
   // (PLACEAUDIT=off -> on=0, not wrapped)
   try {
