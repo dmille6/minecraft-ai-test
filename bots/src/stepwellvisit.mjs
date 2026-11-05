@@ -61,7 +61,7 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
       // A STAND IN REACH: the bot's own feet when the cell is in reach, else the nearest stand that reaches it (a walk on the town
       // profile: no digs, no scaffold); a cell with no stand, or whose stands all failed, is passed for this visit
       // a cell under the bot's own feet (its floor) or in its body: another stand first (never the one it stands on)
-      if (op.own || !inReach(e.feet(), op.at)) {
+      if (op.own || !inReach(e.feet(), op.at, SW.standReach)) {
         const st = standsFor(read, plan, op.at, { feet: e.feet(), banned: op.own ? new Set([...banned, kOf(e.feet())]) : banned })
         if (!st.length) { fail(op.at, 'no_stand'); fail(op.at, 'no_stand'); continue }
         const ok = await e.walkTo(st[0])

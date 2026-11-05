@@ -35,9 +35,11 @@ export const STEPWELL_BUILDERS = 1
  * tiers the siting surveys for (the reservation's depth: a later generation deepens to it); ringMin/ringMax: the centre's Chebyshev
  * distance from home; step: the candidate grid; gap: the clearance off every reservation; groundUp/groundDown: the footprint's ground
  * above / below the rim level g (cut / filled); treeH: how far above the ground a log or leaf refuses a site; torchEvery: a light every
- * N posts along a side; unitOps / standTries: a visit's bounds; reach: a click's or a dig's reach from the eye.
+ * N posts along a side; unitOps / standTries: a visit's bounds; reach: a click's or a dig's reach from the eye; standReach: the reach a
+ * STAND is chosen for (the eye to the cell's centre): short of `reach` by the half block a click's face lies below a post's centre
+ * (Paper sandbox3 11-05: 48 posts refused no_reach from stands chosen at 4.5).
  */
-export const SW = Object.freeze({ v: 1, W: 27, band: 3, tierD: 4, tiers: 2, tiersMax: 3, ringMin: 30, ringMax: 78, step: 2, gap: 2, groundUp: 9, groundDown: 2, innerDown: 3, treeH: 14, standMax: 5, torchEvery: 4, unitOps: 400, standTries: 3, reach: 4.5 })
+export const SW = Object.freeze({ v: 1, W: 27, band: 3, tierD: 4, tiers: 2, tiersMax: 3, ringMin: 30, ringMax: 78, step: 2, gap: 2, groundUp: 9, groundDown: 2, innerDown: 3, treeH: 14, standMax: 5, torchEvery: 4, unitOps: 400, standTries: 3, reach: 4.5, standReach: 3.8 })
 export const STEPWELL_ZONES = Object.freeze(['industry', 'monument', 'wild'])   // landplan.mjs zone kinds a stepwell may take: the miners' sector, the landmarks' sector, the wild (never town, homes, farms, the tree farm)
 
 /** THE SWITCH -> bool. STEPWELL=on|off; unset = on only in STEPWELL_POOLS (default 'showcase'). Pure. */
@@ -419,7 +421,7 @@ export function standsFor (read, plan, c, { feet = null, banned = new Set(), max
         if (!(isFull(fl) && !isFalling(fl) && isOpen(f) && isOpen(h))) continue
         const s = [x, y, z]
         if ([kOf(s), k3(x, y + 1, z), k3(x, y - 1, z)].includes(key)) continue
-        if (banned.has(kOf(s)) || !inReach(s, c)) continue
+        if (banned.has(kOf(s)) || !inReach(s, c, SW.standReach)) continue
         out.push(s)
       }
     }

@@ -85,9 +85,9 @@ if (best) {
   out.fell = { trees: fell.trees.length, stands: fell.platforms.length, standCells: fell.platforms.reduce((n, q) => n + q.cells.length, 0), logs: fell.clear.filter(c => c.kind === 'tree').length, leaves: fell.clear.filter(c => c.kind === 'leaves').length, replant: fell.replant.length, skipped: fell.skipped }
   const rec = SWm.stepwellRecord(best, { home, seed: SWm.stepwellSeed('showcase', home), fell, read })
   const P = SWm.planTank(rec.site)
-  out.best = { centre: rec.site.centre, away: rec.site.away, g: rec.site.g, T: rec.site.T, box: rec.box, zone: rec.zone.box, exit: rec.exit, cells: rec.cells.length, clear: rec.clear.length,
+  out.best = { centre: rec.site.centre, away: rec.site.away, g: rec.site.g, T: rec.site.T, box: rec.box, zone: rec.zones[0].box, exit: rec.exit, cells: rec.cells.length, clear: rec.clear.length,
     bill: SWm.stepwellBill(P), palette: rec.palette, solidCuts: rec.clear.filter(c => { const b = read(...c.at); return b && b.boundingBox !== 'empty' }).length,
-    cellsInReservations: rec.cells.filter(c => blocked(c.at[0], c.at[2])).length, walk: SWm.walkCheck(P.cols, P.W).ok }
+    cellsInReservations: rec.cells.filter(c => blocked(c.at[0], c.at[2])).length, walk: SWm.walkCheck(P.cols, P.W).ok, d: Math.round(best.d), zone: zoneOf ? zoneOf(...rec.site.centre) : '-', counts: best.counts, byTier: best.byTier, foreign: rec.cells.filter(c => ['floor', 'trim', 'wall'].includes(c.role)).filter(c => { const b = read(...c.at); return b && b.boundingBox !== 'empty' && !SWm.cellGood(c.role, b) }).length, open: rec.cells.filter(c => { const b = read(...c.at); return b && b.boundingBox === 'empty' }).length }
   // THE PHASE-2 COLUMN under the court: a 9 x 9 round the centre, the court's floor - 1 down to y -60, by 8-block band
   const [cx, cz] = rec.site.centre
   const bands = {}
