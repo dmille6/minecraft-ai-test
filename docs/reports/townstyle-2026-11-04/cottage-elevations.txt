@@ -1,0 +1,34 @@
+
+cottage@1s  FRONT (looking at the doorway side, v 0)
+  y6 -------
+  y5 =======
+  y4 =======
+  y3 =======
+  y2  |*W*| 
+  y1 _|===|_
+  y0 #######
+cottage@1s  SIDE (looking from u < 0)
+  y6    -   
+  y5   /G\  
+  y4  /GoG\ 
+  y3 /|WWW|\
+  y2 *|WoW| 
+  y1  |=_=|_
+  y0 #######
+
+cottage@1f  FRONT (looking at the doorway side, v 0)
+  y6    -   
+  y5   /G\  
+  y4  /GoG\ 
+  y3 /|WWW|\
+  y2  |*o*| 
+  y1 _|===|_
+  y0 #######
+cottage@1f  SIDE (looking from u < 0)
+  y6 -------
+  y5 =======
+  y4 =======
+  y3 =======
+  y2 *|WoW| 
+  y1  |=_=|_
+  y0 #######

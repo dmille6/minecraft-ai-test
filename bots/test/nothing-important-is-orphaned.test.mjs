@@ -159,6 +159,16 @@ const REQUIRED = [
   'docs/reports/enchantshop-2026-11-04/offline-siting-showcase-1104.json',
   // obsidian-01 / bucketfix-01 (11-04): the obsidian design, the Paper proof driver, the bucketfix registration
   'docs/reports/obsidian-design-2026-11-04.md',
+  // townstyle-01 (11-04): pitched roofs -- the design, Codex's design, the reviews, the Paper records, the pictures (the code is branch
+  // townstyle-01show's until it lands; the tripwire rule RO1 is in docs/reports/shop-01-2026-10-25/shopread.py.txt)
+  'docs/reports/townstyle-design-2026-11-04.md',
+  'docs/reports/townstyle-2026-11-04/codex-design.md',
+  'docs/reports/townstyle-2026-11-04/reviews.md',
+  'docs/reports/townstyle-2026-11-04/paper-orient.jsonl',
+  'docs/reports/townstyle-2026-11-04/paper-blind.jsonl',
+  'docs/reports/townstyle-2026-11-04/paper-cottage.jsonl',
+  'docs/reports/townstyle-2026-11-04/townstyle-sheet.png',
+  'docs/reports/townstyle-2026-11-04/cottage-elevations.txt',
   'sandbox/enchant/obsidian-proof.cjs',
   'docs/reports/obsidian-2026-11-04/bucketfix-01.88c981a1.json',
   // copperhall-01 (11-02): the showcase copper hall, its blueprint and its test over the showcase terrace's own region export

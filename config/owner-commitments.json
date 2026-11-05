@@ -4637,6 +4637,42 @@
    "owner_pending": "decorator-1104: ferns cut from the wild with shears (piece 2)? the park's 4 bone meal kept? pots need under-water clay (tier 3) or skip?",
    "next_step": "READY TO STAGE (not recorded, not staged): decorator-01show 46f42e3b on the live showcase release 8b4ea9cc (branch decorator-01show): the decorator lease + the decor sink (flower borders inside the walls first, door pots, the bone-meal nursery, kept flowers); Paper sandbox6 proof 6/6 PASS; Codex r1 2 blockers fixed, r2 FIXED; tests decorator 39/39; ci2 suite at 92d52f55 425/429 (known ceilescape/orphaned/protected-paths + sinkfix4 source count, fixed in 46f42e3b: 1/1). Tripwire DC1-DC3 (meal, bloom, pot_fill) on main shopread.py.txt (two engines: Codex + Claude, Claude r1 blocker fixed) -- install WITH the piece's activation, else H2 trips on the first harvest. Then pieces 2 (ferns), 3 (hedges + lantern posts), 4 (compost drive).",
    "note": "Supply measured 11-04: 0 flowers in 15 bags + 9 chests, bone meal 8 in town and 9 made in 7 d (~3.6 nursery flowers/day); Paper: 2.7 flowers a meal, spread <= 5 (bound 7). Pots wait on clay (0 in town)."
+  },
+  {
+   "id": "townstyle-1104",
+   "title": "Town style: pitched roofs and charm (owner 11-04 \"not have flat roofs ... angled roofs ... look more like a town\"): style library + the cottage first, then the halls' roofs, then a retrofit of the flat roofs",
+   "owner_date": "2026-11-04",
+   "memory": [
+    "townstyle-1104.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "townstyle-01 (the style library + the cottage) READY TO STAGE on branch townstyle-01show (on the live 8b4ea9cc), Paper-proven: orientation 312/312 aimed (controls 90/312, 150/312), blind clicks 147/147, a real bot built both cottage variants end to end 5/5 PASS (every cell + state server-verified, misoriented stairs reoriented). Codex r1 1 BLOCKER (RO1) fixed, Codex r2 NO BLOCKERS, Claude r1 NO BLOCKERS (note 1 fixed). NEEDS before staging: install RO1 (shopread.py.txt on main, 162/162 mutants) on the showcase tripwire. Then townstyle-02 (workshop/halls roofs, slabRoof), townstyle-03 (retrofit, rule RR1, H8 states). Owner O1-O3 in the design section 7.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "item": "enchantshop-1104"
+    },
+    {
+     "item": "wallext-1104"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "townstyle-01"
+    ],
+    "branches": [
+     "origin/townstyle-01show"
+    ],
+    "paths": [
+     "docs/reports/townstyle-design-2026-11-04.md",
+     "docs/reports/townstyle-2026-11-04/paper-cottage.jsonl"
+    ]
+   },
+   "note": "Measured 11-04: every blueprint is a 2-high box with a flat roof at y 3 because the siting proof clicks only faces in view from feet+1.62 -- nothing above y 3 is placeable; the cottage's upper roof uses reach-only clicks (Paper accepts them). Cottage bill ~40 logs; showcase index (9 chests) 116 logs, 0 glass panes (windows fall back to planks).",
+   "owner_pending": "townstyle O1/O2: cottages on the house plots before a town-hall design exists? reach-only roof clicks (a client could not make them; Paper accepts) vs temporary staging?"
   }
  ]
 }

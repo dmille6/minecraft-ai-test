@@ -115,6 +115,14 @@
 #                      own item (an anvil slot takes an anvil; a shelf slot a bookshelf); any other block there, or a fit item anywhere
 #                      else, is off_record. Its labels (`_enchantshop_sign op=place at=`, sortstore's writer) are G1 too: a `signs[].at`
 #                      cell of a generation of the chain, else off_record, judged only once placed (the hall signs' rule).
+#   RO1 reorient (townstyle-01, 11-04; bots/src/buildrun.mjs misorientedAt, bots/src/townstyle.mjs): A STATE-BEARING CELL'S OWN
+#                      BLOCK IN THE WRONG STATE (a stair facing away, a log on its side) is dug and placed again aimed: `_build op=clear
+#                      kind=reorient`. On the record ONLY when the cell is a record cell that names a world state (`ws`) in a generation of
+#                      the plot's chain, the block dug is an oriented block (stairs, slab, log/wood/stem/hyphae, trapdoor, lantern) AND it
+#                      is one of THAT cell's role names in THAT generation's own palette (the styled record's `palette`; a generation with
+#                      no palette authorizes nothing: Codex r1 BLOCKER -- a post cell never authorizes digging a trapdoor or another wood).
+#                      Anything else is clear_outside (` reorient`): a reorient of a stateless cell, of another block, or off the record.
+#                      Its placements are G1's like every record's (the cell); the place row's `st=` (the state made) is reported only.
 # REPORTED, NOT A GATE: G7 placed_twice (a cell placed twice within 10 min: physically a re-placement after the cell was emptied
 #   -- a repair or a survival dig -- never two blocks in one cell; read r1 both engines).
 #   F2/F4 rows (owner 10-26: every replant skip a counted row): replants moved / deferred / skipped, cells deferred, STUCK ON CELL,
@@ -163,6 +171,45 @@ def hub_names(field):
 
 # enchantshop-01 EF1 (bots/src/enchantshop.mjs ENCHANT_PLOT, the record's `fit` and `signs`)
 ENCHANT = 'enchantshop'
+
+
+# townstyle-01 RO1: the blocks a click orients (bots/src/townstyle.mjs STAIRS SLAB AXIS TRAPDOOR LANTERN)
+ORIENTED_RE = re.compile(r'^(minecraft:)?([a-z_]+_(stairs|slab|log|wood|stem|hyphae|trapdoor)|(soul_)?lantern)$')
+
+
+def role_names(palette, role, seen=None):
+    """A styled record's palette role -> its concrete names (a '$role' expanded, '$planks' kept as the planks wildcard). Pure."""
+    seen = set() if seen is None else seen
+    out = []
+    for n in (palette or {}).get(role) or []:
+        n = str(n)
+        if n == '$planks' or not n.startswith('$'):
+            out.append(n)
+        elif n[1:] not in seen:
+            seen.add(n[1:])
+            out.extend(role_names(palette, n[1:], seen))
+    return out
+
+
+def reorient_ok(chain, cell, block):
+    """townstyle-01 RO1: a `_build op=clear kind=reorient` -> bool. Pure. The cell is a STATE-BEARING record cell (`ws`, a non-empty
+    object) of a generation of the plot's chain, the block dug is an oriented block, and it is one of that cell's role names in that
+    generation's own palette."""
+    b = re.sub(r'^minecraft:', '', str(block or ''))
+    if not isinstance(cell, (list, tuple)) or len(cell) != 3 or not ORIENTED_RE.match(b):
+        return False
+    k = ck(cell)
+    for rec in chain or []:
+        pal = rec.get('palette')
+        if not isinstance(pal, dict):
+            continue
+        for c in rec.get('cells') or []:
+            if not (isinstance(c, dict) and isinstance(c.get('at'), list) and isinstance(c.get('ws'), dict) and c['ws'] and ck(c['at']) == k):
+                continue
+            names = role_names(pal, c.get('role'))
+            if b in names or ('$planks' in names and b.endswith('_planks')):
+                return True
+    return False
 
 
 def enchant_place_ok(rec, cell, block):
@@ -1322,6 +1369,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         # picker-01: the clear lists (kind=foreign: the cells) of the generations in force when it was dug
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                         ok = sink_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'), t_ms)
+                    elif f.get('kind') == 'reorient':
+                        # townstyle-01 RO1: the builder's own block in the wrong state, on a state-bearing cell of the chain
+                        ok = reorient_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'))
+                        why = '' if ok else ' reorient'
                     elif f.get('kind') == 'foreign':
                         ok = k in {ck(c['at']) for c in rec.get('cells') or []}
                     elif f.get('kind') == 'tidy' and plot == YARD:
@@ -1941,6 +1992,33 @@ def selftest():
     assert J(base + [R('_build', 'project=canefarm op=harvest cell=40,67,40 block=sugar_cane kind=cane', s=14)], cb)['mutations'] == m0 + 1, 'a cane harvest is a mutation (G3)'
     assert J(base + [R('_build', 'project=canefarm op=place seg=C cell=40,66,40 block=sugar_cane', s=14)], cb)['off_record'] == 0, 'the planting is a record cell'
     assert J(base + [R('_build', 'project=canefarm op=place seg=C cell=40,67,40 block=sugar_cane', s=14)], cb)['off_record'] == 1, 'a planting off the record'
+    # townstyle-01 RO1: a reorient dig of a state-bearing cell's own oriented block; anything else is clear_outside
+    cpal = {'roof': ['dark_oak_stairs'], 'ridge': ['dark_oak_slab'], 'post': ['spruce_log'], 'sill': ['spruce_trapdoor'], 'lamp': ['$light'], 'light': ['lantern'],
+            'wall': ['spruce_planks', '$planks']}
+    crec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'cottage@1s', 'plot': 'cottage1', 'clear': [], 'replant': [], 'palette': cpal,
+            'cells': [{'at': [50, 71, 50], 'role': 'roof', 'seg': 'roof-edge', 'ws': {'facing': 'north', 'half': 'bottom'}}, {'at': [51, 71, 50], 'role': 'wall', 'seg': 'wall-F'},
+                      {'at': [54, 71, 50], 'role': 'ridge', 'seg': 'roof-inner', 'ws': {'type': 'bottom'}}, {'at': [55, 71, 50], 'role': 'sill', 'seg': 'fit-out', 'ws': {'facing': 'north', 'half': 'top', 'open': False}},
+                      {'at': [56, 71, 50], 'role': 'lamp', 'seg': 'fit-out', 'ws': {'hanging': False}},
+                      {'at': [57, 71, 50], 'role': 'beam', 'seg': 'gable'}, {'at': [58, 71, 50], 'role': 'wall', 'seg': 'wall-F', 'ws': {'axis': 'y'}}]}
+    crec2 = dict(crec, gen=2, prev=1, cells=[{'at': [52, 71, 50], 'role': 'post', 'seg': 'wall-F', 'ws': {'axis': 'y'}}])
+    cbk = PP(cottage1={'record': crec2, 'records_files': 2, 'leases': {}, 'chain': [crec, crec2]})
+    ro = lambda c, block, kind='reorient', pp=cbk: J(base + [R('_build', 'project=cottage1 op=clear seg=roof-edge cell=%s block=%s kind=%s' % (c, block, kind), s=14)], pp)
+    assert ro('50,71,50', 'dark_oak_stairs')['clear_outside'] == 0, 'a stair on its state cell (an earlier generation of the chain)'
+    assert ro('52,71,50', 'spruce_log')['clear_outside'] == 0, 'a log on its post cell (the head generation)'
+    assert ro('54,71,50', 'minecraft:dark_oak_slab')['clear_outside'] == 0 and ro('55,71,50', 'spruce_trapdoor')['clear_outside'] == 0 and ro('56,71,50', 'lantern')['clear_outside'] == 0, 'each its own role\'s block ($role expanded)'
+    assert ro('52,71,50', 'oak_trapdoor')['clear_outside'] == 1 and ro('52,71,50', 'dark_oak_stairs')['clear_outside'] == 1, 'Codex r1 BLOCKER: a post cell authorizes no other family'
+    assert ro('50,71,50', 'spruce_stairs')['clear_outside'] == 1 and ro('52,71,50', 'oak_log')['clear_outside'] == 1, 'Codex r1 BLOCKER: nor another species'
+    nopal = PP(cottage1={'record': dict(crec2, palette=None), 'records_files': 1, 'leases': {}, 'chain': [dict(crec2, palette=None)]})
+    assert ro('52,71,50', 'spruce_log', pp=nopal)['clear_outside'] == 1, 'a generation with no palette authorizes nothing'
+    assert ro('51,71,50', 'spruce_stairs')['clear_outside'] == 1, 'a stateless cell is never reoriented'
+    assert ro('57,71,50', 'spruce_log', pp=PP(cottage1={'record': dict(crec, palette=dict(cpal, beam=['spruce_log'])), 'records_files': 1, 'leases': {}, 'chain': [dict(crec, palette=dict(cpal, beam=['spruce_log']))]}))['clear_outside'] == 1, 'a stateless cell whose own block is a log: still never reoriented'
+    assert ro('58,71,50', 'spruce_planks')['clear_outside'] == 1, 'never a block a click does not orient, even on a state cell whose role names it'
+    assert ro('50,71,50', 'chest')['clear_outside'] == 1 and ro('50,71,50', 'cobblestone')['clear_outside'] == 1, 'not an oriented block'
+    assert ro('53,71,50', 'spruce_stairs')['clear_outside'] == 1, 'off the record'
+    assert ro('52,71,50', 'cobblestone', kind='foreign')['clear_outside'] == 0, 'the control: a foreign dig of a head-record cell is its own (G2 as before)'
+    assert ro('50,71,50', 'dark_oak_stairs')['_lists'].get('clear_outside', []) == [] and ro('51,71,50', 'spruce_stairs')['_lists']['clear_outside'] == ['board-a-Alpha 51,71,50 reorient spruce_stairs reorient'], ro('51,71,50', 'spruce_stairs')['_lists']['clear_outside']
+    assert J(base + [R('_build', 'project=cottage1 op=place seg=roof-edge cell=50,71,50 block=dark_oak_stairs st=north/bottom', s=14)], cbk)['off_record'] == 1, 'positive control: a place is judged on the HEAD record (G1 as before): gen 1\'s cell is off it'
+    assert J(base + [R('_build', 'project=cottage1 op=place seg=wall-F cell=52,71,50 block=spruce_log st=y', s=14)], cbk)['off_record'] == 0
     # enchantshop-01 EF1: the shell's cells, a fit slot with ITS item, the labels on their cells; anything else off the record
     erec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'enchantshop@1', 'plot': 'enchantshop', 'cells': [{'at': [30, 65, 30], 'role': 'base', 'seg': 'pad'}],
             'fit': [{'slot': 'anvil', 'item': 'anvil', 'at': [31, 66, 30]}, {'slot': 'shelf-01', 'item': 'bookshelf', 'at': [32, 66, 30]}],
