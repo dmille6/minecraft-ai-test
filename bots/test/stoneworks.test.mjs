@@ -184,6 +184,18 @@ test('THE STONE KIND\'S RECOVERY: the stone is banked, never crafted; part = int
   assert.equal(M.recoveryContentsOk(note.loaded, { fuel: { name: 'coal', count: 1 } }).ok, false, 'another session\'s coal')
 })
 
+test('THE SCAFFOLD (Codex code r1 BLOCKER): the stone kind runs only when the deposit keeps no stone as the bag\'s scaffold', () => {
+  // the Codex case: 64 stone the bag's only scaffold -> the deposit would keep 8 of the stone
+  assert.equal(M.stoneScaffoldHeld({ stone: 64, bamboo: 48 }, { fromBag: { bamboo: 48 } }), 8)
+  // cobble the order spends from the bag does not count: 12 cobble, all spent -> nothing cheaper left
+  assert.equal(M.stoneScaffoldHeld({ cobblestone: 12 }, { fromBag: { cobblestone: 12 } }), 8)
+  assert.equal(M.stoneScaffoldHeld({ cobblestone: 15 }, { fromBag: { cobblestone: 12 } }), 5)
+  // positive controls: 8 cobble (or cobbled deepslate) left after the order -> the stone is free to bank
+  assert.equal(M.stoneScaffoldHeld({ cobblestone: 20, stone: 64 }, { fromBag: { cobblestone: 12 } }), 0)
+  assert.equal(M.stoneScaffoldHeld({ cobbled_deepslate: 8, stone: 64 }, { fromBag: {} }), 0)
+  assert.equal(M.stoneScaffoldHeld({ dirt: 64, stone: 64 }, { fromBag: {} }), 8, 'dirt is no pathfinder scaffold (scaffold.mjs): it does not count')
+})
+
 test('MUTANTS: the ladder order, the coal keep, the sapling keep, ore first, the project coal floor and the single count are load-bearing', async () => {
   const cases = [
     ['planks before bamboo', "Object.freeze({ rung: 'bamboo', names: Object.freeze(['bamboo']), ticks: 50, from: 'bag', keep: 0, on: true }),",
@@ -201,6 +213,10 @@ test('MUTANTS: the ladder order, the coal keep, the sapling keep, ore first, the
       X => assert.equal(X.recoveryBalance({ ...X.newNote({ kind: 'stone', bag0: { stone: 0 } }), furnace: '1,2,3', loaded: { input: { name: 'cobblestone', n: 12 }, fuel: { name: 'bamboo', n: 48 }, out: 'stone', inputAfter: 0 } }, { bag: { stone: 6 } }).verdict, 'loss')],
     ['the fuel family not burned', "if (lf) families.fuel += burnedPlanks", "if (lf) families.fuel += 0",
       X => assert.equal(X.matsBalance({ kind: 'stone', bag0: { cobblestone: 40, bamboo: 60 }, bag1: { cobblestone: 28, bamboo: 12 }, deposited: { stone: 12 }, burnedPlanks: 48, smelted: 12, fuel: { name: 'bamboo', ticks: 50 } }).verdict, 'ok')],
+    ['the scaffold share ignored', "  return Number(scaffoldKeep(after).stone) || 0\n", "  return 0\n",
+      X => assert.equal(X.stoneScaffoldHeld({ stone: 64 }, {}), 8)],
+    ['the bag\'s spent cobble still counted', "for (const [n, c] of Object.entries(fromBag ?? {})) after[n] = Math.max(0, (Number(after[n]) || 0) - (Number(c) || 0))", "",
+      X => assert.equal(X.stoneScaffoldHeld({ cobblestone: 12 }, { fromBag: { cobblestone: 12 } }), 8)],
     ['the project bricks buffer ignored', "return on && project && part === 'stone_bricks' ? Math.max(b, BRICKS_PROJECT_BUFFER) : b", 'return b',
       X => assert.equal(X.effectiveBuffer('stone_bricks', X.buffersDefault(true), { project: true, on: true }), 512)],
   ]
@@ -223,4 +239,5 @@ test('STRUCTURAL: make_material wires the ladder (the skill revalidates the orde
   assert.match(body, /matsWithdraw\(ctx, inp\.take, signal, reserveMs, RT,/, 'the withdraw is judged on it')
   assert.match(body, /obligations\(kind\)\.filter\(n => \(kind === 'stone' \|\| n !== 'stone'\) && n !== 'charcoal'\)/, 'the stone kind banks its stone')
   assert.match(body, /fuel: LFacct,/, 'the balance books the ladder fuel')
+  assert.match(body, /if \(kind === 'stone' && stoneScaffoldHeld\(heldMap\(bot\), \{ fromBag: inp\.fromBag, made: LF \? LF\.batch : K\.smelt\.n \}\) > 0\)/, 'the skill refuses a stone order the deposit could not bank')
 })
