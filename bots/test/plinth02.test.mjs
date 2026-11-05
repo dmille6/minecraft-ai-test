@@ -183,7 +183,9 @@ await t('THE LICENCE ROW (plinth-02): features.mjs::installFeatures (from the in
     assert.match(c, /^import \{ plinthModeDetail \} from '\.\/plinth\.mjs'/m, 'imported')
     const i = c.indexOf('export function installFeatures (bot) {')   // features.mjs: called once per spawn from index.mjs (test/features-wired)
     assert.ok(i > 0, 'installFeatures exists')
-    assert.match(c.slice(i, i + 4000), /\n\s*try \{ logEvent\(\{ kind: 'plinth_mode', status: 'success', snapshot: snapshot\(bot\), detail: plinthModeDetail\(bot\.worldId\) \}\) \} catch \{\}/, 'written on spawn, on the executable path')
+    // the showcase atlas+decorator fold: installFeatures grew (placeaudit, atlas, decorator installs ahead of the licence rows) -- the
+    // row is still on the function's executable path, past the old 4000-character window
+    assert.match(c.slice(i, i + 8000), /\n\s*try \{ logEvent\(\{ kind: 'plinth_mode', status: 'success', snapshot: snapshot\(bot\), detail: plinthModeDetail\(bot\.worldId\) \}\) \} catch \{\}/, 'written on spawn, on the executable path')
   }
   const idx = readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8')
   wired(idx)
