@@ -8,7 +8,7 @@
 // planned cell's block after the run (`execute if block`), the bot's position (`data get entity`).
 //
 //   node sandbox/stepwell/stepwell-e2e.mjs <botRoot> <scene,scene,...> [server]
-//   build   the whole one-tier tank (W 15) from flat ground: every cut air, every floor and trim built stone, every post a wall,
+//   build   the whole one-tier tank (W 21) from flat ground: every cut air, every floor and trim built stone, every post a wall,
 //           every light a torch ON its post (the new click: the top face of a wall), the builder at the exit
 //   cave    a cave pocket under the court's floor and a water source in a tier wall's face: the under cells laid, the water
 //           sealed before the cut beside it, the tank complete, no water left in the record's cells
@@ -72,7 +72,7 @@ const result = r => { fs.appendFileSync(RES, JSON.stringify({ at: new Date().toI
   synthetic: 'arena by RCON fill; bot placed by tp, kit by give; scene cave/water/lava by RCON setblock', ...r }) + '\n'); P_('RESULT', r) }
 
 // ---------------------------------------------------------------- the arena and the plan
-const C = { x: 7200, z: 7600 }, HALF = 14, GY = 70, W = 15
+const C = { x: 7200, z: 7600 }, HALF = 16, GY = 70, W = 21
 const HOME = { x: C.x, y: GY + 1, z: C.z - 30 }
 const AWAY = 's'
 const ORIGIN = S.originFor(C.x, C.z, AWAY, W)
@@ -137,7 +137,7 @@ async function connect () {
 async function kit () {
   rcon(`gamemode survival ${NAME}`, `clear ${NAME}`, `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 3600 1 true`,
     `give ${NAME} minecraft:iron_pickaxe 2`, `give ${NAME} minecraft:iron_shovel 1`, `give ${NAME} minecraft:cobblestone 320`, `give ${NAME} minecraft:stone_bricks 192`,
-    `give ${NAME} minecraft:cobblestone_wall 64`, `give ${NAME} minecraft:torch 32`)
+    `give ${NAME} minecraft:cobblestone_wall 128`, `give ${NAME} minecraft:torch 32`)
   await sleep(1500)
 }
 async function place (feet) {

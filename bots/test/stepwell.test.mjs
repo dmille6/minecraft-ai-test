@@ -50,9 +50,10 @@ await t('every width and tier count the shape allows passes the walk proof: no w
       n++
     }
   }
-  assert.ok(n >= 9, `only ${n} shapes checked`)
-  assert.strictEqual(S.tiersFit(27), 3)
+  assert.ok(n >= 8, `only ${n} shapes checked`)
+  assert.strictEqual(S.tiersFit(27), 2)
   assert.strictEqual(S.tiersFit(25), 2)
+  assert.strictEqual(S.tiersFit(33), 3)
 })
 await t('POSITIVE CONTROL: the walk proof finds a missing post (one rail column made a walkway) and a too-deep step', () => {
   const m = S.columnMap({ W: 27, T: 2, g: G })
@@ -66,22 +67,22 @@ await t('POSITIVE CONTROL: the walk proof finds a missing post (one rail column 
   assert.ok(!S.walkCheck(m2, 27).ok, 'a tread two lower than its neighbour must fail the proof')
 })
 await t('the flights: one per tier, 2 wide, on side (t-1) mod 4, a head at the upper band\'s level, a 2-wide gap over the top treads', () => {
-  const W = 27, T = 3, m = S.columnMap({ W, T, g: G })
+  const W = 33, T = 3, m = S.columnMap({ W, T, g: G })
   const c = (W - 1) / 2
   for (let t = 1; t <= T; t++) {
     const side = (t - 1) % 4
-    const head = [0, 1, 2].map(i => m.get(S.sideUV(W, side, c - 2, 3 * t + i).join(',')))
+    const head = [0, 1, 2].map(i => m.get(S.sideUV(W, side, c - 2, S.bandR(t) + i).join(',')))
     assert.ok(head.every(h => h.kind === 'head' && h.s === G - 4 * (t - 1)), `tier ${t} head`)
-    const top = [3 * t, 3 * t + 1].map(r => m.get(S.sideUV(W, side, c - 1, r).join(',')))
+    const top = [S.bandR(t), S.bandR(t) + 1].map(r => m.get(S.sideUV(W, side, c - 1, r).join(',')))
     assert.ok(top.every(q => q.kind === 'tread' && q.path && q.s === G - 4 * t + 3), `tier ${t} top treads`)
-    const gap = [c - 1, c].map(a => m.get(S.sideUV(W, side, a, 3 * t - 1).join(',')))
+    const gap = [c - 1, c].map(a => m.get(S.sideUV(W, side, a, S.bandR(t) - 1).join(',')))
     assert.ok(gap.every(q => q.kind === 'gap' && q.path && q.s === G - 4 * (t - 1)), `tier ${t} gap`)
   }
   assert.ok(![...m.values()].some(q => q.kind === 'basin' && (q.kind === 'tread' || q.kind === 'frail')))
 })
 
 console.log('THE PLAN')
-const SITE = { origin: { x: 0, z: 0 }, away: 's', g: G, W: 15, T: 1 }
+const SITE = { origin: { x: 0, z: 0 }, away: 's', g: G, W: 21, T: 1 }
 await t('the plan: cells and cuts disjoint, every cut above its column\'s top, posts on trims, lights on posts, units top down', () => {
   const P = S.planTank(SITE)
   const cells = new Set(P.cells.map(e => e.at.join(',')))
@@ -90,28 +91,28 @@ await t('the plan: cells and cuts disjoint, every cut above its column\'s top, p
   for (const e of P.cells.filter(q => q.role === 'light')) assert.strictEqual(P.byKey.get([e.at[0], e.at[1] - 1, e.at[2]].join(','))?.role, 'post')
   for (let i = 1; i < P.units.length; i++) assert.ok(P.units[i].y < P.units[i - 1].y)
   assert.ok(S.walkCheck(P.cols, P.W).ok)
-  assert.deepStrictEqual(P.exit, [7, G + 1, -1])
+  assert.deepStrictEqual(P.exit, [10, G + 1, -1])
 })
 await t('the record\'s own clear list is its plan\'s cuts (never a cell the record does not list), with the felling\'s logs in the clear list', () => {
   const w = world()
-  const sv = { site: { ...SITE, centre: [7, 7], tiersDry: 1 }, counts: {}, byTier: {}, d: 40 }
-  const fell = { trees: [{ base: [3, G + 1, 3], name: 'spruce_log', top: G + 9 }], platforms: [{ tree: 0, cells: [[4, G + 1, 3]] }], clear: [{ at: [3, G + 1, 3], kind: 'tree', name: 'spruce_log', tree: 0 }, { at: [3, G + 9, 3], kind: 'tree', name: 'spruce_log', tree: 0 }], replant: [{ cell: [40, G + 1, 40], species: 'spruce', sapling: 'spruce_sapling', state: 'pending' }] }
+  const sv = { site: { ...SITE, centre: [10, 10], tiersDry: 1 }, counts: {}, byTier: {}, d: 40 }
+  const fell = { trees: [{ base: [8, G + 1, 8], name: 'spruce_log', top: G + 9 }], platforms: [{ tree: 0, cells: [[8, G + 1, 9]] }], clear: [{ at: [8, G + 1, 8], kind: 'tree', name: 'spruce_log', tree: 0 }, { at: [8, G + 9, 8], kind: 'tree', name: 'spruce_log', tree: 0 }], replant: [{ cell: [40, G + 1, 40], species: 'spruce', sapling: 'spruce_sapling', state: 'pending' }] }
   const rec = S.stepwellRecord(sv, { home: { x: 0, y: G, z: -40 }, seed: 7, fell, read: w.read })
   const P = S.planOfRecord(rec)
   const listed = new Set(rec.clear.map(c => c.at.join(',')))
   assert.ok(P.cut.every(c => listed.has(c.at.join(','))), 'the plan cuts a cell the record does not list')
   assert.ok(rec.clear.some(c => c.kind === 'tree' && c.at[1] === G + 9), 'the log above the cut top is a clear')
-  assert.strictEqual(rec.cells.find(c => c.at.join(',') === `4,${G + 1},3`)?.role, 'stand')
-  assert.ok(!P.cut.some(c => c.at.join(',') === `4,${G + 1},3`), 'a stand is a record cell, never a cut')
-  assert.ok(P.units.some(u => u.cut.some(c => c.join(',') === `4,${G + 1},3`)), 'a stand is taken down by its layer\'s unit')
+  assert.strictEqual(rec.cells.find(c => c.at.join(',') === `8,${G + 1},9`)?.role, 'stand')
+  assert.ok(!P.cut.some(c => c.at.join(',') === `8,${G + 1},9`), 'a stand is a record cell, never a cut')
+  assert.ok(P.units.some(u => u.cut.some(c => c.join(',') === `8,${G + 1},9`)), 'a stand is taken down by its layer\'s unit')
   assert.ok(!rec.clear.some(c => c.at[1] > G + S.CUT_OPEN && c.kind === 'cut'), 'open sky above the cut top is not listed')
   const fv = S.fellView(rec)
   assert.deepStrictEqual(fv.cells.map(c => c.role), ['stand'])
   assert.ok(fv.clear.every(c => c.kind === 'tree' || c.kind === 'leaves') && fv.clear.length === 2)
   assert.strictEqual(fv.replant.length, 1)
-  w.set([3, G + 1, 3], 'spruce_log'); w.set([3, G + 9, 3], 'spruce_log')
+  w.set([8, G + 1, 8], 'spruce_log'); w.set([8, G + 9, 8], 'spruce_log')
   assert.strictEqual(S.fellPending(w.read, rec), 2)
-  w.set([3, G + 1, 3], 'air'); w.set([3, G + 9, 3], 'air')
+  w.set([8, G + 1, 8], 'air'); w.set([8, G + 9, 8], 'air')
   assert.strictEqual(S.fellPending(w.read, rec), 0)
 })
 
@@ -172,7 +173,7 @@ await t('Codex r1 BLOCKER 1: a seal refused twice (skipped) still blocks every c
 })
 await t('Claude r1 BLOCKER 3: a record\'s felled cell is never sealed (SW1 seals only cut cells of kind cut): water there stops the tank', () => {
   const w = world()
-  const sv = { site: { ...SITE, centre: [7, 7], tiersDry: 1 }, counts: {}, byTier: {}, d: 40 }
+  const sv = { site: { ...SITE, centre: [10, 10], tiersDry: 1 }, counts: {}, byTier: {}, d: 40 }
   const P0 = S.planTank(SITE)
   const logAt = P0.cut.find(c => c.at[1] === G - 1).at
   const fell = { trees: [{ base: logAt, name: 'spruce_log', top: G + 3 }], platforms: [], clear: [{ at: logAt, kind: 'tree', name: 'spruce_log', tree: 0 }], replant: [{ cell: [40, G + 1, 40], species: 'spruce', sapling: 'spruce_sapling', state: 'pending' }] }
@@ -188,7 +189,7 @@ await t('Codex r1 BLOCKER 2: a cut another body stands on is never dug (passed a
   const P = S.planTank(SITE)
   const w = world()
   const target = P.units.find(u => u.y === G).cut[0]
-  const e = fakeBot(w, P, { start: [7, G + 1, -2] })
+  const e = fakeBot(w, P, { start: [10, G + 1, -2] })
   e.occupied = c => c.join(',') === target.join(',')
   await V.runStepwellVisit({ plan: P, exit: P.exit, onStop: async () => {} }, e, { opsMax: 60 })
   assert.strictEqual(w.get(target), 'grass_block', 'dug from under another body')
@@ -199,31 +200,39 @@ const HOME = { x: 0, y: G, z: 0 }
 await t('a dry, flat, treeless site surveys ok with counts; lava in a cut refuses it; water in a face refuses the tier (POSITIVE CONTROL: the same site without them is ok)', () => {
   const w = world()
   const cand = { x: 40, z: 0, away: 'e', d: 40 }
-  const ok = S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 })
+  const ok = S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 })
   assert.ok(ok.ok, ok.why); assert.ok(ok.counts.dug > 0 && ok.counts.soft > 0)
   const P = S.planTank(ok.site)
   const lava = P.cut.find(c => c.at[1] === G - 2)
   w.set(lava.at, 'lava')
-  const bad = S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 })
+  const bad = S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 })
   assert.ok(!bad.ok && /^lava/.test(bad.why), JSON.stringify(bad))
   w.set(lava.at, 'stone')
   const face = P.cells.find(e => e.role === 'wall' && e.y < G)
   w.set(face.at, 'water')
-  const wet = S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 })
+  const wet = S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 })
   assert.ok(!wet.ok && /^wet:tier1/.test(wet.why), JSON.stringify(wet.why))
   w.set(face.at, 'stone')
-  assert.ok(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 }).ok)
+  assert.ok(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 }).ok)
 })
-await t('Codex r1 BLOCKER 3: ground 2 below the rim just outside it refuses the site (the rim walkway is unposted outside)', () => {
+await t('Codex r1 BLOCKER 3: the rim is walled outside (a parapet post on every outer column but the 2-wide gate); ground 2 below the rim in front of the gate refuses the site, anywhere else it is walled', () => {
+  const m = S.columnMap({ W: 21, T: 1, g: G })
+  const outer = [...m.values()].filter(c => c.r === 0)
+  assert.strictEqual(outer.filter(c => c.kind === 'gate').length, 2)
+  assert.ok(outer.every(c => c.kind === 'gate' ? c.path : c.post), 'every outer column but the gate is posted')
   const w = world()
   const cand = { x: 40, z: 0, away: 'e', d: 40 }
-  const P = S.planTank(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 }).site)
-  // a column of the outer ring: two below the rim (grass and the dirt under it gone)
-  const ox = P.box[0] - 1, oz = P.box[1] + 5
-  w.set([ox, G, oz], 'air'); w.set([ox, G - 1, oz], 'air')
-  assert.strictEqual(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 }).why, 'rim_edge_drop')
-  w.set([ox, G - 1, oz], 'dirt')
-  assert.ok(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 }).ok, 'one below is a step: ok (positive control)')
+  const P = S.planTank(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 }).site)
+  // outside a walled column: two below the rim -- fine (the parapet)
+  const far = [P.box[2] + 1, G, P.box[3] - 3]
+  w.set(far, 'air'); w.set([far[0], G - 1, far[2]], 'air')
+  assert.ok(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 }).ok, 'a drop outside the parapet is walled')
+  // in front of the gate (the exit's floor): two below the rim refuses; one below is a step (the positive control)
+  const ex = P.exit
+  w.set([ex[0], G, ex[2]], 'air'); w.set([ex[0], G - 1, ex[2]], 'air')
+  assert.strictEqual(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 }).why, 'gate_step')
+  w.set([ex[0], G - 1, ex[2]], 'dirt')
+  assert.ok(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 }).ok, 'one below is a step: ok')
 })
 await t('Claude r1 BLOCKERS 1-2: a felling stand on a tank cell or above the cut top refuses the site', () => {
   const P = S.planTank(SITE)
@@ -235,12 +244,12 @@ await t('Claude r1 BLOCKERS 1-2: a felling stand on a tank cell or above the cut
 await t('a reserved column, a disallowed zone and a tree refuse a site (trees counted when allowed)', () => {
   const w = world()
   const cand = { x: 40, z: 0, away: 'e', d: 40 }
-  assert.ok(/^reserved/.test(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1, blocked: (x, z) => (x === 38 && z === 1 ? 'project:tower' : null) }).why))
-  assert.ok(/^zone:homes/.test(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1, zoneOf: () => 'homes' }).why))
-  assert.ok(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1, zoneOf: () => 'industry' }).ok)
+  assert.ok(/^reserved/.test(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1, blocked: (x, z) => (x === 38 && z === 1 ? 'project:tower' : null) }).why))
+  assert.ok(/^zone:homes/.test(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1, zoneOf: () => 'homes' }).why))
+  assert.ok(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1, zoneOf: () => 'industry' }).ok)
   w.set([40, G + 1, 1], 'spruce_log'); w.set([40, G + 2, 1], 'spruce_log')
-  assert.strictEqual(S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1 }).why, 'trees')
-  const tr = S.surveyStepwell(w.read, HOME, cand, { W: 15, tiers: 1, tiersMax: 1, treesOk: true })
+  assert.strictEqual(S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1 }).why, 'trees')
+  const tr = S.surveyStepwell(w.read, HOME, cand, { W: 21, tiers: 1, tiersMax: 1, treesOk: true })
   assert.ok(tr.ok && tr.counts.trunks === 1)
 })
 
@@ -271,11 +280,11 @@ function fakeBot (w, plan, { start, log = [] } = {}) {
     aborted: () => false,
   }
 }
-await t('a W15 one-tier tank builds to complete; every cell done; no cut 2 below a walkway before its posts stand; the visit ends at the exit', async () => {
+await t('a W21 one-tier tank builds to complete; every cell done; no cut 2 below a walkway before its posts stand; the visit ends at the exit', async () => {
   const P = S.planTank(SITE)
   const w = world()
   const log = []
-  const e = fakeBot(w, P, { start: [7, G + 1, -2], log })
+  const e = fakeBot(w, P, { start: [10, G + 1, -2], log })
   let r = null
   for (let i = 0; i < 20; i++) {
     r = await V.runStepwellVisit({ rec: null, plan: P, exit: P.exit, onStop: async () => { throw new Error('stopped') } }, e, { deadline: Infinity, opsMax: 2000 })
@@ -297,7 +306,7 @@ await t('MUTANT KILLED: with the posts after the deeper cuts (the unit\'s posts 
     const P = M.planTank(SITE)
     const w = world()
     const log = []
-    const e = fakeBot(w, P, { start: [7, G + 1, -2], log })
+    const e = fakeBot(w, P, { start: [10, G + 1, -2], log })
     for (let i = 0; i < 20; i++) { const r = await V.runStepwellVisit({ plan: P, exit: P.exit, onStop: async () => {} }, e, { opsMax: 2000 }); if (r.stop === 'complete') break }
     const rimPosts = new Set(P.cells.filter(q => q.role === 'post' && q.t === 0).map(q => q.at.join(',')))
     const firstDeep = log.findIndex(x => x[0] === 'dig' && x[1][1] <= G - 1)
@@ -310,7 +319,7 @@ await t('a lava cell met during the build stops the tank (onStop with the layer)
   const w = world()
   const lava = P.cut.find(c => c.at[1] === G - 2).at
   w.set(lava, 'lava')
-  const e = fakeBot(w, P, { start: [7, G + 1, -2] })
+  const e = fakeBot(w, P, { start: [10, G + 1, -2] })
   let stopped = null
   let r = null
   for (let i = 0; i < 10; i++) { r = await V.runStepwellVisit({ plan: P, exit: P.exit, onStop: async (y, why) => { stopped = { y, why } } }, e, { opsMax: 2000 }); if (r.stop !== 'ops' && r.stop !== 'passed') break }
@@ -321,7 +330,7 @@ await t('MUTANT KILLED: the visit without its egress leaves the builder in the p
   await withMutant(SV_PATH, '        const okOut = await e.walkTo(p.exit)', '        const okOut = false', async M => {
     const P = S.planTank(SITE)
     const w = world()
-    const e = fakeBot(w, P, { start: [7, G + 1, -2] })
+    const e = fakeBot(w, P, { start: [10, G + 1, -2] })
     for (let i = 0; i < 20; i++) { const r = await M.runStepwellVisit({ plan: P, exit: P.exit, onStop: async () => {} }, e, { opsMax: 2000 }); if (r.stop === 'complete') break }
     assert.notDeepStrictEqual(e.feet(), P.exit, 'the mutant still walked out: the egress test proves nothing')
   })
@@ -334,7 +343,7 @@ await t('the switch: on only in STEPWELL_POOLS (default showcase), STEPWELL=on|o
   assert.strictEqual(S.stepwellOn({ STEPWELL: 'off' }, 'showcase'), false)
   assert.strictEqual(S.stepwellOn({ STEPWELL: 'on' }, 'hive-a'), true)
   assert.strictEqual(S.stepwellOn({ STEPWELL_POOLS: 'hive-a,showcase' }, 'hive-a'), true)
-  assert.ok(/^on=1 W=27 tiers=2\/3/.test(S.stepwellModeDetail(true)))
+  assert.ok(/^on=1 W=27 tiers=2\/2/.test(S.stepwellModeDetail(true)))
 })
 await t('the item ladders: a role\'s palette first, the town\'s common stone after; posts are walls, lights torches', async () => {
   const VV = await import('../src/stepwellvisit.mjs')

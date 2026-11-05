@@ -39,7 +39,7 @@ export const STEPWELL_BUILDERS = 1
  * STAND is chosen for (the eye to the cell's centre): short of `reach` by the half block a click's face lies below a post's centre
  * (Paper sandbox3 11-05: 48 posts refused no_reach from stands chosen at 4.5).
  */
-export const SW = Object.freeze({ v: 1, W: 27, band: 3, tierD: 4, tiers: 2, tiersMax: 3, ringMin: 30, ringMax: 78, step: 2, gap: 2, groundUp: 9, groundDown: 2, innerDown: 3, treeH: 14, standMax: 5, torchEvery: 4, unitOps: 400, standTries: 3, reach: 4.5, standReach: 3.8 })
+export const SW = Object.freeze({ v: 1, W: 27, band: 3, tierD: 4, tiers: 2, tiersMax: 2, ringMin: 30, ringMax: 78, step: 2, gap: 2, groundUp: 9, groundDown: 2, innerDown: 3, treeH: 14, standMax: 5, torchEvery: 4, unitOps: 400, standTries: 3, reach: 4.5, standReach: 3.8 })
 export const STEPWELL_ZONES = Object.freeze(['industry', 'monument', 'wild'])   // landplan.mjs zone kinds a stepwell may take: the miners' sector, the landmarks' sector, the wild (never town, homes, farms, the tree farm)
 
 /** THE SWITCH -> bool. STEPWELL=on|off; unset = on only in STEPWELL_POOLS (default 'showcase'). Pure. */
@@ -104,8 +104,14 @@ export function sideUV (W, side, a, r) {
     default: return [r, W - 1 - a]
   }
 }
-/** The tiers W can hold: the court's flight (its three rings) stays outside the centre basin (r >= c - 1). Pure. */
-export const tiersFit = W => Math.max(0, Math.floor(((W - 1) / 2 - 4) / SW.band))
+/** THE RIM's width: its outer PARAPET ring (a post on every column but the gate), its 2-wide walkway, its inner rail ring (Codex r1
+ *  BLOCKER 3: the rim's outside is natural ground, often 2+ below it on the showcase's hills -- 206 of 8,184 candidates -- so the rim
+ *  is walled outside too, with one 2-wide GATE facing home; Codex's design had the outer walls). */
+export const RIM = SW.band + 1
+/** The tiers W can hold: the court's flight (its three rings) stays outside the centre basin (r < c - 1). Pure. */
+export const tiersFit = W => Math.max(0, Math.floor(((W - 1) / 2 - 4 - RIM) / SW.band) + 1)
+/** The first ring of band t >= 1. Pure. */
+export const bandR = t => RIM + SW.band * (t - 1)
 
 /**
  * THE COLUMN MAP for a tank of width W, T tiers, rim at g -> Map('u,v' -> { u, v, r, b, s, kind, post, path, light, t }). Pure.
@@ -122,8 +128,8 @@ export function columnMap ({ W = SW.W, T = SW.tiers, g }) {
   const m = new Map()
   for (let u = 0; u < W; u++) for (let v = 0; v < W; v++) {
     const r = Math.min(u, v, W - 1 - u, W - 1 - v)
-    const b = Math.min(Math.floor(r / B), T)
-    let kind = b < T ? (r % B === B - 1 ? 'rail' : 'walk') : 'court'
+    const b = r < RIM ? 0 : Math.min(1 + Math.floor((r - RIM) / B), T)
+    let kind = b === 0 ? (r === 0 ? 'parapet' : r === RIM - 1 ? 'rail' : 'walk') : b < T ? ((r - RIM) % B === B - 1 ? 'rail' : 'walk') : 'court'
     let s = sOf(b)
     if (b === T && Math.abs(u - c) <= 1 && Math.abs(v - c) <= 1) { kind = 'basin'; s -= 1 }
     m.set(`${u},${v}`, { u, v, r, b, s, kind, t: b })
@@ -135,23 +141,25 @@ export function columnMap ({ W = SW.W, T = SW.tiers, g }) {
     const rise = [D, D - 1, D - 1, D - 2, D - 3]   // head, top, top, +2, +1
     for (let i = 0; i < 5; i++) {
       const a = c - 2 + i
-      for (let r = B * t; r <= B * t + B - 1; r++) {
+      for (let r = bandR(t); r <= bandR(t) + B - 1; r++) {
         const [u, v] = sideUV(W, side, a, r)
         const col = m.get(`${u},${v}`)
         col.s = st + rise[i]
-        col.kind = i === 0 ? 'head' : (r === B * t + B - 1 ? 'frail' : 'tread')
+        col.kind = i === 0 ? 'head' : (r === bandR(t) + B - 1 ? 'frail' : 'tread')
         col.t = t
       }
     }
     // band t-1's rail ring opens over the two top treads
     for (const a of [c - 1, c]) {
-      const [u, v] = sideUV(W, side, a, B * t - 1)
+      const [u, v] = sideUV(W, side, a, bandR(t) - 1)
       const col = m.get(`${u},${v}`)
       col.kind = 'gap'
     }
   }
+  // THE GATE: the parapet opens 2 wide in the middle of side 0 (toward home), in front of the exit
+  for (const a of [c - 1, c]) { const [u, v] = sideUV(W, 0, a, 0); m.get(`${u},${v}`).kind = 'gate' }
   for (const col of m.values()) {
-    col.post = col.kind === 'rail' || col.kind === 'head' || col.kind === 'frail'
+    col.post = col.kind === 'rail' || col.kind === 'head' || col.kind === 'frail' || col.kind === 'parapet'
     col.path = !col.post
   }
   // LIGHTS: the heads' middle columns, the rail rings' inner corners, every torchEvery-th rail post along a side from its middle
@@ -160,8 +168,8 @@ export function columnMap ({ W = SW.W, T = SW.tiers, g }) {
     const { u, v, r } = col
     const corner = (u === r || u === W - 1 - r) && (v === r || v === W - 1 - r)
     const along = (u === r || u === W - 1 - r) ? v : u
-    if (col.kind === 'head') col.light = r % B === 1
-    else if (col.kind === 'rail') col.light = corner || (Math.abs(along - c) % SW.torchEvery === 0 && along !== c)
+    if (col.kind === 'head') col.light = r === bandR(col.t) + 1
+    else if (col.kind === 'rail' || col.kind === 'parapet') col.light = corner || (Math.abs(along - c) % SW.torchEvery === 0 && along !== c)
     else col.light = false
   }
   return m
@@ -481,7 +489,7 @@ export function surveyStepwell (read, home, cand, { blocked = () => null, zoneOf
       if (u >= -1 && v >= -1 && u <= W && v <= W) {
         const gx = groundTop(read, w.x, w.z, home.y + 24, home.y - 24)
         if (!gx) return { ok: false, why: 'unknown' }
-        outer.push(gx.y)
+        outer.push({ u, v, y: gx.y })
       }
       continue
     }
@@ -495,8 +503,10 @@ export function surveyStepwell (read, home, cand, { blocked = () => null, zoneOf
   const hist = new Map()
   for (const q of grounds) if (q.rim) hist.set(q.y, (hist.get(q.y) ?? 0) + 1)
   const g = [...hist.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0]
-  // THE RIM'S OUTER EDGE: the walkway at g is unposted on its outside, so the ground there may be at most 1 below it (Codex r1 BLOCKER 3)
-  if (outer.some(y => y < g - 1)) return { ok: false, why: 'rim_edge_drop' }
+  // THE GATE'S FRONT: the parapet walls the rim's outside everywhere but the 2-wide gate, whose outside ground (the exit's floor) may
+  // be at most 1 below the rim (Codex r1 BLOCKER 3) -- and not above it by more than 1 (the way in)
+  const cg = (W - 1) / 2
+  if (outer.some(q => q.v === -1 && (q.u === cg - 1 || q.u === cg) && (q.y < g - 1 || q.y > g + 1))) return { ok: false, why: 'gate_step' }
   // the rim within groundDown (its `under` cell fills one) .. groundUp (cut); inside the rim the tank is cut below g anyway
   for (const q of grounds) if (q.y > g + SW.groundUp || q.y < g - (q.rim ? SW.groundDown : SW.innerDown)) return { ok: false, why: q.y > g ? 'too_high' : 'too_low' }
   const T = Math.min(tiersMax, tiersFit(W))
