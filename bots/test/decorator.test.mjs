@@ -336,13 +336,15 @@ await t('Codex r1 BLOCKER 2: the flowers an open border owes are never a pot\'s;
   assert.strictEqual(D.potPlantFor({ poppy: 3, spruce_sapling: 20 }, 0, 3), 'spruce_sapling', 'the three poppies are the border\'s')
   assert.strictEqual(D.potPlantFor({ poppy: 3 }, 0, 3), null)
   assert.strictEqual(D.potPlantFor({ poppy: 4 }, 0, 3), 'poppy', 'one spare')
+  assert.strictEqual(D.potPlantFor({ fern: 1 }, 0, 1), null, 'Codex r2: an owed fern is the border\'s too')
+  assert.strictEqual(D.potPlantFor({ fern: 1, azalea: 1 }, 0, 1), 'azalea')
   const rec = { cells: [{ at: [1, 1, 1], role: 'D1-f0' }, { at: [2, 1, 1], role: 'D1-f1' }, { at: [3, 1, 3], role: 'D1-pot' }] }
   assert.strictEqual(D.flowersOwed(rec, c => c.at[0] === 1), 1)
   assert.strictEqual(D.decorStalled({}), true)
   for (const k of ['placed', 'pots', 'meals', 'blooms', 'cleared']) assert.strictEqual(D.decorStalled({ [k]: 1 }), false, k)
 })
 await t('MUTANT KILLED: a pot that takes the border\'s flowers starves the open batch', async () => {
-  await killed(DEC_PATH, '  const fl = flowers > flowerKeep ? SMALL_FLOWERS.filter(have) : []', '  const fl = SMALL_FLOWERS.filter(have)', M => {
+  await killed(DEC_PATH, '  const fl = spare ? SMALL_FLOWERS.filter(have) : []', '  const fl = SMALL_FLOWERS.filter(have)', M => {
     assert.strictEqual(M.potPlantFor({ poppy: 3, spruce_sapling: 20 }, 0, 3), 'spruce_sapling')
   })
 })

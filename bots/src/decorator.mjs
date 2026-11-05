@@ -107,10 +107,11 @@ export const borderPlantsOf = (held = {}) => BORDER_PLANTS.reduce((s, n) => s + 
 export function potPlantFor (held = {}, seed = 0, flowerKeep = 0) {
   const have = n => (Number(held?.[n]) || 0) > 0
   // Codex r1 BLOCKER 2: the flowers an open border still needs (`flowerKeep`) are the border's, never a pot's
-  const flowers = SMALL_FLOWERS.reduce((t, n) => t + Math.max(0, Number(held?.[n]) || 0), 0)
-  const fl = flowers > flowerKeep ? SMALL_FLOWERS.filter(have) : []
+  // Codex r2: every BORDER plant counts (a fern too), and none is a pot's until the border's are covered
+  const spare = borderPlantsOf(held) > flowerKeep
+  const fl = spare ? SMALL_FLOWERS.filter(have) : []
   if (fl.length) return fl[Math.abs(seed) % fl.length]
-  for (const n of ['fern', 'flowering_azalea', 'azalea']) if (have(n)) return n
+  for (const n of [...(spare ? ['fern'] : []), 'flowering_azalea', 'azalea']) if (have(n)) return n
   const sp = SAPLINGS.filter(n => (Number(held?.[n]) || 0) > DECOR.saplingKeep)
   return sp.length ? sp[Math.abs(seed) % sp.length] : null
 }
