@@ -139,10 +139,20 @@ await t('storehubstand-01 (LIVE 11-04 a7efcca2: 46 visits, 0 placed, every repla
   assert.ok(!dom(200, 0) && dom(b[0], b[1]), 'never beyond the ring, always the pad')
 })
 
-await t('storehubwalk-01 (LIVE 8b4ea9cc: 0 placed, 23 of 33 aborts the runner\'s 180 s watchdog): the hall\'s visit ends inside the runner clock and commutes first', () => {
+await t('storehubwalk-01 (LIVE 8b4ea9cc: 0 placed, 23 of 33 aborts the runner\'s 180 s watchdog): the hall\'s visit ends inside the runner clock and commutes first', async () => {
   assert.strictEqual(H.hubVisitBudget(180_000, 8 * 60_000), 140_000, 'the showcase: 180 s less the tail')
   assert.strictEqual(H.hubVisitBudget(600_000, 8 * 60_000), 8 * 60_000 - H.HUB_VISIT_TAIL_MS, 'a longer runner: the visit\'s own 8 min')
   assert.strictEqual(H.hubVisitBudget(undefined, undefined), 8 * 60_000)
+  // a preparation-only visit (trees, saplings, clears) is progress for the hall: never an idle mark (shop.mjs noteIdle)
+  const SM = await import('../src/shop.mjs')
+  for (const r of [{ placed: 0, cleared: 4, planted: 0 }, { placed: 0, cleared: 0, planted: 2 }]) {
+    const mem = new Map()
+    SM.noteIdle(mem, H.HUB_PLOT, { status: H.hubVisitStatus(true, r), stop: 'deadline' }, 1000)
+    assert.strictEqual(mem.has(H.HUB_PLOT), false, JSON.stringify(r))
+    assert.strictEqual(H.hubVisitStatus(false, r), 'no_effect', 'another project keeps the placed-only rule')
+  }
+  const mem = new Map(); SM.noteIdle(mem, H.HUB_PLOT, { status: H.hubVisitStatus(true, { placed: 0, cleared: 0, planted: 0 }), stop: 'deadline' }, 1000)
+  assert.ok(mem.has(H.HUB_PLOT), 'positive control: a visit that did nothing is idle')
   assert.ok(H.hubVisitBudget(20_000, 8 * 60_000) >= 30_000)
   const live = JSON.parse(readFileSync(new URL('./fixtures/storehub-record-1104.json', import.meta.url), 'utf8'))
   const rec = { ...live, blueprint: H.HUB_BLUEPRINT }
@@ -157,7 +167,9 @@ await t('storehubwalk-01 (LIVE 8b4ea9cc: 0 placed, 23 of 33 aborts the runner\'s
   const SKW = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   for (const re of [/effects, \{ deadline: rec\.blueprint === HUB_BLUEPRINT \? t0 \+ hubVisitBudget\(config\.skills\?\.defaultTimeoutMs, SHOP_VISIT_MS\) : t0 \+ SHOP_VISIT_MS - 15_000 \}\)/,
     /const cm = hubCommute\(rec, bot\.entity\?\.position\)\n\s*if \(cm\) \{/,
-    /await goto\(ctx, \{ x: cm\.target\[0\], y: cm\.target\[1\], z: cm\.target\[2\], range: 3 \}, signal, \{ until \}\)/]) assert.strictEqual((SKW.match(new RegExp(re.source, 'g')) ?? []).length, 1, re.source.slice(0, 60))
+    /await goto\(ctx, \{ x: cm\.target\[0\], y: cm\.target\[1\], z: cm\.target\[2\], range: 3 \}, signal, \{ until \}\)/,
+    /if \(rec\.blueprint === HUB_BLUEPRINT && Math\.min\(SHOP_SKILL_MS, Number\(config\.skills\?\.defaultTimeoutMs\) > 0 \? Number\(config\.skills\.defaultTimeoutMs\) : SHOP_SKILL_MS\) - \(Date\.now\(\) - t0\) < SHOP_BANK_MIN_MS\) left\.length = 0/,
+    /const status = hubVisitStatus\(rec\.blueprint === HUB_BLUEPRINT, r\)/]) assert.strictEqual((SKW.match(new RegExp(re.source, 'g')) ?? []).length, 1, re.source.slice(0, 60))
 })
 
 console.log('THE REGISTRY (chestfull.mjs inTown)')

@@ -194,6 +194,10 @@ export const hubVisitBudget = (runnerMs, visitMs) => {
   const m = Math.min(r, v)
   return Number.isFinite(m) ? Math.max(30_000, m - HUB_VISIT_TAIL_MS) : 8 * 60_000
 }
+/** A BUILD VISIT'S STATUS -> 'success' | 'no_effect': a block placed; for the hall also a tree felled, a sapling replanted or a cell
+ *  cleared (its far site's preparation runs over several clock-bounded visits, and a no_effect visit marks the project idle for an
+ *  hour: shop.mjs noteIdle -- Codex storehubwalk r1 BLOCKER 1). Pure. */
+export const hubVisitStatus = (hub, r) => ((Number(r?.placed) || 0) > 0 || (hub && ((Number(r?.cleared) || 0) > 0 || (Number(r?.planted) || 0) > 0)) ? 'success' : 'no_effect')
 /** A builder this far (horizontally) from the hall's doorway COMMUTES first: one `goto` (the town's own leg-by-leg travel) to the
  *  doorway's front cell, then the visit's stand walks are short. LIVE 8b4ea9cc: stand walks of 57+ blocks through forest from the
  *  town chests (buildbot.mjs walkTo: one pathfinder goal, PATH_MS 25 s) ended `_pathfinder_wedged` (an empty path held 211 s). */

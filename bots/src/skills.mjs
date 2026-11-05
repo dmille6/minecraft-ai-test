@@ -125,7 +125,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 import { loadBlueprint, siteBlueprint, siteBlueprintAsync, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
 import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
-import { clerkKeepOf, hubVisitBudget, hubCommute } from './storehub.mjs'   // storehub-01: the clerk throw's keep
+import { clerkKeepOf, hubVisitBudget, hubCommute, hubVisitStatus } from './storehub.mjs'   // storehub-01: the clerk throw's keep
 import { HUB_PLOT, HUB_BLUEPRINT, hubSitingPlan, hubRecordOf, hubChestKeys, hubHomes, hubSignSpots, hubVisitOpts, clerkMoves, clerkRoute, clerkTargets, cargoOwed, cargoKeeps, clerkWork, clerkRowDetail, hubThrowable,
          CLERK_STACKS, CLERK_BAG_SPARE, CLERK_GAP_MS, CLERK_IDLE_MS, CLERK_BACKOFF_MS, CLERK_LEASE_MS, CLERK_TERM_MS, CLERK_REST_MS } from './storehub.mjs'   // storehub-01
 import { STOREHUB } from './shop.mjs'   // storehub-01's switches
@@ -20025,8 +20025,14 @@ async function buildShopVisit (ctx, args, signal) {
     const left = leftoverNames(took, held0, heldMap(bot))
     // shopchest-01: into the workshop's materials chests first (`prefer`), then the town's; what this bot remembers of them is then
     // stale (asked again at the next draw)
+    // storehubwalk-01 (Codex r1 BLOCKER 2): the hall's bank-back is judged on the RUNNER's clock (its watchdog ends the skill first: a
+    // walk back to the town chests from 57 blocks out would be cut); unstarted, the leftovers stay the project's drawn share (drawnHeld)
+    // and the next visit spends them
+    if (rec.blueprint === HUB_BLUEPRINT && Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS) - (Date.now() - t0) < SHOP_BANK_MIN_MS) left.length = 0
     if (left.length && SHOP_SKILL_MS - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() }, prefer: mats.map(b => b.position) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { if (mats.length) bot.matsChestSeen?.clear?.() } }
-    const status = r.placed > 0 ? 'success' : 'no_effect'
+    // storehubwalk-01 (Codex r1 BLOCKER 1): the hall's preparation (trees felled, saplings replanted, the site cleared) is progress --
+    // a visit that ends on its clock before the first block is not idle (shop.mjs noteIdle would rest the hall for IDLE_MS)
+    const status = hubVisitStatus(rec.blueprint === HUB_BLUEPRINT, r)
     return out(status, r.stop, r.why ?? r.stop, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
