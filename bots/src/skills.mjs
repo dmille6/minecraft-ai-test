@@ -94,7 +94,8 @@ import { plinthFirstOn, plinthFirstPolicy, plinthFirstSearch, plinthFirstRefusal
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
-import { stoneForTrip, townItemTotal, stoneOfferOpen, readLive, mergeLive, LIVE_FILE } from './trade.mjs'   // coalsale-02: stone for apprentice masons
+import { stoneForTrip, townItemTotal, stoneOfferOpen, readLive, mergeLive, LIVE_FILE } from './trade.mjs'
+import { JOB, jobsiteSwitch, jobsiteModeDetail, unemployedClusters, jobsiteAdmit, pickJobCell, claimOf, jobsiteDetail } from './jobsite.mjs'   // jobsite-01: make jobs   // coalsale-02: stone for apprentice masons
 import { TRADE, tradeSwitch, tradeModeDetail, censusOf, pickDestination, coalForTrip, tripAdmit, newTrip, turnHome, roamPoint, dropCrumb, nextCrumbHome, merchantOf, tradeCandidates, sellPlan, buyPlan, storedEnchants, offersDetail, tripDetail } from './trade.mjs'   // coalsale-01 (T2) + T4 buying
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
@@ -19833,6 +19834,53 @@ export function planComposterSite (bot, { home, read }) {
   return last
 }
 
+// JOBSITE-01 ("make jobs", jobsite.mjs decides): a trade trip carries one stonecutter and places it beside unemployed adult
+// villagers; the claim is read 12 s later from the client's own villager data. A pool ledger (jobsite-ledger.json) keeps one
+// per cluster (32 b spacing) and at most JOB.perDay per town per day. Never a dig; never a door, path, bed, chest or job site.
+const JOBSITE_ON = { on: jobsiteSwitch() }
+const jobLedgerFile = () => path.join(poolStateDir(config.memory.pool), 'jobsite-ledger.json')
+function jobLedger () { try { const v = JSON.parse(fs.readFileSync(jobLedgerFile(), 'utf8')); return Array.isArray(v) ? v : [] } catch { return [] } }
+function jobLedgerAdd (e) { try { const f = jobLedgerFile(), tmp = `${f}.${config.bot.name}.tmp`; fs.writeFileSync(tmp, JSON.stringify([...jobLedger(), e].slice(-200))); fs.renameSync(tmp, f) } catch { /* advisory */ } }
+function jobRow (bot, status, o) { try { logEvent({ kind: 'jobsite', status, snapshot: snapshot(bot), detail: jobsiteDetail(o), args: { op: o.op, why: o.why ?? null, claim: o.claim ?? null, at: o.cell ? `${o.cell.x},${o.cell.y},${o.cell.z}` : null, cluster: o.cluster?.n ?? null } }) } catch { /* telemetry */ } }
+async function placeJobsite (ctx, near, signal) {
+  const { bot } = ctx
+  const now = Date.now()
+  const clusters = unemployedClusters(near)
+  if (!clusters.length) return jobRow(bot, 'no_effect', { op: 'skip', why: 'no_unemployed' })
+  const blockAt = (x, y, z) => { const b = bot.blockAt?.(new Vec3(x, y, z)); return b ? { name: b.name } : null }
+  const id = bot.registry?.blocksByName?.[JOB.block]?.id
+  const existing = id == null ? [] : (bot.findBlocks?.({ matching: id, maxDistance: JOB.spacing + 16, count: 16 }) ?? []).map(p => ({ x: p.x, z: p.z }))
+  const ledger = jobLedger()
+  for (const cl of clusters) {
+    check(signal)
+    const adm = jobsiteAdmit({ ledger, now, at: cl, haveBlock: true })
+    if (!adm.ok) { jobRow(bot, 'no_effect', { op: 'skip', why: adm.why, cluster: cl }); if (adm.why === 'day_cap') return; continue }
+    const pick = pickJobCell(blockAt, cl, { existing })
+    if (!pick.cell) { jobRow(bot, 'no_effect', { op: 'skip', why: pick.why, cluster: cl }); continue }
+    const c = pick.cell
+    try { await goto(ctx, { x: c.x, y: c.y, z: c.z, range: 3 }, signal, { until: Date.now() + 30_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    if (bot.entity.position.distanceTo(new Vec3(c.x + 0.5, c.y, c.z + 0.5)) > 4.5) { jobRow(bot, 'failed', { op: 'skip', why: 'unreachable', cell: c, cluster: cl }); continue }
+    // the cell is read again at the click: still empty (or a plant), the floor still the same block
+    const re = pickJobCell(blockAt, { ...cl, members: cl.members }, { existing })
+    if (!re.cell || re.cell.x !== c.x || re.cell.y !== c.y || re.cell.z !== c.z) { jobRow(bot, 'no_effect', { op: 'skip', why: 'changed', cell: c, cluster: cl }); continue }
+    try {
+      const it = bot.inventory.items().find(i => i.name === JOB.block)
+      await bot.equip(it, 'hand')
+      await bot.placeBlock(bot.blockAt(new Vec3(c.x, c.y - 1, c.z)), new Vec3(0, 1, 0))
+    } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    await sleep(500, signal)
+    if (bot.blockAt(new Vec3(c.x, c.y, c.z))?.name !== JOB.block) { jobRow(bot, 'failed', { op: 'place_failed', cell: c, cluster: cl }); return }
+    jobLedgerAdd({ x: c.x, y: c.y, z: c.z, at: Date.now(), bot: bot.username, cluster: cl.n })
+    jobRow(bot, 'success', { op: 'placed', cell: c, cluster: cl, d: pick.d })
+    await sleep(JOB.claimWaitMs, signal)
+    const nowSeen = Object.values(bot.entities ?? {}).map(merchantOf).filter(Boolean)
+    jobRow(bot, 'success', { op: 'claim', cell: c, cluster: cl, claim: claimOf(cl, nowSeen) })
+    return
+  }
+}
+/** JOBSITE-01, once per spawn (features.mjs): the licence row. Never throws. */
+export function jobsiteInstall (bot) { try { logEvent({ kind: 'jobsite_mode', status: 'success', snapshot: snapshot(bot), detail: jobsiteModeDetail(JOBSITE_ON.on) }) } catch { /* telemetry */ } }
+
 // COALSALE-01 (T2) + T4 BUYING (trade.mjs decides; trading design 2026-11-03 section 9; OWNER 11-04 "do 1 and 2"). A trade trip is
 // one job cut into trade_trip calls (each inside the runner's 180 s timeout), like the deep miner's: cognitive.mjs issues the
 // next call while bot.tradeTrip is open. Phases: stock (draw coal above the town's keep, at most 60) -> out (walk to the census
@@ -19898,6 +19946,14 @@ export function tradeStartOrder (bot, { now = Date.now(), atTown = false } = {})
     if (!tradeLease(bot, now, { take: true })) return null
     st.lastTripAt = now
     bot.tradeTrip = newTrip({ now, home, dest, take, stoneTake })
+    // JOBSITE-01: this trip also places a stonecutter beside unemployed villagers, while the town knows fewer than 2 masons
+    try {
+      const masons = censusOf(config.memory.pool, { live: readLive(poolStateDir(config.memory.pool)) }).filter(v => v.p === 'mason').length
+      const ent = townIndexEntries(bot)
+      const ironOk = bagCount(bot, JOB.block) > 0 || (ent ? townItemTotal(ent, 'iron_ingot') : 0) > JOB.ironKeep
+      const day = jobsiteAdmit({ ledger: jobLedger(), now, townIron: ent ? townItemTotal(ent, 'iron_ingot') : 0, haveBlock: bagCount(bot, JOB.block) > 0 })
+      if (JOBSITE_ON.on && masons < 2 && ironOk && day.ok) { bot.tradeTrip.jobsite = true; bot.tradeTrip.phase = 'stock' }
+    } catch { /* the trip goes without it */ }
     try { logEvent({ kind: 'trade_trip', status: 'success', snapshot: snapshot(bot), detail: tripDetail(bot.tradeTrip, `start take=${take} held=${held} dist=${dest.dist}`) }) } catch { /* telemetry */ }
     return tradeTripOrder(bot)
   } catch { return null }
@@ -20030,6 +20086,17 @@ async function tradeTrip (ctx, _args, signal) {
           }
         }
       }
+      // JOBSITE-01: one stonecutter (1 iron + 3 stone), crafted at town; the town's iron keep (64) and stone keep (192) hold
+      if (trip.jobsite && bagCount(bot, JOB.block) === 0 && !trip.jobCraftTried) {
+        trip.jobCraftTried = true
+        const ent = townIndexEntries(bot)
+        try {
+          if (bagCount(bot, 'iron_ingot') < 1 && ent && townItemTotal(ent, 'iron_ingot') > JOB.ironKeep) await withdraw(ctx, { item: 'iron_ingot', count: 1 }, signal)
+          if (bagCount(bot, 'stone') < 3 && ent && townItemTotal(ent, 'stone') >= TRADE.stoneKeep + 3) await withdraw(ctx, { item: 'stone', count: 3 }, signal)
+          if (bagCount(bot, 'iron_ingot') >= 1 && bagCount(bot, 'stone') >= 3) await craft(ctx, { item: JOB.block, count: 1 }, signal)
+        } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        if (bagCount(bot, JOB.block) === 0) { trip.jobsite = false; jobRow(bot, 'no_effect', { op: 'skip', why: 'no_stonecutter' }) }
+      }
       trip.coalBudget = Math.min(TRADE.carryMax, bagCount(bot, 'coal'))
       trip.stoneBudget = Math.min(TRADE.stoneCarryMax, bagCount(bot, 'stone'))
       trip.phase = bagCount(bot, 'coal') >= TRADE.minSell || bagCount(bot, 'stone') >= TRADE.stonePer ? 'out' : 'home'
@@ -20053,6 +20120,8 @@ async function tradeTrip (ctx, _args, signal) {
       const near = Object.values(bot.entities ?? {}).map(merchantOf).filter(m => m && Math.hypot(m.x - at.x, m.z - at.z) <= 48)
       // COALSALE-02: every employed villager this trip sees joins the pool's live list (a later stone trip finds the mason)
       try { const dir = poolStateDir(config.memory.pool), f = path.join(dir, LIVE_FILE), tmp = `${f}.${bot.username}.tmp`; fs.writeFileSync(tmp, JSON.stringify(mergeLive(readLive(dir), near, Date.now()))); fs.renameSync(tmp, f) } catch { /* advisory */ }
+      // JOBSITE-01: once per trip, a stonecutter beside the largest unemployed cluster here
+      if (trip.jobsite && !trip.jobsiteTried && bagCount(bot, JOB.block) > 0) { trip.jobsiteTried = true; await placeJobsite(ctx, near, signal) }
       for (const m of near) if (!trip.seen.includes(m.uuid)) { trip.seen.push(m.uuid); try { logEvent({ kind: 'merchant_seen', status: 'success', snapshot: snapshot(bot), detail: `villager ${m.profession} L${m.level ?? '?'}${m.baby ? ' baby' : ''}${m.sleeping ? ' asleep' : ''} at ${Math.floor(m.x)},${Math.floor(m.y)},${Math.floor(m.z)} via=trade_trip`, args: { profession: m.profession, level: m.level, uuid: m.uuid, x: Math.floor(m.x), y: Math.floor(m.y), z: Math.floor(m.z), baby: m.baby, via: 'trade_trip' } }) } catch { /* telemetry */ } }
       const cands = tradeCandidates(bot.entities, at, trip.tried, { stone: bagCount(bot, 'stone') >= TRADE.stonePer }).slice(0, 3)
       for (const m of cands) {

@@ -185,9 +185,11 @@ export function nextCrumbHome (trip, p, { arrive = 4 } = {}) {
 export function merchantOf (e) {
   if (!e || e.name !== 'villager' || !e.position) return null
   const md = e.metadata ?? []
-  const pid = md[18]?.villagerProfession
+  // NO villager_data in the metadata = the DEFAULT (plains, none, level 1): the server sends only non-default values (sandbox4
+  // 11-05: two freshly summoned plains villagers had no index 18 and read 'unknown', so the job site skipped them)
+  const pid = md[18] ? md[18].villagerProfession : 0
   return { id: e.id, uuid: e.uuid ?? String(e.id), profession: Number.isInteger(pid) ? (PROFESSIONS[pid] ?? `id${pid}`) : 'unknown',
-    level: md[18]?.level ?? null, baby: md[16] === true, sleeping: md[6] === 2 || !!md[14], x: e.position.x, y: e.position.y, z: e.position.z }
+    level: md[18]?.level ?? (md[18] ? null : 1), baby: md[16] === true, sleeping: md[6] === 2 || !!md[14], x: e.position.x, y: e.position.y, z: e.position.z }
 }
 /** The villagers worth opening near a point, nearest first: adults, awake, not tried this trip; coal buyers (or a mason /
  *  librarian for T4 buying) first. Pure. */
