@@ -133,7 +133,7 @@ import { runVisit, cellDone as buildCellDone, workableSeg, STUCK_FORGET_MS as BU
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
-import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE_MAX_SHOP, WAIVE_MAX_ZIG, stampLiftable, visitOpts as stuckVisitOpts, withWaived, completeWithWaived, readBlock } from './stuckcells.mjs'   // stuckcells-01
+import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE_MAX_SHOP, WAIVE_MAX_ZIG, stampLiftable, visitOpts as stuckVisitOpts, withWaived, completeWithWaived, readBlock, tidyDeadOn } from './stuckcells.mjs'   // stuckcells-01, tidydead-01
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
@@ -19279,7 +19279,9 @@ async function buildTidy (ctx, args, signal) {
     // clear lease, never a record cell)
     const cuts = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')))
     const r = await runVisit({ dir, key, me, home, stood, record: rec, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: TIDY_CLEAR_MAX, alsoDone: q => waivedK(q), stuckStalledOnly: true }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: TIDY_CLEAR_MAX, alsoDone: q => waivedK(q), stuckStalledOnly: true,
+      // tidydead-01: a hard cell (a block no dig stand reaches, a fill no click lands on) is deferred, so the waiver below can name it
+      ...(tidyDeadOn() ? { hardDefers: true } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts)
     const read2 = tidyRead(bot)
     const cutAt = new Map((rec.cut ?? []).map(q => [q.at.join(','), q]))
