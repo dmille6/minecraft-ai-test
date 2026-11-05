@@ -1,0 +1,77 @@
+{
+ "showcase-Alpha": {
+  "skin": "mcai-alpha",
+  "role": "builder",
+  "png": "Alpha.png"
+ },
+ "showcase-Bravo": {
+  "skin": "mcai-bravo",
+  "role": "miner",
+  "png": "Bravo.png"
+ },
+ "showcase-Comet": {
+  "skin": "mcai-comet",
+  "role": "deep miner",
+  "png": "Comet.png"
+ },
+ "showcase-Delta": {
+  "skin": "mcai-delta",
+  "role": "groundskeeper",
+  "png": "Delta.png"
+ },
+ "showcase-Echo": {
+  "skin": "mcai-echo",
+  "role": "decorator",
+  "png": "Echo.png"
+ },
+ "showcase-Frost": {
+  "skin": "mcai-frost",
+  "role": "clerk",
+  "png": "Frost.png"
+ },
+ "showcase-Gale": {
+  "skin": "mcai-gale",
+  "role": "lumberjack",
+  "png": "Gale.png"
+ },
+ "showcase-Haven": {
+  "skin": "mcai-haven",
+  "role": "farmer",
+  "png": "Haven.png"
+ },
+ "showcase-Iris": {
+  "skin": "mcai-iris",
+  "role": "gardener",
+  "png": "Iris.png"
+ },
+ "showcase-Juno": {
+  "skin": "mcai-juno",
+  "role": "smith",
+  "png": "Juno.png"
+ },
+ "showcase-Kite": {
+  "skin": "mcai-kite",
+  "role": "explorer",
+  "png": "Kite.png"
+ },
+ "showcase-Lumen": {
+  "skin": "mcai-lumen",
+  "role": "lamplighter",
+  "png": "Lumen.png"
+ },
+ "showcase-Maple": {
+  "skin": "mcai-maple",
+  "role": "forester",
+  "png": "Maple.png"
+ },
+ "showcase-Nova": {
+  "skin": "mcai-nova",
+  "role": "storekeeper",
+  "png": "Nova.png"
+ },
+ "showcase-Onyx": {
+  "skin": "mcai-onyx",
+  "role": "mason",
+  "png": "Onyx.png"
+ }
+}

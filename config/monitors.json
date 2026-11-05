@@ -538,6 +538,20 @@
    "fresh_hours": 2.5,
    "consumer": "fleetstatus header (alarmhead FILES 'promotion effects:' and 'busy time:' lines; '!!' on NO-EFFECT/WORSE until ledger row effect-<run>, or stale > 150 min); alarms in ~/digest/ALARMS.log + push; scoreboard.py busy-time line; the ops audit reads effect-latest.md",
    "kind": "monitor"
+  },
+  {
+   "id": "chunky-nightly",
+   "host": "34",
+   "cron": "chunky/bin/render-nightly.sh",
+   "outputs": [
+    "~/chunky/render.log",
+    "~/chunky/out/<date>/{town,hallwall,ziggurat}.png",
+    "showcase VM /srv/showcase/timelapse/video/stills/chunky/<date>/*.png"
+   ],
+   "fresh_hours": 26,
+   "consumer": "the owner (hero stills beside the daily videos, video/stills/chunky/<date>/) and the control session's read of ledger row visuals-1105 (ok/SKIP/FAIL lines in ~/chunky/render.log on ci2)",
+   "kind": "monitor",
+   "note": "visuals-1105: ci2 (10.0.0.34) mike crontab 08:30Z; flock -n ~/suite.lock (SKIP when a suite holds it), nice 19, 75-min cap per view; pulls the BlueMap mirror world read-only (rrsync -ro key), publishes via an rrsync -wo key. Not on the canary host, so stallcheck's (h) crontab pass does not see it. Rollback: crontab -e on ci2, delete the visuals-1105 line."
   }
  ]
 }

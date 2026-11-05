@@ -36,6 +36,12 @@ const REQUIRED = [
   'infra/showcase/wholemap.py',
   'infra/showcase/test_wholemap.py',
   'infra/showcase/install-wholemap.sh',
+  // visuals-1105 (11-05): Chunky nightly hero renders (ci2), the skin generator + SkinsRestorer install/apply scripts
+  'infra/showcase/visuals/chunky-render-nightly.sh',
+  'infra/showcase/visuals/chunky_scenes.py',
+  'infra/showcase/visuals/make_skins.py',
+  'infra/showcase/visuals/apply-skins.sh',
+  'infra/showcase/visuals/restart-sr.sh',
   'bots/test/wholemap.test.mjs',
   // B5 (10-31): the cooperation tier's role leases (bot side), the host assigner, the spend guard + caller, the Paper arms
   'bots/src/roles.mjs',

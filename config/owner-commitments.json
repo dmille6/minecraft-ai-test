@@ -4715,6 +4715,32 @@
     ]
    },
    "note": "Measured 11-05: fleet towns stone 36 total, bricks 121-202 (at the 128 buffer), logs 25,909 above reserve, coal 34-309; bags 15,622 cobble, 2,931 bamboo. Showcase: logs 103 (< 512 reserve), coal 67, bamboo 0 -> coal-free ladder sustains only ~73 stone/day there (saplings); fleet is body-time bound (~300/town/day), not fuel bound. The trading agent's coalsale-02 sells stone above 192."
+  },
+  {
+   "id": "visuals-1105",
+   "title": "Prettier showcase stills/videos: (1) BlueMap Faithful 32x pack + softer lighting, (2) SkinsRestorer with 15 role skins, (3) nightly Chunky path-traced hero renders on ci2 -- owner 11-05 'set all 3 up' (gap 5 visuals)",
+   "owner_date": "2026-11-05",
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "(2) skins: the 15 PNGs (infra/showcase/visuals/skins) are drawn and SkinsRestorer 15.12.6 is live, but signing a custom PNG needs MineSkin to fetch it from a PUBLIC URL and, without a MineSkin key, the skin lands in MineSkin's public gallery -- owner picks: upload via skinsrestorer.net/upload, or a MineSkin key + secret skins + a public PNG host; then run visuals/apply-skins.sh. (3) read the first nightly cron run (ci2 08:30Z: ~/chunky/render.log 'ok'/'SKIP' lines, PNGs in showcase video/stills/chunky/<date>/); close done when skins are applied and two nightly renders published.",
+   "owner_pending": "visuals-1105 skins: OK to publish the 15 custom skin PNGs through MineSkin (public gallery unless a MineSkin key is given), or upload them yourself at skinsrestorer.net/upload?",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "grep": [
+     "visuals-1105"
+    ],
+    "paths": [
+     "infra/showcase/visuals/chunky-render-nightly.sh",
+     "infra/showcase/visuals/chunky_scenes.py",
+     "infra/showcase/visuals/make_skins.py"
+    ]
+   },
+   "note": "Installed 11-05 (control session subagent). (1) BlueMap 5.16 CLI: Faithful 32x 1.21.8-june-2026 (Modrinth sha512 verified; Faithful License, private-server use exempt from credit -- credit 'Faithful 32x, faithfulpack.net' if a video goes public) in /srv/showcase/bluemap/config/packs/; maps/showcase.conf ambient-light 0.1->0.3, edge-light-strength 8->6, sky-color #7dabff->#9cc4f2 (.bak-20261105T0100Z-visuals); full re-render 00:57Z 128 s; before/after pairs (iso, ziggurat, storehouse, wall, town) in /srv/showcase/timelapse/video/stills/visuals-1105/pairs/. Slot render_s ~30 s -> 57-78 s after (budget 690); one slot (01:00Z) skipped for the after-shoot. (2) SkinsRestorer 15.12.6 (GPL-3.0; sha256 a85b4a37 = GitHub release digest, sha1 = Modrinth) installed at a planned restart 01:05-01:15Z holding ops.lock + renderer.lock (stop-bots, restart showcase-paper 22 s, start-bots gate 17/17, 15/15 bots verified, deploy.jsonl rows server-restart-begin/done, start-bots-after-restart rc 0); tripwire WATCH at 01:35Z. 15 role skins drawn from scratch (make_skins.py). BlueMap CLI shows no live player markers (that needs the BlueMap server plugin), so skins are visible in-game only. (3) Chunky 2.5.0-DEV.489.g891d6ad built from chunky-dev/chunky master 891d6ad4 (2.4.6 release predates 1.21 blocks) on ci2 ~/chunky (JDK 21 runtime, JDK 17 for the gradle build; launcher jar ~/chunky/ChunkyLauncher-2.5.0-DEV.489.g891d6ad.jar); first run 02:17-02:48Z 1920x1080 512 spp: town 602 s, hallwall 672 s, ziggurat 575 s (~1.7 M SPS, 14 threads nice 19) -> showcase video/stills/chunky/2026-11-05/. MSPT (5 s/1 m avg): before 10.5/12.2 ms; during the re-render 6-13; first 10 min after the restart 15-21 (bots rejoining); 02:50Z 7-12; TPS 20 throughout. Rollback: (1) rm the pack zip + restore the .bak conf + tl_showcase.py render-full; (2) rm server/plugins/SkinsRestorer.jar at a planned restart (stop-bots, restart showcase-paper, start-bots); (3) ci2 crontab: delete the visuals-1105 line."
   }
  ]
 }
