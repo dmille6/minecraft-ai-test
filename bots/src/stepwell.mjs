@@ -671,6 +671,35 @@ export function stepwellCandidates (home, { ring = [SW.ringMin, SW.ringMax], ste
   }
   return out.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z || a.turn - b.turn)
 }
+/** stepwell-03: THE RESERVATIONS a footprint's GAP ring may overlap -- a wall's zones (wall.mjs: its columns + 1, so a gap there
+ *  still leaves the tank two columns off the wall's own cells; a record CELL reads `project` and is refused everywhere). LIVE 11-05:
+ *  the extension's west line (x -41..-36) took the one free site's gap (-52,-74; owner-approved): with it the tank sits at -54,-74. */
+export const GAP_OK = /^project:(wall|wallext)$/
+/** The footprint + gap's reservations -> 'reserved:<why>' | 'zone:<kind>' | null: the first refusal in the survey's own column
+ *  order (u, then v). Pure over blocked / zoneOf. */
+export function reservedFor (origin, away, W, gp, { blocked = () => null, zoneOf = null, gapOk = GAP_OK } = {}) {
+  for (let u = -gp; u < W + gp; u++) for (let v = -gp; v < W + gp; v++) {
+    const w = toWorld(origin, away, u, v)
+    const inside = u >= 0 && v >= 0 && u < W && v < W
+    const why = blocked(w.x, w.z)
+    if (why && (inside || !(gapOk && gapOk.test(String(why))))) return `reserved:${why}`
+    if (zoneOf && inside && !STEPWELL_ZONES.includes(zoneOf(w.x, w.z))) return `zone:${zoneOf(w.x, w.z)}`
+  }
+  return null
+}
+/** stepwell-03: a column function memoised for one siting (blocked, zoneOf: four orientations and the step-2 grid ask each column
+ *  many times). Pure wrapper. */
+export function columnMemo (fn) {
+  if (typeof fn !== 'function') return fn
+  const m = new Map()
+  return (x, z) => { const k = `${x},${z}`; if (m.has(k)) return m.get(k); const v = fn(x, z); m.set(k, v); return v }
+}
+/** stepwell-03: a block reader memoised for one siting, bounded at `max` entries (shaftvisit.mjs stairRead clears its own at 4,096:
+ *  one candidate reads ~15,000 cells, so every candidate read the world afresh). Pure wrapper. */
+export function sitingRead (read, max = 600_000) {
+  const m = new Map()
+  return (x, y, z) => { const k = `${x},${y},${z}`; if (m.has(k)) return m.get(k); const v = read(x, y, z); if (m.size >= max) m.clear(); m.set(k, v); return v }
+}
 const TREEISH = /_(log|wood|leaves|stem)$|^(mangrove_roots|bamboo|cactus|mushroom_stem|brown_mushroom_block|red_mushroom_block)$/
 const ORE = /_ore$|^ancient_debris$/
 const SOFT = /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mycelium|mud|clay|gravel|sand|red_sand|moss_block|snow_block|dirt_path|farmland)$/
@@ -682,19 +711,21 @@ const SOFT = /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mycelium|mud|cla
  * beside one read -- LAVA anywhere refuses (the tiers above it are never planned onto it); water and caves are counted (sealed and
  * laid by the visit); `tiers` is the deepest tier count with no water in its cut cells or their faces (>= SW.tiers or refused 'wet').
  */
-export function surveyStepwell (read, home, cand, { blocked = () => null, zoneOf = null, W = SW.W, tiersMax = SW.tiersMax, tiers = SW.tiers, treesOk = false, pondMax = 0 } = {}) {
+export function surveyStepwell (read, home, cand, { blocked = () => null, zoneOf = null, W = SW.W, tiersMax = SW.tiersMax, tiers = SW.tiers, treesOk = false, pondMax = 0, gapOk = GAP_OK } = {}) {
   const away = cand.away
   const origin = originFor(cand.x, cand.z, away, W)
   const gp = SW.gap
   const grounds = []
   const logs = new Set(), trunks = new Set()
   const outer = []
+  // stepwell-03: THE RESERVATIONS FIRST, every column of the footprint + its gap, before any read of the world (a candidate the
+  // town has taken costs no block read: LIVE 11-05 the siting read the world first and its 25 s ran out at 10,891 of 21,600
+  // candidates, the one free site at 19,560). The GAP ring may lie in a wall's own margin zone (GAP_OK): the footprint never does
+  const res = reservedFor(origin, away, W, gp, { blocked, zoneOf, gapOk })
+  if (res) return { ok: false, why: res }
   for (let u = -gp; u < W + gp; u++) for (let v = -gp; v < W + gp; v++) {
     const w = toWorld(origin, away, u, v)
-    const why = blocked(w.x, w.z)
-    if (why) return { ok: false, why: `reserved:${why}` }
     const inside = u >= 0 && v >= 0 && u < W && v < W
-    if (zoneOf && inside && !STEPWELL_ZONES.includes(zoneOf(w.x, w.z))) return { ok: false, why: `zone:${zoneOf(w.x, w.z)}` }
     if (!inside) {
       // the ring just outside the rim (u or v = -1 or W): its ground is read for the rim's outer edge (below)
       if (u >= -1 && v >= -1 && u <= W && v <= W) {

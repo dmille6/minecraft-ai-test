@@ -170,6 +170,7 @@ import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never d
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone } from './stepwell.mjs'   // stepwell-02: the descent
+import { columnMemo as swColumnMemo, sitingRead as swSitingRead } from './stepwell.mjs'   // stepwell-03: the siting's memos
 import { plotPrep, replantCells, PLOTPREP } from './tidy.mjs'   // stepwell-01: the site's felling (the groundskeeper's stands and replants)
 import { CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANE, CANE_PALETTE, CANE_FOREIGN, siteCaneFarm, caneCells, caneState, caneCensus, caneHarvest, caneStand, caneNeed, caneDue, caneAlsoDone, cutCell, caneHarvestRow, caneBankable } from './canefarm.mjs'   // canefarm-01
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
@@ -24516,6 +24517,7 @@ async function buildCaneFarm (ctx, args, signal) {
 // TANK by layers (runStepwellVisit: survey, seal, cut, lay, post, light), and ends at the exit. One builder (one frontier).
 // ================================================================================================================================
 const STEPWELL_SITE_MS = 25_000
+const STEPWELL_TIMEOUT_WAIT_MS = 30 * 60_000   // stepwell-03: a siting the budget cut short asks again in 30 min
 const STEPWELL_NOSITE_MS = 6 * 60 * 60_000
 const STEPWELL_WALK_MS = 20_000
 const STEPWELL_POSTS_CRAFT = 48
@@ -24540,13 +24542,16 @@ function stepwellInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = tow
  * not used) and owes no sapling it cannot place (replantCells, outside the footprint + 2). Bounded by STEPWELL_SITE_MS.
  */
 function stepwellSite (bot, home, inp, t0, me) {
-  const read = stairRead(bot)
+  // stepwell-03 (LIVE 11-05 14:20Z: 25 s ran out at 10,891 of 21,600 candidates, the one free site at 19,560): the reads and the
+  // column checks memoised for the whole siting (stairRead's own memo clears at 4,096 cells, one candidate reads ~15,000)
+  const read = swSitingRead(stairRead(bot))
+  const blocked = swColumnMemo(inp.blocked), zoneOf = swColumnMemo(inp.zoneOf)
   const ok = [], why = {}
   let tried = 0
   for (const cand of stepwellCandidates(home)) {
     if (Date.now() - t0 > STEPWELL_SITE_MS) { why.time = (why.time ?? 0) + 1; break }
     tried++
-    const sv = surveyStepwell(read, home, cand, { blocked: inp.blocked, zoneOf: inp.zoneOf, treesOk: true })
+    const sv = surveyStepwell(read, home, cand, { blocked, zoneOf, treesOk: true })
     if (!sv.ok) { const k = String(sv.why).replace(/:.*$/, ''); why[k] = (why[k] ?? 0) + 1; continue }
     ok.push(sv)
   }
@@ -24566,7 +24571,7 @@ function stepwellSite (bot, home, inp, t0, me) {
     const record = stepwellRecord(sv, { home, seed: stepwellSeed(config.memory?.pool ?? process.env.MEMORY_POOL ?? '', home), now: Date.now(), by: me, fell: { trees: pp.trees, platforms: pp.platforms, clear: pp.clear, replant: rp }, read })
     return { ok: true, record, tried, sites: ok.length }
   }
-  return { ok: false, why: `tried ${tried}, sites ${ok.length}: ${JSON.stringify(why)}`.slice(0, 160), tried, unread: !ok.length && Object.keys(why).every(k => k === 'unknown') }
+  return { ok: false, why: `tried ${tried}, sites ${ok.length}: ${JSON.stringify(why)}`.slice(0, 160), tried, unread: !ok.length && Object.keys(why).every(k => k === 'unknown'), timedOut: !!why.time }
 }
 async function buildStepwell (ctx, args, signal) {
   const { bot } = ctx
@@ -24592,9 +24597,10 @@ async function buildStepwell (ctx, args, signal) {
     let s
     try { s = stepwellSite(bot, home, stepwellInputs(bot, c, h, dir), t0, me) } catch (e) { return out('no_effect', 'site_unread', `the town's records could not be read (${String(e?.message ?? e).slice(0, 60)})`, { stop: 'site_unread' }) }
     if (!s.ok) {
-      if (!s.unread) siteWaitSet(STEPWELL_PLOT, STEPWELL_NOSITE_MS, s.why)
+      // stepwell-03: a search the budget cut short is not a town with no site -- it asks again in STEPWELL_TIMEOUT_WAIT_MS, not 6 h
+      if (!s.unread) siteWaitSet(STEPWELL_PLOT, s.timedOut ? STEPWELL_TIMEOUT_WAIT_MS : STEPWELL_NOSITE_MS, s.why)
       stepwellRow(bot, 'no_site', { why: s.why })
-      return out('no_effect', 'no_site', `no stepwell site (${s.why}); the town asks again in ${s.unread ? 'the next visit' : '6 h'}`, { stop: s.unread ? 'site_unread' : 'site_wait' })
+      return out('no_effect', 'no_site', `no stepwell site (${s.why}); the town asks again in ${s.unread ? 'the next visit' : s.timedOut ? '30 min' : '6 h'}`, { stop: s.unread ? 'site_unread' : 'site_wait' })
     }
     const record = s.record
     const pub = publishRecord(dir, key, cur => (cur ? null : record), { by: me })
