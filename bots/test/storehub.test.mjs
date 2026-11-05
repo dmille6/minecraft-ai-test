@@ -139,6 +139,27 @@ await t('storehubstand-01 (LIVE 11-04 a7efcca2: 46 visits, 0 placed, every repla
   assert.ok(!dom(200, 0) && dom(b[0], b[1]), 'never beyond the ring, always the pad')
 })
 
+await t('storehubwalk-01 (LIVE 8b4ea9cc: 0 placed, 23 of 33 aborts the runner\'s 180 s watchdog): the hall\'s visit ends inside the runner clock and commutes first', () => {
+  assert.strictEqual(H.hubVisitBudget(180_000, 8 * 60_000), 140_000, 'the showcase: 180 s less the tail')
+  assert.strictEqual(H.hubVisitBudget(600_000, 8 * 60_000), 8 * 60_000 - H.HUB_VISIT_TAIL_MS, 'a longer runner: the visit\'s own 8 min')
+  assert.strictEqual(H.hubVisitBudget(undefined, undefined), 8 * 60_000)
+  assert.ok(H.hubVisitBudget(20_000, 8 * 60_000) >= 30_000)
+  const live = JSON.parse(readFileSync(new URL('./fixtures/storehub-record-1104.json', import.meta.url), 'utf8'))
+  const rec = { ...live, blueprint: H.HUB_BLUEPRINT }
+  const cm = H.hubCommute(rec, { x: -8.5, y: 71, z: 0.7 })   // the storehouse, where the live builders drew and wedged
+  assert.ok(cm && cm.dist > 50, JSON.stringify(cm))
+  const [x, y, z] = cm.target
+  assert.ok(x >= live.box[0] && x <= live.box[2] && z >= live.box[1] && z <= live.box[3] && y === live.s + 1, 'the doorway\'s front: on the pad, one above it')
+  const front = H.hubChestsOf(rec)   // sanity: the target is the doorway's column, not a chest's
+  assert.ok(!front.some(c => c.at[0] === x && c.at[2] === z))
+  assert.strictEqual(H.hubCommute(rec, { x: x + 3.5, y, z: z + 0.5 }), null, 'near the doorway: no commute')
+  assert.strictEqual(H.hubCommute({ ...rec, blueprint: 'yard@1' }, { x: 0, y: 70, z: 0 }), null)
+  const SKW = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  for (const re of [/effects, \{ deadline: rec\.blueprint === HUB_BLUEPRINT \? t0 \+ hubVisitBudget\(config\.skills\?\.defaultTimeoutMs, SHOP_VISIT_MS\) : t0 \+ SHOP_VISIT_MS - 15_000 \}\)/,
+    /const cm = hubCommute\(rec, bot\.entity\?\.position\)\n\s*if \(cm\) \{/,
+    /await goto\(ctx, \{ x: cm\.target\[0\], y: cm\.target\[1\], z: cm\.target\[2\], range: 3 \}, signal, \{ until \}\)/]) assert.strictEqual((SKW.match(new RegExp(re.source, 'g')) ?? []).length, 1, re.source.slice(0, 60))
+})
+
 console.log('THE REGISTRY (chestfull.mjs inTown)')
 await t('the hall\'s chests are town containers once registered; the box is unchanged; a bot\'s feet never match', () => {
   const keys = H.hubChestKeys(REC)

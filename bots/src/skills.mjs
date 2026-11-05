@@ -125,7 +125,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 import { loadBlueprint, siteBlueprint, siteBlueprintAsync, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
 import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
-import { clerkKeepOf } from './storehub.mjs'   // storehub-01: the clerk throw's keep
+import { clerkKeepOf, hubVisitBudget, hubCommute } from './storehub.mjs'   // storehub-01: the clerk throw's keep
 import { HUB_PLOT, HUB_BLUEPRINT, hubSitingPlan, hubRecordOf, hubChestKeys, hubHomes, hubSignSpots, hubVisitOpts, clerkMoves, clerkRoute, clerkTargets, cargoOwed, cargoKeeps, clerkWork, clerkRowDetail, hubThrowable,
          CLERK_STACKS, CLERK_BAG_SPARE, CLERK_GAP_MS, CLERK_IDLE_MS, CLERK_BACKOFF_MS, CLERK_LEASE_MS, CLERK_TERM_MS, CLERK_REST_MS } from './storehub.mjs'   // storehub-01
 import { STOREHUB } from './shop.mjs'   // storehub-01's switches
@@ -19994,7 +19994,18 @@ async function buildShopVisit (ctx, args, signal) {
       : rec.blueprint === HALL_BLUEPRINT ? { domain: hallRecordDomain(rec, projectHeads().map(x => x.head.rec)) }
       // yardsite-01: a yard sited beyond the town ring stands and walks out to its band (yard.mjs yardVisitOpts; an older record: {})
         : isYardBlueprint(rec.blueprint) ? yardVisitOpts(rec, home) : {}
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    // storehubwalk-01: a builder far from the hall commutes to its doorway first, with the town's own leg-by-leg travel (goto), inside
+    // the visit's clock; the stand walks are then short (buildbot.mjs walkTo is one pathfinder goal of PATH_MS)
+    if (rec.blueprint === HUB_BLUEPRINT) {
+      const cm = hubCommute(rec, bot.entity?.position)
+      if (cm) {
+        const until = Math.min(t0 + hubVisitBudget(config.skills?.defaultTimeoutMs, SHOP_VISIT_MS) - 45_000, Date.now() + 75_000)
+        if (until - Date.now() > 10_000) { try { await goto(ctx, { x: cm.target[0], y: cm.target[1], z: cm.target[2], range: 3 }, signal, { until }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+        check(signal)
+        try { logEvent({ kind: 'storehub_commute', status: hubCommute(rec, bot.entity?.position) ? 'failed' : 'success', snapshot: snapshot(bot), detail: `from=${Math.round(cm.dist)} left=${Math.round(hubCommute(rec, bot.entity?.position)?.dist ?? 0)} to=${cm.target.join(',')} ms=${Date.now() - t0}` }) } catch { /* telemetry */ }
+      }
+    }
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: bp.palette, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: rec.blueprint === HUB_BLUEPRINT ? t0 + hubVisitBudget(config.skills?.defaultTimeoutMs, SHOP_VISIT_MS) : t0 + SHOP_VISIT_MS - 15_000 })   // storehubwalk-01: the hall's visit ends before the runner's watchdog
     // each tidy cell the visit offered counts once against this bot (storehouse.mjs STORE_TIDY_TRIES: an undiggable one stops asking)
     if (storeOpts.tidy) for (const k of r.tidied ?? []) bot.storeTidyTries.set(k, (bot.storeTidyTries.get(k) ?? 0) + 1)
     if (r.stop === 'complete') {

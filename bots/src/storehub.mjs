@@ -181,6 +181,31 @@ export function hubStandDomain (rec) {
   const ring = home && Number.isFinite(home.x) && Number.isFinite(home.z) ? (x, z) => Math.hypot(x - home.x, z - home.z) <= far : () => false
   return (x, z) => (x >= b[0] - p && x <= b[2] + p && z >= b[1] - p && z <= b[3] + p) || ring(x, z)
 }
+/**
+ * storehubwalk-01 (LIVE 8b4ea9cc, 11-04 22:54-23:54Z: 0 placements, 33 of 70 visits aborted -- 23 `timeout` -- and the others 160-190 s
+ * long): a build visit's own deadline was t0 + SHOP_VISIT_MS (8 min) - 15 s, but the runner's watchdog ends every skill at
+ * SKILL_TIMEOUT_MS (180 s on the showcase): the hall, 57 blocks out through forest, was cut mid-walk before the visit's clock ever
+ * ended it. THE HALL'S VISIT BUDGET -> ms: the smaller of the two clocks, less HUB_VISIT_TAIL_MS (the leftovers' bank-back and the
+ * walk home are the visit's, not the watchdog's). Pure.
+ */
+export const HUB_VISIT_TAIL_MS = 40_000
+export const hubVisitBudget = (runnerMs, visitMs) => {
+  const r = Number(runnerMs) > 0 ? Number(runnerMs) : Infinity, v = Number(visitMs) > 0 ? Number(visitMs) : Infinity
+  const m = Math.min(r, v)
+  return Number.isFinite(m) ? Math.max(30_000, m - HUB_VISIT_TAIL_MS) : 8 * 60_000
+}
+/** A builder this far (horizontally) from the hall's doorway COMMUTES first: one `goto` (the town's own leg-by-leg travel) to the
+ *  doorway's front cell, then the visit's stand walks are short. LIVE 8b4ea9cc: stand walks of 57+ blocks through forest from the
+ *  town chests (buildbot.mjs walkTo: one pathfinder goal, PATH_MS 25 s) ended `_pathfinder_wedged` (an empty path held 211 s). */
+export const HUB_COMMUTE_FROM = 20
+/** THE COMMUTE -> { target: [x, y, z], dist } | null (near enough, or no record). Pure. The doorway's front cell: the pad's
+ *  door column (u 9, v 0) at s + 1, before the 3-wide doorway. */
+export function hubCommute (rec, pos) {
+  if (rec?.blueprint !== HUB_BLUEPRINT || !pos || !Array.isArray(rec.anchor) || !Number.isFinite(rec.s) || !rec.orient) return null
+  const target = cellAt(rec, 9, 0, 1)
+  const dist = Math.hypot(pos.x - (target[0] + 0.5), pos.z - (target[2] + 0.5))
+  return dist > HUB_COMMUTE_FROM ? { target, dist } : null
+}
 /** The build visit's options for a hall record (buildrun.mjs runVisit: the stands' domain and the walk's radius). Pure. */
 export const hubVisitOpts = rec => (rec?.blueprint === HUB_BLUEPRINT ? { domain: hubStandDomain(rec), walkR: Number.isFinite(rec.walkR) ? rec.walkR : HUB_SITE.walkR } : {})
 
