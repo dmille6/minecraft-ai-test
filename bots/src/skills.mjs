@@ -23746,7 +23746,7 @@ async function buildTidy (ctx, args, signal) {
     const recV = isTerrace ? { ...visitRec, cells: (visitRec.cells ?? []).filter(q => !q.prev), clear: (visitRec.clear ?? []).filter(q => (q.prep || !guardNow(q.at[0], q.at[2])) && !keptLogK.has(q.at.join(','))) } : visitRec
     const r = await runVisit({ dir, key, me, home, stood, record: recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q) || !!skipV(q), stuckStalledOnly: true,
-      ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true } : {}),
+      ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
       // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)
       ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) && !otherBodyOnCell(bot, q.at) } : {}),

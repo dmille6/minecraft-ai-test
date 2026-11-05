@@ -223,7 +223,8 @@ await t('MUTANT the bottom-up rule dropped (the top of the hole first)', () => b
     seen.add(k3(d.cell))
   }
 }))
-await t('MUTANT the replant-first rule dropped (a tree felled before its sapling)', () => both("if (c.kind === 'tree' && !replanted()) { needSapling ??= 'a sapling'; continue }", '', async M => {
+await t('MUTANT the replant-first rule dropped (a tree felled before its sapling)', () => both("if (c.kind === 'tree' && !treeReady(c)) { needSapling ??= 'a sapling'; continue }", ''   // plotprep-03: B4 through treeReady (an untagged tree: every replant)
+  , async M => {
   const log = B.footprint(BP, { x: SITE.record.anchor[0], z: SITE.record.anchor[1] }, SITE.record.orient).pad[30]
   const at = [log[0], G + 1, log[1]]
   const record = { ...SITE.record, clear: [{ at, kind: 'tree', name: 'oak_log' }], replant: [{ cell: [SITE.record.box[2] + 10, G + 1, SITE.record.box[1]], species: 'oak', sapling: 'oak_sapling', state: 'pending' }] }

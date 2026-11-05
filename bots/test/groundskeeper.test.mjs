@@ -326,7 +326,7 @@ await t('the keeper\'s order comes back in GK.cooldownMs; anyone else\'s tidy or
 console.log('WIRING (structural)')
 await t('buildTidy passes the keeper knobs to runVisit and sites stages; shopActive orders by the keeper; projectHeads reserves the corridors', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/\.\.\.\(GROUNDS\.on \? \{ tidyKeepOrder: true, deferSpent: true \} : \{\}\)/.test(s), 'runVisit knobs')
+  assert.ok(/\.\.\.\(GROUNDS\.on \? \{ tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true \} : \{\}\)/.test(s), 'runVisit knobs')   // plotprep-03: + the replant knobs
   assert.ok(/s = await siteStage\(read, \{ home: I\.home, avoid: I\.avoid, cells: I\.cells, pin: I\.pin, plan: I\.plan, land, stage: k,/.test(s), 'stage siting')
   // decorator-01: the decorator's order follows the keeper's
   assert.ok(/const order00 = b \? keeperOrder\(b, marked, list, now\) : list\n\s*const order0 = b \? decorOrder\(b, marked, order00, now\) : order00\n\s*const order = sinkListOrder\(order0, activeMem\.sinkOrder \?\? \[\]\)\n\s*const pick = activeProject\(marked, order, /.test(s), 'the keeper order (picker-01: the sinks sorted after it)')

@@ -46,6 +46,17 @@ export const PROBES_MAX = 2
 export const RENEW_AT = 0.5
 export const CLOSER_SEGS = new Set(['roof-edge', 'roof-inner'])
 export const REPLANT_MOVES = 4      // a replant moves at most this often (each to a cell never tried before)
+/**
+ * plotprep-03: THE ONE TREE'S REPLANTS SETTLED? -> bool. `c` a tree clear; its replants are those with the same `tree` index (and the
+ * same `plot` when either names one). A clear with no tree index, or a record none of whose replants carries one, falls back to
+ * EVERY replant (the old rule). A replant is settled when skipped or when `planted(cell)` reads a sapling there. Pure.
+ */
+export function treeReplanted (replant = [], c, planted) {
+  const settled = r => r.state === 'skipped' || !!planted(r.cell)
+  const tagged = (replant ?? []).some(r => Number.isFinite(r?.tree))
+  if (!Number.isFinite(c?.tree) || !tagged) return (replant ?? []).every(settled)
+  return (replant ?? []).filter(r => r.tree === c.tree && (r.plot ?? null) === (c.plot ?? null)).every(settled)
+}
 export const REPLANT_DEFERS = 3     // visits with no plantable cell anywhere in the walk before the replant is skipped
 export const STUCK_VISITS = 3       // visits a record cell may find no stand before the build reports stuck_on_cell (F4)
 export const STUCK_FORGET_MS = 24 * 60 * 60_000   // a deferral older than this no longer counts: a changed town gets a fresh count (Claude r22 P3)
@@ -775,6 +786,15 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     out.stop = 'replanned'; out.why = `replant ${at}: ${why} -> ${kind ?? 'unchanged (another builder moved it first)'}${alt && kind === 'replant_moved' ? ` ${alt.join(',')}` : ''}`
     return out
   }
+  // plotprep-03 (`p.replantGoOn`, the groundskeeper's visit): a replant's remedy (moved / deferred / skipped: the record changed)
+  // does not end the visit -- the next replant, then the clears and the segments go on. LIVE showcase 11-05 15:34-17:48Z: the in-wall
+  // stage's 10 pending replants (x -62..-72) ended every keeper visit at the first one, so none of its 66 tree logs was felled
+  const remedy = (r, nodes, why) => {
+    const o = replantRemedy(r, nodes, why)
+    if (!p.replantGoOn || o.stop !== 'replanned') return o
+    out.remedied = (out.remedied ?? 0) + 1; out.stop = null; out.why = null
+    return null
+  }
   for (const r of record.replant ?? []) {
     const g = guard(); if (g) { out.stop = g; return out }
     if (r.state === 'skipped') continue
@@ -783,7 +803,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (!e.has(r.sapling)) { needSapling = r.sapling; continue }
     const nodes = nodesFor()
     const step = stepFor(rd, home, r.cell, nodes, domain)
-    if (!step || step.support[1] !== r.cell[1] - 1) return replantRemedy(r, nodes, 'no_step')
+    if (!step || step.support[1] !== r.cell[1] - 1) { const o = remedy(r, nodes, 'no_step'); if (o) return o; continue }
     if (!renewSlot()) { out.stop = 'fence:slot'; return out }
     const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
     if (!seg.ok) { out.stop = 'deps_open'; out.why = 'the clear lease is held'; return out }
@@ -795,13 +815,16 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (v === 'placed') { out.planted++; tally(r.sapling); e.log('_build', { op: 'replant', cell: r.cell, block: r.sapling }) } else if (v.startsWith('fence') || v === 'aborted') { out.stop = v; return out } else if (v === 'stand' || v === 'refused') {
       // the walk did not reach the proven stand, or the server refused the sapling: the same remedy as no step (r19, both r18
       // reviews: any other outcome ended the visit no_step, every visit, forever)
-      return replantRemedy(r, nodesFor(), v)
+      const o = remedy(r, nodesFor(), v); if (o) return o
     } else { out.stop = v; out.why = `replant ${r.cell.join(',')}: ${v}`; return out }   // busy, body, silent: transient, retried next visit
   }
 
   // ---- 2. clears, low before high; logs only once every replant reads planted ---------------------------------------------------
   // Re-run after every segment that completes: a log no ground stand reaches comes down once the pad gives it an eye
   const replanted = () => (record.replant ?? []).every(r => r.state === 'skipped' || SAPLING.test(nm(rd(...r.cell))))
+  // plotprep-03 (`p.replantPerTree`): B4 is "never a tree before ITS sapling" -- a felled tree whose clear and replants carry the
+  // same `tree` (and `plot`) waits only for its own replants (tidy.mjs plotPrep tags both); an untagged one waits for every replant
+  const treeReady = c => (p.replantPerTree ? treeReplanted(record.replant ?? [], c, cell => SAPLING.test(nm(rd(...cell)))) : replanted())
   const clears = async () => {
     // ONLY THE BLOCK THE RECORD NAMES THERE: a cell already built into (the pad laid over a felled trunk's cell) is never dug;
     // an UNKNOWN cell is asked again first. AND NEVER A RECORD CELL THAT READS DONE (Paper 10-25 SHOP-TERRAIN board-a: a town's
@@ -828,7 +851,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // list (monument-01) leaves the rest of the visit for the segments instead of ending it at max_steps in the clears
         if (tried >= (p.clearMax ?? Infinity)) return null
         if (e.aborted()) return 'aborted'
-        if (c.kind === 'tree' && !replanted()) { needSapling ??= 'a sapling'; continue }   // never a tree before its sapling (B4)
+        if (c.kind === 'tree' && !treeReady(c)) { needSapling ??= 'a sapling'; continue }   // never a tree before its sapling (B4)
         if (unknown.has(kOf(c.at))) { const n = await resolveUnknown(c.at); if (n == null || n !== c.name) continue }
         if (nm(rd(...c.at)) !== c.name) continue
         // AT the dig (one guard for every path: an UNKNOWN cell resolved to a done one, r15 Codex P2) -- except a listed LOG: no

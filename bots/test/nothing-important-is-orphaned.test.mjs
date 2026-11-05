@@ -163,6 +163,7 @@ const REQUIRED = [
   'bots/scripts/stepwell-landmap.mjs',
   'bots/test/stepwell.test.mjs',
   'sandbox/stepwell/stepwell-e2e.mjs',  // stepwell-01: its Paper driver
+  'bots/test/plotprep03.test.mjs',  // plotprep-03 (11-05): a plot's trees fall once their own saplings are settled
   'bots/test/stepwell03.test.mjs',  // stepwell-03 (11-05): the siting reaches its site (reservations first, the wall's gap)
   // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
   'bots/src/sinks.mjs',
