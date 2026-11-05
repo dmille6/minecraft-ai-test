@@ -144,7 +144,7 @@ export const MATS_BUFFERS_DEFAULT = buffersDefault()
 /** A part's buffer NOW -> n. Pure. stoneworks-01: stone bricks rise to BRICKS_PROJECT_BUFFER while a building project is active
  *  (`project`: the project reserve's own state -- materialOrder's partReserve, the skill's projectReserveNow), never lower than
  *  the table says. Off: the table. */
-export function effectiveBuffer (part, buffers = MATS_BUFFERS_DEFAULT, { project = false, on = STONEWORKS.on, bill = null } = {}) {
+export function effectiveBuffer (part, buffers = MATS_BUFFERS_DEFAULT, { project = false, on = STONEWORKS.on, bill = null, have = 0 } = {}) {
   const b = Number(buffers?.[part]) || 0
   if (!on) return b
   // stoneworks-02: a READ bill decides (an empty bill is a read: nothing open names the part); unreadable (null) -> the project rule
@@ -153,7 +153,10 @@ export function effectiveBuffer (part, buffers = MATS_BUFFERS_DEFAULT, { project
   if (bill && typeof bill === 'object' && BILL_PARTS.includes(part)) {
     const want = Number(bill[part]) || 0
     const unit = CUT_KINDS.includes(part) ? KINDS[part].makes : 0
-    return Math.max(b, Math.min(BILL_CAP, unit ? Math.ceil(want / unit) * unit : want + (want > 0 ? BILL_MARGIN : 0)))
+    // ...counted from what the town HOLDS (Codex r2: 1 stair stocked under a 4-stair bill left 7 < 8 short): the stock plus whole cuts
+    // for the rest of the bill
+    const h = Math.max(0, Number(have) || 0)
+    return Math.max(b, Math.min(BILL_CAP, unit ? (want > h ? h + Math.ceil((want - h) / unit) * unit : 0) : want + (want > 0 ? BILL_MARGIN : 0)))
   }
   return project && part === 'stone_bricks' ? Math.max(b, BRICKS_PROJECT_BUFFER) : b
 }
@@ -435,7 +438,7 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
     const why = r => reasons.push(`${kind}:${r}`)
     // HEADROOM (Codex r1 P2-10): an order runs only when its WHOLE batch fits under the buffer -- the buffer is a hard cap
     // (stoneworks-01: the bricks' buffer rises while a project is active -- partReserve is passed exactly then)
-    const buf = effectiveBuffer(k.part, buffers, { project: !!partReserve, on: stoneworks, bill: stoneworks ? t.bill ?? null : null })
+    const buf = effectiveBuffer(k.part, buffers, { project: !!partReserve, on: stoneworks, bill: stoneworks ? t.bill ?? null : null, have: partCount(k.part, t.stock) })
     const short = buf - partCount(k.part, t.stock)
     if (short < k.makes) { why('stocked'); continue }
     if (freeSlots < k.slots) { why('room'); continue }
