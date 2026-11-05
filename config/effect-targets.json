@@ -605,6 +605,64 @@
    "guardrails": [],
    "none_reason": null,
    "retrospective": true
+  },
+  "monustuck-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "detail.rate.v1",
+     "params": {
+      "key": "_build:monument:stuck_on_cell"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "bamboo stalks on sealed record cells are felled and sealed cells never waived: monument stuck_on_cell rows (355,73,147-seed towns: placebo-c 41 h, hive-a 35 h, isolated-d 82 h stuck) fall (PROXY: the registration's own lines are D1/D2 defects and R1 place rows, reported)",
+     "window_h": 72
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "detail.rate.v1",
+     "params": {
+      "key": "_build:monument:place"
+     },
+     "direction": "increase"
+    }
+   ],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "dirtrung-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "gather"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "the dirt rung is met by dirt + stone family >= 64: gather_dirt_16 held 22.8% of decisions, 16,628 dirt gathers in 14 h (PROXY: all non-log gather rows per bot-h; the decision share is not a cache metric)"
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    }
+   ],
+   "none_reason": null,
+   "retrospective": true
+  },
+  "llmoai-01": {
+   "version": 1,
+   "targets": [],
+   "guardrails": [],
+   "none_reason": "INERT by design: the oai+ llama-server client changes no request, order, record or behaviour for any bot without an oai+ OLLAMA_BASE_URLS entry (registration aea83708: 'no own lines (nothing to expose)'). Its effect is the 4B rollout's (modelrollout), read there. Control session 11-05.",
+   "retrospective": true
   }
  }
 }
