@@ -22191,9 +22191,13 @@ async function buildSink (ctx, args, signal, proj) {
     // are the label writer's -- runVisit reads them done
     // decorator-01: a decor batch's box spans the town too (flowers and pots: nothing to stand on)
     const leave = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) } : {}
-    const r = await runVisit({ dir, key, me, home, stood, record: kind === 'decor' ? decorUnheld(rec) : rec, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    // the showcase atlas+decorator fold (Codex fold r4 BLOCKER): held decor work stays PENDING -- the batch never completes while any of
+    // its cells or clears was left out for a hold
+    const vrecD = kind === 'decor' ? decorUnheld(rec) : rec
+    const heldOut = kind === 'decor' ? ((rec.cells ?? []).length - (vrecD.cells ?? []).length) + ((rec.clear ?? []).length - (vrecD.clear ?? []).length) : 0
+    const r = await runVisit({ dir, key, me, home, stood, record: vrecD, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       ...sinkVisitOpts(rec, home), ...leave }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
-    if (r.stop === 'complete') {
+    if (r.stop === 'complete' && !heldOut) {
       const pub = publishRecord(dir, key, cur => (cur && instancesOf(cur).length === instancesOf(rec).length ? completeInstance(cur) : null), { by: me })
       completed = true
       bot.shopDamage = null

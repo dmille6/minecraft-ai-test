@@ -38,7 +38,8 @@ t('potSpots: a hold refuses even the building\'s own apron column; the building\
 // r3: existing decor records -- a cell sited before a hold began is never placed or filled on a held column
 t('WIRED (r3): the pot fill and the decor build visit leave out held columns (decorHeldNow / decorUnheld), each once', () => {
   assert.strictEqual(SK.split("&& !held(c.at[0], c.at[2])).slice(0, DECOR.potFillMax)").length, 2, 'the pot fill')
-  assert.strictEqual(SK.split("record: kind === 'decor' ? decorUnheld(rec) : rec,").length, 2, 'the build visit')
+  assert.strictEqual(SK.split("const vrecD = kind === 'decor' ? decorUnheld(rec) : rec").length, 2, 'the build visit')
+  assert.strictEqual(SK.split("if (r.stop === 'complete' && !heldOut) {").length, 2, 'r4: a batch with held work left out never completes')
   assert.ok(SK.includes("function decorHeldNow () { try { return holdAt(projectHeads().find(x => x.plot === WALL_PLOT)?.head?.rec ?? null) } catch { return () => true } }"))
 })
 console.log(`\n${pass} passed, ${fail} failed`)
