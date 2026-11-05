@@ -36,10 +36,15 @@ await t('sightings: villagers and wandering traders within the radius, nearest f
   assert.deepEqual(M.merchantSightings(ents, null), [], 'no position -> nothing')
 })
 
-await t('a villager whose metadata has not arrived is "unknown", never employed; tradesPossible follows the profession', () => {
+await t('a villager with NO villager_data is the default (plains, none, level 1: the server omits defaults; sandbox4 11-05), never employed; tradesPossible follows the profession', () => {
   const [u] = M.merchantSightings({ 1: V(1, 'villager', 1, 1) }, HERE)
-  assert.equal(u.profession, 'unknown')
+  assert.equal(u.profession, 'none')
+  assert.equal(u.level, 1)
   assert.equal(M.tradesPossible(u), false)
+  const [w] = M.merchantSightings({ 1: V(1, 'wandering_trader', 1, 1) }, HERE)
+  assert.equal(w.profession, 'wandering_trader', 'POSITIVE: a trader is unaffected')
+  const [bad] = M.merchantSightings({ 1: V(1, 'villager', 1, 1, { 18: { villagerType: 3, level: 1 } }) }, HERE)
+  assert.equal(bad.profession, 'unknown', 'villager_data present but no profession field: still unknown')
   const rows = M.merchantSightings({ 1: V(1, 'villager', 1, 1, vd(9)), 2: V(2, 'villager', 2, 2, vd(11)), 3: V(3, 'villager', 3, 3, vd(0)), 4: V(4, 'wandering_trader', 4, 4) }, HERE)
   assert.deepEqual(rows.map(M.tradesPossible), [true, false, false, true])
 })
