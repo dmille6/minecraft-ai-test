@@ -4169,7 +4169,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "Fleet queue (control session): villageunlock-01 (d3d3ad17) -> coalsale-01 (454af13b, P after cobblebank-01) -> coalsale-02 (stone for apprentice masons, on coalsale-01; registration + draft entry on the canary host; OWNER 11-05). No fleet census holds a mason: stone sales start once a trip meets one (live sightings file). Next proposal: 'make jobs' (a stonecutter beside unemployed fleet villagers). Showcase trade variant after 6_1's villagers have jobs.",
+   "next_step": "Fleet queue (control session): villageunlock-01 -> coalsale-01 -> coalsale-02 (queued) -> jobsite-01 (make jobs: a stonecutter beside unemployed fleet villagers; branch jobsite-01 68c4e7d3 on coalsale-02; registration + draft entry on the canary host, P lane after coalsale-02). Then: lectern once leather exists; the scout's 'unknown' for default plains villagers (one line); showcase trade + jobsite variants after villageunlock.",
    "max_quiet_hours": 48,
    "depends_on": [],
    "evidence": {
@@ -4179,13 +4179,15 @@
      "origin/villageunlock-*",
      "origin/villageunlock-01-fleet",
      "origin/coalsale-01",
-     "origin/coalsale-02"
+     "origin/coalsale-02",
+     "origin/jobsite-01"
     ],
     "grep": [
      "trading-scout-01",
      "coalsale-01",
      "villageunlock-01",
-     "coalsale-02"
+     "coalsale-02",
+     "jobsite-01"
     ],
     "paths": [
      "docs/reports/trading-design-2026-11-03.md",
@@ -4195,7 +4197,8 @@
     "runs": [
      "villageunlock-01",
      "coalsale-01",
-     "coalsale-02"
+     "coalsale-02",
+     "jobsite-01"
     ]
    },
    "note": "Measured 11-03: showcase 63 villagers, 0 employed, 0 offers (6_1's 7 stuck in village trapdoor rings); fleet employed novices 554-605 blocks from 11 towns. Sandbox4: job claim 5.5 s (mobGriefing true and false), openVillager + trade sell/buy server-confirmed; anvil/enchanting table unproven. T3a sandbox4 E2E: ring 10 toggled / house 4 toggled, all present, villager employed; owner answers 11-03 21:45Z recorded (no owner_pending left)."

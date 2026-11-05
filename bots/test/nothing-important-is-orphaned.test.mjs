@@ -366,6 +366,7 @@ const REQUIRED = [
   'sandbox/trading/unlock-e2e.mjs',
   'infra/showcase/test_trip_unlock_mutants.py',
   'sandbox/trading/coalsale-e2e.mjs',
+  'sandbox/trading/jobsite-e2e.mjs',
   'scripts/mac/opsaudit.sh',
   // cooldown15-01 (11-01): the decision cooldown cap (30 s env -> 15 s) and its one-number rollback
   'bots/test/cooldown-cap.test.mjs',

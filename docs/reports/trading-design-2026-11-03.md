@@ -335,3 +335,42 @@ showed a bot-placed job site is taken in 5.5 s. That would create masons where n
 **Showcase variant.** It waits for villageunlock (6_1's villagers employed) and for a walk-only approach inside the protected
 village box.
 
+## 12. jobsite-01: make jobs (11-05, control session YES)
+
+**Branch.** `jobsite-01` = coalsale-02 (`7097909e`) plus job sites. On its own diff it is not protected; it stacks on the tier-3
+coalsale-01.
+
+**What a trip does.** While its town knows fewer than 2 masons, a trade trip:
+1. crafts ONE stonecutter at town, from 1 iron above the town keep of 64 and 3 stone above the stone keep of 192;
+2. at the village, places it beside the largest cluster of unemployed adults;
+3. reads the claim 12 s later.
+
+**Where the stonecutter may go.**
+- Open ground only: all 8 neighbours open at feet and head height.
+- On a natural or plain floor.
+- Never a path, farmland, door, bed, chest, bell, fence or job site beside it.
+- Within 5 b of a cluster member, never touching one.
+- 32 b from every stonecutter already there and every one the town placed, checked per cell.
+- One per cluster, by member uuid.
+- At most 2 per town per day.
+
+**Rows.** `_jobsite op=placed`, `op=claim` (`claimed:<profession>` or `unclaimed`) and `op=skip why=...`.
+
+**Proven, sandbox4** (`sandbox/trading/jobsite-e2e.mjs`):
+- The bot crafted the stonecutter at a home table and sold 60 coal.
+- It placed the stonecutter 2 b from a jobless pair; one became a MASON within 12 s (server-confirmed).
+- The new mason sold the bot 40 bricks, then the bot walked home.
+
+**Review.** Codex raised 2 blockers: a cell could wall a one-wide passage, and the spacing was checked from the cluster's centroid.
+Both fixed in r1; re-check: FIXED.
+
+**Found while building.** A villager with no `villager_data` in its metadata is the default (plains, none, level 1): the server
+does not send default values. The trade code now reads it that way.
+- villageunlock-01's merchant scout (queued) still reports such villagers as `unknown`.
+- 6_1's villagers are taiga, so this does not affect the unlock there.
+- Plains villages in the fleet will show `unknown` in the scout rows. To fix later: one line in `merchantscout.mjs`.
+
+**Lectern (librarians).** Later, once leather exists.
+
+**Showcase variant.** Waits for villageunlock and a protected-scope review.
+
