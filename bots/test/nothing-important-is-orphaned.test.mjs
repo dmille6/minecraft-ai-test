@@ -142,6 +142,7 @@ const REQUIRED = [
   'bots/src/blueprints/enchantshop@2.json',
   'bots/src/blueprints/townhall@1.json',
   'docs/reports/townstyle-2026-11-04/paper-townstyle02.jsonl',
+  'docs/reports/townstyle-2026-11-04/paper-reroof.jsonl',
   'docs/reports/townstyle-2026-11-04/paper-cottage-skill.jsonl',
   'docs/reports/townstyle-2026-11-04/paper-blind.jsonl',
   'docs/reports/townstyle-2026-11-04/paper-cottage.jsonl',
