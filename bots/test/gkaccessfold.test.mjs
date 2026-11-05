@@ -55,5 +55,26 @@ await t('MUTANT KILLED: without the workshop\'s way in, its approach outside the
     assert.ok(out.some(([x, z]) => M.accessNoStair([r])(x, z) === false))
   })
 })
+// THE BATCH FOLD (townstyle-01's cottage onto the fold; Codex fold r7 BLOCKER): cottageEntranceCols existed but nothing read it
+const CO = await import('../src/cottage.mjs')
+await t('the cottage\'s doorway and approach refuse a staircase, every orientation (its blueprint\'s own helper, now wired)', async () => {
+  const blueprint = 'cottage@1s'   // cottage.mjs isCottageBlueprint: cottage@1s / cottage@1f
+  for (const o of ['N', 'E', 'S', 'W']) {
+    const r = { plot: 'cottage1', blueprint, anchor: [0, -40], orient: o, s: 70, cells: [{ at: [0, 70, -40] }, { at: [6, 70, -34] }] }
+    const cols = CO.cottageEntranceCols(r)
+    assert.ok(cols.length > 0, `the helper knows ${blueprint}`)
+    const ns = TD.accessNoStair([r])
+    for (const [x, z] of cols) assert.strictEqual(ns(x, z), true, `${o} ${x},${z}`)
+  }
+})
+await t('MUTANT KILLED: without the cottage\'s way in, its approach outside the footprint takes a stair', async () => {
+  await withMutant('    for (const c of cottageEntranceCols(r)) cols.push(c)\n', '', async M => {
+    const blueprint = 'cottage@1f'
+    const r = { plot: 'cottage1', blueprint, anchor: [0, -40], orient: 'N', s: 70, cells: [{ at: [0, 70, -40] }, { at: [6, 70, -34] }] }
+    const out = CO.cottageEntranceCols(r).filter(([x, z]) => !(x >= 0 && x <= 6 && z >= -40 && z <= -34))
+    assert.ok(out.length > 0)
+    assert.ok(out.some(([x, z]) => M.accessNoStair([r])(x, z) === false))
+  })
+})
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
