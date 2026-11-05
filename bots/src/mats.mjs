@@ -17,6 +17,7 @@
 // EVERY DECISION IS HERE AND PURE (CLAUDE.md "extract the decision"); skills.mjs only walks, opens, clicks, waits, measures.
 
 import { BUILD_RESERVE, PROJECT_PARTS } from './stocktarget.mjs'
+import { scaffoldKeep } from './bankable.mjs'   // stoneworks-01: the deposit's own scaffold rule (stoneScaffoldHeld)
 
 export const MATS_V = 1
 const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak']
@@ -52,12 +53,24 @@ export const KINDS = Object.freeze({
     inputs: { copper_ingot: 36 }, smelt: null, crafts: [{ out: 'copper_block', n: 4 }, { out: 'cut_copper', n: 4 }] }),
   copper_door: Object.freeze({ part: 'copper_door', makes: 3, slots: 3, table: true,
     inputs: { copper_ingot: 6 }, smelt: null, crafts: [{ out: 'copper_door', n: 3 }] }),
+  stone: Object.freeze({ part: 'stone', makes: 12, slots: 3, table: false,
+    inputs: { cobblestone: 12, log: 2 }, smelt: { input: 'cobblestone', n: 12, out: 'stone', planks: 8 },
+    crafts: [{ out: 'planks', n: 8 }] }),
   torch: Object.freeze({ part: 'torch', makes: 24, slots: 4, table: false,
     inputs: { log: 8 }, smelt: { input: 'log', n: 6, out: 'charcoal', planks: 4 },
     crafts: [{ out: 'planks', n: 8 }, { out: 'stick', n: 8 }, { out: 'torch', n: 24 }] }),
 })
 /** The order the job considers them in: the most-used part first. */
-export const KIND_ORDER = Object.freeze(['bricks', 'cut_copper', 'copper_door', 'panes', 'torch'])
+// STONEWORKS-01 (OWNER 2026-11-05 "smelt cobblestone into stone for trading ... produce stone bricks for construction"): the
+// `stone` kind (12 cobble -> 12 stone, banked: the trading stock the coal-sale trips will sell to apprentice masons) -- listed
+// always, ORDERED only with the switch on (kindOrder), so STONEWORKS=off is the base's order exactly.
+export const KIND_ORDER_BASE = Object.freeze(['bricks', 'cut_copper', 'copper_door', 'panes', 'torch'])
+export const KIND_ORDER_STONEWORKS = Object.freeze(['bricks', 'stone', 'cut_copper', 'copper_door', 'panes', 'torch'])
+/** STONEWORKS=off|0|false|no -> off (the one-setting rollback: no stone kind, bricks buffer 128, planks the only fuel). Pure. */
+export const stoneworksMode = (env = {}) => ({ on: !['off', '0', 'false', 'no'].includes(String(env?.STONEWORKS ?? '').trim().toLowerCase()) })
+export const STONEWORKS = Object.freeze(stoneworksMode(typeof process !== 'undefined' ? process.env : {}))
+export const kindOrder = (on = STONEWORKS.on) => (on ? KIND_ORDER_STONEWORKS : KIND_ORDER_BASE)
+export const KIND_ORDER = kindOrder()
 for (const k of Object.values(KINDS)) if (k.smelt && planksFor(k.smelt.n) !== k.smelt.planks) throw new Error(`mats: ${k.part} planks are not exact`)
 
 /**
@@ -90,7 +103,20 @@ export const MATS_BODY_MS_PER_HOUR = 10 * 60 * 1000
 
 /** BUFFERS, per town, a setting (design 3.2): production stops at them; they are not stock targets. torch: Q3's part,
  *  its buffer the stock towns hold today (64), so the job tops a town up to it and never past it. */
-export const MATS_BUFFERS_DEFAULT = Object.freeze({ stone_bricks: 128, glass_pane: 32, cut_copper: 24, copper_door: 3, torch: 64 })
+// stoneworks-01: stone_bricks 128 -> 256 (the bills: hall@1 306, workshop@1 89, house@1 72), raised to BRICKS_PROJECT_BUFFER while a
+// project is active (effectiveBuffer); `stone` 320 = what one apprentice mason buys between restocks (16 uses x 20 stone).
+export const BRICKS_BUFFER_STONEWORKS = 256
+export const BRICKS_PROJECT_BUFFER = 512
+export const STONE_BUFFER = 320
+export const buffersDefault = (on = STONEWORKS.on) => Object.freeze({ stone_bricks: on ? BRICKS_BUFFER_STONEWORKS : 128, glass_pane: 32, cut_copper: 24, copper_door: 3, torch: 64, stone: STONE_BUFFER })
+export const MATS_BUFFERS_DEFAULT = buffersDefault()
+/** A part's buffer NOW -> n. Pure. stoneworks-01: stone bricks rise to BRICKS_PROJECT_BUFFER while a building project is active
+ *  (`project`: the project reserve's own state -- materialOrder's partReserve, the skill's projectReserveNow), never lower than
+ *  the table says. Off: the table. */
+export function effectiveBuffer (part, buffers = MATS_BUFFERS_DEFAULT, { project = false, on = STONEWORKS.on } = {}) {
+  const b = Number(buffers?.[part]) || 0
+  return on && project && part === 'stone_bricks' ? Math.max(b, BRICKS_PROJECT_BUFFER) : b
+}
 export const RESERVE_KEYS = Object.freeze(Object.keys(BUILD_RESERVE))
 
 const parseTable = (raw, keys, dflt) => {
@@ -136,6 +162,8 @@ export function reserveKeyOf (name) {
   if (name === 'stick') return 'sticks'
   if (name === 'sand' || name === 'red_sand') return 'sand'
   if (['cobblestone', 'copper_ingot', 'torch'].includes(name)) return name
+  // stoneworks-01: the coal rung's town take is judged on its own key (withFuelReserve: COAL_FUEL_KEEP); no kind's inputs name it
+  if (name === 'coal' && STONEWORKS.on) return 'coal'
   return null
 }
 /** SPENDABLE town stock of a reserve key: the indexed stock less the reserve, never below 0 (design 3.3). */
@@ -161,12 +189,16 @@ export function pickLog (stock = {}, need = 1, reserve = BUILD_RESERVE) {
  *   stock     the town's indexed stock {name: n}; reserve the BUILD_RESERVE table
  * null when the town cannot supply the rest above the reserve.
  */
-export function orderInputs (kind, { bagSpare = {}, stock = {}, reserve = BUILD_RESERVE } = {}) {
+export function orderInputs (kind, { bagSpare = {}, stock = {}, reserve = BUILD_RESERVE, fuel = null } = {}) {
   const k = KINDS[kind]
   if (!k) return null
-  const take = {}, fromBag = {}
+  // stoneworks-01: a ladder fuel other than planks replaces the kind's log input and sizes the batch (its cobble); planks (or no
+  // fuel given) keep the kind's own inputs exactly
+  const ladder = !!fuel && fuel.rung !== 'planks' && LADDER_KINDS.has(kind)
+  const inputs = ladder ? { cobblestone: fuel.batch } : k.inputs
+  const take = ladder ? { ...fuel.take } : {}, fromBag = ladder ? { ...fuel.fromBag } : {}
   let log = null
-  for (const [name, n] of Object.entries(k.inputs)) {
+  for (const [name, n] of Object.entries(inputs)) {
     if (name === 'log') {
       log = pickLog(stock, n, reserve)
       if (!log) return null
@@ -181,8 +213,97 @@ export function orderInputs (kind, { bagSpare = {}, stock = {}, reserve = BUILD_
     if (!rk || spendable(rk, stock, reserve) < rest) return null
     take[name] = rest
   }
-  return { take, fromBag, log }
+  return { take, fromBag, log, fuel: ladder ? fuel : (fuel?.rung === 'planks' ? fuel : null) }
 }
+
+// ---- STONEWORKS-01: THE FUEL LADDER (control session 11-05: "bamboo, sticks and surplus saplings, then charcoal from logs above
+// the wood reserve, and coal ONLY above the town coal reserve + coalsale keep; lava buckets later -- design the hook") ----------------
+// For the COBBLE kinds only (stone, bricks); glass and the torch kind keep their planks. The first rung that funds a WHOLE batch
+// exactly is the batch's fuel. MEASURED 24 h to 11-05 01:00Z (80 fleet bots / 15 showcase bots):
+//   bamboo   50 ticks (0.25 smelts). Bag-only: never bankable (bankable.mjs), composted or welled today. Fleet bags 2,931, +4,333/day;
+//            showcase 0.
+//   sapling  100 ticks (0.5). Bag-only, ONE species, above composter.mjs SAPLING_RESERVE (16 a species: planting's own floor) --
+//            the share the composter would take anyway. The town's saplings (fleet 963) stay the tree farm's. Fleet bags 1,156,
+//            +1,399/day; showcase 87, +146/day.
+//   planks   300 ticks (1.5), from ONE log species above the wood reserve (512 logs/town), crafted 2 logs -> 8 planks: the base
+//            path exactly. Chosen over charcoal (control session's wording): a log is 4 planks = 6 smelts, a log charcoaled is 8 - 1
+//            = 7 smelts but needs a second furnace pass and makes charcoal, a GATED name (the iron ladder's fuel) -- 1 smelt a log
+//            is not worth a second session. Fleet towns hold 34,101 logs (25,909 above the reserve); the showcase 103 (none).
+//   coal     1600 ticks (8). Town-only, above COAL_FUEL_KEEP (the coal-sale keep 64 + the smelt job's 64), never lowered by the
+//            project reserve, one coal = a batch of 8. Fleet 34-309 a town; showcase 67 (none spendable).
+//   sticks   NOT a rung: the towns hold 88 (fleet, 16 towns) and 0 (showcase) and the bags' 214 are the kit's.
+//   lava     THE HOOK (bucketfix-01 first; deep-miner lava only): a rung with `on: false` -- 20,000 ticks, the bucket comes back.
+export const COAL_FUEL_KEEP = 128
+export const SAPLING_FUEL_KEEP = 16
+const SAPLINGS = Object.freeze(['oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling', 'acacia_sapling', 'dark_oak_sapling', 'cherry_sapling', 'pale_oak_sapling', 'mangrove_propagule'])
+export const FUEL_RUNGS = Object.freeze([
+  Object.freeze({ rung: 'bamboo', names: Object.freeze(['bamboo']), ticks: 50, from: 'bag', keep: 0, on: true }),
+  Object.freeze({ rung: 'sapling', names: SAPLINGS, ticks: 100, from: 'bag', keep: SAPLING_FUEL_KEEP, on: true }),
+  Object.freeze({ rung: 'planks', names: LOG_NAMES, ticks: 300, from: 'town', keep: null, on: true }),
+  Object.freeze({ rung: 'coal', names: Object.freeze(['coal']), ticks: 1600, from: 'town', keep: COAL_FUEL_KEEP, on: true }),
+  Object.freeze({ rung: 'lava', names: Object.freeze(['lava_bucket']), ticks: 20000, from: 'bag', keep: 0, on: false }),
+])
+export const SMELT_TICKS_PER_ITEM = 200
+/** The largest batch <= n whose fuel is a whole number of `ticks` items -> { batch, count }. Pure. */
+export function fuelBatch (n, ticks, unit = 4) {
+  for (let b = Math.floor(n / unit) * unit; b >= unit; b -= unit) {
+    const c = (b * SMELT_TICKS_PER_ITEM) / ticks
+    if (Number.isInteger(c)) return { batch: b, count: c }
+  }
+  return { batch: 0, count: 0 }
+}
+/** Fuel items to load for `n` items on `ticks` fuel: rounded UP (a short batch burns at most one part-used item). Pure. */
+export const fuelToLoad = (n, ticks) => Math.ceil((Math.max(0, n) * SMELT_TICKS_PER_ITEM) / ticks)
+/** The cobble kinds the ladder fuels. */
+export const LADDER_KINDS = Object.freeze(new Set(['stone', 'bricks']))
+/** The reserve a fuel take is judged on: the table plus the coal keep (never lowered: effectiveReserve skips it). Pure. */
+export const withFuelReserve = (reserve = BUILD_RESERVE) => ({ ...reserve, coal: COAL_FUEL_KEEP })
+
+/**
+ * THE BATCH'S FUEL -> { rung, name, count, batch, ticks, fromBag: {name: n}, take: {name: n}, log } | null. Pure.
+ *   n         the kind's batch (12); unit the next craft's unit (4: stone in fours)
+ *   bagSpare  the bag above its keeps; stock the town's indexed stock; reserve the table the order is judged on
+ *   on        the switch: off -> the planks rung only (the base exactly)
+ * The first rung (FUEL_RUNGS order, `on` rungs only) that funds a whole batch EXACTLY; planks keep the kind's own batch and its
+ * log input (2 logs -> 8 planks for 12). null: no rung can (the order's `inputs` reason).
+ */
+export function fuelPlan ({ n = 12, unit = 4, bagSpare = {}, stock = {}, reserve = BUILD_RESERVE, on = STONEWORKS.on } = {}) {
+  for (const r of FUEL_RUNGS) {
+    if (!r.on || (!on && r.rung !== 'planks')) continue
+    if (r.rung === 'planks') {
+      const log = pickLog(stock, Math.ceil(planksToLoad(n) / 4), reserve)
+      if (log) return { rung: 'planks', name: PLANKS_OF[log], count: planksToLoad(n), batch: n, ticks: r.ticks, fromBag: {}, take: { [log]: Math.ceil(planksToLoad(n) / 4) }, log }
+      continue
+    }
+    const { batch, count } = fuelBatch(n, r.ticks, unit)
+    if (!(batch > 0)) continue
+    let best = null
+    for (const name of r.names) {
+      const have = r.from === 'bag' ? (Number(bagSpare?.[name]) || 0) - r.keep
+        : (Number(stock?.[name]) || 0) - Math.max(r.keep ?? 0, Number(withFuelReserve(reserve)[name]) || 0)
+      if (have >= count && (!best || have > best.have)) best = { name, have }
+    }
+    if (best) return { rung: r.rung, name: best.name, count, batch, ticks: r.ticks, fromBag: r.from === 'bag' ? { [best.name]: count } : {}, take: r.from === 'town' ? { [best.name]: count } : {}, log: null }
+  }
+  return null
+}
+
+/**
+ * STONE THE DEPOSIT WOULD KEEP AS SCAFFOLD (stoneworks-01, Codex code r1 BLOCKER) -> n. Pure. Stone is pathfinder scaffold, and
+ * every deposit holds back the bag's cheapest 8 scaffold (bankable.mjs scaffoldKeep, through depositPlan). A bot whose bag after
+ * the order holds no 8 cheaper scaffold (cobblestone, cobbled_deepslate, andesite, ...) would bank only part of the stone it made and
+ * leave the rest owed (the note open until it is given up). `held` the bag now; `fromBag` what the order spends of it; `made` the
+ * stone the order adds. The stone kind runs only when this is 0.
+ */
+export function stoneScaffoldHeld (held = {}, { fromBag = {}, made = 12 } = {}) {
+  const after = { ...(held ?? {}) }
+  for (const [n, c] of Object.entries(fromBag ?? {})) after[n] = Math.max(0, (Number(after[n]) || 0) - (Number(c) || 0))
+  after.stone = (Number(after.stone) || 0) + made
+  return Number(scaffoldKeep(after).stone) || 0
+}
+
+/** ORE FIRST (stoneworks-01) -> true when a cobble kind must wait: the town stock shows raw iron or raw copper. Pure. */
+export const oreWaiting = (kind, stock = {}) => LADDER_KINDS.has(kind) && ((Number(stock?.raw_iron) || 0) > 0 || (Number(stock?.raw_copper) || 0) > 0)
 
 /** The town's count of a part (the part's own name, every PROJECT_PARTS variant of it not counted: buffers name a base part). */
 export const partCount = (part, stock = {}) => Number(stock?.[part]) || 0
@@ -207,7 +328,7 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  */
 export function materialOrder ({ now = 0, on = true, shared = true, atTown = false, holds = false, noteOpen = false, freeSlots = 0,
                                  bagSpare = {}, town = null, furnace = () => true, table = () => true, lease = () => true, unknown = () => 0, bankRoom = () => true,
-                                 bodyMs = 0, reserve = BUILD_RESERVE, partReserve = null, buffers = MATS_BUFFERS_DEFAULT, state = {} } = {}) {
+                                 bodyMs = 0, reserve = BUILD_RESERVE, partReserve = null, buffers = MATS_BUFFERS_DEFAULT, state = {}, stoneworks = STONEWORKS.on } = {}) {
   const s = { ...state }
   const no = (skip, more = {}) => ({ order: null, kind: null, state: s, skip, ...more })
   if (!on) return no('off')
@@ -234,15 +355,25 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
   // NO ROOM IN TOWN, NO ORDER: a part made with nowhere in town to bank it would sit in a bag until its note was given up
   if (!lazy(bankRoom)) return no('town_full', { coverage: t.coverage })
   const reasons = []
-  for (const kind of KIND_ORDER) {
+  for (const kind of kindOrder(stoneworks)) {
     const k = KINDS[kind]
     const why = r => reasons.push(`${kind}:${r}`)
     // HEADROOM (Codex r1 P2-10): an order runs only when its WHOLE batch fits under the buffer -- the buffer is a hard cap
-    const short = (Number(buffers?.[k.part]) || 0) - partCount(k.part, t.stock)
+    // (stoneworks-01: the bricks' buffer rises while a project is active -- partReserve is passed exactly then)
+    const buf = effectiveBuffer(k.part, buffers, { project: !!partReserve, on: stoneworks })
+    const short = buf - partCount(k.part, t.stock)
     if (short < k.makes) { why('stocked'); continue }
     if (freeSlots < k.slots) { why('room'); continue }
+    // stoneworks-01: ORE FIRST -- the cobble kinds wait while the town index shows raw iron or raw copper the town smelt job turns
+    // into ingots (smeltjob.mjs jobInputs). The order chain already asks smelt_town first, but a MAKE role lease (cognitive.mjs B5)
+    // asks this job BEFORE it (Codex design 11-05), so the rule is here. Gold is no job input (nothing smelts it): it never waits.
+    if (stoneworks && oreWaiting(kind, t.stock)) { why('ore_first'); continue }
     // the project reserve (OWNER 10-27): a project part's inputs are judged on the lowered table when the caller passes one
-    const inp = orderInputs(kind, { bagSpare, stock: t.stock, reserve: (partReserve && matsKindForProject(kind)) ? partReserve : reserve })
+    const R = (partReserve && matsKindForProject(kind)) ? partReserve : reserve
+    // stoneworks-01: the cobble kinds' fuel from the ladder (bamboo, surplus saplings, planks, coal above its keep)
+    const fuel = stoneworks && LADDER_KINDS.has(kind) ? fuelPlan({ n: k.smelt.n, bagSpare, stock: t.stock, reserve: R, on: true }) : null
+    if (stoneworks && LADDER_KINDS.has(kind) && !fuel) { why('no_fuel'); continue }
+    const inp = orderInputs(kind, { bagSpare, stock: t.stock, reserve: R, fuel })
     if (!inp) { why('inputs'); continue }
     if (k.smelt && !lazy(furnace)) { why('no_furnace'); continue }
     if (k.table && !lazy(table)) { why('no_table'); continue }
@@ -250,7 +381,7 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
     return {
       // the kind travels as `item` (an arg the skill grammar already has: args-sayable.test)
       order: { skill: 'make_material', args: { item: kind },
-               why: `the town holds ${partCount(k.part, t.stock)} ${k.part}, below its buffer of ${buffers[k.part]}, and has the inputs above its reserve: make ${k.makes} (town materials job)` },
+               why: `the town holds ${partCount(k.part, t.stock)} ${k.part}, below its buffer of ${buf}, and has the inputs above its reserve: make ${k.makes} (town materials job)` },
       kind, state: s, skip: null, inputs: inp,
     }
   }
@@ -258,7 +389,9 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
   // every kind's own reason travels too (`kinds`: Claude r2 P2-A -- a town with no sand says `inputs` while bricks lacked a
   // furnace), with the coverage the reading had
   const more = { coverage: t.coverage, kinds: reasons.join(',') }
-  for (const r of ['inputs', 'no_furnace', 'no_table', 'room']) if (reasons.some(x => x.endsWith(`:${r}`))) return no(r, more)
+  // stoneworks-01: no_fuel and ore_first are the inputs' reason in the one-word skip (the row's list of logged reasons is
+  // cognitive.mjs's); each kind's own word travels in `kinds`
+  for (const r of ['inputs', 'no_fuel', 'ore_first', 'no_furnace', 'no_table', 'room']) if (reasons.some(x => x.endsWith(`:${r}`))) return no(r === 'no_fuel' || r === 'ore_first' ? 'inputs' : r, more)
   return no('stocked', more)
 }
 
@@ -328,10 +461,11 @@ export function newNote ({ bot = null, kind, took = {}, fromBag = {}, bag0 = {},
     sticks: 0, deposited: {} }
 }
 /** The names an order of `kind` touches (the note's bag0, the balance's families). */
-export function touchedNames (kind, log = null) {
+export function touchedNames (kind, log = null, fuelName = null) {
   const k = KINDS[kind]
   if (!k) return []
   const s = new Set([k.part])
+  if (fuelName) s.add(fuelName)   // stoneworks-01: the ladder fuel is booked (its own family)
   for (const n of Object.keys(k.inputs)) s.add(n === 'log' ? log : n)
   if (k.smelt) s.add(k.smelt.out)
   for (const c of k.crafts) s.add(c.out === 'planks' ? (log ? PLANKS_OF[log] : null) : c.out)
@@ -433,7 +567,8 @@ export function recoveryBalance (note, { bag = {}, banked = {}, placed = {} } = 
   const above = x => Math.max(0, (Number(bag?.[x]) || 0) - (Number(note.bag0?.[x]) || 0))
   const per = { stone_bricks: 1, glass_pane: 6 / 16, torch: 1 / 4 }[k.part] ?? 1
   const dep = Number(note.deposited?.[k.part]) || 0, depMid = Number(note.deposited?.[k.smelt.out]) || 0
-  const partUnits = (Math.min(k.makes, above(k.part)) + (Number(banked?.[k.part]) || 0) + dep) * per
+  // stoneworks-01: the stone kind's part IS its intermediate -- counted once (as the intermediate)
+  const partUnits = k.part === k.smelt.out ? 0 : (Math.min(k.makes, above(k.part)) + (Number(banked?.[k.part]) || 0) + dep) * per
   const midUnits = Math.min(n, above(k.smelt.out)) + (Number(banked?.[k.smelt.out]) || 0) + depMid
   const out = Math.min(n, midUnits + partUnits)
   const inName = note.loaded.input.name
@@ -569,10 +704,13 @@ export function recipeUsing (recipes = [], nameOf = () => null, { allowed = [], 
  * family conversion is done here.
  *   forbidden: any FORBIDDEN name the bag holds fewer of after the order than before (bag0 > bag1): a defect, never excused.
  */
-export function familyUnits (kind, counts = {}) {
+export function familyUnits (kind, counts = {}, fuelName = null) {
   const c = n => Number(counts?.[n]) || 0
   const logs = ACCT_LOGS.reduce((t, n) => t + c(n), 0), planks = ACCT_PLANKS.reduce((t, n) => t + c(n), 0)
-  if (kind === 'bricks') return { stone: c('cobblestone') + c('stone') + c('stone_bricks'), wood: logs * 4 + planks }
+  // stoneworks-01: a ladder fuel (bamboo, a sapling, coal) is its own family, 1:1 by name; burned items leave it (matsBalance)
+  const fuel = fuelName && !isPlanks(fuelName) && LADDER_KINDS.has(kind) ? { fuel: c(fuelName) } : {}
+  if (kind === 'bricks') return { stone: c('cobblestone') + c('stone') + c('stone_bricks'), wood: logs * 4 + planks, ...fuel }
+  if (kind === 'stone') return { stone: c('cobblestone') + c('stone'), wood: logs * 4 + planks, ...fuel }
   if (kind === 'panes') return { glass: (c('sand') + c('red_sand') + c('glass')) * 16 + c('glass_pane') * 6, wood: logs * 4 + planks }
   if (kind === 'cut_copper') return { copper: c('copper_ingot') + c('copper_block') * 9 + c('cut_copper') * 9 }
   if (kind === 'copper_door') return { copper: c('copper_ingot') + c('copper_door') * 2 }
@@ -582,19 +720,22 @@ export function familyUnits (kind, counts = {}) {
   return {}
 }
 export function matsBalance ({ kind, bag0 = {}, bag1 = {}, withdrawn = {}, deposited = {}, prior = {}, furnaceLeft = {}, burnedPlanks = 0,
-                               smelted = 0, forbidden0 = {}, forbidden1 = {}, uncertain = false, cut = false, placed = {} } = {}) {
+                               smelted = 0, forbidden0 = {}, forbidden1 = {}, uncertain = false, cut = false, placed = {}, fuel = null } = {}) {
   const sum = (...ms) => { const o = {}; for (const m of ms) for (const [k, v] of Object.entries(m ?? {})) o[k] = (o[k] ?? 0) + (Number(v) || 0); return o }
-  const IN = familyUnits(kind, sum(bag0, withdrawn, prior)), OUT = familyUnits(kind, sum(bag1, deposited, furnaceLeft))
+  // stoneworks-01: `fuel` { name, ticks } -- a ladder fuel other than planks; `burnedPlanks` is then the count of THAT item burned
+  const lf = fuel?.name && !isPlanks(fuel.name) && LADDER_KINDS.has(kind) ? fuel : null
+  const IN = familyUnits(kind, sum(bag0, withdrawn, prior), lf?.name), OUT = familyUnits(kind, sum(bag1, deposited, furnaceLeft), lf?.name)
   const families = {}
   for (const f of new Set([...Object.keys(IN), ...Object.keys(OUT)])) families[f] = (OUT[f] ?? 0) - (IN[f] ?? 0)
   // what the recipes consume by design: the fuel planks burned; the torch kind's logs smelted into charcoal leave the wood
   // family (4 units per log) and enter the torch family as charcoal (4 torches per charcoal)
-  if ('wood' in families) families.wood += burnedPlanks
+  if (lf) families.fuel += burnedPlanks
+  else if ('wood' in families) families.wood += burnedPlanks
   if (kind === 'torch') { families.wood += smelted * 4; families.light -= smelted }
   const forbidden = {}
   for (const [n, v] of Object.entries(forbidden0 ?? {})) { const d = (Number(v) || 0) - (Number(forbidden1?.[n]) || 0); if (d > 0) forbidden[n] = d }
   // A SESSION CUT BY THE CLOCK holds one freshly lit plank whatever it smelted (Claude r2 P2-B): one plank over is the clock's
-  const expected = KINDS[kind]?.smelt ? planksToLoad(smelted) + (cut ? 1 : 0) : 0
+  const expected = KINDS[kind]?.smelt ? (lf ? fuelToLoad(smelted, lf.ticks) : planksToLoad(smelted)) + (cut ? 1 : 0) : 0
   // THE ORDER'S OWN PLACEMENTS (Claude r2 P2-C, design 3.2): cobble, logs and planks are pathfinder scaffold on the order's
   // walks; what the bag counted placed (skills.mjs countPlacements) explains a shortfall -- SCAFFOLD, a reported loss, never
   // the defect gate. A shortfall beyond them is a LOSS.
@@ -636,7 +777,7 @@ export function matsDetail (f = {}) {
   return [`kind=${v(f.kind)}`, `verdict=${v(f.verdict)}`, `made=${v(f.made)}`, `smelted=${v(f.smelted)}`, `ws=${v(f.wsF ?? '-')}/${v(f.wsT ?? '-')}`, `forbidden=${kvs(f.forbidden)}`,
     `stone=${v(f.stone)}`, `note=${v(f.note)}`, `ml=${v(f.ml)}`, `stock=${kv0(f.stock)}`, `took=${kvs(f.took)}`, `reserve=${v(f.reserveSrc)}`,
     `stop=${v(String(f.stop ?? '-').slice(0, 60))}`, `inputs_left=${kvs(f.inputsLeft)}`, `tools_lost=${kvs(f.toolsLost)}`,
-    `part=${v(f.part)}`, `log=${v(f.log)}`, `bag=${kvs(f.fromBag)}`, `planks=${v(f.burned)}/${v(f.expected)}${f.cut ? '+cut' : ''}`, `placed=${kvs(f.placed)}`,
+    `part=${v(f.part)}`, `log=${v(f.log)}`, `bag=${kvs(f.fromBag)}`, `planks=${v(f.burned)}/${v(f.expected)}${f.cut ? '+cut' : ''}`, `fuel=${v(f.fuel)}`, `placed=${kvs(f.placed)}`,
     `dep=${kvs(f.deposited)}`, `prior=${kvs(f.prior)}`, `left=${kvs(f.furnaceLeft)}`, `fam=${kvs(f.families)}`,
     `stone_left=${v(f.stoneLeft)}`, `furnace=${v(f.furnace)}`, `lease=${v(f.lease)}`, `t0=${v(f.t0)}`].join(' ')
 }
@@ -644,7 +785,7 @@ export function matsDetail (f = {}) {
 export function matsModeDetail ({ on = true, why = null, reserve = matsReserve(), buffers = matsBuffers() } = {}) {
   return `phase=mode v=${MATS_V} on=${on ? 1 : 0}${why ? ` why=${String(why).replace(/\s+/g, '_')}` : ''} kinds=${KIND_ORDER.join(',')} ` +
     `reserve=${Object.entries(reserve.table).map(([k, n]) => `${k}:${n}`).join(',')} reserve_src=${reserve.src} ` +
-    `buffers=${Object.entries(buffers.table).map(([k, n]) => `${k}:${n}`).join(',')} buffers_src=${buffers.src} fuel=planks coverage=${MATS_MIN_COVERAGE} project_reserve=${projectReserveOn() ? 1 : 0}`
+    `buffers=${Object.entries(buffers.table).map(([k, n]) => `${k}:${n}`).join(',')} buffers_src=${buffers.src} fuel=${STONEWORKS.on ? `ladder:${FUEL_RUNGS.filter(r => r.on).map(r => r.rung).join('>')}` : 'planks'} stoneworks=${STONEWORKS.on ? 1 : 0} coverage=${MATS_MIN_COVERAGE} project_reserve=${projectReserveOn() ? 1 : 0}`
 }
 /** The part names a project may later count: every buffered part is one (a structural test asserts it). */
 export const BUFFERED_PARTS = Object.freeze(Object.keys(MATS_BUFFERS_DEFAULT))
@@ -681,7 +822,8 @@ export const projectFloor = n => Math.ceil((Math.max(0, Number(n) || 0)) * PROJE
  */
 export function effectiveReserve (reserve = BUILD_RESERVE, { active = false, forProject = false } = {}) {
   if (!active || !forProject) return { table: { ...reserve }, lowered: false }
-  return { table: Object.fromEntries(Object.entries(reserve).map(([k, v]) => [k, projectFloor(v)])), lowered: true }
+  // stoneworks-01: the coal keep (withFuelReserve) is the coal-sale's and the smelt job's, never a project's to lower
+  return { table: Object.fromEntries(Object.entries(reserve).map(([k, v]) => [k, k === 'coal' ? v : projectFloor(v)])), lowered: true }
 }
 /**
  * Is a mats kind project work? Its part is a PROJECT_PARTS part (bricks, panes, cut copper, doors) -- or the TORCH kind
