@@ -1,0 +1,11 @@
+{"step":"deepslate_chain_2x2","ok":true,"t":6.1,"bricks":16,"cobbled":0,"polished":0}
+{"step":"stonecutter_craft","ok":true,"t":10.3,"stonecutter":1}
+{"step":"stonecutter_place","ok":true,"t":12.1}
+{"step":"cut_stone_bricks_stone_brick_stairs","ok":true,"t":17.8,"idx":2,"seen":"0:chiseled_stone_bricksx1 1:stone_brick_slabx2 2:stone_brick_stairsx1","made":8,"left":0}
+{"step":"cut_stone_bricks_stone_brick_slab","ok":true,"t":23,"idx":1,"seen":"0:chiseled_stone_bricksx1 1:stone_brick_slabx2","made":16,"left":0}
+{"step":"cut_stone_bricks_stone_brick_wall","ok":true,"t":29,"idx":3,"seen":"0:chiseled_stone_bricksx1 1:stone_brick_slabx2 2:stone_brick_stairsx1 3:stone_brick_wallx1","made":8,"left":0}
+{"step":"cut_deepslate_bricks_deepslate_brick_stairs","ok":true,"t":34.2,"idx":1,"seen":"0:deepslate_brick_slabx2 1:deepslate_brick_stairsx1","made":8,"left":0}
+{"step":"cut_stone_stone_bricks","ok":true,"t":40.5,"idx":4,"seen":"0:chiseled_stone_bricksx1 1:stone_brick_slabx2 2:stone_brick_stairsx1 3:stone_brick_wallx1 4:stone_bricksx1","made":8,"left":0}
+{"step":"table_stone_brick_stairs","ok":true,"t":44.5,"made":4,"left":0}
+{"step":"table_stone_brick_slab","ok":true,"t":47.9,"made":6,"left":0}
+{"step":"table_stone_brick_wall","ok":true,"t":51.3,"made":6,"left":0}

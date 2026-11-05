@@ -352,6 +352,8 @@ const REQUIRED = [
   'docs/reports/stoneworks-design-2026-11-05.md',
   'sandbox/stoneworks/fuel-proof.cjs',
   'sandbox/stoneworks/fuel-proof.jsonl',
+  'sandbox/stoneworks/parts-proof.cjs',
+  'sandbox/stoneworks/parts-proof.jsonl',
   'sandbox/farms/farm-proof.jsonl',
   // villager trading (11-03): the design + Codex's independent design, the Paper sandbox proofs and the read-only census helpers
   'docs/reports/trading-design-2026-11-03.md',

@@ -160,3 +160,43 @@ below 128, so a coal-sale trip (above its keep 64) always finds 64. Neither side
 None needed to ship. Options for later: (a) **deepslate bricks need NO fuel** (4 cobbled_deepslate -> 4 polished_deepslate -> 4
 deepslate_bricks, crafting only) and the towns hold 14,445 cobbled deepslate: a palette option for builds; (b) the stone buffer
 (320) is a setting -- raise it once coalsale-02 shows how much the masons actually take.
+
+## 8. stoneworks-02 and stoneworks-03 (control session 11-05, after stoneworks-01 was queued)
+
+**Asked:** "Build stoneworks-02 now: bricks driven by the open build bills + the yard draw + DEEPSLATE BRICKS ... with a
+deepslate-brick stock target and a palette hook so townstyle/decorator/wall trims can use it; then stoneworks-03 (stonecutter:
+stairs, slabs, walls; coordinate with townstyle-1104 which needs stairs/slabs for roofs)."
+
+**stoneworks-02** (tier 2, same switch):
+- **Bills**: `stoneBillNow` (skills.mjs) runs `billOf` over every sited, unfinished project record (`projectHeads`), counting
+  stone_bricks and deepslate_bricks (and, with 03, the six cut parts); cached 10 min; read only by the materials order (a
+  non-enumerable lazy field of the town reading). `effectiveBuffer`: bill + 64 (cap 1024) for bricks, the exact bill for cut parts,
+  never below the table; a read bill wins over the 512 project rule, an unreadable one falls back to it. Codex's design asked for
+  exactly this (count remaining cells, not whole blueprints).
+- **Yard**: the cobble kinds take bag spare -> the yard's piles (`yardDrawFor`, the yarduse-01 bounded draw, before the chests) ->
+  the chests above 256. The yard's cobble is booked as the order's take. Showcase only (the fleet variant stubs it: no yard there).
+- **Deepslate bricks**: kind `deepslate_bricks`, 16 cobbled deepslate (bag spare first, then the town above 64) -> 16 polished ->
+  16 deepslate bricks, both 2x2, no table, furnace or fuel; buffer 256 + bills. polished_deepslate and deepslate_brick(s, _slab,
+  _stairs, _wall) join PROJECT_PARTS (always banked, never disposed). The towns hold ~14,445 cobbled deepslate (fleet bags 6,316 +
+  chests 8,129; showcase 870 + 462).
+- **Palette hook**: `TRIM_STONES` / `trimStone(stock, need)` in mats.mjs -- deepslate bricks, then stone bricks, then cobblestone, by
+  what the town stocks. A blueprint palette listing `['deepslate_bricks', 'stone_bricks']` gets the same through billOf's
+  first-stocked rule. townstyle's `STONES` (foundations, courses) and `styleOf` can call it at siting.
+
+**stoneworks-03** (tier 2):
+- **Cut kinds** stone_brick_{stairs, slab, wall} and deepslate_brick_{stairs, slab, wall}: 8 bricks a cut, stairs/walls 1:1, slabs
+  1:2 (the table: 6 -> 4 stairs). Bricks from town above 64. Standing stock 32 stairs / 48 slabs / 16 walls of the stone-brick
+  family (a style can site with them), none of the deepslate family; bills raise either.
+- **Station**: with a cut wanted and no stonecutter within 32 (or carried), the order makes one: 1 town iron ingot above 32 + 3
+  stone at a table, placed beside the bot; the next cut uses it. The window: the input moved in exactly, the recipe button index
+  PROBED by reading the result slot, the result shift-clicked, the window closed on every exit.
+- **townstyle-1104 coordination**: its roofs are WOOD stairs and slabs (`woodPartsPlan`, crafted at a table from planks); a
+  stonecutter cannot cut wood. What stoneworks gives it is stone trims and foundations (stone/deepslate brick stairs, slabs, walls)
+  and `trimStone`; townstyle-02's halls could take stone-brick slab roofs from this stock instead of wood.
+
+**Paper sandbox3, 2026-11-05 02:34Z** (`sandbox/stoneworks/parts-proof.cjs`, `parts-proof.jsonl`, server-read): **11/11 PASS** --
+16 cobbled deepslate -> 16 polished -> 16 deepslate bricks (2x2); the stonecutter crafted at a table and placed by the bot;
+stone_bricks -> 8 stairs (button 2), 16 slabs (1), 8 walls (3); deepslate_bricks -> 8 stairs (1); stone -> 8 stone_bricks (4);
+table controls 6 -> 4 stairs, 3 -> 6 slabs, 6 -> 6 walls. The button order differs per input, so the bot probes, never assumes.
+Not proven (named): vanilla returning an uncut input to the bag at the window's close (the cut always moves exactly n and cuts all
+of it; the balance books whatever stays).
