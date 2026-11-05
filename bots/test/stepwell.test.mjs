@@ -343,7 +343,7 @@ await t('the switch: on only in STEPWELL_POOLS (default showcase), STEPWELL=on|o
   assert.strictEqual(S.stepwellOn({ STEPWELL: 'off' }, 'showcase'), false)
   assert.strictEqual(S.stepwellOn({ STEPWELL: 'on' }, 'hive-a'), true)
   assert.strictEqual(S.stepwellOn({ STEPWELL_POOLS: 'hive-a,showcase' }, 'hive-a'), true)
-  assert.ok(/^on=1 W=27 tiers=2\/2/.test(S.stepwellModeDetail(true)))
+  assert.ok(/^on=1 W=23 tiers=2\/2/.test(S.stepwellModeDetail(true)))
 })
 await t('the item ladders: a role\'s palette first, the town\'s common stone after; posts are walls, lights torches', async () => {
   const VV = await import('../src/stepwellvisit.mjs')

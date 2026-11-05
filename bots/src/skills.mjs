@@ -23637,7 +23637,7 @@ function stepwellSite (bot, home, inp, t0, me) {
     if (!sv.ok) { const k = String(sv.why).replace(/:.*$/, ''); why[k] = (why[k] ?? 0) + 1; continue }
     ok.push(sv)
   }
-  const cost = s => s.counts.soft + s.counts.cave + s.counts.fill + 4 * s.counts.water + 20 * (s.counts.trunks ?? 0)
+  const cost = s => s.counts.soft + s.counts.cave + s.counts.fill + 4 * s.counts.water + 20 * (s.counts.trunks ?? 0) + 40 * (s.turn ?? 0)
   ok.sort((a, b) => cost(a) - cost(b) || a.d - b.d)
   const cells = new Set(inp.records.flatMap(r => (r.cells ?? []).map(q => q.at.join(','))))
   for (const sv of ok) {

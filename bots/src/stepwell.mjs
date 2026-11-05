@@ -39,7 +39,7 @@ export const STEPWELL_BUILDERS = 1
  * STAND is chosen for (the eye to the cell's centre): short of `reach` by the half block a click's face lies below a post's centre
  * (Paper sandbox3 11-05: 48 posts refused no_reach from stands chosen at 4.5).
  */
-export const SW = Object.freeze({ v: 1, W: 27, band: 3, tierD: 4, tiers: 2, tiersMax: 2, ringMin: 30, ringMax: 78, step: 2, gap: 2, groundUp: 9, groundDown: 2, innerDown: 3, treeH: 14, standMax: 5, torchEvery: 4, unitOps: 400, standTries: 3, reach: 4.5, standReach: 3.8 })
+export const SW = Object.freeze({ v: 1, W: 23, band: 3, tierD: 4, tiers: 2, tiersMax: 2, ringMin: 30, ringMax: 78, step: 2, gap: 2, groundUp: 9, groundDown: 2, innerDown: 3, treeH: 14, standMax: 5, torchEvery: 4, unitOps: 400, standTries: 3, reach: 4.5, standReach: 3.8 })
 export const STEPWELL_ZONES = Object.freeze(['industry', 'monument', 'wild'])   // landplan.mjs zone kinds a stepwell may take: the miners' sector, the landmarks' sector, the wild (never town, homes, farms, the tree farm)
 
 /** THE SWITCH -> bool. STEPWELL=on|off; unset = on only in STEPWELL_POOLS (default 'showcase'). Pure. */
@@ -450,15 +450,19 @@ export function standsFor (read, plan, c, { feet = null, banned = new Set(), max
 
 // ---- the siting -----------------------------------------------------------------------------------------------------------------
 
-/** Candidate centres at Chebyshev ringMin..ringMax from home on the SW.step grid, nearest first. Pure. */
+/** THE ORIENTATIONS a site is tried in: the gate toward home first, then the two sides, then away (`turn` 0..2: the gate's angle
+ *  from home in quarter turns, a cost the siting adds -- the parapet's gate must open onto ground within 1 of the rim). Pure. */
+const TURNS = Object.freeze({ n: ['n', 'e', 'w', 's'], s: ['s', 'w', 'e', 'n'], e: ['e', 's', 'n', 'w'], w: ['w', 'n', 's', 'e'] })
+/** Candidate centres at Chebyshev ringMin..ringMax from home on the SW.step grid, nearest first, each in its four orientations. Pure. */
 export function stepwellCandidates (home, { ring = [SW.ringMin, SW.ringMax], step = SW.step } = {}) {
   const out = []
   for (let dx = -ring[1]; dx <= ring[1]; dx += step) for (let dz = -ring[1]; dz <= ring[1]; dz += step) {
     const d = Math.max(Math.abs(dx), Math.abs(dz))
     if (d < ring[0] || d > ring[1]) continue
-    out.push({ x: home.x + dx, z: home.z + dz, away: awayFrom(home, home.x + dx, home.z + dz), d: Math.hypot(dx, dz) })
+    const a0 = awayFrom(home, home.x + dx, home.z + dz)
+    TURNS[a0].forEach((away, i) => out.push({ x: home.x + dx, z: home.z + dz, away, turn: Math.min(i, 2), d: Math.hypot(dx, dz) }))
   }
-  return out.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z)
+  return out.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z || a.turn - b.turn)
 }
 const TREEISH = /_(log|wood|leaves|stem)$|^(mangrove_roots|bamboo|cactus|mushroom_stem|brown_mushroom_block|red_mushroom_block)$/
 const ORE = /_ore$|^ancient_debris$/
@@ -558,7 +562,7 @@ export function surveyStepwell (read, home, cand, { blocked = () => null, zoneOf
   if (dryTiers < tiers) return { ok: false, why: `wet:tier${dryTiers + 1}`, counts, byTier }
   counts.treeCols = logs.size
   counts.trunks = trunks.size
-  return { ok: true, why: null, site: { origin, away, g, W, T: Math.min(tiers, dryTiers), centre: [cand.x, cand.z], tiersDry: dryTiers }, g, counts, byTier, d: cand.d }
+  return { ok: true, why: null, site: { origin, away, g, W, T: Math.min(tiers, dryTiers), centre: [cand.x, cand.z], tiersDry: dryTiers }, g, counts, byTier, d: cand.d, turn: cand.turn ?? 0 }
 }
 /**
  * DO THE FELLING'S STANDS FIT THE TANK? -> null | why. Pure. A stand step on one of the tank's own cells (a rim post, a light, a head)
@@ -579,7 +583,7 @@ export function standsFit (site, platforms = []) {
 export function stepwellBetter (a, b) {
   if (!a) return b
   if (!b) return a
-  const cost = s => s.counts.soft + s.counts.cave + s.counts.fill + 4 * s.counts.water
+  const cost = s => s.counts.soft + s.counts.cave + s.counts.fill + 4 * s.counts.water + 20 * (s.counts.trunks ?? 0) + 40 * (s.turn ?? 0)
   return cost(b) < cost(a) || (cost(b) === cost(a) && b.d < a.d) ? b : a
 }
 

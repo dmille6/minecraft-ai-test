@@ -50,7 +50,7 @@ for (const cand of SWm.stepwellCandidates(home, { ring: [SWm.SW.ringMin, Number(
   if (!sv.ok) { const k = String(sv.why).replace(/:-?\d+$/, '').replace(/^reserved:(project:[a-z]+|land:[a-z]+|expedition:[a-z]+|[a-z-]+).*$/, 'reserved:$1'); why[k] = (why[k] ?? 0) + 1; continue }
   ok.push(sv)
 }
-const cost = s => s.counts.soft + s.counts.cave + s.counts.fill + 4 * s.counts.water + 20 * (s.counts.trunks ?? 0)
+const cost = s => s.counts.soft + s.counts.cave + s.counts.fill + 4 * s.counts.water + 20 * (s.counts.trunks ?? 0) + 40 * (s.turn ?? 0)
 ok.sort((a, b) => cost(a) - cost(b) || a.d - b.d)
 const cellsAll = new Set(recs.flatMap(r => (r.cells ?? []).map(c => c.at.join(','))))
 /** THE FELLING of a surveyed site: plotPrep's trees and stands on the footprint (its levelling unused), replantCells' saplings. */
