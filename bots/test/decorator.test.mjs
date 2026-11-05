@@ -505,6 +505,13 @@ await t('MUTANT KILLED: a composter that forgets the decorator\'s keep eats the 
   })
 })
 
+await t('decorAllow: the town draw takes bone meal up to the decorator\'s cap (mats.mjs takeAllowed alone takes none)', async () => {
+  const M = await import('../src/mats.mjs')
+  assert.strictEqual(M.takeAllowed('bone_meal', 4, { here: { bone_meal: 8 } }), 0, 'POSITIVE CONTROL: the default allowance refuses bone meal')
+  const SKM = await import('../src/skills.mjs')
+  const a = SKM.decorAllow({ bone_meal: 3 })
+  assert.strictEqual(a('bone_meal', 4, { here: { bone_meal: 8 } }), 3); assert.strictEqual(a('bone_meal', 4, { here: { bone_meal: 1 } }), 1); assert.strictEqual(a('iron_ingot', 2, { here: { iron_ingot: 9 } }), 0)
+})
 console.log('THE WIRING (skills.mjs, structural)')
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const W = [
@@ -514,6 +521,7 @@ const W = [
   /const owed = rec0 \? flowersOwed\(rec0, q => buildCellDone\(rd0\(\.\.\.q\.at\), rec0\.palette \?\? \{\}, q\.role\)\) : 0/,
   /if \(kind === 'decor' && decorStalled\(\{ \.\.\.f, placed: r\.placed, cleared: r\.cleared \}\)\) decorStall\(bot, `visit:\$\{r\.stop\}`\)/,
   /const work = decorWanted\(states\[i\]\) && !stalled/,
+  /await matsWithdraw\(ctx, \{ bone_meal: want - bagMeal \}, signal, 30_000, matsReserve\(\)\.table, decorAllow\(\{ bone_meal: want - bagMeal \}\)\)/,
   /if \(g0\?\.want \|\| owed > borderPlantsOf\(heldMap\(bot\)\)\) \{ const nu = await decorNursery\(ctx, rec0, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, g0\?\.want \? DECOR\.batchMax : owed\)/,
   /if \(tidy && r\.plot === SINK_PLOTS\.decor && decorPotWork\(bot, r\)\) return true/,
   /pressure: kind === 'dress' \? dressPressureNow\(bot\) : kind === 'decor' \? decorPressureNow\(bot\) : pr, openCount/,

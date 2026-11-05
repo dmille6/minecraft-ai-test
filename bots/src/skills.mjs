@@ -21824,6 +21824,9 @@ function decorInside () {
     return (x, z) => boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3])
   } catch { return () => false }
 }
+/** THE DECORATOR'S TOWN DRAW ALLOWANCE -> matsWithdraw's `allow`: at most `cap[name]` of a name, never more than the container holds
+ *  (the decorator's own caps: the bone meal above the park's four, two iron for shears) -- the default takeAllowed knows neither. */
+export const decorAllow = cap => (n, want, o) => Math.max(0, Math.min(Number(want) || 0, Number(o?.here?.[n]) || 0, Number(cap?.[n]) || 0))
 /** A building record's doorway (decorator.mjs doorwayOf over its blueprint). Never throws (null). */
 const decorDoorOf = r => { try { return doorwayOf(r?.rec, r?.rec?.blueprint && !isSinkBlueprint(r.rec.blueprint) ? blueprintOf(r.rec.blueprint) : null) } catch { return null } }
 /** The decor visit's own effects (the build's walk, hold, click and dig: buildbot.mjs), closed by the caller. */
@@ -21914,7 +21917,9 @@ async function decorNursery (ctx, rec0, signal, deadline, need = DECOR.batchMax)
     out.sited = 1
     try { logEvent({ kind: 'decor', status: 'success', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'nursery', cell: nursery.at, n: nursery.landing, gen: pub.gen }) }) } catch { /* telemetry */ }
   }
-  if (want > bagMeal) { try { await matsWithdraw(ctx, { bone_meal: want - bagMeal }, signal, 30_000, matsReserve().table) } catch (err) { if (err?.aborted || signal?.aborted) throw err } check(signal) }
+  // Codex decorator-02 review (the same trap as the shears' iron): the town draw's default allowance (mats.mjs takeAllowed) knows no
+  // bone meal (reserveKeyOf: null -> 0 allowed), so the draw took nothing; the decorator's own cap does (decorAllow)
+  if (want > bagMeal) { try { await matsWithdraw(ctx, { bone_meal: want - bagMeal }, signal, 30_000, matsReserve().table, decorAllow({ bone_meal: want - bagMeal })) } catch (err) { if (err?.aborted || signal?.aborted) throw err } check(signal) }
   const e = decorEffects(bot, signal)
   try {
     const dig = async (q, kind) => {
