@@ -242,12 +242,24 @@ await t('deferSpent: a cell whose attempts are spent is deferred and the visit g
   assert.notStrictEqual(b.srv.read(-12, G - 2, 0).name, 'air', 'the far pit\'s bottom is laid in the same visit')
   assert.ok((r1.deferred ?? []).some(d => d.k === `9,${G - 2},1` && d.why === 'attempts_spent'), JSON.stringify(r1.deferred))
 })
-await t('MUTANT KILLED: with the deferSpent branch removed, the same visit ends attempts_spent again', async () => {
+await t('MUTANT KILLED: with the deferSpent branches removed (gkunblock-01\'s wider one too), the same visit ends attempts_spent again', async () => {
+  // gkunblock-01: the wider deferral after it also defers a spent segment -- the old branch alone removed still defers
   await withMutant(BUILDRUN_PATH, 'if (p.deferSpent && !cand.length && open.length && open.every(c => isClear(c.at))) {', 'if (false) {', async RM => {
     const b = twoPits()
     const r = await visit(RM, b.srv, b.rec, { deferSpent: true })
-    assert.strictEqual(r.stop, 'attempts_spent')
+    assert.notStrictEqual(r.stop, 'attempts_spent')
+    assert.ok((r.deferred ?? []).some(d => d.k === `9,${G - 2},1` && d.why === 'attempts_spent'), JSON.stringify(r.deferred))
   })
+  const src = readFileSync(BUILDRUN_PATH, 'utf8')
+  const a1 = 'if (p.deferSpent && !cand.length && open.length && open.every(c => isClear(c.at))) {', a2 = '          if (p.deferSpent && open.length && !needSapling) {'
+  assert.strictEqual(src.split(a1).length, 2); assert.strictEqual(src.split(a2).length, 2)
+  const out = new URL(`./_mutant-${process.pid}-both.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(a1, 'if (false) {').replace(a2, '          if (false) {').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const RM = await import(out.href)
+    const b = twoPits()
+    assert.strictEqual((await visit(RM, b.srv, b.rec, { deferSpent: true })).stop, 'attempts_spent')
+  } finally { try { unlinkSync(out) } catch {} }
 })
 await t('tidyKeepOrder: runVisit digs the tidy cuts in the caller\'s order (control: without it, highest first)', async () => {
   const run = async (RM, keep) => {
