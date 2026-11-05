@@ -381,7 +381,7 @@ await t('MUTANT the barrier no longer fences others', () => mutantKilled("if (b?
   M.barrierTake(d, KEY, 'A', { now })
   assert.strictEqual(M.fenceRefusal(d, KEY, 'B', { slot: 2, slotGen: s.gen, seg: 'x', segGen: g.gen, recordGen: 1, now }), 'barrier')
 }))
-await t('MUTANT the newest-generation check dropped (a taker that read the listing long ago holds beside a newer generation)', () => mutantKilled('if (gens.at(-1) !== n) {', 'if (false) {', M => {
+await t('MUTANT the newest-generation check dropped (a taker that read the listing long ago holds beside a newer generation)', () => mutantKilled('if (top !== n) {', 'if (false) {', M => {
   const d = tmp(), now = 14_000_000
   fs.writeFileSync(path.join(d, `${KEY}.mutate.g1.json`), JSON.stringify({ holder: 'dead', pid: 999_999, at: now }))
   // while B judges gen 1, gen 3 appears (held by a live process): B's gen 2 is not the newest and must not hold
