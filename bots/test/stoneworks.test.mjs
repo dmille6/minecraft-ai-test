@@ -364,6 +364,11 @@ test('THE CUT KINDS: 8 bricks a cut -- stairs and walls 1:1, slabs 1:2; a standi
   // Codex r1 BLOCKER 3: a bill smaller than one cut rounds UP to whole cuts (4 stairs -> one cut of 8), so a small bill finishes
   assert.equal(M.effectiveBuffer('deepslate_brick_stairs', B, { bill: { deepslate_brick_stairs: 4 } }), 8)
   assert.equal(M.effectiveBuffer('deepslate_brick_slab', B, { bill: { deepslate_brick_slab: 17 } }), 32)
+  // Codex r2: counted from the stock -- 1 stair held under a 4-stair bill -> 1 + one cut of 8, so the headroom is a whole cut
+  assert.equal(M.effectiveBuffer('deepslate_brick_stairs', B, { bill: { deepslate_brick_stairs: 4 }, have: 1 }), 9)
+  assert.equal(M.effectiveBuffer('deepslate_brick_stairs', B, { bill: { deepslate_brick_stairs: 4 }, have: 4 }), 0, 'the bill already held: no cut')
+  const s1 = { stock: { ...FULL, deepslate_bricks: 300, deepslate_brick_stairs: 1 }, coverage: 1 }; Object.defineProperty(s1, 'bill', { value: { deepslate_brick_stairs: 4 } }); Object.defineProperty(s1, 'cutter', { value: true })
+  assert.equal(M.materialOrder(base({ town: s1, furnace: () => false })).order?.args.item, 'deepslate_brick_stairs', 'one held, four billed: cut')
   const sm = { stock: { ...FULL, deepslate_bricks: 300 }, coverage: 1 }; Object.defineProperty(sm, 'bill', { value: { deepslate_brick_stairs: 4 } }); Object.defineProperty(sm, 'cutter', { value: true })
   assert.equal(M.materialOrder(base({ town: sm, furnace: () => false })).order?.args.item, 'deepslate_brick_stairs', 'a 4-stair bill is cut')
   // the cut takes town bricks only above their keep
@@ -444,8 +449,10 @@ test('MUTANTS (stoneworks-03): the cutter gate, the brick keep, the cut balance 
       X => assert.equal(X.swTakeAllowed('stone_bricks', 8, { others: {}, here: { stone_bricks: 30 }, reserve: X.withFuelReserve(R) }), 0)],
     ['slabs counted as bricks', "  const out = Math.min(n, Math.floor(parts / per))", "  const out = Math.min(n, parts)",
       X => assert.equal(X.recoveryBalance(n, { bag: { stone_brick_slab: 8 } }).verdict, 'loss')],
-    ['a cut bill not rounded to whole cuts', "    return Math.max(b, Math.min(BILL_CAP, unit ? Math.ceil(want / unit) * unit : want + (want > 0 ? BILL_MARGIN : 0)))", "    return Math.max(b, Math.min(BILL_CAP, unit ? want : want + (want > 0 ? BILL_MARGIN : 0)))",
+    ['a cut bill not rounded to whole cuts', "(want > h ? h + Math.ceil((want - h) / unit) * unit : 0)", "(want > h ? want : 0)",
       X => assert.equal(X.effectiveBuffer('deepslate_brick_stairs', X.buffersDefault(true), { bill: { deepslate_brick_stairs: 4 } }), 8)],
+    ['a cut bill blind to the stock', "(want > h ? h + Math.ceil((want - h) / unit) * unit : 0)", "(want > 0 ? Math.ceil(want / unit) * unit : 0)",
+      X => assert.equal(X.effectiveBuffer('deepslate_brick_stairs', X.buffersDefault(true), { bill: { deepslate_brick_stairs: 4 }, have: 1 }), 9)],
     ['the probe takes the first button', "for (const x of seen ?? []) if (x?.name === want) return x.b; return -1", "return seen?.[0]?.b ?? -1",
       X => assert.equal(X.cutterButton([{ b: 0, name: 'chiseled_stone_bricks' }, { b: 2, name: 'stone_brick_stairs' }], 'stone_brick_stairs'), 2)],
   ]

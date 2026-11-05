@@ -14288,7 +14288,7 @@ async function makeMaterial (ctx, args, signal) {
     const PR = matsKindForProject(kind) ? projectReserveNow(bot, Date.now(), { fresh: true }) : { active: false, gen: '-' }
     // stoneworks-01: the buffer NOW (bricks rise while a project is active: mats.mjs effectiveBuffer, the order's own rule)
     // stoneworks-03: the station is "stocked" when a stonecutter stands in reach (or the bag carries one), never by a buffer
-    if (K.station ? (!!findCutter(bot) || (heldMap(bot).stonecutter ?? 0) > 0) : effectiveBuffer(K.part, B.table, { project: !!PR.active, bill: STONEWORKS.on ? town.bill ?? null : null }) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
+    if (K.station ? (!!findCutter(bot) || (heldMap(bot).stonecutter ?? 0) > 0) : effectiveBuffer(K.part, B.table, { project: !!PR.active, bill: STONEWORKS.on ? town.bill ?? null : null, have: partCount(K.part, town.stock) }) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
     const prev = readMatsNote(bot)
     if (prev) { f.stop = 'note_open'; return (result = { status: 'no_effect', detail: 'an earlier materials order is not reconciled; mats_return runs first' }) }
     // stoneworks-01: the cobble kinds burn the fuel ladder (mats.mjs fuelPlan); the coal rung's town take is judged on the coal keep
