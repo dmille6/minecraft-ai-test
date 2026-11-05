@@ -294,7 +294,7 @@ descent comes before any decoration. stepwell-01show joins the showcase release 
 - **Tripwire SW1, extended** (main, NOT installed): the stepwell's CLEARS are judged over the record chain too (`stepwell_clear_ok`: a
   foreign dig on a cell of any generation, any other dig on a clear entry of any generation) -- the upgrade moves the portal's wall cells
   from `cells` to `clear`. Selftest ok, 4 more anchored mutants, all 171 killed. Install it with stepwell-01show (one rule for both).
-- **Suites**: ci2 at 27b5c390 433/437 (the known three + lavastep, a known flake); final-sha runs below.
+- **Suites** (ci2): stepwell-02show 499278e0 **434/437**, stepwell-01show d83fd8b1 **426/429** -- the known trio only (ceilescape, nothing-important-is-orphaned, protected-paths: the copies have no .git).
 
 Next: the pool after bucketfix-01; **stepuse-01** (tier 3: deepmine.mjs descends and returns by the verified descent instead of its own
 stair below 16; a fleet canary with the job off outside the showcase pool) after the bucket fix, per the owner's order.
