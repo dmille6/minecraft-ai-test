@@ -26,6 +26,7 @@
 // no bot.atlas, so planTrip and the prompt line behave exactly as before.
 import fs from 'node:fs'
 import path from 'node:path'
+import { performance } from 'node:perf_hooks'
 
 export const CELL = 32
 export const SEEN_R = 40                        // reflex.mjs's survey radius (findBlocks maxDistance 40)
@@ -44,6 +45,7 @@ export const MAX_FINDS = 400, MAX_WOOD = 150, MAX_GONE = 300, MAX_AIMS = 30
 export const TOWN_SKIP_R = 64                   // the town's own chests, logs and rails are not finds
 export const GONE_R = 10, GONE_DY = 8
 export const LAVA_DY = 6                        // lava more than this below the bot is the aquifer, not a pool on the walk
+export const STATS_EVERY_MS = 10 * 60_000         // an `atlas_stats` row (ticks, scans, the slowest scan) this often
 export const FILE_PREFIX = 'atlas-'
 export const ATLAS_V = 1
 
@@ -300,7 +302,8 @@ export class AtlasRecorder {
     this.doc.by = String(by)
     this.dirty = false
     this.lastScan = 0; this.lastScanAt = null; this.lastFlush = 0
-    this.stats = { ticks: 0, fresh: 0, finds: 0, gone: 0, scans: 0 }
+    this.stats = { ticks: 0, fresh: 0, finds: 0, gone: 0, scans: 0, scanMs: 0, scanMaxMs: 0 }
+    this.lastStats = Date.now()
     this.ids = null
     this.lightSeen = false
   }
@@ -332,6 +335,7 @@ export class AtlasRecorder {
       const moved = this.lastScanAt ? Math.hypot(p.x - this.lastScanAt.x, p.z - this.lastScanAt.z) : Infinity
       if (now - this.lastScan >= SCAN_MS || (moved >= SCAN_MOVE && now - this.lastScan >= SCAN_MIN_MS)) this.scan(now)
       if (now - this.lastFlush >= FLUSH_MS) this.flush(now)
+      if (now - this.lastStats >= STATS_EVERY_MS) this.statsRow(now)
     } catch { /* the map never stops a bot */ }
   }
 
@@ -357,10 +361,14 @@ export class AtlasRecorder {
       if (!p) return 0
       this.lastScan = now; this.lastScanAt = { x: p.x, z: p.z }; this.stats.scans++
       const { wood, other } = this.#ids()
+      // findBlocks is synchronous and `count` caps results, not blocks examined (Codex r1 note): its cost is MEASURED here
+      const t0 = performance.now()
       const hits = [
         ...(wood.length ? this.bot.findBlocks({ matching: wood, maxDistance: SCAN_R, count: 8 }) ?? [] : []),
         ...(other.length ? this.bot.findBlocks({ matching: other, maxDistance: SCAN_R, count: 64 }) ?? [] : []),
       ]
+      const ms = performance.now() - t0
+      this.stats.scanMs += ms; this.stats.scanMaxMs = Math.max(this.stats.scanMaxMs, ms)
       let added = 0
       const once = new Set()
       for (const h of hits) {
@@ -386,6 +394,20 @@ export class AtlasRecorder {
   /** Record an expedition's pick, flushed at once (the layer and the other bots should see it this minute). */
   aim (a, now = Date.now()) {
     try { noteAim(this.doc, { ...a, t: now, by: this.by }); this.dirty = true; this.flush(now, true) } catch { /* telemetry */ }
+  }
+
+  /** The `atlas_stats` row: what this bot recorded and what the scans cost since the last row. Resets the window. */
+  statsRow (now = Date.now()) {
+    const s = this.stats
+    if (this.emit) {
+      try {
+        this.emit({ kind: 'atlas_stats', status: 'success', detail: `ticks=${s.ticks} scans=${s.scans} scan_ms_avg=${s.scans ? (s.scanMs / s.scans).toFixed(1) : '-'} ` +
+          `scan_ms_max=${s.scanMaxMs.toFixed(1)} cells_new=${s.fresh} finds_new=${s.finds} gone=${s.gone} cells=${Object.keys(this.doc.cells).length} ` +
+          `finds=${this.doc.finds.length} light=${this.lightSeen ? 1 : 0}` })
+      } catch { /* telemetry */ }
+    }
+    this.stats = { ticks: 0, fresh: 0, finds: 0, gone: 0, scans: 0, scanMs: 0, scanMaxMs: 0 }
+    this.lastStats = now
   }
 
   flush (now = Date.now(), force = false) {

@@ -163,10 +163,17 @@ await t('planTrip: no map is tripBearing exactly; with the map even trips go to 
   })
 })
 
-await t('a harvest trip says nothing about the ring; a frontier trip that reached it does', async () => {
+await t('a harvest trip says nothing about the ring (closed in its call or later by home); a frontier trip that reached it does', async () => {
   const r = [{ t: NOW, returned: true, reason: 'reached', mode: 'harvest', ring: 170 }]
   assert.equal(E.ringOf(r, NOW), E.RING_MIN)
   assert.equal(E.ringOf([{ ...r[0], mode: 'frontier' }], NOW), E.RING_MIN + E.RING_STEP)
+  const late = { t: NOW, returned: false, late: true, multi: true, via: 'home_crumbs', reason: 'reached', ring: 260, dist: 255 }
+  assert.equal(E.ringOf([{ ...late, mode: 'harvest' }], NOW), E.RING_MIN, 'a multi-call harvest closed by home (Codex r1 note)')
+  assert.equal(E.ringOf([late], NOW), E.RING_MIN + E.RING_STEP, 'the same row without its mode would grow the ring')
+  // ...so the late-close row must carry the mode (structural: the row is written inside exCloseAtTown)
+  const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  const close = sk.slice(sk.indexOf('function exCloseAtTown'), sk.indexOf('function exCloseAtTown') + 1500)
+  assert.match(close, /exAppend\(exTripsFile\(\), \{[^\n]*mode: t\.mode \?\? null,/)
 })
 
 await t('a fractional aim is what the legs walk: legTarget sets its target on the aimed spoke, not on the integer bearing', async () => {
@@ -312,6 +319,12 @@ await t('installAtlas: off leaves no bot.atlas; on gives the readers their view,
     assert.equal(bot.atlas.view().aims.at(-1).trip, 't1', 'an aim is flushed at once')
     assert.equal(P.atlasLine(bot, { wants: 'sugar_cane' }, null).startsWith('MAP'), true, 'the prompt helper reads bot.atlas')
     assert.equal(P.atlasLine({}, null, null), '', 'no atlas: no line')
+    const rows = []
+    rec.emit = r => rows.push(r)
+    rec.statsRow(Date.now())
+    assert.match(rows.at(-1).detail, /^ticks=1 scans=1 scan_ms_avg=\d+\.\d scan_ms_max=\d+\.\d cells_new=\d+ finds_new=1 /, rows.at(-1).detail)
+    rec.statsRow(Date.now())
+    assert.match(rows.at(-1).detail, /^ticks=0 scans=0 scan_ms_avg=- /, 'the window resets')
     A.installAtlas(bot, { on: false, dir, by: 'x', Vec3: V3 })   // clears the timer
   } finally { fs.rmSync(dir, { recursive: true, force: true }) }
 })

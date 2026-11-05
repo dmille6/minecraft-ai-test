@@ -17888,7 +17888,7 @@ function exCloseAtTown (bot, st, via) {
     t.via = via
     st.lastTripAt = Date.now()
     exWrite(me, st)
-    exAppend(exTripsFile(), { t: Date.now(), v: t.v ?? null, multi: t.multi === true, id: t.id, by: me, bearing: t.bearing, ring: t.ring, dist: Math.round(t.dist ?? 0), reason: t.reason ?? 'interrupted', returned: false, late: true, via, haul: 0, markers: t.markers ?? 0, bridge: t.bridge ?? null })
+    exAppend(exTripsFile(), { t: Date.now(), v: t.v ?? null, multi: t.multi === true, id: t.id, by: me, bearing: t.bearing, aim: Number.isFinite(t.aim) ? Math.round(t.aim * 1000) / 1000 : null, mode: t.mode ?? null, find: t.find ?? null, ring: t.ring, dist: Math.round(t.dist ?? 0), reason: t.reason ?? 'interrupted', returned: false, late: true, via, haul: 0, markers: t.markers ?? 0, bridge: t.bridge ?? null })
     try { logEvent({ kind: 'expedition_trip', status: 'no_effect', snapshot: snapshot(bot), detail: tripDetail({ ...t, ms: Date.now() - (t.startedAt ?? Date.now()) }) }) } catch { /* telemetry */ }
   } catch { /* the next look closes it */ }
 }
@@ -18426,7 +18426,7 @@ async function expeditionVisit (ctx, args, signal) {
     const ring0 = ringOf(trips, Date.now())
     let atlasView = null
     try { atlasView = bot.atlas?.view?.() ?? null } catch { atlasView = null }
-    const b = bsite ? { bearing: bsite.bearing, aim: bsite.aim ?? bsite.bearing, reuse: false, mode: 'bridge' } : planTrip(trips, Date.now(), { view: atlasView, home, ring: ring0, zones })
+    const b = bsite ? { bearing: bsite.bearing, aim: atlasView && Number.isFinite(bsite.aim) ? bsite.aim : bsite.bearing, reuse: false, mode: 'bridge' } : planTrip(trips, Date.now(), { view: atlasView, home, ring: ring0, zones })
     if (b.bearing == null) return { status: 'no_effect', detail: 'every bearing is blocked by water or a zone for today', stop: 'expedition_no_bearing' }
     Object.assign(trip, { bearing: b.bearing, aim: Number.isFinite(b.aim) ? b.aim : b.bearing, mode: b.mode ?? null, ring: Number.isFinite(b.ring) ? b.ring : ring0, reuse: b.reuse })
     if (b.find) trip.find = b.find.kind
