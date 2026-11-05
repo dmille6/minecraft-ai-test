@@ -257,3 +257,44 @@ stepuse-01 (tier 3, fleet canary with the job off outside the showcase pool).
 2. **Felling 9 spruces** on the site (replanted in the tree farm / wild zone, as the groundskeeper does). OK?
 3. **Phase order**: piece 2 = the enclosed dry descent to y 16 before any ornament (Codex's and Claude's view), the pool after
    bucketfix-01, the miners' use (tier 3) after the descent is walked on Paper.
+
+## 9. Owner decisions (11-05, via the coordinator) and piece 2 as built: stepwell-02show
+
+**Owner 11-05: agrees with all three** -- the north-west site (-52,-74) is OK; felling the 9 spruces (replanted) is OK; the walled
+descent comes before any decoration. stepwell-01show joins the showcase release after townstyle-02/03 with SW1 installed -- **take
+`d83fd8b1`, not 85d50721** (it carries the torch fix found by piece 2's Paper run, below; Codex r3 NO BLOCKERS on it).
+
+- **Branch** `stepwell-02show` @ `499278e0` on the live tip `0e8a1cfa` (+ stepwell-01 merged beside townstyle-01's cottage). Tier 2.
+  Rollback of the descent alone: `STEPWELL_DESCENT=off`.
+- **The descent** (Codex's module, section 3): a 2-wide, 2-high PORTAL in the court wall (side 2, away from the gate) at the court's feet
+  (g-7); two 2-wide flights of 8 a module (three air over every step), 3-long landings, a solid partition between the flights, every
+  other face lined (natural stone kept, dirt/gravel/sand/ore laid), a torch on each landing; modules to feet **16**, the last flight
+  cut short onto a 3-long landing in its own lane. Under side 2's terraces and rim, inside the footprint. At the showcase site: **395 air
+  cells, reaching feet 16; 3 caves beside it, 5 ores, no water, no lava**.
+- **Built as STATIONS** (one per tread, its air top down, its lining, its tread, its torch), in walking order from the portal (breadth
+  first): a layer order cannot cut a tunnel -- the far end has no stand until the near end is open (found by the fake-world e2e).
+- **The upgrade**: a stepwell-01 record (no descent) gains it as its next generation (`stepwellWithDescent`): tank cells and the felling
+  kept, the portal's 4 wall cells become cuts, the record open again until the descent stands (`descent_built`). The siting surveys the
+  descent too (`surveyDescent`: lava or flooded air raises the bottom 3 above it). The stair's body claim is held while a descent is
+  planned (the entombment reflex stands down, as in the town stair). The visit's egress walks the descent up by hops of 6 stands.
+- **Proofs**: `descentCheck` (treads, two air, steps of 1, a third air over every step up, AND the way in from the court) for six rim
+  heights; every cell in exactly one unit; the tank and descent built end to end on a fake world; a mutant each for the jump room and
+  the shut portal.
+- **Reviews**: Codex r1 and Claude r1 found the SAME blocker -- the descent's lining claimed the court's feet/head in front of the portal
+  and walled it shut (fixed: a neighbour above its tank column's top is never lined; the proof checks the way in). Codex r2, Claude r2:
+  NO BLOCKERS. The Paper run then found torches refused (a side click made a wall_torch) holding the descent for 40 visits -- fixed (a
+  torch clicks only the top of what is under it; torches never hold a unit); Codex r3: NO BLOCKERS.
+- **Paper (sandbox3, `sandbox/stepwell/descent-e2e.mjs` on the branch; the tank carved by RCON as stepwell-01 builds it, the real visit
+  loop builds the descent; W 23, rim 70, to feet 16): 3/3 PASS** at `499278e0`
+  ([`stepwell-2026-11-05/paper-results-descent.jsonl`](stepwell-2026-11-05/paper-results-descent.jsonl)):
+  - `descent`: 3 visits, 8 min, 478 digs: every cut air 472/472, treads 192/192, lining 590/590, **torches 6/6**, the builder walked up
+    from feet 16 and out of the gate.
+  - `water`: a water source in the lining mid-descent: sealed before the cut beside it, complete, 0 water left.
+  - `lava`: a lava source in a flight's air at y 30: the descent STOPPED there (`lava at 7301,30,7606`), the lava untouched, the builder out.
+- **Tripwire SW1, extended** (main, NOT installed): the stepwell's CLEARS are judged over the record chain too (`stepwell_clear_ok`: a
+  foreign dig on a cell of any generation, any other dig on a clear entry of any generation) -- the upgrade moves the portal's wall cells
+  from `cells` to `clear`. Selftest ok, 4 more anchored mutants, all 171 killed. Install it with stepwell-01show (one rule for both).
+- **Suites**: ci2 at 27b5c390 433/437 (the known three + lavastep, a known flake); final-sha runs below.
+
+Next: the pool after bucketfix-01; **stepuse-01** (tier 3: deepmine.mjs descends and returns by the verified descent instead of its own
+stair below 16; a fleet canary with the job off outside the showcase pool) after the bucket fix, per the owner's order.

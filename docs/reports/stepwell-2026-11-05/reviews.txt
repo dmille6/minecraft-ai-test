@@ -18,3 +18,16 @@ NO BLOCKERS. Notes: (a) 'unsealed' missing from the stuck back-off list -> added
 
 == Codex r3 on 9c370c65
 NO BLOCKERS
+
+== stepwell-02show: Codex r1 on c4453c8c
+1. **The lining seals the portal’s court entrance.** [bots/src/stepwell.mjs:398](/Users/darrellmiller/Documents/.wt-stepwell2/bots/src/stepwell.mjs:398) adds walls against every portal face, including the court-facing opening. For origin `(0,0)`, away `s`, g=62, W=23, T=2, it creates walls at x=13–14, y=55–56, z=15, blocking both entrance lanes. These replace existing tank cuts; the walk proof starts inside the portal and misses the obstruction. **Fix:** exclude the portal’s court-facing feet/head cells from lining and verify walk connectivity from the court through the portal.
+
+== Claude r1 (independent, two engines on the tripwire) on c4453c8c
+1 BLOCKER, the same as Codex's: the descent's lining claimed the court's feet/head cells in front of the portal (tank cuts) and walled the portal shut; tripwire coverage across the upgrade otherwise clean (every unit cell on the union of both generations; seals sealable; portal cells move cells -> clear; G5 replant carried). Note: the chain clear rule is slightly loose (not blocking).
+
+== Codex r2 / Claude r2 on 27b5c390
+Codex: NO BLOCKERS
+Claude: NO BLOCKERS (repro fixed at g40/g62; no other unlined neighbour at g30/40/62/80; coverage unchanged).
+
+== Codex r3 on 499278e0 (the torch fix from the Paper run, also backported to stepwell-01show d83fd8b1)
+NO BLOCKERS

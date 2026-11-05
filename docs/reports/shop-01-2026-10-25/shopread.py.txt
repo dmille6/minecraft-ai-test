@@ -127,6 +127,9 @@
 #                      addition: a SEAL -- `_build op=place project=stepwell kind=seal` -- is on the record in a CUT cell (kind cut) of any
 #                      generation of the stepwell chain too (a liquid met in the volume is sealed by a block, which the cut then digs);
 #                      any other placement in a cut cell, or a seal anywhere else off the record, is off_record (` seal`).
+#                      stepwell-02 (the descent): a record GROWS -- a stepwell-01 record gains its descent as a later generation, and
+#                      the court wall's portal cells move from `cells` to `clear` -- so its CLEARS are judged over the chain too: a
+#                      kind=foreign dig on a cell of any generation, any other dig on a clear entry of any generation (` stepwell`).
 #   RO1 reorient (townstyle-01, 11-04; bots/src/buildrun.mjs misorientedAt, bots/src/townstyle.mjs): A STATE-BEARING CELL'S OWN
 #                      BLOCK IN THE WRONG STATE (a stair facing away, a log on its side) is dug and placed again aimed: `_build op=clear
 #                      kind=reorient`. On the record ONLY when the cell is a record cell that names a world state (`ws`) in a generation of
@@ -357,6 +360,16 @@ def stepwell_place_ok(chain, cell, kind):
     if any(ck(c['at']) == k for rec in chain or [] for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at')):
         return True
     return kind == 'seal' and any(c.get('kind') == 'cut' and ck(c['at']) == k for rec in chain or [] for c in rec.get('clear') or [] if isinstance(c, dict) and c.get('at'))
+
+
+def stepwell_clear_ok(chain, cell, kind):
+    """stepwell-02 SW1: is a `project=stepwell op=clear` on the record -- kind=foreign on a cell of any generation of the chain, any
+    other kind on a clear entry of any generation? -> bool. Pure. (The record grows: a portal cell was a cell, then a cut.)"""
+    if not isinstance(cell, (list, tuple)) or len(cell) != 3:
+        return False
+    k = ck(cell)
+    field = 'cells' if kind == 'foreign' else 'clear'
+    return any(ck(c['at']) == k for rec in chain or [] for c in rec.get(field) or [] if isinstance(c, dict) and c.get('at'))
 
 
 def tidy_heads_at(chain, t_ms, skew_ms=60_000):
@@ -1414,6 +1427,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         chain_of = lambda pl: project_of(pr, pl).get('chain') or ([project_of(pr, pl)['record']] if project_of(pr, pl).get('record') else [])
                         ok = demo_clear_ok(chain_of(plot) or [rec], chain_of('wall'), chain_of('wallext'), cell, f.get('kind'), t_ms)
                         why = '' if ok else ' demo'
+                    elif plot == STEPWELL:
+                        # stepwell-02 SW1: its digs over the chain (a portal cell was a wall cell, then a cut)
+                        ok = stepwell_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'))
+                        why = '' if ok else ' stepwell'
                     elif plot == DECOR and f.get('kind') in ('fern', 'leaves'):
                         # decorator-02 DC4: the fern gather -- a fern near home, off every record cell, marker, the park and the tidy head
                         if pool not in guards:
@@ -2079,6 +2096,16 @@ def selftest():
     assert sc('60,66,60', 'foreign') == 0, 'a bad block dug from its own record cell'
     assert sc('70,67,60', 'cut') == 1 and sc('70,66,60', 'foreign') == 1, 'a dig off the record either way'
     assert sc('60,66,60', 'cut') == 1, 'a record cell is never cut'
+    # stepwell-02: the descent's generation moves a wall cell (the portal) from cells to clear -- an earlier foreign dig of it and a later
+    # cut of it are both on the record; a cut of a cell no generation lists still trips
+    srec3 = dict(srec2, gen=3, prev=2, cells=[c for c in srec2['cells'] if c['at'] != [61, 67, 60]] + [{'at': [61, 60, 60], 'role': 'tread', 't': 3, 'd': 1}],
+                 clear=srec2['clear'] + [{'at': [61, 67, 60], 'kind': 'cut', 't': 3, 'd': 1}])
+    sb3 = PP(stepwell={'record': srec3, 'records_files': 3, 'leases': {}, 'chain': [srec1, srec2, srec3]})
+    sc3 = lambda c, kind, block='cobblestone': J(base + [R('_build', 'project=stepwell op=clear cell=%s block=%s kind=%s' % (c, block, kind), s=14)], sb3)['clear_outside']
+    assert sc3('61,67,60', 'foreign') == 0, 'a foreign dig of a cell an earlier generation listed'
+    assert sc3('61,67,60', 'cut') == 0, 'the portal cut (the head lists it)'
+    assert sc3('61,60,60', 'foreign') == 0 and sc3('61,60,60', 'cut') == 1, 'the new tread: foreign yes, cut no'
+    assert sc3('71,67,60', 'cut') == 1 and sc3('71,67,60', 'foreign') == 1, 'off every generation either way'
     # canefarm-01 CF1: the cane bed's harvest is the second block of a cane cell, sugar cane only; its planting a record cell
     crec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'canefarm@1', 'plot': 'canefarm', 'cells': [{'at': [40, 66, 40], 'role': 'cane', 'seg': 'C'}, {'at': [42, 66, 40], 'role': 'floor', 'seg': 'C'}], 'clear': [], 'replant': []}
     cb = PP(canefarm={'record': crec, 'records_files': 1, 'leases': {}})
