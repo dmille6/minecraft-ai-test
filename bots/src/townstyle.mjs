@@ -392,3 +392,14 @@ export function slabRoof ({ u0, u1, v0, v1 }, yTop, { ridge = 'u', over = 1, sla
   for (const r of ends) for (let s = sIn0; s <= sIn1; s++) { const { y } = at(s); for (let yy = yTop + 1; yy < y; yy++) put(s, r, yy, gableRole, 'gable') }
   return cells
 }
+/**
+ * ONE PART CRAFT, CUT TO WHAT THE BAG CAN MAKE -> { item, count } | null. Pure. `held(name)` the bag's count. A stairs / slab / trapdoor
+ * craft is cut to whole recipes of the planks of its species in the bag; any other craft (the planks from logs) passes unchanged.
+ */
+export function woodPartCraftable (pc, held = () => 0) {
+  const m = WOOD_PART_RE.exec(String(pc?.item ?? ''))
+  if (!m) return pc ?? null
+  const part = WOOD_PART[m[2]]
+  const times = Math.min(Math.ceil((Number(pc.count) || 0) / part.makes), Math.floor((Number(held(`${m[1]}_planks`)) || 0) / part.planks))
+  return times > 0 ? { item: pc.item, count: times * part.makes } : null
+}

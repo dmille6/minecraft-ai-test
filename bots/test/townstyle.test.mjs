@@ -130,6 +130,9 @@ await t('woodPartsPlan: whole recipes of each part beyond what is had, and the p
   assert.deepStrictEqual(p.crafts, [{ item: 'dark_oak_stairs', count: 40 }, { item: 'dark_oak_slab', count: 12 }, { item: 'spruce_trapdoor', count: 4 }])
   assert.deepStrictEqual(p.planks, { dark_oak_planks: 60 + 6, spruce_planks: 12 })
   assert.strictEqual(T.woodPartsPlan({ cobblestone: 5 }), null)
+  assert.deepStrictEqual(T.woodPartCraftable({ item: 'spruce_stairs', count: 44 }, n => (n === 'spruce_planks' ? 20 : 0)), { item: 'spruce_stairs', count: 12 }, '20 planks: three recipes')
+  assert.strictEqual(T.woodPartCraftable({ item: 'spruce_slab', count: 12 }, () => 2), null, 'not one recipe: none')
+  assert.deepStrictEqual(T.woodPartCraftable({ item: 'spruce_planks', count: 8 }, () => 0), { item: 'spruce_planks', count: 8 }, 'the planks craft passes')
 })
 
 // ---- the cottage sited and built on the fake server ---------------------------------------------------------------------------

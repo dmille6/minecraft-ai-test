@@ -129,6 +129,8 @@ const REQUIRED = [
   'bots/test/townstyle-build.test.mjs',
   'bots/test/helpers/townstylefake.mjs',
   'sandbox/townstyle/cottage-e2e.mjs',
+  'sandbox/townstyle/cottage-skill-e2e.mjs',
+  'docs/reports/townstyle-2026-11-04/paper-cottage-skill.jsonl',
   'docs/reports/townstyle-2026-11-04/paper-blind.jsonl',
   'docs/reports/townstyle-2026-11-04/paper-cottage.jsonl',
   // enchantshop-01 (11-04): the enchanting + anvil workshop, its blueprint and generator, its offline siting, its test (the design is main's)
