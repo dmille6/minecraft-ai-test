@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-05T03:20:02Z._
+_Generated 2026-11-05T04:20:01Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `aea83708` = llmoai-01 `aea83708` (KEEP 11-04 23:41Z, promoted 11-04 23:51Z) on dirtrung-01 `493c198a` (KEEP 11-04 21:12Z, promoted 11-04 21:22Z) on swimunder-01 `3a7badea` (KEEP 11-04 17:34Z, promoted 11-04 17:43Z) on monustuck-01 `704acf91` (KEEP 11-04 14:02Z, promoted 11-04 14:12Z) on shafttrap-02 `beb79ed2` (KEEP 11-04 09:36Z, promoted 11-04 09:46Z) on swimcentre-01 `0542fccb` (KEEP 11-04 03:58Z, promoted 11-04 04:08Z) |
 | **Canary in slot** | EMPTY (last close llmoai-01 KEEP 11-04 23:41Z) |
 | **Queue (front)** | dropdig-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> bucketfix-01 -> kittrim-01 -> depositoffer-01 -> +8 more |
-| **Scheduler** | busy S3 the loop lock is held (pid 822756) / S8 INSTALL-HOLD by servea-roll-822756-1793836505919500633 until 2026-11-05T09:55:05Z |
-| **Showcase release** | `8b4ea9cc` (123,486 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 8b4ea9cc sits on 9fbfdf22 (bagdiet-01); behind by 6: llmoai-01, dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bo; row 11-05 02:25Z) |
+| **Scheduler** | busy S8 INSTALL-HOLD by servea-roll-822756-1793836505919500633 until 2026-11-05T09:55:05Z |
+| **Showcase release** | `8b4ea9cc` (107,871 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 8b4ea9cc sits on 9fbfdf22 (bagdiet-01); behind by 6: llmoai-01, dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-01; merge conflicts in bo; row 11-05 03:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
-| **Owner-direct / rollouts (24 h)** | servea-roll-s1: owner-direct-check 11-05 01:10Z; servea-roll-s2: owner-direct-check 11-05 02:30Z; servea-roll-s3: owner-direct 11-05 02:42Z; servea-roll: rollout-poll 11-05 03:18Z |
+| **Owner-direct / rollouts (24 h)** | servea-roll-s1: owner-direct-check 11-05 01:10Z; servea-roll-s2: owner-direct-check 11-05 02:30Z; servea-roll: rollout-stopped 11-05 03:28Z; servea-roll-s3: owner-direct-check 11-05 03:50Z |
 | **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?; **townstyle-1104**: townstyle O1/O2: cottages on the house plots before a town-hall design exists? reach-only roof clicks (a client could not make them; Paper accepts) vs temporary staging?; **visuals-1105**: visuals-1105 skins: OK to publish the 15 custom skin PNGs through MineSkin (public gallery unless a MineSkin key is given), or upload them yourself at skinsrestorer.net/upload? |
-| **Open alarms** | STALLCHECK 2026-11-05T02:35:02Z STALLED: 46. OPSAUDIT 2026-11-04 FLAGS: 10 (1 high). 29 active alarm(s): stuck goals 4 (hive-d/monument@68_65_68, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, placebo-b/tidy@282_65_-388); effectwatch effect:cooldown15-02:undeclared, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:stuckcells-01:undeclared |
+| **Open alarms** | STALLCHECK 2026-11-05T03:35:01Z STALLED: 47. OPSAUDIT 2026-11-04 FLAGS: 10 (1 high). 32 active alarm(s): stuck goals 6 (hive-d/monument@68_65_68, isolated-a/monument@355_73_147, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, placebo-b/tidy@282_65_-388, placebo-c/monument@355_73_147); effectwatch effect:cooldown15-02:undeclared, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24, effectwatch effect:stuckcells-01:undeclared |
 <!-- GENERATED:END -->
 
 ## Notes
