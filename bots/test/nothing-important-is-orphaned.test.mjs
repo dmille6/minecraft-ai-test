@@ -146,6 +146,8 @@ const REQUIRED = [
   'docs/reports/decorator-design-2026-11-04.md',
   'docs/reports/decorator-design-2026-11-04/decorated-town.png',
   'docs/reports/decorator-design-2026-11-04/decorated-town.txt',
+  'docs/reports/decorator-design-2026-11-04/decorated-town-02.png',
+  'docs/reports/decorator-design-2026-11-04/decorated-town-02.txt',
   'docs/reports/wallext-2026-11-04/codex-design.md',
   'docs/reports/wallext-2026-11-04/offline-record-showcase-1104.json',
   'docs/reports/wallext-2026-11-04/offline-demolition-showcase-1104.json',

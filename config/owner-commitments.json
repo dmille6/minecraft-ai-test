@@ -4625,16 +4625,18 @@
    "evidence": {
     "grep": [
      "decorator-01",
+     "decorator-02",
      "decorator-1104"
     ],
     "branches": [
-     "decorator-01show"
+     "decorator-01show",
+     "decorator-02show"
     ],
     "paths": [
      "docs/reports/decorator-design-2026-11-04.md"
     ]
    },
-   "next_step": "decorator-01show 46f42e3b goes into the next showcase batch (coordinator 11-05). BUILDING decorator-02 (fern clusters: shears + gather + replant as border accents; the compost drive: true surplus only; door pots off) stacked on 46f42e3b; then decorator-03 (leaf hedges + lantern posts). READY TO STAGE (not recorded, not staged): decorator-01show 46f42e3b on the live showcase release 8b4ea9cc (branch decorator-01show): the decorator lease + the decor sink (flower borders inside the walls first, door pots, the bone-meal nursery, kept flowers); Paper sandbox6 proof 6/6 PASS; Codex r1 2 blockers fixed, r2 FIXED; tests decorator 39/39; ci2 suite at 92d52f55 425/429 (known ceilescape/orphaned/protected-paths + sinkfix4 source count, fixed in 46f42e3b: 1/1). Tripwire DC1-DC3 (meal, bloom, pot_fill) on main shopread.py.txt (two engines: Codex + Claude, Claude r1 blocker fixed) -- install WITH the piece's activation, else H2 trips on the first harvest. Then pieces 2 (ferns), 3 (hedges + lantern posts), 4 (compost drive).",
+   "next_step": "decorator-01show r4 ff0f0ff1 (the nursery's town bone meal draw had a 0 allowance; fold into the batch instead of 46f42e3b). decorator-02show e0533abd (fern clusters + fern gather with shears, the compost drive, pots off; stacked on ff0f0ff1) built: Paper proof 6/6, Codex r1 2 blockers fixed, tripwire DC4 on main (Claude r1 blocker fixed, r2 FIXED), ci2 pending. Next: decorator-03 leaf hedges + lantern posts. decorator-01show 46f42e3b goes into the next showcase batch (coordinator 11-05). BUILDING decorator-02 (fern clusters: shears + gather + replant as border accents; the compost drive: true surplus only; door pots off) stacked on 46f42e3b; then decorator-03 (leaf hedges + lantern posts). READY TO STAGE (not recorded, not staged): decorator-01show 46f42e3b on the live showcase release 8b4ea9cc (branch decorator-01show): the decorator lease + the decor sink (flower borders inside the walls first, door pots, the bone-meal nursery, kept flowers); Paper sandbox6 proof 6/6 PASS; Codex r1 2 blockers fixed, r2 FIXED; tests decorator 39/39; ci2 suite at 92d52f55 425/429 (known ceilescape/orphaned/protected-paths + sinkfix4 source count, fixed in 46f42e3b: 1/1). Tripwire DC1-DC3 (meal, bloom, pot_fill) on main shopread.py.txt (two engines: Codex + Claude, Claude r1 blocker fixed) -- install WITH the piece's activation, else H2 trips on the first harvest. Then pieces 2 (ferns), 3 (hedges + lantern posts), 4 (compost drive).",
    "note": "OWNER 11-05 (via the coordinator, 'yes' to all three): (1) YES the decorator cuts wild ferns near home with shears (2 iron) and replants them along paths; (2) the park KEEPS its 4 bone meal, and a COMPOST DRIVE makes more bone meal from TRUE surplus only (seeds, saplings beyond the tree farm's needs, rotten food ...), never park/decor stock; (3) SKIP pots for now -- door pots switched off / place nothing, no clay digging; revisit after bucketfix-01 + proven water work. Supply measured 11-04: 0 flowers in 15 bags + 9 chests, bone meal 8 in town and 9 made in 7 d (~3.6 nursery flowers/day); Paper: 2.7 flowers a meal, spread <= 5 (bound 7). Pots wait on clay (0 in town)."
   },
   {

@@ -195,3 +195,42 @@ round says FIXED and finds no new blocker. **Install it with piece 1's activatio
 2. **The park's bone meal:** keep its 4 (the default), or let the decorator use all of it?
 3. **Pots:** they need clay from lake beds, which is under-water digging. Make that a fleet canary (tier 3), or skip pots and use
    potted saplings only once pots arrive by trade or expedition?
+
+---
+
+## 9. Owner answers (11-05) and decorator-02
+
+The owner answered yes to all three recommendations (relayed by the coordinator on 11-05):
+
+1. The decorator **may cut wild ferns** near home with shears (2 iron) and replant them along paths.
+2. The park **keeps its 4 bone meal**. Add a **compost drive** that composts true surplus only, never park or decor stock.
+3. **Pots are skipped** until bucketfix-01 lands and water work is proven. No clay digging.
+
+decorator-01show goes into the next showcase batch. After the coordinator's message, one more fix landed on it: **r4 `ff0f0ff1`**.
+The nursery's draw of town bone meal had an allowance of 0, because `mats.takeAllowed` only knows names that have a reserve key.
+Codex found this through the same trap in decorator-02's shears.
+
+**decorator-02show** (`e0533abd`, stacked on `ff0f0ff1`; tier 2):
+
+- **Fern clusters.** About 70% of seeds alternate flower runs with fern runs: role `D<n>-g`, at least 3 cells, used while the bag's
+  ferns last. The fern gather crafts shears from 2 iron (the town's, drawn with the decorator's own allowance). It then cuts the
+  wild ferns and large ferns within 48 columns of home (a large fern gives 2), never on a reserved column or any project's column
+  or cell, at most 12 digs a visit, up to 24 ferns in the bag. The decor record is published before the first cut.
+- **The compost drive.** On 11-05 at 00:30Z the 15 bags held one true-surplus item: saplings sit inside the tree farm's reserve,
+  seeds inside the crop farm's, and a peaceful world has no rotten food. The real surplus is the about 17 short grass each meal
+  leaves, and shears turn that into items: about 21 short grass make 1 bone meal, so the nursery funds about 80% of its own next
+  meal. The nursery's grass is cut with shears, and a decor visit composts its junk straight away. Any bot at town with 8+ junk
+  composts at any bag fullness while the town has fewer than 16 bone meal (`composter.mjs townOrder`'s hook). The hook is set only
+  with the decorator on, so the fleet is unchanged. Ferns and flowers are decor stock and never composted (`DECOR_KEPT`).
+- **Pots off.** `DECOR_POTS` defaults to off: no pot is sited or filled.
+- **Paper proof** (sandbox6, 11-05 00:49Z, `sandbox/decor/decor-proof2.cjs`): shears crafted 2×2 from 2 iron; a fern cut with
+  shears gives 1 fern; a large fern cut at its lower half gives 2; short grass gives 1 item; a fern placed on grass; six short grass
+  in a composter raise it from level 0 to 3. **6/6 PASS.**
+- **Offline** (11 flowers + 24 ferns): D1 has 16 cells, 5 of them ferns; D2 has 16 fern cells. All are inside the wall. Picture:
+  `decorator-design-2026-11-04/decorated-town-02.png`, where `g` marks a fern cell.
+- **Tripwire DC4 fern.** `_build op=clear kind=fern` passes only for a fern or large fern within 48 columns of the decor record's
+  home (taken from any generation), and never on a record cell or marker, in the park +1, or on a tidy head cell. Reviews: Claude r1
+  BLOCKER (ferns cut before any record existed) is fixed on both sides, and r2 says FIXED. Codex r1 found 2 blockers: the iron
+  allowance (fixed) and the same first-visit case.
+- **Next:** decorator-03, leaf hedges and lantern posts. Both need a Paper proof: placed leaves stay persistent, and a lantern
+  stands on a fence.
