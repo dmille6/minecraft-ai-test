@@ -3,6 +3,8 @@
 // chiseled stone bricks) and a librarian (5 emeralds + book -> Mending book), all with fixed novice offers (summoned with an
 // Offers list: sandbox setup only), each beside its job site. The bot starts with 60 coal and 1 book (given: sandbox setup).
 //   node sandbox/trading/coalsale-e2e.mjs        (from the worktree root; lock: sandbox/sbxlock.sh take sandbox4 trading)
+// STONE=1 (coalsale-02): an APPRENTICE mason buying 20 stone for 1 emerald with only 2 uses left (its stock), the bot carrying
+// 128 stone + 60 coal: expect the mason first, 40 stone sold (the stock limit), coal KEPT (a stone buyer was found), bricks bought.
 // BOOK=1: no mason, so the emeralds reach the librarian (the T4 book path).
 // READ: coal sold and emeralds earned (the bag), the blocks and the book bought, back home over the breadcrumbs, the rows.
 import { execFileSync } from 'node:child_process'
@@ -43,7 +45,7 @@ async function main () {
     `kill @e[type=villager,x=${X - 10},y=${Y - 5},z=${Z - 10},dx=${D + 30},dy=20,dz=30]`, 'time set 1000')
   await sleep(1000)
   rcon(`summon villager ${X + D + 0.5} ${F} ${Z - 2.5} {Tags:["trd"],NoAI:1b,VillagerData:{profession:"minecraft:toolsmith",level:1,type:"minecraft:plains"},Offers:{Recipes:[${off('{id:"minecraft:coal",count:15}', '{id:"minecraft:emerald",count:1}')},${off('{id:"minecraft:emerald",count:1}', '{id:"minecraft:stone_axe",count:1}')}]}}`,
-    ...(process.env.BOOK ? [] : [`summon villager ${X + D + 3.5} ${F} ${Z - 2.5} {Tags:["trd"],NoAI:1b,VillagerData:{profession:"minecraft:mason",level:1,type:"minecraft:plains"},Offers:{Recipes:[${off('{id:"minecraft:clay_ball",count:10}', '{id:"minecraft:emerald",count:1}')},${off('{id:"minecraft:emerald",count:1}', '{id:"minecraft:bricks",count:10}')}]}}`]),
+    ...(process.env.BOOK ? [] : [`summon villager ${X + D + 3.5} ${F} ${Z - 2.5} {Tags:["trd"],NoAI:1b,VillagerData:{profession:"minecraft:mason",level:${process.env.STONE ? 2 : 1},type:"minecraft:plains"},Offers:{Recipes:[${process.env.STONE ? `{buy:{id:"minecraft:stone",count:20},sell:{id:"minecraft:emerald",count:1},maxUses:16,uses:14,xp:10,rewardExp:1b}` : off('{id:"minecraft:clay_ball",count:10}', '{id:"minecraft:emerald",count:1}')},${off('{id:"minecraft:emerald",count:1}', '{id:"minecraft:bricks",count:10}')}]}}`]),
     `summon villager ${X + D + 6.5} ${F} ${Z - 2.5} {Tags:["trd"],NoAI:1b,VillagerData:{profession:"minecraft:librarian",level:1,type:"minecraft:plains"},Offers:{Recipes:[${off('{id:"minecraft:emerald",count:2}', '{id:"minecraft:enchanted_book",count:1,components:{"minecraft:stored_enchantments":{"minecraft:mending":1}}}', ',buyB:{id:"minecraft:book",count:1}')}]}}`)
   const bot = mineflayer.createBot({ host: '10.0.0.30', port: PORT, username: NAME, auth: 'offline', version: '1.21.8' })
   bot.loadPlugin(pathfinder)
@@ -53,9 +55,9 @@ async function main () {
   const ac = new AbortController()
   const count = n => (bot.inventory.items().filter(i => i.name === n).reduce((a, i) => a + i.count, 0))
   try {
-    rcon(`gamemode survival ${NAME}`, `clear ${NAME}`, `tp ${NAME} ${X + 0.5} ${F} ${Z + 0.5}`, `give ${NAME} minecraft:coal 60`, `give ${NAME} minecraft:book 1`)
+    rcon(`gamemode survival ${NAME}`, `clear ${NAME}`, `tp ${NAME} ${X + 0.5} ${F} ${Z + 0.5}`, `give ${NAME} minecraft:coal 60`, `give ${NAME} minecraft:book 1`, ...(process.env.STONE ? [`give ${NAME} minecraft:stone 128`] : []))
     await sleep(4000)
-    R.start = { coal: count('coal'), emerald: count('emerald'), book: count('book') }
+    R.start = { coal: count('coal'), emerald: count('emerald'), book: count('book'), stone: count('stone') }
     const home = { x: X, y: F, z: Z }
     bot.tradeTrip = T.newTrip({ now: Date.now(), home, dest: { x: X + D + 3, y: F, z: Z, p: 'toolsmith' }, take: 0 })
     R.calls = []
@@ -64,9 +66,9 @@ async function main () {
       R.calls.push(`${r.status}: ${r.detail}`)
       P('call', i, r.status, r.detail)
     }
-    R.end = { coal: count('coal'), emerald: count('emerald'), bricks: count('bricks'), book: count('book'), enchanted_book: count('enchanted_book'),
+    R.end = { stone: count('stone'), coal: count('coal'), emerald: count('emerald'), bricks: count('bricks'), book: count('book'), enchanted_book: count('enchanted_book'),
       atHome: +Math.hypot(bot.entity.position.x - X, bot.entity.position.z - Z).toFixed(1), tripOpen: !!bot.tradeTrip }
-    R.server = rcon(`clear ${NAME} minecraft:emerald 0`, `clear ${NAME} minecraft:coal 0`, `clear ${NAME} minecraft:bricks 0`, `clear ${NAME} minecraft:enchanted_book 0`).split('\n').filter(l => /Found|No items/.test(l))
+    R.server = rcon(`clear ${NAME} minecraft:stone 0`, `clear ${NAME} minecraft:emerald 0`, `clear ${NAME} minecraft:coal 0`, `clear ${NAME} minecraft:bricks 0`, `clear ${NAME} minecraft:enchanted_book 0`).split('\n').filter(l => /Found|No items/.test(l))
     R.health = rcon('data get entity @e[type=villager,tag=trd,limit=1] Health').split('\n')[1]
   } finally {
     R.rows = rows
