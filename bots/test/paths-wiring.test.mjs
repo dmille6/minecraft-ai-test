@@ -15,6 +15,7 @@ delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.e
 process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
 process.env.TIDY = 'off'   // tidy-01 / groundskeeper-01 (on in the showcase pool since its groundskeeper release) have their own order tests
 process.env.SINKS = 'off'   // picker-01's town sinks (on in the showcase pool) have their own order test: sinks.test.mjs
+process.env.STEPWELL = 'off'   // stepwell-01's stepwell (on in the showcase pool) has its own tests: stepwell.test.mjs
 process.env.YARD = 'off'   // stockyard-01's yard (on in the showcase pool) has its own order test: yard.test.mjs
 // wall-01: the wall (fifth, after the paths) has its own wiring test (wall-wiring.test.mjs); off here, so the paths stay the last project
 process.env.WALL = 'off'

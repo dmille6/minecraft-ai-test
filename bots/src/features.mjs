@@ -145,8 +145,6 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'enchantshop_mode', status: 'success', snapshot: snapshot(bot), detail: enchantModeDetail(ENCHANTSHOP) }) } catch { /* telemetry */ }
   // canefarm-01: the cane bed's licence row (on=0 outside CANEFARM_POOLS or under CANEFARM=off)
   try { logEvent({ kind: 'canefarm_mode', status: 'success', snapshot: snapshot(bot), detail: caneModeDetail(CANEFARM.on) }) } catch { /* telemetry */ }
-  // stepwell-01: the stepwell's licence row (on=0 outside STEPWELL_POOLS or under STEPWELL=off)
-  try { logEvent({ kind: 'stepwell_mode', status: 'success', snapshot: snapshot(bot), detail: stepwellModeDetail(STEPWELL.on) }) } catch { /* telemetry */ }
   // stockyard-01: the stockpile yard's licence row (yard.mjs; the project itself is shop.mjs PROJECTS, its visit skills.mjs yardVisit)
   try { logEvent({ kind: 'yard_mode', status: 'success', snapshot: snapshot(bot), detail: yardModeDetail(YARD.on) }) } catch { /* telemetry */ }
   // picker-01: the town sinks' licence row (sinks.mjs; the plots are shop.mjs PROJECTS' sink entries, the visit skills.mjs buildSink)
@@ -182,6 +180,8 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'toolkit_ironpick_mode', status: 'success', snapshot: snapshot(bot), detail: ironpickModeDetail() }) } catch {}
   // plinth-02: the licence row, once per spawn -- the build's own `_plinth_mode` kind (plinth.mjs plinthModeDetail)
   try { logEvent({ kind: 'plinth_mode', status: 'success', snapshot: snapshot(bot), detail: plinthModeDetail(bot.worldId) }) } catch {}
+  // stepwell-01: the stepwell's licence row (on=0 outside STEPWELL_POOLS or under STEPWELL=off)
+  try { logEvent({ kind: 'stepwell_mode', status: 'success', snapshot: snapshot(bot), detail: stepwellModeDetail(STEPWELL.on) }) } catch { /* telemetry */ }
   // plinth-02.1: the licence row, once per spawn -- `_plinth021_mode` (plinth.mjs plinth021ModeDetail)
   try { logEvent({ kind: 'plinth021_mode', status: 'success', snapshot: snapshot(bot), detail: plinth021ModeDetail({ shared: townRecordsShared({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '' }), worldId: bot.worldId }) }) } catch {}
   // plinthfirst-01: the licence row, once per spawn -- `_plinthfirst_mode` (plinth.mjs plinthFirstModeDetail); CONFIGURATION only
