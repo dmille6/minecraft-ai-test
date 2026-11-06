@@ -143,6 +143,7 @@ import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterR
 import { tableCandidates, TABLE_TRIES } from './workbench.mjs'   // bagdiet-01: the craft's table candidates
 import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs'   // bagdiet-01: the light projects' hold and bank-back gate
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
+import { unsitedWaitOn, unsitedBackoff, unsitedRead, unsitedWrite, setUnsitedOf } from './shop.mjs'   // idlework-01 B: an unsited project yields its turn
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -17073,7 +17074,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     const states = repairBackoff(activeMem.states, rmem, now).map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now) }))
     // stuckwait-01: a project inside its stuck back-off waits behind the others (shop.mjs stuckBackoff); the repair count reads
     // the states before it
-    const waited = stuckBackoff(states, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)
+    const waited0 = stuckBackoff(states, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)
+    // idlework-01 B: an open project a visit could not site waits behind the others (shop.mjs unsitedBackoff)
+    const waited = unsitedWaitOn() ? unsitedBackoff(waited0, unsitedOfPlot, now) : waited0
     const pick = activeProject(waited, list)
     if (visit) noteRepair(rmem, pick, states, now)
     return pick
@@ -17093,6 +17096,10 @@ function slotFreeFor (p, holder, now = Date.now()) {
 const shopKey = () => projKeyOf(shopActive().plot)
 // paths-01: an unsited project's bag rule reads the active plot (shop.mjs buildOrder; no cognitive change)
 setActivePlot(() => shopActive().plot)
+// the town's stamp, else this bot's own (an unwritten file must not turn the day's back-off into a 10-min retry)
+const unsitedMem = new Map()
+const unsitedOfPlot = plot => { if (!plot) return null; const f = unsitedRead(townDir(), projKeyOf(plot)); const m = unsitedMem.get(projKeyOf(plot)) ?? null; return f == null ? m : m == null ? f : Math.max(f, m) }
+setUnsitedOf(unsitedOfPlot)
 const shopBlueprint = () => blueprintOf(shopActive().blueprint)
 /** Every project's record head that exists -> [{ plot, key, head }]. Never throws. */
 function projectHeads () {
@@ -17495,11 +17502,28 @@ function stuckCellsPublish (bot, dir, key, rec, r, me, plot) {
     bot.shopDamage = null
   } catch { /* waived again next visit */ }
 }
+/**
+ * idlework-01 B: a visit that ends `no_site` and leaves no record stamps that PROJECT unsited (shop.mjs unsitedWrite), so the next
+ * order works the next open project instead of re-asking this one (or holding every bot's order 24 h on its own last stop).
+ */
 async function buildShop (ctx, args, signal) {
+  const proj = shopActive(ctx.bot, Date.now(), { visit: true })
+  const r = await buildShopOn(proj, ctx, args, signal)
+  if (unsitedWaitOn() && r?.stop === 'no_site') {
+    try {
+      const dir = townDir(), key = projKeyOf(proj.plot), h = recordHead(dir, key)
+      if (h.ok && !h.head) unsitedMem.set(key, Date.now())
+      if (h.ok && !h.head && unsitedWrite(dir, key, { plot: proj.plot, why: r.detail, by: ctx.bot?.username ?? null })) {
+        try { logEvent({ kind: 'project_unsited', status: 'success', detail: `${proj.plot} unsited: waits behind the other open projects (${String(r.detail ?? '').slice(0, 100)})` }) } catch { /* telemetry */ }
+      }
+    } catch { /* the stamp is best effort: the order's own back-off still holds */ }
+  }
+  return r
+}
+async function buildShopOn (proj, ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
-  // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject)
-  const proj = shopActive(bot, Date.now(), { visit: true })
+  // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject; buildShop picked it)
   // monument-01: the ziggurat's visit is its own (computed cells, its siting, its rows)
   if (proj.plot === MONUMENT_PLOT) return buildMonument(ctx, args, signal)
   // paths-01: the town's paths are their own visit too (paths.mjs siting, a shovel's use)

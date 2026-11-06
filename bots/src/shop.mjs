@@ -222,6 +222,49 @@ export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WAL
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
+/**
+ * IDLEWORK-01 PIECE B: AN UNSITED PROJECT YIELDS ITS TURN (fleet 11-05 01Z..11-06 01Z, lib.telemetry full walk, 3,934 build_shop
+ * rows): four towns had NO open project because the first open one could not be sited and activeProject returned it anyway --
+ * board-a and placebo-d the monument ("no ziggurat site": 41 + 57 visits, 217 + 180 no_site skips), hive-c house1 ("no proven
+ * site": 23 visits, 189 skips), board-c the workshop itself (31 visits, 146 skips: the stair and the tidy, which need no workshop,
+ * never got a turn). Every bot then held its build_shop order 24 h on ITS OWN last stop (`lastStop === 'no_site'`, the order's
+ * per-bot back-off), whichever project came next. Now a visit that ends `no_site` with no record stamps the PROJECT
+ * (`<key>.unsited.json`, the town's file, every bot reads it); inside UNSITED_WAIT_MS that project is not `free` (the next open
+ * project first, as stuckBackoff does for a stuck one) and the order's no_site back-off is that project's, not the bot's. With
+ * nothing else open activeProject still returns it and the stamp holds the order, as the per-bot back-off did. UNSITEDWAIT=0 is
+ * the rollback.
+ */
+export const unsitedWaitOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.UNSITEDWAIT ?? '').trim().toLowerCase())
+export const UNSITED_WAIT_MS = SHOP_SITE_RETRY_MS
+const unsitedFile = (dir, key) => path.join(dir, `${key}.unsited.json`)
+/** Stamp a project unsited (never throws: an unwritten stamp is the old per-bot back-off). */
+export function unsitedWrite (dir, key, { plot = null, why = null, by = null, now = Date.now() } = {}) {
+  try {
+    const f = unsitedFile(dir, key), tmp = `${f}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ plot, why: why == null ? null : String(why).slice(0, 120), by, at: now }))
+    fs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+/** The project's unsited stamp ms | null (absent, torn or unreadable: null). */
+export function unsitedRead (dir, key) {
+  try { const r = JSON.parse(fs.readFileSync(unsitedFile(dir, key), 'utf8')); return Number.isFinite(r?.at) ? r.at : null } catch { return null }
+}
+/** Is a stamp inside the wait? Pure. A stamp more than a minute in the future (a bad clock) is ignored. */
+export const unsitedFresh = (at, now = Date.now(), ms = UNSITED_WAIT_MS) => Number.isFinite(at) && at <= now + 60_000 && now - at < ms
+/** An unsited open project waits behind the others -> states. Pure. `unsitedOf(plot)` -> stamp ms | null; a throw reads as none. */
+export function unsitedBackoff (states = [], unsitedOf = null, now = Date.now()) {
+  if (typeof unsitedOf !== 'function') return states
+  return states.map(st => {
+    if (!st || st.exists) return st
+    let at = null
+    try { at = unsitedOf(st.plot) } catch { at = null }
+    return unsitedFresh(at, now) ? { ...st, free: false, unsited: true } : st
+  })
+}
+/** The active plot's stamp for the order (skills.mjs installs it: the town's file). */
+let unsitedOfPlot = () => null
+export function setUnsitedOf (fn) { if (typeof fn === 'function') unsitedOfPlot = fn }
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
 // the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
@@ -527,7 +570,12 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   let plot0 = record?.plot ?? null
   if (!record) { try { plot0 = activePlotOf() } catch { plot0 = null } }
   if (now - (state.lastAt ?? -Infinity) < (plot0 === SHAFT_PLOT ? SHAFT_COOLDOWN_MS : SHOP_COOLDOWN_MS)) return { order: null, skip: null }
-  if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
+  if (!record && unsitedWaitOn()) {
+    // idlework-01 B: the no_site back-off is the ACTIVE PROJECT's stamp (any bot's visit), not this bot's last stop
+    let at = null
+    try { at = unsitedOfPlot(plot0) } catch { at = null }
+    if (unsitedFresh(at, now)) return { order: null, skip: 'no_site' }
+  } else if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
   // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop.
   // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE
   // (a skewed or bad clock) is ignored rather than holding the project skew + 6 h

@@ -145,7 +145,12 @@ const lessons = {
 }
 const deposits = Array.from({ length: 8 }, (_, i) => dep(105 + i, [ME]))
 const ctl = new MilestoneController(bot, 'scout', lessons, wf(deposits))
+// idlework-01: this fixture's laps are driven by the PATROL rung (dist 5 / 90); the idle rung replaces it in production and
+// a static bag never gathers its batch, so the lap driver here is the rollback's (IDLEWORK=0)
+const idlePrev = process.env.IDLEWORK
+process.env.IDLEWORK = '0'
 for (let i = 0; i < 60; i++) { dist = i % 2 ? 5 : 90; ctl.refresh() }
+if (idlePrev === undefined) delete process.env.IDLEWORK; else process.env.IDLEWORK = idlePrev
 
 const lvl = store.completions.survey_wider ?? 0
 console.log(`    survey_wider completed ${lvl}x -> now asks for ${sus.describe(0, lvl)}`)
