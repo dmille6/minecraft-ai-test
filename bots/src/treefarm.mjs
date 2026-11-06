@@ -36,20 +36,40 @@
 //
 // TREEFARM=off is the kill switch (the order never picks the project; a visit refuses). On only in TREEFARM_POOLS (default
 // 'showcase') until a fleet rollout.
+//
+// TREEFARM-05 (fleet, owner 11-06: "tree farm" for the towns that have built every project they have -- board-b, hive-b and
+// placebo-a, measured 11-06: every record complete, their bots exploring ~345 of 900 bot-min in 3 h): every OTHER pool runs the farm
+// in IDLE mode (treefarmMode 'idle'): the project is offered only in a town where every other building project reads complete
+// (shop.mjs idleOnlyOpen; the tidy and the stair count), so it never takes a bot from real work; a farm sited in such a town that
+// sees a project open (a reopened tidy, a paths extension, a new project) waits for it, its record still guarded (shop.mjs
+// projectsGuarded), and a standing farm's upkeep is `due` after every open project, as before. And its siting falls back (farmSiteTries): offline on copies of the three towns' region files and pool state (11-06),
+// NO 4x4..3x3 farm fits inside any of their walls (the 48-wide ziggurat and the other records fill them); outside the wall, within
+// the same FARM.rMax of home, board-b fits a 3x3 and placebo-a a 3x4, and hive-b only a 3x2 / 2x3 (FARM_SMALL_GRIDS). The showcase
+// ('on' mode) sites exactly as before. TREEFARM_IDLE=off is the fleet rollback (the farm off outside TREEFARM_POOLS, as before
+// treefarm-05); TREEFARM_FALLBACK=off keeps the idle farm inside the wall and to the big grids.
 
 import { pathColumn, pathAvoid } from './paths.mjs'
 
 export const TREEFARM_PLOT = 'treefarm'
 export const TREEFARM_BLUEPRINT = 'treefarm@1'
 export const TREEFARM_BUILDERS = 2
-/** THE SWITCH -> bool. TREEFARM=on|off; unset = on only in the pools TREEFARM_POOLS names (default 'showcase'). Pure. */
-export function treefarmOn (env = process.env, pool = '') {
+const ON_WORDS = ['on', '1', 'true', 'yes']
+const OFF_WORDS = ['off', '0', 'false', 'no']
+/** THE MODE -> 'on' | 'idle' | 'off' (treefarm-05). TREEFARM=on|off wins; unset: 'on' in the pools TREEFARM_POOLS names
+ *  (default 'showcase'), else 'idle' -- the farm only in a town with nothing else open -- unless TREEFARM_IDLE=off ('off'). Pure. */
+export function treefarmMode (env = process.env, pool = '') {
   const v = String(env?.TREEFARM ?? '').trim().toLowerCase()
-  if (['on', '1', 'true', 'yes'].includes(v)) return true
-  if (['off', '0', 'false', 'no'].includes(v)) return false
+  if (ON_WORDS.includes(v)) return 'on'
+  if (OFF_WORDS.includes(v)) return 'off'
   const pools = String(env?.TREEFARM_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
-  return pools.includes(String(pool))
+  if (pools.includes(String(pool))) return 'on'
+  return OFF_WORDS.includes(String(env?.TREEFARM_IDLE ?? '').trim().toLowerCase()) ? 'off' : 'idle'
 }
+/** THE SWITCH -> bool: the farm is on in either mode (treefarmMode). Pure. */
+export const treefarmOn = (env = process.env, pool = '') => treefarmMode(env, pool) !== 'off'
+/** THE SITING FALLBACK (treefarm-05) -> bool: an IDLE farm may site outside the wall and at the small grids (farmSiteTries) unless
+ *  TREEFARM_FALLBACK=off; an 'on' farm (the showcase) never does. Pure. */
+export const treefarmFallback = (env = process.env, pool = '') => treefarmMode(env, pool) === 'idle' && !OFF_WORDS.includes(String(env?.TREEFARM_FALLBACK ?? '').trim().toLowerCase())
 
 export const FARM = Object.freeze({
   grids: Object.freeze([[4, 4], [4, 3], [3, 4], [3, 3]]),   // plots per side, the biggest that fits first
@@ -69,6 +89,24 @@ export const FARM = Object.freeze({
   siteTreesMax: 12,    // trunks felled at siting, at most (the cheapest site wins anyway)
   siteLogsMax: 90,     // logs felled at siting, at most
 })
+/** treefarm-05: the grids an idle farm tries after FARM.grids (hive-b's ground fits nothing bigger, offline 11-06: 3x2 15 fits,
+ *  2x3 20 at rMax 48). Every plot of a small grid must be usable (siteFarm's min(minPlots, plots)). */
+export const FARM_SMALL_GRIDS = Object.freeze([Object.freeze([3, 2]), Object.freeze([2, 3])])
+/**
+ * THE SITING TRIES, in order -> [{ where, bounds, grids }]. Pure. Without the fallback (the showcase): the wall's inside, the big
+ * grids -- exactly treefarm-04's siting. With it (an idle fleet farm): the big grids inside the wall, then outside it (bounds null:
+ * every reservation, the wall's own columns + 1 included, still kept off by `blocked`), then the small grids inside, then outside --
+ * the farm's size first, the wall second (a 6-plot farm is the last resort, not a reason to stay inside). No wall: no inside tries.
+ */
+export function farmSiteTries (bounds = null, { fallback = false } = {}) {
+  if (!fallback) return [{ where: 'inside', bounds, grids: FARM.grids }]
+  const out = []
+  for (const grids of [FARM.grids, FARM_SMALL_GRIDS]) {
+    if (bounds) out.push({ where: 'inside', bounds, grids })
+    out.push({ where: 'outside', bounds: null, grids })
+  }
+  return out
+}
 /** Saplings the farm plants, in preference order (a straight single trunk the harvest fells from the stump up). Acacia
  *  (a bent trunk), cherry (branches), dark oak and pale oak (2x2 only), jungle (unmeasured, giant) and mangrove are not
  *  farm species. */
@@ -317,7 +355,7 @@ export function farmFront (box, home, blocked = () => null) {
  * order (x, then z: deterministic). An unread column refuses that candidate only; no fit at all -> { ok: false, why } naming the
  * commonest refusals.
  */
-export function siteFarm (read, { home, blocked = () => null, bounds = null, lights = 0, species = FARM_SPECIES[0], yHi = null, yLo = null } = {}) {
+export function siteFarm (read, { home, blocked = () => null, bounds = null, lights = 0, species = FARM_SPECIES[0], yHi = null, yLo = null, grids = FARM.grids } = {}) {
   if (!home || typeof read !== 'function') return { ok: false, why: 'no_home', record: null }
   const hi = yHi ?? Math.floor(home.y) + 24, lo = yLo ?? Math.floor(home.y) - 14
   const cache = new Map()
@@ -327,7 +365,7 @@ export function siteFarm (read, { home, blocked = () => null, bounds = null, lig
   const R = FARM.rMax
   const why = {}
   let tried = 0
-  for (const [gx, gz] of FARM.grids) {
+  for (const [gx, gz] of grids) {
     let best = null
     const span = [(gx - 1) * FARM.spacing, (gz - 1) * FARM.spacing]
     for (let x0 = Math.floor(home.x) - R; x0 <= Math.floor(home.x) + R - span[0]; x0++) {
@@ -346,6 +384,22 @@ export function siteFarm (read, { home, blocked = () => null, bounds = null, lig
   }
   const top = Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k}=${v}`).join(' ')
   return { ok: false, why: `no fit (${tried} tried: ${top || '-'})`, tried, record: null }
+}
+
+/**
+ * THE TIERED SITING (treefarm-05) -> siteFarm's answer for the first try that fits, its record naming `where` ('inside' | 'outside'),
+ * or { ok: false, why: every try's refusal }. Pure over `read`; `tries` from farmSiteTries.
+ */
+export function siteFarmTiered (read, opts = {}, tries = farmSiteTries(opts?.bounds ?? null)) {
+  const whys = []
+  let tried = 0
+  for (const t of tries) {
+    const s = siteFarm(read, { ...opts, bounds: t.bounds, grids: t.grids })
+    tried += Number(s.tried) || 0
+    if (s.ok) return { ...s, tried, where: t.where, record: { ...s.record, where: t.where } }
+    whys.push(`${t.where}${t.grids === FARM_SMALL_GRIDS ? '-small' : ''}: ${s.why}`)
+  }
+  return { ok: false, why: whys.join('; ') || 'no tries', tried, record: null }
 }
 
 /** THE RECORD from a fit. Pure. One segment per plot row (soil before plot: lowest first) and the lights last. */

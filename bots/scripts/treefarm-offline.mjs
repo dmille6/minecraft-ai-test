@@ -3,7 +3,8 @@
 // composes) run on COPIES of a world's region files and pool state, so where a town's farm goes -- its plots, lights, the trees
 // it fells and its front -- is known before any bot sites it.
 //
-//   node scripts/treefarm-offline.mjs <dump.json> <pool-state-dir> [--torches N] [--species S] [--out record.json] [--map map.txt]
+//   node scripts/treefarm-offline.mjs <dump.json> <pool-state-dir> [--torches N] [--species S] [--fallback] [--out record.json] [--map map.txt]
+//   --fallback: an IDLE fleet farm's tries (treefarm-05 farmSiteTries: outside the wall, the small grids); without it the showcase's
 //
 // <dump.json>: scripts/host/townplan_blockdump.py over COPIES of the region files (y home-14 .. home+28 at least). <pool-state-dir>:
 // a COPY of /var/lib/mcai/_pool-<pool>. Nothing is written but --out and --map.
@@ -12,7 +13,7 @@ import path from 'node:path'
 import { dumpReader, poolRecords } from './buildsite-offline.mjs'
 import { recordHead } from '../src/buildproj.mjs'
 import { recordZones } from '../src/shop.mjs'
-import { farmBlocked, farmBounds, siteFarm, TREEFARM_PLOT, farmPalette } from '../src/treefarm.mjs'
+import { farmBlocked, farmBounds, siteFarmTiered, farmSiteTries, TREEFARM_PLOT, farmPalette } from '../src/treefarm.mjs'
 import { lightsFor } from '../src/treefarm.mjs'
 
 const argv = process.argv.slice(2)
@@ -41,10 +42,11 @@ const composter = cs && [cs.x, cs.y, cs.z].every(Number.isFinite) ? [cs.x, cs.y,
 const inputs = { plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: records.map(r => r.rec), pzones: recordZones(records.map(r => r.rec)) }
 const species = opt('species', 'spruce_sapling')
 const t0 = Date.now()
-const s = siteFarm(read, { home, blocked: farmBlocked(inputs), bounds: farmBounds(inputs.records), lights: lightsFor(Number(opt('torches', 0)), 0), species })
+const bounds = farmBounds(inputs.records)
+const s = siteFarmTiered(read, { home, blocked: farmBlocked(inputs), bounds, lights: lightsFor(Number(opt('torches', 0)), 0), species }, farmSiteTries(bounds, { fallback: argv.includes('--fallback') }))
 const rec = s.record
 console.log(JSON.stringify({
-  ok: s.ok, why: s.why, tried: s.tried, ms: Date.now() - t0, projects: records.map(r => `${r.plot}:${r.rec.blueprint}`), bounds: farmBounds(inputs.records),
+  ok: s.ok, why: s.why, where: s.where ?? null, tried: s.tried, ms: Date.now() - t0, projects: records.map(r => `${r.plot}:${r.rec.blueprint}`), bounds: farmBounds(inputs.records),
   ...(rec ? { box: rec.box, grid: rec.grid, anchor: rec.anchor, species: rec.species, counts: rec.counts, front: rec.front, bom: rec.bom,
     ys: [Math.min(...rec.cells.map(c => c.at[1])), Math.max(...rec.cells.map(c => c.at[1]))], trees: rec.trees.map(t => `${t.base.join(',')}x${t.logs.length}`),
     palette: farmPalette(rec.species).plot } : {}),

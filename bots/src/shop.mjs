@@ -9,7 +9,7 @@ import { monumentOn, MONUMENT_PLOT, MONUMENT_BLUEPRINT, MONUMENT_BUILDERS } from
 import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mjs'
 import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
-import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
+import { treefarmMode, treefarmFallback, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
 import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
@@ -67,7 +67,10 @@ export const SHAFT_COOLDOWN_MS = 2 * 60_000    // a stair visit is short (the ru
  * reaches its front once it stands), a levelled grid of saplings with growth torches, harvested and replanted as upkeep. On in the
  * showcase pool, off in the fleet's until its rollout (treefarm.mjs treefarmOn; TREEFARM=off is the rollback). Needs the paths.
  */
-export const TREEFARM = Object.freeze({ on: treefarmOn(process.env, process.env.MEMORY_POOL ?? '') })
+// treefarm-05: every other pool runs it in IDLE mode -- offered only where every other project stands (idleOnlyOpen below; treefarm.mjs
+// treefarmMode; TREEFARM_IDLE=off is the fleet rollback), sited outside the wall or small when the walled area is full (treefarmFallback)
+const TREEFARM_MODE = treefarmMode(process.env, process.env.MEMORY_POOL ?? '')
+export const TREEFARM = Object.freeze({ on: TREEFARM_MODE !== 'off', mode: TREEFARM_MODE, idle: TREEFARM_MODE === 'idle', fallback: treefarmFallback(process.env, process.env.MEMORY_POOL ?? '') })
 /**
  * TIDY-01: THE TOWN-GROUND TIDY is the LAST project, with no `after` (tidy.mjs): only a bot no other project admits works it -- every
  * other open project full, stuck or waiting -- so it never displaces building. It cuts the bots' pillars, fills their pits and
@@ -93,24 +96,43 @@ export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, w
 export const projectsGuarded = (list = projectsOn()) => {
   // tidy-01: the tidy guards nothing (its fills are ground, its cuts are spoil): never a footprint, a keep-out or a siting input
   const l = list.filter(p => p.plot !== TIDY_PLOT)
-  return l.some(p => p.plot === SHAFT_PLOT) ? l : [...l, PROJECTS.find(p => p.plot === SHAFT_PLOT)]
+  // treefarm-05 (Codex design 11-06): the tree farm's record is guarded always too, as the stair's -- a farm sited by an idle town
+  // keeps its reservation when the switch goes off (TREEFARM_IDLE=off, the rollback) or a pool leaves the list
+  const always = [SHAFT_PLOT, TREEFARM_PLOT].filter(q => !l.some(p => p.plot === q)).map(q => PROJECTS.find(p => p.plot === q))
+  return always.length ? [...l, ...always] : l
 }
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
 export const buildersOf = p => p?.builders ?? BUILDERS_MAX
+/**
+ * TREEFARM-05: THE IDLE-ONLY PROJECTS' GATE -> bool. Pure. An idle-only project (`idle`: plots; the fleet's tree farm) opens only
+ * while EVERY other project on (`list`) has a record that reads complete -- the tidy and the stair included (Codex design 11-06:
+ * "towns with no open project" means none: an open tidy is work for the town's bots) -- the idle-only ones aside (they are ordered
+ * among themselves as PROJECTS orders them). A project with no record (unsited, or waiting on its `after`), an open one, a stuck
+ * one: the idle-only ones wait. A sited idle farm waits too (its record kept and guarded: projectsGuarded), and resumes after.
+ */
+export function idleOnlyOpen (states = [], list = projectsOn(), idle = []) {
+  const st = p => states.find(s => s?.plot === p.plot)
+  return list.every(p => idle.includes(p.plot) || (!!st(p)?.exists && !!st(p)?.complete))
+}
+/** The plots that are idle-only under this process's switches (treefarm-05: the tree farm in IDLE mode). */
+export const idlePlots = (farm = TREEFARM) => (farm?.on && farm?.idle ? [TREEFARM_PLOT] : [])
 /**
  * THE PROJECT THE JOB WORKS ON NOW -> a PROJECTS entry. Pure. `states` [{ plot, exists, complete, damaged, free?, due? }] in PROJECTS
  * order (a missing state reads as no record). The first damaged complete project (repairs first), else the first not complete
  * whose `after` project is complete -- monument-01: the first such with an admission slot free for this bot (`free`, absent =
  * free), else the first such -- else the LAST project (everything stands: the order reads it complete and stays quiet).
  */
-export function activeProject (states = [], list = projectsOn()) {
+export function activeProject (states = [], list = projectsOn(), { idle = idlePlots() } = {}) {
   const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged) return p }
   const open = []
+  // treefarm-05: an idle-only project (the fleet's tree farm) is open only in a town where everything else stands (idleOnlyOpen)
+  const idleOk = !idle.length || idleOnlyOpen(states, list, idle)
   for (const p of list) {
     const s = st(p)
     if (s.exists && s.complete) continue
     if (p.after && !st(list.find(q => q.plot === p.after) ?? { plot: p.after }).complete) continue
+    if (!idleOk && idle.includes(p.plot)) continue
     open.push(p)
   }
   if (open.length) return open.find(p => st(p).free !== false) ?? open[0]

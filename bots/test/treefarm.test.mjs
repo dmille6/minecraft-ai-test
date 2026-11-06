@@ -40,9 +40,13 @@ const roles = rec => rec.cells.reduce((m, c) => (m[c.role] = (m[c.role] ?? 0) + 
 /** The bounds that admit exactly one 4x4 candidate with its first plot at (x0, z0). */
 const only = (x0, z0) => F.farmBox(x0, z0, 4, 4)
 
-await t('the switch: on in the showcase pool by default, off in a fleet pool, TREEFARM=on|off wins', () => {
+await t('the switch: on in the showcase pool by default, IDLE in a fleet pool (treefarm-05; TREEFARM_IDLE=off: off), TREEFARM=on|off wins', () => {
   assert.strictEqual(F.treefarmOn({}, 'showcase'), true)
-  assert.strictEqual(F.treefarmOn({}, 'hive-a'), false)
+  assert.strictEqual(F.treefarmMode({}, 'showcase'), 'on')
+  assert.strictEqual(F.treefarmMode({}, 'hive-a'), 'idle')
+  assert.strictEqual(F.treefarmOn({}, 'hive-a'), true)
+  assert.strictEqual(F.treefarmOn({ TREEFARM_IDLE: 'off' }, 'hive-a'), false, 'the fleet rollback')
+  assert.strictEqual(F.treefarmOn({ TREEFARM_IDLE: 'off' }, 'showcase'), true, 'the rollback leaves the showcase on')
   assert.strictEqual(F.treefarmOn({ TREEFARM: 'on' }, 'hive-a'), true)
   assert.strictEqual(F.treefarmOn({ TREEFARM: 'off' }, 'showcase'), false)
   assert.strictEqual(F.treefarmOn({ TREEFARM_POOLS: 'board-a' }, 'board-a'), true)
@@ -341,7 +345,7 @@ await t('THE PLANTING STOCK: with the farm on, the peaceful kit\'s composter kee
   assert.deepStrictEqual(C.compostAllowance(bag, { plants: true, farmKeeps: false }), { spruce_sapling: 20, jungle_sapling: 5 }, 'control: the kit as before')
   // the composter's restated species and switch agree with treefarm.mjs's (no import: a cycle through paths.mjs)
   assert.deepStrictEqual([...C.FARM_KEEP_SPECIES], [...F.FARM_SPECIES])
-  for (const [env, pool] of [[{}, 'showcase'], [{}, 'hive-a'], [{ TREEFARM: 'off' }, 'showcase'], [{ TREEFARM: 'on' }, 'x'], [{ TREEFARM_POOLS: 'a,b' }, 'b']]) assert.strictEqual(C.farmKeepsOn(env, pool), F.treefarmOn(env, pool))
+  for (const [env, pool] of [[{}, 'showcase'], [{}, 'hive-a'], [{ TREEFARM: 'off' }, 'showcase'], [{ TREEFARM: 'on' }, 'x'], [{ TREEFARM_POOLS: 'a,b' }, 'b'], [{ TREEFARM_IDLE: 'off' }, 'hive-a'], [{ TREEFARM_IDLE: 'off', TREEFARM_POOLS: 'a' }, 'a'], [{ TREEFARM: 'idle' }, 'showcase']]) assert.strictEqual(C.farmKeepsOn(env, pool), F.treefarmMode(env, pool) === 'on', JSON.stringify([env, pool]))   // treefarm-05: the 'on' mode only
 })
 console.log(`\ntreefarm: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

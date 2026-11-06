@@ -73,6 +73,8 @@ export const SAPLING_RESERVE = 16
 /** treefarm-04: the farm's species and switch, as treefarm.mjs FARM_SPECIES / treefarmOn (TREEFARM, TREEFARM_POOLS) -- restated
  *  here because importing treefarm.mjs closes an import cycle through paths.mjs (treefarm.test.mjs asserts the two agree). */
 export const FARM_KEEP_SPECIES = Object.freeze(['birch_sapling', 'spruce_sapling', 'oak_sapling'])
+// treefarm-05: the keep follows the farm's 'on' mode only (treefarm.mjs treefarmMode === 'on'), never its fleet IDLE mode: an idle farm
+// plants the oak and birch every bag keeps SAPLING_RESERVE of already, and the fleet's peaceful kit composts as before
 export function farmKeepsOn (env = process.env, pool = '') {
   const v = String(env?.TREEFARM ?? '').trim().toLowerCase()
   if (['on', '1', 'true', 'yes'].includes(v)) return true
