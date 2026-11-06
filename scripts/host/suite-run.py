@@ -51,6 +51,7 @@ package-lock.json -- w30, which has no npm) and copies it into the tree.
 import argparse
 import datetime as dt
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -175,6 +176,17 @@ def worktree_overlay(wt):
     return files, deleted, added
 
 
+def mirror_ref(label):
+    """The mirror ref for a label -> 'refs/suite/<safe>'. Pure. git refuses a component that starts with '.' (every
+    `.wt-*` worktree label did: its run silently got a bare tree and the git-only tests skipped), ends in '.lock', or holds
+    '..', '~', '^', ':', '?', '*', '[', '\\' or whitespace -- each is replaced, a leading dot stripped."""
+    safe = re.sub(r'[^A-Za-z0-9._-]+', '-', label).lstrip('.-') or 'run'
+    safe = safe.replace('..', '-')
+    if safe.endswith('.lock'):
+        safe = safe[:-5] + '-lock'
+    return 'refs/suite/' + safe
+
+
 def push_mirror(host, wt, sha_full, label, timeout_s=1800):
     """Push the commit to the host's bare mirror (created on first use). -> '' on success, else why not."""
     r = run_deadline(SSH + [HOSTS[host], f'test -d {MIRROR} || git init -q --bare {MIRROR}'], 60, text=True,
@@ -183,7 +195,7 @@ def push_mirror(host, wt, sha_full, label, timeout_s=1800):
         return f'mirror init failed ({"timeout" if r is None else (r.stderr or "").strip()[:160]})'
     url = f'ssh://{HOSTS[host]}/home/mike/{MIRROR}'
     env = dict(os.environ, GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=10')
-    r = run_deadline(['git', '-C', wt, 'push', '-q', '--no-verify', '--force', url, f'{sha_full}:refs/suite/{label}'],
+    r = run_deadline(['git', '-C', wt, 'push', '-q', '--no-verify', '--force', url, f'{sha_full}:{mirror_ref(label)}'],
                      timeout_s, text=True, capture_output=True, env=env)
     if r is None:
         return f'mirror push took over {timeout_s // 60} min'

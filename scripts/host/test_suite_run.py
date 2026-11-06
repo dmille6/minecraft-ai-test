@@ -97,6 +97,15 @@ def t_overlay(S):
         shutil.rmtree(d, ignore_errors=True)
 
 
+def t_mirror_ref(S):
+    """A `.wt-*` worktree label made an invalid ref (11-06: the git-only tests silently skipped); git's own check is the oracle."""
+    for lab in ('.wt-promomerge-x-0fcb1293', 'ok-label', 'a..b', 'x.lock', 'sp ace', '..', '.'):
+        ref = S.mirror_ref(lab)
+        ok = subprocess.run(['git', 'check-ref-format', ref], capture_output=True).returncode == 0
+        check('mirror_ref valid: %s -> %s' % (lab, ref), ok)
+    check('mirror_ref keeps a good label', S.mirror_ref('ok-label') == 'refs/suite/ok-label')
+
+
 def t_relay(_S=None):
     spec = importlib.util.spec_from_file_location('relay_t', os.path.join(HERE, 'autorebase-suite-relay.py'))
     R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
@@ -129,6 +138,7 @@ def _td(m):
 
 
 MUTANTS = [
+    ("    safe = re.sub(r'[^A-Za-z0-9._-]+', '-', label).lstrip('.-') or 'run'", "    safe = re.sub(r'[^A-Za-z0-9._-]+', '-', label) or 'run'", t_mirror_ref),
     ("    if now - started > deadline_s:\n        return 'deadline'", "    if False:\n        return 'deadline'", t_wait),
     ("    if line is None and now - last_ok > ssh_down_s:", "    if False:", t_wait),
     ("    added = sorted(p for p in git_lines(wt, 'ls-files', '-z', '--cached') if p not in head",
@@ -140,7 +150,7 @@ MUTANTS = [
 
 def main():
     S = load()
-    for t in (t_wait, t_ship, t_overlay, t_relay):
+    for t in (t_wait, t_ship, t_overlay, t_mirror_ref, t_relay):
         t(S)
     base = list(FAILS)
     for f in base:
