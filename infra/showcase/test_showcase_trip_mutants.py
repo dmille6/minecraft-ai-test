@@ -38,7 +38,10 @@ MUTANTS = [
     # H8: a failing survey not counted
     ("    conf = [x for x in lists.get('conformance', []) if ': newest survey F1 ' in x]", "    conf = []", 'survey that fails F1'),
     # an unjudged workshop reads OK
-    ("    if unjudged:\n        watch['conformance UNJUDGED'] = unjudged[:3]\n", "", 'UNJUDGED'),
+    ("    if unjudged and not no_source:\n        watch['conformance UNJUDGED'] = unjudged[:3]\n", "", 'UNJUDGED'),
+    # OWNER 11-06: no survey source -> counted, not a WATCH (and the gate intact once surveys exist)
+    ("    if unjudged and not no_source:", "    if unjudged:", 'counted, not a WATCH'),
+    ("    no_source = not (surveys and surveys[0])", "    no_source = True", 'the gate intact'),
     # the plan's zones not handed to the shop read
     ("{POOL: list(zones)}", "{POOL: []}", 'protected box'),
     # plan_rows: the shop kinds not streamed

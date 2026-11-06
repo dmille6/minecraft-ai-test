@@ -20,7 +20,7 @@ import showcase_ops as SO     # noqa: E402
 UTC = dt.timezone.utc
 RUN = re.compile(r'^===== (\S+) rc=(\d+)')
 WINDOW = re.compile(r'^SHOWCASE TRIPWIRE \S+\s+window (\S+) \.\. ')
-INFO = ('S3 DEEP below a village floor', 'H2 clear_outside tree debris', 'S6 H2 clear_outside tree debris')
+INFO = ('S3 DEEP below a village floor', 'H2 clear_outside tree debris', 'S6 H2 clear_outside tree debris', 'S6 conformance UNJUDGED')
 
 
 def reason_class(r):
