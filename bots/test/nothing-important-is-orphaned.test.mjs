@@ -444,6 +444,8 @@ const REQUIRED = [
   'docs/reports/dropdig-design-2026-11-03.md',
   // leasegen-01 (11-05): the 35k-file town directory's lookup budget, the lease sweep, the per-connection timers
   'bots/test/leasegen.test.mjs',
+  // codeeval (11-06): the six-area code evaluation (Claude + Codex) and its synthesis
+  'docs/reports/codeeval-2026-11-06/README.md',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
