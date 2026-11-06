@@ -10,6 +10,7 @@ import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mj
 import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS, wallextOn, WALLEXT_PLOT, WALLEXT_BLUEPRINT, walldemoOn, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS } from './wall.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
+import { forestOn, FOREST_PLOT, FOREST_BLUEPRINT, FOREST_BUILDERS } from './forest.mjs'   // forest-01: the managed forest outside the walls
 import { cropfarmOn, CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROPFARM_BUILDERS } from './cropfarm.mjs'   // cropfarm-01
 import { prodserveOn } from './prodserve.mjs'   // prodserve-01: the service tier's switch
 import { canefarmOn, CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANEFARM_BUILDERS } from './canefarm.mjs'   // canefarm-01
@@ -156,6 +157,11 @@ export const YARD = Object.freeze({ on: yardOn(process.env, process.env.MEMORY_P
 /** GROUNDSKEEPER-01 (groundskeeper.mjs): one leased bot a town works the tidy -- its only builder (the lease is the slot, the yard
  *  clerk's pattern) -- through the land plan's stages; GROUNDSKEEPER=off is tidy-01 exactly as before (3 builders). */
 export const GROUNDS = Object.freeze({ on: TIDY.on && gkOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** FOREST-01 (forest.mjs forestOn): the managed forest outside the walls, the groundskeeper's (it needs the keeper: GROUNDS). With it on,
+ *  the in-wall tree farm is RETIRED (never sited again, never harvested: the forest's keeper takes it down). FOREST=off is the rollback. */
+export const FORESTP = Object.freeze({ on: forestOn(process.env, process.env.MEMORY_POOL ?? '') && GROUNDS.on })
+/** The crop farm's and the cane bed's `after`: the tree farm, or the paths (the farm's own `after`) while the forest is on. */
+export const FARM_AFTER = FORESTP.on ? PATHS_PLOT : TREEFARM_PLOT
 /**
  * PICKER-01: THE TOWN SINKS (sinks.mjs; OWNER 11-02 resource model Q3 + 11-03 "do it"): three REPEATABLE projects -- road segments,
  * wall towers, ziggurat growth (shrines) -- each a growing record of seeded instances, offered only when no finite project has a
@@ -178,8 +184,10 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
   Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
-  Object.freeze({ plot: CROPFARM_PLOT, blueprint: CROPFARM_BLUEPRINT, after: TREEFARM_PLOT, builders: CROPFARM_BUILDERS }),   // cropfarm-01
-  Object.freeze({ plot: CANEFARM_PLOT, blueprint: CANEFARM_BLUEPRINT, after: TREEFARM_PLOT, builders: CANEFARM_BUILDERS }),   // canefarm-01: the books' cane
+  // forest-01 (Claude + Codex r1 BLOCKER): with the forest on the in-wall farm leaves the order, so an `after` naming it never read
+  // complete and an open crop farm or cane bed was never offered -- they follow the paths then, as the farm did
+  Object.freeze({ plot: CROPFARM_PLOT, blueprint: CROPFARM_BLUEPRINT, after: FARM_AFTER, builders: CROPFARM_BUILDERS }),   // cropfarm-01
+  Object.freeze({ plot: CANEFARM_PLOT, blueprint: CANEFARM_BLUEPRINT, after: FARM_AFTER, builders: CANEFARM_BUILDERS }),   // canefarm-01: the books' cane
   Object.freeze({ plot: SHOPCHEST_PLOT, blueprint: SHOPCHEST_BLUEPRINT, after: SHOP_PLOT, builders: SHOPCHEST_BUILDERS }),
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
   Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),
@@ -193,9 +201,10 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: STEPWELL_PLOT, blueprint: STEPWELL_BLUEPRINT, builders: STEPWELL_BUILDERS }),   // stepwell-01: one builder (one frontier), after the town's buildings
   Object.freeze({ plot: YARD_PLOT, blueprint: YARD_BLUEPRINT, builders: YARD_BUILDERS }),
   ...SINK_KINDS.map(k => Object.freeze({ plot: SINK_PLOTS[k], blueprint: SINK_BLUEPRINTS[k], builders: SINK_BUILDERS, sink: true })),   // picker-01
+  Object.freeze({ plot: FOREST_PLOT, blueprint: FOREST_BLUEPRINT, after: WALL_PLOT, builders: FOREST_BUILDERS }),   // forest-01: the keeper's (groundskeeper.mjs keeperOrderPure)
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 + GK.helpersMax : TIDY_BUILDERS }),   // gkhelpers-01: the keeper and its helpers
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on, ench = ENCHANTSHOP.on, cane = CANEFARM.on, decor = DECORATE.on, cot = COTTAGE.on, th = TOWNHALL.on, rr = REROOF.on, well = STEPWELL.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) && (sinkKindOf(p.plot) !== 'decor' || decor) : p.plot === STEPWELL_PLOT ? well : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === ENCHANT_PLOT ? ench && ext && wall && hub && store && paths && on : p.plot === COTTAGE_PLOT ? cot && ench && ext && wall && hub && store && paths && on : p.plot === TOWNHALL_PLOT ? th && ench && ext && wall && hub && store && paths && on : p.plot === REROOF_PLOT ? rr && hub && store && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === CANEFARM_PLOT ? cane && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on, ench = ENCHANTSHOP.on, cane = CANEFARM.on, decor = DECORATE.on, cot = COTTAGE.on, th = TOWNHALL.on, rr = REROOF.on, well = STEPWELL.on, forest = FORESTP.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === FOREST_PLOT ? forest && wall && paths && on : p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) && (sinkKindOf(p.plot) !== 'decor' || decor) : p.plot === STEPWELL_PLOT ? well : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === ENCHANT_PLOT ? ench && ext && wall && hub && store && paths && on : p.plot === COTTAGE_PLOT ? cot && ench && ext && wall && hub && store && paths && on : p.plot === TOWNHALL_PLOT ? th && ench && ext && wall && hub && store && paths && on : p.plot === REROOF_PLOT ? rr && hub && store && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === CANEFARM_PLOT ? cane && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on && !forest : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
@@ -211,6 +220,10 @@ export const projectsGuarded = (list = projectsOn()) => {
   for (const p of PROJECTS) if (p.plot === CANEFARM_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   // stepwell-01: a sited stepwell stays guarded whatever its switch (its cells, its reservation, its felling stands)
   for (const p of PROJECTS) if (p.plot === STEPWELL_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
+  // forest-01: the in-wall tree farm leaves the order when the forest is on (never sited, never visited) but its record stays guarded
+  // until the forest's keeper retires it (a retired record has no cells and no zones: guarding it costs nothing); a sited forest
+  // stays guarded whatever its switch
+  for (const p of PROJECTS) if ((p.plot === TREEFARM_PLOT || p.plot === FOREST_PLOT) && !out.some(q => q.plot === p.plot)) out.push(p)
   // wallext-01: a sited wall extension stays guarded whatever its switch (its cells, its zones, its plots)
   for (const p of PROJECTS) if (p.plot === WALLEXT_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   // wallext-02 (Codex hold r2 BLOCKER): the demolition's head is read whatever its switch -- a completed demolition then always lifts

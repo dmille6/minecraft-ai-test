@@ -387,7 +387,8 @@ await t('build_shop dispatches the crop farm\'s plot to buildCropFarm; a standin
   assert.ok(/async function buildCropFarm \(ctx, args, signal\)/.test(sk))
 })
 await t('shop.mjs: the crop farm is a project after the tree farm, gated by its switch; its palette is CROP_PALETTE for the damage test', async () => {
-  assert.ok(/plot: CROPFARM_PLOT, blueprint: CROPFARM_BLUEPRINT, after: TREEFARM_PLOT, builders: CROPFARM_BUILDERS/.test(sh))
+  assert.ok(/plot: CROPFARM_PLOT, blueprint: CROPFARM_BLUEPRINT, after: FARM_AFTER, builders: CROPFARM_BUILDERS/.test(sh))
+  assert.ok(/export const FARM_AFTER = FORESTP\.on \? PATHS_PLOT : TREEFARM_PLOT/.test(sh), 'forest-01: after the tree farm unless the forest is on')
   assert.ok(/p\.plot === CROPFARM_PLOT \? crop && farm && paths && on/.test(sh), 'only where the tree farm it follows is on')
   assert.ok(/id === CROPFARM_BLUEPRINT \? \{ id, palette: CROP_PALETTE \}/.test(sk))
 })

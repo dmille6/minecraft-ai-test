@@ -155,7 +155,7 @@ console.log('THE WIRING (structural)')
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const SH = strip(readFileSync(new URL('../src/shop.mjs', import.meta.url), 'utf8'))
 const WIRES = {
-  'the project': [SH, /Object\.freeze\(\{ plot: CANEFARM_PLOT, blueprint: CANEFARM_BLUEPRINT, after: TREEFARM_PLOT, builders: CANEFARM_BUILDERS \}\)/],
+  'the project': [SH, /Object\.freeze\(\{ plot: CANEFARM_PLOT, blueprint: CANEFARM_BLUEPRINT, after: FARM_AFTER, builders: CANEFARM_BUILDERS \}\)/],   // forest-01: FARM_AFTER is the tree farm unless the forest is on
   'its switch': [SH, /p\.plot === CANEFARM_PLOT \? cane && farm && paths && on :/],
   'the visit': [SK, /if \(proj\.plot === CANEFARM_PLOT\) return buildCaneFarm\(ctx, args, signal\)/],
   'the order sees the upkeep': [SK, /if \(r\.blueprint === CANEFARM_BLUEPRINT\) return tidy && !!caneDueFor\(bot, r\)/],

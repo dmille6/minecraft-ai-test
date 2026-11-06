@@ -491,7 +491,7 @@ export function zoneAt (land, x, z) {
   return land.zones?.[SECTORS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]] ?? 'wild'
 }
 /** THE LAND RECORD AS A RESERVATION (the pseudo-record skills.mjs projectHeads appends): its corridors as zones, no cells. Pure. */
-export const landReservation = (land, ext = null) => (land ? { plot: LAND_PLOT, blueprint: LAND_BLUEPRINT, zones: [...(land.corridors ?? []), ...parkZones(land), ...landPlotZones(ext)], cells: [], structure_complete: true, state: 'plan' } : null)
+export const landReservation = (land, ext = null) => (land ? { plot: LAND_PLOT, blueprint: LAND_BLUEPRINT, zones: [...(land.corridors ?? []), ...parkZones(land), ...gardenZones(land), ...landPlotZones(ext)], cells: [], structure_complete: true, state: 'plan' } : null)
 /**
  * wallext-01 (owner 11-04: "extend the wall around the new building leaving room for additional buildings"): THE RESERVED PLOTS inside
  * a wall extension (wall.mjs siteWallExt's record `plots`) as the land plan's zones [{ box, why: 'land:plot', id }]: every siting
@@ -503,6 +503,12 @@ export function landPlotZones (ext) {
   return (ext?.plots ?? []).filter(p => ok(p?.box)).map(p => ({ box: [p.box[0], -64, p.box[1], p.box[2], 320, p.box[3]], why: 'land:plot', id: String(p.id ?? '') }))
 }
 /** townterrace-01: the land plan's PARK as a reservation zone (other builds keep off it; the groundskeeper plants it). Pure. */
+/** FOREST-01: the town GARDEN on the retired in-wall tree farm's ground (forest.mjs gardenOf: `land.garden`) as a reservation, as the
+ *  park's: its box, every height. Pure. */
+export function gardenZones (land) {
+  const b = land?.garden?.box
+  return Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) ? [{ box: [b[0], -64, b[1], b[2], 320, b[3]], why: 'land:garden' }] : []
+}
 export function parkZones (land) {
   const b = land?.park?.box
   return Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) ? [{ box: [b[0], -64, b[1], b[2], 320, b[3]], why: 'land:park' }] : []
