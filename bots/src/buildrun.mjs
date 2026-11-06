@@ -879,7 +879,11 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (!e.has(r.sapling)) {
       // fellfirst-01 (Codex r1 BLOCKER 2): no sapling of this kind anywhere (`p.saplingAbsent`) and its tree already DOWN (felled first,
       // its drops not in this bag): the obligation is deferred, then skipped (REPLANT_DEFERS) -- never pending forever behind a done felling
-      if (typeof p.saplingAbsent === 'function' && p.saplingAbsent(r.sapling) && treeDownFor(record, r, rd)) { const o = remedy(r, nodesFor(), 'no_sapling', { noMove: true }); if (o) return o; continue }
+      // (Codex r2 BLOCKER: or `p.saplingUnobtained` -- this visit's draw got none, e.g. the only one sits in an unreachable or stale chest:
+      // bounded the same way; felling FIRST still needs the strict absent test)
+      if ((typeof p.saplingAbsent === 'function' && p.saplingAbsent(r.sapling)) || (typeof p.saplingUnobtained === 'function' && p.saplingUnobtained(r.sapling))) {
+        if (treeDownFor(record, r, rd)) { const o = remedy(r, nodesFor(), 'no_sapling', { noMove: true }); if (o) return o; continue }
+      }
       needSapling = r.sapling; continue
     }
     const nodes = nodesFor()

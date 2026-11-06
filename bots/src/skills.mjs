@@ -24980,7 +24980,7 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
         // down): the groundskeeper's knobs -- a remedy does not end the visit, B4 per tree (buildrun.mjs plotprep-03)
         // fellfirst-01 (LIVE 11-06: 'felling complete, 17 logs left' every visit -- tree 5's spruce sapling in no bag, no chest): a kind
         // the bag lacks AND the town's stock lacks (read once, after the draw above) is ABSENT -- its tree falls first, its drops replant it
-        domain: () => true, blockLayer: false, clearMax: 60, walkR, replantGoOn: true, replantPerTree: true, saplingAbsent: swSaplingAbsent(bot) }, effects, { deadline, maxSteps: 240 })
+        domain: () => true, blockLayer: false, clearMax: 60, walkR, replantGoOn: true, replantPerTree: true, saplingAbsent: swSaplingAbsent(bot), saplingUnobtained: n => countItem(bot, n) === 0 }, effects, { deadline, maxSteps: 240 })
       const left = fellPending(stairRead(bot), rec)
       stepwellRow(bot, 'fell', { why: r.stop, n: `${r.cleared}c/${r.placed}p/${r.planted ?? 0}s/left${left ?? '?'}`, ms: Date.now() - t0 })
       const status = r.placed > 0 || r.cleared > 0 || (r.planted ?? 0) > 0 ? 'success' : 'no_effect'

@@ -77,7 +77,7 @@ await t('the row writer carries `first` (shop.mjs buildRowDetail) and the stepwe
   assert.ok(!/first=/.test(buildRowDetail({ project: 'stepwell', op: 'clear', cell: [1, 2, 3], kind: 'tree', saplings: '8/8' })), 'absent field: not written')
   const { readFileSync } = await import('node:fs')
   const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-  assert.ok(/replantGoOn: true, replantPerTree: true, saplingAbsent: swSaplingAbsent\(bot\) \}/.test(src))
+  assert.ok(/replantGoOn: true, replantPerTree: true, saplingAbsent: swSaplingAbsent\(bot\), saplingUnobtained: n => countItem\(bot, n\) === 0 \}/.test(src))
 })
 
 console.log('AFTER THE FELLING (Codex r1 BLOCKER 2)')
@@ -98,8 +98,17 @@ await t('POSITIVE CONTROL: while its tree STANDS the absent replant is not defer
   s.srv.set(s.at, 'air')
   assert.strictEqual(R.treeDownFor(PJ.recordHead(s.pr.dir, s.pr.key).head.rec, { tree: 0, plot: 'SW' }, s.srv.read), true)
 })
+await t('Codex r2: the tree DOWN and this visit\'s draw got no sapling (one sits in an unreachable chest: absent false) -- deferred, then skipped', async () => {
+  const s = scene()
+  s.srv.set(s.at, 'air')   // the tree is down already
+  for (let i = 0; i < R.REPLANT_DEFERS + 2; i++) {
+    const h = PJ.recordHead(s.pr.dir, s.pr.key)
+    await R.runVisit({ ...s.pr.p('A'), record: h.head.rec, recordGen: h.head.gen, replantGoOn: true, replantPerTree: true, saplingAbsent: () => false, saplingUnobtained: () => true }, bot(s.srv, 'A', { inv: s.inv }), { maxSteps: 400 })
+  }
+  assert.strictEqual(PJ.recordHead(s.pr.dir, s.pr.key).head.rec.replant[0].state, 'skipped')
+})
 await t('MUTANT: the no-sapling deferral cut -- the replant stays pending after the felling', async () => {
-  await withMutant("      if (typeof p.saplingAbsent === 'function' && p.saplingAbsent(r.sapling) && treeDownFor(record, r, rd)) { const o = remedy(r, nodesFor(), 'no_sapling', { noMove: true }); if (o) return o; continue }\n", '', async M => {
+  await withMutant("        if (treeDownFor(record, r, rd)) { const o = remedy(r, nodesFor(), 'no_sapling', { noMove: true }); if (o) return o; continue }\n", '', async M => {
     const s = scene()
     for (let i = 0; i < M.REPLANT_DEFERS + 3; i++) {
       const h = PJ.recordHead(s.pr.dir, s.pr.key)
