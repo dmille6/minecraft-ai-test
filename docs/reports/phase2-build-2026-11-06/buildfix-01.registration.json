@@ -1,0 +1,79 @@
+{
+ "run_id": "buildfix-01",
+ "sha": "TBD-at-rebase (branch buildhole-01 tip 7762a38a on gkforever-01 9e9284d7; rebase onto the live fleet sha once handcap-01 is closed)",
+ "registered_at": "2026-11-06T15:30:00Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] buildfix-01 = codeeval 2026-11-06 PHASE 2 build pieces, ONE bundle (stacked on one branch, each its own rollback): 2.1 buildretry-01 (BUILDRETRY=0) the build retry hole closed for every project -- a cell that keeps failing is counted once a visit in a per-holder ledger, held 2 h after 3 failing visits (no walk/dig/click; its segment deferred into the F4 stuck map: stuck_on_cell, the waiver, the 6 h order back-off), reset by any builder's success; 2.2 buildnext-01 (BUILDNEXT=0; BUILDNEXT_BREAKER=0) never idle on a blocked project -- a bot's stuck_on_cell holds ITS project (was: every project 6 h), and 3 identical empty visits hold that project 30 min for that bot, so the order takes the next eligible project in the same call; 2.4 buildwait-01 (BUILDWAIT=0) the engine's bounded waits declared to the stuck reflex (bot.stationaryUntil, capped 60 s after the last progress; never a walk) + every aborted visit names the operation in flight (`_build op=interrupted kind=<op>`). WHY THEY COMPOSE: all three are build-visit policy in buildrun.mjs / buildbot.mjs / shop.mjs / skills.mjs (no protected file: protected.py 'not protected', tier 2); 2.1 decides which cells a visit works, 2.2 which project a bot is ordered to, 2.4 whether the reflex may end the visit -- one feeds the next (a held cell -> stuck_on_cell -> 2.2's scoped hold -> the next project). Measured (fleet .31 telemetry full walks, 24 h 11-05/06 1,920 bot-h and 6 h after stuckproj-01 481 bot-h): build visits 3,859/24 h, 3,430 placed nothing (50.3 of 62.2 visit bot-h); 2,309 zero-placed AND identical to the bot's previous visit (31.7 bot-h); board-d tidy 215 `blocked`/24 h (101 in the last 6 h) on a block no dig tries; placebo-d wall visits spent on ~20 failing dig walks each; aborted 614/24 h (9.3 bot-h), 436 with a stuck-reflex row in the 4 s before (walk failing 80, working in place 52, before the first build row 173, quiet after a clear 113). Codex independent designs for each piece reconciled in docs/reports/phase2-build-design-2026-11-06.md. Review: Codex blockers-only r1 1 BLOCKER (cross-holder reset) fixed in 7762a38a, r2 re-check (see the queue entry). Tests: buildretry.test.mjs, buildnext.test.mjs, buildwait.test.mjs (multi-visit per failure kind, controls with each switch off, 11 anchored mutants). READ +90/+180 generic (tripper, death gate, crash loops) PLUS own lines: (1) `_build op=deferred why=retry` / `kind=retry` rows exist on canary bots (mechanism live), (2) canary `_build_visit` zero-placed identical-repeat share down vs control, (3) `_build op=interrupted kind=` distribution (the 2.4 case-by-case read), (4) `_build_next op=hold` rows and the canary towns' shop_skip rate. World: none (no new dig or place kind; a held cell is simply not worked).",
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build_visit:tidy:blocked"
+    },
+    "direction": "decrease",
+    "minimum": 0.5,
+    "scale": "relative",
+    "claim": "2.1: tidy visits stopped `blocked` per bot-h at least halve (board-d 215 + placebo-b 305 in 24 h on cells no visit ever clears): the cell is deferred and held",
+    "primary": true
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_shop_skip"
+    },
+    "direction": "decrease",
+    "minimum": 0.15,
+    "scale": "relative",
+    "claim": "2.2: shop_skip rows per bot-h down (stuck_on_cell skips 219/161/160/107 in four towns in 24 h): a bot's stuck stop holds only its project"
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build_visit:monument:aborted"
+    },
+    "direction": "decrease",
+    "minimum": 0.15,
+    "scale": "relative",
+    "claim": "2.4: aborted monument visits per bot-h down (isolated-b 343 + isolated-c 140 in 24 h): declared waits are not killed by the stuck reflex"
+   },
+   {
+    "metric": "busy.share.v1",
+    "params": {
+     "cls": "productive"
+    },
+    "direction": "increase",
+    "minimum": 0.05,
+    "scale": "relative",
+    "claim": "the three together: productive share of bot time up"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:monument:place"
+    },
+    "direction": "increase"
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:tidy:place"
+    },
+    "direction": "increase"
+   }
+  ],
+  "exposure": "every canary town with an open project (14 of 16 towns have one); the breaker needs 3 identical empty visits by one bot; the ledger needs a cell failing in 3 visits"
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}
