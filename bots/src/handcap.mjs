@@ -40,7 +40,8 @@ export function handCapSwitch (env = {}, pool = '') {
   // FLEET VARIANT (canary-handcap-copper-on-601fe6a3): unset MAROON_HANDCAP_POOLS means EVERY pool (the fleet's worn-pickaxe trap:
   // hive-d-Comet, hive-d-Bravo, placebo-d-Delta 11-05/06); a named list still narrows it. MAROON_HANDCAP=off is the rollback.
   const pools = env?.MAROON_HANDCAP_POOLS == null ? null : String(env.MAROON_HANDCAP_POOLS).split(',').map(s => s.trim()).filter(Boolean)
-  const on = pools == null ? true : pools.includes(String(pool ?? ''))
+  // (a process with NO pool -- not a bot: the tests -- keeps the old answer)
+  const on = pools == null ? !!String(pool ?? '').trim() : pools.includes(String(pool ?? ''))
   return { on, why: on ? `pool ${pool} listed` : `pool ${pool || '-'} not listed` }
 }
 export const HANDCAP = Object.freeze(handCapSwitch(typeof process !== 'undefined' ? process.env : {},
