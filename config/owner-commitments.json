@@ -4855,7 +4855,7 @@
     "hive-b/treefarm@*",
     "placebo-a/treefarm@*"
    ],
-   "owner_pending": "idletowns-1106 storage hub: the showcase hall's clerk has never run (0 rows; its upkeep waits behind open projects) -- give it a turn on the showcase first (H0), then port the hall to the fleet (H1, ~600-900 lines + Paper proof)?"
+   "owner_answered": "OWNER/control 11-06: H0 yes (showcase clerk gets its service turn: prodserve-01show de3a6624, next showcase batch); H1 fleet port after its 24 h read"
   },
   {
    "id": "phase1-autopilot-1106",
@@ -5119,8 +5119,8 @@
      "docs/reports/phase2-build-design-2026-11-06.md"
     ]
    },
-   "owner_pending": "phase2-build-1106: should a project whose `after` predecessor cannot be sited (board-c shop, hive-c house1) start anyway? Codex: no (paths inform wall gateways); built as no",
-   "note": "Measured 24 h 11-05/06 (1,920 bot-h): build visits 3,859, 3,430 placed nothing (50.3 of 62.2 visit bot-h); 2,309 zero-placed and identical to the bot's previous visit (31.7 bot-h); board-d tidy 215 blocked/24 h on a block no dig tries; aborted 614 (9.3 bot-h), 436 with a stuck-reflex row within 4 s (walk failing 80, working in place 52, pre-engine 173, quiet after a clear 113). Effect targets validated: _build_visit:tidy:blocked -50%, _shop_skip -15%, _build_visit:monument:aborted -15%, productive share +5%."
+   "note": "Measured 24 h 11-05/06 (1,920 bot-h): build visits 3,859, 3,430 placed nothing (50.3 of 62.2 visit bot-h); 2,309 zero-placed and identical to the bot's previous visit (31.7 bot-h); board-d tidy 215 blocked/24 h on a block no dig tries; aborted 614 (9.3 bot-h), 436 with a stuck-reflex row within 4 s (walk failing 80, working in place 52, pre-engine 173, quiet after a clear 113). Effect targets validated: _build_visit:tidy:blocked -50%, _shop_skip -15%, _build_visit:monument:aborted -15%, productive share +5%.",
+   "owner_answered": "control 11-06 (owner delegated 'do what you think is right'): a project whose predecessor cannot be sited stays blocked (Codex: paths inform wall gateways); those towns get groundskeeping work"
   },
   {
    "id": "escdead-1106",
@@ -5155,8 +5155,8 @@
      "docs/reports/escdead-design-2026-11-06.md"
     ]
    },
-   "owner_pending": "escdead-1106: isolated-* pools are excluded from fun-mode draws (stuckproj note), but the targets are isolated-d Delta/Echo -- allow a pinned isolated-d draw for escdead-01?",
-   "note": "7 d to 11-06: 124 pins >= 1 h = 457.1 of 13,409 bot-h (3.4%), the climb-flood refusal chain 335.7 bot-h (73%); Delta 103.8 h, Echo 101.8 h, hive-c-Bravo 16.1 h still pinned. _swim_under_refused 60 rows today all on the 3 targets, 0 successes fleet-wide."
+   "note": "7 d to 11-06: 124 pins >= 1 h = 457.1 of 13,409 bot-h (3.4%), the climb-flood refusal chain 335.7 bot-h (73%); Delta 103.8 h, Echo 101.8 h, hive-c-Bravo 16.1 h still pinned. _swim_under_refused 60 rows today all on the 3 targets, 0 successes fleet-wide.",
+   "owner_answered": "OWNER 11-06 ~14:00Z: yes, pinned draw isolated-d + hive-c for escdead-01 (drawpin being installed)"
   },
   {
    "id": "stations-1106",
