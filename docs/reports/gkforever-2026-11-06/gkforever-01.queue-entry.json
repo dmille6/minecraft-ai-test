@@ -1,0 +1,22 @@
+{
+ "run": "gkforever-01",
+ "class": "",
+ "after": [
+  "decbundle-01"
+ ],
+ "not_before": null,
+ "hold": null,
+ "note": "PROGRESS (P) entry DRAFT (owner 11-06 groundskeeping: always work). gkforever-01 = groundskeeper-01 (ported) + the perpetual grounds (clock, dead carry, level, crew, grounds lap in idle_work), built ON decbundle-01 3690e867 (the idle rung it extends is idlework-01's). Place RIGHT AFTER decbundle-01. SUPERSEDES groundskeeper-01 (cancel that entry: this carries it). Variant keyed on 3690e867 = decbundle-01's sha: launchable once decbundle-01 is promoted; if idlework-01 or decbundle-01 REVERTs, rebuild on what is live. stationkeep-01 / marks-01 / towngate-01 (ahead in the queue) touch buildTidy and the orphan list: whichever lands second needs a rebase (the station sweep lines were left out here on purpose). Draw: any towns, but the draw must contain at least one town with NO tidy record today (board-a, board-c, hive-c, placebo-d, isolated-d) and one with a COMPLETE tidy (board-b, hive-a, hive-b, placebo-a, placebo-b). Rollbacks (env only): GKFOREVER=0, GKF_CLOCK=0, GKF_DEAD=0, GKF_LEVEL=0, GKF_CREW=0, GKF_IDLE=0; GROUNDSKEEPER=off; LANDPLAN=off. NO patch block (control session sets it).",
+ "variants": {
+  "3690e8673232d9b705106e40d5a3a8e99850fe0c": {
+   "registration": "/home/mike/mcai-analysis/gkforever-01.f428e5dc.json",
+   "canary_sha": "f428e5dcfdd946ff894fc7419f846fa400c9ee10",
+   "branch": "gkforever-01",
+   "approved": "gkforever-1106 agent 2026-11-06: diff 3690e867..f428e5dc -- Codex (codex exec read-only, blockers-only) r1 2 BLOCKERS (an old crew visit completing/waiving a newer stage; dead road lights re-listed) fixed in f428e5dc, r2 BLOCKERS none; tier 2 by protected.py (not protected); gkforever.test 30/30 (8 anchored mutants), groundskeeper/tidy/idlework/milestones/dirtrung pass; eslint src clean; full suite ci2 (git context) 403/403 files passed (~/ci/gkforever-01.log)",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "protected": false,
+   "protected_why": "not protected (protected.py --base 3690e867 --head gkforever-01): tier 2"
+  }
+ }
+}

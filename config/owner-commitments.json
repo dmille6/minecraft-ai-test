@@ -4890,6 +4890,43 @@
    ],
    "owner_pending": "phase 1 gated pieces (canary-sched v42 + the owner-direct lane): deploy once phase 0's canaries read; and drop `after` links that only encode order, or skip-head never fires",
    "note": "Claude + independent Codex designs per item, reconciled in the design doc; two-engine blockers-only reviews (Codex + an independent Claude agent), all blockers fixed."
+  },
+  {
+   "id": "gkforever-1106",
+   "title": "Groundskeeping never runs out (owner 11-06: 'there should always be projects the bots can work on, at the very least they can be greens keepers ...'; inside the walls beautiful, no holes, pits or unlevel ground, then the countryside)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "gkforever-1106.md",
+    "owner-groundskeeper-1102.md",
+    "owner-gk-town-clean-1104.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "gkforever-01 (branch gkforever-01 on decbundle-01 3690e867; carries groundskeeper-01; tier 2; Codex r1 2 BLOCKERS fixed, r2 none): control session queues it P right after decbundle-01 and cancels groundskeeper-01 (draft entry docs/reports/gkforever-2026-11-06/); read +90/+180 generic + tidy place/clear rate, _grounds_census, lap share, canary towns with no workable project. Next pieces: decorate (decorator-01..03 flower sourcing), smooth (terraces/slopes), countryside traps.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "run": "decbundle-01",
+     "until": "closed"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "gkforever-01"
+    ],
+    "branches": [
+     "gkforever-01"
+    ],
+    "grep": [
+     "gkforever"
+    ],
+    "paths": [
+     "docs/reports/gkforever-design-2026-11-06.md"
+    ]
+   },
+   "note": "Measured 24 h 11-05/06: tidy 1,099 visits / 3.0 of 1,920 bot-h / 363 placed in 4 of 16 towns; tidy complete in 9 towns (48 h re-survey), absent in 5. Codex independent design: a separate service record; reconciled onto the tidy record + groundskeeper-01 stages (no third engine). The showcase line (gkstage/inwall/gksweep/outbands) has its own cycle-back and inwall stage: reconcile at the showcase-onto-main merge."
   }
  ]
 }

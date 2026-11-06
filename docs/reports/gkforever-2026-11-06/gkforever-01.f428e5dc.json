@@ -1,0 +1,77 @@
+{
+ "run_id": "gkforever-01",
+ "sha": "f428e5dcfdd946ff894fc7419f846fa400c9ee10",
+ "registered_at": "2026-11-06T06:00:00Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] gkforever-01 @ f428e5dc ON decbundle-01 3690e867 (itself on idlework-01 817704dd on fleet 4f3b0f5c; branch gkforever-01). OWNER 11-06 ~04:00Z: 'there should always be projects the bots can work on, at the very least they can be greens keepers and clean up the town then branch out ...'; ~04:30Z: inside the walls 'beautiful, clean, no holes, pits or unlevel ground', then the countryside. Design docs/reports/gkforever-design-2026-11-06.md (Claude + Codex independent design, reconciled). CARRIES groundskeeper-01 (47d89af2 + dc934b06, ported without stationkeep-01's station sweep): SUPERSEDES the groundskeeper-01 queue entry. MEASURED (24 h full walk 11-05 04:10Z..11-06 04:10Z, 1,514,167 rows, 80/80 bots, 1,920 bot-h): tidy 1,099 visits / 3.0 bot-h / 363 placed in 4 of 16 towns (969 of 1,099 on two dead cells); tidy COMPLETE in 9 towns (re-survey only after 48 h), open in 2, absent in 5 (an unsited first project). hourwatch 03:57Z: lap 81% (64.9 of 80.0 bot-h), 10 of 16 towns with no workable project. CHANGE (each part its own env switch): CLOCK GKF_CLOCK (next band at once; the interior audited first every 30 min; the ring order again 30 min after the last band, bands to 128), DEAD GKF_DEAD (waived cells carried 24 h into later generations), LEVEL GKF_LEVEL (inside the walls a one-high bot step cut, a one-deep hole filled), CREW GKF_CREW (tidy builders 2: keeper + helper; an unsited workshop never holds the grounds), IDLE GKF_IDLE (idle_work alternates a grounds lap with the gather batches; no work -> gather 30 min). ROLLBACK: GKFOREVER=0 (= groundskeeper-01); GROUNDSKEEPER=off (= tidy-01); LANDPLAN=off (stage 0 only). READ +90/+180 generic PLUS OWN LINES (canary pools vs control, pre = 180 min before declared_at): (1) MECHANISM (defect): `_grounds_census` rows > 0 and `_build project=tidy op=place|clear` rows per bot-h up vs control, else the code is not live -> REVERT; (2) LAP: hourwatch's lap share (patrol/return/deposit_surplus, llm messages[0].milestone charging) on the canary pools DOWN vs their pre (note idlework-01 + decbundle-01 are in both arms after promotion); (3) TOWNS: canary towns with no workable project (goalwatch) -> target 0 (a town genuinely clean to 128 between 30-min audits is an honest 'nothing'; report it with its census); (4) WORLD: census holes (pits+dips), pillars and the interior's rough share d2/pairs falling across a town's interior audits; (5) VALUE: items and value per bot-h (scoreboard) not worse than control by > 10% (grounds work has no item value; the crew caps it at 2 bots a town); (6) LOOPS (defect): tidy `_build_visit` outcomes blocked/attempts_spent per bot-h not up; no town siting a new generation more than once per 30 min with nothing placed between (census rows per town per hour <= 4). INCONCLUSIVE with no harm is a KEEP (fun mode). Review: Codex blockers-only r1 2 BLOCKERS fixed (f428e5dc), r2 BLOCKERS none. Tier 2 (protected.py --base 3690e867: not protected). World: digs and placements through runVisit as tidy-01 / groundskeeper-01 (no admin edit).",
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:tidy:place"
+    },
+    "direction": "increase",
+    "minimum": 1.0,
+    "scale": "relative",
+    "claim": "tidy placements per bot-h at least double (fleet 24 h: 391 in 1,920 bot-h = 0.20): the grounds never complete and idle bots take grounds laps",
+    "primary": true
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:tidy:clear"
+    },
+    "direction": "increase",
+    "minimum": 0.5,
+    "scale": "relative",
+    "claim": "tidy clears (pillars, steps, road head room) up"
+   },
+   {
+    "metric": "busy.share.v1",
+    "params": {
+     "cls": "productive"
+    },
+    "direction": "increase",
+    "minimum": 0.05,
+    "scale": "relative",
+    "claim": "productive share of bot time up (8.4% over 3 h on 11-06): grounds visits instead of the lap"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build_visit:tidy:blocked"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build_visit:tidy:attempts_spent"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "failclass.rate.v1",
+    "params": {
+     "name": "_death",
+     "fail_class": "drowning"
+    },
+    "direction": "decrease"
+   }
+  ],
+  "exposure": "every canary bot on the idle lap (81% of fleet bot time 11-06 03:57Z) in a town whose workshop stands or cannot be sited; the crew caps grounds work at 2 bots a town"
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}
