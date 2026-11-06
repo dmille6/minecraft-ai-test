@@ -1,0 +1,43 @@
+{
+ "run_id": "gklease-01",
+ "sha": "bd64f3806891e62b51bc55e34211a40fed91f72a",
+ "registered_at": null,
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] gklease-01 @ bd64f380 ON the live fleet 9e9284d7 (gkforever-01; branch gklease-01-on-9e9284d7). Coordinator 11-06 ~18:30Z: a grounds lease is held only by a bot that can work the grounds. MEASURED fleet 3 h (274,433 rows, 80 bots; 543 grounds visits of 787 build visits): 26 keeper takes, 7 with no grounds visit before the next take or 30 min, 8 holders below y 55 for most of the term; showcase 30 h: 38 takes, 11 with none. CHANGE (tier 2, not protected): groundskeeper.mjs groundsUnfit (underground > 8 below the town ground, or > 128 from home) / groundsIdle (no successful grounds visit for 20 min since the latest of the term start, the last grounds work, the spawn) / groundsLeaseCheck / keeperGroundsFirst; skills.mjs keeperOrder releases an unfit or idle holder (`_keeper op=keeper_release why=underground|away|no_work_visit`, rest 30 min), refuses a take while unfit; takeKeeper refuses every NEW take by an unfit bot (the visit start too: Codex r1 BLOCKER); the keeper's own order reads the town's other repairs as upkeep while the grounds want work (other bots keep the repair tier). Crew mode unchanged (a refused take keeps crew work). ROLLBACK: GKLEASE=off (env). READ +90/+180: generic gates; OWN LINES: keeper takes with 0 grounds visits in the term (down), grounds visits by the keeper per keeper-hour (up), keeper_release why mix (REPORTED), tidy placements per bot-h (no worse).",
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:tidy:place"
+    },
+    "direction": "increase",
+    "minimum": 0.1,
+    "scale": "relative",
+    "claim": "tidy placements per bot-h up: the keeper works its grounds instead of the town's repairs and a holder in a mine hands the lease on",
+    "primary": true
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   },
+   {
+    "metric": "failclass.rate.v1",
+    "params": {
+     "name": "_death",
+     "fail_class": "drowning"
+    },
+    "direction": "decrease"
+   }
+  ],
+  "exposure": "every town with a keeper lease (the grounds want work): the lease's holder and takers"
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

@@ -1,0 +1,20 @@
+{
+ "run": "gklease-01",
+ "class": "",
+ "after": [],
+ "not_before": null,
+ "hold": null,
+ "note": "PROGRESS (P) entry DRAFT (coordinator 11-06: the grounds lease held by bots that cannot work the grounds). On the live fleet 9e9284d7 (gkforever-01). Draw: towns with an open tidy (a keeper lease is taken). Rollback env-only: GKLEASE=off. NO patch block (control session sets it).",
+ "variants": {
+  "9e9284d7078194045f673344af3116e6022cdcbf": {
+   "registration": "/home/mike/mcai-analysis/gklease-01.bd64f380.json",
+   "canary_sha": "bd64f3806891e62b51bc55e34211a40fed91f72a",
+   "branch": "gklease-01-on-9e9284d7",
+   "approved": "gklease-1106 agent 2026-11-06: diff 9e9284d7..bd64f380 -- Codex (codex exec read-only, blockers-only) r1 1 BLOCKER (the visit start's takeKeeper bypassed the fitness gate) fixed in bd64f380, r2 NO BLOCKERS; tier 2 (not protected); gklease.test + groundskeeper/gk*/tidy pass; eslint src clean; full suite ci2 (git context) 406/406 files passed (~/ci/gklease-01.log)",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "protected": false,
+   "protected_why": "not protected (protected.py --base 9e9284d7 --head gklease-01-on-9e9284d7): tier 2"
+  }
+ }
+}

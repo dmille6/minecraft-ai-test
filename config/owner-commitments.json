@@ -5366,6 +5366,34 @@
     ]
    },
    "note": "Measured 11-06 (fleet 7 d, 14.03 M lines, 80 bots): 3,702 of 7,164 stair descents started in a mine away from the stair (no attempt now); surface success 41.9% -> 78.0% after shafttrap-02, the rest walk 11.6% / one-block refusals 7.9%; 1,001 of 2,921 upkeep visits walk_failed. Paths: 30 of 57 unrouted required legs had no brush at a one-column front; plazas on 5-8 high platforms; all-or-nothing siting; a due no-site retry starved behind open projects (placebo-b 4 days). Paper sandbox3 6/6 for the descent."
+  },
+  {
+   "kind": "canary",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "gklease-1106",
+   "title": "A grounds (keeper / helper) lease is held only by a bot that can work the grounds; the keeper's grounds before the town's other repairs (showcase + fleet)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "gklease-1106.md"
+   ],
+   "state": "open",
+   "next_step": "SHOWCASE gklease-01show @ b2ebf408 on the live release 3d985d36: ready to stage (no reader change; ci2 455/456, the known bagdiet orphan). FLEET gklease-01-on-9e9284d7 @ bd64f380: registration + draft queue entry in docs/reports/gklease-01/ (control session queues; ci2 406/406). Read: keeper takes with 0 grounds visits (down), grounds visits per keeper-hour (up), keeper_release why mix.",
+   "evidence": {
+    "grep": [
+     "gklease-01"
+    ],
+    "branches": [
+     "gklease-01show",
+     "gklease-01-on-9e9284d7"
+    ],
+    "paths": [
+     "docs/reports/gklease-design-2026-11-06.md",
+     "docs/reports/gklease-01"
+    ]
+   },
+   "note": "Showcase 30 h: 38 keeper takes, 11 with no grounds visit; fleet 3 h: 26 takes, 7 with none; batch15 17:09-18:20Z: 0 tidy/forest visits (Alpha x2 then Kite at y 14-17). Also prodserve `_service last_min` for a never-served plot prints never."
   }
  ]
 }
