@@ -17074,10 +17074,10 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     const states = repairBackoff(activeMem.states, rmem, now).map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now) }))
     // stuckwait-01: a project inside its stuck back-off waits behind the others (shop.mjs stuckBackoff); the repair count reads
     // the states before it
-    const waited0 = stuckBackoff(states, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)
+    const waited = stuckBackoff(states, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)
     // idlework-01 B: an open project a visit could not site waits behind the others (shop.mjs unsitedBackoff)
-    const waited = unsitedWaitOn() ? unsitedBackoff(waited0, unsitedOfPlot, now) : waited0
-    const pick = activeProject(waited, list)
+    const waitedU = unsitedWaitOn() ? unsitedBackoff(waited, unsitedOfPlot, now) : waited
+    const pick = activeProject(waitedU, list)
     if (visit) noteRepair(rmem, pick, states, now)
     return pick
   } catch { return projectsOn()[0] }

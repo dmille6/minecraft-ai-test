@@ -76,17 +76,17 @@ const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const once = (src, re, what) => { const m = src.match(new RegExp(re.source, 'g')) ?? []; assert.equal(m.length, 1, `${what}: ${m.length} matches`) }
 await t('WIRED: shopActive applies unsitedBackoff after the stuck back-off; build_shop stamps a no_site visit with no record', () => {
-  once(SK, /const waited = unsitedWaitOn\(\) \? unsitedBackoff\(waited0, unsitedOfPlot, now\) : waited0/, 'the backoff in shopActive')
-  once(SK, /const pick = activeProject\(waited, list\)/, 'the pick reads it')
+  once(SK, /const waitedU = unsitedWaitOn\(\) \? unsitedBackoff\(waited, unsitedOfPlot, now\) : waited/, 'the backoff in shopActive')
+  once(SK, /const pick = activeProject\(waitedU, list\)/, 'the pick reads it')
   once(SK, /if \(unsitedWaitOn\(\) && r\?\.stop === 'no_site'\) \{/, 'the stamp on no_site')
   once(SK, /if \(h\.ok && !h\.head && unsitedWrite\(dir, key, \{ plot: proj\.plot/, 'only with no record')
   once(SK, /build_shop: \{ run: buildShop, /, 'the skill runs the wrapper')
   once(SK, /setUnsitedOf\(unsitedOfPlot\)/, 'the order reads the stamp')
 })
 await t('MUTANT KILLED: the wiring check fails when the backoff is not applied', () => {
-  const mutant = SK.replace('const waited = unsitedWaitOn() ? unsitedBackoff(waited0, unsitedOfPlot, now) : waited0', 'const waited = waited0')
+  const mutant = SK.replace('const waitedU = unsitedWaitOn() ? unsitedBackoff(waited, unsitedOfPlot, now) : waited', 'const waitedU = waited')
   assert.notEqual(mutant, SK, 'ANCHOR MISSING')
-  assert.throws(() => once(mutant, /const waited = unsitedWaitOn\(\) \? unsitedBackoff\(waited0, unsitedOfPlot, now\) : waited0/, 'x'))
+  assert.throws(() => once(mutant, /const waitedU = unsitedWaitOn\(\) \? unsitedBackoff\(waited, unsitedOfPlot, now\) : waited/, 'x'))
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
