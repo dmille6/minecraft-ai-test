@@ -24645,12 +24645,24 @@ function forestInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townD
 /** FELL ONE TREE from its stand -> { n, why }: walk to the stand (its leaves dug first from where the bot is), then each log of `order`
  *  (top down, the stump last) with the build effects' dig, re-read first (gone: passed), the bot never moving; a log the stand does not
  *  reach ends the tree (a shorter tree is left, never a floating log). */
+/** forest-02 release fold (Codex r3 BLOCKER): the columns a felling's leaf clearing must never touch -> (x, z) -> bool: the town's
+ *  expedition markers (their reserved margin) and the protected zones. Unreadable: every column (no leaf dug). Never throws. */
+function fellLeafGuard (bot) {
+  try {
+    const zv = townPlanZones(bot)
+    if (!zv?.known) return () => true
+    const boxes = [...townMarkerZones(), ...(zv.zones ?? [])].map(q => q?.box ?? q).filter(b => Array.isArray(b) && b.length === 6)
+    return (x, z) => boxes.some(b => x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5])
+  } catch { return () => true }
+}
 async function forestFell (bot, e, t, { signal, deadline, log, kind = 'grown', project = FOREST_PLOT }) {
   let n = 0
   const read = farmRead(bot)
   if (!t.stand) return { n, why: 'no_stand' }
+  const guarded = fellLeafGuard(bot)
   for (const q of standLeaves(read, t.stand, { from: e.feet() })) {
     if (Date.now() > deadline) return { n, why: 'deadline' }
+    if (guarded(q[0], q[2])) continue   // (Codex r3 BLOCKER) never a leaf on a marker's margin or in a protected zone
     if (!digReachFrom(e.feet(), q)) continue
     const lb = read(...q)?.name ?? null
     if (!lb || !/_leaves$/.test(lb)) continue

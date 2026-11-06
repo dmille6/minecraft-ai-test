@@ -678,5 +678,16 @@ await t('forest-02 release fold (Codex r2 BLOCKER): a site tree\'s stand is neve
   try { const M = await import(out.href); const m = M.siteTreeStand(srv.read, tree, col, () => false); assert.ok(m, 'MUTANT: the filter cut -> a stand on a reserved column') } finally { try { unlinkSync(out) } catch {} }
 })
 
+await t('forest-02 release fold (Codex r3 BLOCKER): forestFell never digs a leaf on a marker margin or in a protected zone (wiring, comments stripped; the guard cut is caught)', () => {
+  const strip = x => x.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/[ \t]\/\/ .*$/gm, '')
+  const raw = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const wired = src => { const i = src.indexOf('async function forestFell ('); const body = src.slice(i, src.indexOf('\n}\n', i)); const g = src.slice(src.indexOf('function fellLeafGuard ('), i)
+    return i > 0 && /const guarded = fellLeafGuard\(bot\)/.test(body) && /if \(guarded\(q\[0\], q\[2\]\)\) continue/.test(body) && /\.\.\.townMarkerZones\(\), \.\.\.\(zv\.zones \?\? \[\]\)/.test(g) && /if \(!zv\?\.known\) return \(\) => true/.test(g) }
+  assert.ok(wired(strip(raw)))
+  const old = '    if (guarded(q[0], q[2])) continue'
+  assert.strictEqual(raw.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.ok(!wired(strip(raw.replace(old, '    if (false) continue'))), 'MUTANT: the guard cut is caught')
+})
+
 console.log(`\nforest: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
