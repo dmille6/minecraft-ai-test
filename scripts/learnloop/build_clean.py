@@ -22,6 +22,10 @@ quality and must not be trained on):
                        G2 not a repeat of the bot's previous action when that one was bad or vetoed, AND
                        G3 output evidence: >= 1 item gathered in the 600 s window, or a milestone in 120 s, AND
                        G4 at or above the median 600-s gathered items of its skill's G2+G3 set (top half by output)
+                       G5 not a PATROL-LAP decision (llpatrol-01, 11-06): on the sustaining lap rungs (patrol, return,
+                          deposit_surplus, idle) a decision is good only when its OWN skill row gained items (not a
+                          transfer/conversion), or it is a bank deposit on deposit_surplus that really moved items.
+                          Each good row carries its G5 evidence ('g5'); assemble re-checks it and refuses a violation.
                        then sqrt-by-skill allocation (as the bootstrap set) and a seeded sample.
 ASSEMBLE: teacher labels -> kept relabels by the design's filter (s.2.2): schema-valid through the fleet's own client;
   bench/models/score.py hard check passes; NOT the logged failed action (score.key_of); after a veto NOT the vetoed
@@ -34,6 +38,7 @@ import argparse, collections, datetime as dt, gzip, json, os, random, secrets, s
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import build_dataset as BD  # noqa: E402
+import extract_triples as XT  # noqa: E402
 
 for p in (os.path.join(HERE, '..', '..', 'bench', 'models'), os.path.join(HERE, 'train', 'bench')):
     if os.path.exists(os.path.join(p, 'score.py')):
@@ -58,6 +63,58 @@ def repeats_bad_prev(t, pv):
     if pv is None:
         return False
     return BD.action_key(t) == BD.action_key(pv) and (pv['label'] == 'bad' or bool(pv['gate']['refused']))
+
+
+# G5 (llpatrol-01, 11-06). 11-05/06 the fleet spent 51-84% of bot time on an idle lap round the sustaining rungs
+# (milestones.mjs SUSTAINING: patrol = walk 80 blocks out, deposit_surplus, return = walk home; 'idle' = no milestone).
+# Those walks "succeed" and L1 labels them good (value 'valuable', or the rung itself completing within 120 s), and the
+# 600-s window counts what OTHER skills gathered, so G3/G4 pass them too: 993 of the 3,000 good examples a round over
+# 10-30..11-05 would train on (33.1%) were lap decisions with no gain. On those rungs neither the value, a milestone nor
+# the window counts: only the decision's own gain. Transfers and conversions (extract_triples.TRANSFER) are no gain
+# (Codex design view: no blanket craft/smelt exemption, ~54 of 3,000 lost); the one exception is a bank deposit on the
+# deposit_surplus rung that removed items (the rung also completes vacuously, so the removal is the evidence).
+# This is "not a positive example", not "bad": the L1 labels in the archive are unchanged.
+G5_RULE = 'llpatrol-01'
+LAP_RUNGS = frozenset(('patrol', 'return', 'deposit_surplus', 'idle'))
+BANK_SKILLS = frozenset(('deposit', 'town_deposit'))
+
+
+def own_delta(t):
+    """(gained, removed): positive and negative item counts of the decision's own skill row (None = nothing)."""
+    d = (t.get('outcome') or {}).get('inventory_delta') or {}
+    v = [x for x in d.values() if isinstance(x, (int, float))]
+    return sum(x for x in v if x > 0), -sum(x for x in v if x < 0)
+
+
+def patrol_lap(t):
+    """G5: True when the decision is a patrol-lap decision that must never be a GOOD example."""
+    fam = BD.milestone_family(t.get('milestone'))
+    if fam not in LAP_RUNGS:
+        return False
+    sk = t['action']['skill']
+    gained, removed = own_delta(t)
+    if sk in BANK_SKILLS and fam == 'deposit_surplus' and (t.get('outcome') or {}).get('status') == 'success' and removed > 0:
+        return False
+    if sk in XT.TRANSFER:
+        return True
+    return gained <= 0
+
+
+def g5_evidence(t):
+    o = t.get('outcome') or {}
+    return {'rule': G5_RULE, 'milestone': t.get('milestone'), 'skill': t['action']['skill'], 'status': o.get('status'),
+            'inventory_delta': o.get('inventory_delta')}
+
+
+def g5_violation(row):
+    """None if a good row's recorded G5 evidence admits it, else why (assemble's re-check)."""
+    e = row.get('g5')
+    if not isinstance(e, dict) or e.get('rule') != G5_RULE:
+        return 'no %s evidence' % G5_RULE
+    if patrol_lap({'milestone': e['milestone'], 'action': {'skill': e['skill']},
+                   'outcome': {'status': e['status'], 'inventory_delta': e['inventory_delta']}}):
+        return 'a patrol-lap decision'
+    return None
 
 
 def top_half(cands):
@@ -238,10 +295,13 @@ def cmd_pool(a):
                         C['g_drop_repeat_of_bad_prev'] += 1; continue
                     if not output_ok(t):
                         C['g_drop_no_output'] += 1; continue
+                    if patrol_lap(t):
+                        C['g_drop_patrol_lap'] += 1; continue
                     gcands.append({'id': t['id'], 'day': d, 'skill': t['action']['skill'],
                                    'items600': (t['window'].get('600') or {}).get('items') or 0})
-    C['f_pool'] = sum(len(v) for v in fpool.values()); C['pv_pool'] = len(pvpool); C['g_after_g2_g3'] = len(gcands)
-    if not (C['f_pool'] and C['pv_pool'] and C['g_after_g2_g3']):
+    C['f_pool'] = sum(len(v) for v in fpool.values()); C['pv_pool'] = len(pvpool); C['g_after_g2_g3_g5'] = len(gcands)
+    C['g_drop_patrol_lap'] += 0           # always recorded: weekly.py refuses a pool manifest without the G5 count
+    if not (C['f_pool'] and C['pv_pool'] and C['g_after_g2_g3_g5']):
         raise SystemExit('REFUSED: an empty pool is a broken query, not a fact: %s' % dict(C))
     fsel, fquota = BD.stratified(fpool, min(a.f_n, C['f_pool']), rng, floor=10)
     pvsel = rng.sample(sorted(pvpool, key=lambda r: r['id']), min(a.pv_n, len(pvpool)))
@@ -273,7 +333,7 @@ def cmd_pool(a):
                 if kind == 'post_veto':
                     m['vetoed'] = r['vetoed']
                 if kind == 'good':
-                    m['items600'] = r['items600']
+                    m['items600'] = r['items600']; m['g5'] = g5_evidence(t)
                     outs['good'].write(json.dumps(m) + '\n')
                 else:
                     outs['relabel'].write(json.dumps(m) + '\n')
@@ -288,7 +348,9 @@ def cmd_pool(a):
           'g4_median_items600_by_skill': med,
           'rules': {'G2': "drop a good decision whose action equals the bot's previous action when that was bad/refused",
                     'G3': '>= 1 item gathered in 600 s or a milestone in 120 s',
-                    'G4': 'at or above its skill median of 600-s items'},
+                    'G4': 'at or above its skill median of 600-s items',
+                    'G5': '%s: on milestone families %s a good decision needs its OWN gain (a transfer/conversion is '
+                          'none); except a successful %s on deposit_surplus that removed items' % (G5_RULE, sorted(LAP_RUNGS), sorted(BANK_SKILLS))},
           'files': {n: {'sha256': BD.sha256_file(os.path.join(out, n)), 'lines': sum(1 for _ in open(os.path.join(out, n)))}
                     for n in ('relabel-pool.jsonl', 'good.jsonl')}}
     if got != want:
@@ -409,6 +471,12 @@ def cmd_assemble(a):
         # a seeded random subset (good.jsonl is in day order): sqrt-by-skill shares are kept in expectation
         good = random.Random(a.seed + 1).sample(sorted(good, key=lambda r: r['id']), a.good_n)
         C['good subset'] = a.good_n
+    # G5 RE-CHECK (llpatrol-01; Codex: verify zero violations in the final good rows): every fleet example carries the
+    # evidence the pool judged it on; a row without it (an old pool) or a lap decision is refused, not trained on.
+    viol = collections.Counter(v for v in (g5_violation(g) for g in good) if v)
+    if viol:
+        raise SystemExit('REFUSED: %d good rows fail G5 (%s): %s' % (sum(viol.values()), G5_RULE, dict(viol)))
+    C['good G5 checked (%s)' % G5_RULE] = len(good)
     for g in good:
         g['assistant'] = canonical(json.loads(g['assistant']), g['sentinel'])
     rows = relabels + good

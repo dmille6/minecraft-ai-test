@@ -97,6 +97,20 @@ def window(newest_archived_day, window_days):
     return (end - dt.timedelta(days=window_days - 1)).isoformat(), end.isoformat()
 
 
+G5_RULE = 'llpatrol-01'      # build_clean.G5_RULE; a pool or training file without this exact rule is refused
+
+
+def pool_has_g5(m):
+    """A POOL-MANIFEST built by a build_clean.py that applies G5 (llpatrol-01): the rule and its count are recorded."""
+    return str((m.get('rules') or {}).get('G5', '')).startswith(G5_RULE + ':') and 'g_drop_patrol_lap' in (m.get('counts') or {})
+
+
+def assembled_has_g5(m):
+    """A train MANIFEST whose good rows build_clean re-checked against G5 (the count equals the fleet good examples)."""
+    n = (m.get('filter') or {}).get('good G5 checked (%s)' % G5_RULE)
+    return n is not None and n == (m.get('composition') or {}).get('good', 0)
+
+
 def next_phase(state, plist):
     for p in plist:
         if state['phases'].get(p, {}).get('status') != 'done':
@@ -365,7 +379,9 @@ def ph_pool(R):
         sh(['nice', '-n', '19', sys.executable, '-B', os.path.join(LL, 'build_clean.py'), 'pool', '--v0', ds, '--out', out,
             '--f-n', str(pc['f_n']), '--pv-n', str(pc['pv_n']), '--g-n', str(pc['g_n']), '--seed', str(R.state['seed'])], timeout=7200)
     m = json.load(open(os.path.join(out, 'POOL-MANIFEST.json')))
-    return {'selected': m['selected'], 'counts': m['counts']}
+    if not pool_has_g5(m):
+        raise Fail('the pool was built without the G5 patrol-lap rule (llpatrol-01): the good set would teach the idle lap')
+    return {'selected': m['selected'], 'counts': m['counts'], 'g_drop_patrol_lap': m['counts']['g_drop_patrol_lap']}
 
 
 def transform(R, src, dst):
@@ -504,6 +520,8 @@ def ph_assemble(R):
         bad['old layout (identity in system)'] += 'You are %s, an autonomous' % r.get('bot', '\0') in r['system']
     if any(bad.values()):
         raise Fail('training file assertions failed: %s' % dict(bad))
+    if not assembled_has_g5(m):
+        raise Fail('the training file was assembled without the %s re-check of its good rows' % G5_RULE)
     return {'file': os.path.join(d, name), 'sha256': m['sha256'], 'examples': m['examples'], 'composition': m['composition'],
             'provenance': m['provenance'], 'assertions': dict(bad)}
 

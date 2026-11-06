@@ -214,14 +214,15 @@ def label(i, skill):
     return {'id': i, 'model': 'qwen3.8:27b', 'schemaValid': True, 'proposal': {'reason': 'r', 'skill': skill, 'args': {}, 'saw_end': 'END-1'}}
 
 
-def run_assemble(d, n_new, n_buf, relabel_n, forbid=(), extra=None):
+def run_assemble(d, n_new, n_buf, relabel_n, forbid=(), extra=None, keep_good=False):
     wr = lambda p, rows: open(p, 'w').write(''.join(json.dumps(r) + '\n' for r in rows))
     sk = ['explore', 'gather', 'goto', 'home', 'deposit']
     wr(os.path.join(d, 'pool.jsonl'), [item('n%d' % i) for i in range(n_new)])
     wr(os.path.join(d, 'labels.jsonl'), [label('n%d' % i, sk[i % 5]) for i in range(n_new)])
     wr(os.path.join(d, 'bpool.jsonl'), [item('b%d' % i, day='2026-10-12') for i in range(n_buf)])
     wr(os.path.join(d, 'blabels.jsonl'), [label('b%d' % i, sk[i % 5]) for i in range(n_buf)])
-    wr(os.path.join(d, 'good.jsonl'), [dict(item('g%d' % i, kind='good', skill='gather'), logged={**item('g').get('logged'), 'label': 'good'}) for i in range(4)])
+    G5 = {'rule': 'llpatrol-01', 'milestone': 'gather_dirt#2', 'skill': 'gather', 'status': 'success', 'inventory_delta': {'dirt': 3}}
+    keep_good or wr(os.path.join(d, 'good.jsonl'), [dict(item('g%d' % i, kind='good', skill='gather'), logged={**item('g').get('logged'), 'label': 'good'}, g5=G5) for i in range(4)])
     wr(os.path.join(d, 'forbid.jsonl'), [{'id': x} for x in forbid])
     args = ['assemble', '--out', d, '--name', 'train.jsonl', '--pool-file', os.path.join(d, 'pool.jsonl'), '--good-file', os.path.join(d, 'good.jsonl'),
             '--labels', os.path.join(d, 'labels.jsonl'), '--local-model', 'qwen3.8:27b', '--relabel-n', str(relabel_n),
@@ -348,6 +349,118 @@ def fleetstatus_weekly_line_alarms():
         w(); assert 'waiting 78 h' in F.learnloop_weekly_line(n, hb, rd), F.learnloop_weekly_line(n, hb, rd)
 
 
+# ---------------------------------------------------------------- G5: patrol-lap walks are never GOOD (llpatrol-01)
+
+def trip(i, skill='gather', milestone='gather_dirt#3', gain=None, label='good', world='hive-b', bot='b1', refused=False,
+         reason=None, status='success', items600=20, ms120=0, ts='2026-10-30T01:00:00.000Z'):
+    return {'id': i, 'ts': ts, 'bot': bot, 'world': world, 'pool': world, 'code_version': 'v1', 'model': 'qwen2.5:7b-instruct',
+            'system_hash': 'h1', 'trigger': 'idle', 'milestone': milestone, 'prompt': 'STATE: ok\nsaw_end: END-AAAA',
+            'prompt_complete': True, 'response': json.dumps({'reason': 'r', 'skill': skill, 'args': {}, 'saw_end': 'END-AAAA'}),
+            'nonce_ok': True, 'action': {'skill': skill, 'args': {}, 'reason': 'r'}, 'schema_valid': True, 'prompt_tokens': 10,
+            'gate': {'refused': refused, 'reason': reason, 'admission': 'normal'},
+            'outcome': {'status': status, 'detail': 'could not reach it' if status == 'failed' else 'ok', 'value': 'valuable',
+                        'inventory_delta': gain},
+            'window': {'120': {'items': 0, 'milestones': ms120, 'deaths': 0, 'stagnation': 0, 'observed': True},
+                       '600': {'items': items600, 'milestones': 1, 'deaths': 0, 'stagnation': 0, 'observed': True}},
+            'label': label}
+
+
+@t
+def patrol_lap_walks_are_never_good():
+    import build_clean as BC
+    P = BC.patrol_lap
+    for ms in ('patrol#3315', 'return', 'deposit_surplus', 'idle'):            # every lap rung, a walk with no gain
+        for sk in ('explore', 'goto', 'home'):
+            assert P(trip('x', sk, ms)), (ms, sk)
+            assert P(trip('x', sk, ms, gain={'cobblestone': -1})), (ms, sk)   # a block spent is not a gain
+    assert not P(trip('x', 'explore', 'patrol#2', gain={'oak_log': 3}))        # the walk's own skill gained: real output
+    for ms in ('gather_dirt#4', 'gather_iron_ore', 'stockpile_wood#2', 'idle+prereq', None):   # goal-directed search stays
+        assert not P(trip('x', 'explore', ms)), ms
+    # conversions/transfers on the rungs are no gain (Codex: no blanket craft/smelt exemption) ...
+    assert P(trip('x', 'craft', 'idle', gain={'stone_pickaxe': 1}))
+    assert P(trip('x', 'smelt', 'return', gain={'iron_ingot': 4}))
+    assert P(trip('x', 'deposit', 'return', gain={'dirt': -40}))                     # a deposit off its rung
+    # ... except a bank deposit on deposit_surplus that really removed items (the rung also completes vacuously)
+    assert not P(trip('x', 'deposit', 'deposit_surplus', gain={'dirt': -40}))
+    assert not P(trip('x', 'town_deposit', 'deposit_surplus', gain={'cobblestone': -64, 'dirt': -3}))
+    assert P(trip('x', 'deposit', 'deposit_surplus'))                                # nothing moved
+    assert P(trip('x', 'deposit', 'deposit_surplus', gain={'dirt': -40}, status='failed'))
+    assert not P(trip('x', 'craft', 'gather_dirt#2', gain={'stone_pickaxe': 1}))     # off the lap G5 does not apply
+
+
+def pool_fixture(d):
+    """A v0 dataset + one archived day: 3 gather goods with output, 3 patrol-lap explores that pass G2/G3/G4 (the
+    window counts OTHER skills' items), a bank deposit on deposit_surplus and a return walk that gained, one
+    non-transient failure and one post-veto decision (the pool refuses an empty fail/post-veto pool)."""
+    import gzip
+    v0, days = os.path.join(d, 'v0'), os.path.join(d, 'days', '2026-10-30'); os.makedirs(v0); os.makedirs(days)
+    T = [trip('g%d' % i, ts='2026-10-30T01:0%d:00.000Z' % i, bot='b%d' % i) for i in range(3)]
+    T += [trip('p%d' % i, 'explore', 'patrol#%d' % i, ts='2026-10-30T02:0%d:00.000Z' % i, bot='b%d' % i) for i in range(3)]
+    T += [trip('c0', 'deposit', 'deposit_surplus', gain={'dirt': -30}, bot='b0', ts='2026-10-30T03:00:00.000Z'),
+          trip('r0', 'goto', 'return', gain={'dirt': 2}, bot='b1', ts='2026-10-30T03:01:00.000Z'),
+          trip('f0', 'mine', label='bad', status='failed', bot='b5', ts='2026-10-30T04:00:00.000Z'),
+          trip('v0', 'mine', label='neutral', refused=True, reason='repeat_loop (x3)', bot='b6', ts='2026-10-30T04:01:00.000Z'),
+          trip('v1', 'gather', label='neutral', bot='b6', ts='2026-10-30T04:02:00.000Z')]
+    with gzip.open(os.path.join(days, 'triples-20261030.jsonl.gz'), 'wt') as fh:
+        fh.write(''.join(json.dumps(x) + '\n' for x in T))
+    with gzip.open(os.path.join(v0, 'train-good.jsonl.gz'), 'wt') as fh:
+        fh.write(''.join(json.dumps({'id': x['id']}) + '\n' for x in T if x['label'] == 'good'))
+    json.dump({'heldout': {'worlds': ['board-a']}, 'new_days': ['2026-10-31'], 'days': ['2026-10-30', '2026-10-31']},
+              open(os.path.join(v0, 'MANIFEST.json'), 'w'))
+    json.dump({'v1:h1': {'template': 'You are <BOT>, <ROLE>', 'schema': {}, 'skills': ['gather', 'explore']}},
+              open(os.path.join(v0, 'sysprompts.json'), 'w'))
+    for n in ('pilot-1000.jsonl', 'm3-eval.jsonl'):
+        open(os.path.join(v0, n), 'w').write('')
+    return v0, os.path.join(d, 'days')
+
+
+@t
+def the_pool_keeps_patrol_lap_walks_out_of_the_good_set():
+    import build_clean as BC
+    with tempfile.TemporaryDirectory() as d:
+        v0, days = pool_fixture(d)
+        out = os.path.join(d, 'out')
+        BC.main(['pool', '--v0', v0, '--days-dir', days, '--out', out, '--seed', '1', '--g-n', '100'])
+        good = {json.loads(l)['id'] for l in open(os.path.join(out, 'good.jsonl'))}
+        m = json.load(open(os.path.join(out, 'POOL-MANIFEST.json')))
+        assert good == {'g0', 'g1', 'g2', 'c0', 'r0'}, good
+        assert m['counts']['g_drop_patrol_lap'] == 3 and m['counts']['g_candidates'] == 8, m['counts']
+        assert W.pool_has_g5(m)
+        rows = [json.loads(l) for l in open(os.path.join(out, 'good.jsonl'))]
+        assert all(BC.g5_violation(r) is None for r in rows) and all(r['g5']['rule'] == 'llpatrol-01' for r in rows)
+
+
+@t
+def assemble_refuses_a_good_row_that_fails_g5():
+    with tempfile.TemporaryDirectory() as d:
+        rows, m = run_assemble(d, 10, 0, 30)
+        assert W.assembled_has_g5(m), m['filter']                                 # positive control: 4 good rows checked
+        p = os.path.join(d, 'good.jsonl'); L = [json.loads(l) for l in open(p)]
+        for bad in ({'milestone': 'patrol#9', 'skill': 'explore', 'inventory_delta': None}, {'rule': 'llpatrol-00'}, None):
+            L2 = [dict(r) for r in L]
+            if bad is None:
+                L2[1].pop('g5')                                                   # an old pool's row: no evidence
+            else:
+                L2[1]['g5'] = dict(L2[1]['g5'], **bad)
+            open(p, 'w').write(''.join(json.dumps(r) + '\n' for r in L2))
+            try:
+                run_assemble(d, 10, 0, 30, keep_good=True)
+            except SystemExit as e:
+                assert 'fail G5' in str(e), e; continue
+            raise AssertionError('not refused: %s' % bad)
+
+
+@t
+def a_pool_built_without_g5_is_refused():
+    assert W.pool_has_g5({'rules': {'G4': 'x', 'G5': 'llpatrol-01: y'}, 'counts': {'g_drop_patrol_lap': 0}})   # zero drops is still G5
+    assert not W.pool_has_g5({'rules': {'G4': 'x'}, 'counts': {'g_drop_no_output': 3}})               # the r3 manifest shape
+    assert not W.pool_has_g5({'rules': {'G4': 'x', 'G5': 'llpatrol-01: y'}, 'counts': {}})
+    assert not W.pool_has_g5({'rules': {'G5': 'llpatrol-00: an older rule'}, 'counts': {'g_drop_patrol_lap': 0}})
+    assert W.assembled_has_g5({'filter': {'good G5 checked (llpatrol-01)': 3000}, 'composition': {'good': 3000, 'fail': 9}})
+    assert not W.assembled_has_g5({'filter': {}, 'composition': {'good': 3000}})
+    assert not W.assembled_has_g5({'filter': {'good G5 checked (llpatrol-01)': 2999}, 'composition': {'good': 3000}})
+
+
 # ---------------------------------------------------------------- mutants
 
 def mutant(path, old, new, test):
@@ -398,12 +511,21 @@ def mutants_are_killed():
         ("    if cand_rate >= ratio * ref and cand_rate > 0:", "    if cand_rate >= ref and cand_rate > 0:", capacity_rule_owner_1102),
         ("    if worse:\n        return False", "    if False:\n        return False", capacity_rule_owner_1102),
         ("    ref = best_rate if best_rate > 0 else floor", "    ref = best_rate", capacity_rule_owner_1102),
+        ("    return str((m.get('rules') or {}).get('G5', '')).startswith(G5_RULE + ':') and 'g_drop_patrol_lap' in (m.get('counts') or {})", "    return True", a_pool_built_without_g5_is_refused),
+        ("    return n is not None and n == (m.get('composition') or {}).get('good', 0)", "    return True", a_pool_built_without_g5_is_refused),
     ]
     bp = os.path.join(HERE, '..', 'build_clean.py')
     bcases = [
         ("    feas = lambda T: sum(min(c, int(cap * T)) for c in cnt.values()) >= T", "    feas = lambda T: True", the_cap_applies_while_filling_so_the_target_is_reached),
         ("        picked[k] = rng.sample(a, min(q[k], len(a)))", "        picked[k] = []", the_cap_applies_while_filling_so_the_target_is_reached),
         ("    clash = (set(items) | set(buf_items)) & forbid", "    clash = set()", a_gate_id_in_the_pool_is_refused),
+        ("                    if patrol_lap(t):\n", "                    if False:\n", the_pool_keeps_patrol_lap_walks_out_of_the_good_set),
+        ("    return gained <= 0\n", "    return False\n", patrol_lap_walks_are_never_good),
+        ("    if sk in XT.TRANSFER:\n        return True\n", "", patrol_lap_walks_are_never_good),
+        (" and (t.get('outcome') or {}).get('status') == 'success' and removed > 0:", ":", patrol_lap_walks_are_never_good),
+        ("    if viol:\n", "    if False:\n", assemble_refuses_a_good_row_that_fails_g5),
+        ("    if not isinstance(e, dict) or e.get('rule') != G5_RULE:", "    if not isinstance(e, dict):", assemble_refuses_a_good_row_that_fails_g5),
+        ("LAP_RUNGS = frozenset(('patrol', 'return', 'deposit_surplus', 'idle'))", "LAP_RUNGS = frozenset(('patrol',))", patrol_lap_walks_are_never_good),
     ]
     alive = [c[0] for c in cases if not mutant(wp, c[0], c[1], c[2])] + [c[0] for c in bcases if not mutant(bp, c[0], c[1], c[2])]
     assert not alive, 'mutants survived: %s' % alive
