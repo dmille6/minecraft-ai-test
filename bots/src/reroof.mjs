@@ -206,7 +206,10 @@ export const DECOR_ORNAMENT_RX = /^D\d+-(f\d|g|pot|h|post|lamp)$/
  */
 export function reroofObstacles (read, cells = [], { decor = null, recordAt = () => null, fx = reroofFixes({}) } = {}) {
   const k = a => a.join(',')
-  const roleAt = new Map((decor?.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => [k(c.at), String(c.role ?? '')]))
+  // ...and its cells a RETROFIT already retired (Codex r1 BLOCKER: the decor generation is published first; a visit that stopped before
+  // the building's was published must find the same ornament again on the next try, else it is a blocker for good)
+  const roleAt = new Map([...(decor?.retired ?? []).filter(c => Array.isArray(c?.at) && /^reroof:/.test(String(c.by ?? ''))), ...(decor?.cells ?? []).filter(c => Array.isArray(c?.at))]
+    .map(c => [k(c.at), String(c.role ?? '')]))
   const clear = new Map(), retire = new Map()
   const free = b => !b || nmOf(b) === 'air' || nmOf(b) === 'cave_air' || replaceableCell(b)
   const take = (at, kind) => { const b = read(...at); if (!free(b) && !clear.has(k(at))) clear.set(k(at), { at: at.slice(), name: nmOf(b), kind }) }

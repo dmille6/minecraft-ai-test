@@ -96,6 +96,18 @@ await t('reroofObstacles: a lantern post goes WHOLE (fence + lantern, kind decor
   assert.deepStrictEqual(RR.reroofObstacles(worldOf(world), [[6, 72, 5]], { decor: DECOR, fx: RR.reroofFixes({ REROOF_CLUTTER_CLEAR: 'off' }) }).blocker.name, 'spruce_leaves', 'REROOF_CLUTTER_CLEAR=off')
   assert.strictEqual(RR.reroofObstacles(() => null, [[1, 1, 1]], { decor: DECOR }).blocker.name, 'unknown', 'an unread cell is never a dig')
 })
+await t('Codex r1 BLOCKER: the decor cells retired by a retrofit whose building generation was never published are found again (resumable); another retirement is not', async () => {
+  const decor = { cells: [{ at: [5, 71, 5], role: 'D1-post' }, { at: [5, 72, 5], role: 'D1-lamp' }] }
+  const read = worldOf({ '5,71,5': 'spruce_fence', '5,72,5': 'lantern' })
+  const first = RR.reroofObstacles(read, [[5, 72, 5]], { decor })
+  const after = D.decorRetire(decor, first.retire.map(a => a.join(',')), { by: 'reroof:house1' })
+  await killed('reroof.mjs', "  const roleAt = new Map([...(decor?.retired ?? []).filter(c => Array.isArray(c?.at) && /^reroof:/.test(String(c.by ?? ''))), ...(decor?.cells ?? []).filter(c => Array.isArray(c?.at))]", "  const roleAt = new Map([...(decor?.cells ?? []).filter(c => Array.isArray(c?.at))]", M => {
+    const again = M.reroofObstacles(read, [[5, 72, 5]], { decor: after })
+    assert.strictEqual(again.blocker, null); assert.strictEqual(again.clear.length, 2)
+  })
+  const other = D.decorRetire(decor, ['5,71,5', '5,72,5'], { by: 'gk' })
+  assert.strictEqual(RR.reroofObstacles(read, [[5, 72, 5]], { decor: other }).blocker.name, 'lantern', 'POSITIVE CONTROL: a cell retired by anyone else is no ornament')
+})
 await t('reroofObstacles: a lamp\'s partner is dug only when it IS that post\'s fence (same instance id, the cell below)', () => {
   const dec = { cells: [{ at: [5, 72, 5], role: 'D1-lamp' }, { at: [5, 71, 5], role: 'D2-post' }] }
   const o = RR.reroofObstacles(worldOf({ '5,71,5': 'spruce_fence', '5,72,5': 'lantern' }), [[5, 72, 5]], { decor: dec, fx: RR.reroofFixes({}) })
