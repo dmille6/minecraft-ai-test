@@ -1592,6 +1592,13 @@ def t_v42_unrelated_waiter_still_barriers(CS, F):
     assert not st['skipped']
 
 
+def t_v42_mixed_blockers_are_not_skipped(CS, F):
+    """held AND not_before: one blocker is not a skippable kind, so the head is not skipped."""
+    _two(CS, F, first={'hold': 'x', 'not_before': Z(NOW + dt.timedelta(hours=1))})
+    d, st = expect(CS, F, 'block', 'H1', 'held')
+    assert not st['skipped'], st['skipped']
+
+
 def t_v42_not_before_is_not_skipped(CS, F):
     _two(CS, F, first={'not_before': Z(NOW + dt.timedelta(hours=1))})
     d, st = expect(CS, F, 'wait', 'H1', 'not before')
