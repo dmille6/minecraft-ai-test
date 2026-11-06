@@ -359,5 +359,10 @@ await t('MUTANTS KILLED: each wiring check fails on its line broken (anchor pres
   }
 })
 
+await t('enchantgoon-01: the workshop\'s visits carry the groundskeeper\'s replant knobs (a remedy does not end the visit; B4 per tree -- behaviour in plotprep03.test.mjs); another record gets none', () => {
+  const o = E.enchantVisitOpts({ blueprint: E.ENCHANT_BLUEPRINT, box: [0, 0, 16, 10], walkR: 90 })
+  assert.strictEqual(o.replantGoOn, true); assert.strictEqual(o.replantPerTree, true)
+  assert.deepStrictEqual(E.enchantVisitOpts({ blueprint: 'storehouse@1' }), {})
+})
 console.log(`\nenchantshop: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
