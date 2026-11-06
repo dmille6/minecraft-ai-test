@@ -150,6 +150,7 @@ const REQUIRED = [
   // phase 2 (codeeval 11-06): buildretry-01 the build retry hole; buildnext-01 never idle on a blocked project; buildwait-01 the engine's intended waits
   'bots/src/buildretry.mjs',
   'bots/test/buildretry.test.mjs',
+  'bots/test/buildnext.test.mjs',
   'docs/reports/phase2-build-design-2026-11-06.md',
   'docs/reports/groundskeeper-2026-11-02.md',
   'bots/scripts/tidy-offline.mjs',

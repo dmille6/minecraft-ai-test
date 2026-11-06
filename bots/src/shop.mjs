@@ -123,7 +123,10 @@ export function activeProject (states = [], list = projectsOn()) {
   if (open.length) {
     // starve-01: an open project no builder has taken in STARVE_MS (starveMark) first, the longest-starved first
     const starved = open.filter(p => st(p).starved && st(p).free !== false).sort((a, b) => (st(b).starvedFor ?? 0) - (st(a).starvedFor ?? 0))
-    return starved[0] ?? open.find(p => st(p).free !== false) ?? open[0]
+    // buildnext-01: every open project held (stuck, unsited, full, this bot's breaker) -> a complete project's due upkeep that has
+    // a slot comes before the first held one (the order's own gates then decide), never a held one ahead of free work
+    const dueP = buildNextOn() ? list.find(p => { const s = st(p); return s.exists && s.complete && s.due && s.free !== false }) : null
+    return starved[0] ?? open.find(p => st(p).free !== false) ?? dueP ?? open[0]
   }
   // wall-01: a complete project that only wants a visit for its upkeep (`due`: the ziggurat's tidy) after every open one
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due) return p }
@@ -301,6 +304,60 @@ export function unsitedBackoff (states = [], unsitedOf = null, now = Date.now())
     return unsitedFresh(at, now) ? { ...st, free: false, unsited: true } : st
   })
 }
+/**
+ * BUILDNEXT-01 (codeeval 2026-11-06 phase 2.2): NEVER IDLE ON A BLOCKED PROJECT. Two per-bot holds, each scoped to ITS project, so
+ * the order moves to the town's next eligible project in the same call (shopActive marks a held project not `free`, as stuckBackoff
+ * does; activeProject takes the next free one) and holds the order only when nothing else is workable:
+ *   STUCK    the bot's own stuck_on_cell stop holds ITS project SHOP_STUCK_RETRY_MS, not every project (buildOrder's unscoped
+ *            `state.lastStop` hold, shop.mjs, held all of a bot's building 6 h after one project's stuck cell: isolated-a 219,
+ *            hive-b 161, placebo-c 160, placebo-b 107 stuck_on_cell skips in 24 h)
+ *   BREAKER  NEXT_K identical EMPTY visits (no placement, no clear: the same stop and the same why) by this bot on one project,
+ *            each within NEXT_GAP_MS of the last, hold that project NEXT_HOLD_MS for this bot (fleet 24 h: 2,309 of 3,859 build
+ *            visits were zero-placed and identical to the bot's previous one, 31.7 bot-h; 66 runs of 10+). Work clears it; an abort
+ *            breaks the streak; another project's visit neither counts nor clears it.
+ * BUILDNEXT=0 is the rollback (the old unscoped hold, no breaker, activeProject's old fallback); BUILDNEXT_BREAKER=0 the breaker alone.
+ */
+export const buildNextOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.BUILDNEXT ?? '').trim().toLowerCase())
+export const nextBreakerOn = (env = process.env) => buildNextOn(env) && !['0', 'off', 'false', 'no'].includes(String(env?.BUILDNEXT_BREAKER ?? '').trim().toLowerCase())
+export const NEXT_K = 3
+export const NEXT_HOLD_MS = 30 * 60_000
+export const NEXT_GAP_MS = 60 * 60_000
+/**
+ * A VISIT'S RESULT INTO THE BREAKER -> { tripped, n }. Pure over `mem` (Map plot -> { sig, n, at, until }, the bot's own). `work` the
+ * visit placed or cleared something; `sig` its stop + why; `broken` an abort / a throw (the streak ends, nothing counted).
+ */
+export function nextNote (mem, plot, { work = false, sig = '', broken = false, now = Date.now(), k = NEXT_K, hold = NEXT_HOLD_MS, gap = NEXT_GAP_MS } = {}) {
+  if (!mem || !plot) return { tripped: false, n: 0 }
+  const e = mem.get(plot)
+  if (work || broken) { mem.delete(plot); return { tripped: false, n: 0 } }
+  const n = e && e.sig === sig && now - e.at <= gap && !(e.until > now) ? e.n + 1 : 1
+  const tripped = n >= k
+  mem.set(plot, { sig, n: tripped ? 0 : n, at: now, until: tripped ? now + hold : (e?.until > now ? e.until : 0) })
+  return { tripped, n }
+}
+/** Is `plot` held for this bot now -> 'repeat' | 'stuck_on_cell' | null. Pure. `mem` the breaker's map, `stuck` the bot's own last
+ *  stuck_on_cell { plot, at } (the scoped hold). */
+export function nextHeld (plot, { mem = null, stuck = null, now = Date.now(), breaker = true } = {}) {
+  if (!plot) return null
+  if (breaker && mem?.get?.(plot)?.until > now) return 'repeat'
+  if (stuck?.plot === plot && Number.isFinite(stuck.at) && stuck.at <= now + 60_000 && now - stuck.at < stuckWindowOf(plot)) return 'stuck_on_cell'
+  return null
+}
+/** A held project waits behind the others -> states. Pure: open -> not `free`; complete and only due -> not due. A throw reads as none. */
+export function nextBackoff (states = [], heldOf = null) {
+  if (typeof heldOf !== 'function') return states
+  return states.map(st => {
+    if (!st) return st
+    let h = null
+    try { h = heldOf(st.plot) } catch { h = null }
+    if (!h) return st
+    if (st.exists && st.complete) return st.damaged ? st : { ...st, due: false, nextHeld: h }
+    return { ...st, free: false, nextHeld: h }
+  })
+}
+/** The bot's scoped holds for the order (skills.mjs installs: nextHeld over the bot's breaker and its last stuck plot). */
+let nextHoldOf = () => null
+export function setNextHoldOf (fn) { if (typeof fn === 'function') nextHoldOf = fn }
 /** The active plot's stamp for the order (skills.mjs installs it: the town's file). */
 let unsitedOfPlot = () => null
 export function setUnsitedOf (fn) { if (typeof fn === 'function') unsitedOfPlot = fn }
@@ -634,7 +691,13 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   // shaft-03: the stair's visit starts at the surface or on the stair (shaftgeom.mjs stairStartRefusal): a bot in a mine under
   // the town is asked again when it is up (its own surface or the stair's ascent; the order's cooldown is not charged)
   if (plot0 === SHAFT_PLOT && stairStartRefusal(record, feet, groundY)) return { order: null, skip: 'underground' }
-  if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
+  if (buildNextOn()) {
+    // buildnext-01: the bot's holds are its PROJECT's (the stuck cell's, the breaker's); a held active project means nothing else is
+    // workable (shopActive moved past it otherwise)
+    let hold = null
+    try { hold = nextHoldOf(plot0) } catch { hold = null }
+    if (hold) return { order: null, skip: hold }
+  } else if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
   let plot = record?.plot ?? null

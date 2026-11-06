@@ -160,6 +160,7 @@ import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs' 
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { unsitedWaitOn, unsitedBackoff, unsitedRead, unsitedWrite, setUnsitedOf } from './shop.mjs'   // idlework-01 B: an unsited project yields its turn
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
+import { buildNextOn, nextBreakerOn, nextNote, nextHeld, nextBackoff, setNextHoldOf, NEXT_K, NEXT_HOLD_MS } from './shop.mjs'   // buildnext-01: never idle on a blocked project
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -17266,7 +17267,10 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // NO record (`exists` false), starveMark only one WITH an open record -- so an unsited project is never offered first as
     // starved, a starved one is never held as unsited, and each keeps its own rollback (UNSITEDWAIT=0, STARVE=0)
     // GROUNDSKEEPER-01: the town's keeper (groundskeeper.mjs) works the grounds FIRST; every other bot never does (the lease)
-    const order = b ? keeperOrder(b, waitedU, list, now) : list
+    // buildnext-01: a project THIS bot is held on (its own stuck_on_cell, its empty-visit breaker) waits behind the others
+    // (shop.mjs nextBackoff): the next eligible one is this call's pick. BUILDNEXT=0: exactly as before
+    const waitedN = buildNextOn() && b ? nextBackoff(waitedU, plot => buildNextHeld(b, plot, now)) : waitedU
+    const order = b ? keeperOrder(b, waitedN, list, now) : list
     // gkforever-01 x starve-01 (rebase onto stuckproj-01): a bot whose order leads with the grounds (keeperOrderPure returns a NEW
     // order, the tidy first, only for the lease's holder or a CREW bot on a grounds lap) is never sent to a starved project -- that
     // visit is the grounds'; every other bot still is (STARVE). The tidy itself is never starve-marked (starveMark skips it)
@@ -17278,7 +17282,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // the stamps are read at most every STARVE_READ_MS (a lease listing of a large town directory per open project per call)
     const sc = starve ? (b.starveReads ??= new Map()) : null
     const lastTake = plot => { const c0 = sc.get(plot); if (c0 && now - c0.at < STARVE_READ_MS && now >= c0.at) return c0.v; const v = projLastTake(dir, list.find(p => p.plot === plot), now); sc.set(plot, { at: now, v }); return v }
-    const marked = starve ? starveMark(waitedU, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waitedU
+    const marked = starve ? starveMark(waitedN, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waitedN
     let pick = activeProject(marked, order)
     if (starve && visit) {
       const st = marked.find(x => x?.plot === pick.plot)
@@ -17290,6 +17294,25 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     if (visit) noteRepair(rmem, pick, states, now)
     return pick
   } catch { return projectsOn()[0] }
+}
+/** buildnext-01: is `plot` held for bot `b` now (its breaker, its own last stuck_on_cell)? -> reason | null. Never throws. */
+function buildNextHeld (b, plot, now = Date.now()) {
+  try { return nextHeld(plot, { mem: b?.shopNext ?? null, stuck: b?.shopStuckPlot ?? null, now, breaker: nextBreakerOn() }) } catch { return null }
+}
+setNextHoldOf(plot => (activeMem?.bot ? buildNextHeld(activeMem.bot, plot) : null))
+export const buildNextHeldForTest = buildNextHeld
+/** buildnext-01: a visit's result into the bot's scoped holds (shop.mjs nextNote / nextHeld). The why is compared with its numbers
+ *  blanked: an empty visit's progress count moves with OTHER builders' work, and this bot's visit is still the same empty visit. */
+export function buildNextAfter (bot, plot, r, now = Date.now()) {
+  if (!bot || !plot || !r) return null
+  const work = r.status === 'success' || (Number(r.placed) || 0) > 0
+  if (r.stop === 'stuck_on_cell') bot.shopStuckPlot = { plot, at: now }
+  else if (work && bot.shopStuckPlot?.plot === plot) bot.shopStuckPlot = null
+  if (!nextBreakerOn()) return null
+  const sig = `${r.stop ?? '-'}|${String(r.detail ?? '').replace(/-?\d+(\.\d+)?/g, 'N').slice(0, 160)}`
+  const nt = nextNote((bot.shopNext ??= new Map()), plot, { work, sig, now })
+  if (nt.tripped) { try { logEvent({ kind: 'build_next', status: 'success', snapshot: snapshot(bot), detail: `op=hold project=${plot} why=repeat n=${NEXT_K} stop=${r.stop ?? '-'} until=${new Date(now + NEXT_HOLD_MS).toISOString()}` }) } catch { /* telemetry */ } }
+  return nt
 }
 /** starve-01: the longest a visit's starved pick is held for the bot's other reads (a visit's own clock is shorter). */
 const STARVE_PICK_MS = 20 * 60_000
@@ -17768,7 +17791,13 @@ async function buildShop (ctx, args, signal) {
 async function buildShopVisit (ctx, args, signal) {
   const { bot } = ctx
   const proj = shopActive(bot, Date.now(), { visit: true })
-  const r = await buildShopOn(proj, ctx, args, signal)
+  let r
+  try { r = await buildShopOn(proj, ctx, args, signal) } catch (e) {
+    // buildnext-01: an abort or a throw breaks the breaker's streak (a server interruption is never a repeated project failure)
+    try { if (nextBreakerOn() && bot) nextNote((bot.shopNext ??= new Map()), proj.plot, { broken: true }) } catch { /* memory only */ }
+    throw e
+  }
+  try { if (buildNextOn() && bot) buildNextAfter(bot, proj.plot, r) } catch { /* memory only: the order's own gates hold */ }
   if (unsitedWaitOn() && r?.stop === 'no_site') {
     try {
       const dir = townDir(), key = projKeyOf(proj.plot), h = recordHead(dir, key)

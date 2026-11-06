@@ -363,7 +363,7 @@ await t('buildTidy passes the keeper knobs to runVisit and sites stages; shopAct
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
   assert.ok(/\.\.\.\(GROUNDS\.on \? \{ tidyKeepOrder: true, deferSpent: true \} : \{\}\)/.test(s), 'runVisit knobs')
   assert.ok(/s = siteStage\(read, \{ \.\.\.I, land, stage: k,/.test(s), 'stage siting')
-  assert.ok(/const order = b \? keeperOrder\(b, waitedU, list, now\) : list\n/.test(s), 'the keeper order')
+  assert.ok(/const order = b \? keeperOrder\(b, waitedN, list, now\) : list\n/.test(s), 'the keeper order (buildnext-01: after the bot\'s scoped holds)')
   // rebase onto stuckproj-01 (starve-01): the keeper is never starve-sent; the pick reads the keeper's order
   assert.ok(/const keeper = order !== list\n/.test(s) && /const starve = starveOn\(\) && b && !keeper\n/.test(s), 'the keeper is not starve-sent')
   assert.ok(/let pick = activeProject\(marked, order\)/.test(s), 'the pick reads the order')
