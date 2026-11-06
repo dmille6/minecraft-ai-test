@@ -188,7 +188,7 @@ import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantry
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
-import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint, forestWalkR, keepDue, forestPlots } from './forest.mjs'   // forest-01
+import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteTreesHolding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint, forestWalkR, keepDue, forestPlots } from './forest.mjs'   // forest-01
 import { FARM_SPECIES } from './treefarm.mjs'   // forest-01: the straight-trunk saplings
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -24450,9 +24450,8 @@ function forestInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townD
   }
 }
 /** FELL ONE TREE from its stand -> { n, why }: walk to the stand (its leaves dug first from where the bot is), then each log of `order`
- *  with the build effects' dig, re-read first (gone: passed), the bot never moving; a log the stand does not reach ends the tree. The
- *  stump stance (forest.mjs farmRetirePlan `step`): the logs the side stand reaches, then the bot steps onto the stump (the column is
- *  open over it), fells the rest from there, and digs the stump under it. */
+ *  (top down, the stump last) with the build effects' dig, re-read first (gone: passed), the bot never moving; a log the stand does not
+ *  reach ends the tree (a shorter tree is left, never a floating log). */
 async function forestFell (bot, e, t, { signal, deadline, log, kind = 'grown', project = FOREST_PLOT }) {
   let n = 0
   const read = farmRead(bot)
@@ -24469,23 +24468,12 @@ async function forestFell (bot, e, t, { signal, deadline, log, kind = 'grown', p
   check(signal)
   const at = e.feet()
   if (at[0] !== t.stand[0] || at[1] !== t.stand[1] || at[2] !== t.stand[2]) return { n, why: 'off_stand' }
-  let onStump = false
   for (const p of t.order) {
     check(signal)
     if (Date.now() > deadline) return { n, why: 'deadline' }
     const b = read(...p)
     if (!b || !/_log$/.test(b.name)) continue
-    if (!onStump && !standReaches(e.feet(), p)) {
-      if (!t.step) return { n, why: 'reach' }
-      // THE STUMP STANCE: the column over the stump is open now (its lower logs are down): step onto the stump, then fell from there
-      const stump = t.cell
-      await e.walkTo([stump[0], stump[1] + 1, stump[2]])
-      check(signal)
-      const f2 = e.feet()
-      if (f2[0] !== stump[0] || f2[2] !== stump[2] || f2[1] !== stump[1] + 1) return { n, why: 'no_stump_stance' }
-      onStump = true
-    }
-    if (onStump && !digReachFrom(e.feet(), p)) return { n, why: 'reach' }
+    if (!standReaches(e.feet(), p)) return { n, why: 'reach' }
     const v = await e.dig(p, b.name)
     if (v !== 'confirmed') return { n, why: v }
     n++
@@ -24567,8 +24555,6 @@ async function buildForest (ctx, args, signal) {
           for (const t of rt.plan.trees) {
             if (Date.now() > deadline - 30_000 || felledAll >= FOREST.harvestMax * 8) break
             if (skip(t.key)) continue
-            // a stump-stance tree is started only with the time to finish it (an interrupted one is resumed, its column scanned whole)
-            if (t.step && deadline - 20_000 - Date.now() < 6_000 * ((t.logs ?? t.order.length) + 2)) continue
             const r = t.stand ? await forestFell(bot, e, t, { signal, deadline: deadline - 20_000, log: rowLog, kind: 'retire', project: TREEFARM_PLOT }) : { n: 0, why: 'no_stand' }
             felledAll += r.n
             if (r.why) {
@@ -24666,7 +24652,7 @@ async function buildForest (ctx, args, signal) {
     // 3. THE BUILD: the floor, the soil, the saplings (runVisit). A cell within a column a site tree still holds waits for its felling
     const palette = forestPalette(rec.species)
     const standing = siteTreesStanding(read, rec)
-    const held = siteHeldCols(standing)
+    const held = siteHeldCols(siteTreesHolding(read, rec))   // kept (waived) site trees too: their columns are never worked
     const vrec = held.size ? { ...rec, cells: rec.cells.filter(q => !held.has(`${q.at[0]},${q.at[2]}`)), clear: (rec.clear ?? []).filter(q => !held.has(`${q.at[0]},${q.at[2]}`)) } : rec
     let r = { stop: 'skipped', placed: 0, cleared: 0, planted: 0, refused: 0, silent: 0, unknown: 0, why: 'no time' }
     let slot = null

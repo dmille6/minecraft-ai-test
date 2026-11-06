@@ -482,6 +482,16 @@ export function siteTreesStanding (read, rec) {
   }
   return out
 }
+/** EVERY recorded site tree whose logs still stand, waived (kept) ones too (Claude r2 BLOCKER: a kept site tree still holds its
+ *  columns -- the levelling cut under its base would float it). Pure. */
+export function siteTreesHolding (read, rec) {
+  const out = []
+  for (const t of rec?.trees ?? []) {
+    const logs = (t.logs ?? []).filter(p => { const b = read(...p); return !b || LOG.test(nm(b)) })
+    if (logs.length) out.push({ ...t, logs })
+  }
+  return out
+}
 /** The columns a standing site tree holds (its logs' columns + 1): the build's cells there wait for its felling. Pure. */
 export const siteHeldCols = standing => new Set((standing ?? []).flatMap(t => t.logs.flatMap(p => [-1, 0, 1].flatMap(dx => [-1, 0, 1].map(dz => `${p[0] + dx},${p[2] + dz}`)))))
 /** The aisle leaves at feet and head height (the walk's way through the rows) -> [[x, y, z]]. Pure. */
@@ -603,11 +613,11 @@ export function forestReplantCells (read, rec, trees = [], { claimed = new Set()
 // ---- the in-wall farm, retired ---------------------------------------------------------------------------------------------------
 
 /**
- * THE OLD FARM'S RETIREMENT -> { trees: [{ key, cell, stand, order, step }], saplings: [cell], lights: [cell], done }. Pure. The in-wall
- * farm (treefarm.mjs record) is taken down: every grown plot's trunk felled top down from a stand beside it (a FLAT plot: the 8th log
- * of an 8-log spruce is out of a side stand's reach, so such a tree is felled from the STUMP STANCE -- its logs dy 1..6 from the side,
- * then the bot steps onto the stump, fells the rest, and digs the stump under it: `step`), every planted sapling dug (picked up for
- * the forest), every torch dug. `done`: nothing of it is left in the world (unread is not done).
+ * THE OLD FARM'S RETIREMENT -> { trees: [{ key, cell, stand, order }], saplings: [cell], lights: [cell], kept: [{ key, cell, why }], done }.
+ * Pure. The in-wall farm (treefarm.mjs record) is taken down: every grown plot's trunk felled top down, the stump last, from a stand
+ * beside it; every planted sapling dug (picked up for the forest); every torch dug. A tree the side stand cannot fell WHOLE (a branch,
+ * a log past dy +6 -- an 8-log spruce on the old FLAT plots -- or one the record waived after FOREST.failMax failures) is KEPT: it
+ * stays standing as one of the garden's trees. `done`: nothing of it left but its kept trees (unread is not done).
  */
 export function farmRetirePlan (read, farm, F = FOREST) {
   const trees = [], saplings = [], lights = [], kept = []
@@ -628,8 +638,8 @@ export function farmRetirePlan (read, farm, F = FOREST) {
     if (!col.length) continue
     const key = `farm:${c.at.join(',')}`
     if (waived[key]) { kept.push({ key, cell: c.at, why: waived[key]?.why ?? 'kept' }); continue }
-    // a BRANCH (a log beside the column: a fancy oak) or a trunk past the stump stance's reach (more than 8 logs) is never started: it
-    // stays, a garden tree (`kept`) -- never half felled
+    // a BRANCH (a log beside the column: a fancy oak) or a trunk too tall is never started: it stays, a garden tree (`kept`) -- never
+    // half felled
     const branch = col.some(p => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dz]) => [-1, 0, 1].some(dy => p[1] + dy >= y && LOG.test(nm(read(p[0] + dx, p[1] + dy, p[2] + dz))))))
     const top = col.at(-1)[1]
     if (branch || top - y > F.reachUp + 1) { kept.push({ key, cell: c.at, why: branch ? 'branch' : 'tall' }); continue }
@@ -641,13 +651,11 @@ export function farmRetirePlan (read, farm, F = FOREST) {
       if ([f, hd].every(q => AIRN(nm(q)) || LEAVES.test(nm(q)) || q.boundingBox === 'empty')) { stand = [x + dx, y, z + dz]; break }
     }
     if (!stand) { trees.push({ key, cell: c.at, stand: null, order: [], step: false }); continue }
-    const far = col.filter(p => !standReaches(stand, p, F))
-    // the side stand reaches all: top down, the stump last. Else the STUMP STANCE: the logs the side stand reaches above the stump
-    // (lowest first, so the column opens over the stump), then from on the stump the rest top down, then the stump under its feet
-    const stump = col[0][1] === y ? col[0] : null
-    const step = far.length > 0
-    const order = step ? [...col.filter(p => p !== stump && standReaches(stand, p, F)), ...far.slice().reverse(), ...(stump ? [stump] : [])] : [...col].reverse()
-    trees.push({ key, cell: c.at, stand, order, step, logs: col.length })
+    // a log the side stand does not reach (an 8-log spruce on a FLAT plot: its top at dy +7) -- the tree is KEPT, a garden tree, never
+    // started (Codex r2: a stump-stance felling that failed after its lower logs left the top floating and was then waived as kept;
+    // Paper proved the stump stance, but a tree kept whole is the one outcome that can never float). Else top down, the stump last
+    if (col.some(p => !standReaches(stand, p, F))) { kept.push({ key, cell: c.at, why: 'tall' }); continue }
+    trees.push({ key, cell: c.at, stand, order: [...col].reverse(), step: false, logs: col.length })
   }
   return { trees, saplings, lights, kept, done: !unread && !trees.length && !saplings.length && !lights.length }
 }
