@@ -39,12 +39,14 @@ await t('the restated room equals the build order\'s own (shop.mjs SHOP_BAG_SLOT
 })
 
 await t('SWITCHES: on in the showcase pool by default, off elsewhere; BAGROOM=off rolls back both, each half has its own off', () => {
-  assert.deepEqual(BR.bagRoomSwitches({}, 'showcase'), { on: true, well: true, share: true })
+  // batch-14c release (owner stoneworks plan): the WELL half is off unless BAGROOM_WELL=on
+  assert.deepEqual(BR.bagRoomSwitches({}, 'showcase'), { on: true, well: false, share: true })
+  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM_WELL: 'on' }, 'showcase'), { on: true, well: true, share: true })
   assert.deepEqual(BR.bagRoomSwitches({}, 'board-a'), { on: false, well: false, share: false })
   assert.deepEqual(BR.bagRoomSwitches({ BAGROOM: 'off' }, 'showcase'), { on: false, well: false, share: false })
-  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM: 'on' }, 'board-a'), { on: true, well: true, share: true })
+  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM: 'on' }, 'board-a'), { on: true, well: false, share: true })
   assert.deepEqual(BR.bagRoomSwitches({ BAGROOM_WELL: 'off' }, 'showcase'), { on: true, well: false, share: true })
-  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM_SHARE: '0' }, 'showcase'), { on: true, well: true, share: false })
+  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM_SHARE: '0' }, 'showcase'), { on: true, well: false, share: false })
   assert.match(BR.bagRoomModeDetail({ on: true, well: true, share: false }), /^on=1 well=1 share=0 room=8 /)
 })
 

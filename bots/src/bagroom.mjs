@@ -39,7 +39,9 @@ const onOff = v => {
 export function bagRoomSwitches (env = process.env, pool = '') {
   const pools = String(env?.BAGROOM_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
   const on = onOff(env?.BAGROOM) ?? pools.includes(String(pool))
-  return { on, well: on && onOff(env?.BAGROOM_WELL) !== false, share: on && onOff(env?.BAGROOM_SHARE) !== false }
+  // batch-14c release (coordinator 11-06, the owner's stoneworks plan): the WELL half is OFF unless BAGROOM_WELL=on -- the band's early
+  // dispose throws away cobble the stoneworks smelts; the share banking stays on
+  return { on, well: on && onOff(env?.BAGROOM_WELL) === true, share: on && onOff(env?.BAGROOM_SHARE) !== false }
 }
 export const BAGROOM = Object.freeze(bagRoomSwitches(typeof process !== 'undefined' ? process.env : {}, typeof process !== 'undefined' ? (process.env.MEMORY_POOL ?? '') : ''))
 /** `_bagroom_mode` row detail (once per spawn). Pure. */
