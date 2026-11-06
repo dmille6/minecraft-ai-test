@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -106,6 +107,28 @@ def t_mirror_ref(S):
     check('mirror_ref keeps a good label', S.mirror_ref('ok-label') == 'refs/suite/ok-label')
 
 
+def t_prune(S):
+    """11-06: ci2 hit 86% on 3 days of trees. A DONE tree over 12 h and any tree whose log is over 24 h go; a fresh one,
+    its log and the git mirror stay. Runs the real shell command against a temp HOME."""
+    home = tempfile.mkdtemp(prefix='sr-prune-')
+    try:
+        ci = os.path.join(home, 'ci')
+        for d in ('old', 'hung', 'fresh', '.git-mirror.git'):
+            os.makedirs(os.path.join(ci, d))
+        for name, text, old in (('old', 'DONE rc=0', True), ('hung', '[3/400]', True), ('fresh', 'DONE rc=1', False)):
+            with open(os.path.join(ci, name + '.log'), 'w') as f:
+                f.write(text + '\n')
+            if old:
+                t = time.time() - 2 * 86400
+                os.utime(os.path.join(ci, name + '.log'), (t, t))
+        subprocess.run(['bash', '-c', S.prune_cmd()], env=dict(os.environ, HOME=home), check=True)
+        left = sorted(os.listdir(ci))
+        check('prune: old DONE tree and hung tree removed', 'old' not in left and 'hung' not in left, left)
+        check('prune: fresh tree, logs and mirror kept', all(x in left for x in ('fresh', '.git-mirror.git', 'old.log', 'hung.log')), left)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
+
 def t_relay(_S=None):
     spec = importlib.util.spec_from_file_location('relay_t', os.path.join(HERE, 'autorebase-suite-relay.py'))
     R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
@@ -138,6 +161,7 @@ def _td(m):
 
 
 MUTANTS = [
+    ("[ -n \"$(find \"$l\" -mmin +{stale_min})\" ]", "false", t_prune),
     ("    safe = re.sub(r'[^A-Za-z0-9._-]+', '-', label).lstrip('.-') or 'run'", "    safe = re.sub(r'[^A-Za-z0-9._-]+', '-', label) or 'run'", t_mirror_ref),
     ("    if now - started > deadline_s:\n        return 'deadline'", "    if False:\n        return 'deadline'", t_wait),
     ("    if line is None and now - last_ok > ssh_down_s:", "    if False:", t_wait),
@@ -150,7 +174,7 @@ MUTANTS = [
 
 def main():
     S = load()
-    for t in (t_wait, t_ship, t_overlay, t_mirror_ref, t_relay):
+    for t in (t_wait, t_ship, t_overlay, t_mirror_ref, t_prune, t_relay):
         t(S)
     base = list(FAILS)
     for f in base:

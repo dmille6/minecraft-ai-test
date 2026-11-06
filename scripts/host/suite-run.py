@@ -41,7 +41,7 @@ file (`tar -T file`), and every stage has a deadline: upload --upload-min (10), 
 SUITE DEADLINE), the local wait = lock wait + suite + 10 min, and ssh unreachable for 10 min in a row stops the wait
 (rc 2; the detached run continues on the host). The remote log always ends with `DONE rc=N`.
 
-Old trees: a ~/ci/<label> directory whose log ended DONE more than PRUNE_DAYS (3) days ago is removed at the next run on
+Old trees: a ~/ci/<label> directory whose log ended DONE more than PRUNE_MIN (12 h) ago, or whose log is over 24 h old, is removed at the next run on
 that host (ci2 held 40 GB of them, 12 GB free, on 11-06); the logs are kept.
 
 node_modules: each host keeps ~/ci/.nm-cache/<sha256(package-lock)[:12]>/node_modules (made with
@@ -111,7 +111,8 @@ def tree_files(wt):
 
 
 MIRROR = 'ci/.git-mirror.git'
-PRUNE_DAYS = 3
+PRUNE_MIN = 720          # 11-06: ci2's 58 GB root reached 86% on 3 days of trees (44 GB, 183 dirs); 12 h fits
+PRUNE_STALE_MIN = 1440   # a tree whose log never ended DONE (killed / hung) is dead after the 60-min deadlines
 SSH_DOWN_S = 600
 LOCK_TIMEOUT_RC = 75
 SUITE_TIMEOUT_RC = 124
@@ -231,11 +232,17 @@ def remote_fixup(host, dest, deleted, added, timeout_s=300):
     return ''
 
 
-def prune_remote(host, days=PRUNE_DAYS):
-    """Remove ~/ci/<label> trees whose log ended DONE more than `days` ago (logs kept). Best effort, bounded."""
-    cmd = (f'cd ~/ci 2>/dev/null || exit 0; find . -maxdepth 1 -name "*.log" -mtime +{days} -print0 | '
-           f'while IFS= read -r -d "" l; do d="${{l%.log}}"; [ -d "$d" ] && tail -n 1 "$l" | grep -q "^DONE rc=" '
-           f'&& rm -rf -- "$d"; done; true')
+def prune_cmd(done_min=PRUNE_MIN, stale_min=PRUNE_STALE_MIN):
+    """PURE. The remote prune: a ~/ci/<label> tree goes when its log ended DONE over done_min minutes ago, or its log is
+    over stale_min minutes old whatever it says (a killed or hung run). Logs and the git mirror are kept."""
+    return (f'cd ~/ci 2>/dev/null || exit 0; find . -maxdepth 1 -name "*.log" -mmin +{done_min} -print0 | '
+            f'while IFS= read -r -d "" l; do d="${{l%.log}}"; [ -d "$d" ] || continue; '
+            f'if tail -n 1 "$l" | grep -q "^DONE rc=" || [ -n "$(find "$l" -mmin +{stale_min})" ]; then rm -rf -- "$d"; fi; done; true')
+
+
+def prune_remote(host, done_min=PRUNE_MIN):
+    """Remove old ~/ci/<label> trees (prune_cmd). Best effort, bounded."""
+    cmd = prune_cmd(done_min)
     run_deadline(SSH + [HOSTS[host], cmd], 600, text=True, capture_output=True)
 
 
