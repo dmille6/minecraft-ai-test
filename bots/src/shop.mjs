@@ -21,6 +21,7 @@ import { hubSwitches, HUB_PLOT, HUB_BLUEPRINT, HUB_BUILDERS } from './storehub.m
 import { enchantSwitches, ENCHANT_PLOT, ENCHANT_BLUEPRINT, ENCHANT_BUILDERS } from './enchantshop.mjs'   // enchantshop-01
 import { cottageSwitches, COTTAGE_PLOT, COTTAGE_BUILDERS, COTTAGE_AFTER, cottageBlueprintId } from './cottage.mjs'   // townstyle-01
 import { townhallSwitches, TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_BUILDERS, TOWNHALL_AFTER } from './townhall.mjs'   // townstyle-02
+import { noWaitSwitches, afterMet } from './ordernowait.mjs'   // ordernowait-01: the town hall and the cottage stop waiting for the workshop
 import { reroofSwitches, REROOF_PLOT } from './reroof.mjs'   // townstyle-03
 import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } from './shopchest.mjs'
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
@@ -137,6 +138,9 @@ export const COTTAGE = Object.freeze(cottageSwitches(process.env, process.env.ME
 export const TOWNHALL = Object.freeze(townhallSwitches(process.env, process.env.MEMORY_POOL ?? ''))
 /** TOWNSTYLE-03 (reroof.mjs): the retrofit's planner -- publishes the next standing building's roof generation, one at a time. REROOF=off. */
 export const REROOF = Object.freeze(reroofSwitches(process.env, process.env.MEMORY_POOL ?? ''))
+/** ORDERNOWAIT-01 (ordernowait.mjs; OWNER 11-06): the town hall's and the cottage's `after: enchantshop` is the order, not a gate.
+ *  ENCHANT_NOWAIT=off is the rollback; on in the showcase pool only. */
+export const NOWAIT = Object.freeze(noWaitSwitches(process.env, process.env.MEMORY_POOL ?? ''))
 /**
  * TIDY-01: THE TOWN-GROUND TIDY is the LAST project, with no `after` (tidy.mjs): only a bot no other project admits works it -- every
  * other open project full, stuck or waiting -- so it never displaces building. It cuts the bots' pillars, fills their pits and
@@ -223,7 +227,7 @@ export const buildersOf = p => p?.builders ?? BUILDERS_MAX
  * whose `after` project is complete -- monument-01: the first such with an admission slot free for this bot (`free`, absent =
  * free), else the first such -- else the LAST project (everything stands: the order reads it complete and stays quiet).
  */
-export function activeProject (states = [], list = projectsOn(), { upkeepTurn = false } = {}) {
+export function activeProject (states = [], list = projectsOn(), { upkeepTurn = false, noWait = NOWAIT.on } = {}) {
   const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
   // sinkfix-01: the sink this bot may work now (see the sink tier below), read first -- a project this bot's own last visit found
   // nothing to do at (`idle`, idleMarks) yields to it, as a repair and as an open project
@@ -238,7 +242,7 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
     if (p.sink) continue
     const s = st(p)
     if (s.exists && s.complete) continue
-    if (p.after && !st(list.find(q => q.plot === p.after) ?? { plot: p.after }).complete) continue
+    if (!afterMet(p, st(list.find(q => q.plot === p.after) ?? { plot: p.after }).complete, { noWait })) continue   // ordernowait-01
     // townstyle-03: a PLANNER (the retrofit's: it places nothing itself) is offered only when its state says it is due (waiting: false)
     if (p.planner && s.waiting !== false) continue
     // copperhall-01: an unsited project WAITING on its opening rule (the hall's copper) is not offered; the next one is

@@ -32,6 +32,8 @@ import { hubModeDetail } from './storehub.mjs'   // storehub-01's licence row (p
 import { STOREHUB } from './shop.mjs'
 import { enchantModeDetail } from './enchantshop.mjs'   // enchantshop-01's licence row
 import { ENCHANTSHOP } from './shop.mjs'
+import { NOWAIT } from './shop.mjs'   // ordernowait-01's licence row
+import { noWaitModeDetail } from './ordernowait.mjs'
 import { caneModeDetail } from './canefarm.mjs'   // canefarm-01's licence row
 import { CANEFARM } from './shop.mjs'
 import { STEPWELL } from './shop.mjs'   // stepwell-01's licence row
@@ -168,6 +170,8 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'storehub_mode', status: 'success', snapshot: snapshot(bot), detail: hubModeDetail(STOREHUB) }) } catch { /* telemetry */ }
   // enchantshop-01: the workshop's licence row (on=0 outside ENCHANTSHOP_POOLS or under ENCHANTSHOP=off: the rollback is visible too)
   try { logEvent({ kind: 'enchantshop_mode', status: 'success', snapshot: snapshot(bot), detail: enchantModeDetail(ENCHANTSHOP) }) } catch { /* telemetry */ }
+  // ordernowait-01: the town hall and the cottage stop waiting for the workshop (on=0 outside ENCHANT_NOWAIT_POOLS or under ENCHANT_NOWAIT=off)
+  try { logEvent({ kind: 'ordernowait_mode', status: 'success', snapshot: snapshot(bot), detail: noWaitModeDetail(NOWAIT) }) } catch { /* telemetry */ }
   // canefarm-01: the cane bed's licence row (on=0 outside CANEFARM_POOLS or under CANEFARM=off)
   try { logEvent({ kind: 'canefarm_mode', status: 'success', snapshot: snapshot(bot), detail: caneModeDetail(CANEFARM.on) }) } catch { /* telemetry */ }
   // stockyard-01: the stockpile yard's licence row (yard.mjs; the project itself is shop.mjs PROJECTS, its visit skills.mjs yardVisit)
