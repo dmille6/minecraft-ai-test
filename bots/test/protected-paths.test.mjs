@@ -7,13 +7,16 @@
 // The Python side also fails when a listed file or function no longer exists, so a rename cannot
 // quietly drop something out of protection.
 import assert from 'node:assert'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 let pass = 0, fail = 0
 const t = (n, f) => { try { f(); pass++; console.log(`  PASS  ${n}`) } catch (e) { fail++; console.log(`  FAIL  ${n}\n        ${e.message}`) } }
 
-const ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
+// The repo root from this file's own location, not `git rev-parse` (phase 1 item 3, 11-06): test_protected.py needs the
+// git BINARY (it builds a throwaway repo), never a checkout, so this file runs the same on a tree shipped without .git.
+const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
 
 t('scripts/test_protected.py passes (behaviour, the real list, the CLI, one mutant)', () => {
   const r = spawnSync('python3', [join(ROOT, 'scripts/test_protected.py')], { encoding: 'utf8', timeout: 60_000 })

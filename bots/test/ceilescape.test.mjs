@@ -665,12 +665,18 @@ const FLOOD_SCENE = () => {
   return c
 }
 const trace = bot => ({ digs: bot.digs.map(d => [d.cell, d.name, d.waitMs, !!d.aborted]), controls: bot.controls, at: cellOf(bot) })
+// GIT CONTEXT (phase 1 item 3, 11-06): the base traces need commit 3cc5f14d. Without it (a tree shipped without .git) they
+// print SKIP and the file exits 77 when nothing failed -- reported SKIPPED, never a pass. suite-run ships a real checkout.
+const { gitContext } = await import('../scripts/test-result.mjs')
+const BASE_CTX = await gitContext(new URL('..', import.meta.url).pathname, '3cc5f14d')
+let skipped = 0
 for (const [name, mk] of [
   ['the flood sidestep (scene A, dry, side cell open after one dig)', () => { const b = makeWorldBot(FLOOD_SCENE(), { feetY: 0 }); b.entity.onGround = true; b.entity.yaw = Math.PI / 2; return b }],
   ['the flood sidestep whose side cell floods', () => { const b = makeWorldBot(FLOOD_SCENE(), { feetY: 0, onDig: (k, w) => { if (k === '-1,0,0') w.set(-1, 0, 0, 'water[1]') } }); b.entity.onGround = true; b.entity.yaw = Math.PI / 2; return b }],
   ['an affordable stone ceiling and steps', () => { const b = makeWorldBot(TOMB('stone'), { feetY: 0 }); b.entity.onGround = true; return b }],
   ['Comet under copper', () => makeWorldBot(COMET())],
 ]) {
+  if (!BASE_CTX.ok) { skipped++; console.log(`  SKIP  CEILESCAPE=0 IS THE BASE, trace for trace: ${name} (${BASE_CTX.why})`); continue }
   await t(`CEILESCAPE=0 IS THE BASE, trace for trace: ${name}`, async () => {
     await withBase(async base => {
       const a = mk(), b = mk()
@@ -682,5 +688,6 @@ for (const [name, mk] of [
   })
 }
 
-console.log(`\n${pass} passed, ${fail} failed`)
-process.exit(fail ? 1 : 0)
+console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped` : ''}`)
+if (!fail && skipped) console.log(`SKIP (${BASE_CTX.why}: ${skipped} base-trace test(s) not run)`)
+process.exit(fail ? 1 : skipped ? 77 : 0)

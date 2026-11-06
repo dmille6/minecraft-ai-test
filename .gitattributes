@@ -1,0 +1,6 @@
+# Phase 1 item 3 (11-06, docs/reports/phase1-autopilot-design-2026-11-06.md): every change appends to the REQUIRED list
+# of the orphan manifest, so two concurrent changes conflicted there (10 of 12 promomerge conflicts). The built-in union
+# driver keeps both sides' lines on a conflicting hunk. Checked by scripts/host/test_union_merge.py (a real merge the
+# way promomerge.py merges). A resurrected deleted entry fails the test loudly (file missing). To be replaced by one
+# required-paths file per change (config/required.d/), after which this line goes.
+bots/test/nothing-important-is-orphaned.test.mjs merge=union

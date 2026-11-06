@@ -294,6 +294,24 @@ def collect(root, log_root, now, window=WINDOW, unit_pattern=None, deploy_log=No
     return rep
 
 
+def town_blocked(goals):
+    """PURE. {f'town:<pool>': line} for every town whose open goals are ALL stuck (one or more): the whole town is blocked,
+    which PAGES (lib/alarm tier_of), while a single stuck goal goes to the daily digest (ONE PAGER, phase 1 11-06)."""
+    by = {}
+    for g in goals or []:
+        k = str(g.get('key') or '')
+        if not k.startswith('goal:') or '/' not in k:
+            continue
+        by.setdefault(k[5:].split('/', 1)[0], []).append(g)
+    out = {}
+    for pool, gs in sorted(by.items()):
+        if gs and all(g.get('stuck') for g in gs):
+            names = ', '.join(sorted(g['key'][5:].split('/', 1)[1].split('@')[0] for g in gs))
+            out[f'town:{pool}'] = (f'TOWN BLOCKED: every open project of {pool} is stuck >= {STALL.total_seconds() / 3600:.0f} h '
+                                   f'({len(gs)}: {names}) -- no bot there has workable town work')
+    return out
+
+
 def summary_line(label, rep):
     den = f"{rep['open']} open of {rep['records_scanned']} project records ({rep['townplans_scanned']} townplans scanned)"
     if rep.get('rows_walked') is not None:
@@ -325,6 +343,7 @@ def main(argv=None):
     try:
         rep = collect(a.root, a.logs, now, unit_pattern=units, deploy_log=deploy_log)
         rep['summary'] = summary_line(a.label, rep)
+        rep['alarms'].update(town_blocked(rep['goals']))
     except Exception as e:      # a watcher that crashes must alarm, not go quiet
         rep = {'generated_at': AL._iso(now), 'error': f'{type(e).__name__}: {str(e)[:300]}', 'goals': [],
                'alarms': {f'goalwatch:{a.label}': f'goalwatch {a.label} FAILED: {type(e).__name__}: {str(e)[:200]}'}}

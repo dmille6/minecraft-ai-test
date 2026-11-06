@@ -15,7 +15,12 @@ One long-failed unit (board-a-Charlie) is not a halt; it is printed as the denom
 
 Writes <state-dir>/haltwatch-<label>.json, ALARMS.log events and pushes (lib/alarm.py, deduplicated, 6 h re-push).
 
-SLOT PUSH (fleet only, 11-02). The canary slot sat idle 2.5 h (23:50Z-02:25Z) behind a BLOCKED head (an autorebase
+SLOT PUSH, keyed by CAUSE (ONE PAGER, phase 1 11-06). The push now fires when NO CANARY HAS BEEN DEPLOYED for 60 min,
+whatever the reason (alarmhead.slot_nodeploy): a live install-hold, an autorebase building or refused, a drawing loop and
+a blocked head all count, and the key is slot:nodeploy:<cause>, so a new cause pushes again (11-05: a live hold 00:00-09:55Z
+never alarmed and a cause change at 14:00Z did not re-push). The header line (alarmhead.slot_idle) is unchanged.
+
+SLOT PUSH (fleet only, 11-02, superseded above). The canary slot sat idle 2.5 h (23:50Z-02:25Z) behind a BLOCKED head (an autorebase
 refusal: "no variant for the fleet base"). alarmhead.slot_idle saw it -- '!! canary slot IDLE' from 00:50Z -- but that
 line exists only in the fleetstatus header, which nobody ran, and canary-sched's own BLOCKED page goes to
 ~/digest/page.jsonl, which nothing pushes. Now every fleet run also reads ~/digest/sched.log through the SAME
@@ -192,11 +197,11 @@ def main(argv=None):
                     log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
     if a.label == 'fleet':
         try:
-            sline = AH.slot_lines(now, a.sched_log)[0]
+            key, sline = AH.slot_nodeploy(AH.parse_ticks(AH.read_tail(a.sched_log)), now)
         except Exception as e:      # noqa: BLE001
-            sline = f'!! canary slot: the slot check FAILED ({type(e).__name__}: {str(e)[:120]})'
-        slot = slot_alarm(sline)
-        print(sline)
+            key, sline = 'slot:scheduler', f'canary slot: the slot check FAILED ({type(e).__name__}: {str(e)[:120]})'
+        slot = {key: sline} if key else {}
+        print(('!! ' if key else '') + sline)
         AL.raise_alarms('slotwatch', slot, now, os.path.join(sd, 'slotwatch.pushstate.json'),
                         log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
     if a.ship:

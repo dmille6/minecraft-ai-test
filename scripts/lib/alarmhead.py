@@ -9,6 +9,7 @@ files).
 import datetime as dt
 import json
 import os
+import re
 
 from lib import alarm as AL
 
@@ -28,6 +29,9 @@ FILES = (   # (file, label, stale after)
     ('effect-fleet.json', 'promotion effects', dt.timedelta(minutes=150)),
     # the same run (OWNER 11-03 item 6): fleet busy time over the last 24 final hours (skills / walking / decision / idle)
     ('busy-fleet.json', 'busy time', dt.timedelta(minutes=150)),
+    # hourwatch.py (hourly :25, phase 1 11-06): value/bot-h vs the previous 24 h, the idle-lap share, towns with no workable
+    # project; its alarms PUSH (lib/alarm tier 1)
+    ('hourwatch-fleet.json', 'hourly checks', dt.timedelta(minutes=90)),
 )
 # MONITOR LOGS (audit 11-01 flag 9: cron outputs nothing read). Each is wired here, so the fleetstatus header IS its consumer:
 # (log under ~, label, stale after, the line to show: regex on the last matching line, alarm when that line matches `bad`
@@ -209,13 +213,89 @@ def slot_idle(ticks, now, idle=SLOT_IDLE, stale=SCHED_STALE):
     return f'canary slot: free {mins:.0f} min, nothing runnable yet ({dec} {head[:120]})'
 
 
+DEPLOYED_MARK = 'S1 canary declared'          # decide() names it whenever the manifest declares a canary (BUSY or BLOCK)
+CAUSE_MIN_TICKS = 2                          # a cause must hold two ticks before it re-keys the alarm (no flapping)
+
+
+def deployed(why):
+    """PURE. The tick saw a canary DEPLOYED (the manifest declares one)."""
+    return DEPLOYED_MARK in why
+
+
+def tick_cause(dec, why):
+    """PURE. One tick -> a stable cause code for the slotwatch key: '<decision>:<first reason code>[-qualifier]', e.g.
+    block:H2-refused, wait:H2-building, busy:S8-hold, busy:S2-loop, wait:H1-after, block:H3, idle:Q, launch."""
+    dec = dec.lower()
+    if dec in ('launch', 'launching'):
+        return 'launch'
+    first = why.split(' | ')[0].strip()
+    code = first.split(' ', 1)[0] if first else '?'
+    if not re.match(r'^[A-Z]\d{1,2}$', code):
+        code = '?'
+    low = first.lower()
+    qual = ''
+    for words, q in ((('refused',), 'refused'), (('went silent', 'died'), 'dead'), (('is building', 'will cherry-pick'), 'building'),
+                     (('stale',), 'stale'), (('install-hold',), 'hold'), (('sched-pause',), 'pause'), (('held:',), 'held'),
+                     (('not before',), 'notbefore'), (('waits for', 'depends on'), 'after'), (('no patch source',), 'nopatch'),
+                     (('canary-loop',), 'loop'), (('autorebase',), 'autorebase')):
+        if any(w in low for w in words):
+            qual = '-' + q
+            break
+    return f'{dec}:{code}{qual}'
+
+
+def slot_nodeploy(ticks, now, idle=SLOT_IDLE, stale=SCHED_STALE):
+    """PURE. ticks [(t, DECISION, reasons)] oldest first -> (key | None, line).
+    The OWNER's rule (11-06): page when NO CANARY HAS BEEN DEPLOYED for `idle` (60 min), whatever the reason -- a live
+    install-hold, a building or refused autorebase, a drawing loop and a blocked head all count (slot_idle counted only
+    BLOCK/WAIT/IDLE ticks, so 10 h of a live hold on 11-05 never alarmed). The key names the CAUSE, so a new cause pushes
+    again: the cause is that of the newest run of >= CAUSE_MIN_TICKS ticks with one cause. A scheduler that stopped
+    ticking is key slot:scheduler."""
+    if not ticks:
+        return 'slot:scheduler', 'canary slot: NO scheduler tick read from sched.log -- is canary-sched.py tick in cron here?'
+    t_last, dec, why = ticks[-1]
+    if now - t_last > stale:
+        return 'slot:scheduler', (f'canary scheduler: last tick {AL._iso(t_last)} ({(now - t_last).total_seconds() / 60:.0f} '
+                                  f'min ago) -- cron stopped?')
+    if deployed(why):
+        return None, f'canary slot: a canary is deployed ({dec.lower()} at {AL._iso(t_last)})'
+    start, bounded, streak = t_last, False, []
+    for t, d, w in reversed(ticks):
+        if deployed(w):
+            bounded = True
+            break
+        start = t
+        streak.append((t, d, w))
+    mins = (t_last - start).total_seconds() / 60
+    if t_last - start < idle:
+        return None, f'canary slot: no canary deployed for {mins:.0f} min (under {idle.total_seconds() / 60:.0f}); now {dec} {why[:120]}'
+    causes = [tick_cause(d, w) for _, d, w in streak]          # newest first
+    cause, i = causes[0], 0
+    while i < len(causes):
+        j = i
+        while j < len(causes) and causes[j] == causes[i]:
+            j += 1
+        if j - i >= CAUSE_MIN_TICKS:
+            cause = causes[i]
+            break
+        i = j
+    head = why.split(' | ')[0][:220]
+    return f'slot:nodeploy:{cause}', (f'canary slot: NO canary deployed for {"" if bounded else ">= "}{mins:.0f} min (since '
+                                      f'{AL._iso(start)}); cause {cause}: {dec} {head}')
+
+
+def read_tail(path=SCHED_LOG, tail_bytes=TAIL_BYTES):
+    """The last `tail_bytes` of sched.log (raises OSError when unreadable)."""
+    with open(os.path.expanduser(path), 'rb') as f:
+        f.seek(0, 2)
+        f.seek(max(0, f.tell() - tail_bytes))
+        return f.read().decode('utf-8', errors='replace')
+
+
 def slot_lines(now, path=SCHED_LOG):
     p = os.path.expanduser(path)
     try:
-        with open(p, 'rb') as f:
-            f.seek(0, 2)
-            f.seek(max(0, f.tell() - TAIL_BYTES))
-            text = f.read().decode('utf-8', errors='replace')
+        text = read_tail(p)
     except OSError as e:
         return [f'!! canary slot: sched.log UNREADABLE ({type(e).__name__}) at {p}']
     return [slot_idle(parse_ticks(text), now)]
@@ -227,6 +307,10 @@ def lines(now, client=None, state_dir=STATE, conf=AL.CONF, sched_log=SCHED_LOG, 
         ok, desc = AL.push_channel(conf)
         out.append(('' if ok else '!! ') + f'alarm push: {desc}' +
                    ('' if ok else ' -- alarms reach only this header and ~/digest/ALARMS.log'))
+        nq, oldest = AL.outbox_status(os.path.expanduser(state_dir))
+        if nq:
+            out.append(f'!! alarm push: {nq} push(es) NOT DELIVERED, queued since {oldest} (retried every run; '
+                       f'{state_dir}/ALARMS-delivery.log)')
         out += slot_lines(now, sched_log)
         for name, label, stale in FILES:
             out += file_lines(now, name, label, stale, state_dir)

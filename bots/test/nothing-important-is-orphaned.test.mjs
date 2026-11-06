@@ -19,12 +19,20 @@ import assert from 'node:assert'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 let pass = 0, fail = 0
 const t = (n, f) => { try { f(); pass++; console.log(`  PASS  ${n}`) } catch (e) { fail++; console.log(`  FAIL  ${n}\n        ${e.message}`) } }
 
-const ROOT = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
+// GIT CONTEXT (phase 1 item 3, 11-06): on a tree shipped without .git (suite-run --no-git) the existence checks still run;
+// the checks that need `git ls-files` / `git status` print `SKIP (...)` and the file exits 77, which run-tests.mjs reports
+// as SKIPPED -- never as a pass. suite-run ships a real checkout by default, so they run there too.
+const { gitContext } = await import('../scripts/test-result.mjs')
+const CTX = await gitContext(fileURLToPath(new URL('.', import.meta.url)))
+const ROOT = CTX.ok ? CTX.root : join(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
 const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8' })
+let skipped = 0
+const tGit = (n, f) => { if (CTX.ok) return t(n, f); skipped++; console.log(`  SKIP  ${n} (${CTX.why})`) }
 
 // THE MANIFEST. Every path here is load-bearing for operating or measuring the fleet, and every one
 // of them has either gone missing from main or been cited by a review as missing. Adding to this
@@ -450,6 +458,16 @@ const REQUIRED = [
   'docs/reports/decbundle-01/decbundle-01.3690e867.json',
   'docs/reports/decbundle-01/decbundle-01.queue-entry.json',
   'docs/reports/decbundle-01/SUPERSEDES.md',
+  // phase 1 (11-06): the autopilot and the pager -- tiers/acks/delivery, the page relay, hourly checks, suite-run git context
+  'docs/reports/phase1-autopilot-design-2026-11-06.md',
+  'scripts/host/pager.py',
+  'scripts/host/hourwatch.py',
+  'scripts/host/test_pager.py',
+  'scripts/host/test_union_merge.py',
+  'scripts/host/test_suite_run.py',
+  'bots/scripts/test-result.mjs',
+  'bots/test/test-result.test.mjs',
+  '.gitattributes',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
@@ -457,7 +475,7 @@ t('every load-bearing path exists in the working tree', () => {
   assert.deepEqual(gone, [], `missing from this tree: ${gone.join(', ')}`)
 })
 
-t('and every one of them is TRACKED, not sitting untracked on disk', () => {
+tGit('and every one of them is TRACKED, not sitting untracked on disk', () => {
   // existsSync is not enough: 42 files were present on disk and in no commit at all, which is
   // indistinguishable from healthy until someone clones the repo or runs git clean.
   const tracked = new Set(git('ls-files').split('\n').filter(Boolean))
@@ -473,7 +491,7 @@ t('the manifest itself is not vacuous', () => {
   assert.ok(REQUIRED.some(p => p.startsWith('sandbox/')), 'the replay harness must stay in the manifest')
 })
 
-t('no untracked files are accumulating in the directories that carry evidence or tooling', () => {
+tGit('no untracked files are accumulating in the directories that carry evidence or tooling', () => {
   // The other half of the failure: work that never got committed anywhere. Reports and scripts are
   // where it lands, because they are not what `npm test` or a deploy would notice.
   const WATCH = ['docs/reports/', 'scripts/', 'sandbox/', 'infra/', 'bots/scripts/']
@@ -485,7 +503,7 @@ t('no untracked files are accumulating in the directories that carry evidence or
     `untracked and one \`git clean\` from gone:\n        ${untracked.join('\n        ')}`)
 })
 
-t('nothing under bots/node_modules is tracked -- not a directory, and not a symlink either', () => {
+tGit('nothing under bots/node_modules is tracked -- not a directory, and not a symlink either', () => {
   // 9b339fd committed a SYMLINK at bots/node_modules (-> an absolute path on one machine) because
   // .gitignore's `node_modules/` matches directories only. Checking out main then made the link
   // point at itself and every test run failed with ERR_MODULE_NOT_FOUND.
@@ -508,5 +526,6 @@ t('MUTANT KILLED: a required path going missing is caught', () => {
   assert.ok(existsSync(victim), 'the mutant must restore the file it removed')
 })
 
-console.log(`\n${pass} passed, ${fail} failed`)
-process.exit(fail ? 1 : 0)
+console.log(`\n${pass} passed, ${fail} failed${skipped ? `, ${skipped} skipped` : ''}`)
+if (!fail && skipped) console.log(`SKIP (${CTX.why}: ${skipped} git check(s) not run)`)
+process.exit(fail ? 1 : skipped ? 77 : 0)

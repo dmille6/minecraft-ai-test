@@ -170,20 +170,21 @@ def t_halt(H):
         with contextlib.redirect_stdout(io.StringIO()) as o1:
             H.main(args)
         alog = open(os.path.join(d, 'ALARMS.log')).read() if os.path.exists(os.path.join(d, 'ALARMS.log')) else ''
-        check('slot push: a head BLOCKED 150 min is a NEW slotwatch alarm', 'NEW     slotwatch slot:idle' in alog
-              and 'cooldown15-01' in alog, alog)
+        check('slot push: a head BLOCKED 150 min is a NEW slotwatch alarm keyed by cause',
+              'NEW     slotwatch slot:nodeploy:block:H2-refused' in alog and 'cooldown15-01' in alog, alog)
         ps = json.load(open(os.path.join(d, 'slotwatch.pushstate.json')))
-        check('slot push: its own push state', list(ps) == ['slot:idle'], ps)
+        check('slot push: its own push state', list(ps) == ['slot:nodeploy:block:H2-refused'], ps)
         hw = json.load(open(os.path.join(d, 'haltwatch-fleet.json')))
         check('slot push: kept out of the haltwatch header state', not any('slot' in k for k in hw.get('alarms') or {}), hw)
         with contextlib.redirect_stdout(io.StringIO()):
             H.main(args)
         alog2 = open(os.path.join(d, 'ALARMS.log')).read()
-        check('slot push: deduplicated (no second NEW)', alog2.count('slotwatch slot:idle') == 1, alog2)
-        open(log, 'a').write(tk(0, 'LAUNCH', 'cooldown15-01') + '\n')
+        check('slot push: deduplicated (no second NEW)', alog2.count('slotwatch slot:nodeploy') == 1, alog2)
+        open(log, 'a').write(tk(0, 'BUSY', 'S1 canary declared: abc on hive-c') + '\n')
         with contextlib.redirect_stdout(io.StringIO()):
             H.main(args)
-        check('slot push: a launch clears it', 'CLEARED slotwatch slot:idle' in open(os.path.join(d, 'ALARMS.log')).read())
+        check('slot push: a deployed canary clears it', 'CLEARED slotwatch slot:nodeploy:block:H2-refused'
+              in open(os.path.join(d, 'ALARMS.log')).read())
 
 
 # ------------------------------------------------------------------------------------------------ rollout
@@ -402,10 +403,10 @@ MUTANTS = [
     ('rollout.py', "        if cut < a['t'] + CHECK_AFTER:", "        if False:", t_rollout),
     ('haltwatch.py', "f'mcbot@{unit_of.get(b, b)}.service'", "f'mcbot@{b}.service'", t_halt),
     ('haltwatch.py', "        AL.raise_alarms('slotwatch', slot, now,", "        AL.raise_alarms('slotwatch', {}, now,", t_halt),
-    ('haltwatch.py', "    if not line or not line.startswith('!! '):\n        return {}", "    if not line:\n        return {}", t_halt),
+    ('haltwatch.py', "        slot = {key: sline} if key else {}", "        slot = {'slot:x': sline}", t_halt),
     ('driftwatch.py', "            if r['alarm']:                      # a zero median", "            if False:                      # a zero median", t_drift),
     ('driftwatch.py', "            if min(lo, hi) >= 0.025:", "            if False:", t_drift),
-    ('lib/alarm.py', "        if last is None or now - last >= repush:", "        if True:", t_alarm),
+    ('lib/alarm.py', "        if last is None or now - last >= rp:", "        if True:", t_alarm),
     ('lib/alarmhead.py', "    if t_last - start >= idle:", "    if False:", t_head),
     ('lib/alarmhead.py', "    return not any(r.startswith(OCCUPIED)", "    return not any(False", t_head),
     ('lib/alarmhead.py', "(r.startswith('S8 INSTALL-HOLD') and 'STALE' not in r)", "(False)", t_head),

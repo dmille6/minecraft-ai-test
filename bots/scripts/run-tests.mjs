@@ -40,6 +40,9 @@ import { readdirSync, readFileSync, writeFileSync, renameSync, mkdtempSync, rmSy
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+// SKIP (phase 1 item 3, 11-06): a file that cannot run its checks HERE (the git-only tests on a tree with no .git)
+// exits 77 after printing `SKIP (<why>)` and is reported SKIPPED -- neither a pass nor a failure (scripts/test-result.mjs).
+import { isSkip } from './test-result.mjs'
 
 // Files that must run alone, each with its reason. An entry without evidence
 // is a guess and should be removed.
@@ -128,7 +131,7 @@ function run (file) {
       // name of a passing test, and an unanchored grep once refused a deploy
       // over it.
       if (code === 0 && FAIL_LINE.test(out)) { code = '0, but printed a FAIL line' }
-      resolve({ file, code, timedOut, out, ms: Date.now() - started })
+      resolve({ file, code, timedOut, out, ms: Date.now() - started, skipped: isSkip(code, out, timedOut) })
     })
   })
 }
@@ -136,7 +139,7 @@ function run (file) {
 const results = []
 const total = files.length
 function report (r) {
-  const mark = r.code === 0 ? 'ok  ' : 'FAIL'
+  const mark = r.skipped ? 'skip' : r.code === 0 ? 'ok  ' : 'FAIL'
   console.log(`${mark} ${r.file.padEnd(44)} ${String(r.ms).padStart(6)}ms  [${results.length}/${total}]`)
   if (VERBOSE) console.log(r.out.trimEnd().replace(/^/gm, '    | '))
 }
@@ -171,7 +174,8 @@ try {
 } catch {}
 
 results.sort((a, b) => a.file.localeCompare(b.file))
-const failed = results.filter(r => r.code !== 0)
+const failed = results.filter(r => r.code !== 0 && !r.skipped)
+const skipped = results.filter(r => r.skipped)
 
 if (failed.length) {
   console.log(`\n${'='.repeat(60)}\nFAILING DETAIL\n${'='.repeat(60)}`)
@@ -188,7 +192,9 @@ for (const r of [...results].sort((a, b) => b.ms - a.ms).slice(0, 10)) {
 const summed = results.reduce((s, r) => s + r.ms, 0)
 console.log(`\nwall ${(wall / 1000).toFixed(1)}s, summed file time ${(summed / 1000).toFixed(1)}s, jobs ${JOBS}`)
 if (failed.length) console.log(`FAILED (${failed.length}): ${failed.map(r => r.file).join(' ')}`)
-console.log(`${results.length - failed.length}/${total} files passed`)
+for (const r of skipped) console.log(`SKIPPED ${r.file}: ${(/^SKIP \((.*)\)/m.exec(r.out) || [])[1] || ''}`)
+if (skipped.length) console.log(`SKIPPED (${skipped.length}): ${skipped.map(r => r.file).join(' ')} -- not run here, NOT passed`)
+console.log(`${results.length - failed.length - skipped.length}/${total} files passed`)
 // Every file must have produced a result: a runner that silently skipped one
 // must not report green.
 process.exit(failed.length || results.length !== total ? 1 : 0)

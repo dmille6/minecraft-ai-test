@@ -57,10 +57,11 @@
    "host": "31",
    "cron": "stuckwatch.py",
    "outputs": [
-    "~/digest/stuckwatch.log"
+    "~/digest/stuckwatch.log",
+    "~/digest/stuckwatch.pushstate.json"
    ],
    "fresh_hours": 1,
-   "consumer": "fleetstatus header (alarmhead MONITOR_LOGS, audit 11-01 flag 9, 11-02): 'pinned bots:' line; '!!' when a bot is pinned >= 240 min, REFUSED, or stale > 90 min",
+   "consumer": "PUSHED (phase 1 11-06): pins >= 240 min are lib/alarm tier-1 keys pin:<bot> (the owner's phone via ntfy, re-pushed every 2 h until acked); fleetstatus header (alarmhead MONITOR_LOGS): 'pinned bots:' line",
    "kind": "monitor"
   },
   {
@@ -290,6 +291,39 @@
    ],
    "fresh_hours": 0.5,
    "consumer": "fleetstatus header (alarmhead)",
+   "kind": "monitor"
+  },
+  {
+   "id": "pager-relay",
+   "host": "31",
+   "cron": "host/pager.py relay",
+   "outputs": [
+    "~/digest/pager-relay.json"
+   ],
+   "fresh_hours": 0.34,
+   "consumer": "the owner's phone (ntfy, lib/alarm tier 1) for scheduler / loop / rollout pages from ~/digest/page.jsonl; tier-2 pages go to the daily digest (phase 1 11-06)",
+   "kind": "monitor"
+  },
+  {
+   "id": "pager-digest",
+   "host": "31",
+   "cron": "host/pager.py digest",
+   "outputs": [
+    "~/digest/pager-digest.txt"
+   ],
+   "fresh_hours": 25,
+   "consumer": "the owner's phone (one ntfy push a day at 12:30Z = 06:30 CST): open pages, digest-tier alarms, delivery state (phase 1 11-06)",
+   "kind": "monitor"
+  },
+  {
+   "id": "hourwatch",
+   "host": "31",
+   "cron": "host/hourwatch.py run",
+   "outputs": [
+    "~/digest/hourwatch-fleet.json"
+   ],
+   "fresh_hours": 1.5,
+   "consumer": "the owner's phone (ntfy, lib/alarm tier 1: value/bot-h drop, idle-lap share, towns without work) + fleetstatus header (alarmhead FILES) (phase 1 11-06)",
    "kind": "monitor"
   },
   {
