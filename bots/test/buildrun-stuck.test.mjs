@@ -66,8 +66,18 @@ await t('the stuck row is NAMED, and the order backs off after it (no loop)', as
   assert.ok(row, 'a _build op=stuck_on_cell row'); assert.deepStrictEqual(row[1].cell, X); assert.strictEqual(row[1].visits, R.STUCK_VISITS)
   const base = { on: true, shared: true, atTown: true, holds: false, record: {}, planned: true, freeSlots: 30 }
   const now = 10 * 3600_000
-  assert.strictEqual(S.buildOrder({ ...base, now, state: { lastAt: now - S.SHOP_COOLDOWN_MS - 1, lastStop: 'stuck_on_cell' } }).skip, 'stuck_on_cell')
-  assert.ok(S.buildOrder({ ...base, now, state: { lastAt: now - S.SHOP_STUCK_RETRY_MS - 1, lastStop: 'stuck_on_cell' } }).order, 'after the back-off it asks again')
+  // BUILDNEXT=0: the bot's own stop holds its order (the old, unscoped hold)
+  process.env.BUILDNEXT = '0'
+  try {
+    assert.strictEqual(S.buildOrder({ ...base, now, state: { lastAt: now - S.SHOP_COOLDOWN_MS - 1, lastStop: 'stuck_on_cell' } }).skip, 'stuck_on_cell')
+    assert.ok(S.buildOrder({ ...base, now, state: { lastAt: now - S.SHOP_STUCK_RETRY_MS - 1, lastStop: 'stuck_on_cell' } }).order, 'after the back-off it asks again')
+  } finally { delete process.env.BUILDNEXT }
+  // buildnext-01 (default): the bot's stuck stop holds ITS project (the scoped hold, through shop.mjs's hook), and asks again after
+  S.setNextHoldOf(plot => S.nextHeld(plot, { stuck: { plot: 'shop', at: now - S.SHOP_COOLDOWN_MS - 1 }, now }))
+  try {
+    assert.strictEqual(S.buildOrder({ ...base, record: { plot: 'shop' }, now, state: { lastAt: now - S.SHOP_COOLDOWN_MS - 1 } }).skip, 'stuck_on_cell')
+    assert.ok(S.buildOrder({ ...base, record: { plot: 'wall' }, now, state: { lastAt: now - S.SHOP_COOLDOWN_MS - 1 } }).order, 'another project is not held')
+  } finally { S.setNextHoldOf(() => null) }
   // PROJECT-WIDE (Claude r21 P3-3): a restarted bot, or another town bot, with NO in-memory state still backs off -- the stuck files
   const at = PJ.stuckAt(pr.dir, pr.key)
   assert.ok(Number.isFinite(at), 'the stuck visit stamped stuckAt')
