@@ -226,6 +226,7 @@ const REQUIRED = [
   'bots/test/copperhall.test.mjs',
   // copperrun-01 (11-03): the waiting hall's bill drives a copper gather (copperhall.mjs copperRunOrder; shop.mjs buildOrder's ask)
   'bots/test/copperrun.test.mjs',
+  'bots/test/copperrun02.test.mjs',   // copperrun-02 (owner 11-06: mine copper for the sited hall)
   'bots/test/fixtures/copperhall-01-terrain-20261102.json',
   // voidfill-01 (10-30): a sealed void in a project record repaired from inside; its test reproduces the showcase ziggurat's
   // own geometry from the fixture (the record's cells and a read-only scan of the world)

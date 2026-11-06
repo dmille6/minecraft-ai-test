@@ -253,6 +253,104 @@ export function copperShort (gate) {
   return { short: Math.max(0, gate.need - have), need: gate.need, have }
 }
 
+// ---- COPPERRUN-02: THE SITED HALL'S BILL, AND A TRIP TO KNOWN COPPER (OWNER 11-06 ~01:25Z: "bots should MINE copper") ---------
+// MEASURED on the showcase (11-04 00Z .. 11-06 03Z, 15 bots, 767,389 skill rows): 14 `_copper_run` rows, ALL 11-04 <= 07:22Z and all
+// `skip=pickaxe`; none since -- the hall was SITED (record g1..g22, open, 0 of its 33 copper cells placed), and copperRunOrder asked
+// only while the hall was UNSITED (`not_waiting`, an unlogged skip). Raw copper in 2 days: 1 gather (+3, incidental) and 5 mine rows;
+// `_smelt_job_skip why=town_has_none copper=0` 5,242. The town: 138 copper_ingot + 3 copper_block, 0 cut, 0 raw -- the 33 cells
+// owe 9 batches = 324 ingots + the project floor. AND THE ORE IS NOT IN REACH OF THE RUN: the run gathers only EXPOSED ore within
+// 32 of a bot AT TOWN, while the bots' shared map (atlas) knows 507 copper finds, none within 64 of home (the atlas skips the town's
+// own 64) and 219 at 64-96. Buried copper escalated to mine({y}) (stairs toward dryness): copper does not tunnel (oretunnel.mjs).
+// THE FIX, two switches under COPPERRUN:
+//   COPPERRUN_SITED  the run is also asked while the SITED hall is incomplete and the town's copper is short of the copper cells
+//                    the world still shows unplaced (hallCopperOwed; hallOpening's own rule with needed = those cells)
+//   COPPERRUN_TRIP   with no exposed ore in reach, a TRIP (build_shop {copperTrip}) walks to the nearest known copper find
+//                    (copperTripTarget: atlas, 64..COPPER_TRIP_MAX from home, out of every zone, not one a trip came back empty
+//                    from in COPPER_TRIP_BACKOFF_MS), gathers there with copper allowed to TUNNEL (oretunnel tunnelKindsFor
+//                    `copper`, this call only), walks home inside the runner's 180 s (copperTripClock); the next town deposit banks
+//                    the raw copper (DEPOSIT_ALWAYS) and the town smelt job makes it ingots.
+const envOff = (k) => ['off', '0', 'false', 'no'].includes(String((typeof process !== 'undefined' ? process.env?.[k] : '') ?? '').trim().toLowerCase())
+export const COPPERRUN2 = Object.freeze({ sited: !envOff('COPPERRUN_SITED'), trip: !envOff('COPPERRUN_TRIP') })
+/** A trip's target is at least this far from home (the atlas records nothing nearer: TOWN_SKIP_R) and at most COPPER_TRIP_MAX. */
+export const COPPER_TRIP_MIN = 64
+export const COPPER_TRIP_MAX = 110
+/** A target a trip came back from with no copper is passed over this long (per bot). */
+export const COPPER_TRIP_BACKOFF_MS = 6 * 60 * 60 * 1000
+export const COPPER_TRIP_REACH = 6
+/**
+ * THE TRIP'S CLOCK -> { budget, outMs, gatherMs, homeMs } (ms after the visit's start). Pure. The RUNNER's watchdog
+ * (config.skills.defaultTimeoutMs, 180 s on the showcase) bounds every skill whatever its contract (Claude r2 BLOCKER), so the budget
+ * is min(build_shop's 600 s, that) less 15 s, cut 30% out / to 62% gather / the rest home. At 180 s: out 49.5 s (the target is at
+ * most COPPER_TRIP_MAX = 110 from home, ~30 s of walking), the gather to 102 s, home by 165 s.
+ */
+export const COPPER_TRIP_SHOP_MS = 600_000
+export const COPPER_TRIP_MIN_BUDGET_MS = 60_000
+export function copperTripClock (skillMs = COPPER_TRIP_SHOP_MS) {
+  const s = Number(skillMs) > 0 ? Math.min(COPPER_TRIP_SHOP_MS, Number(skillMs)) : COPPER_TRIP_SHOP_MS
+  const budget = s - 15_000
+  // A CLOCK TOO SHORT FOR A TRIP IS NO TRIP (Codex r2 BLOCKER 2): never a budget above what the runner allows -- null, and the
+  // run does not issue one (skills.mjs copperAsk)
+  if (budget < COPPER_TRIP_MIN_BUDGET_MS) return null
+  return { budget, outMs: Math.round(budget * 0.30), gatherMs: Math.round(budget * 0.62), homeMs: budget }
+}
+/** The gather at the find: tunnel candidates come from oretunnel CANDIDATE_RADIUS (24). */
+export const COPPER_TRIP_GATHER_R = 24
+
+/** Is this block name cut copper in any weathering / waxing? (a placed copper cell weathers in place). Pure. */
+export const isCutCopper = n => /^(waxed_)?((exposed|weathered|oxidized)_)?cut_copper$/.test(String(n ?? ''))
+
+/**
+ * THE COPPER CELLS A SITED HALL STILL OWES -> n | null. Pure over `blockAt(x, y, z)` -> block | null. A record cell whose role is
+ * `copper` the world does not show as cut copper is owed; an unloaded cell (null) is owed too (an over-ask only fetches copper). A
+ * complete or non-hall record owes nothing (0); no record: null.
+ */
+export function hallCopperOwed (rec, blockAt = () => null) {
+  if (!rec || typeof rec !== 'object') return null
+  if (rec.structure_complete === true) return 0
+  let n = 0
+  for (const c of Array.isArray(rec.cells) ? rec.cells : []) {
+    if (c?.role !== 'copper' || !Array.isArray(c.at)) continue
+    let b = null
+    try { b = blockAt(c.at[0], c.at[1], c.at[2]) } catch { b = null }
+    if (!b || !isCutCopper(b.name)) n++
+  }
+  return n
+}
+
+/**
+ * THE TRIP'S TARGET -> { block, at: [x, y, z], key, dist } | null. Pure. `finds` the atlas view's finds ({ kind, x, y, z }); the
+ * nearest copper find (to home) between `min` and `max` blocks from home, outside every zone (`inZone(x, y, z)` -> truthy), and not
+ * a key in `tried` whose back-off has not run out (`tried` { key: until }).
+ */
+export function copperTripTarget (finds = [], { home = null, min = COPPER_TRIP_MIN, max = COPPER_TRIP_MAX, inZone = () => false, tried = {}, now = 0 } = {}) {
+  if (!home || !Number.isFinite(home.x) || !Number.isFinite(home.z)) return null
+  let best = null
+  for (const f of Array.isArray(finds) ? finds : []) {
+    if (!f || !COPPER_KINDS.includes(f.kind) || ![f.x, f.y, f.z].every(Number.isFinite)) continue
+    const d = Math.hypot(f.x - home.x, f.z - home.z)
+    if (d < min || d > max) continue
+    const key = `${Math.round(f.x)},${Math.round(f.y)},${Math.round(f.z)}`
+    if ((Number(tried?.[key]) || 0) > now) continue
+    let z = false
+    try { z = !!inZone(f.x, f.y, f.z) } catch { z = true }
+    if (z) continue
+    if (!best || d < best.dist || (d === best.dist && key < best.key)) best = { block: f.kind, at: [Math.round(f.x), Math.round(f.y), Math.round(f.z)], key, dist: d }
+  }
+  return best
+}
+
+/** After a trip: the target's back-off -> the new `tried` map (expired keys dropped). Pure. A trip that gained copper keeps the key open. */
+export function copperTripTried (tried = {}, key = null, gained = 0, now = 0, ms = COPPER_TRIP_BACKOFF_MS) {
+  const out = {}
+  for (const [k, u] of Object.entries(tried ?? {})) if ((Number(u) || 0) > now) out[k] = u
+  if (key && !(Number(gained) > 0)) out[key] = now + ms
+  return out
+}
+
+/** The trip's row detail (`_copper_trip`, under 300 chars). Pure. */
+export const copperTripDetail = ({ phase = '-', at = null, block = '-', gained = 0, why = '-', ms = 0 } = {}) =>
+  `phase=${phase} at=${Array.isArray(at) ? at.join(',') : '-'} block=${block} gained=${gained} ms=${Math.round(Number(ms) || 0)} why=${String(why).replace(/\s+/g, '_').slice(0, 120)}`
+
 /**
  * THE COPPER RUN -> { order, state, skip }. Pure; skills.mjs copperAsk supplies the readings and keeps `state`.
  *   on         COPPERRUN and the hall's own switch
@@ -267,7 +365,7 @@ export function copperShort (gate) {
  * Cheap tests first; the readings only when everything else would issue. `skip` names why nothing was issued.
  */
 export function copperRunOrder ({ now = 0, on = COPPERRUN.on, waiting = null, gate = null, held = 0, freeSlots = 0, tripPick = false,
-                                  site = null, ore = null, state = {} } = {}) {
+                                  site = null, ore = null, state = {}, trip = null, tripOn = false } = {}) {
   const s = { ...state }
   const skip = why => ({ order: null, state: s, skip: why })
   if (!on) return skip('off')
@@ -287,7 +385,17 @@ export function copperRunOrder ({ now = 0, on = COPPERRUN.on, waiting = null, ga
   if (st?.ok !== true) return skip('site_unknown')
   if (st.hit) return skip('on_site')
   const o = lazy(ore)
-  if (!o?.block || !COPPER_KINDS.includes(o.block)) return skip('no_ore')
+  if (!o?.block || !COPPER_KINDS.includes(o.block)) {
+    // copperrun-02: no exposed ore in reach -> a trip to the nearest known copper find (copperTripTarget), charged like a run
+    const t = tripOn ? lazy(trip) : null
+    if (!t?.block || !COPPER_KINDS.includes(t.block) || !Array.isArray(t.at)) return skip('no_ore')
+    s.lastIssuedAt = now
+    s.lastOre = null
+    return { order: { skill: 'build_shop', args: { copperTrip: true, at: t.at, block: t.block, key: t.key },
+                      why: `the town's copper hall needs ${sh.need} copper ingots and the town holds ${sh.have} (ingots + raw); ` +
+                           `no copper ore in reach -- a trip to the known ${t.block} at ${t.at.join(',')} (${Math.round(Number(t.dist) || 0)} from home)` },
+             state: s, skip: null, short: sh, trip: t }
+  }
   // the cell the last run was issued for is still ore: that run did not take it (unreachable, refused): back off, once per cell
   if (o.at && o.at === s.lastOre) { s.backoffUntil = now + COPPER_RUN_BACKOFF_MS; s.lastOre = null; return skip('same_ore') }
   s.lastIssuedAt = now
@@ -299,10 +407,10 @@ export function copperRunOrder ({ now = 0, on = COPPERRUN.on, waiting = null, ga
 }
 
 /** The run's row detail (under 300 chars). */
-export const copperRunDetail = ({ skip = null, issued = null, gate = null, held = 0, free = 0 } = {}) =>
-  `${issued ? `issued block=${issued}` : `skip=${skip ?? '-'}`} ingots=${gate?.have ?? '?'} raw=${gate?.raw ?? '?'} blocks=${gate?.blocks ?? '?'} ` +
+export const copperRunDetail = ({ skip = null, issued = null, gate = null, held = 0, free = 0, trip = null } = {}) =>
+  `${issued ? `issued block=${issued}${trip ? ` trip=${trip}` : ''}` : `skip=${skip ?? '-'}`} ingots=${gate?.have ?? '?'} raw=${gate?.raw ?? '?'} blocks=${gate?.blocks ?? '?'} ` +
   `cut=${gate?.cut ?? '?'} need=${gate?.need ?? '?'} held=${held} free=${free}`
 /** `_copperrun_mode` row detail. */
-export const copperRunModeDetail = (on, hall) => `on=${on ? 1 : 0} hall=${hall ? 1 : 0} kinds=${COPPER_KINDS.join('+')} radius=${COPPER_ORE_RADIUS} count=${COPPER_RUN_COUNT} carry=${COPPER_RUN_CARRY} cooldown_min=${COPPER_RUN_COOLDOWN_MS / 60000} backoff_min=${COPPER_RUN_BACKOFF_MS / 60000}`
+export const copperRunModeDetail = (on, hall, v2 = COPPERRUN2) => `on=${on ? 1 : 0} hall=${hall ? 1 : 0} sited=${v2?.sited ? 1 : 0} trip=${v2?.trip ? 1 : 0} trip_r=${COPPER_TRIP_MIN}-${COPPER_TRIP_MAX} kinds=${COPPER_KINDS.join('+')} radius=${COPPER_ORE_RADIUS} count=${COPPER_RUN_COUNT} carry=${COPPER_RUN_CARRY} cooldown_min=${COPPER_RUN_COOLDOWN_MS / 60000} backoff_min=${COPPER_RUN_BACKOFF_MS / 60000}`
 
 const lazy = x => (typeof x === 'function' ? x() : x)
