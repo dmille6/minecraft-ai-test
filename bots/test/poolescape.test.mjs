@@ -452,7 +452,8 @@ await ta('MUTANT KILLED: a mark that vetoes (instead of ordering) leaves the all
   })
 })
 await ta('MUTANT KILLED: dropping the last-pickaxe reserve spends the only pickaxe', async () => {
-  await withMutant(PEPATH, '    if (usable <= 1) return false\n', '', async m => {
+  // escdead-01: the reserve is the one rule's usablePickaxes count (toolfor.mjs); the mutant drops that test
+  await withMutant(PEPATH, "  if (/_pickaxe$/.test(tool.name ?? '') && usablePickaxes(items) <= 1) return false\n", '', async m => {
     const one = item('stone_pickaxe', 1, 9, 0)
     assert.equal(m.poolToolOk(one, [one], 1), true)
   })

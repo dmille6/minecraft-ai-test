@@ -31,7 +31,8 @@ export const CONSUMABLE_RE = /_(axe|shovel|hoe)$/
 export const isConsumable = name => CONSUMABLE_RE.test(String(name ?? ''))
 /** The hard stop for this copy: 0 for an axe/shovel/hoe on a HARVEST dig (`lastSwing`: a 1-use copy is swung and breaks);
  *  HARD_STOP for a pickaxe, and for every kind on travel and reflex digs. */
-export const hardStopFor = (it, { lastSwing = false } = {}) => (lastSwing && isConsumable(it?.name) ? 0 : HARD_STOP)
+export const hardStopFor = (it, { lastSwing = false, pinned = false } = {}) =>
+  (pinned && isPickaxe(it?.name) ? 0 : lastSwing && isConsumable(it?.name) ? 0 : HARD_STOP)
 /** Blocks whose drop is a stone-tool material (cobblestone / cobbled_deepslate / blackstone): the only ones a last swing may break. */
 export const LAST_SWING_BLOCKS = new Set(['stone', 'cobblestone', 'deepslate', 'cobbled_deepslate', 'blackstone'])
 /** A candidate slower than this multiple of the fastest eligible tool is "slow"; a cheaper tool within it wins. */
@@ -55,6 +56,35 @@ export function toolHygieneMode (env = {}) {
 }
 export const TOOL_HYGIENE = Object.freeze(toolHygieneMode(typeof process !== 'undefined' ? process.env : {}))
 export const isPickaxe = name => /_pickaxe$/.test(String(name ?? ''))
+/**
+ * ESCDEAD-01 (b): ONE "USABLE PICKAXE" RULE (docs/reports/escdead-design-2026-11-06.md). Five modules used to define it five
+ * ways (reflex mayDigForEscape: > 1 use, refuse at exactly one usable; poolescape poolToolOk: refuse at <= 1 usable, zero too;
+ * toolFor: HARD_STOP for every escape dig; exit-contract pickaxeUses: uses - 1; craftroom: never wear one unless another with
+ * >= 2 uses stays). A copy at 249/250 was "gone" to the escape and "the last pickaxe" to the craft room at once, so it never
+ * broke and never helped: hive-c-Bravo held two at 1 use, 36/36 slots, 72 craft-room refusals, pinned under a lake.
+ * THE RULE:
+ *   - a copy is USABLE while it has more than HARD_STOP uses left (unknown durability counts as full);
+ *   - a PINNED escape (the body in one 3-block box for escdead's PIN_MIN_MS, 30 min) may also swing a copy's LAST use, and the
+ *     escape reserve (never spend the last usable pickaxe) does not bind it: after 30 min in one cell the reserve is protecting
+ *     a way out that is not being taken;
+ *   - so a copy at exactly one use is worth one pinned last swing and nothing else: the craft room may wear one out while
+ *     another copy with at least one use stays (craftroom.mjs).
+ * ESCDEAD=0 turns the pinned exception and the craft-room relaxation off; the counts below then equal the base exactly.
+ */
+export const escDeadOn = (env = typeof process !== 'undefined' ? process.env : {}) =>
+  !/^(0|off|false|no)$/i.test(String(env?.ESCDEAD ?? '1').trim())
+export const ESCDEAD_ON = escDeadOn()
+/** Swings this copy may still take -> n (Infinity when durability is unknown). Pure. Pinned (and escdead on): to the last. */
+export const swingsLeft = (it, { pinned = false, on = ESCDEAD_ON } = {}) => {
+  const r = remaining(it)
+  return r === Infinity ? Infinity : Math.max(0, r - (pinned && on ? 0 : HARD_STOP))
+}
+/** How many pickaxe COPIES can still dig (one per item, as every caller counted) -> n. Pure. */
+export function usablePickaxes (items = [], { pinned = false, on = ESCDEAD_ON } = {}) {
+  let n = 0
+  for (const it of (Array.isArray(items) ? items : [])) if (isPickaxe(it?.name) && swingsLeft(it, { pinned, on }) >= 1) n++
+  return n
+}
 /** reflex.mjs ESCAPE_PICKAXES_NEEDED, restated (reflex imports this module); toolhygiene.test.mjs holds them equal.
  *  mayDigForEscape refuses a tool-requiring escape dig while the bag holds exactly ONE pickaxe above HARD_STOP. */
 export const ESCAPE_RESERVE = 2
@@ -124,7 +154,10 @@ const canHarvest = (block, typeId) => {
   const harvest = block?.harvestTools
   return !harvest || (typeId != null && !!harvest[typeId])
 }
-export function toolFor (block, items = [], { lastSwing = false, hygiene = TOOL_HYGIENE.on } = {}) {
+export function toolFor (block, items = [], { lastSwing = false, hygiene = TOOL_HYGIENE.on, pinned = false, escdead = ESCDEAD_ON } = {}) {
+  // ESCDEAD-01 (b): a PINNED escape dig may swing a pickaxe's last use (hardStopFor 0 for a pickaxe). The 1-use copy is at or
+  // under FLOOR, so it stays RESERVED: it digs only what the hand cannot (reserved_required), never instead of the hand.
+  const pin = !!(pinned && escdead)
   const handOk = canHarvest(block, null)
   const tools = (Array.isArray(items) ? items : []).filter(it => it?.name && TOOL_RE.test(it.name))
   // SPEND A SPENT PICKAXE WHILE A WORKING ONE IS HELD (harvest digs on the stone family only): the working pickaxe
@@ -134,7 +167,7 @@ export function toolFor (block, items = [], { lastSwing = false, hygiene = TOOL_
     const spare = spentPickaxeFor(block, tools)
     if (spare) return { item: spare, hand: false, reason: 'spend_spent' }
   }
-  const eligible = tools.filter(it => canHarvest(block, it.type) && remaining(it) > hardStopFor(it, { lastSwing }))
+  const eligible = tools.filter(it => canHarvest(block, it.type) && remaining(it) > hardStopFor(it, { lastSwing, pinned: pin }))
   if (!eligible.length) {
     if (handOk) return { item: null, hand: true, reason: 'hand' }
     // THE LAST SWING, for a HARVEST dig only (the caller opts in). Measured 2026-09-28 by both engines over

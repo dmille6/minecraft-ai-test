@@ -379,10 +379,10 @@ await killed('part 2 without the working-pickaxe (> FLOOR) check',
   [['  if (!picks.some(it => remaining(it) > FLOOR)) return null\n', '']],
   m => { const other = item('stone_pickaxe', 5); assert.equal(m.toolFor(STONE, [other, item('stone_pickaxe', 1)], HARVEST).item, other) })
 await killed('hard stop 0 applied to pickaxes too',
-  [['export const hardStopFor = (it, { lastSwing = false } = {}) => (lastSwing && isConsumable(it?.name) ? 0 : HARD_STOP)', 'export const hardStopFor = () => 0']],
+  [['export const hardStopFor = (it, { lastSwing = false, pinned = false } = {}) =>\n  (pinned && isPickaxe(it?.name) ? 0 : lastSwing && isConsumable(it?.name) ? 0 : HARD_STOP)', 'export const hardStopFor = () => 0']],   // escdead-01 added the pinned arm; the mutant replaces the whole rule
   m => { assert.equal(m.toolFor(STONE, [item('stone_pickaxe', 1)]).reason, 'none') })
 await killed('hard stop 0 on travel digs (lastSwing ignored)',
-  [['export const hardStopFor = (it, { lastSwing = false } = {}) => (lastSwing && isConsumable(it?.name) ? 0 : HARD_STOP)', 'export const hardStopFor = it => (isConsumable(it?.name) ? 0 : HARD_STOP)']],
+  [['export const hardStopFor = (it, { lastSwing = false, pinned = false } = {}) =>\n  (pinned && isPickaxe(it?.name) ? 0 : lastSwing && isConsumable(it?.name) ? 0 : HARD_STOP)', 'export const hardStopFor = it => (isConsumable(it?.name) ? 0 : HARD_STOP)']],
   m => { assert.equal(m.travelTool(DIRT, [item('stone_shovel', 1)], null), null) })
 await killed('the equip check by NAME only',
   [['if (held && held.name === chosen.name && remaining(held) === chosen.left) return \'swing\'', 'if (held && held.name === chosen.name) return \'swing\'']],

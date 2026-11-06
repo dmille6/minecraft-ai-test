@@ -30,6 +30,7 @@
 // placeable workspace. The trapped bot had the ingredients for its own rescue and
 // lacked the workspace to use them, which no single-resource model would predict.
 
+import { HARD_STOP } from './toolfor.mjs'   // escdead-01 (b): the one usable-pickaxe rule's hard stop
 export const SEA_LEVEL = 63
 
 // Nominal durability, for the case where an item arrives without metadata.
@@ -82,8 +83,10 @@ export function pickaxeUses (items = []) {
     if (!it?.name || !/_pickaxe$/.test(it.name)) continue
     const max = it.maxDurability ?? PICK_DURABILITY[it.name]
     if (!max) continue
+    // ESCDEAD-01 (b): the one rule's hard stop (toolfor.mjs HARD_STOP = 1), not a private "- 1". A DESCENT is never pinned,
+    // so the pinned last swing never counts here: the exit is priced on swings a working copy can take.
     const used = it.durabilityUsed ?? 0
-    total += Math.max(0, (max - used) - 1) * (it.count ?? 1)
+    total += Math.max(0, (max - used) - HARD_STOP) * (it.count ?? 1)
   }
   return total
 }
