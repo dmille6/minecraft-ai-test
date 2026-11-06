@@ -15,6 +15,24 @@ NO THIRD STORE. The ledger is two existing append-only files, read as one table:
     rollout.py list [--env fleet|showcase] [--days 7]
     rollout.py check --due [--env ..]          (cron, every 10 min: every row >= 60 min old with no check)
     rollout.py check --run tidy-01 | --release <name>          (by hand; prints, appends, alarms)
+    rollout.py deploy --run tidy-02 --sha <full sha> --tier 1|2 --reviewer codex [--showcase-evidence TEXT] [--dry-run]
+                                               (phase 1 item 3b: the OWNER-DIRECT LANE, below)
+
+THE OWNER-DIRECT LANE (phase 1 item 3b, OWNER 11-06; docs/reports/phase1-autopilot-design-2026-11-06.md). Fun mode lets
+tier 1/2 changes go owner-direct with the 60-min check, but no code change had gone that way since 10-23 (19 of 41 slot
+runs were not protected code). `deploy` is that lane, mechanical:
+  BEFORE (direct_plan, pure; any refusal stops it): a reviewer; tier 2 names its showcase evidence; the sha is a full sha
+          that DESCENDS from the fleet's declared build (a divergent sha would drop fleet commits); protected.py on
+          prev..sha says "not protected" (tier 3 goes to the canary slot; tooling is installed on its host); the slot is
+          EMPTY by canary-sched's own checks (no canary declared, no drop-in, no loop / deploy / install process, the loop
+          lock free, no open run, no pause, no install-hold, no death hold).
+  DURING: `canary-sched.py install-hold owner-direct:<run> 90` (no canary launches until the hour is read), the canary
+          lock /tmp/mcai-canary.lock held (flock -n) for the deploy, then ~/bin/fleet-deploy <sha> (the promotion path:
+          the deploy script run from a copy, VERIFIED only when every live bot is on the sha). Not VERIFIED -> the SAME
+          path back to prev, and a page.
+  AFTER:  the journal's `owner-direct` row (sha, prev, tier, reviewer) stamped at the VERIFIED time, so the existing
+          60-min check (cron, every 10 min) reads the full hour after convergence; FAIL / WATCH pushes (tier 1). The
+          install-hold expires at +90 min (canary-sched v42 releases it once the fleet is on the declared build).
 
 THE 60-MINUTE CHECK reads [t0, t0 + 60 min] (t0 = the row's time), whenever it runs:
   tripper   fleet: `sudo -n env TRIPPER_LOCAL=1 /usr/local/bin/mcai-tripper` (dry: it can stop nothing without --apply),
@@ -447,6 +465,154 @@ def auto_prev(at, log_root='/var/log/mcai'):
     return c.most_common(1)[0][0]
 
 
+# ------------------------------------------------------------------------------------------------ the owner-direct lane
+HEX40_RE = re.compile(r'^[0-9a-f]{40}$')
+DIRECT_HOLD_MIN = 90
+SCHED = os.path.expanduser(os.environ.get('ROLLOUT_SCHED', '~/canary-sched.py'))
+FLEET_DEPLOY = os.path.expanduser(os.environ.get('ROLLOUT_FLEET_DEPLOY', '~/bin/fleet-deploy'))
+CANARY_LOCK = os.environ.get('ROLLOUT_CANARY_LOCK', '/tmp/mcai-canary.lock')
+DEPLOY_REPO = os.environ.get('ROLLOUT_DEPLOY_REPO', '/opt/minecraft-ai')
+
+
+def direct_plan(f):
+    """PURE. facts -> [refusal]. Empty = the owner-direct deploy may go. f: tier, reviewer, showcase_evidence, sha, prev,
+    ancestor (bool|None), protected ('not protected'|'tooling'|'protected'|'unknown: ...'), slot ([str] of canary-sched
+    busy/block reasons), run."""
+    out = []
+    if f.get('tier') not in (1, 2):
+        out.append('--tier must be 1 or 2 (tier 3 goes to the canary slot)')
+    if not str(f.get('reviewer') or '').strip():
+        out.append('--reviewer is required (fun mode: one engine, one round)')
+    if f.get('tier') == 2 and not str(f.get('showcase_evidence') or '').strip():
+        out.append('tier 2 goes to the showcase first: --showcase-evidence names the release and the 2-h goal check')
+    if not HEX40_RE.match(str(f.get('sha') or '')):
+        out.append('--sha must be a full 40-hex sha')
+    if not HEX40_RE.match(str(f.get('prev') or '')):
+        out.append('the fleet\'s declared build (the rollback target) could not be resolved to a full sha: %s' % f.get('prev'))
+    if f.get('ancestor') is not True:
+        out.append('%s does not descend from the fleet build %s (a divergent sha would drop fleet commits): rebase it'
+                   % (str(f.get('sha'))[:8], str(f.get('prev'))[:8]) if f.get('ancestor') is False else
+                   'ancestry of the sha could not be checked: %s' % f.get('ancestor_why'))
+    pr = str(f.get('protected') or 'unknown')
+    if pr == 'protected':
+        out.append('protected.py: the change touches protected scope (tier 3): queue a canary instead')
+    elif pr == 'tooling':
+        out.append('protected.py: tooling only -- install it on its host; nothing on a bot changes')
+    elif pr != 'not protected':
+        out.append('protected.py could not classify prev..sha (%s): refuse (undecidable = protected)' % pr)
+    if f.get('slot'):
+        out.append('the canary slot is not empty: ' + ' | '.join(f['slot'])[:500])
+    if not str(f.get('run') or '').strip():
+        out.append('--run is required')
+    return out
+
+
+def _sched_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('rollout_canary_sched', SCHED)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def direct_facts(a):
+    f = {'tier': a.tier, 'reviewer': a.reviewer, 'showcase_evidence': a.showcase_evidence, 'sha': a.sha, 'run': a.run}
+    CS = _sched_module()
+    P = CS.paths()
+    st = CS.gather(P, full=False)
+    busy, block = CS.slot_blockers(st)
+    f['slot'] = ['%s %s' % (c, r) for c, r in busy + block]
+    man = st.get('manifest') if isinstance(st.get('manifest'), dict) else {}
+    f['prev'] = st.get('base_full') or man.get('declared_code_version')
+    g = lambda *x: subprocess.run(['sudo', '-n', 'git', '-C', DEPLOY_REPO] + list(x), capture_output=True, text=True,
+                                  timeout=300)
+    if g('cat-file', '-e', f'{a.sha}^{{commit}}').returncode != 0:
+        g('fetch', '-q', '--all')
+    r = g('merge-base', '--is-ancestor', str(f['prev']), a.sha)
+    f['ancestor'] = True if r.returncode == 0 else False if r.returncode == 1 else None
+    f['ancestor_why'] = (r.stderr or '').strip()[:200]
+    lib = os.path.join(HERE, '..', 'lib', 'protected.py')
+    r = subprocess.run(['python3', '-B', lib, '--base', str(f['prev']), '--head', a.sha, '--repo', DEPLOY_REPO],
+                       capture_output=True, text=True, timeout=300)
+    f['protected'] = protected_class(r.returncode, r.stdout, r.stderr)
+    return f
+
+
+def protected_class(rc, out, err=''):
+    """PURE. protected.py's exit + output -> 'not protected' | 'tooling' | 'protected' | 'unknown: ...' (rc 0 = not
+    protected; rc 1 = a hit, `tier=tooling` or `tier=3`; anything else could not decide = never deployable here)."""
+    lines = [l.strip() for l in (out or '').splitlines() if l.strip()]
+    if rc == 0 and lines and lines[-1] == 'not protected':
+        return 'not protected'
+    if rc == 1 and lines and lines[-1] == 'tier=tooling':
+        return 'tooling'
+    if rc == 1 and lines and lines[-1] == 'tier=3':
+        return 'protected'
+    return 'unknown: rc %s %s' % (rc, ((err or '') + ' ' + (lines[-1] if lines else '')).strip()[:160])
+
+
+def cmd_deploy(a):
+    import fcntl
+    now = dt.datetime.now(UTC).replace(microsecond=0)
+    f = direct_facts(a)
+    bad = direct_plan(f)
+    print(f'owner-direct {a.run} {str(a.sha)[:8]} tier {a.tier} on fleet {str(f.get("prev"))[:8]}: protected.py '
+          f'{f.get("protected")}; slot {"EMPTY" if not f.get("slot") else "BUSY"}')
+    if bad:
+        print('REFUSED:\n  ' + '\n  '.join(bad))
+        return 2
+    if a.dry_run:
+        print('DRY RUN: every check passed; nothing held, deployed or written')
+        return 0
+    r = subprocess.run(['python3', '-B', SCHED, 'install-hold', f'owner-direct:{a.run}', str(DIRECT_HOLD_MIN)],
+                       capture_output=True, text=True, timeout=1200)
+    print(r.stdout.strip())
+    if r.returncode != 0:
+        print('REFUSED: canary-sched would not give the slot (install-hold exit %d)' % r.returncode)
+        return 2
+    lk = os.open(CANARY_LOCK, os.O_RDWR | os.O_CREAT, 0o664)
+    try:
+        fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(lk)
+        print(f'REFUSED: {CANARY_LOCK} is held (a canary loop or an installer); the install-hold stays until it expires')
+        return 2
+    sd = os.path.expanduser(a.state_dir)
+    log = os.path.join(sd, f'deploy-{a.run}-direct.log')
+    try:
+        notes = f'OWNER-DIRECT tier {a.tier} {a.run} (reviewer {a.reviewer}); rollback {str(f["prev"])[:8]}'
+        with open(log, 'w') as out:
+            subprocess.run([FLEET_DEPLOY, a.sha, f'{a.run}-direct', notes], stdout=out, stderr=subprocess.STDOUT,
+                           timeout=3600)
+        ok = 'VERIFIED' in open(log).read()
+        t0 = dt.datetime.now(UTC).replace(microsecond=0)
+        if not ok:
+            with open(log + '.rollback', 'w') as out:
+                subprocess.run([FLEET_DEPLOY, str(f['prev']), f'{a.run}-rollback', f'ROLLBACK of owner-direct {a.run}: '
+                                f'{a.sha[:8]} did not verify'], stdout=out, stderr=subprocess.STDOUT, timeout=3600)
+            back = 'VERIFIED' in open(log + '.rollback').read()
+            append_jsonl(JOURNAL, {'ts': AL._iso(t0), 'run': a.run, 'phase': 'owner-direct-failed',
+                                   'note': f'{a.sha[:8]} did not verify ({log}); rolled back to {str(f["prev"])[:8]}: '
+                                           f'{"VERIFIED" if back else "NOT VERIFIED -- the fleet may be split"}'})
+            state = 'VERIFIED' if back else 'NOT VERIFIED: the fleet may be split -- read %s.rollback' % log
+            AL.one_shot('rollout-fleet', {f'direct:{a.run}': f'OWNER-DIRECT {a.run} {a.sha[:8]} did NOT verify; rollback to '
+                                                              f'{str(f["prev"])[:8]} {state}'}, t0,
+                        log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
+            print(f'NOT VERIFIED: rolled back ({"VERIFIED" if back else "rollback NOT verified"}); see {log}')
+            return 1
+        row = {'ts': AL._iso(t0), 'run': a.run, 'phase': 'owner-direct',
+               'note': f'tier {a.tier} owner-direct rollout {a.sha[:8]} (prev {str(f["prev"])[:8]}), reviewed by {a.reviewer}'
+                       + (f'; showcase: {a.showcase_evidence}' if a.showcase_evidence else ''),
+               'sha': a.sha, 'prev': f['prev'], 'env': 'fleet', 'tier': a.tier, 'reviewer': a.reviewer,
+               'deploy_started': AL._iso(now)}
+        append_jsonl(JOURNAL, row)
+        print('DEPLOYED + VERIFIED; ledger row written; the 60-min check runs from cron at ' + AL._iso(t0 + CHECK_AFTER))
+        return 0
+    finally:
+        fcntl.flock(lk, fcntl.LOCK_UN)
+        os.close(lk)
+
+
 def cmd_add(a):
     now = dt.datetime.now(UTC).replace(microsecond=0)
     at = _ts(a.at) if a.at else now
@@ -539,12 +705,17 @@ def main(argv=None):
     p.add_argument('--tier', type=int, default=1); p.add_argument('--reviewer'); p.add_argument('--at'); p.add_argument('--note')
     p = sub.add_parser('list')
     p.add_argument('--env', choices=['fleet', 'showcase']); p.add_argument('--days', type=float, default=7)
+    p = sub.add_parser('deploy')
+    p.add_argument('--run', required=True); p.add_argument('--sha', required=True)
+    p.add_argument('--tier', type=int, required=True); p.add_argument('--reviewer', required=True)
+    p.add_argument('--showcase-evidence', default=''); p.add_argument('--dry-run', action='store_true')
+    p.add_argument('--state-dir', default='~/digest'); p.add_argument('--no-push', action='store_true')
     p = sub.add_parser('check')
     p.add_argument('--env', choices=['fleet', 'showcase']); p.add_argument('--due', action='store_true')
     p.add_argument('--run'); p.add_argument('--release'); p.add_argument('--state-dir', default='~/digest')
     p.add_argument('--ship'); p.add_argument('--no-push', action='store_true')
     a = ap.parse_args(argv)
-    return {'add': cmd_add, 'list': cmd_list, 'check': cmd_check}[a.cmd](a)
+    return {'add': cmd_add, 'list': cmd_list, 'check': cmd_check, 'deploy': cmd_deploy}[a.cmd](a)
 
 
 if __name__ == '__main__':

@@ -1731,6 +1731,77 @@ def t_v42_patch_repair_rule_pure(CS, F):
     assert 'full shas' in CS.patch_repair_problem({'base': 'abc', 'tip': B}, {'canary_sha': B, 'approved': 'x'})
 
 
+def _spec(CS, F, second=None):
+    """live-01 is the LIVE canary (declared, its loop alive) and foo-01 waits behind it with a patch source."""
+    reg_l = os.path.join(F.home, 'mcai-analysis', 'live-01.json'); shutil.copy(F.reg, reg_l)
+    live = dict(json.loads(json.dumps(F.entry)), run='live-01')
+    live['variants'] = {F.base: {'registration': reg_l, 'approved': 'test fixture: Claude APPROVE + Codex APPROVE'}}
+    foo = dict(json.loads(json.dumps(F.entry)), after=['live-01'], **(second or {}))
+    foo['patch'] = {'base': F.base, 'tip': F.canary, 'diff_sha256': '0' * 64, 'branch': 'foo'}
+    with Env(F.env()):
+        for e in (live, foo):
+            bad = CS.validate_entry(CS.paths(), dict(e, patch=None) if e.get('patch') else e, [])
+            assert not bad, bad
+    json.dump({'version': 1, 'entries': [live, foo]}, open(F.queue, 'w'))
+    F.regfile('live-01', F.other[:7])
+    F.j('live-01', 'draw', NOW - dt.timedelta(hours=1)); F.j('live-01', 'drawn', NOW - dt.timedelta(minutes=50))
+    F.j('live-01', 'deployed', NOW - dt.timedelta(minutes=45), 'board-a %s' % Z(NOW - dt.timedelta(minutes=45)))
+    F.add_proc(80, ['bash', '/home/mike/canary-loop.sh', 'live-01'])
+    F.set_manifest('board-a', F.other[:7])
+
+
+def t_v42_spec_build_during_the_read(CS, F):
+    _spec(CS, F)
+    d, st = decision(CS, F)
+    assert d[0] == 'busy', d
+    sp = CS.spec_target(st)
+    assert sp and sp[0]['run'] == 'foo-01' and sp[1] == F.other, (sp, st.get('canary_full'))
+
+
+def t_v42_spec_not_when_off_held_or_tried(CS, F):
+    _spec(CS, F)
+    open(os.path.join(F.home, 'digest', 'SPEC-OFF'), 'w').close()
+    d, st = decision(CS, F)
+    assert CS.spec_target(st) is None, 'SPEC-OFF'
+    os.unlink(os.path.join(F.home, 'digest', 'SPEC-OFF'))
+    jd = os.path.join(F.home, 'autorebase', 'jobs'); os.makedirs(jd)
+    json.dump({'state': 'refused', 'run': 'foo-01', 'base': F.other}, open(os.path.join(jd, 'foo-01--x.json'), 'w'))
+    d, st = decision(CS, F)
+    assert CS.spec_target(st) is None, 'a job for the canary sha exists (never a retry)'
+
+
+def t_v42_spec_not_for_a_held_entry(CS, F):
+    _spec(CS, F, second={'hold': 'x'})
+    d, st = decision(CS, F)
+    assert CS.spec_target(st) is None
+
+
+def t_v42_spec_not_without_a_live_canary(CS, F):
+    _spec(CS, F)
+    F.set_manifest()
+    d, st = decision(CS, F)
+    assert CS.spec_target(st) is None
+
+
+def t_v42_spec_not_while_another_build_runs(CS, F):
+    _spec(CS, F)
+    jd = os.path.join(F.home, 'autorebase', 'jobs'); os.makedirs(jd)
+    json.dump({'state': 'running', 'run': 'zzz-01', 'base': F.base, 'hb': Z(NOW - dt.timedelta(minutes=1))},
+              open(os.path.join(jd, 'zzz-01--x.json'), 'w'))
+    d, st = decision(CS, F)
+    assert CS.spec_target(st) is None
+
+
+def t_v42_remote_answer_pure(CS, F):
+    out = 'ok   a.test.mjs 1ms\n3/3 files passed\n'
+    assert CS.remote_answer({'rc': 0}, out) == (0, out)
+    assert CS.remote_answer({'rc': 1}, 'FAIL a.test.mjs\n2/3 files passed\n')[0] == 1
+    assert CS.remote_answer({'rc': 75}, out) is None, 'a lock timeout is no answer'
+    assert CS.remote_answer({'rc': 'timeout'}, out) is None
+    assert CS.remote_answer({'rc': 0}, 'truncated') is None, 'an unfinished log is no answer'
+    assert CS.remote_answer({'rc': 0}, None) is None
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith('t_')]
 
 
@@ -1890,6 +1961,14 @@ MUTANTS = [
     ("    if st.get('hold_release', (False, ''))[0]:", "    if False:"),
     ("            row.update(pid=pid, start=starttime(P, pid))", "            pass"),
     ("    if (src or {}).get('canary_sha') != pt.get('tip'):", "    if False:"),
+    ("    if st.get('spec_off'):\n        return None", "    if False:\n        return None"),
+    ("    if idx is None or st.get('ar_busy'):", "    if idx is None:"),
+    ("        if es != 'ready' or e.get('hold') or e.get('bundle') is not None or not ar_token(e):",
+     "        if es != 'ready' or e.get('bundle') is not None or not ar_token(e):"),
+    ("        if csha in (e.get('variants') or {}) or (st.get('spec_jobs') or {}).get(e.get('run')):",
+     "        if csha in (e.get('variants') or {}):"),
+    ("    if not man.get('canary_pool') or not csha:", "    if not csha:"),
+    ("    if not isinstance(rc, int) or rc == 75 or not re.search(", "    if not isinstance(rc, int) or not re.search("),
     ("    if not str((src or {}).get('approved') or '').strip():", "    if False:"),
 ]
 

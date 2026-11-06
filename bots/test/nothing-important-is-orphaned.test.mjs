@@ -472,6 +472,7 @@ const REQUIRED = [
   'bots/scripts/test-result.mjs',
   'bots/test/test-result.test.mjs',
   '.gitattributes',
+  'scripts/host/autorebase-suite-relay.py',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

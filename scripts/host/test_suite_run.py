@@ -97,6 +97,37 @@ def t_overlay(S):
         shutil.rmtree(d, ignore_errors=True)
 
 
+def t_relay(_S=None):
+    spec = importlib.util.spec_from_file_location('relay_t', os.path.join(HERE, 'autorebase-suite-relay.py'))
+    R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
+    A, B = 'a' * 40, 'b' * 40
+    key = 'foo-01--%s--%s' % (A[:12], B[:12])
+    req = {'base': A, 'sha': B, 'ref': 'refs/heads/autorebase-suite/foo-01-on-%s' % A[:8]}
+    check('relay: a well-formed request', R.valid_request(key, req) == '')
+    check('relay: key must match the shas', R.valid_request('foo-01--%s--%s' % (B[:12], A[:12]), req) != '')
+    check('relay: a ref outside autorebase-suite/ is refused', R.valid_request(key, dict(req, ref='refs/heads/main')) == 'bad ref')
+    check('relay: a short sha is refused', 'full sha' in R.valid_request(key, dict(req, sha='bbbb')))
+    out = ('host=ci2 (mike@10.0.0.34; lock free) label=ar-foo sha=bbbbbbbb remote_log=~/ci/ar-foo.log local_log=/tmp/x\n'
+           'git context: a checkout\ndetached. follow: ...')
+    check('relay: parse suite-run --detach', R.parse_detach(out) == ('ci2', 'ar-foo', 'ci/ar-foo.log'), R.parse_detach(out))
+    now = datetime_now()
+    st = {'started': (now - _td(10)).strftime('%Y-%m-%dT%H:%M:%SZ')}
+    check('relay: DONE rc=0', R.action(st, 'DONE rc=0\n', now) == ('done', 0))
+    check('relay: running', R.action(st, '[200/417] ...', now) == ('wait', None))
+    check('relay: gives up after 150 min', R.action({'started': (now - _td(151)).strftime('%Y-%m-%dT%H:%M:%SZ')}, '', now)
+          == ('giveup', None))
+
+
+def datetime_now():
+    import datetime as dt
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+
+
+def _td(m):
+    import datetime as dt
+    return dt.timedelta(minutes=m)
+
+
 MUTANTS = [
     ("    if now - started > deadline_s:\n        return 'deadline'", "    if False:\n        return 'deadline'", t_wait),
     ("    if line is None and now - last_ok > ssh_down_s:", "    if False:", t_wait),
@@ -109,7 +140,7 @@ MUTANTS = [
 
 def main():
     S = load()
-    for t in (t_wait, t_ship, t_overlay):
+    for t in (t_wait, t_ship, t_overlay, t_relay):
         t(S)
     base = list(FAILS)
     for f in base:

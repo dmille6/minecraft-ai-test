@@ -350,6 +350,61 @@ def t_head(AH):
         check('head ES: stale goal row is an alarm', any(l.startswith('!! showcase goals: STALE') for l in es), es)
 
 
+# ------------------------------------------------------------------------------------------------ owner-direct lane
+def t_direct(RO):
+    A, B = 'a' * 40, 'b' * 40
+    ok = {'tier': 1, 'reviewer': 'codex', 'showcase_evidence': '', 'sha': B, 'prev': A, 'ancestor': True,
+          'protected': 'not protected', 'slot': [], 'run': 'tidy-02'}
+    check('direct: a clean tier-1 plan passes', RO.direct_plan(ok) == [], RO.direct_plan(ok))
+    bad = lambda **k: RO.direct_plan(dict(ok, **k))
+    check('direct: protected refuses', any('tier 3' in x for x in bad(protected='protected')))
+    check('direct: tooling refuses', any('tooling' in x for x in bad(protected='tooling')))
+    check('direct: undecidable refuses', any('could not classify' in x for x in bad(protected='unknown: rc 2')))
+    check('direct: a busy slot refuses', any('not empty' in x for x in bad(slot=['S1 canary declared: x on y'])))
+    check('direct: a divergent sha refuses', any('does not descend' in x for x in bad(ancestor=False)))
+    check('direct: unknown ancestry refuses', any('could not be checked' in x for x in bad(ancestor=None)))
+    check('direct: tier 2 needs showcase evidence', any('showcase first' in x for x in bad(tier=2)))
+    check('direct: tier 2 with evidence passes', bad(tier=2, showcase_evidence='d4dc532c 2 h, goal moved') == [])
+    check('direct: tier 3 refuses', any('tier must be 1 or 2' in x for x in bad(tier=3)))
+    check('direct: no reviewer refuses', any('reviewer' in x for x in bad(reviewer=' ')))
+    check('direct: a short sha refuses', any('full 40-hex' in x for x in bad(sha='bbbbbbb')))
+    check('protected class: not protected', RO.protected_class(0, 'not protected\n') == 'not protected')
+    check('protected class: tooling', RO.protected_class(1, 'PROTECTED (tooling: two engines, no fleet canary):\n  x [tooling]\ntier=tooling\n') == 'tooling')
+    check('protected class: tier 3', RO.protected_class(1, 'PROTECTED (tier 3):\n  bots/src/x\ntier=3\n') == 'protected')
+    check('protected class: rc 2 is unknown', RO.protected_class(2, '', 'could not decide').startswith('unknown'))
+    check('protected class: rc 0 with other text is unknown', RO.protected_class(0, 'garbage').startswith('unknown'))
+    with tempfile.TemporaryDirectory() as d:
+        sched = os.path.join(d, 'sched.py'); open(sched, 'w').write('import sys\nprint("INSTALL-HOLD ok")\nsys.exit(0)\n')
+        dep = os.path.join(d, 'fleet-deploy')
+        open(dep, 'w').write('#!/bin/bash\necho "$1 $2" >> %s/calls\n[ "$2" = "tidy-02-direct" ] && [ -e %s/good ] && echo VERIFIED\n'
+                             '[ "$2" = "tidy-02-rollback" ] && echo VERIFIED\nexit 0\n' % (d, d))
+        os.chmod(dep, 0o755)
+        RO.SCHED, RO.FLEET_DEPLOY, RO.CANARY_LOCK, RO.JOURNAL = sched, dep, os.path.join(d, 'lock'), os.path.join(d, 'j.jsonl')
+        RO.direct_facts = lambda a: dict(ok)
+        args = ['deploy', '--run', 'tidy-02', '--sha', B, '--tier', '1', '--reviewer', 'codex', '--state-dir', d, '--no-push']
+        with contextlib.redirect_stdout(io.StringIO()) as o:
+            rc = RO.main(args + ['--dry-run'])
+        check('direct e2e: dry run deploys nothing', rc == 0 and not os.path.exists(os.path.join(d, 'calls'))
+              and not os.path.exists(RO.JOURNAL), o.getvalue())
+        open(os.path.join(d, 'good'), 'w').close()
+        with contextlib.redirect_stdout(io.StringIO()) as o:
+            rc = RO.main(args)
+        rows = [json.loads(l) for l in open(RO.JOURNAL)]
+        check('direct e2e: verified deploy writes ONE owner-direct ledger row with prev', rc == 0 and len(rows) == 1
+              and rows[0]['phase'] == 'owner-direct' and rows[0]['prev'] == A and rows[0]['sha'] == B, (rc, rows, o.getvalue()))
+        os.unlink(os.path.join(d, 'good')); os.unlink(RO.JOURNAL)
+        with contextlib.redirect_stdout(io.StringIO()) as o:
+            rc = RO.main(args)
+        calls = open(os.path.join(d, 'calls')).read().split('\n')
+        rows = [json.loads(l) for l in open(RO.JOURNAL)]
+        check('direct e2e: an unverified deploy rolls back to prev and writes no owner-direct row', rc == 1
+              and ('%s tidy-02-rollback' % A) in calls and [r['phase'] for r in rows] == ['owner-direct-failed'], (rc, calls, rows))
+        RO.direct_facts = lambda a: dict(ok, slot=['S1 canary declared'])
+        with contextlib.redirect_stdout(io.StringIO()) as o:
+            rc = RO.main(args)
+        check('direct e2e: a refused plan exits 2 and touches nothing', rc == 2 and 'REFUSED' in o.getvalue())
+
+
 # ------------------------------------------------------------------------------------------------ mutants
 def t_monitor_logs(AH):
     """audit 11-01 flag 9: the wired monitor logs reach the header; each alarms on its bad line, stays plain on a good one."""
@@ -418,13 +473,20 @@ MUTANTS = [
     ('lib/alarmhead.py', "        elif not hits or (bad and re.search(bad, last)) or (ok and not re.search(ok, last)):", "        elif False:", t_monitor_logs),
     ('lib/alarmhead.py', "        if now - mt > stale:", "        if False:", t_monitor_logs),
     ('lib/alarmhead.py', "        out += monitor_lines(now, home)\n", "\n", t_monitor_logs),
+    ('rollout.py', "    if pr == 'protected':", "    if False:", t_direct),
+    ('rollout.py', "    elif pr != 'not protected':", "    elif False:", t_direct),
+    ('rollout.py', "    if f.get('slot'):\n        out.append('the canary slot is not empty", "    if False:\n        out.append('the canary slot is not empty", t_direct),
+    ('rollout.py', "    if f.get('ancestor') is not True:", "    if f.get('ancestor') is False:", t_direct),
+    ('rollout.py', "    if f.get('tier') == 2 and not str(f.get('showcase_evidence') or '').strip():", "    if False:", t_direct),
+    ('rollout.py', "        ok = 'VERIFIED' in open(log).read()", "        ok = True", t_direct),
+    ('rollout.py', "    if a.dry_run:\n        print('DRY RUN", "    if False:\n        print('DRY RUN", t_direct),
 ]
 
 
 def run_all(mods):
     t_alarm(mods['lib/alarm.py']); t_goal(mods['goalwatch.py']); t_halt(mods['haltwatch.py'])
     t_rollout(mods['rollout.py']); t_drift(mods['driftwatch.py']); t_head(mods['lib/alarmhead.py'])
-    t_monitor_logs(mods['lib/alarmhead.py'])
+    t_monitor_logs(mods['lib/alarmhead.py']); t_direct(mods['rollout.py'])
 
 
 def main():

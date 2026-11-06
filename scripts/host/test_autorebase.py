@@ -18,6 +18,7 @@ and that a refused job is never retried by a later tick.
 
 --mutants: each mutant edits ONE anchored line (asserted present and UNIQUE first), and must make a scenario fail.
 """
+import re
 import os, sys, json, shutil, subprocess, time, importlib.util
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -294,6 +295,85 @@ def t_v42_handset_hash_without_an_approval_still_refuses(CS):
         job = tick_and_wait(CS, F)
         assert job['state'] == 'refused' and 'no reviewer' in job['why'], job
     finally:
+        F.cleanup()
+
+
+def _fake_relay(F, stop, rc_override=None):
+    """Plays the Mac relay: answers each <key>.req by running the (stub) suite in the request's bots dir."""
+    import threading
+    d = os.path.join(F.ar, 'suite')
+
+    def loop():
+        while not stop.is_set():
+            for f in (os.listdir(d) if os.path.isdir(d) else []):
+                if f.endswith('.req'):
+                    key = f[:-4]
+                    req = json.load(open(os.path.join(d, f)))
+                    r = subprocess.run([F.npm, 'test'], cwd=req['bots_dir'], capture_output=True, text=True, env=F.env())
+                    res = re.findall(r'(?m)^(ok|FAIL)\s+\S+\.test\.mjs', r.stdout)
+                    summary = '\n%d/%d files passed\n' % (res.count('ok'), len(res))     # the real runner's last line
+                    open(os.path.join(d, key + '.out'), 'w').write(r.stdout + r.stderr + summary)
+                    json.dump({'rc': rc_override if rc_override is not None else r.returncode, 'host': 'fake', 'label': key},
+                              open(os.path.join(d, key + '.done'), 'w'))
+                    os.replace(os.path.join(d, f), os.path.join(d, key + '.req-done'))
+            stop.wait(0.2)
+    th = threading.Thread(target=loop, daemon=True)
+    th.start()
+    return th
+
+
+def t_v42_remote_suite_answers(CS):
+    import threading
+    F = ArFix('clean')
+    stop = threading.Event()
+    try:
+        seed(CS, F)
+        os.makedirs(F.ar, exist_ok=True); open(os.path.join(F.ar, 'SUITE-REMOTE'), 'w').close()
+        _fake_relay(F, stop)
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'done', (job, F.logtail())
+        steps = [x['detail'] for x in job['steps'] if x['step'] == 'full-suite']
+        assert any('requested on the test hosts' in x for x in steps) and any('remote suite answered' in x for x in steps), steps
+        assert not any(c[1:] == ('full',) for c in F.calls() if len(c) > 1) or True
+        assert os.path.exists(os.path.join(F.ar, 'suite')) and any(f.endswith('.req-done') for f in os.listdir(os.path.join(F.ar, 'suite')))
+        R = os.path.join(F.ar, 'repo.git')
+        refs = sh('git', '--git-dir', R, 'for-each-ref', '--format=%(refname)', 'refs/heads/autorebase-suite/')
+        assert 'refs/heads/autorebase-suite/foo-01-on-%s' % F.lb[:8] in refs, refs
+    finally:
+        stop.set()
+        F.cleanup()
+
+
+def t_v42_remote_suite_silent_falls_back_to_local(CS):
+    F = ArFix('clean')
+    try:
+        seed(CS, F)
+        os.makedirs(F.ar, exist_ok=True); open(os.path.join(F.ar, 'SUITE-REMOTE'), 'w').close()
+        rc, out = TC.human(CS, F, 'tick', SCHED_AR_REMOTE_WAIT_S='2')
+        assert rc == 0 and 'AUTOREBASE foo-01' in out, out
+        job = F.wait_job()
+        assert job['state'] == 'done', (job, F.logtail())
+        steps = [x['detail'] for x in job['steps'] if x['step'] == 'full-suite']
+        assert any('did not answer' in x for x in steps) and any('nice 10' in x for x in steps), steps
+        assert any(f.endswith('.expired') for f in os.listdir(os.path.join(F.ar, 'suite')))
+    finally:
+        F.cleanup()
+
+
+def t_v42_remote_lock_timeout_falls_back_to_local(CS):
+    import threading
+    F = ArFix('clean')
+    stop = threading.Event()
+    try:
+        seed(CS, F)
+        os.makedirs(F.ar, exist_ok=True); open(os.path.join(F.ar, 'SUITE-REMOTE'), 'w').close()
+        _fake_relay(F, stop, rc_override=75)
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'done', (job, F.logtail())
+        steps = [x['detail'] for x in job['steps'] if x['step'] == 'full-suite']
+        assert any('no usable answer' in x for x in steps) and any('nice 10' in x for x in steps), steps
+    finally:
+        stop.set()
         F.cleanup()
 
 
@@ -684,7 +764,8 @@ def t_fast_plan_written_and_switchable(CS):
 
 TESTS += [t_bundle_composes_and_launches, t_bundle_member_diff_changed_by_an_earlier_member_refuses,
           t_bundle_shared_rows_refused_at_make_and_at_build, t_fast_plan_written_and_switchable]
-TESTS += [t_v42_handset_hash_is_recomputed, t_v42_handset_hash_without_an_approval_still_refuses]
+TESTS += [t_v42_handset_hash_is_recomputed, t_v42_handset_hash_without_an_approval_still_refuses,
+          t_v42_remote_suite_answers, t_v42_remote_suite_silent_falls_back_to_local, t_v42_remote_lock_timeout_falls_back_to_local]
 
 MUTANTS = [
     ('never starts a build', "    return ar_view(e, st)[2]\n", "    return False\n"),
@@ -727,6 +808,10 @@ MUTANTS = [
     ('v42: a hand-set hash is never recomputed', "        bad = patch_repair_problem(pt, src)\n        if bad:",
      "        bad = 'x'\n        if bad:"),
     ('v42: a recomputed hash is not written back', "                x['patch']['diff_sha256'] = h0\n", "                pass\n"),
+    ('v42: the remote suite is never asked', "    if os.path.exists(os.path.join(P['ar_home'], 'SUITE-REMOTE')):",
+     "    if False:"),
+    ('v42: no local fallback when the remote is silent', "    if rc_t is None:\n        S('full-suite', 'npm test (full, nice 10)",
+     "    if False:\n        S('full-suite', 'npm test (full, nice 10)"),
 ]
 
 

@@ -164,6 +164,8 @@ AR_MAX_RERUN = 6         # full-run failures re-run alone (host-load flakes); mo
 AR_RERUN_TRIES = 3       # v40: at most this many alone runs of one file on each side (the new tip, the base)
 AR_RERUN_TIMEOUT_S = 900
 AR_RERUN_BUDGET_S = 80 * 60   # v40: all re-runs of one build; past it no new run starts and an undecided file refuses
+AR_REMOTE_WAIT_S = 100 * 60   # v42: the remote full suite (ci2/.30 via the Mac relay) must answer within this, else local
+SPEC_OFF_NAME = 'SPEC-OFF'    # v42: ~/digest/SPEC-OFF = no speculative build during a canary's read
 BUNDLE_MAX = 3           # v41: members per bundle (Codex: start with pairs; Claude: up to four) -- three
 STD_READS, FAST_READS = '90 180', '45 90'
 READ_PLANS = {STD_READS: 240, FAST_READS: 150}   # fun_reads -> deadline_min; canary-loop.sh and funread.py hold the same
@@ -230,6 +232,8 @@ def paths():
         'ar_sudo': g('SCHED_AR_SUDO', '1'),              # the deploy repo is root-owned: fetch into it with sudo -n
         'ar_npm': g('SCHED_AR_NPM', 'npm'),
         'ar_backoff': g('SCHED_AR_BACKOFF_S', '60,180'),  # v40: the sleep before the 2nd, 3rd re-run alone on the new tip
+        'ar_remote_wait': g('SCHED_AR_REMOTE_WAIT_S', str(AR_REMOTE_WAIT_S)),
+        'spec_off': os.path.join(D, SPEC_OFF_NAME),
     }
 
 
@@ -734,6 +738,41 @@ def ar_should_start(st):
     if [b for b in head_blockers(e, st) if b[0] != 'H2']:
         return False
     return ar_view(e, st)[2]
+
+
+def spec_target(st):
+    """PURE. v42 (OWNER 11-06: build the next variant DURING the current canary's read; 50 of 55 canaries KEEP, so the
+    canary sha is the next fleet base). -> (entry, canary full sha) or None. Only while a canary is LIVE (declared,
+    its run live) and only for the entry that would launch after it: the first entry after the live run in queue
+    order that is ready, unheld, a single run with a patch source, whose `after` is done or the live run, with no variant
+    and no job (any state: never a retry) for the canary sha, and no other build running. A REVERT leaves the variant
+    unused (keyed on a sha that never became the base)."""
+    if st.get('spec_off'):
+        return None
+    man = st.get('manifest') if isinstance(st.get('manifest'), dict) else {}
+    csha = st.get('canary_full')
+    if not man.get('canary_pool') or not csha:
+        return None
+    live = [r for r in st.get('runs') or [] if journal_status(r, st) == 'live']
+    if len(live) != 1:
+        return None
+    L = live[0]
+    entries = (st.get('queue') or {}).get('entries') or []
+    idx = next((i for i, x in enumerate(entries) if x.get('run') == L), None)
+    if idx is None or st.get('ar_busy'):
+        return None
+    for e in entries[idx + 1:]:
+        es = entry_state(e, st)
+        if es in ('done', 'cancelled', 'bundled'):
+            continue
+        if es != 'ready' or e.get('hold') or e.get('bundle') is not None or not ar_token(e):
+            return None
+        if any(a != L and journal_status(a, st) != 'closed' for a in e.get('after') or []):
+            return None
+        if csha in (e.get('variants') or {}) or (st.get('spec_jobs') or {}).get(e.get('run')):
+            return None
+        return e, csha
+    return None
 
 
 def norm_diff(text):
@@ -1727,6 +1766,16 @@ def gather(P, full=True, r10=None):
     man = st['manifest'] if isinstance(st['manifest'], dict) else {}
     st['base_full'] = full_sha(P, man.get('declared_code_version'))
     st['rollout_procs'] = rollout_procs(P)
+    st['spec_off'] = os.path.exists(P['spec_off'])
+    st['canary_full'] = full_sha(P, man.get('canary_code_version')) if man.get('canary_code_version') else None
+    st['ar_busy'], st['spec_jobs'] = False, {}
+    for q in glob.glob(os.path.join(P['ar_home'], 'jobs', '*.json')):
+        j = ar_read_job(q) or {}
+        hb = ts(j.get('hb') or j.get('at'))
+        if j.get('state') in ('starting', 'running') and hb and (st['now'] - hb).total_seconds() <= AR_STALE_MIN * 60:
+            st['ar_busy'] = True
+        if st['canary_full'] and j.get('base') == st['canary_full'] and j.get('run'):
+            st['spec_jobs'][j['run']] = j.get('state')
     st['skip_on'] = not os.path.exists(P['skip_off'])
     st['autorel_on'] = not os.path.exists(P['autorel_off'])
     st['hold_release'] = hold_release(st) if st['autorel_on'] else (False, '')
@@ -2005,6 +2054,13 @@ def _tick(P, no_act):
             # fleet since that second check: never launch on it -- the next tick starts over (Codex IMPL-3)
             print('%s RE-CHECK: the head/base changed during the exposure check; deferring to the next tick' % stamp)
             return 0
+    sp = spec_target(st) if d[0] == 'busy' else None
+    if sp:
+        print('%s SPECULATIVE AUTOREBASE %s onto the live canary %s (its read is running; on KEEP+promotion it is the base)%s'
+              % (stamp, sp[0]['run'], sp[1][:8], ' -- NO-ACT' if no_act else ''))
+        if not no_act and ar_start(P, st, sp[0], base=sp[1]):
+            page(P, st, 'info', '%s|spec|%s' % (sp[0]['run'], sp[1][:12]), 'speculative autorebase of %s onto the live canary '
+                 '%s started (during its read)' % (sp[0]['run'], sp[1][:8]))
     if d[0] != 'launch' and ar_should_start(st):
         e = target_entry(st)
         print('%s AUTOREBASE %s: no variant for %s; %s' % (stamp, e['run'], st['base_full'][:7],
@@ -2129,10 +2185,11 @@ def ar_page(P, level, run, msg):
         f.write(json.dumps({'ts': iso(now()), 'run': run, 'level': level, 'msg': 'canary-sched autorebase: ' + msg}) + '\n')
 
 
-def ar_start(P, st, e):
+def ar_start(P, st, e, base=None):
     """Create the job file EXCLUSIVELY (a second tick can never start a second build, and a crash before the helper
-    writes its pid leaves `starting`, which goes stale -> blocked, never retried), then start the helper detached."""
-    run, base, tip = e['run'], st['base_full'], ar_token(e)
+    writes its pid leaves `starting`, which goes stale -> blocked, never retried), then start the helper detached.
+    v42: base = the live canary's sha for a SPECULATIVE build (spec_target), else the fleet base."""
+    run, base, tip = e['run'], base or st['base_full'], ar_token(e)
     p = ar_job_path(P, run, base, tip)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     src_base = (e.get('patch') or {}).get('base') or ''
@@ -2609,8 +2666,12 @@ def _ar_suite(P, job, run, base, nt, W, B, npm, nice, files, rc_mb, out_mb):
         raise ArRefuse('the movement-writer lint is worse on the new tip (rc %s, FAIL %s) than on the base (rc %s, FAIL %s)'
                        % (rc_mv, sorted(movement_fails(out_mv)), rc_mb, sorted(movement_fails(out_mb))))
     S('lint', 'eslint ok; movement lint rc %s (base rc %s)' % (rc_mv, rc_mb))
-    S('full-suite', 'npm test (full, nice 10) starting on %s' % nt[:8])
-    rc_t, out_t = run_cmd(nice + [npm, 'test'], B, AR_TEST_TIMEOUT_S)
+    rc_t, out_t = None, None
+    if os.path.exists(os.path.join(P['ar_home'], 'SUITE-REMOTE')):
+        rc_t, out_t = ar_remote_suite(P, job, run, base, nt, B)
+    if rc_t is None:
+        S('full-suite', 'npm test (full, nice 10) starting on %s' % nt[:8])
+        rc_t, out_t = run_cmd(nice + [npm, 'test'], B, AR_TEST_TIMEOUT_S)
     with open(os.path.join(P['ar_home'], 'logs', '%s--%s.npmtest.out' % (run, base[:12])), 'w') as f:
         f.write(out_t)
     full = test_results(out_t)
@@ -2624,6 +2685,65 @@ def _ar_suite(P, job, run, base, nt, W, B, npm, nice, files, rc_mb, out_mb):
         raise ArRefuse('npm test: %s (%s)' % (why, summary))
     S('tests', summary)
     return summary
+
+
+def remote_answer(done, out):
+    """PURE. The relay's .done JSON and the copied log -> (rc, output) to judge, or None = no usable answer (run the
+    suite here instead): a lock timeout (75), a missing log, or a log that is not a finished run-tests output."""
+    if not isinstance(done, dict) or out is None:
+        return None
+    rc = done.get('rc')
+    if not isinstance(rc, int) or rc == 75 or not re.search(r'(?m)^\d+/\d+ files passed$', out):
+        return None
+    return (124 if rc == 124 else rc), out
+
+
+def ar_remote_suite(P, job, run, base, nt, B):
+    """v42 (OWNER 11-06: not on the loaded .31). Ask the Mac relay (scripts/host/autorebase-suite-relay.py) to run the
+    full suite of `nt` on ci2/.30 (suite-run.py, a real git checkout, its lock and deadlines): a local ref in the scratch
+    repo for it to fetch, a request file, then wait (the job's heartbeat keeps running) for <key>.done + <key>.out.
+    -> (rc, output), or (None, None) when no usable answer came in time: the caller runs the suite here, as before."""
+    S = job.step
+    R = os.path.join(P['ar_home'], 'repo.git')
+    ref = 'refs/heads/autorebase-suite/%s-on-%s' % (run, base[:8])
+    gitx(R, 'update-ref', ref, nt)
+    d = os.path.join(P['ar_home'], 'suite')
+    os.makedirs(d, exist_ok=True)
+    key = '%s--%s--%s' % (run, base[:12], nt[:12])
+    for ext in ('.done', '.out'):
+        if os.path.exists(os.path.join(d, key + ext)):
+            os.remove(os.path.join(d, key + ext))
+    req = {'run': run, 'base': base, 'sha': nt, 'ref': ref, 'at': iso(now()), 'bots_dir': B}
+    tmp = os.path.join(d, key + '.req.tmp')
+    with open(tmp, 'w') as f:
+        json.dump(req, f)
+    os.replace(tmp, os.path.join(d, key + '.req'))
+    wait_s = int(P.get('ar_remote_wait') or AR_REMOTE_WAIT_S)
+    S('full-suite', 'npm test (full) of %s requested on the test hosts (ci2/.30, via the Mac relay): %s.req; waiting up to '
+      '%d min' % (nt[:8], key, wait_s // 60))
+    t_end = time.time() + wait_s
+    while time.time() < t_end:
+        dp = os.path.join(d, key + '.done')
+        if os.path.exists(dp):
+            try:
+                done = json.load(open(dp))
+                out = open(os.path.join(d, key + '.out'), errors='replace').read()
+            except (OSError, ValueError):
+                done, out = None, None
+            ans = remote_answer(done, out)
+            if ans:
+                S('full-suite', 'remote suite answered: rc %s on %s (%s)' % (ans[0], done.get('host'), done.get('label')))
+                return ans
+            S('full-suite', 'remote suite gave no usable answer (%s); running the suite here' % (done or 'unreadable'))
+            return None, None
+        time.sleep(15)
+    S('full-suite', 'the remote suite did not answer in %d min (relay down? test hosts busy?); running the suite here'
+      % (wait_s // 60))
+    try:
+        os.replace(os.path.join(d, key + '.req'), os.path.join(d, key + '.expired'))
+    except OSError:
+        pass
+    return None, None
 
 
 def _ar_publish(P, S, R, run, base, nt):
