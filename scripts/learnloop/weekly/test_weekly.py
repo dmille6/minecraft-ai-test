@@ -461,6 +461,49 @@ def a_pool_built_without_g5_is_refused():
     assert not W.assembled_has_g5({'filter': {'good G5 checked (llpatrol-01)': 2999}, 'composition': {'good': 3000}})
 
 
+# ---------------------------------------------------------------- prompt_transform: logged pc-layout items pass through
+
+PT = os.path.join(HERE, '..', 'prompt_transform.mjs')
+PT_BOTS = os.path.abspath(os.path.join(HERE, '..', '..', '..', 'bots'))
+PT_ITEMS = [
+    {'id': 'old', 'bot': 'b1', 'system': 'RULES\n\nYou are b1, an autonomous gatherer agent in Minecraft.', 'user': 'TASK: x\nsaw_end: END-A'},
+    {'id': 'new', 'bot': 'b1', 'system': 'RULES', 'user': 'You are b1, an autonomous gatherer agent in Minecraft.\nTASK: x\nsaw_end: END-A'},
+]
+
+
+def run_pt(items, src=None):
+    with tempfile.TemporaryDirectory() as d:
+        script = PT
+        if src is not None:
+            script = os.path.join(d, 'pt.mjs'); open(script, 'w').write(src)
+        i, o = os.path.join(d, 'in.jsonl'), os.path.join(d, 'out.jsonl')
+        open(i, 'w').write(''.join(json.dumps(x) + '\n' for x in items))
+        r = subprocess.run(['node', script, PT_BOTS, i, o], capture_output=True, text=True, timeout=120)
+        return r.returncode, ([json.loads(l) for l in open(o) if l.strip()] if os.path.exists(o) else []), r.stderr
+
+
+@t
+def prompt_transform_passes_logged_pc_layout_items_through():
+    if not os.path.isdir(os.path.join(PT_BOTS, 'node_modules')):
+        print('  SKIP  (no bots/node_modules here)'); return
+    rc, out, err = run_pt(PT_ITEMS)
+    assert rc == 0, err
+    o, n = out
+    assert o['user'].startswith('You are b1, an autonomous') and o['system'] == 'RULES' and o['transform'] == 'promptcache-01'
+    assert {k: n[k] for k in PT_ITEMS[1]} == PT_ITEMS[1] and n['transform'] == 'promptcache-01 (as logged)'   # untouched
+    neither = {'id': 'x', 'bot': 'b1', 'system': 'RULES', 'user': 'TASK: x'}
+    both = {'id': 'y', 'bot': 'b1', 'system': 'You are b1, an autonomous gatherer agent in Minecraft.\nRULES',
+            'user': 'You are b1, an autonomous gatherer agent in Minecraft.\nTASK: x'}
+    for bad in (neither, both):
+        assert run_pt(PT_ITEMS + [bad])[0] == 1, bad['id']
+    src = open(PT).read()
+    for old, new, items in (
+            ("    if (IDENT_USER.test(it.user) && !IDENT_ANY.test(it.system)) return { ...it, transform: 'promptcache-01 (as logged)' }\n", '', PT_ITEMS),
+            (" && !IDENT_ANY.test(it.system)) return", ') return', PT_ITEMS[:1] + [both])):
+        assert src.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE: %r' % old[:60]
+        assert run_pt(items, src.replace(old, new))[0] != (0 if items is PT_ITEMS else 1), 'mutant survived: %r' % old[:60]
+
+
 # ---------------------------------------------------------------- mutants
 
 def mutant(path, old, new, test):

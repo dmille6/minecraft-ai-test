@@ -5,8 +5,11 @@
 //   - RECENT EVENTS goes through prompt.mjs compactEvents() with the item's LAST ACTION;
 //   - peer lessons ("... seen at ... reported by A and B", "A and B hit K Nx near ...") are re-rendered with
 //     worldfacts.mjs seenLine()/hazardLine() (self = the item's bot).
-// Everything else (sentinel, schema, other lines) is untouched. Exits 1 if any item's system message has no identity
-// line to move (the input is not the old layout). Prints counts of what changed. Read-only apart from <out.jsonl>.
+// Everything else (sentinel, schema, other lines) is untouched. An item ALREADY in the promptcache layout (the fleet runs
+// it since promptcache-01 was promoted on 11-01: the identity line opens the user message, the system has none) is
+// passed through as logged -- it is what the bots sent (llpatrol-01 dry run 11-06: 2,638 of 9,000 good items from
+// 11-01..11-03 were refused, which would have failed the 11-08 round's transform phase). Exits 1 if any item is in
+// neither layout. Prints counts of what changed. Read-only apart from <out.jsonl>.
 import fs from 'node:fs'
 process.env.LOG_DIR = process.env.LOG_DIR || '/tmp/learnloop-pt-logs'
 process.env.LOG_LEVEL = 'error'
@@ -19,10 +22,15 @@ const { seenLine, hazardLine } = await import(botsDir + '/src/worldfacts.mjs')
 const SEEN = /^(\S+) seen at x=(-?\d+) y=(-?\d+) z=(-?\d+) \((\d+) blocks away, reported by (.+)\)$/
 const HAZ = /^((?:\S+ and )*\S+) hit (\S+) (\d+)x near (-?\d+),(-?\d+),(-?\d+) — avoid it$/
 const IDENT = /\n*(You are \S+, an autonomous \S+ agent in Minecraft\.)\s*$/
+const IDENT_USER = /^You are \S+, an autonomous \S+ agent in Minecraft\.\n/
+const IDENT_ANY = /You are \S+, an autonomous \S+ agent in Minecraft\./
 
 export function transform (it) {
   const m = IDENT.exec(it.system)
-  if (!m) return null
+  if (!m) {
+    if (IDENT_USER.test(it.user) && !IDENT_ANY.test(it.system)) return { ...it, transform: 'promptcache-01 (as logged)' }
+    return null
+  }
   const system = it.system.slice(0, m.index)
   const lines = it.user.split('\n')
   const lastLine = lines.find(l => l.startsWith('LAST ACTION: '))
@@ -61,5 +69,6 @@ for (const it of src) {
   rows.push(JSON.stringify(t))
 }
 fs.writeFileSync(outPath, rows.join('\n') + '\n')
-console.error(`${rows.length} items transformed, ${bad} without an identity line; system+user chars ${chars0} -> ${chars1} (${(100 * (1 - chars1 / chars0)).toFixed(1)}% fewer)`)
+const logged = rows.filter(r => r.includes('"transform":"promptcache-01 (as logged)"')).length
+console.error(`${rows.length} items transformed (${logged} already in the layout, as logged), ${bad} in neither layout; system+user chars ${chars0} -> ${chars1} (${(100 * (1 - chars1 / chars0)).toFixed(1)}% fewer)`)
 process.exit(bad ? 1 : 0)
