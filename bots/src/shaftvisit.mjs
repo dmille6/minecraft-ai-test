@@ -9,7 +9,7 @@
 // slot lease (fence), the pickaxe and the bag; two refusals of one cell end the visit. The visit ends where the work stopped
 // (the stair it just verified is the way out; surface and mine use it).
 import { Vec3 } from 'vec3'
-import { firstUndone, unitCells, standFor, nextOp, planOf, toWorld, supportFor, supportChain, LANDING_CELL, TORCH_EVERY, PILLAR, LINING_ITEMS, isFull, standOf, stairStepAt, egressNext, EGRESS_CLEARS_MAX } from './shaftgeom.mjs'
+import { firstUndone, unitCells, standFor, nextOp, planOf, toWorld, supportFor, supportChain, LANDING_CELL, TORCH_EVERY, PILLAR, LINING_ITEMS, isFull, standOf, stairStepAt, egressNext, EGRESS_CLEARS_MAX, descentNext, isWet as wetCell } from './shaftgeom.mjs'
 import { withDigScope } from './digtown.mjs'
 
 export const UNITS_MAX = 40
@@ -56,6 +56,14 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
     if (!stand) return end('no_stand', 'no collar exit', w.k)
     if (!same(e.feet(), stand)) {
       await e.walkTo(stand)
+      // stairuse-01: THE LONG WALK FAILED (LIVE 7 d: 1,001 of 2,921 visits `walk_failed`) -> down the stair a few stands at a time
+      // to the stand's own step (e.descend: runStairDescent, which digs a foreign block out of the air cells on the way), then
+      // the stand once more. The stand is a step's stand on the stair the scan verified above the work; any other stand (the
+      // collar's ground beside step 0) keeps the one walk
+      if (!same(e.feet(), stand) && typeof e.descend === 'function') {
+        const sk = plan.steps.findIndex((q, k) => same(standOf(plan, k), stand))
+        if (sk >= 0) { await e.descend(sk); if (!same(e.feet(), stand)) await e.walkTo(stand) }
+      }
       if (!same(e.feet(), stand)) return end('walk_failed', `did not reach ${kOf(stand)} (at ${kOf(e.feet())})`, w.k)
     }
     const cells = unitCells(plan, w)
@@ -195,6 +203,92 @@ export async function runStairEgress (plan, e, { exit = null, deadline = Infinit
   if (i !== 0) return end(false, 'hop', i)
   if (!Array.isArray(exit)) return end(false, 'no_exit', 0)
   return (await e.walkTo(exit)) ? end(true, 'arrived', 'exit') : end(false, 'exit_walk', 0)
+}
+
+// ---- the way down (stairuse-01) ------------------------------------------------------------------------------------------
+
+/**
+ * WALK THE STAIR DOWN TO STEP `to` (and, given `landing`, along its stub to the stand) FROM WHERE THE BOT STANDS -> { ok, why, from,
+ * to, hops, cleared }. runStairEgress's mirror (shaftgeom.mjs's stairuse block says why); every effect injected (e as the egress's).
+ * From the surface the bot first walks to the collar exit (`exit`); on the stair (stairStepAt; a stub walks back to its step) from
+ * its step. Then descentNext until `to`: a hop of up to EGRESS_HOP stands (one stand if that walk fails), or a dig of a foreign block
+ * in one of the next step's air cells (two refusals of one cell end it). ok only on arrival (the landing's stand, or step `to`'s).
+ *   why  arrived | approach | off_stair | below | time | hop | via | dig_refused | clears | occupied | wet | tread | unknown | stub
+ */
+export async function runStairDescent (plan, e, { to, landing = null, exit = null, deadline = Infinity, clearsMax = EGRESS_CLEARS_MAX } = {}) {
+  const out = { ok: false, why: null, from: null, to: null, hops: 0, cleared: 0 }
+  const end = (ok, why, at = null) => { out.ok = ok; out.why = why; out.to = at; e.log?.('descent', out); return out }
+  const abortIf = () => { if (e.aborted()) { const err = new Error('aborted'); err.aborted = true; throw err } }
+  const feet0 = e.feet()
+  if (!plan || !Array.isArray(feet0) || !Number.isInteger(to) || to < 0 || to >= plan.steps.length) return end(false, 'off_stair')
+  const at = feet0[1] < plan.g + 1 ? stairStepAt(plan, feet0) : null
+  let i
+  if (at) {
+    out.from = at.k
+    if (at.k > to) return end(false, 'below', at.k)
+    for (const c of at.via) {
+      abortIf()
+      if (e.now() >= deadline) return end(false, 'time', at.k)
+      if (!(await e.walkTo(c))) return end(false, 'via', at.k)
+    }
+    i = at.k
+  } else {
+    // FROM THE SURFACE: the collar exit first (the walk the egress ends with, the other way)
+    out.from = 'exit'
+    if (!Array.isArray(exit)) return end(false, 'approach', null)
+    abortIf()
+    if (!(await e.walkTo(exit))) return end(false, 'approach', null)
+    i = -1
+  }
+  const fails = new Map()
+  const digIt = async op => {
+    if (out.cleared >= clearsMax) return 'clears'
+    if (e.occupied?.(op.at)) return 'occupied'
+    const key = op.at.join(',')
+    const r = await e.dig(op.at)
+    if (r === 'confirmed') { out.cleared++; e.log?.('descent_dig', { k: op.k, at: op.at }); return null }
+    const n = (fails.get(key) ?? 0) + 1
+    fails.set(key, n)
+    return n >= 2 ? 'dig_refused' : null
+  }
+  for (let guard = 0; guard < 4 * plan.steps.length + 16; guard++) {
+    abortIf()
+    if (e.now() >= deadline) return end(false, 'time', i)
+    const f = e.feet()
+    const op = descentNext(e.read, plan, i, to, [f, [f[0], f[1] + 1, f[2]]])
+    if (op.op === 'done') break
+    if (op.op === 'stop') return end(false, op.why, i)
+    if (op.op === 'dig') { const w = await digIt(op); if (w) return end(false, w, i); continue }
+    let moved = false
+    for (const tk of op.to > i + 1 ? [op.to, i + 1] : [op.to]) {
+      if (await e.walkTo(standOf(plan, tk))) {
+        const now = stairStepAt(plan, e.feet())
+        if (now && now.k > i) { i = now.k; out.hops++; moved = true; break }
+      }
+      abortIf()
+    }
+    if (!moved) return end(false, 'hop', i)
+  }
+  if (i !== to) return end(false, 'hop', i)
+  if (!landing) return end(true, 'arrived', to)
+  // THE LANDING'S STUB: its columns in order (v0 .. v1), a foreign block in one dug from the column before it, then the stand
+  for (const col of landing.cols) {
+    abortIf()
+    if (e.now() >= deadline) return end(false, 'time', to)
+    for (const c of col.air) {
+      const b = e.read(...c)
+      if (!b) return end(false, 'unknown', to)
+      if (wetCell(b)) return end(false, 'wet', to)
+      if (b.boundingBox === 'empty') continue
+      // never a liquid's barrier (the egress's rule): a liquid or an unread cell at any face stops it, nothing dug
+      for (const [dx, dy, dz] of N6) { const nb = e.read(c[0] + dx, c[1] + dy, c[2] + dz); if (!nb) return end(false, 'unknown', to); if (wetCell(nb)) return end(false, 'wet', to) }
+      const w = await digIt({ at: c, k: landing.k })
+      if (w) return end(false, w, to)
+      if (e.read(...c)?.boundingBox !== 'empty') return end(false, 'stub', to)
+    }
+    if (!(await e.walkTo(col.air[0]))) return end(false, 'stub', to)
+  }
+  return end(true, 'arrived', 'stand')
 }
 
 // ---- the stair's body claim -----------------------------------------------------------------------------------------------
