@@ -58,12 +58,16 @@ export function checkArgs (spec, args) {
   return { args: out }
 }
 
+// control characters, zero-width and bidi marks, line/paragraph separators, BOM (written as escapes on purpose)
+const INVISIBLE = new RegExp('[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u2028-\\u202e\\u2066-\\u2069\\ufeff]', 'g')
+const SLASHES = new RegExp('^[/\\uff0f\\u2215\\u2044\\u29f8]')
+
 /** Chat filter (design §3.4). Pure. Returns the line to send, or null when it must be dropped (and why). */
 export function filterSay (text) {
-  const s = String(text ?? '').replace(/[\u0000-\u001f\u007f-\u009f​-‏ -‮⁦-⁩﻿]/g, '').trim()
+  const s = String(text ?? '').replace(INVISIBLE, '').trim()
   if (!s) return { line: null, why: 'empty' }
   // a slash, or a look-alike (fullwidth solidus, division slash, fraction slash, big solidus): a command attempt
-  if (/^[/／∕⁄⧸]/.test(s.normalize('NFKC')) || /^[/／∕⁄⧸]/.test(s)) return { line: null, why: 'command' }
+  if (SLASHES.test(s.normalize('NFKC')) || SLASHES.test(s)) return { line: null, why: 'command' }
   return { line: s.slice(0, 100), why: null }
 }
 
