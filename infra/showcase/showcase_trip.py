@@ -1339,8 +1339,9 @@ def selftest():
     assert zone_diff({'1,71,1': 'minecraft:wheat[age=1]'}, {'1,71,1': 'minecraft:carrots[age=0]'}, look) == ([], [], []), \
         'a village farm cycle: one crop replanted as another is INTACT'
     assert zone_diff({'4,70,4': 'minecraft:dirt_path'}, {'4,70,4': 'minecraft:farmland'}, look)[1] and \
-        zone_diff({'4,71,4': 'minecraft:wheat'}, {'4,71,4': 'minecraft:oak_planks'}, look)[1], \
-        'a village farm cycle is crop <-> crop/air only: a path tilled, a crop turned into a plank are still changes'
+        zone_diff({'4,71,4': 'minecraft:wheat'}, {'4,71,4': 'minecraft:oak_planks'}, look)[1] and \
+        zone_diff({'4,72,4': 'minecraft:oak_planks'}, {}, {'4,72,4': 'minecraft:wheat'}.get)[0], \
+        'a village farm cycle is crop <-> crop/air only: a path tilled, a crop turned into a plank, a plank into a crop are still changes'
     assert zone_diff({'6,71,6': 'minecraft:wheat', '7,70,7': 'minecraft:farmland'}, {}, look)[0] == \
         ['6,71,6 minecraft:wheat', '7,70,7 minecraft:farmland'], \
         'air is a harvest only ABOVE farmland: a crop over dirt gone, farmland dug to air, are still REMOVED'

@@ -99,8 +99,8 @@ MUTANTS = [
     # ---- OWNER 11-06 mobGriefing ON: a village farm cycle is not an S4 breach; anything else still is
     ("    if cycle_at is not None:\n        at = ", "    if False:\n        at = ", 'farmland moisture are INTACT'),
     ("farm_cycle(STATE_ANY.sub('', v), at(k), at(under(k)))}", "True}", 'still REMOVED'),
-    ("CROP = re.compile(r'^minecraft:(wheat|carrots|potatoes|beetroots)$')", "CROP = re.compile(r'^minecraft:(wheat|carrots|potatoes|beetroots|dirt)$')",
-     'still REMOVED'),
+    ("    if not (VILLAGE_CYCLE.match(was or '') and VILLAGE_CYCLE.match(now or '')):\n        return False\n", "",
+     'a plank into a crop'),
     ("        at = lambda k: STATE_ANY.sub('', (now[k] if k in now else cycle_at(k)) or '')",
      "        at = lambda k: (now[k] if k in now else cycle_at(k)) or ''", 'farmland moisture are INTACT'),
     ("and below == 'minecraft:farmland')", ")", 'ABOVE farmland'),
