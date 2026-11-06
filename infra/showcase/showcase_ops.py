@@ -1091,7 +1091,8 @@ def reader_mismatch(rel, reader_path):
         return f'the installed reader {reader_path} is unreadable ({type(e).__name__})'
     if have not in want:
         return (f'the replay approved reader {want[0]} but {reader_path} is {have}: install the approved reader '
-                f'(the --reader file the stage named) into {reader_path}, then activate')
+                f'(the --reader file the stage named) into {reader_path}, then activate -- or, to go back to an older release '
+                f'under the reader installed now, re-stage it (stage <sha> --reader {reader_path})')
     return None
 
 
