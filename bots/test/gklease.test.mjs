@@ -129,5 +129,18 @@ await t('keeperOrder checks the holder and the taker, rests a released holder, p
   assert.throws(() => wiring(src.replace(gate, '')), assert.AssertionError, 'without the acquisition gate the wiring check fails')
 })
 
+await t('release fold (Codex BLOCKER): the lease is never released under a RUNNING grounds visit -- the visit is marked busy, keeperOrder skips the keeper and helper release while it runs (structural, comments stripped; the guard cut fails it)', () => {
+  const strip = x => x.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/[ \t]\/\/ .*$/gm, '')
+  const raw = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const wired = src => /ctx\.bot\.shopVisitBusy = true\n\s*try \{ r = await buildShopVisit\(ctx, args, signal\) \}[^\n]*finally \{ ctx\.bot\.shopVisitBusy = false \}/.test(src) &&
+    /const inGrounds = !!bot\.shopVisitBusy && \(bot\.shopVisitPlot === TIDY_PLOT \|\| bot\.shopVisitPlot === FOREST_PLOT\)/.test(src) &&
+    /if \(GKL_ON && \(d === 'mine' \|\| d === 'take'\) && !\(d === 'mine' && inGrounds\)\) \{/.test(src) &&
+    /if \(GKL_ON && unfit && h\.d === 'mine' && !inGrounds\) \{/.test(src)
+  assert.ok(wired(strip(raw)), 'the busy mark and both guards are wired')
+  const old = " && !(d === 'mine' && inGrounds)) {"
+  assert.strictEqual(raw.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.ok(!wired(strip(raw.replace(old, ') {'))), 'MUTANT: the keeper guard cut is caught')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

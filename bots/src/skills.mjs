@@ -20381,7 +20381,10 @@ async function buildShop (ctx, args, signal) {
   // yield only to a wanted sink, for IDLE_MS
   const note = res => { try { noteIdle((ctx.bot.shopIdle ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } }
   let r
-  try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) { note({ status: 'aborted', stop: 'aborted' }); serviceEnd(ctx.bot, 'aborted') } throw e }
+  // gklease-01 (release fold, Codex BLOCKER): a visit IN PROGRESS is marked, so the footprint timer's keeperOrder never releases the
+  // grounds lease under a running tidy/forest visit (a replacement keeper would work beside the old one)
+  ctx.bot.shopVisitBusy = true
+  try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) { note({ status: 'aborted', stop: 'aborted' }); serviceEnd(ctx.bot, 'aborted') } throw e } finally { ctx.bot.shopVisitBusy = false }
   note(r)
   serviceEnd(ctx.bot, r?.stop)   // prodserve-01: a service visit that did not happen gives its stamp back
   // gklease-01: a grounds visit that did something is the holder's work (groundsIdle's clock)
@@ -23421,7 +23424,9 @@ function keeperOrder (bot, states, list, now = Date.now()) {
   // GKLEASE-01 (groundskeeper.mjs groundsLeaseCheck): a holder that cannot work the grounds from where it is (in a mine, away), or
   // that has done no grounds work for GK_FIT.idleMs, lets the lease go and rests; an unfit bot never takes it
   const unfit = gkUnfitNow(bot)
-  if (GKL_ON && (d === 'mine' || d === 'take')) {
+  // (release fold, Codex BLOCKER) never while this holder is IN a grounds visit: the visit ends first, the next check decides
+  const inGrounds = !!bot.shopVisitBusy && (bot.shopVisitPlot === TIDY_PLOT || bot.shopVisitPlot === FOREST_PLOT)
+  if (GKL_ON && (d === 'mine' || d === 'take') && !(d === 'mine' && inGrounds)) {
     const c = groundsLeaseCheck({ d, unfit, idle: d === 'mine' && groundsIdle({ term0: Number(k.lease?.rec?.meta?.term0 ?? k.lease?.rec?.at), workAt: bot.gkWorkAt ?? null, spawnAt: bot.shopSpawnAt ?? null, now }) })
     if (c.release) { releaseKeeper(bot, k.lease, c.release, now); bot.gkRestUntil = now + GK_FIT.restMs; d = 'none' } else if (d === 'take' && !c.take) d = 'none'
   }
@@ -23432,7 +23437,7 @@ function keeperOrder (bot, states, list, now = Date.now()) {
   // gklease-01: an unfit helper lets its helper lease go (and rests); an unfit bot never helps
   if (d === 'other') {
     const h = crewState(bot, work, now)
-    if (GKL_ON && unfit && h.d === 'mine') { releaseHelper(bot, h.name, h.helpers?.[h.name]?.gen ?? null, unfit, now); bot.gkHelpRestUntil = now + GK_FIT.restMs } else if (!(GKL_ON && unfit) && (h.d === 'mine' || (h.d === 'take' && !decorHeld))) d = 'helper'
+    if (GKL_ON && unfit && h.d === 'mine' && !inGrounds) { releaseHelper(bot, h.name, h.helpers?.[h.name]?.gen ?? null, unfit, now); bot.gkHelpRestUntil = now + GK_FIT.restMs } else if (!(GKL_ON && unfit) && (h.d === 'mine' || (h.d === 'take' && !decorHeld))) d = 'helper'
   }
   // forest-01: a forest visit that did nothing rests the forest for this keeper (forestIdleUntil): the tidy goes on meanwhile
   if (forestPlot && now < (bot.forestIdleUntil ?? 0)) { const fi = states.findIndex(q => q?.plot === forestPlot); if (fi >= 0) states[fi] = { ...states[fi], idle: true } }
