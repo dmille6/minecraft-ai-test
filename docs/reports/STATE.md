@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-06T11:20:01Z._
+_Generated 2026-11-06T12:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-06T11:20:01Z._
 | **Canary in slot** | **decbundle-01** deployed 11-06 10:38Z; reads +90 11-06 12:08Z, +180 11-06 13:38Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | gkforever-01 -> handcap-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> bucketfix-01 -> kittrim-01 -> villageunlock-01 -> +5 more. Held: treefarm-05 (HELD: needs the 3 finished towns (board-b, hive-b, placebo-a) in its draw; fun-mode draws ignore...) |
 | **Scheduler** | busy S1 canary declared: 47b8342d0705e319dd0cfd3382dfe52a6d6c0a4d on board-b,board-a / S6 open loop: canary 47b8342 is deployed on board-b,board-a with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 decbund |
-| **Showcase release** | `b1d5b17e` (29,351 rows), `79bc6085` (3,721 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live b1d5b17e sits on 9fbfdf22 (bagdiet-01); behind by 9: stuckproj-01, dropdig-01, leasegen-01, llmoai-01, dirtrung-01, swimunder-01, monustuck-01, shafttrap-0; row 11-06 10:25Z) |
+| **Showcase release** | `b1d5b17e` (33,852 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live b1d5b17e sits on 9fbfdf22 (bagdiet-01); behind by 10: idlework-01, stuckproj-01, dropdig-01, leasegen-01, llmoai-01, dirtrung-01, swimunder-01, monustuck-0; row 11-06 11:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | servea-roll: rollout-released 11-05 13:55Z |
-| **Pending owner decisions** | !! ledger UNREADABLE (Command '['git', '-C', '/home/mike/stategen/repo', 'fetch', '-q', 'origin', 'main']' timed out after 180 seconds) |
-| **Open alarms** | STALLCHECK 2026-11-06T10:35:01Z STALLED: 66. OPSAUDIT 2026-11-05 FLAGS: 12 (1 high). 32 active alarm(s): stuck goals 9 (board-d/tidy@355_73_147, hive-d/monument@68_65_68, hive-d/tidy@68_65_68, isolated-a/monument@355_73_147, isolated-a/wall@355_73_147, isolated-d/wall@355_73_147 ...); driftwatch drift:deaths_per_bot_h, driftwatch drift:items_per_bot_h, effectwatch effect:dirtrung-01:h24, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72 |
+| **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?; **visuals-1105**: visuals-1105 skins: OK to publish the 15 custom skin PNGs through MineSkin (public gallery unless a MineSkin key is given), or upload them yourself at skinsrestorer.net/upload?; **idletowns-1106**: idletowns-1106 storage hub: the showcase hall's clerk has never run (0 rows; its upkeep waits behind open projects) -- give it a turn on the showcase first (H0), then port the hall to the fleet (H1, ~600-900 lines + Paper proof)? |
+| **Open alarms** | STALLCHECK 2026-11-06T11:35:01Z STALLED: 65. OPSAUDIT 2026-11-05 FLAGS: 12 (1 high). 33 active alarm(s): stuck goals 11 (board-d/tidy@355_73_147, hive-d/monument@68_65_68, hive-d/tidy@68_65_68, isolated-a/monument@355_73_147, isolated-a/wall@355_73_147, isolated-c/monument@355_73_147 ...); driftwatch drift:deaths_per_bot_h, driftwatch drift:items_per_bot_h, effectwatch effect:dirtrung-01:h24, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72 |
 <!-- GENERATED:END -->
 
 ## Notes
