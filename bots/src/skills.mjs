@@ -18225,7 +18225,7 @@ function copperAsk ({ now = Date.now(), freeSlots = 36 } = {}) {
     const waiting = () => { if (hallWaitingNow()) return true; sited = hallSitedCopperNow(bot); return !!sited?.waiting }
     const r = copperRunOrder({ now, on: true, waiting, gate: () => (gate = sited ? sited.gate : hallOpenNow(bot)), held, freeSlots,
       tripPick: hasTripPickaxe(items), site: () => projectSiteNow(bot), ore: () => copperOreNear(bot), state: bot.copperRunState ?? {},
-      tripOn: COPPERRUN2.trip, trip: () => copperTripNow(bot, now) })
+      tripOn: COPPERRUN2.trip && copperTripClock(Number(config.skills?.defaultTimeoutMs)) != null, trip: () => copperTripNow(bot, now) })
     bot.copperRunState = r.state
     const why = r.order ? 'issued' : (['stocked', 'no_ore', 'same_ore', 'pickaxe', 'carrying', 'site_unknown', 'on_site', 'copper_unknown'].includes(r.skip) ? r.skip : null)
     bot.copperRunSkipAt ??= {}
@@ -20160,12 +20160,23 @@ async function copperTripVisit (ctx, args, signal, { walk = goto, dig = gather, 
   const done = (status, stop, remedy = null) => {
     written = true
     const gained = Math.max(0, (heldMap(bot).raw_copper ?? 0) - raw0)
-    try { bot.copperRunState = { ...(bot.copperRunState ?? {}), tried: copperTripTried(bot.copperRunState?.tried ?? {}, remedy ? null : key, gained, Date.now()) } } catch { /* bookkeeping */ }
+    try {
+      const tried = copperTripTried(bot.copperRunState?.tried ?? {}, remedy ? null : key, gained, Date.now())
+      if (key && (gained > 0 || remedy?.need)) delete tried[key]   // copper came back, or a remedy: the target stays open
+      if (!remedy?.keep) bot.copperRunState = { ...(bot.copperRunState ?? {}), tried }
+    } catch { /* bookkeeping */ }
     try { logEvent({ kind: 'copper_trip', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: copperTripDetail({ phase, at, block, gained, why, ms: Date.now() - t0 }) }) } catch { /* telemetry */ }
-    return { status, detail: `copper trip ${phase}: ${why}`, stop, ...(remedy ?? {}) }
+    const { keep, ...rem } = remedy ?? {}
+    return { status, detail: `copper trip ${phase}: ${why}`, stop, ...rem }
   }
   if (!COPPERRUN.on || !COPPERRUN2.trip) { why = 'off'; return done('no_effect', 'copper_trip_off') }
   if (!at || !block) { why = 'bad_args'; return done('no_effect', 'copper_trip_args') }
+  if (!clock) { why = `clock_short skill_ms=${skillMs}`; return done('no_effect', 'copper_trip_clock', { keep: true }) }
+  // THE BACK-OFF IS CHARGED AT THE START (Codex r2 BLOCKER 1): a gather stalled past every cut is abandoned by the runner's hard stop
+  // and this visit's finally never runs -- so the target is backed off NOW and only a trip that brings copper (or names a remedy)
+  // gives it back; no settlement is needed for the loop to stay closed. A `phase=start` row says the trip left.
+  try { bot.copperRunState = { ...(bot.copperRunState ?? {}), tried: copperTripTried(bot.copperRunState?.tried ?? {}, key, 0, Date.now()) } } catch { /* bookkeeping */ }
+  try { logEvent({ kind: 'copper_trip', status: 'success', snapshot: snapshot(bot), detail: copperTripDetail({ phase: 'start', at, block, gained: 0, why: `clock=${clock.budget}`, ms: 0 }) }) } catch { /* telemetry */ }
   try {
     // 1. OUT: to the find (a walk; the gather digs, not the walk)
     phase = 'out'
@@ -20183,6 +20194,7 @@ async function copperTripVisit (ctx, args, signal, { walk = goto, dig = gather, 
       const onUp = () => sub.abort()
       signal?.addEventListener?.('abort', onUp, { once: true })
       const cut = setTimeout(() => sub.abort(), Math.max(5_000, t0 + clock.gatherMs - Date.now()))
+      cut.unref?.()   // the cut never holds a process open on its own (an abandoned gather's timer)
       try { g = await dig(ctx, { block, count: COPPER_RUN_COUNT, maxDistance: COPPER_TRIP_GATHER_R }, sub.signal) } catch (e) { if (signal?.aborted) throw e; g = { status: e?.aborted ? 'cut' : 'failed', detail: String(e?.message ?? e) } } finally { bot.copperTunnelUntil = 0; clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
       why = `gather ${g?.status ?? '?'}: ${String(g?.detail ?? '').slice(0, 90)}`
     } else if (why === '-') why = `walk ended ${p ? Math.round(Math.hypot(p.x - at[0], p.z - at[2])) : '?'} from the find`

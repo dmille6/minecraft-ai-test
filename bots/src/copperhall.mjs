@@ -284,9 +284,13 @@ export const COPPER_TRIP_REACH = 6
  * most COPPER_TRIP_MAX = 110 from home, ~30 s of walking), the gather to 102 s, home by 165 s.
  */
 export const COPPER_TRIP_SHOP_MS = 600_000
+export const COPPER_TRIP_MIN_BUDGET_MS = 60_000
 export function copperTripClock (skillMs = COPPER_TRIP_SHOP_MS) {
   const s = Number(skillMs) > 0 ? Math.min(COPPER_TRIP_SHOP_MS, Number(skillMs)) : COPPER_TRIP_SHOP_MS
-  const budget = Math.max(30_000, s - 15_000)
+  const budget = s - 15_000
+  // A CLOCK TOO SHORT FOR A TRIP IS NO TRIP (Codex r2 BLOCKER 2): never a budget above what the runner allows -- null, and the
+  // run does not issue one (skills.mjs copperAsk)
+  if (budget < COPPER_TRIP_MIN_BUDGET_MS) return null
   return { budget, outMs: Math.round(budget * 0.30), gatherMs: Math.round(budget * 0.62), homeMs: budget }
 }
 /** The gather at the find: tunnel candidates come from oretunnel CANDIDATE_RADIUS (24). */
