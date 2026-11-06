@@ -62,26 +62,47 @@ function fakeBot (w, plan, M, { start, name, log, bodies }) {
     toolOk: () => true, fence: () => true, log: () => {}, now: () => t, aborted: () => false,
   }
 }
-/** Two builders (slots 1, 2) visiting concurrently, visit after visit, until the tank stands. -> { log, w, P, stops, rounds } */
-async function crew (M = V, SM = S, { n = 2, maxRounds = 40 } = {}) {
+/** The slot leases, simulated: slot j -> holder | null. A visit takes its own slot (or is refused, `slots_full`, when another holds
+ *  it: a claimed slot); its share claims every other slot only when none is held by another builder. */
+function slots (n) {
+  const held = new Map(Array.from({ length: n }, (_, i) => [i + 1, null]))
+  return {
+    held,
+    take: (j, me) => (held.get(j) == null || held.get(j) === me ? (held.set(j, me), true) : false),
+    share: (j, me, mine) => ({
+      mine,
+      claimAll: () => { const others = [...held.keys()].filter(q => q !== j); if (others.some(q => held.get(q) != null && held.get(q) !== me)) return false; for (const q of others) held.set(q, me); return true },
+      holdsAll: () => [...held.keys()].filter(q => q !== j).every(q => held.get(q) === me),
+    }),
+    releaseAll: me => { for (const [q, h] of held) if (h === me) held.set(q, null) },
+  }
+}
+/** Builders (slots 1..n) visiting concurrently, visit after visit, until the tank stands. -> { log, w, P, stops, rounds } */
+async function crew (M = V, SM = S, { n = 2, maxRounds = 40, world0 = null } = {}) {
   const P = SM.planTank(SITE)
-  const w = world(), log = [], bodies = new Map()
+  const w = world0 ?? world(), log = [], bodies = new Map()
   const centre = [(P.box[0] + P.box[2]) / 2, (P.box[1] + P.box[3]) / 2]
-  const live = new Set()
+  const L = slots(n)
   const bots = Array.from({ length: n }, (_, i) => ({ slot: i + 1, name: `B${i + 1}`, e: fakeBot(w, P, SM, { start: [10 + 2 * i, G + 1, -2], name: `B${i + 1}`, log, bodies }) }))
   const stops = []
   let rounds = 0
   for (; rounds < maxRounds && SM.firstUndoneUnit(w.read, P) !== null; rounds++) {
-    await Promise.all(bots.map(async b => {
-      live.add(b.slot)
-      const share = { mine: c => SM.crewSector(centre, c, n) === b.slot - 1, othersBusy: () => [...live].some(j => j !== b.slot), lead: () => ![...live].some(j => j < b.slot) }
+    await Promise.all(bots.map(async (b, i) => {
+      await new Promise(r => setTimeout(r, i))   // the second visit starts a moment later (it may find its slot claimed)
+      if (!L.take(b.slot, b.name)) { stops.push(`${b.name}:slots_full`); return }
+      const share = n > 1 ? L.share(b.slot, b.name, c => SM.crewSector(centre, c, n) === b.slot - 1) : null
       try {
         const r = await M.runStepwellVisit({ plan: P, exit: P.exit, share, onStop: async () => { throw new Error('stopped') } }, b.e, { opsMax: 120 })
         stops.push(`${b.name}:${r.stop}`)
-      } finally { live.delete(b.slot) }
+      } finally { L.releaseAll(b.name) }
     }))
   }
   return { log, w, P, stops, rounds }
+}
+const workedByBoth = log => {
+  const by = new Map()
+  for (const [op, nm, c] of log) if (op === 'dig' || op === 'place') { const k = `${op}:${c.join(',')}`; (by.get(k) ?? by.set(k, new Set()).get(k)).add(nm) }
+  return [...by.entries()].filter(([, v]) => v.size > 1).map(([k]) => k)
 }
 
 console.log('THE SETTING AND THE RECORD (pure)')
@@ -123,9 +144,7 @@ await t('the tank completes; no cell is dug or placed by both; every dig is in t
   const { log, w, P, stops } = await crew()
   assert.strictEqual(S.firstUndoneUnit(w.read, P), null, stops.join(' '))
   assert.deepStrictEqual(log.filter(x => x[0] === 'out_of_layer'), [], 'a dig outside the first undone layer')
-  const by = new Map()
-  for (const [op, nm, c] of log) if (op === 'dig' || op === 'place') { const k = `${op}:${c.join(',')}`; (by.get(k) ?? by.set(k, new Set()).get(k)).add(nm) }
-  const both = [...by.entries()].filter(([, s]) => s.size > 1).map(([k]) => k)
+  const both = workedByBoth(log)
   assert.deepStrictEqual(both, [], `worked by both: ${both.slice(0, 5)}`)
   const ops = n => log.filter(x => (x[0] === 'dig' || x[0] === 'place') && x[1] === n).length
   assert.ok(ops('B1') > 0.3 * (ops('B1') + ops('B2')) && ops('B2') > 0.3 * (ops('B1') + ops('B2')), `the work was not shared: B1 ${ops('B1')} B2 ${ops('B2')}`)
@@ -140,30 +159,49 @@ await t('ONE builder with a share (the other slot empty): it takes the whole lay
   assert.strictEqual(S.firstUndoneUnit(w.read, P), null, stops.join(' '))
   assert.ok(!stops.some(s => /shared/.test(s)), stops.join(' '))
 })
-await t('MUTANT KILLED: the sector view cut (both builders work the whole layer) -- cells worked by both', async () => {
-  await withMutant(SV_PATH, "      const unit = sharing && !w.unit.station ? shareView(w.unit, p.share.mine) : w.unit", '      const unit = w.unit', async M => {
+await t('MUTANT KILLED: the sector view AND the out-of-sector guard cut (both builders work the whole layer) -- cells worked by both', async () => {
+  await withMutant(SV_PATH, '      const unit = sharing ? shareView(w.unit, p.share.mine) : w.unit', '      const unit = w.unit', async M0 => M0, ["      if (sharing && (op.op === 'place' || op.op === 'dig') && !p.share.mine(op.at)) {", '      if (false) {'], async M => {
     const { log } = await crew(M, S, { maxRounds: 6 })
-    const by = new Map()
-    for (const [op, nm, c] of log) if (op === 'dig' || op === 'place') { const k = `${op}:${c.join(',')}`; (by.get(k) ?? by.set(k, new Set()).get(k)).add(nm) }
-    assert.ok([...by.values()].some(s => s.size > 1), 'the mutant shared no cell: the overlap test proves nothing')
+    assert.ok(workedByBoth(log).length > 0, 'the mutant shared no cell: the overlap test proves nothing')
   })
 })
-await t('MUTANT KILLED: a done sector moving on while the other builder still works (no `shared` wait) -- digs outside the first undone layer, or the same cell twice', async () => {
-  // both anchors (the re-check would flip a builder that moved on straight back: with only the first cut the visit spins)
-  await withMutant(SV_PATH, "          if (p.share.othersBusy()) return end('shared',", "          if (false) return end('shared',", async M0 => M0, ['      if (shareOff && p.share?.othersBusy()) shareOff = false', ''], async M => {
+await t('MUTANT KILLED: a done sector moving on without holding every slot (no claim) -- cells worked by both', async () => {
+  // both anchors: with only the claim cut, the next step's holdsAll would flip it straight back (a spin, not a test)
+  await withMutant(SV_PATH, "          if (!claim()) return end('shared', 'this builder\\'s sector of the layer is done; another builder works the rest', w.unit.y)", '', async M0 => M0, ['      if (shareOff && !p.share.holdsAll()) shareOff = false', ''], async M => {
     const { log } = await crew(M, S, { maxRounds: 6 })
-    const by = new Map()
-    for (const [op, nm, c] of log) if (op === 'dig' || op === 'place') { const k = `${op}:${c.join(',')}`; (by.get(k) ?? by.set(k, new Set()).get(k)).add(nm) }
-    assert.ok([...by.values()].some(s => s.size > 1) || log.some(x => x[0] === 'out_of_layer'), 'the mutant kept the crew apart: the wait test proves nothing')
+    assert.ok(workedByBoth(log).length > 0 || log.some(x => x[0] === 'out_of_layer'), 'the mutant kept the crew apart: the claim test proves nothing')
   })
 })
-await t('MUTANT KILLED: a builder that took the whole layer keeps it after the other builder returns -- cells worked by both', async () => {
-  await withMutant(SV_PATH, '      if (shareOff && p.share?.othersBusy()) shareOff = false', '', async M => {
-    const { log } = await crew(M)
-    const by = new Map()
-    for (const [op, nm, c] of log) if (op === 'dig' || op === 'place') { const k = `${op}:${c.join(',')}`; (by.get(k) ?? by.set(k, new Set()).get(k)).add(nm) }
-    assert.ok([...by.values()].some(s => s.size > 1), 'the mutant shared no cell: the re-check test proves nothing')
-  })
+await t('a JOINER finds the slot a lone builder claimed: refused (slots_full) while that visit works the whole layer -- never the same cell', async () => {
+  const { log, stops } = await crew(V, S, { maxRounds: 12 })
+  assert.ok(stops.some(x => x.endsWith(':slots_full')), `no join was refused: ${stops.join(' ')}`)
+  assert.deepStrictEqual(workedByBoth(log), [])
+})
+// Codex r1 BLOCKER 2: a SEAL the survey of this sector's cut names may be a cell of the other sector (here 4,64,9 in sector 0 beside
+// water at 4,64,10 in sector 1): never placed there while the other builder holds its slot -- the visit ends `shared`
+const sealScene = () => {
+  const P = S.planTank(SITE), w = world()
+  w.set([4, G, 10], 'water')
+  const centre = [(P.box[0] + P.box[2]) / 2, (P.box[1] + P.box[3]) / 2]
+  assert.strictEqual(S.crewSector(centre, [4, G, 9], 2), 0); assert.strictEqual(S.crewSector(centre, [4, G, 10], 2), 1)
+  assert.strictEqual(S.firstUndoneUnit(w.read, P).unit.y, G, 'the first undone layer is the water\'s')
+  const log = []
+  const e = fakeBot(w, P, S, { start: [2, G + 1, -2], name: 'B1', log, bodies: new Map() })
+  const share = { mine: c => S.crewSector(centre, c, 2) === 0, claimAll: () => false, holdsAll: () => false }
+  return { P, w, e, share, log }
+}
+await t('a seal in another builder\'s sector is not placed while it holds its slot: `shared`, the water untouched -- killed with the guard cut', async () => {
+  const scen = async M => {
+    const { P, w, e, share, log } = sealScene()
+    const r = await M.runStepwellVisit({ plan: P, exit: P.exit, share, onStop: async () => {} }, e, { opsMax: 200 })
+    assert.strictEqual(r.stop, 'shared', `${r.stop}: ${r.why}`)
+    assert.strictEqual(w.get([4, G, 10]), 'water')
+    assert.ok(!log.some(x => x[0] === 'place' && x[2].join(',') === `4,${G},10`))
+  }
+  await scen(V)
+  let why = null
+  await withMutant(SV_PATH, "      if (sharing && (op.op === 'place' || op.op === 'dig') && !p.share.mine(op.at)) {", '      if (false) {', async M => { try { await scen(M) } catch (err) { why = err } })
+  assert.ok(why instanceof assert.AssertionError, `the seal-guard mutant survived: ${why?.message ?? 'survived'}`)
 })
 await t('MUTANT KILLED: the crew raised during the felling', async () => {
   await withMutant(SW_PATH, "  if (!rec || rec.state === 'stopped' || pending !== 0 || !(crew > 1)) return null", "  if (!rec || rec.state === 'stopped' || !(crew > 1)) return null", async M => {

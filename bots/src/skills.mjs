@@ -24716,14 +24716,26 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
   const slotRef = { gen: slot.gen }
   // a slot beyond the first never fells (the felling is one builder's: runVisit's tree rows and replants stay one bot's)
   if (slot.slot > 1 && (pending == null || pending > 0)) { releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen); return out('no_effect', 'felling_one', 'the felling is one builder\'s; the tank takes a crew once every log is down', { stop: 'felling_one' }) }
-  // the crew's share of a layer (stepwellvisit.mjs `share`): this slot's sector; the others' sectors while they hold their slots
-  const liveOther = j => { try { const st = projLeaseState(dir, key, `slot${j}`); return !!st && st.rec?.holder !== me && Date.now() < st.blocksUntil } catch { return true } }
+  // the crew's share of a layer (stepwellvisit.mjs `share`): this slot's sector; work beyond it only while this visit HOLDS every
+  // other slot too (claimAll: their leases taken, so no builder can join and pick the same cell -- Codex r1 BLOCKER), released at the end
+  const claimed = new Map()
   const crewBox = (() => { try { return planOfRecord(rec).box } catch { return null } })()
   const crewCentre = Array.isArray(crewBox) ? [(crewBox[0] + crewBox[2]) / 2, (crewBox[1] + crewBox[3]) / 2] : null
+  const others = Array.from({ length: nBuilders }, (_, i) => i + 1).filter(j => j !== slot.slot)
   const share = nBuilders > 1 && crewCentre ? {
     mine: c => crewSector(crewCentre, c, nBuilders) === (slot.slot - 1) % nBuilders,
-    othersBusy: () => Array.from({ length: nBuilders }, (_, i) => i + 1).some(j => j !== slot.slot && liveOther(j)),
-    lead: () => Array.from({ length: slot.slot - 1 }, (_, i) => i + 1).every(j => !liveOther(j)),
+    holdsAll: () => others.every(j => { try { return claimed.has(j) && projHoldsLease(dir, key, `slot${j}`, me, claimed.get(j)) } catch { return false } }),
+    claimAll: () => {
+      const got = []
+      for (const j of others) {
+        try { if (claimed.has(j) && projHoldsLease(dir, key, `slot${j}`, me, claimed.get(j))) continue } catch { /* take it */ }
+        let r = null
+        try { r = projTakeLease(dir, key, `slot${j}`, me) } catch { r = null }
+        if (!r?.ok) { for (const g of got) { releaseLease(dir, key, `slot${g}`, me, claimed.get(g)); claimed.delete(g) } return false }
+        claimed.set(j, r.gen); got.push(j)
+      }
+      return true
+    },
   } : null
   let effects = null
   let bag0 = null
@@ -24835,6 +24847,7 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     return out('failed', 'error', String(err?.message ?? err).slice(0, 100), {}, 'other')
   } finally {
     releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    for (const [j, g] of claimed) releaseLease(dir, key, `slot${j}`, me, g)   // stepwell-05: the slots this visit claimed
     try { effects?.close() } catch { /* gone */ }
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
     if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(STEPWELL_PLOT, bagBalance({ bag0, took: tookAll, crafted, placed: placedBy, back: {}, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
