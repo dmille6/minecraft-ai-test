@@ -9,10 +9,10 @@
  "note": "PROGRESS (P) entry DRAFT (owner 11-06 managed forest). forest-01 = the managed forest outside the walls + felled outside trees replanted in its rows, built ON gkforever-01 9e9284d7 (the keeper order it extends). Place after gkforever-01 (KEPT + promoted); it SUPERSEDES treefarm-05 (946c8aaa: the tree farm in idle mode keeps treefarm.mjs's farmFootprint, which prices every trunk cell, so its grown harvest fails as the showcase's did, 0/245) -- cancel that entry. Draw: towns WITH a wall record (the forest sites outside wall rings: no wall, no site) and a keeper; read the `_build project=forest` rows. Variant keyed on 9e9284d7; if gkforever-01 REVERTs, rebuild on what is live. idlework-02 / stations-01 (also after gkforever-01) touch skills.mjs: whichever lands second needs a rebase. Rollback FOREST=off. NO patch block (control session sets it).",
  "variants": {
   "9e9284d7078194045f673344af3116e6022cdcbf": {
-   "registration": "/home/mike/mcai-analysis/forest-01.79f17f7e.json",
-   "canary_sha": "79f17f7eaa8b024cbac1095e95749a04e491ea7b",
+   "registration": "/home/mike/mcai-analysis/forest-01.d396d353.json",
+   "canary_sha": "d396d3534aa5082eab74a29ea2c8f48f4f457974",
    "branch": "forest-01-on-9e9284d7",
-   "approved": "forest-1106 agent 2026-11-06: the showcase piece reviewed by two engines over 3 rounds (Claude r1 5 + Codex r1 4 blockers fixed 2e0a9100; r2 Codex 1 + Claude 1 fixed f1b5e53a; r3 Codex NO BLOCKERS); the fleet port 9e9284d7..c456a2c8 Codex blockers-only NO BLOCKERS (f3ccae3f: FOREST default on in named pools, after the review); tier 2 (protected.py: not protected); forest.test pass; gkforever/groundskeeper/tidy/shop/treefarm/idlework pass; eslint src clean; full suite ci2 (git context) at 79f17f7e 404/406: craftsync (known flake) and towndeposit (passes alone 1/1); 79f17f7e is test lists only",
+   "approved": "forest-1106 agent 2026-11-06: the showcase piece reviewed by two engines over 3 rounds (Claude r1 5 + Codex r1 4 blockers fixed 2e0a9100; r2 Codex 1 + Claude 1 fixed f1b5e53a; r3 Codex NO BLOCKERS); the fleet port 9e9284d7..c456a2c8 Codex blockers-only NO BLOCKERS (f3ccae3f: FOREST default on in named pools, after the review); tier 2 (protected.py: not protected); forest.test pass; gkforever/groundskeeper/tidy/shop/treefarm/idlework pass; eslint src clean; full suite ci2 (git context) at 79f17f7e 404/406: craftsync (known flake) and towndeposit (passes alone 1/1); 79f17f7e is test lists only; forest-02 siting ported (d396d353): Codex r1 1 BLOCKER fixed, r2 NO BLOCKERS (reviewed on the showcase branch, same forest.mjs bar the switch); ci2 full suite at d396d353 406/406",
    "reads_src": "/home/mike/mcai-analysis",
    "reads": {},
    "protected": false,
