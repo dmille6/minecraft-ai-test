@@ -380,10 +380,11 @@ export function pathRecord (net, grid, read, { home, plan = null, now = Date.now
   // the steepest step between 4-adjacent path columns (the router keeps it <= 1)
   let maxStep = 0
   for (const [k, y] of level) { const [x, z] = k.split(',').map(Number); for (const [dx, dz] of [[1, 0], [0, 1]]) { const o = level.get(`${x + dx},${z + dz}`); if (o != null) maxStep = Math.max(maxStep, Math.abs(o - y)) } }
-  // pathsfix-01: A PLANT IN ONE OF THE RECORD'S OWN CELLS is no clear (the fill or the path set there replaces it -- vanilla: a plant
-  // is replaceable): listed, the clear read the record's own cobblestone as "not cleared" for good (offline build 11-06, isolated-d:
-  // 7 such clears, the segment `blocked` every visit). Leaves and logs stay clears (not replaceable)
-  if (fix) { const own = new Set(cells.map(c => c.at.join(','))); for (let i = clear.length - 1; i >= 0; i--) if (clear[i].kind === 'plant' && own.has(clear[i].at.join(','))) clear.splice(i, 1) }
+  // pathsfix-01: A REPLACEABLE PLANT IN ONE OF THE RECORD'S OWN CELLS is no clear (the fill or the path set there replaces it -- the
+  // visit places into it: buildrun.mjs isClear, townplan.mjs replaceableCell): listed, the clear read the record's own cobblestone as
+  // "not cleared" for good (offline build 11-06, isolated-d: 7 such clears, the segment `blocked` every visit). A plant the visit may
+  // not place into (wildflowers...), leaves and logs stay clears
+  if (fix) { const own = new Set(cells.map(c => c.at.join(','))); for (let i = clear.length - 1; i >= 0; i--) if (clear[i].kind === 'plant' && own.has(clear[i].at.join(',')) && replaceableCell(read(...clear[i].at))) clear.splice(i, 1) }
   clear.sort((a, b) => a.at[1] - b.at[1])
   const cols = [...level.keys()].map(k => k.split(',').map(Number))
   return {

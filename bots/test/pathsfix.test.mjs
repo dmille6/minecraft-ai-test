@@ -146,6 +146,20 @@ await t('a graded cut is never beside water (a cut there lets it in); a fill onl
   assert.strictEqual(lim.fillOk({ name: 'chest', boundingBox: 'block' }), false)
   assert.ok(lim.cut.test('cobblestone') && lim.cut.test('dirt') && !lim.cut.test('oak_planks'), 'the bots\' spoil, never planks')
 })
+await t('a replaceable plant in the record\'s own cell is no clear (the fill replaces it); a plant the visit cannot place into stays one', async () => {
+  const mk = plantName => {
+    const srv = platformWorld()
+    // plants on the ground the ramp is filled over
+    for (let x = -12; x <= 12; x++) for (let z = 7; z <= 24; z++) srv.set([x, G + 1, z], plantName)
+    return P.sitePaths(srv.read, platformIn())
+  }
+  const own = s => new Set(s.record.cells.map(c => c.at.join(',')))
+  const s1 = mk('short_grass')
+  assert.ok(s1.record.cells.some(c => c.role === 'fill' && c.at[1] === G + 1), 'CONTROL: a fill cell where the grass stands')
+  assert.ok(!s1.record.clear.some(c => c.kind === 'plant' && own(s1).has(c.at.join(','))), 'short grass in a record cell: no clear')
+  const s2 = mk('wildflowers')
+  assert.ok(s2.record.clear.some(c => c.kind === 'plant' && c.name === 'wildflowers' && own(s2).has(c.at.join(','))), 'wildflowers: cleared first')
+})
 await t('MUTANT KILLED: without the graded rounds the platform\'s well leg stays unrouted', async () => {
   await withMutant(PATHS_PATH, '    routeGraded(read, I, net, dests, o)\n', '\n', async M => {
     const s = M.sitePaths(platformWorld().read, platformIn())
@@ -207,18 +221,14 @@ await t('MUTANT KILLED: all-or-nothing again -> the moat leaves the town without
     assert.strictEqual(s.ok, false)
   })
 })
-await t('the tidy grades a network laid in sections (its strict check reads `missed`, not ok)', async () => {
-  const srv = platformWorld()
-  srv.set([0, G, 30], 'water')   // nothing; the grading reads the paths' own answer
-  const pin = { ...platformIn(), plan: { ...platformIn().plan } }
-  const g = TIDY.gradeTidy(srv.read, pin)
-  // the paths route here (graded), nothing missed: the grading has nothing to add
-  assert.strictEqual(g.why, 'paths_route')
-  const pinM = moatIn()
-  const g2 = TIDY.gradeTidy(moatWorld().read, pinM)
-  assert.notStrictEqual(g2.why, 'paths_route', 'a pending leg keeps the grading on')
+await t('the tidy grades for the paths\' STRICT router (their own earthwork is theirs) and a network laid in sections', async () => {
+  // the platform: the strict router cannot leave it -> the tidy grades a corridor (the paths would grade it themselves too)
+  assert.strictEqual(TIDY.gradeTidy(platformWorld().read, platformIn()).why, 'ok')
+  // the moat: the well routes, the farm is pending -> the grading still runs (never `paths_route` while a leg is missed)
+  assert.notStrictEqual(TIDY.gradeTidy(moatWorld().read, moatIn()).why, 'paths_route')
+  // CONTROL: flat ground, every leg strict -> nothing to grade
+  assert.strictEqual(TIDY.gradeTidy(server().read, { plan: corePlan(), caps: [[0, G + 1, 24]], place: placeBlueprint }).why, 'paths_route')
 })
-
 console.log('UNSITED IS NOT DONE')
 await t('pathsNoSite (fix): NOT complete, no cells, asked again after 6 h; the order reads it settled (pathsSettled)', async () => {
   const now = 1_000_000
