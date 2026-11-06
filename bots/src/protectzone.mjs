@@ -142,12 +142,17 @@ export const DEEP_SCAN = 24
 /** How many blocks of natural ground must cover a cell (Codex design: never the top layer of the surface itself). */
 export const DEEP_COVER = 2
 /**
- * IS THIS CELL UNDER THE TERRAIN SURFACE -> boolean. Pure over `at(x, y, z)` (null = unloaded: not deep). Walks up the
- * column from the cell above, DEEP_SCAN cells: deep when the first block with a collision box is natural ground AND at
+ * IS THIS CELL UNDER THE TERRAIN SURFACE -> boolean. Pure over `at(x, y, z)` (null = unloaded: not deep). The cell itself
+ * must be open (air, water) or natural ground; then walks up the column from the cell above, DEEP_SCAN cells: deep when the first block with a collision box is natural ground AND at
  * least DEEP_COVER natural blocks lie over the cell before any other kind of block (a village's roof, floor, wall, path:
  * not deep) or the end of the scan. Open sky over a single layer is the surface, not depth.
  */
 export function terrainDeep (at, x, y, z, { scan = DEEP_SCAN, cover = DEEP_COVER } = {}) {
+  // THE CELL ITSELF FIRST (Codex r1 BLOCKER 2): a solid block that is not natural ground -- a buried village foundation, a
+  // cobblestone floor under two blocks of stone -- is never deep, whatever covers it. Air, water and ground pass.
+  const self = at(x, y, z)
+  if (!self) return false
+  if (self.boundingBox === 'block' && !NATURAL_TERRAIN.test(self.name ?? '')) return false
   let n = 0
   for (let dy = 1; dy <= scan; dy++) {
     const b = at(x, y + dy, z)

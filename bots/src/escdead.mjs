@@ -196,19 +196,31 @@ export async function floodBreach (bot, { plan, dig, alive = () => true, yieldTo
   const eyeWet = () => { try { const p = bot.entity.position; return isWaterCell(at(Math.floor(p.x), Math.floor(p.y + 1.62), Math.floor(p.z))) } catch { return true } }
   let yielded = false, holdUp = false
   try {
+    // OWNERSHIP FIRST (Codex r1 BLOCKER 1): a body the rescue (or anything) took while this firing waited is never touched --
+    // no control cleared, nothing dug; and once more right before the dig, after the re-reads
+    const lost = () => { if (!alive()) return 'ownership lost'; const y = yieldTo(); return y ? `yielded: ${y}` : null }
+    const l0 = lost()
+    if (l0) { res.outcome = 'yielded'; yielded = true; res.why = `${l0} before the dig`; return res }
     clear()
     // THE ROOF, RE-READ: the plan is only as good as the world now
     const roof = at(...plan.roof)
     if (!solid(roof)) { res.why = `the roof is no longer a block (${roof?.name ?? 'unloaded'})`; return res }
     const above = at(plan.roof[0], plan.roof[1] + 1, plan.roof[2])
     if (!isWaterCell(above)) { res.why = `the cell over the roof is no longer water (${above?.name ?? 'unloaded'})`; return res }
+    const l1 = lost()
+    if (l1) { res.outcome = 'yielded'; yielded = true; res.why = `${l1} before the dig`; return res }
     const d0 = now()
     const dug = await dig(roof).then(() => null, e => e?.message ?? String(e))
     res.digMs = now() - d0
-    if (!alive()) { res.outcome = 'yielded'; yielded = true; res.why = 'ownership lost during the dig'; return res }
-    if (dug) { res.why = `the roof dig failed: ${dug}`; return res }
+    // THE WORLD FIRST (Claude r1 note 1): a dig that rejected AFTER the block broke (a timeout racing the break) has still
+    // opened the roof -- the pocket floods either way, so whether to rise is the roof's state, never the promise's
     const after = at(...plan.roof)
-    if (solid(after)) { res.why = `the roof is still ${after.name} after the dig`; return res }
+    if (solid(after)) {
+      if (!alive()) { res.outcome = 'yielded'; yielded = true; res.why = 'ownership lost during the dig'; return res }
+      res.why = dug ? `the roof dig failed: ${dug}` : `the roof is still ${after.name} after the dig`
+      return res
+    }
+    if (dug) res.digError = dug
     // THE RISE: swimunder's vertical controller, one cell at a time, from the feet cell to the top water cell
     let est = Number.isFinite(oxygen()) ? oxygen() : 20
     const y0 = bot.entity.position.y

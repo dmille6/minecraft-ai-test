@@ -1958,6 +1958,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     if (adm.ok && plan.roof) {
       const roof = at(...plan.roof)
       if (roof && !guardMay(bot, roof)) { adm.ok = false; adm.why = `the roof ${roof.name} is guarded (a build record or a protected structure)` }
+      // THE DIG MUST FIT ITS BOUND (Claude r1 note 3): a floating body digs 5x slower; a roof the 12 s cannot break is
+      // refused here, not tried and backed off every firing
+      else if (roof) {
+        const tool = toolFor(roof, bot.inventory?.items?.() ?? [], { pinned: true }).item ?? null
+        const ms = predictedDigMs(roof, tool, digEnv(bot))
+        if (!Number.isFinite(ms) || ms > BREACH_DIG_MS) { adm.ok = false; adm.why = `the roof ${roof.name} takes ${Number.isFinite(ms) ? Math.round(ms) : '?'} ms to dig from here, over ${BREACH_DIG_MS}` }
+      }
     }
     if (!adm.ok) {
       if (throttled(`flood_breach_refused:${key}`, 10 * 60_000)) {
@@ -1991,9 +1998,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       keep = setInterval(renew, 5_000)
       for (let w = 0; w < 30 && runner?.current; w++) await sleep(100)
       try { bot.pathfinder?.setGoal?.(null) } catch {}
+      const owns = () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current && !drowningOwnsBody()
       const dig = async (block) => {
         const tool = bestTool(bot, block)   // pinned: the one rule's last swing; the hand when it is the cheapest
         if (tool) await bot.equip(tool, 'hand').catch(() => {})
+        // OWNERSHIP AFTER THE EQUIP (Codex r1 BLOCKER 1): a body another owner took is never flooded
+        if (!owns()) throw new Error('ownership lost before the roof dig')
         await digBounded(bot, block, BREACH_DIG_MS)
       }
       res = await floodBreach(bot, { plan, dig, alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
@@ -5998,8 +6008,9 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
   const inv = () => bot.inventory?.items?.() ?? []
   const planned = new Map()   // tool slot -> digs already spent this firing (poolToolOk is cumulative)
   const handFor = (b) => {
-    let tool = toolFor(b, inv()).item ?? null
-    if (tool && !poolToolOk(tool, inv(), (planned.get(tool.slot) ?? 0) + 1, { pinned: pinnedNow(bot) })) tool = null
+    const pin = pinnedNow(bot)   // escdead-01 (b): the one rule, the same pin for the choice and the check (Codex r1 note)
+    let tool = toolFor(b, inv(), { pinned: pin }).item ?? null
+    if (tool && !poolToolOk(tool, inv(), (planned.get(tool.slot) ?? 0) + 1, { pinned: pin })) tool = null
     const env = digEnv(bot)
     const plan = escapeDigPlan({
       bareHardnessMs: predictedDigMs(b, null), bareActualMs: predictedDigMs(b, null, env),
