@@ -1,0 +1,71 @@
+I propose one change: **a shared station policy for crafting, smelting, recovery, and groundskeeping**. Workshop preference alone cannot fix this: current discovery is local, smelt has two placement fallbacks, and most measured leaks are underground.
+
+1. **Implementation and rollback**
+
+Add two pure modules, with world access and persistence remaining in `skills.mjs`:
+
+- `stationpolicy.mjs`: `stationContext`, `stationCandidates`, `stationDecision`, `designatedStationCells`, `stationShortfall`, `surplusAllocation`.
+- `stationkeep.mjs`: `classifyStray`, `emptyFurnaceProof`, `retakeDecision`, `nextSweepBatch`, `stationEvent`.
+
+Inputs are explicit snapshots, clocks, and configuration; no bot or filesystem access.
+
+Independent switches: `STATION_SWEEP`, `STATION_REUSE`, `STATION_RETAKE`, `STATION_SURPLUS`; master `STATIONS=off`. Disabling stops new work but lets active transfers settle and leases release. Retain persisted recovery obligations across rollback.
+
+Keep stationkeep-01’s placement watches, harvesting-tool checks, bag-space checks, verified pickup, and bounded visits. Replace its 32-block scope, nearest-two exemption, tables-only rule, and permanent per-bot give-up. Strengthen `smeltRetake`: inspect the **exact placed furnace**, freshly, under its lease; another selected furnace’s drained slots prove nothing about it.
+
+2. **What qualifies for sweeping**
+
+A stray is a crafting table or furnace within the town’s horizontal 136-block square, at **any elevation**, that has no:
+
+- Project-record ownership, including incomplete projects;
+- Town-plan station designation or explicit public-station registration;
+- Village/protected-zone membership or active project reservation;
+- Active station-use or recovery claim.
+
+Unknown ownership/protection data means defer. Do not preserve arbitrary nearest stations. Temporary expedition stations remain protected while their recovery claim is live.
+
+Extend `tidyInputs` to supply these identities and reservations. Reuse `tidyAvoid`’s protection inputs, but distinguish actual protection from generic ground-tidying exclusions: a stray must not survive merely because furniture makes its column unsuitable for levelling.
+
+In `buildTidy`, run a separately tracked station batch even when terrain tidy is complete. Use `groundskeeper.mjs` admission and `gkforever.mjs` scheduling; extend station coverage through 136, including the existing 128–136 gap. Persist chunk/band cursors, discoveries, retries, and coverage. Survey loaded vertical sections during bounded walking visits; do not rely on a capped nearest-block query or home-height band.
+
+Maximum three recoveries or 45 seconds per visit, then resume normal work. Rotate bands fairly; retry inaccessible candidates after cooldown. Deep inaccessible stations remain reported backlog, never “clean.”
+
+3. **Proving safe recovery**
+
+`furnaceLeasedNow` is only a preliminary filter. Before opening, acquire the same exclusive furnace lease used by every smelting/draining caller; reject `unleased` and unreadable outcomes. Add equivalent table-use leases, held through crafting and pickup. Use consistent world/dimension keys across every bot that can share a station.
+
+Under the lease, recheck ownership, reservations, block identity, tool and capacity. Open the furnace and await synchronized input, fuel, and output slots. All three must explicitly be empty; unknown is not empty. Require the live block to be unlit and no positive burn/progress indication. Leave nonempty or burning strays for a later visit; **this sweep does not drain foreign contents**.
+
+Hold the lease through immediate final checks, digging, and verified pickup. Exclude hopper-connected furnaces, whose contents could change independently of bot leases.
+
+Bank **all swept copies**, using explicit `deposit` calls and confirmed deltas; the existing one-station bag allowance must not retain one. Full chests stop collection.
+
+4. **One station-selection path**
+
+Change `craft`/`craftLevel`, the planned-craft executor near line 6090, `smelt`/`smeltInner`, `pickLeasedFurnace`, `matsFurnaceCandidates`, `matsTableReady`, `smeltTown`, and `makeMaterial` to use one resolver. Guard station placement in `place` too, covering direct calls and build helpers.
+
+Candidates: complete workshop first, then other registered town stations, then observed eligible stations. Reuse `preferWorkshop`; remove the 64-block preferred-station cutoff for town routing. Surface town/rings extend through 136. Underground mining uses expedition mode when no town station has a practical route; horizontal position alone is insufficient.
+
+Cheap reachability: cached station coordinates and stand cells, loaded-block validation, then bounded path searches without digging or building. Cache route failures briefly, invalidating on relevant changes. A successful walk and interaction-range check establishes reachability. Budget exhaustion, unloaded chunks, and busy stations mean **defer**, not permission to place.
+
+For station-free towns, use the existing town plan’s `work` plot `stations`: first table cell and first furnace cell, with their recorded stands. Reserve those exact cells before placement. Missing/blocked plans trigger planning or repair, never a random substitute.
+
+In `smeltInner`, replace both placement fallbacks—initial discovery failure and failed approach—with resolver decisions. Busy stations cause retry. Replace “craft a furnace; smelt places it” advice accordingly. Inventory-only recipes can remain inventory-only.
+
+5. **Withdraw, recover, and use surplus**
+
+Before any station recipe—including recursive recipes—`stationShortfall` subtracts usable carried stock, then calls existing `withdraw`/town-index machinery. Verify arrival and craft only the residual after a completed chest search establishes absence. Stale indexes, contention, and incomplete searches defer crafting.
+
+Away from town, placement records an exact-coordinate recovery obligation before use. Extend `watchPlaced`, `retakeTables`, and smelt cleanup to recover on success and ordinary failure. Reserve pickup capacity before placement. Block normal departure until recovery succeeds; cancellation/death persists an unresolved obligation for retry rather than pretending recovery succeeded.
+
+Choose **surplus furnaces as a bounded smelting row**: fill vacant furnace-designated cells in the existing work strip, after workshop deficits, project commitments, and a two-furnace chest reserve. Register cells before placement and expose them to the resolver. No furnace crafting to fill this row.
+
+Keep two spare tables plus project commitments; use excess recovered tables as fuel only for already-demanded smelts, through explicit surplus reservations and the fuel planner. Validate fuel behavior on Paper. Remaining furnaces stay banked: do not build thousands of useless stations.
+
+6. **Evidence and acceptance**
+
+Emit structured `station_select`, `station_place`, `station_recovery`, `station_sweep`, `station_bank`, `station_acquire`, and `station_surplus` rows. Include operation/placement ID, town, dimension, coordinates, depth/band, source, lease generation, outcome/reason, confirmed quantity, and elapsed time.
+
+Pre-register effects: **placed-and-not-retaken per town-day**, split surface/deep/away and permanent/temporary; crafted station counts; recovered-and-banked stock; coverage/backlog; and net material value per bot-hour using fixed existing resource weights. Avoid double-crediting recovery and later withdrawal. Compare against ~21 leaks/town-day, counting unresolved placements explicitly.
+
+Pure tests cover exclusions, ordering, uncertainty, bounds, reserves, and switches. Paper sandbox must prove concurrent craft/sweep exclusion, furnace slot synchronization, full bags/chests, exact-furnace recovery, failed pickups, restart/cancellation, blocked workshops, chest races, and pending-build protection. Validate diminishing backlog without starving other work. All world changes use ordinary bot actions; no admin edits or teleportation.

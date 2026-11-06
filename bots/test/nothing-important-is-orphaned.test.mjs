@@ -84,6 +84,8 @@ const REQUIRED = [
   'docs/reports/gkforever-design-2026-11-06.md',   // gkforever-1106: the grounds never run out (design; the code is on branch gkforever-01)
   'docs/reports/phase2-build-design-2026-11-06.md',   // phase2-build-1106: codeeval phase 2.1/2.2/2.4 (design; the code is on branch buildhole-01)
   'docs/reports/escdead-design-2026-11-06.md',   // escdead-1106: codeeval phase 2.3 escape dead ends (design; the code is on branch escdead-01)
+  'docs/reports/stations-design-2026-11-06.md',   // stations-1106: tables and furnaces (design; the code is on branch stations-01)
+  'docs/reports/stations-2026-11-06/stations-01.registration.json',
   // treefarm-05 (11-06): the idle towns' farm + hub design and the run's registration (the code is on branch treefarm05-on-4f3b0f5)
   'docs/reports/idletowns-farm-hub-design-2026-11-06.md',
   'docs/reports/treefarm-05/treefarm-05.946c8aaa.json',

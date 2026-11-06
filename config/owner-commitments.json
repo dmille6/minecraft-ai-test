@@ -5157,6 +5157,44 @@
    },
    "owner_pending": "escdead-1106: isolated-* pools are excluded from fun-mode draws (stuckproj note), but the targets are isolated-d Delta/Echo -- allow a pinned isolated-d draw for escdead-01?",
    "note": "7 d to 11-06: 124 pins >= 1 h = 457.1 of 13,409 bot-h (3.4%), the climb-flood refusal chain 335.7 bot-h (73%); Delta 103.8 h, Echo 101.8 h, hive-c-Bravo 16.1 h still pinned. _swim_under_refused 60 rows today all on the 3 targets, 0 successes fleet-wide."
+  },
+  {
+   "id": "stations-1106",
+   "title": "Crafting tables and furnaces (owner 11-06: 'can the greenskeepers pick up all the ones thrown across town and use the materials for something? can we instruct the bots to use [stations] in town in designated areas that are already built?')",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "stations-1106.md",
+    "owner-stockpile-1102.md",
+    "owner-workshop-uses-1028.md",
+    "owner-gk-town-clean-1104.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "stations-01 (branch stations-01 on gkforever-01 9e9284d7; tier 2; Codex r1 2 BLOCKERS fixed, r2 none): control session queues it P right after gkforever-01 and cancels stationkeep-01 (this carries its smelt take-back); marks-01/towngate-01 (built on stationkeep-01) need re-basing. Draft entry + registration docs/reports/stations-2026-11-06/. Read +90/+180 generic + _station_retaken back, _station_sweep back, no swept furnace with contents; +24 h after promotion flowledger left_stations per town-day down >= 70% and a second world read (scan.py) of surface strays. Later: a smelting row in the work strip if the chests show a standing furnace surplus.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "run": "gkforever-01",
+     "until": "closed"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "stations-01"
+    ],
+    "branches": [
+     "stations-01"
+    ],
+    "grep": [
+     "stations-01"
+    ],
+    "paths": [
+     "docs/reports/stations-design-2026-11-06.md"
+    ]
+   },
+   "note": "Measured 11-06: world read 3,828 tables + 4,577 furnaces within 136 of the 16 homes, 4,435 surface strays, 3,711 deep; 12 h: smelt placed 101 furnaces, took back 0; 167 left (~21 a town-day), 75% underground. Codex independent design reconciled (exact-furnace retake, lease + empty-window proof, designated work-plot cells, busy = wait); deferred: any-elevation sweep, persisted recovery obligations, the smelting row. Supersedes stationkeep-01."
   }
  ]
 }

@@ -1,0 +1,72 @@
+{
+ "run_id": "stations-01",
+ "sha": "6a23c9b7d99e69cefc3ade00b850167e709352fa",
+ "registered_at": "2026-11-06T15:00:00Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] stations-01 @ 6a23c9b7 ON gkforever-01 9e9284d7 (itself on decbundle-01 47b8342d on fleet cab8abcf; branch stations-01). OWNER 11-06 ~12:40Z: 'what can we do about crafting tables and furnaces? can the greenskeepers pick up all the ones thrown across town and use the materials for something? can we instruct the bots to use [stations] in town in designated areas that are already built?' Design docs/reports/stations-design-2026-11-06.md (Claude + Codex independent design, reconciled). SUPERSEDES stationkeep-01 (its smelt take-back carried with Codex's exact-furnace rule; its 32-block plaza table sweep replaced). MEASURED 11-06: world read of all 16 fleet worlds (324 chunks a town within 136 of home, 0 missing): 3,828 tables + 4,577 furnaces; 45/45 workshop stations found (control); 4,435 surface strays (~277 a town), 3,711 deep; town chests hold 17 tables + 8 furnaces. 12 h full walk (828,238 rows, 80/80 bots): smelt placed 101 furnaces and took back 0 (no code path); craft placed 92 tables, 68 back; 167 stations left (~21 a town-day = flowledger's 14-27), 126 (75%) underground; 90 furnace + 19 table crafts. CHANGE (each part its own env switch): RETAKE STN_RETAKE (smelt digs back the furnace it placed once drained, only the job's own furnace; also when it placed and stopped before loading; a designated-cell furnace stays), SWEEP STN_SWEEP (the tidy visit -- keeper + helper -- takes up to 4 strays / 90 s across home +-136 at the surface: never workshop/designated/record cells, zones, near a bell, beside a hopper, lit/leased furnaces; a furnace only under this bot's lease with its window read empty; zones unreadable = no sweep; a complete stage with strays is a repair visit), REUSE STN_REUSE (in town craft/smelt look up the town's stations by key within 160 first; all town furnaces busy -> furnace_busy, no own furnace; a plan town with no station puts its first at the plan's work-plot cell and keeps it), WITHDRAW STN_WITHDRAW (craft crafting_table|furnace in town, holding none, index shows one -> from the chest), SURPLUS STN_SURPLUS (spare tables past one are fuel in the bot's own smelt). ROLLBACK: STATIONS=0 (= gkforever-01); the base sha. READ +90/+180 generic PLUS OWN LINES (canary pools vs control): (1) MECHANISM (defect): `_station_retaken` rows > 0 with outcome=back > 0 on the canary when smelt placed a furnace ('placed the furnace first'), else the take-back is not live -> REVERT; (2) LEAK: flowledger-style stations left per town-day from craft/smelt inventory deltas on the canary pools DOWN >= 70% vs their pre-window and vs control; (3) SWEEP: `_station_sweep` rows on canary towns with back > 0, and no `_station_swept outcome=back` at a workshop or record cell (defect: compare the at= keys with the records); (4) NO ITEM LOSS (defect): no `_station_swept` furnace with outcome=back whose drain/ledger shows contents (left=holds_* is the expected refusal); (5) CRAFTS: craft rows item=furnace|crafting_table per bot-h down; `_station_use` withdrew rows present; (6) VALUE: items per bot-h not worse than control by > 10%; smelt success share not lower. INCONCLUSIVE with no harm is a KEEP (fun mode). Owner-facing goal check 24 h after promotion: flowledger left_stations per town-day down >= 70% (~21 -> <= 6) and a second world read shows surface strays per town falling. Review: Codex blockers-only r1 2 BLOCKERS fixed (80b5f578), r2 BLOCKERS none; ledger opener record added (6a23c9b7) after the suite. Tier 2 (protected.py --base 9e9284d7: not protected). World: digs and placements by ordinary bot actions (collectManually, place); no admin edit.",
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_station_retaken",
+     "status": "success"
+    },
+    "direction": "increase",
+    "minimum": 0.03,
+    "scale": "absolute",
+    "primary": true,
+    "claim": "smelt takes back the furnace it placed: 101 placed in 960 bot-h (0.105/bot-h), 0 back before; at least 0.03 back per bot-h (the 75% underground leak closed at the source)"
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_station_swept",
+     "status": "success"
+    },
+    "direction": "increase",
+    "minimum": 0.005,
+    "scale": "absolute",
+    "claim": "the groundskeepers take up stray stations (4,435 surface strays, ~277 a town)"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   },
+   {
+    "metric": "failclass.rate.v1",
+    "params": {
+     "name": "smelt",
+     "fail_class": "needs_station"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "skill.share.v1",
+    "params": {
+     "name": "smelt",
+     "status": "success"
+    },
+    "direction": "increase"
+   },
+   {
+    "metric": "skill.share.v1",
+    "params": {
+     "name": "craft",
+     "status": "success"
+    },
+    "direction": "increase"
+   }
+  ],
+  "note": "the owner-facing number (stations placed and not retaken per town-day down >= 70%) is flowledger's left_stations (host script, 24 h per town), not an effectmetrics metric: read it at +24 h after promotion",
+  "exposure": "every canary bot that smelts (1,033 smelt rows / 12 h fleet-wide; 101 placed a furnace) or crafts a table in a mine, and the canary towns' keeper + helper on the tidy visit"
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}
