@@ -2651,6 +2651,27 @@ def selftest():
     exec(compile(src_sr.replace(MUT_OPS, "            if op in ('place', 'clear', 'replant', 'meal', 'waived'):\n"), 'shopread_mutant', 'exec'), ns_m)
     skm = ns_m['combine'](*ns_m['judge'](base + [R('_build', wv, s=14)], SP_(), zt, cut=CUT, gens=gens))
     assert skm['zone'] == 1, 'MUTANT SURVIVED: op=waived as a mutation'
+    # prodserve-01 PS1 (11-06; bots/src/towndress.mjs dressOrphans, skills.mjs buildSink + serviceBegin): (a) a DRESS batch's host-gone
+    # waiver -- `_build project=dress op=waived cell=.. why=host_gone gen=..` (a light whose support another project dug: the old wall's
+    # wall-top torch 20,73,-20) -- names a record cell the batch gives up; it changes no block: NO MUTATION, never G1/G2/G3, as SK1's
+    # (its feet are still judged by G6, below).
+    # (b) the service tier's `_service plot=.. reason=.. last_min=.. overdue_min=..` row is a DECISION row, not a build row: no defect,
+    # no mutation, nothing counted. A service visit's own rows are the project's existing ones (G9 crop harvest, CF1 cane harvest, a
+    # farm's place/replant, SH1 the clerk), judged as before. Positive control: a dress placement on that cell in its zone is G3.
+    dw = 'project=dress op=waived cell=20,73,-20 gen=11 why=host_gone'
+    zd = {'board-a': [[20, 0, -20, 20, 200, -20]]}
+    m_d = J(base, SP_())['mutations']
+    ps = J(base + [R('_build', dw, s=14), R('_service', 'plot=canefarm reason=harvest last_min=never overdue_min=first', s=15)], SP_(), zones=zd)
+    assert ps['zone'] == 0 and ps['off_record'] == 0 and ps['clear_outside'] == 0 and ps['mutations'] == m_d, ('PS1: a dress waiver and a service row are no mutation', ps['zone'], ps['mutations'], m_d)
+    assert J(base + [R('_build', 'project=dress op=place seg=L1-P3 cell=20,73,-20 block=torch', s=14)], SP_(), zones=zd)['zone'] == 1, 'PS1 positive control: a dress placement in the zone is G3'
+    skd = ns_m['combine'](*ns_m['judge'](base + [R('_build', dw, s=14)], SP_(), zd, cut=CUT, gens=gens))
+    assert skd['zone'] == 1, 'MUTANT SURVIVED: a dress op=waived as a mutation (PS1)'
+    # PS1 (Codex PS1 review): a waiver is NO MUTATION, but it is still a positioned build row -- G6 (unknown_stood) judges its feet like
+    # every `_build` row's (the emitter carries the bot's snapshot): a waiver logged standing on a cell the bot's own op=unknown named is
+    # G6; standing elsewhere, clean. Never exempt from the position checks.
+    unk_d = R('_build', 'project=dress op=unknown cell=20,72,-20', s=13)
+    assert J(base + [unk_d, R('_build', dw, s=14, feet=[20, 73, -20])], SP_(), zones=zd)['unknown_stood'] == 1, 'PS1: a waiver stood on its own unknown cell is G6'
+    assert J(base + [unk_d, R('_build', dw, s=14, feet=[25, 70, -25])], SP_(), zones=zd)['unknown_stood'] == 0, 'PS1 control: a waiver stood elsewhere is clean'
     # stepwell-05 SW5 (11-06; bots/src/stepwell.mjs stepwellCrewDue/stepwellBuildersNow): THE CREW -- a visit that reads every listed log
     # down publishes a generation with builders_max raised to STEPWELL_CREW (2, at most 3) BEFORE any second slot is taken; G4 judges
     # slot names against the HEAD record's builders_max (as for every project): slot2 under the raised head is clean, slot2 under a head

@@ -5283,6 +5283,32 @@
     ]
    },
    "note": "Measured showcase 10-31..11-06 (1.44 M rows): the in-wall farm felled 0 of 245 grown trees (215 no_safe_target: its own farmFootprint priced every trunk cell 100 -> pathfinder safeToBreak false -> collectManually unsafe_now); no visit since 11-02; 389 of 5,556 coal_site rows refused under its -64..320 box zone. Paper sandbox4: side stand fells dy -1..+6 only; sunk 8-log spruce 24/24 whole (flat 22/24); spacing 3 grows 68/68; 2x2 spruce = 57-log mega (rejected); self-supply 1.5 saplings/tree picked up. Reviews: Claude+Codex r1 9 blockers fixed, r2 2 fixed, r3 Codex NO BLOCKERS; fleet port Codex NO BLOCKERS. Shopread FR/RF: selftest ok, 202/202 mutants, live replay identical (H5 27 both). Not handled: the old farm's waived floating site log at -28,74,4 (needs a temporary stand or an owner one-off)."
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 72,
+   "id": "prodserve-1106",
+   "title": "Finished production projects keep producing: a service tier for the farms and the hall's clerk (projectaudit-01 DORMANT/UNDERUSED), and the dress host-gone light waiver (BROKEN)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "prodserve-1106.md"
+   ],
+   "state": "open",
+   "next_step": "prodserve-01show @ de3a6624 on the live showcase release b1d5b17e: built, ready to stage (release agent folds it; shopread PS1 on main installs with it). Then read 24 h: projectaudit canefarm/cropfarm/storehub -> EFFECTIVE (cane >= 8/day, crops >= 8/day, clerk >= 2/day), dress 0 failed repairs; `_service` rows by plot. Follow-ups: cropseed-01 (seed gather), the forest's plot in SERVICE_PLOTS, the fleet port.",
+   "evidence": {
+    "grep": [
+     "prodserve-01"
+    ],
+    "branches": [
+     "prodserve-01show"
+    ],
+    "paths": [
+     "docs/reports/prodserve-design-2026-11-06.md"
+    ]
+   },
+   "note": "Measured 11-04 08:00Z..11-06 14:20Z (832,928 rows, 15 bots, 3,305 build visits): cane bed 0 visits in 1.7 d with 7/8 cells ripe; crop farm 0 in 2.2 d (finished empty: seeds); 0 clerk rows ever; dress L1-P3 support dug by walldemo. Delivers idletowns-1106's H0 (the hall's upkeep gets a turn on the showcase)."
   }
  ]
 }

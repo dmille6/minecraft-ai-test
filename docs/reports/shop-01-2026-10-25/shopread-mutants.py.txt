@@ -218,6 +218,8 @@ M = [
  ("(rec is not None and not g5_denominator_ok(chain_g5, int(m.group(2)), t_g5))", "(need is not None and int(m.group(2)) != need)"),
  # G5R: the skip-tolerant range collapsed to the current non-skipped count
  ("        if len([x for x in rp if x.get('state') != 'skipped']) <= b <= len(rp):", "        if len([x for x in rp if x.get('state') != 'skipped']) == b:"),
+ # prodserve-01 PS1 (+ SK1): a waiver row (a dress batch's host-gone light, a stone sink's stuck cell) judged as a mutation
+ ("            if op in ('place', 'clear', 'replant', 'meal'):\n", "            if op in ('place', 'clear', 'replant', 'meal', 'waived'):\n"),
  # G5R: every generation in force, whatever the felling's time
  ("    for g in sink_in_force(chain, t_ms):\n        rp = ", "    for g in chain or []:\n        rp = "),
     # forest-01 FR1: a harvest that is not a log; a site row that names any cell; the trunk bound
