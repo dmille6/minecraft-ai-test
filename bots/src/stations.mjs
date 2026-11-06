@@ -107,6 +107,12 @@ export function townStations (shop, plan) {
   return out
 }
 
+/** THE STATIONS THE SWEEP NEVER TAKES -> Set "x,y,z": the town's (workshop or designated) AND the plan's designated cells always
+ *  (Codex r1 BLOCKER 2: a station put at a designated cell before the workshop stood is still the town's). Pure. */
+export function townKeep (ts) {
+  return new Set([...(ts?.tables ?? []), ...(ts?.furnaces ?? []), ...Object.values(ts?.spot ?? {}).flat().filter(c => Array.isArray(c?.at)).map(c => c.at.join(','))])
+}
+
 /**
  * WHERE A TOWN WITH NO STANDING STATION PUTS ONE -> { at, stand } | null. Pure. Only for the designated spot (source 'plan'):
  * the first of the kind's work-plot cells whose cell reads free (`free(at)`: air or replaceable) -- a cell already holding the

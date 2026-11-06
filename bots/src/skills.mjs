@@ -150,7 +150,7 @@ import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount
 import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's way out
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { tableCandidates, TABLE_TRIES } from './workbench.mjs'   // bagdiet-01: the craft's table candidates
-import { stnOn, STN, SWEEP, STATION_NAMES, inTownSurface, townStations, designatedCell, smeltRetake, furnaceEmpty, strayStations, noteSweep, sweepGivenUp, withdrawFirst, spareTables, stationRowDetail, sweepVisitDetail } from './stations.mjs'   // stations-01
+import { stnOn, STN, SWEEP, STATION_NAMES, inTownSurface, townStations, townKeep, designatedCell, smeltRetake, furnaceEmpty, strayStations, noteSweep, sweepGivenUp, withdrawFirst, spareTables, stationRowDetail, sweepVisitDetail } from './stations.mjs'   // stations-01
 import { SPARE_FUEL_TICKS } from './smelting.mjs'   // stations-01 SURPLUS: a spare table burns in the bot's own smelt
 import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs'   // bagdiet-01: the light projects' hold and bank-back gate
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
@@ -6147,8 +6147,11 @@ async function runCraftPlan (ctx, plan, { item, count, signal, table, rs, placed
     if (step.recipe.table && !station) {
       station = findStation()
       if (!station) {
-        const put = await place(ctx, { item: 'crafting_table' }, signal)
-        if (put.status === 'success' && put.at) placedHere.push(watchPlaced(bot, put.at))
+        // stations-01 REUSE (Codex r1 BLOCKER 1): the planned tree's table too -- a plan town's first goes to the designated cell
+        // and stays; otherwise the temporary table, taken back after
+        const desig = await placeDesignated(ctx, 'crafting_table', signal, stnOn('reuse') ? stnTown(bot) : null)
+        const put = desig ?? await place(ctx, { item: 'crafting_table' }, signal)
+        if (put.status === 'success' && put.at && !desig) placedHere.push(watchPlaced(bot, put.at))
         station = put.status === 'success' && put.at && bot.blockAt(put.at)?.name === 'crafting_table' ? bot.blockAt(put.at) : findStation()
         if (!station) {
           return { status: 'failed', failClass: 'needs_station', gap: 'crafting_table', ...tally(),
@@ -19498,7 +19501,8 @@ function strayNow (bot) {
   if (!zv.known) throw new Error('zones unknown')
   const recs = projectHeads().map(x => x.head.rec).filter(Boolean)
   const cells = new Set(recs.flatMap(q => (q.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => c.at.join(','))))
-  const keep = new Set([...(st.ts?.tables ?? []), ...(st.ts?.furnaces ?? [])])
+  // Codex r1 BLOCKER 2: the plan's designated cells are the town's too once a workshop stands (stations.mjs townKeep)
+  const keep = townKeep(st.ts)
   const nameOf = b => bot.registry?.blocks?.[b.type]?.name
   const centre = new Vec3(home.x, home.y, home.z)
   const reach = Math.ceil(SWEEP.R * 1.42)
