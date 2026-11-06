@@ -481,6 +481,9 @@ export function siteDecor (read, ctx = {}) {
   if (!paths) return { ok: false, why: 'no_paths', tried }
   const recs = [...records.map(r => r.rec).filter(Boolean), ...(rec ? [rec] : [])]
   const guard = cellGuard(recs)
+  // reroof-02 (a, REROOF_DECOR_AVOID): the cells a pending retrofit will add (reroof.mjs reroofPendingCells) are guarded like record
+  // cells -- a pot or a lantern post never stands where (or under where) a new roof will go (LIVE 11-05: two posts held two roofs)
+  for (const k of ctx.avoid ?? []) guard.cells.add(k)
   const design = decorDesign(seed)
   const pathCols = pathColumns(paths)
   const wantB = plants >= DECOR.plantsMin ? Math.min(DECOR.batchMax, plants) : 0
@@ -774,3 +777,22 @@ export const harvestWants = (held = {}, name) => (Number(held?.[name]) || 0) < D
 export const decorRowDetail = f => Object.entries(f).filter(([, v]) => v != null).map(([k, v]) => `${k}=${String(Array.isArray(v) ? v.join(',') : v).replace(/\s+/g, '_').slice(0, 80)}`).join(' ')
 /** The instance's seed: kind, pool, home and instance number (sinks.mjs sinkSeed's rule, restated: no import cycle). Pure. */
 export const decorSeed = (pool, home, n) => fnv1a(`decor@1|${pool ?? ''}|${home?.x},${home?.y},${home?.z}|${n}`)
+
+/**
+ * REROOF-02 (b): A RETROFIT TAKES ITS ROOF'S CELLS BACK -> the decor generation without them | null (nothing of `keys` is a decor cell).
+ * Pure. The cells at `keys` ('x,y,z') leave `cells` and are kept in `retired` ({ at, role, seg, by, retiredAt }); `retiredAt` the
+ * newest retirement. The instances' own `posts` / `pots` are kept (siteDecor's `postAt` / `potted`: that spot is never sited again).
+ * The decorator re-sites its posts at legal spots in a later batch (its ordinary posts, kept off a pending roof by REROOF_DECOR_AVOID).
+ */
+export function decorRetire (rec, keys = [], { by = 'reroof', now = Date.now() } = {}) {
+  const want = new Set(keys)
+  if (!rec || !Array.isArray(rec.cells) || !want.size) return null
+  const gone = rec.cells.filter(c => Array.isArray(c?.at) && want.has(kOf(c.at)))
+  if (!gone.length) return null
+  return {
+    ...rec,
+    cells: rec.cells.filter(c => !(Array.isArray(c?.at) && want.has(kOf(c.at)))),
+    retired: [...(rec.retired ?? []), ...gone.map(c => ({ at: c.at.slice(), role: c.role, seg: c.seg, by, retiredAt: now }))],
+    retiredAt: now,
+  }
+}

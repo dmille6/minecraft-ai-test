@@ -742,5 +742,32 @@ await t('mutants: each wiring line, once broken, fails its assertion', () => {
   }
 })
 
+console.log('REROOF-02 (a): THE DECORATOR KEEPS OFF A PENDING ROOF')
+await t('reroof-02 (a): an `avoid` cell (a pending retrofit\'s added cell) is guarded -- the post whose lantern would stand in it is not sited, the other is', async () => {
+  const scenario = M => {
+    const recs = RECS()
+    const srv = town(recs.map(r => r.rec))
+    let seed = 1
+    while (!D.decorDesign(seed).hedge || D.decorDesign(seed).pattern !== 'solid' || D.decorDesign(seed).fern) seed++
+    const base = { kind: 'decor', n: 1, id: 'D1', home: HOME, seed, records: recs, flowers: 8, ferns: 0, leaves: 0, posts: 2, pots: 0, doorOf, stood: [] }
+    const posts = r => r.inst.cells.filter(c => c.role === 'D1-post').map(c => c.at).sort()
+    const r0 = M.siteDecor(srv.read, base)
+    assert.deepStrictEqual(posts(r0), [[3, G + 1, 3], [7, G + 1, 3]], 'POSITIVE CONTROL: both doorway spots with no avoid')
+    const r1 = M.siteDecor(srv.read, { ...base, avoid: new Set([`3,${G + 2},3`]) })
+    assert.deepStrictEqual(posts(r1), [[7, G + 1, 3]], 'the spot whose lantern cell a roof will take is passed over')
+    const r2 = M.siteDecor(srv.read, { ...base, avoid: new Set([`7,${G + 1},3`]) })
+    assert.deepStrictEqual(posts(r2), [[3, G + 1, 3]], 'and the one whose fence cell it takes')
+  }
+  await killed(DEC_PATH, '  for (const k of ctx.avoid ?? []) guard.cells.add(k)\n', '', scenario)
+})
+await t('reroof-02 (b): decorRetire moves the named cells to `retired` (role, seg, by, retiredAt) and keeps the instances\' posts; nothing named -> null', () => {
+  const rec = { cells: [{ at: [1, 2, 3], role: 'D1-post', seg: 'D1-L0' }, { at: [1, 3, 3], role: 'D1-lamp', seg: 'D1-L0' }, { at: [9, 9, 9], role: 'D1-f0', seg: 'D1-B0' }], instances: [{ id: 'D1', posts: [{ at: [1, 2, 3] }] }] }
+  const r = D.decorRetire(rec, ['1,2,3', '1,3,3'], { by: 'reroof:house1', now: 5 })
+  assert.deepStrictEqual(r.cells.map(c => c.at), [[9, 9, 9]])
+  assert.deepStrictEqual(r.retired, [{ at: [1, 2, 3], role: 'D1-post', seg: 'D1-L0', by: 'reroof:house1', retiredAt: 5 }, { at: [1, 3, 3], role: 'D1-lamp', seg: 'D1-L0', by: 'reroof:house1', retiredAt: 5 }])
+  assert.strictEqual(r.retiredAt, 5); assert.deepStrictEqual(r.instances, rec.instances, 'the posts list is kept: that spot is never sited again')
+  assert.strictEqual(D.decorRetire(rec, ['0,0,0']), null); assert.strictEqual(D.decorRetire(r, ['1,2,3']), null, 'already retired: nothing to publish')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

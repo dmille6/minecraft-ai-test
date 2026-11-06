@@ -36,6 +36,8 @@ import { NOWAIT } from './shop.mjs'   // ordernowait-01's licence row
 import { noWaitModeDetail } from './ordernowait.mjs'
 import { caneModeDetail } from './canefarm.mjs'   // canefarm-01's licence row
 import { CANEFARM } from './shop.mjs'
+import { REROOF } from './shop.mjs'   // reroof-02's licence row
+import { reroofModeDetail, REROOF_FIX } from './reroof.mjs'
 import { STEPWELL } from './shop.mjs'   // stepwell-01's licence row
 import { stepwellModeDetail } from './stepwell.mjs'   // stepwell-01
 import { handCapModeDetail } from './handcap.mjs'   // handcap-01's licence row
@@ -172,6 +174,8 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'enchantshop_mode', status: 'success', snapshot: snapshot(bot), detail: enchantModeDetail(ENCHANTSHOP) }) } catch { /* telemetry */ }
   // ordernowait-01: the town hall and the cottage stop waiting for the workshop (on=0 outside ENCHANT_NOWAIT_POOLS or under ENCHANT_NOWAIT=off)
   try { logEvent({ kind: 'ordernowait_mode', status: 'success', snapshot: snapshot(bot), detail: noWaitModeDetail(NOWAIT) }) } catch { /* telemetry */ }
+  // reroof-02: the retrofit's licence row (reroof.mjs; on=0 under REROOF=off or outside REROOF_POOLS; each fix's own switch)
+  try { logEvent({ kind: 'reroof_mode', status: 'success', snapshot: snapshot(bot), detail: reroofModeDetail(REROOF.on, REROOF_FIX) }) } catch { /* telemetry */ }
   // canefarm-01: the cane bed's licence row (on=0 outside CANEFARM_POOLS or under CANEFARM=off)
   try { logEvent({ kind: 'canefarm_mode', status: 'success', snapshot: snapshot(bot), detail: caneModeDetail(CANEFARM.on) }) } catch { /* telemetry */ }
   // stockyard-01: the stockpile yard's licence row (yard.mjs; the project itself is shop.mjs PROJECTS, its visit skills.mjs yardVisit)
