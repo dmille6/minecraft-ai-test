@@ -39,6 +39,7 @@ export const AP_SEAL_MS = 1500                // admission's price of ONE seal (
 import { difficultyOf } from './foodskip.mjs'
 import { TOOL_HYGIENE, remaining, HARD_STOP } from './toolfor.mjs'
 import { swimCentreOn, centreSteer } from './swimcentre.mjs'   // swimcentre-01: the rise is centred under the dug cell
+import { dropSink, dropTag, dropDigOn } from './dropdig.mjs'    // dropanddig-01: sink onto a floor, dig standing
 
 const WATERLIKE = /^(water|flowing_water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/
 const LAVALIKE = /lava|^magma_block$|^fire$|^soul_fire$/
@@ -385,7 +386,7 @@ export function airPocketAfter (ok, state, now = Date.now(), { handoffHeld = fal
 export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => new Promise(r => setTimeout(r, ms)),
                                                  now = () => Date.now(), maxHealth = 20, envelope, guard = () => null,
                                                  standItem = () => null, skillBusy = () => false, sealItem = () => null,
-                                                 centre = swimCentreOn() } = {}) {
+                                                 centre = swimCentreOn(), drop = plan?.drop ?? null, groundGuard = dropDigOn() } = {}) {
   const t0 = now()
   const p0 = bot.entity.position
   const fx = Math.floor(p0.x), fy = Math.floor(p0.y), fz = Math.floor(p0.z)
@@ -400,6 +401,9 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
   let watch = null
   let digging = false
   let riseSteered = false   // swimcentre-01: the rise loop pressed forward (cleared on every exit, the throw included)
+  let offGround = 0         // dropanddig-01: consecutive 50-ms polls off the floor during a standing-priced dig
+  let groundPoll = null     // dropanddig-01: that poll (cleared on every exit)
+  let liftAbort = false     // dropanddig-01: the poll stopped the dig
   try {
     const block = bot.blockAt(cellPos)
     if (!block || block.name !== plan.name) { res.why = `roof cell changed to ${block?.name ?? 'unknown'}`; return res }
@@ -413,7 +417,32 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     // "finished" early, the server would refuse, and the client would show ghost air. So a standing bot digs standing
     // (2.9 s, sandbox) and holds jump only for the rise; a floating bot holds jump against the roof throughout.
     for (const c of ['forward', 'back', 'left', 'right', 'sprint', 'sneak']) { try { bot.setControlState(c, false) } catch {} }
+    // DROPANDDIG-01: admitted only on the STANDING price, so the body first sinks onto the verified floor (jump released)
+    // and the same absolute roof cell is dug from there. No landing -> jump back on, nothing dug, the short cooldown.
+    if (drop) {
+      if (fy !== drop.fy || fx !== drop.fx || fz !== drop.fz) { res.why = 'drop: moved before the sink'; res.handoffHeld = true; return res }
+      const sink = await dropSink(bot, drop, { fx, fz, sleep, now,
+        isAborted: () => { const g = guard(); if (g) return g; if (budgetLeft() <= 0) return 'health budget spent'; return null } })
+      res.drop = dropTag(drop, sink)
+      if (!sink.ok) {
+        // nothing dug: jump goes back on AND STAYS on through the cleanup (res.keepJump), as the rescue held it before
+        try { bot.setControlState('jump', true) } catch { /* not connected */ }
+        res.keepJump = true; res.dropFailed = true; res.handoffHeld = true; res.why = `drop: ${sink.why}`; return res
+      }
+    }
     const standing = bot.entity?.onGround === true
+    // THE GROUND GUARD (dropanddig-01; Paper 11-04: a step that found the body MOMENTARILY on the floor priced the dig standing,
+    // the body lifted, mineflayer wrote optimistic air and the server kept the stone -> "opened", ghost air, drowned).
+    // A standing-priced dig must be settled first, stay grounded throughout, and be confirmed by the server before the rise.
+    const guarded = groundGuard && standing
+    if (guarded && !drop) {
+      const p = bot.entity.position
+      const settle = await dropSink(bot, { landY: p.y - 0.03, sinkMs: 500 }, { fx, fz, sleep, now, isAborted: () => guard() })
+      if (!settle.ok || bot.entity?.onGround !== true) {
+        try { bot.setControlState('jump', true) } catch { /* not connected */ }
+        res.keepJump = true; res.handoffHeld = true; res.why = `not settled on the floor (${settle.why ?? 'lifted'}): a standing price would be wrong`; return res
+      }
+    }
     // THE STEP OWNS JUMP AND RE-ASSERTS IT EVERY WATCH TICK (Paper sandbox 10-07, 5b6c530: the floating bot sank 3 blocks
     // during the dig -- something else, likely the pre-empted escape unwinding, cleared the controls).
     let wantJump = !standing
@@ -509,6 +538,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       // NOTHING ELSE MAY TAKE THE BODY (Claude r1: a skill started within 40 s of a capped rescue in 38% of cases, and a new
       // bot.dig stops the current one): the caller's guard interrupts any skill that starts; a dig on another block aborts.
       if (digging && bot.targetDigBlock && bot.targetDigBlock.position && !bot.targetDigBlock.position.equals?.(cellPos)) aborted = aborted ?? 'another dig took over'
+      // DROPANDDIG-01: the dig was priced standing; a body that leaves the floor (two polls) would finish early -> stop it
       if (aborted) { try { bot.stopDigging?.() } catch { /* not digging */ } }
     }, 250)
     // NO DIG AFTER RETURN (Codex r5): mineflayer's dig awaits an unbounded lookAt before it sends start-dig, so a dig
@@ -520,6 +550,18 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     const noDig = digGate({ aborted, block: cur?.name ?? null, want: plan.name, held: bot.heldItem?.name ?? null, priced: held?.name ?? null,
                             pos: bot.entity.position, fx, fy, fz })
     if (noDig) { res.why = noDig; res.outcome = aborted ? 'aborted' : 'failed'; return res }
+    if (guarded && bot.entity?.onGround !== true) {
+      try { bot.setControlState('jump', true) } catch { /* not connected */ }
+      res.why = 'off the floor at the dig: a standing price would be wrong'; res.keepJump = true; res.handoffHeld = true; return res
+    }
+    // the lift-off poll (every 50 ms while a standing-priced dig runs): two polls off the floor stop the dig
+    if (guarded) {
+      groundPoll = setInterval(() => {
+        if (!digging) return
+        offGround = bot.entity?.onGround === true ? 0 : offGround + 1
+        if (offGround >= 2 && !aborted) { aborted = 'lifted off the floor while digging (standing-priced)'; liftAbort = true; try { bot.stopDigging?.() } catch { /* not digging */ } }
+      }, 50)
+    }
     const deadline = Math.max(1000, Math.min(budgetLeft(), Math.max(2 * best.ms, best.ms + 2000)))
     const tDig = now()
     let timer
@@ -529,8 +571,26 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
         bot.dig(cur, 'ignore'),
         new Promise((_, rej) => { timer = setTimeout(() => { try { bot.stopDigging?.() } catch {} rej(new Error(`dig exceeded ${Math.round(deadline)} ms`)) }, deadline) }),
       ])
-    } catch (e) { res.why = aborted ?? `dig failed: ${String(e?.message ?? e).slice(0, 60)}`; res.outcome = aborted ? 'aborted' : 'failed'; return res } finally { clearTimeout(timer); digging = false }
+    } catch (e) {
+      res.why = aborted ?? `dig failed: ${String(e?.message ?? e).slice(0, 60)}`; res.outcome = aborted ? 'aborted' : 'failed'
+      // dropanddig-01 (Codex r2): a lift-off stop dug nothing the server kept -> the rescue's jump back, the SHORT cooldown
+      if (liftAbort) { try { bot.setControlState('jump', true) } catch { /* not connected */ } res.keepJump = true; res.handoffHeld = true; res.dropFailed = !!drop }
+      return res
+    } finally { clearTimeout(timer); digging = false }
     res.digMs = now() - tDig
+    if (groundPoll) { clearInterval(groundPoll); groundPoll = null }
+    // THE SERVER'S ANSWER BEFORE THE RISE (guarded): mineflayer writes air locally when its dig finishes; a server that did
+    // not accept it sends the block back within a tick or two. 400 ms of re-reads, still standing, before jump is pressed.
+    if (guarded) {
+      for (let i = 0; i < 4 && !aborted && budgetLeft() > 0; i++) {
+        await sleep(100)
+        if (bot.blockAt(cellPos)?.name === plan.name) {
+          try { bot.setControlState('jump', true) } catch { /* not connected */ }
+          // a refusal with a lasting cause (a protected cell) must not re-drop every 5 s: the cell is remembered (Claude r2)
+          res.keepJump = true; res.handoffHeld = true; res.dropFailed = !!drop; res.why = 'the server kept the roof cell (the standing dig was not accepted)'; return res
+        }
+      }
+    }
     wantJump = true
     try { bot.setControlState('jump', true) } catch { /* the rise */ }
     const after = bot.blockAt(cellPos)
@@ -538,10 +598,13 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     if (!opened) { res.why = `roof cell is ${after?.name ?? 'unknown'} after the dig`; return res }
     // RISE AND CONFIRM: the eye must reach air and stay there while health rises (or is at its maximum)
     let eyeInAirSince = null, healthAtEyeIn = null
-    const until = now() + AP_RISE_MS + AP_CONFIRM_MS + 1000
+    const until = now() + AP_RISE_MS + AP_CONFIRM_MS + 1000 + (drop?.riseExtraMs ?? 0)   // dropanddig-01: the rise from the floor
     const centreOff = () => { if (riseSteered) { riseSteered = false; try { bot.setControlState('forward', false) } catch { /* not connected */ } } }
     while (now() < until) {
       if (aborted) { centreOff(); res.why = aborted; res.outcome = 'aborted'; return res }
+      if (guarded && bot.blockAt(cellPos)?.name === plan.name) {   // a late correction from the server: not opened
+        centreOff(); res.keepJump = true; res.handoffHeld = true; res.why = 'the server put the roof cell back during the rise'; return res
+      }
       const pos = bot.entity.position
       // SWIMCENTRE-01: RISE THROUGH THE MIDDLE OF THE HOLE. The dug cell is one column wide; a body straddling its edge is
       // capped by the undug roof beside it (the fleet's post-pocket drownings died at y N.2 under a pocket they had opened).
@@ -569,6 +632,9 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     // THE POCKET EXISTS but breathing was not confirmed in the window (sandbox 5b6c530: the eye reached air briefly while
     // the bot sank). OPENED, not failed: the place now has air, so the rescue's fail memory must be cleared (its own
     // `up` route lifts the bot into the pocket) and no fail cooldown is set.
+    if (guarded && bot.blockAt(cellPos)?.name === plan.name) {   // dropanddig-01 (Codex r2): a correction in the last sleep
+      res.keepJump = true; res.handoffHeld = true; res.why = 'the server put the roof cell back during the rise'; return res
+    }
     res.outcome = 'opened'
     res.why = eyeInAirSince == null ? 'pocket open; the eye had not reached air yet' : 'pocket open; breathing not confirmed (health did not rise)'
     return res
@@ -577,6 +643,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     return res
   } finally {
     if (watch) clearInterval(watch)
+    if (groundPoll) clearInterval(groundPoll)
     if (riseSteered) { riseSteered = false; try { bot.setControlState('forward', false) } catch { /* not connected */ } }
     // A failed or aborted step stops its own dig of the roof cell (Codex r1).
     const ours = () => !!bot.targetDigBlock?.position && (bot.targetDigBlock.position.equals?.(cellPos) ??
@@ -589,7 +656,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     res.ms = now() - t0
     // ON SUCCESS JUMP STAYS HELD (Claude r1): the head stays in the pocket and the rescue's own release (head out, dwell)
     // clears the controls. On failure it is released and the rescue's next tick steers again.
-    if (!res.ok && res.outcome !== 'opened') { try { bot.setControlState('jump', false) } catch { /* not connected */ } }
+    if (!res.ok && res.outcome !== 'opened' && !res.keepJump) { try { bot.setControlState('jump', false) } catch { /* not connected */ } }
   }
 }
 
@@ -776,7 +843,7 @@ export function airPocketRow ({ id, r, requiredMs, budgetMs, difficulty }) {
   const head = `id=${id} outcome=${r.outcome} kind=${r.kind} cell=${r.cell} block=${r.block} tool=${r.tool} ` +
                `predicted_ms=${r.predictedMs} dig_ms=${r.digMs ?? -1} ms=${r.ms ?? -1} envelope=${r.envelope} ` +
                `health=${r1(r.healthStart)}->${r1(r.healthEnd)} | required_ms=${Math.round(requiredMs)} budget_ms=${Math.round(budgetMs)} ` +
-               `difficulty=${difficulty} | standing=${r.standing ? 1 : 0}${r.seal ? ` seal=${r.seal}` : ''}` +
+               `difficulty=${difficulty} | standing=${r.standing ? 1 : 0}${r.seal ? ` seal=${r.seal}` : ''}${r.drop ? ` drop=${r.drop}` : ''}` +
                // only when it says something: a window (or an unwinding skill) the handoff waited for
                `${r.window && r.window !== 'none' ? ` window=${r.window}${Number.isFinite(r.windowMs) ? `:${r.windowMs}` : ''}` : ''} eye=${r.eye} ` +
                `stand=${String(r.stand ?? 'none').slice(0, 40)} -- `

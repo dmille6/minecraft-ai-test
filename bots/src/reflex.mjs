@@ -59,6 +59,7 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
 import { MAX_DIG_MS } from './digbudget.mjs'
 // lavastep-01 (F1, docs/reports/mineshaft-safety-2026-10-23.md): the danger arm's verified, bounded move
 import { lavastepOn } from './lavastep.mjs'
+import { dropDigOn, dropAdmission, DD_FAIL_MEMORY_MS } from './dropdig.mjs'   // dropanddig-01: dig the pocket standing
 import { swimCentreOn, makeCentreSteer, riseCentreDecision } from './swimcentre.mjs'   // swimcentre-01: a rising body is centred under its hole
 // tombexit-01 (F2 of the mineshaft-safety design + the in-wall dig): the entombed arm fires only with no walk back
 import { tombexitOn, inwallOn, makeFreeRing, declineDecision, inwallDecision, makeHealthTrend, suffocates,
@@ -1435,7 +1436,15 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   const sealCandidates = items => standCandidates(items, { unsupported: true }).filter(it => PLACEABLE.test(it.name) && scaffoldRank(it.name) != null)
   const sealItemFor = items => pickScaffold(sealCandidates(items), PLACEABLE)
   const sealBlocksHeld = items => sealCandidates(items).reduce((n, it) => n + (it.count ?? 1), 0)
-  const prepareAirPocket = ({ worstCase = false } = {}) => {
+  // DROPANDDIG-01: feet cells whose sink never landed -> not dropped from again until this time (dropEligible)
+  const dropFailUntil = new Map()
+  const dropDig = dropDigOn()
+  const fastestOf = (items, price) => {   // dropanddig-01: the fastest finite price over [hand, ...items]
+    let best = null
+    for (const item of [null, ...items]) { const ms = price(item); if (Number.isFinite(ms) && ms > 0 && (best == null || ms < best)) best = ms }
+    return best
+  }
+  const prepareAirPocket = ({ worstCase = false, allowDrop = true } = {}) => {
     const at = bot.entity?.position
     if (!at) return { ok: false, why: 'no position' }
     const fx = Math.floor(at.x), fy = Math.floor(at.y), fz = Math.floor(at.z)
@@ -1465,7 +1474,18 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // an UNOWNED window is never closed, and the step never clicks a seal equip through it: refused here, as the step would
     if (sealN && bot.currentWindow && !(runner?.isBusy?.() === true || !!bot.inventoryUnsettled)) return { ok: false, why: 'an unowned container window is open: no seal equip', fx, fy, fz, inputs }
     const admit = airPocketAdmit({ health: bot.health, difficulty: inputs.difficulty, hungerActive: inputs.hungerActive, digMs: fastest, seals: sealN })
-    if (!admit.ok) return { ok: false, why: admit.why, fx, fy, fz, inputs }
+    if (!admit.ok) {
+      // DROPANDDIG-01: the FLOATING price was refused on the health budget. Over a verified floor within 2 the same roof
+      // cell is priced standing (sink + extra rise + seals + dig); the pre-empt (worstCase), the held-off row and a cell
+      // whose sink failed never drop (dropAdmission -> null: the base refusal exactly).
+      const dd = dropAdmission({ on: dropDig, asked: allowDrop, worstCase, onGround: bot.entity?.onGround === true,
+                                 failedUntil: dropFailUntil.get(`${fx},${fy},${fz}`) ?? 0, now: Date.now(), admit, plan, pos: at, fx, fy, fz,
+                                 at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)),
+                                 standMs: () => fastestOf(items, it => predictedDigMs(block, it, { ...digEnv(bot), inWater: true, notOnGround: false })) })
+      if (!dd?.ok) return { ok: false, why: admit.why, dropWhy: dd?.why ?? null, fx, fy, fz, inputs }
+      // the step reads the drop off its plan (plan.drop), so the step's call is the base's byte for byte
+      return { ok: true, plan: { ...plan, drop: dd.drop }, admit: dd.admit, inputs, fx, fy, fz, drop: dd.drop }
+    }
     return { ok: true, plan, admit, inputs, fx, fy, fz }
   }
   const runAirPocket = async (route, heldMs) => {
@@ -1479,7 +1499,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       airPocketWants = 0                // a refused step never keeps an escape held off
       if (throttled(`air_pocket_refused:${why.split(' ')[0]}:${fx},${fy},${fz}`, 30_000)) {
         logEvent({ kind: 'air_pocket_refused', status: 'no_effect',
-                   detail: `reason=${why} at=${fx},${fy},${fz} health=${bot.health} difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} ${trig}`, snapshot: snapshot(bot) })
+                   detail: `reason=${why} at=${fx},${fy},${fz} health=${bot.health} difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} ${trig}` +
+                           `${prep.dropWhy ? ` drop=${String(prep.dropWhy).slice(0, 60)}` : ''}`, snapshot: snapshot(bot) })
       }
       return false
     }
@@ -1490,7 +1511,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     const attemptId = `${Date.now().toString(36)}`
     logEvent({ kind: 'air_pocket_start', status: 'success',
                detail: `id=${attemptId} kind=${plan.kind} cell=${fx},${fy + plan.dy},${fz} block=${plan.name} health=${bot.health} seal=${plan.seal?.length ?? 0} ` +
-                       `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} envelope=${admit.envelope} ${trig}`, snapshot: snapshot(bot) })
+                       `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} envelope=${admit.envelope} ${trig}` +
+                       `${prep.drop ? ` drop=${prep.drop.depth}:${prep.drop.descent.toFixed(2)}:${Math.round(prep.drop.sinkMs)}` : ''}`, snapshot: snapshot(bot) })
     let r
     try {
       // a skill that starts while the step runs is interrupted (cognition is not gated by the tick's early return)
@@ -1504,6 +1526,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                                              : scaffoldFor(bot, 'air_pocket'),
                                            sealItem: () => sealItemFor(bot.inventory?.items?.() ?? []) })
     } finally { airPocketing = false; airPocketWants = 0 }
+    if (r?.dropFailed) dropFailUntil.set(`${fx},${fy},${fz}`, Date.now() + DD_FAIL_MEMORY_MS)   // dropanddig-01: never a sink loop
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : r.outcome === 'opened' ? 'no_effect' : 'failed',
                detail: airPocketRow({ id: attemptId, r, requiredMs: admit.requiredMs, budgetMs: admit.budgetMs,
                                       difficulty: inputs.difficulty }), snapshot: snapshot(bot) })
@@ -2785,7 +2808,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                      throttled('air_pocket_held_off', 30_000)) {
             // OBSERVABLE, NOT SILENT (Paper sandbox, bf99227 H): an escape is in flight and the step would refuse here, so
             // nothing is pre-empted and the trigger cannot run -- say so once per 30 s, or the fleet read sees nothing.
-            const p = prepareAirPocket()
+            const p = prepareAirPocket({ allowDrop: false })
             if (!p.ok && p.inputs) {
               logEvent({ kind: 'air_pocket_refused', status: 'no_effect',
                          detail: `reason=${p.why} (an escape is in flight; not pre-empted) at=${p.fx},${p.fy},${p.fz} health=${bot.health} ` +

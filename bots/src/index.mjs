@@ -277,6 +277,9 @@ function connect() {
     })
   }, 10_000)
   memTimer.unref?.()
+  // leasegen-01 (LIVE showcase 11-04): never cleared, one sampler per CONNECTION -- each holding the dead bot (its world, its
+  // chunks) and all flushing together after a stall; 5-7 identical memory lines a tick, rss climbing per reconnect
+  bot.once('end', () => clearInterval(memTimer))
 
   // Reason tallies for the pathfinder's own events, kept for the status line.
   const pathResets = {}
@@ -1051,7 +1054,7 @@ function connect() {
     // one of the declared movement owners; adding a second writer is the
     // multi-writer bug the ratchet exists to prevent.
     const posSamples = []
-    setInterval(() => {
+    const posTimer = setInterval(() => {
       try {
         if (!bot.entity?.position) return
         const now = Date.now()
@@ -1087,6 +1090,7 @@ function connect() {
         posSamples.length = 0
       } catch { /* not connected */ }
     }, 2000)
+    bot.once('end', () => clearInterval(posTimer))   // leasegen-01: one watchdog per connection, never cleared (setGoal on a dead bot)
 
     let lavaCorridorLoggedAt = 0
     let deathSiteCrossLoggedAt = 0
