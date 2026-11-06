@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-06T03:20:01Z._
+_Generated 2026-11-06T04:20:01Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `4f3b0f5c` = dropdig-01 `4f3b0f5c` (KEEP 11-06 00:57Z, promoted 11-06 01:07Z) on leasegen-01 `4a440a53` (KEEP 11-05 20:56Z, promoted 11-05 21:06Z) on llmoai-01 `aea83708` (KEEP 11-04 23:41Z, promoted 11-04 23:51Z) on dirtrung-01 `493c198a` (KEEP 11-04 21:12Z, promoted 11-04 21:22Z) on swimunder-01 `3a7badea` (KEEP 11-04 17:34Z, promoted 11-04 17:43Z) on monustuck-01 `704acf91` (KEEP 11-04 14:02Z, promoted 11-04 14:12Z). Live builds: {'4f3b0f5cfdbb36a16929be70b960e719e4164d6c+a18af9': 60, '601fe6a3008ed9b6d8f94eb8d89f86d6ebee91c2+d621bb': 20} |
 | **Canary in slot** | **stuckproj-01** deployed 11-06 02:28Z; reads +90 11-06 03:58Z, +180 11-06 05:28Z; KEEP auto-promotes ~10 min after the +180 KEEP |
-| **Queue (front)** | idlework-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> bucketfix-01 -> kittrim-01 -> depositoffer-01 -> +8 more. Held: treefarm-05 (HELD: needs the 3 finished towns (board-b, hive-b, placebo-a) in its draw; fun-mode draws ignore...) |
+| **Queue (front)** | idlework-01 -> decbundle-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> groundskeeper-01 -> bucketfix-01 -> kittrim-01 -> +6 more. Held: treefarm-05 (HELD: needs the 3 finished towns (board-b, hive-b, placebo-a) in its draw; fun-mode draws ignore...) |
 | **Scheduler** | busy S1 canary declared: 601fe6a3008ed9b6d8f94eb8d89f86d6ebee91c2 on hive-c,board-d,hive-b,placebo-b / S6 open loop: canary 601fe6a is deployed on hive-c,board-d,hive-b,placebo-b with no KEEP/REVERT/INCONCLUSIVE recorded — read it before st |
-| **Showcase release** | `870c47fd` (24,220 rows), `d4dc532c` (16,195 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 870c47fd sits on 9fbfdf22 (bagdiet-01); behind by 8: dropdig-01, leasegen-01, llmoai-01, dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-; row 11-06 02:25Z) |
+| **Showcase release** | `870c47fd` (34,000 rows), `d4dc532c` (6,233 rows), `8940317f` (4,848 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **conflict** (live 870c47fd sits on 9fbfdf22 (bagdiet-01); behind by 8: dropdig-01, leasegen-01, llmoai-01, dirtrung-01, swimunder-01, monustuck-01, shafttrap-02, swimcentre-; row 11-06 03:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
-| **Owner-direct / rollouts (24 h)** | servea-roll-s3: owner-direct-check 11-05 03:50Z; servea-roll: rollout-released 11-05 13:55Z |
+| **Owner-direct / rollouts (24 h)** | servea-roll: rollout-released 11-05 13:55Z |
 | **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?; **visuals-1105**: visuals-1105 skins: OK to publish the 15 custom skin PNGs through MineSkin (public gallery unless a MineSkin key is given), or upload them yourself at skinsrestorer.net/upload?; **idletowns-1106**: idletowns-1106 storage hub: the showcase hall's clerk has never run (0 rows; its upkeep waits behind open projects) -- give it a turn on the showcase first (H0), then port the hall to the fleet (H1, ~600-900 lines + Paper proof)? |
-| **Open alarms** | STALLCHECK 2026-11-06T02:35:01Z STALLED: 54. OPSAUDIT 2026-11-05 FLAGS: 12 (1 high). 19 active alarm(s): stuck goals 4 (hive-d/monument@68_65_68, hive-d/tidy@68_65_68, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147); driftwatch drift:deaths_per_bot_h, driftwatch drift:items_per_bot_h, effectwatch effect:dirtrung-01:h24, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72 |
+| **Open alarms** | STALLCHECK 2026-11-06T03:35:01Z STALLED: 56. OPSAUDIT 2026-11-05 FLAGS: 12 (1 high). 30 active alarm(s): stuck goals 9 (hive-d/monument@68_65_68, hive-d/tidy@68_65_68, isolated-a/monument@355_73_147, isolated-a/wall@355_73_147, isolated-b/wall@355_73_147, placebo-c/monument@355_73_147 ...); driftwatch drift:deaths_per_bot_h, driftwatch drift:items_per_bot_h, effectwatch effect:dirtrung-01:h24, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72 |
 <!-- GENERATED:END -->
 
 ## Notes
