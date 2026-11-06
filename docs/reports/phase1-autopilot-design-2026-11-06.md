@@ -144,9 +144,67 @@ encode order (queue position already does). Recommended: keep `after` only for r
 
 ## Item 3 (gated parts): the speculative build and the owner-direct lane
 
-See the implementation notes in the branch; both change the scheduler's or the deploy path's decisions and wait for the
-owner's go.
+**Claude design.**
+- (a) **Build during the read** (canary-sched v42 `spec_target`, pure): while a canary is LIVE, the entry that would launch
+  after it (ready, unheld, single, with a patch source, `after` done or the live run, no variant and no job of any state
+  for the canary sha, no other build running) gets one autorebase onto the canary sha. 50 of 55 canaries KEEP; on KEEP +
+  promotion that sha is the fleet base and the next tick launches at once (today: a median 36 min serial build after each
+  promotion, 25 h idle in 14 days with the refusals). A REVERT leaves the variant unused (keyed on a sha that never became
+  the base); the head builds again for the real base. The diff-identity gate is untouched. `~/digest/SPEC-OFF` disables.
+  **Off .31:** with `~/autorebase/SUITE-REMOTE`, the full suite of the cherry-picked tip goes to ci2/.30: a local ref in
+  the scratch repo + `~/autorebase/suite/<key>.req`; `scripts/host/autorebase-suite-relay.py` (Mac, launchd every 2 min;
+  .31 has no key to the test hosts) fetches that ref, checks it IS the requested sha, starts `suite-run.py --ref <sha>
+  --detach` (git context, lock, deadlines), and when the remote log ends `DONE rc=N` copies it back as `<key>.out` and
+  then writes `<key>.done`. A lock timeout, an unfinished log or no answer in 100 min -> the suite runs on .31 as before
+  (the alone re-runs of failing files stay on .31: one file at a time).
+- (b) **The owner-direct lane** (`rollout.py deploy --run R --sha S --tier 1|2 --reviewer N [--showcase-evidence T]`):
+  refuses unless the reviewer is named, tier 2 names its showcase evidence, S is a full sha descending from the fleet's
+  declared build, protected.py on prev..S says "not protected", and canary-sched's own slot checks are all clear; then
+  `install-hold owner-direct:R 90`, the canary lock held, **everything checked again under the lock**, `~/bin/fleet-deploy`
+  (the promotion path); not VERIFIED -> back to prev by the same path, but never while the first deploy still runs;
+  the `owner-direct` ledger row is stamped at the VERIFIED time, so the existing 60-min check reads the hour after
+  convergence and pushes FAIL/WATCH.
 
-## Deploy and verification
+**Codex design.** (a) the same trigger, with the whole build on ci2/.30 and a git bundle back to .31 verified there; a
+receipt binding request key, commit, tree and tool versions; READY only after KEEP **and** promotion. (b) the same checks
+plus: classify the exact endpoints (not merge-base), a persistent reservation across process death, the full roster's
+fresh target-version telemetry, WATCH holds and pages (no automatic KEEP), failed rollback = a persistent block.
 
-Recorded per item in the deploy log at the end of this file as each one ships (backup, selftest, a dry-run, live).
+**Reconciliation.** (a) Kept the build steps on .31 (cherry-pick, diff identity, tier, lint: minutes of CPU) and moved the
+suite (36 min of the 80-bot host) to the test hosts through a relay; the full-remote build with a bundle back is the
+larger change Codex describes, not needed for the measured cost. READY after promotion is already how H2 works (the
+variant is keyed on the base). (b) Adopted the re-check under the lock and the "never roll back over a running deploy";
+the install-hold is the persistent reservation (it outlives the process and v42 releases it only on a baseline fleet);
+ancestry is required, so merge-base = prev and protected.py classifies exactly prev..S; the 60-min check keeps its
+existing verdicts (FAIL/WATCH page, nothing is auto-kept or auto-reverted after the hour).
+
+## Reviews (two engines, blockers only)
+
+- Items 2 + 3cde: Claude agent r1 -- 3 blockers (outbox lock held across curl: watcher pile-up + recovery flood; slot cause
+  key flapping; stuckwatch import path). Codex r1 -- 5 (concurrent relays; same-second row lost after rotation; staged
+  deletions missed by the overlay; lap attribution by count not time; give-ups invisible). Codex verify r1b -- 2 more
+  (delivery-file race; a coalesced retry dropping rows past 3,500 chars). All fixed with tests.
+- Items 1 + 3ab: Claude agent r2 -- 2 (a skipped lab head's R10 re-run hid the stale-facts guard; rollback over a running
+  d.sh). Codex r2 -- 2 (no re-check under the lock; silent active units passed the release check). All fixed with tests.
+
+## Deploy log (10.0.0.31)
+
+| when (11-06) | what | how verified |
+|---|---|---|
+| 03:51Z | `~/pager/app/scripts` = main e00ca126 (later c012280d); `pager.py selftest --push` | DELIVERED (HTTP 200 + ntfy message id) |
+| 03:51Z | `lib/alarm.py` into the 5 live copies (w5alarms, stallcheck, effectwatch, flowledger, promomerge); backups in `~/pager/backup-20261106T0400Z/` | md5 equal x6; haltwatch dry run; later cron runs clean |
+| 03:52Z | cron: `pager.py relay` */5, `pager.py digest` 12:30Z | first relay: cursor at the end of page.jsonl, 0 rows |
+| 03:53Z | haltwatch / goalwatch / alarmhead into w5alarms | dry runs; 04:00Z goalwatch pushed "3 NEW" (town:hive-d, isolated-a, placebo-c) |
+| 03:54Z | stuckwatch cron -> `~/pager/app/scripts/ops/stuckwatch.py` (old `~/stuckwatch.py` kept) | dry run in a temp HOME: the same 3 pins as the live log; 04:17Z pushed "3 NEW" |
+| 03:57Z | cron: `hourwatch.py run` :25 | first run: value +19% (judged, 24 h history), lap 81% (alarm), towns 10/16 (alarm); pushed "2 NEW" |
+| on main | `.gitattributes` merge=union; suite-run.py git context + deadlines | ci2 full suite through the new suite-run: 416/417 (lavastep, a known flake), the 3 copied-tree tests PASS |
+
+**Rollback (any piece):** restore the file from `~/pager/backup-20261106T0400Z/` (crontab before: `crontab.before`), or delete
+the `# pager` cron lines. **Ack a known alarm:** `cd ~/pager/app/scripts && python3 host/pager.py ack hourwatch 'lap:*'
+"idlework-01 queued" --for 2d`; `pager.py acks`, `pager.py status`.
+
+**Gated (owner's go):** canary-sched v42 + rollout.py deploy + the suite relay, branch `phase1-autopilot`. Install: take
+`canary-sched.py install-hold phase1-v42 30`, hold `/tmp/mcai-canary.lock`, back up `~/canary-sched.py`, install, `status`
++ `tick --no-act`, release; then `touch ~/autorebase/SUITE-REMOTE` only after the Mac relay is loaded
+(`cp scripts/host/autorebase-suite-relay.py scripts/host/suite-run.py ~/bin/ && python3 ~/bin/autorebase-suite-relay.py
+--install-launchd`).

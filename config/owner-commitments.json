@@ -4856,6 +4856,40 @@
     "placebo-a/treefarm@*"
    ],
    "owner_pending": "idletowns-1106 storage hub: the showcase hall's clerk has never run (0 rows; its upkeep waits behind open projects) -- give it a turn on the showcase first (H0), then port the hall to the fleet (H1, ~600-900 lines + Paper proof)?"
+  },
+  {
+   "id": "phase1-autopilot-1106",
+   "title": "Phase 1 (codeeval 11-06): scheduler self-recovery, one pager with tiers/acks/verified delivery, pipeline throughput (prebuild during the read on ci2/.30, owner-direct lane, merge=union, suite-run fixes)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "phase1-autopilot-1106.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "LIVE on .31 since 11-06 ~04:00Z: lib/alarm tiers+acks+delivery check (6 copies), pager.py relay (*/5) + digest (12:30Z), slotwatch by cause, goalwatch town keys, stuckwatch push (rotation fix), hourwatch (:25); merge=union + suite-run git context/deadlines on main. WAITING FOR THE OWNER'S GO (after phase 0's canaries read): canary-sched v42 (skip head, hold auto-release, hash repair, speculative build + remote suite) and rollout.py deploy (owner-direct lane), branch phase1-autopilot.",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "paths": [
+     "docs/reports/phase1-autopilot-design-2026-11-06.md",
+     "scripts/host/pager.py",
+     "scripts/host/hourwatch.py"
+    ],
+    "branches": [
+     "phase1-autopilot"
+    ]
+   },
+   "depends_on": [
+    {
+     "cron": "host/pager.py relay"
+    },
+    {
+     "cron": "host/hourwatch.py run"
+    }
+   ],
+   "owner_pending": "phase 1 gated pieces (canary-sched v42 + the owner-direct lane): deploy once phase 0's canaries read; and drop `after` links that only encode order, or skip-head never fires",
+   "note": "Claude + independent Codex designs per item, reconciled in the design doc; two-engine blockers-only reviews (Codex + an independent Claude agent), all blockers fixed."
   }
  ]
 }
