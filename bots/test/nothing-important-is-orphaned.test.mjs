@@ -127,6 +127,10 @@ const REQUIRED = [
   'bots/src/gkforever.mjs',
   'bots/test/gkforever.test.mjs',
   'docs/reports/gkforever-design-2026-11-06.md',
+  // stations-01 (owner 11-06): the town's tables and furnaces (take-back, the groundskeepers' sweep, town stations, chest first, spare fuel)
+  'bots/src/stations.mjs',
+  'bots/test/stations.test.mjs',
+  'docs/reports/stations-design-2026-11-06.md',
   'docs/reports/groundskeeper-2026-11-02.md',
   'bots/scripts/tidy-offline.mjs',
   'docs/reports/tidy-01-2026-11-01.md',
