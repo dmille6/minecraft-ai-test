@@ -183,6 +183,9 @@ await t('forest-02 TICKING: anchored on the walled area -- a box within simChunk
   assert.ok(!F.boxTicks([-125, 25, -114, 42], HOME, F.FOREST.chunkR, rings), 'chunk -8: 5 out')
   assert.ok(F.boxTicks([10, 95, 20, 105], HOME, F.FOREST.chunkR, rings), 'south: chunk 6, 4 from the wall chunk 2')
   assert.ok(!F.boxTicks([-109, 25, -98, 42], HOME), 'forest-01\'s home-chunk rule refused it (chunk -7 is 7 from home)')
+  // the rings' UNION, never their bounding box (Codex r1): an L-shaped town admits no chunk 6 from every wall
+  assert.ok(!F.boxTicks([-112, -112, -97, -97], HOME, F.FOREST.chunkR, [[-48, -16, 16, 16], [0, -96, 16, -16]]), 'chunk -7,-7: 6 from both rings')
+  assert.ok(F.boxTicks([-112, -16, -97, -1], HOME, F.FOREST.chunkR, [[-48, -16, 16, 16], [0, -96, 16, -16]]), 'beside the first ring: ticks')
 })
 await t('forest-02 AXIS: rows along z keep every invariant (trunks 3 apart, one stand beside each trunk in an aisle), the box transposed', () => {
   const Lx = F.forestLayout(0, 0, { perRow: 6, strips: 2 }), Lz = F.forestLayout(0, 0, { perRow: 6, strips: 2, axis: 'z' })
@@ -238,8 +241,37 @@ await t('forest-02 THE SHOWCASE\'S SHAPE: water on three sides of the walls, the
   assert.ok(!old.ok && /far=/.test(old.why), 'forest-01\'s reach (72): no site (the live 20:38Z refusal) ' + old.why)
 })
 await t('MUTANT KILLED: the ticking rule anchored on home again (the showcase\'s ground refused as unticked)', async () => {
-  await killed('  if (rs.length) {\n    const a = ', '  if (false) {\n    const a = ', M => {
+  await killed('  if (rs.length) {\n    // every chunk of the box', '  if (false) {\n    // every chunk of the box', M => {
     assert.ok(M.boxTicks([-109, 25, -98, 42], HOME, M.FOREST.chunkR, [[-46, -20, 35, 39], [-40, -89, 35, -20]]))
+  })
+})
+await t('forest-02 TIERS: the nearest tier with a good forest (16+ plots) wins -- open ground sites within 72; a near pocket for 12 loses to a good forest further out; a small one only when nothing good fits', () => {
+  const rings = [[-46, -20, 35, 39], [-40, -89, 35, -20]]
+  const inR = (x, z) => rings.some(g => x >= g[0] && x <= g[2] && z >= g[1] && z <= g[3])
+  const open = F.siteForest(world().read, { home: HOME, rings })
+  assert.ok(open.ok && F.boxReach(open.record.box, HOME) <= 72 && open.tier === 72, `open ground: tier 72 (${open.tier})`)
+  // water everywhere but a near pocket (x -62..-50, z 44..53: room for 2 strips x 2 rows x 3 along z, 12 plots, on the scan grid) and far land (x <= -95)
+  const cells = {}
+  for (let x = -120; x <= 120; x++) for (let z = -120; z <= 120; z++) {
+    const pocket = x >= -62 && x <= -50 && z >= 44 && z <= 53, far = x <= -95 && Math.abs(z) <= 30
+    if (!pocket && !far && !inR(x, z)) cells[`${x},${G},${z}`] = 'water'
+  }
+  const w = world(cells)
+  const s = F.siteForest(w.read, { home: HOME, rings })
+  assert.ok(s.ok && s.record.counts.plots >= 16 && s.record.box[2] <= -95, `the good far forest: ${s.record?.box} ${s.record?.counts.plots}`)
+  const only = {}
+  for (let x = -120; x <= 120; x++) for (let z = -120; z <= 120; z++) { const pocket = x >= -62 && x <= -50 && z >= 44 && z <= 53; if (!pocket && !inR(x, z)) only[`${x},${G},${z}`] = 'water' }
+  const s2 = F.siteForest(world(only).read, { home: HOME, rings })
+  assert.ok(s2.ok && s2.small && s2.record.counts.plots === 12, `nothing good: the small one (${s2.why ?? s2.record?.counts.plots})`)
+})
+await t('MUTANT KILLED: tiers without the good-forest bar (a near 12-plot pocket beats a good forest further out)', async () => {
+  await killed('      if (best && best.plots.length >= (F.goodPlots ?? 0)) return', '      if (best) return', M => {
+    const rings = [[-46, -20, 35, 39], [-40, -89, 35, -20]]
+    const inR = (x, z) => rings.some(g => x >= g[0] && x <= g[2] && z >= g[1] && z <= g[3])
+    const cells = {}
+    for (let x = -120; x <= 120; x++) for (let z = -120; z <= 120; z++) { const pocket = x >= -62 && x <= -50 && z >= 44 && z <= 53, far = x <= -95 && Math.abs(z) <= 30; if (!pocket && !far && !inR(x, z)) cells[`${x},${G},${z}`] = 'water' }
+    const s = M.siteForest(world(cells).read, { home: HOME, rings })
+    assert.ok(s.record.counts.plots >= 16)
   })
 })
 await t('forest-02 badCounter: the box\'s bad-column count equals a brute-force count; past the scan square it refuses', () => {

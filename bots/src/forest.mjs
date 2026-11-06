@@ -72,6 +72,8 @@ export const FOREST = Object.freeze({
   scanR: 112,          // the siting scan's half-width round home
   rMax: 112,           // every column of the box within this of home (Chebyshev): the build's walk (forestWalkR) and the tidy's
                        // (forest-02: 72 -> 112: the showcase's only free ground is 75-110 west of home, past its yard and stepwell)
+  reachTiers: [72, 92, 112],   // forest-02: the NEAREST tier that fits a good forest wins (just outside the walls where it can be)
+  goodPlots: 16,       // ...a good forest: 2 strips x 2 rows x 4 or more; smaller ones only when no tier has one
   stripStep: 1,        // forest-02 TERRAIN: each strip its own level, the next strip's within this (the path between them a 1-block step)
   stripSpread: 2,      // ...and every strip's within this of the lowest (the read's leaf band, shopread FR2: level - 3 .. levelMax + 5)
   failMax: 3,          // a tree this bot failed this often (never on the clock) is KEPT: its plot waived, a farm tree a garden tree
@@ -155,6 +157,11 @@ export function forestLayout (x0, z0, { perRow = FOREST.perRow[0], strips = FORE
   const stripOf = (x, z) => Math.max(0, Math.min(strips - 1, Math.floor((vOf(x, z) + 1) / (2 * sp))))
   return { box, plots, aisles, paths, stripOf, axis }
 }
+/** The layout's box alone (forestLayout's, without building its plots) -> [x0, z0, x1, z1]. Pure. The scan's cheap first test. */
+export function layoutBox (x0, z0, { perRow = FOREST.perRow[0], strips = FOREST.strips[0], sp = FOREST.spacing, axis = 'x' } = {}) {
+  const u1 = sp * (perRow - 1), v1 = 2 * sp * (strips - 1) + sp
+  return axis === 'z' ? [x0 - 1, z0 - 1, x0 + v1 + 1, z0 + u1 + 1] : [x0 - 1, z0 - 1, x0 + u1 + 1, z0 + v1 + 1]
+}
 /** Every pair of trunks at least `min` apart (Chebyshev)? The growth-room invariant. Pure. */
 export function trunksApart (plots, min = FOREST.spacing) {
   for (let a = 0; a < plots.length; a++) for (let b = a + 1; b < plots.length; b++) {
@@ -177,10 +184,14 @@ export function boxTicks (box, home, r = FOREST.chunkR, rings = []) {
   // forest-02: anchored on the WALLED AREA's chunks when the town has walls (the rings' union), within simChunks - tickMargin
   const rs = (rings ?? []).filter(g => Array.isArray(g) && g.length === 4)
   if (rs.length) {
-    const a = [Math.min(...rs.map(g => chunkOf(g[0]))), Math.min(...rs.map(g => chunkOf(g[1]))), Math.max(...rs.map(g => chunkOf(g[2]))), Math.max(...rs.map(g => chunkOf(g[3])))]
+    // every chunk of the box within m (Chebyshev) of SOME ring's chunk rectangle -- the rings' union, never their bounding box (Codex
+    // forest-02 r1: an L-shaped town's bounding box admitted a chunk 6 from every wall)
     const m = FOREST.simChunks - FOREST.tickMargin
-    const dx = Math.max(a[0] - chunkOf(box[0]), chunkOf(box[2]) - a[2], 0), dz = Math.max(a[1] - chunkOf(box[1]), chunkOf(box[3]) - a[3], 0)
-    return dx <= m && dz <= m
+    const rc = rs.map(g => [chunkOf(g[0]), chunkOf(g[1]), chunkOf(g[2]), chunkOf(g[3])])
+    for (let cx = chunkOf(box[0]); cx <= chunkOf(box[2]); cx++) for (let cz = chunkOf(box[1]); cz <= chunkOf(box[3]); cz++) {
+      if (!rc.some(a => Math.max(a[0] - cx, cx - a[2], 0) <= m && Math.max(a[1] - cz, cz - a[3], 0) <= m)) return false
+    }
+    return true
   }
   const hx = chunkOf(Math.floor(home.x)), hz = chunkOf(Math.floor(home.z))
   return [box[0], box[2]].every(x => Math.abs(chunkOf(x) - hx) <= r) && [box[1], box[3]].every(z => Math.abs(chunkOf(z) - hz) <= r)
@@ -255,11 +266,12 @@ export function siteTreeStand (read, tree, col) {
  * in the box: every one straight and fellable from a stand (siteTreeStand), else the site is refused.
  */
 export function forestFitAt (read, { x0, z0, perRow, strips, home, col, blocked, rings = [], zone = null, axis = 'x', F = FOREST } = {}) {
-  const L = forestLayout(x0, z0, { perRow, strips, axis })
-  const box = L.box
+  const box = layoutBox(x0, z0, { perRow, strips, axis })
   if (!outsideRings(box, rings)) return { ok: false, why: 'walls' }
   if (!boxTicks(box, home, F.chunkR, rings)) return { ok: false, why: 'ticks' }
   if (boxReach(box, home) > F.rMax) return { ok: false, why: 'far' }
+  // the strip of a column (forestLayout stripOf, by arithmetic: the layout itself is built only for a box whose levels pass)
+  const sOf = (x, z) => Math.max(0, Math.min(strips - 1, Math.floor(((axis === 'z' ? x - x0 : z - z0) + 1) / (2 * F.spacing))))
   let zoneCost = 0
   const gs = Array.from({ length: strips }, () => [])
   for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
@@ -269,11 +281,13 @@ export function forestFitAt (read, { x0, z0, perRow, strips, home, col, blocked,
     const c = col(x, z)
     if (c.why === 'unknown') return { ok: false, why: 'unknown' }
     if (c.why) return { ok: false, why: `box:${c.why}` }
-    gs[L.stripOf(x, z)].push(c.y)
+    gs[sOf(x, z)].push(c.y)
   }
   const Ws = gs.map(g => { const q = [...g].sort((a, b) => a - b); return q[Math.floor(q.length / 2)] })
   for (let i = 1; i < Ws.length; i++) if (Math.abs(Ws[i] - Ws[i - 1]) > F.stripStep) return { ok: false, why: 'level' }
   if (Math.max(...Ws) - Math.min(...Ws) > F.stripSpread) return { ok: false, why: 'level' }
+  for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) { const c = col(x, z), W = Ws[sOf(x, z)]; if (W - c.y > F.fillMax || c.y - W > F.cutMax) return { ok: false, why: 'level' } }
+  const L = forestLayout(x0, z0, { perRow, strips, axis })
   const floor = [], cuts = []
   const plotCols = new Set(L.plots.map(p => k2(p.x, p.z)))
   for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
@@ -362,27 +376,34 @@ export function siteForest (read, { home, blocked = () => null, rings = [], zone
     return false
   })
   const why = {}
-  let tried = 0
-  for (const strips of F.strips) for (const perRow of F.perRow) {
-    if (strips * 2 * perRow < F.minPlots) continue
-    let best = null
-    for (const axis of F.axes) {
-      for (let x0 = hx - R; x0 <= hx + R; x0 += st) {
-        for (let z0 = hz - R; z0 <= hz + R; z0 += st) {
-          const L = forestLayout(x0, z0, { perRow, strips, axis })
-          if (!outsideRings(L.box, rings)) { why.walls = (why.walls ?? 0) + 1; continue }
-          if (!boxTicks(L.box, home, F.chunkR, rings)) { why.ticks = (why.ticks ?? 0) + 1; continue }
-          if (boxReach(L.box, home) > F.rMax) { why.far = (why.far ?? 0) + 1; continue }
-          if (badCount(L.box) > 0) { why.box = (why.box ?? 0) + 1; continue }
-          tried++
-          const f = forestFitAt(read, { x0, z0, perRow, strips, home, col, blocked: blk, rings, zone, axis, F })
-          if (!f.ok) { const w = String(f.why).split(':')[0]; why[w] = (why[w] ?? 0) + 1; continue }
-          if (!best || f.cost < best.cost - 1e-9) best = f
+  let tried = 0, small = null
+  // THE TIERS (forest-02): nearest first; within a tier every size, the most strips and the longest rows first, both axes; the first
+  // tier with a GOOD fit (goodPlots) wins; with none in any tier, the nearest smaller fit (a forest of 12 beats none)
+  for (const tier of F.reachTiers ?? [F.rMax]) {
+    const T = Math.min(tier, F.rMax)
+    for (const strips of F.strips) for (const perRow of F.perRow) {
+      if (strips * 2 * perRow < F.minPlots) continue
+      let best = null
+      for (const axis of F.axes) {
+        for (let x0 = hx - T; x0 <= hx + T; x0 += st) {
+          for (let z0 = hz - T; z0 <= hz + T; z0 += st) {
+            const box = layoutBox(x0, z0, { perRow, strips, axis })
+            if (boxReach(box, home) > T) { why.far = (why.far ?? 0) + 1; continue }
+            if (!outsideRings(box, rings)) { why.walls = (why.walls ?? 0) + 1; continue }
+            if (!boxTicks(box, home, F.chunkR, rings)) { why.ticks = (why.ticks ?? 0) + 1; continue }
+            if (badCount(box) > 0) { why.box = (why.box ?? 0) + 1; continue }
+            tried++
+            const f = forestFitAt(read, { x0, z0, perRow, strips, home, col, blocked: blk, rings, zone, axis, F: { ...F, rMax: T } })
+            if (!f.ok) { const w = String(f.why).split(':')[0]; why[w] = (why[w] ?? 0) + 1; continue }
+            if (!best || f.cost < best.cost - 1e-9) best = f
+          }
         }
       }
+      if (best && best.plots.length >= (F.goodPlots ?? 0)) return { ok: true, why: null, tried, tier: T, record: forestRecord(best, { home, species, now }) }
+      if (best && !small) small = { f: best, T }
     }
-    if (best) return { ok: true, why: null, tried, record: forestRecord(best, { home, species, now }) }
   }
+  if (small) return { ok: true, why: null, tried, tier: small.T, small: true, record: forestRecord(small.f, { home, species, now }) }
   const top = Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k}=${v}`).join(' ')
   return { ok: false, why: `no fit (${tried} tried: ${top || '-'})`, tried, record: null }
 }
