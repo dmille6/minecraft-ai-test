@@ -151,7 +151,37 @@ await t('MUTANT KILLED: the exclusive create (wx) replaced by an overwrite -- tw
     const w = [0, 1].map(i => M.serviceClaim('canefarm', 0, { at: NOW, by: `B${i}` }, dir))
     assert.strictEqual(w.filter(x => x.ok).length, 1)
   }
-  await killedBy(SKP, SK, "    const fd = fs.openSync(serviceGenFile(plot, n, dir), 'wx')\n", "    const fd = fs.openSync(serviceGenFile(plot, n, dir), 'w')\n", race)
+  await killedBy(SKP, SK, '    fs.linkSync(tmp, target)\n', '    fs.copyFileSync(tmp, target)\n', race)
+})
+// the release fold's BLOCKER: a bot that died between creating its claim and writing it left an EMPTY generation; the head read null
+// for good and the plot was never served again
+const tornScene = (ageMs) => {
+  const dir = fs.mkdtempSync(`${process.env.TMPDIR ?? '/tmp'}/prodserve-torn-`)
+  assert.ok(SK.serviceClaim('canefarm', 0, P.stampNext(null, { me: 'A', now: NOW - 3 * 60 * MIN }), dir).ok)
+  const f = `${dir}/${fs.readdirSync(dir).find(n => /\.service\.g1\.json$/.test(n)).replace('g1.json', 'g2.json')}`
+  fs.writeFileSync(f, '')   // the crash: generation 2 created, nothing written
+  const t = (Date.now() - ageMs) / 1000
+  fs.utimesSync(f, t, t)
+  return dir
+}
+await t('a torn (empty) newest generation: in flight for a minute (not due), then ABSENT -- the plot is due and the next claim takes gen+1', () => {
+  const young = SK.serviceHeadOf('canefarm', tornScene(5_000))
+  assert.ok(young && young.gen === 2 && young.rec?.by === 'torn', JSON.stringify(young))
+  assert.strictEqual(P.servicePick(live({ storehub: { serve: null } }), { now: Date.now(), stamps: { canefarm: P.stampOfHead(young) } }), null, 'a claim in flight is not due')
+  const dir = tornScene(5 * 60_000)
+  const old = SK.serviceHeadOf('canefarm', dir)
+  assert.ok(old && old.gen === 2 && old.rec == null && old.torn, JSON.stringify(old))
+  const st = P.stampOfHead(old) ?? { at: null, by: null, gen: old.gen }
+  assert.strictEqual(P.servicePick(live({ storehub: { serve: null } }), { now: Date.now(), stamps: { canefarm: st } }).plot, 'canefarm', 'due again')
+  const c = SK.serviceClaim('canefarm', st.gen, P.stampNext(null, { me: 'B', now: Date.now() }), dir)
+  assert.deepStrictEqual(c, { ok: true, gen: 3 })
+  assert.strictEqual(SK.serviceHeadOf('canefarm', dir).rec.by, 'B')
+  assert.ok(!fs.readdirSync(dir).some(n => n.endsWith('.tmp')), 'no temp file left by a good claim')
+})
+await t('MUTANT KILLED: a torn generation read as in flight for ever (the live dead end)', async () => {
+  const SKP = new URL('../src/skills.mjs', import.meta.url)
+  const sc = M => { const h = M.serviceHeadOf('canefarm', tornScene(5 * 60_000)); assert.ok(h && h.rec == null && h.torn, JSON.stringify(h)) }
+  await killedBy(SKP, SK, '    return Date.now() - mt < SERVICE_TORN_MS ? { gen, rec: { at: mt, by: \'torn\' }, released: false } : { gen, rec: null, released: false, torn: true }\n', '    return null\n', sc)
 })
 
 console.log('THE PICKER (shop.mjs activeProject `service`)')

@@ -19809,6 +19809,7 @@ function siteWaitUntil (plot, dir = townDir()) { try { return Number(JSON.parse(
 // SERVICE_KEEP generations are kept. One `_service` row a service visit. Never throws.
 // ================================================================================================================================
 const SERVICE_KEEP = 4
+const SERVICE_TORN_MS = 60_000   // a generation that does not parse is a claim in flight this long, then absent
 const serviceGenFile = (plot, gen, dir = townDir()) => path.join(dir, `${projKeyOf(plot)}.service.g${gen}.json`)
 const reEsc = t => String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const serviceGenRe = plot => new RegExp(`^${reEsc(projKeyOf(plot))}\\.service\\.g(\\d+)\\.json$`)
@@ -19825,7 +19826,19 @@ export function serviceHeadOf (plot, dir = townDir(), names = null) {
   if (gens == null) return null
   const gen = gens.at(-1) ?? 0
   if (!gen) return { gen: 0, rec: null, released: false }
-  try { return { gen, rec: JSON.parse(fs.readFileSync(serviceGenFile(plot, gen, dir), 'utf8')), released: fs.existsSync(`${serviceGenFile(plot, gen, dir)}.released`) } } catch { return null }
+  const f = serviceGenFile(plot, gen, dir)
+  let text
+  try { text = fs.readFileSync(f, 'utf8') } catch (e) { return e?.code === 'ENOENT' ? { gen, rec: null, released: false, torn: true } : null }
+  let rec = null
+  try { rec = JSON.parse(text) } catch { rec = null }
+  // the release fold's BLOCKER (a claim torn between create and write: an empty generation read as unreadable for good): a newest
+  // generation that does not parse is in flight for SERVICE_TORN_MS from its mtime (not due), then ABSENT -- the next claim takes gen+1
+  if (!rec || typeof rec !== 'object') {
+    let mt = 0
+    try { mt = fs.statSync(f).mtimeMs } catch { mt = 0 }
+    return Date.now() - mt < SERVICE_TORN_MS ? { gen, rec: { at: mt, by: 'torn' }, released: false } : { gen, rec: null, released: false, torn: true }
+  }
+  return { gen, rec, released: fs.existsSync(`${f}.released`) }
 }
 /** The town's service stamps -> { plot: { at, by, gen } } (an unreadable plot is left out: its pick waits). Never throws. */
 function serviceStampsNow (dir = townDir()) {
@@ -19843,10 +19856,18 @@ function serviceStampsNow (dir = townDir()) {
 export function serviceClaim (plot, gen, stamp, dir = townDir()) {
   if (!Number.isInteger(gen) || gen < 0) return { ok: false, why: 'unread' }
   const n = gen + 1
+  // ATOMIC AND EXCLUSIVE: the stamp is written whole to a temp file first, then hard-linked to the generation's name (link fails with
+  // EEXIST when another bot made it first) -- a crash leaves at most a temp file, never an empty generation
+  const target = serviceGenFile(plot, n, dir)
+  const tmp = `${target}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
   try {
-    const fd = fs.openSync(serviceGenFile(plot, n, dir), 'wx')
+    const fd = fs.openSync(tmp, 'wx')
     try { fs.writeSync(fd, JSON.stringify(stamp)); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
-  } catch (e) { return { ok: false, why: e?.code === 'EEXIST' ? 'lost' : 'unwritable' } }
+    fs.linkSync(tmp, target)
+  } catch (e) { try { fs.rmSync(tmp, { force: true }) } catch { /* pruned below, later */ } return { ok: false, why: e?.code === 'EEXIST' ? 'lost' : 'unwritable' } }
+  try { fs.rmSync(tmp, { force: true }) } catch { /* pruned later */ }
+  // temp files a crashed claim left (older than SERVICE_TORN_MS) go too
+  try { const pre = `${projKeyOf(plot)}.service.g`; for (const nme of fs.readdirSync(dir)) if (nme.startsWith(pre) && nme.endsWith('.tmp')) { const q = path.join(dir, nme); try { if (Date.now() - fs.statSync(q).mtimeMs > SERVICE_TORN_MS) fs.rmSync(q, { force: true }) } catch { /* gone */ } } } catch { /* kept */ }
   try { for (const g of (serviceGens(plot, dir) ?? []).filter(g => g <= n - SERVICE_KEEP)) { fs.rmSync(serviceGenFile(plot, g, dir), { force: true }); fs.rmSync(`${serviceGenFile(plot, g, dir)}.released`, { force: true }) } } catch { /* kept */ }
   return { ok: true, gen: n }
 }
