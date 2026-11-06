@@ -17489,6 +17489,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // read) and FIRST among the upkeeps (`dueFirst`)
         const hubDue = complete && b && p.plot === HUB_PLOT ? hubUpkeepDue(b, rec, now) : false
         const enchDue = complete && b && p.plot === ENCHANT_PLOT ? enchantUpkeepDue(b, rec, now) : false
+        // prodserve-01: a finished production plot's OWN due test for this bot (prodserve.mjs servicePick reads it): the farms' harvest or
+        // replant, the hall's clerk -- the hall's whether or not one of its cells reads damaged (its repair stays a repair)
+        const serve = PRODSERVE.on && complete && b && isServicePlot(p.plot) ? serviceDueOf(b, p.plot, rec, hubDue, now) : null
         const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
         // stockyard-01: a complete yard's work for THIS bot (yard.mjs yardWork): its bag's surplus under pressure goes first (as a
         // repair: activeProject's first loop, bounded by repairBackoff), any other work (the clerk, a refill, the aisles) is `due`
@@ -17500,9 +17503,6 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
         // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
         // yarduse-01: a yard bay blocked by clutter (yard.mjs yardWork `first`) is cleared ahead of the sinks (bounded: YARD_CLEAR_MAX a visit)
-        // prodserve-01: a finished production plot's OWN due test for this bot (prodserve.mjs servicePick reads it): the farms' harvest or
-        // replant, the hall's clerk -- the hall's whether or not one of its cells reads damaged (its repair stays a repair)
-        const serve = PRODSERVE.on && complete && b && isServicePlot(p.plot) ? serviceDueOf(b, p.plot, rec, hubDue, now) : null
         return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === ENCHANT_PLOT && enchDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}), ...(serve ? { serve } : {}) }
       })
       // PICKER-01: each sink's open instance or its next one (sinks.mjs sinkNextGate over this bot's pressure), and the picker's order

@@ -94,7 +94,7 @@ await t('the switch: on in the showcase pool only; ENCHANT_NOWAIT=off / on overr
 await t('WIRING: activeProject defaults to the switch, and features.mjs writes the licence row', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/.*$/gm, '')
   const shop = strip(readFileSync(new URL('../src/shop.mjs', import.meta.url), 'utf8'))
-  assert.ok(shop.includes('{ upkeepTurn = false, noWait = NOWAIT.on } = {}'), 'activeProject reads the switch by default')
+  assert.ok(shop.includes('{ upkeepTurn = false, noWait = NOWAIT.on, service = null } = {}'), 'activeProject reads the switch by default')
   assert.ok(shop.includes("export const NOWAIT = Object.freeze(noWaitSwitches(process.env, process.env.MEMORY_POOL ?? ''))"))
   const feat = strip(readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8'))
   assert.ok(/kind: 'ordernowait_mode'[^\n]*noWaitModeDetail\(NOWAIT\)/.test(feat), 'the licence row is written')
