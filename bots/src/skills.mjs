@@ -17058,8 +17058,11 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // pathsfix-01: an UNSITED paths record (no_site, not complete) is SETTLED for the order -- the wall and the farm after it
         // may start, it is never an open project -- and, once past its retry, a repair (first: its siting is one cheap visit, and
         // behind every open project it was never asked again -- placebo-b 4 days with every project complete)
-        const fixNoSite = p.plot === PATHS_PLOT && pathsFixOn() && pathsNoSiteRec(rec)
-        const complete = fixNoSite ? pathsSettled(rec) : !!rec?.structure_complete
+        // (Codex r1 BLOCK 1: PATHSFIX=off reads ANY no-site record complete -- one written unsited by this code included -- and
+        // leaves it to the base's upkeep `due`; the record's own flag never strands the wall behind it)
+        const noSiteRec = p.plot === PATHS_PLOT && pathsNoSiteRec(rec)
+        const fixNoSite = noSiteRec && pathsFixOn()
+        const complete = noSiteRec ? pathsSettled(rec) : !!rec?.structure_complete
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
         // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a

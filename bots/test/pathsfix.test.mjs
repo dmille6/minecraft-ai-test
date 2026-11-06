@@ -174,6 +174,25 @@ await t('the graded rounds keep their wall-clock budget: no allowance begun afte
   assert.strictEqual(s.net.budget, 4, 'stopped before its first allowance')
 })
 
+await t('Codex r1 BLOCK 2: a front beside a raised plaza is left at the front\'s own height -- a ramp, never a causeway the bot cannot step onto', async () => {
+  // the stair's collar exit on the ground right beside the 5-high platform (its approach columns at the platform's foot)
+  const srv = platformWorld()
+  const ex = [CORE[2] + 2, 0]
+  const rec = { blueprint: 'shaft@2', structure_complete: true, exit: [ex[0], G + 1, ex[1]], cells: [] }
+  const o = platformIn({ caps: [], projects: [{ plot: 'shaft', rec }] })
+  const s = P.sitePaths(srv.read, o)
+  const leg = legOf(s, 'shaft')
+  assert.ok(leg.ok && leg.nodes.length, JSON.stringify(leg))
+  const [, , s0] = leg.nodes[0]
+  assert.ok(s0 >= G - 1 && s0 <= G, `the approach brush at level ${s0}, the exit's ground ${G}`)
+  // and every path column within 2 of the exit is laid within one of its ground
+  for (const c of s.record.cells.filter(q => q.role === 'path' && Math.max(Math.abs(q.at[0] - ex[0]), Math.abs(q.at[2] - ex[1])) <= 2)) assert.ok(Math.abs(c.at[1] - G) <= 1, `approach cell ${c.at}`)
+  await withMutant(PATHS_PATH, '    d.level = c0.y\n', '\n', async M => {
+    const s2 = M.sitePaths(platformWorld().read, o)
+    const l2 = s2.net.legs.find(l => l.id === 'shaft')
+    assert.ok(l2.ok && l2.nodes[0][2] > G, `MUTANT KILLED: the causeway again (level ${l2.nodes[0]?.[2]})`)
+  })
+})
 // ---- scene C: a moat round one destination, another routes -- IN SECTIONS ---------------------------------------------------------
 const moatWorld = () => { const srv = server(); for (let x = 30; x <= 42; x++) for (let z = 30; z <= 42; z++) if (Math.max(Math.abs(x - 36), Math.abs(z - 36)) >= 4) srv.set([x, G, z], 'water'); return srv }
 const moatIn = (extra = {}) => ({ plan: corePlan(), caps: [[0, G + 1, 24]], composter: [36, G + 1, 36], place: placeBlueprint, ...extra })
@@ -209,6 +228,10 @@ await t('the moat drained: the extension lays the pending leg, joined to the net
   assert.ok(x.added.some(id => /^farm/.test(id)))
   assert.deepStrictEqual(x.record.pending, [])
   assert.strictEqual(x.record.structure_complete, false, 'reopened to build it')
+})
+await t('PATHSFIX=off: a pending leg is served as the base read it (never re-asked)', async () => {
+  const s = P.sitePaths(moatWorld().read, moatIn())
+  assert.deepStrictEqual(P.newDests(s.record, P.pathDests(moatIn()).dests, false).map(d => d.to), [])
 })
 await t('the extension\'s skipTo leaves out what the caller is not asking for now (its unrouted memo)', async () => {
   const s = P.sitePaths(moatWorld().read, moatIn())
@@ -321,8 +344,8 @@ await t('routeLeg\'s numeric state keys: the same nodes and cost as the string-k
 console.log('THE WIRING (structural: skills.mjs, comments stripped)')
 const code = readFileSync(SKILLS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1')
 await t('shopActive: an unsited paths record is settled, and its due retry a repair; the extension asks the timed memo', async () => {
-  assert.match(code, /const fixNoSite = p\.plot === PATHS_PLOT && pathsFixOn\(\) && pathsNoSiteRec\(rec\)/)
-  assert.match(code, /const complete = fixNoSite \? pathsSettled\(rec\) : !!rec\?\.structure_complete/)
+  assert.match(code, /const noSiteRec = p\.plot === PATHS_PLOT && pathsNoSiteRec\(rec\)\n\s+const fixNoSite = noSiteRec && pathsFixOn\(\)/)
+  assert.match(code, /const complete = noSiteRec \? pathsSettled\(rec\) : !!rec\?\.structure_complete/)
   assert.match(code, /\(fixNoSite \? pathsDue\(rec, now\) : recordDamaged\(b, rec, \{ tidy: tidyFirst \}\)\)/)
   assert.match(code, /return newDests\(rec, D\.dests \?\? \[\]\)\.some\(d => pathsUnroutedDue\(bot\.pathsUnrouted, d\.to\)\)/)
   assert.match(code, /pathsUnroutedNote\(\(bot\.pathsUnrouted \?\?= new Map\(\)\), t\)/)

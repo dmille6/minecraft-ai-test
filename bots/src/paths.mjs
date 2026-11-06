@@ -204,7 +204,7 @@ export function gridUnread (grid, [x0, z0, x1, z1]) {
  * or null for a hub brush: any level) whose level is within one of the target's. `discount(x, z)` halves a brush's price (the
  * plan's own segments). Deterministic: equal costs pop by x, then z, then heading, then level.
  */
-export function routeLeg (grid, sources, targets, { discount = () => false, maxPops = 600_000 } = {}) {
+export function routeLeg (grid, sources, targets, { discount = () => false, maxPops = 600_000, srcLevelOk = null } = {}) {
   const heap = []
   const less = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3] || a[4] - b[4]
   const push = it => { heap.push(it); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (less(heap[i], heap[p]) >= 0) break; [heap[i], heap[p]] = [heap[p], heap[i]]; i = p } }
@@ -220,7 +220,8 @@ export function routeLeg (grid, sources, targets, { discount = () => false, maxP
   const unk = k => { const s = (k % 1024) - 256; let r = (k - (s + 256)) / 1024; const d = r % 8; r = (r - d) / 8; const z = (r % 65536) - 32768; const x = (r - (z + 32768)) / 65536 - 32768; return [x, z, d, s] }
   const tk2 = (x, z) => `${x},${z}`
   for (const [x, z] of [...sources].sort((a, b) => a[0] - b[0] || a[1] - b[1])) {
-    for (const s of grid.levels(x, z)) { const c0 = grid.cost(x, z, s); const k = sk(x, z, 4, s); if (c0 < (best.get(k) ?? Infinity)) { best.set(k, c0); push([c0, x, z, 4, s]) } }
+    // pathsfix-01 (`srcLevelOk`, Codex r1 BLOCK 2): a front's approach starts only at a level the bot steps from to the front
+    for (const s of grid.levels(x, z)) { if (srcLevelOk && !srcLevelOk(s)) continue; const c0 = grid.cost(x, z, s); const k = sk(x, z, 4, s); if (c0 < (best.get(k) ?? Infinity)) { best.set(k, c0); push([c0, x, z, 4, s]) } }
   }
   let pops = 0
   while (heap.length && pops++ < maxPops) {
@@ -306,7 +307,10 @@ export function pathNetwork (grid, { hub, dests = [], discount = () => false, la
     if (hubDests && atHub(hub, d.cols)) { legs.push({ id: d.id, to: d.to ?? d.id, nodes: [], join: 'hub', ok: true, why: 'at_hub', cost: 0, ...(d.optional ? { optional: true } : {}) }); continue }
     const targets = new Map(hubs.map(([x, z]) => [`${x},${z}`, hubLevel ? (hubLevel(x, z) ?? null) : null]))
     for (const [k, v] of laid) targets.set(k, v.s)
-    const r = routeLeg(grid, brushesOver(d.cols), targets, { discount, ...(maxPops ? { maxPops } : {}) })
+    // pathsfix-01: a front with its own ground (`level`, pathInputs) is left from a brush laid at that ground or one below: with the
+    // brush beside it at most one higher, every approach column stands within one of the front (the bot steps it)
+    const srcLevelOk = Number.isFinite(d.level) ? s => s >= d.level - 1 && s <= d.level : null
+    const r = routeLeg(grid, brushesOver(d.cols), targets, { discount, ...(maxPops ? { maxPops } : {}), ...(srcLevelOk ? { srcLevelOk } : {}) })
     if (!r.ok) { legs.push({ id: d.id, to: d.to ?? d.id, nodes: [], join: null, ok: false, why: r.why, cost: Infinity, ...(d.optional ? { optional: true } : {}) }); continue }
     const end = r.nodes[r.nodes.length - 1]
     const join = laid.has(`${end[0]},${end[1]}`) ? `leg:${laid.get(`${end[0]},${end[1]}`).leg}` : 'hub'
@@ -648,10 +652,11 @@ export function pathDests ({ plan, zones = [], caps = [], plinth = [], composter
 }
 /** The destinations a laid record does not serve yet: no leg of the record goes `to` it and none of its columns is a path
  *  column. Pure. */
-export function newDests (record, dests = []) {
+export function newDests (record, dests = [], fix = pathsFixOn()) {
   const lv = new Set((record?.cells ?? []).filter(c => c.role === 'path').map(c => `${c.at[0]},${c.at[2]}`))
   // pathsfix-01: a PENDING leg (sited in sections: its destination not reached yet) is a destination the record does not serve
-  const pend = new Set(Array.isArray(record?.pending) ? record.pending : [])
+  // (PATHSFIX=off: as the base -- a leg named in the record is served)
+  const pend = new Set(fix && Array.isArray(record?.pending) ? record.pending : [])
   const tos = new Set((record?.legs ?? []).filter(l => !(pend.has(l.to) && l.ok === false)).map(l => l.to))
   return dests.filter(d => !tos.has(d.to) && !d.cols.some(([x, z]) => lv.has(`${x},${z}`)))
 }
@@ -696,6 +701,7 @@ function pathInputs (read, o = {}) {
     if (!Array.isArray(d.front)) continue
     const c0 = pathColumn(read, d.front[0], d.front[1], { yHi: home.y + PATH_DY, yLo: home.y - PATH_DY })
     if (c0.why || !Number.isFinite(c0.y)) continue
+    d.level = c0.y
     d.cols = d.cols.filter(([x, z]) => { if (x === d.front[0] && z === d.front[1]) return true; const c = grid.col(x, z); return !!c && !c.why && Number.isFinite(c.y) && Math.abs(c.y - c0.y) <= 1 })
   }
   const segs = (plan.paths ?? []).map(p => p.seg).filter(Array.isArray)
