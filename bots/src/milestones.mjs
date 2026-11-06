@@ -17,7 +17,8 @@
 import { WOOD_KEEP } from './woodkeep.mjs'
 import { equivalentTools } from './skills.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
-import { bankableInventory } from './bankable.mjs'
+import { bankableInventory, depositPlan } from './bankable.mjs'
+import { idleWorkOn, idlePick, idleStep, idleMet, idleBar, countOf, IDLE_NEEDS, SCOUT_DIST } from './idlework.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem, snapshot } from './state.mjs'
 import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
@@ -114,7 +115,8 @@ export function servesRung (skill, args, task, wanted) {
   // A DETOUR IS JUDGED BY ITS OWN WANTS (Claude review: the route check ran first, so `gather dirt` on a
   // stockpile_wood+prereq detour read as not serving).
   const detour = /\+prereq$/.test(String(task.id ?? ''))
-  const route = detour ? null : ROUTE[base] ?? (/^(survey|travel)_/.test(base) ? MOVE : null)
+  // idlework-01: the idle rung's scout lap is a walk (MOVE); its work laps are judged by their wants below
+  const route = detour ? null : base === 'idle_work' ? (IDLE.state?.kind === 'scout' ? MOVE : null) : ROUTE[base] ?? (/^(survey|travel)_/.test(base) ? MOVE : null)
   if (route) return !!route(skill, args)
   if (!(wanted instanceof Set) || !wanted.size) return false
   let out = null
@@ -777,6 +779,77 @@ export const stockpileTarget = (base, step, n, max = STOCKPILE_MAX) =>
 // the town deposit keeps -- so a deposit down to it never re-opens this rung. Stone keeps STOCKPILE_MAX.
 export const woodStockpileTarget = n => stockpileTarget(8, 4, n, WOOD_KEEP)
 
+/**
+ * IDLEWORK-01: THE IDLE RUNG (idlework.mjs). One bounded batch of productive work per lap -- iron, logs or coal, GAINED since the
+ * rung opened -- or, one lap in eight, the old 80-block scout. Its kind is fixed when the lap's batch opens (idlePick over the
+ * chain's cycle, the bot's means and the kinds barred by an earlier skip). `noBar`: a skip bars the KIND (onSkip), never the
+ * rung, so the next lap asks for the next kind; `reopens`: an exhausted chain re-enters for it, as it did for the patrol, unless
+ * every kind is barred ('none': vacuously done, nothing re-opens). IDLEWORK=0: vacuously done, never re-opens -- the patrol rung
+ * below is exactly as before.
+ */
+const IDLE = { state: null, barred: new Map(), metAt: null }
+/** Tests only: forget the batch and the bars. */
+export function _idleReset () { IDLE.state = null; IDLE.barred = new Map(); IDLE.metAt = null }
+export const _idleState = () => ({ state: IDLE.state, barred: new Map(IDLE.barred) })
+const homeDist = b => b.entity.position.distanceTo({ x: config.world.homeX, y: b.entity.position.y, z: config.world.homeZ })
+/** The bot's means for each work kind -> { iron, logs, coal }. iron: a stone-or-better pickaxe that can pay a trip; coal: any
+ *  usable pickaxe; logs: always (a hand cuts a log). */
+export function idleMeans (b) {
+  const items = b?.inventory?.items?.() ?? []
+  const pick = items.some(it => /_pickaxe$/.test(it?.name ?? '') && usesLeft(it) >= 2)
+  return { iron: hasTripPickaxe(items), logs: true, coal: pick }
+}
+const bagCountsOf = b => { const c = {}; for (const it of b?.inventory?.items?.() ?? []) if (it?.name) c[it.name] = (c[it.name] ?? 0) + (Number(it.count) || 0); return c }
+const idleNeed = () => IDLE_NEEDS[IDLE.state?.kind] ?? null
+function idleRow (phase, extra = {}) {
+  try {
+    const st = IDLE.state
+    logEvent({ kind: 'idlework', status: phase === 'skip' ? 'failed' : 'success',
+      args: { phase, kind: st?.kind ?? null, cycle: st?.cycle ?? null, gained: st?.gained ?? 0, n: idleNeed()?.n ?? null, ...extra },
+      detail: `idle_work ${phase}: ${st?.kind ?? '?'} ${st?.gained ?? 0}/${idleNeed()?.n ?? (st?.kind === 'scout' ? SCOUT_DIST + ' blocks out' : '-')}${extra.reason ? ', ' + extra.reason : ''}` })
+  } catch { /* telemetry never breaks the ladder */ }
+}
+/** Advance the lap's batch for `cycle` on bot `b` -> the state. Opens (and rows) a new batch on a new cycle. */
+function idleAdvance (b, cycle) {
+  const open = !IDLE.state || IDLE.state.cycle !== cycle
+  const kind = open ? idlePick(cycle, { means: idleMeans(b), barred: IDLE.barred }) : IDLE.state.kind
+  const need = IDLE_NEEDS[kind]
+  IDLE.state = idleStep(IDLE.state, cycle, kind, need ? countOf(bagCountsOf(b), need.count) : 0)
+  if (open) { IDLE.metAt = null; idleRow('open') }
+  return IDLE.state
+}
+const idleDone = (b, cycle) => {
+  if (!idleWorkOn()) return true
+  const st = idleAdvance(b, cycle ?? 0)
+  let dist = 0
+  try { dist = homeDist(b) } catch { dist = 0 }
+  const met = idleMet(st, { dist })
+  if (met && IDLE.metAt == null && st.kind !== 'none') { IDLE.metAt = Date.now(); idleRow('met') }
+  return met
+}
+const IDLE_RUNG = {
+  id: 'idle_work',
+  noBar: true,
+  get wants () { return idleWorkOn() ? idleNeed()?.wants ?? null : null },
+  get wantsAny () { return idleWorkOn() ? (idleNeed()?.wantsAny ?? null) : null },
+  get hint () {
+    if (IDLE.state?.kind === 'scout') return 'goto somewhere 80+ blocks from home, staying inside the border.'
+    return idleNeed()?.hint ?? 'nothing to do here.'
+  },
+  describe: () => (IDLE.state?.kind === 'scout' ? 'Scout terrain away from home and come back.' : idleNeed()?.describe ?? 'Nothing to do.'),
+  progress: b => {
+    const st = IDLE.state
+    if (st?.kind === 'scout') { let d = 0; try { d = Math.round(homeDist(b)) } catch { d = 0 } return `${d}/${SCOUT_DIST} blocks out` }
+    return `${st?.gained ?? 0}/${idleNeed()?.n ?? 0} ${idleNeed()?.label ?? ''} gathered this trip`
+  },
+  done: (b, cycle) => idleDone(b, cycle),
+  // a genuine batch: on, a work or scout kind, and met (the step-over when off or 'none' is not a completion)
+  fulfilled: (b, cycle) => idleWorkOn() && IDLE.state?.cycle === (cycle ?? 0) && IDLE.state.kind !== 'none' && idleDone(b, cycle),
+  // does an exhausted chain re-enter for the next lap? (as it did for the patrol, unless nothing is left to ask)
+  reopens: (b, cycle) => idleWorkOn() && idlePick((cycle ?? 0) + 1, { means: idleMeans(b), barred: IDLE.barred }) !== 'none',
+  onSkip: (reason) => { idleRow('skip', { reason }); IDLE.barred = idleBar(IDLE.barred, IDLE.state?.kind) },
+}
+
 export const SUSTAINING = [
   {
     // WOOD IS WOOD. This counted `oak_log` alone while the fleet held 2,966 oak
@@ -816,10 +889,14 @@ export const SUSTAINING = [
     progress: (b, n) => `${countAny(b, COBBLE)}/${stockpileTarget(16, 8, n)} stone-type blocks`,
     hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',
   },
+  IDLE_RUNG,
   {
     id: 'patrol',
     describe: () => 'Scout terrain away from home and come back.',
-    done: b => b.entity.position.distanceTo(
+    // idlework-01: with IDLEWORK on the idle rung above holds the scouting lap (one in eight), so this is stepped over; its
+    // `fulfilled` is the distance alone, so the step-over is never a completion that resets a give-up
+    fulfilled: b => homeDist(b) > 80,
+    done: b => idleWorkOn() || b.entity.position.distanceTo(
       { x: config.world.homeX, y: b.entity.position.y, z: config.world.homeZ }) > 80,
     progress: b => `${Math.round(b.entity.position.distanceTo(
       { x: config.world.homeX, y: b.entity.position.y, z: config.world.homeZ }))}/80 blocks out`,
@@ -864,7 +941,8 @@ export const SUSTAINING = [
           depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, blk.position),
         maxDistance: 48,
       })
-      return !chest
+      // idlework-01: nothing the deposit would move (admission's own plan, depositPlan) is nothing to bank here either
+      return depositSurplusMet({ chest: !!chest, planEmpty: () => !depositPlan(b.inventory?.items?.() ?? []).length })
     },
     progress: b => `${bankableInventory(b.inventory?.items?.() ?? []).count} bankable items carried`,
     hint: 'deposit — you are at the chest already; keep your tools and enough blocks to climb out.',
@@ -880,6 +958,28 @@ export const SUSTAINING = [
   },
 ]
 
+/**
+ * IDLEWORK-01 r0 (Codex fleet audit 11-06): `deposit_surplus` sat BEFORE `return`, though its own note says "Placed AFTER
+ * `return` on purpose: the bot is already home by then" -- 80 blocks out it is vacuously done (no chest within 48), so the lap
+ * never banked. With IDLEWORK_RETURNFIRST on (default) `return` comes first. =0 is the rollback (the old order). Pure.
+ */
+export const returnFirstOn = (env = process.env) => String(env?.IDLEWORK_RETURNFIRST ?? '1').trim() !== '0'
+/** deposit_surplus at its last step (surplus counted, the bank open): met with no chest in reach, or -- return-first on -- when
+ *  the deposit's own plan would move nothing (admission refuses that deposit as deposit_nothing_to_bank). Pure. */
+export function depositSurplusMet ({ chest = false, planEmpty = () => false, returnFirst = returnFirstOn() } = {}) {
+  if (!chest) return true
+  return !!(returnFirst && planEmpty())
+}
+export function sustainingOrder (list, returnFirst = returnFirstOn()) {
+  if (!returnFirst) return list
+  const r = list.findIndex(m => m.id === 'return'), d = list.findIndex(m => m.id === 'deposit_surplus')
+  if (r < 0 || d < 0 || r < d) return list
+  const out = list.filter(m => m.id !== 'return')
+  out.splice(out.findIndex(m => m.id === 'deposit_surplus'), 0, list[r])
+  return out
+}
+const SUSTAINING_RUN = sustainingOrder(SUSTAINING)
+
 export class MilestoneController {
   constructor(bot, role = config.bot.role, lessons = null, worldFacts = null) {
     this.bot = bot
@@ -889,7 +989,7 @@ export class MilestoneController {
     // nothing to switch TO: current() returned null off the end of the fixed
     // chain and the bot idled with "Nothing to do" permanently. All five bots
     // reached that state. Appending it is what those messages always meant.
-    this.chain = [...(MILESTONES_BY_ROLE[role] ?? MILESTONES_BY_ROLE.scout), ...SUSTAINING]
+    this.chain = [...(MILESTONES_BY_ROLE[role] ?? MILESTONES_BY_ROLE.scout), ...SUSTAINING_RUN]
     this.role = MILESTONES_BY_ROLE[role] ? role : 'scout'
     this.index = 0
     this.completedAt = {}
@@ -1014,7 +1114,9 @@ export class MilestoneController {
 
   #skip(m, reason, budget) {
     this.#trackEvent(m, 'skip', { reason })
-    if (!this.skipped.includes(m.id)) this.skipped.push(m.id)
+    // idlework-01: a `noBar` rung bars what IT chose (onSkip), never itself: the next lap asks it again
+    if (m.noBar) { try { m.onSkip?.(reason) } catch { /* the bar is best effort */ } }
+    else if (!this.skipped.includes(m.id)) this.skipped.push(m.id)
     this.skippedAt[m.id] = Date.now()
     this.skipCount[m.id] = (this.skipCount[m.id] ?? 0) + 1
     this.lastSkip = { id: m.id, reason, budget, skipCount: this.skipCount[m.id] }
@@ -1051,6 +1153,8 @@ export class MilestoneController {
     if (this.index >= this.chain.length) {
       const outstanding = this.chain.some(m => {
         if (this.skipped.includes(m.id)) return false
+        // idlework-01: the idle rung re-opens the lap by its own rule (its batch is per lap, so "done" here says nothing of the next)
+        if (typeof m.reopens === 'function') { try { if (m.reopens(this.bot, this.cycle ?? 0)) return true } catch { /* no */ } return false }
         try { return !m.done(this.bot, this.cycle ?? 0, this.worldFacts, this.completions[m.id] ?? 0) } catch { return false }
       })
       if (outstanding) {
