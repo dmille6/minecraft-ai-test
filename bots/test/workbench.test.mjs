@@ -101,10 +101,12 @@ await t('WIRED: mats candidates, smelt_town, the order\'s crafts and the craft t
   assert.ok(/return preferWorkshop\(near, f => f\.k, bot\.shopStations\?\.furnaces\)/.test(SK), 'matsFurnaceCandidates')
   assert.ok(/prefer: preferredNow\(bot\.shopStations\?\.furnaces, bot\.wsFurnaceSkip, Date\.now\(\)\), by: 'smelt_town'/.test(SK), 'smelt_town passes the preference less its skips')
   assert.ok(/if \(skipAfterRun\(\{ kind: f\.ws, status: r\.status, prior: /.test(SK) && /bot\.wsFurnaceSkip = \{ \.\.\.\(bot\.wsFurnaceSkip \?\? \{\}\), \[r\.furnace\]: Date\.now\(\) \+ WORKSHOP_SKIP_MS \}/.test(SK), 'a failed run skips it')
-  assert.ok(/pickLeasedFurnace\(bot, \{ avoid: session\.opts\?\.avoid \?\? \(\(\) => false\), prefer: session\.opts\?\.prefer \?\? null \}\)/.test(SK), 'smelt hands it to the pick')
+  // stations-01: the caller's preference first, then the town's own in town (or the furnace this call just put down)
+  assert.ok(/pickLeasedFurnace\(bot, \{ avoid: session\.opts\?\.avoid \?\? \(\(\) => false\), prefer: only \?\? session\.opts\?\.prefer \?\? townPrefer,/.test(SK), 'smelt hands it to the pick')
   assert.ok(/const cw = \{ \.\.\.ctx, preferWorkshop: true, stations: \{\} \}/.test(SK) && /f\.made = await matsCrafts\(cw, kind/.test(SK), 'the order\'s crafts')
-  assert.ok(/distanceTo\(b\.position\) <= WORKSHOP_REACH\) : \[\]/.test(SK), 'the workshop table looked up within WORKSHOP_REACH')
-  assert.ok(/const wsTables = ctx\.preferWorkshop \?/.test(SK) && /const tableTries = preferWorkshop\(\[\.\.\.wsTables, \.\.\.nearTables\]\.filter\(Boolean\)/.test(SK), 'craftLevel orders its tables')
+  // stations-01: the order's crafts keep WORKSHOP_REACH; in-town crafts use the town's tables within STN.reach
+  assert.ok(/const prefR = ctx\.preferWorkshop \? WORKSHOP_REACH : STN\.reach/.test(SK) && /distanceTo\(b\.position\) <= prefR\) : \[\]/.test(SK), 'the workshop table looked up within WORKSHOP_REACH')
+  assert.ok(/const prefT = ctx\.preferWorkshop \? bot\.shopStations\?\.tables :/.test(SK) && /const tableTries = preferWorkshop\(\[\.\.\.wsTables, \.\.\.nearTables\]\.filter\(Boolean\), b => posKey\(b\.position\), prefT\)/.test(SK), 'craftLevel orders its tables')
   assert.ok(/if \(tableBlock !== tableTries\.at\(-1\) && bot\.entity\.position\.distanceTo\(tableBlock\.position\.offset\(0\.5, 0\.5, 0\.5\)\) > STATION_REACH\) continue/.test(SK), 'unreachable -> the nearest')
   // house-01: the WORKSHOP's record (projectsOn()[0], plot shop), not the active project's
   assert.ok(/bot\.shopStations = workshopStations\(hs\[0\]\?\.head\?\.rec \?\? null\)/.test(SK), 'refreshed with the workshop record')
