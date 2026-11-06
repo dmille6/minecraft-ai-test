@@ -241,9 +241,11 @@ export function standingTree (read, x, z, ground, { max = FOREST.trunkMax * 3, t
 }
 /** A SITE TREE's felling stand -> [x, y, z] feet | null: an orthogonal neighbour column whose ground is within 1 of the trunk's,
  *  feet and head open (air, a plant, or leaves -- dug first), from which every log is within standReaches. Pure. */
-export function siteTreeStand (read, tree, col) {
+export function siteTreeStand (read, tree, col, free = () => true) {
   const [bx, by, bz] = tree.base
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    // forest-02 release fold (Codex r2 BLOCKER): a stand never on a reserved column (a marker's margin outside the checked box)
+    if (!free(bx + dx, bz + dz)) continue
     const c = col(bx + dx, bz + dz)
     if (!c || c.why || c.y == null || Math.abs(c.y + 1 - by) > 1) continue
     const feet = [bx + dx, c.y + 1, bz + dz]
@@ -327,7 +329,7 @@ export function forestFitAt (read, { x0, z0, perRow, strips, home, col, blocked,
     for (const p of t.logs) seen.add(p.join(','))
     if (t.big || !t.straight) return { ok: false, why: 'tree_big' }
     if (t.logs.some(p => p[0] < box[0] || p[0] > box[2] || p[2] < box[1] || p[2] > box[3])) return { ok: false, why: 'tree_edge' }
-    const stand = siteTreeStand(read, t, col)
+    const stand = siteTreeStand(read, t, col, (x, z) => !(typeof blocked === 'function' && blocked(x, z)))
     if (!stand) return { ok: false, why: 'tree_tall' }
     trees.push({ base: t.base, logs: t.logs, stand, name: nm(read(...t.base)) })
     logs += t.logs.length

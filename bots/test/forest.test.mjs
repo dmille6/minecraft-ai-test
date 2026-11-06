@@ -659,5 +659,24 @@ await t('forest-02 release fold (Codex BLOCKER): an expedition marker\'s reserve
   assert.ok(!wired(strip(raw.replace(old, 'pzones: recordZones(records), whys: true }),\n    rings: wallRings(records)'))), 'MUTANT: the markers cut is caught')
 })
 
+await t('forest-02 release fold (Codex r2 BLOCKER): a site tree\'s stand is never on a reserved column -- with its east column a marker margin the stand is another side; all four reserved -> no stand (POSITIVE CONTROL: unfiltered, the east column)', async () => {
+  const srv = server()
+  const base = [10, G + 1, 0]
+  for (let y = G + 1; y <= G + 4; y++) srv.set([10, y, 0], 'oak_log')
+  const tree = { base, logs: [1, 2, 3, 4].map(i => [10, G + i, 0]) }
+  const col = (x, z) => ({ y: G })
+  const free = F.siteTreeStand(srv.read, tree, col)
+  assert.ok(free && free[0] === 11 && free[2] === 0, 'unfiltered: the first side, east: ' + JSON.stringify(free))
+  const s = F.siteTreeStand(srv.read, tree, col, (x, z) => !(x === 11 && z === 0))
+  assert.ok(s && !(s[0] === 11 && s[2] === 0), 'the reserved east column refused: ' + JSON.stringify(s))
+  assert.strictEqual(F.siteTreeStand(srv.read, tree, col, () => false), null, 'every side reserved: no stand')
+  const old = '    if (!free(bx + dx, bz + dz)) continue\n'
+  const src = readFileSync(new URL('../src/forest.mjs', import.meta.url), 'utf8')
+  assert.strictEqual(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  const out = new URL(`./_mutant-${process.pid}-sts.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, '').replace(/from '\.\//g, "from '../src/"))
+  try { const M = await import(out.href); const m = M.siteTreeStand(srv.read, tree, col, () => false); assert.ok(m, 'MUTANT: the filter cut -> a stand on a reserved column') } finally { try { unlinkSync(out) } catch {} }
+})
+
 console.log(`\nforest: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
