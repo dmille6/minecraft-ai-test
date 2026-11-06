@@ -54,6 +54,10 @@ const REQUIRED = [
   'infra/showcase/visuals/make_skins.py',
   'infra/showcase/visuals/apply-skins.sh',
   'infra/showcase/visuals/restart-sr.sh',
+  'infra/showcase/visuals/enable-sr.sh',
+  'infra/showcase/visuals/rollback-sr-q.sh',
+  'infra/showcase/visuals/livewatch.sh',
+  'infra/showcase/visuals/skinprobe.mjs',
   'bots/test/wholemap.test.mjs',
   // B5 (10-31): the cooperation tier's role leases (bot side), the host assigner, the spend guard + caller, the Paper arms
   'bots/src/roles.mjs',
