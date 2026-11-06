@@ -184,8 +184,18 @@ await t('the collar walk that does not arrive: null, why=approach, and the landi
   assert.match(rowsOf('shaft_use').at(-1).skill.detail, /why=approach/)
   assert.ok(!(b.stairFails?.get(16) > 0))
 })
+await t('after a failed approach this bot waits 2 min before the next collar walk (no 90 s walk every mine call); the landing stays open', async () => {
+  const b = fakeBot(worldOf(), { moves: false })
+  assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
+  const n = b.walks.length
+  assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
+  assert.strictEqual(b.walks.length, n, 'no second walk inside the wait')
+  b.stairApproachFail = Date.now() - 2 * 60_000 - 1
+  await K.stairDescend(ctx(b), 16, null)
+  assert.ok(b.walks.length > n, 'asked again after it')
+})
 await t('MUTANT KILLED: an approach failure backs the landing off again (as the base did for every walk)', async () => {
-  await withSkillsMutant("    if (r?.why !== 'approach') bot.stairFails.set(feet, Date.now())", '    bot.stairFails.set(feet, Date.now())', async M => {
+  await withSkillsMutant("    if (r?.why !== 'approach') bot.stairFails.set(feet, Date.now()); else bot.stairApproachFail = Date.now()", '    bot.stairFails.set(feet, Date.now())', async M => {
     const b = fakeBot(worldOf(), { moves: false })
     assert.strictEqual(await M.stairDescend(ctx(b), 16, null), null)
     assert.ok(b.stairFails.get(16) > 0, 'the mutant backs it off')

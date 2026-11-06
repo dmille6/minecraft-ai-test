@@ -133,6 +133,14 @@ await t('a liquid or a missing tread in the next step stops it (never stepped in
   const w3 = world(); w3.set(PLAN.steps[13].tread, 'air')
   assert.deepStrictEqual(G.descentNext(w3.read, PLAN, 10, 40), { op: 'hop', to: 12 })
 })
+await t('a container, a station or a bed in the next step\'s air is never dug: `container` (Claude r1 note 4)', () => {
+  for (const n of ['chest', 'crafting_table', 'furnace', 'red_bed']) {
+    const w = world(); w.set(PLAN.steps[11].air[0], n)
+    assert.deepStrictEqual([G.descentNext(w.read, PLAN, 10, 40).op, G.descentNext(w.read, PLAN, 10, 40).why], ['stop', 'container'], n)
+  }
+  const w = world(); w.set(PLAN.steps[11].air[0], 'dirt')
+  assert.strictEqual(G.descentNext(w.read, PLAN, 10, 40).op, 'dig', 'CONTROL: dirt is dug')
+})
 await t('the barrier rule (the egress\'s): dirt holding back lava or water beside it is never dug', () => {
   for (const liquid of ['lava', 'water']) {
     const w = world()
@@ -244,6 +252,17 @@ await t('a deep repair (a missing tread at step 45): the long walk fails, the wa
   assert.deepStrictEqual(v.st.descends, [44])
   assert.ok(v.st.places.some(c => c.join() === PLAN.steps[45].tread.join()))
   assert.strictEqual(w.name(...PLAN.steps[45].tread), 'stone')
+})
+await t('the way down keeps the egress reserve: after it, a unit with no time left for the way out is not started (`time`)', async () => {
+  const w = world(); w.set(PLAN.steps[45].tread, 'air')
+  let now = 0
+  const v = visitBody(w, EXIT)
+  v.e.now = () => now
+  const d0 = v.e.descend
+  v.e.descend = async k => { const r = await d0(k); now = 50_000; return r }   // the way down took 50 s
+  const r = await runStairVisit(visitP(), v.e, { deadline: 60_000, reserve: G.egressReserveMs })
+  assert.deepStrictEqual([r.stop, r.why], ['time', 'the way out is kept'])
+  assert.strictEqual(v.st.places.length, 0, 'nothing started')
 })
 await t('CONTROL: without e.descend (STAIRUSE=off) the same visit ends `walk_failed` (the LIVE 1,001)', async () => {
   const w = world(); w.set(PLAN.steps[45].tread, 'air')
