@@ -86,6 +86,8 @@ const REQUIRED = [
   'bots/src/treefarm.mjs',
   'bots/scripts/treefarm-offline.mjs',
   'bots/test/treefarm.test.mjs',
+  'bots/src/handcap.mjs',  // handcap-01 (11-06): a shaft cap the bare hand breaks is a climb, not a pickaxe ask
+  'bots/test/handcap.test.mjs',
   // voidfill-01 (10-30): a sealed void in a project record repaired from inside; its test reproduces the showcase ziggurat's
   // own geometry from the fixture (the record's cells and a read-only scan of the world)
   'bots/src/voidfill.mjs',
