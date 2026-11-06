@@ -103,6 +103,11 @@ const REQUIRED = [
   'bots/test/treefarm.test.mjs',
   'bots/src/handcap.mjs',  // handcap-01 (11-06): a shaft cap the bare hand breaks is a climb, not a pickaxe ask
   'bots/test/handcap.test.mjs',
+  'bots/src/escdead.mjs',  // escdead-01 (11-06): the wide swim, the flood-in breach, the pin clock (phase 2.3)
+  'bots/test/escdead.test.mjs',
+  'bots/test/fixtures/escdead-isolated-d-358_58_180-1106.json',
+  'bots/test/fixtures/escdead-hive-c-124_52_64-1106.json',
+  'docs/reports/escdead-design-2026-11-06.md',
   'bots/test/copperrun02-fleet.test.mjs',  // copperrun-02's protected part on the fleet (inert there: no copper hall)
   // voidfill-01 (10-30): a sealed void in a project record repaired from inside; its test reproduces the showcase ziggurat's
   // own geometry from the fixture (the record's cells and a read-only scan of the world)

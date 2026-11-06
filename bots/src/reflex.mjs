@@ -11,6 +11,7 @@
 import { haltPath } from './pathhalt.mjs'
 import { activeReflexOf } from './pickuplog.mjs'   // telemetry only: names the arm for the pickup log
 import { applyToolPolicy, emptyHand, freeSlots, pickScaffold, scaffoldRank, tossAverted, TOOL_HYGIENE, remaining, HARD_STOP, toolFor } from './toolfor.mjs'
+import { usablePickaxes, ESCDEAD_ON } from './toolfor.mjs'   // escdead-01 (b): the one usable-pickaxe rule
 import { AIR_SCALE, outOfScale } from './oxygen.mjs'
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
@@ -71,6 +72,7 @@ import { makeDangerMover } from './lavastepmove.mjs'
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, plugSamePlace, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
          PLUG_BUDGET_MS, PLUG_SETTLE_MS, PLUG_STEP_RETRIES, PLUG_SURFACE_MS, isUtilityBlock } from './plugcut.mjs'
 import { swimUnderOn, swimUnderPlan, swimUnderAdmit, swimUnder, swimUnderBackoffMs, swimNoPlanBackoffMs, swimUnderRowDetail, startCells } from './swimunder.mjs'
+import { escDeadOn, pinStep, pinnedFor, pinMinMs, swimSearchFor, breachPlan, breachAdmit, floodBreach, breachBackoffMs, breachRowDetail, BREACH_DIG_MS } from './escdead.mjs'   // escdead-01
 import { configuredHome } from './townground.mjs'
 import { tripHoldsBody } from './deepmine.mjs'   // deepminer-01: an open deep trip owns the body between its calls
 // ceilescape-01: a ramp swing that cannot finish is never started (ceilescape.mjs decides; escapeStairUp executes)
@@ -1861,18 +1863,22 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     if (!isWaterCell(at(o.x, o.y, o.z))) return null
     if (poolEscaping || swimmingUnder || strandedRunning > 0) return null
     if (!ownsBody(grantOf)() || airPocketWanted() || drowningOwnsBody()) return null
-    const key = poolSpotKey(p), st = swimSpots.get(key)
+    const key = poolSpotKey(p)
+    // escdead-01 (a): on a pin of 30 min or more the search widens (radius 8, descent 4; the breath bound unchanged). A
+    // no-plan back-off earned by the NARROW search is not a fact about the wide one (Codex design): it does not hold it.
+    const wide = swimSearchFor(pinnedMsOf(bot))
+    const st0 = swimSpots.get(key), st = st0 && (!wide.radius || st0.wide) ? st0 : null
     if (st && Date.now() < st.until) return null
-    const plan = swimUnderPlan({ at, start: [o.x, o.y, o.z] })
+    const plan = swimUnderPlan({ at, start: [o.x, o.y, o.z], ...wide })
     const eye = at(Math.floor(p.x), Math.floor(p.y + 1.62), Math.floor(p.z))
     const adm = swimUnderAdmit({ plan, oxygen: bot.oxygenLevel, health: bot.health, headAir: !!eye && !isWaterCell(eye) && eye.boundingBox !== 'block' })
     if (!adm.ok) {
       // no way out within reach is a fact of this place: back off like a failed firing. Air or health is a wait, not a fact.
       const tries = (st?.failures ?? 0) + (plan.ok ? 0 : 1)
-      if (!plan.ok) swimSpots.set(key, { failures: plan.unloaded > 0 ? (st?.failures ?? 0) : tries, until: Date.now() + swimNoPlanBackoffMs(tries, plan) })
+      if (!plan.ok) swimSpots.set(key, { failures: plan.unloaded > 0 ? (st?.failures ?? 0) : tries, until: Date.now() + swimNoPlanBackoffMs(tries, plan), wide: !!wide.radius })
       if (!plan.ok || throttled('swim_under_wait', 60_000)) {
         logEvent({ kind: 'swim_under_refused', status: 'no_effect', snapshot: snapshot(bot),
-                   detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} -- ${adm.why} | ${startCells(at, [o.x, o.y, o.z])}` })
+                   detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} wide=${wide.radius ? 1 : 0} -- ${adm.why} | ${startCells(at, [o.x, o.y, o.z])}` })
       }
       return null
     }
@@ -1893,7 +1899,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const held = runner?.activeReservation?.() ?? null
       if (held && held.owner !== 'swimunder') return null
       logEvent({ kind: 'swim_under_start', status: 'success', snapshot: snapshot(bot),
-                 detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} exit=${plan.exit} cells=${plan.route.length} ` +
+                 detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} exit=${plan.exit} cells=${plan.route.length} wide=${wide.radius ? 1 : 0} ` +
                          `wet=${plan.wet} run=${plan.wetRun} air=${bot.oxygenLevel} hp=${bot.health} via ${plan.route.map(c => c.join(',')).join(' ')}` })
       renew()
       keep = setInterval(renew, 5_000)
@@ -1911,11 +1917,102 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     }
     if (res.outcome === 'out') swimSpots.delete(key)
     else if (res.outcome !== 'yielded') {
-      swimSpots.set(key, { failures: tries, until: Date.now() + swimUnderBackoffMs(tries) })
+      swimSpots.set(key, { failures: tries, until: Date.now() + swimUnderBackoffMs(tries), wide: !!wide.radius })
       if (swimSpots.size > 32) swimSpots.delete(swimSpots.keys().next().value)
     }
     logEvent({ kind: 'swim_under', status: res.outcome === 'out' ? 'success' : res.outcome === 'yielded' ? 'no_effect' : 'failed',
                snapshot: snapshot(bot), detail: `hook=${hook} ${swimUnderRowDetail(res)}` })
+    return res
+  }
+  // ESCDEAD-01 (a): THE FLOOD-IN BREACH (escdead.mjs). After the flood refusal and a swim-under that did not get out, a body
+  // pinned 30 min or more with its head in air, full air and health >= 18 breaks its roof when the water over the roof is
+  // OPEN TO AIR within 10 cells, and swims straight up. Water is terrain (owner). Same ownership as swimUnderTry: the float
+  // hold, the stranded ladder and the in-wall exit stand aside while it steers; the drowning rescue pre-empts every tick (the
+  // pocket floods once the roof is open, so the rescue is the backstop, not a turn back). A roof whose water is closed above
+  // (dirt over one water cell, 358,58,180) is refused with the reason: the flood guard's trade, unchanged.
+  let breaching = false
+  const breachSpots = new Map()
+  const floodBreachTry = async (hook, grantOf) => {
+    if (!escDeadOn()) return null
+    const p = bot.entity?.position
+    if (!p) return null
+    const o = p.floored()
+    if (poolEscaping || swimmingUnder || breaching || strandedRunning > 0) return null
+    if (!ownsBody(grantOf)() || airPocketWanted() || drowningOwnsBody()) return null
+    const key = poolSpotKey(p), st = breachSpots.get(key)
+    if (st && Date.now() < st.until) return null
+    const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+    const plan = breachPlan({ at, feet: [o.x, o.y, o.z] })
+    const eye = at(Math.floor(p.x), Math.floor(p.y + 1.62), Math.floor(p.z))
+    const pinnedMs = pinnedMsOf(bot)
+    // another body in the pocket (any player within 2 cells horizontally and vertically of the feet cell)
+    let others = 0
+    try {
+      for (const e of Object.values(bot.entities ?? {})) {
+        if (!e || e === bot.entity || e.type !== 'player' || !e.position) continue
+        if (Math.abs(e.position.x - p.x) <= 2.5 && Math.abs(e.position.z - p.z) <= 2.5 && Math.abs(e.position.y - p.y) <= 2.5) others++
+      }
+    } catch { /* no entity table: none known */ }
+    const adm = breachAdmit({ plan, pinnedMs, oxygen: bot.oxygenLevel, health: bot.health, others,
+                              headAir: !!eye && !isWaterCell(eye) && eye.boundingBox !== 'block' })
+    if (adm.ok && plan.roof) {
+      const roof = at(...plan.roof)
+      if (roof && !guardMay(bot, roof)) { adm.ok = false; adm.why = `the roof ${roof.name} is guarded (a build record or a protected structure)` }
+    }
+    if (!adm.ok) {
+      if (throttled(`flood_breach_refused:${key}`, 10 * 60_000)) {
+        logEvent({ kind: 'flood_breach_refused', status: 'no_effect', snapshot: snapshot(bot),
+                   detail: `hook=${hook} at=${o.x},${o.y},${o.z} pinned_min=${Math.round(pinnedMs / 60_000)} -- ${adm.why}` })
+      }
+      // a roof that can never be breached is a fact of this place: back off like a failed firing (a short pin is a wait)
+      if (!plan.ok) breachSpots.set(key, { failures: st?.failures ?? 0, until: Date.now() + 10 * 60_000 })
+      return null
+    }
+    breaching = true
+    steerRamp(true)
+    let resv = null
+    const renew = () => {
+      try {
+        if (typeof runner?.reserve !== 'function') return
+        const cur = runner.activeReservation?.() ?? null
+        if (cur && !(resv && cur.gen === resv.gen)) return
+        resv = runner.reserve('floodbreach', 20_000, 'floodbreach')
+      } catch {}
+    }
+    const tries = (st?.failures ?? 0) + 1
+    let res, keep = null
+    try {
+      const held = runner?.activeReservation?.() ?? null
+      if (held && held.owner !== 'floodbreach') return null
+      logEvent({ kind: 'flood_breach_start', status: 'success', snapshot: snapshot(bot),
+                 detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} roof=${plan.roof.join(',')}:${at(...plan.roof)?.name ?? '?'} ` +
+                         `water=${plan.water} top=${plan.top.join(',')} pinned_min=${Math.round(pinnedMs / 60_000)} air=${bot.oxygenLevel} hp=${bot.health}` })
+      renew()
+      keep = setInterval(renew, 5_000)
+      for (let w = 0; w < 30 && runner?.current; w++) await sleep(100)
+      try { bot.pathfinder?.setGoal?.(null) } catch {}
+      const dig = async (block) => {
+        const tool = bestTool(bot, block)   // pinned: the one rule's last swing; the hand when it is the cheapest
+        if (tool) await bot.equip(tool, 'hand').catch(() => {})
+        await digBounded(bot, block, BREACH_DIG_MS)
+      }
+      res = await floodBreach(bot, { plan, dig, alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
+                                     yieldTo: () => drowningOwnsBody() || arbiterYield(grantOf), oxygen: () => bot.oxygenLevel, renew })
+    } catch (e) {
+      res = { outcome: 'failed', why: `threw: ${e.message}` }
+    } finally {
+      clearInterval(keep)
+      breaching = false
+      steerRamp(false)
+      try { if (resv) runner.releaseReservation(resv.gen) } catch {}
+    }
+    if (res.outcome === 'out') breachSpots.delete(key)
+    else if (res.outcome !== 'yielded') {
+      breachSpots.set(key, { failures: tries, until: Date.now() + breachBackoffMs(tries) })
+      if (breachSpots.size > 32) breachSpots.delete(breachSpots.keys().next().value)
+    }
+    logEvent({ kind: 'flood_breach', status: res.outcome === 'out' ? 'success' : res.outcome === 'yielded' ? 'no_effect' : 'failed',
+               snapshot: snapshot(bot), detail: `hook=${hook} ${breachRowDetail(res)}` })
     return res
   }
   let strandedSince = 0
@@ -1945,6 +2042,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // DANGER cell) run FIRST, before every early return below (Codex code r2 P2); it never throws
     try { lavastepMover?.tick() } catch { /* the mover's own guard */ }
     if (!bot.entity) return
+    try { pinTick(bot) } catch { /* escdead-01: the pin clock never breaks the tick */ }
 
     try {
       // THE AIR STATE + C3b, FIRST THING IN THE TICK (homefix-02 C3; before the release await below and every early
@@ -3426,6 +3524,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             if (!fb.progressed && !fb.preempted) {
               const so = await swimUnderTry('marooned', () => maroonGrant).catch(e => { log('warn', 'swim under failed', { err: e.message }); return null })
               if (so?.outcome === 'out') { floodRefusals = 0; lastMaroonCheck = Date.now() }
+              // escdead-01 (a): still pinned under a wet roof -> the flood-in breach (pinned 30 min, the water open to air)
+              else if (so?.outcome !== 'yielded') {
+                const bo = await floodBreachTry('marooned', () => maroonGrant).catch(e => { log('warn', 'flood breach failed', { err: e.message }); return null })
+                if (bo?.outcome === 'out') { floodRefusals = 0; lastMaroonCheck = Date.now() }
+              }
             }
           } else if (climbOutcomeRoute(pillarOutcome) === 'guarded') {
             // escapeguard-01: THE CEILING IS A BUILD RECORD OR A PROTECTED STRUCTURE. The same shape as the flood branch: the
@@ -3737,6 +3840,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             if (!fb.preempted && !fb.progressed) {
               const so = await swimUnderTry('entombed', () => entombedGrant).catch(e => { log('warn', 'swim under failed', { err: e.message }); return null })
               if (so?.outcome === 'out') { floodRefusals = 0; climbRefusals = 0; refusalPlaceStreak = 0; lastEscapeAt = Date.now() }
+              // escdead-01 (a): still pinned under a wet roof -> the flood-in breach (pinned 30 min, the water open to air)
+              else if (so?.outcome !== 'yielded') {
+                const bo = await floodBreachTry('entombed', () => entombedGrant).catch(e => { log('warn', 'flood breach failed', { err: e.message }); return null })
+                if (bo?.outcome === 'out') { floodRefusals = 0; climbRefusals = 0; refusalPlaceStreak = 0; lastEscapeAt = Date.now() }
+              }
             }
           }
           else if (climbOutcomeRoute(climbed) === 'guarded') {
@@ -4067,7 +4175,7 @@ export function canFinishClimb ({ have, need, headroomBlocked = false }) {
  * lags by a tick, and a tool that breaks one swing early is the entire failure
  * being prevented.
  */
-export function mayDigForEscape (items = [], block = null) {
+export function mayDigForEscape (items = [], block = null, { pinned = false, on = ESCDEAD_ON } = {}) {
   // ONLY WHAT ACTUALLY NEEDS A TOOL.
   //
   // The first version refused ALL escape digging without a spare pickaxe. But
@@ -4082,16 +4190,14 @@ export function mayDigForEscape (items = [], block = null) {
   // stone case is the one that ends escapes permanently.
   if (block && block.boundingBox === 'empty') return true
   if (block && SOFT_BLOCK.test(block.name)) return true
-  let usable = 0
-  for (const it of items) {
-    if (!it?.name || !/_pickaxe$/.test(it.name)) continue
-    // Unknown durability counts as FULL, not as spent. Assuming a tool is dead
-    // when the server does not report durability would refuse every escape --
-    // a different total outage, arriving through the safety guard.
-    const max = it.maxDurability
-    const left = max ? max - (it.durabilityUsed ?? 0) : Infinity
-    if (left > 1) usable += 1
-  }
+  // ESCDEAD-01 (b): A PINNED ESCAPE IS NOT BOUND BY THE RESERVE (toolfor.mjs usablePickaxes, the one rule). After 30 min in
+  // one 3-block box the last pickaxe is protecting a way out that is not being taken; the dig may spend it, last swing
+  // included (toolFor's pinned hard stop), and with no copy left the hand digs.
+  if (pinned && on) return true
+  // Unknown durability counts as FULL, not as spent (usablePickaxes: remaining() is Infinity). Assuming a tool is dead
+  // when the server does not report durability would refuse every escape -- a different total outage, arriving through
+  // the safety guard. A copy counts while it has more than HARD_STOP (1) use left.
+  const usable = usablePickaxes(items)
   // ZERO IS NOT ONE, AND THE RESERVE RULE DOES NOT REACH IT.
   //
   // This was `usable > 1`, so a bot with NO pickaxe was refused for the same
@@ -4119,8 +4225,28 @@ export function mayDigForEscape (items = [], block = null) {
 function bestTool(bot, block) {
   // The cheapest tool that does the job, never the fastest (iron-retention plan v3, 2026-09-15). The escape digs
   // were the second-largest iron sink after work itself; toolFor() applies the harvest table and the floor.
-  return applyToolPolicy(bot, block)
+  // escdead-01 (b): a PINNED body's escape dig may swing a pickaxe's last use (toolfor.mjs, the one rule)
+  return applyToolPolicy(bot, block, { pinned: pinnedNow(bot) })
 }
+
+/**
+ * ESCDEAD-01: THE PIN CLOCK, one per body (escdead.mjs pinStep: the body in one 3-block box). The reflex tick steps it; the
+ * escape digs (bestTool, mayDigForEscape, the pool rung's poolToolOk), the wide swim-under search and the flood-in breach
+ * read it. A new body (death, respawn, reconnect: a new bot.entity) starts a new clock.
+ */
+const pinClocks = new WeakMap()
+export function pinTick (bot, now = Date.now()) {
+  const e = bot?.entity
+  if (!e) return null
+  const prev = pinClocks.get(bot)
+  const st = pinStep(prev && prev.body === e ? prev.st : null, e.position, now)
+  pinClocks.set(bot, { body: e, st })
+  return st
+}
+/** How long this body has been pinned -> ms. */
+export const pinnedMsOf = (bot, now = Date.now()) => { const c = pinClocks.get(bot); return c && c.body === bot?.entity ? pinnedFor(c.st, now) : 0 }
+/** Is this body pinned long enough for the escdead exceptions -> boolean (false with ESCDEAD=0). */
+export const pinnedNow = (bot, now = Date.now()) => escDeadOn() && pinnedMsOf(bot, now) >= pinMinMs()
 
 function shaftCap(bot, maxClearance = 12) {
   const p = bot.entity.position
@@ -5873,7 +5999,7 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
   const planned = new Map()   // tool slot -> digs already spent this firing (poolToolOk is cumulative)
   const handFor = (b) => {
     let tool = toolFor(b, inv()).item ?? null
-    if (tool && !poolToolOk(tool, inv(), (planned.get(tool.slot) ?? 0) + 1)) tool = null
+    if (tool && !poolToolOk(tool, inv(), (planned.get(tool.slot) ?? 0) + 1, { pinned: pinnedNow(bot) })) tool = null
     const env = digEnv(bot)
     const plan = escapeDigPlan({
       bareHardnessMs: predictedDigMs(b, null), bareActualMs: predictedDigMs(b, null, env),
@@ -6995,7 +7121,7 @@ export async function digStraightUp(bot, startY, maxSteps = 20, { alive = () => 
   // cannot make this dig safe, so asking for one is the wrong remedy.
   if (blocking && blocking.name !== 'air' && upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK
   if (blocking && blocking.boundingBox === 'block' && !guardMay(bot, blocking)) return ESCAPE_GUARDED   // escapeguard-01
-  if (!mayDigForEscape(bot.inventory?.items?.() ?? [], blocking)) {
+  if (!mayDigForEscape(bot.inventory?.items?.() ?? [], blocking, { pinned: pinnedNow(bot) })) {
     logEvent({ kind: 'maroon_dig_refused', status: 'failed',
                detail: `will not dig out on the last pickaxe: ${blocking?.name ?? 'the ceiling'} ` +
                        'needs a tool, and breaking it here ends every future ' +

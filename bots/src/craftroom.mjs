@@ -14,7 +14,7 @@
 
 import { wearOutPlan, wearRank } from './hygiene.mjs'
 import { BAG_ALLOWANCE } from './bagallowance.mjs'   // junkout-01 (design 3 D): the hygiene plan the remedy reads
-import { TOOL_RE, tier, remaining } from './toolfor.mjs'
+import { TOOL_RE, tier, remaining, ESCDEAD_ON } from './toolfor.mjs'
 import { inPickupBox } from './pickupbox.mjs'
 import { isCobble } from './bankable.mjs'
 
@@ -268,15 +268,28 @@ export function craftArrived (beforeItems = [], afterItems = [], result = null) 
  * review round 2).
  */
 export const MIN_SURVIVOR_USES = 2
-export function craftRoomRemedy (items = [], item = '', { allowance = BAG_ALLOWANCE.on } = {}) {
+/**
+ * ESCDEAD-01 (b), the one usable-pickaxe rule (toolfor.mjs usablePickaxes): a copy at one use is worth one PINNED last swing
+ * and nothing else (no work dig and no unpinned escape swings it). So with escdead on, a 1-use copy may be worn out while
+ * ANOTHER pickaxe copy with at least one use stays: the pinned escape keeps its last swing, and the hand breaks every block
+ * an escape breaks (handcap-01, digbudget). hive-c-Bravo, 11-06: two iron_pickaxes at 249/250, 36/36 slots, 72 refusals
+ * "no spent tool that can be spared (the last digging pickaxe is kept)" while making planks for a new pickaxe.
+ * ESCDEAD=0: the base survivor (>= MIN_SURVIVOR_USES uses).
+ */
+export const survivorUses = (on = ESCDEAD_ON) => (on ? 1 : MIN_SURVIVOR_USES)
+export function craftRoomRemedy (items = [], item = '', { allowance = BAG_ALLOWANCE.on, escdead = ESCDEAD_ON } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
-  const survives = tool => list.some(it => it !== tool && /_pickaxe$/.test(it.name) && remaining(it) >= MIN_SURVIVOR_USES)
+  const min = survivorUses(escdead)
+  const survives = tool => list.some(it => it !== tool && /_pickaxe$/.test(it.name) && remaining(it) >= min)
   const planned = wearOutPlan(list, { allowance }).tools.find(t => !/_pickaxe$/.test(t.name) || survives(t))
   if (planned) return { tool: planned, why: 'spent' }
-  if (/_pickaxe$/.test(String(item))) {
+  // ESCDEAD-01 (b): with the one rule, EVERY craft may wear a 1-use pickaxe while another copy with a use stays ('spare'):
+  // the copies hygiene keeps for last-swing harvests are each worth one cobblestone, and a full bag that blocks the craft of
+  // the next pickaxe's planks (hive-c-Bravo) costs more than that. Without escdead: only a pickaxe craft ('replaced').
+  if (escdead || /_pickaxe$/.test(String(item))) {
     const spent = list.filter(it => /_pickaxe$/.test(it.name) && remaining(it) === 1 && survives(it))
       .sort((a, b) => tier(a.name) - tier(b.name))
-    if (spent.length) return { tool: spent[0], why: 'replaced' }
+    if (spent.length) return { tool: spent[0], why: /_pickaxe$/.test(String(item)) ? 'replaced' : 'spare' }
   }
   return null
 }
