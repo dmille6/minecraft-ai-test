@@ -24636,7 +24636,9 @@ function forestInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townD
   for (const [n, k] of Object.entries(heldMap(bot))) counts[n] = (Number(counts[n]) || 0) + k
   const native = Object.entries(stock).filter(([n]) => /_log$/.test(n)).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
   return {
-    blocked: farmBlocked({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records, pzones: recordZones(records), whys: true }),
+    // forest-02 release fold (Codex BLOCKER): the town's expedition markers (their reserved margin) are the forest siting's refusals too --
+    // the west site reaches markers the old siting never did (gkmarker-01's rule: a marker is never worked)
+    blocked: farmBlocked({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records, pzones: [...recordZones(records), ...townMarkerZones()], whys: true }),
     rings: wallRings(records), zone: land ? (x, z) => zoneAt(land, x, z) : null, species: pickSpecies(counts, native),
   }
 }

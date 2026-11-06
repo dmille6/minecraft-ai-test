@@ -643,5 +643,21 @@ await t('WIRED: the visit dispatched, the due upkeep read, the footprint priced,
   assert.ok(/p\.plot === TREEFARM_PLOT \? farm && paths && on && !forest :/.test(code(SHOP_PATH)), 'the in-wall farm leaves the order')
 })
 
+await t('forest-02 release fold (Codex BLOCKER): an expedition marker\'s reserved margin refuses the forest siting -- farmBlocked names it, forestInputs passes the town\'s markers (wiring, comments stripped; the cut is caught)', async () => {
+  const { farmBlocked } = await import('../src/treefarm.mjs')
+  const { markerZones } = await import('../src/expedition.mjs')
+  const zones = markerZones([{ at: [-92, 64, 20] }])
+  const b = farmBlocked({ pzones: zones, whys: true })
+  assert.strictEqual(b(-91, 20), 'expedition:marker', 'the margin column 1 off the marker')
+  assert.strictEqual(b(-89, 20), null, 'POSITIVE CONTROL: 3 off is free')
+  const strip = x => x.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/[ \t]\/\/ .*$/gm, '')
+  const raw = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const wired = src => { const i = src.indexOf('function forestInputs ('); const body = src.slice(i, src.indexOf('\n}\n', i)); return i > 0 && /pzones: \[\.\.\.recordZones\(records\), \.\.\.townMarkerZones\(\)\], whys: true/.test(body) }
+  assert.ok(wired(strip(raw)))
+  const old = 'pzones: [...recordZones(records), ...townMarkerZones()], whys: true }),\n    rings: wallRings(records)'
+  assert.strictEqual(raw.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.ok(!wired(strip(raw.replace(old, 'pzones: recordZones(records), whys: true }),\n    rings: wallRings(records)'))), 'MUTANT: the markers cut is caught')
+})
+
 console.log(`\nforest: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
