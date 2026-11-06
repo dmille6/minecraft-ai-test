@@ -420,6 +420,8 @@ const REQUIRED = [
   'scripts/learnloop/weekly/install-weekly.sh',
   'scripts/learnloop/weekly/test_weekly.py',
   'scripts/learnloop/weekly/evalset.py',
+  'docs/reports/learnloop-evalv1-2026-11-06/m3-eval.v1.MANIFEST.json',
+  'docs/reports/learnloop-evalv1-2026-11-06/rescore-v1-scores.json',
   'config/learnloop-weekly.json',
   'scripts/learnloop/test_build_clean.py',
   'scripts/learnloop/teacher/teacher_pilot.py',

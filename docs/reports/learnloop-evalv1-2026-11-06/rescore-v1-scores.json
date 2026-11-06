@@ -1,0 +1,107 @@
+{
+ "at": "2026-11-06T06:45:07Z",
+ "eval_set": {
+  "version": "m3-eval.v1",
+  "path": "/home/mike/learnloop/r3/m3-eval.v1.pc.jsonl",
+  "sha256": "a838e2d768a66c2215b550c4452b3aca4bebdcd5cdc2b3f54144b0d30aad68f7"
+ },
+ "models": [
+  {
+   "alias": "qwen2.5-7b-instruct",
+   "key": "qwen2.5-7b-instruct",
+   "role": "incumbent"
+  },
+  {
+   "alias": "20261101-qwen35-4b",
+   "key": "run:20261101-qwen35-4b/cand-q8_0.gguf",
+   "role": "best"
+  },
+  {
+   "alias": "cand-c2-q8",
+   "key": "cand-c2-q8",
+   "role": "extra"
+  }
+ ],
+ "scores": {
+  "qwen2.5-7b-instruct": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 15.5,
+   "bad": 15.5,
+   "rep_fail": 59.3,
+   "post_veto_repeat": 95.0,
+   "agree_skill": 67.0,
+   "agree_key": 59.0,
+   "hard_on_fail_items": 20.7,
+   "hard_on_good_items": 7.5,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  },
+  "20261101-qwen35-4b": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 2.7,
+   "bad": 2.7,
+   "rep_fail": 15.3,
+   "post_veto_repeat": 7.0,
+   "agree_skill": 56.5,
+   "agree_key": 45.5,
+   "hard_on_fail_items": 2.3,
+   "hard_on_good_items": 4.0,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  },
+  "cand-c2-q8": {
+   "n": 600,
+   "missing": 0,
+   "schema_valid": 100.0,
+   "retry": 0.0,
+   "hard": 1.7,
+   "bad": 1.7,
+   "rep_fail": 15.7,
+   "post_veto_repeat": 8.0,
+   "agree_skill": 60.5,
+   "agree_key": 48.0,
+   "hard_on_fail_items": 2.3,
+   "hard_on_good_items": 1.5,
+   "denominators": {
+    "all": 600,
+    "fail": 300,
+    "post_veto": 100,
+    "good": 200
+   }
+  }
+ },
+ "logged": {
+  "n": 600,
+  "missing": 0,
+  "schema_valid": 100.0,
+  "retry": 0.0,
+  "hard": 13.7,
+  "bad": 13.7,
+  "rep_fail": 100.0,
+  "post_veto_repeat": 90.0,
+  "agree_skill": 100.0,
+  "agree_key": 100.0,
+  "hard_on_fail_items": 19.3,
+  "hard_on_good_items": 5.0,
+  "denominators": {
+   "all": 600,
+   "fail": 300,
+   "post_veto": 100,
+   "good": 200
+  }
+ }
+}
