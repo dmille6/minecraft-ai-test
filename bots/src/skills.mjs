@@ -22883,7 +22883,10 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   const others = projectHeads().filter(x => x.plot !== LAND_PLOT && x.plot !== TIDY_PLOT).map(x => (x.head.rec ? { ...x.head.rec, plot: x.head.rec.plot ?? x.plot } : null)).filter(Boolean)
   // the showcase gkstage fold (Codex fold BLOCKER): the site-prep reservations on their own (inwall's litter rule must never read them
   // as a build's `project`); the request being graded (`prepExcept`) is its own grading's
-  const rz = recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept))
+  // outbands-01 (batch-14a replay, 11-06): the town's expedition MARKERS are `reserved` too -- read first by every survey rule, as the
+  // site-prep zones are: `avoid`'s first reason over a marker beside the old wall is `project:wall`, which BUILD_WHY reads as a build,
+  // so the band survey planned the marker's two cobblestone at -47,67..68,34 as spoil beside a build (the visit's guard kept them)
+  const rz = [...recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept)), ...townMarkerZones()]
   // wallext-02 (Claude hold r1 BLOCKER 1): the demolition's hold is `reserved` too -- read FIRST by every inwall rule and by the
   // access stairs' `free` (tidyAvoid's first reason could be a kept wall cell's `project:wall`, which reads as a build's box)
   const held = holdAt(recs.find(r => r?.plot === WALL_PLOT) ?? null)
