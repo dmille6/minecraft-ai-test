@@ -58,21 +58,26 @@ export const termStart = (lease, me, now = Date.now()) => (lease?.rec?.holder ==
  * for the KEEPER (`d` 'mine') the tidy comes first and a due stage reads open; for any other bot the tidy reads full (`free:
  * false`: the grounds are another's) and the other projects come first.
  */
-export function keeperOrderPure (states, list, { d, shopPlot = 'shop', tidyPlot = 'tidy' } = {}) {
+export function keeperOrderPure (states, list, { d, shopPlot = 'shop', tidyPlot = 'tidy', crew = false, grounds = false } = {}) {
   const ti = states.findIndex(st => st.plot === tidyPlot)
   const tidyP = list.find(p => p.plot === tidyPlot)
   const shop = states.find(st => st.plot === shopPlot)
-  if (ti < 0 || !tidyP || !(shop?.exists && shop?.complete)) return { order: list, states }
+  // gkforever-01: a workshop that cannot be sited (idlework-01 B's `unsited`) never holds the grounds back (board-c, 11-06)
+  const shopReady = !!(shop?.exists && shop?.complete) || (crew && !!shop?.unsited)
+  if (ti < 0 || !tidyP || !shopReady) return { order: list, states }
   const out = states.slice()
-  if (d === 'mine') {
+  // gkforever-01 CREW: a bot on a GROUNDS lap (idlework.mjs) works the tidy first as the keeper does (its slot is the admission)
+  if (d === 'mine' || (crew && grounds)) {
     if (out[ti].complete && out[ti].due) out[ti] = { ...out[ti], complete: false }
     return { order: [tidyP, ...list.filter(p => p.plot !== tidyPlot)], states: out }
   }
+  // gkforever-01 CREW: any other bot sees the tidy as it is (LAST, its slots), never full for being another's
+  if (crew) return { order: list, states: out }
   out[ti] = { ...out[ti], free: false }
   return { order: list, states: out }
 }
 /** Does the town want a keeper now (the workshop stands, the grounds want work)? Pure. */
-export const keeperWanted = (states, { shopPlot = 'shop', tidyPlot = 'tidy' } = {}) => {
+export const keeperWanted = (states, { shopPlot = 'shop', tidyPlot = 'tidy', crew = false } = {}) => {
   const shop = states.find(st => st.plot === shopPlot), st = states.find(q => q.plot === tidyPlot)
-  return !!(shop?.exists && shop?.complete) && !!st && (!st.exists || !st.complete || !!st.damaged || !!st.due)
+  return (!!(shop?.exists && shop?.complete) || (crew && !!shop?.unsited)) && !!st && (!st.exists || !st.complete || !!st.damaged || !!st.due)
 }

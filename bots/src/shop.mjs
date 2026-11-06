@@ -12,6 +12,8 @@ import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
 import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
+import { gkfOn, gkfBuilders } from './gkforever.mjs'   // gkforever-01: the crew
+import { groundsBatchOpen } from './idlework.mjs'   // gkforever-01: a grounds lap's order cooldown
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -88,7 +90,8 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
   Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
-  Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 : TIDY_BUILDERS }),
+  // gkforever-01 CREW (GKF_CREW): the keeper and a helper (gkforever.mjs GKF.crew); off: the keeper alone (groundskeeper-01)
+  Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? gkfBuilders(gkfOn('crew')) : TIDY_BUILDERS }),
 ])
 export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
@@ -308,7 +311,8 @@ export function setKeeperNow (fn) { if (typeof fn === 'function') keeperOf = fn 
  *  else SHOP_COOLDOWN_MS. Pure but for the keeper hook. */
 export function orderCooldown (plot) {
   if (plot === SHAFT_PLOT) return SHAFT_COOLDOWN_MS
-  if (plot === TIDY_PLOT) { let k = false; try { k = !!keeperOf() } catch { k = false } if (k) return GK.cooldownMs }
+  // gkforever-01: a bot on a grounds lap (idlework.mjs) is asked back at the keeper's cooldown too
+  if (plot === TIDY_PLOT) { let k = false; try { k = !!keeperOf() || (gkfOn('idle') && groundsBatchOpen()) } catch { k = false } if (k) return GK.cooldownMs }
   return SHOP_COOLDOWN_MS
 }
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit

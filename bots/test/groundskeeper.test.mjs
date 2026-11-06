@@ -333,7 +333,7 @@ await t('buildTidy passes the keeper knobs to runVisit and sites stages; shopAct
   assert.ok(/if \(land\) out\.push\(\{ plot: LAND_PLOT, key: projKeyOf\(LAND_PLOT\), head: \{ rec: landReservation\(land\) \} \}\)/.test(s), 'the reservation')
   assert.ok(/const recs = projectHeads\(\)\.filter\(x => x\.plot !== LAND_PLOT\)/.test(s), 'the tidy never refuses its own corridors')
   const sh = strip(readFileSync(SHOP_PATH, 'utf8'))
-  assert.ok(/builders: GROUNDS\.on \? 1 : TIDY_BUILDERS/.test(sh), 'one builder: the keeper')
+  assert.ok(/builders: GROUNDS\.on \? gkfBuilders\(gkfOn\('crew'\)\) : TIDY_BUILDERS/.test(sh), 'the keeper (gkforever-01: and its crew, GKF_CREW=0 the keeper alone)')
   assert.ok(/< orderCooldown\(plot0\)\) return \{ order: null, skip: null \}/.test(sh), 'the order cooldown')
 })
 await t('the wall opens a gateway where a land road crosses (wall.mjs); landReservation\'s zones say land:road', async () => {

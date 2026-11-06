@@ -99,7 +99,7 @@ export function tidyColumn (read, x, z, { yHi, yLo }) {
  *   cells       Set "x,y,z" never touched (every project's record cells: belt and braces under `avoid`)
  *   r           half-width of the tidied square (TIDY.r)
  */
-export function surveyTidy (read, { home, avoid = () => null, cells = new Set(), r = TIDY.r, rMin = -1, T = TIDY } = {}) {
+export function surveyTidy (read, { home, avoid = () => null, cells = new Set(), r = TIDY.r, rMin = -1, T = TIDY, level = false } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   if (!home || ![home.x, home.y, home.z].every(Number.isFinite)) return { ok: false, why: 'no_home', cut: [], fill: [], pillars: [], pits: [], skipped }
@@ -121,7 +121,8 @@ export function surveyTidy (read, { home, avoid = () => null, cells = new Set(),
     if (!ns.every(ground)) continue
     const base = Math.max(...ns.map(n => n.y))
     const h = c.y - base
-    if (h < T.pillarMin) continue
+    // gkforever-01 LEVEL (inside the walls): a lone STEP one block over all 8 neighbours is cut too
+    if (h < (level ? 1 : T.pillarMin)) continue
     if (!free(x, z)) { skip('pillar_guarded'); continue }
     if (h > T.pillarMax) { skip('pillar_tall'); continue }
     const blocks = []
@@ -192,6 +193,35 @@ export function surveyTidy (read, { home, avoid = () => null, cells = new Set(),
     const id = `p${pits.length}`
     pits.push({ id, cols: cs, floor, level: F, n: add.length })
     for (const a of add) fill.push({ ...a, pit: id })
+  }
+  // ---- DIPS (gkforever-01 LEVEL, inside the walls): a one-column hole -- below EVERY one of its 8 read-ground neighbours, so never a
+  // slope or a terrace edge -- that the pit rule (pitMin under the 5x5 median) passed over, filled to its LOWEST neighbour
+  if (level) {
+    const inPit = new Set(pits.flatMap(p => p.cols.map(([x, z]) => k2(x, z))))
+    for (let x = home.x - r; x <= home.x + r; x++) for (let z = home.z - r; z <= home.z + r; z++) {
+      if (!inSq(x, z) || inPit.has(k2(x, z))) continue
+      const c = col(x, z)
+      if (!ground(c) || c.tree) continue
+      const ns = N8.map(([dx, dz]) => col(x + dx, z + dz))
+      if (ns.some(n => n?.why === 'water')) continue
+      if (!ns.every(ground)) continue
+      const F = Math.min(...ns.map(n => n.y))
+      if (c.y >= F) continue
+      if (F - c.y > T.pitDepthMax) { skip('dip_deep'); continue }
+      if (!free(x, z)) { skip('dip_guarded'); continue }
+      const add = []
+      let bad = null
+      for (let y = c.y + 1; y <= F; y++) {
+        const b = read(x, y, z)
+        if (cells.has(`${x},${y},${z}`)) { bad = 'dip_guarded'; break }
+        if (!b || !(AIRN(nm(b)) || replaceableCell(b))) { bad = 'dip_blocked'; break }
+        add.push({ at: [x, y, z] })
+      }
+      if (bad) { skip(bad); continue }
+      const id = `d${pits.length}`
+      pits.push({ id, cols: [[x, z]], floor: c.y, level: F, n: add.length, dip: true })
+      for (const a of add) fill.push({ ...a, pit: id })
+    }
   }
   return { ok: true, why: 'ok', cut, fill, pillars, pits, skipped, cols: memo.size }
 }
@@ -409,6 +439,16 @@ export function gradeTidy (read, pin, { cells = new Set(), lim = gradeLim(read, 
   return { ok: true, why: 'ok', cut, fill, clear, legs, skipped, home }
 }
 
+/** gkforever-01 DEAD: a survey without the `dead` cells (a map "x,y,z" -> stamp: gkforever.mjs gkfDeadCarry) -> the survey, its
+ *  pits and pillars pruned to those with a cell left, `skipped.dead` counting what was dropped. Pure. */
+export function dropDeadSurvey (sv, dead) {
+  const isDead = c => Object.prototype.hasOwnProperty.call(dead ?? {}, (c?.at ?? []).join(','))
+  const fill = (sv.fill ?? []).filter(c => !isDead(c)), cut = (sv.cut ?? []).filter(c => !isDead(c)), clear = (sv.clear ?? []).filter(c => !isDead(c))
+  const n = (sv.fill ?? []).length - fill.length + (sv.cut ?? []).length - cut.length + (sv.clear ?? []).length - clear.length
+  if (!n) return sv
+  return { ...sv, fill, cut, clear, pits: (sv.pits ?? []).filter(p => fill.some(f => f.pit === p.id)), pillars: (sv.pillars ?? []).filter(p => cut.some(c => c.pillar === p.id)),
+    skipped: { ...(sv.skipped ?? {}), dead: (sv.skipped?.dead ?? 0) + n } }
+}
 /**
  * THE SITING -> { ok, why, record, survey, grade, tried }. Pure over `read`. The survey (pillars, pits) round home, and -- when `pin`
  * is given (the paths are not laid yet, or stand as a no-site record) -- the grading of the paths' corridors, tried at every
@@ -416,10 +456,13 @@ export function gradeTidy (read, pin, { cells = new Set(), lim = gradeLim(read, 
  * leave it (tidyOverlay), and the one leaving the fewest required legs unrouted is the record (ties: fewer cells). A column the
  * grading touches is the grading's alone. The bot's own (skills.mjs buildTidy) and the offline proof's (scripts/tidy-offline.mjs).
  */
-export function siteTidy (read, { home, avoid = () => null, cells = new Set(), pin = null, plan = null, r = TIDY.r, now = Date.now(), grades = TIDY_GRADES } = {}) {
-  const survey = surveyTidy(read, { home, avoid, cells, r })
+export function siteTidy (read, { home, avoid = () => null, cells = new Set(), pin = null, plan = null, r = TIDY.r, now = Date.now(), grades = TIDY_GRADES, level = false, dead = null } = {}) {
+  const survey0 = surveyTidy(read, { home, avoid, cells, r, level })
+  // gkforever-01 DEAD: the cells an earlier generation gave up on are not listed again (gkforever.mjs gkfDeadCarry)
+  const survey = dead && survey0.ok ? dropDeadSurvey(survey0, dead) : survey0
   if (!survey.ok) return { ok: false, why: survey.why, record: null, survey, grade: null, tried: [] }
-  const build = grade => {
+  const build = grade0 => {
+    const grade = dead && grade0?.ok ? dropDeadSurvey(grade0, dead) : grade0
     // a column the grading touches is the grading's alone (a pit's fill on a column it cuts would float; a pillar's cut under its
     // fill would leave a hole): the survey's cuts and fills there are dropped
     const gcols = new Set(grade?.ok ? [...grade.cut, ...grade.fill].map(c => k2(c.at[0], c.at[2])) : [])
@@ -614,14 +657,16 @@ export function roadLights (read, cols, { home, avoid = () => null, n = 0, cells
  * (tidyRecord: layered fills, cuts, clears) with `stage`. A column the road touches is the road's alone. `null` record: nothing to
  * do in this stage (the caller moves to the next).
  */
-export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, L = LAND } = {}) {
+export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, L = LAND, level = false, dead = null } = {}) {
   const st = typeof stage === 'object' ? stage : stageOf(stage, L)
-  if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now }); if (s.record) s.record.stage = 0; return { ...s, road: null } }
+  if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now, level, dead }); if (s.record) s.record.stage = 0; return { ...s, road: null } }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
-  const survey = st.rMax > 0 ? surveyTidy(read, { home, avoid, cells, r: st.rMax, rMin: st.rMin }) : { ok: true, cut: [], fill: [], pillars: [], pits: [], skipped: {} }
+  const survey0 = st.rMax > 0 ? surveyTidy(read, { home, avoid, cells, r: st.rMax, rMin: st.rMin }) : { ok: true, cut: [], fill: [], pillars: [], pits: [], skipped: {} }
+  const survey = dead && survey0.ok ? dropDeadSurvey(survey0, dead) : survey0
   if (!survey.ok) return { ok: false, why: survey.why, record: null, survey, road: null }
   const rcols = stageRoadCols(land, st, { L })
   let road = rcols.length ? roadWork(read, rcols, { home, cells, avoid, lim: lim ?? gradeLim(read, 6) }) : { cut: [], fill: [], clear: [], trees: [], skipped: {} }
+  if (dead) road = { ...road, ...dropDeadSurvey(road, dead) }
   // NEVER WORSE (offline, hive-d: a ring graded 4 over the plaza's edge cut the town off its roads): with `walkFrom` (the town's
   // edge columns), the walk from the town -- over all the land, and along the roads -- is measured on the ground as it is and as
   // this stage's road work would leave it; a road work that reaches fewer columns either way is dropped (named), the band's

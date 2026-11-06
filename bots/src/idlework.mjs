@@ -41,10 +41,34 @@ export const IDLE_NEEDS = Object.freeze({
   coal: Object.freeze({ kind: 'coal', count: ['coal'], n: 8, wants: 'coal_ore', wantsAny: ['coal_ore', 'deepslate_coal_ore', 'coal'],
     label: 'coal', describe: 'Mine 8 coal: fuel for smelting iron and stone.',
     hint: 'gather with block=coal_ore; it shows on cliffs and in caves near the surface.' }),
+  // GKFOREVER-01 (gkforever.mjs): the town's grounds -- the work is the tidy's build order, handed out at town; the batch counts the
+  // bot's visits that changed the ground (`count` is empty: milestones.mjs reads the bot's own counter, never the bag)
+  grounds: Object.freeze({ kind: 'grounds', count: [], n: 3, wants: null, wantsAny: [], label: 'grounds visits',
+    describe: 'Keep the town grounds: fill holes, level the ground, cut down bot pillars and dirt steps, clear what blocks the paths.',
+    hint: 'use skill home if you are away from home and stay at town: the grounds work is handed to you there as an order.' }),
 })
-export const IDLE_KINDS = Object.freeze(Object.keys(IDLE_NEEDS))
+export const IDLE_KINDS = Object.freeze(Object.keys(IDLE_NEEDS).filter(k => k !== 'grounds'))
 /** One lap in eight is a scouting lap; the rest are work. Rotated by the chain's cycle so the kinds spread across bots. */
 export const IDLE_ROTATION = Object.freeze(['iron', 'logs', 'iron', 'coal', 'logs', 'iron', 'coal', 'scout'])
+/** GKFOREVER-01 (GKF_IDLE): every other lap a grounds lap while the town's grounds have work and a builder slot (the crew caps it:
+ *  gkforever.mjs GKF.crew), the gathers between, the scout lap still one in eight. With no grounds means the walk forward lands on
+ *  the next gather, so the bag work is never worse than half. Pure. */
+export const IDLE_ROTATION_GK = Object.freeze(['grounds', 'iron', 'grounds', 'logs', 'grounds', 'coal', 'grounds', 'scout'])
+/** GKFOREVER=0 or GKF_IDLE=0: the plain rotation (gkforever.mjs gkfOn's rule; this module imports nothing). Pure. */
+const offV = v => ['0', 'off', 'false', 'no'].includes(String(v ?? '').trim().toLowerCase())
+export const idleRotation = (env = process.env) => (offV(env?.GKFOREVER) || offV(env?.GKF_IDLE) ? IDLE_ROTATION : IDLE_ROTATION_GK)
+/** A grounds batch: this many of the bot's visits that changed the ground, or this long since it opened (Codex: up to 8 min). */
+export const GROUNDS_BATCH = Object.freeze({ visits: 3, ms: 8 * 60_000 })
+/** The grounds batch's hooks (milestones.mjs installs the open-batch read, skills.mjs the means): a registry, never an import of
+ *  skills.mjs from here. */
+let groundsOpenOf = () => false
+export function setGroundsOpen (fn) { if (typeof fn === 'function') groundsOpenOf = fn }
+/** Is this bot's grounds batch open now (shop.mjs: the tidy order's keeper cooldown)? Never throws. */
+export const groundsBatchOpen = () => { try { return !!groundsOpenOf() } catch { return false } }
+let groundsMeansOf = () => false
+export function setGroundsMeans (fn) { if (typeof fn === 'function') groundsMeansOf = fn }
+/** May this bot take a grounds lap (skills.mjs: the town's grounds have work and a slot for it)? Never throws. */
+export const groundsMeans = b => { try { return !!groundsMeansOf(b) } catch { return false } }
 export const IDLE_BAR_MS = 3 * 3600_000   // longer than three 45-min deadlines: kinds failing in turn reach the scout lap
 export const SCOUT_DIST = 80
 
@@ -75,16 +99,18 @@ export const countOf = (counts = {}, names = []) => names.reduce((t, n) => t + (
  * count now (`gained` 0); after that only RISES count (a deposit, a craft or the pathfinder's scaffold spending the bag never
  * takes back what was gathered). `kind` is fixed when the batch opens.
  */
-export function idleStep (state, cycle, kind, count) {
+export function idleStep (state, cycle, kind, count, now = Date.now()) {
   const n = Number.isFinite(count) ? count : 0
-  if (!state || state.cycle !== cycle) return { cycle, kind, last: n, gained: 0 }
+  if (!state || state.cycle !== cycle) return { cycle, kind, last: n, gained: 0, at: now }
   return { ...state, last: n, gained: state.gained + Math.max(0, n - state.last) }
 }
 
 /** Is the open batch met? Pure. scout: distance from home > SCOUT_DIST; none: always; a work kind: gained >= its n. */
-export function idleMet (state, { dist = 0 } = {}) {
+export function idleMet (state, { dist = 0, now = Date.now(), noWorkAt = null } = {}) {
   if (!state) return false
   if (state.kind === 'none') return true
+  // gkforever-01: a grounds batch is met by its visits that changed the ground, its time, or a visit that found no grounds work
+  if (state.kind === 'grounds') return (Number(state.gained) || 0) >= GROUNDS_BATCH.visits || (Number.isFinite(state.at) && now - state.at >= GROUNDS_BATCH.ms) || (Number.isFinite(noWorkAt) && Number.isFinite(state.at) && noWorkAt >= state.at)
   if (state.kind === 'scout') return dist > SCOUT_DIST
   return state.gained >= (IDLE_NEEDS[state.kind]?.n ?? Infinity)
 }
