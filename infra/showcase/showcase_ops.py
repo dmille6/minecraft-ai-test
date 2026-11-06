@@ -1060,9 +1060,39 @@ def cmd_activate(a):
     if getattr(a, 'no_snapshot', None) is not None and not a.no_snapshot.strip():
         print('REFUSED: --no-snapshot needs the reason it is skipped')
         return 1
+    bad = reader_mismatch(rel, INSTALLED_READER)
+    if bad:
+        print(f'REFUSED: {bad}; nothing switched')
+        return 1
     cur = current_release()
     return activate(os.path.abspath(a.release), prev_admissible=release_admissible(cur),
                     snapshot=getattr(a, 'no_snapshot', None) is None, no_snapshot_why=getattr(a, 'no_snapshot', None))
+
+
+def approved_readers(rel):
+    """The reader digests the release's pre-activation replay approved (RELEASE.json gate: mode main -> gate.replay, mode
+    piece -> gate.replay). Pure. [] when the release predates the replay gate."""
+    g = (rel or {}).get('gate') or {}
+    r = g.get('replay') if isinstance(g, dict) else None
+    return [r['reader_sha256']] if isinstance(r, dict) and r.get('reader_sha256') else []
+
+
+def reader_mismatch(rel, reader_path):
+    """-> None, or why the release must not be activated: its replay approved a reader whose digest is not the one installed
+    (Codex r1: `stage --reader fixed.py` passed, but the live tripwire would still judge the release with the old reader).
+    Remedy: install the approved reader, then activate. An auto-rollback never calls this (the older release ran under an
+    older reader; the installed one only adds rules)."""
+    want = approved_readers(rel)
+    if not want:
+        return None
+    try:
+        have = hashlib.sha256(open(reader_path, 'rb').read()).hexdigest()[:16]
+    except OSError as e:
+        return f'the installed reader {reader_path} is unreadable ({type(e).__name__})'
+    if have not in want:
+        return (f'the replay approved reader {want[0]} but {reader_path} is {have}: install the approved reader '
+                f'(the --reader file the stage named) into {reader_path}, then activate')
+    return None
 
 
 def release_admissible(rel):
@@ -1226,11 +1256,13 @@ def cmd_trip_remedy(a):
     restart = plan['action'] == 'rollback-restart' and rc == 0
     append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'auto-rollback', 'from': cur_dir, 'to': plan['target'], 'rc': rc,
                     'classes': plan['classes'], 'restart': restart, 'why': plan['why'][:300]})
-    lk.close()                         # start-bots.sh takes ops.lock itself
     if not restart:
         print('ROLLED BACK to %s (rc %d); the bots stay stopped' % (plan['target'], rc))
         return 0
-    p = subprocess.run(['/srv/showcase/bin/start-bots.sh'], capture_output=True, text=True, timeout=3600)
+    # the lock is KEPT from the stop through the start (SHOWCASE_LOCK_HELD=1): no operator stop / activation can run in
+    # between and be overridden by this restart (Codex r1)
+    p = subprocess.run(['/srv/showcase/bin/start-bots.sh'], capture_output=True, text=True, timeout=3600,
+                       env=dict(os.environ, SHOWCASE_LOCK_HELD='1'))
     append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'auto-rollback-start', 'release': plan['target'], 'rc': p.returncode,
                     'tail': (p.stdout + p.stderr).strip()[-300:]})
     print(f'ROLLED BACK to {plan["target"]} and start-bots.sh rc {p.returncode}')

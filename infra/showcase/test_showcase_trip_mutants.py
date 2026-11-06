@@ -56,7 +56,7 @@ MUTANTS = [
     # r2: only ImportError isolated (a SyntaxError in shopread takes the S5 read down)
     ("    except BaseException as e:          # noqa: B036", "    except ImportError as e:          # noqa: B036", 'must not abort the S5 read'),
     # r2: ack no longer refuses on a broken shopread
-    ("    if shop_module()[0] is None:\n        print('REFUSED: shopread unusable", "    if False:\n        print('REFUSED: shopread unusable", 'ack refuses LOUDLY'),
+    ("    if shop_module()[0] is None:\n        print('REFUSED: shopread unusable (%s); fix", "    if False:\n        print('REFUSED: shopread unusable (%s); fix", 'ack refuses LOUDLY'),
     # fun mode 10-28: tree debris no longer split out of H2 (a floating leaf is a defect again)
     ("    items, debris = h2_debris_split(defect_items(defects, items))", "    items, debris = defect_items(defects, items), []", 'tree debris is REPORTED'),
     # ---- phase 1 item 4 (stop only for harm; docs/reports/phase1-showcase-design-2026-11-06.md)
@@ -72,6 +72,8 @@ MUTANTS = [
     ("        if len(f['trapped']) >= ZONE_TRAP_WORLD:", "        if False:", 'systemic'),
     # Z1: the trapped bot is not handed to the quarantine
     ("            quarantine.extend(sorted(f['trapped']))\n", "", 'QUARANTINED'),
+    # Z1: a bot freed long ago is still acted on
+    ("            ((now if (end - e).total_seconds() / 60 <= slack_min else earlier)", "            ((now if True else earlier)", 'trapped NOW'),
     # S7: a crash loop is only a WATCH
     ("        harm.append('S7 crash loop", "        watch.append('S7 crash loop", 'crash loop is HARM'),
     # S7: an unreadable journal reads OK

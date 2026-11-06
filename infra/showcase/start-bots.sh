@@ -6,7 +6,9 @@
 #   sudo /srv/showcase/bin/start-bots.sh
 set -uo pipefail
 B=/srv/showcase/bin
-exec 9>>/srv/showcase/ops.lock; flock 9
+# Serialised with follow / stage / activate / stop (one ops lock); a caller that already holds it says so (trip-remedy's
+# rollback restart keeps the lock from the stop through this start, so no other operation runs in between: Codex r1).
+if [ "${SHOWCASE_LOCK_HELD:-0}" != 1 ]; then exec 9>>/srv/showcase/ops.lock; flock 9; fi
 # THE START JOURNAL (phase 1 item 4): start-requested now, then start-verified (all 15 bots on the release, both rows newer than
 # this start, the brain serving) or start-failed. haltwatch clears a stop ONLY on a start-verified newer than it (a planned
 # restart after a fix is not a halt); an intervening stop wins.

@@ -216,6 +216,21 @@ def split_trapped(spells, refusals):
     return trapped, still
 
 
+def trapped_now(spells, refusals, end, slack_min=10):
+    """spells {bot: [(start, end, min)]} inside a closed zone; refusals {bot: [(t, n)]}. -> (now, earlier): Z1 spells (a refusal
+    inside) whose end is within slack of `end` -- the bot is trapped NOW, the only ones a quarantine or a world stop may act on
+    -- and those that ended earlier in the window (the bot got free, or was quarantined: reported, never acted on). Pure."""
+    now, earlier = {}, {}
+    for b, sp in spells.items():
+        for s_, e, m in sp:
+            if not any(s_ <= t <= e and n > 0 for t, n in refusals.get(b, [])):
+                continue
+            ((now if (end - e).total_seconds() / 60 <= slack_min else earlier).setdefault(b, [])
+             .append((s_.strftime('%H:%M'), round(m))))
+    earlier = {b: v for b, v in earlier.items() if b not in now}
+    return now, earlier
+
+
 def death_peak(times, span_min=180):
     """times: death datetimes. -> the most deaths inside any span_min window. Pure."""
     t = sorted(times)
@@ -287,6 +302,8 @@ def classify(f):
         else:
             quarantine.extend(sorted(f['trapped']))
             report.append('S3 Z1 trapped in a zone %s -> QUARANTINE %s' % (f['trapped'], ' '.join(sorted(f['trapped']))))
+    if f.get('trapped_earlier'):
+        watch.append('S3 Z1 was trapped earlier in the window, not now (freed, or quarantined) %s' % f['trapped_earlier'])
     if f.get('still_in_zone'):
         watch.append('S3 still in a zone with no refusal (legal ground) %s' % f['still_in_zone'])
     if f.get('zones_error'):
@@ -886,7 +903,8 @@ def cmd_read(a):
         zones_error = '%s: %s' % (type(e).__name__, str(e)[:80])
     closed, deepb = closed_and_deep(boxes, floors)
     spells = {b: still_spells(v, closed, TRAP_MIN, TRAP_MOVE, max_gap_min=5) for b, v in by_bot.items()}
-    trapped, still_in_zone = split_trapped(spells, mins)
+    _, still_in_zone = split_trapped(spells, mins)
+    trapped, trapped_earlier = trapped_now(spells, mins, end)
     deep = {b: sum(1 for _, p in v if p and any(in_box(p, x) for x in deepb)) for b, v in by_bot.items()}
     deep = {b: n for b, n in deep.items() if n}
     loops = {b: refusal_peak(v) for b, v in mins.items() if refusal_peak(v) >= LOOP_N}
@@ -968,7 +986,7 @@ def cmd_read(a):
              'brain_paused': paused,
              'window_min': round((now - first).total_seconds() / 60), 'plan_towns': (report or {}).get('plan_towns'),
              'stuck': stuck_now(by_bot, end),
-             'trapped': trapped, 'refusal_loops': loops, 'integrity': integ,
+             'trapped': trapped, 'trapped_earlier': trapped_earlier, 'refusal_loops': loops, 'integrity': integ,
              'plan_defects': {k: v for k, v in defects.items() if k not in shop_full},
              'shop_defects': {k: v for k, v in defects.items() if k in shop_full}, 'shop_watch': shop_watch,
              'shop_error': shop_error if not plan_err else 'not read (the plan read failed first)', 'plan_error': plan_err}
@@ -990,8 +1008,8 @@ def cmd_read(a):
     print('S2 STUCK     %s (still >= %d min, < %.0f blocks, to the window end)' % (facts['stuck'] or 'none', STUCK_MIN, STUCK_MOVE))
     print('S3 UNDER     samples below an underground zone %s | trapped there %s | DEEP (below a village floor) %s' % (
         under or 'none', under_trapped or 'none', deep or 'none'))
-    print('S3 ZONES     zones %d | Z1 trapped %s | Z2 refusal loops %s | refusals by op %s (minute rows %d)' % (
-        len(boxes), trapped or 'none', loops or 'none', dict(refused_by_op), sum(len(v) for v in mins.values())))
+    print('S3 ZONES     zones %d | Z1 trapped now %s, earlier %s | Z2 refusal loops %s | refusals by op %s (minute rows %d)' % (
+        len(boxes), trapped or 'none', trapped_earlier or 'none', loops or 'none', dict(refused_by_op), sum(len(v) for v in mins.values())))
     print('S4 REGIONS   %s, newest file %s min old' % (a.zones_regions, facts['mirror_age_min']))
     if integ is None:
         print('S4 INTEGRITY not read (baseline %s, regions %s)' % (a.zones_baseline, a.zones_regions))
@@ -1282,6 +1300,10 @@ def selftest():
     sp = {'a': [(T(0), T(20), 20)], 'b': [(T(0), T(20), 20)]}
     tr, st = split_trapped(sp, {'a': [(T(5), 3)], 'b': [(T(30), 3), (T(5), 0)]})
     assert list(tr) == ['a'] and list(st) == ['b'], (tr, st)
+    sp2 = {'a': [(T(0), T(20), 20)], 'c': [(T(0), T(40), 40)], 'd': [(T(0), T(40), 40)]}
+    nw, er = trapped_now(sp2, {'a': [(T(5), 3)], 'c': [(T(10), 2)], 'd': []}, T(45))
+    assert nw == {'c': [('12:00', 40)]} and er == {'a': [('12:00', 20)]}, ('Z1 acts only on a bot trapped NOW; one freed 25 min ago is reported', nw, er)
+    assert verdict(dict(base, trapped_earlier={'a': [('12:00', 20)]}))[0] == 'WATCH', 'a freed bot is never quarantined'
     assert verdict(dict(base, still_in_zone={'b': [('12:00', 20)]}))[0] == 'WATCH'
     assert defect_items({'G1': 2, 'G3': 0}, {'G1': ['x']}) == {'G1': ['x', 'G1 unlisted #1'], 'G3': []}
     n, k = unacked({'G1': ['x', 'y'], 'G3': ['z']}, {'G1': ['x'], 'G4': ['gone']})

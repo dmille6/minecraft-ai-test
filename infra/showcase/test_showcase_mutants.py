@@ -31,6 +31,7 @@ MUTANTS = [
     ('showcase_ops.py', "        return any(after(v) for v in (ev.get('Z1') or {}).values())", "        return True", 'test_crash_loop_and_z1_attribution'),
     ('showcase_ops.py', "    late = [c for c in classes if not attributable(", "    late = [c for c in [] if not attributable(",
      'test_deaths_before_the_switch_are_not_the_new_release'),
+    ('showcase_ops.py', "    if have not in want:", "    if False:", 'test_the_approved_reader_must_be_installed'),
     ('showcase_ops.py', "    if not observe or d.get('decision') not in ('DUE', 'ROLLBACK', 'STOP'):", "    if True:",
      'test_an_observe_only_follower_writes_no_rollback'),
     ('files/filebeat.yml', '    - index: "mcai-showcase-ops"\n', '    - index: "mcai-skill-agents"\n',

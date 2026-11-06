@@ -90,8 +90,9 @@ GRACE_TRIP = dt.timedelta(minutes=5)        # a tripwire stop whose remedy row i
 
 def showcase_lifecycle(deploy_rows, now):
     """PURE. deploy.jsonl rows in file order -> {'stop': (t, why) | None, 'plan': trip-remedy plan of that stop | None,
-    'quarantined': {bot}, 'started': t | None}. A stop stays open until a later VERIFIED start; an `activated` row no longer
-    clears it (Codex 11-06: activation restarts only running bots, it is not a start). A later stop wins over an earlier start.
+    'quarantined': {bot}, 'started': t | None}. A stop stays open until a later VERIFIED start, or an `activated` row that
+    restarted running bots (running_bots > 0: they were started again; an auto-rollback's activation never clears, its
+    start-verified does). A later stop wins over an earlier start.
     A quarantine (Z1: one trapped bot's unit stopped) is expected-down until the next verified start."""
     stop, plan, quar, started = None, None, set(), None
     for r in deploy_rows:
@@ -105,6 +106,10 @@ def showcase_lifecycle(deploy_rows, now):
             plan = r['plan']
         elif ev in STARTED or (ev == 'start-bots-after-restart' and r.get('rc') == 0):
             stop, plan, quar, started = None, None, set(), t
+        elif ev == 'activated' and (r.get('running_bots') or 0) > 0 and r.get('cause') != 'auto-rollback':
+            # an activation RESTARTED bots that were running: proof the bots were started again after the stop (a start that
+            # predates the start journal, 11-05 23:39Z). With every bot down it restarts nothing (running_bots 0): no clear.
+            stop, plan = None, None
         elif ev == 'quarantine':
             quar |= {str(b) for b in r.get('bots') or []}
     return {'stop': stop, 'plan': plan, 'quarantined': quar, 'started': started}

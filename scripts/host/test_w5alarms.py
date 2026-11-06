@@ -139,7 +139,12 @@ def t_halt(H):
     check('halt: units back up -> no alarm', H.judge_showcase([stop], up, T)[0] is None)
     act = {'t': '2026-10-28T11:40:00Z', 'event': 'activated', 'running_bots': 10}
     line, _ = H.judge_showcase([stop, act], down, T)
-    check('halt: an activation is not a start -- the stop stays open (phase 1, Codex)', line and 'HALTED' in line, line)
+    check('halt: an activation that restarted running bots after the stop supersedes it; down units still alarm',
+          line and 'NO stop-bots row' in line, line)
+    line, _ = H.judge_showcase([stop, dict(act, running_bots=0)], down, T)
+    check('halt: an activation with no bot running is not a start -- the stop stays open', line and 'HALTED' in line, line)
+    line, _ = H.judge_showcase([stop, dict(act, cause='auto-rollback', running_bots=3)], down, T)
+    check('halt: an auto-rollback activation never clears its stop (its start-verified does)', line and 'HALTED' in line, line)
     check('halt: census unreadable is an alarm', H.judge_showcase([], None, T)[0])
     # phase 1 item 4: the stop row is read FIRST -- disable --now unloads the units, so an empty census during a stop is the stop
     line, _ = H.judge_showcase([stop], {}, T)
@@ -542,10 +547,14 @@ MUTANTS = [
     ('goalwatch.py', "        return status == 'success' and d.get('op') in PROGRESS_OPS", "        return d.get('op') in PROGRESS_OPS", t_goal),
     ('haltwatch.py', "        if age < g:\n", "        if age < g * 0:\n", t_halt),
     # phase 1 item 4
+    ('haltwatch.py', "        elif ev == 'activated' and (r.get('running_bots') or 0) > 0 and r.get('cause') != 'auto-rollback':",
+     "        elif ev == 'activated' and r.get('cause') != 'auto-rollback':", t_halt),
+    ('haltwatch.py', "        elif ev == 'activated' and (r.get('running_bots') or 0) > 0 and r.get('cause') != 'auto-rollback':",
+     "        elif ev == 'activated' and (r.get('running_bots') or 0) > 0:", t_halt),
     ('haltwatch.py', "    if stop is not None and (unit_states is None or up < total or total == 0):",
      "    if stop is not None and unit_states is not None and (up < total):", t_halt),
     ('haltwatch.py', "        elif ev in STARTED or (ev == 'start-bots-after-restart' and r.get('rc') == 0):",
-     "        elif ev in STARTED or ev in ('start-requested', 'start-failed', 'activated') or (ev == 'start-bots-after-restart' and r.get('rc') == 0):", t_halt),
+     "        elif ev in STARTED or ev in ('start-requested', 'start-failed') or (ev == 'start-bots-after-restart' and r.get('rc') == 0):", t_halt),
     ('haltwatch.py', "'stop': dt.timedelta(0), 'rollback-stopped': dt.timedelta(0)}.get(plan.get('action'), GRACE_TRIP)",
      "'stop': GRACE, 'rollback-stopped': GRACE}.get(plan.get('action'), GRACE_TRIP)", t_halt),
     ('haltwatch.py', "{'rollback-restart': GRACE_ROLLBACK, 'stop'", "{'rollback-restart': dt.timedelta(0), 'stop'", t_halt),

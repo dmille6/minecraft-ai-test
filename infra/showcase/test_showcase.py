@@ -2045,6 +2045,24 @@ class ReplayGate(unittest.TestCase):
         self.assertEqual(RG.unknown_shapes(old, new, before + "COVER = 'cover'\n", {'_build'}), [], 'coverread names it')
 
 
+class ReaderAtActivation(unittest.TestCase):
+    def test_the_approved_reader_must_be_installed(self):
+        d = tempfile.mkdtemp()
+        try:
+            p = os.path.join(d, 'shopread.py')
+            open(p, 'w').write('NEW = 1\n')
+            import hashlib
+            dig = hashlib.sha256(b'NEW = 1\n').hexdigest()[:16]
+            rel = {'gate': {'mode': 'piece', 'replay': {'reader_sha256': dig}}}
+            self.assertIsNone(SO.reader_mismatch(rel, p), 'the approved reader is installed')
+            open(p, 'w').write('OLD = 1\n')
+            self.assertIn('install the approved reader', SO.reader_mismatch(rel, p) or '')
+            self.assertIsNone(SO.reader_mismatch({'gate': {'mode': 'piece'}}, p), 'a release before the replay gate')
+            self.assertIn('unreadable', SO.reader_mismatch(rel, os.path.join(d, 'none.py')) or '')
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
 class FollowObserve(unittest.TestCase):
     def test_an_observe_only_follower_writes_no_rollback(self):
         d = {'decision': 'ROLLBACK', 'target': 'a' * 40, 'reason': 'the showcase is no longer inside', 'fleet': 'f', 'auto': False}
