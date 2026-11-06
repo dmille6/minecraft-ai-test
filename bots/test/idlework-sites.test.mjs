@@ -72,6 +72,33 @@ await t('the stamp file: write, read back, torn or absent reads null', () => {
 })
 
 // ---- the wiring (structural, comments stripped, executable lines; each anchor present and unique) ----
+// REBASE ONTO STUCKPROJ-01 (starve-01): shopActive applies unsitedBackoff, then starveMark, then activeProject. The two marks are
+// disjoint by construction (unsited: a project with NO record; starved: one WITH an open record), so the order of the two does
+// not matter and neither defeats the other. Behaviour, through the exported pure functions.
+await t('starve-01 x unsited: an unsited project is never offered first as starved; a starved one is never held as unsited; each rollback alone', () => {
+  const takes = m => plot => m[plot] ?? null
+  const OLD = NOW - S.STARVE_MS - 60_000
+  // A (the fleet's starve shape): monument open and busy, the wall open and starved, the tree farm unsited (no record)
+  const A = [done('shop'), done('shaft'), done('house1'), st('monument', { exists: true }), done('paths'), st('wall', { exists: true }), st('treefarm'), st('tidy')]
+  const unsA = stamps({ treefarm: NOW - 60_000 }), takeA = takes({ monument: NOW - 1000, wall: OLD, treefarm: OLD })
+  const both = S.starveMark(S.unsitedBackoff(A, unsA, NOW), { lastTakeOf: takeA, now: NOW })
+  assert.deepEqual(both, S.unsitedBackoff(S.starveMark(A, { lastTakeOf: takeA, now: NOW }), unsA, NOW), 'the order of the two marks does not matter')
+  assert.equal(both.find(x => x.plot === 'treefarm').unsited, true)
+  assert.equal(both.find(x => x.plot === 'treefarm').starved, undefined, 'a record-less project is never starved (an old take notwithstanding)')
+  assert.equal(both.find(x => x.plot === 'wall').starved, true)
+  assert.equal(both.find(x => x.plot === 'wall').unsited, undefined, 'a project with a record is never unsited')
+  assert.equal(S.activeProject(both, LIST).plot, 'wall', 'both on: the starved wall first')
+  assert.equal(S.activeProject(S.unsitedBackoff(A, unsA, NOW), LIST).plot, 'monument', 'STARVE=0: the order')
+  assert.equal(S.activeProject(A, LIST).plot, 'monument', 'both off: control')
+  // B (the unsited project BEFORE the starved one): house1 unsited, the monument starved
+  const B = [done('shop'), done('shaft'), st('house1'), st('monument', { exists: true }), st('paths'), st('wall'), st('treefarm'), st('tidy')]
+  const unsB = stamps({ house1: NOW - 60_000 }), takeB = takes({ monument: OLD, house1: OLD })
+  assert.equal(S.activeProject(B, LIST).plot, 'house1', 'both off: control, the unsitable house1')
+  assert.equal(S.activeProject(S.unsitedBackoff(B, unsB, NOW), LIST).plot, 'monument', 'STARVE=0: house1 yields its turn')
+  assert.equal(S.activeProject(S.starveMark(B, { lastTakeOf: takeB, now: NOW }), LIST).plot, 'monument', 'UNSITEDWAIT=0: the starved monument still first')
+  const bothB = S.starveMark(S.unsitedBackoff(B, unsB, NOW), { lastTakeOf: takes({ monument: NOW, house1: OLD }), now: NOW })
+  assert.equal(S.activeProject(bothB, LIST).plot, 'monument', 'both on, the monument fresh: house1 still yields (never re-offered as starved)')
+})
 const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|[^:'"`])\/\/.*$/, '$1')).join('\n')
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const once = (src, re, what) => { const m = src.match(new RegExp(re.source, 'g')) ?? []; assert.equal(m.length, 1, `${what}: ${m.length} matches`) }
