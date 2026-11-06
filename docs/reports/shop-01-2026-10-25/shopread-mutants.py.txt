@@ -27,7 +27,7 @@ M = [
  ("out['off_record'] += 1; lists['off_record'].append('%s %s %s%s' % (bot, k, f.get('block'), pwhy))", "pass; lists['off_record'].append('%s %s %s%s' % (bot, k, f.get('block'), pwhy))"),
  ("out['clear_outside'] += 1;", "pass;"),
  ("out['zone'] += 1;", "pass;"),
- ("            if op in ('place', 'clear', 'replant', 'meal'):", "            if op in ('place', 'clear', 'meal'):"),
+ ("            if op in ('place', 'clear', 'replant', 'meal'):\n", "            if op in ('place', 'clear', 'meal'):\n"),   # a real newline: SK1's MUT_OPS literal holds the same text
  ("            out['lease_overlap'] += 1;", "            pass;"),
  ("seg-[A-Za-z0-9-]+)", "seg-[a-z0-9-]+)"),
  ("out['felled_unplanted'] += 1;", "pass;"),
@@ -209,6 +209,8 @@ M = [
  ("                        ok = reroof_decor_ok(rec, dchain, cell, f.get('block'), plot)", "                        ok = reroof_decor_ok(rec, dchain, cell, f.get('block'), 'shop')"),
  ("    name = re.sub(r'^minecraft:', '', str(block or ''))\n", "    name = str(block or '')\n"),
  ("                        why = '' if ok else ' decor_post'\n", "                        why = ''\n"),
+ # copperrun-02 CR2: the copper trip's gather rows reach the judge (the counter), and move no gate
+ ("        if name == 'gather':\n", "        if name == 'gather_':\n"),
 ]
 bad = 0
 for old, new in M:

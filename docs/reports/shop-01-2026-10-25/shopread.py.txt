@@ -151,6 +151,11 @@
 #                      new rule: a listed clear (G2's list), a foreign dig of the head's own open cell (G2 as before). The decor
 #                      record's `_build op=retired project=decor` row judges nothing. A DOORSTEP (`seg=reroof-earth`, role fill,
 #                      cobblestone) is a cell of the head (G1). The selftest pins each and its positive control.
+#   CR2 copper trips (copperrun-02, 11-06; bots/src/copperhall.mjs copperRunOrder, skills.mjs copperTripVisit): the copper hall's
+#                      trip to a known copper find logs `gather` rows of copper_ore / deepslate_copper_ore far from town (the
+#                      tunnel's digs are gather's own, never `_build` rows) and one `_copper_trip` row (not a ROW_KIND: never judged).
+#                      NO NEW RULE: a `gather` row feeds only the arms counters (gather_<per>_<arm>), never H1-H7. The selftest pins
+#                      it (the rows reach the judge, no gate moves) with a mutant that judges a gather row.
 # REPORTED, NOT A GATE: G7 placed_twice (a cell placed twice within 10 min: physically a re-placement after the cell was emptied
 #   -- a repair or a survival dig -- never two blocks in one cell; read r1 both engines).
 #   F2/F4 rows (owner 10-26: every replant skip a counted row): replants moved / deferred / skipped, cells deferred, STUCK ON CELL,
@@ -2534,6 +2539,29 @@ def selftest():
     exec(compile(src_th.replace(MUT_CL, "                    else:\n                        ok = True\n"), 'shopread_mutant', 'exec'), ns_t)
     thm = ns_t['combine'](*ns_t['judge'](base + [R('_build', 'project=townhall op=clear cell=73,71,72 block=dirt kind=cut', s=14)], thb, {}, cut=CUT, gens=gens))
     assert thm['clear_outside'] == 0, 'MUTANT SURVIVED: the clear-list rule'
+    # copperrun-02 CR2 (11-06): the copper trip's rows -- `gather` of copper ore far from town (success and failed), and a
+    # `_copper_trip` row (not a ROW_KIND) -- as the showcase tripwire marks them (arm canary, post). They REACH the judge (the gather
+    # counter moves: the positive control) and move no gate. A text mutant that judges a gather row as off_record is caught.
+    cr_rows = [R('gather', 'tunnelled 6 blocks to copper_ore; collected 7 copper_ore', s=13, bot='showcase-A', feet=[120, 41, -70]),
+               R('gather', 'copper_ore found but every candidate is buried', s=14, status='failed', bot='showcase-A', feet=[120, 41, -70]),
+               R('gather', 'collected 3 deepslate_copper_ore', s=15, bot='showcase-B')]
+    cr_trip = [R('_copper_trip', 'phase=banked at=120,41,-70 block=copper_ore gained=21 ms=410000 why=gather_success', s=16, bot='showcase-A')]
+    cr_z = {'board-a': [[100, -64, -90, 140, 90, -50]]}
+    gates = ('off_record', 'clear_outside', 'zone', 'lease_overlap', 'felled_unplanted', 'unknown_stood', 'bag_loss', 'g5_unjudged', 'oracle_missing', 'zone_unknown')
+    cr_b = J(base, zones=cr_z)
+    cr = J(base + cr_rows + [r for r in cr_trip if r['name'] in ROW_KINDS], zones=cr_z)
+    assert cr.get('gather_post_canary', 0) == cr_b.get('gather_post_canary', 0) + 3 and cr.get('gather_ok_post_canary', 0) == cr_b.get('gather_ok_post_canary', 0) + 2, 'CR2 positive control: the copper gather rows reach the judge'
+    assert '_copper_trip' not in ROW_KINDS, 'CR2: the trip row is not a judged kind'
+    for k in gates:
+        assert cr[k] == cr_b[k], ('CR2: a copper trip row moved a gate', k, cr[k], cr_b[k])
+    assert J(base + [R('_build', 'project=shop op=clear cell=120,41,-70 block=copper_ore kind=foreign', s=13)], zones=cr_z)['zone'] == 1, 'CR2 positive control: a BUILD row on that cell in the zone is G3'
+    CR_ANCH = "            out['gather_ok_%s_%s' % (per, arm)] += int(r['status'] == 'success')\n"
+    src_cr = open(os.path.abspath(__file__)).read()
+    assert src_cr.count(CR_ANCH) == 1, 'ANCHOR MISSING OR NOT UNIQUE'
+    ns_c = {'__name__': 'shopread_mutant', '__file__': os.path.abspath(__file__)}
+    exec(compile(src_cr.replace(CR_ANCH, CR_ANCH + "            out['off_record'] += 1\n"), 'shopread_mutant', 'exec'), ns_c)
+    crm = ns_c['combine'](*ns_c['judge'](base + cr_rows, proj, cr_z, cut=CUT, gens=gens))
+    assert crm['off_record'] > cr_b['off_record'], 'MUTANT SURVIVED: a gather row judged as off_record'
     print('shopread selftest: ok')
 
 
