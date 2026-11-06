@@ -241,6 +241,22 @@ await t('deferSpent: a cell whose attempts are spent is deferred and the visit g
   assert.notStrictEqual(b.srv.read(-12, G - 2, 0).name, 'air', 'the far pit\'s bottom is laid in the same visit')
   assert.ok((r1.deferred ?? []).some(d => d.k === `9,${G - 2},1` && d.why === 'attempts_spent'), JSON.stringify(r1.deferred))
 })
+// REBASE ONTO STUCKPROJ-01 (tidydead-01): the town tidy asks for BOTH (hardDefers behind TIDYDEAD, deferSpent behind GROUNDS);
+// tidydead's per-cell deferral is asked first, so the spent cell is deferred by it and the visit still goes on
+await t('deferSpent + hardDefers (the live tidy\'s two knobs): the spent cell is deferred and the far pit laid in the same visit', async () => {
+  const b = twoPits()
+  const r = await visit(R, b.srv, b.rec, { deferSpent: true, hardDefers: true })
+  assert.notStrictEqual(r.stop, 'attempts_spent')
+  assert.notStrictEqual(b.srv.read(-12, G - 2, 0).name, 'air', 'the far pit\'s bottom is laid in the same visit')
+  assert.ok((r.deferred ?? []).some(d => d.k === `9,${G - 2},1`), JSON.stringify(r.deferred))
+  // either branch alone carries it: with deferSpent's branch removed, hardDefers still defers the cell
+  await withMutant(BUILDRUN_PATH, 'if (p.deferSpent && !cand.length && open.length && open.every(c => isClear(c.at))) {', 'if (false) {', async RM => {
+    const c = twoPits()
+    const r2 = await visit(RM, c.srv, c.rec, { deferSpent: true, hardDefers: true })
+    assert.notStrictEqual(r2.stop, 'attempts_spent')
+    assert.ok((r2.deferred ?? []).some(d => d.k === `9,${G - 2},1`), JSON.stringify(r2.deferred))
+  })
+})
 await t('MUTANT KILLED: with the deferSpent branch removed, the same visit ends attempts_spent again', async () => {
   await withMutant(BUILDRUN_PATH, 'if (p.deferSpent && !cand.length && open.length && open.every(c => isClear(c.at))) {', 'if (false) {', async RM => {
     const b = twoPits()
@@ -282,6 +298,27 @@ await t('keeperDecision: free + work -> take; mine -> mine; mine with no work ->
   assert.strictEqual(GKM.keeperDecision({ lease: L0('B', now - GKM.GK.leaseTtlMs - 120_000), me: 'A', now }), 'take', 'a lapsed keeper (left town) is replaced')
   assert.strictEqual(GKM.keeperDecision({ lease: null, me: 'A', now, restUntil: now + 1 }), 'none', 'a rested holder waits its turn')
   assert.strictEqual(GKM.keeperDecision({ lease: { gen: null, rec: null, released: false, holdsUntil: 0, blocksUntil: Infinity }, me: 'A', now }), 'other', 'unreadable: never two keepers')
+})
+// REBASE ONTO STUCKPROJ-01 (starve-01): shopActive reads `keeper = order !== list` and does not starve-mark that bot's states.
+// The contract it rests on: keeperOrderPure returns the caller's `list` ITSELF unless the bot works the grounds first.
+await t('starve-01 x keeper: the order is a NEW array only for the keeper or a crew bot on a grounds lap; that bot is never starve-sent, every other bot is', async () => {
+  const SH = await import('../src/shop.mjs')
+  const list = SH.PROJECTS
+  const NOW = 2_000_000_000, OLD = NOW - SH.STARVE_MS - 60_000
+  const st = list.map(p => ({ plot: p.plot, exists: ['shop', 'shaft', 'house1', 'monument', 'paths', 'tidy'].includes(p.plot), complete: ['shop', 'shaft', 'house1'].includes(p.plot), damaged: false }))
+  const starved = SH.starveMark(st, { lastTakeOf: plot => (plot === 'paths' || plot === 'tidy' ? OLD : NOW), now: NOW })
+  assert.strictEqual(starved.find(x => x.plot === 'paths').starved, true, 'positive control: the paths are starved')
+  assert.strictEqual(starved.find(x => x.plot === 'tidy').starved, undefined, 'the tidy is never starve-marked')
+  for (const [o, isNew] of [[{ d: 'mine' }, true], [{ d: 'mine', crew: true }, true], [{ d: 'other', crew: true, grounds: true }, true], [{ d: 'none', crew: true, grounds: true }, true],
+    [{ d: 'other' }, false], [{ d: 'none' }, false], [{ d: 'other', crew: true }, false], [{ d: 'take', crew: true, grounds: false }, false]]) {
+    assert.strictEqual(GKM.keeperOrderPure(st, list, o).order !== list, isNew, JSON.stringify(o))
+  }
+  const k = GKM.keeperOrderPure(st, list, { d: 'mine' })
+  assert.strictEqual(SH.activeProject(SH.starveMark(k.states, { lastTakeOf: plot => (plot === 'paths' ? OLD : NOW), now: NOW }), k.order).plot, 'paths', 'control: marked, the keeper would leave the grounds')
+  assert.strictEqual(SH.activeProject(k.states, k.order).plot, 'tidy', 'the keeper (unmarked) works the grounds')
+  const o = GKM.keeperOrderPure(st, list, { d: 'other' })
+  assert.strictEqual(SH.activeProject(SH.starveMark(o.states, { lastTakeOf: plot => (plot === 'paths' ? OLD : NOW), now: NOW }), o.order).plot, 'paths', 'another bot is starve-sent (its plain order: the monument)')
+  assert.strictEqual(SH.activeProject(o.states, o.order).plot, 'monument', 'control: unmarked, the order')
 })
 await t('keeperOrderPure: the keeper works the grounds first, once the workshop stands; another bot sees them full (control: no workshop, no change)', async () => {
   const list = [{ plot: 'shop' }, { plot: 'house1' }, { plot: 'tidy' }]
