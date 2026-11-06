@@ -167,6 +167,8 @@ const REQUIRED = [
   'bots/test/levelfall.test.mjs',  // levelfall-01 + stationzone-01 (11-05): the workshop's floor fallback; no village station
   'bots/test/fixtures/levelfall-x1-1105.json',  // plotprep-03 (11-05): a plot's trees fall once their own saplings are settled
   'bots/test/stepwell03.test.mjs',  // stepwell-03 (11-05): the siting reaches its site (reservations first, the wall's gap)
+  'bots/src/handcap.mjs',  // handcap-01 (11-06): a shaft cap the bare hand breaks is a climb, not a pickaxe ask
+  'bots/test/handcap.test.mjs',
   // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
   'bots/src/sinks.mjs',
   'bots/scripts/sinks-offline.mjs',
