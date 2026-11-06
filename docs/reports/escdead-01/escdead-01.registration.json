@@ -1,7 +1,7 @@
 {
  "run_id": "escdead-01",
- "sha": "__FINAL_SHA__",
- "registered_at": "__REGISTERED_AT__",
+ "sha": "f5005078a90de8c2301c7b7da531aa4f707a1333",
+ "registered_at": "2026-11-06T13:10:00Z",
  "promotion": "fleet-wide",
  "target_pools": [
   "isolated-d",
@@ -73,5 +73,5 @@
   ],
   "note": "EFFECT = pinned bot-hours down (no pinned_bot_h metric exists in effectmetrics.py: the row rates above are its proxies; the hand measure is docs/reports/escdead-design-2026-11-06.md section 1's pin walk, 3.4% of online bot-h, to be re-run at +24 h / +72 h). DROWNING is the breach's risk: `_death` drowned is a guardrail and every `_flood_breach` row names min_air and hp. `_swim_under` status success is 0/1,102 bot-h in the last 24 h (effectwatch validate refuses a zero baseline), so it is the read's OWN line, not an effect target: the +90/+180 read counts `_swim_under` success and `_flood_breach` success on the target bots."
  },
- "notes": "__NOTES__"
+ "notes": "[FUN MODE] escdead-01 @ f5005078a90de8c2301c7b7da531aa4f707a1333 branch escdead-01 on gkforever-01 9e9284d7 (decbundle-01 on idlework-01 cab8abcf) with handcap-01 601fe6a3..f78e08b6 cherry-picked under it (byte-identical diff). Phase 2.3 (code evaluation 11-06): (a) a pin clock (one 3-block box); on a pin >= 30 min swim-under's search widens to radius 8 / descent 4 (breath bound unchanged) and a flood-in breach (roof feet+2, 1..8 water cells then open air, HP >= 18, full air, no lava within 4, nobody else in the pocket, <= 240 ticks of breath) breaks the roof and swims up; (b) one usable-pickaxe rule (toolfor.mjs) in mayDigForEscape / poolToolOk / toolFor / pickaxeUses / craftRoomRemedy, a pinned escape may swing the last use; (c) protect-zone depth from the terrain surface at the chokepoint only. ESCDEAD=0 = the base. MEASURED 7 d: 124 pins >= 1 h = 457.1 of 13,409 online bot-h, flood chain 335.7 (73%); Delta 103.8 h, Echo 101.8 h (358,58,180), hive-c-Bravo 16.1 h. PAPER (sandbox5/6, 11-06 backup cuts, ESCDEAD_PIN_MS=60000): isolated-d base stayed 1/1, cand escaped 3/3 by the wide swim (min air 17, hp 20); hive-c (+synthetic pillar so isEntombed fires) base stayed 1/1, cand escaped 3/3 by the breach (rose 9.9 in 3.7-4.2 s, min air 16, hp 20). REVIEWS: Codex r1 2 blockers (ownership before the dig; a buried village block read deep) fixed, r2 re-check: both fixed, no new blocker; Claude independent (claude -p) r1: no blockers, notes 1+3 taken. SUITE ci2 escdead-f5005078 408/408 PASS. READ +90/+180: generic + own lines: `_flood_breach` outcomes (a drowned `_death` within 2 min of a `_flood_breach_start` = REVERT), `_swim_under wide=1` outcomes, `_escdead_mode on=1` licence. DRAW MUST contain isolated-d (else unexposed -> INCONCLUSIVE). Rollback: ESCDEAD=0 in the env or the base sha."
 }

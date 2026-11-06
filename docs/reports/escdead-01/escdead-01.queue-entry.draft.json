@@ -6,10 +6,10 @@
  "hold": null,
  "note": "DRAFT (escdead-01 fork, 11-06; the control session queues it -- this file does NOT edit ~/canary-queue.json and carries NO patch block). SURVIVAL entry (S lane), phase 2.3: the wide swim + the flood-in breach + one usable-pickaxe rule + terrain zone depth, ONE entry (one ESCDEAD=0 rollback). Built on gkforever-01 9e9284d7 with handcap-01 cherry-picked under it (byte-identical): after handcap-01 promotes, the autorebase onto the new tip is the handcap commits dropping out. DRAW: MUST contain isolated-d (Delta+Echo, 358,58,180, ~100 h each) and should contain hive-c (Bravo under a lake); a draw without isolated-d is unexposed -> INCONCLUSIVE (survival.md S3, swimunder-01's miss). Tier 3 (reflex.mjs, poolescape.mjs, exit-contract.mjs, protectzone.mjs): canary slot, not the owner-direct lane.",
  "variants": {
-  "__BASE_SHA__": {
-   "registration": "/home/mike/mcai-analysis/escdead-01.__SHORT__.json",
-   "approved": "__APPROVED__",
-   "canary_sha": "__FINAL_SHA__",
+  "9e9284d7078194045f673344af3116e6022cdcbf": {
+   "registration": "/home/mike/mcai-analysis/escdead-01.f5005078.json",
+   "approved": "Codex (codex exec read-only) r1 2 BLOCKERS fixed in 9ad677ef, r2 re-check both fixed / no new blocker; Claude independent review (claude -p, plan mode) r1 BLOCKERS none; tier 3 by protected.py (exit-contract.mjs, poolescape.mjs, protectzone.mjs, reflex.mjs); escdead 33/33 (11 anchored mutants), craft-room/toolkit/poolescape/toolfor re-anchored; Paper isolated-d 3/3, hive-c 3/3 (base stayed); FULL SUITE ci2 escdead-f5005078 408/408 PASS (rc=0)",
+   "canary_sha": "f5005078a90de8c2301c7b7da531aa4f707a1333",
    "branch": "escdead-01",
    "reads_src": "/home/mike/mcai-analysis",
    "reads": {},
