@@ -171,6 +171,7 @@ import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, sur
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone } from './stepwell.mjs'   // stepwell-02: the descent
 import { columnMemo as swColumnMemo, sitingRead as swSitingRead } from './stepwell.mjs'   // stepwell-03: the siting's memos
+import { stepwellCrew, stepwellBuildersNow, stepwellCrewDue, crewSector } from './stepwell.mjs'   // stepwell-05: the tank's crew
 import { plotPrep, replantCells, PLOTPREP } from './tidy.mjs'   // stepwell-01: the site's felling (the groundskeeper's stands and replants)
 import { CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANE, CANE_PALETTE, CANE_FOREIGN, siteCaneFarm, caneCells, caneState, caneCensus, caneHarvest, caneStand, caneNeed, caneDue, caneAlsoDone, cutCell, caneHarvestRow, caneBankable } from './canefarm.mjs'   // canefarm-01
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
@@ -17601,11 +17602,17 @@ function hallSiteFor (bot, plan, c, stood) {
     return r.ok ? { ok: true, why: 'ok', record: r.record } : r
   } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80) } }
 }
+/** stepwell-05: a project's admission slots now -- the stepwell's from its record (stepwell.mjs stepwellBuildersNow: raised only after
+ *  the felling, never above STEPWELL_CREW), every other project's as listed (shop.mjs buildersOf). Unreadable: the listed count. */
+function buildersFor (p) {
+  if (p?.plot !== STEPWELL_PLOT) return buildersOf(p)
+  try { const h = recordHead(townDir(), projKeyOf(STEPWELL_PLOT)); return h.ok && h.head?.rec ? stepwellBuildersNow(h.head.rec) : buildersOf(p) } catch { return buildersOf(p) }
+}
 /** Has project `p` an admission slot this holder may take (none held, its own, or lapsed)? Unreadable: free (the order's own
  *  slot check then decides, as before). */
 function slotFreeFor (p, holder, now = Date.now()) {
   try {
-    for (let k = 1; k <= buildersOf(p); k++) {
+    for (let k = 1; k <= buildersFor(p); k++) {
       const st = projLeaseState(townDir(), projKeyOf(p.plot), `slot${k}`)
       if (!st || st.rec?.holder === holder || now >= st.blocksUntil) return true
     }
@@ -17862,7 +17869,7 @@ function projectDraw (bot, normal, { forProject = true, base = takeAllowed, then
 /** Is an admission slot free for this bot? (the order's reading) Never throws: unreadable reads as full. */
 export function shopSlotsFree (bot) {
   try {
-    for (let k = 1; k <= buildersOf(shopActive()); k++) {
+    for (let k = 1; k <= buildersFor(shopActive()); k++) {
       const s = projLeaseState(townDir(), shopKey(), `slot${k}`)
       if (!s || s.rec?.holder === bot?.username || Date.now() >= s.blocksUntil) return true
     }
@@ -24688,14 +24695,36 @@ async function buildStepwell (ctx, args, signal) {
   return buildStepwellRun(ctx, { t0, budget, f, out, dir, key, me, home, rh, rec: rh.head?.rec ?? rec }, signal)
 }
 /** THE STEPWELL VISIT'S WORK on its record (the felling, then the tank and its descent): buildStepwell's second half. */
-async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, rh, rec }, signal) {
+async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, rh: rh0, rec: rec0 }, signal) {
+  let rh = rh0, rec = rec0   // stepwell-05: the crew's generation is read back
   const { bot } = ctx
   const read0 = stairRead(bot)
   const pending = fellPending(read0, rec)
   if (rec.structure_complete && pending === 0 && stepwellDamaged(read0, rec, { lights: countItem(bot, 'torch') > 0 }) == null) return out('no_effect', 'complete', 'the stepwell stands')
-  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === STEPWELL_PLOT)))
+  // stepwell-05: THE CREW -- every listed log down: the record's builders_max is raised to STEPWELL_CREW (a published generation, the
+  // tripwire's lease rule reads it) BEFORE any second slot is taken; the felling never had more than one
+  const crew = stepwellCrew()
+  const crewTo = stepwellCrewDue(rec, pending, crew)
+  if (crewTo != null) {
+    const pub = publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && stepwellCrewDue(cur, pending, crew) != null ? { ...cur, builders_max: crewTo } : null), { by: me })
+    stepwellRow(bot, 'crew', { why: pub.result, n: crewTo, gen: pub.gen ?? '-' })
+    if (pub.result === 'accepted') { const h2 = recordHead(dir, key); if (h2.ok && h2.head) { rh = h2; rec = h2.head.rec } }
+  }
+  const nBuilders = stepwellBuildersNow(rec, crew)
+  const slot = takeSlot(dir, key, me, nBuilders)
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
+  // a slot beyond the first never fells (the felling is one builder's: runVisit's tree rows and replants stay one bot's)
+  if (slot.slot > 1 && (pending == null || pending > 0)) { releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen); return out('no_effect', 'felling_one', 'the felling is one builder\'s; the tank takes a crew once every log is down', { stop: 'felling_one' }) }
+  // the crew's share of a layer (stepwellvisit.mjs `share`): this slot's sector; the others' sectors while they hold their slots
+  const liveOther = j => { try { const st = projLeaseState(dir, key, `slot${j}`); return !!st && st.rec?.holder !== me && Date.now() < st.blocksUntil } catch { return true } }
+  const crewBox = (() => { try { return planOfRecord(rec).box } catch { return null } })()
+  const crewCentre = Array.isArray(crewBox) ? [(crewBox[0] + crewBox[2]) / 2, (crewBox[1] + crewBox[3]) / 2] : null
+  const share = nBuilders > 1 && crewCentre ? {
+    mine: c => crewSector(crewCentre, c, nBuilders) === (slot.slot - 1) % nBuilders,
+    othersBusy: () => Array.from({ length: nBuilders }, (_, i) => i + 1).some(j => j !== slot.slot && liveOther(j)),
+    lead: () => Array.from({ length: slot.slot - 1 }, (_, i) => i + 1).every(j => !liveOther(j)),
+  } : null
   let effects = null
   let bag0 = null
   const placedBy = {}, tookAll = {}, crafted = {}
@@ -24777,7 +24806,7 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     const now = () => Date.now()
     const runIt = fn => (plan.descent ? withStairClaim(ctx.runner, fn) : fn())   // stepwell-02: the stair's body claim in the descent (the entombment reflex stands down)
     const r = await runIt(() => runStepwellVisit({
-      plan, exit: rec.exit,
+      plan, exit: rec.exit, share,
       onStop: async (y, why) => { publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && cur.state !== 'stopped' ? stepwellStopped(cur, { y, why, now: now() }) : null), { by: me }) },
       onTiers: async tiers => {
         // stepwell-02: complete only when the descent (if the record has one) stands too

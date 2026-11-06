@@ -10,6 +10,7 @@
 // the rim walks out by the flights (the plan's walk proof: every walkable column reaches the rim in steps of 1).
 import { Vec3 } from 'vec3'
 import { firstUndoneUnit, stepwellNext, standsFor, inReach, SW, tiersDone, cellGood, POST_BLOCK, unitDone } from './stepwell.mjs'
+import { shareView } from './stepwell.mjs'   // stepwell-05: the crew's sector of a layer
 import { isFull, isWet } from './shaftgeom.mjs'
 import { stairRead, stairItems } from './shaftvisit.mjs'
 import { withDigScope } from './digtown.mjs'
@@ -36,7 +37,8 @@ const same = (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1] && a[2] === 
 
 /**
  * -> { stop, why, y, placed, dug, ops, skipped, tiers }. `p` = { rec, plan, onStop(y, why) -> Promise, onTiers?(tiers) -> Promise,
- * exit }. `e` = { read (a fresh reader per get), feet() -> [x,y,z], walkTo(cell) -> Promise<bool>, dig(cell) -> Promise<'confirmed'|...>,
+ * exit, share? }. stepwell-05 `share` = { mine(cell) -> bool, othersBusy() -> bool, lead() -> bool } (absent: one builder, as
+ * before). `e` = { read (a fresh reader per get), feet() -> [x,y,z], walkTo(cell) -> Promise<bool>, dig(cell) -> Promise<'confirmed'|...>,
  * place(cell, role) -> Promise<'confirmed'|'no_material'|'no_support'|'no_reach'|'refused'>, toolOk() -> bool, fence() -> bool,
  * occupied?(cell) -> bool (a player's body stands on the cell: never dug), log(op, d), now(), aborted() }.
  */
@@ -47,6 +49,7 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
   const fails = new Map()
   const banned = new Set()
   let litOff = false
+  let shareOff = false   // stepwell-05: no other builder holds a slot -- this visit works whole layers
   const end = (stop, why = null, y = null) => { out.stop = stop; out.why = why; out.y = y; return out }
   const fail = (c, why) => {
     const k = kOf(c)
@@ -66,11 +69,24 @@ export async function runStepwellVisit (p, e, { deadline = Infinity, opsMax = SW
       const w = firstUndoneUnit(read, plan, { lights: lit })
       if (!w) return end('complete')
       if (w.unknown) return end('unknown', 'an unloaded or unread cell', w.unit.y)
-      const op = stepwellNext(read, plan, w.unit, { feet: e.feet(), skip, lights: lit })
+      // stepwell-05: THE CREW -- a tank layer is this builder's sector only (the others' sectors are theirs); a descent station the
+      // lowest live slot's alone
+      if (shareOff && p.share?.othersBusy()) shareOff = false   // another builder took a slot since: back to this builder's sector
+      const sharing = !!p.share && !shareOff
+      if (sharing && w.unit.station && !p.share.lead()) return end('shared', 'the descent is one builder\'s: another builder holds a lower slot', w.unit.y)
+      const unit = sharing && !w.unit.station ? shareView(w.unit, p.share.mine) : w.unit
+      const op = stepwellNext(read, plan, unit, { feet: e.feet(), skip, lights: lit })
       if (op.op === 'done') {
         // only torches left that would not take (Paper 11-05: a torch refused twice held the descent's first station for 40 visits):
         // the torches never hold the work -- this visit goes on without them; a later visit or the repair lays them
-        if (lit && unitDone(read, plan, w.unit, { lights: false }) === true) { litOff = true; e.log('lights_passed', { at: w.unit.cut[0] ?? w.unit.tops[0] ?? null, y: w.unit.y }); continue }
+        if (lit && unitDone(read, plan, unit, { lights: false }) === true) { litOff = true; e.log('lights_passed', { at: unit.cut[0] ?? unit.tops[0] ?? null, y: w.unit.y }); continue }
+        // stepwell-05: this builder's part of the layer is DONE (not passed): the rest is another builder's while one holds a slot,
+        // else this visit takes the whole layer (never the next one before this one stands: the order is the safety)
+        if (sharing && !w.unit.station && unitDone(read, plan, unit, { lights: lit }) === true) {
+          if (p.share.othersBusy()) return end('shared', 'this builder\'s sector of the layer is done; another builder works the rest', w.unit.y)
+          shareOff = true
+          continue
+        }
         return end('passed', `${out.skipped} cell(s) passed this visit`, w.unit.y)
       }
       if (op.op === 'wait') return end('unknown', `unread ${kOf(op.at)}`, w.unit.y)
