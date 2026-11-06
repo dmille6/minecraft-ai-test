@@ -17,7 +17,8 @@
 import { WOOD_KEEP } from './woodkeep.mjs'
 import { equivalentTools } from './skills.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
-import { bankableInventory, depositPlan, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { bankableInventory, depositPlan, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { depositVerdict, depositRungFixOn } from './depositoffer.mjs'   // decbundle-01: the gate's own deposit decision
 import { idleWorkOn, idlePick, idleStep, idleMet, idleBar, countOf, IDLE_NEEDS, SCOUT_DIST } from './idlework.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem, snapshot } from './state.mjs'
@@ -964,12 +965,17 @@ export const SUSTAINING = [
  * never banked. With IDLEWORK_RETURNFIRST on (default) `return` comes first. =0 is the rollback (the old order). Pure.
  */
 export const returnFirstOn = (env = process.env) => !/^\s*0\s*$/.test(String(env?.IDLEWORK_RETURNFIRST ?? '1'))   // (a regex, not trim-compare: dirtrung.test's mutant anchors on the dirt switch's form)
-/** Would admission refuse a plain deposit AT the chest, on this rung? (its depositPlan is empty, or depositDue says not due:
- *  fewer than 12 bankable with under 30 slots used -- Codex r1 BLOCK: a six-iron batch is below it). Pure over the items. */
-export function depositRefused (items = []) {
-  if (!depositPlan(items).length) return true
+/** Would admission refuse a plain deposit AT the chest, on this rung? Asked through the gate's own pure decision
+ *  (depositoffer.mjs depositVerdict) so the rung and the gate cannot disagree. DECBUNDLE-01: with the `#N` fix on
+ *  (DEPOSITRUNG, default) the gate's floor on the deposit rung is 1, so only a plan that moves nothing is refused -- a six-iron
+ *  batch is banked; DEPOSITRUNG=0 is the old gate (the rung id never matched: fewer than 12 bankable with under 30 slots used is
+ *  refused -- idlework-01's Codex r1 BLOCK). Pure over the items and env. */
+export function depositRefused (items = [], env = process.env) {
+  const planLength = depositPlan(items).length
+  if (!planLength) return true
   const bankable = bankableInventory(items, { wants: DEPOSIT_ALWAYS }).count
-  return !depositDue({ bankable, distHome: 0, storageWithin48: true, onDepositMilestone: true, occupiedSlots: items.length })
+  return !depositVerdict({ planLength, bankable, occupiedSlots: items.length, distHome: 0, storageWithin48: true,
+                           onDepositMilestone: depositRungFixOn(env) }).ok
 }
 /** deposit_surplus at its last step (surplus counted, the bank open): met with no chest in reach, or -- return-first on -- when
  *  the deposit's own plan would move nothing (admission refuses that deposit as deposit_nothing_to_bank). Pure. */

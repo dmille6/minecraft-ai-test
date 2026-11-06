@@ -18,14 +18,25 @@
 // own skill away on its own rung (CLAUDE.md: two correct guards composing into a dead end). On the rung the floor is 1.
 import { depositDue } from './bankable.mjs'
 
-/** DEPOSITOFFER=0 turns the offer filter off (the gate fix stays: it is a correctness fix). */
+/**
+ * DECBUNDLE-01: the `#N` fix keeps its OWN rollback. DEPOSITRUNG=0 restores the old gate exactly: the literal compare (never
+ * true on sustaining ids), so the rung gets the 12-item floor again. The offer is built on the FIXED gate -- under the old one it
+ * would drop `deposit` on the deposit rung itself (the dead end found building this) -- so DEPOSITRUNG=0 turns the offer off too.
+ */
+export const depositRungFixOn = (env = process.env) => String(env?.DEPOSITRUNG ?? '1') !== '0'
+/** DEPOSITOFFER=0 turns the offer filter off (the gate fix stays: its rollback is DEPOSITRUNG=0, which turns this off too). */
 export function depositOfferConfig (env = process.env) {
-  return { on: String(env.DEPOSITOFFER ?? '1') !== '0' }
+  return { on: String(env.DEPOSITOFFER ?? '1') !== '0' && depositRungFixOn(env) }
 }
 
 /** Sustaining ids carry `#N` (`deposit_surplus#3207`); a prerequisite override (`...+prereq`) is not the rung. */
 export function isDepositMilestone (id) {
   return typeof id === 'string' && /^deposit_surplus(#\d+)?$/.test(id)
+}
+/** THE GATE'S "on the deposit rung?" -- the `#N` fix, or (DEPOSITRUNG=0) the old literal compare. */
+export function onDepositRung (id, env = process.env) {
+  if (!depositRungFixOn(env)) return id === 'deposit_surplus'
+  return isDepositMilestone(id)
 }
 
 export const NEAR_HOME = 96

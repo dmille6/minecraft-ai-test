@@ -17,7 +17,7 @@ import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
 import { bankableInventory, depositPlan, depositNoopReason, bankableExclusion, cobbleReconcileProbe, DEPOSIT_ALWAYS } from './bankable.mjs'
-import { depositVerdict, isDepositMilestone } from './depositoffer.mjs'
+import { depositVerdict, onDepositRung } from './depositoffer.mjs'
 import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
@@ -277,7 +277,8 @@ export class AdmissionControl {
           .includes(bot.registry?.blocks?.[b.type]?.name) &&
           depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position), maxDistance: 48 }),
       // THE `#N` FIX: sustaining ids are `deposit_surplus#3207`; `=== 'deposit_surplus'` was never true on the fleet
-      onDepositMilestone: isDepositMilestone(milestoneId),
+      // (DEPOSITRUNG=0 is its rollback: depositoffer.mjs onDepositRung)
+      onDepositMilestone: onDepositRung(milestoneId),
     })
   }
 
