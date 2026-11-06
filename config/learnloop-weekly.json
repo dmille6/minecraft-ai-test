@@ -50,7 +50,14 @@
    "_export_check": "bf16 9B (18 GB) does not fit beside ethan-gpu's 6 GB; c2's check passed 98.5% with the same converter"
   }
  ],
- "eval_items": "~/learnloop/r3/m3-eval.v0.pc.jsonl",
+ "eval_items": "~/learnloop/r3/m3-eval.v1.pc.jsonl",
+ "eval_items_src": "~/learnloop/r3/m3-eval.v1.jsonl",
+ "eval_version": "m3-eval.v1",
+ "eval_sha256": "a838e2d768a66c2215b550c4452b3aca4bebdcd5cdc2b3f54144b0d30aad68f7",
+ "forbid_items": [
+  "~/learnloop/r3/m3-eval.v0.pc.jsonl"
+ ],
+ "_eval_doc": "OWNER 11-06 ~06:05Z: the gate set is VERSIONED. v1 = v0 (600 items, cell C) with the 71 GOOD items that fail G5 (llpatrol-01 patrol-lap rule) replaced by G5-clean cell-C good items drawn by the v0 method (weekly/evalset.py; manifest ~/learnloop/r3/m3-eval.v1.jsonl.MANIFEST.json); fail/post_veto and 129 good items byte-identical. weekly.py refuses a gate set whose sha256 is not eval_sha256. v0 stays on disk with its historical scores; its ids stay forbidden in training.",
  "bots_dir": "~/learnloop/replay/bots-96261fffbdaf/bots",
  "incumbent": {
   "name": "qwen2.5:7b-instruct",

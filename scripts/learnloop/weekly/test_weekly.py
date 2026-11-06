@@ -504,6 +504,88 @@ def prompt_transform_passes_logged_pc_layout_items_through():
         assert run_pt(items, src.replace(old, new))[0] != (0 if items is PT_ITEMS else 1), 'mutant survived: %r' % old[:60]
 
 
+# ---------------------------------------------------------------- the gate set is versioned (m3-eval.v1, owner 11-06)
+
+@t
+def fill_plan_fills_deficit_skills_first_then_proportionally():
+    import evalset as EV
+    # 5 removed; gather is 3 short of its quota, mine 1 short, explore over: deficits first (3+1), then 1 by remainder
+    plan = EV.fill_plan({'gather': 10, 'mine': 6, 'explore': 2}, {'gather': 7, 'mine': 5, 'explore': 4},
+                        {'gather': 50, 'mine': 20, 'explore': 30}, 5)
+    assert sum(plan.values()) == 5 and plan['gather'] >= 3 and plan['mine'] >= 1, plan
+    assert EV.fill_plan({'gather': 10}, {'gather': 9}, {'gather': 1, 'mine': 9}, 3) == {'gather': 1, 'mine': 2}   # avail caps
+    try:
+        EV.fill_plan({'gather': 10}, {}, {'gather': 2}, 5); raise AssertionError('not refused')
+    except SystemExit as e:
+        assert 'only 2' in str(e)
+
+
+def evalset_fixture(d):
+    import gzip
+    v0 = os.path.join(d, 'v0'); os.makedirs(v0)
+    rows = [trip('g%d' % i, bot='b%d' % i, world='board-a') for i in range(4)]                       # real gathers
+    rows += [trip('p%d' % i, 'explore', 'patrol#%d' % i, bot='p%d' % i, world='board-a') for i in range(3)]   # lap walks
+    rows += [trip('n%d' % i, 'mine', bot='n%d' % i, world='board-a', gain={'iron_ore': 2}) for i in range(4)]  # undrawn pool
+    rows += [trip('nl', 'goto', 'return', bot='nl', world='board-a')]                                     # undrawn lap walk
+    rows += [trip('v0', 'mine', label='neutral', refused=True, reason='repeat_loop (x3)', bot='v', world='board-a'),
+             trip('v1', 'gather', bot='v', world='board-a')]                                               # good AFTER a veto: not pool
+    rows += [trip('f0', 'mine', label='bad', status='failed', bot='f', world='board-a')]
+    with gzip.open(os.path.join(v0, 'heldout-C.jsonl.gz'), 'wt') as fh:
+        fh.write(''.join(json.dumps(r) + '\n' for r in rows))
+    json.dump({'v1:h1': {'template': 'You are <BOT>, <ROLE>', 'schema': {}, 'skills': []}}, open(os.path.join(v0, 'sysprompts.json'), 'w'))
+    import build_dataset as BD
+    sps = json.load(open(os.path.join(v0, 'sysprompts.json')))
+    old = [dict(BD.materialise(r, sps), eval_kind='good') for r in rows if r['id'] in ('g0', 'g1', 'p0', 'p1', 'p2')]
+    old += [dict(BD.materialise(rows[-1], sps), eval_kind='fail')]
+    op = os.path.join(d, 'old.jsonl'); open(op, 'w').write(''.join(json.dumps(x) + '\n' for x in old))
+    return v0, op
+
+
+@t
+def evalset_v1_replaces_only_the_lap_good_items():
+    import evalset as EV
+    with tempfile.TemporaryDirectory() as d:
+        v0, op = evalset_fixture(d)
+        out = os.path.join(d, 'v1.jsonl')
+        EV.main(['build', '--v0', v0, '--old', op, '--out', out, '--seed', '3'])
+        new = [l for l in open(out)]; old = {json.loads(l)['id']: l for l in open(op)}
+        ids = [json.loads(l)['id'] for l in new]
+        m = json.load(open(out + '.MANIFEST.json'))
+        assert len(ids) == 6 and m['removed'] == ['p0', 'p1', 'p2'] and len(m['added']) == 3, m
+        # the pool is build_dataset's: 12 good decisions (v1 follows a veto: out); G5 takes the 4 lap walks out of it
+        assert m['cell_C_good_pool'] == 12 and m['cell_C_good_pool_after_G5'] == 8, m
+        assert not {'nl', 'v1', 'p0', 'p1', 'p2'} & set(ids), ids             # never a lap walk, never a post-veto decision
+        assert set(m['added']) <= {'g2', 'g3', 'n0', 'n1', 'n2', 'n3'}
+        assert [l for l in new if json.loads(l)['id'] in old] == [old[i] for i in ('g0', 'g1', 'f0')]   # byte-identical, in order
+        try:
+            EV.main(['build', '--v0', v0, '--old', op, '--out', out]); raise AssertionError('overwrote')
+        except SystemExit as e:
+            assert 'immutable' in str(e)
+
+
+@t
+def the_round_reads_the_pinned_gate_set_version():
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, 'ev.jsonl'); open(p, 'w').write('{"id": "a"}\n')
+        import hashlib
+        h = hashlib.sha256(open(p, 'rb').read()).hexdigest()
+        assert W.eval_set_check({'eval_items': p, 'eval_version': 'm3-eval.v1', 'eval_sha256': h}) == {'version': 'm3-eval.v1', 'path': p, 'sha256': h}
+        try:
+            W.eval_set_check({'eval_items': p, 'eval_version': 'm3-eval.v1', 'eval_sha256': '0' * 64}); raise AssertionError('not refused')
+        except W.Fail as e:
+            assert 'not the pinned' in str(e)
+        assert W.eval_set_check({'eval_items': p})['version'] == 'unpinned'
+        cfg = {'eval_items': p, 'forbid_items': ['/x/m3-eval.v0.pc.jsonl']}
+        assert W.forbid_files(cfg) == [p, '/x/m3-eval.v0.pc.jsonl']            # every version's ids stay out of training
+    # the committed config pins v1 and still forbids v0 (structural: the wiring the 11-08 round reads)
+    C = json.load(open(os.path.join(HERE, '..', '..', '..', 'config', 'learnloop-weekly.json')))
+    assert C['eval_version'] == 'm3-eval.v1' and C['eval_items'].endswith('m3-eval.v1.pc.jsonl') and len(C['eval_sha256']) == 64
+    assert any(f.endswith('m3-eval.v0.pc.jsonl') for f in C['forbid_items'])
+    reg = {'best': {'alias': 'b4', 'model_key': 'run:b4'}}
+    assert W.rescore_models(C, reg, ['cand-c2-q8=cand-c2-q8']) == [('qwen2.5-7b-instruct', 'qwen2.5-7b-instruct', 'incumbent'),
+                                                                  ('b4', 'run:b4', 'best'), ('cand-c2-q8', 'cand-c2-q8', 'extra')]
+
+
 # ---------------------------------------------------------------- mutants
 
 def mutant(path, old, new, test):
@@ -520,6 +602,16 @@ def mutant(path, old, new, test):
             return True
         finally:
             W.__dict__.update(saved)
+    if path.endswith('evalset.py'):
+        import evalset as EV
+        exec(compile(code, path, 'exec'), mod.__dict__)
+        saved = EV.__dict__.copy(); EV.__dict__.update({k: v for k, v in mod.__dict__.items() if callable(v)})
+        try:
+            test(); return False
+        except Exception:
+            return True
+        finally:
+            EV.__dict__.update(saved)
     if path.endswith('build_clean.py'):
         import build_clean as BC
         exec(compile(code, path, 'exec'), mod.__dict__)
@@ -570,7 +662,20 @@ def mutants_are_killed():
         ("    if not isinstance(e, dict) or e.get('rule') != G5_RULE:", "    if not isinstance(e, dict):", assemble_refuses_a_good_row_that_fails_g5),
         ("LAP_RUNGS = frozenset(('patrol', 'return', 'deposit_surplus', 'idle'))", "LAP_RUNGS = frozenset(('patrol',))", patrol_lap_walks_are_never_good),
     ]
-    alive = [c[0] for c in cases if not mutant(wp, c[0], c[1], c[2])] + [c[0] for c in bcases if not mutant(bp, c[0], c[1], c[2])]
+    ep = os.path.join(HERE, 'evalset.py')
+    ecases = [
+        ("    lap = {it['id'] for it in good if BC.patrol_lap(pool[it['id']])}", "    lap = {it['id'] for it in good if BC.patrol_lap(pool[it['id']])} - {'p0'}", evalset_v1_replaces_only_the_lap_good_items),
+        ("    clean = {i: t for i, t in pool.items() if not BC.patrol_lap(t)}", "    clean = dict(pool)", evalset_v1_replaces_only_the_lap_good_items),
+        ("        if usable and pv is not None and pv['gate']['refused'] and (pv['gate']['reason'] or '').startswith('repeat_loop'):\n            continue\n", "", evalset_v1_replaces_only_the_lap_good_items),
+        ("    for k in sorted(target, key=lambda k: (-(target[k] - kept.get(k, 0)), k)):", "    for k in []:", fill_plan_fills_deficit_skills_first_then_proportionally),
+        ("        plan[k] = max(0, min(target[k] - kept.get(k, 0), avail.get(k, 0), n - sum(plan.values())))", "        plan[k] = max(0, min(target[k] - kept.get(k, 0), n - sum(plan.values())))", fill_plan_fills_deficit_skills_first_then_proportionally),
+    ]
+    wcases = [
+        ("    if want and got != want:", "    if False:", the_round_reads_the_pinned_gate_set_version),
+        ("    return [ex(cfg['eval_items'])] + [ex(f) for f in cfg.get('forbid_items') or []]", "    return [ex(cfg['eval_items'])]", the_round_reads_the_pinned_gate_set_version),
+    ]
+    alive = [c[0] for c in cases + wcases if not mutant(wp, c[0], c[1], c[2])] + [c[0] for c in bcases if not mutant(bp, c[0], c[1], c[2])] \
+        + [c[0] for c in ecases if not mutant(ep, c[0], c[1], c[2])]
     assert not alive, 'mutants survived: %s' % alive
 
 

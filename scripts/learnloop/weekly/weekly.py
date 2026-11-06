@@ -37,7 +37,7 @@ GPU: every GPU phase claims the 3090 through llgpu.sh, which refuses while ANY o
 llama-server or servea, another job) is on it -- the phase then waits for the next tick ("wait: GPU busy ...").
 ethan-gpu is never touched. The Blackwell and 10.0.0.72 are never contacted.
 """
-import argparse, collections, datetime as dt, fcntl, glob, gzip, hashlib, json, math, os, random, shlex, shutil, subprocess, sys, time
+import argparse, collections, datetime as dt, fcntl, glob, gzip, hashlib, json, math, os, random, shlex, shutil, subprocess, sys, time, types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LL = os.path.dirname(HERE)
@@ -95,6 +95,23 @@ def window(newest_archived_day, window_days):
     """The round's days: the newest `window_days` sealed days ending at the newest archived day."""
     end = dt.date.fromisoformat(newest_archived_day)
     return (end - dt.timedelta(days=window_days - 1)).isoformat(), end.isoformat()
+
+
+def forbid_files(cfg):
+    """Every gate-set version's ids are forbidden in training: the current one and each older one (forbid_items)."""
+    return [ex(cfg['eval_items'])] + [ex(f) for f in cfg.get('forbid_items') or []]
+
+
+def eval_set_check(cfg):
+    """The gate set the round replays and gates on must be the version the config names (eval_version + eval_sha256,
+    owner 11-06: the 11-08 round reads m3-eval.v1). -> {'version', 'path', 'sha256'}; Fail on a mismatch. A config
+    without a pin (rounds before v1) is reported as such, not refused."""
+    p = ex(cfg['eval_items'])
+    got = hashlib.sha256(open(p, 'rb').read()).hexdigest()
+    want = cfg.get('eval_sha256')
+    if want and got != want:
+        raise Fail('gate set %s has sha256 %s, not the pinned %s (%s)' % (p, got, want, cfg.get('eval_version')))
+    return {'version': cfg.get('eval_version') or 'unpinned', 'path': p, 'sha256': got}
 
 
 G5_RULE = 'llpatrol-01'      # build_clean.G5_RULE; a pool or training file without this exact rule is refused
@@ -413,7 +430,8 @@ def ph_transform(R):
             transform(R, ex('~/learnloop/datasets/v0/pilot-1000.jsonl'), ex(sb['pilot']))
     ev = ex(R.cfg['eval_items'])
     if not os.path.exists(ev):
-        transform(R, ex('~/learnloop/datasets/v0/m3-eval.jsonl'), ev)
+        transform(R, ex(R.cfg.get('eval_items_src') or '~/learnloop/datasets/v0/m3-eval.jsonl'), ev)
+    eval_set_check(R.cfg)
     return {'transform': info, 'eval_items': ev, 'eval_sha256': hashlib.sha256(open(ev, 'rb').read()).hexdigest()}
 
 
@@ -505,13 +523,13 @@ def ph_assemble(R):
                '--pool-file', R.p('data', 'teach-items.jsonl'), '--good-file', os.path.join(d, 'good.pc.jsonl'),
                '--labels', R.state['phases']['teach']['labels'], '--local-model', R.cfg['teacher']['model'],
                '--good-n', str(a['good_n']), '--relabel-n', str(a['relabel_n']), '--max-skill-share', str(a['max_skill_share']),
-               '--seed', str(R.state['seed']), '--forbid-ids', ex(R.cfg['eval_items'])]
+               '--seed', str(R.state['seed']), '--forbid-ids'] + forbid_files(R.cfg)
         if bp:
             cmd += ['--buffer-pool'] + bp + ['--buffer-labels'] + bl
         sh(cmd, timeout=3600)
     m = json.load(open(os.path.join(d, name + '.MANIFEST.json')))
     # the file's own assertions, re-checked here (the c2 report's s.2 list): no paid row, no gate id, no held-out world
-    ev = {json.loads(l)['id'] for l in open(ex(R.cfg['eval_items'])) if l.strip()}
+    ev = {json.loads(l)['id'] for f in forbid_files(R.cfg) for l in open(f) if l.strip()}
     bad = collections.Counter()
     for r in lines(os.path.join(d, name)):
         bad['paid'] += (r.get('provenance') or '').startswith('teacher-paid:')
@@ -615,6 +633,7 @@ def batchload(R, alias, items, out, mode, param, n, temperature, api='oai', bots
 
 
 def ph_replay(R):
+    eval_set_check(R.cfg)
     items = ex(R.cfg['eval_items']); ids = [json.loads(l)['id'] for l in open(items) if l.strip()]
     os.makedirs(R.p('replay'), exist_ok=True)
     todo = [m for m in model_list(R) if len(answered(R.p('replay', m[0] + '.jsonl'), ids)) < len(ids)]
@@ -726,7 +745,7 @@ def disc_counts(items, cand, best, S):
 def ph_gate(R):
     import eval_offline as E
     import bar_c2 as B
-    g = R.cfg['gates']; items = E.load(ex(R.cfg['eval_items']))
+    g = R.cfg['gates']; es = eval_set_check(R.cfg); items = E.load(ex(R.cfg['eval_items']))
     models = model_list(R)
     sc, recs = {}, {}
     for alias, key, role, params in models:
@@ -736,7 +755,7 @@ def ph_gate(R):
     inc = next(a for a, _, r, _ in models if r == 'incumbent')
     best = next((a for a, _, r, _ in models if r == 'best'), None)
     reg = registry(); best_params = (reg.get('best') or {}).get('params_b')
-    out = {'instrument_check_ok': ic, 'scores': sc, 'logged': lg, 'candidates': {}}
+    out = {'instrument_check_ok': ic, 'scores': sc, 'logged': lg, 'candidates': {}, 'eval_set': es}
     if not ic:
         raise Fail('instrument check failed: hard does not fire more on the logged failure items than on good items')
     import collections as Co
@@ -785,7 +804,7 @@ def ph_gate(R):
         s, params, alias, key = pick_winner(winners, sc, g['vs_best'])
         prev = reg.get('best')
         reg['history'].append({'at': iso(), 'round': R.id, 'from': prev, 'to': alias})
-        reg['best'] = {'alias': alias, 'model_key': key, 'params_b': params, 'round': R.id, 'scores': sc[alias]}
+        reg['best'] = {'alias': alias, 'model_key': key, 'params_b': params, 'round': R.id, 'scores': sc[alias], 'eval_set': es}
         tmp = REGISTRY + '.tmp'; json.dump(reg, open(tmp, 'w'), indent=1); os.replace(tmp, REGISTRY)
         out['new_best'] = alias
     else:
@@ -937,6 +956,60 @@ def advance(R, max_steps=50):
     return 'steps'
 
 
+def rescore_models(cfg, reg, also):
+    """(alias, model key, role) to re-score on a new gate-set version: the incumbent, the registry best, extras."""
+    L = [(cfg['incumbent']['name'].replace(':', '-'), cfg['incumbent']['model_key'], 'incumbent')]
+    if reg.get('best'):
+        L.append((reg['best']['alias'], reg['best']['model_key'], 'best'))
+    for x in also:
+        al, key = x.split('=', 1)
+        L.append((al, key, 'extra'))
+    seen, out = set(), []
+    for m in L:
+        if m[0] not in seen:
+            seen.add(m[0]); out.append(m)
+    return out
+
+
+def rescore(cfg_path, also):
+    """Fresh baselines on the CONFIG'S gate set (owner 11-06): replay incumbent + best (+ extras) exactly as ph_replay does
+    (llama-server on the 3090 through llgpu.sh, fleet client, T=0, conc from config), score with eval_offline, and record
+    them in the registry under eval_baselines[<eval_version>] (the older versions' scores stay). Refused while a round is
+    open (it would compete for the GPU)."""
+    import eval_offline as E
+    if current_round() is not None:
+        raise SystemExit('REFUSED: a round is open')
+    cfg = json.load(open(cfg_path or os.path.join(os.path.dirname(scripts_root()), 'config', 'learnloop-weekly.json')))
+    es = eval_set_check(cfg); items = ex(cfg['eval_items']); ids = [json.loads(l)['id'] for l in open(items) if l.strip()]
+    d = os.path.join(HOME, 'evals', 'rescore-%s-%s' % (es['version'], es['sha256'][:12])); os.makedirs(d, exist_ok=True)
+    R = types.SimpleNamespace(cfg=cfg)
+    models = rescore_models(cfg, registry(), also)
+    todo = [m for m in models if len(answered(os.path.join(d, m[0] + '.jsonl'), ids)) < len(ids)]
+    if todo:
+        claim('rescore')
+        try:
+            for alias, key, role in todo:
+                out = os.path.join(d, alias + '.jsonl')
+                if os.path.exists(out):
+                    os.replace(out, out + '.incomplete-%d' % int(time.time()))
+                print('rescore %s (%s) %s' % (alias, role, key), flush=True)
+                gpu('serve', HOLDER, key, alias, timeout=900)
+                batchload(R, alias, items, out, 'closed', cfg['replay']['conc'], len(ids), 0)
+                if len(answered(out, ids)) < len(ids):
+                    raise Fail('rescore %s answered %d of %d' % (alias, len(answered(out, ids)), len(ids)))
+        finally:
+            gpu('unserve', HOLDER, check=False); release()
+    it = E.load(items)
+    sc = {alias: E.table(E.score_one(it, E.load(os.path.join(d, alias + '.jsonl')))) for alias, _, _ in models}
+    res = {'at': iso(), 'eval_set': es, 'models': [{'alias': a, 'key': k, 'role': r} for a, k, r in models], 'scores': sc,
+           'logged': E.table(E.score_one(it))}
+    json.dump(res, open(os.path.join(d, 'scores.json'), 'w'), indent=1)
+    reg = registry(); reg.setdefault('eval_baselines', {})[es['version']] = res
+    tmp = REGISTRY + '.tmp'; json.dump(reg, open(tmp, 'w'), indent=1); os.replace(tmp, REGISTRY)
+    print(json.dumps({a: {k: v[k] for k in ('hard', 'rep_fail', 'post_veto_repeat', 'agree_skill', 'agree_key', 'schema_valid')} for a, v in sc.items()}, indent=1))
+    return 0
+
+
 def last_started():
     if not os.path.isdir(ROUNDS):
         return None
@@ -958,8 +1031,9 @@ def heartbeat(status, R=None, note=''):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('verb', choices=('tick', 'status', 'new', 'report', 'register', 'regate'))
+    ap.add_argument('verb', choices=('tick', 'status', 'new', 'report', 'register', 'regate', 'rescore'))
     ap.add_argument('--id'); ap.add_argument('--round'); ap.add_argument('--marker'); ap.add_argument('--config')
+    ap.add_argument('--also', nargs='*', default=[], help='rescore: extra alias=model_key pairs (e.g. cand-c2-q8=cand-c2-q8)')
     a = ap.parse_args(argv)
     os.makedirs(HOME, exist_ok=True)
     lk = open(os.path.join(HOME, 'weekly.lock'), 'w')
@@ -999,6 +1073,8 @@ def main(argv=None):
         json.dump(R.cfg, open(R.p('config.json'), 'w'), indent=1)
         R.state['status'] = 'open'; R.save(); R.log('REGATE: latency/gate/register/report re-run under the current written gates')
         print('round', R.id, advance(R)); heartbeat('ok', R); return 0
+    if a.verb == 'rescore':
+        return rescore(a.config, a.also)
     if a.verb == 'register':
         raise SystemExit('register --marker is a human step: see the HELD entry in the round dir and canary-sched.py queue add')
     R = current_round()
