@@ -177,6 +177,7 @@ import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, sur
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone } from './stepwell.mjs'   // stepwell-02: the descent
 import { columnMemo as swColumnMemo, sitingRead as swSitingRead } from './stepwell.mjs'   // stepwell-03: the siting's memos
+import { stepwellCrew, stepwellBuildersNow, stepwellCrewDue, crewSector } from './stepwell.mjs'   // stepwell-05: the tank's crew
 import { plotPrep, replantCells, PLOTPREP } from './tidy.mjs'   // stepwell-01: the site's felling (the groundskeeper's stands and replants)
 import { CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANE, CANE_PALETTE, CANE_FOREIGN, siteCaneFarm, caneCells, caneState, caneCensus, caneHarvest, caneStand, caneNeed, caneDue, caneAlsoDone, cutCell, caneHarvestRow, caneBankable } from './canefarm.mjs'   // canefarm-01
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
@@ -194,6 +195,7 @@ import { runVisit, cellDone as buildCellDone, workableSeg, segComplete as buildS
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
+import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, sinkWaiveKind } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
@@ -17585,11 +17587,17 @@ function hallSiteFor (bot, plan, c, stood) {
     return r.ok ? { ok: true, why: 'ok', record: r.record } : r
   } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 80) } }
 }
+/** stepwell-05: a project's admission slots now -- the stepwell's from its record (stepwell.mjs stepwellBuildersNow: raised only after
+ *  the felling, never above STEPWELL_CREW), every other project's as listed (shop.mjs buildersOf). Unreadable: the listed count. */
+function buildersFor (p) {
+  if (p?.plot !== STEPWELL_PLOT) return buildersOf(p)
+  try { const h = recordHead(townDir(), projKeyOf(STEPWELL_PLOT)); return h.ok && h.head?.rec ? stepwellBuildersNow(h.head.rec) : buildersOf(p) } catch { return buildersOf(p) }
+}
 /** Has project `p` an admission slot this holder may take (none held, its own, or lapsed)? Unreadable: free (the order's own
  *  slot check then decides, as before). */
 function slotFreeFor (p, holder, now = Date.now()) {
   try {
-    for (let k = 1; k <= buildersOf(p); k++) {
+    for (let k = 1; k <= buildersFor(p); k++) {
       const st = projLeaseState(townDir(), projKeyOf(p.plot), `slot${k}`)
       if (!st || st.rec?.holder === holder || now >= st.blocksUntil) return true
     }
@@ -17696,6 +17704,9 @@ function projStuckLive (key, now = Date.now()) {
       if (rec?.blueprint === TREEFARM_BLUEPRINT) return stuckStale(keys, rec, c => farmAlsoDone(c, farmRead(b)) || recordCellDone(b, rec, c)) || farmStampHeld(keys, treeHeldCols(siteTreesLeft(farmRead(b), rec)))
       // tidy-01: an open tidy's stamp holds only its stuck segment too (the wall's rule): the other pits and corridors go on
       if (rec?.blueprint === TIDY_BLUEPRINT) return stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c))
+      // sinkwaive-01: an OPEN stone sink's stamp whose cells all read done (waived since: the visit that waived them stamped the
+      // stall first) holds nothing, as a complete record's
+      if (isSinkBlueprint(rec?.blueprint) && SINK_WAIVE.on && rec?.waived && stuckStale(keys, rec, c => recordCellDone(b, rec, c))) return true
       return (rec?.blueprint === WALL_BLUEPRINT || rec?.blueprint === WALLEXT_BLUEPRINT) && wallStuckOn() && (stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c)))
     } : null
     return projStuckAt(dir, key, { before: now + 60_000, stale })
@@ -17721,7 +17732,7 @@ function zigRepairedWrite (key, at, why, by) {
  *  Never throws. */
 function recordCellOpen (bot, r, c) {
   try {
-    if (wallWaived(r, c) || pathWaived(r, c)) return false
+    if (wallWaived(r, c) || pathWaived(r, c) || sinkWaived(r, c)) return false   // sinkwaive-01: a waived sink cell is no open cell
     if (!bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))) return false
     return !recordCellDone(bot, r, c)
   } catch { return false }
@@ -17737,6 +17748,7 @@ function recordCellDone (bot, r, c) {
     // pathsclose-01: a WAIVED path cell (the record's own list) is done
     if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) return true
     if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) return true   // wallstuck-01: a waived wall cell is done (wallext-01: the extension's too)
+    if (sinkWaived(r, c)) return true   // sinkwaive-01: a waived stone-sink cell is done
     const b = read(...c.at)
     if (!b) return false
     return buildCellDone(b, bp.palette, c.role, c.ws) || (mon && zigHidden(c, read))
@@ -17842,7 +17854,7 @@ function projectDraw (bot, normal, { forProject = true, base = takeAllowed, then
 /** Is an admission slot free for this bot? (the order's reading) Never throws: unreadable reads as full. */
 export function shopSlotsFree (bot) {
   try {
-    for (let k = 1; k <= buildersOf(shopActive()); k++) {
+    for (let k = 1; k <= buildersFor(shopActive()); k++) {
       const s = projLeaseState(townDir(), shopKey(), `slot${k}`)
       if (!s || s.rec?.holder === bot?.username || Date.now() >= s.blocksUntil) return true
     }
@@ -17988,6 +18000,7 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
       if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) continue   // pathsclose-01: a waived path cell is no damage
       if (dressSignRole(c.role)) continue   // towndress-01: a sign is the label writer's upkeep (below), never damage
       if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) continue    // wallstuck-01: nor a waived wall cell (wallext-01: the extension's too)
+      if (sinkWaived(r, c)) continue   // sinkwaive-01: nor a waived stone-sink cell
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
       if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox, props: c.ws ? b.getProperties?.() ?? null : null }, bp.palette, c.role, c.ws) && !(mon && zigHidden(c, read))) return true
     }
@@ -22736,6 +22749,30 @@ function sinkSiteNow (bot, kind, rec0, plan, c, stood, { prep = null, read = nul
       guard: kind === 'dress' || kind === 'decor' ? () => null : sinkGuardFor(c, plan, { kind, prepExcept: pe }), guardShrine: kind === 'dress' || kind === 'decor' ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind, prepExcept: pe }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress, ...decor, ...(prep ? { prep } : {}) })
   }
 }
+/** sinkwaive-01 (Codex r1 BLOCKER): each holder's LIFETIME tally of the sink cells its visits deferred (never aged: the stuck files are)
+ *  -> the merged counts of every holder's tally and the stuck files, after this holder's own tally took `deferred`. Never throws. */
+const sinkDeferFile = (dir, key, holder) => path.join(dir, `${key}.sinkdefer.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+function sinkDeferCounts (dir, key, me, deferred, keep, now = Date.now()) {
+  const maps = []
+  try {
+    const f = sinkDeferFile(dir, key, me)
+    let prev = {}
+    try { prev = JSON.parse(fs.readFileSync(f, 'utf8'))?.cells ?? {} } catch { prev = {} }
+    const next = sinkDeferTally(prev, deferred, now, keep)
+    const tmp = `${f}.${process.pid}.${Date.now().toString(36)}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, holder: me, at: now, cells: next })); fs.renameSync(tmp, f)
+    const pre = `${key}.sinkdefer.`
+    for (const n of fs.readdirSync(dir)) {
+      if (!n.startsWith(pre) || !n.endsWith('.json')) continue
+      try { maps.push(Object.fromEntries(Object.entries(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))?.cells ?? {}).filter(([k]) => keep(k)))) } catch { /* one unreadable file */ }
+    }
+  } catch { /* the stuck files alone */ }
+  let stuck = {}
+  try { stuck = vfStuckRead(dir, key) } catch { stuck = {} }
+  const life = sinkDeferMerge(maps), out = { ...life }
+  for (const [k, v] of Object.entries(stuck)) { const o = out[k]; out[k] = o ? { visits: Math.max(o.visits, Number(v.visits) || 0), firstAt: Math.min(o.firstAt ?? Infinity, Number(v.firstAt) || Infinity) } : { visits: Number(v.visits) || 0, firstAt: Number(v.firstAt) || null } }
+  return out
+}
 async function buildSink (ctx, args, signal, proj) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -22929,13 +22966,35 @@ async function buildSink (ctx, args, signal, proj) {
     // towndress-01: a dress batch's box spans the town (its fixtures are posts and torches: nothing to stand on), and its sign cells
     // are the label writer's -- runVisit reads them done
     // decorator-01: a decor batch's box spans the town too (flowers and pots: nothing to stand on)
-    const leave = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) } : {}
+    const leave0 = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) } : {}
+    // sinkwaive-01: a waived stone-sink cell is done for the visit (runVisit alsoDone); dress keeps its own alsoDone
+    const leave = rec?.waived && SINK_WAIVE.on && kind !== 'dress' && kind !== 'decor' ? { ...leave0, alsoDone: q => sinkWaived(rec, q) } : leave0
     // the showcase atlas+decorator fold (Codex fold r4 BLOCKER): held decor work stays PENDING -- the batch never completes while any of
     // its cells or clears was left out for a hold
     const vrecD = kind === 'decor' ? decorUnheld(rec) : rec
     const heldOut = kind === 'decor' ? ((rec.cells ?? []).length - (vrecD.cells ?? []).length) + ((rec.clear ?? []).length - (vrecD.clear ?? []).length) : 0
     const r = await runVisit({ dir, key, me, home, stood, record: vrecD, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       ...sinkVisitOpts(rec, home), ...leave }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // sinkwaive-01: THE WAIVER (sinks.mjs sinkWaiveDue) -- a cell this visit deferred that the stuck files have counted minVisits
+    // deferrals over every holder, the first afterMs ago, is named on the record (an op=waived row with its reason); the next visit
+    // reads it done and the instance can close (the wall's waiver, wallstuck-01)
+    let waivedN = 0
+    if (SINK_WAIVE.on && sinkWaiveKind(kind) && (r.deferred ?? []).length) {
+      try {
+        const open = new Set((rec.cells ?? []).filter(q => !sinkWaived(rec, q)).map(q => q.at.join(',')))
+        const due = sinkWaiveDue(rec, r.deferred, sinkDeferCounts(dir, key, me, r.deferred, k => open.has(k)), Date.now())
+        if (due.length) {
+          const pub = publishRecord(dir, key, cur => {
+            if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length || instancesOf(cur).length !== instancesOf(rec).length) return null
+            const w = { ...(cur.waived ?? {}) }
+            for (const d of due) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
+            return { ...cur, waived: w }
+          }, { by: me })
+          if (pub.result === 'accepted') { waivedN = due.length; for (const d of due) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } } }
+          bot.shopDamage = null
+        }
+      } catch { /* counted again next visit */ }
+    }
     if (r.stop === 'complete' && !heldOut) {
       const pub = publishRecord(dir, key, cur => (cur && instancesOf(cur).length === instancesOf(rec).length ? completeInstance(cur) : null), { by: me })
       completed = true
@@ -22947,11 +23006,13 @@ async function buildSink (ctx, args, signal, proj) {
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     // sinkfix-02: a FRESH read (planReader memoises: the bill's read was taken before the visit, so a finished road said 17/23)
-    const done = (() => { try { const rd = planReader(bot); const p = sinkProgress(rec, q => buildCellDone(rd(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
+    const done = (() => { try { const rd = planReader(bot); const p = sinkProgress(rec, q => sinkWaived(rec, q) || buildCellDone(rd(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
     // decorator-01 (Codex r1 BLOCKER 2): a decor visit that changed nothing stamps the decor stalled (the decorator lets it go)
     if (kind === 'decor' && decorStalled({ ...f, placed: r.placed, cleared: r.cleared })) decorStall(bot, `visit:${r.stop}`)
-    return out(status, r.stop, `${r.why ?? r.stop}; built ${done} (${ins?.id ?? '-'})`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    // sinkwaive-01: a visit that waived ends cell_waived (tidy.mjs gkStopAfterWaive), never this bot's own 6-h stuck_on_cell back-off
+    const stopW = waivedN > 0 ? gkStopAfterWaive(r.stop, waivedN) : r.stop
+    return out(status, stopW, `${stopW === r.stop ? (r.why ?? r.stop) : `${waivedN} cell(s) waived (${r.stop})`}; built ${done} (${ins?.id ?? '-'})`, { stop: stopW, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
@@ -24824,14 +24885,48 @@ async function buildStepwell (ctx, args, signal) {
   return buildStepwellRun(ctx, { t0, budget, f, out, dir, key, me, home, rh, rec: rh.head?.rec ?? rec }, signal)
 }
 /** THE STEPWELL VISIT'S WORK on its record (the felling, then the tank and its descent): buildStepwell's second half. */
-async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, rh, rec }, signal) {
+async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, rh: rh0, rec: rec0 }, signal) {
+  let rh = rh0, rec = rec0   // stepwell-05: the crew's generation is read back
   const { bot } = ctx
   const read0 = stairRead(bot)
   const pending = fellPending(read0, rec)
   if (rec.structure_complete && pending === 0 && stepwellDamaged(read0, rec, { lights: countItem(bot, 'torch') > 0 }) == null) return out('no_effect', 'complete', 'the stepwell stands')
-  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === STEPWELL_PLOT)))
+  // stepwell-05: THE CREW -- every listed log down: the record's builders_max is raised to STEPWELL_CREW (a published generation, the
+  // tripwire's lease rule reads it) BEFORE any second slot is taken; the felling never had more than one
+  const crew = stepwellCrew()
+  const crewTo = stepwellCrewDue(rec, pending, crew)
+  if (crewTo != null) {
+    const pub = publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && stepwellCrewDue(cur, pending, crew) != null ? { ...cur, builders_max: crewTo } : null), { by: me })
+    stepwellRow(bot, 'crew', { why: pub.result, n: crewTo, gen: pub.gen ?? '-' })
+    if (pub.result === 'accepted') { const h2 = recordHead(dir, key); if (h2.ok && h2.head) { rh = h2; rec = h2.head.rec } }
+  }
+  const nBuilders = stepwellBuildersNow(rec, crew)
+  const slot = takeSlot(dir, key, me, nBuilders)
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
+  // a slot beyond the first never fells (the felling is one builder's: runVisit's tree rows and replants stay one bot's)
+  if (slot.slot > 1 && (pending == null || pending > 0)) { releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen); return out('no_effect', 'felling_one', 'the felling is one builder\'s; the tank takes a crew once every log is down', { stop: 'felling_one' }) }
+  // the crew's share of a layer (stepwellvisit.mjs `share`): this slot's sector; work beyond it only while this visit HOLDS every
+  // other slot too (claimAll: their leases taken, so no builder can join and pick the same cell -- Codex r1 BLOCKER), released at the end
+  const claimed = new Map()
+  const crewBox = (() => { try { return planOfRecord(rec).box } catch { return null } })()
+  const crewCentre = Array.isArray(crewBox) ? [(crewBox[0] + crewBox[2]) / 2, (crewBox[1] + crewBox[3]) / 2] : null
+  const others = Array.from({ length: nBuilders }, (_, i) => i + 1).filter(j => j !== slot.slot)
+  const share = nBuilders > 1 && crewCentre ? {
+    mine: c => crewSector(crewCentre, c, nBuilders) === (slot.slot - 1) % nBuilders,
+    holdsAll: () => others.every(j => { try { return claimed.has(j) && projHoldsLease(dir, key, `slot${j}`, me, claimed.get(j)) } catch { return false } }),
+    claimAll: () => {
+      const got = []
+      for (const j of others) {
+        try { if (claimed.has(j) && projHoldsLease(dir, key, `slot${j}`, me, claimed.get(j))) continue } catch { /* take it */ }
+        let r = null
+        try { r = projTakeLease(dir, key, `slot${j}`, me) } catch { r = null }
+        if (!r?.ok) { for (const g of got) { releaseLease(dir, key, `slot${g}`, me, claimed.get(g)); claimed.delete(g) } return false }
+        claimed.set(j, r.gen); got.push(j)
+      }
+      return true
+    },
+  } : null
   let effects = null
   let bag0 = null
   const placedBy = {}, tookAll = {}, crafted = {}
@@ -24913,7 +25008,7 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     const now = () => Date.now()
     const runIt = fn => (plan.descent ? withStairClaim(ctx.runner, fn) : fn())   // stepwell-02: the stair's body claim in the descent (the entombment reflex stands down)
     const r = await runIt(() => runStepwellVisit({
-      plan, exit: rec.exit,
+      plan, exit: rec.exit, share,
       onStop: async (y, why) => { publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && cur.state !== 'stopped' ? stepwellStopped(cur, { y, why, now: now() }) : null), { by: me }) },
       onTiers: async tiers => {
         // stepwell-02: complete only when the descent (if the record has one) stands too
@@ -24942,6 +25037,7 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     return out('failed', 'error', String(err?.message ?? err).slice(0, 100), {}, 'other')
   } finally {
     releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    for (const [j, g] of claimed) releaseLease(dir, key, `slot${j}`, me, g)   // stepwell-05: the slots this visit claimed
     try { effects?.close() } catch { /* gone */ }
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
     if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(STEPWELL_PLOT, bagBalance({ bag0, took: tookAll, crafted, placed: placedBy, back: {}, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }

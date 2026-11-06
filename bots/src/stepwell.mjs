@@ -31,6 +31,47 @@ export const STEPWELL_PLOT = 'stepwell'
 export const STEPWELL_BLUEPRINT = 'stepwell@1'
 export const STEPWELL_BUILDERS = 1
 /**
+ * STEPWELL-05: THE TANK'S CREW (LIVE showcase 11-06: felling 23 of 50 logs, then 3,653 cut cells and 2,168 build cells, all serial at
+ * builders_max 1). A setting: STEPWELL_CREW (1..STEPWELL_CREW_MAX, default 2; 1 / off = exactly as before). The FELLING stays one
+ * builder: the record's builders_max is raised (stepwellCrewDue, a published generation) only by a visit that reads every listed log
+ * down, and the admission reads it (stepwellBuildersNow). In the tank a layer is SHARED BY SECTOR (crewSector: the tank's columns
+ * split by angle round its centre, one sector a slot): each builder works its own sector of the first undone layer; with its part
+ * done it takes the rest only when no other builder holds a slot, else its visit ends `shared` -- the layer order (the safety) is
+ * never passed, and two builders never work one cell. The descent's stations are the lowest live slot's only. Pure.
+ */
+export const STEPWELL_CREW_MAX = 3
+export function stepwellCrew (env = process.env) {
+  const raw = String(env?.STEPWELL_CREW ?? '').trim().toLowerCase()
+  if (raw === '') return 2
+  if (['off', 'no', 'false'].includes(raw)) return 1
+  const n = Number(raw)
+  return Number.isInteger(n) && n >= 1 ? Math.min(n, STEPWELL_CREW_MAX) : 2
+}
+/** The builders the admission takes now -> 1..crew: the record's builders_max (raised after the felling), never above the setting. */
+export function stepwellBuildersNow (rec, crew = stepwellCrew()) {
+  const m = Number(rec?.builders_max)
+  if (!(crew > 1) || !Number.isInteger(m) || m <= 1) return STEPWELL_BUILDERS
+  return Math.min(m, crew)
+}
+/** The builders_max a visit publishes now -> n | null: only when every listed log reads down (`pending` 0: fellPending), the setting
+ *  wants more than the record holds, and the tank is not stopped. Pure. */
+export function stepwellCrewDue (rec, pending, crew = stepwellCrew()) {
+  if (!rec || rec.state === 'stopped' || pending !== 0 || !(crew > 1)) return null
+  const m = Number.isInteger(rec.builders_max) ? rec.builders_max : STEPWELL_BUILDERS
+  return m < crew ? crew : null
+}
+/** A column's sector of `n` round the tank's centre [cx, cz] (plan.box's middle) -> 0..n-1 (by angle; n 1 -> 0). Pure. */
+export function crewSector (centre, cell, n) {
+  if (!(n > 1) || !Array.isArray(centre) || !Array.isArray(cell)) return 0
+  const a = Math.atan2(cell[2] - centre[1], cell[0] - centre[0])
+  return Math.min(n - 1, Math.floor(((a + Math.PI) / (2 * Math.PI)) * n))
+}
+/** A unit's cells that `keep(cell)` passes (the same y, tier and station). Pure. */
+export function shareView (u, keep) {
+  const f = l => (l ?? []).filter(c => keep(c))
+  return { ...u, cut: f(u.cut), faces: f(u.faces), tops: f(u.tops), under: f(u.under), posts: f(u.posts), lights: f(u.lights) }
+}
+/**
  * THE BOUNDS. W: the top's width (odd); band: rings a band; tierD: a tier's depth; tiers: the tiers piece 1 builds; tiersMax: the
  * tiers the siting surveys for (the reservation's depth: a later generation deepens to it); ringMin/ringMax: the centre's Chebyshev
  * distance from home; step: the candidate grid; gap: the clearance off every reservation; groundUp/groundDown: the footprint's ground
