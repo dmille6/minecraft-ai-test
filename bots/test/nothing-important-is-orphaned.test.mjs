@@ -513,6 +513,9 @@ const REQUIRED = [
   'docs/reports/freshworld-playbook-design-2026-11-06.md',
   'docs/reports/freshworld-playbook-2026-11-06/codex-design.txt',
   'docs/reports/freshworld-playbook-2026-11-06/measure.py.txt',
+  // pinned draw (11-06): draw_pin_pools + draw_pin_owner_ok, honoured in fun mode (escdead-01, treefarm-05)
+  'scripts/drawpin.py',
+  'scripts/test_drawpin.py',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

@@ -185,13 +185,17 @@ fi
 # ---- phase DRAW + DEPLOY (skipped when the manifest already names this sha)
 if [ "$(mf canary_code_version)" != "$SHA" ]; then
   if [ -n "$(mf canary_pool)" ]; then page error "manifest names another canary ($(mf canary_pool) $(mf canary_code_version)); refusing to start"; exit 2; fi
-  if [ -n "$FUN" ]; then journal draw "waiting for two pools (fun mode: at most ${FUN_DRAW_CAP_MIN} min, then the fallback draw)"; else journal draw "waiting for two pools"; fi
+  # PINNED DRAW (owner 11-06; drawpin.py): the draw is exactly draw_pin_pools or nothing; it WAITS for them and never takes
+  # the fun fallback (a substitute pool would read a population the change cannot expose). canary-sched pages a draw stall.
+  PIN=$(jf draw_pin_pools)
+  if [ -n "$PIN" ]; then journal draw "waiting for the PINNED pools $PIN (no substitute, no fallback)"
+  elif [ -n "$FUN" ]; then journal draw "waiting for two pools (fun mode: at most ${FUN_DRAW_CAP_MIN} min, then the fallback draw)"; else journal draw "waiting for two pools"; fi
   _D0=$(_now); FB=""
   while true; do
     # FUN MODE: once FUN_DRAW_CAP_MIN has passed, drawrec.sh draws with DRAW_FUN_FALLBACK=1 (the 12-h ledger exclusion,
     # the band and the livelock filter are dropped; isolated/placebo-c, the live canary, the brain subset and the manual
     # exclusions still hold). A fallback that finds nothing ends the loop (paged) instead of waiting for hours.
-    [ -n "$FUN" ] && [ $(( $(_now) - _D0 )) -ge $(( FUN_DRAW_CAP_MIN * 60 )) ] && FB=1
+    [ -n "$FUN" ] && [ -z "$PIN" ] && [ $(( $(_now) - _D0 )) -ge $(( FUN_DRAW_CAP_MIN * 60 )) ] && FB=1
     D=$(DRAW_FUN_FALLBACK=$FB bash $H/mcai-analysis/drawrec.sh "$RUN" 2>&1 | tail -4); P=$(echo "$D" | grep -o "DRAW (.*owner C): \[.*\]" | grep -o "'[a-z-]*'" | tr -d "'" | paste -sd, -)
     # v33: WIDENING MID-RUN IS NOT DONE (a second deploy rewrites the one declared_at, restarts the pools already on
     # canary and rebuilds the canary tree under them). Its safe equivalent: a bag fix starts at 20 bots, or waits.

@@ -355,6 +355,32 @@ if RUN and _LAB:
         print('draw_require_pools:', _rwhy)
         if not pick:
             _none_why = 'draw_require_pools: %s' % _rwhy
+# PINNED DRAW (owner 11-06 ~14:00Z; ~/mcai-analysis/drawpin.py). A registration's draw_pin_pools is the WHOLE draw, in fun
+# mode too: exactly those pools, under the HARD exclusions only (brain subset, live canary, draw-exclude.txt -- the `_hard`
+# set above; the 12-h ledger window, the band and the exposure filter do not apply to a pin), isolated-* / placebo-c only
+# with draw_pin_owner_ok. Anything unavailable or malformed draws NOTHING (fail closed: the loop waits, never a substitute).
+# No field = this block does nothing (drawpin.py is not even imported).
+if RUN:
+    _pr = None
+    for _pp in (os.path.expanduser('~/mcai-analysis/registrations/%s.json' % RUN), '/tmp/registrations/%s.json' % RUN):
+        try:
+            _pr = json.load(open(_pp)); break
+        except Exception:
+            pass
+    if isinstance(_pr, dict) and _pr.get('draw_pin_pools') is not None:
+        try:
+            sys.path.insert(0, os.path.expanduser('~/mcai-analysis'))
+            import drawpin as _DPN
+            _PIN, _pbad = _DPN.parse(_pr)
+        except Exception as _e:
+            _PIN, _pbad = None, 'drawpin.py unreadable (%s)' % type(_e).__name__
+        if _PIN is None:
+            pick = None; _none_why = 'draw_pin_pools REFUSED: %s' % _pbad
+        else:
+            pick, _pwhy = _DPN.pick(_PIN, _hard, set(band), TARGET_K)
+            print('draw_pin_pools:', _pwhy)
+            if not pick:
+                _none_why = 'draw_pin_pools: %s' % _pwhy
 print('DRAW (%s, owner C):' % ('%d pools = %d bots' % (len(pick), 5 * len(pick)) if pick else 'none'),
       pick or 'NONE (%s)' % _none_why)
 if pick:
