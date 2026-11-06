@@ -267,6 +267,9 @@ const REQUIRED = [
   'bots/src/placeaudit.mjs',
   'bots/test/placeaudit.test.mjs',
   'bots/test/gkunblock.test.mjs',   // gkunblock-01: a tidy segment held by snow (or any block it may not dig) never ends every crew visit
+  // gksweep-01 (owner 11-04 groundskeeper piece 6): the keeper picks up what lies inside the walls
+  'bots/src/gksweep.mjs',
+  'bots/test/gksweep.test.mjs',
   // anvilapply-01 + enchant-01 (owner 11-04): the anvil / enchanting-table skills, their test, the Paper e2e
   'bots/src/enchant.mjs',
   'bots/test/enchant.test.mjs',

@@ -30,7 +30,10 @@ import { stepLineSafe } from './lavaguard.mjs'
 import { lavaRingOf, lavaBlocksTarget, noteLavaFinding } from './lavatarget.mjs'   // lavatarget-01
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, toolFor, remaining, spentEquipOutcome, handHarvests, emptyHand, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
-import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp } from './hygiene.mjs'
+import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp, NEVER_KEEP } from './hygiene.mjs'
+import { GKSWEEP, gkSweepOn, sweepPick, sweepAfter, holdsGrounds } from './gksweep.mjs'
+import { STATIONS as BAG_STATIONS, ALLOWANCE as BAG_ALLOW } from './bagallowance.mjs'   // gksweep-01: a station over its allowance is never picked up   // gksweep-01: the groundskeeper picks up what lies inside the walls
+import { inwallBoxes } from './tidy.mjs'   // gksweep-01: inside the walls
 import { noteSought } from './pickuplog.mjs'
 import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyOf, setPeacefulFood, peacefulFoodActive } from './foodskip.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): swords banked, never crafted, never chased; the plants composted.
@@ -23453,7 +23456,71 @@ function otherBodyOnCell (bot, at) {
 }
 /** gkstage-01: keeper visits a stage may wait for a crew bot's plants (parkHeldByCrew) before it closes over them. */
 const GK_PARK_WAITS = 6
+/**
+ * GKSWEEP-01 (owner 11-04, groundskeeper piece 6: "if the bot drops dirt it can pick it up"): after its visit to the grounds, a
+ * crew bot (the keeper or a helper: buildTidyVisit leaves its role in bot.gkSweepRole) walks to the items lying inside the walls and
+ * picks up what its bag can take (gksweep.mjs sweepPick), within the visit's budget. A sweep that took something turns a visit that
+ * found nothing to do (the grounds complete) into work done: the keeper stays busy. One `_build op=sweep` row a sweep that saw a drop.
+ */
 async function buildTidy (ctx, args, signal) {
+  const t0 = Date.now()
+  ctx.bot.gkSweepRole = null
+  const res = await buildTidyVisit(ctx, args, signal)
+  if (!GROUNDS.on || !gkSweepOn() || !sweepAfter(ctx.bot.gkSweepRole, res)) return res
+  // Codex r1 BLOCKER: still the town's crew NOW (a stuck visit lets its lease go: the role it left is stale)
+  if (!holdsGrounds(crewState(ctx.bot, true).d)) return res
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  let sw = null
+  try { sw = await gkSweep(ctx.bot, signal, { until: t0 + budget - 5_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; sw = null }
+  if (sw?.took > 0 && res.status === 'no_effect') return { ...res, status: 'success', detail: `${res.detail}; swept ${sw.took} item(s) off the town's ground (${sw.kinds})` }
+  return res
+}
+/** THE SWEEP -> { took, kinds, picks, skipped }. Walks to sweepPick's drops one by one (each walk bounded, a refused walk skips the
+ *  drop), and counts what the BAG gained of each picked name -- the outcome, never the intention. */
+export async function gkSweep (bot, signal, { until = Date.now() + GKSWEEP.budgetMs, inputs = () => tidyInputs(bot) } = {}) {
+  const t0 = Date.now(), end = Math.min(until, t0 + GKSWEEP.budgetMs)
+  const home = planHomeP()
+  const view = () => Object.values(bot.entities ?? {}).filter(e => e?.name === 'item' && e.position).map(e => { const d = spawnedItem(e); return { id: e.id, name: d.name, count: d.count, pos: e.position } })
+  // the drops in view first: none near the town, no read of the records
+  const near = view().filter(d => Math.max(Math.abs(d.pos.x - home.x), Math.abs(d.pos.z - home.z)) <= 112)
+  if (!near.length || Date.now() >= end) return { took: 0, kinds: '-', picks: 0, skipped: {} }
+  let I
+  try { I = inputs() } catch { return { took: 0, kinds: '-', picks: 0, skipped: { unread: near.length } } }
+  const boxes = inwallBoxes(I.wall, I.home ?? home, I.wallext)
+  const items = bot.inventory?.items?.() ?? []
+  const stacks = items.map(i => ({ name: i.name, count: i.count, stackSize: i.stackSize }))
+  let free = 0
+  try { const n = bot.inventory?.emptySlotCount?.(); free = Number.isFinite(n) ? n : Math.max(0, 36 - items.length) } catch { free = 0 }
+  const before = heldMap(bot)
+  const stationSet = new Set(BAG_STATIONS)
+  const over = n => stationSet.has(n) && (before[n] ?? 0) >= BAG_ALLOW.station
+  const sel = sweepPick(near, { boxes, home: I.home ?? home, caps: I.caps ?? [], from: bot.entity?.position ?? null, stacks, free, never: NEVER_KEEP, over })
+  const names = [...new Set(sel.picks.map(d => d.name))]
+  let refused = 0, walked = 0
+  for (const d of sel.picks) {
+    check(signal)
+    if (Date.now() + GKSWEEP.walkMs > end) { sel.skipped.budget = (sel.skipped.budget ?? 0) + 1; continue }
+    const e = bot.entities?.[d.id]
+    if (!e || e.name !== 'item' || !e.position) continue   // picked up, merged or despawned meanwhile
+    const releaseSought = noteSought(bot, d.id, 'gksweep')
+    try {
+      walked++
+      await withTimeout(bot.pathfinder.goto(new goals.GoalNear(e.position.x, e.position.y, e.position.z, 1)), GKSWEEP.walkMs, bot)
+      await sleep(250, signal)
+    } catch (err) {
+      if (err?.aborted || signal?.aborted) throw err
+      refused++
+    } finally { releaseSought() }
+  }
+  const after = heldMap(bot)
+  const gained = names.map(n => [n, Math.max(0, (after[n] ?? 0) - (before[n] ?? 0))]).filter(([, v]) => v > 0)
+  const took = gained.reduce((a, [, v]) => a + v, 0)
+  const kinds = gained.map(([n, v]) => `${n}:${v}`).join(',') || '-'
+  const why = Object.entries({ seen: sel.seen, picks: sel.picks.length, walked, refused, ...sel.skipped }).map(([k, v]) => `${k}:${v}`).join(',')
+  try { logEvent({ kind: 'build', status: took > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'sweep', n: took, kind: kinds.slice(0, 120), why: why.slice(0, 160), result: took > 0 ? 'took' : 'none' }) }) } catch { /* telemetry */ }
+  return { took, kinds, picks: sel.picks.length, skipped: sel.skipped }
+}
+async function buildTidyVisit (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
   const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
@@ -23495,6 +23562,8 @@ async function buildTidy (ctx, args, signal) {
     }
   }
   const caps = crewCaps(role)
+  // gksweep-01: the crew bot's role, for the sweep after this visit (buildTidy)
+  bot.gkSweepRole = GROUNDS.on ? role : null
   // GROUNDSKEEPER-01: a complete stage with a next one (landplan.mjs ring order) is sited at once, the band after it
   const gkNext = GROUNDS.on && LANDP.on && rh.head && gkStageDue(rh.head.rec) ? nextStageCycle(rh.head.rec) : null
   // gkhelpers-01: the siting is the keeper's (its plan): a helper finding a stage to site leaves it for the keeper's next visit
