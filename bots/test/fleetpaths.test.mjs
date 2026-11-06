@@ -55,13 +55,14 @@ await t('sitePaths: a composter in a cluttered plaza is served by the hub; the w
   assert.deepStrictEqual([farm.ok, farm.why, farm.join, farm.nodes.length], [true, 'at_hub', 'hub', 0])
   assert.ok(s.net.legs.find(l => l.id === 'well').ok, 'the well is still routed')
   assert.ok(s.record.cells.length > 0)
-  const off = P.sitePaths(srv.read, { ...o, hubDests: false })
+  // pathsfix-01: fix false -- every required leg or none (in sections the well alone would be laid)
+  const off = P.sitePaths(srv.read, { ...o, hubDests: false, fix: false })
   assert.strictEqual(off.ok, false, 'CONTROL: the plaza really is closed to a 2-wide leg')
   assert.match(off.why, /farm:unreachable/)
 })
 await t('MUTANT KILLED: without the hub branch the cluttered plaza\'s farm is unrouted again', async () => {
   await withMutant(PATHS_PATH, 'if (hubDests && atHub(hub, d.cols)) {', 'if (false) {', async M => {
-    const s = M.sitePaths(clutteredPlaza().read, { plan: corePlan(), caps: [[5, G + 1, 20]], composter: [0, G + 1, 0], place: placeBlueprint })
+    const s = M.sitePaths(clutteredPlaza().read, { plan: corePlan(), caps: [[5, G + 1, 20]], composter: [0, G + 1, 0], place: placeBlueprint, fix: false })
     assert.strictEqual(s.ok, false); assert.match(s.why, /farm:unreachable/)
   })
 })
@@ -116,7 +117,8 @@ await t('pathsSiteStop: no plan / no core keep the order\'s daily no_site; ok ->
 console.log('THE NO-SITE RECORD')
 await t('pathsNoSite: complete, no cells or zones, retried after 24 h (pathsDue); an extension of it is refused', async () => {
   const now = 1_000_000
-  const r = P.pathsNoSite({ home: { x: 1, y: 70, z: 2 }, now, by: 'A', why: 'unrouted:shop:unreachable' })
+  // pathsfix-01: the fleetpaths-01 record is PATHSFIX=off's (fix false); pathsfix.test.mjs has the unsited one
+  const r = P.pathsNoSite({ home: { x: 1, y: 70, z: 2 }, now, by: 'A', why: 'unrouted:shop:unreachable', fix: false })
   assert.deepStrictEqual([r.blueprint, r.plot, r.state, r.structure_complete], [P.PATHS_BLUEPRINT, P.PATHS_PLOT, 'no_site', true])
   assert.deepStrictEqual([r.cells.length, r.zones.length, r.legs.length], [0, 0, 0])
   assert.strictEqual(P.pathsNoSiteRec(r), true)
@@ -132,8 +134,12 @@ await t('COMPOSED: with the paths\' no-site record complete, the order\'s next o
   const states = [{ plot: 'shop', exists: true, complete: true }, { plot: 'shaft', exists: true, complete: true }, { plot: 'house1', exists: true, complete: true }, { plot: 'monument', exists: true, complete: true }]
   // CONTROL: no paths record -> the paths are the open project, the wall waits
   assert.strictEqual(SHOPM.activeProject([...states, { plot: 'paths', exists: false, complete: false }], list).plot, 'paths')
-  const r = P.pathsNoSite({ home: { x: 0, y: 70, z: 0 }, now: 0 })
+  const r = P.pathsNoSite({ home: { x: 0, y: 70, z: 0 }, now: 0, fix: false })
   assert.strictEqual(SHOPM.activeProject([...states, { plot: 'paths', exists: true, complete: !!r.structure_complete }], list).plot, 'wall')
+  // pathsfix-01: the UNSITED record is not complete, and the order still reads it settled (skills.mjs shopActive: pathsSettled)
+  const u = P.pathsNoSite({ home: { x: 0, y: 70, z: 0 }, now: 0, fix: true })
+  assert.strictEqual(u.structure_complete, false)
+  assert.strictEqual(SHOPM.activeProject([...states, { plot: 'paths', exists: true, complete: P.pathsSettled(u) }], list).plot, 'wall')
 })
 await t('the switch: FLEETPATHS=off|0|false|no is the rollback; unset is on', async () => {
   assert.strictEqual(P.fleetPathsOn({}), true)

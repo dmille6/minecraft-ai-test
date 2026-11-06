@@ -170,13 +170,15 @@ const terrace = () => {
   for (let x = -60; x <= 60; x++) for (let z = 14; z <= 60; z++) col(srv, x, z, G + 1, G + 6, 'cobblestone')
   return srv
 }
+// pathsfix-01: the paths' STRICT router (no earthwork of their own) -- the ground the tidy grades is the ground it routes
+const strictPin = () => ({ ...pinOf(), grade: false })
 const pinOf = () => ({ plan: { ...plan(), plots: [{ id: 'core', kind: 'plaza', box: [-6, -6, 6, 6], keepout: false }] }, caps: [[0, G + 7, 30]], place: placeBlueprint })
 await t('CONTROL: the paths do not route over the terrace, and pillars/pits alone change nothing there', async () => {
   const srv = terrace()
-  const s = P.sitePaths(srv.read, pinOf())
+  const s = P.sitePaths(srv.read, strictPin())
   assert.strictEqual(s.ok, false); assert.match(s.why, /well:unreachable/)
   const site = T.siteTidy(srv.read, { home: HOME, pin: null })
-  const after = P.sitePaths(site.record ? T.tidyOverlay(srv.read, site.record) : srv.read, pinOf())
+  const after = P.sitePaths(site.record ? T.tidyOverlay(srv.read, site.record) : srv.read, strictPin())
   assert.strictEqual(after.ok, false, 'no grading: still unrouted')
 })
 await t('siteTidy with the paths\' inputs grades a corridor; on the ground it leaves the paths\' OWN router routes the well', async () => {
@@ -185,7 +187,7 @@ await t('siteTidy with the paths\' inputs grades a corridor; on the ground it le
   assert.ok(site.record, site.why)
   assert.ok(site.record.grade?.ok, JSON.stringify(site.record.grade))
   assert.ok(site.record.cut.length > 0, 'the terrace edge is cut through')
-  const after = P.sitePaths(T.tidyOverlay(srv.read, site.record), pinOf())
+  const after = P.sitePaths(T.tidyOverlay(srv.read, site.record), strictPin())
   assert.ok(after.ok, after.why)
   assert.strictEqual(site.tried[0].left, 0)
 })
@@ -193,7 +195,7 @@ await t('MUTANT KILLED: a grading that may not cut the bots\' spoil (cobblestone
   await withMutant(TIDY_PATH, 'export const GRADE_CUT = new RegExp(`${NATURAL.source}|${SPOIL.source}`)', 'export const GRADE_CUT = NATURAL', async M => {
     const srv = terrace()
     const site = M.siteTidy(srv.read, { home: HOME, pin: pinOf(), grades: [4] })
-    const after = P.sitePaths(site.record ? M.tidyOverlay(srv.read, site.record) : srv.read, pinOf())
+    const after = P.sitePaths(site.record ? M.tidyOverlay(srv.read, site.record) : srv.read, strictPin())
     assert.strictEqual(after.ok, false)
   })
 })
@@ -217,7 +219,7 @@ await t('a reservation across the direct line: no grading cell in it; the gradin
   const site = T.siteTidy(srv.read, { home: HOME, pin: pinOf(), avoid: RES })
   assert.ok(site.record?.grade?.ok, JSON.stringify(site.tried))
   assert.ok(![...site.record.cut, ...site.record.cells].some(inRes), 'nothing graded in the reservation')
-  const after = P.sitePaths(T.tidyOverlay(srv.read, site.record), pinOf())
+  const after = P.sitePaths(T.tidyOverlay(srv.read, site.record), strictPin())
   assert.ok(after.ok, after.why)
 })
 await t('MUTANT KILLED: a grading router that ignores the reservation lays a corridor the output guard then breaks: the paths fail', async () => {
@@ -225,7 +227,7 @@ await t('MUTANT KILLED: a grading router that ignores the reservation lays a cor
     const srv = terrace()
     const site = M.siteTidy(srv.read, { home: HOME, pin: pinOf(), avoid: RES, grades: [4] })
     assert.ok(!site.record || ![...site.record.cut, ...site.record.cells].some(inRes), 'the output guard still holds')
-    const after = P.sitePaths(site.record ? M.tidyOverlay(srv.read, site.record) : srv.read, pinOf())
+    const after = P.sitePaths(site.record ? M.tidyOverlay(srv.read, site.record) : srv.read, strictPin())
     assert.strictEqual(after.ok, false)
   })
 })

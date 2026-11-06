@@ -124,6 +124,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
+import { pathsFixOn, pathsSettled, PATHS_UNREAD_RETRY_MS, pathsUnroutedDue, pathsUnroutedNote } from './paths.mjs'   // pathsfix-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
@@ -17054,7 +17055,11 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         const rec0 = h.ok ? h.head?.rec ?? null : null
         // fleetpaths-01: FLEETPATHS=off reads a no-site paths record as no record (the projects after the paths wait, as before)
         const rec = !fleetPathsOn() && pathsNoSiteRec(rec0) ? null : rec0
-        const complete = !!rec?.structure_complete
+        // pathsfix-01: an UNSITED paths record (no_site, not complete) is SETTLED for the order -- the wall and the farm after it
+        // may start, it is never an open project -- and, once past its retry, a repair (first: its siting is one cheap visit, and
+        // behind every open project it was never asked again -- placebo-b 4 days with every project complete)
+        const fixNoSite = p.plot === PATHS_PLOT && pathsFixOn() && pathsNoSiteRec(rec)
+        const complete = fixNoSite ? pathsSettled(rec) : !!rec?.structure_complete
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
         // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
@@ -17062,7 +17067,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // zigtidy-02: ...except for TIDY_AFTER_REPAIR_MS after the record's last repair completion (shop.mjs tidyIsRepair): then the
         // tidy is a repair too -- the pillars a repair's own climbs left are dug before the open projects (bounded per bot)
         const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
-        const damaged = complete && b ? recordDamaged(b, rec, { tidy: tidyFirst }) : false
+        const damaged = complete && b ? (fixNoSite ? pathsDue(rec, now) : recordDamaged(b, rec, { tidy: tidyFirst })) : false
         return { plot: p.plot, exists: !!rec, complete, damaged, due: complete && b && !damaged ? recordDamaged(b, rec) : false }
       })
       activeMem = { ...(activeMem ?? {}), sig, at: now, states }
@@ -18900,7 +18905,8 @@ function pathsExtendDue (bot, rec) {
     const h = townPlanHead(bot)
     if (!h.ok || !h.head) return false
     const D = pathDests(pathsInputs(bot, shopCtx(bot), h))
-    return newDests(rec, D.dests ?? []).some(d => !bot.pathsUnrouted?.has?.(d.to))
+    // pathsfix-01: a destination this bot could not route is asked again after its retry (pathsUnroutedDue)
+    return newDests(rec, D.dests ?? []).some(d => pathsUnroutedDue(bot.pathsUnrouted, d.to))
   } catch { return false }
 }
 /**
@@ -18953,6 +18959,11 @@ async function buildPaths (ctx, args, signal) {
       // FLEETPATHS=off (the rollback): the stop as before -- no record, asked again at the next order
       const stop = fleetPathsOn() ? pathsSiteStop(s) : (/unknown|unreachable/.test(s.why) ? 'site_unread' : 'no_site')
       const why = `no path network (${s.why}): ${(s.dests ?? []).map(d => d.id).join(',')}`.slice(0, 160)
+      // pathsfix-01: an UNSITED record whose re-try met unread ground is asked again in PATHS_UNREAD_RETRY_MS (its retry is a repair
+      // now: without a new stamp every order would come back to it)
+      if (stop === 'site_unread' && pathsFixOn() && rh.head && pathsNoSiteRec(rh.head.rec)) {
+        try { publishRecord(dir, key, cur => (cur && pathsNoSiteRec(cur) && pathsDue(cur) ? { ...cur, retryAt: Date.now() + PATHS_UNREAD_RETRY_MS, retryWhy: 'site_unread' } : null), { by: me }) } catch { /* asked again at the next order */ }
+      }
       if (stop !== 'paths_no_site') return out('no_effect', stop, why, { stop })
       const pub = publishRecord(dir, key, cur => (fresh(cur) ? pathsNoSite({ home, now: Date.now(), by: me, why: s.why }) : null), { by: me })
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'no_site', cell: [home.x, home.y, home.z], kind: String(s.why).slice(0, 80), gen: pub.gen }) }) } catch { /* telemetry */ } }
@@ -18961,7 +18972,7 @@ async function buildPaths (ctx, args, signal) {
     const record = s.record
     const pub = publishRecord(dir, key, cur => (fresh(cur) ? { ...record, state: 'open' } : null), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
-    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'sited', cell: [home.x, home.y, home.z], kind: `legs${record.legs.length}/cols${record.columns}/cells${record.cells.length}/fill${record.earthwork.fill}/cut${record.earthwork.cut}/clear${record.clear.length}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'sited', cell: [home.x, home.y, home.z], kind: `legs${record.legs.length}/cols${record.columns}/cells${record.cells.length}/fill${record.earthwork.fill}/cut${record.earthwork.cut}/clear${record.clear.length}${record.pending?.length ? `/pending${record.pending.length}:${record.pending.join('+')}` : ''}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the paths record could not be read back')
   }
@@ -18972,8 +18983,8 @@ async function buildPaths (ctx, args, signal) {
     bot.pathsExtendAt = Date.now()
     try {
       const base = rh.head.rec, gen0 = rh.head.gen
-      const x = extendPaths(planReader(bot), base, inputs())
-      for (const t of x.failed ?? []) (bot.pathsUnrouted ??= new Set()).add(t)
+      const x = extendPaths(planReader(bot), base, { ...inputs(), skipTo: to => !pathsUnroutedDue(bot.pathsUnrouted, to) })
+      for (const t of x.failed ?? []) pathsUnroutedNote((bot.pathsUnrouted ??= new Map()), t)
       if (x.ok) {
         const pub = publishRecord(dir, key, cur => (cur && cur.cells.length === base.cells.length && (cur.legs ?? []).length === (base.legs ?? []).length ? { ...x.record, completeAt: cur.completeAt ?? null } : null), { by: me })
         if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'extended', cell: [home.x, home.y, home.z], kind: x.added.join('+'), gen: pub.gen, n: x.record.cells.length - base.cells.length }) }) } catch { /* telemetry */ } }
@@ -19268,7 +19279,8 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   const ph = recordHead(dir, projKeyOf(PATHS_PLOT))
   if (!ph.ok) throw new Error('paths record unreadable')
   const pathsRec = ph.head?.rec ?? null
-  const pin = (!pathsRec || pathsNoSiteRec(pathsRec)) && projectsOn().some(p => p.plot === PATHS_PLOT) ? P : null
+  // pathsfix-01: a network laid in sections with legs still PENDING keeps the grading's input too
+  const pin = (!pathsRec || pathsNoSiteRec(pathsRec) || (pathsFixOn() && (pathsRec.pending ?? []).length > 0)) && projectsOn().some(p => p.plot === PATHS_PLOT) ? P : null
   return { home, avoid, cells, pin, plan: P.plan }
 }
 const tidyRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }

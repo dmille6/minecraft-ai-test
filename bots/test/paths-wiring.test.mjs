@@ -110,7 +110,8 @@ for (const [name, re] of [
   ['the waiver reads the visit\'s refusals and the summed stuck map', /const due = pathWaiveDue\(rec, r\.blocked \?\? \[\], vfStuckRead\(dir, key, \{ since: Date\.now\(\) - BUILD_STUCK_FORGET_MS \+ 1 \}\)\)/],
   ['the shovel is held only through equip, never an unequip', /if \(bot\.heldItem\?\.name !== it\.name\) \{ try \{ await bot\.equip\(it, 'hand'\) \}/],
   ['a laid network with a new destination is due a visit (recordDamaged)', /if \(r\.blueprint === PATHS_BLUEPRINT && pathsExtendDue\(bot, r\)\) return true/],
-  ['the visit extends the record before its completion check', /const x = extendPaths\(planReader\(bot\), base, inputs\(\)\)/],
+  // pathsfix-01: with the bot's unrouted memo (a destination it could not route is skipped until its retry)
+  ['the visit extends the record before its completion check', /const x = extendPaths\(planReader\(bot\), base, \{ \.\.\.inputs\(\), skipTo: to => !pathsUnroutedDue\(bot\.pathsUnrouted, to\) \}\)/],
 ]) {
   await t(`${name} (and a mutant of it fails)`, async () => {
     assert.ok(re.test(SRC), 'wired')

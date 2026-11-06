@@ -349,8 +349,10 @@ export function gradeTidy (read, pin, { cells = new Set(), lim = gradeLim(read, 
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   if (!pin?.plan?.home) return { ok: false, why: 'no_plan', cut: [], fill: [], legs: [], skipped }
-  const strict = sitePaths(read, pin)
-  if (strict.ok) return { ok: false, why: 'paths_route', cut: [], fill: [], legs: [], skipped }
+  // pathsfix-01: the paths' STRICT router (grade false: the paths' own earthwork is theirs, the grading makes the ground they route
+  // without it); a network laid in sections (`missed` required legs pending) still wants its corridors graded
+  const strict = sitePaths(read, { ...pin, grade: false })
+  if (strict.ok && !(strict.missed > 0)) return { ok: false, why: 'paths_route', cut: [], fill: [], legs: [], skipped }
   // the grading router refuses another project's reservation too, but for the columns near a destination (a front approach)
   const D = pathDests(pin)
   const front = new Set()
@@ -437,7 +439,8 @@ export function siteTidy (read, { home, avoid = () => null, cells = new Set(), p
     if (record) record.grade = grade ? { ok: grade.ok, why: grade.why, n: grade.n ?? null, cut: grade.cut.length, fill: grade.fill.length, legs: grade.legs, skipped: grade.skipped } : null
     return record
   }
-  const unrouted = rec => { const q = sitePaths(rec ? tidyOverlay(read, rec) : read, pin); return q.ok ? 0 : (q.net?.legs ?? []).filter(l => !l.ok && !l.optional).length || 99 }
+  // pathsfix-01: a siting in sections is ok with legs still missed -- the count is the missed required legs either way
+  const unrouted = rec => { const q = sitePaths(rec ? tidyOverlay(read, rec) : read, { ...pin, grade: false }); return q.ok ? (Number(q.missed) || 0) : (q.net?.legs ?? []).filter(l => !l.ok && !l.optional).length || 99 }
   const tried = []
   let best = null
   if (pin) {
