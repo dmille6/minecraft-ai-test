@@ -32,7 +32,8 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, '..'))    # this install's lib/ (telemetry + the pager's alarm.py)
+sys.path.insert(0, '/opt/minecraft-ai/scripts')  # fallback: the deploy checkout's lib/ (the old import path)
+sys.path.insert(0, os.path.join(HERE, '..'))    # first: this install's lib/ (telemetry + the pager's alarm.py)
 
 WINDOW_MIN = int(os.environ.get('STUCKWATCH_MIN', '240'))
 MAX_POS = 3          # distinct integer positions in the window

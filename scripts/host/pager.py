@@ -67,6 +67,12 @@ def page_key(row):
     return f"{row.get('run') or '-'}|{row.get('level') or '-'}|{msg[:80]}"
 
 
+def row_id(row):
+    """PURE. A row's identity (sha1 of its canonical JSON)."""
+    import hashlib
+    return hashlib.sha1(json.dumps(row, sort_keys=True).encode()).hexdigest()[:16]
+
+
 def read_new(path, st):
     """-> (rows [(row, raw_line)], state'). st: {'ino', 'off', 'last_ts'} or {} (first run: start at the end)."""
     try:
@@ -84,6 +90,7 @@ def read_new(path, st):
         f.seek(off)
         data = f.read()
     end = data.rfind(b'\n') + 1          # a half-written last line waits for the next run
+    seen_at_last = set(st.get('last_rows') or [])
     for raw in data[:end].decode('utf-8', 'replace').splitlines():
         try:
             r = json.loads(raw)
@@ -91,11 +98,16 @@ def read_new(path, st):
             continue
         if not isinstance(r, dict):
             continue
-        if restart and st.get('last_ts') and str(r.get('ts') or '') <= st['last_ts']:
+        ts = str(r.get('ts') or '')
+        # after a rotation: skip what was relayed -- older rows, and rows AT the last timestamp that were seen (by row
+        # identity, not time: a distinct row with the same second must still be relayed, Codex review r1)
+        if restart and st.get('last_ts') and (ts < st['last_ts'] or (ts == st['last_ts'] and row_id(r) in seen_at_last)):
             continue
         rows.append(r)
     last = max([str(r.get('ts') or '') for r in rows] + [st.get('last_ts') or ''])
-    return rows, {'ino': s.st_ino, 'off': off + end, 'last_ts': last or None}
+    ids = sorted({row_id(r) for r in rows if str(r.get('ts') or '') == last} |
+                 (seen_at_last if last == st.get('last_ts') else set()))
+    return rows, {'ino': s.st_ino, 'off': off + end, 'last_ts': last or None, 'last_rows': ids}
 
 
 def relay_plan(rows, sent, now, acks=(), dedup=RELAY_DEDUP):
@@ -201,6 +213,23 @@ def _now():
 
 
 def cmd_relay(a):
+    import fcntl
+    os.makedirs(a.digest, exist_ok=True)
+    lk = os.open(os.path.join(a.digest, '.pager-relay.lock'), os.O_RDWR | os.O_CREAT, 0o664)
+    try:
+        fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print(f'{AL._iso(_now())} pager relay: another relay is running; skipped')
+        os.close(lk)
+        return 0
+    try:
+        return _relay(a)
+    finally:
+        fcntl.flock(lk, fcntl.LOCK_UN)
+        os.close(lk)
+
+
+def _relay(a):
     now = _now()
     sp = os.path.join(a.digest, 'pager-relay.json')
     try:

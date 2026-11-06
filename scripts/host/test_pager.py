@@ -122,6 +122,26 @@ def t_alarm(AL):
         r3 = AL.flush_outbox(T + dt.timedelta(hours=25), d, sender=bad)
         check('outbox: gives up after 24 h, loudly', r3['gaveup'] == 1 and AL.outbox_status(d)[0] == 0
               and 'GAVEUP' in open(os.path.join(d, 'ALARMS-delivery.log')).read(), r3)
+        check('outbox: the give-up stays visible for 24 h after the outbox empties',
+              AL.gaveup_recent(d, T + dt.timedelta(hours=26))[0] == 1 and AL.gaveup_recent(d, T + dt.timedelta(hours=50))[0] == 0)
+    with tempfile.TemporaryDirectory() as d:
+        bad, good = Sender(False), Sender(True)
+        for i in range(3):
+            AL.deliver(f'subj{i}', f'body{i}', T + M(i), d, sender=bad)
+        r = AL.flush_outbox(T + M(10), d, sender=good)
+        check('outbox: the channel coming back sends ONE message for every delayed push', r['sent'] == 3 and len(good.calls) == 1
+              and '3 delayed' in good.calls[0][0] and 'body2' in good.calls[0][1] and AL.outbox_status(d)[0] == 0, (r, good.calls))
+        AL.deliver('x', 'y', T, d, sender=bad)
+        import fcntl
+        held = os.open(os.path.join(d, '.alarm-outbox.lock'), os.O_RDWR)
+        fcntl.flock(held, fcntl.LOCK_EX)
+        try:
+            r = AL.flush_outbox(T + M(10), d, sender=good)
+            check('outbox: another flusher holding the lock -> this run skips (never waits, never sends twice)',
+                  r['skipped'] and len(good.calls) == 1, r)
+        finally:
+            fcntl.flock(held, fcntl.LOCK_UN); os.close(held)
+        check('outbox: the skipped row is still queued', AL.outbox_status(d)[0] == 1)
 
 
 # ------------------------------------------------------------------------------------------------ pager.py
@@ -151,8 +171,13 @@ def t_pager(P):
         check('relay: the completed half line is read next time', [r['msg'] for r in rows] == ['new2'], rows)
         os.rename(p, p + '.1')
         open(p, 'w').write(row('2026-11-06T11:00:30Z', 'error', 'dup-older') + row('2026-11-06T11:05:00Z', 'error', 'after-rot'))
-        rows, _ = P.read_new(p, st3)
+        rows, st4 = P.read_new(p, st3)
         check('relay: a rotated file restarts at 0 and skips rows already relayed', [r['msg'] for r in rows] == ['after-rot'], rows)
+        os.rename(p, p + '.2')
+        open(p, 'w').write(row('2026-11-06T11:05:00Z', 'error', 'after-rot') + row('2026-11-06T11:05:00Z', 'error', 'SAME SECOND'))
+        rows, _ = P.read_new(p, st4)
+        check('relay: after a rotation a NEW row with the last timestamp is still relayed (identity, not time)',
+              [r['msg'] for r in rows] == ['SAME SECOND'], rows)
     rows = [{'ts': '2026-11-06T11:59:00Z', 'run': 'a', 'level': 'error', 'msg': 'BLOCKED H3 a 1'},
             {'ts': '2026-11-06T11:59:00Z', 'run': 'a', 'level': 'verdict', 'msg': 'VERDICT KEEP (+180)'},
             {'ts': '2026-11-06T11:59:00Z', 'run': 'a', 'level': 'info', 'msg': 'launched'}]
@@ -205,6 +230,20 @@ def t_slot(AH):
     two = ref[:-2] + [tk(m, 'WAIT', 'H2 dropdig-01: autorebase of x is building (step suite)') for m in (5, 0)]
     key, _ = AH.slot_nodeploy(dep + two, T)
     check('slot: a cause held 2 ticks re-keys', key == 'slot:nodeploy:wait:H2-building', key)
+    alt = [tk(m, 'WAIT' if (m // 5) % 2 else 'BLOCK', 'H1 x: not before 2026-11-07T00:00:00Z' if (m // 5) % 2 else
+              'H3 x: blocked since its last attempt') for m in range(95, -1, -5)]
+    k1, _ = AH.slot_nodeploy(dep + alt, T)
+    k2, _ = AH.slot_nodeploy(dep + alt[:-1], T - M(5))
+    check('slot: alternating causes give ONE stable key (no push every 5 min)', k1 == k2 == 'slot:nodeploy:mixed', (k1, k2))
+    k3, _ = AH.slot_nodeploy(dep + alt, T, prev_key='slot:nodeploy:block:H3')
+    k4, _ = AH.slot_nodeploy(dep + alt[:-1], T - M(5), prev_key='slot:nodeploy:block:H3')
+    check('slot: the pushed cause is sticky while it still shows', k3 == k4 == 'slot:nodeploy:block:H3', (k3, k4))
+    h3 = [tk(m, 'BLOCK', 'H3 x: blocked since its last attempt') for m in range(95, 5, -5)]
+    nb2 = [tk(m, 'WAIT', 'H1 x: not before 2026-11-07T00:00:00Z') for m in (5, 0)]
+    k6, _ = AH.slot_nodeploy(dep + h3 + nb2, T, prev_key='slot:nodeploy:block:H3')
+    check('slot: two ticks of a new cause do not re-key a cause still in the recent ticks', k6 == 'slot:nodeploy:block:H3', k6)
+    k5, _ = AH.slot_nodeploy(dep + ref, T, prev_key='slot:nodeploy:busy:S8-hold')
+    check('slot: a cause gone from the recent ticks re-keys', k5 == 'slot:nodeploy:block:H2-refused', k5)
     key, _ = AH.slot_nodeploy(dep[:1] + [tk(m, 'BUSY', 'S2 running: canary-loop.sh (pid 1)') for m in range(190, -1, -5)], T)
     check('slot: a loop that never deploys (draw stall) alarms', key == 'slot:nodeploy:busy:S2-loop', key)
     key, _ = AH.slot_nodeploy(dep[:1], T)
@@ -264,6 +303,13 @@ def t_hour(H):
     check('lap: 0% lap is judged but no alarm', ok and line is None, s)
     r3 = H.lap_share({f'b{i}': [(lo + M(j * 2), None) for j in range(30)] for i in range(50)}, lo, hi)
     check('lap: unnamed milestones are NOT JUDGED (not 0%)', not H.lap_check(r3)[2])
+    # 90% of DECISIONS named but they hold almost no TIME (Codex review r1): not judged
+    skew = {f'b{i}': [(lo + dt.timedelta(seconds=j), 'gather') for j in range(90)] +
+                     [(lo + dt.timedelta(seconds=90) + M(6 * k), None) for k in range(10)] for i in range(50)}
+    rs = H.lap_share(skew, lo, hi)
+    check('lap skew fixture: 90% of decisions named, ~3% of time, full coverage', rs['named_rows'] == 0.9 * rs['rows']
+          and rs['named_s'] < 0.05 * rs['total_s'] and rs['total_s'] > 0.9 * 50 * 3600, rs)
+    check('lap: attribution is judged by time, not by decision count', not H.lap_check(H.lap_share(skew, lo, hi))[2])
     r4 = H.lap_share({f'b{i}': [(lo + M(j * 2), 'patrol') for j in range(30)] for i in range(10)}, lo, hi)
     check('lap: 10 bots is NOT JUDGED', not H.lap_check(r4)[2])
     gap = H.lap_share({'b': [(lo, 'patrol'), (lo + M(50), 'gather')]}, lo, hi)
@@ -298,14 +344,19 @@ MUTANTS = [
     ('lib/alarm.py', "        if tr != TIER_PAGE:\n            held.append", "        if False:\n            held.append", 'alarm'),
     ('lib/alarm.py', "        a = find_ack(acks, source, key, now) if kind != 'CLEARED' else None", "        a = None", 'alarm'),
     ('lib/alarm.py', "        if until is None or until <= now:\n            continue", "        if until is None:\n            continue", 'alarm'),
-    ('lib/alarm.py', "            if now - first >= OUTBOX_GIVEUP:", "            if False:", 'alarm'),
-    ('lib/alarm.py', "            if not outbox_due(r, now):", "            if False:", 'alarm'),
+    ('lib/alarm.py', "        if now - first >= OUTBOX_GIVEUP:", "        if False:", 'alarm'),
+    ('lib/alarm.py', "        elif outbox_due(r, now):", "        elif True:", 'alarm'),
+    ('lib/alarm.py', "        if _with_outbox(digest_dir, claim, blocking=False) is None:",
+     "        if _with_outbox(digest_dir, claim, blocking=False) is None and False:", 'alarm'),
+    ('lib/alarm.py', "    if len(due) == 1:\n        return str(due[0].get('subject')), str(due[0].get('body'))",
+     "    if True:\n        return str(due[0].get('subject')), str(due[0].get('body'))", 'alarm'),
+    ('lib/alarmhead.py', "    if prev and causes[:recent].count(prev) >= min_ticks:\n        return prev",
+     "    if False:\n        return prev", 'slot'),
     ('lib/alarm.py', "        return TIER_PAGE if str(key).startswith(('town:', 'goalwatch:')) else TIER_DIGEST",
      "        return TIER_PAGE", 'alarm'),
     ('lib/alarm.py', "    if s in DIGEST_SOURCES:\n        return TIER_DIGEST", "    if False:\n        return TIER_DIGEST", 'alarm'),
     ('pager.py', "    if not st:\n        return [], {'ino'", "    if False:\n        return [], {'ino'", 'pager'),
-    ('pager.py', "        if restart and st.get('last_ts') and str(r.get('ts') or '') <= st['last_ts']:",
-     "        if False:", 'pager'),
+    ('pager.py', "        if restart and st.get('last_ts') and (ts < st['last_ts']", "        if False and (ts < st['last_ts']", 'pager'),
     ('pager.py', "    end = data.rfind(b'\\n') + 1", "    end = len(data)", 'pager'),
     ('pager.py', "        elif last is not None and now - last < dedup:", "        elif False:", 'pager'),
     ('pager.py', "        return AL.TIER_PAGE if PAGE_WORDS.search(msg) else AL.TIER_DIGEST\n    if level == 'flag':",
@@ -314,7 +365,7 @@ MUTANTS = [
     ('lib/alarmhead.py', "    if t_last - start < idle:\n        return None, f'canary slot: no canary deployed",
      "    if True:\n        return None, f'canary slot: no canary deployed", 'slot'),
     ('lib/alarmhead.py', "        if deployed(w):\n            bounded = True", "        if 'BUSY' in d:\n            bounded = True", 'slot'),
-    ('lib/alarmhead.py', "        if j - i >= CAUSE_MIN_TICKS:", "        if j - i >= 1:", 'slot'),
+    ('lib/alarmhead.py', "        if j - i >= min_ticks:\n            return causes[i]", "        if j - i >= 1:\n            return causes[i]", 'slot'),
     ('lib/alarmhead.py', "    return f'slot:nodeploy:{cause}'", "    return 'slot:nodeploy'", 'slot'),
     ('goalwatch.py', "        if gs and all(g.get('stuck') for g in gs):", "        if gs and any(g.get('stuck') for g in gs):", 'town'),
     ('stuckwatch.py', "        elif f.get('first') is None or f['first'] > since + cover or f.get('last') is None or f['last'] < now - fresh:",
@@ -323,7 +374,9 @@ MUTANTS = [
     ('hourwatch.py', "    if pv > 0 and cv < (1 - drop) * pv:", "    if pv > 0 and cv < drop * pv:", 'hour'),
     ('hourwatch.py', "    if cv is None or cbh < min_cur_bh:", "    if cv is None:", 'hour'),
     ('hourwatch.py', "    if sh > lap_max:", "    if sh > 0.9:", 'hour'),
-    ('hourwatch.py', "    if res['named_rows'] < MIN_NAMED * res['rows']:", "    if not res['rows']:", 'hour'),
+    ('hourwatch.py', "    if res.get('named_s', 0.0) < MIN_NAMED * res['total_s']:", "    if res['named_rows'] < MIN_NAMED * res['rows']:", 'hour'),
+    ('pager.py', "(ts == st['last_ts'] and row_id(r) in seen_at_last)", "(ts == st['last_ts'])", 'pager'),
+    ('lib/alarm.py', "        _delivery_mark(digest_dir, 'last_gaveup', {'at': _iso(now), 'n': stats['gaveup']})", "        pass", 'alarm'),
     ('hourwatch.py', "        end = min(ds[i + 1][0] if i + 1 < len(ds) else hi, t + cap, hi)",
      "        end = min(ds[i + 1][0] if i + 1 < len(ds) else hi, hi)", 'hour'),
     ('hourwatch.py', "        elif all(g.get('stuck') for g in gs):", "        elif False:", 'hour'),

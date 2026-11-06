@@ -197,7 +197,12 @@ def main(argv=None):
                     log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
     if a.label == 'fleet':
         try:
-            key, sline = AH.slot_nodeploy(AH.parse_ticks(AH.read_tail(a.sched_log)), now)
+            try:
+                prev = next(iter(k for k in json.load(open(os.path.join(sd, 'slotwatch.pushstate.json')))
+                                 if k.startswith('slot:nodeploy:')), None)
+            except (OSError, ValueError, TypeError, AttributeError):
+                prev = None
+            key, sline = AH.slot_nodeploy(AH.parse_ticks(AH.read_tail(a.sched_log)), now, prev_key=prev)
         except Exception as e:      # noqa: BLE001
             key, sline = 'slot:scheduler', f'canary slot: the slot check FAILED ({type(e).__name__}: {str(e)[:120]})'
         slot = {key: sline} if key else {}

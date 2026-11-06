@@ -167,8 +167,9 @@ def worktree_overlay(wt):
     """-> (files to ship, files to delete, files to `git add`) so the remote checkout answers ls-files / status as this
     worktree does: deleted = tracked at HEAD and absent here; add = in the local index but not in HEAD."""
     files = tree_files(wt)
-    deleted = sorted(p for p in git_lines(wt, 'ls-files', '-z', '--deleted') if not p.startswith(SKIP_PREFIXES))
     head = set(git_lines(wt, 'ls-tree', '-r', '-z', '--name-only', 'HEAD'))
+    # in HEAD but not on disk here: a plain delete AND a staged `git rm` (ls-files --deleted misses the second, Codex r1)
+    deleted = sorted(p for p in head if not p.startswith(SKIP_PREFIXES) and not os.path.lexists(os.path.join(wt, p)))
     added = sorted(p for p in git_lines(wt, 'ls-files', '-z', '--cached') if p not in head and not p.startswith(SKIP_PREFIXES)
                    and os.path.lexists(os.path.join(wt, p)))
     return files, deleted, added

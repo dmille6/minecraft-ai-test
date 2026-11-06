@@ -286,15 +286,47 @@ def _delivery_note(digest_dir, ok, subject, detail, now):
         pass
 
 
+def _delivery_mark(digest_dir, field, value):
+    p = os.path.join(digest_dir, 'alarm-delivery.json')
+    try:
+        d = json.load(open(p))
+        if not isinstance(d, dict):
+            d = {}
+    except (OSError, ValueError):
+        d = {}
+    d[field] = value
+    try:
+        write_json_atomic(p, d)
+    except OSError:
+        pass
+
+
+def gaveup_recent(digest_dir, now, window=dt.timedelta(hours=24)):
+    """-> (n, at) of the newest give-up inside `window`, else (0, None). For the fleetstatus header."""
+    try:
+        g = (json.load(open(os.path.join(digest_dir, 'alarm-delivery.json'))) or {}).get('last_gaveup') or {}
+        t = _ts_or_none(g.get('at'))
+        if t is not None and now - t <= window:
+            return int(g.get('n') or 0), g.get('at')
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    return 0, None
+
+
 def _outbox_path(digest_dir):
     return os.path.join(digest_dir, 'alarm-outbox.jsonl')
 
 
-def _with_outbox(digest_dir, fn):
+def _with_outbox(digest_dir, fn, blocking=True):
+    """Run fn(rows) -> rows' under the outbox lock and write the result. Only fast work under the lock (no network).
+    blocking=False: return None at once when another process holds it."""
     os.makedirs(digest_dir, exist_ok=True)
     lk = os.open(os.path.join(digest_dir, '.alarm-outbox.lock'), os.O_RDWR | os.O_CREAT, 0o664)
     try:
-        fcntl.flock(lk, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(lk, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+        except OSError:
+            return None
         p = _outbox_path(digest_dir)
         rows = []
         try:
@@ -309,7 +341,7 @@ def _with_outbox(digest_dir, fn):
             pass
         rows2 = fn(rows)
         if rows2 != rows:
-            tmp = p + '.tmp'
+            tmp = '%s.%d.tmp' % (p, os.getpid())
             with open(tmp, 'w') as f:
                 for r in rows2:
                     f.write(json.dumps(r, sort_keys=True) + '\n')
@@ -351,41 +383,77 @@ def _delivery_log(digest_dir, now, what, subject, detail):
         pass
 
 
-def flush_outbox(now, digest_dir, conf_path=CONF, sender=None):
-    """Retry every due undelivered push (oldest first). Drops a push 24 h after it was first queued, LOUDLY. -> (sent,
-    still queued, given up)."""
-    sender = sender or send
-    stats = {'sent': 0, 'queued': 0, 'gaveup': 0}
+def outbox_batch(rows, now):
+    """PURE. -> (give_up [row], due [row], keep [row]). give_up: first queued >= OUTBOX_GIVEUP ago; due: outbox_due."""
+    give, due, keep = [], [], []
+    for r in rows:
+        first = _ts_or_none(r.get('at')) or now
+        if now - first >= OUTBOX_GIVEUP:
+            give.append(r)
+        elif outbox_due(r, now):
+            due.append(r)
+        else:
+            keep.append(r)
+    return give, due, keep
 
-    def step(rows):
-        keep = []
-        for r in rows:
-            first = _ts_or_none(r.get('at')) or now
-            if now - first >= OUTBOX_GIVEUP:
-                stats['gaveup'] += 1
-                _delivery_log(digest_dir, now, 'GAVEUP', str(r.get('subject')), f'{r.get("tries")} tries; {r.get("err")}')
-                try:
-                    subprocess.run(['logger', '-t', 'mcai-alarm', '-p', 'user.err',
-                                    f'PUSH GIVEN UP after {r.get("tries")} tries: {r.get("subject")}'[:900]], check=False, timeout=10)
-                except Exception:
-                    pass
-                continue
-            if not outbox_due(r, now):
-                keep.append(r)
-                continue
-            res = sender(str(r.get('subject')), str(r.get('body')), conf_path=conf_path, priority=r.get('priority') or 'high')
-            if delivered(res):
-                stats['sent'] += 1
-                _delivery_note(digest_dir, True, str(r.get('subject')), res.get('detail', ''), now)
-                _delivery_log(digest_dir, now, 'RETRIED', str(r.get('subject')), f'delivered on try {int(r.get("tries") or 1) + 1}')
-                continue
-            keep.append(dict(r, tries=int(r.get('tries') or 1) + 1, last_try=_iso(now), err=res.get('detail', '')))
-        stats['queued'] = len(keep)
-        return keep
+
+def outbox_message(due):
+    """PURE. Every due undelivered push as ONE message (the channel coming back must not flood the phone)."""
+    if len(due) == 1:
+        return str(due[0].get('subject')), str(due[0].get('body'))
+    body = '\n'.join(f'[{str(r.get("at"))[5:16]}] {r.get("subject")}: {str(r.get("body"))[:300]}' for r in due)
+    return f'{len(due)} delayed alarm pushes (since {min(str(r.get("at")) for r in due)[5:16]})'[:120], body[:BODY_MAX]
+
+
+def flush_outbox(now, digest_dir, conf_path=CONF, sender=None):
+    """Retry the due undelivered pushes as ONE message. Never sends while holding the lock, and never waits for it: another
+    process flushing means this run skips (it is retried next run). Rows queued 24 h ago are dropped LOUDLY.
+    -> {'sent', 'queued', 'gaveup', 'skipped'}."""
+    sender = sender or send
+    stats = {'sent': 0, 'queued': 0, 'gaveup': 0, 'skipped': False}
+    claimed = []
+
+    def claim(rows):                  # under the lock: drop the given-up, mark the due as tried now (no network)
+        give, due, keep = outbox_batch(rows, now)
+        stats['gaveup'] = len(give)
+        for r in give:
+            _delivery_log(digest_dir, now, 'GAVEUP', str(r.get('subject')), f'{r.get("tries")} tries; {r.get("err")}')
+        tried = [dict(r, tries=int(r.get('tries') or 1) + 1, last_try=_iso(now)) for r in due]
+        claimed.extend(tried)
+        return keep + tried
     try:
-        _with_outbox(digest_dir, step)
+        if _with_outbox(digest_dir, claim, blocking=False) is None:
+            stats['skipped'] = True
+            return stats
     except OSError:
-        pass
+        return stats
+    if stats['gaveup']:
+        _delivery_mark(digest_dir, 'last_gaveup', {'at': _iso(now), 'n': stats['gaveup']})
+        try:
+            subprocess.run(['logger', '-t', 'mcai-alarm', '-p', 'user.err',
+                            f'{stats["gaveup"]} alarm push(es) GIVEN UP after 24 h undelivered'], check=False, timeout=10)
+        except Exception:
+            pass
+    if claimed:
+        subject, body = outbox_message(claimed)
+        res = sender(subject, body, conf_path=conf_path, priority='high')
+        if delivered(res):
+            stats['sent'] = len(claimed)
+            _delivery_note(digest_dir, True, subject, res.get('detail', ''), now)
+            _delivery_log(digest_dir, now, 'RETRIED', subject, f'{len(claimed)} delayed push(es) delivered as one')
+            ids = {(r.get('at'), r.get('subject')) for r in claimed}
+            try:
+                _with_outbox(digest_dir, lambda rows: [r for r in rows if (r.get('at'), r.get('subject')) not in ids])
+            except OSError:
+                pass
+        else:
+            err = res.get('detail', '')
+            _delivery_note(digest_dir, False, subject, err, now)
+            try:
+                _with_outbox(digest_dir, lambda rows: [dict(r, err=err) if r in claimed else r for r in rows])
+            except OSError:
+                pass
+    stats['queued'] = outbox_status(digest_dir)[0]
     return stats
 
 
@@ -446,7 +514,7 @@ def raise_alarms(source, active, now, state_path, log_path=ALARMS_LOG, conf_path
         to_push, _ = push_plan(events, source, now, acks, tier)
         if to_push:
             deliver(*compose(source, to_push), now, dd, conf_path, sender)
-    tmp = sp + '.tmp'
+    tmp = '%s.%d.tmp' % (sp, os.getpid())
     os.makedirs(os.path.dirname(sp) or '.', exist_ok=True)
     with open(tmp, 'w') as f:
         json.dump(state, f, indent=1, sort_keys=True)
@@ -476,9 +544,10 @@ def one_shot(source, active, now, log_path=ALARMS_LOG, conf_path=CONF, push=True
 def write_json_atomic(path, obj):
     p = os.path.expanduser(path)
     os.makedirs(os.path.dirname(p) or '.', exist_ok=True)
-    with open(p + '.tmp', 'w') as f:
+    tmp = '%s.%d.tmp' % (p, os.getpid())
+    with open(tmp, 'w') as f:
         json.dump(obj, f, indent=1, sort_keys=True, default=str)
-    os.replace(p + '.tmp', p)
+    os.replace(tmp, p)
 
 
 def ship_row(path, row):

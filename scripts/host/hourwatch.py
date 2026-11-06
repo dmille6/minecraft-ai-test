@@ -101,7 +101,7 @@ def milestone_base(row):
 def lap_share(decisions, lo, hi, cap=SLICE_CAP, rungs=LAP_RUNGS):
     """PURE. decisions: {bot: [(t, milestone | None)] sorted}. Each decision owns [t, min(next t, t + cap)] clipped to
     [lo, hi]. -> {'share', 'lap_s', 'total_s', 'bots', 'rows', 'named_rows', 'by': {milestone: seconds}}."""
-    lap_s = tot_s = 0.0
+    lap_s = tot_s = named_s = 0.0
     rows = named = 0
     by = {}
     bots = 0
@@ -120,12 +120,13 @@ def lap_share(decisions, lo, hi, cap=SLICE_CAP, rungs=LAP_RUNGS):
             tot_s += sec
             if ms:
                 named += 1
+                named_s += sec
                 by[ms] = by.get(ms, 0.0) + sec
                 if ms in rungs:
                     lap_s += sec
         bots += seen
     return {'share': (lap_s / tot_s) if tot_s else None, 'lap_s': lap_s, 'total_s': tot_s, 'bots': bots, 'rows': rows,
-            'named_rows': named, 'by': by}
+            'named_rows': named, 'named_s': named_s, 'by': by}
 
 
 def lap_check(res, window=LAP_WINDOW, lap_max=LAP_MAX, min_bots=MIN_BOTS, rungs=LAP_RUNGS):
@@ -135,9 +136,9 @@ def lap_check(res, window=LAP_WINDOW, lap_max=LAP_MAX, min_bots=MIN_BOTS, rungs=
     if res['bots'] < min_bots or cov_bh < 0.5 * res['bots'] * hours:
         return None, (f'lap: NOT JUDGED ({res["bots"]} bots with decisions, {cov_bh:.1f} bot-h covered; need {min_bots} '
                       f'bots and half their hours)'), False
-    if res['named_rows'] < MIN_NAMED * res['rows']:
-        return None, (f'lap: NOT JUDGED (only {res["named_rows"]} of {res["rows"]} decisions name a milestone, need '
-                      f'{MIN_NAMED:.0%}: the field moved?)'), False
+    if res.get('named_s', 0.0) < MIN_NAMED * res['total_s']:      # by TIME, not decision count (Codex review r1)
+        return None, (f'lap: NOT JUDGED (only {res.get("named_s", 0.0) / 3600:.1f} of {cov_bh:.1f} bot-h is on decisions '
+                      f'that name a milestone, need {MIN_NAMED:.0%}: the field moved?)'), False
     if not any(m in rungs for m in res['by']) and res['named_rows']:
         top = ', '.join(f'{m} {s / 3600:.1f}' for m, s in sorted(res['by'].items(), key=lambda x: -x[1])[:4])
         return None, f'lap: 0 of {cov_bh:.1f} bot-h on {"/".join(sorted(rungs))} (no rung seen; top: {top})', True

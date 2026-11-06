@@ -84,11 +84,12 @@ def t_overlay(S):
             open(os.path.join(d, f), 'w').write(f)
         g('add', '-A'); g('commit', '-q', '-m', 'base')
         os.unlink(os.path.join(d, 'gone.txt'))
+        g('rm', '-q', 'docs/kept.md')                       # a STAGED deletion (Codex review r1)
         open(os.path.join(d, 'staged.txt'), 'w').write('s'); g('add', 'staged.txt')
         open(os.path.join(d, 'untracked.txt'), 'w').write('u')
         open(os.path.join(d, 'a.txt'), 'w').write('edited')
         files, deleted, added = S.worktree_overlay(d)
-        check('overlay: the deleted tracked file is deleted remotely', deleted == ['gone.txt'], deleted)
+        check('overlay: deleted AND staged-deleted files are deleted remotely', deleted == ['docs/kept.md', 'gone.txt'], deleted)
         check('overlay: the staged new file is git-added remotely', added == ['staged.txt'], added)
         check('overlay: untracked stays untracked (not added)', 'untracked.txt' in files and 'untracked.txt' not in added, files)
         check('overlay: edited files are shipped', 'a.txt' in files and 'gone.txt' not in files, files)
@@ -101,7 +102,8 @@ MUTANTS = [
     ("    if line is None and now - last_ok > ssh_down_s:", "    if False:", t_wait),
     ("    added = sorted(p for p in git_lines(wt, 'ls-files', '-z', '--cached') if p not in head",
      "    added = sorted(p for p in git_lines(wt, 'ls-files', '-z', '--cached', '--others') if p not in head", t_overlay),
-    ("    deleted = sorted(p for p in git_lines(wt, 'ls-files', '-z', '--deleted')", "    deleted = sorted(p for p in []", t_overlay),
+    ("    deleted = sorted(p for p in head if not p.startswith(SKIP_PREFIXES) and not os.path.lexists(os.path.join(wt, p)))",
+     "    deleted = sorted(p for p in git_lines(wt, 'ls-files', '-z', '--deleted') if not p.startswith(SKIP_PREFIXES))", t_overlay),
 ]
 
 

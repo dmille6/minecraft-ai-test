@@ -244,13 +244,30 @@ def tick_cause(dec, why):
     return f'{dec}:{code}{qual}'
 
 
-def slot_nodeploy(ticks, now, idle=SLOT_IDLE, stale=SCHED_STALE):
+def slot_cause(causes, prev=None, min_ticks=CAUSE_MIN_TICKS, recent=6):
+    """PURE. causes: the streak's tick causes, NEWEST FIRST; prev: the cause of the key pushed last (or None).
+    STICKY: the previous cause stays while it still shows >= min_ticks times in the `recent` newest ticks (alternating
+    causes must not re-key every 5 min: a CLEARED + NEW push per tick, Claude review r1). Otherwise the cause of the newest
+    run of >= min_ticks equal ticks; otherwise the previous cause, or 'mixed'."""
+    if prev and causes[:recent].count(prev) >= min_ticks:
+        return prev
+    i = 0
+    while i < len(causes):
+        j = i
+        while j < len(causes) and causes[j] == causes[i]:
+            j += 1
+        if j - i >= min_ticks:
+            return causes[i]
+        i = j
+    return prev or 'mixed'
+
+
+def slot_nodeploy(ticks, now, idle=SLOT_IDLE, stale=SCHED_STALE, prev_key=None):
     """PURE. ticks [(t, DECISION, reasons)] oldest first -> (key | None, line).
     The OWNER's rule (11-06): page when NO CANARY HAS BEEN DEPLOYED for `idle` (60 min), whatever the reason -- a live
     install-hold, a building or refused autorebase, a drawing loop and a blocked head all count (slot_idle counted only
-    BLOCK/WAIT/IDLE ticks, so 10 h of a live hold on 11-05 never alarmed). The key names the CAUSE, so a new cause pushes
-    again: the cause is that of the newest run of >= CAUSE_MIN_TICKS ticks with one cause. A scheduler that stopped
-    ticking is key slot:scheduler."""
+    BLOCK/WAIT/IDLE ticks, so 10 h of a live hold on 11-05 never alarmed). The key names the CAUSE (slot_cause, sticky to
+    prev_key's), so a new cause pushes again. A scheduler that stopped ticking is key slot:scheduler."""
     if not ticks:
         return 'slot:scheduler', 'canary slot: NO scheduler tick read from sched.log -- is canary-sched.py tick in cron here?'
     t_last, dec, why = ticks[-1]
@@ -269,16 +286,8 @@ def slot_nodeploy(ticks, now, idle=SLOT_IDLE, stale=SCHED_STALE):
     mins = (t_last - start).total_seconds() / 60
     if t_last - start < idle:
         return None, f'canary slot: no canary deployed for {mins:.0f} min (under {idle.total_seconds() / 60:.0f}); now {dec} {why[:120]}'
-    causes = [tick_cause(d, w) for _, d, w in streak]          # newest first
-    cause, i = causes[0], 0
-    while i < len(causes):
-        j = i
-        while j < len(causes) and causes[j] == causes[i]:
-            j += 1
-        if j - i >= CAUSE_MIN_TICKS:
-            cause = causes[i]
-            break
-        i = j
+    prev = prev_key[len('slot:nodeploy:'):] if prev_key and prev_key.startswith('slot:nodeploy:') else None
+    cause = slot_cause([tick_cause(d, w) for _, d, w in streak], prev)
     head = why.split(' | ')[0][:220]
     return f'slot:nodeploy:{cause}', (f'canary slot: NO canary deployed for {"" if bounded else ">= "}{mins:.0f} min (since '
                                       f'{AL._iso(start)}); cause {cause}: {dec} {head}')
@@ -311,6 +320,10 @@ def lines(now, client=None, state_dir=STATE, conf=AL.CONF, sched_log=SCHED_LOG, 
         if nq:
             out.append(f'!! alarm push: {nq} push(es) NOT DELIVERED, queued since {oldest} (retried every run; '
                        f'{state_dir}/ALARMS-delivery.log)')
+        ng, gat = AL.gaveup_recent(os.path.expanduser(state_dir), now)
+        if ng:
+            out.append(f'!! alarm push: {ng} push(es) GIVEN UP undelivered after 24 h (last {gat}): the owner never got '
+                       f'them -- read {state_dir}/ALARMS-delivery.log')
         out += slot_lines(now, sched_log)
         for name, label, stale in FILES:
             out += file_lines(now, name, label, stale, state_dir)
