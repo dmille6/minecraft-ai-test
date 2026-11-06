@@ -19338,6 +19338,8 @@ function keeperState (bot, work, now = Date.now()) {
 function takeKeeper (bot, lease, now = Date.now()) {
   const me = keeperMe(bot)
   const renewal = lease?.rec?.holder === me && now < (lease.holdsUntil ?? 0)
+  // gklease-01 (Codex r1 BLOCKER): the fitness gate at the ACQUISITION boundary -- every new take (the order's read and a visit's start)
+  { const u = renewal ? null : gkUnfitNow(bot); if (u) return { ok: false, why: `unfit:${u}` } }
   const r = projTakeLease(townDir(), projKeyOf(TIDY_PLOT), GK_LEASE, me, { now, ttl: GK.leaseTtlMs, meta: { term0: termStart(lease, me, now) } })
   if (r.ok && !renewal) { try { logEvent({ kind: 'keeper', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'keeper_take', gen: r.gen }) }) } catch { /* telemetry */ } }
   bot.gkCache = null
@@ -19385,7 +19387,7 @@ function keeperOrder (bot, states, list, now = Date.now()) {
   // GKLEASE-01 (groundskeeper.mjs groundsLeaseCheck): a holder that cannot work the grounds from where it is (in a mine, away), or
   // that has done no grounds work for GK_FIT.idleMs, lets the lease go and rests; an unfit bot never takes it
   if (GKL_ON && (d === 'mine' || d === 'take')) {
-    const unfit = groundsUnfit({ feet: gkFeet(bot), home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ } })
+    const unfit = gkUnfitNow(bot)
     const c = groundsLeaseCheck({ d, unfit, idle: d === 'mine' && groundsIdle({ term0: Number(k.lease?.rec?.meta?.term0 ?? k.lease?.rec?.at), workAt: bot.gkWorkAt ?? null, spawnAt: bot.shopSpawnAt ?? null, now }) })
     if (c.release) { releaseKeeper(bot, k.lease, c.release, now); bot.gkRestUntil = now + GK_FIT.restMs; d = 'none' } else if (d === 'take' && !c.take) d = 'none'
   }
@@ -19399,6 +19401,8 @@ function keeperOrder (bot, states, list, now = Date.now()) {
 /** gklease-01: the switch, and the bot's feet -> [x, y, z] | null. */
 const GKL_ON = gkleaseOn()
 function gkFeet (bot) { try { const p = bot?.entity?.position; return p ? [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] : null } catch { return null } }
+/** gklease-01: why this bot cannot work the grounds from where it is (groundskeeper.mjs groundsUnfit) -> why | null (switch off: null). */
+function gkUnfitNow (bot) { try { return GKL_ON ? groundsUnfit({ feet: gkFeet(bot), home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ } }) : null } catch { return null } }
 /** The land plan's siting inputs: the paths' refusals over every other project (never the paths' own record: a road crosses a
  *  laid path) and their reservations. Throws on an unreadable file. */
 function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
