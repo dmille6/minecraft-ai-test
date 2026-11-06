@@ -143,6 +143,14 @@
 #                      rule: its placements are G1's against the head record (the new roof's cells and the old cells both on it), a
 #                      misoriented new stair's dig is RO1's (the generation carries its own `palette`). The selftest pins it: a
 #                      placement one above the new roof is off_record; a reroof dig of an OLD flat-roof cell is clear_outside.
+#   RT2 reroof digs (reroof-02, 11-06; bots/src/reroof.mjs reroofObstacles): a retrofit generation may LIST digs in its head record's
+#                      `clear`: what stands in the new roof's cells. kind=decor_post (a decorator ornament -- a lantern post's fence
+#                      and lantern, a pot, a flower, a hedge -- taken back by the retrofit) is clean only when the head lists THAT cell
+#                      with that kind and that block AND a decor generation RETIRED that cell by this retrofit (by=reroof:<plot>); else
+#                      clear_outside (` decor_post`). kind=leaves (canopy) and kind=foreign (scaffold clutter in a roof cell) need no
+#                      new rule: a listed clear (G2's list), a foreign dig of the head's own open cell (G2 as before). The decor
+#                      record's `_build op=retired project=decor` row judges nothing. A DOORSTEP (`seg=reroof-earth`, role fill,
+#                      cobblestone) is a cell of the head (G1). The selftest pins each and its positive control.
 # REPORTED, NOT A GATE: G7 placed_twice (a cell placed twice within 10 min: physically a re-placement after the cell was emptied
 #   -- a repair or a survival dig -- never two blocks in one cell; read r1 both engines).
 #   F2/F4 rows (owner 10-26: every replant skip a counted row): replants moved / deferred / skipped, cells deferred, STUCK ON CELL,
@@ -209,6 +217,20 @@ def role_names(palette, role, seen=None):
             seen.add(n[1:])
             out.extend(role_names(palette, n[1:], seen))
     return out
+
+
+REROOF_DECOR_KIND = 'decor_post'
+
+
+def reroof_decor_ok(rec, decor_chain, cell, block, plot=None):
+    """reroof-02 RT2: is a retrofit's kind=decor_post dig listed in the head's clear (that cell, that kind, that block) AND a decor
+    ornament cell this retrofit RETIRED (a generation's `retired`, by == 'reroof:<plot>': the bot retires before it lists -- Claude r1
+    tightening: an ornament never handed over is never dug)? -> bool. Pure."""
+    k = ck(cell)
+    name = re.sub(r'^minecraft:', '', str(block or ''))
+    if not any(isinstance(c, dict) and ck(c.get('at')) == k and c.get('kind') == REROOF_DECOR_KIND and c.get('name') == name for c in (rec or {}).get('clear') or []):
+        return False
+    return any(isinstance(c, dict) and c.get('at') and ck(c['at']) == k and c.get('by') == 'reroof:%s' % plot for g in decor_chain or [] for c in g.get('retired') or [])
 
 
 def reorient_ok(chain, cell, block):
@@ -1462,6 +1484,12 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         # picker-01: the clear lists (kind=foreign: the cells) of the generations in force when it was dug
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                         ok = sink_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'), t_ms)
+                    elif f.get('kind') == REROOF_DECOR_KIND:
+                        # reroof-02 RT2: a retrofit's dig of a decorator ornament standing in its new roof (listed, a decor cell)
+                        pr = projects.get(pool)
+                        dchain = project_of(pr, DECOR).get('chain') or ([project_of(pr, DECOR)['record']] if project_of(pr, DECOR).get('record') else [])
+                        ok = reroof_decor_ok(rec, dchain, cell, f.get('block'), plot)
+                        why = '' if ok else ' decor_post'
                     elif f.get('kind') == 'reorient':
                         # townstyle-01 RO1: the builder's own block in the wrong state, on a state-bearing cell of the chain
                         ok = reorient_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'))
@@ -2193,6 +2221,33 @@ def selftest():
     assert rp('60,74,60', 'spruce_stairs', op='clear', kind='reorient')['clear_outside'] == 0, 'a misoriented new stair: RO1 with the generation\'s own palette'
     assert rp('60,73,60', 'oak_planks', op='clear', kind='reorient')['clear_outside'] == 1, 'the old flat roof is never dug as a reorient'
     assert rp('60,73,60', 'oak_planks', op='clear', kind='reroof')['clear_outside'] == 1, 'nor by any reroof dig: the retrofit digs nothing'
+    # reroof-02 RT2: the retrofit's listed digs -- a decor ornament (listed + a decor cell, retired by then), canopy leaves, clutter;
+    # the doorstep a head cell; the decor's retirement row judges nothing
+    dc1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'decor', 'blueprint': 'decor@1', 'at': T0MS - 60_000, 'structure_complete': True, 'home': {'x': 0, 'y': 70, 'z': 0},
+           'instances': [], 'cells': [{'at': [61, 72, 59], 'role': 'D1-post', 'seg': 'D1-L0'}, {'at': [61, 73, 59], 'role': 'D1-lamp', 'seg': 'D1-L0'}, {'at': [62, 73, 59], 'role': 'D1-lamp', 'seg': 'D1-L1'}], 'clear': [], 'replant': []}
+    dc2 = dict(dc1, gen=2, prev=1, at=T0MS - 30_000, cells=[dc1['cells'][2]], retired=[dict(c, by='reroof:house1', retiredAt=T0MS - 30_000) for c in dc1['cells'][:2]], retiredAt=T0MS - 30_000)
+    hdig = dict(hnew, gen=3, prev=2, cells=hnew['cells'] + [{'at': [60, 71, 58], 'role': 'fill', 'seg': 'reroof-earth'}, {'at': [61, 73, 59], 'role': 'roofstair', 'seg': 'reroof-roof-edge'}],
+                clear=[{'at': [61, 72, 59], 'kind': 'decor_post', 'name': 'spruce_fence'}, {'at': [61, 73, 59], 'kind': 'decor_post', 'name': 'lantern'},
+                       {'at': [63, 73, 59], 'kind': 'decor_post', 'name': 'lantern'}, {'at': [62, 74, 60], 'kind': 'leaves', 'name': 'spruce_leaves'}])
+    dbk = PP(house1={'record': hdig, 'records_files': 3, 'leases': {}, 'chain': [hold, hnew, hdig]}, decor={'record': dc2, 'records_files': 2, 'leases': {}, 'chain': [dc1, dc2]})
+    rd = lambda c, block, kind='decor_post', pp=dbk, op='clear', seg='reroof-roof-edge': J(base + [R('_build', 'project=house1 op=%s seg=%s cell=%s block=%s kind=%s' % (op, seg, c, block, kind), s=14)], pp)
+    assert rd('61,72,59', 'spruce_fence')['clear_outside'] == 0 and rd('61,73,59', 'lantern')['clear_outside'] == 0, 'RT2: a listed decor post (retired cells of the decor chain), fence and lantern'
+    assert rd('61,73,59', 'minecraft:lantern')['clear_outside'] == 0, 'a namespaced block reads the same'
+    assert rd('61,73,59', 'lantern', pp=PP(house1={'record': hdig, 'records_files': 3, 'leases': {}, 'chain': [hold, hnew, hdig]}, decor={'record': dc2, 'records_files': 1, 'leases': {}, 'chain': [dc2]}))['clear_outside'] == 0, 'RT2: a cell only the head\'s `retired` names (its first generation pruned) is still a decor cell'
+    assert rd('63,73,59', 'lantern')['clear_outside'] == 1, 'RT2: listed, but no decor cell there'
+    assert rd('61,73,59', 'lantern', pp=PP(house1={'record': hdig, 'records_files': 3, 'leases': {}, 'chain': [hold, hnew, hdig]}, decor={'record': dc1, 'records_files': 1, 'leases': {}, 'chain': [dc1]}))['clear_outside'] == 1, 'RT2: a decor cell never retired (no hand-over) is never dug'
+    dco = dict(dc2, retired=[dict(c, by='reroof:shop') for c in dc2['retired']])
+    assert rd('61,73,59', 'lantern', pp=PP(house1={'record': hdig, 'records_files': 3, 'leases': {}, 'chain': [hold, hnew, hdig]}, decor={'record': dco, 'records_files': 1, 'leases': {}, 'chain': [dco]}))['clear_outside'] == 1, 'RT2: retired for ANOTHER building\'s retrofit'
+    assert rd('62,73,59', 'lantern')['clear_outside'] == 1, 'RT2: a decor cell the head does not list'
+    assert rd('61,73,59', 'spruce_fence')['clear_outside'] == 1, 'RT2: listed with another block'
+    assert rd('61,73,59', 'lantern', pp=PP(house1={'record': hdig, 'records_files': 3, 'leases': {}, 'chain': [hold, hnew, hdig]}))['clear_outside'] == 1, 'RT2: no decor record: never'
+    assert rd('63,73,59', 'lantern')['_lists']['clear_outside'] == ['board-a-Alpha 63,73,59 decor_post lantern decor_post'], rd('63,73,59', 'lantern')['_lists']
+    assert rd('62,74,60', 'spruce_leaves', kind='leaves')['clear_outside'] == 0 and rd('62,75,60', 'spruce_leaves', kind='leaves')['clear_outside'] == 1, 'canopy leaves: G2\'s list (listed clean, unlisted outside)'
+    assert rd('60,74,60', 'dirt', kind='foreign')['clear_outside'] == 0 and rd('60,76,60', 'dirt', kind='foreign')['clear_outside'] == 1, 'clutter in a head roof cell: the foreign rule (its own cell clean, off it outside)'
+    assert rd('60,71,58', 'cobblestone', op='place', seg='reroof-earth', kind='fill')['off_record'] == 0 and rd('60,71,57', 'cobblestone', op='place', seg='reroof-earth', kind='fill')['off_record'] == 1, 'the doorstep: a head cell (G1)'
+    rr2 = J(base + [R('_build', 'project=decor op=retired cell=61,73,59 kind=reroof:house1 gen=2', s=14)], dbk)
+    m00 = J(base, dbk)['mutations']
+    assert rr2['off_record'] == 0 and rr2['clear_outside'] == 0 and rr2['zone'] == 0 and rr2['mutations'] == m00, ('the retirement row judges nothing', rr2)
     # enchantshop-01 EF1: the shell's cells, a fit slot with ITS item, the labels on their cells; anything else off the record
     erec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'enchantshop@1', 'plot': 'enchantshop', 'cells': [{'at': [30, 65, 30], 'role': 'base', 'seg': 'pad'}],
             'fit': [{'slot': 'anvil', 'item': 'anvil', 'at': [31, 66, 30]}, {'slot': 'shelf-01', 'item': 'bookshelf', 'at': [32, 66, 30]}],
@@ -2400,7 +2455,7 @@ def selftest():
         assert m, 'TREE_DEBRIS not found in showcase_trip.py'
         td = re.compile(eval(''.join(re.findall(r"r'((?:[^'\\]|\\.)*)'", m.group(1))).join(["r'", "'"])))
         assert td.match('poppy') and td.match('fern'), 'positive control: the debris regex reads flowers and ferns'
-        for tag in ('fern_rule', 'leaves_rule', 'bloom', 'meal', 'pot', 'guarded', 'in_park', 'tidy_cell'):
+        for tag in ('fern_rule', 'leaves_rule', 'bloom', 'meal', 'pot', 'guarded', 'in_park', 'tidy_cell', 'decor_post'):
             assert not td.match(tag), 'a decor refusal tag reads as tree debris: %s' % tag
     print('shopread selftest: ok')
 

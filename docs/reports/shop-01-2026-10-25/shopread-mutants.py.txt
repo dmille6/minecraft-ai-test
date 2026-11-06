@@ -200,6 +200,15 @@ M = [
  ("                if plot == TIDY:\n                    rwhy = replant_road_why(projects.get(pool), cell)", "                if False:\n                    rwhy = replant_road_why(projects.get(pool), cell)"),
  ("        if isinstance(b, list) and len(b) == 6 and b[0] <= cell[0] <= b[3] and b[2] <= cell[2] <= b[5]:", "        if isinstance(b, list) and len(b) == 6 and b[0] <= cell[0] <= b[3] and b[1] <= cell[2] <= b[4]:"),
  ("            return 'on_path'", "            return ''"),
+ # reroof-02 RT2: a retrofit's decor_post dig -- listed with its kind and block, and a decor cell (cells or retired)
+ ("                    elif f.get('kind') == REROOF_DECOR_KIND:\n", "                    elif False:\n"),
+ ("    if not any(isinstance(c, dict) and ck(c.get('at')) == k and c.get('kind') == REROOF_DECOR_KIND and c.get('name') == name for c in (rec or {}).get('clear') or []):\n        return False\n", ""),
+ (" and c.get('kind') == REROOF_DECOR_KIND and c.get('name') == name for c in (rec or {}).get('clear') or []):", " and c.get('kind') == REROOF_DECOR_KIND for c in (rec or {}).get('clear') or []):"),
+ ("    return any(isinstance(c, dict) and c.get('at') and ck(c['at']) == k and c.get('by') == 'reroof:%s' % plot for g in decor_chain or [] for c in g.get('retired') or [])", "    return True"),
+ (" and c.get('by') == 'reroof:%s' % plot for g in decor_chain", " for g in decor_chain"),
+ ("                        ok = reroof_decor_ok(rec, dchain, cell, f.get('block'), plot)", "                        ok = reroof_decor_ok(rec, dchain, cell, f.get('block'), 'shop')"),
+ ("    name = re.sub(r'^minecraft:', '', str(block or ''))\n", "    name = str(block or '')\n"),
+ ("                        why = '' if ok else ' decor_post'\n", "                        why = ''\n"),
 ]
 bad = 0
 for old, new in M:
