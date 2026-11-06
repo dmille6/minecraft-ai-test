@@ -69,6 +69,60 @@ let groundsMeansOf = () => false
 export function setGroundsMeans (fn) { if (typeof fn === 'function') groundsMeansOf = fn }
 /** May this bot take a grounds lap (skills.mjs: the town's grounds have work and a slot for it)? Never throws. */
 export const groundsMeans = b => { try { return !!groundsMeansOf(b) } catch { return false } }
+// ---- IDLEWORK-02 (docs/reports/idlework2-design-2026-11-06.md) ---------------------------------------------------------------
+// MEASURED 11-06 (fleet, 80 bots): after idlework-01 went fleet-wide (10:30Z) bots at >= 34 estimated slots 9 -> 24 by 13:35Z
+// (Grafana "Many bags full": sum(mcai_bots_bag_full{scope="fleet"}) > 15 for 1 h); 22 of the 24 were in the FIELD, mid-batch
+// (mine/gather/deep_mine/goto): an iron batch (median 51 min) nets cobble +52, deepslate +13, raw_iron +3 and a granite/andesite/
+// diorite/tuff/clay tail, ~100% of it PASSIVE pickups (the server hands a dug block's drop over; nothing chases it). A full bag's
+// gather fails (4.8% vs 52.2% with room, hygiene.mjs), so the rest of a batch on a full bag is walking with no pickup.
+//
+// THE BAG STOP (IDLEWORK_BAGSTOP, =0 the rollback): a bag-filling batch (iron, logs, coal) is MET once the bag reaches
+// IDLE_BAG_STOP real slots AND this batch raised it (slots above the count it opened at), so the lap goes on to `return` and
+// the town visit sheds the surplus (well.mjs wellBandDue, from 29). A bag batch OPENS only at <= IDLE_BAG_OPEN_MAX (Codex's
+// hysteresis: 8 free slots, the build order's room; stop at 30 leaves six for passive pickups and escape stone): above it the
+// bag kinds have no means, and the lap is a grounds or scout lap (no bag gain) -- never a batch met the moment it opens, so the
+// chain cannot spin. The stop is a completion of THIS lap's batch, never a skip: it bars nothing.
+export const IDLE_BAG_OPEN_MAX = 28
+export const IDLE_BAG_STOP = 30
+export const BAG_KINDS = Object.freeze(['iron', 'logs', 'coal'])
+export const idleBagStopOn = (env = process.env) => String(env?.IDLEWORK_BAGSTOP ?? '1').trim() !== '0'
+/** The means with the bag kinds taken away when the bag is at the stop. Pure. */
+export function idleBagMeans (means = {}, slots = null, { on = idleBagStopOn(), openMax = IDLE_BAG_OPEN_MAX } = {}) {
+  if (!on || !Number.isFinite(slots) || slots <= openMax) return means
+  const out = { ...means }
+  for (const k of BAG_KINDS) out[k] = false
+  return out
+}
+/** Did THIS batch fill the bag to the stop? Pure. Only a bag kind, only above the slots it opened at. */
+export function idleBagFull (state, slots, { on = idleBagStopOn(), stop = IDLE_BAG_STOP } = {}) {
+  if (!on || !state || !BAG_KINDS.includes(state.kind) || !Number.isFinite(slots)) return false
+  return slots >= stop && Number.isFinite(state.slotsAt) && slots > state.slotsAt
+}
+
+// THE DEPTH-AWARE HINT (the coordinator's 11-06 item): 10:40-13:40Z the fleet's model sent 2,028 `mine` proposals admission
+// refused as bad_args (of 6,936 mine calls; 2,132 bad_args in all) -- 1,993 "mine only digs DOWNWARD": args.y at or ABOVE the
+// ceiling (args.y - feet y: -1 620, 0 584, +1..+13 ~600). 1,377 under the iron batch, whose hint said "mine down to y=16", from
+// bots already at the town stair's landing at y=16 (mine y=16 walks the stair down, then the hint asks for y=16 again); 161
+// under the coal batch. The ELEVATION line already named the ceiling; the hint's literal 16 out-voted it. So the hint names a
+// target the gate accepts (mining.mjs mineTargetOk), or a move that is not `mine`. Pure.
+export const IRON_DEPTH = 16
+/** `mine`'s ceiling from feet y (mining.mjs mineTargetCeiling, restated: this module imports nothing). */
+const ceilingOf = y => Math.max(-59, Math.ceil(y - 2)) + 0   // + 0: never print -0
+export function idleDepthHint (kind, y) {
+  const base = IDLE_NEEDS[kind]?.hint ?? null
+  if (!Number.isFinite(y) || (kind !== 'iron' && kind !== 'coal')) return base
+  const yr = Math.round(y), cap = ceilingOf(y)
+  if (kind === 'iron') {
+    if (y > IRON_DEPTH + 2) return base
+    if (cap < -50) return `you are near bedrock (y=${yr}): gather with block=iron_ore or deepslate_iron_ore when one is in sight; otherwise use surface (mine only goes DOWN, and there is no rock left below).`
+    const to = Math.max(-50, Math.min(cap, Math.floor(y) - 8))
+    return `you are at iron depth (y=${yr}): gather with block=iron_ore or deepslate_iron_ore when one is in sight; if none is, mine with y=${to} to open new rock (mine only goes DOWN: from here y=${cap} is the highest it takes).`
+  }
+  // coal: commonest high up; at iron depth there is little, and mine cannot climb
+  if (y > 40) return base
+  return `coal is scarce this deep (y=${yr}): gather with block=coal_ore if one is in sight; otherwise use surface and look for coal_ore on cliffs and in caves near the surface (mine only goes DOWN: from here y=${cap} or lower).`
+}
+
 export const IDLE_BAR_MS = 3 * 3600_000   // longer than three 45-min deadlines: kinds failing in turn reach the scout lap
 export const SCOUT_DIST = 80
 
@@ -99,16 +153,19 @@ export const countOf = (counts = {}, names = []) => names.reduce((t, n) => t + (
  * count now (`gained` 0); after that only RISES count (a deposit, a craft or the pathfinder's scaffold spending the bag never
  * takes back what was gathered). `kind` is fixed when the batch opens.
  */
-export function idleStep (state, cycle, kind, count, now = Date.now()) {
+export function idleStep (state, cycle, kind, count, now = Date.now(), slots = null) {
   const n = Number.isFinite(count) ? count : 0
-  if (!state || state.cycle !== cycle) return { cycle, kind, last: n, gained: 0, at: now }
+  // idlework-02: the bag's slots when the batch opened (the bag stop counts only a fill THIS batch made)
+  if (!state || state.cycle !== cycle) return { cycle, kind, last: n, gained: 0, at: now, slotsAt: Number.isFinite(slots) ? slots : null }
   return { ...state, last: n, gained: state.gained + Math.max(0, n - state.last) }
 }
 
 /** Is the open batch met? Pure. scout: distance from home > SCOUT_DIST; none: always; a work kind: gained >= its n. */
-export function idleMet (state, { dist = 0, now = Date.now(), noWorkAt = null } = {}) {
+export function idleMet (state, { dist = 0, now = Date.now(), noWorkAt = null, slots = null } = {}) {
   if (!state) return false
   if (state.kind === 'none') return true
+  // idlework-02: a bag kind is met when this batch filled the bag to the stop (the town visit sheds it)
+  if (idleBagFull(state, slots)) return true
   // gkforever-01: a grounds batch is met by its visits that changed the ground, its time, or a visit that found no grounds work
   if (state.kind === 'grounds') return (Number(state.gained) || 0) >= GROUNDS_BATCH.visits || (Number.isFinite(state.at) && now - state.at >= GROUNDS_BATCH.ms) || (Number.isFinite(noWorkAt) && Number.isFinite(state.at) && noWorkAt >= state.at)
   if (state.kind === 'scout') return dist > SCOUT_DIST

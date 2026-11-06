@@ -50,6 +50,9 @@ const REQUIRED = [
   'bots/test/idlework.test.mjs',
   'bots/test/idlework-sites.test.mjs',
   'docs/reports/idlework-design-2026-11-06.md',
+  // idlework-02 (11-06): the bag stop, the 29-33 band dispose, the depth-aware iron/coal hint
+  'bots/test/idlework2.test.mjs',
+  'docs/reports/idlework2-design-2026-11-06.md',
   'bots/src/dropdig.mjs',
   'bots/test/dropdig.test.mjs',
   'bots/test/fixtures/dropdig-cuts.json',

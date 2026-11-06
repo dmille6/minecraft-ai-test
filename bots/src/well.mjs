@@ -990,6 +990,29 @@ export function wellBuildRoom ({ free = 0, slotsNeeded = 0, junkStacks = 0 } = {
 // ---- the scheduler ----------------------------------------------------------------------------------------------------
 
 export const DISPOSE_COOLDOWN_MS = 3 * 60 * 1000
+/**
+ * IDLEWORK-02 THE BAND DISPOSE (IDLEWORK_WELL; the fleet half of bagroom-01's WELL, f345094f). Measured 11-06 10:36-13:30Z (fleet,
+ * 80 bots): of 570 town departures (deposit / town_deposit rows) 215 left in the 29-33 slot band -- under this order's 34 -- carrying
+ * on average 267 cobble + deepslate ABOVE the bot's 64 (794 whole stacks in 3 h) while every town was at its cobble cap
+ * (`_stock_refused` ~256/h); the junkout visit order below 34 throws LISTED junk only. Two correct rules composed into a band where
+ * nothing sheds. So the town dispose is also due from WELL_BAND_SLOTS (29: the build order's 8 free slots) with the SAME plan the
+ * 34-slot order throws (disposePlan: listed junk, peaceful swords, cobble ONLY with the town proven at its cap and the bot's 64
+ * kept, target-0 / at-target stock above the keeps and the 64 pillar reserve) -- the owner's 10-16 overflow rule ("junk can take
+ * the extra"), never a new list. The town's own 1,000 stay in its chests for stoneworks (stoneworks-01 draws from the town).
+ * Default ON except in the showcase pool (the coordinator turned bagroom's band well OFF there 11-06 for the stoneworks plan);
+ * IDLEWORK_WELL=0 is the rollback (34 only), =1 forces it on. Pure.
+ */
+export const WELL_BAND_SLOTS = 29
+export function wellBandOn (env = process.env) {
+  const v = String(env?.IDLEWORK_WELL ?? '').trim().toLowerCase()
+  if (['0', 'off', 'false', 'no'].includes(v)) return false
+  if (['1', 'on', 'true', 'yes'].includes(v)) return true
+  return String(env?.MEMORY_POOL ?? '').trim() !== 'showcase'
+}
+export const WELL_BAND = Object.freeze({ on: wellBandOn(typeof process !== 'undefined' ? process.env : {}) })
+/** Is the town dispose due in the band? Pure. 34+ stays the old rule's; below the band nothing changes. */
+export const wellBandDue = ({ on = WELL_BAND.on, slots = 0, junkStacks = 0 } = {}) =>
+  !!on && slots >= WELL_BAND_SLOTS && slots < TRIGGER_SLOTS && junkStacks > 0
 export const DISPOSE_BACKOFF_MS = 15 * 60 * 1000
 export const WELL_BUILD_COOLDOWN_MS = 5 * 60 * 1000
 export const WELL_BUILD_BACKOFF_MS = 30 * 60 * 1000
@@ -1041,7 +1064,7 @@ export function wellOrder (args = {}) {
   return { order: null, state: { ...(args.state ?? {}), lastScanAt: r.state.lastScanAt }, held: { skill: r.order.skill, ...deep } }
 }
 function wellOrderAtTown ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, buildJunkStacks = junkStacks, distHome = Infinity, well = null,
-                             buildPlan = null, myName = '', peers = [], state = {}, inside = false, pit = null } = {}) {
+                             buildPlan = null, myName = '', peers = [], state = {}, inside = false, pit = null, bandOn = WELL_BAND.on } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
@@ -1050,7 +1073,7 @@ function wellOrderAtTown ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, b
   if (lazy(inside)) return none()
   const closeReady = now - (s.lastCloseAt ?? -Infinity) >= CLOSE_COOLDOWN_MS && now >= (s.closeBackoffUntil ?? 0)
   const disposeReady = now - (s.lastDisposeAt ?? -Infinity) >= DISPOSE_COOLDOWN_MS && now >= (s.disposeBackoffUntil ?? 0) &&
-                       slots >= TRIGGER_SLOTS && junkStacks > 0
+                       (slots >= TRIGGER_SLOTS || wellBandDue({ on: bandOn, slots, junkStacks })) && junkStacks > 0
   const buildReady = now - (s.lastBuildAt ?? -Infinity) >= WELL_BUILD_COOLDOWN_MS && now >= (s.buildBackoffUntil ?? 0)
   if (!closeReady && !disposeReady && !buildReady) return none()
   if (now - (s.lastScanAt ?? -Infinity) < WELL_SCAN_MS) return none()

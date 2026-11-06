@@ -92,6 +92,7 @@ import { townRecordsShared, plinthPlanCap, plinthCapLoss, capRefusalNext, PLINTH
 // plinthfirst-01: every new junk well is a raised one (its own statement)
 import { plinthFirstOn, plinthFirstPolicy, plinthFirstSearch, plinthFirstRefusal, plinthFirstMinK, naturalPitPending, areaLoaded, PLINTH_FIRST_WHY } from './plinth.mjs'
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
+import { WELL_BAND, WELL_BAND_SLOTS } from './well.mjs'   // idlework-02: the band dispose
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -9608,7 +9609,7 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       out.swordsAllowed = !pit && !listedOnly && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
       out.cap = pit || listedOnly ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
       out.stock = pit || listedOnly ? null : pruneStockOpts(bot, pruned)   // and every other group at its target (stocktarget design 3.4), and what a prune took
-      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: listedOnly ? keep : null })   // the bag AS THE SERVER HOLDS IT
+      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep })   // the bag AS THE SERVER HOLDS IT (idlework-02: the visit's keep holds in the band's whole plan too)
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
       out.acc.cobbleAllowed = out.cap === 'at_cap'
@@ -9739,7 +9740,10 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  const entryPlan = visit ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned) })
+  // idlework-02 (well.mjs wellBandDue): a VISIT from a bag in the 29-33 band throws the town dispose's whole plan (cobble only at
+  // the proven cap, the bot's 64 kept; at-target stock), the goal's wanted names still kept; below the band, listed junk only
+  const band = visit && WELL_BAND.on && slotsBefore >= WELL_BAND_SLOTS
+  const entryPlan = visit && !band ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), keep })
   if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
@@ -9762,7 +9766,7 @@ async function disposeWell (ctx, _args, signal) {
     bot.stationaryUntil = stationary
     const aim = wellAim({ from: q(), cap, facing, rise: q().y - (cap.y + 1) })
     if (!aim.ok) return fail('well_off_stand', 'off_stand', `the throw was refused from here: ${aim.why}; the next visit stands again`)
-    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit, keep })
+    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit && !band, keep })
     // THE VISITOR'S DUTY without junk to throw: a well found open is closed.
     if (ph.refused === 'nothing_listed' && wellIdentity(read, cap).open) closedOnly = await setWellOpen(bot, cap, false, g.restoreBound, tickNA)
     if (ph.refused === 'nothing_listed' && ph.closedOpen) closedOnly = true

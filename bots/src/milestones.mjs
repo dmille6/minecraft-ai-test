@@ -21,6 +21,7 @@ import { bankableInventory, depositPlan, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { depositVerdict, depositRungFixOn } from './depositoffer.mjs'   // decbundle-01: the gate's own deposit decision
 import { idleWorkOn, idlePick, idleStep, idleMet, idleBar, countOf, IDLE_NEEDS, SCOUT_DIST } from './idlework.mjs'
 import { idleRotation, groundsMeans, setGroundsOpen } from './idlework.mjs'   // gkforever-01: the grounds lap
+import { idleBagMeans, idleBagFull, idleDepthHint } from './idlework.mjs'   // idlework-02: the bag stop, the depth-aware hint
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem, snapshot } from './state.mjs'
 import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
@@ -620,6 +621,8 @@ const TECH_LADDER = [
     progress: b => `${countItem(b, 'raw_iron') + countItem(b, 'iron_ingot')}/3 iron ` +
                    `(${countItem(b, 'raw_iron')} raw, ${countItem(b, 'iron_ingot')} smelted)`,
     hint: 'gather with block=iron_ore.',
+    // idlework-02: at iron depth the hint names a `mine` target the gate accepts (idlework.mjs idleDepthHint), never y=16 again
+    hintFor: b => (Number.isFinite(b?.entity?.position?.y) && b.entity.position.y <= 18 ? idleDepthHint('iron', b.entity.position.y) : null),
   }, b => ironInReach(b) && hasTripPickaxe(b?.inventory?.items?.() ?? [])),   // a pickaxe that can pay the trip, not a name
   // IRON. The rung the ladder terminated one step short of; the note below this
   // array explains why it could not be added until `smelt` existed.
@@ -799,7 +802,8 @@ const homeDist = b => b.entity.position.distanceTo({ x: config.world.homeX, y: b
 export function idleMeans (b) {
   const items = b?.inventory?.items?.() ?? []
   const pick = items.some(it => /_pickaxe$/.test(it?.name ?? '') && usesLeft(it) >= 2)
-  return { iron: hasTripPickaxe(items), logs: true, coal: pick, grounds: groundsMeans(b) }
+  // idlework-02: a bag at the stop opens no bag-filling batch (idlework.mjs idleBagMeans): its lap is a grounds or scout lap
+  return idleBagMeans({ iron: hasTripPickaxe(items), logs: true, coal: pick, grounds: groundsMeans(b) }, items.length)
 }
 const bagCountsOf = b => { const c = {}; for (const it of b?.inventory?.items?.() ?? []) if (it?.name) c[it.name] = (c[it.name] ?? 0) + (Number(it.count) || 0); return c }
 const idleNeed = () => IDLE_NEEDS[IDLE.state?.kind] ?? null
@@ -818,8 +822,8 @@ function idleAdvance (b, cycle) {
   const need = IDLE_NEEDS[kind]
   // gkforever-01: a grounds batch counts the bot's own visits that changed the ground (skills.mjs buildTidy), never the bag
   const n = kind === 'grounds' ? (Number(b?.gkfWorked) || 0) : need ? countOf(bagCountsOf(b), need.count) : 0
-  IDLE.state = idleStep(IDLE.state, cycle, kind, n)
-  if (open) { IDLE.metAt = null; idleRow('open') }
+  IDLE.state = idleStep(IDLE.state, cycle, kind, n, Date.now(), b?.inventory?.items?.()?.length ?? null)
+  if (open) { IDLE.metAt = null; idleRow('open', { slots: IDLE.state.slotsAt }) }
   return IDLE.state
 }
 const idleDone = (b, cycle) => {
@@ -827,8 +831,10 @@ const idleDone = (b, cycle) => {
   const st = idleAdvance(b, cycle ?? 0)
   let dist = 0
   try { dist = homeDist(b) } catch { dist = 0 }
-  const met = idleMet(st, { dist, noWorkAt: Number(b?.gkfNoWorkAt) || null })
-  if (met && IDLE.metAt == null && st.kind !== 'none') { IDLE.metAt = Date.now(); idleRow('met') }
+  const slots = b?.inventory?.items?.()?.length ?? null
+  const met = idleMet(st, { dist, noWorkAt: Number(b?.gkfNoWorkAt) || null, slots })
+  // idlework-02: the met row says when the bag stop ended the batch (the read's mechanism line: `bag_stop`)
+  if (met && IDLE.metAt == null && st.kind !== 'none') { IDLE.metAt = Date.now(); idleRow('met', idleBagFull(st, slots) ? { slots, reason: 'bag_stop' } : { slots }) }
   return met
 }
 // gkforever-01: an open grounds batch (shop.mjs: the tidy order comes back at the keeper's cooldown; skills.mjs: the tidy first)
@@ -842,6 +848,8 @@ const IDLE_RUNG = {
     if (IDLE.state?.kind === 'scout') return 'goto somewhere 80+ blocks from home, staying inside the border.'
     return idleNeed()?.hint ?? 'nothing to do here.'
   },
+  // idlework-02: the iron and coal hints read the bot's depth (idlework.mjs idleDepthHint); null -> the static hint above
+  hintFor: b => (idleWorkOn() && (IDLE.state?.kind === 'iron' || IDLE.state?.kind === 'coal') ? idleDepthHint(IDLE.state.kind, b?.entity?.position?.y) : null),
   describe: () => (IDLE.state?.kind === 'scout' ? 'Scout terrain away from home and come back.' : idleNeed()?.describe ?? 'Nothing to do.'),
   progress: b => {
     const st = IDLE.state
@@ -855,6 +863,12 @@ const IDLE_RUNG = {
   // does an exhausted chain re-enter for the next lap? (as it did for the patrol, unless nothing is left to ask)
   reopens: (b, cycle) => idleWorkOn() && idlePick((cycle ?? 0) + 1, { means: idleMeans(b), barred: IDLE.barred, rotation: idleRotation() }) !== 'none',
   onSkip: (reason) => { idleRow('skip', { reason }); IDLE.barred = idleBar(IDLE.barred, IDLE.state?.kind) },
+}
+
+/** A rung's hint for this bot: hintFor(bot) when it answers a string, else the static hint. Never throws. */
+export function hintOf (m, b) {
+  if (typeof m?.hintFor === 'function') { try { const h = m.hintFor(b); if (typeof h === 'string' && h) return h } catch { /* the static hint */ } }
+  return m?.hint
 }
 
 export const SUSTAINING = [
@@ -1275,7 +1289,8 @@ export class MilestoneController {
       // left the ladder object and the whole thing was inert (Codex pass 1, which
       // proved it by calling status() and printing statusHasWantsAny:false).
       wantsAny: m.wantsAny ?? null,
-      describe, progress, hint: m.hint,
+      // idlework-02: a rung's depth-aware hint (hintFor(bot) -> string | null), else its static one
+      describe, progress, hint: hintOf(m, this.bot),
     }
   }
 

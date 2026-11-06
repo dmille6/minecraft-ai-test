@@ -344,7 +344,9 @@ const well0 = { open: false, attended: false }
 await t('ORDER: dispose at >= 34 slots with listed junk, at town; never below 34, never without junk, never away', () => {
   const o = x => W.wellOrder({ now: NOW, distHome: 5, well: well0, slots: 34, freeSlots: 2, junkStacks: 2, ...x }).order?.skill ?? null
   assert.equal(o({}), 'dispose_well')
-  assert.equal(o({ slots: 33, freeSlots: 3 }), null)
+  assert.equal(o({ slots: 33, freeSlots: 3, bandOn: false }), null, 'below 34 with the band off (idlework-02 IDLEWORK_WELL=0)')
+  assert.equal(o({ slots: 33, freeSlots: 3, bandOn: true }), 'dispose_well', 'idlework-02: the band (29-33) is due too')
+  assert.equal(o({ slots: 28, freeSlots: 8, bandOn: true }), null, 'never below the band')
   assert.equal(o({ junkStacks: 0 }), null)
   assert.equal(o({ distHome: 60 }), null)
   assert.equal(o({ well: () => ({ open: true, attended: false }) }), 'close_well', 'an open, unattended well is closed first')
