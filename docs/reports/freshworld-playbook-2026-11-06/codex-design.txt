@@ -1,0 +1,123 @@
+Yes: reserve the town before building, then prepare it in small, useful sections. Do not make “finish all earthworks” a prerequisite for construction. The evidence supports early protection and access, not wholesale levelling.
+
+This applies only to future fresh worlds. Current worlds continue running.
+
+1. Survey and choose the town site
+
+Entry: five bots arrive in an untouched peaceful world.
+
+Two scout; two gather starter tools, wood and saplings; one surveys the prospective core. Walk or swim between candidates. Bound the initial search to one bot-hour, then expand incrementally if necessary.
+
+Evaluate complete layouts, not isolated building footprints. Require space for the core, useful buildings, access, future expansion and an outside forest.
+
+Hard-reject unknown foundations pending inspection, protected conflicts, inaccessible work faces, or layouts exceeding earthwork limits. Rank remaining candidates lexicographically:
+
+- Prefer zero water alteration; consider water filling only after documented dry alternatives fail.
+- Minimise estimated labour: cut/216 + fill/300 + tree-clear/216 bot-hours, multiplied by 1.3–1.6 for travel/checking.
+- Add measured travel costs, difficult canopy access, foundation uncertainty and expected maintenance.
+- Prefer connected plots, expansion capacity and retained landscape features; break ties deterministically by coordinates.
+
+Exit: one feasible core and connected starter plots; otherwise continue scouting without destructive preparation.
+
+Writes: world-bound survey, original heights, water/tree map, candidate scores, rejection reasons and estimated costs. Unknown underground cells remain unknown.
+
+2. Reserve before founding
+
+Entry: selected layout.
+
+Commit exact three-dimensional reservations for plaza, storage, workshop stations, well/shaft access, house, hall, monument, farms, park, roads, gates and construction approaches. Include canopy clearance, working stands and temporary scaffold space.
+
+Reserve X1–X5 expansion plots using actual blueprint envelopes. Reserve a proposed wall corridor around these plots now; build it later. Reserve the managed forest outside that corridor, including growth and harvesting access. Preliminary outer sectors remain revisable until surveyed.
+
+One bot establishes the first chest/table/furnace through found.mjs; two prepare core access; one supplies materials; one prepares forest planting cells.
+
+Exit: usable stations and storage with return access; every placement respects reservations.
+
+Writes: versioned town plan, plot ownership, dependency graph, reservation status and founding receipts. Reservations prohibit unrelated work but explicitly permit their owning prep/build tasks.
+
+3. Prepare the first working district
+
+Entry: founding services usable.
+
+Two bots prepare; one builds any ready project; one supplies tools/materials; one handles forest, hauling and surveying. Roles switch with actionable demand.
+
+Prep order: forest replant cells → necessary tree removal → access corridor → workshop/storage foundations → house → next expansion plots. Replant one sapling outside the walls for each town tree felled; record the mapping. Reserve saplings before felling. Clear whole trees with proven access, including canopy; retain inaccessible trees and resite until access is solved.
+
+Grade only corridors and near-term plots. Start with the existing siteprep ceilings: at most six blocks’ change per column and 200 cuts/400 fills per plot. These are maximums, not targets. Limit the initial district to eight prep bot-hours before replanning.
+
+Terrace along contours, with small building pads at different elevations. Preserve ridge, summit and valley anchors. Connect benches by broad ramps or switchbacks: every intended walkable neighbour differs by at most one block. Fence exposed retaining edges; do not count a two-block drop as a connection.
+
+Cut top-down from stable stands; fill bottom-up from reachable support. A sealed cave pocket needs an explicit opening, filling and closure sequence. If that sequence cannot be executed, choose another pad.
+
+Exit, separately for each plot: foundation, clearance, construction access and return route physically verified. Other plots need not finish.
+
+Writes: target heights, bounded operation lists, support/stand proofs, replant receipts, actual costs and ready/blocked states.
+
+4. Build useful structures while preparing ahead
+
+Entry: any plot passes readiness.
+
+Use two builders, one keeper, one supplier and one forest/logistics bot. The keeper prepares at most two upcoming plots; extra capacity joins construction or supply.
+
+Build order: workshop and enclosed storage → house → larger hall and farms → additional civic buildings → monument. Establish usable routes before buildings; finish their surfaces after heavy construction. The ziggurat can progress on its own ready plot without holding essential projects.
+
+Replace incidental PROJECTS ordering with explicit dependencies. “House plot ready” need not depend on “monument complete”; gates genuinely depend on the route plan.
+
+Close the wall only after essential destinations and expansion reservations fit inside, gates work, and the forest remains accessible. Peaceful worlds do not justify rushing a wall that later needs demolition.
+
+Exit: each building passes operational checks, including door, container and station access.
+
+Writes: build receipts, material balances, verified routes and outstanding dependencies. A blocked route is never “complete” because it produced zero cells.
+
+5. Maintain and expand indefinitely
+
+Entry: useful district operating.
+
+Default allocation: two builders, one keeper, one supplier, one forest/logistics bot. Temporarily add a second keeper when measured repairs threaten access; do not permanently allocate two of five bots to unlimited grading.
+
+Audit the interior every 30 minutes and after escapes or major construction. Restore temporary escape blocks from provenance records. Extend reservations and prepare another district only when demand warrants it. The LLM chooses among eligible idle tasks; deterministic modules own geometry, permissions and completion.
+
+Exit: none for maintenance; individual tasks remain finite.
+
+Writes: terrain deltas, damage causes, access regressions, repair backlog, forest rotations and expansion decisions.
+
+6. Budget labour explicitly
+
+Illustrative starter district, not a measured forecast:
+
+- Survey/founding: 1–2 bot-hours.
+- 300 cuts and 900 fills: 300/216 + 900/300 = 4.39 hours; with overhead, 5.7–7.0.
+- Twelve trees: 12 × (6 logs + 57 leaves)/216 = 3.5 hours; with overhead, 4.6–5.6. This conservatively prices manual leaf clearance.
+- Essential buildings, assumed 1,800 placements: 1,800/300 × 1.3–1.6 = 7.8–9.6 hours.
+- Wall: 940/300 × 1.3–1.6 = 4.1–5.0 hours.
+- Ziggurat: 4,889/300 × 1.3–1.6 = 21.2–26.1 hours.
+
+Essential district: roughly 19–24 bot-hours; with wall and monument, 44–55. Routes’ earthworks are included above; surface finishing, resource production, crafting, replants and exceptional foundations are additional.
+
+At three effective workers, essential work takes roughly 6–8 elapsed hours plus those additions. Fleet build utilisation of 3.3% would stretch 19–24 bot-hours across 115–145 elapsed hours for five bots. Scheduling improvement is therefore part of the design.
+
+7. Reuse machinery; add bounded orchestration
+
+Reuse townplan/found reservations, buildsite proofs, paths geometry, tidy records, townground protection, and the showcase’s landplan, plotprep/siteprep, terrace, canopy, fellfirst, stepwell and forest work after integration checks.
+
+Extend no-dig protection to reserved foundations and access corridors. Add original-terrain anchors, operation provenance, plot-readiness certificates and labour budgets. Tighten terrace water handling to last-resort semantics.
+
+After three unchanged failed visits, back off that task and dispatch alternatives. Waivers cannot certify essential access. Restart-safe claims prevent duplicate work. Revalidate terrain immediately before mutations.
+
+Do not clear the entire town radius, flatten mountains, fill ponds for convenience, retain the in-wall production forest, or let prep run forever. No admin edits, teleportation, rails or current-world reseeding.
+
+8. Prove it before rollout
+
+Run paired fresh Paper worlds on six seeds covering plains, forest, hills, mountains, water and hidden cavities: five bots each, peaceful, identical resources, no administrative construction. Compare against current scheduling over 72 hours; continue accepted treatments for seven days.
+
+Pass every treatment:
+
+- Essential district operational within 24 hours; no town blocked behind one project.
+- All essential routes traversed both ways; zero illegal steps on certified walking edges.
+- No reservation violations, mountain flattening or undocumented water fills.
+- One verified outside replant per town tree felled; three forest rotations completed.
+- Prep budgets respected; unchanged failures stop after three visits.
+- Under 10% of build/prep time spent in repeated unchanged no-progress visits.
+- No worsening terrain damage, falls or access failures during soak.
+
+Fit this into phase 3 through the work board first, shared geometry/readiness registry next, then body-lease integration and flagged showcase ports. Prototype the bounded planner now; avoid creating another permanent scheduler inside skills.mjs.

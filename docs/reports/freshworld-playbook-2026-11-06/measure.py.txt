@@ -1,0 +1,65 @@
+import sys, re, collections
+sys.path.insert(0, 'lib')
+from telemetry import Events
+mins = int(sys.argv[1]) if len(sys.argv) > 1 else 1440
+import os
+ev = Events.load(paths=os.environ.get('GLOB', '/var/log/mcai/*/skill-*.jsonl*'), since_minutes=mins)
+bots = ev.bots()
+print(f'WINDOW rows={len(ev.rows)} bots={len(bots)} span_h={ev.span:.2f} bot_h={len(bots)*ev.span:.0f} since={ev.since} until={ev.until}')
+def kv(s):
+    return dict(m.groups() for m in re.finditer(r'(\w+)=([^ ;]+)', s))
+def pool(r): return ((r.get('raw') or {}).get('exp') or {}).get('pool') or '?'
+def ms(r): return ((r.get('raw') or {}).get('skill') or {}).get('duration_ms') or 0
+V = ev.of('build_visit')
+per = collections.defaultdict(lambda: dict(n=0, h=0.0, z=0, zh=0.0, stops=collections.Counter(), towns=set(), placed=0))
+for r in V:
+    k = kv(r['detail']); p = k.get('project', '?'); s = per[p]
+    s['n'] += 1; h = ms(r)/3.6e6; s['h'] += h; s['towns'].add(pool(r))
+    pl = int(k.get('placed', '0') or 0); cl = int(k.get('cleared', '0') or 0); s['placed'] += pl
+    if pl == 0 and cl == 0: s['z'] += 1; s['zh'] += h
+    s['stops'][k.get('stop', '?')] += 1
+tot = sum(s['n'] for s in per.values())
+print(f'\nBUILD_VISIT total={tot} bot_h={sum(s["h"] for s in per.values()):.1f}')
+print('project visits bot_h zero_visits zero_bot_h placed towns | stops')
+for p, s in sorted(per.items(), key=lambda x: -x[1]['n']):
+    print(p, s['n'], f"{s['h']:.1f}", s['z'], f"{s['zh']:.1f}", s['placed'], len(s['towns']), '|', dict(s['stops'].most_common(8)))
+# stuck_on_cell / no_site by project kind and town
+print('\nSTOP x PROJECT (stuck_on_cell, no_site, blocked) by town')
+for stop in ('stuck_on_cell', 'no_site', 'blocked', 'attempts_spent'):
+    c = collections.Counter(); ct = collections.defaultdict(collections.Counter)
+    for r in V:
+        k = kv(r['detail'])
+        if k.get('stop') == stop: c[k.get('project')] += 1; ct[k.get('project')][pool(r)] += 1
+    print(stop, dict(c), {p: dict(t) for p, t in ct.items()})
+# _build ops
+B = ev.of('build')
+ops = collections.Counter(); fails = collections.defaultdict(collections.Counter)
+treeish = re.compile(r'log|leaves|sapling|bamboo|vine|kind=tree|mushroom_stem|azalea')
+treefail = collections.Counter(); treefail_t = collections.defaultdict(collections.Counter); failtot = collections.Counter()
+for r in B:
+    k = kv(r['detail']); op = k.get('op', '?'); p = k.get('project', '?'); ops[(p, op)] += 1
+    if 'fail' in op or op in ('stand_banned', 'unreached', 'skip'):
+        failtot[p] += 1
+        why = k.get('why') or k.get('reason') or '-'
+        fails[p][(op, why, k.get('kind') or k.get('block') or '-')] += 1
+        if treeish.search(r['detail']): treefail[p] += 1; treefail_t[p][pool(r)] += 1
+print('\nBUILD OPS by project:', {f'{p}:{o}': n for (p, o), n in sorted(ops.items(), key=lambda x: -x[1])[:40]})
+print('\nFAIL rows by project (total, tree/leaf/bamboo-related):')
+for p in failtot: print(' ', p, failtot[p], treefail[p], dict(treefail_t[p]))
+for p, c in fails.items():
+    print(' top', p, [(a, n) for a, n in c.most_common(6)])
+# clears of tree material (positive: trees in build cells)
+tc = collections.Counter()
+for r in B:
+    k = kv(r['detail'])
+    if k.get('op') in ('clear', 'cleared', 'cut') and treeish.search(r['detail']): tc[k.get('project')] += 1
+print('\nTREE-material clears ok by project:', dict(tc))
+S = ev.of('shop_skip')
+sk = collections.defaultdict(collections.Counter)
+for r in S: sk[kv(r['detail']).get('why', '?')][pool(r)] += 1
+print('\nSHOP_SKIP why x town:'); [print(' ', w, sum(c.values()), dict(c)) for w, c in sorted(sk.items(), key=lambda x: -sum(x[1].values()))]
+for n in ('project_unsited', 'grounds_census'):
+    print('\n', n); [print(' ', r['t'], pool(r), r['detail'][:200]) for r in ev.of(n, allow_zero=True)]
+BS = ev.of('build_shop')
+c = collections.Counter(re.sub(r'-?\d+', 'N', r['detail'])[:110] for r in BS)
+print('\nBUILD_SHOP detail top:'); [print(' ', v, k) for k, v in c.most_common(25)]

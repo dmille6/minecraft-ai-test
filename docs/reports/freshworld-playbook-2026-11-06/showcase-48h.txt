@@ -1,0 +1,80 @@
+WINDOW rows=745898 bots=15 span_h=48.01 bot_h=720 since=2026-11-04 15:35:04.453219+00:00 until=None
+
+BUILD_VISIT total=2809 bot_h=46.4
+project visits bot_h zero_visits zero_bot_h placed towns | stops
+tidy 935 9.4 855 7.3 415 1 | {'keeper_held': 533, 'blocked': 173, '?': 56, 'deadline': 52, 'complete': 32, 'deps_open': 32, 'cell_deferred': 11, 'stuck_on_cell': 11}
+storehub 566 19.9 538 18.7 225 1 | {'?': 305, 'replanned': 95, 'aborted': 47, 'no_site': 44, 'no_material': 38, 'deps_open': 20, 'fence:segment': 6, 'cell_deferred': 3}
+storehouse 282 1.8 279 1.8 4 1 | {'?': 279, 'complete': 2, 'no_material': 1}
+shaft 177 1.6 167 1.5 22 1 | {'complete': 82, 'walk_failed': 49, '?': 45, 'dig_refused': 1}
+wallext 155 3.8 77 1.2 602 1 | {'deadline': 80, '?': 33, 'blocked': 13, 'no_material': 8, 'unknown': 7, 'aborted': 5, 'no_site': 3, 'site_unread': 2}
+paths 148 0.4 130 0.2 84 1 | {'complete': 119, 'unknown': 16, '?': 5, 'blocked': 2, 'cell_deferred': 2, 'fence:segment': 2, 'stuck_on_cell': 1, 'deadline': 1}
+enchantshop 110 3.5 84 2.3 146 1 | {'?': 38, 'replanned': 22, 'aborted': 22, 'site_wait': 14, 'no_material': 8, 'deps_open': 4, 'complete': 2}
+yard 73 0.9 27 0.2 188 1 | {'complete': 29, 'deadline': 24, '?': 13, 'aborted': 5, 'attempts_spent': 2}
+hall 57 1.7 50 1.5 110 1 | {'?': 24, 'stuck_on_cell': 17, 'no_material': 15, 'complete': 1}
+monument 55 0.6 34 0.1 7 1 | {'complete': 37, 'deadline': 6, 'cell_deferred': 4, '?': 3, 'stuck_on_cell': 2, 'deps_open': 2, 'unknown': 1}
+stepwell 45 0.3 40 0.1 5 1 | {'complete': 27, 'replanned': 12, 'deadline': 4, 'site_wait': 1, '?': 1}
+walldemo 33 0.5 19 0.0 0 1 | {'clears_left': 13, 'deadline': 12, '?': 5, 'aborted': 2, 'complete': 1}
+decor 30 0.4 19 0.2 70 1 | {'no_material': 10, 'no_site': 7, 'complete': 5, '?': 3, 'deadline': 3, 'attempts_spent': 2}
+house1 25 0.4 19 0.2 59 1 | {'?': 7, 'stuck_on_cell': 6, 'no_material': 3, 'complete': 3, 'deps_open': 3, 'unknown': 2, 'attempts_spent': 1}
+reroof 21 0.0 21 0.0 0 1 | {'site_wait': 18, '?': 3}
+shop 21 0.5 17 0.4 64 1 | {'aborted': 5, '?': 5, 'attempts_spent': 4, 'no_material': 4, 'deps_open': 2, 'complete': 1}
+dress 17 0.0 16 0.0 1 1 | {'no_site': 6, 'stuck_on_cell': 5, 'complete': 2, 'cell_deferred': 2, '?': 1, 'unknown': 1}
+townhall 13 0.0 13 0.0 0 1 | {'site_wait': 13}
+canefarm 13 0.3 12 0.3 7 1 | {'?': 5, 'deadline': 5, 'aborted': 2, 'complete': 1}
+cottage1 11 0.0 11 0.0 0 1 | {'site_wait': 11}
+tower 10 0.2 10 0.2 0 1 | {'deadline': 4, 'stuck_on_cell': 3, '?': 1, 'cell_deferred': 1, 'cell_waived': 1}
+shrine 7 0.0 7 0.0 0 1 | {'no_site': 5, 'complete': 2}
+road 5 0.0 5 0.0 0 1 | {'no_site': 5}
+
+STOP x PROJECT (stuck_on_cell, no_site, blocked) by town
+stuck_on_cell {'paths': 1, 'monument': 2, 'tower': 3, 'hall': 17, 'tidy': 11, 'house1': 6, 'dress': 5, 'storehub': 2} {'paths': {'showcase': 1}, 'monument': {'showcase': 2}, 'tower': {'showcase': 3}, 'hall': {'showcase': 17}, 'tidy': {'showcase': 11}, 'house1': {'showcase': 6}, 'dress': {'showcase': 5}, 'storehub': {'showcase': 2}}
+no_site {'shrine': 5, 'wallext': 3, 'decor': 7, 'storehub': 44, 'road': 5, 'dress': 6} {'shrine': {'showcase': 5}, 'wallext': {'showcase': 3}, 'decor': {'showcase': 7}, 'storehub': {'showcase': 44}, 'road': {'showcase': 5}, 'dress': {'showcase': 6}}
+blocked {'tidy': 173, 'wallext': 13, 'paths': 2} {'tidy': {'showcase': 173}, 'wallext': {'showcase': 13}, 'paths': {'showcase': 2}}
+attempts_spent {'shop': 4, 'decor': 2, 'yard': 2, 'house1': 1} {'shop': {'showcase': 4}, 'decor': {'showcase': 2}, 'yard': {'showcase': 2}, 'house1': {'showcase': 1}}
+
+BUILD OPS by project: {'tidy:park_gather': 756, 'wallext:place': 625, 'storehub:place': 607, 'enchantshop:place': 502, 'wallext:clear': 497, 'tidy:place': 468, 'storehub:clear': 378, 'tidy:clear': 310, 'hall:place': 285, 'enchantshop:clear': 252, 'yard:place': 200, 'yard:clear': 195, 'monument:clear': 123, 'walldemo:clear': 113, 'tidy:deferred': 89, 'paths:place': 84, 'decor:clear': 81, 'shop:place': 72, 'decor:place': 70, 'house1:place': 59, 'stepwell:clear': 46, 'paths:clear': 41, 'storehub:replant_unchanged': 40, 'tidy:stuck_on_cell': 37, 'storehub:replant_moved': 36, 'tidy:sweep': 35, 'tidy:waived': 27, 'tidy:replant_deferred': 23, 'monument:place': 22, 'hall:deferred': 17, 'hall:stuck_on_cell': 17, 'storehub:replant_deferred': 16, 'stepwell:replant_deferred': 14, 'tidy:park_skip': 14, 'enchantshop:replant_moved': 12, 'tidy:replant_skipped': 11, 'paths:clear_failed': 10, 'house1:clear': 10, 'wallext:waived': 9, 'monument:access_dig': 9}
+
+FAIL rows by project (total, tree/leaf/bamboo-related):
+  paths 10 0 {}
+ top paths [(('clear_failed', '-', 'overburden'), 10)]
+
+TREE-material clears ok by project: {'stepwell': 46, 'wallext': 461, 'decor': 16, 'tidy': 91, 'enchantshop': 112, 'storehub': 312, 'paths': 3, 'house1': 7}
+
+SHOP_SKIP why x town:
+  room 1295 {'showcase': 1295}
+  stuck_on_cell 249 {'showcase': 249}
+  slots_full 215 {'showcase': 215}
+  underground 191 {'showcase': 191}
+  no_site 33 {'showcase': 33}
+  idle 10 {'showcase': 10}
+
+ project_unsited
+
+ grounds_census
+
+BUILD_SHOP detail top:
+  329 stuck
+  310 nothing of the grounds is this helper's now (SPNNLN: N open, N placeable now); the helper lease is let go
+  157 SPNNLN: N open, N placeable now; cuts left N/N, fills left N/N
+  142 stuck (threw GoalChanged: The goal was changed before it could be completed!)
+  140 nothing of the grounds is this helper's now (deps_open); the helper lease is let go
+  119 complete; used N, laid N/N
+  104 timeout
+  83 timeout (threw GoalChanged: The goal was changed before it could be completed!)
+  77 all N slots held
+  73 the storehouse's upkeep: N label(s) written; N item(s) moved to their category chest
+  73 aborted
+  70 complete at step -: dug N, placed N (way out: arrived) — but nothing changed that build_shop exists to change 
+  64 entombed (threw GoalChanged: The goal was changed before it could be completed!)
+  49 did not reach N,N,N (at N,N,N) at step N: dug N, placed N -- the stair is blocked above the work; the next vis
+  47 N cell(s) no stand has reached in N+ visits (first N,N,N; N open cell(s) wait on it); nothing else is open: th
+  47 expedition N blocks on bearing N (time); N markers placed, N reused; brought N items, still on the way home
+  46 deadline; built N/N
+  44 no storage-hall site (no_site) store:N ring:N
+  42 banked N items from the last expedition
+  42 replant N,N,N: no_step -> unchanged (another builder moved it first)
+  42 the storehouse upkeep is another bot's now (held by showcase-Alpha)
+  41 deadline; cuts left N/N, fills left N/N
+  41 replant N,N,N: no_step -> replant_moved N,N,N
+  35 the storehouse's upkeep: N label(s) written; N item(s) moved to their category chest — but nothing changed tha
+  34 deadline; built N/N — but nothing changed that build_shop exists to change (expected world_change); cannot tel

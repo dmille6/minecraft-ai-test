@@ -5309,6 +5309,32 @@
     ]
    },
    "note": "Measured 11-04 08:00Z..11-06 14:20Z (832,928 rows, 15 bots, 3,305 build visits): cane bed 0 visits in 1.7 d with 7/8 cells ripe; crop farm 0 in 2.2 d (finished empty: seeds); 0 clerk rows ever; dress L1-P3 support dug by walldemo. Delivers idletowns-1106's H0 (the hall's upkeep gets a turn on the showcase)."
+  },
+  {
+   "id": "freshworld-1106",
+   "title": "Fresh-world town playbook (owner 11-06: 'when a new world is started fresh, should we block out the town area and get the bots to first level ground, fill in holes, cut down trees, and terrace hills and mountains, then build town buildings and walls?' -> 'yes, we can plan the fresh world plans, but continue with our current world for now')",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "owner-freshworld-1106.md",
+    "freshworld-1106.md"
+   ],
+   "kind": "design",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "DESIGN DONE (Claude + Codex reconciled, docs/reports/freshworld-playbook-design-2026-11-06.md): block out the whole town on day 0, prep one or two plots ahead of the build order (dependency graph), terraces never flatten, wall after the plots are final, gkforever after. Nothing for the current world's queues. Next: B1 freshsite scorer (host tool, offline seed copy) + B6 harness + the stage-1 control run in a free sandbox (low priority); B3 rides phase 3.1 work board, B2/B4 after phase 3.4 (showcase onto main). Owner: OK to choose the site from a sandbox-regenerated seed copy? wall after plots? run stage 1?",
+   "max_quiet_hours": 168,
+   "owner_pending": "freshworld: choose a fresh world's town site from a sandbox-regenerated seed copy (a read, not an edit)? build the wall after the plots are final? run the 48 h paired sandbox stage 1 at low priority?",
+   "evidence": {
+    "grep": [
+     "freshworld"
+    ],
+    "paths": [
+     "docs/reports/freshworld-playbook-design-2026-11-06.md",
+     "docs/reports/freshworld-playbook-2026-11-06"
+    ]
+   },
+   "note": "Measured 11-05/06: fleet 24 h 1,923 bot-h, build visits 63.3 bot-h (3.3%), 2,864 of 3,799 changed nothing; no_site 589 shop_skip rows in exactly 4 towns (board-a furniture 190, placebo-d liquid 476, hive-c liquid 144 + house1, board-c shop); paths no_site + structure_complete with 0 cells in 13 of 14 towns (board-b 320 cells the control); kind=tree clear_failed 8,100 of 9,045 build failures; stuck_on_cell shop_skip 795 in 8 towns. Showcase: wall 10-30/31 then extension 628 + demolition 114; X1 workshop no_site until 11-06 02Z (spruce + sealed cave). Estimates: first building ~11-13 bot-h, essential district 19-24 (Codex), whole town 80-110; build share is the lever (phase 3.1)."
   }
  ]
 }

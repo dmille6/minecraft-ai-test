@@ -502,6 +502,10 @@ const REQUIRED = [
   'config/projectaudit-registry.json',
   'scripts/host/projectaudit.py',
   'scripts/host/test_projectaudit.py',
+  // freshworld (11-06, OWNER: plan fresh worlds, keep the current one): the playbook design, Codex's design, the measurements
+  'docs/reports/freshworld-playbook-design-2026-11-06.md',
+  'docs/reports/freshworld-playbook-2026-11-06/codex-design.txt',
+  'docs/reports/freshworld-playbook-2026-11-06/measure.py.txt',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

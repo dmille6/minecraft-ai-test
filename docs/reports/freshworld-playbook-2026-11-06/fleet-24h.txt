@@ -1,0 +1,78 @@
+WINDOW rows=1673208 bots=80 span_h=24.04 bot_h=1923 since=2026-11-05 15:30:20.795254+00:00 until=None
+
+BUILD_VISIT total=3799 bot_h=63.3
+project visits bot_h zero_visits zero_bot_h placed towns | stops
+monument 2312 48.8 1849 35.9 3556 15 | {'deadline': 777, '?': 456, 'no_material': 426, 'deps_open': 315, 'complete': 106, 'aborted': 102, 'no_site': 72, 'stuck_on_cell': 23}
+tidy 1097 9.8 916 3.9 1400 8 | {'blocked': 502, 'attempts_spent': 252, 'deadline': 168, '?': 90, 'aborted': 29, 'complete': 14, 'deps_open': 12, 'unknown': 11}
+shaft 189 2.4 119 1.3 360 14 | {'complete': 101, 'walk_failed': 68, '?': 10, 'place_refused': 9, 'units': 1}
+wall 111 2.2 59 0.7 508 7 | {'deadline': 37, 'no_material': 19, 'attempts_spent': 14, 'aborted': 10, '?': 9, 'stuck_on_cell': 7, 'cell_deferred': 4, 'complete': 4}
+shop 63 0.1 62 0.1 0 2 | {'blocked': 43, 'no_site': 20}
+house1 23 0.0 23 0.0 0 1 | {'no_site': 23}
+paths 4 0.0 4 0.0 0 4 | {'paths_no_site': 4}
+
+STOP x PROJECT (stuck_on_cell, no_site, blocked) by town
+stuck_on_cell {'wall': 7, 'monument': 23, 'tidy': 2} {'wall': {'board-a': 1, 'isolated-a': 6}, 'monument': {'hive-a': 1, 'hive-b': 2, 'hive-d': 4, 'isolated-a': 6, 'isolated-c': 3, 'placebo-b': 5, 'placebo-c': 2}, 'tidy': {'hive-d': 2}}
+no_site {'monument': 72, 'shop': 20, 'house1': 23} {'monument': {'board-a': 31, 'hive-c': 1, 'placebo-d': 40}, 'shop': {'board-c': 20}, 'house1': {'hive-c': 23}}
+blocked {'tidy': 502, 'shop': 43, 'wall': 1} {'tidy': {'board-d': 239, 'hive-c': 18, 'placebo-b': 245}, 'shop': {'isolated-d': 43}, 'wall': {'placebo-d': 1}}
+attempts_spent {'wall': 14, 'tidy': 252, 'monument': 17} {'wall': {'board-a': 4, 'board-d': 2, 'isolated-b': 2, 'placebo-d': 6}, 'tidy': {'board-d': 3, 'hive-d': 249}, 'monument': {'board-d': 1, 'isolated-b': 12, 'placebo-c': 4}}
+
+BUILD OPS by project: {'monument:clear_failed': 7661, 'monument:place': 3752, 'monument:clear': 1861, 'tidy:place': 1430, 'wall:place': 524, 'tidy:clear_failed': 490, 'tidy:clear': 446, 'wall:clear': 402, 'monument:stand_banned': 375, 'wall:stand_banned': 315, 'tidy:deferred': 273, 'monument:deferred': 151, 'monument:canopy': 142, 'monument:stuck_on_cell': 122, 'tidy:stand_banned': 118, 'shop:clear_failed': 86, 'monument:access_refused': 74, 'tidy:stuck_on_cell': 60, 'tidy:waived': 47, 'wall:deferred': 26, 'wall:stuck_on_cell': 16, 'monument:waived': 15, 'wall:canopy': 12, 'tidy:sited': 9, 'monument:access_dig': 9, 'shop:clear': 9, 'monument:access_plan': 7, 'paths:no_site': 4, 'monument:access_end': 4, 'wall:waived': 4, 'wall:sited': 3, 'monument:access_done': 3, '?:?': 3, 'monument:fell': 2, 'tidy:canopy': 1, 'monument:unknown': 1, 'monument:known': 1, 'shop:canopy': 1}
+
+FAIL rows by project (total, tree/leaf/bamboo-related):
+  tidy 608 490 {'placebo-b': 490}
+  wall 315 0 {}
+  monument 8036 7658 {'board-d': 3, 'hive-a': 45, 'isolated-c': 7610}
+  shop 86 0 {}
+ top tidy [(('clear_failed', '-', 'tree'), 490), (('stand_banned', 'unreached_317,65,161', 'dig'), 4), (('stand_banned', 'unreached_318,65,162', 'dig'), 3), (('stand_banned', 'walk_ended_237,72,-152', 'click'), 3), (('stand_banned', 'walk_ended_333,67,137', 'click'), 2), (('stand_banned', 'unreached_351,77,138', 'dig'), 2)]
+ top wall [(('stand_banned', 'unreached_214,74,45', 'dig'), 24), (('stand_banned', 'unreached_213,73,45', 'dig'), 19), (('stand_banned', 'unreached_213,74,44', 'dig'), 10), (('stand_banned', 'unreached_213,74,49', 'dig'), 10), (('stand_banned', 'unreached_213,74,50', 'dig'), 10), (('stand_banned', 'unreached_198,73,44', 'dig'), 9)]
+ top monument [(('clear_failed', '-', 'tree'), 7610), (('clear_failed', '-', 'foreign'), 42), (('stand_banned', 'unreached_325,74,103', 'dig'), 36), (('stand_banned', 'unreached_322,75,100', 'dig'), 30), (('stand_banned', 'unreached_338,71,115', 'dig'), 19), (('stand_banned', 'unreached_318,74,102', 'dig'), 17)]
+ top shop [(('clear_failed', '-', 'foreign'), 86)]
+
+TREE-material clears ok by project: {'wall': 370, 'tidy': 125, 'monument': 1654, 'shop': 9}
+
+SHOP_SKIP why x town:
+  stuck_on_cell 795 {'board-a': 4, 'hive-a': 32, 'hive-b': 150, 'hive-d': 93, 'isolated-a': 206, 'isolated-c': 51, 'placebo-b': 131, 'placebo-c': 128}
+  no_site 589 {'board-a': 168, 'board-c': 142, 'hive-c': 123, 'placebo-d': 156}
+  room 320 {'board-a': 2, 'board-c': 34, 'board-d': 11, 'hive-a': 5, 'hive-c': 33, 'hive-d': 9, 'isolated-a': 1, 'isolated-b': 18, 'isolated-c': 8, 'isolated-d': 193, 'placebo-c': 4, 'placebo-d': 2}
+  underground 125 {'board-a': 3, 'board-b': 4, 'board-c': 10, 'board-d': 10, 'hive-a': 17, 'hive-b': 25, 'hive-d': 3, 'isolated-a': 7, 'isolated-b': 7, 'isolated-c': 6, 'isolated-d': 1, 'placebo-c': 1, 'placebo-d': 31}
+  slots_full 77 {'board-a': 1, 'board-b': 3, 'board-c': 4, 'board-d': 3, 'hive-a': 19, 'hive-b': 15, 'hive-d': 2, 'isolated-a': 5, 'isolated-b': 2, 'isolated-c': 6, 'placebo-a': 1, 'placebo-c': 1, 'placebo-d': 15}
+
+ project_unsited
+  2026-11-06 10:20:30.221000+00:00 board-a monument unsited: waits behind the other open projects (no ziggurat site in 292,84,346,138 (no_site): {"furniture":190,"avoid:approach":2,"avoid:project":12)
+  2026-11-06 10:21:45.288000+00:00 board-c shop unsited: waits behind the other open projects (no proven site (no_site): [["N",0,0]])
+  2026-11-06 10:28:43.216000+00:00 hive-c monument unsited: waits behind the other open projects (no ziggurat site in -131,-131,-77,-77 (no_site): {"liquid":144})
+  2026-11-06 10:24:27.887000+00:00 hive-c house1 unsited: waits behind the other open projects (no proven site (no_site): [["NE",0,0],["E",0,0],["SE",0,0]])
+  2026-11-06 10:29:00.242000+00:00 placebo-d monument unsited: waits behind the other open projects (no ziggurat site in 114,10,168,64 (no_site): {"liquid":476,"no_ground":7,"furniture":1})
+
+ grounds_census
+  2026-11-06 14:50:57.379000+00:00 board-c grounds census from=0 stage=0 why=interior_audit pits=6 dips=8 pillars=10 fill=34 cut=14 dead=6 rough=3982/8066 gen=12
+  2026-11-06 14:03:37.630000+00:00 board-c grounds census from=0 stage=0 why=interior_audit pits=5 dips=76 pillars=56 fill=135 cut=57 dead=0 rough=4067/8066 gen=4
+  2026-11-06 15:10:41.433000+00:00 board-c grounds census from=1 stage=1 why=next_band pits=0 dips=0 pillars=0 fill=184 cut=6 dead=0 gen=14
+  2026-11-06 14:04:50.362000+00:00 placebo-a grounds census from=0 stage=0 why=interior_audit pits=13 dips=71 pillars=40 fill=239 cut=45 dead=0 rough=3290/8230 gen=9
+
+BUILD_SHOP detail top:
+  753 TNN: N open, N placeable now; cuts left N/N, fills left N/N
+  701 deadline; built N/N@N
+  260 stuck
+  216 LN-N waits for LN-N; built N/N@N
+  161 tierN for LN-N; built N/N@N
+  144 stuck (threw GoalChanged: The goal was changed before it could be completed!)
+  117 deadline; cuts left N/N, fills left N/N
+  76 entombed (threw GoalChanged: The goal was changed before it could be completed!)
+  72 tierN for LN-S; built N/N@N
+  71 aborted; built N/N@N
+  69 tierN for LN-W; built N/N@N
+  68 did not reach N,N,N (at N,N,N) at step N: dug N, placed N -- the stair is blocked above the work; the next vis
+  65 complete at step -: dug N, placed N (way out: arrived)
+  65 tierN for LN-E; built N/N@N
+  65 deadline; built N/N@N — but nothing changed that build_shop exists to change (expected world_change); cannot t
+  59 complete; built N/N@top
+  50 deadline; cuts left N/N, fills left N/N — but nothing changed that build_shop exists to change (expected world
+  47 complete; built N/N@top — but nothing changed that build_shop exists to change (expected world_change); cannot
+  45 LN-N waits for F-S; built N/N@N
+  43 pad: N open, N placeable now
+  40 no ziggurat site in N,N,N,N (no_site): {"liquid":N,"no_ground":N,"furniture":N}
+  35 complete at step -: dug N, placed N (way out: arrived) — but nothing changed that build_shop exists to change 
+  31 no ziggurat site in N,N,N,N (no_site): {"furniture":N,"avoid:approach":N,"avoid:project":N,"cut":N,"avoid:tree
+  31 aborted; built N/N@N — but nothing changed that build_shop exists to change (expected world_change); cannot te
+  29 N cell(s) no stand has reached in N+ visits (first N,N,N; N open cell(s) wait on it); nothing else is open: th
