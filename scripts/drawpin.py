@@ -15,7 +15,7 @@ THE FIELD. `"draw_pin_pools": ["isolated-d", "hive-c"]` -- the draw is EXACTLY t
   * the HARD exclusions still hold for pinned pools: the brain subset, the live canary, draw-exclude.txt; the 12-h ledger
     exclusion, the productivity band and the exposure filter do not (they are measurement controls, and the pin is the
     owner's choice of population). A pinned pool must be LIVE: a band row, or (poolrank2 lists no isolated-* pool) all
-    five of its bots wrote a skill row in the last 15 min;
+    five of its bots' newest skill ROW is from the last 15 min;
   * FAIL CLOSED: a pinned pool that is not available, or a malformed field, draws NOTHING (the loop waits, never a
     substitute, and canary-loop.sh never takes the 30-min fun fallback for a pinned run).
 Absent or null = no pin, exactly as before."""
@@ -52,6 +52,26 @@ PIN_FRESH_MIN = 15
 POOL_BOTS = 5
 
 
+def last_row_time(path, tail=65536):
+    """The @timestamp of the LAST complete row of a jsonl log, or None. The ROW, not the file's mtime: a copytruncate
+    rotation touches the file with no bot activity (Codex review r2)."""
+    import datetime as dt, json, os
+    try:
+        with open(path, 'rb') as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - tail))
+            lines = [l for l in f.read().decode('utf-8', 'replace').split('\n') if l.strip()]
+        for l in reversed(lines):
+            try:
+                t = dt.datetime.fromisoformat(str(json.loads(l).get('@timestamp')).replace('Z', '+00:00'))
+                return t if t.tzinfo else None
+            except (ValueError, AttributeError):
+                continue
+    except OSError:
+        pass
+    return None
+
+
 def pool_fresh(log_root, pool, now, fresh_min=PIN_FRESH_MIN, bots=POOL_BOTS):
     """A pool with no band row is LIVE when exactly `bots` bot dirs <root>/<pool>-<Name>/ exist and every one's skill log
     was written in the last fresh_min minutes. Never raises (False = not shown live)."""
@@ -62,9 +82,8 @@ def pool_fresh(log_root, pool, now, fresh_min=PIN_FRESH_MIN, bots=POOL_BOTS):
         if len(dirs) != bots:
             return False
         for d in dirs:
-            f = os.path.join(d, 'skill-%s.jsonl' % os.path.basename(d))
-            t = dt.datetime.fromtimestamp(os.path.getmtime(f), dt.timezone.utc)
-            if now - t > dt.timedelta(minutes=fresh_min):
+            t = last_row_time(os.path.join(d, 'skill-%s.jsonl' % os.path.basename(d)))
+            if t is None or now - t > dt.timedelta(minutes=fresh_min):
                 return False
         return True
     except Exception:

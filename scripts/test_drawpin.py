@@ -59,14 +59,18 @@ def cases(drawrec, dpn, loop_src):
     lg = tempfile.mkdtemp(prefix='drawpin-logs-')
     try:
         for b in ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo'):
-            os.makedirs(os.path.join(lg, 'isolated-d-' + b)); open(os.path.join(lg, 'isolated-d-' + b, 'skill-isolated-d-%s.jsonl' % b), 'w').write('{}\n')
+            os.makedirs(os.path.join(lg, 'isolated-d-' + b))
+            open(os.path.join(lg, 'isolated-d-' + b, 'skill-isolated-d-%s.jsonl' % b), 'w').write(
+                '{"@timestamp": "%s"}\n' % TD.NOW.strftime('%Y-%m-%dT%H:%M:%S.000Z'))
         PD = dict(PIN, draw_pin_pools=['isolated-d', 'hive-c'])
         P, o = run(drawrec, dpn, PD, env={'DRAWREC_LOG_ROOT': lg})
         c('isolated-d (no band row: poolrank2 lists no isolated pool) with five fresh bot logs -> drawn', sorted(P) == ['hive-c', 'isolated-d'], (P, o))
-        old = __import__('time').time() - 3600
-        os.utime(os.path.join(lg, 'isolated-d-Echo', 'skill-isolated-d-Echo.jsonl'), (old, old))
+        import datetime as _dt
+        open(os.path.join(lg, 'isolated-d-Echo', 'skill-isolated-d-Echo.jsonl'), 'w').write(
+            '{"@timestamp": "%s"}\n' % (TD.NOW - _dt.timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%S.000Z'))
         P, o = run(drawrec, dpn, PD, env={'DRAWREC_LOG_ROOT': lg})
-        c('one of its bots silent for an hour -> NO draw (waits)', P == [] and 'not live' in o, (P, o))
+        c('one bot\'s newest ROW an hour old (its file freshly touched, as a copytruncate rotation does) -> NO draw',
+          P == [] and 'not live' in o, (P, o))
         shutil.rmtree(os.path.join(lg, 'isolated-d-Echo'))
         P, o = run(drawrec, dpn, PD, env={'DRAWREC_LOG_ROOT': lg})
         c('four bot dirs, not five -> NO draw', P == [] and 'not live' in o, (P, o))
@@ -116,7 +120,7 @@ MUTANTS = [
     ('drawpin.py', 'no owner OK needed', "    if gated and not (isinstance(ok, str) and len(ok.strip()) >= OK_MIN_LEN):", "    if False:"),
     ('drawpin.py', 'hard exclusion ignored', "        if p in hard_excluded:\n", "        if False:\n"),
     ('drawpin.py', 'no band row accepted', "        if p not in band_pools:\n", "        if False:\n"),
-    ('drawpin.py', 'a stale bot log counts as live', "            if now - t > dt.timedelta(minutes=fresh_min):", "            if False:"),
+    ('drawpin.py', 'a stale bot row counts as live', "            if t is None or now - t > dt.timedelta(minutes=fresh_min):", "            if t is None:"),
     ('drawpin.py', 'any number of bot dirs', "        if len(dirs) != bots:\n            return False", "        if not dirs:\n            return False"),
     ('drawpin.py', 'cap ignored', "    if cap < 1 or len(pins) > cap:", "    if False:"),
     ('drawpin.py', 'pin + require accepted', "    if reg.get('draw_require_pools') is not None:\n        return None", "    if False:\n        return None"),
