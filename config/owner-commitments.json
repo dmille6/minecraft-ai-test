@@ -4868,7 +4868,7 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "LIVE on .31 since 11-06 ~04:00Z: lib/alarm tiers+acks+delivery check (6 copies), pager.py relay (*/5) + digest (12:30Z), slotwatch by cause, goalwatch town keys, stuckwatch push (rotation fix), hourwatch (:25); merge=union + suite-run git context/deadlines on main. WAITING FOR THE OWNER'S GO (after phase 0's canaries read): canary-sched v42 (skip head, hold auto-release, hash repair, speculative build + remote suite) and rollout.py deploy (owner-direct lane), branch phase1-autopilot.",
+   "next_step": "ALL LIVE on .31 (11-06): the pager (04:00Z) and, on the owner's GO, canary-sched v42 + rollout.py deploy + the ci2/.30 suite relay (10:43Z; queue prep: 11 order-only `after` links dropped). Watch: the first speculative build (the entry after a live canary with no variant on its sha), the first skip, the first hold auto-release, the first owner-direct deploy. Rollback: ~/sched42-install/backup-20261106T104254Z/, ~/pager/backup-*.",
    "max_quiet_hours": 48,
    "evidence": {
     "paths": [
@@ -4888,7 +4888,6 @@
      "cron": "host/hourwatch.py run"
     }
    ],
-   "owner_pending": "phase 1 gated pieces (canary-sched v42 + the owner-direct lane): deploy once phase 0's canaries read; and drop `after` links that only encode order, or skip-head never fires",
    "note": "Claude + independent Codex designs per item, reconciled in the design doc; two-engine blockers-only reviews (Codex + an independent Claude agent), all blockers fixed."
   },
   {

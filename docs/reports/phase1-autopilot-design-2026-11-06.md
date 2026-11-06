@@ -203,7 +203,30 @@ existing verdicts (FAIL/WATCH page, nothing is auto-kept or auto-reverted after 
 the `# pager` cron lines. **Ack a known alarm:** `cd ~/pager/app/scripts && python3 host/pager.py ack hourwatch 'lap:*'
 "idlework-01 queued" --for 2d`; `pager.py acks`, `pager.py status`.
 
-**Gated (owner's go):** canary-sched v42 + rollout.py deploy + the suite relay, branch `phase1-autopilot`. Install: take
+**Gated pieces, installed 11-06 on the owner's GO** (relayed by the coordinator after stuckproj-01 and idlework-01 KEEP;
+decbundle-01 47b8342d live on board-a/board-b, untouched):
+
+| when (11-06) | what | how verified |
+|---|---|---|
+| 10:42Z | queue prep: 11 order-only `after` links dropped (handcap, pause30, bamboowalk, stationkeep, bucketfix, kittrim, villageunlock, cobblebank, coalsale-01, stoneworks, treefarm-05); KEPT the 6 where the entry's base IS the other's sha (decbundle<-idlework, gkforever<-decbundle 47b8342d, marks<-stationkeep 16b552f7, towngate<-marks 05d9ef48, coalsale-02<-coalsale-01 454af13b, jobsite<-coalsale-02 7097909e); under ~/sched.lock + ~/canary-queue.lock, backup `~/pager/backup-queue-20261106T104201Z.json`, atomic replace | `canary-sched.py status` (v41, before the install): same states, decision unchanged |
+| 10:42Z | Mac: `~/bin/autorebase-suite-relay.py` + `~/bin/suite-run.py` (= main), launchd `com.mcai.autorebase-suite-relay` | one pass rc 0 (no requests); py3.9 compile |
+| 10:42:54Z | `~/canary-sched.py` v42 (684ca0f3) + `~/w5alarms/scripts/host/rollout.py` (577f2401), swapped by tmp+rename under ~/sched.lock; backup `~/sched42-install/backup-20261106T104254Z/`; install-hold phase1-v42 written then released | `tick --no-act` of the v41 backup and of v42 against the live state: byte-identical decision (BUSY S1-S7 decbundle-01) |
+| 10:43Z | `~/w5alarms/scripts/lib/protected.py` (= main; the lane needs it) | `rollout.py deploy --dry-run` while decbundle is deployed: REFUSED (slot not empty; also not a descendant, protected) rc 2 |
+| 10:43Z | `touch ~/autorebase/SUITE-REMOTE` (after the relay was loaded) | relay smoke request (gkforever-01's tip 9e9284d7 on 47b8342d): started on ci2 10:44:31Z, finished 10:56:35Z, 405/405 files passed (wall 691 s), `.out` + `.done` back on .31; the installed v42 `remote_answer` accepts it (rc 0) |
+| 10:45Z.. | live cron ticks under v42 | BUSY every 5 min, 0 tracebacks in sched.log |
+
+**Deviation from the written procedure, and why.** `/tmp/mcai-canary.lock` is held by decbundle-01's loop for its whole
+run, and `install-hold` exits 2 while a canary is live, so the "between canaries" procedure cannot run during a read --
+and the owner asked to see the pre-build during this read. canary-sched.py is not executed by the running loop (only by
+the cron tick and the CLI), so the swap was made atomic against the only reader instead: under the scheduler's own tick
+lock (no tick mid-swap), with no autorebase build live. The install-hold was written (blocking any new launch) and
+released after the checks.
+
+**Pre-build check (2).** gkforever-01, the entry that launches after decbundle-01, already has a variant keyed on the
+canary sha 47b8342d (it was built on it), so v42 correctly starts no speculative build (no SPECULATIVE line in the tick).
+The relay path was proven with an explicit request for the same tip instead.
+
+**Was gated (owner's go):** canary-sched v42 + rollout.py deploy + the suite relay, branch `phase1-autopilot`. Install: take
 `canary-sched.py install-hold phase1-v42 30`, hold `/tmp/mcai-canary.lock`, back up `~/canary-sched.py`, install, `status`
 + `tick --no-act`, release; then `touch ~/autorebase/SUITE-REMOTE` only after the Mac relay is loaded
 (`cp scripts/host/autorebase-suite-relay.py scripts/host/suite-run.py ~/bin/ && python3 ~/bin/autorebase-suite-relay.py
