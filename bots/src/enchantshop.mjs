@@ -111,7 +111,9 @@ export function enchantSitingPlan (home, plot, zones = []) {
 /** The stands' domain of a sited record (the visit's) -> (x, z) -> bool. Pure. */
 export const enchantStandDomain = rec => (Array.isArray(rec?.box) && rec.box.length === 4 ? (x, z) => inBox(rec.box, x, z, ENCHANT_SITE.standPad) : () => false)
 /** buildrun runVisit's options for the shell visit (the stands' domain, the record's walk radius). Pure. */
-export const enchantVisitOpts = rec => (rec?.blueprint === ENCHANT_BLUEPRINT ? { domain: enchantStandDomain(rec), walkR: Number.isFinite(rec.walkR) ? rec.walkR : ENCHANT_SITE.walkR } : {})
+// enchantgoon-01 (LIVE showcase 11-06: sited on X1 02:03Z, then 5 shell visits each ended `replanned` at one replant remedy): the
+// groundskeeper's replant knobs -- a remedy does not end the visit, B4 per tree (buildrun.mjs plotprep-03)
+export const enchantVisitOpts = rec => (rec?.blueprint === ENCHANT_BLUEPRINT ? { domain: enchantStandDomain(rec), walkR: Number.isFinite(rec.walkR) ? rec.walkR : ENCHANT_SITE.walkR, replantGoOn: true, replantPerTree: true } : {})
 
 /**
  * THE WORKSHOP'S WAY IN -> [[x, z]] (the showcase wallext2 fold, Codex fold BLOCKER: access-01's staircases read a build's `door` /
