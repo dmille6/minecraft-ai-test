@@ -4901,7 +4901,7 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "ALL LIVE on .40 11-06 11:44-12:40Z (pager tree + digest, start journal, haltwatch, follower OBSERVE, harm-only tripwire, AUTO_ROLLBACK, REPLAY_GATE); Gale quarantined 12:35Z. Watch: the first REPORT page, the first harm trip-remedy, the release agent's first gated stage. Rollback: /srv/showcase/backup-phase1-20261106T114441Z, ~/pager/backup-20261106T114441Z.",
+   "next_step": "ALL LIVE on .40 11-06 11:44-12:40Z (pager tree + digest, start journal, haltwatch, follower OBSERVE, harm-only tripwire, AUTO_ROLLBACK, REPLAY_GATE); Gale quarantined 12:35Z. Watch: the first REPORT page, the first harm trip-remedy, the release agent's first gated stage. Rollback: /srv/showcase/backup-phase1-20261106T114441Z, ~/pager/backup-20261106T114441Z. OWNER 11-06: quarantine kept; no-survey UNJUDGED counts-only (r3, live). Survey job -> phase 3.",
    "max_quiet_hours": 48,
    "evidence": {
     "paths": [
@@ -4913,7 +4913,6 @@
      "showtrip-01"
     ]
    },
-   "owner_pending": "phase1-showcase-1106: Z1 with 1-2 trapped bots quarantines those bots (world goes on; 3+ stops the world) -- OK, or the literal 'a trapped bot stops the world' (ZONE_TRAP_WORLD=1)?",
    "note": "Claude + independent Codex designs per item, reconciled in the design doc; protected scope: two-engine blockers-only reviews."
   },
   {

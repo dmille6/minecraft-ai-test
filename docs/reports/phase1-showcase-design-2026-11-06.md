@@ -242,8 +242,20 @@ Before each install: no `staged` row newer than the newest `activated` row in `/
 1. **Z1 scope.** One or two trapped bots are quarantined (their own unit stops) rather than stopping the world. Three or more
    at once stop the world. Set `ZONE_TRAP_WORLD = 1` for the literal rule; measured, that would have kept the showcase down
    since 11-05 03:35Z on Gale alone.
-2. **conformance UNJUDGED** is on 187 of 253 reads: the showcase has no survey job. Either build the survey (shopconform) or
-   retire H8 on the showcase.
+2. **conformance UNJUDGED** was on 187 of 253 reads: the showcase has no survey job. **ANSWERED 11-06:** the survey job goes
+   in phase 3 (the shared project registry). Until then, with NO survey source, UNJUDGED is counted on the REPORTED line, not a
+   WATCH. With surveys present the gate judges as before (r3 below).
+
+## r3 (OWNER 11-06): UNJUDGED with no survey source is counts-only
+
+- `shop_read` sets `no_source = not (surveys and surveys[0])`. With no source, a completed workshop's UNJUDGED goes to
+  `conformance_unjudged_no_survey` on the REPORTED line. With a source, it stays a WATCH, and a failing F1 is still H8.
+- Selftest: both cases. Mutants: 33 of 33 killed (2 new).
+- One Codex round, 1 blocker: the replay treated UNJUDGED as counts-only even when surveys existed. Fixed: the replay
+  counts it only when the read's own EXPOSURE line says `surveys False`.
+- Replay: WATCH -> OK is still 6 reads. The remaining WATCHes are `g5_unjudged (blind)` on 193 reads, also always-on, and
+  STALLED on 140 (a real stall signal). Both are kept. g5_unjudged is the next owner question.
+- Z1 scope: OWNER 11-06 keeps the quarantine (1-2 bots; 3+ stops the world), ZONE_TRAP_WORLD as is.
 
 ## Reviews (two engines, blockers only)
 

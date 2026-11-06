@@ -20,13 +20,15 @@ import showcase_ops as SO     # noqa: E402
 UTC = dt.timezone.utc
 RUN = re.compile(r'^===== (\S+) rc=(\d+)')
 WINDOW = re.compile(r'^SHOWCASE TRIPWIRE \S+\s+window (\S+) \.\. ')
-INFO = ('S3 DEEP below a village floor', 'H2 clear_outside tree debris', 'S6 H2 clear_outside tree debris', 'S6 conformance UNJUDGED')
+INFO = ('S3 DEEP below a village floor', 'H2 clear_outside tree debris', 'S6 H2 clear_outside tree debris')
+NO_SURVEY = re.compile(r'^EXPOSURE     shop: .*surveys False')
 
 
-def reason_class(r):
-    """A logged VERDICT reason -> 'harm' | 'report' | 'watch' | 'info'. Pure; the same split as showcase_trip.classify."""
+def reason_class(r, no_survey=False):
+    """A logged VERDICT reason -> 'harm' | 'report' | 'watch' | 'info'. Pure; the same split as showcase_trip.classify.
+    no_survey: the read's own EXPOSURE line says surveys False -- only then is conformance UNJUDGED counts-only (OWNER 11-06)."""
     r = r.strip()
-    if any(r.startswith(x) for x in INFO):
+    if any(r.startswith(x) for x in INFO) or (no_survey and r.startswith('S6 conformance UNJUDGED')):
         return 'info'
     p = r.split()
     if not p:
@@ -68,20 +70,22 @@ def split_reasons(why):
 
 
 def parse(text):
-    """trip.log -> [(t, rc, verdict, [reasons], window start | None)]. Pure. A block's lines come BEFORE its '=====' line
+    """trip.log -> [(t, rc, verdict, [reasons], window start | None, no survey source)]. Pure. A block's lines come BEFORE its '=====' line
     trip-cron writes '===== <t> rc=N' and then the read's output, so its header and VERDICT follow that line."""
-    out, cur, win = [], None, None
+    out, cur, win, nos = [], None, None, False
     for line in text.splitlines():
         m = RUN.match(line)
         if m:
-            cur, win = (TRIP.ts(m.group(1)), int(m.group(2))), None
+            cur, win, nos = (TRIP.ts(m.group(1)), int(m.group(2))), None, False
             continue
+        if NO_SURVEY.match(line):
+            nos = True
         w = WINDOW.match(line)
         if w and cur:
             win = TRIP.ts(w.group(1))
         if line.startswith('VERDICT') and cur:
             v, _, why = line[len('VERDICT'):].strip().partition(' -- ')
-            out.append((cur[0], cur[1], v.strip(), split_reasons(why.strip()), win))
+            out.append((cur[0], cur[1], v.strip(), split_reasons(why.strip()), win, nos))
             cur = None
     return out
 
@@ -118,10 +122,10 @@ def main(argv=None):
     crash = crash_by_read(open(a.journal).read().splitlines(), [(r[0], r[4]) for r in reads]) if a.journal else {}
     tot = collections.Counter()
     print('reads %d from %s (positive control: verdicts %s)' % (len(reads), since.date(), dict(collections.Counter(r[2] for r in reads))))
-    for t, rc, old, reasons, _win in reads:
+    for t, rc, old, reasons, _win, nos in reads:
         cls = collections.defaultdict(list)
         for r in reasons:
-            cls[reason_class(r)].append(r)
+            cls[reason_class(r, nos)].append(r)
         loops, ctimes = crash.get(t) or ({}, {})
         if loops:
             cls['harm'].append('S7 crash loop (>= %d restarts in %d min) %s' % (TRIP.CRASH_RESTARTS, TRIP.CRASH_SPAN_MIN, loops))
