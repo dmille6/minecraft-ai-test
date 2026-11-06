@@ -5296,7 +5296,7 @@
     "prodserve-1106.md"
    ],
    "state": "open",
-   "next_step": "prodserve-01show @ de3a6624 on the live showcase release b1d5b17e: built, ready to stage (release agent folds it; shopread PS1 on main installs with it). Then read 24 h: projectaudit canefarm/cropfarm/storehub -> EFFECTIVE (cane >= 8/day, crops >= 8/day, clerk >= 2/day), dress 0 failed repairs; `_service` rows by plot. Follow-ups: cropseed-01 (seed gather), the forest's plot in SERVICE_PLOTS, the fleet port.",
+   "next_step": "prodserve-01show @ 955fb30d (r4: torn-claim fix, Codex NO BLOCKERS) on the live showcase release b1d5b17e: built, ready to stage (release agent folds it; shopread PS1 on main installs with it). Then read 24 h: projectaudit canefarm/cropfarm/storehub -> EFFECTIVE (cane >= 8/day, crops >= 8/day, clerk >= 2/day), dress 0 failed repairs; `_service` rows by plot. Follow-ups: cropseed-01 (seed gather), the forest's plot in SERVICE_PLOTS, the fleet port.",
    "evidence": {
     "grep": [
      "prodserve-01"
