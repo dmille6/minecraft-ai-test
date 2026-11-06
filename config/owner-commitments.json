@@ -4940,7 +4940,7 @@
     "scaudit-fixes-1106.md"
    ],
    "state": "open",
-   "next_step": "RELEASED 2026-11-06 05:27:30Z as 2cfdb3bd-6dd0ded8-fdd64ead (batch14b; ENCHANT_NOWAIT; TH1 rule installed). NEXT: read the town hall on X2 and cottage1 siting.",
+   "next_step": "2026-11-06 read 05:27-06:29Z: townhall no_site x2, cottage1 no_site on X3 (door_not_toward_home 27, domain 33088). RELEASED 2026-11-06 05:27:30Z as 2cfdb3bd-6dd0ded8-fdd64ead (batch14b; ENCHANT_NOWAIT; TH1 rule installed). NEXT: read the town hall on X2 and cottage1 siting.",
    "evidence": {
     "grep": [
      "ordernowait"
@@ -4962,7 +4962,7 @@
     "scaudit-fixes-1106.md"
    ],
    "state": "open",
-   "next_step": "RELEASED 2026-11-06 05:27:30Z in batch14b (REROOF_*; RT2 rule installed). NEXT: read house1's reroof proof and the decor_post retire/dig.",
+   "next_step": "2026-11-06 read 05:27-06:29Z: WORKS -- decor post -33,72,-8 retired 05:53:58Z, house1 reroof published (gable spruce 57 cells), 57 roof places; then no_material roofstair. RELEASED 2026-11-06 05:27:30Z in batch14b (REROOF_*; RT2 rule installed). NEXT: read house1's reroof proof and the decor_post retire/dig.",
    "evidence": {
     "grep": [
      "reroof02"
@@ -5028,7 +5028,7 @@
     "scaudit-fixes-1106.md"
    ],
    "state": "open",
-   "next_step": "QUEUED for batch14c after a clean 1 h read of 14b; release with BAGROOM_WELL=off (owner stoneworks plan: no early cobble disposal).",
+   "next_step": "RELEASED 2026-11-06 06:31:45Z as 79bc6085-6dd0ded8-fdd64ead (batch14c) with the WELL half OFF by default (BAGROOM_WELL=on to enable; owner stoneworks plan), share banking ON. NEXT: read `_share_bank` rows and the hall materials in bags. QUEUED for batch14c after a clean 1 h read of 14b; release with BAGROOM_WELL=off (owner stoneworks plan: no early cobble disposal).",
    "evidence": {
     "grep": [
      "bagroom"
@@ -5050,7 +5050,7 @@
     "scaudit-fixes-1106.md"
    ],
    "state": "open",
-   "next_step": "QUEUED for batch14c (SK1 + SW5 rules installed). LIVE 11-06: the stepwell loops 'felling complete, 17 logs left' -- tree 5's replant (-68,67,12) waits on a spruce sapling no bag or chest has (circular: felling gives saplings); needs a decision.",
+   "next_step": "RELEASED 2026-11-06 06:31:45Z in batch14c (SINKWAIVE, STEPWELL_CREW; SK1+SW5 installed). The stepwell's sapling loop (tree 5) is NOT addressed by the crew (crew starts only after every listed log is down) -- still needs a decision. QUEUED for batch14c (SK1 + SW5 rules installed). LIVE 11-06: the stepwell loops 'felling complete, 17 logs left' -- tree 5's replant (-68,67,12) waits on a spruce sapling no bag or chest has (circular: felling gives saplings); needs a decision.",
    "evidence": {
     "grep": [
      "towerstepcrew"
