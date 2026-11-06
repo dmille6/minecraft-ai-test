@@ -109,13 +109,24 @@ const wiring = src => {
   one("for \\(let i = 0; i < states\\.length; i\\+\\+\\) states\\[i\\] = st1\\[i\\]")
   one("\\.gkWorkAt = Date\\.now\\(\\)")
   one("groundsUnfit\\(\\{ feet: gkFeet\\(bot\\), home: \\{ x: config\\.world\\.homeX, y: config\\.world\\.homeY, z: config\\.world\\.homeZ \\} \\}\\)")
+  // Codex r1 BLOCKER: the gate at the ACQUISITION boundary -- takeKeeper (the order's read AND buildTidy's visit start) refuses a new
+  // take by an unfit bot; on the showcase takeHelper too
+  one("function takeKeeper \\(bot, lease, now = Date\\.now\\(\\)\\) \\{\\n\\s*const me = keeperMe\\(bot\\)\\n\\s*const renewal = [^\\n]*\\n\\s*\\{ const u = renewal \\? null : gkUnfitNow\\(bot\\); if \\(u\\) return \\{ ok: false, why: `unfit:\\$\\{u\\}` \\} \\}")
+  if (/function takeHelper \(/.test(src)) one("const renewal = prev\\?\\.rec\\?\\.holder === me && now < \\(prev\\.holdsUntil \\?\\? 0\\)\\n\\s*\\{ const u = renewal \\? null : gkUnfitNow\\(bot\\); if \\(u\\) return \\{ ok: false, why: `unfit:\\$\\{u\\}` \\} \\}[ \\t]*\\n\\s*const r = projTakeLease\\(dir, key, name, me, \\{ now, ttl: GK\\.helperTtlMs \\}\\)")
 }
 await t('keeperOrder checks the holder and the taker, rests a released holder, puts the keeper\'s grounds first; the work clock is set; a cut line fails', () => {
   const src = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   wiring(src)
-  const cut = ' else if (d === \'take\' && !c.take) d = \'none\''
-  assert.ok(src.split(cut).length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
-  assert.throws(() => wiring(src.replace(cut, '')), assert.AssertionError)
+  for (const cut of [' else if (d === \'take\' && !c.take) d = \'none\'', '  // gklease-01 (Codex r1 BLOCKER): the fitness gate at the ACQUISITION boundary']) {
+    const c0 = cut.startsWith('  //') ? null : cut
+    if (!c0) continue
+    assert.ok(src.split(c0).length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
+    assert.throws(() => wiring(src.replace(c0, '')), assert.AssertionError)
+  }
+  // the keeper's acquisition gate cut (the first gate line: takeKeeper's) fails the check
+  const gate = '{ const u = renewal ? null : gkUnfitNow(bot); if (u) return { ok: false, why: `unfit:${u}` } }'
+  assert.ok(src.includes(gate))
+  assert.throws(() => wiring(src.replace(gate, '')), assert.AssertionError, 'without the acquisition gate the wiring check fails')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
