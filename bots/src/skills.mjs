@@ -129,6 +129,7 @@ import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, 
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
+import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { LAND as LAND_TABLE } from './landplan.mjs'   // gkforever-01: the bands out to GKF.radius
 import { gkfOn, gkfLand, gkfDue, gkfDeadCarry, gkfVisitWorked, gkfNoWork, gkfMeans } from './gkforever.mjs'   // gkforever-01
@@ -17606,6 +17607,8 @@ async function buildShopVisit (ctx, args, signal) {
       }
     } catch { /* the stamp is best effort: the order's own back-off still holds */ }
   }
+  // gklease-01: a grounds visit that did something is the holder's work (groundsIdle's clock)
+  if (proj?.plot === TIDY_PLOT && r?.status === 'success') bot.gkWorkAt = Date.now()
   return r
 }
 async function buildShopOn (proj, ctx, args, signal) {
@@ -19379,11 +19382,23 @@ function keeperOrder (bot, states, list, now = Date.now()) {
   const k = keeperState(bot, work, now)
   let d = k.d
   if (d === 'release') { releaseKeeper(bot, k.lease, work ? 'term' : 'no_work', now); d = 'none' }
+  // GKLEASE-01 (groundskeeper.mjs groundsLeaseCheck): a holder that cannot work the grounds from where it is (in a mine, away), or
+  // that has done no grounds work for GK_FIT.idleMs, lets the lease go and rests; an unfit bot never takes it
+  if (GKL_ON && (d === 'mine' || d === 'take')) {
+    const unfit = groundsUnfit({ feet: gkFeet(bot), home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ } })
+    const c = groundsLeaseCheck({ d, unfit, idle: d === 'mine' && groundsIdle({ term0: Number(k.lease?.rec?.meta?.term0 ?? k.lease?.rec?.at), workAt: bot.gkWorkAt ?? null, spawnAt: bot.shopSpawnAt ?? null, now }) })
+    if (c.release) { releaseKeeper(bot, k.lease, c.release, now); bot.gkRestUntil = now + GK_FIT.restMs; d = 'none' } else if (d === 'take' && !c.take) d = 'none'
+  }
   if (d === 'take' && now - (bot.gkTakeAt ?? -Infinity) >= GK.takeEveryMs) { bot.gkTakeAt = now; if (takeKeeper(bot, k.lease, now).ok) d = 'mine' }
   const r = keeperOrderPure(states, list, { d, shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT, crew: GKFS.crew, grounds: GKFS.idle && groundsBatchOpen() })
-  for (let i = 0; i < states.length; i++) states[i] = r.states[i]
+  // gklease-01 rule 3: the keeper's grounds before the town's other repairs (every other bot keeps the repair tier)
+  const st1 = GKL_ON && d === 'mine' && work ? keeperGroundsFirst(r.states, { grounds: [TIDY_PLOT] }) : r.states
+  for (let i = 0; i < states.length; i++) states[i] = st1[i]
   return r.order
 }
+/** gklease-01: the switch, and the bot's feet -> [x, y, z] | null. */
+const GKL_ON = gkleaseOn()
+function gkFeet (bot) { try { const p = bot?.entity?.position; return p ? [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] : null } catch { return null } }
 /** The land plan's siting inputs: the paths' refusals over every other project (never the paths' own record: a road crosses a
  *  laid path) and their reservations. Throws on an unreadable file. */
 function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
