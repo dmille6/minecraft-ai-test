@@ -57,6 +57,7 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
          poolSpotKey, poolRowDetail, poolBlockOf, poolBlockCount, POOL_MAX_STEPS, POOL_BUDGET_MS, POOL_STEP_HOLD_MS, POOL_STEP_WALK_MS,
          POOL_STEP_TRIES } from './poolescape.mjs'
 import { MAX_DIG_MS } from './digbudget.mjs'
+import { handBreaksCap } from './handcap.mjs'   // handcap-01: a cap the bare hand breaks is a climb, not a pickaxe ask
 // lavastep-01 (F1, docs/reports/mineshaft-safety-2026-10-23.md): the danger arm's verified, bounded move
 import { lavastepOn } from './lavastep.mjs'
 import { dropDigOn, dropAdmission, DD_FAIL_MEMORY_MS } from './dropdig.mjs'   // dropanddig-01: dig the pocket standing
@@ -4140,7 +4141,32 @@ export function shaftCapNeedsTool(bot, maxClearance = 12) {
   if (ceilingFloodRisk(bot, cap.dy)) return null
   const handCanHarvest = cap.block.canHarvest?.(null) === true
   if (handCanHarvest || bestTool(bot, cap.block)) return null
+  // HANDCAP-01 (handcap.mjs): the climb breaks its headroom bare-handed, so a cap the hand BREAKS within the climb's own
+  // refusal rule is not a tool problem -- the state is `climb`, not `need_pickaxe` (whose table-and-craft remedy a bot in a
+  // shaft, or inside a protected zone, cannot perform). Unknown dig time keeps the old answer.
+  const bareMs = predictedDigMs(cap.block, null)
+  if (handBreaksCap(bareMs)) {
+    noteHandCap(bot, cap, bareMs)
+    return null
+  }
   return cap
+}
+
+/** HANDCAP-01's row: once per cap cell per 10 min, so the read can count the bots it turned from `need_pickaxe` to `climb`. */
+function noteHandCap (bot, cap, bareMs) {
+  try {
+    const at = cap.block?.position
+    const key = at ? `${at.x},${at.y},${at.z}` : `dy${cap.dy}`
+    const now = Date.now()
+    if (bot.__handCapRow?.key === key && now - bot.__handCapRow.t < 10 * 60_000) return
+    bot.__handCapRow = { key, t: now }
+    const pk = (bot.inventory?.items?.() ?? []).filter(it => /_pickaxe$/.test(it?.name ?? ''))
+      .map(it => `${it.name}:${it.maxDurability ? it.maxDurability - (it.durabilityUsed ?? 0) : '?'}`).join(',') || 'none'
+    logEvent({ kind: 'maroon_handcap', status: 'success',
+               detail: `cap ${cap.block?.name ?? '?'} at ${key} (${cap.dy} overhead) breaks bare-handed in ~${Math.round(bareMs)}ms ` +
+                       `-- climb, not need_pickaxe; pickaxes=${pk}`,
+               snapshot: snapshot(bot) })
+  } catch { /* telemetry */ }
 }
 
 /**
