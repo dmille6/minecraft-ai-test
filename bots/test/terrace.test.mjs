@@ -583,7 +583,7 @@ console.log('WIRING (structural)')
 await t('buildTidy: the terrace inputs, the work-time guard, the skip rule, the tool uses and the park\'s bill are wired', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
   assert.ok(/const terrace = \{ records: I\.records, wall: I\.wall, wallext: I\.wallext, caps: I\.caps, climbs, have, pause:/.test(s), 'the terrace inputs')
-  assert.ok(/s = await siteStage\(read, \{ home: I\.home, avoid: I\.avoid, cells: I\.cells, pin: I\.pin, plan: I\.plan, land, stage: k, lim: gradeLim\(read, 6\), lights, now: Date\.now\(\), walkFrom: townEdge\(I\.plan, I\.home\), terrace, reserved: I\.reserved \}\)/.test(s), 'siteStage gets them (the gkstage fold: the site-prep reservations too)')
+  assert.ok(/s = await siteStage\(read, \{ home: I\.home, avoid: I\.avoid, cells: I\.cells, pin: I\.pin, plan: I\.plan, land, stage: k, lim: gradeLim\(read, 6\), lights, now: Date\.now\(\), walkFrom: townEdge\(I\.plan, I\.home\), terrace, reserved: I\.reserved, forest: forestRecNow\(\) \}\)/.test(s), 'siteStage gets them (the gkstage fold: the site-prep reservations too; forest-01: the forest for the replants)')
   // siteprep-01: nor a requested plot's prep cell (the keeper's own work in its own reservation)
   assert.ok(/\|\| \(isTerrace && !q\.floorFix && !q\.prep && !!guardNow\(q\.at\[0\], q\.at\[2\]\)\)\n/.test(s), 'the work-time guard waives (gkhelpers-01: never a storehouse floor repair; siteprep-01: never a prep cell)')
   assert.ok(/alsoDone: q => waivedK\(q\) \|\| noTorch\(q\) \|\| !!skipV\(q\)/.test(s), 'the skip rule')
@@ -591,7 +591,7 @@ await t('buildTidy: the terrace inputs, the work-time guard, the skip rule, the 
   assert.ok(/Object\.assign\(extra, parkBill\(rec, read, \{ held: held0, stock: matsTownStock\(bot\)\?\.stock \?\? \{\}/.test(s), 'the park\'s bill')
   assert.ok(/nextStageCycle\(rh\.head\.rec\)/.test(s) && /return nextStageCycle\(r, now\) != null/.test(s), 'the ring order reads recStageK (gkstage-01: through landplan.mjs nextStageCycle, which reads it)')
   const lp = strip(readFileSync(LAND_PATH, 'utf8'))
-  assert.ok(/zones: \[\.\.\.\(land\.corridors \?\? \[\]\), \.\.\.parkZones\(land\), \.\.\.landPlotZones\(ext\)\]/.test(lp), 'the park reservation (wallext-01: and the extension\'s plots after it)')
+  assert.ok(/zones: \[\.\.\.\(land\.corridors \?\? \[\]\), \.\.\.parkZones\(land\), \.\.\.gardenZones\(land\), \.\.\.landPlotZones\(ext\)\]/.test(lp), 'the park reservation (wallext-01: and the extension\'s plots after it; forest-01: the garden beside the park)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

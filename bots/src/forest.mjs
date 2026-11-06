@@ -1,0 +1,650 @@
+// FOREST-01: THE TOWN'S MANAGED FOREST, outside the walls (OWNER 2026-11-06 ~13:40Z: "remove the tree farm from inside city walls, turn
+// that area into something useful or nice to look at. make sure the bots level the land, clean up holes and junk, then when they cut
+// down a tree outside the walls replant in an clean organized way"; design docs/reports/forest-design-2026-11-06.md, Claude + Codex).
+// PURE: the switch, the geometry, the siting, the record, the strip census, the rotation, the harvest plan, the due test, the
+// replant routing for felled outside trees, the old farm's retirement plan. Nothing here touches a bot or a file; the visit is
+// skills.mjs buildForest (worked by the town's groundskeeper: groundskeeper.mjs keeperOrderPure).
+//
+// WHY THE IN-WALL FARM FAILED (measured 11-06, showcase): (1) its harvest never felled one grown tree -- 0 of 245 grown-harvest rows
+// succeeded, 215 `no_safe_target`: the farm's own walk footprint (treefarm.mjs farmFootprint: every plot column + 10) priced 100 in
+// exclusionAreasBreak, so mineflayer-pathfinder's safeToBreak refused every log of its own trees and collectManually threw
+// `unsafe_now`; (2) a complete farm is only upkeep, after every open project and sink -- no visit since 11-02; (3) its record box
+// was a zone from y -64 to 320, so 389 coal runs (of 5,556 coal_site rows since 10-31) were refused 20 blocks under it.
+//
+// THE ANSWERS. (1) every planted cell owns a FELLING STAND fixed in the record: the aisle cell beside it, at the forest's floor. The
+// plot is SUNK one block (the sapling stands IN the floor, its soil one below), so a trunk of up to 8 logs -- every sapling-grown
+// oak (4-6), birch (5-7) and spruce (5-8) -- has its logs at dy -1..+6 from the stand's feet. PAPER (sandbox4, 11-06,
+// sandbox/forest/forest-proof.cjs): from that stand a bot never moving felled every log of every sunk spruce, 8-log trees included;
+// on a FLAT plot the 8th log (dy +7) was refused every time. The harvest digs with the build effects' own dig (e.dig: no pathfinder
+// price), top down, the stump last: an interrupted felling leaves a shorter tree, never a floating log. (2) the forest is the
+// GROUNDSKEEPER's work, ahead of its tidy whenever due (groundskeeper.mjs keeperOrderPure), and it never completes into silence:
+// `due` is read from the world every visit (a ripe strip, an open plot with a sapling to hand, leaves in an aisle, drops to pick up).
+// (3) the record names its own ZONES, a band from the soil - 4 to the canopy + 4: siting keeps off it, a coal run 20 below does not.
+//
+// THE GEOMETRY (local, rows along x): trunks 3 apart along a row; rows 3 apart in z; a STRIP is two rows sharing a 2-wide aisle
+// (row z0, aisle z0+1..z0+2, row z0+3), and strips are 6 apart with a 2-wide walk path between them (z0+4..z0+5). Every trunk is
+// at least 3 from every other (Chebyshev), beyond spruce's growth room (vanilla TwoLayersFeatureSize(2, 0, 2): radius 2 from layer
+// 2) and oak/birch's (radius 1 from layer 1); PAPER: 24 of 24 spruce at spacing 3 grew. A row's even-indexed tree stands on the aisle
+// side +z, the odd row's on -z: each plot's stand is the aisle cell straight beside its trunk. The box keeps a 1-wide margin path.
+// NO 2x2 SPRUCE (the owner's "where possible"): four adjacent spruce saplings grow a MEGA spruce (13-30+ logs, PAPER: see the
+// design) that no stand reaches; spruce is planted single. No fancy oak handling: an oak that grows branches (vanilla: 10%) or any
+// tree taller than the stand reaches is KEPT standing as a feature tree and its plot leaves the rotation (`waived`), never half felled.
+//
+// THE ROTATION: strip states are read from the world (plot census); the record keeps only each strip's `plantedAt` and the last
+// harvest time. A strip is RIPE when FOREST.ripeShare of its live plots hold trees (or every live plot that is not open does); the
+// forest harvests ONE strip at a time -- the one harvesting, else the ripe strip planted longest ago -- and starts a new one only
+// FOREST.rotateMs after the last harvest began, so the strips stagger. A felled plot is replanted at once (runVisit plants every open
+// plot with a sapling to hand). The leaves left decay by themselves (no log within 6); the aisles' feet and head leaves are dug.
+//
+// FOREST=off is the kill switch (never sited, never visited; a sited record stays a reservation). On only in FOREST_POOLS (default
+// 'showcase') until a fleet rollout.
+
+import { pathColumn } from './paths.mjs'
+import { plotState, FARM_SPECIES, PLANTABLE } from './treefarm.mjs'
+
+export const FOREST_PLOT = 'forest'
+export const FOREST_BLUEPRINT = 'forest@1'
+export const FOREST_BUILDERS = 1
+/** THE SWITCH -> bool. FOREST=on|off; unset = on only in the pools FOREST_POOLS names (default 'showcase'). Pure. */
+export function forestOn (env = process.env, pool = '') {
+  const v = String(env?.FOREST ?? '').trim().toLowerCase()
+  if (['on', '1', 'true', 'yes'].includes(v)) return true
+  if (['off', '0', 'false', 'no'].includes(v)) return false
+  const pools = String(env?.FOREST_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
+  return pools.includes(String(pool))
+}
+
+export const FOREST = Object.freeze({
+  spacing: 3,          // trunk to trunk along a row, and row to row
+  perRow: [6, 5, 4],   // trees a row, the biggest that fits first
+  strips: [3, 2],      // strips, the most that fit first
+  minPlots: 12,        // a site needs this many plots (2 strips x 2 rows x 3, or more)
+  wallGap: 4,          // the box's nearest column at least this far outside every wall ring (Codex: 4-block buffer)
+  chunkR: 5,           // every column of the box within this many chunks (Chebyshev) of home's chunk (simulation-distance 6, less 1)
+  scanR: 96,           // the siting scan's half-width round home
+  scanStep: 2,         // the scan's stride (the box is 14-20 wide: a 2-block shift costs nothing)
+  fillMax: 3,          // the floor fills a column at most this many cells
+  cutMax: 3,           // ...and cuts one at most this many (the hills stay: a steeper site is no site)
+  earthMax: 320,       // fills + cuts in all
+  reachUp: 6,          // the highest log a stand reaches, over its feet (PAPER 11-06: +6 always, +7 never, from the side)
+  reachDown: 1,        // ...and the lowest, under its feet (the sunk plot's stump)
+  siteTreesMax: 24,    // trunks felled at siting, at most
+  siteLogsMax: 200,    // logs felled at siting, at most
+  trunkMax: 12,        // logs followed up one trunk
+  bandBelow: 4,        // the zone's floor: the soil - this
+  bandAbove: 14,       // the zone's top: the floor + this (a spruce's 8 logs and its crown)
+  ripeShare: 0.75,     // a strip is ripe when this share of its live plots are trees
+  rotateMs: 2 * 60 * 60_000,   // a new strip's harvest starts at least this long after the last one began
+  harvestMax: 4,       // trees felled a visit
+  leafMax: 24,         // aisle leaves dug a visit
+  sweepMax: 8,         // dropped saplings walked to a visit
+  bmMax: 4,            // bone meal uses a visit (the newest strip's saplings)
+  bmKeep: 8,           // bone meal the town keeps for the decorator's nursery (the forest uses only what is above it)
+  saplingKeep: 4,      // saplings the bag keeps back from other uses while the forest has open plots
+  idleMs: 20 * 60_000, // a forest visit that did nothing: not due for this bot again for this long
+})
+
+const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
+const LOG = /_log$/
+const LEAVES = /_leaves$/
+const SAPLING = /_sapling$/
+const AIRN = n => n === 'air' || n === 'cave_air' || n === 'void_air'
+const k2 = (x, z) => `${x},${z}`
+const k3 = (x, y, z) => `${x},${y},${z}`
+/** Ground a levelling cut may dig (natural ground and the bots' own scaffold): never an ore, a path, farmland, a log. */
+export const FOREST_CUTTABLE = /^(grass_block|dirt|coarse_dirt|podzol|rooted_dirt|mycelium|moss_block|mud|stone|andesite|diorite|granite|tuff|gravel|sand|red_sand|clay|cobblestone|mossy_cobblestone|cobbled_deepslate|snow_block|snow)$/
+/** What a visit may dig out of an OPEN record cell before placing (buildrun.mjs foreign class): ground, plants, a foreign sapling,
+ *  leaves, snow. Never a log (a grown tree is the harvest's). */
+export const FOREST_FOREIGN = /^(cobblestone|mossy_cobblestone|dirt|coarse_dirt|grass_block|podzol|rooted_dirt|mycelium|moss_block|stone|andesite|diorite|granite|tuff|gravel|sand|red_sand|clay|mud|snow_block|snow|powder_snow|dirt_path|farmland|cobbled_deepslate|[a-z_]+_sapling|mangrove_propagule|[a-z_]+_leaves|brown_mushroom|red_mushroom|dandelion|poppy|[a-z_]+_tulip|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|allium|blue_orchid|sweet_berry_bush|bush|firefly_bush|leaf_litter|wildflowers|pink_petals|moss_carpet|short_grass|tall_grass|fern|large_fern|dead_bush|short_dry_grass|tall_dry_grass)$/
+/** The palette (buildrun.mjs cellDone / blockFor): a plot takes any straight-trunk sapling, the forest's own species first; the soil
+ *  is natural ground (placed as dirt); a floor fill any full solid (dirt first). Pure. */
+export function forestPalette (species = 'spruce_sapling') {
+  const sp = FARM_SPECIES.includes(species) ? species : FARM_SPECIES[0]
+  return Object.freeze({
+    soil: Object.freeze(['dirt', 'grass_block', 'coarse_dirt', 'podzol', 'rooted_dirt', 'moss_block', 'mud']),
+    floor: Object.freeze(['dirt', 'cobblestone', '*solid']),
+    plot: Object.freeze([sp, ...FARM_SPECIES.filter(s => s !== sp)]),
+  })
+}
+/** A grown tree in a plot cell is DONE for the build (the harvest fells it; runVisit never takes a forest log). Pure. */
+export const forestAlsoDone = (cell, read) => cell?.role === 'plot' && LOG.test(nm(read?.(...cell.at)))
+
+// ---- the geometry ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * THE LAYOUT from the first trunk (x0, z0) -> { box: [x0, z0, x1, z1], plots: [{ x, z, s, j, i, stand: [x, z] }], aisles: Set,
+ * paths: Set }. Pure. Rows along x (`perRow` trunks 3 apart), `strips` strips of two rows (z0 + 6s, z0 + 6s + 3); the even row's
+ * stand at +1 in z, the odd row's at -1 (the strip's shared 2-wide aisle); a 2-wide path between strips; a 1-wide margin round all.
+ */
+export function forestLayout (x0, z0, { perRow = FOREST.perRow[0], strips = FOREST.strips[0], sp = FOREST.spacing } = {}) {
+  const plots = [], aisles = new Set(), paths = new Set()
+  for (let s = 0; s < strips; s++) {
+    for (let j = 0; j < 2; j++) {
+      const z = z0 + 2 * sp * s + sp * j
+      for (let i = 0; i < perRow; i++) {
+        const x = x0 + sp * i
+        plots.push({ x, z, s, j, i, stand: [x, z + (j === 0 ? 1 : -1)] })
+      }
+    }
+  }
+  const x1 = x0 + sp * (perRow - 1), z1 = z0 + 2 * sp * (strips - 1) + sp
+  const box = [x0 - 1, z0 - 1, x1 + 1, z1 + 1]
+  const trunk = new Set(plots.map(p => k2(p.x, p.z)))
+  for (let s = 0; s < strips; s++) for (let x = box[0]; x <= box[2]; x++) { aisles.add(k2(x, z0 + 2 * sp * s + 1)); aisles.add(k2(x, z0 + 2 * sp * s + 2)) }
+  for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) if (!trunk.has(k2(x, z)) && !aisles.has(k2(x, z))) paths.add(k2(x, z))
+  return { box, plots, aisles, paths }
+}
+/** Every pair of trunks at least `min` apart (Chebyshev)? The growth-room invariant. Pure. */
+export function trunksApart (plots, min = FOREST.spacing) {
+  for (let a = 0; a < plots.length; a++) for (let b = a + 1; b < plots.length; b++) {
+    if (Math.max(Math.abs(plots[a].x - plots[b].x), Math.abs(plots[a].z - plots[b].z)) < min) return false
+  }
+  return true
+}
+/** Can a bot whose feet are at `feet` fell the log at `log` WITHOUT MOVING (the measured rule: the log's column orthogonally beside
+ *  the stand's, dy from -reachDown to +reachUp)? Pure. */
+export function standReaches (feet, log, F = FOREST) {
+  if (!Array.isArray(feet) || !Array.isArray(log)) return false
+  const dx = Math.abs(log[0] - feet[0]), dz = Math.abs(log[2] - feet[2]), dy = log[1] - feet[1]
+  return dx + dz === 1 && dy >= -F.reachDown && dy <= F.reachUp
+}
+/** Chunk of a block coordinate. Pure. */
+export const chunkOf = v => Math.floor(v / 16)
+/** Is every column of the box within `r` chunks (Chebyshev) of home's chunk? The ticking rule: random ticks reach a chunk only
+ *  within the simulation distance of a player, and the town is where the bots stand. Pure. */
+export function boxTicks (box, home, r = FOREST.chunkR) {
+  const hx = chunkOf(Math.floor(home.x)), hz = chunkOf(Math.floor(home.z))
+  return [box[0], box[2]].every(x => Math.abs(chunkOf(x) - hx) <= r) && [box[1], box[3]].every(z => Math.abs(chunkOf(z) - hz) <= r)
+}
+/** THE WALL RINGS a town has -> [[x0, z0, x1, z1]] (the wall and every extension: wall.mjs records' `ring`). Pure. */
+export function wallRings (records = []) {
+  return (records ?? []).filter(r => /^wall(ext)?@1$/.test(String(r?.blueprint ?? '')) && Array.isArray(r.ring) && r.ring.length === 4 && r.ring.every(Number.isFinite)).map(r => r.ring)
+}
+/** Is the box clear of every ring by `gap` columns (the box outside the walls, with a buffer)? Pure. */
+export function outsideRings (box, rings = [], gap = FOREST.wallGap) {
+  return (rings ?? []).every(g => box[2] < g[0] - gap || box[0] > g[2] + gap || box[3] < g[1] - gap || box[1] > g[3] + gap)
+}
+
+// ---- the siting ----------------------------------------------------------------------------------------------------------------
+
+/**
+ * A TREE STANDING ON A COLUMN -> { base, logs: [[x, y, z]] lowest first, straight } | null (unread) | { logs: [] } (no tree). The
+ * logs above `ground` connected to the column's lowest log (26 neighbours), at most `max`. `straight`: every log in the column. Pure.
+ */
+export function standingTree (read, x, z, ground, { max = FOREST.trunkMax * 3, top = ground + 30 } = {}) {
+  let start = null
+  for (let y = ground + 1; y <= top; y++) {
+    const b = read(x, y, z)
+    if (!b) return null
+    if (LOG.test(nm(b))) { start = [x, y, z]; break }
+    if (!AIRN(nm(b)) && !LEAVES.test(nm(b)) && b.boundingBox === 'block') return { logs: [] }
+  }
+  if (!start) return { logs: [] }
+  const got = new Map([[start.join(','), start]]), q = [start]
+  for (let h = 0; h < q.length && got.size <= max; h++) {
+    const [px, py, pz] = q[h]
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      const p = [px + dx, py + dy, pz + dz], key = p.join(',')
+      if (got.has(key) || p[1] <= ground) continue
+      const b = read(...p)
+      if (b && LOG.test(nm(b))) { got.set(key, p); q.push(p) }
+    }
+  }
+  if (got.size > max) return { base: start, logs: [...got.values()], straight: false, big: true }
+  const logs = [...got.values()].sort((a, b) => a[1] - b[1] || a[0] - b[0] || a[2] - b[2])
+  return { base: start, logs, straight: logs.every(p => p[0] === x && p[2] === z) }
+}
+/** A SITE TREE's felling stand -> [x, y, z] feet | null: an orthogonal neighbour column whose ground is within 1 of the trunk's,
+ *  feet and head open (air, a plant, or leaves -- dug first), from which every log is within standReaches. Pure. */
+export function siteTreeStand (read, tree, col) {
+  const [bx, by, bz] = tree.base
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const c = col(bx + dx, bz + dz)
+    if (!c || c.why || c.y == null || Math.abs(c.y + 1 - by) > 1) continue
+    const feet = [bx + dx, c.y + 1, bz + dz]
+    let open = true
+    for (const y of [feet[1], feet[1] + 1]) { const b = read(feet[0], y, feet[2]); if (!b || (!AIRN(nm(b)) && !LEAVES.test(nm(b)) && b.boundingBox === 'block')) { open = false; break } }
+    if (open && tree.logs.every(l => standReaches(feet, l))) return feet
+  }
+  return null
+}
+/**
+ * ONE CANDIDATE: the layout with its first trunk at (x0, z0) -> { ok, why, ...fit }. Pure.
+ *   col(x, z)      pathColumn's answer (cached by the caller); blocked(x, z) -> reason | null (every reservation, zone, corridor)
+ *   rings, home    the walls (the box outside them by wallGap) and the ticking rule (boxTicks)
+ *   zone(x, z)     the land plan's sector kind | null: the box must lie in `treefarm` or `wild`; `treefarm` is preferred
+ * THE FLOOR: one level W for the box, the median ground of its columns; fills (dirt) at most fillMax, cuts at most cutMax. THE PLOT
+ * is sunk: its soil at W - 1, the sapling at W. THE TREES in the box: every one straight and fellable from a stand (siteTreeStand),
+ * else the site is refused (it would leave a floating log or an unfellable trunk in the rows).
+ */
+export function forestFitAt (read, { x0, z0, perRow, strips, home, col, blocked, rings = [], zone = null } = {}) {
+  const L = forestLayout(x0, z0, { perRow, strips })
+  const box = L.box
+  if (!outsideRings(box, rings)) return { ok: false, why: 'walls' }
+  if (!boxTicks(box, home)) return { ok: false, why: 'ticks' }
+  let zoneCost = 0
+  const gs = []
+  for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
+    const r = blocked(x, z)
+    if (r) return { ok: false, why: `box:${r}` }
+    if (zone) { const zk = zone(x, z); if (zk !== 'treefarm' && zk !== 'wild') return { ok: false, why: `zone:${zk}` }; if (zk !== 'treefarm') zoneCost += 0.05 }
+    const c = col(x, z)
+    if (c.why === 'unknown') return { ok: false, why: 'unknown' }
+    if (c.why) return { ok: false, why: `box:${c.why}` }
+    gs.push(c.y)
+  }
+  gs.sort((a, b) => a - b)
+  const W = gs[Math.floor(gs.length / 2)]
+  const floor = [], cuts = []
+  const plotCols = new Set(L.plots.map(p => k2(p.x, p.z)))
+  for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
+    const c = col(x, z)
+    if (W - c.y > FOREST.fillMax || c.y - W > FOREST.cutMax) return { ok: false, why: 'level' }
+    for (let y = c.y + 1; y <= W; y++) if (!(plotCols.has(k2(x, z)) && y === W)) floor.push([x, y, z])
+    for (let y = W + 1; y <= c.y; y++) {
+      const b = read(x, y, z)
+      if (!b) return { ok: false, why: 'unknown' }
+      const n = nm(b)
+      if (AIRN(n) || b.boundingBox === 'empty' || LOG.test(n)) continue
+      if (LEAVES.test(n)) continue
+      if (!FOREST_CUTTABLE.test(n)) return { ok: false, why: 'level' }
+      cuts.push({ at: [x, y, z], kind: 'cut', name: n })
+    }
+  }
+  if (floor.length + cuts.length > FOREST.earthMax) return { ok: false, why: 'earth' }
+  // THE SOIL under every sunk plot (W - 1): natural plantable ground, or a fill's dirt -- never stone under a plot (the soil cell is
+  // buried under the plot cell's ground: a build could not reach it to replace it)
+  for (const p of L.plots) {
+    const c = col(p.x, p.z)
+    if (c.y < W - 1) continue
+    const b = read(p.x, W - 1, p.z)
+    if (!b) return { ok: false, why: 'unknown' }
+    if (!PLANTABLE.test(nm(b))) return { ok: false, why: 'soil' }
+  }
+  // THE TREES standing in the box (felled before the floor under them is worked): straight, fellable from a stand, few enough
+  const trees = [], seen = new Set()
+  let logs = 0
+  for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
+    const c = col(x, z)
+    if (!c.above.some(a => a.kind === 'tree')) continue
+    const t = standingTree(read, x, z, c.y)
+    if (t == null) return { ok: false, why: 'unknown' }
+    if (!t.logs.length || seen.has(t.base.join(','))) continue
+    for (const p of t.logs) seen.add(p.join(','))
+    if (t.big || !t.straight) return { ok: false, why: 'tree_big' }
+    if (t.logs.some(p => p[0] < box[0] || p[0] > box[2] || p[2] < box[1] || p[2] > box[3])) return { ok: false, why: 'tree_edge' }
+    const stand = siteTreeStand(read, t, col)
+    if (!stand) return { ok: false, why: 'tree_tall' }
+    trees.push({ base: t.base, logs: t.logs, stand, name: nm(read(...t.base)) })
+    logs += t.logs.length
+  }
+  if (trees.length > FOREST.siteTreesMax || logs > FOREST.siteLogsMax) return { ok: false, why: 'too_many_trees' }
+  const d = Math.hypot((box[0] + box[2]) / 2 - home.x, (box[1] + box[3]) / 2 - home.z)
+  // THE COST: earthwork, distance, a wild (not treefarm) sector; an existing stand of trees is PREFERRED (owner: "preferring existing
+  // forest" -- the trees are the saplings' supply and the site is already a wood), up to the felling bound
+  const cost = floor.length * 0.3 + cuts.length * 0.25 + d * 0.4 + zoneCost * 20 - Math.min(trees.length, 12) * 3 + logs * 0.05
+  return { ok: true, why: null, box, W, plots: L.plots, aisles: L.aisles, paths: L.paths, floor, cuts, trees, cost, perRow, strips }
+}
+/**
+ * THE SITING -> { ok, why, record, tried }. Pure over `read`. Every size (the most strips, the longest rows first); for each, every
+ * first trunk on the scan grid round home whose box passes forestFitAt; the cheapest fit wins, ties by scan order (deterministic).
+ */
+export function siteForest (read, { home, blocked = () => null, rings = [], zone = null, species = 'spruce_sapling', yHi = null, yLo = null, now = 0 } = {}) {
+  if (!home || typeof read !== 'function') return { ok: false, why: 'no_home', record: null }
+  if (!rings.length) return { ok: false, why: 'no_wall', record: null }
+  const hi = yHi ?? Math.floor(home.y) + 24, lo = yLo ?? Math.floor(home.y) - 20
+  const cache = new Map()
+  const col = (x, z) => { const k = k2(x, z); let c = cache.get(k); if (!c) { c = pathColumn(read, x, z, { yHi: hi, yLo: lo }); cache.set(k, c) } return c }
+  const bcache = new Map()
+  const blk = (x, z) => { const k = k2(x, z); if (!bcache.has(k)) bcache.set(k, blocked(x, z) ?? null); return bcache.get(k) }
+  const why = {}
+  let tried = 0
+  for (const strips of FOREST.strips) for (const perRow of FOREST.perRow) {
+    if (strips * 2 * perRow < FOREST.minPlots) continue
+    let best = null
+    const R = FOREST.scanR, st = FOREST.scanStep
+    for (let x0 = Math.floor(home.x) - R; x0 <= Math.floor(home.x) + R; x0 += st) {
+      for (let z0 = Math.floor(home.z) - R; z0 <= Math.floor(home.z) + R; z0 += st) {
+        const L = forestLayout(x0, z0, { perRow, strips })
+        if (!outsideRings(L.box, rings)) { why.walls = (why.walls ?? 0) + 1; continue }
+        if (!boxTicks(L.box, home)) { why.ticks = (why.ticks ?? 0) + 1; continue }
+        tried++
+        const f = forestFitAt(read, { x0, z0, perRow, strips, home, col, blocked: blk, rings, zone })
+        if (!f.ok) { const w = String(f.why).split(':')[0]; why[w] = (why[w] ?? 0) + 1; continue }
+        if (!best || f.cost < best.cost - 1e-9) best = f
+      }
+    }
+    if (best) return { ok: true, why: null, tried, record: forestRecord(best, { home, species, now }) }
+  }
+  const top = Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}=${v}`).join(' ')
+  return { ok: false, why: `no fit (${tried} tried: ${top || '-'})`, tried, record: null }
+}
+
+/** THE RECORD from a fit. Pure. Segment F (the floor's fills) first; one segment a strip (S1..Sn: its plots' soil then sapling). */
+export function forestRecord (f, { home, species = 'spruce_sapling', now = 0 } = {}) {
+  const cells = [], segments = []
+  const fl = f.floor ?? []
+  if (fl.length) { segments.push({ seg: 'F', deps: [] }); for (const a of fl) cells.push({ at: a, role: 'floor', seg: 'F' }) }
+  const nS = Math.max(...f.plots.map(p => p.s)) + 1
+  const strips = []
+  for (let s = 0; s < nS; s++) {
+    const seg = `S${s + 1}`
+    segments.push({ seg, deps: fl.length ? ['F'] : [] })
+    const mine = f.plots.filter(p => p.s === s)
+    for (const p of mine) {
+      cells.push({ at: [p.x, f.W - 1, p.z], role: 'soil', seg })
+      cells.push({ at: [p.x, f.W, p.z], role: 'plot', seg, stand: [p.stand[0], f.W + 1, p.stand[1]] })
+    }
+    const xs = mine.map(p => p.x), zs = mine.map(p => p.z)
+    strips.push({ s, seg, box: [Math.min(...xs) - 1, Math.min(...zs) - 1, Math.max(...xs) + 1, Math.max(...zs) + 1], plantedAt: now - (nS - s) })
+  }
+  const box = f.box
+  const aisleCells = [...f.aisles].map(k => k.split(',').map(Number))
+  return {
+    v: 1, blueprint: FOREST_BLUEPRINT, plot: FOREST_PLOT, home: { x: home.x, y: home.y, z: home.z }, species,
+    anchor: [f.plots[0].x, f.plots[0].z], perRow: f.perRow, nStrips: nS, box, level: f.W, cells, segments, strips,
+    aisles: aisleCells,
+    clear: f.cuts, trees: f.trees,
+    // the zone: the box + 1, from the soil - bandBelow to the floor + bandAbove (a coal run under it is no business of the forest's)
+    zones: [{ box: [box[0] - 1, f.W - 1 - FOREST.bandBelow, box[1] - 1, box[2] + 1, f.W + FOREST.bandAbove, box[3] + 1], why: `project:${FOREST_PLOT}` }],
+    rotation: { harvesting: null, lastAt: null },
+    waived: {},
+    counts: { plots: f.plots.length, strips: nS, trees: f.trees.length, logs: f.trees.reduce((t, x) => t + x.logs.length, 0), floor: fl.length, cut: f.cuts.length },
+    bom: { [species]: f.plots.length },
+    builders_max: FOREST_BUILDERS,
+    sitedAt: now,
+  }
+}
+
+// ---- the forest, read -----------------------------------------------------------------------------------------------------------
+
+export const forestPlots = rec => (rec?.cells ?? []).filter(c => c.role === 'plot')
+const plotKey = c => `plot:${c.at.join(',')}`
+/** The strip of a plot cell (its segment) -> index | -1. Pure. */
+export const stripOf = (rec, c) => (rec?.strips ?? []).findIndex(s => s.seg === c.seg)
+/** A plot is LIVE unless waived (a kept feature tree). Pure. */
+export const plotLive = (rec, c) => !rec?.waived?.[plotKey(c)]
+/**
+ * THE STRIPS' CENSUS -> [{ s, seg, n, tree, sapling, open, other, unknown, ripe }]. Pure. `ripe`: trees >= ripeShare of the live
+ * plots, or trees > 0 and nothing else is growing (no sapling, no open plot that could take one).
+ */
+export function stripCensus (read, rec, F = FOREST) {
+  const out = (rec?.strips ?? []).map(st => ({ s: st.s, seg: st.seg, n: 0, tree: 0, sapling: 0, open: 0, other: 0, unknown: 0, ripe: false, plantedAt: st.plantedAt ?? 0 }))
+  for (const c of forestPlots(rec)) {
+    const i = stripOf(rec, c)
+    if (i < 0 || !plotLive(rec, c)) continue
+    const o = out[i]
+    o.n++
+    const s = plotState(read, c)
+    if (s === 'tree') o.tree++
+    else if (s === 'sapling') o.sapling++
+    else if (s === 'open' || s === 'soil_lost') o.open++
+    else if (s === 'unknown') o.unknown++
+    else o.other++
+  }
+  for (const o of out) o.ripe = o.unknown === 0 && o.tree > 0 && (o.tree >= Math.ceil(F.ripeShare * o.n) || (o.sapling === 0 && o.open === 0))
+  return out
+}
+/**
+ * THE STRIP TO HARVEST NOW -> index | null. Pure. The one the rotation names `harvesting` while it still has a tree; else, once
+ * rotateMs has passed since the last harvest began, the ripe strip planted longest ago (ties by index).
+ */
+export function harvestStrip (census, rotation = {}, { now = 0, F = FOREST } = {}) {
+  const h = rotation?.harvesting
+  if (Number.isInteger(h) && census[h] && census[h].tree > 0) return h
+  if (Number.isFinite(rotation?.lastAt) && now - rotation.lastAt < F.rotateMs) return null
+  const ripe = census.filter(c => c.ripe).sort((a, b) => (a.plantedAt ?? 0) - (b.plantedAt ?? 0) || a.s - b.s)
+  return ripe.length ? ripe[0].s : null
+}
+/**
+ * ONE PLOT'S FELLING -> { stand, order, big } | null. Pure. The trunk standing in the plot cell, followed up its column (and any
+ * log touching it: a branch); `order` its logs TOP DOWN (the stump last -- an interrupted felling leaves a shorter tree, never a
+ * floating log). `big`: a log off the column, or one the stand does not reach (standReaches) -- such a tree is kept, never felled.
+ */
+export function plotFelling (read, rec, c, F = FOREST) {
+  const [x, y, z] = c.at
+  if (!LOG.test(nm(read(x, y, z)))) return null
+  const stand = c.stand ?? null
+  if (!stand) return { stand: null, order: [], big: true }
+  const col = []
+  for (let k = 0; k <= F.trunkMax; k++) { const b = read(x, y + k, z); if (!b) return null; if (!LOG.test(nm(b))) break; col.push([x, y + k, z]) }
+  // a branch: any log beside the column's logs (fancy oak, a neighbour's limb) makes the tree big
+  for (const p of col) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    for (const dy of [-1, 0, 1]) {
+      if (p[1] + dy < y) continue
+      const b = read(p[0] + dx, p[1] + dy, p[2] + dz)
+      if (b && LOG.test(nm(b))) return { stand, order: [], big: true }
+    }
+  }
+  const top = col.at(-1)
+  const above = read(top[0], top[1] + 1, top[2])
+  if (above && LOG.test(nm(above))) return { stand, order: [], big: true }   // past trunkMax
+  if (!col.every(p => standReaches(stand, p, F))) return { stand, order: [], big: true }
+  return { stand, order: [...col].reverse(), big: false }
+}
+/** The leaves to dig so a stand can be walked to and stood in: the stand's feet and head, then the aisle cells between it and the
+ *  aisle's previous stand along x (feet and head). -> [[x, y, z]] in walking order. Pure. */
+export function standLeaves (read, stand, { from = null } = {}) {
+  const out = []
+  const add = (x, y, z) => { const b = read(x, y, z); if (b && LEAVES.test(nm(b))) out.push([x, y, z]) }
+  if (from && from[2] === stand[2]) {
+    const step = Math.sign(stand[0] - from[0])
+    for (let x = from[0] + step; step && x !== stand[0]; x += step) { add(x, stand[1], stand[2]); add(x, stand[1] + 1, stand[2]) }
+  }
+  add(stand[0], stand[1], stand[2]); add(stand[0], stand[1] + 1, stand[2])
+  return out
+}
+/**
+ * THE VISIT'S HARVEST LIST -> { strip, trees: [{ key, cell, stand, order }], big: [cell] }. Pure. The site trees first (the forest's
+ * rows are not laid until they are down), then the harvest strip's grown plots in walking order (row, then x); `skip(key)` leaves out a
+ * tree this bot failed lately; at most `max` trees. A big tree is returned in `big` (the caller waives its plot: a feature tree).
+ */
+export function forestHarvestList (read, rec, { now = 0, skip = () => false, max = FOREST.harvestMax, F = FOREST } = {}) {
+  const trees = [], big = []
+  for (const t of siteTreesStanding(read, rec)) {
+    const key = `site:${t.base.join(',')}`
+    if (skip(key)) continue
+    trees.push({ key, cell: t.base, stand: t.stand, order: [...t.logs].sort((a, b) => b[1] - a[1]), kind: 'site' })
+  }
+  const census = stripCensus(read, rec, F)
+  const s = siteTreesStanding(read, rec).length ? null : harvestStrip(census, rec?.rotation, { now, F })
+  if (s != null) {
+    const seg = rec.strips[s].seg
+    const mine = forestPlots(rec).filter(c => c.seg === seg && plotLive(rec, c)).sort((a, b) => a.at[2] - b.at[2] || a.at[0] - b.at[0])
+    for (const c of mine) {
+      if (plotState(read, c) !== 'tree') continue
+      const key = plotKey(c)
+      if (skip(key)) continue
+      const f = plotFelling(read, rec, c, F)
+      if (!f) continue
+      if (f.big) { big.push(c); continue }
+      trees.push({ key, cell: c.at, stand: f.stand, order: f.order, kind: 'grown' })
+    }
+  }
+  return { strip: s, trees: trees.slice(0, Math.max(0, max)), big }
+}
+/** The site trees still standing (only logs still there; unread counts as standing). Pure. */
+export function siteTreesStanding (read, rec) {
+  const out = []
+  for (const t of rec?.trees ?? []) {
+    if (rec?.waived?.[`site:${t.base.join(',')}`]) continue
+    const logs = (t.logs ?? []).filter(p => { const b = read(...p); return !b || LOG.test(nm(b)) })
+    if (logs.length) out.push({ ...t, logs })
+  }
+  return out
+}
+/** The columns a standing site tree holds (its logs' columns + 1): the build's cells there wait for its felling. Pure. */
+export const siteHeldCols = standing => new Set((standing ?? []).flatMap(t => t.logs.flatMap(p => [-1, 0, 1].flatMap(dx => [-1, 0, 1].map(dz => `${p[0] + dx},${p[2] + dz}`)))))
+/** The aisle leaves at feet and head height (the walk's way through the rows) -> [[x, y, z]]. Pure. */
+export function aisleLeaves (read, rec) {
+  const out = []
+  const W = rec?.level
+  if (!Number.isFinite(W)) return out
+  for (const [x, z] of rec?.aisles ?? []) for (const y of [W + 1, W + 2]) { const b = read(x, y, z); if (b && LEAVES.test(nm(b))) out.push([x, y, z]) }
+  return out
+}
+/** The floor's cuts still standing (a listed cut whose cell still holds its block; unread is not standing). Pure. */
+export function forestCutsLeft (read, rec) {
+  return (rec?.clear ?? []).filter(c => c.kind === 'cut' && nm(read(...c.at)) === c.name)
+}
+/**
+ * IS THE FOREST DUE A VISIT? -> a reason | null. Pure. In order: a tree to fell (site trees, the harvest strip's), a cut left, an open
+ * plot while a sapling is to hand (`saplings`: the bag's and the town's), leaves in the aisles, a sapling dropped in the box to pick
+ * up (`drops`). An open plot with no sapling anywhere is no visit (the visit could only wait); a big tree is (its plot is waived).
+ */
+export function forestDue (read, rec, { now = 0, saplings = 0, drops = 0, skip = () => false, F = FOREST } = {}) {
+  const h = forestHarvestList(read, rec, { now, skip, max: 1, F })
+  if (h.trees.length) return 'harvest'
+  if (h.big.length) return 'waive'
+  if (forestCutsLeft(read, rec).length) return 'level'
+  for (const c of rec?.cells ?? []) {
+    if (c.role === 'floor') { const b = read(...c.at); if (b && (AIRN(nm(b)) || b.boundingBox !== 'block')) return 'level' }
+  }
+  if (saplings > 0) for (const c of forestPlots(rec)) { if (!plotLive(rec, c)) continue; const s = plotState(read, c); if (s === 'open' || s === 'soil_lost' || (s === 'blocked' && FOREST_FOREIGN.test(nm(read(...c.at))))) return 'replant' }
+  if (aisleLeaves(read, rec).length) return 'leaves'
+  if (drops > 0) return 'sweep'
+  return null
+}
+/** The open plots that want a sapling -> [cell], harvest strip last (replanted after it is felled). Pure. */
+export function openPlots (read, rec) {
+  return forestPlots(rec).filter(c => plotLive(rec, c) && ['open', 'soil_lost'].includes(plotState(read, c)))
+}
+/**
+ * THE RECORD A BUILD WORKS NOW -> the record with only the plots this visit can plant (Pure). runVisit digs an open record cell's
+ * foreign block before it places (a plot's floor grass), whether or not the bag holds what goes in -- so a plot is in the build only
+ * while a sapling is to hand for it: every plot already planted or grown (done), then the first `saplings` others in strip and row
+ * order; the floor's fills always. No sapling: no plot is dug (no hole without its sapling).
+ */
+export function forestBuildRecord (rec, read, { saplings = 0 } = {}) {
+  const want = new Set()
+  let n = Math.max(0, Number(saplings) || 0)
+  for (const c of forestPlots(rec).sort((a, b) => stripOf(rec, a) - stripOf(rec, b) || a.at[2] - b.at[2] || a.at[0] - b.at[0])) {
+    if (!plotLive(rec, c)) continue
+    const s = plotState(read, c)
+    if (s === 'tree' || s === 'sapling') { want.add(k2(c.at[0], c.at[2])); continue }
+    if (n > 0 && s !== 'unknown') { want.add(k2(c.at[0], c.at[2])); n-- }
+  }
+  const cells = (rec?.cells ?? []).filter(c => (c.role !== 'plot' && c.role !== 'soil') || want.has(k2(c.at[0], c.at[2])))
+  return { ...rec, cells }
+}
+/** The newest strip's saplings (bone meal goes there: the strip planted last grows first, the rotation stays staggered) -> [cell]. */
+export function bonemealCells (read, rec, census = stripCensus(read, rec)) {
+  const st = [...census].filter(c => c.sapling > 0).sort((a, b) => (b.plantedAt ?? 0) - (a.plantedAt ?? 0) || b.s - a.s)[0]
+  if (!st) return []
+  return forestPlots(rec).filter(c => c.seg === rec.strips[st.s].seg && plotLive(rec, c) && plotState(read, c) === 'sapling')
+}
+/** Bone meal the forest may use now -> n: the bag's, and the town's above FOREST.bmKeep (the decorator's nursery keeps its share),
+ *  at most bmMax a visit. Pure. */
+export const bonemealBudget = ({ bag = 0, town = 0 } = {}, F = FOREST) => Math.max(0, Math.min(F.bmMax, (Number(bag) || 0) + Math.max(0, (Number(town) || 0) - F.bmKeep)))
+/**
+ * THE ROTATION AFTER A VISIT -> the record's new `rotation` and `strips` | null (unchanged). Pure. A harvest that began on a strip
+ * names it `harvesting` (lastAt: now); a harvesting strip with no tree left is done: `harvesting` null and its `plantedAt` now (its
+ * plots were replanted this visit or are open for the next).
+ */
+export function rotationAfter (rec, census, { began = null, now = 0 } = {}) {
+  const rot = { ...(rec?.rotation ?? { harvesting: null, lastAt: null }) }
+  let strips = rec?.strips ?? []
+  let changed = false
+  if (Number.isInteger(began) && rot.harvesting !== began) { rot.harvesting = began; rot.lastAt = now; changed = true }
+  const h = rot.harvesting
+  if (Number.isInteger(h) && census[h] && census[h].tree === 0 && census[h].unknown === 0) {
+    strips = strips.map((st, i) => (i === h ? { ...st, plantedAt: now } : st))
+    rot.harvesting = null
+    changed = true
+  }
+  return changed ? { rotation: rot, strips } : null
+}
+/** The forest's footprint for the walks' price (shop.mjs footprintCost): every plot's column from its soil to the crown (no walk
+ *  digs a trunk, a sapling or its soil, nor sets a scaffold there). The stands and aisles are NOT in it: a walk may dig an aisle's
+ *  leaves. The harvest digs its logs with the build effects' own dig, which no walk price touches. -> Set "x,y,z". Pure. */
+export function forestFootprint (rec, F = FOREST) {
+  const out = new Set()
+  for (const c of forestPlots(rec)) for (let k = -1; k <= F.bandAbove; k++) out.add(k3(c.at[0], c.at[1] + k, c.at[2]))
+  return out
+}
+
+// ---- the groundskeeper's felled trees: replanted in the forest's rows -------------------------------------------------------------
+
+/**
+ * WHERE A FELLED OUTSIDE TREE'S SAPLING GOES (tidy.mjs replantCells, owner 11-06 "when they cut down a tree outside the walls replant
+ * in an clean organized way") -> [{ cell, species, sapling, state, forest: true }]: the forest's open live plots, row order, none in
+ * the strip being harvested (its own replant is the forest's), none already `claimed` (another debt's, "x,y,z"). Fewer plots than
+ * trees: the rest go where replantCells puts them. Pure.
+ */
+export function forestReplantCells (read, rec, trees = [], { claimed = new Set(), now = 0 } = {}) {
+  if (!rec || !trees.length) return []
+  const h = rec.rotation?.harvesting
+  const hs = Number.isInteger(h) ? rec.strips?.[h]?.seg : null
+  const out = []
+  for (const c of openPlots(read, rec).filter(q => plotState(read, q) === 'open').sort((a, b) => stripOf(rec, a) - stripOf(rec, b) || a.at[2] - b.at[2] || a.at[0] - b.at[0])) {
+    if (out.length >= trees.length) break
+    if (c.seg === hs || claimed.has(c.at.join(','))) continue
+    const t = trees[out.length]
+    const sap = /_log$|_wood$/.test(String(t?.name ?? '')) ? String(t.name).replace(/_(log|wood)$/, '_sapling') : null
+    out.push({ cell: [...c.at], species: (sap && FARM_SPECIES.includes(sap) ? sap : rec.species ?? 'spruce_sapling').replace(/_sapling$/, ''), sapling: sap && FARM_SPECIES.includes(sap) ? sap : (rec.species ?? 'spruce_sapling'), state: 'pending', forest: true })
+  }
+  return out
+}
+
+// ---- the in-wall farm, retired ---------------------------------------------------------------------------------------------------
+
+/**
+ * THE OLD FARM'S RETIREMENT -> { trees: [{ key, cell, stand, order, step }], saplings: [cell], lights: [cell], done }. Pure. The in-wall
+ * farm (treefarm.mjs record) is taken down: every grown plot's trunk felled top down from a stand beside it (a FLAT plot: the 8th log
+ * of an 8-log spruce is out of a side stand's reach, so such a tree is felled from the STUMP STANCE -- its logs dy 1..6 from the side,
+ * then the bot steps onto the stump, fells the rest, and digs the stump under it: `step`), every planted sapling dug (picked up for
+ * the forest), every torch dug. `done`: nothing of it is left in the world (unread is not done).
+ */
+export function farmRetirePlan (read, farm, F = FOREST) {
+  const trees = [], saplings = [], lights = []
+  let unread = 0
+  for (const c of farm?.cells ?? []) {
+    const [x, y, z] = c.at
+    const b = read(x, y, z)
+    if (!b) { unread++; continue }
+    const n = nm(b)
+    if (c.role === 'light' && n === 'torch') lights.push(c.at)
+    if (c.role !== 'plot') continue
+    if (SAPLING.test(n)) { saplings.push(c.at); continue }
+    if (!LOG.test(n)) continue
+    const col = []
+    for (let k = 0; k <= F.trunkMax; k++) { const q = read(x, y + k, z); if (!q) { unread++; break } if (!LOG.test(nm(q))) break; col.push([x, y + k, z]) }
+    // the stand: a plot neighbour whose feet cell (the plot's level) and head are open or leaves, its ground solid
+    let stand = null
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const g = read(x + dx, y - 1, z + dz), f = read(x + dx, y, z + dz), hd = read(x + dx, y + 1, z + dz)
+      if (!g || !f || !hd || g.boundingBox !== 'block' || LOG.test(nm(g))) continue
+      if ([f, hd].every(q => AIRN(nm(q)) || LEAVES.test(nm(q)) || q.boundingBox === 'empty')) { stand = [x + dx, y, z + dz]; break }
+    }
+    if (!stand) { trees.push({ key: `farm:${c.at.join(',')}`, cell: c.at, stand: null, order: [], step: false }); continue }
+    const far = col.filter(p => !standReaches(stand, p, F))
+    // the side stand reaches all: top down, the stump last. Else the stump stance: the reachable logs above the stump from the side
+    // (lowest first, so the bot can step up into the column), then from on the stump the rest top down, then the stump itself
+    const step = far.length > 0
+    const order = step ? [...col.slice(1).filter(p => standReaches(stand, p, F)), ...far.slice().reverse(), col[0]] : [...col].reverse()
+    trees.push({ key: `farm:${c.at.join(',')}`, cell: c.at, stand, order, step })
+  }
+  return { trees, saplings, lights, done: !unread && !trees.length && !saplings.length && !lights.length }
+}
+/** THE RETIRED FARM RECORD (published once its trees, saplings and torches are gone): no cells, no zones, no box reservation, the
+ *  old box kept as `was` (the garden's site), the old cells and clears kept as `retired` / `retiredClear` with `retiredAt` (the
+ *  showcase read judges the farm's earlier rows against them, and releases its cells to the groundskeeper from retiredAt: the wall's
+ *  retirement convention). Pure. */
+export const farmRetired = (farm, now = 0) => ({ ...farm, cells: [], clear: [], trees: [], zones: [], retired: [...(farm?.cells ?? [])], retiredClear: [...(farm?.clear ?? [])], was: farm?.was ?? farm?.box ?? null, box: null, state: 'retired', retiredAt: now, structure_complete: true })
+/** Is a treefarm record retired? Pure. */
+export const farmIsRetired = farm => farm?.state === 'retired'
+/** THE GARDEN on the old farm's ground (the land plan's second park: terrace.mjs parkTopUp lays it, the groundskeeper builds it).
+ *  -> { box, seed, placed, trees, at } | null. The box is the old farm's, less a 1-column margin inside (the hedge has its walk).
+ *  Pure. */
+export function gardenOf (farm, { seed = 0, now = 0 } = {}) {
+  const b = farm?.was ?? farm?.box
+  if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite) || b[2] - b[0] < 6 || b[3] - b[1] < 6) return null
+  return { box: [b[0] + 1, b[1] + 1, b[2] - 1, b[3] - 1], seed: (Number(seed) >>> 0) ^ 0x6a09e667, placed: {}, skipped: {}, kinds: {}, trees: [], at: now }
+}
+/** (The garden's reservation is landplan.mjs gardenZones, beside the park's.) */
+
+/** The `_build` row fields for a forest dig or planting op (shop.mjs buildRowDetail takes them). */
+export const forestRow = ({ op, cell = null, block = null, kind = null, n = null, why = null, seg = null }) => ({ project: FOREST_PLOT, op, ...(seg ? { seg } : {}), ...(cell ? { cell } : {}), ...(block ? { block } : {}), ...(kind ? { kind } : {}), ...(n != null ? { n } : {}), ...(why ? { why } : {}) })
+/** Is a name a sapling the forest plants? Pure. */
+export const isForestSapling = n => FARM_SPECIES.includes(String(n ?? ''))
+export { PLANTABLE }

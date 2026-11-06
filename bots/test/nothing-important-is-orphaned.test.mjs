@@ -68,6 +68,11 @@ const REQUIRED = [
   'bots/src/treefarm.mjs',
   'bots/scripts/treefarm-offline.mjs',
   'bots/test/treefarm.test.mjs',
+  // forest-01 (11-06): the managed forest outside the walls, its tests and its Paper proofs
+  'bots/src/forest.mjs',
+  'bots/test/forest.test.mjs',
+  'sandbox/forest/forest-proof.cjs',
+  'sandbox/forest/forest-proof2.cjs',
   'bots/src/storehouse.mjs',
   'bots/test/storehouse.test.mjs',
   // showchat-01 (11-01): the showcase's templated chat announcements (comms stage 2) + the timelapse captions
