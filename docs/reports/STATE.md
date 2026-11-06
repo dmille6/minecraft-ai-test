@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-06T19:20:02Z._
+_Generated 2026-11-06T20:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-06T19:20:02Z._
 | **Canary in slot** | **idlework-02** deployed 11-06 17:35Z; reads +90 11-06 19:05Z, +180 11-06 20:35Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | gklease-01 -> stations-01 -> buildfix-01 -> stairuse-01 -> pathsfix-01 -> escdead-01 -> forest-01 -> stoneworks-01 -> pause30-01 -> bamboowalk-01 -> +9 more |
 | **Scheduler** | busy S1 canary declared: ed2cc02bdebb5ad12ad7b7832aa592302c73c493 on board-d,hive-b / S6 open loop: canary ed2cc02 is deployed on board-d,hive-b with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 idlework- |
-| **Showcase release** | `3d985d36` (22,449 rows), `b1d5b17e` (3,173 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 3d985d36's protected tree: restack by hand; row 11-06 18:25Z) |
+| **Showcase release** | `3d985d36` (28,109 rows), `2a900125` (2,920 rows); 13 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 3d985d36's protected tree: restack by hand; row 11-06 19:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase? |
 | **Projects (daily audit)** | project audit fleet (11-06T14:02Z, 7 d, 153 projects, 12,956,789 lines / 80 bots): 13 underused, 70 effective, 40 unmeasured, 30 -; showcase: project audit showcase (11-06T14:04Z, 7 d, 32 projects, 1,508,346 lines / 15 bots): 2 broken, 1 dormant, 3 underused, 10 effective, 10 unmeasured, 1 not judged, 5 - -- showcase/cropfarm DORMANT; showcase/dress BROKEN; showcase/treefarm BROKEN |
-| **Open alarms** | STALLCHECK 2026-11-06T18:35:02Z STALLED: 79. OPSAUDIT 2026-11-05 FLAGS: 12 (1 high). 45 active alarm(s): stuck goals 6 (board-a/wall@355_73_147, board-d/tidy@355_73_147, isolated-a/wall@355_73_147, isolated-c/monument@355_73_147, isolated-d/monument@355_73_147, town:board-d); driftwatch drift:deaths_per_bot_h, driftwatch drift:items_per_bot_h, effectwatch effect:dirtrung-01:h24, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72 |
+| **Open alarms** | STALLCHECK 2026-11-06T19:35:01Z STALLED: 80. OPSAUDIT 2026-11-05 FLAGS: 12 (1 high). 46 active alarm(s): stuck goals 7 (board-a/tidy@355_73_147, board-a/wall@355_73_147, board-d/tidy@355_73_147, isolated-a/wall@355_73_147, isolated-c/monument@355_73_147, town:board-a ...); driftwatch drift:deaths_per_bot_h, driftwatch drift:items_per_bot_h, effectwatch effect:dirtrung-01:h24, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72 |
 <!-- GENERATED:END -->
 
 ## Notes
