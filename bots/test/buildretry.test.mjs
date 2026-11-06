@@ -229,6 +229,20 @@ await t('three builders\' failing visits sum: A twice and B once hold the cell f
   await visits(R, pr, srv, 1, { who: 'C', botOpts: { dig: cd.dig } })
   assert.strictEqual(cd.n.digs, before, 'C never dug it')
 })
+await t('r1 (Codex r1 BLOCK): A fails 3, B succeeds, A fails once more -> ONE visit counted, no hold (B\'s reset voids A\'s old failures)', async () => {
+  const { srv, r } = foreignScene(), pr = projectOf(r)
+  const cd = countingDig(srv, C1, 'refused')
+  await visits(R, pr, srv, RT.RETRY_VISITS, { who: 'A', botOpts: { dig: cd.dig } })
+  srv.set(C1, 'cobblestone')                  // B finds it built
+  await visits(R, pr, srv, 1, { who: 'B' })
+  assert.deepStrictEqual(RT.retryRead(pr.dir, pr.key), {})
+  srv.set(C1, 'dirt')                         // dug out again, and A's dig fails again
+  await visits(R, pr, srv, 1, { who: 'A', botOpts: { dig: cd.dig } })
+  assert.strictEqual(RT.retryRead(pr.dir, pr.key)[k(C1)]?.visits, 1, 'one visit, not four')
+  const before = cd.n.digs
+  await visits(R, pr, srv, 1, { who: 'A', botOpts: { dig: cd.dig } })
+  assert.ok(cd.n.digs > before, 'not held: A digs it again')
+})
 await t('a visit that ABORTS after a failure still counts it (the ledger settles on every exit)', async () => {
   const { srv, r } = foreignScene(), pr = projectOf(r)
   let digs = 0
