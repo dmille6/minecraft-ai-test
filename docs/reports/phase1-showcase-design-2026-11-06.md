@@ -286,3 +286,30 @@ start-bots.sh, showcase_ops.py, showcase_trip.py, trip-cron.sh).
 **Rollback (any piece).** Restore the file from the backup directory. `rm /srv/showcase/trip/AUTO_ROLLBACK` stops the
 rollbacks, and `rm /srv/showcase/REPLAY_GATE` turns refusals back into warnings. `crontab ~/pager/backup-*/crontab.before`.
 Gale comes back with the next start-bots.sh, and is quarantined again while it stays trapped.
+
+## r4 (OWNER 11-06): why G5 could never judge, the fix, and g5_unjudged counts-only
+
+- **Diagnosis.** `g5_unjudged (blind)` was on 193 of 253 reads. Live, 52 of 634 fellings since the town epoch were unjudged.
+  - **47 of the 52 were a READ BUG.** The bot logs `saplings=a/b`, where b is the non-skipped replant entries of the record
+    it held when it felled (buildrun.mjs). shopread compared b with the CURRENT record, so a later generation, or a replant
+    skipped since, left a felling unjudgeable. The rows themselves were fine (b = 3, 5, 4, 2, 1 against record = 2, 1, ...).
+  - **5 of the 52 are structural:** leaf clears from 10-28 and 10-30 that predate the `saplings=` field. Since 10-31, 0 of
+    330+ fellings lack the field.
+- **Fix (shopread G5R).** `g5_denominator_ok`: b must be the replant list of a generation in force at the row's time
+  (`sink_in_force`). It is skip-tolerant: a replant only ever becomes skipped, so non-skipped now <= b <= all entries.
+  - Live result: g5_unjudged drops from 52 to 5. G5 now judges 47 more fellings.
+  - **27 of them are H5 felled_unplanted:** stepwell fellings at 2/5, 2/4, 1/3 and 1/2, from 11-05 22:00Z to 11-06 01:xx,
+    before fellfirst-01 (08:39Z). That is the "felling complete, 17 logs left" loop FF1 fixes.
+  - Under item 1 they are a REPORT (paged tier 1), never a stop. They stay until acknowledged in ACK.json (not by this
+    session), or silenced in the pager.
+- **Counts-only.** g5_unjudged over the history goes on the REPORTED line ("G5 unjudged fellings in the history N of M"). A
+  felling of THIS run without the field stays a WATCH, because that would be a bot regression.
+- **Tests.**
+  - shopread selftest: G5R in force or not, before the first generation, skipped later, a non-dict entry. shopread mutants:
+    192 of 192 killed.
+  - Trip selftest and mutants: 35 of 35 killed.
+- **Codex round (1).** 2 blockers: a non-dict replant entry crashed judge, and one mutant had become diagnostic-only. Both
+  fixed.
+- **Replay.** WATCH -> OK is now 57 of 253 reads (was 6). The remaining WATCHes are mostly STALLED, which is kept.
+- **Deployed 13:01Z** (backups `/srv/showcase/backup-phase1-r4-20261106T130128Z`, `shopread.py.bak-20261106T130128Z-g5r`).
+  A smoke read on live data: VERDICT REPORT -- S6 H5 felled_unplanted 27; G5 unjudged 5 of 634.

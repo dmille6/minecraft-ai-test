@@ -4901,7 +4901,7 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "ALL LIVE on .40 11-06 11:44-12:40Z (pager tree + digest, start journal, haltwatch, follower OBSERVE, harm-only tripwire, AUTO_ROLLBACK, REPLAY_GATE); Gale quarantined 12:35Z. Watch: the first REPORT page, the first harm trip-remedy, the release agent's first gated stage. Rollback: /srv/showcase/backup-phase1-20261106T114441Z, ~/pager/backup-20261106T114441Z. OWNER 11-06: quarantine kept; no-survey UNJUDGED counts-only (r3, live). Survey job -> phase 3.",
+   "next_step": "ALL LIVE on .40 11-06 11:44-12:40Z (pager tree + digest, start journal, haltwatch, follower OBSERVE, harm-only tripwire, AUTO_ROLLBACK, REPLAY_GATE); Gale quarantined 12:35Z. Watch: the first REPORT page, the first harm trip-remedy, the release agent's first gated stage. Rollback: /srv/showcase/backup-phase1-20261106T114441Z, ~/pager/backup-20261106T114441Z. OWNER 11-06: quarantine kept; no-survey UNJUDGED counts-only (r3, live). Survey job -> phase 3. r4 13:01Z: shopread G5R (g5_unjudged 52 -> 5, a read bug; 27 pre-FF1 stepwell fellings now H5 = REPORT, paged; ack is the owner's); g5 history counts-only.",
    "max_quiet_hours": 48,
    "evidence": {
     "paths": [
