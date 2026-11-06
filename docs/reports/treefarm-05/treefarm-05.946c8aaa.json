@@ -1,0 +1,54 @@
+{
+ "run_id": "treefarm-05",
+ "sha": "946c8aaa70b3e426057e288ce6423a2a6930029a",
+ "registered_at": "2026-11-06T02:40:00Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] treefarm-05 @ 946c8aaa on fleet 4f3b0f5c (branch treefarm05-on-4f3b0f5; design docs/reports/idletowns-farm-hub-design-2026-11-06.md, ledger idletowns-1106). OWNER 11-06 ~02:30Z: board-b, hive-b, placebo-a have built every project (all 7 records complete, measured on .31) and patrol (explore+goto 362/346/341 of 900 bot-min in 3 h); the owner chose a tree farm (and stoneworks, town gate, storage hub) for them. CHANGE: the showcase tree farm (treefarm-04, already on the fleet, off) runs in IDLE mode in every non-showcase pool: shop.mjs idleOnlyOpen opens it only where every other project (tidy and stair included) has a complete record -- today exactly the three towns; elsewhere nothing changes. Offline on copies of the three towns' worlds, no farm fits inside any wall; the idle farm's tries fall back outside the wall then to 3x2/2x3 (board-b 3x3, placebo-a 3x4, hive-b 3x2, 39-47 from home). The farm's record is guarded always (projectsGuarded). ROLLBACK: TREEFARM_IDLE=off (env) or the base sha; TREEFARM_FALLBACK=off keeps it inside the wall. DRAW: board-b, hive-b, placebo-a ONLY (no other pool can expose it: the gate is closed there). board-b/placebo-a moved to the 7B at 01:33Z, hive-b is on the 4B: rate DiDs (explore, items) are confounded; the primary line (treefarm _build rows) is 0 on control by construction. READ +90/+180 generic (tripper, death gate) plus: _build project=treefarm op=sited (kind .../outside) in each drawn town, then op=place / op=harvest, a structure_complete row within ~24 h; stuck-goal alarm treefarm@<home> named if it fires. Review: Codex blockers-only r1 BLOCKERS none. Tier 2 by protected.py (not protected).",
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:treefarm:place"
+    },
+    "direction": "increase",
+    "minimum": 0.3,
+    "scale": "absolute",
+    "claim": "the idle towns build a tree farm (6-12 plots, 40-60 floor cells, lights): ~100-150 placements over its build, 0 on control",
+    "primary": true
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "explore"
+    },
+    "direction": "decrease",
+    "minimum": 0.1,
+    "scale": "relative",
+    "claim": "the farm's build and upkeep replace some of the patrol (explore 212-263 bot-min per pool in 3 h)"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "busy.share.v1",
+    "params": {
+     "cls": "idle"
+    },
+    "direction": "increase"
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_death"
+    },
+    "direction": "increase"
+   }
+  ],
+  "exposure": "bots of a town whose every other project is complete: 15 bots (board-b, hive-b, placebo-a) on 11-06; 0 elsewhere"
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

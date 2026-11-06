@@ -64,6 +64,10 @@ const REQUIRED = [
   // dropanddig-01 (11-04): the air pocket is dug STANDING over a floor within 2 (the time-budget drownings)
   // idlework-01 (11-06): the design (the code is on branch idlework-01 until it promotes)
   'docs/reports/idlework-design-2026-11-06.md',
+  // treefarm-05 (11-06): the idle towns' farm + hub design and the run's registration (the code is on branch treefarm05-on-4f3b0f5)
+  'docs/reports/idletowns-farm-hub-design-2026-11-06.md',
+  'docs/reports/treefarm-05/treefarm-05.946c8aaa.json',
+  'docs/reports/treefarm-05/treefarm-05.queue-entry.json',
   'bots/src/dropdig.mjs',
   'bots/test/dropdig.test.mjs',
   'bots/test/fixtures/dropdig-cuts.json',

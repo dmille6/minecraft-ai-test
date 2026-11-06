@@ -1,0 +1,22 @@
+{
+ "run": "treefarm-05",
+ "class": "",
+ "after": [
+  "idlework-01"
+ ],
+ "not_before": null,
+ "hold": null,
+ "note": "treefarm agent 11-06 (owner 11-06 tree farm for the idle towns). PROGRESS (P) entry: recommended at the next P turn after idlework-01, ahead of pause30-01/bamboowalk-01 (the only queued change that gives board-b/hive-b/placebo-a work). PIN THE DRAW to board-b, hive-b, placebo-a: the idle gate is closed in every other pool, so any other draw is unexposed (fun-mode registrations do not apply draw_require_pools). hive-b is in stuckproj-01 now; if its exclusion blocks, board-b + placebo-a suffice for a first read. Files: shop.mjs (activeProject/projectsGuarded), treefarm.mjs, skills.mjs (buildTreeFarm siting line + one import), composter.mjs (comment only), treefarm-offline.mjs, tests -- idlework-01 touches other regions of shop.mjs/skills.mjs (rebase check if it promotes first). Tier 2: owner-direct with a 60-min tripwire is also allowed. Variant keyed on fleet 4f3b0f5c; NO patch block (control session sets it). Superseded: treefarm-03 (parked, dead variants) can be cancelled when this is queued.",
+ "variants": {
+  "4f3b0f5cfdbb36a16929be70b960e719e4164d6c": {
+   "registration": "/home/mike/mcai-analysis/treefarm-05.946c8aaa.json",
+   "canary_sha": "946c8aaa70b3e426057e288ce6423a2a6930029a",
+   "approved": "treefarm agent 2026-11-06: Codex independent design reconciled (tidy counts as open, the farm guarded always: adopted); Codex blockers-only r1 BLOCKERS none; tier 2 by protected.py; treefarm-idle.test 8/8 (anchored mutants killed) + treefarm.test 21/21 + touched suites pass; eslint clean; ci2 full suite on 946c8aaa: 394/397 (ceilescape, nothing-important-is-orphaned, protected-paths: the known base set on a copied tree)",
+   "protected": false,
+   "protected_why": "not protected",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "registration_sha256": "c3e66b5100375f8013964755bd58da9be556e46baa9cfd86d99f78f13d6b9019"
+  }
+ }
+}

@@ -4823,6 +4823,39 @@
     ]
    },
    "note": "Codex independent design agreed (batch not target, per-project siting back-off, return before bank); difference: town-demand needs deferred to idlework-02. board-b/hive-b/placebo-a have built every fleet project: need new projects (towngate-01, treefarm on fleet, stoneworks)."
+  },
+  {
+   "id": "idletowns-1106",
+   "title": "Owner 11-06: tree farm + storage hub for the towns that built every project (board-b, hive-b, placebo-a)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "idletowns-1106.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "treefarm-05 (branch treefarm05-on-4f3b0f5 @ 946c8aaa on fleet 4f3b0f5c; tier 2; Codex blockers-only r1 none): control session queues it P after idlework-01 (draft entry docs/reports/treefarm-05/); PIN the draw to board-b, hive-b, placebo-a (no other pool can expose it). Storage hub: H0 (showcase clerk turn) is an owner decision; H1 (fleet hall) after a Paper construction proof.",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "paths": [
+     "docs/reports/idletowns-farm-hub-design-2026-11-06.md",
+     "docs/reports/treefarm-05"
+    ],
+    "runs": [
+     "treefarm-05"
+    ],
+    "branches": [
+     "treefarm05-on-4f3b0f5"
+    ]
+   },
+   "note": "Offline: no farm fits inside any of the 3 walls; outside: board-b 3x3, placebo-a 3x4, hive-b 3x2. Showcase hall complete 11-05 09:05Z but 0 clerk/sign rows ever (upkeep is due after open projects). Hub port needs siting plumbing, chest crafting, panes (0 sand), registry, sortstore helpers: 600-900 lines.",
+   "covers_alarms": [
+    "board-b/treefarm@*",
+    "hive-b/treefarm@*",
+    "placebo-a/treefarm@*"
+   ],
+   "owner_pending": "idletowns-1106 storage hub: the showcase hall's clerk has never run (0 rows; its upkeep waits behind open projects) -- give it a turn on the showcase first (H0), then port the hall to the fleet (H1, ~600-900 lines + Paper proof)?"
   }
  ]
 }
