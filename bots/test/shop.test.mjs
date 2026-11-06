@@ -290,7 +290,8 @@ assert.ok(WALL_FN.test(SK), 'buildWall is found (the cut is not a no-op)')
 const FARM_FN = /\nasync function buildTreeFarm \([\s\S]*?\n\}\n/
 assert.ok(FARM_FN.test(SK), 'buildTreeFarm is found (the cut is not a no-op)')
 // tidy-01: buildTidy (the town-ground tidy's visit) repeats the wall's draw, share and bag lines the same way (its wiring: tidy.test.mjs)
-const TIDY_FN = /\nasync function buildTidy \([\s\S]*?\n\}\n/
+// gksweep-01 (batch-14a fold): buildTidy is the sweep's wrapper; the visit is buildTidyVisit -- the cut takes the visit's body
+const TIDY_FN = /\nasync function buildTidyVisit \([\s\S]*?\n\}\n/
 assert.ok(TIDY_FN.test(SK), 'buildTidy is found (the cut is not a no-op)')
 // stockyard-01: yardVisit (the yard's own visit) releases its slot the same way (its wiring: yard.test.mjs)
 const YARD_FN = /\nasync function yardVisit \([\s\S]*?\n\}\n/

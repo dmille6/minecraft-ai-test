@@ -225,7 +225,8 @@ const WIRES = [
 await t('the well reads the yard\'s reserve where it plans and where it throws; the deferral is stamped; a stock answers it; sinks and the tidy draw from the yard; a blocked bay goes first', () => {
   for (const re of WIRES) { assert.ok(re.test(SK), String(re).slice(0, 70)); assert.strictEqual(SK.split(SK.match(re)[0]).length, 2, `unique: ${String(re).slice(0, 50)}`) }
   // the draw is before the chests' withdraw in each consumer
-  for (const fn of ['async function buildSink (', 'async function buildTidy (']) {
+  // gksweep-01 (batch-14a fold): the tidy's visit body is buildTidyVisit (buildTidy wraps it with the sweep)
+  for (const fn of ['async function buildSink (', 'async function buildTidyVisit (']) {
     const i = SK.indexOf(fn), j = SK.indexOf('async function', i + 10)
     const body = SK.slice(i, j)
     assert.ok(body.indexOf('await yardDrawFor(') > 0 && body.indexOf('await yardDrawFor(') < body.indexOf('await matsWithdraw(ctx, need,'), fn)

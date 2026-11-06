@@ -47,7 +47,7 @@ await t('WIRED: siteStage passes `reserved` to surveyInwall; skills.mjs builds i
   assert.ok(td.includes('const reservedP = (x, z) => pp.cols.has(k2(x, z)) || reserved(x, z)'), 'plotprep-01: the site-prep reservation still reaches every rule')
   assert.ok(td.includes('const noStair = accessNoStair(terrace?.records ?? [], { plan, land })'), 'access-01: the refusals built once')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(sk.includes('const rz = recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept))'))
+  assert.ok(sk.includes('const rz = [...recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept)), ...townMarkerZones()]'))   // gkmarker-01: + the markers
   assert.ok(sk.includes('terrace, reserved: I.reserved })'))
 })
 console.log(`\n${pass} passed, ${fail} failed`)
