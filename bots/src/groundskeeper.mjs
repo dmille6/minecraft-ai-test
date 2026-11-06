@@ -282,3 +282,56 @@ export function releaseConfirmed (state, me, now = Date.now()) {
   if (!state.rec || state.rec.holder !== me) return !!state.rec
   return now >= (state.holdsUntil ?? 0)
 }
+
+// ================================================================================================================================
+// GKLEASE-01: A GROUNDS LEASE IS HELD BY A BOT THAT CAN WORK THE GROUNDS (coordinator 11-06 ~18:30Z; LIVE showcase batch15 17:09Z on:
+// showcase-Kite took the keeper lease 18:14:52Z at y 14-17 mining iron, Alpha held it 17:12-18:14Z (two takes, the second after its
+// own lapse) -- 0 tidy and 0 forest visits from 16:00Z to 18:20Z while forest-01 waited on its keeper). Over 30 h of the showcase
+// (349,376 rows, 15 bots): 38 keeper takes, 11 with no grounds visit before the next take or 30 min, 6 holders below y 55 for most of
+// the term; the fleet (3 h, 274,433 rows, 80 bots): 26 keeper takes, 7 with no grounds visit, 8 holders mostly below y 55. The lease
+// was TAKEN in the order's read anywhere (in a mine, outside town), renewed only by a grounds visit, and -- a repair being first in
+// activeProject -- the keeper's own order sent it to the town's other repairs instead of its grounds.
+// THE RULES (pure; skills.mjs keeperOrder wires them):
+//   1. FIT: a bot is fit to hold a grounds lease only at the town's surface: within GK_FIT.awayR and not deeper than GK_FIT.surfaceDy
+//      under the town's ground. An unknown position is fit (never a release on a missing read).
+//   2. A HOLDER that is unfit, or that has done no grounds work (a grounds visit that placed, cleared or gathered) for GK_FIT.idleMs
+//      since the later of its term's start, its last grounds work and its spawn, RELEASES the lease and rests GK_FIT.restMs; an unfit
+//      bot never TAKES it. A fit bot elsewhere takes it at its next order.
+//   3. THE KEEPER'S GROUNDS FIRST: while the keeper's grounds want work, its own order reads the town's other repairs as upkeep (the
+//      repair tier is every other bot's) -- else the keeper never reaches its tidy or forest.
+// GKLEASE=off is the rollback (as before).
+// ================================================================================================================================
+export const GK_FIT = Object.freeze({ idleMs: 20 * 60_000, restMs: 30 * 60_000, surfaceDy: 8, awayR: 128 })
+/** THE SWITCH -> bool. GKLEASE=on|off; unset = on wherever the groundskeeper is. Pure. */
+export function gkleaseOn (env = process.env) {
+  const v = String(env?.GKLEASE ?? '').trim().toLowerCase()
+  return !['off', '0', 'false', 'no'].includes(v)
+}
+/** Why this bot cannot work the grounds from where it is -> 'underground' | 'away' | null. Pure.
+ *  feet [x, y, z] | null; home { x, y, z } (y: the town's ground); townR the grounds' reach (horizontal; the forest lies outside the walls). */
+export function groundsUnfit ({ feet = null, home = null, G = GK_FIT, townR = G.awayR } = {}) {
+  if (!Array.isArray(feet) || !home || !feet.every(Number.isFinite) || !Number.isFinite(home.y)) return null
+  if (Math.hypot(feet[0] - home.x, feet[2] - home.z) > townR) return 'away'
+  if (feet[1] < home.y - G.surfaceDy) return 'underground'
+  return null
+}
+/** Has the holder done no grounds work for G.idleMs? -> bool. Pure. The clock runs from the latest of the term's start, the last
+ *  grounds work and the spawn (a restart grants a fresh window); an unknown term start is never idle. */
+export function groundsIdle ({ term0 = null, workAt = null, spawnAt = null, now = Date.now(), G = GK_FIT } = {}) {
+  const num = v => (v == null || v === '' ? NaN : Number(v))   // Number(null) is 0: the epoch, never a start
+  if (!Number.isFinite(num(term0))) return false
+  const t0 = Math.max(...[term0, workAt, spawnAt].map(num).filter(Number.isFinite))
+  return now - t0 >= G.idleMs
+}
+/** THE HOLDER'S CHECK -> { release: why | null, take: bool }. Pure. `d` the lease decision (keeperDecision / helperDecision 'mine' |
+ *  'take' | ...). A holder ('mine') unfit or idle releases (why: unfit's reason or 'no_work_visit'); a would-be taker ('take') that is
+ *  unfit does not take. */
+export function groundsLeaseCheck ({ d, unfit = null, idle = false } = {}) {
+  if (d === 'mine') return { release: unfit ?? (idle ? 'no_work_visit' : null), take: false }
+  if (d === 'take') return { release: null, take: !unfit }
+  return { release: null, take: false }
+}
+/** RULE 3: the keeper's states with every OTHER complete project's damage read as upkeep (`due`), while its grounds want work. Pure. */
+export function keeperGroundsFirst (states = [], { grounds = [] } = {}) {
+  return states.map(st => (st && st.complete && st.damaged && !grounds.includes(st.plot) ? { ...st, damaged: false, due: true } : st))
+}

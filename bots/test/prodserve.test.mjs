@@ -93,6 +93,14 @@ await t('MUTANTS: the town gap cut, the fair share cut, the reason filter cut --
   await killedBy(PS_PATH, P, '  return want.includes(r) ? r : null\n', '  return r\n', seed)
 })
 
+await t('gklease-01: a never-served plot prints last_min=never (Number(null) was the epoch: LIVE batch15 printed minutes since 1970)', () => {
+  const p = P.servicePick(live({ storehub: { serve: null } }), { now: NOW, stamps: { canefarm: { at: null, by: null, gen: 1 } } })
+  assert.strictEqual(p.lastAt, null)
+  assert.strictEqual(p.overdueMs, Infinity)
+  assert.ok(P.serviceRowDetail({ ...p, now: NOW }).includes('last_min=never overdue_min=first'), P.serviceRowDetail({ ...p, now: NOW }))
+  assert.strictEqual(P.stampAt({ at: null }, NOW), null)
+  assert.strictEqual(P.stampAt({ at: NOW - MIN }, NOW), NOW - MIN)
+})
 console.log('THE STUCK BACK-OFF AND THE OFFER GATE (Codex r1 BLOCKER 1)')
 await t('a service plot in its stuck back-off is never picked (the order would refuse it for 6 h and hold the bot)', () => {
   assert.strictEqual(P.servicePick(live({ canefarm: { stuck: true } }), { now: NOW }).plot, 'storehub')

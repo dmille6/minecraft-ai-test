@@ -57,7 +57,9 @@ export function serviceReason (plot, due, plots = SERVICE_PLOTS) {
 
 /** A stamp's start -> ms | null (absent, unreadable or in the future past the skew: none). Pure. */
 export function stampAt (stamp, now = Date.now(), skewMs = SERVICE.skewMs) {
-  const at = Number(stamp?.at)
+  // gklease-01 (LIVE batch15: `last_min=29,…` for a never-served plot): Number(null) is 0, the epoch -- a null start is no start
+  if (stamp?.at == null || stamp.at === '') return null
+  const at = Number(stamp.at)
   return Number.isFinite(at) && at <= now + skewMs ? at : null
 }
 
