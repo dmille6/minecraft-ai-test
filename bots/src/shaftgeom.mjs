@@ -740,6 +740,95 @@ export function handoffDetail ({ handler = '-', k = '-', h = '-', r = null, ms =
   return `handler=${handler} k=${k} then=${h} egress=${r?.why ?? '-'} hops=${r?.hops ?? 0} cleared=${r?.cleared ?? 0} ms=${ms}`
 }
 
+// ---- the use made reliable (stairuse-01) ----------------------------------------------------------------------------------
+//
+// WHY. projectaudit 11-06: 13 of 14 finished town stairs UNDERUSED ("most attempts fail"). MEASURED (fleet 7 d, 13,827 `_shaft_use`
+// rows, 80 bots; the start from the row's `from` y and, for a failure that did not move, its bot.pos): 3,702 of the 7,164 descents
+// started in a MINE away from the stair (mine calls stairDescend within 64 blocks of the pillar at any depth; the walk -- no digs --
+// cannot leave a tunnel): 859 `walk` failures in the last 52 h at a median 30 ms, and next to no arrival. From the SURFACE, since
+// shafttrap-02 (11-04 10Z..11-06 14Z): 1,243 descents, 78.0% arrived, `walk` 11.6% (115 of 144 in <100 ms with no movement: one
+// long GoalBlock goto from the surface to a stand up to 55 steps down), `stepN:blocked` 7.9% (landingUsable REFUSED the whole
+// descent for one foreign block in one air cell -- the block a descending bot could dig from the step above), tread 2.6%. The
+// upkeep visit's own long walk to its work fails 1,001 of 2,921 visits (`walk_failed`).
+// THE REMEDY, EXECUTABLE FROM WHERE THE BOT STANDS: a descent is offered only from the surface or from the stair itself (a bot in a
+// mine goes on mining, as before, and no landing is backed off for it); it walks the stair DOWN a few stands at a time, each hop
+// verified from where the bot stands, digging a foreign block out of the stair's own air cells on the way (the stair's record says
+// air: the dig restores it); a missing tread, a liquid or an unread cell next to the bot stops it (the visit's repair).
+
+/** stairuse-01's switch: STAIRUSE=0|off|false|no restores the base (the descent from anywhere near, verified from the top, one walk). */
+export const stairUseOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.STAIRUSE ?? '').trim().toLowerCase())
+/**
+ * WHERE A DESCENT STARTS -> 'stair' (on a step or a landing's stub: stairStepAt) | 'surface' (feet at or above the stair's ground -
+ * SURFACE_SLACK, not on it) | 'away' (below that, off the stair: a mine; no descent) | 'unknown'. Pure.
+ */
+export function stairEntryClass (plan, feet) {
+  if (!plan || !Array.isArray(feet) || feet.length !== 3 || !feet.every(Number.isFinite)) return 'unknown'
+  if (feet[1] < plan.g + 1 && stairStepAt(plan, feet)) return 'stair'
+  return feet[1] >= plan.g - SURFACE_SLACK ? 'surface' : 'away'
+}
+/**
+ * IS THE ROUTE FROM STEP fromK (-1: the collar exit) TO A LANDING USABLE? -> { ok, why, landing, stand, blocked } (landingUsable's
+ * shape). Pure. Like landingUsable but from where the bot stands, and a foreign SOLID in an air cell is no refusal (the descent digs
+ * it: `blocked` counts them); a liquid, an unread cell or a bad tread is.
+ */
+export function landingRoute (read, rec, feet, fromK = -1) {
+  if (!isStairRecord(rec) || !(rec.landings_built ?? []).includes(feet)) return { ok: false, why: 'not_built' }
+  const plan = planOf(rec)
+  const l = plan.landings.find(q => q.feet === feet)
+  if (!l) return { ok: false, why: 'no_landing' }
+  if (fromK > l.k) return { ok: false, why: 'below' }
+  let blocked = 0
+  for (let k = Math.max(0, fromK + 1); k <= l.k; k++) {
+    const s = plan.steps[k]
+    for (const c of s.air) { const st = airState(read, c); if (st === 'blocked') { blocked++; continue } if (st !== 'open') return { ok: false, why: `step${k}:${st}` } }
+    const t = s.tread, b = read(...t)
+    if (!b) return { ok: false, why: `step${k}:unknown` }
+    if (!goodSolid(b, read(t[0], t[1] - 1, t[2]), false)) return { ok: false, why: `step${k}:tread` }
+  }
+  for (const c of l.stub) { const st = airState(read, c); if (st === 'blocked') { blocked++; continue } if (st !== 'open') return { ok: false, why: `stub:${st}` } }
+  return { ok: true, why: null, stand: stubEnd(l), landing: l, blocked }
+}
+/**
+ * THE NEXT MOVE OF A DESCENT FROM STEP i (-1: the collar exit) TO STEP `goal` -> { op: 'done' } | { op: 'hop', to } | { op: 'dig',
+ * at, k } | { op: 'stop', why: 'wet' | 'tread' | 'unknown', at, k }. Pure over read. egressNext's mirror: the steps below, nearest
+ * first, up to EGRESS_HOP -- each one's three air cells and its tread. A foreign solid in an air cell of the next step is dug from
+ * here (never one that holds back a liquid or an unread cell: the egress's barrier rule); farther, the bot first hops down to the
+ * step above it. A liquid, an unread cell or a bad tread in the next step stops the descent (never stepped into). `body` = the bot's
+ * own feet and head cells.
+ */
+export function descentNext (read, plan, i, goal, body = []) {
+  if (!plan || !Number.isInteger(i) || !Number.isInteger(goal) || goal >= plan.steps.length || i < -1) return { op: 'stop', why: 'unknown', at: null, k: i }
+  if (i >= goal) return { op: 'done' }
+  const skip = new Set((body ?? []).filter(Array.isArray).map(c => k3(...c)))
+  const top = Math.min(goal, i + EGRESS_HOP)
+  for (let j = i + 1; j <= top; j++) {
+    const s = plan.steps[j], near = j === i + 1
+    for (const c of s.air) {
+      if (skip.has(k3(...c))) continue
+      const b = read(...c)
+      if (!b) return near ? { op: 'stop', why: 'unknown', at: c, k: j } : { op: 'hop', to: j - 1 }
+      if (isWet(b)) return near ? { op: 'stop', why: 'wet', at: c, k: j } : { op: 'hop', to: j - 1 }
+      if (b.boundingBox === 'empty') continue   // open air: the next cell
+      if (!near) return { op: 'hop', to: j - 1 }
+      for (const [dx, dy, dz] of N6) {
+        const n = [c[0] + dx, c[1] + dy, c[2] + dz]
+        const nb = read(...n)
+        if (!nb) return { op: 'stop', why: 'unknown', at: n, k: j }
+        if (isWet(nb)) return { op: 'stop', why: 'wet', at: n, k: j }
+      }
+      return { op: 'dig', at: c, k: j }
+    }
+    const t = read(...s.tread)
+    const solid = !!t && t.boundingBox === 'block' && !isWet(t)
+    if (!solid) return near ? { op: 'stop', why: t ? 'tread' : 'unknown', at: s.tread, k: j } : { op: 'hop', to: j - 1 }
+  }
+  return { op: 'hop', to: top }
+}
+/** The `_shaft op=descent` row's detail. Pure. */
+export function descentDetail ({ ok = false, why = '-', entry = '-', from = '-', to = '-', hops = 0, cleared = 0, ms = '-' } = {}) {
+  return `ok=${ok ? 1 : 0} why=${why} entry=${entry} from=${from} to=${to} hops=${hops} cleared=${cleared} ms=${ms}`
+}
+
 // ---- protection ---------------------------------------------------------------------------------------------------------
 
 /**
@@ -771,6 +860,8 @@ export function shaftRowDetail ({ op = '-', k = '-', at = null, why = '-', feet 
   return `op=${op} k=${k} at=${Array.isArray(at) ? at.join(',') : '-'} why=${why} feet=${feet} gen=${gen} n=${n} ms=${ms} built=${built}`.slice(0, 300)
 }
 /** The `_shaft_use` row's detail. Pure. */
-export function shaftUseDetail ({ dir = '-', ok = false, why = '-', landing = '-', from = '-', to = '-', ms = '-', goal = '-' } = {}) {
-  return `dir=${dir} ok=${ok ? 1 : 0} why=${why} landing=${landing} from=${from} to=${to} goal=${goal} ms=${ms}`.slice(0, 300)
+export function shaftUseDetail ({ dir = '-', ok = false, why = '-', landing = '-', from = '-', to = '-', ms = '-', goal = '-', entry = null, cleared = null } = {}) {
+  // stairuse-01: `entry` (stair | surface) and `cleared` (foreign blocks dug on the way) when the descent names them
+  const more = `${entry != null ? ` entry=${entry}` : ''}${cleared != null ? ` cleared=${cleared}` : ''}`
+  return `dir=${dir} ok=${ok ? 1 : 0} why=${why} landing=${landing} from=${from} to=${to} goal=${goal} ms=${ms}${more}`.slice(0, 300)
 }

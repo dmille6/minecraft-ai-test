@@ -141,6 +141,8 @@ import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
 import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
 import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's way out
+import { runStairDescent } from './shaftvisit.mjs'   // stairuse-01: the way down
+import { stairUseOn, stairEntryClass, landingRoute, descentDetail, stairStepAt as stairStepOf } from './shaftgeom.mjs'   // stairuse-01
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { tableCandidates, TABLE_TRIES } from './workbench.mjs'   // bagdiet-01: the craft's table candidates
 import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs'   // bagdiet-01: the light projects' hold and bank-back gate
@@ -17873,6 +17875,8 @@ async function buildStair (ctx, args, signal) {
     })
     const fence = () => { try { return projHoldsLease(dir, key, `slot${slot.slot}`, me, slot.gen) } catch { return false } }
     const e = stairBotEffects(bot, effects, { signal, fence, log: (op, d) => stairRow(bot, op, { k: d.k, at: d.at, why: d.why, feet: d.feet ?? '-' }) })
+    // stairuse-01: the visit's walk to a deep stand falls back to the stair's own way down (shaftvisit.mjs runStairVisit `e.descend`)
+    if (stairUseOn()) e.descend = k => visitDescend(bot, rec, signal, t0 + budget - STAIR_VISIT_TAIL_MS, k, e)
     const now = () => Date.now()
     // shaft-03: the whole visit holds the 'stair' body claim (withStairClaim: the entombment reflex stands down inside the stair)
     // shafttrap-01: ...and so does the egress after it (the visit ends at the collar, never deep in the stair)
@@ -17965,6 +17969,27 @@ async function visitEgress (bot, rec, signal, deadline, e0 = null, walk = null) 
     }, { exit: rec.exit, deadline })
     return r
   } finally { try { fx?.close() } catch { /* gone */ } }
+}
+
+/** stairuse-01: THE VISIT'S WAY DOWN TO STEP k (shaftvisit.mjs runStairDescent on the visit's own effects: its server-witnessed dig,
+ *  the town-deposit hop walk) -> its result. One `_shaft op=descent` row, one `op=descent_dig` per block cleared. Throws only an
+ *  abort. */
+async function visitDescend (bot, rec, signal, deadline, k, e) {
+  const plan = stairPlanOf(rec)
+  const t0 = Date.now()
+  return runStairDescent(plan, {
+    get read () { return stairRead(bot) },
+    feet: () => { const q = bot.entity.position; return [Math.floor(q.x), Math.floor(q.y + 1e-6), Math.floor(q.z)] },
+    walkTo: c => stairWalk(bot, c, c === rec.exit ? STAIR_DOWN_MS : EGRESS_HOP_MS, signal),
+    dig: c => e.dig(c),
+    occupied: c => bodyOnCell(bot, c),
+    now: () => Date.now(),
+    aborted: () => !!signal?.aborted,
+    log: (op, d) => {
+      if (op === 'descent_dig') { stairRow(bot, 'descent_dig', { k: d.k, at: d.at, why: 'foreign_in_air' }); return }
+      try { logEvent({ kind: 'shaft', status: d.ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=descent ${descentDetail({ ...d, entry: 'visit', ms: Date.now() - t0 })}` }) } catch { /* telemetry */ }
+    },
+  }, { to: k, exit: rec.exit, deadline })
 }
 
 // shafttrap-02: THE REFLEXES' WAY OUT OF THE STAIR (reflex.mjs marooned/entombed arms; shaftgeom.mjs egressHandoff). LIVE fleet
@@ -18091,6 +18116,10 @@ export async function stairDescend (ctx, goalY, signal) {
     const built = (rec.landings_built ?? []).filter(f => !(Date.now() - (bot.stairFails.get(f) ?? -Infinity) < STAIR_BACKOFF_MS))
     const feet = chooseLanding(built, p.y, goalY)
     if (feet == null) return null
+    // stairuse-01: THE WAY DOWN FROM WHERE THE BOT STANDS -- offered from the surface or the stair only (a bot in a mine goes on
+    // mining: a `_shaft_skip` row, no attempt, no landing backed off), walked down a few stands at a time, a foreign block in the
+    // stair's own air cells dug on the way; STAIRUSE=off: the descent below, as before
+    if (stairUseOn()) return await stairDescendSteps(ctx, rec, feet, goalY, signal)
     const use = landingUsable(stairRead(bot), rec, feet)
     const t0 = Date.now(), fromY = Math.floor(p.y)
     const row = (ok, why, extra = {}) => { try { logEvent({ kind: 'shaft_use', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: shaftUseDetail({ dir: 'down', ok, why, landing: feet, from: fromY, to: Math.floor(bot.entity.position.y), goal: goalY, ms: Date.now() - t0, ...extra }) }) } catch { /* telemetry */ } }
@@ -18100,6 +18129,67 @@ export async function stairDescend (ctx, goalY, signal) {
     row(true, 'arrived')
     return { arrived: true, landing: feet, done: goalY >= feet - 1 }
   } catch (e) { if (e?.aborted || signal?.aborted) throw e; return null }
+}
+/**
+ * STAIRUSE-01: MINE'S DESCENT, STEP BY STEP (stairDescend with STAIRUSE on) -> null (not taken, or failed: mine goes on as today) |
+ * { arrived, landing, done }. The start is classed (shaftgeom.mjs stairEntryClass): `away` (a mine off the stair) is no attempt;
+ * the route from the bot's own step (or the collar) to the landing is checked with a foreign block in an air cell allowed (the walk
+ * digs it: landingRoute), then shaftvisit.mjs runStairDescent walks it on the reflex-safe hop walk (stairWalkOwned: a goal another
+ * owner set is never halted). A failure ON THE STAIR backs that landing off for this bot (10 min, as before); an approach failure
+ * (the walk to the collar) does not. Rows: one `_shaft_use` per attempt (entry=, cleared=), one `_shaft op=descent`, one
+ * `op=descent_dig` per block cleared; `_shaft_skip` for a start that is no attempt.
+ */
+async function stairDescendSteps (ctx, rec, feet, goalY, signal) {
+  const { bot } = ctx
+  const p = bot.entity.position
+  const here = [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]
+  const plan = stairPlanOf(rec)
+  const entry = stairEntryClass(plan, here)
+  if (entry !== 'stair' && entry !== 'surface') {
+    try { logEvent({ kind: 'shaft_skip', status: 'no_effect', snapshot: snapshot(bot), detail: `dir=down why=${entry} landing=${feet} from=${here[1]} goal=${goalY}` }) } catch { /* telemetry */ }
+    return null
+  }
+  const fromK = entry === 'stair' ? (stairStepOf(plan, here)?.k ?? -1) : -1
+  const t0 = Date.now()
+  const row = (ok, why, extra = {}) => { try { logEvent({ kind: 'shaft_use', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: shaftUseDetail({ dir: 'down', ok, why, landing: feet, from: here[1], to: Math.floor(bot.entity.position.y), goal: goalY, ms: Date.now() - t0, entry, ...extra }) }) } catch { /* telemetry */ } }
+  const use = landingRoute(stairRead(bot), rec, feet, fromK)
+  if (!use.ok) { row(false, use.why); return null }
+  // the dig's effects (the server-witnessed dig) only when a block is in the way: most descents dig nothing
+  let fx = null, e0 = null
+  const digOne = async c => {
+    if (!e0) {
+      const acks = (bot.shopAcks ??= shopAckInstall(bot))
+      fx = botBuildEffects(bot, { acks, keep: {}, withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+        aborted: () => !!signal?.aborted, log: () => {}, spawnedAt: () => bot.shopSpawnAt ?? 0 })
+      e0 = stairBotEffects(bot, fx, { signal, log: () => {} })
+    }
+    return e0.dig(c)
+  }
+  let r = null
+  try {
+    r = await withStairClaim(ctx.runner, () => runStairDescent(plan, {
+      get read () { return stairRead(bot) },
+      feet: () => { const q = bot.entity.position; return [Math.floor(q.x), Math.floor(q.y + 1e-6), Math.floor(q.z)] },
+      // the hop: the reflex-safe walk (a goal another owner set is never halted); the collar approach the long surface walk
+      walkTo: c => (typeof bot.withTownDepositWalk === 'function' ? stairWalkOwned(bot, c, c === rec.exit ? STAIR_DOWN_MS : EGRESS_HOP_MS, signal ?? { aborted: false }) : stairWalk(bot, c, EGRESS_HOP_MS, signal)),
+      dig: c => digOne(c),
+      occupied: c => bodyOnCell(bot, c),
+      now: () => Date.now(),
+      aborted: () => !!signal?.aborted,
+      log: (op, d) => {
+        if (op === 'descent_dig') { stairRow(bot, 'descent_dig', { k: d.k, at: d.at, why: 'foreign_in_air' }); return }
+        try { logEvent({ kind: 'shaft', status: d.ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=descent ${descentDetail({ ...d, entry, ms: Date.now() - t0 })}` }) } catch { /* telemetry */ }
+      },
+    }, { to: use.landing.k, landing: use.landing, exit: rec.exit, deadline: t0 + STAIR_DOWN_MS }))
+  } finally { try { fx?.close() } catch { /* gone */ } }
+  if (!r?.ok) {
+    // ON THE STAIR (a hop, a tread, a liquid, a dig refused): this landing waits 10 min for this bot; the collar walk does not
+    if (r?.why !== 'approach') bot.stairFails.set(feet, Date.now())
+    row(false, r?.why ?? 'none', { cleared: r?.cleared ?? 0 })
+    return null
+  }
+  row(true, 'arrived', { cleared: r.cleared })
+  return { arrived: true, landing: feet, done: goalY >= feet - 1 }
 }
 /**
  * SURFACE'S ASCENT THROUGH THE TOWN STAIR -> null (not taken: today's climb) | { ok, detail }. A ROOFED bot (under rock) below the
