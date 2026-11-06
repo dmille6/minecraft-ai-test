@@ -177,6 +177,7 @@ const REQUIRED = [
   'bots/test/sinkfix3.test.mjs',
   // sinkfix-04 (11-04): one town-wide no-site stamp a kind; a quiet grounds order after a no-effect grounds visit
   'bots/test/sinkfix4.test.mjs',
+  'bots/test/sinkwaive.test.mjs',   // sinkwaive-01 (11-06): the stone sinks' stuck-cell waiver (the tower's crown 43,78,-11)
   // yarduse-01 (11-04): the yard before the well, the bays' clutter, the sinks' and the tidy's bills drawn from the yard
   'bots/test/yarduse.test.mjs',
   'docs/reports/yarduse-design-2026-11-04.md',

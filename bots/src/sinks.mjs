@@ -1017,6 +1017,49 @@ export function sinkSaplingCols (rec) {
   }
   return cols.size ? { cols } : null
 }
+/**
+ * SINKWAIVE-01 (LIVE showcase 11-04/06: tower T3 at 684 of 693 from 11-04 11:01Z; crown cell 43,78,-11 `stuck_on_cell` (no stand
+ * reached it, deferred by Iris x2, Alpha, Bravo, Maple: 5 visits over 19 h), the other 8 open cells waiting on its segment, and every
+ * visit after the 3rd ending `stuck_on_cell` + the 6-h back-off -- the tower could never complete). The WALL's waiver (wall.mjs
+ * wallWaiveDue, wallstuck-01), for the STONE sinks (road, tower, shrine; dress and decor keep their own stall rules): a cell the
+ * visit deferred (runVisit `deferred`) that the stuck files have counted SINK_WAIVE.minVisits deferrals over EVERY holder, ever
+ * (buildproj stuckRead with no `since`: a sink is visited a few times a day, so the 24-h forget window never sums 3), whose FIRST
+ * deferral is SINK_WAIVE.afterMs old, is WAIVED: the record names it (`waived`: { 'x,y,z': { why, at, by } }, an `op=waived` row)
+ * and every completeness, damage and stamp test reads it done, so the instance closes. Bounded: SINK_WAIVE.max cells a record.
+ * SINKWAIVE=off is the rollback: no waiver, and a cell already waived reads open again (as before). Pure.
+ */
+export const SINK_WAIVE = Object.freeze({
+  on: !['off', '0', 'false', 'no'].includes(String(process.env.SINKWAIVE ?? '').trim().toLowerCase()),
+  minVisits: 3,               // buildrun STUCK_VISITS: the deferrals that make a cell stuck
+  afterMs: 6 * 60 * 60_000,   // its first deferral at least this old (one F4 back-off: shop.mjs SHOP_STUCK_RETRY_MS)
+  max: 12,                    // per record, ever (wall.mjs WALL_WAIVE_MAX)
+})
+/** Does this kind take the waiver? The stone sinks only. Pure. */
+export const sinkWaiveKind = kind => kind === 'road' || kind === 'tower' || kind === 'shrine'
+/** -> [{ k, why }] the cells to waive now. `deferred` runVisit's [{ k, why, visits }]; `counts` stuckRead's all-time summed map
+ *  { k: { visits, firstAt } }. A cell not in the record, a light/fire cell (sinkOpenRole: walk-through), one already waived, or one
+ *  this visit did not defer is never waived. Pure. */
+export function sinkWaiveDue (rec, deferred = [], counts = {}, now = Date.now(), { minVisits = SINK_WAIVE.minVisits, afterMs = SINK_WAIVE.afterMs, max = SINK_WAIVE.max } = {}) {
+  if (!sinkWaiveKind(sinkKindOf(rec?.blueprint ?? rec?.plot))) return []
+  const cells = new Set((rec?.cells ?? []).filter(c => !sinkOpenRole(c.role)).map(c => c.at.join(',')))
+  const have = rec?.waived ?? {}
+  let room = max - Object.keys(have).length
+  const out = []
+  for (const d of deferred ?? []) {
+    if (room <= 0) break
+    const k = String(d?.k ?? '')
+    if (!cells.has(k) || have[k] || out.some(o => o.k === k)) continue
+    const c = counts?.[k] ?? null
+    const visits = Math.max(Number(c?.visits) || 0, Number(d?.visits) || 0)
+    const first = Number(c?.firstAt)
+    if (visits < minVisits || !Number.isFinite(first) || now - first < afterMs) continue
+    out.push({ k, why: String(d?.why ?? 'no_stand').slice(0, 80) }); room--
+  }
+  return out
+}
+/** Is a record cell waived (a stone sink's own list; SINKWAIVE=off: never)? Pure. */
+export const sinkWaived = (rec, c, on = SINK_WAIVE.on) => on && !!rec?.waived && isSinkBlueprint(rec?.blueprint) && sinkWaiveKind(sinkKindOf(rec.blueprint)) &&
+  Object.prototype.hasOwnProperty.call(rec.waived, c.at.join(','))
 /** The record's progress -> { done, open } over its cells (the caller's `done(cell)`). Pure. */
 export function sinkProgress (rec, done) {
   let d = 0, o = 0

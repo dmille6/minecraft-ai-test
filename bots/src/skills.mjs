@@ -188,6 +188,7 @@ import { runVisit, cellDone as buildCellDone, workableSeg, segComplete as buildS
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
+import { SINK_WAIVE, sinkWaiveDue, sinkWaived } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
@@ -17687,6 +17688,9 @@ function projStuckLive (key, now = Date.now()) {
       if (rec?.blueprint === TREEFARM_BLUEPRINT) return stuckStale(keys, rec, c => farmAlsoDone(c, farmRead(b)) || recordCellDone(b, rec, c)) || farmStampHeld(keys, treeHeldCols(siteTreesLeft(farmRead(b), rec)))
       // tidy-01: an open tidy's stamp holds only its stuck segment too (the wall's rule): the other pits and corridors go on
       if (rec?.blueprint === TIDY_BLUEPRINT) return stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c))
+      // sinkwaive-01: an OPEN stone sink's stamp whose cells all read done (waived since: the visit that waived them stamped the
+      // stall first) holds nothing, as a complete record's
+      if (isSinkBlueprint(rec?.blueprint) && SINK_WAIVE.on && rec?.waived && stuckStale(keys, rec, c => recordCellDone(b, rec, c))) return true
       return (rec?.blueprint === WALL_BLUEPRINT || rec?.blueprint === WALLEXT_BLUEPRINT) && wallStuckOn() && (stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c)))
     } : null
     return projStuckAt(dir, key, { before: now + 60_000, stale })
@@ -17712,7 +17716,7 @@ function zigRepairedWrite (key, at, why, by) {
  *  Never throws. */
 function recordCellOpen (bot, r, c) {
   try {
-    if (wallWaived(r, c) || pathWaived(r, c)) return false
+    if (wallWaived(r, c) || pathWaived(r, c) || sinkWaived(r, c)) return false   // sinkwaive-01: a waived sink cell is no open cell
     if (!bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))) return false
     return !recordCellDone(bot, r, c)
   } catch { return false }
@@ -17728,6 +17732,7 @@ function recordCellDone (bot, r, c) {
     // pathsclose-01: a WAIVED path cell (the record's own list) is done
     if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) return true
     if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) return true   // wallstuck-01: a waived wall cell is done (wallext-01: the extension's too)
+    if (sinkWaived(r, c)) return true   // sinkwaive-01: a waived stone-sink cell is done
     const b = read(...c.at)
     if (!b) return false
     return buildCellDone(b, bp.palette, c.role, c.ws) || (mon && zigHidden(c, read))
@@ -17979,6 +17984,7 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
       if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) continue   // pathsclose-01: a waived path cell is no damage
       if (dressSignRole(c.role)) continue   // towndress-01: a sign is the label writer's upkeep (below), never damage
       if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) continue    // wallstuck-01: nor a waived wall cell (wallext-01: the extension's too)
+      if (sinkWaived(r, c)) continue   // sinkwaive-01: nor a waived stone-sink cell
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
       if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox, props: c.ws ? b.getProperties?.() ?? null : null }, bp.palette, c.role, c.ws) && !(mon && zigHidden(c, read))) return true
     }
@@ -22808,13 +22814,34 @@ async function buildSink (ctx, args, signal, proj) {
     // towndress-01: a dress batch's box spans the town (its fixtures are posts and torches: nothing to stand on), and its sign cells
     // are the label writer's -- runVisit reads them done
     // decorator-01: a decor batch's box spans the town too (flowers and pots: nothing to stand on)
-    const leave = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) } : {}
+    const leave0 = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) } : {}
+    // sinkwaive-01: a waived stone-sink cell is done for the visit (runVisit alsoDone); dress keeps its own alsoDone
+    const leave = rec?.waived && SINK_WAIVE.on && kind !== 'dress' && kind !== 'decor' ? { ...leave0, alsoDone: q => sinkWaived(rec, q) } : leave0
     // the showcase atlas+decorator fold (Codex fold r4 BLOCKER): held decor work stays PENDING -- the batch never completes while any of
     // its cells or clears was left out for a hold
     const vrecD = kind === 'decor' ? decorUnheld(rec) : rec
     const heldOut = kind === 'decor' ? ((rec.cells ?? []).length - (vrecD.cells ?? []).length) + ((rec.clear ?? []).length - (vrecD.clear ?? []).length) : 0
     const r = await runVisit({ dir, key, me, home, stood, record: vrecD, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       ...sinkVisitOpts(rec, home), ...leave }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // sinkwaive-01: THE WAIVER (sinks.mjs sinkWaiveDue) -- a cell this visit deferred that the stuck files have counted minVisits
+    // deferrals over every holder, the first afterMs ago, is named on the record (an op=waived row with its reason); the next visit
+    // reads it done and the instance can close (the wall's waiver, wallstuck-01)
+    let waivedN = 0
+    if (SINK_WAIVE.on && (r.deferred ?? []).length) {
+      try {
+        const due = sinkWaiveDue(rec, r.deferred, vfStuckRead(dir, key), Date.now())
+        if (due.length) {
+          const pub = publishRecord(dir, key, cur => {
+            if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length || instancesOf(cur).length !== instancesOf(rec).length) return null
+            const w = { ...(cur.waived ?? {}) }
+            for (const d of due) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
+            return { ...cur, waived: w }
+          }, { by: me })
+          if (pub.result === 'accepted') { waivedN = due.length; for (const d of due) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } } }
+          bot.shopDamage = null
+        }
+      } catch { /* counted again next visit */ }
+    }
     if (r.stop === 'complete' && !heldOut) {
       const pub = publishRecord(dir, key, cur => (cur && instancesOf(cur).length === instancesOf(rec).length ? completeInstance(cur) : null), { by: me })
       completed = true
@@ -22826,11 +22853,13 @@ async function buildSink (ctx, args, signal, proj) {
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     // sinkfix-02: a FRESH read (planReader memoises: the bill's read was taken before the visit, so a finished road said 17/23)
-    const done = (() => { try { const rd = planReader(bot); const p = sinkProgress(rec, q => buildCellDone(rd(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
+    const done = (() => { try { const rd = planReader(bot); const p = sinkProgress(rec, q => sinkWaived(rec, q) || buildCellDone(rd(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
     // decorator-01 (Codex r1 BLOCKER 2): a decor visit that changed nothing stamps the decor stalled (the decorator lets it go)
     if (kind === 'decor' && decorStalled({ ...f, placed: r.placed, cleared: r.cleared })) decorStall(bot, `visit:${r.stop}`)
-    return out(status, r.stop, `${r.why ?? r.stop}; built ${done} (${ins?.id ?? '-'})`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    // sinkwaive-01: a visit that waived ends cell_waived (tidy.mjs gkStopAfterWaive), never this bot's own 6-h stuck_on_cell back-off
+    const stopW = waivedN > 0 ? gkStopAfterWaive(r.stop, waivedN) : r.stop
+    return out(status, stopW, `${stopW === r.stop ? (r.why ?? r.stop) : `${waivedN} cell(s) waived (${r.stop})`}; built ${done} (${ins?.id ?? '-'})`, { stop: stopW, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
