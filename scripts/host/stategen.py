@@ -249,6 +249,10 @@ def generated_block(f, now):
     else:
         rows.append(('Pending owner decisions', '; '.join(f'**{i}**: {q}' for i, q in P) if P else
                      'none recorded (ledger rows with `owner_pending`); technical holds are under Queue'))
+    PA = f.get('projectaudit')
+    if PA is not None:      # projectaudit.py (daily, OWNER 11-06): is every finished project doing its job?
+        SPA = (f.get('showcase') or {}).get('projectaudit')
+        rows.append(('Projects (daily audit)', '; '.join(x for x in (PA, SPA and f'showcase: {SPA}') if x)))
     A = f.get('alarms')
     al = []
     if f.get('stallcheck'):
@@ -317,6 +321,7 @@ def collect(now, fetch=True):
             f['alarms'] = active_alarms(fh.readlines()[-5000:])
     except OSError:
         f['alarms'] = None
+    f['projectaudit'] = projectaudit_cell(f'{DIGEST}/projectaudit-fleet.json', now)
     for key, name in (('stallcheck', 'stallcheck-latest.md'), ('opsaudit', 'opsaudit-latest.md')):
         try:
             with open(f'{DIGEST}/{name}') as fh:
@@ -329,6 +334,21 @@ def collect(now, fetch=True):
     return f
 
 
+def projectaudit_cell(path, now, stale=dt.timedelta(hours=26)):
+    """The STATE cell for the daily project audit: its summary line, '!! ... STALE' past 26 h, None when it was never
+    installed here (no row, rather than a false alarm on a host that does not run it)."""
+    try:
+        d = json.load(open(path))
+    except OSError:
+        return None
+    except ValueError:
+        return f'!! {path} UNREADABLE'
+    t = ts(d.get('generated_at'))
+    if t is None or now - t > stale:
+        return f'!! project audit STALE (generated {d.get("generated_at")}; daily cron 12:05Z)'
+    return str(d.get('summary') or '')[:400]
+
+
 def showcase_facts(now):
     try:
         from lib.estelemetry import EsEvents
@@ -338,6 +358,13 @@ def showcase_facts(now):
         vers = sk.terms('code.version', allow_zero=True) if n else {}
         vers = {k.split('+')[0]: v for k, v in vers.items() if k != est.MISSING}
         out = {'versions': vers, 'bots': len(sk.bots_present()) if n else 0}
+        try:
+            r = est.http('POST', 'mcai-showcase-ops/_search', {'size': 1, 'sort': [{'@timestamp': {'order': 'desc'}}],
+                                                               'query': {'term': {'kind': 'showcase_projectaudit'}}})
+            hits = r['hits']['hits']
+            out['projectaudit'] = str(hits[0]['_source'].get('why') or '')[:300] if hits else None
+        except Exception:  # noqa: BLE001 -- no row: the cell says nothing about the showcase
+            out['projectaudit'] = None
         try:
             r = est.http('POST', 'mcai-showcase-ops/_search', {'size': 1, 'sort': [{'@timestamp': {'order': 'desc'}}],
                                                                'query': {'term': {'kind': 'showcase_restack'}}})

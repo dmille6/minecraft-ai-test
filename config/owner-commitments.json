@@ -5195,6 +5195,38 @@
     ]
    },
    "note": "Measured 11-06: world read 3,828 tables + 4,577 furnaces within 136 of the 16 homes, 4,435 surface strays, 3,711 deep; 12 h: smelt placed 101 furnaces, took back 0; 167 left (~21 a town-day), 75% underground. Codex independent design reconciled (exact-furnace retake, lease + empty-window proof, designated work-plot cells, busy = wait); deferred: any-elevation sweep, persisted recovery obligations, the smelting row. Supersedes stationkeep-01."
+  },
+  {
+   "id": "projectaudit-1106",
+   "title": "Daily project effectiveness audit (projectaudit): every finished project vs its declared purpose and use metric; BROKEN/DORMANT page, UNDERUSED digest, weekly owner summary",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "projectaudit-1106.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "LIVE 11-06 14:02Z (.31) / 14:04Z (.40); cron 12:05Z daily on both. First run: showcase treefarm BROKEN (positive control), dress BROKEN (upkeep), cropfarm DORMANT, canefarm/storehub/road UNDERUSED; fleet 0 BROKEN/DORMANT, 13 of 14 finished stair shafts UNDERUSED (most trips fail), 13 of 14 fleet paths unsited. First weekly owner summary rides the 11-07 12:30Z digests (then Mondays). NEXT: read the 11-07 run (canefarm/storehub due DORMANT at 2 d), recalibrate the initial expected rates after 1-2 weeks; fixes for the findings are separate items. Rollback: ~/projectaudit/backup-20261106T1401Z (.31), ~/projectaudit/backup-20261106T1404Z (.40), delete the '# projectaudit' cron lines.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "cron": "host/projectaudit.py run --label fleet"
+    }
+   ],
+   "evidence": {
+    "paths": [
+     "docs/reports/projectaudit-design-2026-11-06.md",
+     "config/projectaudit-registry.json",
+     "scripts/host/projectaudit.py",
+     "scripts/host/test_projectaudit.py"
+    ],
+    "grep": [
+     "projectaudit"
+    ],
+    "branches": []
+   },
+   "note": "Claude + independent Codex design, reconciled in the design doc; not protected (tooling outside protected-paths): one Codex review round, 3 blockers fixed (zero-qty use rows, crash path keeps findings, BROKEN-in-grace documented), re-check FIXED x3."
   }
  ]
 }

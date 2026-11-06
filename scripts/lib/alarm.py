@@ -99,6 +99,8 @@ def tier_of(source, key=''):
     s = str(source or '')
     if s.startswith('goalwatch'):     # its own crash key (goalwatch:<label>) pages too: a dead watcher is never digest
         return TIER_PAGE if str(key).startswith(('town:', 'goalwatch:')) else TIER_DIGEST
+    if s.startswith('projectaudit'):  # projectaudit (11-06): a BROKEN or DORMANT finished project pages; UNDERUSED is digest
+        return TIER_PAGE if str(key).startswith(('broken:', 'dormant:', 'projectaudit:')) else TIER_DIGEST
     if s in DIGEST_SOURCES:
         return TIER_DIGEST
     if str(key).startswith('blind:'):  # a check that could not judge (hourwatch): the digest says so daily

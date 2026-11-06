@@ -23,6 +23,7 @@ CLI adds what no watcher owns:
 """
 import argparse
 import datetime as dt
+import glob
 import json
 import os
 import re
@@ -321,7 +322,35 @@ def cmd_digest(a):
             f.write(f'{AL._iso(now)} {subject}\n{body}\n')
         ok, detail = AL.deliver(subject, body, now, a.digest, a.conf, priority='default')
         print(f'digest push: {"DELIVERED" if ok else "NOT delivered (queued)"} ({detail})')
+        for path, subj, text in attachments(a.digest, now):
+            ok, detail = AL.deliver(subj, text, now, a.digest, a.conf, priority='default')
+            print(f'attachment {os.path.basename(path)}: {"DELIVERED" if ok else "NOT delivered (queued)"} ({detail})')
+            try:
+                os.replace(path, f'{path}.sent-{now:%Y%m%dT%H%MZ}')
+            except OSError as e:
+                print(f'!! attachment {path} not moved aside: {e}')
     return 0
+
+
+ATTACH_FRESH = dt.timedelta(hours=26)
+
+
+def attachments(digest, now, fresh=ATTACH_FRESH):
+    """Reports that ride the daily digest as their own push (projectaudit's weekly owner summary, 11-06): every
+    <digest>/digest-attach/*.txt written within `fresh`; its first line is the subject. Older files are left for a human (and
+    named in the digest output), never pushed late. -> [(path, subject, body)]."""
+    out = []
+    for p in sorted(glob.glob(os.path.join(digest, 'digest-attach', '*.txt'))):
+        try:
+            if now - dt.datetime.fromtimestamp(os.path.getmtime(p), UTC) > fresh:
+                print(f'!! attachment {os.path.basename(p)} is older than {fresh} -- not pushed')
+                continue
+            lines = open(p, errors='replace').read().splitlines()
+        except OSError:
+            continue
+        if lines:
+            out.append((p, lines[0][:120], '\n'.join(lines[1:])[:AL.BODY_MAX]))
+    return out
 
 
 def cmd_flush(a):

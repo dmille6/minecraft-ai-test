@@ -32,6 +32,9 @@ FILES = (   # (file, label, stale after)
     # hourwatch.py (hourly :25, phase 1 11-06): value/bot-h vs the previous 24 h, the idle-lap share, towns with no workable
     # project; its alarms PUSH (lib/alarm tier 1)
     ('hourwatch-fleet.json', 'hourly checks', dt.timedelta(minutes=90)),
+    # projectaudit.py (daily 12:05Z, OWNER 11-06): is every FINISHED project doing its job? One line per town; BROKEN /
+    # DORMANT page (tier 1), UNDERUSED is digest
+    ('projectaudit-fleet.json', 'project audit', dt.timedelta(hours=26)),
 )
 # MONITOR LOGS (audit 11-01 flag 9: cron outputs nothing read). Each is wired here, so the fleetstatus header IS its consumer:
 # (log under ~, label, stale after, the line to show: regex on the last matching line, alarm when that line matches `bad`
@@ -51,6 +54,7 @@ MONITOR_LOGS = (
 ES_KINDS = (   # (kind, label, stale after)
     ('showcase_halt', 'showcase halt', dt.timedelta(minutes=20)),
     ('showcase_goal', 'showcase goals', dt.timedelta(minutes=50)),
+    ('showcase_projectaudit', 'showcase project audit', dt.timedelta(hours=26)),
 )
 OPS = 'mcai-showcase-ops'
 SCHED_LOG = '~/digest/sched.log'    # canary-sched.py tick (cron */5): one '<ISO> <DECISION>: <reasons>' line per tick
@@ -88,6 +92,9 @@ def file_lines(now, name, label, stale, state_dir=STATE):
         out.append(f'{label}: {n} in 24 h, {len(d.get("pending") or [])} awaiting their 60-min check'
                    + ('' if out else ' -- all checked PASS or pending'))
         return out
+    if 'town_lines' in d:      # projectaudit: the summary, then one short line per town ('!! ' on a BROKEN / DORMANT town)
+        bad = any(str(k).startswith(('broken:', 'dormant:', 'projectaudit:')) for k in (d.get('alarms') or {}))
+        return [('!! ' if bad or d.get('error') else '') + str(d.get('summary') or f'{label}: no summary')] + list(d['town_lines'])
     al = d.get('alarms') or {}
     if al:
         return [f'!! {x}' for x in al.values()]

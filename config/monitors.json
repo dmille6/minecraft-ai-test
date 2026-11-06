@@ -586,6 +586,37 @@
    "consumer": "the owner (hero stills beside the daily videos, video/stills/chunky/<date>/) and the control session's read of ledger row visuals-1105 (ok/SKIP/FAIL lines in ~/chunky/render.log on ci2)",
    "kind": "monitor",
    "note": "visuals-1105: ci2 (10.0.0.34) mike crontab 08:30Z; flock -n ~/suite.lock (SKIP when a suite holds it), nice 19, 75-min cap per view; pulls the BlueMap mirror world read-only (rrsync -ro key), publishes via an rrsync -wo key. Not on the canary host, so stallcheck's (h) crontab pass does not see it. Rollback: crontab -e on ci2, delete the visuals-1105 line."
+  },
+  {
+   "id": "projectaudit-fleet",
+   "host": "31",
+   "cron": "host/projectaudit.py run --label fleet",
+   "outputs": [
+    "~/digest/projectaudit-fleet.json",
+    "~/digest/projectaudit/fleet-<date>.md",
+    "~/digest/projectaudit-fleet.pushstate.json",
+    "~/digest/digest-attach/projectaudit-weekly-fleet.txt (Mondays)",
+    "~/digest/projectaudit.log"
+   ],
+   "fresh_hours": 26,
+   "consumer": "fleetstatus header (alarmhead FILES 'project audit' summary + one line per town, '!!' on BROKEN/DORMANT or stale > 26 h); STATE row 'Projects (daily audit)'; BROKEN/DORMANT page (tier 1, ack with pager.py ack projectaudit-fleet), UNDERUSED in the daily digest; the weekly owner summary rides Monday's digest (pager.py digest attachments)",
+   "kind": "monitor",
+   "note": "projectaudit-1106 (OWNER 11-06 'check if projects are effective and useful'): daily 12:05Z, nice 19, ~2 min full walk of 7 d of logs. Rollback: delete the '# projectaudit' cron line"
+  },
+  {
+   "id": "projectaudit-showcase",
+   "host": "40",
+   "cron": "host/projectaudit.py run --label showcase",
+   "outputs": [
+    "~/digest/projectaudit-showcase.json",
+    "~/digest/projectaudit/showcase-<date>.md",
+    "kind=showcase_projectaudit rows in /var/log/showcase/heartbeat.jsonl -> mcai-showcase-ops",
+    "~/digest/digest-attach/projectaudit-weekly-showcase.txt (Mondays)"
+   ],
+   "fresh_hours": 26,
+   "consumer": "fleetstatus header on .31 (alarmhead ES_KINDS 'showcase project audit'); STATE row 'Projects (daily audit)' (showcase part); BROKEN/DORMANT page from .40's pager; the weekly owner summary rides Monday's .40 digest",
+   "kind": "monitor",
+   "note": "projectaudit-1106: showcase VM 10.0.0.40 mike crontab 12:05Z; not on the canary host, so stallcheck's (h) crontab pass does not see it. Rollback: delete the '# projectaudit' cron line"
   }
  ]
 }

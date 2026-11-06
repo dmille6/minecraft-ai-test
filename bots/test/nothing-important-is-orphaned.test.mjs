@@ -491,6 +491,11 @@ const REQUIRED = [
   'bots/test/test-result.test.mjs',
   '.gitattributes',
   'scripts/host/autorebase-suite-relay.py',
+  // projectaudit (11-06, OWNER: "check if projects are effective and useful"): the registry, the daily audit, its tests
+  'docs/reports/projectaudit-design-2026-11-06.md',
+  'config/projectaudit-registry.json',
+  'scripts/host/projectaudit.py',
+  'scripts/host/test_projectaudit.py',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

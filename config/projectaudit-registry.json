@@ -1,0 +1,207 @@
+{
+ "_doc": [
+  "projectaudit registry (OWNER 11-06: 'a daily or scheduled check to see if projects are effective and useful ... with all projects').",
+  "ONE entry per project kind: its PURPOSE, the rows that show USE (output after it is built), the rows that show a FAILED attempt,",
+  "the expected use per day, and how many days without use make a finished project DORMANT. Read by scripts/host/projectaudit.py.",
+  "Kinds are matched to a record's plot name by `plots` (fnmatch, first entry in this file wins). A plot no entry matches is UNMEASURED.",
+  "Signal spec: {row: skill.name, where: {detail key: value}, qty: 1 | field | [fields], label}. Values: 'x' equal, ['a','b'] any of,",
+  "'!x' not equal, '~x' contains, '!~x' does not contain, '>0' a number above 0, '*' present. 'status' matches skill.status.",
+  "where.project = '@plot' ties a row to the project; a spec without it is TOWN-scoped (credited to every project of the kind in that pool).",
+  "qty: a field's number, or the sum of the ':N' counts in it (dug=cobblestone:6 -> 6); a list sums its fields; 1 = one per row.",
+  "emitters: strings of which AT LEAST ONE must appear in the DEPLOYED bot source for a zero to be believed (the positive control: a",
+  "build that cannot log the row is UNMEASURED, never DORMANT). measured=false: no row shows use; upkeep and presence are reported.",
+  "Expected rates are INITIAL service targets (11-06), not measured baselines; recalibrate from the first weeks of daily reports.",
+  "Source map: docs/reports/projectaudit-design-2026-11-06.md section 'Registry'."
+ ],
+ "defaults": {"grace_hours": 24, "min_success_ratio": 0.5, "broken_min_fail_visits": 3, "broken_min_span_hours": 6,
+              "visit_gap_minutes": 20, "min_coverage": 0.5, "presence": false, "judge_open": false},
+ "kinds": {
+  "treefarm": {
+   "plots": ["treefarm*"],
+   "purpose": "renewable wood: fell grown trees, replant saplings",
+   "unit": "logs felled",
+   "use": [{"row": "_build", "where": {"project": "@plot", "op": "harvest", "kind": "grown"}, "qty": 1, "label": "logs"}],
+   "fail": [{"row": "_build", "where": {"project": "@plot", "op": "harvest", "kind": "grown_failed"}, "label": "harvest_failed"}],
+   "expect_per_day": 8, "dormant_days": 2, "presence": true,
+   "emitters": ["TREEFARM_PLOT, op: 'harvest'"]
+  },
+  "canefarm": {
+   "plots": ["canefarm*"],
+   "purpose": "renewable sugar cane (paper, books for the enchanting shop)",
+   "unit": "cane cut",
+   "use": [{"row": "_build", "where": {"project": "@plot", "op": "harvest", "kind": "cane"}, "qty": 1, "label": "cane"}],
+   "fail": [],
+   "expect_per_day": 8, "dormant_days": 2, "presence": true,
+   "emitters": ["CANEFARM_PLOT, op: 'harvest'"]
+  },
+  "cropfarm": {
+   "plots": ["cropfarm*"],
+   "purpose": "renewable wheat (bread, the bakery)",
+   "unit": "crops harvested",
+   "use": [{"row": "_build", "where": {"project": "@plot", "op": "harvest", "kind": "crop"}, "qty": 1, "label": "crops"}],
+   "fail": [],
+   "expect_per_day": 8, "dormant_days": 2, "presence": true,
+   "emitters": ["CROPFARM_PLOT, op: 'harvest'"]
+  },
+  "shaft": {
+   "plots": ["shaft*"],
+   "purpose": "the common mineshaft: a safe stair down to the ore levels and back",
+   "unit": "stair trips completed",
+   "use": [{"row": "_shaft_use", "where": {"ok": "1"}, "qty": 1, "label": "trips"}],
+   "fail": [{"row": "_shaft_use", "where": {"ok": "0", "why": "!no_plan"}, "label": "trip_failed"}],
+   "expect_per_day": 4, "dormant_days": 3, "presence": false,
+   "emitters": ["kind: 'shaft_use'"],
+   "note": "ores brought up are not attributed to the shaft by any row; trips are the use signal. ok=0 why=no_plan (no stair plan from where the bot stands) is not counted as an attempt"
+  },
+  "workshop": {
+   "plots": ["shop"],
+   "purpose": "the town workshop: crafting table + furnace where town materials are made and smelted",
+   "unit": "jobs done at the workshop stations",
+   "use": [{"row": "_smelt_town", "where": {"status": "success", "ws": "w"}, "qty": 1, "label": "smelts"},
+           {"row": "_make_material", "where": {"status": "success", "ws": "~w"}, "qty": 1, "label": "crafts"}],
+   "fail": [{"row": "_smelt_town", "where": {"status": "failed", "ws": "w"}, "label": "smelt_failed"}],
+   "elsewhere": [{"row": "_smelt_town", "where": {"status": "success", "ws": "o"}, "label": "smelts_elsewhere"},
+                 {"row": "_make_material", "where": {"status": "success", "ws": "~o"}, "label": "crafts_elsewhere"}],
+   "expect_per_day": 2, "dormant_days": 3, "presence": true,
+   "emitters": ["kind: 'smelt_town'", "kind: 'make_material'"],
+   "note": "ws=w: the job used the workshop's own station; ws=o: another station; elsewhere counts are context (owner: 'crafts and smelts done there vs placed elsewhere')"
+  },
+  "storehouse": {
+   "plots": ["storehouse*"],
+   "purpose": "sorted shared storage: deposits land in the right labelled chest, misplaced items are moved home",
+   "unit": "sorted deposits + items moved home",
+   "use": [{"row": "_sort_deposit", "where": {"status": "success", "put": "~:t0:"}, "qty": 1, "label": "deposit_home"},
+           {"row": "_sort_deposit", "where": {"status": "success", "put": "!~:t0:"}, "qty": 1, "label": "deposit_overflow"},
+           {"row": "_sort_tidy", "where": {"status": "success"}, "qty": "moved", "label": "moved_home"}],
+   "fail": [{"row": "_sort_tidy", "where": {"status": "failed"}, "label": "tidy_failed"}],
+   "expect_per_day": 4, "dormant_days": 2, "presence": true,
+   "emitters": ["kind: 'sort_deposit'"],
+   "note": "sort accuracy = deposit_home / (deposit_home + deposit_overflow): t0 is the item's own labelled chest"
+  },
+  "storehub": {
+   "plots": ["storehub*"],
+   "purpose": "the sorted storage hall: hopper intake + a clerk who sorts it into the hall chests",
+   "unit": "clerk sorting runs",
+   "use": [{"row": "_storehub_clerk", "where": {"status": "success"}, "qty": 1, "label": "clerk_runs"}],
+   "fail": [{"row": "_storehub_clerk", "where": {"status": "failed"}, "label": "clerk_failed"}],
+   "expect_per_day": 2, "dormant_days": 2, "presence": true,
+   "emitters": ["kind: 'storehub_clerk'"]
+  },
+  "enchantshop": {
+   "plots": ["enchantshop*"],
+   "purpose": "enchanting table + anvil: better tools",
+   "unit": "tools enchanted or repaired",
+   "use": [{"row": "_enchant_tool", "where": {"stop": "enchanted"}, "qty": 1, "label": "enchanted"},
+           {"row": "_anvil_apply", "where": {"stop": "applied"}, "qty": 1, "label": "anvil"}],
+   "fail": [{"row": "_enchant_tool", "where": {"status": "failed"}, "label": "enchant_failed"},
+            {"row": "_anvil_apply", "where": {"status": "failed"}, "label": "anvil_failed"}],
+   "expect_per_day": null, "dormant_days": 3, "presence": true,
+   "emitters": ["kind: 'enchant_tool'"]
+  },
+  "yard": {
+   "plots": ["yard*"],
+   "purpose": "the cobble stockpile: surplus cobble stored on the ground, drawn back for building bills",
+   "unit": "cobble stored + drawn",
+   "use": [{"row": "_yard", "where": {"kind": ["stock", "upkeep+stock"]}, "qty": "placed", "label": "stored"},
+           {"row": "_yard", "where": {"kind": "draw"}, "qty": "dug", "label": "drawn"},
+           {"row": "_yard", "where": {"kind": "refill"}, "qty": "dug", "label": "refilled_to_chests"},
+           {"row": "_yard", "where": {"kind": "clerk"}, "qty": ["drew", "placed"], "label": "clerk"}],
+   "fail": [],
+   "expect_per_day": 32, "dormant_days": 3, "presence": true,
+   "emitters": ["kind: 'yard'"]
+  },
+  "tidy": {
+   "plots": ["tidy*"],
+   "purpose": "groundskeeping: clear town clutter, fill holes and dips, grade rough ground",
+   "unit": "tidy clears + items swept",
+   "use": [{"row": "_build", "where": {"project": "@plot", "op": "clear", "kind": "tidy"}, "qty": 1, "label": "clears"},
+           {"row": "_build", "where": {"project": "@plot", "op": "sweep", "status": "success"}, "qty": "n", "label": "swept"},
+           {"row": "_build", "where": {"project": "@plot", "op": "place"}, "qty": 1, "label": "fills"}],
+   "fail": [{"row": "_build", "where": {"project": "@plot", "op": "clear_failed"}, "label": "clear_failed"},
+            {"row": "_build", "where": {"project": "@plot", "op": "clears_given_up"}, "label": "given_up"}],
+   "expect_per_day": 10, "dormant_days": 2, "judge_open": true, "presence": false,
+   "complete_note": "finished: this ring of town ground is done; nothing logs whether it STAYS tidy (no ground census row), so a finished tidy is not judged; the next ring is a new generation",
+   "emitters": ["kind: 'tidy'", "op: 'sweep'"],
+   "note": "the OUTCOME the owner asked for (holes, dips and roughness falling) is not logged: no ground census row exists; this measures work done"
+  },
+  "paths": {
+   "plots": ["paths*", "road*"],
+   "purpose": "paths and roads: walked over between the town's places",
+   "unit": "bot-minutes on the path",
+   "use": [], "use_presence": true, "presence": true,
+   "fail": [],
+   "expect_per_day": 30, "dormant_days": 3,
+   "note": "no row names a path cell; use = distinct (bot, minute) whose logged bot.pos stands on a path column (rows sample positions, so this undercounts)"
+  },
+  "well": {
+   "plots": ["well"], "inventory": "junkwell-site-{home}.g*.json",
+   "purpose": "the disposal well: junk tossed out of bags (and surplus cobble)",
+   "unit": "items disposed",
+   "use": [{"row": "_well_dispose", "where": {"status": "success"}, "qty": "n", "label": "disposed"}],
+   "fail": [{"row": "_well_dispose", "where": {"status": "failed"}, "label": "dispose_failed"},
+            {"row": "_junkout", "where": {"phase": "well", "status": "failed"}, "label": "junkout_failed"}],
+   "expect_per_day": 16, "dormant_days": 3,
+   "emitters": ["kind: 'well_dispose'"]
+  },
+  "chests": {
+   "plots": ["chests"], "inventory": "town-chest-{home}.containers.json",
+   "purpose": "the town chests: bots bank surplus and withdraw what they need",
+   "unit": "deposits + withdrawals",
+   "use": [{"row": "_town_deposit", "where": {"status": "success"}, "qty": 1, "label": "deposits"},
+           {"row": "_withdraw_pick", "where": {"status": "success"}, "qty": 1, "label": "withdrawals"}],
+   "fail": [{"row": "_town_deposit", "where": {"status": "failed"}, "label": "deposit_failed"}],
+   "expect_per_day": 4, "dormant_days": 2,
+   "emitters": ["kind: 'town_deposit'"],
+   "note": "_withdraw_pick failures are mostly outcome=short (the chest had none): demand unmet, not the chests failing, so they are not counted"
+  },
+  "composter": {
+   "plots": ["composter"], "inventory": "composter-site-{home}.g*.json",
+   "purpose": "the composter: leaf litter and seeds into bone meal",
+   "unit": "items composted",
+   "use": [{"row": "_compost", "where": {"status": "success"}, "qty": "n", "label": "composted"}],
+   "fail": [{"row": "_compost", "where": {"status": "failed"}, "label": "compost_failed"}],
+   "expect_per_day": null, "dormant_days": 3,
+   "emitters": ["kind: 'compost'"]
+  },
+  "walldemo": {
+   "plots": ["walldemo*"], "one_off": true,
+   "purpose": "demolish the old wall ring (a one-off: complete IS the purpose)", "use": [], "fail": []
+  },
+  "house": {
+   "plots": ["house*", "cottage*", "hall", "townhall", "tower*", "shrine*", "monument*"],
+   "purpose": "buildings and monuments: shelter, town hall, look-out towers, the ziggurat -- to stand intact and be visited",
+   "measured": false, "presence": true, "use": [], "fail": [],
+   "note": "NO USE SIGNAL: no bot uses a house, hall, tower or monument for anything; 'lit' is not logged by the bots (structcount reads unlit rooms from the world). Reported: upkeep (repairs, failed repairs, last intact check) and presence (bot-minutes inside the footprint, builders included)"
+  },
+  "wall": {
+   "plots": ["wall", "wallext*"],
+   "purpose": "the town wall: a boundary that stays intact",
+   "measured": false, "presence": false, "use": [], "fail": [],
+   "note": "NO USE SIGNAL for 'kept intact' beyond upkeep: repair visits (placed>0) mean it was damaged and fixed; complete/no_effect visits mean it was checked intact"
+  },
+  "decor": {
+   "plots": ["decor*", "dress*"],
+   "purpose": "decoration: flower pots, ferns, hedges, lanterns, signs (towndress lights + signs)",
+   "measured": false, "presence": false, "use": [], "fail": [],
+   "note": "NO USE SIGNAL: decoration is looked at, not used; upkeep rows (_decor op=pots/ferns, _dress op=signs) are reported as upkeep"
+  },
+  "stepwell": {
+   "plots": ["stepwell*"],
+   "purpose": "the stepwell: a tank of water (or lava) to draw from",
+   "measured": false, "presence": true, "use": [], "fail": [],
+   "note": "NO USE SIGNAL: no bot code draws water or lava from the stepwell yet (_stepwell rows are building rows)"
+  },
+  "shopchest": {
+   "plots": ["shopchest*"],
+   "purpose": "the workshop's material chests",
+   "measured": false, "use": [], "fail": [],
+   "note": "NO USE SIGNAL: withdraw/bank rows do not name these chests"
+  },
+  "siteprep": {
+   "plots": ["siteprep*", "land*"],
+   "purpose": "town planning: land plan and prepared building plots (on demand)",
+   "measured": false, "judge_open": true, "use": [], "fail": [],
+   "note": "a plan and an on-demand service: _siteprep op=handed (a prepared plot used) and _land_plan rows are reported, not judged"
+  }
+ }
+}
