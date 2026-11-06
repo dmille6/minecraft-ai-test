@@ -701,7 +701,9 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     s.pits.push({ id, cols: [...mine].map(q => q.split(',').map(Number)), road: true, n: fs.length })
     for (const f of fs) s.fill.push({ ...f, pit: id })
   }
-  const lightAt = roadLights(read, rcols, { home, avoid: (x, z) => avoid(x, z) ?? (rk.has(k2(x, z)) ? 'road' : null), n: lights, cells })
+  const lightAt0 = roadLights(read, rcols, { home, avoid: (x, z) => avoid(x, z) ?? (rk.has(k2(x, z)) ? 'road' : null), n: lights, cells })
+  // gkforever-01 DEAD (Codex r1 BLOCKER 2): a road light given up on is never listed again either
+  const lightAt = dead ? lightAt0.filter(l => !Object.prototype.hasOwnProperty.call(dead, l.at.join(','))) : lightAt0
   let record = tidyRecord(s, { home, plan, now, r: Math.max(st.rMax, st.upto ?? -1, TIDY.r) })
   if (!record && !road.clear.length && !lightAt.length) return { ok: true, why: 'nothing', record: null, survey, road }
   record ??= { v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r: Math.max(st.upto ?? -1, TIDY.r), cells: [], clear: [], cut: [], replant: [], segments: [], zones: [], pillars: 0, pits: 0, skipped: {}, bom: { earth: 0 }, builders_max: TIDY_BUILDERS, structure_complete: false, plan: plan?.gen != null ? { gen: plan.gen } : null, sitedAt: now }

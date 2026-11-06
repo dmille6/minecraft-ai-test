@@ -19392,6 +19392,8 @@ export function groundsMeansFor (bot, now = Date.now()) {
   return v
 }
 setGroundsMeans(b => groundsMeansFor(b))
+/** gkforever-01: are two tidy records the SAME generation (one siting: its `sitedAt` and stage, and its cell and cut counts)? Pure. */
+export const tidySameGen = (a, b) => !!a && !!b && a.sitedAt === b.sitedAt && (Number(a.stage) || 0) === (Number(b.stage) || 0) && (a.cells?.length ?? 0) === (b.cells?.length ?? 0) && (a.cut?.length ?? 0) === (b.cut?.length ?? 0)
 async function buildTidy (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -19552,7 +19554,7 @@ async function buildTidy (ctx, args, signal) {
       const waive = wallWaiveDue(rec, r.deferred ?? [], GROUNDS.on ? gkWaiveOpts(rec, WALL_WAIVE_MAX) : {})
       if (waive.length) {
         const pub = publishRecord(dir, key, cur => {
-          if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length) return null
+          if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length || !tidySameGen(cur, rec)) return null
           const w = { ...(cur.waived ?? {}) }
           for (const d of waive) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
           return { ...cur, waived: w }
@@ -19584,8 +19586,10 @@ async function buildTidy (ctx, args, signal) {
     }
     if (!prog.cutLeft && !prog.fillLeft && !unread && clearsOk) {
       const now = Date.now()
-      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length } : null), { by: me })
-      completed = true
+      // gkforever-01 (Codex r1 BLOCKER 1): with a crew, another builder may have finished this stage and sited the next while this
+      // visit ran: only THIS generation is completed (tidySameGen), and the visit is complete only when it is
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete && tidySameGen(cur, rec) ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length } : null), { by: me })
+      completed = pub.result === 'accepted' || (() => { try { const h3 = recordHead(dir, key); return !!(h3.ok && h3.head?.rec?.structure_complete && tidySameGen(h3.head.rec, rec)) } catch { return false } })()
       if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
       if (pub.result === 'accepted') {
         try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'complete', kind: TIDY_BLUEPRINT, gen: pub.gen ?? '-', n: prog.cutDone + prog.fillDone }) }) } catch { /* telemetry */ }

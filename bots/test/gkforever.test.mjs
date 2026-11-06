@@ -104,6 +104,48 @@ await t('a re-survey never lists a dead cell again (siteTidy `dead`), and counts
   assert.strictEqual(c.record.cells.length, keys.length, 'control: without `dead` the cell is listed')
 })
 
+await t('Codex r1 BLOCKER 2: a road LIGHT given up on is not listed again (siteStage `dead`)', async () => {
+  const LP = await import('../src/landplan.mjs')
+  const SMALL = Object.freeze({ ...LP.LAND, workR: 44, rimR: 20, rimStep: 12 })
+  const cols = []
+  for (let x = 22; x <= 40; x++) cols.push([x, 0, G])
+  const land = { home: HOME, roads: [{ id: 'ring', kind: 'ring', cols }], corridors: [], zones: {}, ringR: 20, workR: 44, inner: 6 }
+  const srv = server()
+  const a = T.siteStage(srv.read, { home: HOME, land, stage: LP.stageOf(1, SMALL), lights: 2, L: SMALL })
+  const lights = (a.record?.cells ?? []).filter(c => c.role === 'light')
+  assert.ok(lights.length >= 1, `control: lights listed (${lights.length})`)
+  const dead = Object.fromEntries(lights.map(l => [l.at.join(','), { why: 'no_stand', at: NOW }]))
+  const b = T.siteStage(srv.read, { home: HOME, land, stage: LP.stageOf(1, SMALL), lights: 2, L: SMALL, dead })
+  assert.strictEqual((b.record?.cells ?? []).filter(c => c.role === 'light').length, 0, 'the dead lights are gone')
+  assert.strictEqual(b.why, 'nothing', 'and with nothing else the stage has no work')
+})
+await t('MUTANT KILLED: the lights without the dead filter re-list a given-up light', async () => {
+  const LP = await import('../src/landplan.mjs')
+  const SMALL = Object.freeze({ ...LP.LAND, workR: 44, rimR: 20, rimStep: 12 })
+  const cols = []
+  for (let x = 22; x <= 40; x++) cols.push([x, 0, G])
+  const land = { home: HOME, roads: [{ id: 'ring', kind: 'ring', cols }], corridors: [], zones: {}, ringR: 20, workR: 44, inner: 6 }
+  const srv = server()
+  const lights = (T.siteStage(srv.read, { home: HOME, land, stage: LP.stageOf(1, SMALL), lights: 2, L: SMALL }).record?.cells ?? []).filter(c => c.role === 'light')
+  const dead = Object.fromEntries(lights.map(l => [l.at.join(','), { why: 'no_stand', at: NOW }]))
+  await withMutant(TIDY_PATH, "  const lightAt = dead ? lightAt0.filter(l => !Object.prototype.hasOwnProperty.call(dead, l.at.join(','))) : lightAt0\n", '  const lightAt = lightAt0\n', async m => {
+    const b = m.siteStage(srv.read, { home: HOME, land, stage: LP.stageOf(1, SMALL), lights: 2, L: SMALL, dead })
+    assert.ok((b.record?.cells ?? []).some(c => c.role === 'light'), 'the mutant re-lists it')
+  })
+})
+await t('Codex r1 BLOCKER 1: tidySameGen tells one siting from the next (an old crew visit never completes a newer stage)', async () => {
+  const SK = await import('../src/skills.mjs')
+  const a = { sitedAt: NOW, stage: 2, cells: [1, 2], cut: [1] }
+  assert.strictEqual(SK.tidySameGen(a, { ...a, waived: { x: 1 } }), true, 'a waiver is the same generation')
+  assert.strictEqual(SK.tidySameGen(a, { ...a, sitedAt: NOW + 1 }), false)
+  assert.strictEqual(SK.tidySameGen(a, { ...a, stage: 3 }), false)
+  assert.strictEqual(SK.tidySameGen(a, { ...a, cells: [1] }), false)
+  assert.strictEqual(SK.tidySameGen(a, null), false)
+  const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.ok(/cur && !cur\.structure_complete && tidySameGen\(cur, rec\) \? \{ \.\.\.cur, structure_complete: true/.test(src), 'the completion is fenced')
+  assert.ok(/cur\.cells\.length !== rec\.cells\.length \|\| !tidySameGen\(cur, rec\)\) return null/.test(src), 'the waiver is fenced')
+  assert.ok(/completed = pub\.result === 'accepted' \|\|/.test(src), 'complete only when it is')
+})
 console.log('LEVEL INSIDE THE WALLS (tidy.mjs surveyTidy `level`)')
 await t('a lone dirt STEP one block over its neighbours is cut with `level`, left without (pillarMin 2)', async () => {
   const srv = server(); col(srv, 8, 8, G + 1, G + 1, 'dirt')
