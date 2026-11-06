@@ -15,7 +15,7 @@
 import assert from 'node:assert'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
-const { R, PJ, G, HOME, server, bot, withMutant } = await import('./helpers/buildfake.mjs')
+const { R, PJ, G, HOME, server, bot, withMutant, noRetry } = await import('./helpers/buildfake.mjs')
 const B = await import('../src/buildsite.mjs')
 const Z = await import('../src/ziggurat.mjs')
 const mc = createRequire(import.meta.url)('minecraft-data')('1.21.8')
@@ -136,12 +136,12 @@ const chain = async (M, extra) => {
 }
 const SEALED = { sealed: { mayDig: () => true } }
 console.log('THE CHAIN (runVisit on the fake server)')
-await t('CONTROL (no p.sealed: the live monument visit): `clear_failed no_stand`, the visit stops `blocked`, every visit', async () => {
+await t('CONTROL (no p.sealed: the live monument visit): `clear_failed no_stand`, the visit stops `blocked`, every visit', () => noRetry(async () => {
   const { srv, rec, e, stops } = await chain(R, {})
   assert.ok(!done(srv, rec))
   assert.deepStrictEqual(stops, ['blocked', 'blocked', 'blocked'])
   assert.ok(e.logs.some(([kk, d]) => kk === '_build' && d.op === 'clear_failed' && d.result === 'no_stand' && k(d.cell) === k([11, G + 1, 10])))
-})
+}))
 await t('with p.sealed the dependent segment\'s dirt, then the grass are dug and EVERY cell is built -- killed with isOpenAbove cut', async () => {
   const scenario = async M => {
     const { srv, rec, e, stops } = await chain(M, SEALED)

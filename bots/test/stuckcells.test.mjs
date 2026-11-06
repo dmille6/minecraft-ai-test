@@ -4,7 +4,7 @@
 import assert from 'node:assert'
 import fs from 'node:fs'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
-const { R, PJ, G, HOME, server, bot, withMutant } = await import('./helpers/buildfake.mjs')
+const { R, PJ, G, HOME, server, bot, withMutant, noRetry } = await import('./helpers/buildfake.mjs')
 const SC = await import('../src/stuckcells.mjs')
 const GEO = await import('../src/shaftgeom.mjs')
 const { runStairVisit } = await import('../src/shaftvisit.mjs')
@@ -54,7 +54,9 @@ await t('an earth cell under ONE snow layer is placed (with the layer\'s propert
     return (await R.runVisit(pr.p('A', { domain: () => true, walkR: 40 }), e, { maxSteps: 200 })).stop
   }
   assert.strictEqual(await run(true), 'complete')
-  assert.strictEqual(await run(false), 'blocked', 'CONTROL: the live stop')
+  assert.strictEqual(await noRetry(() => run(false)), 'blocked', 'CONTROL: the live stop (BUILDRETRY=0)')
+  // buildretry-01 (default): without the properties the layer reads as a block the visit never digs -- deferred, not `blocked`
+  assert.strictEqual(await run(false), 'cell_deferred', 'buildretry-01: the unread-as-snow cell is deferred')
 })
 
 // ---- 2. the sealed pocket (board-a house1 327,66,151; board-d shop 353,66,118) --------------------------------------------------
@@ -206,7 +208,8 @@ await t('a cell holding a block the visit may not dig is DEFERRED (counted to st
     assert.strictEqual(srv.read(10, G + 1, 10).name, 'chest', 'the chest is never dug')
     assert.ok(PJ.stuckAt(pr.dir, pr.key), 'the project is stamped: stuckBackoff lets the next project go')
   }
-  await killedBy('          if (p.blockedDefers && !needSapling && notClear.length && notClear.every(permanent)) {', '          if (false) {', scenario)
+  // BUILDRETRY=0 for the mutant: buildretry-01's default deferral defers a permanent block in every project and would mask it
+  await noRetry(() => killedBy('          if (p.blockedDefers && !needSapling && notClear.length && notClear.every(permanent)) {', '          if (false) {', scenario))
 })
 await t('a TRANSIENT obstruction keeps `blocked` (Codex r1 BLOCK): a diggable foreign block whose dig is refused, with blockedDefers on', async () => {
   const srv = server()
@@ -218,12 +221,20 @@ await t('a TRANSIENT obstruction keeps `blocked` (Codex r1 BLOCK): a diggable fo
   assert.deepStrictEqual(stops, Array(R.STUCK_VISITS).fill('blocked'), 'retried at once every visit, never stamped')
   assert.strictEqual(PJ.stuckAt(pr.dir, pr.key), null)
 })
-await t('CONTROL (the live behaviour): `blocked` every visit, no stamp', async () => {
+await t('CONTROL (the live behaviour, BUILDRETRY=0): `blocked` every visit, no stamp', () => noRetry(async () => {
   const { srv, rec } = blockedScene(), pr = projectOf(rec), e = bot(srv, 'A', { inv: { stone_bricks: 8 } })
   const stops = []
   for (let v = 0; v < R.STUCK_VISITS; v++) stops.push((await R.runVisit(pr.p('A', { domain: () => true, walkR: 40 }), e, { maxSteps: 200 })).stop)
   assert.deepStrictEqual(stops, Array(R.STUCK_VISITS).fill('blocked'))
   assert.strictEqual(PJ.stuckAt(pr.dir, pr.key), null)
+}))
+await t('buildretry-01 (default, NO blockedDefers): the same chest is deferred for every project -- stuck_on_cell, the project stamped', async () => {
+  const { srv, rec } = blockedScene(), pr = projectOf(rec), e = bot(srv, 'A', { inv: { stone_bricks: 8 } })
+  const stops = []
+  for (let v = 0; v < R.STUCK_VISITS; v++) stops.push((await R.runVisit(pr.p('A', { domain: () => true, walkR: 40 }), e, { maxSteps: 200 })).stop)
+  assert.deepStrictEqual(stops, [...Array(R.STUCK_VISITS - 1).fill('cell_deferred'), 'stuck_on_cell'])
+  assert.strictEqual(srv.read(10, G + 1, 10).name, 'chest', 'the chest is never dug')
+  assert.ok(PJ.stuckAt(pr.dir, pr.key), 'the project is stamped')
 })
 
 // ---- 5. the stair's support chain (hive-a 374,68,129; placebo-a's 48 landing in a cave) --------------------------------------
