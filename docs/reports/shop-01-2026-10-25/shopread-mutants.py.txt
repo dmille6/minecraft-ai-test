@@ -10,7 +10,7 @@ M = [
  ("                    elif f.get('kind') in ('foreign', 'cover'):\n", "                    elif f.get('kind') == 'foreign':\n"),
  # wallretired-01: a wall row before the retirement keeps its retired cells; after it, not; the lenient verdict of the two
  ("                    and hasattr(r['t'], 'timestamp') and int(r['t'].timestamp() * 1000) < rec['retiredAt']:\n", "                    and hasattr(r['t'], 'timestamp'):\n"),
- ("            if rec is not None and plot in WALL_PLOTS and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \\\n", "            if False and rec is not None and plot in WALL_PLOTS and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \\\n"),
+ ("            if rec is not None and plot in WALL_PLOTS + (TREEFARM,) and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \\\n", "            if False and rec is not None and plot in WALL_PLOTS + (TREEFARM,) and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \\\n"),   # forest-01: the condition now names the farm too
  ('                    off = rec is not None and off_of(rec) and (rec_pre is None or off_of(rec_pre))\n', '                    off = rec is not None and (rec_pre or rec) is not None and off_of(rec_pre or rec)\n'),
  ('                        ok = any(overburden_ok(rr, cell, any_role=(plot in WALL_PLOTS)) for rr in (rec, rec_pre) if rr is not None)\n', '                        ok = any(overburden_ok(rr, cell, any_role=(plot in WALL_PLOTS)) for rr in ((rec_pre or rec),) if rr is not None)\n'),
  # every project's record (house-01 + monument-01, 10-29)
@@ -220,6 +220,20 @@ M = [
  ("        if len([x for x in rp if x.get('state') != 'skipped']) <= b <= len(rp):", "        if len([x for x in rp if x.get('state') != 'skipped']) == b:"),
  # G5R: every generation in force, whatever the felling's time
  ("    for g in sink_in_force(chain, t_ms):\n        rp = ", "    for g in chain or []:\n        rp = "),
+    # forest-01 FR1: a harvest that is not a log; a site row that names any cell; the trunk bound
+ ("    if not isinstance(cell, (list, tuple)) or len(cell) != 3 or not LOG_RE.match(str(block or '')):\n        return False\n    if kind == 'grown':", "    if not isinstance(cell, (list, tuple)) or len(cell) != 3:\n        return False\n    if kind == 'grown':"),
+ ("        return any(isinstance(lg, list) and list(lg) == list(cell) for rec in chain or [] for t in rec.get('trees') or [] if isinstance(t, dict) for lg in t.get('logs') or [])", "        return True"),
+ # forest-01 FR2: leaves anywhere; the band
+ ("    if not isinstance(cell, (list, tuple)) or len(cell) != 3 or not LEAVES_RE.match(str(block or '')):\n        return False\n    for rec in chain or []:\n        b, w", "    if not isinstance(cell, (list, tuple)) or len(cell) != 3:\n        return False\n    for rec in chain or []:\n        b, w"),
+ ("                and w - 3 <= cell[1] <= w + 5:", "                and w - 3 <= cell[1] <= w + 50:"),
+ ("                    elif plot == FOREST and f.get('kind') in ('stand', 'aisle'):\n", "                    elif plot == FOREST and f.get('kind') in ('stand_', 'aisle_'):\n"),
+ # forest-01 FR4: bone meal anywhere
+ ("    return k is not None and any(isinstance(c, dict) and c.get('role') == 'plot' and ck(c['at']) == k for rec in chain", "    return k is not None or any(isinstance(c, dict) and c.get('role') == 'plot' and ck(c['at']) == k for rec in chain"),
+ # forest-01 RF1: a torch anywhere; stand leaves anywhere; the clear rule without rec_pre
+ ("            return any(c.get('role') == 'light' and ck(c['at']) == k for c in cells)", "            return True"),
+ ("            if isinstance(b, list) and len(b) == 4 and tops and b[0] - 1 <= cell[0] <= b[2] + 1", "            if isinstance(b, list) and len(b) == 4 and tops and b[0] - 100 <= cell[0] <= b[2] + 100"),
+ ("for rr in (rec, rec_pre) if rr is not None)\n                    if not ok:", "for rr in (rec,) if rr is not None)\n                    if not ok:"),
+ ("                    elif plot == TREEFARM and f.get('kind') in ('stand', 'retire'):\n", "                    elif plot == TREEFARM and f.get('kind') in ('stand_', 'retire_'):\n"),
 ]
 bad = 0
 for old, new in M:

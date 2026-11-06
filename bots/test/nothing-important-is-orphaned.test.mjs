@@ -81,6 +81,8 @@ const REQUIRED = [
   // dropanddig-01 (11-04): the air pocket is dug STANDING over a floor within 2 (the time-budget drownings)
   // idlework-01 (11-06): the design (the code is on branch idlework-01 until it promotes)
   'docs/reports/idlework-design-2026-11-06.md',
+  'docs/reports/forest-design-2026-11-06.md',   // forest-1106: the managed forest outside the walls; the in-wall farm retired (code on branches forest-01show / forest-01-on-9e9284d7)
+  'docs/reports/forest-2026-11-06/codex-design.txt',
   'docs/reports/gkforever-design-2026-11-06.md',   // gkforever-1106: the grounds never run out (design; the code is on branch gkforever-01)
   'docs/reports/phase2-build-design-2026-11-06.md',   // phase2-build-1106: codeeval phase 2.1/2.2/2.4 (design; the code is on branch buildhole-01)
   'docs/reports/escdead-design-2026-11-06.md',   // escdead-1106: codeeval phase 2.3 escape dead ends (design; the code is on branch escdead-01)

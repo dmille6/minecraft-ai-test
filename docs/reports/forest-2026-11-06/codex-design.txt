@@ -1,0 +1,202 @@
+I recommend an **18-tree managed forest serviced by the groundskeeper**, with the old farm converted into a small park. This is a design only; no files changed.
+
+The code confirms the suspected self-exclusion: `farmFootprint` reserves plot columns through ten blocks above; `shopFootprintRefresh` installs them; `footprintCost` returns 100; pathfinder rejects break costs ≥100; `collectManually` rechecks safety. Scheduling also favors open projects. Sink rotation can admit upkeep, but does not guarantee farm service. The supplied production counts were not independently remeasured.
+
+1. **Siting and geometry**
+
+Use the current wall **and extensions**, not home radius or `farmBounds`—which explicitly selects inside the wall.
+
+Require the entire forest, canopy allowance, stands, and access to be outside the wall with a **four-block clear buffer**. Exclude villages, protected zones, project footprints, and land-plan road corridors. Prefer existing manageable forest in the `treefarm` sector; score tick coverage first, existing trees second, earthwork third. Preserve hills by selecting a bench or separate terraces.
+
+For simulation-distance=6, initially require all forest chunks within **four chunks Chebyshev distance** of an identified, regularly occupied bot anchor. This is a conservative siting filter, not proof of random ticking. Record occupancy; no nearby player means no growth promise. View-distance=8 is irrelevant to growth.
+
+Native-spruce layout, in local coordinates:
+
+- Three strips; trunk rows at `z=0,9,18`.
+- Six trees per row at `x=0,4,8,12,16,20`: **18 trees**.
+- Envelope `x,z=-3..23`: **27×27 blocks**.
+- Two-wide cross-paths at `z=4–5,13–14,22–23`, connected along an edge.
+- Level each strip independently; allow ≤2 blocks cut/fill per column, ≤160 changed ground blocks per strip. Reject deeper pits or steep terrain for separate repair planning.
+
+For every planting cell, reserve a **temporary three-rise stone staircase**: beside the trunk, columns at offsets 1,2,3 contain heights 3,2,1; offset 4 is the ground landing. That is six reusable blocks, with clear headroom and sightlines.
+
+With soil at `G`, its upper stand has feet at `G+4`. A same-column trunk log at `G+9` is approximately **4.01 blocks from the adjacent stand’s eye**. Thus the design covers the supplied 5–8-log spruce range plus a nine-log contingency without relying on the optimistic ground-reach observation. Walk explicitly to this stand, confirm position, fell upper logs first, descend, then remove lower logs and stump. Never dig the occupied support.
+
+**Do not plant 2×2 spruce initially.** “Where possible” requires a proven mega-tree access system; 13–30+ logs exceed this stand. Use single spruce now. Birch can later use three-block spacing with redesigned access; oak needs complete branch enumeration, including fancy oak, before admission.
+
+Stairs exist only during harvest and are removed before replanting, avoiding growth obstruction. Preserve hills outside terraces; fill holes solidly, remove recorded junk, clear path headroom, and verify no remaining logs. Leaves connected to neighboring trees may persist: explicitly survey and clear attributable remnants rather than assuming decay.
+
+2. **Record and perpetual state machine**
+
+Introduce `managedforest@1`, keyed by pool, dimension, and town. Suggested record fields:
+
+`home, wallGen, landGen, bounds, zones, anchorChunks, geometryVersion, infrastructureReady, strips[], debts[], retirementRef`.
+
+Each strip stores:
+
+`id, floorY, phase, cycle, plantedAt, firstGrownAt, lastSurveyAt, nextDueAt, leaseGeneration, cells[], treeManifests[], cleanup[], retry`.
+
+Each planting cell names its species, soil, sapling position, ground stand, upper stand, staircase cells, landing, growth envelope, and light cells. Tree manifests enumerate actual logs/leaves with expected block names and stand assignments. Publish authorization before mutation; retain generations for audit.
+
+Lifecycle:
+
+**survey → establish → growing → ready → felling → cleanup → grade → replant → growing**.
+
+There is no terminal `complete`; only infrastructure readiness. Unknown chunks mean **unknown**, never harvested or clean. Select the oldest planted eligible strip; finish its cycle before opening another. Ungrown cells remain pending and get a growth diagnosis after 60 observed occupied minutes, not automatic destruction.
+
+Reserve **18 spruce saplings after initial planting**, plus separately claimed outside-tree replacement debts. Draw actual inventory, not stale bag totals. Before each harvest, escrow its replacements. Sapling drops are probabilistic: protect reserves, collect drops without shears, pause harvesting on shortage, and acquire additional stock through ordinary gathering.
+
+Bone meal is optional: newest strip first, maximum **four uses per visit**, stop on growth. Preserve the existing park’s four-meal allocation. Zero meal must never stall rotation.
+
+3. **Scheduling and outside replants**
+
+Extend `groundskeeper.mjs::keeperWanted` and `keeperOrderPure`, and `skills.mjs::keeperOrder`, so forest due work acquires and retains groundskeeper service independently of finite projects.
+
+In `buildTidyVisit`, dispatch a resumable forest visit: **120 seconds every ten minutes while actionable**, with cleanup/replant recovery before new felling. Persist due time across keeper handoffs. Report missed service after 15 minutes when an eligible keeper is available.
+
+Add proposed `managedforest.mjs::{siteForest, forestDue, forestStand, advanceStrip}` and `skills.mjs::forestVisit`. Follow `cropHarvest`’s `cropStand → e.walkTo → reach check → e.dig → confirmation` pattern; use `buildrun.mjs::runVisit` for recorded earthwork and stairs. Do not assume `digReachFrom` alone proves reach: it tolerates missing feet and includes a margin.
+
+Change `tidy.mjs::replantCells` and `siteStage` outband handling to allocate **durable forest-cell claims before felling**. Link source tree, destination cell, species, and cycle. No two debts share a planting; rotation’s own replacement cannot simultaneously discharge an outside-tree debt. If no compatible slot exists, defer elective felling or establish another approved strip.
+
+Extend `skills.mjs::gkSweep` / `gksweep.mjs::sweepPick` with authorized forest boxes for drop collection.
+
+4. **Reservations**
+
+Separate siting exclusion from action authorization.
+
+Emit explicit three-dimensional `zones` through `shop.mjs::recordZones`, approximately **G−3 through G+12 per strip**, extending only for recorded infrastructure. `skills.mjs::projectSiteNow` must therefore allow coal 20 blocks below, while protecting soil and supports.
+
+Keep paths, soil, lights, and unrelated projects protected. Permit only the current lease holder’s exact manifested operation, block, generation, and phase. Apply this narrowly through `shopFootprintRefresh`, `footprintCost`, and dig guards; never disable the whole footprint or other safety checks. Walking must not excavate the forest opportunistically.
+
+5. **Retiring the interior farm**
+
+Publish a retirement record referencing the old generation; stop `buildTreeFarm` planting/harvesting and preserve reservations until ownership transfers.
+
+Bots remove all enumerated trees—including previously waived floating logs—recover saplings and torches, remove temporary access, and retain sound fill. Repair holes and finish a level surface at **y=66**, subject to surveyed connections.
+
+Options: park extension, market square, or building plot. **Choose the park:** the approximately 17×17 cleared area supports a two-wide crossing path, four planted beds, benches, and perimeter lighting with fewer dependencies than stalls or a building. Use `park.mjs::PARK_PALETTE` and decorator provisioning. Reuse floor material beneath the finish; leave no exposed cobble patches or dirt scaffolding.
+
+6. **Tripwire contract**
+
+Extend the `shopread` integration consumed by `infra/showcase/showcase_trip.py::{shop_module, shop_read}`; its imported implementation was not present as a standalone source here.
+
+Retain `_build`, `_build_visit`, and lease rows. Add `project=managedforest` and retirement identity; operations include `survey`, `transition`, `harvest`, `clear`, `place`, `use`, `defer`, with kinds distinguishing logs, leaves, grading, stairs, teardown, saplings, and bone meal.
+
+Every mutation must identify record generation, strip/cycle, cell, expected/result block, lease, and stand. Flag unrecorded or stale work, protected/corridor incursions, unsupported reach, double planting credit, premature cleanup success, and silent service starvation. Do not blanket-allow “tree debris.”
+
+7. **Release proof**
+
+In Paper, prove **three complete rotations of all 18 cells**, initially without bone meal, plus:
+
+- Every supported height, canopy obstruction, snow condition, stair ascent/descent, teardown, and replacement.
+- Actual random ticking at proposed chunk boundaries and anchor absence.
+- Sapling balance, collection losses, reserve protection in `composter.mjs::compostAllowance`.
+- Restart during every phase; lease expiry, competing bots, unloaded chunks, inventory exhaustion.
+- Continuous competing projects without forest starvation.
+- Underground coal allowed; surface damage and neighboring-project digs refused.
+- Full interior retirement with zero floating logs, holes, or scaffolds.
+- Tripwire positive fixtures and mutants for every authorization boundary.
+
+Principal risks are unproven reach/sightlines, stochastic sapling yield, overlapping canopies, lost ticking coverage, and cross-record races. Any failed proof blocks that behavior’s release.
+tokens used
+57,129
+I recommend an **18-tree managed forest serviced by the groundskeeper**, with the old farm converted into a small park. This is a design only; no files changed.
+
+The code confirms the suspected self-exclusion: `farmFootprint` reserves plot columns through ten blocks above; `shopFootprintRefresh` installs them; `footprintCost` returns 100; pathfinder rejects break costs ≥100; `collectManually` rechecks safety. Scheduling also favors open projects. Sink rotation can admit upkeep, but does not guarantee farm service. The supplied production counts were not independently remeasured.
+
+1. **Siting and geometry**
+
+Use the current wall **and extensions**, not home radius or `farmBounds`—which explicitly selects inside the wall.
+
+Require the entire forest, canopy allowance, stands, and access to be outside the wall with a **four-block clear buffer**. Exclude villages, protected zones, project footprints, and land-plan road corridors. Prefer existing manageable forest in the `treefarm` sector; score tick coverage first, existing trees second, earthwork third. Preserve hills by selecting a bench or separate terraces.
+
+For simulation-distance=6, initially require all forest chunks within **four chunks Chebyshev distance** of an identified, regularly occupied bot anchor. This is a conservative siting filter, not proof of random ticking. Record occupancy; no nearby player means no growth promise. View-distance=8 is irrelevant to growth.
+
+Native-spruce layout, in local coordinates:
+
+- Three strips; trunk rows at `z=0,9,18`.
+- Six trees per row at `x=0,4,8,12,16,20`: **18 trees**.
+- Envelope `x,z=-3..23`: **27×27 blocks**.
+- Two-wide cross-paths at `z=4–5,13–14,22–23`, connected along an edge.
+- Level each strip independently; allow ≤2 blocks cut/fill per column, ≤160 changed ground blocks per strip. Reject deeper pits or steep terrain for separate repair planning.
+
+For every planting cell, reserve a **temporary three-rise stone staircase**: beside the trunk, columns at offsets 1,2,3 contain heights 3,2,1; offset 4 is the ground landing. That is six reusable blocks, with clear headroom and sightlines.
+
+With soil at `G`, its upper stand has feet at `G+4`. A same-column trunk log at `G+9` is approximately **4.01 blocks from the adjacent stand’s eye**. Thus the design covers the supplied 5–8-log spruce range plus a nine-log contingency without relying on the optimistic ground-reach observation. Walk explicitly to this stand, confirm position, fell upper logs first, descend, then remove lower logs and stump. Never dig the occupied support.
+
+**Do not plant 2×2 spruce initially.** “Where possible” requires a proven mega-tree access system; 13–30+ logs exceed this stand. Use single spruce now. Birch can later use three-block spacing with redesigned access; oak needs complete branch enumeration, including fancy oak, before admission.
+
+Stairs exist only during harvest and are removed before replanting, avoiding growth obstruction. Preserve hills outside terraces; fill holes solidly, remove recorded junk, clear path headroom, and verify no remaining logs. Leaves connected to neighboring trees may persist: explicitly survey and clear attributable remnants rather than assuming decay.
+
+2. **Record and perpetual state machine**
+
+Introduce `managedforest@1`, keyed by pool, dimension, and town. Suggested record fields:
+
+`home, wallGen, landGen, bounds, zones, anchorChunks, geometryVersion, infrastructureReady, strips[], debts[], retirementRef`.
+
+Each strip stores:
+
+`id, floorY, phase, cycle, plantedAt, firstGrownAt, lastSurveyAt, nextDueAt, leaseGeneration, cells[], treeManifests[], cleanup[], retry`.
+
+Each planting cell names its species, soil, sapling position, ground stand, upper stand, staircase cells, landing, growth envelope, and light cells. Tree manifests enumerate actual logs/leaves with expected block names and stand assignments. Publish authorization before mutation; retain generations for audit.
+
+Lifecycle:
+
+**survey → establish → growing → ready → felling → cleanup → grade → replant → growing**.
+
+There is no terminal `complete`; only infrastructure readiness. Unknown chunks mean **unknown**, never harvested or clean. Select the oldest planted eligible strip; finish its cycle before opening another. Ungrown cells remain pending and get a growth diagnosis after 60 observed occupied minutes, not automatic destruction.
+
+Reserve **18 spruce saplings after initial planting**, plus separately claimed outside-tree replacement debts. Draw actual inventory, not stale bag totals. Before each harvest, escrow its replacements. Sapling drops are probabilistic: protect reserves, collect drops without shears, pause harvesting on shortage, and acquire additional stock through ordinary gathering.
+
+Bone meal is optional: newest strip first, maximum **four uses per visit**, stop on growth. Preserve the existing park’s four-meal allocation. Zero meal must never stall rotation.
+
+3. **Scheduling and outside replants**
+
+Extend `groundskeeper.mjs::keeperWanted` and `keeperOrderPure`, and `skills.mjs::keeperOrder`, so forest due work acquires and retains groundskeeper service independently of finite projects.
+
+In `buildTidyVisit`, dispatch a resumable forest visit: **120 seconds every ten minutes while actionable**, with cleanup/replant recovery before new felling. Persist due time across keeper handoffs. Report missed service after 15 minutes when an eligible keeper is available.
+
+Add proposed `managedforest.mjs::{siteForest, forestDue, forestStand, advanceStrip}` and `skills.mjs::forestVisit`. Follow `cropHarvest`’s `cropStand → e.walkTo → reach check → e.dig → confirmation` pattern; use `buildrun.mjs::runVisit` for recorded earthwork and stairs. Do not assume `digReachFrom` alone proves reach: it tolerates missing feet and includes a margin.
+
+Change `tidy.mjs::replantCells` and `siteStage` outband handling to allocate **durable forest-cell claims before felling**. Link source tree, destination cell, species, and cycle. No two debts share a planting; rotation’s own replacement cannot simultaneously discharge an outside-tree debt. If no compatible slot exists, defer elective felling or establish another approved strip.
+
+Extend `skills.mjs::gkSweep` / `gksweep.mjs::sweepPick` with authorized forest boxes for drop collection.
+
+4. **Reservations**
+
+Separate siting exclusion from action authorization.
+
+Emit explicit three-dimensional `zones` through `shop.mjs::recordZones`, approximately **G−3 through G+12 per strip**, extending only for recorded infrastructure. `skills.mjs::projectSiteNow` must therefore allow coal 20 blocks below, while protecting soil and supports.
+
+Keep paths, soil, lights, and unrelated projects protected. Permit only the current lease holder’s exact manifested operation, block, generation, and phase. Apply this narrowly through `shopFootprintRefresh`, `footprintCost`, and dig guards; never disable the whole footprint or other safety checks. Walking must not excavate the forest opportunistically.
+
+5. **Retiring the interior farm**
+
+Publish a retirement record referencing the old generation; stop `buildTreeFarm` planting/harvesting and preserve reservations until ownership transfers.
+
+Bots remove all enumerated trees—including previously waived floating logs—recover saplings and torches, remove temporary access, and retain sound fill. Repair holes and finish a level surface at **y=66**, subject to surveyed connections.
+
+Options: park extension, market square, or building plot. **Choose the park:** the approximately 17×17 cleared area supports a two-wide crossing path, four planted beds, benches, and perimeter lighting with fewer dependencies than stalls or a building. Use `park.mjs::PARK_PALETTE` and decorator provisioning. Reuse floor material beneath the finish; leave no exposed cobble patches or dirt scaffolding.
+
+6. **Tripwire contract**
+
+Extend the `shopread` integration consumed by `infra/showcase/showcase_trip.py::{shop_module, shop_read}`; its imported implementation was not present as a standalone source here.
+
+Retain `_build`, `_build_visit`, and lease rows. Add `project=managedforest` and retirement identity; operations include `survey`, `transition`, `harvest`, `clear`, `place`, `use`, `defer`, with kinds distinguishing logs, leaves, grading, stairs, teardown, saplings, and bone meal.
+
+Every mutation must identify record generation, strip/cycle, cell, expected/result block, lease, and stand. Flag unrecorded or stale work, protected/corridor incursions, unsupported reach, double planting credit, premature cleanup success, and silent service starvation. Do not blanket-allow “tree debris.”
+
+7. **Release proof**
+
+In Paper, prove **three complete rotations of all 18 cells**, initially without bone meal, plus:
+
+- Every supported height, canopy obstruction, snow condition, stair ascent/descent, teardown, and replacement.
+- Actual random ticking at proposed chunk boundaries and anchor absence.
+- Sapling balance, collection losses, reserve protection in `composter.mjs::compostAllowance`.
+- Restart during every phase; lease expiry, competing bots, unloaded chunks, inventory exhaustion.
+- Continuous competing projects without forest starvation.
+- Underground coal allowed; surface damage and neighboring-project digs refused.
+- Full interior retirement with zero floating logs, holes, or scaffolds.
+- Tripwire positive fixtures and mutants for every authorization boundary.
+
+Principal risks are unproven reach/sightlines, stochastic sapling yield, overlapping canopies, lost ticking coverage, and cross-record races. Any failed proof blocks that behavior’s release.

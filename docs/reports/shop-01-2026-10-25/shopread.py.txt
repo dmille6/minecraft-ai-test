@@ -130,6 +130,25 @@
 #                      stepwell-02 (the descent): a record GROWS -- a stepwell-01 record gains its descent as a later generation, and
 #                      the court wall's portal cells move from `cells` to `clear` -- so its CLEARS are judged over the chain too: a
 #                      kind=foreign dig on a cell of any generation, any other dig on a clear entry of any generation (` stepwell`).
+#   FR1-FR4 forest (forest-01, 11-06, OWNER "remove the tree farm from inside city walls ... when they cut down a tree outside the walls
+#                      replant in an clean organized way"; bots/src/forest.mjs, skills.mjs buildForest): THE MANAGED FOREST outside the walls is
+#                      an ordinary record (project=forest): its floor fills, soil and SUNK saplings are G1's (record cells), its cuts G2's (its
+#                      clear list) and a foreign dig of a plot's floor G2's (its own cell). Plus: FR1 fell -- `_build op=harvest project=forest
+#                      kind=grown|site` (a log dug from the plot's stand) is on the record ONLY as a *_log block in a PLOT COLUMN of a
+#                      generation (the plot cell up to FOREST_TRUNK above it: kind grown), or one of a generation's listed SITE-TREE logs
+#                      (`trees[].logs`: kind site); anything else is clear_outside (` forest_fell`); a `*_failed` row digs nothing and is not
+#                      judged; a felling is a mutation (G3). FR2 leaves -- `op=clear kind=stand|aisle` (the leaves in a stand's or an aisle's
+#                      feet and head) only a *_leaves block inside a generation's box + 1, from its level - 3 to level + 5, else clear_outside
+#                      (` forest_leafrule`). FR4 meal -- `op=use kind=bonemeal` only on a PLOT cell of a generation, else off_record
+#                      (` forest_meal`), a mutation (G3). No-change rows (op=sited|waived|rotate|sweep|garden_sited) are no mutation.
+#   RF1 farm_retire (forest-01): THE IN-WALL TREE FARM'S RETIREMENT (project=treefarm, its rows written by the forest's keeper): op=harvest
+#                      kind=retire -- a *_log in a plot column of a generation of the farm's chain (cells or `retired`); op=clear kind=retire
+#                      -- a *_sapling on a plot cell or a torch on a light cell of a generation; op=clear kind=stand -- a *_leaves block in a
+#                      generation's box (or `was`) + 1, up to 3 above its plots; anything else clear_outside (` farm_retire`). The retired head
+#                      (bots/src/forest.mjs farmRetired: cells [] and `retired` / `retiredClear` / `retiredAt`) judges the farm's EARLIER rows
+#                      as the wall's retirement does (a row before retiredAt also against the retired cells and clears: rec_pre), and its
+#                      cells stop being another project's (tidy_guard) from ITS OWN retiredAt -- the garden laid on its ground is the
+#                      groundskeeper's then (the wall's retired cells wait for the demolition's completion; the farm has no demolition).
 #   RO1 reorient (townstyle-01, 11-04; bots/src/buildrun.mjs misorientedAt, bots/src/townstyle.mjs): A STATE-BEARING CELL'S OWN
 #                      BLOCK IN THE WRONG STATE (a stair facing away, a log on its side) is dug and placed again aimed: `_build op=clear
 #                      kind=reorient`. On the record ONLY when the cell is a record cell that names a world state (`ws`) in a generation of
@@ -300,6 +319,11 @@ GATHER_BLOCKS = frozenset(['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'a
 CROPFARM = 'cropfarm'
 CANEFARM = 'canefarm'                 # canefarm-01 CF1 (bots/src/canefarm.mjs CANEFARM_PLOT)
 STEPWELL = 'stepwell'                 # stepwell-01 SW1 (bots/src/stepwell.mjs STEPWELL_PLOT)
+FOREST = 'forest'                     # forest-01 FR1-FR4 (bots/src/forest.mjs FOREST_PLOT)
+TREEFARM = 'treefarm'                 # forest-01 RF1 (bots/src/treefarm.mjs TREEFARM_PLOT, retired by the forest's keeper)
+FOREST_TRUNK = 12                     # bots/src/forest.mjs FOREST.trunkMax: a plot column is the plot cell and this many above
+LOG_RE = re.compile(r'^[a-z_]+_log$')
+LEAVES_RE = re.compile(r'^[a-z_]+_leaves$')
 CROP_BLOCKS = frozenset(['wheat', 'carrots', 'potatoes', 'beetroots'])
 SEED_GRASS = frozenset(['short_grass', 'tall_grass', 'fern', 'large_fern'])
 SEEDGRASS_R = 24
@@ -376,6 +400,76 @@ def cane_harvest_ok(chain, cell, block):
         return False
     k = ck([cell[0], cell[1] - 1, cell[2]])
     return any(c.get('role') == 'cane' and ck(c['at']) == k for rec in chain or [] for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at'))
+
+
+def plot_column_ok(chain, cell, top=FOREST_TRUNK):
+    """forest-01: is `cell` in a PLOT COLUMN of a generation of the chain (a role-plot cell's column, from the cell up to `top`
+    above it; a retired generation's `retired` cells too)? -> bool. Pure."""
+    if not isinstance(cell, (list, tuple)) or len(cell) != 3:
+        return False
+    for rec in chain or []:
+        for c in list(rec.get('cells') or []) + list(rec.get('retired') or []):
+            if isinstance(c, dict) and c.get('role') == 'plot' and isinstance(c.get('at'), list) and len(c['at']) == 3 \
+                    and c['at'][0] == cell[0] and c['at'][2] == cell[2] and c['at'][1] <= cell[1] <= c['at'][1] + top:
+                return True
+    return False
+
+
+def forest_harvest_ok(chain, cell, block, kind):
+    """forest-01 FR1: is a `project=forest op=harvest` a log dug in a plot column of a generation (kind grown), or one of a generation's
+    listed site-tree logs (kind site)? -> bool. Pure."""
+    if not isinstance(cell, (list, tuple)) or len(cell) != 3 or not LOG_RE.match(str(block or '')):
+        return False
+    if kind == 'grown':
+        return plot_column_ok(chain, cell)
+    if kind == 'site':
+        return any(isinstance(lg, list) and list(lg) == list(cell) for rec in chain or [] for t in rec.get('trees') or [] if isinstance(t, dict) for lg in t.get('logs') or [])
+    return False
+
+
+def forest_leaves_ok(chain, cell, block):
+    """forest-01 FR2: is a `project=forest op=clear kind=stand|aisle` a leaves block inside a generation's box + 1, from its level - 3
+    to level + 5? -> bool. Pure."""
+    if not isinstance(cell, (list, tuple)) or len(cell) != 3 or not LEAVES_RE.match(str(block or '')):
+        return False
+    for rec in chain or []:
+        b, w = rec.get('box'), rec.get('level')
+        if isinstance(b, list) and len(b) == 4 and isinstance(w, (int, float)) and b[0] - 1 <= cell[0] <= b[2] + 1 and b[1] - 1 <= cell[2] <= b[3] + 1 \
+                and w - 3 <= cell[1] <= w + 5:
+            return True
+    return False
+
+
+def forest_meal_ok(chain, cell):
+    """forest-01 FR4: is a `project=forest op=use kind=bonemeal` on a plot cell of a generation? -> bool. Pure."""
+    k = ck(cell) if isinstance(cell, (list, tuple)) and len(cell) == 3 else None
+    return k is not None and any(isinstance(c, dict) and c.get('role') == 'plot' and ck(c['at']) == k for rec in chain or [] for c in rec.get('cells') or [] if isinstance(c, dict) and c.get('at'))
+
+
+def farm_retire_ok(chain, cell, block, kind):
+    """forest-01 RF1: is a `project=treefarm` retirement dig on the farm's record -- kind retire: a *_log in a plot column of a
+    generation, a *_sapling on a plot cell, a torch on a light cell; kind stand: leaves in a generation's box (or `was`) + 1, up to 3
+    above its plots? -> bool. Pure."""
+    if not isinstance(cell, (list, tuple)) or len(cell) != 3:
+        return False
+    name = str(block or '')
+    k = ck(cell)
+    cells = [c for rec in chain or [] for c in list(rec.get('cells') or []) + list(rec.get('retired') or []) if isinstance(c, dict) and isinstance(c.get('at'), list)]
+    if kind == 'retire':
+        if LOG_RE.match(name):
+            return plot_column_ok(chain, cell)
+        if re.match(r'^[a-z_]+_sapling$', name):
+            return any(c.get('role') == 'plot' and ck(c['at']) == k for c in cells)
+        if name == 'torch':
+            return any(c.get('role') == 'light' and ck(c['at']) == k for c in cells)
+        return False
+    if kind == 'stand' and LEAVES_RE.match(name):
+        tops = [c['at'][1] for c in cells if c.get('role') == 'plot']
+        for rec in chain or []:
+            b = rec.get('box') if isinstance(rec.get('box'), list) else rec.get('was')
+            if isinstance(b, list) and len(b) == 4 and tops and b[0] - 1 <= cell[0] <= b[2] + 1 and b[1] - 1 <= cell[2] <= b[3] + 1 and min(tops) <= cell[1] <= max(tops) + 3:
+                return True
+    return False
 
 
 def stepwell_place_ok(chain, cell, kind):
@@ -1013,7 +1107,8 @@ def tidy_guard(pr):
             # wallext-02 (Claude WD1 r1 BLOCKER 3; the hold, Codex batch-5 fold): a cell a later generation RETIRES (the old wall's
             # line, demolished) is no longer reserved once the demolition is complete: its ground is the groundskeeper's then (key
             # 'u|<cell>': reserved until)
-            ra = done_at if isinstance(rec.get('retiredAt'), (int, float)) else None
+            # forest-01 RF1: a RETIRED tree farm's cells are released at its own retiredAt (it has no demolition to wait for)
+            ra = (rec['retiredAt'] if plot == TREEFARM else done_at) if isinstance(rec.get('retiredAt'), (int, float)) else None
             if isinstance(ra, (int, float)):
                 for c in rec.get('retired') or []:
                     if isinstance(c, dict) and c.get('at'):
@@ -1349,9 +1444,11 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
             # BEFORE retiredAt is ALSO judged with them still its cells (rec_pre), and the more lenient verdict stands, so this only
             # removes defects (Claude r1 BLOCKER: overburden_ok / footing_ok refuse a record cell). At or after retiredAt: the head alone
             rec_pre = None
-            if rec is not None and plot in WALL_PLOTS and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \
+            if rec is not None and plot in WALL_PLOTS + (TREEFARM,) and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \
                     and hasattr(r['t'], 'timestamp') and int(r['t'].timestamp() * 1000) < rec['retiredAt']:
-                rec_pre = dict(rec, cells=list(rec.get('cells') or []) + [c for c in rec['retired'] if isinstance(c, dict) and c.get('at')])
+                # forest-01 RF1: a retired tree farm's earlier rows, judged with its cells and its clears as they were
+                rec_pre = dict(rec, cells=list(rec.get('cells') or []) + [c for c in rec['retired'] if isinstance(c, dict) and c.get('at')],
+                               clear=list(rec.get('clear') or []) + [c for c in rec.get('retiredClear') or [] if isinstance(c, dict) and c.get('at')])
             if op == 'sited':
                 out['sited'] += 1
                 continue
@@ -1364,6 +1461,14 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 out['mutations'] += 1
                 if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):
                     out['zone'] += 1; lists['zone'].append('%s %s %s' % (bot, op, k))
+            # forest-01 FR1/FR4/RF1: the forest's felling and bone meal and the retired farm's felling are mutations (G3 judges them);
+            # a `*_failed` harvest row digs nothing
+            if (op == 'harvest' and ((plot == FOREST and not str(f.get('kind') or '').endswith('_failed')) or (plot == TREEFARM and f.get('kind') == 'retire'))) \
+                    or (op == 'use' and plot == FOREST):
+                mutating.add((pool, FOREST if plot == FOREST else TREEFARM))
+                out['mutations'] += 1
+                if any(in_box(b, cell) for b in zones_by_pool.get(pool) or []):
+                    lists['zone'].append('%s %s %s' % (bot, op, k)); out['zone'] += 1
             if op == 'harvest' and plot in (CROPFARM, CANEFARM):
                 # cropfarm-01: a crop farm's harvest is a mutation too, and G3 judges it (canefarm-01: the cane bed's too)
                 mutating.add((pool, CANEFARM if plot == CANEFARM else CROPFARM))
@@ -1428,6 +1533,21 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 out['harvests'] += 1
                 if rec is not None and not cane_harvest_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block')):
                     lists['clear_outside'].append('%s %s cane harvest %s' % (bot, k, f.get('block'))); out['clear_outside'] += 1
+            elif op == 'harvest' and plot == FOREST and not str(f.get('kind') or '').endswith('_failed'):
+                # forest-01 FR1: a log in a plot column (grown) or a listed site-tree log (site), nothing else
+                out['harvests'] += 1
+                if rec is not None and not forest_harvest_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), f.get('kind')):
+                    lists['clear_outside'].append('%s %s %s %s forest_fell' % (bot, k, f.get('kind'), f.get('block'))); out['clear_outside'] += 1
+            elif op == 'harvest' and plot == TREEFARM and f.get('kind') == 'retire':
+                # forest-01 RF1: the retirement's felling, a log in a plot column of the farm's chain
+                out['harvests'] += 1
+                if rec is not None and not farm_retire_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), 'retire'):
+                    lists['clear_outside'].append('%s %s retire %s farm_retire' % (bot, k, f.get('block'))); out['clear_outside'] += 1
+            elif op == 'use' and plot == FOREST:
+                # forest-01 FR4: bone meal on a plot cell of a generation, nothing else
+                out['forest_meals'] = out.get('forest_meals', 0) + 1
+                if rec is not None and not forest_meal_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell):
+                    out['off_record'] += 1; lists['off_record'].append('%s %s %s forest_meal' % (bot, k, f.get('block')))
             elif op == 'replant':
                 out['replants'] += 1
                 # outbands-01 (owner 11-04, groundskeeper piece 5: "cut down trees and replant in better spots" -- never on a road or a
@@ -1467,6 +1587,14 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                         lrec = project_of(projects.get(pool), LAND).get('record') or {}
                         ok, why = seedgrass_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms, guards[pool], (lrec.get('park') or {}).get('box'), tidy_heads_at(project_of(projects.get(pool), TIDY).get('chain') or [], t_ms))
+                    elif plot == FOREST and f.get('kind') in ('stand', 'aisle'):
+                        # forest-01 FR2: the leaves in a stand's or an aisle's feet and head, inside the forest's box + 1 and its band
+                        ok = forest_leaves_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'))
+                        why = '' if ok else ' forest_leafrule'
+                    elif plot == TREEFARM and f.get('kind') in ('stand', 'retire'):
+                        # forest-01 RF1: the retirement's saplings, torches and stand leaves
+                        ok = farm_retire_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), f.get('kind'))
+                        why = '' if ok else ' farm_retire'
                     elif plot == WALLDEMO:
                         # wallext-02 WD1: an old wall cell of the shared line, listed, after the extension stood (demo_clear_ok)
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
@@ -1526,7 +1654,8 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         # pathsclose-01 (10-30): dirt or grass SET ON a path cell after siting, dug so the shovel can lay it
                         ok = any(overburden_ok(rr, cell, any_role=(plot in WALL_PLOTS)) for rr in (rec, rec_pre) if rr is not None)
                     else:
-                        ok = k in {ck(c['at']) for c in rec.get('clear') or []}
+                        # forest-01 RF1: a retired farm's earlier clears against its clears as they were (rec_pre)
+                        ok = any(k in {ck(c['at']) for c in rr.get('clear') or [] if isinstance(c, dict) and c.get('at')} for rr in (rec, rec_pre) if rr is not None)
                     if not ok:
                         out['clear_outside'] += 1; lists['clear_outside'].append('%s %s %s %s%s' % (bot, k, f.get('kind'), f.get('block'), why))
                 if f.get('kind') == 'tree':
@@ -2503,7 +2632,7 @@ def selftest():
         assert m, 'TREE_DEBRIS not found in showcase_trip.py'
         td = re.compile(eval(''.join(re.findall(r"r'((?:[^'\\]|\\.)*)'", m.group(1))).join(["r'", "'"])))
         assert td.match('poppy') and td.match('fern'), 'positive control: the debris regex reads flowers and ferns'
-        for tag in ('fern_rule', 'leaves_rule', 'bloom', 'meal', 'pot', 'guarded', 'in_park', 'tidy_cell', 'decor_post'):
+        for tag in ('fern_rule', 'leaves_rule', 'bloom', 'meal', 'pot', 'guarded', 'in_park', 'tidy_cell', 'decor_post', 'forest_fell', 'forest_leafrule', 'forest_meal', 'farm_retire'):
             assert not td.match(tag), 'a decor refusal tag reads as tree debris: %s' % tag
     # sinkwaive-01 SK1 (11-06; bots/src/sinks.mjs sinkWaiveDue, skills.mjs buildSink): a stone sink's WAIVER row -- `_build
     # project=tower|road|shrine op=waived cell=.. why=.. gen=..` -- names a record cell the build gives up (no stand reached it); it
@@ -2575,11 +2704,11 @@ def selftest():
     assert TH('project=townhall op=clear cell=74,71,74 block=spruce_log kind=tree saplings=0/1')['felled_unplanted'] == 1, 'positive control: felled unplanted is H5'
     assert TH('project=townhall op=clear seg=roof-inner cell=71,75,70 block=spruce_slab kind=reorient')['clear_outside'] == 0, 'a reorient of its own slab (RO1)'
     assert TH('project=townhall op=clear seg=wall-F cell=70,71,70 block=spruce_planks kind=reorient')['clear_outside'] == 1, 'positive control: a stateless cell is never reoriented'
-    MUT_CL = "                    else:\n                        ok = k in {ck(c['at']) for c in rec.get('clear') or []}\n"
+    MUT_CL = "                        ok = any(k in {ck(c['at']) for c in rr.get('clear') or [] if isinstance(c, dict) and c.get('at')} for rr in (rec, rec_pre) if rr is not None)\n"   # forest-01: the rule now reads rec_pre too
     src_th = open(os.path.abspath(__file__)).read()
     assert src_th.count(MUT_CL) == 1, 'ANCHOR MISSING OR NOT UNIQUE'
     ns_t = {'__name__': 'shopread_mutant', '__file__': os.path.abspath(__file__)}
-    exec(compile(src_th.replace(MUT_CL, "                    else:\n                        ok = True\n"), 'shopread_mutant', 'exec'), ns_t)
+    exec(compile(src_th.replace(MUT_CL, "                        ok = True\n"), 'shopread_mutant', 'exec'), ns_t)
     thm = ns_t['combine'](*ns_t['judge'](base + [R('_build', 'project=townhall op=clear cell=73,71,72 block=dirt kind=cut', s=14)], thb, {}, cut=CUT, gens=gens))
     assert thm['clear_outside'] == 0, 'MUTANT SURVIVED: the clear-list rule'
     # copperrun-02 CR2 (11-06): the copper trip's rows -- `gather` of copper ore far from town (success and failed), and a
@@ -2605,6 +2734,90 @@ def selftest():
     exec(compile(src_cr.replace(CR_ANCH, CR_ANCH + "            out['off_record'] += 1\n"), 'shopread_mutant', 'exec'), ns_c)
     crm = ns_c['combine'](*ns_c['judge'](base + cr_rows, proj, cr_z, cut=CUT, gens=gens))
     assert crm['off_record'] > cr_b['off_record'], 'MUTANT SURVIVED: a gather row judged as off_record'
+    # forest-01 FR1-FR4 + RF1 (11-06; bots/src/forest.mjs, skills.mjs buildForest): THE MANAGED FOREST and THE IN-WALL FARM'S RETIREMENT
+    frec = {'v': 1, 'gen': 2, 'prev': 1, 'blueprint': 'forest@1', 'plot': 'forest', 'box': [98, 98, 112, 112], 'level': 64,
+            'cells': [{'at': [100, 63, 100], 'role': 'soil', 'seg': 'S1'}, {'at': [100, 64, 100], 'role': 'plot', 'seg': 'S1', 'stand': [100, 65, 101]},
+                      {'at': [103, 64, 100], 'role': 'floor', 'seg': 'F'}],
+            'clear': [{'at': [104, 65, 100], 'kind': 'cut', 'name': 'dirt'}], 'trees': [{'base': [106, 65, 106], 'logs': [[106, 65, 106], [106, 66, 106]], 'stand': [107, 65, 106]}], 'replant': []}
+    t0ms = int(t0.timestamp() * 1000)
+    fold = {'v': 1, 'gen': 3, 'prev': 2, 'blueprint': 'treefarm@1', 'plot': 'treefarm', 'box': [8, 4, 16, 12], 'at': t0ms - 10**9,
+            'cells': [{'at': [10, 66, 6], 'role': 'soil', 'seg': 'R-1'}, {'at': [10, 67, 6], 'role': 'plot', 'seg': 'R-1'}, {'at': [12, 67, 8], 'role': 'light', 'seg': 'L'}],
+            'clear': [{'at': [11, 67, 5], 'kind': 'cut', 'name': 'dirt'}], 'trees': [], 'replant': []}
+    fret = dict(fold, gen=4, prev=3, cells=[], clear=[], zones=[], retired=list(fold['cells']), retiredClear=list(fold['clear']), was=fold['box'], box=None,
+                state='retired', retiredAt=t0ms + 20_000, at=t0ms + 20_000)
+    FP = lambda farm_chain=(fold, fret): PP(forest={'record': frec, 'records_files': 2, 'leases': {}, 'chain': [frec]},
+                                             treefarm={'record': farm_chain[-1], 'records_files': len(farm_chain), 'leases': {}, 'chain': list(farm_chain)})
+    FJ = lambda detail, s=14, zones=None, pr=None: J(base + [R('_build', detail, s=s)], pr or FP(), zones=zones)
+    # FR1: a log in a plot column (the plot cell .. +12), a listed site-tree log; nothing else
+    assert FJ('project=forest op=harvest cell=100,70,100 block=spruce_log kind=grown')['clear_outside'] == 0, 'a log in a plot column'
+    assert FJ('project=forest op=harvest cell=100,64,100 block=spruce_log kind=grown')['clear_outside'] == 0, 'the stump (the sunk plot cell)'
+    assert FJ('project=forest op=harvest cell=100,77,100 block=spruce_log kind=grown')['clear_outside'] == 1, 'positive control: past the trunk bound'
+    assert FJ('project=forest op=harvest cell=101,66,100 block=spruce_log kind=grown')['clear_outside'] == 1, 'another column'
+    assert FJ('project=forest op=harvest cell=100,66,100 block=dirt kind=grown')['clear_outside'] == 1, 'not a log'
+    assert FJ('project=forest op=harvest cell=106,66,106 block=birch_log kind=site')['clear_outside'] == 0 and FJ('project=forest op=harvest cell=106,67,106 block=birch_log kind=site')['clear_outside'] == 1, 'a listed site-tree log; one above it is not'
+    assert FJ('project=forest op=harvest cell=106,66,106 block=birch_log kind=grown')['clear_outside'] == 1, 'a site tree is no plot column'
+    assert FJ('project=forest op=harvest cell=100,64,100 block=log kind=grown_failed n=0 why=reach')['clear_outside'] == 0, 'a failed row digs nothing: not judged'
+    fm0 = J(base, FP())['mutations']
+    assert FJ('project=forest op=harvest cell=100,70,100 block=spruce_log kind=grown')['mutations'] == fm0 + 1 and FJ('project=forest op=harvest cell=100,64,100 block=log kind=grown_failed')['mutations'] == fm0, 'a felling is a mutation; a failed row is not'
+    fz = {'board-a': [[100, 0, 100, 100, 200, 100]]}
+    assert FJ('project=forest op=harvest cell=100,70,100 block=spruce_log kind=grown', zones=fz)['zone'] == 1, 'a felling in a protected zone is G3'
+    # FR2: leaves in the box + 1, level - 3 .. level + 5
+    assert FJ('project=forest op=clear cell=101,66,100 block=spruce_leaves kind=stand')['clear_outside'] == 0 and FJ('project=forest op=clear cell=97,65,97 block=spruce_leaves kind=aisle')['clear_outside'] == 0, 'stand and aisle leaves (the margin + 1)'
+    assert FJ('project=forest op=clear cell=96,65,100 block=spruce_leaves kind=aisle')['clear_outside'] == 1, 'positive control: outside the box + 1'
+    assert FJ('project=forest op=clear cell=101,70,100 block=spruce_leaves kind=stand')['clear_outside'] == 1, 'above the band'
+    assert FJ('project=forest op=clear cell=101,66,100 block=dirt kind=stand')['clear_outside'] == 1, 'not leaves'
+    # the forest's ordinary build rows: its cells and its clear list (G1/G2), a foreign dig of a plot's own floor
+    assert FJ('project=forest op=place seg=S1 cell=100,64,100 block=spruce_sapling')['off_record'] == 0 and FJ('project=forest op=place seg=S1 cell=100,65,100 block=spruce_sapling')['off_record'] == 1, 'a sunk sapling on the record; one above it is not'
+    assert FJ('project=forest op=clear cell=100,64,100 block=grass_block kind=foreign')['clear_outside'] == 0 and FJ('project=forest op=clear cell=104,65,100 block=dirt kind=cut')['clear_outside'] == 0, 'the plot\'s floor dug; a listed cut'
+    # FR4: bone meal on a plot cell only, a mutation
+    assert FJ('project=forest op=use cell=100,64,100 block=spruce_sapling kind=bonemeal')['off_record'] == 0, 'bone meal on a plot'
+    assert FJ('project=forest op=use cell=103,64,100 block=dirt kind=bonemeal')['off_record'] == 1, 'positive control: off a plot'
+    assert FJ('project=forest op=use cell=100,64,100 block=spruce_sapling kind=bonemeal', zones=fz)['zone'] == 1, 'a meal in a zone is G3'
+    # no-change rows: no mutation
+    for d in ('project=forest op=waived cell=100,64,100 kind=big gen=3', 'project=forest op=rotate kind=h0 gen=3', 'project=forest op=sweep n=2 kind=sapling',
+              'project=forest op=garden_sited cell=9,66,5 kind=9_5_15_11 gen=7', 'project=treefarm op=retired kind=treefarm@1 gen=4'):
+        rr = FJ(d, zones=fz)
+        assert rr['mutations'] == fm0 and rr['zone'] == 0 and rr['off_record'] == 0 and rr['clear_outside'] == 0, ('no-change row', d)
+    # RF1: the retirement's digs against the farm's chain (cells or retired)
+    assert FJ('project=treefarm op=harvest cell=10,72,6 block=spruce_log kind=retire')['clear_outside'] == 0, 'a log in the old plot column'
+    assert FJ('project=treefarm op=harvest cell=11,72,6 block=spruce_log kind=retire')['clear_outside'] == 1, 'positive control: another column'
+    assert FJ('project=treefarm op=clear cell=10,67,6 block=spruce_sapling kind=retire')['clear_outside'] == 0 and FJ('project=treefarm op=clear cell=12,67,8 block=torch kind=retire')['clear_outside'] == 0, 'its sapling, its torch'
+    assert FJ('project=treefarm op=clear cell=10,67,6 block=torch kind=retire')['clear_outside'] == 1 and FJ('project=treefarm op=clear cell=13,67,8 block=torch kind=retire')['clear_outside'] == 1, 'a torch off a light cell'
+    assert FJ('project=treefarm op=clear cell=11,69,6 block=spruce_leaves kind=stand')['clear_outside'] == 0 and FJ('project=treefarm op=clear cell=30,69,6 block=spruce_leaves kind=stand')['clear_outside'] == 1, 'stand leaves in the old box (was) + 1; far off, a trip'
+    assert FJ('project=treefarm op=harvest cell=1,71,1 block=oak_log kind=grown')['clear_outside'] == 0, 'the old farm\'s own harvest rows stay unjudged'
+    # the retired head judges the farm's EARLIER rows with its cells and clears as they were (rec_pre); after retiredAt, not
+    assert FJ('project=treefarm op=place seg=R-1 cell=10,67,6 block=spruce_sapling', s=14)['off_record'] == 0, 'an old planting, before the retirement'
+    assert FJ('project=treefarm op=place seg=R-1 cell=10,67,6 block=spruce_sapling', s=30)['off_record'] == 1, 'positive control: after it, off the record'
+    assert FJ('project=treefarm op=clear cell=11,67,5 block=dirt kind=cut', s=14)['clear_outside'] == 0 and FJ('project=treefarm op=clear cell=11,67,5 block=dirt kind=cut', s=30)['clear_outside'] == 1, 'an old listed cut, before and after'
+    # tidy_guard: the farm's cells are the groundskeeper's from ITS OWN retiredAt (not the wall demolition's completion)
+    demo_done = {'v': 1, 'gen': 1, 'blueprint': 'walldemo@1', 'plot': 'walldemo', 'cells': [], 'structure_complete': True, 'completeAt': t0ms - 10**8}
+    gpr = FP()['board-a']
+    gpr = dict(gpr, projects=dict(gpr['projects'], walldemo={'record': demo_done, 'records_files': 1, 'leases': {}, 'chain': [demo_done]}))
+    gg = tidy_guard(gpr)
+    assert tidy_guarded([10, 67, 6], t0ms + 10_000, gg), 'the farm\'s plot cell is guarded before its retirement (an early demolition does not release it)'
+    assert not tidy_guarded([10, 67, 6], t0ms + 30_000, gg), 'released at its retiredAt'
+    assert tidy_guarded([100, 64, 100], t0ms + 30_000, gg), 'positive control: the forest\'s plot is guarded'
+    for anch, mut, check, msg in (
+            ("                    and c['at'][0] == cell[0] and c['at'][2] == cell[2] and c['at'][1] <= cell[1] <= c['at'][1] + top:\n",
+             "                    and c['at'][0] == cell[0] and c['at'][2] == cell[2] and c['at'][1] <= cell[1] <= c['at'][1] + top + 10:\n",
+             lambda ns: ns['combine'](*ns['judge'](base + [R('_build', 'project=forest op=harvest cell=100,77,100 block=spruce_log kind=grown', s=14)], FP(), {}, cut=CUT, gens=gens))['clear_outside'] == 1, 'the trunk bound'),
+            ("            ra = (rec['retiredAt'] if plot == TREEFARM else done_at) if isinstance(rec.get('retiredAt'), (int, float)) else None\n",
+             "            ra = done_at if isinstance(rec.get('retiredAt'), (int, float)) else None\n",
+             lambda ns: ns['tidy_guarded']([10, 67, 6], t0ms + 10_000, ns['tidy_guard'](gpr)), 'the farm released at its own retiredAt'),
+            ("            if rec is not None and plot in WALL_PLOTS + (TREEFARM,) and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \\\n",
+             "            if rec is not None and plot in WALL_PLOTS and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \\\n",
+             lambda ns: ns['combine'](*ns['judge'](base + [R('_build', 'project=treefarm op=place seg=R-1 cell=10,67,6 block=spruce_sapling', s=14)], FP(), {}, cut=CUT, gens=gens))['off_record'] == 0, 'the retired farm\'s earlier rows'),
+            ("            if (op == 'harvest' and ((plot == FOREST and not str(f.get('kind') or '').endswith('_failed')) or (plot == TREEFARM and f.get('kind') == 'retire'))) \\\n",
+             "            if (op == 'harvest' and ((plot == '_none_' and not str(f.get('kind') or '').endswith('_failed')) or (plot == TREEFARM and f.get('kind') == 'retire'))) \\\n",
+             lambda ns: ns['combine'](*ns['judge'](base + [R('_build', 'project=forest op=harvest cell=100,70,100 block=spruce_log kind=grown', s=14)], FP(), fz, cut=CUT, gens=gens))['zone'] == 1, 'a felling is G3'),
+            ("            elif op == 'harvest' and plot == FOREST and not str(f.get('kind') or '').endswith('_failed'):\n",
+             "            elif op == 'harvest' and plot == FOREST:\n",
+             lambda ns: ns['combine'](*ns['judge'](base + [R('_build', 'project=forest op=harvest cell=100,64,100 block=log kind=grown_failed', s=14)], FP(), {}, cut=CUT, gens=gens))['clear_outside'] == 0, 'a failed row is not judged')):
+        src_f = open(os.path.abspath(__file__)).read()
+        assert src_f.count(anch) == 1, ('ANCHOR MISSING OR NOT UNIQUE', anch[:60])
+        ns_f = {'__name__': 'shopread_mutant', '__file__': os.path.abspath(__file__)}
+        exec(compile(src_f.replace(anch, mut), 'shopread_mutant', 'exec'), ns_f)
+        assert not check(ns_f), 'MUTANT SURVIVED: %s' % msg
     print('shopread selftest: ok')
 
 

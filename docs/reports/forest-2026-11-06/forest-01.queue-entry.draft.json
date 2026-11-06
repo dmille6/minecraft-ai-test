@@ -1,0 +1,22 @@
+{
+ "run": "forest-01",
+ "class": "",
+ "after": [
+  "gkforever-01"
+ ],
+ "not_before": null,
+ "hold": null,
+ "note": "PROGRESS (P) entry DRAFT (owner 11-06 managed forest). forest-01 = the managed forest outside the walls + felled outside trees replanted in its rows, built ON gkforever-01 9e9284d7 (the keeper order it extends). Place after gkforever-01 (KEPT + promoted); it SUPERSEDES treefarm-05 (946c8aaa: the tree farm in idle mode keeps treefarm.mjs's farmFootprint, which prices every trunk cell, so its grown harvest fails as the showcase's did, 0/245) -- cancel that entry. Draw: towns WITH a wall record (the forest sites outside wall rings: no wall, no site) and a keeper; read the `_build project=forest` rows. Variant keyed on 9e9284d7; if gkforever-01 REVERTs, rebuild on what is live. idlework-02 / stations-01 (also after gkforever-01) touch skills.mjs: whichever lands second needs a rebase. Rollback FOREST=off. NO patch block (control session sets it).",
+ "variants": {
+  "9e9284d7078194045f673344af3116e6022cdcbf": {
+   "registration": "/home/mike/mcai-analysis/forest-01.f3ccae3f.json",
+   "canary_sha": "f3ccae3f2965c7b3affb0c64c4a321e71d928961",
+   "branch": "forest-01-on-9e9284d7",
+   "approved": "forest-1106 agent 2026-11-06: the showcase piece reviewed by two engines over 3 rounds (Claude r1 5 + Codex r1 4 blockers fixed 2e0a9100; r2 Codex 1 + Claude 1 fixed f1b5e53a; r3 Codex NO BLOCKERS); the fleet port 9e9284d7..c456a2c8 Codex blockers-only NO BLOCKERS (f3ccae3f: FOREST default on in named pools, after the review); tier 2 (protected.py: not protected); forest.test pass; gkforever/groundskeeper/tidy/shop/treefarm/idlework pass; eslint src clean; full suite: see the ledger row",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "protected": false,
+   "protected_why": "not protected (protected.py --base 9e9284d7 --head forest-01-on-9e9284d7): tier 2"
+  }
+ }
+}

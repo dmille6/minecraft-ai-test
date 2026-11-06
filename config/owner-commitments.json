@@ -5254,6 +5254,35 @@
     ]
    },
    "note": "11-06 13:35Z: 24 of 80 bots >= 34 est. slots (4 on 11-05), 22 in the field; 215/570 departures in the 29-33 band carried 794 whole cobble stacks above 64 at capped towns; mine bad_args 2,028/3 h (1,377 under the iron hint's y=16). Codex's arrival cleanup at any slot count (cognitive.mjs, protected) and demand-ranked kinds are follow-ups."
+  },
+  {
+   "id": "forest-1106",
+   "title": "Managed forest outside the walls (strips of sunk plots with fixed felling stands, rotation, self-supplied saplings, the groundskeeper's); the in-wall tree farm retired, its ground the town garden; felled outside trees replanted in the forest's rows",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "owner-managed-forest-1106.md",
+    "forest-1106.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "SHOWCASE: forest-01show (branch forest-01show @ f1b5e53a on the live release b1d5b17e; tier 2) is READY TO STAGE: the release agent folds it with main's shopread FR1-FR4 + RF1 rules installed beside it (the stage replay's R1: new row shapes). FLEET: forest-01 (branch forest-01-on-9e9284d7 @ f3ccae3f on gkforever-01; tier 2): the control session queues it P after gkforever-01 is KEPT+PROMOTED (draft docs/reports/forest-2026-11-06/forest-01.queue-entry.draft.json) and cancels treefarm-05 (superseded).",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "paths": [
+     "docs/reports/forest-design-2026-11-06.md",
+     "docs/reports/forest-2026-11-06"
+    ],
+    "runs": [
+     "forest-01"
+    ],
+    "branches": [
+     "forest-01show",
+     "forest-01-on-9e9284d7"
+    ]
+   },
+   "note": "Measured showcase 10-31..11-06 (1.44 M rows): the in-wall farm felled 0 of 245 grown trees (215 no_safe_target: its own farmFootprint priced every trunk cell 100 -> pathfinder safeToBreak false -> collectManually unsafe_now); no visit since 11-02; 389 of 5,556 coal_site rows refused under its -64..320 box zone. Paper sandbox4: side stand fells dy -1..+6 only; sunk 8-log spruce 24/24 whole (flat 22/24); spacing 3 grows 68/68; 2x2 spruce = 57-log mega (rejected); self-supply 1.5 saplings/tree picked up. Reviews: Claude+Codex r1 9 blockers fixed, r2 2 fixed, r3 Codex NO BLOCKERS; fleet port Codex NO BLOCKERS. Shopread FR/RF: selftest ok, 202/202 mutants, live replay identical (H5 27 both). Not handled: the old farm's waived floating site log at -28,74,4 (needs a temporary stand or an owner one-off)."
   }
  ]
 }
