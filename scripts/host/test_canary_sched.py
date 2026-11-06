@@ -1828,6 +1828,15 @@ def t_v42_spec_not_without_a_live_canary(CS, F):
     assert CS.spec_target(st) is None
 
 
+def t_v42_spec_not_on_a_half_torn_down_manifest(CS, F):
+    """canary_pool cleared (teardown step 2) but the version left: no canary is deployed, so nothing to build onto."""
+    _spec(CS, F)
+    F.set_manifest(None, F.other[:7])
+    with Env(F.env()):
+        st = CS.gather(CS.paths())
+    assert st.get('canary_full') == F.other and CS.spec_target(st) is None, st.get('canary_full')
+
+
 def t_v42_spec_not_while_another_build_runs(CS, F):
     _spec(CS, F)
     jd = os.path.join(F.home, 'autorebase', 'jobs'); os.makedirs(jd)
