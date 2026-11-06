@@ -209,7 +209,7 @@ await t('an UNSITED workshop never holds the grounds back with the crew (board-c
   assert.strictEqual(GKM.keeperWanted(ST({}, { exists: false, complete: false }), { crew: true }), false, 'not yet tried: the town builds its workshop first')
 })
 await t('MUTANT KILLED: the crew without its "as it is" branch reads full again', async () => {
-  await withMutant(GK_PATH, '  if (crew) return { order: list, states: out }\n', '', async m => {
+  await withMutant(GK_PATH, '  if (crew) return { order: list, states: hideForest(out) }\n', '', async m => {   // forest-01: the line hides the forest too
     assert.strictEqual(m.keeperOrderPure(ST(), LIST, { d: 'other', crew: true }).states[2].free, false)
   })
 })
@@ -278,13 +278,13 @@ console.log('WIRING (structural)')
 await t('buildTidy: the clock decides fresh, the stages reach GKF.radius with level + dead; the census; the counters; the means hook', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
   assert.ok(/const fresh = GKFS\.clock \? \(cur => !cur \|\| gkfDueOf\(cur\)\.due\)/.test(s), 'fresh')
-  assert.ok(/walkFrom: townEdge\(I\.plan, I\.home\), L: gkLandL\(\), level: GKFS\.level, dead \}\)/.test(s), 'stage siting')
+  assert.ok(/walkFrom: townEdge\(I\.plan, I\.home\), L: gkLandL\(\), level: GKFS\.level, dead, forest: forestRecNow\(\) \}\)/.test(s), 'stage siting (forest-01: the forest for the replants)')
   assert.ok(/last = land \? landStages\(gkLandL\(\)\)\.at\(-1\)\.k : 0/.test(s), 'the last band')
   assert.ok(/if \(GKFS\.clock\) return r\?\.blueprint === TIDY_BLUEPRINT && gkfDueOf\(r\)\.due/.test(s), 'gkStageDue')
   assert.ok(/groundsCensus\(bot, \{ s, k0, sk,/.test(s), 'census')
   assert.ok(/if \(gkfVisitWorked\(extra\)\) bot\.gkfWorked = /.test(s), 'the counter')
   assert.ok(/setGroundsMeans\(b => groundsMeansFor\(b\)\)/.test(s), 'means')
-  assert.ok(/grounds: GKFS\.idle && groundsBatchOpen\(\) \}\)/.test(s), 'keeperOrder reads the lap')
+  assert.ok(/grounds: GKFS\.idle && groundsBatchOpen\(\), forestPlot \}\)/.test(s), 'keeperOrder reads the lap')
   assert.ok(/if \(k\.d === 'other' && !GKFS\.crew\) return out/.test(s), 'the helper passes the keeper refusal')
   const sh = strip(readFileSync(SHOP_PATH, 'utf8'))
   assert.ok(/builders: GROUNDS\.on \? gkfBuilders\(gkfOn\('crew'\)\) : TIDY_BUILDERS/.test(sh), 'builders')

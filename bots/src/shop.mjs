@@ -10,6 +10,7 @@ import { pathsOn, PATHS_PLOT, PATHS_BLUEPRINT, PATHS_BUILDERS } from './paths.mj
 import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
+import { forestOn, FOREST_PLOT, FOREST_BLUEPRINT, FOREST_BUILDERS } from './forest.mjs'   // forest-01: the managed forest outside the walls
 import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
 import { gkfOn, gkfBuilders } from './gkforever.mjs'   // gkforever-01: the crew
@@ -82,6 +83,9 @@ export const TIDY = Object.freeze({ on: tidyOn(process.env, process.env.MEMORY_P
 /** GROUNDSKEEPER-01 (groundskeeper.mjs): one leased bot a town works the tidy -- its only builder (the lease is the slot, the yard
  *  clerk's pattern) -- through the land plan's stages; GROUNDSKEEPER=off is tidy-01 exactly as before (3 builders). */
 export const GROUNDS = Object.freeze({ on: TIDY.on && gkOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** FOREST-01 (forest.mjs forestOn): the managed forest outside the walls, the groundskeeper's (it needs the keeper: GROUNDS). FOREST=off
+ *  is the rollback. On in FOREST_POOLS (default the showcase only: the canary's drop-in sets FOREST=on). */
+export const FORESTP = Object.freeze({ on: forestOn(process.env, process.env.MEMORY_POOL ?? '') && GROUNDS.on })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -91,16 +95,20 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
   Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
   // gkforever-01 CREW (GKF_CREW): the keeper and a helper (gkforever.mjs GKF.crew); off: the keeper alone (groundskeeper-01)
+  Object.freeze({ plot: FOREST_PLOT, blueprint: FOREST_BLUEPRINT, after: WALL_PLOT, builders: FOREST_BUILDERS }),   // forest-01: the keeper's (groundskeeper.mjs keeperOrderPure)
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? gkfBuilders(gkfOn('crew')) : TIDY_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, forest = FORESTP.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === FOREST_PLOT ? forest && wall && paths && on : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on && !forest : p.plot === TIDY_PLOT ? tidy : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
 export const projectsGuarded = (list = projectsOn()) => {
   // tidy-01: the tidy guards nothing (its fills are ground, its cuts are spoil): never a footprint, a keep-out or a siting input
   const l = list.filter(p => p.plot !== TIDY_PLOT)
-  return l.some(p => p.plot === SHAFT_PLOT) ? l : [...l, PROJECTS.find(p => p.plot === SHAFT_PLOT)]
+  const out = l.some(p => p.plot === SHAFT_PLOT) ? l : [...l, PROJECTS.find(p => p.plot === SHAFT_PLOT)]
+  // forest-01: a sited forest stays guarded whatever its switch (and a tree farm the forest took off the order)
+  for (const p of PROJECTS) if ((p.plot === FOREST_PLOT || p.plot === TREEFARM_PLOT) && !out.some(q => q.plot === p.plot)) out.push(p)
+  return out
 }
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
 export const buildersOf = p => p?.builders ?? BUILDERS_MAX

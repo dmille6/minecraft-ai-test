@@ -22,6 +22,7 @@
 // liquid anywhere in a pit or its rim (owner 10-27: no water bridging; water is terrain), an unread cell. A natural hill is never
 // flattened: only single columns and small holes, measured against their own neighbours.
 
+import { forestReplantCells } from './forest.mjs'   // forest-01: felled outside trees replanted in the forest's rows
 import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND } from './landplan.mjs'   // groundskeeper-01
@@ -592,7 +593,18 @@ export function roadWork (read, cols, { home, cells = new Set(), lim, avoid = ()
  * `avoid` or a record cell's column; nearest home first. Fewer cells than trees: the rest are owed none (the visit fells a trunk
  * only once every listed replant stands: buildrun.mjs B4).
  */
-export function replantCells (read, land, trees, { avoid = () => null, cells = new Set(), r = LAND.workR, T = TIDY } = {}) {
+export function replantCells (read, land, trees, { avoid = () => null, cells = new Set(), r = LAND.workR, forest = null, forestR = Infinity, T = TIDY } = {}) {
+  // FOREST-01 (owner 11-06 "when they cut down a tree outside the walls replant in an clean organized way"): with a managed forest, a
+  // felled tree's sapling goes into the forest's next open ROW plot first (forest.mjs forestReplantCells: row order, never the strip
+  // being harvested, only within the tidy's own walk); only the trees the forest has no open plot for go where they went before
+  if (forest && land?.home && trees.length) {
+    const fr = forestReplantCells(read, forest, trees, { home: land.home, maxR: forestR })
+    if (fr.length >= trees.length) return fr
+    if (fr.length) {
+      const fcols = new Set(fr.map(q => `${q.cell[0]},${q.cell[2]}`))
+      return [...fr, ...replantCells(read, land, trees.slice(fr.length), { avoid: (x, z) => avoid(x, z) ?? (fcols.has(`${x},${z}`) ? 'forest' : null), cells, r, forest: null, T })]
+    }
+  }
   const home = land?.home
   if (!home || !trees.length) return []
   const road = corridorAt(land)
@@ -657,7 +669,7 @@ export function roadLights (read, cols, { home, avoid = () => null, n = 0, cells
  * (tidyRecord: layered fills, cuts, clears) with `stage`. A column the road touches is the road's alone. `null` record: nothing to
  * do in this stage (the caller moves to the next).
  */
-export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, L = LAND, level = false, dead = null } = {}) {
+export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, L = LAND, level = false, dead = null, forest = null } = {}) {
   const st = typeof stage === 'object' ? stage : stageOf(stage, L)
   if (st.k === 0) { const s = siteTidy(read, { home, avoid, cells, pin, plan, now, level, dead }); if (s.record) s.record.stage = 0; return { ...s, road: null } }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
@@ -710,7 +722,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   record.clear = [...(record.clear ?? [])]
   for (const c of road.clear) if (!record.clear.some(q => q.at.join(',') === c.at.join(','))) record.clear.push(c)
   record.clear.sort((a, b) => a.at[1] - b.at[1])
-  record.replant = replantCells(read, land, road.trees, { avoid, cells })
+  record.replant = replantCells(read, land, road.trees, { avoid, cells, forest, forestR: tidyWalkR(record) - 2 })
   if (lightAt.length) {
     record.segments.push({ seg: 'T-L', deps: [] })
     for (const l of lightAt) record.cells.push({ at: l.at, role: 'light', seg: 'T-L' })

@@ -58,26 +58,43 @@ export const termStart = (lease, me, now = Date.now()) => (lease?.rec?.holder ==
  * for the KEEPER (`d` 'mine') the tidy comes first and a due stage reads open; for any other bot the tidy reads full (`free:
  * false`: the grounds are another's) and the other projects come first.
  */
-export function keeperOrderPure (states, list, { d, shopPlot = 'shop', tidyPlot = 'tidy', crew = false, grounds = false } = {}) {
+export function keeperOrderPure (states, list, { d, shopPlot = 'shop', tidyPlot = 'tidy', crew = false, grounds = false, forestPlot = null } = {}) {
   const ti = states.findIndex(st => st.plot === tidyPlot)
   const tidyP = list.find(p => p.plot === tidyPlot)
   const shop = states.find(st => st.plot === shopPlot)
+  // FOREST-01: every bot but the keeper never sees the forest -- an unsited one reads WAITING, a sited one STANDING with nothing due
+  // (activeProject would otherwise offer an open forest as any bot's `open[0]` fallback, a visit the keeper check turns away)
+  const hideForest = sts => (forestPlot ? sts.map(st => (st?.plot === forestPlot ? (st.exists ? { ...st, complete: true, damaged: false, due: false, dueFirst: false, free: false } : { ...st, exists: true, complete: true, damaged: false, due: false, free: false }) : st)) : sts)   // (the fleet's activeProject has no `waiting`: an unsited one reads standing too)
   // gkforever-01: a workshop that cannot be sited (idlework-01 B's `unsited`) never holds the grounds back (board-c, 11-06)
   const shopReady = !!(shop?.exists && shop?.complete) || (crew && !!shop?.unsited)
-  if (ti < 0 || !tidyP || !shopReady) return { order: list, states }
+  if (ti < 0 || !tidyP || !shopReady) return { order: list, states: d === 'mine' ? states : hideForest(states) }
   const out = states.slice()
+  // FOREST-01: the managed forest is the KEEPER's (owner 11-06: part of groundskeeping's outward work) -- FIRST while it wants work,
+  // its due read as open; a grounds-lap crew bot never takes it (one feller: the keeper)
+  const fi = forestPlot ? out.findIndex(st => st.plot === forestPlot) : -1
+  const forestP = fi >= 0 ? list.find(p => p.plot === forestPlot) : null
+  if (d === 'mine' && forestP && forestWants(out[fi])) {
+    if (out[ti].complete && out[ti].due) out[ti] = { ...out[ti], complete: false }
+    if (out[fi].complete && (out[fi].due || out[fi].damaged)) out[fi] = { ...out[fi], complete: false, damaged: false }
+    return { order: [forestP, tidyP, ...list.filter(p => p.plot !== tidyPlot && p.plot !== forestPlot)], states: out }
+  }
   // gkforever-01 CREW: a bot on a GROUNDS lap (idlework.mjs) works the tidy first as the keeper does (its slot is the admission)
   if (d === 'mine' || (crew && grounds)) {
     if (out[ti].complete && out[ti].due) out[ti] = { ...out[ti], complete: false }
-    return { order: [tidyP, ...list.filter(p => p.plot !== tidyPlot)], states: out }
+    const st2 = d === 'mine' ? out : hideForest(out)
+    return { order: [tidyP, ...list.filter(p => p.plot !== tidyPlot)], states: st2 }
   }
   // gkforever-01 CREW: any other bot sees the tidy as it is (LAST, its slots), never full for being another's
-  if (crew) return { order: list, states: out }
+  if (crew) return { order: list, states: hideForest(out) }
   out[ti] = { ...out[ti], free: false }
-  return { order: list, states: out }
+  return { order: list, states: hideForest(out) }
 }
+/** FOREST-01: does the forest want its keeper now? (unsited and not waiting on a failed siting, open, damaged, or due; not resting.) Pure. */
+export const forestWants = st => !!st && !st.stuck && st.idle !== true && (st.exists ? (!st.complete || !!st.damaged || !!st.due) : st.waiting !== true)
 /** Does the town want a keeper now (the workshop stands, the grounds want work)? Pure. */
-export const keeperWanted = (states, { shopPlot = 'shop', tidyPlot = 'tidy', crew = false } = {}) => {
+export const keeperWanted = (states, { shopPlot = 'shop', tidyPlot = 'tidy', crew = false, forestPlot = null } = {}) => {
   const shop = states.find(st => st.plot === shopPlot), st = states.find(q => q.plot === tidyPlot)
-  return (!!(shop?.exists && shop?.complete) || (crew && !!shop?.unsited)) && !!st && (!st.exists || !st.complete || !!st.damaged || !!st.due)
+  // forest-01: a forest that wants work keeps the town's keeper too
+  const fw = forestPlot ? forestWants(states.find(q => q.plot === forestPlot)) : false
+  return (!!(shop?.exists && shop?.complete) || (crew && !!shop?.unsited)) && !!st && (!st.exists || !st.complete || !!st.damaged || !!st.due || fw)
 }
