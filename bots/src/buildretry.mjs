@@ -73,10 +73,13 @@ export function retryHeld (entry, now = Date.now(), { visits = RETRY_VISITS, hol
  * it has not seen); a resolved key leaves the cells and writes a reset; entries older than `forget`, resets older than RETRY_RESET_KEEP_MS
  * are dropped. A key both failed and resolved in one visit (a remedy landed after a failure) is resolved.
  */
-export function retryAfter (own = { cells: {}, resets: {} }, failed = new Map(), resolved = new Set(), { now = Date.now(), forget = RETRY_FORGET_MS } = {}) {
+export function retryAfter (own = { cells: {}, resets: {} }, failed = new Map(), resolved = new Set(), { now = Date.now(), forget = RETRY_FORGET_MS, seen = {} } = {}) {
   const cells = {}, resets = {}
   for (const [k, t] of Object.entries(own?.resets ?? {})) if (now - t < RETRY_RESET_KEEP_MS) resets[k] = t
-  for (const [k, v] of Object.entries(own?.cells ?? {})) if (now - v.lastAt < forget && !(resets[k] != null && v.lastAt <= resets[k])) cells[k] = { ...v }
+  // r1 (Codex r1 BLOCK): ANOTHER holder's reset voids this holder's older failures too (`seen`: every holder's latest reset) --
+  // else A's three old failures came back with A's next one, 4 visits and a hold at once
+  const voidAt = k => Math.max(resets[k] ?? -Infinity, Number(seen?.[k]) || -Infinity)
+  for (const [k, v] of Object.entries(own?.cells ?? {})) if (now - v.lastAt < forget && !(v.lastAt <= voidAt(k))) cells[k] = { ...v }
   for (const [k, why] of failed) {
     if (resolved.has(k)) continue
     const v = cells[k]
@@ -84,6 +87,12 @@ export function retryAfter (own = { cells: {}, resets: {} }, failed = new Map(),
   }
   for (const k of resolved) { delete cells[k]; resets[k] = now }
   return { cells, resets }
+}
+/** Every holder's latest reset per cell -> { 'x,y,z': ms }. Never throws. */
+export function retryResets (dir, key) {
+  const out = {}
+  for (const n of namesOf(dir, key)) for (const [k, t] of Object.entries(clean(readJ(path.join(dir, n))).resets)) if (!(out[k] >= t)) out[k] = t
+  return out
 }
 /** Replace THIS HOLDER's file (temp + rename) -> true | false (never throws). */
 export function retryWrite (dir, key, holder, { cells = {}, resets = {} } = {}, now = Date.now()) {

@@ -476,7 +476,7 @@ export function retrySettle (rt, p, e) {
     if (!rt.failed.size && ![...resolved].some(k => rt.ledger[k])) return
     const own = RT.retryOwn(p.dir, p.key, p.me)
     if (!rt.failed.size && ![...resolved].some(k => own.cells[k] || !own.resets[k])) return
-    RT.retryWrite(p.dir, p.key, p.me, RT.retryAfter(own, rt.failed, resolved, { now }), now)
+    RT.retryWrite(p.dir, p.key, p.me, RT.retryAfter(own, rt.failed, resolved, { now, seen: RT.retryResets(p.dir, p.key) }), now)
   } catch { /* the next visit counts */ }
 }
 /** BODY WAITS a visit spends on a cell another builder stands in before it stops (`body_wait`) instead of spending its steps. */
