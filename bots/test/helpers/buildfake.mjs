@@ -152,3 +152,10 @@ export function project (record = SITE.record, names = ['A']) {
   return { dir, key, p, slots }
 }
 export const allDone = (srv, record = SITE.record) => record.cells.every(c => R.cellDone(srv.read(...c.at), BP.palette, c.role))
+/** buildretry-01: run `fn` with BUILDRETRY=0 (the pre-retry visit: a CONTROL of the old live stop, or a mutant of a remedy the
+ *  default deferral would otherwise mask), the variable restored after. */
+export async function noRetry (fn) {
+  const was = process.env.BUILDRETRY
+  process.env.BUILDRETRY = '0'
+  try { return await fn() } finally { if (was === undefined) delete process.env.BUILDRETRY; else process.env.BUILDRETRY = was }
+}

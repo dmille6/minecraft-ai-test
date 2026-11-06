@@ -8,6 +8,9 @@
 // The remedies (buildrun.mjs runVisit `p.sealed`, `p.footing`, `p.stuckStalledOnly`), the waiver (wall.mjs wallWaiveDue), and the
 // order's back-off held to the stuck segment (shop.mjs stuckOtherWork): pure on the live geometry, then chained on the fake server,
 // each remedy killed by a mutant (anchors asserted present and unique).
+// buildretry-01: this file proves ITS project remedy alone, its CONTROLS the live stop before it: the default deferral (BUILDRETRY,
+// buildrun.mjs) would mask both, so it is off here; the composition of the two is tested in buildretry.test.mjs
+process.env.BUILDRETRY = '0'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'

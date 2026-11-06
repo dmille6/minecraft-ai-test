@@ -5,7 +5,7 @@
 // foreign class unless ZIGBAMBOO=off. Behaviour on the fake server (runVisit), the control with the old class, and the wiring.
 import assert from 'node:assert'
 import fs from 'node:fs'
-const { R, PJ, G, HOME, server, bot } = await import('./helpers/buildfake.mjs')
+const { R, PJ, G, HOME, server, bot, noRetry } = await import('./helpers/buildfake.mjs')
 const Z = await import('../src/ziggurat.mjs')
 
 let pass = 0, fail = 0
@@ -48,12 +48,12 @@ await t('ZIG_FOREIGN_GROWN = ZIG_FOREIGN + bamboo, sugar cane (never cactus); ZI
   for (const v of ['off', '0', 'false', 'no']) assert.strictEqual(Z.zigBambooOn({ ZIGBAMBOO: v }), false)
 })
 console.log('THE VISIT (runVisit on the fake server)')
-await t('CONTROL (ZIG_FOREIGN, the fleet today): the bamboo cell is never dug -- `blocked` every visit, the course open', async () => {
+await t('CONTROL (ZIG_FOREIGN, the fleet today): the bamboo cell is never dug -- `blocked` every visit, the course open', () => noRetry(async () => {
   const { srv, rec, stops } = await run(Z.ZIG_FOREIGN)
   assert.ok(!done(srv, rec))
   assert.strictEqual(srv.read(12, G + 1, 10).name, 'bamboo')
   assert.deepStrictEqual(stops, ['blocked', 'blocked', 'blocked'])
-})
+}))
 await t('ZIG_FOREIGN_GROWN: the bamboo is dug and the cell built -- the course complete (sugar cane the same)', async () => {
   for (const plant of ['bamboo', 'sugar_cane']) {
     const { srv, rec, stops, e } = await run(Z.ZIG_FOREIGN_GROWN, plant)

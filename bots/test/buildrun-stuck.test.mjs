@@ -5,7 +5,7 @@
 // backs off SHOP_STUCK_RETRY_MS. These tests walk the chain visit by visit on the fake server.
 import assert from 'node:assert'
 import fs from 'node:fs'
-const { R, PJ, S, both, withMutant, G, k3, server, bot, SITE, project, KIT } = await import('./helpers/buildfake.mjs').then(async m => ({ ...m, S: await import('../src/shop.mjs') }))
+const { R, PJ, S, both, withMutant, G, k3, server, bot, SITE, project, KIT, noRetry } = await import('./helpers/buildfake.mjs').then(async m => ({ ...m, S: await import('../src/shop.mjs') }))
 
 let pass = 0, fail = 0
 const t = async (name, fn) => {
@@ -84,11 +84,12 @@ await t('stuckAfter: counts a visit per deferred cell, drops a cell that now rea
 })
 await t('MUTANT the old stop restored: the first visit stops no_step with the rest unbuilt', () => bothA(
   "          if (cand.length && !open.some(c => !isClear(c.at))) {",
-  "          if (false) {", async M => {
+  "          if (false) {", async M => noRetry(async () => {
+    // BUILDRETRY=0: the default deferral (buildretry-01) would defer the stand-less cell too and mask this remedy's mutant
     const srv = server(sealed()), pr = project(RECORD)
     const { r } = await visit(M, pr, srv)
     assert.ok(r.placed > 100, `the rest is built (${r.stop}, ${r.placed})`)
-  }))
+  })))
 await t('MUTANT a segment waiting on a deferred one is not skipped: the visit stops deps_open, the rest unbuilt', () => bothA(
   "    if (deps.some(d => deferredSegs.has(d))) { deferredSegs.add(seg); continue }",
   "", async M => {

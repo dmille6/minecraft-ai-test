@@ -6,7 +6,7 @@
 import assert from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
-const { B, R, PJ, both, G, HOME, k3, server, KIT, bot, BP, SITE, project, allDone } = await import('./helpers/buildfake.mjs')
+const { B, R, PJ, both, G, HOME, k3, server, KIT, bot, BP, SITE, project, allDone, noRetry } = await import('./helpers/buildfake.mjs')
 const { AckTracker, installAckTracker } = await import('../src/buildack.mjs')
 const { EventEmitter } = await import('node:events')
 
@@ -39,8 +39,13 @@ await t('a scaffold-class block (dirt) in a pad cell is dug under the segment\'s
   assert.strictEqual(r.stop, 'complete', JSON.stringify(r)); assert.strictEqual(srv.read(...pad[5].at).name, 'stone_bricks')
   assert.ok(e.logs.some(([k, d]) => k === '_build' && d.op === 'clear' && d.kind === 'foreign'))
   const srv2 = server({ [k3(pad[5].at)]: 'chest' }), pr2 = project()
-  const r2 = await R.runVisit(pr2.p('A'), bot(srv2, 'A'), { maxSteps: 2000 })
-  assert.strictEqual(srv2.read(...pad[5].at).name, 'chest'); assert.strictEqual(r2.stop, 'blocked')
+  const r2 = await noRetry(() => R.runVisit(pr2.p('A'), bot(srv2, 'A'), { maxSteps: 2000 }))
+  assert.strictEqual(srv2.read(...pad[5].at).name, 'chest'); assert.strictEqual(r2.stop, 'blocked', 'BUILDRETRY=0: the old stop')
+  // buildretry-01 (default): the chest is never dug, and the pad is DEFERRED with it named -- not `blocked` every visit for good
+  const srv3 = server({ [k3(pad[5].at)]: 'chest' }), pr3 = project()
+  const r3 = await R.runVisit(pr3.p('A'), bot(srv3, 'A'), { maxSteps: 2000 })
+  assert.strictEqual(srv3.read(...pad[5].at).name, 'chest'); assert.strictEqual(r3.stop, 'cell_deferred', JSON.stringify(r3.why))
+  assert.ok((r3.deferred ?? []).some(d => d.k === k3(pad[5].at) && d.why === 'kept chest'), JSON.stringify(r3.deferred))
 })
 
 console.log('THE BUILDER\'S OWN BODY (Paper r2: a click refused mid-jump)')

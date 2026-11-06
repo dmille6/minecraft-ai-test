@@ -5,7 +5,7 @@ import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync, mkdtempSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-const { G, HOME, server, bot, PJ, R } = await import('./helpers/buildfake.mjs')
+const { G, HOME, server, bot, PJ, R, noRetry } = await import('./helpers/buildfake.mjs')
 const T = await import('../src/tidy.mjs')
 const LP = await import('../src/landplan.mjs')
 const GKM = await import('../src/groundskeeper.mjs')
@@ -228,7 +228,7 @@ const visit = async (RM, srv, rec, extra) => {
   const e = bot(srv, 'A', { inv: { dirt: 64, cobblestone: 64 }, feet: [0, G + 1, 0], ack: tg => (tg[0] === 9 && tg[1] === G - 2 && tg[2] === 1 ? ACK : 'ok') })
   return RM.runVisit({ dir, key, me: 'A', home: HOME, stood: [], record: rec, tidy: [], recordGen: pub.gen, palette: T.TIDY_PALETTE, slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: T.tidyWalkR(rec), clearMax: T.TIDY_CLEAR_MAX, stuckStalledOnly: true, ...extra }, e, { maxSteps: 400 })
 }
-await t('deferSpent: a cell whose attempts are spent is deferred and the visit goes on to the next pit (control: without it the visit ends)', async () => {
+await t('deferSpent: a cell whose attempts are spent is deferred and the visit goes on to the next pit (control: without it the visit ends)', () => noRetry(async () => {
   const a = twoPits()
   assert.ok(a.rec.segments.some(s => s.seg === 'T-01-0'), 'two groups')
   const r0 = await visit(R, a.srv, a.rec, {})
@@ -240,7 +240,7 @@ await t('deferSpent: a cell whose attempts are spent is deferred and the visit g
   assert.notStrictEqual(r1.stop, 'attempts_spent')
   assert.notStrictEqual(b.srv.read(-12, G - 2, 0).name, 'air', 'the far pit\'s bottom is laid in the same visit')
   assert.ok((r1.deferred ?? []).some(d => d.k === `9,${G - 2},1` && d.why === 'attempts_spent'), JSON.stringify(r1.deferred))
-})
+}))
 // REBASE ONTO STUCKPROJ-01 (tidydead-01): the town tidy asks for BOTH (hardDefers behind TIDYDEAD, deferSpent behind GROUNDS);
 // tidydead's per-cell deferral is asked first, so the spent cell is deferred by it and the visit still goes on
 await t('deferSpent + hardDefers (the live tidy\'s two knobs): the spent cell is deferred and the far pit laid in the same visit', async () => {
@@ -257,13 +257,13 @@ await t('deferSpent + hardDefers (the live tidy\'s two knobs): the spent cell is
     assert.ok((r2.deferred ?? []).some(d => d.k === `9,${G - 2},1`), JSON.stringify(r2.deferred))
   })
 })
-await t('MUTANT KILLED: with the deferSpent branch removed, the same visit ends attempts_spent again', async () => {
+await t('MUTANT KILLED: with the deferSpent branch removed, the same visit ends attempts_spent again', () => noRetry(async () => {
   await withMutant(BUILDRUN_PATH, 'if (p.deferSpent && !cand.length && open.length && open.every(c => isClear(c.at))) {', 'if (false) {', async RM => {
     const b = twoPits()
     const r = await visit(RM, b.srv, b.rec, { deferSpent: true })
     assert.strictEqual(r.stop, 'attempts_spent')
   })
-})
+}))
 await t('tidyKeepOrder: runVisit digs the tidy cuts in the caller\'s order (control: without it, highest first)', async () => {
   const run = async (RM, keep) => {
     const srv = server()

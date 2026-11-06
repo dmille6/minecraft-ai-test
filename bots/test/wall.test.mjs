@@ -8,7 +8,7 @@ import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-const { R, PJ, G, HOME, server, bot } = await import('./helpers/buildfake.mjs')
+const { R, PJ, G, HOME, server, bot, noRetry } = await import('./helpers/buildfake.mjs')
 const W = await import('../src/wall.mjs')
 const SHOP = await import('../src/shop.mjs')
 const { recordZones } = SHOP
@@ -241,7 +241,7 @@ await t('THE LIGHTS LAST and THE PARTS FIRST (LIVE 10-30: a torch-less builder s
   assert.strictEqual(rec.segments.at(-1).seg, W.WALL_LIGHT_SEG)
   assert.ok(rec.cells.filter(c => c.role === 'light').every(c => c.seg === W.WALL_LIGHT_SEG))
 })
-await t('A BLOCKED SEGMENT WAITS: a visit stopped `blocked` on W-00 (a chest in a wall cell) works W-01 next time; never all left out', async () => {
+await t('A BLOCKED SEGMENT WAITS: a visit stopped `blocked` on W-00 (a chest in a wall cell) works W-01 next time; never all left out', () => noRetry(async () => {
   const srv = server({ [`-3,${G + 1},-12`]: 'chest' })
   const cells = [-3, -2, -1].map(x => ({ at: [x, G + 1, -12], role: 'wall', seg: 'W-00' })).concat([5, 6, 7].map(x => ({ at: [x, G + 1, -12], role: 'wall', seg: 'W-01' })))
   const rec = { v: 1, blueprint: W.WALL_BLUEPRINT, plot: 'wall', cells, clear: [], replant: [], segments: [{ seg: 'W-00', deps: [] }, { seg: 'W-01', deps: [] }] }
@@ -264,7 +264,7 @@ await t('A BLOCKED SEGMENT WAITS: a visit stopped `blocked` on W-00 (a chest in 
   assert.strictEqual(W.wallVisitRecord(rec, new Map([['W-00', Date.now()], ['W-01', Date.now()]])), rec, 'never every segment left out')
   assert.strictEqual(W.wallVisitRecord(rec, new Map([['W-00', Date.now() - W.WALL_BLOCK_MS - 1]])), rec, 'the wait lapses')
   assert.strictEqual(W.blockedSeg('deps_open', 'W-00: 1 open, 0 placeable now'), null)
-})
+}))
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
