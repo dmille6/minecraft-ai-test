@@ -4580,7 +4580,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "2026-11-06: levelfall-01 (the workshop's failed proof falls back to its anchor's next floor levels: X1's cave pocket 21,65..68,-65 under grass at 69; offline sites at floor 67, fill 27 cut 145, once X1's trees are down) + stationzone-01 (the anvil/table skills: workshop station first, never inside a protected zone) released 01:43:46Z as 870c47fd-6dd0ded8-fdd64ead (batch13; ci2 440/443 known; Codex NO BLOCKERS; tripwire WATCH). X1 felling under way (tidy 9 X1 logs since 22:27Z). NEXT: read the X1 siting after the felling. 2026-11-05 r2: 20:08-22:10Z X1 still no_site (4 visits); the tidy felled 0 trees in the window (8 visits aborted/helper_idle). plotprep-03b (fc3b0b02: the go-on no longer fenced by its own remedy) released 22:27:35Z in batch12. anvilapply (336aa45a) is ALREADY live via e5454d51 (enchantshop-01 r2); its stationNear takes ANY anvil/table within 32 first (a village anvil in the taiga zone x 49..157 could be used and chipped) -- proposed fix: refuse stations inside protected zones. 2026-11-05: X1 no_site CAUSE: the 17x11 shell fits the 19x13 plot at one anchor (27,-64/W; the other orientation faces away from home; 111,554 'domain' = anchors off the plot), refused tree_out_of_reach. The in-wall tidy (gen 53, 15:34Z) planned X1's 4 trees (26 logs) but felled none of its 66 tree logs by 17:48Z: B4 waited for every replant (10/12 pending at x -62..-72) and each keeper visit ended at the first failed replant remedy. plotprep-03 released on the showcase 19:01:25Z as 7b5524df-6dd0ded8-fdd64ead (batch11; ci2 439/442 known; Codex r1 2 + r2 1 blockers fixed, r3 NO BLOCKERS; tripwire WATCH). NEXT BLOCKER (offline, trees felled): the proof's earth fill@21,65,-65 is a sealed 1x1 cavity y65..68 under grass at 69 that no stand reaches (5.6 > 4.5) -- needs a plotprep/earth-rule design call. RELEASED 2026-11-04 22:54:20Z on the showcase (15 bots) as 8b4ea9cc-6dd0ded8-fdd64ead (branch showcase-plotprep2-hub on 9295590e, after its +60 min check PASS 22:10Z: plotprep-01 ab6d53d7 + plotprep-02 4b9d30fd (plot work retired when a project sites; the GK quiet hours since 16:05Z fixed) + storehubstand-01 0cba1b77 (the hall's build visit stands where its siting stood) + access-02 38504cc2 (the bots' climbs ledger -> inwall stairs) + fold fix 8b4ea9cc (Codex BLOCKER: no ledger stair across a reserved plot); Codex fold APPROVE; ci2 425/428 known 3; no tripwire change. Verified 15/15; tripwire WATCH as before, H1-H8 0. Reads +60 (~23:54Z): GK visits/placements, inwall sited, X1 spruce felled, workshop on X1; hall replant -> clears -> place, _hub_sign, clerk; access ledger stairs. Before: RELEASED 2026-11-04 21:07:44Z on the showcase (15 bots) as 9295590e-6dd0ded8-fdd64ead (branch showcase-wallext2-on-a7efcca2 on a7efcca2, after its +60 min check PASS 20:00Z and the hall sited 28,-49 W: wallext-v2-show a2e0e91e + enchantshop-show-v2 0ea7aea4 + canefarm-show 74fe6093, fold fix 9295590e (Codex BLOCKER: no access stair across the workshop's doorway/approach, enchantshop.mjs enchantEntranceCols); Codex fold reviews APPROVE (27c92694, 9295590e); ci2 423/426 known 3. plotprep-01 ab6d53d7 HELD: Codex fold BLOCKER -- plot levelling can undermine a workshop sited during prep (plotSited checked only at planning; a reproduction gave 120 pending cuts under the X1 pad); fix for its builder: retire pending plot work when the workshop sites, or refuse the siting until prep finishes. Tripwire: main 042c7594 shopread (CF1 + EF1 + WX1 + demolition hold + guarded; sha256 76e841d1) installed 21:06Z, selftest ok, 151/151 mutants, trip selftest ok, 2 h replay identical. Verified 15/15; tripwire WATCH as before, H1-H8 0. Reads +60 (~22:07Z). Before: 2026-11-04 evening. WORKSHOP: showcase branch enchantshop-show-v2 @ 0ea7aea4 = enchantshop (+ anvilapply 336aa45a) on wallext-v2-show a2e0e91e; X1 now x 10..28 z -75..-63 (taken by id); offline the plot's 9-log spruce at 25,-64 is out of reach (tree_out_of_reach) -> the workshop waits town-wide until the groundskeeper fells it; felled: sited x 11..27 z -74..-64 floor 69, 0 hits. READY TO STAGE. CANE BED (E1): canefarm-show @ 74fe6093 (on enchantshop-show-v2), READY TO STAGE: 8 cells on the SW pond 90 out, harvest = second block, bag cane never banked; Codex 3 blockers fixed + PASS; CF1 in main shopread (151/151; Claude + Codex APPROVE), NOT installed; suite ci2 421/425 (base + lavastep flake). OBSIDIAN (E2): Paper proof done (contained cast works; 15-shelf ring = level 30); bucket.mjs pour/scoop were broken (point.minus) -> bucketfix-01 @ 88c981a1 on fleet 3a7badea, tier 3, Codex + Claude BLOCK (self-flood) fixed, both APPROVE, registration + draft entry in docs/reports/obsidian-2026-11-04/, NOT queued (control session adds it, S lane). obsidian-01 (deep-miner contained cast, showcase-only switch) designed, not built: owner O-L (protected code reaches the showcase only via a fleet KEEP). Designs: docs/reports/enchantshop-design-2026-11-04.md sections 11-12, docs/reports/obsidian-design-2026-11-04.md. bucketfix-01 suite w30 at 88c981a1: 388/393 (base 4 + plinth-skill flake).",
+   "next_step": "2026-11-06: SITED on X1 02:03:22Z (levelfall-01); shell visits then ended `replanned` (6 by 04:31Z) -> enchantgoon-01 released 05:27:30Z in batch14b. 2026-11-06: levelfall-01 (the workshop's failed proof falls back to its anchor's next floor levels: X1's cave pocket 21,65..68,-65 under grass at 69; offline sites at floor 67, fill 27 cut 145, once X1's trees are down) + stationzone-01 (the anvil/table skills: workshop station first, never inside a protected zone) released 01:43:46Z as 870c47fd-6dd0ded8-fdd64ead (batch13; ci2 440/443 known; Codex NO BLOCKERS; tripwire WATCH). X1 felling under way (tidy 9 X1 logs since 22:27Z). NEXT: read the X1 siting after the felling. 2026-11-05 r2: 20:08-22:10Z X1 still no_site (4 visits); the tidy felled 0 trees in the window (8 visits aborted/helper_idle). plotprep-03b (fc3b0b02: the go-on no longer fenced by its own remedy) released 22:27:35Z in batch12. anvilapply (336aa45a) is ALREADY live via e5454d51 (enchantshop-01 r2); its stationNear takes ANY anvil/table within 32 first (a village anvil in the taiga zone x 49..157 could be used and chipped) -- proposed fix: refuse stations inside protected zones. 2026-11-05: X1 no_site CAUSE: the 17x11 shell fits the 19x13 plot at one anchor (27,-64/W; the other orientation faces away from home; 111,554 'domain' = anchors off the plot), refused tree_out_of_reach. The in-wall tidy (gen 53, 15:34Z) planned X1's 4 trees (26 logs) but felled none of its 66 tree logs by 17:48Z: B4 waited for every replant (10/12 pending at x -62..-72) and each keeper visit ended at the first failed replant remedy. plotprep-03 released on the showcase 19:01:25Z as 7b5524df-6dd0ded8-fdd64ead (batch11; ci2 439/442 known; Codex r1 2 + r2 1 blockers fixed, r3 NO BLOCKERS; tripwire WATCH). NEXT BLOCKER (offline, trees felled): the proof's earth fill@21,65,-65 is a sealed 1x1 cavity y65..68 under grass at 69 that no stand reaches (5.6 > 4.5) -- needs a plotprep/earth-rule design call. RELEASED 2026-11-04 22:54:20Z on the showcase (15 bots) as 8b4ea9cc-6dd0ded8-fdd64ead (branch showcase-plotprep2-hub on 9295590e, after its +60 min check PASS 22:10Z: plotprep-01 ab6d53d7 + plotprep-02 4b9d30fd (plot work retired when a project sites; the GK quiet hours since 16:05Z fixed) + storehubstand-01 0cba1b77 (the hall's build visit stands where its siting stood) + access-02 38504cc2 (the bots' climbs ledger -> inwall stairs) + fold fix 8b4ea9cc (Codex BLOCKER: no ledger stair across a reserved plot); Codex fold APPROVE; ci2 425/428 known 3; no tripwire change. Verified 15/15; tripwire WATCH as before, H1-H8 0. Reads +60 (~23:54Z): GK visits/placements, inwall sited, X1 spruce felled, workshop on X1; hall replant -> clears -> place, _hub_sign, clerk; access ledger stairs. Before: RELEASED 2026-11-04 21:07:44Z on the showcase (15 bots) as 9295590e-6dd0ded8-fdd64ead (branch showcase-wallext2-on-a7efcca2 on a7efcca2, after its +60 min check PASS 20:00Z and the hall sited 28,-49 W: wallext-v2-show a2e0e91e + enchantshop-show-v2 0ea7aea4 + canefarm-show 74fe6093, fold fix 9295590e (Codex BLOCKER: no access stair across the workshop's doorway/approach, enchantshop.mjs enchantEntranceCols); Codex fold reviews APPROVE (27c92694, 9295590e); ci2 423/426 known 3. plotprep-01 ab6d53d7 HELD: Codex fold BLOCKER -- plot levelling can undermine a workshop sited during prep (plotSited checked only at planning; a reproduction gave 120 pending cuts under the X1 pad); fix for its builder: retire pending plot work when the workshop sites, or refuse the siting until prep finishes. Tripwire: main 042c7594 shopread (CF1 + EF1 + WX1 + demolition hold + guarded; sha256 76e841d1) installed 21:06Z, selftest ok, 151/151 mutants, trip selftest ok, 2 h replay identical. Verified 15/15; tripwire WATCH as before, H1-H8 0. Reads +60 (~22:07Z). Before: 2026-11-04 evening. WORKSHOP: showcase branch enchantshop-show-v2 @ 0ea7aea4 = enchantshop (+ anvilapply 336aa45a) on wallext-v2-show a2e0e91e; X1 now x 10..28 z -75..-63 (taken by id); offline the plot's 9-log spruce at 25,-64 is out of reach (tree_out_of_reach) -> the workshop waits town-wide until the groundskeeper fells it; felled: sited x 11..27 z -74..-64 floor 69, 0 hits. READY TO STAGE. CANE BED (E1): canefarm-show @ 74fe6093 (on enchantshop-show-v2), READY TO STAGE: 8 cells on the SW pond 90 out, harvest = second block, bag cane never banked; Codex 3 blockers fixed + PASS; CF1 in main shopread (151/151; Claude + Codex APPROVE), NOT installed; suite ci2 421/425 (base + lavastep flake). OBSIDIAN (E2): Paper proof done (contained cast works; 15-shelf ring = level 30); bucket.mjs pour/scoop were broken (point.minus) -> bucketfix-01 @ 88c981a1 on fleet 3a7badea, tier 3, Codex + Claude BLOCK (self-flood) fixed, both APPROVE, registration + draft entry in docs/reports/obsidian-2026-11-04/, NOT queued (control session adds it, S lane). obsidian-01 (deep-miner contained cast, showcase-only switch) designed, not built: owner O-L (protected code reaches the showcase only via a fleet KEEP). Designs: docs/reports/enchantshop-design-2026-11-04.md sections 11-12, docs/reports/obsidian-design-2026-11-04.md. bucketfix-01 suite w30 at 88c981a1: 388/393 (base 4 + plinth-skill flake).",
    "max_quiet_hours": 48,
    "depends_on": [
     {
@@ -4927,6 +4927,138 @@
     ]
    },
    "note": "Measured 24 h 11-05/06: tidy 1,099 visits / 3.0 of 1,920 bot-h / 363 placed in 4 of 16 towns; tidy complete in 9 towns (48 h re-survey), absent in 5. Codex independent design: a separate service record; reconciled onto the tidy record + groundskeeper-01 stages (no third engine). The showcase line (gkstage/inwall/gksweep/outbands) has its own cycle-back and inwall stage: reconcile at the showcase-onto-main merge."
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 72,
+   "id": "ordernowait-1106",
+   "title": "Town hall and cottage stop waiting for the enchanting workshop (owner 11-06)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "scaudit-fixes-1106.md"
+   ],
+   "state": "open",
+   "next_step": "RELEASED 2026-11-06 05:27:30Z as 2cfdb3bd-6dd0ded8-fdd64ead (batch14b; ENCHANT_NOWAIT; TH1 rule installed). NEXT: read the town hall on X2 and cottage1 siting.",
+   "evidence": {
+    "grep": [
+     "ordernowait"
+    ],
+    "branches": [],
+    "paths": []
+   },
+   "note": "audit-fix piece (scaudit-fixes-1106.md); ledger row added by the release agent"
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 72,
+   "id": "reroof02-1106",
+   "title": "Retrofit unblocked: decor posts avoided/retired, clutter cleared, fresh fails, doorstep (house1 lamp post)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "scaudit-fixes-1106.md"
+   ],
+   "state": "open",
+   "next_step": "RELEASED 2026-11-06 05:27:30Z in batch14b (REROOF_*; RT2 rule installed). NEXT: read house1's reroof proof and the decor_post retire/dig.",
+   "evidence": {
+    "grep": [
+     "reroof02"
+    ],
+    "branches": [],
+    "paths": []
+   },
+   "note": "audit-fix piece (scaudit-fixes-1106.md); ledger row added by the release agent"
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 72,
+   "id": "handcap-1106",
+   "title": "Gale hand-cap climb: a shaft cap the bare hand breaks is a climb, not a pickaxe ask (Gale stuck 22 h)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "scaudit-fixes-1106.md"
+   ],
+   "state": "open",
+   "next_step": "HELD 2026-11-06: tier 3 (reflex); the showcase gate needs BOTH engines APPROVE at the staged sha and a fleet KEEP of the same protected code -- coordinator/owner decision (fleet canary first, or a showcase survival-lane record).",
+   "evidence": {
+    "grep": [
+     "handcap"
+    ],
+    "branches": [],
+    "paths": []
+   },
+   "note": "audit-fix piece (scaudit-fixes-1106.md); ledger row added by the release agent"
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 72,
+   "id": "copperrun02-1106",
+   "title": "Copper mining trips for the copper hall (owner 11-06)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "scaudit-fixes-1106.md"
+   ],
+   "state": "open",
+   "next_step": "HELD 2026-11-06: tier 3 (oretunnel.mjs, reflex.mjs, skills.mjs::gatherRun); same gate requirement as handcap-1106. CR2 rule installed (inert until the code ships).",
+   "evidence": {
+    "grep": [
+     "copperrun02"
+    ],
+    "branches": [],
+    "paths": []
+   },
+   "note": "audit-fix piece (scaudit-fixes-1106.md); ledger row added by the release agent"
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 72,
+   "id": "bagroom-1106",
+   "title": "Bag room: dispose band + share banking to the workshop materials chests",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "scaudit-fixes-1106.md"
+   ],
+   "state": "open",
+   "next_step": "QUEUED for batch14c after a clean 1 h read of 14b; release with BAGROOM_WELL=off (owner stoneworks plan: no early cobble disposal).",
+   "evidence": {
+    "grep": [
+     "bagroom"
+    ],
+    "branches": [],
+    "paths": []
+   },
+   "note": "audit-fix piece (scaudit-fixes-1106.md); ledger row added by the release agent"
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 72,
+   "id": "towerstepcrew-1106",
+   "title": "Tower waiver (sinkwaive-01) + stepwell crew (stepwell-05)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "scaudit-fixes-1106.md"
+   ],
+   "state": "open",
+   "next_step": "QUEUED for batch14c (SK1 + SW5 rules installed). LIVE 11-06: the stepwell loops 'felling complete, 17 logs left' -- tree 5's replant (-68,67,12) waits on a spruce sapling no bag or chest has (circular: felling gives saplings); needs a decision.",
+   "evidence": {
+    "grep": [
+     "towerstepcrew"
+    ],
+    "branches": [],
+    "paths": []
+   },
+   "note": "audit-fix piece (scaudit-fixes-1106.md); ledger row added by the release agent"
   }
  ]
 }
