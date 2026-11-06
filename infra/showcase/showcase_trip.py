@@ -135,8 +135,8 @@ CAULDRON = re.compile(r'^minecraft:(water_|lava_|powder_snow_)cauldron$')
 # the same block, never a new name: INTACT. A cell is compared by its NAME only -- the region reader yields names, and a
 # `name[state]` string (a future reader, a hand-made baseline) is cut to its name here, so the toggle stays legal whatever
 # the reader. Removing one, or turning it into another block, is still a REMOVED / changed cell: a BREACH, as before.
-STATE = re.compile(r'(_trapdoor|_fence_gate)\[[^\]]*\]$')
-STATE_ANY = re.compile(r'\[[^\]]*\]$')      # VILLAGE_CYCLE only: a crop's age / farmland's moisture is state   # ONLY those two (both reviewers 11-03): any other state stays
+STATE = re.compile(r'(_trapdoor|_fence_gate)\[[^\]]*\]$')   # ONLY those two (both reviewers 11-03): any other state stays
+STATE_ANY = re.compile(r'\[[^\]]*\]$')      # the farm cycle only: a crop's age / farmland's moisture is state
 
 
 # VILLAGE FARM CYCLES ARE NOT A BREACH (OWNER 11-06: mobGriefing ON so villagers breed). With mobGriefing true a farmer villager
@@ -146,6 +146,16 @@ STATE_ANY = re.compile(r'\[[^\]]*\]$')      # VILLAGE_CYCLE only: a crop's age /
 # a crop turned into dirt or a path, a plank turned into a crop, any cell of the trial chambers (not a village). Today's palette
 # (struct_rx) holds none of these names, so S4 never saw them; this keeps it that way if a palette ever adds them (selftest).
 VILLAGE_CYCLE = re.compile(r'^minecraft:(wheat|carrots|potatoes|beetroots|farmland|air|cave_air)$')
+CROP = re.compile(r'^minecraft:(wheat|carrots|potatoes|beetroots)$')
+
+
+def farm_cycle(was, now, below):
+    """Names without state. A crop (or air) -> a crop, or -> air with farmland below it; farmland -> farmland. Pure."""
+    if not (VILLAGE_CYCLE.match(was or '') and VILLAGE_CYCLE.match(now or '')):
+        return False
+    if was == 'minecraft:farmland':
+        return now == 'minecraft:farmland'
+    return bool(CROP.match(now)) or (now in ('minecraft:air', 'minecraft:cave_air') and below == 'minecraft:farmland')
 
 
 def is_village(zid, z=None):
@@ -280,13 +290,14 @@ def refusal_peak(minutes, span=LOOP_MIN):
 def zone_diff(base, now, cycle_at=None):
     """base, now: {"x,y,z": name}. -> (removed, changed, added) as sorted lists of "x,y,z name". Pure.
     removed: a baseline structure cell whose block is no longer a structure block; changed: another structure block now.
-    cycle_at (a VILLAGE zone only): "x,y,z" -> the block there now (any block, palette or not). A baseline cell that is a
-    VILLAGE_CYCLE block and is a VILLAGE_CYCLE block now is a farm cycle: neither removed nor changed."""
+    cycle_at (a VILLAGE zone only): "x,y,z" -> the block there now (any block, palette or not). A baseline cell whose change
+    is a farm_cycle (crop harvested to air above farmland, replanted, aged; farmland's moisture) is neither removed nor changed."""
     if cycle_at is not None:
-        cyc = lambda n: bool(VILLAGE_CYCLE.match(STATE_ANY.sub('', n or '')))
-        farm = {k for k, v in base.items() if cyc(v) and cyc(now[k] if k in now else cycle_at(k))}
+        at = lambda k: STATE_ANY.sub('', (now[k] if k in now else cycle_at(k)) or '')
+        under = lambda k: '%s,%d,%s' % (k.split(',')[0], int(k.split(',')[1]) - 1, k.split(',')[2])
+        farm = {k for k, v in base.items() if farm_cycle(STATE_ANY.sub('', v), at(k), at(under(k)))}
         base = {k: v for k, v in base.items() if k not in farm}
-        now = {k: v for k, v in now.items() if not (k in farm or (k not in base and cyc(v)))}
+        now = {k: v for k, v in now.items() if not (k in farm or (k not in base and VILLAGE_CYCLE.match(STATE_ANY.sub('', v))))}
     removed = sorted('%s %s' % (k, v) for k, v in base.items() if k not in now)
     changed = sorted('%s %s->%s' % (k, v, now[k]) for k, v in base.items() if k in now and canon(now[k]) != canon(v))
     added = sorted('%s %s' % (k, v) for k, v in now.items() if k not in base)
@@ -1318,7 +1329,8 @@ def selftest():
     # OWNER 11-06 mobGriefing ON: a village's farm cycle (harvest, replant, age, moisture) is not a breach; anything else still is
     fb = {'1,71,1': 'minecraft:wheat[age=7]', '2,71,1': 'minecraft:carrots[age=7]', '1,70,1': 'minecraft:farmland[moisture=7]',
           '3,71,1': 'minecraft:potatoes', '5,72,5': 'minecraft:spruce_planks'}
-    look = {'1,71,1': 'minecraft:air', '2,71,1': 'minecraft:air', '3,71,1': 'minecraft:dirt', '5,72,5': 'minecraft:air'}.get
+    look = {'1,71,1': 'minecraft:air', '2,71,1': 'minecraft:air', '2,70,1': 'minecraft:farmland[moisture=3]', '3,71,1': 'minecraft:dirt',
+            '5,72,5': 'minecraft:air', '6,71,6': 'minecraft:air', '6,70,6': 'minecraft:dirt', '7,70,7': 'minecraft:air'}.get
     fnow = {'1,70,1': 'minecraft:farmland[moisture=0]', '9,71,9': 'minecraft:beetroots'}
     rm, ch, ad = zone_diff(fb, fnow, look)
     assert rm == ['3,71,1 minecraft:potatoes', '5,72,5 minecraft:spruce_planks'] and ch == [] and ad == [], \
@@ -1329,6 +1341,9 @@ def selftest():
     assert zone_diff({'4,70,4': 'minecraft:dirt_path'}, {'4,70,4': 'minecraft:farmland'}, look)[1] and \
         zone_diff({'4,71,4': 'minecraft:wheat'}, {'4,71,4': 'minecraft:oak_planks'}, look)[1], \
         'a village farm cycle is crop <-> crop/air only: a path tilled, a crop turned into a plank are still changes'
+    assert zone_diff({'6,71,6': 'minecraft:wheat', '7,70,7': 'minecraft:farmland'}, {}, look)[0] == \
+        ['6,71,6 minecraft:wheat', '7,70,7 minecraft:farmland'], \
+        'air is a harvest only ABOVE farmland: a crop over dirt gone, farmland dug to air, are still REMOVED'
     assert zone_diff({'1,71,1': 'minecraft:wheat'}, {}, None)[0] == ['1,71,1 minecraft:wheat'], \
         'outside a village (no cycle_at) a crop cell is compared as before'
     assert is_village('village-taiga-6_1') and not is_village('trial-chambers-home-se') and is_village('x', {'kind': 'village'}), \
