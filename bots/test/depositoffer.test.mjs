@@ -176,9 +176,36 @@ test('THE RUNG FIX: on deposit_surplus#N with 6 bankable at a chest, far from ho
 })
 
 test('THE RUNG FIX MUTANT KILLED (the `#N` compare): with === "deposit_surplus" the rung refuses its own deposit again', async () => {
-  await withMutant(ADM_PATH, 'onDepositMilestone: isDepositMilestone(milestoneId),', "onDepositMilestone: milestoneId === 'deposit_surplus',", async M => {
+  await withMutant(ADM_PATH, 'onDepositMilestone: onDepositRung(milestoneId),', "onDepositMilestone: milestoneId === 'deposit_surplus',", async M => {
     const A = new M.AdmissionControl(null); A.activeMilestoneId = 'deposit_surplus#3207'
     assert.equal(A.check({ skill: 'deposit', args: {} }, gateBot({ chest: true, extra: COPPER(6) }), null).reason, 'deposit_not_worth_it')
+  })
+})
+
+test('DECBUNDLE-01 DEPOSITRUNG: unset = the fix; =0 is the old literal compare, and it turns the offer off too', () => {
+  assert.equal(DO.depositRungFixOn({}), true)
+  assert.equal(DO.depositRungFixOn({ DEPOSITRUNG: '0' }), false)
+  assert.equal(DO.onDepositRung('deposit_surplus#3207', {}), true)
+  assert.equal(DO.onDepositRung('deposit_surplus#3207', { DEPOSITRUNG: '0' }), false)
+  assert.equal(DO.onDepositRung('deposit_surplus', { DEPOSITRUNG: '0' }), true, 'the old compare, exactly')
+  assert.equal(DO.onDepositRung('return#3', {}), false)
+  assert.equal(DO.depositOfferConfig({ DEPOSITRUNG: '0' }).on, false)
+  assert.equal(DO.depositOfferConfig({ DEPOSITRUNG: '1' }).on, true)
+})
+
+test('DECBUNDLE-01 DEPOSITRUNG=0 restores the old gate: on deposit_surplus#N with 6 bankable at a chest, far from home, deposit {} is refused again', () => {
+  const was = process.env.DEPOSITRUNG
+  process.env.DEPOSITRUNG = '0'
+  try {
+    const A = new AdmissionControl(null); A.activeMilestoneId = 'deposit_surplus#3207'
+    assert.equal(A.check({ skill: 'deposit', args: {} }, gateBot({ chest: true, extra: COPPER(6) }), null).reason, 'deposit_not_worth_it')
+    assert.equal(A.check({ skill: 'deposit', args: {} }, gateBot({ chest: true, extra: COPPER(12) }), null).ok, true, 'positive control: 12 is due either way')
+  } finally { if (was === undefined) delete process.env.DEPOSITRUNG; else process.env.DEPOSITRUNG = was }
+})
+
+test('DECBUNDLE-01 MUTANT KILLED (the flag\'s fixed branch): onDepositRung back to the literal compare refuses the rung\'s own deposit', async () => {
+  await withMutant(DO_PATH, '  return isDepositMilestone(id)\n', "  return id === 'deposit_surplus'\n", async M => {
+    assert.equal(M.onDepositRung('deposit_surplus#3207', {}), false)
   })
 })
 
