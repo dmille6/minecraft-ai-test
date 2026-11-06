@@ -138,7 +138,7 @@ dress sink, and none of the pieces being staged now. **Codex:** the same lane. T
 - **shopread PS1** got two engines:
   - Codex found 1 blocker: no test covered G6 judging the waiver's feet. Fixed with a positioned regression; no judge change.
   - An independent Claude reviewer found NO BLOCKERS.
-  - The selftest passes and 193/193 mutants are killed.
+  - The selftest passes and all mutants are killed (193/193 before the rebase; 203/203 on main e2c3c10d).
 - **Replay** on the showcase VM:
   - `replaygate.py shapes` (old b1d5b17e, new prodserve-01show, candidate reader) finds no unknown shapes (`[]`).
   - The candidate reader, replayed over the live history plus this build's own rows (two `_service` rows, two cane harvests,
@@ -158,5 +158,5 @@ needed.
   bootstrap), storehub at least 2 clerk runs/day. dress upkeep has no failed repair once the waiver row appears. Read 24 h after
   activation with `projectaudit.py` and `lib.telemetry` (`_service` rows by plot, `_build op=harvest` by project, `_storehub_clerk`
   status, the denominators: build visits, bot-hours).
-- **Tripwire.** shopread PS1 (selftest + in-selftest mutant + one harness mutant; 193/193 mutants killed). Service visits log only
+- **Tripwire.** shopread PS1 (selftest + in-selftest mutant + one harness mutant; 203/203 mutants killed on main e2c3c10d). Service visits log only
   rows the reader already judges: G9 crop harvest, CF1 cane harvest, a farm's place and replant, and SH1 the clerk.
