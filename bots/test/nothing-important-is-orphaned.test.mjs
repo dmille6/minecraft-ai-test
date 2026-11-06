@@ -446,6 +446,10 @@ const REQUIRED = [
   'bots/test/leasegen.test.mjs',
   // codeeval (11-06): the six-area code evaluation (Claude + Codex) and its synthesis
   'docs/reports/codeeval-2026-11-06/README.md',
+  // decbundle-01 (11-06): vetoremedy+repeatwork+depositoffer+#N fix as one canary; registration, draft queue entry, supersede note
+  'docs/reports/decbundle-01/decbundle-01.3690e867.json',
+  'docs/reports/decbundle-01/decbundle-01.queue-entry.json',
+  'docs/reports/decbundle-01/SUPERSEDES.md',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

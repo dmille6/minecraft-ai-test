@@ -1,0 +1,22 @@
+{
+ "run": "decbundle-01",
+ "class": "",
+ "after": [
+  "idlework-01"
+ ],
+ "not_before": null,
+ "hold": null,
+ "note": "PROGRESS (P) entry DRAFT, codeeval 2026-11-06 phase 0 item 2. decbundle-01 = vetoremedy-01 + repeatwork-01 + depositoffer-01 + the `#N` deposit-rung fix (own flag DEPOSITRUNG), built ON idlework-01 817704dd (it changes the same deposit rung). Place RIGHT AFTER idlework-01 (owner: ahead of the non-decision items). SUPERSEDES the queue entries depositoffer-01, vetoremedy-01 and repeatwork-01 (cancel all three). Variant keyed on 817704dd = idlework's sha: it is launchable only once idlework-01 is promoted; if idlework-01 REVERTs, rebuild on the fleet. Draw: any towns. Rollbacks (env only): VETOREMEDY=0, REPEATWORK=0, DEPOSITOFFER=0, DEPOSITRUNG=0. NO patch block (control session sets it).",
+ "variants": {
+  "817704dd32627d727d580a6d599d6965c5ff5f02": {
+   "registration": "/home/mike/mcai-analysis/decbundle-01.3690e867.json",
+   "canary_sha": "3690e8673232d9b705106e40d5a3a8e99850fe0c",
+   "branch": "decbundle-01",
+   "approved": "codeeval phase 0 agent 2026-11-06: combined diff 817704dd..3690e867 -- Codex (codex exec read-only, blockers-only) r1 BLOCKERS none; independent Claude subagent r1 BLOCKERS none; tier 3 by protected.py (admission.mjs, cognitive.mjs); each piece's tests + idlework/dirtrung/fewerdec/milestones/shop/survey/prompt*/admission suites pass; eslint src clean; full suite w30 (10.0.0.30, ~/ci/decbundle-01.log) 395/401, FAILED ceilescape, craftsync, nothing-important-is-orphaned, plinth-skill, protected-paths, well = the known base failures on a copied tree plus the two listed flakes",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/admission.mjs bots/src/cognitive.mjs tier=3"
+  }
+ }
+}

@@ -1,0 +1,71 @@
+{
+ "run_id": "decbundle-01",
+ "sha": "3690e8673232d9b705106e40d5a3a8e99850fe0c",
+ "registered_at": "2026-11-06T03:30:00Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] decbundle-01 @ 3690e867 ON idlework-01 817704dd (itself on fleet 4f3b0f5c; branch decbundle-01). Code evaluation 2026-11-06 phase 0 item 2 (docs/reports/codeeval-2026-11-06/README.md, decision.md D4): pull the three built decision fixes forward as ONE progress canary, plus the `#N` id fix. WHY ON idlework-01: idlework moves `return` before `deposit_surplus` and makes deposit_surplus met when admission would refuse the deposit (milestones.mjs depositRefused) -- the same gate this bundle changes; only the orphan list overlaps textually, the deposit rung overlaps in meaning. So the bundle runs RIGHT AFTER idlework-01 is KEEP + promoted (variant key 817704dd); if idlework-01 REVERTs, rebase onto the fleet (re-run depositRefused's tests: the piece then disappears). PIECES (each its own =0 rollback, env only): (1) vetoremedy-01 (0556ddfa, 3 commits): after a model veto on an idle tick, the return rung queues home {}, the deposit_surplus rung turns a refused named deposit into deposit {}; budget 1/rule/45 s, 20/h. VETOREMEDY=0 (VETOREMEDY_RULES narrows). (2) repeatwork-01 (daa09c6c, 2 commits): repeat_loop does not refuse a gather whose last run of the key on this rung (with a target) gained a wanted item. REPEATWORK=0. (3) depositoffer-01 (6d25266d, 2 commits): `deposit` leaves the per-call skill enum (and the CARRYING line) when the gate would refuse an unnamed deposit; gate and offer share depositVerdict. DEPOSITOFFER=0. (4) THE `#N` FIX (in depositoffer-01's gate, own flag added here): admission compared activeMilestoneId === 'deposit_surplus' but sustaining ids are deposit_surplus#N, so it was never true and the rung refused its own 4-11 item deposits (1,097/1,097 on-rung not_worth_it, 11-04). onDepositRung(): isDepositMilestone; floor 1 on the rung. DEPOSITRUNG=0 = the literal old compare AND the offer off (the offer on the old gate would drop deposit on the rung itself). idlework's depositRefused now asks depositVerdict too, so with the fix a six-iron batch at the chest is banked instead of the rung being stepped over; DEPOSITRUNG=0 restores idlework's rule exactly. MEASURED BASELINE (fleet 4f3b0f5c + stuckproj-01 canary, 11-06 00:08-03:08Z, llm-<bot>.jsonl full walk, 80 bots ~240 bot-h, 22,772 model calls; positive control 12,053 admitted = 52.9%): repeat_loop 3,751 (16.5% of calls, 15.6/bot-h), deposit_nothing_to_bank 2,553 (11.2%, 10.6/bot-h), unreachable_elevation 1,114 (4.9%, 4.6/bot-h), deposit_not_worth_it 845 (3.7%, 3.5/bot-h), deposit_item_missing 115. Codeeval decision.md: vetoes = 65 of 137 decision bot-h (47%) in 3 h. NOTE: idlework-01 runs first and itself changes deposit_surplus and the lap; the control is the fleet at idlework's promoted sha, so the read is incremental over idlework. REVIEWS (fun mode, protected tier 3: admission.mjs, cognitive.mjs -> two engines, one round, blockers only, on the COMBINED diff 817704dd..HEAD): Codex (codex exec read-only) BLOCKERS none; independent Claude subagent BLOCKERS none (notes: depositRunnable's bankClosed lapse write runs per model tick, as the rung's done() already does; pre-existing: depositRefused / the rung's bankable<4 skip the peaceful no-swords rule -- no worse, deposit now not offered instead of refused; repeatwork keys the rung id, so an idle_work kind switch can pass one gather once). Each piece's own earlier reviews stand (vetoremedy Codex+Claude none; repeatwork Codex r1 1 fixed -> r2 APPROVE, Claude APPROVE; depositoffer both APPROVE). TESTS: depositoffer, vetoremedy, repeatwork, idlework(+sites), dirtrung, fewerdec, milestones, survey, shop, bucket-admission, llm-admission-attribution, prompt* pass; eslint src clean. FULL SUITE: w30 (10.0.0.30, ~/ci/decbundle-01.log) 395/401, FAILED ceilescape, craftsync, nothing-important-is-orphaned, plinth-skill, protected-paths, well = the known base failures on a copied tree plus the two listed flakes. READ +90/+180 generic (tripper, death gate two-death floor, crash loops) PLUS OWN LINES canary vs control: (1) MECHANISM (defect): 'veto remedy' work-order rows >= 1 per canary bot-h on bots with return/deposit_surplus vetoes; repeat_progress rows > 0; depositoffer_tally suppressed > 0 -- any of the three at 0 with its population present = that piece not live; (2) CALLS (defect): canary model calls/bot-h not up > 5% vs control-adjusted pre; (3) SPIN (defect): no bot > 20 remedies of one rule per hour; (4) vetoes repeat_loop and deposit_nothing_to_bank per bot-h (llm.error count / observed bot-h) DOWN (the effect targets carry the shares); (5) decision-time share (busy decision = llm_wait + paused + between) DOWN; (6) value/bot-h (scoreboard) and items/bot-h not worse; (7) deaths inside a home run named. Per-piece attribution: VETOREMEDY/REPEATWORK/DEPOSITOFFER tallies (fewerdec_tally veto_remedy, repeatwork_tally, depositoffer_tally). A bad line -> set that piece's flag =0 in the env (no code). DRAW: any towns (no pinned pools): every bot reaches the sustaining rungs (24 h: 80/80 touched return). No world change, no new mineflayer/Paper behaviour (home/deposit are existing skills issued as orders; the enum is the per-request format).",
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "busy.share.v1",
+    "params": {
+     "cls": "decision"
+    },
+    "direction": "decrease",
+    "minimum": 0.05,
+    "scale": "relative",
+    "claim": "decision time (llm_wait+paused+between; 57% of bot time 11-06) falls >= 5% relative: vetoes are ~47% of it",
+    "primary": true
+   },
+   {
+    "metric": "llm.veto_share.v1",
+    "params": {
+     "error": "repeat_loop"
+    },
+    "direction": "decrease",
+    "minimum": 0.25,
+    "scale": "relative",
+    "claim": "repeat_loop vetoes (16.5% of model calls, 15.6/bot-h, 11-06 00-03Z) fall: a gaining gather is not refused"
+   },
+   {
+    "metric": "llm.veto_share.v1",
+    "params": {
+     "error": "deposit_nothing_to_bank"
+    },
+    "direction": "decrease",
+    "minimum": 0.5,
+    "scale": "relative",
+    "claim": "deposit_nothing_to_bank (11.2% of calls, 10.6/bot-h) falls: deposit is not offered when the gate would refuse it"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   },
+   {
+    "metric": "llm.veto_share.v1",
+    "params": {
+     "error": "deposit_not_worth_it"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "failclass.rate.v1",
+    "params": {
+     "name": "_death",
+     "fail_class": "drowning"
+    },
+    "direction": "decrease"
+   }
+  ],
+  "exposure": "every bot on the return / deposit_surplus / gather rungs: the vetoed decisions are ~47% of fleet decision time (codeeval decision.md D4)",
+  "note": "vetoes per bot-h are read in the own lines (llm.error count / observed bot-h); the shares here move with them while calls/bot-h stays inside 5%."
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}
