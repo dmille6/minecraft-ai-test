@@ -419,6 +419,7 @@ const REQUIRED = [
   'scripts/learnloop/weekly/card_rates.py',
   'scripts/learnloop/weekly/install-weekly.sh',
   'scripts/learnloop/weekly/test_weekly.py',
+  'scripts/learnloop/weekly/evalset.py',
   'config/learnloop-weekly.json',
   'scripts/learnloop/test_build_clean.py',
   'scripts/learnloop/teacher/teacher_pilot.py',
