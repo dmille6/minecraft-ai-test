@@ -2179,7 +2179,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
     // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
     // coalfirst-01: coal tunnels too, so its candidates get the same six-face check
-    const ironStrict = tunnelKindsFor(blockName) != null
+    const ironStrict = tunnelKindsFor(blockName, { copper: (Number(bot.copperTunnelUntil) || 0) > Date.now() }) != null   // copperrun-02: a trip's copper too
     // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
     // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
@@ -2554,7 +2554,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // bitten before by deriving a failure class from prose.
       // IRON TUNNELS TO THE ORE IT CAN SEE (oretunnel.mjs), instead of stairing toward dryness. Once per run.
       // coalfirst-01: and coal (oretunnel.mjs tunnelKindsFor), with the same tunnel
-      const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true })   // deepminer-01: diamond ore tunnels on a deep miner's call
+      const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true }) ?? ((Number(bot.copperTunnelUntil) || 0) > Date.now() ? tunnelKindsFor(viaSource ?? blockName, { copper: true }) : null)   // deepminer-01: diamond ore tunnels on a deep miner's call; copperrun-02: copper on the hall's trip
       if (tk && !escalated) {
         escalated = true
         check(signal)
