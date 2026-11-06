@@ -211,6 +211,8 @@ M = [
  ("                        why = '' if ok else ' decor_post'\n", "                        why = ''\n"),
  # copperrun-02 CR2: the copper trip's gather rows reach the judge (the counter), and move no gate
  ("        if name == 'gather':\n", "        if name == 'gather_':\n"),
+ # FF1 (fellfirst-01): a fell-first felling read as H5 again (the trip the stepwell's fix would cause)
+ ("                    elif int(m.group(1)) < int(m.group(2)) and f.get('first') == '1':", "                    elif False:"),
 ]
 bad = 0
 for old, new in M:

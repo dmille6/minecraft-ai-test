@@ -1525,6 +1525,11 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     need = len([x for x in rec.get('replant') or [] if x.get('state') != 'skipped']) if rec is not None else None
                     if not m or int(m.group(1)) > int(m.group(2)) or (need is not None and int(m.group(2)) != need):
                         out['g5_unjudged'] += 1; lists['g5_unjudged'].append('%s %s saplings=%s record=%s' % (bot, k, f.get('saplings'), need))
+                    elif int(m.group(1)) < int(m.group(2)) and f.get('first') == '1':
+                        # FF1 (fellfirst-01, 11-06; bots/src/buildrun.mjs fellFirstOk): a tree felled FIRST because no sapling of its kind
+                        # existed in any bag or town chest (the stepwell's 'felling complete, 17 logs left' loop) -- its own drops replant it.
+                        # Counted (a watch line), never H5; any other short felling is still H5
+                        out['felled_first'] += 1; lists['felled_first'].append('%s %s saplings=%s' % (bot, k, f.get('saplings')))
                     elif int(m.group(1)) < int(m.group(2)):
                         out['felled_unplanted'] += 1; lists['felled_unplanted'].append('%s %s saplings=%s' % (bot, k, f.get('saplings')))
                 unknown_open.pop((bot, k), None)
@@ -2282,6 +2287,9 @@ def selftest():
     assert J(base + [R('_build_bag', 'project=house1 exit=complete silent=0 glass_pane=0/3/0/2/0/0', s=50)])['bag_loss'] == 1
     # G5 from the felling's own evidence: fewer saplings than replant cells; a tree clear without the field is unjudged
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/1', s=9)])['felled_unplanted'] == 1
+    # FF1 (fellfirst-01): the same short felling marked first=1 (no sapling of its kind anywhere) is counted, never H5 (positive control above)
+    ff = J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/1 first=1', s=9)])
+    assert ff['felled_unplanted'] == 0 and ff.get('felled_first', 0) == 1, ('FF1: a fell-first felling is no H5', ff['felled_unplanted'], ff.get('felled_first', 0))
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree', s=9)])['g5_unjudged'] == 1
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/0', s=9)])['g5_unjudged'] == 1, 'Codex read r2 P2-4: 0/0 against a record with a replant'
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=2/1', s=9)])['g5_unjudged'] == 1, 'an impossible fraction'
