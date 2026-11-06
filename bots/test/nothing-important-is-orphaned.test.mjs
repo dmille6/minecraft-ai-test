@@ -99,6 +99,7 @@ const REQUIRED = [
   // forest-01 (11-06): the managed forest outside the walls
   'bots/src/forest.mjs',
   'bots/test/forest.test.mjs',
+  'bots/scripts/forest-offline.mjs',   // forest-02: the forest's siting on copies of a world
   // voidfill-01 (10-30): a sealed void in a project record repaired from inside; its test reproduces the showcase ziggurat's
   // own geometry from the fixture (the record's cells and a read-only scan of the world)
   'bots/src/voidfill.mjs',

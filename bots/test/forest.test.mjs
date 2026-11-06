@@ -168,11 +168,120 @@ await t('MUTANT KILLED: a siting that does not keep the wall gap (the forest aga
   })
 })
 await t('MUTANT KILLED: a zone from -64 to 320 (the in-wall farm\'s) refuses the coal under the forest', async () => {
-  await killed("    zones: [{ box: [box[0] - 1, f.W - 1 - FOREST.bandBelow, box[1] - 1, box[2] + 1, f.W + FOREST.bandAbove, box[3] + 1], why: `project:${FOREST_PLOT}` }],",
+  await killed("    zones: [{ box: [box[0] - 1, lo - 1 - FOREST.bandBelow, box[1] - 1, box[2] + 1, hi + FOREST.bandAbove, box[3] + 1], why: `project:${FOREST_PLOT}` }],",
     "    zones: [{ box: [box[0] - 1, -64, box[1] - 1, box[2] + 1, 320, box[3] + 1], why: `project:${FOREST_PLOT}` }],", M => {
       const r = M.siteForest(world().read, { home: HOME, rings: [WALL.ring] }).record
       assert.strictEqual(projectSiteHit({ x: r.box[0] + 2, y: G - 20, z: r.box[1] + 2 }, r.zones), null)
     })
+})
+
+// ---- forest-02: the siting that finds the showcase's ground (LIVE 11-06 20:38Z: no site in 7,761 tries) ---------------------------
+await t('forest-02 TICKING: anchored on the walled area -- a box within simChunks - tickMargin (4) chunks of the rings\' chunks ticks, 5 does not; no walls: home\'s chunk rule as before', () => {
+  const rings = [[-46, -20, 35, 39], [-40, -89, 35, -20]]   // the showcase's wall + extension: chunks x -3..2, z -6..2
+  assert.strictEqual(F.FOREST.simChunks, 6, 'the showcase server\'s simulation-distance (server.properties 6; spigot.yml default)')
+  assert.ok(F.boxTicks([-109, 25, -98, 42], HOME, F.FOREST.chunkR, rings), 'chunk -7: 4 from the wall chunk -3 (measured 94-100% of minutes a bot within 6)')
+  assert.ok(!F.boxTicks([-125, 25, -114, 42], HOME, F.FOREST.chunkR, rings), 'chunk -8: 5 out')
+  assert.ok(F.boxTicks([10, 95, 20, 105], HOME, F.FOREST.chunkR, rings), 'south: chunk 6, 4 from the wall chunk 2')
+  assert.ok(!F.boxTicks([-109, 25, -98, 42], HOME), 'forest-01\'s home-chunk rule refused it (chunk -7 is 7 from home)')
+  // the rings' UNION, never their bounding box (Codex r1): an L-shaped town admits no chunk 6 from every wall
+  assert.ok(!F.boxTicks([-112, -112, -97, -97], HOME, F.FOREST.chunkR, [[-48, -16, 16, 16], [0, -96, 16, -16]]), 'chunk -7,-7: 6 from both rings')
+  assert.ok(F.boxTicks([-112, -16, -97, -1], HOME, F.FOREST.chunkR, [[-48, -16, 16, 16], [0, -96, 16, -16]]), 'beside the first ring: ticks')
+})
+await t('forest-02 AXIS: rows along z keep every invariant (trunks 3 apart, one stand beside each trunk in an aisle), the box transposed', () => {
+  const Lx = F.forestLayout(0, 0, { perRow: 6, strips: 2 }), Lz = F.forestLayout(0, 0, { perRow: 6, strips: 2, axis: 'z' })
+  assert.deepStrictEqual([Lz.box[2] - Lz.box[0], Lz.box[3] - Lz.box[1]], [Lx.box[3] - Lx.box[1], Lx.box[2] - Lx.box[0]])
+  assert.ok(F.trunksApart(Lz.plots, 3))
+  for (const p of Lz.plots) { assert.strictEqual(Math.abs(p.stand[0] - p.x) + Math.abs(p.stand[1] - p.z), 1); assert.ok(Lz.aisles.has(`${p.stand[0]},${p.stand[1]}`)) }
+  for (const p of Lz.plots) assert.strictEqual(Lz.stripOf(p.x, p.z), p.s, 'each trunk in its own strip')
+})
+await t('forest-02 TERRAIN: each strip at its own level (a hill a flight of strips, 1 apart), never two steps between strips nor a spread past 2', () => {
+  // a slope rising 1 every 6 blocks of z from z=30: three strips at G, G+1, G+2
+  const cells = {}
+  for (let x = 25; x <= 60; x++) for (let z = 30; z <= 60; z++) { const up = Math.floor((z - 29) / 6); for (let k = 1; k <= up; k++) cells[`${x},${G + k},${z}`] = k === up ? 'grass_block' : 'dirt'; if (up) cells[`${x},${G},${z}`] = 'dirt' }
+  const w = world(cells)
+  const col = (x, z) => { for (let y = G + 6; y >= G - 6; y--) { const b = w.read(x, y, z); if (b && b.name !== 'air') return { y, why: null, above: [] } } return { y: null, why: 'no_ground', above: [] } }
+  const fit = F.forestFitAt(w.read, { x0: 30, z0: 31, perRow: 6, strips: 3, home: HOME, col, blocked: () => null, rings: [WALL.ring] })
+  assert.ok(fit.ok, fit.why)
+  assert.deepStrictEqual(fit.Ws, [G, G + 1, G + 2])
+  const rec = F.forestRecord(fit, { home: HOME })
+  assert.deepStrictEqual(rec.strips.map(q => q.level), [G, G + 1, G + 2])
+  for (const c of plotsOf(rec)) assert.strictEqual(c.at[1], rec.strips[F.stripOf(rec, c)].level, 'a plot sunk at its strip\'s level')
+  for (const c of plotsOf(rec)) assert.strictEqual(c.stand[1], c.at[1] + 1)
+  assert.deepStrictEqual([rec.level, rec.levelMax], [G, G + 2])
+  assert.ok(rec.aisles.every(a => a.length === 3 && a[2] >= G && a[2] <= G + 2), 'each aisle cell carries its strip\'s level')
+  assert.strictEqual(rec.zones[0].box[1], G - 1 - F.FOREST.bandBelow); assert.strictEqual(rec.zones[0].box[4], G + 2 + F.FOREST.bandAbove)
+  // a cliff: two levels between neighbouring strips is refused (no dirt step between them)
+  const c2 = {}
+  for (let x = 25; x <= 60; x++) for (let z = 36; z <= 60; z++) { c2[`${x},${G + 1},${z}`] = 'dirt'; c2[`${x},${G + 2},${z}`] = 'grass_block' }
+  const w2 = world(c2)
+  const col2 = (x, z) => { for (let y = G + 6; y >= G - 6; y--) { const b = w2.read(x, y, z); if (b && b.name !== 'air') return { y, why: null, above: [] } } return { y: null, why: 'no_ground', above: [] } }
+  assert.strictEqual(F.forestFitAt(w2.read, { x0: 30, z0: 31, perRow: 6, strips: 2, home: HOME, col: col2, blocked: () => null, rings: [WALL.ring] }).why, 'level')
+})
+await t('MUTANT KILLED: strips without the step rule (a 2-block cliff between strips)', async () => {
+  await killed('  for (let i = 1; i < Ws.length; i++) if (Math.abs(Ws[i] - Ws[i - 1]) > F.stripStep) return { ok: false, why: \'level\' }\n', '', M => {
+    const c2 = {}
+    for (let x = 25; x <= 60; x++) for (let z = 36; z <= 60; z++) { c2[`${x},${G + 1},${z}`] = 'dirt'; c2[`${x},${G + 2},${z}`] = 'grass_block' }
+    const w2 = world(c2)
+    const col2 = (x, z) => { for (let y = G + 6; y >= G - 6; y--) { const b = w2.read(x, y, z); if (b && b.name !== 'air') return { y, why: null, above: [] } } return { y: null, why: 'no_ground', above: [] } }
+    const f = M.forestFitAt(w2.read, { x0: 30, z0: 31, perRow: 6, strips: 2, home: HOME, col: col2, blocked: () => null, rings: [WALL.ring], F: { ...M.FOREST, stripSpread: 9 } })
+    assert.strictEqual(f.why, 'level')
+  })
+})
+await t('forest-02 THE SHOWCASE\'S SHAPE: water on three sides of the walls, the free ground 75-110 out -- forest-01\'s rules find nothing, forest-02 sites it', () => {
+  // the showcase's walls (wall + extension); water everywhere outside them but west of x=-75 (the peninsula's land)
+  const cells = {}
+  const rings = [[-46, -20, 35, 39], [-40, -89, 35, -20]]
+  const inR = (x, z) => rings.some(g => x >= g[0] && x <= g[2] && z >= g[1] && z <= g[3])
+  for (let x = -120; x <= 120; x++) for (let z = -120; z <= 120; z++) if (!(x <= -75 && Math.abs(z) <= 30) && !inR(x, z)) cells[`${x},${G},${z}`] = 'water'
+  const w = world(cells)
+  const s = F.siteForest(w.read, { home: HOME, rings })
+  assert.ok(s.ok, s.why)
+  assert.ok(s.record.box[2] <= -75 && s.record.box[0] >= -112, `west, within rMax 112: ${s.record.box}`)
+  const old = F.siteForest(w.read, { home: HOME, rings, F: { ...F.FOREST, rMax: 72, scanR: 96 } })
+  assert.ok(!old.ok && /far=/.test(old.why), 'forest-01\'s reach (72): no site (the live 20:38Z refusal) ' + old.why)
+})
+await t('MUTANT KILLED: the ticking rule anchored on home again (the showcase\'s ground refused as unticked)', async () => {
+  await killed('  if (rs.length) {\n    // every chunk of the box', '  if (false) {\n    // every chunk of the box', M => {
+    assert.ok(M.boxTicks([-109, 25, -98, 42], HOME, M.FOREST.chunkR, [[-46, -20, 35, 39], [-40, -89, 35, -20]]))
+  })
+})
+await t('forest-02 TIERS: the nearest tier with a good forest (16+ plots) wins -- open ground sites within 72; a near pocket for 12 loses to a good forest further out; a small one only when nothing good fits', () => {
+  const rings = [[-46, -20, 35, 39], [-40, -89, 35, -20]]
+  const inR = (x, z) => rings.some(g => x >= g[0] && x <= g[2] && z >= g[1] && z <= g[3])
+  const open = F.siteForest(world().read, { home: HOME, rings })
+  assert.ok(open.ok && F.boxReach(open.record.box, HOME) <= 72 && open.tier === 72, `open ground: tier 72 (${open.tier})`)
+  // water everywhere but a near pocket (x -62..-50, z 44..53: room for 2 strips x 2 rows x 3 along z, 12 plots, on the scan grid) and far land (x <= -95)
+  const cells = {}
+  for (let x = -120; x <= 120; x++) for (let z = -120; z <= 120; z++) {
+    const pocket = x >= -62 && x <= -50 && z >= 44 && z <= 53, far = x <= -95 && Math.abs(z) <= 30
+    if (!pocket && !far && !inR(x, z)) cells[`${x},${G},${z}`] = 'water'
+  }
+  const w = world(cells)
+  const s = F.siteForest(w.read, { home: HOME, rings })
+  assert.ok(s.ok && s.record.counts.plots >= 16 && s.record.box[2] <= -95, `the good far forest: ${s.record?.box} ${s.record?.counts.plots}`)
+  const only = {}
+  for (let x = -120; x <= 120; x++) for (let z = -120; z <= 120; z++) { const pocket = x >= -62 && x <= -50 && z >= 44 && z <= 53; if (!pocket && !inR(x, z)) only[`${x},${G},${z}`] = 'water' }
+  const s2 = F.siteForest(world(only).read, { home: HOME, rings })
+  assert.ok(s2.ok && s2.small && s2.record.counts.plots === 12, `nothing good: the small one (${s2.why ?? s2.record?.counts.plots})`)
+})
+await t('MUTANT KILLED: tiers without the good-forest bar (a near 12-plot pocket beats a good forest further out)', async () => {
+  await killed('      if (best && best.plots.length >= (F.goodPlots ?? 0)) return', '      if (best) return', M => {
+    const rings = [[-46, -20, 35, 39], [-40, -89, 35, -20]]
+    const inR = (x, z) => rings.some(g => x >= g[0] && x <= g[2] && z >= g[1] && z <= g[3])
+    const cells = {}
+    for (let x = -120; x <= 120; x++) for (let z = -120; z <= 120; z++) { const pocket = x >= -62 && x <= -50 && z >= 44 && z <= 53, far = x <= -95 && Math.abs(z) <= 30; if (!pocket && !far && !inR(x, z)) cells[`${x},${G},${z}`] = 'water' }
+    const s = M.siteForest(world(cells).read, { home: HOME, rings })
+    assert.ok(s.record.counts.plots >= 16)
+  })
+})
+await t('forest-02 badCounter: the box\'s bad-column count equals a brute-force count; past the scan square it refuses', () => {
+  const bad = (x, z) => ((x * 7 + z * 13) % 11) === 0
+  const cnt = F.badCounter(-20, -20, 20, 20, bad)
+  for (const b of [[-20, -20, 20, 20], [-5, 3, 7, 9], [0, 0, 0, 0], [10, -20, 20, -10]]) {
+    let n = 0; for (let x = b[0]; x <= b[2]; x++) for (let z = b[1]; z <= b[3]; z++) if (bad(x, z)) n++
+    assert.strictEqual(cnt(b), n, String(b))
+  }
+  assert.strictEqual(cnt([15, 15, 25, 25]), Infinity)
 })
 
 // ---- the rotation ---------------------------------------------------------------------------------------------------------------
