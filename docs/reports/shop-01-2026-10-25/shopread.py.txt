@@ -536,6 +536,17 @@ DECOR_LEAVES = frozenset(['spruce_leaves', 'oak_leaves', 'birch_leaves', 'dark_o
 WALL_PLOTS = ('wall', 'wallext')
 
 
+def g5_denominator_ok(chain, b, t_ms):
+    """G5R: is a felling's sapling denominator `b` (saplings=a/b: the non-skipped replant entries of the record the bot held)
+    the replant list of a generation in force at t_ms? Pure. A replant only ever becomes `skipped` (never back), so at felling
+    time the non-skipped count lay between the generation's count of non-skipped entries NOW and its count of ALL entries."""
+    for g in sink_in_force(chain, t_ms):
+        rp = [x for x in g.get('replant') or [] if isinstance(x, dict)]
+        if len([x for x in rp if x.get('state') != 'skipped']) <= b <= len(rp):
+            return True
+    return False
+
+
 def sink_in_force(chain, t_ms, skew_ms=60_000):
     """picker-01: the generations of a sink chain in force at t_ms (sited at or before t + skew; no `at`: in force). Pure."""
     return [g for g in chain or [] if not (t_ms is not None and isinstance(g.get('at'), (int, float)) and g['at'] > t_ms + skew_ms)]
@@ -1523,7 +1534,13 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     m = re.match(r'^(\d+)/(\d+)$', f.get('saplings') or '')
                     # a SKIPPED replant (shop-01 F2: no plantable cell in the band from where the builder stood) is no obligation
                     need = len([x for x in rec.get('replant') or [] if x.get('state') != 'skipped']) if rec is not None else None
-                    if not m or int(m.group(1)) > int(m.group(2)) or (need is not None and int(m.group(2)) != need):
+                    # G5R (phase 1 item 4, 11-06): the bot's denominator is the replant list of the record IT ran when it felled
+                    # (buildrun.mjs: the non-skipped entries then). Judging every past felling against the CURRENT record made
+                    # 47 of 52 live items g5_unjudged (a later generation, or a replant skipped since): judge it against the
+                    # generations in force at the row's time instead (g5_denominator_ok)
+                    chain_g5 = project_of(projects.get(pool), plot).get('chain') or ([rec] if rec is not None else [])
+                    t_g5 = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
+                    if not m or int(m.group(1)) > int(m.group(2)) or (rec is not None and not g5_denominator_ok(chain_g5, int(m.group(2)), t_g5)):
                         out['g5_unjudged'] += 1; lists['g5_unjudged'].append('%s %s saplings=%s record=%s' % (bot, k, f.get('saplings'), need))
                     elif int(m.group(1)) < int(m.group(2)) and f.get('first') == '1':
                         # FF1 (fellfirst-01, 11-06; bots/src/buildrun.mjs fellFirstOk): a tree felled FIRST because no sapling of its kind
@@ -2292,6 +2309,22 @@ def selftest():
     assert ff['felled_unplanted'] == 0 and ff.get('felled_first', 0) == 1, ('FF1: a fell-first felling is no H5', ff['felled_unplanted'], ff.get('felled_first', 0))
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree', s=9)])['g5_unjudged'] == 1
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/0', s=9)])['g5_unjudged'] == 1, 'Codex read r2 P2-4: 0/0 against a record with a replant'
+    # G5R (phase 1 item 4, 11-06): the denominator is judged against the generations IN FORCE at the felling, never only the
+    # current record (47 of 52 live g5_unjudged items were a later generation or a replant skipped since)
+    ms = lambda d: int(d.timestamp() * 1000)
+    g1 = dict(rec, gen=1, at=ms(t0 - dt.timedelta(hours=1)), replant=[{'cell': [20 + i, 70, 20], 'sapling': 'oak_sapling'} for i in range(5)])
+    g2 = dict(rec, gen=2, at=ms(t0 + dt.timedelta(seconds=100)), replant=[{'cell': [20, 70, 20], 'sapling': 'oak_sapling'}])
+    tree = lambda sap, sec: [x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=%s' % sap, s=sec)]
+    ch = PP(shop={'record': g2, 'chain': [g1, g2], 'records_files': 2, 'leases': {}})
+    r5 = J(tree('2/5', 9), ch)
+    assert r5['g5_unjudged'] == 0 and r5['felled_unplanted'] == 1, ('G5R: 2/5 under the generation in force (5 replants) is JUDGED: a short felling', r5['g5_unjudged'], r5['felled_unplanted'])
+    assert J(tree('2/5', 9), PP(shop={'record': g2, 'records_files': 1, 'leases': {}}))['g5_unjudged'] == 1, 'G5R positive control: against the current record alone it is unjudged'
+    assert J(tree('1/7', 9), ch)['g5_unjudged'] == 1, 'G5R: a denominator no generation in force had stays unjudged'
+    assert J(tree('2/5', -7200), ch)['g5_unjudged'] == 1, 'G5R: a felling before the first generation was sited judges against none'
+    sk = dict(rec, replant=[{'cell': [20, 70, 20]}, {'cell': [21, 70, 20]}, {'cell': [22, 70, 20], 'state': 'skipped'}])
+    skp = PP(shop={'record': sk, 'records_files': 1, 'leases': {}})
+    assert J(tree('3/3', 9), skp)['g5_unjudged'] == 0 and J(tree('2/2', 9), skp)['g5_unjudged'] == 0, 'G5R: a replant skipped AFTER the felling: 3/3 or 2/2 both judged'
+    assert J(tree('4/4', 9), skp)['g5_unjudged'] == 1, 'G5R: more than the generation ever listed stays unjudged'
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=2/1', s=9)])['g5_unjudged'] == 1, 'an impossible fraction'
     # shop-01 F2: a SKIPPED replant is no obligation -- 0/0 against a record whose only replant is skipped is judged and clean
     recs = dict(rec, replant=[{'cell': [20, 70, 20], 'sapling': 'oak_sapling', 'state': 'skipped'}])

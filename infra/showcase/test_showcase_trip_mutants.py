@@ -77,6 +77,10 @@ MUTANTS = [
     ("            quarantine.extend(sorted(f['trapped']))\n", "", 'QUARANTINED'),
     # Z1: a bot freed long ago is still acted on
     ("            ((now if (end - e).total_seconds() / 60 <= slack_min else earlier)", "            ((now if True else earlier)", 'trapped NOW'),
+    # r4: g5_unjudged history a WATCH again
+    ("        if out.get(k) and k != 'g5_unjudged':", "        if out.get(k):", 'counted, no WATCH'),
+    # r4: this run's field-less fellings no longer a WATCH
+    ("    if nofield:\n", "    if False:\n", 'bot regression'),
     # S7: a crash loop is only a WATCH
     ("        harm.append('S7 crash loop", "        watch.append('S7 crash loop", 'crash loop is HARM'),
     # S7: an unreadable journal reads OK

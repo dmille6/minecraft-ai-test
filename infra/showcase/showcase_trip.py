@@ -624,8 +624,16 @@ def shop_read(rows, run_since, zones, projects=None, surveys=None):
     if stalled:
         watch['STALLED (every open segment waits on a stuck cell; cells waiting by bot)'] = stalled
     for k in SHOP_BLIND:
-        if out.get(k):
+        if out.get(k) and k != 'g5_unjudged':
             watch['%s (blind)' % k] = out[k]
+    # OWNER 11-06 (phase 1 item 4 r4): g5_unjudged over the town's whole history is counted on the REPORTED line. Measured: after
+    # shopread G5R (the denominator judged against the generation in force) 5 of 634 fellings stay unjudged, all leaf clears of
+    # 10-28 / 10-30 that predate the saplings= field -- history no read can judge. A felling of THIS run without the field is a
+    # bot regression the read cannot judge either: that stays a WATCH.
+    nofield = sum(1 for r in recent if r.get('name') == '_build' and ' kind=tree' in ' ' + r['detail'] and 'op=clear' in r['detail']
+                  and 'saplings=' not in r['detail'])
+    if nofield:
+        watch['g5 this run\'s fellings without saplings= (blind: a bot regression)'] = nofield
     # OWNER 11-06: the showcase has no survey job until phase 3 (the shared project registry). With NO survey source at all
     # the gate cannot judge on any read (187 of 253): counted on the REPORTED line, not a WATCH. The judgement is intact: once
     # surveys exist, a completed workshop without one is UNJUDGED (WATCH) again, and a failing one is H8.
@@ -644,7 +652,8 @@ def shop_read(rows, run_since, zones, projects=None, surveys=None):
               # FUN MODE H2 tree debris (logs/leaves/plants cleared outside the record): legal, REPORTED with its count, never a
               # WATCH line (phase 1 item 4: it was on 191 of 245 reads)
               'tree_debris': len(debris), 'tree_debris_items': debris[:5],
-              'conformance_unjudged_no_survey': len(unjudged) if no_source else 0}
+              'conformance_unjudged_no_survey': len(unjudged) if no_source else 0,
+              'g5_unjudged_history': out.get('g5_unjudged', 0), 'tree_clears': out.get('tree_clears', 0)}
     return defects, watch, report, items
 
 
@@ -1026,9 +1035,10 @@ def cmd_read(a):
     print('S7 CRASH     %s' % ('not read' if crash is None else ('NOT JUDGED ' + crash['error']) if crash.get('error') else
                                'loops %s (systemd unit lines since the window start %d)' % (crash['loops'] or 'none', crash['unit_lines'])))
     print('REPORTED     S3 DEEP below a village floor (legal ground) %s | H2 tree debris cleared outside the record %s %s | '
-          'H8 conformance UNJUDGED, no survey source (phase 3) %s' % (
+          'H8 conformance UNJUDGED, no survey source (phase 3) %s | G5 unjudged fellings in the history %s of %s' % (
         deep or 'none', (shop_report or {}).get('tree_debris', 0), (shop_report or {}).get('tree_debris_items') or '',
-        (shop_report or {}).get('conformance_unjudged_no_survey', 0)))
+        (shop_report or {}).get('conformance_unjudged_no_survey', 0), (shop_report or {}).get('g5_unjudged_history', 0),
+        (shop_report or {}).get('tree_clears', 0)))
     if shop_report:
         print('EXPOSURE     shop: record %s, visits %d, placements %d, clears %d, complete %d, surveys %s%s' % (
             shop_report['record'], shop_report['visits'], shop_report['placements'], shop_report['clears'], shop_report['complete'],
@@ -1161,6 +1171,12 @@ def shop_selftest(T):
     _, w, rp_, _ = shop_read(done, T(0), [], projects=pj, surveys=nos)
     assert 'conformance UNJUDGED' not in w and rp_['conformance_unjudged_no_survey'] == 1, \
         ('no survey source at all (OWNER 11-06, until phase 3): UNJUDGED is counted, not a WATCH', w, rp_)
+    g5 = base + [R('_build', 'project=shop op=clear cell=1,71,1 block=oak_log kind=tree', 'showcase-Alpha', 5)]
+    d5, w5, r5, _ = shop_read(g5, T(10), [], projects=pj, surveys=nos)
+    assert not any('g5' in k for k in w5) and r5['g5_unjudged_history'] == 1, ('a field-less felling before this run: counted, no WATCH', w5, r5)
+    _, w6, _, _ = shop_read(g5, T(0), [], projects=pj, surveys=nos)
+    assert any('without saplings=' in k for k in w6) and not any(k.startswith('g5_unjudged') for k in w6), \
+        ('a felling of THIS run without the field is a WATCH (a bot regression)', w6)
     _, w, rp2, _ = shop_read(done, T(0), [], projects=pj, surveys=(True, {}))
     assert 'conformance UNJUDGED' in w and rp2['conformance_unjudged_no_survey'] == 0, \
         ('surveys exist but none judges this workshop: UNJUDGED (WATCH), the gate intact', w, rp2)

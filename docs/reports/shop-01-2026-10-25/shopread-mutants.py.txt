@@ -37,7 +37,7 @@ M = [
  ("        if name in BUILD_KINDS and r.get('feet') and unknown_open:", "        if r.get('feet') and unknown_open:"),
  ("            for k in [k for k in unknown_open if k[0] == bot]:      # a new connection: its unknown set starts empty -- FIRST\n                del unknown_open[k]", "            pass"),
  ("    if not isinstance(raw, dict) or raw.get('version') != 1 or not isinstance(raw.get('zones'), list) or len(raw['zones']) > 64:", "    if not isinstance(raw, dict):"),
- ("                    if not m or int(m.group(1)) > int(m.group(2)) or (need is not None and int(m.group(2)) != need):", "                    if not m:"),
+ ("                    if not m or int(m.group(1)) > int(m.group(2)) or (rec is not None and not g5_denominator_ok(chain_g5, int(m.group(2)), t_g5)):", "                    if not m:"),
  ("out['bag_loss'] += 1;", "pass;"),
  ("            if f.get('exit') in (None, '-', 'aborted', 'error', 'died', 'off') or f.get('silent') != '0':", "            if False:"),
  ("                if unexplained < 0 and n not in SCAFFOLD_NAMES:", "                if unexplained < 0:"),
@@ -213,6 +213,12 @@ M = [
  ("        if name == 'gather':\n", "        if name == 'gather_':\n"),
  # FF1 (fellfirst-01): a fell-first felling read as H5 again (the trip the stepwell's fix would cause)
  ("                    elif int(m.group(1)) < int(m.group(2)) and f.get('first') == '1':", "                    elif False:"),
+    # G5R (phase 1 item 4): the felling's denominator against the current record only again
+ ("(rec is not None and not g5_denominator_ok(chain_g5, int(m.group(2)), t_g5))", "(need is not None and int(m.group(2)) != need)"),
+ # G5R: the skip-tolerant range collapsed to the current non-skipped count
+ ("        if len([x for x in rp if x.get('state') != 'skipped']) <= b <= len(rp):", "        if len([x for x in rp if x.get('state') != 'skipped']) == b:"),
+ # G5R: every generation in force, whatever the felling's time
+ ("    for g in sink_in_force(chain, t_ms):\n        rp = ", "    for g in chain or []:\n        rp = "),
 ]
 bad = 0
 for old, new in M:
