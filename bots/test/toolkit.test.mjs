@@ -105,7 +105,9 @@ await t('COMPOSED with craftroom: a full-bag craft may wear out a spent stone co
   const r = craftRoomRemedy(bag, 'oak_planks')
   assert.equal(r?.why, 'spent'); assert.equal(r.tool.name, 'stone_pickaxe'); assert.equal(r.tool.maxDurability - r.tool.durabilityUsed, 1)
   // CONTROL: without the iron the same 1-use copy is one of the three last-swing keeps
-  assert.equal(craftRoomRemedy(fullOf([T('stone_pickaxe', 90), T('stone_pickaxe', 1)]), 'oak_planks'), null)
+  assert.equal(craftRoomRemedy(fullOf([T('stone_pickaxe', 90), T('stone_pickaxe', 1)]), 'oak_planks', { escdead: false }), null)
+  // escdead-01 (b): the one rule -- with the 90-use stone copy kept, the 1-use copy may go for any craft ('spare')
+  assert.equal(craftRoomRemedy(fullOf([T('stone_pickaxe', 90), T('stone_pickaxe', 1)]), 'oak_planks', { escdead: true })?.why, 'spare')
 })
 
 // ------------------------------------------------------------------------------------------ PART 2: the kit ---

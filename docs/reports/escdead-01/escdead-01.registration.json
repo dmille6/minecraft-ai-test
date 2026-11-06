@@ -1,0 +1,77 @@
+{
+ "run_id": "escdead-01",
+ "sha": "__FINAL_SHA__",
+ "registered_at": "__REGISTERED_AT__",
+ "promotion": "fleet-wide",
+ "target_pools": [
+  "isolated-d",
+  "hive-c"
+ ],
+ "target_bots": [
+  "isolated-d-Delta",
+  "isolated-d-Echo",
+  "hive-c-Bravo"
+ ],
+ "target_note": "The draw MUST contain isolated-d (Delta + Echo pinned at 358,58,180 since 11-02) and should contain hive-c (Bravo under a lake). swimunder-01 was KEPT on board-a/board-c with 0 target bots exposed (survival.md S3): a draw without isolated-d is UNEXPOSED for (a) and its read is INCONCLUSIVE, not KEEP.",
+ "change_rows": [
+  "_escdead_mode",
+  "_flood_breach_start",
+  "_flood_breach",
+  "_flood_breach_refused"
+ ],
+ "licence": {
+  "class": "kind",
+  "kind": "_escdead_mode",
+  "min_rows": 1,
+  "note": "Written only by this build: one `_escdead_mode on=1 pin_min=30 wide=r8/d4 breach_water<=8 hp>=18 pinned_last_swing=1 zone_depth=terrain` row per spawn (features.mjs). The base has no such row kind. ESCDEAD=0 -> on=0 (the rollback)."
+ },
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_swim_under_refused"
+    },
+    "direction": "decrease",
+    "minimum": 0.5,
+    "scale": "relative",
+    "claim": "pinned bot-hours down for the wet-ceiling pin: 60 `_swim_under_refused` rows on 11-06 00:00-11:31Z, all on the 3 target bots (isolated-d-Delta/Echo 'no way out within 4 cells (12 water cells searched)', hive-c-Bravo); the 11-06 backup cut has a 10-cell dry exit at radius 8 / descent 4 (wide=1 after 30 min pinned)"
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_climb_flood_refused"
+    },
+    "direction": "decrease",
+    "minimum": 0.25,
+    "scale": "relative",
+    "claim": "the climb-flood chain held 335.7 of 457.1 pinned bot-h (73%) in 7 d; 460 `_climb_flood_refused` rows on 31 bots 11-06 00:00-11:31Z: the wide swim and the breach end the refusal cycles at the pins they free"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "death"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "failclass.rate.v1",
+    "params": {
+     "name": "_death",
+     "fail_class": "drowned"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   }
+  ],
+  "note": "EFFECT = pinned bot-hours down (no pinned_bot_h metric exists in effectmetrics.py: the row rates above are its proxies; the hand measure is docs/reports/escdead-design-2026-11-06.md section 1's pin walk, 3.4% of online bot-h, to be re-run at +24 h / +72 h). DROWNING is the breach's risk: `_death` drowned is a guardrail and every `_flood_breach` row names min_air and hp. `_swim_under` status success is 0/1,102 bot-h in the last 24 h (effectwatch validate refuses a zero baseline), so it is the read's OWN line, not an effect target: the +90/+180 read counts `_swim_under` success and `_flood_breach` success on the target bots."
+ },
+ "notes": "__NOTES__"
+}

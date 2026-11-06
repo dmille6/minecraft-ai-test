@@ -120,9 +120,29 @@ blocks of ground; handcap-01's survival climb is the main fix there.
 Paper (section 5) shows: the base pinned in both scenes; the candidate out of isolated-d by the wide swim; the candidate out
 of hive-c's pocket by the breach.
 
-## 5. Paper proof
+## 5. Paper proof (sandbox5 + sandbox6, 11-06 11:30-12:30Z, failmine's scene driver, per-server `failmine` locks taken and released)
 
-_(filled in below from the sandbox runs)_
+Scenes cut by failmine from the **11-06 03:16Z** backup's region copy (read-only). Driver `sandbox/failmine/scene-e2e.mjs`
+(driver_sha256 b548743b...), the whole bot (`src/index.mjs`, model off), fidelity 296/296 and 468/468 probes. Base =
+`a625ecc3` (gkforever-01 + handcap-01, the fleet's next tip); candidate = `8f719091` (WIP) and `9ad677ef` (r1). The candidate
+runs set `ESCDEAD_PIN_MS=60000` (a 1-minute pin instead of 30, so a 9-16 min scene reaches the long-pin moves; said in every
+`_escdead_mode` row: `pin_min=1`). Oracle `escape`: alive, >= 2 blocks from the start (or 2 up), held 20 s.
+
+| scene | build | runs | outcome | how |
+|---|---|---|---|---|
+| isolated-d 358,58,180 (Delta/Echo, 11-06 cut) | base a625ecc3 | 1 | **stayed** 9 min, HP 20, matched the fleet chain | `_entombed`, `_climb_flood_refused`, plugcut, `_swim_under_refused` "no way out within 4 cells (12 water cells searched)" |
+| isolated-d | cand 8f719091, 9 min | 1 | stayed (time) | the wide swim started at 8:45 into the run and the run ended mid-swim at y53: a no-plan back-off from an early "below=stone" read; rerun at 16 min |
+| isolated-d | **cand 9ad677ef, 16 min** | **3** | **escaped 3/3**, HP 20 -> 20 | the 3rd flood refusal (~1.3 min): `_swim_under_start wide=1 exit=dry cells=10 wet=6 run=4`, `_swim_under success cells=10/10 min_air=17 hp=20->20 ms=8,248-8,310`; end 356,55,177 (the planned dry exit), held 23.8 s; the breach correctly refused every time: "closed by dirt at y=62" |
+| hive-c 124,52,64 (Bravo, 11-06 cut + the lake surface y63-72 from the same region copy) | base, cand 8f719091 | 1 + 1 | stayed, **no rows**: the reflex's higher-ground probe (`isEntombed`) reads a pocket under an open lake as "not a hole" (water is not ground), so no escape arm fires -- the live bot reached the entombed arm only after it dug into 127,52,65 | - |
+| hive-c + a SYNTHETIC stone pillar at 128,52..57,64 (4 east, in the lake) so `isEntombed` fires as it does live | base a625ecc3, 12 min | 1 | **stayed**, HP 20, the fleet chain | `_entombed` x9, `_climb_flood_guard` x18, `_climb_flood_refused` x9, `_plugcut` x6 |
+| (same) | **cand 9ad677ef** | **3** | **escaped 3/3**, HP 20 -> 20 | 3rd refusal: `_flood_breach_start roof=dirt water=8`, dig 672-1,008 ms, `_flood_breach success outcome=out rose=9.9 min_air=16 hp=20->20 ms=3,716-4,173`, then `_water_float` at the surface; held 23.9 s |
+
+What Paper showed that the unit tests could not: the server accepts the rise through the falling column (9.9 blocks in 3.7 s,
+16 of 20 air left), the water arrives as modelled, and nothing else in the reflex fights the rise. **Open for the read:**
+the dry pocket under an OPEN lake (hive-c's 03:16Z position) is not seen by `isEntombed` at all, so neither base nor this
+build acts there; the live bot is in the entombed shape now (127,52,65). Not widened here (isEntombed is the entry of every
+escape; changing it is its own change). Codex's further gates (30 repeats, two bots in one pocket, lag) were not run: one
+bot per scene, 3 + 3 candidate runs.
 
 ## 6. Tests
 
