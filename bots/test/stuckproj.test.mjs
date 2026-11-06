@@ -262,7 +262,8 @@ await t('the switch: STARVE=off|0|false|no is the rollback; unset is on; STARVE_
 await t('THE WIRING: shopActive marks with the shared lease stamp and the bot\'s `tried`; a starved pick is held for its visit and cleared after', () => {
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   const one = a => assert.strictEqual(src.split(a).length - 1, 1, `wired once: ${a}`)
-  one("const marked = starve ? starveMark(waited, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waited")
+  // idlework-01 rebase: starve marks the states after the unsited back-off (waitedU); the two marks are disjoint (exists vs not)
+  one("const marked = starve ? starveMark(waitedU, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waitedU")
   one("const v = projLastTake(dir, list.find(p => p.plot === plot), now); sc.set(plot, { at: now, v }); return v }")
   one('let pick = activeProject(marked, list)')
   one('if (st?.starved) { b.starveTried.set(pick.plot, now); b.starvePick = { plot: pick.plot, at: now } } else b.starvePick = null')

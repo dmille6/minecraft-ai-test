@@ -17076,9 +17076,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     const states = repairBackoff(activeMem.states, rmem, now).map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now) }))
     // stuckwait-01: a project inside its stuck back-off waits behind the others (shop.mjs stuckBackoff); the repair count reads
     // the states before it
-    const waited0 = stuckBackoff(states, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)
+    const waited = stuckBackoff(states, plot => projStuckAt(dir, projKeyOf(plot), { before: now + 60_000 }), now)
     // idlework-01 B: an open project a visit could not site waits behind the others (shop.mjs unsitedBackoff)
-    const waited = unsitedWaitOn() ? unsitedBackoff(waited0, unsitedOfPlot, now) : waited0
+    const waitedU = unsitedWaitOn() ? unsitedBackoff(waited, unsitedOfPlot, now) : waited
     // idlework-01 B x starve-01 (rebase onto stuckproj-01): the two marks never meet -- unsitedBackoff marks only a project with
     // NO record (`exists` false), starveMark only one WITH an open record -- so an unsited project is never offered first as
     // starved, a starved one is never held as unsited, and each keeps its own rollback (UNSITEDWAIT=0, STARVE=0)
@@ -17089,7 +17089,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // the stamps are read at most every STARVE_READ_MS (a lease listing of a large town directory per open project per call)
     const sc = starve ? (b.starveReads ??= new Map()) : null
     const lastTake = plot => { const c0 = sc.get(plot); if (c0 && now - c0.at < STARVE_READ_MS && now >= c0.at) return c0.v; const v = projLastTake(dir, list.find(p => p.plot === plot), now); sc.set(plot, { at: now, v }); return v }
-    const marked = starve ? starveMark(waited, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waited
+    const marked = starve ? starveMark(waitedU, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waitedU
     let pick = activeProject(marked, list)
     if (starve && visit) {
       const st = marked.find(x => x?.plot === pick.plot)
