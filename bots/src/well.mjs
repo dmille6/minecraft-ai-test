@@ -35,6 +35,7 @@
 
 import { isSword as pkIsSword, unwantedSword } from './peacefulkit.mjs'
 import { TRIGGER_SLOTS } from './hygiene.mjs'
+import { wellRoomDue, BAGROOM } from './bagroom.mjs'   // bagroom-01: the dispose is due for the build's room too (BAGROOM_WELL=off: 34 only)
 import { isCompostJunk, townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTAINER,
          builderDecision, RUNNER_DECLINED } from './composter.mjs'
 import { sameWorld } from './composter.mjs'   // wellsite-01 (its own statement)
@@ -1043,7 +1044,7 @@ export function wellOrder (args = {}) {
   return { order: null, state: { ...(args.state ?? {}), lastScanAt: r.state.lastScanAt }, held: { skill: r.order.skill, ...deep } }
 }
 function wellOrderAtTown ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, buildJunkStacks = junkStacks, distHome = Infinity, well = null,
-                             buildPlan = null, myName = '', peers = [], state = {}, inside = false, pit = null } = {}) {
+                             buildPlan = null, myName = '', peers = [], state = {}, inside = false, pit = null, bagRoom = BAGROOM.well } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
@@ -1052,7 +1053,7 @@ function wellOrderAtTown ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, b
   if (lazy(inside)) return none()
   const closeReady = now - (s.lastCloseAt ?? -Infinity) >= CLOSE_COOLDOWN_MS && now >= (s.closeBackoffUntil ?? 0)
   const disposeReady = now - (s.lastDisposeAt ?? -Infinity) >= DISPOSE_COOLDOWN_MS && now >= (s.disposeBackoffUntil ?? 0) &&
-                       slots >= TRIGGER_SLOTS && junkStacks > 0
+                       (slots >= TRIGGER_SLOTS || wellRoomDue({ on: bagRoom, freeSlots, junkStacks })) && junkStacks > 0
   const buildReady = now - (s.lastBuildAt ?? -Infinity) >= WELL_BUILD_COOLDOWN_MS && now >= (s.buildBackoffUntil ?? 0)
   if (!closeReady && !disposeReady && !buildReady) return none()
   if (now - (s.lastScanAt ?? -Infinity) < WELL_SCAN_MS) return none()
@@ -1075,7 +1076,7 @@ function wellOrderAtTown ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, b
     }
     if (disposeReady) {
       s.lastDisposeAt = now
-      return { order: { skill: 'dispose_well', args: {}, why: `at town with ${slots} of 36 slots used; ${junkStacks} stack(s) of junk with no use` }, state: s }
+      return { order: { skill: 'dispose_well', args: {}, why: `at town with ${slots} of 36 slots used; ${junkStacks} stack(s) of junk with no use${slots < TRIGGER_SLOTS ? ' (bagroom: the build needs the room)' : ''}` }, state: s }
     }
     return none()
   }

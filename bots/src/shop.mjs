@@ -431,6 +431,9 @@ export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'functio
  */
 let copperAskOf = null
 export function setCopperAsk (fn) { copperAskOf = typeof fn === 'function' ? fn : null }
+/** BAGROOM-01: the build order's room refusal asks this (skills.mjs shareBankAsk) for a remedy order; null when unset. */
+let roomAskOf = null
+export function setRoomAsk (fn) { roomAskOf = typeof fn === 'function' ? fn : null }
 /**
  * ANVILAPPLY-01 + ENCHANT-01: the anvil / enchanting-table ask (skills.mjs enchantAsk -> enchant.mjs anvilAskPlan / tableAskPlan),
  * set at install. Asked FIRST at town (a short, bounded visit, only when there is work: its own cooldown per bot per kind).
@@ -804,7 +807,16 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   let plot = record?.plot ?? null
   if (!record) { try { plot = activePlotOf() } catch { plot = null } }
   // stockyard-01: the yard's visit EMPTIES a bag (its piles take the bag's surplus): a full bag is the reason for it, never a refusal
-  if (plot !== YARD_PLOT && freeSlots < (LIGHT_PLOTS.has(plot) ? MONUMENT_BAG_SLOTS_MIN : SHOP_BAG_SLOTS_MIN)) return { order: null, skip: 'room' }
+  if (plot !== YARD_PLOT && freeSlots < (LIGHT_PLOTS.has(plot) ? MONUMENT_BAG_SLOTS_MIN : SHOP_BAG_SLOTS_MIN)) {
+    // bagroom-01: the refusal names a remedy the bot performs here -- a drawn share of whole stacks in the bag is banked into the
+    // materials chests (skills.mjs shareBankAsk; bagroom.mjs shareBankPlan). No ask, or nothing to bank: the skip, as before
+    if (roomAskOf) {
+      let ra = null
+      try { ra = roomAskOf({ now, freeSlots, plot }) } catch { ra = null }
+      if (ra?.order) return { order: ra.order, skip: null }
+    }
+    return { order: null, skip: 'room' }
+  }
   return { order: { skill: 'build_shop', args: {} }, skip: null }
 }
 
