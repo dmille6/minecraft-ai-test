@@ -39,8 +39,18 @@ LINES (each with its denominator; a zero is printed beside the positive control 
                   stop): stuck_on_cell, a STALLED pool (stalled=true: every open segment waits on a stuck cell),
                   stuck_unwritten, replant_skipped; blind gates (g5_unjudged, oracle_missing, zone_unknown); a completed
                   workshop with no survey to judge it (conformance UNJUDGED). No shopread beside this file: WATCH, never OK
-  REPORTED        plan generations, found outcomes, founding placements (the evidence the town is being founded)
-VERDICT  TRIP (stop-bots.sh, or re-activate the previous release when a piece was just deployed) | WATCH | OK
+  S7 CRASH        systemd's own lines (journalctl _PID=1) since the window start: a unit with >= 3 'Scheduled restart job' lines
+                  inside any 180 min is a crash loop (TRIP); an unreadable journal is a WATCH, never OK
+  REPORTED        plan generations, found outcomes, founding placements (the evidence the town is being founded); S3 DEEP
+                  (below a village floor) and H2 tree debris: legal ground, counted here, never a WATCH (always-on noise)
+VERDICT  TRIP | REPORT | WATCH | OK
+
+STOP ONLY FOR HARM (codeeval 11-06 phase 1 item 4, OWNER: docs/reports/phase1-showcase-design-2026-11-06.md). TRIP (rc 2:
+trip-cron.sh stops the world, or rolls back a release activated < 3 h ago) is HARM only: S0 no bot wrote a row, S1 deaths,
+S3 Z1 trapped (>= ZONE_TRAP_WORLD bots at once; fewer are QUARANTINED: their own unit is stopped, the world goes on), S4
+BREACH, S6 H3 zone, S5 G5 zone, S7 crash loop. Every other defect gate (S5 D1-D5 G1-G4, S6 H1 H2 H4-H8) is a REPORT: the same
+items, the same ACK.json multiset and prune (the accounting is unchanged), paged tier 1 by haltwatch from trip-last.json, never
+a stop. rc 0 for REPORT / WATCH / OK.
 """
 import argparse, collections, contextlib, datetime as dt, functools, glob, json, math, os, re, sys
 
@@ -84,6 +94,16 @@ MIRROR_MAX_AGE_MIN = 60
 HEALTHZ = 'http://127.0.0.1:11612/healthz'
 UTC = dt.timezone.utc
 
+# HARM vs REPORT (phase 1 item 4). The defect gates that are HARM -- a mutation inside a protected zone -- stop the world; every
+# other defect gate is plan conformance: REPORT + page, never a stop.
+HARM_GATES = ('H3 zone', 'G5 zone')
+# Z1 scope: one or two trapped bots are QUARANTINED (their own unit stopped: a trapped bot is the one that ends up breaching a
+# zone to escape, 10-31), so one dead end never stops the other 14 (Gale 11-05..06: 32 h, 4 spells). This many at once is
+# systemic (a release or a zone change): the world stops. Set to 1 for the literal "a trapped bot stops the world".
+ZONE_TRAP_WORLD = 3
+# 3 in the read's 180 min (rollout.py's rule over its hour is 3 in 60): measured 11-04 22:00Z..11-05 03:30Z, 68 restart jobs
+# over all 15 units, at most 2 per unit per 60 min but 3-5 per unit per 180 min -- a 60-min span saw none of it
+CRASH_RESTARTS, CRASH_SPAN_MIN = 3, 180
 DEATH_TRIP, DEATH_WATCH = 4, 2
 STUCK_MIN, STUCK_MOVE = 30, 3.0
 TRAP_MIN, TRAP_MOVE = 15, 3.0
@@ -145,10 +165,15 @@ def in_box(p, b):
 
 def still_spells(rows, boxes, min_min, move, max_gap_min=None):
     """rows: one bot's [(t, pos)] sorted. -> [(start, end, minutes)] spells inside a box with < move blocks of horizontal
-    displacement from the spell's first sample (protectzoneread.trapped's rule, with the end kept). Pure."""
+    displacement from the spell's first sample (protectzoneread.trapped's rule, with the end kept). Pure.
+    A row WITHOUT a position is not a sample: it neither ends a spell nor advances the gap clock (phase 1 item 4: about half of
+    a bot's rows carry no bot.pos, and reading each as "outside the box" restarted every spell -- Z1 and S2 never fired in 253
+    reads while showcase-Gale stood 32 h at one cell inside village-taiga-6_1). The gap rule is between POSITIONED samples."""
     out, start, anchor, last = [], None, None, None
     for t, p in rows:
-        inside = p is not None and any(in_box(p, b) for b in boxes)
+        if not isinstance(p, dict) or any(p.get(k) is None for k in ('x', 'y', 'z')):
+            continue
+        inside = any(in_box(p, b) for b in boxes)
         if inside and start is not None and max_gap_min is not None and last is not None and (t - last).total_seconds() / 60 > max_gap_min:
             if (last - start).total_seconds() / 60 >= min_min:
                 out.append((start, last, (last - start).total_seconds() / 60))
@@ -227,24 +252,29 @@ def zone_diff(base, now):
     return removed, changed, added
 
 
-def verdict(f):
-    """f: the facts dict read() builds. -> (verdict, [reasons]). Pure: TRIP beats WATCH beats OK; UNKNOWN is never OK."""
-    trip, watch = [], []
+def classify(f):
+    """f: the facts dict read() builds. -> {'harm': [...], 'report': [...], 'watch': [...], 'quarantine': [bot]}. Pure.
+    HARM stops the world (trip-cron); REPORT is a defect that is paged, never a stop (phase 1 item 4: plan conformance);
+    WATCH is a warning or a blind gate (UNKNOWN is never OK); quarantine names the trapped bots whose own unit stops."""
+    harm, report, watch, quarantine = [], [], [], []
+    expected = f.get('expected_bots', len(NAMES))
     if f['live_bots'] == 0 and f['expect_running'] and f.get('brain_paused'):
         watch.append('S0 no row in %d min while the brain is PAUSED (%s)' % (LIVE_MIN, f['brain_paused']))
-    elif f['live_bots'] == 0 and f['expect_running']:
-        trip.append('S0 no showcase bot wrote a row in %d min' % LIVE_MIN)
-    elif f['live_bots'] < len(NAMES) and f['expect_running']:
-        watch.append('S0 %d of %d bots wrote a row in %d min' % (f['live_bots'], len(NAMES), LIVE_MIN))
+    elif f['live_bots'] == 0 and f['expect_running'] and expected > 0:
+        harm.append('S0 no showcase bot wrote a row in %d min' % LIVE_MIN)
+    elif f['live_bots'] < expected and f['expect_running']:
+        watch.append('S0 %d of %d bots wrote a row in %d min' % (f['live_bots'], expected, LIVE_MIN))
+    if f.get('expected_error'):
+        watch.append('S0 the unit census failed (%s): judged against all %d bots' % (f['expected_error'], len(NAMES)))
     if f['deaths'] >= DEATH_TRIP:
-        trip.append('S1 %d deaths inside 180 min' % f['deaths'])
+        harm.append('S1 %d deaths inside 180 min' % f['deaths'])
     elif f['deaths'] >= DEATH_WATCH:
         watch.append('S1 %d deaths inside 180 min' % f['deaths'])
     if f['stuck']:
         watch.append('S2 still >= %d min %s' % (STUCK_MIN, f['stuck']))
     # OWNER 10-25: the trial chambers now run to bedrock with a floor (the village shape), so the space under them is the
-    # zone's DEEP part (legal ground, a WATCH line above). UNDER only sees an underground zone WITHOUT a floor -- none in the
-    # showcase file -- and is a warning, never a stop.
+    # zone's DEEP part (legal ground: REPORTED, never a WATCH since phase 1). UNDER only sees an underground zone WITHOUT a
+    # floor -- none in the showcase file -- and is a warning, never a stop.
     if f.get('under_trapped'):
         watch.append('S3 UNDER still below a floorless underground zone %s' % f['under_trapped'])
     elif f.get('under'):
@@ -252,11 +282,13 @@ def verdict(f):
     if f['expect_running'] and f.get('window_min', 0) >= 60 and f.get('plan_towns') == 0 and not f['plan_error']:
         watch.append('S5 no accepted town plan after %d min (UNEXPOSED: zero defects mean nothing yet)' % f['window_min'])
     if f['trapped']:
-        trip.append('S3 Z1 trapped in a zone %s' % f['trapped'])
+        if len(f['trapped']) >= ZONE_TRAP_WORLD:
+            harm.append('S3 Z1 trapped in a zone (%d bots at once) %s' % (len(f['trapped']), f['trapped']))
+        else:
+            quarantine.extend(sorted(f['trapped']))
+            report.append('S3 Z1 trapped in a zone %s -> QUARANTINE %s' % (f['trapped'], ' '.join(sorted(f['trapped']))))
     if f.get('still_in_zone'):
         watch.append('S3 still in a zone with no refusal (legal ground) %s' % f['still_in_zone'])
-    if f.get('deep'):
-        watch.append('S3 DEEP below a village floor (legal ground) %s' % f['deep'])
     if f.get('zones_error'):
         watch.append('S3 zones file unreadable (%s): Z1 / UNDER saw nothing' % f['zones_error'])
     if f.get('mirror_age_min') is None or f.get('mirror_age_min', 0) > MIRROR_MAX_AGE_MIN:
@@ -277,26 +309,41 @@ def verdict(f):
     else:
         for zid, z in integ.items():
             if z['status'] == 'BREACH':
-                trip.append('S4 %s BREACH removed %d changed %d %s' % (zid, z['removed_n'], z['changed_n'], (z['removed'] + z['changed'])[:3]))
+                harm.append('S4 %s BREACH removed %d changed %d %s' % (zid, z['removed_n'], z['changed_n'], (z['removed'] + z['changed'])[:3]))
             elif z['status'] == 'NOT COVERED':
                 pass        # outside the read's region copy (the mirror): the daily compare on the nightly stage covers it
             elif z['status'] != 'INTACT':
                 watch.append('S4 %s %s' % (zid, z['status']))
+    # S5 TOWN PLAN and S6 SHOP defects: the same counts (new, unacknowledged items); only the zone gates are HARM
     for k, v in sorted(f['plan_defects'].items()):
         if v:
-            trip.append('S5 %s %d' % (k, v))
+            (harm if k in HARM_GATES else report).append('S5 %s %d' % (k, v))
     if f['plan_error']:
         watch.append('S5 the plan read failed: %s' % f['plan_error'])
-    # S6 SHOP (the workshop): a defect TRIPs; the run's stuck / stalled / skipped rows and every blind gate are WATCH
     for k, v in sorted((f.get('shop_defects') or {}).items()):
         if v:
-            trip.append('S6 %s %d' % (k, v))
+            (harm if k in HARM_GATES else report).append('S6 %s %d' % (k, v))
     for k, v in sorted((f.get('shop_watch') or {}).items()):
         if v:
             watch.append('S6 %s %s' % (k, v))
     if f.get('shop_error'):
         watch.append('S6 the shop read failed: %s' % f['shop_error'])
-    return ('TRIP' if trip else 'WATCH' if watch else 'OK'), trip + watch
+    cr = f.get('crash')
+    if cr is None:
+        pass                # not read (a selftest's facts, or --no-crash): nothing claimed
+    elif cr.get('error'):
+        watch.append('S7 crash loops not judged: %s' % cr['error'])
+    elif cr.get('loops'):
+        harm.append('S7 crash loop (>= %d restarts in %d min) %s' % (CRASH_RESTARTS, CRASH_SPAN_MIN, cr['loops']))
+    return {'harm': harm, 'report': report, 'watch': watch, 'quarantine': quarantine}
+
+
+def verdict(f):
+    """f: the facts dict read() builds. -> (verdict, [reasons]). Pure: TRIP (harm) beats REPORT beats WATCH beats OK; UNKNOWN is
+    never OK."""
+    c = classify(f)
+    v = 'TRIP' if c['harm'] else 'REPORT' if c['report'] else 'WATCH' if c['watch'] else 'OK'
+    return v, c['harm'] + c['report'] + c['watch']
 
 
 # ------------------------------------------------------------------------------------------------ zones (region copies)
@@ -567,13 +614,15 @@ def shop_read(rows, run_since, zones, projects=None, surveys=None):
     items, debris = h2_debris_split(defect_items(defects, items))
     if debris:
         defects[H2] = len(items[H2])
-        watch['H2 clear_outside tree debris (logs/leaves/plants: no stop)'] = debris[:5] + (['+%d' % (len(debris) - 5)] if len(debris) > 5 else [])
     report = {'visits': out.get('visits_canary', 0), 'placements': out.get('placements', 0), 'clears': out.get('clears', 0),
               'complete': out.get('complete_towns', 0), 'record': bool((projects.get(POOL) or {}).get('record')),
               'stops': {k[6:]: v for k, v in sorted(out.items()) if k.startswith('visit_')},
               'reported': {k: out.get(k, 0) for k in ('placed_twice', 'bag_unjudged', 'replant_moved', 'replant_deferred', 'deferred',
                                                      'stuck_on_cell', 'replant_skipped', 'stuck_unwritten')},
-              'surveys': bool(surveys and surveys[0]), 'why': lists.get('why', [])[:4]}
+              'surveys': bool(surveys and surveys[0]), 'why': lists.get('why', [])[:4],
+              # FUN MODE H2 tree debris (logs/leaves/plants cleared outside the record): legal, REPORTED with its count, never a
+              # WATCH line (phase 1 item 4: it was on 191 of 245 reads)
+              'tree_debris': len(debris), 'tree_debris_items': debris[:5]}
     return defects, watch, report, items
 
 
@@ -725,6 +774,76 @@ def dedupe_deaths(rows, gap_s=10):
     return out
 
 
+UNIT_RX = re.compile(r'mcshow@(showcase-[A-Za-z]+)\.service')
+
+
+def crash_loops(lines, span_min=CRASH_SPAN_MIN, n=CRASH_RESTARTS, times_out=None):
+    """lines: `journalctl -o json _PID=1` lines (systemd's own messages). -> ({bot: peak restarts in any span}, unit lines seen):
+    a bot whose unit logged >= n 'Scheduled restart job' (Restart= after an exit -- a planned `systemctl restart` writes none)
+    inside span_min. Pure."""
+    times, seen = collections.defaultdict(list), 0
+    for line in lines:
+        try:
+            j = json.loads(line)
+        except ValueError:
+            continue
+        m = UNIT_RX.search(str(j.get('UNIT') or j.get('MESSAGE') or ''))
+        if not m or 'FIXTURE' in m.group(1):
+            continue
+        seen += 1
+        if 'Scheduled restart job' in str(j.get('MESSAGE')):
+            try:
+                times[m.group(1)].append(int(j['__REALTIME_TIMESTAMP']) / 1e6)
+            except (KeyError, ValueError, TypeError):
+                times[m.group(1)].append(None)
+    out = {}
+    if times_out is not None:
+        times_out.update({b: [dt.datetime.fromtimestamp(t, UTC).strftime('%FT%TZ') for t in v if t is not None] for b, v in times.items()})
+    for b, ts_ in times.items():
+        if any(t is None for t in ts_):
+            out[b] = len(ts_)       # a restart line without a time: counted against the whole window (fail closed)
+            continue
+        ts_.sort()
+        best, j = 0, 0
+        for i in range(len(ts_)):
+            while ts_[i] - ts_[j] > span_min * 60:
+                j += 1
+            best = max(best, i - j + 1)
+        if best >= n:
+            out[b] = best
+    return out, seen
+
+
+def crash_facts(since):
+    """S7: -> {'loops': {bot: n}, 'unit_lines': n} or {'error': why}. Reads only (journalctl as root)."""
+    import subprocess
+    try:
+        r = subprocess.run(['journalctl', '--no-pager', '-o', 'json', '_PID=1', '--since', since.strftime('%Y-%m-%d %H:%M:%S UTC')],
+                           capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            return {'error': 'journalctl rc %d: %s' % (r.returncode, r.stderr.strip()[:100])}
+        tt = {}
+        loops, seen = crash_loops(r.stdout.splitlines(), times_out=tt)
+        return {'loops': loops, 'unit_lines': seen, 'times': {b: v for b, v in tt.items() if b in loops}}
+    except Exception as e:
+        return {'error': '%s: %s' % (type(e).__name__, str(e)[:100])}
+
+
+def enabled_bots():
+    """-> ([bot whose unit is enabled], None) or (None, why). A disabled unit (stop-bots.sh, a quarantine) is not expected to
+    write rows: S0 judges the enabled roster. Reads only."""
+    import subprocess
+    try:
+        out = []
+        for b in NAMES:
+            r = subprocess.run(['systemctl', 'is-enabled', 'mcshow@%s' % b], capture_output=True, text=True, timeout=10)
+            if r.stdout.strip() in ('enabled', 'enabled-runtime'):
+                out.append(b)
+        return out, None
+    except Exception as e:
+        return None, '%s: %s' % (type(e).__name__, str(e)[:80])
+
+
 def cmd_read(a):
     from lib.telemetry import Events
     now = dt.datetime.now(UTC)
@@ -834,7 +953,13 @@ def cmd_read(a):
     paused = brain_paused() if not a.not_running else None
     first = min([v[0][0] for v in by_bot.values() if v], default=now)
     live = sum(1 for b in NAMES if b in newest and (now - newest[b]).total_seconds() <= LIVE_MIN * 60)
+    # S0's denominator: the ENABLED roster (a quarantined or stopped unit is not expected to write); unreadable -> all, said so
+    exp_bots, exp_err = (list(NAMES), None) if a.not_running or a.no_census else enabled_bots()
+    if exp_bots is None:
+        exp_bots = list(NAMES)
+    crash = None if a.no_crash else crash_facts(since)
     facts = {'run_since_missing': run_since is None and not a.since,
+             'expected_bots': len(exp_bots), 'expected_error': exp_err, 'crash': crash,
              'bad_files': (report or {}).get('bad_files'), 'ack_error': (report or {}).get('ack_error'),
              'still_in_zone': still_in_zone,
              'live_bots': live, 'expect_running': not a.not_running, 'deaths': death_peak(death_t), 'deaths_total': len(deaths),
@@ -847,7 +972,13 @@ def cmd_read(a):
              'plan_defects': {k: v for k, v in defects.items() if k not in shop_full},
              'shop_defects': {k: v for k, v in defects.items() if k in shop_full}, 'shop_watch': shop_watch,
              'shop_error': shop_error if not plan_err else 'not read (the plan read failed first)', 'plan_error': plan_err}
+    cls = classify(facts)
     v, why = verdict(facts)
+    # the harm's own times, so trip-remedy can tell a new release's harm from an older one (showcase_ops.attributable)
+    evidence = {'S1': [t.strftime('%FT%TZ') for t in death_t],
+                'S7': (crash or {}).get('times') or {},
+                'Z1': {b: [s_.strftime('%FT%TZ') for s_, e_, _ in spells.get(b, []) if any(s_ <= t <= e_ and n > 0 for t, n in mins.get(b, []))]
+                       for b in trapped}}
     W = (now - since).total_seconds() / 60
     print('SHOWCASE TRIPWIRE %s  window %s .. %s (%d min)' % (now.strftime('%FT%TZ'), since.strftime('%FT%TZ'), now.strftime('%H:%M:%SZ'), W))
     print('DENOMINATORS rows walked %d | bots with rows %d of %d | builds %s | positions %d' % (
@@ -869,6 +1000,10 @@ def cmd_read(a):
             print('S4 INTEGRITY %-24s %s %s' % (zid, z['status'], {k: v for k, v in z.items() if k.endswith('_n')}))
     print('S5 TOWN PLAN %s%s' % (facts['plan_defects'], (' | READ FAILED ' + plan_err) if plan_err else ''))
     print('S6 SHOP      defects %s | watch %s%s' % (facts['shop_defects'], shop_watch or 'none', (' | ' + facts['shop_error']) if facts['shop_error'] else ''))
+    print('S7 CRASH     %s' % ('not read' if crash is None else ('NOT JUDGED ' + crash['error']) if crash.get('error') else
+                               'loops %s (systemd unit lines since the window start %d)' % (crash['loops'] or 'none', crash['unit_lines'])))
+    print('REPORTED     S3 DEEP below a village floor (legal ground) %s | H2 tree debris cleared outside the record %s %s' % (
+        deep or 'none', (shop_report or {}).get('tree_debris', 0), (shop_report or {}).get('tree_debris_items') or ''))
     if shop_report:
         print('EXPOSURE     shop: record %s, visits %d, placements %d, clears %d, complete %d, surveys %s%s' % (
             shop_report['record'], shop_report['visits'], shop_report['placements'], shop_report['clears'], shop_report['complete'],
@@ -898,10 +1033,12 @@ def cmd_read(a):
         try:                        # a failed write must never turn a TRIP into a crash (rc 1 -> no stop)
             with open(a.json, 'w') as f:
                 json.dump({'t': now.strftime('%FT%TZ'), 'since': since.strftime('%FT%TZ'), 'verdict': v, 'why': why,
-                           'facts': facts, 'report': report, 'shop': shop_report, 'rows': len(rows), 'builds': dict(builds)}, f, default=str)
+                           'harm': cls['harm'], 'reports': cls['report'], 'watch': cls['watch'], 'quarantine': cls['quarantine'],
+                           'harm_evidence': evidence,
+                           'new_items': (report or {}).get('new_items') or {}, 'facts': facts, 'report': report, 'shop': shop_report, 'rows': len(rows), 'builds': dict(builds)}, f, default=str)
         except Exception as e:
             print('json write failed: %s' % e)
-    return {'OK': 0, 'WATCH': 0, 'TRIP': 2}[v]
+    return {'OK': 0, 'WATCH': 0, 'REPORT': 0, 'TRIP': 2}[v]
 
 
 # ------------------------------------------------------------------------------------------------ selftest
@@ -961,19 +1098,20 @@ def shop_selftest(T):
     # FUN MODE H2: tree debris cleared outside the record is a WATCH; any other block cleared there still TRIPs
     leaf = base + [R('_build', 'project=shop op=clear seg=pad cell=27,74,27 block=spruce_leaves kind=tree saplings=0/0', 'showcase-Juno', 2),
                    R('_build', 'project=shop op=clear seg=pad cell=28,72,27 block=minecraft:oak_log kind=foreign', 'showcase-Juno', 3)]
-    d, w, _, it = shop_read(leaf, T(0), [], projects=pj, surveys=nos)
-    WK = 'H2 clear_outside tree debris (logs/leaves/plants: no stop)'
-    assert d.get('H2 clear_outside') == 0 and it['H2 clear_outside'] == [] and len(w.get(WK, [])) == 2, ('tree debris is a WATCH', d, w, it)
+    d, w, rp, it = shop_read(leaf, T(0), [], projects=pj, surveys=nos)
+    assert d.get('H2 clear_outside') == 0 and it['H2 clear_outside'] == [] and rp['tree_debris'] == 2 and not w, \
+        ('tree debris is REPORTED, no stop and no WATCH (phase 1: always-on noise)', d, w, it, rp)
     dirt = leaf + [R('_build', 'project=shop op=clear seg=pad cell=29,70,27 block=dirt kind=foreign', 'showcase-Juno', 4)]
-    d, w, _, it = shop_read(dirt, T(0), [], projects=pj, surveys=nos)
-    assert d.get('H2 clear_outside') == 1 and it['H2 clear_outside'] == ['showcase-Juno 29,70,27 foreign dirt'] and len(w.get(WK, [])) == 2, \
+    d, w, rp, it = shop_read(dirt, T(0), [], projects=pj, surveys=nos)
+    assert d.get('H2 clear_outside') == 1 and it['H2 clear_outside'] == ['showcase-Juno 29,70,27 foreign dirt'] and rp['tree_debris'] == 2, \
         ('a dirt clear outside the record still TRIPs', d, w, it)
     assert h2_debris_split({'H2 clear_outside': ['H2 clear_outside unlisted #0']})[1] == [], 'an unreadable item stays a defect'
     assert not TREE_DEBRIS.match('stone') and not TREE_DEBRIS.match('oak_planks') and not TREE_DEBRIS.match('chest') and not TREE_DEBRIS.match('white_carpet') and not TREE_DEBRIS.match('melon_stem') and not TREE_DEBRIS.match('sweet_berry_bush') \
         and not TREE_DEBRIS.match('sugar_cane') and TREE_DEBRIS.match('birch_leaves')
     vbase = {'live_bots': len(NAMES), 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
              'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {}, 'plan_error': None}
-    assert verdict(dict(vbase, shop_defects=d))[0] == 'TRIP', 'an off-record placement TRIPs'
+    assert verdict(dict(vbase, shop_defects=d))[0] == 'REPORT', 'a dirt clear outside the record is a REPORT (paged), never a stop'
+    assert classify(dict(vbase, shop_defects=d))['report'] == ['S6 H2 clear_outside 1'], classify(dict(vbase, shop_defects=d))
     assert verdict(dict(vbase, shop_defects={'H1 off_record': 0}))[0] == 'OK'
     stuck = base + [R('_build', 'project=shop op=stuck_on_cell cell=1,70,1 visits=3 n=1 segs=earth+pad waiting=168 stalled=true', 'showcase-Comet', 30)]
     d, w, _, _ = shop_read(stuck, T(10), [], projects=pj, surveys=nos)
@@ -992,7 +1130,8 @@ def shop_selftest(T):
     assert d.get('H6 bag_loss') == 1, 'a lost material (10 - 2 placed = 8 expected, 5 held) TRIPs: %s' % d
     zone = base + [R('_build', 'project=shop op=place cell=1,70,1 block=stone_bricks', 'showcase-Alpha', 2)]
     d, _, _, _ = shop_read(zone, T(0), [[0, 60, 0, 3, 80, 3]], projects=pj, surveys=nos)
-    assert d.get('H3 zone') == 1, 'a placement in a protected box TRIPs: %s' % d
+    assert d.get('H3 zone') == 1, 'a placement in a protected box is counted: %s' % d
+    assert verdict(dict(vbase, shop_defects=d))[0] == 'TRIP', 'a placement in a protected box is HARM: it TRIPs'
     done = ok + [R('_structure_complete', 'project=shop op=complete gen=1', 'showcase-Alpha', 3)]
     _, w, _, _ = shop_read(done, T(0), [], projects=pj, surveys=nos)
     assert 'conformance UNJUDGED' in w, 'a completed workshop with no survey is UNJUDGED (WATCH): %s' % w
@@ -1014,7 +1153,7 @@ def shop_selftest(T):
         assert got == {'_build': [1, 70, 1], '_found': None}, ('plan_rows: the shop row kept with its feet, other kinds untouched', got)
     assert feet_of({'x': 1.5, 'y': 71.9999999, 'z': -0.5}) == SR.pos_of({'pos': {'x': 1.5, 'y': 71.9999999, 'z': -0.5}}) == [1, 72, -1], \
         'feet: shopread\'s own normalisation (y + 1e-6), never a plain floor'
-    print('selftest: S6 shop checked (H1, H3, H6, H8 TRIP; stuck / stalled / skipped / unwritten / unjudged WATCH; the run window)')
+    print('selftest: S6 shop checked (H1, H3, H6, H8 counted -- H3 HARM, the rest REPORT; stuck / stalled / skipped / unwritten / unjudged WATCH; the run window)')
 
 
 def shop_failure_selftest():
@@ -1036,7 +1175,7 @@ def shop_failure_selftest():
         open(os.path.join(td, 'TOWN'), 'w').write('2026-10-25T12:00:00Z')
         open(os.path.join(td, 'RUN'), 'w').write('2026-10-25T12:00:00Z')
         code = ('import sys; sys.argv=["x","read","--minutes","180","--not-running","--run-since",%r,"--town-since",%r,"--ack",%r,'
-                '"--zones-file","/nonexistent","--zones-baseline","/nonexistent"]; import showcase_trip as M; M.LOGS=%r; '
+                '"--zones-file","/nonexistent","--zones-baseline","/nonexistent","--no-crash"]; import showcase_trip as M; M.LOGS=%r; '
                 'M.brain_paused=lambda: None; sys.exit(M.main())') % (os.path.join(td, 'RUN'), os.path.join(td, 'TOWN'), ack,
                                                                       os.path.join(td, 'none-*.jsonl'))
         p = subprocess.run([sys.executable, '-c', code], cwd=td, capture_output=True, text=True, timeout=120)
@@ -1066,6 +1205,24 @@ def selftest():
     inside = [(T(m), P(15, 15)) for m in range(0, 20)]
     assert still_spells(inside, [box], TRAP_MIN, TRAP_MOVE), 'still inside a box >= 15 min: trapped'
     assert not still_spells([(t, P(30, 30)) for t, _ in inside], [box], TRAP_MIN, TRAP_MOVE), 'still OUTSIDE is not trapped'
+    # phase 1 item 4, the Gale gap: half the rows carry no bot.pos; a position-less row is not a sample (it neither ends a
+    # spell nor counts as "outside"), so a bot standing 40 min at one cell inside the box IS a spell
+    gale = sorted([(T(m), P(15, 15)) for m in range(0, 41)] + [(T(m + 0.5), None) for m in range(0, 41)] + [(T(m + 0.7), {}) for m in range(0, 41, 7)])
+    assert still_spells(gale, [box], TRAP_MIN, TRAP_MOVE, max_gap_min=5) and stuck_now({'g': gale}, T(40)) == {'g': 40}, \
+        'Gale: rows without a position never restart a spell'
+    holes = [(T(m), P(15, 15)) for m in (0, 2, 4, 10, 12, 14, 16, 18, 20)] + [(T(m), None) for m in range(5, 10)]
+    assert not still_spells(sorted(holes), [box], TRAP_MIN, TRAP_MOVE, max_gap_min=5), \
+        'a 6-min gap between POSITIONED samples restarts the spell, whatever position-less rows fill it'
+    walk = sorted([(T(m), P(15 + m * 0.5, 15)) for m in range(0, 30)] + [(T(m + 0.5), None) for m in range(0, 30)])
+    assert not still_spells(walk, [box], TRAP_MIN, TRAP_MOVE, max_gap_min=5), 'moving >= 3 blocks still ends the spell (control)'
+    jl = lambda unit, msg, sec: json.dumps({'UNIT': unit, 'MESSAGE': msg, '__REALTIME_TIMESTAMP': str(int(sec * 1e6))})
+    lines = [jl('mcshow@showcase-Alpha.service', 'mcshow@showcase-Alpha.service: Scheduled restart job, restart counter is at %d.' % i, 1000 + i * 600)
+             for i in range(3)] + [jl('mcshow@showcase-Bravo.service', 'Scheduled restart job', 1000 + i * 6000) for i in range(3)] + \
+            [jl('mcshow@showcase-Comet.service', 'Started mcshow@showcase-Comet.service', 1000), 'not json',
+             jl('mcshow@showcase-FIXTURE.service', 'Scheduled restart job', 5), jl('mcshow@showcase-FIXTURE.service', 'Scheduled restart job', 6),
+             jl('mcshow@showcase-FIXTURE.service', 'Scheduled restart job', 7), jl('mcbot@board-a-Alpha.service', 'Scheduled restart job', 8)]
+    loops, seen = crash_loops(lines)
+    assert loops == {'showcase-Alpha': 3} and seen == 7, ('a crash loop is >= 3 restarts inside 180 min; spread out or FIXTURE is not', loops, seen)
     assert refusal_peak([(T(0), 30), (T(5), 31), (T(30), 5)]) == 61 and refusal_peak([(T(0), 30), (T(20), 31)]) == 31
     rm, ch, ad = zone_diff({'1,2,3': 'minecraft:bell', '4,5,6': 'minecraft:oak_door'}, {'4,5,6': 'minecraft:oak_door', '7,8,9': 'minecraft:torch'})
     assert rm == ['1,2,3 minecraft:bell'] and ch == [] and ad == ['7,8,9 minecraft:torch']
@@ -1105,7 +1262,7 @@ def selftest():
     assert verdict(dict(base, window_min=90, plan_towns=0))[0] == 'WATCH' and verdict(dict(base, window_min=30, plan_towns=0))[0] == 'OK'
     base = dict(base, mirror_age_min=10)
     assert verdict(dict(base, mirror_age_min=90))[0] == 'WATCH' and verdict(dict(base, mirror_age_min=None))[0] == 'WATCH'
-    assert verdict(dict(base, zones_error='no zone'))[0] == 'WATCH' and verdict(dict(base, deep={'a': 9}))[0] == 'WATCH'
+    assert verdict(dict(base, zones_error='no zone'))[0] == 'WATCH' and verdict(dict(base, deep={'a': 9}))[0] == 'OK', 'DEEP is reported, never a WATCH'
     assert verdict(dict(base, live_bots=0, brain_paused='GPU_RESERVED'))[0] == 'WATCH', 'a paused brain is not a dead showcase'
     assert verdict(dict(base, gen_unknown={'found_gen_unknown': 1}))[0] == 'WATCH'
     cl, dp = closed_and_deep([('v', [0, -64, 0, 9, 90, 9]), ('t', [-20, -47, 65, 88, 31, 164])], {'v': 54, 't': None})
@@ -1137,17 +1294,38 @@ def selftest():
     assert ts('2026-10-25T15:13:00') == ts('2026-10-25T15:13:00Z'), 'a naive epoch is UTC'
     assert verdict(dict(base, run_since_missing=True))[0] == 'WATCH'
     assert verdict(dict(base, bad_files=['x.gz: EOFError']))[0] == 'WATCH'
-    assert verdict(dict(base, bad_files=['x.gz: EOFError'], plan_defects={'D4 zone_cells': 1}))[0] == 'TRIP', 'a bad file never hides a defect'
+    assert verdict(dict(base, bad_files=['x.gz: EOFError'], plan_defects={'D4 zone_cells': 1}))[0] == 'REPORT', 'a bad file never hides a defect (plan conformance: a REPORT)'
     assert verdict(dict(base, ack_error='bad json'))[0] == 'WATCH'
     assert verdict(dict(base, deaths=4))[0] == 'TRIP' and verdict(dict(base, deaths=2))[0] == 'WATCH' and verdict(dict(base, deaths=1))[0] == 'OK'
     assert verdict(dict(base, stuck={'a': 30, 'b': 31, 'c': 40}))[0] == 'WATCH', 'stuck never stops the showcase on its own'
-    assert verdict(dict(base, trapped={'a': [('12:00', 20)]}))[0] == 'TRIP'
+    c1 = classify(dict(base, trapped={'a': [('12:00', 20)]}))
+    assert verdict(dict(base, trapped={'a': [('12:00', 20)]}))[0] == 'REPORT' and c1['quarantine'] == ['a'] and not c1['harm'], \
+        ('one trapped bot is QUARANTINED, the world goes on', c1)
+    t3 = {b: [('12:00', 20)] for b in ('a', 'b', 'c')}
+    assert verdict(dict(base, trapped=t3))[0] == 'TRIP' and not classify(dict(base, trapped=t3))['quarantine'], \
+        'ZONE_TRAP_WORLD trapped bots at once are systemic: the world stops'
+    assert verdict(dict(base, trapped={b: [('12:00', 20)] for b in ('a', 'b')}))[0] == 'REPORT', 'two trapped bots: still a quarantine'
     assert verdict(dict(base, integrity={'v': {'status': 'BREACH', 'removed_n': 1, 'changed_n': 0, 'removed': ['x'], 'changed': []}}))[0] == 'TRIP'
     assert verdict(dict(base, integrity={'v': {'status': 'UNKNOWN (chunks)'}}))[0] == 'WATCH', 'an unreadable zone is never OK'
     assert verdict(dict(base, integrity=None))[0] == 'WATCH', 'no integrity read is never OK'
     assert verdict(dict(base, integrity={'v': {'status': 'INTACT'}, 'far': {'status': 'NOT COVERED'}}))[0] == 'OK', 'a zone outside the copy belongs to the daily check'
     assert verdict(dict(base, integrity={'v': {'status': 'NO BASELINE'}}))[0] == 'WATCH'
-    assert verdict(dict(base, plan_defects={'G1 found_lost': 1}))[0] == 'TRIP'
+    assert verdict(dict(base, plan_defects={'G1 found_lost': 1}))[0] == 'REPORT', 'plan conformance is a REPORT'
+    assert verdict(dict(base, plan_defects={'G3 lid_unreach': 5, 'G1 found_lost': 0}))[0] == 'REPORT', 'G3 (4 of the 12 trips) is a REPORT'
+    assert verdict(dict(base, plan_defects={'G5 zone': 1}))[0] == 'TRIP', 'a found placement inside a zone is HARM'
+    for g in ('H1 off_record', 'H2 clear_outside', 'H4 lease_overlap', 'H5 felled_unplanted', 'H6 bag_loss', 'H7 unknown_stood', 'H8 conformance'):
+        assert verdict(dict(base, shop_defects={g: 2}))[0] == 'REPORT', '%s is plan conformance: a REPORT' % g
+    for g in ('D1 chain_invalid', 'D2 invalid_rows', 'D3 never_hits', 'D4 zone_cells', 'D5 root_occupied', 'G2 off_plan', 'G4 shared_side'):
+        assert verdict(dict(base, plan_defects={g: 1}))[0] == 'REPORT', '%s is plan conformance: a REPORT' % g
+    mixed = classify(dict(base, deaths=4, plan_defects={'G1 found_lost': 2}, stuck={'a': 31}))
+    assert mixed['harm'] == ['S1 4 deaths inside 180 min'] and mixed['report'] == ['S5 G1 found_lost 2'] and mixed['watch'], \
+        ('harm, report and watch are all kept when they coexist', mixed)
+    assert verdict(dict(base, crash={'loops': {'showcase-Alpha': 4}, 'unit_lines': 9}))[0] == 'TRIP', 'a crash loop is HARM'
+    assert verdict(dict(base, crash={'loops': {}, 'unit_lines': 9}))[0] == 'OK'
+    assert verdict(dict(base, crash={'error': 'journalctl rc 1'}))[0] == 'WATCH', 'an unreadable journal is never OK'
+    assert verdict(dict(base, expected_bots=14, live_bots=14))[0] == 'OK', 'a quarantined (disabled) unit is not expected to write'
+    assert verdict(dict(base, expected_bots=15, live_bots=14))[0] == 'WATCH'
+    assert verdict(dict(base, expected_bots=0, live_bots=0))[0] == 'OK', 'no enabled unit: nobody is expected to write'
     assert verdict(dict(base, plan_error='KeyError'))[0] == 'WATCH'
     assert verdict(dict(base, live_bots=0))[0] == 'TRIP' and verdict(dict(base, live_bots=0, expect_running=False))[0] == 'OK'
     try:
@@ -1195,6 +1373,32 @@ def cmd_ack(a):
     return 0
 
 
+def cmd_items(a):
+    """The pre-activation replay's input (replaygate.py R2): every CURRENT defect item of the plan and shop reads over the live
+    history from the town epoch (as `ack` reads it), plus the rows of --extra-rows (a candidate's own rows). Before any ACK
+    subtraction: replaygate compares two readers over the same rows. One JSON line; reads only."""
+    town_since = read_epoch(a.town_since)
+    if town_since is None:
+        print('REFUSED: no town epoch in %s' % a.town_since)
+        return 1
+    prows, hist = plan_rows(town_since)
+    if a.extra_rows:
+        xr, xh = plan_rows(town_since, paths=a.extra_rows)
+        prows = sorted(prows + xr, key=lambda r: r['t'])
+        hist = dict(hist, extra=xh)
+    if hist.get('bad_files'):
+        print('REFUSED: the history is partial (unreadable %s)' % hist['bad_files'][:3])
+        return 1
+    _, report = plan_read(prows, town_since)
+    if shop_module()[0] is None:
+        print('REFUSED: shopread unusable (%s)' % shop_module()[1])
+        return 1
+    zl = [b for v in (report.get('_zones') or {}).values() for b in v]
+    report['items'] = dict(report['items'], **shop_read(prows, town_since, zl)[3])
+    print(json.dumps({'items': {g: v for g, v in report['items'].items() if v}, 'history': hist}, default=str))
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest='cmd', required=True)
@@ -1208,6 +1412,8 @@ def main():
     r.add_argument('--run-since', default=RUN_SINCE)
     r.add_argument('--town-since', default=TOWN_SINCE)
     r.add_argument('--ack', default=ACK)
+    r.add_argument('--no-crash', action='store_true', help='do not read the systemd journal (S7 not read)')
+    r.add_argument('--no-census', action='store_true', help='do not ask systemctl which units are enabled (S0 judges all)')
     k = sp.add_parser('ack')
     k.add_argument('--why', required=True)
     k.add_argument('--ack', default=ACK)
@@ -1223,9 +1429,12 @@ def main():
     c.add_argument('--zone', action='append')
     c.add_argument('--max-age-min', type=int, default=26 * 60)
     sp.add_parser('selftest')
+    it = sp.add_parser('items', help='every current defect item over the live history (the pre-activation replay)')
+    it.add_argument('--town-since', default=TOWN_SINCE)
+    it.add_argument('--extra-rows', default=None, help='a jsonl of skill rows to judge with the live history (a candidate\'s own)')
     a = ap.parse_args()
     return {'read': cmd_read, 'ack': cmd_ack, 'zones-baseline': cmd_zones_baseline, 'zones-compare': cmd_zones_compare,
-            'selftest': lambda _a: selftest()}[a.cmd](a)
+            'selftest': lambda _a: selftest(), 'items': cmd_items}[a.cmd](a)
 
 
 if __name__ == '__main__':

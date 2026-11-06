@@ -41,6 +41,10 @@ const tGit = (n, f) => { if (CTX.ok) return t(n, f); skipped++; console.log(`  S
 const REQUIRED = [
   'scripts/host/indexsearch2read.py',   // storehub piece C's watch read
   // wholemap-s0 (11-01): the whole-map coverage instrument (seen% / stood% / reach / tiles), its BlueMap route layer + installer
+  // phase1 item 4 (11-06): the showcase stops only for harm -- the pre-activation replay gate and the 14-day history replay
+  'infra/showcase/replaygate.py',
+  'infra/showcase/trip_replay.py',
+  'docs/reports/phase1-showcase-design-2026-11-06.md',
   'infra/showcase/wholemap.py',
   'infra/showcase/test_wholemap.py',
   'infra/showcase/install-wholemap.sh',

@@ -20,8 +20,12 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 SHOPREAD_DOC = 'docs/reports/shop-01-2026-10-25/shopread.py.txt'
 
 MUTANTS = [
-    # the verdict: an S6 defect no longer trips
-    ("            trip.append('S6 %s %d' % (k, v))", "            watch.append('S6 %s %d' % (k, v))", 'an off-record placement TRIPs'),
+    # the verdict: an S6 zone defect (H3) no longer HARM
+    ("            (harm if k in HARM_GATES else report).append('S6 %s %d' % (k, v))", "            report.append('S6 %s %d' % (k, v))",
+     'protected box is HARM'),
+    # the verdict: every S6 defect HARM again (conformance stops the world)
+    ("            (harm if k in HARM_GATES else report).append('S6 %s %d' % (k, v))", "            harm.append('S6 %s %d' % (k, v))",
+     'REPORT'),
     # the verdict: the WATCH lines are dropped
     ("            watch.append('S6 %s %s' % (k, v))", "            pass", 'STALLED'),
     # the run window: every stuck row ever is a WATCH
@@ -53,8 +57,34 @@ MUTANTS = [
     ("    except BaseException as e:          # noqa: B036", "    except ImportError as e:          # noqa: B036", 'must not abort the S5 read'),
     # r2: ack no longer refuses on a broken shopread
     ("    if shop_module()[0] is None:\n        print('REFUSED: shopread unusable", "    if False:\n        print('REFUSED: shopread unusable", 'ack refuses LOUDLY'),
-    # fun mode 10-28: tree debris no longer split out of H2 (a floating leaf stops the showcase again)
-    ("    items, debris = h2_debris_split(defect_items(defects, items))", "    items, debris = defect_items(defects, items), []", 'tree debris is a WATCH'),
+    # fun mode 10-28: tree debris no longer split out of H2 (a floating leaf is a defect again)
+    ("    items, debris = h2_debris_split(defect_items(defects, items))", "    items, debris = defect_items(defects, items), []", 'tree debris is REPORTED'),
+    # ---- phase 1 item 4 (stop only for harm; docs/reports/phase1-showcase-design-2026-11-06.md)
+    # the Gale gap reopened: a row without a position restarts the spell
+    ("        if not isinstance(p, dict) or any(p.get(k) is None for k in ('x', 'y', 'z')):\n            continue\n", "", 'Gale'),
+    # S5 plan conformance HARM again
+    ("            (harm if k in HARM_GATES else report).append('S5 %s %d' % (k, v))", "            harm.append('S5 %s %d' % (k, v))", 'a REPORT'),
+    # G5 zone no longer HARM
+    ("HARM_GATES = ('H3 zone', 'G5 zone')", "HARM_GATES = ('H3 zone',)", 'found placement inside a zone is HARM'),
+    # Z1: one trapped bot stops the world again
+    ("        if len(f['trapped']) >= ZONE_TRAP_WORLD:", "        if len(f['trapped']) >= 1:", 'QUARANTINED'),
+    # Z1: no bot count ever stops the world
+    ("        if len(f['trapped']) >= ZONE_TRAP_WORLD:", "        if False:", 'systemic'),
+    # Z1: the trapped bot is not handed to the quarantine
+    ("            quarantine.extend(sorted(f['trapped']))\n", "", 'QUARANTINED'),
+    # S7: a crash loop is only a WATCH
+    ("        harm.append('S7 crash loop", "        watch.append('S7 crash loop", 'crash loop is HARM'),
+    # S7: an unreadable journal reads OK
+    ("        watch.append('S7 crash loops not judged: %s' % cr['error'])", "        pass", 'unreadable journal'),
+    # S7: the 60-min span ignored (spread-out restarts count)
+    ("            while ts_[i] - ts_[j] > span_min * 60:", "            while ts_[i] - ts_[j] > span_min * 6000:", 'spread out'),
+    # S7: FIXTURE counted
+    ("        if not m or 'FIXTURE' in m.group(1):", "        if not m:", 'spread out'),
+    # S0: an empty enabled roster still trips
+    ("    elif f['live_bots'] == 0 and f['expect_running'] and expected > 0:", "    elif f['live_bots'] == 0 and f['expect_running']:",
+     'no enabled unit'),
+    # S0: the enabled roster ignored (a quarantined unit is a WATCH forever)
+    ("    expected = f.get('expected_bots', len(NAMES))", "    expected = len(NAMES)", 'quarantined (disabled) unit'),
     # fun mode 10-28: EVERY H2 item treated as debris (a dirt clear outside the record no longer trips)
     ("TREE_DEBRIS.match(parts[-1]) else keep).append(x)", "True else keep).append(x)", 'still TRIPs'),
 ]

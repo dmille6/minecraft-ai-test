@@ -132,13 +132,78 @@ def t_halt(H):
     line, _ = H.judge_showcase([stop], down, T)
     check('halt: tripwire stop 30 min, units down -> alarm with reason', line and 'TRIPWIRE' in line
           and 'S6 H2 clear_outside 1' in line and '0/10' in line, line)
-    line, s = H.judge_showcase([dict(stop, t='2026-10-28T11:50:00Z')], down, T)
-    check('halt: inside 15-min grace -> no alarm', line is None and 'grace' in s, s)
+    line, s = H.judge_showcase([dict(stop, t='2026-10-28T11:56:00Z')], down, T)
+    check('halt: a tripwire stop with no remedy row yet: inside the 5-min grace -> no alarm', line is None and '5-min grace' in s, s)
+    line, s = H.judge_showcase([dict(stop, t='2026-10-28T11:50:00Z', why='operator: x')], down, T)
+    check('halt: a deliberate stop inside the 15-min grace -> no alarm', line is None and '15-min grace' in s, s)
     check('halt: units back up -> no alarm', H.judge_showcase([stop], up, T)[0] is None)
     act = {'t': '2026-10-28T11:40:00Z', 'event': 'activated', 'running_bots': 10}
     line, _ = H.judge_showcase([stop, act], down, T)
-    check('halt: activated after the stop supersedes it, but down units still alarm', line and 'NO stop-bots row' in line, line)
+    check('halt: an activation is not a start -- the stop stays open (phase 1, Codex)', line and 'HALTED' in line, line)
     check('halt: census unreadable is an alarm', H.judge_showcase([], None, T)[0])
+    # phase 1 item 4: the stop row is read FIRST -- disable --now unloads the units, so an empty census during a stop is the stop
+    line, _ = H.judge_showcase([stop], {}, T)
+    check('halt: tripwire stop + 0 units listed -> HALTED with the reason, never "census is wrong"', line and 'HALTED' in line
+          and 'S6 H2 clear_outside 1' in line and 'census is wrong' not in line and 'NO mcshow' not in line, line)
+    line, _ = H.judge_showcase([stop], None, T)
+    check('halt: tripwire stop + census unreadable -> HALTED, census named', line and 'HALTED' in line and 'UNREADABLE' in line, line)
+    check('halt: no stop and 0 units -> the no-units alarm', 'NO mcshow@ units' in (H.judge_showcase([], {}, T)[0] or ''))
+    ver = {'t': '2026-10-28T11:45:00Z', 'event': 'start-verified', 'release': 'r1'}
+    req = {'t': '2026-10-28T11:44:00Z', 'event': 'start-requested'}
+    check('halt: a planned restart (start-verified after the stop) clears it', H.judge_showcase([stop, req, ver], up, T)[0] is None)
+    half = dict(up, **{'mcshow@showcase-A.service': 'inactive'})
+    line, _ = H.judge_showcase([stop, req, ver], half, T)
+    check('halt: after a verified start a down unit is a crash again (not the old stop)', line and 'NO stop-bots row' in line, line)
+    line, _ = H.judge_showcase([stop, req, {'t': '2026-10-28T11:46:00Z', 'event': 'start-failed', 'why': 'gate failed'}], down, T)
+    check('halt: start-requested / start-failed do not clear a stop', line and 'HALTED' in line, line)
+    stop2 = dict(stop, t='2026-10-28T11:47:00Z')
+    line, _ = H.judge_showcase([stop, ver, stop2], down, T)
+    check('halt: a stop after the start wins', line and 'HALTED' in line and '11:47Z' in line, line)
+    check('halt: the legacy start-bots-after-restart rc 0 clears too',
+          H.judge_showcase([stop, {'t': '2026-10-28T11:45:00Z', 'event': 'start-bots-after-restart', 'rc': 0}], up, T)[0] is None)
+    tstop = dict(stop, t='2026-10-28T11:58:00Z')
+    rem0 = {'t': '2026-10-28T11:58:30Z', 'event': 'trip-remedy', 'plan': {'action': 'stop', 'why': 'activated 9 h ago'}}
+    line, _ = H.judge_showcase([tstop, rem0], down, T)
+    check('halt: a TRIPWIRE stop whose remedy is a plain stop pages at once', line and 'HALTED' in line and 'remedy: stop' in line, line)
+    rem = {'t': '2026-10-28T11:58:30Z', 'event': 'trip-remedy', 'plan': {'action': 'rollback-restart', 'why': 'activated 40 min before'}}
+    line, s = H.judge_showcase([tstop, rem], down, T)
+    check('halt: a tripwire stop being rolled back + restarted gets 30 min to verify', line is None and '30-min grace' in s, s)
+    rem2 = dict(rem, plan={'action': 'rollback-stopped', 'why': 'world damage S4'})
+    line, _ = H.judge_showcase([tstop, rem2], down, T)
+    check('halt: rollback-stopped pages at once and names the remedy', line and 'rollback-stopped' in line and 'world damage' in line, line)
+    dstop = {'t': '2026-10-28T11:58:00Z', 'event': 'stop-bots', 'why': 'operator: visuals restart'}
+    check('halt: a deliberate stop keeps its 15-min grace', H.judge_showcase([dstop], down, T)[0] is None)
+    q = {'t': '2026-10-28T11:50:00Z', 'event': 'quarantine', 'bots': ['showcase-A'], 'why': 'S3 Z1'}
+    line, s = H.judge_showcase([ver, q], half, T)
+    check('halt: a quarantined (Z1) unit down is expected, not a crash', line is None and 'quarantined' in s, (line, s))
+    half2 = dict(half, **{'mcshow@showcase-B.service': 'failed'})
+    line, _ = H.judge_showcase([ver, q], half2, T)
+    check('halt: a down unit beside the quarantined one still alarms (only B named)', line and 'showcase-B' in line and 'showcase-A' not in line, line)
+    # remedy events: paged once each; the first run starts at the end
+    rows = [q, {'t': '2026-10-28T11:55:00Z', 'event': 'auto-rollback', 'from': 'r2', 'to': 'r1', 'classes': ['S1'], 'restart': True, 'rc': 0, 'why': 'x'}]
+    ev, cur = H.showcase_events(rows, None)
+    check('events: the first run pages nothing and starts at the end', ev == [] and cur == {'t': '2026-10-28T11:55:00Z', 'n': 1}, (ev, cur))
+    rows2 = rows + [{'t': '2026-10-28T11:55:00Z', 'event': 'auto-rollback-start', 'release': 'r1', 'rc': 0},
+                    {'t': '2026-10-28T11:59:00Z', 'event': 'stop-bots', 'why': 'x'}]
+    ev, cur2 = H.showcase_events(rows2, cur)
+    check('events: a new row at the SAME second as the cursor is paged once; other kinds are not events',
+          [k for k, _ in ev] == ['auto-rollback-start:2026-10-28T11:55:00Z'] and 'VERIFIED' in ev[0][1] and cur2['n'] == 2, (ev, cur2))
+    check('events: nothing new -> nothing paged', H.showcase_events(rows2, cur2)[0] == [])
+    ev, _ = H.showcase_events(rows, {'t': '2026-10-28T11:00:00Z', 'n': 1})
+    check('events: quarantine + rollback each one line', [k.split(':')[0] for k, _ in ev] == ['quarantine', 'auto-rollback']
+          and 'restarting' in ev[1][1] and 'showcase-A' in ev[0][1], ev)
+    # REPORT pages from trip-last.json
+    trip = {'t': '2026-10-28T11:35:00Z', 'verdict': 'REPORT', 'reports': ['S6 H1 off_record 119', 'S5 G3 lid_unreach 5',
+            "S3 Z1 trapped in a zone {'a': 1} -> QUARANTINE a"], 'new_items': {'H1 off_record': ['b 1,2,3 x'] * 5, 'G3 lid_unreach': ['lid']}}
+    rp = H.showcase_reports(trip, T, False, {})
+    check('reports: one tier-1 key per REPORT gate with its items; Z1 is paged by its event', sorted(rp) == ['report:S5 G3', 'report:S6 H1']
+          and 'no stop' in rp['report:S6 H1'] and '+2' in rp['report:S6 H1'] and "['lid']" in rp['report:S5 G3'], rp)
+    check('reports: a WATCH/OK read pages nothing', H.showcase_reports(dict(trip, reports=[]), T, False, {}) == {})
+    old = dict(trip, t='2026-10-28T09:30:00Z')
+    st = H.showcase_reports(old, T, False, {'report:S6 H1': 'x'})
+    check('reports: a stale read keeps the open keys (no false CLEARED) and pages trip:stale', st.get('report:S6 H1') == 'x' and 'trip:stale' in st, st)
+    check('reports: a stale read during a stop is by design (no trip:stale)', 'trip:stale' not in H.showcase_reports(old, T, True, {}))
+    check('reports: tier 1 (source showtrip pages)', H.AL.tier_of('showtrip', 'report:S6 H1') == H.AL.TIER_PAGE)
     fu = {f'mcbot@b{i}.service': 'active' for i in range(80)}
     fu['mcbot@b0.service'] = 'failed'
     check('fleet: one failed unit is no halt', H.judge_fleet([], fu, T)[0] is None)
@@ -475,7 +540,22 @@ def t_monitor_logs(AH):
 MUTANTS = [
     ('goalwatch.py', "    if idle < stall:\n        return None\n", "    if idle > stall:\n        return None\n", t_goal),
     ('goalwatch.py', "        return status == 'success' and d.get('op') in PROGRESS_OPS", "        return d.get('op') in PROGRESS_OPS", t_goal),
-    ('haltwatch.py', "        if age < grace:\n", "        if age < grace * 0:\n", t_halt),
+    ('haltwatch.py', "        if age < g:\n", "        if age < g * 0:\n", t_halt),
+    # phase 1 item 4
+    ('haltwatch.py', "    if stop is not None and (unit_states is None or up < total or total == 0):",
+     "    if stop is not None and unit_states is not None and (up < total):", t_halt),
+    ('haltwatch.py', "        elif ev in STARTED or (ev == 'start-bots-after-restart' and r.get('rc') == 0):",
+     "        elif ev in STARTED or ev in ('start-requested', 'start-failed', 'activated') or (ev == 'start-bots-after-restart' and r.get('rc') == 0):", t_halt),
+    ('haltwatch.py', "'stop': dt.timedelta(0), 'rollback-stopped': dt.timedelta(0)}.get(plan.get('action'), GRACE_TRIP)",
+     "'stop': GRACE, 'rollback-stopped': GRACE}.get(plan.get('action'), GRACE_TRIP)", t_halt),
+    ('haltwatch.py', "{'rollback-restart': GRACE_ROLLBACK, 'stop'", "{'rollback-restart': dt.timedelta(0), 'stop'", t_halt),
+    ('haltwatch.py', "    if set(down) <= qu:", "    if False:", t_halt),
+    ('haltwatch.py', "    down = [u for u in down if u not in qu]\n", "", t_halt),
+    ('haltwatch.py', "    if cursor is None:\n        return [], new_cur", "    if cursor is None:\n        cursor = {}", t_halt),
+    ('haltwatch.py', "            if seen_at_ct <= cn:", "            if False:", t_halt),
+    ('haltwatch.py', "        if len(p) < 2 or (p[0] == 'S3' and p[1] == 'Z1'):", "        if len(p) < 2:", t_halt),
+    ('haltwatch.py', "        out = dict(prev_active or {})", "        out = {}", t_halt),
+    ('haltwatch.py', "        if not stop_open:\n            out['trip:stale']", "        if True:\n            out['trip:stale']", t_halt),
     ('haltwatch.py', "        if inc.get('dry_run') or not inc.get('stopped')", "        if not inc.get('stopped')", t_halt),
     ('rollout.py', "            if d >= 2 and d > poisson_upper(mu, 0.995):", "            if d > poisson_upper(mu, 0.995):", t_rollout),
     ('rollout.py', "    inside = [r for r in runs if t0 <= r[0] <= t1 + slack]", "    inside = [r for r in runs]", t_rollout),

@@ -1084,7 +1084,7 @@ class StageCommandBase(unittest.TestCase):
         self.saved = {k: getattr(SO, k) for k in ('ROOT', 'OPS', 'LEDGER', 'FOLLOW', 'DEPLOY', 'HARNESS', 'RELEASES', 'REQUIRED', 'REVOKED',
                                                   'AUTO', 'LANE', 'PIECES', 'lock', 'fetch', 'resolve', 'git', 'is_anc', 'cherry_equivalent',
                                                   'current_release', 'stage', 'pieces_in', 'docs_only_change', 'revoked_patch_in',
-                                                  'read_protected', 'protected_diff')}
+                                                  'read_protected', 'protected_diff', 'replay_admit')}
         SO.ROOT = self.d
         for k, v in (('OPS', 'ops'), ('LEDGER', 'ops/follow-ledger.jsonl'), ('FOLLOW', 'ops/follow.jsonl'), ('DEPLOY', 'ops/deploy.jsonl'),
                      ('HARNESS', 'harness'), ('RELEASES', 'releases'), ('REQUIRED', 'REQUIRED_KEPT'), ('REVOKED', 'REVOKED'),
@@ -1116,6 +1116,9 @@ class StageCommandBase(unittest.TestCase):
         SO.protected_diff = lambda a, b, pats: self.changed.get((a, b), BUILD)
         self.calls = []
         SO.stage = lambda *a, **k: (self.calls.append((a, k)), (True, '/x/release'))[1]
+        self.replay = (True, {'unknown': [], 'new_defects': {}, 'why': []})
+        self.replays = []
+        SO.replay_admit = lambda sha, rel, a: (self.replays.append((sha, rel)), self.replay)[1]
 
     def tearDown(self):
         for k, v in self.saved.items():
@@ -1143,6 +1146,20 @@ class StageCommandBase(unittest.TestCase):
 
 
 class StagePieceCommand(StageCommandBase):
+    def test_the_pre_activation_replay_gates_a_piece_and_a_main_release(self):
+        self.replay = (False, {'why': ["R1 new row shapes the reader never names ['_build:kind=cover']"]})
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 1)
+        self.assertIn('PRE-ACTIVATION REPLAY', out)
+        self.assertIn('_build:kind=cover', out)
+        self.assertEqual(self.calls, [], 'a refused replay stages nothing')
+        self.assertIn('PRE-ACTIVATION REPLAY', self.refused_rows()[-1]['why'])
+        self.assertEqual(self.replays[-1], (S2, R40), 'the candidate is replayed against the CURRENT release')
+        self.replay = (True, {'unknown': [], 'new_defects': {}, 'why': []})
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.calls[-1][1]['extra']['gate']['replay'], self.replay[1], 'the replay record rides in RELEASE.json')
+
     def test_stages_the_stack_with_its_piece_record(self):
         rc, out = self.run_stage()
         self.assertEqual(rc, 0, out)
@@ -1934,6 +1951,110 @@ class Timelapse(unittest.TestCase):
         self.assertIn('stale holder', p)
         b = SS.brain_line({'gemma4:26b': 90, 'qwen2.5:7b-instruct': 5}, 5, 100, 0)
         self.assertIn('gemma4 90 (90.0%)', b)
+
+
+class TripRemedy(unittest.TestCase):
+    """phase 1 item 4: a HARM trip within 3 h of a release's activation rolls back once (docs/reports/phase1-showcase-design-2026-11-06.md)."""
+    NOW = dt.datetime(2026, 10, 31, 2, 37, tzinfo=UTC)
+
+    def rows(self, act_t='2026-10-31T01:08:25Z', cause=None, extra=()):
+        a = {'t': act_t, 'event': 'activated', 'release': 'new', 'previous': 'old', 'running_bots': 10}
+        if cause:
+            a['cause'] = cause
+        return [{'t': '2026-10-31T00:12:58Z', 'event': 'activated', 'release': 'old', 'previous': 'older', 'running_bots': 10}, a] + list(extra)
+
+    def trip(self, harm, t='2026-10-31T02:35:21Z', ev=None):
+        return {'t': t, 'verdict': 'TRIP', 'harm': harm, 'why': harm, 'harm_evidence': ev or {}}
+
+    def plan(self, harm, rows=None, auto=True, rel=None, ev=None, t='2026-10-31T02:35:21Z'):
+        return SO.remedy_plan(self.trip(harm, t=t, ev=ev), rows if rows is not None else self.rows(), 'new', self.NOW, auto, rel)
+
+    def test_the_10_31_breach_rolls_back_code_and_stays_stopped(self):
+        p = self.plan(["S4 trial-chambers-home-se BREACH removed 3 changed 0 ['47,19,67 minecraft:oak_fence']"])
+        self.assertEqual((p['action'], p['target'], p['classes']), ('rollback-stopped', 'old', ['S4']), p)
+        self.assertIn('stay stopped', p['why'])
+
+    def test_deaths_after_the_switch_roll_back_and_restart(self):
+        ev = {'S1': ['2026-10-31T01:30:00Z', '2026-10-31T01:50:00Z', '2026-10-31T02:00:00Z', '2026-10-31T02:20:00Z']}
+        p = self.plan(['S1 4 deaths inside 180 min'], ev=ev)
+        self.assertEqual((p['action'], p['target']), ('rollback-restart', 'old'), p)
+
+    def test_deaths_before_the_switch_are_not_the_new_release(self):
+        ev = {'S1': ['2026-10-31T00:30:00Z', '2026-10-31T00:50:00Z', '2026-10-31T01:00:00Z', '2026-10-31T01:20:00Z']}
+        p = self.plan(['S1 4 deaths inside 180 min'], ev=ev)
+        self.assertEqual(p['action'], 'stop', p)
+        self.assertIn('before the switch', p['why'])
+
+    def test_crash_loop_and_z1_attribution(self):
+        ok = self.plan(['S7 crash loop'], ev={'S7': {'showcase-Alpha': ['2026-10-31T01:20:00Z', '2026-10-31T01:30:00Z', '2026-10-31T01:40:00Z']}})
+        self.assertEqual(ok['action'], 'rollback-restart', ok)
+        old = self.plan(['S7 crash loop'], ev={'S7': {'showcase-Alpha': ['2026-10-31T00:20:00Z', '2026-10-31T01:30:00Z', '2026-10-31T01:40:00Z']}})
+        self.assertEqual(old['action'], 'stop', 'two restarts after the switch are not a crash loop of the new release')
+        z = self.plan(['S3 Z1 trapped in a zone (3 bots at once)'], ev={'Z1': {'a': ['2026-10-31T01:40:00Z']}})
+        self.assertEqual(z['action'], 'rollback-restart', z)
+        self.assertEqual(self.plan(['S3 Z1 trapped'], ev={'Z1': {'a': ['2026-10-31T00:40:00Z']}})['action'], 'stop')
+
+    def test_the_window_is_three_hours(self):
+        self.assertEqual(self.plan(['S0 no showcase bot wrote a row in 15 min'], t='2026-10-31T04:08:00Z')['action'], 'rollback-restart')
+        p = self.plan(['S0 no showcase bot wrote a row in 15 min'], t='2026-10-31T04:09:00Z')
+        self.assertEqual(p['action'], 'stop', p)
+        self.assertIn('window 3 h', p['why'])
+        self.assertEqual(self.plan(['S0 x'], t='2026-10-31T01:00:00Z')['action'], 'stop', 'a read before the switch is not the release\'s')
+
+    def test_never_a_second_rollback(self):
+        p = self.plan(['S0 x'], rows=self.rows(cause='auto-rollback'))
+        self.assertEqual(p['action'], 'stop')
+        self.assertIn('itself an automatic rollback', p['why'])
+        again = self.rows(extra=[{'t': '2026-10-31T01:30:00Z', 'event': 'auto-rollback', 'from': 'new', 'to': 'old'},
+                                 {'t': '2026-10-31T01:40:00Z', 'event': 'activated', 'release': 'new', 'previous': 'old'}])
+        self.assertEqual(self.plan(['S0 x'], rows=again)['action'], 'stop', 'a release rolled back once is never rolled back again')
+
+    def test_fail_closed(self):
+        self.assertEqual(self.plan(['S0 x'], auto=False)['action'], 'stop', 'AUTO_ROLLBACK absent: a plain stop')
+        self.assertEqual(self.plan([])['action'], 'stop')
+        self.assertEqual(self.plan(['S0 x'], rows=[])['action'], 'stop', 'no activation journalled')
+        self.assertEqual(self.plan(['S0 x'], rel={'prev_release': 'other'})['action'], 'stop', 'RELEASE.json disagrees with the switch')
+        self.assertEqual(self.plan(['S0 x'], rel={'prev_release': 'old'})['action'], 'rollback-restart')
+        noprev = [dict(r, previous=None) for r in self.rows()]
+        self.assertEqual(self.plan(['S0 x'], rows=noprev)['action'], 'stop')
+        self.assertEqual(SO.remedy_plan(dict(self.trip(['S0 x']), t=None), self.rows(), 'new', self.NOW, True)['action'], 'stop')
+
+    def test_world_damage_classes(self):
+        for h, c in ((['S6 H3 zone 1'], 'S6 H3'), (['S5 G5 zone 2'], 'S5 G5')):
+            p = self.plan(h)
+            self.assertEqual((p['action'], p['classes']), ('rollback-stopped', [c]), p)
+        mixed = self.plan(['S0 x', 'S4 z BREACH removed 1'])
+        self.assertEqual(mixed['action'], 'rollback-stopped', 'any world damage keeps the bots stopped')
+        self.assertEqual([SO.harm_class(x) for x in ('S3 Z1 trapped', 'S6 H3 zone 1', 'S4 v BREACH', 'S1 4 deaths')], ['S3 Z1', 'S6 H3', 'S4', 'S1'])
+
+    def test_stop_why_keeps_the_tripwire_text(self):
+        self.assertTrue(SO.stop_why({'why': ['S1 4 deaths']}).startswith('tripwire: VERDICT      TRIP -- S1 4 deaths'))
+
+
+class ReplayGate(unittest.TestCase):
+    def test_selftest(self):
+        RG = load('replaygate', 'replaygate.py')
+        self.assertEqual(RG.selftest(), 0)
+
+    def test_the_11_05_cover_shape_is_unknown_to_the_old_reader(self):
+        RG = load('replaygate', 'replaygate.py')
+        old = {'d.mjs': "e.log('_build', { op: 'clear', cell: at, kind: 'tree', block })\n"}
+        new = {'d.mjs': old['d.mjs'] + "e.log('_build', { op: 'clear', cell: at, kind: 'cover', block })\n"}
+        before = "ROW_KINDS = ('_build',)\nK = {'tree': 1, 'clear': 2, 'cell': 3, 'kind': 4, 'block': 5, 'op': 6}\n"
+        self.assertEqual(RG.unknown_shapes(old, new, before, {'_build'}), ['_build:kind=cover'])
+        self.assertEqual(RG.unknown_shapes(old, new, before + "COVER = 'cover'\n", {'_build'}), [], 'coverread names it')
+
+
+class FollowObserve(unittest.TestCase):
+    def test_an_observe_only_follower_writes_no_rollback(self):
+        d = {'decision': 'ROLLBACK', 'target': 'a' * 40, 'reason': 'the showcase is no longer inside', 'fleet': 'f', 'auto': False}
+        r = SO.follow_record(d, observe=True)
+        self.assertEqual(r['decision'], 'OBSERVE')
+        self.assertNotIn('target', r)
+        self.assertEqual(r['rule'], {'decision': 'ROLLBACK', 'target': 'a' * 40})
+        self.assertEqual(r['fleet'], 'f', 'the observation itself is kept')
+        self.assertEqual(SO.follow_record(d, observe=False), d, 'an acting follower keeps its decision')
+        self.assertEqual(SO.follow_record(dict(d, decision='HOLD'), observe=True)['decision'], 'HOLD')
 
 
 if __name__ == '__main__':

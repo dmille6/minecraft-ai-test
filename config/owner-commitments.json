@@ -4891,6 +4891,32 @@
    "note": "Claude + independent Codex designs per item, reconciled in the design doc; two-engine blockers-only reviews (Codex + an independent Claude agent), all blockers fixed."
   },
   {
+   "id": "phase1-showcase-1106",
+   "title": "Phase 1 item 4 (codeeval 11-06): the showcase stops only for harm -- conformance is a paged REPORT, auto-rollback of a release < 3 h old, a verified start clears a stop, the pre-activation replay as a stage gate, no follower/WATCH noise, .40 on the new pager",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "phase1-showcase-1106.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Deploy on .40 one piece at a time (design doc deploy order): pager tree + haltwatch + start journal, the follower, the tripwire policy (quarantines Gale at the first read), AUTO_ROLLBACK, the replay gate. Owner: Z1 scope (quarantine vs world stop) and the showcase's missing survey job.",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "paths": [
+     "docs/reports/phase1-showcase-design-2026-11-06.md",
+     "infra/showcase/replaygate.py",
+     "infra/showcase/trip_replay.py"
+    ],
+    "branches": [
+     "showtrip-01"
+    ]
+   },
+   "owner_pending": "phase1-showcase-1106: Z1 with 1-2 trapped bots quarantines those bots (world goes on; 3+ stops the world) -- OK, or the literal 'a trapped bot stops the world' (ZONE_TRAP_WORLD=1)?",
+   "note": "Claude + independent Codex designs per item, reconciled in the design doc; protected scope: two-engine blockers-only reviews."
+  },
+  {
    "id": "gkforever-1106",
    "title": "Groundskeeping never runs out (owner 11-06: 'there should always be projects the bots can work on, at the very least they can be greens keepers ...'; inside the walls beautiful, no holes, pits or unlevel ground, then the countryside)",
    "owner_date": "2026-11-06",

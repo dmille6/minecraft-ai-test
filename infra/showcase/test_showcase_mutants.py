@@ -15,6 +15,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 MUTANTS = [
+    # phase 1 item 4: the tripwire's remedies (showcase_ops.remedy_plan, follow_record)
+    ('showcase_ops.py', "    if age < dt.timedelta(0) or age > window:", "    if age < dt.timedelta(0):", 'test_the_window_is_three_hours'),
+    ('showcase_ops.py', "    if act.get('cause') == 'auto-rollback':", "    if False:", 'test_never_a_second_rollback'),
+    ('showcase_ops.py', "    if any(r.get('event') == 'auto-rollback' and r.get('from') == current for r in deploy_rows):", "    if False:",
+     'test_never_a_second_rollback'),
+    ('showcase_ops.py', "    if not auto_on:\n", "    if False:\n", 'test_fail_closed'),
+    ('showcase_ops.py', "    if pr and pr != target:", "    if False:", 'test_fail_closed'),
+    ('showcase_ops.py', "    if damage:\n", "    if False:\n", 'test_the_10_31_breach_rolls_back_code_and_stays_stopped'),
+    ('showcase_ops.py', "WORLD_DAMAGE = ('S4', 'S5 G5', 'S6 H3')", "WORLD_DAMAGE = ('S4',)", 'test_world_damage_classes'),
+    ('showcase_ops.py', "        return _peak(after(ev.get('S1')), 180 * 60) >= DEATH_TRIP", "        return True",
+     'test_deaths_before_the_switch_are_not_the_new_release'),
+    ('showcase_ops.py', "        return any(len(after(v)) >= CRASH_RESTARTS for v in (ev.get('S7') or {}).values())", "        return True",
+     'test_crash_loop_and_z1_attribution'),
+    ('showcase_ops.py', "        return any(after(v) for v in (ev.get('Z1') or {}).values())", "        return True", 'test_crash_loop_and_z1_attribution'),
+    ('showcase_ops.py', "    late = [c for c in classes if not attributable(", "    late = [c for c in [] if not attributable(",
+     'test_deaths_before_the_switch_are_not_the_new_release'),
+    ('showcase_ops.py', "    if not observe or d.get('decision') not in ('DUE', 'ROLLBACK', 'STOP'):", "    if True:",
+     'test_an_observe_only_follower_writes_no_rollback'),
     ('files/filebeat.yml', '    - index: "mcai-showcase-ops"\n', '    - index: "mcai-skill-agents"\n',
      'test_only_showcase_indices_and_the_scoped_credential'),
     ('studio-gpu-guard.sh', '    if [ -e "$SHOWCASE_QUIESCED" ] && grep -qxF "RESV $(head -n 1',

@@ -160,6 +160,19 @@ def lock():
 
 
 # ------------------------------------------------------------------------------------------------ follow
+def follow_record(d, observe):
+    """The follow.jsonl row. Pure. When the follower only observes (the lane, a gated release, AUTO_FOLLOW off), a DUE /
+    ROLLBACK / STOP is a decision nobody can act on: it is written as decision OBSERVE with the rule's answer kept under
+    `rule` (phase 1 item 4: 290 of 446 rows said ROLLBACK to aea83708 while auto was false on all 446). The observation
+    itself (fleet, policy, deps -- what a stage pins) is unchanged."""
+    if not observe or d.get('decision') not in ('DUE', 'ROLLBACK', 'STOP'):
+        return d
+    out = {k: v for k, v in d.items() if k not in ('decision', 'target', 'reason')}
+    out['decision'] = 'OBSERVE'
+    out['rule'] = {'decision': d.get('decision'), 'target': d.get('target')}
+    return out
+
+
 def cmd_follow(a):
     lk = lock()
     t = now_utc()
@@ -198,6 +211,7 @@ def cmd_follow(a):
     d['auto'] = os.path.exists(AUTO) and not os.path.exists(LANE) and not gated
     d['lane'] = os.path.exists(LANE)
     d['gated_release'] = gated
+    d = follow_record(d, observe=not d['auto'] or getattr(a, 'observe_only', False))
     append(FOLLOW, d)
     print(json.dumps(d))
     if not d['auto'] or getattr(a, 'observe_only', False) or os.path.exists(LANE) or gated:
@@ -690,6 +704,10 @@ def stage_main(a, sha, feed, last, ledger):
     covers = make_covers(is_anc, docs_only_change)
     row = [r for r in rows if isinstance(r, dict) and r.get('run') and covers(r.get('sha'), sha)][-1]
     rec = gate_record(row, 'main', bool(pats), protected_hits(prot(rel_sha, sha), pats))
+    rok, rrec = replay_admit(sha, rel_sha, a)
+    if not rok:
+        return refuse('PRE-ACTIVATION REPLAY: ' + '; '.join(rrec.get('why') or ['refused']))
+    rec['replay'] = rrec
     if dry:
         print(f'DRY RUN -- WOULD STAGE {sha[:8]} on {str(rel_sha)[:8]}: {json.dumps(rec)}')
         return 0
@@ -747,6 +765,10 @@ def stage_piece(a, sha, feed, last):
     rec = {'mode': 'piece', 'pieces': {r: gate_record(newest[r], 'piece', bool(pats),
                                                       protected_hits(prot(newest[r]['base'], newest[r]['sha']), pats))
                                        for r in runs}}
+    rok, rrec = replay_admit(sha, rel_sha, a)
+    if not rok:
+        return refuse('PRE-ACTIVATION REPLAY: ' + '; '.join(rrec.get('why') or ['refused']))
+    rec['replay'] = rrec
     if dry:
         print(f'DRY RUN -- WOULD STAGE {sha[:8]} ({",".join(runs)}) on {str(rel_sha)[:8]}: {json.dumps(rec)}')
         return 0
@@ -759,6 +781,34 @@ def stage_piece(a, sha, feed, last):
                     'piece': runs})
     print('STAGED ' + out)
     return 0
+
+
+# ------------------------------------------------------------------------------------------------ the pre-activation replay
+TRIP_HOME = f'{ROOT}/trip'
+INSTALLED_READER = f'{TRIP_HOME}/shopread.py'
+
+
+def replay_admit(sha, rel_sha, a):
+    """THE PRE-ACTIVATION REPLAY (phase 1 item 4; replaygate.py): the candidate's row shapes against the candidate reader
+    (R1), the candidate reader over the live history (+ the candidate's own rows) against the installed reader (R2), and the
+    reader's own selftest (R3). -> (ok, record). The candidate reader is --reader (default: the installed one -- a release
+    that ships no reader change is judged by the reader it will run under). A release with no current release (bootstrap)
+    has nothing to compare: refused, as an unknown is never OK."""
+    import replaygate as RG
+    reader = getattr(a, 'reader', None) or INSTALLED_READER
+    if not rel_sha:
+        return False, {'why': ['no current release to compare the candidate against']}
+    if not os.path.exists(reader):
+        return False, {'why': [f'the candidate reader {reader} does not exist']}
+    try:
+        ok, rec = RG.gate(REPO, rel_sha, sha, INSTALLED_READER, reader, TRIP_HOME, getattr(a, 'replay_rows', None),
+                          tuple(getattr(a, 'reader_ok', None) or ()))
+    except Exception as e:
+        return False, {'why': [f'R3 the replay failed: {type(e).__name__}: {str(e)[:200]}']}
+    rec['reader_sha256'] = hashlib.sha256(open(reader, 'rb').read()).hexdigest()[:16]
+    print(f"PRE-ACTIVATION REPLAY {'PASS' if ok else 'REFUSED'}: unknown shapes {rec.get('unknown')}, new defect items "
+          f"{ {g: len(v) for g, v in (rec.get('new_defects') or {}).items()} }, items {rec.get('items')}")
+    return ok, rec
 
 
 # ------------------------------------------------------------------------------------------------ record (the release log)
@@ -920,7 +970,7 @@ def newest_row(bot):
         return None
 
 
-def activate(release_dir, verify_s=600, prev_admissible=True, snapshot=True, no_snapshot_why=None):
+def activate(release_dir, verify_s=600, prev_admissible=True, snapshot=True, no_snapshot_why=None, cause=None):
     rel = json.load(open(f'{release_dir}/RELEASE.json'))
     prev = os.path.realpath(HARNESS) if os.path.islink(HARNESS) else None
     # THE WORLD SNAPSHOT before anything switches (fun mode: code rollback does not undo what a release did to the world).
@@ -947,7 +997,8 @@ def activate(release_dir, verify_s=600, prev_admissible=True, snapshot=True, no_
     # With AUTO_FOLLOW on, the WHOLE roster is expected: a failed bot must not drop out of the denominator.
     bots = list(NAMES) if os.path.exists(AUTO) else running_bots()
     append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'activated', 'release': os.path.basename(release_dir),
-                    'previous': os.path.basename(prev) if prev else None, 'running_bots': len(bots)})
+                    'previous': os.path.basename(prev) if prev else None, 'running_bots': len(bots),
+                    **({'cause': cause} if cause else {})})
     if not bots:
         print(f'ACTIVATED {os.path.basename(release_dir)} (no bot running: start-bots.sh verifies the ten)')
         return 0
@@ -1029,6 +1080,189 @@ def release_admissible(rel):
         if not ver or not is_anc(sha, ver[-1]['sha']):
             return False
     return not revoked_refusal(sha, read_revoked(), is_anc, revoked_patch_in)
+
+
+# ------------------------------------------------------------------------------------------------ the tripwire's remedies
+# STOP ONLY FOR HARM, ROLL BACK A NEW RELEASE (codeeval 11-06 phase 1 item 4; docs/reports/phase1-showcase-design-2026-11-06.md).
+# trip-cron.sh hands a HARM verdict (trip-last.json) to `trip-remedy`; a Z1 quarantine to `quarantine`. Both under ops.lock.
+ROLLBACK_WINDOW = dt.timedelta(hours=3)
+AUTO_ROLLBACK = f'{ROOT}/trip/AUTO_ROLLBACK'      # present = trip-remedy may roll back; absent = every harm trip is a plain stop
+TRIP_MAX_AGE = dt.timedelta(minutes=20)           # trip-cron runs the remedy right after the read
+# harm classes (the reason's leading gate). The world-damage ones leave blocks changed in a protected zone: a code rollback
+# cannot undo them, so the bots stay stopped until a fresh read is clean (the owner's one-off repair, 10-31).
+WORLD_DAMAGE = ('S4', 'S5 G5', 'S6 H3')
+DEATH_TRIP, CRASH_RESTARTS = 4, 3
+
+
+def harm_class(reason):
+    """'S4 trial-chambers BREACH ...' -> 'S4'; 'S3 Z1 trapped ...' -> 'S3 Z1'; 'S6 H3 zone 1' -> 'S6 H3'. Pure."""
+    p = str(reason).split()
+    if len(p) >= 2 and p[0] in ('S3', 'S5', 'S6'):
+        return p[0] + ' ' + p[1]
+    return p[0] if p else '?'
+
+
+def _peak(times, span_s):
+    t, best, j = sorted(times), 0, 0
+    for i in range(len(t)):
+        while (t[i] - t[j]).total_seconds() > span_s:
+            j += 1
+        best = max(best, i - j + 1)
+    return best
+
+
+def attributable(cls, evidence, switched, read_t):
+    """Did the harm of class `cls` happen AFTER the release switch? evidence: trip-last.json's harm_evidence (ISO times).
+    Pure. Deaths: >= DEATH_TRIP of them inside 180 min, all after the switch. Crash loop: >= CRASH_RESTARTS restarts of one
+    unit after it. Z1: a trapped spell that began after it. S0 / S4 / H3 / G5 (no row time): the read itself is after the
+    switch (the hourly read before it saw no such harm, or it would have stopped then)."""
+    ev = evidence or {}
+    after = lambda xs: [t for t in (FR.parse_ts(x) for x in xs or []) if t and t >= switched]
+    if cls == 'S1':
+        return _peak(after(ev.get('S1')), 180 * 60) >= DEATH_TRIP
+    if cls == 'S7':
+        return any(len(after(v)) >= CRASH_RESTARTS for v in (ev.get('S7') or {}).values())
+    if cls == 'S3 Z1':
+        return any(after(v) for v in (ev.get('Z1') or {}).values())
+    return read_t >= switched
+
+
+def remedy_plan(trip, deploy_rows, current, now, auto_on, current_rel=None, window=ROLLBACK_WINDOW):
+    """THE REMEDY FOR A HARM TRIP. Pure. trip: trip-last.json; deploy_rows: ops/deploy.jsonl in order; current: the harness
+    release dir name; current_rel: its RELEASE.json. -> {'action': 'stop' | 'rollback-restart' | 'rollback-stopped',
+    'target': dir | None, 'classes': [...], 'why': str}.
+    ROLLBACK when ALL hold: AUTO_ROLLBACK is on; the live release has an `activated` row (the switch) no more than `window`
+    before the read; that switch was not itself an automatic rollback, and this release was never rolled back automatically
+    (one attempt, never a chain); its `previous` is named (and agrees with RELEASE.json's prev_release when that is set); every
+    harm class is attributable to the time after the switch. RESTART after the rollback only when no class is world damage."""
+    classes = sorted({harm_class(r) for r in (trip or {}).get('harm') or []})
+    out = {'action': 'stop', 'target': None, 'classes': classes}
+    stop = lambda why: dict(out, why=why)
+    if not classes:
+        return stop('no harm named in the trip (a plain stop)')
+    if not auto_on:
+        return stop(f'auto-rollback is off ({AUTO_ROLLBACK} absent)')
+    read_t = FR.parse_ts((trip or {}).get('t'))
+    if read_t is None:
+        return stop('the trip read has no time')
+    acts = [r for r in deploy_rows if r.get('event') == 'activated' and r.get('release') == current and FR.parse_ts(r.get('t'))]
+    if not acts:
+        return stop(f'no activation of the live release {current} in the journal')
+    act = acts[-1]
+    switched = FR.parse_ts(act['t'])
+    if act.get('cause') == 'auto-rollback':
+        return stop(f'the live release {current} is itself an automatic rollback ({act["t"]}): never a second')
+    if any(r.get('event') == 'auto-rollback' and r.get('from') == current for r in deploy_rows):
+        return stop(f'{current} was already rolled back automatically once')
+    age = read_t - switched
+    if age < dt.timedelta(0) or age > window:
+        return stop(f'{current} was activated {age.total_seconds() / 3600:.1f} h before the read (window {window.total_seconds() / 3600:.0f} h)')
+    target = act.get('previous')
+    if not target:
+        return stop('the activation names no previous release')
+    pr = (current_rel or {}).get('prev_release')
+    if pr and pr != target:
+        return stop(f'RELEASE.json prev_release {pr} disagrees with the switch\'s previous {target}')
+    if target == current:
+        return stop('the previous release is the live one')
+    late = [c for c in classes if not attributable(c, (trip or {}).get('harm_evidence'), switched, read_t)]
+    if late:
+        return stop(f'harm {late} began before the switch at {act["t"]}: not the new release\'s')
+    damage = [c for c in classes if c in WORLD_DAMAGE]
+    if damage:
+        return dict(out, action='rollback-stopped', target=target,
+                    why=f'{current} activated {age.total_seconds() / 60:.0f} min before the harm; world damage {damage}: code rolled back '
+                        f'to {target}, the bots stay stopped until the zone reads clean (owner one-off repair)')
+    return dict(out, action='rollback-restart', target=target,
+                why=f'{current} activated {age.total_seconds() / 60:.0f} min before the harm {classes}: rolled back to {target} and restarted')
+
+
+def stop_why(trip):
+    """The stop-bots reason, the same text trip-cron.sh always wrote ('tripwire: VERDICT TRIP -- ...'), so haltwatch's TRIPWIRE
+    kind and every reader of it are unchanged. Pure."""
+    return ('tripwire: VERDICT      TRIP -- ' + '; '.join((trip or {}).get('why') or ['(no reason)']))[:300]
+
+
+def _stop_bots(why):
+    subprocess.run(['/srv/showcase/bin/stop-bots.sh', why], env=dict(os.environ, SHOWCASE_LOCK_HELD='1'))
+
+
+def cmd_trip_remedy(a):
+    """trip-cron.sh on a HARM verdict: stop the bots, then -- when remedy_plan says so -- re-activate the previous release and
+    (no world damage) start the bots again with start-bots.sh (gate + 10-min verify). Every step is journalled; any doubt
+    leaves the bots stopped (stopping is always safe)."""
+    try:
+        trip = json.load(open(a.json))
+    except (OSError, ValueError) as e:
+        trip = {'why': [f'trip-last.json unreadable ({type(e).__name__})']}
+    lk = lock()
+    now = now_utc()
+    rt = FR.parse_ts(trip.get('t'))
+    rows = FR.load_jsonl(DEPLOY)
+    cur_dir = os.path.basename(os.path.realpath(HARNESS)) if os.path.islink(HARNESS) else None
+    if trip.get('verdict') != 'TRIP' or rt is None or now - rt > TRIP_MAX_AGE:
+        plan = {'action': 'stop', 'target': None, 'classes': [], 'why': f'the trip read is not a fresh TRIP (verdict {trip.get("verdict")}, t {trip.get("t")})'}
+    else:
+        plan = remedy_plan(trip, rows, cur_dir, now, os.path.exists(AUTO_ROLLBACK), current_release())
+    _stop_bots(stop_why(trip))
+    target_dir = os.path.join(RELEASES, plan['target']) if plan.get('target') else None
+    if plan['action'] != 'stop':
+        try:
+            trel = json.load(open(os.path.join(target_dir, 'RELEASE.json')))
+        except (OSError, ValueError, TypeError) as e:
+            trel, bad = None, f'the previous release {plan["target"]} is not staged here ({type(e).__name__})'
+        else:
+            feed = json.load(open(f'{OPS}/feed-last.json')) if os.path.exists(f'{OPS}/feed-last.json') else {}
+            ok, missing = pieces_in(trel['sha'], feed.get('journal') or [])
+            bad = (None if release_admissible(trel) else f'the previous release {plan["target"]} is not admissible (REVOKED or outside the fleet)') \
+                or (None if ok else f'the previous release lacks the required pieces {missing}')
+        if bad:
+            plan = dict(plan, action='stop', why=plan['why'] + f' -- REFUSED: {bad}')
+    append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'trip-remedy', 'release': cur_dir, 'plan': plan, 'trip_t': trip.get('t')})
+    print(f"TRIP REMEDY {plan['action']}: {plan['why']}")
+    if plan['action'] == 'stop':
+        return 0
+    rc = activate(target_dir, prev_admissible=False, cause='auto-rollback')
+    restart = plan['action'] == 'rollback-restart' and rc == 0
+    append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'auto-rollback', 'from': cur_dir, 'to': plan['target'], 'rc': rc,
+                    'classes': plan['classes'], 'restart': restart, 'why': plan['why'][:300]})
+    lk.close()                         # start-bots.sh takes ops.lock itself
+    if not restart:
+        print('ROLLED BACK to %s (rc %d); the bots stay stopped' % (plan['target'], rc))
+        return 0
+    p = subprocess.run(['/srv/showcase/bin/start-bots.sh'], capture_output=True, text=True, timeout=3600)
+    append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'auto-rollback-start', 'release': plan['target'], 'rc': p.returncode,
+                    'tail': (p.stdout + p.stderr).strip()[-300:]})
+    print(f'ROLLED BACK to {plan["target"]} and start-bots.sh rc {p.returncode}')
+    return 0
+
+
+def cmd_quarantine(a):
+    """Z1 (fewer than ZONE_TRAP_WORLD trapped bots): stop ONLY the trapped bots' units (disable --now), journalled; the world
+    goes on. start-bots.sh (a planned restart) brings them back. Names outside the roster are refused."""
+    try:
+        trip = json.load(open(a.json))
+    except (OSError, ValueError) as e:
+        print(f'REFUSED: {a.json} unreadable ({type(e).__name__})')
+        return 1
+    bots = [b for b in trip.get('quarantine') or [] if b in NAMES]
+    if not bots:
+        print('nothing to quarantine')
+        return 0
+    lk = lock()
+    done = []
+    for b in bots:
+        u = f'mcshow@{b}'
+        if subprocess.run(['systemctl', 'is-enabled', '--quiet', u]).returncode == 0 or \
+                subprocess.run(['systemctl', 'is-active', '--quiet', u]).returncode == 0:
+            subprocess.run(['systemctl', 'disable', '--now', u], capture_output=True)
+            done.append(b)
+    why = '; '.join(r for r in trip.get('reports') or [] if 'Z1' in r)[:300]
+    if done:
+        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'quarantine', 'bots': done, 'why': why, 'trip_t': trip.get('t')})
+    lk.close()
+    print(f'QUARANTINED {done or "nothing (already stopped)"}: {why}')
+    return 0
 
 
 # ------------------------------------------------------------------------------------------------ gate
@@ -1218,6 +1452,10 @@ def main():
     s.add_argument('--main', action='store_true', help='FOLLOW MAIN: a sha on origin/main, staged directly (release-log line needed)')
     s.add_argument('--dry-run', action='store_true', help='decide and print; stage nothing, journal nothing')
     s.add_argument('--against', default=None, help='with --dry-run: judge as if this sha were the current release')
+    s.add_argument('--reader', default=None, help='the candidate shopread.py the release will run under (default: the installed one)')
+    s.add_argument('--reader-ok', action='append', default=[], metavar="KIND:FIELD[=VALUE]",
+                   help='a new row shape the reader need not name (journalled in the gate record); repeatable')
+    s.add_argument('--replay-rows', default=None, help="a jsonl of the candidate's own skill rows (Paper / offline) to replay too")
     t = sub.add_parser('activate')
     t.add_argument('release')
     t.add_argument('--no-snapshot', default=None, metavar='WHY', help='skip the world snapshot (journalled with WHY)')
@@ -1235,9 +1473,14 @@ def main():
     sub.add_parser('gate')
     sub.add_parser('replay-fresh')
     sub.add_parser('status')
+    tr = sub.add_parser('trip-remedy', help='trip-cron on a HARM verdict: stop, and roll back a release activated < 3 h ago')
+    tr.add_argument('--json', default=f'{OPS}/trip-last.json')
+    q = sub.add_parser('quarantine', help='trip-cron on a Z1 quarantine: stop only the trapped bots')
+    q.add_argument('--json', default=f'{OPS}/trip-last.json')
     a = ap.parse_args()
     return {'follow': cmd_follow, 'stage': cmd_stage, 'activate': cmd_activate, 'gate': cmd_gate, 'record': cmd_record,
-            'world-edit': cmd_world_edit, 'replay-fresh': cmd_replay_fresh, 'status': cmd_status}[a.cmd](a)
+            'world-edit': cmd_world_edit, 'replay-fresh': cmd_replay_fresh, 'status': cmd_status,
+            'trip-remedy': cmd_trip_remedy, 'quarantine': cmd_quarantine}[a.cmd](a)
 
 
 if __name__ == '__main__':

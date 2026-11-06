@@ -7,6 +7,14 @@
 set -uo pipefail
 B=/srv/showcase/bin
 exec 9>>/srv/showcase/ops.lock; flock 9
+# THE START JOURNAL (phase 1 item 4): start-requested now, then start-verified (all 15 bots on the release, both rows newer than
+# this start, the brain serving) or start-failed. haltwatch clears a stop ONLY on a start-verified newer than it (a planned
+# restart after a fix is not a halt); an intervening stop wins.
+journal() {  # journal <event> <json-object-of-extra-fields>
+  python3 -c 'import json,sys,datetime as d; r={"t": d.datetime.now(d.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "event": sys.argv[1]}; r.update(json.loads(sys.argv[2])); open("/srv/showcase/ops/deploy.jsonl","a").write(json.dumps(r)+"\n")' "$1" "$2" || true
+}
+fail() { journal start-failed "$(python3 -c 'import json,sys; print(json.dumps({"why": sys.argv[1][:300]}))' "$1")"; }
+journal start-requested '{}'
 # FUN MODE (10-28): a stale or other-release brain replay is REFRESHED here, never a refusal that waits on a human. A fresh
 # replay that FAILS still fails the gate below (the brain path is broken).
 if ! python3 $B/showcase_ops.py replay-fresh; then
@@ -15,12 +23,12 @@ if ! python3 $B/showcase_ops.py replay-fresh; then
 fi
 echo "== gate"
 if ! python3 $B/showcase_ops.py gate; then
-  echo "NOT STARTED: fix the FAIL lines above (each names its remedy) and rerun"; exit 1
+  echo "NOT STARTED: fix the FAIL lines above (each names its remedy) and rerun"; fail "gate failed"; exit 1
 fi
 REL=$(readlink -f /srv/showcase/harness)
 if [ ! -s "$REL/env/showcase-Alpha.env" ] || [ ! -s "$REL/env/showcase-Onyx.env" ]; then
   echo "== env files (from the release's pinned control env + town-site.json)"
-  python3 - "$REL" <<'PY' || { echo "NOT STARTED: env build failed"; exit 1; }
+  python3 - "$REL" <<'PY' || { echo "NOT STARTED: env build failed"; fail "env build failed"; exit 1; }
 import json, sys
 sys.path.insert(0, '/srv/showcase/bin')
 import showcase_ops as O
@@ -72,7 +80,7 @@ PY
 done
 if [ $fail -ne 0 ]; then
   echo "VERIFY FAILED: $missing -- stopping the bots (stop-bots.sh)"
-  SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: $missing"; exit 1
+  SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: $missing"; fail "verify failed: $missing"; exit 1
 fi
 echo "== served-model share since this start (must be >= 90% gemma4 before AUTO_FOLLOW goes on)"
 if ! python3 - "$T0" <<'PY'
@@ -92,8 +100,9 @@ sys.exit(0 if n and g / n >= 0.9 else 1)
 PY
 then
   echo "VERIFY FAILED: the brain is not serving gemma4 (see the share above) -- stopping the bots"
-  SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: gemma4 share < 90%"; exit 1
+  SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: gemma4 share < 90%"; fail "gemma4 share < 90%"; exit 1
 fi
+journal start-verified "$(python3 -c 'import json,sys; print(json.dumps({"release": sys.argv[1], "expected_version": sys.argv[2], "bots": 15, "run_since": sys.argv[3]}))' "$(basename "$REL")" "$EXPECT" "$(date -u -d "@$T0" +%FT%TZ)")"
 GATED=$(python3 -c "import json; r=json.load(open('$REL/RELEASE.json')); print(1 if r.get('piece') or r.get('mode') == 'main' else 0)")
 if [ -e /srv/showcase/LANE ]; then
   echo "STARTED: 15 bots on $EXPECT; PROGRESS LANE: AUTO_FOLLOW stays off (the follower observes only)."

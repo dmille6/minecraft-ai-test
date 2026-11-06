@@ -26,6 +26,17 @@ else
 fi
 { echo "===== $(date -u +%FT%TZ) rc=$rc"; printf '%s\n' "$out"; } >> "$LOG"
 # read: rc 2 AND its VERDICT TRIP line (argparse also exits 2); zones-compare: 3 = BREACH, 4 = blind or stale (WATCH, logged). Anything else (a crash) is logged, never a stop on its own.
-if { [ "${1:-}" != "--far" ] && [ $rc -eq 2 ] && printf '%s\n' "$out" | grep -q '^VERDICT *TRIP'; } || { [ "${1:-}" = "--far" ] && [ $rc -eq 3 ]; }; then
+# STOP ONLY FOR HARM (phase 1 item 4, docs/reports/phase1-showcase-design-2026-11-06.md): a TRIP is harm only (a REPORT -- plan
+# conformance -- exits 0 and is paged by haltwatch from trip-last.json). The read's HARM goes to trip-remedy: it always stops the
+# bots, and rolls back a release activated < 3 h ago when /srv/showcase/trip/AUTO_ROLLBACK is present. If the remedy itself
+# fails, the plain stop below still runs (stopping is always safe). The far compare's BREACH stays a plain stop.
+if [ "${1:-}" != "--far" ] && [ $rc -eq 2 ] && printf '%s\n' "$out" | grep -q '^VERDICT *TRIP'; then
+  if ! python3 /srv/showcase/bin/showcase_ops.py trip-remedy --json /srv/showcase/ops/trip-last.json >> "$LOG" 2>&1; then
+    /srv/showcase/bin/stop-bots.sh "tripwire: $why" >> "$LOG" 2>&1
+  fi
+elif [ "${1:-}" = "--far" ] && [ $rc -eq 3 ]; then
   /srv/showcase/bin/stop-bots.sh "tripwire: $why" >> "$LOG" 2>&1
+elif [ "${1:-}" != "--far" ] && [ $rc -eq 0 ] && printf '%s\n' "$out" | grep -q '^VERDICT *REPORT.*QUARANTINE'; then
+  # Z1 with fewer than ZONE_TRAP_WORLD trapped bots: only those bots' units stop
+  python3 /srv/showcase/bin/showcase_ops.py quarantine --json /srv/showcase/ops/trip-last.json >> "$LOG" 2>&1
 fi
