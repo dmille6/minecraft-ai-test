@@ -2628,7 +2628,8 @@ await t('MUTANT: a free step cost lets the planner stand on the cap', async () =
   })
 })
 await t('MUTANT: the trigger below 34 disposes from a roomy bag', async () => {
-  await withMutant(WP, '          slots >= TRIGGER_SLOTS && junkStacks > 0', '          slots >= 0 && junkStacks > 0', async m => {
+  // bagroom-01 re-anchored: the trigger is now `(slots >= TRIGGER_SLOTS || wellRoomDue(...)) && junkStacks > 0`
+  await withMutant(WP, '(slots >= TRIGGER_SLOTS || wellRoomDue', '(slots >= 0 || wellRoomDue', async m => {
     assert.equal(m.wellOrder({ now: NOW, distHome: 5, well: well0, slots: 10, freeSlots: 26, junkStacks: 1 }).order?.skill, 'dispose_well', 'mutant inert')
   })
 })

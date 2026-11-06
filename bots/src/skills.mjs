@@ -202,6 +202,8 @@ import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
+import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
+import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail } from './bagroom.mjs'   // bagroom-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { pickStation } from './enchant.mjs'   // stationzone-01: never a station inside a protected zone; the workshop's own first
 import { ANVILAPPLY, ENCHANTTOOL, ANVIL_BLOCKS, TABLE_BLOCK as EN_TABLE_BLOCK, STATION_FIND as EN_STATION_FIND, STATION_REACH as EN_STATION_REACH, ASK_EVERY_MS as EN_ASK_EVERY_MS, TABLE_MIN_LEVEL as EN_TABLE_MIN_LEVEL, LAPIS_TAKE as EN_LAPIS_TAKE, anvilAskPlan, tableAskPlan, anvilPlan, enchantTarget, enchantsOf, anvilCombine, enchantAtTable, anvilDetail, tableDetail, anvilModeDetail, tableModeDetail } from './enchant.mjs'
@@ -18215,6 +18217,80 @@ export function copperRunInstall (bot) {
   if (COPPERRUN.on && COPPERHALL_ON.on) setCopperAsk(copperAsk)
   try { logEvent({ kind: 'copperrun_mode', status: 'success', snapshot: snapshot(bot), detail: copperRunModeDetail(COPPERRUN.on, COPPERHALL_ON.on) }) } catch { /* telemetry */ }
 }
+// BAGROOM-01 (bagroom.mjs; the share half): the build order's `room` refusal asks shareBankAsk, which answers a share-bank visit
+// when this bot's bag holds a drawn share of whole stacks (the hall's bricks and planks a killed or interrupted visit left).
+let sbBot = null
+/** THIS BOT'S HELD SHARES -> [{ plot, key, share }] (shop.mjs shareState over every project's drawn record: complete builds'
+ *  shares cleared, consumed ones retired, as shareHeldIn does). Never throws. */
+function heldShares (bot) {
+  const out = []
+  try {
+    const dir = townDir(), me = bot.username ?? 'bot', held = heldMap(bot)
+    for (const p of projectsOn()) {
+      const key = projKeyOf(p.plot)
+      const dr = drawnRead(dir, key, me)
+      if (!Object.keys(dr.drawn).length) continue
+      const rec = recordHead(dir, key).head?.rec ?? null
+      const st = shareState(dr, held, { complete: !!rec?.structure_complete, completeAt: rec?.completeAt ?? null })
+      if (st.write) drawnWrite(dir, key, me, st.write, { bag: held })
+      if (st.held) out.push({ plot: p.plot, key, share: st.share })
+    }
+  } catch { /* none */ }
+  return out
+}
+const stackSizeOf = bot => n => { try { return bot?.registry?.itemsByName?.[n]?.stackSize ?? 64 } catch { return 64 } }
+/** shop.mjs buildOrder's room ask -> { order } | null. Never throws. */
+function shareBankAsk ({ now = Date.now(), freeSlots = 36 } = {}) {
+  try {
+    const bot = sbBot
+    if (!bot || !SHOP.on) return null
+    // the cheap gates first (the room, the rate limit): the drawn files are read only when a bank could be planned
+    if (!shareBankPlan({ shares: [{ plot: '-', share: { '-': 64 } }], freeSlots, now, lastAt: bot.shareBankAt ?? null }).ok) return null
+    const plan = shareBankPlan({ shares: heldShares(bot), freeSlots, now, lastAt: bot.shareBankAt ?? null, stackOf: stackSizeOf(bot) })
+    if (!plan.ok) return null
+    bot.shareBankAt = now
+    return { order: { skill: 'build_shop', args: { shareBank: true }, why: `the build needs ${BUILD_ROOM_SLOTS} free slots and the bag holds ${plan.slots} whole stack(s) of drawn project share: bank it into the materials chests` } }
+  } catch { return null }
+}
+/** BAGROOM-01, once per spawn (features.mjs): the ask is wired where the switch is on, and `_bagroom_mode` written. Never throws. */
+export function bagRoomInstall (bot) {
+  sbBot = bot
+  if (BAGROOM.share) setRoomAsk(shareBankAsk)
+  try { logEvent({ kind: 'bagroom_mode', status: 'success', snapshot: snapshot(bot), detail: bagRoomModeDetail(BAGROOM) }) } catch { /* telemetry */ }
+}
+/** THE SHARE-BANK VISIT (build_shop { shareBank }): each held share banked (materials chests first: matsBank's `prefer`), its drawn
+ *  record reduced by what went, one `_share_bank` row. Never a build, never a draw. */
+async function shareBankVisit (ctx, _args, signal) {
+  const { bot } = ctx
+  const dir = townDir(), me = bot.username ?? 'bot'
+  const slotsBefore = (bot.inventory?.items?.() ?? []).length
+  const per = []
+  let stop = 'done'
+  try {
+    const mats = matsChestsFor(bot, HALL_PLOT)
+    for (const sh of heldShares(bot)) {
+      check(signal)
+      const banked = {}
+      const row = { plot: sh.plot, banked, left: {} }
+      per.push(row)
+      try {
+        const own = ownCounts(heldMap(bot), sh.share)
+        await matsBank(ctx, Object.keys(sh.share), own, signal, sh.share, { onBanked: (n, c) => { banked[n] = (banked[n] ?? 0) + c }, prefer: mats.map(b => b.position) })
+      } finally {
+        const b1 = heldMap(bot)
+        const left = drawnAfter({ drawn: sh.share, back: banked, bag1: b1 })
+        row.left = left
+        try { drawnWrite(dir, sh.key, me, left, { bag: b1 }) } catch { /* the share clamps to the bag at the next read */ }
+      }
+    }
+  } catch (e) { stop = e?.aborted || signal?.aborted ? 'aborted' : 'error'; if (e?.aborted || signal?.aborted) { shareBankRow(bot, per, slotsBefore, stop); throw e } }
+  shareBankRow(bot, per, slotsBefore, stop)
+  const went = per.reduce((t, p) => t + Object.values(p.banked).reduce((a, b) => a + b, 0), 0)
+  return went > 0 ? { status: 'success', detail: `banked ${went} item(s) of drawn project share into the materials chests / town` } : { status: 'no_effect', detail: 'no drawn share could be banked (no container took it)' }
+}
+function shareBankRow (bot, per, slotsBefore, stop) {
+  try { logEvent({ kind: 'share_bank', status: per.some(p => Object.keys(p.banked).length) ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: shareBankDetail({ per, slotsBefore, slotsAfter: (bot.inventory?.items?.() ?? []).length, stop }) }) } catch { /* telemetry */ }
+}
 // ANVILAPPLY-01 + ENCHANT-01 (OWNER 11-04; enchant.mjs decides, docs/reports/anvilproof-2026-11-03.md is the method): at town,
 // shop.mjs buildOrder asks enchantAsk FIRST (one ask per kind per bot per ASK_EVERY_MS, and only when there is work): a book
 // in the bag (or in a town chest) that some tool in the bag gains from, with an anvil within STATION_FIND -> anvil_apply; else
@@ -20142,6 +20218,8 @@ export const _enchantshop = Object.freeze({ enchantSiteFor, enchantGateRows, enc
 async function buildShop (ctx, args, signal) {
   // expedition-01: the expedition's visit (the order's args say which)
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
+  // bagroom-01: the share-bank visit the room refusal asked for (bagroom.mjs shareBankPlan)
+  if (args?.shareBank === true) return shareBankVisit(ctx, args, signal)
   // SINKFIX-01: every visit's outcome marks (or clears) its plot idle for this bot (shop.mjs noteIdle); an abort throws past it
   // sinkfix-02: an ABORT is noted too (a sink's marks it: shop.mjs noteIdle), then rethrown; and the KEEPER's own no-effect grounds
   // visits are marked like any other (LIVE 11-04: 39 keeper visits `complete`, 0 placed, `cuts_left 1/12, fills_left 98/846`) -- they
