@@ -38,6 +38,7 @@ const FINDS = [
   { kind: 'copper_ore', x: 10, y: 60, z: 20 },       // 22: inside the town's 64 (never a trip)
   { kind: 'iron_ore', x: 5, y: 60, z: -65 },         // not copper
   { kind: 'copper_ore', x: 300, y: 60, z: 0 },       // past COPPER_TRIP_MAX
+  { kind: 'copper_ore', x: 0, y: 60, z: 130 },       // past COPPER_TRIP_MAX (110): a walk the 180 s clock cannot afford
   { kind: 'deepslate_copper_ore', x: 90, y: 10, z: 0 },
 ]
 const HOME = { x: 0, z: 0 }
@@ -62,7 +63,7 @@ await t('the sited hall\'s gate is hallOpening with needed = the owed cells: the
   assert.equal(H.hallOpening({ ingots: 139, cut: 0, reserve: 512, needed: 1 }).open, true)
 })
 
-await t('copperTripTarget: the nearest copper find 64..160 from home, out of every zone, not one backed off', () => {
+await t('copperTripTarget: the nearest copper find 64..110 from home, out of every zone, not one backed off', () => {
   const a = H.copperTripTarget(FINDS, { home: HOME })
   assert.deepEqual(a.at, [19, 58, -64])
   assert.equal(a.block, 'copper_ore')
@@ -73,8 +74,8 @@ await t('copperTripTarget: the nearest copper find 64..160 from home, out of eve
   assert.deepEqual(H.copperTripTarget(FINDS, { home: HOME, now: 10, tried: { '19,58,-64': 11 } }).at, [37, 60, -59])
   assert.deepEqual(H.copperTripTarget(FINDS, { home: HOME, now: 12, tried: { '19,58,-64': 11 } }).at, [19, 58, -64])
   // deepslate copper is a target too; nothing in band -> null; a throwing zone test excludes (fail closed)
-  assert.equal(H.copperTripTarget([FINDS[5]], { home: HOME }).block, 'deepslate_copper_ore')
-  assert.equal(H.copperTripTarget([FINDS[2], FINDS[3], FINDS[4]], { home: HOME }), null)
+  assert.equal(H.copperTripTarget([FINDS.find(f => f.kind === 'deepslate_copper_ore')], { home: HOME }).block, 'deepslate_copper_ore')
+  assert.equal(H.copperTripTarget([FINDS[2], FINDS[3], FINDS[4], FINDS[5]], { home: HOME }), null)
   assert.equal(H.copperTripTarget(FINDS, { home: HOME, inZone: () => { throw new Error('x') } }), null)
   assert.equal(H.copperTripTarget(FINDS, { home: null }), null)
 })
@@ -125,7 +126,7 @@ await t('THE ORDER CHAIN on the live state: the sited hall short -> a trip order
   assert.ok(T.tunnelKindsFor(r.order.args.block, { copper: true }), 'the trip\'s block tunnels with the flag the visit sets')
 })
 
-// ---- THE VISIT (skills.mjs copperTripVisit, its walk / gather / bank injected; the bot is a fake) ----------------------------------
+// ---- THE VISIT (skills.mjs copperTripVisit, its walk / gather injected; the bot is a fake) ----------------------------------
 const SK = await import('../src/skills.mjs')
 const fakeBot = (raw = 0) => {
   const inv = { raw_copper: raw }
@@ -136,54 +137,84 @@ const fakeBot = (raw = 0) => {
 const ARGS = { copperTrip: true, at: [19, 58, -64], block: 'copper_ore', key: '19,58,-64' }
 const walker = bot => async (ctx, a) => { bot.entity.position.x = a.x; bot.entity.position.y = a.y; bot.entity.position.z = a.z }
 
-await t('THE VISIT: out to the find, the gather runs WITH copper tunnelling (and the tunnel kinds answer copper), home, banked', async () => {
+await t('THE VISIT: out to the find, the gather runs WITH copper tunnelling (and the tunnel kinds answer copper), home', async () => {
   const bot = fakeBot(0), seen = []
   const r = await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, {
     walk: walker(bot),
     dig: async (ctx, a, sig) => {
       // what gatherRun asks, with the flag the visit set (its tunnel call: diamond first, then copper under the flag)
-      const tk = T.tunnelKindsFor(a.block, { diamond: false }) ?? (bot.copperTunnelKinds === true ? T.tunnelKindsFor(a.block, { copper: true }) : null)
-      seen.push({ flag: bot.copperTunnelKinds, tk: tk?.label, block: a.block, r: a.maxDistance, sig: !!sig })
+      const tk = T.tunnelKindsFor(a.block, { diamond: false }) ?? ((Number(bot.copperTunnelUntil) || 0) > Date.now() ? T.tunnelKindsFor(a.block, { copper: true }) : null)
+      seen.push({ flag: (Number(bot.copperTunnelUntil) || 0) > Date.now(), tk: tk?.label, block: a.block, r: a.maxDistance, sig: !!sig })
       bot.inv.raw_copper += 21
       return { status: 'success', detail: 'collected 7 copper_ore' }
     },
-    bank: async (ctx, sig, haul) => { seen.push({ bank: haul }); bot.inv.raw_copper -= haul.raw_copper; return { n: haul.raw_copper, left: {} } },
   })
   assert.deepEqual(seen[0], { flag: true, tk: 'copper', block: 'copper_ore', r: H.COPPER_TRIP_GATHER_R, sig: true })
-  assert.deepEqual(seen[1], { bank: { raw_copper: 21 } })
-  assert.equal(bot.copperTunnelKinds, false, 'the flag is reset after the gather')
+  assert.equal(seen.length, 1)
+  assert.equal(bot.copperTunnelUntil, 0, 'the tunnel deadline is cleared after the gather')
   assert.equal(r.status, 'success')
   assert.deepEqual(bot.copperRunState.tried, {}, 'a trip that brought copper keeps its target open')
 })
 await t('THE VISIT: an empty trip backs its target off; a walk that never arrives never gathers', async () => {
   const bot = fakeBot(0)
   let dug = 0
-  const r = await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => { dug++; return { status: 'failed', detail: 'no copper_ore within 24 blocks' } }, bank: async () => ({ n: 0 }) })
+  const r = await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => { dug++; return { status: 'failed', detail: 'no copper_ore within 24 blocks' } } })
   assert.equal(r.status, 'no_effect'); assert.equal(dug, 1)
   assert.ok(bot.copperRunState.tried['19,58,-64'] > Date.now())
   const b2 = fakeBot(0)
   let dug2 = 0
-  const r2 = await SK._copperTrip.copperTripVisit({ bot: b2 }, ARGS, null, { walk: async () => {}, dig: async () => { dug2++; return { status: 'success' } }, bank: async () => ({ n: 0 }) })
+  const r2 = await SK._copperTrip.copperTripVisit({ bot: b2 }, ARGS, null, { walk: async () => {}, dig: async () => { dug2++; return { status: 'success' } } })
   assert.equal(dug2, 0, 'the bot never left town: no gather from here'); assert.equal(r2.status, 'no_effect')
 })
 await t('THE VISIT: a gather that names a remedy (the tunnel\'s pickaxe budget) passes it on and does NOT back the target off (Codex r1 B3)', async () => {
   const bot = fakeBot(0)
   const need = { items: ['stone_pickaxe'], count: 1, minUses: 60, describe: 'craft a stone pickaxe' }
-  const r = await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => ({ status: 'failed', failClass: 'pickaxe_short', need, detail: 'pickaxe short' }), bank: async () => ({ n: 0 }) })
+  const r = await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => ({ status: 'failed', failClass: 'pickaxe_short', need, detail: 'pickaxe short' }) })
   assert.deepEqual(r.need, need); assert.equal(r.failClass, 'pickaxe_short'); assert.equal(r.status, 'failed')
   assert.deepEqual(bot.copperRunState.tried, {})
 })
 await t('THE VISIT: the gather runs under its own cut signal -- a cut is no throw, the outer abort still throws (Codex r1 B1)', async () => {
   const bot = fakeBot(0)
   let sub = null
-  const r = await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async (c, a, sig) => { sub = sig; const e = new Error('cut'); e.aborted = true; throw e }, bank: async () => ({ n: 0 }) })
-  assert.ok(sub && typeof sub.aborted === 'boolean'); assert.equal(r.status, 'no_effect'); assert.equal(bot.copperTunnelKinds, false)
+  const r = await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async (c, a, sig) => { sub = sig; const e = new Error('cut'); e.aborted = true; throw e } })
+  assert.ok(sub && typeof sub.aborted === 'boolean'); assert.equal(r.status, 'no_effect'); assert.equal(bot.copperTunnelUntil, 0)
   const outer = new AbortController(); outer.abort()
   const b2 = fakeBot(0)
-  await assert.rejects(SK._copperTrip.copperTripVisit({ bot: b2 }, ARGS, outer.signal, { walk: walker(b2), dig: async () => { const e = new Error('x'); e.aborted = true; throw e }, bank: async () => ({ n: 0 }) }))
-  assert.equal(b2.copperTunnelKinds, false)
-  // the budget constants leave the walk home and the bank inside build_shop's 600 s
-  assert.ok(H.COPPER_TRIP_OUT_MS < H.COPPER_TRIP_GATHER_UNTIL && H.COPPER_TRIP_GATHER_UNTIL < 585_000 - H.COPPER_TRIP_BANK_MS && H.COPPER_TRIP_BANK_MS >= 90_000)
+  await assert.rejects(SK._copperTrip.copperTripVisit({ bot: b2 }, ARGS, outer.signal, { walk: walker(b2), dig: async () => { const e = new Error('x'); e.aborted = true; throw e } }))
+  assert.equal(b2.copperTunnelUntil, 0)
+  // AN ABORT STILL WRITES ITS BACK-OFF (Claude r2 BLOCKER): the same target is not re-issued every cooldown
+  assert.ok(b2.copperRunState.tried['19,58,-64'] > Date.now(), 'an aborted trip backs its target off')
+})
+
+await t('THE CLOCK: every phase of the trip ends inside the RUNNER\'s watchdog, not the 600 s contract (Claude r2 BLOCKER)', async () => {
+  for (const ms of [180_000, 300, 600_000, 900_000]) {
+    const c = H.copperTripClock(ms)
+    assert.ok(c.outMs < c.gatherMs && c.gatherMs < c.homeMs && c.homeMs === c.budget, ms)
+    assert.ok(c.homeMs <= Math.max(30_000, Math.min(600_000, ms) - 15_000), ms)
+  }
+  const c = H.copperTripClock(180_000)
+  assert.deepEqual(c, { budget: 165_000, outMs: 49_500, gatherMs: 102_300, homeMs: 165_000 })
+  // the visit runs on the clock it is given: a fake walk records the deadlines (out, then home)
+  const bot = fakeBot(0), untils = []
+  const t0 = Date.now()
+  await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, { skillMs: 180_000, walk: async (ctx, a, sig, o) => { untils.push(o.until - t0); bot.entity.position.x = a.x; bot.entity.position.z = a.z }, dig: async () => ({ status: 'failed' }) })
+  assert.equal(untils.length, 2)
+  assert.ok(Math.abs(untils[0] - 49_500) < 2_000 && Math.abs(untils[1] - 165_000) < 2_000, untils)
+  // the target radius fits the out phase: 110 blocks at a 3 block/s walk is under 49.5 s
+  assert.ok(H.COPPER_TRIP_MAX / 3 * 1000 < c.outMs)
+})
+await t('MUTANT: the trip sized to the 600 s contract (the r1 defect) is killed', async () => {
+  await withMutant(HALL_PATH, '  const s = Number(skillMs) > 0 ? Math.min(COPPER_TRIP_SHOP_MS, Number(skillMs)) : COPPER_TRIP_SHOP_MS\n', '  const s = COPPER_TRIP_SHOP_MS\n', async M => {
+    assert.notEqual(M.copperTripClock(180_000).homeMs, 165_000)
+  })
+})
+await t('MUTANT: an abort that writes no back-off is killed', async () => {
+  await withMutant(SKILLS_PATH, "    if (!written) { why = `aborted in ${phase}`; done('aborted', 'aborted') }\n", '\n', async M => {
+    const outer = new AbortController(); outer.abort()
+    const b = fakeBot(0)
+    await assert.rejects(M._copperTrip.copperTripVisit({ bot: b }, ARGS, outer.signal, { walk: walker(b), dig: async () => { const e = new Error('x'); e.aborted = true; throw e } }))
+    assert.equal(b.copperRunState?.tried?.['19,58,-64'], undefined)
+  })
 })
 
 await t('WIRING (source, comments stripped): copperAsk asks the sited hall and the trip; build_shop runs the trip; gather passes copper', () => {
@@ -191,15 +222,15 @@ await t('WIRING (source, comments stripped): copperAsk asks the sited hall and t
   assert.ok(/const waiting = \(\) => \{ if \(hallWaitingNow\(\)\) return true; sited = hallSitedCopperNow\(bot\); return !!sited\?\.waiting \}/.test(src))
   assert.ok(src.includes('tripOn: COPPERRUN2.trip, trip: () => copperTripNow(bot, now) })'))
   assert.ok(src.includes('if (args?.copperTrip === true) return copperTripVisit(ctx, args, signal)'))
-  assert.ok(src.includes("const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true }) ?? (bot.copperTunnelKinds === true ? tunnelKindsFor(viaSource ?? blockName, { copper: true }) : null)"))
-  assert.ok(src.includes('const ironStrict = tunnelKindsFor(blockName, { copper: bot.copperTunnelKinds === true }) != null'))
+  assert.ok(src.includes("const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true }) ?? ((Number(bot.copperTunnelUntil) || 0) > Date.now() ? tunnelKindsFor(viaSource ?? blockName, { copper: true }) : null)"))
+  assert.ok(src.includes('const ironStrict = tunnelKindsFor(blockName, { copper: (Number(bot.copperTunnelUntil) || 0) > Date.now() }) != null'))
   // the flag is set only around the trip's gather and always reset
-  const sets = src.split('bot.copperTunnelKinds = true').length - 1
+  const sets = src.split('bot.copperTunnelUntil = t0 + clock.gatherMs').length - 1
   assert.equal(sets, 1)
-  assert.ok(src.includes('async function copperTripVisit (ctx, args, signal, { walk = goto, dig = gather, bank = exDeposit } = {}) {'), 'the bot runs the real walk, gather and bank')
+  assert.ok(src.includes('async function copperTripVisit (ctx, args, signal, { walk = goto, dig = gather, skillMs = Number(config.skills?.defaultTimeoutMs) } = {}) {'), 'the bot runs the real walk and gather on the runner\'s clock')
   // the trip's own row kind, and the mode row says the switches
   assert.ok(src.includes("logEvent({ kind: 'copper_trip', status"))
-  assert.ok(H.copperRunModeDetail(true, true, { sited: true, trip: false }).includes('sited=1 trip=0 trip_r=64-160'))
+  assert.ok(H.copperRunModeDetail(true, true, { sited: true, trip: false }).includes('sited=1 trip=0 trip_r=64-110'))
 })
 
 await t('MUTANT: hallCopperOwed counting every copper cell (no world read) is killed', async () => {
@@ -240,16 +271,16 @@ await t('MUTANT: copper tunnelling without the trip\'s flag is killed', async ()
 })
 
 await t('MUTANT: the visit never setting the copper flag is killed (its gather would not tunnel)', async () => {
-  await withMutant(SKILLS_PATH, "    bot.copperTunnelKinds = true\n", '\n', async M => {
+  await withMutant(SKILLS_PATH, "      bot.copperTunnelUntil = t0 + clock.gatherMs\n", '\n', async M => {
     const bot = fakeBot(0); let flag = null
-    await M._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => { flag = bot.copperTunnelKinds; return { status: 'failed' } }, bank: async () => ({ n: 0 }) })
+    await M._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => { flag = (Number(bot.copperTunnelUntil) || 0) > Date.now(); return { status: 'failed' } } })
     assert.notEqual(flag, true)
   })
 })
 await t('MUTANT: the visit swallowing the gather\'s remedy is killed', async () => {
   await withMutant(SKILLS_PATH, '  const remedy = g?.need ? { need: g.need, failClass: g.failClass ?? \'pickaxe_short\' } : null\n', '  const remedy = null\n', async M => {
     const bot = fakeBot(0)
-    const r = await M._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => ({ status: 'failed', need: { items: ['stone_pickaxe'] } }), bank: async () => ({ n: 0 }) })
+    const r = await M._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => ({ status: 'failed', need: { items: ['stone_pickaxe'] } }) })
     assert.equal(r.need, undefined)
   })
 })

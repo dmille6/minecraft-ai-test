@@ -152,7 +152,7 @@ import { bridgeOn, bridgeSite, bridgeSites, bridgeToBuild, bridgesDone, bridgePl
 import { bridgeIo } from './bridgeio.mjs'   // bridgepost-01
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
-import { COPPERRUN2, hallCopperOwed, copperTripTarget, copperTripTried, copperTripDetail, COPPER_TRIP_OUT_MS, COPPER_TRIP_REACH, COPPER_TRIP_GATHER_R, COPPER_TRIP_GATHER_UNTIL, COPPER_TRIP_BANK_MS, COPPER_RUN_COUNT } from './copperhall.mjs'   // copperrun-02
+import { COPPERRUN2, hallCopperOwed, copperTripTarget, copperTripTried, copperTripDetail, COPPER_TRIP_REACH, COPPER_TRIP_GATHER_R, copperTripClock, COPPER_RUN_COUNT } from './copperhall.mjs'   // copperrun-02
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt, WALLDEMO_HOLD } from './wall.mjs'   // wall-01; wallext-01; wallext-02; WALLDEMO_HOLD: the atlas+decorator fold
@@ -2236,7 +2236,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
     // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
     // coalfirst-01: coal tunnels too, so its candidates get the same six-face check
-    const ironStrict = tunnelKindsFor(blockName, { copper: bot.copperTunnelKinds === true }) != null   // copperrun-02: a trip's copper too
+    const ironStrict = tunnelKindsFor(blockName, { copper: (Number(bot.copperTunnelUntil) || 0) > Date.now() }) != null   // copperrun-02: a trip's copper too
     // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
     // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
@@ -2611,7 +2611,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // bitten before by deriving a failure class from prose.
       // IRON TUNNELS TO THE ORE IT CAN SEE (oretunnel.mjs), instead of stairing toward dryness. Once per run.
       // coalfirst-01: and coal (oretunnel.mjs tunnelKindsFor), with the same tunnel
-      const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true }) ?? (bot.copperTunnelKinds === true ? tunnelKindsFor(viaSource ?? blockName, { copper: true }) : null)   // deepminer-01: diamond ore tunnels on a deep miner's call; copperrun-02: copper on the hall's trip
+      const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true }) ?? ((Number(bot.copperTunnelUntil) || 0) > Date.now() ? tunnelKindsFor(viaSource ?? blockName, { copper: true }) : null)   // deepminer-01: diamond ore tunnels on a deep miner's call; copperrun-02: copper on the hall's trip
       if (tk && !escalated) {
         escalated = true
         check(signal)
@@ -20140,65 +20140,70 @@ function enchantStationAt (bot, names) {
 export const _enchantshop = Object.freeze({ enchantSiteFor, enchantGateRows, enchantSignWork, enchantUpkeepDue, enchantFitOne, enchantUpkeepVisit, enchantOpenNow })
 /**
  * COPPERRUN-02: THE COPPER TRIP (build_shop {copperTrip, at, block, key}; shop.mjs buildOrder's copper ask -> copperhall.mjs
- * copperRunOrder). Walk to within COPPER_TRIP_REACH of the known find (COPPER_TRIP_OUT_MS), gather the ore there with copper allowed
- * to TUNNEL for this call only (bot.copperTunnelKinds: oretunnel.mjs tunnelKindsFor `copper` -- its planner, break veto, lava guard,
- * pickaxe budget), walk home, bank the raw copper gained (the town smelt job makes it ingots). A trip that gained none backs that
- * target off (copperTripTried). One `_copper_trip` row per trip. The gather's own refusals are its own; nothing here digs or places.
+ * copperRunOrder). Inside the RUNNER's clock (copperhall.mjs copperTripClock): walk to within COPPER_TRIP_REACH of the known find,
+ * gather the ore there with copper allowed to TUNNEL for this call only (bot.copperTunnelUntil, a deadline: oretunnel.mjs
+ * tunnelKindsFor `copper` -- its planner, break veto, lava guard, pickaxe budget), walk home. Raw copper is DEPOSIT_ALWAYS: the next
+ * town deposit banks it, and the town smelt job makes it ingots. A trip that gained none -- an abort too -- backs that target off
+ * (copperTripTried); a gather's remedy (`need`) is passed on. One `_copper_trip` row per trip, always. Nothing here digs or places.
  */
-async function copperTripVisit (ctx, args, signal, { walk = goto, dig = gather, bank = exDeposit } = {}) {
+async function copperTripVisit (ctx, args, signal, { walk = goto, dig = gather, skillMs = Number(config.skills?.defaultTimeoutMs) } = {}) {
   const { bot } = ctx
   const t0 = Date.now()
-  const budget = SHOP_SKILL_MS - 15_000
+  // THE RUNNER'S CLOCK, NOT THE CONTRACT'S (Claude r2 BLOCKER: the watchdog fires at config.skills.defaultTimeoutMs for every skill --
+  // 180 s on the showcase -- as expeditionVisit, the yard and the monument clamp): the phases are cut from what the runner allows
+  const clock = copperTripClock(skillMs)
   const at = Array.isArray(args?.at) && args.at.length === 3 && args.at.every(Number.isFinite) ? args.at : null
   const block = COPPER_KINDS.includes(args?.block) ? args.block : null
   const key = typeof args?.key === 'string' ? args.key : (at ? at.join(',') : null)
   const raw0 = heldMap(bot).raw_copper ?? 0
-  let phase = 'start', why = '-'
+  let phase = 'start', why = '-', written = false
   const done = (status, stop, remedy = null) => {
+    written = true
     const gained = Math.max(0, (heldMap(bot).raw_copper ?? 0) - raw0)
-    try { bot.copperRunState = { ...(bot.copperRunState ?? {}), tried: copperTripTried(bot.copperRunState?.tried ?? {}, remedy ? null : key, gained + (bot.copperTripBanked ?? 0), Date.now()) } } catch { /* bookkeeping */ }
-    try { logEvent({ kind: 'copper_trip', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: copperTripDetail({ phase, at, block, gained: gained + (bot.copperTripBanked ?? 0), why, ms: Date.now() - t0 }) }) } catch { /* telemetry */ }
-    bot.copperTripBanked = 0
+    try { bot.copperRunState = { ...(bot.copperRunState ?? {}), tried: copperTripTried(bot.copperRunState?.tried ?? {}, remedy ? null : key, gained, Date.now()) } } catch { /* bookkeeping */ }
+    try { logEvent({ kind: 'copper_trip', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: copperTripDetail({ phase, at, block, gained, why, ms: Date.now() - t0 }) }) } catch { /* telemetry */ }
     return { status, detail: `copper trip ${phase}: ${why}`, stop, ...(remedy ?? {}) }
   }
-  bot.copperTripBanked = 0
   if (!COPPERRUN.on || !COPPERRUN2.trip) { why = 'off'; return done('no_effect', 'copper_trip_off') }
   if (!at || !block) { why = 'bad_args'; return done('no_effect', 'copper_trip_args') }
-  // 1. OUT: to the find (a walk; the gather digs, not the walk)
-  phase = 'out'
-  try { await walk(ctx, { x: at[0], y: at[1], z: at[2], range: COPPER_TRIP_REACH }, signal, { until: t0 + COPPER_TRIP_OUT_MS }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; why = String(e?.message ?? e).slice(0, 80) }
-  const p = bot.entity?.position
-  const far = !p || Math.hypot(p.x - at[0], p.z - at[2]) > COPPER_TRIP_GATHER_R
-  // 2. THE ORE: gather of the find's kind, copper tunnelling for this call only (always reset)
-  let g = null
-  if (!far) {
-    phase = 'gather'
-    bot.copperTunnelKinds = true
-    // BOUNDED HERE (Codex r1 BLOCKER 1, as deep_mine's work step): gather has no deadline of its own -- the runner's cut is its
-    // clock -- so a sub-signal ends it at COPPER_TRIP_GATHER_UNTIL, leaving the walk home and the bank inside the contract
-    const sub = new AbortController()
-    const onUp = () => sub.abort()
-    signal?.addEventListener?.('abort', onUp, { once: true })
-    const cut = setTimeout(() => sub.abort(), Math.max(5_000, t0 + COPPER_TRIP_GATHER_UNTIL - Date.now()))
-    try { g = await dig(ctx, { block, count: COPPER_RUN_COUNT, maxDistance: COPPER_TRIP_GATHER_R }, sub.signal) } catch (e) { if (signal?.aborted) throw e; g = { status: e?.aborted ? 'cut' : 'failed', detail: String(e?.message ?? e) } } finally { bot.copperTunnelKinds = false; clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
-    why = `gather ${g?.status ?? '?'}: ${String(g?.detail ?? '').slice(0, 90)}`
-  } else if (why === '-') why = `walk ended ${p ? Math.round(Math.hypot(p.x - at[0], p.z - at[2])) : '?'} from the find`
-  // 3. HOME, then the bank of what the trip gained -- only with COPPER_TRIP_BANK_MS left (Codex r1 BLOCKER 2: matsBank tries up to
-  // three containers at 30 s each); otherwise raw copper is DEPOSIT_ALWAYS and the next town deposit banks it
-  phase = far ? 'out_failed' : 'home'
-  const home = exHome()
-  try { await walk(ctx, { x: home.x, y: home.y, z: home.z, range: 4 }, signal, { until: t0 + budget - COPPER_TRIP_BANK_MS }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-  const gained = Math.max(0, (heldMap(bot).raw_copper ?? 0) - raw0)
-  if (gained > 0 && exAtHome(bot.entity?.position, EX_TOWN_R) && t0 + budget - Date.now() >= COPPER_TRIP_BANK_MS) {
-    try { const d = await bank(ctx, signal, { raw_copper: gained }); bot.copperTripBanked = d.n; phase = 'banked' } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  try {
+    // 1. OUT: to the find (a walk; the gather digs, not the walk)
+    phase = 'out'
+    try { await walk(ctx, { x: at[0], y: at[1], z: at[2], range: COPPER_TRIP_REACH }, signal, { until: t0 + clock.outMs }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; why = String(e?.message ?? e).slice(0, 80) }
+    const p = bot.entity?.position
+    const far = !p || Math.hypot(p.x - at[0], p.z - at[2]) > COPPER_TRIP_GATHER_R
+    // 2. THE ORE: gather of the find's kind, copper tunnelling for this call only -- a DEADLINE, not a flag (Claude r2 note: a gather
+    // the hard stop abandons never runs its finally; a stamp expires on its own)
+    let g = null
+    if (!far) {
+      phase = 'gather'
+      bot.copperTunnelUntil = t0 + clock.gatherMs
+      // BOUNDED HERE (Codex r1 BLOCKER 1, as deep_mine's work step): gather has no deadline of its own, so a sub-signal ends it
+      const sub = new AbortController()
+      const onUp = () => sub.abort()
+      signal?.addEventListener?.('abort', onUp, { once: true })
+      const cut = setTimeout(() => sub.abort(), Math.max(5_000, t0 + clock.gatherMs - Date.now()))
+      try { g = await dig(ctx, { block, count: COPPER_RUN_COUNT, maxDistance: COPPER_TRIP_GATHER_R }, sub.signal) } catch (e) { if (signal?.aborted) throw e; g = { status: e?.aborted ? 'cut' : 'failed', detail: String(e?.message ?? e) } } finally { bot.copperTunnelUntil = 0; clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
+      why = `gather ${g?.status ?? '?'}: ${String(g?.detail ?? '').slice(0, 90)}`
+    } else if (why === '-') why = `walk ended ${p ? Math.round(Math.hypot(p.x - at[0], p.z - at[2])) : '?'} from the find`
+    // 3. HOME, inside the runner's clock. No bank here (Codex r1 BLOCKER 2): raw copper is DEPOSIT_ALWAYS, the next town deposit banks it
+    phase = far ? 'out_failed' : 'home'
+    const home = exHome()
+    try { await walk(ctx, { x: home.x, y: home.y, z: home.z, range: 4 }, signal, { until: t0 + clock.homeMs }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    if (phase === 'home') phase = exAtHome(bot.entity?.position, EX_TOWN_R) ? 'home' : 'home_short'
+    const gained = Math.max(0, (heldMap(bot).raw_copper ?? 0) - raw0)
+    // A REMEDY IS PASSED ON, NEVER SWALLOWED (Codex r1 BLOCKER 3): a gather that named a prerequisite (the tunnel's pickaxe budget:
+    // `need`, failClass pickaxe_short) returns it to the goal layer, and the target is NOT backed off (the find is still good)
+    const remedy = g?.need ? { need: g.need, failClass: g.failClass ?? 'pickaxe_short' } : null
+    return done(gained > 0 ? 'success' : (remedy ? 'failed' : 'no_effect'), 'copper_trip', remedy)
+  } finally {
+    // AN ABORT STILL WRITES THE ROW AND THE BACK-OFF (Claude r2 BLOCKER): the same target is never re-issued every cooldown
+    bot.copperTunnelUntil = 0
+    if (!written) { why = `aborted in ${phase}`; done('aborted', 'aborted') }
   }
-  // A REMEDY IS PASSED ON, NEVER SWALLOWED (Codex r1 BLOCKER 3): a gather that named a prerequisite (the tunnel's pickaxe budget:
-  // `need`, failClass pickaxe_short) returns it to the goal layer, and the target is NOT backed off (the find is still good)
-  const remedy = g?.need ? { need: g.need, failClass: g.failClass ?? 'pickaxe_short' } : null
-  return done(gained > 0 || (bot.copperTripBanked ?? 0) > 0 ? 'success' : (remedy ? 'failed' : 'no_effect'), 'copper_trip', remedy)
 }
 /** COPPERRUN-02: the trip's visit, for the tests (its walk, gather and bank injectable): never called by the bot itself. */
-export const _copperTrip = Object.freeze({ copperTripVisit: (...a) => copperTripVisit(...a) })
+export const _copperTrip = Object.freeze({ copperTripVisit: (...a) => copperTripVisit(...a), defaultSkillMs: () => Number(config.skills?.defaultTimeoutMs) })
 async function buildShop (ctx, args, signal) {
   // expedition-01: the expedition's visit (the order's args say which)
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)

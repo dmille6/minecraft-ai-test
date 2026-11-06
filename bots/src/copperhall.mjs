@@ -267,21 +267,28 @@ export function copperShort (gate) {
 //   COPPERRUN_TRIP   with no exposed ore in reach, a TRIP (build_shop {copperTrip}) walks to the nearest known copper find
 //                    (copperTripTarget: atlas, 64..COPPER_TRIP_MAX from home, out of every zone, not one a trip came back empty
 //                    from in COPPER_TRIP_BACKOFF_MS), gathers there with copper allowed to TUNNEL (oretunnel tunnelKindsFor
-//                    `copper`, this call only), walks home and banks the raw copper; the town smelt job makes it ingots.
+//                    `copper`, this call only), walks home inside the runner's 180 s (copperTripClock); the next town deposit banks
+//                    the raw copper (DEPOSIT_ALWAYS) and the town smelt job makes it ingots.
 const envOff = (k) => ['off', '0', 'false', 'no'].includes(String((typeof process !== 'undefined' ? process.env?.[k] : '') ?? '').trim().toLowerCase())
 export const COPPERRUN2 = Object.freeze({ sited: !envOff('COPPERRUN_SITED'), trip: !envOff('COPPERRUN_TRIP') })
 /** A trip's target is at least this far from home (the atlas records nothing nearer: TOWN_SKIP_R) and at most COPPER_TRIP_MAX. */
 export const COPPER_TRIP_MIN = 64
-export const COPPER_TRIP_MAX = 160
+export const COPPER_TRIP_MAX = 110
 /** A target a trip came back from with no copper is passed over this long (per bot). */
 export const COPPER_TRIP_BACKOFF_MS = 6 * 60 * 60 * 1000
-/** The trip's walk out may take this long; the gather keeps gather's own contract; the rest walks home. */
-export const COPPER_TRIP_OUT_MS = 150_000
 export const COPPER_TRIP_REACH = 6
-/** The trip's gather is cut at this much of the visit (out <= 150 s, gather to 390 s); the walk home ends by budget - BANK_MS; the
- *  bank runs only with BANK_MS left (matsBank: up to three containers at 30 s each). The visit's budget is build_shop's 600 s - 15 s. */
-export const COPPER_TRIP_GATHER_UNTIL = 390_000
-export const COPPER_TRIP_BANK_MS = 100_000
+/**
+ * THE TRIP'S CLOCK -> { budget, outMs, gatherMs, homeMs } (ms after the visit's start). Pure. The RUNNER's watchdog
+ * (config.skills.defaultTimeoutMs, 180 s on the showcase) bounds every skill whatever its contract (Claude r2 BLOCKER), so the budget
+ * is min(build_shop's 600 s, that) less 15 s, cut 30% out / to 62% gather / the rest home. At 180 s: out 49.5 s (the target is at
+ * most COPPER_TRIP_MAX = 110 from home, ~30 s of walking), the gather to 102 s, home by 165 s.
+ */
+export const COPPER_TRIP_SHOP_MS = 600_000
+export function copperTripClock (skillMs = COPPER_TRIP_SHOP_MS) {
+  const s = Number(skillMs) > 0 ? Math.min(COPPER_TRIP_SHOP_MS, Number(skillMs)) : COPPER_TRIP_SHOP_MS
+  const budget = Math.max(30_000, s - 15_000)
+  return { budget, outMs: Math.round(budget * 0.30), gatherMs: Math.round(budget * 0.62), homeMs: budget }
+}
 /** The gather at the find: tunnel candidates come from oretunnel CANDIDATE_RADIUS (24). */
 export const COPPER_TRIP_GATHER_R = 24
 
