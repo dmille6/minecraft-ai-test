@@ -62,6 +62,8 @@ const REQUIRED = [
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
   // dropanddig-01 (11-04): the air pocket is dug STANDING over a floor within 2 (the time-budget drownings)
+  // idlework-01 (11-06): the design (the code is on branch idlework-01 until it promotes)
+  'docs/reports/idlework-design-2026-11-06.md',
   'bots/src/dropdig.mjs',
   'bots/test/dropdig.test.mjs',
   'bots/test/fixtures/dropdig-cuts.json',

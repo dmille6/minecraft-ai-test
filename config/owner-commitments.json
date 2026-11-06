@@ -4800,6 +4800,29 @@
     ]
    },
    "note": "Codex independent diagnosis agreed on the three causes; reconciliation in the design doc s.3."
+  },
+  {
+   "id": "idlework-1106",
+   "title": "Idle bots patrol instead of working (patrol lap 84% of fleet decision time 11-05 after dirtrung-01) and 4 towns stall behind an unsitable project",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "idlework-1106.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "idlework-01 (branch idlework-01 on fleet 4f3b0f5c; tier 2; Codex r1 2 BLOCKERS fixed; flags IDLEWORK / IDLEWORK_RETURNFIRST / UNSITEDWAIT): control session queues it P (draft entry in the branch, docs/reports/idlework-01/); draw board-c, placebo-d (q7 throughout); read +90/+180 generic + _idlework open/met rows, explore rate down, items/bot-h up.",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "paths": [
+     "docs/reports/idlework-design-2026-11-06.md"
+    ],
+    "runs": [
+     "idlework-01"
+    ]
+   },
+   "note": "Codex independent design agreed (batch not target, per-project siting back-off, return before bank); difference: town-demand needs deferred to idlework-02. board-b/hive-b/placebo-a have built every fleet project: need new projects (towngate-01, treefarm on fleet, stoneworks)."
   }
  ]
 }
