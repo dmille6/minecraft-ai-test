@@ -175,6 +175,8 @@ export async function runSkill ({ code, fnName, prelude = '', handlers, budget =
     let cpuMs = 0
     try { cpuMs = Math.round(Number(isolate.cpuTime) / 1e6) } catch { /* disposed */ }
     if (!disposed) { try { isolate.dispose(); disposed = true } catch { /* gone */ } }
+    // a touched trap ends the run as a violation whichever way the code then ended
+    if (violations.length && o.status !== 'budget') o = { ...o, status: 'budget', budget: 'violation', error: o.error ?? `touched ${violations[0]}` }
     return { steps, violations, marks, log, ms: Date.now() - started, cpuMs, ...o }
   }
 

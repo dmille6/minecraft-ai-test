@@ -33,15 +33,17 @@ test('a plain skill runs, calls the facade and returns a copied value', async ()
 test('require / process / fetch / Buffer: blocked and reported as violations', async () => {
   for (const name of ['require', 'process', 'fetch', 'Buffer', 'setTimeout', 'module', 'global']) {
     const r = await run(`async function tryIt(bot) { return ${name === 'require' ? "require('fs')" : `${name}.toString()`} }`)
-    assert.equal(r.status, 'error', name)
+    assert.equal(r.status, 'budget', name)          // the first touch of a trap ends the run
+    assert.equal(r.budget, 'violation', name)
     assert.deepEqual(r.violations, [name], name)
   }
 })
 
 test('a caught attempt is still reported (the trap fires before the throw)', async () => {
-  const r = await run(`async function sneaky(bot) { try { require('child_process') } catch (e) {} try { typeof process } catch (e) {} return 1 }`)
-  assert.equal(r.status, 'ok')
-  assert.deepEqual(r.violations.sort(), ['process', 'require'])
+  const r = await run(`async function sneaky(bot) { try { require('child_process') } catch (e) {} await bot.observe(); try { typeof process } catch (e) {} return 1 }`)
+  assert.equal(r.status, 'budget')
+  assert.equal(r.budget, 'violation')
+  assert.ok(r.violations.includes('require'))
 })
 
 test('the raw dispatcher is gone and the global has no host objects', async () => {
@@ -63,21 +65,24 @@ test('constructor walks reach only the isolate: Function("return process") is tr
     let g = F('return this')();
     return { p, sameGlobal: g === (0, eval)('this'), hasBotOnly: typeof g.bot }
   }`)
-  assert.equal(r.status, 'ok')
-  assert.match(r.value.p, /process is not defined/)
-  assert.equal(r.value.sameGlobal, true)
+  assert.equal(r.status, 'budget')
+  assert.equal(r.budget, 'violation')
   assert.deepEqual(r.violations, ['process'])
+  const r2 = await run(`async function walk2(bot) { const F = bot.observe.constructor.constructor; const g = F('return this')(); return { same: g === (0, eval)('this'), keys: Object.keys(g) } }`)
+  assert.equal(r2.status, 'ok')
+  assert.equal(r2.value.same, true)
+  assert.deepEqual(r2.value.keys.sort(), ['bot', 'walk2'])   // the facade and the skill itself: nothing from the host
 })
 
 test('a host-side throw comes back as data, not as a host Error object', async () => {
   const r = await run(`async function hostErr(bot) {
     const x = await bot.boom();
-    let reach = 'no'; try { reach = typeof x.constructor.constructor('return process')() } catch (e) { reach = 'trapped' }
-    return { x, reach }
+    return { x, isolateObject: x.constructor === ({}).constructor, keys: Object.keys(x).sort() }
   }`)
   assert.equal(r.status, 'ok')
   assert.equal(r.value.x.ok, false)
-  assert.equal(r.value.reach, 'trapped')
+  assert.equal(r.value.isolateObject, true)
+  assert.deepEqual(r.value.keys, ['ok', 'reason'])
 })
 
 test('dynamic import() is refused inside the isolate', async () => {
@@ -140,10 +145,15 @@ test('Promise.all of 1,000 calls runs ONE; the rest are refused', async () => {
   const r = await run(`async function flood(bot) {
     const rs = await Promise.allSettled(Array.from({ length: 1000 }, () => bot.slowObserve()));
     return { ok: rs.filter(x => x.status === 'fulfilled').length, refused: rs.filter(x => x.status === 'rejected').length }
-  }`, { steps: 2000 })
+  }`, { steps: 2000, refusals: 5000 })
   assert.equal(r.status, 'ok')
   assert.equal(r.value.ok, 1)
   assert.equal(r.value.refused, 999)
+  assert.equal(calls.length, 1)
+  calls.length = 0
+  const r2 = await run(`async function flood3(bot) { await Promise.allSettled(Array.from({ length: 1000 }, () => bot.slowObserve())); return 1 }`, { steps: 2000 })
+  assert.equal(r2.status, 'budget')            // with the default refusal budget the storm ends the run
+  assert.equal(r2.budget, 'refusals')
   assert.equal(calls.length, 1)
 })
 
