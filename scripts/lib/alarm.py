@@ -272,33 +272,34 @@ def delivered(res):
 
 
 def _delivery_note(digest_dir, ok, subject, detail, now):
-    p = os.path.join(digest_dir, 'alarm-delivery.json')
-    try:
-        d = json.load(open(p))
-        if not isinstance(d, dict):
-            d = {}
-    except (OSError, ValueError):
-        d = {}
-    d['last_ok' if ok else 'last_fail'] = {'at': _iso(now), 'subject': subject[:120], 'detail': detail[:200]}
-    try:
-        write_json_atomic(p, d)
-    except OSError:
-        pass
+    _delivery_mark(digest_dir, 'last_ok' if ok else 'last_fail', {'at': _iso(now), 'subject': subject[:120], 'detail': detail[:200]})
 
 
 def _delivery_mark(digest_dir, field, value):
+    """Set one field of ~/digest/alarm-delivery.json under its own short lock (no network inside): concurrent watchers
+    must not overwrite each other's fields (Codex review r1b: a give-up mark lost to a racing success note)."""
     p = os.path.join(digest_dir, 'alarm-delivery.json')
     try:
-        d = json.load(open(p))
-        if not isinstance(d, dict):
-            d = {}
-    except (OSError, ValueError):
-        d = {}
-    d[field] = value
-    try:
-        write_json_atomic(p, d)
+        os.makedirs(digest_dir, exist_ok=True)
+        lk = os.open(os.path.join(digest_dir, '.alarm-delivery.lock'), os.O_RDWR | os.O_CREAT, 0o664)
     except OSError:
-        pass
+        return
+    try:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        try:
+            d = json.load(open(p))
+            if not isinstance(d, dict):
+                d = {}
+        except (OSError, ValueError):
+            d = {}
+        d[field] = value
+        try:
+            write_json_atomic(p, d)
+        except OSError:
+            pass
+    finally:
+        fcntl.flock(lk, fcntl.LOCK_UN)
+        os.close(lk)
 
 
 def gaveup_recent(digest_dir, now, window=dt.timedelta(hours=24)):
@@ -397,11 +398,30 @@ def outbox_batch(rows, now):
     return give, due, keep
 
 
+def _outbox_line(r):
+    return f'[{str(r.get("at"))[5:16]}] {r.get("subject")}: {str(r.get("body"))[:300]}'
+
+
+def outbox_fit(due, limit=BODY_MAX - 100):
+    """PURE. -> (send now, leave for the next run): the oldest due rows whose lines fit ONE message. A row is never claimed
+    without being in the message (Codex review r1b: 50 queued pushes, the last ones cut off and still deleted)."""
+    if len(due) <= 1:
+        return list(due), []
+    take, n = [], 0
+    for r in due:
+        ln = len(_outbox_line(r)) + 1
+        if take and n + ln > limit:
+            break
+        take.append(r)
+        n += ln
+    return take, due[len(take):]
+
+
 def outbox_message(due):
-    """PURE. Every due undelivered push as ONE message (the channel coming back must not flood the phone)."""
+    """PURE. The claimed due pushes as ONE message (the channel coming back must not flood the phone)."""
     if len(due) == 1:
-        return str(due[0].get('subject')), str(due[0].get('body'))
-    body = '\n'.join(f'[{str(r.get("at"))[5:16]}] {r.get("subject")}: {str(r.get("body"))[:300]}' for r in due)
+        return str(due[0].get('subject')), str(due[0].get('body'))[:BODY_MAX]
+    body = '\n'.join(_outbox_line(r) for r in due)
     return f'{len(due)} delayed alarm pushes (since {min(str(r.get("at")) for r in due)[5:16]})'[:120], body[:BODY_MAX]
 
 
@@ -415,6 +435,8 @@ def flush_outbox(now, digest_dir, conf_path=CONF, sender=None):
 
     def claim(rows):                  # under the lock: drop the given-up, mark the due as tried now (no network)
         give, due, keep = outbox_batch(rows, now)
+        due, later = outbox_fit(due)
+        keep = keep + later
         stats['gaveup'] = len(give)
         for r in give:
             _delivery_log(digest_dir, now, 'GAVEUP', str(r.get('subject')), f'{r.get("tries")} tries; {r.get("err")}')

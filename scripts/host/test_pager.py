@@ -131,6 +131,17 @@ def t_alarm(AL):
         r = AL.flush_outbox(T + M(10), d, sender=good)
         check('outbox: the channel coming back sends ONE message for every delayed push', r['sent'] == 3 and len(good.calls) == 1
               and '3 delayed' in good.calls[0][0] and 'body2' in good.calls[0][1] and AL.outbox_status(d)[0] == 0, (r, good.calls))
+        for i in range(50):
+            AL.deliver(f'many{i}', 'b' * 290, T, d, sender=bad)
+        good.calls.clear()
+        r = AL.flush_outbox(T + M(10), d, sender=good)
+        body = good.calls[0][1] if good.calls else ''
+        check('outbox: a big backlog is sent in chunks that fit; nothing claimed is left out of the message',
+              0 < r['sent'] < 50 and r['queued'] == 50 - r['sent'] and body.count('many') == r['sent'] and len(body) <= AL.BODY_MAX, r)
+        for k in range(10):
+            AL.flush_outbox(T + M(20 + 10 * k), d, sender=good)
+        check('outbox: the rest goes on later runs', AL.outbox_status(d)[0] == 0, AL.outbox_status(d))
+        good.calls.clear()
         AL.deliver('x', 'y', T, d, sender=bad)
         import fcntl
         held = os.open(os.path.join(d, '.alarm-outbox.lock'), os.O_RDWR)
@@ -138,7 +149,7 @@ def t_alarm(AL):
         try:
             r = AL.flush_outbox(T + M(10), d, sender=good)
             check('outbox: another flusher holding the lock -> this run skips (never waits, never sends twice)',
-                  r['skipped'] and len(good.calls) == 1, r)
+                  r['skipped'] and len(good.calls) == 0, r)
         finally:
             fcntl.flock(held, fcntl.LOCK_UN); os.close(held)
         check('outbox: the skipped row is still queued', AL.outbox_status(d)[0] == 1)
@@ -348,8 +359,9 @@ MUTANTS = [
     ('lib/alarm.py', "        elif outbox_due(r, now):", "        elif True:", 'alarm'),
     ('lib/alarm.py', "        if _with_outbox(digest_dir, claim, blocking=False) is None:",
      "        if _with_outbox(digest_dir, claim, blocking=False) is None and False:", 'alarm'),
-    ('lib/alarm.py', "    if len(due) == 1:\n        return str(due[0].get('subject')), str(due[0].get('body'))",
-     "    if True:\n        return str(due[0].get('subject')), str(due[0].get('body'))", 'alarm'),
+    ('lib/alarm.py', "    if len(due) == 1:\n        return str(due[0].get('subject')), str(due[0].get('body'))[:BODY_MAX]",
+     "    if True:\n        return str(due[0].get('subject')), str(due[0].get('body'))[:BODY_MAX]", 'alarm'),
+    ('lib/alarm.py', "        if take and n + ln > limit:\n            break", "        if False:\n            break", 'alarm'),
     ('lib/alarmhead.py', "    if prev and causes[:recent].count(prev) >= min_ticks:\n        return prev",
      "    if False:\n        return prev", 'slot'),
     ('lib/alarm.py', "        return TIER_PAGE if str(key).startswith(('town:', 'goalwatch:')) else TIER_DIGEST",
