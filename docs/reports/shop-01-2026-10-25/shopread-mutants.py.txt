@@ -23,7 +23,8 @@ M = [
  ("                if op == 'stuck_on_cell' and f.get('stalled') == 'true':", "                if False:"),
  ("elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):", "elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_unwritten'):"),
  ("elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell', 'stuck_unwritten'):", "elif op in ('replant_moved', 'replant_deferred', 'replant_skipped', 'deferred', 'stuck_on_cell'):"),
- ("need = len([x for x in rec.get('replant') or [] if x.get('state') != 'skipped'])", "need = len(rec.get('replant') or [])"),
+ # G5R moved the skip filter into g5_denominator_ok's lower bound (the old `need` is a diagnostic only now; Codex r4)
+ ("        if len([x for x in rp if x.get('state') != 'skipped']) <= b <= len(rp):", "        if len(rp) <= b <= len(rp):"),
  ("out['off_record'] += 1; lists['off_record'].append('%s %s %s%s' % (bot, k, f.get('block'), pwhy))", "pass; lists['off_record'].append('%s %s %s%s' % (bot, k, f.get('block'), pwhy))"),
  ("out['clear_outside'] += 1;", "pass;"),
  ("out['zone'] += 1;", "pass;"),

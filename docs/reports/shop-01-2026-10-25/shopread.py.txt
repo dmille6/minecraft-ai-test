@@ -1533,7 +1533,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     out['tree_clears'] += 1
                     m = re.match(r'^(\d+)/(\d+)$', f.get('saplings') or '')
                     # a SKIPPED replant (shop-01 F2: no plantable cell in the band from where the builder stood) is no obligation
-                    need = len([x for x in rec.get('replant') or [] if x.get('state') != 'skipped']) if rec is not None else None
+                    need = len([x for x in rec.get('replant') or [] if isinstance(x, dict) and x.get('state') != 'skipped']) if rec is not None else None
                     # G5R (phase 1 item 4, 11-06): the bot's denominator is the replant list of the record IT ran when it felled
                     # (buildrun.mjs: the non-skipped entries then). Judging every past felling against the CURRENT record made
                     # 47 of 52 live items g5_unjudged (a later generation, or a replant skipped since): judge it against the
@@ -2325,6 +2325,8 @@ def selftest():
     skp = PP(shop={'record': sk, 'records_files': 1, 'leases': {}})
     assert J(tree('3/3', 9), skp)['g5_unjudged'] == 0 and J(tree('2/2', 9), skp)['g5_unjudged'] == 0, 'G5R: a replant skipped AFTER the felling: 3/3 or 2/2 both judged'
     assert J(tree('4/4', 9), skp)['g5_unjudged'] == 1, 'G5R: more than the generation ever listed stays unjudged'
+    odd = PP(shop={'record': dict(rec, replant=[None, {'cell': [20, 70, 20]}]), 'records_files': 1, 'leases': {}})
+    assert J(tree('1/1', 9), odd)['g5_unjudged'] == 0, 'G5R: a non-dict replant entry is skipped, never a crash'
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=2/1', s=9)])['g5_unjudged'] == 1, 'an impossible fraction'
     # shop-01 F2: a SKIPPED replant is no obligation -- 0/0 against a record whose only replant is skipped is judged and clean
     recs = dict(rec, replant=[{'cell': [20, 70, 20], 'sapling': 'oak_sapling', 'state': 'skipped'}])
