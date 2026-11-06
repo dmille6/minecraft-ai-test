@@ -174,3 +174,32 @@ test('violationFromError recognises only trapped names', () => {
   assert.equal(violationFromError('fooBar is not defined'), null)
   assert.equal(violationFromError(''), null)
 })
+
+test('a flood of trap reads is reported once and ends the run (review finding 1)', async () => {
+  const events = []
+  const r = await run(`async function flood2(bot) { for (let i = 0; i < 1e7; i++) { try { this['req' + 'uire'] } catch (e) {} } return 1 }`, { cpuMs: 5000 }, { onEvent: e => events.push(e) })
+  assert.equal(r.status, 'budget')
+  assert.equal(r.budget, 'violation')
+  assert.equal(events.filter(e => e.kind === 'violation').length, 1)
+})
+
+test('a huge error or result is refused on the host side (review finding 2)', async () => {
+  const r = await run(`async function huge(bot) { throw new Error('x'.repeat(30_000_000)) }`, { cpuMs: 5000, memoryMb: 128 })
+  assert.ok(r.error.length < 1000, `error is ${r.error.length} chars`)
+  const r2 = await run(`async function huge2(bot) { return 'y'.repeat(5_000_000) }`, { cpuMs: 5000, memoryMb: 128 })
+  assert.equal(r2.status, 'error')
+  assert.match(r2.error, /keep it short/)
+})
+
+test('an un-awaited call still running at return is killed (review finding 3)', async () => {
+  let killedWith = null
+  const r = await run(`async function early(bot) { bot.slow(); return 1 }`, {}, { onKill: w => { killedWith = w } })
+  assert.equal(killedWith, 'returned_early')
+  assert.equal(r.status, 'ok')
+})
+
+test('a storm of refused concurrent calls is ended (review finding 8)', async () => {
+  const r = await run(`async function storm(bot) { const p = bot.slow(); for (let i = 0; i < 5000; i++) { bot.observe().catch(() => {}) } await p; return 1 }`, { refusals: 50 })
+  assert.equal(r.status, 'budget')
+  assert.equal(r.budget, 'refusals')
+})

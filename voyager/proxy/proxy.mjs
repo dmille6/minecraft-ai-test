@@ -111,16 +111,23 @@ function serveArm (name, arm) {
     if (hourCalls >= (arm.perHour ?? 300)) return send(429, { error: 'hourly call cap reached' })
     if (inflight >= (arm.inflight ?? 1)) return send(429, { error: 'one request at a time' })
     if (arm.paused) return send(503, { error: 'arm paused by the operator' })
+    // max_tokens must be a whole number 1..arm.maxTokens: a NaN or negative value must never reach the spend cap (review 11)
+    const cap = arm.maxTokens ?? 4096
+    const mt = body.max_tokens == null ? 2048 : Number(body.max_tokens)
+    if (!Number.isInteger(mt) || mt < 1 || mt > cap) return send(400, { error: `max_tokens must be a whole number 1-${cap}` })
+    body.max_tokens = mt
+    if (body.messages != null && !Array.isArray(body.messages)) return send(400, { error: 'messages must be a list' })
+    inflight++; hourCalls++          // counted BEFORE the duty-cycle wait, so a second request is refused meanwhile
     const wait = nextFree - Date.now()
     if (wait > 0) await new Promise(r => setTimeout(r, Math.min(wait, 120_000)))
-    inflight++; hourCalls++
     const t0 = Date.now()
     let reserved = 0
     const purpose = String(body.purpose ?? (arm.backend === 'ollama-raw' ? 'control' : '?')).slice(0, 16)
     try {
       if (arm.backend === 'anthropic') {
-        reserved = reserveUsd(arm, raw.length, Math.min(body.max_tokens ?? 2048, arm.maxTokens ?? 4096))
-        if (spend[name].usd + reserved > arm.capUsd) { row({ arm: name, purpose, refused: 'spend_cap', usd_total: spend[name].usd }); return send(402, { error: `spend cap $${arm.capUsd} reached` }) }
+        reserved = reserveUsd(arm, raw.length, body.max_tokens)
+        if (!Number.isFinite(spend[name].usd)) spend[name].usd = arm.capUsd   // a corrupted total fails closed
+        if (!(reserved > 0) || spend[name].usd + reserved > arm.capUsd) { row({ arm: name, purpose, refused: 'spend_cap', usd_total: spend[name].usd }); return send(402, { error: `spend cap $${arm.capUsd} reached` }) }
         spend[name].usd += reserved; saveSpend()
         const r = await anthropicChat(arm, body)
         const usd = usageUsd(arm, r.usage)
@@ -140,7 +147,8 @@ function serveArm (name, arm) {
       row({ arm: name, purpose, model: arm.model, ms: Date.now() - t0, usage: r.usage })
       return send(200, { text: r.text, usage: r.usage, ms: Date.now() - t0 })
     } catch (e) {
-      row({ arm: name, purpose, model: arm.model, ms: Date.now() - t0, error: String(e?.message ?? e).slice(0, 200) })
+      // the reservation stays charged: a failed or timed-out paid request may still have been billed (design §12 R3)
+      row({ arm: name, purpose, model: arm.model, ms: Date.now() - t0, error: String(e?.message ?? e).slice(0, 200), usd_reserved_kept: reserved || undefined })
       return send(502, { error: String(e?.message ?? e).slice(0, 200) })
     } finally {
       inflight--

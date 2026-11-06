@@ -272,10 +272,8 @@ export function registerVySkills (SKILLS, SKILL_CONTRACTS) {
  * @param {()=>object} o.getRunner   the current runner
  * @param {{revoked:boolean}} o.token  this execution's capability token; revoked on a budget kill
  * @param {(e:object)=>void} o.record  facade telemetry (placements, chest takes, drops, chat drops)
- * @param {(n:string)=>void} [o.markSkill]  runtime evidence that a library skill was called
- * @param {Set<string>} [o.library]  library skill names (for useSkill)
  */
-export function makeHandlers ({ getBot, getRunner, token, record, markSkill = () => {}, library = new Set(), now = () => Date.now() }) {
+export function makeHandlers ({ getBot, getRunner, token, record, now = () => Date.now() }) {
   const bot = () => getBot()
   let lastSay = 0
 
@@ -367,6 +365,8 @@ export function makeHandlers ({ getBot, getRunner, token, record, markSkill = ()
       const c = checkArgs([['name']], a)
       if (c.error) return bad(c.error)
       if (token.revoked) return { ok: false, reason: 'stopped' }
+      const rn = getRunner()
+      if (rn?.current || rn?.arb?.holder) return { ok: false, reason: 'busy: a reflex or another action holds the body', remedy: 'wait a moment and try again' }
       const it = bot().inventory.items().find(i => i.name === c.args[0])
       if (!it) return { ok: false, reason: `no ${c.args[0]} in inventory`, remedy: 'get it first' }
       try { await bot().equip(it, 'hand'); return { ok: true, holding: it.name } } catch (e) { return { ok: false, reason: String(e?.message ?? e).slice(0, 120) } }
@@ -389,11 +389,8 @@ export function makeHandlers ({ getBot, getRunner, token, record, markSkill = ()
       while (now() - t0 < ms && !token.revoked) await new Promise(r => setTimeout(r, Math.min(250, ms)))
       return { ok: !token.revoked }
     },
-    useSkill: async (a) => {
-      const n = String(a[0] ?? '')
-      if (library.has(n)) markSkill(n)
-      return { ok: true }
-    },
+    // handled inside the sandbox's dispatcher (it never reaches here); listed so `bot.log` exists (review finding 4)
+    log: async () => ({ ok: true }),
   }
   return H
 }

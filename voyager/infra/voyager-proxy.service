@@ -22,6 +22,17 @@ PrivateTmp=yes
 PrivateDevices=yes
 NoNewPrivileges=yes
 CapabilityBoundingSet=
+# the proxy needs the internet (Anthropic, the public Ollama ports) and nothing on the LAN: no fleet port, no 10.0.0.0/8
+IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@mount @swap @reboot @raw-io @clock @cpu-emulation @debug @module @obsolete @privileged
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictNamespaces=yes
 UMask=0007
 [Install]
 WantedBy=multi-user.target

@@ -14,7 +14,7 @@
 import ivm from 'isolated-vm'
 
 export const BUDGET_DEFAULTS = Object.freeze({ wallMs: 240_000, cpuMs: 3_000, steps: 80, memoryMb: 64, pollMs: 100,
-                                               argBytes: 4_096, resultBytes: 16_384, logLines: 200 })
+                                               argBytes: 4_096, resultBytes: 16_384, logLines: 200, refusals: 200, outBytes: 20_000 })
 
 // Names a skill may not touch. Inside the isolate each one is a non-configurable getter that reports the attempt to the
 // host (even when the code catches the error) and then throws the same ReferenceError a bare isolate would.
@@ -97,7 +97,8 @@ export async function runSkill ({ code, fnName, prelude = '', handlers, budget =
   const started = Date.now()
   const log = []
   const violations = []
-  let steps = 0, inFlight = 0, killed = null, disposed = false
+  const marks = []          // library skills called at run time (reuse evidence, review finding 5)
+  let steps = 0, inFlight = 0, refusals = 0, killed = null, disposed = false
   const push = line => { if (log.length < B.logLines) log.push(String(line).slice(0, 300)) }
   const ev = e => { try { onEvent(e) } catch { /* telemetry */ } }
 
@@ -125,7 +126,10 @@ export async function runSkill ({ code, fnName, prelude = '', handlers, budget =
       return reply({ __vy_error: `bot.${String(name).slice(0, 32)} is not a facade call` })
     }
     if (typeof argText !== 'string' || argText.length > B.argBytes) return reply({ __vy_error: `${name}: arguments too large` })
-    if (inFlight > 0) return reply({ __vy_error: `${name}: one bot call at a time -- await each call before the next (no Promise.all)` })
+    if (inFlight > 0) {
+      if (++refusals > B.refusals) setImmediate(() => kill('refusals'))
+      return reply({ __vy_error: `${name}: one bot call at a time -- await each call before the next (no Promise.all)` })
+    }
     if (++steps > B.steps) { setImmediate(() => kill('steps')); return reply({ __vy_error: `stopped: more than ${B.steps} bot calls` }) }
     let args
     try { args = JSON.parse(argText) } catch { return reply({ __vy_error: `${name}: arguments are not JSON` }) }
@@ -148,11 +152,15 @@ export async function runSkill ({ code, fnName, prelude = '', handlers, budget =
     return id
   })
 
+  // A touched trap is reported ONCE per name and ends the run (the watcher stops the bot on one anyway): a loop of
+  // trap reads must not become millions of host tasks and log lines (Claude review finding 1).
   const onViolation = new ivm.Callback(n => {
     const name = String(n).slice(0, 32)
-    if (!violations.includes(name)) violations.push(name)
+    if (violations.includes(name) || violations.length >= 8) return
+    violations.push(name)
     push(`SANDBOX: the skill touched "${name}", which does not exist here`)
     ev({ kind: 'violation', name })
+    setImmediate(() => kill('violation'))
   }, { ignored: true })
 
   const wall = setTimeout(() => kill('wall'), B.wallMs)
@@ -161,11 +169,13 @@ export async function runSkill ({ code, fnName, prelude = '', handlers, budget =
   }, B.pollMs)
 
   const finish = (o) => {
+    // a call still running after the skill returned (an un-awaited action) is stopped like a budget breach (review finding 3)
+    if (inFlight > 0 && !killed) kill('returned_early')
     clearTimeout(wall); clearInterval(poll)
     let cpuMs = 0
     try { cpuMs = Math.round(Number(isolate.cpuTime) / 1e6) } catch { /* disposed */ }
     if (!disposed) { try { isolate.dispose(); disposed = true } catch { /* gone */ } }
-    return { steps, violations, log, ms: Date.now() - started, cpuMs, ...o }
+    return { steps, violations, marks, log, ms: Date.now() - started, cpuMs, ...o }
   }
 
   try {
@@ -177,18 +187,25 @@ export async function runSkill ({ code, fnName, prelude = '', handlers, budget =
     settleRef = await jail.get('__vy_settle', { reference: true })
     await jail.delete('__vy_settle')
     if (prelude) {
+      // the library script takes the private mark callback from the global and deletes it before any skill code runs
+      await jail.set('__vy_mark', new ivm.Callback(n => { const k = String(n).slice(0, 48); if (!marks.includes(k) && marks.length < 64) marks.push(k) }, { ignored: true }))
       await (await isolate.compileScript(prelude, { filename: 'voyager:library' })).run(context, { timeout: 1000 })
+      await jail.delete('__vy_mark')
     }
     await (await isolate.compileScript(code, { filename: `skill:${fnName}` })).run(context, { timeout: 1000 })
     const script = await isolate.compileScript(epilogueSource(fnName), { filename: 'voyager:run' })
     const text = await script.run(context, { promise: true, copy: true })
     if (killed) return finish({ status: 'budget', budget: killed, error: `stopped by the ${killed} budget` })
     let r
-    try { r = JSON.parse(String(text)) } catch { r = { ok: false, name: 'Error', message: 'the skill returned no readable result' } }
+    const t = typeof text === 'string' ? text : ''
+    if (t.length > B.outBytes) r = { ok: false, name: 'Error', message: `the skill's result or error was ${t.length} characters; keep it short` }
+    else { try { r = JSON.parse(t) } catch { r = { ok: false, name: 'Error', message: 'the skill returned no readable result' } } }
+    if (!r || typeof r !== 'object') r = { ok: false, name: 'Error', message: 'the skill returned no readable result' }
     if (r.ok) return finish({ status: 'ok', value: r.value })
-    const v = violationFromError(r.message)
+    const name = String(r.name ?? 'Error').slice(0, 40), message = String(r.message ?? '').slice(0, 600)
+    const v = violationFromError(message)
     if (v && !violations.includes(v)) violations.push(v)
-    return finish({ status: 'error', error: `${r.name}: ${r.message}` })
+    return finish({ status: 'error', error: `${name}: ${message}` })
   } catch (e) {
     const msg = String(e?.message ?? e)
     if (killed) return finish({ status: 'budget', budget: killed, error: `stopped by the ${killed} budget` })

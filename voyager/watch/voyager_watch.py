@@ -7,7 +7,8 @@ min (a crash loop); 10 minutes of executing skills with no world change. Stops E
 the host is under pressure. It never touches a unit whose name does not start with `voyager-`.
 
 A stopped arm stays stopped: a STOPPED-<arm> marker is written, and the watcher re-stops the arm while it exists. A human
-reads the cause, removes the marker and restarts it (logged).
+reads the cause, removes the marker and restarts it (logged). An arm with a RUNNING-<arm> marker (the operator's intent)
+and no STOPPED marker is started again if it is down (a Paper restart stops its bot through BindsTo).
 
   voyager_watch.py run [--dry-run]     one pass (the timer's call)
   voyager_watch.py selftest            the decision functions against fixtures
@@ -169,6 +170,13 @@ def run(dry=False):
                 emit({'kind': 'restop', 'arm': a, 'reason': 'STOPPED marker present', 'dry': dry})
             continue
         if not unit_active(unit):
+            # an arm the operator marked RUNNING is brought back after a Paper restart took it down (BindsTo): review 9
+            if os.path.exists(os.path.join(ROOT, f'RUNNING-{a}')):
+                paper = f'voyager-paper@{a}'
+                for u in ([] if unit_active(paper) else [paper]) + [unit]:
+                    if not dry:
+                        subprocess.run(['systemctl', 'start', u], timeout=180)
+                emit({'kind': 'revive', 'arm': a, 'dry': dry})
             continue
         vrows = rows(os.path.join(ROOT, 'logs', a, f'voyager-{a}.jsonl'), since)
         grows = rows(os.path.join(ROOT, 'worlds', a, 'plugins', 'VoyagerGuard', 'events.jsonl'), since)

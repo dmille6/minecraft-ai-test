@@ -12,7 +12,7 @@ import { CURRICULUM_SYSTEM, curriculumUser, CODER_SYSTEM, coderUser, parseJsonOb
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 export const MAX_ROUNDS = 4
-const QUIET_FACADE = new Set(['observe', 'log', 'useSkill', 'wait', 'say', 'findBlocks'])
+const QUIET_FACADE = new Set(['observe', 'log', 'wait', 'say', 'findBlocks'])
 
 /** A one-line description of what a run changed, for the coder's next round. Pure. */
 export function describeDelta (start, end, rec) {
@@ -126,15 +126,21 @@ export class VoyagerLoop {
         else if (e.kind === 'say_command_dropped') { rec.chat.push(e); this.log('command_attempt', { iteration: it, round, source: 'facade.say', text: e.text }) }
       }
       rn.voyagerRecord = record
-      const used = new Set()
       const token = { revoked: false }
-      const handlers = makeHandlers({ getBot: this.getBot, getRunner: this.getRunner, token, record, markSkill: n => used.add(n), library: new Set(this.library.names()) })
+      const handlers = makeHandlers({ getBot: this.getBot, getRunner: this.getRunner, token, record })
       const fnCode = lint.fnName === /async function ([A-Za-z0-9]+)/.exec(code)[1] ? code : code.replace(/async function [A-Za-z0-9]+/, `async function ${lint.fnName}`)
       const res = await runSkill({ code: fnCode, fnName: lint.fnName, prelude: libraryPrelude(this.library.closure(lint.calls)), handlers, budget: this.budget,
         onEvent: e => { if (e.kind === 'violation') this.log('sandbox_violation', { iteration: it, round, name: e.name }) },
         onKill: why => { token.revoked = true; try { this.getRunner()?.interrupt(`voyager_${why}`) } catch {} } })
       token.revoked = true
-      await this.idle()
+      const used = new Set(res.marks ?? [])
+      if (!(await this.idle())) {
+        // the body did not come back within 20 s of the run's end: restart the process rather than act on top of it (§12 R1)
+        this.log('runner_stuck', { iteration: it, round, doing: this.getRunner()?.describe?.() ?? null })
+        this.stop()
+        setTimeout(() => process.exit(3), 500)
+        return
+      }
       rn.voyagerRecord = null
       const nb = this.getBot()
       if (!nb?.entity) { this.log('execution', { iteration: it, round, status: 'disconnected' }); return }

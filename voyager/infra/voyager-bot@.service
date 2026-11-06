@@ -3,6 +3,7 @@
 [Unit]
 Description=voyager-01 bot (%i) -- pilot, LLM-written skills in isolated-vm
 BindsTo=voyager-paper@%i.service
+PartOf=voyager-paper@%i.service
 After=voyager-paper@%i.service voyager-proxy.service
 JoinsNamespaceOf=voyager-paper@%i.service
 StartLimitIntervalSec=1800

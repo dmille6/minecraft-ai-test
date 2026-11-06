@@ -137,13 +137,17 @@ test('library: invented / variant / composition / reuse, atomic files, retrieval
 
 test('library prelude: a library call reports itself at run time (B4 d), unreached calls do not', async () => {
   const skills = [{ name: 'helperOne', code: 'async function helperOne(bot) { return 7 }' }, { name: 'helperTwo', code: 'async function helperTwo(bot) { return 8 }' }]
-  const used = []
-  const handlers = { useSkill: async ([n]) => { used.push(n); return { ok: true } }, observe: async () => ({ ok: true }) }
+  const handlers = { observe: async () => ({ ok: true }) }
   const r = await runSkill({ code: 'async function caller(bot) { const a = await helperOne(bot); if (false) await helperTwo(bot); return a }', fnName: 'caller',
     prelude: libraryPrelude(skills), handlers, budget: { wallMs: 3000 } })
   assert.equal(r.status, 'ok')
   assert.equal(r.value, 7)
-  assert.deepEqual(used, ['helperOne'])
+  assert.deepEqual(r.marks, ['helperOne'])
+  // the skill cannot fake a mark: the callback is gone and the facade has no such call
+  const f = await runSkill({ code: 'async function faker(bot) { let a = typeof __vy_mark; let b = typeof bot.useSkill; try { __impl_helperTwo } catch (e) { return [a, b, "no impl"] } return [a, b, "impl visible"] }', fnName: 'faker',
+    prelude: libraryPrelude(skills), handlers, budget: { wallMs: 3000 } })
+  assert.deepEqual(f.value, ['undefined', 'undefined', 'no impl'])
+  assert.deepEqual(f.marks, [])
 })
 
 test('normalise ignores comments, whitespace and the name', () => {

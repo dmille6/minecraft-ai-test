@@ -26,20 +26,29 @@ export function normalise (code) {
 
 /**
  * The library prelude for one run: each skill renamed to __impl_<name> and wrapped so that a call at run time reports
- * itself to the host (bot.useSkill) before it runs -- reuse is counted from that, not from the text (§12 B4 d). Pure.
+ * itself to the host through a PRIVATE callback the skill code cannot reach -- reuse is counted from that, not from the
+ * text, and generated code cannot fake it (§12 B4 d; Claude review finding 5). Pure.
  */
 export function libraryPrelude (skills) {
   const parts = []
+  const names = []
   for (const s of skills) {
     let ast
     try { ast = acorn.parse(s.code, { ecmaVersion: 2023, sourceType: 'script' }) } catch { continue }
     const fn = ast.body[0]
-    if (!fn || fn.type !== 'FunctionDeclaration' || fn.id.name !== s.name) continue
-    const renamed = s.code.slice(0, fn.id.start) + `__impl_${s.name}` + s.code.slice(fn.id.end)
-    parts.push(renamed)
-    parts.push(`async function ${s.name}(b) { await bot.useSkill(${JSON.stringify(s.name)}); return __impl_${s.name}(b) }`)
+    if (!fn || fn.type !== 'FunctionDeclaration' || fn.id.name !== s.name || !/^[a-z][a-zA-Z0-9]{2,47}$/.test(s.name)) continue
+    parts.push(s.code.slice(0, fn.id.start) + `__impl_${s.name}` + s.code.slice(fn.id.end))
+    parts.push(`async function ${s.name}(b) { try { mark(${JSON.stringify(s.name)}) } catch (e) {} return __impl_${s.name}(b) }`)
+    names.push(s.name)
   }
-  return parts.join('\n')
+  if (!names.length) return ''
+  // ONE IIFE: the mark callback is captured and removed from the global before any skill code runs; the wrappers are
+  // published as non-writable globals so the skill can call them by name, and nothing else of the library is global.
+  return `(function () {
+  const mark = globalThis.__vy_mark; delete globalThis.__vy_mark;
+${parts.join('\n')}
+  for (const [n, f] of [${names.map(n => `[${JSON.stringify(n)}, ${n}]`).join(', ')}]) Object.defineProperty(globalThis, n, { value: f, writable: false, configurable: false, enumerable: false });
+})();`
 }
 
 export class Library {
