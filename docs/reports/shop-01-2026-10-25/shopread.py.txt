@@ -138,7 +138,7 @@
 #                      generation (the plot cell up to FOREST_TRUNK above it: kind grown), or one of a generation's listed SITE-TREE logs
 #                      (`trees[].logs`: kind site); anything else is clear_outside (` forest_fell`); a `*_failed` row digs nothing and is not
 #                      judged; a felling is a mutation (G3). FR2 leaves -- `op=clear kind=stand|aisle` (the leaves in a stand's or an aisle's
-#                      feet and head) only a *_leaves block inside a generation's box + 1, from its level - 3 to level + 5, else clear_outside
+#                      feet and head) only a *_leaves block inside a generation's box + 1, from its level - 3 to its levelMax + 5 (forest-02: strips at their own levels; levelMax absent: level), else clear_outside
 #                      (` forest_leafrule`). FR4 meal -- `op=use kind=bonemeal` only on a PLOT cell of a generation, else off_record
 #                      (` forest_meal`), a mutation (G3). No-change rows (op=sited|waived|rotate|sweep|garden_sited) are no mutation.
 #   RF1 farm_retire (forest-01): THE IN-WALL TREE FARM'S RETIREMENT (project=treefarm, its rows written by the forest's keeper): op=harvest
@@ -429,13 +429,14 @@ def forest_harvest_ok(chain, cell, block, kind):
 
 def forest_leaves_ok(chain, cell, block):
     """forest-01 FR2: is a `project=forest op=clear kind=stand|aisle` a leaves block inside a generation's box + 1, from its level - 3
-    to level + 5? -> bool. Pure."""
+    to its levelMax + 5 (forest-02: each strip at its own level; a forest-01 record has no levelMax: its level)? -> bool. Pure."""
     if not isinstance(cell, (list, tuple)) or len(cell) != 3 or not LEAVES_RE.match(str(block or '')):
         return False
     for rec in chain or []:
         b, w = rec.get('box'), rec.get('level')
+        wm = rec.get('levelMax') if isinstance(rec.get('levelMax'), (int, float)) else w
         if isinstance(b, list) and len(b) == 4 and isinstance(w, (int, float)) and b[0] - 1 <= cell[0] <= b[2] + 1 and b[1] - 1 <= cell[2] <= b[3] + 1 \
-                and w - 3 <= cell[1] <= w + 5:
+                and w - 3 <= cell[1] <= wm + 5:
             return True
     return False
 
@@ -2842,6 +2843,12 @@ def selftest():
     assert FJ('project=forest op=clear cell=96,65,100 block=spruce_leaves kind=aisle')['clear_outside'] == 1, 'positive control: outside the box + 1'
     assert FJ('project=forest op=clear cell=101,70,100 block=spruce_leaves kind=stand')['clear_outside'] == 1, 'above the band'
     assert FJ('project=forest op=clear cell=101,66,100 block=dirt kind=stand')['clear_outside'] == 1, 'not leaves'
+    # forest-02: strips at their own levels -- the band runs to levelMax + 5
+    frec2 = dict(frec, gen=3, prev=2, levelMax=66)
+    FP2 = PP(forest={'record': frec2, 'records_files': 3, 'leases': {}, 'chain': [frec2]}, treefarm={'record': fret, 'records_files': 2, 'leases': {}, 'chain': [fold, fret]})
+    assert FJ('project=forest op=clear cell=101,71,100 block=spruce_leaves kind=stand', pr=FP2)['clear_outside'] == 0, 'forest-02: a stand on the highest strip (levelMax 66 + 5)'
+    assert FJ('project=forest op=clear cell=101,72,100 block=spruce_leaves kind=stand', pr=FP2)['clear_outside'] == 1, 'positive control: past levelMax + 5'
+    assert FJ('project=forest op=clear cell=101,71,100 block=spruce_leaves kind=stand')['clear_outside'] == 1, 'a forest-01 record (no levelMax): level + 5 as before'
     # the forest's ordinary build rows: its cells and its clear list (G1/G2), a foreign dig of a plot's own floor
     assert FJ('project=forest op=place seg=S1 cell=100,64,100 block=spruce_sapling')['off_record'] == 0 and FJ('project=forest op=place seg=S1 cell=100,65,100 block=spruce_sapling')['off_record'] == 1, 'a sunk sapling on the record; one above it is not'
     assert FJ('project=forest op=clear cell=100,64,100 block=grass_block kind=foreign')['clear_outside'] == 0 and FJ('project=forest op=clear cell=104,65,100 block=dirt kind=cut')['clear_outside'] == 0, 'the plot\'s floor dug; a listed cut'

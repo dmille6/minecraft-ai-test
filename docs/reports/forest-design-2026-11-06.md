@@ -208,3 +208,43 @@ debris; the selftest checks them against showcase_trip.py's `TREE_DEBRIS`, which
   - **It supersedes treefarm-05** (`946c8aaa` on 4f3b0f5c, queued, on hold). That is the tree farm in idle mode, sited outside
     the wall or small when the walled area is full. It keeps treefarm.mjs's harvest and its `farmFootprint`, which still prices
     every trunk cell plus 10, so its grown harvest would fail as the showcase's did (0/245). The recommendation is to cancel it.
+
+## 9. forest-02: the siting that finds the showcase's ground (11-06 evening)
+
+**What happened.** forest-01show went live in release 2a900125. Its first siting, by Iris at 20:38Z, found **no site** in 7,761
+tries (walls 21,763, ticks 14,828, far 12,102, zone 4,479, box 3,271).
+
+**Reproduced offline.** `bots/scripts/forest-offline.mjs` ran on a copy of the live region files and pool and gave the identical
+refusal. The map shows a **peninsula**:
+- water to the north and south;
+- the taiga village (a protected zone) to the east;
+- against the west wall, the yard, the stepwell, and the land plan's homes and monument sectors.
+
+The only free ground is 75 to 110 blocks west of home. That is past forest-01's reach of 72, and outside its ticking rule (5 chunks
+of home's chunk), even though the walled town is itself 9 chunks deep.
+
+**Measured ticking.** I took 24 h of showcase positions and, for each chunk, counted the share of minutes with a bot within 6
+chunks:
+- every chunk within 4 chunks of the walled chunks was covered 94–100% of the time;
+- the far corners were covered 68%.
+
+The simulation distance is 6 in `server.properties` on the showcase and on the fleet (board-a, board-b, hive-d, placebo-d);
+spigot.yml leaves it at `default`.
+
+**The fix:**
+- **Ticking:** every chunk of the box must be within simChunks - 2 (= 4) of **some** wall ring's chunks. Codex r1's blocker: the
+  rings' bounding box would have admitted an L-shaped town's far corner.
+- **Reach tiers 72 → 92 → 112:** the nearest tier that holds a good forest (16+ plots) wins. A smaller forest is used only when no
+  tier has a good one.
+- **Shapes:** rows can run along x or z, and rows can be as short as 3 trees.
+- **Terrain-following strips:** each strip sits at its own median level. Neighbouring strips are within 1 of each other (the path
+  between them is a 1-block step), and all strips are within 2 of the lowest.
+- **Speed:** a summed-area prefilter and the level test run before the layout is built. Siting takes 0.2–2.2 s.
+
+**Offline results:**
+- **Showcase:** sites 3 strips × 2 rows × 3 trees (18 plots, rows along z) at box -91,17..-74,25. Strip levels 65/65/66, 5 site
+  trees, reach 91.
+- **Fleet copies:** with forest-01's siting, 3 of 5 towns found no site. With forest-02's, all five site: board-a reach 109,
+  board-b 69, hive-d 89, placebo-a 65, placebo-d 86.
+
+**Tripwire:** FR2's band now runs from `level - 3` to `levelMax + 5`; the selftest and mutants pass. No new row kinds.

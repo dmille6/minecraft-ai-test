@@ -227,7 +227,9 @@ M = [
  ("        return any(isinstance(lg, list) and list(lg) == list(cell) for rec in chain or [] for t in rec.get('trees') or [] if isinstance(t, dict) for lg in t.get('logs') or [])", "        return True"),
  # forest-01 FR2: leaves anywhere; the band
  ("    if not isinstance(cell, (list, tuple)) or len(cell) != 3 or not LEAVES_RE.match(str(block or '')):\n        return False\n    for rec in chain or []:\n        b, w", "    if not isinstance(cell, (list, tuple)) or len(cell) != 3:\n        return False\n    for rec in chain or []:\n        b, w"),
- ("                and w - 3 <= cell[1] <= w + 5:", "                and w - 3 <= cell[1] <= w + 50:"),
+ ("                and w - 3 <= cell[1] <= wm + 5:", "                and w - 3 <= cell[1] <= wm + 50:"),
+ # forest-02 FR2: levelMax ignored (the highest strip's stands trip)
+ ("        wm = rec.get('levelMax') if isinstance(rec.get('levelMax'), (int, float)) else w\n", "        wm = w\n"),
  ("                    elif plot == FOREST and f.get('kind') in ('stand', 'aisle'):\n", "                    elif plot == FOREST and f.get('kind') in ('stand_', 'aisle_'):\n"),
  # forest-01 FR4: bone meal anywhere
  ("    return k is not None and any(isinstance(c, dict) and c.get('role') == 'plot' and ck(c['at']) == k for rec in chain", "    return k is not None or any(isinstance(c, dict) and c.get('role') == 'plot' and ck(c['at']) == k for rec in chain"),
