@@ -5083,6 +5083,80 @@
     "paths": []
    },
    "note": "audit-fix piece (scaudit-fixes-1106.md); ledger row added by the release agent"
+  },
+  {
+   "id": "phase2-build-1106",
+   "title": "codeeval 2026-11-06 phase 2 build pieces: 2.1 close the build retry hole, 2.2 never idle on a blocked project, 2.4 mark the engine's intended waits (owner: design + build phase 2, ready to queue when phase 0 reads)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "phase2-build-1106.md"
+   ],
+   "kind": "direct",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "buildfix-01 = buildretry-01 + buildnext-01 + buildwait-01 on branch buildhole-01 (tip eeed972f; code 7762a38a on gkforever-01 9e9284d7); tier 2; Codex r1 1 BLOCKER fixed, r2 none; ci2 full suite (see note). Control session: rebase onto the live sha after handcap-01 closes, then owner-direct (rollout.py deploy --tier 2, needs the control session to accept fleet evidence in place of --showcase-evidence) or a P canary (draft docs/reports/phase2-build-2026-11-06/buildfix-01.queue-entry.draft.json on the branch); read the `_build op=interrupted kind=` rows to confirm 2.4's causes case by case.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "run": "handcap-01",
+     "until": "closed"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "buildfix-01"
+    ],
+    "branches": [
+     "buildhole-01"
+    ],
+    "grep": [
+     "buildretry-01",
+     "buildnext-01",
+     "buildwait-01"
+    ],
+    "paths": [
+     "docs/reports/phase2-build-design-2026-11-06.md"
+    ]
+   },
+   "owner_pending": "phase2-build-1106: should a project whose `after` predecessor cannot be sited (board-c shop, hive-c house1) start anyway? Codex: no (paths inform wall gateways); built as no",
+   "note": "Measured 24 h 11-05/06 (1,920 bot-h): build visits 3,859, 3,430 placed nothing (50.3 of 62.2 visit bot-h); 2,309 zero-placed and identical to the bot's previous visit (31.7 bot-h); board-d tidy 215 blocked/24 h on a block no dig tries; aborted 614 (9.3 bot-h), 436 with a stuck-reflex row within 4 s (walk failing 80, working in place 52, pre-engine 173, quiet after a clear 113). Effect targets validated: _build_visit:tidy:blocked -50%, _shop_skip -15%, _build_visit:monument:aborted -15%, productive share +5%."
+  },
+  {
+   "id": "escdead-1106",
+   "title": "codeeval 2026-11-06 phase 2.3: break the escape dead ends (flood-in breach after 30 min pinned, the wide swim-under, one usable-pickaxe rule, protect-zone depth from the terrain) -- isolated-d Delta/Echo 358,58,180, hive-c-Bravo",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "phase2-build-1106.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "escdead-01 (branch escdead-01, code f5005078, tip 679bae73, on gkforever-01 9e9284d7 + handcap-01 cherry-picked; tier 3) -- two engines (Codex r1 2 BLOCKERS fixed, r2 none; independent Claude no blockers), Paper proof sandbox5/6 (isolated-d cut 3/3 by the wide swim, hive-c synthetic pillar 3/3 by the breach, with ESCDEAD_PIN_MS=60000), ci2 408/408. Control session queues it S after handcap-01 (draft docs/reports/escdead-01/ on the branch); the draw MUST contain isolated-d (else INCONCLUSIVE, not KEEP).",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "run": "handcap-01",
+     "until": "closed"
+    }
+   ],
+   "evidence": {
+    "runs": [
+     "escdead-01"
+    ],
+    "branches": [
+     "escdead-01"
+    ],
+    "grep": [
+     "escdead-01"
+    ],
+    "paths": [
+     "docs/reports/escdead-design-2026-11-06.md"
+    ]
+   },
+   "owner_pending": "escdead-1106: isolated-* pools are excluded from fun-mode draws (stuckproj note), but the targets are isolated-d Delta/Echo -- allow a pinned isolated-d draw for escdead-01?",
+   "note": "7 d to 11-06: 124 pins >= 1 h = 457.1 of 13,409 bot-h (3.4%), the climb-flood refusal chain 335.7 bot-h (73%); Delta 103.8 h, Echo 101.8 h, hive-c-Bravo 16.1 h still pinned. _swim_under_refused 60 rows today all on the 3 targets, 0 successes fleet-wide."
   }
  ]
 }
