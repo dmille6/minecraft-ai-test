@@ -244,3 +244,33 @@ Before each install: no `staged` row newer than the newest `activated` row in `/
    since 11-05 03:35Z on Gale alone.
 2. **conformance UNJUDGED** is on 187 of 253 reads: the showcase has no survey job. Either build the survey (shopconform) or
    retire H8 on the showcase.
+
+## Reviews (two engines, blockers only)
+
+- **Round 1.**
+  - Claude agent: 1 blocker. A mutant anchor was no longer unique, because `cmd_items` duplicated it.
+  - Codex: 3 blockers.
+    - Already-ended traps were counted as "3 at once". Now Z1 acts only on a bot trapped NOW (`trapped_now`).
+    - trip-remedy released ops.lock before start-bots. start-bots.sh now has a lock-held mode, and the lock is kept through
+      the restart.
+    - The approved reader was never enforced. activate now refuses unless the installed reader's digest is the approved one.
+  - All four fixed, with tests and mutants.
+- **Verify round.** NO BLOCKERS from both engines. One Claude note, the re-stage remedy text, was applied.
+- **Full suite.** ci2 at 5d9a3f82: 417/417 files passed.
+
+## Deploy log (10.0.0.40, 11-06)
+
+Before each install: no stage pending (the newest `staged` row was already activated) and `ops.lock` free. Backups are in
+`~/pager/backup-20261106T114441Z/` (crontab, w5alarms) and `/srv/showcase/backup-phase1-20261106T114441Z/` (alarm.py,
+start-bots.sh, showcase_ops.py, showcase_trip.py, trip-cron.sh).
+
+| when | piece | verified |
+|---|---|---|
+| 11:44Z | item 6: `~/pager/app/scripts` (showtrip-01 libs + haltwatch / goalwatch / rollout / pager); 3 crons repointed; 12:30Z digest cron; `/srv/showcase/bin/alarm.py` = main's; start-bots.sh start journal; digest lock and log files pre-created as mike | `pager.py selftest --push`: DELIVERED (HTTP 200); 11:45Z haltwatch "15/15", showtrip reports none; 12:30Z digest push DELIVERED |
+| 11:50Z | item 5 follower + dormant remedies: `showcase_ops.py`, `replaygate.py` | 12:05Z follow row: decision OBSERVE, rule ROLLBACK aea83708, auto false |
+| 12:10Z | item 1: `showcase_trip.py`, `trip-cron.sh` | `selftest ok` (palette included). 12:35Z read: VERDICT REPORT; Z1 trapped now showcase-Gale -> QUARANTINED (`quarantine` row; unit disabled; 14 of 14 running). 12:40Z haltwatch paged it once (DELIVERED); "running 14/14; quarantined (Z1): showcase-Gale" |
+| 12:40Z | item 2 `/srv/showcase/trip/AUTO_ROLLBACK`; item 4 `/srv/showcase/REPLAY_GATE` (an `ops-note` row in deploy.jsonl tells the release agent) | remedy_plan on the live journal: an S0 at 09:35Z would roll back b1d5b17e -> 79bc6085 and restart; at 12:40Z it is a stop (4.0 h > 3 h). Replay smoke b1d5b17e on 79bc6085: PASS, both against the installed reader and the pre-FF1 reader (0 = 0 items over 2.0 M lines / 87,280 kept rows, ACK empty; the reader's selftest is the positive control) |
+
+**Rollback (any piece).** Restore the file from the backup directory. `rm /srv/showcase/trip/AUTO_ROLLBACK` stops the
+rollbacks, and `rm /srv/showcase/REPLAY_GATE` turns refusals back into warnings. `crontab ~/pager/backup-*/crontab.before`.
+Gale comes back with the next start-bots.sh, and is quarantined again while it stays trapped.
