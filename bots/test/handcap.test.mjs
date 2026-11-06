@@ -160,7 +160,8 @@ await t('THE RULE: a known bare-hand break under MAX_DIG_MS breaks the cap; obsi
 
 await t('THE SWITCH: on in the showcase pool by default, off elsewhere; MAROON_HANDCAP=off/on overrides', () => {
   assert.strictEqual(handCapSwitch({}, 'showcase').on, true)
-  assert.strictEqual(handCapSwitch({}, 'board-a').on, true, 'fleet variant: every pool by default')
+  assert.strictEqual(handCapSwitch({}, 'board-a').on, true, 'fleet variant: every named pool by default')
+  assert.strictEqual(handCapSwitch({}, '').on, false, 'no pool (not a bot): the old answer')
   assert.strictEqual(handCapSwitch({ MAROON_HANDCAP_POOLS: 'showcase' }, 'board-a').on, false, 'a named list narrows it')
   assert.strictEqual(handCapSwitch({ MAROON_HANDCAP: 'off' }, 'showcase').on, false)
   assert.strictEqual(handCapSwitch({ MAROON_HANDCAP: '0' }, 'showcase').on, false)
