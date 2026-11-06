@@ -143,7 +143,11 @@ export function activeProject (states = [], list = projectsOn()) {
     if (!s.exists && s.waiting === true) continue
     open.push(p)
   }
-  if (open.length) return open.find(p => st(p).free !== false) ?? open[0]
+  if (open.length) {
+    // starve-01: an open project no builder has taken in STARVE_MS (starveMark) first, the longest-starved first
+    const starved = open.filter(p => st(p).starved && st(p).free !== false).sort((a, b) => (st(b).starvedFor ?? 0) - (st(a).starvedFor ?? 0))
+    return starved[0] ?? open.find(p => st(p).free !== false) ?? open[0]
+  }
   // wall-01: a complete project that only wants a visit for its upkeep (`due`: the ziggurat's tidy) after every open one
   // sortstore-01: an upkeep marked `dueFirst` (the storehouse's labels and tidy: bounded, at most once per 10 min a bot) goes ahead of
   // the other upkeeps (LIVE showcase 11-01 17-22Z: 74 of 80 build visits went to a complete ziggurat whose `due` stays true and does
@@ -226,6 +230,34 @@ export function stuckBackoff (states = [], stuckOf = null, now = Date.now()) {
     return st.complete ? { ...st, damaged: false, due: true, stuck: true } : { ...st, free: false, stuck: true }
   })
 }
+/**
+ * STARVE-01: AN OPEN PROJECT NOBODY VISITS GETS A BUILDER (fleet 11-05, 24 h: board-d's wall published 13:27Z had ONE visit while
+ * its monument took 475; isolated-b's wall none in 18 h against 425 monument visits; the monument's 3 admission slots were all
+ * held only 521 s of 36 h, so `free` never sent a bot past it). activeProject takes the FIRST open project with a free slot, so a
+ * later open project waits until every earlier one is complete -- for an 8,000-cell ziggurat, days. A project whose newest
+ * admission (any builder's slot lease, else its record's last publish) is STARVE_MS old is `starved`: activeProject offers it
+ * before the order, the longest-starved first. One builder taking it refreshes the stamp, so the others go on with the order:
+ * the starved project gets about one visit every STARVE_MS, the rest keep theirs. Never the tidy (last by design: it never
+ * displaces building), never an unsited project (no record: the order sites it), never a complete one, never a stuck one (its
+ * stuck back-off leaves it not `free`), never one this bot was sent to as starved in the last STARVE_MS (`tried`: a project whose
+ * visit fails before it takes a slot is not every bot's every order). Pure.
+ *   lastTakeOf  plot -> ms | null (the newest slot lease's `at`, else the record's publish time); a throw reads as fresh
+ *   tried       Map plot -> ms (the bot's own)
+ */
+export const STARVE_MS = Number(process.env.STARVE_MS) > 0 ? Number(process.env.STARVE_MS) : 30 * 60_000   // a setting
+export const starveOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.STARVE ?? '').trim().toLowerCase())
+export function starveMark (states = [], { lastTakeOf = null, now = Date.now(), ms = STARVE_MS, tried = null, skip = new Set([TIDY_PLOT]) } = {}) {
+  if (typeof lastTakeOf !== 'function') return states
+  return states.map(s => {
+    if (!s?.exists || s.complete || skip.has(s.plot)) return s
+    const t0 = tried?.get?.(s.plot)
+    if (Number.isFinite(t0) && now - t0 < ms) return s
+    let at = null
+    try { at = lastTakeOf(s.plot) } catch { return s }
+    if (!Number.isFinite(at) || at > now + 60_000 || now - at < ms) return s
+    return { ...s, starved: true, starvedFor: now - at }
+  })
+}
 /** THE OTHER PROJECTS' RECORDS AS SITING ZONES -> [{ box: [x0,y0,z0,x1,y1,z1] }]: each record's x/z box widened by `margin`
  *  (a walk lane between buildings and the stand ring), every height. Pure. */
 export const PROJECT_GAP = 3
@@ -289,6 +321,49 @@ export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'functio
  */
 let copperAskOf = null
 export function setCopperAsk (fn) { copperAskOf = typeof fn === 'function' ? fn : null }
+/**
+ * IDLEWORK-01 PIECE B: AN UNSITED PROJECT YIELDS ITS TURN (fleet 11-05 01Z..11-06 01Z, lib.telemetry full walk, 3,934 build_shop
+ * rows): four towns had NO open project because the first open one could not be sited and activeProject returned it anyway --
+ * board-a and placebo-d the monument ("no ziggurat site": 41 + 57 visits, 217 + 180 no_site skips), hive-c house1 ("no proven
+ * site": 23 visits, 189 skips), board-c the workshop itself (31 visits, 146 skips: the stair and the tidy, which need no workshop,
+ * never got a turn). Every bot then held its build_shop order 24 h on ITS OWN last stop (`lastStop === 'no_site'`, the order's
+ * per-bot back-off), whichever project came next. Now a visit that ends `no_site` with no record stamps the PROJECT
+ * (`<key>.unsited.json`, the town's file, every bot reads it); inside UNSITED_WAIT_MS that project is not `free` (the next open
+ * project first, as stuckBackoff does for a stuck one) and the order's no_site back-off is that project's, not the bot's. With
+ * nothing else open activeProject still returns it and the stamp holds the order, as the per-bot back-off did. UNSITEDWAIT=0 is
+ * the rollback.
+ */
+export const unsitedWaitOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.UNSITEDWAIT ?? '').trim().toLowerCase())
+export const UNSITED_WAIT_MS = SHOP_SITE_RETRY_MS
+const unsitedFile = (dir, key) => path.join(dir, `${key}.unsited.json`)
+/** Stamp a project unsited (never throws: an unwritten stamp is the old per-bot back-off). */
+export function unsitedWrite (dir, key, { plot = null, why = null, by = null, now = Date.now() } = {}) {
+  try {
+    const f = unsitedFile(dir, key), tmp = `${f}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ plot, why: why == null ? null : String(why).slice(0, 120), by, at: now }))
+    fs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+/** The project's unsited stamp ms | null (absent, torn or unreadable: null). */
+export function unsitedRead (dir, key) {
+  try { const r = JSON.parse(fs.readFileSync(unsitedFile(dir, key), 'utf8')); return Number.isFinite(r?.at) ? r.at : null } catch { return null }
+}
+/** Is a stamp inside the wait? Pure. A stamp more than a minute in the future (a bad clock) is ignored. */
+export const unsitedFresh = (at, now = Date.now(), ms = UNSITED_WAIT_MS) => Number.isFinite(at) && at <= now + 60_000 && now - at < ms
+/** An unsited open project waits behind the others -> states. Pure. `unsitedOf(plot)` -> stamp ms | null; a throw reads as none. */
+export function unsitedBackoff (states = [], unsitedOf = null, now = Date.now()) {
+  if (typeof unsitedOf !== 'function') return states
+  return states.map(st => {
+    if (!st || st.exists) return st
+    let at = null
+    try { at = unsitedOf(st.plot) } catch { at = null }
+    return unsitedFresh(at, now) ? { ...st, free: false, unsited: true } : st
+  })
+}
+/** The active plot's stamp for the order (skills.mjs installs it: the town's file). */
+let unsitedOfPlot = () => null
+export function setUnsitedOf (fn) { if (typeof fn === 'function') unsitedOfPlot = fn }
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
 // the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
@@ -608,7 +683,12 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   let plot0 = record?.plot ?? null
   if (!record) { try { plot0 = activePlotOf() } catch { plot0 = null } }
   if (now - (state.lastAt ?? -Infinity) < (plot0 === SHAFT_PLOT ? SHAFT_COOLDOWN_MS : SHOP_COOLDOWN_MS)) return { order: null, skip: null }
-  if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
+  if (!record && unsitedWaitOn()) {
+    // idlework-01 B: the no_site back-off is the ACTIVE PROJECT's stamp (any bot's visit), not this bot's last stop
+    let at = null
+    try { at = unsitedOfPlot(plot0) } catch { at = null }
+    if (unsitedFresh(at, now)) return { order: null, skip: 'no_site' }
+  } else if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS) return { order: null, skip: 'no_site' }
   // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop.
   // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE
   // (a skewed or bad clock) is ignored rather than holding the project skew + 6 h

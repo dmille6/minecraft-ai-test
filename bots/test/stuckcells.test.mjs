@@ -160,7 +160,7 @@ await t('the chain is killed by its own mutant: without it each cell up the hole
   let why = null
   try {
     // runVisit with ITS import of the waiver's pick pointed at the mutant (withMutant: anchor present and unique)
-    await withMutant("import { waivePick, monuStuckOn } from './stuckcells.mjs'", `import { waivePick, monuStuckOn } from '${out.href}'`, async M => { try { await scenario(M) } catch (err) { why = err } })
+    await withMutant("import { waivePick, monuStuckOn, hardDeferrals } from './stuckcells.mjs'", `import { waivePick, monuStuckOn, hardDeferrals } from '${out.href}'`, async M => { try { await scenario(M) } catch (err) { why = err } })
   } finally { try { unlinkSync(out) } catch {} }
   assert.ok(why instanceof assert.AssertionError, `the mutant survived or died for another reason: ${why?.stack?.split('\n')[0] ?? 'survived'}`)
 })

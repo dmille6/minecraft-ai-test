@@ -109,7 +109,7 @@ await t('skills.mjs (structural): the damage test asks for a tidy, bounded by ZI
   assert.ok(/if \(tidy && mon && zigTidyNow\(bot, r, read\)\.length\) return true/.test(fn('recordDamaged')))
   assert.ok(/skip: k => \(seen\.get\(k\) \?\? 0\) >= ZIG_TIDY_VISITS/.test(fn('zigTidyNow')))
   const bm = fn('buildMonument')
-  assert.ok(/tidy = zigTidyNow\(bot, rec, read\)/.test(bm) && /runVisitCounted\(bot, \{ dir, key, me, home, stood, record: rec, tidy,/.test(bm))
+  assert.ok(/tidy = zigTidyNow\(bot, rec, read\)/.test(bm) && /runVisitCounted\(bot, \{ (\.\.\.canopyOf\(bot, c, MONUMENT_PLOT\), )?dir, key, me, home, stood, record: rec, tidy,/.test(bm))
   assert.ok(/for \(const k of new Set\(r\.tidied \?\? \[\]\)\) seen\.set/.test(fn('runVisitCounted')), 'the bound counts the evaluated cells')
 })
 console.log(`\n${pass} passed, ${fail} failed`)
