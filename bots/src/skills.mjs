@@ -152,6 +152,7 @@ import { bridgeOn, bridgeSite, bridgeSites, bridgeToBuild, bridgesDone, bridgePl
 import { bridgeIo } from './bridgeio.mjs'   // bridgepost-01
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
+import { COPPERRUN2, hallCopperOwed, copperTripTarget, copperTripTried, copperTripDetail, COPPER_TRIP_OUT_MS, COPPER_TRIP_REACH, COPPER_TRIP_GATHER_R, COPPER_RUN_COUNT } from './copperhall.mjs'   // copperrun-02
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt, WALLDEMO_HOLD } from './wall.mjs'   // wall-01; wallext-01; wallext-02; WALLDEMO_HOLD: the atlas+decorator fold
@@ -2235,7 +2236,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
     // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
     // coalfirst-01: coal tunnels too, so its candidates get the same six-face check
-    const ironStrict = tunnelKindsFor(blockName) != null
+    const ironStrict = tunnelKindsFor(blockName, { copper: bot.copperTunnelKinds === true }) != null   // copperrun-02: a trip's copper too
     // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
     // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
@@ -2610,7 +2611,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // bitten before by deriving a failure class from prose.
       // IRON TUNNELS TO THE ORE IT CAN SEE (oretunnel.mjs), instead of stairing toward dryness. Once per run.
       // coalfirst-01: and coal (oretunnel.mjs tunnelKindsFor), with the same tunnel
-      const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true })   // deepminer-01: diamond ore tunnels on a deep miner's call
+      const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true }) ?? (bot.copperTunnelKinds === true ? tunnelKindsFor(viaSource ?? blockName, { copper: true }) : null)   // deepminer-01: diamond ore tunnels on a deep miner's call; copperrun-02: copper on the hall's trip
       if (tk && !escalated) {
         escalated = true
         check(signal)
@@ -18168,6 +18169,35 @@ function hallWaitingNow () {
     return !!h.ok && !h.head?.rec && !(h.gens?.length)
   } catch { return false }
 }
+/**
+ * COPPERRUN-02: THE SITED HALL'S COPPER -> { waiting, gate } | null. The hall is one of this town's projects, SITED and not complete:
+ * its owed copper cells (copperhall.mjs hallCopperOwed over the world) through hallOpening's own rule (needed = those cells), the
+ * town's copper as hallOpenNow reads it. null when off, unsited, complete or unreadable. Never throws.
+ */
+function hallSitedCopperNow (bot) {
+  try {
+    if (!COPPERRUN2.sited || !bot || !projectsOn().some(p => p.plot === HALL_PLOT)) return null
+    const h = recordHead(townDir(), projKeyOf(HALL_PLOT))
+    const rec = h.ok ? h.head?.rec : null
+    if (!rec || rec.structure_complete === true) return null
+    const owed = hallCopperOwed(rec, (x, y, z) => bot.blockAt?.(new Vec3(x, y, z)) ?? null)
+    if (!Number.isFinite(owed) || owed <= 0) return null
+    const c = townCopperOf(townIndexEntries(bot), e => indexStateOf(e))
+    if (c.unknown) return { waiting: true, gate: { open: false, why: 'copper_unknown', have: null, need: null, owed } }
+    const o = hallOpening({ ingots: c.ingots, cut: c.cut, reserve: Number(matsReserve().table?.copper_ingot) || 512, needed: owed })
+    return { waiting: true, gate: { ...o, cut: c.cut, containers: c.containers, stale: c.stale, raw: c.raw, blocks: c.blocks, owed, sited: true } }
+  } catch { return null }
+}
+/** COPPERRUN-02: the trip's target for this bot (copperhall.mjs copperTripTarget over the atlas view's finds). Never throws. */
+function copperTripNow (bot, now = Date.now()) {
+  try {
+    if (!COPPERRUN2.trip || !bot?.atlas?.view) return null
+    const v = bot.atlas.view(now)
+    const zones = bot.protectZones?.() ?? []
+    return copperTripTarget(v?.finds ?? [], { home: exHome(), now, tried: bot.copperRunState?.tried ?? {},
+      inZone: (x, y, z) => zoneAtPos(zones, { x, y, z }) })
+  } catch { return null }
+}
 /** COPPERRUN-01: the nearest EXPOSED copper ore within COPPER_ORE_RADIUS, off the home floor -> { block, dist, at } | null. */
 const COPPER_OPEN = new Set(['air', 'cave_air'])
 function copperOreNear (bot) {
@@ -18190,15 +18220,18 @@ function copperAsk ({ now = Date.now(), freeSlots = 36 } = {}) {
     if (!COPPERRUN.on || !COPPERHALL_ON.on || !bot) return null
     const items = bot.inventory?.items?.() ?? []
     const held = items.filter(it => it?.name === 'raw_copper' || it?.name === 'copper_ingot').reduce((n, it) => n + (it.count ?? 0), 0)
-    let gate = null
-    const r = copperRunOrder({ now, on: true, waiting: hallWaitingNow, gate: () => (gate = hallOpenNow(bot)), held, freeSlots,
-      tripPick: hasTripPickaxe(items), site: () => projectSiteNow(bot), ore: () => copperOreNear(bot), state: bot.copperRunState ?? {} })
+    let gate = null, sited = null
+    // copperrun-02: an unsited hall waits as before; a SITED, incomplete hall short of its owed copper waits too (COPPERRUN_SITED)
+    const waiting = () => { if (hallWaitingNow()) return true; sited = hallSitedCopperNow(bot); return !!sited?.waiting }
+    const r = copperRunOrder({ now, on: true, waiting, gate: () => (gate = sited ? sited.gate : hallOpenNow(bot)), held, freeSlots,
+      tripPick: hasTripPickaxe(items), site: () => projectSiteNow(bot), ore: () => copperOreNear(bot), state: bot.copperRunState ?? {},
+      tripOn: COPPERRUN2.trip, trip: () => copperTripNow(bot, now) })
     bot.copperRunState = r.state
     const why = r.order ? 'issued' : (['stocked', 'no_ore', 'same_ore', 'pickaxe', 'carrying', 'site_unknown', 'on_site', 'copper_unknown'].includes(r.skip) ? r.skip : null)
     bot.copperRunSkipAt ??= {}
     if (why && (why === 'issued' || now - (bot.copperRunSkipAt[why] ?? -Infinity) >= 30 * 60_000)) {
       bot.copperRunSkipAt[why] = now
-      try { logEvent({ kind: 'copper_run', status: r.order ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: copperRunDetail({ skip: r.skip, issued: r.order?.args?.block ?? null, gate, held, free: freeSlots }) }) } catch { /* telemetry */ }
+      try { logEvent({ kind: 'copper_run', status: r.order ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: copperRunDetail({ skip: r.skip, issued: r.order?.args?.block ?? null, gate, held, free: freeSlots, trip: r.trip?.key ?? null }) }) } catch { /* telemetry */ }
     }
     return r
   } catch { return null }
@@ -20105,9 +20138,60 @@ function enchantStationAt (bot, names) {
 }
 /** The workshop's steps, for the tests and a sandbox drive: never called by the bot itself. */
 export const _enchantshop = Object.freeze({ enchantSiteFor, enchantGateRows, enchantSignWork, enchantUpkeepDue, enchantFitOne, enchantUpkeepVisit, enchantOpenNow })
+/**
+ * COPPERRUN-02: THE COPPER TRIP (build_shop {copperTrip, at, block, key}; shop.mjs buildOrder's copper ask -> copperhall.mjs
+ * copperRunOrder). Walk to within COPPER_TRIP_REACH of the known find (COPPER_TRIP_OUT_MS), gather the ore there with copper allowed
+ * to TUNNEL for this call only (bot.copperTunnelKinds: oretunnel.mjs tunnelKindsFor `copper` -- its planner, break veto, lava guard,
+ * pickaxe budget), walk home, bank the raw copper gained (the town smelt job makes it ingots). A trip that gained none backs that
+ * target off (copperTripTried). One `_copper_trip` row per trip. The gather's own refusals are its own; nothing here digs or places.
+ */
+async function copperTripVisit (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = SHOP_SKILL_MS - 15_000
+  const at = Array.isArray(args?.at) && args.at.length === 3 && args.at.every(Number.isFinite) ? args.at : null
+  const block = COPPER_KINDS.includes(args?.block) ? args.block : null
+  const key = typeof args?.key === 'string' ? args.key : (at ? at.join(',') : null)
+  const raw0 = heldMap(bot).raw_copper ?? 0
+  let phase = 'start', why = '-'
+  const done = (status, stop) => {
+    const gained = Math.max(0, (heldMap(bot).raw_copper ?? 0) - raw0)
+    try { bot.copperRunState = { ...(bot.copperRunState ?? {}), tried: copperTripTried(bot.copperRunState?.tried ?? {}, key, gained + (bot.copperTripBanked ?? 0), Date.now()) } } catch { /* bookkeeping */ }
+    try { logEvent({ kind: 'copper_trip', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: copperTripDetail({ phase, at, block, gained: gained + (bot.copperTripBanked ?? 0), why, ms: Date.now() - t0 }) }) } catch { /* telemetry */ }
+    bot.copperTripBanked = 0
+    return { status, detail: `copper trip ${phase}: ${why}`, stop }
+  }
+  bot.copperTripBanked = 0
+  if (!COPPERRUN.on || !COPPERRUN2.trip) { why = 'off'; return done('no_effect', 'copper_trip_off') }
+  if (!at || !block) { why = 'bad_args'; return done('no_effect', 'copper_trip_args') }
+  // 1. OUT: to the find (a walk; the gather digs, not the walk)
+  phase = 'out'
+  try { await goto(ctx, { x: at[0], y: at[1], z: at[2], range: COPPER_TRIP_REACH }, signal, { until: t0 + COPPER_TRIP_OUT_MS }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; why = String(e?.message ?? e).slice(0, 80) }
+  const p = bot.entity?.position
+  const far = !p || Math.hypot(p.x - at[0], p.z - at[2]) > COPPER_TRIP_GATHER_R
+  // 2. THE ORE: gather of the find's kind, copper tunnelling for this call only (always reset)
+  let g = null
+  if (!far) {
+    phase = 'gather'
+    bot.copperTunnelKinds = true
+    try { g = await gather(ctx, { block, count: COPPER_RUN_COUNT, maxDistance: COPPER_TRIP_GATHER_R }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; g = { status: 'failed', detail: String(e?.message ?? e) } } finally { bot.copperTunnelKinds = false }
+    why = `gather ${g?.status ?? '?'}: ${String(g?.detail ?? '').slice(0, 90)}`
+  } else if (why === '-') why = `walk ended ${p ? Math.round(Math.hypot(p.x - at[0], p.z - at[2])) : '?'} from the find`
+  // 3. HOME, then the bank of what the trip gained (the deposit's own reserves; raw copper is DEPOSIT_ALWAYS anyway)
+  phase = far ? 'out_failed' : 'home'
+  const home = exHome()
+  try { await goto(ctx, { x: home.x, y: home.y, z: home.z, range: 4 }, signal, { until: t0 + budget - 30_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  const gained = Math.max(0, (heldMap(bot).raw_copper ?? 0) - raw0)
+  if (gained > 0 && exAtHome(bot.entity?.position, EX_TOWN_R)) {
+    try { const d = await exDeposit(ctx, signal, { raw_copper: gained }); bot.copperTripBanked = d.n; phase = 'banked' } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  }
+  return done(gained > 0 || (bot.copperTripBanked ?? 0) > 0 ? 'success' : 'no_effect', 'copper_trip')
+}
 async function buildShop (ctx, args, signal) {
   // expedition-01: the expedition's visit (the order's args say which)
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
+  // copperrun-02: the copper hall's trip to known copper (the order's args say where)
+  if (args?.copperTrip === true) return copperTripVisit(ctx, args, signal)
   // SINKFIX-01: every visit's outcome marks (or clears) its plot idle for this bot (shop.mjs noteIdle); an abort throws past it
   // sinkfix-02: an ABORT is noted too (a sink's marks it: shop.mjs noteIdle), then rethrown; and the KEEPER's own no-effect grounds
   // visits are marked like any other (LIVE 11-04: 39 keeper visits `complete`, 0 placed, `cuts_left 1/12, fills_left 98/846`) -- they
