@@ -72,6 +72,7 @@ const REQUIRED = [
   // forest-01 (11-06): the managed forest outside the walls, its tests and its Paper proofs
   'bots/src/forest.mjs',
   'bots/test/forest.test.mjs',
+  'bots/scripts/forest-offline.mjs',   // forest-02: the forest's siting on copies of a world
   'sandbox/forest/forest-proof.cjs',
   'sandbox/forest/forest-proof2.cjs',
   'bots/src/storehouse.mjs',
