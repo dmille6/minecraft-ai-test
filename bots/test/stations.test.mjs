@@ -59,6 +59,12 @@ await t('townStations: the complete workshop first; else the plan\'s work-plot c
   assert.equal(ST.townStations(null, { plots: [] }).source, 'none')
 })
 
+await t('townKeep (Codex r1 BLOCKER 2): a workshop town keeps its fit-out AND the plan\'s designated cells', () => {
+  const k = ST.townKeep(ST.townStations({ tables: new Set(['1,2,3']), furnaces: new Set(['4,5,6']) }, PLAN))
+  assert.deepEqual([...k].sort(), ['1,2,3', '10,65,10', '11,65,10', '12,65,10', '4,5,6'])
+  assert.equal(ST.townKeep(null).size, 0)
+})
+
 await t('designatedCell: only a plan town, the first FREE cell of the kind; a workshop town never places', () => {
   const pl = ST.townStations(null, PLAN)
   assert.deepEqual(ST.designatedCell(pl, 'furnace', at => at[0] === 12).at, [12, 65, 10])
@@ -335,9 +341,10 @@ await t('wiring: a stray table is dug through retakeStation (collectManually), a
 await t('wiring: in town craft and smelt look up the town\'s stations; the first station of a plan town goes to the designated cell', () => {
   assert.match(CODE, /const prefT = ctx\.preferWorkshop \? bot\.shopStations\?\.tables : stT\?\.inTown \? stT\.ts\?\.tables : null/)
   assert.match(CODE, /const townPrefer = stT\?\.inTown && stT\.ts\?\.furnaces\?\.size \? preferredNow\(stT\.ts\.furnaces/)
-  assert.match(CODE, /const desig = await placeDesignated\(ctx, 'crafting_table', signal/)
   assert.match(CODE, /const put = await placeDesignated\(ctx, 'furnace', signal, stT\)/)
-  assert.match(CODE, /if \(put\.status === 'success' && put\.at && !desig\) placedHere\.push\(watchPlaced\(bot, put\.at\)\)/, 'a designated table is not taken back')
+  assert.equal(CODE.split("if (put.status === 'success' && put.at && !desig) placedHere.push(watchPlaced(bot, put.at))").length - 1, 2, 'a designated table is not taken back (craftLevel and runCraftPlan: Codex r1 BLOCKER 1)')
+  assert.equal(CODE.split("const desig = await placeDesignated(ctx, 'crafting_table', signal").length - 1, 2)
+  assert.match(CODE, /const keep = townKeep\(st\.ts\)/)
 })
 await t('wiring: a station craft asks the town chests first; the smelt offers spare tables as fuel', () => {
   assert.match(CODE, /const wd = await stationFromTown\(ctx, args, signal\)\s*if \(wd\?\.done\) return wd\.result/)
@@ -395,7 +402,10 @@ await t('mutants: every decision line is load-bearing (anchors asserted present 
   await mut('smelting.mjs', "    const ticks = fuelTicks(name) || (Object.hasOwn(extra ?? {}, name) ? Number(extra[name]) || 0 : 0)",
     "    const ticks = fuelTicks(name) || 300",
     M => assert.equal(M.chooseFuel({ crafting_table: 2 }), null))
-  assert.ok(killed.length === 15 && killed.every(Boolean), `killed ${killed.filter(Boolean).length}/${killed.length}`)
+  await mut('stations.mjs', "  return new Set([...(ts?.tables ?? []), ...(ts?.furnaces ?? []), ...Object.values(ts?.spot ?? {}).flat().filter(c => Array.isArray(c?.at)).map(c => c.at.join(','))])",
+    "  return new Set([...(ts?.tables ?? []), ...(ts?.furnaces ?? [])])",
+    M => assert.ok(M.townKeep(M.townStations({ tables: new Set(['1,2,3']) }, PLAN)).has('11,65,10')))
+  assert.ok(killed.length === 16 && killed.every(Boolean), `killed ${killed.filter(Boolean).length}/${killed.length}`)
   console.log(`  mutants killed ${killed.filter(Boolean).length}/${killed.length}`)
 })
 
