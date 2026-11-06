@@ -117,12 +117,73 @@ await t('tunnelKindsFor: copper tunnels ONLY on the trip\'s call (copper opt); i
   assert.deepEqual([...T.COPPER_TUNNEL_KINDS], [...H.COPPER_KINDS])
 })
 
-await t('THE CHAIN on the live state: the sited hall short -> a trip -> its gather tunnels to the copper it is sent for', () => {
+await t('THE ORDER CHAIN on the live state: the sited hall short -> a trip order whose block tunnels under the trip\'s flag', () => {
   const owed = H.hallCopperOwed(REC, air)
   const gate = { ...H.hallOpening({ ingots: 138, cut: 0, reserve: 512, needed: owed }), raw: 0 }
   const r = H.copperRunOrder({ ...BASE, gate, ore: null, tripOn: true, trip: () => H.copperTripTarget(FINDS, { home: HOME, now: BASE.now }) })
   assert.equal(r.order?.args?.copperTrip, true)
   assert.ok(T.tunnelKindsFor(r.order.args.block, { copper: true }), 'the trip\'s block tunnels with the flag the visit sets')
+})
+
+// ---- THE VISIT (skills.mjs copperTripVisit, its walk / gather / bank injected; the bot is a fake) ----------------------------------
+const SK = await import('../src/skills.mjs')
+const fakeBot = (raw = 0) => {
+  const inv = { raw_copper: raw }
+  const bot = { username: 'showcase-T', entity: { position: { x: 0, y: 70, z: 0, distanceTo: () => 0, floored () { return this } } },
+    inventory: { items: () => Object.entries(inv).filter(([, c]) => c > 0).map(([name, count]) => ({ name, count })) }, inv }
+  return bot
+}
+const ARGS = { copperTrip: true, at: [19, 58, -64], block: 'copper_ore', key: '19,58,-64' }
+const walker = bot => async (ctx, a) => { bot.entity.position.x = a.x; bot.entity.position.y = a.y; bot.entity.position.z = a.z }
+
+await t('THE VISIT: out to the find, the gather runs WITH copper tunnelling (and the tunnel kinds answer copper), home, banked', async () => {
+  const bot = fakeBot(0), seen = []
+  const r = await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, {
+    walk: walker(bot),
+    dig: async (ctx, a, sig) => {
+      // what gatherRun asks, with the flag the visit set (its tunnel call: diamond first, then copper under the flag)
+      const tk = T.tunnelKindsFor(a.block, { diamond: false }) ?? (bot.copperTunnelKinds === true ? T.tunnelKindsFor(a.block, { copper: true }) : null)
+      seen.push({ flag: bot.copperTunnelKinds, tk: tk?.label, block: a.block, r: a.maxDistance, sig: !!sig })
+      bot.inv.raw_copper += 21
+      return { status: 'success', detail: 'collected 7 copper_ore' }
+    },
+    bank: async (ctx, sig, haul) => { seen.push({ bank: haul }); bot.inv.raw_copper -= haul.raw_copper; return { n: haul.raw_copper, left: {} } },
+  })
+  assert.deepEqual(seen[0], { flag: true, tk: 'copper', block: 'copper_ore', r: H.COPPER_TRIP_GATHER_R, sig: true })
+  assert.deepEqual(seen[1], { bank: { raw_copper: 21 } })
+  assert.equal(bot.copperTunnelKinds, false, 'the flag is reset after the gather')
+  assert.equal(r.status, 'success')
+  assert.deepEqual(bot.copperRunState.tried, {}, 'a trip that brought copper keeps its target open')
+})
+await t('THE VISIT: an empty trip backs its target off; a walk that never arrives never gathers', async () => {
+  const bot = fakeBot(0)
+  let dug = 0
+  const r = await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => { dug++; return { status: 'failed', detail: 'no copper_ore within 24 blocks' } }, bank: async () => ({ n: 0 }) })
+  assert.equal(r.status, 'no_effect'); assert.equal(dug, 1)
+  assert.ok(bot.copperRunState.tried['19,58,-64'] > Date.now())
+  const b2 = fakeBot(0)
+  let dug2 = 0
+  const r2 = await SK._copperTrip.copperTripVisit({ bot: b2 }, ARGS, null, { walk: async () => {}, dig: async () => { dug2++; return { status: 'success' } }, bank: async () => ({ n: 0 }) })
+  assert.equal(dug2, 0, 'the bot never left town: no gather from here'); assert.equal(r2.status, 'no_effect')
+})
+await t('THE VISIT: a gather that names a remedy (the tunnel\'s pickaxe budget) passes it on and does NOT back the target off (Codex r1 B3)', async () => {
+  const bot = fakeBot(0)
+  const need = { items: ['stone_pickaxe'], count: 1, minUses: 60, describe: 'craft a stone pickaxe' }
+  const r = await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => ({ status: 'failed', failClass: 'pickaxe_short', need, detail: 'pickaxe short' }), bank: async () => ({ n: 0 }) })
+  assert.deepEqual(r.need, need); assert.equal(r.failClass, 'pickaxe_short'); assert.equal(r.status, 'failed')
+  assert.deepEqual(bot.copperRunState.tried, {})
+})
+await t('THE VISIT: the gather runs under its own cut signal -- a cut is no throw, the outer abort still throws (Codex r1 B1)', async () => {
+  const bot = fakeBot(0)
+  let sub = null
+  const r = await SK._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async (c, a, sig) => { sub = sig; const e = new Error('cut'); e.aborted = true; throw e }, bank: async () => ({ n: 0 }) })
+  assert.ok(sub && typeof sub.aborted === 'boolean'); assert.equal(r.status, 'no_effect'); assert.equal(bot.copperTunnelKinds, false)
+  const outer = new AbortController(); outer.abort()
+  const b2 = fakeBot(0)
+  await assert.rejects(SK._copperTrip.copperTripVisit({ bot: b2 }, ARGS, outer.signal, { walk: walker(b2), dig: async () => { const e = new Error('x'); e.aborted = true; throw e }, bank: async () => ({ n: 0 }) }))
+  assert.equal(b2.copperTunnelKinds, false)
+  // the budget constants leave the walk home and the bank inside build_shop's 600 s
+  assert.ok(H.COPPER_TRIP_OUT_MS < H.COPPER_TRIP_GATHER_UNTIL && H.COPPER_TRIP_GATHER_UNTIL < 585_000 - H.COPPER_TRIP_BANK_MS && H.COPPER_TRIP_BANK_MS >= 90_000)
 })
 
 await t('WIRING (source, comments stripped): copperAsk asks the sited hall and the trip; build_shop runs the trip; gather passes copper', () => {
@@ -135,7 +196,7 @@ await t('WIRING (source, comments stripped): copperAsk asks the sited hall and t
   // the flag is set only around the trip's gather and always reset
   const sets = src.split('bot.copperTunnelKinds = true').length - 1
   assert.equal(sets, 1)
-  assert.ok(/bot\.copperTunnelKinds = true\n\s+try \{ g = await gather\(ctx, \{ block, count: COPPER_RUN_COUNT, maxDistance: COPPER_TRIP_GATHER_R \}, signal\) \} catch \(e\) \{[^\n]*\} finally \{ bot\.copperTunnelKinds = false \}/.test(src))
+  assert.ok(src.includes('async function copperTripVisit (ctx, args, signal, { walk = goto, dig = gather, bank = exDeposit } = {}) {'), 'the bot runs the real walk, gather and bank')
   // the trip's own row kind, and the mode row says the switches
   assert.ok(src.includes("logEvent({ kind: 'copper_trip', status"))
   assert.ok(H.copperRunModeDetail(true, true, { sited: true, trip: false }).includes('sited=1 trip=0 trip_r=64-160'))
@@ -175,6 +236,21 @@ await t('MUTANT: copper never tunnelling (the base oretunnel) is killed', async 
 await t('MUTANT: copper tunnelling without the trip\'s flag is killed', async () => {
   await withMutant(TUN_PATH, '  if (copper && COPPER_TUNNEL_KINDS.includes(name))', '  if (COPPER_TUNNEL_KINDS.includes(name))', async M => {
     assert.notEqual(M.tunnelKindsFor('copper_ore'), null)
+  })
+})
+
+await t('MUTANT: the visit never setting the copper flag is killed (its gather would not tunnel)', async () => {
+  await withMutant(SKILLS_PATH, "    bot.copperTunnelKinds = true\n", '\n', async M => {
+    const bot = fakeBot(0); let flag = null
+    await M._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => { flag = bot.copperTunnelKinds; return { status: 'failed' } }, bank: async () => ({ n: 0 }) })
+    assert.notEqual(flag, true)
+  })
+})
+await t('MUTANT: the visit swallowing the gather\'s remedy is killed', async () => {
+  await withMutant(SKILLS_PATH, '  const remedy = g?.need ? { need: g.need, failClass: g.failClass ?? \'pickaxe_short\' } : null\n', '  const remedy = null\n', async M => {
+    const bot = fakeBot(0)
+    const r = await M._copperTrip.copperTripVisit({ bot }, ARGS, null, { walk: walker(bot), dig: async () => ({ status: 'failed', need: { items: ['stone_pickaxe'] } }), bank: async () => ({ n: 0 }) })
+    assert.equal(r.need, undefined)
   })
 })
 

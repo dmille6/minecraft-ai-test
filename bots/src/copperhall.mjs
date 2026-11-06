@@ -278,6 +278,10 @@ export const COPPER_TRIP_BACKOFF_MS = 6 * 60 * 60 * 1000
 /** The trip's walk out may take this long; the gather keeps gather's own contract; the rest walks home. */
 export const COPPER_TRIP_OUT_MS = 150_000
 export const COPPER_TRIP_REACH = 6
+/** The trip's gather is cut at this much of the visit (out <= 150 s, gather to 390 s); the walk home ends by budget - BANK_MS; the
+ *  bank runs only with BANK_MS left (matsBank: up to three containers at 30 s each). The visit's budget is build_shop's 600 s - 15 s. */
+export const COPPER_TRIP_GATHER_UNTIL = 390_000
+export const COPPER_TRIP_BANK_MS = 100_000
 /** The gather at the find: tunnel candidates come from oretunnel CANDIDATE_RADIUS (24). */
 export const COPPER_TRIP_GATHER_R = 24
 
