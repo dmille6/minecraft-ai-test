@@ -96,6 +96,18 @@ MUTANTS = [
     ("    expected = f.get('expected_bots', len(NAMES))", "    expected = len(NAMES)", 'quarantined (disabled) unit'),
     # fun mode 10-28: EVERY H2 item treated as debris (a dirt clear outside the record no longer trips)
     ("TREE_DEBRIS.match(parts[-1]) else keep).append(x)", "True else keep).append(x)", 'still TRIPs'),
+    # ---- OWNER 11-06 mobGriefing ON: a village farm cycle is not an S4 breach; anything else still is
+    ("    if cycle_at is not None:\n        cyc", "    if False:\n        cyc", 'farmland moisture are INTACT'),
+    ("cyc(now[k] if k in now else cycle_at(k))", "True", 'still REMOVED'),
+    ("(wheat|carrots|potatoes|beetroots|farmland|air|cave_air)$')", "(wheat|carrots|potatoes|beetroots|farmland|air|cave_air|dirt)$')",
+     'still REMOVED'),
+    ("        cyc = lambda n: bool(VILLAGE_CYCLE.match(STATE_ANY.sub('', n or '')))", "        cyc = lambda n: bool(VILLAGE_CYCLE.match(n or ''))",
+     'farmland moisture are INTACT'),
+    ("    return (z or {}).get('kind') == 'village' or str(zid).startswith('village-')", "    return True", 'not a village'),
+    ("if is_village(zid, z) else None\n", "if False else None\n", 'cycle_lookup'),
+    ("r'|dirt_path|' + TRIAL_RX", "r'|dirt_path|wheat|farmland|' + TRIAL_RX", 'farm-cycle block'),
+    ("        removed, changed, added = zone_diff(b['cells'], cells, cycle_lookup(zid, b, world))",
+     "        removed, changed, added = zone_diff(b['cells'], cells)", 'INTEGRITY WIRING'),
 ]
 
 
@@ -105,6 +117,7 @@ def env(shopread):
     shutil.copy(os.path.join(HERE, 'showcase_trip.py'), d)
     for f in ('townplanread.py', 'foundread.py'):
         shutil.copy(os.path.join(ROOT, 'scripts', 'host', f), d)
+    shutil.copy(os.path.join(ROOT, 'scripts', 'host', 'structcount', 'structcount.py'), d)
     shutil.copy(os.path.join(ROOT, 'scripts', 'lib', 'telemetry.py'), os.path.join(d, 'lib'))
     open(os.path.join(d, 'lib', '__init__.py'), 'a').close()
     shutil.copy(shopread, os.path.join(d, 'shopread.py'))
@@ -134,7 +147,8 @@ def main():
         ap.error('--shopread or --shopread-ref is required (shopread.py is not on main)')
     d = env(sr)
     rc, out = run(d)
-    assert rc == 0 and 'S6 shop checked' in out, 'CONTROL: the selftest must pass with S6 checked:\n' + out[-1500:]
+    assert rc == 0 and 'S6 shop checked' in out and 'S4 palette checked' in out, \
+        'CONTROL: the selftest must pass with S6 and the S4 palette checked:\n' + out[-1500:]
     src = open(os.path.join(d, 'showcase_trip.py')).read()
     killed = 0
     for old, new, want in MUTANTS:

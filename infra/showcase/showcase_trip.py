@@ -135,7 +135,26 @@ CAULDRON = re.compile(r'^minecraft:(water_|lava_|powder_snow_)cauldron$')
 # the same block, never a new name: INTACT. A cell is compared by its NAME only -- the region reader yields names, and a
 # `name[state]` string (a future reader, a hand-made baseline) is cut to its name here, so the toggle stays legal whatever
 # the reader. Removing one, or turning it into another block, is still a REMOVED / changed cell: a BREACH, as before.
-STATE = re.compile(r'(_trapdoor|_fence_gate)\[[^\]]*\]$')   # ONLY those two (both reviewers 11-03): any other state stays
+STATE = re.compile(r'(_trapdoor|_fence_gate)\[[^\]]*\]$')
+STATE_ANY = re.compile(r'\[[^\]]*\]$')      # VILLAGE_CYCLE only: a crop's age / farmland's moisture is state   # ONLY those two (both reviewers 11-03): any other state stays
+
+
+# VILLAGE FARM CYCLES ARE NOT A BREACH (OWNER 11-06: mobGriefing ON so villagers breed). With mobGriefing true a farmer villager
+# harvests and replants, a rabbit eats a carrot crop, and the crop's age and the farmland's moisture change on their own. Inside
+# a VILLAGE zone a cell that held one of these blocks in the baseline and holds one of them now (any crop, any age; farmland at
+# any moisture; the air a harvest leaves above the farmland) is never REMOVED or changed. Everything else is compared as before:
+# a crop turned into dirt or a path, a plank turned into a crop, any cell of the trial chambers (not a village). Today's palette
+# (struct_rx) holds none of these names, so S4 never saw them; this keeps it that way if a palette ever adds them (selftest).
+VILLAGE_CYCLE = re.compile(r'^minecraft:(wheat|carrots|potatoes|beetroots|farmland|air|cave_air)$')
+
+
+def is_village(zid, z=None):
+    return (z or {}).get('kind') == 'village' or str(zid).startswith('village-')
+
+
+def cycle_lookup(zid, z, world):
+    """-> zone_diff's cycle_at for a VILLAGE zone (the block now at "x,y,z", read from the region copy), None for any other."""
+    return (lambda k: world.block(*(int(v) for v in k.split(',')))) if is_village(zid, z) else None
 
 
 def canon(name):
@@ -258,9 +277,16 @@ def refusal_peak(minutes, span=LOOP_MIN):
     return best
 
 
-def zone_diff(base, now):
+def zone_diff(base, now, cycle_at=None):
     """base, now: {"x,y,z": name}. -> (removed, changed, added) as sorted lists of "x,y,z name". Pure.
-    removed: a baseline structure cell whose block is no longer a structure block; changed: another structure block now."""
+    removed: a baseline structure cell whose block is no longer a structure block; changed: another structure block now.
+    cycle_at (a VILLAGE zone only): "x,y,z" -> the block there now (any block, palette or not). A baseline cell that is a
+    VILLAGE_CYCLE block and is a VILLAGE_CYCLE block now is a farm cycle: neither removed nor changed."""
+    if cycle_at is not None:
+        cyc = lambda n: bool(VILLAGE_CYCLE.match(STATE_ANY.sub('', n or '')))
+        farm = {k for k, v in base.items() if cyc(v) and cyc(now[k] if k in now else cycle_at(k))}
+        base = {k: v for k, v in base.items() if k not in farm}
+        now = {k: v for k, v in now.items() if not (k in farm or (k not in base and cyc(v)))}
     removed = sorted('%s %s' % (k, v) for k, v in base.items() if k not in now)
     changed = sorted('%s %s->%s' % (k, v, now[k]) for k, v in base.items() if k in now and canon(now[k]) != canon(v))
     added = sorted('%s %s' % (k, v) for k, v in now.items() if k not in base)
@@ -425,7 +451,8 @@ def cmd_zones_baseline(a):
             print('  %-24s not covered by %s' % (zid, a.regions))
             continue
         cells, st = scan_zone(SC.World(a.regions), rx, box)
-        out['zones'][zid] = {'box': box, 'n': len(cells), 'chunks': st, 'cells': cells}
+        out['zones'][zid] = {'box': box, 'n': len(cells), 'chunks': st, 'cells': cells,
+                             'kind': 'village' if is_village(zid) else 'other'}
         print('  %-24s %6d structure cells  chunks ok %d undecoded %d' % (zid, len(cells), len(st['_ok_chunks']), st['undecoded']))
     tmp = a.out + '.part'
     with open(tmp, 'w') as f:
@@ -449,7 +476,8 @@ def integrity(regions, baseline_path, only=None):
         if not covered(regions, b['box']):
             res[zid] = {'status': 'NOT COVERED'}
             continue
-        cells, st = scan_zone(SC.World(regions), rx, b['box'])
+        world = SC.World(regions)
+        cells, st = scan_zone(world, rx, b['box'])
         nb = len(range(b['box'][0] >> 4, (b['box'][3] >> 4) + 1)) * len(range(b['box'][2] >> 4, (b['box'][5] >> 4) + 1))
         if (st['_ok_chunks'] != b['chunks'].get('_ok_chunks') or len(st['_ok_chunks']) != nb or st.get('undecoded')
                 or b['chunks'].get('undecoded')):
@@ -457,7 +485,7 @@ def integrity(regions, baseline_path, only=None):
             res[zid] = {'status': 'UNKNOWN (ok chunks now %d, baseline %d, box %d, undecoded %s/%s)' % (
                 len(st['_ok_chunks']), len(b['chunks'].get('_ok_chunks') or []), nb, st.get('undecoded'), b['chunks'].get('undecoded'))}
             continue
-        removed, changed, added = zone_diff(b['cells'], cells)
+        removed, changed, added = zone_diff(b['cells'], cells, cycle_lookup(zid, b, world))
         res[zid] = {'status': 'BREACH' if removed or changed else 'INTACT', 'base_n': b['n'], 'now_n': len(cells),
                     'removed_n': len(removed), 'changed_n': len(changed), 'added_n': len(added),
                     'removed': removed[:20], 'changed': changed[:20], 'added': added[:20]}
@@ -1287,6 +1315,44 @@ def selftest():
         'the village unlock: a trapdoor turned into another block is still a change'
     assert zone_diff({'1,1,1': 'minecraft:oak_door[open=false]'}, {'1,1,1': 'minecraft:oak_door[open=true]'})[1], \
         'the village unlock is trapdoors and fence gates ONLY: another block with a state suffix is compared whole'
+    # OWNER 11-06 mobGriefing ON: a village's farm cycle (harvest, replant, age, moisture) is not a breach; anything else still is
+    fb = {'1,71,1': 'minecraft:wheat[age=7]', '2,71,1': 'minecraft:carrots[age=7]', '1,70,1': 'minecraft:farmland[moisture=7]',
+          '3,71,1': 'minecraft:potatoes', '5,72,5': 'minecraft:spruce_planks'}
+    look = {'1,71,1': 'minecraft:air', '2,71,1': 'minecraft:air', '3,71,1': 'minecraft:dirt', '5,72,5': 'minecraft:air'}.get
+    fnow = {'1,70,1': 'minecraft:farmland[moisture=0]', '9,71,9': 'minecraft:beetroots'}
+    rm, ch, ad = zone_diff(fb, fnow, look)
+    assert rm == ['3,71,1 minecraft:potatoes', '5,72,5 minecraft:spruce_planks'] and ch == [] and ad == [], \
+        ('a village farm cycle: wheat/carrots harvested to air and farmland moisture are INTACT; a crop turned to dirt and a '
+         'removed plank are still REMOVED', rm, ch, ad)
+    assert zone_diff({'1,71,1': 'minecraft:wheat[age=1]'}, {'1,71,1': 'minecraft:carrots[age=0]'}, look) == ([], [], []), \
+        'a village farm cycle: one crop replanted as another is INTACT'
+    assert zone_diff({'4,70,4': 'minecraft:dirt_path'}, {'4,70,4': 'minecraft:farmland'}, look)[1] and \
+        zone_diff({'4,71,4': 'minecraft:wheat'}, {'4,71,4': 'minecraft:oak_planks'}, look)[1], \
+        'a village farm cycle is crop <-> crop/air only: a path tilled, a crop turned into a plank are still changes'
+    assert zone_diff({'1,71,1': 'minecraft:wheat'}, {}, None)[0] == ['1,71,1 minecraft:wheat'], \
+        'outside a village (no cycle_at) a crop cell is compared as before'
+    assert is_village('village-taiga-6_1') and not is_village('trial-chambers-home-se') and is_village('x', {'kind': 'village'}), \
+        'the trial chambers are not a village; a village- id or kind village is'
+    class _W:
+        def block(self, x, y, z):
+            return 'minecraft:air' if (x, y, z) == (1, 71, 1) else 'minecraft:dirt'
+    _cl = cycle_lookup('village-a', {}, _W())
+    assert _cl is not None and _cl('1,71,1') == 'minecraft:air' and cycle_lookup('trial-chambers-home-se', {}, _W()) is None, \
+        'cycle_lookup: a village zone reads the block now; any other zone gets no farm-cycle allowance'
+    import inspect
+    isrc = [ln.split('#')[0].strip() for ln in inspect.getsource(integrity).splitlines()]
+    assert sum('zone_diff(' in ln for ln in isrc) == 1 and \
+        "removed, changed, added = zone_diff(b['cells'], cells, cycle_lookup(zid, b, world))" in isrc, \
+        'INTEGRITY WIRING: integrity() hands every zone_diff the zone\'s cycle_lookup'
+    try:
+        import structcount as SC
+    except ImportError:
+        SC = None
+        print('S4 palette NOT checked (no structcount.py beside this file)')
+    if SC is not None:
+        assert not [n for n in ('wheat', 'carrots', 'potatoes', 'beetroots', 'farmland', 'air') if struct_rx(SC.BUILT).match('minecraft:' + n)] \
+            and struct_rx(SC.BUILT).match('minecraft:spruce_planks'), 'the S4 palette holds no farm-cycle block (positive control: planks)'
+        print('S4 palette checked: no farm-cycle block in it')
     base = {'live_bots': len(NAMES), 'expect_running': True, 'deaths': 0, 'stuck': {}, 'trapped': {}, 'refusal_loops': {}, 'mirror_age_min': 10,
             'integrity': {'v': {'status': 'INTACT'}}, 'plan_defects': {'D1 chain_invalid': 0}, 'plan_error': None}
     assert verdict(base) == ('OK', [])

@@ -451,7 +451,7 @@ GAMERULES = {
     "doDaylightCycle": "true",
     "doWeatherCycle": "false",     # weather is unmodelled noise the bots cannot see
     "doImmediateRespawn": "true",  # a respawn screen is a bot frozen for no reason
-    "mobGriefing": "false",
+    "mobGriefing": "true",         # OWNER 11-06: villagers breed and farm (peaceful: no hostile griefers)
     "doFireTick": "false",
     "randomTickSpeed": "3",        # vanilla default, stated so it cannot drift
     "doInsomnia": "false",
