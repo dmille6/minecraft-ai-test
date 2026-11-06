@@ -17,7 +17,7 @@
 //       a visit is 1-3 min, so at most ~15% of a bot's turns; the town's building keeps the rest).
 // The most overdue plot goes first. A service visit is the project's own visit (buildCropFarm / buildCaneFarm harvest first; the
 // hall's upkeep visit, which now runs even while one of the hall's cells reads damaged -- its repair stays a repair). A visit that
-// did not happen (slots full, an abort before it began: shop.mjs IDLE_NOT_A_VISIT) gives its stamp back (`stampRelease`).
+// did not happen (slots full, an abort before it began: shop.mjs IDLE_NOT_A_VISIT) gives its stamp back (`stampReleaseDue`).
 // PRODSERVE=off is the rollback: no service tier, the picker exactly as before. On in the showcase pool only (PRODSERVE_POOLS).
 //
 // A LEAF MODULE: pure, imports nothing. skills.mjs shopActive reads the stamps and the due tests and writes the stamp at the visit.
@@ -30,6 +30,7 @@ export const SERVICE_PLOTS = Object.freeze({
 })
 export const SERVICE = Object.freeze({
   botGapMs: 20 * 60_000,   // a bot serves at most once in this time (the fair share against building)
+  offerMs: 15 * 60_000,    // a pick no visit consumed in this time (the order refused it: room, slots, health...) charges the share
   skewMs: 60_000,          // a stamp more than this in the FUTURE (a bad clock) is read as no stamp
 })
 
@@ -73,6 +74,9 @@ export function servicePick (states = [], { now = Date.now(), stamps = {}, botLa
   let best = null
   for (const s of states ?? []) {
     if (!s || !isServicePlot(s.plot, plots) || !s.exists || !s.complete) continue
+    // Codex r1 BLOCKER 1: a plot in its stuck back-off (shop.mjs stuckBackoff `stuck`) is refused by the order's own stuck gate
+    // (buildOrder `stuck_on_cell`): picked first, it would hold every order of this bot for the back-off's 6 h
+    if (s.stuck) continue
     const reason = serviceReason(s.plot, s.serve, plots)
     if (!reason) continue
     const lastAt = stampAt(stamps?.[s.plot], now, S.skewMs)
@@ -84,19 +88,48 @@ export function servicePick (states = [], { now = Date.now(), stamps = {}, botLa
   return best
 }
 
+/**
+ * THE OFFER GATE (Codex r1 BLOCKER 1, generalised): the order may refuse a service pick for reasons of its own (the bag's room, a
+ * slot held by another bot, health, a cooldown) and the pick, ahead of every tier, would then hold the bot's orders for good. A pick
+ * the bot has been offered for longer than S.offerMs without a service visit starting is dropped and CHARGED to the bot's share (no
+ * service pick for S.botGapMs: its building comes back). -> { svc, offer, charge }. `prev` the bot's standing offer { plot, at } |
+ * null. Pure.
+ */
+export function serviceOffer (prev, svc, now = Date.now(), S = SERVICE) {
+  if (!svc) return { svc: null, offer: null, charge: false }
+  if (prev && prev.plot === svc.plot && Number.isFinite(Number(prev.at))) {
+    if (now - Number(prev.at) > S.offerMs) return { svc: null, offer: null, charge: true }
+    return { svc, offer: prev, charge: false }
+  }
+  return { svc, offer: { plot: svc.plot, at: now }, charge: false }
+}
+
+/**
+ * THE CLAIM (Codex r1 BLOCKER 2): the stamps are GENERATIONS (`<key>.service.g<N>.json`, created exclusively: open 'wx'), so a claim
+ * is a compare-and-swap -- the bot that read generation `gen` and creates `gen + 1` first wins; every other bot's create fails
+ * (EEXIST) and it works something else. The NEWEST generation is the stamp; a `.released` marker on it (a visit that did not
+ * happen, by its own bot) reads as its previous start (`prevAt`). A release never touches a newer generation. Pure.
+ *   head  { gen, rec, released } | null (the newest generation, read)
+ */
+export function stampOfHead (head) {
+  if (!head || head.rec == null) return null
+  const rec = head.rec
+  if (head.released) return { at: rec.prevAt ?? null, by: rec.by ?? null, gen: head.gen, released: true }
+  return { at: rec.at ?? null, by: rec.by ?? null, gen: head.gen }
+}
+
 /** The stamp a service visit writes at its start -> { at, by, reason, prevAt }. `prev` the stamp it replaces (its start kept so a
  *  visit that did not happen can give the slot back). Pure. */
 export const stampNext = (prev, { me, now = Date.now(), reason = null } = {}) => ({ at: now, by: String(me ?? 'bot'), reason: reason ?? null, prevAt: stampAt(prev, now) })
 
 /**
- * A VISIT THAT DID NOT HAPPEN gives the slot back -> the stamp to write | null (leave it). Only this bot's own stamp of this visit
- * (`at` = the visit's start), only for a stop that was no visit (`notAVisit`: shop.mjs IDLE_NOT_A_VISIT). The previous start comes
- * back (none: the stamp is cleared to { at: null }). Pure.
+ * A VISIT THAT DID NOT HAPPEN gives the slot back -> bool: release this generation (its `.released` marker). Only this bot's own
+ * claim of this visit (`by` = me, `at` = the visit's start), only for a stop that was no visit (`notAVisit`: shop.mjs
+ * IDLE_NOT_A_VISIT). The released generation then reads as its previous start (stampOfHead): the plot is due again at once. Pure.
  */
-export function stampRelease (cur, { me, at, stop, notAVisit = new Set() } = {}) {
-  if (!cur || String(cur.by) !== String(me) || Number(cur.at) !== Number(at)) return null
-  if (!notAVisit.has(String(stop ?? ''))) return null
-  return { at: Number.isFinite(Number(cur.prevAt)) && cur.prevAt != null ? Number(cur.prevAt) : null, by: cur.by, reason: 'released', prevAt: null }
+export function stampReleaseDue (rec, { me, at, stop, notAVisit = new Set() } = {}) {
+  if (!rec || String(rec.by) !== String(me) || Number(rec.at) !== Number(at)) return false
+  return notAVisit.has(String(stop ?? ''))
 }
 
 /** The `_service` row's detail (a pick, at the visit's start). Pure. */

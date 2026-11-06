@@ -221,7 +221,7 @@ import { setCompostDrive } from './composter.mjs'   // decorator-02: the compost
 import { SMALL_FLOWERS as DECOR_FLOWERS, gatherTargets as decorGatherTargets } from './park.mjs'   // decorator-02: the bag's flowers apart from its ferns
 import { DECORATE } from './shop.mjs'   // decorator-01: its switch
 import { PRODSERVE, IDLE_NOT_A_VISIT } from './shop.mjs'   // prodserve-01: the service tier's switch; a stop that was no visit
-import { servicePick, isServicePlot, stampNext, stampRelease, serviceRowDetail } from './prodserve.mjs'   // prodserve-01
+import { servicePick, isServicePlot, stampNext, stampReleaseDue, stampOfHead, serviceOffer, serviceRowDetail, SERVICE_PLOTS } from './prodserve.mjs'   // prodserve-01
 import { SINK_BLUEPRINTS } from './sinks.mjs'   // decorator-01: the nursery-only record's blueprint
 import { wallInteriors } from './wall.mjs'   // decorator-01: the town's walls first
 import { digStand } from './buildrun.mjs'   // decorator-01: the pot fill's stand
@@ -17523,7 +17523,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // sinkfix-01: this bot's own no-effect visits (shop.mjs idleMarks): such a project yields to a wanted sink for IDLE_MS
     const marked = idleMarks(waited, b?.shopIdle ?? null, now)
     // PRODSERVE-01: a finished production plot due by the town's schedule and this bot's fair share goes first (prodserve.mjs)
-    const svc = PRODSERVE.on && b ? servicePick(marked, { now, stamps: serviceStampsNow(), botLastAt: b.serviceAt ?? -Infinity }) : null
+    const svc = PRODSERVE.on && b ? servicePickNow(b, marked, now, visit) : null
     // GROUNDSKEEPER-01: the town's keeper (groundskeeper.mjs) works the grounds FIRST; every other bot never does (the lease)
     const order00 = b ? keeperOrder(b, marked, list, now) : list
     // DECORATOR-01: the town's decorator works the decor FIRST (behind repairs); every other bot never sees it (the lease)
@@ -19802,20 +19802,53 @@ export const _hubUpkeep = Object.freeze({ hubClerkOne, hubClerkPlan, hubSignWork
 const siteWaitFile = (plot, dir = townDir()) => path.join(dir, `${projKeyOf(plot)}.sitewait.json`)
 function siteWaitUntil (plot, dir = townDir()) { try { return Number(JSON.parse(fs.readFileSync(siteWaitFile(plot, dir), 'utf8'))?.until) || 0 } catch { return 0 } }
 // ================================================================================================================================
-// PRODSERVE-01: THE SERVICE STAMPS (prodserve.mjs has every rule). One town file a service plot (`<key>.service.json`): the last
-// service visit's start and its bot -- the town's schedule and the claim. Written at the visit's start (shopActive's pick), given back
-// when the visit did not happen (buildShop: shop.mjs IDLE_NOT_A_VISIT). One `_service` row a service visit. Never throws.
+// PRODSERVE-01: THE SERVICE STAMPS (prodserve.mjs has every rule). A service plot's stamps are GENERATIONS in the town directory
+// (`<key>.service.g<N>.json`: the visit's start, its bot, the previous start), each created EXCLUSIVELY (open 'wx'): a claim is a
+// compare-and-swap on the generation the pick read (Codex r1 BLOCKER 2), so of 15 bots at once one wins and the rest work something
+// else. A visit that did not happen marks its own generation `.released` (buildShop: shop.mjs IDLE_NOT_A_VISIT). The newest
+// SERVICE_KEEP generations are kept. One `_service` row a service visit. Never throws.
 // ================================================================================================================================
-const serviceFile = (plot, dir = townDir()) => path.join(dir, `${projKeyOf(plot)}.service.json`)
-function serviceStampRead (plot, dir = townDir()) { try { return JSON.parse(fs.readFileSync(serviceFile(plot, dir), 'utf8')) } catch { return null } }
-function serviceStampWrite (plot, stamp, dir = townDir()) {
-  try { const f = serviceFile(plot, dir); const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify(stamp)); fs.renameSync(tmp, f); return true } catch { return false }
+const SERVICE_KEEP = 4
+const serviceGenFile = (plot, gen, dir = townDir()) => path.join(dir, `${projKeyOf(plot)}.service.g${gen}.json`)
+const reEsc = t => String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const serviceGenRe = plot => new RegExp(`^${reEsc(projKeyOf(plot))}\\.service\\.g(\\d+)\\.json$`)
+/** A service plot's generations, oldest first -> [n] | null (an unreadable directory). Never throws. */
+function serviceGens (plot, dir = townDir(), names0 = null) {
+  let names = names0
+  if (!names) { try { names = fs.readdirSync(dir) } catch (e) { return e?.code === 'ENOENT' ? [] : null } }
+  const re = serviceGenRe(plot)
+  return names.map(n => re.exec(n)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => a - b)
 }
-/** The town's service stamps -> { plot: stamp }. Never throws. */
+/** The newest generation -> { gen, rec, released } | { gen: 0, rec: null } (none) | null (unreadable). Never throws. (Exported for the tests.) */
+export function serviceHeadOf (plot, dir = townDir(), names = null) {
+  const gens = serviceGens(plot, dir, names)
+  if (gens == null) return null
+  const gen = gens.at(-1) ?? 0
+  if (!gen) return { gen: 0, rec: null, released: false }
+  try { return { gen, rec: JSON.parse(fs.readFileSync(serviceGenFile(plot, gen, dir), 'utf8')), released: fs.existsSync(`${serviceGenFile(plot, gen, dir)}.released`) } } catch { return null }
+}
+/** The town's service stamps -> { plot: { at, by, gen } } (an unreadable plot is left out: its pick waits). Never throws. */
 function serviceStampsNow (dir = townDir()) {
   const out = {}
-  for (const p of PROJECTS) if (isServicePlot(p.plot)) { const st = serviceStampRead(p.plot, dir); if (st) out[p.plot] = st }
+  let names = null
+  try { names = fs.readdirSync(dir) } catch (e) { names = e?.code === 'ENOENT' ? [] : null }   // one listing for every plot
+  for (const plot of Object.keys(SERVICE_PLOTS)) {
+    const h = names ? serviceHeadOf(plot, dir, names) : null
+    if (!h) { out[plot] = { at: Date.now(), by: 'unreadable', gen: null }; continue }   // unread is never due
+    out[plot] = stampOfHead(h) ?? { at: null, by: null, gen: h.gen }
+  }
   return out
+}
+/** THE CLAIM: create generation `gen + 1` exclusively -> { ok, gen } | { ok: false, why }. Never throws. (Exported for the tests.) */
+export function serviceClaim (plot, gen, stamp, dir = townDir()) {
+  if (!Number.isInteger(gen) || gen < 0) return { ok: false, why: 'unread' }
+  const n = gen + 1
+  try {
+    const fd = fs.openSync(serviceGenFile(plot, n, dir), 'wx')
+    try { fs.writeSync(fd, JSON.stringify(stamp)); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
+  } catch (e) { return { ok: false, why: e?.code === 'EEXIST' ? 'lost' : 'unwritable' } }
+  try { for (const g of (serviceGens(plot, dir) ?? []).filter(g => g <= n - SERVICE_KEEP)) { fs.rmSync(serviceGenFile(plot, g, dir), { force: true }); fs.rmSync(`${serviceGenFile(plot, g, dir)}.released`, { force: true }) } } catch { /* kept */ }
+  return { ok: true, gen: n }
 }
 /** A plot's service reason for this bot (its own due test) -> string | null. Never throws. */
 function serviceDueOf (bot, plot, rec, hubDue = null, now = Date.now()) {
@@ -19826,28 +19859,48 @@ function serviceDueOf (bot, plot, rec, hubDue = null, now = Date.now()) {
     return null
   } catch { return null }
 }
-/** THE VISIT'S START: a service pick stamps its plot (the claim), notes the bot's share and logs `_service`; any other pick clears the
- *  bot's service mark. Never throws. */
+/**
+ * THE SERVICE PICK FOR THIS CALL -> svc | null. The pick (prodserve.mjs servicePick over the states and the town's stamps), through
+ * the bot's offer gate (serviceOffer: a pick no visit consumed in SERVICE.offerMs is dropped and charged to the share); on the
+ * VISIT's own call, claimed (serviceClaim) -- a lost claim is no pick (the bot works something else). Never throws.
+ */
+function servicePickNow (bot, states, now = Date.now(), visit = false) {
+  try {
+    if (!states.some(s => s?.serve)) { bot.serviceOffer = null; return null }
+    const stamps = serviceStampsNow()
+    const g = serviceOffer(bot.serviceOffer ?? null, servicePick(states, { now, stamps, botLastAt: bot.serviceAt ?? -Infinity }), now)
+    bot.serviceOffer = g.offer
+    if (g.charge) bot.serviceAt = now
+    const svc = g.svc
+    if (!svc || !visit) return svc
+    const me = bot.username ?? 'bot'
+    const st = stamps[svc.plot]
+    const stamp = stampNext(st, { me, now, reason: svc.reason })
+    const c = serviceClaim(svc.plot, st?.gen, stamp)
+    if (!c.ok) return null
+    return { ...svc, gen: c.gen, at: stamp.at }
+  } catch { return null }
+}
+/** THE VISIT'S START: a claimed service pick notes the bot's share and logs `_service`; any other pick clears the mark. Never throws. */
 function serviceBegin (bot, svc, now = Date.now()) {
   try {
+    bot.serviceOffer = null
     if (!svc) { bot.serviceVisit = null; return }
-    const prev = serviceStampRead(svc.plot)
-    const stamp = stampNext(prev, { me: bot.username ?? 'bot', now, reason: svc.reason })
-    serviceStampWrite(svc.plot, stamp)
     bot.serviceAt = now
-    bot.serviceVisit = { plot: svc.plot, at: now }
+    bot.serviceVisit = { plot: svc.plot, gen: svc.gen, at: svc.at }
     try { logEvent({ kind: 'service', status: 'success', snapshot: snapshot(bot), detail: serviceRowDetail({ ...svc, now }) }) } catch { /* telemetry */ }
-  } catch { /* the next pick reads the file again */ }
+  } catch { /* the next pick reads the files again */ }
 }
-/** THE VISIT'S END: a service visit that was no visit (`stop` in IDLE_NOT_A_VISIT) gives the plot's stamp and the bot's share back.
- *  Never throws. */
+/** THE VISIT'S END: a service visit that was no visit (`stop` in IDLE_NOT_A_VISIT) marks its own generation released (the plot is due
+ *  again at once; the bot's share stands, so an interrupted bot never re-picks at once). Never throws. */
 function serviceEnd (bot, stop) {
   try {
     const sv = bot?.serviceVisit
     if (!sv) return
     bot.serviceVisit = null
-    const back = stampRelease(serviceStampRead(sv.plot), { me: bot.username ?? 'bot', at: sv.at, stop, notAVisit: IDLE_NOT_A_VISIT })
-    if (back) serviceStampWrite(sv.plot, back)   // the bot's own share stands (an interrupted bot never re-picks at once)
+    const f = serviceGenFile(sv.plot, sv.gen)
+    const rec = JSON.parse(fs.readFileSync(f, 'utf8'))
+    if (stampReleaseDue(rec, { me: bot.username ?? 'bot', at: sv.at, stop, notAVisit: IDLE_NOT_A_VISIT })) fs.writeFileSync(`${f}.released`, String(Date.now()))
   } catch { /* the stamp stands: the plot waits its gap */ }
 }
 function siteWaitSet (plot, ms, why = null) {
