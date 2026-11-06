@@ -268,6 +268,38 @@ await t('the rise NEGATIVES: a failed dig rises nothing and keeps the pocket dry
   assert.equal(r3.outcome, 'yielded')
 })
 
+await t('A DIG THAT REJECTS AFTER THE BLOCK BROKE STILL RISES (Claude r1 note 1): the roof\'s state decides, not the promise', async () => {
+  const w = worldOf(HIVEC)
+  const plan = breachPlan({ at: w.at, feet: HC_FEET })
+  const bot = simBot(w, [124.5, 52, 64.5])
+  const res = await drive(bot, () => floodBreach(bot, { plan, dig: async () => { await flood(w, HC_FEET)(); throw new Error('dig exceeded 12000ms') }, now: () => bot.ticks * 50 }))
+  assert.equal(res.outcome, 'out', res.why); assert.match(res.digError, /exceeded/)
+})
+await t('OWNERSHIP FIRST (Codex r1 blocker 1): a body another owner holds is never flooded -- no dig, no control written', async () => {
+  for (const [alive, yieldTo] of [[() => false, () => null], [() => true, () => 'drowning rescue']]) {
+    const w = worldOf(HIVEC)
+    const plan = breachPlan({ at: w.at, feet: HC_FEET })
+    const bot = simBot(w, [124.5, 52, 64.5])
+    const writes = []
+    const set0 = bot.setControlState.bind(bot); bot.setControlState = (k, v) => { writes.push([k, v]); set0(k, v) }
+    let dug = 0
+    const res = await drive(bot, () => floodBreach(bot, { plan, dig: async () => { dug++ }, alive, yieldTo, now: () => bot.ticks * 50 }))
+    assert.equal(res.outcome, 'yielded'); assert.equal(dug, 0); assert.deepEqual(writes, [])
+    assert.equal(w.at(124, 54, 64).name, 'dirt', 'the roof stands')
+  }
+})
+await t('MUTANT KILLED: without the ownership check before the dig, a held body is flooded', async () => {
+  await withMutant(SRC.escdead, "    if (l1) { res.outcome = 'yielded'; yielded = true; res.why = `${l1} before the dig`; return res }\n", '', async m => {
+    const w = worldOf(HIVEC)
+    const plan = m.breachPlan({ at: w.at, feet: HC_FEET })
+    const bot = simBot(w, [124.5, 52, 64.5])
+    let calls = 0, dug = 0
+    // alive for the first check, gone for the second: only the second check stands between the rescue and the flood
+    await drive(bot, () => m.floodBreach(bot, { plan, dig: async () => { dug++ }, alive: () => (++calls <= 1), now: () => bot.ticks * 50 }))
+    assert.equal(dug, 1, 'the mutant digs a roof under a body it no longer owns')
+  })
+})
+
 // ---- (b) the one usable-pickaxe rule, all five modules ------------------------------------------------------------------
 const pick = (left, name = 'stone_pickaxe', max = 131) => ({ name, type: mcData.itemsByName[name].id, maxDurability: max, durabilityUsed: max - left, count: 1, slot: 9 + left })
 const IRON_ORE = Block.fromString('minecraft:iron_ore', 0)
@@ -336,6 +368,11 @@ await t('TERRAIN DEPTH negatives: a single layer of ground is the surface; a vil
   assert.equal(PZ.terrainDeep(roof.at, 64, 58, 38), false)
   const mixed = galeWorld(['minecraft:stone', 'minecraft:cobblestone', 'minecraft:stone'])
   assert.equal(PZ.terrainDeep(mixed.at, 64, 58, 38), false, 'cobblestone is a village block: the run of ground is broken')
+  const buried = synth((x, y, z) => (x === 64 && z === 38 && y === 57 ? 'minecraft:cobblestone' : y >= 70 ? 'minecraft:air' : 'minecraft:stone'))
+  assert.equal(PZ.terrainDeep(buried.at, 64, 57, 38), false, 'Codex r1 blocker 2: a buried village foundation under ground is never deep')
+  const bdeep = (x, y, z) => PZ.terrainDeep(buried.at, x, y, z)
+  assert.equal(PZ.blocked(ZONE, 64, 57, 38, { x: 64.5, y: 58, z: 40.5 }, bdeep), ZONE[0], 'a dig of it stays refused')
+  assert.equal(PZ.terrainDeep(buried.at, 64, 56, 38), false, 'the cell under it: the foundation breaks the run of ground')
   const sky = synth(() => 'minecraft:air')
   assert.equal(PZ.terrainDeep(sky.at, 0, 60, 0), false)
   const w = galeWorld()
@@ -410,6 +447,12 @@ await t('MUTANT KILLED: the craft room without the spare branch keeps hive-c-Bra
 await t('MUTANT KILLED: terrain depth on the first solid block alone calls a one-layer surface deep', async () => {
   await withMutant(SRC.protectzone, '    if (++n >= cover) return true', '    return true', async m => {
     assert.equal(m.terrainDeep(galeWorld(['minecraft:stone']).at, 64, 58, 38), true)
+  })
+})
+await t('MUTANT KILLED: terrain depth without the cell\'s own check opens a buried cobblestone foundation', async () => {
+  await withMutant(SRC.protectzone, "  if (self.boundingBox === 'block' && !NATURAL_TERRAIN.test(self.name ?? '')) return false\n", '', async m => {
+    const buried = synth((x, y, z) => (x === 64 && z === 38 && y === 57 ? 'minecraft:cobblestone' : y >= 70 ? 'minecraft:air' : 'minecraft:stone'))
+    assert.equal(m.terrainDeep(buried.at, 64, 57, 38), true)
   })
 })
 await t('MUTANT KILLED: blockedIn ignoring `deep` refuses Gale\'s shaft', async () => {
