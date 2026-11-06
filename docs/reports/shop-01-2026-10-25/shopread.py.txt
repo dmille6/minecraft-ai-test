@@ -309,7 +309,7 @@ def tidy_clear_ok(chain, cell, kind, t_ms, guard):
     k = ck(cell)
     if tidy_guarded(cell, t_ms, guard):
         return False
-    lists = ('cells',) if kind == 'foreign' else ('cut', 'clear')
+    lists = ('cells',) if kind in ('foreign', 'cover') else ('cut', 'clear')   # coverread-01: a cover is a foreign dig of an open cell
     return any(k == ck(c['at']) for rec in chain or [] for name in lists for c in rec.get(name) or [] if isinstance(c, dict) and c.get('at'))
 
 
@@ -368,7 +368,7 @@ def stepwell_clear_ok(chain, cell, kind):
     if not isinstance(cell, (list, tuple)) or len(cell) != 3:
         return False
     k = ck(cell)
-    field = 'cells' if kind == 'foreign' else 'clear'
+    field = 'cells' if kind in ('foreign', 'cover') else 'clear'   # coverread-01: a cover is a foreign dig of an open cell
     return any(ck(c['at']) == k for rec in chain or [] for c in rec.get(field) or [] if isinstance(c, dict) and c.get('at'))
 
 
@@ -635,7 +635,7 @@ def sink_clear_ok(chain, cell, kind, t_ms):
     """picker-01: is a sink dig planned by a generation in force? -> bool. Pure. kind=foreign (a block in an open record cell):
     a cell; any other kind (tree, leaves, plant, cut): an entry of the clear list."""
     k = ck(cell)
-    name = 'cells' if kind == 'foreign' else 'clear'
+    name = 'cells' if kind in ('foreign', 'cover') else 'clear'   # coverread-01: a cover is a foreign dig of an open cell
     return any(ck(c.get('at')) == k for g in sink_in_force(chain, t_ms) for c in g.get(name) or [] if isinstance(c, dict) and c.get('at'))
 
 
@@ -1466,7 +1466,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         # townstyle-01 RO1: the builder's own block in the wrong state, on a state-bearing cell of the chain
                         ok = reorient_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'))
                         why = '' if ok else ' reorient'
-                    elif f.get('kind') == 'foreign':
+                    elif f.get('kind') in ('foreign', 'cover'):
+                        # coverread-01 (11-05 23:39Z showcase TRIP, batch 11's coverdig-01 005e2932): kind=cover is the bot's own
+                        # scaffold-class block dug out of an OPEN cell of its record over an unreached cell (buildrun.mjs coverAbove)
+                        # -- a foreign dig of its own cell, judged the same
                         ok = any(k in {ck(c['at']) for c in rr.get('cells') or []} for rr in (rec, rec_pre) if rr is not None)
                     elif f.get('kind') == 'tidy' and plot == YARD:
                         # yardread-01: the clerk's refill digs (pile tops) and its aisle clutter
@@ -1643,6 +1646,9 @@ def selftest():
     assert J(base + [R('_build', 'project=shop op=clear cell=40,70,40 block=oak_log kind=tree saplings=1/1', s=14)])['clear_outside'] == 1
     assert J(base + [R('_build', 'project=shop op=clear seg=pad cell=50,70,50 block=dirt kind=foreign', s=14)])['clear_outside'] == 1
     assert J(base + [R('_build', 'project=shop op=clear seg=pad cell=10,70,10 block=dirt kind=foreign', s=9.5)])['clear_outside'] == 0
+    # coverread-01: a cover dug from a record cell is clean; one off the record trips (positive control)
+    assert J(base + [R('_build', 'project=shop op=clear seg=pad cell=10,70,10 block=grass_block kind=cover', s=9.5)])['clear_outside'] == 0, 'a cover in its own record cell'
+    assert J(base + [R('_build', 'project=shop op=clear seg=pad cell=50,70,50 block=grass_block kind=cover', s=9.5)])['clear_outside'] == 1, 'a cover off the record'
     # G3 zone: a placement, and a REPLANT (Codex read r1 P2-6)
     assert J(base, zones={'board-a': [[10, 0, 10, 10, 200, 10]]})['zone'] == 1
     assert J(base, zones={'board-a': [[20, 0, 20, 20, 200, 20]]})['zone'] == 1, 'the replant cell'
@@ -1764,6 +1770,7 @@ def selftest():
     scl = lambda c, kind, s_=14, block='spruce_leaves': J(base + [R('_build', 'project=tower op=clear seg=T1-L00-N cell=%s block=%s kind=%s' % (c, block, kind), s=s_)], SP_())['clear_outside']
     assert scl('41,72,40', 'leaves') == 0 and scl('42,71,40', 'tree', block='spruce_log') == 0, 'the listed canopy and trunk'
     assert scl('40,71,40', 'foreign', block='dirt') == 0, 'a foreign block dug out of an open cell'
+    assert scl('40,71,40', 'cover', block='dirt') == 0 and scl('45,72,40', 'cover', block='dirt') == 1, 'coverread-01: a sink\'s cover in its own cell; off it, a trip'
     assert scl('61,71,60', 'cut', block='dirt') == 1 and scl('61,71,60', 'cut', s_=3_700, block='dirt') == 0, 'T2\'s cut: only once T2 is sited'
     assert scl('45,72,40', 'leaves') == 1 and scl('41,72,40', 'foreign', block='dirt') == 1, 'positive control: off the list, or a clear dug as foreign'
     assert lease_overlaps({'slot3': [], 'slot4': []}, 3) == [('slot4', None, 'slot beyond builders_max')], 'three builder slots, never a fourth'
@@ -1877,6 +1884,7 @@ def selftest():
     assert yc('-62,72,16') == 0 and yc('-52,70,7') == 0, 'a refill dug off a pile; an aisle cell above a base floor cell'
     assert yc('-52,68,7') == 1 and yc('-30,70,30') == 1, 'positive control: a record cell, and a dig off the yard'
     assert tc('17,64,-2', kind='foreign')['clear_outside'] == 0, 'a foreign block dug out of a fill cell is its own'
+    assert tc('17,64,-2', kind='cover')['clear_outside'] == 0, 'coverread-01: a tidy cover dug out of a fill cell'
     assert tc('-30,71,-30')['clear_outside'] == 0, 'listed, and no project holds it'
     m2 = dict(mrec, cells=mrec['cells'] + [{'at': [-30, 71, -30], 'role': 'core', 'seg': 'L01-N'}], at=T0MS - 120_000)
     assert tc('-30,71,-30', pp=TP_(mon=m2))['clear_outside'] == 1, 'a listed cut ON another project\'s record cell trips'
@@ -2117,6 +2125,7 @@ def selftest():
     assert sp('62,75,60', 'seal') == 1, 'a felling clear is no cut cell: no seal there'
     assert sc('60,67,60', 'cut') == 0 and sc('62,75,60', 'tree', 'spruce_log') == 0, 'its cut and its felling on the clear list'
     assert sc('60,66,60', 'foreign') == 0, 'a bad block dug from its own record cell'
+    assert sc('60,66,60', 'cover') == 0 and sc('70,66,60', 'cover') == 1, 'coverread-01: the stepwell\'s cover in its own cell; off it, a trip'
     assert sc('70,67,60', 'cut') == 1 and sc('70,66,60', 'foreign') == 1, 'a dig off the record either way'
     assert sc('60,66,60', 'cut') == 1, 'a record cell is never cut'
     # stepwell-02: the descent's generation moves a wall cell (the portal) from cells to clear -- an earlier foreign dig of it and a later

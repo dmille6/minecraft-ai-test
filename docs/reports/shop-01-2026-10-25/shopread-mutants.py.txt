@@ -2,6 +2,12 @@ import subprocess, sys, os
 D = os.path.dirname(os.path.abspath(__file__))
 src = open(os.path.join(D, 'shopread.py')).read()
 M = [
+ # coverread-01: the tidy / stepwell / sink helpers judge a cover as a foreign dig
+ ("    lists = ('cells',) if kind in ('foreign', 'cover') else ('cut', 'clear')", "    lists = ('cells',) if kind == 'foreign' else ('cut', 'clear')"),
+ ("    field = 'cells' if kind in ('foreign', 'cover') else 'clear'", "    field = 'cells' if kind == 'foreign' else 'clear'"),
+ ("    name = 'cells' if kind in ('foreign', 'cover') else 'clear'", "    name = 'cells' if kind == 'foreign' else 'clear'"),
+ # coverread-01: kind=cover is judged as a foreign dig of its own record cell
+ ("                    elif f.get('kind') in ('foreign', 'cover'):\n", "                    elif f.get('kind') == 'foreign':\n"),
  # wallretired-01: a wall row before the retirement keeps its retired cells; after it, not; the lenient verdict of the two
  ("                    and hasattr(r['t'], 'timestamp') and int(r['t'].timestamp() * 1000) < rec['retiredAt']:\n", "                    and hasattr(r['t'], 'timestamp'):\n"),
  ("            if rec is not None and plot in WALL_PLOTS and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \\\n", "            if False and rec is not None and plot in WALL_PLOTS and rec.get('retired') and isinstance(rec.get('retiredAt'), (int, float)) \\\n"),
@@ -59,8 +65,8 @@ M = [
  ("    return g is not None and (t_ms is None or g <= t_ms)", "    return g is not None"),
  ("                        why = ' guarded' if tidy_guarded(cell, t_ms, guards[pool]) else ''", "                        why = ''"),
  ("    out = dict((pr or {}).get('markers') or {})", "    out = {}"),
- ("    lists = ('cells',) if kind == 'foreign' else ('cut', 'clear')", "    lists = ('cut', 'clear')"),
- ("    lists = ('cells',) if kind == 'foreign' else ('cut', 'clear')", "    lists = ('cells',) if kind == 'foreign' else ('cut',)"),
+ ("    lists = ('cells',) if kind in ('foreign', 'cover') else ('cut', 'clear')", "    lists = ('cut', 'clear')"),
+ ("    lists = ('cells',) if kind in ('foreign', 'cover') else ('cut', 'clear')", "    lists = ('cells',) if kind in ('foreign', 'cover') else ('cut',)"),
  ("            head = (gen, sha, rec)\n            chain.append(dict(rec, _gen=gen, _sha=sha))\n    return chain", "            head = (gen, sha, rec)\n    return chain"),
  ("            for dy in (0, 1, 2):\n                k = ck([at[0], at[1] + dy, at[2]])", "            for dy in (0,):\n                k = ck([at[0], at[1] + dy, at[2]])"),
  ("        if plot in (TIDY, LAND):", "        if plot in (LAND,):"),
@@ -96,7 +102,7 @@ M = [
  ("    return [g for g in chain or [] if not (t_ms is not None and isinstance(g.get('at'), (int, float)) and g['at'] > t_ms + skew_ms)]", "    return list(chain or [])"),
  ("                    off = not sink_place_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)", "                    off = False"),
  ("                        ok = sink_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'), t_ms)", "                        ok = True"),
- ("    name = 'cells' if kind == 'foreign' else 'clear'", "    name = 'clear'"),
+ ("    name = 'cells' if kind in ('foreign', 'cover') else 'clear'", "    name = 'clear'"),
  ("                elif plot in SINK_PLOTS and rec is not None:", "                elif False:"),
  # towndress-01 (11-03): the dress sink is a sink plot (its growing chain judged by the generations in force)
  ("SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor')", "SINK_PLOTS = ('road', 'tower', 'shrine', 'decor')"),
@@ -162,8 +168,8 @@ M = [
  ("    return kind == 'seal' and any(c.get('kind') == 'cut' and ck(c['at']) == k for rec", "    return False and any(c.get('kind') == 'cut' and ck(c['at']) == k for rec"),
  ("                elif plot == STEPWELL and rec is not None:", "                elif False:"),
  ("STEPWELL = 'stepwell'", "STEPWELL = 'stepwells'"),
- ("    field = 'cells' if kind == 'foreign' else 'clear'", "    field = 'clear'"),
- ("    field = 'cells' if kind == 'foreign' else 'clear'", "    field = 'cells'"),
+ ("    field = 'cells' if kind in ('foreign', 'cover') else 'clear'", "    field = 'clear'"),
+ ("    field = 'cells' if kind in ('foreign', 'cover') else 'clear'", "    field = 'cells'"),
  ("    return any(ck(c['at']) == k for rec in chain or [] for c in rec.get(field) or [] if isinstance(c, dict) and c.get('at'))", "    return any(ck(c['at']) == k for rec in (chain or [])[-1:] for c in rec.get(field) or [] if isinstance(c, dict) and c.get('at'))"),
  ("                    elif plot == STEPWELL:", "                    elif False:"),
  # canefarm-01 CF1: the cane bed's harvest at the second block
