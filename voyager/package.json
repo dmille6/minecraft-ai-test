@@ -1,0 +1,17 @@
+{
+  "name": "mcai-voyager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "voyager-01 pilot: self-proposed curriculum, LLM-written skills run in isolated-vm against a narrow facade over the bots/ harness",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.1.0",
+    "acorn": "8.19.0",
+    "isolated-vm": "6.2.0"
+  }
+}

@@ -1,0 +1,6 @@
+[Unit]
+Description=voyager-01 light watcher (one pass)
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /srv/voyager/code/voyager/watch/voyager_watch.py run
+Nice=5

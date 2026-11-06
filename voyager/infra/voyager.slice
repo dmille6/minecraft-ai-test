@@ -1,0 +1,9 @@
+# voyager-01 pilot: every voyager unit lives here (design §12 B5). Below the fleet in CPU and I/O weight, hard-capped.
+[Unit]
+Description=voyager-01 pilot (LLM-written skills; NOT the fleet)
+[Slice]
+CPUQuota=800%
+CPUWeight=30
+MemoryMax=20G
+IOWeight=20
+TasksMax=1024

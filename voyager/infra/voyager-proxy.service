@@ -1,0 +1,27 @@
+# voyager-01: the LLM proxy -- the only voyager process with internet access, and the only one that holds a key.
+[Unit]
+Description=voyager-01 LLM proxy (unix sockets per arm)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+Slice=voyager.slice
+User=voyager-proxy
+Group=voyager-proxy
+WorkingDirectory=/srv/voyager/code/voyager
+ExecStart=/srv/voyager/node/bin/node /srv/voyager/code/voyager/proxy/proxy.mjs
+Environment=VOYAGER_PROXY_CONFIG=/etc/voyager/proxy.json
+Restart=on-failure
+RestartSec=10
+MemoryMax=300M
+TasksMax=32
+ProtectSystem=strict
+ReadWritePaths=/run/voyager /var/log/voyager /var/lib/voyager-proxy
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+UMask=0007
+[Install]
+WantedBy=multi-user.target

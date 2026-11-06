@@ -1,0 +1,60 @@
+# voyager-01: one bot per arm (design §3.1-3.3, §12 B2). Its network is the Paper unit's namespace (loopback only:
+# its own server and nothing else); the model is reached through ONE unix socket; the file system is a minimal view.
+[Unit]
+Description=voyager-01 bot (%i) -- pilot, LLM-written skills in isolated-vm
+BindsTo=voyager-paper@%i.service
+After=voyager-paper@%i.service voyager-proxy.service
+JoinsNamespaceOf=voyager-paper@%i.service
+StartLimitIntervalSec=1800
+StartLimitBurst=5
+[Service]
+Type=simple
+Slice=voyager.slice
+User=voyager-%i
+Group=voyager-%i
+EnvironmentFile=/etc/voyager/bot-%i.env
+WorkingDirectory=/srv/voyager/code/bots
+ExecStart=/srv/voyager/node/bin/node --max-old-space-size=768 ${VOYAGER_ENTRY}
+Restart=on-failure
+RestartSec=20
+MemoryMax=1200M
+TasksMax=64
+CPUQuota=150%
+Nice=10
+# network
+PrivateNetwork=yes
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# file system: empty /run /var /srv /mnt /media /opt, then only what the bot needs
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+TemporaryFileSystem=/run /var /srv /mnt /media /opt
+BindReadOnlyPaths=/srv/voyager/code /srv/voyager/node /run/voyager/%i
+BindPaths=/srv/voyager/state/%i /srv/voyager/logs/%i
+InaccessiblePaths=-/etc/voyager
+NoExecPaths=/
+ExecPaths=/srv/voyager/node /srv/voyager/code /usr/lib /lib /lib64
+# privileges and kernel
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@mount @swap @reboot @raw-io @clock @cpu-emulation @debug @module @obsolete @privileged
+UMask=0077
+[Install]
+WantedBy=multi-user.target

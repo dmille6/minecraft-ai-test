@@ -1,0 +1,31 @@
+# voyager-01: one Paper server per arm, alone in its own network namespace (design §3.2). Not a fleet world.
+[Unit]
+Description=voyager-01 Paper server (%i) -- pilot, not a fleet world
+After=network-online.target
+[Service]
+Type=simple
+Slice=voyager.slice
+User=voyager-mc
+Group=voyager-mc
+WorkingDirectory=/srv/voyager/worlds/%i
+ExecStart=/usr/bin/java -Xms512M -Xmx2G -jar paper.jar nogui
+# its network is its own loopback only: unreachable from the host, reaches nothing
+PrivateNetwork=yes
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=120
+MemoryMax=3G
+CPUQuota=300%
+CPUWeight=30
+Nice=10
+IOWeight=30
+IOWriteBandwidthMax=/srv 20M
+ProtectSystem=strict
+ReadWritePaths=/srv/voyager/worlds/%i
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+UMask=0027
+[Install]
+WantedBy=multi-user.target
