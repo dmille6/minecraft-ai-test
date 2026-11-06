@@ -963,7 +963,7 @@ export const SUSTAINING = [
  * `return` on purpose: the bot is already home by then" -- 80 blocks out it is vacuously done (no chest within 48), so the lap
  * never banked. With IDLEWORK_RETURNFIRST on (default) `return` comes first. =0 is the rollback (the old order). Pure.
  */
-export const returnFirstOn = (env = process.env) => String(env?.IDLEWORK_RETURNFIRST ?? '1').trim() !== '0'
+export const returnFirstOn = (env = process.env) => !/^\s*0\s*$/.test(String(env?.IDLEWORK_RETURNFIRST ?? '1'))   // (a regex, not trim-compare: dirtrung.test's mutant anchors on the dirt switch's form)
 /** Would admission refuse a plain deposit AT the chest, on this rung? (its depositPlan is empty, or depositDue says not due:
  *  fewer than 12 bankable with under 30 slots used -- Codex r1 BLOCK: a six-iron batch is below it). Pure over the items. */
 export function depositRefused (items = []) {
