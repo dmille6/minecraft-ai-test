@@ -26,7 +26,9 @@ def run(drawrec, dpn, reg, **kw):
     try:
         os.makedirs(os.path.join(h, 'mcai-analysis'), exist_ok=True)
         shutil.copy(dpn, os.path.join(h, 'mcai-analysis', 'drawpin.py'))
-        return TD.run(drawrec, DRQ, reg=reg, home=h, **kw)
+        env = dict(kw.pop('env', None) or {})
+        env.setdefault('DRAWREC_LOG_ROOT', os.path.join(h, 'no-logs'))   # hermetic: never the host's real bot logs
+        return TD.run(drawrec, DRQ, reg=reg, home=h, env=env, **kw)
     finally:
         shutil.rmtree(h, ignore_errors=True)
 
