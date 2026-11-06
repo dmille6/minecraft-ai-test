@@ -4984,7 +4984,7 @@
     "scaudit-fixes-1106.md"
    ],
    "state": "open",
-   "next_step": "HELD 2026-11-06: tier 3 (reflex); the showcase gate needs BOTH engines APPROVE at the staged sha and a fleet KEEP of the same protected code -- coordinator/owner decision (fleet canary first, or a showcase survival-lane record).",
+   "next_step": "2026-11-06: FLEET canary built: canary-handcap-copper-on-601fe6a3 @ f78e08b6 (one entry with copperrun-02's protected hunks, inert on the fleet), Codex + independent Claude APPROVE at f78e08b6, ci2 400/400; registration + draft queue entry handed to the coordinator (NOT queued by me). hive-c-Bravo is NOT in this trap (a different stall); exposed bots hive-d-Comet/Bravo, placebo-d-Delta (23 rows / ~31 h). Showcase side: Claude APPROVE at a29db2e4 recorded; the gate also needs the showcase's protected code identical to a fleet-kept build (reflex.mjs differs ~300 lines: restack needed). HELD 2026-11-06: tier 3 (reflex); the showcase gate needs BOTH engines APPROVE at the staged sha and a fleet KEEP of the same protected code -- coordinator/owner decision (fleet canary first, or a showcase survival-lane record).",
    "evidence": {
     "grep": [
      "handcap"
@@ -5050,7 +5050,7 @@
     "scaudit-fixes-1106.md"
    ],
    "state": "open",
-   "next_step": "RELEASED 2026-11-06 06:31:45Z in batch14c (SINKWAIVE, STEPWELL_CREW; SK1+SW5 installed). The stepwell's sapling loop (tree 5) is NOT addressed by the crew (crew starts only after every listed log is down) -- still needs a decision. QUEUED for batch14c (SK1 + SW5 rules installed). LIVE 11-06: the stepwell loops 'felling complete, 17 logs left' -- tree 5's replant (-68,67,12) waits on a spruce sapling no bag or chest has (circular: felling gives saplings); needs a decision.",
+   "next_step": "2026-11-06: the stepwell sapling loop FIXED by fellfirst-01 (owner decision: fell first), released 08:39:33Z as b1d5b17e-6dd0ded8-fdd64ead (batch14d) with shopread FF1 (main b8804dd2). 14c read 06:31-07:54Z: WATCH H 0, deaths 0, no share_bank/waiver rows yet. NEXT: read the stepwell's tree-5 felling (first=1), the replant deferral/skip, then the tank. RELEASED 2026-11-06 06:31:45Z in batch14c (SINKWAIVE, STEPWELL_CREW; SK1+SW5 installed). The stepwell's sapling loop (tree 5) is NOT addressed by the crew (crew starts only after every listed log is down) -- still needs a decision. QUEUED for batch14c (SK1 + SW5 rules installed). LIVE 11-06: the stepwell loops 'felling complete, 17 logs left' -- tree 5's replant (-68,67,12) waits on a spruce sapling no bag or chest has (circular: felling gives saplings); needs a decision.",
    "evidence": {
     "grep": [
      "towerstepcrew"
