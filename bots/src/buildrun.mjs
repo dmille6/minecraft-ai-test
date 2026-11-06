@@ -423,7 +423,12 @@ export async function runVisit (p, e, opts = {}) {
   // throw included: the failures it saw before the abort count -- Codex design)
   const rt = retryStart(p, e)
   let r
-  try { r = await visitInner(p, e, opts, rt) } finally { retrySettle(rt, p, e) }
+  try { r = await visitInner(p, e, opts, rt) } finally {
+    retrySettle(rt, p, e)
+    // buildwait-01: an aborted visit names the engine's operation in flight and for how long (the stuck reflex's 35 s, a walk, a
+    // wait): the cause of an abort is read case by case from this row, not inferred from row proximity
+    try { if (e.aborted?.() && e.current) { const c = e.current(); e.log('_build', { op: 'interrupted', kind: c.op, cell: Array.isArray(c.cell) ? c.cell : null, why: `${Math.round(c.ms / 1000)}s` }) } } catch { /* telemetry */ }
+  }
   // LEAVING THE SITE (monument-01, `p.leaveIf(feet)` / `p.leaveTo`): a builder whose visit ends standing on the build walks off it,
   // so it never stands in the next visit's open cells (the fake server, 10-29: an idle builder in a layer's last open cell held
   // the layer for every other builder). Not after an abort: the reflex that aborted it owns the body.
@@ -480,7 +485,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // placedBy: every acknowledged placement by the block name HELD (the bag's own unit: a torch that lands as a wall_torch is a torch);
   // the caller's own object when given, so an aborted visit still reports what it placed
   const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [], slotGen: p.slotGen, placedBy: p.placedBy ?? {} }
-  const tally = name => { out.placedBy[name] = (out.placedBy[name] ?? 0) + 1 }
+  const tally = name => { out.placedBy[name] = (out.placedBy[name] ?? 0) + 1; e.progress?.() }   // buildwait-01: a placement is progress
+  // buildwait-01: a bounded wait the engine means to stand still for is declared to the stuck reflex (buildbot.mjs within); a fake
+  // world's effects have none and just wait
+  const waitStill = (op, ms, fn) => (e.within ? e.within(op, ms, fn) : fn())
   const { dir, key, me, home, record, palette } = p
   const stood = p.stood ?? []
   const now = () => e.now()
@@ -554,7 +562,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (!here) { banStand(stands, kOf(cell), kOf(step.stand), now()); return 'stand' }
     if ((e.bodies() ?? []).some(b => inCell(b, cell) || inCell(b, [cell[0], cell[1] + 1, cell[2]]))) return 'body'
     // ...AND ITS OWN: a jump or a step-up puts the builder's head into the cell above it for a moment -- wait for it to land
-    for (let i = 0; i < 5 && e.self && inCell(e.self(), cell); i++) await e.sleep(100)
+    await waitStill('land_wait', 800, async () => { for (let i = 0; i < 5 && e.self && inCell(e.self(), cell); i++) await e.sleep(100) })
     if (e.self && inCell(e.self(), cell)) return 'body'
     if (!(await e.hold(block))) return 'no_material'
     await e.look(here.support, here.face)
@@ -568,11 +576,16 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       if (!b.ok) return 'busy'
       barGen = b.gen
       const until = now() + barrierWaitMs
-      while (!PJ.barrierClear(dir, key, me, { isRetired, now: now() }).clear) {
-        if (e.aborted()) { PJ.barrierRelease(dir, key, me, barGen); return 'aborted' }
-        if (now() > until) { PJ.barrierRelease(dir, key, me, barGen); return 'barrier_wait' }
-        await e.sleep(250)
-      }
+      // buildwait-01: the closer's wait for the other builders' intents is ONE declared window (its own bound, never renewed a poll)
+      const bw = await waitStill('barrier', barrierWaitMs + 1000, async () => {
+        while (!PJ.barrierClear(dir, key, me, { isRetired, now: now() }).clear) {
+          if (e.aborted()) return 'aborted'
+          if (now() > until) return 'barrier_wait'
+          await e.sleep(250)
+        }
+        return null
+      })
+      if (bw) { PJ.barrierRelease(dir, key, me, barGen); return bw }
       // the wait moved time (Claude r1 P3-1: a reflex or a meal may have changed the hand): hold the block again, look again;
       // nothing awaited after this
       if (!(await e.hold(block))) { PJ.barrierRelease(dir, key, me, barGen); return 'no_material' }
@@ -804,7 +817,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         for (let t = 0; t < 3; t++) {
           v = await placeHere(st.at, c.role, st.block, st.support, st.face, st.seg, held.get(st.seg), { rise: true, feetY: st.feet })
           if (v === 'aborted' || v.startsWith('fence:') || e.feet()[1] > st.feet) break
-          await e.sleep(150)
+          await waitStill('pillar', 400, () => e.sleep(150))
         }
         if (v === 'aborted') { res.result = 'aborted'; return res }
         if (e.feet()[1] !== st.feet + 1) return fail(`pillar ${kOf(st.at)} ${v}`)
@@ -921,7 +934,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // AT the dig (one guard for every path: an UNKNOWN cell resolved to a done one, r15 Codex P2) -- except a listed LOG: no
         // palette places a log, so a log "done" as a solid core (monument-01's `*solid`) is still the tree it was listed as
         if (c.kind !== 'tree' && builtDone(c)) continue
-        if (now() - (e.spawnedAt?.() ?? 0) < SPAWN_DIG_QUIET_MS) await e.sleep(SPAWN_DIG_QUIET_MS)
+        if (now() - (e.spawnedAt?.() ?? 0) < SPAWN_DIG_QUIET_MS) await waitStill('spawn_quiet', SPAWN_DIG_QUIET_MS + 500, () => e.sleep(SPAWN_DIG_QUIET_MS))
         nodes ??= nodesFor()
         // a TIDY entry evaluated here (a stand looked for) is reported (out.tidied): the caller's per-cell bound counts only these
         // (Codex zigtidy r1: counted at the list, a deadline or the clear bound spent untouched pillars' visits)
@@ -1287,7 +1300,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           .sort((a, b) => a.at[1] - b.at[1] || Math.hypot(a.at[0] - feet[0], a.at[2] - feet[2]) - Math.hypot(b.at[0] - feet[0], b.at[2] - feet[2]))
         if (!cand.length && bodies.length && open.some(c => occupied(c) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at))) {
           if (++bodyWaits > BODY_WAITS) { out.stop = 'body_wait'; out.why = `${seg}: the open cells left are under another builder`; return out }
-          await e.sleep(500); continue
+          await waitStill('body_wait', 800, () => e.sleep(500)); continue
         }
         let picked = null, step = null, fellBack = false
         // a cell whose every stand is banned falls back to them (r1 Codex note: never a deferral -- and F4's 6 h stuck back-off -- the

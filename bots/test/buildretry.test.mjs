@@ -252,7 +252,7 @@ await t('COMPOSED with tidydead-01 (the tidy\'s hardDefers) and its waiver: the 
 })
 await t('the wiring: runVisit reads the ledger before the visit and settles it in a finally (structural)', () => {
   const src = fs.readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8').replace(/^\s*\/\/.*$/gm, '')
-  const line = '  try { r = await visitInner(p, e, opts, rt) } finally { retrySettle(rt, p, e) }'
+  const line = '  try { r = await visitInner(p, e, opts, rt) } finally {\n    retrySettle(rt, p, e)\n'
   assert.strictEqual(src.split(line).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
   assert.strictEqual(src.split('  const rt = retryStart(p, e)').length, 2)
 })
