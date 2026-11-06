@@ -183,6 +183,10 @@ def _valuescore():
     spec = importlib.util.spec_from_file_location('hourwatch_valuescore', os.path.join(HERE, 'valuescore.py'))
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
+    # ONE-HOUR windows: the 'home' kind holds a few hundred rows an hour and only 3-6 % carry inventory_delta, so its 5 %
+    # rename check (made for days) blinded 3 of 26 hours on 11-06; gather / mine / explore / goto / surface keep theirs,
+    # and they are the same field, so a rename still blinds every hour.
+    m.MIN_DELTA_SHARE = dict(m.MIN_DELTA_SHARE, home=0.0)
     return m
 
 
