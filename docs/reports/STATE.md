@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-06T06:20:01Z._
+_Generated 2026-11-06T07:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `601fe6a3` = stuckproj-01 `601fe6a3` (KEEP 11-06 05:29Z, promoted 11-06 05:40Z) on dropdig-01 `4f3b0f5c` (KEEP 11-06 00:57Z, promoted 11-06 01:07Z) on leasegen-01 `4a440a53` (KEEP 11-05 20:56Z, promoted 11-05 21:06Z) on llmoai-01 `aea83708` (KEEP 11-04 23:41Z, promoted 11-04 23:51Z) on dirtrung-01 `493c198a` (KEEP 11-04 21:12Z, promoted 11-04 21:22Z) on swimunder-01 `3a7badea` (KEEP 11-04 17:34Z, promoted 11-04 17:43Z) |
-| **Canary in slot** | EMPTY (last close stuckproj-01 KEEP 11-06 05:29Z) |
-| **Queue (front)** | idlework-01 -> decbundle-01 -> gkforever-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> bucketfix-01 -> kittrim-01 -> +6 more. Held: treefarm-05 (HELD: needs the 3 finished towns (board-b, hive-b, placebo-a) in its draw; fun-mode draws ignore...) |
-| **Scheduler** | block H2 idlework-01: no variant for the fleet base 601fe6a (have: 4f3b0f5): autorebase REFUSED at step worktree: the cherry-pick of 4f3b0f5c..817704dd onto 601fe6a3 does not apply cleanly: conflict in bots/src/skills.mjs (t add/rm <pathspe |
-| **Showcase release** | `8940317f` (17,407 rows), `2cfdb3bd` (10,794 rows), `870c47fd` (9,742 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 8940317f's protected tree: restack by hand; row 11-06 05:25Z) |
+| **Fleet** | `601fe6a3` = stuckproj-01 `601fe6a3` (KEEP 11-06 05:29Z, promoted 11-06 05:40Z) on dropdig-01 `4f3b0f5c` (KEEP 11-06 00:57Z, promoted 11-06 01:07Z) on leasegen-01 `4a440a53` (KEEP 11-05 20:56Z, promoted 11-05 21:06Z) on llmoai-01 `aea83708` (KEEP 11-04 23:41Z, promoted 11-04 23:51Z) on dirtrung-01 `493c198a` (KEEP 11-04 21:12Z, promoted 11-04 21:22Z) on swimunder-01 `3a7badea` (KEEP 11-04 17:34Z, promoted 11-04 17:43Z). Live builds: {'601fe6a3008ed9b6d8f94eb8d89f86d6ebee91c2+d621bb': 70, 'cab8abcff0591d0c80d299a342d7d987dd32f6c9+5c7c72': 10} |
+| **Canary in slot** | **idlework-01** deployed 11-06 07:18Z; reads +90 11-06 08:48Z, +180 11-06 10:18Z; KEEP auto-promotes ~10 min after the +180 KEEP |
+| **Queue (front)** | decbundle-01 -> gkforever-01 -> pause30-01 -> bamboowalk-01 -> stationkeep-01 -> marks-01 -> towngate-01 -> bucketfix-01 -> kittrim-01 -> villageunlock-01 -> +5 more. Held: treefarm-05 (HELD: needs the 3 finished towns (board-b, hive-b, placebo-a) in its draw; fun-mode draws ignore...) |
+| **Scheduler** | busy S1 canary declared: cab8abcff0591d0c80d299a342d7d987dd32f6c9 on hive-a,hive-d / S6 open loop: canary cab8abc is deployed on hive-a,hive-d with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 idlework-01 |
+| **Showcase release** | `2cfdb3bd` (13,844 rows), `8940317f` (12,548 rows), `79bc6085` (9,551 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 2cfdb3bd's protected tree: restack by hand; row 11-06 06:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | servea-roll: rollout-released 11-05 13:55Z |
 | **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?; **visuals-1105**: visuals-1105 skins: OK to publish the 15 custom skin PNGs through MineSkin (public gallery unless a MineSkin key is given), or upload them yourself at skinsrestorer.net/upload?; **idletowns-1106**: idletowns-1106 storage hub: the showcase hall's clerk has never run (0 rows; its upkeep waits behind open projects) -- give it a turn on the showcase first (H0), then port the hall to the fleet (H1, ~600-900 lines + Paper proof)?; **phase1-autopilot-1106**: phase 1 gated pieces (canary-sched v42 + the owner-direct lane): deploy once phase 0's canaries read; and drop `after` links that only encode order, or skip-head never fires |
-| **Open alarms** | STALLCHECK 2026-11-06T05:35:01Z STALLED: 62. OPSAUDIT 2026-11-05 FLAGS: 12 (1 high). 26 active alarm(s): stuck goals 4 (hive-d/monument@68_65_68, isolated-a/monument@355_73_147, placebo-c/monument@355_73_147, town:placebo-c); driftwatch drift:deaths_per_bot_h, driftwatch drift:items_per_bot_h, effectwatch effect:dirtrung-01:h24, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72 |
+| **Open alarms** | STALLCHECK 2026-11-06T06:35:01Z STALLED: 65. OPSAUDIT 2026-11-05 FLAGS: 12 (1 high). 24 active alarm(s): stuck goals 1 (hive-d/monument@68_65_68); driftwatch drift:deaths_per_bot_h, driftwatch drift:items_per_bot_h, effectwatch effect:dirtrung-01:h24, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72 |
 <!-- GENERATED:END -->
 
 ## Notes
