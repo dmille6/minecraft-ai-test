@@ -2501,6 +2501,39 @@ def selftest():
         assert J(base, SWP(sw1))['lease_overlap'] == 0, 'the mutant must fail the head-of-1 assertion'
     finally:
         globals()['lease_overlaps'] = saved_lo
+    # ordernowait-01 TH1 (11-06; bots/src/ordernowait.mjs, OWNER 11-06: the town hall and the cottage stop waiting for the enchanting
+    # workshop to stand): the TOWN HALL now sites and builds while the workshop is open. It logs no new row kind -- `op=sited`, places
+    # on its record's cells, its earthwork's cuts and its trees (`op=clear kind=cut|tree`), a reorient of a state cell, the keeper's
+    # `tidy op=plot_retired kind=X2` -- and each is judged by the existing generic rules (the record's cells, its `clear` list,
+    # its replant count), as the cottage's are (RO1 above). Locked here with positive controls and a mutant of the clear-list rule.
+    # KNOWN GAP, NOT NEW (Codex TH1 r1): buildrun.mjs's trunk felling above a listed tree cell logs one `op=fell cell=<the listed cell>
+    # n=<logs>` row and no per-log cell, and this read judges no `op=fell` row -- for EVERY project with trees on its clear list
+    # (workshop, hall, enchantshop, stepwell, tidy...), not only the town hall. Its X2 plot lies on the wall extension, outside every
+    # protected zone; closing the gap (a per-log row, or judging `fell` against the column above its listed cell) is its own change.
+    tpal = {'roof': ['spruce_slab'], 'ridge': ['spruce_slab'], 'wall': ['spruce_planks', '$planks'], 'post': ['spruce_log']}
+    trec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'townhall@1', 'plot': 'townhall', 'plotId': 'X2', 'palette': tpal,
+            'cells': [{'at': [70, 71, 70], 'role': 'wall', 'seg': 'wall-F'}, {'at': [71, 75, 70], 'role': 'roof', 'seg': 'roof-inner', 'ws': {'type': 'bottom'}}],
+            'clear': [{'at': [72, 71, 72], 'kind': 'cut'}, {'at': [74, 71, 74], 'kind': 'tree'}], 'replant': [{'at': [80, 71, 80]}]}
+    thb = PP(townhall={'record': trec, 'records_files': 1, 'leases': {}, 'chain': [trec]})
+    TH = lambda d, pp=thb: J(base + [R('_build', d, s=14)], pp)
+    clean = lambda r: all(r[k] == 0 for k in ('off_record', 'clear_outside', 'zone', 'felled_unplanted', 'g5_unjudged'))
+    assert clean(TH('project=townhall op=sited cell=70,70 kind=townhall@1/S/X2/2cells gen=1')), 'the siting row judges nothing'
+    assert clean(TH('project=tidy op=plot_retired kind=X2 gen=81')), 'the keeper retiring X2 judges nothing'
+    assert TH('project=townhall op=place seg=wall-F cell=70,71,70 block=spruce_planks')['off_record'] == 0, 'a head record cell'
+    assert TH('project=townhall op=place seg=wall-F cell=79,71,70 block=spruce_planks')['off_record'] == 1, 'positive control: off the record is G1'
+    assert TH('project=townhall op=clear cell=72,71,72 block=dirt kind=cut')['clear_outside'] == 0, 'an earthwork cut on its clear list'
+    assert TH('project=townhall op=clear cell=73,71,72 block=dirt kind=cut')['clear_outside'] == 1, 'positive control: a cut off the list is G2'
+    assert clean(TH('project=townhall op=clear cell=74,71,74 block=spruce_log kind=tree saplings=1/1')), 'a listed tree, its sapling planted'
+    assert TH('project=townhall op=clear cell=74,71,74 block=spruce_log kind=tree saplings=0/1')['felled_unplanted'] == 1, 'positive control: felled unplanted is H5'
+    assert TH('project=townhall op=clear seg=roof-inner cell=71,75,70 block=spruce_slab kind=reorient')['clear_outside'] == 0, 'a reorient of its own slab (RO1)'
+    assert TH('project=townhall op=clear seg=wall-F cell=70,71,70 block=spruce_planks kind=reorient')['clear_outside'] == 1, 'positive control: a stateless cell is never reoriented'
+    MUT_CL = "                    else:\n                        ok = k in {ck(c['at']) for c in rec.get('clear') or []}\n"
+    src_th = open(os.path.abspath(__file__)).read()
+    assert src_th.count(MUT_CL) == 1, 'ANCHOR MISSING OR NOT UNIQUE'
+    ns_t = {'__name__': 'shopread_mutant', '__file__': os.path.abspath(__file__)}
+    exec(compile(src_th.replace(MUT_CL, "                    else:\n                        ok = True\n"), 'shopread_mutant', 'exec'), ns_t)
+    thm = ns_t['combine'](*ns_t['judge'](base + [R('_build', 'project=townhall op=clear cell=73,71,72 block=dirt kind=cut', s=14)], thb, {}, cut=CUT, gens=gens))
+    assert thm['clear_outside'] == 0, 'MUTANT SURVIVED: the clear-list rule'
     print('shopread selftest: ok')
 
 
