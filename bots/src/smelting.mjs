@@ -206,7 +206,11 @@ const rank = name => {
  * Returns { name, count, ticks } where `count` is how many are held and
  * `ticks` is the burn time of ONE -- the caller decides how many to spend.
  */
-export function chooseFuel (held, { exclude = null, needTicks = 0 } = {}) {
+/** STATIONS-01 SURPLUS: fuels only a caller that passes them may burn ({ name: ticks }), ranked just before planks: a SPARE
+ *  crafting table (past the one the bag keeps) has no other use. Never in FUEL_TICKS: a bot's one table is not fuel anywhere
+ *  else (the prompt's fuel hint, the work order's feasibility). */
+export const SPARE_FUEL_TICKS = Object.freeze({ crafting_table: 300 })
+export function chooseFuel (held, { exclude = null, needTicks = 0, extra = null } = {}) {
   // PREFERENCE IS WORTHLESS IF THE BOT CANNOT AFFORD THE JOB.
   //
   // This used to return the lowest-regret fuel it could find and let the caller
@@ -227,9 +231,9 @@ export function chooseFuel (held, { exclude = null, needTicks = 0 } = {}) {
   for (const [name, count] of Object.entries(held ?? {})) {
     if (!(count > 0)) continue
     if (name === exclude) continue
-    const ticks = fuelTicks(name)
+    const ticks = fuelTicks(name) || (Object.hasOwn(extra ?? {}, name) ? Number(extra[name]) || 0 : 0)
     if (!ticks) continue
-    const r = rank(name)
+    const r = Object.hasOwn(extra ?? {}, name) && !fuelTicks(name) ? FUEL_ORDER.indexOf('*_planks') - 0.5 : rank(name)
     const cand = { name, count, ticks, rank: r, total: ticks * count }
     if (!any || cand.total > any.total) any = cand
     if (cand.total >= need && (!afford || r < afford.rank)) afford = cand
@@ -258,7 +262,7 @@ export function chooseFuel (held, { exclude = null, needTicks = 0 } = {}) {
  * @param budgetMs  wall clock this call may spend in front of the furnace
  * @param hasFurnace whether a usable furnace is available (block or carried)
  */
-export function smeltPlan ({ held = {}, item, count = 1, budgetMs = 0, hasFurnace = true, swordFuel = 0 } = {}) {
+export function smeltPlan ({ held = {}, item, count = 1, budgetMs = 0, hasFurnace = true, swordFuel = 0, extraFuel = null } = {}) {
   // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): `swordFuel` carried wooden swords the switch calls unwanted
   // (the caller counts them with swordFuelCount). They go in FIRST, one per smelted item (200 ticks each), before any
   // ordinary fuel. Zero (the default, and always with the switch off) leaves every answer below exactly as it was.
@@ -298,9 +302,9 @@ export function smeltPlan ({ held = {}, item, count = 1, budgetMs = 0, hasFurnac
   // bot smelting its last log into charcoal must not burn that same log.
   // Ask for enough to finish ONE item, so a fuel the bot cannot afford is not
   // chosen over one it can. The batch loop below still trims for the rest.
-  const fuel = chooseFuel(held, { exclude: null, needTicks: SMELT_TICKS })
+  const fuel = chooseFuel(held, { exclude: null, needTicks: SMELT_TICKS, extra: extraFuel })
   const usable = fuel && fuel.name === input && fuel.count < 2
-    ? chooseFuel(held, { exclude: input, needTicks: SMELT_TICKS })
+    ? chooseFuel(held, { exclude: input, needTicks: SMELT_TICKS, extra: extraFuel })
     : fuel
   if (!usable && !swords) {
     return { ok: false, reason: 'no_fuel', item: input, output,
