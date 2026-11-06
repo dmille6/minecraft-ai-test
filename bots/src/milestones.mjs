@@ -17,7 +17,7 @@
 import { WOOD_KEEP } from './woodkeep.mjs'
 import { equivalentTools } from './skills.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
-import { bankableInventory, depositPlan } from './bankable.mjs'
+import { bankableInventory, depositPlan, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { idleWorkOn, idlePick, idleStep, idleMet, idleBar, countOf, IDLE_NEEDS, SCOUT_DIST } from './idlework.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem, snapshot } from './state.mjs'
@@ -941,8 +941,8 @@ export const SUSTAINING = [
           depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, blk.position),
         maxDistance: 48,
       })
-      // idlework-01: nothing the deposit would move (admission's own plan, depositPlan) is nothing to bank here either
-      return depositSurplusMet({ chest: !!chest, planEmpty: () => !depositPlan(b.inventory?.items?.() ?? []).length })
+      // idlework-01: a deposit admission would refuse here (its plan moves nothing, or it is not due) is nothing to bank either
+      return depositSurplusMet({ chest: !!chest, planEmpty: () => depositRefused(b.inventory?.items?.() ?? []) })
     },
     progress: b => `${bankableInventory(b.inventory?.items?.() ?? []).count} bankable items carried`,
     hint: 'deposit — you are at the chest already; keep your tools and enough blocks to climb out.',
@@ -964,6 +964,13 @@ export const SUSTAINING = [
  * never banked. With IDLEWORK_RETURNFIRST on (default) `return` comes first. =0 is the rollback (the old order). Pure.
  */
 export const returnFirstOn = (env = process.env) => String(env?.IDLEWORK_RETURNFIRST ?? '1').trim() !== '0'
+/** Would admission refuse a plain deposit AT the chest, on this rung? (its depositPlan is empty, or depositDue says not due:
+ *  fewer than 12 bankable with under 30 slots used -- Codex r1 BLOCK: a six-iron batch is below it). Pure over the items. */
+export function depositRefused (items = []) {
+  if (!depositPlan(items).length) return true
+  const bankable = bankableInventory(items, { wants: DEPOSIT_ALWAYS }).count
+  return !depositDue({ bankable, distHome: 0, storageWithin48: true, onDepositMilestone: true, occupiedSlots: items.length })
+}
 /** deposit_surplus at its last step (surplus counted, the bank open): met with no chest in reach, or -- return-first on -- when
  *  the deposit's own plan would move nothing (admission refuses that deposit as deposit_nothing_to_bank). Pure. */
 export function depositSurplusMet ({ chest = false, planEmpty = () => false, returnFirst = returnFirstOn() } = {}) {
@@ -1119,7 +1126,9 @@ export class MilestoneController {
     else if (!this.skipped.includes(m.id)) this.skipped.push(m.id)
     this.skippedAt[m.id] = Date.now()
     this.skipCount[m.id] = (this.skipCount[m.id] ?? 0) + 1
-    this.lastSkip = { id: m.id, reason, budget, skipCount: this.skipCount[m.id] }
+    // idlework-01 r1 (Codex BLOCK): cognitive.mjs tells peers `skipped.at(-1)` is unreachable when the reason is 'attempts'; a noBar
+    // skip leaves `skipped` alone, so that entry is an OLDER goal -- the reason is renamed so no peer report fires for it
+    this.lastSkip = { id: m.id, reason: m.noBar && reason === 'attempts' ? 'kind_attempts' : reason, budget, skipCount: this.skipCount[m.id] }
     this.attempts[m.id] = 0
     delete this.progressAt[m.id]
     this.index++

@@ -17550,13 +17550,14 @@ async function buildShop (ctx, args, signal) {
  * order works the next open project instead of re-asking this one (or holding every bot's order 24 h on its own last stop).
  */
 async function buildShopVisit (ctx, args, signal) {
-  const proj = shopActive(ctx.bot, Date.now(), { visit: true })
+  const { bot } = ctx
+  const proj = shopActive(bot, Date.now(), { visit: true })
   const r = await buildShopOn(proj, ctx, args, signal)
   if (unsitedWaitOn() && r?.stop === 'no_site') {
     try {
       const dir = townDir(), key = projKeyOf(proj.plot), h = recordHead(dir, key)
       if (h.ok && !h.head) unsitedMem.set(key, Date.now())
-      if (h.ok && !h.head && unsitedWrite(dir, key, { plot: proj.plot, why: r.detail, by: ctx.bot?.username ?? null })) {
+      if (h.ok && !h.head && unsitedWrite(dir, key, { plot: proj.plot, why: r.detail, by: bot?.username ?? null })) {
         try { logEvent({ kind: 'project_unsited', status: 'success', detail: `${proj.plot} unsited: waits behind the other open projects (${String(r.detail ?? '').slice(0, 100)})` }) } catch { /* telemetry */ }
       }
     } catch { /* the stamp is best effort: the order's own back-off still holds */ }

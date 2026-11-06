@@ -229,6 +229,29 @@ await t('deposit_surplus at a chest: real surplus is still asked for (positive c
   assert.equal(surplus.done(bot), true)
   CHEST.v = false
 })
+await t('Codex r1 BLOCK: a six-iron batch at the chest is below depositDue\'s 12 -- admission refuses it, so the rung is met (no 45-min wait)', () => {
+  CHEST.v = true
+  ITEMS = [{ name: 'raw_iron', count: 6 }, { name: 'iron_pickaxe', count: 1, maxDurability: 250 }]
+  assert.ok(BK.depositPlan(ITEMS).length > 0, 'the plan would move the iron')
+  assert.equal(MS.depositRefused(ITEMS), true)
+  assert.equal(surplus.done(bot), true)
+  ITEMS = [{ name: 'raw_iron', count: 14 }]
+  assert.equal(MS.depositRefused(ITEMS), false, 'positive control: 14 is due')
+  assert.equal(surplus.done(bot), false)
+  CHEST.v = false
+})
+await t('Codex r1 BLOCK: a noBar give-up never reads as an `attempts` skip (cognitive tells peers skipped.at(-1) is unreachable on that reason)', () => {
+  MS._idleReset(); ITEMS = mkItems(); DIST = 3; CHEST.v = false
+  const { c, progress } = controller()
+  progress.skipped.push('gather_sand_8'); progress.skippedAt.gather_sand_8 = NOW; progress.skipCount.gather_sand_8 = 1   // an older give-up
+  settle(c)
+  let skipped = false
+  for (let i = 0; i < 30 && !skipped; i++) skipped = c.noteAttempt({ failed: true, executed: true, serving: true })
+  assert.equal(skipped, true)
+  assert.equal(c.lastSkip.id, 'idle_work')
+  assert.notEqual(c.lastSkip.reason, 'attempts')
+  assert.equal(c.skipped.at(-1), 'gather_sand_8', 'the array is untouched (so the reason is what must not match)')
+})
 
 // ---- mutants (anchored: present and unique, or the mutant is refused) ----
 const MS_PATH = new URL('../src/milestones.mjs', import.meta.url)
