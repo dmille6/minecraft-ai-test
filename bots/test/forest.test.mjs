@@ -689,5 +689,12 @@ await t('forest-02 release fold (Codex r3 BLOCKER): forestFell never digs a leaf
   assert.ok(!wired(strip(raw.replace(old, '    if (false) continue'))), 'MUTANT: the guard cut is caught')
 })
 
+await t('forest-02 release fold (Codex r4 BLOCKER): the sapling pickup walk is the town walk (withTownDepositWalk) -- wiring, comments stripped', () => {
+  const strip = x => x.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/[ \t]\/\/ .*$/gm, '')
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.ok(/const twalk = fn => \(typeof bot\.withTownDepositWalk === 'function' \? bot\.withTownDepositWalk\(fn\) : fn\(\)\)\n\s*try \{ await twalk\(\(\) => withTimeout\(bot\.pathfinder\.goto\(new goals\.GoalNear\(en\.position\.x, en\.position\.y, en\.position\.z, 1\)\), GKSWEEP\.walkMs, bot\)\)/.test(src))
+  assert.ok(!/try \{ await withTimeout\(bot\.pathfinder\.goto\(new goals\.GoalNear\(en\.position\.x, en\.position\.y, en\.position\.z, 1\)\), GKSWEEP\.walkMs, bot\); await sleep\(250, signal\) \}/.test(src), 'no unwrapped pickup goto left')
+})
+
 console.log(`\nforest: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

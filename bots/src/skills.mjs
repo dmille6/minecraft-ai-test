@@ -24918,7 +24918,10 @@ async function buildForest (ctx, args, signal) {
           if (Date.now() > deadline - 8_000) break
           const en = bot.entities?.[d.id]
           if (!en || en.name !== 'item' || !en.position) continue
-          try { await withTimeout(bot.pathfinder.goto(new goals.GoalNear(en.position.x, en.position.y, en.position.z, 1)), GKSWEEP.walkMs, bot); await sleep(250, signal) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+          // forest-02 release fold (Codex r4 BLOCKER): the pickup walk is the town walk (withTownDepositWalk: no towers, no scaffold placed in
+          // a reservation) -- the default movements could scaffold inside a marker's margin
+          const twalk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
+          try { await twalk(() => withTimeout(bot.pathfinder.goto(new goals.GoalNear(en.position.x, en.position.y, en.position.z, 1)), GKSWEEP.walkMs, bot)); await sleep(250, signal) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
         }
         const after = heldMap(bot)
         for (const s of FARM_SPECIES) swept += Math.max(0, (after[s] ?? 0) - (before[s] ?? 0))
