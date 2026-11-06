@@ -2457,6 +2457,50 @@ def selftest():
         assert td.match('poppy') and td.match('fern'), 'positive control: the debris regex reads flowers and ferns'
         for tag in ('fern_rule', 'leaves_rule', 'bloom', 'meal', 'pot', 'guarded', 'in_park', 'tidy_cell', 'decor_post'):
             assert not td.match(tag), 'a decor refusal tag reads as tree debris: %s' % tag
+    # sinkwaive-01 SK1 (11-06; bots/src/sinks.mjs sinkWaiveDue, skills.mjs buildSink): a stone sink's WAIVER row -- `_build
+    # project=tower|road|shrine op=waived cell=.. why=.. gen=..` -- names a record cell the build gives up (no stand reached it); it
+    # changes no block, so it is NO MUTATION: never G1/G2/G3, never counted in `mutations` (as the wall's, paths' and tidy's own
+    # op=waived rows already are). Locked here with a positive control and a text mutant of the judge's mutation-op list.
+    wv = 'project=tower op=waived cell=40,71,40 gen=6 why=no_stand'
+    zt = {'board-a': [[40, 0, 40, 40, 200, 40]]}
+    m_b = J(base, SP_())['mutations']
+    sk = J(base + [R('_build', wv, s=14)], SP_(), zones=zt)
+    assert sk['zone'] == 0 and sk['off_record'] == 0 and sk['clear_outside'] == 0 and sk['mutations'] == m_b, ('a waiver is no mutation', sk['zone'], sk['mutations'], m_b)
+    assert J(base + [R('_build', 'project=tower op=place seg=T1-L01-N cell=40,71,40 block=cobblestone', s=14)], SP_(), zones=zt)['zone'] == 1, 'positive control: a placement on that cell in the zone is G3'
+    MUT_OPS = "            if op in ('place', 'clear', 'replant', 'meal'):\n"
+    src_sr = open(os.path.abspath(__file__)).read()
+    assert src_sr.count(MUT_OPS) == 1, 'ANCHOR MISSING OR NOT UNIQUE'
+    ns_m = {'__name__': 'shopread_mutant', '__file__': os.path.abspath(__file__)}
+    exec(compile(src_sr.replace(MUT_OPS, "            if op in ('place', 'clear', 'replant', 'meal', 'waived'):\n"), 'shopread_mutant', 'exec'), ns_m)
+    skm = ns_m['combine'](*ns_m['judge'](base + [R('_build', wv, s=14)], SP_(), zt, cut=CUT, gens=gens))
+    assert skm['zone'] == 1, 'MUTANT SURVIVED: op=waived as a mutation'
+    # stepwell-05 SW5 (11-06; bots/src/stepwell.mjs stepwellCrewDue/stepwellBuildersNow): THE CREW -- a visit that reads every listed log
+    # down publishes a generation with builders_max raised to STEPWELL_CREW (2, at most 3) BEFORE any second slot is taken; G4 judges
+    # slot names against the HEAD record's builders_max (as for every project): slot2 under the raised head is clean, slot2 under a head
+    # of 1 and slot3 under a head of 2 are G4. Its new rows are no defect: `_build_visit outcome=shared|felling_one` (counted only),
+    # `_stepwell op=crew` (not a build row), a `_build_bag exit=shared` judged like any clean exit.
+    sw1 = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'stepwell@1', 'plot': 'stepwell', 'builders_max': 1, 'cells': [{'at': [60, 66, 60], 'role': 'floor', 't': 1}],
+           'clear': [{'at': [60, 67, 60], 'kind': 'cut', 't': 1}], 'replant': []}
+    sw2 = dict(sw1, gen=2, prev=1, builders_max=2)
+    crewL = {'slot1': [(1, L('showcase-A', 0, 10**12), None)], 'slot2': [(1, L('showcase-B', 1_000, 10**12), None)]}
+    SWP = lambda head, leases=crewL: PP(stepwell={'record': head, 'records_files': head['gen'], 'leases': leases, 'chain': [sw1, head] if head is not sw1 else [sw1]})
+    assert J(base, SWP(sw2))['lease_overlap'] == 0, 'two builders on their own slots under the raised head'
+    assert J(base, SWP(sw1))['lease_overlap'] == 1, 'positive control: slot2 under a head of 1 is G4'
+    assert J(base, SWP(sw2, dict(crewL, slot3=[(1, L('showcase-C', 2_000, 10**12), None)])))['lease_overlap'] == 1, 'slot3 under a head of 2 is G4'
+    crew_rows = [R('_build_visit', 'project=stepwell outcome=shared stop=shared placed=40 refused=0 silent=0 cleared=80', s=14),
+                 R('_build_visit', 'project=stepwell outcome=felling_one stop=felling_one', s=15),
+                 R('_stepwell', 'op=crew y=- at=- why=accepted n=2 ms=- gen=2', s=13),
+                 R('_build_bag', 'project=stepwell exit=shared silent=0 stone_bricks=200/64/0/40/0/224', s=16)]
+    swr = J(base + crew_rows, SWP(sw2))
+    for k in ('off_record', 'clear_outside', 'zone', 'lease_overlap', 'bag_loss', 'unknown_stood'):
+        assert swr[k] == 0, ('stepwell-05 rows', k, swr[k])
+    assert J(base + [R('_build_bag', 'project=stepwell exit=shared silent=0 stone_bricks=200/64/0/40/0/200', s=16)], SWP(sw2))['bag_loss'] == 1, 'positive control: a shared exit is judged (24 stone bricks short)'
+    saved_lo = lease_overlaps
+    globals()['lease_overlaps'] = lambda leases, builders_max=BUILDERS_MAX: saved_lo(leases, 99)
+    try:
+        assert J(base, SWP(sw1))['lease_overlap'] == 0, 'the mutant must fail the head-of-1 assertion'
+    finally:
+        globals()['lease_overlaps'] = saved_lo
     print('shopread selftest: ok')
 
 
