@@ -1,0 +1,22 @@
+// scratch (shaftpath 11-06): the town stair on a region COPY -- every step whose air is not open, whose tread is not good, and
+// what is in those cells. node scripts/stairscan.mjs <stair-dump> <pool>
+import fs from 'node:fs'
+import { dumpReader } from './buildsite-offline.mjs'
+import * as PJ from '../src/buildproj.mjs'
+import * as G from '../src/shaftgeom.mjs'
+const [dumpPath, poolDir] = process.argv.slice(2)
+const read = dumpReader(JSON.parse(fs.readFileSync(dumpPath, 'utf8')))
+const pf = fs.readdirSync(poolDir).find(f => /^project-(-?\d+)_(-?\d+)_(-?\d+)\./.test(f))
+const hm = /^project-(-?\d+)_(-?\d+)_(-?\d+)\./.exec(pf)
+const home = { x: +hm[1], y: +hm[2], z: +hm[3] }
+const rec = PJ.recordHead(poolDir, PJ.projKey(home, 'shaft')).head.rec
+const plan = G.planOf(rec)
+const bad = []
+for (let k = 0; k <= plan.K; k++) {
+  const s = plan.steps[k]
+  for (const c of s.air) { const b = read(...c); if (!b) { bad.push({ k, cell: 'air', at: c, b: '?' }); continue } if (b.boundingBox !== 'empty' || G.isWet(b)) bad.push({ k, cell: 'air', at: c, b: b.name }) }
+  const t = read(...s.tread); if (!t || !G.goodSolid(t, read(s.tread[0], s.tread[1] - 1, s.tread[2]), false)) bad.push({ k, cell: 'tread', at: s.tread, b: t?.name ?? '?' })
+}
+for (const l of plan.landings) for (const col of l.cols) for (const c of col.air) { const b = read(...c); if (!b || b.boundingBox !== 'empty') bad.push({ k: l.k, cell: `stub${l.feet}`, at: c, b: b?.name ?? '?' }) }
+const ul = G.landingUsable(read, rec, 16)
+console.log(JSON.stringify({ town: dumpPath.split('/').pop(), K: plan.K, complete: rec.structure_complete, landing16: ul.ok ? 'ok' : ul.why, bad }))

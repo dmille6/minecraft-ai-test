@@ -1,0 +1,14 @@
+Claude subagent (independent second engine), stairuse-01 r1 on f004f0a7+1adb0677 (2026-11-06): VERDICT no blockers.
+Checked: the dig (next step's air only, the bot's own cells skipped, the six-face liquid/unread barrier as the egress, the stub
+too, `occupied` before every dig, two refusals end it, EGRESS_CLEARS_MAX, abort checks around equip, the server probe); the
+movement owner (the fake { aborted: false } signal is safe in stairWalkOwned; only its own goal halted; profile restored by
+withTownDepositWalk's finally; a real abort rethrows); mine's fallback after every null (away included) unchanged; the row
+format (old fields first, entry=/cleared= appended only when set); STAIRUSE=off (base branch, e.descend never set); geometry
+(stubEnd = the last column's feet cell).
+Notes (non-blocking), ALL TAKEN in 48b40493:
+ 1. the visit's descent ignored the egress reserve (a slow failed long walk + a deep descent could end the visit deep in the stair)
+    -> visitDescend's deadline keeps egressReserveMs(k); runStairVisit re-checks the reserve after e.descend.
+ 2. an `approach` failure was never backed off (a 90 s walk on every mine call) -> a 2 min per-bot wait.
+ 3. mine's comment said the stair digs nothing -> updated.
+ 4. containers could be dug (inherited from egressNext) -> descentNext stops `container` (STAIR_KEEP).
+ 5. a start one cell off its step began from beside the stand -> it walks onto the stand first.

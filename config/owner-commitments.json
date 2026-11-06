@@ -5335,6 +5335,37 @@
    },
    "note": "Measured 11-05/06: fleet 24 h 1,923 bot-h, build visits 63.3 bot-h (3.3%), 2,864 of 3,799 changed nothing; no_site 589 shop_skip rows in exactly 4 towns (board-a furniture 190, placebo-d liquid 476, hive-c liquid 144 + house1, board-c shop); paths no_site + structure_complete with 0 cells in 13 of 14 towns (board-b 320 cells the control); kind=tree clear_failed 8,100 of 9,045 build failures; stuck_on_cell shop_skip 795 in 8 towns. Showcase: wall 10-30/31 then extension 628 + demolition 114; X1 workshop no_site until 11-06 02Z (spruce + sealed cave). Estimates: first building ~11-13 bot-h, essential district 19-24 (Codex), whole town 80-110; build share is the lever (phase 3.1).",
    "owner_answered": "OWNER 11-06 ~16:00Z: APPROVED site choice from a sandbox-regenerated copy of the seed (read only). NOT approved (not chosen): building the wall after the plots are final, and running the stage-1 sandbox test -- revisit later. | OWNER 11-06: the fresh world uses a BRAND-NEW seed (an unseen map), to test adaptation; no code tuned to it."
+  },
+  {
+   "id": "shaftpath-1106",
+   "title": "The common mineshaft used and the town paths laid (projectaudit 11-06: 13/14 stairs UNDERUSED, 13/14 paths unsited with 0 cells; control-session task: measure, both engines, fix in code on the live fleet base)",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "shaftpath-1106.md",
+    "owner-common-mineshaft-1030.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "BUILT, not queued: stairuse-01 (tier 3) 48b40493 on 47b8342d + pathsfix-01 (tier 2) f733b368 on 47b8342d, each with a registration + draft queue entry in docs/reports/shaftpath-2026-11-06/. Queue (Claude+Codex): no bundle; stairuse-01 P after buildfix-01, pathsfix-01 P after stairuse-01; install goalwatch.py (main, skips state no_site) with pathsfix-01. Then read projectaudit's shaft attempts ok/failed and paths cells/bot-minutes.",
+   "max_quiet_hours": 72,
+   "evidence": {
+    "grep": [
+     "stairuse-01",
+     "pathsfix-01",
+     "shaftpath-1106"
+    ],
+    "branches": [
+     "origin/stairuse-01-on-47b8342",
+     "origin/pathsfix-01-on-47b8342"
+    ],
+    "paths": [
+     "docs/reports/shaftpath-design-2026-11-06.md",
+     "docs/reports/shaftpath-2026-11-06"
+    ]
+   },
+   "note": "Measured 11-06 (fleet 7 d, 14.03 M lines, 80 bots): 3,702 of 7,164 stair descents started in a mine away from the stair (no attempt now); surface success 41.9% -> 78.0% after shafttrap-02, the rest walk 11.6% / one-block refusals 7.9%; 1,001 of 2,921 upkeep visits walk_failed. Paths: 30 of 57 unrouted required legs had no brush at a one-column front; plazas on 5-8 high platforms; all-or-nothing siting; a due no-site retry starved behind open projects (placebo-b 4 days). Paper sandbox3 6/6 for the descent."
   }
  ]
 }

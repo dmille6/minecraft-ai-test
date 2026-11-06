@@ -1,0 +1,6 @@
+codex
+blocker 1: fixed (no-site records now use `pathsSettled(rec)` even with `PATHSFIX=off`, so persisted unsited records no longer block subsequent projects).
+
+blocker 2: fixed (routing now constrains the approach brush’s planned level to the front’s ground level or one below, preventing the raised-brush endpoint).
+
+new blockers: none

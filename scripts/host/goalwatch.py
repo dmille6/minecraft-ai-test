@@ -241,7 +241,9 @@ def collect(root, log_root, now, window=WINDOW, unit_pattern=None, deploy_log=No
         except (OSError, ValueError) as e:
             open_goals.append({'pool': pool, 'home': home, 'plot': plot, 'unreadable': f'{type(e).__name__}'})
             continue
-        if rec.get('structure_complete') or rec.get('state') == 'complete':
+        # pathsfix-01 (11-06): an UNSITED record (state no_site: nothing to build until its retry; the paths' is no longer
+        # structure_complete) is no open goal -- projectaudit reports it as unsited, and the bot re-sites it on its own clock
+        if rec.get('structure_complete') or rec.get('state') in ('complete', 'no_site', 'unsited'):
             continue
         try:
             created = ms_to_dt(json.load(open(firstp)).get('at'))

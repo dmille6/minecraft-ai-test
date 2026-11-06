@@ -1,0 +1,14 @@
+codex
+- **Do not bundle.** Separate canaries preserve attribution and rollback: paths changes earthwork/material demand; stairs changes protected traversal behavior.
+
+- **stairuse-01: P, after buildfix-01, at the next eligible P slot.** Reliable descent directly improves visit completion; running after buildfix lets you evaluate its walk fallback against the updated retry/hold/wait policy. Protected status alone does not make it S.
+
+- **pathsfix-01: P, after stairuse-01, at the following P slot.** Establish reliable traversal before introducing substantial construction demand; this also puts paths behind stations and buildfix.
+
+- **Keep an eligible S canary between those P slots.** The listed queue already has consecutive P entries; neither new change supplies a survival experiment merely by being risky. Don’t release held escdead solely to satisfy alternation.
+
+- **stairuse hold: require runtime validation of the protected descent behavior.** Paper proof alone doesn’t establish safe foreign-block removal, hop execution, or fallback behavior.
+
+- **pathsfix hold: only if material availability or retry behavior is unverified.** Confirm towns can absorb the stated cobblestone demand without starving existing work, and that unsited records settle orders while due retries actually repair them.
+
+- **Both: refresh and validate against their eventual predecessor’s promoted SHA.** Building on live `47b8342d` does not establish compatibility with intervening changes, especially overlapping `skills.mjs` edits.

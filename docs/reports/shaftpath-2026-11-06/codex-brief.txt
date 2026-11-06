@@ -1,0 +1,63 @@
+You are reviewing a Minecraft bot fleet (mineflayer bots on Paper 1.21, Node). Repo checkout (read-only for you): the current
+directory, a worktree at the LIVE fleet sha 47b8342d. Read CLAUDE.md first. I want YOUR INDEPENDENT DIAGNOSIS AND DESIGN for two
+fleet-wide failures a new daily project audit found. Do not write code; write a design: causes (ranked, with which numbers below
+support each), the fix per cause (which functions, what decision changes, what the rollback switch is), what must be proven in a
+Paper sandbox, the tests (behaviour, exported pure functions, anchored mutants), and what you would NOT do. Be concrete (file +
+function names). Flag anything in my measurements you think is mis-read. Keep it under ~1,500 words.
+
+OWNER GOAL: bots that build cool structures, survive, cooperate over long periods. Bots changing the world is fine; NO admin edits.
+Constraints: no rails; water is terrain (owner: paths must not bridge water); fun-mode tiers: bots/src/skills.mjs::stair* is
+PROTECTED (config/protected-paths.txt) -> tier 3 (two engines + Paper proof); paths.mjs, shaftgeom.mjs, shaftvisit.mjs, shop.mjs,
+tidy.mjs are not protected.
+
+=== 1. THE COMMON MINESHAFT (town stair; shaftgeom.mjs, shaftvisit.mjs, skills.mjs stairDescend/stairAscend/runStairVisit) ===
+Audit (7 d, config/projectaudit-registry.json kind `shaft`): 13 of 14 complete stairs UNDERUSED: "most attempts fail" -- attempt =
+`_shaft_use` row with ok=1, or ok=0 and why != no_plan. Fleet 7 d: 13,827 `_shaft_use` rows over 80 bots / 14.03 M log lines.
+  down ok=1 arrived 2,333 | down why=walk 2,170 | down why=stepN:blocked 2,373 | down stepN:tread 279 | stub 8
+  up no_plan 6,282 (excluded) | up arrived 233 | up egress 111 | up walk 27
+MY SPLIT by where the descent STARTED (row `from` y vs the stair's ground g; for no-move failures the row's bot.pos is the start):
+  - From a mine AWAY from the stair (from < g-6, not within the stair box +1): 3,702 of 7,164 down attempts in 7 d; in the
+    last 52 h (since shafttrap-02 promoted 11-04 09:47Z) 1,011 failures (walk 859 [median 30 ms, no movement], blocked 107, tread
+    45) and essentially no successes. mine() calls stairDescend whenever the bot is within NEAR_STAIR=64 horizontally of the
+    stair's pillar (nearStair) regardless of depth; landingUsable verifies the steps from the TOP; the walk (town-deposit profile,
+    no digs/scaffold) cannot leave a mine tunnel. A walk failure also sets bot.stairFails (10-min back-off of that landing).
+  - From the SURFACE (from >= g-6): pre shafttrap-02 (10-31 14Z..11-04 10Z) 806 attempts, 41.9% arrived, 43.9% blocked;
+    post (11-04 10Z..11-06 14Z) 1,243 attempts, 78.0% arrived, walk 11.6% (115 of 144 fail in <100 ms with no movement; one
+    looked-at case: a marooned-reflex egress `_stair_handoff then=retry` was moving the same bot in the same second), blocked
+    7.9%, tread 2.6%. Per town post: board-c 24% (stair not complete yet), isolated-d 55%, board-d 66%, rest 70-94%.
+  - In the stair box but below g-6: ~80 failures post; arrivals from below (landing to landing) 605.
+World (read-only region copies, 11-06 14:25Z, the bots' own plan code): 11 of 14 complete stairs read clear top to bottom; 3 have
+ONE blocked air cell at the very bottom (hive-a step 53 andesite, isolated-d step 54 diorite, placebo-c step 55 cobbled_deepslate).
+Upkeep: 2,921 shaft visits in 7 d: complete 1,633, walk_failed 1,001 ("did not reach <stand> ... the stair is blocked above the
+work"), no_support 137. `_shaft op=dig why=air` (a foreign block dug out of a stair AIR cell): 5,474 in 7 d (10-31 2,768 build
+phase; 11-01 1,000; 11-02 681; 11-03 652; 11-04 156; 11-05 42; 11-06 190). The walk footprint PRICES stair air cells for a walk's
+scaffold (shopFootprintRefresh) but does not forbid them. shafttrap-02 (live) hands bots on the stair to runStairEgress before a
+reflex pillars.
+Task the owner gave: "the shaft stair kept clear and walkable (step repair as upkeep: blocked steps re-dug or rebuilt, the walk to
+the shaft head made reliable)".
+
+=== 2. THE TOWN PATHS (paths.mjs sitePaths/pathNetwork/routeLeg/pathDests, skills.mjs buildPaths, tidy.mjs grading) ===
+Audit: 13 of 14 towns `paths state=no_site, structure_complete=true, 0 cells, why=unrouted:<leg>:unreachable,...`; only board-b has
+a path (282 bot-min/day walked on it). fleetpaths-01 made a no-site record COMPLETE (so the wall/treefarm `after: paths` start) and
+retried after 24 h (pathsDue) -- but a due complete record waits behind every OPEN project (shop.mjs activeProject `due`), and
+most towns always have an open project (monument ziggurat, tidy re-survey): 7 d of `_build_visit project=paths`: 1 visit per town
+(the original no-site) except board-b (sited), placebo-a 3, hive-b 4; placebo-b has every project complete yet retryAt 11-02 23:45Z
+was never acted on in 4 days (tidy re-survey visits took the orders). Only tidy completion's pathsRetryNow re-sites (5 rows).
+sitePaths needs EVERY required leg (farm, well, every complete project's front: house1, shop, shaft collar exit, monument stair
+foot) routed, else no record at all. The router: 2x2 brushes, each laid flat at a level within fill 2 / cut 2 (cut only through
+NATURAL ground, not cobblestone), +-1 between brushes, many refusals (pathAvoid).
+MY OFFLINE DIAGNOSIS on 11-06 region copies of all 16 towns (bots' own sitePaths + a flood over the brush graph): 57 required legs
+unrouted. 30 of them have NO usable source brush at the destination itself: the destination is ONE column (a blueprint's doorway
+approach via frontApproach, or the stair's collar exit rec.exit) and all 4 brushes over it cover a project record column
+(`col:project`, its own building) or cannot be levelled -- shaft 11/14, shop 10/15, house1 8/14, monument 1/5. These can never
+route on any ground. The hub (core plaza edge, hubBrushes) component is tiny in many towns (6-40 brushes in 8 towns): the plaza
+is a platform with >4 drops round it (brush spread > fill+cut) and cobblestone spoil (not cuttable). Frontier of the failed
+components: cut_nonnatural_or_fill 8,112, brush_spread>4 4,999, step:2 2,176, col:project 1,824, col:built 1,188. With the tidy's
+grading limits (fill/cut 8, spoil cuttable) the strict router still fails 1-4 required legs in 13 towns. The tidy-01 record per
+town: its grading candidates left [1..4] required legs unrouted in every town but board-b (left 0), which is exactly the one town
+whose paths sited (tidy complete -> retry_now -> sited -> built).
+Task the owner gave: "paths routed around obstacles or built in sections, never 'complete' with 0 cells (an unroutable path is
+UNSITED, not done, and re-tried)".
+
+Effects to register (projectaudit measures them): shaft trip success rate (attempts that are real), path cells built / bot-minutes
+walked. Say how you would define a real attempt.

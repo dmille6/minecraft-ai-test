@@ -1,0 +1,171 @@
+codex
+The dominant shaft failure is **incorrect trip admission**, followed by unreliable repair access. The paths failure is **a composition of impossible endpoints, all-or-nothing siting, and retry starvation**. Neither is primarily a timeout problem.
+
+I checked checkout `47b8342d` and read `CLAUDE.md` and the fun-mode rules. Your telemetry and world-copy results are supplied evidence; I did not independently reproduce them. `config/projectaudit-registry.json` is absent from this checkout.
+
+**Ranked shaft causes and fixes**
+
+1. **Underground bots are offered a stair they cannot reach.** Your 3,702/7,164 underground-away descents, including 859 recent walk failures with median 30 ms, strongly support this. `skills.mjs::stairDescend` checks horizontal `nearStair`, while `shaftgeom.mjs::landingUsable` checks geometry from the top. Neither establishes connectivity from the bot.
+
+   Add an exported pure `shaftgeom.mjs::stairEntryClass`: surface candidate, verified stair step/stub, underground-away, unknown. Use `stairStepAt`, not merely the stair’s bounding box. In `stairDescend`, surface candidates must reach the collar; verified in-stair bots validate only their actual route segment. Underground-away bots may use the stair only after a bounded, successful connector plan; otherwise return immediately to `mine`’s existing fallback.
+
+   Separate approach failures, owner preemption, and observed stair damage. Do not poison `bot.stairFails` for a landing because an unrelated tunnel cannot reach it. Key any geometry backoff by stair identity/generation and affected segment.
+
+   Proposed rollback: `SHAFT_ENTRY_V2=off`, restoring admission/backoff decisions.
+
+2. **Repair selection is top-down, but repair access is a single distant walk.** `shaftvisit.mjs::runStairVisit` already repairs through `firstUndone`, `standFor`, and `nextOp`; it does not lack repair logic. However, 1,001/2,921 visits fail walking to the work stand. The three bottom obstructions fit an access failure, although those counts do not establish its exact mechanism.
+
+   Replace the long stand walk with bounded, freshly verified hops along the stair. Surface workers enter at the collar and repair the first obstruction from the last safe stand. A worker below damage needs an explicitly reachable repair stance; otherwise enqueue a surface-side repair and use existing egress/recovery. Preserve liquid checks, support-before-clear ordering, builder leases, and reserved egress time. Reuse the geometry behind `deepRepair`/`deepHops`, but not their no-op record-update callbacks.
+
+   Have `stairDescend` request this bounded repair when its route is obstructed, then revalidate. A complete record is not evidence of present walkability.
+
+   Proposed rollback: `SHAFT_REPAIR_HOPS=off`.
+
+3. **Concurrent movement and recurring contamination are plausible residual causes, not yet quantified.** The 115/144 immediate surface walk failures justify tracing movement ownership. One simultaneous marooned handoff is evidence of a candidate race, not proof for all 115.
+
+   `skills.mjs::stairWalk` unconditionally calls `haltPath` on timeout/abort; `stairWalkOwned` already guards against halting another owner’s goal. Make ordinary stair walking ownership-aware too: cancel on ownership loss, drain the old walk before starting another, and prevent stale profile restoration from disrupting the successor. `withStairClaim` alone is not proof of exclusivity.
+
+   For contamination, trace actual placement targets and profiles before changing policy. `shopFootprintRefresh` puts shaft cells in the hard-cost set; `shop.mjs::footprintCost` returns **100**, not the monument’s soft price. Installed pathfinder code rejects several moves above 100, but placement callbacks do not always receive the eventual target. Escape profiles also intentionally bypass this footprint. Thus “priced but not forbidden” is incomplete.
+
+   Add a target-level shaft-air placement exclusion for ordinary travel, preserving authorized stair repair and an executable emergency fallback. Prove its movement integration on Paper.
+
+   Proposed independent switches: `SHAFT_WALK_OWNER=off`, `SHAFT_AIR_GUARD=off`.
+
+**Ranked path causes and fixes**
+
+1. **Destination geometry contradicts brush geometry.** Thirty of 57 failed legs having no destination source brush is stronger evidence than aggregate frontier counts. `paths.mjs::pathDests` supplies one doorway/collar column, while `pathAvoid` excludes project columns and `routeLeg` requires a whole 2×2 source brush.
+
+   Add exported `pathPortals`: candidate exterior brushes paired with a short, height-checked pedestrian connector to the actual doorway, collar exit, or monument foot. Existing building surfaces can be traversed without becoming editable path columns. Preserve `pathAvoid`; do not exempt the whole destination building. Validate support, headroom, and the final connection before declaring service.
+
+   “Can never route on any ground” applies to brushes structurally overlapping project columns. Brushes rejected only by levelling can become feasible after earthwork.
+
+   Proposed rollback: `PATH_PORTALS=off`.
+
+2. **One impossible leg suppresses every useful leg; hub connectivity is also underspecified.** `sitePaths` discards `pathNetwork`’s successful legs whenever any required leg fails. Your tiny hub components and tidy’s remaining 1–4 failures explain why grading alone cannot unlock most towns.
+
+   Let `sitePaths`/`pathRecord` publish connected, buildable sections. Persist unresolved destinations with reasons and retry times. Update `extendPaths`, `newDests`, and `skills.mjs::buildPaths` so failed destinations remain eligible; replace connection-lifetime `bot.pathsUnrouted` suppression with bounded, revision-sensitive backoff.
+
+   Validate hub joins in three dimensions: `hubBrushes` currently accepts any grid level, and hub targets have no required height. A nearby path below a plaza cliff is not plaza access. Use `tidy.mjs::gradeTidy`/`siteTidy` to propose bounded dry-land connectors, then verify the resulting surface with the strict router. Execute earthwork from supported, reachable stands; replan after actual edits.
+
+   Keep section completion distinct from network service. An all-at-hub network may be “served by plaza”; it must not manufacture a completed zero-cell path structure.
+
+   Proposed switches: `PATH_SECTIONS=off`, `PATH_CONNECTOR_GRADE=off`.
+
+3. **Retry scheduling has no fairness guarantee, and completion is overloaded.** One visit in most towns plus placebo-b’s four-day overdue retry supports this independently of routing.
+
+   Change `pathsNoSite` to `structure_complete:false`, preserving a retryable UNSITED state. In `shop.mjs::activeProject` and `skills.mjs::shopActive`, schedule eligible retry work with age and a persisted last-service stamp: for example, reserve one of every four eligible construction visits for the oldest retry, subject to lease availability and survival work. Repeated repairs must also be bounded so they cannot monopolize that allowance.
+
+   Explicitly separate dependency release from completion: wall/treefarm can proceed after paths have been assessed and deferred. Merely clearing the completion bit would recreate dependency deadlock. Let `tidy.mjs::pathsRetryNow` accelerate retries, not be their sole trigger.
+
+   Proposed rollback: `PATH_RETRY_FAIR=off`; retain truthful state interpretation during rollback.
+
+**Proof and tests**
+
+Paper must demonstrate, using bot actions without admin edits:
+
+- Surface-to-landing-to-surface trips; landing-to-landing travel; underground-away rejection followed by working fallback.
+- Repair of a bottom obstruction and missing tread, including support placement, then repeated successful passage.
+- Reflex preemption during a stair walk: no stale halt, duplicate movement owner, or disabled survival response.
+- Ordinary scaffold attempts cannot occupy stair air.
+- Doorway/collar portals, a raised plaza connector, partial construction beside an unreachable leg, retry during a permanently open monument, and extension after a bot removes an obstacle.
+- Water barriers remain uncrossed by path construction; multi-bot contention and restart preserve progress.
+
+Extend existing `town-stair`, `stair-entry`, `stair-handoff`, `paths`, `fleetpaths`, and `tidy` tests. Test exported pure entry classification, segment validation, failure/backoff classification, portals, section status, and scheduler selection. Inject effects into repair tests; assert achieved positions and world changes.
+
+Anchored mutants should remove the underground check, restore unconditional landing backoff, restore unconditional halt, omit connector validation, reinstate all-leg rejection, mark no-site complete, and restore open-before-due starvation. Assert each executable anchor occurs exactly once and each mutant fails its intended behavioural assertion. Run `npm test`, lint, and required preflight.
+
+Stair/movement work is tier 3: two engines, required external research, Paper proof, then one fleet canary. Snapshot first; pin whole-bundle SHA rollback. Code rollback cannot undo earthwork.
+
+**Measurement and exclusions**
+
+Define a real trip attempt when an eligible bot commits to a named stair journey while holding movement ownership—before checking damage, so blocked stairs still count. Record one terminal outcome per trip ID, including zero-motion failures. Separate eligibility refusals, approach failures, traversal failures, and preemptions; publish counts alongside success rates. Verify arrival by position and support, not only the current ±1 tolerance.
+
+Stratify by direction, starting location, town, completion-at-attempt, and SHA. Your 41.9%→78.0% surface change is encouraging, not causal proof. Snapshot clarity does not disprove earlier obstructions; `dig why=air` includes initial excavation, so 5,474 is not a contamination count.
+
+Register unique world-confirmed path cells built, connected destinations, and bot-minutes walked. I would not add rails, bridge water, globally loosen keepouts, increase timeouts blindly, require all legs before building anything, or relabel failed construction as complete.
+tokens used
+51,783
+The dominant shaft failure is **incorrect trip admission**, followed by unreliable repair access. The paths failure is **a composition of impossible endpoints, all-or-nothing siting, and retry starvation**. Neither is primarily a timeout problem.
+
+I checked checkout `47b8342d` and read `CLAUDE.md` and the fun-mode rules. Your telemetry and world-copy results are supplied evidence; I did not independently reproduce them. `config/projectaudit-registry.json` is absent from this checkout.
+
+**Ranked shaft causes and fixes**
+
+1. **Underground bots are offered a stair they cannot reach.** Your 3,702/7,164 underground-away descents, including 859 recent walk failures with median 30 ms, strongly support this. `skills.mjs::stairDescend` checks horizontal `nearStair`, while `shaftgeom.mjs::landingUsable` checks geometry from the top. Neither establishes connectivity from the bot.
+
+   Add an exported pure `shaftgeom.mjs::stairEntryClass`: surface candidate, verified stair step/stub, underground-away, unknown. Use `stairStepAt`, not merely the stair’s bounding box. In `stairDescend`, surface candidates must reach the collar; verified in-stair bots validate only their actual route segment. Underground-away bots may use the stair only after a bounded, successful connector plan; otherwise return immediately to `mine`’s existing fallback.
+
+   Separate approach failures, owner preemption, and observed stair damage. Do not poison `bot.stairFails` for a landing because an unrelated tunnel cannot reach it. Key any geometry backoff by stair identity/generation and affected segment.
+
+   Proposed rollback: `SHAFT_ENTRY_V2=off`, restoring admission/backoff decisions.
+
+2. **Repair selection is top-down, but repair access is a single distant walk.** `shaftvisit.mjs::runStairVisit` already repairs through `firstUndone`, `standFor`, and `nextOp`; it does not lack repair logic. However, 1,001/2,921 visits fail walking to the work stand. The three bottom obstructions fit an access failure, although those counts do not establish its exact mechanism.
+
+   Replace the long stand walk with bounded, freshly verified hops along the stair. Surface workers enter at the collar and repair the first obstruction from the last safe stand. A worker below damage needs an explicitly reachable repair stance; otherwise enqueue a surface-side repair and use existing egress/recovery. Preserve liquid checks, support-before-clear ordering, builder leases, and reserved egress time. Reuse the geometry behind `deepRepair`/`deepHops`, but not their no-op record-update callbacks.
+
+   Have `stairDescend` request this bounded repair when its route is obstructed, then revalidate. A complete record is not evidence of present walkability.
+
+   Proposed rollback: `SHAFT_REPAIR_HOPS=off`.
+
+3. **Concurrent movement and recurring contamination are plausible residual causes, not yet quantified.** The 115/144 immediate surface walk failures justify tracing movement ownership. One simultaneous marooned handoff is evidence of a candidate race, not proof for all 115.
+
+   `skills.mjs::stairWalk` unconditionally calls `haltPath` on timeout/abort; `stairWalkOwned` already guards against halting another owner’s goal. Make ordinary stair walking ownership-aware too: cancel on ownership loss, drain the old walk before starting another, and prevent stale profile restoration from disrupting the successor. `withStairClaim` alone is not proof of exclusivity.
+
+   For contamination, trace actual placement targets and profiles before changing policy. `shopFootprintRefresh` puts shaft cells in the hard-cost set; `shop.mjs::footprintCost` returns **100**, not the monument’s soft price. Installed pathfinder code rejects several moves above 100, but placement callbacks do not always receive the eventual target. Escape profiles also intentionally bypass this footprint. Thus “priced but not forbidden” is incomplete.
+
+   Add a target-level shaft-air placement exclusion for ordinary travel, preserving authorized stair repair and an executable emergency fallback. Prove its movement integration on Paper.
+
+   Proposed independent switches: `SHAFT_WALK_OWNER=off`, `SHAFT_AIR_GUARD=off`.
+
+**Ranked path causes and fixes**
+
+1. **Destination geometry contradicts brush geometry.** Thirty of 57 failed legs having no destination source brush is stronger evidence than aggregate frontier counts. `paths.mjs::pathDests` supplies one doorway/collar column, while `pathAvoid` excludes project columns and `routeLeg` requires a whole 2×2 source brush.
+
+   Add exported `pathPortals`: candidate exterior brushes paired with a short, height-checked pedestrian connector to the actual doorway, collar exit, or monument foot. Existing building surfaces can be traversed without becoming editable path columns. Preserve `pathAvoid`; do not exempt the whole destination building. Validate support, headroom, and the final connection before declaring service.
+
+   “Can never route on any ground” applies to brushes structurally overlapping project columns. Brushes rejected only by levelling can become feasible after earthwork.
+
+   Proposed rollback: `PATH_PORTALS=off`.
+
+2. **One impossible leg suppresses every useful leg; hub connectivity is also underspecified.** `sitePaths` discards `pathNetwork`’s successful legs whenever any required leg fails. Your tiny hub components and tidy’s remaining 1–4 failures explain why grading alone cannot unlock most towns.
+
+   Let `sitePaths`/`pathRecord` publish connected, buildable sections. Persist unresolved destinations with reasons and retry times. Update `extendPaths`, `newDests`, and `skills.mjs::buildPaths` so failed destinations remain eligible; replace connection-lifetime `bot.pathsUnrouted` suppression with bounded, revision-sensitive backoff.
+
+   Validate hub joins in three dimensions: `hubBrushes` currently accepts any grid level, and hub targets have no required height. A nearby path below a plaza cliff is not plaza access. Use `tidy.mjs::gradeTidy`/`siteTidy` to propose bounded dry-land connectors, then verify the resulting surface with the strict router. Execute earthwork from supported, reachable stands; replan after actual edits.
+
+   Keep section completion distinct from network service. An all-at-hub network may be “served by plaza”; it must not manufacture a completed zero-cell path structure.
+
+   Proposed switches: `PATH_SECTIONS=off`, `PATH_CONNECTOR_GRADE=off`.
+
+3. **Retry scheduling has no fairness guarantee, and completion is overloaded.** One visit in most towns plus placebo-b’s four-day overdue retry supports this independently of routing.
+
+   Change `pathsNoSite` to `structure_complete:false`, preserving a retryable UNSITED state. In `shop.mjs::activeProject` and `skills.mjs::shopActive`, schedule eligible retry work with age and a persisted last-service stamp: for example, reserve one of every four eligible construction visits for the oldest retry, subject to lease availability and survival work. Repeated repairs must also be bounded so they cannot monopolize that allowance.
+
+   Explicitly separate dependency release from completion: wall/treefarm can proceed after paths have been assessed and deferred. Merely clearing the completion bit would recreate dependency deadlock. Let `tidy.mjs::pathsRetryNow` accelerate retries, not be their sole trigger.
+
+   Proposed rollback: `PATH_RETRY_FAIR=off`; retain truthful state interpretation during rollback.
+
+**Proof and tests**
+
+Paper must demonstrate, using bot actions without admin edits:
+
+- Surface-to-landing-to-surface trips; landing-to-landing travel; underground-away rejection followed by working fallback.
+- Repair of a bottom obstruction and missing tread, including support placement, then repeated successful passage.
+- Reflex preemption during a stair walk: no stale halt, duplicate movement owner, or disabled survival response.
+- Ordinary scaffold attempts cannot occupy stair air.
+- Doorway/collar portals, a raised plaza connector, partial construction beside an unreachable leg, retry during a permanently open monument, and extension after a bot removes an obstacle.
+- Water barriers remain uncrossed by path construction; multi-bot contention and restart preserve progress.
+
+Extend existing `town-stair`, `stair-entry`, `stair-handoff`, `paths`, `fleetpaths`, and `tidy` tests. Test exported pure entry classification, segment validation, failure/backoff classification, portals, section status, and scheduler selection. Inject effects into repair tests; assert achieved positions and world changes.
+
+Anchored mutants should remove the underground check, restore unconditional landing backoff, restore unconditional halt, omit connector validation, reinstate all-leg rejection, mark no-site complete, and restore open-before-due starvation. Assert each executable anchor occurs exactly once and each mutant fails its intended behavioural assertion. Run `npm test`, lint, and required preflight.
+
+Stair/movement work is tier 3: two engines, required external research, Paper proof, then one fleet canary. Snapshot first; pin whole-bundle SHA rollback. Code rollback cannot undo earthwork.
+
+**Measurement and exclusions**
+
+Define a real trip attempt when an eligible bot commits to a named stair journey while holding movement ownership—before checking damage, so blocked stairs still count. Record one terminal outcome per trip ID, including zero-motion failures. Separate eligibility refusals, approach failures, traversal failures, and preemptions; publish counts alongside success rates. Verify arrival by position and support, not only the current ±1 tolerance.
+
+Stratify by direction, starting location, town, completion-at-attempt, and SHA. Your 41.9%→78.0% surface change is encouraging, not causal proof. Snapshot clarity does not disprove earlier obstructions; `dig why=air` includes initial excavation, so 5,474 is not a contamination count.
+
+Register unique world-confirmed path cells built, connected destinations, and bot-minutes walked. I would not add rails, bridge water, globally loosen keepouts, increase timeouts blindly, require all legs before building anything, or relabel failed construction as complete.

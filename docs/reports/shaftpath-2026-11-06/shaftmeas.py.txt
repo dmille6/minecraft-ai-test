@@ -1,0 +1,36 @@
+# stream a full rotation-aware walk (telemetry.open_log) over 7 d; rows of interest only; positive controls printed
+import sys, glob, json, re, datetime, collections as C
+sys.path.insert(0, '/home/mike/shaftpath-1106')
+from telemetry import open_log
+since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=7)
+KEEP = ('"_shaft_use"', '"_shaft"', '"_stair_handoff"', '"_build"', '"_build_visit"', '"_structure_complete"', '"_mine_stair_step_failed"', '"_deepmine"')
+tot = C.Counter(); bots = set(); tmin = None; tmax = None
+out = open('/home/mike/shaftpath-1106/rows.jsonl', 'w')
+import os
+for f in sorted(glob.glob('/var/log/mcai/*/skill-*.jsonl*')):
+    try:
+        if datetime.datetime.fromtimestamp(os.path.getmtime(f), datetime.timezone.utc) < since: continue
+    except OSError: continue
+    with open_log(f) as fh:
+        for line in fh:
+            tot['lines'] += 1
+            hit = any(k in line for k in KEEP)
+            if not hit and tot['lines'] % 50 != 0: continue
+            try: d = json.loads(line)
+            except Exception: continue
+            ts = d.get('@timestamp', '')
+            try: t = datetime.datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            except Exception: continue
+            if t < since: continue
+            b = (d.get('bot') or {}).get('name'); bots.add(b)
+            tmin = t if tmin is None or t < tmin else tmin; tmax = t if tmax is None or t > tmax else tmax
+            if not hit: continue
+            sk = d.get('skill') or {}
+            n = sk.get('name')
+            if n not in ('_shaft_use', '_shaft', '_stair_handoff', '_build', '_build_visit', '_structure_complete', '_mine_stair_step_failed', '_deepmine'): continue
+            det = sk.get('detail') or ''
+            if n in ('_build', '_build_visit', '_structure_complete') and not re.search(r'project=(paths|shaft|tidy)\b', det): continue
+            tot[n] += 1
+            out.write(json.dumps({'t': ts, 'n': n, 'bot': b, 'pool': (d.get('exp') or {}).get('pool'), 'v': ((d.get('code') or {}).get('version') or '')[:8], 'pos': (d.get('bot') or {}).get('pos'), 'st': sk.get('status'), 'd': det, 'trig': d.get('trigger')}) + '\n')
+print('positive control: lines', tot['lines'], 'bots', len(bots), 'span', tmin, tmax)
+print(dict(tot))

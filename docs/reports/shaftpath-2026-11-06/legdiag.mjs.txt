@@ -1,0 +1,92 @@
+// scratch (shaftpath 11-06): WHY a paths leg is unreachable -- the destination's component of the router's brush graph and what
+// bounds it. Inputs as pathsite-offline.mjs. node scripts/legdiag.mjs <dump> <pool>
+import fs from 'node:fs'
+import path from 'node:path'
+import { dumpReader, poolRecords, readJson } from './buildsite-offline.mjs'
+import { loadBlueprint, placeBlueprint } from '../src/buildsite.mjs'
+import { recordHead } from '../src/buildproj.mjs'
+import * as P from '../src/paths.mjs'
+import { gradeLim } from '../src/tidy.mjs'
+const [dumpPath, poolDir] = process.argv.slice(2)
+const dump = JSON.parse(fs.readFileSync(dumpPath, 'utf8'))
+const read = dumpReader(dump)
+const R = poolRecords(poolDir)
+const plan = { ...R.head.plan, gen: R.head.gen }
+const home = plan.home
+const hk = `${home.x}_${home.y}_${home.z}`
+const files = fs.readdirSync(poolDir)
+const plots = [...new Set(files.map(f => /^project-[-\d_]+\.([A-Za-z0-9]+)\.g\d+\.json$/.exec(f)?.[1]).filter(Boolean))].filter(p => p !== P.PATHS_PLOT).sort()
+const projects = plots.map(plot => { const h = recordHead(poolDir, `project-${hk}.${plot}`); const rec = h.ok ? h.head?.rec ?? null : null; let bp = null; try { if (rec?.blueprint && !/^ziggurat@/.test(rec.blueprint) && !/^(shaft|wall|tidy|treefarm)@/.test(rec.blueprint)) bp = loadBlueprint(rec.blueprint) } catch { bp = null } return { plot, rec, bp } }).filter(p => p.rec)
+const plinthRec = readJson(path.join(poolDir, `junkwell-plinth-${hk}.json`))
+const gen = f => Number(/\.g(\d+)\./.exec(f)?.[1] ?? 0)
+const sites = files.filter(f => f.startsWith(`junkwell-site-${hk}.g`)).sort((a, b) => gen(b) - gen(a))
+const site = sites.length ? readJson(path.join(poolDir, sites[0])) : null
+const caps = []
+if (plinthRec?.plan?.cap) caps.push([plinthRec.plan.cap.x, plinthRec.plan.cap.y, plinthRec.plan.cap.z])
+if (site && [site.x, site.y, site.z].every(Number.isFinite) && !caps.some(c => c[0] === site.x && c[2] === site.z)) caps.push([site.x, site.y, site.z])
+const comps = files.filter(f => f.startsWith(`composter-site-${hk}.g`)).sort((a, b) => gen(b) - gen(a))
+const cs = comps.length ? readJson(path.join(poolDir, comps[0])) : null
+const composter = cs && [cs.x, cs.y, cs.z].every(Number.isFinite) ? [cs.x, cs.y, cs.z] : ((plan.plots ?? []).find(p => p.kind === 'farm')?.composter ?? null)
+const base = { plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, projects, place: placeBlueprint, hubDests: true }
+const variants = {
+  base: {},
+  cut_spoil: { lim: { fillMax: 2, cutMax: 2, cut: new RegExp(`${P.NATURAL.source}|^(cobblestone|cobbled_deepslate|dirt|coarse_dirt|grass_block|gravel|stone|netherrack|mossy_cobblestone|andesite|diorite|granite|tuff|deepslate)$`) } },
+  fill4: { lim: { fillMax: 4, cutMax: 4 } },
+  grade4: { lim: gradeLim(read, 4) },
+  grade6: { lim: gradeLim(read, 6) },
+  grade8: { lim: gradeLim(read, 8) },
+}
+const out = { town: path.basename(dumpPath), home, variants: {} }
+for (const [vn, v] of Object.entries(variants)) {
+  const t0 = Date.now()
+  const s = P.sitePaths(read, { ...base, ...v })
+  out.variants[vn] = { ok: s.ok, ms: Date.now() - t0, legs: (s.net?.legs ?? []).filter(l => !l.optional).map(l => `${l.id}:${l.ok ? 'ok' : l.why}`), optional: (s.net?.legs ?? []).filter(l => l.optional).map(l => (l.ok ? 1 : 0)).join(''), rec: s.record ? { cells: s.record.cells.length, path: s.record.cells.filter(c => c.role === 'path').length, fill: s.record.earthwork.fill, cut: s.record.earthwork.cut, bom: s.record.bom, maxFill: Math.max(0, ...Object.values(s.record.cells.filter(c => c.role === 'fill').reduce((m, c) => { const k = c.at[0] + ',' + c.at[2]; m[k] = (m[k] ?? 0) + 1; return m }, {}))), maxCut: Math.max(0, ...Object.values(s.record.clear.filter(c => c.kind === 'cut').reduce((m, c) => { const k = c.at[0] + ',' + c.at[2]; m[k] = (m[k] ?? 0) + 1; return m }, {}))), clear: s.record.clear.length } : null }
+  if (vn !== 'base') continue
+  // diagnosis of the base's unrouted legs
+  const D = P.pathDests(base)
+  const r = 56, box = [home.x - r, home.z - r, home.x + r, home.z + r]
+  const grid = P.pathGrid((x, z) => P.pathColumn(read, x, z, { yHi: home.y + P.PATH_DY, yLo: home.y - P.PATH_DY }), D.avoid, box, read)
+  const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]], BR = [[0, 0], [1, 0], [0, 1], [1, 1]]
+  const hubs = new Set(P.hubBrushes(D.core).filter(([x, z]) => grid.levels(x, z).length).map(([x, z]) => `${x},${z}`))
+  const comp = (srcs) => {
+    const seen = new Set(), q = []
+    for (const [x, z] of srcs) for (const s of grid.levels(x, z)) { const k = `${x},${z},${s}`; if (!seen.has(k)) { seen.add(k); q.push([x, z, s]) } }
+    const front = {}
+    const bump = k => { front[k] = (front[k] ?? 0) + 1 }
+    let hit = false
+    while (q.length) {
+      const [x, z, s] = q.pop()
+      if (hubs.has(`${x},${z}`)) hit = true
+      for (const [dx, dz] of DIRS) {
+        const nx = x + dx, nz = z + dz
+        const ls = grid.levels(nx, nz)
+        const ok = ls.filter(n => Math.abs(n - s) <= 1)
+        if (!ok.length) {
+          if (!grid.inside(nx, nz)) { bump('box_edge'); continue }
+          const cols = BR.map(([a, b]) => grid.col(nx + a, nz + b))
+          const bad = cols.find(c => !c || c.why || c.y == null)
+          if (bad) { bump(`col:${bad?.why ?? 'null'}`); continue }
+          if (!ls.length) { const ys = cols.map(c => c.y); bump(Math.max(...ys) - Math.min(...ys) > P.FILL_MAX + P.CUT_MAX ? 'brush_spread>4' : 'cut_nonnatural_or_fill'); continue }
+          bump(`step:${Math.min(...ls.map(n => Math.abs(n - s)))}`); continue
+        }
+        for (const n of ok) { const k = `${nx},${nz},${n}`; if (!seen.has(k)) { seen.add(k); q.push([nx, nz, n]) } }
+      }
+    }
+    const br = new Set([...seen].map(k => k.split(',').slice(0, 2).join(',')))
+    return { states: seen.size, brushes: br.size, hit, front }
+  }
+  const legs = {}
+  for (const d of D.dests.filter(d => !d.optional)) {
+    const lg = s.net?.legs?.find(l => l.id === d.id)
+    if (lg?.ok) continue
+    const srcs = P.brushesOver(d.cols)
+    const srcWhy = {}
+    for (const [x, z] of srcs) { if (grid.levels(x, z).length) { srcWhy.ok = (srcWhy.ok ?? 0) + 1; continue } const c = BR.map(([a, b]) => grid.col(x + a, z + b)).find(c => !c || c.why || c.y == null); const k = c ? `col:${c?.why}` : 'nolevel'; srcWhy[k] = (srcWhy[k] ?? 0) + 1 }
+    const c = comp(srcs)
+    legs[d.id] = { cols: d.cols.slice(0, 2), srcs: srcs.length, srcWhy, comp: { brushes: c.brushes, hit: c.hit }, front: Object.fromEntries(Object.entries(c.front).sort((a, b) => b[1] - a[1]).slice(0, 8)) }
+  }
+  const hc = comp([...hubs].map(k => k.split(',').map(Number)))
+  out.hub = { hubs: hubs.size, brushes: hc.brushes, front: Object.fromEntries(Object.entries(hc.front).sort((a, b) => b[1] - a[1]).slice(0, 8)) }
+  out.diag = legs
+}
+console.log(JSON.stringify(out))

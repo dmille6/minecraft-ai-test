@@ -1,0 +1,19 @@
+import json, re, collections as C, sys
+R=[json.loads(l) for l in open('rows.jsonl')]
+recs=json.load(open('recs.json'))
+T0=sys.argv[1] if len(sys.argv)>1 else '2026-11-04T10:00'
+def kv(d): return dict(re.findall(r'(\w+)=(\S+)', d))
+D=[(r,kv(r['d'])) for r in R if r['n']=='_shaft_use' and r['t']>=T0]
+print('window from', T0, 'rows', len(D), 'last', max(r['t'] for r,_ in D))
+cls=C.Counter()
+for r,k in D:
+    s=recs.get(r['pool'],{}).get('shaft',{}); g=(s.get('site') or {}).get('g'); b=s.get('box')
+    if g is None: continue
+    fy=int(k['from']) if k.get('from','-').lstrip('-').isdigit() else None
+    p=r['pos']; moved = k.get('to')!=k.get('from')
+    inbox = b and p and b[0]-1<=p['x']<=b[2]+1 and b[1]-1<=p['z']<=b[3]+1
+    if fy is not None and fy>=g-6: where='surface'
+    elif k['why']=='arrived': where='below:arrived(start unknown)'
+    else: where='below:in_box' if inbox else 'below:away'
+    cls[(k['dir'],where,re.sub(r'step\d+','stepN',k['why']))]+=1
+for k,v in sorted(cls.items()): print(v,k)

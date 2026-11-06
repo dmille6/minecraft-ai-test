@@ -1,0 +1,59 @@
+{
+ "run_id": "pathsfix-01",
+ "sha": "f733b36815eb493809c8e12487f4db6be55ae09b",
+ "registered_at": "2026-11-06T17:00:00Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] pathsfix-01 @ f733b368 on fleet 47b8342d (branch pathsfix-01-on-47b8342; tier 2: protected.py 'not protected'). projectaudit 11-06: 13 of 14 fleet towns' paths `state=no_site, structure_complete=true, 0 cells` (only board-b has a path, 282 bot-min/day walked). MEASURED: (a) 7 d `_build_visit project=paths`: ONE no-site visit per town in 11 towns (hive-b 4, placebo-a 3); placebo-b's retryAt 11-02 23:45Z never acted on in 4 days with every project complete -- a due no-site record waited behind every open project (tidy re-survey, monument); only tidy completion's retry_now re-sited (5 rows). (b) the bots' own sitePaths on 11-06 region copies of all 16 towns: 57 required legs unrouted; 30 of them have NO 2x2 brush at the destination (a one-column front: doorway approach / stair collar exit beside its own record -- shaft 11/14, shop 10/15, house1 8/14); the core plazas sit on platforms with 5-8 drops (hub components 6-40 brushes in 8 towns; frontier: cobblestone cut 8,112, brush spread>4 4,999, step 2 2,176); strict router 25 of 80 required legs, fill/cut 4 35, 6 48, 8 67. CHANGE: approach columns (free, within 2, within one of the front's ground; the approach brush at the front's ground or one below), well ring 2 deep, graded rounds for missed legs (PATH_GRADES 4/6/8, spoil cuttable, never beside water, a fill only into air/plants/leaves, 3 s budget), siting IN SECTIONS (`pending` legs re-asked by extendPaths behind a 6 h per-bot memo), hub joins at plaza height, unsited record NOT complete (6 h retry, settled for the order; its due retry a repair; site_unread re-stamped 1 h), a replaceable plant in a record cell is no clear, numeric routeLeg keys (equivalence-tested). Offline 16 towns (r0 code): 70/80 required legs, 15 sited (board-c: every destination at the hub); r1 approach-level rule routes fewer house/shop fronts (pending, re-asked). Offline builds (bots' runVisit, fake builders with the towns' stood cells): see docs/reports/shaftpath-design-2026-11-06.md. ROLLBACK: PATHSFIX=off (any no-site record reads complete again; the base siting). WORLD: path cells are built by the bots (cobblestone fill, dirt_path by shovel, cuts of the bots' own spoil) -- allowed (owner: bots changing the world is fine). Reviews: Codex blockers-only r1 2 BLOCKERS (rollback stranding an unsited record; approach height) fixed, r2 both fixed, none new. Tests: pathsfix.test (30), pathsfix-runtime.test (shopActive over real record files), fleetpaths/tidy/paths/paths-wiring/wall-wiring updated. Tooling on main: goalwatch skips state no_site (test_goalwatch_unsited.py) -- install with this run.",
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:paths:place"
+    },
+    "direction": "increase",
+    "minimum": 0.2,
+    "scale": "absolute",
+    "claim": "path cells laid per bot-h in the canary towns rise from ~0 (13 towns: 0 cells) -- the projectaudit `paths` row (cells built, bot-minutes on the path) follows",
+    "primary": true
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:paths:sited"
+    },
+    "direction": "increase",
+    "minimum": 0.002,
+    "scale": "absolute",
+    "claim": "an unsited town re-sites (a `_build op=sited` row with legs/cells; pending legs named) instead of waiting behind every open project"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:monument:place"
+    },
+    "direction": "increase"
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:wall:place"
+    },
+    "direction": "increase"
+   }
+  ],
+  "exposure": "every canary town whose paths are unsited (13 of 16 on 11-06; not board-b -- already laid -- and board-c -- nothing to lay); the retry fires at the first order after its 6 h (or the old record's past retryAt: at once)"
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

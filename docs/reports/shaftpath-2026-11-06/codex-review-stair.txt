@@ -1,0 +1,6 @@
+codex
+no blockers
+
+- `STAIRUSE=off` preserves the base behavior; telemetry retains the original fields first.
+- Reviewed dig guards, claims, movement ownership, backoff, and mine’s fallback.
+- Tests could not start: the read-only sandbox denied the runner’s temporary directory creation. Paper results were not rerun.

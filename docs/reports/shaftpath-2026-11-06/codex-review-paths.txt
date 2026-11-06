@@ -1,0 +1,8 @@
+codex
+BLOCKERS:
+
+1. [bots/src/skills.mjs:17061](/Users/darrellmiller/Documents/.wt-shaftpath/bots/src/skills.mjs:17061) — **Rollback strands persisted no-site records.** After this change writes `structure_complete:false`, `PATHSFIX=off` makes `shopActive` select paths as open, but `buildPaths` returns `paths_no_site` until `retryAt`. Wall and tree farm remain blocked. Reproduced: `complete:false`, `due:false`, selected project `paths`. **Fix:** normalize existing no-site records to the base’s complete/upkeep semantics when off, including the base retry timing.
+
+2. [bots/src/paths.mjs:699](/Users/darrellmiller/Documents/.wt-shaftpath/bots/src/paths.mjs:699) — **Approach height validation checks original ground, not the routed surface.** Grading can raise the approach beyond stepping height and still mark the destination served. Reproduced with ground Y=69, a five-high plaza, and shaft exit `[10,70,0]`: the entire successful leg is `[[7,-3,73]]`—a raised brush with no ramp to the exit. **Fix:** constrain destination source levels against the front’s height and validate the final approach connection after overlapping brushes determine surface heights.
+
+Non-blocking note: `npm test -- pathsfix` could not start because the read-only sandbox denied temporary-directory creation. Both in-memory reproductions ran successfully.
