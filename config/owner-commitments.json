@@ -4901,7 +4901,7 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "Deploy on .40 one piece at a time (design doc deploy order): pager tree + haltwatch + start journal, the follower, the tripwire policy (quarantines Gale at the first read), AUTO_ROLLBACK, the replay gate. Owner: Z1 scope (quarantine vs world stop) and the showcase's missing survey job.",
+   "next_step": "ALL LIVE on .40 11-06 11:44-12:40Z (pager tree + digest, start journal, haltwatch, follower OBSERVE, harm-only tripwire, AUTO_ROLLBACK, REPLAY_GATE); Gale quarantined 12:35Z. Watch: the first REPORT page, the first harm trip-remedy, the release agent's first gated stage. Rollback: /srv/showcase/backup-phase1-20261106T114441Z, ~/pager/backup-20261106T114441Z.",
    "max_quiet_hours": 48,
    "evidence": {
     "paths": [
