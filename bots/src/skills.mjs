@@ -17532,7 +17532,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     const order = sinkListOrder(order0, activeMem.sinkOrder ?? [])
     const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null })
     if (visit) noteRepair(rmem, pick, states, now)
-    if (visit && b) serviceBegin(b, svc && pick?.plot === svc.plot ? svc : null, now)
+    if (visit && b) serviceBegin(b, svc, pick, now)
     return pick
   } catch { return projectsOn()[0] }
 }
@@ -19881,10 +19881,12 @@ function servicePickNow (bot, states, now = Date.now(), visit = false) {
     return { ...svc, gen: c.gen, at: stamp.at }
   } catch { return null }
 }
-/** THE VISIT'S START: a claimed service pick notes the bot's share and logs `_service`; any other pick clears the mark. Never throws. */
-function serviceBegin (bot, svc, now = Date.now()) {
+/** THE VISIT'S START: a claimed service pick the visit works notes the bot's share and logs `_service`; a claim the pick did not use
+ *  (its plot not in the order) is released at once; any other pick clears the mark. Never throws. */
+function serviceBegin (bot, svc, pick = null, now = Date.now()) {
   try {
     bot.serviceOffer = null
+    if (svc && pick?.plot !== svc.plot) { try { fs.writeFileSync(`${serviceGenFile(svc.plot, svc.gen)}.released`, String(now)) } catch { /* waits its gap */ } svc = null }
     if (!svc) { bot.serviceVisit = null; return }
     bot.serviceAt = now
     bot.serviceVisit = { plot: svc.plot, gen: svc.gen, at: svc.at }

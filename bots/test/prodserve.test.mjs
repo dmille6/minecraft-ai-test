@@ -247,7 +247,7 @@ const wiring = src => {
   one("const svc = PRODSERVE\\.on && b \\? servicePickNow\\(b, marked, now, visit\\) : null")
   one("const c = serviceClaim\\(svc\\.plot, st\\?\\.gen, stamp\\)\\n\\s*if \\(!c\\.ok\\) return null")
   one("const pick = activeProject\\(marked, order, \\{ upkeepTurn: \\(b\\?\\.sinkStreak \\?\\? 0\\) >= SINK_STREAK, service: svc\\?\\.plot \\?\\? null \\}\\)")
-  one("if \\(visit && b\\) serviceBegin\\(b, svc && pick\\?\\.plot === svc\\.plot \\? svc : null, now\\)")
+  one("if \\(visit && b\\) serviceBegin\\(b, svc, pick, now\\)")
   one("const serve = PRODSERVE\\.on && complete && b && isServicePlot\\(p\\.plot\\) \\? serviceDueOf\\(b, p\\.plot, rec, hubDue, now\\) : null")
   one("serviceEnd\\(ctx\\.bot, r\\?\\.stop\\)")
   one("if \\(plot === HUB_PLOT && rec\\.structure_complete && \\(!recordDamaged\\(bot, rec, \\{ tidy: false \\}\\) \\|\\| bot\\.serviceVisit\\?\\.plot === HUB_PLOT\\) && hubUpkeepDue\\(bot, rec\\)\\) return hubUpkeepVisit\\(ctx, rec, signal, out\\)")
