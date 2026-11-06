@@ -377,7 +377,11 @@ if RUN:
         if _PIN is None:
             pick = None; _none_why = 'draw_pin_pools REFUSED: %s' % _pbad
         else:
-            pick, _pwhy = _DPN.pick(_PIN, _hard, set(band), TARGET_K)
+            # a pinned pool must be LIVE: a band row (poolrank2 lists no isolated-* pool at all), or all five of its bots
+            # wrote a skill row in the last PIN_FRESH_MIN minutes (the log files' mtimes)
+            _LOGS = os.environ.get('DRAWREC_LOG_ROOT', '/var/log/mcai')
+            _live = set(band) | {p for p in _PIN if _DPN.pool_fresh(_LOGS, p, now)}
+            pick, _pwhy = _DPN.pick(_PIN, _hard, _live, TARGET_K)
             print('draw_pin_pools:', _pwhy)
             if not pick:
                 _none_why = 'draw_pin_pools: %s' % _pwhy

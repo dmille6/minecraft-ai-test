@@ -14,7 +14,8 @@ THE FIELD. `"draw_pin_pools": ["isolated-d", "hive-c"]` -- the draw is EXACTLY t
   * cannot be combined with draw_require_pools (one way to say which pools; both = refused);
   * the HARD exclusions still hold for pinned pools: the brain subset, the live canary, draw-exclude.txt; the 12-h ledger
     exclusion, the productivity band and the exposure filter do not (they are measurement controls, and the pin is the
-    owner's choice of population). A pinned pool must have a band row (live, with data);
+    owner's choice of population). A pinned pool must be LIVE: a band row, or (poolrank2 lists no isolated-* pool) all
+    five of its bots wrote a skill row in the last 15 min;
   * FAIL CLOSED: a pinned pool that is not available, or a malformed field, draws NOTHING (the loop waits, never a
     substitute, and canary-loop.sh never takes the 30-min fun fallback for a pinned run).
 Absent or null = no pin, exactly as before."""
@@ -47,6 +48,29 @@ def parse(reg):
     return list(v), None
 
 
+PIN_FRESH_MIN = 15
+POOL_BOTS = 5
+
+
+def pool_fresh(log_root, pool, now, fresh_min=PIN_FRESH_MIN, bots=POOL_BOTS):
+    """A pool with no band row is LIVE when exactly `bots` bot dirs <root>/<pool>-<Name>/ exist and every one's skill log
+    was written in the last fresh_min minutes. Never raises (False = not shown live)."""
+    import datetime as dt, glob, os
+    try:
+        dirs = [d for d in glob.glob(os.path.join(log_root, pool + '-*')) if os.path.isdir(d)
+                and '-' not in os.path.basename(d)[len(pool) + 1:]]
+        if len(dirs) != bots:
+            return False
+        for d in dirs:
+            f = os.path.join(d, 'skill-%s.jsonl' % os.path.basename(d))
+            t = dt.datetime.fromtimestamp(os.path.getmtime(f), dt.timezone.utc)
+            if now - t > dt.timedelta(minutes=fresh_min):
+                return False
+        return True
+    except Exception:
+        return False
+
+
 def pick(pins, hard_excluded, band_pools, cap):
     """PURE. pins: parse()'s list; hard_excluded: the brain subset, the live canary and draw-exclude.txt pools; band_pools:
     pools with a band row; cap: the most pools this registration may draw. -> (pools or None, why). None = no draw."""
@@ -58,5 +82,5 @@ def pick(pins, hard_excluded, band_pools, cap):
         if p in hard_excluded:
             return None, 'pinned pool %s is excluded (the live canary, the brain subset or draw-exclude.txt): waiting' % p
         if p not in band_pools:
-            return None, 'pinned pool %s has no band row (not live, no data): waiting' % p
+            return None, 'pinned pool %s is not live (no band row, and not all five bots wrote a row in %d min): waiting' % (p, PIN_FRESH_MIN)
     return list(pins), 'pinned %s exactly (owner OK: %s)' % (pins, 'given' if any(owner_only(p) for p in pins) else 'not needed')

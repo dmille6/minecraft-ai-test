@@ -55,7 +55,23 @@ def cases(drawrec, dpn, loop_src):
     P, o = run(drawrec, dpn, PIN, manual='isolated-a')
     c('a pinned pool is manually excluded -> NO draw', P == [] and 'excluded' in o, (P, o))
     P, o = run(drawrec, dpn, PIN, drop=('hive-c',))
-    c('a pinned pool has no band row (not live) -> NO draw', P == [] and 'no band row' in o, (P, o))
+    c('a pinned pool with no band row and no live logs -> NO draw', P == [] and 'not live' in o, (P, o))
+    lg = tempfile.mkdtemp(prefix='drawpin-logs-')
+    try:
+        for b in ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo'):
+            os.makedirs(os.path.join(lg, 'isolated-d-' + b)); open(os.path.join(lg, 'isolated-d-' + b, 'skill-isolated-d-%s.jsonl' % b), 'w').write('{}\n')
+        PD = dict(PIN, draw_pin_pools=['isolated-d', 'hive-c'])
+        P, o = run(drawrec, dpn, PD, env={'DRAWREC_LOG_ROOT': lg})
+        c('isolated-d (no band row: poolrank2 lists no isolated pool) with five fresh bot logs -> drawn', sorted(P) == ['hive-c', 'isolated-d'], (P, o))
+        old = __import__('time').time() - 3600
+        os.utime(os.path.join(lg, 'isolated-d-Echo', 'skill-isolated-d-Echo.jsonl'), (old, old))
+        P, o = run(drawrec, dpn, PD, env={'DRAWREC_LOG_ROOT': lg})
+        c('one of its bots silent for an hour -> NO draw (waits)', P == [] and 'not live' in o, (P, o))
+        shutil.rmtree(os.path.join(lg, 'isolated-d-Echo'))
+        P, o = run(drawrec, dpn, PD, env={'DRAWREC_LOG_ROOT': lg})
+        c('four bot dirs, not five -> NO draw', P == [] and 'not live' in o, (P, o))
+    finally:
+        shutil.rmtree(lg, ignore_errors=True)
     P, o = run(drawrec, dpn, PIN, env={'DRAW_FUN_FALLBACK': '1'})
     c('the fun fallback does not change a pinned draw', sorted(P) == ['hive-c', 'isolated-a'], (P, o))
     P, o = run(drawrec, dpn, dict(PIN, draw_pin_pools=['hive-d']))
@@ -78,7 +94,21 @@ def cases(drawrec, dpn, loop_src):
     code = re.sub(r'(?m)^\s*#.*$', '', loop_src)
     c('canary-loop.sh: the fallback is gated on no pin', re.search(
         r'\[ -n "\$FUN" \] && \[ -z "\$PIN" \] && \[ \$\(\( \$\(_now\) - _D0 \)\) -ge \$\(\( FUN_DRAW_CAP_MIN \* 60 \)\) \] && FB=1', code))
-    c('canary-loop.sh: PIN is read from the registration', re.search(r'(?m)^\s*PIN=\$\(jf draw_pin_pools\)$', code))
+    m = re.search(r'(?m)^\s*PIN=\$\((python3 -c "[^\n]*")\)$', code)
+    c('canary-loop.sh: PIN is read from the registration', m)
+    if m:
+        import json as _j, subprocess as _sp
+        d = tempfile.mkdtemp(prefix='drawpin-loop-')
+        try:
+            for name, reg, want in (('null', {'draw_pin_pools': None}, ''), ('absent', {}, ''),
+                                    ('set', {'draw_pin_pools': ['hive-c']}, "['hive-c']"),
+                                    ('malformed empty string', {'draw_pin_pools': ''}, "''"),
+                                    ('malformed empty list', {'draw_pin_pools': []}, '[]')):
+                rp = os.path.join(d, 'r.json'); _j.dump(reg, open(rp, 'w'))
+                got = _sp.run(['bash', '-c', 'REG=%s; echo "$(%s)"' % (rp, m.group(1))], capture_output=True, text=True).stdout.strip()
+                c('canary-loop.sh: a pin %s reads as %r (null/absent keep the fun fallback; a malformed one waits, never falls back: Claude + Codex reviews)' % (name, want), got == want, got)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
     return out
 
 
@@ -86,14 +116,20 @@ MUTANTS = [
     ('drawpin.py', 'no owner OK needed', "    if gated and not (isinstance(ok, str) and len(ok.strip()) >= OK_MIN_LEN):", "    if False:"),
     ('drawpin.py', 'hard exclusion ignored', "        if p in hard_excluded:\n", "        if False:\n"),
     ('drawpin.py', 'no band row accepted', "        if p not in band_pools:\n", "        if False:\n"),
+    ('drawpin.py', 'a stale bot log counts as live', "            if now - t > dt.timedelta(minutes=fresh_min):", "            if False:"),
+    ('drawpin.py', 'any number of bot dirs', "        if len(dirs) != bots:\n            return False", "        if not dirs:\n            return False"),
     ('drawpin.py', 'cap ignored', "    if cap < 1 or len(pins) > cap:", "    if False:"),
     ('drawpin.py', 'pin + require accepted', "    if reg.get('draw_require_pools') is not None:\n        return None", "    if False:\n        return None"),
     ('drawpin.py', 'malformed accepted', "    if not isinstance(v, list) or not v or not all(", "    if False and not all("),
     ('drawrec.sh', 'the pin never applied', "    if isinstance(_pr, dict) and _pr.get('draw_pin_pools') is not None:",
      "    if False:"),
-    ('drawrec.sh', 'the 12-h window applied to pins', "            pick, _pwhy = _DPN.pick(_PIN, _hard, set(band), TARGET_K)",
-     "            pick, _pwhy = _DPN.pick(_PIN, excl, set(band), TARGET_K)"),
+    ('drawrec.sh', 'the 12-h window applied to pins', "            pick, _pwhy = _DPN.pick(_PIN, _hard, _live, TARGET_K)",
+     "            pick, _pwhy = _DPN.pick(_PIN, excl, _live, TARGET_K)"),
+    ('drawrec.sh', 'a log-live pool without a band row is never drawn', "            _live = set(band) | {p for p in _PIN if _DPN.pool_fresh(_LOGS, p, now)}",
+     "            _live = set(band)"),
     ('drawrec.sh', 'a refused pin still draws', "        if _PIN is None:\n            pick = None;", "        if False:\n            pick = None;"),
+    ('canary-loop.sh', 'a null pin reads as a pin', "print('' if v is None else (v or repr(v)))", "print(v)"),
+    ('canary-loop.sh', 'a malformed empty pin reads as no pin', "print('' if v is None else (v or repr(v)))", "print('' if v is None else v)"),
     ('canary-loop.sh', 'a pinned run takes the fallback', '[ -n "$FUN" ] && [ -z "$PIN" ] && [ $(( $(_now)', '[ -n "$FUN" ] && [ $(( $(_now)'),
 ]
 

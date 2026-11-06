@@ -187,7 +187,7 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
   if [ -n "$(mf canary_pool)" ]; then page error "manifest names another canary ($(mf canary_pool) $(mf canary_code_version)); refusing to start"; exit 2; fi
   # PINNED DRAW (owner 11-06; drawpin.py): the draw is exactly draw_pin_pools or nothing; it WAITS for them and never takes
   # the fun fallback (a substitute pool would read a population the change cannot expose). canary-sched pages a draw stall.
-  PIN=$(jf draw_pin_pools)
+  PIN=$(python3 -c "import json; v=json.load(open('$REG')).get('draw_pin_pools'); print('' if v is None else (v or repr(v)))")
   if [ -n "$PIN" ]; then journal draw "waiting for the PINNED pools $PIN (no substitute, no fallback)"
   elif [ -n "$FUN" ]; then journal draw "waiting for two pools (fun mode: at most ${FUN_DRAW_CAP_MIN} min, then the fallback draw)"; else journal draw "waiting for two pools"; fi
   _D0=$(_now); FB=""
