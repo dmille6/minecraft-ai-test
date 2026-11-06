@@ -236,6 +236,15 @@ M = [
  ("            if isinstance(b, list) and len(b) == 4 and tops and b[0] - 1 <= cell[0] <= b[2] + 1", "            if isinstance(b, list) and len(b) == 4 and tops and b[0] - 100 <= cell[0] <= b[2] + 100"),
  ("for rr in (rec, rec_pre) if rr is not None)\n                    if not ok:", "for rr in (rec,) if rr is not None)\n                    if not ok:"),
  ("                    elif plot == TREEFARM and f.get('kind') in ('stand', 'retire'):\n", "                    elif plot == TREEFARM and f.get('kind') in ('stand_', 'retire_'):\n"),
+ # PT1: a per-tree short felling read as H5 again (the 27 stepwell items)
+ ("                    elif int(m.group(1)) < int(m.group(2)) and g5_pertree(chain_g5, cell, t_g5) is not None:", "                    elif False:"),
+ # PT1: a tree that owed its own replant read clean (the unjudged dropped)
+ ("                        if g5_pertree(chain_g5, cell, t_g5) > 0:", "                        if False:"),
+ # PT1 (Claude review BLOCKERS): skipped replants not counted / the newest generation alone
+ ("        n = len([x for x in rp if x.get('tree') == hit['tree'] and (x.get('plot') or None) == (hit.get('plot') or None)])", "        n = len([x for x in rp if x.get('tree') == hit['tree'] and (x.get('plot') or None) == (hit.get('plot') or None) and x.get('state') != 'skipped'])"),
+ ("        owed = n if owed is None else max(owed, n)", "        owed = n"),
+ # PT1 (Codex r2 BLOCKER): the first matching clear only
+ ("        for hit in hits:\n", "        for hit in hits[:1]:\n"),
 ]
 bad = 0
 for old, new in M:

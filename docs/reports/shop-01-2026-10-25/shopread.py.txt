@@ -630,6 +630,29 @@ DECOR_LEAVES = frozenset(['spruce_leaves', 'oak_leaves', 'birch_leaves', 'dark_o
 WALL_PLOTS = ('wall', 'wallext')
 
 
+def g5_pertree(chain, cell, t_ms):
+    """PT1 (11-06): a felling under PER-TREE B4 (buildrun.mjs plotprep-03 `replantPerTree`: a tree waits only for ITS replants) -> None
+    when not per-tree, else the most replants TAGGED to that tree (any state: a replant only ever becomes `skipped`, and one skipped
+    after the felling was still owed when it fell -- Claude PT1 review BLOCKER 1) in ANY generation in force at t_ms that lists the
+    cell as a tagged tree clear (never the newest alone: the bot may have held an older one -- BLOCKER 2). Pure. The row's
+    saplings=a/b count the WHOLE record, so a < b there is no H5 on its own; 0 means the tree never owed a replant: clean."""
+    k = ','.join(str(v) for v in cell)
+    owed = None
+    for g in sink_in_force(chain, t_ms):
+        cl = [c for c in (g.get('clear') or []) + ((g.get('fell') or {}).get('clear') or []) if isinstance(c, dict)]
+        # EVERY clear listing the cell (top-level and `fell`, Codex PT1 r2 BLOCKER: the first match alone could owe 0 while another owes one)
+        hits = [c for c in cl if c.get('kind') == 'tree' and isinstance(c.get('at'), list) and ','.join(str(v) for v in c['at']) == k]
+        if not hits:
+            continue
+        rp = [x for x in (g.get('replant') or []) + ((g.get('fell') or {}).get('replant') or []) if isinstance(x, dict)]
+        if any(not isinstance(h.get('tree'), int) for h in hits) or not any(isinstance(x.get('tree'), int) for x in rp):
+            return None   # a generation in force that lists the cell untagged is not per-tree: the old record-wide rule
+        for hit in hits:
+            n = len([x for x in rp if x.get('tree') == hit['tree'] and (x.get('plot') or None) == (hit.get('plot') or None)])
+            owed = n if owed is None else max(owed, n)
+    return owed
+
+
 def g5_denominator_ok(chain, b, t_ms):
     """G5R: is a felling's sapling denominator `b` (saplings=a/b: the non-skipped replant entries of the record the bot held)
     the replant list of a generation in force at t_ms? Pure. A replant only ever becomes `skipped` (never back), so at felling
@@ -1676,6 +1699,13 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         # existed in any bag or town chest (the stepwell's 'felling complete, 17 logs left' loop) -- its own drops replant it.
                         # Counted (a watch line), never H5; any other short felling is still H5
                         out['felled_first'] += 1; lists['felled_first'].append('%s %s saplings=%s' % (bot, k, f.get('saplings')))
+                    elif int(m.group(1)) < int(m.group(2)) and g5_pertree(chain_g5, cell, t_g5) is not None:
+                        # PT1 (11-06, the showcase's H5 27 on the stepwell's felling): under per-tree B4 the record-wide a < b is no H5 --
+                        # a tree that owed no replant itself is clean; one that owed some cannot be told from this row (it carries the
+                        # record's count, not the tree's): unjudged, never H5
+                        if g5_pertree(chain_g5, cell, t_g5) > 0:
+                            out['g5_unjudged'] += 1
+                            lists['g5_unjudged'].append('%s %s saplings=%s pertree' % (bot, k, f.get('saplings')))
                     elif int(m.group(1)) < int(m.group(2)):
                         out['felled_unplanted'] += 1; lists['felled_unplanted'].append('%s %s saplings=%s' % (bot, k, f.get('saplings')))
                 unknown_open.pop((bot, k), None)
@@ -2436,6 +2466,31 @@ def selftest():
     # FF1 (fellfirst-01): the same short felling marked first=1 (no sapling of its kind anywhere) is counted, never H5 (positive control above)
     ff = J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/1 first=1', s=9)])
     assert ff['felled_unplanted'] == 0 and ff.get('felled_first', 0) == 1, ('FF1: a fell-first felling is no H5', ff['felled_unplanted'], ff.get('felled_first', 0))
+    # PT1 (11-06): PER-TREE B4 -- a tagged record (its tree clears and replants carry `tree`): a short record-wide count is no H5
+    trec = dict(rec, clear=[{'at': [12, 71, 10], 'kind': 'tree', 'name': 'oak_log', 'tree': 0}, {'at': [14, 71, 10], 'kind': 'tree', 'name': 'oak_log', 'tree': 1}],
+                replant=[{'cell': [20, 70, 20], 'sapling': 'oak_sapling', 'tree': 0}, {'cell': [21, 70, 20], 'sapling': 'oak_sapling', 'tree': 1}])
+    tpr = {'record': trec, 'records_files': 1, 'leases': {}, 'zones_ok': True}
+    tpj = {'board-a': tpr, 'board-b': tpr}
+    nob = [x for x in base if 'kind=tree' not in x['detail']]
+    pt0 = J(nob + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=1/2', s=9)], tpj)
+    assert pt0['felled_unplanted'] == 0 and pt0['g5_unjudged'] == 1, ('PT1: the tree owed its own replant: unjudged, never H5', pt0['felled_unplanted'], pt0['g5_unjudged'])
+    # (Claude PT1 review BLOCKER 1) a replant of the tree SKIPPED since is still owed at the felling: unjudged, never clean
+    trec2 = dict(trec, replant=[{'cell': [20, 70, 20], 'sapling': 'oak_sapling', 'tree': 0, 'state': 'skipped'}, {'cell': [21, 70, 20], 'sapling': 'oak_sapling', 'tree': 1}])
+    tpr2 = dict(tpr, record=trec2); tpj2 = {'board-a': tpr2, 'board-b': tpr2}
+    pt1 = J(nob + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/1', s=9)], tpj2)
+    assert pt1['felled_unplanted'] == 0 and pt1['g5_unjudged'] == 1, ('PT1: a skipped replant of the tree: unjudged', pt1['felled_unplanted'], pt1['g5_unjudged'])
+    # a tree that never owed a replant (the record's replants are all another tree's): clean
+    trec3 = dict(trec, replant=[{'cell': [21, 70, 20], 'sapling': 'oak_sapling', 'tree': 1}])
+    tpr3 = dict(tpr, record=trec3); tpj3 = {'board-a': tpr3, 'board-b': tpr3}
+    pt3 = J(nob + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/1', s=9)], tpj3)
+    assert pt3['felled_unplanted'] == 0 and pt3['g5_unjudged'] == 0, ('PT1: the tree never owed a replant: clean', pt3['felled_unplanted'], pt3['g5_unjudged'])
+    # (BLOCKER 2) EVERY generation in force: an older one in which the tree owed a replant keeps the row unjudged
+    assert g5_pertree([trec, trec3], [12, 71, 10], None) == 1, 'PT1: the most any generation in force owed'
+    # (Codex PT1 r2 BLOCKER) the cell in BOTH lists with different tags: the most any match owed (here 1), never the first match's 0
+    trec4 = dict(trec3, clear=[{'at': [12, 71, 10], 'kind': 'tree', 'name': 'oak_log', 'tree': 2}], fell={'clear': [{'at': [12, 71, 10], 'kind': 'tree', 'name': 'oak_log', 'tree': 1}]})
+    assert g5_pertree([trec4], [12, 71, 10], None) == 1, 'PT1: every clear listing the cell'
+    assert g5_pertree([dict(trec4, fell={'clear': [{'at': [12, 71, 10], 'kind': 'tree', 'name': 'oak_log'}]})], [12, 71, 10], None) is None, 'PT1: any untagged match -> the old rule'
+    assert g5_pertree([rec], [12, 71, 10], None) is None and g5_pertree([trec], [12, 71, 10], None) == 1 and g5_pertree([trec3], [12, 71, 10], None) == 0, 'PT1: per-tree only when tagged'
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree', s=9)])['g5_unjudged'] == 1
     assert J([x for x in base if 'kind=tree' not in x['detail']] + [R('_build', 'project=shop op=clear cell=12,71,10 block=oak_log kind=tree saplings=0/0', s=9)])['g5_unjudged'] == 1, 'Codex read r2 P2-4: 0/0 against a record with a replant'
     # G5R (phase 1 item 4, 11-06): the denominator is judged against the generations IN FORCE at the felling, never only the
