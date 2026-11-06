@@ -80,5 +80,40 @@ await t('the row writer carries `first` (shop.mjs buildRowDetail) and the stepwe
   assert.ok(/replantGoOn: true, replantPerTree: true, saplingAbsent: swSaplingAbsent\(bot\) \}/.test(src))
 })
 
+console.log('AFTER THE FELLING (Codex r1 BLOCKER 2)')
+await t('the chain to the end: felled first, then (no sapling anywhere, the tree down) the replant is deferred, then SKIPPED -- never pending forever', async () => {
+  const s = scene()
+  const absent = n => n === 'oak_sapling'
+  for (let i = 0; i < R.REPLANT_DEFERS + 3; i++) {
+    const h = PJ.recordHead(s.pr.dir, s.pr.key)
+    await R.runVisit({ ...s.pr.p('A'), record: h.head.rec, recordGen: h.head.gen, replantGoOn: true, replantPerTree: true, saplingAbsent: absent }, bot(s.srv, 'A', { inv: s.inv }), { maxSteps: 400 })
+  }
+  assert.notStrictEqual(s.srv.read(...s.at).name, 'oak_log')
+  assert.strictEqual(PJ.recordHead(s.pr.dir, s.pr.key).head.rec.replant[0].state, 'skipped')
+  assert.ok(!PJ.recordHead(s.pr.dir, s.pr.key).head.rec.replant[0].movedFrom, 'never moved (another cell needs a sapling too)')
+})
+await t('POSITIVE CONTROL: while its tree STANDS the absent replant is not deferred (the felling comes first); treeDownFor reads it', async () => {
+  const s = scene()
+  assert.strictEqual(R.treeDownFor(PJ.recordHead(s.pr.dir, s.pr.key).head.rec, { tree: 0, plot: 'SW' }, s.srv.read), false)
+  s.srv.set(s.at, 'air')
+  assert.strictEqual(R.treeDownFor(PJ.recordHead(s.pr.dir, s.pr.key).head.rec, { tree: 0, plot: 'SW' }, s.srv.read), true)
+})
+await t('MUTANT: the no-sapling deferral cut -- the replant stays pending after the felling', async () => {
+  await withMutant("      if (typeof p.saplingAbsent === 'function' && p.saplingAbsent(r.sapling) && treeDownFor(record, r, rd)) { const o = remedy(r, nodesFor(), 'no_sapling', { noMove: true }); if (o) return o; continue }\n", '', async M => {
+    const s = scene()
+    for (let i = 0; i < M.REPLANT_DEFERS + 3; i++) {
+      const h = PJ.recordHead(s.pr.dir, s.pr.key)
+      await M.runVisit({ ...s.pr.p('A'), record: h.head.rec, recordGen: h.head.gen, replantGoOn: true, replantPerTree: true, saplingAbsent: n => n === 'oak_sapling' }, bot(s.srv, 'A', { inv: s.inv }), { maxSteps: 400 })
+    }
+    assert.notStrictEqual(PJ.recordHead(s.pr.dir, s.pr.key).head.rec.replant[0].state, 'skipped')
+  })
+})
+await t('the wiring (Codex r1 BLOCKERS 1-2): the absent test needs a complete full-coverage scan; the felling branch runs while a replant is owed', async () => {
+  const { readFileSync } = await import('node:fs')
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  assert.ok(/stock = m && m\.scanComplete && Number\(m\.coverage\) >= 1 \? m\.stock \?\? null : null/.test(src))
+  assert.ok(/if \(pending == null \|\| pending > 0 \|\| owedNow > 0\) \{/.test(src))
+})
+
 console.log(`\nfellfirst: ${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

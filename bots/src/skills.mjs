@@ -24828,8 +24828,9 @@ function stepwellSite (bot, home, inp, t0, me) {
 /** fellfirst-01: the stepwell felling's ABSENT test -> (sapling) -> bool: none in this bag and none in the town's chests (matsTownStock,
  *  read once). An unreadable stock is never absent (the old wait). Never throws. */
 function swSaplingAbsent (bot) {
+  // Codex r1 BLOCKER 1: only a COMPLETE scan at full coverage can say "none in the town" (a stale or unread chest might hold one)
   let stock = null
-  try { stock = matsTownStock(bot)?.stock ?? null } catch { stock = null }
+  try { const m = matsTownStock(bot); stock = m && m.scanComplete && Number(m.coverage) >= 1 ? m.stock ?? null : null } catch { stock = null }
   return name => !!stock && countItem(bot, name) === 0 && !((Number(stock[name]) || 0) > 0)
 }
 async function buildStepwell (ctx, args, signal) {
@@ -24961,7 +24962,10 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
     const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
     // 1. THE FELLING (while a listed log stands): runVisit on the felling's view -- every sapling planted first (B4), the stands, the
     // trunks (kind tree, saplings=a/b: the tripwire's G5 over the HEAD record's replants), the leaves over the stands
-    if (pending == null || pending > 0) {
+    // fellfirst-01 (Codex r1 BLOCKER 2): the felling branch also runs while a replant is OWED (the last logs down, a sapling not yet
+    // in the ground): its draw and its replant pass plant it, or (no sapling anywhere) defer then skip it -- never a tank over it
+    const owedNow = (rec.replant ?? []).filter(q => q.state !== 'skipped' && !/_sapling$|^mangrove_propagule$/.test(read0(...q.cell)?.name ?? '')).length
+    if (pending == null || pending > 0 || owedNow > 0) {
       const owed = (rec.replant ?? []).filter(q => q.state !== 'skipped' && !/_sapling$|^mangrove_propagule$/.test(read0(...q.cell)?.name ?? ''))
       const sap = {}
       for (const q of owed) sap[q.sapling] = (sap[q.sapling] ?? 0) + 1

@@ -71,6 +71,15 @@ export function fellFirstOk (owed = [], { has = () => false, absent = null } = {
   if (typeof absent !== 'function' || !owed.length) return false
   return owed.every(r => !has(r.sapling) && absent(r.sapling))
 }
+/**
+ * fellfirst-01: IS THE REPLANT'S TREE DOWN? -> bool. Pure over `read`. Its tree's clear entries (same `tree` + `plot` when tagged,
+ * else every tree clear) read no longer as their listed log; a record with no tree clears reads down.
+ */
+export function treeDownFor (record, r, read) {
+  const trees = (record?.clear ?? []).filter(c => c.kind === 'tree')
+  const mine = Number.isFinite(r?.tree) && trees.some(c => Number.isFinite(c.tree)) ? trees.filter(c => c.tree === r.tree && (c.plot ?? null) === (r.plot ?? null)) : trees
+  return mine.every(c => { const b = read(...c.at); return !!b && String(b.name ?? '').replace(/\[.*\]$/, '') !== c.name })
+}
 export function treeReplanted (replant = [], c, planted) {
   const settled = r => r.state === 'skipped' || !!planted(r.cell)
   const tagged = (replant ?? []).some(r => Number.isFinite(r?.tree))
@@ -820,11 +829,12 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   //   SKIP   only after the moves and the deferrals are spent: NAMED DEVIATION from design S2 ("never a felled tree without its
   //          sapling"), the coordinator's 10-26 remedy; the read reports every skip (`replant_skipped`) and G5 counts the rest.
   //   With the town's reservations unreadable (p.resFailed) nothing moves or skips: the visit ends `replant_wait`.
-  const replantRemedy = (r, nodes, why) => {
+  const replantRemedy = (r, nodes, why, { noMove = false } = {}) => {
     const at = r.cell.join(',')
     if (p.resFailed) { out.stop = 'replant_wait'; out.why = `replant ${at}: ${why}; the town's reservations could not be read`; return out }
     const tried = (r.tried ?? []).some(c => c.join(',') === at) ? [...r.tried] : [...(r.tried ?? []), r.cell]   // each cell once
-    const alt = (r.moves ?? 0) < REPLANT_MOVES ? replantAlternative(rd, home, record, nodes, p.res ?? null, tried) : null
+    // fellfirst-01 (Codex r1 BLOCKER 2): a replant with NO SAPLING anywhere is never moved (another cell needs a sapling too): deferred, then skipped
+    const alt = !noMove && (r.moves ?? 0) < REPLANT_MOVES ? replantAlternative(rd, home, record, nodes, p.res ?? null, tried) : null
     let kind = null
     const pub = PJ.publishRecord(dir, key, cur => {
       kind = null                                       // per attempt: a lost CAS retried against a newer head re-decides (Codex r19 P3)
@@ -850,10 +860,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // then ended it (`fence:record`) -- so the visit adopts the generation IT wrote, only when that generation's prev is the one the
   // visit holds (no other bot's change in between: else it ends as before, the next visit reads the new head)
   let lastRemedyPub = null
-  const remedy = (r, nodes, why) => {
+  const remedy = (r, nodes, why, opts = {}) => {
     const g0 = p.recordGen
     lastRemedyPub = null
-    const o = replantRemedy(r, nodes, why)
+    const o = replantRemedy(r, nodes, why, opts)
     if (!p.replantGoOn || o.stop !== 'replanned') return o
     const lp = lastRemedyPub
     if (!(lp?.result === 'accepted' && Number.isFinite(lp.gen) && lp.head?.rec?.prev === g0)) return o
@@ -866,7 +876,12 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (r.state === 'skipped') continue
     if (SAPLING.test(nm(rd(...r.cell)))) continue
     // C1: no sapling in the bag -- the clear waits (its tree stands), the other work goes on; the visit reports it at its end
-    if (!e.has(r.sapling)) { needSapling = r.sapling; continue }
+    if (!e.has(r.sapling)) {
+      // fellfirst-01 (Codex r1 BLOCKER 2): no sapling of this kind anywhere (`p.saplingAbsent`) and its tree already DOWN (felled first,
+      // its drops not in this bag): the obligation is deferred, then skipped (REPLANT_DEFERS) -- never pending forever behind a done felling
+      if (typeof p.saplingAbsent === 'function' && p.saplingAbsent(r.sapling) && treeDownFor(record, r, rd)) { const o = remedy(r, nodesFor(), 'no_sapling', { noMove: true }); if (o) return o; continue }
+      needSapling = r.sapling; continue
+    }
     const nodes = nodesFor()
     const step = stepFor(rd, home, r.cell, nodes, domain)
     if (!step || step.support[1] !== r.cell[1] - 1) { const o = remedy(r, nodes, 'no_step'); if (o) return o; continue }
