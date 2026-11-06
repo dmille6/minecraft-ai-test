@@ -133,6 +133,8 @@ const REQUIRED = [
   'sandbox/townstyle/cottage-skill-e2e.mjs',
   // townstyle-02 (11-05): the re-roofed generations, the town hall, their generator, the Paper build records
   'bots/src/townhall.mjs',
+  'bots/src/ordernowait.mjs',   // ordernowait-01 (11-06): the hall and the cottage stop waiting for the workshop
+  'bots/test/ordernowait.test.mjs',
   'bots/src/reroof.mjs',
   'bots/test/townstyle-reroof.test.mjs',
   'bots/scripts/make-townstyle.mjs',
