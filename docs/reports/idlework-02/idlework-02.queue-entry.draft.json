@@ -1,0 +1,21 @@
+{
+ "run": "idlework-02",
+ "class": "",
+ "after": [
+  "gkforever-01"
+ ],
+ "not_before": null,
+ "hold": null,
+ "note": "idlework-02 agent 11-06: SURVIVAL/bag (S) or owner-direct tier 2. Built ON gkforever-01 9e9284d7 (same idlework.mjs functions); launch only after gkforever-01 is KEPT and PROMOTED (variant keyed on 9e9284d7). Any draw: every pool runs idle batches and every town is at its cobble cap. NO patch block (the control session sets it).",
+ "variants": {
+  "9e9284d7078194045f673344af3116e6022cdcbf": {
+   "registration": "/home/mike/mcai-analysis/idlework-02.ed2cc02b.json",
+   "canary_sha": "ed2cc02bdebb5ad12ad7b7832aa592302c73c493",
+   "approved": "idlework-02 agent 2026-11-06: Codex independent design reconciled (hysteresis 28/30 adopted; arrival-at-any-slot marker deferred: cognitive.mjs is protected); Codex blockers-only r1 APPROVE; tier 2 by protected.py; idlework2.test 21/21 (4 anchored mutants) + idlework/gkforever/junkout/milestone/prompt/dirtrung/stuckproj/admission/cobble/stocktarget pass; well.test 237/238 (OLLAMA_MODEL env: known base); npm run check = base; full suite ci2 on ed2cc02b 405/406 (well.test 237/238: the OLLAMA_MODEL-env case, known base)",
+   "protected": false,
+   "protected_why": "not protected",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {}
+  }
+ }
+}

@@ -1,0 +1,63 @@
+{
+ "run_id": "idlework-02",
+ "sha": "ed2cc02bdebb5ad12ad7b7832aa592302c73c493",
+ "registered_at": "2026-11-06T14:30:00Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] idlework-02 @ ed2cc02b ON gkforever-01 9e9284d7 (itself decbundle-01 47b8342d on idlework-01 cab8abcf; branch idlework-02-on-9e9284d7; design docs/reports/idlework2-design-2026-11-06.md). WHY ON gkforever-01: it edits idlework.mjs (grounds lap, idleStep/idleMet) -- the functions this change edits. MEASURED 11-06 (80 bots): Grafana 'Many bags full' = sum(mcai_bots_bag_full{scope=fleet}) > 15 for 1 h (>= 34 of 36 estimated slots), pending 13:11Z; bots >= 34: 4 (11-05) -> 9 (10:25Z) -> 18 (13:20Z) -> 24 (13:35Z), 22 of 24 in the field mid-batch; by-products 13.9 -> 21.5 items/bot; 215 of 570 departures in the 29-33 band carrying 794 whole cobble stacks above the 64 reserve at capped towns; mine bad_args 2,028 in 3 h (1,993 'only digs DOWNWARD', 1,377 under the iron batch's 'mine down to y=16' at the y=16 stair landing). CHANGE (3 flags, =0 rollback each): IDLEWORK_WELL band dispose 29-33 (the 34-slot plan: cobble only at the proven cap, 64 kept; off in the showcase pool); IDLEWORK_BAGSTOP bag batch met at 30 when the batch filled it, none opens above 28; depth-aware iron/coal hint (text only, no flag; IDLEWORK=0 still removes the idle rung). Review: Codex blockers-only r1 APPROVE (no blockers). Tier 2 (protected.py: not protected). READ +90/+180: generic gate + OWN LINES: (1) MECHANISM (defect): _idlework met rows with reason=bag_stop > 0 on canary bots, and _well_dispose rows with slots before in 29-33 > 0 where the town is at cap, else REVERT; (2) EFFECT: bots >= 30 and >= 34 estimated slots (time-weighted, the dashboard's estimate) down vs control ratio-DiD; by-product items per bot down; mine bad_args share down (primary); (3) GUARD: value-weighted intake per bot-h not worse (valuescore.py); deaths (death gate); _junkout offlist unchanged.",
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "llm.veto_share.v1",
+    "params": {
+     "error": "bad_args"
+    },
+    "direction": "decrease",
+    "minimum": 0.3,
+    "scale": "relative",
+    "claim": "mine bad_args at iron depth (2,028 of 6,936 mine calls 10:40-13:40Z) mostly gone: the hint names a target the gate accepts",
+    "primary": true
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_idlework:met:bag_stop"
+    },
+    "direction": "increase",
+    "minimum": 1.0,
+    "scale": "relative",
+    "claim": "idle batches end at a full bag (base cannot write reason=bag_stop)"
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "well_dispose"
+    },
+    "direction": "increase",
+    "minimum": 0.2,
+    "scale": "relative",
+    "claim": "the 29-33 band sheds at town (794 whole cobble stacks left town in band bags in 3 h)"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   },
+   {
+    "metric": "failclass.rate.v1",
+    "params": {
+     "name": "_death",
+     "fail_class": "drowning"
+    },
+    "direction": "decrease"
+   }
+  ],
+  "exposure": "a canary bot on an idle batch (idle_work: ~70-80% of fleet time 11-06) or arriving at a capped town in the 29-33 band (38% of departures)"
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

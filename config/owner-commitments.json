@@ -5227,6 +5227,33 @@
     "branches": []
    },
    "note": "Claude + independent Codex design, reconciled in the design doc; not protected (tooling outside protected-paths): one Codex review round, 3 blockers fixed (zero-qty use rows, crash path keeps findings, BROKEN-in-grace documented), re-check FIXED x3."
+  },
+  {
+   "id": "idlework2-1106",
+   "title": "Bags full after idlework-01 (Grafana 'Many bags full'): idle batches stop at a full bag, the town well takes the 29-33 band, the iron hint stops asking mine y=16 at y=16",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "idlework2-1106.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "idlework-02 (branch idlework-02-on-9e9284d7 @ ed2cc02b on gkforever-01 9e9284d7; tier 2; Codex blockers-only r1 APPROVE): control session queues it after gkforever-01 is KEPT+PROMOTED (draft entry docs/reports/idlework-02/), or rolls it out owner-direct (tier 2) on that tip.",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "paths": [
+     "docs/reports/idlework2-design-2026-11-06.md",
+     "docs/reports/idlework-02"
+    ],
+    "runs": [
+     "idlework-02"
+    ],
+    "branches": [
+     "idlework-02-on-9e9284d7"
+    ]
+   },
+   "note": "11-06 13:35Z: 24 of 80 bots >= 34 est. slots (4 on 11-05), 22 in the field; 215/570 departures in the 29-33 band carried 794 whole cobble stacks above 64 at capped towns; mine bad_args 2,028/3 h (1,377 under the iron hint's y=16). Codex's arrival cleanup at any slot count (cognitive.mjs, protected) and demand-ranked kinds are follow-ups."
   }
  ]
 }
