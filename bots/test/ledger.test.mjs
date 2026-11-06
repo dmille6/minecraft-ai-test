@@ -496,7 +496,7 @@ const openerFiles = srcFiles.filter(f => /\.\s*openFurnace\(/.test(strip(fs.read
 test('STRUCTURAL: every `bot.openFurnace(` call site in src/ writes an open-phase window record before any click (design 4.3 "the opener set"; 6.4 Claude r9 #9)', () => {
   assert.deepEqual(openerFiles, ['skills.mjs'], 'the opener set lives in skills.mjs on this base (a new opener elsewhere must be covered too)')
   const sites = openerSites(fs.readFileSync(new URL('skills.mjs', SRC_DIR), 'utf8'))
-  assert.equal(sites.length, 4, 'four call sites on the mats-01 stack: smelt (smelt + smelt_town), the drain, make_material and mats_return')
+  assert.equal(sites.length, 5, 'five call sites: smelt (smelt + smelt_town), the drain, make_material, mats_return and stations-01\'s sweep proof')
   for (const x of sites) assert.ok(x.ok, `openFurnace at offset ${x.at}: ${x.why}`)
 })
 
